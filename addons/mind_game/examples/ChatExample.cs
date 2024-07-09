@@ -6,16 +6,10 @@ namespace MindGame
 {
     public partial class ChatExample : Node
     {
-        private MindGame.MindManager _mindManager;
         private MindAgent3D _mindAgent3D;
         private MindGame.ModelConfig _modelConfig;
         private MindGame.InferenceConfig _inferenceConfig;
-
-        private Button _configAndLoadModelsButton, _inferenceConfigButton, _exitButton;
-        private LineEdit _modelInputLineEdit;
-        private ItemList _savedConversationsItemList;
-        private RichTextLabel _modelOutputRichTextLabel;
-        
+        private ChatController _chatController;
 
         /// <summary>
         /// Function that is called when node and all children are initialized
@@ -24,33 +18,18 @@ namespace MindGame
         {
             InitializeNodeRefs();
             InitializeSignals();
-            InitializeLabels();
         }
-
-        private void InitializeLabels()
-        {
-            
-        }
-
-        
 
         /// <summary>
         /// Function that is called to assign scene tree nodes to script variables
         /// </summary>
         private void InitializeNodeRefs()
         {
-            _mindManager = GetNode<MindGame.MindManager>("/root/MindManager");
             _mindAgent3D = GetNode<MindAgent3D>("%MindAgent3D");
-            _modelInputLineEdit = GetNode<LineEdit>("%ModelInputLineEdit");
+            
             _inferenceConfig = GetNode<InferenceConfig>("%InferenceConfig");
             _modelConfig = GetNode<ModelConfig>("%ModelConfig");
-            _savedConversationsItemList = GetNode<ItemList>("%SavedConversationsItemList");
-
-            _modelOutputRichTextLabel = GetNode<RichTextLabel>("%ModelOutputRichTextLabel");
-
-            _configAndLoadModelsButton = GetNode<Button>("%ConfigAndLoadModelsButton");
-           
-            _exitButton = GetNode<Button>("%ExitButton");
+            _chatController = GetNode<ChatController>("%ChatController");
 
         }
 
@@ -59,74 +38,26 @@ namespace MindGame
         /// </summary>
         private void InitializeSignals()
         {
-            _modelInputLineEdit.TextSubmitted += OnModelInputTextSubmitted;
-
-            _configAndLoadModelsButton.Pressed += OnConfigAndLoadModelsPressed;
-            // _inferenceConfigButton.Pressed += OnInferenceConfigPressed;
             _mindAgent3D.ChatOutputReceived += OnChatOutputReceived;
-
-            _exitButton.Pressed += OnExitPressed;
-        }
-
-        private void OnChatOutputReceived(string text)
-        {
-            _modelOutputRichTextLabel.Text += $"{text}\n";
+            _chatController.PromptInputReceived += OnPromptInputReceived;
         }
 
         /// <summary>
-        /// Function to save configuration list
+        /// Function that calls for model inference when prompt input is received
         /// </summary>
-        private void SaveConfigList()
+        /// <param name="text"></param>
+        private async void OnPromptInputReceived(string text)
         {
-            Error saveError = ResourceSaver.Save(_mindManager.ConfigList, _mindManager.ConfigListPath);
-            if (saveError != Error.Ok)
-            {
-                GD.PrintErr("Failed to save configuration list: ", saveError);
-            }
+            await _mindAgent3D.InferAsync(text);
         }
 
-        private void OnInferenceConfigPressed()
+        /// <summary>
+        /// Function that sends inference output to chat controller when received
+        /// </summary>
+        /// <param name="text"></param>
+        private void OnChatOutputReceived(string text)
         {
-            _inferenceConfig.Visible = true;
+            _chatController.OnChatOutputReceived(text);
         }
-
-        private async void OnExitPressed()
-        {
-            await _mindManager.DisposeExecutorAsync();
-            GetTree().Quit();
-        }
-
-        private void OnConfigAndLoadModelsPressed()
-        {
-            _modelConfig.Visible = true;
-        }
-
-        private async void OnModelInputTextSubmitted(string prompt)
-        {
-            _modelInputLineEdit.Text = "";
-            _modelOutputRichTextLabel.Text += $"{prompt}\n";
-            await _mindAgent3D.InferAsync(prompt);
-        }
-
-        private void OnChatSessionStatusUpdate(bool isLoaded)
-        {
-            _modelInputLineEdit.Editable = isLoaded;
-            if (isLoaded)
-            {
-                _modelInputLineEdit.PlaceholderText = $"Type prompt and hit Enter";
-            }
-            else
-            {
-                _modelInputLineEdit.PlaceholderText = $"Load a model to chat!";
-            }
-        }
-
-        public override void _ExitTree()
-        {
-
-        }
-
-
     }
-
 }

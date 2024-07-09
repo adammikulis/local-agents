@@ -19,6 +19,9 @@
     <Folder Include="addons\mind_game\scripts\model_classes\senses\" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="CONTRIBUTING.md" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Update="Godot.SourceGenerators" Version="4.3.0-beta.2" />
   </ItemGroup>
   <ItemGroup>
