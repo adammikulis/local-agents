@@ -7,8 +7,6 @@ public partial class ChatController : Control
     [Signal]
     public delegate void PromptInputReceivedEventHandler(string text);
 
-
-
     private MindGame.MindManager _mindManager;
     private MindGame.ModelConfig _modelConfig;
     private MindGame.InferenceConfig _inferenceConfig;

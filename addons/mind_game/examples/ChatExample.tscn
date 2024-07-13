@@ -1,70 +1,16 @@
-[gd_scene load_steps=15 format=3 uid="uid://dut8m0d0ukohs"]
+[gd_scene load_steps=6 format=3 uid="uid://dut8m0d0ukohs"]
 
 [ext_resource type="Script" path="res://addons/mind_game/examples/ChatExample.cs" id="1_jmq1r"]
 [ext_resource type="PackedScene" uid="uid://bkhc2d37hv1ou" path="res://addons/mind_game/controllers/ChatController.tscn" id="3_4x4kj"]
 [ext_resource type="PackedScene" uid="uid://3sy7uksi0h1a" path="res://addons/mind_game/configuration/ui/InferenceConfig.tscn" id="3_7mwxh"]
-[ext_resource type="PackedScene" uid="uid://c5mwm2jt53kuc" path="res://addons/mind_game/mind_agent/MindAgent3D.tscn" id="4_8gnm3"]
 [ext_resource type="PackedScene" uid="uid://vymn5e6vd5gq" path="res://addons/mind_game/configuration/ui/ModelConfig.tscn" id="4_i4nn4"]
-
-[sub_resource type="Gradient" id="Gradient_828g4"]
-colors = PackedColorArray(0.46316, 0.640239, 0.378701, 1, 0.818244, 0.841012, 0.679201, 1)
-
-[sub_resource type="FastNoiseLite" id="FastNoiseLite_7iue4"]
-frequency = 0.001
-
-[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_ywwtf"]
-color_ramp = SubResource("Gradient_828g4")
-noise = SubResource("FastNoiseLite_7iue4")
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_67kwa"]
-albedo_color = Color(0.281907, 0.39827, 0.332159, 1)
-albedo_texture = SubResource("NoiseTexture2D_ywwtf")
-
-[sub_resource type="PlaneMesh" id="PlaneMesh_i4s44"]
-material = SubResource("StandardMaterial3D_67kwa")
-size = Vector2(20, 20)
-
-[sub_resource type="BoxShape3D" id="BoxShape3D_fw3c5"]
-size = Vector3(20, 1, 20)
-
-[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_b0nw6"]
-
-[sub_resource type="Sky" id="Sky_5suqb"]
-sky_material = SubResource("ProceduralSkyMaterial_b0nw6")
-
-[sub_resource type="Environment" id="Environment_onv1p"]
-background_mode = 2
-sky = SubResource("Sky_5suqb")
-tonemap_mode = 3
+[ext_resource type="Script" path="res://addons/mind_game/mind_agent/MindAgent.cs" id="5_ilgjl"]
 
 [node name="ChatExample" type="Node"]
 script = ExtResource("1_jmq1r")
 
-[node name="MindAgent3D" parent="." instance=ExtResource("4_8gnm3")]
-unique_name_in_owner = true
-
-[node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.906308, 0.422618, 0, -0.422618, 0.906308, 0, 3, 4.5)
-current = true
-
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.573224, 0.353554, -0.739199, -0.0634133, 0.918559, 0.390165, 0.816942, -0.176777, 0.548959, -3, 4, 3)
-light_color = Color(0.902875, 0.888929, 0.818451, 1)
-light_energy = 1.25
-
 [node name="ChatController" parent="." instance=ExtResource("3_4x4kj")]
 unique_name_in_owner = true
-
-[node name="GroundStaticBody3D" type="StaticBody3D" parent="."]
-visible = false
-
-[node name="GroundMesh3D" type="MeshInstance3D" parent="GroundStaticBody3D"]
-mesh = SubResource("PlaneMesh_i4s44")
-skeleton = NodePath("../..")
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="GroundStaticBody3D"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
-shape = SubResource("BoxShape3D_fw3c5")
 
 [node name="ModelConfig" parent="." instance=ExtResource("4_i4nn4")]
 unique_name_in_owner = true
@@ -74,5 +20,6 @@ visible = false
 unique_name_in_owner = true
 visible = false
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
-environment = SubResource("Environment_onv1p")
+[node name="MindAgent" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("5_ilgjl")

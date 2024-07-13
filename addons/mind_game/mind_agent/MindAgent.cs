@@ -3,12 +3,10 @@
 using Godot;
 using LLama;
 using LLama.Batched;
-using LLama.Common;
 using LLama.Grammars;
 using LLama.Native;
 using LLama.Sampling;
 using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace MindGame
@@ -47,12 +45,9 @@ namespace MindGame
         /// <summary>
         /// Function that is called when node and all children are initialized
         /// </summary>
-        public async override void _Ready()
+        public override void _Ready()
         {
             InitializeNodeRefs();
-
-
-            _mindManager.ExecutorStatusUpdate += OnExecutorStatusUpdate;
 
             // Load the grammar definition
             using var file = FileAccess.Open("res://addons/mind_game/assets/grammar/json.gbnf", FileAccess.ModeFlags.Read);
@@ -63,18 +58,7 @@ namespace MindGame
         private void InitializeNodeRefs()
         {
             _mindManager = GetNode<MindGame.MindManager>("/root/MindManager");
-
-
         }
-
-
-
-        private async void OnExecutorStatusUpdate(bool isLoaded)
-        {
-            
-        }
-
-
 
         public async Task InferAsync(string prompt)
         {

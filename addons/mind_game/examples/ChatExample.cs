@@ -6,9 +6,9 @@ namespace MindGame
 {
     public partial class ChatExample : Node
     {
-        private MindAgent3D _mindAgent3D;
-        private MindGame.ModelConfig _modelConfig;
-        private MindGame.InferenceConfig _inferenceConfig;
+        private MindAgent _mindAgent;
+        private ModelConfig _modelConfig;
+        private InferenceConfig _inferenceConfig;
         private ChatController _chatController;
 
         /// <summary>
@@ -25,12 +25,10 @@ namespace MindGame
         /// </summary>
         private void InitializeNodeRefs()
         {
-            _mindAgent3D = GetNode<MindAgent3D>("%MindAgent3D");
-            
+            _mindAgent = GetNode<MindAgent>("%MindAgent");
             _inferenceConfig = GetNode<InferenceConfig>("%InferenceConfig");
             _modelConfig = GetNode<ModelConfig>("%ModelConfig");
             _chatController = GetNode<ChatController>("%ChatController");
-
         }
 
         /// <summary>
@@ -38,7 +36,7 @@ namespace MindGame
         /// </summary>
         private void InitializeSignals()
         {
-            _mindAgent3D.ChatOutputReceived += OnChatOutputReceived;
+            _mindAgent.ChatOutputReceived += OnChatOutputReceived;
             _chatController.PromptInputReceived += OnPromptInputReceived;
         }
 
@@ -48,7 +46,7 @@ namespace MindGame
         /// <param name="text"></param>
         private async void OnPromptInputReceived(string text)
         {
-            await _mindAgent3D.InferAsync(text);
+            await _mindAgent.InferAsync(text);
         }
 
         /// <summary>
