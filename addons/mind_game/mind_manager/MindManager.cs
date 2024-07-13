@@ -21,8 +21,7 @@ namespace MindGame
         public delegate void ExecutorStatusUpdateEventHandler(bool isLoaded);
 
         // Chat Executor
-        public LLamaContext context { get; set; }
-        public BatchedExecutor batchedExecutor { get; private set; }
+        public BatchedExecutor BatchedExecutor { get; private set; }
 
 
         // Clip model vars
@@ -136,7 +135,7 @@ namespace MindGame
                 {
                     using var chatWeights = LLamaWeights.LoadFromFile(parameters);
 
-                    batchedExecutor = new BatchedExecutor(chatWeights, parameters);
+                    BatchedExecutor = new BatchedExecutor(chatWeights, parameters);
                     CallDeferred("emit_signal", SignalName.ExecutorStatusUpdate, true);
                 });
             }
@@ -171,7 +170,7 @@ namespace MindGame
         {
             await Task.Run(() =>
             {
-                batchedExecutor = null;
+                BatchedExecutor = null;
                 CallDeferred("emit_signal", SignalName.ExecutorStatusUpdate, false);
             });
         }

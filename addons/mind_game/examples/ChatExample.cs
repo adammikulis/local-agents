@@ -36,7 +36,7 @@ namespace MindGame
         /// </summary>
         private void InitializeSignals()
         {
-            _mindAgent.ChatOutputReceived += OnChatOutputReceived;
+            _mindAgent.ModelOutputReceived += OnModelOutputReceived;
             _chatController.PromptInputReceived += OnPromptInputReceived;
         }
 
@@ -53,7 +53,7 @@ namespace MindGame
         /// Function that sends inference output to chat controller when received
         /// </summary>
         /// <param name="text"></param>
-        private void OnChatOutputReceived(string text)
+        private void OnModelOutputReceived(string text)
         {
             _chatController.OnChatOutputReceived(text);
         }

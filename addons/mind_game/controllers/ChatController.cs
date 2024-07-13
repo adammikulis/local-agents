@@ -7,9 +7,9 @@ public partial class ChatController : Control
     [Signal]
     public delegate void PromptInputReceivedEventHandler(string text);
 
-    private MindGame.MindManager _mindManager;
-    private MindGame.ModelConfig _modelConfig;
-    private MindGame.InferenceConfig _inferenceConfig;
+    private MindManager _mindManager;
+    private ModelConfig _modelConfig;
+    private InferenceConfig _inferenceConfig;
 
     private Button _configAndLoadModelsButton, _exitButton;
     private LineEdit _modelInputLineEdit;
@@ -76,7 +76,6 @@ public partial class ChatController : Control
         }
     }
 
-
     private async void OnExitPressed()
     {
         await _mindManager.DisposeExecutorAsync();
@@ -107,6 +106,4 @@ public partial class ChatController : Control
     {
         _modelOutputRichTextLabel.Text += $"{text}\n";
     }
-
-
 }

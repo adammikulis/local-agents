@@ -9,7 +9,7 @@ namespace MindGame
     {
 
         [Signal]
-        public delegate void ChatOutputReceivedEventHandler(string text);
+        public delegate void ModelOutputReceivedEventHandler(string text);
 
         public Label3D ChatLabel3D { get; set; }
         public MindGame.MindAgent MindAgent { get; set; }
@@ -27,7 +27,7 @@ namespace MindGame
             ChatLabel3D = GetNode<Label3D>("%ChatLabel3D");
             AnimationPlayer = GetNode<AnimationPlayer>("%AnimationPlayer");
 
-            MindAgent.ChatOutputReceived += OnChatOutputReceived;
+            MindAgent.ModelOutputReceived += OnChatOutputReceived;
         }
 
         public async Task InferAsync(string prompt)
@@ -43,7 +43,7 @@ namespace MindGame
             {
                 AnimationPlayer.SetCurrentAnimation("bobble");
             }
-            CallDeferred("emit_signal", SignalName.ChatOutputReceived, text);
+            CallDeferred("emit_signal", SignalName.ModelOutputReceived, text);
 
         }
     }
