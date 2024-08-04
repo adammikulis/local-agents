@@ -1,24 +1,12 @@
-[gd_scene load_steps=11 format=3 uid="uid://vymn5e6vd5gq"]
+[gd_scene load_steps=5 format=3 uid="uid://vymn5e6vd5gq"]
 
 [ext_resource type="Script" path="res://addons/mind_game/configuration/ui/ModelConfig.cs" id="1_xsg1j"]
 [ext_resource type="Theme" uid="uid://brptib3mp8h1o" path="res://addons/mind_game/assets/themes/config_header_theme.tres" id="2_wpyha"]
-[ext_resource type="Texture2D" uid="uid://dnp0lvxevsc4m" path="res://addons/mind_game/assets/game_icons/PNG/White/1x/plus.png" id="3_nrb42"]
-[ext_resource type="Texture2D" uid="uid://5ga0x3yawju4" path="res://addons/mind_game/assets/game_icons/PNG/White/1x/trashcan.png" id="4_uh0ls"]
-[ext_resource type="StyleBox" uid="uid://cwdmye7sfom5a" path="res://addons/mind_game/assets/themes/param_config_theme.tres" id="5_0vyer"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hsbi1"]
 
 [sub_resource type="LabelSettings" id="LabelSettings_osrau"]
 font_size = 24
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_pcrja"]
-bg_color = Color(0.419813, 0.419813, 0.419813, 1)
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_xsa3w"]
-bg_color = Color(0.453305, 0.439765, 0.391286, 1)
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_4l5yd"]
-bg_color = Color(0.520589, 0.388576, 0.290517, 1)
 
 [node name="ModelConfig" type="Control"]
 auto_translate_mode = 1
@@ -97,96 +85,6 @@ horizontal_alignment = 1
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="SavedConfigsMarginContainer" type="MarginContainer" parent="ScrollContainer/VBoxContainer/HBoxContainer"]
-layout_mode = 2
-theme_override_constants/margin_left = 5
-theme_override_constants/margin_top = 5
-theme_override_constants/margin_right = 0
-theme_override_constants/margin_bottom = 5
-
-[node name="PanelContainer" type="PanelContainer" parent="ScrollContainer/VBoxContainer/HBoxContainer/SavedConfigsMarginContainer"]
-layout_mode = 2
-theme_override_styles/panel = SubResource("StyleBoxFlat_pcrja")
-
-[node name="SavedConfigsVBoxContainer" type="VBoxContainer" parent="ScrollContainer/VBoxContainer/HBoxContainer/SavedConfigsMarginContainer/PanelContainer"]
-layout_mode = 2
-
-[node name="NewSaveDeleteMarginContainer" type="MarginContainer" parent="ScrollContainer/VBoxContainer/HBoxContainer/SavedConfigsMarginContainer/PanelContainer/SavedConfigsVBoxContainer"]
-layout_mode = 2
-theme_override_constants/margin_left = 5
-theme_override_constants/margin_top = 5
-theme_override_constants/margin_right = 5
-theme_override_constants/margin_bottom = 5
-
-[node name="VBoxContainer" type="VBoxContainer" parent="ScrollContainer/VBoxContainer/HBoxContainer/SavedConfigsMarginContainer/PanelContainer/SavedConfigsVBoxContainer/NewSaveDeleteMarginContainer"]
-layout_mode = 2
-theme_override_constants/separation = 10
-
-[node name="AddDeleteConfigHBoxContainer" type="HBoxContainer" parent="ScrollContainer/VBoxContainer/HBoxContainer/SavedConfigsMarginContainer/PanelContainer/SavedConfigsVBoxContainer/NewSaveDeleteMarginContainer/VBoxContainer"]
-layout_mode = 2
-
-[node name="BackButton" type="Button" parent="ScrollContainer/VBoxContainer/HBoxContainer/SavedConfigsMarginContainer/PanelContainer/SavedConfigsVBoxContainer/NewSaveDeleteMarginContainer/VBoxContainer/AddDeleteConfigHBoxContainer"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-text = "Back"
-icon_alignment = 1
-
-[node name="AddNewConfigButton" type="Button" parent="ScrollContainer/VBoxContainer/HBoxContainer/SavedConfigsMarginContainer/PanelContainer/SavedConfigsVBoxContainer/NewSaveDeleteMarginContainer/VBoxContainer/AddDeleteConfigHBoxContainer"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-icon = ExtResource("3_nrb42")
-icon_alignment = 1
-
-[node name="DeleteConfigButton" type="Button" parent="ScrollContainer/VBoxContainer/HBoxContainer/SavedConfigsMarginContainer/PanelContainer/SavedConfigsVBoxContainer/NewSaveDeleteMarginContainer/VBoxContainer/AddDeleteConfigHBoxContainer"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-icon = ExtResource("4_uh0ls")
-icon_alignment = 1
-
-[node name="LoadUnloadBoxContainer" type="HBoxContainer" parent="ScrollContainer/VBoxContainer/HBoxContainer/SavedConfigsMarginContainer/PanelContainer/SavedConfigsVBoxContainer/NewSaveDeleteMarginContainer/VBoxContainer"]
-layout_mode = 2
-
-[node name="LoadConfigButton" type="Button" parent="ScrollContainer/VBoxContainer/HBoxContainer/SavedConfigsMarginContainer/PanelContainer/SavedConfigsVBoxContainer/NewSaveDeleteMarginContainer/VBoxContainer/LoadUnloadBoxContainer"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-text = "Load
-"
-
-[node name="UnloadConfigButton" type="Button" parent="ScrollContainer/VBoxContainer/HBoxContainer/SavedConfigsMarginContainer/PanelContainer/SavedConfigsVBoxContainer/NewSaveDeleteMarginContainer/VBoxContainer/LoadUnloadBoxContainer"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-text = "Unload
-"
-
-[node name="AutoloadLastGoodConfigCheckBox" type="CheckBox" parent="ScrollContainer/VBoxContainer/HBoxContainer/SavedConfigsMarginContainer/PanelContainer/SavedConfigsVBoxContainer/NewSaveDeleteMarginContainer/VBoxContainer/LoadUnloadBoxContainer"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Autoload Last
-Good Config"
-
-[node name="SavedConfigsMarginContainer" type="MarginContainer" parent="ScrollContainer/VBoxContainer/HBoxContainer/SavedConfigsMarginContainer/PanelContainer/SavedConfigsVBoxContainer"]
-layout_mode = 2
-size_flags_vertical = 3
-theme_override_constants/margin_left = 5
-theme_override_constants/margin_top = 5
-theme_override_constants/margin_right = 5
-theme_override_constants/margin_bottom = 5
-
-[node name="ScrollContainer" type="ScrollContainer" parent="ScrollContainer/VBoxContainer/HBoxContainer/SavedConfigsMarginContainer/PanelContainer/SavedConfigsVBoxContainer/SavedConfigsMarginContainer"]
-layout_mode = 2
-horizontal_scroll_mode = 0
-
-[node name="SavedConfigsItemList" type="ItemList" parent="ScrollContainer/VBoxContainer/HBoxContainer/SavedConfigsMarginContainer/PanelContainer/SavedConfigsVBoxContainer/SavedConfigsMarginContainer/ScrollContainer"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 3
-size_flags_vertical = 3
-
 [node name="ModelConfigMarginContainer" type="MarginContainer" parent="ScrollContainer/VBoxContainer/HBoxContainer"]
 layout_mode = 2
 size_flags_horizontal = 3
@@ -202,7 +100,6 @@ layout_mode = 2
 [node name="ChatModelPanelContainer" type="PanelContainer" parent="ScrollContainer/VBoxContainer/HBoxContainer/ModelConfigMarginContainer/ModelConfigVBoxContainer"]
 layout_mode = 2
 size_flags_vertical = 3
-theme_override_styles/panel = ExtResource("5_0vyer")
 
 [node name="MarginContainer" type="MarginContainer" parent="ScrollContainer/VBoxContainer/HBoxContainer/ModelConfigMarginContainer/ModelConfigVBoxContainer/ChatModelPanelContainer"]
 layout_mode = 2
@@ -326,7 +223,6 @@ layout_mode = 2
 visible = false
 layout_mode = 2
 size_flags_vertical = 3
-theme_override_styles/panel = SubResource("StyleBoxFlat_xsa3w")
 
 [node name="MarginContainer" type="MarginContainer" parent="ScrollContainer/VBoxContainer/HBoxContainer/ModelConfigMarginContainer/ModelConfigVBoxContainer/EmbedderModelPanelContainer"]
 layout_mode = 2
@@ -448,7 +344,6 @@ layout_mode = 2
 visible = false
 layout_mode = 2
 size_flags_vertical = 3
-theme_override_styles/panel = SubResource("StyleBoxFlat_4l5yd")
 
 [node name="MarginContainer" type="MarginContainer" parent="ScrollContainer/VBoxContainer/HBoxContainer/ModelConfigMarginContainer/ModelConfigVBoxContainer/ClipModelPanelContainer"]
 layout_mode = 2

@@ -11,9 +11,8 @@ public partial class ChatController : Control
     private ModelConfig _modelConfig;
     private InferenceConfig _inferenceConfig;
 
-    private Button _configAndLoadModelsButton, _exitButton;
+
     private LineEdit _modelInputLineEdit;
-    private ItemList _savedConversationsItemList;
     private RichTextLabel _modelOutputRichTextLabel;
 
 
@@ -36,13 +35,9 @@ public partial class ChatController : Control
         _modelInputLineEdit = GetNode<LineEdit>("%ModelInputLineEdit");
         _inferenceConfig = GetNode<InferenceConfig>("%InferenceConfig");
         _modelConfig = GetNode<ModelConfig>("%ModelConfig");
-        _savedConversationsItemList = GetNode<ItemList>("%SavedConversationsItemList");
+        
 
         _modelOutputRichTextLabel = GetNode<RichTextLabel>("%ModelOutputRichTextLabel");
-
-        _configAndLoadModelsButton = GetNode<Button>("%ConfigAndLoadModelsButton");
-
-        _exitButton = GetNode<Button>("%ExitButton");
 
     }
 
@@ -52,54 +47,22 @@ public partial class ChatController : Control
     private void InitializeSignals()
     {
         _modelInputLineEdit.TextSubmitted += OnPromptInputReceived;
-        _configAndLoadModelsButton.Pressed += OnConfigAndLoadModelsPressed;
+
         // _inferenceConfigButton.Pressed += OnInferenceConfigPressed;
 
-        _exitButton.Pressed += OnExitPressed;
     }
 
     private void OnConfigAndLoadModelsPressed()
     {
         _modelConfig.Visible = true;
     }
-
-    private void OnChatSessionStatusUpdate(bool isLoaded)
-    {
-        _modelInputLineEdit.Editable = isLoaded;
-        if (isLoaded)
-        {
-            _modelInputLineEdit.PlaceholderText = $"Type prompt and hit Enter";
-        }
-        else
-        {
-            _modelInputLineEdit.PlaceholderText = $"Load a model to chat!";
-        }
-    }
-
-    private async void OnExitPressed()
-    {
-        await _mindManager.DisposeExecutorAsync();
-        GetTree().Quit();
-    }
-
-    /// <summary>
-    /// Function to save configuration list
-    /// </summary>
-    private void SaveConfigList()
-    {
-        Error saveError = ResourceSaver.Save(_mindManager.ConfigList, _mindManager.ConfigListPath);
-        if (saveError != Error.Ok)
-        {
-            GD.PrintErr("Failed to save configuration list: ", saveError);
-        }
-    }
+   
 
     private void OnPromptInputReceived(string prompt)
     {
         _modelInputLineEdit.Text = "";
         _modelOutputRichTextLabel.Text += $"{prompt}\n";
         CallDeferred("emit_signal", SignalName.PromptInputReceived, prompt);
-        // await _mindAgent3D.InferAsync(prompt); need to move back to ChatExample
     }
 
     public void OnChatOutputReceived(string text)

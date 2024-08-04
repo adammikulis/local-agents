@@ -9,7 +9,7 @@ namespace MindGame
         private MindManager _mindManager;
 
         // UI elements
-        private Button _addNewConfigButton, _deleteConfigButton, _selectChatPathButton, _clearChatPathButton, _selectEmbedderPathButton, _clearEmbedderPathButton, _selectClipPathButton, _clearClipPathButton, _backButton, _loadConfigButton, _unloadConfigButton;
+        private Button _addNewConfigButton, _deleteConfigButton, _selectChatPathButton, _clearChatPathButton, _selectEmbedderPathButton, _clearEmbedderPathButton, _selectClipPathButton, _clearClipPathButton, _loadConfigButton, _unloadConfigButton;
         private Label _chatContextSizeLabel, _chatGpuLayerCountLabel, _embedderContextSizeLabel, _embedderGpuLayerCountLabel, _chatCurrentModelPathLabel, _embedderCurrentModelPathLabel, _clipCurrentModelPathLabel;
         private FileDialog _selectChatPathFileDialog, _selectClipPathFileDialog, _selectEmbedderPathFileDialog;
         private HSlider _chatContextSizeHSlider, _chatGpuLayerCountHSlider, _embedderContextSizeHSlider, _embedderGpuLayerCountHSlider;
@@ -98,7 +98,6 @@ namespace MindGame
             _savedConfigsItemList = GetNode<ItemList>("%SavedConfigsItemList");
             _addNewConfigButton = GetNode<Button>("%AddNewConfigButton");
             _deleteConfigButton = GetNode<Button>("%DeleteConfigButton");
-            _backButton = GetNode<Button>("%BackButton");
             _loadConfigButton = GetNode<Button>("%LoadConfigButton");
             _unloadConfigButton = GetNode<Button>("%UnloadConfigButton");
             _autoloadLastGoodConfigCheckBox = GetNode<CheckBox>("%AutoloadLastGoodConfigCheckBox");
@@ -144,7 +143,6 @@ namespace MindGame
             // Chat signals
             _addNewConfigButton.Pressed += OnAddNewConfigPressed;
             _deleteConfigButton.Pressed += OnDeleteConfigPressed;
-            _backButton.Pressed += OnBackPressed;
             _loadConfigButton.Pressed += OnLoadModelConfigPressed;
             _unloadConfigButton.Pressed += OnUnloadModelConfigPressed;
             _autoloadLastGoodConfigCheckBox.Toggled += OnAutoloadLastGoodConfigToggled;
@@ -221,10 +219,6 @@ namespace MindGame
             }
         }
 
-        private void OnBackPressed()
-        {
-            Visible = false;
-        }
 
         private void InitializeUiElements()
         {

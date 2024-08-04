@@ -4,12 +4,18 @@ using System;
 
 namespace MindGame
 {
+
+    /// <summary>
+    /// This is the root node script for the 2D ChatExample, it coordinates I/O with the MindAgent
+    /// </summary>
     public partial class ChatExample : Node
     {
         private MindAgent _mindAgent;
         private ModelConfig _modelConfig;
         private InferenceConfig _inferenceConfig;
         private ChatController _chatController;
+        private SavedChatsController _savedChatsController;
+        private Button _savedConversationsButton;
 
         /// <summary>
         /// Function that is called when node and all children are initialized
@@ -29,6 +35,9 @@ namespace MindGame
             _inferenceConfig = GetNode<InferenceConfig>("%InferenceConfig");
             _modelConfig = GetNode<ModelConfig>("%ModelConfig");
             _chatController = GetNode<ChatController>("%ChatController");
+            _savedChatsController = GetNode<SavedChatsController>("%ChatOptionsController");
+            _savedConversationsButton = GetNode<Button>("%SavedConversationsButton");
+
         }
 
         /// <summary>
@@ -38,6 +47,13 @@ namespace MindGame
         {
             _mindAgent.ModelOutputReceived += OnModelOutputReceived;
             _chatController.PromptInputReceived += OnPromptInputReceived;
+            _savedConversationsButton.Pressed += OnShowMenuButtonPressed;
+        }
+
+        private void OnShowMenuButtonPressed()
+        {
+            _savedChatsController.Show();
+            _savedConversationsButton.Hide();
         }
 
         /// <summary>
