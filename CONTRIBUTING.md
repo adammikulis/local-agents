@@ -1,21 +1,20 @@
-# Mind Game Contributing Guide
+# Local Agents Contributing Guide
 
-Hello and welcome to Mind Game! This is a Godot plugin born out of a love of AI and video games.
+Thanks for checking out Local Agents! This addon wraps the Doctor-Robot native agent runtime for Godot and provides GDScript demos you can build on.
 
-## The Goal of Mind Game
+## Goals
+- Keep the Godot integration lightweight: GDScript glue + the `AgentNode` GDExtension only.
+- Showcase agentic behaviours (graph memory, action queues) that games can re-use.
+- Stay friendly to offline workflows—no cloud dependencies required.
 
-My vision for Mind Game is for the user to be able to say what sort of story/game they want and for it to be generated for them. It utilizes [LLamaSharp](https://github.com/SciSharp/LLamaSharp), which is a C# wrapper for llama.cpp to run popular language models like Llama, Mistral, and Phi. 
+## How to Help
+1. Build the native extension (`doctor-robot-godot/gdextensions/localagents`) and run the sample scenes to verify changes.
+2. File issues or PRs that improve the GDScript layer, docs, or demo scenes.
+3. When adding new features, keep everything GDScript or native—no .NET/C# layers.
 
-## Current Features of Mind Game (0.3-dev)
-1. Local inference with both CPU and GPU
-2. Saving/loading model and inference parameters
-2. 3D chat example
-3. Batched conversation processing for better throughput
+## Testing
+- Load the `ChatExample.tscn` scene and confirm the agent echoes back prompts and emits actions.
+- Open `GraphExample.tscn` to ensure graph heuristics still execute.
+- If you tweak the GDExtension build, rebuild the binaries for each target platform you need.
 
-## Features in Development
-I have recently transitioned to the BatchedExecutor and am adding conversation saving/loading. Additionally, I have started to implement a graph network that will serve as the RAG system.
-
-## How to Contribute
-Download the addon, downloaded a .gguf language model, and run the ChatExample. See if you can integrate a MindAgent into a game or example scene of your own. Either add (via PR) or suggest features you would like to see, and please report any issues!
-
-I currently only have Windows/Linux releases, so if you use MacOS I could use a tester!
+Happy hacking!

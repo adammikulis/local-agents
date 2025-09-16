@@ -1,0 +1,17 @@
+[gd_scene load_steps=3 format=3 uid="uid://chbi2t7ql1f2a"]
+
+[ext_resource type="Script" path="res://addons/local_agents/examples/GraphExample.gd" id="1_wrkdr"]
+[ext_resource type="Resource" uid="uid://dij7rm8mo7ufn" path="res://addons/local_agents/graph/Graph.tres" id="2_vsos6"]
+
+[node name="Node" type="Node"]
+script = ExtResource("1_wrkdr")
+GraphResource = ExtResource("2_vsos6")
+
+[node name="OutputLabel" type="Label" parent="."]
+unique_name_in_owner = true
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_vertical = 3

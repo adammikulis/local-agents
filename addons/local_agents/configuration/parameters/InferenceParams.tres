@@ -1,0 +1,11 @@
+[gd_resource type="Resource" load_steps=2 format=3 uid="uid://cpcyl5y4jompu"]
+
+[ext_resource type="Script" path="res://addons/local_agents/configuration/parameters/InferenceParams.gd" id="1_4r2ok"]
+
+[resource]
+script = ExtResource("1_4r2ok")
+InferenceConfigName = ""
+AntiPrompts = PackedStringArray()
+Temperature = 0.0
+MaxTokens = 0
+OutputJson = false

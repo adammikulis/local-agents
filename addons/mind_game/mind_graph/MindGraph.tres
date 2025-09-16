@@ -1,8 +1,0 @@
-[gd_resource type="Resource" load_steps=2 format=3 uid="uid://dij7rm8mo7ufn"]
-
-[ext_resource type="Script" path="res://addons/mind_game/mind_graph/MindGraph.cs" id="1_7asfm"]
-
-[resource]
-script = ExtResource("1_7asfm")
-Nodes = []
-Edges = []

@@ -1,0 +1,9 @@
+[gd_resource type="Resource" load_steps=2 format=3 uid="uid://dia7oo5cd3428"]
+
+[ext_resource type="Script" path="res://addons/local_agents/graph/GraphNode.gd" id="1_yo0il"]
+
+[resource]
+script = ExtResource("1_yo0il")
+Id = 0
+Name = ""
+Data = {}

@@ -1,9 +1,0 @@
-[gd_scene load_steps=2 format=3 uid="uid://bued0hmu7bg4d"]
-
-[ext_resource type="PackedScene" uid="uid://opyhtb7ocg8k" path="res://addons/mind_game/assets/3d_models/godot_plushie/godot_plush V2.glb" id="1_awjxt"]
-
-[node name="GodotPlush" instance=ExtResource("1_awjxt")]
-transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, 0)
-
-[node name="godot_plush_02" parent="." index="0"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)

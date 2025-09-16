@@ -10,19 +10,15 @@ config_version=5
 
 [application]
 
-config/name="MindGame"
-run/main_scene="res://addons/mind_game/examples/ChatExample.tscn"
-config/features=PackedStringArray("4.3", "C#", "Mobile")
-config/icon="res://addons/mind_game/assets/logos/mind_game_logo_01.png"
+config/name="LocalAgents"
+run/main_scene="res://addons/local_agents/examples/ChatExample.tscn"
+config/features=PackedStringArray("4.3", "Mobile")
+config/icon="res://addons/local_agents/assets/logos/local_agents_logo_01.png"
 
 [autoload]
 
-MindManager="*res://addons/mind_game/mind_manager/MindManager.cs"
-
-[dotnet]
-
-project/assembly_name="MindGame"
+AgentManager="*res://addons/local_agents/agent_manager/AgentManager.gd"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/mind_game/plugin.cfg")
+enabled=PackedStringArray("res://addons/local_agents/plugin.cfg")
