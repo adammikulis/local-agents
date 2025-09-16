@@ -7,7 +7,7 @@ Local Agents is a Godot addon that exposes a native `AgentNode` (GDExtension) fo
 
 # Getting Started
 
-1. Build the `localagents` GDExtension from the Doctor-Robot repo (`doctor-robot-godot/gdextensions/localagents`). Copy the produced binaries into `addons/local_agents/gdextensions/localagents/bin/` (or keep the projects side-by-side and use the shipped files).
+1. Build the `localagents` GDExtension from the Doctor-Robot repo (`doctor-robot-godot/gdextensions/localagents`). Copy the produced binaries into `addons/local_agents/gdextensions/localagents/bin/` (or keep the projects side-by-side and use the shipped files). When building, point `GODOT_CPP_DIR` at your `godot-cpp` checkout (Doctor-Robot keeps it under `extern/godot-cpp`).
 2. Copy the `addons/local_agents` folder into your Godot project and enable the plugin (Project Settings → Plugins → Local Agents).
 3. Ensure the autoload `AgentManager` is active; it spins up a singleton agent and keeps configs in `res://addons/local_agents/configuration/parameters/`.
 4. Open any of the demo scenes under `addons/local_agents/examples/` to see the GDExtension in action.
