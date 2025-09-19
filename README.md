@@ -2,7 +2,7 @@ Note: Mind Game is back as Local Agents! The current active branch is https://gi
 
 
 This is a plugin for the Godot game engine that allows the user to load and run a local Large Language Model (LLM) in-engine using the [LLamaSharp](https://github.com/SciSharp/LLamaSharp) (v0.13.0) C# library.
-# Current Mind Game features
+# Current Local Agents features
 ## Fast, local chat models in your games
 ![mindgame_inference](https://github.com/adammikulis/MindGame/assets/27887607/bb9da9c0-622d-4b6d-af08-40cf7f2bdba9)
 
@@ -36,7 +36,7 @@ Another 7B model: [Mistral-7B-Instruct-v0.2](https://huggingface.co/TheBloke/Mis
 
 The lower quantization (q), the smaller the model is to run but at the cost of accuracy. Llama-3-8B-Instruct.Q4_K_M is a great middle-ground for those with 8GB of VRAM. The absolute smallest model [Phi-3-mini-4k-instruct.IQ1_S.gguf](https://huggingface.co/bartowski/Phi-3-mini-4k-instruct-GGUF/blob/main/Phi-3-mini-4k-instruct-IQ1_S.gguf) can run on less than 1GB of VRAM. Note: quantizations that start with 'I' run very slowly on CPU, I recommend those for GPU inference only.
 
-# Architecture of Mind Game
+# Architecture of Local Agents
 This plugin revolves around the MindManager autoload, which handles all backend model loading and allows every scene to access it. The user does not have to ever interact with the MindManager directly, as the configurations are handled on their own screens.
 
 To send/receive input to the model, you add a MindAgent node to your scene, which talks with the MindManager node. It can signal out the text it receives so that you can connect it to a Label3D, as in the example. By attaching a MindAgent to a CharacterBody3D (or anything else that moves), you can give the agent a body (example scene is MindAgent3D). When I transition to the BatchedExecutor, the user will be able to have n-conversations simultaneously (limited only by the user's hardware).
