@@ -1,3 +1,6 @@
+Note: Mind Game is back as Local Agents! The current active branch is https://github.com/adammikulis/local-agents/tree/0.3-dev and I look forward to merging changes into main soon.
+
+
 This is a plugin for the Godot game engine that allows the user to load and run a local Large Language Model (LLM) in-engine using the [LLamaSharp](https://github.com/SciSharp/LLamaSharp) (v0.13.0) C# library.
 # Current Mind Game features
 ## Fast, local chat models in your games
@@ -6,7 +9,7 @@ This is a plugin for the Godot game engine that allows the user to load and run 
 ## Easy configuration
 ![mindgame_config](https://github.com/adammikulis/MindGame/assets/27887607/3ecd86f9-cf92-473f-a667-76b62b7cfdb0)
 
-# Run Mind Game stand-alone
+# Run Local Agents stand-alone
 
 1) Install [CUDA Toolkit 12.1](https://developer.nvidia.com/cuda-12-1-0-download-archive) if you haven't already (12.1 recommended for compatibility with other projects like [Unsloth](https://github.com/unslothai/unsloth)).
 2) Download the [latest Mind Game release](https://github.com/adammikulis/MindGame/releases) for your platform and run the executable
@@ -21,7 +24,7 @@ Another 7B model: [Mistral-7B-Instruct-v0.2](https://huggingface.co/TheBloke/Mis
 
 
 
-# Run Mind Game as a Godot plug-in
+# Run Local Agents as a Godot plug-in
 
 1) Install [CUDA Toolkit 12.1](https://developer.nvidia.com/cuda-12-1-0-download-archive) if you haven't already (12.1 recommended for compatibility with other projects like [Unsloth](https://github.com/unslothai/unsloth)).
 2) Download and extract [Godot 4.3 (.NET version)](https://godotengine.org/download/archive/4.3-beta2/)
