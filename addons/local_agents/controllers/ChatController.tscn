@@ -1,9 +1,7 @@
-[gd_scene load_steps=6 format=3 uid="uid://bkhc2d37hv1ou"]
+[gd_scene load_steps=4 format=3 uid="uid://bkhc2d37hv1ou"]
 
 [ext_resource type="Script" path="res://addons/local_agents/controllers/ChatController.gd" id="1_iul07"]
 [ext_resource type="PackedScene" path="res://addons/local_agents/controllers/SavedChatsController.tscn" id="2_j87l4"]
-[ext_resource type="PackedScene" path="res://addons/local_agents/configuration/ui/ModelConfig.tscn" id="3_b2m0n"]
-[ext_resource type="PackedScene" path="res://addons/local_agents/configuration/ui/InferenceConfig.tscn" id="4_1l82f"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_pe5a1"]
 content_margin_left = 8.0
@@ -234,41 +232,23 @@ layout_mode = 2
 text = "Clear"
 size_flags_horizontal = 3
 
-[node name="ModelConfigWindow" type="Window" parent="ChatController"]
-unique_name_in_owner = true
-initial_position = 2
-size = Vector2i(520, 640)
-title = "Model Configuration"
-visible = false
-
-[node name="ModelConfig" parent="ChatController/ModelConfigWindow" instance=ExtResource("3_b2m0n")]
-
-[node name="InferenceConfigWindow" type="Window" parent="ChatController"]
-unique_name_in_owner = true
-initial_position = 2
-size = Vector2i(520, 640)
-title = "Inference Configuration"
-visible = false
-
-[node name="InferenceConfig" parent="ChatController/InferenceConfigWindow" instance=ExtResource("4_1l82f")]
-
-[node name="SavedChatsWindow" type="Window" parent="ChatController"]
+[node name="SavedChatsWindow" type="Window" parent="."]
 unique_name_in_owner = true
 initial_position = 2
 size = Vector2i(420, 520)
 title = "Saved Conversations"
 visible = false
 
-[node name="SavedChatsController" parent="ChatController/SavedChatsWindow" instance=ExtResource("2_j87l4")]
+[node name="SavedChatsController" parent="SavedChatsWindow" instance=ExtResource("2_j87l4")]
 
-[node name="RenameConversationWindow" type="Window" parent="ChatController"]
+[node name="RenameConversationWindow" type="Window" parent="."]
 unique_name_in_owner = true
 initial_position = 2
 size = Vector2i(360, 160)
 title = "Rename Conversation"
 visible = false
 
-[node name="RenameRoot" type="VBoxContainer" parent="ChatController/RenameConversationWindow"]
+[node name="RenameRoot" type="VBoxContainer" parent="RenameConversationWindow"]
 layout_mode = 2
 anchors_preset = 15
 anchor_right = 1.0
@@ -281,26 +261,26 @@ margin_top = 12.0
 margin_right = -12.0
 margin_bottom = -12.0
 
-[node name="RenameInstruction" type="Label" parent="ChatController/RenameConversationWindow/RenameRoot"]
+[node name="RenameInstruction" type="Label" parent="RenameConversationWindow/RenameRoot"]
 layout_mode = 2
 text = "Conversation Name"
 
-[node name="RenameLineEdit" type="LineEdit" parent="ChatController/RenameConversationWindow/RenameRoot"]
+[node name="RenameLineEdit" type="LineEdit" parent="RenameConversationWindow/RenameRoot"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="RenameButtons" type="HBoxContainer" parent="ChatController/RenameConversationWindow/RenameRoot"]
+[node name="RenameButtons" type="HBoxContainer" parent="RenameConversationWindow/RenameRoot"]
 layout_mode = 2
 custom_constants/separation = 8
 
-[node name="RenameCancelButton" type="Button" parent="ChatController/RenameConversationWindow/RenameRoot/RenameButtons"]
+[node name="RenameCancelButton" type="Button" parent="RenameConversationWindow/RenameRoot/RenameButtons"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Cancel"
 size_flags_horizontal = 3
 
-[node name="RenameConfirmButton" type="Button" parent="ChatController/RenameConversationWindow/RenameRoot/RenameButtons"]
+[node name="RenameConfirmButton" type="Button" parent="RenameConversationWindow/RenameRoot/RenameButtons"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Save"

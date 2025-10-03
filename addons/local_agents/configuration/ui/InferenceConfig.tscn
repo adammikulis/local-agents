@@ -154,7 +154,7 @@ theme_override_constants/margin_bottom = 5
 [node name="GridContainer" type="GridContainer" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2"]
 layout_mode = 2
 size_flags_vertical = 3
-columns = 3
+columns = 2
 
 [node name="NameTitleLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
 layout_mode = 2
@@ -166,47 +166,237 @@ layout_mode = 2
 size_flags_horizontal = 3
 text = "<default>"
 
-[node name="PlaceholderLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+[node name="BackendTitleLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
 layout_mode = 2
+text = "Backend"
 
-[node name="MaxTokensTitleLable" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
-layout_mode = 2
-text = "MaxTokens"
-
-[node name="MaxTokensHSlider" type="HSlider" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+[node name="BackendLineEdit" type="LineEdit" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
 unique_name_in_owner = true
 layout_mode = 2
-max_value = 12.0
-value = 2.0
-tick_count = 13
+placeholder_text = "auto"
+
+[node name="MaxTokensLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+layout_mode = 2
+text = "Max Tokens"
+
+[node name="MaxTokensControls" type="HBoxContainer" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="MaxTokensHSlider" type="HSlider" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer/MaxTokensControls"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 16.0
+value = 9.0
+tick_count = 17
 ticks_on_borders = true
 
-[node name="MaxTokensLineEdit" type="LineEdit" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+[node name="MaxTokensSpinBox" type="SpinBox" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer/MaxTokensControls"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "4000"
-editable = false
+min_value = 1.0
+max_value = 65536.0
+step = 1.0
+value = 512.0
 
-[node name="TemperatureTitleLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+[node name="TemperatureLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
 layout_mode = 2
 text = "Temperature"
 
-[node name="TemperatureHSlider" type="HSlider" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
-unique_name_in_owner = true
+[node name="TemperatureControls" type="HBoxContainer" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
 layout_mode = 2
-max_value = 1.5
-step = 0.05
-value = 0.5
-tick_count = 31
-ticks_on_borders = true
+size_flags_horizontal = 3
 
-[node name="TemperatureLineEdit" type="LineEdit" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+[node name="TemperatureHSlider" type="HSlider" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer/TemperatureControls"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "0.5"
-editable = false
+size_flags_horizontal = 3
+max_value = 2.0
+step = 0.01
+value = 0.8
+
+[node name="TemperatureSpinBox" type="SpinBox" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer/TemperatureControls"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.0
+max_value = 2.0
+step = 0.01
+value = 0.8
+
+[node name="TopPLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+layout_mode = 2
+text = "Top P"
+
+[node name="TopPSpinBox" type="SpinBox" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+value = 0.95
+
+[node name="TopKLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+layout_mode = 2
+text = "Top K"
+
+[node name="TopKSpinBox" type="SpinBox" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.0
+max_value = 1000.0
+step = 1.0
+value = 0.0
+
+[node name="MinPLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+layout_mode = 2
+text = "Min P"
+
+[node name="MinPSpinBox" type="SpinBox" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+value = 0.05
+
+[node name="TypicalLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+layout_mode = 2
+text = "Typical P"
+
+[node name="TypicalSpinBox" type="SpinBox" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+value = 1.0
+
+[node name="RepeatPenaltyLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+layout_mode = 2
+text = "Repeat Penalty"
+
+[node name="RepeatPenaltySpinBox" type="SpinBox" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.5
+max_value = 2.0
+step = 0.01
+value = 1.1
+
+[node name="RepeatLastNLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+layout_mode = 2
+text = "Repeat Last N"
+
+[node name="RepeatLastNSpinBox" type="SpinBox" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = -1.0
+max_value = 4096.0
+step = 1.0
+value = 64.0
+
+[node name="FrequencyPenaltyLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+layout_mode = 2
+text = "Frequency Penalty"
+
+[node name="FrequencyPenaltySpinBox" type="SpinBox" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = -2.0
+max_value = 2.0
+step = 0.01
+value = 0.0
+
+[node name="PresencePenaltyLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+layout_mode = 2
+text = "Presence Penalty"
+
+[node name="PresencePenaltySpinBox" type="SpinBox" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = -2.0
+max_value = 2.0
+step = 0.01
+value = 0.0
+
+[node name="SeedLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+layout_mode = 2
+text = "Seed"
+
+[node name="SeedControls" type="HBoxContainer" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="SeedSpinBox" type="SpinBox" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer/SeedControls"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = -1.0
+max_value = 2147483647.0
+step = 1.0
+value = -1.0
+
+[node name="RandomSeedButton" type="Button" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer/SeedControls"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Random"
+
+[node name="MirostatLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+layout_mode = 2
+text = "Mirostat"
+
+[node name="MirostatOptionButton" type="OptionButton" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+item_count = 3
+selected = 0
+popup/item_0/text = "Off"
+popup/item_0/id = 0
+popup/item_1/text = "V1"
+popup/item_1/id = 1
+popup/item_2/text = "V2"
+popup/item_2/id = 2
+
+[node name="MirostatTauLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+layout_mode = 2
+text = "Mirostat Tau"
+
+[node name="MirostatTauSpinBox" type="SpinBox" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.0
+max_value = 20.0
+step = 0.1
+value = 5.0
+
+[node name="MirostatEtaLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+layout_mode = 2
+text = "Mirostat Eta"
+
+[node name="MirostatEtaSpinBox" type="SpinBox" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.0
+max_value = 1.0
+step = 0.01
+value = 0.1
+
+[node name="MirostatMLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+layout_mode = 2
+text = "Mirostat M"
+
+[node name="MirostatMSpinBox" type="SpinBox" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 1.0
+max_value = 512.0
+step = 1.0
+value = 100.0
+
+[node name="OutputJsonLabel" type="Label" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
+layout_mode = 2
+text = "Output JSON"
 
 [node name="OutputJsonCheckBox" type="CheckBox" parent="ScrollContainer/MarginContainer/VBoxContainer/HBoxContainer/VBoxContainer2/Panel/MarginContainer2/GridContainer"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Output JSON"
