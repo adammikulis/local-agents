@@ -21,7 +21,7 @@ AgentManager="*res://addons/local_agents/agent_manager/AgentManager.gd"
 
 [editor_plugins]
 
-enabled=PackedStringArray()
+enabled=PackedStringArray("res://addons/local_agents/plugin.cfg")
 
 [rendering]
 
