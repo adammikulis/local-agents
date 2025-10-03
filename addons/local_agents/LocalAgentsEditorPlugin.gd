@@ -1,9 +1,9 @@
 @tool
 extends EditorPlugin
 
-var agent_script := load("res://addons/local_agents/agents/Agent.gd")
-var agent_icon := load("res://addons/local_agents/assets/logos/brain_pink.png")
-var panel_scene := load("res://addons/local_agents/editor/LocalAgentsPanel.tscn")
+const AGENT_SCRIPT := preload("res://addons/local_agents/agents/Agent.gd")
+const AGENT_ICON := preload("res://addons/local_agents/assets/logos/brain_pink.png")
+const PANEL_SCENE := preload("res://addons/local_agents/editor/LocalAgentsPanel.tscn")
 
 var _extension_res: Extension
 var _panel_instance: Control
@@ -11,7 +11,7 @@ var _panel_button: Button
 
 func _enter_tree() -> void:
     _ensure_extension_loaded()
-    add_custom_type("Agent", "Node", agent_script, agent_icon)
+    add_custom_type("Agent", "Node", AGENT_SCRIPT, AGENT_ICON)
     _create_bottom_panel()
 
 func _exit_tree() -> void:
@@ -39,15 +39,12 @@ func _ensure_extension_loaded() -> void:
         push_error("Failed to load localagents.gdextension resource")
 
 func _create_bottom_panel() -> void:
-    if not panel_scene:
-        push_error("Local Agents panel scene missing")
-        return
     if _panel_instance:
         return
-    _panel_instance = panel_scene.instantiate()
+    _panel_instance = PANEL_SCENE.instantiate()
     if not _panel_instance:
         push_error("Failed to instantiate Local Agents panel")
         return
     _panel_button = add_control_to_bottom_panel(_panel_instance, "Local Agents")
-    if _panel_button and agent_icon:
-        _panel_button.icon = agent_icon
+    if _panel_button and AGENT_ICON:
+        _panel_button.icon = AGENT_ICON
