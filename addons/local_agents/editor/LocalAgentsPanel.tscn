@@ -18,5 +18,3 @@ margin_bottom = -4.0
 [node name="Chat" parent="TabContainer" instance=ExtResource("1")]
 
 [node name="Download" parent="TabContainer" instance=ExtResource("2")]
-
-[resource]

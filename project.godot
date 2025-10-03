@@ -12,7 +12,7 @@ config_version=5
 
 config/name="LocalAgents"
 run/main_scene="res://addons/local_agents/examples/ChatExample.tscn"
-config/features=PackedStringArray("4.3", "Mobile")
+config/features=PackedStringArray("4.6", "Mobile")
 config/icon="res://addons/local_agents/assets/logos/local_agents_logo_01.png"
 
 [autoload]
@@ -21,4 +21,8 @@ AgentManager="*res://addons/local_agents/agent_manager/AgentManager.gd"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/local_agents/plugin.cfg")
+enabled=PackedStringArray()
+
+[rendering]
+
+renderer/rendering_method="mobile"
