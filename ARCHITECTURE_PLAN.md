@@ -13,6 +13,14 @@ We coordinate work across six collaborating agents: **Frontend**, **Runtime**, *
 - [ ] Update the “Agent Assigned” checkboxes in `agents.md` whenever responsibilities shift.
 
 ---
+## Active Refactor (Download & Chat Boundaries)
+
+- Runtime is introducing a dedicated `ModelDownloadManager` helper that wraps cURL/HTTP, split-path resolution, and filesystem writes so `AgentRuntime` can focus on lifecycle/state management.
+- Data is extracting shared GDScript helpers (`DownloadJobService`, `AgentDownloadBridge`) that encapsulate worker threads and runtime signal relay outside of the editor UI scene.
+- Frontend is slimming the bottom-panel controllers by moving conversation persistence, agent session coordination, and log formatting into reusable services (`ConversationSessionService`, `ChatHistoryPresenter`).
+- Quality should audit the new helpers once landed and flag additional oversized scripts (>400 LOC) for follow-up decompositions.
+
+---
 ## Frontend Agent
 
 **Mission:** Deliver editor and in-game experiences that match or surpass prior releases.
@@ -23,6 +31,7 @@ We coordinate work across six collaborating agents: **Frontend**, **Runtime**, *
   - [x] **Download** tab: llama.cpp model manager with log output and status label.
   - [ ] Reserve slots for future **Memory** and **Graph** tabs to inspect embeddings.
 - [x] Ensure panel/controller scripts run in the editor (`@tool`) so UI loads without play mode.
+- [ ] Split chat panel responsibilities across lightweight UI controller, conversation service, and runtime session mediator to limit cross-agent conflicts.
 - [ ] Restore the first-release 3D agent scene: animated character, chat bubble, voice playback.
 - [ ] Provide reusable GDScript components for 2D HUD chat, character attachments, and action cues.
 - [ ] Ensure example scenes hook into the runtime autoload and respect configuration resources.
@@ -39,6 +48,7 @@ We coordinate work across six collaborating agents: **Frontend**, **Runtime**, *
 - [x] Bundle `libllama`/`libggml*` beside `localagents.*` via `scripts/build_extension.sh` for macOS.
 - [x] Align sampler/tokenisation/embedding internals with current llama.cpp APIs.
 - [x] Keep `AgentNode` acting as proxy for per-agent metadata, forwarding prompts/history and dispatching signals.
+- [ ] Move Hugging Face download + split-file orchestration into `ModelDownloadManager`, delegating to bundled `llama-cli` so runtime picks up upstream fixes while exposing a clear API to `AgentRuntime` (`download_model_hf` + GDS `LocalAgentsDownloadClient`).
 - [ ] Add multi-platform build automation (`build_all.sh`) and native test harnesses.
 - [ ] Expand `AgentRuntime` job queue, expose JSON grammars, and integrate llama.cpp downloader bindings fully.
 - [ ] Mediate Piper (speech) and Whisper/Fast-Whisper (transcription) subprocesses behind async helpers.
@@ -54,6 +64,7 @@ We coordinate work across six collaborating agents: **Frontend**, **Runtime**, *
 - [x] Maintain `scripts/fetch_dependencies.sh` with pinned revisions and checksum verification.
 - [x] Integrate llama.cpp’s built-in download command (e.g. `main -m download ...`) via runtime helper.
 - [ ] Route Download tab actions through shared helpers to avoid duplicated CLI logic while logging output.
+- [ ] Provide a reusable `DownloadJobService` (threaded worker + runtime bridge) consumed by editor panels and headless flows.
 - [ ] Maintain metadata manifests (`models/config.json`, `voices/config.json`) for installed assets.
 - [ ] Define schema for `memories`, `edges`, `episodes`, and embedding tables with indices.
 - [ ] Trigger embedding pipeline on writes and expose cosine similarity search APIs.
@@ -133,10 +144,12 @@ We coordinate work across six collaborating agents: **Frontend**, **Runtime**, *
 ## Immediate Next Steps
 
 - [ ] Validate the editor loads the rebuilt GDExtension with bundled `libllama`/`libggml` libraries and run smoke tests in Godot 4.3+ (Runtime + DevOps).
-- [ ] Replicate dependency bundling logic for Linux and Windows outputs (DevOps).
+- [ ] Replicate dependency bundling logic for Linux and Windows outputs; ensure `llama-cli`/`llama-server` ship beside the extension on every platform (DevOps).
 - [ ] Complete typing/modern syntax fixes across remaining controllers and configs (Frontend + Quality).
 - [ ] Build out NetworkGraph persistence tests and wire them into CI once runtime stabilises (Runtime + DevOps + Quality).
 - [ ] Restore the 3D agent demo scene using the new runtime pipeline (Frontend + Experience).
 - [ ] Update screenshots, tutorials, and user docs to reflect Download tab status feedback and runtime health indicators (Experience).
+- [ ] Wire the new GDS download helpers into the Download tab (`DownloadJobService` extraction) so editor UI exercises the same path as gameplay scripts (Data + Frontend).
+- [ ] Expose `llama-server` lifecycle controls (start/stop, config) from `AgentRuntime`/GDS so projects can stand up OpenAI-compatible endpoints easily (Runtime + Data).
 
 This checklist ensures specialised agents can ship features in parallel while tracking progress toward full GDScript/GDExtension parity with the original project.

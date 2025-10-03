@@ -1,7 +1,10 @@
 #include "AgentRuntime.hpp"
 
+#include "ModelDownloadManager.hpp"
+#include "RuntimeStringUtils.hpp"
+
 #include <godot_cpp/classes/engine.hpp>
-#include <godot_cpp/classes/json.hpp>
+#include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
@@ -12,34 +15,21 @@
 
 #include <cmath>
 #include <cstring>
-#include <filesystem>
-#include <ctime>
 #include <sstream>
 #include <vector>
 #include <chrono>
 #include <atomic>
-#include <cstdio>
-#include <cstdlib>
 #include <fstream>
-#include <iomanip>
 #include <limits>
 #include <string_view>
 #include <mutex>
 #include <climits>
-
-#include <gguf.h>
-
-#ifdef LLAMA_USE_CURL
-#include <curl/curl.h>
-#endif
+#include <filesystem>
 
 using namespace godot;
+using local_agents::runtime::to_utf8;
 
 namespace {
-std::string to_utf8(const String &value) {
-    return std::string(value.utf8().get_data());
-}
-
 String make_completion_id() {
     static std::atomic<uint64_t> counter{0};
     uint64_t value = counter.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -47,212 +37,6 @@ String make_completion_id() {
     oss << "chatcmpl-" << value;
     return String::utf8(oss.str().c_str());
 }
-
-constexpr const char *kSplitCountKey = "split.count";
-constexpr size_t kMaxUrlLength = 2084;
-constexpr size_t kPathBufferSize = 4096;
-
-std::string get_env_string(const char *name) {
-    const char *value = std::getenv(name);
-    if (!value) {
-        return std::string();
-    }
-    return std::string(value);
-}
-
-std::string ensure_trailing_slash(const std::string &value) {
-    if (value.empty() || value.back() == '/') {
-        return value;
-    }
-    std::string with_slash = value;
-    with_slash.push_back('/');
-    return with_slash;
-}
-
-std::string resolve_model_endpoint() {
-    std::string endpoint = get_env_string("MODEL_ENDPOINT");
-    if (endpoint.empty()) {
-        endpoint = get_env_string("HF_ENDPOINT");
-    }
-    if (endpoint.empty()) {
-        endpoint = "https://huggingface.co/";
-    }
-    return ensure_trailing_slash(endpoint);
-}
-
-void append_log(std::vector<String> *entries, const std::string &line) {
-    if (!entries) {
-        return;
-    }
-    entries->push_back(String::utf8(line.c_str()));
-}
-
-std::string build_hf_download_url(const std::string &endpoint, const std::string &repo, const std::string &filename) {
-    std::string normalized_endpoint = ensure_trailing_slash(endpoint);
-    if (normalized_endpoint.empty()) {
-        return std::string();
-    }
-    std::string url = normalized_endpoint + repo;
-    if (!url.empty() && url.back() != '/') {
-        url.push_back('/');
-    }
-    url += "resolve/main/";
-    url += filename;
-    return url;
-}
-
-struct HfManifestResult {
-    bool ok = false;
-    std::string repo;
-    std::string file;
-    std::string mmproj_file;
-    std::string error;
-    long status = 0;
-};
-
-#ifdef LLAMA_USE_CURL
-HfManifestResult fetch_hf_manifest(const std::string &repo_with_tag,
-                                   const std::string &bearer_token,
-                                   double timeout_seconds,
-                                   const std::string &endpoint,
-                                   std::vector<String> *log_entries) {
-    HfManifestResult result;
-
-    if (repo_with_tag.empty()) {
-        result.error = "missing_repo";
-        return result;
-    }
-
-    std::string repo = repo_with_tag;
-    std::string tag = "latest";
-    size_t colon_pos = repo.find(':');
-    if (colon_pos != std::string::npos) {
-        tag = repo.substr(colon_pos + 1);
-        repo = repo.substr(0, colon_pos);
-    }
-
-    result.repo = repo;
-
-    if (repo.find('/') == std::string::npos) {
-        result.error = "invalid_repo";
-        append_log(log_entries, "Invalid Hugging Face repo: " + repo_with_tag);
-        return result;
-    }
-
-    std::string manifest_url = ensure_trailing_slash(endpoint) + "v2/" + repo + "/manifests/" + tag;
-
-    append_log(log_entries, "Requesting Hugging Face manifest: " + repo_with_tag);
-
-    ensure_curl_initialized();
-    CURL *curl = curl_easy_init();
-    if (!curl) {
-        result.error = "curl_init_failed";
-        append_log(log_entries, "Failed to initialize curl for Hugging Face manifest request");
-        return result;
-    }
-
-    struct curl_slist *headers = nullptr;
-    headers = curl_slist_append(headers, "User-Agent: llama-cpp");
-    headers = curl_slist_append(headers, "Accept: application/json");
-    if (!bearer_token.empty()) {
-        std::string auth = "Authorization: Bearer " + bearer_token;
-        headers = curl_slist_append(headers, auth.c_str());
-    }
-
-    std::string response_buffer;
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_URL, manifest_url.c_str());
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 0L);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "llama-cpp");
-    if (timeout_seconds > 0.0) {
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, static_cast<long>(std::ceil(timeout_seconds)));
-    }
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, +[](char *ptr, size_t size, size_t nmemb, void *userdata) -> size_t {
-        auto *buffer = static_cast<std::string *>(userdata);
-        buffer->append(ptr, size * nmemb);
-        return size * nmemb;
-    });
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_buffer);
-
-    CURLcode code = curl_easy_perform(curl);
-    long http_status = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
-    result.status = http_status;
-
-    if (headers) {
-        curl_slist_free_all(headers);
-    }
-    curl_easy_cleanup(curl);
-
-    if (code != CURLE_OK) {
-        result.error = "manifest_request_failed";
-        append_log(log_entries, std::string("Manifest request failed: ") + curl_easy_strerror(code));
-        return result;
-    }
-
-    if (http_status >= 400) {
-        std::ostringstream oss;
-        oss << "Manifest request returned HTTP " << http_status;
-        append_log(log_entries, oss.str());
-        result.error = http_status == 401 ? "manifest_unauthorized" : "manifest_http_error";
-        return result;
-    }
-
-    Variant parsed = JSON::parse_string(String::utf8(response_buffer.c_str()));
-    if (parsed.get_type() != Variant::DICTIONARY) {
-        result.error = "manifest_parse_error";
-        append_log(log_entries, "Unable to parse Hugging Face manifest JSON");
-        return result;
-    }
-
-    Dictionary manifest = parsed;
-    Variant gguf_variant = manifest.get("ggufFile", Variant());
-    if (gguf_variant.get_type() == Variant::DICTIONARY) {
-        Dictionary gguf = gguf_variant;
-        String rfilename = gguf.get("rfilename", String());
-        if (rfilename.is_empty()) {
-            rfilename = gguf.get("filename", String());
-        }
-        if (!rfilename.is_empty()) {
-            result.file = to_utf8(rfilename);
-        }
-    }
-
-    Variant mmproj_variant = manifest.get("mmprojFile", Variant());
-    if (mmproj_variant.get_type() == Variant::DICTIONARY) {
-        Dictionary mmproj = mmproj_variant;
-        String rfilename = mmproj.get("rfilename", String());
-        if (rfilename.is_empty()) {
-            rfilename = mmproj.get("filename", String());
-        }
-        if (!rfilename.is_empty()) {
-            result.mmproj_file = to_utf8(rfilename);
-        }
-    }
-
-    if (result.file.empty()) {
-        result.error = "manifest_missing_file";
-        append_log(log_entries, "Hugging Face manifest missing ggufFile entry");
-        return result;
-    }
-
-    result.ok = true;
-    std::ostringstream oss;
-    oss << "Manifest resolved file: " << repo << "/" << result.file;
-    append_log(log_entries, oss.str());
-    return result;
-}
-#endif
-
-#ifdef LLAMA_USE_CURL
-void ensure_curl_initialized() {
-    static std::once_flag once_flag;
-    std::call_once(once_flag, []() {
-        curl_global_init(CURL_GLOBAL_DEFAULT);
-    });
-}
-#endif
 
 llama_sampler *create_sampler(const Dictionary &options, const llama_model *model) {
     llama_sampler_chain_params chain_params = llama_sampler_chain_default_params();
@@ -336,11 +120,12 @@ llama_sampler *create_sampler(const Dictionary &options, const llama_model *mode
 
     int32_t mirostat_mode = options.get("mirostat", 0);
     if (mirostat_mode == 1 && model != nullptr) {
-        int32_t vocab = llama_model_n_vocab(model);
+        const llama_vocab *model_vocab = llama_model_get_vocab(model);
+        int32_t vocab_tokens = model_vocab ? llama_vocab_n_tokens(model_vocab) : 0;
         int32_t mirostat_last_n = options.get("mirostat_m", 100);
         float tau = options.get("mirostat_tau", 5.0f);
         float eta = options.get("mirostat_eta", 0.1f);
-        append_sampler(llama_sampler_init_mirostat(vocab, seed, tau, eta, mirostat_last_n));
+        append_sampler(llama_sampler_init_mirostat(vocab_tokens, seed, tau, eta, mirostat_last_n));
         use_mirostat = true;
     } else if (mirostat_mode == 2) {
         float tau = options.get("mirostat_tau", 5.0f);
@@ -364,44 +149,6 @@ llama_sampler *create_sampler(const Dictionary &options, const llama_model *mode
     return chain;
 }
 
-std::string format_bytes(uint64_t bytes) {
-    static const char *kUnits[] = {"B", "KB", "MB", "GB", "TB", "PB"};
-    double value = static_cast<double>(bytes);
-    size_t unit = 0;
-    const size_t unit_count = sizeof(kUnits) / sizeof(kUnits[0]);
-
-    while (value >= 1024.0 && unit + 1 < unit_count) {
-        value /= 1024.0;
-        ++unit;
-    }
-
-    std::ostringstream oss;
-    if (unit == 0) {
-        oss << static_cast<uint64_t>(value + 0.5) << ' ' << kUnits[unit];
-    } else {
-        oss << std::fixed << std::setprecision(value >= 10.0 ? 1 : 2) << value << ' ' << kUnits[unit];
-    }
-    return oss.str();
-}
-
-PackedStringArray to_packed(const std::vector<String> &lines) {
-    PackedStringArray array;
-    array.resize(static_cast<int64_t>(lines.size()));
-    for (int64_t i = 0; i < array.size(); ++i) {
-        array[i] = lines[static_cast<size_t>(i)];
-    }
-    return array;
-}
-
-PackedStringArray to_packed(const std::vector<std::string> &lines) {
-    PackedStringArray array;
-    array.resize(static_cast<int64_t>(lines.size()));
-    for (int64_t i = 0; i < array.size(); ++i) {
-        array[i] = String::utf8(lines[static_cast<size_t>(i)].c_str());
-    }
-    return array;
-}
-
 } // namespace
 
 AgentRuntime *AgentRuntime::singleton_ = nullptr;
@@ -415,6 +162,7 @@ AgentRuntime::AgentRuntime()
     if (!singleton_) {
         singleton_ = this;
     }
+    download_manager_ = std::make_unique<ModelDownloadManager>();
     system_prompt_ = String("You are Local Agents, an offline assistant running inside a Godot game. Be concise and helpful.");
 }
 
@@ -436,6 +184,8 @@ void AgentRuntime::_bind_methods() {
     ClassDB::bind_method(D_METHOD("generate", "request"), &AgentRuntime::generate);
     ClassDB::bind_method(D_METHOD("embed_text", "text", "options"), &AgentRuntime::embed_text, DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("download_model", "request"), &AgentRuntime::download_model);
+    ClassDB::bind_method(D_METHOD("download_model_hf", "repo", "options"), &AgentRuntime::download_model_hf, DEFVAL(Dictionary()));
+    ClassDB::bind_method(D_METHOD("get_model_cache_directory"), &AgentRuntime::get_model_cache_directory);
 
     ClassDB::bind_method(D_METHOD("set_default_model_path", "path"), &AgentRuntime::set_default_model_path);
     ClassDB::bind_method(D_METHOD("get_default_model_path"), &AgentRuntime::get_default_model_path);
@@ -618,513 +368,145 @@ PackedFloat32Array AgentRuntime::embed_text(const String &text, const Dictionary
 }
 
 Dictionary AgentRuntime::download_model(const Dictionary &request) {
-    Dictionary response;
-    std::vector<String> log_entries;
-    String path_string;
-    auto log_line = [this, &log_entries, &path_string](const std::string &line) {
-        String message = String::utf8(line.c_str());
-        log_entries.push_back(message);
-        emit_signal("download_log", message, path_string);
+    if (!download_manager_) {
+        download_manager_ = std::make_unique<ModelDownloadManager>();
+    }
+
+    ModelDownloadManager::Callbacks callbacks;
+    callbacks.started = [this](const String &label, const String &path) {
+        emit_signal("download_started", label, path);
+    };
+    callbacks.progress = [this](const String &label, double progress, int64_t received, int64_t total, const String &path) {
+        emit_signal("download_progress", label, progress, received, total, path);
+    };
+    callbacks.log = [this](const String &line, const String &path) {
+        emit_signal("download_log", line, path);
+    };
+    callbacks.finished = [this](bool ok, const String &error, const String &path) {
+        emit_signal("download_finished", ok, error, path);
     };
 
-    String url_value = request.get("url", String());
-    String output_value = request.get("output_path", String());
-    String label_value = request.get("label", String());
-    bool force = request.get("force", false);
-    bool skip_existing = request.has("skip_existing") ? (bool)request["skip_existing"] : !force;
-    bool offline = request.get("offline", false);
-    PackedStringArray header_array = request.has("headers") ? request["headers"] : PackedStringArray();
-    String bearer_token = request.get("bearer_token", String());
-    double timeout_seconds = request.get("timeout_seconds", 0.0);
-    String hf_repo_value = request.get("hf_repo", String());
-    String hf_file_value = request.get("hf_file", String());
-    String hf_tag_value = request.get("hf_tag", String());
-    String hf_endpoint_override = request.get("hf_endpoint", String());
+    String runtime_dir_copy;
+    {
+        std::scoped_lock lock(mutex_);
+        runtime_dir_copy = runtime_directory_;
+    }
 
-    Dictionary hf_details;
-    int64_t manifest_status = -1;
+    return download_manager_->download(request, callbacks, runtime_dir_copy);
+}
 
-    std::string repo_only;
-    std::string repo_tag;
-    if (!hf_repo_value.is_empty()) {
-        std::string repo_raw = to_utf8(hf_repo_value);
-        size_t colon_pos = repo_raw.find(':');
-        if (colon_pos != std::string::npos) {
-            repo_only = repo_raw.substr(0, colon_pos);
-            repo_tag = repo_raw.substr(colon_pos + 1);
+String AgentRuntime::get_model_cache_directory() const {
+    ProjectSettings *settings = ProjectSettings::get_singleton();
+    if (!settings) {
+        return String();
+    }
+    String base_path = settings->globalize_path("user://local_agents/models");
+    if (base_path.is_empty()) {
+        return String();
+    }
+    std::filesystem::path dir_path(local_agents::runtime::to_utf8(base_path));
+    std::error_code ec;
+    std::filesystem::create_directories(dir_path, ec);
+    return String::utf8(dir_path.string().c_str());
+}
+
+Dictionary AgentRuntime::download_model_hf(const String &repo, const Dictionary &options) {
+    Dictionary request;
+    request["hf_repo"] = repo;
+
+    String hf_file;
+    if (options.has("hf_file")) {
+        hf_file = options["hf_file"];
+    } else if (options.has("file")) {
+        hf_file = options["file"];
+    }
+
+    if (hf_file.is_empty()) {
+        Dictionary error;
+        error["ok"] = false;
+        error["error"] = String("missing_hf_file");
+        return error;
+    }
+    request["hf_file"] = hf_file;
+
+    if (options.has("hf_tag")) {
+        request["hf_tag"] = options["hf_tag"];
+    } else if (options.has("tag")) {
+        request["hf_tag"] = options["tag"];
+    }
+
+    if (options.has("label")) {
+        request["label"] = options["label"];
+    } else {
+        request["label"] = hf_file;
+    }
+
+    auto copy_option = [&](const char *key) {
+        if (options.has(key)) {
+            request[key] = options[key];
+        }
+    };
+
+    copy_option("force");
+    copy_option("skip_existing");
+    copy_option("offline");
+    copy_option("bearer_token");
+    copy_option("hf_endpoint");
+    copy_option("timeout_seconds");
+    copy_option("no_mmproj");
+    copy_option("headers");
+
+    ProjectSettings *settings = ProjectSettings::get_singleton();
+    auto globalize = [&](const String &path) -> String {
+        if (!settings || path.is_empty()) {
+            return path;
+        }
+        if (path.begins_with("user://") || path.begins_with("res://")) {
+            return settings->globalize_path(path);
+        }
+        return path;
+    };
+
+    String output_path = options.get("output_path", String());
+    if (!output_path.is_empty()) {
+        output_path = globalize(output_path);
+    }
+
+    if (output_path.is_empty()) {
+        String output_dir = options.get("output_dir", String());
+        if (output_dir.is_empty()) {
+            output_dir = get_model_cache_directory();
         } else {
-            repo_only = repo_raw;
-        }
-    }
-    if (!hf_tag_value.is_empty()) {
-        repo_tag = to_utf8(hf_tag_value);
-    }
-    if (!repo_only.empty()) {
-        hf_details["repo"] = String::utf8(repo_only.c_str());
-    }
-    if (!repo_tag.empty()) {
-        hf_details["tag"] = String::utf8(repo_tag.c_str());
-    }
-
-    std::string resolved_file = to_utf8(hf_file_value);
-    if (!resolved_file.empty()) {
-        hf_details["file"] = String::utf8(resolved_file.c_str());
-    }
-
-    std::string endpoint = hf_endpoint_override.is_empty() ? resolve_model_endpoint() : ensure_trailing_slash(to_utf8(hf_endpoint_override));
-
-    std::string bearer = to_utf8(bearer_token);
-    if (bearer.empty()) {
-        bearer = get_env_string("HF_TOKEN");
-        if (bearer.empty()) {
-            bearer = get_env_string("HUGGING_FACE_HUB_TOKEN");
-        }
-        if (!bearer.empty()) {
-            log_line("Using Hugging Face token from environment");
-        }
-    }
-
-    std::string resolved_repo = repo_only;
-    if (url_value.is_empty() && !repo_only.empty() && !offline) {
-#ifdef LLAMA_USE_CURL
-        std::string repo_with_tag = repo_only;
-        if (!repo_tag.empty()) {
-            repo_with_tag += ":" + repo_tag;
-        }
-        auto manifest = fetch_hf_manifest(repo_with_tag, bearer, timeout_seconds, endpoint, &log_entries);
-        manifest_status = manifest.status;
-        if (manifest.ok) {
-            if (!manifest.repo.empty()) {
-                resolved_repo = manifest.repo;
-                hf_details["repo"] = String::utf8(resolved_repo.c_str());
-            }
-            if (resolved_file.empty()) {
-                resolved_file = manifest.file;
-                hf_details["file"] = String::utf8(resolved_file.c_str());
-            }
-            if (!manifest.mmproj_file.empty()) {
-                hf_details["mmproj_file"] = String::utf8(manifest.mmproj_file.c_str());
-            }
-        } else if (!manifest.error.empty()) {
-            log_line("Hugging Face manifest resolution failed: " + manifest.error);
-        }
-#else
-        log_line("Hugging Face manifest resolution unavailable without curl support");
-#endif
-    }
-
-    if (manifest_status >= 0) {
-        hf_details["manifest_status"] = static_cast<int64_t>(manifest_status);
-    }
-
-    if (url_value.is_empty() && !resolved_repo.empty() && !resolved_file.empty()) {
-        std::string built_url = build_hf_download_url(endpoint, resolved_repo, resolved_file);
-        url_value = String::utf8(built_url.c_str());
-        log_line("Resolved download URL: " + built_url);
-    }
-
-    if (url_value.is_empty()) {
-        log_line("Missing download url");
-        response["ok"] = false;
-        response["error"] = String("missing_url");
-        response["log"] = to_packed(log_entries);
-        response["bytes_downloaded"] = static_cast<int64_t>(0);
-        if (!hf_details.is_empty()) {
-            response["hf"] = hf_details;
-        }
-        return response;
-    }
-    if (output_value.is_empty()) {
-        log_line("Missing output path");
-        response["ok"] = false;
-        response["error"] = String("missing_output_path");
-        response["log"] = to_packed(log_entries);
-        response["bytes_downloaded"] = static_cast<int64_t>(0);
-        if (!hf_details.is_empty()) {
-            response["hf"] = hf_details;
-        }
-        return response;
-    }
-
-    std::filesystem::path output_path = std::filesystem::path(to_utf8(output_value)).lexically_normal();
-    std::string label = label_value.is_empty() ? output_path.filename().string() : to_utf8(label_value);
-    if (label.empty()) {
-        label = to_utf8(url_value);
-    }
-
-    String label_string;
-    auto emit_progress = [this](const String &label_ref, double progress, int64_t received, int64_t total, const String &path_ref) {
-        emit_signal("download_progress", label_ref, progress, received, total, path_ref);
-    };
-    auto emit_finished = [this](bool ok, const String &error, const String &path_ref) {
-        emit_signal("download_finished", ok, error, path_ref);
-    };
-
-    path_string = String::utf8(output_path.string().c_str());
-    label_string = String::utf8(label.c_str());
-    emit_signal("download_started", label_string, path_string);
-    emit_progress(label_string, 0.0, 0, 0, path_string);
-
-    std::vector<std::string> file_paths;
-    uint64_t total_bytes = 0;
-
-    auto finalize = [&](bool ok, const std::string &error) {
-        response["ok"] = ok;
-        response["bytes_downloaded"] = static_cast<int64_t>(total_bytes);
-        response["log"] = to_packed(log_entries);
-        if (!file_paths.empty()) {
-            response["files"] = to_packed(file_paths);
-            response["path"] = String::utf8(file_paths.front().c_str());
-        }
-        if (!error.empty()) {
-            response["error"] = String::utf8(error.c_str());
-        }
-        if (!url_value.is_empty()) {
-            response["url"] = url_value;
-        }
-        if (!hf_details.is_empty()) {
-            response["hf"] = hf_details;
-        }
-        String error_string;
-        if (!error.empty()) {
-            error_string = String::utf8(error.c_str());
-        }
-        emit_finished(ok, error_string, path_string);
-        return response;
-    };
-
-    auto read_split_count = [](const std::filesystem::path &primary_path) -> int {
-        struct gguf_init_params params = {true, nullptr};
-        gguf_context *ctx = gguf_init_from_file(primary_path.string().c_str(), params);
-        if (!ctx) {
-            return 0;
-        }
-        int split = 0;
-        int key_index = gguf_find_key(ctx, kSplitCountKey);
-        if (key_index >= 0) {
-            split = static_cast<int>(gguf_get_val_u16(ctx, key_index));
-        }
-        gguf_free(ctx);
-        return split;
-    };
-
-    auto build_split_pairs = [&](int n_split, const std::filesystem::path &primary_path, const std::string &primary_url) {
-        std::vector<std::pair<std::string, std::filesystem::path>> pairs;
-        if (n_split <= 1) {
-            return pairs;
-        }
-        char path_prefix[kPathBufferSize] = {0};
-        if (!llama_split_prefix(path_prefix, kPathBufferSize, primary_path.string().c_str(), 0, n_split)) {
-            log_line("Unable to resolve split path prefix");
-            return std::vector<std::pair<std::string, std::filesystem::path>>();
-        }
-        char url_prefix[kMaxUrlLength] = {0};
-        if (!llama_split_prefix(url_prefix, kMaxUrlLength, primary_url.c_str(), 0, n_split)) {
-            log_line("Unable to resolve split URL prefix");
-            return std::vector<std::pair<std::string, std::filesystem::path>>();
-        }
-        for (int idx = 1; idx < n_split; ++idx) {
-            char path_buffer[kPathBufferSize] = {0};
-            if (!llama_split_path(path_buffer, kPathBufferSize, path_prefix, idx, n_split)) {
-                log_line("Unable to build split path for index " + std::to_string(idx));
-                return std::vector<std::pair<std::string, std::filesystem::path>>();
-            }
-            char url_buffer[kMaxUrlLength] = {0};
-            if (!llama_split_path(url_buffer, kMaxUrlLength, url_prefix, idx, n_split)) {
-                log_line("Unable to build split URL for index " + std::to_string(idx));
-                return std::vector<std::pair<std::string, std::filesystem::path>>();
-            }
-            pairs.emplace_back(std::string(url_buffer), std::filesystem::path(path_buffer));
-        }
-        return pairs;
-    };
-
-    auto build_split_paths_offline = [&](int n_split, const std::filesystem::path &primary_path) {
-        std::vector<std::filesystem::path> paths;
-        if (n_split <= 1) {
-            return paths;
-        }
-        char path_prefix[kPathBufferSize] = {0};
-        if (!llama_split_prefix(path_prefix, kPathBufferSize, primary_path.string().c_str(), 0, n_split)) {
-            log_line("Unable to resolve split path prefix");
-            return std::vector<std::filesystem::path>();
-        }
-        for (int idx = 1; idx < n_split; ++idx) {
-            char path_buffer[kPathBufferSize] = {0};
-            if (!llama_split_path(path_buffer, kPathBufferSize, path_prefix, idx, n_split)) {
-                log_line("Unable to build split path for index " + std::to_string(idx));
-                return std::vector<std::filesystem::path>();
-            }
-            paths.emplace_back(std::filesystem::path(path_buffer));
-        }
-        return paths;
-    };
-
-    if (offline) {
-        if (!std::filesystem::exists(output_path)) {
-            log_line("Offline mode: missing model file at " + output_path.string());
-            return finalize(false, "offline_missing_file");
-        }
-        log_line("Offline mode: using cached model " + output_path.string());
-        file_paths.push_back(output_path.string());
-        std::error_code offline_size_error;
-        uint64_t primary_size = static_cast<uint64_t>(std::filesystem::file_size(output_path, offline_size_error));
-        if (!offline_size_error) {
-            total_bytes += primary_size;
+            output_dir = globalize(output_dir);
         }
 
-        int split_count = read_split_count(output_path);
-        if (split_count > 1) {
-            auto split_paths = build_split_paths_offline(split_count, output_path);
-            if (static_cast<int>(split_paths.size()) != split_count - 1) {
-                return finalize(false, "split_resolution_failed");
-            }
-            for (int idx = 0; idx < static_cast<int>(split_paths.size()); ++idx) {
-                const auto &split_path = split_paths[static_cast<size_t>(idx)];
-                if (!std::filesystem::exists(split_path)) {
-                    log_line("Offline mode: missing split file " + split_path.string());
-                    return finalize(false, "offline_missing_split");
-                }
-                file_paths.push_back(split_path.string());
-                std::error_code split_size_error;
-                uint64_t split_size = static_cast<uint64_t>(std::filesystem::file_size(split_path, split_size_error));
-                if (!split_size_error) {
-                    total_bytes += split_size;
-                }
-            }
+        if (output_dir.is_empty()) {
+            Dictionary error;
+            error["ok"] = false;
+            error["error"] = String("missing_output_path");
+            return error;
         }
 
-        emit_progress(label_string, 1.0, static_cast<int64_t>(total_bytes), static_cast<int64_t>(total_bytes), path_string);
-        return finalize(true, "");
-    }
-
-#ifdef LLAMA_USE_CURL
-    ensure_curl_initialized();
-
-    std::error_code dir_error;
-    std::filesystem::create_directories(output_path.parent_path(), dir_error);
-    if (dir_error) {
-        log_line("Failed to create directory: " + dir_error.message());
-        return finalize(false, "mkdir_failed");
-    }
-
-    std::vector<std::string> header_lines;
-    header_lines.reserve(header_array.size());
-    for (int i = 0; i < header_array.size(); ++i) {
-        header_lines.push_back(to_utf8(header_array[i]));
-    }
-    std::string base_url = to_utf8(url_value);
-
-    struct DownloadStatus {
-        bool ok = false;
-        bool skipped = false;
-        uint64_t bytes = 0;
-    };
-
-    auto download_single = [&](const std::string &source_url, const std::filesystem::path &target_path, const std::string &friendly_name) {
-        DownloadStatus status;
-        std::error_code fs_error;
-
-        bool exists = std::filesystem::exists(target_path, fs_error);
-        fs_error.clear();
-        if (exists && skip_existing && !force) {
-            log_line("Using existing file " + target_path.string());
-            status.ok = true;
-            status.skipped = true;
-            std::error_code size_error;
-            status.bytes = static_cast<uint64_t>(std::filesystem::file_size(target_path, size_error));
-            if (!size_error) {
-                total_bytes += status.bytes;
-                if (progress.runtime) {
-                    progress.runtime->emit_signal("download_progress",
-                        String::utf8(progress.label.c_str()),
-                        1.0,
-                        static_cast<int64_t>(status.bytes),
-                        static_cast<int64_t>(status.bytes),
-                        progress.path);
-                }
-            }
-            return status;
-        }
-
-        if (exists && force) {
-            std::filesystem::remove(target_path, fs_error);
-            fs_error.clear();
-        }
-
-        std::filesystem::create_directories(target_path.parent_path(), fs_error);
-        if (fs_error) {
-            log_line("Failed to create directory: " + fs_error.message());
-            return status;
-        }
-
-        std::filesystem::path temp_path = target_path;
-        temp_path += ".download";
-        if (std::filesystem::exists(temp_path, fs_error)) {
-            std::filesystem::remove(temp_path, fs_error);
-        }
-
-        FILE *file = std::fopen(temp_path.string().c_str(), "wb");
-        if (!file) {
-            log_line("Unable to open temp file for writing: " + temp_path.string());
-            return status;
-        }
-
-        CURL *curl = curl_easy_init();
-        if (!curl) {
-            std::fclose(file);
-            log_line("curl_easy_init failed");
-            return status;
-        }
-
-        struct curl_slist *header_list = nullptr;
-        if (!bearer.empty()) {
-            header_list = curl_slist_append(header_list, ("Authorization: Bearer " + bearer).c_str());
-        }
-        for (const auto &header : header_lines) {
-            header_list = curl_slist_append(header_list, header.c_str());
-        }
-
-        struct ProgressData {
-            AgentRuntime *runtime = nullptr;
-            std::vector<String> *entries = nullptr;
-            std::string label;
-            String path;
-            std::chrono::steady_clock::time_point last_emit;
-        } progress{this, &log_entries, friendly_name, String::utf8(target_path.string().c_str()), std::chrono::steady_clock::now() - std::chrono::seconds(1)};
-
-        curl_easy_setopt(curl, CURLOPT_URL, source_url.c_str());
-        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-        curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "llama-cpp");
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, +[](char *ptr, size_t size, size_t nmemb, void *userdata) -> size_t {
-            FILE *dest = static_cast<FILE *>(userdata);
-            return std::fwrite(ptr, size, nmemb, dest);
-        });
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
-        curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 1024 * 1024L);
-        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, +[](void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t, curl_off_t) -> int {
-            auto *progress = static_cast<ProgressData *>(clientp);
-            if (!progress || !progress->entries) {
-                return 0;
-            }
-            if (dltotal <= 0) {
-                return 0;
-            }
-            auto now = std::chrono::steady_clock::now();
-            if ((now - progress->last_emit) < std::chrono::milliseconds(350) && dlnow < dltotal) {
-                return 0;
-            }
-            progress->last_emit = now;
-            double percent = static_cast<double>(dlnow) / static_cast<double>(dltotal) * 100.0;
-            std::ostringstream oss;
-            oss << progress->label << ": " << std::fixed << std::setprecision(1) << percent
-                << "% (" << format_bytes(static_cast<uint64_t>(dlnow))
-                << " / " << format_bytes(static_cast<uint64_t>(dltotal)) << ")";
-            String message = String::utf8(oss.str().c_str());
-            progress->entries->push_back(message);
-            if (progress->runtime) {
-                double fraction = dltotal > 0 ? static_cast<double>(dlnow) / static_cast<double>(dltotal) : 0.0;
-                progress->runtime->emit_signal("download_progress",
-                    String::utf8(progress->label.c_str()),
-                    fraction,
-                    static_cast<int64_t>(dlnow),
-                    static_cast<int64_t>(dltotal),
-                    progress->path);
-                progress->runtime->emit_signal("download_log", message, progress->path);
-            }
-            return 0;
-        });
-        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &progress);
-        if (timeout_seconds > 0.0) {
-            curl_easy_setopt(curl, CURLOPT_TIMEOUT, static_cast<long>(timeout_seconds));
-        }
-        if (header_list) {
-            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list);
-        }
-
-        CURLcode code = curl_easy_perform(curl);
-        long http_status = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
-
-        if (header_list) {
-            curl_slist_free_all(header_list);
-        }
-        curl_easy_cleanup(curl);
-        std::fclose(file);
-
-        if (code != CURLE_OK || http_status < 200 || http_status >= 400) {
-            std::ostringstream error_stream;
-            error_stream << "Download failed for " << friendly_name
-                         << ": " << curl_easy_strerror(code)
-                         << " (HTTP " << http_status << ")";
-            log_line(error_stream.str());
-            std::filesystem::remove(temp_path, fs_error);
-            return status;
-        }
-
-        std::filesystem::remove(target_path, fs_error);
-        fs_error.clear();
-        std::filesystem::rename(temp_path, target_path, fs_error);
-        if (fs_error) {
-            log_line("Failed to finalize download: " + fs_error.message());
-            std::filesystem::remove(temp_path, fs_error);
-            return status;
-        }
-
-        status.ok = true;
-        std::error_code size_error;
-        status.bytes = static_cast<uint64_t>(std::filesystem::file_size(target_path, size_error));
-        if (!size_error) {
-            total_bytes += status.bytes;
-            std::ostringstream done_line;
-            done_line << friendly_name << " saved (" << format_bytes(status.bytes) << ")";
-            log_line(done_line.str());
-            if (progress.runtime) {
-                progress.runtime->emit_signal("download_progress",
-                    String::utf8(progress.label.c_str()),
-                    1.0,
-                    static_cast<int64_t>(status.bytes),
-                    static_cast<int64_t>(status.bytes),
-                    progress.path);
-            }
+        std::filesystem::path dir_path(local_agents::runtime::to_utf8(output_dir));
+        String folder_override = options.get("folder", String());
+        if (!folder_override.is_empty()) {
+            dir_path /= local_agents::runtime::to_utf8(folder_override);
         } else {
-            log_line(friendly_name + " saved");
+            String folder = repo;
+            folder = folder.replace("/", "_");
+            folder = folder.replace(":", "_");
+            dir_path /= local_agents::runtime::to_utf8(folder);
         }
 
-        return status;
-    };
-
-    auto primary_status = download_single(base_url, output_path, label);
-    if (!primary_status.ok) {
-        return finalize(false, "download_failed");
-    }
-    file_paths.push_back(output_path.string());
-
-    int split_count = read_split_count(output_path);
-    if (split_count > 1) {
-        auto split_pairs = build_split_pairs(split_count, output_path, base_url);
-        if (static_cast<int>(split_pairs.size()) != split_count - 1) {
-            return finalize(false, "split_resolution_failed");
-        }
-        for (int idx = 0; idx < static_cast<int>(split_pairs.size()); ++idx) {
-            const auto &pair = split_pairs[static_cast<size_t>(idx)];
-            std::string part_label = label + " part " + std::to_string(idx + 2);
-            auto status = download_single(pair.first, pair.second, part_label);
-            if (!status.ok) {
-                return finalize(false, "download_failed");
-            }
-            file_paths.push_back(pair.second.string());
-        }
+        std::error_code ec;
+        std::filesystem::create_directories(dir_path, ec);
+        dir_path /= local_agents::runtime::to_utf8(hf_file);
+        output_path = String::utf8(dir_path.string().c_str());
     }
 
-    emit_progress(label_string, 1.0, static_cast<int64_t>(total_bytes), static_cast<int64_t>(total_bytes), path_string);
-    return finalize(true, "");
-#else
-    log_line("llama.cpp built without curl support; downloader unavailable");
-    return finalize(false, "curl_not_available");
-#endif
+    request["output_path"] = output_path;
+
+    return download_model(request);
 }
 
 Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
@@ -1147,8 +529,6 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
         }
     }
 
-    reset_chat_state_locked();
-
     sampler_.reset();
     if (!ensure_sampler_locked(options)) {
         response["ok"] = false;
@@ -1156,51 +536,11 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
         return response;
     }
 
-    if (!ensure_chat_templates_locked(options)) {
-        response["ok"] = false;
-        response["error"] = "chat_template_unavailable";
-        return response;
-    }
-
     if (sampler_) {
         llama_sampler_reset(sampler_.get());
     }
 
-    std::vector<common_chat_msg> messages = build_messages_from_history(history, prompt, options);
-    if (messages.empty()) {
-        response["ok"] = false;
-        response["error"] = "empty_messages";
-        return response;
-    }
-
-    common_chat_templates_inputs inputs;
-    inputs.use_jinja = chat_use_jinja_;
-    inputs.add_generation_prompt = (bool)options.get("add_generation_prompt", true);
-    inputs.messages = messages;
-
-    common_chat_params chat_params;
-    try {
-        chat_params = common_chat_templates_apply(chat_templates_.get(), inputs);
-    } catch (const std::exception &e) {
-        response["ok"] = false;
-        response["error"] = "chat_template_apply_failed";
-        response["message"] = String::utf8(e.what());
-        return response;
-    }
-
-    pending_additional_stops_ = chat_params.additional_stops;
-    pending_grammar_ = chat_params.grammar;
-    pending_grammar_lazy_ = chat_params.grammar_lazy;
-    pending_grammar_triggers_ = chat_params.grammar_triggers;
-
-    if (!pending_grammar_.empty()) {
-        UtilityFunctions::push_warning("AgentRuntime: grammar constraints from chat template are not yet enforced; output may not match requested schema.");
-        pending_grammar_.clear();
-        pending_grammar_triggers_.clear();
-        pending_grammar_lazy_ = false;
-    }
-
-    std::string prompt_text = chat_params.prompt;
+    std::string prompt_text = build_prompt(history, prompt);
 
     const bool add_bos = true;
     const llama_vocab *vocab = llama_model_get_vocab(model_);
@@ -1210,15 +550,15 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
         return response;
     }
 
-    int token_capacity = llama_tokenize(vocab, prompt_text.c_str(), (int32_t)prompt_text.length(), nullptr, 0, add_bos, false);
+    int token_capacity = llama_tokenize(vocab, prompt_text.c_str(), static_cast<int32_t>(prompt_text.length()), nullptr, 0, add_bos, false);
     if (token_capacity <= 0) {
         response["ok"] = false;
         response["error"] = "tokenization_failed";
         return response;
     }
 
-    std::vector<llama_token> tokens_prompt(token_capacity);
-    llama_tokenize(vocab, prompt_text.c_str(), (int32_t)prompt_text.length(), tokens_prompt.data(), token_capacity, add_bos, false);
+    std::vector<llama_token> tokens_prompt(static_cast<size_t>(token_capacity));
+    llama_tokenize(vocab, prompt_text.c_str(), static_cast<int32_t>(prompt_text.length()), tokens_prompt.data(), token_capacity, add_bos, false);
 
     llama_batch batch = llama_batch_get_one(tokens_prompt.data(), token_capacity);
 
@@ -1230,135 +570,24 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
 
     int max_tokens = options.get("max_tokens", 256);
 
-    std::vector<std::string> stop_sequences = pending_additional_stops_;
-    auto append_stop = [&stop_sequences](const Variant &value) {
-        switch (value.get_type()) {
-            case Variant::STRING: {
-                String stop_str = value;
-                if (!stop_str.is_empty()) {
-                    stop_sequences.push_back(to_utf8(stop_str));
-                }
-                break;
-            }
-            case Variant::PACKED_STRING_ARRAY: {
-                PackedStringArray arr = value;
-                for (int i = 0; i < arr.size(); ++i) {
-                    String stop_str = arr[i];
-                    if (!stop_str.is_empty()) {
-                        stop_sequences.push_back(to_utf8(stop_str));
-                    }
-                }
-                break;
-            }
-            case Variant::ARRAY: {
-                Array arr = value;
-                for (int i = 0; i < arr.size(); ++i) {
-                    Variant entry = arr[i];
-                    if (entry.get_type() == Variant::STRING) {
-                        String stop_str = entry;
-                        if (!stop_str.is_empty()) {
-                            stop_sequences.push_back(to_utf8(stop_str));
-                        }
-                    }
-                }
-                break;
-            }
-            default:
-                break;
-        }
-    };
-
-    if (options.has("stop")) {
-        append_stop(options["stop"]);
-    }
-    if (options.has("stop_sequences")) {
-        append_stop(options["stop_sequences"]);
-    }
-
-    std::string generated_text;
-    generated_text.reserve(static_cast<size_t>(max_tokens) * 4);
-
-    int generated_tokens = 0;
-    bool stop_triggered = false;
-    bool hit_eos = false;
-
+    std::ostringstream generated;
     for (int i = 0; i < max_tokens; ++i) {
         llama_token token = llama_sampler_sample(sampler_.get(), context_, -1);
         if (llama_vocab_is_eog(vocab, token)) {
-            hit_eos = true;
             break;
         }
-
-        generated_text += token_to_string(token);
-        ++generated_tokens;
-
-        if (sampler_) {
-            llama_sampler_accept(sampler_.get(), token);
-        }
+        generated << token_to_string(token);
 
         llama_batch cont = llama_batch_get_one(&token, 1);
         if (llama_decode(context_, cont)) {
             UtilityFunctions::push_warning("llama_decode failed during continuation");
             break;
         }
-
-        bool matched_stop = false;
-        for (const std::string &stop_seq : stop_sequences) {
-            if (stop_seq.empty() || stop_seq.size() > generated_text.size()) {
-                continue;
-            }
-            size_t start = generated_text.size() - stop_seq.size();
-            if (generated_text.compare(start, stop_seq.size(), stop_seq) == 0) {
-                generated_text.erase(start);
-                stop_triggered = true;
-                matched_stop = true;
-                break;
-            }
-        }
-
-        if (matched_stop) {
-            break;
-        }
     }
 
-    bool length_reached = generated_tokens >= max_tokens && !stop_triggered && !hit_eos;
-
-    String text = String::utf8(generated_text.c_str()).strip_edges();
-
-    String finish_reason = String("stop");
-    if (length_reached) {
-        finish_reason = "length";
-    }
-
+    String text = String::utf8(generated.str().c_str()).strip_edges();
     response["ok"] = true;
     response["text"] = text;
-    response["finish_reason"] = finish_reason;
-    response["object"] = String("chat.completion");
-    response["id"] = make_completion_id();
-    response["created"] = (int64_t)std::time(nullptr);
-
-    String model_name = loaded_model_name_.is_empty() ? default_model_path_ : loaded_model_name_;
-    response["model"] = model_name;
-
-    Dictionary usage;
-    usage["prompt_tokens"] = token_capacity;
-    usage["completion_tokens"] = generated_tokens;
-    usage["total_tokens"] = token_capacity + generated_tokens;
-    response["usage"] = usage;
-
-    Dictionary message;
-    message["role"] = String("assistant");
-    message["content"] = text;
-
-    Dictionary choice;
-    choice["index"] = 0;
-    choice["finish_reason"] = finish_reason;
-    choice["message"] = message;
-
-    Array choices;
-    choices.push_back(choice);
-    response["choices"] = choices;
-
     return response;
 }
 

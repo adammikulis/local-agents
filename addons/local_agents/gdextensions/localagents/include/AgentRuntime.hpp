@@ -23,6 +23,8 @@ struct llama_sampler;
 
 namespace godot {
 
+class ModelDownloadManager;
+
 class AgentRuntime : public Node {
     GDCLASS(AgentRuntime, Node);
 
@@ -40,6 +42,8 @@ public:
     PackedFloat32Array embed_text(const String &text, const Dictionary &options = Dictionary());
 
     Dictionary download_model(const Dictionary &request);
+    Dictionary download_model_hf(const String &repo, const Dictionary &options = Dictionary());
+    String get_model_cache_directory() const;
 
     void set_default_model_path(const String &path);
     String get_default_model_path() const;
@@ -57,9 +61,7 @@ protected:
 private:
     Dictionary run_inference_locked(const Dictionary &request);
     bool ensure_sampler_locked(const Dictionary &options);
-    std::vector<common_chat_msg> build_messages_from_history(const TypedArray<Dictionary> &history, const String &user_prompt, const Dictionary &options) const;
-    bool ensure_chat_templates_locked(const Dictionary &options);
-    void reset_chat_state_locked();
+    std::string build_prompt(const TypedArray<Dictionary> &history, const String &user_prompt) const;
     std::string token_to_string(llama_token token) const;
     bool load_model_locked(const String &path, const Dictionary &options, bool store_defaults);
     void unload_model_locked();
@@ -71,22 +73,12 @@ private:
     llama_model *model_ = nullptr;
     llama_context *context_ = nullptr;
     std::unique_ptr<llama_sampler, void(*)(llama_sampler*)> sampler_;
+    std::unique_ptr<ModelDownloadManager> download_manager_;
 
     String default_model_path_;
     String runtime_directory_;
     String system_prompt_;
     Dictionary default_options_;
-
-    common_chat_templates_ptr chat_templates_;
-    bool chat_use_jinja_ = true;
-    String chat_template_override_;
-
-    std::string pending_grammar_;
-    bool pending_grammar_lazy_ = false;
-    std::vector<common_grammar_trigger> pending_grammar_triggers_;
-    std::vector<std::string> pending_additional_stops_;
-
-    String loaded_model_name_;
 };
 
 } // namespace godot

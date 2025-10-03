@@ -24,9 +24,14 @@ func _ready() -> void:
     var runtime_dir := _resolve_runtime_directory()
     if runtime_dir != "":
         agent_node.runtime_directory = runtime_dir
-    var default_model := "res://addons/local_agents/models/qwen3-4b-instruct/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
-    if FileAccess.file_exists(default_model):
-        agent_node.default_model_path = default_model
+    var user_models_dir := ProjectSettings.globalize_path("user://local_agents/models")
+    DirAccess.make_dir_recursive_absolute(user_models_dir)
+    var user_default_model := "user://local_agents/models/qwen3-4b-instruct/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+    var res_default_model := "res://addons/local_agents/models/qwen3-4b-instruct/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+    if FileAccess.file_exists(user_default_model):
+        agent_node.default_model_path = ProjectSettings.globalize_path(user_default_model)
+    elif FileAccess.file_exists(res_default_model):
+        agent_node.default_model_path = ProjectSettings.globalize_path(res_default_model)
     agent_node.tick_enabled = tick_enabled
     agent_node.tick_interval = tick_interval
     agent_node.max_actions_per_tick = max_actions_per_tick

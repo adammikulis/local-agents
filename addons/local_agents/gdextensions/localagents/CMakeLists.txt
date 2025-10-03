@@ -12,6 +12,8 @@ set(LLAMA_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/llama.cpp" CACHE PATH 
 
 # Enable llama.cpp common utilities so we can reuse chat/template helpers.
 set(LLAMA_BUILD_COMMON ON CACHE BOOL "llama: build common utils" ON)
+set(LLAMA_BUILD_TOOLS ON CACHE BOOL "llama: build tools (llama-cli, etc.)" ON)
+set(LLAMA_BUILD_SERVER ON CACHE BOOL "llama: build server example" ON)
 set(LLAMA_CURL ON CACHE BOOL "llama: enable curl support" ON)
 
 if (NOT EXISTS "${GODOT_CPP_DIR}/CMakeLists.txt")
@@ -28,6 +30,7 @@ add_subdirectory(${LLAMA_CPP_DIR} "${CMAKE_BINARY_DIR}/llama.cpp" EXCLUDE_FROM_A
 set(SRC
     src/AgentNode.cpp
     src/AgentRuntime.cpp
+    src/ModelDownloadManager.cpp
     src/NetworkGraph.cpp
     src/LocalAgentsRegister.cpp
 )
@@ -51,6 +54,13 @@ add_library(localagents SHARED ${SRC} ${SQLITE_SRC})
 target_include_directories(localagents PRIVATE ${INCLUDE_DIRS})
 
 target_link_libraries(localagents PRIVATE godot-cpp llama common)
+
+if (TARGET llama-cli)
+    add_dependencies(localagents llama-cli)
+endif()
+if (TARGET llama-server)
+    add_dependencies(localagents llama-server)
+endif()
 
 find_package(CURL REQUIRED)
 if (CURL_FOUND)

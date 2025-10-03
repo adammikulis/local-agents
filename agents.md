@@ -16,3 +16,7 @@
 - Log blockers or ownership gaps in this file so the right agent can act.
 - Default to feature branches and avoid force pushes on shared branches.
 - Keep the “Agent Assigned” checkboxes up to date as owners rotate.
+
+## Active Notes
+
+- Data agent is splitting download/chat responsibilities: `ModelDownloadManager` (Runtime) now invokes bundled `llama-cli` for GGUF pulls, `LocalAgentsDownloadClient` (GDScript) mirrors the API for gameplay scripts, with `DownloadJobService`/conversation helpers still pending.

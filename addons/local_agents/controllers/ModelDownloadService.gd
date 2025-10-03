@@ -3,7 +3,7 @@ extends RefCounted
 class_name LocalAgentsModelDownloadService
 
 const CATALOG_PATH := "res://addons/local_agents/models/catalog.json"
-const MODELS_ROOT := "res://addons/local_agents/models"
+const MODELS_ROOT := "user://local_agents/models"
 const DEFAULT_MODEL_ID := "qwen3-4b-instruct-q4_k_m"
 
 const FALLBACK_MODEL := {

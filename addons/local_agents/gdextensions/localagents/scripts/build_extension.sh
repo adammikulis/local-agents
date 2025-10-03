@@ -43,9 +43,23 @@ case "$(uname -s)" in
                 done
             done
         fi
+
+        for tool in llama-cli llama-server; do
+            tool_path="${BUILD_DIR}/bin/${tool}"
+            if [[ -f "${tool_path}" ]]; then
+                cp -f "${tool_path}" "${BIN_DIR}/${tool}"
+            fi
+        done
         ;;
     Linux)
         mv -f "${BIN_DIR}/liblocalagents.linux.so" "${BIN_DIR}/localagents.linux.so" 2>/dev/null || true
+
+        for tool in llama-cli llama-server; do
+            tool_path="${BUILD_DIR}/bin/${tool}"
+            if [[ -f "${tool_path}" ]]; then
+                cp -f "${tool_path}" "${BIN_DIR}/${tool}"
+            fi
+        done
         ;;
 esac
 
