@@ -49,7 +49,7 @@ void ensure_curl_initialized() {
 }
 #endif
 
-llama_sampler *create_sampler(const Dictionary &options) {
+llama_sampler *create_sampler(const Dictionary &options, const llama_model *model) {
     llama_sampler_chain_params chain_params = llama_sampler_chain_default_params();
     chain_params.no_perf = true;
 
@@ -65,6 +65,7 @@ llama_sampler *create_sampler(const Dictionary &options) {
     };
 
     bool use_distribution = false;
+    bool use_mirostat = false;
 
     if (options.has("top_k")) {
         int32_t top_k = (int32_t)options["top_k"];
@@ -90,6 +91,14 @@ llama_sampler *create_sampler(const Dictionary &options) {
         }
     }
 
+    if (options.has("typical_p")) {
+        float typical_p = (float)options["typical_p"];
+        if (typical_p > 0.0f && typical_p < 1.0f) {
+            append_sampler(llama_sampler_init_typical(typical_p, 1));
+            use_distribution = true;
+        }
+    }
+
     float temperature = 1.0f;
     if (options.has("temperature")) {
         temperature = (float)options["temperature"];
@@ -106,13 +115,41 @@ llama_sampler *create_sampler(const Dictionary &options) {
 
     uint32_t seed = LLAMA_DEFAULT_SEED;
     if (options.has("seed")) {
-        seed = static_cast<uint32_t>((int64_t)options["seed"]);
+        int64_t raw_seed = (int64_t)options["seed"];
+        if (raw_seed >= 0) {
+            seed = static_cast<uint32_t>(raw_seed);
+        }
     }
 
-    if (use_distribution) {
-        append_sampler(llama_sampler_init_dist(seed));
-    } else {
-        append_sampler(llama_sampler_init_greedy());
+    float repeat_penalty = options.get("repeat_penalty", 1.0f);
+    float frequency_penalty = options.get("frequency_penalty", 0.0f);
+    float presence_penalty = options.get("presence_penalty", 0.0f);
+    int32_t repeat_last_n = options.get("repeat_last_n", 0);
+    if (repeat_penalty != 1.0f || frequency_penalty != 0.0f || presence_penalty != 0.0f || repeat_last_n != 0) {
+        append_sampler(llama_sampler_init_penalties(repeat_last_n, repeat_penalty, frequency_penalty, presence_penalty));
+    }
+
+    int32_t mirostat_mode = options.get("mirostat", 0);
+    if (mirostat_mode == 1 && model != nullptr) {
+        int32_t vocab = llama_model_n_vocab(model);
+        int32_t mirostat_last_n = options.get("mirostat_m", 100);
+        float tau = options.get("mirostat_tau", 5.0f);
+        float eta = options.get("mirostat_eta", 0.1f);
+        append_sampler(llama_sampler_init_mirostat(vocab, seed, tau, eta, mirostat_last_n));
+        use_mirostat = true;
+    } else if (mirostat_mode == 2) {
+        float tau = options.get("mirostat_tau", 5.0f);
+        float eta = options.get("mirostat_eta", 0.1f);
+        append_sampler(llama_sampler_init_mirostat_v2(seed, tau, eta));
+        use_mirostat = true;
+    }
+
+    if (!use_mirostat) {
+        if (use_distribution) {
+            append_sampler(llama_sampler_init_dist(seed));
+        } else {
+            append_sampler(llama_sampler_init_greedy());
+        }
     }
 
     if (llama_sampler_chain_n(chain) == 0) {
@@ -790,7 +827,7 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
 }
 
 bool AgentRuntime::ensure_sampler_locked(const Dictionary &options) {
-    llama_sampler *sampler = create_sampler(options);
+    llama_sampler *sampler = create_sampler(options, model_);
     if (!sampler) {
         UtilityFunctions::push_error("AgentRuntime::ensure_sampler - failed to create sampler");
         return false;

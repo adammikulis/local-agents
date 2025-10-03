@@ -5,6 +5,7 @@ signal agent_ready(agent)
 signal configs_updated()
 
 const CONFIG_LIST_PATH := "res://addons/local_agents/configuration/parameters/ConfigList.tres"
+const DEFAULT_INFERENCE_PARAMS_PATH := "res://addons/local_agents/configuration/parameters/InferenceParams.tres"
 
 var config_list: LocalAgentsConfigList
 var agent: LocalAgentsAgent
@@ -39,6 +40,19 @@ func _ensure_config_list() -> void:
         config_list = ResourceLoader.load(CONFIG_LIST_PATH)
     if config_list == null:
         config_list = LocalAgentsConfigList.new()
+        _save_config_list()
+    if config_list.inference_configurations.is_empty():
+        var default_inference: LocalAgentsInferenceParams = ResourceLoader.load(DEFAULT_INFERENCE_PARAMS_PATH)
+        if default_inference:
+            config_list.inference_configurations.append(default_inference.duplicate(true))
+        else:
+            var fallback := LocalAgentsInferenceParams.new()
+            fallback.inference_config_name = "<default>"
+            config_list.inference_configurations.append(fallback)
+        if config_list.current_inference_config == null:
+            config_list.current_inference_config = config_list.inference_configurations[0]
+        if config_list.last_good_inference_config == null:
+            config_list.last_good_inference_config = config_list.inference_configurations[0]
         _save_config_list()
 
 func _save_config_list() -> void:
