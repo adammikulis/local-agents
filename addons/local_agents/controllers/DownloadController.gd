@@ -25,16 +25,27 @@ var _is_running := false
 var _pending_job: Dictionary = {}
 var _model_service := MODEL_SERVICE.new()
 var _selected_model_id := ""
+var _runtime: Object = null
+var _runtime_connected := false
+var _runtime_log_streaming := false
+var _active_download_path := ""
+var _active_download_dir := ""
+var _active_download_label := ""
+var _active_download_progress := 0.0
+var _active_download_received := 0
+var _active_download_total := 0
 
 func _ready() -> void:
     _reset_output()
     _populate_model_tree()
     _set_running_state(false, "Idle")
+    _connect_runtime_signals()
 
 func _exit_tree() -> void:
     if _worker:
         _worker.wait_to_finish()
         _worker = null
+    _disconnect_runtime_signals()
 
 func download_all() -> void:
     var request := _model_service.create_request({}, _selected_model_id)
@@ -97,18 +108,169 @@ func _start_worker(job: Dictionary) -> void:
     if needs_script:
         if not FileAccess.file_exists(FETCH_SCRIPT):
             push_error("Download script missing: %s" % FETCH_SCRIPT)
+            _clear_runtime_tracking()
             return
         script_path = ProjectSettings.globalize_path(FETCH_SCRIPT)
         job["script_path"] = script_path
     if _worker:
         _worker.wait_to_finish()
     _worker = Thread.new()
+    if job_type == JOB_MODEL or job_type == JOB_COMPOSITE:
+        _start_tracking_request(job.get("request", {}))
+    else:
+        _clear_runtime_tracking()
     _pending_job = job.duplicate(true)
     _is_running = true
     var status := job.get("status_label", "Running download")
     _set_running_state(true, status)
     _log_job(_pending_job)
     _worker.start(Callable(self, "_thread_download").bind(script_path))
+
+func _connect_runtime_signals() -> void:
+    if _runtime_connected:
+        return
+    if not Engine.has_singleton("AgentRuntime"):
+        return
+    var runtime := Engine.get_singleton("AgentRuntime")
+    if runtime == null:
+        return
+    var connected := false
+    if runtime.has_signal("download_started") and not runtime.is_connected("download_started", Callable(self, "_on_runtime_download_started")):
+        runtime.connect("download_started", Callable(self, "_on_runtime_download_started"))
+        connected = true
+    if runtime.has_signal("download_progress") and not runtime.is_connected("download_progress", Callable(self, "_on_runtime_download_progress")):
+        runtime.connect("download_progress", Callable(self, "_on_runtime_download_progress"))
+        connected = true
+    if runtime.has_signal("download_log") and not runtime.is_connected("download_log", Callable(self, "_on_runtime_download_log")):
+        runtime.connect("download_log", Callable(self, "_on_runtime_download_log"))
+        connected = true
+    if runtime.has_signal("download_finished") and not runtime.is_connected("download_finished", Callable(self, "_on_runtime_download_finished")):
+        runtime.connect("download_finished", Callable(self, "_on_runtime_download_finished"))
+        connected = true
+    if connected:
+        _runtime = runtime
+        _runtime_connected = true
+
+func _disconnect_runtime_signals() -> void:
+    if not _runtime_connected:
+        return
+    if _runtime == null:
+        _runtime_connected = false
+        return
+    if _runtime.is_connected("download_started", Callable(self, "_on_runtime_download_started")):
+        _runtime.disconnect("download_started", Callable(self, "_on_runtime_download_started"))
+    if _runtime.is_connected("download_progress", Callable(self, "_on_runtime_download_progress")):
+        _runtime.disconnect("download_progress", Callable(self, "_on_runtime_download_progress"))
+    if _runtime.is_connected("download_log", Callable(self, "_on_runtime_download_log")):
+        _runtime.disconnect("download_log", Callable(self, "_on_runtime_download_log"))
+    if _runtime.is_connected("download_finished", Callable(self, "_on_runtime_download_finished")):
+        _runtime.disconnect("download_finished", Callable(self, "_on_runtime_download_finished"))
+    _runtime = null
+    _runtime_connected = false
+
+func _start_tracking_request(request: Dictionary) -> void:
+    _connect_runtime_signals()
+    _runtime_log_streaming = _runtime_connected
+    if request.is_empty():
+        _clear_runtime_tracking()
+        return
+    var output_path_variant := request.get("output_path", "")
+    _active_download_path = String(output_path_variant)
+    _active_download_dir = _active_download_path.get_base_dir()
+    _active_download_label = String(request.get("label", ""))
+    _active_download_progress = 0.0
+    _active_download_received = 0
+    _active_download_total = 0
+
+func _clear_runtime_tracking() -> void:
+    _active_download_path = ""
+    _active_download_dir = ""
+    _active_download_label = ""
+    _active_download_progress = 0.0
+    _active_download_received = 0
+    _active_download_total = 0
+    _runtime_log_streaming = false
+
+func _is_tracking_path(path: String) -> bool:
+    if _active_download_path.is_empty():
+        return false
+    if path == _active_download_path:
+        return true
+    if _active_download_dir != "" and path.begins_with(_active_download_dir):
+        return true
+    return false
+
+func _on_runtime_download_started(label: String, path: String) -> void:
+    call_deferred("_handle_runtime_started", label, path)
+
+func _handle_runtime_started(label: String, path: String) -> void:
+    if not _is_tracking_path(path):
+        return
+    _active_download_label = label
+    _active_download_progress = 0.0
+    _active_download_received = 0
+    _active_download_total = 0
+    _refresh_runtime_status_label()
+
+func _on_runtime_download_progress(label: String, progress: float, received_bytes: int, total_bytes: int, path: String) -> void:
+    call_deferred("_update_runtime_progress", label, progress, received_bytes, total_bytes, path)
+
+func _update_runtime_progress(label: String, progress: float, received_bytes: int, total_bytes: int, path: String) -> void:
+    if not _is_tracking_path(path):
+        return
+    if label != "":
+        _active_download_label = label
+    _active_download_progress = progress
+    _active_download_received = received_bytes
+    _active_download_total = total_bytes
+    _refresh_runtime_status_label()
+
+func _on_runtime_download_log(line: String, path: String) -> void:
+    call_deferred("_append_runtime_log_line", line, path)
+
+func _append_runtime_log_line(line: String, path: String) -> void:
+    if not _is_tracking_path(path):
+        return
+    if output_log:
+        output_log.append_text("%s\n" % line)
+
+func _on_runtime_download_finished(ok: bool, error: String, path: String) -> void:
+    call_deferred("_handle_runtime_finished", ok, error, path)
+
+func _handle_runtime_finished(ok: bool, error: String, path: String) -> void:
+    if not _is_tracking_path(path):
+        return
+    if ok:
+        _active_download_progress = 1.0
+        _active_download_received = max(_active_download_received, _active_download_total)
+    _refresh_runtime_status_label()
+
+func _refresh_runtime_status_label() -> void:
+    if not status_label:
+        return
+    var label := _active_download_label
+    if label == "":
+        label = "Downloading model"
+    var percent := clamp(_active_download_progress * 100.0, 0.0, 100.0)
+    if _active_download_total > 0:
+        status_label.text = "%s %.1f%% (%s / %s)" % [label, percent, _format_bytes(_active_download_received), _format_bytes(_active_download_total)]
+    elif _active_download_received > 0:
+        status_label.text = "%s %.1f%% (%s)" % [label, percent, _format_bytes(_active_download_received)]
+    else:
+        status_label.text = "%s %.1f%%" % [label, percent]
+
+func _format_bytes(amount: int) -> String:
+    if amount <= 0:
+        return "0 B"
+    var units := ["B", "KB", "MB", "GB", "TB"]
+    var size := float(amount)
+    var index := 0
+    while size >= 1024.0 and index < units.size() - 1:
+        size /= 1024.0
+        index += 1
+    if index == 0:
+        return "%d %s" % [int(size), units[index]]
+    return "%.2f %s" % [size, units[index]]
 
 func _thread_download(script_path: String) -> void:
     var job := _pending_job.duplicate(true)
@@ -156,7 +318,8 @@ func _execute_model_job(job: Dictionary) -> Dictionary:
         return {"ok": false, "log": lines, "exit_code": -1}
     var model_result: Dictionary = runtime.call("download_model", request)
     var model_log: PackedStringArray = model_result.get("log", PackedStringArray())
-    lines.append_array(model_log)
+    if not _runtime_log_streaming:
+        lines.append_array(model_log)
     var ok := model_result.get("ok", false)
     if not ok and model_result.has("error"):
         lines.append("Error: %s" % model_result["error"])
@@ -179,7 +342,8 @@ func _execute_composite_job(script_path: String, job: Dictionary) -> Dictionary:
         return script_result
     var model_job := {"request": job.get("request", {})}
     var model_result := _execute_model_job(model_job)
-    combined.append_array(model_result.get("log", PackedStringArray()))
+    if not _runtime_log_streaming:
+        combined.append_array(model_result.get("log", PackedStringArray()))
     return {
         "ok": model_result.get("ok", false),
         "log": combined,
@@ -199,7 +363,11 @@ func _on_download_finished(result: Dictionary) -> void:
         _worker.wait_to_finish()
         _worker = null
     _pending_job = {}
-    _set_running_state(false, "Completed" if ok else "Failed")
+    var final_message := "Completed" if ok else "Failed"
+    if _active_download_label != "":
+        final_message = "%s %s" % [("Downloaded" if ok else "Failed"), _active_download_label]
+    _set_running_state(false, final_message)
+    _clear_runtime_tracking()
 
 func _reset_output() -> void:
     if output_log:
@@ -344,6 +512,17 @@ func _log_job(job: Dictionary) -> void:
             output_log.append_text("AgentRuntime Model Download\n\n")
             output_log.append_text("Target: %s\n" % request.get("output_path", ""))
             output_log.append_text("Source: %s\n\n" % request.get("url", ""))
+            var hf_repo := String(request.get("hf_repo", ""))
+            if hf_repo != "":
+                output_log.append_text("HF Repo: %s\n" % hf_repo)
+            var hf_file := String(request.get("hf_file", ""))
+            if hf_file != "":
+                output_log.append_text("HF File: %s\n" % hf_file)
+            var hf_tag := String(request.get("hf_tag", ""))
+            if hf_tag != "":
+                output_log.append_text("HF Tag: %s\n" % hf_tag)
+            if hf_repo != "" or hf_file != "" or hf_tag != "":
+                output_log.append_text("\n")
         JOB_COMPOSITE:
             var args: PackedStringArray = job.get("args", PackedStringArray())
             var arg_string := ""

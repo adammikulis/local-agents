@@ -1,8 +1,10 @@
 #include "AgentRuntime.hpp"
 
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/json.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
@@ -11,11 +13,13 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <ctime>
 #include <sstream>
 #include <vector>
 #include <chrono>
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iomanip>
 #include <limits>
@@ -36,9 +40,210 @@ std::string to_utf8(const String &value) {
     return std::string(value.utf8().get_data());
 }
 
+String make_completion_id() {
+    static std::atomic<uint64_t> counter{0};
+    uint64_t value = counter.fetch_add(1, std::memory_order_relaxed) + 1;
+    std::ostringstream oss;
+    oss << "chatcmpl-" << value;
+    return String::utf8(oss.str().c_str());
+}
+
 constexpr const char *kSplitCountKey = "split.count";
 constexpr size_t kMaxUrlLength = 2084;
 constexpr size_t kPathBufferSize = 4096;
+
+std::string get_env_string(const char *name) {
+    const char *value = std::getenv(name);
+    if (!value) {
+        return std::string();
+    }
+    return std::string(value);
+}
+
+std::string ensure_trailing_slash(const std::string &value) {
+    if (value.empty() || value.back() == '/') {
+        return value;
+    }
+    std::string with_slash = value;
+    with_slash.push_back('/');
+    return with_slash;
+}
+
+std::string resolve_model_endpoint() {
+    std::string endpoint = get_env_string("MODEL_ENDPOINT");
+    if (endpoint.empty()) {
+        endpoint = get_env_string("HF_ENDPOINT");
+    }
+    if (endpoint.empty()) {
+        endpoint = "https://huggingface.co/";
+    }
+    return ensure_trailing_slash(endpoint);
+}
+
+void append_log(std::vector<String> *entries, const std::string &line) {
+    if (!entries) {
+        return;
+    }
+    entries->push_back(String::utf8(line.c_str()));
+}
+
+std::string build_hf_download_url(const std::string &endpoint, const std::string &repo, const std::string &filename) {
+    std::string normalized_endpoint = ensure_trailing_slash(endpoint);
+    if (normalized_endpoint.empty()) {
+        return std::string();
+    }
+    std::string url = normalized_endpoint + repo;
+    if (!url.empty() && url.back() != '/') {
+        url.push_back('/');
+    }
+    url += "resolve/main/";
+    url += filename;
+    return url;
+}
+
+struct HfManifestResult {
+    bool ok = false;
+    std::string repo;
+    std::string file;
+    std::string mmproj_file;
+    std::string error;
+    long status = 0;
+};
+
+#ifdef LLAMA_USE_CURL
+HfManifestResult fetch_hf_manifest(const std::string &repo_with_tag,
+                                   const std::string &bearer_token,
+                                   double timeout_seconds,
+                                   const std::string &endpoint,
+                                   std::vector<String> *log_entries) {
+    HfManifestResult result;
+
+    if (repo_with_tag.empty()) {
+        result.error = "missing_repo";
+        return result;
+    }
+
+    std::string repo = repo_with_tag;
+    std::string tag = "latest";
+    size_t colon_pos = repo.find(':');
+    if (colon_pos != std::string::npos) {
+        tag = repo.substr(colon_pos + 1);
+        repo = repo.substr(0, colon_pos);
+    }
+
+    result.repo = repo;
+
+    if (repo.find('/') == std::string::npos) {
+        result.error = "invalid_repo";
+        append_log(log_entries, "Invalid Hugging Face repo: " + repo_with_tag);
+        return result;
+    }
+
+    std::string manifest_url = ensure_trailing_slash(endpoint) + "v2/" + repo + "/manifests/" + tag;
+
+    append_log(log_entries, "Requesting Hugging Face manifest: " + repo_with_tag);
+
+    ensure_curl_initialized();
+    CURL *curl = curl_easy_init();
+    if (!curl) {
+        result.error = "curl_init_failed";
+        append_log(log_entries, "Failed to initialize curl for Hugging Face manifest request");
+        return result;
+    }
+
+    struct curl_slist *headers = nullptr;
+    headers = curl_slist_append(headers, "User-Agent: llama-cpp");
+    headers = curl_slist_append(headers, "Accept: application/json");
+    if (!bearer_token.empty()) {
+        std::string auth = "Authorization: Bearer " + bearer_token;
+        headers = curl_slist_append(headers, auth.c_str());
+    }
+
+    std::string response_buffer;
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_URL, manifest_url.c_str());
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 0L);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "llama-cpp");
+    if (timeout_seconds > 0.0) {
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, static_cast<long>(std::ceil(timeout_seconds)));
+    }
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, +[](char *ptr, size_t size, size_t nmemb, void *userdata) -> size_t {
+        auto *buffer = static_cast<std::string *>(userdata);
+        buffer->append(ptr, size * nmemb);
+        return size * nmemb;
+    });
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_buffer);
+
+    CURLcode code = curl_easy_perform(curl);
+    long http_status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
+    result.status = http_status;
+
+    if (headers) {
+        curl_slist_free_all(headers);
+    }
+    curl_easy_cleanup(curl);
+
+    if (code != CURLE_OK) {
+        result.error = "manifest_request_failed";
+        append_log(log_entries, std::string("Manifest request failed: ") + curl_easy_strerror(code));
+        return result;
+    }
+
+    if (http_status >= 400) {
+        std::ostringstream oss;
+        oss << "Manifest request returned HTTP " << http_status;
+        append_log(log_entries, oss.str());
+        result.error = http_status == 401 ? "manifest_unauthorized" : "manifest_http_error";
+        return result;
+    }
+
+    Variant parsed = JSON::parse_string(String::utf8(response_buffer.c_str()));
+    if (parsed.get_type() != Variant::DICTIONARY) {
+        result.error = "manifest_parse_error";
+        append_log(log_entries, "Unable to parse Hugging Face manifest JSON");
+        return result;
+    }
+
+    Dictionary manifest = parsed;
+    Variant gguf_variant = manifest.get("ggufFile", Variant());
+    if (gguf_variant.get_type() == Variant::DICTIONARY) {
+        Dictionary gguf = gguf_variant;
+        String rfilename = gguf.get("rfilename", String());
+        if (rfilename.is_empty()) {
+            rfilename = gguf.get("filename", String());
+        }
+        if (!rfilename.is_empty()) {
+            result.file = to_utf8(rfilename);
+        }
+    }
+
+    Variant mmproj_variant = manifest.get("mmprojFile", Variant());
+    if (mmproj_variant.get_type() == Variant::DICTIONARY) {
+        Dictionary mmproj = mmproj_variant;
+        String rfilename = mmproj.get("rfilename", String());
+        if (rfilename.is_empty()) {
+            rfilename = mmproj.get("filename", String());
+        }
+        if (!rfilename.is_empty()) {
+            result.mmproj_file = to_utf8(rfilename);
+        }
+    }
+
+    if (result.file.empty()) {
+        result.error = "manifest_missing_file";
+        append_log(log_entries, "Hugging Face manifest missing ggufFile entry");
+        return result;
+    }
+
+    result.ok = true;
+    std::ostringstream oss;
+    oss << "Manifest resolved file: " << repo << "/" << result.file;
+    append_log(log_entries, oss.str());
+    return result;
+}
+#endif
 
 #ifdef LLAMA_USE_CURL
 void ensure_curl_initialized() {
@@ -239,6 +444,23 @@ void AgentRuntime::_bind_methods() {
     ClassDB::bind_method(D_METHOD("set_system_prompt", "prompt"), &AgentRuntime::set_system_prompt);
     ClassDB::bind_method(D_METHOD("get_system_prompt"), &AgentRuntime::get_system_prompt);
 
+    ADD_SIGNAL(MethodInfo("download_started",
+        PropertyInfo(Variant::STRING, "label"),
+        PropertyInfo(Variant::STRING, "path")));
+    ADD_SIGNAL(MethodInfo("download_progress",
+        PropertyInfo(Variant::STRING, "label"),
+        PropertyInfo(Variant::FLOAT, "progress"),
+        PropertyInfo(Variant::INT, "received_bytes"),
+        PropertyInfo(Variant::INT, "total_bytes"),
+        PropertyInfo(Variant::STRING, "path")));
+    ADD_SIGNAL(MethodInfo("download_log",
+        PropertyInfo(Variant::STRING, "line"),
+        PropertyInfo(Variant::STRING, "path")));
+    ADD_SIGNAL(MethodInfo("download_finished",
+        PropertyInfo(Variant::BOOL, "ok"),
+        PropertyInfo(Variant::STRING, "error"),
+        PropertyInfo(Variant::STRING, "path")));
+
     ADD_PROPERTY(PropertyInfo(Variant::STRING, "default_model_path"), "set_default_model_path", "get_default_model_path");
     ADD_PROPERTY(PropertyInfo(Variant::STRING, "runtime_directory"), "set_runtime_directory", "get_runtime_directory");
     ADD_PROPERTY(PropertyInfo(Variant::STRING, "system_prompt"), "set_system_prompt", "get_system_prompt");
@@ -398,18 +620,118 @@ PackedFloat32Array AgentRuntime::embed_text(const String &text, const Dictionary
 Dictionary AgentRuntime::download_model(const Dictionary &request) {
     Dictionary response;
     std::vector<String> log_entries;
-    auto log_line = [&log_entries](const std::string &line) {
-        log_entries.push_back(String::utf8(line.c_str()));
+    String path_string;
+    auto log_line = [this, &log_entries, &path_string](const std::string &line) {
+        String message = String::utf8(line.c_str());
+        log_entries.push_back(message);
+        emit_signal("download_log", message, path_string);
     };
 
     String url_value = request.get("url", String());
     String output_value = request.get("output_path", String());
+    String label_value = request.get("label", String());
+    bool force = request.get("force", false);
+    bool skip_existing = request.has("skip_existing") ? (bool)request["skip_existing"] : !force;
+    bool offline = request.get("offline", false);
+    PackedStringArray header_array = request.has("headers") ? request["headers"] : PackedStringArray();
+    String bearer_token = request.get("bearer_token", String());
+    double timeout_seconds = request.get("timeout_seconds", 0.0);
+    String hf_repo_value = request.get("hf_repo", String());
+    String hf_file_value = request.get("hf_file", String());
+    String hf_tag_value = request.get("hf_tag", String());
+    String hf_endpoint_override = request.get("hf_endpoint", String());
+
+    Dictionary hf_details;
+    int64_t manifest_status = -1;
+
+    std::string repo_only;
+    std::string repo_tag;
+    if (!hf_repo_value.is_empty()) {
+        std::string repo_raw = to_utf8(hf_repo_value);
+        size_t colon_pos = repo_raw.find(':');
+        if (colon_pos != std::string::npos) {
+            repo_only = repo_raw.substr(0, colon_pos);
+            repo_tag = repo_raw.substr(colon_pos + 1);
+        } else {
+            repo_only = repo_raw;
+        }
+    }
+    if (!hf_tag_value.is_empty()) {
+        repo_tag = to_utf8(hf_tag_value);
+    }
+    if (!repo_only.empty()) {
+        hf_details["repo"] = String::utf8(repo_only.c_str());
+    }
+    if (!repo_tag.empty()) {
+        hf_details["tag"] = String::utf8(repo_tag.c_str());
+    }
+
+    std::string resolved_file = to_utf8(hf_file_value);
+    if (!resolved_file.empty()) {
+        hf_details["file"] = String::utf8(resolved_file.c_str());
+    }
+
+    std::string endpoint = hf_endpoint_override.is_empty() ? resolve_model_endpoint() : ensure_trailing_slash(to_utf8(hf_endpoint_override));
+
+    std::string bearer = to_utf8(bearer_token);
+    if (bearer.empty()) {
+        bearer = get_env_string("HF_TOKEN");
+        if (bearer.empty()) {
+            bearer = get_env_string("HUGGING_FACE_HUB_TOKEN");
+        }
+        if (!bearer.empty()) {
+            log_line("Using Hugging Face token from environment");
+        }
+    }
+
+    std::string resolved_repo = repo_only;
+    if (url_value.is_empty() && !repo_only.empty() && !offline) {
+#ifdef LLAMA_USE_CURL
+        std::string repo_with_tag = repo_only;
+        if (!repo_tag.empty()) {
+            repo_with_tag += ":" + repo_tag;
+        }
+        auto manifest = fetch_hf_manifest(repo_with_tag, bearer, timeout_seconds, endpoint, &log_entries);
+        manifest_status = manifest.status;
+        if (manifest.ok) {
+            if (!manifest.repo.empty()) {
+                resolved_repo = manifest.repo;
+                hf_details["repo"] = String::utf8(resolved_repo.c_str());
+            }
+            if (resolved_file.empty()) {
+                resolved_file = manifest.file;
+                hf_details["file"] = String::utf8(resolved_file.c_str());
+            }
+            if (!manifest.mmproj_file.empty()) {
+                hf_details["mmproj_file"] = String::utf8(manifest.mmproj_file.c_str());
+            }
+        } else if (!manifest.error.empty()) {
+            log_line("Hugging Face manifest resolution failed: " + manifest.error);
+        }
+#else
+        log_line("Hugging Face manifest resolution unavailable without curl support");
+#endif
+    }
+
+    if (manifest_status >= 0) {
+        hf_details["manifest_status"] = static_cast<int64_t>(manifest_status);
+    }
+
+    if (url_value.is_empty() && !resolved_repo.empty() && !resolved_file.empty()) {
+        std::string built_url = build_hf_download_url(endpoint, resolved_repo, resolved_file);
+        url_value = String::utf8(built_url.c_str());
+        log_line("Resolved download URL: " + built_url);
+    }
+
     if (url_value.is_empty()) {
         log_line("Missing download url");
         response["ok"] = false;
         response["error"] = String("missing_url");
         response["log"] = to_packed(log_entries);
         response["bytes_downloaded"] = static_cast<int64_t>(0);
+        if (!hf_details.is_empty()) {
+            response["hf"] = hf_details;
+        }
         return response;
     }
     if (output_value.is_empty()) {
@@ -418,25 +740,30 @@ Dictionary AgentRuntime::download_model(const Dictionary &request) {
         response["error"] = String("missing_output_path");
         response["log"] = to_packed(log_entries);
         response["bytes_downloaded"] = static_cast<int64_t>(0);
+        if (!hf_details.is_empty()) {
+            response["hf"] = hf_details;
+        }
         return response;
     }
-
-    String label_value = request.get("label", String());
-    bool force = request.get("force", false);
-    bool skip_existing = request.has("skip_existing") ? (bool)request["skip_existing"] : !force;
-    bool offline = request.get("offline", false);
-    PackedStringArray header_array;
-    if (request.has("headers")) {
-        header_array = request["headers"];
-    }
-    String bearer_token = request.get("bearer_token", String());
-    double timeout_seconds = request.get("timeout_seconds", 0.0);
 
     std::filesystem::path output_path = std::filesystem::path(to_utf8(output_value)).lexically_normal();
     std::string label = label_value.is_empty() ? output_path.filename().string() : to_utf8(label_value);
     if (label.empty()) {
         label = to_utf8(url_value);
     }
+
+    String label_string;
+    auto emit_progress = [this](const String &label_ref, double progress, int64_t received, int64_t total, const String &path_ref) {
+        emit_signal("download_progress", label_ref, progress, received, total, path_ref);
+    };
+    auto emit_finished = [this](bool ok, const String &error, const String &path_ref) {
+        emit_signal("download_finished", ok, error, path_ref);
+    };
+
+    path_string = String::utf8(output_path.string().c_str());
+    label_string = String::utf8(label.c_str());
+    emit_signal("download_started", label_string, path_string);
+    emit_progress(label_string, 0.0, 0, 0, path_string);
 
     std::vector<std::string> file_paths;
     uint64_t total_bytes = 0;
@@ -452,6 +779,17 @@ Dictionary AgentRuntime::download_model(const Dictionary &request) {
         if (!error.empty()) {
             response["error"] = String::utf8(error.c_str());
         }
+        if (!url_value.is_empty()) {
+            response["url"] = url_value;
+        }
+        if (!hf_details.is_empty()) {
+            response["hf"] = hf_details;
+        }
+        String error_string;
+        if (!error.empty()) {
+            error_string = String::utf8(error.c_str());
+        }
+        emit_finished(ok, error_string, path_string);
         return response;
     };
 
@@ -529,6 +867,11 @@ Dictionary AgentRuntime::download_model(const Dictionary &request) {
         }
         log_line("Offline mode: using cached model " + output_path.string());
         file_paths.push_back(output_path.string());
+        std::error_code offline_size_error;
+        uint64_t primary_size = static_cast<uint64_t>(std::filesystem::file_size(output_path, offline_size_error));
+        if (!offline_size_error) {
+            total_bytes += primary_size;
+        }
 
         int split_count = read_split_count(output_path);
         if (split_count > 1) {
@@ -543,9 +886,15 @@ Dictionary AgentRuntime::download_model(const Dictionary &request) {
                     return finalize(false, "offline_missing_split");
                 }
                 file_paths.push_back(split_path.string());
+                std::error_code split_size_error;
+                uint64_t split_size = static_cast<uint64_t>(std::filesystem::file_size(split_path, split_size_error));
+                if (!split_size_error) {
+                    total_bytes += split_size;
+                }
             }
         }
 
+        emit_progress(label_string, 1.0, static_cast<int64_t>(total_bytes), static_cast<int64_t>(total_bytes), path_string);
         return finalize(true, "");
     }
 
@@ -564,7 +913,6 @@ Dictionary AgentRuntime::download_model(const Dictionary &request) {
     for (int i = 0; i < header_array.size(); ++i) {
         header_lines.push_back(to_utf8(header_array[i]));
     }
-    std::string bearer = to_utf8(bearer_token);
     std::string base_url = to_utf8(url_value);
 
     struct DownloadStatus {
@@ -583,7 +931,19 @@ Dictionary AgentRuntime::download_model(const Dictionary &request) {
             log_line("Using existing file " + target_path.string());
             status.ok = true;
             status.skipped = true;
-            status.bytes = 0;
+            std::error_code size_error;
+            status.bytes = static_cast<uint64_t>(std::filesystem::file_size(target_path, size_error));
+            if (!size_error) {
+                total_bytes += status.bytes;
+                if (progress.runtime) {
+                    progress.runtime->emit_signal("download_progress",
+                        String::utf8(progress.label.c_str()),
+                        1.0,
+                        static_cast<int64_t>(status.bytes),
+                        static_cast<int64_t>(status.bytes),
+                        progress.path);
+                }
+            }
             return status;
         }
 
@@ -626,14 +986,17 @@ Dictionary AgentRuntime::download_model(const Dictionary &request) {
         }
 
         struct ProgressData {
+            AgentRuntime *runtime = nullptr;
             std::vector<String> *entries = nullptr;
             std::string label;
+            String path;
             std::chrono::steady_clock::time_point last_emit;
-        } progress{&log_entries, friendly_name, std::chrono::steady_clock::now() - std::chrono::seconds(1)};
+        } progress{this, &log_entries, friendly_name, String::utf8(target_path.string().c_str()), std::chrono::steady_clock::now() - std::chrono::seconds(1)};
 
         curl_easy_setopt(curl, CURLOPT_URL, source_url.c_str());
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
         curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "llama-cpp");
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, +[](char *ptr, size_t size, size_t nmemb, void *userdata) -> size_t {
             FILE *dest = static_cast<FILE *>(userdata);
             return std::fwrite(ptr, size, nmemb, dest);
@@ -659,7 +1022,18 @@ Dictionary AgentRuntime::download_model(const Dictionary &request) {
             oss << progress->label << ": " << std::fixed << std::setprecision(1) << percent
                 << "% (" << format_bytes(static_cast<uint64_t>(dlnow))
                 << " / " << format_bytes(static_cast<uint64_t>(dltotal)) << ")";
-            progress->entries->push_back(String::utf8(oss.str().c_str()));
+            String message = String::utf8(oss.str().c_str());
+            progress->entries->push_back(message);
+            if (progress->runtime) {
+                double fraction = dltotal > 0 ? static_cast<double>(dlnow) / static_cast<double>(dltotal) : 0.0;
+                progress->runtime->emit_signal("download_progress",
+                    String::utf8(progress->label.c_str()),
+                    fraction,
+                    static_cast<int64_t>(dlnow),
+                    static_cast<int64_t>(dltotal),
+                    progress->path);
+                progress->runtime->emit_signal("download_log", message, progress->path);
+            }
             return 0;
         });
         curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &progress);
@@ -707,6 +1081,14 @@ Dictionary AgentRuntime::download_model(const Dictionary &request) {
             std::ostringstream done_line;
             done_line << friendly_name << " saved (" << format_bytes(status.bytes) << ")";
             log_line(done_line.str());
+            if (progress.runtime) {
+                progress.runtime->emit_signal("download_progress",
+                    String::utf8(progress.label.c_str()),
+                    1.0,
+                    static_cast<int64_t>(status.bytes),
+                    static_cast<int64_t>(status.bytes),
+                    progress.path);
+            }
         } else {
             log_line(friendly_name + " saved");
         }
@@ -737,6 +1119,7 @@ Dictionary AgentRuntime::download_model(const Dictionary &request) {
         }
     }
 
+    emit_progress(label_string, 1.0, static_cast<int64_t>(total_bytes), static_cast<int64_t>(total_bytes), path_string);
     return finalize(true, "");
 #else
     log_line("llama.cpp built without curl support; downloader unavailable");
@@ -764,6 +1147,8 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
         }
     }
 
+    reset_chat_state_locked();
+
     sampler_.reset();
     if (!ensure_sampler_locked(options)) {
         response["ok"] = false;
@@ -771,11 +1156,51 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
         return response;
     }
 
+    if (!ensure_chat_templates_locked(options)) {
+        response["ok"] = false;
+        response["error"] = "chat_template_unavailable";
+        return response;
+    }
+
     if (sampler_) {
         llama_sampler_reset(sampler_.get());
     }
 
-    std::string prompt_text = build_prompt(history, prompt);
+    std::vector<common_chat_msg> messages = build_messages_from_history(history, prompt, options);
+    if (messages.empty()) {
+        response["ok"] = false;
+        response["error"] = "empty_messages";
+        return response;
+    }
+
+    common_chat_templates_inputs inputs;
+    inputs.use_jinja = chat_use_jinja_;
+    inputs.add_generation_prompt = (bool)options.get("add_generation_prompt", true);
+    inputs.messages = messages;
+
+    common_chat_params chat_params;
+    try {
+        chat_params = common_chat_templates_apply(chat_templates_.get(), inputs);
+    } catch (const std::exception &e) {
+        response["ok"] = false;
+        response["error"] = "chat_template_apply_failed";
+        response["message"] = String::utf8(e.what());
+        return response;
+    }
+
+    pending_additional_stops_ = chat_params.additional_stops;
+    pending_grammar_ = chat_params.grammar;
+    pending_grammar_lazy_ = chat_params.grammar_lazy;
+    pending_grammar_triggers_ = chat_params.grammar_triggers;
+
+    if (!pending_grammar_.empty()) {
+        UtilityFunctions::push_warning("AgentRuntime: grammar constraints from chat template are not yet enforced; output may not match requested schema.");
+        pending_grammar_.clear();
+        pending_grammar_triggers_.clear();
+        pending_grammar_lazy_ = false;
+    }
+
+    std::string prompt_text = chat_params.prompt;
 
     const bool add_bos = true;
     const llama_vocab *vocab = llama_model_get_vocab(model_);
@@ -805,24 +1230,135 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
 
     int max_tokens = options.get("max_tokens", 256);
 
-    std::ostringstream generated;
+    std::vector<std::string> stop_sequences = pending_additional_stops_;
+    auto append_stop = [&stop_sequences](const Variant &value) {
+        switch (value.get_type()) {
+            case Variant::STRING: {
+                String stop_str = value;
+                if (!stop_str.is_empty()) {
+                    stop_sequences.push_back(to_utf8(stop_str));
+                }
+                break;
+            }
+            case Variant::PACKED_STRING_ARRAY: {
+                PackedStringArray arr = value;
+                for (int i = 0; i < arr.size(); ++i) {
+                    String stop_str = arr[i];
+                    if (!stop_str.is_empty()) {
+                        stop_sequences.push_back(to_utf8(stop_str));
+                    }
+                }
+                break;
+            }
+            case Variant::ARRAY: {
+                Array arr = value;
+                for (int i = 0; i < arr.size(); ++i) {
+                    Variant entry = arr[i];
+                    if (entry.get_type() == Variant::STRING) {
+                        String stop_str = entry;
+                        if (!stop_str.is_empty()) {
+                            stop_sequences.push_back(to_utf8(stop_str));
+                        }
+                    }
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    };
+
+    if (options.has("stop")) {
+        append_stop(options["stop"]);
+    }
+    if (options.has("stop_sequences")) {
+        append_stop(options["stop_sequences"]);
+    }
+
+    std::string generated_text;
+    generated_text.reserve(static_cast<size_t>(max_tokens) * 4);
+
+    int generated_tokens = 0;
+    bool stop_triggered = false;
+    bool hit_eos = false;
+
     for (int i = 0; i < max_tokens; ++i) {
         llama_token token = llama_sampler_sample(sampler_.get(), context_, -1);
         if (llama_vocab_is_eog(vocab, token)) {
+            hit_eos = true;
             break;
         }
-        generated << token_to_string(token);
+
+        generated_text += token_to_string(token);
+        ++generated_tokens;
+
+        if (sampler_) {
+            llama_sampler_accept(sampler_.get(), token);
+        }
 
         llama_batch cont = llama_batch_get_one(&token, 1);
         if (llama_decode(context_, cont)) {
             UtilityFunctions::push_warning("llama_decode failed during continuation");
             break;
         }
+
+        bool matched_stop = false;
+        for (const std::string &stop_seq : stop_sequences) {
+            if (stop_seq.empty() || stop_seq.size() > generated_text.size()) {
+                continue;
+            }
+            size_t start = generated_text.size() - stop_seq.size();
+            if (generated_text.compare(start, stop_seq.size(), stop_seq) == 0) {
+                generated_text.erase(start);
+                stop_triggered = true;
+                matched_stop = true;
+                break;
+            }
+        }
+
+        if (matched_stop) {
+            break;
+        }
     }
 
-    String text = String::utf8(generated.str().c_str()).strip_edges();
+    bool length_reached = generated_tokens >= max_tokens && !stop_triggered && !hit_eos;
+
+    String text = String::utf8(generated_text.c_str()).strip_edges();
+
+    String finish_reason = String("stop");
+    if (length_reached) {
+        finish_reason = "length";
+    }
+
     response["ok"] = true;
     response["text"] = text;
+    response["finish_reason"] = finish_reason;
+    response["object"] = String("chat.completion");
+    response["id"] = make_completion_id();
+    response["created"] = (int64_t)std::time(nullptr);
+
+    String model_name = loaded_model_name_.is_empty() ? default_model_path_ : loaded_model_name_;
+    response["model"] = model_name;
+
+    Dictionary usage;
+    usage["prompt_tokens"] = token_capacity;
+    usage["completion_tokens"] = generated_tokens;
+    usage["total_tokens"] = token_capacity + generated_tokens;
+    response["usage"] = usage;
+
+    Dictionary message;
+    message["role"] = String("assistant");
+    message["content"] = text;
+
+    Dictionary choice;
+    choice["index"] = 0;
+    choice["finish_reason"] = finish_reason;
+    choice["message"] = message;
+
+    Array choices;
+    choices.push_back(choice);
+    response["choices"] = choices;
+
     return response;
 }
 

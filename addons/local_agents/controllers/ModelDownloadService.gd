@@ -120,6 +120,17 @@ func create_request(overrides: Dictionary = {}, model_id: String = "") -> Dictio
         "skip_existing": overrides.get("skip_existing", true)
     }
 
+    var hf_repo := target.get("hf_repo", target.get("repo_id", ""))
+    if hf_repo != "":
+        request["hf_repo"] = hf_repo
+    var hf_file := target.get("hf_file", target.get("filename", ""))
+    if hf_file != "":
+        request["hf_file"] = hf_file
+    if target.has("hf_tag"):
+        request["hf_tag"] = target["hf_tag"]
+    if target.has("hf_endpoint"):
+        request["hf_endpoint"] = target["hf_endpoint"]
+
     if overrides.has("headers"):
         request["headers"] = overrides["headers"]
     if overrides.has("bearer_token"):
@@ -151,6 +162,12 @@ func _normalize_model(model_data: Dictionary, family: Dictionary) -> Dictionary:
     normalized["repo_url"] = _build_repo_url(normalized)
     normalized["size_pretty"] = format_size(int(normalized.get("size_bytes", 0)))
     normalized["updated_timestamp"] = _parse_timestamp(normalized.get("updated_at", ""))
+    var repo_id := normalized.get("repo_id", "")
+    if normalized.get("hf_repo", "") == "" and repo_id != "":
+        normalized["hf_repo"] = repo_id
+    var hf_file := normalized.get("hf_file", normalized.get("filename", ""))
+    if hf_file != "":
+        normalized["hf_file"] = hf_file
     return normalized
 
 func _build_download_url(model: Dictionary) -> String:

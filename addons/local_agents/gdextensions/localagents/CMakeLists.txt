@@ -10,6 +10,10 @@ option(LOCAL_AGENTS_BUILD_SHARED "Build shared library" ON)
 set(GODOT_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/godot-cpp" CACHE PATH "Path to godot-cpp")
 set(LLAMA_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/llama.cpp" CACHE PATH "Path to llama.cpp sources")
 
+# Enable llama.cpp common utilities so we can reuse chat/template helpers.
+set(LLAMA_BUILD_COMMON ON CACHE BOOL "llama: build common utils" ON)
+set(LLAMA_CURL ON CACHE BOOL "llama: enable curl support" ON)
+
 if (NOT EXISTS "${GODOT_CPP_DIR}/CMakeLists.txt")
     message(FATAL_ERROR "godot-cpp not found. Run scripts/fetch_dependencies.py")
 endif()
@@ -36,7 +40,9 @@ set(INCLUDE_DIRS
     include
     ${GODOT_CPP_DIR}/include
     ${GODOT_CPP_DIR}/gen/include
+    ${LLAMA_CPP_DIR}
     ${LLAMA_CPP_DIR}/include
+    ${LLAMA_CPP_DIR}/common
     ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/sqlite
 )
 
@@ -44,7 +50,7 @@ add_library(localagents SHARED ${SRC} ${SQLITE_SRC})
 
 target_include_directories(localagents PRIVATE ${INCLUDE_DIRS})
 
-target_link_libraries(localagents PRIVATE godot-cpp llama)
+target_link_libraries(localagents PRIVATE godot-cpp llama common)
 
 find_package(CURL REQUIRED)
 if (CURL_FOUND)
