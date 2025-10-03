@@ -1,0 +1,60 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/controllers/DownloadController.gd" id="1"]
+
+[node name="DownloadTab" type="Control"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1")
+output_log = NodePath("VBoxContainer/OutputLog")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+margin_left = 8.0
+margin_top = 8.0
+margin_right = -8.0
+margin_bottom = -8.0
+custom_constants/separation = 12
+
+[node name="ButtonRow" type="HBoxContainer" parent="VBoxContainer"]
+custom_constants/separation = 8
+
+[node name="DownloadAllButton" type="Button" parent="VBoxContainer/ButtonRow"]
+text = "Download Defaults"
+size_flags_horizontal = 3
+
+[node name="DownloadModelsButton" type="Button" parent="VBoxContainer/ButtonRow"]
+text = "Models Only"
+size_flags_horizontal = 3
+
+[node name="DownloadVoicesButton" type="Button" parent="VBoxContainer/ButtonRow"]
+text = "Voices Only"
+size_flags_horizontal = 3
+
+[node name="CleanButton" type="Button" parent="VBoxContainer/ButtonRow"]
+text = "Clean"
+size_flags_horizontal = 3
+
+[node name="OutputPanel" type="Panel" parent="VBoxContainer"]
+size_flags_vertical = 3
+
+[node name="OutputLog" type="RichTextLabel" parent="VBoxContainer/OutputPanel"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+margin_left = 8.0
+margin_top = 8.0
+margin_right = -8.0
+margin_bottom = -8.0
+fit_content = false
+scroll_following = true
+selection_enabled = true
+bbcode_enabled = true
+text = ""
+
+[connection signal="pressed" from="VBoxContainer/ButtonRow/DownloadAllButton" to="." method="download_all"]
+[connection signal="pressed" from="VBoxContainer/ButtonRow/DownloadModelsButton" to="." method="download_models_only"]
+[connection signal="pressed" from="VBoxContainer/ButtonRow/DownloadVoicesButton" to="." method="download_voices_only"]
+[connection signal="pressed" from="VBoxContainer/ButtonRow/CleanButton" to="." method="clean_downloads"]
+
+[resource]

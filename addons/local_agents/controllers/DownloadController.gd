@@ -5,31 +5,78 @@ class_name LocalAgentsDownloadController
 
 const FETCH_SCRIPT := "res://addons/local_agents/gdextensions/localagents/scripts/fetch_dependencies.sh"
 
+var _worker: Thread
+var _is_running := false
+var _pending_args: PackedStringArray = []
+
 func _ready() -> void:
-    if output_log:
-        output_log.clear()
-        output_log.append_text(_instructions())
+    _reset_output()
+
+func _exit_tree() -> void:
+    if _worker:
+        _worker.wait_to_finish()
+        _worker = null
 
 func download_all() -> void:
-    _log_action("./scripts/fetch_dependencies.sh")
+    _start_worker(PackedStringArray())
 
 func download_models_only() -> void:
-    _log_action("./scripts/fetch_dependencies.sh --skip-voices")
+    _start_worker(PackedStringArray(["--skip-voices"]))
 
 func download_voices_only() -> void:
-    _log_action("./scripts/fetch_dependencies.sh --skip-models")
+    _start_worker(PackedStringArray(["--skip-models"]))
 
 func clean_downloads() -> void:
-    _log_action("./scripts/fetch_dependencies.sh --clean")
+    _start_worker(PackedStringArray(["--clean"]))
 
-func _log_action(command: String) -> void:
+func _start_worker(args: PackedStringArray) -> void:
+    if _is_running:
+        push_warning("Download already in progress")
+        return
+    if not FileAccess.file_exists(FETCH_SCRIPT):
+        push_error("Download script missing: %s" % FETCH_SCRIPT)
+        return
+    var script_path := ProjectSettings.globalize_path(FETCH_SCRIPT)
+    if _worker:
+        _worker.wait_to_finish()
+    _worker = Thread.new()
+    _pending_args = PackedStringArray()
+    for arg in args:
+        _pending_args.append(arg)
+    _is_running = true
+    _log_command(script_path, args)
+    _worker.start(callable(self, "_thread_download"), script_path)
+
+func _thread_download(script_path: String) -> void:
+    var output: Array = []
+    var args := PackedStringArray()
+    for arg in _pending_args:
+        args.append(arg)
+    var code := OS.execute(script_path, args, output, true, true)
+    call_deferred("_on_download_finished", code, output)
+
+func _on_download_finished(exit_code: int, output: Array) -> void:
+    if output_log:
+        for line in output:
+            output_log.append_text("%s\n" % line)
+        output_log.append_text("\nResult: %s\n" % (exit_code == 0 ? "Success" : "Failed (%d)" % exit_code))
+    _is_running = false
+    if _worker:
+        _worker.wait_to_finish()
+        _worker = null
+
+func _reset_output() -> void:
     if output_log:
         output_log.clear()
-        output_log.append_text(_instructions())
-        output_log.append_text("\nRun: %s\n" % command)
+        output_log.append_text("Local Agents Downloader\n")
+        output_log.append_text("-------------------------\n")
+        output_log.append_text("Downloads models, voices, and dependencies using llama.cpp helpers.\n\n")
 
-func _instructions() -> String:
-    return "Run the fetch script from a terminal:\n" +
-        "cd addons/local_agents/gdextensions/localagents\n" +
-        "./scripts/fetch_dependencies.sh\n"
+func _log_command(script_path: String, args: PackedStringArray) -> void:
+    _reset_output()
+    if output_log:
+        var arg_string := ""
+        for arg in args:
+            arg_string += " %s" % arg
+        output_log.append_text("Running: %s%s\n\n" % [script_path, arg_string])
 *** End

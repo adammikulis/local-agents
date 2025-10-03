@@ -1,0 +1,22 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://addons/local_agents/controllers/ChatController.tscn" id="1"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/editor/DownloadTab.tscn" id="2"]
+
+[node name="LocalAgentsPanel" type="Control"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="TabContainer" type="TabContainer" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+margin_left = 4.0
+margin_top = 4.0
+margin_right = -4.0
+margin_bottom = -4.0
+
+[node name="Chat" parent="TabContainer" instance=ExtResource("1")]
+
+[node name="Download" parent="TabContainer" instance=ExtResource("2")]
+
+[resource]

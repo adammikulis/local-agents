@@ -26,7 +26,12 @@ This document outlines the refactor required to ship Local Agents as a fully nat
 - Agents no longer keep their own llama contexts; they submit prompts to `AgentRuntime` along with conversation fragments.
 - Provide GDScript-friendly wrapper to access runtime (e.g. `LocalAgentsRuntime.gd` autoload using `AgentRuntime`).
 
-### 1.3 Agent Node Responsibilities
+### 1.3 Editor Integration
+- Provide a bottom-panel editor tool labelled "Local Agents" (next to the built-in Shader Editor button) that swaps the workspace view into the addon UI without leaving the Script/2D/3D docks.
+- The panel hosts a tab bar initially exposing **Chat** (runtime inspector / quick prompts) and **Download** (model management and llama.cpp asset fetching) pages; additional tabs (Memory, Graph) come later.
+- `LocalAgentsEditorPlugin` registers the bottom panel button and owns the shared UI scene, ensuring runtime singletons initialise only once.
+
+### 1.4 Agent Node Responsibilities
 - Keep per-agent metadata: IDs, voice preference, graph DB shard refs, conversation history pointer.
 - Prepare inference payloads (recent message window + retrieved memory snippets).
 - Call into runtime queue; emit `message_emitted` signal on completion.
@@ -92,10 +97,10 @@ This document outlines the refactor required to ship Local Agents as a fully nat
 ---
 ## 4. Downloader & Model Assets
 
-### 4.1 Download Manager Node
-- Create `DownloadManager` scene/node to surface downloads inside Godot editor.
-- Mirror CLI helper instructions (shell script) inside the editor so users can run downloads externally; add optional progress integration via async jobs once we have a native downloader.
-- Provide CLI interface (`./scripts/fetch_dependencies.sh --skip-voices`, etc.).
+### 4.1 Download Manager UI
+- Bottom-panel Download tab integrates llama.cpp's `download-model` routine (invoked via backend worker) so users can pull GGUFs without leaving Godot.
+- Present curated presets (Qwen3-4B, etc.) plus custom URL/ID entry; show progress + final file location.
+- Continue to ship CLI helper (`./scripts/fetch_dependencies.sh`) for automation, reflecting progress in docs; UI should share logic with CLI via reusable script.
 
 ### 4.2 Default Assets
 - Bundle metadata files for shipped defaults:
@@ -145,8 +150,8 @@ This document outlines the refactor required to ship Local Agents as a fully nat
 ## 7. Immediate Next Steps (Implementation Order)
 1. Harden `AgentRuntime` singleton (job queue, batching, JSON grammar support) now that the basic shared context is in place.
 2. Build SQLite-backed memory graph module and wire it into the runtime for recall APIs.
-3. Extend downloader tooling (`fetch_dependencies.sh`) to pin commit hashes and provide checksum verification; consider native Godot download worker.
+3. Extend downloader tooling (`fetch_dependencies.sh` + in-editor Download tab) to pin commit hashes, provide checksum verification, and surface llama.cpp downloads with progress feedback.
 4. Update CMake to optionally build whisper/sqlite static libraries and expose embeddings interface.
-5. Add editor UI panels for runtime configuration, download management, and memory graph inspection.
+5. Add editor UI panels for runtime configuration, download management (bottom panel), and memory graph inspection.
 
 This plan should keep the project focused as we migrate off the legacy Doctor-Robot setup and deliver a self-contained, scalable Local Agents release.
