@@ -13,8 +13,8 @@ LLAMA_CPP_REPO="https://github.com/ggerganov/llama.cpp.git"
 WHISPER_CPP_REPO="https://github.com/ggerganov/whisper.cpp.git"
 SQLITE_AMALGAMATION_URL="https://www.sqlite.org/2024/sqlite-autoconf-3450200.tar.gz"
 
-DEFAULT_MODEL_NAME="qwen2.5-3b-instruct-q4_k_m.gguf"
-DEFAULT_MODEL_URL="https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/${DEFAULT_MODEL_NAME}"
+DEFAULT_MODEL_NAME="Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+DEFAULT_MODEL_URL="https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/${DEFAULT_MODEL_NAME}"
 DEFAULT_MODEL_FOLDER="qwen3-4b-instruct"
 
 PIPER_VOICES=(
