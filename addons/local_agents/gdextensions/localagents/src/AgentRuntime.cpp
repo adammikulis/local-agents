@@ -3,6 +3,7 @@
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <llama.h>
@@ -12,6 +13,21 @@
 #include <filesystem>
 #include <sstream>
 #include <vector>
+#include <chrono>
+#include <atomic>
+#include <cstdio>
+#include <fstream>
+#include <iomanip>
+#include <limits>
+#include <string_view>
+#include <mutex>
+#include <climits>
+
+#include <gguf.h>
+
+#ifdef LLAMA_USE_CURL
+#include <curl/curl.h>
+#endif
 
 using namespace godot;
 
@@ -19,6 +35,19 @@ namespace {
 std::string to_utf8(const String &value) {
     return std::string(value.utf8().get_data());
 }
+
+constexpr const char *kSplitCountKey = "split.count";
+constexpr size_t kMaxUrlLength = 2084;
+constexpr size_t kPathBufferSize = 4096;
+
+#ifdef LLAMA_USE_CURL
+void ensure_curl_initialized() {
+    static std::once_flag once_flag;
+    std::call_once(once_flag, []() {
+        curl_global_init(CURL_GLOBAL_DEFAULT);
+    });
+}
+#endif
 
 llama_sampler *create_sampler(const Dictionary &options) {
     llama_sampler_chain_params chain_params = llama_sampler_chain_default_params();
@@ -93,6 +122,44 @@ llama_sampler *create_sampler(const Dictionary &options) {
     return chain;
 }
 
+std::string format_bytes(uint64_t bytes) {
+    static const char *kUnits[] = {"B", "KB", "MB", "GB", "TB", "PB"};
+    double value = static_cast<double>(bytes);
+    size_t unit = 0;
+    const size_t unit_count = sizeof(kUnits) / sizeof(kUnits[0]);
+
+    while (value >= 1024.0 && unit + 1 < unit_count) {
+        value /= 1024.0;
+        ++unit;
+    }
+
+    std::ostringstream oss;
+    if (unit == 0) {
+        oss << static_cast<uint64_t>(value + 0.5) << ' ' << kUnits[unit];
+    } else {
+        oss << std::fixed << std::setprecision(value >= 10.0 ? 1 : 2) << value << ' ' << kUnits[unit];
+    }
+    return oss.str();
+}
+
+PackedStringArray to_packed(const std::vector<String> &lines) {
+    PackedStringArray array;
+    array.resize(static_cast<int64_t>(lines.size()));
+    for (int64_t i = 0; i < array.size(); ++i) {
+        array[i] = lines[static_cast<size_t>(i)];
+    }
+    return array;
+}
+
+PackedStringArray to_packed(const std::vector<std::string> &lines) {
+    PackedStringArray array;
+    array.resize(static_cast<int64_t>(lines.size()));
+    for (int64_t i = 0; i < array.size(); ++i) {
+        array[i] = String::utf8(lines[static_cast<size_t>(i)].c_str());
+    }
+    return array;
+}
+
 } // namespace
 
 AgentRuntime *AgentRuntime::singleton_ = nullptr;
@@ -126,6 +193,7 @@ void AgentRuntime::_bind_methods() {
     ClassDB::bind_method(D_METHOD("is_model_loaded"), &AgentRuntime::is_model_loaded);
     ClassDB::bind_method(D_METHOD("generate", "request"), &AgentRuntime::generate);
     ClassDB::bind_method(D_METHOD("embed_text", "text", "options"), &AgentRuntime::embed_text, DEFVAL(Dictionary()));
+    ClassDB::bind_method(D_METHOD("download_model", "request"), &AgentRuntime::download_model);
 
     ClassDB::bind_method(D_METHOD("set_default_model_path", "path"), &AgentRuntime::set_default_model_path);
     ClassDB::bind_method(D_METHOD("get_default_model_path"), &AgentRuntime::get_default_model_path);
@@ -288,6 +356,355 @@ PackedFloat32Array AgentRuntime::embed_text(const String &text, const Dictionary
     }
 
     return embedding;
+}
+
+Dictionary AgentRuntime::download_model(const Dictionary &request) {
+    Dictionary response;
+    std::vector<String> log_entries;
+    auto log_line = [&log_entries](const std::string &line) {
+        log_entries.push_back(String::utf8(line.c_str()));
+    };
+
+    String url_value = request.get("url", String());
+    String output_value = request.get("output_path", String());
+    if (url_value.is_empty()) {
+        log_line("Missing download url");
+        response["ok"] = false;
+        response["error"] = String("missing_url");
+        response["log"] = to_packed(log_entries);
+        response["bytes_downloaded"] = static_cast<int64_t>(0);
+        return response;
+    }
+    if (output_value.is_empty()) {
+        log_line("Missing output path");
+        response["ok"] = false;
+        response["error"] = String("missing_output_path");
+        response["log"] = to_packed(log_entries);
+        response["bytes_downloaded"] = static_cast<int64_t>(0);
+        return response;
+    }
+
+    String label_value = request.get("label", String());
+    bool force = request.get("force", false);
+    bool skip_existing = request.has("skip_existing") ? (bool)request["skip_existing"] : !force;
+    bool offline = request.get("offline", false);
+    PackedStringArray header_array;
+    if (request.has("headers")) {
+        header_array = request["headers"];
+    }
+    String bearer_token = request.get("bearer_token", String());
+    double timeout_seconds = request.get("timeout_seconds", 0.0);
+
+    std::filesystem::path output_path = std::filesystem::path(to_utf8(output_value)).lexically_normal();
+    std::string label = label_value.is_empty() ? output_path.filename().string() : to_utf8(label_value);
+    if (label.empty()) {
+        label = to_utf8(url_value);
+    }
+
+    std::vector<std::string> file_paths;
+    uint64_t total_bytes = 0;
+
+    auto finalize = [&](bool ok, const std::string &error) {
+        response["ok"] = ok;
+        response["bytes_downloaded"] = static_cast<int64_t>(total_bytes);
+        response["log"] = to_packed(log_entries);
+        if (!file_paths.empty()) {
+            response["files"] = to_packed(file_paths);
+            response["path"] = String::utf8(file_paths.front().c_str());
+        }
+        if (!error.empty()) {
+            response["error"] = String::utf8(error.c_str());
+        }
+        return response;
+    };
+
+    auto read_split_count = [](const std::filesystem::path &primary_path) -> int {
+        struct gguf_init_params params = {true, nullptr};
+        gguf_context *ctx = gguf_init_from_file(primary_path.string().c_str(), params);
+        if (!ctx) {
+            return 0;
+        }
+        int split = 0;
+        int key_index = gguf_find_key(ctx, kSplitCountKey);
+        if (key_index >= 0) {
+            split = static_cast<int>(gguf_get_val_u16(ctx, key_index));
+        }
+        gguf_free(ctx);
+        return split;
+    };
+
+    auto build_split_pairs = [&](int n_split, const std::filesystem::path &primary_path, const std::string &primary_url) {
+        std::vector<std::pair<std::string, std::filesystem::path>> pairs;
+        if (n_split <= 1) {
+            return pairs;
+        }
+        char path_prefix[kPathBufferSize] = {0};
+        if (!llama_split_prefix(path_prefix, kPathBufferSize, primary_path.string().c_str(), 0, n_split)) {
+            log_line("Unable to resolve split path prefix");
+            return std::vector<std::pair<std::string, std::filesystem::path>>();
+        }
+        char url_prefix[kMaxUrlLength] = {0};
+        if (!llama_split_prefix(url_prefix, kMaxUrlLength, primary_url.c_str(), 0, n_split)) {
+            log_line("Unable to resolve split URL prefix");
+            return std::vector<std::pair<std::string, std::filesystem::path>>();
+        }
+        for (int idx = 1; idx < n_split; ++idx) {
+            char path_buffer[kPathBufferSize] = {0};
+            if (!llama_split_path(path_buffer, kPathBufferSize, path_prefix, idx, n_split)) {
+                log_line("Unable to build split path for index " + std::to_string(idx));
+                return std::vector<std::pair<std::string, std::filesystem::path>>();
+            }
+            char url_buffer[kMaxUrlLength] = {0};
+            if (!llama_split_path(url_buffer, kMaxUrlLength, url_prefix, idx, n_split)) {
+                log_line("Unable to build split URL for index " + std::to_string(idx));
+                return std::vector<std::pair<std::string, std::filesystem::path>>();
+            }
+            pairs.emplace_back(std::string(url_buffer), std::filesystem::path(path_buffer));
+        }
+        return pairs;
+    };
+
+    auto build_split_paths_offline = [&](int n_split, const std::filesystem::path &primary_path) {
+        std::vector<std::filesystem::path> paths;
+        if (n_split <= 1) {
+            return paths;
+        }
+        char path_prefix[kPathBufferSize] = {0};
+        if (!llama_split_prefix(path_prefix, kPathBufferSize, primary_path.string().c_str(), 0, n_split)) {
+            log_line("Unable to resolve split path prefix");
+            return std::vector<std::filesystem::path>();
+        }
+        for (int idx = 1; idx < n_split; ++idx) {
+            char path_buffer[kPathBufferSize] = {0};
+            if (!llama_split_path(path_buffer, kPathBufferSize, path_prefix, idx, n_split)) {
+                log_line("Unable to build split path for index " + std::to_string(idx));
+                return std::vector<std::filesystem::path>();
+            }
+            paths.emplace_back(std::filesystem::path(path_buffer));
+        }
+        return paths;
+    };
+
+    if (offline) {
+        if (!std::filesystem::exists(output_path)) {
+            log_line("Offline mode: missing model file at " + output_path.string());
+            return finalize(false, "offline_missing_file");
+        }
+        log_line("Offline mode: using cached model " + output_path.string());
+        file_paths.push_back(output_path.string());
+
+        int split_count = read_split_count(output_path);
+        if (split_count > 1) {
+            auto split_paths = build_split_paths_offline(split_count, output_path);
+            if (static_cast<int>(split_paths.size()) != split_count - 1) {
+                return finalize(false, "split_resolution_failed");
+            }
+            for (int idx = 0; idx < static_cast<int>(split_paths.size()); ++idx) {
+                const auto &split_path = split_paths[static_cast<size_t>(idx)];
+                if (!std::filesystem::exists(split_path)) {
+                    log_line("Offline mode: missing split file " + split_path.string());
+                    return finalize(false, "offline_missing_split");
+                }
+                file_paths.push_back(split_path.string());
+            }
+        }
+
+        return finalize(true, "");
+    }
+
+#ifdef LLAMA_USE_CURL
+    ensure_curl_initialized();
+
+    std::error_code dir_error;
+    std::filesystem::create_directories(output_path.parent_path(), dir_error);
+    if (dir_error) {
+        log_line("Failed to create directory: " + dir_error.message());
+        return finalize(false, "mkdir_failed");
+    }
+
+    std::vector<std::string> header_lines;
+    header_lines.reserve(header_array.size());
+    for (int i = 0; i < header_array.size(); ++i) {
+        header_lines.push_back(to_utf8(header_array[i]));
+    }
+    std::string bearer = to_utf8(bearer_token);
+    std::string base_url = to_utf8(url_value);
+
+    struct DownloadStatus {
+        bool ok = false;
+        bool skipped = false;
+        uint64_t bytes = 0;
+    };
+
+    auto download_single = [&](const std::string &source_url, const std::filesystem::path &target_path, const std::string &friendly_name) {
+        DownloadStatus status;
+        std::error_code fs_error;
+
+        bool exists = std::filesystem::exists(target_path, fs_error);
+        fs_error.clear();
+        if (exists && skip_existing && !force) {
+            log_line("Using existing file " + target_path.string());
+            status.ok = true;
+            status.skipped = true;
+            status.bytes = 0;
+            return status;
+        }
+
+        if (exists && force) {
+            std::filesystem::remove(target_path, fs_error);
+            fs_error.clear();
+        }
+
+        std::filesystem::create_directories(target_path.parent_path(), fs_error);
+        if (fs_error) {
+            log_line("Failed to create directory: " + fs_error.message());
+            return status;
+        }
+
+        std::filesystem::path temp_path = target_path;
+        temp_path += ".download";
+        if (std::filesystem::exists(temp_path, fs_error)) {
+            std::filesystem::remove(temp_path, fs_error);
+        }
+
+        FILE *file = std::fopen(temp_path.string().c_str(), "wb");
+        if (!file) {
+            log_line("Unable to open temp file for writing: " + temp_path.string());
+            return status;
+        }
+
+        CURL *curl = curl_easy_init();
+        if (!curl) {
+            std::fclose(file);
+            log_line("curl_easy_init failed");
+            return status;
+        }
+
+        struct curl_slist *header_list = nullptr;
+        if (!bearer.empty()) {
+            header_list = curl_slist_append(header_list, ("Authorization: Bearer " + bearer).c_str());
+        }
+        for (const auto &header : header_lines) {
+            header_list = curl_slist_append(header_list, header.c_str());
+        }
+
+        struct ProgressData {
+            std::vector<String> *entries = nullptr;
+            std::string label;
+            std::chrono::steady_clock::time_point last_emit;
+        } progress{&log_entries, friendly_name, std::chrono::steady_clock::now() - std::chrono::seconds(1)};
+
+        curl_easy_setopt(curl, CURLOPT_URL, source_url.c_str());
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, +[](char *ptr, size_t size, size_t nmemb, void *userdata) -> size_t {
+            FILE *dest = static_cast<FILE *>(userdata);
+            return std::fwrite(ptr, size, nmemb, dest);
+        });
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, file);
+        curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, 1024 * 1024L);
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, +[](void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t, curl_off_t) -> int {
+            auto *progress = static_cast<ProgressData *>(clientp);
+            if (!progress || !progress->entries) {
+                return 0;
+            }
+            if (dltotal <= 0) {
+                return 0;
+            }
+            auto now = std::chrono::steady_clock::now();
+            if ((now - progress->last_emit) < std::chrono::milliseconds(350) && dlnow < dltotal) {
+                return 0;
+            }
+            progress->last_emit = now;
+            double percent = static_cast<double>(dlnow) / static_cast<double>(dltotal) * 100.0;
+            std::ostringstream oss;
+            oss << progress->label << ": " << std::fixed << std::setprecision(1) << percent
+                << "% (" << format_bytes(static_cast<uint64_t>(dlnow))
+                << " / " << format_bytes(static_cast<uint64_t>(dltotal)) << ")";
+            progress->entries->push_back(String::utf8(oss.str().c_str()));
+            return 0;
+        });
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &progress);
+        if (timeout_seconds > 0.0) {
+            curl_easy_setopt(curl, CURLOPT_TIMEOUT, static_cast<long>(timeout_seconds));
+        }
+        if (header_list) {
+            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list);
+        }
+
+        CURLcode code = curl_easy_perform(curl);
+        long http_status = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
+
+        if (header_list) {
+            curl_slist_free_all(header_list);
+        }
+        curl_easy_cleanup(curl);
+        std::fclose(file);
+
+        if (code != CURLE_OK || http_status < 200 || http_status >= 400) {
+            std::ostringstream error_stream;
+            error_stream << "Download failed for " << friendly_name
+                         << ": " << curl_easy_strerror(code)
+                         << " (HTTP " << http_status << ")";
+            log_line(error_stream.str());
+            std::filesystem::remove(temp_path, fs_error);
+            return status;
+        }
+
+        std::filesystem::remove(target_path, fs_error);
+        fs_error.clear();
+        std::filesystem::rename(temp_path, target_path, fs_error);
+        if (fs_error) {
+            log_line("Failed to finalize download: " + fs_error.message());
+            std::filesystem::remove(temp_path, fs_error);
+            return status;
+        }
+
+        status.ok = true;
+        std::error_code size_error;
+        status.bytes = static_cast<uint64_t>(std::filesystem::file_size(target_path, size_error));
+        if (!size_error) {
+            total_bytes += status.bytes;
+            std::ostringstream done_line;
+            done_line << friendly_name << " saved (" << format_bytes(status.bytes) << ")";
+            log_line(done_line.str());
+        } else {
+            log_line(friendly_name + " saved");
+        }
+
+        return status;
+    };
+
+    auto primary_status = download_single(base_url, output_path, label);
+    if (!primary_status.ok) {
+        return finalize(false, "download_failed");
+    }
+    file_paths.push_back(output_path.string());
+
+    int split_count = read_split_count(output_path);
+    if (split_count > 1) {
+        auto split_pairs = build_split_pairs(split_count, output_path, base_url);
+        if (static_cast<int>(split_pairs.size()) != split_count - 1) {
+            return finalize(false, "split_resolution_failed");
+        }
+        for (int idx = 0; idx < static_cast<int>(split_pairs.size()); ++idx) {
+            const auto &pair = split_pairs[static_cast<size_t>(idx)];
+            std::string part_label = label + " part " + std::to_string(idx + 2);
+            auto status = download_single(pair.first, pair.second, part_label);
+            if (!status.ok) {
+                return finalize(false, "download_failed");
+            }
+            file_paths.push_back(pair.second.string());
+        }
+    }
+
+    return finalize(true, "");
+#else
+    log_line("llama.cpp built without curl support; downloader unavailable");
+    return finalize(false, "curl_not_available");
+#endif
 }
 
 Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {

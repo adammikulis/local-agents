@@ -24,7 +24,7 @@ add_subdirectory(${LLAMA_CPP_DIR} "${CMAKE_BINARY_DIR}/llama.cpp" EXCLUDE_FROM_A
 set(SRC
     src/AgentNode.cpp
     src/AgentRuntime.cpp
-    src/MemoryGraph.cpp
+    src/NetworkGraph.cpp
     src/LocalAgentsRegister.cpp
 )
 
@@ -45,6 +45,13 @@ add_library(localagents SHARED ${SRC} ${SQLITE_SRC})
 target_include_directories(localagents PRIVATE ${INCLUDE_DIRS})
 
 target_link_libraries(localagents PRIVATE godot-cpp llama)
+
+find_package(CURL REQUIRED)
+if (CURL_FOUND)
+    target_include_directories(localagents PRIVATE ${CURL_INCLUDE_DIRS})
+    target_link_libraries(localagents PRIVATE ${CURL_LIBRARIES})
+    target_compile_definitions(localagents PRIVATE LLAMA_USE_CURL)
+endif()
 
 target_compile_definitions(localagents PRIVATE
     SQLITE_ENABLE_JSON1

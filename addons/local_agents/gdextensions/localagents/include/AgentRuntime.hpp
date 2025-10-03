@@ -36,6 +36,8 @@ public:
     Dictionary generate(const Dictionary &request);
     PackedFloat32Array embed_text(const String &text, const Dictionary &options = Dictionary());
 
+    Dictionary download_model(const Dictionary &request);
+
     void set_default_model_path(const String &path);
     String get_default_model_path() const;
 

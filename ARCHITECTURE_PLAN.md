@@ -51,7 +51,7 @@ We coordinate work across six collaborating agents: **Frontend**, **Runtime**, *
 **Mission:** Manage assets, downloads, memory persistence, and configuration.
 
 - [x] Maintain `scripts/fetch_dependencies.sh` with pinned revisions and checksum verification.
-- [ ] Integrate llama.cpp’s built-in download command (e.g. `main -m download ...`) via runtime helper.
+- [x] Integrate llama.cpp’s built-in download command (e.g. `main -m download ...`) via runtime helper.
 - [ ] Route Download tab actions through shared helpers to avoid duplicated CLI logic while logging output.
 - [ ] Maintain metadata manifests (`models/config.json`, `voices/config.json`) for installed assets.
 - [ ] Define schema for `memories`, `edges`, `episodes`, and embedding tables with indices.
@@ -84,6 +84,7 @@ We coordinate work across six collaborating agents: **Frontend**, **Runtime**, *
 
 - [ ] Extend dependency bundling logic to Linux and Windows targets; produce reproducible archives.
 - [ ] Configure CI pipelines for macOS/Linux/Windows builds, unit tests, and editor smoke tests.
+- [ ] Wire `scripts/run_tests.sh` into CI once build runners are ready so headless Godot tests gate merges.
 - [ ] Automate asset/version stamping for releases and nightly builds.
 - [ ] Maintain export templates and Godot-compatible installers (editor plugin + demo project).
 - [ ] Monitor build tooling (CMake, Python, shell scripts) for drift and keep third-party pins updated.
