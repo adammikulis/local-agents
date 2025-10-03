@@ -183,18 +183,31 @@ layout_mode = 2
 text = "33"
 horizontal_alignment = 1
 
-[node name="ChatRandomSeedHBoxContainer" type="HBoxContainer" parent="ScrollContainer/VBoxContainer/HBoxContainer/ModelConfigMarginContainer/ModelConfigVBoxContainer/ChatModelPanelContainer/MarginContainer/ChatModelVBoxContainer"]
+[node name="VoiceHBoxContainer" type="HBoxContainer" parent="ScrollContainer/VBoxContainer/HBoxContainer/ModelConfigMarginContainer/ModelConfigVBoxContainer/ChatModelPanelContainer/MarginContainer/ChatModelVBoxContainer"]
 layout_mode = 2
 
-[node name="ChatRandomSeedLabel" type="Label" parent="ScrollContainer/VBoxContainer/HBoxContainer/ModelConfigMarginContainer/ModelConfigVBoxContainer/ChatModelPanelContainer/MarginContainer/ChatModelVBoxContainer/ChatRandomSeedHBoxContainer"]
+[node name="VoiceLabel" type="Label" parent="ScrollContainer/VBoxContainer/HBoxContainer/ModelConfigMarginContainer/ModelConfigVBoxContainer/ChatModelPanelContainer/MarginContainer/ChatModelVBoxContainer/VoiceHBoxContainer"]
 layout_mode = 2
-text = "Random Seed"
+text = "Voice (ID or path)"
 
-[node name="ChatRandomSeedLineEdit" type="LineEdit" parent="ScrollContainer/VBoxContainer/HBoxContainer/ModelConfigMarginContainer/ModelConfigVBoxContainer/ChatModelPanelContainer/MarginContainer/ChatModelVBoxContainer/ChatRandomSeedHBoxContainer"]
+[node name="VoiceLineEdit" type="LineEdit" parent="ScrollContainer/VBoxContainer/HBoxContainer/ModelConfigMarginContainer/ModelConfigVBoxContainer/ChatModelPanelContainer/MarginContainer/ChatModelVBoxContainer/VoiceHBoxContainer"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-text = "0"
+placeholder_text = "en_US-ryan/en_US-ryan-high.onnx"
+text = ""
+
+[node name="SpeechToggleHBox" type="HBoxContainer" parent="ScrollContainer/VBoxContainer/HBoxContainer/ModelConfigMarginContainer/ModelConfigVBoxContainer/ChatModelPanelContainer/MarginContainer/ChatModelVBoxContainer"]
+layout_mode = 2
+
+[node name="SpeechToggleLabel" type="Label" parent="ScrollContainer/VBoxContainer/HBoxContainer/ModelConfigMarginContainer/ModelConfigVBoxContainer/ChatModelPanelContainer/MarginContainer/ChatModelVBoxContainer/SpeechToggleHBox"]
+layout_mode = 2
+text = "Speak responses"
+
+[node name="SpeakResponsesCheckBox" type="CheckBox" parent="ScrollContainer/VBoxContainer/HBoxContainer/ModelConfigMarginContainer/ModelConfigVBoxContainer/ChatModelPanelContainer/MarginContainer/ChatModelVBoxContainer/SpeechToggleHBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Enable Piper TTS"
 
 [node name="SelectChatModelHBoxContainer" type="HBoxContainer" parent="ScrollContainer/VBoxContainer/HBoxContainer/ModelConfigMarginContainer/ModelConfigVBoxContainer/ChatModelPanelContainer/MarginContainer/ChatModelVBoxContainer"]
 layout_mode = 2

@@ -8,7 +8,8 @@ class_name LocalAgentsModelConfig
 @onready var max_actions_label: Label = %ChatContextSizeLabel
 @onready var tick_interval_slider: HSlider = %ChatModelGpuLayerCountHSlider
 @onready var tick_interval_label: Label = %ChatModelGpuLayerCountLabel
-@onready var voice_edit: LineEdit = %ChatRandomSeedLineEdit
+@onready var voice_edit: LineEdit = %VoiceLineEdit
+@onready var speak_check: CheckBox = %SpeakResponsesCheckBox
 @onready var db_path_label: Label = %ChatCurrentModelPathLabel
 @onready var select_db_button: Button = %SelectChatPathButton
 @onready var clear_db_button: Button = %ClearChatPathButton
@@ -28,6 +29,7 @@ func _init_defaults() -> void:
     current_config.max_actions_per_tick = 4
     current_config.tick_interval = 0.0
     current_config.voice = ""
+    current_config.speak_responses = false
     current_config.db_path = ""
     _refresh_ui()
 
@@ -36,6 +38,7 @@ func _init_signals() -> void:
     max_actions_slider.value_changed.connect(_on_max_actions_changed)
     tick_interval_slider.value_changed.connect(_on_tick_interval_changed)
     voice_edit.text_changed.connect(_on_voice_changed)
+    speak_check.toggled.connect(_on_speak_toggled)
     select_db_button.pressed.connect(_on_select_db_pressed)
     clear_db_button.pressed.connect(_on_clear_db_pressed)
     select_db_dialog.file_selected.connect(_on_db_file_selected)
@@ -46,6 +49,7 @@ func _load_from_manager() -> void:
         current_config.model_config_name = cfg.model_config_name
         current_config.db_path = cfg.db_path
         current_config.voice = cfg.voice
+        current_config.speak_responses = cfg.speak_responses
         current_config.tick_interval = cfg.tick_interval
         current_config.max_actions_per_tick = cfg.max_actions_per_tick
         current_config.tick_enabled = cfg.tick_enabled
@@ -56,6 +60,7 @@ func _refresh_ui() -> void:
     name_edit.text = current_config.model_config_name
     voice_edit.text = current_config.voice
     db_path_label.text = current_config.db_path
+    speak_check.button_pressed = current_config.speak_responses
     _set_max_actions_label(current_config.max_actions_per_tick)
     _set_tick_interval_label(current_config.tick_interval)
     _updating = false
@@ -103,6 +108,12 @@ func _on_voice_changed(new_text: String) -> void:
     if _updating:
         return
     current_config.voice = new_text
+    _apply()
+
+func _on_speak_toggled(enabled: bool) -> void:
+    if _updating:
+        return
+    current_config.speak_responses = enabled
     _apply()
 
 func _on_select_db_pressed() -> void:
