@@ -19,6 +19,11 @@ Local Agents is a Godot addon that exposes a native `AgentNode` (GDExtension) fo
    ./scripts/build_extension.sh
    ```
    Binaries are emitted into `addons/local_agents/gdextensions/localagents/bin/` and picked up automatically when you enable the plugin.
+3. Stage the speech/transcription runtimes (Piper + Whisper) for your platform:
+   ```bash
+   ./scripts/fetch_runtimes.sh
+   ```
+   Add `--all` to download every supported Piper bundle (macOS, Linux, Windows). Run the script on each target OS if you need native `whisper` binaries there. Assets are copied into `addons/local_agents/gdextensions/localagents/bin/runtimes/<platform>/` so export templates can bundle them directly.
 3. Copy the `addons/local_agents` folder into your Godot project and enable the plugin (Project Settings → Plugins → Local Agents).
 4. Ensure the autoload `AgentManager` is active; it spins up a singleton agent and keeps configs in `res://addons/local_agents/configuration/parameters/`.
 5. Open any of the demo scenes under `addons/local_agents/examples/` to see the GDExtension in action.
@@ -49,6 +54,15 @@ godot --headless -s addons/local_agents/tests/test_project_graph_service.gd
 ```
 
 The tests use lightweight mock runtimes for embeddings, so no GGUF models are required. They create and clean up temporary data under `user://local_agents`.
+
+## Editor Check
+Before opening Godot (or after tweaking any `.gd` scripts), run the quick headless validation to catch parse/type issues and plugin wiring errors:
+
+```bash
+scripts/run_godot_check.sh
+```
+
+Set `GODOT_CHECK_ARGS="--path /alternate/project"` if you need to target a different project file. The helper simply wraps `godot --headless --check-only project.godot`, mirroring what CI will use once it’s wired up.
 
 # Architecture
 The autoload `AgentManager` manages shared configuration (`LocalAgentsConfigList`) and pushes updates into whichever `Agent` nodes register with it. Each `Agent` wraps the native `AgentNode`, forwards graph queries (`memory_*`), and surfaces helper signals for chat output and action requests. The UI controllers are pure GDScript and can be dropped into other scenes or extended as needed.
