@@ -7,7 +7,19 @@ class_name LocalAgentsGraph
 var _next_node_id := 0
 var _next_edge_id := 0
 
+func ensure_id_counters() -> void:
+    var max_node_id := -1
+    for node in nodes:
+        max_node_id = max(max_node_id, node.id)
+    _next_node_id = max_node_id + 1
+
+    var max_edge_id := -1
+    for edge in edges:
+        max_edge_id = max(max_edge_id, edge.id)
+    _next_edge_id = max_edge_id + 1
+
 func add_node(name: String = "", data: Dictionary = {}) -> LocalAgentsGraphNode:
+    ensure_id_counters()
     var node := LocalAgentsGraphNode.new(_next_node_id, name, data)
     nodes.append(node)
     _next_node_id += 1
@@ -27,6 +39,7 @@ func remove_node(node_id: int) -> bool:
     return true
 
 func add_edge(source_id: int, target_id: int, name: String = "", weight: float = 1.0, data: Dictionary = {}, is_bidirectional: bool = false) -> LocalAgentsGraphEdge:
+    ensure_id_counters()
     var source_node := get_node(source_id)
     var target_node := get_node(target_id)
     if source_node == null or target_node == null:
