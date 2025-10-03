@@ -17,9 +17,13 @@ margin_right = -8.0
 margin_bottom = -8.0
 custom_constants/separation = 12
 
+[node name="StatusLabel" type="Label" parent="VBoxContainer"]
+unique_name_in_owner = true
+text = "Idle"
+horizontal_alignment = 1
+
 [node name="ButtonRow" type="HBoxContainer" parent="VBoxContainer"]
 custom_constants/separation = 8
-
 [node name="DownloadAllButton" type="Button" parent="VBoxContainer/ButtonRow"]
 text = "Download Defaults"
 size_flags_horizontal = 3
@@ -56,5 +60,3 @@ text = ""
 [connection signal="pressed" from="VBoxContainer/ButtonRow/DownloadModelsButton" to="." method="download_models_only"]
 [connection signal="pressed" from="VBoxContainer/ButtonRow/DownloadVoicesButton" to="." method="download_voices_only"]
 [connection signal="pressed" from="VBoxContainer/ButtonRow/CleanButton" to="." method="clean_downloads"]
-
-[resource]

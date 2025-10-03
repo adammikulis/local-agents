@@ -4,8 +4,11 @@
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/templates/vector.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/typed_array.hpp>
 #include <godot_cpp/variant/string.hpp>
+
+#include <llama.h>
 
 #include <memory>
 #include <mutex>
@@ -31,6 +34,7 @@ public:
     bool is_model_loaded() const;
 
     Dictionary generate(const Dictionary &request);
+    PackedFloat32Array embed_text(const String &text, const Dictionary &options = Dictionary());
 
     void set_default_model_path(const String &path);
     String get_default_model_path() const;
@@ -43,7 +47,7 @@ public:
 
 protected:
     static void _bind_methods();
-    void _notification(int what) override;
+    void _notification(int what);
 
 private:
     Dictionary run_inference_locked(const Dictionary &request);

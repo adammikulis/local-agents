@@ -4,6 +4,12 @@ class_name LocalAgentsDownloadController
 
 @export var output_log: RichTextLabel
 
+@onready var status_label: Label = %StatusLabel
+@onready var download_all_button: Button = %DownloadAllButton
+@onready var download_models_button: Button = %DownloadModelsButton
+@onready var download_voices_button: Button = %DownloadVoicesButton
+@onready var clean_button: Button = %CleanButton
+
 const FETCH_SCRIPT := "res://addons/local_agents/gdextensions/localagents/scripts/fetch_dependencies.sh"
 
 var _worker: Thread
@@ -12,6 +18,7 @@ var _pending_args: PackedStringArray = []
 
 func _ready() -> void:
     _reset_output()
+    _set_running_state(false, "Idle")
 
 func _exit_tree() -> void:
     if _worker:
@@ -45,6 +52,7 @@ func _start_worker(args: PackedStringArray) -> void:
     for arg in args:
         _pending_args.append(arg)
     _is_running = true
+    _set_running_state(true, "Running download")
     _log_command(script_path, args)
     _worker.start(callable(self, "_thread_download"), script_path)
 
@@ -60,11 +68,14 @@ func _on_download_finished(exit_code: int, output: Array) -> void:
     if output_log:
         for line in output:
             output_log.append_text("%s\n" % line)
-        output_log.append_text("\nResult: %s\n" % (exit_code == 0 ? "Success" : "Failed (%d)" % exit_code))
+        var result_text := "Success" if exit_code == 0 else "Failed (%d)" % exit_code
+        output_log.append_text("\nResult: %s\n" % result_text)
     _is_running = false
     if _worker:
         _worker.wait_to_finish()
         _worker = null
+    var final_status := "Completed" if exit_code == 0 else "Failed (%d)" % exit_code
+    _set_running_state(false, final_status)
 
 func _reset_output() -> void:
     if output_log:
@@ -80,4 +91,15 @@ func _log_command(script_path: String, args: PackedStringArray) -> void:
         for arg in args:
             arg_string += " %s" % arg
         output_log.append_text("Running: %s%s\n\n" % [script_path, arg_string])
-*** End
+
+func _set_running_state(running: bool, label: String) -> void:
+    if status_label:
+        status_label.text = label
+    if download_all_button:
+        download_all_button.disabled = running
+    if download_models_button:
+        download_models_button.disabled = running
+    if download_voices_button:
+        download_voices_button.disabled = running
+    if clean_button:
+        clean_button.disabled = running

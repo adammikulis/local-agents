@@ -7,6 +7,8 @@
 
 #include <llama.h>
 
+#include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <sstream>
 #include <vector>
@@ -19,20 +21,76 @@ std::string to_utf8(const String &value) {
 }
 
 llama_sampler *create_sampler(const Dictionary &options) {
-    llama_sampler_params params = llama_sampler_params_default();
-    if (options.has("temperature")) {
-        params.temperature = (float)options["temperature"];
+    llama_sampler_chain_params chain_params = llama_sampler_chain_default_params();
+    chain_params.no_perf = true;
+
+    llama_sampler *chain = llama_sampler_chain_init(chain_params);
+    if (!chain) {
+        return nullptr;
     }
-    if (options.has("top_p")) {
-        params.top_p = (float)options["top_p"];
-    }
+
+    auto append_sampler = [chain](llama_sampler *sampler) {
+        if (sampler) {
+            llama_sampler_chain_add(chain, sampler);
+        }
+    };
+
+    bool use_distribution = false;
+
     if (options.has("top_k")) {
-        params.top_k = (int32_t)options["top_k"];
+        int32_t top_k = (int32_t)options["top_k"];
+        if (top_k > 0) {
+            append_sampler(llama_sampler_init_top_k(top_k));
+            use_distribution = true;
+        }
     }
+
+    if (options.has("top_p")) {
+        float top_p = (float)options["top_p"];
+        if (top_p > 0.0f) {
+            append_sampler(llama_sampler_init_top_p(top_p, 1));
+            use_distribution = true;
+        }
+    }
+
     if (options.has("min_p")) {
-        params.min_p = (float)options["min_p"];
+        float min_p = (float)options["min_p"];
+        if (min_p > 0.0f) {
+            append_sampler(llama_sampler_init_min_p(min_p, 1));
+            use_distribution = true;
+        }
     }
-    return llama_sampler_init(LLAMA_SAMPLER_TYPE_DEFAULT, &params);
+
+    float temperature = 1.0f;
+    if (options.has("temperature")) {
+        temperature = (float)options["temperature"];
+    }
+
+    if (temperature <= 0.0f) {
+        use_distribution = false;
+    } else if (temperature != 1.0f) {
+        append_sampler(llama_sampler_init_temp(temperature));
+        use_distribution = true;
+    } else {
+        use_distribution = true;
+    }
+
+    uint32_t seed = LLAMA_DEFAULT_SEED;
+    if (options.has("seed")) {
+        seed = static_cast<uint32_t>((int64_t)options["seed"]);
+    }
+
+    if (use_distribution) {
+        append_sampler(llama_sampler_init_dist(seed));
+    } else {
+        append_sampler(llama_sampler_init_greedy());
+    }
+
+    if (llama_sampler_chain_n(chain) == 0) {
+        append_sampler(llama_sampler_init_greedy());
+    }
+
+    return chain;
 }
 
 } // namespace
@@ -67,6 +125,7 @@ void AgentRuntime::_bind_methods() {
     ClassDB::bind_method(D_METHOD("unload_model"), &AgentRuntime::unload_model);
     ClassDB::bind_method(D_METHOD("is_model_loaded"), &AgentRuntime::is_model_loaded);
     ClassDB::bind_method(D_METHOD("generate", "request"), &AgentRuntime::generate);
+    ClassDB::bind_method(D_METHOD("embed_text", "text", "options"), &AgentRuntime::embed_text, DEFVAL(Dictionary()));
 
     ClassDB::bind_method(D_METHOD("set_default_model_path", "path"), &AgentRuntime::set_default_model_path);
     ClassDB::bind_method(D_METHOD("get_default_model_path"), &AgentRuntime::get_default_model_path);
@@ -132,6 +191,105 @@ Dictionary AgentRuntime::generate(const Dictionary &request) {
     return run_inference_locked(request);
 }
 
+PackedFloat32Array AgentRuntime::embed_text(const String &text, const Dictionary &options) {
+    std::scoped_lock lock(mutex_);
+
+    PackedFloat32Array empty;
+    if (text.is_empty()) {
+        UtilityFunctions::push_warning("AgentRuntime::embed_text - empty text");
+        return empty;
+    }
+
+    if (!model_ || !context_) {
+        if (default_model_path_.is_empty()) {
+            UtilityFunctions::push_error("AgentRuntime::embed_text - model not loaded");
+            return empty;
+        }
+        Dictionary reload_options = default_options_.duplicate();
+        reload_options["embedding"] = true;
+        if (!load_model_locked(default_model_path_, reload_options, false)) {
+            UtilityFunctions::push_error("AgentRuntime::embed_text - failed to reload model with embedding support");
+            return empty;
+        }
+    }
+
+    Dictionary resolved = default_options_.duplicate();
+    if (!options.is_empty()) {
+        Array keys = options.keys();
+        for (int i = 0; i < keys.size(); ++i) {
+            Variant key = keys[i];
+            resolved[key] = options[key];
+        }
+    }
+
+    bool add_bos = resolved.get("add_bos", true);
+    bool normalize = resolved.get("normalize", true);
+
+    std::string input = to_utf8(text);
+    const llama_vocab *vocab = llama_model_get_vocab(model_);
+    if (!vocab) {
+        UtilityFunctions::push_error("AgentRuntime::embed_text - vocab unavailable");
+        return empty;
+    }
+
+    int token_capacity = llama_tokenize(vocab, input.c_str(), static_cast<int32_t>(input.length()), nullptr, 0, add_bos, false);
+    if (token_capacity <= 0) {
+        UtilityFunctions::push_error("AgentRuntime::embed_text - tokenization failed");
+        return empty;
+    }
+
+    std::vector<llama_token> tokens(static_cast<size_t>(token_capacity));
+    llama_tokenize(vocab, input.c_str(), static_cast<int32_t>(input.length()), tokens.data(), token_capacity, add_bos, false);
+
+    llama_memory_clear(llama_get_memory(context_), true);
+
+    llama_batch batch = llama_batch_get_one(tokens.data(), token_capacity);
+
+    if (llama_decode(context_, batch) != 0) {
+        UtilityFunctions::push_error("AgentRuntime::embed_text - llama_decode failed");
+        return empty;
+    }
+
+    const float *embedding_ptr = nullptr;
+    switch (llama_pooling_type(context_)) {
+        case LLAMA_POOLING_TYPE_NONE:
+            embedding_ptr = llama_get_embeddings(context_);
+            if (!embedding_ptr) {
+                embedding_ptr = llama_get_embeddings_ith(context_, token_capacity - 1);
+            }
+            break;
+        default:
+            embedding_ptr = llama_get_embeddings_seq(context_, 0);
+            break;
+    }
+
+    if (!embedding_ptr) {
+        UtilityFunctions::push_error("AgentRuntime::embed_text - no embedding data");
+        return empty;
+    }
+
+    int dim = llama_model_n_embd(model_);
+    PackedFloat32Array embedding;
+    embedding.resize(dim);
+    float *out = embedding.ptrw();
+    std::memcpy(out, embedding_ptr, dim * sizeof(float));
+
+    if (normalize) {
+        double norm = 0.0;
+        for (int i = 0; i < dim; ++i) {
+            norm += static_cast<double>(out[i]) * static_cast<double>(out[i]);
+        }
+        norm = std::sqrt(std::max(norm, 1e-12));
+        if (norm > 0.0) {
+            for (int i = 0; i < dim; ++i) {
+                out[i] = static_cast<float>(out[i] / norm);
+            }
+        }
+    }
+
+    return embedding;
+}
+
 Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
     Dictionary response;
     if (!model_ || !context_) {
@@ -153,12 +311,27 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
     }
 
     sampler_.reset();
-    ensure_sampler_locked(options);
+    if (!ensure_sampler_locked(options)) {
+        response["ok"] = false;
+        response["error"] = "sampler_init_failed";
+        return response;
+    }
+
+    if (sampler_) {
+        llama_sampler_reset(sampler_.get());
+    }
 
     std::string prompt_text = build_prompt(history, prompt);
 
     const bool add_bos = true;
-    int token_capacity = llama_tokenize(model_, prompt_text.c_str(), prompt_text.length(), nullptr, 0, add_bos, false);
+    const llama_vocab *vocab = llama_model_get_vocab(model_);
+    if (!vocab) {
+        response["ok"] = false;
+        response["error"] = "vocab_unavailable";
+        return response;
+    }
+
+    int token_capacity = llama_tokenize(vocab, prompt_text.c_str(), (int32_t)prompt_text.length(), nullptr, 0, add_bos, false);
     if (token_capacity <= 0) {
         response["ok"] = false;
         response["error"] = "tokenization_failed";
@@ -166,40 +339,31 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
     }
 
     std::vector<llama_token> tokens_prompt(token_capacity);
-    llama_tokenize(model_, prompt_text.c_str(), prompt_text.length(), tokens_prompt.data(), token_capacity, add_bos, false);
+    llama_tokenize(vocab, prompt_text.c_str(), (int32_t)prompt_text.length(), tokens_prompt.data(), token_capacity, add_bos, false);
 
-    llama_batch batch = llama_batch_init(token_capacity, 0, 1);
-    for (int i = 0; i < token_capacity; ++i) {
-        llama_batch_add(&batch, tokens_prompt[i], batch.n_seq_id, {0}, false);
-    }
+    llama_batch batch = llama_batch_get_one(tokens_prompt.data(), token_capacity);
 
     if (llama_decode(context_, batch)) {
-        llama_batch_free(batch);
         response["ok"] = false;
         response["error"] = "llama_decode_failed";
         return response;
     }
-
-    llama_batch_free(batch);
 
     int max_tokens = options.get("max_tokens", 256);
 
     std::ostringstream generated;
     for (int i = 0; i < max_tokens; ++i) {
         llama_token token = llama_sampler_sample(sampler_.get(), context_, -1);
-        if (token == llama_token_eos(model_)) {
+        if (llama_vocab_is_eog(vocab, token)) {
             break;
         }
         generated << token_to_string(token);
 
-        llama_batch cont = llama_batch_init(1, 0, 1);
-        llama_batch_add(&cont, token, cont.n_seq_id, {0}, false);
+        llama_batch cont = llama_batch_get_one(&token, 1);
         if (llama_decode(context_, cont)) {
-            llama_batch_free(cont);
             UtilityFunctions::push_warning("llama_decode failed during continuation");
             break;
         }
-        llama_batch_free(cont);
     }
 
     String text = String::utf8(generated.str().c_str()).strip_edges();
@@ -209,15 +373,13 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
 }
 
 bool AgentRuntime::ensure_sampler_locked(const Dictionary &options) {
-    if (sampler_) {
-        return true;
-    }
     llama_sampler *sampler = create_sampler(options);
     if (!sampler) {
         UtilityFunctions::push_error("AgentRuntime::ensure_sampler - failed to create sampler");
         return false;
     }
     sampler_.reset(sampler);
+    llama_sampler_reset(sampler_.get());
     return true;
 }
 
@@ -240,7 +402,11 @@ std::string AgentRuntime::build_prompt(const TypedArray<Dictionary> &history, co
 std::string AgentRuntime::token_to_string(llama_token token) const {
     std::string buffer;
     buffer.resize(4096);
-    int written = llama_token_to_piece(model_, token, buffer.data(), buffer.size(), false);
+    const llama_vocab *vocab = llama_model_get_vocab(model_);
+    if (!vocab) {
+        return std::string();
+    }
+    int written = llama_token_to_piece(vocab, token, buffer.data(), buffer.size(), 0, false);
     if (written < 0) {
         return std::string();
     }
@@ -264,7 +430,7 @@ bool AgentRuntime::load_model_locked(const String &path, const Dictionary &optio
         model_params.use_mlock = (bool)options["use_mlock"];
     }
 
-    model_ = llama_load_model_from_file(path.utf8().get_data(), model_params);
+    model_ = llama_model_load_from_file(path.utf8().get_data(), model_params);
     if (!model_) {
         UtilityFunctions::push_error("AgentRuntime::load_model - failed to load: " + path);
         return false;
@@ -274,14 +440,19 @@ bool AgentRuntime::load_model_locked(const String &path, const Dictionary &optio
     if (options.has("context_size")) {
         ctx_params.n_ctx = (int32_t)options["context_size"];
     }
-    if (options.has("seed")) {
-        ctx_params.seed = (uint32_t)((int64_t)options["seed"]);
-    }
-    if (options.has("embedding")) {
-        ctx_params.embedding = (bool)options["embedding"];
+    if (options.has("pooling")) {
+        ctx_params.pooling_type = static_cast<enum llama_pooling_type>((int)options["pooling"]);
     }
 
-    context_ = llama_new_context_with_model(model_, ctx_params);
+    if (options.has("embedding")) {
+        ctx_params.embeddings = (bool)options["embedding"];
+    } else if (options.has("embeddings")) {
+        ctx_params.embeddings = (bool)options["embeddings"];
+    } else {
+        ctx_params.embeddings = true;
+    }
+
+    context_ = llama_init_from_model(model_, ctx_params);
     if (!context_) {
         UtilityFunctions::push_error("AgentRuntime::load_model - failed to create context");
         unload_model_locked();
@@ -294,6 +465,9 @@ bool AgentRuntime::load_model_locked(const String &path, const Dictionary &optio
         for (int i = 0; i < keys.size(); ++i) {
             Variant key = keys[i];
             default_options_[key] = options[key];
+        }
+        if (!default_options_.has("embedding")) {
+            default_options_["embedding"] = ctx_params.embeddings;
         }
     }
 
@@ -309,7 +483,7 @@ void AgentRuntime::unload_model_locked() {
         context_ = nullptr;
     }
     if (model_) {
-        llama_free_model(model_);
+        llama_model_free(model_);
         model_ = nullptr;
     }
     sampler_.reset();

@@ -5,7 +5,7 @@ const AGENT_SCRIPT := preload("res://addons/local_agents/agents/Agent.gd")
 const AGENT_ICON := preload("res://addons/local_agents/assets/logos/brain_pink.png")
 const PANEL_SCENE := preload("res://addons/local_agents/editor/LocalAgentsPanel.tscn")
 
-var _extension_res: Extension
+var _extension_res: GDExtension
 var _panel_instance: Control
 var _panel_button: Button
 
@@ -29,10 +29,10 @@ func _ensure_extension_loaded() -> void:
     if ClassDB.class_exists("AgentNode"):
         return
     var res := load("res://addons/local_agents/gdextensions/localagents/localagents.gdextension")
-    if res and res is Extension:
+    if res and res is GDExtension:
         _extension_res = res
         if not _extension_res.is_initialized():
-            var err := _extension_res.initialize()
+            var err: Error = _extension_res.initialize()
             if err != OK:
                 push_error("Failed to initialize localagents extension: %s" % err)
     elif not res:

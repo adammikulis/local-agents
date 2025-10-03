@@ -1,6 +1,14 @@
 # Local Agents Architecture Map
 
-We coordinate the rebuild across three collaborating agents: **Frontend Agent**, **Runtime Agent**, and **Data Agent**. Each agent owns a vertical slice so we can reach feature parity with the original Mind Game release (3D demo, in-engine agent) while completing the migration to pure GDScript + GDExtension.
+We now coordinate work across four collaborating agents: **Frontend Agent**, **Runtime Agent**, **Data Agent**, and **Quality Agent**. Everyone works in parallel—never rewrite or delete a teammate’s commits, avoid force pushes, and keep diffs scoped to your mission area.
+
+---
+## Collaboration Protocol
+
+- Assume other agents are modifying adjacent files; make additive, minimally disruptive changes.
+- Leave TODOs or notes rather than ripping out code you do not own.
+- Announce breaking changes or schema updates here before merging them.
+- Prefer feature branches and focused commits; do not force-push shared history.
 
 ---
 ## Frontend Agent
@@ -32,16 +40,16 @@ We coordinate the rebuild across three collaborating agents: **Frontend Agent**,
 
 ### R.1 Layout & Tooling
 - Directory: `addons/local_agents/gdextensions/localagents/`
-  - `include/`: headers (`AgentRuntime.hpp`, `AgentNode.hpp`, upcoming memory wrappers).
-  - `src/`: implementations (`AgentRuntime.cpp`, `AgentNode.cpp`, `LocalAgentsRegister.cpp`, future modules).
-  - `thirdparty/`: shallow clones (`godot-cpp`, `llama.cpp`, `whisper.cpp` / `faster-whisper`, SQLite amalgamation, optional graph libs).
-  - `bin/`: compiled libraries per platform.
+  - `include/`: headers (`AgentRuntime.hpp`, `AgentNode.hpp`, `MemoryGraph.hpp`).
+  - `src/`: implementations (`AgentRuntime.cpp`, `AgentNode.cpp`, `LocalAgentsRegister.cpp`, `MemoryGraph.cpp`).
+  - `thirdparty/`: shallow clones (`godot-cpp`, `llama.cpp`, `whisper.cpp`/`faster-whisper`, SQLite amalgamation, optional graph libs).
+  - `bin/`: compiled libraries per platform (ships `localagents.*` plus bundled `libllama`/`libggml*` siblings for editor discovery).
 - Scripts: `scripts/fetch_dependencies.sh`, `scripts/build_extension.sh`, future `build_all.sh` and test harnesses.
 
 ### R.2 Shared Runtime
 - `AgentRuntime` singleton responsibilities:
   - Load/manage a single llama.cpp model (default Qwen3-4B) with thread-safe job queue.
-  - Handle sampler profiles, batching, JSON-mode grammars, and seed control.
+  - Handle sampler chains, batching, JSON-mode grammars, and seed control using current llama.cpp APIs.
   - Expose binding for llama.cpp’s download functionality so the Download tab can trigger it.
   - Mediate Piper (speech) and Whisper/Fast-Whisper (transcription) subprocesses, abstracted behind async helpers.
 - `AgentNode` becomes a proxy: maintains per-agent metadata, forwards prompts/history to runtime, receives completions, dispatches signals.
@@ -75,11 +83,31 @@ We coordinate the rebuild across three collaborating agents: **Frontend Agent**,
 - Plan for LoRA/adapter packaging, voice packs, and scenario datasets.
 
 ---
+## Quality Agent
+
+**Mission:** Safeguard architecture coherence, documentation accuracy, and long-term maintainability.
+
+### Q.1 Documentation & Knowledge
+- Review `ARCHITECTURE_PLAN.md`, `README.md`, and developer docs every sprint; track divergences between the plan and implementation.
+- Publish notes covering runtime/API changes, including new native symbols or script-facing properties.
+- Maintain a migration log describing updates downstream projects must make.
+
+### Q.2 Code Health & Testing
+- Audit repositories for outdated patterns (deprecated Godot syntax, stale build flags) and schedule refactors.
+- Propose test plans for GDExtension (unit + integration) and editor GDScript smoke tests.
+- Track CI coverage gaps; introduce linting/static analysis configs without blocking other agents.
+
+### Q.3 Refactor & Improvement Backlog
+- Curate structural cleanups (module boundaries, dependency pruning, build scripts).
+- Identify opportunities for shared utilities (error reporting, telemetry, logging) that help multiple agents.
+- Monitor third-party updates (godot-cpp, llama.cpp, SQLite) and recommend upgrade windows, noting required code changes.
+
+---
 ## Roadmap
 
 1. **Runtime Stabilisation**
    - Expand `AgentRuntime` job queue, integrate llama.cpp downloader, and expose JSON grammar support.
-   - Harden build tooling (multi-platform scripts, optional CI).
+   - Harden build tooling (multi-platform scripts, optional CI). Ensure macOS builds continue bundling dependent dylibs via `build_extension.sh` and replicate bundling on Linux/Windows.
 
 2. **Memory Integration**
    - Implement SQLite MemoryGraph + embedding flow; surface seeds in Chat tab.
@@ -92,6 +120,7 @@ We coordinate the rebuild across three collaborating agents: **Frontend Agent**,
 
 5. **Scaling & Tooling**
    - Add performance instrumentation, batching controls, and expand editor tabs (Memory, Graph, Settings).
+   - Quality Agent to define automation for packaging verification across platforms.
 
 ---
 ## Open Questions
@@ -101,14 +130,15 @@ We coordinate the rebuild across three collaborating agents: **Frontend Agent**,
 - Ship Piper/Whisper binaries or guide users to build locally?
 - Autoload design: keep a single runtime autoload or allow per-scene overrides?
 - Automated test strategy for native bindings and GDS integration.
+- How do we version bundled native dependencies so downstream projects can opt into security patches without breaking compatibility?
 
 ---
 ## Immediate Next Steps
 
-1. Mark all editor-facing scripts (`LocalAgentsEditorPlugin.gd`, panel controllers, Chat/Download scripts) with `@tool` and verify the bottom panel loads without play mode.
-2. Connect Download tab buttons to llama.cpp’s download routine via the runtime helper; provide progress + error messages.
-3. Prototype MemoryGraph schema and storage adapter.
+1. Validate the editor loads the rebuilt GDExtension with bundled `libllama`/`libggml` libraries on macOS; replicate packaging logic on Linux/Windows.
+2. Finish typing fixes and modern Godot syntax updates across controllers (`ChatController.gd`, `SavedChatsController.gd`, etc.) so 4.3+ parsing succeeds.
+3. Flesh out MemoryGraph persistence tests and wire them into CI once runtime stabilises.
 4. Restore the 3D agent demo scene using the new runtime pipeline.
-5. Update documentation/screenshots to reflect the new editor workflow.
+5. Update screenshots and user docs to reflect the Download tab status feedback and runtime health indicators.
 
 This division clarifies ownership so multiple specialised agents can ship features in parallel while we converge on full GDScript/GDExtension parity with the original project.
