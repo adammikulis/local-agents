@@ -5,6 +5,8 @@
 .import/
 export.cfg
 export_presets.cfg
+*.import
+*.uid
 
 # Imported translations (automatically generated from CSV files)
 *.translation
@@ -18,6 +20,12 @@ mono_crash.*.json
 android/
 .vs
 .releases
-addons/mind_game/assets/llms
-addons/mind_game/configuration/parameters/ConfigList.tres
-MindGame.csproj.old
+addons/local_agents/gdextensions/localagents/thirdparty/
+addons/local_agents/gdextensions/localagents/build/
+addons/local_agents/gdextensions/localagents/bin/
+addons/local_agents/models/
+addons/local_agents/voices/
+!addons/local_agents/models/
+!addons/local_agents/voices/
+!addons/local_agents/models/.gdignore
+!addons/local_agents/voices/.gdignore

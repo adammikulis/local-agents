@@ -18,6 +18,12 @@ var inference_options: Dictionary = {}
 func _ready() -> void:
     agent_node = AgentNode.new()
     add_child(agent_node)
+    var runtime_path := "res://addons/local_agents/gdextensions/localagents/bin"
+    if DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(runtime_path)):
+        agent_node.runtime_directory = runtime_path
+    var default_model := "res://addons/local_agents/models/qwen3-4b-instruct/qwen2.5-3b-instruct-q4_k_m.gguf"
+    if FileAccess.file_exists(default_model):
+        agent_node.default_model_path = default_model
     agent_node.tick_enabled = tick_enabled
     agent_node.tick_interval = tick_interval
     agent_node.max_actions_per_tick = max_actions_per_tick
@@ -55,8 +61,6 @@ func configure(model_params: LocalAgentsModelParams = null, inference_params: Lo
             inference_options[key] = inference_params.extra_options[key]
 
 func submit_user_message(text: String) -> void:
-    if agent_node:
-        agent_node.add_message("user", text)
     history.append({"role": "user", "content": text})
 
 func think(prompt: String, extra_opts: Dictionary = {}) -> Dictionary:
@@ -67,8 +71,6 @@ func think(prompt: String, extra_opts: Dictionary = {}) -> Dictionary:
     var result: Dictionary = agent_node.think(prompt, opts)
     var text := result.get("text", "")
     if text != "":
-        if agent_node:
-            agent_node.add_message("assistant", text)
         history.append({"role": "assistant", "content": text})
         emit_signal("model_output_received", text)
     return result
