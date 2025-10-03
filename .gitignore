@@ -19,6 +19,7 @@ mono_crash.*.json
 # Project-specific ignores
 android/
 .vs
+.vscode/
 .releases
 addons/local_agents/gdextensions/localagents/thirdparty/
 addons/local_agents/gdextensions/localagents/build/
