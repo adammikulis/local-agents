@@ -9,7 +9,7 @@ const DIRECTORY_SPACE := "code_dir"
 const DEFAULT_EXTENSIONS := ["gd", "tscn", "tres", "cs", "gdshader", "cfg"]
 
 var _graph: NetworkGraph
-var _runtime
+var _runtime: Object = null
 
 func _ready() -> void:
     _ensure_graph()
@@ -52,7 +52,7 @@ func rebuild_project_graph(root_path: String = "res://", extensions: Array = DEF
                 "path": resource_path,
                 "extension": extension,
                 "size": content.length(),
-                "hash": content.hash64(),
+                "hash": hash(content),
             }
             var label := resource_path
             var node_id := _graph.upsert_node(CODE_SPACE, label, metadata)
@@ -78,10 +78,14 @@ func search_code(query: String, top_k: int = 5, expand: int = 64) -> Array:
         return []
     if not _ensure_graph():
         return []
-    var runtime := _agent_runtime()
-    if runtime == null or not runtime.is_model_loaded():
+    var runtime: Object = _agent_runtime()
+    if runtime == null or not runtime.has_method("is_model_loaded"):
         return []
-    var emb := runtime.embed_text(query, {"normalize": true})
+    if not runtime.call("is_model_loaded"):
+        return []
+    if not runtime.has_method("embed_text"):
+        return []
+    var emb := runtime.call("embed_text", query, {"normalize": true})
     if emb.is_empty():
         return []
     var matches := _graph.search_embeddings(emb, top_k, expand)
@@ -136,13 +140,17 @@ func _ensure_directory_node(path: String, cache: Dictionary) -> int:
     return node_id
 
 func _store_code_embedding(node_id: int, content: String) -> void:
-    var runtime := _agent_runtime()
-    if runtime == null or not runtime.is_model_loaded():
+    var runtime: Object = _agent_runtime()
+    if runtime == null or not runtime.has_method("is_model_loaded"):
+        return
+    if not runtime.call("is_model_loaded"):
+        return
+    if not runtime.has_method("embed_text"):
         return
     var slice := content
     if slice.length() > 4000:
         slice = slice.substr(0, 4000)
-    var emb := runtime.embed_text(slice, {"normalize": true})
+    var emb := runtime.call("embed_text", slice, {"normalize": true})
     if emb.is_empty():
         return
     _graph.add_embedding(node_id, emb, {
@@ -166,10 +174,10 @@ func _read_file(path: String) -> String:
     file.close()
     return content
 
-func _agent_runtime():
+func _agent_runtime() -> Object:
     if _runtime:
         return _runtime
-    if not ClassDB.class_exists("AgentRuntime"):
+    if not Engine.has_singleton("AgentRuntime"):
         return null
-    _runtime = AgentRuntime.get_singleton()
+    _runtime = Engine.get_singleton("AgentRuntime")
     return _runtime

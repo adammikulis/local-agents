@@ -8,7 +8,7 @@ const CONVERSATION_SPACE := "conversation"
 const MESSAGE_SPACE := "message"
 
 var _graph: NetworkGraph
-var _runtime := null
+var _runtime: Object = null
 var _rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -138,10 +138,14 @@ func search_messages(query: String, top_k: int = 5, expand: int = 32) -> Array:
         return []
     if not _ensure_graph():
         return []
-    var runtime := _agent_runtime()
-    if runtime == null or not runtime.is_model_loaded():
+    var runtime: Object = _agent_runtime()
+    if runtime == null or not runtime.has_method("is_model_loaded"):
         return []
-    var embedding := runtime.embed_text(query, {"normalize": true})
+    if not runtime.call("is_model_loaded"):
+        return []
+    if not runtime.has_method("embed_text"):
+        return []
+    var embedding := runtime.call("embed_text", query, {"normalize": true})
     if embedding.is_empty():
         return []
     var matches := _graph.search_embeddings(embedding, top_k, expand)
@@ -220,13 +224,17 @@ func _message_from_row(row: Dictionary) -> Dictionary:
     }
 
 func _store_embedding(message_id: int, role: String, content: String, conversation_id: int) -> void:
-    var runtime := _agent_runtime()
-    if runtime == null or not runtime.is_model_loaded():
+    var runtime: Object = _agent_runtime()
+    if runtime == null or not runtime.has_method("is_model_loaded"):
+        return
+    if not runtime.call("is_model_loaded"):
+        return
+    if not runtime.has_method("embed_text"):
         return
     var truncated := content
     if truncated.length() > 4096:
         truncated = truncated.substr(0, 4096)
-    var vector := runtime.embed_text(truncated, {"normalize": true})
+    var vector := runtime.call("embed_text", truncated, {"normalize": true})
     if vector.is_empty():
         return
     _graph.add_embedding(message_id, vector, {
@@ -241,10 +249,10 @@ func _generate_label(prefix: String) -> String:
 func _timestamp() -> int:
     return int(Time.get_unix_time_from_system())
 
-func _agent_runtime():
+func _agent_runtime() -> Object:
     if _runtime:
         return _runtime
-    if not ClassDB.class_exists("AgentRuntime"):
+    if not Engine.has_singleton("AgentRuntime"):
         return null
-    _runtime = AgentRuntime.get_singleton()
+    _runtime = Engine.get_singleton("AgentRuntime")
     return _runtime

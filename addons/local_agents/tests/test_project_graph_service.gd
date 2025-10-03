@@ -29,7 +29,9 @@ func _init() -> void:
     _prepare_test_files()
 
     var service := LocalAgentsProjectGraphService.new()
-    add_child(service)
+    var root := get_root()
+    if root:
+        root.add_child(service)
     service._runtime = MockRuntime.new()
 
     service.rebuild_project_graph(TEST_DIR, ["gd"])
@@ -55,7 +57,7 @@ func _init() -> void:
 func _prepare_test_files() -> void:
     if DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(TEST_DIR)):
         _cleanup_test_files()
-    DirAccess.make_dir_recursive(TEST_DIR)
+    DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(TEST_DIR))
     var file := FileAccess.open(TEST_DIR.path_join("alpha.gd"), FileAccess.WRITE)
     file.store_string("func alpha():\n    # assistant helper\n    pass\n")
     file.close()
