@@ -38,6 +38,11 @@ TEST_SCRIPTS=(
     "addons/local_agents/tests/test_project_graph_service.gd"
 )
 
+echo "==> Running editor script check"
+GODOT_BIN="${GODOT_BIN}" "${REPO_ROOT}/scripts/run_godot_check.sh"
+echo "==> Editor script check completed"
+echo
+
 for test_script in "${TEST_SCRIPTS[@]}"; do
     echo "==> Running ${test_script}"
     "${GODOT_BIN}" --headless --no-window -s "${REPO_ROOT}/${test_script}"

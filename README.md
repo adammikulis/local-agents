@@ -4,7 +4,7 @@ Local Agents is a Godot addon that exposes a native `AgentNode` (GDExtension) fo
 - Drop the addon into any Godot 4 project and get an `Agent` node with chat history, action queues, and graph memory helpers.
 - Configure the native backend via the included Model/Inference panels (set graph DB path, tick cadence, sampling knobs).
 - Sample UIs (`ChatExample.tscn`, `Agent3D.tscn`, `GraphExample.tscn`) that show how to drive characters, wire chat inputs, and inspect graph heuristics.
-- Ships with automation to fetch/build the native runtime and default models (Qwen2.5-3B-Instruct Q4_K_M + Piper English voices).
+- Ships with automation to fetch/build the native runtime and default models (Qwen3-4B-Instruct-2507 Q4_K_M + Piper English voices).
 
 # Getting Started
 
@@ -24,12 +24,17 @@ Local Agents is a Godot addon that exposes a native `AgentNode` (GDExtension) fo
    ./scripts/fetch_runtimes.sh
    ```
    Add `--all` to download every supported Piper bundle (macOS, Linux, Windows). Run the script on each target OS if you need native `whisper` binaries there. Assets are copied into `addons/local_agents/gdextensions/localagents/bin/runtimes/<platform>/` so export templates can bundle them directly.
-3. Copy the `addons/local_agents` folder into your Godot project and enable the plugin (Project Settings → Plugins → Local Agents).
-4. Ensure the autoload `AgentManager` is active; it spins up a singleton agent and keeps configs in `res://addons/local_agents/configuration/parameters/`.
-5. Open any of the demo scenes under `addons/local_agents/examples/` to see the GDExtension in action.
+4. Copy the `addons/local_agents` folder into your Godot project and enable the plugin (Project Settings → Plugins → Local Agents).
+5. Ensure the autoload `AgentManager` is active; it spins up a singleton agent and keeps configs in `res://addons/local_agents/configuration/parameters/`.
+6. Open any of the demo scenes under `addons/local_agents/examples/` to see the GDExtension in action.
+
+### Speech Output (Piper)
+- Download voices with `addons/local_agents/gdextensions/localagents/scripts/fetch_dependencies.sh` (runs automatically in step 1) or add your own `.onnx` voices under `addons/local_agents/voices/`.
+- Open the **Model Configuration** window, set `Voice (ID or path)` to either a relative voice folder (for example `en_US-ryan/en_US-ryan-high.onnx`) or an absolute path, and toggle **Enable Piper TTS** when you want replies to speak aloud.
+- Generated audio is stored under `user://local_agents/tts/` and played back via an `AudioStreamPlayer` on the agent.
 
 # Download Manager
-The editor Download tab uses the native `AgentRuntime.download_model()` binding to stream GGUF models via llama.cpp's downloader (libcurl). When you press **Download Models** it saves Qwen2.5-3B-Instruct (Q4_K_M) into `res://addons/local_agents/models/` and shows progress directly in the panel. Voice downloads and cleanup still reuse `scripts/fetch_dependencies.sh` so you get the same CLI behaviour inside the editor. Update `ModelDownloadService.gd` if you want to add mirrors, headers, or extra models.
+The editor Download tab now lists the latest Qwen3 GGUF drops by family and parameter size, using metadata from `addons/local_agents/models/catalog.json`. Pick a row and press **Download Selected** to stream that model via llama.cpp's downloader (libcurl); the default is Qwen3-4B-Instruct-2507 (Q4_K_M). Voice downloads and cleanup still reuse `scripts/fetch_dependencies.sh` so you get the same CLI behaviour inside the editor. Update `ModelDownloadService.gd` or the catalog if you want to add mirrors, headers, or extra models.
 
 # Graph Memory & Embeddings
 - Every runtime now mounts a persistent SQLite database at `user://local_agents/network.sqlite3` powered by the `NetworkGraph` GDExtension. Nodes, edges, and embeddings are stored in dedicated tables with JSON metadata for fast filtering.
@@ -53,7 +58,7 @@ godot --headless -s addons/local_agents/tests/test_conversation_store.gd
 godot --headless -s addons/local_agents/tests/test_project_graph_service.gd
 ```
 
-The tests use lightweight mock runtimes for embeddings, so no GGUF models are required. They create and clean up temporary data under `user://local_agents`.
+The tests use lightweight mock runtimes for embeddings, so no GGUF models are required. They create and clean up temporary data under `user://local_agents`. Before running the suites the helper calls `scripts/run_godot_check.sh` to ensure all plugin scripts parse.
 
 ## Editor Check
 Before opening Godot (or after tweaking any `.gd` scripts), run the quick headless validation to catch parse/type issues and plugin wiring errors:
