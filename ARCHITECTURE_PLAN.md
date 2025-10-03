@@ -10,6 +10,7 @@ We coordinate work across six collaborating agents: **Frontend**, **Runtime**, *
 - [ ] Announce breaking changes or schema updates here before merging them.
 - [x] Prefer feature branches and focused commits; do not force-push shared history.
 - [ ] Record cross-agent blockers in `agents.md` so owners can react quickly.
+- [ ] Update the “Agent Assigned” checkboxes in `agents.md` whenever responsibilities shift.
 
 ---
 ## Frontend Agent
