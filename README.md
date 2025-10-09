@@ -4,10 +4,10 @@ Local Agents is a Godot addon backed by a native GDExtension runtime for running
 
 ## Quick Demos
 
-**Runtime chat loop (Qwen3 0.6B, offline agent response)**
+**Runtime chat loop (locally-run LLM response)**
 ![Local Agents chat demo](https://github.com/adammikulis/MindGame/assets/27887607/bb9da9c0-622d-4b6d-af08-40cf7f2bdba9)
 
-**Editor configuration walkthrough (model setup + chat panel)**
+**Editor configuration walkthrough (locally-run LLM setup)**
 ![Local Agents configuration demo](https://github.com/adammikulis/MindGame/assets/27887607/3ecd86f9-cf92-473f-a667-76b62b7cfdb0)
 
 ## Highlights
