@@ -7,13 +7,19 @@ const PANEL_SCENE := preload("res://addons/local_agents/editor/LocalAgentsPanel.
 var _extension_res: GDExtension
 var _panel_instance: Control
 var _panel_button: Button
+var _editor_active := false
 
 func _enter_tree() -> void:
+    if not Engine.is_editor_hint():
+        return
+    _editor_active = true
     _ensure_extension_loaded()
     add_custom_type("Agent", "Node", AGENT_SCRIPT, null)
     _create_bottom_panel()
 
 func _exit_tree() -> void:
+    if not _editor_active:
+        return
     if _panel_instance:
         remove_control_from_bottom_panel(_panel_instance)
         _panel_instance.queue_free()
@@ -23,6 +29,7 @@ func _exit_tree() -> void:
     if _extension_res and _extension_res.is_initialized():
         _extension_res.deinitialize()
         _extension_res = null
+    _editor_active = false
 
 func _ensure_extension_loaded() -> void:
     if ClassDB.class_exists("AgentNode"):
