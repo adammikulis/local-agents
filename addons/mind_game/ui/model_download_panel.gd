@@ -404,7 +404,7 @@ func _iter_variants_from_catalog(catalog: Dictionary) -> Array:
         family_index += 1
     return result
 
-func _coerce_optional_str(value) -> String:
+func _coerce_optional_str(value) -> String?:
     if value == null:
         return null
     var t := typeof(value)
@@ -417,7 +417,7 @@ func _coerce_optional_str(value) -> String:
         return str(value)
     return str(value)
 
-func _coerce_optional_int(value) -> int:
+func _coerce_optional_int(value) -> int?:
     if value == null:
         return null
     var t := typeof(value)
