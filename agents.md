@@ -20,3 +20,4 @@
 ## Active Notes
 
 - Data agent is splitting download/chat responsibilities: `ModelDownloadManager` (Runtime) now invokes bundled `llama-cli` for GGUF pulls, `LocalAgentsDownloadClient` (GDScript) mirrors the API for gameplay scripts, with `DownloadJobService`/conversation helpers still pending.
+- 2025-10-09: Editor stall repro stored in `logs/godot_startup_hang.log`; a lazy activation flow plus `LocalAgentsExtensionLoader` keeps startup responsive while Runtime/Frontend continue root-causing the socket bind loop (headless verifier lives at `scripts/check_extension.gd`).

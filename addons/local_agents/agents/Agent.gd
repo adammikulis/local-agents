@@ -8,6 +8,7 @@ signal action_requested(action, params)
 var agent_node: AgentNode
 var history: Array = []
 var inference_options: Dictionary = {}
+const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
 
 @export var db_path: String = ""
 @export var voice: String = ""
@@ -19,8 +20,121 @@ var inference_options: Dictionary = {}
 var _audio_player: AudioStreamPlayer
 
 func _ready() -> void:
+    if not _ensure_agent_node():
+        push_warning("Local Agents extension unavailable; agent node inactive")
+        return
+    _audio_player = AudioStreamPlayer.new()
+    _audio_player.name = "TTSPlayer"
+    add_child(_audio_player)
+    agent_node.connect("message_emitted", Callable(self, "_on_agent_message"))
+    agent_node.connect("action_requested", Callable(self, "_on_agent_action"))
+    if is_inside_tree():
+        _register_with_manager()
+    else:
+        call_deferred("_register_with_manager")
+
+func _register_with_manager() -> void:
+    var manager: LocalAgentsAgentManager = get_node_or_null("/root/AgentManager")
+    if manager:
+        manager.register_agent(self)
+
+func configure(model_params: LocalAgentsModelParams = null, inference_params: LocalAgentsInferenceParams = null) -> void:
+    var has_agent := _ensure_agent_node()
+    if model_params:
+        db_path = model_params.db_path
+        voice = model_params.voice
+        speak_responses = model_params.speak_responses
+        tick_enabled = model_params.tick_enabled
+        tick_interval = model_params.tick_interval
+        max_actions_per_tick = model_params.max_actions_per_tick
+        if has_agent and agent_node:
+            agent_node.db_path = db_path
+            agent_node.voice = voice
+            agent_node.tick_enabled = tick_enabled
+            agent_node.tick_interval = tick_interval
+            agent_node.max_actions_per_tick = max_actions_per_tick
+    if inference_params:
+        inference_options = inference_params.to_options()
+
+func submit_user_message(text: String) -> void:
+    history.append({"role": "user", "content": text})
+
+func think(prompt: String, extra_opts: Dictionary = {}) -> Dictionary:
+    if not _ensure_agent_node():
+        return {"ok": false, "error": "agent_unavailable"}
+    submit_user_message(prompt)
+    var opts := inference_options.duplicate(true)
+    for key in extra_opts.keys():
+        opts[key] = extra_opts[key]
+    var result: Dictionary = agent_node.think(prompt, opts)
+    var text := result.get("text", "")
+    if text != "":
+        history.append({"role": "assistant", "content": text})
+        emit_signal("model_output_received", text)
+        if _should_speak_response():
+            _speak_text_async(text)
+    return result
+
+func say(text: String, opts: Dictionary = {}) -> bool:
+    if not _ensure_agent_node():
+        return false
+    return agent_node.say(text, opts)
+
+func listen(opts: Dictionary = {}) -> String:
+    if not _ensure_agent_node():
+        return ""
+    return agent_node.listen(opts)
+
+func clear_history() -> void:
+    history.clear()
+    if _ensure_agent_node() and agent_node:
+        agent_node.clear_history()
+
+func get_history() -> Array:
+    if _ensure_agent_node() and agent_node:
+        return agent_node.get_history()
+    return history.duplicate(true)
+
+func set_history(messages: Array) -> void:
+    history.clear()
+    if not _ensure_agent_node():
+        return
+    agent_node.clear_history()
+    for entry_variant in messages:
+        var entry: Dictionary = {}
+        if entry_variant is Dictionary:
+            entry = entry_variant
+        else:
+            continue
+        var role_value := entry.get("role", "")
+        var content_value := entry.get("content", "")
+        var role := role_value as String if role_value is String else str(role_value)
+        var content := content_value as String if content_value is String else str(content_value)
+        if role.is_empty() or content.strip_edges().is_empty():
+            continue
+        history.append({
+            "role": role,
+            "content": content,
+        })
+        agent_node.add_message(role, content)
+
+func enqueue_action(name: String, params: Dictionary = {}):
+    if _ensure_agent_node() and agent_node:
+        agent_node.enqueue_action(name, params)
+
+func _ensure_agent_node() -> bool:
+    if agent_node and is_instance_valid(agent_node):
+        return true
+    if not ExtensionLoader.ensure_initialized():
+        return false
     agent_node = AgentNode.new()
     add_child(agent_node)
+    _sync_agent_node_properties()
+    return true
+
+func _sync_agent_node_properties() -> void:
+    if not agent_node:
+        return
     var runtime_dir := _resolve_runtime_directory()
     if runtime_dir != "":
         agent_node.runtime_directory = runtime_dir
@@ -39,95 +153,6 @@ func _ready() -> void:
         agent_node.db_path = db_path
     if voice != "":
         agent_node.voice = voice
-    _audio_player = AudioStreamPlayer.new()
-    _audio_player.name = "TTSPlayer"
-    add_child(_audio_player)
-    agent_node.connect("message_emitted", Callable(self, "_on_agent_message"))
-    agent_node.connect("action_requested", Callable(self, "_on_agent_action"))
-    if is_inside_tree():
-        _register_with_manager()
-    else:
-        call_deferred("_register_with_manager")
-
-func _register_with_manager() -> void:
-    var manager: LocalAgentsAgentManager = get_node_or_null("/root/AgentManager")
-    if manager:
-        manager.register_agent(self)
-
-func configure(model_params: LocalAgentsModelParams = null, inference_params: LocalAgentsInferenceParams = null) -> void:
-    if model_params:
-        db_path = model_params.db_path
-        voice = model_params.voice
-        speak_responses = model_params.speak_responses
-        tick_enabled = model_params.tick_enabled
-        tick_interval = model_params.tick_interval
-        max_actions_per_tick = model_params.max_actions_per_tick
-        if agent_node:
-            agent_node.db_path = db_path
-            agent_node.voice = voice
-            agent_node.tick_enabled = tick_enabled
-            agent_node.tick_interval = tick_interval
-            agent_node.max_actions_per_tick = max_actions_per_tick
-    if inference_params:
-        inference_options = inference_params.to_options()
-
-func submit_user_message(text: String) -> void:
-    history.append({"role": "user", "content": text})
-
-func think(prompt: String, extra_opts: Dictionary = {}) -> Dictionary:
-    submit_user_message(prompt)
-    var opts := inference_options.duplicate(true)
-    for key in extra_opts.keys():
-        opts[key] = extra_opts[key]
-    var result: Dictionary = agent_node.think(prompt, opts)
-    var text := result.get("text", "")
-    if text != "":
-        history.append({"role": "assistant", "content": text})
-        emit_signal("model_output_received", text)
-        if _should_speak_response():
-            _speak_text_async(text)
-    return result
-
-func say(text: String, opts: Dictionary = {}) -> bool:
-    return agent_node.say(text, opts)
-
-func listen(opts: Dictionary = {}) -> String:
-    return agent_node.listen(opts)
-
-func clear_history() -> void:
-    history.clear()
-    if agent_node:
-        agent_node.clear_history()
-
-func get_history() -> Array:
-    if agent_node:
-        return agent_node.get_history()
-    return history.duplicate(true)
-
-func set_history(messages: Array) -> void:
-    clear_history()
-    for entry_variant in messages:
-        var entry: Dictionary = {}
-        if entry_variant is Dictionary:
-            entry = entry_variant
-        else:
-            continue
-        var role_value := entry.get("role", "")
-        var content_value := entry.get("content", "")
-        var role := role_value as String if role_value is String else str(role_value)
-        var content := content_value as String if content_value is String else str(content_value)
-        if role.is_empty() or content.strip_edges().is_empty():
-            continue
-        history.append({
-            "role": role,
-            "content": content,
-        })
-        if agent_node:
-            agent_node.add_message(role, content)
-
-func enqueue_action(name: String, params: Dictionary = {}):
-    if agent_node:
-        agent_node.enqueue_action(name, params)
 
 func _resolve_runtime_directory() -> String:
     var base := "res://addons/local_agents/gdextensions/localagents/bin/runtimes"
@@ -160,7 +185,7 @@ func _detect_runtime_subdir() -> String:
     return ""
 
 func _should_speak_response() -> bool:
-    return speak_responses and agent_node != null
+    return speak_responses and _ensure_agent_node()
 
 func _speak_text_async(text: String) -> void:
     var assets := _resolve_voice_assets()
@@ -176,6 +201,9 @@ func _speak_text_async(text: String) -> void:
     var config_path: String = assets.get("config", "")
     if config_path != "":
         opts["voice_config"] = config_path
+    if not _ensure_agent_node():
+        push_warning("Local Agents extension unavailable; cannot synthesize speech")
+        return
     var ok := agent_node.say(text, opts)
     if not ok:
         push_warning("Piper failed to generate speech")

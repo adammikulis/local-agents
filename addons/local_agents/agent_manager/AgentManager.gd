@@ -6,6 +6,7 @@ signal configs_updated()
 
 const CONFIG_LIST_PATH := "res://addons/local_agents/configuration/parameters/ConfigList.tres"
 const DEFAULT_INFERENCE_PARAMS_PATH := "res://addons/local_agents/configuration/parameters/InferenceParams.tres"
+const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
 
 var config_list: LocalAgentsConfigList
 var agent: LocalAgentsAgent
@@ -21,6 +22,9 @@ func _ready() -> void:
 
 func _ensure_agent() -> void:
     if agent:
+        return
+    if not ExtensionLoader.ensure_initialized():
+        push_warning("Local Agents extension unavailable; AgentManager will retry when activated")
         return
     agent = LocalAgentsAgent.new()
     agent.name = "Agent"

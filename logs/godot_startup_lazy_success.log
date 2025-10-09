@@ -1,0 +1,1024 @@
+WorkerThreadPool: 16 threads, 12 max low-priority.
+Godot Engine v4.6.dev1.official.8d8041bd4 - https://godotengine.org
+TextServer: Added interface "Dummy"
+TextServer: Added interface "ICU / HarfBuzz / Graphite (Built-in)"
+Unrecognized output string "misc2" in mapping:
+030000007e0500006920000001010000,Nintendo Switch 2 Pro Controller,a:b0,b:b1,back:b14,dpdown:b8,dpleft:b10,dpright:b9,dpup:b11,guide:b16,leftshoulder:b12,leftstick:b15,lefttrigger:b13,leftx:a0,lefty:a1~,misc1:b17,misc2:b20,paddle1:b18,paddle2:b19,rightshoulder:b4,rightstick:b7,righttrigger:b5,rightx:a2,righty:a3~,start:b6,x:b2,y:b3,platform:Mac OS X,
+SDL: Init OK!
+Devices:
+  #0: Apple Apple M4 Max (Apple9) - Supported, Integrated
+- Metal multiview supported:
+  max view count: 16
+  max instances: 4294967295
+Metal 3.2 - Forward Mobile - Using Device #0: Apple - Apple M4 Max (Apple9)
+Using "default" pen tablet driver...
+Shader 'CanvasSdfShaderRD' (group 0) SHA256: f96fa71bec89e0ce42dcf6eec02fcde5c2d97daa6cde28ca64e71478608ccbdc
+Loading cache for shader CanvasSdfShaderRD, variant 0
+Loading cache for shader CanvasSdfShaderRD, variant 1
+Loading cache for shader CanvasSdfShaderRD, variant 2
+Loading cache for shader CanvasSdfShaderRD, variant 3
+Loading cache for shader CanvasSdfShaderRD, variant 4
+Loading cache for shader CanvasSdfShaderRD, variant 5
+Shader 'SkeletonShaderRD' (group 0) SHA256: 2c5d23d9b4fc5c63dd78f4a38828d4b3788162370ab2185af48e9483e7c00004
+Loading cache for shader SkeletonShaderRD, variant 0
+Loading cache for shader SkeletonShaderRD, variant 1
+Shader 'SortShaderRD' (group 0) SHA256: 51ffc9ce11933e14dc818a7e264f805807645ae14c2d3be3c98014caffc91e87
+Loading cache for shader SortShaderRD, variant 0
+Loading cache for shader SortShaderRD, variant 1
+Loading cache for shader SortShaderRD, variant 2
+Shader 'ParticlesShaderRD' (group 0) SHA256: 50e5d0a21a2ad8639bcf6b2971620d1a3bc5d49f5d0699c9617b89b4c5be9645
+Loading cache for shader ParticlesShaderRD, variant 0
+Shader 'ParticlesCopyShaderRD' (group 0) SHA256: a5bfeb34d66f23176a061b2ddcfa8fc791d14c005c47edfca79c8284354206fd
+Loading cache for shader ParticlesCopyShaderRD, variant 0
+Loading cache for shader ParticlesCopyShaderRD, variant 1
+Loading cache for shader ParticlesCopyShaderRD, variant 2
+Loading cache for shader ParticlesCopyShaderRD, variant 3
+Loading cache for shader ParticlesCopyShaderRD, variant 4
+Loading cache for shader ParticlesCopyShaderRD, variant 5
+Loading cache for shader ParticlesCopyShaderRD, variant 6
+Loading cache for shader ParticlesCopyShaderRD, variant 7
+Loading cache for shader ParticlesCopyShaderRD, variant 8
+Loading cache for shader ParticlesCopyShaderRD, variant 9
+Loading cache for shader ParticlesCopyShaderRD, variant 10
+Loading cache for shader ParticlesCopyShaderRD, variant 11
+Loading cache for shader ParticlesCopyShaderRD, variant 12
+Loading cache for shader ParticlesCopyShaderRD, variant 13
+Loading cache for shader ParticlesCopyShaderRD, variant 14
+Loading cache for shader ParticlesCopyShaderRD, variant 15
+Loading cache for shader ParticlesCopyShaderRD, variant 16
+Loading cache for shader ParticlesCopyShaderRD, variant 17
+Loading cache for shader ParticlesCopyShaderRD, variant 18
+Loading cache for shader ParticlesCopyShaderRD, variant 19
+Loading cache for shader ParticlesCopyShaderRD, variant 20
+Shader 'CanvasShaderRD' (group 0) SHA256: 32a3b132e371932e3c952c4d15fdce05e105246b4146cca6bca78c45c56466d3
+Loading cache for shader CanvasShaderRD, variant 0
+Loading cache for shader CanvasShaderRD, variant 1
+Loading cache for shader CanvasShaderRD, variant 2
+Loading cache for shader CanvasShaderRD, variant 3
+Loading cache for shader CanvasShaderRD, variant 4
+Loading cache for shader CanvasShaderRD, variant 5
+Shader 'CanvasOcclusionShaderRD' (group 0) SHA256: 3833d7a7e5de46c569502727856a31986dd1d8d45f6f40c43da53fdb058f8cf8
+Loading cache for shader CanvasOcclusionShaderRD, variant 0
+Loading cache for shader CanvasOcclusionShaderRD, variant 1
+Loading cache for shader CanvasOcclusionShaderRD, variant 2
+Loading cache for shader CanvasShaderRD, variant 0
+Loading cache for shader CanvasShaderRD, variant 1
+Loading cache for shader CanvasShaderRD, variant 2
+Loading cache for shader CanvasShaderRD, variant 3
+Loading cache for shader CanvasShaderRD, variant 4
+Loading cache for shader CanvasShaderRD, variant 5
+Loading cache for shader CanvasShaderRD, variant 0
+Loading cache for shader CanvasShaderRD, variant 1
+Loading cache for shader CanvasShaderRD, variant 2
+Loading cache for shader CanvasShaderRD, variant 3
+Loading cache for shader CanvasShaderRD, variant 4
+Loading cache for shader CanvasShaderRD, variant 5
+Shader 'SceneForwardMobileShaderRD' (group 0) SHA256: d026d4a3176d4996b09a5d1cc1cb80484dec6fb1764ba1af5b5fc4bb86ee1a1b
+Shader 'SceneForwardMobileShaderRD' (group 1) SHA256: 8e4f6b020b0eb436375f491523cfd7f3abe098d54123ee8a2867a609e330c36d
+Shader 'SceneForwardMobileShaderRD' (group 2) SHA256: 63d1a3c74c7935c446f1fd35c76cf345ae7f0e2a853f3f792c014b2e72fc250f
+Shader 'SceneForwardMobileShaderRD' (group 3) SHA256: 57661cafd80488dca08c05874503aa229621e2c0402eab50d06e4341968e21ba
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Shader 'SkyShaderRD' (group 0) SHA256: 8afa66033f56f784f8d99190cd10bd419e5f2f8f75666b3949a363557a2d2f36
+Loading cache for shader SkyShaderRD, variant 0
+Loading cache for shader SkyShaderRD, variant 1
+Loading cache for shader SkyShaderRD, variant 2
+Loading cache for shader SkyShaderRD, variant 3
+Loading cache for shader SkyShaderRD, variant 4
+Loading cache for shader SkyShaderRD, variant 5
+Loading cache for shader SkyShaderRD, variant 0
+Loading cache for shader SkyShaderRD, variant 1
+Loading cache for shader SkyShaderRD, variant 2
+Loading cache for shader SkyShaderRD, variant 3
+Loading cache for shader SkyShaderRD, variant 4
+Loading cache for shader SkyShaderRD, variant 5
+Shader 'BokehDofRasterShaderRD' (group 0) SHA256: fac2f82909e8f5f7e9321e3438ebd1e0d5e7241d7d626c0b462c5973e0bc09ce
+Loading cache for shader BokehDofRasterShaderRD, variant 0
+Loading cache for shader BokehDofRasterShaderRD, variant 1
+Loading cache for shader BokehDofRasterShaderRD, variant 2
+Loading cache for shader BokehDofRasterShaderRD, variant 3
+Loading cache for shader BokehDofRasterShaderRD, variant 4
+Loading cache for shader BokehDofRasterShaderRD, variant 5
+Loading cache for shader BokehDofRasterShaderRD, variant 6
+Shader 'BlurRasterShaderRD' (group 0) SHA256: 3461778241f4006a6bbb8481bc0610e2c14435167479f75d40f6fe63fd2691d7
+Loading cache for shader BlurRasterShaderRD, variant 0
+Loading cache for shader BlurRasterShaderRD, variant 1
+Loading cache for shader BlurRasterShaderRD, variant 2
+Loading cache for shader BlurRasterShaderRD, variant 3
+Loading cache for shader BlurRasterShaderRD, variant 4
+Loading cache for shader BlurRasterShaderRD, variant 5
+Shader 'CopyShaderRD' (group 0) SHA256: f3fc3b9f862daeaeb32be73c7691b0ca7ff911a996b2b6253f14991f8c957270
+Loading cache for shader CopyShaderRD, variant 0
+Loading cache for shader CopyShaderRD, variant 1
+Loading cache for shader CopyShaderRD, variant 2
+Loading cache for shader CopyShaderRD, variant 3
+Loading cache for shader CopyShaderRD, variant 4
+Loading cache for shader CopyShaderRD, variant 5
+Loading cache for shader CopyShaderRD, variant 6
+Loading cache for shader CopyShaderRD, variant 7
+Loading cache for shader CopyShaderRD, variant 8
+Loading cache for shader CopyShaderRD, variant 9
+Loading cache for shader CopyShaderRD, variant 10
+Loading cache for shader CopyShaderRD, variant 11
+Loading cache for shader CopyShaderRD, variant 12
+Shader 'CopyToFbShaderRD' (group 0) SHA256: f97e7f6aeabf47d44611311b3c21f1031dcb663649f20985c17be157dee48df8
+Loading cache for shader CopyToFbShaderRD, variant 0
+Loading cache for shader CopyToFbShaderRD, variant 1
+Loading cache for shader CopyToFbShaderRD, variant 2
+Loading cache for shader CopyToFbShaderRD, variant 3
+Shader 'CubeToDpShaderRD' (group 0) SHA256: df11241dbc3bfb7bdabf18f806ec3f4c3ea892477f5b39e911274e5c38427b26
+Loading cache for shader CubeToDpShaderRD, variant 0
+Shader 'CubemapDownsamplerRasterShaderRD' (group 0) SHA256: ff2c123e672f5da316b71aa3458ea808f7026e22650c39bbc837dd764b5d8627
+Loading cache for shader CubemapDownsamplerRasterShaderRD, variant 0
+Shader 'CubemapFilterRasterShaderRD' (group 0) SHA256: 7a5ab2215336e325a2570cbdd0d8b8b5fba4a0656d73ce1f8369dbacc3901cbe
+Loading cache for shader CubemapFilterRasterShaderRD, variant 0
+Loading cache for shader CubemapFilterRasterShaderRD, variant 1
+Shader 'CubemapRoughnessRasterShaderRD' (group 0) SHA256: 0f9814de62db40e431e6ac50a8ae914edf3b9e627e08a7b288a8c6348743b9f3
+Loading cache for shader CubemapRoughnessRasterShaderRD, variant 0
+Shader 'SpecularMergeShaderRD' (group 0) SHA256: 8fe3c8d81410015a3b346bb54e06068906152557a88b76524af2ccaf541341ca
+Loading cache for shader SpecularMergeShaderRD, variant 0
+Loading cache for shader SpecularMergeShaderRD, variant 1
+Loading cache for shader SpecularMergeShaderRD, variant 2
+Loading cache for shader SpecularMergeShaderRD, variant 3
+Shader 'ShadowFrustumShaderRD' (group 0) SHA256: 00dd2456c20fb7c5803da89be1ed58f0418fb141a40fcc5140e4a12a8ebfa1de
+Loading cache for shader ShadowFrustumShaderRD, variant 0
+Shader 'MotionVectorsShaderRD' (group 0) SHA256: 8f3a7b9269456f8105142f45d8b75077cd7a9e6f3e6e5700c24cbeb6bb4c50ab
+Loading cache for shader MotionVectorsShaderRD, variant 0
+Shader 'LuminanceReduceRasterShaderRD' (group 0) SHA256: fd2665c411553f3dfa76255f1a0922dc406d8aec77e8df1b47b128f99d755c10
+Loading cache for shader LuminanceReduceRasterShaderRD, variant 0
+Loading cache for shader LuminanceReduceRasterShaderRD, variant 1
+Loading cache for shader LuminanceReduceRasterShaderRD, variant 2
+Shader 'SmaaEdgeDetectionShaderRD' (group 0) SHA256: ff21967e2d0b3a51bb8b8f2b6053b4f966621fba1f0c7d48e7ff63276bf268ab
+Loading cache for shader SmaaEdgeDetectionShaderRD, variant 0
+Shader 'SmaaWeightCalculationShaderRD' (group 0) SHA256: 08db2cbc8069bf80a6b1eebcf622fd6a43ee3e29edb61a12198b702166939ca6
+Loading cache for shader SmaaWeightCalculationShaderRD, variant 0
+Shader 'SmaaBlendingShaderRD' (group 0) SHA256: 65b18bcb2158f76ae068dbc84b7f480fc2918588371635cf5e8431f7ed57fa89
+Loading cache for shader SmaaBlendingShaderRD, variant 0
+Shader 'TonemapShaderRD' (group 0) SHA256: df92267f0015a9e245ee5234117b306567b8fa2825a0baa228ec7634ac6ce394
+Loading cache for shader TonemapShaderRD, variant 0
+Loading cache for shader TonemapShaderRD, variant 1
+Loading cache for shader TonemapShaderRD, variant 2
+Loading cache for shader TonemapShaderRD, variant 3
+Loading cache for shader TonemapShaderRD, variant 4
+Loading cache for shader TonemapShaderRD, variant 5
+Shader 'ResolveRasterShaderRD' (group 0) SHA256: 2d6fa281fb46b3b2c5fb44c60a2eddf0eec61473f50e66d9a04d84d0ecd98103
+Loading cache for shader ResolveRasterShaderRD, variant 0
+Shader 'BlitShaderRD' (group 0) SHA256: 10474d9fe4d12cb6ef5e869b712f797f953abf3a11779d23f08bbd327b56236f
+Loading cache for shader BlitShaderRD, variant 0
+Loading cache for shader BlitShaderRD, variant 1
+Loading cache for shader BlitShaderRD, variant 2
+Loading cache for shader BlitShaderRD, variant 3
+CoreAudio: detected 4 channels
+CoreAudio: output sampling rate: 48000 Hz
+CoreAudio: output audio buffer frames: 512 calculated latency: 10ms
+
+TextServer: Primary interface set to: "ICU / HarfBuzz / Graphite (Built-in)".
+CORE API HASH: 1122321045
+EDITOR API HASH: 3689130518
+SceneTreeFTI: traversal method DEFAULT
+Loading resource: /Users/adammikulis/Library/Application Support/Godot/editor_settings-4.6.tres
+EditorSettings: Load OK!
+EditorTheme: Generating new theme for the config '2106092673'.
+EditorTheme: Generating new icons.
+EditorTheme: Generating new fonts.
+EditorTheme: Generating new styles.
+Loading cache for shader SkyShaderRD, variant 0
+Loading cache for shader SkyShaderRD, variant 1
+Loading cache for shader SkyShaderRD, variant 2
+Loading cache for shader SkyShaderRD, variant 3
+Loading cache for shader SkyShaderRD, variant 4
+Loading cache for shader SkyShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading cache for shader CanvasShaderRD, variant 0
+Loading cache for shader CanvasShaderRD, variant 1
+Loading cache for shader CanvasShaderRD, variant 2
+Loading cache for shader CanvasShaderRD, variant 3
+Loading cache for shader CanvasShaderRD, variant 4
+Loading cache for shader CanvasShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading cache for shader CanvasShaderRD, variant 0
+Loading cache for shader CanvasShaderRD, variant 1
+Loading cache for shader CanvasShaderRD, variant 2
+Loading cache for shader CanvasShaderRD, variant 3
+Loading cache for shader CanvasShaderRD, variant 4
+Loading cache for shader CanvasShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading resource: /Users/adammikulis/Library/Caches/Godot/editor_doc_cache-4.6.res
+Loaded system CA certificates
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading resource: res://addons/local_agents/agent_manager/AgentManager.gd
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initializing" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:15)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:16)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:17)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:17)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:17)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initializing" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:19)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:20)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:23)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initializing" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:24)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:26)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:27)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:28)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:29)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:30)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:32)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initializing" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:33)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:35)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:35)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:36)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:37)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initializing" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:38)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:39)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "is_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:42)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "is_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:42)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "is_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:42)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "get_error()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:45)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "deinitialize()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:48)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "deinitialize()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:48)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "deinitialize()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:49)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "deinitialize()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:50)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "deinitialize()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:51)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "deinitialize()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:52)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "_verify_registration()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:56)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "_verify_registration()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:59)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initializing" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:15)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:16)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:17)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:17)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:17)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initializing" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:19)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:20)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:23)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initializing" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:24)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:26)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:27)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:28)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:29)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:30)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:32)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initializing" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:33)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:35)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:35)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:36)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:37)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initializing" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:38)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:39)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "is_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:42)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "is_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:42)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "is_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:42)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "get_error()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:45)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "deinitialize()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:48)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "deinitialize()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:48)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "deinitialize()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:49)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "deinitialize()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:50)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "deinitialize()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:51)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "deinitialize()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:52)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "_verify_registration()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:56)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "_verify_registration()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:59)
+SCRIPT ERROR: Compile Error: Failed to compile depended scripts.
+          at: GDScript::reload (res://addons/local_agents/agents/Agent.gd:0)
+SCRIPT ERROR: Compile Error: Failed to compile depended scripts.
+          at: GDScript::reload (res://addons/local_agents/agent_manager/AgentManager.gd:0)
+ERROR: Failed to load script "res://addons/local_agents/agent_manager/AgentManager.gd" with error "Parse error".
+   at: load (modules/gdscript/gdscript.cpp:3041)
+Loading resource: res://addons/local_agents/LocalAgentsEditorPlugin.gd
+Loading resource: res://addons/local_agents/editor/LocalAgentsPanel.tscn
+Loading resource: res://addons/local_agents/controllers/ChatController.tscn
+Loading resource: res://addons/local_agents/controllers/ChatController.gd
+Loading resource: res://addons/local_agents/controllers/SavedChatsController.tscn
+Loading resource: res://addons/local_agents/editor/DownloadTab.tscn
+Loading resource: res://addons/local_agents/controllers/DownloadController.gd
+Loading resource: res://addons/local_agents/editor/ConfigurationPanel.tscn
+Loading resource: res://addons/local_agents/configuration/ui/ModelConfig.tscn
+Loading resource: res://addons/local_agents/configuration/ui/InferenceConfig.tscn
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initializing" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:15)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:16)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:17)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:17)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:17)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initializing" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:19)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:20)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:23)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initializing" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:24)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:26)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:27)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:28)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:29)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:30)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:32)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initializing" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:33)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:35)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:35)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:36)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:37)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initializing" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:38)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "ensure_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:39)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "is_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:42)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "is_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:42)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "is_initialized()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:42)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "get_error()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:45)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "deinitialize()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:48)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "deinitialize()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:48)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "deinitialize()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:49)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_extension" from the static function "deinitialize()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:50)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialized" from the static function "deinitialize()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:51)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "deinitialize()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:52)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "_verify_registration()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:56)
+SCRIPT ERROR: Parse Error: Cannot access non-static variable "_initialization_error" from the static function "_verify_registration()".
+          at: GDScript::reload (res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd:59)
+SCRIPT ERROR: Compile Error: Failed to compile depended scripts.
+          at: GDScript::reload (res://addons/local_agents/LocalAgentsEditorPlugin.gd:0)
+ERROR: Failed to load script "res://addons/local_agents/LocalAgentsEditorPlugin.gd" with error "Compilation failed".
+   at: load (modules/gdscript/gdscript.cpp:3041)
+SDL: Gamepad Controller connected
+WARNING: UID duplicate detected between res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/Vulkan.csv and res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/SYCL.csv.
+     at: _process_file_system (editor/file_system/editor_file_system.cpp:1377)
+Unloading addon: res://addons/local_agents/plugin.cfg
+Loading resource: res://addons/local_agents/examples/GraphExample.tscn
+Loading resource: res://addons/local_agents/examples/GraphExample.gd
+Loading resource: res://addons/local_agents/graph/Graph.tres
+Loading resource: res://addons/local_agents/agents/Agent3D.tscn
+Loading resource: res://addons/local_agents/agents/Agent3D.gd
+Loading cache for shader SceneForwardMobileShaderRD, variant 0
+Loading cache for shader SceneForwardMobileShaderRD, variant 1
+Loading cache for shader SceneForwardMobileShaderRD, variant 2
+Loading cache for shader SceneForwardMobileShaderRD, variant 3
+Loading cache for shader SceneForwardMobileShaderRD, variant 4
+Loading cache for shader SceneForwardMobileShaderRD, variant 5
+Loading cache for shader SceneForwardMobileShaderRD, variant 6
+Loading cache for shader SceneForwardMobileShaderRD, variant 7
+Loading cache for shader SceneForwardMobileShaderRD, variant 8
+Loading cache for shader SceneForwardMobileShaderRD, variant 9
+Loading resource: res://.godot/editor/editor_script_doc_cache.res
+Generated 'res://addons/local_agents/agents/Agent3D.tscn' preview in 15 usec
+Generated 'res://addons/local_agents/agents/Agent.gd' preview in 2857 usec
+Generated 'res://addons/local_agents/agents/Character.tres' preview in 50 usec
+Generated 'res://addons/local_agents/agent_manager/AgentManager.gd' preview in 3444 usec
+Generated 'res://addons/local_agents/configuration/parameters/ConfigList.tres' preview in 53 usec
+Generated 'res://addons/local_agents/configuration/parameters/InferenceParams.tres' preview in 52 usec
+Generated 'res://addons/local_agents/configuration/parameters/ModelParams.tres' preview in 46 usec
+Generated 'res://addons/local_agents/configuration/ui/InferenceConfig.tscn' preview in 119 usec
+Generated 'res://addons/local_agents/configuration/ui/ModelConfig.tscn' preview in 118 usec
+Generated 'res://addons/local_agents/controllers/ChatController.tscn' preview in 214 usec
+Generated 'res://addons/local_agents/controllers/SavedChatsController.tscn' preview in 191 usec
+Generated 'res://addons/local_agents/editor/ConfigurationPanel.tscn' preview in 111 usec
+Generated 'res://addons/local_agents/editor/DownloadTab.tscn' preview in 7 usec
+Generated 'res://addons/local_agents/editor/LocalAgentsPanel.tscn' preview in 227 usec
+Generated 'res://addons/local_agents/examples/ChatExample.tscn' preview in 129 usec
+Generated 'res://addons/local_agents/examples/ChatUI.tscn' preview in 126 usec
+Generated 'res://addons/local_agents/examples/GraphExample.tscn' preview in 53 usec
+Generated 'res://addons/local_agents/examples/HelpUI.tscn' preview in 104 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/CMakeFiles/localagents.dir/link.txt' preview in 83 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/CMakeFiles/CMakeConfigureLog.yaml' preview in 65 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/CMakeFiles/CMakeRuleHashes.txt' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/CMakeFiles/InstallScripts.json' preview in 63 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/CMakeFiles/TargetDirectories.txt' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/godot-cpp/CMakeFiles/godot-cpp.dir/link.txt' preview in 65 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/common/CMakeFiles/common.dir/link.txt' preview in 67 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/ggml/src/CMakeFiles/ggml-base.dir/link.txt' preview in 70 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/ggml/src/CMakeFiles/ggml-cpu.dir/link.txt' preview in 66 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/ggml/src/CMakeFiles/ggml.dir/link.txt' preview in 70 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/ggml/src/ggml-blas/CMakeFiles/ggml-blas.dir/link.txt' preview in 71 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/ggml/src/ggml-metal/CMakeFiles/ggml-metal.dir/link.txt' preview in 70 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/src/CMakeFiles/llama.dir/link.txt' preview in 65 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/batched-bench/CMakeFiles/llama-batched-bench.dir/link.txt' preview in 69 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/cvector-generator/CMakeFiles/llama-cvector-generator.dir/link.txt' preview in 72 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/export-lora/CMakeFiles/llama-export-lora.dir/link.txt' preview in 68 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/gguf-split/CMakeFiles/llama-gguf-split.dir/link.txt' preview in 68 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/imatrix/CMakeFiles/llama-imatrix.dir/link.txt' preview in 67 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/llama-bench/CMakeFiles/llama-bench.dir/link.txt' preview in 66 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/main/CMakeFiles/llama-cli.dir/link.txt' preview in 78 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/mtmd/CMakeFiles/llama-gemma3-cli.dir/link.txt' preview in 66 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/mtmd/CMakeFiles/llama-llava-cli.dir/link.txt' preview in 65 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/mtmd/CMakeFiles/llama-minicpmv-cli.dir/link.txt' preview in 67 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/mtmd/CMakeFiles/llama-mtmd-cli.dir/link.txt' preview in 68 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/mtmd/CMakeFiles/llama-qwen2vl-cli.dir/link.txt' preview in 75 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/mtmd/CMakeFiles/mtmd.dir/link.txt' preview in 65 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/perplexity/CMakeFiles/llama-perplexity.dir/link.txt' preview in 69 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/quantize/CMakeFiles/llama-quantize.dir/link.txt' preview in 68 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/run/CMakeFiles/llama-run.dir/link.txt' preview in 69 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/server/CMakeFiles/llama-server.dir/link.txt' preview in 74 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/tokenize/CMakeFiles/llama-tokenize.dir/link.txt' preview in 70 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/llama.cpp/tools/tts/CMakeFiles/llama-tts.dir/link.txt' preview in 69 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/CMakeCache.txt' preview in 66 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/compile_commands.json' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/build/install_manifest.txt' preview in 63 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/ci/README-MUSA.md' preview in 74 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/ci/README.md' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/common/CMakeLists.txt' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/backend/BLIS.md' preview in 64 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/backend/CANN.md' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/backend/CUDA-FEDORA.md' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/backend/OPENCL.md' preview in 64 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/backend/SYCL.md' preview in 65 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/backend/zDNN.md' preview in 56 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/development/llama-star/idea-arch.key' preview in 66 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/development/debugging-tests.md' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/development/HOWTO-add-model.md' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/development/token_generation_performance_tips.md' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/multimodal/gemma3.md' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/multimodal/glmedge.md' preview in 64 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/multimodal/granitevision.md' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/multimodal/llava.md' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/multimodal/minicpmo2.6.md' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/multimodal/minicpmo4.0.md' preview in 55 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/multimodal/minicpmv2.5.md' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/multimodal/minicpmv2.6.md' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/multimodal/minicpmv4.0.md' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/multimodal/minicpmv4.5.md' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/multimodal/MobileVLM.md' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/BLAS.backend.translation' preview in 45 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/BLAS.csv' preview in 91 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/BLAS.error.translation' preview in 43 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/BLAS.op.translation' preview in 72 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/BLAS.supported.translation' preview in 72 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/BLAS.test.translation' preview in 48 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/CANN.backend.translation' preview in 48 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/CANN.csv' preview in 93 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/CANN.error.translation' preview in 48 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/CANN.op.translation' preview in 45 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/CANN.supported.translation' preview in 44 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/CANN.test.translation' preview in 42 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/CPU.backend.translation' preview in 43 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/CPU.csv' preview in 85 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/CPU.error.translation' preview in 44 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/CPU.op.translation' preview in 43 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/CPU.supported.translation' preview in 43 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/CPU.test.translation' preview in 43 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/CUDA.backend.translation' preview in 46 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/CUDA.csv' preview in 83 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/CUDA.error.translation' preview in 43 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/CUDA.op.translation' preview in 44 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/CUDA.supported.translation' preview in 42 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/CUDA.test.translation' preview in 43 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/Metal.backend.translation' preview in 43 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/Metal.csv' preview in 83 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/Metal.error.translation' preview in 42 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/Metal.op.translation' preview in 43 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/Metal.supported.translation' preview in 43 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/Metal.test.translation' preview in 44 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/OpenCL.backend.translation' preview in 42 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/OpenCL.csv' preview in 83 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/OpenCL.error.translation' preview in 43 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/OpenCL.op.translation' preview in 46 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/OpenCL.supported.translation' preview in 42 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/OpenCL.test.translation' preview in 43 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/SYCL.backend.translation' preview in 41 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/SYCL.csv' preview in 80 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/SYCL.error.translation' preview in 45 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/SYCL.op.translation' preview in 43 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/SYCL.supported.translation' preview in 42 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/SYCL.test.translation' preview in 47 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/Vulkan.backend.translation' preview in 48 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/Vulkan.csv' preview in 84 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/Vulkan.error.translation' preview in 44 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/Vulkan.op.translation' preview in 46 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/Vulkan.supported.translation' preview in 44 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/Vulkan.test.translation' preview in 46 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/zDNN.backend.translation' preview in 43 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/zDNN.csv' preview in 80 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/zDNN.error.translation' preview in 44 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/zDNN.op.translation' preview in 42 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/zDNN.supported.translation' preview in 43 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops/zDNN.test.translation' preview in 44 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/android.md' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/build-riscv64-spacemit.md' preview in 55 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/build-s390x.md' preview in 55 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/build.md' preview in 55 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/docker.md' preview in 55 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/function-calling.md' preview in 56 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/install.md' preview in 66 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/llguidance.md' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/multimodal.md' preview in 55 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/docs/ops.md' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/batched/CMakeLists.txt' preview in 72 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/batched/README.md' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/batched.swift/README.md' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/convert-llama2c-to-ggml/CMakeLists.txt' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/convert-llama2c-to-ggml/README.md' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/deprecation-warning/README.md' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/diffusion/CMakeLists.txt' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/diffusion/README.md' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/embedding/CMakeLists.txt' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/embedding/README.md' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/eval-callback/CMakeLists.txt' preview in 63 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/eval-callback/README.md' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/gen-docs/CMakeLists.txt' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/gguf/CMakeLists.txt' preview in 69 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/gguf-hash/deps/rotate-bits/package.json' preview in 68 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/gguf-hash/deps/sha1/package.json' preview in 64 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/gguf-hash/deps/sha256/package.json' preview in 65 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/gguf-hash/deps/xxhash/clib.json' preview in 67 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/gguf-hash/CMakeLists.txt' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/gguf-hash/README.md' preview in 63 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/llama.android/app/src/main/res/drawable/ic_launcher_background.xml' preview in 82 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/llama.android/app/src/main/res/drawable/ic_launcher_foreground.xml' preview in 72 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/llama.android/app/src/main/res/mipmap-anydpi/ic_launcher.xml' preview in 73 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/llama.android/app/src/main/res/mipmap-anydpi/ic_launcher_round.xml' preview in 70 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/llama.android/app/src/main/res/values/colors.xml' preview in 76 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/llama.android/app/src/main/res/values/strings.xml' preview in 71 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/llama.android/app/src/main/res/values/themes.xml' preview in 71 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/llama.android/app/src/main/res/xml/backup_rules.xml' preview in 72 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/llama.android/app/src/main/res/xml/data_extraction_rules.xml' preview in 68 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/llama.android/app/src/main/AndroidManifest.xml' preview in 67 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/llama.android/llama/src/main/cpp/CMakeLists.txt' preview in 75 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/llama.android/llama/src/main/AndroidManifest.xml' preview in 66 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/llama.android/README.md' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/llama.swiftui/llama.swiftui/Assets.xcassets/AppIcon.appiconset/Contents.json' preview in 74 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/llama.swiftui/llama.swiftui/Assets.xcassets/Contents.json' preview in 63 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/llama.swiftui/README.md' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/lookahead/CMakeLists.txt' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/lookahead/README.md' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/lookup/CMakeLists.txt' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/lookup/README.md' preview in 56 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/model-conversion/CMakeLists.txt' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/model-conversion/README.md' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/model-conversion/requirements.txt' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/parallel/CMakeLists.txt' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/parallel/README.md' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/passkey/CMakeLists.txt' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/passkey/README.md' preview in 56 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/retrieval/CMakeLists.txt' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/retrieval/README.md' preview in 56 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/save-load-state/CMakeLists.txt' preview in 62 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/simple/CMakeLists.txt' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/simple/README.md' preview in 56 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/simple-chat/CMakeLists.txt' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/simple-chat/README.md' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/simple-cmake-pkg/CMakeLists.txt' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/simple-cmake-pkg/README.md' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/speculative/CMakeLists.txt' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/speculative/README.md' preview in 55 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/speculative-simple/CMakeLists.txt' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/speculative-simple/README.md' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/sycl/CMakeLists.txt' preview in 62 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/sycl/README.md' preview in 51 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/training/CMakeLists.txt' preview in 52 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/training/README.md' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/examples/CMakeLists.txt' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/ggml/src/ggml-blas/CMakeLists.txt' preview in 65 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/ggml/src/ggml-cann/CMakeLists.txt' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/ggml/src/ggml-cpu/CMakeLists.txt' preview in 64 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/ggml/src/ggml-cuda/CMakeLists.txt' preview in 63 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/ggml/src/ggml-hip/CMakeLists.txt' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/ggml/src/ggml-metal/CMakeLists.txt' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/ggml/src/ggml-musa/CMakeLists.txt' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/ggml/src/ggml-opencl/CMakeLists.txt' preview in 66 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/ggml/src/ggml-rpc/CMakeLists.txt' preview in 63 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/ggml/src/ggml-sycl/CMakeLists.txt' preview in 62 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/ggml/src/ggml-vulkan/vulkan-shaders/CMakeLists.txt' preview in 66 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/ggml/src/ggml-vulkan/CMakeLists.txt' preview in 62 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/ggml/src/ggml-webgpu/CMakeLists.txt' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/ggml/src/ggml-zdnn/CMakeLists.txt' preview in 62 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/ggml/src/CMakeLists.txt' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/ggml/CMakeLists.txt' preview in 55 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/gguf-py/pyproject.toml' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/gguf-py/README.md' preview in 55 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/grammars/README.md' preview in 90 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/models/templates/README.md' preview in 68 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/pocs/vdot/CMakeLists.txt' preview in 66 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/pocs/CMakeLists.txt' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/requirements/requirements-all.txt' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/requirements/requirements-compare-llama-bench.txt' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/requirements/requirements-convert_hf_to_gguf.txt' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/requirements/requirements-convert_hf_to_gguf_update.txt' preview in 56 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/requirements/requirements-convert_legacy_llama.txt' preview in 56 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/requirements/requirements-convert_llama_ggml_to_gguf.txt' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/requirements/requirements-convert_lora_to_gguf.txt' preview in 51 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/requirements/requirements-gguf_editor_gui.txt' preview in 50 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/requirements/requirements-pydantic.txt' preview in 53 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/requirements/requirements-server-bench.txt' preview in 69 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/requirements/requirements-test-tokenizer-random.txt' preview in 56 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/requirements/requirements-tool_bench.txt' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/scripts/jinja/requirements.txt' preview in 75 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/src/CMakeLists.txt' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tests/CMakeLists.txt' preview in 62 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/batched-bench/CMakeLists.txt' preview in 63 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/batched-bench/README.md' preview in 65 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/cvector-generator/CMakeLists.txt' preview in 63 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/cvector-generator/completions.txt' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/cvector-generator/negative.txt' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/cvector-generator/positive.txt' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/cvector-generator/README.md' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/export-lora/CMakeLists.txt' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/export-lora/README.md' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/gguf-split/CMakeLists.txt' preview in 63 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/gguf-split/README.md' preview in 62 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/imatrix/CMakeLists.txt' preview in 65 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/imatrix/README.md' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/llama-bench/CMakeLists.txt' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/llama-bench/README.md' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/main/CMakeLists.txt' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/main/README.md' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/mtmd/CMakeLists.txt' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/mtmd/README.md' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/mtmd/requirements.txt' preview in 60 usec
+WARNING: Image format RGB8 not supported by hardware, converting to RGBA8.
+     at: _validate_texture_format (servers/rendering/renderer_rd/storage_rd/texture_storage.cpp:2427)
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/perplexity/CMakeLists.txt' preview in 67 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/perplexity/README.md' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/quantize/CMakeLists.txt' preview in 81 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/quantize/README.md' preview in 65 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/rpc/CMakeLists.txt' preview in 67 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/rpc/README.md' preview in 63 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/run/CMakeLists.txt' preview in 62 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/run/README.md' preview in 56 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/bench/prometheus.yml' preview in 64 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/bench/README.md' preview in 62 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/bench/requirements.txt' preview in 63 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/public_legacy/favicon.ico' preview in 64 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/public_simplechat/readme.md' preview in 65 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/tests/pytest.ini' preview in 64 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/tests/README.md' preview in 62 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/tests/requirements.txt' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/themes/buttons-top/favicon.ico' preview in 66 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/themes/buttons-top/README.md' preview in 65 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/themes/wild/favicon.ico' preview in 64 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/themes/wild/README.md' preview in 66 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/themes/README.md' preview in 62 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/webui/components.json' preview in 73 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/webui/package-lock.json' preview in 64 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/webui/package.json' preview in 63 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/webui/README.md' preview in 62 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/webui/tsconfig.json' preview in 62 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/CMakeLists.txt' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/server/README.md' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/tokenize/CMakeLists.txt' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/tts/CMakeLists.txt' preview in 63 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/tts/README.md' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/tools/CMakeLists.txt' preview in 56 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/CMakeLists.txt' preview in 55 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/CMakePresets.json' preview in 55 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/CONTRIBUTING.md' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/mypy.ini' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/pyproject.toml' preview in 56 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/pyrightconfig.json' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/README.md' preview in 54 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/requirements.txt' preview in 54 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/llama.cpp/SECURITY.md' preview in 53 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/sqlite/README.txt' preview in 57 usec
+WARNING: Image format RGB8 not supported by hardware, converting to RGBA8.
+     at: _validate_texture_format (servers/rendering/renderer_rd/storage_rd/texture_storage.cpp:2427)
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/bindings/go/README.md' preview in 63 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/bindings/java/README.md' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/bindings/javascript/CMakeLists.txt' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/bindings/javascript/package-tmpl.json' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/bindings/javascript/package.json' preview in 63 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/bindings/javascript/README.md' preview in 64 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/bindings/ruby/README.md' preview in 62 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/bindings/CMakeLists.txt' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/CMakeFiles/CMakeConfigureLog.yaml' preview in 66 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/CMakeFiles/CMakeRuleHashes.txt' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/CMakeFiles/InstallScripts.json' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/CMakeFiles/TargetDirectories.txt' preview in 70 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/examples/bench/CMakeFiles/whisper-bench.dir/link.txt' preview in 72 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/examples/cli/CMakeFiles/whisper-cli.dir/link.txt' preview in 71 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/examples/CMakeFiles/common.dir/link.txt' preview in 65 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/examples/deprecation-warning/CMakeFiles/bench.dir/link.txt' preview in 71 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/examples/deprecation-warning/CMakeFiles/main.dir/link.txt' preview in 71 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/examples/quantize/CMakeFiles/quantize.dir/link.txt' preview in 69 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/examples/server/CMakeFiles/whisper-server.dir/link.txt' preview in 73 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/examples/vad-speech-segments/CMakeFiles/vad-speech-segments.dir/link.txt' preview in 72 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/ggml/src/CMakeFiles/ggml-base.dir/link.txt' preview in 70 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/ggml/src/CMakeFiles/ggml-cpu.dir/link.txt' preview in 67 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/ggml/src/CMakeFiles/ggml.dir/link.txt' preview in 67 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/ggml/src/ggml-blas/CMakeFiles/ggml-blas.dir/link.txt' preview in 70 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/ggml/src/ggml-metal/CMakeFiles/ggml-metal.dir/link.txt' preview in 71 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/macos_arm64/CMakeFiles/CMakeScratch/TryCompile-WQMJdp/CMakeFiles/cmTC_a5d33.dir/link.txt' preview in 78 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/macos_arm64/CMakeFiles/CMakeScratch/TryCompile-WQMJdp/CMakeFiles/InstallScripts.json' preview in 73 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/macos_arm64/CMakeFiles/CMakeScratch/TryCompile-WQMJdp/CMakeFiles/TargetDirectories.txt' preview in 71 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/macos_arm64/CMakeFiles/CMakeScratch/TryCompile-WQMJdp/CMakeCache.txt' preview in 68 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/macos_arm64/CMakeFiles/CMakeScratch/TryCompile-WQMJdp/CMakeLists.txt' preview in 65 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/macos_arm64/CMakeFiles/CMakeConfigureLog.yaml' preview in 70 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/src/CMakeFiles/whisper.dir/link.txt' preview in 69 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/tests/CMakeFiles/test-vad-full.dir/link.txt' preview in 68 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/tests/CMakeFiles/test-vad.dir/link.txt' preview in 63 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/CMakeCache.txt' preview in 66 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/build/compile_commands.json' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/ci/README.md' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/addon.node/CMakeLists.txt' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/addon.node/package.json' preview in 54 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/addon.node/README.md' preview in 56 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/bench/CMakeLists.txt' preview in 55 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/bench/README.md' preview in 51 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/bench.wasm/CMakeLists.txt' preview in 63 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/bench.wasm/README.md' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/cli/CMakeLists.txt' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/cli/README.md' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/command/CMakeLists.txt' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/command/commands.txt' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/command/README.md' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/command.wasm/CMakeLists.txt' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/command.wasm/README.md' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/deprecation-warning/CMakeLists.txt' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/deprecation-warning/README.md' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/lsp/CMakeLists.txt' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/lsp/README.md' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/quantize/CMakeLists.txt' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/quantize/README.md' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/server/CMakeLists.txt' preview in 55 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/server/README.md' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/stream/CMakeLists.txt' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/stream/README.md' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/stream.wasm/CMakeLists.txt' preview in 54 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/stream.wasm/README.md' preview in 59 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/sycl/CMakeLists.txt' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/sycl/README.md' preview in 58 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/talk-llama/prompts/talk-alpaca.txt' preview in 67 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/talk-llama/CMakeLists.txt' preview in 60 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/talk-llama/README.md' preview in 57 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/vad-speech-segments/CMakeLists.txt' preview in 61 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/vad-speech-segments/README.md' preview in 74 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/wchess/libwchess/CMakeLists.txt' preview in 72 usec
+Generated 'res://addons/local_agents/gdextensions/localagents/thirdparty/whisper.cpp/examples/wchess/wchess.cmd/CMakeLists.txt' preview in 65 usec
+EditorSettings: Save OK!
+XR: Clearing primary interface
+XR: Removed interface "Native mobile"
+XR: Removed interface "OpenXR"
+Orphan StringName: Node (static: 10, total: 11)
+StringName: 1 unclaimed string names at exit.

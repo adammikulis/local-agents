@@ -23,6 +23,10 @@ AgentManager="*res://addons/local_agents/agent_manager/AgentManager.gd"
 
 enabled=PackedStringArray("res://addons/local_agents/plugin.cfg")
 
+[local_agents]
+
+editor/enabled=false
+
 [rendering]
 
 renderer/rendering_method="mobile"

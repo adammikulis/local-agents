@@ -13,6 +13,12 @@ We coordinate work across six collaborating agents: **Frontend**, **Runtime**, *
 - [ ] Update the “Agent Assigned” checkboxes in `agents.md` whenever responsibilities shift.
 
 ---
+## 2025-10-09 Hotfix
+
+- [x] Added a lazy `LocalAgentsExtensionLoader` plus a placeholder bottom panel so the editor opens instantly; activate the plugin from the panel when you actually need the runtime (see `logs/godot_startup_lazy_success.log`).
+- [x] Dropped a headless sanity script (`scripts/check_extension.gd`) to assert the native extension initializes cleanly in CI or troubleshooting sessions.
+
+---
 ## Active Refactor (Download & Chat Boundaries)
 
 - Runtime is introducing a dedicated `ModelDownloadManager` helper that wraps cURL/HTTP, split-path resolution, and filesystem writes so `AgentRuntime` can focus on lifecycle/state management.
