@@ -240,6 +240,7 @@ title = "Saved Conversations"
 visible = false
 
 [node name="SavedChatsController" parent="SavedChatsWindow" instance=ExtResource("2_j87l4")]
+unique_name_in_owner = true
 
 [node name="RenameConversationWindow" type="Window" parent="."]
 unique_name_in_owner = true
