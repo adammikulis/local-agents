@@ -96,7 +96,7 @@ We coordinate work across six collaborating agents: **Frontend**, **Runtime**, *
 
 - [ ] Extend dependency bundling logic to Linux and Windows targets; produce reproducible archives.
 - [ ] Configure CI pipelines for macOS/Linux/Windows builds, unit tests, and editor smoke tests.
-- [ ] Wire `scripts/run_tests.sh` into CI once build runners are ready so headless Godot tests gate merges.
+- [ ] Wire `addons/local_agents/tests/run_all_tests.gd` into CI once build runners are ready so headless Godot tests gate merges.
 - [ ] Automate asset/version stamping for releases and nightly builds.
 - [ ] Maintain export templates and Godot-compatible installers (editor plugin + demo project).
 - [ ] Monitor build tooling (CMake, Python, shell scripts) for drift and keep third-party pins updated.
@@ -122,7 +122,7 @@ We coordinate work across six collaborating agents: **Frontend**, **Runtime**, *
 2. **Memory Integration**
    - [ ] Implement SQLite NetworkGraph + embedding flow; surface seeds in Chat tab.
 3. **Parity Sprint**
-   - [ ] Re-enable in-engine 3D demo and ensure offline chatbot behaves like early Mind Game releases.
+  - [ ] Re-enable the in-engine 3D demo and ensure the offline chatbot matches the early Local Agents releases.
 4. **Speech & Transcription**
    - [ ] Wrap Piper/Whisper in async jobs, add editor toggles, demo scenes with speech I/O.
 5. **Scaling & Tooling**

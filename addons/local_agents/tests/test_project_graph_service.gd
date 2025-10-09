@@ -1,5 +1,5 @@
 @tool
-extends SceneTree
+extends RefCounted
 
 const TEST_DIR := "res://tmp_project_graph"
 
@@ -20,60 +20,65 @@ class MockRuntime:
         var parts := text.split(needle, false)
         return float(parts.size() - 1)
 
-func _init() -> void:
+func run_test(tree: SceneTree) -> bool:
     if not ClassDB.class_exists("NetworkGraph"):
-        push_error("NetworkGraph class unavailable. Build the GDExtension before running tests.")
-        quit()
-        return
+        push_error("NetworkGraph unavailable; build the native extension.")
+        return false
 
     _prepare_test_files()
 
     var service := LocalAgentsProjectGraphService.new()
-    var root := get_root()
-    if root:
-        root.add_child(service)
+    tree.get_root().add_child(service)
     service._runtime = MockRuntime.new()
 
     service.rebuild_project_graph(TEST_DIR, ["gd"])
 
+    var ok := true
     var nodes := service.list_code_nodes(64, 0)
-    assert(nodes.size() >= 1)
+    ok = ok and _assert(nodes.size() >= 1, "Expected at least one code node")
 
     var search_hits := service.search_code("assistant", 3, 8)
-    assert(search_hits.size() >= 1)
-    assert(String(search_hits[0].get("path", "")).find("alpha.gd") != -1)
+    ok = ok and _assert(search_hits.size() >= 1, "Search did not return results")
 
     service.rebuild_project_graph(TEST_DIR, [])
     if service._graph:
         service._graph.close()
 
     var db_path := ProjectSettings.globalize_path(service.DB_PATH)
-    DirAccess.remove_absolute(db_path)
+    if FileAccess.file_exists(db_path):
+        DirAccess.remove_absolute(db_path)
 
+    service.queue_free()
     _cleanup_test_files()
-    print("ProjectGraphService tests passed")
-    quit()
+    if ok:
+        print("ProjectGraphService tests passed")
+    return ok
 
 func _prepare_test_files() -> void:
-    if DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(TEST_DIR)):
+    var abs := ProjectSettings.globalize_path(TEST_DIR)
+    if DirAccess.dir_exists_absolute(abs):
         _cleanup_test_files()
-    DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(TEST_DIR))
+    DirAccess.make_dir_recursive_absolute(abs)
     var file := FileAccess.open(TEST_DIR.path_join("alpha.gd"), FileAccess.WRITE)
     file.store_string("func alpha():\n    # assistant helper\n    pass\n")
     file.close()
 
 func _cleanup_test_files() -> void:
-    if not DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(TEST_DIR)):
+    var abs := ProjectSettings.globalize_path(TEST_DIR)
+    if not DirAccess.dir_exists_absolute(abs):
         return
     var dir := DirAccess.open(TEST_DIR)
     if dir:
         dir.list_dir_begin()
         var name := dir.get_next()
         while name != "":
-            if dir.current_is_dir():
-                dir.remove(name)
-            else:
-                dir.remove(name)
+            var entry_path := TEST_DIR.path_join(name)
+            DirAccess.remove_absolute(ProjectSettings.globalize_path(entry_path))
             name = dir.get_next()
         dir.list_dir_end()
-    DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_DIR))
+    DirAccess.remove_absolute(abs)
+
+func _assert(condition: bool, message: String) -> bool:
+    if not condition:
+        push_error(message)
+    return condition

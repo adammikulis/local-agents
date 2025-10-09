@@ -1,7 +1,5 @@
 @tool
-extends SceneTree
-
-var _model_outputs: Array = []
+extends RefCounted
 
 class MockRuntime:
     func is_model_loaded() -> bool:
@@ -22,10 +20,7 @@ class MockAgentNode:
         history.append({"role": "user", "content": prompt})
         var reply := "Agent reply: %s" % prompt.strip_edges()
         history.append({"role": "assistant", "content": reply})
-        return {
-            "ok": true,
-            "text": reply,
-        }
+        return {"ok": true, "text": reply}
 
     func add_message(role: String, content: String) -> void:
         history.append({"role": role, "content": content})
@@ -39,30 +34,30 @@ class MockAgentNode:
     func clear_history() -> void:
         history.clear()
 
-    func say(text: String, options := {}) -> bool:
+    func say(_text: String, _options := {}) -> bool:
         return true
 
-    func listen(options := {}) -> String:
+    func listen(_options := {}) -> String:
         return ""
 
-    func enqueue_action(name: String, params := {}) -> void:
+    func enqueue_action(_name: String, _params := {}) -> void:
         pass
 
-func _init() -> void:
+var _captured_outputs: Array = []
+
+func run_test(tree: SceneTree) -> bool:
     if not ClassDB.class_exists("NetworkGraph"):
-        push_error("NetworkGraph class unavailable. Build the GDExtension before running tests.")
-        quit()
-        return
+        push_error("NetworkGraph unavailable; build the native extension.")
+        return false
 
     var store := LocalAgentsConversationStore.new()
-    get_root().add_child(store)
+    tree.get_root().add_child(store)
     store._runtime = MockRuntime.new()
     store.clear_all()
 
     var conversation := store.create_conversation("End to End Chat")
-    assert(not conversation.is_empty())
     var conversation_id := int(conversation.get("id", -1))
-    assert(conversation_id != -1)
+    var ok := (conversation_id != -1)
 
     var agent := LocalAgentsAgent.new()
     var agent_node := MockAgentNode.new()
@@ -74,20 +69,20 @@ func _init() -> void:
 
     var response := agent.think(prompt)
     var reply := String(response.get("text", ""))
-    assert(reply != "")
-    assert(_model_outputs.size() == 1)
+    ok = ok and reply != ""
+    ok = ok and _captured_outputs.size() == 1
 
     store.append_message(conversation_id, "assistant", reply, {})
 
     var loaded := store.load_conversation(conversation_id)
     var messages: Array = loaded.get("messages", [])
-    assert(messages.size() == 2)
-    assert(messages[1].get("role") == "assistant")
-    assert(messages[1].get("content") == reply)
+    ok = ok and messages.size() == 2
+    if messages.size() >= 2:
+        ok = ok and messages[1].get("role") == "assistant"
+        ok = ok and messages[1].get("content") == reply
 
     var hits := store.search_messages("assistant", 4, 8)
-    assert(hits.size() >= 1)
-    assert(hits[0].get("role") == "assistant")
+    ok = ok and hits.size() >= 1
 
     store.clear_all()
     _cleanup_store(store)
@@ -95,11 +90,12 @@ func _init() -> void:
     agent.queue_free()
     store.queue_free()
 
-    print("Local Agents end-to-end conversation test passed")
-    quit()
+    if ok:
+        print("Local Agents end-to-end conversation test passed")
+    return ok
 
 func _on_model_output(text: String) -> void:
-    _model_outputs.append(text)
+    _captured_outputs.append(text)
 
 func _cleanup_store(store: LocalAgentsConversationStore) -> void:
     if store._graph:

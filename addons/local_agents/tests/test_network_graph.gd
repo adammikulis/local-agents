@@ -1,13 +1,10 @@
 @tool
-extends SceneTree
+extends RefCounted
 
 const TEST_DIR := "user://tests"
 
-func _init() -> void:
-    if not ClassDB.class_exists("NetworkGraph"):
-        push_error("NetworkGraph class is not available. Build the GDExtension first.")
-        quit()
-        return
+func run_test(_tree: SceneTree) -> void:
+    assert(ClassDB.class_exists("NetworkGraph"))
 
     DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(TEST_DIR))
     var db_path := TEST_DIR.path_join("network_graph_%d.sqlite3" % Time.get_ticks_msec())
@@ -21,7 +18,6 @@ func _init() -> void:
     graph.close()
     DirAccess.remove_absolute(ProjectSettings.globalize_path(db_path))
     print("NetworkGraph tests passed")
-    quit()
 
 func _test_node_crud(graph: NetworkGraph) -> void:
     var node_a := graph.upsert_node("demo", "node_a", {"tag": "alpha"})
@@ -38,7 +34,7 @@ func _test_node_crud(graph: NetworkGraph) -> void:
     var nodes := graph.list_nodes("demo", 10, 0)
     assert(nodes.size() == 1)
 
-    var filtered = graph.list_nodes_by_metadata("demo", "tag", "beta", 10, 0)
+    var filtered := graph.list_nodes_by_metadata("demo", "tag", "beta", 10, 0)
     assert(filtered.size() == 1)
 
     var updated := graph.update_node_data(node_a, {"tag": "gamma"})

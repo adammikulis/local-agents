@@ -1,29 +1,25 @@
 @tool
-extends SceneTree
+extends RefCounted
 
-func _init() -> void:
+func run_test(_tree: SceneTree) -> bool:
     if not Engine.has_singleton("AgentRuntime"):
         push_error("AgentRuntime singleton unavailable. Build the GDExtension before running tests.")
-        quit()
-        return
+        return false
 
     var runtime := Engine.get_singleton("AgentRuntime")
     if runtime == null:
         push_error("AgentRuntime singleton missing.")
-        quit()
-        return
+        return false
 
     var model_path := OS.get_environment("LOCAL_AGENTS_TEST_GGUF")
     if model_path.strip_edges() == "":
         print("Skipping heavy AgentRuntime test. Set LOCAL_AGENTS_TEST_GGUF to a GGUF model path to enable it.")
-        quit()
-        return
+        return true
 
     var resolved_path := _normalize_path(model_path)
     if not FileAccess.file_exists(resolved_path):
         push_error("Heavy test model not found at %s" % resolved_path)
-        quit()
-        return
+        return false
 
     var loaded := bool(runtime.call("load_model", resolved_path, {
         "context_size": 64,
@@ -32,18 +28,12 @@ func _init() -> void:
         "n_gpu_layers": 0,
     }))
     if not loaded:
-        push_error("Failed to load GGUF model for heavy test")
-        quit()
-        return
+        push_error("Failed to load model for heavy test")
+        return false
 
-    if not bool(runtime.call("is_model_loaded")):
-        push_error("Model did not report as loaded for heavy test")
-        runtime.call("unload_model")
-        quit()
-        return
-
+    var ok := bool(runtime.call("is_model_loaded"))
     var embedding: PackedFloat32Array = runtime.call("embed_text", "Local Agents heavy test", {})
-    assert(not embedding.is_empty())
+    ok = ok and not embedding.is_empty()
 
     var response: Dictionary = runtime.call("generate", {
         "history": [
@@ -53,13 +43,13 @@ func _init() -> void:
         "prompt": "Say ok.",
         "options": {"max_tokens": 8},
     })
-    assert(response.get("ok", false))
-    assert(String(response.get("text", "")).length() > 0)
+    ok = ok and response.get("ok", false)
+    ok = ok and String(response.get("text", "")).length() > 0
 
     runtime.call("unload_model")
-
-    print("Local Agents heavy runtime test passed")
-    quit()
+    if ok:
+        print("Local Agents heavy runtime test passed")
+    return ok
 
 func _normalize_path(path: String) -> String:
     if path.begins_with("res://") or path.begins_with("user://"):

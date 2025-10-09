@@ -44,6 +44,12 @@ func _ready() -> void:
     add_child(_audio_player)
     agent_node.connect("message_emitted", Callable(self, "_on_agent_message"))
     agent_node.connect("action_requested", Callable(self, "_on_agent_action"))
+    if is_inside_tree():
+        _register_with_manager()
+    else:
+        call_deferred("_register_with_manager")
+
+func _register_with_manager() -> void:
     var manager: LocalAgentsAgentManager = get_node_or_null("/root/AgentManager")
     if manager:
         manager.register_agent(self)

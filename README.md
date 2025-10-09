@@ -30,23 +30,18 @@ Local Agents is a Godot addon backed by a native GDExtension runtime for running
 4. Open the editor bottom panel → **Local Agents** to configure model/inference settings and explore the Chat or Download tabs.
 5. Run demo scenes under `addons/local_agents/examples/` to validate integration (`ChatExample.tscn`, `GraphExample.tscn`, or `Agent3D.tscn`).
 
-## Tooling Scripts
+## Tooling & Tests
 
 - `scripts/fetch_runtimes.sh` – fetch optional Piper/Whisper bundles via the runtime downloader.
-- `scripts/run_godot_check.sh` – run Godot parser checks in headless mode.
-- `scripts/run_tests.sh` – execute the included GDScript smoke/unit/integration tests headlessly.
+- `addons/local_agents/tests/run_all_tests.gd` – headless harness that runs the lightweight smoke/utility checks; pass `--include-heavy` or set `LOCAL_AGENTS_TEST_GGUF=/path/to/model.gguf` to opt into the runtime-heavy coverage when desired.
 
-All scripts are POSIX shell friendly and avoid Python runtimes. Set `GODOT_BIN` or `GODOT4_BIN` if your editor binary is not on `PATH`.
-
-## Testing
-
-Headless GDScript suites live under `addons/local_agents/tests/`. Execute everything with:
+Run the cross-platform harness with:
 
 ```bash
-scripts/run_tests.sh
+godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd
 ```
 
-`LOCAL_AGENTS_TEST_GGUF` can point at a small llama.cpp GGUF artifact when you want the heavier runtime test to perform a real load; otherwise it skips gracefully.
+By default the harness skips the heavy runtime test; provide the flag/env when you have a GGUF handy. Set `GODOT_BIN` or ensure `godot`/`godot4` is on `PATH` if you prefer to wrap the command. Additional GDScript scenarios (`test_conversation_store.gd`, `test_network_graph.gd`, etc.) remain available for manual runs once the native extension is built.
 
 ## Assets
 

@@ -28,6 +28,7 @@ func _ensure_agent() -> void:
     emit_signal("agent_ready", agent)
 
 func register_agent(agent_instance: LocalAgentsAgent) -> void:
+    _ensure_config_list()
     agent = agent_instance
     if config_list.current_model_config:
         agent.configure(config_list.current_model_config, null)
