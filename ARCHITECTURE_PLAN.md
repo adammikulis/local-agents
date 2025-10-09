@@ -57,7 +57,7 @@ We coordinate work across six collaborating agents: **Frontend**, **Runtime**, *
 - [ ] Move Hugging Face download + split-file orchestration into `ModelDownloadManager`, delegating to bundled `llama-cli` so runtime picks up upstream fixes while exposing a clear API to `AgentRuntime` (`download_model_hf` + GDS `LocalAgentsDownloadClient`).
 - [ ] Add multi-platform build automation (`build_all.sh`) and native test harnesses.
 - [ ] Expand `AgentRuntime` job queue, expose JSON grammars, and integrate llama.cpp downloader bindings fully.
-- [ ] Mediate Piper (speech) and Whisper/Fast-Whisper (transcription) subprocesses behind async helpers.
+- [x] Mediate Piper (speech) and Whisper/Fast-Whisper (transcription) subprocesses behind async helpers (see `AgentRuntime::synthesize_speech`, `LocalAgentsSpeechService`).
 - [ ] Finalise **NetworkGraph** module (SQLite JSON1 + FTS5 wrapper) and expose ergonomic bindings.
 - [ ] Implement **Embedding Worker** for offline embedding generation wired into NetworkGraph recall.
 - [ ] Provide headless tests validating runtime init, inference, downloads, and error handling.
@@ -69,6 +69,7 @@ We coordinate work across six collaborating agents: **Frontend**, **Runtime**, *
 
 - [x] Maintain `scripts/fetch_dependencies.sh` with pinned revisions and checksum verification.
 - [x] Integrate llama.cpp’s built-in download command (e.g. `main -m download ...`) via runtime helper.
+- [x] Publish shared `RuntimePaths` helpers so agents/tests resolve runtimes, voices, and default models consistently.
 - [ ] Route Download tab actions through shared helpers to avoid duplicated CLI logic while logging output.
 - [ ] Provide a reusable `DownloadJobService` (threaded worker + runtime bridge) consumed by editor panels and headless flows.
 - [ ] Maintain metadata manifests (`models/config.json`, `voices/config.json`) for installed assets.
@@ -157,5 +158,6 @@ We coordinate work across six collaborating agents: **Frontend**, **Runtime**, *
 - [ ] Update screenshots, tutorials, and user docs to reflect Download tab status feedback and runtime health indicators (Experience).
 - [ ] Wire the new GDS download helpers into the Download tab (`DownloadJobService` extraction) so editor UI exercises the same path as gameplay scripts (Data + Frontend).
 - [ ] Expose `llama-server` lifecycle controls (start/stop, config) from `AgentRuntime`/GDS so projects can stand up OpenAI-compatible endpoints easily (Runtime + Data).
+- [ ] Add speech/transcription smoke coverage once lightweight Piper/Whisper fixtures are bundled (Runtime + Quality).
 
 This checklist ensures specialised agents can ship features in parallel while tracking progress toward full GDScript/GDExtension parity with the original project.

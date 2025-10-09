@@ -12,7 +12,8 @@ Local Agents is a Godot addon backed by a native GDExtension runtime for running
 
 ## Highlights
 
-- Native `AgentNode` (GDExtension) with queue-backed inference, graph memory helpers, and Piper/Whisper hooks.
+- Native `AgentNode` (GDExtension) with queue-backed inference, graph memory helpers, and Piper/Whisper hooks backed by the new runtime speech helpers.
+- Threaded `LocalAgentsSpeechService` + `AgentRuntime.synthesize_speech` / `transcribe_audio` pipeline that streams Piper input and parses Whisper JSON off the main thread.
 - Editor plugin (`addons/local_agents/`) that exposes chat, download, and configuration panels while remaining `@tool` friendly.
 - Reusable controllers/services for chat, conversation storage, and project graph helpers written in idiomatic GDScript.
 - Shell helpers for fetching third-party dependencies, running headless editor checks, and executing the addon’s GDScript test suites.
@@ -38,9 +39,24 @@ Local Agents is a Godot addon backed by a native GDExtension runtime for running
 4. Open the editor bottom panel → **Local Agents** to configure model/inference settings and explore the Chat or Download tabs.
 5. Run demo scenes under `addons/local_agents/examples/` to validate integration (`ChatExample.tscn`, `GraphExample.tscn`, or `Agent3D.tscn`).
 
+### Speech + Transcription
+
+- Configure a Piper voice under **Configuration → Model** or via `LocalAgentsModelParams.voice`. The helper `LocalAgentsRuntimePaths.resolve_voice_assets` now normalizes both `res://` and absolute voice bundles.
+- The chat panel and `LocalAgentsAgent` delegate speech to `LocalAgentsSpeechService`, which spins up worker threads and calls the native `AgentRuntime.synthesize_speech`/`transcribe_audio` APIs so the editor no longer blocks at 80%.
+- Results surface through `speech_synthesized`/`job_failed` signals; raw dictionaries mirror `AgentRuntime` responses (`ok`, `output_path`, optional `text`).
+- Direct GDS access is also available:
+  ```gdscript
+  var service := LocalAgentsSpeechService.get_singleton()
+  var result := service.synthesize({
+      "text": "Hello agents!",
+      "voice_path": RuntimePaths.resolve_voice_assets("en_US-amy-high").get("model", "")
+  })
+  ```
+
 ## Tooling & Tests
 
 - `scripts/fetch_runtimes.sh` – fetch optional Piper/Whisper bundles via the runtime downloader.
+- `addons/local_agents/runtime/RuntimePaths.gd` – shared lookup helpers for runtime binaries, default models, platform subdirs, and per-platform voice assets.
 - `addons/local_agents/tests/run_all_tests.gd` – headless harness that runs the smoke/utility suites on every platform. Pass `--include-heavy` (or predefine `LOCAL_AGENTS_TEST_GGUF`) to opt into the runtime-heavy coverage, which uses the built-in download manager to fetch the 4-bit `ggml-org/Qwen3-0.6B-GGUF` model when it is not cached locally.
 
 Run the cross-platform harness with:

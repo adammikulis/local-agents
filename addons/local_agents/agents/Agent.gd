@@ -9,6 +9,8 @@ var agent_node: AgentNode
 var history: Array = []
 var inference_options: Dictionary = {}
 const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const RuntimePaths := preload("res://addons/local_agents/runtime/RuntimePaths.gd")
+const SpeechService := preload("res://addons/local_agents/runtime/audio/SpeechService.gd")
 
 @export var db_path: String = ""
 @export var voice: String = ""
@@ -18,6 +20,9 @@ const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsE
 @export var max_actions_per_tick: int = 4
 
 var _audio_player: AudioStreamPlayer
+var _pending_tts_jobs := {}
+var _speech_service_connected := false
+var _speech_service
 
 func _ready() -> void:
     if not _ensure_agent_node():
@@ -26,17 +31,31 @@ func _ready() -> void:
     _audio_player = AudioStreamPlayer.new()
     _audio_player.name = "TTSPlayer"
     add_child(_audio_player)
+    if _speech_service == null:
+        _speech_service = SpeechService.new()
     agent_node.connect("message_emitted", Callable(self, "_on_agent_message"))
     agent_node.connect("action_requested", Callable(self, "_on_agent_action"))
     if is_inside_tree():
         _register_with_manager()
     else:
         call_deferred("_register_with_manager")
+    _ensure_speech_service()
 
 func _register_with_manager() -> void:
     var manager: LocalAgentsAgentManager = get_node_or_null("/root/AgentManager")
     if manager:
         manager.register_agent(self)
+
+func _ensure_speech_service() -> void:
+    if _speech_service == null:
+        _speech_service = SpeechService.new()
+    if _speech_service == null:
+        return
+    if not _speech_service_connected:
+        var service_obj: Object = _speech_service
+        if not service_obj.is_connected("job_failed", Callable(self, "_on_speech_job_failed")):
+            service_obj.connect("job_failed", Callable(self, "_on_speech_job_failed"))
+        _speech_service_connected = true
 
 func configure(model_params: LocalAgentsModelParams = null, inference_params: LocalAgentsInferenceParams = null) -> void:
     var has_agent := _ensure_agent_node()
@@ -78,12 +97,47 @@ func think(prompt: String, extra_opts: Dictionary = {}) -> Dictionary:
 func say(text: String, opts: Dictionary = {}) -> bool:
     if not _ensure_agent_node():
         return false
-    return agent_node.say(text, opts)
+    _ensure_speech_service()
+    if _speech_service == null:
+        return false
+    var service = _speech_service
+    var payload = opts.duplicate(true)
+    payload["voice_id"] = voice
+    var runtime_dir := agent_node.runtime_directory if agent_node else RuntimePaths.runtime_dir()
+    payload["runtime_directory"] = RuntimePaths.normalize_path(runtime_dir) if runtime_dir != "" else ""
+    payload["text"] = text
+    var result = service.synthesize(payload)
+    return result.get("ok", false)
 
 func listen(opts: Dictionary = {}) -> String:
     if not _ensure_agent_node():
         return ""
-    return agent_node.listen(opts)
+    _ensure_speech_service()
+    if _speech_service == null:
+        return ""
+    var service = _speech_service
+    var payload = opts.duplicate(true)
+    var runtime_dir := agent_node.runtime_directory if agent_node else RuntimePaths.runtime_dir()
+    payload["runtime_directory"] = RuntimePaths.normalize_path(runtime_dir) if runtime_dir != "" else ""
+    var result = service.transcribe(payload)
+    if not result.get("ok", false):
+        return ""
+    var transcript: String = String(result.get("text", ""))
+    if transcript != "":
+        history.append({"role": "user", "content": transcript})
+        emit_signal("model_output_received", transcript)
+    return transcript
+
+func listen_async(input_path: String, opts: Dictionary = {}, callback: Callable = Callable()) -> int:
+    _ensure_speech_service()
+    if _speech_service == null:
+        return -1
+    var service = _speech_service
+    var payload = opts.duplicate(true)
+    var runtime_dir := agent_node.runtime_directory if agent_node else RuntimePaths.runtime_dir()
+    payload["runtime_directory"] = RuntimePaths.normalize_path(runtime_dir) if runtime_dir != "" else ""
+    payload["model_path"] = payload.get("model_path", "")
+    return service.transcribe_async(input_path, payload, callback)
 
 func clear_history() -> void:
     history.clear()
@@ -135,17 +189,12 @@ func _ensure_agent_node() -> bool:
 func _sync_agent_node_properties() -> void:
     if not agent_node:
         return
-    var runtime_dir := _resolve_runtime_directory()
+    var runtime_dir := RuntimePaths.runtime_dir()
     if runtime_dir != "":
         agent_node.runtime_directory = runtime_dir
-    var user_models_dir := ProjectSettings.globalize_path("user://local_agents/models")
-    DirAccess.make_dir_recursive_absolute(user_models_dir)
-    var user_default_model := "user://local_agents/models/qwen3-4b-instruct/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
-    var res_default_model := "res://addons/local_agents/models/qwen3-4b-instruct/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
-    if FileAccess.file_exists(user_default_model):
-        agent_node.default_model_path = ProjectSettings.globalize_path(user_default_model)
-    elif FileAccess.file_exists(res_default_model):
-        agent_node.default_model_path = ProjectSettings.globalize_path(res_default_model)
+    var default_model := RuntimePaths.resolve_default_model()
+    if default_model != "":
+        agent_node.default_model_path = default_model
     agent_node.tick_enabled = tick_enabled
     agent_node.tick_interval = tick_interval
     agent_node.max_actions_per_tick = max_actions_per_tick
@@ -154,110 +203,35 @@ func _sync_agent_node_properties() -> void:
     if voice != "":
         agent_node.voice = voice
 
-func _resolve_runtime_directory() -> String:
-    var base := "res://addons/local_agents/gdextensions/localagents/bin/runtimes"
-    var subdir := _detect_runtime_subdir()
-    if subdir != "":
-        var candidate := "%s/%s" % [base, subdir]
-        if DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(candidate)):
-            return candidate
-    if DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(base)):
-        return base
-    return ""
-
-func _detect_runtime_subdir() -> String:
-    var os_name := OS.get_name()
-    if os_name == "macOS":
-        if OS.has_feature("arm64"):
-            return "macos_arm64"
-        return "macos_x86_64"
-    if os_name == "Windows":
-        return "windows_x86_64"
-    if os_name == "Linux":
-        if OS.has_feature("aarch64") or OS.has_feature("arm64"):
-            return "linux_aarch64"
-        if OS.has_feature("x86_64"):
-            return "linux_x86_64"
-        if OS.has_feature("armv7"):
-            return "linux_armv7l"
-    if os_name == "Android":
-        return "android_arm64"
-    return ""
-
 func _should_speak_response() -> bool:
     return speak_responses and _ensure_agent_node()
 
 func _speak_text_async(text: String) -> void:
-    var assets := _resolve_voice_assets()
+    _ensure_speech_service()
+    if _speech_service == null:
+        push_warning("Speech service unavailable; cannot synthesize speech")
+        return
+    var service = _speech_service
+    var assets := RuntimePaths.resolve_voice_assets(voice)
     if assets.is_empty():
         push_warning("Voice assets not found for '%s'" % voice)
         return
-    var output_rel := _allocate_tts_path()
+    var output_rel := RuntimePaths.make_tts_output_path("local_agents")
     var output_abs := ProjectSettings.globalize_path(output_rel)
-    var opts: Dictionary = {
+    var runtime_dir := agent_node.runtime_directory if agent_node and agent_node.runtime_directory != "" else RuntimePaths.runtime_dir()
+    var runtime_abs := RuntimePaths.normalize_path(runtime_dir) if runtime_dir != "" else ""
+    var options := {
+        "voice_id": voice,
         "voice_path": assets.get("model", ""),
+        "voice_config": assets.get("config", ""),
         "output_path": output_abs,
+        "runtime_directory": runtime_abs,
     }
-    var config_path: String = assets.get("config", "")
-    if config_path != "":
-        opts["voice_config"] = config_path
-    if not _ensure_agent_node():
-        push_warning("Local Agents extension unavailable; cannot synthesize speech")
-        return
-    var ok := agent_node.say(text, opts)
-    if not ok:
-        push_warning("Piper failed to generate speech")
-        return
-    _play_tts_audio(output_rel)
-
-func _resolve_voice_assets() -> Dictionary:
-    var trimmed := voice.strip_edges()
-    if trimmed == "":
-        return {}
-    var candidates: Array[String] = []
-    if _is_absolute_path(trimmed) or trimmed.begins_with("res://") or trimmed.begins_with("user://"):
-        candidates.append(trimmed)
-    else:
-        candidates.append("res://addons/local_agents/voices/%s" % trimmed)
-        if not trimmed.ends_with(".onnx"):
-            candidates.append("res://addons/local_agents/voices/%s/%s-high.onnx" % [trimmed, trimmed])
-            candidates.append("res://addons/local_agents/voices/%s/%s.onnx" % [trimmed, trimmed])
-    for path in candidates:
-        var normalized := _normalize_path(path)
-        if normalized == "":
-            continue
-        if FileAccess.file_exists(normalized):
-            var config_candidate := normalized + ".json"
-            var config_exists := FileAccess.file_exists(config_candidate)
-            var config_path := ""
-            if config_exists:
-                config_path = config_candidate
-            return {
-                "model": normalized,
-                "config": config_path,
-            }
-    return {}
-
-func _normalize_path(path: String) -> String:
-    if path == "":
-        return ""
-    if path.begins_with("res://") or path.begins_with("user://"):
-        return ProjectSettings.globalize_path(path)
-    return path
-
-func _is_absolute_path(path: String) -> bool:
-    if path.begins_with("/"):
-        return true
-    if path.length() > 2 and path[1] == ":":
-        return true
-    return false
-
-func _allocate_tts_path() -> String:
-    var dir_path := "user://local_agents/tts"
-    if DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(dir_path)) == false:
-        DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir_path))
-    var stamp := Time.get_datetime_string_from_system(true, true).replace(":", "-")
-    return "%s/%s.wav" % [dir_path, stamp]
+    var job_id = service.synthesize_async(text, options, Callable(self, "_on_tts_job_finished"))
+    _pending_tts_jobs[job_id] = {
+        "relative_output": output_rel,
+        "absolute_output": output_abs,
+    }
 
 func _play_tts_audio(user_path: String) -> void:
     if _audio_player == null:
@@ -270,3 +244,27 @@ func _play_tts_audio(user_path: String) -> void:
         _audio_player.play()
     else:
         push_warning("Failed to load generated audio at %s" % user_path)
+
+func _on_tts_job_finished(job_id: int, result: Dictionary) -> void:
+    var job := _pending_tts_jobs.get(job_id, {})
+    _pending_tts_jobs.erase(job_id)
+    if not result.get("ok", false):
+        var error := result.get("error", "tts_failed")
+        push_warning("Speech synthesis failed (%s)" % error)
+        return
+    var rel_path: String = String(job.get("relative_output", ""))
+    var resolved: String = String(result.get("output_path", ""))
+    if rel_path == "" and resolved != "":
+        if ProjectSettings.has_setting("application/config/name"):
+            rel_path = ProjectSettings.localize_path(resolved)
+        else:
+            rel_path = resolved
+    if rel_path == "":
+        rel_path = "user://local_agents/tts"
+    _play_tts_audio(rel_path)
+
+func _on_speech_job_failed(job_id: int, result: Dictionary) -> void:
+    if _pending_tts_jobs.has(job_id):
+        _pending_tts_jobs.erase(job_id)
+    var error := result.get("error", "speech_job_failed")
+    push_warning("Speech service job %d failed: %s" % [job_id, error])

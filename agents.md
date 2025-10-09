@@ -3,7 +3,7 @@
 | Agent        | Mission Scope | Core Responsibilities | Key Interfaces | Agent Assigned |
 |--------------|---------------|------------------------|----------------|----------------|
 | **Frontend Agent** | Editor/UI & in-game UX | - Maintain bottom-panel plugin UI and runtime widgets<br>- Restore demo scenes and reusable HUD components<br>- Keep GDScript controllers `@tool`-friendly and Godot 4 compliant | Runtime Agent (signals/state), Experience Agent (UX feedback) | [x] Occupied |
-| **Runtime Agent** | Native GDExtension & inference pipeline | - Evolve `AgentRuntime`, `AgentNode`, and native helpers<br>- Track llama.cpp API changes and keep bindings current<br>- Extend NetworkGraph, embedding, speech/transcription support | Data Agent (config/runtime IO), DevOps Agent (build tooling) | [ ] Unassigned |
+| **Runtime Agent** | Native GDExtension & inference pipeline | - Evolve `AgentRuntime`, `AgentNode`, and native helpers<br>- Track llama.cpp API changes and keep bindings current<br>- Extend NetworkGraph, embedding, speech/transcription support | Data Agent (config/runtime IO), DevOps Agent (build tooling) | [x] Codex |
 | **Data Agent** | Assets, downloads, persistence | - Maintain dependency scripts and metadata manifests<br>- Own NetworkGraph schema, memory/embedding APIs<br>- Coordinate configuration resources and asset packaging | Runtime Agent (native API needs), Experience Agent (docs/demos) | [x] Codex |
 | **Quality Agent** | Documentation, testing, architecture health | - Audit docs for accuracy, publish changelog & migration notes<br>- Drive refactor backlog and lint/test adoption<br>- Monitor third-party updates & compatibility | All agents; especially DevOps (CI), Experience (docs) | [ ] Unassigned |
 | **DevOps Agent** | CI/CD, packaging, release automation | - Bundle native deps across platforms, maintain build scripts<br>- Own CI pipelines, release artifacts, and regression monitoring<br>- Manage export templates and distribution channels | Runtime Agent (native builds), Quality Agent (test strategy) | [ ] Unassigned |
@@ -20,4 +20,5 @@
 ## Active Notes
 
 - Data agent is splitting download/chat responsibilities: `ModelDownloadManager` (Runtime) now invokes bundled `llama-cli` for GGUF pulls, `LocalAgentsDownloadClient` (GDScript) mirrors the API for gameplay scripts, with `DownloadJobService`/conversation helpers still pending.
+- Runtime/Data delivered cross-platform Piper/Whisper helpers: `AgentRuntime::synthesize_speech`/`transcribe_audio` funnel through the new `LocalAgentsSpeechService`, which keeps speech jobs off the editor thread via `RuntimePaths`-normalized assets.
 - 2025-10-09: Editor stall repro stored in `logs/godot_startup_hang.log`; a lazy activation flow plus `LocalAgentsExtensionLoader` keeps startup responsive while Runtime/Frontend continue root-causing the socket bind loop (headless verifier lives at `scripts/check_extension.gd`).

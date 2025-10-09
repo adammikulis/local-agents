@@ -1,33 +1,35 @@
 @tool
 extends RefCounted
 
+const LocalAgentsRuntimePaths := preload("res://addons/local_agents/runtime/RuntimePaths.gd")
+
 func run_test(_tree: SceneTree) -> bool:
-    var agent := LocalAgentsAgent.new()
     var ok := true
+    var agent := LocalAgentsAgent.new()
+    var runtime_paths := LocalAgentsRuntimePaths
 
-    ok = ok and _assert(agent._normalize_path("") == "", "Empty path normalization failed")
-
+    ok = ok and _assert(runtime_paths.normalize_path("") == "", "Empty path normalization failed")
     var res_path := "res://addons/local_agents/plugin.cfg"
     var res_abs := ProjectSettings.globalize_path(res_path)
-    ok = ok and _assert(agent._normalize_path(res_path) == res_abs, "Resource normalization mismatch")
+    ok = ok and _assert(runtime_paths.normalize_path(res_path) == res_abs, "Resource normalization mismatch")
 
     var user_path := "user://local_agents/tests/sample.txt"
     var user_abs := ProjectSettings.globalize_path(user_path)
-    ok = ok and _assert(agent._normalize_path(user_path) == user_abs, "User normalization mismatch")
+    ok = ok and _assert(runtime_paths.normalize_path(user_path) == user_abs, "User normalization mismatch")
 
     var absolute_path := "/tmp/local_agents_demo"
-    ok = ok and _assert(agent._normalize_path(absolute_path) == absolute_path, "Absolute normalization mismatch")
+    ok = ok and _assert(runtime_paths.normalize_path(absolute_path) == absolute_path, "Absolute normalization mismatch")
 
-    ok = ok and _assert(not agent._is_absolute_path("relative/path"), "Relative path detected as absolute")
-    ok = ok and _assert(agent._is_absolute_path("/absolute"), "Absolute POSIX path not detected")
-    ok = ok and _assert(agent._is_absolute_path("C:\\demo"), "Absolute Windows path not detected")
+    ok = ok and _assert(not runtime_paths.is_absolute_path("relative/path"), "Relative path detected as absolute")
+    ok = ok and _assert(runtime_paths.is_absolute_path("/absolute"), "Absolute POSIX path not detected")
+    ok = ok and _assert(runtime_paths.is_absolute_path("C:\\demo"), "Absolute Windows path not detected")
 
     var tts_abs := ProjectSettings.globalize_path("user://local_agents/tts")
     _clear_directory(tts_abs)
     agent.queue_free()
 
-    var first := agent._allocate_tts_path()
-    var second := agent._allocate_tts_path()
+    var first := runtime_paths.make_tts_output_path("test")
+    var second := runtime_paths.make_tts_output_path("test")
 
     ok = ok and _assert(first != "", "First TTS allocation empty")
     ok = ok and _assert(second != "", "Second TTS allocation empty")

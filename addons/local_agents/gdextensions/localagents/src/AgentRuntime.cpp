@@ -5,11 +5,13 @@
 
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
+#include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <godot_cpp/classes/json.hpp>
 
 #include <llama.h>
 
@@ -25,9 +27,18 @@
 #include <mutex>
 #include <climits>
 #include <filesystem>
+#include <cstdio>
+#include <cstdlib>
+#include <optional>
+#include <iomanip>
+#include <cerrno>
+#ifndef _WIN32
+#include <sys/wait.h>
+#endif
 
 using namespace godot;
 using local_agents::runtime::to_utf8;
+using local_agents::runtime::from_utf8;
 
 namespace {
 String make_completion_id() {
@@ -149,6 +160,166 @@ llama_sampler *create_sampler(const Dictionary &options, const llama_model *mode
     return chain;
 }
 
+String normalize_project_path(const String &path) {
+    if (path.is_empty()) {
+        return path;
+    }
+    if (path.begins_with("res://") || path.begins_with("user://")) {
+        ProjectSettings *settings = ProjectSettings::get_singleton();
+        if (settings) {
+            return settings->globalize_path(path);
+        }
+    }
+    return path;
+}
+
+String detect_runtime_subdir() {
+    OS *os = OS::get_singleton();
+    if (!os) {
+        return String();
+    }
+    String os_name = os->get_name();
+    if (os_name == String("macOS")) {
+        if (os->has_feature(StringName("arm64"))) {
+            return String("macos_arm64");
+        }
+        return String("macos_x86_64");
+    }
+    if (os_name == String("Windows")) {
+        return String("windows_x86_64");
+    }
+    if (os_name == String("Linux")) {
+        if (os->has_feature(StringName("aarch64")) || os->has_feature(StringName("arm64"))) {
+            return String("linux_aarch64");
+        }
+        if (os->has_feature(StringName("x86_64"))) {
+            return String("linux_x86_64");
+        }
+        if (os->has_feature(StringName("armv7"))) {
+            return String("linux_armv7l");
+        }
+    }
+    if (os_name == String("Android")) {
+        return String("android_arm64");
+    }
+    return String();
+}
+
+String default_runtime_dir() {
+    ProjectSettings *settings = ProjectSettings::get_singleton();
+    if (!settings) {
+        return String();
+    }
+    const String base = String("res://addons/local_agents/gdextensions/localagents/bin/runtimes");
+    String subdir = detect_runtime_subdir();
+    if (!subdir.is_empty()) {
+        String candidate = base + String("/") + subdir;
+        String candidate_abs = settings->globalize_path(candidate);
+        std::filesystem::path candidate_path(to_utf8(candidate_abs));
+        if (std::filesystem::exists(candidate_path)) {
+            return candidate_abs;
+        }
+    }
+    String base_abs = settings->globalize_path(base);
+    std::filesystem::path base_path(to_utf8(base_abs));
+    if (std::filesystem::exists(base_path)) {
+        return base_abs;
+    }
+    return String();
+}
+
+std::filesystem::path to_path(const String &path) {
+    String normalized = normalize_project_path(path);
+    if (normalized.is_empty()) {
+        return std::filesystem::path();
+    }
+    return std::filesystem::path(to_utf8(normalized));
+}
+
+String path_to_string(const std::filesystem::path &path) {
+    if (path.empty()) {
+        return String();
+    }
+    return String::utf8(path.string().c_str());
+}
+
+std::filesystem::path resolve_runtime_directory_path(const String &requested, const String &fallback_property) {
+    String normalized = normalize_project_path(requested);
+    if (!normalized.is_empty()) {
+        std::filesystem::path requested_path(to_utf8(normalized));
+        if (std::filesystem::exists(requested_path)) {
+            return requested_path;
+        }
+    }
+    String fallback_normalized = normalize_project_path(fallback_property);
+    if (!fallback_normalized.is_empty()) {
+        std::filesystem::path fallback_path(to_utf8(fallback_normalized));
+        if (std::filesystem::exists(fallback_path)) {
+            return fallback_path;
+        }
+    }
+    String auto_runtime = default_runtime_dir();
+    if (!auto_runtime.is_empty()) {
+        return std::filesystem::path(to_utf8(auto_runtime));
+    }
+    return std::filesystem::path();
+}
+
+std::filesystem::path find_binary(const std::filesystem::path &runtime_dir, const std::vector<std::string> &names) {
+    if (names.empty()) {
+        return std::filesystem::path();
+    }
+    for (const std::string &name : names) {
+        std::filesystem::path candidate = runtime_dir / name;
+        if (std::filesystem::exists(candidate)) {
+            return candidate;
+        }
+    }
+    return std::filesystem::path();
+}
+
+void ensure_parent_directory(const std::filesystem::path &file_path) {
+    std::filesystem::path parent = file_path.parent_path();
+    if (parent.empty()) {
+        return;
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(parent, ec);
+}
+
+#ifdef _WIN32
+FILE *open_pipe_write(const std::string &command) {
+    return _popen(command.c_str(), "w");
+}
+
+int close_pipe(FILE *pipe) {
+    return _pclose(pipe);
+}
+#else
+FILE *open_pipe_write(const std::string &command) {
+    return popen(command.c_str(), "w");
+}
+
+int close_pipe(FILE *pipe) {
+    return pclose(pipe);
+}
+#endif
+
+int extract_exit_code(int status) {
+#ifdef _WIN32
+    return status;
+#else
+    if (status == -1) {
+        return -1;
+    }
+    if (WIFEXITED(status)) {
+        return WEXITSTATUS(status);
+    }
+    return status;
+#endif
+}
+
+} // namespace
 } // namespace
 
 AgentRuntime *AgentRuntime::singleton_ = nullptr;
@@ -182,6 +353,8 @@ void AgentRuntime::_bind_methods() {
     ClassDB::bind_method(D_METHOD("unload_model"), &AgentRuntime::unload_model);
     ClassDB::bind_method(D_METHOD("is_model_loaded"), &AgentRuntime::is_model_loaded);
     ClassDB::bind_method(D_METHOD("generate", "request"), &AgentRuntime::generate);
+    ClassDB::bind_method(D_METHOD("synthesize_speech", "request"), &AgentRuntime::synthesize_speech);
+    ClassDB::bind_method(D_METHOD("transcribe_audio", "request"), &AgentRuntime::transcribe_audio);
     ClassDB::bind_method(D_METHOD("embed_text", "text", "options"), &AgentRuntime::embed_text, DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("download_model", "request"), &AgentRuntime::download_model);
     ClassDB::bind_method(D_METHOD("download_model_hf", "repo", "options"), &AgentRuntime::download_model_hf, DEFVAL(Dictionary()));
@@ -507,6 +680,261 @@ Dictionary AgentRuntime::download_model_hf(const String &repo, const Dictionary 
     request["output_path"] = output_path;
 
     return download_model(request);
+}
+
+Dictionary AgentRuntime::synthesize_speech(const Dictionary &request) {
+    Dictionary response;
+    response["ok"] = false;
+
+    String text = request.get("text", String());
+    if (text.is_empty()) {
+        response["error"] = String("missing_text");
+        return response;
+    }
+
+    String voice_path = request.get("voice_path", String());
+    if (voice_path.is_empty()) {
+        response["error"] = String("missing_voice_path");
+        return response;
+    }
+
+    String output_path = request.get("output_path", String());
+    if (output_path.is_empty()) {
+        std::filesystem::path temp_path = std::filesystem::temp_directory_path() / "local_agents_tts.wav";
+        output_path = String::utf8(temp_path.string().c_str());
+    }
+
+    String runtime_override = request.get("runtime_directory", String());
+    String voice_config = request.get("voice_config", String());
+
+    String runtime_property;
+    {
+        std::scoped_lock lock(speech_mutex_);
+        runtime_property = runtime_directory_;
+    }
+
+    std::filesystem::path runtime_dir_path = resolve_runtime_directory_path(runtime_override, runtime_property);
+    if (runtime_dir_path.empty()) {
+        response["error"] = String("runtime_directory_missing");
+        return response;
+    }
+
+    std::filesystem::path piper_bin = find_binary(runtime_dir_path, {"piper", "piper.exe"});
+    if (piper_bin.empty()) {
+        response["error"] = String("piper_binary_missing");
+        response["runtime_directory"] = path_to_string(runtime_dir_path);
+        return response;
+    }
+
+    std::filesystem::path voice_model_path = to_path(voice_path);
+    if (voice_model_path.empty() || !std::filesystem::exists(voice_model_path)) {
+        response["error"] = String("voice_missing");
+        response["voice_path"] = voice_path;
+        return response;
+    }
+
+    std::optional<std::filesystem::path> voice_config_path;
+    if (!voice_config.is_empty()) {
+        std::filesystem::path config_candidate = to_path(voice_config);
+        if (!config_candidate.empty() && std::filesystem::exists(config_candidate)) {
+            voice_config_path = config_candidate;
+        } else {
+            response["voice_config_missing"] = voice_config;
+        }
+    }
+
+    std::filesystem::path output_file_path = to_path(output_path);
+    if (output_file_path.empty()) {
+        output_file_path = std::filesystem::path(to_utf8(output_path));
+    }
+    ensure_parent_directory(output_file_path);
+
+    std::filesystem::path espeak_dir = runtime_dir_path / "espeak-ng-data";
+    if (!std::filesystem::exists(espeak_dir)) {
+        std::filesystem::path alt = runtime_dir_path / "espeak-ng" / "data";
+        if (std::filesystem::exists(alt)) {
+            espeak_dir = alt;
+        }
+    }
+    std::filesystem::path tashkeel_model = runtime_dir_path / "libtashkeel_model.ort";
+
+    std::ostringstream command;
+    command << '\"' << piper_bin.string() << '\"';
+    command << " --model " << std::quoted(voice_model_path.string());
+    command << " --output_file " << std::quoted(output_file_path.string());
+    if (voice_config_path.has_value()) {
+        command << " --config " << std::quoted(voice_config_path->string());
+    }
+    if (std::filesystem::exists(espeak_dir)) {
+        command << " --espeak_data " << std::quoted(espeak_dir.string());
+    }
+    if (std::filesystem::exists(tashkeel_model)) {
+        command << " --tashkeel_model " << std::quoted(tashkeel_model.string());
+    }
+
+    std::string command_line = command.str();
+    FILE *pipe = open_pipe_write(command_line);
+    if (!pipe) {
+        response["error"] = String("piper_spawn_failed");
+        response["command"] = String::utf8(command_line.c_str());
+        return response;
+    }
+
+    std::string text_utf8 = to_utf8(text);
+    int write_error = 0;
+    if (std::fputs(text_utf8.c_str(), pipe) == EOF) {
+        write_error = errno;
+    }
+    if (!write_error && (text_utf8.empty() || text_utf8.back() != '\n')) {
+        if (std::fputc('\n', pipe) == EOF) {
+            write_error = errno;
+        }
+    }
+
+    int raw_status = close_pipe(pipe);
+    int exit_code = extract_exit_code(raw_status);
+    if (write_error != 0) {
+        response["error"] = String("piper_write_failed");
+        response["errno"] = write_error;
+        response["exit_code"] = exit_code;
+        response["command"] = String::utf8(command_line.c_str());
+        return response;
+    }
+    if (exit_code != 0) {
+        response["error"] = String("piper_exit");
+        response["exit_code"] = exit_code;
+        response["command"] = String::utf8(command_line.c_str());
+        return response;
+    }
+    if (!std::filesystem::exists(output_file_path)) {
+        response["error"] = String("piper_output_missing");
+        response["output_path"] = path_to_string(output_file_path);
+        return response;
+    }
+
+    response["ok"] = true;
+    response["output_path"] = path_to_string(output_file_path);
+    response["runtime_directory"] = path_to_string(runtime_dir_path);
+    return response;
+}
+
+Dictionary AgentRuntime::transcribe_audio(const Dictionary &request) {
+    Dictionary response;
+    response["ok"] = false;
+
+    String input_path = request.get("input_path", String());
+    if (input_path.is_empty()) {
+        response["error"] = String("missing_input_path");
+        return response;
+    }
+    String model_path = request.get("model_path", String());
+    if (model_path.is_empty()) {
+        response["error"] = String("missing_model_path");
+        return response;
+    }
+
+    String runtime_override = request.get("runtime_directory", String());
+    String output_override = request.get("output_path", String());
+
+    String runtime_property;
+    {
+        std::scoped_lock lock(speech_mutex_);
+        runtime_property = runtime_directory_;
+    }
+
+    std::filesystem::path runtime_dir_path = resolve_runtime_directory_path(runtime_override, runtime_property);
+    if (runtime_dir_path.empty()) {
+        response["error"] = String("runtime_directory_missing");
+        return response;
+    }
+
+    std::filesystem::path whisper_bin = find_binary(runtime_dir_path, {"whisper", "whisper-cli", "whisper.exe", "whisper-cli.exe"});
+    if (whisper_bin.empty()) {
+        response["error"] = String("whisper_binary_missing");
+        response["runtime_directory"] = path_to_string(runtime_dir_path);
+        return response;
+    }
+
+    std::filesystem::path input_file = to_path(input_path);
+    if (input_file.empty() || !std::filesystem::exists(input_file)) {
+        response["error"] = String("input_missing");
+        response["input_path"] = input_path;
+        return response;
+    }
+
+    std::filesystem::path model_file = to_path(model_path);
+    if (model_file.empty() || !std::filesystem::exists(model_file)) {
+        response["error"] = String("model_missing");
+        response["model_path"] = model_path;
+        return response;
+    }
+
+    std::filesystem::path desired_output = to_path(output_override);
+    if (desired_output.empty()) {
+        desired_output = input_file;
+        desired_output += ".json";
+    }
+    ensure_parent_directory(desired_output);
+
+    std::ostringstream command;
+    command << '\"' << whisper_bin.string() << '\"';
+    command << " --model " << std::quoted(model_file.string());
+    command << " --file " << std::quoted(input_file.string());
+    command << " --output-json";
+
+    std::string command_line = command.str();
+    int exit_code = extract_exit_code(std::system(command_line.c_str()));
+    if (exit_code != 0) {
+        response["error"] = String("whisper_exit");
+        response["exit_code"] = exit_code;
+        response["command"] = String::utf8(command_line.c_str());
+        return response;
+    }
+
+    std::filesystem::path generated_output = input_file;
+    generated_output += ".json";
+    std::filesystem::path actual_output = desired_output;
+    if (!std::filesystem::exists(actual_output)) {
+        if (std::filesystem::exists(generated_output)) {
+            if (generated_output != desired_output) {
+                std::error_code ec;
+                std::filesystem::copy_file(generated_output, desired_output, std::filesystem::copy_options::overwrite_existing, ec);
+                actual_output = ec ? generated_output : desired_output;
+            } else {
+                actual_output = generated_output;
+            }
+        }
+    }
+
+    if (!std::filesystem::exists(actual_output)) {
+        response["error"] = String("whisper_output_missing");
+        response["output_path"] = path_to_string(desired_output);
+        return response;
+    }
+
+    std::string json_content;
+    std::ifstream json_stream(actual_output);
+    if (json_stream.good()) {
+        std::ostringstream buffer;
+        buffer << json_stream.rdbuf();
+        json_content = buffer.str();
+    }
+
+    if (!json_content.empty()) {
+        String json_text = String::utf8(json_content.c_str());
+        Variant parsed = JSON::parse_string(json_text);
+        if (parsed.get_type() == Variant::DICTIONARY) {
+            Dictionary dict = parsed;
+            if (dict.has("text")) {
+                response["text"] = dict["text"];
+            }
+        }
+    }
+
+    response["ok"] = true;
+    response["output_path"] = path_to_string(actual_output);
+    response["runtime_directory"] = path_to_string(runtime_dir_path);
+    return response;
 }
 
 Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {

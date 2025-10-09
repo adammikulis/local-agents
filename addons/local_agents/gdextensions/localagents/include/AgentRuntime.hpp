@@ -41,6 +41,9 @@ public:
     Dictionary generate(const Dictionary &request);
     PackedFloat32Array embed_text(const String &text, const Dictionary &options = Dictionary());
 
+    Dictionary synthesize_speech(const Dictionary &request);
+    Dictionary transcribe_audio(const Dictionary &request);
+
     Dictionary download_model(const Dictionary &request);
     Dictionary download_model_hf(const String &repo, const Dictionary &options = Dictionary());
     String get_model_cache_directory() const;
@@ -79,6 +82,8 @@ private:
     String runtime_directory_;
     String system_prompt_;
     Dictionary default_options_;
+
+    mutable std::mutex speech_mutex_;
 };
 
 } // namespace godot

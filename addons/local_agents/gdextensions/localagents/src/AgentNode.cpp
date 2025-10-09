@@ -2,28 +2,10 @@
 #include "AgentRuntime.hpp"
 
 #include <godot_cpp/classes/engine.hpp>
-#include <godot_cpp/classes/json.hpp>
-#include <godot_cpp/classes/file_access.hpp>
-#include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
-#include <filesystem>
-#include <sstream>
-#include <cstdlib>
-
 using namespace godot;
-
-namespace {
-String resolve_runtime_path(const String &runtime_dir, const String &name) {
-    if (runtime_dir.is_empty()) {
-        return name;
-    }
-    std::filesystem::path base(runtime_dir.utf8().get_data());
-    base /= name.utf8().get_data();
-    return String(base.string().c_str());
-}
-}
 
 AgentNode::AgentNode() = default;
 AgentNode::~AgentNode() = default;
@@ -158,109 +140,54 @@ Dictionary AgentNode::think(const String &prompt, const Dictionary &extra_option
 
 bool AgentNode::say(const String &text, const Dictionary &options) {
     AgentRuntime *runtime = AgentRuntime::get_singleton();
-    if (runtime && !runtime_directory_.is_empty()) {
-        runtime->set_runtime_directory(runtime_directory_);
-    }
-
-    String voice_path = options.get("voice_path", String());
-    if (voice_path.is_empty() && !voice_.is_empty()) {
-        voice_path = resolve_runtime_path(runtime_directory_, String("voices/") + voice_);
-    }
-
-    if (voice_path.is_empty()) {
-        UtilityFunctions::push_warning("Piper voice not configured");
+    if (!runtime) {
+        UtilityFunctions::push_error("AgentRuntime singleton unavailable");
         return false;
     }
-
-    String piper_bin = resolve_runtime_path(runtime_directory_, String("piper"));
-#ifdef _WIN32
-    piper_bin += ".exe";
-#endif
-
-    String output_path = options.get("output_path", String());
-    if (output_path.is_empty()) {
-        std::filesystem::path temp = std::filesystem::temp_directory_path() / "local_agents_tts.wav";
-        output_path = String(temp.string().c_str());
+    Dictionary request = options.duplicate(true);
+    request["text"] = text;
+    if (!voice_.is_empty() && !request.has("voice_id")) {
+        request["voice_id"] = voice_;
     }
-
-    std::ostringstream cmd;
-    cmd << '"' << piper_bin.utf8().get_data() << '"'
-        << " --model \"" << voice_path.utf8().get_data() << "\""
-        << " --output_file \"" << output_path.utf8().get_data() << "\"";
-
-    if (options.has("voice_config")) {
-        String cfg = options["voice_config"];
-        if (!cfg.is_empty()) {
-            cmd << " --config \"" << cfg.utf8().get_data() << "\"";
-        }
+    if (!runtime_directory_.is_empty() && !request.has("runtime_directory")) {
+        request["runtime_directory"] = runtime_directory_;
     }
-
-    cmd << " <<< '" << text.utf8().get_data() << "'";
-
-    int code = std::system(cmd.str().c_str());
-    if (code != 0) {
-        UtilityFunctions::push_error("Piper invocation failed");
+    Dictionary result = runtime->synthesize_speech(request);
+    if (!result.get("ok", false)) {
+        String error = result.get("error", String("piper_failed"));
+        UtilityFunctions::push_error(String("Piper invocation failed: ") + error);
         return false;
     }
-
     Dictionary payload;
-    payload["output_path"] = output_path;
+    payload["output_path"] = result.get("output_path", String());
     emit_signal("action_requested", String("audio_generated"), payload);
     return true;
 }
 
 String AgentNode::listen(const Dictionary &options) {
-    String input_path = options.get("input_path", String());
-    if (input_path.is_empty()) {
-        UtilityFunctions::push_warning("listen() requires input_path");
+    AgentRuntime *runtime = AgentRuntime::get_singleton();
+    if (!runtime) {
+        UtilityFunctions::push_error("AgentRuntime singleton unavailable");
         return String();
     }
-
-    String model_path = options.get("model_path", String());
-    if (model_path.is_empty()) {
-        UtilityFunctions::push_warning("listen() requires whisper model path");
+    Dictionary request = options.duplicate(true);
+    if (!runtime_directory_.is_empty() && !request.has("runtime_directory")) {
+        request["runtime_directory"] = runtime_directory_;
+    }
+    Dictionary result = runtime->transcribe_audio(request);
+    if (!result.get("ok", false)) {
+        String error = result.get("error", String("whisper_failed"));
+        UtilityFunctions::push_error(String("Whisper invocation failed: ") + error);
         return String();
     }
-
-    String whisper_bin = resolve_runtime_path(runtime_directory_, String("whisper"));
-#ifdef _WIN32
-    whisper_bin += ".exe";
-#endif
-
-    std::ostringstream cmd;
-    cmd << '"' << whisper_bin.utf8().get_data() << '"'
-        << " --model \"" << model_path.utf8().get_data() << "\""
-        << " --file \"" << input_path.utf8().get_data() << "\""
-        << " --output-json";
-
-    int code = std::system(cmd.str().c_str());
-    if (code != 0) {
-        UtilityFunctions::push_error("Whisper invocation failed");
-        return String();
+    String transcript = result.get("text", String());
+    if (!transcript.is_empty()) {
+        add_message("user", transcript);
+        emit_signal("message_emitted", String("user"), transcript);
+    } else {
+        UtilityFunctions::push_warning("Whisper output missing text");
     }
-
-    String output_path = input_path + ".json";
-    Ref<FileAccess> file = FileAccess::open(output_path, FileAccess::READ);
-    if (!file.is_valid()) {
-        UtilityFunctions::push_error("Failed to read whisper output");
-        return String();
-    }
-    String json_text = file->get_as_text();
-    file->close();
-
-    Variant parsed = JSON::parse_string(json_text);
-    if (parsed.get_type() == Variant::DICTIONARY) {
-        Dictionary dict = parsed;
-        if (dict.has("text")) {
-            String transcript = dict["text"];
-            add_message("user", transcript);
-            emit_signal("message_emitted", String("user"), transcript);
-            return transcript;
-        }
-    }
-
-    UtilityFunctions::push_warning("Whisper output missing text");
-    return String();
+    return transcript;
 }
 
 void AgentNode::enqueue_action(const String &name, const Dictionary &params) {
