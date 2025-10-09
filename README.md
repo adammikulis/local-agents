@@ -1,82 +1,65 @@
 # Local Agents
 
-This repository contains a lightweight Godot plug-in and Python tooling that integrate [llama.cpp](https://github.com/ggerganov/llama.cpp) through the [llama-cpp-python](https://github.com/abetlen/llama-cpp-python) bindings. The focus of this update is to remove all C# dependencies and provide an end-to-end path for running inference against the **Qwen3-0.6B-Instruct** model.
+Local Agents ships a Godot 4 addon plus companion Python helpers for running local llama.cpp models without cloud dependencies. The repository now blends the latest `main` tooling updates with the mature `0.3-dev` GDExtension runtime while trimming legacy art packs and demo assets.
 
-The project ships with:
+## What’s inside
 
-- A Godot 4 plug-in that exposes a `LocalAgentManager` autoload and `MindAgent` node written entirely in GDScript.
-- A reusable Python CLI (`scripts/run_inference.py`) that executes llama.cpp inference via the Python bindings.
-- A packaged llama.cpp model catalog with helpers for listing families and downloading GGUF artifacts.
-- An automated test that downloads the Qwen3-0.6B-Instruct model, performs a short chat completion, and asserts that text is produced.
+- **GDExtension runtime (`addons/local_agents/`)**: native `AgentNode`, async job queues, graph-backed memory services, editor panels, and CLI download bridges. Scenes and controllers remain, but large cursor/icon/logo packs were removed to keep the history lean—feel free to restore your own assets under `addons/local_agents/assets/` if needed.
+- **Godot editor plugin**: enable `Local Agents` in Project Settings to surface the Chat, Download, and Configuration tabs. Autoloads (`LocalAgentsEditorPlugin`, `AgentManager`, `LocalAgentManagerNode`) expose tooling in both editor and runtime.
+- **Python + llama.cpp helpers (`scripts/`, `local_agents/`)**: command line download/inference helpers, packaged llama.cpp catalog, reusable download API, and pytest coverage for Qwen3-0.6B-Instruct.
+- **Automation**: scripts for fetching/building native deps, running headless Godot checks, and executing the full test suite.
 
-## Requirements
-
-- Godot 4.3 (standard build).
-- Python 3.10 or newer.
-- CMake toolchain build dependencies required by `llama-cpp-python`.
-
-## Quick start
+## Quick start (Python tooling)
 
 1. Install Python dependencies:
    ```bash
    pip install -e .
    ```
-2. Download and cache the Qwen3-0.6B-Instruct model and run a single prompt:
+2. Download and run a quick llama.cpp prompt (downloads into `.models/` by default):
    ```bash
    python scripts/run_inference.py --download --prompt "Say hi in one short sentence."
    ```
-   The script stores models inside `.models/` by default; use `--model` to target a specific `.gguf` file if you already have one locally.
-3. Open the Godot project (`project.godot`) and enable the **LocalAgents** plug-in.
-4. Configure the `LocalAgentManager` autoload with the path to your `.gguf` file (for example `res://.models/Qwen3-0.6B-Instruct-Q4_K_M.gguf`). You can edit the new **Model Path** property directly from the autoload inspector or drop a `LocalAgentManagerNode` into any scene to manage the singleton from the regular node tree.
-5. Run the bundled `chat_example.tscn` scene to exchange prompts with the locally hosted model.
+3. Explore the packaged catalog:
+   ```python
+   from local_agents import list_llama_cpp_model_families
+   print(list_llama_cpp_model_families())
+   ```
 
-### Configuring the LocalAgentManager singleton
+## Quick start (Godot addon)
 
-- The `LocalAgentManager` autoload script now exposes a **Model Path** property so you can configure the active GGUF file from the Project Settings → Autoload inspector without writing code.
-- A companion `LocalAgentManagerNode` is available from the "Add Child Node" dialog. Drop it into a scene to mirror or override the singleton configuration when running entirely in-game.
+1. Open `project.godot` in Godot 4.3 and enable the **Local Agents** plugin.
+2. Set the `LocalAgentManager` autoload `model_path` to your `.gguf` file (for example `res://.models/Qwen3-0.6B-Instruct-Q4_K_M.gguf`).
+3. Use the editor Download tab (`addons/local_agents/editor/DownloadTab.tscn`) to stream GGUF artifacts via the bundled llama.cpp downloader, or run `scripts/download_llama_cpp_model.py` from the CLI.
+4. Load `addons/local_agents/examples/chat_example.tscn` or `GraphExample.tscn` to poke at the chat and memory UX. Scenes no longer depend on the trimmed cursor/icon packs; wire up your own art or reuse standard Godot themes as desired.
 
-### Discovering additional models
+## Native runtime helpers
 
-The `local_agents` package includes helpers for inspecting the llama.cpp catalog without relying on network access at runtime. Example usage:
+- Build the GDExtension binaries:
+  ```bash
+  cd addons/local_agents/gdextensions/localagents
+  ./scripts/fetch_dependencies.sh
+  ./scripts/build_extension.sh
+  ```
+- Optional speech/transcription runtimes:
+  ```bash
+  ./scripts/fetch_runtimes.sh --all
+  ```
+- Graph + conversation services live under `addons/local_agents/graph/` and `addons/local_agents/controllers/` and are designed for `@tool` usage in editor panels.
 
-```python
->>> from local_agents import list_llama_cpp_model_families, get_llama_cpp_model_variants
->>> list_llama_cpp_model_families()
-['dolphin', 'gemma2', 'llama3', 'llama3.1', 'llama3.2', 'llama3.2-vision', 'mistral', 'mixtral', 'openhermes', 'phi2', 'phi3', 'qwen2', 'qwen2.5', 'qwen3', 'tinyllama', 'yi', 'zephyr']
->>> variants = get_llama_cpp_model_variants('qwen3')
->>> [(variant.display_name, [artifact.filename for artifact in variant.artifacts]) for variant in variants]
-[('Qwen3 0.6B Instruct', ['Qwen3-0.6B-Instruct-Q4_K_M.gguf']), ('Qwen3 1.5B Instruct', ['Qwen3-1.5B-Instruct-Q4_K_M.gguf'])]
-```
+## Testing and validation
 
-To download one of these artifacts, call `download_llama_cpp_model`. The helper prefers Hugging Face caching via `huggingface_hub`, but transparently falls back to direct HTTP downloads when necessary:
-
-```python
-from local_agents import download_llama_cpp_model
-
-model_path = download_llama_cpp_model(
-    "qwen3",
-    variant_id="qwen3-0.6b-instruct",
-    quantization="Q4_K_M",
-)
-print(model_path)
-```
-
-## Running the tests
-
-The repository includes an end-to-end test that verifies llama.cpp inference using the Qwen3-0.6B-Instruct model. Execute the suite with:
-
-```bash
-pytest -k qwen3
-```
-
-The test harness automatically downloads and caches the model in `.models/` using the Hugging Face Hub API. Subsequent runs reuse the local cache.
-
-## Environment variables
-
-- `LOCAL_AGENTS_PYTHON`: Override the Python executable used by the Godot scripts when invoking the CLI.
-- `LOCAL_AGENTS_MODEL_DIR`: Override the default `.models/` cache directory used by the Python utilities and tests.
+- Godot parser + smoke checks:
+  ```bash
+  scripts/run_godot_check.sh
+  scripts/run_tests.sh
+  ```
+- Python integration test (downloads Qwen3-0.6B-Instruct on first run):
+  ```bash
+  pytest -k qwen3
+  ```
 
 ## Notes
 
-- The runtime no longer includes any C# scripts, project files, or dependencies. Everything is authored in GDScript and Python.
-- The Python CLI produces plain-text responses so that Godot scenes can consume them with minimal parsing.
+- Assets removed from `addons/local_agents/assets/` to honor the current repository size target; add replacements locally if your scenes expect them.
+- Environment overrides: `LOCAL_AGENTS_MODEL_DIR` to relocate the `.models/` cache, `LOCAL_AGENTS_PYTHON` to control the binary invoked from Godot.
+- See `ARCHITECTURE_PLAN.md` for agent charters and `docs/NETWORK_GRAPH.md` for the graph schema and helper APIs.

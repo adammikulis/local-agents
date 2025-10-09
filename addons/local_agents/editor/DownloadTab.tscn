@@ -1,0 +1,101 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/controllers/DownloadController.gd" id="1"]
+
+[node name="DownloadTab" type="Control"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1")
+output_log = NodePath("VBoxContainer/OutputLog")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+margin_left = 8.0
+margin_top = 8.0
+margin_right = -8.0
+margin_bottom = -8.0
+custom_constants/separation = 12
+
+[node name="StatusLabel" type="Label" parent="VBoxContainer"]
+unique_name_in_owner = true
+text = "Idle"
+horizontal_alignment = 1
+
+[node name="ModelHeader" type="HBoxContainer" parent="VBoxContainer"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 28)
+custom_constants/separation = 8
+
+[node name="ModelsLabel" type="Label" parent="VBoxContainer/ModelHeader"]
+text = "Available Models"
+size_flags_horizontal = 3
+
+[node name="RefreshButton" type="Button" parent="VBoxContainer/ModelHeader"]
+text = "Refresh"
+size_flags_horizontal = 0
+
+[node name="ModelPanel" type="Panel" parent="VBoxContainer"]
+unique_name_in_owner = true
+size_flags_vertical = 2
+
+[node name="ModelTree" type="Tree" parent="VBoxContainer/ModelPanel"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+margin_left = 8.0
+margin_top = 8.0
+margin_right = -8.0
+margin_bottom = -8.0
+columns = 4
+column_titles_visible = true
+hide_root = true
+allow_reselect = true
+select_mode = 1
+
+[node name="SelectionInfo" type="Label" parent="VBoxContainer"]
+unique_name_in_owner = true
+text = "Select a model to view download details"
+size_flags_horizontal = 3
+autowrap_mode = 2
+
+[node name="ButtonRow" type="HBoxContainer" parent="VBoxContainer"]
+custom_constants/separation = 8
+[node name="DownloadAllButton" type="Button" parent="VBoxContainer/ButtonRow"]
+text = "Download Defaults"
+size_flags_horizontal = 3
+
+[node name="DownloadModelsButton" type="Button" parent="VBoxContainer/ButtonRow"]
+text = "Download Selected"
+size_flags_horizontal = 3
+
+[node name="DownloadVoicesButton" type="Button" parent="VBoxContainer/ButtonRow"]
+text = "Voices Only"
+size_flags_horizontal = 3
+
+[node name="CleanButton" type="Button" parent="VBoxContainer/ButtonRow"]
+text = "Clean"
+size_flags_horizontal = 3
+
+[node name="OutputPanel" type="Panel" parent="VBoxContainer"]
+size_flags_vertical = 3
+
+[node name="OutputLog" type="RichTextLabel" parent="VBoxContainer/OutputPanel"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+margin_left = 8.0
+margin_top = 8.0
+margin_right = -8.0
+margin_bottom = -8.0
+fit_content = false
+scroll_following = true
+selection_enabled = true
+bbcode_enabled = true
+text = ""
+
+[connection signal="pressed" from="VBoxContainer/ButtonRow/DownloadAllButton" to="." method="download_all"]
+[connection signal="pressed" from="VBoxContainer/ButtonRow/DownloadModelsButton" to="." method="download_models_only"]
+[connection signal="pressed" from="VBoxContainer/ButtonRow/DownloadVoicesButton" to="." method="download_voices_only"]
+[connection signal="pressed" from="VBoxContainer/ButtonRow/CleanButton" to="." method="clean_downloads"]
+[connection signal="pressed" from="VBoxContainer/ModelHeader/RefreshButton" to="." method="refresh_models"]
+[connection signal="item_selected" from="VBoxContainer/ModelPanel/ModelTree" to="." method="_on_model_tree_item_selected"]
+[connection signal="item_activated" from="VBoxContainer/ModelPanel/ModelTree" to="." method="_on_model_tree_item_activated"]

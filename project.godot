@@ -10,11 +10,19 @@ config_version=5
 
 [application]
 
-config/name="Local Agents"
-run/main_scene="res://addons/mind_game/examples/chat_example.tscn"
-config/features=PackedStringArray("4.3", "Mobile")
+config/name="LocalAgents"
+run/main_scene="res://addons/local_agents/examples/ChatExample.tscn"
+config/features=PackedStringArray("4.6", "Mobile")
 config/icon="res://icon.svg"
+
+[autoload]
+
+AgentManager="*res://addons/local_agents/agent_manager/AgentManager.gd"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/mind_game/plugin.cfg")
+enabled=PackedStringArray("res://addons/local_agents/plugin.cfg")
+
+[rendering]
+
+renderer/rendering_method="mobile"

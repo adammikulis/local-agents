@@ -1,0 +1,16 @@
+[gd_resource type="Resource" load_steps=2 format=3 uid="uid://csaqksk47ri0p"]
+
+[ext_resource type="Script" path="res://addons/local_agents/configuration/parameters/ModelParams.gd" id="1_kl0hd"]
+
+[resource]
+script = ExtResource("1_kl0hd")
+ModelConfigName = ""
+ChatContextSize = 0
+ChatGpuLayerCount = 0
+ChatRandomSeed = 0
+ChatModelPath = ""
+EmbedderContextSize = 0
+EmbedderGpuLayerCount = 0
+EmbedderRandomSeed = 0
+EmbedderModelPath = ""
+ClipModelPath = ""

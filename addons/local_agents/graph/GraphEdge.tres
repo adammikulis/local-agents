@@ -1,0 +1,12 @@
+[gd_resource type="Resource" load_steps=2 format=3 uid="uid://dk31os4e4hsqo"]
+
+[ext_resource type="Script" path="res://addons/local_agents/graph/GraphEdge.gd" id="1_tjugy"]
+
+[resource]
+script = ExtResource("1_tjugy")
+Id = 0
+SourceId = 0
+TargetId = 0
+Name = ""
+Weight = 1.0
+Data = {}

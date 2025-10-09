@@ -1,0 +1,6 @@
+[gd_resource type="Resource" load_steps=2 format=3 uid="uid://cuk1blyqe2dqe"]
+
+[ext_resource type="Script" path="res://addons/local_agents/agents/Character.gd" id="1_e0bol"]
+
+[resource]
+script = ExtResource("1_e0bol")

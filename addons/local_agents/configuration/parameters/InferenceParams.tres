@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="LocalAgentsInferenceParams" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/configuration/parameters/InferenceParams.gd" id="1_t62pi"]
+
+[resource]
+script = ExtResource("1_t62pi")
+inference_config_name = "<default>"
+temperature = 0.8
+max_tokens = 512
+top_p = 0.95
+top_k = 0
+min_p = 0.05
+typical_p = 1.0
+repeat_penalty = 1.1
+repeat_last_n = 64
+frequency_penalty = 0.0
+presence_penalty = 0.0
+seed = -1
+mirostat_mode = 0
+mirostat_tau = 5.0
+mirostat_eta = 0.1
+mirostat_m = 100
+backend = ""
+output_json = false
+extra_options = {}

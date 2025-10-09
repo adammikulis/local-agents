@@ -1,0 +1,46 @@
+[gd_scene load_steps=3 format=3 uid="uid://b4b5fh23okx7s"]
+
+[sub_resource type="SystemFont" id="SystemFont_fywoj"]
+subpixel_positioning = 0
+
+[sub_resource type="Theme" id="Theme_kitas"]
+default_font = SubResource("SystemFont_fywoj")
+default_font_size = 24
+
+[node name="Help" type="Control"]
+auto_translate_mode = 1
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="RichTextLabel" type="RichTextLabel" parent="MarginContainer"]
+layout_mode = 2
+focus_mode = 2
+theme = SubResource("Theme_kitas")
+text = "Local Agents wraps the Doctor-Robot GDExtension so you can run offline agents entirely inside Godot.
+
+Quick setup:
+1. Build gdextensions/localagents from the Doctor-Robot repo (or copy a prebuilt binary into this addon).
+2. Enable the Local Agents plugin and the AgentManager autoload.
+3. Set your graph DB path / inference knobs in the model + inference panels.
+4. Drop an Agent node into a scene and call think().
+
+Sample scenes show 2D/3D chat flows and quick graph heuristics. Extend them to fit your project!
+
+More info: https://github.com/adammikulis/LocalAgents"
+selection_enabled = true

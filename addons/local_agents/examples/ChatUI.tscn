@@ -1,0 +1,61 @@
+[gd_scene load_steps=1 format=3 uid="uid://jfi3klrb0cdp"]
+
+[node name="ChatController" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ScrollContainer" type="ScrollContainer" parent="."]
+custom_minimum_size = Vector2(0, 300)
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/margin_left = 5
+theme_override_constants/margin_top = 5
+theme_override_constants/margin_right = 5
+theme_override_constants/margin_bottom = 5
+
+[node name="GridContainer" type="GridContainer" parent="ScrollContainer/MarginContainer"]
+layout_mode = 2
+columns = 2
+
+[node name="ModelOutputRichTextLabel" type="RichTextLabel" parent="ScrollContainer/MarginContainer/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+scroll_following = true
+
+[node name="VBoxContainer" type="VBoxContainer" parent="ScrollContainer/MarginContainer/GridContainer"]
+layout_mode = 2
+alignment = 2
+
+[node name="ConfigAndLoadModelsButton" type="Button" parent="ScrollContainer/MarginContainer/GridContainer/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Config and 
+Load Models"
+
+[node name="ModelInputLineEdit" type="LineEdit" parent="ScrollContainer/MarginContainer/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Type prompt and hit Enter"
+
+[node name="ExitButton" type="Button" parent="ScrollContainer/MarginContainer/GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Exit"
+
+[node name="VBoxContainer" type="VBoxContainer" parent="ScrollContainer/MarginContainer"]
+layout_mode = 2

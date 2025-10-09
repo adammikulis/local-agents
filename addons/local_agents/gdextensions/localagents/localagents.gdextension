@@ -1,0 +1,8 @@
+[configuration]
+entry_symbol="localagents_library_init"
+compatibility_minimum="4.3"
+
+[libraries]
+macos.universal="res://addons/local_agents/gdextensions/localagents/bin/localagents.macos.dylib"
+linux.x86_64="res://addons/local_agents/gdextensions/localagents/bin/localagents.linux.so"
+windows.x86_64="res://addons/local_agents/gdextensions/localagents/bin/localagents.windows.dll"

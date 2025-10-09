@@ -1,0 +1,83 @@
+[gd_scene load_steps=7 format=3 uid="uid://dut8m0d0ukohs"]
+
+[ext_resource type="Script" path="res://addons/local_agents/examples/ChatExample.gd" id="1_jmq1r"]
+[ext_resource type="PackedScene" uid="uid://bkhc2d37hv1ou" path="res://addons/local_agents/controllers/ChatController.tscn" id="3_4x4kj"]
+[ext_resource type="PackedScene" uid="uid://3sy7uksi0h1a" path="res://addons/local_agents/configuration/ui/InferenceConfig.tscn" id="3_7mwxh"]
+[ext_resource type="PackedScene" uid="uid://vymn5e6vd5gq" path="res://addons/local_agents/configuration/ui/ModelConfig.tscn" id="4_i4nn4"]
+[ext_resource type="Script" path="res://addons/local_agents/agents/Agent.gd" id="5_ilgjl"]
+[ext_resource type="PackedScene" uid="uid://miqqdcapma1b" path="res://addons/local_agents/controllers/SavedChatsController.tscn" id="6_2ncav"]
+
+[node name="ChatExample" type="Node"]
+script = ExtResource("1_jmq1r")
+
+[node name="HBoxContainer" type="HBoxContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="PanelContainer" type="PanelContainer" parent="HBoxContainer"]
+layout_mode = 2
+
+[node name="VBoxContainer2" type="VBoxContainer" parent="HBoxContainer/PanelContainer"]
+layout_mode = 2
+
+[node name="HomeButton" type="Button" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Home"
+
+[node name="ChatButton" type="Button" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Chat"
+
+[node name="DownloadModelsButton" type="Button" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Downloads"
+
+[node name="ExitButton" type="Button" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Exit"
+
+[node name="SavedChatsController" parent="HBoxContainer" instance=ExtResource("6_2ncav")]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(235, 0)
+layout_mode = 2
+size_flags_horizontal = 1
+
+[node name="ChatVBoxContainer" type="VBoxContainer" parent="HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="HBoxContainer" type="HBoxContainer" parent="HBoxContainer/ChatVBoxContainer"]
+layout_mode = 2
+
+[node name="ModelSelectButton" type="OptionButton" parent="HBoxContainer/ChatVBoxContainer/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+item_count = 1
+popup/item_0/text = "<Download Model>"
+
+[node name="ChatController" parent="HBoxContainer/ChatVBoxContainer" instance=ExtResource("3_4x4kj")]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="ModelConfig" parent="HBoxContainer" instance=ExtResource("4_i4nn4")]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+
+[node name="InferenceConfig" parent="." instance=ExtResource("3_7mwxh")]
+unique_name_in_owner = true
+visible = false
+
+[node name="Agent" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("5_ilgjl")

@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "updated_at": "2025-10-03T18:30:00Z",
+  "families": [
+    {
+      "id": "qwen3",
+      "label": "Qwen 3 Instruct",
+      "description": "Latest Qwen3 instruction-tuned models quantized to GGUF for local runtimes.",
+      "models": [
+        {
+          "id": "qwen3-0_6b-instruct-q4_k_m",
+          "label": "Qwen3 0.6B Instruct (Q4_K_M)",
+          "repo_id": "unsloth/Qwen3-0.6B-GGUF",
+          "filename": "Qwen3-0.6B-Q4_K_M.gguf",
+          "folder": "qwen3-0_6b-instruct",
+          "parameters": "0.6B",
+          "quantization": "Q4_K_M",
+          "size_bytes": 396705472,
+          "updated_at": "2025-06-23T00:26:15Z",
+          "recommended": false
+        },
+        {
+          "id": "qwen3-4b-instruct-q4_k_m",
+          "label": "Qwen3 4B Instruct (Q4_K_M)",
+          "repo_id": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+          "filename": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+          "folder": "qwen3-4b-instruct",
+          "parameters": "4B",
+          "quantization": "Q4_K_M",
+          "size_bytes": 2497281120,
+          "updated_at": "2025-08-20T06:23:07Z",
+          "recommended": true
+        },
+        {
+          "id": "qwen3-8b-q4_k_m",
+          "label": "Qwen3 8B (Q4_K_M)",
+          "repo_id": "Qwen/Qwen3-8B-GGUF",
+          "filename": "Qwen3-8B-Q4_K_M.gguf",
+          "folder": "qwen3-8b",
+          "parameters": "8B",
+          "quantization": "Q4_K_M",
+          "size_bytes": 5027783488,
+          "updated_at": "2025-05-21T06:31:50Z",
+          "recommended": false
+        },
+        {
+          "id": "qwen3-14b-q4_k_m",
+          "label": "Qwen3 14B (Q4_K_M)",
+          "repo_id": "unsloth/Qwen3-14B-GGUF",
+          "filename": "Qwen3-14B-Q4_K_M.gguf",
+          "folder": "qwen3-14b",
+          "parameters": "14B",
+          "quantization": "Q4_K_M",
+          "size_bytes": 9001753984,
+          "updated_at": "2025-06-08T08:09:11Z",
+          "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "qwen2_5",
+      "label": "Qwen 2.5 Instruct",
+      "description": "Legacy Qwen2.5 instruct model kept for backwards compatibility.",
+      "models": [
+        {
+          "id": "qwen2_5-3b-instruct-q4_k_m",
+          "label": "Qwen2.5 3B Instruct (Q4_K_M)",
+          "repo_id": "Qwen/Qwen2.5-3B-Instruct-GGUF",
+          "filename": "qwen2.5-3b-instruct-q4_k_m.gguf",
+          "folder": "qwen2_5-3b-instruct",
+          "parameters": "3B",
+          "quantization": "Q4_K_M",
+          "size_bytes": 2104932768,
+          "updated_at": "2024-09-20T06:34:33Z",
+          "recommended": false
+        }
+      ]
+    }
+  ]
+}

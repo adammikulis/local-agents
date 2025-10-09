@@ -1,0 +1,28 @@
+[gd_scene load_steps=3 format=3 uid="uid://c5mwm2jt53kuc"]
+
+[ext_resource type="Script" path="res://addons/local_agents/agents/Agent3D.gd" id="1_7nfc6"]
+[ext_resource type="Script" path="res://addons/local_agents/agents/Agent.gd" id="1_ih04v"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_8s5ek"]
+radius = 0.7
+
+[node name="Agent3D" type="CharacterBody3D"]
+script = ExtResource("1_7nfc6")
+
+[node name="ChatLabel3D" type="Label3D" parent="."]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.28885, 0.630846)
+billboard = 1
+text = "Please load a model config to chat!"
+font_size = 24
+outline_size = 8
+autowrap_mode = 3
+width = 600.0
+
+[node name="Agent" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("1_ih04v")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+shape = SubResource("CapsuleShape3D_8s5ek")

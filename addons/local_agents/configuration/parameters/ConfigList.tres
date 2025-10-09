@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="LocalAgentsConfigList" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/configuration/parameters/InferenceParams.gd" id="1_tts4m"]
+[ext_resource type="Script" path="res://addons/local_agents/configuration/parameters/ModelParams.gd" id="2_31au7"]
+[ext_resource type="Script" path="res://addons/local_agents/configuration/parameters/ConfigList.gd" id="3_7t8os"]
+
+[sub_resource type="Resource" id="Resource_tts4m"]
+script = ExtResource("1_tts4m")
+inference_config_name = "<default>"
+max_tokens = 512
+top_p = 0.95
+min_p = 0.05
+
+[resource]
+script = ExtResource("3_7t8os")
+inference_configurations = Array[ExtResource("1_tts4m")]([SubResource("Resource_tts4m")])
+current_inference_config = SubResource("Resource_tts4m")
+last_good_inference_config = SubResource("Resource_tts4m")
