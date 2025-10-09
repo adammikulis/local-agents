@@ -4,7 +4,7 @@ This repository contains a lightweight Godot plug-in and Python tooling that int
 
 The project ships with:
 
-- A Godot 4 plug-in that exposes a `MindManager` autoload and `MindAgent` node written entirely in GDScript.
+- A Godot 4 plug-in that exposes a `LocalAgentManager` autoload and `MindAgent` node written entirely in GDScript.
 - A reusable Python CLI (`scripts/run_inference.py`) that executes llama.cpp inference via the Python bindings.
 - A packaged llama.cpp model catalog with helpers for listing families and downloading GGUF artifacts.
 - An automated test that downloads the Qwen3-0.6B-Instruct model, performs a short chat completion, and asserts that text is produced.
@@ -27,8 +27,13 @@ The project ships with:
    ```
    The script stores models inside `.models/` by default; use `--model` to target a specific `.gguf` file if you already have one locally.
 3. Open the Godot project (`project.godot`) and enable the **LocalAgents** plug-in.
-4. Configure the `MindManager` autoload with the path to your `.gguf` file (for example `res://.models/Qwen3-0.6B-Instruct-Q4_K_M.gguf`).
+4. Configure the `LocalAgentManager` autoload with the path to your `.gguf` file (for example `res://.models/Qwen3-0.6B-Instruct-Q4_K_M.gguf`). You can edit the new **Model Path** property directly from the autoload inspector or drop a `LocalAgentManagerNode` into any scene to manage the singleton from the regular node tree.
 5. Run the bundled `chat_example.tscn` scene to exchange prompts with the locally hosted model.
+
+### Configuring the LocalAgentManager singleton
+
+- The `LocalAgentManager` autoload script now exposes a **Model Path** property so you can configure the active GGUF file from the Project Settings → Autoload inspector without writing code.
+- A companion `LocalAgentManagerNode` is available from the "Add Child Node" dialog. Drop it into a scene to mirror or override the singleton configuration when running entirely in-game.
 
 ### Discovering additional models
 
