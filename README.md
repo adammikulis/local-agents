@@ -33,7 +33,7 @@ Local Agents is a Godot addon backed by a native GDExtension runtime for running
 ## Tooling & Tests
 
 - `scripts/fetch_runtimes.sh` – fetch optional Piper/Whisper bundles via the runtime downloader.
-- `addons/local_agents/tests/run_all_tests.gd` – headless harness that runs the lightweight smoke/utility checks; pass `--include-heavy` or set `LOCAL_AGENTS_TEST_GGUF=/path/to/model.gguf` to opt into the runtime-heavy coverage when desired.
+- `addons/local_agents/tests/run_all_tests.gd` – headless harness that runs the smoke/utility suites on every platform. Pass `--include-heavy` (or predefine `LOCAL_AGENTS_TEST_GGUF`) to opt into the runtime-heavy coverage, which uses the built-in download manager to fetch the 4-bit `ggml-org/Qwen3-0.6B-GGUF` model when it is not cached locally.
 
 Run the cross-platform harness with:
 
@@ -41,7 +41,13 @@ Run the cross-platform harness with:
 godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd
 ```
 
-By default the harness skips the heavy runtime test; provide the flag/env when you have a GGUF handy. Set `GODOT_BIN` or ensure `godot`/`godot4` is on `PATH` if you prefer to wrap the command. Additional GDScript scenarios (`test_conversation_store.gd`, `test_network_graph.gd`, etc.) remain available for manual runs once the native extension is built.
+By default the harness skips the heavy runtime pass and finishes in a few seconds. Adding `--include-heavy` triggers an end-to-end verification that will:
+
+1. Use `LocalAgentsModelDownloadService` + `AgentRuntime.download_model()` (llama.cpp’s downloader) to pull `Qwen3-0.6B-Q4_K_M.gguf` into `user://local_agents/models/qwen3-0_6b-instruct/`.
+2. Reuse any existing Hugging Face cache (e.g. `~/.cache/huggingface/hub/models--ggml-org--Qwen3-0.6B-GGUF`) before downloading.
+3. Leave the model on disk so subsequent heavy runs are instant. The repo never tracks weights; the artifacts live under `user://` or your HF cache only.
+
+These model-aware helpers also power the runtime heavy test (`test_agent_runtime_heavy.gd`), so optional end-to-end runs stay aligned with the same downloader that the editor UI uses. Additional GDScript scenarios (`test_conversation_store.gd`, `test_network_graph.gd`, etc.) remain available for manual runs once the native extension is built.
 
 ## Assets
 

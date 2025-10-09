@@ -1,6 +1,8 @@
 @tool
 extends RefCounted
 
+const TestModelHelper := preload("res://addons/local_agents/tests/test_model_helper.gd")
+
 func run_test(_tree: SceneTree) -> bool:
     if not Engine.has_singleton("AgentRuntime"):
         push_error("AgentRuntime singleton unavailable. Build the GDExtension before running tests.")
@@ -11,10 +13,12 @@ func run_test(_tree: SceneTree) -> bool:
         push_error("AgentRuntime singleton missing.")
         return false
 
-    var model_path := OS.get_environment("LOCAL_AGENTS_TEST_GGUF")
+    var model_helper := TestModelHelper.new()
+    var model_path := model_helper.ensure_local_model()
     if model_path.strip_edges() == "":
-        print("Skipping heavy AgentRuntime test. Set LOCAL_AGENTS_TEST_GGUF to a GGUF model path to enable it.")
+        print("Skipping heavy AgentRuntime test. Set LOCAL_AGENTS_TEST_GGUF or install llama-cli.")
         return true
+    OS.set_environment("LOCAL_AGENTS_TEST_GGUF", model_path)
 
     var resolved_path := _normalize_path(model_path)
     if not FileAccess.file_exists(resolved_path):

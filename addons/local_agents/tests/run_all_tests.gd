@@ -8,9 +8,11 @@ const CORE_TESTS := [
 
 const HEAVY_TEST := "res://addons/local_agents/tests/test_agent_runtime_heavy.gd"
 const HEAVY_FLAG := "--include-heavy"
+const TestModelHelper := preload("res://addons/local_agents/tests/test_model_helper.gd")
 
 var _failures: Array[String] = []
 var _include_heavy := false
+var _model_helper := TestModelHelper.new()
 
 func _init() -> void:
     _include_heavy = _should_include_heavy()
@@ -20,6 +22,9 @@ func _run_all() -> void:
     for script_path in CORE_TESTS:
         _run_case(script_path)
     if _include_heavy:
+        var ensured := _model_helper.ensure_local_model()
+        if ensured != "":
+            OS.set_environment("LOCAL_AGENTS_TEST_GGUF", ensured)
         _run_case(HEAVY_TEST)
     else:
         print("Skipping heavy runtime test. Set LOCAL_AGENTS_TEST_GGUF or pass --include-heavy to enable it.")
