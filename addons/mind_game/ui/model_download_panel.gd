@@ -173,7 +173,7 @@ func _on_download_pressed() -> void:
         cache_dir = ProjectSettings.globalize_path(DEFAULT_CACHE_DIR)
     var python_executable := _resolve_python()
     if python_executable == "":
-        _status_label.text = "Python executable could not be determined. Configure MindManager first."
+        _status_label.text = "Python executable could not be determined. Configure LocalAgentManager first."
         return
     var script_path := ProjectSettings.globalize_path(DOWNLOAD_SCRIPT)
     var args := PackedStringArray([script_path, "--family", str(family_id)])
@@ -195,14 +195,14 @@ func _on_download_pressed() -> void:
     set_process(true)
 
 func _resolve_python() -> String:
-    if Engine.has_singleton("MindManager"):
-        var manager = Engine.get_singleton("MindManager")
+    if Engine.has_singleton("LocalAgentManager"):
+        var manager = Engine.get_singleton("LocalAgentManager")
         if manager != null:
             var exe = manager.get("python_executable")
             if typeof(exe) == TYPE_STRING and exe != "":
                 return exe
-    if has_node("/root/MindManager"):
-        var manager_node = get_node("/root/MindManager")
+    if has_node("/root/LocalAgentManager"):
+        var manager_node = get_node("/root/LocalAgentManager")
         if manager_node != null:
             var exe_node = manager_node.get("python_executable")
             if typeof(exe_node) == TYPE_STRING and exe_node != "":

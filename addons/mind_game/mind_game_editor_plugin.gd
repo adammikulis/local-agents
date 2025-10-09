@@ -1,7 +1,7 @@
 extends EditorPlugin
 
-const AUTOLOAD_NAME := "MindManager"
-const AUTOLOAD_PATH := "res://addons/mind_game/mind_manager/mind_manager.gd"
+const AUTOLOAD_NAME := "LocalAgentManager"
+const AUTOLOAD_PATH := "res://addons/mind_game/mind_manager/local_agent_manager.gd"
 const PANEL_SCENE := preload("res://addons/mind_game/ui/local_agents_panel.tscn")
 
 var _autoload_added := false
