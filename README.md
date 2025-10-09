@@ -44,7 +44,7 @@ The editor Download tab now lists the latest Qwen3 GGUF drops by family and para
 - The optional `addons/local_agents/graph/ProjectGraphService.gd` scans source folders, maps directory → file relationships as graph edges, and stores embeddings for each file chunk. This lays the groundwork for project-aware assistance and cross-referencing between code and conversation memories.
 
 ## Testing
-Headless scripts cover the new data layer and helper services. After building the GDExtension you can run everything with:
+Headless scripts cover the data layer, agent utilities, integration points, and optional runtime smoke tests. After building the GDExtension you can run everything with:
 
 ```bash
 scripts/run_tests.sh
@@ -53,12 +53,17 @@ scripts/run_tests.sh
 Set `GODOT_BIN` if your Godot 4 binary is not on `PATH`. The helper iterates through:
 
 ```bash
-godot --headless -s addons/local_agents/tests/test_network_graph.gd
+godot --headless -s addons/local_agents/tests/test_smoke_agent.gd
+godot --headless -s addons/local_agents/tests/test_agent_utilities.gd
+godot --headless -s addons/local_agents/tests/test_agent_integration.gd
 godot --headless -s addons/local_agents/tests/test_conversation_store.gd
 godot --headless -s addons/local_agents/tests/test_project_graph_service.gd
+godot --headless -s addons/local_agents/tests/test_network_graph.gd
+godot --headless -s addons/local_agents/tests/test_agent_e2e.gd
+godot --headless -s addons/local_agents/tests/test_agent_runtime_heavy.gd
 ```
 
-The tests use lightweight mock runtimes for embeddings, so no GGUF models are required. They create and clean up temporary data under `user://local_agents`. Before running the suites the helper calls `scripts/run_godot_check.sh` to ensure all plugin scripts parse.
+The smoke/unit/integration/e2e suites rely on lightweight mock runtimes for embeddings, so no GGUF models are required. The heavy runtime script is skipped unless you export `LOCAL_AGENTS_TEST_GGUF` to point at a small llama.cpp-compatible model, in which case it attempts a real load + inference cycle. All tests create and clean up temporary data under `user://local_agents`. Before running the suites the helper calls `scripts/run_godot_check.sh` to ensure all plugin scripts parse.
 
 ## Editor Check
 Before opening Godot (or after tweaking any `.gd` scripts), run the quick headless validation to catch parse/type issues and plugin wiring errors:
