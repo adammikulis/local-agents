@@ -1,65 +1,62 @@
 # Local Agents
 
-Local Agents ships a Godot 4 addon plus companion Python helpers for running local llama.cpp models without cloud dependencies. The repository now blends the latest `main` tooling updates with the mature `0.3-dev` GDExtension runtime while trimming legacy art packs and demo assets.
+Local Agents is a Godot addon backed by a native GDExtension runtime for running llama.cpp style language agents entirely offline. Everything ships as C++ and GDScript: there is no Python tooling in this branch, keeping the plugin focused on editor/runtime workflows and the native downloader pipeline.
 
-## What’s inside
+## Highlights
 
-- **GDExtension runtime (`addons/local_agents/`)**: native `AgentNode`, async job queues, graph-backed memory services, editor panels, and CLI download bridges. Scenes and controllers remain, but large cursor/icon/logo packs were removed to keep the history lean—feel free to restore your own assets under `addons/local_agents/assets/` if needed.
-- **Godot editor plugin**: enable `Local Agents` in Project Settings to surface the Chat, Download, and Configuration tabs. Autoloads (`LocalAgentsEditorPlugin`, `AgentManager`, `LocalAgentManagerNode`) expose tooling in both editor and runtime.
-- **Python + llama.cpp helpers (`scripts/`, `local_agents/`)**: command line download/inference helpers, packaged llama.cpp catalog, reusable download API, and pytest coverage for Qwen3-0.6B-Instruct.
-- **Automation**: scripts for fetching/building native deps, running headless Godot checks, and executing the full test suite.
+- Native `AgentNode` (GDExtension) with queue-backed inference, graph memory helpers, and Piper/Whisper hooks.
+- Editor plugin (`addons/local_agents/`) that exposes chat, download, and configuration panels while remaining `@tool` friendly.
+- Reusable controllers/services for chat, conversation storage, and project graph helpers written in idiomatic GDScript.
+- Shell helpers for fetching third-party dependencies, running headless editor checks, and executing the addon’s GDScript test suites.
+- Demo scenes (`ChatExample.tscn`, `Agent3D.tscn`, `GraphExample.tscn`) that wire everything together without bundled art packs (bring your own textures or drop-in themes as needed).
 
-## Quick start (Python tooling)
+## Quick Start
 
-1. Install Python dependencies:
+1. Enable the addon inside Godot:
    ```bash
-   pip install -e .
+   godot --path . --editor
    ```
-2. Download and run a quick llama.cpp prompt (downloads into `.models/` by default):
+   Then open Project Settings → Plugins and toggle **Local Agents**.
+2. (Optional) Fetch third-party dependencies for the native runtime:
    ```bash
-   python scripts/run_inference.py --download --prompt "Say hi in one short sentence."
+   cd addons/local_agents/gdextensions/localagents
+   ./scripts/fetch_dependencies.sh
+   ./scripts/build_extension.sh
    ```
-3. Explore the packaged catalog:
-   ```python
-   from local_agents import list_llama_cpp_model_families
-   print(list_llama_cpp_model_families())
+3. Stage speech/transcription runtimes when you need Piper or Whisper:
+   ```bash
+   ./scripts/fetch_runtimes.sh --all
    ```
+4. Open the editor bottom panel → **Local Agents** to configure model/inference settings and explore the Chat or Download tabs.
+5. Run demo scenes under `addons/local_agents/examples/` to validate integration (`ChatExample.tscn`, `GraphExample.tscn`, or `Agent3D.tscn`).
 
-## Quick start (Godot addon)
+## Tooling Scripts
 
-1. Open `project.godot` in Godot 4.3 and enable the **Local Agents** plugin.
-2. Set the `LocalAgentManager` autoload `model_path` to your `.gguf` file (for example `res://.models/Qwen3-0.6B-Instruct-Q4_K_M.gguf`).
-3. Use the editor Download tab (`addons/local_agents/editor/DownloadTab.tscn`) to stream GGUF artifacts via the bundled llama.cpp downloader, or run `scripts/download_llama_cpp_model.py` from the CLI.
-4. Load `addons/local_agents/examples/chat_example.tscn` or `GraphExample.tscn` to poke at the chat and memory UX. Scenes no longer depend on the trimmed cursor/icon packs; wire up your own art or reuse standard Godot themes as desired.
+- `scripts/fetch_runtimes.sh` – fetch optional Piper/Whisper bundles via the runtime downloader.
+- `scripts/run_godot_check.sh` – run Godot parser checks in headless mode.
+- `scripts/run_tests.sh` – execute the included GDScript smoke/unit/integration tests headlessly.
 
-## Native runtime helpers
+All scripts are POSIX shell friendly and avoid Python runtimes. Set `GODOT_BIN` or `GODOT4_BIN` if your editor binary is not on `PATH`.
 
-- Build the GDExtension binaries:
-  ```bash
-  cd addons/local_agents/gdextensions/localagents
-  ./scripts/fetch_dependencies.sh
-  ./scripts/build_extension.sh
-  ```
-- Optional speech/transcription runtimes:
-  ```bash
-  ./scripts/fetch_runtimes.sh --all
-  ```
-- Graph + conversation services live under `addons/local_agents/graph/` and `addons/local_agents/controllers/` and are designed for `@tool` usage in editor panels.
+## Testing
 
-## Testing and validation
+Headless GDScript suites live under `addons/local_agents/tests/`. Execute everything with:
 
-- Godot parser + smoke checks:
-  ```bash
-  scripts/run_godot_check.sh
-  scripts/run_tests.sh
-  ```
-- Python integration test (downloads Qwen3-0.6B-Instruct on first run):
-  ```bash
-  pytest -k qwen3
-  ```
+```bash
+scripts/run_tests.sh
+```
 
-## Notes
+`LOCAL_AGENTS_TEST_GGUF` can point at a small llama.cpp GGUF artifact when you want the heavier runtime test to perform a real load; otherwise it skips gracefully.
 
-- Assets removed from `addons/local_agents/assets/` to honor the current repository size target; add replacements locally if your scenes expect them.
-- Environment overrides: `LOCAL_AGENTS_MODEL_DIR` to relocate the `.models/` cache, `LOCAL_AGENTS_PYTHON` to control the binary invoked from Godot.
-- See `ARCHITECTURE_PLAN.md` for agent charters and `docs/NETWORK_GRAPH.md` for the graph schema and helper APIs.
+## Assets
+
+Earlier releases bundled large cursor/icon/logo packs. Those files were removed to keep the repository lean; reference replacements from your own project if a scene references missing textures. The sample scenes and controllers now prefer plain text/buttons by default.
+
+## Architecture Notes
+
+- `addons/local_agents/gdextensions/localagents/` holds the native runtime (C++ headers, sources, and helper scripts).
+- `addons/local_agents/agent_manager/` and `addons/local_agents/controllers/` contain the editor/runtime singletons and UI mediators.
+- `addons/local_agents/graph/` implements the NetworkGraph helpers and Tree-sitter style services for project exploration.
+- `ARCHITECTURE_PLAN.md` documents the multi-agent stewardship expectations for this branch.
+
+For historical notes, see `docs/NETWORK_GRAPH.md` and comments in the GDScript controllers. Contributions should stick to C++ or GDScript and avoid reintroducing Python unless the plan doc has been updated in advance.
