@@ -1,0 +1,112 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource path="res://addons/mind_game/ui/model_download_panel.gd" type="Script" id=1]
+
+[node name="ModelDownloadPanel" type="Control"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1")
+
+[node name="Margin" type="MarginContainer" parent="."]
+unique_name_in_owner = true
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = -8.0
+offset_bottom = -8.0
+
+[node name="VBox" type="VBoxContainer" parent="Margin"]
+unique_name_in_owner = true
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="StatusLabel" type="Label" parent="Margin/VBox"]
+unique_name_in_owner = true
+text = "Select a model family to download."
+
+[node name="FamilyRow" type="HBoxContainer" parent="Margin/VBox"]
+unique_name_in_owner = true
+alignment = 1
+
+[node name="FamilyLabel" type="Label" parent="Margin/VBox/FamilyRow"]
+text = "Family"
+size_flags_horizontal = 1
+vertical_alignment = 1
+
+[node name="FamilyOption" type="OptionButton" parent="Margin/VBox/FamilyRow"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+
+[node name="VariantRow" type="HBoxContainer" parent="Margin/VBox"]
+unique_name_in_owner = true
+alignment = 1
+
+[node name="VariantLabel" type="Label" parent="Margin/VBox/VariantRow"]
+text = "Variant"
+size_flags_horizontal = 1
+vertical_alignment = 1
+
+[node name="VariantOption" type="OptionButton" parent="Margin/VBox/VariantRow"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+
+[node name="ArtifactRow" type="HBoxContainer" parent="Margin/VBox"]
+unique_name_in_owner = true
+alignment = 1
+
+[node name="ArtifactLabel" type="Label" parent="Margin/VBox/ArtifactRow"]
+text = "Artifact"
+size_flags_horizontal = 1
+vertical_alignment = 1
+
+[node name="ArtifactOption" type="OptionButton" parent="Margin/VBox/ArtifactRow"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+
+[node name="CacheRow" type="HBoxContainer" parent="Margin/VBox"]
+unique_name_in_owner = true
+alignment = 1
+
+[node name="CacheLabel" type="Label" parent="Margin/VBox/CacheRow"]
+text = "Save to"
+size_flags_horizontal = 1
+vertical_alignment = 1
+
+[node name="CachePath" type="LineEdit" parent="Margin/VBox/CacheRow"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+placeholder_text = "Absolute path to the model cache"
+
+[node name="ButtonRow" type="HBoxContainer" parent="Margin/VBox"]
+unique_name_in_owner = true
+alignment = 1
+
+[node name="RefreshButton" type="Button" parent="Margin/VBox/ButtonRow"]
+unique_name_in_owner = true
+size_flags_horizontal = 1
+text = "Refresh catalog"
+
+[node name="Spacer" type="Control" parent="Margin/VBox/ButtonRow"]
+size_flags_horizontal = 3
+
+[node name="DownloadButton" type="Button" parent="Margin/VBox/ButtonRow"]
+unique_name_in_owner = true
+size_flags_horizontal = 1
+text = "Download"
+
+[node name="DetailsLabel" type="RichTextLabel" parent="Margin/VBox"]
+unique_name_in_owner = true
+size_flags_vertical = 3
+bbcode_enabled = true
+scroll_active = true
+fit_content = true
+
+[node name="CatalogRequest" type="HTTPRequest" parent="."]
+unique_name_in_owner = true
+
