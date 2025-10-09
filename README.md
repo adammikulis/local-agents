@@ -6,6 +6,7 @@ The project ships with:
 
 - A Godot 4 plug-in that exposes a `MindManager` autoload and `MindAgent` node written entirely in GDScript.
 - A reusable Python CLI (`scripts/run_inference.py`) that executes llama.cpp inference via the Python bindings.
+- A packaged llama.cpp model catalog with helpers for listing families and downloading GGUF artifacts.
 - An automated test that downloads the Qwen3-0.6B-Instruct model, performs a short chat completion, and asserts that text is produced.
 
 ## Requirements
@@ -28,6 +29,32 @@ The project ships with:
 3. Open the Godot project (`project.godot`) and enable the **LocalAgents** plug-in.
 4. Configure the `MindManager` autoload with the path to your `.gguf` file (for example `res://.models/Qwen3-0.6B-Instruct-Q4_K_M.gguf`).
 5. Run the bundled `chat_example.tscn` scene to exchange prompts with the locally hosted model.
+
+### Discovering additional models
+
+The `local_agents` package includes helpers for inspecting the llama.cpp catalog without relying on network access at runtime. Example usage:
+
+```python
+>>> from local_agents import list_llama_cpp_model_families, get_llama_cpp_model_variants
+>>> list_llama_cpp_model_families()
+['dolphin', 'gemma2', 'llama3', 'llama3.1', 'llama3.2', 'llama3.2-vision', 'mistral', 'mixtral', 'openhermes', 'phi2', 'phi3', 'qwen2', 'qwen2.5', 'qwen3', 'tinyllama', 'yi', 'zephyr']
+>>> variants = get_llama_cpp_model_variants('qwen3')
+>>> [(variant.display_name, [artifact.filename for artifact in variant.artifacts]) for variant in variants]
+[('Qwen3 0.6B Instruct', ['Qwen3-0.6B-Instruct-Q4_K_M.gguf']), ('Qwen3 1.5B Instruct', ['Qwen3-1.5B-Instruct-Q4_K_M.gguf'])]
+```
+
+To download one of these artifacts, call `download_llama_cpp_model`. The helper prefers Hugging Face caching via `huggingface_hub`, but transparently falls back to direct HTTP downloads when necessary:
+
+```python
+from local_agents import download_llama_cpp_model
+
+model_path = download_llama_cpp_model(
+    "qwen3",
+    variant_id="qwen3-0.6b-instruct",
+    quantization="Q4_K_M",
+)
+print(model_path)
+```
 
 ## Running the tests
 
