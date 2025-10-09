@@ -33,9 +33,14 @@ if [[ -z "${FOUND_EXT}" ]]; then
 fi
 
 TEST_SCRIPTS=(
-    "addons/local_agents/tests/test_network_graph.gd"
+    "addons/local_agents/tests/test_smoke_agent.gd"
+    "addons/local_agents/tests/test_agent_utilities.gd"
+    "addons/local_agents/tests/test_agent_integration.gd"
     "addons/local_agents/tests/test_conversation_store.gd"
     "addons/local_agents/tests/test_project_graph_service.gd"
+    "addons/local_agents/tests/test_network_graph.gd"
+    "addons/local_agents/tests/test_agent_e2e.gd"
+    "addons/local_agents/tests/test_agent_runtime_heavy.gd"
 )
 
 echo "==> Running editor script check"
