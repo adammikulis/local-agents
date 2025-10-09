@@ -2,6 +2,14 @@
 
 Local Agents is a Godot addon backed by a native GDExtension runtime for running llama.cpp style language agents entirely offline. Everything ships as C++ and GDScript, keeping the plugin focused on editor/runtime workflows and the native downloader pipeline.
 
+## Quick Demos
+
+**Runtime chat loop (Qwen3 0.6B, offline agent response)**
+![Local Agents chat demo](https://github.com/adammikulis/MindGame/assets/27887607/bb9da9c0-622d-4b6d-af08-40cf7f2bdba9)
+
+**Editor configuration walkthrough (model setup + chat panel)**
+![Local Agents configuration demo](https://github.com/adammikulis/MindGame/assets/27887607/3ecd86f9-cf92-473f-a667-76b62b7cfdb0)
+
 ## Highlights
 
 - Native `AgentNode` (GDExtension) with queue-backed inference, graph memory helpers, and Piper/Whisper hooks.
