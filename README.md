@@ -1,6 +1,6 @@
 # Local Agents
 
-Local Agents is a Godot addon backed by a native GDExtension runtime for running llama.cpp style language agents entirely offline. Everything ships as C++ and GDScript: there is no Python tooling in this branch, keeping the plugin focused on editor/runtime workflows and the native downloader pipeline.
+Local Agents is a Godot addon backed by a native GDExtension runtime for running llama.cpp style language agents entirely offline. Everything ships as C++ and GDScript, keeping the plugin focused on editor/runtime workflows and the native downloader pipeline.
 
 ## Highlights
 
@@ -60,4 +60,4 @@ Earlier releases bundled large cursor/icon/logo packs. Those files were removed 
 - `addons/local_agents/graph/` implements the NetworkGraph helpers and Tree-sitter style services for project exploration.
 - `ARCHITECTURE_PLAN.md` documents the multi-agent stewardship expectations for this branch.
 
-For historical notes, see `docs/NETWORK_GRAPH.md` and comments in the GDScript controllers. Contributions should stick to C++ or GDScript and avoid reintroducing Python unless the plan doc has been updated in advance.
+For historical notes, see `docs/NETWORK_GRAPH.md` and comments in the GDScript controllers. Contributions should stick to C++ or GDScript, and update the plan doc before introducing additional toolchains.

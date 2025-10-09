@@ -99,7 +99,7 @@ We coordinate work across six collaborating agents: **Frontend**, **Runtime**, *
 - [ ] Wire `addons/local_agents/tests/run_all_tests.gd` into CI once build runners are ready so headless Godot tests gate merges.
 - [ ] Automate asset/version stamping for releases and nightly builds.
 - [ ] Maintain export templates and Godot-compatible installers (editor plugin + demo project).
-- [ ] Monitor build tooling (CMake, Python, shell scripts) for drift and keep third-party pins updated.
+- [ ] Monitor build tooling (CMake and shell scripts) for drift and keep third-party pins updated.
 - [ ] Maintain monitoring for binary size/performance regressions.
 
 ---
