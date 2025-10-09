@@ -20,5 +20,8 @@ dev = ["pytest"]
 [tool.setuptools]
 packages = ["local_agents"]
 
+[tool.setuptools.package-data]
+"local_agents" = ["data/*.json"]
+
 [tool.pytest.ini_options]
 addopts = "-ra"

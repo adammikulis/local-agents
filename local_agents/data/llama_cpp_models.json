@@ -1,0 +1,449 @@
+{
+  "catalog_version": "2024-11-01",
+  "source": "packaged",
+  "families": [
+    {
+      "id": "llama3",
+      "display_name": "Meta Llama 3",
+      "homepage": "https://www.llama.com",
+      "variants": [
+        {
+          "id": "meta-llama-3-8b-instruct",
+          "display_name": "Meta Llama 3 8B Instruct",
+          "parameters": "8B",
+          "context_length": 8192,
+          "description": "Instruction tuned Meta Llama 3 model converted to GGUF for llama.cpp.",
+          "repo_id": "MaziyarPanahi/Meta-Llama-3-8B-Instruct-GGUF",
+          "license": "llama3-community",
+          "files": [
+            {
+              "filename": "Meta-Llama-3-8B-Instruct.Q4_K_M.gguf",
+              "quantization": "Q4_K_M",
+              "format": "gguf",
+              "size_bytes": null,
+              "url": "https://huggingface.co/MaziyarPanahi/Meta-Llama-3-8B-Instruct-GGUF/resolve/main/Meta-Llama-3-8B-Instruct.Q4_K_M.gguf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "llama3.1",
+      "display_name": "Meta Llama 3.1",
+      "homepage": "https://www.llama.com",
+      "variants": [
+        {
+          "id": "meta-llama-3.1-8b-instruct",
+          "display_name": "Meta Llama 3.1 8B Instruct",
+          "parameters": "8B",
+          "context_length": 8192,
+          "description": "Updated Meta Llama 3.1 instruction tuned checkpoint in GGUF format.",
+          "repo_id": "MaziyarPanahi/Meta-Llama-3.1-8B-Instruct-GGUF",
+          "license": "llama3-community",
+          "files": [
+            {
+              "filename": "Meta-Llama-3.1-8B-Instruct.Q4_K_M.gguf",
+              "quantization": "Q4_K_M",
+              "format": "gguf",
+              "size_bytes": null,
+              "url": "https://huggingface.co/MaziyarPanahi/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct.Q4_K_M.gguf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "llama3.2",
+      "display_name": "Meta Llama 3.2",
+      "homepage": "https://www.llama.com",
+      "variants": [
+        {
+          "id": "meta-llama-3.2-1b-instruct",
+          "display_name": "Meta Llama 3.2 1B Instruct",
+          "parameters": "1B",
+          "context_length": 8192,
+          "description": "Lightweight Meta Llama 3.2 instruction tuned model.",
+          "repo_id": "MaziyarPanahi/Meta-Llama-3.2-1B-Instruct-GGUF",
+          "license": "llama3-community",
+          "files": [
+            {
+              "filename": "Meta-Llama-3.2-1B-Instruct.Q4_K_M.gguf",
+              "quantization": "Q4_K_M",
+              "format": "gguf",
+              "size_bytes": null,
+              "url": "https://huggingface.co/MaziyarPanahi/Meta-Llama-3.2-1B-Instruct-GGUF/resolve/main/Meta-Llama-3.2-1B-Instruct.Q4_K_M.gguf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "llama3.2-vision",
+      "display_name": "Meta Llama 3.2 Vision",
+      "homepage": "https://www.llama.com",
+      "variants": [
+        {
+          "id": "meta-llama-3.2-11b-vision-instruct",
+          "display_name": "Meta Llama 3.2 11B Vision Instruct",
+          "parameters": "11B",
+          "context_length": 8192,
+          "description": "Multi-modal Meta Llama 3.2 vision model packaged for llama.cpp.",
+          "repo_id": "MaziyarPanahi/Meta-Llama-3.2-11B-Vision-Instruct-GGUF",
+          "license": "llama3-community",
+          "files": [
+            {
+              "filename": "Meta-Llama-3.2-11B-Vision-Instruct.Q4_K_M.gguf",
+              "quantization": "Q4_K_M",
+              "format": "gguf",
+              "size_bytes": null,
+              "url": "https://huggingface.co/MaziyarPanahi/Meta-Llama-3.2-11B-Vision-Instruct-GGUF/resolve/main/Meta-Llama-3.2-11B-Vision-Instruct.Q4_K_M.gguf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qwen3",
+      "display_name": "Qwen3",
+      "homepage": "https://huggingface.co/Qwen",
+      "variants": [
+        {
+          "id": "qwen3-0.6b-instruct",
+          "display_name": "Qwen3 0.6B Instruct",
+          "parameters": "0.6B",
+          "context_length": 32768,
+          "description": "Compact Qwen3 instruction tuned checkpoint well suited for on-device tasks.",
+          "repo_id": "Qwen/Qwen3-0.6B-Instruct-GGUF",
+          "license": "apache-2.0",
+          "files": [
+            {
+              "filename": "Qwen3-0.6B-Instruct-Q4_K_M.gguf",
+              "quantization": "Q4_K_M",
+              "format": "gguf",
+              "size_bytes": null,
+              "url": "https://huggingface.co/Qwen/Qwen3-0.6B-Instruct-GGUF/resolve/main/Qwen3-0.6B-Instruct-Q4_K_M.gguf"
+            }
+          ]
+        },
+        {
+          "id": "qwen3-1.5b-instruct",
+          "display_name": "Qwen3 1.5B Instruct",
+          "parameters": "1.5B",
+          "context_length": 32768,
+          "description": "Mid sized Qwen3 instruction tuned checkpoint.",
+          "repo_id": "Qwen/Qwen3-1.5B-Instruct-GGUF",
+          "license": "apache-2.0",
+          "files": [
+            {
+              "filename": "Qwen3-1.5B-Instruct-Q4_K_M.gguf",
+              "quantization": "Q4_K_M",
+              "format": "gguf",
+              "size_bytes": null,
+              "url": "https://huggingface.co/Qwen/Qwen3-1.5B-Instruct-GGUF/resolve/main/Qwen3-1.5B-Instruct-Q4_K_M.gguf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qwen2.5",
+      "display_name": "Qwen2.5",
+      "homepage": "https://huggingface.co/Qwen",
+      "variants": [
+        {
+          "id": "qwen2.5-1.5b-instruct",
+          "display_name": "Qwen2.5 1.5B Instruct",
+          "parameters": "1.5B",
+          "context_length": 131072,
+          "description": "Instruction tuned Qwen2.5 model supporting 128K tokens.",
+          "repo_id": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+          "license": "apache-2.0",
+          "files": [
+            {
+              "filename": "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
+              "quantization": "Q4_K_M",
+              "format": "gguf",
+              "size_bytes": null,
+              "url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qwen2",
+      "display_name": "Qwen2",
+      "homepage": "https://huggingface.co/Qwen",
+      "variants": [
+        {
+          "id": "qwen2-0.5b-instruct",
+          "display_name": "Qwen2 0.5B Instruct",
+          "parameters": "0.5B",
+          "context_length": 32768,
+          "description": "Starter Qwen2 instruction tuned checkpoint.",
+          "repo_id": "Qwen/Qwen2-0.5B-Instruct-GGUF",
+          "license": "apache-2.0",
+          "files": [
+            {
+              "filename": "Qwen2-0.5B-Instruct-Q4_K_M.gguf",
+              "quantization": "Q4_K_M",
+              "format": "gguf",
+              "size_bytes": null,
+              "url": "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GGUF/resolve/main/Qwen2-0.5B-Instruct-Q4_K_M.gguf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phi3",
+      "display_name": "Phi-3",
+      "homepage": "https://huggingface.co/microsoft",
+      "variants": [
+        {
+          "id": "phi-3-mini-4k-instruct",
+          "display_name": "Phi-3 Mini 4K Instruct",
+          "parameters": "3.8B",
+          "context_length": 4096,
+          "description": "Microsoft Phi-3 instruction tuned model (4K context).",
+          "repo_id": "microsoft/Phi-3-mini-4k-instruct-gguf",
+          "license": "mit",
+          "files": [
+            {
+              "filename": "Phi-3-mini-4k-instruct-q4_k_m.gguf",
+              "quantization": "Q4_K_M",
+              "format": "gguf",
+              "size_bytes": null,
+              "url": "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4_k_m.gguf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phi2",
+      "display_name": "Phi-2",
+      "homepage": "https://huggingface.co/microsoft",
+      "variants": [
+        {
+          "id": "phi-2",
+          "display_name": "Phi-2",
+          "parameters": "2.7B",
+          "context_length": 2048,
+          "description": "Second generation Phi base model in GGUF format.",
+          "repo_id": "TheBloke/phi-2-GGUF",
+          "license": "mit",
+          "files": [
+            {
+              "filename": "phi-2.Q4_K_M.gguf",
+              "quantization": "Q4_K_M",
+              "format": "gguf",
+              "size_bytes": null,
+              "url": "https://huggingface.co/TheBloke/phi-2-GGUF/resolve/main/phi-2.Q4_K_M.gguf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mistral",
+      "display_name": "Mistral",
+      "homepage": "https://huggingface.co/mistralai",
+      "variants": [
+        {
+          "id": "mistral-7b-instruct-v0.2",
+          "display_name": "Mistral 7B Instruct v0.2",
+          "parameters": "7B",
+          "context_length": 32768,
+          "description": "Mistral 7B instruction tuned model.",
+          "repo_id": "TheBloke/Mistral-7B-Instruct-v0.2-GGUF",
+          "license": "apache-2.0",
+          "files": [
+            {
+              "filename": "mistral-7b-instruct-v0.2.Q4_K_M.gguf",
+              "quantization": "Q4_K_M",
+              "format": "gguf",
+              "size_bytes": null,
+              "url": "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mixtral",
+      "display_name": "Mixtral",
+      "homepage": "https://huggingface.co/mistralai",
+      "variants": [
+        {
+          "id": "mixtral-8x7b-instruct",
+          "display_name": "Mixtral 8x7B Instruct",
+          "parameters": "46.7B",
+          "context_length": 32768,
+          "description": "Mixture-of-experts Mixtral instruction tuned checkpoint.",
+          "repo_id": "TheBloke/Mixtral-8x7B-Instruct-v0.1-GGUF",
+          "license": "apache-2.0",
+          "files": [
+            {
+              "filename": "mixtral-8x7b-instruct-v0.1.Q4_K_M.gguf",
+              "quantization": "Q4_K_M",
+              "format": "gguf",
+              "size_bytes": null,
+              "url": "https://huggingface.co/TheBloke/Mixtral-8x7B-Instruct-v0.1-GGUF/resolve/main/mixtral-8x7b-instruct-v0.1.Q4_K_M.gguf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tinyllama",
+      "display_name": "TinyLlama",
+      "homepage": "https://huggingface.co/jzhang38",
+      "variants": [
+        {
+          "id": "tinyllama-1.1b-chat-v1.0",
+          "display_name": "TinyLlama 1.1B Chat v1.0",
+          "parameters": "1.1B",
+          "context_length": 2048,
+          "description": "TinyLlama conversational model ideal for edge devices.",
+          "repo_id": "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
+          "license": "apache-2.0",
+          "files": [
+            {
+              "filename": "TinyLlama-1.1B-Chat-v1.0.Q4_K_M.gguf",
+              "quantization": "Q4_K_M",
+              "format": "gguf",
+              "size_bytes": null,
+              "url": "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/TinyLlama-1.1B-Chat-v1.0.Q4_K_M.gguf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "yi",
+      "display_name": "Yi",
+      "homepage": "https://huggingface.co/01-ai",
+      "variants": [
+        {
+          "id": "yi-1.5-9b-chat",
+          "display_name": "Yi 1.5 9B Chat",
+          "parameters": "9B",
+          "context_length": 4096,
+          "description": "Yi 1.5 chat tuned checkpoint.",
+          "repo_id": "01-ai/Yi-1.5-9B-Chat-GGUF",
+          "license": "apache-2.0",
+          "files": [
+            {
+              "filename": "yi-1.5-9b-chat.Q4_K_M.gguf",
+              "quantization": "Q4_K_M",
+              "format": "gguf",
+              "size_bytes": null,
+              "url": "https://huggingface.co/01-ai/Yi-1.5-9B-Chat-GGUF/resolve/main/yi-1.5-9b-chat.Q4_K_M.gguf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "gemma2",
+      "display_name": "Gemma 2",
+      "homepage": "https://ai.google.dev",
+      "variants": [
+        {
+          "id": "gemma-2-2b-it",
+          "display_name": "Gemma 2 2B IT",
+          "parameters": "2B",
+          "context_length": 8192,
+          "description": "Google Gemma 2 instruction tuned checkpoint in GGUF format.",
+          "repo_id": "google/gemma-2-2b-it-GGUF",
+          "license": "gemma-community",
+          "files": [
+            {
+              "filename": "gemma-2-2b-it-Q4_K_M.gguf",
+              "quantization": "Q4_K_M",
+              "format": "gguf",
+              "size_bytes": null,
+              "url": "https://huggingface.co/google/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "openhermes",
+      "display_name": "OpenHermes",
+      "homepage": "https://huggingface.co/teknium",
+      "variants": [
+        {
+          "id": "openhermes-2.5-mistral",
+          "display_name": "OpenHermes 2.5 Mistral",
+          "parameters": "7B",
+          "context_length": 16384,
+          "description": "OpenHermes instruction tuned Mistral derivative.",
+          "repo_id": "TheBloke/OpenHermes-2.5-Mistral-7B-GGUF",
+          "license": "apache-2.0",
+          "files": [
+            {
+              "filename": "openhermes-2.5-mistral-7b.Q4_K_M.gguf",
+              "quantization": "Q4_K_M",
+              "format": "gguf",
+              "size_bytes": null,
+              "url": "https://huggingface.co/TheBloke/OpenHermes-2.5-Mistral-7B-GGUF/resolve/main/openhermes-2.5-mistral-7b.Q4_K_M.gguf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "zephyr",
+      "display_name": "Zephyr",
+      "homepage": "https://huggingface.co/HuggingFaceH4",
+      "variants": [
+        {
+          "id": "zephyr-7b-beta",
+          "display_name": "Zephyr 7B Beta",
+          "parameters": "7B",
+          "context_length": 8192,
+          "description": "Alignment tuned Zephyr 7B beta release.",
+          "repo_id": "TheBloke/zephyr-7B-beta-GGUF",
+          "license": "apache-2.0",
+          "files": [
+            {
+              "filename": "zephyr-7b-beta.Q4_K_M.gguf",
+              "quantization": "Q4_K_M",
+              "format": "gguf",
+              "size_bytes": null,
+              "url": "https://huggingface.co/TheBloke/zephyr-7B-beta-GGUF/resolve/main/zephyr-7b-beta.Q4_K_M.gguf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dolphin",
+      "display_name": "Dolphin",
+      "homepage": "https://huggingface.co/cognitivecomputations",
+      "variants": [
+        {
+          "id": "dolphin-2.9-mixtral",
+          "display_name": "Dolphin 2.9 Mixtral",
+          "parameters": "46.7B",
+          "context_length": 32768,
+          "description": "Dolphin alignment tuned Mixtral model for conversational tasks.",
+          "repo_id": "TheBloke/dolphin-2.9-mixtral-8x7b-GGUF",
+          "license": "apache-2.0",
+          "files": [
+            {
+              "filename": "dolphin-2.9-mixtral-8x7b.Q4_K_M.gguf",
+              "quantization": "Q4_K_M",
+              "format": "gguf",
+              "size_bytes": null,
+              "url": "https://huggingface.co/TheBloke/dolphin-2.9-mixtral-8x7b-GGUF/resolve/main/dolphin-2.9-mixtral-8x7b.Q4_K_M.gguf"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
