@@ -74,6 +74,8 @@ var _environment_snapshot: Dictionary = {}
 var _water_network_snapshot: Dictionary = {}
 var _weather_snapshot: Dictionary = {}
 var _erosion_snapshot: Dictionary = {}
+var _erosion_changed_last_tick: bool = false
+var _erosion_changed_tiles_last_tick: Array = []
 var _spawn_artifact: Dictionary = {}
 var _flow_network_system
 var _flow_traversal_profile
@@ -160,6 +162,8 @@ func _ensure_initialized() -> void:
         _settlement_seeder = SettlementSeederScript.new()
     if _weather_system == null:
         _weather_system = WeatherSystemScript.new()
+    if _erosion_system == null:
+        _erosion_system = ErosionSystemScript.new()
     if _worldgen_config == null:
         _worldgen_config = WorldGenConfigResourceScript.new()
     if _flow_network_system == null:
@@ -232,6 +236,7 @@ func configure_environment(config_resource = null) -> Dictionary:
     var world_seed = _rng.derive_seed("environment", world_id, active_branch_id, 0)
     var hydrology_seed = _rng.derive_seed("hydrology", world_id, active_branch_id, 0)
     var weather_seed = _rng.derive_seed("weather", world_id, active_branch_id, 0)
+    var erosion_seed = _rng.derive_seed("erosion", world_id, active_branch_id, 0)
     var settlement_seed = _rng.derive_seed("settlement", world_id, active_branch_id, 0)
 
     _environment_snapshot = _world_generator.generate(world_seed, _worldgen_config)
@@ -243,6 +248,13 @@ func configure_environment(config_resource = null) -> Dictionary:
         if bool(weather_setup.get("ok", false)):
             _weather_snapshot = _weather_system.current_snapshot(0)
     _weather_snapshot["seed"] = weather_seed
+    _erosion_snapshot = {}
+    _erosion_changed_last_tick = false
+    _erosion_changed_tiles_last_tick = []
+    if _erosion_system != null:
+        _erosion_system.configure_environment(_environment_snapshot, _water_network_snapshot, erosion_seed)
+        _erosion_snapshot = _erosion_system.current_snapshot(0)
+    _erosion_snapshot["seed"] = erosion_seed
     if _flow_network_system != null:
         _flow_network_system.configure_environment(_environment_snapshot, _water_network_snapshot)
     _spawn_artifact = _settlement_seeder.select_site(_environment_snapshot, _water_network_snapshot, _worldgen_config)
@@ -258,6 +270,7 @@ func configure_environment(config_resource = null) -> Dictionary:
         "environment": _environment_snapshot.duplicate(true),
         "hydrology": _water_network_snapshot.duplicate(true),
         "weather": _weather_snapshot.duplicate(true),
+        "erosion": _erosion_snapshot.duplicate(true),
         "spawn": _spawn_artifact.duplicate(true),
     }
 
@@ -269,6 +282,9 @@ func get_water_network_snapshot() -> Dictionary:
 
 func get_weather_snapshot() -> Dictionary:
     return _weather_snapshot.duplicate(true)
+
+func get_erosion_snapshot() -> Dictionary:
+    return _erosion_snapshot.duplicate(true)
 
 func get_spawn_artifact() -> Dictionary:
     return _spawn_artifact.duplicate(true)
@@ -482,8 +498,25 @@ func process_tick(tick: int, fixed_delta: float) -> Dictionary:
     _cultural_policy = {}
     if _flow_network_system != null:
         _flow_network_system.step_decay()
+    _erosion_changed_last_tick = false
+    _erosion_changed_tiles_last_tick = []
     if _weather_system != null:
         _weather_snapshot = _weather_system.step(tick, fixed_delta)
+    if _erosion_system != null:
+        var erosion_result: Dictionary = _erosion_system.step(
+            tick,
+            fixed_delta,
+            _environment_snapshot,
+            _water_network_snapshot,
+            _weather_snapshot
+        )
+        _environment_snapshot = erosion_result.get("environment", _environment_snapshot)
+        _water_network_snapshot = erosion_result.get("hydrology", _water_network_snapshot)
+        _erosion_snapshot = erosion_result.get("erosion", _erosion_snapshot)
+        _erosion_changed_last_tick = bool(erosion_result.get("changed", false))
+        _erosion_changed_tiles_last_tick = (erosion_result.get("changed_tiles", []) as Array).duplicate(true)
+    if _flow_network_system != null:
+        _flow_network_system.configure_environment(_environment_snapshot, _water_network_snapshot)
     var npc_ids = _sorted_npc_ids()
     for npc_id in npc_ids:
         _apply_need_decay(npc_id, fixed_delta)
@@ -551,6 +584,9 @@ func current_snapshot(tick: int) -> Dictionary:
         "environment_snapshot": _environment_snapshot.duplicate(true),
         "water_network_snapshot": _water_network_snapshot.duplicate(true),
         "weather_snapshot": _weather_snapshot.duplicate(true),
+        "erosion_snapshot": _erosion_snapshot.duplicate(true),
+        "erosion_changed": _erosion_changed_last_tick,
+        "erosion_changed_tiles": _erosion_changed_tiles_last_tick.duplicate(true),
         "spawn_artifact": _spawn_artifact.duplicate(true),
         "flow_network": _flow_network_system.export_network() if _flow_network_system != null else {},
         "flow_formation_config": _flow_formation_config.to_dict() if _flow_formation_config != null else {},
@@ -1304,6 +1340,9 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
     _environment_snapshot = snapshot.get("environment_snapshot", {}).duplicate(true)
     _water_network_snapshot = snapshot.get("water_network_snapshot", {}).duplicate(true)
     _weather_snapshot = snapshot.get("weather_snapshot", {}).duplicate(true)
+    _erosion_snapshot = snapshot.get("erosion_snapshot", {}).duplicate(true)
+    _erosion_changed_last_tick = bool(snapshot.get("erosion_changed", false))
+    _erosion_changed_tiles_last_tick = (snapshot.get("erosion_changed_tiles", []) as Array).duplicate(true)
     _spawn_artifact = snapshot.get("spawn_artifact", {}).duplicate(true)
     _sacred_site_id = String(snapshot.get("sacred_site_id", _sacred_site_id))
     if _culture_cycle != null:
@@ -1364,6 +1403,10 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
         var weather_seed = int(_weather_snapshot.get("seed", 0))
         _weather_system.configure_environment(_environment_snapshot, _water_network_snapshot, weather_seed)
         _weather_system.import_snapshot(_weather_snapshot)
+    if _erosion_system != null:
+        var erosion_seed = int(_erosion_snapshot.get("seed", 0))
+        _erosion_system.configure_environment(_environment_snapshot, _water_network_snapshot, erosion_seed)
+        _erosion_system.import_snapshot(_erosion_snapshot)
 
     if _structure_lifecycle_system != null:
         _structure_lifecycle_system.import_lifecycle_state(
