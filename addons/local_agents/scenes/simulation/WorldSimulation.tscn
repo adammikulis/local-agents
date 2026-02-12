@@ -35,7 +35,7 @@ sdfgi_use_occlusion = true
 sdfgi_read_sky_light = true
 sdfgi_energy = 1.0
 
-[node name="NeolithicWorld" type="Node3D"]
+[node name="WorldSimulation" type="Node3D"]
 script = ExtResource("1_world")
 flow_traversal_profile_override = ExtResource("10_flow_profile")
 worldgen_config_override = ExtResource("11_worldgen_config")

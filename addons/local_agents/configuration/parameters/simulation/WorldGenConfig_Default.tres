@@ -1,0 +1,38 @@
+[gd_resource type="Resource" script_class="LocalAgentsWorldGenConfigResource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/configuration/parameters/simulation/WorldGenConfigResource.gd" id="1_worldgen_config_script"]
+
+[resource]
+script = ExtResource("1_worldgen_config_script")
+schema_version = 1
+map_width = 36
+map_height = 36
+voxel_world_height = 40
+voxel_sea_level = 12
+voxel_surface_height_base = 9
+voxel_surface_height_range = 20
+voxel_noise_frequency = 0.07
+voxel_noise_octaves = 4
+cave_noise_frequency = 0.09
+cave_noise_threshold = 0.57
+ore_noise_frequency = 0.12
+coal_ore_threshold = 0.62
+copper_ore_threshold = 0.66
+iron_ore_threshold = 0.7
+elevation_frequency = 0.135
+elevation_octaves = 3
+moisture_frequency = 0.09
+moisture_octaves = 2
+temperature_frequency = 0.07
+temperature_octaves = 2
+spring_elevation_threshold = 0.64
+spring_moisture_threshold = 0.58
+flow_merge_threshold = 2.0
+floodplain_flow_threshold = 3.0
+spawn_weight_water_reliability = 6.0
+spawn_weight_flood_penalty = 3.0
+spawn_weight_food_density = 2.25
+spawn_weight_wood_density = 1.65
+spawn_weight_stone_density = 1.1
+spawn_weight_walkability = 1.4
+spawn_top_candidate_count = 8

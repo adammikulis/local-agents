@@ -1,7 +1,8 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://addons/local_agents/examples/WorldGenVoxelDemo.gd" id="1_demo_script"]
 [ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/EnvironmentController.gd" id="2_environment_script"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/scenes/simulation/ui/SimulationHud.tscn" id="3_sim_hud"]
 
 [sub_resource type="LabelSettings" id="LabelSettings_header"]
 font_size = 18
@@ -304,3 +305,5 @@ unique_name_in_owner = true
 layout_mode = 2
 autowrap_mode = 3
 text = "Stats"
+
+[node name="SimulationHud" parent="." instance=ExtResource("3_sim_hud")]

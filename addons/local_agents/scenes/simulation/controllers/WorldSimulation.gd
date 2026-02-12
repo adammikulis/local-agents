@@ -1,6 +1,9 @@
 extends Node3D
+class_name LocalAgentsWorldSimulationController
 
 const FlowTraversalProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FlowTraversalProfileResource.gd")
+const WorldGenConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldGenConfigResource.gd")
+const AtmosphereCycleControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/AtmosphereCycleController.gd")
 
 @onready var simulation_controller: Node = $SimulationController
 @onready var environment_controller: Node3D = $EnvironmentController
@@ -11,10 +14,11 @@ const FlowTraversalProfileResourceScript = preload("res://addons/local_agents/co
 @onready var simulation_hud: CanvasLayer = $SimulationHud
 @onready var sun_light: DirectionalLight3D = $DirectionalLight3D
 @onready var world_environment: WorldEnvironment = $WorldEnvironment
-@export var world_seed_text: String = "neolithic_vertical_slice"
+@export var world_seed_text: String = "world_progression_main"
 @export var auto_generate_on_ready: bool = true
 @export var auto_play_on_ready: bool = true
 @export var flow_traversal_profile_override: Resource
+@export var worldgen_config_override: Resource
 @export var day_night_cycle_enabled: bool = true
 @export var day_length_seconds: float = 180.0
 @export_range(0.0, 1.0, 0.001) var start_time_of_day: float = 0.28
@@ -25,11 +29,14 @@ var _current_tick: int = 0
 var _fork_index: int = 0
 var _last_state: Dictionary = {}
 var _time_of_day: float = 0.28
+var _atmosphere_cycle = AtmosphereCycleControllerScript.new()
 
 func _ready() -> void:
 	_time_of_day = clampf(start_time_of_day, 0.0, 1.0)
 	if flow_traversal_profile_override == null:
 		flow_traversal_profile_override = FlowTraversalProfileResourceScript.new()
+	if worldgen_config_override == null:
+		worldgen_config_override = WorldGenConfigResourceScript.new()
 	if simulation_controller.has_method("set_flow_traversal_profile") and flow_traversal_profile_override != null:
 		simulation_controller.set_flow_traversal_profile(flow_traversal_profile_override)
 	if simulation_hud != null:
@@ -48,7 +55,7 @@ func _ready() -> void:
 		simulation_controller.configure(world_seed_text, false, false)
 	if not simulation_controller.has_method("configure_environment"):
 		return
-	var setup: Dictionary = simulation_controller.configure_environment()
+	var setup: Dictionary = simulation_controller.configure_environment(worldgen_config_override)
 	if not bool(setup.get("ok", false)):
 		return
 	if environment_controller.has_method("apply_generation_data"):
@@ -56,12 +63,15 @@ func _ready() -> void:
 			setup.get("environment", {}),
 			setup.get("hydrology", {})
 		)
+	if environment_controller.has_method("set_weather_state"):
+		environment_controller.set_weather_state(setup.get("weather", {}))
 	if settlement_controller.has_method("spawn_initial_settlement"):
 		settlement_controller.spawn_initial_settlement(setup.get("spawn", {}))
 	_current_tick = 0
 	_is_playing = auto_play_on_ready
 	if simulation_controller.has_method("current_snapshot"):
 		_last_state = simulation_controller.current_snapshot(0)
+		_sync_environment_from_state(_last_state, false)
 	_refresh_hud()
 
 func _process(_delta: float) -> void:
@@ -84,6 +94,27 @@ func _advance_tick() -> void:
 	if bool(result.get("ok", false)):
 		_current_tick = next_tick
 		_last_state = result.get("state", {}).duplicate(true)
+		_sync_environment_from_state(_last_state, false)
+
+func _sync_environment_from_state(state: Dictionary, force_rebuild: bool) -> void:
+	if environment_controller == null:
+		return
+	if state.is_empty():
+		return
+	if force_rebuild or bool(state.get("erosion_changed", false)):
+		if not force_rebuild and environment_controller.has_method("apply_generation_delta"):
+			environment_controller.apply_generation_delta(
+				state.get("environment_snapshot", {}),
+				state.get("water_network_snapshot", {}),
+				state.get("erosion_changed_tiles", [])
+			)
+		elif environment_controller.has_method("apply_generation_data"):
+			environment_controller.apply_generation_data(
+				state.get("environment_snapshot", {}),
+				state.get("water_network_snapshot", {})
+			)
+	if environment_controller.has_method("set_weather_state"):
+		environment_controller.set_weather_state(state.get("weather_snapshot", {}))
 
 func _on_hud_play_pressed() -> void:
 	_is_playing = true
@@ -108,6 +139,7 @@ func _on_hud_rewind_pressed() -> void:
 		_current_tick = int(restored.get("tick", target_tick))
 		if simulation_controller.has_method("current_snapshot"):
 			_last_state = simulation_controller.current_snapshot(_current_tick)
+			_sync_environment_from_state(_last_state, true)
 	_refresh_hud()
 
 func _on_hud_fork_pressed() -> void:
@@ -119,6 +151,7 @@ func _on_hud_fork_pressed() -> void:
 	if bool(forked.get("ok", false)):
 		if simulation_controller.has_method("current_snapshot"):
 			_last_state = simulation_controller.current_snapshot(_current_tick)
+			_sync_environment_from_state(_last_state, true)
 	_refresh_hud()
 
 func _refresh_hud() -> void:
@@ -172,29 +205,38 @@ func _active_belief_conflicts(tick: int) -> int:
 func _update_day_night(delta: float) -> void:
 	if sun_light == null:
 		return
-	if day_night_cycle_enabled:
-		var day_len = maxf(5.0, day_length_seconds)
-		_time_of_day = fposmod(_time_of_day + delta / day_len, 1.0)
-
-	var phase = _time_of_day * TAU
-	var elevation_sin = sin(phase - PI * 0.5)
-	var daylight = clampf((elevation_sin + 1.0) * 0.5, 0.0, 1.0)
-	var elevation = deg_to_rad(lerpf(-12.0, 82.0, daylight))
-	var azimuth = phase - PI * 0.5
-	var dir = Vector3(
-		cos(elevation) * cos(azimuth),
-		sin(elevation),
-		cos(elevation) * sin(azimuth)
-	).normalized()
-	sun_light.look_at(sun_light.global_position + dir, Vector3.UP)
-	sun_light.light_energy = lerpf(0.08, 1.32, pow(daylight, 1.45))
-	sun_light.light_indirect_energy = lerpf(0.06, 1.08, pow(daylight, 1.35))
-	sun_light.light_color = Color(
-		lerpf(0.3, 1.0, daylight),
-		lerpf(0.38, 0.96, daylight),
-		lerpf(0.62, 0.9, daylight),
+	_time_of_day = _atmosphere_cycle.advance_time(_time_of_day, delta, day_night_cycle_enabled, day_length_seconds)
+	var atmosphere_state: Dictionary = _atmosphere_cycle.apply_to_light_and_environment(
+		_time_of_day,
+		sun_light,
+		world_environment,
+		0.08,
+		1.32,
+		0.06,
+		1.08,
+		0.03,
+		0.95,
+		0.06,
 		1.0
 	)
-	if world_environment != null and world_environment.environment != null:
-		world_environment.environment.ambient_light_energy = lerpf(0.03, 0.95, pow(daylight, 1.25))
-		world_environment.environment.background_energy_multiplier = lerpf(0.06, 1.0, pow(daylight, 1.2))
+	_apply_atmospheric_fog(float(atmosphere_state.get("daylight", 0.0)))
+
+func _apply_atmospheric_fog(daylight: float) -> void:
+	if world_environment == null or world_environment.environment == null:
+		return
+	var env: Environment = world_environment.environment
+	var weather: Dictionary = _last_state.get("weather_snapshot", {})
+	var humidity = clampf(float(weather.get("avg_humidity", 0.0)), 0.0, 1.0)
+	var rain = clampf(float(weather.get("avg_rain_intensity", 0.0)), 0.0, 1.0)
+	var cloud = clampf(float(weather.get("avg_cloud_cover", 0.0)), 0.0, 1.0)
+	var fog_target = clampf(humidity * 0.45 + rain * 0.35 + cloud * 0.2, 0.0, 1.0)
+	var night_boost = 1.0 - daylight
+	env.volumetric_fog_enabled = true
+	env.volumetric_fog_density = lerpf(0.015, 0.08, clampf(fog_target * 0.78 + night_boost * 0.22, 0.0, 1.0))
+	env.volumetric_fog_emission_energy = lerpf(0.35, 0.9, daylight)
+	env.volumetric_fog_albedo = Color(
+		lerpf(0.26, 0.74, daylight),
+		lerpf(0.3, 0.78, daylight),
+		lerpf(0.36, 0.84, daylight),
+		1.0
+	)
