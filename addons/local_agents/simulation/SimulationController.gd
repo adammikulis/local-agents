@@ -41,6 +41,8 @@ const NarratorDirectiveResourceScript = preload("res://addons/local_agents/confi
 
 var world_id: String = "world_main"
 var active_branch_id: String = "main"
+var _branch_lineage: Array = []
+var _branch_fork_tick: int = -1
 var _rng
 var _narrator
 var _dreams
@@ -73,6 +75,11 @@ var _villager_positions: Dictionary = {}
 var _household_positions: Dictionary = {}
 var _community_anchor_position: Vector3 = Vector3.ZERO
 var _last_partial_delivery_count: int = 0
+var _sacred_site_id: String = ""
+var _oral_last_knowledge_id: Dictionary = {}
+var _oral_confidence: Dictionary = {}
+var _oral_tick_events: Array = []
+var _ritual_tick_events: Array = []
 
 var _community_ledger_system
 var _household_ledger_system
@@ -154,6 +161,9 @@ func _ready() -> void:
 
 func configure(seed_text: String, narrator_enabled: bool = true, dream_llm_enabled: bool = true) -> void:
     _rng.set_base_seed_from_text(seed_text)
+    active_branch_id = "main"
+    _branch_lineage = []
+    _branch_fork_tick = -1
     self.narrator_enabled = narrator_enabled
     _narrator.enabled = narrator_enabled
     _dreams.llm_enabled = dream_llm_enabled
@@ -188,6 +198,7 @@ func configure_environment(config_resource = null) -> Dictionary:
     _spawn_artifact["seed"] = settlement_seed
     var chosen = _spawn_artifact.get("chosen", {})
     _community_anchor_position = Vector3(float(chosen.get("x", 0.0)), 0.0, float(chosen.get("y", 0.0)))
+    _seed_sacred_site()
     if _settlement_growth_system != null:
         _settlement_growth_system.ensure_core_anchors(_community_anchor_position)
 
@@ -206,6 +217,40 @@ func get_water_network_snapshot() -> Dictionary:
 
 func get_spawn_artifact() -> Dictionary:
     return _spawn_artifact.duplicate(true)
+
+func get_backstory_service():
+    return _backstory_service
+
+func get_store():
+    return _store
+
+func get_active_branch_id() -> String:
+    return active_branch_id
+
+func fork_branch(new_branch_id: String, fork_tick: int) -> Dictionary:
+    var target = new_branch_id.strip_edges()
+    if target == "":
+        return {"ok": false, "error": "invalid_branch_id"}
+    if target == active_branch_id:
+        return {"ok": false, "error": "branch_id_unchanged"}
+    var entry = {
+        "branch_id": active_branch_id,
+        "tick": maxi(0, fork_tick),
+    }
+    var next_lineage: Array = _branch_lineage.duplicate(true)
+    next_lineage.append(entry)
+    var fork_hash = str(hash(JSON.stringify(current_snapshot(maxi(0, fork_tick)), "", false, true)))
+    if _store != null:
+        _store.create_checkpoint(world_id, target, maxi(0, fork_tick), fork_hash, next_lineage, maxi(0, fork_tick))
+    active_branch_id = target
+    _branch_lineage = next_lineage
+    _branch_fork_tick = maxi(0, fork_tick)
+    return {
+        "ok": true,
+        "branch_id": active_branch_id,
+        "lineage": _branch_lineage.duplicate(true),
+        "fork_tick": _branch_fork_tick,
+    }
 
 func set_cognition_features(enable_thoughts: bool, enable_dialogue: bool, enable_dreams: bool) -> void:
     thoughts_enabled = enable_thoughts
@@ -311,6 +356,8 @@ func process_tick(tick: int, fixed_delta: float) -> Dictionary:
     _last_partial_delivery_count = 0
     _household_growth_metrics = {}
     _settlement_growth_events = {"expanded": [], "abandoned": []}
+    _oral_tick_events = []
+    _ritual_tick_events = []
     if _path_network_system != null:
         _path_network_system.step_decay()
     var npc_ids = _sorted_npc_ids()
@@ -319,6 +366,8 @@ func process_tick(tick: int, fixed_delta: float) -> Dictionary:
 
     _run_resource_pipeline(tick, npc_ids)
     _run_settlement_growth(tick)
+    _run_oral_tradition_cycle(tick)
+    _run_ritual_cycle(tick)
 
     if narrator_enabled and tick > 0 and tick % 24 == 0:
         if not _generate_narrator_direction(tick):
@@ -341,7 +390,14 @@ func process_tick(tick: int, fixed_delta: float) -> Dictionary:
     var snapshot = current_snapshot(tick)
     var event_id = _store.begin_event(world_id, active_branch_id, tick, "tick", snapshot)
     if tick % 48 == 0:
-        _store.create_checkpoint(world_id, active_branch_id, tick, str(hash(JSON.stringify(snapshot, "", false, true))))
+        _store.create_checkpoint(
+            world_id,
+            active_branch_id,
+            tick,
+            str(hash(JSON.stringify(snapshot, "", false, true))),
+            _branch_lineage.duplicate(true),
+            _branch_fork_tick
+        )
     return {
         "ok": true,
         "tick": tick,
@@ -364,6 +420,8 @@ func current_snapshot(tick: int) -> Dictionary:
         "world_id": world_id,
         "branch_id": active_branch_id,
         "tick": tick,
+        "branch_lineage": _branch_lineage.duplicate(true),
+        "branch_fork_tick": _branch_fork_tick,
         "worldgen_config": _worldgen_config.to_dict() if _worldgen_config != null else {},
         "environment_snapshot": _environment_snapshot.duplicate(true),
         "water_network_snapshot": _water_network_snapshot.duplicate(true),
@@ -376,6 +434,9 @@ func current_snapshot(tick: int) -> Dictionary:
         "settlement_anchors": _settlement_growth_system.snapshot_anchors() if _settlement_growth_system != null else [],
         "settlement_structures": _settlement_growth_system.snapshot_structures() if _settlement_growth_system != null else {},
         "settlement_growth_events": _settlement_growth_events.duplicate(true),
+        "sacred_site_id": _sacred_site_id,
+        "oral_transfer_events": _oral_tick_events.duplicate(true),
+        "ritual_events": _ritual_tick_events.duplicate(true),
         "partial_delivery_count": _last_partial_delivery_count,
         "villagers": _serialize_villagers(),
         "community_ledger": _community_ledger.to_dict(),
@@ -978,3 +1039,153 @@ func _household_member_counts() -> Dictionary:
             continue
         counts[household_id] = int(members_resource.member_ids.size())
     return counts
+
+func _seed_sacred_site() -> void:
+    _sacred_site_id = "site:%s:%s:spring" % [world_id, active_branch_id]
+    if _backstory_service == null:
+        return
+    var site_pos = {
+        "x": _community_anchor_position.x + 1.0,
+        "y": 0.0,
+        "z": _community_anchor_position.z - 1.0,
+    }
+    _backstory_service.upsert_sacred_site(
+        _sacred_site_id,
+        "spring",
+        site_pos,
+        4.5,
+        ["taboo_water_waste"],
+        0,
+        {"source": "simulation_seed"}
+    )
+
+func _run_oral_tradition_cycle(tick: int) -> void:
+    if _backstory_service == null:
+        return
+    if tick <= 0 or tick % 24 != 18:
+        return
+    var world_day = int(tick / 24)
+    var categories = [
+        "water_route_reliability",
+        "safe_foraging_zones",
+        "seasonal_weather_cues",
+        "toolcraft_recipe",
+        "ritual_obligation",
+    ]
+    _decay_oral_confidence()
+    var household_ids = _household_members.keys()
+    household_ids.sort()
+    for household_id_variant in household_ids:
+        var household_id = String(household_id_variant)
+        var members_resource = _household_members.get(household_id, null)
+        if members_resource == null:
+            continue
+        var members: Array = members_resource.member_ids.duplicate()
+        members.sort()
+        if members.size() < 2:
+            continue
+        var speaker_id = String(members[0])
+        var listener_index = 1 + _rng.randi_range("oral_listener", household_id, active_branch_id, tick, 0, members.size() - 2)
+        var listener_id = String(members[listener_index])
+        var category_index = _rng.randi_range("oral_category", household_id, active_branch_id, tick, 0, categories.size() - 1)
+        var category = String(categories[category_index])
+        var confidence_seed = _rng.randomf("oral_confidence", household_id + ":" + category, active_branch_id, tick)
+        var confidence = clampf(0.68 + confidence_seed * 0.24 + float(_oral_confidence.get(category, 0.0)) * 0.15, 0.2, 0.98)
+        _oral_confidence[category] = clampf(float(_oral_confidence.get(category, 0.5)) * 0.82 + confidence * 0.18, 0.0, 1.0)
+        var knowledge_id = "ok:%s:%s:%s:%d" % [world_id, household_id, category, world_day]
+        var content = _oral_content_for_category(category, household_id)
+        var write = _backstory_service.record_oral_knowledge(
+            knowledge_id,
+            listener_id,
+            category,
+            content,
+            confidence,
+            [category],
+            world_day,
+            {
+                "source_kind": "oral_transfer",
+                "source_id": "household:%s" % household_id,
+                "speaker_npc_id": speaker_id,
+                "transmission_hops": 1,
+            }
+        )
+        if not bool(write.get("ok", false)):
+            continue
+        var lineage_key = "%s|%s" % [household_id, category]
+        var previous_knowledge_id = String(_oral_last_knowledge_id.get(lineage_key, ""))
+        if previous_knowledge_id != "" and previous_knowledge_id != knowledge_id:
+            _backstory_service.link_oral_knowledge_lineage(previous_knowledge_id, knowledge_id, speaker_id, listener_id, 1, world_day)
+        _oral_last_knowledge_id[lineage_key] = knowledge_id
+        var event = {
+            "household_id": household_id,
+            "speaker_npc_id": speaker_id,
+            "listener_npc_id": listener_id,
+            "knowledge_id": knowledge_id,
+            "category": category,
+            "confidence": confidence,
+        }
+        _oral_tick_events.append(event)
+        _log_resource_event(tick, "sim_culture_event", "household", household_id, {
+            "kind": "oral_transfer",
+            "event": event,
+        })
+
+func _run_ritual_cycle(tick: int) -> void:
+    if _backstory_service == null:
+        return
+    if _sacred_site_id == "":
+        return
+    if tick <= 0 or tick % 72 != 30:
+        return
+    var world_day = int(tick / 24)
+    var participants = _sorted_npc_ids()
+    if participants.is_empty():
+        return
+    if participants.size() > 4:
+        participants.resize(4)
+    var ritual_id = "ritual:%s:%s:%d" % [world_id, active_branch_id, world_day]
+    var cohesion = 0.45 + _rng.randomf("ritual_cohesion", _sacred_site_id, active_branch_id, tick) * 0.4
+    var write = _backstory_service.record_ritual_event(
+        ritual_id,
+        _sacred_site_id,
+        world_day,
+        participants,
+        {"cohesion": cohesion, "tick": tick},
+        {"source_kind": "ritual_cycle"}
+    )
+    if not bool(write.get("ok", false)):
+        return
+    var ritual_event = {
+        "ritual_id": ritual_id,
+        "site_id": _sacred_site_id,
+        "world_day": world_day,
+        "participants": participants.duplicate(true),
+        "cohesion": cohesion,
+    }
+    _ritual_tick_events.append(ritual_event)
+    _log_resource_event(tick, "sim_culture_event", "settlement", "settlement_main", {
+        "kind": "ritual_event",
+        "event": ritual_event,
+    })
+
+func _decay_oral_confidence() -> void:
+    var keys = _oral_confidence.keys()
+    keys.sort_custom(func(a, b): return String(a) < String(b))
+    for key in keys:
+        var category = String(key)
+        _oral_confidence[category] = clampf(float(_oral_confidence.get(category, 0.0)) * 0.96, 0.0, 1.0)
+
+func _oral_content_for_category(category: String, household_id: String) -> String:
+    match category:
+        "water_route_reliability":
+            return "Follow the reliable channel near %s before midday." % household_id
+        "safe_foraging_zones":
+            return "Gather roots along the safer slope edges around %s." % household_id
+        "seasonal_weather_cues":
+            return "Low morning haze means stronger valley winds by dusk."
+        "toolcraft_recipe":
+            return "Harden stone flakes in brief hearth heat before binding."
+        "ritual_obligation":
+            return "Bring clean water first before the spring-circle rite."
+        _:
+            return "Remember the elders' path near %s." % household_id

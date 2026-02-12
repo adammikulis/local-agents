@@ -183,20 +183,20 @@ Design intent:
 - [ ] Social ties (kinship, trust, rivalry) influence cooperation.
 
 ### 6.2 Quasi-Religious Belief Layer
-- [ ] Sacred sites exist as map-linked entities (grove/spring/stone circle).
+- [x] Sacred sites exist as map-linked entities (grove/spring/stone circle).
 - [ ] Taboos constrain behavior (avoid hunting area, protect spring, ritual day restrictions).
 - [ ] Omen events bias decisions under uncertainty.
-- [ ] Group rituals can increase cohesion and align beliefs.
+- [x] Group rituals can increase cohesion and align beliefs.
 
 ### 6.3 Oral Tradition and Tribal Knowledge
 - [ ] Knowledge is spoken, not written.
 - [ ] Elder-to-youth transfer events occur on schedule and via opportunistic social contact.
-- [ ] Knowledge categories:
-- [ ] water route reliability
-- [ ] safe foraging zones
-- [ ] seasonal weather cues
-- [ ] toolcraft recipes
-- [ ] taboos/ritual obligations
+- [x] Knowledge categories:
+- [x] water route reliability
+- [x] safe foraging zones
+- [x] seasonal weather cues
+- [x] toolcraft recipes
+- [x] taboos/ritual obligations
 - [ ] Confidence decays if knowledge is not repeated/reinforced.
 - [ ] Story retellings can drift in details while preserving motifs.
 - [ ] Survival-relevant knowledge retention is measured and surfaced.
@@ -265,8 +265,8 @@ Design intent:
 
 ## 9) Time Control and Branching
 
-- [ ] Checkpoints at deterministic intervals and key events.
-- [ ] Branch creation from any checkpoint with immutable lineage links.
+- [x] Checkpoints at deterministic intervals and key events.
+- [x] Branch creation from any checkpoint with immutable lineage links.
 - [ ] Fast-forward uses deterministic batch stepping only.
 - [ ] Rewind restores checkpoint + deterministic replay of events.
 - [ ] Branch diff tools include:

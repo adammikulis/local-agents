@@ -133,5 +133,31 @@ func list_resource_events(world_id: String, branch_id: String, tick_from: int, t
     )
     return items
 
+func list_checkpoints(world_id: String, branch_id: String, tick_from: int = -1, tick_to: int = -1) -> Array:
+    if not _ensure_graph():
+        return []
+    var rows = _graph.list_nodes(CHECKPOINT_SPACE, 65536, 0)
+    var items: Array = []
+    for row in rows:
+        var data: Dictionary = row.get("data", {})
+        if String(data.get("world_id", "")) != world_id:
+            continue
+        if String(data.get("branch_id", "")) != branch_id:
+            continue
+        var tick = int(data.get("tick", -1))
+        if tick_from >= 0 and tick < tick_from:
+            continue
+        if tick_to >= 0 and tick > tick_to:
+            continue
+        items.append(data.duplicate(true))
+    items.sort_custom(func(a, b):
+        var ta = int(a.get("tick", -1))
+        var tb = int(b.get("tick", -1))
+        if ta == tb:
+            return String(a.get("state_hash", "")) < String(b.get("state_hash", ""))
+        return ta < tb
+    )
+    return items
+
 func _ensure_graph() -> bool:
     return _graph != null or open()
