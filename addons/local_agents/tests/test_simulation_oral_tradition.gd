@@ -92,6 +92,23 @@ func run_test(tree: SceneTree) -> bool:
 		push_error("Expected oral knowledge records to be queryable for listener NPC")
 		sim.queue_free()
 		return false
+	var oral_rows: Array = oral_lookup.get("oral_knowledge", [])
+	var saw_drift_metadata = false
+	for row_variant in oral_rows:
+		if not (row_variant is Dictionary):
+			continue
+		var row = row_variant as Dictionary
+		var metadata_variant = row.get("metadata", {})
+		if not (metadata_variant is Dictionary):
+			continue
+		var metadata = metadata_variant as Dictionary
+		if metadata.has("detail_drift"):
+			saw_drift_metadata = true
+			break
+	if not saw_drift_metadata:
+		push_error("Expected oral knowledge metadata to include detail_drift")
+		sim.queue_free()
+		return false
 	var history: Dictionary = service.get_ritual_history_for_site(site_id, 8, 12)
 	if not bool(history.get("ok", false)) or (history.get("ritual_events", []) as Array).is_empty():
 		push_error("Expected ritual history to be queryable for seeded sacred site")
@@ -127,7 +144,20 @@ func run_test(tree: SceneTree) -> bool:
 		push_error("Expected stored sim_culture_event ritual entries")
 		sim.queue_free()
 		return false
+	var retention: Dictionary = sim.current_snapshot(96).get("culture_retention", {})
+	var summary: Dictionary = retention.get("summary", {})
+	if int(summary.get("topic_count", 0)) <= 0:
+		push_error("Expected culture retention snapshot with at least one tracked topic")
+		sim.queue_free()
+		return false
+	if float(summary.get("average_retention", 0.0)) <= 0.0:
+		push_error("Expected positive average retention in culture retention summary")
+		sim.queue_free()
+		return false
 	if not _test_oral_topic_bias_from_context_cues():
+		sim.queue_free()
+		return false
+	if not _test_oral_detail_drift_preserves_motif():
 		sim.queue_free()
 		return false
 
@@ -184,6 +214,53 @@ func _collect_topics_for_cues(cues_by_topic: Dictionary) -> Dictionary:
 			var topic = String(oral_event.get("topic", ""))
 			counts[topic] = int(counts.get(topic, 0)) + 1
 	return counts
+
+func _test_oral_detail_drift_preserves_motif() -> bool:
+	var cycle = CulturalCycleSystemScript.new()
+	var rng = DeterministicRngScript.new()
+	rng.set_base_seed_from_text("seed-oral-drift-motif")
+	var graph = GraphStub.new()
+	var saw_drift = false
+	var saw_motif_anchor = false
+	for day in range(0, 64):
+		var tick = day * 24 + 18
+		var result: Dictionary = cycle.step(tick, {
+			"graph_service": graph,
+			"rng": rng,
+			"world_id": "world_oral_drift",
+			"branch_id": "main",
+			"household_members": {
+				"home_oral": ["npc_oral_1", "npc_oral_2", "npc_oral_3"],
+			},
+			"context_cues": {
+				"oral_topic_drivers": {
+					"water_route_reliability": {"salience": 1.0, "gain_loss": -0.9},
+				},
+			},
+		})
+		var oral_events: Array = result.get("oral_events", [])
+		for event_variant in oral_events:
+			if not (event_variant is Dictionary):
+				continue
+			var oral_event = event_variant as Dictionary
+			if String(oral_event.get("topic", "")) != "water_route_reliability":
+				continue
+			var metadata_variant = oral_event.get("metadata", {})
+			if not (metadata_variant is Dictionary):
+				continue
+			var metadata = metadata_variant as Dictionary
+			var drift = float(metadata.get("detail_drift", 0.0))
+			if drift > 0.0:
+				saw_drift = true
+			if String(metadata.get("motif_anchor", "")) == "water_route_reliability":
+				saw_motif_anchor = true
+	if not saw_drift:
+		push_error("Expected deterministic oral retelling detail drift under high-pressure cues")
+		return false
+	if not saw_motif_anchor:
+		push_error("Expected motif anchor to remain stable when oral details drift")
+		return false
+	return true
 
 func _extract_salience_metadata(event_payload: Dictionary) -> Dictionary:
 	if event_payload.has("metadata") and event_payload.get("metadata") is Dictionary:

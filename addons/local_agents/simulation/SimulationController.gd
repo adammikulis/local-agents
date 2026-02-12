@@ -16,6 +16,8 @@ const BackstoryServiceScript = preload("res://addons/local_agents/graph/Backstor
 const WorldGeneratorScript = preload("res://addons/local_agents/simulation/WorldGenerator.gd")
 const HydrologySystemScript = preload("res://addons/local_agents/simulation/HydrologySystem.gd")
 const SettlementSeederScript = preload("res://addons/local_agents/simulation/SettlementSeeder.gd")
+const WeatherSystemScript = preload("res://addons/local_agents/simulation/WeatherSystem.gd")
+const ErosionSystemScript = preload("res://addons/local_agents/simulation/ErosionSystem.gd")
 const WorldGenConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldGenConfigResource.gd")
 const SpatialFlowNetworkSystemScript = preload("res://addons/local_agents/simulation/SpatialFlowNetworkSystem.gd")
 const StructureLifecycleSystemScript = preload("res://addons/local_agents/simulation/StructureLifecycleSystem.gd")
@@ -65,9 +67,13 @@ var _backstory_service
 var _world_generator
 var _hydrology_system
 var _settlement_seeder
+var _weather_system
+var _erosion_system
 var _worldgen_config
 var _environment_snapshot: Dictionary = {}
 var _water_network_snapshot: Dictionary = {}
+var _weather_snapshot: Dictionary = {}
+var _erosion_snapshot: Dictionary = {}
 var _spawn_artifact: Dictionary = {}
 var _flow_network_system
 var _flow_traversal_profile
@@ -152,6 +158,8 @@ func _ensure_initialized() -> void:
         _hydrology_system = HydrologySystemScript.new()
     if _settlement_seeder == null:
         _settlement_seeder = SettlementSeederScript.new()
+    if _weather_system == null:
+        _weather_system = WeatherSystemScript.new()
     if _worldgen_config == null:
         _worldgen_config = WorldGenConfigResourceScript.new()
     if _flow_network_system == null:
@@ -223,11 +231,18 @@ func configure_environment(config_resource = null) -> Dictionary:
 
     var world_seed = _rng.derive_seed("environment", world_id, active_branch_id, 0)
     var hydrology_seed = _rng.derive_seed("hydrology", world_id, active_branch_id, 0)
+    var weather_seed = _rng.derive_seed("weather", world_id, active_branch_id, 0)
     var settlement_seed = _rng.derive_seed("settlement", world_id, active_branch_id, 0)
 
     _environment_snapshot = _world_generator.generate(world_seed, _worldgen_config)
     _water_network_snapshot = _hydrology_system.build_network(_environment_snapshot, _worldgen_config)
     _water_network_snapshot["seed"] = hydrology_seed
+    _weather_snapshot = {}
+    if _weather_system != null:
+        var weather_setup: Dictionary = _weather_system.configure_environment(_environment_snapshot, _water_network_snapshot, weather_seed)
+        if bool(weather_setup.get("ok", false)):
+            _weather_snapshot = _weather_system.current_snapshot(0)
+    _weather_snapshot["seed"] = weather_seed
     if _flow_network_system != null:
         _flow_network_system.configure_environment(_environment_snapshot, _water_network_snapshot)
     _spawn_artifact = _settlement_seeder.select_site(_environment_snapshot, _water_network_snapshot, _worldgen_config)
@@ -242,6 +257,7 @@ func configure_environment(config_resource = null) -> Dictionary:
         "ok": true,
         "environment": _environment_snapshot.duplicate(true),
         "hydrology": _water_network_snapshot.duplicate(true),
+        "weather": _weather_snapshot.duplicate(true),
         "spawn": _spawn_artifact.duplicate(true),
     }
 
@@ -250,6 +266,9 @@ func get_environment_snapshot() -> Dictionary:
 
 func get_water_network_snapshot() -> Dictionary:
     return _water_network_snapshot.duplicate(true)
+
+func get_weather_snapshot() -> Dictionary:
+    return _weather_snapshot.duplicate(true)
 
 func get_spawn_artifact() -> Dictionary:
     return _spawn_artifact.duplicate(true)
@@ -463,6 +482,8 @@ func process_tick(tick: int, fixed_delta: float) -> Dictionary:
     _cultural_policy = {}
     if _flow_network_system != null:
         _flow_network_system.step_decay()
+    if _weather_system != null:
+        _weather_snapshot = _weather_system.step(tick, fixed_delta)
     var npc_ids = _sorted_npc_ids()
     for npc_id in npc_ids:
         _apply_need_decay(npc_id, fixed_delta)
@@ -529,6 +550,7 @@ func current_snapshot(tick: int) -> Dictionary:
         "worldgen_config": _worldgen_config.to_dict() if _worldgen_config != null else {},
         "environment_snapshot": _environment_snapshot.duplicate(true),
         "water_network_snapshot": _water_network_snapshot.duplicate(true),
+        "weather_snapshot": _weather_snapshot.duplicate(true),
         "spawn_artifact": _spawn_artifact.duplicate(true),
         "flow_network": _flow_network_system.export_network() if _flow_network_system != null else {},
         "flow_formation_config": _flow_formation_config.to_dict() if _flow_formation_config != null else {},
@@ -541,6 +563,7 @@ func current_snapshot(tick: int) -> Dictionary:
         "structure_lifecycle_events": _structure_lifecycle_events.duplicate(true),
         "sacred_site_id": _sacred_site_id,
         "cultural_cycle_state": _culture_cycle.export_state() if _culture_cycle != null else {},
+        "culture_retention": _culture_cycle.retention_metrics() if (_culture_cycle != null and _culture_cycle.has_method("retention_metrics")) else {},
         "culture_driver_events": _culture_driver_events.duplicate(true),
         "cultural_policy": _cultural_policy.duplicate(true),
         "culture_context_cues": _culture_context_cues.duplicate(true),
@@ -1092,9 +1115,10 @@ func _apply_route_transport(assignments: Dictionary, start: Vector3, target: Vec
         var assignment: Dictionary = assignments.get(npc_id, {})
         var profile: Dictionary = {}
         if _flow_network_system != null:
+            var rain_intensity = clampf(float(_weather_snapshot.get("avg_rain_intensity", 0.0)), 0.0, 1.0)
             profile = _flow_network_system.evaluate_route(start, target, {
                 "tick": tick,
-                "rain_intensity": 0.0,
+                "rain_intensity": rain_intensity,
             })
         var efficiency = clampf(float(profile.get("delivery_efficiency", 1.0)), 0.2, 1.0)
         var jitter = _rng.randomf("route_delivery", npc_id, active_branch_id, tick)
@@ -1279,6 +1303,7 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
     _branch_fork_tick = int(snapshot.get("branch_fork_tick", _branch_fork_tick))
     _environment_snapshot = snapshot.get("environment_snapshot", {}).duplicate(true)
     _water_network_snapshot = snapshot.get("water_network_snapshot", {}).duplicate(true)
+    _weather_snapshot = snapshot.get("weather_snapshot", {}).duplicate(true)
     _spawn_artifact = snapshot.get("spawn_artifact", {}).duplicate(true)
     _sacred_site_id = String(snapshot.get("sacred_site_id", _sacred_site_id))
     if _culture_cycle != null:
@@ -1335,6 +1360,10 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
     if _flow_network_system != null:
         _flow_network_system.configure_environment(_environment_snapshot, _water_network_snapshot)
         _flow_network_system.import_network(snapshot.get("flow_network", {}))
+    if _weather_system != null:
+        var weather_seed = int(_weather_snapshot.get("seed", 0))
+        _weather_system.configure_environment(_environment_snapshot, _water_network_snapshot, weather_seed)
+        _weather_system.import_snapshot(_weather_snapshot)
 
     if _structure_lifecycle_system != null:
         _structure_lifecycle_system.import_lifecycle_state(

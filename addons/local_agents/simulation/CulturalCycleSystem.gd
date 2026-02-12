@@ -7,10 +7,13 @@ var _last_driver_digest: Dictionary = {}
 var llm_enabled: bool = true
 
 func export_state() -> Dictionary:
+	var retention_snapshot = _retention_metrics()
 	return {
 		"oral_last_item": _oral_last_item.duplicate(true),
 		"confidence_by_topic": _confidence_by_topic.duplicate(true),
 		"last_driver_digest": _last_driver_digest.duplicate(true),
+		"retention_by_topic": retention_snapshot.get("retention_by_topic", {}).duplicate(true),
+		"retention_summary": retention_snapshot.get("summary", {}).duplicate(true),
 	}
 
 func import_state(payload: Dictionary) -> void:
@@ -67,23 +70,29 @@ func _run_oral_schedule(tick: int, graph, rng, world_id: String, branch_id: Stri
 		var signal_strength = rng.randomf("oral_signal", household_id + ":" + topic, branch_id, tick)
 		var topic_salience = _topic_salience(topic, household_id, drivers)
 		var topic_gain_loss = _topic_gain_loss(topic, household_id, drivers)
-		var confidence = clampf(0.58 + signal_strength * 0.22 + float(_confidence_by_topic.get(topic, 0.0)) * 0.18 + topic_salience * 0.24, 0.2, 0.99)
+		var prior_confidence = clampf(float(_confidence_by_topic.get(topic, 0.5)), 0.0, 1.0)
+		var confidence = clampf(0.58 + signal_strength * 0.22 + prior_confidence * 0.18 + topic_salience * 0.24, 0.2, 0.99)
 		_confidence_by_topic[topic] = clampf(float(_confidence_by_topic.get(topic, 0.5)) * 0.82 + confidence * 0.18, 0.0, 1.0)
 		var item_id = "ok:%s:%s:%s:%s:%d" % [world_id, branch_id, household_id, topic, world_day]
-		var content = _topic_content(topic, household_id, household_context, drivers)
+		var drift = _compute_detail_drift(topic, household_id, branch_id, tick, confidence, topic_salience, topic_gain_loss, rng)
+		var content = _topic_content(topic, household_id, household_context, drivers, drift)
+		var motifs = _topic_motifs(topic)
 		var write = graph.record_oral_knowledge(
 			item_id,
 			listener_id,
 			topic,
 			content,
 			confidence,
-			[topic],
+			motifs,
 			world_day,
 			{
 				"source_kind": "oral_transfer",
 				"source_id": "household:%s" % household_id,
 				"speaker_npc_id": speaker_id,
 				"transmission_hops": 1,
+				"retained_confidence": prior_confidence,
+				"detail_drift": drift,
+				"motif_anchor": topic,
 			}
 		)
 		if not bool(write.get("ok", false)):
@@ -99,12 +108,19 @@ func _run_oral_schedule(tick: int, graph, rng, world_id: String, branch_id: Stri
 			"listener_npc_id": listener_id,
 			"knowledge_id": item_id,
 			"topic": topic,
+			"content": content,
+			"motifs": motifs.duplicate(true),
 			"confidence": confidence,
 			"salience": topic_salience,
 			"gain_loss": topic_gain_loss,
+			"retained_confidence": prior_confidence,
+			"detail_drift": drift,
 			"metadata": {
 				"salience": topic_salience,
 				"gain_loss": topic_gain_loss,
+				"retained_confidence": prior_confidence,
+				"detail_drift": drift,
+				"motif_anchor": topic,
 			},
 		})
 	return rows
@@ -161,7 +177,14 @@ func _decay_confidence() -> void:
 		var topic = String(key)
 		_confidence_by_topic[topic] = clampf(float(_confidence_by_topic.get(topic, 0.0)) * 0.96, 0.0, 1.0)
 
-func _topic_content(topic: String, household_id: String, household_context: Dictionary, drivers: Array) -> String:
+func _topic_content(topic: String, household_id: String, household_context: Dictionary, drivers: Array, detail_drift: float = 0.0) -> String:
+	var base = _topic_base_content(topic, household_id, household_context, drivers)
+	var detail = _topic_detail_variant(topic, detail_drift)
+	if detail == "":
+		return base
+	return "%s %s" % [base, detail]
+
+func _topic_base_content(topic: String, household_id: String, household_context: Dictionary, drivers: Array) -> String:
 	var driver_hint = _dominant_driver_label(drivers)
 	var biome = String(household_context.get("biome", "plains"))
 	match topic:
@@ -185,6 +208,128 @@ func _topic_content(topic: String, household_id: String, household_context: Dict
 			return "Bone from hard-won meat in %s is kept, carved, and taught." % household_id
 		_:
 			return "Remember %s paths in the %s; hold to %s." % [household_id, biome, driver_hint]
+
+func _topic_detail_variant(topic: String, detail_drift: float) -> String:
+	var motifs = _topic_motifs(topic)
+	var anchor = String(motifs[0]) if not motifs.is_empty() else topic
+	var variants: Array = []
+	match topic:
+		"water_route_reliability":
+			variants = [
+				"Keep the %s teaching unchanged." % anchor,
+				"Some say the current bends later than before, but the %s teaching stays." % anchor,
+				"Others place the crossing farther upriver, yet the %s teaching remains." % anchor,
+			]
+		"safe_foraging_zones":
+			variants = [
+				"Hold to the %s teaching." % anchor,
+				"Some retell it with a steeper ridge marker while keeping the %s teaching." % anchor,
+				"Others swap the tree landmark, but keep the %s teaching intact." % anchor,
+			]
+		"seasonal_weather_cues":
+			variants = [
+				"Keep the %s teaching." % anchor,
+				"Some now watch the haze later in the day, still within the %s teaching." % anchor,
+				"Others retell the wind turn at dusk, while preserving the %s teaching." % anchor,
+			]
+		"toolcraft_recipe":
+			variants = [
+				"Keep the %s teaching." % anchor,
+				"Some shorten the heating count but still follow the %s teaching." % anchor,
+				"Others bind with different fiber lengths while preserving the %s teaching." % anchor,
+			]
+		"ritual_obligation":
+			variants = [
+				"Keep the %s teaching." % anchor,
+				"Some place offerings in a different order while keeping the %s teaching." % anchor,
+				"Others begin earlier at dawn but preserve the %s teaching." % anchor,
+			]
+		"belonging_oath":
+			variants = [
+				"Keep the %s teaching." % anchor,
+				"Some name elders first, still preserving the %s teaching." % anchor,
+				"Others retell it by hearth order, while keeping the %s teaching." % anchor,
+			]
+		"kinship_continuity":
+			variants = [
+				"Keep the %s teaching." % anchor,
+				"Some recite lineages from younger kin first, preserving the %s teaching." % anchor,
+				"Others retell duties before names, while keeping the %s teaching." % anchor,
+			]
+		"ownership_boundary":
+			variants = [
+				"Keep the %s teaching." % anchor,
+				"Some shift boundary stones by one pace, still honoring the %s teaching." % anchor,
+				"Others retell marker order differently while preserving the %s teaching." % anchor,
+			]
+		"bone_craft_memory":
+			variants = [
+				"Keep the %s teaching." % anchor,
+				"Some retell different carving strokes while preserving the %s teaching." % anchor,
+				"Others change grip sequence, but keep the %s teaching intact." % anchor,
+			]
+		_:
+			variants = ["Keep the %s teaching." % anchor]
+	var index = mini(int(floor(detail_drift * 3.0)), variants.size() - 1)
+	return String(variants[index])
+
+func _compute_detail_drift(topic: String, household_id: String, branch_id: String, tick: int, confidence: float, salience: float, gain_loss: float, rng) -> float:
+	var instability = clampf(1.0 - confidence, 0.0, 1.0)
+	var pressure = absf(clampf(gain_loss, -1.0, 1.0))
+	var drift_threshold = clampf(0.14 + instability * 0.54 + pressure * 0.24 - salience * 0.16, 0.08, 0.92)
+	var roll = rng.randomf("oral_detail_drift_roll", household_id + ":" + topic, branch_id, tick)
+	if roll >= drift_threshold:
+		return 0.0
+	var span = clampf(drift_threshold - roll, 0.0, drift_threshold)
+	if drift_threshold <= 0.0:
+		return 0.0
+	return clampf(0.34 + (span / drift_threshold) * 0.66, 0.0, 1.0)
+
+func _topic_motifs(topic: String) -> Array:
+	match topic:
+		"water_route_reliability":
+			return [topic, "water"]
+		"safe_foraging_zones":
+			return [topic, "food"]
+		"seasonal_weather_cues":
+			return [topic, "weather"]
+		"toolcraft_recipe":
+			return [topic, "craft"]
+		"ritual_obligation":
+			return [topic, "ritual"]
+		"belonging_oath":
+			return [topic, "belonging"]
+		"kinship_continuity":
+			return [topic, "kinship"]
+		"ownership_boundary":
+			return [topic, "ownership"]
+		"bone_craft_memory":
+			return [topic, "bone"]
+		_:
+			return [topic]
+
+func retention_metrics() -> Dictionary:
+	return _retention_metrics()
+
+func _retention_metrics() -> Dictionary:
+	var by_topic: Dictionary = {}
+	var keys = _confidence_by_topic.keys()
+	keys.sort_custom(func(a, b): return String(a) < String(b))
+	var total = 0.0
+	for key_variant in keys:
+		var topic = String(key_variant)
+		var value = clampf(float(_confidence_by_topic.get(topic, 0.0)), 0.0, 1.0)
+		by_topic[topic] = snappedf(value, 0.001)
+		total += value
+	var count = by_topic.size()
+	var average = total / float(count) if count > 0 else 0.0
+	return {
+		"retention_by_topic": by_topic,
+		"summary": {
+			"topic_count": count,
+			"average_retention": snappedf(clampf(average, 0.0, 1.0), 0.001),
+		},
+	}
 
 func _household_context_for(household_id: String, context_snapshot: Dictionary) -> Dictionary:
 	var households: Array = context_snapshot.get("households", [])
