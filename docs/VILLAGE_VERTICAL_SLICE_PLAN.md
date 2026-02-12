@@ -17,7 +17,7 @@ Design intent:
 - [x] Graph truth-vs-belief APIs exist in `BackstoryGraphService` (truth upsert/read, belief upsert/read, conflict query).
 - [x] Thought/dialogue prompt state already includes belief conflict context.
 - [x] Core headless simulation tests pass for deterministic/resource/economy/dream-label behavior.
-- [x] Scene skeletons exist for `NeolithicWorld`, primitive environment/settlement actors, villager capsule, debug overlay, and simulation HUD.
+- [x] Scene skeletons exist for `AgesWorld`, primitive environment/settlement actors, villager capsule, debug overlay, and simulation HUD.
 - [x] Oral tradition graph spaces (`oral_knowledge`, `ritual_event`, `sacred_site`) are implemented for deterministic slice coverage.
 - [x] Procedural worldgen/hydrology and water-first spawn scoring are implemented for deterministic slice coverage.
 
@@ -285,7 +285,7 @@ Design intent:
 
 ### 10.1 Scene and Visual Composition (Godot Primitives)
 
-- [ ] Create core world scene `NeolithicWorld.tscn` with:
+- [ ] Create core world scene `AgesWorld.tscn` with:
 - [ ] `Node3D` root + simulation controller node.
 - [ ] `TerrainRoot` (`Node3D`) for generated terrain meshes/chunks.
 - [ ] `WaterRoot` (`Node3D`) for river/stream geometry.
@@ -323,7 +323,7 @@ Design intent:
 
 ### 10.2 Scene File Checklist and Naming
 
-- [x] `addons/local_agents/scenes/simulation/NeolithicWorld.tscn` (root composition scene).
+- [x] `addons/local_agents/scenes/simulation/AgesWorld.tscn` (root composition scene).
 - [x] `addons/local_agents/scenes/simulation/environment/TerrainChunk.tscn` (terrain tile/chunk primitive).
 - [x] `addons/local_agents/scenes/simulation/environment/WaterSegment.tscn` (river/stream segment visual + optional area).
 - [x] `addons/local_agents/scenes/simulation/settlement/HutPrimitive.tscn` (cube-based hut placeholder).
@@ -345,7 +345,7 @@ Naming rules:
 ### 10.3 Node Composition and Organization Rules
 
 Ownership and boundaries:
-- [ ] One controller node per domain under `NeolithicWorld`:
+- [ ] One controller node per domain under `AgesWorld`:
 - [ ] `EnvironmentController`
 - [ ] `SettlementController`
 - [ ] `VillagerController`
