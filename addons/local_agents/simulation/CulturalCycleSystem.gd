@@ -500,6 +500,7 @@ func _generate_driver_payload(prompt: String, deterministic_seed: int) -> Dictio
 	if runtime.has_method("is_model_loaded") and not runtime.call("is_model_loaded"):
 		return {"ok": false, "error": "model_not_loaded"}
 
+	var schema := _driver_json_schema()
 	var request = {
 		"prompt": prompt,
 		"history": [],
@@ -509,6 +510,12 @@ func _generate_driver_payload(prompt: String, deterministic_seed: int) -> Dictio
 			"seed": deterministic_seed,
 			"reset_context": true,
 			"cache_prompt": false,
+			"output_json": true,
+			"response_format": {
+				"type": "json_schema",
+				"schema": schema,
+			},
+			"json_schema": schema,
 		},
 	}
 	var result: Dictionary = runtime.call("generate", request)
@@ -523,7 +530,7 @@ func _generate_driver_payload(prompt: String, deterministic_seed: int) -> Dictio
 	return parsed as Dictionary
 
 func _parse_json_anywhere(text: String):
-	var parsed = JSON.parse_string(text)
+	var parsed = _try_parse_json(text)
 	if parsed != null:
 		return parsed
 	var first = text.find("{")
@@ -531,7 +538,25 @@ func _parse_json_anywhere(text: String):
 	if first == -1 or last <= first:
 		return null
 	var fragment = text.substr(first, last - first + 1)
-	return JSON.parse_string(fragment)
+	return _try_parse_json(fragment)
+
+func _try_parse_json(text: String):
+	var json := JSON.new()
+	var parse_error := json.parse(text)
+	if parse_error != OK:
+		return null
+	return json.data
+
+func _driver_json_schema() -> Dictionary:
+	return {
+		"type": "object",
+		"required": ["drivers"],
+		"properties": {
+			"drivers": {
+				"type": "array",
+			},
+		},
+	}
 
 func _compact_context_for_prompt(context_snapshot: Dictionary) -> Dictionary:
 	var households: Array = context_snapshot.get("households", [])

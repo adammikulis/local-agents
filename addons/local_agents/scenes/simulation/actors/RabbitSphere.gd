@@ -198,7 +198,11 @@ func _configure_living_profile() -> void:
 	living_profile.belonging_weight = 0.22
 	living_profile.gather_tendency = 0.74
 	living_profile.mobility = clampf((forage_speed + flee_speed * 0.35) / 3.0, 0.0, 1.0)
-	living_profile.tags = ["forager", "seed_disperser", "prey"]
+	living_profile.carry_channels = {"mouth": 0.26}
+	living_profile.build_channels = {"carry": 0.34, "dig": 0.62, "pack": 0.28}
+	living_profile.shelter_preferences = {"shape": "burrow", "required_work": 7.0}
+	var tags: Array[String] = ["forager", "seed_disperser", "prey"]
+	living_profile.tags = tags
 	living_profile.metadata = {
 		"can_smell": can_smell_enabled,
 		"digestion_seconds": digestion_seconds,

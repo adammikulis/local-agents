@@ -167,8 +167,13 @@ func _configure_living_profile() -> void:
 	living_profile.belonging_weight = 0.91
 	living_profile.gather_tendency = 0.68
 	living_profile.mobility = clampf((move_speed + flee_speed * 0.25) / 3.0, 0.0, 1.0)
-	living_profile.tags = ["builder", "collector", "culture_bearer"]
+	living_profile.carry_channels = {"mouth": 0.12, "hands": 1.0}
+	living_profile.build_channels = {"carry": 0.86, "dig": 0.34, "stack": 0.78, "pack": 0.46}
+	living_profile.shelter_preferences = {"shape": "hut", "required_work": 16.0}
+	var tags: Array[String] = ["builder", "collector", "culture_bearer", "hominid", "human"]
+	living_profile.tags = tags
 	living_profile.metadata = {
 		"role": role,
 		"can_smell": can_smell_enabled,
+		"dexterous_grasp": true,
 	}

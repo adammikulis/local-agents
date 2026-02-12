@@ -137,6 +137,7 @@ Sub-agent split:
 - [x] February 12, 2026: Migrated active ecology smell/wind runtime from hex-grid path to shared sparse voxel grid system (`VoxelGridSystem`, `SmellFieldSystem`, `WindFieldSystem`).
 - [x] Legacy hex/grid config contracts are no longer part of the active ecology runtime path.
 - [x] February 12, 2026: Path/flow traversal now keys routes by voxel coordinates via `SpatialFlowNetworkSystem` + `VoxelGridSystem`.
+- [x] February 12, 2026: Environment generation now includes `voxel_world` terrain payload (`block_rows`, `columns`, block/resource type counts) generated via Godot `FastNoiseLite` and rendered by `EnvironmentController` as Minecraft-style block terrain.
 
 ## Deferred / Decision Log
 

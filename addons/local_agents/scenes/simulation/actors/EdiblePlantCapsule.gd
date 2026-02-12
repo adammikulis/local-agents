@@ -190,7 +190,11 @@ func _configure_living_profile() -> void:
 	living_profile.belonging_weight = 0.28
 	living_profile.gather_tendency = 0.0
 	living_profile.mobility = 0.0
-	living_profile.tags = ["food_source", "edible", "seed_origin"]
+	living_profile.carry_channels = {}
+	living_profile.build_channels = {}
+	living_profile.shelter_preferences = {"shape": "cover", "required_work": 0.0}
+	var tags: Array[String] = ["food_source", "edible", "seed_origin"]
+	living_profile.tags = tags
 	living_profile.metadata = {
 		"seeds_per_plant": seeds_per_plant,
 		"smell_kind": smell_kind,

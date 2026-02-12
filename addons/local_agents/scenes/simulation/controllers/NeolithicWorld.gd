@@ -60,6 +60,10 @@ func _process(_delta: float) -> void:
 func _advance_tick() -> void:
 	if not simulation_controller.has_method("process_tick"):
 		return
+	if has_node("EcologyController"):
+		var ecology_controller = get_node("EcologyController")
+		if ecology_controller.has_method("collect_living_entity_profiles") and simulation_controller.has_method("set_living_entity_profiles"):
+			simulation_controller.call("set_living_entity_profiles", ecology_controller.call("collect_living_entity_profiles"))
 	var next_tick = _current_tick + 1
 	var result: Dictionary = simulation_controller.process_tick(next_tick, 1.0)
 	if bool(result.get("ok", false)):

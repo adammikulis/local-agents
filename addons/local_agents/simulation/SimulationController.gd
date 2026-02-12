@@ -86,6 +86,8 @@ var _sacred_site_id: String = ""
 var _oral_tick_events: Array = []
 var _ritual_tick_events: Array = []
 var _culture_driver_events: Array = []
+var _cultural_policy: Dictionary = {}
+var _culture_context_cues: Dictionary = {}
 var _last_tick_processed: int = 0
 var _initialized: bool = false
 
@@ -387,6 +389,10 @@ func set_structure_lifecycle_config(config_resource) -> void:
     if _structure_lifecycle_system != null:
         _structure_lifecycle_system.set_config(_structure_lifecycle_config)
 
+func set_culture_context_cues(cues: Dictionary) -> void:
+    _ensure_initialized()
+    _culture_context_cues = cues.duplicate(true)
+
 func set_living_entity_profiles(profiles: Array) -> void:
     _ensure_initialized()
     _external_living_entity_profiles.clear()
@@ -454,6 +460,7 @@ func process_tick(tick: int, fixed_delta: float) -> Dictionary:
     _oral_tick_events = []
     _ritual_tick_events = []
     _culture_driver_events = []
+    _cultural_policy = {}
     if _flow_network_system != null:
         _flow_network_system.step_decay()
     var npc_ids = _sorted_npc_ids()
@@ -535,6 +542,8 @@ func current_snapshot(tick: int) -> Dictionary:
         "sacred_site_id": _sacred_site_id,
         "cultural_cycle_state": _culture_cycle.export_state() if _culture_cycle != null else {},
         "culture_driver_events": _culture_driver_events.duplicate(true),
+        "cultural_policy": _cultural_policy.duplicate(true),
+        "culture_context_cues": _culture_context_cues.duplicate(true),
         "oral_transfer_events": _oral_tick_events.duplicate(true),
         "ritual_events": _ritual_tick_events.duplicate(true),
         "partial_delivery_count": _last_partial_delivery_count,
@@ -730,6 +739,9 @@ func _run_resource_pipeline(tick: int, npc_ids: Array) -> void:
         var transport_capacity = _economy_system.total_transport_capacity(members, _carry_profiles)
 
         var ration_request: Dictionary = _household_ledger_system.ration_request_for_members(members.size(), _transfer_rules)
+        var conservation = _cultural_policy_strength("water_conservation")
+        if conservation > 0.0:
+            ration_request["water"] = maxf(0.0, float(ration_request.get("water", 0.0)) * (1.0 + conservation * 0.14))
         var withdrawal: Dictionary = _community_ledger_system.withdraw(_community_ledger, ration_request)
         _community_ledger = withdrawal.get("ledger", _community_ledger)
         var ration_granted: Dictionary = withdrawal.get("granted", {})
@@ -851,6 +863,21 @@ func _run_resource_pipeline(tick: int, npc_ids: Array) -> void:
     _community_ledger = waste_step.get("community", _community_ledger)
     _household_ledgers = waste_step.get("households", _household_ledgers)
     _individual_ledgers = waste_step.get("individuals", _individual_ledgers)
+    var taboo_compliance = _cultural_policy_strength("water_taboo_compliance")
+    if taboo_compliance > 0.0:
+        var waste_before = float(_community_ledger.waste)
+        var reduction = waste_before * taboo_compliance * 0.18
+        if reduction > 0.0:
+            _community_ledger.waste = maxf(0.0, waste_before - reduction)
+            _log_resource_event(tick, "sim_culture_event", "settlement", "settlement_main", {
+                "kind": "taboo_compliance",
+                "event": {
+                    "policy": "water_taboo_compliance",
+                    "salience": taboo_compliance,
+                    "gain_loss": 0.0,
+                    "waste_reduction": reduction,
+                },
+            })
     _log_resource_event(tick, "sim_transfer_event", "community", "community_main", {
         "kind": "waste_processing",
         "incoming_waste": float(waste_step.get("incoming_waste", 0.0)),
@@ -1071,13 +1098,17 @@ func _apply_route_transport(assignments: Dictionary, start: Vector3, target: Vec
             })
         var efficiency = clampf(float(profile.get("delivery_efficiency", 1.0)), 0.2, 1.0)
         var jitter = _rng.randomf("route_delivery", npc_id, active_branch_id, tick)
-        efficiency = clampf(efficiency - (0.12 * jitter), 0.15, 1.0)
+        var route_discipline = _cultural_policy_strength("route_discipline")
+        efficiency = clampf(efficiency - (0.12 * jitter * (1.0 - route_discipline * 0.75)), 0.15, 1.0)
         var delivered_assignment: Dictionary = {}
         for resource in assignment.keys():
             var amount = maxf(0.0, float(assignment.get(resource, 0.0)))
             if amount <= 0.0:
                 continue
-            var delivered = amount * efficiency
+            var resource_efficiency = efficiency
+            if resource == "water":
+                resource_efficiency = clampf(resource_efficiency + _cultural_policy_strength("water_conservation") * 0.16, 0.15, 1.0)
+            var delivered = amount * resource_efficiency
             var shortfall = amount - delivered
             if delivered > 0.0:
                 delivered_assignment[resource] = delivered
@@ -1188,10 +1219,12 @@ func _run_culture_cycle(tick: int) -> void:
         "sacred_site_id": _sacred_site_id,
         "deterministic_seed": _rng.derive_seed("culture_driver", world_id, active_branch_id, tick),
         "culture_context": _build_culture_context(tick),
+        "context_cues": _culture_context_cues.duplicate(true),
     })
     _culture_driver_events = result.get("drivers", [])
     _oral_tick_events = result.get("oral_events", [])
     _ritual_tick_events = result.get("ritual_events", [])
+    _cultural_policy = _derive_cultural_policy(_culture_driver_events)
     for driver_variant in _culture_driver_events:
         if not (driver_variant is Dictionary):
             continue
@@ -1251,6 +1284,8 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
     if _culture_cycle != null:
         _culture_cycle.import_state(snapshot.get("cultural_cycle_state", {}))
     _culture_driver_events = snapshot.get("culture_driver_events", [])
+    _cultural_policy = snapshot.get("cultural_policy", {}).duplicate(true)
+    _culture_context_cues = snapshot.get("culture_context_cues", {}).duplicate(true)
 
     _community_ledger = _community_ledger_system.initial_community_ledger()
     _apply_community_dict(_community_ledger, snapshot.get("community_ledger", {}))
@@ -1399,6 +1434,39 @@ func _build_culture_context(tick: int) -> Dictionary:
         "living_entities": _external_living_entity_profiles.duplicate(true),
         "recent_events": _recent_resource_event_context(maxi(0, tick - 24), tick),
     }
+
+func _derive_cultural_policy(drivers: Array) -> Dictionary:
+    var policy := {
+        "water_conservation": 0.0,
+        "water_taboo_compliance": 0.0,
+        "route_discipline": 0.0,
+    }
+    for driver_variant in drivers:
+        if not (driver_variant is Dictionary):
+            continue
+        var row = driver_variant as Dictionary
+        var salience = clampf(float(row.get("salience", 0.0)), 0.0, 1.0)
+        var gain_loss = clampf(float(row.get("gain_loss", 0.0)), -1.0, 1.0)
+        var positive = clampf((gain_loss + 1.0) * 0.5, 0.0, 1.0)
+        var tags: Array = row.get("tags", [])
+        var topic = String(row.get("topic", ""))
+        if topic == "water_route_reliability":
+            policy["water_conservation"] = maxf(float(policy.get("water_conservation", 0.0)), salience * (0.4 + 0.6 * positive))
+            policy["route_discipline"] = maxf(float(policy.get("route_discipline", 0.0)), salience * 0.75)
+        if topic == "ritual_obligation":
+            policy["water_taboo_compliance"] = maxf(float(policy.get("water_taboo_compliance", 0.0)), salience * (0.35 + 0.65 * positive))
+        for tag_variant in tags:
+            var tag = String(tag_variant)
+            if tag == "water":
+                policy["water_conservation"] = maxf(float(policy.get("water_conservation", 0.0)), salience * 0.6)
+            elif tag == "ritual":
+                policy["water_taboo_compliance"] = maxf(float(policy.get("water_taboo_compliance", 0.0)), salience * 0.52)
+            elif tag == "ownership" or tag == "belonging":
+                policy["route_discipline"] = maxf(float(policy.get("route_discipline", 0.0)), salience * 0.45)
+    return policy
+
+func _cultural_policy_strength(policy_name: String) -> float:
+    return clampf(float(_cultural_policy.get(policy_name, 0.0)), 0.0, 1.0)
 
 func _tile_context_for_position(position: Vector3) -> Dictionary:
     var tile_id = "%d:%d" % [int(round(position.x)), int(round(position.z))]
