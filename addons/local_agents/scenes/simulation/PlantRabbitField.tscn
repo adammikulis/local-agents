@@ -1,49 +1,61 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene format=3 uid="uid://doecmid62jm7r"]
 
-[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/PlantRabbitField.gd" id="1_field"]
-[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/EcologyController.gd" id="2_ecology"]
+[ext_resource type="Script" uid="uid://c0hkrorfxnfo6" path="res://addons/local_agents/scenes/simulation/controllers/PlantRabbitField.gd" id="1_field"]
+[ext_resource type="Script" uid="uid://bgopb4i75impm" path="res://addons/local_agents/scenes/simulation/controllers/EcologyController.gd" id="2_ecology"]
 [ext_resource type="PackedScene" path="res://addons/local_agents/scenes/simulation/debug/DebugOverlay.tscn" id="3_debug"]
-
-[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
-size = Vector2(26, 26)
+[ext_resource type="PackedScene" path="res://addons/local_agents/scenes/simulation/ui/FieldHud.tscn" id="4_hud"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ground"]
 albedo_color = Color(0.32, 0.44, 0.24, 1)
 roughness = 0.88
 
-[node name="PlantRabbitField" type="Node3D"]
+[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
+size = Vector2(26, 26)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
+size = Vector3(26, 0.2, 26)
+
+[sub_resource type="Environment" id="Environment_field"]
+background_mode = 1
+background_color = Color(0.57, 0.72, 0.88, 1)
+
+[node name="PlantRabbitField" type="Node3D" unique_id=696208802]
 script = ExtResource("1_field")
 
-[node name="Ground" type="StaticBody3D" parent="."]
+[node name="Ground" type="StaticBody3D" parent="." unique_id=127735395]
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Ground"]
-mesh = SubResource("PlaneMesh_ground")
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Ground" unique_id=1992305770]
 material_override = SubResource("StandardMaterial3D_ground")
+mesh = SubResource("PlaneMesh_ground")
 
-[node name="EcologyController" type="Node3D" parent="."]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Ground"]
+shape = SubResource("BoxShape3D_ground")
+
+[node name="EcologyController" type="Node3D" parent="." unique_id=1199755050]
 script = ExtResource("2_ecology")
 initial_plant_count = 24
 initial_rabbit_count = 6
 world_bounds_radius = 11.0
-smell_hex_size = 0.55
 smell_emit_interval_seconds = 0.5
-wind_enabled = true
 wind_direction = Vector3(1, 0, 0.2)
 wind_intensity = 0.2
 
-[node name="PlantRoot" type="Node3D" parent="EcologyController"]
+[node name="PlantRoot" type="Node3D" parent="EcologyController" unique_id=1111959928]
 
-[node name="RabbitRoot" type="Node3D" parent="EcologyController"]
+[node name="RabbitRoot" type="Node3D" parent="EcologyController" unique_id=310493582]
 
-[node name="DebugOverlayRoot" parent="." instance=ExtResource("3_debug")]
+[node name="DebugOverlayRoot" parent="." unique_id=791607376 instance=ExtResource("3_debug")]
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.829038, -0.224951, 0.511595, 0, 0.915325, 0.402718, -0.559193, -0.333836, 0.758866, 0, 8.0, 0)
+[node name="FieldHud" parent="." instance=ExtResource("4_hud")]
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1194741016]
+transform = Transform3D(0.829038, -0.224951, 0.511595, 0, 0.915325, 0.402718, -0.559193, -0.333836, 0.758866, 0, 8, 0)
 light_energy = 1.2
 shadow_enabled = true
 
-[node name="Camera3D" type="Camera3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0.913545, -0.406737, 0, 0.406737, 0.913545, 0, 12.5, 14.5)
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1349088136]
+transform = Transform3D(1, 0, 0, 0, 0.7217605, 0.69214284, 0, -0.69214284, 0.7217605, 0, 12.5, 14.5)
 current = true
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1527165051]
+environment = SubResource("Environment_field")

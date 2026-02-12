@@ -1,4 +1,4 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/actors/EdiblePlantCapsule.gd" id="1_plant"]
 
@@ -10,9 +10,17 @@ mid_height = 0.26
 albedo_color = Color(0.31, 0.82, 0.35, 1)
 roughness = 0.72
 
+[sub_resource type="SphereShape3D" id="SphereShape3D_select"]
+radius = 0.22
+
 [node name="EdiblePlantCapsule" type="Node3D"]
 script = ExtResource("1_plant")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="."]
 mesh = SubResource("CapsuleMesh_plant")
 material_override = SubResource("StandardMaterial3D_plant")
+
+[node name="Area3D" type="Area3D" parent="."]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Area3D"]
+shape = SubResource("SphereShape3D_select")

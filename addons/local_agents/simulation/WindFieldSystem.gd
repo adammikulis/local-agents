@@ -1,205 +1,155 @@
 extends RefCounted
 class_name LocalAgentsWindFieldSystem
 
-const GridConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/GridConfigResource.gd")
-const HexGridHierarchySystemScript = preload("res://addons/local_agents/simulation/HexGridHierarchySystem.gd")
+const VoxelGridSystemScript = preload("res://addons/local_agents/simulation/VoxelGridSystem.gd")
 
-var _grid_config: Resource = GridConfigResourceScript.new()
-var _grid_system = HexGridHierarchySystemScript.new()
+var _grid = VoxelGridSystemScript.new()
 var _base_direction: Vector2 = Vector2(1.0, 0.0)
 var _base_intensity: float = 0.0
 var _base_speed: float = 1.0
 var _terrain_seed: float = 37.0
-var _temperature_layers: Dictionary = {}
-var _current_wind_layers: Dictionary = {}
 
-const TEMP_LAYER_PREFIX = "temperature_l"
-const WIND_X_POS_LAYER_PREFIX = "wind_x_pos_l"
-const WIND_X_NEG_LAYER_PREFIX = "wind_x_neg_l"
-const WIND_Y_POS_LAYER_PREFIX = "wind_y_pos_l"
-const WIND_Y_NEG_LAYER_PREFIX = "wind_y_neg_l"
+var _temperature: Dictionary = {}
+var _wind: Dictionary = {}
 
-func configure_from_grid(grid_config: Resource) -> void:
-	if grid_config != null:
-		_grid_config = grid_config
-	_grid_system.setup(_grid_config, 3, 2, 0.55)
-	_temperature_layers.clear()
-	_current_wind_layers.clear()
-	_initialize_temperature_layers()
-	_step_wind_from_temperature(1.0)
+func configure(half_extent: float, voxel_size: float, vertical_half_extent: float = 3.0) -> void:
+	_grid.configure(half_extent, voxel_size, vertical_half_extent)
+	_temperature.clear()
+	_wind.clear()
+	for voxel in _grid.all_ground_voxels():
+		_temperature[voxel] = _initial_temp(voxel)
+		_wind[voxel] = _base_direction * (_base_intensity * _base_speed)
 
 func set_global_wind(direction: Vector3, intensity: float, speed: float) -> void:
-	var d2 = Vector2(direction.x, direction.z)
-	if d2.length_squared() <= 0.000001:
-		d2 = Vector2(1.0, 0.0)
-	_base_direction = d2.normalized()
+	var planar := Vector2(direction.x, direction.z)
+	if planar.length_squared() <= 0.000001:
+		planar = Vector2(1.0, 0.0)
+	_base_direction = planar.normalized()
 	_base_intensity = clampf(intensity, 0.0, 1.0)
 	_base_speed = maxf(0.0, speed)
 
 func step(delta: float, ambient_temp: float = 0.5, diurnal_phase: float = 0.0, rain_intensity: float = 0.0) -> void:
 	if delta <= 0.0:
 		return
-	_update_temperature_layers(delta, ambient_temp, diurnal_phase, rain_intensity)
-	_step_wind_from_temperature(delta)
+	if _temperature.is_empty():
+		configure(_grid.half_extent(), _grid.voxel_size(), _grid.vertical_half_extent())
+	var next_temp := {}
+	var next_wind := {}
+	var keys := _grid.sort_voxel_keys(_temperature.keys())
+	for voxel_variant in keys:
+		var voxel: Vector3i = voxel_variant
+		var temp := float(_temperature.get(voxel, 0.5))
+		var terrain := _terrain_height(voxel)
+		var target_temp := clampf(ambient_temp + 0.1 * sin(diurnal_phase + float(voxel.x) * 0.07) - terrain * 0.2, 0.0, 1.0)
+		var relaxation := clampf(0.1 * delta * (1.0 - rain_intensity * 0.35), 0.01, 0.35)
+		var updated_temp := lerpf(temp, target_temp, relaxation)
+		next_temp[voxel] = updated_temp
+
+	for voxel_variant in keys:
+		var voxel: Vector3i = voxel_variant
+		var gradient := _temperature_gradient(voxel, next_temp)
+		var terrain_channel := _valley_axis(voxel)
+		var base := _base_direction * (_base_intensity * _base_speed)
+		var thermals := gradient * (0.65 + (1.0 - rain_intensity) * 0.25)
+		var channeling := terrain_channel * terrain_channel.dot(_base_direction) * 0.22
+		var drag := clampf(0.18 + absf(_terrain_height(voxel)) * 0.3 + rain_intensity * 0.22, 0.1, 0.85)
+		var computed := (base + thermals + channeling) * (1.0 - drag * 0.4)
+		var prev: Vector2 = _wind.get(voxel, Vector2.ZERO)
+		next_wind[voxel] = prev.lerp(computed, clampf(0.12 + delta * 0.2, 0.08, 0.5))
+
+	_temperature = next_temp
+	_wind = next_wind
 
 func sample_wind(world_position: Vector3) -> Vector2:
-	var level = _detail_level_for_position(world_position)
-	var wx = _grid_system.sample_layer_at_world(_wind_x_pos_layer(level), world_position) - _grid_system.sample_layer_at_world(_wind_x_neg_layer(level), world_position)
-	var wy = _grid_system.sample_layer_at_world(_wind_y_pos_layer(level), world_position) - _grid_system.sample_layer_at_world(_wind_y_neg_layer(level), world_position)
-	return Vector2(wx, wy)
+	var voxel := _grid.world_to_voxel(world_position)
+	if voxel == _grid.invalid_voxel():
+		return Vector2.ZERO
+	var base: Vector2 = _wind.get(Vector3i(voxel.x, 0, voxel.z), Vector2.ZERO)
+	return base
 
 func sample_temperature(world_position: Vector3) -> float:
-	var level = _detail_level_for_position(world_position)
-	return _grid_system.sample_layer_at_world(_temp_layer(level), world_position)
+	var voxel := _grid.world_to_voxel(world_position)
+	if voxel == _grid.invalid_voxel():
+		return 0.0
+	return float(_temperature.get(Vector3i(voxel.x, 0, voxel.z), 0.0))
 
-func snapshot() -> Dictionary:
-	return {
-		"grid": _grid_system.snapshot(),
-		"temperature_layers": _temperature_layers.duplicate(true),
-		"wind_layers": _current_wind_layers.duplicate(true),
-	}
-
-func _initialize_temperature_layers() -> void:
-	for level in range(3):
-		var temp_layer = _temp_layer(level)
-		_temperature_layers[temp_layer] = true
-		for y in range(0, 18):
-			for x in range(0, 18):
-				var world = _grid_system.cell_to_world_level(x, y, 0)
-				var world_pos = Vector3(world.x, 0.0, world.y)
-				var base_temp = _initial_temp(world_pos)
-				_grid_system.deposit(temp_layer, world_pos, base_temp)
-
-func _update_temperature_layers(delta: float, ambient_temp: float, diurnal_phase: float, rain_intensity: float) -> void:
-	var dims = _grid_dims()
-	for level in range(3):
-		var layer = _temp_layer(level)
-		var relaxed_ambient = clampf(ambient_temp + 0.12 * sin(diurnal_phase + float(level) * 0.5), 0.05, 1.0)
-		_grid_system.advect_and_decay_layer(layer, delta, clampf(1.0 - (0.02 + rain_intensity * 0.03) * delta, 0.90, 1.0), Vector2.ZERO)
-		for y in range(dims.y):
-			for x in range(dims.x):
-				var world = _grid_system.cell_to_world_level(x, y, 0)
-				var world_pos = Vector3(world.x, 0.0, world.y)
-				var current = _grid_system.sample_layer_at_world(layer, world_pos)
-				var terrain = _terrain_height(world)
-				var terrain_temp_shift = -0.18 * terrain
-				var target = clampf(relaxed_ambient + terrain_temp_shift, 0.0, 1.0)
-				var delta_t = (target - current) * (0.06 + float(level) * 0.015)
-				if absf(delta_t) > 0.0001:
-					_grid_system.deposit(layer, world_pos, maxf(0.0, delta_t))
-
-func _step_wind_from_temperature(delta: float) -> void:
-	var dims = _grid_dims()
-	for level in range(3):
-		var wind_x_pos = _wind_x_pos_layer(level)
-		var wind_x_neg = _wind_x_neg_layer(level)
-		var wind_y_pos = _wind_y_pos_layer(level)
-		var wind_y_neg = _wind_y_neg_layer(level)
-		for layer_name in [wind_x_pos, wind_x_neg, wind_y_pos, wind_y_neg]:
-			_current_wind_layers[layer_name] = true
-			_grid_system.clear_layer(layer_name)
-		for y in range(dims.y):
-			for x in range(dims.x):
-				var world = _grid_system.cell_to_world_level(x, y, 0)
-				var world_pos = Vector3(world.x, 0.0, world.y)
-				var pressure_gradient = _pressure_gradient(world_pos, level)
-				var pg_force = pressure_gradient * (0.85 + float(level) * 0.1)
-				var valley_dir = _valley_axis(world)
-				var valley_align = valley_dir.dot(_base_direction)
-				var valley_channel_force = valley_dir * valley_align * (0.2 + float(level) * 0.05)
-				var terrain_drag = clampf(0.25 + absf(_terrain_height(world)) * 0.35, 0.2, 0.8)
-				var base = _base_direction * (_base_intensity * _base_speed)
-				var wind = (base + pg_force + valley_channel_force) * (1.0 - terrain_drag * 0.35)
-				var prev = sample_wind(world_pos)
-				var relaxed = prev.lerp(wind, clampf(0.15 * delta + 0.08, 0.05, 0.35))
-				if relaxed.x >= 0.0:
-					_grid_system.deposit(wind_x_pos, world_pos, relaxed.x)
-				else:
-					_grid_system.deposit(wind_x_neg, world_pos, -relaxed.x)
-				if relaxed.y >= 0.0:
-					_grid_system.deposit(wind_y_pos, world_pos, relaxed.y)
-				else:
-					_grid_system.deposit(wind_y_neg, world_pos, -relaxed.y)
-
-func _pressure_gradient(world_position: Vector3, level: int) -> Vector2:
-	var offset = maxf(0.2, float(_grid_config.get("cell_size")) * (1.0 + float(level) * 0.4))
-	var east = _grid_system.sample_layer_at_world(_temp_layer(level), world_position + Vector3(offset, 0.0, 0.0))
-	var west = _grid_system.sample_layer_at_world(_temp_layer(level), world_position - Vector3(offset, 0.0, 0.0))
-	var north = _grid_system.sample_layer_at_world(_temp_layer(level), world_position + Vector3(0.0, 0.0, offset))
-	var south = _grid_system.sample_layer_at_world(_temp_layer(level), world_position - Vector3(0.0, 0.0, offset))
-	var dtx = east - west
-	var dty = north - south
-	# Warm air lowers pressure: wind accelerates toward lower pressure (toward warmer gradient).
-	return Vector2(dtx, dty) * 0.5
-
-func _detail_level_for_position(world_position: Vector3) -> int:
-	var ridge = absf(_ridge_signal(Vector2(world_position.x, world_position.z)))
-	var valley = 1.0 - ridge
-	if valley > 0.72:
-		return 2
-	if valley > 0.45:
-		return 1
-	return 0
-
-func _initial_temp(world_position: Vector3) -> float:
-	var world2 = Vector2(world_position.x, world_position.z)
-	var large_scale = 0.5 + 0.18 * sin((world2.x + _terrain_seed) * 0.045)
-	var small_scale = 0.14 * cos((world2.y - _terrain_seed) * 0.08)
-	var terrain = _terrain_height(world2)
-	return clampf(large_scale + small_scale - 0.22 * terrain, 0.05, 1.0)
-
-func _terrain_height(world: Vector2) -> float:
-	return sin((world.x + _terrain_seed) * 0.11) * 0.55 + cos((world.y - _terrain_seed) * 0.13) * 0.45
-
-func _valley_axis(world: Vector2) -> Vector2:
-	var angle = sin((world.x + _terrain_seed) * 0.09) * 1.3 + cos((world.y - _terrain_seed) * 0.07) * 0.9
-	return Vector2(cos(angle), sin(angle)).normalized()
-
-func _ridge_signal(world: Vector2) -> float:
-	return sin((world.x + _terrain_seed) * 0.11) * 0.55 + cos((world.y - _terrain_seed) * 0.13) * 0.45
-
-func _temp_layer(level: int) -> String:
-	return "%s%d" % [TEMP_LAYER_PREFIX, level]
-
-func _wind_x_pos_layer(level: int) -> String:
-	return "%s%d" % [WIND_X_POS_LAYER_PREFIX, level]
-
-func _wind_x_neg_layer(level: int) -> String:
-	return "%s%d" % [WIND_X_NEG_LAYER_PREFIX, level]
-
-func _wind_y_pos_layer(level: int) -> String:
-	return "%s%d" % [WIND_Y_POS_LAYER_PREFIX, level]
-
-func _wind_y_neg_layer(level: int) -> String:
-	return "%s%d" % [WIND_Y_NEG_LAYER_PREFIX, level]
-
-func build_debug_vectors(max_cells: int = 220, min_speed: float = 0.03) -> Array[Dictionary]:
+func build_debug_vectors(max_cells: int = 260, min_speed: float = 0.03) -> Array[Dictionary]:
 	var rows: Array[Dictionary] = []
-	var dims = _grid_dims()
-	var stride = maxi(1, int(ceil(float(maxi(dims.x, dims.y)) / 24.0)))
-	for y in range(0, dims.y, stride):
-		for x in range(0, dims.x, stride):
-			var world = _grid_system.cell_to_world_level(x, y, 0)
-			var world_pos = Vector3(world.x, 0.0, world.y)
-			var wind = sample_wind(world_pos)
-			var speed = wind.length()
-			if speed < min_speed:
-				continue
-			var temperature = sample_temperature(world_pos)
-			rows.append({
-				"key": "%d_%d" % [x, y],
-				"world": Vector3(world.x, 0.15, world.y),
-				"wind": wind,
-				"speed": speed,
-				"temperature": temperature,
-			})
+	for voxel_variant in _grid.sort_voxel_keys(_wind.keys()):
+		var voxel: Vector3i = voxel_variant
+		var wind: Vector2 = _wind.get(voxel, Vector2.ZERO)
+		var speed := wind.length()
+		if speed < min_speed:
+			continue
+		rows.append({
+			"voxel": voxel,
+			"world": _grid.voxel_to_world(voxel),
+			"wind": wind,
+			"speed": speed,
+			"temperature": float(_temperature.get(voxel, 0.0)),
+		})
 	if rows.size() <= max_cells:
 		return rows
 	rows.sort_custom(func(a, b): return float(a.get("speed", 0.0)) > float(b.get("speed", 0.0)))
 	rows.resize(max_cells)
 	return rows
 
-func _grid_dims() -> Vector2i:
-	var snap: Dictionary = _grid_system.snapshot()
-	var grid: Dictionary = snap.get("grid", {})
-	return Vector2i(maxi(1, int(grid.get("width", 1))), maxi(1, int(grid.get("height", 1))))
+func build_temperature_cells(max_cells: int = 520, min_temperature: float = 0.02) -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	for voxel_variant in _grid.sort_voxel_keys(_temperature.keys()):
+		var voxel: Vector3i = voxel_variant
+		var temp := float(_temperature.get(voxel, 0.0))
+		if temp < min_temperature:
+			continue
+		rows.append({
+			"voxel": voxel,
+			"world": _grid.voxel_to_world(voxel),
+			"temperature": temp,
+		})
+	if rows.size() <= max_cells:
+		return rows
+	rows.sort_custom(func(a, b): return float(a.get("temperature", 0.0)) > float(b.get("temperature", 0.0)))
+	rows.resize(max_cells)
+	return rows
+
+func snapshot() -> Dictionary:
+	var temp_rows: Array[Dictionary] = []
+	for voxel_variant in _grid.sort_voxel_keys(_temperature.keys()):
+		var voxel: Vector3i = voxel_variant
+		temp_rows.append({"x": voxel.x, "y": voxel.y, "z": voxel.z, "t": float(_temperature[voxel])})
+	var wind_rows: Array[Dictionary] = []
+	for voxel_variant in _grid.sort_voxel_keys(_wind.keys()):
+		var voxel: Vector3i = voxel_variant
+		var w: Vector2 = _wind[voxel]
+		wind_rows.append({"x": voxel.x, "y": voxel.y, "z": voxel.z, "wx": w.x, "wz": w.y})
+	return {
+		"mode": "sparse_voxel",
+		"half_extent": _grid.half_extent(),
+		"voxel_size": _grid.voxel_size(),
+		"temperature": temp_rows,
+		"wind": wind_rows,
+	}
+
+func _temperature_gradient(voxel: Vector3i, temperature_map: Dictionary) -> Vector2:
+	var east := float(temperature_map.get(Vector3i(voxel.x + 1, 0, voxel.z), temperature_map.get(voxel, 0.0)))
+	var west := float(temperature_map.get(Vector3i(voxel.x - 1, 0, voxel.z), temperature_map.get(voxel, 0.0)))
+	var north := float(temperature_map.get(Vector3i(voxel.x, 0, voxel.z + 1), temperature_map.get(voxel, 0.0)))
+	var south := float(temperature_map.get(Vector3i(voxel.x, 0, voxel.z - 1), temperature_map.get(voxel, 0.0)))
+	return Vector2((east - west) * 0.5, (north - south) * 0.5)
+
+func _initial_temp(voxel: Vector3i) -> float:
+	var p := Vector2(float(voxel.x), float(voxel.z))
+	var large_scale := 0.5 + 0.16 * sin((p.x + _terrain_seed) * 0.11)
+	var small_scale := 0.12 * cos((p.y - _terrain_seed) * 0.14)
+	return clampf(large_scale + small_scale - _terrain_height(voxel) * 0.2, 0.05, 1.0)
+
+func _terrain_height(voxel: Vector3i) -> float:
+	var x := float(voxel.x)
+	var z := float(voxel.z)
+	return sin((x + _terrain_seed) * 0.15) * 0.55 + cos((z - _terrain_seed) * 0.17) * 0.45
+
+func _valley_axis(voxel: Vector3i) -> Vector2:
+	var x := float(voxel.x)
+	var z := float(voxel.z)
+	var angle := sin((x + _terrain_seed) * 0.12) * 1.15 + cos((z - _terrain_seed) * 0.1) * 0.85
+	return Vector2(cos(angle), sin(angle)).normalized()

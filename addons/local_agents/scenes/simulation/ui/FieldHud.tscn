@@ -1,0 +1,127 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/ui/FieldHud.gd" id="1_hud"]
+
+[node name="FieldHud" type="CanvasLayer"]
+script = ExtResource("1_hud")
+
+[node name="RootControl" type="Control" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+
+[node name="InspectorPanel" type="PanelContainer" parent="RootControl"]
+anchors_preset = 9
+anchor_left = 0.74
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -8.0
+offset_top = 8.0
+offset_right = -8.0
+offset_bottom = -96.0
+grow_horizontal = 0
+grow_vertical = 2
+
+[node name="InspectorMargin" type="MarginContainer" parent="RootControl/InspectorPanel"]
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="InspectorVBox" type="VBoxContainer" parent="RootControl/InspectorPanel/InspectorMargin"]
+
+[node name="InspectorTitle" type="Label" parent="RootControl/InspectorPanel/InspectorMargin/InspectorVBox" unique_name_in_owner=true]
+text = "Inspector"
+
+[node name="InspectorText" type="RichTextLabel" parent="RootControl/InspectorPanel/InspectorMargin/InspectorVBox" unique_name_in_owner=true]
+size_flags_vertical = 3
+bbcode_enabled = false
+scroll_active = true
+text = "Click an actor to view details."
+
+[node name="BottomPanel" type="PanelContainer" parent="RootControl"]
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -130.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="BottomMargin" type="MarginContainer" parent="RootControl/BottomPanel"]
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 8
+
+[node name="BottomVBox" type="VBoxContainer" parent="RootControl/BottomPanel/BottomMargin"]
+
+[node name="ControlsRow" type="HBoxContainer" parent="RootControl/BottomPanel/BottomMargin/BottomVBox"]
+
+[node name="SelectButton" type="Button" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/ControlsRow" unique_name_in_owner=true]
+toggle_mode = true
+button_pressed = true
+text = "Select"
+
+[node name="SpawnPlantButton" type="Button" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/ControlsRow" unique_name_in_owner=true]
+toggle_mode = true
+text = "Spawn Plant"
+
+[node name="SpawnRabbitButton" type="Button" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/ControlsRow" unique_name_in_owner=true]
+toggle_mode = true
+text = "Spawn Rabbit"
+
+[node name="Spacer" type="VSeparator" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/ControlsRow"]
+
+[node name="PlantsLabel" type="Label" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/ControlsRow"]
+text = "Plants"
+
+[node name="RandomPlantsSpinBox" type="SpinBox" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/ControlsRow" unique_name_in_owner=true]
+min_value = 0.0
+max_value = 200.0
+value = 20.0
+custom_arrow_step = 1.0
+
+[node name="RabbitsLabel" type="Label" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/ControlsRow"]
+text = "Rabbits"
+
+[node name="RandomRabbitsSpinBox" type="SpinBox" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/ControlsRow" unique_name_in_owner=true]
+min_value = 0.0
+max_value = 100.0
+value = 6.0
+custom_arrow_step = 1.0
+
+[node name="SpawnRandomButton" type="Button" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/ControlsRow" unique_name_in_owner=true]
+text = "Spawn Random"
+
+[node name="DebugRow" type="HBoxContainer" parent="RootControl/BottomPanel/BottomMargin/BottomVBox"]
+
+[node name="DebugLabel" type="Label" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/DebugRow"]
+text = "Debug"
+
+[node name="ShowSmellCheck" type="CheckButton" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/DebugRow" unique_name_in_owner=true]
+button_pressed = true
+text = "Smell"
+
+[node name="ShowWindCheck" type="CheckButton" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/DebugRow" unique_name_in_owner=true]
+button_pressed = true
+text = "Wind"
+
+[node name="ShowTempCheck" type="CheckButton" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/DebugRow" unique_name_in_owner=true]
+button_pressed = true
+text = "Temp"
+
+[node name="SmellLayerLabel" type="Label" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/DebugRow"]
+text = "Smell Layer"
+
+[node name="SmellLayerOption" type="OptionButton" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/DebugRow" unique_name_in_owner=true]
+size_flags_horizontal = 3
+
+[node name="StatusLabel" type="Label" parent="RootControl/BottomPanel/BottomMargin/BottomVBox" unique_name_in_owner=true]
+text = "Status"
+
+[node name="MetricsLabel" type="Label" parent="RootControl/BottomPanel/BottomMargin/BottomVBox"]
+text = "Metrics"

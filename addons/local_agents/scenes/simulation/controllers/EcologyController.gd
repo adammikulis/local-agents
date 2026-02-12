@@ -4,14 +4,12 @@ const PlantScene = preload("res://addons/local_agents/scenes/simulation/actors/E
 const RabbitScene = preload("res://addons/local_agents/scenes/simulation/actors/RabbitSphere.tscn")
 const SmellFieldSystemScript = preload("res://addons/local_agents/simulation/SmellFieldSystem.gd")
 const WindFieldSystemScript = preload("res://addons/local_agents/simulation/WindFieldSystem.gd")
-const GridConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/GridConfigResource.gd")
 
 @export var initial_plant_count: int = 14
 @export var initial_rabbit_count: int = 4
 @export var world_bounds_radius: float = 8.0
-@export var smell_hex_size: float = 0.55
-@export var grid_config: Resource
-@export var smell_debug_enabled: bool = true
+@export var smell_voxel_size: float = 0.55
+@export var smell_vertical_half_extent: float = 3.0
 @export var smell_emit_interval_seconds: float = 0.65
 @export var smell_base_decay_per_second: float = 0.12
 @export var rain_decay_multiplier: float = 1.9
@@ -20,88 +18,101 @@ const GridConfigResourceScript = preload("res://addons/local_agents/configuratio
 @export var wind_direction: Vector3 = Vector3(1.0, 0.0, 0.0)
 @export_range(0.0, 1.0, 0.01) var wind_intensity: float = 0.0
 @export var wind_speed: float = 1.25
+@export var smell_sim_step_seconds: float = 0.1
+@export var wind_sim_step_seconds: float = 0.2
 @export var rabbit_perceived_danger_threshold: float = 0.14
 @export var rabbit_flee_duration_seconds: float = 3.4
 @export var rabbit_eat_distance: float = 0.24
 @export var seed_spawn_radius: float = 0.42
 
+@export var debug_refresh_seconds: float = 0.3
+@export var debug_max_smell_voxels: int = 260
+@export var debug_max_temp_voxels: int = 320
+@export var debug_max_wind_vectors: int = 180
+
 @onready var plant_root: Node3D = $PlantRoot
 @onready var rabbit_root: Node3D = $RabbitRoot
 
-var _debug_overlay: Node3D = null
-var _smell_debug_root: Node3D = null
-var _wind_debug_root: Node3D = null
-var _temperature_debug_root: Node3D = null
+var _sim_time_seconds: float = 0.0
 var _smell_emit_accumulator: float = 0.0
+var _smell_step_accumulator: float = 0.0
+var _wind_step_accumulator: float = 0.0
+var _smell_source_refresh_accumulator: float = 0.0
+var _debug_accumulator: float = 0.0
 var _seed_sequence: int = 0
+var _rabbit_sequence: int = 0
+var _smell_sources: Array[Node] = []
+var _edible_plants_by_voxel: Dictionary = {}
 var _smell_field
 var _wind_field
-var _smell_debug_nodes: Dictionary = {}
-var _wind_debug_nodes: Dictionary = {}
-var _temperature_debug_nodes: Dictionary = {}
-var _smell_field_texture: ImageTexture = null
-var _sim_time_seconds: float = 0.0
+var _living_entity_profiles: Array = []
+
+var _debug_overlay: Node3D
+var _debug_smell_root: Node3D
+var _debug_wind_root: Node3D
+var _debug_temperature_root: Node3D
+
+var _debug_voxel_mesh: BoxMesh
+var _debug_arrow_mesh: BoxMesh
+var _debug_voxel_material: StandardMaterial3D
+var _debug_arrow_material: StandardMaterial3D
+var _debug_show_smell: bool = true
+var _debug_show_wind: bool = true
+var _debug_show_temperature: bool = true
+var _debug_smell_layer: String = "all"
 
 func _ready() -> void:
 	_smell_field = SmellFieldSystemScript.new()
 	_wind_field = WindFieldSystemScript.new()
-	if grid_config == null:
-		grid_config = GridConfigResourceScript.new()
-		grid_config.set("grid_layout", "hex_pointy")
-		grid_config.set("half_extent", world_bounds_radius)
-		grid_config.set("cell_size", smell_hex_size)
-	_smell_field.configure_from_grid(grid_config)
-	_wind_field.configure_from_grid(grid_config)
+	_smell_field.configure(world_bounds_radius, smell_voxel_size, smell_vertical_half_extent)
+	_wind_field.configure(world_bounds_radius, smell_voxel_size, smell_vertical_half_extent)
 	_wind_field.set_global_wind(wind_direction, wind_intensity, wind_speed)
+	_ensure_debug_resources()
 	_spawn_initial_plants(initial_plant_count)
 	_spawn_initial_rabbits(initial_rabbit_count)
-	_update_smell_field_texture()
-
-func spawn_plant_at(world_position: Vector3, initial_growth_ratio: float = 0.0) -> Node3D:
-	var plant = PlantScene.instantiate()
-	plant_root.add_child(plant)
-	plant.global_position = _clamp_to_field(world_position, 0.14)
-	if plant.has_method("set_initial_growth_ratio"):
-		plant.call("set_initial_growth_ratio", initial_growth_ratio)
-	return plant
-
-func spawn_rabbit_at(world_position: Vector3) -> Node3D:
-	var rabbit = RabbitScene.instantiate()
-	rabbit.rabbit_id = "rabbit_%d" % int(Time.get_ticks_usec() % 10000000)
-	rabbit_root.add_child(rabbit)
-	rabbit.global_position = _clamp_to_field(world_position, 0.18)
-	rabbit.seed_dropped.connect(_on_rabbit_seed_dropped)
-	return rabbit
-
-func spawn_random(plants: int, rabbits: int) -> void:
-	for i in range(maxi(0, plants)):
-		_seed_sequence += 1
-		spawn_plant_at(_deterministic_spawn_point(_seed_sequence, world_bounds_radius * 0.95), float((_seed_sequence + i) % 6) / 6.0)
-	for j in range(maxi(0, rabbits)):
-		_seed_sequence += 1
-		spawn_rabbit_at(_deterministic_spawn_point(_seed_sequence * 2, world_bounds_radius * 0.75))
+	_refresh_smell_sources()
+	_rebuild_edible_plant_index()
 
 func _physics_process(delta: float) -> void:
 	if delta <= 0.0:
 		return
 	_sim_time_seconds += delta
 	_step_plants(delta)
+	_rebuild_edible_plant_index()
 	_emit_smell(delta)
 	_step_smell_field(delta)
-	_step_rabbits(delta)
-	_sync_debug_visibility()
-	_refresh_smell_debug()
-	_refresh_wind_temperature_debug()
-	_update_smell_field_texture()
+	_step_mammals(delta)
+	_refresh_living_entity_profiles()
+	_update_debug(delta)
 
 func set_debug_overlay(overlay: Node3D) -> void:
 	_debug_overlay = overlay
-	if overlay != null and overlay.has_node("SmellDebug"):
-		_smell_debug_root = overlay.get_node("SmellDebug")
-	if overlay != null and overlay.has_node("WindDebug"):
-		_wind_debug_root = overlay.get_node("WindDebug")
-	if overlay != null and overlay.has_node("TemperatureDebug"):
-		_temperature_debug_root = overlay.get_node("TemperatureDebug")
+	if _debug_overlay == null:
+		return
+	_debug_smell_root = _debug_overlay.get_node_or_null("SmellDebug")
+	_debug_wind_root = _debug_overlay.get_node_or_null("WindDebug")
+	_debug_temperature_root = _debug_overlay.get_node_or_null("TemperatureDebug")
+	_clear_debug_children(_debug_smell_root)
+	_clear_debug_children(_debug_wind_root)
+	_clear_debug_children(_debug_temperature_root)
+	_apply_debug_visibility()
+
+func apply_debug_settings(settings: Dictionary) -> void:
+	_debug_show_smell = bool(settings.get("show_smell", _debug_show_smell))
+	_debug_show_wind = bool(settings.get("show_wind", _debug_show_wind))
+	_debug_show_temperature = bool(settings.get("show_temperature", _debug_show_temperature))
+	_debug_smell_layer = String(settings.get("smell_layer", _debug_smell_layer)).to_lower().strip_edges()
+	if _debug_smell_layer == "":
+		_debug_smell_layer = "all"
+	_apply_debug_visibility()
+
+func _apply_debug_visibility() -> void:
+	if _debug_smell_root != null:
+		_debug_smell_root.visible = _debug_show_smell
+	if _debug_wind_root != null:
+		_debug_wind_root.visible = _debug_show_wind
+	if _debug_temperature_root != null:
+		_debug_temperature_root.visible = _debug_show_temperature
 
 func set_rain_intensity(next_rain_intensity: float) -> void:
 	rain_intensity = clampf(next_rain_intensity, 0.0, 1.0)
@@ -113,32 +124,49 @@ func set_wind(next_direction: Vector3, next_intensity: float, enabled: bool = tr
 	if _wind_field != null:
 		_wind_field.set_global_wind(wind_direction, wind_intensity if wind_enabled else 0.0, wind_speed)
 
-func smell_field_texture() -> ImageTexture:
-	return _smell_field_texture
+func spawn_plant_at(world_position: Vector3, initial_growth_ratio: float = 0.0) -> Node3D:
+	var plant = PlantScene.instantiate()
+	plant_root.add_child(plant)
+	plant.global_position = _clamp_to_field(world_position, 0.14)
+	if plant.has_method("set_initial_growth_ratio"):
+		plant.call("set_initial_growth_ratio", initial_growth_ratio)
+	return plant
+
+func spawn_rabbit_at(world_position: Vector3) -> Node3D:
+	_rabbit_sequence += 1
+	var rabbit = RabbitScene.instantiate()
+	rabbit.rabbit_id = "rabbit_%d" % _rabbit_sequence
+	rabbit_root.add_child(rabbit)
+	rabbit.global_position = _clamp_to_field(world_position, 0.18)
+	rabbit.seed_dropped.connect(_on_rabbit_seed_dropped)
+	return rabbit
+
+func spawn_random(plants: int, rabbits: int) -> void:
+	for i in range(maxi(0, plants)):
+		_seed_sequence += 1
+		spawn_plant_at(_deterministic_spawn_point(_seed_sequence, world_bounds_radius * 0.95), float((_seed_sequence + i) % 6) / 6.0)
+	for _j in range(maxi(0, rabbits)):
+		_seed_sequence += 1
+		spawn_rabbit_at(_deterministic_spawn_point(_seed_sequence * 2, world_bounds_radius * 0.75))
+	_rebuild_edible_plant_index()
+	_refresh_smell_sources()
 
 func clear_generated() -> void:
 	for child in plant_root.get_children():
 		child.queue_free()
 	for child in rabbit_root.get_children():
 		child.queue_free()
-	for key in _smell_debug_nodes.keys():
-		var node = _smell_debug_nodes[key]
-		if is_instance_valid(node):
-			node.queue_free()
-	_smell_debug_nodes.clear()
-	for key in _wind_debug_nodes.keys():
-		var wind_node = _wind_debug_nodes[key]
-		if is_instance_valid(wind_node):
-			wind_node.queue_free()
-	_wind_debug_nodes.clear()
-	for key in _temperature_debug_nodes.keys():
-		var temp_node = _temperature_debug_nodes[key]
-		if is_instance_valid(temp_node):
-			temp_node.queue_free()
-	_temperature_debug_nodes.clear()
+	_edible_plants_by_voxel.clear()
+	_smell_sources.clear()
 	if _smell_field != null:
 		_smell_field.clear()
-	_update_smell_field_texture()
+	_clear_debug_children(_debug_smell_root)
+	_clear_debug_children(_debug_wind_root)
+	_clear_debug_children(_debug_temperature_root)
+	_living_entity_profiles.clear()
+
+func collect_living_entity_profiles() -> Array:
+	return _living_entity_profiles.duplicate(true)
 
 func _spawn_initial_plants(count: int) -> void:
 	for i in range(count):
@@ -149,72 +177,150 @@ func _spawn_initial_plants(count: int) -> void:
 func _spawn_initial_rabbits(count: int) -> void:
 	for i in range(count):
 		var angle := TAU * float(i) / float(maxi(1, count))
-		var rabbit = spawn_rabbit_at(Vector3(cos(angle) * 1.8, 0.18, sin(angle) * 1.8))
-		rabbit.rabbit_id = "rabbit_%d" % i
+		spawn_rabbit_at(Vector3(cos(angle) * 1.8, 0.18, sin(angle) * 1.8))
 
 func _step_plants(delta: float) -> void:
 	for plant in plant_root.get_children():
 		if is_instance_valid(plant) and plant.has_method("simulation_step"):
 			plant.call("simulation_step", delta)
 
+func _rebuild_edible_plant_index() -> void:
+	_edible_plants_by_voxel.clear()
+	if _smell_field == null:
+		return
+	for plant in plant_root.get_children():
+		if not is_instance_valid(plant):
+			continue
+		if not plant.has_method("is_edible") or not bool(plant.call("is_edible")):
+			continue
+		var voxel: Vector3i = _smell_field.world_to_voxel(plant.global_position)
+		if voxel == Vector3i(2147483647, 2147483647, 2147483647):
+			continue
+		var key := _voxel_key(voxel)
+		var bucket: Array = _edible_plants_by_voxel.get(key, [])
+		bucket.append(plant)
+		_edible_plants_by_voxel[key] = bucket
+
 func _emit_smell(delta: float) -> void:
 	_smell_emit_accumulator += delta
+	_smell_source_refresh_accumulator += delta
+	if _smell_source_refresh_accumulator >= 1.0:
+		_smell_source_refresh_accumulator = 0.0
+		_refresh_smell_sources()
 	if _smell_emit_accumulator < smell_emit_interval_seconds:
 		return
 	_smell_emit_accumulator = 0.0
-	for source in get_tree().get_nodes_in_group("living_smell_source"):
-		if not is_instance_valid(source) or not source.has_method("get_smell_source_payload"):
+	for source in _smell_sources:
+		if not is_instance_valid(source):
+			continue
+		if source.has_method("can_emit_smell") and not bool(source.call("can_emit_smell")):
+			continue
+		if not source.has_method("get_smell_source_payload"):
 			continue
 		var payload: Dictionary = source.call("get_smell_source_payload")
 		if payload.is_empty():
 			continue
-		_smell_field.deposit(
-			String(payload.get("kind", "")),
-			Vector3(payload.get("position", Vector3.ZERO)),
-			float(payload.get("strength", 0.0))
-		)
+		var position := Vector3(payload.get("position", Vector3.ZERO))
+		var base_strength := float(payload.get("strength", 0.0))
+		var chemicals_variant = payload.get("chemicals", null)
+		if chemicals_variant is Dictionary:
+			var chemicals: Dictionary = chemicals_variant
+			for chem_name_variant in chemicals.keys():
+				var chem_name := String(chem_name_variant)
+				var concentration := float(chemicals[chem_name_variant])
+				_smell_field.deposit_chemical(chem_name, position, base_strength * concentration)
+		else:
+			_smell_field.deposit(String(payload.get("kind", "")), position, base_strength)
+
+func _refresh_smell_sources() -> void:
+	_smell_sources.clear()
+	for node in get_tree().get_nodes_in_group("living_smell_source"):
+		if node is Node:
+			_smell_sources.append(node)
 
 func _step_smell_field(delta: float) -> void:
-	var wind_source: Variant = Vector2.ZERO
-	if wind_enabled and wind_intensity > 0.0 and _wind_field != null:
-		_wind_field.set_global_wind(wind_direction, wind_intensity, wind_speed)
-		var diurnal_phase = fmod(_sim_time_seconds / 24.0, TAU)
-		_wind_field.step(delta, 0.52, diurnal_phase, rain_intensity)
-		wind_source = Callable(_wind_field, "sample_wind")
-	_smell_field.step(delta, wind_source, smell_base_decay_per_second, rain_intensity, rain_decay_multiplier)
+	_smell_step_accumulator += delta
+	while _smell_step_accumulator >= smell_sim_step_seconds:
+		_smell_step_accumulator -= smell_sim_step_seconds
+		var wind_source: Variant = Vector2.ZERO
+		if wind_enabled and wind_intensity > 0.0 and _wind_field != null:
+			_wind_step_accumulator += smell_sim_step_seconds
+			if _wind_step_accumulator >= wind_sim_step_seconds:
+				var wind_delta := _wind_step_accumulator
+				_wind_step_accumulator = 0.0
+				_wind_field.set_global_wind(wind_direction, wind_intensity, wind_speed)
+				var diurnal_phase := fmod(_sim_time_seconds / 24.0, TAU)
+				_wind_field.step(wind_delta, 0.52, diurnal_phase, rain_intensity)
+			wind_source = Callable(_wind_field, "sample_wind")
+		_smell_field.step(smell_sim_step_seconds, wind_source, smell_base_decay_per_second, rain_intensity, rain_decay_multiplier)
 
-func _step_rabbits(delta: float) -> void:
-	for rabbit in rabbit_root.get_children():
-		if not is_instance_valid(rabbit):
+func _step_mammals(delta: float) -> void:
+	for mammal in get_tree().get_nodes_in_group("mammal_actor"):
+		if not is_instance_valid(mammal):
 			continue
-		var danger: Dictionary = _smell_field.perceived_danger(rabbit.global_position)
-		if float(danger.get("score", 0.0)) >= rabbit_perceived_danger_threshold:
-			var danger_pos = danger.get("position", null)
-			if danger_pos != null:
-				rabbit.trigger_flee(danger_pos, rabbit_flee_duration_seconds)
-		elif not rabbit.is_fleeing():
-			var food = _smell_field.strongest_food_position(rabbit.global_position)
-			if food != null:
-				rabbit.set_food_target(food)
-			else:
-				rabbit.clear_food_target()
-		rabbit.simulation_step(delta)
-		_try_eat_nearby_plant(rabbit)
-		_keep_inside_bounds(rabbit)
+		var can_smell_entity := true
+		if mammal.has_method("can_smell"):
+			can_smell_entity = bool(mammal.call("can_smell"))
+		if can_smell_entity:
+			var danger_radius := 4
+			if mammal.has_method("get_danger_smell_radius_cells"):
+				danger_radius = int(mammal.call("get_danger_smell_radius_cells"))
+			var danger_weights: Dictionary = {}
+			if mammal.has_method("get_danger_chemical_weights"):
+				danger_weights = mammal.call("get_danger_chemical_weights")
+			var danger = _smell_field.strongest_weighted_chemical_score(mammal.global_position, danger_weights, danger_radius)
+			var danger_threshold := rabbit_perceived_danger_threshold
+			if mammal.has_method("get_danger_threshold"):
+				danger_threshold = float(mammal.call("get_danger_threshold"))
+			if float(danger.get("score", 0.0)) >= danger_threshold:
+				var danger_pos = danger.get("position", null)
+				if danger_pos != null and mammal.has_method("trigger_flee"):
+					mammal.trigger_flee(danger_pos, rabbit_flee_duration_seconds)
+			elif (not mammal.has_method("is_fleeing")) or (not bool(mammal.call("is_fleeing"))):
+				var food_radius := 8
+				if mammal.has_method("get_food_smell_radius_cells"):
+					food_radius = int(mammal.call("get_food_smell_radius_cells"))
+				var food_weights: Dictionary = {}
+				if mammal.has_method("get_food_chemical_weights"):
+					food_weights = mammal.call("get_food_chemical_weights")
+				var food = _smell_field.strongest_weighted_chemical_position(mammal.global_position, food_weights, food_radius)
+				if food != null and mammal.has_method("set_food_target"):
+					mammal.set_food_target(food)
+				elif mammal.has_method("clear_food_target"):
+					mammal.clear_food_target()
+		elif mammal.has_method("clear_food_target"):
+			mammal.clear_food_target()
+
+		if mammal.has_method("simulation_step"):
+			mammal.simulation_step(delta)
+		_try_eat_nearby_plant(mammal)
+		if mammal.has_method("global_position"):
+			_keep_inside_bounds(mammal)
 
 func _try_eat_nearby_plant(rabbit: Node3D) -> void:
-	for plant in plant_root.get_children():
-		if not is_instance_valid(plant) or not plant.has_method("is_edible"):
-			continue
-		if not bool(plant.call("is_edible")):
-			continue
-		var distance := rabbit.global_position.distance_to(plant.global_position)
-		if distance > rabbit_eat_distance:
-			continue
-		var seeds := int(plant.call("consume"))
-		if seeds > 0 and rabbit.has_method("ingest_seeds"):
-			rabbit.call("ingest_seeds", seeds)
+	if _smell_field == null:
 		return
+	var rabbit_voxel: Vector3i = _smell_field.world_to_voxel(rabbit.global_position)
+	if rabbit_voxel == Vector3i(2147483647, 2147483647, 2147483647):
+		return
+	for z_offset in range(-1, 2):
+		for y_offset in range(-1, 2):
+			for x_offset in range(-1, 2):
+				var key := _voxel_key(Vector3i(rabbit_voxel.x + x_offset, rabbit_voxel.y + y_offset, rabbit_voxel.z + z_offset))
+				if not _edible_plants_by_voxel.has(key):
+					continue
+				var bucket: Array = _edible_plants_by_voxel[key]
+				for plant in bucket:
+					if not is_instance_valid(plant):
+						continue
+					if not plant.has_method("is_edible") or not bool(plant.call("is_edible")):
+						continue
+					if rabbit.global_position.distance_to(plant.global_position) > rabbit_eat_distance:
+						continue
+					var seeds := int(plant.call("consume"))
+					if seeds > 0 and rabbit.has_method("ingest_seeds"):
+						rabbit.call("ingest_seeds", seeds)
+					return
 
 func _on_rabbit_seed_dropped(rabbit_id: String, count: int) -> void:
 	var rabbit = _find_rabbit_by_id(rabbit_id)
@@ -226,6 +332,22 @@ func _on_rabbit_seed_dropped(rabbit_id: String, count: int) -> void:
 		var radius := 0.12 + (seed_spawn_radius * (float((_seed_sequence + i) % 7) / 7.0))
 		var spawn_offset := Vector3(cos(spawn_angle) * radius, 0.14, sin(spawn_angle) * radius)
 		spawn_plant_at(rabbit.global_position + spawn_offset, 0.0)
+	_rebuild_edible_plant_index()
+
+func _refresh_living_entity_profiles() -> void:
+	_living_entity_profiles.clear()
+	for node in get_tree().get_nodes_in_group("living_creature"):
+		if not is_instance_valid(node):
+			continue
+		if not node.has_method("get_living_entity_profile"):
+			continue
+		var payload_variant = node.call("get_living_entity_profile")
+		if not (payload_variant is Dictionary):
+			continue
+		var payload = payload_variant as Dictionary
+		if payload.is_empty():
+			continue
+		_living_entity_profiles.append(payload.duplicate(true))
 
 func _find_rabbit_by_id(rabbit_id: String) -> Node3D:
 	for rabbit in rabbit_root.get_children():
@@ -235,141 +357,10 @@ func _find_rabbit_by_id(rabbit_id: String) -> Node3D:
 
 func _keep_inside_bounds(rabbit: Node3D) -> void:
 	var planar := Vector2(rabbit.global_position.x, rabbit.global_position.z)
-	var distance := planar.length()
-	if distance <= world_bounds_radius:
+	if planar.length() <= world_bounds_radius:
 		return
 	var clamped := planar.normalized() * world_bounds_radius
 	rabbit.global_position = Vector3(clamped.x, rabbit.global_position.y, clamped.y)
-
-func _refresh_smell_debug() -> void:
-	if _smell_debug_root == null:
-		return
-	var cells: Array = _smell_field.build_debug_cells()
-	var active: Dictionary = {}
-	for cell_variant in cells:
-		var cell: Dictionary = cell_variant
-		var key := String(cell.get("key", ""))
-		active[key] = true
-		var node = _smell_debug_nodes.get(key, null)
-		if node == null or not is_instance_valid(node):
-			node = MeshInstance3D.new()
-			var mesh := SphereMesh.new()
-			mesh.radius = 0.055
-			mesh.height = 0.11
-			node.mesh = mesh
-			var material := StandardMaterial3D.new()
-			material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-			node.material_override = material
-			_smell_debug_root.add_child(node)
-			_smell_debug_nodes[key] = node
-		var total := clampf(float(cell.get("total", 0.0)) / 1.5, 0.0, 1.0)
-		var color := Color(
-			clampf(float(cell.get("danger", 0.0)) / 1.2, 0.0, 1.0),
-			clampf(float(cell.get("food", 0.0)) / 1.2, 0.0, 1.0),
-			clampf(float(cell.get("rabbit", 0.0)) / 1.2, 0.0, 1.0),
-			clampf(0.18 + total * 0.45, 0.0, 0.75)
-		)
-		if node.material_override is StandardMaterial3D:
-			node.material_override.albedo_color = color
-		node.position = Vector3(cell.get("world", Vector3.ZERO))
-	for key in _smell_debug_nodes.keys():
-		if active.has(String(key)):
-			continue
-		var stale = _smell_debug_nodes[key]
-		if is_instance_valid(stale):
-			stale.queue_free()
-		_smell_debug_nodes.erase(key)
-
-func _sync_debug_visibility() -> void:
-	if _smell_debug_root == null:
-		return
-	var visible := smell_debug_enabled
-	if _debug_overlay != null:
-		visible = visible and bool(_debug_overlay.get("show_smell"))
-	_smell_debug_root.visible = visible
-	if _wind_debug_root != null:
-		var show_wind = _debug_overlay == null or bool(_debug_overlay.get("show_wind"))
-		_wind_debug_root.visible = smell_debug_enabled and show_wind
-	if _temperature_debug_root != null:
-		var show_temp = _debug_overlay == null or bool(_debug_overlay.get("show_temperature"))
-		_temperature_debug_root.visible = smell_debug_enabled and show_temp
-
-func _refresh_wind_temperature_debug() -> void:
-	if _wind_field == null:
-		return
-	if _wind_debug_root == null and _temperature_debug_root == null:
-		return
-	var vectors: Array = _wind_field.build_debug_vectors()
-	var active: Dictionary = {}
-	for row_variant in vectors:
-		var row: Dictionary = row_variant
-		var key = String(row.get("key", ""))
-		active[key] = true
-		var world = Vector3(row.get("world", Vector3.ZERO))
-		var wind_vec = Vector2(row.get("wind", Vector2.ZERO))
-		var speed = float(row.get("speed", 0.0))
-		var temp = clampf(float(row.get("temperature", 0.0)), 0.0, 1.0)
-		if _wind_debug_root != null:
-			var wind_node = _wind_debug_nodes.get(key, null)
-			if wind_node == null or not is_instance_valid(wind_node):
-				wind_node = MeshInstance3D.new()
-				var box := BoxMesh.new()
-				box.size = Vector3(0.06, 0.06, 0.52)
-				wind_node.mesh = box
-				var mat := StandardMaterial3D.new()
-				mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-				wind_node.material_override = mat
-				_wind_debug_root.add_child(wind_node)
-				_wind_debug_nodes[key] = wind_node
-			wind_node.position = world
-			var dir = Vector3(wind_vec.x, 0.0, wind_vec.y)
-			if dir.length_squared() > 0.000001:
-				wind_node.look_at(world + dir, Vector3.UP, true)
-			var wind_len = clampf(0.14 + speed * 0.3, 0.14, 0.9)
-			wind_node.scale = Vector3(1.0, 1.0, wind_len)
-			if wind_node.material_override is StandardMaterial3D:
-				wind_node.material_override.albedo_color = Color(0.2, 0.65 + minf(0.35, speed * 0.2), 0.95, 0.9)
-		if _temperature_debug_root != null:
-			var temp_node = _temperature_debug_nodes.get(key, null)
-			if temp_node == null or not is_instance_valid(temp_node):
-				temp_node = MeshInstance3D.new()
-				var sphere := SphereMesh.new()
-				sphere.radius = 0.04
-				sphere.height = 0.08
-				temp_node.mesh = sphere
-				var tmat := StandardMaterial3D.new()
-				tmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-				tmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-				temp_node.material_override = tmat
-				_temperature_debug_root.add_child(temp_node)
-				_temperature_debug_nodes[key] = temp_node
-			temp_node.position = world + Vector3(0.0, 0.12, 0.0)
-			if temp_node.material_override is StandardMaterial3D:
-				temp_node.material_override.albedo_color = Color(temp, 0.15 + (1.0 - temp) * 0.35, 1.0 - temp, 0.68)
-	for key in _wind_debug_nodes.keys():
-		if active.has(String(key)):
-			continue
-		var node = _wind_debug_nodes[key]
-		if is_instance_valid(node):
-			node.queue_free()
-		_wind_debug_nodes.erase(key)
-	for key in _temperature_debug_nodes.keys():
-		if active.has(String(key)):
-			continue
-		var tnode = _temperature_debug_nodes[key]
-		if is_instance_valid(tnode):
-			tnode.queue_free()
-		_temperature_debug_nodes.erase(key)
-
-func _update_smell_field_texture() -> void:
-	if _smell_field == null:
-		return
-	var image: Image = _smell_field.to_image()
-	if _smell_field_texture == null:
-		_smell_field_texture = ImageTexture.create_from_image(image)
-		return
-	_smell_field_texture.update(image)
 
 func _deterministic_spawn_point(sequence: int, max_radius: float) -> Vector3:
 	var angle := float(sequence) * 2.3999632
@@ -383,3 +374,111 @@ func _clamp_to_field(world_position: Vector3, y: float) -> Vector3:
 	if planar.length() > world_bounds_radius:
 		clamped = planar.normalized() * world_bounds_radius
 	return Vector3(clamped.x, y, clamped.y)
+
+func _voxel_key(voxel: Vector3i) -> String:
+	return "%d:%d:%d" % [voxel.x, voxel.y, voxel.z]
+
+func _ensure_debug_resources() -> void:
+	if _debug_voxel_mesh == null:
+		_debug_voxel_mesh = BoxMesh.new()
+		_debug_voxel_mesh.size = Vector3.ONE * (smell_voxel_size * 0.9)
+	if _debug_arrow_mesh == null:
+		_debug_arrow_mesh = BoxMesh.new()
+		_debug_arrow_mesh.size = Vector3(0.08, 0.08, 0.45)
+	if _debug_voxel_material == null:
+		_debug_voxel_material = StandardMaterial3D.new()
+		_debug_voxel_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_debug_voxel_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_debug_voxel_material.albedo_color = Color(1.0, 1.0, 1.0, 0.2)
+	if _debug_arrow_material == null:
+		_debug_arrow_material = StandardMaterial3D.new()
+		_debug_arrow_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_debug_arrow_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_debug_arrow_material.albedo_color = Color(0.85, 0.92, 1.0, 0.35)
+
+func _update_debug(delta: float) -> void:
+	if _debug_overlay == null:
+		return
+	_debug_accumulator += delta
+	if _debug_accumulator < debug_refresh_seconds:
+		return
+	_debug_accumulator = 0.0
+	if _debug_smell_root != null and _debug_smell_root.visible:
+		_render_smell_debug()
+	if _debug_temperature_root != null and _debug_temperature_root.visible:
+		_render_temperature_debug()
+	if _debug_wind_root != null and _debug_wind_root.visible:
+		_render_wind_debug()
+
+func _render_smell_debug() -> void:
+	_clear_debug_children(_debug_smell_root)
+	var budget := maxi(24, debug_max_smell_voxels)
+	match _debug_smell_layer:
+		"food":
+			_draw_voxel_cells(_debug_smell_root, _smell_field.build_layer_cells("chem_cis_3_hexenol", 0.02, budget), Color(0.25, 0.95, 0.28, 0.2), 0.35, 0.12)
+		"floral":
+			_draw_voxel_cells(_debug_smell_root, _smell_field.build_layer_cells("chem_linalool", 0.02, budget), Color(1.0, 0.86, 0.38, 0.2), 0.35, 0.16)
+		"danger":
+			_draw_voxel_cells(_debug_smell_root, _smell_field.build_layer_cells("chem_ammonia", 0.02, budget), Color(1.0, 0.3, 0.3, 0.22), 0.35, 0.22)
+		"hexanal":
+			_draw_voxel_cells(_debug_smell_root, _smell_field.build_layer_cells("chem_hexanal", 0.02, budget), Color(0.45, 0.95, 0.68, 0.2), 0.35, 0.14)
+		"methyl_salicylate":
+			_draw_voxel_cells(_debug_smell_root, _smell_field.build_layer_cells("chem_methyl_salicylate", 0.02, budget), Color(0.95, 0.55, 0.95, 0.22), 0.35, 0.2)
+		_:
+			var food_cells: Array = _smell_field.build_layer_cells("chem_cis_3_hexenol", 0.02, budget / 3)
+			var floral_cells: Array = _smell_field.build_layer_cells("chem_linalool", 0.02, budget / 3)
+			var danger_cells: Array = _smell_field.build_layer_cells("chem_ammonia", 0.02, budget / 3)
+			_draw_voxel_cells(_debug_smell_root, food_cells, Color(0.25, 0.95, 0.28, 0.2), 0.35, 0.1)
+			_draw_voxel_cells(_debug_smell_root, floral_cells, Color(1.0, 0.86, 0.38, 0.2), 0.35, 0.16)
+			_draw_voxel_cells(_debug_smell_root, danger_cells, Color(1.0, 0.3, 0.3, 0.22), 0.35, 0.22)
+
+func _render_temperature_debug() -> void:
+	_clear_debug_children(_debug_temperature_root)
+	var rows: Array = _wind_field.build_temperature_cells(debug_max_temp_voxels, 0.03)
+	for row in rows:
+		var world := Vector3(row.get("world", Vector3.ZERO))
+		var temp := clampf(float(row.get("temperature", 0.0)), 0.0, 1.0)
+		var color := Color(0.15, 0.35, 1.0, 0.16).lerp(Color(1.0, 0.2, 0.18, 0.3), temp)
+		_spawn_debug_voxel(_debug_temperature_root, world + Vector3(0.0, 0.35, 0.0), color)
+
+func _render_wind_debug() -> void:
+	_clear_debug_children(_debug_wind_root)
+	var rows: Array = _wind_field.build_debug_vectors(debug_max_wind_vectors, 0.03)
+	for row in rows:
+		var world := Vector3(row.get("world", Vector3.ZERO)) + Vector3(0.0, 0.48, 0.0)
+		var wind := Vector2(row.get("wind", Vector2.ZERO))
+		var speed := float(row.get("speed", 0.0))
+		if wind.length_squared() <= 0.00001:
+			continue
+		var arrow := MeshInstance3D.new()
+		arrow.mesh = _debug_arrow_mesh
+		arrow.material_override = _debug_arrow_material
+		arrow.global_position = world
+		arrow.look_at(world + Vector3(wind.x, 0.0, wind.y), Vector3.UP)
+		arrow.scale = Vector3(1.0, 1.0, clampf(0.6 + speed * 0.6, 0.6, 1.8))
+		arrow.modulate = Color(0.68, 0.92, 1.0, clampf(0.2 + speed * 0.28, 0.2, 0.55))
+		_debug_wind_root.add_child(arrow)
+
+func _draw_voxel_cells(root: Node3D, rows: Array[Dictionary], base_color: Color, alpha_scalar: float, y_lift: float) -> void:
+	for row in rows:
+		var world := Vector3(row.get("world", Vector3.ZERO)) + Vector3(0.0, y_lift, 0.0)
+		var value := clampf(float(row.get("value", 0.0)), 0.0, 1.0)
+		var color := base_color
+		color.a = clampf(base_color.a + value * alpha_scalar, 0.12, 0.58)
+		_spawn_debug_voxel(root, world, color)
+
+func _spawn_debug_voxel(root: Node3D, world: Vector3, color: Color) -> void:
+	if root == null:
+		return
+	var cube := MeshInstance3D.new()
+	cube.mesh = _debug_voxel_mesh
+	cube.material_override = _debug_voxel_material
+	cube.global_position = world
+	cube.modulate = color
+	root.add_child(cube)
+
+func _clear_debug_children(root: Node3D) -> void:
+	if root == null:
+		return
+	for child in root.get_children():
+		child.queue_free()

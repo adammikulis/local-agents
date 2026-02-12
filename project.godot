@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="LocalAgents"
-run/main_scene="res://addons/local_agents/examples/ChatExample.tscn"
+run/main_scene="res://addons/local_agents/scenes/simulation/PlantRabbitField.tscn"
 config/features=PackedStringArray("4.6", "Mobile")
 config/icon="res://icon.svg"
 
@@ -27,6 +27,6 @@ enabled=PackedStringArray("res://addons/local_agents/plugin.cfg")
 
 editor/enabled=false
 
-[rendering]
+[physics]
 
-renderer/rendering_method="mobile"
+3d/physics_engine="Jolt Physics"

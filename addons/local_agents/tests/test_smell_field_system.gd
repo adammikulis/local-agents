@@ -7,36 +7,36 @@ const StateHasherScript = preload("res://addons/local_agents/simulation/Simulati
 func run_test(_tree: SceneTree) -> bool:
 	var a = SmellFieldSystemScript.new()
 	var b = SmellFieldSystemScript.new()
-	a.configure(8.0, 0.55)
-	b.configure(8.0, 0.55)
+	a.configure(8.0, 0.55, 2.5)
+	b.configure(8.0, 0.55, 2.5)
 
 	for step in range(24):
 		var t = float(step)
 		a.deposit("plant_food", Vector3(cos(t * 0.3) * 2.0, 0.0, sin(t * 0.3) * 2.0), 0.5)
 		a.deposit("rabbit", Vector3(sin(t * 0.2) * 1.1, 0.0, cos(t * 0.2) * 1.1), 0.25)
 		a.deposit("villager", Vector3(1.8, 0.0, -1.4), 0.38)
+		a.deposit_chemical("linalool", Vector3(-1.0, 0.0, 1.2), 0.42)
+		a.deposit_chemical("ammonia", Vector3(0.3, 0.0, -0.7), 0.35)
 		b.deposit("plant_food", Vector3(cos(t * 0.3) * 2.0, 0.0, sin(t * 0.3) * 2.0), 0.5)
 		b.deposit("rabbit", Vector3(sin(t * 0.2) * 1.1, 0.0, cos(t * 0.2) * 1.1), 0.25)
 		b.deposit("villager", Vector3(1.8, 0.0, -1.4), 0.38)
+		b.deposit_chemical("linalool", Vector3(-1.0, 0.0, 1.2), 0.42)
+		b.deposit_chemical("ammonia", Vector3(0.3, 0.0, -0.7), 0.35)
 		a.step(0.2, Vector2(0.35, 0.1), 0.12, 0.15, 1.9)
 		b.step(0.2, Vector2(0.35, 0.1), 0.12, 0.15, 1.9)
 
-	# Trigger adaptive subdivision only when needed (strength above threshold).
-	a.deposit("plant_food", Vector3(0.0, 0.0, 0.0), 1.2)
-	b.deposit("plant_food", Vector3(0.0, 0.0, 0.0), 1.2)
-
 	var hasher = StateHasherScript.new()
-	var field_a: Dictionary = a.call("field").to_dict()
-	var field_b: Dictionary = b.call("field").to_dict()
-	var hierarchy_a: Dictionary = a.call("hierarchy_snapshot")
-	var hash_a = hasher.hash_state(field_a)
-	var hash_b = hasher.hash_state(field_b)
+	var snap_a: Dictionary = a.snapshot()
+	var snap_b: Dictionary = b.snapshot()
+	var hash_a = hasher.hash_state(snap_a)
+	var hash_b = hasher.hash_state(snap_b)
 	if hash_a == "" or hash_a != hash_b:
 		push_error("Smell field deterministic hash mismatch")
 		return false
 
-	if Dictionary(hierarchy_a.get("sparse_layers", {})).is_empty():
-		push_error("Expected sparse LOD layer data after high-strength deposit")
+	var layer_rows: Array = a.build_layer_cells("chem_linalool", 0.01, 100)
+	if layer_rows.is_empty():
+		push_error("Expected linalool voxel layer to have active cells")
 		return false
 
 	var danger_probe: Dictionary = a.perceived_danger(Vector3(0.0, 0.0, 0.0), 5)
