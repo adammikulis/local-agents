@@ -16,6 +16,7 @@ const CORE_TESTS := [
 const RUNTIME_TESTS := [
     "res://addons/local_agents/tests/test_simulation_villager_cognition.gd",
     "res://addons/local_agents/tests/test_simulation_no_empty_generation.gd",
+    "res://addons/local_agents/tests/test_llama_server_e2e.gd",
     "res://addons/local_agents/tests/test_agent_integration.gd",
     "res://addons/local_agents/tests/test_agent_runtime_heavy.gd",
 ]

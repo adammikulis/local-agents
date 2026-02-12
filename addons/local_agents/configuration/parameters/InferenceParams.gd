@@ -25,6 +25,10 @@ class_name LocalAgentsInferenceParams
 @export var server_timeout_sec: int = 120
 @export var server_slot: int = -1
 @export var server_cache_prompt: bool = true
+@export var server_autostart: bool = true
+@export var server_shutdown_on_exit: bool = true
+@export var server_start_timeout_ms: int = 30000
+@export var server_ready_timeout_ms: int = 1200
 @export var server_extra_body: Dictionary = {}
 @export var extra_options: Dictionary = {}
 
@@ -59,6 +63,12 @@ func to_options() -> Dictionary:
     if server_slot >= 0:
         opts["id_slot"] = server_slot
     opts["cache_prompt"] = server_cache_prompt
+    opts["server_autostart"] = server_autostart
+    opts["server_shutdown_on_exit"] = server_shutdown_on_exit
+    if server_start_timeout_ms > 0:
+        opts["server_start_timeout_ms"] = server_start_timeout_ms
+    if server_ready_timeout_ms > 0:
+        opts["server_ready_timeout_ms"] = server_ready_timeout_ms
     if not server_extra_body.is_empty():
         opts["server_extra_body"] = server_extra_body.duplicate(true)
     if seed >= 0:

@@ -579,7 +579,13 @@ String extract_chat_completion_text(const Dictionary &response, Dictionary &firs
                 tool_call_payload = message["tool_calls"];
             }
             if (message.has("content")) {
-                return content_variant_to_text(message["content"]);
+                String content_text = content_variant_to_text(message["content"]);
+                if (!content_text.is_empty()) {
+                    return content_text;
+                }
+            }
+            if (message.has("reasoning_content")) {
+                return message["reasoning_content"];
             }
         }
     }
@@ -589,6 +595,64 @@ String extract_chat_completion_text(const Dictionary &response, Dictionary &firs
     }
 
     return String();
+}
+
+PackedFloat32Array embedding_from_json(const Dictionary &response, bool normalize, String &error_out) {
+    PackedFloat32Array empty;
+
+    Array values;
+    if (response.has("data") && response["data"].get_type() == Variant::ARRAY) {
+        Array data = response["data"];
+        if (!data.is_empty() && data[0].get_type() == Variant::DICTIONARY) {
+            Dictionary first = data[0];
+            if (first.has("embedding") && first["embedding"].get_type() == Variant::ARRAY) {
+                values = first["embedding"];
+            }
+        }
+    } else if (response.has("embedding") && response["embedding"].get_type() == Variant::ARRAY) {
+        values = response["embedding"];
+    }
+
+    if (values.is_empty()) {
+        if (response.has("error")) {
+            Variant err = response["error"];
+            if (err.get_type() == Variant::DICTIONARY) {
+                Dictionary err_dict = err;
+                error_out = err_dict.get("message", String("invalid_embedding_response"));
+            } else {
+                error_out = String("invalid_embedding_response");
+            }
+        } else {
+            error_out = String("invalid_embedding_response");
+        }
+        return empty;
+    }
+
+    empty.resize(values.size());
+    float *out = empty.ptrw();
+    for (int i = 0; i < values.size(); ++i) {
+        Variant v = values[i];
+        if (v.get_type() == Variant::FLOAT || v.get_type() == Variant::INT) {
+            out[i] = static_cast<float>(v);
+        } else {
+            out[i] = 0.0f;
+        }
+    }
+
+    if (normalize) {
+        double norm = 0.0;
+        for (int i = 0; i < empty.size(); ++i) {
+            norm += static_cast<double>(out[i]) * static_cast<double>(out[i]);
+        }
+        norm = std::sqrt(std::max(norm, 1e-12));
+        if (norm > 0.0) {
+            for (int i = 0; i < empty.size(); ++i) {
+                out[i] = static_cast<float>(out[i] / norm);
+            }
+        }
+    }
+
+    return empty;
 }
 
 #ifdef _WIN32
@@ -819,6 +883,75 @@ PackedFloat32Array AgentRuntime::embed_text(const String &text, const Dictionary
         return empty;
     }
 
+    Dictionary resolved = default_options_.duplicate();
+    if (!options.is_empty()) {
+        Array keys = options.keys();
+        for (int i = 0; i < keys.size(); ++i) {
+            Variant key = keys[i];
+            resolved[key] = options[key];
+        }
+    }
+
+    bool normalize = resolved.get("normalize", true);
+    if (is_llama_server_backend(resolved)) {
+        String base_url = resolved.get("server_base_url", resolved.get("base_url", String("http://127.0.0.1:8080")));
+        base_url = normalize_server_base_url(base_url);
+        if (base_url.is_empty()) {
+            UtilityFunctions::push_error("AgentRuntime::embed_text - missing_server_base_url");
+            return empty;
+        }
+
+        String embedding_endpoint = resolved.get("server_embedding_endpoint", String());
+        if (embedding_endpoint.is_empty()) {
+            embedding_endpoint = base_url.ends_with("/v1") ? String("/embeddings") : String("/v1/embeddings");
+        }
+        if (!embedding_endpoint.begins_with("/")) {
+            embedding_endpoint = String("/") + embedding_endpoint;
+        }
+        String url = base_url + embedding_endpoint;
+
+        Dictionary payload;
+        payload["input"] = text;
+        payload["model"] = resolved.get("server_model", resolved.get("model", String("local-agents")));
+
+        if (resolved.has("server_extra_body") && resolved["server_extra_body"].get_type() == Variant::DICTIONARY) {
+            Dictionary extra = resolved["server_extra_body"];
+            merge_dictionary(payload, extra);
+        }
+
+        PackedStringArray headers;
+        headers.append(String("Content-Type: application/json"));
+        String api_key = resolved.get("server_api_key", resolved.get("api_key", String()));
+        if (!api_key.is_empty()) {
+            headers.append(String("Authorization: Bearer ") + api_key);
+        }
+
+        int timeout_seconds = resolved.get("server_timeout_seconds", resolved.get("server_timeout_sec", 120));
+        HttpJsonResponse http = http_post_json(url, payload, headers, timeout_seconds);
+        if (!http.ok) {
+            UtilityFunctions::push_error(String("AgentRuntime::embed_text - http_request_failed: ") + http.error);
+            return empty;
+        }
+        if (http.status_code < 200 || http.status_code >= 300) {
+            UtilityFunctions::push_error(String("AgentRuntime::embed_text - http_status_error: ") + String::num_int64(http.status_code));
+            return empty;
+        }
+
+        Variant parsed = JSON::parse_string(http.body);
+        if (parsed.get_type() != Variant::DICTIONARY) {
+            UtilityFunctions::push_error("AgentRuntime::embed_text - invalid_json_response");
+            return empty;
+        }
+
+        String parse_error;
+        PackedFloat32Array server_embedding = embedding_from_json(parsed, normalize, parse_error);
+        if (server_embedding.is_empty()) {
+            UtilityFunctions::push_error(String("AgentRuntime::embed_text - ") + parse_error);
+            return empty;
+        }
+        return server_embedding;
+    }
+
     if (!model_ || !context_) {
         if (default_model_path_.is_empty()) {
             UtilityFunctions::push_error("AgentRuntime::embed_text - model not loaded");
@@ -832,17 +965,7 @@ PackedFloat32Array AgentRuntime::embed_text(const String &text, const Dictionary
         }
     }
 
-    Dictionary resolved = default_options_.duplicate();
-    if (!options.is_empty()) {
-        Array keys = options.keys();
-        for (int i = 0; i < keys.size(); ++i) {
-            Variant key = keys[i];
-            resolved[key] = options[key];
-        }
-    }
-
     bool add_bos = resolved.get("add_bos", true);
-    bool normalize = resolved.get("normalize", true);
 
     std::string input = to_utf8(text);
     const llama_vocab *vocab = llama_model_get_vocab(model_);

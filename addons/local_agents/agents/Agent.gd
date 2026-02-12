@@ -10,6 +10,7 @@ var history: Array = []
 var inference_options: Dictionary = {}
 const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
 const RuntimePaths := preload("res://addons/local_agents/runtime/RuntimePaths.gd")
+const LlamaServerManager := preload("res://addons/local_agents/runtime/LlamaServerManager.gd")
 const SpeechService := preload("res://addons/local_agents/runtime/audio/SpeechService.gd")
 
 @export var db_path: String = ""
@@ -23,6 +24,8 @@ var _audio_player: AudioStreamPlayer
 var _pending_tts_jobs := {}
 var _speech_service_connected := false
 var _speech_service
+var _llama_server_manager = LlamaServerManager.new()
+var _last_llama_server_shutdown_on_exit := true
 
 func _ready() -> void:
     if not _ensure_agent_node():
@@ -87,6 +90,19 @@ func think(prompt: String, extra_opts: Dictionary = {}) -> Dictionary:
     var opts := inference_options.duplicate(true)
     for key in extra_opts.keys():
         opts[key] = extra_opts[key]
+    if _is_llama_server_backend(opts):
+        var autostart := bool(opts.get("server_autostart", true))
+        _last_llama_server_shutdown_on_exit = bool(opts.get("server_shutdown_on_exit", true))
+        if autostart:
+            var model_path := _resolve_llama_server_model_path(opts)
+            var lifecycle = _llama_server_manager.ensure_running(opts, model_path, _current_runtime_dir())
+            if not bool(lifecycle.get("ok", false)):
+                return {
+                    "ok": false,
+                    "provider": "llama_server",
+                    "error": String(lifecycle.get("error", "llama_server_unavailable")),
+                    "lifecycle": lifecycle,
+                }
     var result: Dictionary = agent_node.think(prompt, opts)
     var text := result.get("text", "")
     if text != "":
@@ -287,3 +303,37 @@ func _current_runtime_dir() -> String:
         if path != "":
             return path
     return RuntimePaths.runtime_dir()
+
+func stop_managed_llama_server() -> Dictionary:
+    return _llama_server_manager.stop_managed()
+
+func _exit_tree() -> void:
+    if _last_llama_server_shutdown_on_exit:
+        _llama_server_manager.stop_managed()
+
+func _is_llama_server_backend(opts: Dictionary) -> bool:
+    var backend := String(opts.get("backend", "")).to_lower().strip_edges()
+    return backend in [
+        "llama_server",
+        "llama-server",
+        "llama.cpp_server",
+        "llama.cpp-http",
+        "llama_cpp_http",
+        "llama_http",
+    ]
+
+func _resolve_llama_server_model_path(opts: Dictionary) -> String:
+    var explicit_path := String(opts.get("server_model_path", "")).strip_edges()
+    if explicit_path != "":
+        return explicit_path
+    if agent_node != null:
+        var default_path := String(agent_node.get("default_model_path")).strip_edges()
+        if default_path != "":
+            return default_path
+    var runtime_default := RuntimePaths.resolve_default_model()
+    if runtime_default != "":
+        return runtime_default
+    var env_path := OS.get_environment("LOCAL_AGENTS_TEST_GGUF").strip_edges()
+    if env_path != "":
+        return env_path
+    return ""
