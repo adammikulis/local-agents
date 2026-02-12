@@ -237,10 +237,12 @@ func _store_embedding(message_id: int, role: String, content: String, conversati
     var vector := runtime.call("embed_text", truncated, {"normalize": true})
     if vector.is_empty():
         return
+    var embedding_model := _resolve_embedding_model(runtime)
     _graph.add_embedding(message_id, vector, {
         "type": "chat_message",
         "conversation_id": conversation_id,
         "role": role,
+        "embedding_model": embedding_model,
     })
 
 func _generate_label(prefix: String) -> String:
@@ -256,3 +258,12 @@ func _agent_runtime() -> Object:
         return null
     _runtime = Engine.get_singleton("AgentRuntime")
     return _runtime
+
+func _resolve_embedding_model(runtime: Object) -> String:
+    if runtime == null:
+        return "unknown"
+    if runtime.has_method("get_default_model_path"):
+        var path := String(runtime.call("get_default_model_path")).strip_edges()
+        if path != "":
+            return path.get_file()
+    return "unknown"

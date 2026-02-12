@@ -69,7 +69,7 @@ void NetworkGraph::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_edges", "node_id", "limit"), &NetworkGraph::get_edges, DEFVAL(32));
 
     ClassDB::bind_method(D_METHOD("add_embedding", "node_id", "vector", "metadata"), &NetworkGraph::add_embedding, DEFVAL(Dictionary()));
-    ClassDB::bind_method(D_METHOD("search_embeddings", "query", "top_k", "expand"), &NetworkGraph::search_embeddings, DEFVAL(8), DEFVAL(32));
+    ClassDB::bind_method(D_METHOD("search_embeddings", "query", "top_k", "expand", "strategy"), &NetworkGraph::search_embeddings, DEFVAL(8), DEFVAL(32), DEFVAL(String("vp_tree")));
 }
 
 bool NetworkGraph::open(const String &path) {
@@ -615,6 +615,20 @@ int64_t NetworkGraph::add_embedding(int64_t node_id, const PackedFloat32Array &v
         return -1;
     }
 
+    Dictionary metadata_with_node = metadata.duplicate(true);
+    metadata_with_node["embedded_node_id"] = node_id;
+    String embedding_model = metadata_with_node.get("embedding_model", String());
+    if (embedding_model.is_empty()) {
+        embedding_model = metadata_with_node.get("model", String());
+    }
+    if (embedding_model.is_empty()) {
+        embedding_model = metadata_with_node.get("server_model", String());
+    }
+    if (embedding_model.is_empty()) {
+        embedding_model = String("unknown");
+    }
+    metadata_with_node["embedding_model"] = embedding_model;
+
     const char *sql = R"SQL(
 INSERT INTO embeddings(node_id, dim, norm, vector, metadata) VALUES(?1, ?2, ?3, ?4, json(?5));
 )SQL";
@@ -629,7 +643,7 @@ INSERT INTO embeddings(node_id, dim, norm, vector, metadata) VALUES(?1, ?2, ?3, 
     sqlite3_bind_int(stmt, 2, vector.size());
     sqlite3_bind_double(stmt, 3, norm);
     sqlite3_bind_blob(stmt, 4, values.data(), static_cast<int>(values.size() * sizeof(float)), SQLITE_TRANSIENT);
-    String json = dictionary_to_json(metadata);
+    String json = dictionary_to_json(metadata_with_node);
     if (json.is_empty()) {
         sqlite3_bind_null(stmt, 5);
     } else {
@@ -644,7 +658,7 @@ INSERT INTO embeddings(node_id, dim, norm, vector, metadata) VALUES(?1, ?2, ?3, 
         record.node_id = node_id;
         record.values = std::move(values);
         record.norm = norm;
-        record.metadata = metadata.duplicate(true);
+        record.metadata = metadata_with_node.duplicate(true);
         embeddings_.push_back(record);
         index_dirty_ = true;
     }
@@ -652,7 +666,7 @@ INSERT INTO embeddings(node_id, dim, norm, vector, metadata) VALUES(?1, ?2, ?3, 
     return embedding_id;
 }
 
-TypedArray<Dictionary> NetworkGraph::search_embeddings(const PackedFloat32Array &query, int64_t top_k, int64_t expand) const {
+TypedArray<Dictionary> NetworkGraph::search_embeddings(const PackedFloat32Array &query, int64_t top_k, int64_t expand, const String &strategy) const {
     std::scoped_lock lock(mutex_);
     TypedArray<Dictionary> results;
     if (!db_ || query.is_empty() || embeddings_.empty()) {
@@ -674,16 +688,34 @@ TypedArray<Dictionary> NetworkGraph::search_embeddings(const PackedFloat32Array 
         return results;
     }
 
-    ensure_index();
-
-    int64_t search_width = std::max(top_k, expand);
     std::vector<std::pair<float, const EmbeddingRecord *>> matches;
-    matches.reserve(static_cast<size_t>(search_width));
-    float tau = std::numeric_limits<float>::infinity();
-    search_vp(vp_root_, needle, norm, search_width, tau, matches);
-    std::sort(matches.begin(), matches.end(), [](const auto &a, const auto &b) {
-        return a.first < b.first;
-    });
+    String strategy_lower = strategy.to_lower().strip_edges();
+    if (strategy_lower.is_empty()) {
+        strategy_lower = String("vp_tree");
+    }
+
+    if (strategy_lower == String("cosine") || strategy_lower == String("bruteforce") || strategy_lower == String("exact")) {
+        matches.reserve(embeddings_.size());
+        for (const EmbeddingRecord &record : embeddings_) {
+            float dist = static_cast<float>(cosine_distance(needle, norm, record.values, record.norm));
+            matches.emplace_back(dist, &record);
+        }
+        std::sort(matches.begin(), matches.end(), [](const auto &a, const auto &b) {
+            return a.first < b.first;
+        });
+    } else {
+        if (strategy_lower == String("hnsw") || strategy_lower == String("faiss")) {
+            UtilityFunctions::push_warning(String("NetworkGraph::search_embeddings - strategy '") + strategy_lower + "' unavailable in this build; using vp_tree");
+        }
+        ensure_index();
+        int64_t search_width = std::max(top_k, expand);
+        matches.reserve(static_cast<size_t>(search_width));
+        float tau = std::numeric_limits<float>::infinity();
+        search_vp(vp_root_, needle, norm, search_width, tau, matches);
+        std::sort(matches.begin(), matches.end(), [](const auto &a, const auto &b) {
+            return a.first < b.first;
+        });
+    }
 
     if (matches.size() > static_cast<size_t>(top_k)) {
         matches.resize(static_cast<size_t>(top_k));
@@ -695,6 +727,7 @@ TypedArray<Dictionary> NetworkGraph::search_embeddings(const PackedFloat32Array 
         row["node_id"] = entry.second->node_id;
         row["distance"] = entry.first;
         row["similarity"] = 1.0 - entry.first;
+        row["strategy"] = strategy_lower;
         row["metadata"] = entry.second->metadata.duplicate(true);
         results.push_back(row);
     }

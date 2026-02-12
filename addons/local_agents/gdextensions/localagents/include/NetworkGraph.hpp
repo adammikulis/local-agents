@@ -39,7 +39,7 @@ public:
     TypedArray<Dictionary> get_edges(int64_t node_id, int64_t limit) const;
 
     int64_t add_embedding(int64_t node_id, const PackedFloat32Array &vector, const Dictionary &metadata);
-    TypedArray<Dictionary> search_embeddings(const PackedFloat32Array &query, int64_t top_k, int64_t expand) const;
+    TypedArray<Dictionary> search_embeddings(const PackedFloat32Array &query, int64_t top_k, int64_t expand, const String &strategy = String("vp_tree")) const;
 
 protected:
     static void _bind_methods();

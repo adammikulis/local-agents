@@ -153,9 +153,11 @@ func _store_code_embedding(node_id: int, content: String) -> void:
     var emb := runtime.call("embed_text", slice, {"normalize": true})
     if emb.is_empty():
         return
+    var embedding_model := _resolve_embedding_model(runtime)
     _graph.add_embedding(node_id, emb, {
         "type": "code_chunk",
         "path": _graph.get_node(node_id).get("data", {}).get("path", ""),
+        "embedding_model": embedding_model,
     })
 
 func _clear_code_space() -> void:
@@ -181,3 +183,12 @@ func _agent_runtime() -> Object:
         return null
     _runtime = Engine.get_singleton("AgentRuntime")
     return _runtime
+
+func _resolve_embedding_model(runtime: Object) -> String:
+    if runtime == null:
+        return "unknown"
+    if runtime.has_method("get_default_model_path"):
+        var path := String(runtime.call("get_default_model_path")).strip_edges()
+        if path != "":
+            return path.get_file()
+    return "unknown"

@@ -25,6 +25,14 @@ const CYPHER_PLAYBOOK_VERSION = "backstory_cypher_playbook_v1"
 
 var _graph: Object = null
 var _database_path_override: String = ""
+var _embedding_options: Dictionary = {
+    "backend": "llama_server",
+    "normalize": true,
+    "server_autostart": true,
+    "server_shutdown_on_exit": false,
+    "server_start_timeout_ms": 30000,
+    "server_ready_timeout_ms": 1200,
+}
 
 func _ready() -> void:
     _ensure_graph()
@@ -34,6 +42,12 @@ func set_database_path(path: String) -> void:
         push_warning("set_database_path called after graph init; ignoring override")
         return
     _database_path_override = path.strip_edges()
+
+func set_embedding_options(options: Dictionary) -> void:
+    _embedding_options = options.duplicate(true)
+
+func get_embedding_options() -> Dictionary:
+    return _embedding_options.duplicate(true)
 
 func upsert_npc(npc_id: String, display_name: String, traits: Dictionary = {}, metadata: Dictionary = {}) -> Dictionary:
     if npc_id.strip_edges() == "":
@@ -368,7 +382,20 @@ func add_memory(memory_id: String, npc_id: String, summary: String, conversation
                 "message_id": message_id,
                 "conversation_id": conversation_id,
             })
-    return _ok({"node_id": memory_node_id})
+
+    var response := {
+        "node_id": memory_node_id,
+    }
+    var skip_embedding := bool(metadata.get("skip_embedding", false))
+    if not skip_embedding:
+        var embedding_opts: Dictionary = _embedding_options.duplicate(true)
+        var meta_embedding_opts = metadata.get("embedding_options", null)
+        if meta_embedding_opts is Dictionary:
+            for key in meta_embedding_opts.keys():
+                embedding_opts[key] = meta_embedding_opts[key]
+        var embedding_result: Dictionary = _index_memory_embedding_node(memory_node_id, memory_id, npc_id, summary, embedding_opts)
+        response["embedding"] = embedding_result
+    return _ok(response)
 
 func add_dream_memory(memory_id: String, npc_id: String, summary: String, world_day: int, influence: Dictionary = {}, importance: float = 0.5, confidence: float = 0.8, metadata: Dictionary = {}) -> Dictionary:
     var merged_tags: Array = ["dream"]
@@ -786,6 +813,84 @@ func get_memory_recall_candidates(npc_id: String, world_day: int = -1, limit: in
         "candidates": candidates,
     })
 
+func index_memory_embedding(memory_id: String, text: String = "", options: Dictionary = {}) -> Dictionary:
+    if memory_id.strip_edges() == "":
+        return _error("invalid_memory_id", "memory_id must be non-empty")
+    if not _ensure_graph():
+        return _error("graph_unavailable", "NetworkGraph extension unavailable")
+    var rows = _graph.list_nodes_by_metadata(MEMORY_SPACE, "memory_id", memory_id, 1, 0)
+    if rows.is_empty():
+        return _error("missing_memory", "memory_id not found", {"memory_id": memory_id})
+    var row: Dictionary = rows[0]
+    var node_id := int(row.get("id", -1))
+    var data: Dictionary = row.get("data", {})
+    var npc_id := String(data.get("npc_id", ""))
+    var summary := text.strip_edges()
+    if summary == "":
+        summary = String(data.get("summary", "")).strip_edges()
+    var merged: Dictionary = _embedding_options.duplicate(true)
+    for key in options.keys():
+        merged[key] = options[key]
+    return _index_memory_embedding_node(node_id, memory_id, npc_id, summary, merged)
+
+func search_memory_embeddings(npc_id: String, query: String, top_k: int = 8, expand: int = 32, strategy: String = "cosine", options: Dictionary = {}) -> Dictionary:
+    if npc_id.strip_edges() == "":
+        return _error("invalid_npc_id", "npc_id must be non-empty")
+    if query.strip_edges() == "":
+        return _error("invalid_query", "query must be non-empty")
+    if top_k <= 0:
+        return _error("invalid_top_k", "top_k must be > 0")
+    if not _ensure_graph():
+        return _error("graph_unavailable", "NetworkGraph extension unavailable")
+
+    var runtime := _agent_runtime()
+    if runtime == null or not runtime.has_method("embed_text"):
+        return _error("runtime_unavailable", "AgentRuntime embedding unavailable")
+
+    var embed_options: Dictionary = _embedding_options.duplicate(true)
+    for key in options.keys():
+        embed_options[key] = options[key]
+    var query_vector: PackedFloat32Array = runtime.call("embed_text", query, embed_options)
+    if query_vector.is_empty():
+        return _error("embedding_failed", "query embedding failed")
+
+    var matches: Array = _graph.search_embeddings(query_vector, top_k, expand, strategy)
+    var memories: Array = []
+    for item_variant in matches:
+        if not (item_variant is Dictionary):
+            continue
+        var item: Dictionary = item_variant
+        var node_id := int(item.get("node_id", -1))
+        if node_id == -1:
+            continue
+        var node: Dictionary = _graph.get_node(node_id)
+        if node.is_empty():
+            continue
+        var data: Dictionary = node.get("data", {})
+        if String(data.get("type", "")) != "memory":
+            continue
+        if String(data.get("npc_id", "")) != npc_id:
+            continue
+        memories.append({
+            "memory_id": String(data.get("memory_id", "")),
+            "summary": String(data.get("summary", "")),
+            "world_day": int(data.get("world_day", -1)),
+            "importance": float(data.get("importance", 0.0)),
+            "confidence": float(data.get("confidence", 0.0)),
+            "memory_kind": String(data.get("metadata", {}).get("memory_kind", "memory")),
+            "metadata": data.get("metadata", {}).duplicate(true),
+            "embedding_id": int(item.get("embedding_id", -1)),
+            "distance": float(item.get("distance", 1.0)),
+            "similarity": float(item.get("similarity", 0.0)),
+            "strategy": String(item.get("strategy", strategy)),
+        })
+    return _ok({
+        "npc_id": npc_id,
+        "query": query,
+        "strategy": strategy,
+        "results": memories,
+    })
+
 func detect_contradictions(npc_id: String) -> Dictionary:
     var npc = _node_by_external_id(NPC_SPACE, "npc_id", npc_id)
     if npc.is_empty():
@@ -1075,6 +1180,40 @@ func _ensure_graph() -> bool:
         _graph = null
         return false
     return true
+
+func _index_memory_embedding_node(node_id: int, memory_id: String, npc_id: String, summary: String, embed_options: Dictionary) -> Dictionary:
+    if summary.strip_edges() == "":
+        return {"ok": false, "error": "empty_memory_summary"}
+    var runtime := _agent_runtime()
+    if runtime == null or not runtime.has_method("embed_text"):
+        return {"ok": false, "error": "runtime_unavailable"}
+
+    var vector: PackedFloat32Array = runtime.call("embed_text", summary, embed_options)
+    if vector.is_empty():
+        return {"ok": false, "error": "embedding_failed"}
+
+    var embedding_model := String(embed_options.get("server_model", embed_options.get("model", ""))).strip_edges()
+    if embedding_model == "" and runtime.has_method("get_default_model_path"):
+        var model_path := String(runtime.call("get_default_model_path")).strip_edges()
+        if model_path != "":
+            embedding_model = model_path.get_file()
+    if embedding_model == "":
+        embedding_model = "unknown"
+
+    var embedding_id := int(_graph.add_embedding(node_id, vector, {
+        "type": "memory",
+        "memory_id": memory_id,
+        "npc_id": npc_id,
+        "source": "backstory_memory",
+        "strategy_hint": "cosine",
+        "embedding_model": embedding_model,
+    }))
+    if embedding_id == -1:
+        return {"ok": false, "error": "embedding_store_failed"}
+    return {
+        "ok": true,
+        "embedding_id": embedding_id,
+    }
 
 func _resolved_database_path() -> String:
     if _database_path_override != "":
@@ -1383,3 +1522,8 @@ func _error(code: String, message: String, details: Dictionary = {}) -> Dictiona
 
 func _timestamp() -> int:
     return int(Time.get_unix_time_from_system())
+
+func _agent_runtime() -> Object:
+    if not Engine.has_singleton("AgentRuntime"):
+        return null
+    return Engine.get_singleton("AgentRuntime")
