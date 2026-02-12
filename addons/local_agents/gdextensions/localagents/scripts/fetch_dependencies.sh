@@ -12,6 +12,7 @@ GODOT_CPP_REPO="https://github.com/godotengine/godot-cpp.git"
 LLAMA_CPP_REPO="https://github.com/ggerganov/llama.cpp.git"
 WHISPER_CPP_REPO="https://github.com/ggerganov/whisper.cpp.git"
 SQLITE_AMALGAMATION_URL="https://www.sqlite.org/2024/sqlite-autoconf-3450200.tar.gz"
+LLAMA_CPP_REF="${LLAMA_CPP_REF:-4b385bf}"
 
 DEFAULT_MODEL_NAME="Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
 DEFAULT_MODEL_URL="https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/${DEFAULT_MODEL_NAME}"
@@ -33,6 +34,9 @@ Options:
   --skip-voices        Skip downloading Piper voices.
   --clean              Remove downloaded dependencies and assets.
   -h, --help           Show this help.
+
+Environment:
+  LLAMA_CPP_REF        Git ref/commit for thirdparty/llama.cpp (default: ${LLAMA_CPP_REF}).
 USAGE
 }
 
@@ -48,6 +52,17 @@ clone_if_missing() {
         echo "[git] cloning $url"
         git clone --depth 1 "$url" "$dest"
     fi
+}
+
+sync_repo_ref() {
+    local dest="$1" ref="$2"
+    if [[ ! -d "$dest/.git" ]]; then
+        echo "Error: expected git repository at $dest" >&2
+        exit 1
+    fi
+    echo "[git] syncing $(basename "$dest") to $ref"
+    git -C "$dest" fetch --depth 1 origin "$ref" || git -C "$dest" fetch origin "$ref"
+    git -C "$dest" checkout --detach FETCH_HEAD
 }
 
 download_file() {
@@ -119,6 +134,7 @@ main() {
     clone_if_missing "$GODOT_CPP_REPO" "$THIRDPARTY_DIR/godot-cpp"
     clone_if_missing "$LLAMA_CPP_REPO" "$THIRDPARTY_DIR/llama.cpp"
     clone_if_missing "$WHISPER_CPP_REPO" "$THIRDPARTY_DIR/whisper.cpp"
+    sync_repo_ref "$THIRDPARTY_DIR/llama.cpp" "$LLAMA_CPP_REF"
     extract_sqlite
 
     if [[ "$skip_models" == false ]]; then
