@@ -6,6 +6,8 @@ var _seed: int = 0
 var _width: int = 0
 var _height: int = 0
 var _surface_y: Dictionary = {}
+var _surface_block: Dictionary = {}
+var _surface_albedo: Dictionary = {}
 var _shade_static: Dictionary = {}
 var _daily_sun: Dictionary = {}
 var _daily_uv: Dictionary = {}
@@ -21,6 +23,8 @@ func configure_environment(environment_snapshot: Dictionary, seed: int) -> Dicti
 	if not _configured:
 		return {"ok": false, "error": "invalid_dimensions"}
 	_surface_y.clear()
+	_surface_block.clear()
+	_surface_albedo.clear()
 	_shade_static.clear()
 	_daily_sun.clear()
 	_daily_uv.clear()
@@ -36,6 +40,10 @@ func configure_environment(environment_snapshot: Dictionary, seed: int) -> Dicti
 		var col = col_variant as Dictionary
 		var tile_id = "%d:%d" % [int(col.get("x", 0)), int(col.get("z", 0))]
 		_surface_y[tile_id] = int(col.get("surface_y", 0))
+		var top_block = String(col.get("top_block", "grass"))
+		_surface_block[tile_id] = top_block
+		var rgba = col.get("top_block_rgba", [0.5, 0.5, 0.5, 1.0])
+		_surface_albedo[tile_id] = _albedo_from_rgba(rgba)
 	var tile_index: Dictionary = environment_snapshot.get("tile_index", {})
 	var ids = tile_index.keys()
 	ids.sort_custom(func(a, b): return String(a) < String(b))
@@ -46,7 +54,7 @@ func configure_environment(environment_snapshot: Dictionary, seed: int) -> Dicti
 		_daily_uv[tile_id] = 0.0
 		_cumulative_sun[tile_id] = 0.0
 		_cumulative_uv[tile_id] = 0.0
-	_last_snapshot = _build_snapshot(0, {}, {})
+		_last_snapshot = _build_snapshot(0, [], {})
 	return {"ok": true}
 
 func step(tick: int, delta: float, environment_snapshot: Dictionary, weather_snapshot: Dictionary) -> Dictionary:
@@ -97,15 +105,18 @@ func step(tick: int, delta: float, environment_snapshot: Dictionary, weather_sna
 		var direct = sun_alt * cloud_atten * fog_atten * (1.0 - shade * 0.75) * aspect_factor
 		var diffuse = (0.18 + cloud * 0.5) * (1.0 - fog * 0.35)
 		var insolation = clampf(direct + diffuse * 0.5, 0.0, 1.0)
+		var albedo = clampf(float(_surface_albedo.get(tile_id, 0.35)), 0.02, 0.9)
+		var reflected_solar = insolation * albedo
+		var absorbed_solar = insolation * (1.0 - albedo)
 		var uv_index = clampf((direct * 1.1 + (1.0 - cloud) * 0.25) * (0.65 + elevation * 0.7) * (0.75 + sun_alt * 0.5), 0.0, 2.0)
-		var heat_load = clampf(insolation * (0.6 + (1.0 - cloud) * 0.2) + uv_index * 0.15 - moisture * 0.08, 0.0, 1.5)
+		var heat_load = clampf(absorbed_solar * (0.78 + (1.0 - cloud) * 0.26) + uv_index * 0.15 - moisture * 0.08, 0.0, 1.5)
 		var temp_optimal = 1.0 - clampf(absf(temperature - 0.56) * 1.2, 0.0, 1.0)
 		var uv_stress = clampf(maxf(0.0, uv_index - 1.15) * 0.45, 0.0, 1.0)
-		var plant_growth_factor = clampf(insolation * (0.35 + moisture * 0.65) * temp_optimal * (1.0 - uv_stress), 0.0, 1.0)
+		var plant_growth_factor = clampf((absorbed_solar * 0.7 + insolation * 0.3) * (0.35 + moisture * 0.65) * temp_optimal * (1.0 - uv_stress), 0.0, 1.0)
 
-		var daily_sun = float(_daily_sun.get(tile_id, 0.0)) + insolation * delta
+		var daily_sun = float(_daily_sun.get(tile_id, 0.0)) + absorbed_solar * delta
 		var daily_uv = float(_daily_uv.get(tile_id, 0.0)) + uv_index * delta
-		var total_sun = float(_cumulative_sun.get(tile_id, 0.0)) + insolation * delta
+		var total_sun = float(_cumulative_sun.get(tile_id, 0.0)) + absorbed_solar * delta
 		var total_uv = float(_cumulative_uv.get(tile_id, 0.0)) + uv_index * delta
 		_daily_sun[tile_id] = daily_sun
 		_daily_uv[tile_id] = daily_uv
@@ -115,6 +126,9 @@ func step(tick: int, delta: float, environment_snapshot: Dictionary, weather_sna
 		tile["sunlight_direct"] = direct
 		tile["sunlight_diffuse"] = diffuse
 		tile["sunlight_total"] = insolation
+		tile["surface_albedo"] = albedo
+		tile["sunlight_reflected"] = reflected_solar
+		tile["sunlight_absorbed"] = absorbed_solar
 		tile["uv_index"] = uv_index
 		tile["uv_daily_dose"] = daily_uv
 		tile["heat_load"] = heat_load
@@ -129,6 +143,9 @@ func step(tick: int, delta: float, environment_snapshot: Dictionary, weather_sna
 			"sunlight_direct": direct,
 			"sunlight_diffuse": diffuse,
 			"sunlight_total": insolation,
+			"surface_albedo": albedo,
+			"sunlight_reflected": reflected_solar,
+			"sunlight_absorbed": absorbed_solar,
 			"uv_index": uv_index,
 			"uv_daily_dose": daily_uv,
 			"heat_load": heat_load,
@@ -164,7 +181,7 @@ func step(tick: int, delta: float, environment_snapshot: Dictionary, weather_sna
 
 func current_snapshot(tick: int = 0) -> Dictionary:
 	if _last_snapshot.is_empty():
-		return _build_snapshot(tick, {}, {})
+			return _build_snapshot(tick, [], {})
 	return _last_snapshot.duplicate(true)
 
 func import_snapshot(snapshot: Dictionary) -> void:
@@ -266,6 +283,9 @@ func _sync_voxel_columns(environment_snapshot: Dictionary, solar_index: Dictiona
 			continue
 		var row = solar_index[tile_id] as Dictionary
 		col["sunlight_total"] = float(row.get("sunlight_total", 0.0))
+		col["surface_albedo"] = float(row.get("surface_albedo", 0.35))
+		col["sunlight_absorbed"] = float(row.get("sunlight_absorbed", 0.0))
+		col["sunlight_reflected"] = float(row.get("sunlight_reflected", 0.0))
 		col["uv_index"] = float(row.get("uv_index", 0.0))
 		col["heat_load"] = float(row.get("heat_load", 0.0))
 		col["plant_growth_factor"] = float(row.get("plant_growth_factor", 0.0))
@@ -274,3 +294,16 @@ func _sync_voxel_columns(environment_snapshot: Dictionary, solar_index: Dictiona
 	if changed:
 		voxel_world["columns"] = cols
 		environment_snapshot["voxel_world"] = voxel_world
+
+func _albedo_from_rgba(rgba_variant: Variant) -> float:
+	var rgba: Array = []
+	if rgba_variant is Array:
+		rgba = rgba_variant as Array
+	var r = clampf(float(rgba[0]) if rgba.size() > 0 else 0.5, 0.0, 1.0)
+	var g = clampf(float(rgba[1]) if rgba.size() > 1 else 0.5, 0.0, 1.0)
+	var b = clampf(float(rgba[2]) if rgba.size() > 2 else 0.5, 0.0, 1.0)
+	var a = clampf(float(rgba[3]) if rgba.size() > 3 else 1.0, 0.0, 1.0)
+	# Linear luminance-based reflectance from RGBA source color.
+	var luminance = clampf(r * 0.2126 + g * 0.7152 + b * 0.0722, 0.0, 1.0)
+	var rough_alpha = clampf(0.35 + a * 0.65, 0.0, 1.0)
+	return clampf(luminance * rough_alpha, 0.02, 0.9)

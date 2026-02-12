@@ -193,6 +193,7 @@ func _build_voxel_column(
             "z": z,
             "surface_y": surface_y,
             "top_block": top_block,
+            "top_block_rgba": _block_color_rgba(top_block),
             "subsoil_block": subsoil_block,
             "stone_layers": stone_layers,
             "water_layers": water_layers,
@@ -230,6 +231,33 @@ func _underground_block(x: int, y: int, z: int, ore_noise: FastNoiseLite, config
     if y <= 4:
         return BLOCK_GRAVEL
     return BLOCK_STONE
+
+func _block_color_rgba(block_type: String) -> Array:
+    match block_type:
+        BLOCK_GRASS:
+            return [0.28, 0.63, 0.2, 1.0]
+        BLOCK_DIRT:
+            return [0.46, 0.31, 0.2, 1.0]
+        BLOCK_CLAY:
+            return [0.58, 0.48, 0.42, 1.0]
+        BLOCK_SAND:
+            return [0.8, 0.74, 0.51, 1.0]
+        BLOCK_SNOW:
+            return [0.9, 0.94, 0.98, 1.0]
+        BLOCK_STONE:
+            return [0.45, 0.45, 0.47, 1.0]
+        BLOCK_GRAVEL:
+            return [0.52, 0.5, 0.48, 1.0]
+        BLOCK_COAL_ORE:
+            return [0.22, 0.22, 0.22, 1.0]
+        BLOCK_COPPER_ORE:
+            return [0.66, 0.43, 0.25, 1.0]
+        BLOCK_IRON_ORE:
+            return [0.58, 0.47, 0.35, 1.0]
+        BLOCK_WATER:
+            return [0.18, 0.35, 0.76, 0.62]
+        _:
+            return [0.5, 0.5, 0.5, 1.0]
 
 func _bake_flow_map(
     width: int,

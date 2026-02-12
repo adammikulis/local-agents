@@ -53,6 +53,9 @@ var _wind_field
 var _living_entity_profiles: Array = []
 var _shelter_sites: Dictionary = {}
 var _shelter_site_sequence: int = 0
+var _environment_snapshot: Dictionary = {}
+var _weather_snapshot: Dictionary = {}
+var _solar_snapshot: Dictionary = {}
 
 var _debug_overlay: Node3D
 var _debug_smell_root: Node3D
@@ -124,6 +127,18 @@ func _apply_debug_visibility() -> void:
 
 func set_rain_intensity(next_rain_intensity: float) -> void:
 	rain_intensity = clampf(next_rain_intensity, 0.0, 1.0)
+
+func set_environment_signals(environment_snapshot: Dictionary, weather_snapshot: Dictionary, solar_snapshot: Dictionary) -> void:
+	_environment_snapshot = environment_snapshot.duplicate(true)
+	_weather_snapshot = weather_snapshot.duplicate(true)
+	_solar_snapshot = solar_snapshot.duplicate(true)
+	var avg_rain = clampf(float(_weather_snapshot.get("avg_rain_intensity", rain_intensity)), 0.0, 1.0)
+	set_rain_intensity(avg_rain)
+	var wind_row: Dictionary = _weather_snapshot.get("wind_dir", {})
+	var wind_vec = Vector3(float(wind_row.get("x", wind_direction.x)), 0.0, float(wind_row.get("y", wind_direction.z)))
+	var wind_mag = wind_vec.length()
+	if wind_mag > 0.0001:
+		set_wind(wind_vec / wind_mag, clampf(float(_weather_snapshot.get("wind_speed", wind_intensity)), 0.0, 1.0), wind_enabled)
 
 func set_wind(next_direction: Vector3, next_intensity: float, enabled: bool = true) -> void:
 	wind_direction = next_direction
@@ -203,7 +218,12 @@ func _spawn_initial_rabbits(count: int) -> void:
 
 func _step_plants(delta: float) -> void:
 	for plant in plant_root.get_children():
-		if is_instance_valid(plant) and plant.has_method("simulation_step"):
+		if not is_instance_valid(plant):
+			continue
+		var env_context = _plant_environment_context(plant.global_position)
+		if plant.has_method("simulation_step_with_environment"):
+			plant.call("simulation_step_with_environment", delta, env_context)
+		elif plant.has_method("simulation_step"):
 			plant.call("simulation_step", delta)
 
 func _rebuild_edible_plant_index() -> void:
@@ -272,9 +292,49 @@ func _step_smell_field(delta: float) -> void:
 				_wind_step_accumulator = 0.0
 				_wind_field.set_global_wind(wind_direction, wind_intensity, wind_speed)
 				var diurnal_phase := fmod(_sim_time_seconds / 24.0, TAU)
-				_wind_field.step(wind_delta, 0.52, diurnal_phase, rain_intensity)
+				_wind_field.step(wind_delta, 0.52, diurnal_phase, rain_intensity, _solar_air_context())
 			wind_source = Callable(_wind_field, "sample_wind")
 		_smell_field.step(smell_sim_step_seconds, wind_source, smell_base_decay_per_second, rain_intensity, rain_decay_multiplier)
+
+func _plant_environment_context(world_position: Vector3) -> Dictionary:
+	var tile = _tile_at_world(world_position)
+	var sunlight = clampf(float(tile.get("sunlight_absorbed", tile.get("sunlight_total", 0.5))), 0.0, 1.5)
+	var uv = clampf(float(tile.get("uv_index", 0.0)), 0.0, 3.0)
+	var heat_load = clampf(float(tile.get("heat_load", 0.5)), 0.0, 2.0)
+	var growth = clampf(float(tile.get("plant_growth_factor", 0.5)), 0.0, 1.0)
+	var moisture = clampf(float(tile.get("moisture", 0.5)), 0.0, 1.0)
+	var air_temp = 0.5
+	if _wind_field != null:
+		air_temp = clampf(_wind_field.sample_temperature(world_position + Vector3(0.0, smell_voxel_size, 0.0)), 0.0, 1.2)
+	return {
+		"sunlight_absorbed": sunlight,
+		"uv_index": uv,
+		"heat_load": heat_load,
+		"plant_growth_factor": growth,
+		"moisture": moisture,
+		"air_temperature": air_temp,
+		"rain_intensity": rain_intensity,
+	}
+
+func _tile_at_world(world_position: Vector3) -> Dictionary:
+	var tile_index: Dictionary = _environment_snapshot.get("tile_index", {})
+	if tile_index.is_empty():
+		return {}
+	var tx = int(round(world_position.x))
+	var ty = int(round(world_position.z))
+	var tile_id = "%d:%d" % [tx, ty]
+	var row = tile_index.get(tile_id, {})
+	return (row as Dictionary).duplicate(true) if row is Dictionary else {}
+
+func _solar_air_context() -> Dictionary:
+	var out := {
+		"sun_altitude": clampf(float(_solar_snapshot.get("sun_altitude", 0.0)), 0.0, 1.0),
+		"avg_insolation": clampf(float(_solar_snapshot.get("avg_insolation", 0.0)), 0.0, 1.0),
+		"avg_uv_index": clampf(float(_solar_snapshot.get("avg_uv_index", 0.0)), 0.0, 2.0),
+		"avg_heat_load": clampf(float(_solar_snapshot.get("avg_heat_load", 0.0)), 0.0, 1.5),
+		"air_heating_scalar": 1.0,
+	}
+	return out
 
 func _step_mammals(delta: float) -> void:
 	for mammal in get_tree().get_nodes_in_group("mammal_actor"):

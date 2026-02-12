@@ -93,14 +93,14 @@ func sample_wind(world_position: Vector3) -> Vector2:
 	var voxel := _grid.world_to_voxel(world_position)
 	if voxel == _grid.invalid_voxel():
 		return Vector2.ZERO
-	var base: Vector2 = _wind.get(Vector3i(voxel.x, 0, voxel.z), Vector2.ZERO)
+	var base: Vector2 = _wind.get(voxel, Vector2.ZERO)
 	return base
 
 func sample_temperature(world_position: Vector3) -> float:
 	var voxel := _grid.world_to_voxel(world_position)
 	if voxel == _grid.invalid_voxel():
 		return 0.0
-	return float(_temperature.get(Vector3i(voxel.x, 0, voxel.z), 0.0))
+	return float(_temperature.get(voxel, 0.0))
 
 func build_debug_vectors(max_cells: int = 260, min_speed: float = 0.03) -> Array[Dictionary]:
 	var rows: Array[Dictionary] = []
@@ -160,10 +160,10 @@ func snapshot() -> Dictionary:
 	}
 
 func _temperature_gradient(voxel: Vector3i, temperature_map: Dictionary) -> Vector2:
-	var east := float(temperature_map.get(Vector3i(voxel.x + 1, 0, voxel.z), temperature_map.get(voxel, 0.0)))
-	var west := float(temperature_map.get(Vector3i(voxel.x - 1, 0, voxel.z), temperature_map.get(voxel, 0.0)))
-	var north := float(temperature_map.get(Vector3i(voxel.x, 0, voxel.z + 1), temperature_map.get(voxel, 0.0)))
-	var south := float(temperature_map.get(Vector3i(voxel.x, 0, voxel.z - 1), temperature_map.get(voxel, 0.0)))
+	var east := float(temperature_map.get(Vector3i(voxel.x + 1, voxel.y, voxel.z), temperature_map.get(voxel, 0.0)))
+	var west := float(temperature_map.get(Vector3i(voxel.x - 1, voxel.y, voxel.z), temperature_map.get(voxel, 0.0)))
+	var north := float(temperature_map.get(Vector3i(voxel.x, voxel.y, voxel.z + 1), temperature_map.get(voxel, 0.0)))
+	var south := float(temperature_map.get(Vector3i(voxel.x, voxel.y, voxel.z - 1), temperature_map.get(voxel, 0.0)))
 	return Vector2((east - west) * 0.5, (north - south) * 0.5)
 
 func _initial_temp(voxel: Vector3i) -> float:

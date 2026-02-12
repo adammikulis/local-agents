@@ -6,6 +6,7 @@ const LlmRequestProfileResourceScript = preload("res://addons/local_agents/confi
 var llm_enabled: bool = true
 var _thought_profile = LlmRequestProfileResourceScript.new()
 var _dialogue_profile = LlmRequestProfileResourceScript.new()
+var _context_schema_version: int = 1
 var _section_limits := {
 	"max_prompt_chars": 6000,
 	"state_chars": 420,
@@ -51,6 +52,8 @@ func set_request_profile(task: String, profile_resource: Resource) -> void:
 	_thought_profile.from_dict(payload)
 
 func set_contract_limits(limits: Dictionary) -> void:
+	if limits.has("context_schema_version"):
+		_context_schema_version = maxi(1, int(limits.get("context_schema_version", _context_schema_version)))
 	for key_variant in limits.keys():
 		var key = String(key_variant)
 		if not _section_limits.has(key):
@@ -227,7 +230,7 @@ func _assemble_prompt_context(state: Dictionary, recall_context: Dictionary) -> 
 		"oral_knowledge_ritual_taboo_context",
 	]
 	return {
-		"schema_version": 1,
+		"schema_version": _context_schema_version,
 		"section_order": section_order,
 		"villager_state": _compact_state_basics(state),
 		"waking_memories": _compact_memories_for_prompt(recall_context.get("waking", []), int(_section_limits.get("waking_memories", 4))),

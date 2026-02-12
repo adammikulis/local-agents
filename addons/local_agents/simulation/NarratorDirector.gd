@@ -30,39 +30,39 @@ func request_profile_id() -> String:
 	return String(_request_profile.profile_id)
 
 func generate_direction(world_snapshot: Dictionary, deterministic_seed: int, extra_prompt: String = "") -> Dictionary:
-    if not enabled:
-        return {"ok": false, "error": "narrator_disabled"}
-    if not Engine.has_singleton("AgentRuntime"):
-        return {"ok": false, "error": "runtime_missing"}
-    var runtime = Engine.get_singleton("AgentRuntime")
-    if runtime == null or not runtime.has_method("generate"):
-        return {"ok": false, "error": "runtime_generate_unavailable"}
-    if runtime.has_method("is_model_loaded") and not runtime.call("is_model_loaded"):
-        return {"ok": false, "error": "model_not_loaded"}
+	if not enabled:
+		return {"ok": false, "error": "narrator_disabled"}
+	if not Engine.has_singleton("AgentRuntime"):
+		return {"ok": false, "error": "runtime_missing"}
+	var runtime = Engine.get_singleton("AgentRuntime")
+	if runtime == null or not runtime.has_method("generate"):
+		return {"ok": false, "error": "runtime_generate_unavailable"}
+	if runtime.has_method("is_model_loaded") and not runtime.call("is_model_loaded"):
+		return {"ok": false, "error": "model_not_loaded"}
 
-    var prompt = "%s\n\nState:\n%s" % [DEFAULT_PROMPT, JSON.stringify(world_snapshot, "  ", false, true)]
-    if extra_prompt.strip_edges() != "":
-        prompt += "\n\nDirective constraints:\n" + extra_prompt.strip_edges()
+	var prompt = "%s\n\nState:\n%s" % [DEFAULT_PROMPT, JSON.stringify(world_snapshot, "  ", false, true)]
+	if extra_prompt.strip_edges() != "":
+		prompt += "\n\nDirective constraints:\n" + extra_prompt.strip_edges()
 
-    var request = {
-        "prompt": prompt,
-        "history": [],
-        "options": _request_profile.to_runtime_options(deterministic_seed),
-    }
-    var result: Dictionary = runtime.call("generate", request)
-    if not bool(result.get("ok", false)):
-        return result
-    return {
-        "ok": true,
-        "text": String(result.get("text", "")).strip_edges(),
-        "source": "local_llm_narrator",
-        "kind": "direction",
-        "seed": deterministic_seed,
-        "trace": {
-            "query_keys": ["world_snapshot"],
-            "referenced_ids": [],
-            "profile_id": String(_request_profile.profile_id),
-            "seed": deterministic_seed,
-            "sampler_params": _request_profile.to_runtime_options(deterministic_seed),
-        },
-    }
+	var request = {
+		"prompt": prompt,
+		"history": [],
+		"options": _request_profile.to_runtime_options(deterministic_seed),
+	}
+	var result: Dictionary = runtime.call("generate", request)
+	if not bool(result.get("ok", false)):
+		return result
+	return {
+		"ok": true,
+		"text": String(result.get("text", "")).strip_edges(),
+		"source": "local_llm_narrator",
+		"kind": "direction",
+		"seed": deterministic_seed,
+		"trace": {
+			"query_keys": ["world_snapshot"],
+			"referenced_ids": [],
+			"profile_id": String(_request_profile.profile_id),
+			"seed": deterministic_seed,
+			"sampler_params": _request_profile.to_runtime_options(deterministic_seed),
+		},
+	}

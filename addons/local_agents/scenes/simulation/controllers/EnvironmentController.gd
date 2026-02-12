@@ -13,6 +13,7 @@ const RainPostFXShader = preload("res://addons/local_agents/scenes/simulation/sh
 var _generation_snapshot: Dictionary = {}
 var _hydrology_snapshot: Dictionary = {}
 var _weather_snapshot: Dictionary = {}
+var _solar_snapshot: Dictionary = {}
 var _material_cache: Dictionary = {}
 var _mesh_cache: Dictionary = {}
 var _weather_field_image: Image
@@ -24,6 +25,10 @@ var _surface_field_image: Image
 var _surface_field_texture: ImageTexture
 var _surface_field_cache := PackedInt32Array()
 var _surface_field_last_update_tick: int = -1
+var _solar_field_image: Image
+var _solar_field_texture: ImageTexture
+var _solar_field_cache := PackedInt32Array()
+var _solar_field_last_tick: int = -1
 var _tile_temperature_map := PackedFloat32Array()
 var _tile_flow_map := PackedFloat32Array()
 var _water_shader_params := {
@@ -84,6 +89,7 @@ func apply_generation_data(generation: Dictionary, hydrology: Dictionary) -> voi
 	_hydrology_snapshot = hydrology.duplicate(true)
 	_ensure_weather_field_texture()
 	_ensure_surface_field_texture()
+	_ensure_solar_field_texture()
 	_request_chunk_rebuild([])
 	_rebuild_water_sources()
 	_rebuild_river_flow_overlays()
@@ -94,14 +100,17 @@ func apply_generation_data(generation: Dictionary, hydrology: Dictionary) -> voi
 	_update_weather_field_texture(_weather_snapshot)
 	_refresh_surface_state_from_generation()
 	_update_surface_state_texture(_weather_snapshot)
+	_update_solar_field_texture(_solar_snapshot)
 
 func apply_generation_delta(generation: Dictionary, hydrology: Dictionary, changed_tiles: Array) -> void:
 	_generation_snapshot = generation.duplicate(true)
 	_hydrology_snapshot = hydrology.duplicate(true)
 	_ensure_weather_field_texture()
 	_ensure_surface_field_texture()
+	_ensure_solar_field_texture()
 	_update_weather_field_texture(_weather_snapshot)
 	_update_surface_state_texture(_weather_snapshot)
+	_update_solar_field_texture(_solar_snapshot)
 	var chunk_keys = _chunk_keys_for_changed_tiles(changed_tiles)
 	if chunk_keys.is_empty():
 		_request_chunk_rebuild([])
@@ -159,6 +168,14 @@ func set_weather_state(weather_snapshot: Dictionary) -> void:
 	_update_volumetric_cloud_weather(rain, cloud, humidity, wind, wind_speed)
 	_update_rain_post_fx_weather(rain, wind, wind_speed)
 
+func set_solar_state(solar_snapshot: Dictionary) -> void:
+	_solar_snapshot = solar_snapshot.duplicate(true)
+	_update_solar_field_texture(_solar_snapshot)
+	for key_variant in _material_cache.keys():
+		var material = _material_cache[key_variant]
+		if material is ShaderMaterial:
+			_apply_solar_field_uniforms(material as ShaderMaterial)
+
 func set_water_shader_params(params: Dictionary) -> void:
 	for key_variant in params.keys():
 		var key = String(key_variant)
@@ -170,6 +187,7 @@ func set_water_shader_params(params: Dictionary) -> void:
 			var key = String(key_variant)
 			shader_material.set_shader_parameter(key, _water_shader_params[key_variant])
 		_apply_weather_field_uniforms(shader_material)
+		_apply_solar_field_uniforms(shader_material)
 
 func _apply_weather_to_cached_materials(rain: float, cloud: float, humidity: float) -> void:
 	for block_type_variant in _material_cache.keys():
@@ -188,6 +206,7 @@ func _apply_weather_to_cached_materials(rain: float, cloud: float, humidity: flo
 			shader_material.set_shader_parameter("weather_cloud_strength", _water_shader_params.get("weather_cloud_strength", 0.55))
 			_apply_weather_field_uniforms(shader_material)
 			_apply_surface_field_uniforms(shader_material)
+			_apply_solar_field_uniforms(shader_material)
 			continue
 		if not (material is StandardMaterial3D):
 			continue
@@ -422,6 +441,7 @@ func _material_for_block(block_type: String) -> Material:
 			water_material.set_shader_parameter(key, _water_shader_params[key_variant])
 		_apply_weather_field_uniforms(water_material)
 		_apply_surface_field_uniforms(water_material)
+		_apply_solar_field_uniforms(water_material)
 		_material_cache[block_type] = water_material
 		return water_material
 	var terrain_material := ShaderMaterial.new()
@@ -436,6 +456,7 @@ func _material_for_block(block_type: String) -> Material:
 	terrain_material.set_shader_parameter("weather_cloud_strength", _water_shader_params.get("weather_cloud_strength", 0.55))
 	_apply_weather_field_uniforms(terrain_material)
 	_apply_surface_field_uniforms(terrain_material)
+	_apply_solar_field_uniforms(terrain_material)
 	_material_cache[block_type] = terrain_material
 	return terrain_material
 
@@ -671,6 +692,25 @@ func _ensure_surface_field_texture() -> void:
 		_tile_flow_map[i] = 0.0
 	_surface_field_last_update_tick = -1
 
+func _ensure_solar_field_texture() -> void:
+	var width = maxi(1, int(_generation_snapshot.get("width", 1)))
+	var height = maxi(1, int(_generation_snapshot.get("height", 1)))
+	var needs_recreate = (
+		_solar_field_image == null
+		or _solar_field_texture == null
+		or _solar_field_image.get_width() != width
+		or _solar_field_image.get_height() != height
+	)
+	if not needs_recreate:
+		return
+	_solar_field_image = Image.create(width, height, false, Image.FORMAT_RGBA8)
+	_solar_field_image.fill(Color(0.0, 0.0, 0.0, 1.0))
+	_solar_field_texture = ImageTexture.create_from_image(_solar_field_image)
+	_solar_field_cache.resize(width * height)
+	for i in range(_solar_field_cache.size()):
+		_solar_field_cache[i] = -1
+	_solar_field_last_tick = -1
+
 func _refresh_surface_state_from_generation() -> void:
 	_ensure_surface_field_texture()
 	if _surface_field_image == null:
@@ -747,6 +787,64 @@ func _update_surface_state_texture(weather_snapshot: Dictionary) -> void:
 	if dirty > 0:
 		_surface_field_texture.update(_surface_field_image)
 
+func _update_solar_field_texture(solar_snapshot: Dictionary) -> void:
+	_ensure_solar_field_texture()
+	if _solar_field_image == null or _solar_field_texture == null:
+		return
+	var tick = int(solar_snapshot.get("tick", -1))
+	if tick == _solar_field_last_tick:
+		return
+	_solar_field_last_tick = tick
+	var width = _solar_field_image.get_width()
+	var height = _solar_field_image.get_height()
+	var avg_absorbed = clampf(float(solar_snapshot.get("avg_insolation", 0.0)), 0.0, 1.0)
+	var avg_uv = clampf(float(solar_snapshot.get("avg_uv_index", 0.0)) / 2.0, 0.0, 1.0)
+	var avg_heat = clampf(float(solar_snapshot.get("avg_heat_load", 0.0)) / 1.5, 0.0, 1.0)
+	var avg_growth = clampf(float(solar_snapshot.get("avg_growth_factor", 0.0)), 0.0, 1.0)
+	var rows: Array = solar_snapshot.get("rows", [])
+	var dirty = 0
+	var expected = width * height
+	if rows.size() < expected:
+		var fill = Color(avg_absorbed, avg_uv, avg_heat, avg_growth)
+		var fill_pack = _pack_weather_color(fill)
+		for i in range(_solar_field_cache.size()):
+			if _solar_field_cache[i] == fill_pack:
+				continue
+			_solar_field_cache[i] = fill_pack
+			var x = i % width
+			var y = i / width
+			_solar_field_image.set_pixel(x, y, fill)
+			dirty += 1
+	for row_variant in rows:
+		if not (row_variant is Dictionary):
+			continue
+		var row = row_variant as Dictionary
+		var tile_id = String(row.get("tile_id", ""))
+		var parts = tile_id.split(":")
+		if parts.size() != 2:
+			continue
+		var x = int(parts[0])
+		var y = int(parts[1])
+		if x < 0 or x >= width or y < 0 or y >= height:
+			continue
+		var c = Color(
+			clampf(float(row.get("sunlight_absorbed", row.get("sunlight_total", 0.0))), 0.0, 1.5) / 1.5,
+			clampf(float(row.get("uv_index", 0.0)), 0.0, 2.0) / 2.0,
+			clampf(float(row.get("heat_load", 0.0)), 0.0, 1.5) / 1.5,
+			clampf(float(row.get("plant_growth_factor", 0.0)), 0.0, 1.0)
+		)
+		var pack = _pack_weather_color(c)
+		var idx = y * width + x
+		if idx < 0 or idx >= _solar_field_cache.size():
+			continue
+		if _solar_field_cache[idx] == pack:
+			continue
+		_solar_field_cache[idx] = pack
+		_solar_field_image.set_pixel(x, y, c)
+		dirty += 1
+	if dirty > 0:
+		_solar_field_texture.update(_solar_field_image)
+
 func _update_weather_field_texture(weather_snapshot: Dictionary) -> void:
 	_ensure_weather_field_texture()
 	if _weather_field_image == null or _weather_field_texture == null:
@@ -806,6 +904,13 @@ func _apply_surface_field_uniforms(shader_material: ShaderMaterial) -> void:
 	shader_material.set_shader_parameter("surface_field_tex", _surface_field_texture)
 	shader_material.set_shader_parameter("surface_field_world_size", _weather_field_world_size)
 	shader_material.set_shader_parameter("surface_field_blend", 1.0)
+
+func _apply_solar_field_uniforms(shader_material: ShaderMaterial) -> void:
+	if shader_material == null:
+		return
+	shader_material.set_shader_parameter("solar_field_tex", _solar_field_texture)
+	shader_material.set_shader_parameter("solar_field_world_size", _weather_field_world_size)
+	shader_material.set_shader_parameter("solar_field_blend", 1.0)
 
 func trigger_lightning(intensity: float = 1.0) -> void:
 	_lightning_flash = clampf(maxf(_lightning_flash, intensity), 0.0, 2.0)

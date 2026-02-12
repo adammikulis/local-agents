@@ -28,6 +28,7 @@ const FlowTraversalProfileResourceScript = preload("res://addons/local_agents/co
 const FlowFormationConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FlowFormationConfigResource.gd")
 const FlowRuntimeConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FlowRuntimeConfigResource.gd")
 const StructureLifecycleConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/StructureLifecycleConfigResource.gd")
+const CognitionContractConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/CognitionContractConfigResource.gd")
 
 const CommunityLedgerScript = preload("res://addons/local_agents/simulation/CommunityLedgerSystem.gd")
 const HouseholdLedgerScript = preload("res://addons/local_agents/simulation/HouseholdLedgerSystem.gd")
@@ -101,6 +102,7 @@ var _cultural_policy: Dictionary = {}
 var _culture_context_cues: Dictionary = {}
 var _last_tick_processed: int = 0
 var _initialized: bool = false
+var _cognition_contract_config
 
 var _community_ledger_system
 var _household_ledger_system
@@ -194,6 +196,9 @@ func _ensure_initialized() -> void:
         _community_ledger = _community_ledger_system.initial_community_ledger()
     if _narrator_directive_resource == null:
         _narrator_directive_resource = NarratorDirectiveResourceScript.new()
+    if _cognition_contract_config == null:
+        _cognition_contract_config = CognitionContractConfigResourceScript.new()
+    _apply_cognition_contract()
     _initialized = true
 
 func configure(seed_text: String, narrator_enabled: bool = true, dream_llm_enabled: bool = true) -> void:
@@ -387,6 +392,42 @@ func set_cognition_features(enable_thoughts: bool, enable_dialogue: bool, enable
     thoughts_enabled = enable_thoughts
     dialogue_enabled = enable_dialogue
     dreams_enabled = enable_dreams
+
+func set_cognition_contract_config(config_resource) -> void:
+    _ensure_initialized()
+    if config_resource == null:
+        _cognition_contract_config = CognitionContractConfigResourceScript.new()
+    else:
+        _cognition_contract_config = config_resource
+    _apply_cognition_contract()
+
+func _apply_cognition_contract() -> void:
+    if _cognition_contract_config == null:
+        _cognition_contract_config = CognitionContractConfigResourceScript.new()
+    if _cognition_contract_config.has_method("ensure_defaults"):
+        _cognition_contract_config.call("ensure_defaults")
+    if _narrator != null and _narrator.has_method("set_request_profile"):
+        _narrator.call("set_request_profile", _cognition_contract_config.call("profile_for_task", "narrator_direction"))
+    if _mind != null and _mind.has_method("set_request_profile"):
+        _mind.call("set_request_profile", "internal_thought", _cognition_contract_config.call("profile_for_task", "internal_thought"))
+        _mind.call("set_request_profile", "dialogue_exchange", _cognition_contract_config.call("profile_for_task", "dialogue_exchange"))
+    if _mind != null and _mind.has_method("set_contract_limits"):
+        _mind.call("set_contract_limits", {
+            "context_schema_version": int(_cognition_contract_config.get("context_schema_version")),
+            "max_prompt_chars": int(_cognition_contract_config.get("max_prompt_chars")),
+            "state_chars": int(_cognition_contract_config.get("budget_state_chars")),
+            "waking_memories": int(_cognition_contract_config.get("budget_waking_memories")),
+            "dream_memories": int(_cognition_contract_config.get("budget_dream_memories")),
+            "beliefs": int(_cognition_contract_config.get("budget_beliefs")),
+            "conflicts": int(_cognition_contract_config.get("budget_conflicts")),
+            "oral_knowledge": int(_cognition_contract_config.get("budget_oral_knowledge")),
+            "ritual_events": int(_cognition_contract_config.get("budget_ritual_events")),
+            "taboo_ids": int(_cognition_contract_config.get("budget_taboo_ids")),
+        })
+    if _dreams != null and _dreams.has_method("set_request_profile"):
+        _dreams.call("set_request_profile", _cognition_contract_config.call("profile_for_task", "dream_generation"))
+    if _culture_cycle != null and _culture_cycle.has_method("set_request_profile"):
+        _culture_cycle.call("set_request_profile", _cognition_contract_config.call("profile_for_task", "oral_transmission_utterance"))
 
 func set_narrator_directive(text: String) -> void:
     _ensure_initialized()
@@ -633,6 +674,7 @@ func current_snapshot(tick: int) -> Dictionary:
         "market_prices": _last_market_prices.duplicate(true),
         "economy_snapshot": snapshot_resource.to_dict(),
         "directive": _directive_text(),
+        "cognition_contract": _cognition_contract_config.to_dict() if (_cognition_contract_config != null and _cognition_contract_config.has_method("to_dict")) else {},
     }
 
 func _apply_need_decay(npc_id: String, fixed_delta: float) -> void:
@@ -652,6 +694,7 @@ func _generate_narrator_direction(tick: int) -> bool:
     var result = _narrator.generate_direction(current_snapshot(tick), seed, _directive_text())
     if not bool(result.get("ok", false)):
         return _emit_dependency_error(tick, "narrator", String(result.get("error", "narrator_failed")))
+    _persist_llm_trace_event(tick, "narrator_direction", [], result.get("trace", {}))
     emit_signal("narrator_direction_generated", tick, result.get("text", ""))
     return true
 
@@ -662,6 +705,7 @@ func _run_thought_cycle(npc_id: String, tick: int) -> bool:
     var state: Dictionary = villager_state.to_dict()
     var world_day = int(tick / 24)
     state["belief_context"] = _belief_context_for_npc(npc_id, world_day, 6)
+    state["culture_context"] = _culture_context_for_npc(npc_id, world_day)
     var recall = _mind.select_recall_context(_backstory_service, npc_id, world_day, 5, 2)
     var seed = _rng.derive_seed("thought", npc_id, active_branch_id, tick)
     var thought = _mind.generate_internal_thought(npc_id, state, recall, seed, _directive_text())
@@ -685,10 +729,12 @@ func _run_thought_cycle(npc_id: String, tick: int) -> bool:
             "source": "llm_internal_thought",
             "is_internal_thought": true,
             "is_factual": false,
+            "evidence_trace": thought.get("trace", {}),
         }
     )
     if not bool(memory.get("ok", false)):
         return _emit_dependency_error(tick, "thought_memory", "backstory_write_failed")
+    _persist_llm_trace_event(tick, "internal_thought", [npc_id], thought.get("trace", {}))
     emit_signal("villager_thought_recorded", npc_id, tick, thought_memory_id, thought_text)
     return true
 
@@ -707,6 +753,8 @@ func _run_dialogue_cycle(npc_ids: Array, tick: int) -> bool:
         var world_day = int(tick / 24)
         source_state["belief_context"] = _belief_context_for_npc(source_id, world_day, 4)
         target_state["belief_context"] = _belief_context_for_npc(target_id, world_day, 4)
+        source_state["culture_context"] = _culture_context_for_npc(source_id, world_day)
+        target_state["culture_context"] = _culture_context_for_npc(target_id, world_day)
         var source_recall = _mind.select_recall_context(_backstory_service, source_id, world_day, 4, 1)
         var target_recall = _mind.select_recall_context(_backstory_service, target_id, world_day, 4, 1)
         var seed = _rng.derive_seed("dialogue", source_id + "->" + target_id, active_branch_id, tick)
@@ -730,8 +778,10 @@ func _run_dialogue_cycle(npc_ids: Array, tick: int) -> bool:
                 "is_factual": true,
                 "source_recall": _memory_refs_from_recall(source_recall),
                 "target_recall": _memory_refs_from_recall(target_recall),
+                "evidence_trace": result.get("trace", {}),
             }
         )
+        _persist_llm_trace_event(tick, "dialogue_exchange", [source_id, target_id], result.get("trace", {}))
         emit_signal("villager_dialogue_recorded", source_id, target_id, tick, event_id, dialogue_text)
     return true
 
@@ -749,6 +799,7 @@ func _run_dream_cycle(npc_id: String, tick: int) -> bool:
         return true
     var influence = _dreams.get_dream_influence(npc_id)
     var metadata = _dreams.dream_memory_metadata(influence, seed)
+    metadata["evidence_trace"] = dream.get("trace", {})
     var world_day = int(tick / 24)
     var memory_id = "dream:%s:%s:%d" % [world_id, npc_id, tick]
     var memory = _backstory_service.add_dream_memory(memory_id, npc_id, dream_text, world_day, influence, 0.55, 0.65, metadata)
@@ -757,6 +808,7 @@ func _run_dream_cycle(npc_id: String, tick: int) -> bool:
     var effect = _dreams.compute_dream_effect(dream_text)
     var next_state: Dictionary = _dreams.apply_dream_effect(state, effect)
     villager_state.from_dict(next_state)
+    _persist_llm_trace_event(tick, "dream_generation", [npc_id], dream.get("trace", {}))
     emit_signal("villager_dream_recorded", npc_id, tick, memory_id, dream_text, effect)
     return true
 
@@ -1095,6 +1147,46 @@ func _belief_context_for_npc(npc_id: String, world_day: int, limit: int) -> Dict
             out["conflicts"] = conflicts_result.get("conflicts", [])
     return out
 
+func _culture_context_for_npc(npc_id: String, world_day: int) -> Dictionary:
+    var out := {
+        "oral_knowledge": [],
+        "ritual_events": [],
+        "taboo_ids": [],
+    }
+    if _backstory_service == null:
+        return out
+    var oral_limit = 3
+    var ritual_limit = 2
+    var taboo_limit = 6
+    if _cognition_contract_config != null:
+        oral_limit = maxi(1, int(_cognition_contract_config.get("budget_oral_knowledge")))
+        ritual_limit = maxi(1, int(_cognition_contract_config.get("budget_ritual_events")))
+        taboo_limit = maxi(1, int(_cognition_contract_config.get("budget_taboo_ids")))
+
+    if _backstory_service.has_method("get_oral_knowledge_for_npc"):
+        var oral_result: Dictionary = _backstory_service.call("get_oral_knowledge_for_npc", npc_id, world_day, oral_limit)
+        if bool(oral_result.get("ok", false)):
+            out["oral_knowledge"] = oral_result.get("oral_knowledge", [])
+    if _sacred_site_id != "" and _backstory_service.has_method("get_ritual_history_for_site"):
+        var ritual_result: Dictionary = _backstory_service.call("get_ritual_history_for_site", _sacred_site_id, world_day, ritual_limit)
+        if bool(ritual_result.get("ok", false)):
+            out["ritual_events"] = ritual_result.get("ritual_events", [])
+    if _sacred_site_id != "" and _backstory_service.has_method("get_sacred_site"):
+        var site_result: Dictionary = _backstory_service.call("get_sacred_site", _sacred_site_id)
+        if bool(site_result.get("ok", false)):
+            var site: Dictionary = site_result.get("site", {})
+            var taboo_ids: Array = site.get("taboo_ids", [])
+            var filtered: Array = []
+            for taboo_variant in taboo_ids:
+                if filtered.size() >= taboo_limit:
+                    break
+                var taboo = String(taboo_variant).strip_edges()
+                if taboo == "":
+                    continue
+                filtered.append(taboo)
+            out["taboo_ids"] = filtered
+    return out
+
 func _directive_text() -> String:
     if _narrator_directive_resource == null:
         return ""
@@ -1143,6 +1235,49 @@ func _log_resource_event(tick: int, event_type: String, scope: String, owner_id:
     if event_id == -1:
         _emit_dependency_error(tick, "resource_event_store", "append_failed")
     _resource_event_sequence += 1
+
+func _persist_llm_trace_event(tick: int, task: String, actor_ids: Array, trace_variant) -> void:
+    if not (trace_variant is Dictionary):
+        return
+    var trace: Dictionary = trace_variant
+    if trace.is_empty():
+        return
+    var query_keys: Array = trace.get("query_keys", [])
+    var referenced_ids: Array = trace.get("referenced_ids", [])
+    var normalized_actors: Array = _normalize_id_array(actor_ids)
+    var profile_id = String(trace.get("profile_id", "")).strip_edges()
+    var sampler_params: Dictionary = {}
+    var sampler_variant = trace.get("sampler_params", {})
+    if sampler_variant is Dictionary:
+        sampler_params = (sampler_variant as Dictionary).duplicate(true)
+    var payload := {
+        "kind": "llm_trace",
+        "task": task,
+        "actor_ids": normalized_actors,
+        "profile_id": profile_id,
+        "seed": int(trace.get("seed", 0)),
+        "query_keys": _normalize_id_array(query_keys),
+        "referenced_ids": _normalize_id_array(referenced_ids),
+        "sampler_params": sampler_params,
+    }
+    var scope = "settlement"
+    var owner_id = "settlement_main"
+    if normalized_actors.size() == 1:
+        scope = "individual"
+        owner_id = String(normalized_actors[0])
+    _log_resource_event(tick, "sim_llm_trace_event", scope, owner_id, payload)
+
+func _normalize_id_array(values: Array) -> Array:
+    var out: Array = []
+    for value in values:
+        var text = String(value).strip_edges()
+        if text == "":
+            continue
+        if out.has(text):
+            continue
+        out.append(text)
+    out.sort()
+    return out
 
 func _apply_carry_assignments(members: Array, assignments: Dictionary) -> void:
     for npc_id_variant in members:
@@ -1303,6 +1438,7 @@ func _run_culture_cycle(tick: int) -> void:
     _culture_driver_events = result.get("drivers", [])
     _oral_tick_events = result.get("oral_events", [])
     _ritual_tick_events = result.get("ritual_events", [])
+    _persist_llm_trace_event(tick, "oral_transmission_utterance", [], result.get("trace", {}))
     _cultural_policy = _derive_cultural_policy(_culture_driver_events)
     for driver_variant in _culture_driver_events:
         if not (driver_variant is Dictionary):

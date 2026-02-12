@@ -16,6 +16,9 @@ signal edible_state_changed(plant_id: String, edible: bool)
 @export var flowering_peak_growth: float = 0.82
 @export var flowering_smell_boost: float = 0.55
 @export var seeds_per_plant: int = 2
+@export_range(0.1, 4.0, 0.01) var max_growth_rate_multiplier: float = 1.8
+@export_range(0.0, 2.0, 0.01) var uv_stress_threshold: float = 1.25
+@export_range(0.0, 2.0, 0.01) var heat_stress_threshold: float = 1.0
 
 const SmellEmissionProfileScript = preload("res://addons/local_agents/configuration/parameters/simulation/SmellEmissionProfileResource.gd")
 const LivingProfileScript = preload("res://addons/local_agents/configuration/parameters/simulation/LivingEntityProfileResource.gd")
@@ -46,9 +49,13 @@ func _ready() -> void:
 	_last_edible_state = is_edible()
 
 func simulation_step(delta: float) -> void:
+	simulation_step_with_environment(delta, {})
+
+func simulation_step_with_environment(delta: float, environment_context: Dictionary) -> void:
 	if _consumed:
 		return
-	_age_seconds = minf(_age_seconds + maxf(delta, 0.0), grow_duration_seconds)
+	var growth_mult = _growth_rate_multiplier(environment_context)
+	_age_seconds = minf(_age_seconds + maxf(delta, 0.0) * growth_mult, grow_duration_seconds)
 	_update_visual_scale()
 	var now_edible := is_edible()
 	if now_edible != _last_edible_state:
@@ -199,3 +206,21 @@ func _configure_living_profile() -> void:
 		"seeds_per_plant": seeds_per_plant,
 		"smell_kind": smell_kind,
 	}
+
+func _growth_rate_multiplier(environment_context: Dictionary) -> float:
+	if environment_context.is_empty():
+		return 1.0
+	var absorbed = clampf(float(environment_context.get("sunlight_absorbed", 0.5)), 0.0, 1.5)
+	var moisture = clampf(float(environment_context.get("moisture", 0.5)), 0.0, 1.0)
+	var growth_factor = clampf(float(environment_context.get("plant_growth_factor", 0.5)), 0.0, 1.0)
+	var uv = clampf(float(environment_context.get("uv_index", 0.0)), 0.0, 3.0)
+	var heat_load = clampf(float(environment_context.get("heat_load", 0.5)), 0.0, 2.0)
+	var air_temp = clampf(float(environment_context.get("air_temperature", 0.5)), 0.0, 1.2)
+	var rain = clampf(float(environment_context.get("rain_intensity", 0.0)), 0.0, 1.0)
+	var uv_stress = clampf(maxf(0.0, uv - uv_stress_threshold) * 0.55, 0.0, 1.0)
+	var heat_stress = clampf(maxf(0.0, heat_load - heat_stress_threshold) * 0.65, 0.0, 1.0)
+	var temp_optimal = 1.0 - clampf(absf(air_temp - 0.56) * 1.35, 0.0, 1.0)
+	var hydration = clampf(moisture * 0.75 + rain * 0.25, 0.0, 1.0)
+	var productive = clampf(growth_factor * 0.55 + absorbed * 0.3 + hydration * 0.15, 0.0, 1.0)
+	var multiplier = 0.4 + productive * 1.2 + temp_optimal * 0.35 - uv_stress * 0.42 - heat_stress * 0.36
+	return clampf(multiplier, 0.1, max_growth_rate_multiplier)

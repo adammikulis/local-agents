@@ -65,6 +65,8 @@ func _ready() -> void:
 		)
 	if environment_controller.has_method("set_weather_state"):
 		environment_controller.set_weather_state(setup.get("weather", {}))
+	if environment_controller.has_method("set_solar_state"):
+		environment_controller.set_solar_state(setup.get("solar", {}))
 	if has_node("EcologyController"):
 		var ecology_controller = get_node("EcologyController")
 		if ecology_controller.has_method("set_environment_signals"):
@@ -124,6 +126,8 @@ func _sync_environment_from_state(state: Dictionary, force_rebuild: bool) -> voi
 			)
 	if environment_controller.has_method("set_weather_state"):
 		environment_controller.set_weather_state(state.get("weather_snapshot", {}))
+	if environment_controller.has_method("set_solar_state"):
+		environment_controller.set_solar_state(state.get("solar_snapshot", {}))
 	if has_node("EcologyController"):
 		var ecology_controller = get_node("EcologyController")
 		if ecology_controller.has_method("set_environment_signals"):

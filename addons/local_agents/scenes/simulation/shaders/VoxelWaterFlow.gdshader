@@ -21,6 +21,9 @@ uniform float weather_field_blend : hint_range(0.0, 1.0) = 1.0;
 uniform sampler2D surface_field_tex;
 uniform vec2 surface_field_world_size = vec2(1.0, 1.0);
 uniform float surface_field_blend : hint_range(0.0, 1.0) = 1.0;
+uniform sampler2D solar_field_tex;
+uniform vec2 solar_field_world_size = vec2(1.0, 1.0);
+uniform float solar_field_blend : hint_range(0.0, 1.0) = 1.0;
 varying vec3 world_pos;
 
 float hash21(vec2 p) {
@@ -61,10 +64,14 @@ void fragment() {
 	vec4 weather_px = texture(weather_field_tex, weather_uv_px);
 	vec2 surface_uv = clamp(world_pos.xz / max(surface_field_world_size, vec2(1.0, 1.0)), vec2(0.0), vec2(1.0));
 	vec4 surface_px = texture(surface_field_tex, surface_uv);
+	vec2 solar_uv = clamp(world_pos.xz / max(solar_field_world_size, vec2(1.0, 1.0)), vec2(0.0), vec2(1.0));
+	vec4 solar_px = texture(solar_field_tex, solar_uv);
 	float rain_mix = mix(rain_intensity, weather_px.g, weather_field_blend);
 	float cloud_mix = mix(cloud_shadow, weather_px.r, weather_field_blend);
 	float flow_mask = mix(0.5, surface_px.b, surface_field_blend);
 	float erosion_mask = mix(0.0, surface_px.a, surface_field_blend);
+	float solar_absorbed = mix(0.45, solar_px.r, solar_field_blend);
+	float heat_norm = mix(0.35, solar_px.b, solar_field_blend);
 	vec2 dir = normalize(flow_dir);
 	float t = TIME * flow_speed * (0.85 + flow_mask * 0.9);
 	vec2 uv = UV * (noise_scale * 3.0);
@@ -82,6 +89,8 @@ void fragment() {
 	float dynamic_shadow = cloud_mask * weather_cloud_strength * cloud_mix;
 	color *= (1.0 - (cloud_mix * 0.2 + dynamic_shadow * 0.38));
 	color = mix(color, color * vec3(0.75, 0.74, 0.7), erosion_mask * 0.2);
+	color *= (0.92 + solar_absorbed * 0.16);
+	color += vec3(0.03, 0.02, 0.01) * heat_norm * 0.2;
 	float fresnel = pow(1.0 - max(dot(normalize(NORMAL), normalize(VIEW)), 0.0), 2.6);
 
 	ALBEDO = color;

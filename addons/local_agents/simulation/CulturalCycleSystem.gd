@@ -1,10 +1,34 @@
 extends RefCounted
 class_name LocalAgentsCulturalCycleSystem
 
+const LlmRequestProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/LlmRequestProfileResource.gd")
+
 var _oral_last_item: Dictionary = {}
 var _confidence_by_topic: Dictionary = {}
 var _last_driver_digest: Dictionary = {}
 var llm_enabled: bool = true
+var _request_profile = LlmRequestProfileResourceScript.new()
+
+func _init() -> void:
+	_request_profile.profile_id = "oral_transmission_utterance"
+	_request_profile.temperature = 0.35
+	_request_profile.top_p = 0.9
+	_request_profile.max_tokens = 420
+	_request_profile.stop = PackedStringArray()
+	_request_profile.reset_context = true
+	_request_profile.cache_prompt = false
+	_request_profile.retry_count = 0
+	_request_profile.retry_seed_step = 1
+	_request_profile.output_json = true
+
+func set_request_profile(profile_resource: Resource) -> void:
+	if profile_resource == null:
+		return
+	if profile_resource.has_method("to_dict"):
+		_request_profile.from_dict(profile_resource.call("to_dict"))
+
+func request_profile_id() -> String:
+	return String(_request_profile.profile_id)
 
 func export_state() -> Dictionary:
 	var retention_snapshot = _retention_metrics()
@@ -25,9 +49,10 @@ func step(tick: int, context: Dictionary) -> Dictionary:
 	var oral_events: Array = []
 	var ritual_events: Array = []
 	var drivers: Array = []
+	var driver_trace: Dictionary = {}
 	var graph = context.get("graph_service", null)
 	if graph == null:
-		return {"oral_events": oral_events, "ritual_events": ritual_events, "drivers": drivers}
+		return {"oral_events": oral_events, "ritual_events": ritual_events, "drivers": drivers, "trace": driver_trace}
 
 	var rng = context.get("rng", null)
 	var world_id = String(context.get("world_id", "world_main"))
@@ -38,7 +63,9 @@ func step(tick: int, context: Dictionary) -> Dictionary:
 	var context_snapshot: Dictionary = context.get("culture_context", {})
 	var context_cues: Dictionary = context.get("context_cues", {})
 	var deterministic_seed = int(context.get("deterministic_seed", 1))
-	drivers = _synthesize_cultural_drivers(tick, world_id, branch_id, context_snapshot, context_cues, deterministic_seed)
+	var synthesis: Dictionary = _synthesize_cultural_drivers(tick, world_id, branch_id, context_snapshot, context_cues, deterministic_seed)
+	drivers = synthesis.get("drivers", [])
+	driver_trace = synthesis.get("trace", {})
 
 	if tick > 0 and tick % 24 == 18:
 		_decay_confidence()
@@ -46,7 +73,7 @@ func step(tick: int, context: Dictionary) -> Dictionary:
 	if sacred_site_id != "" and tick > 0 and tick % 72 == 30:
 		ritual_events = _run_ritual_schedule(tick, graph, rng, world_id, branch_id, sacred_site_id, npc_ids, drivers)
 	_last_driver_digest = _driver_digest(drivers)
-	return {"oral_events": oral_events, "ritual_events": ritual_events, "drivers": drivers}
+	return {"oral_events": oral_events, "ritual_events": ritual_events, "drivers": drivers, "trace": driver_trace}
 
 func _run_oral_schedule(tick: int, graph, rng, world_id: String, branch_id: String, household_members: Dictionary, context_snapshot: Dictionary, context_cues: Dictionary, drivers: Array) -> Array:
 	var rows: Array = []
@@ -567,7 +594,7 @@ func _driver_digest(drivers: Array) -> Dictionary:
 		"count": drivers.size(),
 	}
 
-func _synthesize_cultural_drivers(tick: int, world_id: String, branch_id: String, context_snapshot: Dictionary, context_cues: Dictionary, deterministic_seed: int) -> Array:
+func _synthesize_cultural_drivers(tick: int, world_id: String, branch_id: String, context_snapshot: Dictionary, context_cues: Dictionary, deterministic_seed: int) -> Dictionary:
 	var synthesized: Dictionary = {}
 	if llm_enabled:
 		var prompt = _build_driver_prompt(world_id, branch_id, tick, context_snapshot)
@@ -578,7 +605,11 @@ func _synthesize_cultural_drivers(tick: int, world_id: String, branch_id: String
 	if rows.is_empty():
 		rows = _heuristic_driver_payload(context_snapshot)
 	rows = _merge_with_context_cue_drivers(rows, context_cues)
-	return _sanitize_drivers(rows)
+	var out = _sanitize_drivers(rows)
+	return {
+		"drivers": out,
+		"trace": synthesized.get("trace", {}),
+	}
 
 func _merge_with_context_cue_drivers(rows: Array, context_cues: Dictionary) -> Array:
 	var out = rows.duplicate(true)
@@ -646,22 +677,17 @@ func _generate_driver_payload(prompt: String, deterministic_seed: int) -> Dictio
 		return {"ok": false, "error": "model_not_loaded"}
 
 	var schema := _driver_json_schema()
+	var options = _request_profile.to_runtime_options(deterministic_seed)
+	options["response_format"] = {
+		"type": "json_schema",
+		"schema": schema,
+	}
+	options["json_schema"] = schema
+	options["output_json"] = true
 	var request = {
 		"prompt": prompt,
 		"history": [],
-		"options": {
-			"temperature": 0.35,
-			"max_tokens": 420,
-			"seed": deterministic_seed,
-			"reset_context": true,
-			"cache_prompt": false,
-			"output_json": true,
-			"response_format": {
-				"type": "json_schema",
-				"schema": schema,
-			},
-			"json_schema": schema,
-		},
+		"options": options,
 	}
 	var result: Dictionary = runtime.call("generate", request)
 	if not bool(result.get("ok", false)):
@@ -672,7 +698,18 @@ func _generate_driver_payload(prompt: String, deterministic_seed: int) -> Dictio
 	var parsed = _parse_json_anywhere(text)
 	if not (parsed is Dictionary):
 		return {"ok": false, "error": "json_parse_failed"}
-	return parsed as Dictionary
+	var payload: Dictionary = parsed as Dictionary
+	return {
+		"ok": true,
+		"drivers": payload.get("drivers", []),
+		"trace": {
+			"query_keys": ["culture_context_snapshot", "context_cues"],
+			"referenced_ids": [],
+			"profile_id": String(_request_profile.profile_id),
+			"seed": deterministic_seed,
+			"sampler_params": _request_profile.to_runtime_options(deterministic_seed),
+		},
+	}
 
 func _parse_json_anywhere(text: String):
 	var parsed = _try_parse_json(text)
