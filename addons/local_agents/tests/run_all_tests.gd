@@ -6,9 +6,15 @@ const CORE_TESTS := [
     "res://addons/local_agents/tests/test_agent_utilities.gd",
     "res://addons/local_agents/tests/test_speech_service_smoke.gd",
     "res://addons/local_agents/tests/test_llama_server_provider.gd",
+    "res://addons/local_agents/tests/test_backstory_graph_service.gd",
+    "res://addons/local_agents/tests/test_deterministic_simulation.gd",
+    "res://addons/local_agents/tests/test_simulation_dream_labeling.gd",
+    "res://addons/local_agents/tests/test_simulation_resource_ledgers.gd",
+    "res://addons/local_agents/tests/test_simulation_economy_events.gd",
 ]
 
 const RUNTIME_TESTS := [
+    "res://addons/local_agents/tests/test_simulation_villager_cognition.gd",
     "res://addons/local_agents/tests/test_agent_integration.gd",
     "res://addons/local_agents/tests/test_agent_runtime_heavy.gd",
 ]

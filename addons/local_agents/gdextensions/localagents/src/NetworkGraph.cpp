@@ -74,13 +74,29 @@ void NetworkGraph::_bind_methods() {
 
 bool NetworkGraph::open(const String &path) {
     std::scoped_lock lock(mutex_);
-    close();
+    if (db_) {
+        sqlite3_close(db_);
+        db_ = nullptr;
+    }
+    embeddings_.clear();
+    vp_nodes_.clear();
+    vp_root_ = -1;
+    embedding_dim_ = 0;
+    index_dirty_ = true;
 
     db_path_ = path;
     int rc = sqlite3_open_v2(path.utf8().get_data(), &db_, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nullptr);
     if (rc != SQLITE_OK) {
         UtilityFunctions::push_error(String("NetworkGraph::open - failed to open ") + path + ": " + sqlite3_errstr(rc));
-        close();
+        if (db_) {
+            sqlite3_close(db_);
+            db_ = nullptr;
+        }
+        embeddings_.clear();
+        vp_nodes_.clear();
+        vp_root_ = -1;
+        embedding_dim_ = 0;
+        index_dirty_ = true;
         return false;
     }
 
@@ -89,7 +105,15 @@ bool NetworkGraph::open(const String &path) {
     exec_sql("PRAGMA synchronous = NORMAL;");
 
     if (!initialize_schema()) {
-        close();
+        if (db_) {
+            sqlite3_close(db_);
+            db_ = nullptr;
+        }
+        embeddings_.clear();
+        vp_nodes_.clear();
+        vp_root_ = -1;
+        embedding_dim_ = 0;
+        index_dirty_ = true;
         return false;
     }
 

@@ -1405,12 +1405,29 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
         response["error"] = "tokenization_failed";
         return response;
     }
-    llama_batch batch = llama_batch_get_one(tokens_prompt.data(), static_cast<int32_t>(tokens_prompt.size()));
 
-    if (llama_decode(context_, batch)) {
-        response["ok"] = false;
-        response["error"] = "llama_decode_failed";
-        return response;
+    // Avoid cross-request KV contamination unless explicitly opted into prompt caching.
+    bool reset_context = options.get("reset_context", true);
+    bool cache_prompt = options.get("cache_prompt", false);
+    if (reset_context && !cache_prompt) {
+        llama_memory_clear(llama_get_memory(context_), true);
+    }
+
+    int32_t decode_batch_size = options.get("batch_size", 512);
+    if (decode_batch_size <= 0) {
+        decode_batch_size = 512;
+    }
+    for (size_t offset = 0; offset < tokens_prompt.size(); offset += static_cast<size_t>(decode_batch_size)) {
+        int32_t chunk = static_cast<int32_t>(std::min<size_t>(
+            static_cast<size_t>(decode_batch_size),
+            tokens_prompt.size() - offset
+        ));
+        llama_batch batch = llama_batch_get_one(tokens_prompt.data() + offset, chunk);
+        if (llama_decode(context_, batch)) {
+            response["ok"] = false;
+            response["error"] = "llama_decode_failed";
+            return response;
+        }
     }
 
     int max_tokens = options.get("max_tokens", 256);
@@ -1724,8 +1741,26 @@ bool AgentRuntime::load_model_locked(const String &path, const Dictionary &optio
     }
 
     llama_context_params ctx_params = llama_context_default_params();
+    int32_t model_ctx_train = llama_model_n_ctx_train(model_);
+    if (model_ctx_train > 0) {
+        ctx_params.n_ctx = model_ctx_train;
+    }
     if (options.has("context_size")) {
         ctx_params.n_ctx = (int32_t)options["context_size"];
+    }
+    if (ctx_params.n_ctx <= 0) {
+        ctx_params.n_ctx = 4096;
+    }
+    if (options.has("batch_size")) {
+        ctx_params.n_batch = (int32_t)options["batch_size"];
+    } else {
+        ctx_params.n_batch = ctx_params.n_ctx;
+    }
+    if (ctx_params.n_batch <= 0) {
+        ctx_params.n_batch = 512;
+    }
+    if (ctx_params.n_batch > ctx_params.n_ctx) {
+        ctx_params.n_batch = ctx_params.n_ctx;
     }
     if (options.has("pooling")) {
         ctx_params.pooling_type = static_cast<enum llama_pooling_type>((int)options["pooling"]);
@@ -1755,6 +1790,12 @@ bool AgentRuntime::load_model_locked(const String &path, const Dictionary &optio
         }
         if (!default_options_.has("embedding")) {
             default_options_["embedding"] = ctx_params.embeddings;
+        }
+        if (!default_options_.has("context_size")) {
+            default_options_["context_size"] = ctx_params.n_ctx;
+        }
+        if (!default_options_.has("batch_size")) {
+            default_options_["batch_size"] = ctx_params.n_batch;
         }
     }
 

@@ -4,6 +4,8 @@ This document defines a concrete graph schema for NPC memory, quests, dialogue s
 
 ## 1. Canonical Graph Schema (Cypher-first)
 
+Note: this project runtime is `NetworkGraph` (C++ + SQLite). Neo4j/Cypher usage is optional and external for analysis, validation, or migration.
+
 ### Node labels and required properties
 
 | Label | Required properties | Notes |
@@ -262,3 +264,77 @@ SET r.long_bond = coalesce(r.long_bond, 0.0) * 0.15 + recent_bond * 0.85,
 ```
 
 Use this document as the schema contract for NPC/quest/dialogue/time features until a direct Cypher backend is introduced.
+
+## 9. Operational Cypher Pack (Recommended)
+
+`LocalAgentsBackstoryGraphService.get_cypher_playbook(npc_id, world_day, limit)` now returns a query catalog you can feed into optional external Neo4j analysis tools (for example Neo4j Browser/Cypher Shell). It is not executed by the in-engine runtime backend.
+
+Suggested high-value queries from the playbook:
+
+### NPC backstory context
+
+Use when building LLM prompt context for one NPC.
+
+```cypher
+MATCH (n:NPC {npc_id: $npc_id})
+OPTIONAL MATCH (n)-[rel]->(x)
+WHERE (
+    x:Memory OR
+    x:QuestState OR
+    x:DialogueState OR
+    x:RelationshipProfile OR
+    type(rel) IN ['HAS_MEMORY', 'HAS_QUEST_STATE', 'HAS_DIALOGUE_STATE', 'HAS_RELATIONSHIP_PROFILE']
+)
+RETURN n, rel, x
+ORDER BY coalesce(x.world_day, 0) DESC, coalesce(x.updated_at, 0) DESC
+LIMIT $limit;
+```
+
+### Exclusive membership conflicts
+
+Use for writer QA and contradiction checks.
+
+```cypher
+MATCH (n:NPC)-[m:MEMBER_OF]->(f:Faction)
+WHERE coalesce(m.exclusive, false) = true AND coalesce(m.to_day, -1) = -1
+WITH n, collect(f.faction_id) AS factions, count(m) AS cnt
+WHERE cnt > 1
+RETURN n.npc_id AS npc_id, factions, cnt
+ORDER BY cnt DESC
+LIMIT $limit;
+```
+
+### Post-death quest activity
+
+Use to detect timeline inconsistency after death state is set.
+
+```cypher
+MATCH (n:NPC {npc_id: $npc_id})-[:HAS_DIALOGUE_STATE]->(life:DialogueState {state_key: 'life_status'})
+MATCH (n)-[:HAS_DIALOGUE_STATE]->(death:DialogueState {state_key: 'death_day'})
+MATCH (n)-[:HAS_QUEST_STATE]->(qs:QuestState)
+WHERE life.state_value = 'dead' AND qs.world_day > toInteger(death.state_value)
+RETURN n.npc_id AS npc_id,
+       toInteger(death.state_value) AS death_day,
+       qs.quest_id AS quest_id,
+       qs.state AS quest_state,
+       qs.world_day AS world_day
+ORDER BY qs.world_day ASC
+LIMIT $limit;
+```
+
+### Relationship state aggregate
+
+Use to combine long-term profile with recent interaction drift.
+
+```cypher
+MATCH (a:NPC {npc_id: $source_npc_id})
+MATCH (b:NPC {npc_id: $target_npc_id})
+OPTIONAL MATCH (a)-[:HAS_RELATIONSHIP_PROFILE]->(p:RelationshipProfile)-[:TARGETS_NPC]->(b)
+OPTIONAL MATCH (e:RelationshipEvent {source_npc_id: $source_npc_id, target_npc_id: $target_npc_id})
+WHERE e.world_day >= $window_start AND e.world_day <= $world_day
+RETURN p,
+       count(e) AS recent_count,
+       avg(e.valence_delta) AS recent_valence_avg,
+       avg(e.trust_delta) AS recent_trust_avg,
+       avg(e.respect_delta) AS recent_respect_avg;
+```

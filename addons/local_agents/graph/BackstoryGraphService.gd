@@ -17,13 +17,23 @@ const DIALOGUE_STATE_SPACE = "dialogue_state"
 const WORLD_TIME_SPACE = "world_time"
 const RELATIONSHIP_PROFILE_SPACE = "relationship_profile"
 const RELATIONSHIP_EVENT_SPACE = "relationship_event"
+const TRUTH_SPACE = "truth"
+const BELIEF_SPACE = "belief"
 
 const DEFAULT_SCAN_LIMIT = 4096
+const CYPHER_PLAYBOOK_VERSION = "backstory_cypher_playbook_v1"
 
 var _graph: Object = null
+var _database_path_override: String = ""
 
 func _ready() -> void:
     _ensure_graph()
+
+func set_database_path(path: String) -> void:
+    if _graph != null:
+        push_warning("set_database_path called after graph init; ignoring override")
+        return
+    _database_path_override = path.strip_edges()
 
 func upsert_npc(npc_id: String, display_name: String, traits: Dictionary = {}, metadata: Dictionary = {}) -> Dictionary:
     if npc_id.strip_edges() == "":
@@ -360,6 +370,244 @@ func add_memory(memory_id: String, npc_id: String, summary: String, conversation
             })
     return _ok({"node_id": memory_node_id})
 
+func add_dream_memory(memory_id: String, npc_id: String, summary: String, world_day: int, influence: Dictionary = {}, importance: float = 0.5, confidence: float = 0.8, metadata: Dictionary = {}) -> Dictionary:
+    var merged_tags: Array = ["dream"]
+    var merged_metadata := metadata.duplicate(true)
+    merged_metadata["memory_kind"] = "dream"
+    merged_metadata["is_dream"] = true
+    merged_metadata["is_factual"] = false
+    merged_metadata["influence"] = influence.duplicate(true)
+    return add_memory(
+        memory_id,
+        npc_id,
+        summary,
+        -1,
+        -1,
+        world_day,
+        importance,
+        confidence,
+        merged_tags,
+        merged_metadata
+    )
+
+func add_thought_memory(memory_id: String, npc_id: String, summary: String, world_day: int, source_refs: Array = [], importance: float = 0.45, confidence: float = 0.7, metadata: Dictionary = {}) -> Dictionary:
+    var merged_tags: Array = ["thought"]
+    var merged_metadata := metadata.duplicate(true)
+    merged_metadata["memory_kind"] = "thought"
+    merged_metadata["is_dream"] = false
+    merged_metadata["is_factual"] = false
+    merged_metadata["source_refs"] = source_refs.duplicate(true)
+    return add_memory(
+        memory_id,
+        npc_id,
+        summary,
+        -1,
+        -1,
+        world_day,
+        importance,
+        confidence,
+        merged_tags,
+        merged_metadata
+    )
+
+func upsert_world_truth(truth_id: String, subject_id: String, predicate: String, object_value: Variant, world_day: int = -1, confidence: float = 1.0, metadata: Dictionary = {}) -> Dictionary:
+    if subject_id.strip_edges() == "":
+        return _error("invalid_subject_id", "subject_id must be non-empty")
+    if predicate.strip_edges() == "":
+        return _error("invalid_predicate", "predicate must be non-empty")
+    if world_day < -1:
+        return _error("invalid_world_day", "world_day must be >= -1")
+    if confidence < 0.0 or confidence > 1.0:
+        return _error("invalid_confidence", "confidence must be between 0 and 1")
+    if not _ensure_graph():
+        return _error("graph_unavailable", "NetworkGraph extension unavailable")
+
+    var claim_key = _claim_key(subject_id, predicate)
+    var resolved_truth_id = truth_id.strip_edges()
+    if resolved_truth_id == "":
+        resolved_truth_id = claim_key
+
+    var payload = {
+        "type": "truth",
+        "truth_id": resolved_truth_id,
+        "claim_key": claim_key,
+        "subject_id": subject_id,
+        "predicate": predicate,
+        "object_value": object_value,
+        "object_norm": _normalize_claim_value(object_value),
+        "world_day": world_day,
+        "confidence": confidence,
+        "metadata": metadata.duplicate(true),
+        "updated_at": _timestamp(),
+    }
+    var node_id = _graph.upsert_node(TRUTH_SPACE, _truth_label(resolved_truth_id), payload)
+    if node_id == -1:
+        return _error("upsert_failed", "Failed to upsert world truth", {
+            "truth_id": resolved_truth_id,
+            "claim_key": claim_key,
+        })
+    var subject_npc_node_id = _node_id_by_external_id(NPC_SPACE, "npc_id", subject_id)
+    if subject_npc_node_id != -1:
+        _graph.add_edge(subject_npc_node_id, node_id, "HAS_TRUTH", confidence, {
+            "type": "truth_ref",
+            "subject_id": subject_id,
+            "predicate": predicate,
+            "claim_key": claim_key,
+        })
+    return _ok({
+        "node_id": node_id,
+        "truth_id": resolved_truth_id,
+        "claim_key": claim_key,
+    })
+
+func upsert_npc_belief(belief_id: String, npc_id: String, subject_id: String, predicate: String, object_value: Variant, world_day: int = -1, confidence: float = 0.7, metadata: Dictionary = {}) -> Dictionary:
+    if npc_id.strip_edges() == "":
+        return _error("invalid_npc_id", "npc_id must be non-empty")
+    if subject_id.strip_edges() == "":
+        return _error("invalid_subject_id", "subject_id must be non-empty")
+    if predicate.strip_edges() == "":
+        return _error("invalid_predicate", "predicate must be non-empty")
+    if world_day < -1:
+        return _error("invalid_world_day", "world_day must be >= -1")
+    if confidence < 0.0 or confidence > 1.0:
+        return _error("invalid_confidence", "confidence must be between 0 and 1")
+    if not _ensure_graph():
+        return _error("graph_unavailable", "NetworkGraph extension unavailable")
+    var npc_node_id = _node_id_by_external_id(NPC_SPACE, "npc_id", npc_id)
+    if npc_node_id == -1:
+        return _error("missing_npc", "NPC must exist before adding beliefs", {"npc_id": npc_id})
+
+    var claim_key = _claim_key(subject_id, predicate)
+    var resolved_belief_id = belief_id.strip_edges()
+    if resolved_belief_id == "":
+        resolved_belief_id = "%s:%s" % [npc_id, claim_key]
+
+    var payload = {
+        "type": "belief",
+        "belief_id": resolved_belief_id,
+        "npc_id": npc_id,
+        "claim_key": claim_key,
+        "subject_id": subject_id,
+        "predicate": predicate,
+        "object_value": object_value,
+        "object_norm": _normalize_claim_value(object_value),
+        "world_day": world_day,
+        "confidence": confidence,
+        "metadata": metadata.duplicate(true),
+        "updated_at": _timestamp(),
+    }
+    var node_id = _graph.upsert_node(BELIEF_SPACE, _belief_label(resolved_belief_id), payload)
+    if node_id == -1:
+        return _error("upsert_failed", "Failed to upsert npc belief", {
+            "belief_id": resolved_belief_id,
+            "npc_id": npc_id,
+            "claim_key": claim_key,
+        })
+
+    _graph.add_edge(npc_node_id, node_id, "HAS_BELIEF", confidence, {
+        "type": "belief_ref",
+        "npc_id": npc_id,
+        "belief_id": resolved_belief_id,
+        "claim_key": claim_key,
+    })
+    return _ok({
+        "node_id": node_id,
+        "belief_id": resolved_belief_id,
+        "claim_key": claim_key,
+    })
+
+func get_truths_for_subject(subject_id: String, world_day: int = -1, limit: int = 32) -> Dictionary:
+    if subject_id.strip_edges() == "":
+        return _error("invalid_subject_id", "subject_id must be non-empty")
+    if limit <= 0:
+        return _error("invalid_limit", "limit must be > 0")
+    if not _ensure_graph():
+        return _error("graph_unavailable", "NetworkGraph extension unavailable")
+    var rows = _graph.list_nodes_by_metadata(TRUTH_SPACE, "subject_id", subject_id, DEFAULT_SCAN_LIMIT, 0)
+    var items: Array = []
+    for row in rows:
+        var data: Dictionary = row.get("data", {})
+        var row_day = int(data.get("world_day", -1))
+        if world_day >= 0 and row_day >= 0 and row_day > world_day:
+            continue
+        items.append(data.duplicate(true))
+    items.sort_custom(func(a, b):
+        var da = int(a.get("world_day", -1))
+        var db = int(b.get("world_day", -1))
+        if da == db:
+            return int(a.get("updated_at", 0)) > int(b.get("updated_at", 0))
+        return da > db
+    )
+    if items.size() > limit:
+        items.resize(limit)
+    return _ok({
+        "subject_id": subject_id,
+        "truths": items,
+    })
+
+func get_beliefs_for_npc(npc_id: String, world_day: int = -1, limit: int = 32) -> Dictionary:
+    if npc_id.strip_edges() == "":
+        return _error("invalid_npc_id", "npc_id must be non-empty")
+    if limit <= 0:
+        return _error("invalid_limit", "limit must be > 0")
+    if not _ensure_graph():
+        return _error("graph_unavailable", "NetworkGraph extension unavailable")
+    var rows = _graph.list_nodes_by_metadata(BELIEF_SPACE, "npc_id", npc_id, DEFAULT_SCAN_LIMIT, 0)
+    var items: Array = []
+    for row in rows:
+        var data: Dictionary = row.get("data", {})
+        var row_day = int(data.get("world_day", -1))
+        if world_day >= 0 and row_day >= 0 and row_day > world_day:
+            continue
+        items.append(data.duplicate(true))
+    items.sort_custom(func(a, b):
+        var da = int(a.get("world_day", -1))
+        var db = int(b.get("world_day", -1))
+        if da == db:
+            return int(a.get("updated_at", 0)) > int(b.get("updated_at", 0))
+        return da > db
+    )
+    if items.size() > limit:
+        items.resize(limit)
+    return _ok({
+        "npc_id": npc_id,
+        "beliefs": items,
+    })
+
+func get_belief_truth_conflicts(npc_id: String, world_day: int = -1, limit: int = 32) -> Dictionary:
+    var beliefs_result: Dictionary = get_beliefs_for_npc(npc_id, world_day, DEFAULT_SCAN_LIMIT)
+    if not bool(beliefs_result.get("ok", false)):
+        return beliefs_result
+    var beliefs: Array = beliefs_result.get("beliefs", [])
+    var conflicts: Array = []
+    for belief_variant in beliefs:
+        if not (belief_variant is Dictionary):
+            continue
+        var belief: Dictionary = belief_variant
+        var claim_key = String(belief.get("claim_key", ""))
+        if claim_key == "":
+            continue
+        var truth = _latest_truth_for_claim(claim_key, world_day)
+        if truth.is_empty():
+            continue
+        if String(belief.get("object_norm", "")) == String(truth.get("object_norm", "")):
+            continue
+        conflicts.append({
+            "npc_id": npc_id,
+            "claim_key": claim_key,
+            "belief": belief.duplicate(true),
+            "truth": truth.duplicate(true),
+        })
+    conflicts.sort_custom(func(a, b):
+        return float(a.get("belief", {}).get("confidence", 0.0)) > float(b.get("belief", {}).get("confidence", 0.0))
+    )
+    if conflicts.size() > limit:
+        conflicts.resize(limit)
+    return _ok({
+        "npc_id": npc_id,
+        "conflicts": conflicts,
+    })
+
 func update_quest_state(npc_id: String, quest_id: String, state: String, world_day: int, is_active: bool = true, metadata: Dictionary = {}) -> Dictionary:
     if npc_id.strip_edges() == "":
         return _error("invalid_npc_id", "npc_id must be non-empty")
@@ -464,6 +712,18 @@ func get_backstory_context(npc_id: String, world_day: int = -1, limit: int = 32)
     var memories = _nodes_for_npc(MEMORY_SPACE, npc_id, world_day, limit)
     var quest_states = _nodes_for_npc(QUEST_STATE_SPACE, npc_id, world_day, limit)
     var dialogue_states = _nodes_for_npc(DIALOGUE_STATE_SPACE, npc_id, world_day, limit)
+    var beliefs_result: Dictionary = get_beliefs_for_npc(npc_id, world_day, limit)
+    var beliefs: Array = []
+    if bool(beliefs_result.get("ok", false)):
+        beliefs = beliefs_result.get("beliefs", [])
+    var belief_conflicts_result: Dictionary = get_belief_truth_conflicts(npc_id, world_day, limit)
+    var belief_truth_conflicts: Array = []
+    if bool(belief_conflicts_result.get("ok", false)):
+        belief_truth_conflicts = belief_conflicts_result.get("conflicts", [])
+    var truths_result: Dictionary = get_truths_for_subject(npc_id, world_day, limit)
+    var truths_for_subject: Array = []
+    if bool(truths_result.get("ok", false)):
+        truths_for_subject = truths_result.get("truths", [])
     var relationship_states: Array = []
     if world_day >= 0:
         var rel = get_relationships_for_npc(npc_id, world_day, 14, 64)
@@ -477,6 +737,53 @@ func get_backstory_context(npc_id: String, world_day: int = -1, limit: int = 32)
         "memories": memories,
         "quest_states": quest_states,
         "dialogue_states": dialogue_states,
+        "beliefs": beliefs,
+        "belief_truth_conflicts": belief_truth_conflicts,
+        "truths_for_subject": truths_for_subject,
+    })
+
+func get_memory_recall_candidates(npc_id: String, world_day: int = -1, limit: int = 8, include_dreams: bool = true) -> Dictionary:
+    if npc_id.strip_edges() == "":
+        return _error("invalid_npc_id", "npc_id must be non-empty")
+    if limit <= 0:
+        return _error("invalid_limit", "limit must be > 0")
+    if not _ensure_graph():
+        return _error("graph_unavailable", "NetworkGraph extension unavailable")
+    var rows = _graph.list_nodes_by_metadata(MEMORY_SPACE, "npc_id", npc_id, DEFAULT_SCAN_LIMIT, 0)
+    var candidates: Array = []
+    for row in rows:
+        var data: Dictionary = row.get("data", {})
+        var row_day := int(data.get("world_day", -1))
+        if world_day >= 0 and row_day >= 0 and row_day > world_day:
+            continue
+        var metadata: Dictionary = data.get("metadata", {})
+        var is_dream := bool(metadata.get("is_dream", false))
+        if not include_dreams and is_dream:
+            continue
+        candidates.append({
+            "memory_id": String(data.get("memory_id", "")),
+            "summary": String(data.get("summary", "")),
+            "world_day": row_day,
+            "importance": float(data.get("importance", 0.0)),
+            "confidence": float(data.get("confidence", 0.0)),
+            "is_dream": is_dream,
+            "memory_kind": String(metadata.get("memory_kind", "memory")),
+            "metadata": metadata.duplicate(true),
+        })
+    candidates.sort_custom(func(a, b):
+        var ia := float(a.get("importance", 0.0))
+        var ib := float(b.get("importance", 0.0))
+        if ia == ib:
+            var da := int(a.get("world_day", -1))
+            var db := int(b.get("world_day", -1))
+            return da > db
+        return ia > ib
+    )
+    if candidates.size() > limit:
+        candidates.resize(limit)
+    return _ok({
+        "npc_id": npc_id,
+        "candidates": candidates,
     })
 
 func detect_contradictions(npc_id: String) -> Dictionary:
@@ -510,10 +817,218 @@ func detect_contradictions(npc_id: String) -> Dictionary:
         "contradictions": contradictions,
     })
 
+func get_cypher_playbook(npc_id: String = "", world_day: int = -1, limit: int = 32) -> Dictionary:
+    var resolved_npc_id = npc_id if npc_id.strip_edges() != "" else "<npc_id>"
+    var resolved_day = world_day if world_day >= 0 else 0
+    var resolved_limit = maxi(limit, 1)
+    var window_start = maxi(0, resolved_day - 14)
+
+    var common_params = {
+        "npc_id": resolved_npc_id,
+        "world_day": resolved_day,
+        "window_start": window_start,
+        "limit": resolved_limit,
+    }
+
+    var queries = {
+        "upsert_npc": {
+            "description": "Create/update one NPC node",
+            "params": {
+                "npc_id": resolved_npc_id,
+                "name": "<name>",
+            },
+            "cypher": "MERGE (n:NPC {npc_id: $npc_id})\n"
+                + "SET n.name = $name,\n"
+                + "    n.updated_at = timestamp()\n"
+                + "RETURN n;",
+        },
+        "upsert_memory_and_link": {
+            "description": "Create/update memory and attach it to an NPC",
+            "params": {
+                "npc_id": resolved_npc_id,
+                "memory_id": "<memory_id>",
+                "summary": "<summary>",
+                "importance": 0.8,
+                "confidence": 0.9,
+                "world_day": resolved_day,
+            },
+            "cypher": "MATCH (n:NPC {npc_id: $npc_id})\n"
+                + "MERGE (m:Memory {memory_id: $memory_id})\n"
+                + "SET m.summary = $summary,\n"
+                + "    m.importance = $importance,\n"
+                + "    m.confidence = $confidence,\n"
+                + "    m.world_day = $world_day,\n"
+                + "    m.updated_at = timestamp()\n"
+                + "MERGE (n)-[r:HAS_MEMORY]->(m)\n"
+                + "SET r.confidence = $confidence,\n"
+                + "    r.world_day = $world_day\n"
+                + "RETURN n, r, m;",
+        },
+        "relationship_state": {
+            "description": "Inspect directional relationship profile + recent event aggregate",
+            "params": {
+                "source_npc_id": resolved_npc_id,
+                "target_npc_id": "<target_npc_id>",
+                "window_start": window_start,
+                "world_day": resolved_day,
+            },
+            "cypher": "MATCH (a:NPC {npc_id: $source_npc_id})\n"
+                + "MATCH (b:NPC {npc_id: $target_npc_id})\n"
+                + "OPTIONAL MATCH (a)-[:HAS_RELATIONSHIP_PROFILE]->(p:RelationshipProfile)-[:TARGETS_NPC]->(b)\n"
+                + "OPTIONAL MATCH (e:RelationshipEvent {source_npc_id: $source_npc_id, target_npc_id: $target_npc_id})\n"
+                + "WHERE e.world_day >= $window_start AND e.world_day <= $world_day\n"
+                + "RETURN p,\n"
+                + "       count(e) AS recent_count,\n"
+                + "       avg(e.valence_delta) AS recent_valence_avg,\n"
+                + "       avg(e.trust_delta) AS recent_trust_avg,\n"
+                + "       avg(e.respect_delta) AS recent_respect_avg;",
+        },
+        "npc_backstory_context": {
+            "description": "Fetch relationship, memory, quest state, and dialogue state context for an NPC",
+            "params": common_params,
+            "cypher": "MATCH (n:NPC {npc_id: $npc_id})\n"
+                + "OPTIONAL MATCH (n)-[rel]->(x)\n"
+                + "WHERE (\n"
+                + "    x:Memory OR\n"
+                + "    x:QuestState OR\n"
+                + "    x:DialogueState OR\n"
+                + "    x:RelationshipProfile OR\n"
+                + "    type(rel) IN ['HAS_MEMORY', 'HAS_QUEST_STATE', 'HAS_DIALOGUE_STATE', 'HAS_RELATIONSHIP_PROFILE']\n"
+                + ")\n"
+                + "RETURN n, rel, x\n"
+                + "ORDER BY coalesce(x.world_day, 0) DESC, coalesce(x.updated_at, 0) DESC\n"
+                + "LIMIT $limit;",
+        },
+        "recent_relationship_events": {
+            "description": "Inspect recent directional interaction events for an NPC pair",
+            "params": {
+                "source_npc_id": resolved_npc_id,
+                "target_npc_id": "<target_npc_id>",
+                "window_start": window_start,
+                "world_day": resolved_day,
+                "limit": resolved_limit,
+            },
+            "cypher": "MATCH (e:RelationshipEvent {source_npc_id: $source_npc_id, target_npc_id: $target_npc_id})\n"
+                + "WHERE e.world_day >= $window_start AND e.world_day <= $world_day\n"
+                + "RETURN e\n"
+                + "ORDER BY e.world_day DESC, e.updated_at DESC\n"
+                + "LIMIT $limit;",
+        },
+        "quest_state_timeline": {
+            "description": "Show one NPC's quest progression over time",
+            "params": common_params,
+            "cypher": "MATCH (n:NPC {npc_id: $npc_id})-[:HAS_QUEST_STATE]->(qs:QuestState)\n"
+                + "RETURN qs.quest_id AS quest_id,\n"
+                + "       qs.state AS state,\n"
+                + "       qs.is_active AS is_active,\n"
+                + "       qs.world_day AS world_day,\n"
+                + "       qs.updated_at AS updated_at\n"
+                + "ORDER BY qs.world_day ASC, qs.updated_at ASC\n"
+                + "LIMIT $limit;",
+        },
+        "exclusive_membership_conflicts": {
+            "description": "Find NPCs with multiple active exclusive memberships",
+            "params": {"limit": resolved_limit},
+            "cypher": "MATCH (n:NPC)-[m:MEMBER_OF]->(f:Faction)\n"
+                + "WHERE coalesce(m.exclusive, false) = true AND coalesce(m.to_day, -1) = -1\n"
+                + "WITH n, collect(f.faction_id) AS factions, count(m) AS cnt\n"
+                + "WHERE cnt > 1\n"
+                + "RETURN n.npc_id AS npc_id, factions, cnt\n"
+                + "ORDER BY cnt DESC\n"
+                + "LIMIT $limit;",
+        },
+        "post_death_activity": {
+            "description": "Find quest activity after a declared death day",
+            "params": common_params,
+            "cypher": "MATCH (n:NPC {npc_id: $npc_id})-[:HAS_DIALOGUE_STATE]->(life:DialogueState {state_key: 'life_status'})\n"
+                + "MATCH (n)-[:HAS_DIALOGUE_STATE]->(death:DialogueState {state_key: 'death_day'})\n"
+                + "MATCH (n)-[:HAS_QUEST_STATE]->(qs:QuestState)\n"
+                + "WHERE life.state_value = 'dead' AND qs.world_day > toInteger(death.state_value)\n"
+                + "RETURN n.npc_id AS npc_id,\n"
+                + "       toInteger(death.state_value) AS death_day,\n"
+                + "       qs.quest_id AS quest_id,\n"
+                + "       qs.state AS quest_state,\n"
+                + "       qs.world_day AS world_day\n"
+                + "ORDER BY qs.world_day ASC\n"
+                + "LIMIT $limit;",
+        },
+        "memory_recall_candidates": {
+            "description": "Top memories for prompt grounding",
+            "params": common_params,
+            "cypher": "MATCH (n:NPC {npc_id: $npc_id})-[:HAS_MEMORY]->(m:Memory)\n"
+                + "RETURN m.memory_id AS memory_id,\n"
+                + "       m.summary AS summary,\n"
+                + "       m.world_day AS world_day,\n"
+                + "       m.importance AS importance,\n"
+                + "       m.confidence AS confidence\n"
+                + "ORDER BY coalesce(m.importance, 0.0) DESC, coalesce(m.world_day, -1) DESC\n"
+                + "LIMIT $limit;",
+        },
+        "truths_for_subject": {
+            "description": "Inspect canonical truth claims for an entity (subject)",
+            "params": {
+                "subject_id": "<subject_id>",
+                "world_day": resolved_day,
+                "limit": resolved_limit,
+            },
+            "cypher": "MATCH (t:Truth {subject_id: $subject_id})\n"
+                + "WHERE coalesce(t.world_day, -1) <= $world_day OR t.world_day = -1\n"
+                + "RETURN t.claim_key AS claim_key,\n"
+                + "       t.predicate AS predicate,\n"
+                + "       t.object_value AS object_value,\n"
+                + "       t.confidence AS confidence,\n"
+                + "       t.world_day AS world_day,\n"
+                + "       t.updated_at AS updated_at\n"
+                + "ORDER BY coalesce(t.world_day, -1) DESC, coalesce(t.updated_at, 0) DESC\n"
+                + "LIMIT $limit;",
+        },
+        "beliefs_for_npc": {
+            "description": "Inspect one NPC's beliefs (which may differ from truth)",
+            "params": common_params,
+            "cypher": "MATCH (n:NPC {npc_id: $npc_id})-[:HAS_BELIEF]->(b:Belief)\n"
+                + "WHERE coalesce(b.world_day, -1) <= $world_day OR b.world_day = -1\n"
+                + "RETURN b.claim_key AS claim_key,\n"
+                + "       b.subject_id AS subject_id,\n"
+                + "       b.predicate AS predicate,\n"
+                + "       b.object_value AS object_value,\n"
+                + "       b.confidence AS confidence,\n"
+                + "       b.world_day AS world_day,\n"
+                + "       b.updated_at AS updated_at\n"
+                + "ORDER BY coalesce(b.world_day, -1) DESC, coalesce(b.updated_at, 0) DESC\n"
+                + "LIMIT $limit;",
+        },
+        "belief_truth_conflicts": {
+            "description": "Find where an NPC belief value conflicts with canonical truth for the same claim key",
+            "params": common_params,
+            "cypher": "MATCH (n:NPC {npc_id: $npc_id})-[:HAS_BELIEF]->(b:Belief)\n"
+                + "MATCH (t:Truth {claim_key: b.claim_key})\n"
+                + "WHERE (coalesce(b.world_day, -1) <= $world_day OR b.world_day = -1)\n"
+                + "  AND (coalesce(t.world_day, -1) <= $world_day OR t.world_day = -1)\n"
+                + "  AND coalesce(b.object_norm, toString(b.object_value)) <> coalesce(t.object_norm, toString(t.object_value))\n"
+                + "RETURN b.claim_key AS claim_key,\n"
+                + "       b.subject_id AS subject_id,\n"
+                + "       b.predicate AS predicate,\n"
+                + "       b.object_value AS believed_value,\n"
+                + "       t.object_value AS true_value,\n"
+                + "       b.confidence AS belief_confidence,\n"
+                + "       t.confidence AS truth_confidence,\n"
+                + "       b.world_day AS belief_day,\n"
+                + "       t.world_day AS truth_day\n"
+                + "ORDER BY coalesce(b.confidence, 0.0) DESC\n"
+                + "LIMIT $limit;",
+        },
+    }
+
+    return _ok({
+        "version": CYPHER_PLAYBOOK_VERSION,
+        "params": common_params,
+        "queries": queries,
+    })
+
 func clear_backstory_space() -> void:
     if not _ensure_graph():
         return
-    for space in [NPC_SPACE, FACTION_SPACE, PLACE_SPACE, QUEST_SPACE, EVENT_SPACE, MEMORY_SPACE, QUEST_STATE_SPACE, DIALOGUE_STATE_SPACE, WORLD_TIME_SPACE, RELATIONSHIP_PROFILE_SPACE, RELATIONSHIP_EVENT_SPACE]:
+    for space in [NPC_SPACE, FACTION_SPACE, PLACE_SPACE, QUEST_SPACE, EVENT_SPACE, MEMORY_SPACE, QUEST_STATE_SPACE, DIALOGUE_STATE_SPACE, WORLD_TIME_SPACE, RELATIONSHIP_PROFILE_SPACE, RELATIONSHIP_EVENT_SPACE, TRUTH_SPACE, BELIEF_SPACE]:
         var rows = _graph.list_nodes(space, 65536, 0)
         for row in rows:
             _graph.remove_node(int(row.get("id", -1)))
@@ -554,11 +1069,17 @@ func _ensure_graph() -> bool:
         push_error("Failed to instantiate NetworkGraph")
         return false
     DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(STORE_DIR))
-    if not _graph.open(ProjectSettings.globalize_path(DB_PATH)):
+    var resolved_path = _resolved_database_path()
+    if not _graph.open(ProjectSettings.globalize_path(resolved_path)):
         push_error("Failed to open network graph database for backstory service")
         _graph = null
         return false
     return true
+
+func _resolved_database_path() -> String:
+    if _database_path_override != "":
+        return _database_path_override
+    return DB_PATH
 
 func _node_by_external_id(space: String, key: String, value: Variant) -> Dictionary:
     if not _ensure_graph():
@@ -737,6 +1258,41 @@ func _normalize_relationship_tags(tags: Dictionary) -> Dictionary:
 func _relationship_key(source_npc_id: String, target_npc_id: String) -> String:
     return "%s->%s" % [source_npc_id, target_npc_id]
 
+func _claim_key(subject_id: String, predicate: String) -> String:
+    return "%s|%s" % [subject_id.strip_edges().to_lower(), predicate.strip_edges().to_lower()]
+
+func _normalize_claim_value(value: Variant) -> String:
+    if value == null:
+        return "null"
+    match typeof(value):
+        TYPE_STRING:
+            return String(value).strip_edges().to_lower()
+        TYPE_BOOL:
+            if bool(value):
+                return "true"
+            return "false"
+        TYPE_INT, TYPE_FLOAT:
+            return String(value)
+        _:
+            return JSON.stringify(value, "", false, true).strip_edges().to_lower()
+
+func _latest_truth_for_claim(claim_key: String, world_day: int = -1) -> Dictionary:
+    var rows = _graph.list_nodes_by_metadata(TRUTH_SPACE, "claim_key", claim_key, DEFAULT_SCAN_LIMIT, 0)
+    var best: Dictionary = {}
+    var best_day := -2147483648
+    var best_updated := -2147483648
+    for row in rows:
+        var data: Dictionary = row.get("data", {})
+        var row_day = int(data.get("world_day", -1))
+        if world_day >= 0 and row_day >= 0 and row_day > world_day:
+            continue
+        var updated = int(data.get("updated_at", 0))
+        if best.is_empty() or row_day > best_day or (row_day == best_day and updated > best_updated):
+            best = data.duplicate(true)
+            best_day = row_day
+            best_updated = updated
+    return best
+
 func _resolve_relationship_target(relationship_type: String, target_entity_id: String) -> Dictionary:
     var kind = relationship_type.to_upper()
     if kind == "MEMBER_OF":
@@ -791,6 +1347,12 @@ func _quest_state_label(npc_id: String, quest_id: String, world_day: int, state:
 
 func _dialogue_state_label(npc_id: String, state_key: String) -> String:
     return "dialogue_state:%s:%s" % [npc_id, state_key]
+
+func _truth_label(truth_id: String) -> String:
+    return "truth:%s" % truth_id
+
+func _belief_label(belief_id: String) -> String:
+    return "belief:%s" % belief_id
 
 func _world_time_label(day: int) -> String:
     return "world_time:%d" % day
