@@ -10,6 +10,8 @@ const CORE_TESTS := [
     "res://addons/local_agents/tests/test_deterministic_simulation.gd",
     "res://addons/local_agents/tests/test_simulation_worldgen_determinism.gd",
     "res://addons/local_agents/tests/test_simulation_water_first_spawn.gd",
+    "res://addons/local_agents/tests/test_simulation_path_logistics.gd",
+    "res://addons/local_agents/tests/test_wind_field_system.gd",
     "res://addons/local_agents/tests/test_smell_field_system.gd",
     "res://addons/local_agents/tests/test_simulation_dream_labeling.gd",
     "res://addons/local_agents/tests/test_simulation_resource_ledgers.gd",

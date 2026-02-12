@@ -17,6 +17,7 @@ const WorldGeneratorScript = preload("res://addons/local_agents/simulation/World
 const HydrologySystemScript = preload("res://addons/local_agents/simulation/HydrologySystem.gd")
 const SettlementSeederScript = preload("res://addons/local_agents/simulation/SettlementSeeder.gd")
 const WorldGenConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldGenConfigResource.gd")
+const PathNetworkSystemScript = preload("res://addons/local_agents/simulation/PathNetworkSystem.gd")
 
 const CommunityLedgerScript = preload("res://addons/local_agents/simulation/CommunityLedgerSystem.gd")
 const HouseholdLedgerScript = preload("res://addons/local_agents/simulation/HouseholdLedgerSystem.gd")
@@ -55,6 +56,11 @@ var _worldgen_config
 var _environment_snapshot: Dictionary = {}
 var _water_network_snapshot: Dictionary = {}
 var _spawn_artifact: Dictionary = {}
+var _path_network_system
+var _villager_positions: Dictionary = {}
+var _household_positions: Dictionary = {}
+var _community_anchor_position: Vector3 = Vector3.ZERO
+var _last_partial_delivery_count: int = 0
 
 var _community_ledger_system
 var _household_ledger_system
@@ -110,6 +116,8 @@ func _ready() -> void:
         _settlement_seeder = SettlementSeederScript.new()
     if _worldgen_config == null:
         _worldgen_config = WorldGenConfigResourceScript.new()
+    if _path_network_system == null:
+        _path_network_system = PathNetworkSystemScript.new()
 
     if _community_ledger == null:
         _community_ledger = _community_ledger_system.initial_community_ledger()
@@ -148,6 +156,8 @@ func configure_environment(config_resource = null) -> Dictionary:
     _water_network_snapshot["seed"] = hydrology_seed
     _spawn_artifact = _settlement_seeder.select_site(_environment_snapshot, _water_network_snapshot, _worldgen_config)
     _spawn_artifact["seed"] = settlement_seed
+    var chosen = _spawn_artifact.get("chosen", {})
+    _community_anchor_position = Vector3(float(chosen.get("x", 0.0)), 0.0, float(chosen.get("y", 0.0)))
 
     return {
         "ok": true,
@@ -205,11 +215,13 @@ func register_villager(npc_id: String, display_name: String, initial_state: Dict
     var villager_state = VillagerStateResourceScript.new()
     villager_state.from_dict(state_payload)
     _villagers[npc_id] = villager_state
+    _villager_positions[npc_id] = _spawn_offset_position(npc_id, 2.8)
 
     if not _household_members.has(household_id):
         var membership = HouseholdMembershipResourceScript.new()
         membership.household_id = household_id
         _household_members[household_id] = membership
+        _household_positions[household_id] = _spawn_offset_position(household_id, 4.0)
     var members_resource = _household_members[household_id]
     members_resource.add_member(npc_id)
 
@@ -232,6 +244,9 @@ func register_villager(npc_id: String, display_name: String, initial_state: Dict
 
 func process_tick(tick: int, fixed_delta: float) -> Dictionary:
     _resource_event_sequence = 0
+    _last_partial_delivery_count = 0
+    if _path_network_system != null:
+        _path_network_system.step_decay()
     var npc_ids = _sorted_npc_ids()
     for npc_id in npc_ids:
         _apply_need_decay(npc_id, fixed_delta)
@@ -286,6 +301,8 @@ func current_snapshot(tick: int) -> Dictionary:
         "environment_snapshot": _environment_snapshot.duplicate(true),
         "water_network_snapshot": _water_network_snapshot.duplicate(true),
         "spawn_artifact": _spawn_artifact.duplicate(true),
+        "path_network": _path_network_system.snapshot() if _path_network_system != null else {},
+        "partial_delivery_count": _last_partial_delivery_count,
         "villagers": _serialize_villagers(),
         "community_ledger": _community_ledger.to_dict(),
         "household_ledgers": _serialize_household_ledgers(),
@@ -483,11 +500,20 @@ func _run_resource_pipeline(tick: int, npc_ids: Array) -> void:
         var ration_granted: Dictionary = withdrawal.get("granted", {})
 
         var ration_transport: Dictionary = _economy_system.allocate_carrier_assignments(ration_granted, members, _carry_profiles)
-        var ration_moved: Dictionary = ration_transport.get("moved_payload", {})
-        var ration_unmoved: Dictionary = ration_transport.get("remaining_payload", {})
+        var route_adjusted = _apply_route_transport(
+            ration_transport.get("assignments", {}),
+            _community_anchor_position,
+            _household_position(household_id),
+            tick
+        )
+        var ration_moved: Dictionary = route_adjusted.get("moved_payload", {})
+        var ration_unmoved: Dictionary = _merge_payloads(
+            ration_transport.get("remaining_payload", {}),
+            route_adjusted.get("unmoved_payload", {})
+        )
         if not ration_unmoved.is_empty():
             _community_ledger = _community_ledger_system.deposit(_community_ledger, ration_unmoved)
-        _apply_carry_assignments(members, ration_transport.get("assignments", {}))
+        _apply_carry_assignments(members, route_adjusted.get("assignments", {}))
 
         _log_resource_event(tick, "sim_transfer_event", "household", household_id, {
             "kind": "community_ration",
@@ -496,6 +522,7 @@ func _run_resource_pipeline(tick: int, npc_ids: Array) -> void:
             "moved": ration_moved.duplicate(true),
             "unmoved": ration_unmoved.duplicate(true),
             "transport_capacity_weight": transport_capacity,
+            "route_profiles": route_adjusted.get("route_profiles", {}),
         })
 
         household_ledger = _household_ledger_system.apply_ration(household_ledger, ration_moved)
@@ -751,3 +778,64 @@ func _apply_carry_assignments(members: Array, assignments: Dictionary) -> void:
         econ_state = _individual_ledger_system.apply_carry_assignment(econ_state, assignment, carried_weight)
         econ_state = _individual_ledger_system.complete_carry_delivery(econ_state)
         _individual_ledgers[npc_id] = _individual_ledger_system.ensure_bounds(econ_state)
+
+func _apply_route_transport(assignments: Dictionary, start: Vector3, target: Vector3, tick: int) -> Dictionary:
+    var delivered_assignments: Dictionary = {}
+    var moved_payload: Dictionary = {}
+    var unmoved_payload: Dictionary = {}
+    var profiles: Dictionary = {}
+    var npc_ids = assignments.keys()
+    npc_ids.sort()
+    for npc_id_variant in npc_ids:
+        var npc_id = String(npc_id_variant)
+        var assignment: Dictionary = assignments.get(npc_id, {})
+        var profile: Dictionary = {}
+        if _path_network_system != null:
+            profile = _path_network_system.route_profile(start, target)
+        var efficiency = clampf(float(profile.get("delivery_efficiency", 1.0)), 0.2, 1.0)
+        var jitter = _rng.randomf("route_delivery", npc_id, active_branch_id, tick)
+        efficiency = clampf(efficiency - (0.12 * jitter), 0.15, 1.0)
+        var delivered_assignment: Dictionary = {}
+        for resource in assignment.keys():
+            var amount = maxf(0.0, float(assignment.get(resource, 0.0)))
+            if amount <= 0.0:
+                continue
+            var delivered = amount * efficiency
+            var shortfall = amount - delivered
+            if delivered > 0.0:
+                delivered_assignment[resource] = delivered
+                moved_payload[resource] = float(moved_payload.get(resource, 0.0)) + delivered
+            if shortfall > 0.0:
+                unmoved_payload[resource] = float(unmoved_payload.get(resource, 0.0)) + shortfall
+                _last_partial_delivery_count += 1
+        delivered_assignments[npc_id] = delivered_assignment
+        if _path_network_system != null:
+            var carry_weight = _economy_system.assignment_weight(delivered_assignment)
+            _path_network_system.record_traversal(start, target, carry_weight)
+            profile["delivery_efficiency_final"] = efficiency
+            profiles[npc_id] = profile
+    return {
+        "assignments": delivered_assignments,
+        "moved_payload": moved_payload,
+        "unmoved_payload": unmoved_payload,
+        "route_profiles": profiles,
+    }
+
+func _merge_payloads(primary: Dictionary, secondary: Dictionary) -> Dictionary:
+    var out = primary.duplicate(true)
+    for key in secondary.keys():
+        var resource = String(key)
+        out[resource] = float(out.get(resource, 0.0)) + float(secondary.get(resource, 0.0))
+    return out
+
+func _spawn_offset_position(entity_id: String, radius: float) -> Vector3:
+    var seed = _rng.derive_seed("entity_position", entity_id, active_branch_id, 0)
+    var angle = float(abs(seed % 3600)) * 0.001745329
+    return _community_anchor_position + Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
+
+func _household_position(household_id: String) -> Vector3:
+    if _household_positions.has(household_id):
+        return _household_positions[household_id]
+    var generated = _spawn_offset_position(household_id, 4.0)
+    _household_positions[household_id] = generated
+    return generated
