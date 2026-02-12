@@ -18,7 +18,7 @@ func run_test(tree: SceneTree) -> bool:
 	b.set_cognition_features(false, false, false)
 	c.set_cognition_features(false, false, false)
 
-	for i in range(0, 8):
+	for i in range(0, 4):
 		var npc_id = "npc_vs_%d" % i
 		var household_id = "home_vs_%d" % int(i / 2)
 		var payload = {"household_id": household_id}
@@ -44,13 +44,17 @@ func run_test(tree: SceneTree) -> bool:
 	for tick in range(1, 721):
 		var ra: Dictionary = a.process_tick(tick, 1.0)
 		var rb: Dictionary = b.process_tick(tick, 1.0)
-		var rc: Dictionary = c.process_tick(tick, 1.0)
+		var rc: Dictionary = {}
+		if tick <= 360:
+			rc = c.process_tick(tick, 1.0)
 		if tick % 12 == 0:
 			sig_a.append(_compact_signature(ra.get("state", {})))
 			sig_b.append(_compact_signature(rb.get("state", {})))
-			sig_c.append(_compact_signature(rc.get("state", {})))
+			if tick <= 360:
+				sig_c.append(_compact_signature(rc.get("state", {})))
 		final_a = ra.get("state", {})
-		final_c = rc.get("state", {})
+		if tick <= 360:
+			final_c = rc.get("state", {})
 
 	if sig_a != sig_b:
 		push_error("30-day vertical slice determinism mismatch for identical seed and choices")

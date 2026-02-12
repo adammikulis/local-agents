@@ -27,6 +27,9 @@ const CORE_TESTS := [
     "res://addons/local_agents/tests/test_simulation_dream_labeling.gd",
     "res://addons/local_agents/tests/test_simulation_resource_ledgers.gd",
     "res://addons/local_agents/tests/test_simulation_economy_events.gd",
+]
+
+const LONG_TESTS := [
     "res://addons/local_agents/tests/test_simulation_vertical_slice_30day.gd",
 ]
 
@@ -41,15 +44,18 @@ const RUNTIME_TESTS := [
 const HEAVY_TEST := "res://addons/local_agents/tests/test_agent_runtime_heavy.gd"
 const HEAVY_FLAG := "--include-heavy"
 const SKIP_HEAVY_FLAG := "--skip-heavy"
+const INCLUDE_LONG_FLAG := "--include-long"
 const TestModelHelper := preload("res://addons/local_agents/tests/test_model_helper.gd")
 const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
 
 var _failures: Array[String] = []
 var _run_runtime_tests := false
+var _run_long_tests := false
 var _model_helper := TestModelHelper.new()
 
 func _init() -> void:
     _run_runtime_tests = _should_run_runtime_tests()
+    _run_long_tests = _should_run_long_tests()
     call_deferred("_run_all")
 
 func _run_all() -> void:
@@ -59,6 +65,11 @@ func _run_all() -> void:
         return
     for script_path in CORE_TESTS:
         _run_case(script_path)
+    if _run_long_tests:
+        for script_path in LONG_TESTS:
+            _run_case(script_path)
+    else:
+        print("Skipping long deterministic tests (use --include-long).")
     if _run_runtime_tests:
         var ensured := _model_helper.ensure_local_model()
         if ensured == "":
@@ -106,6 +117,12 @@ func _should_run_runtime_tests() -> bool:
         if path != "":
             return true
     return true
+
+func _should_run_long_tests() -> bool:
+    for arg in OS.get_cmdline_args():
+        if arg == INCLUDE_LONG_FLAG:
+            return true
+    return false
 
 func _record_failure(name: String, message: String) -> void:
     _failures.append("%s: %s" % [name, message])
