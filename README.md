@@ -76,6 +76,7 @@ Rendering style:
 ## Key Scenes and Scripts
 
 - Scene: `addons/local_agents/scenes/simulation/PlantRabbitField.tscn`
+- Scene: `addons/local_agents/examples/WorldGenVoxelDemo.tscn` (seed + sliders + visible baked flowmap arrows)
 - Controller: `addons/local_agents/scenes/simulation/controllers/PlantRabbitField.gd`
 - Ecology orchestration: `addons/local_agents/scenes/simulation/controllers/EcologyController.gd`
 - Plant actor: `addons/local_agents/scenes/simulation/actors/EdiblePlantCapsule.gd`
@@ -96,12 +97,30 @@ Headless smoke boot:
 godot --headless --no-window --path . addons/local_agents/scenes/simulation/PlantRabbitField.tscn --quit
 ```
 
+World generation demo:
+
+```bash
+godot --path . addons/local_agents/examples/WorldGenVoxelDemo.tscn
+```
+
 ## Tests
 
 Core harness:
 
 ```bash
 godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd --skip-heavy
+```
+
+Bounded runtime-heavy harness (each heavy test runs in its own process with per-test timeout):
+
+```bash
+godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout-sec=420
+```
+
+Run a subset with `--tests` (comma-separated, full path or filename):
+
+```bash
+godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout-sec=420 --tests=test_simulation_villager_cognition.gd,test_agent_runtime_heavy.gd
 ```
 
 Targeted deterministic checks include:
