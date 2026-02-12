@@ -132,6 +132,12 @@ Sub-agent split:
 - [x] Add CI split jobs: `core-headless` and `runtime-heavy`.
 - [x] Update README test section to align with current harness behavior.
 
+## Breaking Changes
+
+- [x] February 12, 2026: Migrated active ecology smell/wind runtime from hex-grid path to shared sparse voxel grid system (`VoxelGridSystem`, `SmellFieldSystem`, `WindFieldSystem`).
+- [x] Legacy hex/grid config contracts are no longer part of the active ecology runtime path.
+- [x] February 12, 2026: Path/flow traversal now keys routes by voxel coordinates via `SpatialFlowNetworkSystem` + `VoxelGridSystem`.
+
 ## Deferred / Decision Log
 
 - [ ] Decide whether to keep SQLite-only graph architecture or introduce specialized graph backend.

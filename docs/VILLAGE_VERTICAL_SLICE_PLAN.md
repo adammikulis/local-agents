@@ -18,8 +18,8 @@ Design intent:
 - [x] Thought/dialogue prompt state already includes belief conflict context.
 - [x] Core headless simulation tests pass for deterministic/resource/economy/dream-label behavior.
 - [x] Scene skeletons exist for `NeolithicWorld`, primitive environment/settlement actors, villager capsule, debug overlay, and simulation HUD.
-- [ ] Oral tradition graph spaces (`oral_knowledge`, `ritual_event`, `sacred_site`) are not implemented yet.
-- [ ] Procedural worldgen/hydrology and water-first spawn scoring are not implemented yet.
+- [x] Oral tradition graph spaces (`oral_knowledge`, `ritual_event`, `sacred_site`) are implemented for deterministic slice coverage.
+- [x] Procedural worldgen/hydrology and water-first spawn scoring are implemented for deterministic slice coverage.
 
 ## 0.1) Phase Gate Checklist (Merge-Blocking)
 
@@ -393,6 +393,9 @@ Debug and inspector discipline:
 - [x] Seed propagation occurs through rabbit digestion (`eat -> digest -> poop -> spawn plants`).
 - [x] Any living entity can emit smell by joining `living_smell_source` and exposing `get_smell_source_payload()`.
 - [x] Smell debug visualization can be toggled through debug overlay visibility flags.
+- [x] Core simulation smell/wind fields run on shared sparse voxel grid primitives (no active hex runtime path).
+- [x] Temperature debug can be visualized as translucent voxel overlays using blue-to-red spectrum.
+- [x] Debug UI supports per-layer smell selection and independent smell/wind/temperature toggles.
 - [x] Smell clouds decay over time and decay faster with rain intensity.
 - [x] Smell clouds move with wind direction + wind intensity when wind is enabled.
 - [x] Rabbits move slowly while foraging and switch to fast flee movement under perceived danger smells.
