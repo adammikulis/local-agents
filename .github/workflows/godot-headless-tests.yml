@@ -107,6 +107,13 @@ jobs:
           godot4 --headless --no-window --path . -s addons/local_agents/tests/run_all_tests.gd --include-heavy \
             2>&1 | tee logs/runtime-heavy-tests.log
 
+      - name: Enforce runtime log health
+        run: |
+          if rg -n "Simulation dependency error|empty_generation" logs/runtime-heavy-tests.log; then
+            echo "Runtime-heavy log contains dependency/empty-generation errors."
+            exit 1
+          fi
+
       - name: Upload runtime-heavy artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
