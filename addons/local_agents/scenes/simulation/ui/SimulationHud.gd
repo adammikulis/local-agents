@@ -7,9 +7,15 @@ signal fast_forward_pressed
 signal fork_pressed
 
 @onready var status_label: Label = %StatusLabel
+@onready var details_label: Label = get_node_or_null("%DetailsLabel")
 
 func set_status_text(text: String) -> void:
 	status_label.text = text
+
+func set_details_text(text: String) -> void:
+	if details_label == null:
+		return
+	details_label.text = text
 
 func _on_play_button_pressed() -> void:
 	emit_signal("play_pressed")
