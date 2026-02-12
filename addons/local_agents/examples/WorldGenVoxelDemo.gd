@@ -4,7 +4,10 @@ const WorldGeneratorScript = preload("res://addons/local_agents/simulation/World
 const HydrologySystemScript = preload("res://addons/local_agents/simulation/HydrologySystem.gd")
 const WeatherSystemScript = preload("res://addons/local_agents/simulation/WeatherSystem.gd")
 const ErosionSystemScript = preload("res://addons/local_agents/simulation/ErosionSystem.gd")
+const SolarExposureSystemScript = preload("res://addons/local_agents/simulation/SolarExposureSystem.gd")
+const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
 const WorldGenConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldGenConfigResource.gd")
+const VoxelTimelapseSnapshotResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/VoxelTimelapseSnapshotResource.gd")
 const FlowArrowPulseShader = preload("res://addons/local_agents/scenes/simulation/shaders/FlowArrowPulse.gdshader")
 const AtmosphereCycleControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/AtmosphereCycleController.gd")
 
@@ -39,6 +42,7 @@ var _world_generator = WorldGeneratorScript.new()
 var _hydrology = HydrologySystemScript.new()
 var _weather = WeatherSystemScript.new()
 var _erosion = ErosionSystemScript.new()
+var _solar = SolarExposureSystemScript.new()
 var _rng := RandomNumberGenerator.new()
 var _atmosphere_cycle = AtmosphereCycleControllerScript.new()
 @export var day_night_cycle_enabled: bool = true
@@ -53,6 +57,8 @@ var _world_snapshot: Dictionary = {}
 var _hydrology_snapshot: Dictionary = {}
 var _weather_snapshot: Dictionary = {}
 var _erosion_snapshot: Dictionary = {}
+var _solar_snapshot: Dictionary = {}
+var _solar_seed: int = 0
 var _landslide_count: int = 0
 var _is_playing: bool = true
 var _ticks_per_frame: int = 1
@@ -120,15 +126,22 @@ func _generate_world() -> void:
 	_timelapse_snapshots.clear()
 	var weather_seed = int(hash("%s_weather" % seed_text))
 	var erosion_seed = int(hash("%s_erosion" % seed_text))
+	var solar_seed = int(hash("%s_solar" % seed_text))
+	_solar_seed = solar_seed
 	_weather.configure_environment(_world_snapshot, _hydrology_snapshot, weather_seed)
 	_weather_snapshot = _weather.current_snapshot(0)
 	_erosion.configure_environment(_world_snapshot, _hydrology_snapshot, erosion_seed)
 	_erosion_snapshot = _erosion.current_snapshot(0)
+	_solar.configure_environment(_world_snapshot, solar_seed)
+	_solar_snapshot = _solar.current_snapshot(0)
+	_solar_snapshot["seed"] = solar_seed
 
 	if _environment_controller.has_method("apply_generation_data"):
 		_environment_controller.apply_generation_data(_world_snapshot, _hydrology_snapshot)
 	if _environment_controller.has_method("set_weather_state"):
 		_environment_controller.set_weather_state(_weather_snapshot)
+	if _environment_controller.has_method("set_solar_state"):
+		_environment_controller.set_solar_state(_solar_snapshot)
 	_apply_water_shader_controls()
 	_render_flow_overlay(_world_snapshot, config)
 	_frame_camera(_world_snapshot)
@@ -181,9 +194,13 @@ func _step_environment_simulation(delta: float) -> void:
 		var changed_tiles: Array = erosion_result.get("changed_tiles", [])
 		for tile_variant in changed_tiles:
 			changed_tiles_map[String(tile_variant)] = true
+		_solar_snapshot = _solar.step(_sim_tick, tick_duration, _world_snapshot, _weather_snapshot)
+		_solar_snapshot["seed"] = _solar_seed
 		_record_timelapse_snapshot(_sim_tick)
 	if _environment_controller.has_method("set_weather_state"):
 		_environment_controller.set_weather_state(_weather_snapshot)
+	if _environment_controller.has_method("set_solar_state"):
+		_environment_controller.set_solar_state(_solar_snapshot)
 	_apply_water_shader_controls()
 	if terrain_changed and _environment_controller.has_method("apply_generation_delta"):
 		_environment_controller.apply_generation_delta(_world_snapshot, _hydrology_snapshot, changed_tiles_map.keys())
@@ -192,6 +209,8 @@ func _step_environment_simulation(delta: float) -> void:
 			_render_flow_overlay(_world_snapshot, config)
 		if _environment_controller.has_method("set_weather_state"):
 			_environment_controller.set_weather_state(_weather_snapshot)
+		if _environment_controller.has_method("set_solar_state"):
+			_environment_controller.set_solar_state(_solar_snapshot)
 		_apply_water_shader_controls()
 	elif terrain_changed and _environment_controller.has_method("apply_generation_data"):
 		_environment_controller.apply_generation_data(_world_snapshot, _hydrology_snapshot)
@@ -200,20 +219,23 @@ func _step_environment_simulation(delta: float) -> void:
 			_render_flow_overlay(_world_snapshot, config)
 		if _environment_controller.has_method("set_weather_state"):
 			_environment_controller.set_weather_state(_weather_snapshot)
+		if _environment_controller.has_method("set_solar_state"):
+			_environment_controller.set_solar_state(_solar_snapshot)
 		_apply_water_shader_controls()
 	var slides: Array = _erosion_snapshot.get("recent_landslides", [])
 	_landslide_count = slides.size()
 	_update_stats(_world_snapshot, _hydrology_snapshot, int(hash(_seed_line_edit.text.strip_edges())))
 
 func _record_timelapse_snapshot(tick: int) -> void:
-	_timelapse_snapshots[tick] = {
-		"tick": tick,
-		"time_of_day": _time_of_day,
-		"world": _world_snapshot.duplicate(true),
-		"hydrology": _hydrology_snapshot.duplicate(true),
-		"weather": _weather_snapshot.duplicate(true),
-		"erosion": _erosion_snapshot.duplicate(true),
-	}
+	var snapshot_resource = VoxelTimelapseSnapshotResourceScript.new()
+	snapshot_resource.tick = tick
+	snapshot_resource.time_of_day = _time_of_day
+	snapshot_resource.world = _world_snapshot.duplicate(true)
+	snapshot_resource.hydrology = _hydrology_snapshot.duplicate(true)
+	snapshot_resource.weather = _weather_snapshot.duplicate(true)
+	snapshot_resource.erosion = _erosion_snapshot.duplicate(true)
+	snapshot_resource.solar = _solar_snapshot.duplicate(true)
+	_timelapse_snapshots[tick] = snapshot_resource
 	var keys = _timelapse_snapshots.keys()
 	if keys.size() <= 480:
 		return
@@ -238,7 +260,7 @@ func _render_flow_overlay(world: Dictionary, config) -> void:
 		if not (column_variant is Dictionary):
 			continue
 		var column = column_variant as Dictionary
-		var tile_id = "%d:%d" % [int(column.get("x", 0)), int(column.get("z", 0))]
+		var tile_id = TileKeyUtilsScript.tile_id(int(column.get("x", 0)), int(column.get("z", 0)))
 		surface_by_tile[tile_id] = int(column.get("surface_y", 0))
 
 	var stride = maxi(1, int(_flow_stride_spin.value))
@@ -259,7 +281,7 @@ func _render_flow_overlay(world: Dictionary, config) -> void:
 		direction = direction.normalized()
 		var x = int(row.get("x", 0))
 		var z = int(row.get("y", 0))
-		var tile_id = "%d:%d" % [x, z]
+		var tile_id = TileKeyUtilsScript.tile_id(x, z)
 		var surface_y = int(surface_by_tile.get(tile_id, config.voxel_sea_level))
 		var marker = MeshInstance3D.new()
 		var mesh = BoxMesh.new()
@@ -295,13 +317,17 @@ func _update_stats(world: Dictionary, hydrology: Dictionary, seed: int) -> void:
 	var max_flow = float(flow_map.get("max_flow", 0.0))
 	var avg_rain = float(_weather_snapshot.get("avg_rain_intensity", 0.0))
 	var avg_fog = float(_weather_snapshot.get("avg_fog_intensity", 0.0))
-	_stats_label.text = "seed=%d | blocks=%d | water_tiles=%d | max_flow=%0.2f | rain=%0.2f | fog=%0.2f | slides=%d | tod=%0.2f" % [
+	var avg_sun = float(_solar_snapshot.get("avg_insolation", 0.0))
+	var avg_uv = float(_solar_snapshot.get("avg_uv_index", 0.0))
+	_stats_label.text = "seed=%d | blocks=%d | water_tiles=%d | max_flow=%0.2f | rain=%0.2f | fog=%0.2f | sun=%0.2f | uv=%0.2f | slides=%d | tod=%0.2f" % [
 		seed,
 		int((voxel_world.get("block_rows", []) as Array).size()),
 		int(water_tiles.size()),
 		max_flow,
 		avg_rain,
 		avg_fog,
+		avg_sun,
+		avg_uv,
 		_landslide_count,
 		_time_of_day
 	]
@@ -332,6 +358,7 @@ func _apply_demo_fog() -> void:
 	var humidity = clampf(float(_weather_snapshot.get("avg_humidity", 0.0)), 0.0, 1.0)
 	var rain = clampf(float(_weather_snapshot.get("avg_rain_intensity", 0.0)), 0.0, 1.0)
 	env.volumetric_fog_enabled = true
+	env.sdfgi_enabled = true
 	env.volumetric_fog_density = lerpf(0.012, 0.075, clampf(humidity * 0.72 + rain * 0.28, 0.0, 1.0))
 	env.volumetric_fog_emission_energy = lerpf(0.32, 0.88, 1.0 - absf(_time_of_day - 0.5) * 2.0)
 
@@ -361,19 +388,30 @@ func _restore_to_tick(target_tick: int) -> void:
 			break
 	if selected_tick < 0:
 		selected_tick = int(keys[0])
-	var snapshot: Dictionary = _timelapse_snapshots.get(selected_tick, {})
-	if snapshot.is_empty():
+	var snapshot_variant = _timelapse_snapshots.get(selected_tick, null)
+	if snapshot_variant == null:
 		return
-	_sim_tick = int(snapshot.get("tick", selected_tick))
-	_time_of_day = clampf(float(snapshot.get("time_of_day", _time_of_day)), 0.0, 1.0)
-	_world_snapshot = snapshot.get("world", {}).duplicate(true)
-	_hydrology_snapshot = snapshot.get("hydrology", {}).duplicate(true)
-	_weather_snapshot = snapshot.get("weather", {}).duplicate(true)
-	_erosion_snapshot = snapshot.get("erosion", {}).duplicate(true)
+	var snapshot_dict: Dictionary = {}
+	if snapshot_variant is Resource and snapshot_variant.has_method("to_dict"):
+		snapshot_dict = snapshot_variant.to_dict()
+	elif snapshot_variant is Dictionary:
+		snapshot_dict = (snapshot_variant as Dictionary).duplicate(true)
+	if snapshot_dict.is_empty():
+		return
+	_sim_tick = int(snapshot_dict.get("tick", selected_tick))
+	_time_of_day = clampf(float(snapshot_dict.get("time_of_day", _time_of_day)), 0.0, 1.0)
+	_world_snapshot = snapshot_dict.get("world", {}).duplicate(true)
+	_hydrology_snapshot = snapshot_dict.get("hydrology", {}).duplicate(true)
+	_weather_snapshot = snapshot_dict.get("weather", {}).duplicate(true)
+	_erosion_snapshot = snapshot_dict.get("erosion", {}).duplicate(true)
+	_solar_snapshot = snapshot_dict.get("solar", {}).duplicate(true)
+	_solar_seed = int(_solar_snapshot.get("seed", 0))
 	_weather.configure_environment(_world_snapshot, _hydrology_snapshot, int(_weather_snapshot.get("seed", 0)))
 	_weather.import_snapshot(_weather_snapshot)
 	_erosion.configure_environment(_world_snapshot, _hydrology_snapshot, int(_erosion_snapshot.get("seed", 0)))
 	_erosion.import_snapshot(_erosion_snapshot)
+	_solar.configure_environment(_world_snapshot, _solar_seed)
+	_solar.import_snapshot(_solar_snapshot)
 	var slides: Array = _erosion_snapshot.get("recent_landslides", [])
 	_landslide_count = slides.size()
 	if _environment_controller.has_method("apply_generation_data"):
@@ -382,6 +420,8 @@ func _restore_to_tick(target_tick: int) -> void:
 		_render_flow_overlay(_world_snapshot, _current_worldgen_config())
 	if _environment_controller.has_method("set_weather_state"):
 		_environment_controller.set_weather_state(_weather_snapshot)
+	if _environment_controller.has_method("set_solar_state"):
+		_environment_controller.set_solar_state(_solar_snapshot)
 	_apply_water_shader_controls()
 	_update_stats(_world_snapshot, _hydrology_snapshot, int(hash(_seed_line_edit.text.strip_edges())))
 
@@ -393,7 +433,9 @@ func _refresh_hud() -> void:
 	var avg_rain = clampf(float(_weather_snapshot.get("avg_rain_intensity", 0.0)), 0.0, 1.0)
 	var avg_cloud = clampf(float(_weather_snapshot.get("avg_cloud_cover", 0.0)), 0.0, 1.0)
 	var avg_fog = clampf(float(_weather_snapshot.get("avg_fog_intensity", 0.0)), 0.0, 1.0)
-	var details = "Rain: %.2f | Cloud: %.2f | Fog: %.2f | Landslides: %d" % [avg_rain, avg_cloud, avg_fog, _landslide_count]
+	var avg_sun = clampf(float(_solar_snapshot.get("avg_insolation", 0.0)), 0.0, 1.0)
+	var avg_uv = clampf(float(_solar_snapshot.get("avg_uv_index", 0.0)), 0.0, 2.0)
+	var details = "Rain: %.2f | Cloud: %.2f | Fog: %.2f | Sun: %.2f | UV: %.2f | Landslides: %d" % [avg_rain, avg_cloud, avg_fog, avg_sun, avg_uv, _landslide_count]
 	if _simulation_hud.has_method("set_details_text"):
 		_simulation_hud.set_details_text(details)
 

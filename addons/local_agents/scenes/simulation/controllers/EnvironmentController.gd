@@ -2,10 +2,9 @@ extends Node3D
 
 const WaterFlowShader = preload("res://addons/local_agents/scenes/simulation/shaders/VoxelWaterFlow.gdshader")
 const TerrainWeatherShader = preload("res://addons/local_agents/scenes/simulation/shaders/VoxelTerrainWeather.gdshader")
-const CloudLayerShader = preload("res://addons/local_agents/scenes/simulation/shaders/VoxelCloudLayer.gdshader")
-const RiverFlowShader = preload("res://addons/local_agents/scenes/simulation/shaders/VoxelRiverFlow.gdshader")
-const VolumetricCloudShader = preload("res://addons/local_agents/scenes/simulation/shaders/VoxelVolumetricClouds.gdshader")
-const RainPostFXShader = preload("res://addons/local_agents/scenes/simulation/shaders/VoxelRainPostFX.gdshader")
+const CloudRendererScript = preload("res://addons/local_agents/scenes/simulation/controllers/renderers/CloudRenderer.gd")
+const RiverRendererScript = preload("res://addons/local_agents/scenes/simulation/controllers/renderers/RiverRenderer.gd")
+const PostFXRendererScript = preload("res://addons/local_agents/scenes/simulation/controllers/renderers/PostFXRenderer.gd")
 
 @onready var terrain_root: Node3D = $TerrainRoot
 @onready var water_root: Node3D = $WaterRoot
@@ -45,15 +44,9 @@ var _water_shader_params := {
 	"weather_cloud_strength": 0.55,
 	"weather_field_blend": 1.0,
 }
-var _cloud_layer_instance: MeshInstance3D
-var _cloud_layer_material: ShaderMaterial
-var _volumetric_cloud_shell: MeshInstance3D
-var _volumetric_cloud_material: ShaderMaterial
-var _river_root: Node3D
-var _river_material: ShaderMaterial
-var _rain_fx_layer: CanvasLayer
-var _rain_fx_rect: ColorRect
-var _rain_fx_material: ShaderMaterial
+var _cloud_renderer
+var _river_renderer
+var _post_fx_renderer
 var _lightning_flash: float = 0.0
 var _chunk_build_thread: Thread
 var _chunk_build_in_flight: bool = false
@@ -80,9 +73,10 @@ func clear_generated() -> void:
 	_material_cache.clear()
 	_mesh_cache.clear()
 	_chunk_node_index.clear()
-	if _river_root != null and is_instance_valid(_river_root):
-		for child in _river_root.get_children():
-			child.queue_free()
+	_ensure_renderer_nodes()
+	_cloud_renderer.clear_generated()
+	_river_renderer.clear_generated()
+	_post_fx_renderer.clear_generated()
 
 func apply_generation_data(generation: Dictionary, hydrology: Dictionary) -> void:
 	_generation_snapshot = generation.duplicate(true)
@@ -167,6 +161,20 @@ func set_weather_state(weather_snapshot: Dictionary) -> void:
 	_update_river_material_weather(rain, cloud, wind, wind_speed)
 	_update_volumetric_cloud_weather(rain, cloud, humidity, wind, wind_speed)
 	_update_rain_post_fx_weather(rain, wind, wind_speed)
+
+func _ensure_renderer_nodes() -> void:
+	if _cloud_renderer == null:
+		_cloud_renderer = CloudRendererScript.new()
+		_cloud_renderer.name = "CloudRenderer"
+		add_child(_cloud_renderer)
+	if _river_renderer == null:
+		_river_renderer = RiverRendererScript.new()
+		_river_renderer.name = "RiverRenderer"
+		add_child(_river_renderer)
+	if _post_fx_renderer == null:
+		_post_fx_renderer = PostFXRendererScript.new()
+		_post_fx_renderer.name = "PostFXRenderer"
+		add_child(_post_fx_renderer)
 
 func set_solar_state(solar_snapshot: Dictionary) -> void:
 	_solar_snapshot = solar_snapshot.duplicate(true)
@@ -461,192 +469,55 @@ func _material_for_block(block_type: String) -> Material:
 	return terrain_material
 
 func _rebuild_river_flow_overlays() -> void:
-	if _river_root == null or not is_instance_valid(_river_root):
-		_river_root = Node3D.new()
-		_river_root.name = "RiverRoot"
-		add_child(_river_root)
-	for child in _river_root.get_children():
-		child.queue_free()
-	var flow_map: Dictionary = _generation_snapshot.get("flow_map", {})
-	var rows: Array = flow_map.get("rows", [])
-	if rows.is_empty():
-		return
-	var surface_by_tile: Dictionary = {}
-	var voxel_world: Dictionary = _generation_snapshot.get("voxel_world", {})
-	var columns: Array = voxel_world.get("columns", [])
-	for col_variant in columns:
-		if not (col_variant is Dictionary):
-			continue
-		var col = col_variant as Dictionary
-		surface_by_tile["%d:%d" % [int(col.get("x", 0)), int(col.get("z", 0))]] = int(col.get("surface_y", 0))
-	var transforms: Array = []
-	var custom_rows: Array = []
-	for row_variant in rows:
-		if not (row_variant is Dictionary):
-			continue
-		var row = row_variant as Dictionary
-		var strength = clampf(float(row.get("channel_strength", 0.0)), 0.0, 1.0)
-		if strength < 0.2:
-			continue
-		var x = int(row.get("x", 0))
-		var z = int(row.get("y", 0))
-		var tile_id = "%d:%d" % [x, z]
-		var y = float(surface_by_tile.get(tile_id, int(voxel_world.get("sea_level", 1)))) + 1.02
-		var dir = Vector2(float(row.get("dir_x", 0.0)), float(row.get("dir_y", 0.0)))
-		if dir.length_squared() < 0.0001:
-			dir = Vector2(1.0, 0.0)
-		dir = dir.normalized()
-		transforms.append(Transform3D(Basis.IDENTITY, Vector3(float(x) + 0.5, y, float(z) + 0.5)))
-		custom_rows.append(Color(dir.x * 0.5 + 0.5, dir.y * 0.5 + 0.5, strength, 1.0))
-	if transforms.is_empty():
-		return
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.use_custom_data = true
-	mm.instance_count = transforms.size()
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(1.0, 1.0)
-	mm.mesh = plane
-	for i in range(transforms.size()):
-		mm.set_instance_transform(i, transforms[i])
-		mm.set_instance_custom_data(i, custom_rows[i])
-	var mi := MultiMeshInstance3D.new()
-	mi.name = "RiverFlowMesh"
-	mi.multimesh = mm
-	if _river_material == null:
-		_river_material = ShaderMaterial.new()
-		_river_material.shader = RiverFlowShader
-	mi.material_override = _river_material
-	_river_root.add_child(mi)
-	_update_river_material_weather(
-		clampf(float(_weather_snapshot.get("avg_rain_intensity", 0.0)), 0.0, 1.0),
-		clampf(float(_weather_snapshot.get("avg_cloud_cover", 0.0)), 0.0, 1.0),
-		Vector2(1.0, 0.0),
-		0.5
-	)
+	_ensure_renderer_nodes()
+	_river_renderer.rebuild_overlays(_generation_snapshot, _weather_snapshot)
 
 func _update_river_material_weather(rain: float, cloud: float, wind: Vector2, wind_speed: float) -> void:
-	if _river_material == null:
-		return
-	_river_material.set_shader_parameter("rain_intensity", rain)
-	_river_material.set_shader_parameter("cloud_shadow", cloud * 0.85)
-	_river_material.set_shader_parameter("flow_speed", 0.9 + wind_speed * 0.7)
-	_river_material.set_shader_parameter("lightning_flash", _lightning_flash)
+	_ensure_renderer_nodes()
+	_river_renderer.update_weather(rain, cloud, wind_speed)
+	_river_renderer.apply_lightning(_lightning_flash)
 
 func _ensure_volumetric_cloud_shell() -> void:
-	if _volumetric_cloud_shell != null and is_instance_valid(_volumetric_cloud_shell):
-		return
-	_volumetric_cloud_shell = MeshInstance3D.new()
-	_volumetric_cloud_shell.name = "VolumetricCloudShell"
-	var sphere := SphereMesh.new()
-	sphere.radius = 220.0
-	sphere.height = 440.0
-	sphere.radial_segments = 48
-	sphere.rings = 24
-	_volumetric_cloud_shell.mesh = sphere
-	_volumetric_cloud_material = ShaderMaterial.new()
-	_volumetric_cloud_material.shader = VolumetricCloudShader
-	_volumetric_cloud_shell.material_override = _volumetric_cloud_material
-	add_child(_volumetric_cloud_shell)
+	_ensure_renderer_nodes()
+	_cloud_renderer.ensure_layers()
 	_update_volumetric_cloud_geometry()
 
 func _update_volumetric_cloud_geometry() -> void:
-	if _volumetric_cloud_shell == null or not is_instance_valid(_volumetric_cloud_shell):
-		return
-	var width = maxf(8.0, float(_generation_snapshot.get("width", 32)))
-	var depth = maxf(8.0, float(_generation_snapshot.get("height", 32)))
-	var voxel_world: Dictionary = _generation_snapshot.get("voxel_world", {})
-	var world_height = maxf(8.0, float(voxel_world.get("height", 32)))
-	var span = maxf(width, depth) * 6.0
-	_volumetric_cloud_shell.position = Vector3(width * 0.5, world_height + 38.0, depth * 0.5)
-	var sphere = _volumetric_cloud_shell.mesh as SphereMesh
-	if sphere != null:
-		sphere.radius = span
-		sphere.height = span * 2.0
-	if _volumetric_cloud_material != null:
-		_volumetric_cloud_material.set_shader_parameter("shell_radius", span)
+	_ensure_renderer_nodes()
+	_cloud_renderer.update_geometry(_generation_snapshot)
 
 func _update_volumetric_cloud_weather(rain: float, cloud: float, humidity: float, wind: Vector2, wind_speed: float) -> void:
-	if _volumetric_cloud_material == null:
-		return
-	_volumetric_cloud_material.set_shader_parameter("rain_intensity", rain)
-	_volumetric_cloud_material.set_shader_parameter("cloud_cover", cloud)
-	_volumetric_cloud_material.set_shader_parameter("cloud_density", clampf(0.4 + humidity * 0.5, 0.0, 1.0))
-	_volumetric_cloud_material.set_shader_parameter("weather_wind_dir", wind)
-	_volumetric_cloud_material.set_shader_parameter("weather_wind_speed", wind_speed)
-	_volumetric_cloud_material.set_shader_parameter("lightning_flash", _lightning_flash)
+	_update_cloud_layer_weather(rain, cloud, humidity, wind, wind_speed)
 
 func _ensure_rain_post_fx() -> void:
-	if _rain_fx_layer != null and is_instance_valid(_rain_fx_layer):
-		return
-	_rain_fx_layer = CanvasLayer.new()
-	_rain_fx_layer.name = "RainPostFX"
-	add_child(_rain_fx_layer)
-	_rain_fx_rect = ColorRect.new()
-	_rain_fx_rect.anchor_left = 0.0
-	_rain_fx_rect.anchor_top = 0.0
-	_rain_fx_rect.anchor_right = 1.0
-	_rain_fx_rect.anchor_bottom = 1.0
-	_rain_fx_rect.offset_left = 0.0
-	_rain_fx_rect.offset_top = 0.0
-	_rain_fx_rect.offset_right = 0.0
-	_rain_fx_rect.offset_bottom = 0.0
-	_rain_fx_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_rain_fx_material = ShaderMaterial.new()
-	_rain_fx_material.shader = RainPostFXShader
-	_rain_fx_rect.material = _rain_fx_material
-	_rain_fx_layer.add_child(_rain_fx_rect)
+	_ensure_renderer_nodes()
+	_post_fx_renderer.ensure_layer()
 
 func _update_rain_post_fx_weather(rain: float, wind: Vector2, wind_speed: float) -> void:
-	if _rain_fx_material == null:
-		return
-	_rain_fx_material.set_shader_parameter("rain_intensity", rain)
-	_rain_fx_material.set_shader_parameter("wind_dir", wind)
-	_rain_fx_material.set_shader_parameter("wind_speed", wind_speed)
-	_rain_fx_material.set_shader_parameter("lightning_flash", _lightning_flash)
+	_ensure_renderer_nodes()
+	_post_fx_renderer.update_weather(rain, wind, wind_speed)
+	_post_fx_renderer.apply_lightning(_lightning_flash)
 
 func _ensure_cloud_layer() -> void:
-	if _cloud_layer_instance != null and is_instance_valid(_cloud_layer_instance):
-		return
-	_cloud_layer_instance = MeshInstance3D.new()
-	_cloud_layer_instance.name = "CloudLayer"
-	_cloud_layer_material = ShaderMaterial.new()
-	_cloud_layer_material.shader = CloudLayerShader
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(256.0, 256.0)
-	plane.subdivide_width = 16
-	plane.subdivide_depth = 16
-	_cloud_layer_instance.mesh = plane
-	_cloud_layer_instance.material_override = _cloud_layer_material
-	add_child(_cloud_layer_instance)
+	_ensure_renderer_nodes()
+	_cloud_renderer.ensure_layers()
 
 func _update_cloud_layer_geometry() -> void:
-	if _cloud_layer_instance == null or not is_instance_valid(_cloud_layer_instance):
-		return
-	var width = maxf(8.0, float(_generation_snapshot.get("width", 32)))
-	var depth = maxf(8.0, float(_generation_snapshot.get("height", 32)))
-	var voxel_world: Dictionary = _generation_snapshot.get("voxel_world", {})
-	var world_height = maxf(8.0, float(voxel_world.get("height", 32)))
-	var span = maxf(width, depth) * 3.6
-	var plane = _cloud_layer_instance.mesh as PlaneMesh
-	if plane != null:
-		plane.size = Vector2(span, span)
-	_cloud_layer_instance.position = Vector3(width * 0.5, world_height + 18.0, depth * 0.5)
-	_update_volumetric_cloud_geometry()
+	_ensure_renderer_nodes()
+	_cloud_renderer.update_geometry(_generation_snapshot)
 
 func _update_cloud_layer_weather(rain: float, cloud: float, humidity: float, wind: Vector2, wind_speed: float) -> void:
-	if _cloud_layer_material == null:
-		return
-	_cloud_layer_material.set_shader_parameter("cloud_cover", cloud)
-	_cloud_layer_material.set_shader_parameter("cloud_density", clampf(0.45 + humidity * 0.42, 0.0, 1.0))
-	_cloud_layer_material.set_shader_parameter("rain_intensity", rain)
-	_cloud_layer_material.set_shader_parameter("weather_wind_dir", wind)
-	_cloud_layer_material.set_shader_parameter("weather_wind_speed", wind_speed)
-	_cloud_layer_material.set_shader_parameter("weather_cloud_scale", lerpf(0.032, 0.015, cloud))
-	_cloud_layer_material.set_shader_parameter("layer_variation", clampf(0.25 + humidity * 0.5, 0.0, 1.0))
-	_apply_weather_field_uniforms(_cloud_layer_material)
-	if _volumetric_cloud_material != null:
-		_volumetric_cloud_material.set_shader_parameter("lightning_flash", _lightning_flash)
+	_ensure_renderer_nodes()
+	_cloud_renderer.update_weather(
+		rain,
+		cloud,
+		humidity,
+		wind,
+		wind_speed,
+		_weather_field_texture,
+		_weather_field_world_size,
+		_lightning_flash
+	)
 
 func _ensure_weather_field_texture() -> void:
 	var width = maxi(1, int(_generation_snapshot.get("width", 1)))
@@ -917,12 +788,10 @@ func trigger_lightning(intensity: float = 1.0) -> void:
 	_update_lightning_uniforms()
 
 func _update_lightning_uniforms() -> void:
-	if _river_material != null:
-		_river_material.set_shader_parameter("lightning_flash", _lightning_flash)
-	if _volumetric_cloud_material != null:
-		_volumetric_cloud_material.set_shader_parameter("lightning_flash", _lightning_flash)
-	if _rain_fx_material != null:
-		_rain_fx_material.set_shader_parameter("lightning_flash", _lightning_flash)
+	_ensure_renderer_nodes()
+	_river_renderer.apply_lightning(_lightning_flash)
+	_cloud_renderer.apply_lightning(_lightning_flash)
+	_post_fx_renderer.apply_lightning(_lightning_flash)
 
 func _pack_weather_color(c: Color) -> int:
 	var r = int(clampi(int(round(c.r * 255.0)), 0, 255))
