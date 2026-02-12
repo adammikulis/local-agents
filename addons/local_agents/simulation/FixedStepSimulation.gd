@@ -4,6 +4,8 @@ class_name LocalAgentsFixedStepSimulation
 signal tick_started(tick)
 signal tick_finished(tick, state_hash)
 signal simulation_error(message)
+signal rewind_restored(tick, branch_id)
+signal branch_forked(branch_id, fork_tick)
 
 const ClockScript = preload("res://addons/local_agents/simulation/SimulationClock.gd")
 const HasherScript = preload("res://addons/local_agents/simulation/SimulationStateHasher.gd")
@@ -47,7 +49,12 @@ func step_once() -> void:
 
 func rewind_to(tick: int) -> void:
     _ensure_ready()
-    _clock.rewind_to(tick)
+    var restored: Dictionary = _controller.restore_to_tick(tick)
+    if not bool(restored.get("ok", false)):
+        emit_signal("simulation_error", "rewind_restore_failed")
+        return
+    _clock.rewind_to(int(restored.get("tick", tick)))
+    emit_signal("rewind_restored", int(restored.get("tick", tick)), String(restored.get("branch_id", _controller.get_active_branch_id())))
 
 func set_speed(new_ticks_per_frame: int) -> void:
     _ensure_ready()
@@ -76,6 +83,22 @@ func _run_tick() -> void:
         return
     var state_hash = _hasher.hash_state(result)
     emit_signal("tick_finished", tick, state_hash)
+
+func fork_branch(new_branch_id: String, fork_tick: int = -1) -> Dictionary:
+    _ensure_ready()
+    var tick = fork_tick if fork_tick >= 0 else _clock.current_tick
+    var result: Dictionary = _controller.fork_branch(new_branch_id, tick)
+    if bool(result.get("ok", false)):
+        emit_signal("branch_forked", String(result.get("branch_id", "")), int(result.get("fork_tick", tick)))
+    return result
+
+func branch_diff(base_branch_id: String, compare_branch_id: String, tick_from: int, tick_to: int) -> Dictionary:
+    _ensure_ready()
+    return _controller.branch_diff(base_branch_id, compare_branch_id, tick_from, tick_to)
+
+func current_tick() -> int:
+    _ensure_ready()
+    return _clock.current_tick
 
 func _ensure_ready() -> void:
     if _clock == null or _hasher == null or _controller == null:

@@ -142,6 +142,20 @@ func snapshot(max_edges: int = 96) -> Dictionary:
 	})
 	return network.to_dict()
 
+func restore_snapshot(payload: Dictionary) -> void:
+	_edge_heat.clear()
+	_edge_strength.clear()
+	var rows: Array = payload.get("edges", [])
+	for row_variant in rows:
+		if not (row_variant is Dictionary):
+			continue
+		var row = row_variant as Dictionary
+		var edge_key = String(row.get("edge", "")).strip_edges()
+		if edge_key == "":
+			continue
+		_edge_heat[edge_key] = maxf(0.0, float(row.get("heat", 0.0)))
+		_edge_strength[edge_key] = clampf(float(row.get("strength", 0.0)), 0.0, float(_formation_config.max_strength))
+
 func _sample_path_strength(start: Vector3, target: Vector3) -> float:
 	var keys = _route_edge_keys(start, target)
 	if keys.is_empty():

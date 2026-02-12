@@ -107,6 +107,45 @@ func snapshot_anchors() -> Array:
 		rows.append(anchor.to_dict())
 	return rows
 
+func snapshot_runtime_state() -> Dictionary:
+	return {
+		"last_expand_tick": _last_expand_tick.duplicate(true),
+		"low_access_ticks": _low_access_ticks.duplicate(true),
+	}
+
+func restore_from_snapshot(structures_by_household: Dictionary, anchors: Array, runtime_state: Dictionary = {}) -> void:
+	_anchors.clear()
+	_structures.clear()
+	_household_structure_ids.clear()
+	_last_expand_tick = runtime_state.get("last_expand_tick", {}).duplicate(true)
+	_low_access_ticks = runtime_state.get("low_access_ticks", {}).duplicate(true)
+	for anchor_variant in anchors:
+		if not (anchor_variant is Dictionary):
+			continue
+		var row = anchor_variant as Dictionary
+		var anchor = SettlementAnchorResourceScript.new()
+		anchor.from_dict(row)
+		if anchor.anchor_id.strip_edges() == "":
+			continue
+		_anchors[anchor.anchor_id] = anchor
+	var household_ids = structures_by_household.keys()
+	household_ids.sort_custom(func(a, b): return String(a) < String(b))
+	for household_id_variant in household_ids:
+		var household_id = String(household_id_variant)
+		var rows: Array = structures_by_household.get(household_id, [])
+		var ids: Array = []
+		for row_variant in rows:
+			if not (row_variant is Dictionary):
+				continue
+			var structure = StructureStateResourceScript.new()
+			structure.from_dict(row_variant as Dictionary)
+			if structure.structure_id.strip_edges() == "":
+				continue
+			_structures[structure.structure_id] = structure
+			ids.append(structure.structure_id)
+		ids.sort()
+		_household_structure_ids[household_id] = ids
+
 func _ensure_anchor(anchor_id: String, anchor_type: String, household_id: String, position: Vector3) -> void:
 	if _anchors.has(anchor_id):
 		return

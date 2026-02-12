@@ -38,6 +38,8 @@ const SnapshotResourceScript = preload("res://addons/local_agents/configuration/
 const VillagerStateResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/VillagerStateResource.gd")
 const HouseholdMembershipResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/HouseholdMembershipResource.gd")
 const NarratorDirectiveResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/NarratorDirectiveResource.gd")
+const VillagerEconomyStateResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/VillagerEconomyStateResource.gd")
+const VillagerInventoryResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/VillagerInventoryResource.gd")
 
 var world_id: String = "world_main"
 var active_branch_id: String = "main"
@@ -80,6 +82,7 @@ var _oral_last_knowledge_id: Dictionary = {}
 var _oral_confidence: Dictionary = {}
 var _oral_tick_events: Array = []
 var _ritual_tick_events: Array = []
+var _last_tick_processed: int = 0
 
 var _community_ledger_system
 var _household_ledger_system
@@ -164,6 +167,7 @@ func configure(seed_text: String, narrator_enabled: bool = true, dream_llm_enabl
     active_branch_id = "main"
     _branch_lineage = []
     _branch_fork_tick = -1
+    _last_tick_processed = 0
     self.narrator_enabled = narrator_enabled
     _narrator.enabled = narrator_enabled
     _dreams.llm_enabled = dream_llm_enabled
@@ -250,6 +254,75 @@ func fork_branch(new_branch_id: String, fork_tick: int) -> Dictionary:
         "branch_id": active_branch_id,
         "lineage": _branch_lineage.duplicate(true),
         "fork_tick": _branch_fork_tick,
+    }
+
+func restore_to_tick(target_tick: int, branch_id: String = "") -> Dictionary:
+    var effective_branch = branch_id.strip_edges()
+    if effective_branch == "":
+        effective_branch = active_branch_id
+    if _store == null:
+        return {"ok": false, "error": "store_unavailable"}
+    var events: Array = _store.list_events(world_id, effective_branch, 0, maxi(0, target_tick))
+    if events.is_empty():
+        return {"ok": false, "error": "snapshot_not_found", "tick": target_tick, "branch_id": effective_branch}
+    var selected: Dictionary = {}
+    for row_variant in events:
+        if not (row_variant is Dictionary):
+            continue
+        var row = row_variant as Dictionary
+        if String(row.get("event_type", "")) != "tick":
+            continue
+        selected = row
+    if selected.is_empty():
+        return {"ok": false, "error": "snapshot_not_found", "tick": target_tick, "branch_id": effective_branch}
+    var payload: Dictionary = selected.get("payload", {})
+    if payload.is_empty():
+        return {"ok": false, "error": "snapshot_payload_missing"}
+    _apply_snapshot(payload)
+    active_branch_id = effective_branch
+    _last_tick_processed = int(payload.get("tick", target_tick))
+    return {"ok": true, "tick": _last_tick_processed, "branch_id": active_branch_id}
+
+func branch_diff(base_branch_id: String, compare_branch_id: String, tick_from: int, tick_to: int) -> Dictionary:
+    var base_state = _last_snapshot_for_branch(base_branch_id, tick_to)
+    var compare_state = _last_snapshot_for_branch(compare_branch_id, tick_to)
+    if base_state.is_empty() or compare_state.is_empty():
+        return {"ok": false, "error": "branch_state_missing"}
+    var base_population = _snapshot_population(base_state)
+    var compare_population = _snapshot_population(compare_state)
+    var base_resources: Dictionary = base_state.get("community_ledger", {})
+    var compare_resources: Dictionary = compare_state.get("community_ledger", {})
+    var resource_delta: Dictionary = {}
+    for key in ["food", "water", "wood", "stone", "tools", "currency", "waste"]:
+        resource_delta[key] = float(compare_resources.get(key, 0.0)) - float(base_resources.get(key, 0.0))
+    var base_culture = _culture_metrics(base_branch_id, tick_from, tick_to)
+    var compare_culture = _culture_metrics(compare_branch_id, tick_from, tick_to)
+    var base_belief = _belief_conflict_count(base_state, tick_to)
+    var compare_belief = _belief_conflict_count(compare_state, tick_to)
+    var base_continuity = _culture_continuity_score(base_population, base_culture)
+    var compare_continuity = _culture_continuity_score(compare_population, compare_culture)
+    return {
+        "ok": true,
+        "tick_from": tick_from,
+        "tick_to": tick_to,
+        "base_branch": base_branch_id,
+        "compare_branch": compare_branch_id,
+        "population_delta": compare_population - base_population,
+        "resource_delta": resource_delta,
+        "belief_divergence": compare_belief - base_belief,
+        "culture_continuity_score_delta": compare_continuity - base_continuity,
+        "base": {
+            "population": base_population,
+            "belief_conflicts": base_belief,
+            "culture": base_culture,
+            "culture_continuity_score": base_continuity,
+        },
+        "compare": {
+            "population": compare_population,
+            "belief_conflicts": compare_belief,
+            "culture": compare_culture,
+            "culture_continuity_score": compare_continuity,
+        },
     }
 
 func set_cognition_features(enable_thoughts: bool, enable_dialogue: bool, enable_dreams: bool) -> void:
@@ -398,6 +471,7 @@ func process_tick(tick: int, fixed_delta: float) -> Dictionary:
             _branch_lineage.duplicate(true),
             _branch_fork_tick
         )
+    _last_tick_processed = tick
     return {
         "ok": true,
         "tick": tick,
@@ -433,8 +507,11 @@ func current_snapshot(tick: int) -> Dictionary:
         "settlement_growth_config": _settlement_growth_config.to_dict() if _settlement_growth_config != null else {},
         "settlement_anchors": _settlement_growth_system.snapshot_anchors() if _settlement_growth_system != null else [],
         "settlement_structures": _settlement_growth_system.snapshot_structures() if _settlement_growth_system != null else {},
+        "settlement_growth_runtime": _settlement_growth_system.snapshot_runtime_state() if _settlement_growth_system != null else {},
         "settlement_growth_events": _settlement_growth_events.duplicate(true),
         "sacred_site_id": _sacred_site_id,
+        "oral_confidence": _oral_confidence.duplicate(true),
+        "oral_last_knowledge_id": _oral_last_knowledge_id.duplicate(true),
         "oral_transfer_events": _oral_tick_events.duplicate(true),
         "ritual_events": _ritual_tick_events.duplicate(true),
         "partial_delivery_count": _last_partial_delivery_count,
@@ -1092,7 +1169,7 @@ func _run_oral_tradition_cycle(tick: int) -> void:
         var confidence_seed = _rng.randomf("oral_confidence", household_id + ":" + category, active_branch_id, tick)
         var confidence = clampf(0.68 + confidence_seed * 0.24 + float(_oral_confidence.get(category, 0.0)) * 0.15, 0.2, 0.98)
         _oral_confidence[category] = clampf(float(_oral_confidence.get(category, 0.5)) * 0.82 + confidence * 0.18, 0.0, 1.0)
-        var knowledge_id = "ok:%s:%s:%s:%d" % [world_id, household_id, category, world_day]
+        var knowledge_id = "ok:%s:%s:%s:%s:%d" % [world_id, active_branch_id, household_id, category, world_day]
         var content = _oral_content_for_category(category, household_id)
         var write = _backstory_service.record_oral_knowledge(
             knowledge_id,
@@ -1189,3 +1266,195 @@ func _oral_content_for_category(category: String, household_id: String) -> Strin
             return "Bring clean water first before the spring-circle rite."
         _:
             return "Remember the elders' path near %s." % household_id
+
+func _apply_snapshot(snapshot: Dictionary) -> void:
+    world_id = String(snapshot.get("world_id", world_id))
+    active_branch_id = String(snapshot.get("branch_id", active_branch_id))
+    _branch_lineage = (snapshot.get("branch_lineage", []) as Array).duplicate(true)
+    _branch_fork_tick = int(snapshot.get("branch_fork_tick", _branch_fork_tick))
+    _environment_snapshot = snapshot.get("environment_snapshot", {}).duplicate(true)
+    _water_network_snapshot = snapshot.get("water_network_snapshot", {}).duplicate(true)
+    _spawn_artifact = snapshot.get("spawn_artifact", {}).duplicate(true)
+    _sacred_site_id = String(snapshot.get("sacred_site_id", _sacred_site_id))
+    _oral_confidence = snapshot.get("oral_confidence", {}).duplicate(true)
+    _oral_last_knowledge_id = snapshot.get("oral_last_knowledge_id", {}).duplicate(true)
+
+    _community_ledger = _community_ledger_system.initial_community_ledger()
+    _apply_community_dict(_community_ledger, snapshot.get("community_ledger", {}))
+
+    _household_ledgers.clear()
+    var household_rows: Dictionary = snapshot.get("household_ledgers", {})
+    var household_ids = household_rows.keys()
+    household_ids.sort_custom(func(a, b): return String(a) < String(b))
+    for household_id_variant in household_ids:
+        var household_id = String(household_id_variant)
+        var ledger = _household_ledger_system.initial_household_ledger(household_id)
+        _apply_household_dict(ledger, household_rows.get(household_id, {}))
+        _household_ledgers[household_id] = ledger
+
+    _individual_ledgers.clear()
+    var individual_rows: Dictionary = snapshot.get("individual_ledgers", {})
+    var npc_ids = individual_rows.keys()
+    npc_ids.sort_custom(func(a, b): return String(a) < String(b))
+    for npc_id_variant in npc_ids:
+        var npc_id = String(npc_id_variant)
+        var state = VillagerEconomyStateResourceScript.new()
+        state.npc_id = npc_id
+        state.inventory = VillagerInventoryResourceScript.new()
+        _apply_individual_dict(state, individual_rows.get(npc_id, {}))
+        _individual_ledgers[npc_id] = _individual_ledger_system.ensure_bounds(state)
+
+    _villagers.clear()
+    var villager_rows: Dictionary = snapshot.get("villagers", {})
+    var villager_ids = villager_rows.keys()
+    villager_ids.sort_custom(func(a, b): return String(a) < String(b))
+    for npc_id_variant in villager_ids:
+        var npc_id = String(npc_id_variant)
+        var villager_state = VillagerStateResourceScript.new()
+        villager_state.from_dict(villager_rows.get(npc_id, {}))
+        _villagers[npc_id] = villager_state
+
+    _carry_profiles.clear()
+    var carry_rows: Dictionary = snapshot.get("carry_profiles", {})
+    var carry_ids = carry_rows.keys()
+    carry_ids.sort_custom(func(a, b): return String(a) < String(b))
+    for npc_id_variant in carry_ids:
+        var npc_id = String(npc_id_variant)
+        var profile = CarryProfileResourceScript.new()
+        _apply_carry_profile_dict(profile, carry_rows.get(npc_id, {}))
+        _carry_profiles[npc_id] = profile
+
+    if _path_network_system != null:
+        _path_network_system.configure_environment(_environment_snapshot, _water_network_snapshot)
+        _path_network_system.restore_snapshot(snapshot.get("path_network", {}))
+
+    if _settlement_growth_system != null:
+        _settlement_growth_system.restore_from_snapshot(
+            snapshot.get("settlement_structures", {}),
+            snapshot.get("settlement_anchors", []),
+            snapshot.get("settlement_growth_runtime", {})
+        )
+
+func _apply_community_dict(ledger, payload_variant) -> void:
+    if not (payload_variant is Dictionary):
+        return
+    var payload = payload_variant as Dictionary
+    ledger.food = maxf(0.0, float(payload.get("food", ledger.food)))
+    ledger.water = maxf(0.0, float(payload.get("water", ledger.water)))
+    ledger.wood = maxf(0.0, float(payload.get("wood", ledger.wood)))
+    ledger.stone = maxf(0.0, float(payload.get("stone", ledger.stone)))
+    ledger.tools = maxf(0.0, float(payload.get("tools", ledger.tools)))
+    ledger.currency = maxf(0.0, float(payload.get("currency", ledger.currency)))
+    ledger.labor_pool = maxf(0.0, float(payload.get("labor_pool", ledger.labor_pool)))
+    ledger.storage_capacity = maxf(1.0, float(payload.get("storage_capacity", ledger.storage_capacity)))
+    ledger.spoiled = maxf(0.0, float(payload.get("spoiled", ledger.spoiled)))
+    ledger.waste = maxf(0.0, float(payload.get("waste", ledger.waste)))
+
+func _apply_household_dict(ledger, payload_variant) -> void:
+    if not (payload_variant is Dictionary):
+        return
+    var payload = payload_variant as Dictionary
+    ledger.food = maxf(0.0, float(payload.get("food", ledger.food)))
+    ledger.water = maxf(0.0, float(payload.get("water", ledger.water)))
+    ledger.wood = maxf(0.0, float(payload.get("wood", ledger.wood)))
+    ledger.stone = maxf(0.0, float(payload.get("stone", ledger.stone)))
+    ledger.tools = maxf(0.0, float(payload.get("tools", ledger.tools)))
+    ledger.currency = maxf(0.0, float(payload.get("currency", ledger.currency)))
+    ledger.debt = maxf(0.0, float(payload.get("debt", ledger.debt)))
+    ledger.housing_quality = clampf(float(payload.get("housing_quality", ledger.housing_quality)), 0.0, 1.0)
+    ledger.waste = maxf(0.0, float(payload.get("waste", ledger.waste)))
+
+func _apply_individual_dict(state, payload_variant) -> void:
+    if not (payload_variant is Dictionary):
+        return
+    var payload = payload_variant as Dictionary
+    state.wage_due = maxf(0.0, float(payload.get("wage_due", state.wage_due)))
+    state.moved_total_weight = maxf(0.0, float(payload.get("moved_total_weight", state.moved_total_weight)))
+    state.energy = clampf(float(payload.get("energy", state.energy)), 0.0, 1.0)
+    state.health = clampf(float(payload.get("health", state.health)), 0.0, 1.0)
+    var inv_payload: Dictionary = payload.get("inventory", {})
+    var inv = state.inventory
+    inv.food = maxf(0.0, float(inv_payload.get("food", inv.food)))
+    inv.water = maxf(0.0, float(inv_payload.get("water", inv.water)))
+    inv.wood = maxf(0.0, float(inv_payload.get("wood", inv.wood)))
+    inv.stone = maxf(0.0, float(inv_payload.get("stone", inv.stone)))
+    inv.tools = maxf(0.0, float(inv_payload.get("tools", inv.tools)))
+    inv.currency = maxf(0.0, float(inv_payload.get("currency", inv.currency)))
+    inv.waste = maxf(0.0, float(inv_payload.get("waste", inv.waste)))
+    inv.carried_food = maxf(0.0, float(inv_payload.get("carried_food", inv.carried_food)))
+    inv.carried_water = maxf(0.0, float(inv_payload.get("carried_water", inv.carried_water)))
+    inv.carried_wood = maxf(0.0, float(inv_payload.get("carried_wood", inv.carried_wood)))
+    inv.carried_stone = maxf(0.0, float(inv_payload.get("carried_stone", inv.carried_stone)))
+    inv.carried_tools = maxf(0.0, float(inv_payload.get("carried_tools", inv.carried_tools)))
+    inv.carried_currency = maxf(0.0, float(inv_payload.get("carried_currency", inv.carried_currency)))
+    inv.carried_weight = maxf(0.0, float(inv_payload.get("carried_weight", inv.carried_weight)))
+
+func _apply_carry_profile_dict(profile, payload_variant) -> void:
+    if not (payload_variant is Dictionary):
+        return
+    var payload = payload_variant as Dictionary
+    profile.strength = clampf(float(payload.get("strength", profile.strength)), 0.0, 1.5)
+    profile.tool_efficiency = maxf(0.0, float(payload.get("tool_efficiency", profile.tool_efficiency)))
+    profile.base_capacity = maxf(0.1, float(payload.get("base_capacity", profile.base_capacity)))
+    profile.strength_multiplier = maxf(0.0, float(payload.get("strength_multiplier", profile.strength_multiplier)))
+    profile.max_tool_bonus = maxf(0.0, float(payload.get("max_tool_bonus", profile.max_tool_bonus)))
+    profile.tool_bonus_factor = maxf(0.0, float(payload.get("tool_bonus_factor", profile.tool_bonus_factor)))
+    profile.min_capacity = maxf(0.0, float(payload.get("min_capacity", profile.min_capacity)))
+
+func _last_snapshot_for_branch(branch_id: String, tick_to: int) -> Dictionary:
+    if _store == null:
+        return {}
+    var events: Array = _store.list_events(world_id, branch_id, 0, tick_to)
+    var snapshot: Dictionary = {}
+    for row_variant in events:
+        if not (row_variant is Dictionary):
+            continue
+        var row = row_variant as Dictionary
+        if String(row.get("event_type", "")) != "tick":
+            continue
+        snapshot = (row.get("payload", {}) as Dictionary).duplicate(true)
+    return snapshot
+
+func _snapshot_population(snapshot: Dictionary) -> int:
+    return int((snapshot.get("villagers", {}) as Dictionary).size())
+
+func _culture_metrics(branch_id: String, tick_from: int, tick_to: int) -> Dictionary:
+    var oral = 0
+    var ritual = 0
+    if _store == null:
+        return {"oral_transfers": oral, "ritual_events": ritual}
+    var events: Array = _store.list_resource_events(world_id, branch_id, tick_from, tick_to)
+    for row_variant in events:
+        if not (row_variant is Dictionary):
+            continue
+        var row = row_variant as Dictionary
+        if String(row.get("event_type", "")) != "sim_culture_event":
+            continue
+        var payload: Dictionary = row.get("payload", {})
+        var kind = String(payload.get("kind", ""))
+        if kind == "oral_transfer":
+            oral += 1
+        elif kind == "ritual_event":
+            ritual += 1
+    return {"oral_transfers": oral, "ritual_events": ritual}
+
+func _belief_conflict_count(snapshot: Dictionary, tick_to: int) -> int:
+    if _backstory_service == null:
+        return 0
+    var world_day = int(tick_to / 24)
+    var villagers: Dictionary = snapshot.get("villagers", {})
+    var npc_ids = villagers.keys()
+    npc_ids.sort_custom(func(a, b): return String(a) < String(b))
+    var total = 0
+    for npc_id_variant in npc_ids:
+        var npc_id = String(npc_id_variant)
+        var result: Dictionary = _backstory_service.get_belief_truth_conflicts(npc_id, world_day, 16)
+        if bool(result.get("ok", false)):
+            total += int((result.get("conflicts", []) as Array).size())
+    return total
+
+func _culture_continuity_score(population: int, culture_metrics: Dictionary) -> float:
+    var pop = max(1, population)
+    var oral = float(culture_metrics.get("oral_transfers", 0))
+    var ritual = float(culture_metrics.get("ritual_events", 0))
+    return (oral * 0.65 + ritual * 1.15) / float(pop)

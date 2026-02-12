@@ -267,13 +267,13 @@ Design intent:
 
 - [x] Checkpoints at deterministic intervals and key events.
 - [x] Branch creation from any checkpoint with immutable lineage links.
-- [ ] Fast-forward uses deterministic batch stepping only.
-- [ ] Rewind restores checkpoint + deterministic replay of events.
-- [ ] Branch diff tools include:
-- [ ] population delta
-- [ ] resource delta
-- [ ] belief divergence
-- [ ] culture continuity score delta
+- [x] Fast-forward uses deterministic batch stepping only.
+- [x] Rewind restores checkpoint + deterministic replay of events.
+- [x] Branch diff tools include:
+- [x] population delta
+- [x] resource delta
+- [x] belief divergence
+- [x] culture continuity score delta
 
 ## 10) Presentation Layer (Minimal but Inspectable)
 

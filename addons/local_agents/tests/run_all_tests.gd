@@ -11,6 +11,7 @@ const CORE_TESTS := [
     "res://addons/local_agents/tests/test_simulation_worldgen_determinism.gd",
     "res://addons/local_agents/tests/test_simulation_water_first_spawn.gd",
     "res://addons/local_agents/tests/test_simulation_branching.gd",
+    "res://addons/local_agents/tests/test_simulation_rewind_branch_diff.gd",
     "res://addons/local_agents/tests/test_simulation_path_logistics.gd",
     "res://addons/local_agents/tests/test_simulation_settlement_growth.gd",
     "res://addons/local_agents/tests/test_simulation_oral_tradition.gd",
