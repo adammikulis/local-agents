@@ -32,15 +32,19 @@ theme_override_constants/margin_bottom = 10
 layout_mode = 2
 focus_mode = 2
 theme = SubResource("Theme_kitas")
-text = "Local Agents wraps the Doctor-Robot GDExtension so you can run offline agents entirely inside Godot.
+text = "Local Agents runs llama.cpp-style chat fully offline inside Godot.
 
-Quick setup:
-1. Build gdextensions/localagents from the Doctor-Robot repo (or copy a prebuilt binary into this addon).
-2. Enable the Local Agents plugin and the AgentManager autoload.
-3. Set your graph DB path / inference knobs in the model + inference panels.
-4. Drop an Agent node into a scene and call think().
+Runtime health checklist:
+1. Build the extension in addons/local_agents/gdextensions/localagents.
+2. Confirm platform binary exists under bin/ (macOS, Linux, or Windows).
+3. Enable the Local Agents plugin and AgentManager autoload.
+4. Open ChatExample and verify the sidebar shows Runtime: Ready.
 
-Sample scenes show 2D/3D chat flows and quick graph heuristics. Extend them to fit your project!
+Model download flow:
+1. Open Local Agents bottom panel -> Downloads.
+2. Download a GGUF model into user://local_agents/models.
+3. Return to ChatExample and click Load Model.
+4. Send prompts with Ctrl+Enter.
 
-More info: https://github.com/adammikulis/LocalAgents"
+Tip: use Refresh Status in ChatExample after building or downloading."
 selection_enabled = true

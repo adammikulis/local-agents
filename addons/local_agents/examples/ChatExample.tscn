@@ -45,6 +45,36 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "Exit"
 
+[node name="SidebarSeparator" type="HSeparator" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
+layout_mode = 2
+
+[node name="RuntimeStatusLabel" type="Label" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 3
+text = "Runtime: Checking..."
+
+[node name="ModelStatusLabel" type="Label" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 3
+text = "Model: Checking..."
+
+[node name="RefreshStatusButton" type="Button" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Refresh Status"
+
+[node name="DownloadHintLabel" type="RichTextLabel" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(220, 0)
+layout_mode = 2
+size_flags_vertical = 3
+bbcode_enabled = true
+fit_content = true
+scroll_active = false
+text = "[b]Tip[/b]\nDownload models from the Local Agents bottom panel."
+
 [node name="SavedChatsController" parent="HBoxContainer" instance=ExtResource("6_2ncav")]
 unique_name_in_owner = true
 visible = false

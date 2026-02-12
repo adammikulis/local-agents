@@ -5,6 +5,9 @@ class_name LocalAgentsChatController
 signal prompt_input_received(text)
 
 const DEFAULT_STORE := preload("res://addons/local_agents/controllers/ConversationStore.gd")
+const ConversationSessionService := preload("res://addons/local_agents/controllers/services/ConversationSessionService.gd")
+const ConversationHistoryService := preload("res://addons/local_agents/controllers/services/ConversationHistoryService.gd")
+const RuntimeHealth := preload("res://addons/local_agents/runtime/RuntimeHealth.gd")
 
 @onready var _model_option: OptionButton = %ModelOptionButton
 @onready var _manage_model_button: Button = %ManageModelButton
@@ -14,6 +17,8 @@ const DEFAULT_STORE := preload("res://addons/local_agents/controllers/Conversati
 @onready var _saved_chats_button: Button = %SavedChatsButton
 @onready var _status_label: Label = %StatusLabel
 @onready var _conversation_status_label: Label = %ConversationStatusLabel
+@onready var _runtime_state_label: Label = %RuntimeStateLabel
+@onready var _speech_state_label: Label = %SpeechStateLabel
 @onready var _conversation_list: ItemList = %ConversationList
 @onready var _new_conversation_button: Button = %NewConversationButton
 @onready var _rename_conversation_button: Button = %RenameConversationButton
@@ -32,14 +37,16 @@ const DEFAULT_STORE := preload("res://addons/local_agents/controllers/Conversati
 
 var _tab_container: TabContainer
 var _configuration_panel: LocalAgentsConfigurationPanel
-var _conversation_store: Node
-var _conversation_index: Array = []
-var _selected_conversation_id: int = -1
+var _conversation_session_service
+var _conversation_history_service
 var _manager: LocalAgentsAgentManager
 var _agent: LocalAgentsAgent
 var _is_generating := false
+var _status_text := "Idle"
 
 func _ready() -> void:
+    _conversation_session_service = ConversationSessionService.new()
+    _conversation_history_service = ConversationHistoryService.new()
     _tab_container = _locate_tab_container()
     _configuration_panel = _get_configuration_panel()
     _connect_ui()
@@ -72,12 +79,7 @@ func _connect_ui() -> void:
     _rename_confirm_button.pressed.connect(_on_rename_confirmed)
 
 func _ensure_conversation_store() -> void:
-    _conversation_store = get_node_or_null("/root/ConversationStore")
-    if _conversation_store == null:
-        _conversation_store = DEFAULT_STORE.new()
-        _conversation_store.name = "ConversationStore"
-        get_tree().root.call_deferred("add_child", _conversation_store)
-        _conversation_store.owner = null
+    _conversation_session_service.ensure_conversation_store(get_tree(), DEFAULT_STORE)
 
 func _ensure_manager() -> void:
     _manager = get_node_or_null("/root/AgentManager")
@@ -157,44 +159,20 @@ func _populate_option_button(button: OptionButton, configs: Array, label_field: 
     button.select(0)
 
 func _refresh_conversations() -> void:
-    if not _conversation_store:
+    var state: Dictionary = _conversation_session_service.refresh_conversations()
+    var conversation_index_variant: Variant = state.get("index", [])
+    var conversation_index: Array = conversation_index_variant if conversation_index_variant is Array else []
+    var selected_index: int = int(state.get("selected_index", -1))
+    var selected_id: int = int(state.get("selected_id", -1))
+    if selected_index == -1 or selected_id == -1:
         return
-    var desired_id := _selected_conversation_id
-    _conversation_index = []
-    var raw_list: Array = _conversation_store.list_conversations()
-    for i in raw_list.size():
-        var entry_variant: Variant = raw_list[i]
-        var entry: Dictionary = {}
-        if entry_variant is Dictionary:
-            entry = entry_variant
-        if not entry.has("id"):
-            entry = entry.duplicate(true)
-            entry["id"] = entry.get("conversation_id", i)
-        _conversation_index.append(entry)
-    _conversation_index.sort_custom(Callable(self, "_sort_conversation_index"))
     _conversation_list.clear()
-    for convo in _conversation_index:
-        var title := _get_conversation_title_from_entry(convo)
+    for convo in conversation_index:
+        var title := _conversation_session_service.get_conversation_title_from_entry(convo)
         _conversation_list.add_item(title)
-    _saved_chats_controller.set_conversations(_conversation_index)
-    if _conversation_index.is_empty():
-        if _conversation_store.has_method("create_conversation"):
-            var created: Dictionary = _conversation_store.create_conversation("Conversation 1")
-            _conversation_index = [created]
-            _conversation_list.add_item(created.get("title", "Conversation"))
-        else:
-            var fallback_entry := {"id": 0, "title": "Conversation"}
-            _conversation_index = [fallback_entry]
-            _conversation_list.add_item("Conversation")
-    var selected_index := 0
-    if desired_id != -1:
-        for idx in _conversation_index.size():
-            if _conversation_index[idx].get("id", -1) == desired_id:
-                selected_index = idx
-                break
+    _saved_chats_controller.set_conversations(conversation_index)
     _conversation_list.select(selected_index)
-    _selected_conversation_id = _conversation_index[selected_index].get("id", selected_index)
-    _load_conversation(_selected_conversation_id)
+    _load_conversation(selected_id)
 
 func _on_model_selected(index: int) -> void:
     if not _manager:
@@ -216,7 +194,13 @@ func _on_load_model_pressed() -> void:
     if not _agent:
         _update_status("Agent is not ready")
         return
+    if _agent.agent_node == null:
+        _update_status("Agent runtime unavailable")
+        return
     var default_model: String = _agent.agent_node.get_default_model_path()
+    if default_model.strip_edges() == "":
+        _update_status("No default model configured")
+        return
     var ok: bool = _agent.agent_node.load_model(default_model, {})
     var status_text := "Model loaded" if ok else "Failed to load model"
     _update_status(status_text)
@@ -226,51 +210,48 @@ func _on_saved_chats_pressed() -> void:
     _saved_chats_window.popup()
 
 func _on_conversation_selected(index: int) -> void:
-    if index < 0 or index >= _conversation_index.size():
+    var conversation_id := _conversation_session_service.select_conversation_by_list_index(index)
+    if conversation_id == -1:
         return
-    _selected_conversation_id = _conversation_index[index].get("id", index)
-    _load_conversation(_selected_conversation_id)
+    _load_conversation(conversation_id)
 
 func _on_conversation_activated(index: int) -> void:
     _on_conversation_selected(index)
 
 func _on_new_conversation_pressed() -> void:
-    if not _conversation_store:
-        return
-    var title := "Conversation %d" % (_conversation_index.size() + 1)
-    var convo: Dictionary = {}
-    if _conversation_store.has_method("create_conversation"):
-        convo = _conversation_store.create_conversation(title)
-    _selected_conversation_id = convo.get("id", -1)
+    _conversation_session_service.create_conversation()
     _refresh_conversations()
 
 func _on_rename_conversation_pressed() -> void:
-    if _selected_conversation_id == -1:
+    var selected_conversation_id := _conversation_session_service.get_selected_conversation_id()
+    if selected_conversation_id == -1:
         return
-    var current_title := _get_conversation_title(_selected_conversation_id)
+    var current_title := _conversation_session_service.get_conversation_title(selected_conversation_id)
     _rename_line_edit.text = current_title
     _rename_window.popup()
     _rename_line_edit.grab_focus()
 
 func _on_rename_confirmed() -> void:
-    if _selected_conversation_id == -1 or not _conversation_store:
+    var selected_conversation_id := _conversation_session_service.get_selected_conversation_id()
+    if selected_conversation_id == -1:
         _rename_window.hide()
         return
     var new_title := _rename_line_edit.text.strip_edges()
     if new_title.is_empty():
         _rename_window.hide()
         return
-    _apply_conversation_title(_selected_conversation_id, new_title)
+    _conversation_session_service.apply_conversation_title(selected_conversation_id, new_title)
+    _refresh_conversations()
     _rename_window.hide()
 
 func _on_delete_conversation_pressed() -> void:
-    if _selected_conversation_id == -1 or not _conversation_store:
+    var result: Dictionary = _conversation_session_service.delete_selected_conversation()
+    if not result.get("ok", false):
+        var error_value: Variant = result.get("error", "")
+        var error_text: String = error_value as String if error_value is String else str(error_value)
+        if not error_text.is_empty():
+            _update_status(error_text)
         return
-    if _conversation_index.size() <= 1:
-        _update_status("Cannot delete the last conversation")
-        return
-    if _conversation_store.has_method("delete_conversation"):
-        _conversation_store.delete_conversation(_selected_conversation_id)
     _refresh_conversations()
 
 func _on_send_pressed() -> void:
@@ -322,16 +303,12 @@ func _invoke_agent(prompt: String) -> void:
     _refresh_graph()
 
 func _add_message_to_store(role: String, content: String, update_graph: bool = true) -> void:
-    if not _conversation_store or _selected_conversation_id == -1:
-        return
-    if _conversation_store.has_method("append_message"):
-        _conversation_store.append_message(_selected_conversation_id, role, content)
+    _conversation_session_service.append_message(role, content)
     if update_graph:
         _refresh_graph()
 
 func _append_to_history(text: String) -> void:
-    _history_label.append_text("%s\n" % text)
-    _history_label.scroll_active = true
+    _conversation_history_service.append_to_history(_history_label, text)
 
 func _on_model_output_received(text: String) -> void:
     if text.strip_edges().is_empty():
@@ -346,38 +323,20 @@ func _on_agent_message(role: String, content: String) -> void:
     _append_to_history("[b]%s[/b]: %s" % [label, content])
 
 func _load_conversation(conversation_id: int) -> void:
-    if not _conversation_store:
-        return
-    var convo: Dictionary = _conversation_store.load_conversation(conversation_id)
-    _history_label.clear()
-    var messages_variant := convo.get("messages", [])
-    var messages: Array = []
-    if messages_variant is Array:
-        messages = messages_variant
-    messages.sort_custom(Callable(self, "_sort_messages"))
+    var convo: Dictionary = _conversation_session_service.load_conversation(conversation_id)
+    var messages := _conversation_history_service.sorted_messages_from_conversation(convo)
     _sync_agent_with_messages(messages)
-    for message_variant in messages:
-        var message: Dictionary = {}
-        if message_variant is Dictionary:
-            message = message_variant
-        var role := message.get("role", "user")
-        if role == "system":
-            continue
-        var label: String = "Agent" if role == "assistant" else role.capitalize()
-        _append_to_history("[b]%s[/b]: %s" % [label, message.get("content", "")])
-    _selected_conversation_id = conversation_id
+    _conversation_history_service.render_conversation(_history_label, messages)
+    _conversation_session_service.set_selected_conversation_id(conversation_id)
     _refresh_graph_with_conversation(convo)
     _update_state_labels()
 
 func _refresh_graph() -> void:
-    if _selected_conversation_id == -1:
+    var selected_conversation_id := _conversation_session_service.get_selected_conversation_id()
+    if selected_conversation_id == -1:
         return
-    var convo: Dictionary = _conversation_store.load_conversation(_selected_conversation_id)
-    var messages_variant := convo.get("messages", [])
-    var messages: Array = []
-    if messages_variant is Array:
-        messages = messages_variant
-    messages.sort_custom(Callable(self, "_sort_messages"))
+    var convo: Dictionary = _conversation_session_service.load_conversation(selected_conversation_id)
+    var messages := _conversation_history_service.sorted_messages_from_conversation(convo)
     _sync_agent_with_messages(messages)
     _refresh_graph_with_conversation(convo)
 
@@ -397,103 +356,45 @@ func _refresh_graph_with_conversation(convo: Dictionary) -> void:
         item.set_text(0, "%s #%d" % [message.get("role", "user"), message.get("order", 0)])
         item.set_metadata(0, message)
 
-func _get_conversation_title(conversation_id: int) -> String:
-    for convo_variant in _conversation_index:
-        var convo_entry: Dictionary = {}
-        if convo_variant is Dictionary:
-            convo_entry = convo_variant
-        if convo_entry.get("id", -1) == conversation_id:
-            return _get_conversation_title_from_entry(convo_entry)
-    return "Conversation"
-
-func _get_conversation_title_from_entry(entry: Dictionary) -> String:
-    if entry.has("title"):
-        return entry["title"]
-    if entry.has("name"):
-        return entry["name"]
-    return "Conversation"
-
-func _apply_conversation_title(conversation_id: int, new_title: String) -> void:
-    if not _conversation_store:
-        return
-    if _conversation_store.has_method("rename_conversation"):
-        _conversation_store.rename_conversation(conversation_id, new_title)
-    else:
-        if _conversation_store.has_method("append_message"):
-            _conversation_store.append_message(conversation_id, "system", "rename:%s" % new_title, {"title": new_title})
-    for idx in _conversation_index.size():
-        var list_entry_variant: Variant = _conversation_index[idx]
-        var list_entry: Dictionary = {}
-        if list_entry_variant is Dictionary:
-            list_entry = list_entry_variant
-        if list_entry.get("id", -1) == conversation_id:
-            list_entry["title"] = new_title
-            _conversation_index[idx] = list_entry
-    _refresh_conversations()
-
 func _on_saved_chat_selected(conversation_id: int) -> void:
-    for idx in _conversation_index.size():
-        var convo_entry_variant: Variant = _conversation_index[idx]
-        var convo_entry: Dictionary = {}
-        if convo_entry_variant is Dictionary:
-            convo_entry = convo_entry_variant
-        if convo_entry.get("id", -1) == conversation_id:
-            _conversation_list.select(idx)
-            _on_conversation_selected(idx)
-            break
+    var index := _conversation_session_service.find_list_index_for_conversation_id(conversation_id)
+    if index != -1:
+        _conversation_list.select(index)
+        _on_conversation_selected(index)
     _saved_chats_window.hide()
 
 func _on_saved_chat_deleted(conversation_id: int) -> void:
-    if not _conversation_store:
-        return
-    if _conversation_store.has_method("delete_conversation"):
-        _conversation_store.delete_conversation(conversation_id)
+    _conversation_session_service.delete_conversation(conversation_id)
     _refresh_conversations()
 
 func _update_status(text: String) -> void:
-    _status_label.text = text
+    _status_text = text
+    _status_label.text = _status_text
 
 func _update_state_labels() -> void:
-    var convo_name := _get_conversation_title(_selected_conversation_id)
+    var selected_conversation_id := _conversation_session_service.get_selected_conversation_id()
+    var convo_name := _conversation_session_service.get_conversation_title(selected_conversation_id)
     _conversation_status_label.text = convo_name
     var model_loaded: bool = _agent != null and _agent.agent_node != null and _agent.agent_node.get_default_model_path() != ""
     _load_model_button.disabled = _agent == null
-    _status_label.text = "Model ready" if model_loaded else "Model not loaded"
+    _status_label.text = _status_text
+
+    var runtime_state := RuntimeHealth.summarize()
+    if _runtime_state_label:
+        _runtime_state_label.text = runtime_state.get("runtime", "Runtime: unknown")
+    if _speech_state_label:
+        _speech_state_label.text = runtime_state.get("speech", "Speech: unknown")
     _update_send_button_state()
-
-func _sort_conversation_index(a: Dictionary, b: Dictionary) -> bool:
-    return int(a.get("created_at", 0)) < int(b.get("created_at", 0))
-
-func _sort_messages(a: Dictionary, b: Dictionary) -> bool:
-    return int(a.get("order", 0)) < int(b.get("order", 0))
 
 func _sync_agent_with_messages(messages: Array) -> void:
     if not _agent or not _agent.has_method("set_history"):
         return
-    var filtered: Array = []
-    for message_variant in messages:
-        var message: Dictionary = {}
-        if message_variant is Dictionary:
-            message = message_variant
-        else:
-            continue
-        var role_value := message.get("role", "")
-        var content_value := message.get("content", "")
-        var role := role_value as String if role_value is String else str(role_value)
-        var content := content_value as String if content_value is String else str(content_value)
-        if role == "system" or content.strip_edges().is_empty():
-            continue
-        filtered.append({
-            "role": role,
-            "content": content,
-        })
+    var filtered := _conversation_history_service.build_agent_history(messages)
     _agent.set_history(filtered)
 
 func _sync_agent_with_current_conversation() -> void:
-    if not _conversation_store or _selected_conversation_id == -1:
+    var convo: Dictionary = _conversation_session_service.load_selected_conversation()
+    if convo.is_empty():
         return
-    var convo: Dictionary = _conversation_store.load_conversation(_selected_conversation_id)
-    var messages_variant := convo.get("messages", [])
-    var messages: Array = messages_variant if messages_variant is Array else []
-    messages.sort_custom(Callable(self, "_sort_messages"))
+    var messages := _conversation_history_service.sorted_messages_from_conversation(convo)
     _sync_agent_with_messages(messages)

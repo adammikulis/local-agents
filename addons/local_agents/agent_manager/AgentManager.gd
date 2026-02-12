@@ -7,9 +7,12 @@ signal configs_updated()
 const CONFIG_LIST_PATH := "res://addons/local_agents/configuration/parameters/ConfigList.tres"
 const DEFAULT_INFERENCE_PARAMS_PATH := "res://addons/local_agents/configuration/parameters/InferenceParams.tres"
 const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const AgentScript := preload("res://addons/local_agents/agents/Agent.gd")
+const ConfigListScript := preload("res://addons/local_agents/configuration/parameters/ConfigList.gd")
+const InferenceParamsScript := preload("res://addons/local_agents/configuration/parameters/InferenceParams.gd")
 
-var config_list: LocalAgentsConfigList
-var agent: LocalAgentsAgent
+var config_list: Resource
+var agent: Node
 
 func _ready() -> void:
     _ensure_config_list()
@@ -26,12 +29,12 @@ func _ensure_agent() -> void:
     if not ExtensionLoader.ensure_initialized():
         push_warning("Local Agents extension unavailable; AgentManager will retry when activated")
         return
-    agent = LocalAgentsAgent.new()
+    agent = AgentScript.new()
     agent.name = "Agent"
     add_child(agent)
     emit_signal("agent_ready", agent)
 
-func register_agent(agent_instance: LocalAgentsAgent) -> void:
+func register_agent(agent_instance: Node) -> void:
     _ensure_config_list()
     agent = agent_instance
     if config_list.current_model_config:
@@ -44,14 +47,14 @@ func _ensure_config_list() -> void:
     if FileAccess.file_exists(CONFIG_LIST_PATH):
         config_list = ResourceLoader.load(CONFIG_LIST_PATH)
     if config_list == null:
-        config_list = LocalAgentsConfigList.new()
+        config_list = ConfigListScript.new()
         _save_config_list()
     if config_list.inference_configurations.is_empty():
-        var default_inference: LocalAgentsInferenceParams = ResourceLoader.load(DEFAULT_INFERENCE_PARAMS_PATH)
+        var default_inference = ResourceLoader.load(DEFAULT_INFERENCE_PARAMS_PATH)
         if default_inference:
             config_list.inference_configurations.append(default_inference.duplicate(true))
         else:
-            var fallback := LocalAgentsInferenceParams.new()
+            var fallback = InferenceParamsScript.new()
             fallback.inference_config_name = "<default>"
             config_list.inference_configurations.append(fallback)
         if config_list.current_inference_config == null:
@@ -65,25 +68,33 @@ func _save_config_list() -> void:
     if err != OK:
         push_error("Failed to save config list: %s" % err)
 
-func apply_model_config(params: LocalAgentsModelParams) -> void:
+func apply_model_config(params) -> void:
+    _ensure_config_list()
     _ensure_agent()
     config_list.current_model_config = params
     if params:
-        agent.configure(params, null)
+        if agent:
+            agent.configure(params, null)
+        else:
+            push_warning("Agent unavailable; model config saved and will apply after runtime activation")
         config_list.last_good_model_config = params
         _save_config_list()
         emit_signal("configs_updated")
 
-func apply_inference_config(params: LocalAgentsInferenceParams) -> void:
+func apply_inference_config(params) -> void:
+    _ensure_config_list()
     _ensure_agent()
     config_list.current_inference_config = params
     if params:
-        agent.configure(null, params)
+        if agent:
+            agent.configure(null, params)
+        else:
+            push_warning("Agent unavailable; inference config saved and will apply after runtime activation")
         config_list.last_good_inference_config = params
         _save_config_list()
         emit_signal("configs_updated")
 
-func add_model_config(params: LocalAgentsModelParams) -> void:
+func add_model_config(params) -> void:
     config_list.model_configurations.append(params)
     _save_config_list()
     emit_signal("configs_updated")
@@ -94,7 +105,7 @@ func remove_model_config(index: int) -> void:
         _save_config_list()
         emit_signal("configs_updated")
 
-func add_inference_config(params: LocalAgentsInferenceParams) -> void:
+func add_inference_config(params) -> void:
     config_list.inference_configurations.append(params)
     _save_config_list()
     emit_signal("configs_updated")

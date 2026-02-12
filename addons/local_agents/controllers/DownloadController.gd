@@ -15,6 +15,7 @@ class_name LocalAgentsDownloadController
 
 const FETCH_SCRIPT := "res://addons/local_agents/gdextensions/localagents/scripts/fetch_dependencies.sh"
 const MODEL_SERVICE := preload("res://addons/local_agents/controllers/ModelDownloadService.gd")
+const DOWNLOAD_CLIENT := preload("res://addons/local_agents/api/DownloadClient.gd")
 
 const JOB_SCRIPT := "script"
 const JOB_MODEL := "model"
@@ -24,6 +25,7 @@ var _worker: Thread
 var _is_running := false
 var _pending_job: Dictionary = {}
 var _model_service := MODEL_SERVICE.new()
+var _download_client := DOWNLOAD_CLIENT
 var _selected_model_id := ""
 var _runtime: Object = null
 var _runtime_connected := false
@@ -306,23 +308,15 @@ func _execute_model_job(job: Dictionary) -> Dictionary:
     if request.is_empty():
         lines.append("Model request missing")
         return {"ok": false, "log": lines, "exit_code": -1}
-    if not Engine.has_singleton("AgentRuntime"):
-        lines.append("AgentRuntime singleton unavailable")
-        return {"ok": false, "log": lines, "exit_code": -1}
-    var runtime: Object = Engine.get_singleton("AgentRuntime")
-    if runtime == null:
-        lines.append("AgentRuntime singleton unavailable")
-        return {"ok": false, "log": lines, "exit_code": -1}
-    if not runtime.has_method("download_model"):
-        lines.append("AgentRuntime missing download_model")
-        return {"ok": false, "log": lines, "exit_code": -1}
-    var model_result: Dictionary = runtime.call("download_model", request)
+    var model_result: Dictionary = _download_client.download_request(request)
     var model_log: PackedStringArray = model_result.get("log", PackedStringArray())
     if not _runtime_log_streaming:
         lines.append_array(model_log)
     var ok := model_result.get("ok", false)
     if not ok and model_result.has("error"):
         lines.append("Error: %s" % model_result["error"])
+    elif ok and model_result.has("sha256"):
+        lines.append("SHA256: %s" % model_result["sha256"])
     var exit_code := 0
     if not ok:
         exit_code = -1
@@ -521,6 +515,9 @@ func _log_job(job: Dictionary) -> void:
             var hf_tag := String(request.get("hf_tag", ""))
             if hf_tag != "":
                 output_log.append_text("HF Tag: %s\n" % hf_tag)
+            var sha := String(request.get("sha256", ""))
+            if sha != "":
+                output_log.append_text("Expected SHA256: %s\n" % sha)
             if hf_repo != "" or hf_file != "" or hf_tag != "":
                 output_log.append_text("\n")
         JOB_COMPOSITE:

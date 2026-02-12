@@ -5,7 +5,7 @@ signal model_output_received(text)
 signal message_emitted(role, content)
 signal action_requested(action, params)
 
-var agent_node: AgentNode
+var agent_node: Object
 var history: Array = []
 var inference_options: Dictionary = {}
 const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
@@ -33,8 +33,10 @@ func _ready() -> void:
     add_child(_audio_player)
     if _speech_service == null:
         _speech_service = SpeechService.new()
-    agent_node.connect("message_emitted", Callable(self, "_on_agent_message"))
-    agent_node.connect("action_requested", Callable(self, "_on_agent_action"))
+    if not agent_node.is_connected("message_emitted", Callable(self, "_on_agent_message")):
+        agent_node.connect("message_emitted", Callable(self, "_on_agent_message"))
+    if not agent_node.is_connected("action_requested", Callable(self, "_on_agent_action")):
+        agent_node.connect("action_requested", Callable(self, "_on_agent_action"))
     if is_inside_tree():
         _register_with_manager()
     else:
@@ -42,7 +44,7 @@ func _ready() -> void:
     _ensure_speech_service()
 
 func _register_with_manager() -> void:
-    var manager: LocalAgentsAgentManager = get_node_or_null("/root/AgentManager")
+    var manager = get_node_or_null("/root/AgentManager")
     if manager:
         manager.register_agent(self)
 
@@ -57,7 +59,7 @@ func _ensure_speech_service() -> void:
             service_obj.connect("job_failed", Callable(self, "_on_speech_job_failed"))
         _speech_service_connected = true
 
-func configure(model_params: LocalAgentsModelParams = null, inference_params: LocalAgentsInferenceParams = null) -> void:
+func configure(model_params = null, inference_params = null) -> void:
     var has_agent := _ensure_agent_node()
     if model_params:
         db_path = model_params.db_path
@@ -103,7 +105,7 @@ func say(text: String, opts: Dictionary = {}) -> bool:
     var service = _speech_service
     var payload = opts.duplicate(true)
     payload["voice_id"] = voice
-    var runtime_dir := agent_node.runtime_directory if agent_node else RuntimePaths.runtime_dir()
+    var runtime_dir: String = _current_runtime_dir()
     payload["runtime_directory"] = RuntimePaths.normalize_path(runtime_dir) if runtime_dir != "" else ""
     payload["text"] = text
     var result = service.synthesize(payload)
@@ -117,7 +119,7 @@ func listen(opts: Dictionary = {}) -> String:
         return ""
     var service = _speech_service
     var payload = opts.duplicate(true)
-    var runtime_dir := agent_node.runtime_directory if agent_node else RuntimePaths.runtime_dir()
+    var runtime_dir: String = _current_runtime_dir()
     payload["runtime_directory"] = RuntimePaths.normalize_path(runtime_dir) if runtime_dir != "" else ""
     var result = service.transcribe(payload)
     if not result.get("ok", false):
@@ -134,7 +136,7 @@ func listen_async(input_path: String, opts: Dictionary = {}, callback: Callable 
         return -1
     var service = _speech_service
     var payload = opts.duplicate(true)
-    var runtime_dir := agent_node.runtime_directory if agent_node else RuntimePaths.runtime_dir()
+    var runtime_dir: String = _current_runtime_dir()
     payload["runtime_directory"] = RuntimePaths.normalize_path(runtime_dir) if runtime_dir != "" else ""
     payload["model_path"] = payload.get("model_path", "")
     return service.transcribe_async(input_path, payload, callback)
@@ -181,7 +183,11 @@ func _ensure_agent_node() -> bool:
         return true
     if not ExtensionLoader.ensure_initialized():
         return false
-    agent_node = AgentNode.new()
+    if not ClassDB.class_exists("AgentNode"):
+        return false
+    agent_node = ClassDB.instantiate("AgentNode")
+    if agent_node == null:
+        return false
     add_child(agent_node)
     _sync_agent_node_properties()
     return true
@@ -212,13 +218,18 @@ func _speak_text_async(text: String) -> void:
         push_warning("Speech service unavailable; cannot synthesize speech")
         return
     var service = _speech_service
-    var assets := RuntimePaths.resolve_voice_assets(voice)
-    if assets.is_empty():
-        push_warning("Voice assets not found for '%s'" % voice)
+    var voice_report := RuntimePaths.voice_asset_report(voice)
+    if not voice_report.get("ok", false):
+        var checked := PackedStringArray(voice_report.get("candidates", PackedStringArray()))
+        push_warning("Voice assets not found for '%s'. Checked: %s" % [voice, ", ".join(checked)])
         return
+    var assets := {
+        "model": voice_report.get("model", ""),
+        "config": voice_report.get("config", ""),
+    }
     var output_rel := RuntimePaths.make_tts_output_path("local_agents")
     var output_abs := ProjectSettings.globalize_path(output_rel)
-    var runtime_dir := agent_node.runtime_directory if agent_node and agent_node.runtime_directory != "" else RuntimePaths.runtime_dir()
+    var runtime_dir: String = _current_runtime_dir()
     var runtime_abs := RuntimePaths.normalize_path(runtime_dir) if runtime_dir != "" else ""
     var options := {
         "voice_id": voice,
@@ -268,3 +279,11 @@ func _on_speech_job_failed(job_id: int, result: Dictionary) -> void:
         _pending_tts_jobs.erase(job_id)
     var error := result.get("error", "speech_job_failed")
     push_warning("Speech service job %d failed: %s" % [job_id, error])
+
+func _current_runtime_dir() -> String:
+    if agent_node != null:
+        var value = agent_node.get("runtime_directory")
+        var path := String(value)
+        if path != "":
+            return path
+    return RuntimePaths.runtime_dir()

@@ -7,7 +7,7 @@ signal model_output_received(text)
 @export var chat_label_path: NodePath = NodePath("ChatLabel3D")
 @export var animation_player_path: NodePath = NodePath("AnimationPlayer")
 
-var agent: LocalAgentsAgent
+var agent: Node
 var chat_label: Label3D
 var animation_player: AnimationPlayer
 
