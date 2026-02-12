@@ -10,3 +10,5 @@ script = ExtResource("1_debug")
 [node name="ResourceDebug" type="Node3D" parent="."]
 
 [node name="ConflictDebug" type="Node3D" parent="."]
+
+[node name="SmellDebug" type="Node3D" parent="."]

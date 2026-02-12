@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/NeolithicWorld.gd" id="1_world"]
 [ext_resource type="Script" path="res://addons/local_agents/simulation/SimulationController.gd" id="2_sim"]
@@ -8,6 +8,7 @@
 [ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/CultureController.gd" id="6_culture"]
 [ext_resource type="PackedScene" path="res://addons/local_agents/scenes/simulation/debug/DebugOverlay.tscn" id="7_debug"]
 [ext_resource type="PackedScene" path="res://addons/local_agents/scenes/simulation/ui/SimulationHud.tscn" id="8_hud"]
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/EcologyController.gd" id="9_ecology"]
 
 [node name="NeolithicWorld" type="Node3D"]
 script = ExtResource("1_world")
@@ -34,6 +35,13 @@ script = ExtResource("5_villagers")
 
 [node name="CultureController" type="Node3D" parent="."]
 script = ExtResource("6_culture")
+
+[node name="EcologyController" type="Node3D" parent="."]
+script = ExtResource("9_ecology")
+
+[node name="PlantRoot" type="Node3D" parent="EcologyController"]
+
+[node name="RabbitRoot" type="Node3D" parent="EcologyController"]
 
 [node name="DebugOverlayRoot" parent="." instance=ExtResource("7_debug")]
 

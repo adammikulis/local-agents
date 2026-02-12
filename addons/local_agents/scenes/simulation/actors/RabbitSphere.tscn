@@ -1,0 +1,18 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/actors/RabbitSphere.gd" id="1_rabbit"]
+
+[sub_resource type="SphereMesh" id="SphereMesh_rabbit"]
+radius = 0.16
+height = 0.32
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_rabbit"]
+albedo_color = Color(0.95, 0.95, 0.95, 1)
+roughness = 0.76
+
+[node name="RabbitSphere" type="Node3D"]
+script = ExtResource("1_rabbit")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("SphereMesh_rabbit")
+material_override = SubResource("StandardMaterial3D_rabbit")

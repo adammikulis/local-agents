@@ -5,10 +5,15 @@ extends Node3D
 @onready var settlement_controller: Node3D = $SettlementController
 @onready var villager_controller: Node3D = $VillagerController
 @onready var culture_controller: Node3D = $CultureController
+@onready var debug_overlay_root: Node3D = $DebugOverlayRoot
 @export var world_seed_text: String = "neolithic_vertical_slice"
 @export var auto_generate_on_ready: bool = true
 
 func _ready() -> void:
+	if has_node("EcologyController"):
+		var ecology_controller = get_node("EcologyController")
+		if ecology_controller.has_method("set_debug_overlay"):
+			ecology_controller.call("set_debug_overlay", debug_overlay_root)
 	if not auto_generate_on_ready:
 		return
 	if simulation_controller.has_method("configure"):

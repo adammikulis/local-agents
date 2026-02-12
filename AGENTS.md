@@ -26,6 +26,8 @@ This file defines implementation rules for working in this Godot repository.
 ## Project Structure
 
 - Use `addons/local_agents/` as the plugin boundary.
+- Default spatial partitioning uses a hex grid (`hex_pointy`) unless a feature explicitly requires otherwise.
+- Grid settings should be standardized in a central config/resource and reused across systems; domain data (smell, danger, resources, influence) should be modeled as layers/filters on top of that shared grid.
 - Keep editor-only code under `addons/local_agents/editor/` and mark scripts with `@tool` only when required.
 - Keep runtime-only logic outside editor UI controllers.
 - Store reusable data in `Resource` classes under `configuration/parameters/`.
