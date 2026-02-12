@@ -16,6 +16,8 @@ This file defines implementation rules for working in this Godot repository.
 
 ## Execution Model
 
+- Default execution behavior is to spawn sub-agents as needed whenever concerns can be split safely.
+- Default completion behavior is to proactively create feature-scoped commits and push them unless the user asks otherwise.
 - Spawn sub-agents for distinct concerns (runtime, downloads, tests, docs, build scripts) when work can proceed in parallel.
 - Give each sub-agent clear file ownership and expected outputs before starting.
 - Merge sub-agent work back into a single concern-based architecture plan with checkbox state updates.
