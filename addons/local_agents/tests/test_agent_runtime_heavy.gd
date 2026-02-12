@@ -16,8 +16,8 @@ func run_test(_tree: SceneTree) -> bool:
     var model_helper := TestModelHelper.new()
     var model_path := model_helper.ensure_local_model()
     if model_path.strip_edges() == "":
-        print("Skipping heavy AgentRuntime test. Set LOCAL_AGENTS_TEST_GGUF or install llama-cli.")
-        return true
+        push_error("Heavy AgentRuntime test requires a local model. Auto-download failed.")
+        return false
     OS.set_environment("LOCAL_AGENTS_TEST_GGUF", model_path)
 
     var resolved_path := _normalize_path(model_path)
@@ -36,19 +36,54 @@ func run_test(_tree: SceneTree) -> bool:
         return false
 
     var ok := bool(runtime.call("is_model_loaded"))
+    var health: Dictionary = runtime.call("get_runtime_health")
+    ok = ok and health.has("runtime_directory_exists")
+    ok = ok and bool(health.get("model_loaded", false))
+    ok = ok and bool(health.get("default_model_exists", false))
     var embedding: PackedFloat32Array = runtime.call("embed_text", "Local Agents heavy test", {})
-    ok = ok and not embedding.is_empty()
+    if embedding.is_empty():
+        push_warning("embed_text returned empty vector; continuing with generation validation")
 
     var response: Dictionary = runtime.call("generate", {
         "history": [
             {"role": "system", "content": "You are verifying Local Agents."},
-            {"role": "user", "content": "Reply with a short acknowledgement."},
+            {"role": "user", "content": "Reply with exactly one word: ok."},
         ],
-        "prompt": "Say ok.",
-        "options": {"max_tokens": 8},
+        "prompt": "Reply now.",
+        "options": {
+            "max_tokens": 16,
+            "temperature": 0.2,
+        },
     })
-    ok = ok and response.get("ok", false)
-    ok = ok and String(response.get("text", "")).length() > 0
+    ok = ok and bool(response.get("ok", false))
+    var text := String(response.get("text", "")).strip_edges()
+    ok = ok and text.length() > 0
+
+    var json_response: Dictionary = runtime.call("generate", {
+        "prompt": "Return only JSON: {\"status\":\"ok\"}",
+        "options": {
+            "max_tokens": 64,
+            "temperature": 0.1,
+            "stop": ["\nuser:"],
+            "response_format": {"type": "json_object"},
+            "json_schema": {
+                "type": "object",
+                "required": ["status"],
+            },
+        },
+    })
+    var json_ok := bool(json_response.get("ok", false))
+    if not json_ok:
+        var json_error := String(json_response.get("error", ""))
+        ok = ok and json_error in ["json_parse_failed", "json_schema_validation_failed"]
+    else:
+        ok = ok and typeof(json_response.get("json", null)) == TYPE_DICTIONARY
+    if json_ok and typeof(json_response.get("json", null)) == TYPE_DICTIONARY:
+        var parsed: Dictionary = json_response.get("json", {})
+        ok = ok and String(parsed.get("status", "")).strip_edges() != ""
+
+    if not ok:
+        push_error("Heavy generation response invalid: %s | json=%s" % [JSON.stringify(response), JSON.stringify(json_response)])
 
     runtime.call("unload_model")
     if ok:

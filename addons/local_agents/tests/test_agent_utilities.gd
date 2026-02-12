@@ -2,10 +2,11 @@
 extends RefCounted
 
 const LocalAgentsRuntimePaths := preload("res://addons/local_agents/runtime/RuntimePaths.gd")
+const AgentScript := preload("res://addons/local_agents/agents/Agent.gd")
 
 func run_test(_tree: SceneTree) -> bool:
     var ok := true
-    var agent := LocalAgentsAgent.new()
+    var agent := AgentScript.new()
     var runtime_paths := LocalAgentsRuntimePaths
 
     ok = ok and _assert(runtime_paths.normalize_path("") == "", "Empty path normalization failed")

@@ -1,0 +1,114 @@
+name: Godot Headless Tests
+
+on:
+  push:
+  pull_request:
+
+env:
+  GODOT_VERSION: 4.6-stable
+
+jobs:
+  core-headless:
+    name: core-headless
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake curl git pkg-config unzip
+
+      - name: Install Godot headless binary
+        run: |
+          curl -fsSL -o /tmp/godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x "/tmp/Godot_v${GODOT_VERSION}_linux.x86_64"
+          sudo mv "/tmp/Godot_v${GODOT_VERSION}_linux.x86_64" /usr/local/bin/godot4
+          godot4 --version
+
+      - name: Build localagents extension
+        run: |
+          mkdir -p logs
+          cd addons/local_agents/gdextensions/localagents
+          ./scripts/fetch_dependencies.sh --skip-models --skip-voices
+          ./scripts/build_extension.sh 2>&1 | tee "${GITHUB_WORKSPACE}/logs/core-headless-build.log"
+
+      - name: Run core headless harness
+        run: |
+          mkdir -p logs
+          godot4 --headless --no-window --path . -s addons/local_agents/tests/run_all_tests.gd --skip-heavy \
+            2>&1 | tee logs/core-headless-tests.log
+
+      - name: Upload core artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-headless-failure-artifacts
+          if-no-files-found: ignore
+          path: |
+            logs/**
+            addons/local_agents/gdextensions/localagents/build/CMakeFiles/CMakeOutput.log
+            addons/local_agents/gdextensions/localagents/build/CMakeFiles/CMakeError.log
+            ~/.local/share/godot/app_userdata/LocalAgents/**
+
+  runtime-heavy:
+    name: runtime-heavy
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake curl git pkg-config unzip
+
+      - name: Install Godot headless binary
+        run: |
+          curl -fsSL -o /tmp/godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x "/tmp/Godot_v${GODOT_VERSION}_linux.x86_64"
+          sudo mv "/tmp/Godot_v${GODOT_VERSION}_linux.x86_64" /usr/local/bin/godot4
+          godot4 --version
+
+      - name: Cache runtime model directories
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface/hub/models--ggml-org--Qwen3-0.6B-GGUF
+            ~/.local/share/godot/app_userdata/LocalAgents/local_agents/models/qwen3-0_6b-instruct
+          key: runtime-heavy-models-${{ runner.os }}-qwen3-0.6b-q4_k_m-v1
+          restore-keys: |
+            runtime-heavy-models-${{ runner.os }}-
+
+      - name: Build localagents extension
+        run: |
+          mkdir -p logs
+          cd addons/local_agents/gdextensions/localagents
+          ./scripts/fetch_dependencies.sh --skip-models --skip-voices
+          ./scripts/build_extension.sh 2>&1 | tee "${GITHUB_WORKSPACE}/logs/runtime-heavy-build.log"
+
+      - name: Run full runtime-heavy harness
+        run: |
+          mkdir -p logs
+          godot4 --headless --no-window --path . -s addons/local_agents/tests/run_all_tests.gd --include-heavy \
+            2>&1 | tee logs/runtime-heavy-tests.log
+
+      - name: Upload runtime-heavy artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-heavy-failure-artifacts
+          if-no-files-found: ignore
+          path: |
+            logs/**
+            addons/local_agents/gdextensions/localagents/build/CMakeFiles/CMakeOutput.log
+            addons/local_agents/gdextensions/localagents/build/CMakeFiles/CMakeError.log
+            ~/.cache/huggingface/hub/models--ggml-org--Qwen3-0.6B-GGUF/**
+            ~/.local/share/godot/app_userdata/LocalAgents/**

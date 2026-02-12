@@ -4,6 +4,7 @@ class_name LocalAgentsTestModelHelper
 
 const MODEL_ID := "qwen3-0_6b-instruct-q4_k_m"
 const MODEL_FILENAME := "Qwen3-0.6B-Q4_K_M.gguf"
+const MODEL_REPO := "unsloth/Qwen3-0.6B-GGUF"
 const DEFAULT_FOLDER := "user://local_agents/models/qwen3-0_6b-instruct"
 const MODEL_DOWNLOAD_SERVICE := preload("res://addons/local_agents/controllers/ModelDownloadService.gd")
 const DOWNLOAD_CLIENT := preload("res://addons/local_agents/api/DownloadClient.gd")
@@ -12,15 +13,14 @@ func ensure_local_model() -> String:
     var existing := find_existing_model()
     if existing != "":
         return existing
-    var runtime := _get_runtime()
-    if runtime == null:
+    if _get_runtime() == null:
         push_warning("AgentRuntime unavailable; set LOCAL_AGENTS_TEST_GGUF manually.")
         return ""
     var request := _build_request()
     if request.is_empty():
         push_warning("Unable to build download request for %s" % MODEL_ID)
         return ""
-    var result: Dictionary = runtime.call("download_model", request)
+    var result: Dictionary = DOWNLOAD_CLIENT.download_request(request)
     if result.get("ok", false):
         var output_path := String(request.get("output_path", ""))
         if output_path != "" and FileAccess.file_exists(output_path):
@@ -41,6 +41,10 @@ func ensure_local_model() -> String:
             var path := _locate_download_target()
             if path != "":
                 return path
+        var output_path := String(request.get("output_path", ""))
+        if output_path != "" and _download_with_curl(repo, file, output_path):
+            if FileAccess.file_exists(output_path):
+                return output_path
     return find_existing_model()
 
 func find_existing_model() -> String:
@@ -58,9 +62,18 @@ func find_existing_model() -> String:
 
 func _build_request() -> Dictionary:
     var service := MODEL_DOWNLOAD_SERVICE.new()
-    var request := service.create_request({"skip_existing": false}, MODEL_ID)
+    var request := service.create_request({"skip_existing": false, "force": false}, MODEL_ID)
     if request.is_empty():
-        return {}
+        var output_dir := ProjectSettings.globalize_path(DEFAULT_FOLDER)
+        DirAccess.make_dir_recursive_absolute(output_dir)
+        request = {
+            "hf_repo": MODEL_REPO,
+            "hf_file": MODEL_FILENAME,
+            "label": "Qwen3 0.6B Instruct (Q4_K_M)",
+            "output_path": output_dir.path_join(MODEL_FILENAME),
+            "skip_existing": false,
+            "force": false,
+        }
     return request
 
 func _locate_download_target() -> String:
@@ -111,3 +124,28 @@ func _get_runtime() -> Object:
     if Engine.has_singleton("AgentRuntime"):
         return Engine.get_singleton("AgentRuntime")
     return null
+
+func _download_with_curl(repo: String, file: String, output_path: String) -> bool:
+    if repo.strip_edges() == "" or file.strip_edges() == "" or output_path.strip_edges() == "":
+        return false
+    if not _command_exists("curl"):
+        push_warning("curl unavailable for direct Hugging Face fallback download")
+        return false
+    var out_dir := output_path.get_base_dir()
+    if out_dir != "":
+        DirAccess.make_dir_recursive_absolute(out_dir)
+    var url := "https://huggingface.co/%s/resolve/main/%s" % [repo, file]
+    var args := PackedStringArray(["-L", "--fail", "-o", output_path, url])
+    var output := []
+    var code := OS.execute("curl", args, output, true, true)
+    if code != 0:
+        push_warning("curl model download failed for %s (exit %d)" % [file, code])
+        return false
+    return true
+
+func _command_exists(name: String) -> bool:
+    if name.strip_edges() == "":
+        return false
+    var output := []
+    var code := OS.execute("which", PackedStringArray([name]), output, true, true)
+    return code == 0

@@ -4,30 +4,47 @@ extends SceneTree
 const CORE_TESTS := [
     "res://addons/local_agents/tests/test_smoke_agent.gd",
     "res://addons/local_agents/tests/test_agent_utilities.gd",
+    "res://addons/local_agents/tests/test_speech_service_smoke.gd",
+    "res://addons/local_agents/tests/test_llama_server_provider.gd",
+]
+
+const RUNTIME_TESTS := [
+    "res://addons/local_agents/tests/test_agent_integration.gd",
+    "res://addons/local_agents/tests/test_agent_runtime_heavy.gd",
 ]
 
 const HEAVY_TEST := "res://addons/local_agents/tests/test_agent_runtime_heavy.gd"
 const HEAVY_FLAG := "--include-heavy"
+const SKIP_HEAVY_FLAG := "--skip-heavy"
 const TestModelHelper := preload("res://addons/local_agents/tests/test_model_helper.gd")
+const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
 
 var _failures: Array[String] = []
-var _include_heavy := false
+var _run_runtime_tests := false
 var _model_helper := TestModelHelper.new()
 
 func _init() -> void:
-    _include_heavy = _should_include_heavy()
+    _run_runtime_tests = _should_run_runtime_tests()
     call_deferred("_run_all")
 
 func _run_all() -> void:
+    if not ExtensionLoader.ensure_initialized():
+        _record_failure("extension_init", "Runtime extension unavailable: %s" % ExtensionLoader.get_error())
+        _finish()
+        return
     for script_path in CORE_TESTS:
         _run_case(script_path)
-    if _include_heavy:
+    if _run_runtime_tests:
         var ensured := _model_helper.ensure_local_model()
-        if ensured != "":
-            OS.set_environment("LOCAL_AGENTS_TEST_GGUF", ensured)
-        _run_case(HEAVY_TEST)
+        if ensured == "":
+            _record_failure(HEAVY_TEST, "Failed to auto-download required test model")
+            _finish()
+            return
+        OS.set_environment("LOCAL_AGENTS_TEST_GGUF", ensured)
+        for script_path in RUNTIME_TESTS:
+            _run_case(script_path)
     else:
-        print("Skipping heavy runtime test. Set LOCAL_AGENTS_TEST_GGUF or pass --include-heavy to enable it.")
+        print("Skipping runtime model tests (--skip-heavy set).")
     _finish()
 
 func _run_case(script_path: String) -> void:
@@ -52,15 +69,18 @@ func _run_case(script_path: String) -> void:
     else:
         _record_failure(script_path, "Reported failure")
 
-func _should_include_heavy() -> bool:
+func _should_run_runtime_tests() -> bool:
+    for arg in OS.get_cmdline_args():
+        if arg == SKIP_HEAVY_FLAG:
+            return false
+    for arg in OS.get_cmdline_args():
+        if arg == HEAVY_FLAG:
+            return true
     if OS.has_environment("LOCAL_AGENTS_TEST_GGUF"):
         var path := OS.get_environment("LOCAL_AGENTS_TEST_GGUF").strip_edges()
         if path != "":
             return true
-    for arg in OS.get_cmdline_args():
-        if arg == HEAVY_FLAG:
-            return true
-    return false
+    return true
 
 func _record_failure(name: String, message: String) -> void:
     _failures.append("%s: %s" % [name, message])

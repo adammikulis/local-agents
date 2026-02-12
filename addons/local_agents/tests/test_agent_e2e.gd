@@ -1,6 +1,8 @@
 @tool
 extends RefCounted
 
+const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+
 class MockRuntime:
     func is_model_loaded() -> bool:
         return true
@@ -12,9 +14,12 @@ class MockRuntime:
         return PackedFloat32Array([assistant_score, length_score])
 
 func run_test(tree: SceneTree) -> bool:
+    if not ExtensionLoader.ensure_initialized():
+        push_error("NetworkGraph init failed: %s" % ExtensionLoader.get_error())
+        return false
     if not ClassDB.class_exists("NetworkGraph"):
-        print("Skipping agent E2E test (NetworkGraph unavailable). Build the native extension to enable it.")
-        return true
+        push_error("NetworkGraph missing after extension initialization.")
+        return false
 
     var store := LocalAgentsConversationStore.new()
     tree.get_root().add_child(store)
