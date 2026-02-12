@@ -2,6 +2,14 @@
 
 This file defines implementation rules for working in this Godot repository.
 
+## Current Repo Policy (Top Priority)
+
+- There are no downstream consumers to preserve in this repo right now.
+- Default priority is rapid feature improvement and stronger simulation behavior.
+- Break APIs freely when it unlocks better architecture or features.
+- Do not keep compatibility shims, legacy code paths, or legacy assumptions.
+- When replacing systems, remove old abstractions instead of layering around them.
+
 ## Core Principles
 
 - Prefer simple scene-first architecture over deep inheritance chains.
