@@ -11,6 +11,9 @@ var _structures: Dictionary = {}
 var _household_structure_ids: Dictionary = {}
 var _last_expand_tick: Dictionary = {}
 var _low_access_ticks: Dictionary = {}
+var _depletion_ticks: Dictionary = {}
+var _last_camp_tick: Dictionary = {}
+var _path_extension_emitted: Dictionary = {}
 
 func set_config(config_resource) -> void:
 	if config_resource == null:
@@ -42,10 +45,15 @@ func ensure_household(household_id: String, position: Vector3, tick: int) -> voi
 	_household_structure_ids[household_id] = [structure.structure_id]
 	_last_expand_tick[household_id] = tick
 	_low_access_ticks[household_id] = 0
+	_depletion_ticks[household_id] = 0
+	_last_camp_tick[household_id] = -999999
+	_path_extension_emitted[household_id] = false
 
 func step_lifecycle(tick: int, household_members: Dictionary, household_metrics: Dictionary, household_positions: Dictionary, water_snapshot: Dictionary) -> Dictionary:
 	var expanded: Array = []
 	var abandoned: Array = []
+	var camps: Array = []
+	var path_extensions: Array = []
 	var household_ids = household_members.keys()
 	household_ids.sort()
 	for household_id_variant in household_ids:
@@ -58,19 +66,40 @@ func step_lifecycle(tick: int, household_members: Dictionary, household_metrics:
 		var metrics: Dictionary = household_metrics.get(household_id, {})
 		var throughput = clampf(float(metrics.get("throughput", 0.0)), 0.0, 1000.0)
 		var path_strength = clampf(float(metrics.get("path_strength", 0.0)), 0.0, 1.0)
+		var depletion_signal = _resource_depletion_signal(metrics, throughput, path_strength)
 		var crowding = float(members) / float(maxi(1, huts))
 		if _should_expand(household_id, tick, crowding, throughput, huts):
 			var new_structure = _spawn_hut(household_id, position, tick, water_snapshot, huts)
 			if new_structure != null:
 				expanded.append(new_structure.structure_id)
+		var depletion_ticks = _update_depletion_counter(household_id, depletion_signal)
+		if _should_emit_path_extension(household_id, depletion_ticks):
+			var path_event = {
+				"household_id": household_id,
+				"depletion_signal": depletion_signal,
+				"sustain_ticks": depletion_ticks,
+				"target_radius": _suggested_path_extension_radius(household_id),
+			}
+			path_extensions.append(path_event)
+			_path_extension_emitted[household_id] = true
+		if _should_spawn_temporary_camp(household_id, tick, depletion_ticks):
+			var camp = _spawn_temporary_camp(household_id, position, tick, water_snapshot)
+			if camp != null:
+				camps.append(camp.to_dict())
+				_last_camp_tick[household_id] = tick
 		_update_low_access_counter(household_id, throughput, path_strength)
 		if _should_abandon(household_id, huts):
 			var removed_id = _abandon_latest_hut(household_id, tick)
 			if removed_id != "":
 				abandoned.append(removed_id)
+		if depletion_ticks <= 0:
+			_path_extension_emitted[household_id] = false
+			_retire_temporary_camps(household_id, tick)
 	return {
 		"expanded": expanded,
 		"abandoned": abandoned,
+		"camps": camps,
+		"path_extensions": path_extensions,
 		"structures": export_structures(),
 		"anchors": export_anchors(),
 	}
@@ -111,6 +140,9 @@ func export_runtime_state() -> Dictionary:
 	return {
 		"last_expand_tick": _last_expand_tick.duplicate(true),
 		"low_access_ticks": _low_access_ticks.duplicate(true),
+		"depletion_ticks": _depletion_ticks.duplicate(true),
+		"last_camp_tick": _last_camp_tick.duplicate(true),
+		"path_extension_emitted": _path_extension_emitted.duplicate(true),
 	}
 
 func import_lifecycle_state(structures_by_household: Dictionary, anchors: Array, runtime_state: Dictionary = {}) -> void:
@@ -119,6 +151,9 @@ func import_lifecycle_state(structures_by_household: Dictionary, anchors: Array,
 	_household_structure_ids.clear()
 	_last_expand_tick = runtime_state.get("last_expand_tick", {}).duplicate(true)
 	_low_access_ticks = runtime_state.get("low_access_ticks", {}).duplicate(true)
+	_depletion_ticks = runtime_state.get("depletion_ticks", {}).duplicate(true)
+	_last_camp_tick = runtime_state.get("last_camp_tick", {}).duplicate(true)
+	_path_extension_emitted = runtime_state.get("path_extension_emitted", {}).duplicate(true)
 	for anchor_variant in anchors:
 		if not (anchor_variant is Dictionary):
 			continue
@@ -185,6 +220,59 @@ func _update_low_access_counter(household_id: String, throughput: float, path_st
 	else:
 		_low_access_ticks[household_id] = 0
 
+func _resource_depletion_signal(metrics: Dictionary, throughput: float, path_strength: float) -> float:
+	var throughput_ratio = clampf(
+		throughput / maxf(0.01, float(_config.throughput_expand_threshold)),
+		0.0,
+		1.0
+	)
+	var scarcity = 1.0 - throughput_ratio
+	var route_fragility = 1.0 - path_strength
+	var partial_pressure = clampf(float(metrics.get("partial_delivery_ratio", 0.0)), 0.0, 1.0)
+	return clampf(scarcity * 0.55 + route_fragility * 0.25 + partial_pressure * 0.2, 0.0, 1.0)
+
+func _update_depletion_counter(household_id: String, depletion_signal: float) -> int:
+	var threshold = float(_config.depletion_signal_threshold)
+	var next_ticks = 0
+	if depletion_signal >= threshold:
+		next_ticks = int(_depletion_ticks.get(household_id, 0)) + 1
+	else:
+		next_ticks = max(0, int(_depletion_ticks.get(household_id, 0)) - 2)
+	_depletion_ticks[household_id] = next_ticks
+	return next_ticks
+
+func _should_emit_path_extension(household_id: String, depletion_ticks: int) -> bool:
+	if bool(_path_extension_emitted.get(household_id, false)):
+		return false
+	return depletion_ticks >= int(_config.path_extension_trigger_ticks)
+
+func _should_spawn_temporary_camp(household_id: String, tick: int, depletion_ticks: int) -> bool:
+	if depletion_ticks < int(_config.depletion_sustain_ticks):
+		return false
+	var last = int(_last_camp_tick.get(household_id, -999999))
+	if (tick - last) < int(_config.camp_spawn_cooldown_ticks):
+		return false
+	return _active_temporary_camp_count(household_id) < int(_config.max_temporary_camps_per_household)
+
+func _active_temporary_camp_count(household_id: String) -> int:
+	var count = 0
+	for sid_variant in _household_structure_ids.get(household_id, []):
+		var sid = String(sid_variant)
+		var structure = _structures.get(sid, null)
+		if structure == null:
+			continue
+		if String(structure.structure_type) != "camp_temp":
+			continue
+		if String(structure.state) == "active":
+			count += 1
+	return count
+
+func _suggested_path_extension_radius(household_id: String) -> float:
+	var active_camps = _active_temporary_camp_count(household_id)
+	var huts = _active_hut_count(household_id)
+	var base = float(_config.hut_start_radius) + float(maxi(0, huts - 1)) * float(_config.hut_ring_step)
+	return snappedf(base + float(active_camps + 1) * float(_config.hut_ring_step) * 0.75, 0.01)
+
 func _should_abandon(household_id: String, huts: int) -> bool:
 	if huts <= int(_config.min_huts_per_household):
 		return false
@@ -219,6 +307,35 @@ func _spawn_hut(household_id: String, base_position_variant, tick: int, water_sn
 	_last_expand_tick[household_id] = tick
 	return structure
 
+func _spawn_temporary_camp(household_id: String, base_position_variant, tick: int, water_snapshot: Dictionary):
+	var base_position = Vector3.ZERO
+	if base_position_variant is Vector3:
+		base_position = base_position_variant as Vector3
+	var camp_index = _active_temporary_camp_count(household_id)
+	var huts = _active_hut_count(household_id)
+	var ring = float(_config.hut_start_radius) + float(maxi(1, huts)) * float(_config.hut_ring_step) * float(_config.camp_ring_multiplier)
+	var angle = (float(camp_index + huts + 1) * 2.211) + float((abs((household_id + ":camp").hash()) % 6283)) * 0.001
+	var candidate_a = base_position + Vector3(cos(angle) * ring, 0.0, sin(angle) * ring)
+	var candidate_b = base_position + Vector3(cos(angle + 0.6) * ring, 0.0, sin(angle + 0.6) * ring)
+	var best = candidate_a
+	if _flood_risk(candidate_b, water_snapshot) < _flood_risk(candidate_a, water_snapshot):
+		best = candidate_b
+
+	var structure = StructureResourceScript.new()
+	structure.structure_id = "camp_%s_%d" % [household_id, tick]
+	structure.structure_type = "camp_temp"
+	structure.household_id = household_id
+	structure.state = "active"
+	structure.position = best
+	structure.durability = 0.7
+	structure.created_tick = tick
+	structure.last_updated_tick = tick
+	_structures[structure.structure_id] = structure
+	var ids: Array = _household_structure_ids.get(household_id, [])
+	ids.append(structure.structure_id)
+	_household_structure_ids[household_id] = ids
+	return structure
+
 func _abandon_latest_hut(household_id: String, tick: int) -> String:
 	var ids: Array = _household_structure_ids.get(household_id, [])
 	if ids.is_empty():
@@ -237,6 +354,19 @@ func _abandon_latest_hut(household_id: String, tick: int) -> String:
 		_low_access_ticks[household_id] = 0
 		return sid
 	return ""
+
+func _retire_temporary_camps(household_id: String, tick: int) -> void:
+	for sid_variant in _household_structure_ids.get(household_id, []):
+		var sid = String(sid_variant)
+		var structure = _structures.get(sid, null)
+		if structure == null:
+			continue
+		if String(structure.structure_type) != "camp_temp":
+			continue
+		if String(structure.state) != "active":
+			continue
+		structure.state = "abandoned"
+		structure.last_updated_tick = tick
 
 func _flood_risk(world_position: Vector3, water_snapshot: Dictionary) -> float:
 	var tile_id = "%d:%d" % [int(round(world_position.x)), int(round(world_position.z))]

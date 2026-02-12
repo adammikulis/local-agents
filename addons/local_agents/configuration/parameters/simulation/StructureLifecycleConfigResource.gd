@@ -12,6 +12,12 @@ class_name LocalAgentsStructureLifecycleConfigResource
 @export var max_huts_per_household: int = 8
 @export var hut_ring_step: float = 1.8
 @export var hut_start_radius: float = 2.3
+@export var depletion_signal_threshold: float = 0.62
+@export var depletion_sustain_ticks: int = 24
+@export var path_extension_trigger_ticks: int = 16
+@export var camp_spawn_cooldown_ticks: int = 48
+@export var max_temporary_camps_per_household: int = 2
+@export var camp_ring_multiplier: float = 1.8
 
 func to_dict() -> Dictionary:
     return {
@@ -26,6 +32,12 @@ func to_dict() -> Dictionary:
         "max_huts_per_household": max_huts_per_household,
         "hut_ring_step": hut_ring_step,
         "hut_start_radius": hut_start_radius,
+        "depletion_signal_threshold": depletion_signal_threshold,
+        "depletion_sustain_ticks": depletion_sustain_ticks,
+        "path_extension_trigger_ticks": path_extension_trigger_ticks,
+        "camp_spawn_cooldown_ticks": camp_spawn_cooldown_ticks,
+        "max_temporary_camps_per_household": max_temporary_camps_per_household,
+        "camp_ring_multiplier": camp_ring_multiplier,
     }
 
 func from_dict(values: Dictionary) -> void:
@@ -40,3 +52,9 @@ func from_dict(values: Dictionary) -> void:
     max_huts_per_household = maxi(min_huts_per_household, int(values.get("max_huts_per_household", max_huts_per_household)))
     hut_ring_step = maxf(0.5, float(values.get("hut_ring_step", hut_ring_step)))
     hut_start_radius = maxf(0.5, float(values.get("hut_start_radius", hut_start_radius)))
+    depletion_signal_threshold = clampf(float(values.get("depletion_signal_threshold", depletion_signal_threshold)), 0.1, 1.0)
+    depletion_sustain_ticks = maxi(1, int(values.get("depletion_sustain_ticks", depletion_sustain_ticks)))
+    path_extension_trigger_ticks = maxi(1, int(values.get("path_extension_trigger_ticks", path_extension_trigger_ticks)))
+    camp_spawn_cooldown_ticks = maxi(1, int(values.get("camp_spawn_cooldown_ticks", camp_spawn_cooldown_ticks)))
+    max_temporary_camps_per_household = maxi(0, int(values.get("max_temporary_camps_per_household", max_temporary_camps_per_household)))
+    camp_ring_multiplier = maxf(1.0, float(values.get("camp_ring_multiplier", camp_ring_multiplier)))

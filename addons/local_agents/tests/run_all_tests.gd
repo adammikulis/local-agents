@@ -24,6 +24,7 @@ const CORE_TESTS := [
     "res://addons/local_agents/tests/test_wind_field_system.gd",
     "res://addons/local_agents/tests/test_smell_field_system.gd",
     "res://addons/local_agents/tests/test_ecology_shelter_capabilities.gd",
+    "res://addons/local_agents/tests/test_structure_lifecycle_depletion.gd",
     "res://addons/local_agents/tests/test_simulation_dream_labeling.gd",
     "res://addons/local_agents/tests/test_simulation_resource_ledgers.gd",
     "res://addons/local_agents/tests/test_simulation_economy_events.gd",
