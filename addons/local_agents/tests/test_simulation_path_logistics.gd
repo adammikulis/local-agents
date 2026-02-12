@@ -32,8 +32,8 @@ func run_test(tree: SceneTree) -> bool:
 		hashes_a.append(hasher.hash_state(ra))
 		hashes_b.append(hasher.hash_state(rb))
 		var state: Dictionary = ra.get("state", {})
-		var path_network: Dictionary = state.get("path_network", {})
-		if int(path_network.get("edge_count", 0)) > 0:
+		var flow_network: Dictionary = state.get("flow_network", {})
+		if int(flow_network.get("edge_count", 0)) > 0:
 			saw_path_edges = true
 		if int(state.get("partial_delivery_count", 0)) > 0:
 			saw_partial = true

@@ -114,7 +114,7 @@ func _refresh_hud() -> void:
 	var structures = 0
 	var oral_events = int((_last_state.get("oral_transfer_events", []) as Array).size())
 	var ritual_events = int((_last_state.get("ritual_events", []) as Array).size())
-	var structures_by_household: Dictionary = _last_state.get("settlement_structures", {})
+	var structures_by_household: Dictionary = _last_state.get("structures", {})
 	for household_id in structures_by_household.keys():
 		structures += int((structures_by_household.get(household_id, []) as Array).size())
 

@@ -1,29 +1,29 @@
 @tool
 extends RefCounted
 
-const PathNetworkSystemScript = preload("res://addons/local_agents/simulation/PathNetworkSystem.gd")
-const PathFormationConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/PathFormationConfigResource.gd")
+const SpatialFlowNetworkSystemScript = preload("res://addons/local_agents/simulation/SpatialFlowNetworkSystem.gd")
+const FlowFormationConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FlowFormationConfigResource.gd")
 
 func run_test(_tree: SceneTree) -> bool:
-	var config = PathFormationConfigResourceScript.new()
+	var config = FlowFormationConfigResourceScript.new()
 	config.heat_gain_per_weight = 0.25
 	config.strength_gain_factor = 0.18
 	config.heat_decay_per_tick = 0.08
 	config.strength_decay_per_tick = 0.05
 
-	var a = PathNetworkSystemScript.new()
-	var b = PathNetworkSystemScript.new()
-	a.set_formation_config(config)
-	b.set_formation_config(config)
+	var a = SpatialFlowNetworkSystemScript.new()
+	var b = SpatialFlowNetworkSystemScript.new()
+	a.set_flow_formation_config(config)
+	b.set_flow_formation_config(config)
 
 	var start = Vector3(1.0, 0.0, 1.0)
 	var target = Vector3(8.0, 0.0, 1.0)
 	for _i in range(0, 12):
-		a.record_traversal(start, target, 0.9)
-		b.record_traversal(start, target, 0.9)
+		a.record_flow(start, target, 0.9)
+		b.record_flow(start, target, 0.9)
 
-	var active_a: Dictionary = a.snapshot()
-	var active_b: Dictionary = b.snapshot()
+	var active_a: Dictionary = a.export_network()
+	var active_b: Dictionary = b.export_network()
 	if active_a != active_b:
 		push_error("Path network snapshot should be deterministic after traversals")
 		return false
@@ -39,8 +39,8 @@ func run_test(_tree: SceneTree) -> bool:
 		a.step_decay()
 		b.step_decay()
 
-	var decayed_a: Dictionary = a.snapshot()
-	var decayed_b: Dictionary = b.snapshot()
+	var decayed_a: Dictionary = a.export_network()
+	var decayed_b: Dictionary = b.export_network()
 	if decayed_a != decayed_b:
 		push_error("Path network decay should remain deterministic")
 		return false
@@ -59,8 +59,8 @@ func run_test(_tree: SceneTree) -> bool:
 		return false
 
 	for _k in range(0, 4):
-		a.record_traversal(start, target, 0.8)
-	var recovered = _first_edge(a.snapshot())
+		a.record_flow(start, target, 0.8)
+	var recovered = _first_edge(a.export_network())
 	if float(recovered.get("strength", 0.0)) <= strength_after:
 		push_error("Expected strength recovery after additional traversal")
 		return false

@@ -17,12 +17,14 @@ const WorldGeneratorScript = preload("res://addons/local_agents/simulation/World
 const HydrologySystemScript = preload("res://addons/local_agents/simulation/HydrologySystem.gd")
 const SettlementSeederScript = preload("res://addons/local_agents/simulation/SettlementSeeder.gd")
 const WorldGenConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldGenConfigResource.gd")
-const PathNetworkSystemScript = preload("res://addons/local_agents/simulation/PathNetworkSystem.gd")
-const SettlementGrowthSystemScript = preload("res://addons/local_agents/simulation/SettlementGrowthSystem.gd")
-const TerrainTraversalProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/TerrainTraversalProfileResource.gd")
-const PathFormationConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/PathFormationConfigResource.gd")
-const PathTraversalConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/PathTraversalConfigResource.gd")
-const SettlementGrowthConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/SettlementGrowthConfigResource.gd")
+const SpatialFlowNetworkSystemScript = preload("res://addons/local_agents/simulation/SpatialFlowNetworkSystem.gd")
+const StructureLifecycleSystemScript = preload("res://addons/local_agents/simulation/StructureLifecycleSystem.gd")
+const BranchAnalysisServiceScript = preload("res://addons/local_agents/simulation/BranchAnalysisService.gd")
+const CulturalCycleSystemScript = preload("res://addons/local_agents/simulation/CulturalCycleSystem.gd")
+const FlowTraversalProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FlowTraversalProfileResource.gd")
+const FlowFormationConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FlowFormationConfigResource.gd")
+const FlowRuntimeConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FlowRuntimeConfigResource.gd")
+const StructureLifecycleConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/StructureLifecycleConfigResource.gd")
 
 const CommunityLedgerScript = preload("res://addons/local_agents/simulation/CommunityLedgerSystem.gd")
 const HouseholdLedgerScript = preload("res://addons/local_agents/simulation/HouseholdLedgerSystem.gd")
@@ -50,6 +52,8 @@ var _narrator
 var _dreams
 var _mind
 var _store
+var _branch_analysis
+var _culture_cycle
 var _villagers: Dictionary = {}
 var _household_members: Dictionary = {}
 var _household_ledgers: Dictionary = {}
@@ -65,24 +69,25 @@ var _worldgen_config
 var _environment_snapshot: Dictionary = {}
 var _water_network_snapshot: Dictionary = {}
 var _spawn_artifact: Dictionary = {}
-var _path_network_system
-var _terrain_traversal_profile
-var _path_formation_config
-var _path_traversal_config
-var _settlement_growth_system
-var _settlement_growth_config
-var _settlement_growth_events: Dictionary = {"expanded": [], "abandoned": []}
+var _flow_network_system
+var _flow_traversal_profile
+var _flow_formation_config
+var _flow_runtime_config
+var _structure_lifecycle_system
+var _structure_lifecycle_config
+var _structure_lifecycle_events: Dictionary = {"expanded": [], "abandoned": []}
 var _household_growth_metrics: Dictionary = {}
+var _external_living_entity_profiles: Array = []
 var _villager_positions: Dictionary = {}
 var _household_positions: Dictionary = {}
 var _community_anchor_position: Vector3 = Vector3.ZERO
 var _last_partial_delivery_count: int = 0
 var _sacred_site_id: String = ""
-var _oral_last_knowledge_id: Dictionary = {}
-var _oral_confidence: Dictionary = {}
 var _oral_tick_events: Array = []
 var _ritual_tick_events: Array = []
+var _culture_driver_events: Array = []
 var _last_tick_processed: int = 0
+var _initialized: bool = false
 
 var _community_ledger_system
 var _household_ledger_system
@@ -100,6 +105,11 @@ var dialogue_enabled: bool = true
 var dreams_enabled: bool = true
 
 func _ready() -> void:
+    _ensure_initialized()
+
+func _ensure_initialized() -> void:
+    if _initialized:
+        return
     if _rng == null:
         _rng = DeterministicRngScript.new()
     if _narrator == null:
@@ -110,6 +120,10 @@ func _ready() -> void:
         _mind = MindScript.new()
     if _store == null:
         _store = StoreScript.new()
+    if _branch_analysis == null:
+        _branch_analysis = BranchAnalysisServiceScript.new()
+    if _culture_cycle == null:
+        _culture_cycle = CulturalCycleSystemScript.new()
 
     if _community_ledger_system == null:
         _community_ledger_system = CommunityLedgerScript.new()
@@ -138,31 +152,33 @@ func _ready() -> void:
         _settlement_seeder = SettlementSeederScript.new()
     if _worldgen_config == null:
         _worldgen_config = WorldGenConfigResourceScript.new()
-    if _path_network_system == null:
-        _path_network_system = PathNetworkSystemScript.new()
-    if _settlement_growth_system == null:
-        _settlement_growth_system = SettlementGrowthSystemScript.new()
-    if _terrain_traversal_profile == null:
-        _terrain_traversal_profile = TerrainTraversalProfileResourceScript.new()
-    if _path_formation_config == null:
-        _path_formation_config = PathFormationConfigResourceScript.new()
-    if _path_traversal_config == null:
-        _path_traversal_config = PathTraversalConfigResourceScript.new()
-    if _settlement_growth_config == null:
-        _settlement_growth_config = SettlementGrowthConfigResourceScript.new()
-    if _path_network_system != null:
-        _path_network_system.set_traversal_profile(_terrain_traversal_profile)
-        _path_network_system.set_formation_config(_path_formation_config)
-        _path_network_system.set_path_traversal_config(_path_traversal_config)
-    if _settlement_growth_system != null:
-        _settlement_growth_system.set_config(_settlement_growth_config)
+    if _flow_network_system == null:
+        _flow_network_system = SpatialFlowNetworkSystemScript.new()
+    if _structure_lifecycle_system == null:
+        _structure_lifecycle_system = StructureLifecycleSystemScript.new()
+    if _flow_traversal_profile == null:
+        _flow_traversal_profile = FlowTraversalProfileResourceScript.new()
+    if _flow_formation_config == null:
+        _flow_formation_config = FlowFormationConfigResourceScript.new()
+    if _flow_runtime_config == null:
+        _flow_runtime_config = FlowRuntimeConfigResourceScript.new()
+    if _structure_lifecycle_config == null:
+        _structure_lifecycle_config = StructureLifecycleConfigResourceScript.new()
+    if _flow_network_system != null:
+        _flow_network_system.set_flow_profile(_flow_traversal_profile)
+        _flow_network_system.set_flow_formation_config(_flow_formation_config)
+        _flow_network_system.set_flow_runtime_config(_flow_runtime_config)
+    if _structure_lifecycle_system != null:
+        _structure_lifecycle_system.set_config(_structure_lifecycle_config)
 
     if _community_ledger == null:
         _community_ledger = _community_ledger_system.initial_community_ledger()
     if _narrator_directive_resource == null:
         _narrator_directive_resource = NarratorDirectiveResourceScript.new()
+    _initialized = true
 
 func configure(seed_text: String, narrator_enabled: bool = true, dream_llm_enabled: bool = true) -> void:
+    _ensure_initialized()
     _rng.set_base_seed_from_text(seed_text)
     active_branch_id = "main"
     _branch_lineage = []
@@ -176,6 +192,7 @@ func configure(seed_text: String, narrator_enabled: bool = true, dream_llm_enabl
     configure_environment(_worldgen_config)
 
 func configure_environment(config_resource = null) -> Dictionary:
+    _ensure_initialized()
     if config_resource != null:
         _worldgen_config = config_resource
     if _worldgen_config == null:
@@ -196,15 +213,15 @@ func configure_environment(config_resource = null) -> Dictionary:
     _environment_snapshot = _world_generator.generate(world_seed, _worldgen_config)
     _water_network_snapshot = _hydrology_system.build_network(_environment_snapshot, _worldgen_config)
     _water_network_snapshot["seed"] = hydrology_seed
-    if _path_network_system != null:
-        _path_network_system.configure_environment(_environment_snapshot, _water_network_snapshot)
+    if _flow_network_system != null:
+        _flow_network_system.configure_environment(_environment_snapshot, _water_network_snapshot)
     _spawn_artifact = _settlement_seeder.select_site(_environment_snapshot, _water_network_snapshot, _worldgen_config)
     _spawn_artifact["seed"] = settlement_seed
     var chosen = _spawn_artifact.get("chosen", {})
     _community_anchor_position = Vector3(float(chosen.get("x", 0.0)), 0.0, float(chosen.get("y", 0.0)))
     _seed_sacred_site()
-    if _settlement_growth_system != null:
-        _settlement_growth_system.ensure_core_anchors(_community_anchor_position)
+    if _structure_lifecycle_system != null:
+        _structure_lifecycle_system.ensure_core_anchors(_community_anchor_position)
 
     return {
         "ok": true,
@@ -232,6 +249,7 @@ func get_active_branch_id() -> String:
     return active_branch_id
 
 func fork_branch(new_branch_id: String, fork_tick: int) -> Dictionary:
+    _ensure_initialized()
     var target = new_branch_id.strip_edges()
     if target == "":
         return {"ok": false, "error": "invalid_branch_id"}
@@ -257,6 +275,7 @@ func fork_branch(new_branch_id: String, fork_tick: int) -> Dictionary:
     }
 
 func restore_to_tick(target_tick: int, branch_id: String = "") -> Dictionary:
+    _ensure_initialized()
     var effective_branch = branch_id.strip_edges()
     if effective_branch == "":
         effective_branch = active_branch_id
@@ -284,98 +303,87 @@ func restore_to_tick(target_tick: int, branch_id: String = "") -> Dictionary:
     return {"ok": true, "tick": _last_tick_processed, "branch_id": active_branch_id}
 
 func branch_diff(base_branch_id: String, compare_branch_id: String, tick_from: int, tick_to: int) -> Dictionary:
-    var base_state = _last_snapshot_for_branch(base_branch_id, tick_to)
-    var compare_state = _last_snapshot_for_branch(compare_branch_id, tick_to)
-    if base_state.is_empty() or compare_state.is_empty():
-        return {"ok": false, "error": "branch_state_missing"}
-    var base_population = _snapshot_population(base_state)
-    var compare_population = _snapshot_population(compare_state)
-    var base_resources: Dictionary = base_state.get("community_ledger", {})
-    var compare_resources: Dictionary = compare_state.get("community_ledger", {})
-    var resource_delta: Dictionary = {}
-    for key in ["food", "water", "wood", "stone", "tools", "currency", "waste"]:
-        resource_delta[key] = float(compare_resources.get(key, 0.0)) - float(base_resources.get(key, 0.0))
-    var base_culture = _culture_metrics(base_branch_id, tick_from, tick_to)
-    var compare_culture = _culture_metrics(compare_branch_id, tick_from, tick_to)
-    var base_belief = _belief_conflict_count(base_state, tick_to)
-    var compare_belief = _belief_conflict_count(compare_state, tick_to)
-    var base_continuity = _culture_continuity_score(base_population, base_culture)
-    var compare_continuity = _culture_continuity_score(compare_population, compare_culture)
-    return {
-        "ok": true,
-        "tick_from": tick_from,
-        "tick_to": tick_to,
-        "base_branch": base_branch_id,
-        "compare_branch": compare_branch_id,
-        "population_delta": compare_population - base_population,
-        "resource_delta": resource_delta,
-        "belief_divergence": compare_belief - base_belief,
-        "culture_continuity_score_delta": compare_continuity - base_continuity,
-        "base": {
-            "population": base_population,
-            "belief_conflicts": base_belief,
-            "culture": base_culture,
-            "culture_continuity_score": base_continuity,
-        },
-        "compare": {
-            "population": compare_population,
-            "belief_conflicts": compare_belief,
-            "culture": compare_culture,
-            "culture_continuity_score": compare_continuity,
-        },
-    }
+    _ensure_initialized()
+    if _branch_analysis == null:
+        return {"ok": false, "error": "branch_analysis_unavailable"}
+    return _branch_analysis.compare_branches(
+        _store,
+        world_id,
+        base_branch_id,
+        compare_branch_id,
+        tick_from,
+        tick_to,
+        _backstory_service
+    )
 
 func set_cognition_features(enable_thoughts: bool, enable_dialogue: bool, enable_dreams: bool) -> void:
+    _ensure_initialized()
     thoughts_enabled = enable_thoughts
     dialogue_enabled = enable_dialogue
     dreams_enabled = enable_dreams
 
 func set_narrator_directive(text: String) -> void:
+    _ensure_initialized()
     if _narrator_directive_resource == null:
         _narrator_directive_resource = NarratorDirectiveResourceScript.new()
     _narrator_directive_resource.set_text(text, -1)
 
 func set_dream_influence(npc_id: String, influence: Dictionary) -> void:
+    _ensure_initialized()
     _dreams.set_dream_influence(npc_id, influence)
 
 func set_profession_profile(profile_resource) -> void:
+    _ensure_initialized()
     if profile_resource == null:
         return
     _economy_system.set_profession_profile(profile_resource)
 
-func set_terrain_traversal_profile(profile_resource) -> void:
+func set_flow_traversal_profile(profile_resource) -> void:
+    _ensure_initialized()
     if profile_resource == null:
-        _terrain_traversal_profile = TerrainTraversalProfileResourceScript.new()
+        _flow_traversal_profile = FlowTraversalProfileResourceScript.new()
     else:
-        _terrain_traversal_profile = profile_resource
-    if _path_network_system != null:
-        _path_network_system.set_traversal_profile(_terrain_traversal_profile)
+        _flow_traversal_profile = profile_resource
+    if _flow_network_system != null:
+        _flow_network_system.set_flow_profile(_flow_traversal_profile)
 
-func set_path_formation_config(config_resource) -> void:
+func set_flow_formation_config(config_resource) -> void:
+    _ensure_initialized()
     if config_resource == null:
-        _path_formation_config = PathFormationConfigResourceScript.new()
+        _flow_formation_config = FlowFormationConfigResourceScript.new()
     else:
-        _path_formation_config = config_resource
-    if _path_network_system != null:
-        _path_network_system.set_formation_config(_path_formation_config)
+        _flow_formation_config = config_resource
+    if _flow_network_system != null:
+        _flow_network_system.set_flow_formation_config(_flow_formation_config)
 
-func set_path_traversal_config(config_resource) -> void:
+func set_flow_runtime_config(config_resource) -> void:
+    _ensure_initialized()
     if config_resource == null:
-        _path_traversal_config = PathTraversalConfigResourceScript.new()
+        _flow_runtime_config = FlowRuntimeConfigResourceScript.new()
     else:
-        _path_traversal_config = config_resource
-    if _path_network_system != null:
-        _path_network_system.set_path_traversal_config(_path_traversal_config)
+        _flow_runtime_config = config_resource
+    if _flow_network_system != null:
+        _flow_network_system.set_flow_runtime_config(_flow_runtime_config)
 
-func set_settlement_growth_config(config_resource) -> void:
+func set_structure_lifecycle_config(config_resource) -> void:
+    _ensure_initialized()
     if config_resource == null:
-        _settlement_growth_config = SettlementGrowthConfigResourceScript.new()
+        _structure_lifecycle_config = StructureLifecycleConfigResourceScript.new()
     else:
-        _settlement_growth_config = config_resource
-    if _settlement_growth_system != null:
-        _settlement_growth_system.set_config(_settlement_growth_config)
+        _structure_lifecycle_config = config_resource
+    if _structure_lifecycle_system != null:
+        _structure_lifecycle_system.set_config(_structure_lifecycle_config)
+
+func set_living_entity_profiles(profiles: Array) -> void:
+    _ensure_initialized()
+    _external_living_entity_profiles.clear()
+    for row_variant in profiles:
+        if not (row_variant is Dictionary):
+            continue
+        _external_living_entity_profiles.append((row_variant as Dictionary).duplicate(true))
 
 func register_villager(npc_id: String, display_name: String, initial_state: Dictionary = {}) -> Dictionary:
+    _ensure_initialized()
     if npc_id.strip_edges() == "":
         return {"ok": false, "error": "invalid_npc_id"}
 
@@ -425,22 +433,23 @@ func register_villager(npc_id: String, display_name: String, initial_state: Dict
     return {"ok": bool(upsert.get("ok", false)), "npc_id": npc_id}
 
 func process_tick(tick: int, fixed_delta: float) -> Dictionary:
+    _ensure_initialized()
     _resource_event_sequence = 0
     _last_partial_delivery_count = 0
     _household_growth_metrics = {}
-    _settlement_growth_events = {"expanded": [], "abandoned": []}
+    _structure_lifecycle_events = {"expanded": [], "abandoned": []}
     _oral_tick_events = []
     _ritual_tick_events = []
-    if _path_network_system != null:
-        _path_network_system.step_decay()
+    _culture_driver_events = []
+    if _flow_network_system != null:
+        _flow_network_system.step_decay()
     var npc_ids = _sorted_npc_ids()
     for npc_id in npc_ids:
         _apply_need_decay(npc_id, fixed_delta)
 
     _run_resource_pipeline(tick, npc_ids)
-    _run_settlement_growth(tick)
-    _run_oral_tradition_cycle(tick)
-    _run_ritual_cycle(tick)
+    _run_structure_lifecycle(tick)
+    _run_culture_cycle(tick)
 
     if narrator_enabled and tick > 0 and tick % 24 == 0:
         if not _generate_narrator_direction(tick):
@@ -480,6 +489,7 @@ func process_tick(tick: int, fixed_delta: float) -> Dictionary:
     }
 
 func current_snapshot(tick: int) -> Dictionary:
+    _ensure_initialized()
     var snapshot_resource = SnapshotResourceScript.new()
     snapshot_resource.world_id = world_id
     snapshot_resource.branch_id = active_branch_id
@@ -500,18 +510,18 @@ func current_snapshot(tick: int) -> Dictionary:
         "environment_snapshot": _environment_snapshot.duplicate(true),
         "water_network_snapshot": _water_network_snapshot.duplicate(true),
         "spawn_artifact": _spawn_artifact.duplicate(true),
-        "path_network": _path_network_system.snapshot() if _path_network_system != null else {},
-        "path_formation_config": _path_formation_config.to_dict() if _path_formation_config != null else {},
-        "path_traversal_config": _path_traversal_config.to_dict() if _path_traversal_config != null else {},
-        "terrain_traversal_profile": _terrain_traversal_profile.to_dict() if _terrain_traversal_profile != null else {},
-        "settlement_growth_config": _settlement_growth_config.to_dict() if _settlement_growth_config != null else {},
-        "settlement_anchors": _settlement_growth_system.snapshot_anchors() if _settlement_growth_system != null else [],
-        "settlement_structures": _settlement_growth_system.snapshot_structures() if _settlement_growth_system != null else {},
-        "settlement_growth_runtime": _settlement_growth_system.snapshot_runtime_state() if _settlement_growth_system != null else {},
-        "settlement_growth_events": _settlement_growth_events.duplicate(true),
+        "flow_network": _flow_network_system.export_network() if _flow_network_system != null else {},
+        "flow_formation_config": _flow_formation_config.to_dict() if _flow_formation_config != null else {},
+        "flow_runtime_config": _flow_runtime_config.to_dict() if _flow_runtime_config != null else {},
+        "flow_traversal_profile": _flow_traversal_profile.to_dict() if _flow_traversal_profile != null else {},
+        "structure_lifecycle_config": _structure_lifecycle_config.to_dict() if _structure_lifecycle_config != null else {},
+        "anchors": _structure_lifecycle_system.export_anchors() if _structure_lifecycle_system != null else [],
+        "structures": _structure_lifecycle_system.export_structures() if _structure_lifecycle_system != null else {},
+        "structure_lifecycle_runtime": _structure_lifecycle_system.export_runtime_state() if _structure_lifecycle_system != null else {},
+        "structure_lifecycle_events": _structure_lifecycle_events.duplicate(true),
         "sacred_site_id": _sacred_site_id,
-        "oral_confidence": _oral_confidence.duplicate(true),
-        "oral_last_knowledge_id": _oral_last_knowledge_id.duplicate(true),
+        "cultural_cycle_state": _culture_cycle.export_state() if _culture_cycle != null else {},
+        "culture_driver_events": _culture_driver_events.duplicate(true),
         "oral_transfer_events": _oral_tick_events.duplicate(true),
         "ritual_events": _ritual_tick_events.duplicate(true),
         "partial_delivery_count": _last_partial_delivery_count,
@@ -839,30 +849,30 @@ func _run_resource_pipeline(tick: int, npc_ids: Array) -> void:
     _community_ledger = _community_ledger_system.clamp_to_capacity(_community_ledger)
     _assert_resource_invariants(tick, npc_ids)
 
-func _run_settlement_growth(tick: int) -> void:
-    if _settlement_growth_system == null:
+func _run_structure_lifecycle(tick: int) -> void:
+    if _structure_lifecycle_system == null:
         return
     var household_counts = _household_member_counts()
-    var result: Dictionary = _settlement_growth_system.process_tick(
+    var result: Dictionary = _structure_lifecycle_system.step_lifecycle(
         tick,
         household_counts,
         _household_growth_metrics,
         _household_positions,
         _water_network_snapshot
     )
-    _settlement_growth_events = {
+    _structure_lifecycle_events = {
         "expanded": result.get("expanded", []),
         "abandoned": result.get("abandoned", []),
     }
-    if not _settlement_growth_events.get("expanded", []).is_empty():
+    if not _structure_lifecycle_events.get("expanded", []).is_empty():
         _log_resource_event(tick, "sim_structure_event", "settlement", "settlement_main", {
             "kind": "structure_expansion",
-            "structure_ids": _settlement_growth_events.get("expanded", []),
+            "structure_ids": _structure_lifecycle_events.get("expanded", []),
         })
-    if not _settlement_growth_events.get("abandoned", []).is_empty():
+    if not _structure_lifecycle_events.get("abandoned", []).is_empty():
         _log_resource_event(tick, "sim_structure_event", "settlement", "settlement_main", {
             "kind": "structure_abandonment",
-            "structure_ids": _settlement_growth_events.get("abandoned", []),
+            "structure_ids": _structure_lifecycle_events.get("abandoned", []),
         })
 
 func _assert_resource_invariants(tick: int, npc_ids: Array) -> void:
@@ -1032,8 +1042,8 @@ func _apply_route_transport(assignments: Dictionary, start: Vector3, target: Vec
         var npc_id = String(npc_id_variant)
         var assignment: Dictionary = assignments.get(npc_id, {})
         var profile: Dictionary = {}
-        if _path_network_system != null:
-            profile = _path_network_system.route_profile(start, target, {
+        if _flow_network_system != null:
+            profile = _flow_network_system.evaluate_route(start, target, {
                 "tick": tick,
                 "rain_intensity": 0.0,
             })
@@ -1054,9 +1064,9 @@ func _apply_route_transport(assignments: Dictionary, start: Vector3, target: Vec
                 unmoved_payload[resource] = float(unmoved_payload.get(resource, 0.0)) + shortfall
                 _last_partial_delivery_count += 1
         delivered_assignments[npc_id] = delivered_assignment
-        if _path_network_system != null:
+        if _flow_network_system != null:
             var carry_weight = _economy_system.assignment_weight(delivered_assignment)
-            _path_network_system.record_traversal(start, target, carry_weight)
+            _flow_network_system.record_flow(start, target, carry_weight)
             profile["delivery_efficiency_final"] = efficiency
             profiles[npc_id] = profile
     return {
@@ -1136,136 +1146,76 @@ func _seed_sacred_site() -> void:
         {"source": "simulation_seed"}
     )
 
-func _run_oral_tradition_cycle(tick: int) -> void:
-    if _backstory_service == null:
+func _run_culture_cycle(tick: int) -> void:
+    if _culture_cycle == null:
         return
-    if tick <= 0 or tick % 24 != 18:
-        return
-    var world_day = int(tick / 24)
-    var categories = [
-        "water_route_reliability",
-        "safe_foraging_zones",
-        "seasonal_weather_cues",
-        "toolcraft_recipe",
-        "ritual_obligation",
-    ]
-    _decay_oral_confidence()
+    var household_members: Dictionary = {}
     var household_ids = _household_members.keys()
     household_ids.sort()
     for household_id_variant in household_ids:
         var household_id = String(household_id_variant)
         var members_resource = _household_members.get(household_id, null)
-        if members_resource == null:
+        household_members[household_id] = members_resource.member_ids.duplicate() if members_resource != null else []
+    var result: Dictionary = _culture_cycle.step(tick, {
+        "graph_service": _backstory_service,
+        "rng": _rng,
+        "world_id": world_id,
+        "branch_id": active_branch_id,
+        "household_members": household_members,
+        "npc_ids": _sorted_npc_ids(),
+        "sacred_site_id": _sacred_site_id,
+        "deterministic_seed": _rng.derive_seed("culture_driver", world_id, active_branch_id, tick),
+        "culture_context": _build_culture_context(tick),
+    })
+    _culture_driver_events = result.get("drivers", [])
+    _oral_tick_events = result.get("oral_events", [])
+    _ritual_tick_events = result.get("ritual_events", [])
+    for driver_variant in _culture_driver_events:
+        if not (driver_variant is Dictionary):
             continue
-        var members: Array = members_resource.member_ids.duplicate()
-        members.sort()
-        if members.size() < 2:
+        var driver = _ensure_culture_event_metadata(driver_variant as Dictionary)
+        var scope = String(driver.get("scope", "settlement")).strip_edges()
+        if scope == "":
+            scope = "settlement"
+        var owner_id = String(driver.get("owner_id", "")).strip_edges()
+        if owner_id == "":
+            owner_id = "settlement_main"
+        _log_resource_event(tick, "sim_culture_event", scope, owner_id, {
+            "kind": "cultural_driver",
+            "event": driver,
+        })
+    for oral_event_variant in _oral_tick_events:
+        if not (oral_event_variant is Dictionary):
             continue
-        var speaker_id = String(members[0])
-        var listener_index = 1 + _rng.randi_range("oral_listener", household_id, active_branch_id, tick, 0, members.size() - 2)
-        var listener_id = String(members[listener_index])
-        var category_index = _rng.randi_range("oral_category", household_id, active_branch_id, tick, 0, categories.size() - 1)
-        var category = String(categories[category_index])
-        var confidence_seed = _rng.randomf("oral_confidence", household_id + ":" + category, active_branch_id, tick)
-        var confidence = clampf(0.68 + confidence_seed * 0.24 + float(_oral_confidence.get(category, 0.0)) * 0.15, 0.2, 0.98)
-        _oral_confidence[category] = clampf(float(_oral_confidence.get(category, 0.5)) * 0.82 + confidence * 0.18, 0.0, 1.0)
-        var knowledge_id = "ok:%s:%s:%s:%s:%d" % [world_id, active_branch_id, household_id, category, world_day]
-        var content = _oral_content_for_category(category, household_id)
-        var write = _backstory_service.record_oral_knowledge(
-            knowledge_id,
-            listener_id,
-            category,
-            content,
-            confidence,
-            [category],
-            world_day,
-            {
-                "source_kind": "oral_transfer",
-                "source_id": "household:%s" % household_id,
-                "speaker_npc_id": speaker_id,
-                "transmission_hops": 1,
-            }
-        )
-        if not bool(write.get("ok", false)):
-            continue
-        var lineage_key = "%s|%s" % [household_id, category]
-        var previous_knowledge_id = String(_oral_last_knowledge_id.get(lineage_key, ""))
-        if previous_knowledge_id != "" and previous_knowledge_id != knowledge_id:
-            _backstory_service.link_oral_knowledge_lineage(previous_knowledge_id, knowledge_id, speaker_id, listener_id, 1, world_day)
-        _oral_last_knowledge_id[lineage_key] = knowledge_id
-        var event = {
-            "household_id": household_id,
-            "speaker_npc_id": speaker_id,
-            "listener_npc_id": listener_id,
-            "knowledge_id": knowledge_id,
-            "category": category,
-            "confidence": confidence,
-        }
-        _oral_tick_events.append(event)
+        var oral_event = _ensure_culture_event_metadata(oral_event_variant as Dictionary)
+        var household_id = String(oral_event.get("household_id", ""))
         _log_resource_event(tick, "sim_culture_event", "household", household_id, {
             "kind": "oral_transfer",
-            "event": event,
+            "event": oral_event,
+        })
+    for ritual_event_variant in _ritual_tick_events:
+        if not (ritual_event_variant is Dictionary):
+            continue
+        var ritual_event = _ensure_culture_event_metadata(ritual_event_variant as Dictionary)
+        _log_resource_event(tick, "sim_culture_event", "settlement", "settlement_main", {
+            "kind": "ritual_event",
+            "event": ritual_event,
         })
 
-func _run_ritual_cycle(tick: int) -> void:
-    if _backstory_service == null:
-        return
-    if _sacred_site_id == "":
-        return
-    if tick <= 0 or tick % 72 != 30:
-        return
-    var world_day = int(tick / 24)
-    var participants = _sorted_npc_ids()
-    if participants.is_empty():
-        return
-    if participants.size() > 4:
-        participants.resize(4)
-    var ritual_id = "ritual:%s:%s:%d" % [world_id, active_branch_id, world_day]
-    var cohesion = 0.45 + _rng.randomf("ritual_cohesion", _sacred_site_id, active_branch_id, tick) * 0.4
-    var write = _backstory_service.record_ritual_event(
-        ritual_id,
-        _sacred_site_id,
-        world_day,
-        participants,
-        {"cohesion": cohesion, "tick": tick},
-        {"source_kind": "ritual_cycle"}
-    )
-    if not bool(write.get("ok", false)):
-        return
-    var ritual_event = {
-        "ritual_id": ritual_id,
-        "site_id": _sacred_site_id,
-        "world_day": world_day,
-        "participants": participants.duplicate(true),
-        "cohesion": cohesion,
-    }
-    _ritual_tick_events.append(ritual_event)
-    _log_resource_event(tick, "sim_culture_event", "settlement", "settlement_main", {
-        "kind": "ritual_event",
-        "event": ritual_event,
-    })
-
-func _decay_oral_confidence() -> void:
-    var keys = _oral_confidence.keys()
-    keys.sort_custom(func(a, b): return String(a) < String(b))
-    for key in keys:
-        var category = String(key)
-        _oral_confidence[category] = clampf(float(_oral_confidence.get(category, 0.0)) * 0.96, 0.0, 1.0)
-
-func _oral_content_for_category(category: String, household_id: String) -> String:
-    match category:
-        "water_route_reliability":
-            return "Follow the reliable channel near %s before midday." % household_id
-        "safe_foraging_zones":
-            return "Gather roots along the safer slope edges around %s." % household_id
-        "seasonal_weather_cues":
-            return "Low morning haze means stronger valley winds by dusk."
-        "toolcraft_recipe":
-            return "Harden stone flakes in brief hearth heat before binding."
-        "ritual_obligation":
-            return "Bring clean water first before the spring-circle rite."
-        _:
-            return "Remember the elders' path near %s." % household_id
+func _ensure_culture_event_metadata(event: Dictionary) -> Dictionary:
+    var out := event.duplicate(true)
+    var salience := clampf(float(out.get("salience", 0.0)), 0.0, 1.0)
+    var gain_loss := clampf(float(out.get("gain_loss", 0.0)), -1.0, 1.0)
+    out["salience"] = salience
+    out["gain_loss"] = gain_loss
+    var metadata_variant = out.get("metadata", {})
+    var metadata: Dictionary = {}
+    if metadata_variant is Dictionary:
+        metadata = (metadata_variant as Dictionary).duplicate(true)
+    metadata["salience"] = salience
+    metadata["gain_loss"] = gain_loss
+    out["metadata"] = metadata
+    return out
 
 func _apply_snapshot(snapshot: Dictionary) -> void:
     world_id = String(snapshot.get("world_id", world_id))
@@ -1276,8 +1226,9 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
     _water_network_snapshot = snapshot.get("water_network_snapshot", {}).duplicate(true)
     _spawn_artifact = snapshot.get("spawn_artifact", {}).duplicate(true)
     _sacred_site_id = String(snapshot.get("sacred_site_id", _sacred_site_id))
-    _oral_confidence = snapshot.get("oral_confidence", {}).duplicate(true)
-    _oral_last_knowledge_id = snapshot.get("oral_last_knowledge_id", {}).duplicate(true)
+    if _culture_cycle != null:
+        _culture_cycle.import_state(snapshot.get("cultural_cycle_state", {}))
+    _culture_driver_events = snapshot.get("culture_driver_events", [])
 
     _community_ledger = _community_ledger_system.initial_community_ledger()
     _apply_community_dict(_community_ledger, snapshot.get("community_ledger", {}))
@@ -1324,16 +1275,174 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
         _apply_carry_profile_dict(profile, carry_rows.get(npc_id, {}))
         _carry_profiles[npc_id] = profile
 
-    if _path_network_system != null:
-        _path_network_system.configure_environment(_environment_snapshot, _water_network_snapshot)
-        _path_network_system.restore_snapshot(snapshot.get("path_network", {}))
+    if _flow_network_system != null:
+        _flow_network_system.configure_environment(_environment_snapshot, _water_network_snapshot)
+        _flow_network_system.import_network(snapshot.get("flow_network", {}))
 
-    if _settlement_growth_system != null:
-        _settlement_growth_system.restore_from_snapshot(
-            snapshot.get("settlement_structures", {}),
-            snapshot.get("settlement_anchors", []),
-            snapshot.get("settlement_growth_runtime", {})
+    if _structure_lifecycle_system != null:
+        _structure_lifecycle_system.import_lifecycle_state(
+            snapshot.get("structures", {}),
+            snapshot.get("anchors", []),
+            snapshot.get("structure_lifecycle_runtime", {})
         )
+
+func _build_culture_context(tick: int) -> Dictionary:
+    var households: Array = []
+    var structure_rows: Dictionary = _structure_lifecycle_system.export_structures() if _structure_lifecycle_system != null else {}
+    var household_ids = _household_members.keys()
+    household_ids.sort()
+    for household_id_variant in household_ids:
+        var household_id = String(household_id_variant)
+        var members_resource = _household_members.get(household_id, null)
+        var members: Array = members_resource.member_ids.duplicate() if members_resource != null else []
+        members.sort()
+        var member_count = members.size()
+        var ledger = _household_ledgers.get(household_id, null)
+        var ledger_row: Dictionary = ledger.to_dict() if ledger != null else {}
+        var structures: Array = structure_rows.get(household_id, [])
+        var active_structures = 0
+        for structure_variant in structures:
+            if not (structure_variant is Dictionary):
+                continue
+            var structure = structure_variant as Dictionary
+            if String(structure.get("state", "")) == "active":
+                active_structures += 1
+        var pos = _household_position(household_id)
+        var tile = _tile_context_for_position(pos)
+        var belonging_index = clampf(
+            float(member_count) * 0.32 +
+            clampf(float(active_structures) * 0.26, 0.0, 1.0) +
+            clampf((maxf(0.0, float(ledger_row.get("food", 0.0))) + maxf(0.0, float(ledger_row.get("water", 0.0)))) * 0.09, 0.0, 1.0),
+            0.0,
+            3.0
+        )
+        var bone_signal = clampf(
+            maxf(0.0, float(ledger_row.get("tools", 0.0))) * 0.08 + maxf(0.0, float(ledger_row.get("waste", 0.0))) * 0.04,
+            0.0,
+            1.0
+        )
+        households.append({
+            "household_id": household_id,
+            "members": members,
+            "member_count": member_count,
+            "food": maxf(0.0, float(ledger_row.get("food", 0.0))),
+            "water": maxf(0.0, float(ledger_row.get("water", 0.0))),
+            "wood": maxf(0.0, float(ledger_row.get("wood", 0.0))),
+            "stone": maxf(0.0, float(ledger_row.get("stone", 0.0))),
+            "tools": maxf(0.0, float(ledger_row.get("tools", 0.0))),
+            "currency": maxf(0.0, float(ledger_row.get("currency", 0.0))),
+            "debt": maxf(0.0, float(ledger_row.get("debt", 0.0))),
+            "waste": maxf(0.0, float(ledger_row.get("waste", 0.0))),
+            "active_structures": active_structures,
+            "belonging_index": belonging_index,
+            "bone_signal": bone_signal,
+            "x": pos.x,
+            "z": pos.z,
+            "biome": String(tile.get("biome", "plains")),
+            "temperature": float(tile.get("temperature", 0.5)),
+            "moisture": float(tile.get("moisture", 0.5)),
+            "water_reliability": float(tile.get("water_reliability", 0.5)),
+            "flood_risk": float(tile.get("flood_risk", 0.0)),
+        })
+
+    var individuals: Array = []
+    var npc_ids = _sorted_npc_ids()
+    for npc_id in npc_ids:
+        var state_resource = _villagers.get(npc_id, null)
+        var econ_state = _individual_ledgers.get(npc_id, null)
+        var state = state_resource.to_dict() if state_resource != null else {}
+        var econ = econ_state.to_dict() if econ_state != null else {}
+        var inv: Dictionary = econ.get("inventory", {})
+        individuals.append({
+            "npc_id": npc_id,
+            "household_id": String(state.get("household_id", "")),
+            "morale": float(state.get("morale", 0.5)),
+            "fear": float(state.get("fear", 0.0)),
+            "hunger": float(state.get("hunger", 0.0)),
+            "energy": float(state.get("energy", 1.0)),
+            "food": float(inv.get("food", 0.0)),
+            "water": float(inv.get("water", 0.0)),
+            "currency": float(inv.get("currency", 0.0)),
+            "tools": float(inv.get("tools", 0.0)),
+            "waste": float(inv.get("waste", 0.0)),
+        })
+    if individuals.size() > 20:
+        individuals.resize(20)
+
+    return {
+        "tick": tick,
+        "community": _community_ledger.to_dict() if _community_ledger != null else {},
+        "households": households,
+        "individuals": individuals,
+        "living_entities": _external_living_entity_profiles.duplicate(true),
+        "recent_events": _recent_resource_event_context(maxi(0, tick - 24), tick),
+    }
+
+func _tile_context_for_position(position: Vector3) -> Dictionary:
+    var tile_id = "%d:%d" % [int(round(position.x)), int(round(position.z))]
+    var tile_index: Dictionary = _environment_snapshot.get("tile_index", {})
+    var tile = tile_index.get(tile_id, {})
+    var water_tiles: Dictionary = _water_network_snapshot.get("water_tiles", {})
+    var water = water_tiles.get(tile_id, {})
+    return {
+        "biome": String(tile.get("biome", "plains")),
+        "temperature": clampf(float(tile.get("temperature", 0.5)), 0.0, 1.0),
+        "moisture": clampf(float(tile.get("moisture", 0.5)), 0.0, 1.0),
+        "water_reliability": clampf(float(water.get("water_reliability", 0.5)), 0.0, 1.0),
+        "flood_risk": clampf(float(water.get("flood_risk", 0.0)), 0.0, 1.0),
+    }
+
+func _recent_resource_event_context(tick_from: int, tick_to: int) -> Array:
+    if _store == null:
+        return []
+    var rows: Array = _store.list_resource_events(world_id, active_branch_id, tick_from, tick_to)
+    var out: Array = []
+    for row_variant in rows:
+        if not (row_variant is Dictionary):
+            continue
+        var row = row_variant as Dictionary
+        var payload: Dictionary = row.get("payload", {})
+        out.append({
+            "tick": int(row.get("tick", 0)),
+            "event_type": String(row.get("event_type", "")),
+            "scope": String(row.get("scope", "")),
+            "owner_id": String(row.get("owner_id", "")),
+            "kind": String(payload.get("kind", "")),
+            "magnitude": _event_magnitude(payload),
+        })
+    out.sort_custom(func(a, b):
+        var ad = a as Dictionary
+        var bd = b as Dictionary
+        return int(ad.get("tick", 0)) < int(bd.get("tick", 0))
+    )
+    if out.size() > 48:
+        out = out.slice(out.size() - 48, out.size())
+    return out
+
+func _event_magnitude(payload: Dictionary) -> float:
+    var total = 0.0
+    var bundle: Dictionary = payload.get("resource_bundle", {})
+    if not bundle.is_empty():
+        var bundle_keys = bundle.keys()
+        bundle_keys.sort_custom(func(a, b): return String(a) < String(b))
+        for key_variant in bundle_keys:
+            var key = String(key_variant)
+            total += absf(float(bundle.get(key, 0.0)))
+    var delta: Dictionary = payload.get("delta", {})
+    if not delta.is_empty():
+        var delta_keys = delta.keys()
+        delta_keys.sort_custom(func(a, b): return String(a) < String(b))
+        for key_variant in delta_keys:
+            var key = String(key_variant)
+            total += absf(float(delta.get(key, 0.0)))
+    var moved: Dictionary = payload.get("moved", {})
+    if not moved.is_empty():
+        var moved_keys = moved.keys()
+        moved_keys.sort_custom(func(a, b): return String(a) < String(b))
+        for key_variant in moved_keys:
+            var key = String(key_variant)
+            total += absf(float(moved.get(key, 0.0)))
+    return clampf(total, 0.0, 1000000.0)
 
 func _apply_community_dict(ledger, payload_variant) -> void:
     if not (payload_variant is Dictionary):
@@ -1400,61 +1509,3 @@ func _apply_carry_profile_dict(profile, payload_variant) -> void:
     profile.max_tool_bonus = maxf(0.0, float(payload.get("max_tool_bonus", profile.max_tool_bonus)))
     profile.tool_bonus_factor = maxf(0.0, float(payload.get("tool_bonus_factor", profile.tool_bonus_factor)))
     profile.min_capacity = maxf(0.0, float(payload.get("min_capacity", profile.min_capacity)))
-
-func _last_snapshot_for_branch(branch_id: String, tick_to: int) -> Dictionary:
-    if _store == null:
-        return {}
-    var events: Array = _store.list_events(world_id, branch_id, 0, tick_to)
-    var snapshot: Dictionary = {}
-    for row_variant in events:
-        if not (row_variant is Dictionary):
-            continue
-        var row = row_variant as Dictionary
-        if String(row.get("event_type", "")) != "tick":
-            continue
-        snapshot = (row.get("payload", {}) as Dictionary).duplicate(true)
-    return snapshot
-
-func _snapshot_population(snapshot: Dictionary) -> int:
-    return int((snapshot.get("villagers", {}) as Dictionary).size())
-
-func _culture_metrics(branch_id: String, tick_from: int, tick_to: int) -> Dictionary:
-    var oral = 0
-    var ritual = 0
-    if _store == null:
-        return {"oral_transfers": oral, "ritual_events": ritual}
-    var events: Array = _store.list_resource_events(world_id, branch_id, tick_from, tick_to)
-    for row_variant in events:
-        if not (row_variant is Dictionary):
-            continue
-        var row = row_variant as Dictionary
-        if String(row.get("event_type", "")) != "sim_culture_event":
-            continue
-        var payload: Dictionary = row.get("payload", {})
-        var kind = String(payload.get("kind", ""))
-        if kind == "oral_transfer":
-            oral += 1
-        elif kind == "ritual_event":
-            ritual += 1
-    return {"oral_transfers": oral, "ritual_events": ritual}
-
-func _belief_conflict_count(snapshot: Dictionary, tick_to: int) -> int:
-    if _backstory_service == null:
-        return 0
-    var world_day = int(tick_to / 24)
-    var villagers: Dictionary = snapshot.get("villagers", {})
-    var npc_ids = villagers.keys()
-    npc_ids.sort_custom(func(a, b): return String(a) < String(b))
-    var total = 0
-    for npc_id_variant in npc_ids:
-        var npc_id = String(npc_id_variant)
-        var result: Dictionary = _backstory_service.get_belief_truth_conflicts(npc_id, world_day, 16)
-        if bool(result.get("ok", false)):
-            total += int((result.get("conflicts", []) as Array).size())
-    return total
-
-func _culture_continuity_score(population: int, culture_metrics: Dictionary) -> float:
-    var pop = max(1, population)
-    var oral = float(culture_metrics.get("oral_transfers", 0))
-    var ritual = float(culture_metrics.get("ritual_events", 0))
-    return (oral * 0.65 + ritual * 1.15) / float(pop)

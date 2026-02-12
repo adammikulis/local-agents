@@ -1,20 +1,20 @@
 @tool
 extends RefCounted
 
-const PathNetworkSystemScript = preload("res://addons/local_agents/simulation/PathNetworkSystem.gd")
-const TerrainTraversalProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/TerrainTraversalProfileResource.gd")
+const SpatialFlowNetworkSystemScript = preload("res://addons/local_agents/simulation/SpatialFlowNetworkSystem.gd")
+const FlowTraversalProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FlowTraversalProfileResource.gd")
 
 func run_test(_tree: SceneTree) -> bool:
-	var profile = TerrainTraversalProfileResourceScript.new()
+	var profile = FlowTraversalProfileResourceScript.new()
 	profile.brush_speed_penalty = 0.55
 	profile.slope_speed_penalty = 0.6
 	profile.shallow_water_speed_penalty = 0.45
 	profile.floodplain_speed_penalty = 0.25
 
-	var a = PathNetworkSystemScript.new()
-	var b = PathNetworkSystemScript.new()
-	a.set_traversal_profile(profile)
-	b.set_traversal_profile(profile)
+	var a = SpatialFlowNetworkSystemScript.new()
+	var b = SpatialFlowNetworkSystemScript.new()
+	a.set_flow_profile(profile)
+	b.set_flow_profile(profile)
 
 	var environment = _build_environment()
 	var hydrology = _build_hydrology()
@@ -26,15 +26,15 @@ func run_test(_tree: SceneTree) -> bool:
 	var rough_target = Vector3(2.0, 0.0, 12.0)
 
 	for _i in range(0, 64):
-		a.record_traversal(path_start, path_target, 0.9)
-		b.record_traversal(path_start, path_target, 0.9)
+		a.record_flow(path_start, path_target, 0.9)
+		b.record_flow(path_start, path_target, 0.9)
 
-	var preferred = a.route_profile(path_start, path_target)
-	var rough = a.route_profile(path_start, rough_target)
-	var preferred_b = b.route_profile(path_start, path_target)
-	var rough_b = b.route_profile(path_start, rough_target)
-	var dry = a.route_profile(path_start, path_target, {"tick": 10, "rain_intensity": 0.0})
-	var wet = a.route_profile(path_start, path_target, {"tick": 190, "rain_intensity": 0.0})
+	var preferred = a.evaluate_route(path_start, path_target)
+	var rough = a.evaluate_route(path_start, rough_target)
+	var preferred_b = b.evaluate_route(path_start, path_target)
+	var rough_b = b.evaluate_route(path_start, rough_target)
+	var dry = a.evaluate_route(path_start, path_target, {"tick": 10, "rain_intensity": 0.0})
+	var wet = a.evaluate_route(path_start, path_target, {"tick": 190, "rain_intensity": 0.0})
 
 	if float(preferred.get("travel_cost", 9999.0)) >= float(rough.get("travel_cost", 0.0)):
 		push_error("Expected established low-brush path route to be faster than rough route")
