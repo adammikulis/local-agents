@@ -10,6 +10,11 @@ func run_test(_tree: SceneTree) -> bool:
 	profile.slope_speed_penalty = 0.6
 	profile.shallow_water_speed_penalty = 0.45
 	profile.floodplain_speed_penalty = 0.25
+	profile.flow_with_speed_bonus = 0.22
+	profile.flow_against_speed_penalty = 0.5
+	profile.cross_flow_speed_penalty = 0.08
+	profile.flow_efficiency_bonus = 0.1
+	profile.flow_efficiency_penalty = 0.18
 
 	var a = SpatialFlowNetworkSystemScript.new()
 	var b = SpatialFlowNetworkSystemScript.new()
@@ -30,6 +35,7 @@ func run_test(_tree: SceneTree) -> bool:
 		b.record_flow(path_start, path_target, 0.9)
 
 	var preferred = a.evaluate_route(path_start, path_target)
+	var reverse = a.evaluate_route(path_target, path_start)
 	var rough = a.evaluate_route(path_start, rough_target)
 	var preferred_b = b.evaluate_route(path_start, path_target)
 	var rough_b = b.evaluate_route(path_start, rough_target)
@@ -50,6 +56,12 @@ func run_test(_tree: SceneTree) -> bool:
 		return false
 	if float(wet.get("seasonal_multiplier", 1.0)) >= float(dry.get("seasonal_multiplier", 1.0)):
 		push_error("Expected wet-season multiplier to be lower than dry-season multiplier")
+		return false
+	if float(preferred.get("speed_multiplier", 0.0)) <= float(reverse.get("speed_multiplier", 0.0)):
+		push_error("Expected downstream-aligned traversal to be faster than upstream traversal")
+		return false
+	if float(preferred.get("travel_cost", 0.0)) >= float(reverse.get("travel_cost", 9999.0)):
+		push_error("Expected downstream-aligned traversal to cost less than upstream traversal")
 		return false
 
 	if not _profiles_match(preferred, preferred_b):
@@ -96,6 +108,7 @@ func _build_environment() -> Dictionary:
 	return {
 		"tiles": tiles,
 		"tile_index": tile_index,
+		"flow_map": _build_flow_map(),
 	}
 
 func _build_hydrology() -> Dictionary:
@@ -108,4 +121,34 @@ func _build_hydrology() -> Dictionary:
 		}
 	return {
 		"water_tiles": water_tiles,
+	}
+
+func _build_flow_map() -> Dictionary:
+	var rows: Array = []
+	var row_index: Dictionary = {}
+	for y in range(0, 16):
+		for x in range(0, 16):
+			var tile_id = "%d:%d" % [x, y]
+			var channel_strength = 0.0
+			var dir_x = 0
+			var dir_y = 0
+			if y == 2 and x >= 2 and x <= 12:
+				channel_strength = 0.9
+				dir_x = 1
+			var row = {
+				"tile_id": tile_id,
+				"x": x,
+				"y": y,
+				"dir_x": dir_x,
+				"dir_y": dir_y,
+				"channel_strength": channel_strength,
+			}
+			rows.append(row)
+			row_index[tile_id] = row
+	return {
+		"schema_version": 1,
+		"width": 16,
+		"height": 16,
+		"rows": rows,
+		"row_index": row_index,
 	}

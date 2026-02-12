@@ -9,6 +9,7 @@ const CORE_TESTS := [
     "res://addons/local_agents/tests/test_backstory_graph_service.gd",
     "res://addons/local_agents/tests/test_deterministic_simulation.gd",
     "res://addons/local_agents/tests/test_simulation_worldgen_determinism.gd",
+    "res://addons/local_agents/tests/test_simulation_flowmap_bake.gd",
     "res://addons/local_agents/tests/test_simulation_voxel_terrain_generation.gd",
     "res://addons/local_agents/tests/test_simulation_water_first_spawn.gd",
     "res://addons/local_agents/tests/test_simulation_branching.gd",
@@ -17,6 +18,7 @@ const CORE_TESTS := [
     "res://addons/local_agents/tests/test_simulation_settlement_growth.gd",
     "res://addons/local_agents/tests/test_simulation_oral_tradition.gd",
     "res://addons/local_agents/tests/test_simulation_culture_policy_effects.gd",
+    "res://addons/local_agents/tests/test_cultural_driver_json_contract.gd",
     "res://addons/local_agents/tests/test_simulation_path_decay.gd",
     "res://addons/local_agents/tests/test_path_traversal_profile.gd",
     "res://addons/local_agents/tests/test_wind_field_system.gd",
@@ -25,6 +27,7 @@ const CORE_TESTS := [
     "res://addons/local_agents/tests/test_simulation_dream_labeling.gd",
     "res://addons/local_agents/tests/test_simulation_resource_ledgers.gd",
     "res://addons/local_agents/tests/test_simulation_economy_events.gd",
+    "res://addons/local_agents/tests/test_simulation_vertical_slice_30day.gd",
 ]
 
 const RUNTIME_TESTS := [
