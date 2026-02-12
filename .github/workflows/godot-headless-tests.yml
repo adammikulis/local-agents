@@ -37,6 +37,13 @@ jobs:
           ./scripts/fetch_dependencies.sh --skip-models --skip-voices
           ./scripts/build_extension.sh 2>&1 | tee "${GITHUB_WORKSPACE}/logs/core-headless-build.log"
 
+      - name: Enforce no fallback paths in simulation LLM services
+        run: |
+          if rg -n "_fallback_|synthetic\\s*:\\s*true" addons/local_agents/simulation/NarratorDirector.gd addons/local_agents/simulation/VillagerDreamService.gd addons/local_agents/simulation/VillagerMindService.gd; then
+            echo "Fallback/synthetic generation paths are disallowed for required local LLM services."
+            exit 1
+          fi
+
       - name: Run core headless harness
         run: |
           mkdir -p logs

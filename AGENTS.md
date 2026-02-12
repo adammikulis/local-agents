@@ -8,8 +8,11 @@ This file defines implementation rules for working in this Godot repository.
 - Keep gameplay logic in GDScript unless native code is required for performance or platform APIs.
 - Favor explicit data flow (signals, state objects, resources) over hidden singleton coupling.
 - Build for deterministic behavior in headless tests.
+- Default feature-design question: `Can this be implemented with graphs and/or custom Resource types first?` If yes, prefer that path before ad-hoc dictionaries or one-off node state.
+- When graph-backed features are added, implement or extend Cypher playbook/query coverage as needed so the data model is inspectable and operable via graph queries.
 - Decompose multi-concern work into scoped sub-agents when tasks can run independently.
 - Do not add defensive fallback implementations for required systems; enforce required dependencies and fail fast with actionable errors.
+- No local fallback path for required core libraries/runtime services: if a required dependency is unavailable, return explicit errors and stop the flow.
 
 ## Execution Model
 
@@ -24,6 +27,8 @@ This file defines implementation rules for working in this Godot repository.
 - Keep editor-only code under `addons/local_agents/editor/` and mark scripts with `@tool` only when required.
 - Keep runtime-only logic outside editor UI controllers.
 - Store reusable data in `Resource` classes under `configuration/parameters/`.
+- Prefer custom `Resource` classes whenever domain state is reused, serialized, edited, or passed across systems (inventories, villager state, economy snapshots, config bundles, event payload wrappers).
+- Default to refactoring ad-hoc dictionaries into named `Resource` types unless the data is truly one-off/local temporary glue.
 
 ## Scenes and Nodes
 
@@ -35,7 +40,9 @@ This file defines implementation rules for working in this Godot repository.
 ## GDScript Style
 
 - Use explicit types where they improve correctness and tooling.
-- Avoid over-typing with custom class names when load order can break headless parse; prefer `preload` where needed.
+- Prefer custom class type annotations when they improve readability and correctness.
+- For headless/bootstrap-sensitive paths, ensure stable script load order with explicit `preload` constants before relying on custom class annotations.
+- If load-order stability cannot be guaranteed (for example plugin bootstrap chains), avoid brittle custom-class annotations there and use `preload` + runtime checks.
 - Validate all external inputs (files, runtime calls, dictionaries) before use.
 - Return structured error dictionaries for runtime/service APIs.
 
