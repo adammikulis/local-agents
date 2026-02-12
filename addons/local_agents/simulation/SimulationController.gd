@@ -1020,12 +1020,21 @@ func _dependency_error_result(tick: int, phase: String) -> Dictionary:
 func _log_resource_event(tick: int, event_type: String, scope: String, owner_id: String, payload: Dictionary) -> void:
     if _store == null:
         return
+    var normalized_scope = scope.strip_edges()
+    if normalized_scope == "":
+        normalized_scope = "settlement"
+    var normalized_owner = owner_id.strip_edges()
+    if normalized_owner == "":
+        normalized_owner = "settlement_main"
     var bundle = BundleResourceScript.new()
     bundle.from_dict(payload)
     var normalized = payload.duplicate(true)
     if not bundle.to_dict().is_empty():
         normalized["resource_bundle"] = bundle.to_dict()
-    var event_id: int = _store.append_resource_event(world_id, active_branch_id, tick, _resource_event_sequence, event_type, scope, owner_id, normalized)
+    var event_id: int = _store.append_resource_event(world_id, active_branch_id, tick, _resource_event_sequence, event_type, normalized_scope, normalized_owner, normalized)
+    if event_id == -1:
+        _store.open(_store_path_for_instance())
+        event_id = _store.append_resource_event(world_id, active_branch_id, tick, _resource_event_sequence, event_type, normalized_scope, normalized_owner, normalized)
     if event_id == -1:
         _emit_dependency_error(tick, "resource_event_store", "append_failed")
     _resource_event_sequence += 1
