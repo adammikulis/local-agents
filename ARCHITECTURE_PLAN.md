@@ -124,6 +124,38 @@ Sub-agent split:
 - Demo-Scenes: examples and in-engine demo parity.
 - Docs-Onboarding: quickstart accuracy and release-facing docs.
 
+## Concern I: Voxel World Simulator Integration
+
+Scope: `addons/local_agents/simulation/*`, `addons/local_agents/scenes/simulation/controllers/*`, `addons/local_agents/examples/WorldGenVoxelDemo.*`, shader assets
+
+Implemented (feature inventory):
+- [x] Voxel terrain generation uses deterministic 3D noise and block-layer materialization (`voxel_world.columns`, `voxel_world.block_rows`).
+- [x] Generated terrain includes multiple soil/resource block categories and per-column top RGBA data for physically-based solar absorption.
+- [x] Deterministic flow-map bake and hydrology consumption are unified through `flow_map.rows`.
+- [x] Weather, erosion, and solar are all snapshot-driven systems with explicit configure/step/current/import contracts.
+- [x] Freeze-thaw erosion and landslide events modify terrain elevation and voxel column surfaces over time.
+- [x] Chunked async terrain rebuild path applies only dirty chunks when erosion updates changed tiles.
+- [x] Environment rendering consumes weather/surface/solar textures in GPU shaders for terrain, water, cloud shadowing, and river flow.
+- [x] World simulation controller path and world-gen demo path both drive weather + solar state into `EnvironmentController`.
+- [x] Demo environment now enables volumetric fog + SDFGI with day/night sun animation for lighting continuity.
+
+Refactor and deeper integration backlog:
+- [x] Extract shared `EnvironmentSignalSnapshotResource` (weather + erosion + solar + hydrology deltas) to replace ad-hoc dictionary payload passing between simulation, ecology, and rendering controllers.
+- [x] Centralize tile/column indexing helpers into one reusable runtime utility to avoid repeated `"x:y"` key parsing and per-system duplicate loops.
+- [ ] Move CPU weather/erosion update hotspots to GPU compute/viewport pipelines where deterministic replay can be preserved (start with weather advection + cloud transport).
+- [ ] Separate `EnvironmentController` responsibilities into focused renderer nodes/services (`TerrainRenderer`, `WaterRenderer`, `CloudRenderer`, `PostFXRenderer`) while preserving current scene contract.
+  - Status: extracted `CloudRenderer`, `RiverRenderer`, `PostFXRenderer`, and `WaterSourceRenderer`; remaining heavy split is terrain chunk/material pipeline into dedicated renderer service.
+- [ ] Add explicit age-progression resource layers (era-specific biome/resource presets) so world generation is age-agnostic and not implicitly neolithic-scoped.
+- [x] Add schema-versioned snapshot resources for timelapse save/load to replace raw dictionary snapshots and improve migration safety.
+- [x] Add headless integration test that runs weather + erosion + solar for N ticks and validates deterministic terrain chunk delta behavior.
+
+Test/runtime optimization follow-up:
+- [x] Add fast harness mode (`--fast`) and explicit core/runtime test filtering for local iteration.
+- [x] Add bounded runtime sharding (`--workers=N`) for process-level parallelism when desired.
+- [x] Add opt-in runtime GPU test mode (`--use-gpu`, `--gpu-layers=N`) while keeping deterministic CPU defaults.
+- [x] Add runtime override knobs for context and max tokens in heavy tests (`--context-size`, `--max-tokens` and env vars).
+- [x] Add voxel CPU-vs-GPU benchmark harness for pipeline comparison (`benchmark_voxel_pipeline.gd`) and document run commands.
+
 ## Immediate Queue (Ready to Spawn)
 
 - [x] Fix Piper voice fetch URLs and make dependency fetch resilient to missing optional voice assets.
@@ -139,6 +171,7 @@ Sub-agent split:
 - [x] February 12, 2026: Path/flow traversal now keys routes by voxel coordinates via `SpatialFlowNetworkSystem` + `VoxelGridSystem`.
 - [x] February 12, 2026: Environment generation now includes `voxel_world` terrain payload (`block_rows`, `columns`, block/resource type counts) generated via Godot `FastNoiseLite` and rendered by `EnvironmentController` as Minecraft-style block terrain.
 - [x] February 12, 2026: Environment generation now bakes deterministic `flow_map` payloads (downhill links, accumulation, channel strength) and hydrology consumes baked flowmap rows directly for water network construction.
+- [x] February 12, 2026: Environment rendering now consumes shader-side weather/surface/solar fields; demo and simulation controller paths both push solar state snapshots to environment rendering.
 
 ## Deferred / Decision Log
 

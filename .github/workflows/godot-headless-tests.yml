@@ -113,6 +113,14 @@ jobs:
             echo "Runtime-heavy log contains dependency/empty-generation errors."
             exit 1
           fi
+          if rg -n "Skipping cognition trace isolation test" logs/runtime-heavy-tests.log; then
+            echo "Cognition trace isolation test was skipped."
+            exit 1
+          fi
+          if ! rg -n "Cognition trace isolation test passed" logs/runtime-heavy-tests.log; then
+            echo "Cognition trace isolation test did not pass."
+            exit 1
+          fi
 
       - name: Upload runtime-heavy artifacts on failure
         if: failure()
