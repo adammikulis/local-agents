@@ -18,6 +18,8 @@ const HydrologySystemScript = preload("res://addons/local_agents/simulation/Hydr
 const SettlementSeederScript = preload("res://addons/local_agents/simulation/SettlementSeeder.gd")
 const WorldGenConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldGenConfigResource.gd")
 const PathNetworkSystemScript = preload("res://addons/local_agents/simulation/PathNetworkSystem.gd")
+const TerrainTraversalProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/TerrainTraversalProfileResource.gd")
+const PathFormationConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/PathFormationConfigResource.gd")
 
 const CommunityLedgerScript = preload("res://addons/local_agents/simulation/CommunityLedgerSystem.gd")
 const HouseholdLedgerScript = preload("res://addons/local_agents/simulation/HouseholdLedgerSystem.gd")
@@ -57,6 +59,8 @@ var _environment_snapshot: Dictionary = {}
 var _water_network_snapshot: Dictionary = {}
 var _spawn_artifact: Dictionary = {}
 var _path_network_system
+var _terrain_traversal_profile
+var _path_formation_config
 var _villager_positions: Dictionary = {}
 var _household_positions: Dictionary = {}
 var _community_anchor_position: Vector3 = Vector3.ZERO
@@ -118,6 +122,13 @@ func _ready() -> void:
         _worldgen_config = WorldGenConfigResourceScript.new()
     if _path_network_system == null:
         _path_network_system = PathNetworkSystemScript.new()
+    if _terrain_traversal_profile == null:
+        _terrain_traversal_profile = TerrainTraversalProfileResourceScript.new()
+    if _path_formation_config == null:
+        _path_formation_config = PathFormationConfigResourceScript.new()
+    if _path_network_system != null:
+        _path_network_system.set_traversal_profile(_terrain_traversal_profile)
+        _path_network_system.set_formation_config(_path_formation_config)
 
     if _community_ledger == null:
         _community_ledger = _community_ledger_system.initial_community_ledger()
@@ -154,6 +165,8 @@ func configure_environment(config_resource = null) -> Dictionary:
     _environment_snapshot = _world_generator.generate(world_seed, _worldgen_config)
     _water_network_snapshot = _hydrology_system.build_network(_environment_snapshot, _worldgen_config)
     _water_network_snapshot["seed"] = hydrology_seed
+    if _path_network_system != null:
+        _path_network_system.configure_environment(_environment_snapshot, _water_network_snapshot)
     _spawn_artifact = _settlement_seeder.select_site(_environment_snapshot, _water_network_snapshot, _worldgen_config)
     _spawn_artifact["seed"] = settlement_seed
     var chosen = _spawn_artifact.get("chosen", {})
@@ -192,6 +205,22 @@ func set_profession_profile(profile_resource) -> void:
     if profile_resource == null:
         return
     _economy_system.set_profession_profile(profile_resource)
+
+func set_terrain_traversal_profile(profile_resource) -> void:
+    if profile_resource == null:
+        _terrain_traversal_profile = TerrainTraversalProfileResourceScript.new()
+    else:
+        _terrain_traversal_profile = profile_resource
+    if _path_network_system != null:
+        _path_network_system.set_traversal_profile(_terrain_traversal_profile)
+
+func set_path_formation_config(config_resource) -> void:
+    if config_resource == null:
+        _path_formation_config = PathFormationConfigResourceScript.new()
+    else:
+        _path_formation_config = config_resource
+    if _path_network_system != null:
+        _path_network_system.set_formation_config(_path_formation_config)
 
 func register_villager(npc_id: String, display_name: String, initial_state: Dictionary = {}) -> Dictionary:
     if npc_id.strip_edges() == "":
@@ -302,6 +331,8 @@ func current_snapshot(tick: int) -> Dictionary:
         "water_network_snapshot": _water_network_snapshot.duplicate(true),
         "spawn_artifact": _spawn_artifact.duplicate(true),
         "path_network": _path_network_system.snapshot() if _path_network_system != null else {},
+        "path_formation_config": _path_formation_config.to_dict() if _path_formation_config != null else {},
+        "terrain_traversal_profile": _terrain_traversal_profile.to_dict() if _terrain_traversal_profile != null else {},
         "partial_delivery_count": _last_partial_delivery_count,
         "villagers": _serialize_villagers(),
         "community_ledger": _community_ledger.to_dict(),

@@ -1,0 +1,103 @@
+@tool
+extends RefCounted
+
+const PathNetworkSystemScript = preload("res://addons/local_agents/simulation/PathNetworkSystem.gd")
+const TerrainTraversalProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/TerrainTraversalProfileResource.gd")
+
+func run_test(_tree: SceneTree) -> bool:
+	var profile = TerrainTraversalProfileResourceScript.new()
+	profile.brush_speed_penalty = 0.55
+	profile.slope_speed_penalty = 0.6
+	profile.shallow_water_speed_penalty = 0.45
+	profile.floodplain_speed_penalty = 0.25
+
+	var a = PathNetworkSystemScript.new()
+	var b = PathNetworkSystemScript.new()
+	a.set_traversal_profile(profile)
+	b.set_traversal_profile(profile)
+
+	var environment = _build_environment()
+	var hydrology = _build_hydrology()
+	a.configure_environment(environment, hydrology)
+	b.configure_environment(environment, hydrology)
+
+	var path_start = Vector3(2.0, 0.0, 2.0)
+	var path_target = Vector3(12.0, 0.0, 2.0)
+	var rough_target = Vector3(2.0, 0.0, 12.0)
+
+	for _i in range(0, 64):
+		a.record_traversal(path_start, path_target, 0.9)
+		b.record_traversal(path_start, path_target, 0.9)
+
+	var preferred = a.route_profile(path_start, path_target)
+	var rough = a.route_profile(path_start, rough_target)
+	var preferred_b = b.route_profile(path_start, path_target)
+	var rough_b = b.route_profile(path_start, rough_target)
+
+	if float(preferred.get("travel_cost", 9999.0)) >= float(rough.get("travel_cost", 0.0)):
+		push_error("Expected established low-brush path route to be faster than rough route")
+		return false
+	if float(preferred.get("speed_multiplier", 0.0)) <= float(rough.get("speed_multiplier", 0.0)):
+		push_error("Expected path speed multiplier to exceed rough route multiplier")
+		return false
+	if float(rough.get("terrain_penalty", 0.0)) <= float(preferred.get("terrain_penalty", 0.0)):
+		push_error("Expected rough route terrain penalty to exceed preferred route penalty")
+		return false
+
+	if not _profiles_match(preferred, preferred_b):
+		push_error("Traversal profile should be deterministic for preferred route")
+		return false
+	if not _profiles_match(rough, rough_b):
+		push_error("Traversal profile should be deterministic for rough route")
+		return false
+
+	print("Path traversal profile test passed")
+	return true
+
+func _profiles_match(a: Dictionary, b: Dictionary) -> bool:
+	for key in ["travel_cost", "speed_multiplier", "delivery_efficiency", "terrain_penalty", "eta_ticks"]:
+		if not is_equal_approx(float(a.get(key, 0.0)), float(b.get(key, 0.0))):
+			return false
+	var ta: Dictionary = a.get("terrain", {})
+	var tb: Dictionary = b.get("terrain", {})
+	for key in ["brush", "slope", "shallow_water", "flood_risk"]:
+		if not is_equal_approx(float(ta.get(key, 0.0)), float(tb.get(key, 0.0))):
+			return false
+	return true
+
+func _build_environment() -> Dictionary:
+	var tiles: Array = []
+	var tile_index: Dictionary = {}
+	for y in range(0, 16):
+		for x in range(0, 16):
+			var tile_id = "%d:%d" % [x, y]
+			var row = {
+				"x": x,
+				"y": y,
+				"tile_id": tile_id,
+				"moisture": 0.3,
+				"slope": 0.08,
+				"wood_density": 0.15,
+			}
+			if y >= 8:
+				row["moisture"] = 0.65
+				row["slope"] = 0.62
+				row["wood_density"] = 0.84
+			tiles.append(row)
+			tile_index[tile_id] = row
+	return {
+		"tiles": tiles,
+		"tile_index": tile_index,
+	}
+
+func _build_hydrology() -> Dictionary:
+	var water_tiles: Dictionary = {}
+	for y in range(8, 16):
+		var tile_id = "2:%d" % y
+		water_tiles[tile_id] = {
+			"water_reliability": 0.72,
+			"flood_risk": 0.48,
+		}
+	return {
+		"water_tiles": water_tiles,
+	}
