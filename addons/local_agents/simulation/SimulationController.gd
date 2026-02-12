@@ -13,6 +13,10 @@ const DreamScript = preload("res://addons/local_agents/simulation/VillagerDreamS
 const MindScript = preload("res://addons/local_agents/simulation/VillagerMindService.gd")
 const StoreScript = preload("res://addons/local_agents/simulation/SimulationStore.gd")
 const BackstoryServiceScript = preload("res://addons/local_agents/graph/BackstoryGraphService.gd")
+const WorldGeneratorScript = preload("res://addons/local_agents/simulation/WorldGenerator.gd")
+const HydrologySystemScript = preload("res://addons/local_agents/simulation/HydrologySystem.gd")
+const SettlementSeederScript = preload("res://addons/local_agents/simulation/SettlementSeeder.gd")
+const WorldGenConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldGenConfigResource.gd")
 
 const CommunityLedgerScript = preload("res://addons/local_agents/simulation/CommunityLedgerSystem.gd")
 const HouseholdLedgerScript = preload("res://addons/local_agents/simulation/HouseholdLedgerSystem.gd")
@@ -44,6 +48,13 @@ var _carry_profiles: Dictionary = {}
 var _community_ledger
 var _narrator_directive_resource
 var _backstory_service
+var _world_generator
+var _hydrology_system
+var _settlement_seeder
+var _worldgen_config
+var _environment_snapshot: Dictionary = {}
+var _water_network_snapshot: Dictionary = {}
+var _spawn_artifact: Dictionary = {}
 
 var _community_ledger_system
 var _household_ledger_system
@@ -91,6 +102,14 @@ func _ready() -> void:
     if _backstory_service == null:
         _backstory_service = BackstoryServiceScript.new()
         add_child(_backstory_service)
+    if _world_generator == null:
+        _world_generator = WorldGeneratorScript.new()
+    if _hydrology_system == null:
+        _hydrology_system = HydrologySystemScript.new()
+    if _settlement_seeder == null:
+        _settlement_seeder = SettlementSeederScript.new()
+    if _worldgen_config == null:
+        _worldgen_config = WorldGenConfigResourceScript.new()
 
     if _community_ledger == null:
         _community_ledger = _community_ledger_system.initial_community_ledger()
@@ -104,6 +123,47 @@ func configure(seed_text: String, narrator_enabled: bool = true, dream_llm_enabl
     _dreams.llm_enabled = dream_llm_enabled
     _mind.llm_enabled = dream_llm_enabled
     _store.open()
+    configure_environment(_worldgen_config)
+
+func configure_environment(config_resource = null) -> Dictionary:
+    if config_resource != null:
+        _worldgen_config = config_resource
+    if _worldgen_config == null:
+        _worldgen_config = WorldGenConfigResourceScript.new()
+    if _world_generator == null:
+        _world_generator = WorldGeneratorScript.new()
+    if _hydrology_system == null:
+        _hydrology_system = HydrologySystemScript.new()
+    if _settlement_seeder == null:
+        _settlement_seeder = SettlementSeederScript.new()
+    if _rng == null:
+        return {"ok": false, "error": "rng_unavailable"}
+
+    var world_seed = _rng.derive_seed("environment", world_id, active_branch_id, 0)
+    var hydrology_seed = _rng.derive_seed("hydrology", world_id, active_branch_id, 0)
+    var settlement_seed = _rng.derive_seed("settlement", world_id, active_branch_id, 0)
+
+    _environment_snapshot = _world_generator.generate(world_seed, _worldgen_config)
+    _water_network_snapshot = _hydrology_system.build_network(_environment_snapshot, _worldgen_config)
+    _water_network_snapshot["seed"] = hydrology_seed
+    _spawn_artifact = _settlement_seeder.select_site(_environment_snapshot, _water_network_snapshot, _worldgen_config)
+    _spawn_artifact["seed"] = settlement_seed
+
+    return {
+        "ok": true,
+        "environment": _environment_snapshot.duplicate(true),
+        "hydrology": _water_network_snapshot.duplicate(true),
+        "spawn": _spawn_artifact.duplicate(true),
+    }
+
+func get_environment_snapshot() -> Dictionary:
+    return _environment_snapshot.duplicate(true)
+
+func get_water_network_snapshot() -> Dictionary:
+    return _water_network_snapshot.duplicate(true)
+
+func get_spawn_artifact() -> Dictionary:
+    return _spawn_artifact.duplicate(true)
 
 func set_cognition_features(enable_thoughts: bool, enable_dialogue: bool, enable_dreams: bool) -> void:
     thoughts_enabled = enable_thoughts
@@ -222,6 +282,10 @@ func current_snapshot(tick: int) -> Dictionary:
         "world_id": world_id,
         "branch_id": active_branch_id,
         "tick": tick,
+        "worldgen_config": _worldgen_config.to_dict() if _worldgen_config != null else {},
+        "environment_snapshot": _environment_snapshot.duplicate(true),
+        "water_network_snapshot": _water_network_snapshot.duplicate(true),
+        "spawn_artifact": _spawn_artifact.duplicate(true),
         "villagers": _serialize_villagers(),
         "community_ledger": _community_ledger.to_dict(),
         "household_ledgers": _serialize_household_ledgers(),
