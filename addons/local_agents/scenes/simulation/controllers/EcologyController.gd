@@ -3,11 +3,14 @@ extends Node3D
 const PlantScene = preload("res://addons/local_agents/scenes/simulation/actors/EdiblePlantCapsule.tscn")
 const RabbitScene = preload("res://addons/local_agents/scenes/simulation/actors/RabbitSphere.tscn")
 const SmellFieldSystemScript = preload("res://addons/local_agents/simulation/SmellFieldSystem.gd")
+const WindFieldSystemScript = preload("res://addons/local_agents/simulation/WindFieldSystem.gd")
+const GridConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/GridConfigResource.gd")
 
 @export var initial_plant_count: int = 14
 @export var initial_rabbit_count: int = 4
 @export var world_bounds_radius: float = 8.0
 @export var smell_hex_size: float = 0.55
+@export var grid_config: Resource
 @export var smell_debug_enabled: bool = true
 @export var smell_emit_interval_seconds: float = 0.65
 @export var smell_base_decay_per_second: float = 0.12
@@ -30,19 +33,54 @@ var _smell_debug_root: Node3D = null
 var _smell_emit_accumulator: float = 0.0
 var _seed_sequence: int = 0
 var _smell_field
+var _wind_field
 var _smell_debug_nodes: Dictionary = {}
 var _smell_field_texture: ImageTexture = null
+var _sim_time_seconds: float = 0.0
 
 func _ready() -> void:
 	_smell_field = SmellFieldSystemScript.new()
-	_smell_field.configure(world_bounds_radius, smell_hex_size)
+	_wind_field = WindFieldSystemScript.new()
+	if grid_config == null:
+		grid_config = GridConfigResourceScript.new()
+		grid_config.set("grid_layout", "hex_pointy")
+		grid_config.set("half_extent", world_bounds_radius)
+		grid_config.set("cell_size", smell_hex_size)
+	_smell_field.configure_from_grid(grid_config)
+	_wind_field.configure_from_grid(grid_config)
+	_wind_field.set_global_wind(wind_direction, wind_intensity, wind_speed)
 	_spawn_initial_plants(initial_plant_count)
 	_spawn_initial_rabbits(initial_rabbit_count)
 	_update_smell_field_texture()
 
+func spawn_plant_at(world_position: Vector3, initial_growth_ratio: float = 0.0) -> Node3D:
+	var plant = PlantScene.instantiate()
+	plant_root.add_child(plant)
+	plant.global_position = _clamp_to_field(world_position, 0.14)
+	if plant.has_method("set_initial_growth_ratio"):
+		plant.call("set_initial_growth_ratio", initial_growth_ratio)
+	return plant
+
+func spawn_rabbit_at(world_position: Vector3) -> Node3D:
+	var rabbit = RabbitScene.instantiate()
+	rabbit.rabbit_id = "rabbit_%d" % int(Time.get_ticks_usec() % 10000000)
+	rabbit_root.add_child(rabbit)
+	rabbit.global_position = _clamp_to_field(world_position, 0.18)
+	rabbit.seed_dropped.connect(_on_rabbit_seed_dropped)
+	return rabbit
+
+func spawn_random(plants: int, rabbits: int) -> void:
+	for i in range(maxi(0, plants)):
+		_seed_sequence += 1
+		spawn_plant_at(_deterministic_spawn_point(_seed_sequence, world_bounds_radius * 0.95), float((_seed_sequence + i) % 6) / 6.0)
+	for j in range(maxi(0, rabbits)):
+		_seed_sequence += 1
+		spawn_rabbit_at(_deterministic_spawn_point(_seed_sequence * 2, world_bounds_radius * 0.75))
+
 func _physics_process(delta: float) -> void:
 	if delta <= 0.0:
 		return
+	_sim_time_seconds += delta
 	_step_plants(delta)
 	_emit_smell(delta)
 	_step_smell_field(delta)
@@ -63,6 +101,8 @@ func set_wind(next_direction: Vector3, next_intensity: float, enabled: bool = tr
 	wind_direction = next_direction
 	wind_intensity = clampf(next_intensity, 0.0, 1.0)
 	wind_enabled = enabled
+	if _wind_field != null:
+		_wind_field.set_global_wind(wind_direction, wind_intensity if wind_enabled else 0.0, wind_speed)
 
 func smell_field_texture() -> ImageTexture:
 	return _smell_field_texture
@@ -83,22 +123,15 @@ func clear_generated() -> void:
 
 func _spawn_initial_plants(count: int) -> void:
 	for i in range(count):
-		var plant = PlantScene.instantiate()
 		var angle := TAU * float(i) / float(maxi(1, count))
 		var ring := 2.4 + 1.8 * float(i % 3)
-		plant.global_position = Vector3(cos(angle) * ring, 0.14, sin(angle) * ring)
-		if plant.has_method("set_initial_growth_ratio"):
-			plant.call("set_initial_growth_ratio", float(i % 5) / 5.0)
-		plant_root.add_child(plant)
+		spawn_plant_at(Vector3(cos(angle) * ring, 0.14, sin(angle) * ring), float(i % 5) / 5.0)
 
 func _spawn_initial_rabbits(count: int) -> void:
 	for i in range(count):
-		var rabbit = RabbitScene.instantiate()
-		rabbit.rabbit_id = "rabbit_%d" % i
 		var angle := TAU * float(i) / float(maxi(1, count))
-		rabbit.global_position = Vector3(cos(angle) * 1.8, 0.18, sin(angle) * 1.8)
-		rabbit.seed_dropped.connect(_on_rabbit_seed_dropped)
-		rabbit_root.add_child(rabbit)
+		var rabbit = spawn_rabbit_at(Vector3(cos(angle) * 1.8, 0.18, sin(angle) * 1.8))
+		rabbit.rabbit_id = "rabbit_%d" % i
 
 func _step_plants(delta: float) -> void:
 	for plant in plant_root.get_children():
@@ -123,11 +156,13 @@ func _emit_smell(delta: float) -> void:
 		)
 
 func _step_smell_field(delta: float) -> void:
-	var wind_vec := Vector2.ZERO
-	if wind_enabled and wind_intensity > 0.0:
-		var norm := wind_direction.normalized()
-		wind_vec = Vector2(norm.x, norm.z) * wind_intensity * wind_speed
-	_smell_field.step(delta, wind_vec, smell_base_decay_per_second, rain_intensity, rain_decay_multiplier)
+	var wind_source: Variant = Vector2.ZERO
+	if wind_enabled and wind_intensity > 0.0 and _wind_field != null:
+		_wind_field.set_global_wind(wind_direction, wind_intensity, wind_speed)
+		var diurnal_phase = fmod(_sim_time_seconds / 24.0, TAU)
+		_wind_field.step(delta, 0.52, diurnal_phase, rain_intensity)
+		wind_source = Callable(_wind_field, "sample_wind")
+	_smell_field.step(delta, wind_source, smell_base_decay_per_second, rain_intensity, rain_decay_multiplier)
 
 func _step_rabbits(delta: float) -> void:
 	for rabbit in rabbit_root.get_children():
@@ -171,9 +206,7 @@ func _on_rabbit_seed_dropped(rabbit_id: String, count: int) -> void:
 		var spawn_angle := float(_seed_sequence) * 2.3999632
 		var radius := 0.12 + (seed_spawn_radius * (float((_seed_sequence + i) % 7) / 7.0))
 		var spawn_offset := Vector3(cos(spawn_angle) * radius, 0.14, sin(spawn_angle) * radius)
-		var plant = PlantScene.instantiate()
-		plant.global_position = rabbit.global_position + spawn_offset
-		plant_root.add_child(plant)
+		spawn_plant_at(rabbit.global_position + spawn_offset, 0.0)
 
 func _find_rabbit_by_id(rabbit_id: String) -> Node3D:
 	for rabbit in rabbit_root.get_children():
@@ -245,3 +278,16 @@ func _update_smell_field_texture() -> void:
 		_smell_field_texture = ImageTexture.create_from_image(image)
 		return
 	_smell_field_texture.update(image)
+
+func _deterministic_spawn_point(sequence: int, max_radius: float) -> Vector3:
+	var angle := float(sequence) * 2.3999632
+	var radial_step := float((sequence % 11) + 1) / 11.0
+	var radius := max_radius * radial_step
+	return Vector3(cos(angle) * radius, 0.14, sin(angle) * radius)
+
+func _clamp_to_field(world_position: Vector3, y: float) -> Vector3:
+	var planar := Vector2(world_position.x, world_position.z)
+	var clamped := planar
+	if planar.length() > world_bounds_radius:
+		clamped = planar.normalized() * world_bounds_radius
+	return Vector3(clamped.x, y, clamped.y)

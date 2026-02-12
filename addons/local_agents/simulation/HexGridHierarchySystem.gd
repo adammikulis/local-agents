@@ -65,7 +65,7 @@ func deposit(layer: String, world_position: Vector3, strength: float) -> void:
 		var attenuation = pow(0.62, float(level))
 		_add_to_sparse(level, layer, level_cell, strength * attenuation)
 
-func advect_and_decay_layer(layer: String, delta: float, decay_factor: float, wind_world: Vector2) -> void:
+func advect_and_decay_layer(layer: String, delta: float, decay_factor: float, wind_source: Variant) -> void:
 	if delta <= 0.0:
 		return
 	_ensure_base_layer(layer)
@@ -75,6 +75,7 @@ func advect_and_decay_layer(layer: String, delta: float, decay_factor: float, wi
 	for y in range(_base_height):
 		for x in range(_base_width):
 			var world_target = cell_to_world_level(x, y, 0)
+			var wind_world = _resolve_wind_vector(wind_source, world_target)
 			var source_world = world_target - (wind_world * delta)
 			var source_cell = world_to_cell_level(Vector3(source_world.x, 0.0, source_world.y), 0)
 			var sampled = 0.0
@@ -82,7 +83,7 @@ func advect_and_decay_layer(layer: String, delta: float, decay_factor: float, wi
 				sampled = dense_source[_index(source_cell.x, source_cell.y)]
 			dense_out[_index(x, y)] = maxf(0.0, sampled * decay_factor)
 	_base_layers[layer] = dense_out
-	_advect_sparse_layer(layer, delta, decay_factor, wind_world)
+	_advect_sparse_layer(layer, delta, decay_factor, wind_source)
 
 func strongest_layer_position(layer: String, origin: Vector3, sample_radius_cells: int = 8) -> Variant:
 	var center = world_to_cell_level(origin, 0)
@@ -231,7 +232,7 @@ func _add_to_sparse(level: int, layer: String, cell: Vector2i, amount: float) ->
 	level_layers[layer] = layer_map
 	_sparse_layers[level_key] = level_layers
 
-func _advect_sparse_layer(layer: String, delta: float, decay_factor: float, wind_world: Vector2) -> void:
+func _advect_sparse_layer(layer: String, delta: float, decay_factor: float, wind_source: Variant) -> void:
 	for level in range(1, _lod_levels):
 		var level_key = "level_%d" % level
 		var level_layers: Dictionary = _sparse_layers.get(level_key, {})
@@ -246,6 +247,7 @@ func _advect_sparse_layer(layer: String, delta: float, decay_factor: float, wind
 				continue
 			var cell = _cell_from_key(key)
 			var world_pos = cell_to_world_level(cell.x, cell.y, level)
+			var wind_world = _resolve_wind_vector(wind_source, world_pos)
 			var advected_world = world_pos + (wind_world * delta)
 			var next_cell = world_to_cell_level(Vector3(advected_world.x, 0.0, advected_world.y), level)
 			if next_cell.x < 0:
@@ -324,3 +326,12 @@ func _cell_from_key(key: String) -> Vector2i:
 	if parts.size() != 2:
 		return Vector2i(-1, -1)
 	return Vector2i(int(parts[0]), int(parts[1]))
+
+func _resolve_wind_vector(wind_source: Variant, world_target: Vector2) -> Vector2:
+	if wind_source is Vector2:
+		return wind_source
+	if wind_source is Callable:
+		var sampled = wind_source.call(Vector3(world_target.x, 0.0, world_target.y))
+		if sampled is Vector2:
+			return sampled
+	return Vector2.ZERO

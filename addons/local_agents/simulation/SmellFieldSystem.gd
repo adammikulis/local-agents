@@ -50,13 +50,13 @@ func deposit(kind: String, world_position: Vector3, strength: float) -> void:
 	var channel = _channel_for_kind(kind)
 	_grid_system.deposit(channel, world_position, maxf(0.0, strength))
 
-func step(delta: float, wind_world: Vector2, base_decay_per_second: float, rain_intensity: float, rain_decay_multiplier: float) -> void:
+func step(delta: float, wind_source: Variant, base_decay_per_second: float, rain_intensity: float, rain_decay_multiplier: float) -> void:
 	if delta <= 0.0:
 		return
 	var decay = base_decay_per_second * (1.0 + rain_intensity * rain_decay_multiplier)
 	var decay_factor = clampf(1.0 - decay * delta, 0.0, 1.0)
 	for channel in ["food", "rabbit", "danger"]:
-		_grid_system.advect_and_decay_layer(String(channel), delta, decay_factor, wind_world)
+		_grid_system.advect_and_decay_layer(String(channel), delta, decay_factor, wind_source)
 	_sync_field_snapshot()
 
 func strongest_food_position(origin: Vector3, sample_radius_cells: int = 8) -> Variant:
@@ -84,12 +84,17 @@ func build_debug_cells(min_strength: float = 0.03, max_cells: int = 350) -> Arra
 
 func to_image() -> Image:
 	_sync_field_snapshot()
-	var width = int(_field.get("width"))
-	var height = int(_field.get("height"))
+	var width: int = int(_field.get("width"))
+	var height: int = int(_field.get("height"))
+	if width <= 0 or height <= 0:
+		return Image.create(1, 1, false, Image.FORMAT_RGBA8)
 	var image := Image.create(width, height, false, Image.FORMAT_RGBA8)
 	var food_channel: PackedFloat32Array = _field.get("food_channel")
 	var rabbit_channel: PackedFloat32Array = _field.get("rabbit_channel")
 	var danger_channel: PackedFloat32Array = _field.get("danger_channel")
+	var expected_size: int = width * height
+	if food_channel.size() < expected_size or rabbit_channel.size() < expected_size or danger_channel.size() < expected_size:
+		return image
 	for y in range(height):
 		for x in range(width):
 			var index = (y * width) + x
@@ -113,15 +118,30 @@ func _sync_field_snapshot() -> void:
 	var snapshot: Dictionary = _grid_system.snapshot()
 	var grid: Dictionary = snapshot.get("grid", {})
 	var base_layers: Dictionary = snapshot.get("base_layers", {})
+	var width := int(grid.get("width", 0))
+	var height := int(grid.get("height", 0))
+	var cell_count := width * height
+	var food: PackedFloat32Array = _ensure_channel_size(base_layers.get("food", PackedFloat32Array()), cell_count)
+	var rabbit: PackedFloat32Array = _ensure_channel_size(base_layers.get("rabbit", PackedFloat32Array()), cell_count)
+	var danger: PackedFloat32Array = _ensure_channel_size(base_layers.get("danger", PackedFloat32Array()), cell_count)
 	_field.set("grid_layout", String(grid.get("layout", "hex_pointy")))
 	_field.set("half_extent", float(grid.get("half_extent", 10.0)))
 	_field.set("hex_size", float(grid.get("cell_size", 0.45)))
-	_field.set("width", int(grid.get("width", 0)))
-	_field.set("height", int(grid.get("height", 0)))
+	_field.set("width", width)
+	_field.set("height", height)
 	_field.set("lod_levels", int(grid.get("lod_levels", 1)))
 	_field.set("subdivision_ratio", int(grid.get("subdivision_ratio", 2)))
 	_field.set("subdivision_trigger_strength", float(grid.get("subdivision_trigger_strength", 0.55)))
-	_field.set("food_channel", base_layers.get("food", PackedFloat32Array()))
-	_field.set("rabbit_channel", base_layers.get("rabbit", PackedFloat32Array()))
-	_field.set("danger_channel", base_layers.get("danger", PackedFloat32Array()))
+	_field.set("food_channel", food)
+	_field.set("rabbit_channel", rabbit)
+	_field.set("danger_channel", danger)
 	_field.set("sparse_layers", snapshot.get("sparse_layers", {}).duplicate(true))
+
+func _ensure_channel_size(value: Variant, size: int) -> PackedFloat32Array:
+	var channel := PackedFloat32Array()
+	if value is PackedFloat32Array:
+		channel = value
+	channel.resize(maxi(0, size))
+	for i in range(channel.size()):
+		channel[i] = maxf(0.0, float(channel[i]))
+	return channel
