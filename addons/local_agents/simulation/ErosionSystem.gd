@@ -4,6 +4,8 @@ class_name LocalAgentsErosionSystem
 var _configured: bool = false
 var _seed: int = 0
 var _erosion_by_tile: Dictionary = {}
+var _frost_damage_by_tile: Dictionary = {}
+var _previous_temperature_by_tile: Dictionary = {}
 var _landslide_events: Array = []
 var _last_changed_tiles: Array = []
 
@@ -11,11 +13,18 @@ func configure_environment(environment_snapshot: Dictionary, _water_snapshot: Di
 	_configured = true
 	_seed = seed
 	_erosion_by_tile.clear()
+	_frost_damage_by_tile.clear()
+	_previous_temperature_by_tile.clear()
 	_landslide_events = []
 	_last_changed_tiles = []
 	var tile_index: Dictionary = environment_snapshot.get("tile_index", {})
 	for tile_id_variant in tile_index.keys():
-		_erosion_by_tile[String(tile_id_variant)] = 0.0
+		var tile_id = String(tile_id_variant)
+		var tile = tile_index.get(tile_id_variant, {})
+		var temperature = clampf(float((tile as Dictionary).get("temperature", 0.5)) if tile is Dictionary else 0.5, 0.0, 1.0)
+		_erosion_by_tile[tile_id] = 0.0
+		_frost_damage_by_tile[tile_id] = 0.0
+		_previous_temperature_by_tile[tile_id] = temperature
 
 func step(
 	tick: int,
@@ -59,12 +68,37 @@ func step(
 		var weather_row = weather_tiles.get(tile_id, {})
 		var water_row = water_tiles.get(tile_id, {})
 		var rain = clampf(float((weather_row as Dictionary).get("rain", weather_snapshot.get("avg_rain_intensity", 0.0)) if weather_row is Dictionary else weather_snapshot.get("avg_rain_intensity", 0.0)), 0.0, 1.0)
+		var cloud = clampf(float((weather_row as Dictionary).get("cloud", weather_snapshot.get("avg_cloud_cover", 0.0)) if weather_row is Dictionary else weather_snapshot.get("avg_cloud_cover", 0.0)), 0.0, 1.0)
+		var wetness = clampf(float((weather_row as Dictionary).get("wetness", rain)) if weather_row is Dictionary else rain, 0.0, 1.0)
 		var slope = clampf(float(tile_row.get("slope", 0.0)), 0.0, 1.0)
+		var base_temperature = clampf(float(tile_row.get("temperature", 0.5)), 0.0, 1.0)
+		var thermal_phase = float(tick) * 0.073 + _deterministic_noise(tile_id, 0) * TAU
+		var seasonal_swing = sin(thermal_phase) * 0.065
+		var weather_cooling = rain * 0.038 + cloud * 0.024
+		var temperature = clampf(base_temperature + seasonal_swing - weather_cooling, 0.0, 1.0)
+		var prev_temperature = clampf(float(_previous_temperature_by_tile.get(tile_id, temperature)), 0.0, 1.0)
 		var flow = clampf(float((water_row as Dictionary).get("flow", 0.0)) if water_row is Dictionary else 0.0, 0.0, flow_scale)
+		var water_reliability = clampf(float((water_row as Dictionary).get("water_reliability", 0.0)) if water_row is Dictionary else 0.0, 0.0, 1.0)
 		var flow_norm = 0.0 if flow_scale <= 0.0001 else clampf(flow / flow_scale, 0.0, 1.0)
+		var freeze_thresh = 0.34
+		var prev_freezing = prev_temperature <= freeze_thresh
+		var now_freezing = temperature <= freeze_thresh
+		var crossed_freeze = prev_freezing != now_freezing
+		var freeze_band = 1.0 - clampf(absf(temperature - freeze_thresh) / 0.22, 0.0, 1.0)
+		var freeze_water = clampf(wetness * 0.56 + water_reliability * 0.44, 0.0, 1.0)
+		var crack_factor = clampf(slope * 0.72 + flow_norm * 0.28, 0.0, 1.0)
+		var frost_impulse = 0.0
+		if crossed_freeze:
+			# Water freezing and thawing around cracks drives shattering.
+			frost_impulse = freeze_band * freeze_water * (0.32 + crack_factor * 0.68)
+		var frost_damage = clampf(float(_frost_damage_by_tile.get(tile_id, 0.0)) * 0.982 + frost_impulse * 0.12, 0.0, 1.0)
+		_frost_damage_by_tile[tile_id] = frost_damage
 		var base_erosion = maxf(0.0, (slope * 0.62 + flow_norm * 0.38) * rain * 0.028 * step_scale)
+		var frost_erosion = frost_damage * (0.004 + crack_factor * 0.006) * step_scale
+		base_erosion += frost_erosion
 		var cumulative = float(_erosion_by_tile.get(tile_id, 0.0)) + base_erosion
 		_erosion_by_tile[tile_id] = cumulative
+		_previous_temperature_by_tile[tile_id] = temperature
 
 		var elev_drop = 0.0
 		if cumulative >= 0.12:
@@ -72,23 +106,29 @@ func step(
 			_erosion_by_tile[tile_id] = cumulative - float(cycles) * 0.12
 			elev_drop = 0.004 * float(cycles)
 
-		var landslide_trigger = slope > 0.68 and rain > 0.58 and flow_norm > 0.35
+		var freeze_slide_risk = frost_damage * (0.5 + freeze_water * 0.5)
+		var landslide_trigger = (
+			(slope > 0.68 and rain > 0.58 and flow_norm > 0.35)
+			or (slope > 0.6 and freeze_slide_risk > 0.42 and crossed_freeze)
+		)
 		if landslide_trigger and _deterministic_noise(tile_id, tick) > 0.72:
-			elev_drop += 0.012 + slope * 0.01
+			elev_drop += 0.012 + slope * 0.01 + freeze_slide_risk * 0.006
 			landslide_rows.append({
 				"tick": tick,
 				"tile_id": tile_id,
 				"severity": clampf(elev_drop * 48.0, 0.0, 1.0),
 				"rain": rain,
 				"slope": slope,
+				"freeze_thaw": freeze_slide_risk,
 			})
 
 		if elev_drop <= 0.0:
 			continue
 		changed_ids[tile_id] = elev_drop
 		tile_row["elevation"] = clampf(float(tile_row.get("elevation", 0.0)) - elev_drop, 0.0, 1.0)
-		tile_row["slope"] = clampf(float(tile_row.get("slope", 0.0)) * (0.985 + rain * 0.01), 0.0, 1.0)
+		tile_row["slope"] = clampf(float(tile_row.get("slope", 0.0)) * (0.985 + rain * 0.01 + frost_damage * 0.012), 0.0, 1.0)
 		tile_row["moisture"] = clampf(float(tile_row.get("moisture", 0.0)) + rain * 0.01, 0.0, 1.0)
+		tile_row["freeze_thaw_damage"] = frost_damage
 		tile_index[tile_id] = tile_row
 
 		var hydro = water_tiles.get(tile_id, {})
@@ -126,6 +166,8 @@ func current_snapshot(tick: int) -> Dictionary:
 		rows.append({
 			"tile_id": tile_id,
 			"erosion_budget": float(_erosion_by_tile.get(tile_id, 0.0)),
+			"frost_damage": float(_frost_damage_by_tile.get(tile_id, 0.0)),
+			"temperature_prev": float(_previous_temperature_by_tile.get(tile_id, 0.5)),
 		})
 	return {
 		"schema_version": 1,
@@ -137,6 +179,8 @@ func current_snapshot(tick: int) -> Dictionary:
 
 func import_snapshot(snapshot: Dictionary) -> void:
 	_erosion_by_tile.clear()
+	_frost_damage_by_tile.clear()
+	_previous_temperature_by_tile.clear()
 	var rows: Array = snapshot.get("rows", [])
 	for row_variant in rows:
 		if not (row_variant is Dictionary):
@@ -146,6 +190,8 @@ func import_snapshot(snapshot: Dictionary) -> void:
 		if tile_id == "":
 			continue
 		_erosion_by_tile[tile_id] = maxf(0.0, float(row.get("erosion_budget", 0.0)))
+		_frost_damage_by_tile[tile_id] = clampf(float(row.get("frost_damage", 0.0)), 0.0, 1.0)
+		_previous_temperature_by_tile[tile_id] = clampf(float(row.get("temperature_prev", 0.5)), 0.0, 1.0)
 	_landslide_events = (snapshot.get("recent_landslides", []) as Array).duplicate(true)
 	_last_changed_tiles = (snapshot.get("changed_tiles", []) as Array).duplicate(true)
 

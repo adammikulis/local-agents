@@ -13,6 +13,9 @@ uniform float weather_cloud_strength : hint_range(0.0, 1.0) = 0.55;
 uniform sampler2D weather_field_tex;
 uniform vec2 weather_field_world_size = vec2(1.0, 1.0);
 uniform float weather_field_blend : hint_range(0.0, 1.0) = 1.0;
+uniform sampler2D surface_field_tex;
+uniform vec2 surface_field_world_size = vec2(1.0, 1.0);
+uniform float surface_field_blend : hint_range(0.0, 1.0) = 1.0;
 varying vec3 world_pos;
 
 float hash31(vec3 p) {
@@ -57,10 +60,15 @@ void vertex() {
 void fragment() {
 	vec2 weather_uv = clamp(world_pos.xz / max(weather_field_world_size, vec2(1.0, 1.0)), vec2(0.0), vec2(1.0));
 	vec4 weather_px = texture(weather_field_tex, weather_uv);
+	vec2 surface_uv = clamp(world_pos.xz / max(surface_field_world_size, vec2(1.0, 1.0)), vec2(0.0), vec2(1.0));
+	vec4 surface_px = texture(surface_field_tex, surface_uv);
 	float rain_mix = mix(rain_intensity, weather_px.g, weather_field_blend);
 	float cloud_mix = mix(cloud_shadow, weather_px.r, weather_field_blend);
 	float humidity_mix = mix(humidity, weather_px.b, weather_field_blend);
 	float wetness = clamp(rain_mix * 0.78 + humidity_mix * 0.22, 0.0, 1.0);
+	wetness = mix(wetness, max(wetness, surface_px.r), surface_field_blend);
+	float snow = clamp(surface_px.g, 0.0, 1.0) * surface_field_blend;
+	float erosion = clamp(surface_px.a, 0.0, 1.0) * surface_field_blend;
 	vec2 wind = normalize(weather_wind_dir);
 	vec2 cloud_uv = world_pos.xz * weather_cloud_scale + wind * TIME * weather_wind_speed * 0.06;
 	float cloud_mask = smoothstep(0.42, 0.82, fbm(cloud_uv));
@@ -71,9 +79,11 @@ void fragment() {
 	float grain = hash31(vec3(UV * 16.0, NORMAL.y * 5.0));
 	float micro_variation = mix(0.96, 1.04, grain);
 	vec3 color = base_color.rgb * shadow * darken * micro_variation;
+	color = mix(color, vec3(0.92, 0.95, 0.98), snow * 0.8);
+	color = mix(color, color * vec3(0.72, 0.66, 0.62), erosion * 0.28);
 
 	ALBEDO = color;
-	ROUGHNESS = clamp(0.95 - wetness * 0.58, 0.18, 1.0);
+	ROUGHNESS = clamp(0.95 - wetness * 0.58 + snow * 0.12, 0.12, 1.0);
 	SPECULAR = clamp(0.24 + wetness * 0.48, 0.0, 1.0);
 	METALLIC = 0.0;
 }

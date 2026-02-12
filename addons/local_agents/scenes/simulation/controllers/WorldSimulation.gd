@@ -65,6 +65,15 @@ func _ready() -> void:
 		)
 	if environment_controller.has_method("set_weather_state"):
 		environment_controller.set_weather_state(setup.get("weather", {}))
+	if has_node("EcologyController"):
+		var ecology_controller = get_node("EcologyController")
+		if ecology_controller.has_method("set_environment_signals"):
+			ecology_controller.call(
+				"set_environment_signals",
+				setup.get("environment", {}),
+				setup.get("weather", {}),
+				setup.get("solar", {})
+			)
 	if settlement_controller.has_method("spawn_initial_settlement"):
 		settlement_controller.spawn_initial_settlement(setup.get("spawn", {}))
 	_current_tick = 0
@@ -115,6 +124,15 @@ func _sync_environment_from_state(state: Dictionary, force_rebuild: bool) -> voi
 			)
 	if environment_controller.has_method("set_weather_state"):
 		environment_controller.set_weather_state(state.get("weather_snapshot", {}))
+	if has_node("EcologyController"):
+		var ecology_controller = get_node("EcologyController")
+		if ecology_controller.has_method("set_environment_signals"):
+			ecology_controller.call(
+				"set_environment_signals",
+				state.get("environment_snapshot", {}),
+				state.get("weather_snapshot", {}),
+				state.get("solar_snapshot", {})
+			)
 
 func _on_hud_play_pressed() -> void:
 	_is_playing = true

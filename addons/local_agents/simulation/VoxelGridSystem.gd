@@ -73,6 +73,19 @@ func all_ground_voxels() -> Array[Vector3i]:
 	rows.sort_custom(_sort_voxels)
 	return rows
 
+func all_voxels() -> Array[Vector3i]:
+	var rows: Array[Vector3i] = []
+	var radius_cells := int(ceil(_half_extent / _voxel_size))
+	var vertical_cells := int(ceil(_vertical_half_extent / _voxel_size))
+	for y in range(-vertical_cells, vertical_cells + 1):
+		for z in range(-radius_cells, radius_cells + 1):
+			for x in range(-radius_cells, radius_cells + 1):
+				var voxel := Vector3i(x, y, z)
+				if is_inside(voxel):
+					rows.append(voxel)
+	rows.sort_custom(_sort_voxels)
+	return rows
+
 func sort_voxel_keys(keys: Array) -> Array:
 	keys.sort_custom(_sort_voxels)
 	return keys

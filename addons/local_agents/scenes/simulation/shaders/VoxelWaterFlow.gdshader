@@ -18,6 +18,9 @@ uniform float weather_cloud_strength : hint_range(0.0, 1.0) = 0.55;
 uniform sampler2D weather_field_tex;
 uniform vec2 weather_field_world_size = vec2(1.0, 1.0);
 uniform float weather_field_blend : hint_range(0.0, 1.0) = 1.0;
+uniform sampler2D surface_field_tex;
+uniform vec2 surface_field_world_size = vec2(1.0, 1.0);
+uniform float surface_field_blend : hint_range(0.0, 1.0) = 1.0;
 varying vec3 world_pos;
 
 float hash21(vec2 p) {
@@ -56,10 +59,14 @@ void vertex() {
 void fragment() {
 	vec2 weather_uv_px = clamp(world_pos.xz / max(weather_field_world_size, vec2(1.0, 1.0)), vec2(0.0), vec2(1.0));
 	vec4 weather_px = texture(weather_field_tex, weather_uv_px);
+	vec2 surface_uv = clamp(world_pos.xz / max(surface_field_world_size, vec2(1.0, 1.0)), vec2(0.0), vec2(1.0));
+	vec4 surface_px = texture(surface_field_tex, surface_uv);
 	float rain_mix = mix(rain_intensity, weather_px.g, weather_field_blend);
 	float cloud_mix = mix(cloud_shadow, weather_px.r, weather_field_blend);
+	float flow_mask = mix(0.5, surface_px.b, surface_field_blend);
+	float erosion_mask = mix(0.0, surface_px.a, surface_field_blend);
 	vec2 dir = normalize(flow_dir);
-	float t = TIME * flow_speed;
+	float t = TIME * flow_speed * (0.85 + flow_mask * 0.9);
 	vec2 uv = UV * (noise_scale * 3.0);
 	float n1 = value_noise(uv + dir * t);
 	float n2 = value_noise((uv * 1.9) - dir.yx * t * 0.73);
@@ -67,13 +74,14 @@ void fragment() {
 	float wave = sin((UV.x + UV.y) * 7.0 + t * (4.2 + rain_mix * 2.8)) * 0.5 + 0.5;
 	float depth_blend = clamp(n * 0.8 + wave * 0.2, 0.0, 1.0);
 	vec3 color = mix(deep_color.rgb, shallow_color.rgb, depth_blend);
-	float foam = smoothstep(0.74 - rain_mix * 0.12, 1.0, n + wave * wave_strength);
+	float foam = smoothstep(0.74 - rain_mix * 0.12, 1.0, n + wave * wave_strength + flow_mask * 0.16);
 	color = mix(color, foam_color, foam * foam_strength);
 	vec2 wind = normalize(weather_wind_dir);
 	vec2 cloud_uv = world_pos.xz * weather_cloud_scale + wind * TIME * weather_wind_speed * 0.06;
 	float cloud_mask = smoothstep(0.42, 0.82, fbm(cloud_uv));
 	float dynamic_shadow = cloud_mask * weather_cloud_strength * cloud_mix;
 	color *= (1.0 - (cloud_mix * 0.2 + dynamic_shadow * 0.38));
+	color = mix(color, color * vec3(0.75, 0.74, 0.7), erosion_mask * 0.2);
 	float fresnel = pow(1.0 - max(dot(normalize(NORMAL), normalize(VIEW)), 0.0), 2.6);
 
 	ALBEDO = color;

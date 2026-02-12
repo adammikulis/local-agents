@@ -2,9 +2,28 @@ extends RefCounted
 class_name LocalAgentsVillagerDreamService
 
 const DreamInfluenceResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/DreamInfluenceResource.gd")
+const LlmRequestProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/LlmRequestProfileResource.gd")
 
 var llm_enabled: bool = true
 var _influences: Dictionary = {}
+var _request_profile = LlmRequestProfileResourceScript.new()
+
+func _init() -> void:
+	_request_profile.profile_id = "dream_generation"
+	_request_profile.temperature = 0.7
+	_request_profile.top_p = 0.95
+	_request_profile.max_tokens = 140
+	_request_profile.stop = PackedStringArray(["\nVillager:", "\nNarrator hint:"])
+	_request_profile.reset_context = true
+	_request_profile.cache_prompt = false
+	_request_profile.retry_count = 1
+	_request_profile.retry_seed_step = 1
+
+func set_request_profile(profile_resource: Resource) -> void:
+	if profile_resource == null:
+		return
+	if profile_resource.has_method("to_dict"):
+		_request_profile.from_dict(profile_resource.call("to_dict"))
 
 func set_dream_influence(npc_id: String, influence: Dictionary) -> void:
     if npc_id.strip_edges() == "":
@@ -52,13 +71,7 @@ Narrator hint: %s
     var request = {
         "prompt": prompt,
         "history": [],
-        "options": {
-            "temperature": 0.7,
-            "max_tokens": 140,
-            "seed": deterministic_seed,
-            "reset_context": true,
-            "cache_prompt": false,
-        },
+        "options": _request_profile.to_runtime_options(deterministic_seed),
     }
     var result: Dictionary = runtime.call("generate", request)
     if not bool(result.get("ok", false)):
@@ -70,30 +83,46 @@ Narrator hint: %s
             "text": text,
             "seed": deterministic_seed,
             "synthetic": false,
+            "trace": {
+                "query_keys": ["dream_influence", "villager_state"],
+                "referenced_ids": [npc_id],
+                "profile_id": String(_request_profile.profile_id),
+                "seed": deterministic_seed,
+                "sampler_params": _request_profile.to_runtime_options(deterministic_seed),
+            },
         }
 
-    var retry_request = {
-        "prompt": "%s\nRespond with at least two short sentences." % prompt,
-        "history": [],
-        "options": {
-            "temperature": 0.35,
-            "max_tokens": 140,
-            "seed": deterministic_seed + 1,
-            "reset_context": true,
-            "cache_prompt": false,
-        },
-    }
-    var retry_result: Dictionary = runtime.call("generate", retry_request)
-    if not bool(retry_result.get("ok", false)):
-        return retry_result
-    var retry_text := String(retry_result.get("text", "")).strip_edges()
+    var retry_max = maxi(0, int(_request_profile.retry_count))
+    var retry_step = maxi(1, int(_request_profile.retry_seed_step))
+    var retry_text := ""
+    var used_seed = deterministic_seed
+    for attempt in range(retry_max):
+        used_seed = deterministic_seed + retry_step * (attempt + 1)
+        var retry_request = {
+            "prompt": "%s\nRespond with at least two short sentences." % prompt,
+            "history": [],
+            "options": _request_profile.to_runtime_options(used_seed),
+        }
+        var retry_result: Dictionary = runtime.call("generate", retry_request)
+        if not bool(retry_result.get("ok", false)):
+            return retry_result
+        retry_text = String(retry_result.get("text", "")).strip_edges()
+        if retry_text != "":
+            break
     if retry_text == "":
         return {"ok": false, "error": "empty_generation"}
     return {
         "ok": true,
         "text": retry_text,
-        "seed": deterministic_seed + 1,
+        "seed": used_seed,
         "synthetic": false,
+        "trace": {
+            "query_keys": ["dream_influence", "villager_state"],
+            "referenced_ids": [npc_id],
+            "profile_id": String(_request_profile.profile_id),
+            "seed": used_seed,
+            "sampler_params": _request_profile.to_runtime_options(used_seed),
+        },
     }
 
 func dream_memory_metadata(influence: Dictionary, dream_seed: int) -> Dictionary:
