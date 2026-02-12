@@ -2,6 +2,12 @@ extends Resource
 class_name LocalAgentsWorldGenConfigResource
 
 @export var schema_version: int = 1
+@export var era_id: String = "prehistory"
+@export var era_temperature_shift: float = 0.0
+@export var era_moisture_shift: float = 0.0
+@export var era_food_density_multiplier: float = 1.0
+@export var era_wood_density_multiplier: float = 1.0
+@export var era_stone_density_multiplier: float = 1.0
 @export var map_width: int = 24
 @export var map_height: int = 24
 @export var voxel_world_height: int = 36
@@ -37,6 +43,12 @@ class_name LocalAgentsWorldGenConfigResource
 func to_dict() -> Dictionary:
     return {
         "schema_version": schema_version,
+        "era_id": era_id,
+        "era_temperature_shift": era_temperature_shift,
+        "era_moisture_shift": era_moisture_shift,
+        "era_food_density_multiplier": era_food_density_multiplier,
+        "era_wood_density_multiplier": era_wood_density_multiplier,
+        "era_stone_density_multiplier": era_stone_density_multiplier,
         "map_width": map_width,
         "map_height": map_height,
         "voxel_world_height": voxel_world_height,
@@ -72,6 +84,14 @@ func to_dict() -> Dictionary:
 
 func from_dict(values: Dictionary) -> void:
     schema_version = int(values.get("schema_version", schema_version))
+    era_id = String(values.get("era_id", era_id)).strip_edges()
+    if era_id == "":
+        era_id = "prehistory"
+    era_temperature_shift = clampf(float(values.get("era_temperature_shift", era_temperature_shift)), -0.5, 0.5)
+    era_moisture_shift = clampf(float(values.get("era_moisture_shift", era_moisture_shift)), -0.5, 0.5)
+    era_food_density_multiplier = clampf(float(values.get("era_food_density_multiplier", era_food_density_multiplier)), 0.1, 3.0)
+    era_wood_density_multiplier = clampf(float(values.get("era_wood_density_multiplier", era_wood_density_multiplier)), 0.1, 3.0)
+    era_stone_density_multiplier = clampf(float(values.get("era_stone_density_multiplier", era_stone_density_multiplier)), 0.1, 3.0)
     map_width = maxi(4, int(values.get("map_width", map_width)))
     map_height = maxi(4, int(values.get("map_height", map_height)))
     voxel_world_height = maxi(8, int(values.get("voxel_world_height", voxel_world_height)))

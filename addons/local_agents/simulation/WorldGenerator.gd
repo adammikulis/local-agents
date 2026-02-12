@@ -46,6 +46,8 @@ func generate(seed: int, config) -> Dictionary:
             var surface_y = _surface_height(normalized_surface, config, voxel_world_height)
             var elevation = clampf(float(surface_y) / float(maxi(1, voxel_world_height - 1)), 0.0, 1.0)
             var temperature = clampf((1.0 - latitude) * 0.65 + temperature_noise * 0.35 - elevation * 0.25, 0.0, 1.0)
+            moisture = clampf(moisture + float(_config_value(config, "era_moisture_shift", 0.0)), 0.0, 1.0)
+            temperature = clampf(temperature + float(_config_value(config, "era_temperature_shift", 0.0)), 0.0, 1.0)
             var slope = _estimate_slope(surface_noise, x, z)
 
             var tile_resource = WorldTileResourceScript.new()
@@ -58,7 +60,7 @@ func generate(seed: int, config) -> Dictionary:
             tile_resource.slope = slope
             tile_resource.biome = _classify_biome(elevation, moisture, temperature)
 
-            var densities = _resource_densities(tile_resource.biome)
+            var densities = _resource_densities(tile_resource.biome, config)
             tile_resource.food_density = float(densities.get("food_density", 0.3))
             tile_resource.wood_density = float(densities.get("wood_density", 0.3))
             tile_resource.stone_density = float(densities.get("stone_density", 0.3))
@@ -400,7 +402,10 @@ func _classify_biome(elevation: float, moisture: float, temperature: float) -> S
         return "woodland"
     return "plains"
 
-func _resource_densities(biome: String) -> Dictionary:
+func _resource_densities(biome: String, config = null) -> Dictionary:
+    return _apply_era_resource_multipliers(_base_resource_densities(biome), config)
+
+func _base_resource_densities(biome: String) -> Dictionary:
     match biome:
         "highland":
             return {"food_density": 0.25, "wood_density": 0.22, "stone_density": 0.84}
@@ -414,3 +419,27 @@ func _resource_densities(biome: String) -> Dictionary:
             return {"food_density": 0.62, "wood_density": 0.88, "stone_density": 0.32}
         _:
             return {"food_density": 0.52, "wood_density": 0.49, "stone_density": 0.36}
+
+func _apply_era_resource_multipliers(base: Dictionary, config) -> Dictionary:
+    var food_mult = 1.0
+    var wood_mult = 1.0
+    var stone_mult = 1.0
+    if config != null:
+        food_mult = clampf(float(_config_value(config, "era_food_density_multiplier", 1.0)), 0.1, 3.0)
+        wood_mult = clampf(float(_config_value(config, "era_wood_density_multiplier", 1.0)), 0.1, 3.0)
+        stone_mult = clampf(float(_config_value(config, "era_stone_density_multiplier", 1.0)), 0.1, 3.0)
+    return {
+        "food_density": clampf(float(base.get("food_density", 0.5)) * food_mult, 0.0, 1.0),
+        "wood_density": clampf(float(base.get("wood_density", 0.5)) * wood_mult, 0.0, 1.0),
+        "stone_density": clampf(float(base.get("stone_density", 0.5)) * stone_mult, 0.0, 1.0),
+    }
+
+func _config_value(config, key: String, default_value):
+    if config == null:
+        return default_value
+    if config is Dictionary:
+        return (config as Dictionary).get(key, default_value)
+    var value = config.get(key)
+    if value == null:
+        return default_value
+    return value

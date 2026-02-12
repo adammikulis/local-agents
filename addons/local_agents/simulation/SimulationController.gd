@@ -8,6 +8,7 @@ signal villager_dialogue_recorded(source_npc_id, target_npc_id, tick, event_id, 
 signal simulation_dependency_error(tick, phase, error_code)
 
 const DeterministicRngScript = preload("res://addons/local_agents/simulation/DeterministicRNG.gd")
+const RuntimePathsScript = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 const NarratorScript = preload("res://addons/local_agents/simulation/NarratorDirector.gd")
 const DreamScript = preload("res://addons/local_agents/simulation/VillagerDreamService.gd")
 const MindScript = preload("res://addons/local_agents/simulation/VillagerMindService.gd")
@@ -228,6 +229,8 @@ func configure(seed_text: String, narrator_enabled: bool = true, dream_llm_enabl
     _narrator.enabled = narrator_enabled
     _dreams.llm_enabled = dream_llm_enabled
     _mind.llm_enabled = dream_llm_enabled
+    if _culture_cycle != null:
+        _culture_cycle.llm_enabled = dream_llm_enabled
     _store.open(_store_path_for_instance())
     _apply_llama_server_integration()
     configure_environment(_worldgen_config)
@@ -459,6 +462,8 @@ func set_cognition_features(enable_thoughts: bool, enable_dialogue: bool, enable
     thoughts_enabled = enable_thoughts
     dialogue_enabled = enable_dialogue
     dreams_enabled = enable_dreams
+    if _culture_cycle != null:
+        _culture_cycle.llm_enabled = enable_thoughts or enable_dialogue or enable_dreams
 
 func set_cognition_contract_config(config_resource) -> void:
     _ensure_initialized()
@@ -510,6 +515,16 @@ func get_llama_server_options() -> Dictionary:
 
 func _apply_llama_server_integration() -> void:
     var generation_options := _llama_server_options.duplicate(true)
+    var resolved_model_path := _resolve_llama_model_path(generation_options)
+    if resolved_model_path != "":
+        generation_options["server_model_path"] = resolved_model_path
+        if not generation_options.has("model_path"):
+            generation_options["model_path"] = resolved_model_path
+        if not generation_options.has("server_model"):
+            generation_options["server_model"] = resolved_model_path.get_file()
+    var resolved_runtime_dir := _resolve_runtime_directory(generation_options)
+    if resolved_runtime_dir != "":
+        generation_options["runtime_directory"] = resolved_runtime_dir
     if _narrator != null and _narrator.has_method("set_runtime_options"):
         _narrator.call("set_runtime_options", generation_options)
     if _mind != null and _mind.has_method("set_runtime_options"):
@@ -524,7 +539,47 @@ func _apply_llama_server_integration() -> void:
         embedding_options["server_embeddings"] = true
         if not embedding_options.has("server_pooling"):
             embedding_options["server_pooling"] = "mean"
+        if resolved_model_path != "":
+            embedding_options["server_model_path"] = resolved_model_path
+            if not embedding_options.has("model_path"):
+                embedding_options["model_path"] = resolved_model_path
+            if not embedding_options.has("server_model"):
+                embedding_options["server_model"] = resolved_model_path.get_file()
+        if resolved_runtime_dir != "":
+            embedding_options["runtime_directory"] = resolved_runtime_dir
         _backstory_service.call("set_embedding_options", embedding_options)
+
+func _resolve_llama_model_path(options: Dictionary) -> String:
+    for key in ["server_model_path", "model_path", "model"]:
+        var candidate := String(options.get(key, "")).strip_edges()
+        if candidate == "":
+            continue
+        var normalized := RuntimePathsScript.normalize_path(candidate)
+        if normalized != "" and FileAccess.file_exists(normalized):
+            return normalized
+    if OS.has_environment("LOCAL_AGENTS_TEST_GGUF"):
+        var from_env := RuntimePathsScript.normalize_path(OS.get_environment("LOCAL_AGENTS_TEST_GGUF").strip_edges())
+        if from_env != "" and FileAccess.file_exists(from_env):
+            return from_env
+    if Engine.has_singleton("AgentRuntime"):
+        var runtime = Engine.get_singleton("AgentRuntime")
+        if runtime != null and runtime.has_method("get_default_model_path"):
+            var runtime_model := RuntimePathsScript.normalize_path(String(runtime.call("get_default_model_path")).strip_edges())
+            if runtime_model != "" and FileAccess.file_exists(runtime_model):
+                return runtime_model
+    var fallback := RuntimePathsScript.resolve_default_model()
+    if fallback != "" and FileAccess.file_exists(fallback):
+        return fallback
+    return ""
+
+func _resolve_runtime_directory(options: Dictionary) -> String:
+    var explicit_dir := RuntimePathsScript.normalize_path(String(options.get("runtime_directory", "")).strip_edges())
+    if explicit_dir != "":
+        return explicit_dir
+    var runtime_dir := RuntimePathsScript.runtime_dir()
+    if runtime_dir != "":
+        return runtime_dir
+    return ""
 
 func set_narrator_directive(text: String) -> void:
     _ensure_initialized()
@@ -1345,6 +1400,7 @@ func _persist_llm_trace_event(tick: int, task: String, actor_ids: Array, trace_v
     var query_keys: Array = trace.get("query_keys", [])
     var referenced_ids: Array = trace.get("referenced_ids", [])
     var normalized_actors: Array = _normalize_id_array(actor_ids)
+    var normalized_referenced: Array = _normalize_id_array(referenced_ids)
     var profile_id = String(trace.get("profile_id", "")).strip_edges()
     var sampler_params: Dictionary = {}
     var sampler_variant = trace.get("sampler_params", {})
@@ -1357,14 +1413,20 @@ func _persist_llm_trace_event(tick: int, task: String, actor_ids: Array, trace_v
         "profile_id": profile_id,
         "seed": int(trace.get("seed", 0)),
         "query_keys": _normalize_id_array(query_keys),
-        "referenced_ids": _normalize_id_array(referenced_ids),
+        "referenced_ids": normalized_referenced,
         "sampler_params": sampler_params,
     }
+    if _store == null:
+        _emit_dependency_error(tick, "llm_trace_store", "store_unavailable")
+        return
     var scope = "settlement"
     var owner_id = "settlement_main"
     if normalized_actors.size() == 1:
         scope = "individual"
         owner_id = String(normalized_actors[0])
+    elif normalized_referenced.size() == 1:
+        scope = "individual"
+        owner_id = String(normalized_referenced[0])
     _log_resource_event(tick, "sim_llm_trace_event", scope, owner_id, payload)
 
 func _normalize_id_array(values: Array) -> Array:

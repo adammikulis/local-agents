@@ -143,8 +143,8 @@ Refactor and deeper integration backlog:
 - [x] Extract shared `EnvironmentSignalSnapshotResource` (weather + erosion + solar + hydrology deltas) to replace ad-hoc dictionary payload passing between simulation, ecology, and rendering controllers.
 - [x] Centralize tile/column indexing helpers into one reusable runtime utility to avoid repeated `"x:y"` key parsing and per-system duplicate loops.
 - [ ] Move CPU weather/erosion update hotspots to GPU compute/viewport pipelines where deterministic replay can be preserved (start with weather advection + cloud transport).
-- [ ] Separate `EnvironmentController` responsibilities into focused renderer nodes/services (`TerrainRenderer`, `WaterRenderer`, `CloudRenderer`, `PostFXRenderer`) while preserving current scene contract.
-  - Status: extracted `CloudRenderer`, `RiverRenderer`, `PostFXRenderer`, and `WaterSourceRenderer`; remaining heavy split is terrain chunk/material pipeline into dedicated renderer service.
+- [x] Separate `EnvironmentController` responsibilities into focused renderer nodes/services (`TerrainRenderer`, `WaterRenderer`, `CloudRenderer`, `PostFXRenderer`) while preserving current scene contract.
+  - Status: extracted `TerrainRenderer`, `CloudRenderer`, `RiverRenderer`, `PostFXRenderer`, and `WaterSourceRenderer`; `EnvironmentController` now coordinates delegating render components.
 - [ ] Add explicit age-progression resource layers (era-specific biome/resource presets) so world generation is age-agnostic and not implicitly neolithic-scoped.
 - [x] Add schema-versioned snapshot resources for timelapse save/load to replace raw dictionary snapshots and improve migration safety.
 - [x] Add headless integration test that runs weather + erosion + solar for N ticks and validates deterministic terrain chunk delta behavior.
