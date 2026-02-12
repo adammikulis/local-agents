@@ -1,0 +1,132 @@
+@tool
+extends SceneTree
+
+const RUNTIME_TESTS := [
+	"res://addons/local_agents/tests/test_simulation_villager_cognition.gd",
+	"res://addons/local_agents/tests/test_simulation_no_empty_generation.gd",
+	"res://addons/local_agents/tests/test_llama_server_e2e.gd",
+	"res://addons/local_agents/tests/test_agent_integration.gd",
+	"res://addons/local_agents/tests/test_agent_runtime_heavy.gd",
+]
+
+const TestModelHelper := preload("res://addons/local_agents/tests/test_model_helper.gd")
+
+var _timeout_seconds: int = 420
+var _poll_interval_seconds: float = 0.25
+var _failures: Array[String] = []
+var _selected_tests: Array[String] = []
+
+func _init() -> void:
+	_timeout_seconds = _timeout_from_args()
+	_selected_tests = _tests_from_args()
+	call_deferred("_run_all")
+
+func _run_all() -> void:
+	if _selected_tests.is_empty():
+		_selected_tests = RUNTIME_TESTS.duplicate()
+	if not _validate_selected_tests():
+		quit(1)
+		return
+
+	var model_helper = TestModelHelper.new()
+	var ensured := model_helper.ensure_local_model()
+	if ensured == "":
+		push_error("Failed to auto-download required test model")
+		quit(1)
+		return
+	OS.set_environment("LOCAL_AGENTS_TEST_GGUF", ensured)
+	OS.set_environment("LOCAL_AGENTS_HEAVY_TIMEOUT_SEC", str(_timeout_seconds))
+
+	for script_path in _selected_tests:
+		var ok := await _run_case_with_timeout(script_path, _timeout_seconds)
+		if not ok:
+			_failures.append(script_path)
+
+	if _failures.is_empty():
+		print("All bounded runtime tests passed.")
+		quit(0)
+		return
+	push_error("Bounded runtime test failures:")
+	for script_path in _failures:
+		push_error("  - %s" % script_path)
+	quit(1)
+
+func _run_case_with_timeout(script_path: String, timeout_seconds: int) -> bool:
+	print("==> Running %s (timeout=%ss)" % [script_path, timeout_seconds])
+	var executable := OS.get_executable_path()
+	var args := PackedStringArray([
+		"--headless",
+		"--no-window",
+		"-s",
+		"res://addons/local_agents/tests/run_single_test.gd",
+		"--",
+		"--test=%s" % script_path,
+	])
+	var pid := OS.create_process(executable, args, false)
+	if pid <= 0:
+		push_error("Failed to spawn process for %s" % script_path)
+		return false
+	var started_ms := Time.get_ticks_msec()
+	var timeout_ms := maxi(1, timeout_seconds) * 1000
+	while OS.is_process_running(pid):
+		var elapsed_ms := Time.get_ticks_msec() - started_ms
+		if elapsed_ms >= timeout_ms:
+			var kill_error := OS.kill(pid)
+			if kill_error != OK:
+				push_error("Timeout on %s and failed to kill pid %d" % [script_path, pid])
+			push_error("Timed out after %ss: %s" % [timeout_seconds, script_path])
+			return false
+		await create_timer(_poll_interval_seconds).timeout
+	var exit_code := OS.get_process_exit_code(pid)
+	if exit_code == 0:
+		print("==> %s passed" % script_path)
+		return true
+	push_error("==> %s failed with exit code %d" % [script_path, exit_code])
+	return false
+
+func _timeout_from_args() -> int:
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--timeout-sec="):
+			return maxi(30, int(arg.trim_prefix("--timeout-sec=")))
+	return 420
+
+func _tests_from_args() -> Array[String]:
+	var selected: Array[String] = []
+	for arg in OS.get_cmdline_user_args():
+		if not arg.begins_with("--tests="):
+			continue
+		var raw = arg.trim_prefix("--tests=").strip_edges()
+		if raw == "":
+			continue
+		var tokens = raw.split(",", false)
+		for token_variant in tokens:
+			var token = String(token_variant).strip_edges()
+			if token == "":
+				continue
+			var resolved = _resolve_test_token(token)
+			if resolved == "":
+				selected.append(token)
+				continue
+			if not selected.has(resolved):
+				selected.append(resolved)
+	return selected
+
+func _resolve_test_token(token: String) -> String:
+	if RUNTIME_TESTS.has(token):
+		return token
+	for script_path in RUNTIME_TESTS:
+		if script_path.ends_with("/%s" % token) or script_path.get_file() == token:
+			return script_path
+	return ""
+
+func _validate_selected_tests() -> bool:
+	var ok := true
+	for script_path in _selected_tests:
+		if RUNTIME_TESTS.has(script_path):
+			continue
+		push_error("Unknown runtime test in --tests filter: %s" % script_path)
+		ok = false
+	if ok and _selected_tests.is_empty():
+		push_error("No runtime tests selected")
+		ok = false
+	return ok
