@@ -25,12 +25,13 @@ func run_test(_tree: SceneTree) -> bool:
         push_error("Heavy test model not found at %s" % resolved_path)
         return false
 
-    var loaded := bool(runtime.call("load_model", resolved_path, {
+    var load_options = model_helper.apply_runtime_overrides({
         "context_size": 64,
         "embedding": true,
         "max_tokens": 16,
         "n_gpu_layers": 0,
-    }))
+    })
+    var loaded := bool(runtime.call("load_model", resolved_path, load_options))
     if not loaded:
         push_error("Failed to load model for heavy test")
         return false
@@ -51,7 +52,7 @@ func run_test(_tree: SceneTree) -> bool:
         ],
         "prompt": "Reply now.",
         "options": {
-            "max_tokens": 16,
+            "max_tokens": model_helper.max_tokens_for_tests(16),
             "temperature": 0.2,
         },
     })
@@ -62,7 +63,7 @@ func run_test(_tree: SceneTree) -> bool:
     var json_response: Dictionary = runtime.call("generate", {
         "prompt": "Return only JSON: {\"status\":\"ok\"}",
         "options": {
-            "max_tokens": 64,
+            "max_tokens": model_helper.max_tokens_for_tests(64),
             "temperature": 0.1,
             "stop": ["\nuser:"],
             "response_format": {"type": "json_object"},

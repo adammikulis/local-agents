@@ -89,6 +89,13 @@ func ensure_running(options: Dictionary, model_path: String, runtime_dir: String
         args.append("-np")
         args.append(str(slots))
 
+    if bool(options.get("server_embeddings", false)):
+        args.append("--embeddings")
+    var pooling_mode := String(options.get("server_pooling", "")).strip_edges()
+    if pooling_mode != "":
+        args.append("--pooling")
+        args.append(pooling_mode)
+
     var pid := OS.create_process(server_binary, args, false)
     if pid <= 0:
         return {

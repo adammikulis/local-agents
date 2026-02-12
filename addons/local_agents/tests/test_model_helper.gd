@@ -149,3 +149,41 @@ func _command_exists(name: String) -> bool:
     var output := []
     var code := OS.execute("which", PackedStringArray([name]), output, true, true)
     return code == 0
+
+func should_use_gpu_for_tests() -> bool:
+    var flag := OS.get_environment("LOCAL_AGENTS_TEST_USE_GPU").strip_edges().to_lower()
+    return flag in ["1", "true", "yes", "on"]
+
+func gpu_layers_for_tests(default_layers: int = 0) -> int:
+    if not should_use_gpu_for_tests():
+        return default_layers
+    var raw := OS.get_environment("LOCAL_AGENTS_TEST_GPU_LAYERS").strip_edges()
+    if raw == "":
+        # Let runtime/server offload as much as practical when explicitly enabled.
+        return 999
+    return maxi(1, int(raw))
+
+func with_gpu_layers(options: Dictionary, default_layers: int = 0) -> Dictionary:
+    var out := options.duplicate(true)
+    out["n_gpu_layers"] = gpu_layers_for_tests(default_layers)
+    return out
+
+func context_size_for_tests(default_context_size: int) -> int:
+    var raw := OS.get_environment("LOCAL_AGENTS_TEST_CONTEXT_SIZE").strip_edges()
+    if raw == "":
+        return default_context_size
+    return maxi(16, int(raw))
+
+func max_tokens_for_tests(default_max_tokens: int) -> int:
+    var raw := OS.get_environment("LOCAL_AGENTS_TEST_MAX_TOKENS").strip_edges()
+    if raw == "":
+        return default_max_tokens
+    return maxi(8, int(raw))
+
+func apply_runtime_overrides(options: Dictionary) -> Dictionary:
+    var out := with_gpu_layers(options, int(options.get("n_gpu_layers", 0)))
+    if out.has("context_size"):
+        out["context_size"] = context_size_for_tests(int(out.get("context_size", 64)))
+    if out.has("max_tokens"):
+        out["max_tokens"] = max_tokens_for_tests(int(out.get("max_tokens", 64)))
+    return out

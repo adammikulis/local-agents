@@ -18,20 +18,23 @@ func run_test(tree: SceneTree) -> bool:
     var agent = AgentScript.new()
     tree.get_root().add_child(agent)
 
+    var server_options = helper.apply_runtime_overrides({
+        "backend": "llama_server",
+        "server_autostart": true,
+        "server_shutdown_on_exit": true,
+        "server_start_timeout_ms": 45000,
+        "server_ready_timeout_ms": 2000,
+        "server_base_url": "http://127.0.0.1:18080",
+        "server_model_path": model_path,
+        "server_model": "local-agents",
+        "context_size": 4096,
+        "max_tokens": 16,
+        "temperature": 0.2,
+        "n_gpu_layers": 0,
+    })
     var result: Dictionary = agent.think(
         "Reply with exactly one word: ok.",
-        {
-            "backend": "llama_server",
-            "server_autostart": true,
-            "server_shutdown_on_exit": true,
-            "server_start_timeout_ms": 45000,
-            "server_ready_timeout_ms": 2000,
-            "server_base_url": "http://127.0.0.1:18080",
-            "server_model_path": model_path,
-            "server_model": "local-agents",
-            "max_tokens": 16,
-            "temperature": 0.2,
-        }
+        server_options
     )
 
     var ok := bool(result.get("ok", false))

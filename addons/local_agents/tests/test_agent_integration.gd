@@ -24,19 +24,20 @@ func run_test(tree: SceneTree) -> bool:
         push_error("Agent node failed to initialize")
         agent.queue_free()
         return false
-    var loaded := bool(agent_node.call("load_model", model_path, {
+    var load_options = helper.apply_runtime_overrides({
         "context_size": 64,
         "embedding": true,
         "max_tokens": 24,
         "n_gpu_layers": 0,
-    }))
+    })
+    var loaded := bool(agent_node.call("load_model", model_path, load_options))
     if not loaded:
         push_error("Failed to load model for integration test")
         agent.queue_free()
         return false
 
     var result := agent.call("think", "Reply with exactly one word: ok.", {
-        "max_tokens": 16,
+        "max_tokens": helper.max_tokens_for_tests(16),
         "temperature": 0.2,
     })
     var ok: bool = bool(result.get("ok", false))

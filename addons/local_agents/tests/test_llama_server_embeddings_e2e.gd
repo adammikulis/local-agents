@@ -20,13 +20,18 @@ func run_test(_tree: SceneTree) -> bool:
         return false
 
     var manager = LlamaServerManager.new()
-    var boot: Dictionary = manager.ensure_running({
+    var server_options = helper.apply_runtime_overrides({
         "server_base_url": "http://127.0.0.1:18081",
+        "server_embeddings": true,
+        "server_pooling": "mean",
         "server_start_timeout_ms": 45000,
         "server_ready_timeout_ms": 2000,
         "server_autostart": true,
         "server_shutdown_on_exit": true,
-    }, model_path, "")
+        "context_size": 2048,
+        "n_gpu_layers": 0,
+    })
+    var boot: Dictionary = manager.ensure_running(server_options, model_path, "")
     if not bool(boot.get("ok", false)):
         push_error("Failed to start llama-server for embedding test: %s" % JSON.stringify(boot, "", false, true))
         return false
@@ -34,7 +39,6 @@ func run_test(_tree: SceneTree) -> bool:
     var embedding: PackedFloat32Array = runtime.call("embed_text", "EmbeddingGemma is running.", {
         "backend": "llama_server",
         "server_base_url": "http://127.0.0.1:18081",
-        "server_model": "local-agents",
         "normalize": true,
     })
     var ok := not embedding.is_empty()
