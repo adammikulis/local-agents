@@ -30,11 +30,15 @@ const GridConfigResourceScript = preload("res://addons/local_agents/configuratio
 
 var _debug_overlay: Node3D = null
 var _smell_debug_root: Node3D = null
+var _wind_debug_root: Node3D = null
+var _temperature_debug_root: Node3D = null
 var _smell_emit_accumulator: float = 0.0
 var _seed_sequence: int = 0
 var _smell_field
 var _wind_field
 var _smell_debug_nodes: Dictionary = {}
+var _wind_debug_nodes: Dictionary = {}
+var _temperature_debug_nodes: Dictionary = {}
 var _smell_field_texture: ImageTexture = null
 var _sim_time_seconds: float = 0.0
 
@@ -87,12 +91,17 @@ func _physics_process(delta: float) -> void:
 	_step_rabbits(delta)
 	_sync_debug_visibility()
 	_refresh_smell_debug()
+	_refresh_wind_temperature_debug()
 	_update_smell_field_texture()
 
 func set_debug_overlay(overlay: Node3D) -> void:
 	_debug_overlay = overlay
 	if overlay != null and overlay.has_node("SmellDebug"):
 		_smell_debug_root = overlay.get_node("SmellDebug")
+	if overlay != null and overlay.has_node("WindDebug"):
+		_wind_debug_root = overlay.get_node("WindDebug")
+	if overlay != null and overlay.has_node("TemperatureDebug"):
+		_temperature_debug_root = overlay.get_node("TemperatureDebug")
 
 func set_rain_intensity(next_rain_intensity: float) -> void:
 	rain_intensity = clampf(next_rain_intensity, 0.0, 1.0)
@@ -117,6 +126,16 @@ func clear_generated() -> void:
 		if is_instance_valid(node):
 			node.queue_free()
 	_smell_debug_nodes.clear()
+	for key in _wind_debug_nodes.keys():
+		var wind_node = _wind_debug_nodes[key]
+		if is_instance_valid(wind_node):
+			wind_node.queue_free()
+	_wind_debug_nodes.clear()
+	for key in _temperature_debug_nodes.keys():
+		var temp_node = _temperature_debug_nodes[key]
+		if is_instance_valid(temp_node):
+			temp_node.queue_free()
+	_temperature_debug_nodes.clear()
 	if _smell_field != null:
 		_smell_field.clear()
 	_update_smell_field_texture()
@@ -269,6 +288,79 @@ func _sync_debug_visibility() -> void:
 	if _debug_overlay != null:
 		visible = visible and bool(_debug_overlay.get("show_smell"))
 	_smell_debug_root.visible = visible
+	if _wind_debug_root != null:
+		var show_wind = _debug_overlay == null or bool(_debug_overlay.get("show_wind"))
+		_wind_debug_root.visible = smell_debug_enabled and show_wind
+	if _temperature_debug_root != null:
+		var show_temp = _debug_overlay == null or bool(_debug_overlay.get("show_temperature"))
+		_temperature_debug_root.visible = smell_debug_enabled and show_temp
+
+func _refresh_wind_temperature_debug() -> void:
+	if _wind_field == null:
+		return
+	if _wind_debug_root == null and _temperature_debug_root == null:
+		return
+	var vectors: Array = _wind_field.build_debug_vectors()
+	var active: Dictionary = {}
+	for row_variant in vectors:
+		var row: Dictionary = row_variant
+		var key = String(row.get("key", ""))
+		active[key] = true
+		var world = Vector3(row.get("world", Vector3.ZERO))
+		var wind_vec = Vector2(row.get("wind", Vector2.ZERO))
+		var speed = float(row.get("speed", 0.0))
+		var temp = clampf(float(row.get("temperature", 0.0)), 0.0, 1.0)
+		if _wind_debug_root != null:
+			var wind_node = _wind_debug_nodes.get(key, null)
+			if wind_node == null or not is_instance_valid(wind_node):
+				wind_node = MeshInstance3D.new()
+				var box := BoxMesh.new()
+				box.size = Vector3(0.06, 0.06, 0.52)
+				wind_node.mesh = box
+				var mat := StandardMaterial3D.new()
+				mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+				wind_node.material_override = mat
+				_wind_debug_root.add_child(wind_node)
+				_wind_debug_nodes[key] = wind_node
+			wind_node.position = world
+			var dir = Vector3(wind_vec.x, 0.0, wind_vec.y)
+			if dir.length_squared() > 0.000001:
+				wind_node.look_at(world + dir, Vector3.UP, true)
+			var wind_len = clampf(0.14 + speed * 0.3, 0.14, 0.9)
+			wind_node.scale = Vector3(1.0, 1.0, wind_len)
+			if wind_node.material_override is StandardMaterial3D:
+				wind_node.material_override.albedo_color = Color(0.2, 0.65 + minf(0.35, speed * 0.2), 0.95, 0.9)
+		if _temperature_debug_root != null:
+			var temp_node = _temperature_debug_nodes.get(key, null)
+			if temp_node == null or not is_instance_valid(temp_node):
+				temp_node = MeshInstance3D.new()
+				var sphere := SphereMesh.new()
+				sphere.radius = 0.04
+				sphere.height = 0.08
+				temp_node.mesh = sphere
+				var tmat := StandardMaterial3D.new()
+				tmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+				tmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+				temp_node.material_override = tmat
+				_temperature_debug_root.add_child(temp_node)
+				_temperature_debug_nodes[key] = temp_node
+			temp_node.position = world + Vector3(0.0, 0.12, 0.0)
+			if temp_node.material_override is StandardMaterial3D:
+				temp_node.material_override.albedo_color = Color(temp, 0.15 + (1.0 - temp) * 0.35, 1.0 - temp, 0.68)
+	for key in _wind_debug_nodes.keys():
+		if active.has(String(key)):
+			continue
+		var node = _wind_debug_nodes[key]
+		if is_instance_valid(node):
+			node.queue_free()
+		_wind_debug_nodes.erase(key)
+	for key in _temperature_debug_nodes.keys():
+		if active.has(String(key)):
+			continue
+		var tnode = _temperature_debug_nodes[key]
+		if is_instance_valid(tnode):
+			tnode.queue_free()
+		_temperature_debug_nodes.erase(key)
 
 func _update_smell_field_texture() -> void:
 	if _smell_field == null:

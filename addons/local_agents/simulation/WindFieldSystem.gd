@@ -14,8 +14,10 @@ var _temperature_layers: Dictionary = {}
 var _current_wind_layers: Dictionary = {}
 
 const TEMP_LAYER_PREFIX = "temperature_l"
-const WIND_X_LAYER_PREFIX = "wind_x_l"
-const WIND_Y_LAYER_PREFIX = "wind_y_l"
+const WIND_X_POS_LAYER_PREFIX = "wind_x_pos_l"
+const WIND_X_NEG_LAYER_PREFIX = "wind_x_neg_l"
+const WIND_Y_POS_LAYER_PREFIX = "wind_y_pos_l"
+const WIND_Y_NEG_LAYER_PREFIX = "wind_y_neg_l"
 
 func configure_from_grid(grid_config: Resource) -> void:
 	if grid_config != null:
@@ -42,8 +44,8 @@ func step(delta: float, ambient_temp: float = 0.5, diurnal_phase: float = 0.0, r
 
 func sample_wind(world_position: Vector3) -> Vector2:
 	var level = _detail_level_for_position(world_position)
-	var wx = _grid_system.sample_layer_at_world(_wind_x_layer(level), world_position)
-	var wy = _grid_system.sample_layer_at_world(_wind_y_layer(level), world_position)
+	var wx = _grid_system.sample_layer_at_world(_wind_x_pos_layer(level), world_position) - _grid_system.sample_layer_at_world(_wind_x_neg_layer(level), world_position)
+	var wy = _grid_system.sample_layer_at_world(_wind_y_pos_layer(level), world_position) - _grid_system.sample_layer_at_world(_wind_y_neg_layer(level), world_position)
 	return Vector2(wx, wy)
 
 func sample_temperature(world_position: Vector3) -> float:
@@ -69,12 +71,13 @@ func _initialize_temperature_layers() -> void:
 				_grid_system.deposit(temp_layer, world_pos, base_temp)
 
 func _update_temperature_layers(delta: float, ambient_temp: float, diurnal_phase: float, rain_intensity: float) -> void:
+	var dims = _grid_dims()
 	for level in range(3):
 		var layer = _temp_layer(level)
 		var relaxed_ambient = clampf(ambient_temp + 0.12 * sin(diurnal_phase + float(level) * 0.5), 0.05, 1.0)
 		_grid_system.advect_and_decay_layer(layer, delta, clampf(1.0 - (0.02 + rain_intensity * 0.03) * delta, 0.90, 1.0), Vector2.ZERO)
-		for y in range(0, 18):
-			for x in range(0, 18):
+		for y in range(dims.y):
+			for x in range(dims.x):
 				var world = _grid_system.cell_to_world_level(x, y, 0)
 				var world_pos = Vector3(world.x, 0.0, world.y)
 				var current = _grid_system.sample_layer_at_world(layer, world_pos)
@@ -86,15 +89,17 @@ func _update_temperature_layers(delta: float, ambient_temp: float, diurnal_phase
 					_grid_system.deposit(layer, world_pos, maxf(0.0, delta_t))
 
 func _step_wind_from_temperature(delta: float) -> void:
+	var dims = _grid_dims()
 	for level in range(3):
-		var wind_x = _wind_x_layer(level)
-		var wind_y = _wind_y_layer(level)
-		_current_wind_layers[wind_x] = true
-		_current_wind_layers[wind_y] = true
-		_grid_system.clear_layer(wind_x)
-		_grid_system.clear_layer(wind_y)
-		for y in range(0, 18):
-			for x in range(0, 18):
+		var wind_x_pos = _wind_x_pos_layer(level)
+		var wind_x_neg = _wind_x_neg_layer(level)
+		var wind_y_pos = _wind_y_pos_layer(level)
+		var wind_y_neg = _wind_y_neg_layer(level)
+		for layer_name in [wind_x_pos, wind_x_neg, wind_y_pos, wind_y_neg]:
+			_current_wind_layers[layer_name] = true
+			_grid_system.clear_layer(layer_name)
+		for y in range(dims.y):
+			for x in range(dims.x):
 				var world = _grid_system.cell_to_world_level(x, y, 0)
 				var world_pos = Vector3(world.x, 0.0, world.y)
 				var pressure_gradient = _pressure_gradient(world_pos, level)
@@ -105,15 +110,16 @@ func _step_wind_from_temperature(delta: float) -> void:
 				var terrain_drag = clampf(0.25 + absf(_terrain_height(world)) * 0.35, 0.2, 0.8)
 				var base = _base_direction * (_base_intensity * _base_speed)
 				var wind = (base + pg_force + valley_channel_force) * (1.0 - terrain_drag * 0.35)
-				var prev = Vector2(
-					_grid_system.sample_layer_at_world(wind_x, world_pos),
-					_grid_system.sample_layer_at_world(wind_y, world_pos)
-				)
+				var prev = sample_wind(world_pos)
 				var relaxed = prev.lerp(wind, clampf(0.15 * delta + 0.08, 0.05, 0.35))
-				if relaxed.x > 0.0:
-					_grid_system.deposit(wind_x, world_pos, relaxed.x)
-				if relaxed.y > 0.0:
-					_grid_system.deposit(wind_y, world_pos, relaxed.y)
+				if relaxed.x >= 0.0:
+					_grid_system.deposit(wind_x_pos, world_pos, relaxed.x)
+				else:
+					_grid_system.deposit(wind_x_neg, world_pos, -relaxed.x)
+				if relaxed.y >= 0.0:
+					_grid_system.deposit(wind_y_pos, world_pos, relaxed.y)
+				else:
+					_grid_system.deposit(wind_y_neg, world_pos, -relaxed.y)
 
 func _pressure_gradient(world_position: Vector3, level: int) -> Vector2:
 	var offset = maxf(0.2, float(_grid_config.get("cell_size")) * (1.0 + float(level) * 0.4))
@@ -155,8 +161,45 @@ func _ridge_signal(world: Vector2) -> float:
 func _temp_layer(level: int) -> String:
 	return "%s%d" % [TEMP_LAYER_PREFIX, level]
 
-func _wind_x_layer(level: int) -> String:
-	return "%s%d" % [WIND_X_LAYER_PREFIX, level]
+func _wind_x_pos_layer(level: int) -> String:
+	return "%s%d" % [WIND_X_POS_LAYER_PREFIX, level]
 
-func _wind_y_layer(level: int) -> String:
-	return "%s%d" % [WIND_Y_LAYER_PREFIX, level]
+func _wind_x_neg_layer(level: int) -> String:
+	return "%s%d" % [WIND_X_NEG_LAYER_PREFIX, level]
+
+func _wind_y_pos_layer(level: int) -> String:
+	return "%s%d" % [WIND_Y_POS_LAYER_PREFIX, level]
+
+func _wind_y_neg_layer(level: int) -> String:
+	return "%s%d" % [WIND_Y_NEG_LAYER_PREFIX, level]
+
+func build_debug_vectors(max_cells: int = 220, min_speed: float = 0.03) -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	var dims = _grid_dims()
+	var stride = maxi(1, int(ceil(float(maxi(dims.x, dims.y)) / 24.0)))
+	for y in range(0, dims.y, stride):
+		for x in range(0, dims.x, stride):
+			var world = _grid_system.cell_to_world_level(x, y, 0)
+			var world_pos = Vector3(world.x, 0.0, world.y)
+			var wind = sample_wind(world_pos)
+			var speed = wind.length()
+			if speed < min_speed:
+				continue
+			var temperature = sample_temperature(world_pos)
+			rows.append({
+				"key": "%d_%d" % [x, y],
+				"world": Vector3(world.x, 0.15, world.y),
+				"wind": wind,
+				"speed": speed,
+				"temperature": temperature,
+			})
+	if rows.size() <= max_cells:
+		return rows
+	rows.sort_custom(func(a, b): return float(a.get("speed", 0.0)) > float(b.get("speed", 0.0)))
+	rows.resize(max_cells)
+	return rows
+
+func _grid_dims() -> Vector2i:
+	var snap: Dictionary = _grid_system.snapshot()
+	var grid: Dictionary = snap.get("grid", {})
+	return Vector2i(maxi(1, int(grid.get("width", 1))), maxi(1, int(grid.get("height", 1))))
