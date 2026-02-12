@@ -136,15 +136,15 @@ Design intent:
 - [ ] Footpaths connecting huts, hearth, storage, water, and nearby gathering zones.
 
 ### 4.3 Organic Growth Rules
-- [ ] Hut expansion occurs when household crowding + resource throughput thresholds are met.
-- [ ] New structures bias toward path adjacency and safe distance from floodplain.
+- [x] Hut expansion occurs when household crowding + resource throughput thresholds are met.
+- [x] New structures bias toward path adjacency and safe distance from floodplain.
 - [ ] Resource depletion forces path extension, temporary camps, or relocation pressure.
-- [ ] Abandon underperforming huts if access cost exceeds threshold for sustained period.
+- [x] Abandon underperforming huts if access cost exceeds threshold for sustained period.
 - [ ] Emergent pathing from movement:
-- [ ] Every villager traversal contributes heat to traversed tile/edge.
+- [x] Every villager traversal contributes heat to traversed tile/edge.
 - [ ] Heat above threshold creates or strengthens path segments automatically.
-- [ ] Paths decay if unused for sustained periods.
-- [ ] Re-used routes become preferred for logistics/job planning.
+- [x] Paths decay if unused for sustained periods.
+- [x] Re-used routes become preferred for logistics/job planning.
 
 ## 5) Economy and Material Flow (Subsistence)
 
@@ -169,10 +169,10 @@ Design intent:
 - [ ] Route traversal cost affects delivered quantity and timing.
 - [ ] Delivery failures are represented as partial transfers (never silent).
 - [ ] Route choice feeds path heat accumulation to enable auto-trail formation.
-- [ ] Movement speed modifiers are explicit and deterministic:
-- [ ] Faster movement on established paths (based on path strength/quality).
-- [ ] Slower movement through brush/forest density.
-- [ ] Additional penalties for steep slope and shallow-water crossings.
+- [x] Movement speed modifiers are explicit and deterministic:
+- [x] Faster movement on established paths (based on path strength/quality).
+- [x] Slower movement through brush/forest density.
+- [x] Additional penalties for steep slope and shallow-water crossings.
 - [ ] Seasonal/weather modifiers apply as deterministic multipliers (when enabled).
 
 ## 6) Tribal Social and Cultural System
@@ -409,12 +409,12 @@ Debug and inspector discipline:
 - [ ] `TerrainTraversalProfileResource` (brush density, slope factor, water crossing cost, biome speed multipliers).
 
 ### 11.2 Settlement Resources
-- [ ] `SettlementAnchorResource` (water/hearth/storage/sacred markers).
-- [ ] `PathNetworkResource` (footpaths, traversal cost, usage heat).
-- [ ] `StructureStateResource` (hut/storage/hearth lifecycle).
+- [x] `SettlementAnchorResource` (water/hearth/storage/sacred markers).
+- [x] `PathNetworkResource` (footpaths, traversal cost, usage heat).
+- [x] `StructureStateResource` (hut/storage/hearth lifecycle).
 - [ ] `SpawnCandidateResource` (score breakdown for water-first selection debugging).
-- [ ] `SettlementGrowthConfigResource` (expansion/abandonment thresholds).
-- [ ] `PathFormationConfigResource` (heat gain, creation threshold, strengthening curve, decay rate).
+- [x] `SettlementGrowthConfigResource` (expansion/abandonment thresholds).
+- [x] `PathFormationConfigResource` (heat gain, creation threshold, strengthening curve, decay rate).
 - [ ] `PathTraversalConfigResource` (path speed bonus curve by path strength/usage).
 
 ### 11.3 Culture Resources
@@ -475,10 +475,10 @@ Debug and inspector discipline:
 - [ ] Village survives baseline scenario without starvation collapse.
 - [ ] Resource depletion triggers path extension or adaptation.
 - [ ] Carry constraints enforce realistic movement limits.
-- [ ] Emergent trails appear on high-traffic routes and decay when traffic drops.
-- [ ] Movement speed profile test passes:
-- [ ] Path route travel time < brush route travel time for same distance.
-- [ ] High brush + slope routes are correctly penalized.
+- [x] Emergent trails appear on high-traffic routes and decay when traffic drops.
+- [x] Movement speed profile test passes:
+- [x] Path route travel time < brush route travel time for same distance.
+- [x] High brush + slope routes are correctly penalized.
 
 ### 12.4 Culture and Cognition
 - [ ] Oral transfer raises youth knowledge confidence deterministically.

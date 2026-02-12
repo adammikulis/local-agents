@@ -18,8 +18,10 @@ const HydrologySystemScript = preload("res://addons/local_agents/simulation/Hydr
 const SettlementSeederScript = preload("res://addons/local_agents/simulation/SettlementSeeder.gd")
 const WorldGenConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldGenConfigResource.gd")
 const PathNetworkSystemScript = preload("res://addons/local_agents/simulation/PathNetworkSystem.gd")
+const SettlementGrowthSystemScript = preload("res://addons/local_agents/simulation/SettlementGrowthSystem.gd")
 const TerrainTraversalProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/TerrainTraversalProfileResource.gd")
 const PathFormationConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/PathFormationConfigResource.gd")
+const SettlementGrowthConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/SettlementGrowthConfigResource.gd")
 
 const CommunityLedgerScript = preload("res://addons/local_agents/simulation/CommunityLedgerSystem.gd")
 const HouseholdLedgerScript = preload("res://addons/local_agents/simulation/HouseholdLedgerSystem.gd")
@@ -61,6 +63,10 @@ var _spawn_artifact: Dictionary = {}
 var _path_network_system
 var _terrain_traversal_profile
 var _path_formation_config
+var _settlement_growth_system
+var _settlement_growth_config
+var _settlement_growth_events: Dictionary = {"expanded": [], "abandoned": []}
+var _household_growth_metrics: Dictionary = {}
 var _villager_positions: Dictionary = {}
 var _household_positions: Dictionary = {}
 var _community_anchor_position: Vector3 = Vector3.ZERO
@@ -122,13 +128,19 @@ func _ready() -> void:
         _worldgen_config = WorldGenConfigResourceScript.new()
     if _path_network_system == null:
         _path_network_system = PathNetworkSystemScript.new()
+    if _settlement_growth_system == null:
+        _settlement_growth_system = SettlementGrowthSystemScript.new()
     if _terrain_traversal_profile == null:
         _terrain_traversal_profile = TerrainTraversalProfileResourceScript.new()
     if _path_formation_config == null:
         _path_formation_config = PathFormationConfigResourceScript.new()
+    if _settlement_growth_config == null:
+        _settlement_growth_config = SettlementGrowthConfigResourceScript.new()
     if _path_network_system != null:
         _path_network_system.set_traversal_profile(_terrain_traversal_profile)
         _path_network_system.set_formation_config(_path_formation_config)
+    if _settlement_growth_system != null:
+        _settlement_growth_system.set_config(_settlement_growth_config)
 
     if _community_ledger == null:
         _community_ledger = _community_ledger_system.initial_community_ledger()
@@ -171,6 +183,8 @@ func configure_environment(config_resource = null) -> Dictionary:
     _spawn_artifact["seed"] = settlement_seed
     var chosen = _spawn_artifact.get("chosen", {})
     _community_anchor_position = Vector3(float(chosen.get("x", 0.0)), 0.0, float(chosen.get("y", 0.0)))
+    if _settlement_growth_system != null:
+        _settlement_growth_system.ensure_core_anchors(_community_anchor_position)
 
     return {
         "ok": true,
@@ -221,6 +235,14 @@ func set_path_formation_config(config_resource) -> void:
         _path_formation_config = config_resource
     if _path_network_system != null:
         _path_network_system.set_formation_config(_path_formation_config)
+
+func set_settlement_growth_config(config_resource) -> void:
+    if config_resource == null:
+        _settlement_growth_config = SettlementGrowthConfigResourceScript.new()
+    else:
+        _settlement_growth_config = config_resource
+    if _settlement_growth_system != null:
+        _settlement_growth_system.set_config(_settlement_growth_config)
 
 func register_villager(npc_id: String, display_name: String, initial_state: Dictionary = {}) -> Dictionary:
     if npc_id.strip_edges() == "":
@@ -274,6 +296,8 @@ func register_villager(npc_id: String, display_name: String, initial_state: Dict
 func process_tick(tick: int, fixed_delta: float) -> Dictionary:
     _resource_event_sequence = 0
     _last_partial_delivery_count = 0
+    _household_growth_metrics = {}
+    _settlement_growth_events = {"expanded": [], "abandoned": []}
     if _path_network_system != null:
         _path_network_system.step_decay()
     var npc_ids = _sorted_npc_ids()
@@ -281,6 +305,7 @@ func process_tick(tick: int, fixed_delta: float) -> Dictionary:
         _apply_need_decay(npc_id, fixed_delta)
 
     _run_resource_pipeline(tick, npc_ids)
+    _run_settlement_growth(tick)
 
     if narrator_enabled and tick > 0 and tick % 24 == 0:
         if not _generate_narrator_direction(tick):
@@ -333,6 +358,10 @@ func current_snapshot(tick: int) -> Dictionary:
         "path_network": _path_network_system.snapshot() if _path_network_system != null else {},
         "path_formation_config": _path_formation_config.to_dict() if _path_formation_config != null else {},
         "terrain_traversal_profile": _terrain_traversal_profile.to_dict() if _terrain_traversal_profile != null else {},
+        "settlement_growth_config": _settlement_growth_config.to_dict() if _settlement_growth_config != null else {},
+        "settlement_anchors": _settlement_growth_system.snapshot_anchors() if _settlement_growth_system != null else [],
+        "settlement_structures": _settlement_growth_system.snapshot_structures() if _settlement_growth_system != null else {},
+        "settlement_growth_events": _settlement_growth_events.duplicate(true),
         "partial_delivery_count": _last_partial_delivery_count,
         "villagers": _serialize_villagers(),
         "community_ledger": _community_ledger.to_dict(),
@@ -555,6 +584,10 @@ func _run_resource_pipeline(tick: int, npc_ids: Array) -> void:
             "transport_capacity_weight": transport_capacity,
             "route_profiles": route_adjusted.get("route_profiles", {}),
         })
+        _household_growth_metrics[household_id] = {
+            "throughput": _sum_payload(ration_moved),
+            "path_strength": _mean_route_path_strength(route_adjusted.get("route_profiles", {})),
+        }
 
         household_ledger = _household_ledger_system.apply_ration(household_ledger, ration_moved)
 
@@ -653,6 +686,32 @@ func _run_resource_pipeline(tick: int, npc_ids: Array) -> void:
 
     _community_ledger = _community_ledger_system.clamp_to_capacity(_community_ledger)
     _assert_resource_invariants(tick, npc_ids)
+
+func _run_settlement_growth(tick: int) -> void:
+    if _settlement_growth_system == null:
+        return
+    var household_counts = _household_member_counts()
+    var result: Dictionary = _settlement_growth_system.process_tick(
+        tick,
+        household_counts,
+        _household_growth_metrics,
+        _household_positions,
+        _water_network_snapshot
+    )
+    _settlement_growth_events = {
+        "expanded": result.get("expanded", []),
+        "abandoned": result.get("abandoned", []),
+    }
+    if not _settlement_growth_events.get("expanded", []).is_empty():
+        _log_resource_event(tick, "sim_structure_event", "settlement", "settlement_main", {
+            "kind": "structure_expansion",
+            "structure_ids": _settlement_growth_events.get("expanded", []),
+        })
+    if not _settlement_growth_events.get("abandoned", []).is_empty():
+        _log_resource_event(tick, "sim_structure_event", "settlement", "settlement_main", {
+            "kind": "structure_abandonment",
+            "structure_ids": _settlement_growth_events.get("abandoned", []),
+        })
 
 func _assert_resource_invariants(tick: int, npc_ids: Array) -> void:
     for key in ["food", "water", "wood", "stone", "tools", "currency", "labor_pool", "waste"]:
@@ -870,3 +929,35 @@ func _household_position(household_id: String) -> Vector3:
     var generated = _spawn_offset_position(household_id, 4.0)
     _household_positions[household_id] = generated
     return generated
+
+func _sum_payload(payload: Dictionary) -> float:
+    var total = 0.0
+    var keys = payload.keys()
+    keys.sort_custom(func(a, b): return String(a) < String(b))
+    for key in keys:
+        total += maxf(0.0, float(payload.get(String(key), 0.0)))
+    return total
+
+func _mean_route_path_strength(route_profiles: Dictionary) -> float:
+    var keys = route_profiles.keys()
+    if keys.is_empty():
+        return 0.0
+    keys.sort_custom(func(a, b): return String(a) < String(b))
+    var total = 0.0
+    for key in keys:
+        var row: Dictionary = route_profiles.get(String(key), {})
+        total += clampf(float(row.get("avg_path_strength", 0.0)), 0.0, 1.0)
+    return total / float(keys.size())
+
+func _household_member_counts() -> Dictionary:
+    var counts: Dictionary = {}
+    var household_ids = _household_members.keys()
+    household_ids.sort()
+    for household_id_variant in household_ids:
+        var household_id = String(household_id_variant)
+        var members_resource = _household_members.get(household_id, null)
+        if members_resource == null:
+            counts[household_id] = 0
+            continue
+        counts[household_id] = int(members_resource.member_ids.size())
+    return counts
