@@ -173,7 +173,7 @@ Design intent:
 - [x] Faster movement on established paths (based on path strength/quality).
 - [x] Slower movement through brush/forest density.
 - [x] Additional penalties for steep slope and shallow-water crossings.
-- [ ] Seasonal/weather modifiers apply as deterministic multipliers (when enabled).
+- [x] Seasonal/weather modifiers apply as deterministic multipliers (when enabled).
 
 ## 6) Tribal Social and Cultural System
 
@@ -415,7 +415,7 @@ Debug and inspector discipline:
 - [ ] `SpawnCandidateResource` (score breakdown for water-first selection debugging).
 - [x] `SettlementGrowthConfigResource` (expansion/abandonment thresholds).
 - [x] `PathFormationConfigResource` (heat gain, creation threshold, strengthening curve, decay rate).
-- [ ] `PathTraversalConfigResource` (path speed bonus curve by path strength/usage).
+- [x] `PathTraversalConfigResource` (path speed bonus curve by path strength/usage).
 
 ### 11.3 Culture Resources
 - [ ] `BeliefProfileResource` (core motifs, taboo sets, ritual propensity).

@@ -33,6 +33,8 @@ func run_test(_tree: SceneTree) -> bool:
 	var rough = a.route_profile(path_start, rough_target)
 	var preferred_b = b.route_profile(path_start, path_target)
 	var rough_b = b.route_profile(path_start, rough_target)
+	var dry = a.route_profile(path_start, path_target, {"tick": 10, "rain_intensity": 0.0})
+	var wet = a.route_profile(path_start, path_target, {"tick": 190, "rain_intensity": 0.0})
 
 	if float(preferred.get("travel_cost", 9999.0)) >= float(rough.get("travel_cost", 0.0)):
 		push_error("Expected established low-brush path route to be faster than rough route")
@@ -42,6 +44,12 @@ func run_test(_tree: SceneTree) -> bool:
 		return false
 	if float(rough.get("terrain_penalty", 0.0)) <= float(preferred.get("terrain_penalty", 0.0)):
 		push_error("Expected rough route terrain penalty to exceed preferred route penalty")
+		return false
+	if float(wet.get("travel_cost", 0.0)) <= float(dry.get("travel_cost", 0.0)):
+		push_error("Expected wet-season traversal to be slower than dry-season traversal for same route")
+		return false
+	if float(wet.get("seasonal_multiplier", 1.0)) >= float(dry.get("seasonal_multiplier", 1.0)):
+		push_error("Expected wet-season multiplier to be lower than dry-season multiplier")
 		return false
 
 	if not _profiles_match(preferred, preferred_b):

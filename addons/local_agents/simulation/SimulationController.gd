@@ -21,6 +21,7 @@ const PathNetworkSystemScript = preload("res://addons/local_agents/simulation/Pa
 const SettlementGrowthSystemScript = preload("res://addons/local_agents/simulation/SettlementGrowthSystem.gd")
 const TerrainTraversalProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/TerrainTraversalProfileResource.gd")
 const PathFormationConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/PathFormationConfigResource.gd")
+const PathTraversalConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/PathTraversalConfigResource.gd")
 const SettlementGrowthConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/SettlementGrowthConfigResource.gd")
 
 const CommunityLedgerScript = preload("res://addons/local_agents/simulation/CommunityLedgerSystem.gd")
@@ -63,6 +64,7 @@ var _spawn_artifact: Dictionary = {}
 var _path_network_system
 var _terrain_traversal_profile
 var _path_formation_config
+var _path_traversal_config
 var _settlement_growth_system
 var _settlement_growth_config
 var _settlement_growth_events: Dictionary = {"expanded": [], "abandoned": []}
@@ -134,11 +136,14 @@ func _ready() -> void:
         _terrain_traversal_profile = TerrainTraversalProfileResourceScript.new()
     if _path_formation_config == null:
         _path_formation_config = PathFormationConfigResourceScript.new()
+    if _path_traversal_config == null:
+        _path_traversal_config = PathTraversalConfigResourceScript.new()
     if _settlement_growth_config == null:
         _settlement_growth_config = SettlementGrowthConfigResourceScript.new()
     if _path_network_system != null:
         _path_network_system.set_traversal_profile(_terrain_traversal_profile)
         _path_network_system.set_formation_config(_path_formation_config)
+        _path_network_system.set_path_traversal_config(_path_traversal_config)
     if _settlement_growth_system != null:
         _settlement_growth_system.set_config(_settlement_growth_config)
 
@@ -235,6 +240,14 @@ func set_path_formation_config(config_resource) -> void:
         _path_formation_config = config_resource
     if _path_network_system != null:
         _path_network_system.set_formation_config(_path_formation_config)
+
+func set_path_traversal_config(config_resource) -> void:
+    if config_resource == null:
+        _path_traversal_config = PathTraversalConfigResourceScript.new()
+    else:
+        _path_traversal_config = config_resource
+    if _path_network_system != null:
+        _path_network_system.set_path_traversal_config(_path_traversal_config)
 
 func set_settlement_growth_config(config_resource) -> void:
     if config_resource == null:
@@ -357,6 +370,7 @@ func current_snapshot(tick: int) -> Dictionary:
         "spawn_artifact": _spawn_artifact.duplicate(true),
         "path_network": _path_network_system.snapshot() if _path_network_system != null else {},
         "path_formation_config": _path_formation_config.to_dict() if _path_formation_config != null else {},
+        "path_traversal_config": _path_traversal_config.to_dict() if _path_traversal_config != null else {},
         "terrain_traversal_profile": _terrain_traversal_profile.to_dict() if _terrain_traversal_profile != null else {},
         "settlement_growth_config": _settlement_growth_config.to_dict() if _settlement_growth_config != null else {},
         "settlement_anchors": _settlement_growth_system.snapshot_anchors() if _settlement_growth_system != null else [],
@@ -881,7 +895,10 @@ func _apply_route_transport(assignments: Dictionary, start: Vector3, target: Vec
         var assignment: Dictionary = assignments.get(npc_id, {})
         var profile: Dictionary = {}
         if _path_network_system != null:
-            profile = _path_network_system.route_profile(start, target)
+            profile = _path_network_system.route_profile(start, target, {
+                "tick": tick,
+                "rain_intensity": 0.0,
+            })
         var efficiency = clampf(float(profile.get("delivery_efficiency", 1.0)), 0.2, 1.0)
         var jitter = _rng.randomf("route_delivery", npc_id, active_branch_id, tick)
         efficiency = clampf(efficiency - (0.12 * jitter), 0.15, 1.0)
