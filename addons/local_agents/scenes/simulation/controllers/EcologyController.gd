@@ -4,6 +4,8 @@ const PlantScene = preload("res://addons/local_agents/scenes/simulation/actors/E
 const RabbitScene = preload("res://addons/local_agents/scenes/simulation/actors/RabbitSphere.tscn")
 const SmellFieldSystemScript = preload("res://addons/local_agents/simulation/SmellFieldSystem.gd")
 const WindFieldSystemScript = preload("res://addons/local_agents/simulation/WindFieldSystem.gd")
+const EnvironmentSignalSnapshotResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/EnvironmentSignalSnapshotResource.gd")
+const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
 
 @export var initial_plant_count: int = 14
 @export var initial_rabbit_count: int = 4
@@ -128,10 +130,11 @@ func _apply_debug_visibility() -> void:
 func set_rain_intensity(next_rain_intensity: float) -> void:
 	rain_intensity = clampf(next_rain_intensity, 0.0, 1.0)
 
-func set_environment_signals(environment_snapshot: Dictionary, weather_snapshot: Dictionary, solar_snapshot: Dictionary) -> void:
-	_environment_snapshot = environment_snapshot.duplicate(true)
-	_weather_snapshot = weather_snapshot.duplicate(true)
-	_solar_snapshot = solar_snapshot.duplicate(true)
+func set_environment_signals(signals) -> void:
+	var snapshot = _normalize_environment_signals(signals)
+	_environment_snapshot = snapshot.environment_snapshot.duplicate(true)
+	_weather_snapshot = snapshot.weather_snapshot.duplicate(true)
+	_solar_snapshot = snapshot.solar_snapshot.duplicate(true)
 	var avg_rain = clampf(float(_weather_snapshot.get("avg_rain_intensity", rain_intensity)), 0.0, 1.0)
 	set_rain_intensity(avg_rain)
 	var wind_row: Dictionary = _weather_snapshot.get("wind_dir", {})
@@ -139,6 +142,14 @@ func set_environment_signals(environment_snapshot: Dictionary, weather_snapshot:
 	var wind_mag = wind_vec.length()
 	if wind_mag > 0.0001:
 		set_wind(wind_vec / wind_mag, clampf(float(_weather_snapshot.get("wind_speed", wind_intensity)), 0.0, 1.0), wind_enabled)
+
+func _normalize_environment_signals(signals) -> LocalAgentsEnvironmentSignalSnapshotResource:
+	var snapshot = EnvironmentSignalSnapshotResourceScript.new()
+	if signals is Resource and signals.has_method("to_dict"):
+		snapshot.from_dict((signals as Resource).to_dict())
+	elif signals is Dictionary:
+		snapshot.from_dict(signals as Dictionary)
+	return snapshot
 
 func set_wind(next_direction: Vector3, next_intensity: float, enabled: bool = true) -> void:
 	wind_direction = next_direction
@@ -320,9 +331,7 @@ func _tile_at_world(world_position: Vector3) -> Dictionary:
 	var tile_index: Dictionary = _environment_snapshot.get("tile_index", {})
 	if tile_index.is_empty():
 		return {}
-	var tx = int(round(world_position.x))
-	var ty = int(round(world_position.z))
-	var tile_id = "%d:%d" % [tx, ty]
+	var tile_id = TileKeyUtilsScript.from_world_xz(world_position)
 	var row = tile_index.get(tile_id, {})
 	return (row as Dictionary).duplicate(true) if row is Dictionary else {}
 

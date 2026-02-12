@@ -5,6 +5,7 @@ const TerrainTraversalProfileResourceScript = preload("res://addons/local_agents
 const PathFormationConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/PathFormationConfigResource.gd")
 const PathTraversalConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/PathTraversalConfigResource.gd")
 const PathNetworkResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/PathNetworkResource.gd")
+const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
 
 var _edge_heat: Dictionary = {}
 var _edge_strength: Dictionary = {}
@@ -211,8 +212,8 @@ func _route_edge_keys(start: Vector3, target: Vector3) -> Array:
 		if a == b:
 			prev = point
 			continue
-		var left = "%d:%d" % [a.x, a.y]
-		var right = "%d:%d" % [b.x, b.y]
+		var left = TileKeyUtilsScript.tile_id(a.x, a.y)
+		var right = TileKeyUtilsScript.tile_id(b.x, b.y)
 		if left < right:
 			keys.append(left + ">" + right)
 		else:
@@ -232,7 +233,7 @@ func _route_edge_keys(start: Vector3, target: Vector3) -> Array:
 func _sample_tile_id(world_position: Vector3) -> String:
 	var tx = int(round(world_position.x))
 	var ty = int(round(world_position.z))
-	return "%d:%d" % [tx, ty]
+	return TileKeyUtilsScript.tile_id(tx, ty)
 
 func _extract_tile_index(environment_snapshot: Dictionary) -> Dictionary:
 	var out: Dictionary = {}
@@ -247,7 +248,7 @@ func _extract_tile_index(environment_snapshot: Dictionary) -> Dictionary:
 			if not (row_variant is Dictionary):
 				continue
 			var row = row_variant as Dictionary
-			var tile_id = "%d:%d" % [int(row.get("x", 0)), int(row.get("y", 0))]
+			var tile_id = TileKeyUtilsScript.tile_id(int(row.get("x", 0)), int(row.get("y", 0)))
 			out[tile_id] = row.duplicate(true)
 	return out
 

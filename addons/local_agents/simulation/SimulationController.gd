@@ -29,6 +29,8 @@ const FlowFormationConfigResourceScript = preload("res://addons/local_agents/con
 const FlowRuntimeConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FlowRuntimeConfigResource.gd")
 const StructureLifecycleConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/StructureLifecycleConfigResource.gd")
 const CognitionContractConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/CognitionContractConfigResource.gd")
+const EnvironmentSignalSnapshotResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/EnvironmentSignalSnapshotResource.gd")
+const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
 
 const CommunityLedgerScript = preload("res://addons/local_agents/simulation/CommunityLedgerSystem.gd")
 const HouseholdLedgerScript = preload("res://addons/local_agents/simulation/HouseholdLedgerSystem.gd")
@@ -103,6 +105,18 @@ var _culture_context_cues: Dictionary = {}
 var _last_tick_processed: int = 0
 var _initialized: bool = false
 var _cognition_contract_config
+var _llama_server_options: Dictionary = {
+    "backend": "llama_server",
+    "server_base_url": "http://127.0.0.1:8080",
+    "server_autostart": true,
+    "server_shutdown_on_exit": false,
+    "server_start_timeout_ms": 45000,
+    "server_ready_timeout_ms": 2500,
+    "server_embeddings": true,
+    "server_pooling": "mean",
+    "cache_prompt": false,
+    "server_slots": 4,
+}
 
 var _community_ledger_system
 var _household_ledger_system
@@ -199,6 +213,7 @@ func _ensure_initialized() -> void:
     if _cognition_contract_config == null:
         _cognition_contract_config = CognitionContractConfigResourceScript.new()
     _apply_cognition_contract()
+    _apply_llama_server_integration()
     _initialized = true
 
 func configure(seed_text: String, narrator_enabled: bool = true, dream_llm_enabled: bool = true) -> void:
@@ -214,6 +229,7 @@ func configure(seed_text: String, narrator_enabled: bool = true, dream_llm_enabl
     _dreams.llm_enabled = dream_llm_enabled
     _mind.llm_enabled = dream_llm_enabled
     _store.open(_store_path_for_instance())
+    _apply_llama_server_integration()
     configure_environment(_worldgen_config)
 
 func _store_path_for_instance() -> String:
@@ -307,6 +323,18 @@ func get_erosion_snapshot() -> Dictionary:
 func get_solar_snapshot() -> Dictionary:
     return _solar_snapshot.duplicate(true)
 
+func build_environment_signal_snapshot(tick: int = -1):
+    var snapshot_resource = EnvironmentSignalSnapshotResourceScript.new()
+    snapshot_resource.tick = tick if tick >= 0 else _last_tick_processed
+    snapshot_resource.environment_snapshot = _environment_snapshot.duplicate(true)
+    snapshot_resource.water_network_snapshot = _water_network_snapshot.duplicate(true)
+    snapshot_resource.weather_snapshot = _weather_snapshot.duplicate(true)
+    snapshot_resource.erosion_snapshot = _erosion_snapshot.duplicate(true)
+    snapshot_resource.solar_snapshot = _solar_snapshot.duplicate(true)
+    snapshot_resource.erosion_changed = _erosion_changed_last_tick
+    snapshot_resource.erosion_changed_tiles = _erosion_changed_tiles_last_tick.duplicate(true)
+    return snapshot_resource
+
 func get_spawn_artifact() -> Dictionary:
     return _spawn_artifact.duplicate(true)
 
@@ -315,6 +343,45 @@ func get_backstory_service():
 
 func get_store():
     return _store
+
+func list_llm_trace_events(tick_from: int, tick_to: int, task: String = "") -> Array:
+    _ensure_initialized()
+    var out: Array = []
+    if _store == null:
+        return out
+    var rows: Array = _store.list_resource_events(world_id, active_branch_id, tick_from, tick_to)
+    for row_variant in rows:
+        if not (row_variant is Dictionary):
+            continue
+        var row = row_variant as Dictionary
+        if String(row.get("event_type", "")) != "sim_llm_trace_event":
+            continue
+        var payload: Dictionary = row.get("payload", {})
+        var task_name = String(payload.get("task", ""))
+        if task.strip_edges() != "" and task_name != task.strip_edges():
+            continue
+        out.append({
+            "tick": int(row.get("tick", 0)),
+            "task": task_name,
+            "scope": String(row.get("scope", "")),
+            "owner_id": String(row.get("owner_id", "")),
+            "actor_ids": payload.get("actor_ids", []),
+            "profile_id": String(payload.get("profile_id", "")),
+            "seed": int(payload.get("seed", 0)),
+            "query_keys": payload.get("query_keys", []),
+            "referenced_ids": payload.get("referenced_ids", []),
+            "sampler_params": payload.get("sampler_params", {}),
+        })
+    out.sort_custom(func(a, b):
+        var ad = a as Dictionary
+        var bd = b as Dictionary
+        var at = int(ad.get("tick", 0))
+        var bt = int(bd.get("tick", 0))
+        if at != bt:
+            return at < bt
+        return String(ad.get("task", "")) < String(bd.get("task", ""))
+    )
+    return out
 
 func get_active_branch_id() -> String:
     return active_branch_id
@@ -400,6 +467,7 @@ func set_cognition_contract_config(config_resource) -> void:
     else:
         _cognition_contract_config = config_resource
     _apply_cognition_contract()
+    _apply_llama_server_integration()
 
 func _apply_cognition_contract() -> void:
     if _cognition_contract_config == null:
@@ -428,6 +496,35 @@ func _apply_cognition_contract() -> void:
         _dreams.call("set_request_profile", _cognition_contract_config.call("profile_for_task", "dream_generation"))
     if _culture_cycle != null and _culture_cycle.has_method("set_request_profile"):
         _culture_cycle.call("set_request_profile", _cognition_contract_config.call("profile_for_task", "oral_transmission_utterance"))
+
+func set_llama_server_options(options: Dictionary) -> void:
+    _ensure_initialized()
+    for key_variant in options.keys():
+        var key = String(key_variant)
+        _llama_server_options[key] = options[key]
+    _apply_llama_server_integration()
+
+func get_llama_server_options() -> Dictionary:
+    _ensure_initialized()
+    return _llama_server_options.duplicate(true)
+
+func _apply_llama_server_integration() -> void:
+    var generation_options := _llama_server_options.duplicate(true)
+    if _narrator != null and _narrator.has_method("set_runtime_options"):
+        _narrator.call("set_runtime_options", generation_options)
+    if _mind != null and _mind.has_method("set_runtime_options"):
+        _mind.call("set_runtime_options", generation_options)
+    if _dreams != null and _dreams.has_method("set_runtime_options"):
+        _dreams.call("set_runtime_options", generation_options)
+    if _culture_cycle != null and _culture_cycle.has_method("set_runtime_options"):
+        _culture_cycle.call("set_runtime_options", generation_options)
+    if _backstory_service != null and _backstory_service.has_method("set_embedding_options"):
+        var embedding_options := generation_options.duplicate(true)
+        embedding_options["normalize"] = true
+        embedding_options["server_embeddings"] = true
+        if not embedding_options.has("server_pooling"):
+            embedding_options["server_pooling"] = "mean"
+        _backstory_service.call("set_embedding_options", embedding_options)
 
 func set_narrator_directive(text: String) -> void:
     _ensure_initialized()
@@ -624,6 +721,7 @@ func process_tick(tick: int, fixed_delta: float) -> Dictionary:
 func current_snapshot(tick: int) -> Dictionary:
     _ensure_initialized()
     var snapshot_resource = SnapshotResourceScript.new()
+    var env_signal_snapshot = build_environment_signal_snapshot(tick)
     snapshot_resource.world_id = world_id
     snapshot_resource.branch_id = active_branch_id
     snapshot_resource.tick = tick
@@ -647,6 +745,7 @@ func current_snapshot(tick: int) -> Dictionary:
         "solar_snapshot": _solar_snapshot.duplicate(true),
         "erosion_changed": _erosion_changed_last_tick,
         "erosion_changed_tiles": _erosion_changed_tiles_last_tick.duplicate(true),
+        "environment_signals": env_signal_snapshot.to_dict(),
         "spawn_artifact": _spawn_artifact.duplicate(true),
         "flow_network": _flow_network_system.export_network() if _flow_network_system != null else {},
         "flow_formation_config": _flow_formation_config.to_dict() if _flow_formation_config != null else {},
@@ -675,6 +774,7 @@ func current_snapshot(tick: int) -> Dictionary:
         "economy_snapshot": snapshot_resource.to_dict(),
         "directive": _directive_text(),
         "cognition_contract": _cognition_contract_config.to_dict() if (_cognition_contract_config != null and _cognition_contract_config.has_method("to_dict")) else {},
+        "llama_server_options": _llama_server_options.duplicate(true),
     }
 
 func _apply_need_decay(npc_id: String, fixed_delta: float) -> void:
@@ -1506,6 +1606,10 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
     _culture_driver_events = snapshot.get("culture_driver_events", [])
     _cultural_policy = snapshot.get("cultural_policy", {}).duplicate(true)
     _culture_context_cues = snapshot.get("culture_context_cues", {}).duplicate(true)
+    var llama_options_variant = snapshot.get("llama_server_options", null)
+    if llama_options_variant is Dictionary:
+        _llama_server_options = (llama_options_variant as Dictionary).duplicate(true)
+    _apply_llama_server_integration()
 
     _community_ledger = _community_ledger_system.initial_community_ledger()
     _apply_community_dict(_community_ledger, snapshot.get("community_ledger", {}))
@@ -1701,7 +1805,7 @@ func _cultural_policy_strength(policy_name: String) -> float:
     return clampf(float(_cultural_policy.get(policy_name, 0.0)), 0.0, 1.0)
 
 func _tile_context_for_position(position: Vector3) -> Dictionary:
-    var tile_id = "%d:%d" % [int(round(position.x)), int(round(position.z))]
+    var tile_id = TileKeyUtilsScript.from_world_xz(position)
     var tile_index: Dictionary = _environment_snapshot.get("tile_index", {})
     var tile = tile_index.get(tile_id, {})
     var water_tiles: Dictionary = _water_network_snapshot.get("water_tiles", {})

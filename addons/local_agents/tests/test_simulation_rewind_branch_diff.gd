@@ -12,6 +12,13 @@ func run_test(tree: SceneTree) -> bool:
 	sim.set_cognition_features(false, false, false)
 	sim.register_villager("npc_rd_1", "RD1", {"household_id": "home_rd"})
 	sim.register_villager("npc_rd_2", "RD2", {"household_id": "home_rd"})
+	sim.call("_persist_llm_trace_event", 12, "internal_thought", ["npc_rd_1"], {
+		"profile_id": "trace_rewind_test",
+		"seed": 1212,
+		"query_keys": ["villager_state_snapshot"],
+		"referenced_ids": ["npc_rd_1"],
+		"sampler_params": {"seed": 1212, "temperature": 0.5, "top_p": 0.9, "max_tokens": 64, "stop": [], "reset_context": true, "cache_prompt": false},
+	})
 
 	var hasher = StateHasherScript.new()
 	var hash_tick_30_before = ""
@@ -39,6 +46,19 @@ func run_test(tree: SceneTree) -> bool:
 		push_error("Expected valid state hash after post-restore replay ticks")
 		sim.queue_free()
 		return false
+	var trace_after_restore: Array = sim.list_llm_trace_events(1, 40, "internal_thought")
+	var saw_rewind_trace := false
+	for row_variant in trace_after_restore:
+		if not (row_variant is Dictionary):
+			continue
+		var row: Dictionary = row_variant
+		if int(row.get("tick", -1)) == 12 and String(row.get("profile_id", "")) == "trace_rewind_test":
+			saw_rewind_trace = true
+			break
+	if not saw_rewind_trace:
+		push_error("Expected rewind trace event to persist across restore")
+		sim.queue_free()
+		return false
 
 	var forked = sim.fork_branch("branch_alt_diff", 30)
 	if not bool(forked.get("ok", false)):
@@ -46,8 +66,28 @@ func run_test(tree: SceneTree) -> bool:
 		sim.queue_free()
 		return false
 	sim.register_villager("npc_rd_3", "RD3", {"household_id": "home_rd"})
+	sim.call("_persist_llm_trace_event", 33, "dialogue_exchange", ["npc_rd_1", "npc_rd_2"], {
+		"profile_id": "trace_branch_test",
+		"seed": 3333,
+		"query_keys": ["villager_state_snapshot"],
+		"referenced_ids": ["npc_rd_1", "npc_rd_2"],
+		"sampler_params": {"seed": 3333, "temperature": 0.5, "top_p": 0.9, "max_tokens": 64, "stop": [], "reset_context": true, "cache_prompt": false},
+	})
 	for tick in range(31, 41):
 		sim.process_tick(tick, 1.0)
+	var trace_after_fork: Array = sim.list_llm_trace_events(31, 40)
+	var saw_branch_trace := false
+	for row_variant in trace_after_fork:
+		if not (row_variant is Dictionary):
+			continue
+		var row: Dictionary = row_variant
+		if int(row.get("tick", -1)) == 33 and String(row.get("profile_id", "")) == "trace_branch_test":
+			saw_branch_trace = true
+			break
+	if not saw_branch_trace:
+		push_error("Expected branch-local trace event to persist after fork tick replay")
+		sim.queue_free()
+		return false
 
 	var diff: Dictionary = sim.branch_diff("main", "branch_alt_diff", 31, 40)
 	sim.queue_free()

@@ -6,6 +6,7 @@ const FlowFormationConfigResourceScript = preload("res://addons/local_agents/con
 const FlowRuntimeConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FlowRuntimeConfigResource.gd")
 const FlowNetworkResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FlowNetworkResource.gd")
 const VoxelGridSystemScript = preload("res://addons/local_agents/simulation/VoxelGridSystem.gd")
+const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
 
 var _edge_heat: Dictionary = {}
 var _edge_strength: Dictionary = {}
@@ -250,8 +251,8 @@ func _route_edge_keys(start: Vector3, target: Vector3) -> Array:
 		var voxel = _voxel_grid.world_to_voxel(point)
 		if voxel == _voxel_grid.invalid_voxel() or voxel == prev_voxel:
 			continue
-		var left = "%d:%d" % [prev_voxel.x, prev_voxel.z]
-		var right = "%d:%d" % [voxel.x, voxel.z]
+		var left = TileKeyUtilsScript.tile_id(prev_voxel.x, prev_voxel.z)
+		var right = TileKeyUtilsScript.tile_id(voxel.x, voxel.z)
 		if left < right:
 			keys.append(left + ">" + right)
 		else:
@@ -271,8 +272,8 @@ func _route_edge_keys(start: Vector3, target: Vector3) -> Array:
 func _sample_tile_id(world_position: Vector3) -> String:
 	var voxel = _voxel_grid.world_to_voxel(world_position)
 	if voxel == _voxel_grid.invalid_voxel():
-		return "0:0"
-	return "%d:%d" % [voxel.x, voxel.z]
+		return TileKeyUtilsScript.tile_id(0, 0)
+	return TileKeyUtilsScript.tile_id(voxel.x, voxel.z)
 
 func _extract_tile_index(environment_snapshot: Dictionary) -> Dictionary:
 	var out: Dictionary = {}
@@ -287,7 +288,7 @@ func _extract_tile_index(environment_snapshot: Dictionary) -> Dictionary:
 			if not (row_variant is Dictionary):
 				continue
 			var row = row_variant as Dictionary
-			var tile_id = "%d:%d" % [int(row.get("x", 0)), int(row.get("y", 0))]
+			var tile_id = TileKeyUtilsScript.tile_id(int(row.get("x", 0)), int(row.get("y", 0)))
 			out[tile_id] = row.duplicate(true)
 	return out
 
@@ -310,7 +311,7 @@ func _extract_flow_map_index(environment_snapshot: Dictionary) -> Dictionary:
 			var row = row_variant as Dictionary
 			var tile_id = String(row.get("tile_id", ""))
 			if tile_id == "":
-				tile_id = "%d:%d" % [int(row.get("x", 0)), int(row.get("y", 0))]
+				tile_id = TileKeyUtilsScript.tile_id(int(row.get("x", 0)), int(row.get("y", 0)))
 			out[tile_id] = row.duplicate(true)
 	return out
 
@@ -318,11 +319,11 @@ func _voxelize_world_bounds() -> void:
 	var max_abs = 8.0
 	for tile_id_variant in _tile_index.keys():
 		var tile_id = String(tile_id_variant)
-		var parts = tile_id.split(":")
-		if parts.size() != 2:
+		var coords = TileKeyUtilsScript.parse_tile_id(tile_id)
+		if coords.x == 2147483647:
 			continue
-		max_abs = maxf(max_abs, absf(float(parts[0])))
-		max_abs = maxf(max_abs, absf(float(parts[1])))
+		max_abs = maxf(max_abs, absf(float(coords.x)))
+		max_abs = maxf(max_abs, absf(float(coords.y)))
 	_voxel_grid.configure(max_abs + 2.0, 1.0, 1.0)
 
 func _seasonal_multiplier(context: Dictionary) -> float:

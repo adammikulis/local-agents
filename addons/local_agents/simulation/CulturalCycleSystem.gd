@@ -8,6 +8,7 @@ var _confidence_by_topic: Dictionary = {}
 var _last_driver_digest: Dictionary = {}
 var llm_enabled: bool = true
 var _request_profile = LlmRequestProfileResourceScript.new()
+var _runtime_options: Dictionary = {}
 
 func _init() -> void:
 	_request_profile.profile_id = "oral_transmission_utterance"
@@ -29,6 +30,9 @@ func set_request_profile(profile_resource: Resource) -> void:
 
 func request_profile_id() -> String:
 	return String(_request_profile.profile_id)
+
+func set_runtime_options(options: Dictionary) -> void:
+	_runtime_options = options.duplicate(true)
 
 func export_state() -> Dictionary:
 	var retention_snapshot = _retention_metrics()
@@ -677,7 +681,7 @@ func _generate_driver_payload(prompt: String, deterministic_seed: int) -> Dictio
 		return {"ok": false, "error": "model_not_loaded"}
 
 	var schema := _driver_json_schema()
-	var options = _request_profile.to_runtime_options(deterministic_seed)
+	var options = _merged_runtime_options(deterministic_seed)
 	options["response_format"] = {
 		"type": "json_schema",
 		"schema": schema,
@@ -707,9 +711,17 @@ func _generate_driver_payload(prompt: String, deterministic_seed: int) -> Dictio
 			"referenced_ids": [],
 			"profile_id": String(_request_profile.profile_id),
 			"seed": deterministic_seed,
-			"sampler_params": _request_profile.to_runtime_options(deterministic_seed),
+			"sampler_params": _merged_runtime_options(deterministic_seed),
 		},
 	}
+
+func _merged_runtime_options(seed: int) -> Dictionary:
+	var merged: Dictionary = _runtime_options.duplicate(true)
+	var profile_options = _request_profile.to_runtime_options(seed)
+	for key_variant in profile_options.keys():
+		var key = String(key_variant)
+		merged[key] = profile_options[key]
+	return merged
 
 func _parse_json_anywhere(text: String):
 	var parsed = _try_parse_json(text)

@@ -1,6 +1,8 @@
 extends RefCounted
 class_name LocalAgentsSolarExposureSystem
 
+const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
+
 var _configured: bool = false
 var _seed: int = 0
 var _width: int = 0
@@ -38,7 +40,7 @@ func configure_environment(environment_snapshot: Dictionary, seed: int) -> Dicti
 		if not (col_variant is Dictionary):
 			continue
 		var col = col_variant as Dictionary
-		var tile_id = "%d:%d" % [int(col.get("x", 0)), int(col.get("z", 0))]
+		var tile_id = TileKeyUtilsScript.tile_id(int(col.get("x", 0)), int(col.get("z", 0)))
 		_surface_y[tile_id] = int(col.get("surface_y", 0))
 		var top_block = String(col.get("top_block", "grass"))
 		_surface_block[tile_id] = top_block
@@ -181,7 +183,7 @@ func step(tick: int, delta: float, environment_snapshot: Dictionary, weather_sna
 
 func current_snapshot(tick: int = 0) -> Dictionary:
 	if _last_snapshot.is_empty():
-			return _build_snapshot(tick, [], {})
+		return _build_snapshot(tick, [], {})
 	return _last_snapshot.duplicate(true)
 
 func import_snapshot(snapshot: Dictionary) -> void:
@@ -220,11 +222,11 @@ func _build_snapshot(tick: int, rows: Array, index: Dictionary) -> Dictionary:
 	}
 
 func _static_shade_for(tile_id: String) -> float:
-	var parts = tile_id.split(":")
-	if parts.size() != 2:
+	var coords = TileKeyUtilsScript.parse_tile_id(tile_id)
+	if coords.x == 2147483647:
 		return 0.0
-	var x = int(parts[0])
-	var y = int(parts[1])
+	var x = coords.x
+	var y = coords.y
 	var center_h = float(_surface_y.get(tile_id, 0))
 	var max_rise = 0.0
 	for oy in range(-1, 2):
@@ -233,7 +235,7 @@ func _static_shade_for(tile_id: String) -> float:
 				continue
 			var nx = x + ox
 			var ny = y + oy
-			var nid = "%d:%d" % [nx, ny]
+			var nid = TileKeyUtilsScript.tile_id(nx, ny)
 			if not _surface_y.has(nid):
 				continue
 			var rise = float(_surface_y.get(nid, center_h)) - center_h
@@ -241,16 +243,16 @@ func _static_shade_for(tile_id: String) -> float:
 	return clampf(max_rise / 12.0, 0.0, 1.0)
 
 func _aspect_factor(tile_id: String, sun_dir: Vector2) -> float:
-	var parts = tile_id.split(":")
-	if parts.size() != 2:
+	var coords = TileKeyUtilsScript.parse_tile_id(tile_id)
+	if coords.x == 2147483647:
 		return 1.0
-	var x = int(parts[0])
-	var y = int(parts[1])
+	var x = coords.x
+	var y = coords.y
 	var c = float(_surface_y.get(tile_id, 0))
-	var ex = float(_surface_y.get("%d:%d" % [x + 1, y], c))
-	var wx = float(_surface_y.get("%d:%d" % [x - 1, y], c))
-	var ny = float(_surface_y.get("%d:%d" % [x, y + 1], c))
-	var sy = float(_surface_y.get("%d:%d" % [x, y - 1], c))
+	var ex = float(_surface_y.get(TileKeyUtilsScript.tile_id(x + 1, y), c))
+	var wx = float(_surface_y.get(TileKeyUtilsScript.tile_id(x - 1, y), c))
+	var ny = float(_surface_y.get(TileKeyUtilsScript.tile_id(x, y + 1), c))
+	var sy = float(_surface_y.get(TileKeyUtilsScript.tile_id(x, y - 1), c))
 	var grad = Vector2(ex - wx, ny - sy)
 	if grad.length_squared() < 0.0001:
 		return 1.0
@@ -264,7 +266,7 @@ func _sync_tiles(environment_snapshot: Dictionary, tile_index: Dictionary) -> vo
 		if not (tiles[i] is Dictionary):
 			continue
 		var row = tiles[i] as Dictionary
-		var tile_id = String(row.get("tile_id", "%d:%d" % [int(row.get("x", 0)), int(row.get("y", 0))]))
+		var tile_id = String(row.get("tile_id", TileKeyUtilsScript.tile_id(int(row.get("x", 0)), int(row.get("y", 0)))))
 		if tile_index.has(tile_id):
 			tiles[i] = (tile_index[tile_id] as Dictionary).duplicate(true)
 	environment_snapshot["tiles"] = tiles
@@ -278,7 +280,7 @@ func _sync_voxel_columns(environment_snapshot: Dictionary, solar_index: Dictiona
 		if not (cols[i] is Dictionary):
 			continue
 		var col = cols[i] as Dictionary
-		var tile_id = "%d:%d" % [int(col.get("x", 0)), int(col.get("z", 0))]
+		var tile_id = TileKeyUtilsScript.tile_id(int(col.get("x", 0)), int(col.get("z", 0)))
 		if not solar_index.has(tile_id):
 			continue
 		var row = solar_index[tile_id] as Dictionary

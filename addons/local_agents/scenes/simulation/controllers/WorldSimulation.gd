@@ -3,6 +3,7 @@ class_name LocalAgentsWorldSimulationController
 
 const FlowTraversalProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FlowTraversalProfileResource.gd")
 const WorldGenConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldGenConfigResource.gd")
+const EnvironmentSignalSnapshotResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/EnvironmentSignalSnapshotResource.gd")
 const AtmosphereCycleControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/AtmosphereCycleController.gd")
 
 @onready var simulation_controller: Node = $SimulationController
@@ -67,15 +68,7 @@ func _ready() -> void:
 		environment_controller.set_weather_state(setup.get("weather", {}))
 	if environment_controller.has_method("set_solar_state"):
 		environment_controller.set_solar_state(setup.get("solar", {}))
-	if has_node("EcologyController"):
-		var ecology_controller = get_node("EcologyController")
-		if ecology_controller.has_method("set_environment_signals"):
-			ecology_controller.call(
-				"set_environment_signals",
-				setup.get("environment", {}),
-				setup.get("weather", {}),
-				setup.get("solar", {})
-			)
+	_apply_environment_signals(_build_environment_signal_snapshot_from_setup(setup, 0))
 	if settlement_controller.has_method("spawn_initial_settlement"):
 		settlement_controller.spawn_initial_settlement(setup.get("spawn", {}))
 	_current_tick = 0
@@ -112,31 +105,24 @@ func _sync_environment_from_state(state: Dictionary, force_rebuild: bool) -> voi
 		return
 	if state.is_empty():
 		return
-	if force_rebuild or bool(state.get("erosion_changed", false)):
+	var env_signals = _build_environment_signal_snapshot_from_state(state)
+	if force_rebuild or bool(env_signals.erosion_changed):
 		if not force_rebuild and environment_controller.has_method("apply_generation_delta"):
 			environment_controller.apply_generation_delta(
-				state.get("environment_snapshot", {}),
-				state.get("water_network_snapshot", {}),
-				state.get("erosion_changed_tiles", [])
+				env_signals.environment_snapshot,
+				env_signals.water_network_snapshot,
+				env_signals.erosion_changed_tiles
 			)
 		elif environment_controller.has_method("apply_generation_data"):
 			environment_controller.apply_generation_data(
-				state.get("environment_snapshot", {}),
-				state.get("water_network_snapshot", {})
+				env_signals.environment_snapshot,
+				env_signals.water_network_snapshot
 			)
 	if environment_controller.has_method("set_weather_state"):
-		environment_controller.set_weather_state(state.get("weather_snapshot", {}))
+		environment_controller.set_weather_state(env_signals.weather_snapshot)
 	if environment_controller.has_method("set_solar_state"):
-		environment_controller.set_solar_state(state.get("solar_snapshot", {}))
-	if has_node("EcologyController"):
-		var ecology_controller = get_node("EcologyController")
-		if ecology_controller.has_method("set_environment_signals"):
-			ecology_controller.call(
-				"set_environment_signals",
-				state.get("environment_snapshot", {}),
-				state.get("weather_snapshot", {}),
-				state.get("solar_snapshot", {})
-			)
+		environment_controller.set_solar_state(env_signals.solar_snapshot)
+	_apply_environment_signals(env_signals)
 
 func _on_hud_play_pressed() -> void:
 	_is_playing = true
@@ -223,6 +209,39 @@ func _active_belief_conflicts(tick: int) -> int:
 	if not bool(result.get("ok", false)):
 		return 0
 	return int((result.get("conflicts", []) as Array).size())
+
+func _build_environment_signal_snapshot_from_setup(setup: Dictionary, tick: int) -> LocalAgentsEnvironmentSignalSnapshotResource:
+	var snapshot = EnvironmentSignalSnapshotResourceScript.new()
+	snapshot.tick = tick
+	snapshot.environment_snapshot = setup.get("environment", {}).duplicate(true)
+	snapshot.water_network_snapshot = setup.get("hydrology", {}).duplicate(true)
+	snapshot.weather_snapshot = setup.get("weather", {}).duplicate(true)
+	snapshot.erosion_snapshot = setup.get("erosion", {}).duplicate(true)
+	snapshot.solar_snapshot = setup.get("solar", {}).duplicate(true)
+	return snapshot
+
+func _build_environment_signal_snapshot_from_state(state: Dictionary) -> LocalAgentsEnvironmentSignalSnapshotResource:
+	var snapshot = EnvironmentSignalSnapshotResourceScript.new()
+	var signals_variant = state.get("environment_signals", {})
+	if signals_variant is Dictionary:
+		snapshot.from_dict(signals_variant as Dictionary)
+	else:
+		snapshot.tick = int(state.get("tick", _current_tick))
+		snapshot.environment_snapshot = state.get("environment_snapshot", {}).duplicate(true)
+		snapshot.water_network_snapshot = state.get("water_network_snapshot", {}).duplicate(true)
+		snapshot.weather_snapshot = state.get("weather_snapshot", {}).duplicate(true)
+		snapshot.erosion_snapshot = state.get("erosion_snapshot", {}).duplicate(true)
+		snapshot.solar_snapshot = state.get("solar_snapshot", {}).duplicate(true)
+		snapshot.erosion_changed = bool(state.get("erosion_changed", false))
+		snapshot.erosion_changed_tiles = (state.get("erosion_changed_tiles", []) as Array).duplicate(true)
+	return snapshot
+
+func _apply_environment_signals(snapshot: LocalAgentsEnvironmentSignalSnapshotResource) -> void:
+	if not has_node("EcologyController"):
+		return
+	var ecology_controller = get_node("EcologyController")
+	if ecology_controller.has_method("set_environment_signals"):
+		ecology_controller.call("set_environment_signals", snapshot)
 
 func _update_day_night(delta: float) -> void:
 	if sun_light == null:

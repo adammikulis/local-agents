@@ -1,6 +1,8 @@
 extends RefCounted
 class_name LocalAgentsErosionSystem
 
+const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
+
 var _configured: bool = false
 var _seed: int = 0
 var _erosion_by_tile: Dictionary = {}
@@ -222,7 +224,7 @@ func _apply_voxel_surface_erosion(environment_snapshot: Dictionary, changed_ids:
 		if not (columns[i] is Dictionary):
 			continue
 		var c = columns[i] as Dictionary
-		var tile_id = "%d:%d" % [int(c.get("x", 0)), int(c.get("z", 0))]
+		var tile_id = TileKeyUtilsScript.tile_id(int(c.get("x", 0)), int(c.get("z", 0)))
 		var elev_drop = float(changed_ids.get(tile_id, 0.0))
 		if elev_drop <= 0.0:
 			continue

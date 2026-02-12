@@ -1,6 +1,8 @@
 extends RefCounted
 class_name LocalAgentsWeatherSystem
 
+const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
+
 var _width: int = 0
 var _height: int = 0
 var _seed: int = 0
@@ -49,7 +51,7 @@ func configure_environment(environment_snapshot: Dictionary, water_snapshot: Dic
 	var water_tiles: Dictionary = water_snapshot.get("water_tiles", {})
 	for y in range(_height):
 		for x in range(_width):
-			var tile_id = "%d:%d" % [x, y]
+			var tile_id = TileKeyUtilsScript.tile_id(x, y)
 			var idx = _i(x, y)
 			var row: Dictionary = tile_index.get(tile_id, {})
 			var water: Dictionary = water_tiles.get(tile_id, {})
@@ -232,7 +234,7 @@ func _snapshot_dict(tick: int, wind: Vector2, averages: Dictionary) -> Dictionar
 	for y in range(_height):
 		for x in range(_width):
 			var idx = _i(x, y)
-			var tile_id = "%d:%d" % [x, y]
+			var tile_id = TileKeyUtilsScript.tile_id(x, y)
 			var row = {
 				"tile_id": tile_id,
 				"x": x,
