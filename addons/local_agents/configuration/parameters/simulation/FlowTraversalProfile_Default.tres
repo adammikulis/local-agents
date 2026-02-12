@@ -1,0 +1,28 @@
+[gd_resource type="Resource" script_class="LocalAgentsFlowTraversalProfileResource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/configuration/parameters/simulation/FlowTraversalProfileResource.gd" id="1_flow_profile_script"]
+
+[resource]
+script = ExtResource("1_flow_profile_script")
+schema_version = 1
+base_speed_multiplier = 0.72
+path_strength_speed_bonus = 0.95
+roughness_speed_penalty = 0.22
+brush_speed_penalty = 0.42
+slope_speed_penalty = 0.48
+shallow_water_speed_penalty = 0.33
+floodplain_speed_penalty = 0.25
+flow_with_speed_bonus = 0.12
+flow_against_speed_penalty = 0.3
+cross_flow_speed_penalty = 0.08
+min_speed_multiplier = 0.25
+max_speed_multiplier = 1.85
+base_delivery_efficiency = 0.52
+path_efficiency_bonus = 0.34
+roughness_efficiency_penalty = 0.12
+terrain_efficiency_penalty = 0.22
+flow_efficiency_bonus = 0.06
+flow_efficiency_penalty = 0.14
+min_delivery_efficiency = 0.15
+max_delivery_efficiency = 0.99
+eta_divisor = 1.8

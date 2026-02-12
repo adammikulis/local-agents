@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=14 format=3]
 
 [ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/NeolithicWorld.gd" id="1_world"]
 [ext_resource type="Script" path="res://addons/local_agents/simulation/SimulationController.gd" id="2_sim"]
@@ -9,9 +9,37 @@
 [ext_resource type="PackedScene" path="res://addons/local_agents/scenes/simulation/debug/DebugOverlay.tscn" id="7_debug"]
 [ext_resource type="PackedScene" path="res://addons/local_agents/scenes/simulation/ui/SimulationHud.tscn" id="8_hud"]
 [ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/EcologyController.gd" id="9_ecology"]
+[ext_resource type="Resource" path="res://addons/local_agents/configuration/parameters/simulation/FlowTraversalProfile_Default.tres" id="10_flow_profile"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_world"]
+sky_top_color = Color(0.18, 0.42, 0.78, 1)
+sky_horizon_color = Color(0.62, 0.76, 0.94, 1)
+ground_bottom_color = Color(0.05, 0.05, 0.07, 1)
+ground_horizon_color = Color(0.28, 0.28, 0.3, 1)
+
+[sub_resource type="Sky" id="Sky_world"]
+sky_material = SubResource("ProceduralSkyMaterial_world")
+
+[sub_resource type="Environment" id="Environment_world"]
+background_mode = 2
+sky = SubResource("Sky_world")
+background_energy_multiplier = 1.0
+ambient_light_source = 3
+ambient_light_energy = 0.9
+sdfgi_enabled = true
+sdfgi_cascades = 2
+sdfgi_min_cell_size = 0.35
+sdfgi_y_scale = 1
+sdfgi_use_occlusion = true
+sdfgi_read_sky_light = true
+sdfgi_energy = 1.0
 
 [node name="NeolithicWorld" type="Node3D"]
 script = ExtResource("1_world")
+flow_traversal_profile_override = ExtResource("10_flow_profile")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_world")
 
 [node name="SimulationController" type="Node" parent="."]
 script = ExtResource("2_sim")

@@ -1,5 +1,7 @@
 extends Node3D
 
+const FlowTraversalProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FlowTraversalProfileResource.gd")
+
 @onready var simulation_controller: Node = $SimulationController
 @onready var environment_controller: Node3D = $EnvironmentController
 @onready var settlement_controller: Node3D = $SettlementController
@@ -7,17 +9,29 @@ extends Node3D
 @onready var culture_controller: Node3D = $CultureController
 @onready var debug_overlay_root: Node3D = $DebugOverlayRoot
 @onready var simulation_hud: CanvasLayer = $SimulationHud
+@onready var sun_light: DirectionalLight3D = $DirectionalLight3D
+@onready var world_environment: WorldEnvironment = $WorldEnvironment
 @export var world_seed_text: String = "neolithic_vertical_slice"
 @export var auto_generate_on_ready: bool = true
 @export var auto_play_on_ready: bool = true
+@export var flow_traversal_profile_override: Resource
+@export var day_night_cycle_enabled: bool = true
+@export var day_length_seconds: float = 180.0
+@export_range(0.0, 1.0, 0.001) var start_time_of_day: float = 0.28
 
 var _is_playing: bool = false
 var _ticks_per_frame: int = 1
 var _current_tick: int = 0
 var _fork_index: int = 0
 var _last_state: Dictionary = {}
+var _time_of_day: float = 0.28
 
 func _ready() -> void:
+	_time_of_day = clampf(start_time_of_day, 0.0, 1.0)
+	if flow_traversal_profile_override == null:
+		flow_traversal_profile_override = FlowTraversalProfileResourceScript.new()
+	if simulation_controller.has_method("set_flow_traversal_profile") and flow_traversal_profile_override != null:
+		simulation_controller.set_flow_traversal_profile(flow_traversal_profile_override)
 	if simulation_hud != null:
 		simulation_hud.play_pressed.connect(_on_hud_play_pressed)
 		simulation_hud.pause_pressed.connect(_on_hud_pause_pressed)
@@ -51,6 +65,7 @@ func _ready() -> void:
 	_refresh_hud()
 
 func _process(_delta: float) -> void:
+	_update_day_night(_delta)
 	if not _is_playing:
 		return
 	for _i in range(_ticks_per_frame):
@@ -153,3 +168,33 @@ func _active_belief_conflicts(tick: int) -> int:
 	if not bool(result.get("ok", false)):
 		return 0
 	return int((result.get("conflicts", []) as Array).size())
+
+func _update_day_night(delta: float) -> void:
+	if sun_light == null:
+		return
+	if day_night_cycle_enabled:
+		var day_len = maxf(5.0, day_length_seconds)
+		_time_of_day = fposmod(_time_of_day + delta / day_len, 1.0)
+
+	var phase = _time_of_day * TAU
+	var elevation_sin = sin(phase - PI * 0.5)
+	var daylight = clampf((elevation_sin + 1.0) * 0.5, 0.0, 1.0)
+	var elevation = deg_to_rad(lerpf(-12.0, 82.0, daylight))
+	var azimuth = phase - PI * 0.5
+	var dir = Vector3(
+		cos(elevation) * cos(azimuth),
+		sin(elevation),
+		cos(elevation) * sin(azimuth)
+	).normalized()
+	sun_light.look_at(sun_light.global_position + dir, Vector3.UP)
+	sun_light.light_energy = lerpf(0.08, 1.32, pow(daylight, 1.45))
+	sun_light.light_indirect_energy = lerpf(0.06, 1.08, pow(daylight, 1.35))
+	sun_light.light_color = Color(
+		lerpf(0.3, 1.0, daylight),
+		lerpf(0.38, 0.96, daylight),
+		lerpf(0.62, 0.9, daylight),
+		1.0
+	)
+	if world_environment != null and world_environment.environment != null:
+		world_environment.environment.ambient_light_energy = lerpf(0.03, 0.95, pow(daylight, 1.25))
+		world_environment.environment.background_energy_multiplier = lerpf(0.06, 1.0, pow(daylight, 1.2))

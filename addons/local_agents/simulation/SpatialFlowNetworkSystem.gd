@@ -14,6 +14,7 @@ var _formation_config = FlowFormationConfigResourceScript.new()
 var _flow_runtime_config = FlowRuntimeConfigResourceScript.new()
 var _tile_index: Dictionary = {}
 var _water_tile_index: Dictionary = {}
+var _flow_map_index: Dictionary = {}
 var _voxel_grid = VoxelGridSystemScript.new()
 
 func set_flow_profile(profile_resource) -> void:
@@ -37,6 +38,7 @@ func set_flow_runtime_config(config_resource) -> void:
 func configure_environment(environment_snapshot: Dictionary, water_snapshot: Dictionary) -> void:
 	_tile_index = _extract_tile_index(environment_snapshot)
 	_water_tile_index = {}
+	_flow_map_index = _extract_flow_map_index(environment_snapshot)
 	for tile_id_variant in water_snapshot.get("water_tiles", {}).keys():
 		var tile_id = String(tile_id_variant)
 		var row = water_snapshot.get("water_tiles", {}).get(tile_id, {})
@@ -71,7 +73,10 @@ func evaluate_route(start: Vector3, target: Vector3, context: Dictionary = {}) -
 		float(terrain.get("brush", 0.0)) * float(_traversal_profile.brush_speed_penalty) +
 		float(terrain.get("slope", 0.0)) * float(_traversal_profile.slope_speed_penalty) +
 		float(terrain.get("shallow_water", 0.0)) * float(_traversal_profile.shallow_water_speed_penalty) +
-		float(terrain.get("flood_risk", 0.0)) * float(_traversal_profile.floodplain_speed_penalty)
+		float(terrain.get("flood_risk", 0.0)) * float(_traversal_profile.floodplain_speed_penalty) +
+		float(terrain.get("flow_against", 0.0)) * float(_traversal_profile.flow_against_speed_penalty) +
+		float(terrain.get("cross_flow", 0.0)) * float(_traversal_profile.cross_flow_speed_penalty) -
+		float(terrain.get("flow_with", 0.0)) * float(_traversal_profile.flow_with_speed_bonus)
 	)
 	var speed_multiplier = clampf(
 		float(_traversal_profile.base_speed_multiplier) +
@@ -90,7 +95,9 @@ func evaluate_route(start: Vector3, target: Vector3, context: Dictionary = {}) -
 		float(_traversal_profile.base_delivery_efficiency) +
 		avg_strength * float(_traversal_profile.path_efficiency_bonus) -
 		roughness * float(_traversal_profile.roughness_efficiency_penalty) -
-		terrain_penalty * float(_traversal_profile.terrain_efficiency_penalty),
+		terrain_penalty * float(_traversal_profile.terrain_efficiency_penalty) +
+		float(terrain.get("flow_with", 0.0)) * float(_traversal_profile.flow_efficiency_bonus) -
+		float(terrain.get("flow_against", 0.0)) * float(_traversal_profile.flow_efficiency_penalty),
 		float(_traversal_profile.min_delivery_efficiency),
 		float(_traversal_profile.max_delivery_efficiency)
 	)
@@ -178,10 +185,19 @@ func _route_roughness(start: Vector3, target: Vector3) -> float:
 
 func _route_terrain_profile(start: Vector3, target: Vector3) -> Dictionary:
 	var steps = maxi(1, int(ceil(start.distance_to(target) / 1.25)))
+	var route_vec = target - start
+	var route_dir = Vector2(route_vec.x, route_vec.z)
+	if route_dir.length_squared() > 0.0001:
+		route_dir = route_dir.normalized()
+	else:
+		route_dir = Vector2.RIGHT
 	var brush = 0.0
 	var slope = 0.0
 	var shallow_water = 0.0
 	var flood_risk = 0.0
+	var flow_with = 0.0
+	var flow_against = 0.0
+	var cross_flow = 0.0
 	for i in range(0, steps + 1):
 		var t = float(i) / float(steps)
 		var sample = start.lerp(target, t)
@@ -197,12 +213,29 @@ func _route_terrain_profile(start: Vector3, target: Vector3) -> Dictionary:
 			var reliability = clampf(float(water_row.get("water_reliability", 0.0)), 0.0, 1.0)
 			shallow_water += clampf(reliability, 0.0, 0.85)
 			flood_risk += clampf(float(water_row.get("flood_risk", 0.0)), 0.0, 1.0)
+		var flow_row = _flow_map_index.get(tile_id, {})
+		if flow_row is Dictionary:
+			var flow = flow_row as Dictionary
+			var dir_x = float(flow.get("dir_x", 0.0))
+			var dir_y = float(flow.get("dir_y", 0.0))
+			var channel_strength = clampf(float(flow.get("channel_strength", 0.0)), 0.0, 1.0)
+			var flow_dir = Vector2(dir_x, dir_y)
+			if flow_dir.length_squared() > 0.0001 and channel_strength > 0.001:
+				flow_dir = flow_dir.normalized()
+				var alignment = clampf(route_dir.dot(flow_dir), -1.0, 1.0)
+				flow_with += maxf(0.0, alignment) * channel_strength
+				flow_against += maxf(0.0, -alignment) * channel_strength
+				var cross = absf(route_dir.x * flow_dir.y - route_dir.y * flow_dir.x)
+				cross_flow += cross * channel_strength
 	var denominator = float(steps + 1)
 	return {
 		"brush": brush / denominator,
 		"slope": slope / denominator,
 		"shallow_water": shallow_water / denominator,
 		"flood_risk": flood_risk / denominator,
+		"flow_with": flow_with / denominator,
+		"flow_against": flow_against / denominator,
+		"cross_flow": cross_flow / denominator,
 	}
 
 func _route_edge_keys(start: Vector3, target: Vector3) -> Array:
@@ -255,6 +288,29 @@ func _extract_tile_index(environment_snapshot: Dictionary) -> Dictionary:
 				continue
 			var row = row_variant as Dictionary
 			var tile_id = "%d:%d" % [int(row.get("x", 0)), int(row.get("y", 0))]
+			out[tile_id] = row.duplicate(true)
+	return out
+
+func _extract_flow_map_index(environment_snapshot: Dictionary) -> Dictionary:
+	var out: Dictionary = {}
+	var flow_map: Dictionary = environment_snapshot.get("flow_map", {})
+	if flow_map.is_empty():
+		return out
+	var from_index: Dictionary = flow_map.get("row_index", {})
+	for key_variant in from_index.keys():
+		var tile_id = String(key_variant)
+		var row = from_index.get(tile_id, {})
+		if row is Dictionary:
+			out[tile_id] = (row as Dictionary).duplicate(true)
+	if out.is_empty():
+		var rows: Array = flow_map.get("rows", [])
+		for row_variant in rows:
+			if not (row_variant is Dictionary):
+				continue
+			var row = row_variant as Dictionary
+			var tile_id = String(row.get("tile_id", ""))
+			if tile_id == "":
+				tile_id = "%d:%d" % [int(row.get("x", 0)), int(row.get("y", 0))]
 			out[tile_id] = row.duplicate(true)
 	return out
 

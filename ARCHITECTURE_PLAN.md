@@ -138,6 +138,7 @@ Sub-agent split:
 - [x] Legacy hex/grid config contracts are no longer part of the active ecology runtime path.
 - [x] February 12, 2026: Path/flow traversal now keys routes by voxel coordinates via `SpatialFlowNetworkSystem` + `VoxelGridSystem`.
 - [x] February 12, 2026: Environment generation now includes `voxel_world` terrain payload (`block_rows`, `columns`, block/resource type counts) generated via Godot `FastNoiseLite` and rendered by `EnvironmentController` as Minecraft-style block terrain.
+- [x] February 12, 2026: Environment generation now bakes deterministic `flow_map` payloads (downhill links, accumulation, channel strength) and hydrology consumes baked flowmap rows directly for water network construction.
 
 ## Deferred / Decision Log
 
