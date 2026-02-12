@@ -7,6 +7,7 @@ const LlmRequestProfileResourceScript = preload("res://addons/local_agents/confi
 var llm_enabled: bool = true
 var _influences: Dictionary = {}
 var _request_profile = LlmRequestProfileResourceScript.new()
+var _runtime_options: Dictionary = {}
 
 func _init() -> void:
 	_request_profile.profile_id = "dream_generation"
@@ -24,6 +25,9 @@ func set_request_profile(profile_resource: Resource) -> void:
 		return
 	if profile_resource.has_method("to_dict"):
 		_request_profile.from_dict(profile_resource.call("to_dict"))
+
+func set_runtime_options(options: Dictionary) -> void:
+	_runtime_options = options.duplicate(true)
 
 func set_dream_influence(npc_id: String, influence: Dictionary) -> void:
 	if npc_id.strip_edges() == "":
@@ -71,7 +75,7 @@ Narrator hint: %s
 	var request = {
 		"prompt": prompt,
 		"history": [],
-		"options": _request_profile.to_runtime_options(deterministic_seed),
+		"options": _merged_runtime_options(deterministic_seed),
 	}
 	var result: Dictionary = runtime.call("generate", request)
 	if not bool(result.get("ok", false)):
@@ -88,7 +92,7 @@ Narrator hint: %s
 				"referenced_ids": [npc_id],
 				"profile_id": String(_request_profile.profile_id),
 				"seed": deterministic_seed,
-				"sampler_params": _request_profile.to_runtime_options(deterministic_seed),
+				"sampler_params": _merged_runtime_options(deterministic_seed),
 			},
 		}
 
@@ -101,7 +105,7 @@ Narrator hint: %s
 		var retry_request = {
 			"prompt": "%s\nRespond with at least two short sentences." % prompt,
 			"history": [],
-			"options": _request_profile.to_runtime_options(used_seed),
+			"options": _merged_runtime_options(used_seed),
 		}
 		var retry_result: Dictionary = runtime.call("generate", retry_request)
 		if not bool(retry_result.get("ok", false)):
@@ -121,9 +125,17 @@ Narrator hint: %s
 			"referenced_ids": [npc_id],
 			"profile_id": String(_request_profile.profile_id),
 			"seed": used_seed,
-			"sampler_params": _request_profile.to_runtime_options(used_seed),
+			"sampler_params": _merged_runtime_options(used_seed),
 		},
 	}
+
+func _merged_runtime_options(seed: int) -> Dictionary:
+	var merged: Dictionary = _runtime_options.duplicate(true)
+	var profile_options = _request_profile.to_runtime_options(seed)
+	for key_variant in profile_options.keys():
+		var key = String(key_variant)
+		merged[key] = profile_options[key]
+	return merged
 
 func dream_memory_metadata(influence: Dictionary, dream_seed: int) -> Dictionary:
 	return {

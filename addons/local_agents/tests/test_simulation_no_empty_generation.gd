@@ -25,11 +25,12 @@ func run_test(tree: SceneTree) -> bool:
         controller.queue_free()
         return false
 
-    var loaded := bool(runtime.call("load_model", model_path, {
+    var load_options = helper.apply_runtime_overrides({
         "max_tokens": 128,
         "temperature": 0.2,
         "n_gpu_layers": 0,
-    }))
+    })
+    var loaded := bool(runtime.call("load_model", model_path, load_options))
     if not loaded:
         push_error("Failed to load local model for no-empty-generation test")
         controller.queue_free()

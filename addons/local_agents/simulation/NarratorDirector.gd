@@ -8,6 +8,7 @@ var enabled: bool = true
 var temperature: float = 0.2
 var max_tokens: int = 160
 var _request_profile = LlmRequestProfileResourceScript.new()
+var _runtime_options: Dictionary = {}
 
 func _init() -> void:
 	_request_profile.profile_id = "narrator_direction"
@@ -29,6 +30,9 @@ func set_request_profile(profile_resource: Resource) -> void:
 func request_profile_id() -> String:
 	return String(_request_profile.profile_id)
 
+func set_runtime_options(options: Dictionary) -> void:
+	_runtime_options = options.duplicate(true)
+
 func generate_direction(world_snapshot: Dictionary, deterministic_seed: int, extra_prompt: String = "") -> Dictionary:
 	if not enabled:
 		return {"ok": false, "error": "narrator_disabled"}
@@ -47,7 +51,7 @@ func generate_direction(world_snapshot: Dictionary, deterministic_seed: int, ext
 	var request = {
 		"prompt": prompt,
 		"history": [],
-		"options": _request_profile.to_runtime_options(deterministic_seed),
+		"options": _merged_runtime_options(deterministic_seed),
 	}
 	var result: Dictionary = runtime.call("generate", request)
 	if not bool(result.get("ok", false)):
@@ -63,6 +67,14 @@ func generate_direction(world_snapshot: Dictionary, deterministic_seed: int, ext
 			"referenced_ids": [],
 			"profile_id": String(_request_profile.profile_id),
 			"seed": deterministic_seed,
-			"sampler_params": _request_profile.to_runtime_options(deterministic_seed),
+			"sampler_params": _merged_runtime_options(deterministic_seed),
 		},
 	}
+
+func _merged_runtime_options(seed: int) -> Dictionary:
+	var merged: Dictionary = _runtime_options.duplicate(true)
+	var profile_options = _request_profile.to_runtime_options(seed)
+	for key_variant in profile_options.keys():
+		var key = String(key_variant)
+		merged[key] = profile_options[key]
+	return merged

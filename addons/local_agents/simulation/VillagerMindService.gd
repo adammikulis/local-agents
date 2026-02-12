@@ -6,6 +6,7 @@ const LlmRequestProfileResourceScript = preload("res://addons/local_agents/confi
 var llm_enabled: bool = true
 var _thought_profile = LlmRequestProfileResourceScript.new()
 var _dialogue_profile = LlmRequestProfileResourceScript.new()
+var _runtime_options: Dictionary = {}
 var _context_schema_version: int = 1
 var _section_limits := {
 	"max_prompt_chars": 6000,
@@ -65,6 +66,9 @@ func set_contract_limits(limits: Dictionary) -> void:
 
 func request_profile_id(task: String) -> String:
 	return String(_profile_for_task(task).profile_id)
+
+func set_runtime_options(options: Dictionary) -> void:
+	_runtime_options = options.duplicate(true)
 
 func generate_internal_thought(npc_id: String, villager_state: Dictionary, recall_context: Dictionary, deterministic_seed: int, narrator_hint: String = "") -> Dictionary:
 	if npc_id.strip_edges() == "":
@@ -151,7 +155,7 @@ func _generate_with_runtime(prompt: String, deterministic_seed: int, task: Strin
 		var request = {
 			"prompt": prompt,
 			"history": [],
-			"options": profile.to_runtime_options(used_seed),
+			"options": _merged_runtime_options(profile, used_seed),
 		}
 		var result: Dictionary = runtime.call("generate", request)
 		if not bool(result.get("ok", false)):
@@ -165,7 +169,7 @@ func _generate_with_runtime(prompt: String, deterministic_seed: int, task: Strin
 	var trace := trace_payload.duplicate(true)
 	trace["profile_id"] = String(profile.profile_id)
 	trace["seed"] = used_seed
-	trace["sampler_params"] = profile.to_runtime_options(used_seed)
+	trace["sampler_params"] = _merged_runtime_options(profile, used_seed)
 	return {
 		"ok": true,
 		"text": text,
@@ -443,3 +447,11 @@ func _profile_for_task(task: String):
 	if task == "dialogue_exchange":
 		return _dialogue_profile
 	return _thought_profile
+
+func _merged_runtime_options(profile, seed: int) -> Dictionary:
+	var merged: Dictionary = _runtime_options.duplicate(true)
+	var profile_options = profile.to_runtime_options(seed)
+	for key_variant in profile_options.keys():
+		var key = String(key_variant)
+		merged[key] = profile_options[key]
+	return merged

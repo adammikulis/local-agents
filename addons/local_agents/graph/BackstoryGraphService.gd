@@ -3,6 +3,8 @@ extends Node
 class_name LocalAgentsBackstoryGraphService
 
 const ExtensionLoader = preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const RuntimePaths = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
+const LlamaServerManager = preload("res://addons/local_agents/runtime/LlamaServerManager.gd")
 const STORE_DIR = "user://local_agents"
 const DB_PATH = STORE_DIR + "/network.sqlite3"
 
@@ -31,14 +33,21 @@ var _database_path_override: String = ""
 var _embedding_options: Dictionary = {
     "backend": "llama_server",
     "normalize": true,
+    "server_embeddings": true,
+    "server_pooling": "mean",
     "server_autostart": true,
     "server_shutdown_on_exit": false,
-    "server_start_timeout_ms": 30000,
-    "server_ready_timeout_ms": 1200,
+    "server_start_timeout_ms": 45000,
+    "server_ready_timeout_ms": 2500,
 }
+var _embedding_server_manager = LlamaServerManager.new()
 
 func _ready() -> void:
     _ensure_graph()
+
+func _exit_tree() -> void:
+    if bool(_embedding_options.get("server_shutdown_on_exit", false)):
+        _embedding_server_manager.stop_managed()
 
 func set_database_path(path: String) -> void:
     if _graph != null:
@@ -1139,6 +1148,9 @@ func search_memory_embeddings(npc_id: String, query: String, top_k: int = 8, exp
     var embed_options: Dictionary = _embedding_options.duplicate(true)
     for key in options.keys():
         embed_options[key] = options[key]
+    var backend_ready = _ensure_embedding_backend_ready(embed_options, runtime)
+    if not bool(backend_ready.get("ok", false)):
+        return _error("embedding_backend_unavailable", "embedding backend unavailable", backend_ready)
     var query_vector: PackedFloat32Array = runtime.call("embed_text", query, embed_options)
     if query_vector.is_empty():
         return _error("embedding_failed", "query embedding failed")
@@ -1549,6 +1561,13 @@ func _index_memory_embedding_node(node_id: int, memory_id: String, npc_id: Strin
     var runtime := _agent_runtime()
     if runtime == null or not runtime.has_method("embed_text"):
         return {"ok": false, "error": "runtime_unavailable"}
+    var backend_ready = _ensure_embedding_backend_ready(embed_options, runtime)
+    if not bool(backend_ready.get("ok", false)):
+        return {
+            "ok": false,
+            "error": "embedding_backend_unavailable",
+            "backend": backend_ready,
+        }
 
     var vector: PackedFloat32Array = runtime.call("embed_text", summary, embed_options)
     if vector.is_empty():
@@ -1581,6 +1600,57 @@ func _resolved_database_path() -> String:
     if _database_path_override != "":
         return _database_path_override
     return DB_PATH
+
+func _ensure_embedding_backend_ready(embed_options: Dictionary, runtime: Object) -> Dictionary:
+    var backend = String(embed_options.get("backend", "")).strip_edges().to_lower()
+    if backend == "" or backend == "local":
+        return {"ok": true, "backend": backend}
+    if backend != "llama_server":
+        return {"ok": true, "backend": backend}
+    if not bool(embed_options.get("server_autostart", true)):
+        return {"ok": true, "backend": backend}
+
+    var resolved_model = _resolve_embedding_model_path(embed_options, runtime)
+    if resolved_model == "":
+        return {
+            "ok": false,
+            "error": "embedding_model_missing",
+            "backend": backend,
+        }
+    var runtime_dir = RuntimePaths.normalize_path(String(embed_options.get("runtime_directory", "")))
+    var lifecycle = _embedding_server_manager.ensure_running(embed_options, resolved_model, runtime_dir)
+    if not bool(lifecycle.get("ok", false)):
+        return {
+            "ok": false,
+            "error": "embedding_server_unavailable",
+            "backend": backend,
+            "lifecycle": lifecycle,
+        }
+    return {
+        "ok": true,
+        "backend": backend,
+        "base_url": lifecycle.get("base_url", ""),
+        "model_path": resolved_model,
+    }
+
+func _resolve_embedding_model_path(embed_options: Dictionary, runtime: Object) -> String:
+    var explicit_keys = ["server_model_path", "model_path", "model"]
+    for key in explicit_keys:
+        var candidate = String(embed_options.get(key, "")).strip_edges()
+        if candidate == "":
+            continue
+        var normalized = RuntimePaths.normalize_path(candidate)
+        if normalized != "" and FileAccess.file_exists(normalized):
+            return normalized
+    if runtime != null and runtime.has_method("get_default_model_path"):
+        var runtime_default = String(runtime.call("get_default_model_path")).strip_edges()
+        var normalized_runtime_default = RuntimePaths.normalize_path(runtime_default)
+        if normalized_runtime_default != "" and FileAccess.file_exists(normalized_runtime_default):
+            return normalized_runtime_default
+    var fallback = RuntimePaths.resolve_default_model()
+    if fallback != "" and FileAccess.file_exists(fallback):
+        return fallback
+    return ""
 
 func _node_by_external_id(space: String, key: String, value: Variant) -> Dictionary:
     if not _ensure_graph():

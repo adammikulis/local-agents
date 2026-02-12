@@ -51,24 +51,21 @@ func run_test(tree: SceneTree) -> bool:
 		"sampler_params": {"temperature": 0.5, "top_p": 0.9},
 	}
 	controller.call("_persist_llm_trace_event", 1, "internal_thought", ["npc_contract"], trace_payload)
-	var rows: Array = controller.get_store().list_resource_events(controller.world_id, controller.get_active_branch_id(), 1, 1)
+	var rows: Array = controller.list_llm_trace_events(1, 1, "internal_thought")
 	var found = false
 	for row_variant in rows:
 		if not (row_variant is Dictionary):
 			continue
 		var row = row_variant as Dictionary
-		if String(row.get("event_type", "")) != "sim_llm_trace_event":
+		if String(row.get("task", "")) != "internal_thought":
 			continue
-		var payload: Dictionary = row.get("payload", {})
-		if String(payload.get("task", "")) != "internal_thought":
+		if String(row.get("profile_id", "")) != "thought_contract_test":
 			continue
-		if String(payload.get("profile_id", "")) != "thought_contract_test":
-			continue
-		if int(payload.get("seed", -1)) != 41:
+		if int(row.get("seed", -1)) != 41:
 			push_error("Trace payload seed mismatch")
 			controller.queue_free()
 			return false
-		var query_keys: Array = payload.get("query_keys", [])
+		var query_keys: Array = row.get("query_keys", [])
 		if not query_keys.has("villager_state_snapshot"):
 			push_error("Trace payload missing query_keys")
 			controller.queue_free()
