@@ -1,0 +1,58 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/ui/SimulationHud.gd" id="1_hud"]
+
+[node name="SimulationHud" type="CanvasLayer"]
+script = ExtResource("1_hud")
+
+[node name="Panel" type="PanelContainer" parent="."]
+anchors_preset = 1
+anchor_right = 0.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = 340.0
+offset_bottom = 170.0
+
+[node name="Margin" type="MarginContainer" parent="Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 8
+
+[node name="VBox" type="VBoxContainer" parent="Panel/Margin"]
+layout_mode = 2
+
+[node name="StatusLabel" type="Label" parent="Panel/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Neolithic Sim: idle"
+
+[node name="Buttons" type="HBoxContainer" parent="Panel/Margin/VBox"]
+layout_mode = 2
+
+[node name="PlayButton" type="Button" parent="Panel/Margin/VBox/Buttons"]
+layout_mode = 2
+text = "Play"
+
+[node name="PauseButton" type="Button" parent="Panel/Margin/VBox/Buttons"]
+layout_mode = 2
+text = "Pause"
+
+[node name="RewindButton" type="Button" parent="Panel/Margin/VBox/Buttons"]
+layout_mode = 2
+text = "Rewind"
+
+[node name="FastForwardButton" type="Button" parent="Panel/Margin/VBox/Buttons"]
+layout_mode = 2
+text = "FF"
+
+[node name="ForkButton" type="Button" parent="Panel/Margin/VBox/Buttons"]
+layout_mode = 2
+text = "Fork"
+
+[connection signal="pressed" from="Panel/Margin/VBox/Buttons/PlayButton" to="." method="_on_play_button_pressed"]
+[connection signal="pressed" from="Panel/Margin/VBox/Buttons/PauseButton" to="." method="_on_pause_button_pressed"]
+[connection signal="pressed" from="Panel/Margin/VBox/Buttons/RewindButton" to="." method="_on_rewind_button_pressed"]
+[connection signal="pressed" from="Panel/Margin/VBox/Buttons/FastForwardButton" to="." method="_on_fast_forward_button_pressed"]
+[connection signal="pressed" from="Panel/Margin/VBox/Buttons/ForkButton" to="." method="_on_fork_button_pressed"]

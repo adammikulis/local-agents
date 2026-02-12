@@ -1,0 +1,20 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/actors/VillagerCapsule.gd" id="1_villager"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_villager"]
+radius = 0.28
+height = 1.1
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_villager"]
+radius = 0.28
+mid_height = 0.82
+
+[node name="VillagerCapsule" type="CharacterBody3D"]
+script = ExtResource("1_villager")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("CapsuleShape3D_villager")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("CapsuleMesh_villager")

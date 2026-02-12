@@ -1,0 +1,18 @@
+[gd_scene load_steps=3 format=3]
+
+[sub_resource type="CylinderShape3D" id="CylinderShape3D_storage"]
+height = 1.0
+radius = 0.8
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_storage"]
+height = 1.0
+top_radius = 0.8
+bottom_radius = 0.8
+
+[node name="StoragePrimitive" type="StaticBody3D"]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("CylinderShape3D_storage")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("CylinderMesh_storage")

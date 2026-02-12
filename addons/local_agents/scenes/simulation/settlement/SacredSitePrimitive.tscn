@@ -1,0 +1,21 @@
+[gd_scene load_steps=5 format=3]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_site"]
+size = Vector3(0.5, 1.2, 0.5)
+
+[sub_resource type="BoxMesh" id="BoxMesh_site"]
+size = Vector3(0.5, 1.2, 0.5)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_site"]
+albedo_color = Color(0.7, 0.72, 0.65, 1)
+
+[node name="SacredSitePrimitive" type="Node3D"]
+
+[node name="StandingStone" type="StaticBody3D" parent="."]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="StandingStone"]
+shape = SubResource("BoxShape3D_site")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="StandingStone"]
+mesh = SubResource("BoxMesh_site")
+material_override = SubResource("StandardMaterial3D_site")

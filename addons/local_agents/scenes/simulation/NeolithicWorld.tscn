@@ -1,0 +1,49 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/NeolithicWorld.gd" id="1_world"]
+[ext_resource type="Script" path="res://addons/local_agents/simulation/SimulationController.gd" id="2_sim"]
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/EnvironmentController.gd" id="3_env"]
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/SettlementController.gd" id="4_settlement"]
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/VillagerController.gd" id="5_villagers"]
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/CultureController.gd" id="6_culture"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/scenes/simulation/debug/DebugOverlay.tscn" id="7_debug"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/scenes/simulation/ui/SimulationHud.tscn" id="8_hud"]
+
+[node name="NeolithicWorld" type="Node3D"]
+script = ExtResource("1_world")
+
+[node name="SimulationController" type="Node" parent="."]
+script = ExtResource("2_sim")
+
+[node name="EnvironmentController" type="Node3D" parent="."]
+script = ExtResource("3_env")
+
+[node name="TerrainRoot" type="Node3D" parent="EnvironmentController"]
+
+[node name="WaterRoot" type="Node3D" parent="EnvironmentController"]
+
+[node name="SettlementController" type="Node3D" parent="."]
+script = ExtResource("4_settlement")
+
+[node name="SettlementRoot" type="Node3D" parent="SettlementController"]
+
+[node name="VillagerController" type="Node3D" parent="."]
+script = ExtResource("5_villagers")
+
+[node name="VillagerRoot" type="Node3D" parent="VillagerController"]
+
+[node name="CultureController" type="Node3D" parent="."]
+script = ExtResource("6_culture")
+
+[node name="DebugOverlayRoot" parent="." instance=ExtResource("7_debug")]
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.859009, -0.246761, 0.448301, 0, 0.876727, 0.480988, -0.511962, -0.413126, 0.752907, 0, 7.0, 0)
+light_energy = 1.15
+shadow_enabled = true
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(0.994522, 0, -0.104528, -0.0441546, 0.906279, -0.420364, 0.0947338, 0.422677, 0.901314, 0, 8.2, 11.5)
+current = true
+
+[node name="SimulationHud" parent="." instance=ExtResource("8_hud")]

@@ -1,0 +1,12 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/debug/DebugOverlay.gd" id="1_debug"]
+
+[node name="DebugOverlay" type="Node3D"]
+script = ExtResource("1_debug")
+
+[node name="PathDebug" type="Node3D" parent="."]
+
+[node name="ResourceDebug" type="Node3D" parent="."]
+
+[node name="ConflictDebug" type="Node3D" parent="."]

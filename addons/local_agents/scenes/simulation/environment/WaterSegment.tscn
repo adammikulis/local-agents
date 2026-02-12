@@ -1,0 +1,22 @@
+[gd_scene load_steps=5 format=3]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_water"]
+size = Vector3(4, 0.05, 1.5)
+
+[sub_resource type="BoxMesh" id="BoxMesh_water"]
+size = Vector3(4, 0.05, 1.5)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_water"]
+albedo_color = Color(0.2, 0.45, 0.8, 0.9)
+roughness = 0.15
+
+[node name="WaterSegment" type="Node3D"]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("BoxMesh_water")
+material_override = SubResource("StandardMaterial3D_water")
+
+[node name="Area3D" type="Area3D" parent="."]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Area3D"]
+shape = SubResource("BoxShape3D_water")
