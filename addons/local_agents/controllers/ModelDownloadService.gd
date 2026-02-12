@@ -119,6 +119,9 @@ func create_request(overrides: Dictionary = {}, model_id: String = "") -> Dictio
         "force": overrides.get("force", false),
         "skip_existing": overrides.get("skip_existing", true)
     }
+    var checksum := String(target.get("sha256", ""))
+    if checksum != "":
+        request["sha256"] = checksum
 
     var hf_repo := target.get("hf_repo", target.get("repo_id", ""))
     if hf_repo != "":

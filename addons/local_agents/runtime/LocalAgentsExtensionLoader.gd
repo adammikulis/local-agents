@@ -18,6 +18,15 @@ static func ensure_initialized(force: bool = false) -> bool:
         return true
     _initializing = true
     _initialization_error = ""
+    var library_path := _expected_library_path()
+    if library_path == "":
+        _initialization_error = "Unsupported platform for localagents extension (%s)" % OS.get_name()
+        _initializing = false
+        return false
+    if not FileAccess.file_exists(library_path):
+        _initialization_error = "Missing localagents binary: %s" % library_path
+        _initializing = false
+        return false
     var resource := load(EXTENSION_PATH)
     if resource == null or not (resource is GDExtension):
         _initialization_error = "Missing localagents extension at %s" % EXTENSION_PATH
@@ -67,3 +76,13 @@ static func _verify_registration() -> bool:
         _initialization_error = "AgentRuntime singleton unavailable after initializing localagents extension"
         return false
     return true
+
+static func _expected_library_path() -> String:
+    var os_name := OS.get_name()
+    if os_name == "macOS":
+        return "res://addons/local_agents/gdextensions/localagents/bin/localagents.macos.dylib"
+    if os_name == "Linux":
+        return "res://addons/local_agents/gdextensions/localagents/bin/localagents.linux.so"
+    if os_name == "Windows":
+        return "res://addons/local_agents/gdextensions/localagents/bin/localagents.windows.dll"
+    return ""

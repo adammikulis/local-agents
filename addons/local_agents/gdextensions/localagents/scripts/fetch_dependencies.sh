@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 EXT_DIR=$(cd "${SCRIPT_DIR}/.." && pwd)
-REPO_ROOT=$(cd "${EXT_DIR}/../../.." && pwd)
+REPO_ROOT=$(cd "${EXT_DIR}/../../../.." && pwd)
 THIRDPARTY_DIR="${EXT_DIR}/thirdparty"
 MODELS_DIR="${REPO_ROOT}/addons/local_agents/models"
 VOICES_DIR="${REPO_ROOT}/addons/local_agents/voices"
@@ -18,10 +18,10 @@ DEFAULT_MODEL_URL="https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/re
 DEFAULT_MODEL_FOLDER="qwen3-4b-instruct"
 
 PIPER_VOICES=(
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US-ryan-high.onnx"
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US-ryan-high.onnx.json"
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US-kathleen-high.onnx"
-    "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US-kathleen-high.onnx.json"
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high.onnx"
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high.onnx.json"
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/kathleen/low/en_US-kathleen-low.onnx"
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/kathleen/low/en_US-kathleen-low.onnx.json"
 )
 
 usage() {
@@ -59,6 +59,23 @@ download_file() {
     fi
     echo "[curl] $url"
     curl -L --fail --progress-bar "$url" -o "$dest"
+}
+
+download_optional_file() {
+    local url="$1" dest="$2"
+    mkdir -p "$(dirname "$dest")"
+    if [[ -f "$dest" ]]; then
+        echo "[skip] $(basename "$dest") already exists"
+        return 2
+    fi
+    echo "[curl] $url"
+    if curl -L --fail --progress-bar "$url" -o "$dest"; then
+        return 0
+    fi
+
+    rm -f "$dest"
+    echo "[warn] optional asset download failed: $url" >&2
+    return 1
 }
 
 extract_sqlite() {
@@ -111,9 +128,12 @@ main() {
     fi
 
     if [[ "$skip_voices" == false ]]; then
+        local -i voices_downloaded=0 voices_skipped=0 voices_failed=0
+        local -a failed_voice_urls=()
+
         for url in "${PIPER_VOICES[@]}"; do
-            local filename=$(basename "$url")
-            local voice_id="${filename/en_US-/}"
+            local filename
+            filename=$(basename "$url")
             local dest_dir
             if [[ "$filename" == *"ryan"* ]]; then
                 dest_dir="$VOICES_DIR/en_US-ryan"
@@ -122,8 +142,27 @@ main() {
             else
                 dest_dir="$VOICES_DIR/misc"
             fi
-            download_file "$url" "$dest_dir/$filename"
+            local dest_path="$dest_dir/$filename"
+            if download_optional_file "$url" "$dest_path"; then
+                voices_downloaded+=1
+            else
+                local status=$?
+                if [[ "$status" -eq 2 ]]; then
+                    voices_skipped+=1
+                else
+                    voices_failed+=1
+                    failed_voice_urls+=("$url")
+                fi
+            fi
         done
+
+        echo "[voices] downloaded=$voices_downloaded skipped=$voices_skipped failed=$voices_failed"
+        if (( voices_failed > 0 )); then
+            echo "[warn] voice assets are optional; continuing despite failed downloads." >&2
+            for failed_url in "${failed_voice_urls[@]}"; do
+                echo "[warn] failed voice URL: $failed_url" >&2
+            done
+        fi
     fi
 
     echo "Dependencies fetched successfully."

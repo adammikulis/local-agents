@@ -94,6 +94,42 @@ static func resolve_voice_assets(voice_id: String, voice_root_overrides: Array =
             return {"model": direct, "config": cfg if FileAccess.file_exists(cfg) else ""}
     return {}
 
+static func voice_asset_report(voice_id: String, voice_root_overrides: Array = []) -> Dictionary:
+    var report := {
+        "voice_id": voice_id,
+        "ok": false,
+        "model": "",
+        "config": "",
+        "candidates": PackedStringArray(),
+        "error": "voice_missing",
+    }
+    var trimmed := voice_id.strip_edges()
+    if trimmed.is_empty():
+        report["error"] = "voice_id_empty"
+        return report
+    var candidates := PackedStringArray()
+    if trimmed.begins_with("res://") or trimmed.begins_with("user://") or _looks_absolute(trimmed):
+        candidates.append(trimmed)
+    else:
+        candidates.append("%s/%s" % [VOICES_RES_ROOT, trimmed])
+        if not trimmed.ends_with(".onnx"):
+            candidates.append("%s/%s/%s-high.onnx" % [VOICES_RES_ROOT, trimmed, trimmed])
+            candidates.append("%s/%s/%s.onnx" % [VOICES_RES_ROOT, trimmed, trimmed])
+    for override_root in voice_root_overrides:
+        var normalized_root := _normalize_path(override_root)
+        if normalized_root == "":
+            continue
+        candidates.append("%s/%s" % [normalized_root, trimmed])
+    report["candidates"] = candidates
+    var resolved := resolve_voice_assets(voice_id, voice_root_overrides)
+    if resolved.is_empty():
+        return report
+    report["ok"] = true
+    report["model"] = resolved.get("model", "")
+    report["config"] = resolved.get("config", "")
+    report["error"] = ""
+    return report
+
 static func ensure_models_dir() -> String:
     var abs_path := ProjectSettings.globalize_path(MODELS_USER_ROOT)
     DirAccess.make_dir_recursive_absolute(abs_path)

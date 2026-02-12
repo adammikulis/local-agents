@@ -14,6 +14,7 @@
 #include <godot_cpp/classes/json.hpp>
 
 #include <llama.h>
+#include <curl/curl.h>
 
 #include <cmath>
 #include <cstring>
@@ -287,6 +288,309 @@ void ensure_parent_directory(const std::filesystem::path &file_path) {
     std::filesystem::create_directories(parent, ec);
 }
 
+bool tokenize_text(
+    const llama_vocab *vocab,
+    const std::string &text,
+    bool add_bos,
+    bool parse_special,
+    std::vector<llama_token> &out_tokens
+) {
+    out_tokens.clear();
+    if (!vocab) {
+        return false;
+    }
+
+    // Recent llama.cpp versions can return a negative required size when the output
+    // buffer is too small, including probing calls with a null buffer.
+    int32_t capacity = std::max<int32_t>(32, static_cast<int32_t>(text.size()) + (add_bos ? 2 : 1));
+    out_tokens.resize(static_cast<size_t>(capacity));
+
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        int32_t token_count = llama_tokenize(
+            vocab,
+            text.c_str(),
+            static_cast<int32_t>(text.length()),
+            out_tokens.data(),
+            capacity,
+            add_bos,
+            parse_special
+        );
+
+        if (token_count > 0) {
+            out_tokens.resize(static_cast<size_t>(token_count));
+            return true;
+        }
+
+        if (token_count < 0) {
+            capacity = -token_count;
+            if (capacity <= 0) {
+                return false;
+            }
+            out_tokens.resize(static_cast<size_t>(capacity));
+            continue;
+        }
+
+        return false;
+    }
+
+    return false;
+}
+
+bool apply_stop_sequences(std::string &text, const std::vector<std::string> &stops) {
+    if (stops.empty()) {
+        return false;
+    }
+    size_t earliest = std::string::npos;
+    for (const std::string &stop : stops) {
+        if (stop.empty()) {
+            continue;
+        }
+        size_t pos = text.find(stop);
+        if (pos != std::string::npos && (earliest == std::string::npos || pos < earliest)) {
+            earliest = pos;
+        }
+    }
+    if (earliest != std::string::npos) {
+        text.resize(earliest);
+        return true;
+    }
+    return false;
+}
+
+Variant parse_json_response(const String &text) {
+    auto try_parse = [](const String &candidate) -> Variant {
+        Ref<JSON> parser;
+        parser.instantiate();
+        if (parser.is_valid() && parser->parse(candidate) == OK) {
+            return parser->get_data();
+        }
+        return Variant();
+    };
+
+    String trimmed = text.strip_edges();
+    if (trimmed.begins_with("{") || trimmed.begins_with("[")) {
+        Variant parsed = try_parse(trimmed);
+        if (parsed.get_type() != Variant::NIL) {
+            return parsed;
+        }
+    }
+
+    // Try to recover JSON object from wrapped prose output.
+    int open_index = text.find("{");
+    int close_index = text.rfind("}");
+    if (open_index >= 0 && close_index > open_index) {
+        String clipped = text.substr(open_index, close_index - open_index + 1);
+        Variant parsed = try_parse(clipped);
+        if (parsed.get_type() != Variant::NIL) {
+            return parsed;
+        }
+    }
+    return Variant();
+}
+
+bool validate_json_schema_basic(const Variant &parsed, const Dictionary &schema, String &reason) {
+    if (schema.is_empty()) {
+        return true;
+    }
+
+    String required_type = schema.get("type", String());
+    if (required_type == String("object") && parsed.get_type() != Variant::DICTIONARY) {
+        reason = String("schema_type_object_required");
+        return false;
+    }
+    if (required_type == String("array") && parsed.get_type() != Variant::ARRAY) {
+        reason = String("schema_type_array_required");
+        return false;
+    }
+
+    if (parsed.get_type() == Variant::DICTIONARY && schema.has("required")) {
+        Dictionary dict = parsed;
+        Array required = schema["required"];
+        for (int i = 0; i < required.size(); ++i) {
+            String key = required[i];
+            if (!dict.has(key)) {
+                reason = String("schema_missing_required_key:") + key;
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+struct HttpJsonResponse {
+    bool ok = false;
+    long status_code = 0;
+    String body;
+    String error;
+};
+
+size_t curl_write_string(void *contents, size_t size, size_t nmemb, void *userdata) {
+    if (!userdata) {
+        return 0;
+    }
+    const size_t total = size * nmemb;
+    std::string *buffer = static_cast<std::string *>(userdata);
+    buffer->append(static_cast<const char *>(contents), total);
+    return total;
+}
+
+HttpJsonResponse http_post_json(
+    const String &url,
+    const Dictionary &payload,
+    const PackedStringArray &headers,
+    int timeout_seconds
+) {
+    HttpJsonResponse result;
+    result.body = String();
+    result.error = String();
+
+    CURL *curl = curl_easy_init();
+    if (!curl) {
+        result.error = String("curl_init_failed");
+        return result;
+    }
+
+    struct curl_slist *header_list = nullptr;
+    for (int i = 0; i < headers.size(); ++i) {
+        std::string header = to_utf8(headers[i]);
+        header_list = curl_slist_append(header_list, header.c_str());
+    }
+    if (!header_list) {
+        header_list = curl_slist_append(header_list, "Content-Type: application/json");
+    }
+
+    std::string response_buffer;
+    std::string payload_text = to_utf8(JSON::stringify(payload));
+    std::string url_utf8 = to_utf8(url);
+
+    curl_easy_setopt(curl, CURLOPT_URL, url_utf8.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list);
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload_text.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(payload_text.size()));
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_string);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_buffer);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_seconds > 0 ? timeout_seconds : 120);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+
+    CURLcode code = curl_easy_perform(curl);
+    if (code != CURLE_OK) {
+        result.error = String::utf8(curl_easy_strerror(code));
+    } else {
+        result.ok = true;
+    }
+
+    long status_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status_code);
+    result.status_code = status_code;
+    result.body = String::utf8(response_buffer.c_str());
+
+    curl_slist_free_all(header_list);
+    curl_easy_cleanup(curl);
+    return result;
+}
+
+String normalize_server_base_url(String base_url) {
+    base_url = base_url.strip_edges();
+    while (base_url.ends_with("/")) {
+        base_url = base_url.substr(0, base_url.length() - 1);
+    }
+    return base_url;
+}
+
+bool is_llama_server_backend(const Dictionary &options) {
+    if (!options.has("backend")) {
+        return false;
+    }
+    String backend = String(options["backend"]).to_lower().strip_edges();
+    return backend == String("llama_server") ||
+           backend == String("llama-server") ||
+           backend == String("llama.cpp_server") ||
+           backend == String("llama.cpp-http") ||
+           backend == String("llama_cpp_http") ||
+           backend == String("llama_http");
+}
+
+void merge_dictionary(Dictionary &target, const Dictionary &source) {
+    Array keys = source.keys();
+    for (int i = 0; i < keys.size(); ++i) {
+        Variant key = keys[i];
+        target[key] = source[key];
+    }
+}
+
+void append_message(Array &messages, const String &role, const Variant &content) {
+    if (role.is_empty()) {
+        return;
+    }
+    Dictionary message;
+    message["role"] = role;
+    message["content"] = content;
+    messages.append(message);
+}
+
+String content_variant_to_text(const Variant &content) {
+    if (content.get_type() == Variant::STRING) {
+        return static_cast<String>(content);
+    }
+    if (content.get_type() != Variant::ARRAY) {
+        return String();
+    }
+    Array blocks = content;
+    String merged;
+    for (int i = 0; i < blocks.size(); ++i) {
+        Variant block_variant = blocks[i];
+        if (block_variant.get_type() != Variant::DICTIONARY) {
+            continue;
+        }
+        Dictionary block = block_variant;
+        String block_type = block.get("type", String());
+        if (block_type == String("text")) {
+            String text = block.get("text", String());
+            if (!merged.is_empty()) {
+                merged += String("\n");
+            }
+            merged += text;
+        }
+    }
+    return merged;
+}
+
+String extract_chat_completion_text(const Dictionary &response, Dictionary &first_choice, Variant &tool_call_payload) {
+    if (!response.has("choices")) {
+        return response.get("content", String());
+    }
+
+    Array choices = response["choices"];
+    if (choices.is_empty()) {
+        return String();
+    }
+    Variant first_choice_variant = choices[0];
+    if (first_choice_variant.get_type() != Variant::DICTIONARY) {
+        return String();
+    }
+    first_choice = first_choice_variant;
+
+    if (first_choice.has("message")) {
+        Variant message_variant = first_choice["message"];
+        if (message_variant.get_type() == Variant::DICTIONARY) {
+            Dictionary message = message_variant;
+            if (message.has("tool_calls")) {
+                tool_call_payload = message["tool_calls"];
+            }
+            if (message.has("content")) {
+                return content_variant_to_text(message["content"]);
+            }
+        }
+    }
+
+    if (first_choice.has("text")) {
+        return first_choice["text"];
+    }
+
+    return String();
+}
+
 #ifdef _WIN32
 FILE *open_pipe_write(const std::string &command) {
     return _popen(command.c_str(), "w");
@@ -320,7 +624,6 @@ int extract_exit_code(int status) {
 }
 
 } // namespace
-} // namespace
 
 AgentRuntime *AgentRuntime::singleton_ = nullptr;
 
@@ -352,6 +655,7 @@ void AgentRuntime::_bind_methods() {
     ClassDB::bind_method(D_METHOD("load_model", "model_path", "options"), &AgentRuntime::load_model);
     ClassDB::bind_method(D_METHOD("unload_model"), &AgentRuntime::unload_model);
     ClassDB::bind_method(D_METHOD("is_model_loaded"), &AgentRuntime::is_model_loaded);
+    ClassDB::bind_method(D_METHOD("get_runtime_health"), &AgentRuntime::get_runtime_health);
     ClassDB::bind_method(D_METHOD("generate", "request"), &AgentRuntime::generate);
     ClassDB::bind_method(D_METHOD("synthesize_speech", "request"), &AgentRuntime::synthesize_speech);
     ClassDB::bind_method(D_METHOD("transcribe_audio", "request"), &AgentRuntime::transcribe_audio);
@@ -420,8 +724,73 @@ bool AgentRuntime::is_model_loaded() const {
     return model_ != nullptr && context_ != nullptr;
 }
 
+Dictionary AgentRuntime::get_runtime_health() {
+    Dictionary health;
+    String runtime_property;
+    String model_path;
+    bool model_loaded = false;
+    {
+        std::scoped_lock lock(mutex_);
+        runtime_property = runtime_directory_;
+        model_path = default_model_path_;
+        model_loaded = model_ != nullptr && context_ != nullptr;
+    }
+
+    std::filesystem::path runtime_dir = resolve_runtime_directory_path(String(), runtime_property);
+    bool runtime_dir_exists = !runtime_dir.empty() && std::filesystem::exists(runtime_dir);
+    std::filesystem::path model_path_fs = to_path(model_path);
+    bool model_path_exists = !model_path_fs.empty() && std::filesystem::exists(model_path_fs);
+
+    std::filesystem::path llama_cli = find_binary(runtime_dir, {"llama-cli", "llama-cli.exe"});
+    std::filesystem::path llama_server = find_binary(runtime_dir, {"llama-server", "llama-server.exe"});
+    std::filesystem::path piper = find_binary(runtime_dir, {"piper", "piper.exe"});
+    std::filesystem::path whisper = find_binary(runtime_dir, {"whisper", "whisper-cli", "whisper.exe", "whisper-cli.exe"});
+
+    PackedStringArray missing;
+    if (llama_cli.empty()) {
+        missing.append("llama-cli");
+    }
+    if (piper.empty()) {
+        missing.append("piper");
+    }
+    if (whisper.empty()) {
+        missing.append("whisper");
+    }
+
+    Dictionary binaries;
+    binaries["llama_cli"] = path_to_string(llama_cli);
+    binaries["llama_server"] = path_to_string(llama_server);
+    binaries["piper"] = path_to_string(piper);
+    binaries["whisper"] = path_to_string(whisper);
+
+    health["ok"] = runtime_dir_exists && missing.is_empty();
+    health["model_loaded"] = model_loaded;
+    health["default_model_path"] = model_path;
+    health["default_model_exists"] = model_path_exists;
+    health["runtime_directory"] = runtime_property;
+    health["resolved_runtime_directory"] = path_to_string(runtime_dir);
+    health["runtime_directory_exists"] = runtime_dir_exists;
+    health["binaries"] = binaries;
+    health["missing_binaries"] = missing;
+    return health;
+}
+
 Dictionary AgentRuntime::generate(const Dictionary &request) {
     std::scoped_lock lock(mutex_);
+
+    Dictionary options = default_options_.duplicate();
+    if (request.has("options")) {
+        Dictionary overrides = request["options"];
+        Array keys = overrides.keys();
+        for (int i = 0; i < keys.size(); ++i) {
+            Variant key = keys[i];
+            options[key] = overrides[key];
+        }
+    }
+
+    if (is_llama_server_backend(options)) {
+        return run_llama_server_inference_locked(request, options);
+    }
 
     if (!model_ || !context_) {
         if (default_model_path_.is_empty()) {
@@ -482,18 +851,15 @@ PackedFloat32Array AgentRuntime::embed_text(const String &text, const Dictionary
         return empty;
     }
 
-    int token_capacity = llama_tokenize(vocab, input.c_str(), static_cast<int32_t>(input.length()), nullptr, 0, add_bos, false);
-    if (token_capacity <= 0) {
+    std::vector<llama_token> tokens;
+    if (!tokenize_text(vocab, input, add_bos, false, tokens)) {
         UtilityFunctions::push_error("AgentRuntime::embed_text - tokenization failed");
         return empty;
     }
 
-    std::vector<llama_token> tokens(static_cast<size_t>(token_capacity));
-    llama_tokenize(vocab, input.c_str(), static_cast<int32_t>(input.length()), tokens.data(), token_capacity, add_bos, false);
-
     llama_memory_clear(llama_get_memory(context_), true);
 
-    llama_batch batch = llama_batch_get_one(tokens.data(), token_capacity);
+    llama_batch batch = llama_batch_get_one(tokens.data(), static_cast<int32_t>(tokens.size()));
 
     if (llama_decode(context_, batch) != 0) {
         UtilityFunctions::push_error("AgentRuntime::embed_text - llama_decode failed");
@@ -505,7 +871,7 @@ PackedFloat32Array AgentRuntime::embed_text(const String &text, const Dictionary
         case LLAMA_POOLING_TYPE_NONE:
             embedding_ptr = llama_get_embeddings(context_);
             if (!embedding_ptr) {
-                embedding_ptr = llama_get_embeddings_ith(context_, token_capacity - 1);
+                embedding_ptr = llama_get_embeddings_ith(context_, static_cast<int32_t>(tokens.size()) - 1);
             }
             break;
         default:
@@ -957,6 +1323,61 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
         }
     }
 
+    std::vector<std::string> stop_sequences;
+    if (options.has("stop")) {
+        Variant stop_value = options["stop"];
+        if (stop_value.get_type() == Variant::STRING) {
+            std::string stop = to_utf8(static_cast<String>(stop_value));
+            if (!stop.empty()) {
+                stop_sequences.push_back(stop);
+            }
+        } else if (stop_value.get_type() == Variant::ARRAY) {
+            Array stop_array = stop_value;
+            for (int i = 0; i < stop_array.size(); ++i) {
+                Variant item = stop_array[i];
+                if (item.get_type() == Variant::STRING) {
+                    std::string stop = to_utf8(static_cast<String>(item));
+                    if (!stop.empty()) {
+                        stop_sequences.push_back(stop);
+                    }
+                }
+            }
+        }
+    }
+    if (options.has("stop_sequences")) {
+        Array stop_array = options["stop_sequences"];
+        for (int i = 0; i < stop_array.size(); ++i) {
+            Variant item = stop_array[i];
+            if (item.get_type() == Variant::STRING) {
+                std::string stop = to_utf8(static_cast<String>(item));
+                if (!stop.empty()) {
+                    stop_sequences.push_back(stop);
+                }
+            }
+        }
+    }
+
+    bool require_json = false;
+    if (options.has("response_format")) {
+        Variant response_format_variant = options["response_format"];
+        if (response_format_variant.get_type() == Variant::DICTIONARY) {
+            Dictionary response_format = response_format_variant;
+            String response_type = response_format.get("type", String());
+            require_json = response_type == String("json_object");
+        } else if (response_format_variant.get_type() == Variant::STRING) {
+            String response_type = response_format_variant;
+            require_json = response_type == String("json_object");
+        }
+    }
+    Dictionary json_schema;
+    if (options.has("json_schema")) {
+        Variant schema_variant = options["json_schema"];
+        if (schema_variant.get_type() == Variant::DICTIONARY) {
+            json_schema = schema_variant;
+            require_json = true;
+        }
+    }
+
     sampler_.reset();
     if (!ensure_sampler_locked(options)) {
         response["ok"] = false;
@@ -978,17 +1399,13 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
         return response;
     }
 
-    int token_capacity = llama_tokenize(vocab, prompt_text.c_str(), static_cast<int32_t>(prompt_text.length()), nullptr, 0, add_bos, false);
-    if (token_capacity <= 0) {
+    std::vector<llama_token> tokens_prompt;
+    if (!tokenize_text(vocab, prompt_text, add_bos, false, tokens_prompt)) {
         response["ok"] = false;
         response["error"] = "tokenization_failed";
         return response;
     }
-
-    std::vector<llama_token> tokens_prompt(static_cast<size_t>(token_capacity));
-    llama_tokenize(vocab, prompt_text.c_str(), static_cast<int32_t>(prompt_text.length()), tokens_prompt.data(), token_capacity, add_bos, false);
-
-    llama_batch batch = llama_batch_get_one(tokens_prompt.data(), token_capacity);
+    llama_batch batch = llama_batch_get_one(tokens_prompt.data(), static_cast<int32_t>(tokens_prompt.size()));
 
     if (llama_decode(context_, batch)) {
         response["ok"] = false;
@@ -1005,6 +1422,13 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
             break;
         }
         generated << token_to_string(token);
+        std::string generated_snapshot = generated.str();
+        if (apply_stop_sequences(generated_snapshot, stop_sequences)) {
+            generated.str(std::string());
+            generated.clear();
+            generated << generated_snapshot;
+            break;
+        }
 
         llama_batch cont = llama_batch_get_one(&token, 1);
         if (llama_decode(context_, cont)) {
@@ -1016,6 +1440,222 @@ Dictionary AgentRuntime::run_inference_locked(const Dictionary &request) {
     String text = String::utf8(generated.str().c_str()).strip_edges();
     response["ok"] = true;
     response["text"] = text;
+    if (require_json) {
+        Variant parsed_json = parse_json_response(text);
+        if (parsed_json.get_type() == Variant::NIL) {
+            response["ok"] = false;
+            response["error"] = "json_parse_failed";
+            return response;
+        }
+        String schema_reason;
+        if (!validate_json_schema_basic(parsed_json, json_schema, schema_reason)) {
+            response["ok"] = false;
+            response["error"] = "json_schema_validation_failed";
+            response["schema_reason"] = schema_reason;
+            response["json"] = parsed_json;
+            return response;
+        }
+        response["json"] = parsed_json;
+    }
+    return response;
+}
+
+Dictionary AgentRuntime::run_llama_server_inference_locked(const Dictionary &request, const Dictionary &options) {
+    Dictionary response;
+    response["ok"] = false;
+    response["provider"] = String("llama_server");
+
+    String base_url = options.get("server_base_url", options.get("base_url", String("http://127.0.0.1:8080")));
+    base_url = normalize_server_base_url(base_url);
+    if (base_url.is_empty()) {
+        response["error"] = String("missing_server_base_url");
+        return response;
+    }
+
+    String chat_endpoint = options.get("server_chat_endpoint", String());
+    if (chat_endpoint.is_empty()) {
+        chat_endpoint = base_url.ends_with("/v1") ? String("/chat/completions") : String("/v1/chat/completions");
+    }
+    if (!chat_endpoint.begins_with("/")) {
+        chat_endpoint = String("/") + chat_endpoint;
+    }
+    String url = base_url + chat_endpoint;
+
+    Array messages;
+    if (options.has("messages") && options["messages"].get_type() == Variant::ARRAY) {
+        messages = options["messages"];
+    } else {
+        TypedArray<Dictionary> history = request.get("history", TypedArray<Dictionary>());
+        bool has_system = false;
+        for (int i = 0; i < history.size(); ++i) {
+            Dictionary entry = history[i];
+            String role = entry.get("role", String());
+            Variant content = entry.get("content", Variant());
+            if (content.get_type() == Variant::NIL) {
+                content = String();
+            }
+            if (role == String("system")) {
+                has_system = true;
+            }
+            append_message(messages, role, content);
+        }
+
+        if (!has_system && !system_prompt_.is_empty()) {
+            Dictionary system_message;
+            system_message["role"] = String("system");
+            system_message["content"] = system_prompt_;
+            messages.insert(0, system_message);
+        }
+
+        String prompt = request.get("prompt", String());
+        if (!prompt.is_empty()) {
+            append_message(messages, String("user"), prompt);
+        }
+    }
+
+    if (messages.is_empty()) {
+        response["error"] = String("missing_messages");
+        return response;
+    }
+
+    Dictionary payload;
+    payload["messages"] = messages;
+    payload["model"] = options.get("server_model", options.get("model", String("local-agents")));
+
+    auto copy_if_present = [&](const char *option_key, const char *payload_key) {
+        if (options.has(option_key)) {
+            payload[payload_key] = options[option_key];
+        }
+    };
+
+    copy_if_present("max_tokens", "max_tokens");
+    copy_if_present("temperature", "temperature");
+    copy_if_present("top_p", "top_p");
+    copy_if_present("top_k", "top_k");
+    copy_if_present("min_p", "min_p");
+    copy_if_present("typical_p", "typical_p");
+    copy_if_present("repeat_penalty", "repeat_penalty");
+    copy_if_present("repeat_last_n", "repeat_last_n");
+    copy_if_present("frequency_penalty", "frequency_penalty");
+    copy_if_present("presence_penalty", "presence_penalty");
+    copy_if_present("mirostat", "mirostat");
+    copy_if_present("mirostat_tau", "mirostat_tau");
+    copy_if_present("mirostat_eta", "mirostat_eta");
+    copy_if_present("seed", "seed");
+    copy_if_present("stop", "stop");
+    copy_if_present("n_predict", "n_predict");
+    copy_if_present("cache_prompt", "cache_prompt");
+    copy_if_present("id_slot", "id_slot");
+    copy_if_present("tools", "tools");
+    copy_if_present("tool_choice", "tool_choice");
+    copy_if_present("parallel_tool_calls", "parallel_tool_calls");
+    copy_if_present("parse_tool_calls", "parse_tool_calls");
+    copy_if_present("response_format", "response_format");
+    copy_if_present("json_schema", "json_schema");
+    copy_if_present("reasoning_format", "reasoning_format");
+    copy_if_present("thinking_forced_open", "thinking_forced_open");
+    copy_if_present("chat_template_kwargs", "chat_template_kwargs");
+
+    if (options.has("stop_sequences") && !payload.has("stop")) {
+        payload["stop"] = options["stop_sequences"];
+    }
+    if (options.get("output_json", false) && !payload.has("response_format")) {
+        Dictionary rf;
+        rf["type"] = String("json_object");
+        payload["response_format"] = rf;
+    }
+    if (options.has("json_schema") && !payload.has("response_format")) {
+        Dictionary rf;
+        rf["type"] = String("json_schema");
+        rf["schema"] = options["json_schema"];
+        payload["response_format"] = rf;
+    }
+    if (options.has("server_extra_body") && options["server_extra_body"].get_type() == Variant::DICTIONARY) {
+        merge_dictionary(payload, options["server_extra_body"]);
+    }
+
+    int timeout_seconds = options.get("server_timeout_seconds", options.get("server_timeout_sec", 120));
+    PackedStringArray headers;
+    headers.append(String("Content-Type: application/json"));
+    String api_key = options.get("server_api_key", options.get("api_key", String()));
+    if (!api_key.is_empty()) {
+        headers.append(String("Authorization: Bearer ") + api_key);
+    }
+
+    HttpJsonResponse http = http_post_json(url, payload, headers, timeout_seconds);
+    response["endpoint"] = url;
+    response["status_code"] = static_cast<int64_t>(http.status_code);
+
+    if (!http.ok) {
+        response["error"] = String("http_request_failed");
+        response["detail"] = http.error;
+        response["raw"] = http.body;
+        return response;
+    }
+    if (http.status_code < 200 || http.status_code >= 300) {
+        response["error"] = String("http_status_error");
+        response["raw"] = http.body;
+        return response;
+    }
+
+    Variant parsed = JSON::parse_string(http.body);
+    if (parsed.get_type() != Variant::DICTIONARY) {
+        response["error"] = String("invalid_json_response");
+        response["raw"] = http.body;
+        return response;
+    }
+
+    Dictionary parsed_dict = parsed;
+    response["response"] = parsed_dict;
+
+    Dictionary first_choice;
+    Variant tool_calls;
+    String text = extract_chat_completion_text(parsed_dict, first_choice, tool_calls).strip_edges();
+
+    if (text.is_empty() && parsed_dict.has("output_text")) {
+        text = parsed_dict["output_text"];
+    }
+    if (text.is_empty() && parsed_dict.has("error")) {
+        Variant error_variant = parsed_dict["error"];
+        if (error_variant.get_type() == Variant::DICTIONARY) {
+            Dictionary error_dict = error_variant;
+            response["error"] = error_dict.get("message", String("server_error"));
+        } else {
+            response["error"] = String("server_error");
+        }
+        response["raw"] = http.body;
+        return response;
+    }
+
+    response["ok"] = true;
+    response["text"] = text;
+    if (parsed_dict.has("id")) {
+        response["id"] = parsed_dict["id"];
+    }
+    if (tool_calls.get_type() != Variant::NIL) {
+        response["tool_calls"] = tool_calls;
+    }
+    if (parsed_dict.has("usage")) {
+        response["usage"] = parsed_dict["usage"];
+    }
+
+    if (payload.has("response_format")) {
+        Variant rf_variant = payload["response_format"];
+        String rf_type;
+        if (rf_variant.get_type() == Variant::DICTIONARY) {
+            Dictionary rf = rf_variant;
+            rf_type = rf.get("type", String());
+        } else if (rf_variant.get_type() == Variant::STRING) {
+            rf_type = rf_variant;
+        }
+        if (rf_type == String("json_object") || rf_type == String("json_schema")) {
+            Variant parsed_json = parse_json_response(text);
+            if (parsed_json.get_type() != Variant::NIL) {
+                response["json"] = parsed_json;
+            }
+        }
+    }
+
     return response;
 }
 

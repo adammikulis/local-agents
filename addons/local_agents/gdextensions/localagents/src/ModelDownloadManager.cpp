@@ -19,9 +19,17 @@
 #include <string>
 #include <system_error>
 #include <vector>
+#include <fstream>
+#include <chrono>
 
 #ifndef _WIN32
 #include <sys/wait.h>
+#endif
+
+#if defined(__APPLE__)
+#include <CommonCrypto/CommonDigest.h>
+#elif __has_include(<openssl/sha.h>)
+#include <openssl/sha.h>
 #endif
 
 namespace godot {
@@ -138,6 +146,109 @@ int64_t file_size_bytes(const std::filesystem::path &path) {
         return 0;
     }
     return static_cast<int64_t>(size);
+}
+
+std::string json_escape(const std::string &value) {
+    std::string out;
+    out.reserve(value.size() + 8);
+    for (char ch : value) {
+        switch (ch) {
+            case '\"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default: out.push_back(ch); break;
+        }
+    }
+    return out;
+}
+
+std::string sha256_file_hex(const std::filesystem::path &path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in.good()) {
+        return std::string();
+    }
+    constexpr size_t kBufferSize = 1 << 15;
+    std::array<char, kBufferSize> buffer{};
+
+#if defined(__APPLE__)
+    CC_SHA256_CTX ctx;
+    CC_SHA256_Init(&ctx);
+    while (in.good()) {
+        in.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        std::streamsize got = in.gcount();
+        if (got > 0) {
+            CC_SHA256_Update(&ctx, reinterpret_cast<const unsigned char *>(buffer.data()), static_cast<CC_LONG>(got));
+        }
+    }
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256_Final(digest, &ctx);
+    constexpr size_t digest_len = CC_SHA256_DIGEST_LENGTH;
+#elif defined(SHA256_DIGEST_LENGTH)
+    SHA256_CTX ctx;
+    SHA256_Init(&ctx);
+    while (in.good()) {
+        in.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        std::streamsize got = in.gcount();
+        if (got > 0) {
+            SHA256_Update(&ctx, buffer.data(), static_cast<size_t>(got));
+        }
+    }
+    unsigned char digest[SHA256_DIGEST_LENGTH];
+    SHA256_Final(digest, &ctx);
+    constexpr size_t digest_len = SHA256_DIGEST_LENGTH;
+#else
+    (void)buffer;
+    return std::string();
+#endif
+
+    static const char *hex = "0123456789abcdef";
+    std::string out;
+    out.resize(digest_len * 2);
+    for (size_t i = 0; i < digest_len; ++i) {
+        out[2 * i] = hex[(digest[i] >> 4) & 0x0F];
+        out[2 * i + 1] = hex[digest[i] & 0x0F];
+    }
+    return out;
+}
+
+bool write_download_manifest(
+    const std::filesystem::path &file_path,
+    const Dictionary &request,
+    const std::string &sha256,
+    int64_t bytes_total
+) {
+    std::filesystem::path manifest_path = file_path;
+    manifest_path += ".manifest.json";
+    std::ofstream out(manifest_path, std::ios::trunc);
+    if (!out.good()) {
+        return false;
+    }
+
+    String hf_repo = request.get("hf_repo", String());
+    String hf_file = request.get("hf_file", String());
+    String hf_tag = request.get("hf_tag", String());
+    String url = request.get("url", String());
+    String label = request.get("label", String());
+    String expected_sha = request.get("sha256", String());
+
+    auto now = std::chrono::system_clock::now();
+    auto now_epoch = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
+
+    out << "{\n";
+    out << "  \"path\": \"" << json_escape(file_path.string()) << "\",\n";
+    out << "  \"label\": \"" << json_escape(to_utf8(label)) << "\",\n";
+    out << "  \"bytes\": " << bytes_total << ",\n";
+    out << "  \"sha256\": \"" << json_escape(sha256) << "\",\n";
+    out << "  \"expected_sha256\": \"" << json_escape(to_utf8(expected_sha)) << "\",\n";
+    out << "  \"hf_repo\": \"" << json_escape(to_utf8(hf_repo)) << "\",\n";
+    out << "  \"hf_file\": \"" << json_escape(to_utf8(hf_file)) << "\",\n";
+    out << "  \"hf_tag\": \"" << json_escape(to_utf8(hf_tag)) << "\",\n";
+    out << "  \"url\": \"" << json_escape(to_utf8(url)) << "\",\n";
+    out << "  \"generated_at_epoch\": " << now_epoch << "\n";
+    out << "}\n";
+    return out.good();
 }
 
 int read_split_count(const std::filesystem::path &primary_path) {
@@ -336,6 +447,7 @@ Dictionary ModelDownloadManager::download(const Dictionary &request,
     bool force = request.get("force", false);
     bool skip_existing = request.has("skip_existing") ? (bool)request["skip_existing"] : !force;
     bool offline = request.get("offline", false);
+    String expected_sha256_value = String(request.get("sha256", String())).strip_edges().to_lower();
 
     auto build_existing_response = [&](const std::filesystem::path &path) {
         std::vector<std::filesystem::path> files;
@@ -354,6 +466,20 @@ Dictionary ModelDownloadManager::download(const Dictionary &request,
                 total_bytes += file_size_bytes(split);
             }
         }
+
+        std::string sha256 = sha256_file_hex(path);
+        if (!expected_sha256_value.is_empty() && !sha256.empty() && sha256 != to_utf8(expected_sha256_value)) {
+            emit_log("Cached file checksum mismatch for " + path.string(), output_path_string);
+            if (callbacks.finished) {
+                callbacks.finished(false, from_utf8("checksum_mismatch"), from_utf8(path.string()));
+            }
+            return finalize(false, "checksum_mismatch", path, {}, 0);
+        }
+        if (!sha256.empty()) {
+            response["sha256"] = from_utf8(sha256);
+        }
+        response["checksum_verified"] = expected_sha256_value.is_empty() || (!sha256.empty() && sha256 == to_utf8(expected_sha256_value));
+        write_download_manifest(path, request, sha256, total_bytes);
 
         if (callbacks.progress) {
             callbacks.progress(label, 1.0, total_bytes, total_bytes, from_utf8(path.string()));
@@ -564,6 +690,22 @@ Dictionary ModelDownloadManager::download(const Dictionary &request,
             files.push_back(split);
             total_bytes += file_size_bytes(split);
         }
+    }
+
+    std::string sha256 = sha256_file_hex(output_path);
+    if (!expected_sha256_value.is_empty() && !sha256.empty() && sha256 != to_utf8(expected_sha256_value)) {
+        emit_log("Downloaded file checksum mismatch for " + output_path.string(), output_path_string);
+        if (callbacks.finished) {
+            callbacks.finished(false, from_utf8("checksum_mismatch"), from_utf8(output_path.string()));
+        }
+        return finalize(false, "checksum_mismatch", output_path, {}, 0);
+    }
+    if (!sha256.empty()) {
+        response["sha256"] = from_utf8(sha256);
+    }
+    response["checksum_verified"] = expected_sha256_value.is_empty() || (!sha256.empty() && sha256 == to_utf8(expected_sha256_value));
+    if (!write_download_manifest(output_path, request, sha256, total_bytes)) {
+        emit_log("Warning: failed to write manifest for " + output_path.string(), output_path_string);
     }
 
     if (callbacks.progress) {

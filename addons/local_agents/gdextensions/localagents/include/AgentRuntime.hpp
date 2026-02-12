@@ -37,6 +37,7 @@ public:
     bool load_model(const String &model_path, const Dictionary &options);
     void unload_model();
     bool is_model_loaded() const;
+    Dictionary get_runtime_health();
 
     Dictionary generate(const Dictionary &request);
     PackedFloat32Array embed_text(const String &text, const Dictionary &options = Dictionary());
@@ -63,6 +64,7 @@ protected:
 
 private:
     Dictionary run_inference_locked(const Dictionary &request);
+    Dictionary run_llama_server_inference_locked(const Dictionary &request, const Dictionary &options);
     bool ensure_sampler_locked(const Dictionary &options);
     std::string build_prompt(const TypedArray<Dictionary> &history, const String &user_prompt) const;
     std::string token_to_string(llama_token token) const;

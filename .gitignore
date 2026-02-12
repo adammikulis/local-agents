@@ -17,6 +17,7 @@ data_*/
 mono_crash.*.json
 
 # Project-specific ignores
+AGENTS.md
 android/
 .vs
 .vscode/

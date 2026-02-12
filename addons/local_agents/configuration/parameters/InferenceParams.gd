@@ -19,6 +19,13 @@ class_name LocalAgentsInferenceParams
 @export var mirostat_m: int = 100
 @export var backend: String = ""
 @export var output_json: bool = false
+@export var server_base_url: String = ""
+@export var server_api_key: String = ""
+@export var server_model: String = ""
+@export var server_timeout_sec: int = 120
+@export var server_slot: int = -1
+@export var server_cache_prompt: bool = true
+@export var server_extra_body: Dictionary = {}
 @export var extra_options: Dictionary = {}
 
 func to_options() -> Dictionary:
@@ -41,6 +48,19 @@ func to_options() -> Dictionary:
     }
     if backend.strip_edges() != "":
         opts["backend"] = backend.strip_edges()
+    if server_base_url.strip_edges() != "":
+        opts["server_base_url"] = server_base_url.strip_edges()
+    if server_api_key.strip_edges() != "":
+        opts["server_api_key"] = server_api_key.strip_edges()
+    if server_model.strip_edges() != "":
+        opts["server_model"] = server_model.strip_edges()
+    if server_timeout_sec > 0:
+        opts["server_timeout_sec"] = server_timeout_sec
+    if server_slot >= 0:
+        opts["id_slot"] = server_slot
+    opts["cache_prompt"] = server_cache_prompt
+    if not server_extra_body.is_empty():
+        opts["server_extra_body"] = server_extra_body.duplicate(true)
     if seed >= 0:
         opts["seed"] = seed
     for key in extra_options.keys():
