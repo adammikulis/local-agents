@@ -5,6 +5,7 @@ const TerrainWeatherShader = preload("res://addons/local_agents/scenes/simulatio
 const CloudRendererScript = preload("res://addons/local_agents/scenes/simulation/controllers/renderers/CloudRenderer.gd")
 const RiverRendererScript = preload("res://addons/local_agents/scenes/simulation/controllers/renderers/RiverRenderer.gd")
 const PostFXRendererScript = preload("res://addons/local_agents/scenes/simulation/controllers/renderers/PostFXRenderer.gd")
+const WaterSourceRendererScript = preload("res://addons/local_agents/scenes/simulation/controllers/renderers/WaterSourceRenderer.gd")
 
 @onready var terrain_root: Node3D = $TerrainRoot
 @onready var water_root: Node3D = $WaterRoot
@@ -47,6 +48,7 @@ var _water_shader_params := {
 var _cloud_renderer
 var _river_renderer
 var _post_fx_renderer
+var _water_source_renderer
 var _lightning_flash: float = 0.0
 var _chunk_build_thread: Thread
 var _chunk_build_in_flight: bool = false
@@ -113,17 +115,8 @@ func apply_generation_delta(generation: Dictionary, hydrology: Dictionary, chang
 	_request_chunk_rebuild(chunk_keys)
 
 func _rebuild_water_sources() -> void:
-	for child in water_root.get_children():
-		child.queue_free()
-	var source_tiles: Array = _hydrology_snapshot.get("source_tiles", [])
-	source_tiles.sort()
-	for tile_id_variant in source_tiles:
-		var marker := Marker3D.new()
-		marker.name = "WaterSource_%s" % String(tile_id_variant).replace(":", "_")
-		var coords = String(tile_id_variant).split(":")
-		if coords.size() == 2:
-			marker.position = Vector3(float(coords[0]), 0.1, float(coords[1]))
-		water_root.add_child(marker)
+	_ensure_renderer_nodes()
+	_water_source_renderer.rebuild_sources(water_root, _hydrology_snapshot)
 
 func get_generation_snapshot() -> Dictionary:
 	return _generation_snapshot.duplicate(true)
@@ -175,6 +168,10 @@ func _ensure_renderer_nodes() -> void:
 		_post_fx_renderer = PostFXRendererScript.new()
 		_post_fx_renderer.name = "PostFXRenderer"
 		add_child(_post_fx_renderer)
+	if _water_source_renderer == null:
+		_water_source_renderer = WaterSourceRendererScript.new()
+		_water_source_renderer.name = "WaterSourceRenderer"
+		add_child(_water_source_renderer)
 
 func set_solar_state(solar_snapshot: Dictionary) -> void:
 	_solar_snapshot = solar_snapshot.duplicate(true)
