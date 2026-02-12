@@ -179,6 +179,7 @@ func _ensure_initialized() -> void:
 
 func configure(seed_text: String, narrator_enabled: bool = true, dream_llm_enabled: bool = true) -> void:
     _ensure_initialized()
+    _reset_store_for_instance()
     _rng.set_base_seed_from_text(seed_text)
     active_branch_id = "main"
     _branch_lineage = []
@@ -188,8 +189,20 @@ func configure(seed_text: String, narrator_enabled: bool = true, dream_llm_enabl
     _narrator.enabled = narrator_enabled
     _dreams.llm_enabled = dream_llm_enabled
     _mind.llm_enabled = dream_llm_enabled
-    _store.open()
+    _store.open(_store_path_for_instance())
     configure_environment(_worldgen_config)
+
+func _store_path_for_instance() -> String:
+    return ProjectSettings.globalize_path("user://local_agents/sim_%d.sqlite3" % get_instance_id())
+
+func _reset_store_for_instance() -> void:
+    if _store != null:
+        _store.close()
+    var path = _store_path_for_instance()
+    for suffix in ["", "-wal", "-shm", "-journal"]:
+        var candidate = path + suffix
+        if FileAccess.file_exists(candidate):
+            DirAccess.remove_absolute(candidate)
 
 func configure_environment(config_resource = null) -> Dictionary:
     _ensure_initialized()
