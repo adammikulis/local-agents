@@ -19,9 +19,12 @@ const RELATIONSHIP_PROFILE_SPACE = "relationship_profile"
 const RELATIONSHIP_EVENT_SPACE = "relationship_event"
 const TRUTH_SPACE = "truth"
 const BELIEF_SPACE = "belief"
+const ORAL_KNOWLEDGE_SPACE = "oral_knowledge"
+const RITUAL_EVENT_SPACE = "ritual_event"
+const SACRED_SITE_SPACE = "sacred_site"
 
 const DEFAULT_SCAN_LIMIT = 4096
-const CYPHER_PLAYBOOK_VERSION = "backstory_cypher_playbook_v1"
+const CYPHER_PLAYBOOK_VERSION = "backstory_cypher_playbook_v2"
 
 var _graph: Object = null
 var _database_path_override: String = ""
@@ -416,6 +419,292 @@ func add_dream_memory(memory_id: String, npc_id: String, summary: String, world_
         merged_tags,
         merged_metadata
     )
+
+func record_oral_knowledge(knowledge_id: String, npc_id: String, category: String, content: String, confidence: float = 0.8, motifs: Array = [], world_day: int = -1, metadata: Dictionary = {}) -> Dictionary:
+    if npc_id.strip_edges() == "":
+        return _error("invalid_npc_id", "npc_id must be non-empty")
+    if category.strip_edges() == "":
+        return _error("invalid_category", "category must be non-empty")
+    if content.strip_edges() == "":
+        return _error("invalid_content", "content must be non-empty")
+    if confidence < 0.0 or confidence > 1.0:
+        return _error("invalid_confidence", "confidence must be between 0 and 1")
+    if world_day < -1:
+        return _error("invalid_world_day", "world_day must be >= -1")
+    if not _ensure_graph():
+        return _error("graph_unavailable", "NetworkGraph extension unavailable")
+
+    var npc_node_id = _node_id_by_external_id(NPC_SPACE, "npc_id", npc_id)
+    if npc_node_id == -1:
+        return _error("missing_npc", "NPC must exist before writing oral knowledge", {"npc_id": npc_id})
+
+    var resolved_id = knowledge_id.strip_edges()
+    if resolved_id == "":
+        resolved_id = _oral_knowledge_seed_id(npc_id, category, world_day)
+
+    var payload = {
+        "type": "oral_knowledge",
+        "knowledge_id": resolved_id,
+        "npc_id": npc_id,
+        "category": category,
+        "content": content,
+        "confidence": confidence,
+        "motifs": motifs.duplicate(true),
+        "world_day": world_day,
+        "metadata": metadata.duplicate(true),
+        "updated_at": _timestamp(),
+    }
+    var node_id = _graph.upsert_node(ORAL_KNOWLEDGE_SPACE, _oral_knowledge_label(resolved_id), payload)
+    if node_id == -1:
+        return _error("upsert_failed", "Failed to upsert oral knowledge", {"knowledge_id": resolved_id})
+
+    _graph.add_edge(npc_node_id, node_id, "HAS_ORAL_KNOWLEDGE", confidence, {
+        "type": "oral_knowledge_ref",
+        "npc_id": npc_id,
+        "knowledge_id": resolved_id,
+        "world_day": world_day,
+        "confidence": confidence,
+    })
+
+    return _ok({
+        "node_id": node_id,
+        "knowledge_id": resolved_id,
+    })
+
+func link_oral_knowledge_lineage(source_knowledge_id: String, derived_knowledge_id: String, speaker_npc_id: String = "", listener_npc_id: String = "", transmission_hops: int = 1, world_day: int = -1) -> Dictionary:
+    if source_knowledge_id.strip_edges() == "" or derived_knowledge_id.strip_edges() == "":
+        return _error("invalid_knowledge_id", "knowledge ids must be non-empty")
+    if transmission_hops < 1:
+        return _error("invalid_transmission_hops", "transmission_hops must be >= 1")
+    if world_day < -1:
+        return _error("invalid_world_day", "world_day must be >= -1")
+    if not _ensure_graph():
+        return _error("graph_unavailable", "NetworkGraph extension unavailable")
+
+    var source_node_id = _node_id_by_external_id(ORAL_KNOWLEDGE_SPACE, "knowledge_id", source_knowledge_id)
+    var derived_node_id = _node_id_by_external_id(ORAL_KNOWLEDGE_SPACE, "knowledge_id", derived_knowledge_id)
+    if source_node_id == -1 or derived_node_id == -1:
+        return _error("missing_knowledge", "Both knowledge nodes must exist", {
+            "source": source_knowledge_id,
+            "derived": derived_knowledge_id,
+        })
+
+    if _lineage_edge_exists(derived_node_id, source_node_id):
+        return _ok({
+            "source_knowledge_id": source_knowledge_id,
+            "derived_knowledge_id": derived_knowledge_id,
+            "lineage_exists": true,
+        })
+    var edge_id = _graph.add_edge(derived_node_id, source_node_id, "DERIVES_FROM", 1.0, {
+        "type": "knowledge_lineage",
+        "source_knowledge_id": source_knowledge_id,
+        "derived_knowledge_id": derived_knowledge_id,
+        "speaker_npc_id": speaker_npc_id,
+        "listener_npc_id": listener_npc_id,
+        "transmission_hops": transmission_hops,
+        "world_day": world_day,
+    })
+    if edge_id == -1:
+        return _error("edge_failed", "Failed to link knowledge lineage", {
+            "source": source_knowledge_id,
+            "derived": derived_knowledge_id,
+        })
+    return _ok({
+        "edge_id": edge_id,
+        "source_knowledge_id": source_knowledge_id,
+        "derived_knowledge_id": derived_knowledge_id,
+    })
+
+func get_oral_knowledge_for_npc(npc_id: String, world_day: int = -1, limit: int = 32) -> Dictionary:
+    if npc_id.strip_edges() == "":
+        return _error("invalid_npc_id", "npc_id must be non-empty")
+    if limit <= 0:
+        return _error("invalid_limit", "limit must be > 0")
+    if not _ensure_graph():
+        return _error("graph_unavailable", "NetworkGraph extension unavailable")
+
+    var rows = _graph.list_nodes_by_metadata(ORAL_KNOWLEDGE_SPACE, "npc_id", npc_id, DEFAULT_SCAN_LIMIT, 0)
+    var items: Array = []
+    for row in rows:
+        var data: Dictionary = row.get("data", {})
+        var row_day = int(data.get("world_day", -1))
+        if world_day >= 0 and row_day >= 0 and row_day > world_day:
+            continue
+        items.append(data.duplicate(true))
+    items.sort_custom(func(a, b):
+        var da: int = int(a.get("world_day", -1))
+        var db: int = int(b.get("world_day", -1))
+        if da == db:
+            return int(a.get("updated_at", 0)) > int(b.get("updated_at", 0))
+        return da > db
+    )
+    if items.size() > limit:
+        items.resize(limit)
+    return _ok({
+        "npc_id": npc_id,
+        "oral_knowledge": items,
+    })
+
+func get_oral_lineage(knowledge_id: String, limit: int = 32) -> Dictionary:
+    if knowledge_id.strip_edges() == "":
+        return _error("invalid_knowledge_id", "knowledge_id must be non-empty")
+    if limit <= 0:
+        return _error("invalid_limit", "limit must be > 0")
+    if not _ensure_graph():
+        return _error("graph_unavailable", "NetworkGraph extension unavailable")
+
+    var node = _node_by_external_id(ORAL_KNOWLEDGE_SPACE, "knowledge_id", knowledge_id)
+    if node.is_empty():
+        return _error("missing_knowledge", "oral knowledge not found", {"knowledge_id": knowledge_id})
+    var node_id = int(node.get("id", -1))
+    var edges = _graph.get_edges(node_id, DEFAULT_SCAN_LIMIT)
+    var ancestors: Array = []
+    for edge in edges:
+        if String(edge.get("kind", "")) != "DERIVES_FROM":
+            continue
+        var target_id = int(edge.get("target_id", -1))
+        if target_id == -1:
+            continue
+        var target_node = _graph.get_node(target_id)
+        if target_node.is_empty():
+            continue
+        ancestors.append({
+            "knowledge": target_node.get("data", {}).duplicate(true),
+            "edge": edge.get("data", {}).duplicate(true),
+        })
+    ancestors.sort_custom(func(a, b):
+        return int(a.get("knowledge", {}).get("world_day", -1)) > int(b.get("knowledge", {}).get("world_day", -1))
+    )
+    if ancestors.size() > limit:
+        ancestors.resize(limit)
+    return _ok({
+        "knowledge_id": knowledge_id,
+        "lineage": ancestors,
+    })
+
+func upsert_sacred_site(site_id: String, site_type: String, position: Dictionary = {}, radius: float = 1.0, taboo_ids: Array = [], world_day: int = -1, metadata: Dictionary = {}) -> Dictionary:
+    if site_id.strip_edges() == "":
+        return _error("invalid_site_id", "site_id must be non-empty")
+    if site_type.strip_edges() == "":
+        return _error("invalid_site_type", "site_type must be non-empty")
+    if radius <= 0.0:
+        return _error("invalid_radius", "radius must be > 0")
+    if world_day < -1:
+        return _error("invalid_world_day", "world_day must be >= -1")
+    if not _ensure_graph():
+        return _error("graph_unavailable", "NetworkGraph extension unavailable")
+
+    var payload = {
+        "type": "sacred_site",
+        "site_id": site_id,
+        "site_type": site_type,
+        "position": position.duplicate(true),
+        "radius": radius,
+        "taboo_ids": taboo_ids.duplicate(true),
+        "world_day": world_day,
+        "metadata": metadata.duplicate(true),
+        "updated_at": _timestamp(),
+    }
+    var node_id = _graph.upsert_node(SACRED_SITE_SPACE, _sacred_site_label(site_id), payload)
+    if node_id == -1:
+        return _error("upsert_failed", "Failed to upsert sacred site", {"site_id": site_id})
+    return _ok({
+        "node_id": node_id,
+        "site_id": site_id,
+    })
+
+func get_sacred_site(site_id: String) -> Dictionary:
+    if site_id.strip_edges() == "":
+        return _error("invalid_site_id", "site_id must be non-empty")
+    if not _ensure_graph():
+        return _error("graph_unavailable", "NetworkGraph extension unavailable")
+    var rows = _graph.list_nodes_by_metadata(SACRED_SITE_SPACE, "site_id", site_id, 1, 0)
+    if rows.is_empty():
+        return _error("missing_site", "sacred site not found", {"site_id": site_id})
+    return _ok({
+        "site": rows[0].get("data", {}).duplicate(true),
+    })
+
+func record_ritual_event(ritual_id: String, site_id: String, world_day: int, participants: Array, effects: Dictionary = {}, metadata: Dictionary = {}) -> Dictionary:
+    if ritual_id.strip_edges() == "":
+        return _error("invalid_ritual_id", "ritual_id must be non-empty")
+    if site_id.strip_edges() == "":
+        return _error("invalid_site_id", "site_id must be non-empty")
+    if world_day < 0:
+        return _error("invalid_world_day", "world_day must be >= 0")
+    if participants.is_empty():
+        return _error("invalid_participants", "Participants array must be non-empty")
+    if not _ensure_graph():
+        return _error("graph_unavailable", "NetworkGraph extension unavailable")
+
+    var payload = {
+        "type": "ritual_event",
+        "ritual_id": ritual_id,
+        "site_id": site_id,
+        "world_day": world_day,
+        "participants": participants.duplicate(true),
+        "effects": effects.duplicate(true),
+        "metadata": metadata.duplicate(true),
+        "updated_at": _timestamp(),
+    }
+    var node_id = _graph.upsert_node(RITUAL_EVENT_SPACE, _ritual_event_label(ritual_id), payload)
+    if node_id == -1:
+        return _error("upsert_failed", "Failed to upsert ritual_event", {"ritual_id": ritual_id})
+
+    var site_node_id = _node_id_by_external_id(SACRED_SITE_SPACE, "site_id", site_id)
+    if site_node_id != -1:
+        _graph.add_edge(node_id, site_node_id, "AT_SITE", 1.0, {
+            "type": "ritual_site_ref",
+            "ritual_id": ritual_id,
+            "site_id": site_id,
+        })
+
+    for participant in participants:
+        var npc_id = String(participant)
+        var npc_node_id = _node_id_by_external_id(NPC_SPACE, "npc_id", npc_id)
+        if npc_node_id == -1:
+            continue
+        _graph.add_edge(npc_node_id, node_id, "PARTICIPATED_IN", 1.0, {
+            "type": "participation",
+            "npc_id": npc_id,
+            "ritual_id": ritual_id,
+            "world_day": world_day,
+        })
+
+    return _ok({
+        "node_id": node_id,
+        "ritual_id": ritual_id,
+    })
+
+func get_ritual_history_for_site(site_id: String, world_day: int = -1, limit: int = 32) -> Dictionary:
+    if site_id.strip_edges() == "":
+        return _error("invalid_site_id", "site_id must be non-empty")
+    if limit <= 0:
+        return _error("invalid_limit", "limit must be > 0")
+    if not _ensure_graph():
+        return _error("graph_unavailable", "NetworkGraph extension unavailable")
+
+    var rows = _graph.list_nodes_by_metadata(RITUAL_EVENT_SPACE, "site_id", site_id, DEFAULT_SCAN_LIMIT, 0)
+    var items: Array = []
+    for row in rows:
+        var data: Dictionary = row.get("data", {})
+        var row_day = int(data.get("world_day", -1))
+        if world_day >= 0 and row_day >= 0 and row_day > world_day:
+            continue
+        items.append(data.duplicate(true))
+    items.sort_custom(func(a, b):
+        var da = int(a.get("world_day", -1))
+        var db = int(b.get("world_day", -1))
+        if da == db:
+            return int(a.get("updated_at", 0)) > int(b.get("updated_at", 0))
+        return da > db
+    )
+    if items.size() > limit:
+        items.resize(limit)
+    return _ok({
+        "site_id": site_id,
+        "ritual_events": items,
+    })
 
 func add_thought_memory(memory_id: String, npc_id: String, summary: String, world_day: int, source_refs: Array = [], importance: float = 0.45, confidence: float = 0.7, metadata: Dictionary = {}) -> Dictionary:
     var merged_tags: Array = ["thought"]
@@ -1122,6 +1411,79 @@ func get_cypher_playbook(npc_id: String = "", world_day: int = -1, limit: int = 
                 + "ORDER BY coalesce(b.confidence, 0.0) DESC\n"
                 + "LIMIT $limit;",
         },
+        "oral_knowledge_for_npc": {
+            "description": "List oral knowledge items owned by an NPC",
+            "params": common_params,
+            "cypher": "MATCH (n:NPC {npc_id: $npc_id})-[:HAS_ORAL_KNOWLEDGE]->(ok:OralKnowledge)\n"
+                + "WHERE coalesce(ok.world_day, -1) <= $world_day OR ok.world_day = -1\n"
+                + "RETURN ok.knowledge_id AS knowledge_id,\n"
+                + "       ok.category AS category,\n"
+                + "       ok.content AS content,\n"
+                + "       ok.confidence AS confidence,\n"
+                + "       ok.motifs AS motifs,\n"
+                + "       ok.world_day AS world_day,\n"
+                + "       ok.updated_at AS updated_at\n"
+                + "ORDER BY coalesce(ok.world_day, -1) DESC, coalesce(ok.updated_at, 0) DESC\n"
+                + "LIMIT $limit;",
+        },
+        "oral_transmission_timeline": {
+            "description": "Trace the lineage chain for an oral knowledge unit",
+            "params": {
+                "knowledge_id": "<knowledge_id>",
+                "limit": resolved_limit,
+            },
+            "cypher": "MATCH (ok:OralKnowledge {knowledge_id: $knowledge_id})\n"
+                + "OPTIONAL MATCH path=(ok)-[:DERIVES_FROM*0..]->(ancestor:OralKnowledge)\n"
+                + "UNWIND nodes(path) AS node\n"
+                + "RETURN DISTINCT node.knowledge_id AS knowledge_id,\n"
+                + "       node.category AS category,\n"
+                + "       node.world_day AS world_day,\n"
+                + "       node.updated_at AS updated_at\n"
+                + "ORDER BY node.world_day DESC, node.updated_at DESC\n"
+                + "LIMIT $limit;",
+        },
+        "ritual_event_participants": {
+            "description": "Inspect ritual events that feature an NPC",
+            "params": common_params,
+            "cypher": "MATCH (n:NPC {npc_id: $npc_id})-[:PARTICIPATED_IN]->(r:RitualEvent)\n"
+                + "WHERE coalesce(r.world_day, -1) <= $world_day\n"
+                + "RETURN r.ritual_id AS ritual_id,\n"
+                + "       r.site_id AS site_id,\n"
+                + "       r.participants AS participants,\n"
+                + "       r.effects AS effects,\n"
+                + "       r.world_day AS world_day\n"
+                + "ORDER BY r.world_day DESC, r.updated_at DESC\n"
+                + "LIMIT $limit;",
+        },
+        "sacred_site_ritual_history": {
+            "description": "Fetch ritual events tied to a sacred site",
+            "params": {
+                "site_id": "<site_id>",
+                "world_day": resolved_day,
+                "limit": resolved_limit,
+            },
+            "cypher": "MATCH (r:RitualEvent {site_id: $site_id})\n"
+                + "WHERE coalesce(r.world_day, -1) <= $world_day\n"
+                + "RETURN r.ritual_id AS ritual_id,\n"
+                + "       r.participants AS participants,\n"
+                + "       r.effects AS effects,\n"
+                + "       r.world_day AS world_day,\n"
+                + "       r.updated_at AS updated_at\n"
+                + "ORDER BY r.world_day DESC, r.updated_at DESC\n"
+                + "LIMIT $limit;",
+        },
+        "sacred_site_taboo_log": {
+            "description": "Inspect taboos associated with a sacred site",
+            "params": {
+                "site_id": "<site_id>",
+            },
+            "cypher": "MATCH (s:SacredSite {site_id: $site_id})\n"
+                + "RETURN s.site_id AS site_id,\n"
+                + "       s.site_type AS site_type,\n"
+                + "       s.taboo_ids AS taboo_ids,\n"
+                + "       s.world_day AS world_day,\n"
+                + "       s.updated_at AS updated_at;",
+        },
     }
 
     return _ok({
@@ -1133,7 +1495,7 @@ func get_cypher_playbook(npc_id: String = "", world_day: int = -1, limit: int = 
 func clear_backstory_space() -> void:
     if not _ensure_graph():
         return
-    for space in [NPC_SPACE, FACTION_SPACE, PLACE_SPACE, QUEST_SPACE, EVENT_SPACE, MEMORY_SPACE, QUEST_STATE_SPACE, DIALOGUE_STATE_SPACE, WORLD_TIME_SPACE, RELATIONSHIP_PROFILE_SPACE, RELATIONSHIP_EVENT_SPACE, TRUTH_SPACE, BELIEF_SPACE]:
+    for space in [NPC_SPACE, FACTION_SPACE, PLACE_SPACE, QUEST_SPACE, EVENT_SPACE, MEMORY_SPACE, QUEST_STATE_SPACE, DIALOGUE_STATE_SPACE, WORLD_TIME_SPACE, RELATIONSHIP_PROFILE_SPACE, RELATIONSHIP_EVENT_SPACE, TRUTH_SPACE, BELIEF_SPACE, ORAL_KNOWLEDGE_SPACE, RITUAL_EVENT_SPACE, SACRED_SITE_SPACE]:
         var rows = _graph.list_nodes(space, 65536, 0)
         for row in rows:
             _graph.remove_node(int(row.get("id", -1)))
@@ -1472,6 +1834,19 @@ func _post_day_nodes(space: String, npc_id: String, day: int) -> Array:
             result.append(data.duplicate(true))
     return result
 
+func _oral_knowledge_seed_id(npc_id: String, category: String, world_day: int) -> String:
+    return "%s:%s:%d" % [npc_id, category.strip_edges().to_lower(), max(0, world_day)]
+
+func _lineage_edge_exists(source_node_id: int, target_node_id: int) -> bool:
+    var edges = _graph.get_edges(source_node_id, DEFAULT_SCAN_LIMIT)
+    for edge in edges:
+        if int(edge.get("target_id", -1)) != target_node_id:
+            continue
+        if String(edge.get("kind", "")) != "DERIVES_FROM":
+            continue
+        return true
+    return false
+
 func _npc_label(npc_id: String) -> String:
     return "npc:%s" % npc_id
 
@@ -1492,6 +1867,15 @@ func _truth_label(truth_id: String) -> String:
 
 func _belief_label(belief_id: String) -> String:
     return "belief:%s" % belief_id
+
+func _oral_knowledge_label(knowledge_id: String) -> String:
+    return "oral_knowledge:%s" % knowledge_id
+
+func _sacred_site_label(site_id: String) -> String:
+    return "sacred_site:%s" % site_id
+
+func _ritual_event_label(ritual_id: String) -> String:
+    return "ritual_event:%s" % ritual_id
 
 func _world_time_label(day: int) -> String:
     return "world_time:%d" % day

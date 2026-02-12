@@ -252,6 +252,9 @@ Design intent:
 - [ ] oral transmission timeline
 - [ ] sacred site taboo compliance events
 - [ ] seasonal knowledge retention trends
+- [ ] oral knowledge for NPC (current repertoire + confidence)
+- [ ] ritual_event participant timelines per NPC
+- [ ] sacred site ritual history + taboo log
 - [ ] Add docs examples for each query with expected result shape.
 - [ ] Add write templates as well as read templates for each new graph space.
 - [ ] Add conflict-debug templates (why this belief differs from truth, lineage provenance walk).
@@ -328,6 +331,8 @@ Design intent:
 - [x] `addons/local_agents/scenes/simulation/settlement/HearthPrimitive.tscn` (common fire marker).
 - [x] `addons/local_agents/scenes/simulation/settlement/SacredSitePrimitive.tscn` (ritual marker stones).
 - [x] `addons/local_agents/scenes/simulation/actors/VillagerCapsule.tscn` (capsule NPC body).
+- [x] `addons/local_agents/scenes/simulation/actors/EdiblePlantCapsule.tscn` (small green capsule edible plant primitive).
+- [x] `addons/local_agents/scenes/simulation/actors/RabbitSphere.tscn` (white sphere rabbit primitive).
 - [x] `addons/local_agents/scenes/simulation/debug/DebugOverlay.tscn` (path/resource/claims overlays).
 - [x] `addons/local_agents/scenes/simulation/ui/SimulationHud.tscn` (play/pause/ff/rewind/branch controls).
 
@@ -345,6 +350,7 @@ Ownership and boundaries:
 - [ ] `SettlementController`
 - [ ] `VillagerController`
 - [ ] `CultureController`
+- [x] `EcologyController` (plants, rabbits, smell propagation/debug).
 - [ ] `SimulationHud` scene/controller pair
 - [ ] Domain controllers own child visuals and are the only nodes allowed to create/destroy those visuals.
 - [ ] Cross-domain coordination flows through `SimulationController` mediator (signal up, call down).
@@ -377,6 +383,19 @@ Debug and inspector discipline:
 - [ ] Debug overlay nodes remain separate from gameplay collision nodes.
 - [ ] Every spawned villager/structure has inspectable metadata id on node (`npc_id`, `structure_id`).
 - [ ] Add optional label billboards only in debug mode to avoid visual clutter.
+
+### 10.4 Ecology and Smell Slice (Current Branch Scope)
+
+- [x] Add edible plant actors that render as small thin green capsules.
+- [x] Plant growth progresses slowly over time and gates edible state.
+- [x] Rabbit actors render as white spheres and move by explicit state.
+- [x] Rabbits use smell to seek food and consume edible plants.
+- [x] Seed propagation occurs through rabbit digestion (`eat -> digest -> poop -> spawn plants`).
+- [x] Any living entity can emit smell by joining `living_smell_source` and exposing `get_smell_source_payload()`.
+- [x] Smell debug visualization can be toggled through debug overlay visibility flags.
+- [x] Smell clouds decay over time and decay faster with rain intensity.
+- [x] Smell clouds move with wind direction + wind intensity when wind is enabled.
+- [x] Rabbits move slowly while foraging and switch to fast flee movement under perceived danger smells.
 
 ## 11) Data Model and Resources Checklist
 
@@ -468,6 +487,8 @@ Debug and inspector discipline:
 - [ ] Ritual/taboo effects measurable in behavior logs.
 - [ ] Oral lineage reconstruction test (knowledge provenance chain is queryable and stable).
 - [ ] Knowledge drift bounds test (motif preserved while detail mutation allowed).
+- [ ] Oral lineage idempotency test (re-upsert + re-link produce the same ancestor chain).
+- [ ] Sacred site + ritual writes remain deterministic and surface through `ritual_event_participants` and `sacred_site_taboo_log`.
 
 ### 12.5 Runtime/CI
 - [ ] Core headless suite for deterministic fast checks.
@@ -605,8 +626,11 @@ Deliverables:
 | `truths_for_subject` | read | Canonical claims | `subject_id`, `world_day`, `limit` | truth rows |
 | `beliefs_for_npc` | read | NPC belief claims | `npc_id`, `world_day`, `limit` | belief rows |
 | `belief_truth_conflicts` | conflict | Belief vs truth mismatch | `npc_id`, `world_day`, `limit` | conflict rows |
+| `oral_knowledge_for_npc` | read | NPC oral repertoire | `npc_id`, `world_day`, `limit` | oral knowledge rows |
 | `oral_transmission_timeline` | read | Knowledge handoff chain | `knowledge_id` or `npc_id`, `limit` | lineage rows |
+| `ritual_event_participants` | read | Ritual events featuring an NPC | `npc_id`, `world_day`, `limit` | ritual rows |
 | `sacred_site_ritual_history` | read | Ritual events by site | `site_id`, `world_day`, `limit` | ritual rows |
+| `sacred_site_taboo_log` | read | Taboo associations for a site | `site_id` | taboo id lists |
 | `taboo_violation_log` | integrity | Cultural rule breaches | `npc_id` or `site_id`, `world_day`, `limit` | violation rows |
 | `orphan_belief_nodes` | integrity | Beliefs lacking owner edge | `limit` | orphan node ids |
 | `duplicate_claim_key_scan` | integrity | Duplicate/conflicting canonical truths | `limit` | claim collision rows |
@@ -663,6 +687,8 @@ Test slice:
 Test slice:
 - [ ] Oral transfer, confidence decay, and motif-preserving drift tests pass (Section 12.4).
 - [ ] Taboo/ritual event logs queryable via playbook keys (Sections 8, 14.3).
+- [ ] Oral lineage idempotency + ancestry reconstruction verifiable via `oral_transmission_timeline` (Sections 8, 12.4, 14.3).
+- [ ] Sacred site rituals + taboo sets remain deterministic and visible through `ritual_event_participants`/`sacred_site_taboo_log` (Sections 8, 14.3).
 
 ### 15.7 Phase 6: Timeline Controls + Branching Universes
 - [ ] Finalize checkpoint/fork/replay mechanics and diff tooling (Section 9).
