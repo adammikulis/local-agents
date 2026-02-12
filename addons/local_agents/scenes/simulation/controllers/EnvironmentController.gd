@@ -1,10 +1,19 @@
 extends Node3D
 
+const WaterFlowShader = preload("res://addons/local_agents/scenes/simulation/shaders/VoxelWaterFlow.gdshader")
+
 @onready var terrain_root: Node3D = $TerrainRoot
 @onready var water_root: Node3D = $WaterRoot
 var _generation_snapshot: Dictionary = {}
 var _hydrology_snapshot: Dictionary = {}
 var _material_cache: Dictionary = {}
+var _water_shader_params := {
+	"flow_dir": Vector2(1.0, 0.2),
+	"flow_speed": 0.95,
+	"noise_scale": 0.48,
+	"foam_strength": 0.36,
+	"wave_strength": 0.32,
+}
 
 func clear_generated() -> void:
 	for child in terrain_root.get_children():
@@ -34,6 +43,17 @@ func get_generation_snapshot() -> Dictionary:
 
 func get_hydrology_snapshot() -> Dictionary:
 	return _hydrology_snapshot.duplicate(true)
+
+func set_water_shader_params(params: Dictionary) -> void:
+	for key_variant in params.keys():
+		var key = String(key_variant)
+		_water_shader_params[key] = params.get(key_variant)
+	var material = _material_cache.get("water", null)
+	if material is ShaderMaterial:
+		var shader_material := material as ShaderMaterial
+		for key_variant in _water_shader_params.keys():
+			var key = String(key_variant)
+			shader_material.set_shader_parameter(key, _water_shader_params[key_variant])
 
 func _build_voxel_terrain() -> void:
 	var voxel_world: Dictionary = _generation_snapshot.get("voxel_world", {})
@@ -87,17 +107,20 @@ func _mesh_for_block(block_type: String) -> Mesh:
 	cube.size = Vector3.ONE
 	return cube
 
-func _material_for_block(block_type: String) -> StandardMaterial3D:
+func _material_for_block(block_type: String) -> Material:
 	if _material_cache.has(block_type):
 		return _material_cache[block_type]
+	if block_type == "water":
+		var water_material := ShaderMaterial.new()
+		water_material.shader = WaterFlowShader
+		for key_variant in _water_shader_params.keys():
+			var key = String(key_variant)
+			water_material.set_shader_parameter(key, _water_shader_params[key_variant])
+		_material_cache[block_type] = water_material
+		return water_material
 	var material := StandardMaterial3D.new()
 	material.albedo_color = _block_color(block_type)
 	material.roughness = 0.95
-	if block_type == "water":
-		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		material.albedo_color.a = 0.62
-		material.metallic = 0.0
-		material.roughness = 0.15
 	_material_cache[block_type] = material
 	return material
 
