@@ -6,6 +6,7 @@ const WorldGenConfigResourceScript = preload("res://addons/local_agents/configur
 const WorldProgressionProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldProgressionProfileResource.gd")
 const EnvironmentSignalSnapshotResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/EnvironmentSignalSnapshotResource.gd")
 const AtmosphereCycleControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/AtmosphereCycleController.gd")
+const SimulationLoopControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/SimulationLoopController.gd")
 
 @onready var simulation_controller: Node = $SimulationController
 @onready var environment_controller: Node3D = $EnvironmentController
@@ -14,6 +15,7 @@ const AtmosphereCycleControllerScript = preload("res://addons/local_agents/scene
 @onready var culture_controller: Node3D = $CultureController
 @onready var debug_overlay_root: Node3D = $DebugOverlayRoot
 @onready var simulation_hud: CanvasLayer = $SimulationHud
+@onready var field_hud: CanvasLayer = get_node_or_null("FieldHud")
 @onready var sun_light: DirectionalLight3D = $DirectionalLight3D
 @onready var world_environment: WorldEnvironment = $WorldEnvironment
 @onready var world_camera: Camera3D = $Camera3D
@@ -40,15 +42,12 @@ const AtmosphereCycleControllerScript = preload("res://addons/local_agents/scene
 @export var day_night_cycle_enabled: bool = true
 @export var day_length_seconds: float = 180.0
 @export_range(0.0, 1.0, 0.001) var start_time_of_day: float = 0.28
+@export_range(1, 16, 1) var visual_environment_update_interval_ticks: int = 4
 
-var _is_playing: bool = false
-var _ticks_per_frame: int = 1
-var _current_tick: int = 0
-var _fork_index: int = 0
+var _loop_controller = SimulationLoopControllerScript.new()
 var _last_state: Dictionary = {}
 var _inspector_npc_id: String = ""
 var _time_of_day: float = 0.28
-var _simulated_seconds: float = 0.0
 var _atmosphere_cycle = AtmosphereCycleControllerScript.new()
 var _camera_focus: Vector3 = Vector3.ZERO
 var _camera_distance: float = 16.0
@@ -56,10 +55,35 @@ var _camera_yaw: float = 0.0
 var _camera_pitch: float = deg_to_rad(55.0)
 var _mmb_down: bool = false
 var _rmb_down: bool = false
+var _spawn_mode: String = "none"
+var _graphics_state: Dictionary = {
+	"water_shader_enabled": false,
+	"ocean_surface_enabled": false,
+	"river_overlays_enabled": false,
+	"rain_post_fx_enabled": false,
+	"clouds_enabled": false,
+	"cloud_quality": "low",
+	"cloud_density_scale": 0.25,
+	"rain_visual_intensity_scale": 0.25,
+	"shadows_enabled": false,
+	"ssr_enabled": false,
+	"ssao_enabled": false,
+	"ssil_enabled": false,
+	"sdfgi_enabled": false,
+	"glow_enabled": false,
+	"fog_enabled": false,
+	"volumetric_fog_enabled": false,
+}
 
 func _ready() -> void:
 	_time_of_day = clampf(start_time_of_day, 0.0, 1.0)
-	_simulated_seconds = maxf(0.0, start_simulated_seconds)
+	_loop_controller.configure(
+		simulation_controller,
+		start_year,
+		years_per_tick,
+		start_simulated_seconds,
+		simulated_seconds_per_tick
+	)
 	if flow_traversal_profile_override == null:
 		flow_traversal_profile_override = FlowTraversalProfileResourceScript.new()
 	if worldgen_config_override == null:
@@ -78,12 +102,26 @@ func _ready() -> void:
 			simulation_hud.inspector_npc_changed.connect(_on_hud_inspector_npc_changed)
 		if simulation_hud.has_signal("overlays_changed"):
 			simulation_hud.overlays_changed.connect(_on_hud_overlays_changed)
+		if simulation_hud.has_signal("graphics_option_changed"):
+			simulation_hud.graphics_option_changed.connect(_on_hud_graphics_option_changed)
 	_initialize_camera_orbit()
-	_on_hud_overlays_changed(true, true, true, true, true, true)
+	_on_hud_overlays_changed(false, false, false, false, false, false)
+	_apply_graphics_state()
 	if has_node("EcologyController"):
 		var ecology_controller = get_node("EcologyController")
 		if ecology_controller.has_method("set_debug_overlay"):
 			ecology_controller.call("set_debug_overlay", debug_overlay_root)
+	if field_hud != null:
+		if field_hud.has_signal("spawn_mode_requested"):
+			field_hud.connect("spawn_mode_requested", _on_field_spawn_mode_requested)
+		if field_hud.has_signal("spawn_random_requested"):
+			field_hud.connect("spawn_random_requested", _on_field_spawn_random_requested)
+		if field_hud.has_signal("debug_settings_changed"):
+			field_hud.connect("debug_settings_changed", _on_field_debug_settings_changed)
+		if field_hud.has_method("set_spawn_mode"):
+			field_hud.call("set_spawn_mode", _spawn_mode)
+		if field_hud.has_method("set_status"):
+			field_hud.call("set_status", "Select mode active")
 	if not auto_generate_on_ready:
 		return
 	if simulation_controller.has_method("configure"):
@@ -110,23 +148,18 @@ func _ready() -> void:
 	_apply_environment_signals(_build_environment_signal_snapshot_from_setup(setup, 0))
 	if settlement_controller.has_method("spawn_initial_settlement"):
 		settlement_controller.spawn_initial_settlement(setup.get("spawn", {}))
-	_current_tick = 0
-	_simulated_seconds = _seconds_at_tick(_current_tick)
-	_is_playing = auto_play_on_ready
+	var initial_snapshot: Dictionary = {}
 	if simulation_controller.has_method("current_snapshot"):
-		_last_state = simulation_controller.current_snapshot(0)
-		_last_state["simulated_year"] = _year_at_tick(0)
-		_last_state["simulated_seconds"] = _simulated_seconds
+		initial_snapshot = simulation_controller.current_snapshot(0)
+	_loop_controller.initialize_from_snapshot(0, auto_play_on_ready, initial_snapshot)
+	_last_state = _loop_controller.last_state()
+	if not _last_state.is_empty():
 		_sync_environment_from_state(_last_state, false)
 	_refresh_hud()
 
 func _process(_delta: float) -> void:
 	_update_day_night(_delta)
-	if not _is_playing:
-		return
-	for _i in range(_ticks_per_frame):
-		_advance_tick()
-	_refresh_hud()
+	_apply_loop_result(_loop_controller.process_frame(Callable(self, "_collect_living_entity_profiles")))
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not camera_controls_enabled:
@@ -135,24 +168,82 @@ func _unhandled_input(event: InputEvent) -> void:
 		_handle_camera_mouse_motion(event as InputEventMouseMotion)
 		return
 	if event is InputEventMouseButton:
-		_handle_camera_mouse_button(event as InputEventMouseButton)
+		var mouse_event = event as InputEventMouseButton
+		_handle_camera_mouse_button(mouse_event)
+		if mouse_event.button_index == MOUSE_BUTTON_LEFT and mouse_event.pressed and _spawn_mode != "none":
+			_handle_spawn_click(mouse_event.position)
 
-func _advance_tick() -> void:
-	if not simulation_controller.has_method("process_tick"):
-		return
+func _on_field_spawn_mode_requested(mode: String) -> void:
+	_spawn_mode = mode
+	if field_hud != null and field_hud.has_method("set_spawn_mode"):
+		field_hud.call("set_spawn_mode", _spawn_mode)
+	if field_hud != null and field_hud.has_method("set_status"):
+		if _spawn_mode == "none":
+			field_hud.call("set_status", "Select mode active")
+		else:
+			field_hud.call("set_status", "Click ground to spawn %s" % _spawn_mode)
+
+func _on_field_spawn_random_requested(plants: int, rabbits: int) -> void:
 	if has_node("EcologyController"):
 		var ecology_controller = get_node("EcologyController")
-		if ecology_controller.has_method("collect_living_entity_profiles") and simulation_controller.has_method("set_living_entity_profiles"):
-			simulation_controller.call("set_living_entity_profiles", ecology_controller.call("collect_living_entity_profiles"))
-	var next_tick = _current_tick + 1
-	var result: Dictionary = simulation_controller.process_tick(next_tick, 1.0)
-	if bool(result.get("ok", false)):
-		_current_tick = next_tick
-		_simulated_seconds = _seconds_at_tick(_current_tick)
-		_last_state = result.get("state", {}).duplicate(true)
-		_last_state["simulated_year"] = _year_at_tick(_current_tick)
-		_last_state["simulated_seconds"] = _simulated_seconds
-		_sync_environment_from_state(_last_state, false)
+		if ecology_controller.has_method("spawn_random"):
+			ecology_controller.call("spawn_random", plants, rabbits)
+	if field_hud != null and field_hud.has_method("set_status"):
+		field_hud.call("set_status", "Spawned random: %d plants, %d rabbits" % [plants, rabbits])
+
+func _on_field_debug_settings_changed(settings: Dictionary) -> void:
+	if has_node("EcologyController"):
+		var ecology_controller = get_node("EcologyController")
+		if ecology_controller.has_method("apply_debug_settings"):
+			ecology_controller.call("apply_debug_settings", settings)
+
+func _handle_spawn_click(screen_pos: Vector2) -> void:
+	if _spawn_mode == "none":
+		return
+	if not has_node("EcologyController"):
+		return
+	var ecology_controller = get_node("EcologyController")
+	var point = _screen_to_ground(screen_pos)
+	if point == null:
+		return
+	if _spawn_mode == "plant" and ecology_controller.has_method("spawn_plant_at"):
+		ecology_controller.call("spawn_plant_at", point, 0.0)
+	elif _spawn_mode == "rabbit" and ecology_controller.has_method("spawn_rabbit_at"):
+		ecology_controller.call("spawn_rabbit_at", point)
+	_spawn_mode = "none"
+	if field_hud != null and field_hud.has_method("set_spawn_mode"):
+		field_hud.call("set_spawn_mode", _spawn_mode)
+	if field_hud != null and field_hud.has_method("set_status"):
+		field_hud.call("set_status", "Selection mode restored")
+
+func _screen_to_ground(screen_pos: Vector2) -> Variant:
+	if world_camera == null:
+		return null
+	var origin := world_camera.project_ray_origin(screen_pos)
+	var direction := world_camera.project_ray_normal(screen_pos)
+	var hit = Plane(Vector3.UP, 0.0).intersects_ray(origin, direction)
+	if hit == null:
+		return null
+	return Vector3(hit)
+
+func _collect_living_entity_profiles():
+	if has_node("EcologyController"):
+		var ecology_controller = get_node("EcologyController")
+		if ecology_controller.has_method("collect_living_entity_profiles"):
+			return ecology_controller.call("collect_living_entity_profiles")
+	return null
+
+func _apply_loop_result(result: Dictionary) -> void:
+	var state_changed := bool(result.get("state_changed", false))
+	if not state_changed:
+		return
+	var force_rebuild := bool(result.get("force_rebuild", false))
+	var state_advanced := bool(result.get("state_advanced", false))
+	if state_advanced or force_rebuild:
+		_last_state = _loop_controller.last_state()
+		if not _last_state.is_empty():
+			_sync_environment_from_state(_last_state, force_rebuild)
+	_refresh_hud()
 
 func _sync_environment_from_state(state: Dictionary, force_rebuild: bool) -> void:
 	if environment_controller == null:
@@ -160,6 +251,8 @@ func _sync_environment_from_state(state: Dictionary, force_rebuild: bool) -> voi
 	if state.is_empty():
 		return
 	var env_signals = _build_environment_signal_snapshot_from_state(state)
+	var tick = _loop_controller.current_tick()
+	var do_visual_update := force_rebuild or (tick % maxi(1, visual_environment_update_interval_ticks) == 0)
 	if force_rebuild or bool(env_signals.erosion_changed):
 		if not force_rebuild and environment_controller.has_method("apply_generation_delta"):
 			environment_controller.apply_generation_delta(
@@ -172,54 +265,26 @@ func _sync_environment_from_state(state: Dictionary, force_rebuild: bool) -> voi
 				env_signals.environment_snapshot,
 				env_signals.water_network_snapshot
 			)
-	if environment_controller.has_method("set_weather_state"):
+	if do_visual_update and environment_controller.has_method("set_weather_state"):
 		environment_controller.set_weather_state(env_signals.weather_snapshot)
-	if environment_controller.has_method("set_solar_state"):
+	if do_visual_update and environment_controller.has_method("set_solar_state"):
 		environment_controller.set_solar_state(env_signals.solar_snapshot)
 	_apply_environment_signals(env_signals)
 
 func _on_hud_play_pressed() -> void:
-	_is_playing = true
-	_ticks_per_frame = 1
-	_refresh_hud()
+	_apply_loop_result(_loop_controller.play())
 
 func _on_hud_pause_pressed() -> void:
-	_is_playing = false
-	_refresh_hud()
+	_apply_loop_result(_loop_controller.pause())
 
 func _on_hud_fast_forward_pressed() -> void:
-	_is_playing = true
-	_ticks_per_frame = 4 if _ticks_per_frame == 1 else 1
-	_refresh_hud()
+	_apply_loop_result(_loop_controller.toggle_fast_forward())
 
 func _on_hud_rewind_pressed() -> void:
-	if not simulation_controller.has_method("restore_to_tick"):
-		return
-	var target_tick = maxi(0, _current_tick - 24)
-	var restored: Dictionary = simulation_controller.restore_to_tick(target_tick)
-	if bool(restored.get("ok", false)):
-		_current_tick = int(restored.get("tick", target_tick))
-		_simulated_seconds = _seconds_at_tick(_current_tick)
-		if simulation_controller.has_method("current_snapshot"):
-			_last_state = simulation_controller.current_snapshot(_current_tick)
-			_last_state["simulated_year"] = _year_at_tick(_current_tick)
-			_last_state["simulated_seconds"] = _simulated_seconds
-			_sync_environment_from_state(_last_state, true)
-	_refresh_hud()
+	_apply_loop_result(_loop_controller.rewind_ticks(24))
 
 func _on_hud_fork_pressed() -> void:
-	if not simulation_controller.has_method("fork_branch"):
-		return
-	_fork_index += 1
-	var new_branch = "branch_%02d" % _fork_index
-	var forked: Dictionary = simulation_controller.fork_branch(new_branch, _current_tick)
-	if bool(forked.get("ok", false)):
-		if simulation_controller.has_method("current_snapshot"):
-			_last_state = simulation_controller.current_snapshot(_current_tick)
-			_last_state["simulated_year"] = _year_at_tick(_current_tick)
-			_last_state["simulated_seconds"] = _simulated_seconds
-			_sync_environment_from_state(_last_state, true)
-	_refresh_hud()
+	_apply_loop_result(_loop_controller.fork_branch_from_current_tick())
 
 func _refresh_hud() -> void:
 	if simulation_hud == null:
@@ -227,18 +292,19 @@ func _refresh_hud() -> void:
 	var branch_id = "main"
 	if simulation_controller.has_method("get_active_branch_id"):
 		branch_id = String(simulation_controller.get_active_branch_id())
-	var mode = "playing" if _is_playing else "paused"
-	var year = _year_at_tick(_current_tick)
-	var time_text = _format_duration_hms(_simulated_seconds)
-	simulation_hud.set_status_text("Year %.1f | T+%s | Tick %d | Branch %s | %s x%d" % [year, time_text, _current_tick, branch_id, mode, _ticks_per_frame])
+	var current_tick = _loop_controller.current_tick()
+	var mode = "playing" if _loop_controller.is_playing() else "paused"
+	var year = _loop_controller.simulated_year()
+	var time_text = _format_duration_hms(_loop_controller.simulated_seconds())
+	simulation_hud.set_status_text("Year %.1f | T+%s | Tick %d | Branch %s | %s x%d" % [year, time_text, current_tick, branch_id, mode, _loop_controller.ticks_per_frame()])
 
 	var detail_lines: Array[String] = []
 	_ensure_inspector_npc_selected()
-	var inspector_lines = _inspector_summary_lines(_current_tick)
+	var inspector_lines = _inspector_summary_lines(current_tick)
 	for line in inspector_lines:
 		detail_lines.append(String(line))
 	if branch_id != "main" and simulation_controller.has_method("branch_diff"):
-		var diff: Dictionary = simulation_controller.branch_diff("main", branch_id, maxi(0, _current_tick - 48), _current_tick)
+		var diff: Dictionary = simulation_controller.branch_diff("main", branch_id, maxi(0, current_tick - 48), current_tick)
 		if bool(diff.get("ok", false)):
 			var pop_delta = int(diff.get("population_delta", 0))
 			var belief_delta = int(diff.get("belief_divergence", 0))
@@ -266,7 +332,7 @@ func _build_environment_signal_snapshot_from_state(state: Dictionary) -> LocalAg
 	if signals_variant is Dictionary:
 		snapshot.from_dict(signals_variant as Dictionary)
 	else:
-		snapshot.tick = int(state.get("tick", _current_tick))
+		snapshot.tick = int(state.get("tick", _loop_controller.current_tick()))
 		snapshot.environment_snapshot = state.get("environment_snapshot", {}).duplicate(true)
 		snapshot.water_network_snapshot = state.get("water_network_snapshot", {}).duplicate(true)
 		snapshot.weather_snapshot = state.get("weather_snapshot", {}).duplicate(true)
@@ -306,13 +372,13 @@ func _apply_atmospheric_fog(daylight: float) -> void:
 	if world_environment == null or world_environment.environment == null:
 		return
 	var env: Environment = world_environment.environment
-	env.volumetric_fog_enabled = false
+	var fog_enabled = bool(_graphics_state.get("fog_enabled", false))
+	var volumetric_fog_enabled = bool(_graphics_state.get("volumetric_fog_enabled", false))
+	_set_env_flag_if_supported(env, "fog_enabled", fog_enabled)
+	_set_env_flag_if_supported(env, "volumetric_fog_enabled", volumetric_fog_enabled)
 
 func _year_at_tick(tick: int) -> float:
 	return start_year + float(tick) * years_per_tick
-
-func _seconds_at_tick(tick: int) -> float:
-	return maxf(0.0, start_simulated_seconds + float(tick) * maxf(0.0001, simulated_seconds_per_tick))
 
 func _apply_year_progression(config: Resource, year: float) -> void:
 	if config == null:
@@ -340,6 +406,55 @@ func _on_hud_overlays_changed(paths: bool, resources: bool, conflicts: bool, sme
 		return
 	if debug_overlay_root.has_method("set_visibility_flags"):
 		debug_overlay_root.call("set_visibility_flags", paths, resources, conflicts, smell, wind, temperature)
+
+func _on_hud_graphics_option_changed(option_id: String, value) -> void:
+	_graphics_state[String(option_id)] = value
+	_apply_graphics_state()
+
+func _apply_graphics_state() -> void:
+	if sun_light != null:
+		sun_light.shadow_enabled = bool(_graphics_state.get("shadows_enabled", false))
+	if world_environment != null and world_environment.environment != null:
+		var env: Environment = world_environment.environment
+		_set_env_flag_if_supported(env, "ssr_enabled", bool(_graphics_state.get("ssr_enabled", false)))
+		_set_env_flag_if_supported(env, "ssao_enabled", bool(_graphics_state.get("ssao_enabled", false)))
+		_set_env_flag_if_supported(env, "ssil_enabled", bool(_graphics_state.get("ssil_enabled", false)))
+		_set_env_flag_if_supported(env, "sdfgi_enabled", bool(_graphics_state.get("sdfgi_enabled", false)))
+		_set_env_flag_if_supported(env, "glow_enabled", bool(_graphics_state.get("glow_enabled", false)))
+		_set_env_flag_if_supported(env, "fog_enabled", bool(_graphics_state.get("fog_enabled", false)))
+		_set_env_flag_if_supported(env, "volumetric_fog_enabled", bool(_graphics_state.get("volumetric_fog_enabled", false)))
+	if environment_controller != null:
+		if environment_controller.has_method("set_water_render_mode"):
+			environment_controller.call("set_water_render_mode", "shader" if bool(_graphics_state.get("water_shader_enabled", false)) else "simple")
+		if environment_controller.has_method("set_ocean_surface_enabled"):
+			environment_controller.call("set_ocean_surface_enabled", bool(_graphics_state.get("ocean_surface_enabled", false)))
+		if environment_controller.has_method("set_river_overlays_enabled"):
+			environment_controller.call("set_river_overlays_enabled", bool(_graphics_state.get("river_overlays_enabled", false)))
+		if environment_controller.has_method("set_rain_post_fx_enabled"):
+			environment_controller.call("set_rain_post_fx_enabled", bool(_graphics_state.get("rain_post_fx_enabled", false)))
+		if environment_controller.has_method("set_clouds_enabled"):
+			environment_controller.call("set_clouds_enabled", bool(_graphics_state.get("clouds_enabled", false)))
+		if environment_controller.has_method("set_cloud_quality_settings"):
+			environment_controller.call("set_cloud_quality_settings", String(_graphics_state.get("cloud_quality", "low")), float(_graphics_state.get("cloud_density_scale", 0.25)))
+		if environment_controller.has_method("set_cloud_density_scale"):
+			environment_controller.call("set_cloud_density_scale", float(_graphics_state.get("cloud_density_scale", 0.25)))
+		if environment_controller.has_method("set_rain_visual_intensity_scale"):
+			environment_controller.call("set_rain_visual_intensity_scale", float(_graphics_state.get("rain_visual_intensity_scale", 0.25)))
+		if environment_controller.has_method("get_graphics_state"):
+			var env_state = environment_controller.call("get_graphics_state")
+			if env_state is Dictionary:
+				for key_variant in (env_state as Dictionary).keys():
+					_graphics_state[String(key_variant)] = (env_state as Dictionary).get(key_variant)
+	if simulation_hud != null and simulation_hud.has_method("set_graphics_state"):
+		simulation_hud.call("set_graphics_state", _graphics_state)
+
+func _set_env_flag_if_supported(env: Environment, property_name: String, enabled: bool) -> void:
+	if env == null:
+		return
+	for prop in env.get_property_list():
+		if String((prop as Dictionary).get("name", "")) == property_name:
+			env.set(property_name, enabled)
+			return
 
 func _ensure_inspector_npc_selected() -> void:
 	if _inspector_npc_id != "":
