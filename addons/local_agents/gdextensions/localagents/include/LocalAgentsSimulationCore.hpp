@@ -28,6 +28,9 @@ public:
     ~LocalAgentsSimulationCore() override;
 
     bool register_field(const StringName &field_name, const Dictionary &field_config = Dictionary());
+    Dictionary create_field_handle(const StringName &field_name);
+    Dictionary resolve_field_handle(const StringName &handle_id) const;
+    Dictionary list_field_handles_snapshot() const;
     bool register_system(const StringName &system_name, const Dictionary &system_config = Dictionary());
 
     bool configure(const Dictionary &simulation_config = Dictionary());

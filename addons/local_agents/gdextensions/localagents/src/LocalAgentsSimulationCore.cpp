@@ -87,6 +87,12 @@ LocalAgentsSimulationCore::~LocalAgentsSimulationCore() = default;
 void LocalAgentsSimulationCore::_bind_methods() {
     ClassDB::bind_method(D_METHOD("register_field", "field_name", "field_config"),
                          &LocalAgentsSimulationCore::register_field, DEFVAL(Dictionary()));
+    ClassDB::bind_method(D_METHOD("create_field_handle", "field_name"),
+                         &LocalAgentsSimulationCore::create_field_handle);
+    ClassDB::bind_method(D_METHOD("resolve_field_handle", "handle_id"),
+                         &LocalAgentsSimulationCore::resolve_field_handle);
+    ClassDB::bind_method(D_METHOD("list_field_handles_snapshot"),
+                         &LocalAgentsSimulationCore::list_field_handles_snapshot);
     ClassDB::bind_method(D_METHOD("register_system", "system_name", "system_config"),
                          &LocalAgentsSimulationCore::register_system, DEFVAL(Dictionary()));
 
@@ -126,6 +132,36 @@ void LocalAgentsSimulationCore::_bind_methods() {
 
 bool LocalAgentsSimulationCore::register_field(const StringName &field_name, const Dictionary &field_config) {
     return field_registry_ && field_registry_->register_field(field_name, field_config);
+}
+
+Dictionary LocalAgentsSimulationCore::create_field_handle(const StringName &field_name) {
+    if (!field_registry_) {
+        Dictionary result;
+        result["ok"] = false;
+        result["error"] = String("field_registry_uninitialized");
+        return result;
+    }
+    return field_registry_->create_field_handle(field_name);
+}
+
+Dictionary LocalAgentsSimulationCore::resolve_field_handle(const StringName &handle_id) const {
+    if (!field_registry_) {
+        Dictionary result;
+        result["ok"] = false;
+        result["error"] = String("field_registry_uninitialized");
+        return result;
+    }
+    return field_registry_->resolve_field_handle(handle_id);
+}
+
+Dictionary LocalAgentsSimulationCore::list_field_handles_snapshot() const {
+    if (!field_registry_) {
+        Dictionary result;
+        result["ok"] = false;
+        result["error"] = String("field_registry_uninitialized");
+        return result;
+    }
+    return field_registry_->list_field_handles_snapshot();
 }
 
 bool LocalAgentsSimulationCore::register_system(const StringName &system_name, const Dictionary &system_config) {

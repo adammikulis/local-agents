@@ -49,14 +49,26 @@ Array to_string_array(const PackedStringArray &values) {
     return out;
 }
 
+String normalized_field_key(const StringName &field_name) {
+    return String(field_name).strip_edges();
+}
+
+String normalized_handle_key(const StringName &handle_id) {
+    return String(handle_id).strip_edges();
+}
+
+String build_deterministic_handle_id(const String &field_name) {
+    return String("field::") + field_name;
+}
+
 } // namespace
 
 bool LocalAgentsFieldRegistry::register_field(const StringName &field_name, const Dictionary &field_config) {
-    if (field_name.is_empty()) {
+    const String key = normalized_field_key(field_name);
+    if (key.is_empty()) {
         return false;
     }
 
-    const String key = String(field_name);
     Dictionary normalized_field_config;
     Dictionary normalized_schema;
     if (!normalize_field_entry(key, field_config, normalized_field_config, normalized_schema)) {
@@ -69,7 +81,75 @@ bool LocalAgentsFieldRegistry::register_field(const StringName &field_name, cons
     field_configs_[key] = normalized_field_config;
     normalized_schema_by_field_[key] = normalized_schema;
     rebuild_normalized_schema_rows();
+    refresh_field_handle_mappings();
     return true;
+}
+
+Dictionary LocalAgentsFieldRegistry::create_field_handle(const StringName &field_name) {
+    Dictionary result;
+    const String field_key = normalized_field_key(field_name);
+    if (field_key.is_empty()) {
+        result["ok"] = false;
+        result["error"] = String("invalid_field_name");
+        return result;
+    }
+    if (!normalized_schema_by_field_.has(field_key)) {
+        result["ok"] = false;
+        result["error"] = String("field_not_registered");
+        result["field_name"] = field_key;
+        return result;
+    }
+
+    if (!handle_by_field_.has(field_key)) {
+        const String handle_id = build_deterministic_handle_id(field_key);
+        const Dictionary schema_row = static_cast<Dictionary>(normalized_schema_by_field_[field_key]).duplicate(true);
+        Dictionary schema_with_handle = schema_row.duplicate(true);
+        schema_with_handle["handle_id"] = handle_id;
+        schema_with_handle["field_name"] = field_key;
+
+        handle_by_field_[field_key] = handle_id;
+        field_by_handle_[handle_id] = field_key;
+        normalized_schema_by_handle_[handle_id] = schema_with_handle;
+    }
+
+    const String handle_id = handle_by_field_[field_key];
+    result["ok"] = true;
+    result["field_name"] = field_key;
+    result["handle_id"] = handle_id;
+    result["schema_row"] = static_cast<Dictionary>(normalized_schema_by_handle_[handle_id]).duplicate(true);
+    return result;
+}
+
+Dictionary LocalAgentsFieldRegistry::resolve_field_handle(const StringName &handle_id) const {
+    Dictionary result;
+    const String handle_key = normalized_handle_key(handle_id);
+    if (handle_key.is_empty()) {
+        result["ok"] = false;
+        result["error"] = String("invalid_handle_id");
+        return result;
+    }
+    if (!field_by_handle_.has(handle_key) || !normalized_schema_by_handle_.has(handle_key)) {
+        result["ok"] = false;
+        result["error"] = String("field_handle_not_found");
+        result["handle_id"] = handle_key;
+        return result;
+    }
+
+    result["ok"] = true;
+    result["handle_id"] = handle_key;
+    result["field_name"] = field_by_handle_[handle_key];
+    result["schema_row"] = static_cast<Dictionary>(normalized_schema_by_handle_[handle_key]).duplicate(true);
+    return result;
+}
+
+Dictionary LocalAgentsFieldRegistry::list_field_handles_snapshot() const {
+    Dictionary snapshot;
+    snapshot["ok"] = true;
+    snapshot["handle_count"] = field_by_handle_.size();
+    snapshot["handles_by_field"] = handle_by_field_.duplicate(true);
+    snapshot["fields_by_handle"] = field_by_handle_.duplicate(true);
+    snapshot["normalized_schema_by_handle"] = normalized_schema_by_handle_.duplicate(true);
+    return snapshot;
 }
 
 bool LocalAgentsFieldRegistry::configure(const Dictionary &config) {
@@ -116,6 +196,7 @@ bool LocalAgentsFieldRegistry::configure(const Dictionary &config) {
     normalized_schema_by_field_ = next_schema_by_field;
     registration_order_ = next_registration_order;
     rebuild_normalized_schema_rows();
+    refresh_field_handle_mappings();
     config_ = config.duplicate(true);
     return true;
 }
@@ -126,6 +207,9 @@ void LocalAgentsFieldRegistry::clear() {
     normalized_schema_by_field_.clear();
     normalized_schema_rows_.clear();
     registration_order_.clear();
+    handle_by_field_.clear();
+    field_by_handle_.clear();
+    normalized_schema_by_handle_.clear();
 }
 
 Dictionary LocalAgentsFieldRegistry::get_debug_snapshot() const {
@@ -137,6 +221,9 @@ Dictionary LocalAgentsFieldRegistry::get_debug_snapshot() const {
     snapshot["fields"] = field_configs_.duplicate(true);
     snapshot["normalized_schema_by_field"] = normalized_schema_by_field_.duplicate(true);
     snapshot["normalized_schema_rows"] = normalized_schema_rows_.duplicate(true);
+    snapshot["handles_by_field"] = handle_by_field_.duplicate(true);
+    snapshot["fields_by_handle"] = field_by_handle_.duplicate(true);
+    snapshot["normalized_schema_by_handle"] = normalized_schema_by_handle_.duplicate(true);
     return snapshot;
 }
 
@@ -381,6 +468,31 @@ void LocalAgentsFieldRegistry::rebuild_normalized_schema_rows() {
         }
         normalized_schema_rows_.append(normalized_schema_by_field_[field_name]);
     }
+}
+
+void LocalAgentsFieldRegistry::refresh_field_handle_mappings() {
+    Dictionary next_handle_by_field;
+    Dictionary next_field_by_handle;
+    Dictionary next_schema_by_handle;
+    const Array field_names = normalized_schema_by_field_.keys();
+    for (int64_t i = 0; i < field_names.size(); i += 1) {
+        const String field_name = normalized_text(field_names[i]);
+        if (field_name.is_empty()) {
+            continue;
+        }
+        const String handle_id = build_deterministic_handle_id(field_name);
+        const Dictionary schema_row = static_cast<Dictionary>(normalized_schema_by_field_[field_name]).duplicate(true);
+        Dictionary schema_with_handle = schema_row.duplicate(true);
+        schema_with_handle["handle_id"] = handle_id;
+        schema_with_handle["field_name"] = field_name;
+
+        next_handle_by_field[field_name] = handle_id;
+        next_field_by_handle[handle_id] = field_name;
+        next_schema_by_handle[handle_id] = schema_with_handle;
+    }
+    handle_by_field_ = next_handle_by_field;
+    field_by_handle_ = next_field_by_handle;
+    normalized_schema_by_handle_ = next_schema_by_handle;
 }
 
 } // namespace local_agents::simulation

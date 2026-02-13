@@ -13,6 +13,9 @@ public:
     virtual ~IFieldRegistry() = default;
 
     virtual bool register_field(const godot::StringName &field_name, const godot::Dictionary &field_config) = 0;
+    virtual godot::Dictionary create_field_handle(const godot::StringName &field_name) = 0;
+    virtual godot::Dictionary resolve_field_handle(const godot::StringName &handle_id) const = 0;
+    virtual godot::Dictionary list_field_handles_snapshot() const = 0;
     virtual bool configure(const godot::Dictionary &config) = 0;
     virtual void clear() = 0;
     virtual godot::Dictionary get_debug_snapshot() const = 0;

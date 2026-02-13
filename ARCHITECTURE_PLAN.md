@@ -152,6 +152,11 @@ Current state baseline (completed):
 
 ### Wave A: Field Model + Conservative Core Solvers
 
+Next Wave Scope (in-progress) - February 13, 2026:
+- [ ] Land native field handles API.
+- [ ] Add field-handle execution diagnostics in pipeline.
+- [ ] Add invariants and stage-coupling source-contract gates.
+
 Data model and state layer:
 - [ ] Move hot-path simulation from per-step scalar dictionaries to typed native field handles.
 - [ ] Add canonical native field registry schema for:

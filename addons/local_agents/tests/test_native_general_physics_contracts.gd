@@ -11,7 +11,9 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = _test_stage_dispatch_and_summary_contracts_cover_all_domains() and ok
 	ok = _test_stage_results_include_conservation_payload_contract() and ok
 	ok = _test_conservation_diagnostics_fields_contract() and ok
+	ok = _test_field_handle_summary_and_diagnostics_contract() and ok
 	ok = _test_optional_field_evolution_summary_keys_contract() and ok
+	ok = _test_field_evolution_invariant_and_stage_coupling_contract() and ok
 	ok = _test_core_equation_contracts_present() and ok
 	ok = _test_boundary_condition_contracts_present() and ok
 	ok = _test_porous_flow_contracts_present() and ok
@@ -96,6 +98,23 @@ func _test_conservation_diagnostics_fields_contract() -> bool:
 	ok = _assert(source.contains("summary[\"conservation_diagnostics\"] = conservation_diagnostics;"), "Summary must publish conservation_diagnostics") and ok
 	return ok
 
+func _test_field_handle_summary_and_diagnostics_contract() -> bool:
+	var source := _read_pipeline_sources()
+	if source == "":
+		return false
+	var ok := true
+	ok = _assert(source.contains("const String field_handle_mode = field_handles_provided ? String(\"field_handles\") : String(\"scalar\");"), "Pipeline must derive deterministic field_handle_mode") and ok
+	ok = _assert(source.contains("conservation_diagnostics[\"field_handle_mode\"] = field_handle_mode;"), "Conservation diagnostics must expose field_handle_mode") and ok
+	ok = _assert(source.contains("conservation_diagnostics[\"field_handle_count\"] = field_handle_count;"), "Conservation diagnostics must expose field_handle_count") and ok
+	ok = _assert(source.contains("summary[\"field_handle_mode\"] = field_handle_mode;"), "Summary must expose field_handle_mode") and ok
+	ok = _assert(source.contains("summary[\"field_handle_count\"] = field_handle_count;"), "Summary must expose field_handle_count") and ok
+	ok = _assert(source.contains("field_handle_marker = String(\"field_handles:v1|count=\") + String::num_int64(field_handle_count);"), "Field-handle marker contract must include deterministic prefix and count") and ok
+	ok = _assert(source.contains("conservation_diagnostics[\"field_handle_marker\"] = field_handle_marker;"), "Conservation diagnostics must expose field_handle_marker when handles are provided") and ok
+	ok = _assert(source.contains("summary[\"field_handle_marker\"] = field_handle_marker;"), "Summary must expose field_handle_marker when handles are provided") and ok
+	ok = _assert(source.contains("conservation_diagnostics[\"field_handle_io\"] = field_handle_io;"), "Conservation diagnostics must expose field_handle_io when handles are provided") and ok
+	ok = _assert(source.contains("summary[\"field_handle_io\"] = field_handle_io;"), "Summary must expose field_handle_io when handles are provided") and ok
+	return ok
+
 func _test_optional_field_evolution_summary_keys_contract() -> bool:
 	var source := _read_pipeline_sources()
 	if source == "":
@@ -109,6 +128,23 @@ func _test_optional_field_evolution_summary_keys_contract() -> bool:
 	ok = _assert(_contains_summary_key_contract(source, "field_mass_drift_proxy"), "Field evolution summary must expose field_mass_drift_proxy when field evolution keys are present") and ok
 	ok = _assert(_contains_summary_key_contract(source, "field_energy_drift_proxy"), "Field evolution summary must expose field_energy_drift_proxy when field evolution keys are present") and ok
 	ok = _assert(_contains_summary_key_contract(source, "field_cell_count_updated"), "Field evolution summary must expose field_cell_count_updated when field evolution keys are present") and ok
+	return ok
+
+func _test_field_evolution_invariant_and_stage_coupling_contract() -> bool:
+	var source := _read_pipeline_sources()
+	if source == "":
+		return false
+	var ok := true
+	ok = _assert(source.contains("summary[\"field_mass_drift_proxy\"] = unified_pipeline::clamped(field_evolution.get(\"mass_drift_proxy\", 0.0), -1.0e18, 1.0e18, 0.0);"), "Summary must expose field_mass_drift_proxy invariant proxy") and ok
+	ok = _assert(source.contains("summary[\"field_energy_drift_proxy\"] = unified_pipeline::clamped(field_evolution.get(\"energy_drift_proxy\", 0.0), -1.0e18, 1.0e18, 0.0);"), "Summary must expose field_energy_drift_proxy invariant proxy") and ok
+	ok = _assert(source.contains("\"mass_drift_proxy\", mass_after - mass_before,"), "Field evolution must compute mass_drift_proxy from before/after totals") and ok
+	ok = _assert(source.contains("\"energy_drift_proxy\", energy_after - energy_before);"), "Field evolution must compute energy_drift_proxy from before/after totals") and ok
+	ok = _assert(source.contains("\"pair_updates\", pair_updates,"), "Field evolution must publish pair_updates stage-coupling marker") and ok
+	ok = _assert(source.contains("result[\"updated_fields\"] = unified_pipeline::make_dictionary("), "Field evolution must publish updated_fields coupling payload") and ok
+	if source.contains("\"stage_coupling\""):
+		ok = _assert(_contains_summary_key_contract(source, "stage_coupling"), "Summary must expose stage_coupling when stage_coupling marker is present") and ok
+	if source.contains("\"coupling_markers\""):
+		ok = _assert(_contains_summary_key_contract(source, "coupling_markers"), "Summary must expose coupling_markers when coupling markers are present") and ok
 	return ok
 
 func _test_core_equation_contracts_present() -> bool:

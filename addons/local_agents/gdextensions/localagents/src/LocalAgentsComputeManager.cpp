@@ -15,6 +15,9 @@ const Variant KEY_EXECUTED_STEPS = StringName("executed_steps");
 const Variant KEY_SCHEDULED_FRAME = StringName("scheduled_frame");
 const Variant KEY_COMPONENT = StringName("component");
 const Variant KEY_CONFIG = StringName("config");
+const Variant KEY_FIELD_HANDLE_MODE = StringName("field_handle_mode");
+const Variant KEY_FIELD_HANDLE_COUNT = StringName("field_handle_count");
+const Variant KEY_FIELD_HANDLE_MARKER = StringName("field_handle_marker");
 
 } // namespace
 
@@ -28,11 +31,18 @@ bool LocalAgentsComputeManager::configure(const Dictionary &config) {
 Dictionary LocalAgentsComputeManager::execute_step(const Dictionary &scheduled_frame) {
     executed_steps_ += 1;
 
+    const Dictionary pipeline_result = pipeline_.execute_step(scheduled_frame);
+
     Dictionary result;
     result[KEY_OK] = true;
     result[KEY_EXECUTED_STEPS] = executed_steps_;
     result[KEY_SCHEDULED_FRAME] = scheduled_frame.duplicate(true);
-    result[KEY_PIPELINE] = pipeline_.execute_step(scheduled_frame);
+    result[KEY_PIPELINE] = pipeline_result;
+    result[KEY_FIELD_HANDLE_MODE] = pipeline_result.get(KEY_FIELD_HANDLE_MODE, String("scalar"));
+    result[KEY_FIELD_HANDLE_COUNT] = static_cast<int64_t>(pipeline_result.get(KEY_FIELD_HANDLE_COUNT, static_cast<int64_t>(0)));
+    if (pipeline_result.has(KEY_FIELD_HANDLE_MARKER)) {
+        result[KEY_FIELD_HANDLE_MARKER] = pipeline_result.get(KEY_FIELD_HANDLE_MARKER, String());
+    }
     return result;
 }
 

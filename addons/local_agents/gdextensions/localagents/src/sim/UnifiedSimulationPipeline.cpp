@@ -6,6 +6,62 @@ using namespace godot;
 
 namespace local_agents::simulation {
 
+namespace {
+
+Array to_field_handles_array(const Dictionary &frame_inputs, bool &provided) {
+    provided = frame_inputs.has("field_handles");
+    if (!provided) {
+        return Array();
+    }
+    const Variant field_handles_variant = frame_inputs.get("field_handles", Variant());
+    if (field_handles_variant.get_type() != Variant::ARRAY) {
+        return Array();
+    }
+    return field_handles_variant;
+}
+
+String field_handle_label(const Variant &handle_variant, int64_t index) {
+    if (handle_variant.get_type() == Variant::DICTIONARY) {
+        const Dictionary handle_dict = handle_variant;
+        if (handle_dict.has("id")) {
+            return String(handle_dict.get("id", String()));
+        }
+        if (handle_dict.has("name")) {
+            return String(handle_dict.get("name", String()));
+        }
+        if (handle_dict.has("handle")) {
+            return String(handle_dict.get("handle", String()));
+        }
+        return String("dict_") + String::num_int64(index);
+    }
+    if (handle_variant.get_type() == Variant::STRING || handle_variant.get_type() == Variant::STRING_NAME || handle_variant.get_type() == Variant::INT || handle_variant.get_type() == Variant::FLOAT) {
+        return String(handle_variant);
+    }
+    return String("type_") + String(Variant::get_type_name(handle_variant.get_type())) + String("_") + String::num_int64(index);
+}
+
+Dictionary make_field_handle_entry(const Variant &handle_variant, int64_t index) {
+    Dictionary entry;
+    entry["index"] = index;
+    entry["read"] = unified_pipeline::make_dictionary(
+        "placeholder", true,
+        "status", String("not_implemented"),
+        "count", static_cast<int64_t>(0));
+    entry["write"] = unified_pipeline::make_dictionary(
+        "placeholder", true,
+        "status", String("not_implemented"),
+        "count", static_cast<int64_t>(0));
+    entry["handle_label"] = field_handle_label(handle_variant, index);
+    if (handle_variant.get_type() == Variant::DICTIONARY) {
+        entry["handle"] = Dictionary(handle_variant).duplicate(true);
+    } else {
+        entry["handle"] = handle_variant;
+    }
+    return entry;
+}
+
+} // namespace
+
 bool UnifiedSimulationPipeline::configure(const Dictionary &config) {
     config_ = config.duplicate(true);
     required_channels_ = config.get("required_channels", unified_pipeline::default_required_channels());
@@ -22,6 +78,21 @@ Dictionary UnifiedSimulationPipeline::execute_step(const Dictionary &scheduled_f
 
     const double delta_seconds = unified_pipeline::clamped(scheduled_frame.get("delta_seconds", 1.0 / 60.0), 1.0e-6, 10.0, 1.0 / 60.0);
     const Dictionary frame_inputs = scheduled_frame.get("inputs", Dictionary());
+    bool field_handles_provided = false;
+    const Array field_handles = to_field_handles_array(frame_inputs, field_handles_provided);
+    const int64_t field_handle_count = field_handles.size();
+    const String field_handle_mode = field_handles_provided ? String("field_handles") : String("scalar");
+    Array field_handle_io;
+    String field_handle_marker;
+    if (field_handles_provided) {
+        field_handle_io.resize(field_handle_count);
+        field_handle_marker = String("field_handles:v1|count=") + String::num_int64(field_handle_count);
+        for (int64_t i = 0; i < field_handle_count; i++) {
+            const Variant handle_variant = field_handles[i];
+            field_handle_io[i] = make_field_handle_entry(handle_variant, i);
+            field_handle_marker += String("|") + field_handle_label(handle_variant, i);
+        }
+    }
 
     Array missing_channels;
     for (int64_t i = 0; i < required_channels_.size(); i++) {
@@ -48,6 +119,12 @@ Dictionary UnifiedSimulationPipeline::execute_step(const Dictionary &scheduled_f
     by_stage_type["reaction"] = unified_pipeline::stage_total_template("reaction");
     by_stage_type["destruction"] = unified_pipeline::stage_total_template("destruction");
     conservation_diagnostics["by_stage_type"] = by_stage_type;
+    conservation_diagnostics["field_handle_mode"] = field_handle_mode;
+    conservation_diagnostics["field_handle_count"] = field_handle_count;
+    if (field_handles_provided) {
+        conservation_diagnostics["field_handle_marker"] = field_handle_marker;
+        conservation_diagnostics["field_handle_io"] = field_handle_io;
+    }
 
     for (int64_t i = 0; i < mechanics_stages_.size(); i++) {
         const Variant stage_variant = mechanics_stages_[i];
@@ -142,6 +219,12 @@ Dictionary UnifiedSimulationPipeline::execute_step(const Dictionary &scheduled_f
     summary["field_mass_drift_proxy"] = unified_pipeline::clamped(field_evolution.get("mass_drift_proxy", 0.0), -1.0e18, 1.0e18, 0.0);
     summary["field_energy_drift_proxy"] = unified_pipeline::clamped(field_evolution.get("energy_drift_proxy", 0.0), -1.0e18, 1.0e18, 0.0);
     summary["field_cell_count_updated"] = static_cast<int64_t>(field_evolution.get("cell_count_updated", static_cast<int64_t>(0)));
+    summary["field_handle_mode"] = field_handle_mode;
+    summary["field_handle_count"] = field_handle_count;
+    if (field_handles_provided) {
+        summary["field_handle_marker"] = field_handle_marker;
+        summary["field_handle_io"] = field_handle_io;
+    }
 
     last_step_summary_ = summary.duplicate(true);
     return summary;
