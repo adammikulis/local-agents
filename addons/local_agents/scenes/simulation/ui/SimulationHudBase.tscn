@@ -1,0 +1,529 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/ui/SimulationHud.gd" id="1_hud"]
+
+[node name="SimulationHud" type="CanvasLayer"]
+script = ExtResource("1_hud")
+
+[node name="Panel" type="PanelContainer" parent="."]
+anchors_preset = 1
+anchor_right = 0.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = 332.0
+offset_bottom = 118.0
+
+[node name="GraphicsButton" type="Button" parent="."]
+unique_name_in_owner = true
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -216.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = 46.0
+grow_horizontal = 0
+text = "Graphics"
+
+[node name="GraphicsPanel" type="PanelContainer" parent="."]
+unique_name_in_owner = true
+visible = false
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -356.0
+offset_top = 54.0
+offset_right = -16.0
+offset_bottom = 438.0
+grow_horizontal = 0
+
+[node name="GraphicsMargin" type="MarginContainer" parent="GraphicsPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="GraphicsScroll" type="ScrollContainer" parent="GraphicsPanel/GraphicsMargin"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="GraphicsVBox" type="VBoxContainer" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="WaterShaderCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Water Shader"
+
+[node name="OceanSurfaceCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Ocean Surface"
+
+[node name="RiverOverlaysCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "River Overlays"
+
+[node name="TerrainChunkSizeRow" type="HBoxContainer" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+layout_mode = 2
+
+[node name="TerrainChunkSizeLabel" type="Label" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/TerrainChunkSizeRow"]
+layout_mode = 2
+text = "Terrain Chunk Size"
+
+[node name="TerrainChunkSizeSlider" type="HSlider" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/TerrainChunkSizeRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 4.0
+max_value = 64.0
+step = 1.0
+value = 12.0
+
+[node name="TerrainChunkSizeSpin" type="SpinBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/TerrainChunkSizeRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 4.0
+max_value = 64.0
+step = 1.0
+value = 12.0
+custom_arrow_step = 1.0
+
+[node name="RainPostFxCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Rain PostFX"
+
+[node name="CloudsCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Clouds"
+
+[node name="ShadowsCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Shadows"
+
+[node name="SsrCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "SSR"
+
+[node name="SsaoCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "SSAO"
+
+[node name="SsilCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "SSIL"
+
+[node name="SdfgiCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "SDFGI"
+
+[node name="GlowCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Glow"
+
+[node name="FogCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Fog"
+
+[node name="VolumetricFogCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Volumetric Fog"
+
+[node name="CloudQualityRow" type="HBoxContainer" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+layout_mode = 2
+
+[node name="CloudQualityLabel" type="Label" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/CloudQualityRow"]
+layout_mode = 2
+text = "Cloud Quality"
+
+[node name="CloudQualityOption" type="OptionButton" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/CloudQualityRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="CloudDensityRow" type="HBoxContainer" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+layout_mode = 2
+
+[node name="CloudDensityLabel" type="Label" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/CloudDensityRow"]
+layout_mode = 2
+text = "Cloud Density"
+
+[node name="CloudDensitySlider" type="HSlider" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/CloudDensityRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 0.2
+max_value = 2.0
+step = 0.05
+value = 0.25
+
+[node name="CloudDensitySpin" type="SpinBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/CloudDensityRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.2
+max_value = 2.0
+step = 0.05
+value = 0.25
+custom_arrow_step = 0.05
+
+[node name="RainVisualRow" type="HBoxContainer" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+layout_mode = 2
+
+[node name="RainVisualLabel" type="Label" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/RainVisualRow"]
+layout_mode = 2
+text = "Rain Visual"
+
+[node name="RainVisualSlider" type="HSlider" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/RainVisualRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 0.1
+max_value = 1.5
+step = 0.05
+value = 0.25
+
+[node name="RainVisualSpin" type="SpinBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/RainVisualRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.1
+max_value = 1.5
+step = 0.05
+value = 0.25
+custom_arrow_step = 0.05
+
+[node name="SimRateOverrideCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Simulation Rate Override"
+
+[node name="SimulationTickRateRow" type="HBoxContainer" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+layout_mode = 2
+
+[node name="SimulationTickRateLabel" type="Label" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/SimulationTickRateRow"]
+layout_mode = 2
+text = "Simulation Ticks / Sec"
+
+[node name="SimulationTickRateSlider" type="HSlider" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/SimulationTickRateRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 0.5
+max_value = 30.0
+step = 0.5
+value = 2.0
+
+[node name="SimulationTickRateSpin" type="SpinBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/SimulationTickRateRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.5
+max_value = 30.0
+step = 0.5
+value = 2.0
+custom_arrow_step = 0.5
+
+[node name="ClimatePipelineTitle" type="Label" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+layout_mode = 2
+text = "Climate Pipeline"
+
+[node name="WeatherSolverDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Weather Solver Decimation"
+
+[node name="HydrologySolverDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Hydrology Solver Decimation"
+
+[node name="ErosionSolverDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Erosion Solver Decimation"
+
+[node name="SolarSolverDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Solar Solver Decimation"
+
+[node name="ClimateFastIntervalRow" type="HBoxContainer" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+layout_mode = 2
+
+[node name="ClimateFastIntervalLabel" type="Label" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/ClimateFastIntervalRow"]
+layout_mode = 2
+text = "Fast Climate Interval (ticks)"
+
+[node name="ClimateFastIntervalSlider" type="HSlider" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/ClimateFastIntervalRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 1.0
+max_value = 16.0
+step = 1.0
+value = 4.0
+
+[node name="ClimateFastIntervalSpin" type="SpinBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/ClimateFastIntervalRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 1.0
+max_value = 16.0
+step = 1.0
+value = 4.0
+custom_arrow_step = 1.0
+
+[node name="ClimateSlowIntervalRow" type="HBoxContainer" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+layout_mode = 2
+
+[node name="ClimateSlowIntervalLabel" type="Label" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/ClimateSlowIntervalRow"]
+layout_mode = 2
+text = "Slow Climate Interval (ticks)"
+
+[node name="ClimateSlowIntervalSlider" type="HSlider" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/ClimateSlowIntervalRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 1.0
+max_value = 32.0
+step = 1.0
+value = 8.0
+
+[node name="ClimateSlowIntervalSpin" type="SpinBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/ClimateSlowIntervalRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 1.0
+max_value = 32.0
+step = 1.0
+value = 8.0
+custom_arrow_step = 1.0
+
+[node name="SocietyPipelineTitle" type="Label" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+layout_mode = 2
+text = "Society Pipeline"
+
+[node name="ResourcePipelineDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Resource Pipeline Decimation"
+
+[node name="StructureLifecycleDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Structure Lifecycle Decimation"
+
+[node name="CultureCycleDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Culture Cycle Decimation"
+
+[node name="SocietyFastIntervalRow" type="HBoxContainer" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+layout_mode = 2
+
+[node name="SocietyFastIntervalLabel" type="Label" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/SocietyFastIntervalRow"]
+layout_mode = 2
+text = "Fast Society Interval (ticks)"
+
+[node name="SocietyFastIntervalSlider" type="HSlider" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/SocietyFastIntervalRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 1.0
+max_value = 16.0
+step = 1.0
+value = 4.0
+
+[node name="SocietyFastIntervalSpin" type="SpinBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/SocietyFastIntervalRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 1.0
+max_value = 16.0
+step = 1.0
+value = 4.0
+custom_arrow_step = 1.0
+
+[node name="SocietySlowIntervalRow" type="HBoxContainer" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+layout_mode = 2
+
+[node name="SocietySlowIntervalLabel" type="Label" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/SocietySlowIntervalRow"]
+layout_mode = 2
+text = "Slow Society Interval (ticks)"
+
+[node name="SocietySlowIntervalSlider" type="HSlider" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/SocietySlowIntervalRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 1.0
+max_value = 32.0
+step = 1.0
+value = 8.0
+
+[node name="SocietySlowIntervalSpin" type="SpinBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/SocietySlowIntervalRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 1.0
+max_value = 32.0
+step = 1.0
+value = 8.0
+custom_arrow_step = 1.0
+
+[node name="TextureUploadsTitle" type="Label" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+layout_mode = 2
+text = "GPU Texture Uploads"
+
+[node name="WeatherTextureUploadDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Weather Texture Upload Decimation"
+
+[node name="SurfaceTextureUploadDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Surface Texture Upload Decimation"
+
+[node name="SolarTextureUploadDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Solar Texture Upload Decimation"
+
+[node name="TextureUploadIntervalRow" type="HBoxContainer" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+layout_mode = 2
+
+[node name="TextureUploadIntervalLabel" type="Label" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/TextureUploadIntervalRow"]
+layout_mode = 2
+text = "Upload Interval (ticks)"
+
+[node name="TextureUploadIntervalSlider" type="HSlider" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/TextureUploadIntervalRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 1.0
+max_value = 16.0
+step = 1.0
+value = 8.0
+
+[node name="TextureUploadIntervalSpin" type="SpinBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/TextureUploadIntervalRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 1.0
+max_value = 16.0
+step = 1.0
+value = 8.0
+custom_arrow_step = 1.0
+
+[node name="TextureUploadBudgetRow" type="HBoxContainer" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+layout_mode = 2
+
+[node name="TextureUploadBudgetLabel" type="Label" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/TextureUploadBudgetRow"]
+layout_mode = 2
+text = "Texels Uploaded / Tick"
+
+[node name="TextureUploadBudgetSlider" type="HSlider" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/TextureUploadBudgetRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 512.0
+max_value = 65536.0
+step = 512.0
+value = 4096.0
+
+[node name="TextureUploadBudgetSpin" type="SpinBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/TextureUploadBudgetRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 512.0
+max_value = 65536.0
+step = 512.0
+value = 4096.0
+custom_arrow_step = 512.0
+
+[node name="EcologyStepDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Ecology Step Decimation"
+
+[node name="EcologyStepIntervalRow" type="HBoxContainer" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+layout_mode = 2
+
+[node name="EcologyStepIntervalLabel" type="Label" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/EcologyStepIntervalRow"]
+layout_mode = 2
+text = "Ecology Step Interval (sec)"
+
+[node name="EcologyStepIntervalSlider" type="HSlider" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/EcologyStepIntervalRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 0.05
+max_value = 0.5
+step = 0.01
+value = 0.2
+
+[node name="EcologyStepIntervalSpin" type="SpinBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/EcologyStepIntervalRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.05
+max_value = 0.5
+step = 0.01
+value = 0.2
+custom_arrow_step = 0.01
+
+[node name="EcologyVoxelSizeRow" type="HBoxContainer" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+layout_mode = 2
+
+[node name="EcologyVoxelSizeLabel" type="Label" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/EcologyVoxelSizeRow"]
+layout_mode = 2
+text = "Ecology Voxel Size (m)"
+
+[node name="EcologyVoxelSizeSlider" type="HSlider" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/EcologyVoxelSizeRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 0.5
+max_value = 3.0
+step = 0.05
+value = 1.0
+
+[node name="EcologyVoxelSizeSpin" type="SpinBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/EcologyVoxelSizeRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.5
+max_value = 3.0
+step = 0.05
+value = 1.0
+custom_arrow_step = 0.05
+
+[node name="EcologyVerticalExtentRow" type="HBoxContainer" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+layout_mode = 2
+
+[node name="EcologyVerticalExtentLabel" type="Label" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/EcologyVerticalExtentRow"]
+layout_mode = 2
+text = "Ecology Vertical Extent (m)"
+
+[node name="EcologyVerticalExtentSlider" type="HSlider" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/EcologyVerticalExtentRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 1.0
+max_value = 8.0
+step = 0.1
+value = 3.0
+
+[node name="EcologyVerticalExtentSpin" type="SpinBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/EcologyVerticalExtentRow"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 1.0
+max_value = 8.0
+step = 0.1
+value = 3.0
+custom_arrow_step = 0.1
+
