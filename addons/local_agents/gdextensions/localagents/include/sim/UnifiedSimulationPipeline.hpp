@@ -47,6 +47,7 @@ private:
     godot::Array destruction_stages_;
     int64_t executed_steps_ = 0;
     godot::Dictionary last_step_summary_;
+    godot::Dictionary carried_field_inputs_;
 };
 
 } // namespace local_agents::simulation

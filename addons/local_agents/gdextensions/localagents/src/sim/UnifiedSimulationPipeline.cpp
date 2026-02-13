@@ -134,10 +134,110 @@ Dictionary resolve_stage_field_inputs(const Dictionary &frame_inputs, const Arra
     return stage_inputs;
 }
 
+Dictionary build_field_buffer_input_patch(const Dictionary &field_evolution) {
+    const Dictionary updated_fields = field_evolution.get("updated_fields", Dictionary());
+    if (updated_fields.get_type() != Variant::DICTIONARY) {
+        return Dictionary();
+    }
+
+    Dictionary field_buffers_patch;
+    Dictionary frame_input_patch;
+
+    const Variant mass_variant = updated_fields.get("mass", Variant());
+    if (mass_variant.get_type() == Variant::ARRAY) {
+        const Array mass = mass_variant;
+        field_buffers_patch["mass"] = mass.duplicate(true);
+        frame_input_patch["mass"] = mass.duplicate(true);
+        frame_input_patch["mass_field"] = mass.duplicate(true);
+    }
+
+    const Variant pressure_variant = updated_fields.get("pressure", Variant());
+    if (pressure_variant.get_type() == Variant::ARRAY) {
+        const Array pressure = pressure_variant;
+        field_buffers_patch["pressure"] = pressure.duplicate(true);
+        frame_input_patch["pressure"] = pressure.duplicate(true);
+        frame_input_patch["pressure_field"] = pressure.duplicate(true);
+    }
+
+    const Variant temperature_variant = updated_fields.get("temperature", Variant());
+    if (temperature_variant.get_type() == Variant::ARRAY) {
+        const Array temperature = temperature_variant;
+        field_buffers_patch["temperature"] = temperature.duplicate(true);
+        frame_input_patch["temperature"] = temperature.duplicate(true);
+        frame_input_patch["temperature_field"] = temperature.duplicate(true);
+    }
+
+    const Variant velocity_variant = updated_fields.get("velocity", Variant());
+    if (velocity_variant.get_type() == Variant::ARRAY) {
+        const Array velocity = velocity_variant;
+        field_buffers_patch["velocity"] = velocity.duplicate(true);
+        frame_input_patch["velocity"] = velocity.duplicate(true);
+        frame_input_patch["velocity_field"] = velocity.duplicate(true);
+    }
+
+    const Variant density_variant = updated_fields.get("density", Variant());
+    if (density_variant.get_type() == Variant::ARRAY) {
+        const Array density = density_variant;
+        field_buffers_patch["density"] = density.duplicate(true);
+        frame_input_patch["density"] = density.duplicate(true);
+        frame_input_patch["density_field"] = density.duplicate(true);
+    }
+
+    const Variant neighbor_topology_variant = updated_fields.get("neighbor_topology", Variant());
+    if (neighbor_topology_variant.get_type() == Variant::ARRAY) {
+        const Array neighbor_topology = neighbor_topology_variant;
+        field_buffers_patch["neighbor_topology"] = neighbor_topology.duplicate(true);
+        frame_input_patch["neighbor_topology"] = neighbor_topology.duplicate(true);
+    }
+
+    const Variant updated_cells_variant = updated_fields.get("updated_cells", Variant());
+    if (updated_cells_variant.get_type() == Variant::ARRAY) {
+        const Array updated_cells = updated_cells_variant;
+        field_buffers_patch["cells"] = updated_cells.duplicate(true);
+        frame_input_patch["cells"] = updated_cells.duplicate(true);
+    }
+
+    if (field_buffers_patch.is_empty()) {
+        return Dictionary();
+    }
+
+    frame_input_patch["field_buffers"] = field_buffers_patch;
+    return frame_input_patch;
+}
+
+Dictionary merge_field_inputs_for_next_step(const Dictionary &incoming_inputs, const Dictionary &patch) {
+    Dictionary merged_inputs = incoming_inputs.duplicate(true);
+    if (patch.is_empty()) {
+        return merged_inputs;
+    }
+
+    const Dictionary patch_field_buffers = patch.get("field_buffers", Dictionary());
+    if (patch_field_buffers.get_type() != Variant::DICTIONARY || patch_field_buffers.is_empty()) {
+        return merged_inputs;
+    }
+
+    Dictionary merged_field_buffers = patch_field_buffers.duplicate(true);
+    if (merged_inputs.has("field_buffers") && merged_inputs.get("field_buffers").get_type() == Variant::DICTIONARY) {
+        const Dictionary incoming_field_buffers = merged_inputs.get("field_buffers");
+        const Array incoming_buffer_keys = incoming_field_buffers.keys();
+        for (int64_t i = 0; i < incoming_buffer_keys.size(); i++) {
+            const String field_key = String(incoming_buffer_keys[i]);
+            if (field_key.is_empty()) {
+                continue;
+            }
+            merged_field_buffers[field_key] = incoming_field_buffers.get(field_key, Variant());
+        }
+    }
+
+    merged_inputs["field_buffers"] = merged_field_buffers;
+    return merged_inputs;
+}
+
 } // namespace
 
 bool UnifiedSimulationPipeline::configure(const Dictionary &config) {
     config_ = config.duplicate(true);
+    carried_field_inputs_.clear();
     required_channels_ = config.get("required_channels", unified_pipeline::default_required_channels());
     mechanics_stages_ = config.get("mechanics_stages", Array());
     pressure_stages_ = config.get("pressure_stages", Array());
@@ -151,7 +251,7 @@ Dictionary UnifiedSimulationPipeline::execute_step(const Dictionary &scheduled_f
     executed_steps_ += 1;
 
     const double delta_seconds = unified_pipeline::clamped(scheduled_frame.get("delta_seconds", 1.0 / 60.0), 1.0e-6, 10.0, 1.0 / 60.0);
-    const Dictionary frame_inputs = scheduled_frame.get("inputs", Dictionary());
+    const Dictionary frame_inputs = merge_field_inputs_for_next_step(scheduled_frame.get("inputs", Dictionary()), carried_field_inputs_);
     bool field_handles_provided = false;
     const Array field_handles = to_field_handles_array(frame_inputs, field_handles_provided);
     const int64_t field_handle_count = field_handles.size();
@@ -304,6 +404,11 @@ Dictionary UnifiedSimulationPipeline::execute_step(const Dictionary &scheduled_f
         summary["field_handle_io"] = field_handle_io;
     }
 
+    const Dictionary field_input_patch = build_field_buffer_input_patch(field_evolution);
+    if (!field_input_patch.is_empty()) {
+        carried_field_inputs_ = field_input_patch;
+    }
+
     last_step_summary_ = summary.duplicate(true);
     return summary;
 }
@@ -318,6 +423,7 @@ void UnifiedSimulationPipeline::reset() {
     destruction_stages_.clear();
     executed_steps_ = 0;
     last_step_summary_.clear();
+    carried_field_inputs_.clear();
 }
 
 Dictionary UnifiedSimulationPipeline::get_debug_snapshot() const {
