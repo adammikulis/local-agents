@@ -22,6 +22,7 @@ const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKey
 @export var wind_speed: float = 1.25
 @export var smell_sim_step_seconds: float = 0.1
 @export var wind_sim_step_seconds: float = 0.2
+@export_range(1, 16, 1) var max_smell_substeps_per_physics_frame: int = 3
 @export var rabbit_perceived_danger_threshold: float = 0.14
 @export var rabbit_flee_duration_seconds: float = 3.4
 @export var rabbit_eat_distance: float = 0.24
@@ -37,6 +38,10 @@ const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKey
 @export var shelter_builder_search_radius: float = 2.4
 @export var shelter_decay_per_second: float = 0.006
 @export var actor_refresh_interval_seconds: float = 0.5
+@export var plant_step_interval_seconds: float = 0.1
+@export var mammal_step_interval_seconds: float = 0.1
+@export var living_profile_refresh_interval_seconds: float = 0.2
+@export var edible_index_rebuild_interval_seconds: float = 0.35
 
 @onready var plant_root: Node3D = $PlantRoot
 @onready var rabbit_root: Node3D = $RabbitRoot
@@ -49,6 +54,10 @@ var _smell_source_refresh_accumulator: float = 0.0
 var _shelter_step_accumulator: float = 0.0
 var _debug_accumulator: float = 0.0
 var _actor_refresh_accumulator: float = 0.0
+var _plant_step_accumulator: float = 0.0
+var _mammal_step_accumulator: float = 0.0
+var _profile_refresh_accumulator: float = 0.0
+var _edible_index_accumulator: float = 0.0
 var _seed_sequence: int = 0
 var _rabbit_sequence: int = 0
 var _smell_sources: Array[Node] = []
@@ -98,12 +107,24 @@ func _physics_process(delta: float) -> void:
 	if delta <= 0.0:
 		return
 	_sim_time_seconds += delta
-	_step_plants(delta)
-	_rebuild_edible_plant_index()
+	_plant_step_accumulator += delta
+	_mammal_step_accumulator += delta
+	_profile_refresh_accumulator += delta
+	_edible_index_accumulator += delta
+	if _plant_step_accumulator >= maxf(0.01, plant_step_interval_seconds):
+		_step_plants(_plant_step_accumulator)
+		_plant_step_accumulator = 0.0
+	if _edible_index_accumulator >= maxf(0.05, edible_index_rebuild_interval_seconds):
+		_rebuild_edible_plant_index()
+		_edible_index_accumulator = 0.0
 	_emit_smell(delta)
 	_step_smell_field(delta)
-	_step_mammals(delta)
-	_refresh_living_entity_profiles()
+	if _mammal_step_accumulator >= maxf(0.01, mammal_step_interval_seconds):
+		_step_mammals(_mammal_step_accumulator)
+		_mammal_step_accumulator = 0.0
+	if _profile_refresh_accumulator >= maxf(0.05, living_profile_refresh_interval_seconds):
+		_refresh_living_entity_profiles()
+		_profile_refresh_accumulator = 0.0
 	_step_shelter_construction(delta)
 	_update_debug(delta)
 
@@ -329,7 +350,9 @@ func _refresh_actor_caches() -> void:
 
 func _step_smell_field(delta: float) -> void:
 	_smell_step_accumulator += delta
-	while _smell_step_accumulator >= smell_sim_step_seconds:
+	var steps := 0
+	while _smell_step_accumulator >= smell_sim_step_seconds and steps < maxi(1, max_smell_substeps_per_physics_frame):
+		steps += 1
 		_smell_step_accumulator -= smell_sim_step_seconds
 		var wind_source: Variant = Vector2.ZERO
 		if wind_enabled and wind_intensity > 0.0 and _wind_field != null:
@@ -342,6 +365,8 @@ func _step_smell_field(delta: float) -> void:
 				_wind_field.step(wind_delta, 0.52, diurnal_phase, rain_intensity, _solar_air_context())
 			wind_source = Callable(_wind_field, "sample_wind")
 		_smell_field.step(smell_sim_step_seconds, wind_source, smell_base_decay_per_second, rain_intensity, rain_decay_multiplier)
+	if _smell_step_accumulator > smell_sim_step_seconds * float(maxi(1, max_smell_substeps_per_physics_frame)):
+		_smell_step_accumulator = smell_sim_step_seconds * float(maxi(1, max_smell_substeps_per_physics_frame))
 
 func _plant_environment_context(world_position: Vector3) -> Dictionary:
 	var tile = _tile_at_world(world_position)
@@ -369,7 +394,7 @@ func _tile_at_world(world_position: Vector3) -> Dictionary:
 		return {}
 	var tile_id = TileKeyUtilsScript.from_world_xz(world_position)
 	var row = tile_index.get(tile_id, {})
-	return (row as Dictionary).duplicate(true) if row is Dictionary else {}
+	return row as Dictionary if row is Dictionary else {}
 
 func _solar_air_context() -> Dictionary:
 	var out := {

@@ -28,6 +28,7 @@ var _weather_field_texture: Texture2D
 var _weather_field_world_size: Vector2 = Vector2.ONE
 var _surface_field_texture: Texture2D
 var _solar_field_texture: Texture2D
+var _water_render_mode: String = "simple"
 
 var _chunk_build_thread: Thread
 var _chunk_build_in_flight: bool = false
@@ -39,6 +40,16 @@ var _chunk_build_has_pending: bool = false
 
 func configure(terrain_root: Node3D) -> void:
 	_terrain_root = terrain_root
+
+func set_water_render_mode(mode: String) -> void:
+	var normalized = String(mode).to_lower().strip_edges()
+	if normalized != "shader":
+		normalized = "simple"
+	if _water_render_mode == normalized:
+		return
+	_water_render_mode = normalized
+	if _material_cache.has("water"):
+		_material_cache.erase("water")
 
 func set_weather_snapshot(weather_snapshot: Dictionary) -> void:
 	_weather_snapshot = weather_snapshot.duplicate(true)
@@ -310,6 +321,15 @@ func _material_for_block(block_type: String) -> Material:
 	if _material_cache.has(block_type):
 		return _material_cache[block_type]
 	if block_type == "water":
+		if _water_render_mode == "simple":
+			var simple_water := StandardMaterial3D.new()
+			simple_water.albedo_color = Color(0.14, 0.36, 0.68, 0.72)
+			simple_water.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			simple_water.roughness = 0.22
+			simple_water.metallic = 0.0
+			simple_water.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+			_material_cache[block_type] = simple_water
+			return simple_water
 		var water_material := ShaderMaterial.new()
 		water_material.shader = WaterFlowShader
 		for key_variant in _water_shader_params.keys():
