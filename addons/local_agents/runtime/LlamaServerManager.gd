@@ -8,11 +8,16 @@ var _managed_pid: int = -1
 var _managed_base_url: String = ""
 var _managed_model_path: String = ""
 var _managed_runtime_dir: String = ""
+var _last_startup_report: Dictionary = {}
 
 func ensure_running(options: Dictionary, model_path: String, runtime_dir: String = "") -> Dictionary:
     var base_url := _normalized_base_url(options)
     var host_port := _parse_host_port(base_url)
+    var report := _build_startup_report(options, model_path, runtime_dir, base_url)
     if not bool(host_port.get("ok", false)):
+        report["ok"] = false
+        report["error"] = "invalid_server_base_url"
+        _last_startup_report = report
         return {
             "ok": false,
             "error": "invalid_server_base_url",
@@ -20,6 +25,10 @@ func ensure_running(options: Dictionary, model_path: String, runtime_dir: String
         }
 
     if _is_server_ready(String(host_port.get("host", "127.0.0.1")), int(host_port.get("port", 8080)), int(options.get("server_ready_timeout_ms", 1200))):
+        report["ok"] = true
+        report["already_running"] = true
+        report["managed"] = false
+        _last_startup_report = report
         return {
             "ok": true,
             "managed": false,
@@ -28,6 +37,9 @@ func ensure_running(options: Dictionary, model_path: String, runtime_dir: String
 
     var resolved_model_path := _normalize_path(model_path)
     if resolved_model_path == "" or not FileAccess.file_exists(resolved_model_path):
+        report["ok"] = false
+        report["error"] = "server_model_missing"
+        _last_startup_report = report
         return {
             "ok": false,
             "error": "server_model_missing",
@@ -43,16 +55,26 @@ func ensure_running(options: Dictionary, model_path: String, runtime_dir: String
     if server_binary == "":
         server_binary = _bundled_binary_path("llama-server")
     if server_binary == "":
+        report["ok"] = false
+        report["error"] = "llama_server_binary_missing"
+        _last_startup_report = report
         return {
             "ok": false,
             "error": "llama_server_binary_missing",
             "runtime_directory": resolved_runtime_dir,
         }
+    report["binary"] = server_binary
+    report["version"] = _server_version(server_binary)
 
     if _managed_pid > 0 and OS.is_process_running(_managed_pid):
         var same_server := _managed_base_url == base_url and _managed_model_path == resolved_model_path
         if same_server:
             if _is_server_ready(String(host_port.get("host", "127.0.0.1")), int(host_port.get("port", 8080)), int(options.get("server_ready_timeout_ms", 1200))):
+                report["ok"] = true
+                report["already_running"] = true
+                report["managed"] = true
+                report["pid"] = _managed_pid
+                _last_startup_report = report
                 return {
                     "ok": true,
                     "managed": true,
@@ -98,6 +120,10 @@ func ensure_running(options: Dictionary, model_path: String, runtime_dir: String
 
     var pid := OS.create_process(server_binary, args, false)
     if pid <= 0:
+        report["ok"] = false
+        report["error"] = "llama_server_spawn_failed"
+        report["binary"] = server_binary
+        _last_startup_report = report
         return {
             "ok": false,
             "error": "llama_server_spawn_failed",
@@ -112,6 +138,11 @@ func ensure_running(options: Dictionary, model_path: String, runtime_dir: String
     var startup_timeout_ms := int(options.get("server_start_timeout_ms", 30000))
     if not _is_server_ready(String(host_port.get("host", "127.0.0.1")), int(host_port.get("port", 8080)), startup_timeout_ms):
         _kill_managed()
+        report["ok"] = false
+        report["error"] = "llama_server_start_timeout"
+        report["pid"] = pid
+        report["binary"] = server_binary
+        _last_startup_report = report
         return {
             "ok": false,
             "error": "llama_server_start_timeout",
@@ -119,6 +150,14 @@ func ensure_running(options: Dictionary, model_path: String, runtime_dir: String
             "pid": pid,
         }
 
+    report["ok"] = true
+    report["managed"] = true
+    report["pid"] = pid
+    report["binary"] = server_binary
+    report["base_url"] = base_url
+    report["runtime_directory"] = resolved_runtime_dir
+    report["model_path"] = resolved_model_path
+    _last_startup_report = report
     return {
         "ok": true,
         "managed": true,
@@ -146,7 +185,11 @@ func status() -> Dictionary:
         "base_url": _managed_base_url,
         "model_path": _managed_model_path,
         "runtime_directory": _managed_runtime_dir,
+        "startup_report": _last_startup_report.duplicate(true),
     }
+
+func startup_report() -> Dictionary:
+    return _last_startup_report.duplicate(true)
 
 func _kill_managed() -> void:
     if _managed_pid > 0:
@@ -277,3 +320,36 @@ func _bundled_binary_path(name: String) -> String:
         if normalized != "" and FileAccess.file_exists(normalized):
             return normalized
     return ""
+
+func _build_startup_report(options: Dictionary, model_path: String, runtime_dir: String, base_url: String) -> Dictionary:
+    return {
+        "timestamp_unix": Time.get_unix_time_from_system(),
+        "base_url": base_url,
+        "model_path_requested": _normalize_path(model_path),
+        "runtime_directory_requested": RuntimePaths.normalize_path(runtime_dir),
+        "flags": {
+            "context_size": int(options.get("context_size", 0)),
+            "batch_size": int(options.get("batch_size", 0)),
+            "threads": int(options.get("threads", options.get("n_threads", 0))),
+            "n_gpu_layers": int(options.get("n_gpu_layers", 0)),
+            "server_slots": int(options.get("server_slots", 1)),
+            "server_embeddings": bool(options.get("server_embeddings", false)),
+            "server_pooling": String(options.get("server_pooling", "")).strip_edges(),
+        },
+        "capabilities": {
+            "parallel_requests": int(options.get("server_slots", 1)) > 1,
+            "batching": int(options.get("batch_size", 0)) > 0,
+            "embeddings": bool(options.get("server_embeddings", false)),
+        },
+    }
+
+func _server_version(binary_path: String) -> String:
+    if binary_path.strip_edges() == "":
+        return ""
+    var output := []
+    var err := OS.execute(binary_path, ["--version"], output, true)
+    if err != OK:
+        return ""
+    if output.is_empty():
+        return ""
+    return String(output[0]).strip_edges()
