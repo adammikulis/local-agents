@@ -340,7 +340,3 @@ Done when:
 
 1. Default deterministic replay budget: 120 seconds per shard.
 2. GPU/mobile-oriented matrix jobs budget: 180 seconds per shard.
-
-## Immediate Next Action
-
-- Before implementation starts, align with `AGENTS.md` (planning/deconfliction workflow) and then reflect scope owners/acceptance criteria in `ARCHITECTURE_PLAN.md` before starting.
