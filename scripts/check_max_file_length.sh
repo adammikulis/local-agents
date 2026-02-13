@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MAX_FILE_LINES="${MAX_FILE_LINES:-900}"
-MAX_GD_FILE_LINES="${MAX_GD_FILE_LINES:-600}"
+MAX_FILE_LINES="${MAX_FILE_LINES:-600}"
 
 if ! [[ "$MAX_FILE_LINES" =~ ^[0-9]+$ ]] || [[ "$MAX_FILE_LINES" -le 0 ]]; then
   echo "MAX_FILE_LINES must be a positive integer (got: $MAX_FILE_LINES)"
-  exit 2
-fi
-if ! [[ "$MAX_GD_FILE_LINES" =~ ^[0-9]+$ ]] || [[ "$MAX_GD_FILE_LINES" -le 0 ]]; then
-  echo "MAX_GD_FILE_LINES must be a positive integer (got: $MAX_GD_FILE_LINES)"
   exit 2
 fi
 
@@ -33,12 +28,8 @@ for file in "${FILES[@]}"; do
     continue
   fi
   lines=$(wc -l < "$file" | tr -d '[:space:]')
-  limit="$MAX_FILE_LINES"
-  if [[ "$file" == *.gd ]]; then
-    limit="$MAX_GD_FILE_LINES"
-  fi
-  if [[ "$lines" -gt "$limit" ]]; then
-    echo "FILE TOO LONG: $file ($lines lines > $limit max)"
+  if [[ "$lines" -gt "$MAX_FILE_LINES" ]]; then
+    echo "FILE TOO LONG: $file ($lines lines > $MAX_FILE_LINES max)"
     violations=$((violations + 1))
   fi
 done
@@ -50,4 +41,4 @@ if [[ "$violations" -gt 0 ]]; then
   exit 1
 fi
 
-echo "Max file length check passed (.gd: $MAX_GD_FILE_LINES lines, other: $MAX_FILE_LINES lines)."
+echo "Max file length check passed (limit: $MAX_FILE_LINES lines)."

@@ -13,7 +13,7 @@ This file defines implementation rules for working in this Godot repository.
 ## File Size Limits (Strict)
 
 - CI enforces a hard max file length with no allowlist and no exceptions via `scripts/check_max_file_length.sh`.
-- Default limits are `MAX_GD_FILE_LINES=600` for `.gd` and `MAX_FILE_LINES=900` for other first-party source/config files (`.gdshader`, `.tscn`, `.tres`, workflow YAML).
+- Default limit is `MAX_FILE_LINES=600` for first-party source/config files (`.gd`, `.gdshader`, `.tscn`, `.tres`, workflow YAML).
 - If a file exceeds the limit, refactor it immediately; do not raise the limit to bypass design work.
 
 ## Required Refactor Pattern For Large Files
