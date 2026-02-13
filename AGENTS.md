@@ -14,9 +14,11 @@ This file defines implementation rules for this repository. Higher sections are 
   2. Launch one or more planning sub-agents for decomposition + coupling-risk assessment.
   3. Launch scoped implementation and validation sub-agents in parallel.
   4. Keep main-thread focus on communication, integration, and conflict resolution while agents own execution.
-  5. Proactively close stale or completed sub-agents, deconflict overlaps immediately, and merge outputs as soon as they land.
-  6. Run targeted verification on the highest-impact wave.
-  7. Commit scoped changes and keep plan/status updates synchronized.
+  5. Proactively close stale or completed sub-agents as soon as they finish their assigned work; do not wait for the next task cycle to avoid stale refs.
+  6. Track active agent slots; if only 4 or fewer slots remain, notify the user immediately and proceed conservatively with spawn decisions.
+  7. Deconflict overlaps immediately and merge outputs as soon as they land.
+  8. Run targeted verification on the highest-impact wave.
+  9. Commit scoped changes and keep plan/status updates synchronized.
 - Ask user questions only when an architectural or requirement decision is truly ambiguous.
 
 ### Additional Sub-Agent Lanes (including but not limited to)

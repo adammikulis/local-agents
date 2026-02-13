@@ -343,4 +343,4 @@ Done when:
 
 ## Immediate Next Action
 
-- Before implementation starts, launch a planning sub-agent to define scope, owners, and acceptance criteria, then convert this finalized plan into an execution checklist in `ARCHITECTURE_PLAN.md` Concern I with concrete task checkboxes and begin Phase 1 implementation.
+- Before implementation starts, align with `AGENTS.md` (planning/deconfliction workflow) and then reflect scope owners/acceptance criteria in `ARCHITECTURE_PLAN.md` before starting.

@@ -40,7 +40,7 @@ Move full world simulation ownership to native C++ (`GDExtension`) and converge 
 
 ## Phase Plan
 
-> Execution prerequisite: every phase below starts only after a planning sub-agent defines scope, owners, and acceptance criteria, then updates are gated by deconfliction and explicit check-in.
+> Execution prerequisite and sub-agent workflow are governed by `AGENTS.md` (Sub-Agent-First Execution Model). This plan is technical phase content; scheduling/deconfliction details are tracked in `ARCHITECTURE_PLAN.md`.
 
 ### Phase 1: Contract Unification (now)
 - Keep existing hydrology/erosion scripts as adapters.
