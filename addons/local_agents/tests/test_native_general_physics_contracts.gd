@@ -141,10 +141,17 @@ func _test_field_evolution_invariant_and_stage_coupling_contract() -> bool:
 	ok = _assert(source.contains("\"energy_drift_proxy\", energy_after - energy_before);"), "Field evolution must compute energy_drift_proxy from before/after totals") and ok
 	ok = _assert(source.contains("\"pair_updates\", pair_updates,"), "Field evolution must publish pair_updates stage-coupling marker") and ok
 	ok = _assert(source.contains("result[\"updated_fields\"] = unified_pipeline::make_dictionary("), "Field evolution must publish updated_fields coupling payload") and ok
-	if source.contains("\"stage_coupling\""):
-		ok = _assert(_contains_summary_key_contract(source, "stage_coupling"), "Summary must expose stage_coupling when stage_coupling marker is present") and ok
-	if source.contains("\"coupling_markers\""):
-		ok = _assert(_contains_summary_key_contract(source, "coupling_markers"), "Summary must expose coupling_markers when coupling markers are present") and ok
+	var has_stage_coupling := source.contains("\"stage_coupling\"")
+	var has_coupling_markers := source.contains("\"coupling_markers\"")
+	if has_stage_coupling:
+		ok = _assert(_contains_direct_summary_key_contract(source, "stage_coupling"), "Summary must expose stage_coupling when stage_coupling marker is present") and ok
+	if has_coupling_markers:
+		ok = _assert(_contains_direct_summary_key_contract(source, "coupling_markers"), "Summary must expose coupling_markers when coupling markers are present") and ok
+
+	if has_stage_coupling or has_coupling_markers:
+		ok = _assert(_contains_coupling_key_contract(source, "pressure->mechanics"), "Coupling contracts must include pressure->mechanics key") and ok
+		ok = _assert(_contains_coupling_key_contract(source, "reaction->thermal"), "Coupling contracts must include reaction->thermal key") and ok
+		ok = _assert(_contains_coupling_key_contract(source, "damage->voxel"), "Coupling contracts must include damage->voxel key") and ok
 	return ok
 
 func _test_core_equation_contracts_present() -> bool:
@@ -291,6 +298,14 @@ func _contains_summary_key_contract(source: String, key: String) -> bool:
 	var direct_key := "summary[\"%s\"]" % key
 	var nested_key := "\"%s\"" % key
 	return source.contains(direct_key) or (source.contains("summary[\"field_evolution\"]") and source.contains(nested_key))
+
+func _contains_direct_summary_key_contract(source: String, key: String) -> bool:
+	var direct_key := "summary[\"%s\"]" % key
+	return source.contains(direct_key)
+
+func _contains_coupling_key_contract(source: String, key: String) -> bool:
+	var quoted_key := "\"%s\"" % key
+	return source.contains(quoted_key) and (source.contains("\"stage_coupling\"") or source.contains("\"coupling_markers\""))
 
 func _contains_any(source: String, needles: Array[String]) -> bool:
 	for needle in needles:

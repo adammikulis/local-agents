@@ -183,6 +183,7 @@ Wave A validation gates:
 - [ ] Add deterministic invariants tests for bounded mass/energy drift per step.
 - [ ] Add stage-coupling tests for `pressure -> mechanics`, `reaction -> thermal`, `damage -> voxel ops`.
 - [ ] Ensure each stage reads/writes native field handles (script layer remains orchestration/visualization only).
+- [ ] February 13, 2026: Landed Wave A stage-coupling marker and scalar payload wiring (`pressure->mechanics`, `reaction->thermal`, `damage->voxel`) for deterministic validation; broader cross-stage invariants tests still in progress.
 - [x] February 13, 2026: Added deterministic bridge-contract tests for physics-server contact ingestion and voxel response emission payloads.
 - [x] February 13, 2026: Added low-level physics-server contact coupling schema through bridge canonical inputs and normalization (`NativeComputeBridge.gd`), plus deterministic source-contract coverage (`test_native_general_physics_contracts.gd`, `test_native_combustion_pressure_contracts.gd`).
 - [x] February 13, 2026: Added optional physics-contact payload forwarding through environment stage dispatch paths.

@@ -169,6 +169,55 @@ void set_default_topology(Array &topology, int64_t count) {
         topology[i] = neighbors;
     }
 }
+
+Array wave_a_coupling_markers() {
+    Array markers;
+    markers.append(String("pressure->mechanics"));
+    markers.append(String("reaction->thermal"));
+    markers.append(String("damage->voxel"));
+    return markers;
+}
+
+Dictionary wave_a_stage_coupling(double pressure_to_mechanics, double reaction_to_thermal, double damage_to_voxel) {
+    Dictionary stage_coupling;
+    stage_coupling["pressure->mechanics"] = unified_pipeline::make_dictionary(
+        "marker", String("pressure->mechanics"),
+        "wave", String("A"),
+        "source_stage", String("pressure"),
+        "target_stage", String("mechanics"),
+        "scalar", pressure_to_mechanics);
+    stage_coupling["reaction->thermal"] = unified_pipeline::make_dictionary(
+        "marker", String("reaction->thermal"),
+        "wave", String("A"),
+        "source_stage", String("reaction"),
+        "target_stage", String("thermal"),
+        "scalar", reaction_to_thermal);
+    stage_coupling["damage->voxel"] = unified_pipeline::make_dictionary(
+        "marker", String("damage->voxel"),
+        "wave", String("A"),
+        "source_stage", String("damage"),
+        "target_stage", String("voxel"),
+        "scalar", damage_to_voxel);
+    return stage_coupling;
+}
+
+Dictionary wave_a_coupling_scalar_diagnostics(
+    double pressure_to_mechanics,
+    double reaction_to_thermal,
+    double damage_to_voxel,
+    double mechanics_rate,
+    double pressure_diffusivity,
+    double thermal_diffusivity,
+    double mass_transfer_coeff) {
+    return unified_pipeline::make_dictionary(
+        "pressure_to_mechanics_scalar", pressure_to_mechanics,
+        "reaction_to_thermal_scalar", reaction_to_thermal,
+        "damage_to_voxel_scalar", damage_to_voxel,
+        "mechanics_exchange_rate", mechanics_rate,
+        "pressure_diffusivity", pressure_diffusivity,
+        "thermal_diffusivity", thermal_diffusivity,
+        "mass_transfer_coeff", mass_transfer_coeff);
+}
 } // namespace
 
 Array default_required_channels() {
@@ -328,24 +377,32 @@ Dictionary run_field_buffer_evolution(
     }
 
     if (mass.is_empty() || pressure.is_empty() || temperature.is_empty() || velocity.is_empty()) {
-        return unified_pipeline::make_dictionary(
+        Dictionary result = unified_pipeline::make_dictionary(
             "enabled", false,
             "mode", String("none"),
             "cell_count_updated", static_cast<int64_t>(0),
             "mass_drift_proxy", 0.0,
             "energy_drift_proxy", 0.0,
             "pair_updates", static_cast<int64_t>(0));
+        result["stage_coupling"] = wave_a_stage_coupling(0.0, 0.0, 0.0);
+        result["coupling_markers"] = wave_a_coupling_markers();
+        result["coupling_scalar_diagnostics"] = wave_a_coupling_scalar_diagnostics(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        return result;
     }
 
     const int64_t cell_count = std::min(std::min(mass.size(), pressure.size()), std::min(temperature.size(), velocity.size()));
     if (cell_count <= 0) {
-        return unified_pipeline::make_dictionary(
+        Dictionary result = unified_pipeline::make_dictionary(
             "enabled", false,
             "mode", String("none"),
             "cell_count_updated", static_cast<int64_t>(0),
             "mass_drift_proxy", 0.0,
             "energy_drift_proxy", 0.0,
             "pair_updates", static_cast<int64_t>(0));
+        result["stage_coupling"] = wave_a_stage_coupling(0.0, 0.0, 0.0);
+        result["coupling_markers"] = wave_a_coupling_markers();
+        result["coupling_scalar_diagnostics"] = wave_a_coupling_scalar_diagnostics(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        return result;
     }
 
     mass.resize(cell_count);
@@ -382,6 +439,9 @@ Dictionary run_field_buffer_evolution(
         0.0,
         1.0e6);
     const double mass_transfer_coeff = clamped(config.get("field_mass_transfer_coeff", pressure_diffusivity * 0.1), 0.0, 1.0e6, pressure_diffusivity * 0.1);
+    const double pressure_to_mechanics_scalar = mechanics_rate * pressure_diffusivity;
+    const double reaction_to_thermal_scalar = clamped(config.get("field_reaction_thermal_coupling", thermal_diffusivity), 0.0, 1.0e6, thermal_diffusivity);
+    const double damage_to_voxel_scalar = clamped(config.get("field_damage_voxel_coupling", mass_transfer_coeff), 0.0, 1.0e6, mass_transfer_coeff);
 
     Array mass_next = mass.duplicate();
     Array pressure_next = pressure.duplicate();
@@ -463,6 +523,16 @@ Dictionary run_field_buffer_evolution(
         "temperature", temperature_next,
         "velocity", velocity_next,
         "neighbor_topology", topology);
+    result["stage_coupling"] = wave_a_stage_coupling(pressure_to_mechanics_scalar, reaction_to_thermal_scalar, damage_to_voxel_scalar);
+    result["coupling_markers"] = wave_a_coupling_markers();
+    result["coupling_scalar_diagnostics"] = wave_a_coupling_scalar_diagnostics(
+        pressure_to_mechanics_scalar,
+        reaction_to_thermal_scalar,
+        damage_to_voxel_scalar,
+        mechanics_rate,
+        pressure_diffusivity,
+        thermal_diffusivity,
+        mass_transfer_coeff);
 
     if (mode == "cell") {
         const Array source_cells = field_buffers.get("cells", frame_inputs.get("cells", Array()));

@@ -219,6 +219,9 @@ Dictionary UnifiedSimulationPipeline::execute_step(const Dictionary &scheduled_f
     summary["field_mass_drift_proxy"] = unified_pipeline::clamped(field_evolution.get("mass_drift_proxy", 0.0), -1.0e18, 1.0e18, 0.0);
     summary["field_energy_drift_proxy"] = unified_pipeline::clamped(field_evolution.get("energy_drift_proxy", 0.0), -1.0e18, 1.0e18, 0.0);
     summary["field_cell_count_updated"] = static_cast<int64_t>(field_evolution.get("cell_count_updated", static_cast<int64_t>(0)));
+    summary["stage_coupling"] = field_evolution.get("stage_coupling", Dictionary());
+    summary["coupling_markers"] = field_evolution.get("coupling_markers", Array());
+    summary["coupling_scalar_diagnostics"] = field_evolution.get("coupling_scalar_diagnostics", Dictionary());
     summary["field_handle_mode"] = field_handle_mode;
     summary["field_handle_count"] = field_handle_count;
     if (field_handles_provided) {
