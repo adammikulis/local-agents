@@ -6,12 +6,12 @@ This file defines implementation rules for this repository. Higher sections are 
 
 - Planning-first, impact-first execution: each wave starts with a concrete target and explicit priority order.
 - The main thread is executive only: planning, user interaction, architecture decisions, sub-agent lifecycle, integration/deconflict, verification, and commit/push flow.
-- Use sub-agents for both planning and execution:
-  - spawn a planning sub-agent to map scope, owners, and acceptance criteria for each wave.
+- Use sub-agents for both planning and execution (mandatory):
+  - planning must always be done by a planning sub-agent that maps scope, owners, acceptance criteria, and risk calls before implementation starts.
   - spawn implementation/validation sub-agents whenever responsibilities can be split safely.
 - Workflow loop:
   1. Update `ARCHITECTURE_PLAN.md` first with priority band (P0/P1/P2), owners, and acceptance criteria.
-  2. Launch planning sub-agent(s) for decomposition + coupling-risk assessment.
+  2. Launch one or more planning sub-agents for decomposition + coupling-risk assessment.
   3. Launch scoped implementation and validation sub-agents in parallel.
   4. Keep main-thread focus on communication, integration, and conflict resolution while agents own execution.
   5. Proactively close stale or completed sub-agents, deconflict overlaps immediately, and merge outputs as soon as they land.
