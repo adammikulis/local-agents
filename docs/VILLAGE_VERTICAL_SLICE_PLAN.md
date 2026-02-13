@@ -23,6 +23,7 @@ Design intent:
 
 ## 0.1) Phase Gate Checklist (Merge-Blocking)
 
+- [ ] No phase execution begins without a planning sub-agent pass that publishes scope, owners, coupling risks, and acceptance criteria.
 - [ ] Every phase must define:
 - [ ] required automated tests
 - [ ] required deterministic artifacts (hash snapshots/fixtures)
@@ -564,6 +565,7 @@ Deliverables:
 ### 13.8 Integration Rules
 - [ ] Each agent works in scoped commits with explicit file ownership.
 - [ ] Shared contracts (resource schemas and graph payload fields) are versioned and reviewed first.
+- [ ] Before phases begin, a planning sub-agent issues decomposition + coupling-risk recommendations for integration order.
 - [ ] Shared contracts are published as canonical docs before cross-agent merges:
 - [ ] resource schema table
 - [ ] graph node/edge field table
