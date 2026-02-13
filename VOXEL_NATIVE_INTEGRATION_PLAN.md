@@ -4,6 +4,9 @@ Date: February 13, 2026
 Owner: Simulation Runtime
 Status: Draft for decision
 
+## Status Note
+Progress tracking for active implementation has moved to `ARCHITECTURE_PLAN.md` under Concern I (Wave A/B/C checkboxes). This document is background/reference only.
+
 ## Objective
 
 Integrate all voxel/tile simulation domains into a single native simulation core (GDExtension) so GDScript remains orchestration/UI only. This covers smell, wind, weather, hydrology, erosion/destruction, solar, water simulation, ecology signals, and shared spatial query services.

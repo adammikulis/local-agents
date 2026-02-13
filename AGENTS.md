@@ -47,12 +47,23 @@ This file defines implementation rules for working in this Godot repository.
 
 ## Execution Model
 
+- Main-thread role is executive by default: planning, user interaction, architecture decisions, sub-agent orchestration, integration/deconflict, verification, and commit/push flow.
+- Default coding model is sub-agent-first: do the majority of implementation work via parallel sub-agents, keeping main-thread direct coding to minimal glue/integration edits.
+- Default workflow loop is:
+  1. make/update the implementation plan in `ARCHITECTURE_PLAN.md` with checkbox state.
+  2. spawn as many scoped sub-agents as can safely run in parallel.
+  3. integrate sub-agent outputs as they finish (or near-finish), then deconflict/refactor into a coherent tree.
+  4. run relevant verification/tests.
+  5. create and push a series of scoped commits.
+  6. repeat the loop for the next wave.
+- Stop and ask the user questions/clarifications whenever required decisions are ambiguous or blocked.
 - Default execution behavior is to spawn sub-agents as needed whenever concerns can be split safely.
 - Default completion behavior is to proactively create feature-scoped commits and push them unless the user asks otherwise.
 - Before spawning any new sub-agent wave, close stale/finished agents from prior waves to avoid hitting thread/session limits.
 - If agent spawning fails due to thread limits, immediately close inactive agents and retry before continuing manually.
 - Spawn sub-agents for distinct concerns (runtime, downloads, tests, docs, build scripts) when work can proceed in parallel.
 - Give each sub-agent clear file ownership and expected outputs before starting.
+- Integrate and deconflict sub-agent changes continuously; do not wait for a perfectly synchronized finish if partial merges can safely proceed.
 - Merge sub-agent work back into a single concern-based architecture plan with checkbox state updates.
 - Avoid cross-agent coordination layers in repo docs; track status in `ARCHITECTURE_PLAN.md` only.
 

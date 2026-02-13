@@ -1,5 +1,8 @@
 # Native Simulation Unification Plan (GPU-First, CPU Fallback)
 
+## Status Note
+Progress tracking for active implementation has moved to `ARCHITECTURE_PLAN.md` under Concern I (Wave A/B/C checkboxes). This document is background/reference only.
+
 ## Objective
 Move full world simulation ownership to native C++ (`GDExtension`) and converge domain systems into a unified material model where transport + destruction are shared kernels, not siloed hydrology/erosion codepaths.
 

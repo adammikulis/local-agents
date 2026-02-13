@@ -124,80 +124,117 @@ Sub-agent split:
 - Demo-Scenes: examples and in-engine demo parity.
 - Docs-Onboarding: quickstart accuracy and release-facing docs.
 
-## Concern I: Voxel World Simulator Integration
+## Concern I: Voxel Physics Engine Upgrades (Native-First)
 
-Scope: `addons/local_agents/simulation/*`, `addons/local_agents/scenes/simulation/controllers/*`, `addons/local_agents/examples/WorldGenVoxelDemo.*`, shader assets
+Scope: `addons/local_agents/gdextensions/localagents/*`, `addons/local_agents/simulation/*`, `addons/local_agents/tests/*native*`, `addons/local_agents/scenes/simulation/controllers/*`
 
-Implemented (feature inventory):
-- [x] Voxel terrain generation uses deterministic 3D noise and block-layer materialization (`voxel_world.columns`, `voxel_world.block_rows`).
-- [x] Generated terrain includes multiple soil/resource block categories and per-column top RGBA data for physically-based solar absorption.
-- [x] Deterministic flow-map bake and hydrology consumption are unified through `flow_map.rows`.
-- [x] Weather, erosion, and solar are all snapshot-driven systems with explicit configure/step/current/import contracts.
-- [x] Freeze-thaw erosion and landslide events modify terrain elevation and voxel column surfaces over time.
-- [x] Chunked async terrain rebuild path applies only dirty chunks when erosion updates changed tiles.
-- [x] Environment rendering consumes weather/surface/solar textures in GPU shaders for terrain, water, cloud shadowing, and river flow.
-- [x] World simulation controller path and world-gen demo path both drive weather + solar state into `EnvironmentController`.
-- [x] Demo environment now enables volumetric fog + SDFGI with day/night sun animation for lighting continuity.
+Tracking policy:
+- [x] `ARCHITECTURE_PLAN.md` is the only live status tracker for this workstream.
+- [ ] Keep all new status updates in this section only (no duplicate checklist tracking in other plan docs).
 
-Native integration execution checklist:
-- [ ] Canonical source: execute Concern I against [VOXEL_NATIVE_INTEGRATION_PLAN.md](VOXEL_NATIVE_INTEGRATION_PLAN.md) and keep this concern synchronized when phase scope changes.
-- [ ] Enforce day-one hybrid storage (`dense + sparse`) in native `FieldRegistry` contracts; remove script-side canonical storage for shared simulation fields.
-- [ ] Treat Vulkan compute as required baseline for native simulation compute paths; block feature completion if Vulkan path is missing.
-- [ ] Preserve D3D12 backend compatibility where Godot exposes equivalent compute/render behavior; track compatibility gaps as explicit blockers.
-- [ ] Use epsilon-bounded parity (not bitwise parity) as the deterministic validation contract across CPU/GPU/backend comparisons.
-- [ ] Keep migration order fixed: hydrology + terrain/erosion first, smell/wind + ecology behavior layers second.
-- [ ] Move full simulation ownership into native core; GDScript remains orchestration, configuration, and debug/HUD snapshot consumption only.
-- [ ] Start with a native-defined simulation graph (native-first topology); avoid script-defined graph execution for integrated domains.
-- [x] February 13, 2026: Added deterministic headless-native voxel op contract coverage for operation ordering counters, fallback path selection metadata, and changed-region payload shape (`test_native_voxel_op_contracts.gd`).
-- [ ] Add deterministic native generalized-physics stage contract coverage for mechanics/pressure/thermal/reaction/destruction summary fields and per-domain stage counts.
-- [ ] Add deterministic conservation diagnostics contract coverage ensuring per-stage (`count`, `mass_proxy_delta_sum`, `energy_proxy_delta_sum`) and overall (`stage_count`, `mass_proxy_delta_total`, `energy_proxy_delta_total`) fields are always present.
-- [x] February 13, 2026: Extended deterministic source-contract coverage for remaining generalized physics tranche in `test_native_general_physics_contracts.gd`:
-  - boundary conditions (`open`/`closed`/`reflective`, directional/scalar multipliers)
-  - porous-flow pressure coupling (permeability, dynamic viscosity, porosity, Darcy seepage terms)
-  - shock/impulse attenuation and mechanics/pressure response terms
-  - thermal + reaction phase-change payload terms and latent-energy accounting
-  - destruction friction/contact terms and dissipation payload fields
-- [ ] Remaining gap: move changed-region payloads from dictionary rows (`changed_region`, `changed_regions`) to typed `Resource` contracts before native edit engine exits Phase 2.
-- [ ] Remaining gap: validate native voxel op ordering/fallback contracts against non-stub GPU kernels once compute-stage registration is implemented.
+Physics-server-first integration policy:
+- [ ] Treat Godot `PhysicsServer3D` (Jolt-backed standard runtime) as the required rigid-body/contact/collision backend for this workstream.
+- [ ] Keep custom native physics focused on voxel continuum fields (transport/thermal/reaction/failure), not general rigid-body solving.
+- [ ] Do not start a full custom physics server replacement unless a documented `PhysicsServer3D` blocker is confirmed in this plan.
+- [ ] Publish and maintain a clear ownership matrix:
+- [ ] `PhysicsServer3D` owns broadphase/narrowphase, contact manifolds, constraints, and body integration.
+- [ ] Local native voxel core owns field PDE updates, fracture criteria, and voxel edit emission.
+- [ ] Bridge layer owns deterministic bidirectional coupling between physics-server contacts and voxel source terms.
 
-Phase 1: Native infrastructure and ownership boundaries
-- [ ] Add native `sim/` scaffolding for `FieldRegistry`, `Scheduler`, `ComputeManager`, and graph runtime registration in `addons/local_agents/gdextensions/localagents/`.
-- [ ] Introduce script-facing runtime facade/adapters that delegate field access, cadence/locality scheduling, and dispatch lifecycle to native services.
-- [ ] Migrate shared environment state contracts to typed resources/handles where still dictionary-backed in active paths.
-- [ ] Wire capability checks and actionable fail-fast errors for required native runtime dependencies (no compatibility shim paths).
-- [ ] Add Phase 1 parity gates for existing smell/wind/terrain deterministic tests and keep behavior equivalent within epsilon tolerances.
+Current state baseline (completed):
+- [x] Native stage scaffold exists for `mechanics`, `pressure`, `thermal`, `reaction`, `destruction`.
+- [x] Canonical physics input normalization exists in bridge payloads (pressure/temperature/density/velocity/stress-strain and related channels).
+- [x] Pressure-dependent reaction/combustion gating exists.
+- [x] Deterministic source-contract tests exist for stage presence and core contract equations.
+- [x] Voxel edit pipeline exists with adaptive/foveated knobs and CPU fallback metadata.
+- [x] February 13, 2026: Added deterministic native voxel-op ordering/fallback/changed-region contract coverage (`test_native_voxel_op_contracts.gd`).
+- [x] February 13, 2026: Extended deterministic generalized-physics contract coverage for boundary/porous/shock/phase/friction payload terms (`test_native_general_physics_contracts.gd`).
 
-Phase 2: Hydrology + terrain/environment core migration first
-- [ ] Port hydrology, erosion/destruction, weather, and solar heavy update loops to native kernels/graph stages.
-- [ ] Add native combustion/reaction stage with pressure + temperature + fuel + oxygen gating and couple resulting heat/damage budgets into unified terrain destruction ops.
-- [ ] Route terrain/environment spatial query hotspots through native query services and remove duplicate script-side scan caches.
-- [ ] Prioritize GPU residency and shared buffer/pipeline ownership in native compute manager for these domains.
-- [ ] Enforce canonical physics channel set in native field contracts: pressure, temperature, density, velocity, moisture, porosity, cohesion, hardness, phase, stress/strain, fuel, oxygen.
-- [ ] Add integrated fixed-seed N-tick replay coverage for weather + hydrology + erosion + solar equivalence.
-- [ ] Add deterministic unified material-flow parity gate with epsilon contract (`<= 1e-4`) for CPU/native snapshot comparisons.
-- [ ] Add deterministic foveated throttling gate validating monotonic throttle scalars (`op_stride`, `voxel_scale`, `compute_budget_scale`) under far-camera/high-uniformity views.
-- [ ] Add deterministic gate that fails Phase 2 completion if any generalized physics domain (`mechanics`, `pressure`, `thermal`, `reaction`, `destruction`) is missing from pipeline output summary contracts.
-- [ ] Add deterministic gate that fails Phase 2 completion if conservation diagnostics omit per-stage or overall aggregate proxy totals.
-- [ ] Add deterministic gate that fails Phase 2 completion if boundary-condition contracts (`open`/`closed`/`reflective`) or boundary multipliers are missing from stage payloads.
-- [ ] Add deterministic gate that fails Phase 2 completion if porous-flow terms (`permeability`, `dynamic_viscosity`, `porosity`, Darcy seepage outputs) are missing from pressure stage contracts.
-- [ ] Add deterministic gate that fails Phase 2 completion if shock/impulse terms (`shock_impulse`, `shock_distance`, attenuation, mechanics/pressure outputs) are missing from generalized stage contracts.
-- [ ] Add deterministic gate that fails Phase 2 completion if phase-change terms/payloads are missing from thermal/reaction stage contracts.
-- [ ] Add deterministic gate that fails Phase 2 completion if friction/contact terms (`normal_force`, `contact_velocity`, static/dynamic friction, dissipation outputs) are missing from destruction stage contracts.
-- [ ] Exit Phase 2 only when script layers for these systems are adapter-only and no longer own numeric loops.
+### Wave A: Field Model + Conservative Core Solvers
 
-Phase 3: Smell/wind and ecology signal migration
-- [ ] Convert `SmellFieldSystem.gd` and `WindFieldSystem.gd` into thin adapters over native execution stages.
-- [ ] Move smell/wind locality gating and cadence orchestration into native scheduler/graph stages.
-- [ ] Port strongest-signal, nearest-resource/danger, and top-k radius queries to native query APIs for ecology callers.
-- [ ] Add targeted parity tests for smell/wind field evolution and native query results under fixed seeds.
-- [ ] Exit Phase 3 only when smell/wind/ecology signal execution is native-owned and script logic is declarative orchestration.
+Data model and state layer:
+- [ ] Move hot-path simulation from per-step scalar dictionaries to typed native field handles.
+- [ ] Add canonical native field registry schema for:
+- [ ] `mass_density`, `momentum_x/y/z`, `pressure`, `temperature`, `internal_energy`.
+- [ ] `phase_fraction_solid/liquid/gas`, `porosity`, `permeability`.
+- [ ] `cohesion`, `friction_static`, `friction_dynamic`, `yield_strength`, `damage`.
+- [ ] `fuel`, `oxidizer`, `reaction_progress`, `latent_energy_reservoir`.
+- [ ] Add strict units/range metadata and runtime validation for field channels.
+- [ ] Add SoA layout metadata + sparse chunk indexing + deterministic chunk ordering.
+- [ ] Replace dictionary snapshots for hot paths with typed native handles.
+- [x] February 13, 2026: Defined bridge-canonical physics contact coupling fields (`contact_impulse`, `contact_normal`, `contact_point`, `body_velocity`, `body_id`, `rigid_obstacle_mask`).
 
-Phase 4: Remove duplicate script logic and lock native-first flow
-- [ ] Delete or reduce obsolete duplicated logic in `addons/local_agents/simulation/*ComputeBackend.gd`.
-- [ ] Remove legacy cadence/voxel gating duplication from `EnvironmentTickScheduler.gd` and `VoxelProcessGateController.gd` after native scheduler takeover.
-- [ ] Remove remaining transitional code paths that duplicate native execution in script systems.
-- [ ] Update docs/tests to reflect native-first graph ownership and required Vulkan baseline with D3D12 compatibility note.
-- [ ] Record completed migration and any breaking contract changes in this section and keep unchecked items for remaining work only.
+Mechanics / pressure / thermal evolution:
+- [ ] Add finite-volume-style multi-cell coupling for mechanics momentum updates.
+- [ ] Add conservative neighbor flux computation between adjacent cells.
+- [ ] Add continuity updates with conservative density/mass flux accounting.
+- [ ] Couple pressure to density/temperature through explicit EOS profiles.
+- [ ] Replace single-cell thermal terms with neighbor conduction plus advection coupling.
+- [ ] Add latent heat accounting coupled to phase-fraction transitions and bounds.
+- [ ] Inject physics-server contact impulses and obstacle velocities into mechanics source terms each step.
+- [ ] Feed voxel-derived resistance/fracture feedback into physics-server responses through explicit bridge outputs.
+
+Wave A validation gates:
+- [ ] Add deterministic invariants tests for bounded mass/energy drift per step.
+- [ ] Add stage-coupling tests for `pressure -> mechanics`, `reaction -> thermal`, `damage -> voxel ops`.
+- [ ] Ensure each stage reads/writes native field handles (script layer remains orchestration/visualization only).
+- [x] February 13, 2026: Added deterministic bridge-contract tests for physics-server contact ingestion and voxel response emission payloads.
+- [x] February 13, 2026: Added low-level physics-server contact coupling schema through bridge canonical inputs and normalization (`NativeComputeBridge.gd`), plus deterministic source-contract coverage (`test_native_general_physics_contracts.gd`, `test_native_combustion_pressure_contracts.gd`).
+- [x] February 13, 2026: Added optional physics-contact payload forwarding through environment stage dispatch paths.
+
+### Wave B: Reaction, Failure, Boundaries, and Scheduler Coupling
+
+Reaction and chemistry:
+- [ ] Implement multi-reaction channels with stoichiometry tables and material/phase-dependent kinetics.
+- [ ] Couple oxidizer transport, pressure, and temperature into reaction kinetics.
+- [ ] Couple reaction heat and byproducts back into thermal and mass/composition fields.
+- [ ] Enforce reaction mass/energy budget closure tolerances.
+
+Fracture/failure and destruction coupling:
+- [ ] Replace scalar damage with stress-invariant criteria (Mohr-Coulomb or Drucker-Prager-lite profiles).
+- [ ] Add plastic compaction and brittle fracture branches via material profiles (data-driven, no code forks).
+- [ ] Couple damage to porosity/permeability evolution.
+- [ ] Emit voxel edit operations from physically derived failure fields.
+
+Boundary and scheduling correctness:
+- [ ] Implement face-stencil boundary behavior (`open`, `inflow/outflow`, `reflective`, `no-slip`, `no-penetration`).
+- [ ] Add moving-obstacle boundary handling and deterministic chunk-edge boundary tests.
+- [ ] Move foveated/LOD scheduling fully native with conservative coarse/fine transitions and starvation guards.
+- [ ] Route dynamic obstacle boundaries from `PhysicsServer3D` body transforms/velocities rather than parallel custom obstacle solvers.
+
+Wave B validation gates:
+- [ ] Add deterministic regression scenarios (impact, flood, fire, cooling, collapse, mixed-material transitions).
+- [ ] Add deterministic boundary consistency checks across chunk edges and active-region transitions.
+- [ ] Require coherent repeated-load terrain response without numerical explosion.
+
+### Wave C: GPU-First Runtime + Query Migration + CI Gates
+
+GPU-first implementation:
+- [ ] Implement compute kernels for all hot stages and keep core fields resident on GPU.
+- [ ] Add ping-pong buffers, barrier/fence correctness, and sparse active-region dispatch.
+- [ ] Add backend capability gating and mobile quality tiers.
+- [ ] Keep CPU fallback behaviorally aligned to epsilon contracts.
+- [ ] Keep physics-server sync/readback deltas minimal and bounded (no full-scene per-frame bridge copies).
+
+Query/gameplay integration:
+- [ ] Expose native query APIs for pressure gradients, heat fronts, failure/ignition risk, flow direction, and top-k hazards/resources.
+- [ ] Migrate gameplay/AI consumers to native query services.
+- [ ] Keep script ownership to orchestration/UI only.
+- [ ] Expose unified query surfaces that combine voxel risk fields with physics-server collision/contact state.
+
+CI confidence and production gates:
+- [ ] Add GPU-vs-CPU epsilon parity suites and backend matrix coverage.
+- [ ] Add performance gates (`ms/stage`, bandwidth, active-cell throughput).
+- [ ] Gate completion on contracts + invariants + parity + perf checks passing in CI.
+- [ ] Add physics-server-coupled regression scenarios (impact-settling, pile collapse, fracture under repeated contacts) with deterministic replay checks.
+- [ ] Add gate that fails completion if rigid-body/contact logic diverges into a custom physics-server path without explicit approved blocker entry.
+
+### Cross-Cutting Refactor Commitments
+
+- [ ] Migrate remaining large numeric `.gd` loops to native by responsibility (orchestration, domain, render adapters, input, HUD).
+- [ ] Keep files under 600-line CI limit while splitting by responsibility.
+- [ ] Remove transitional compatibility aliases and duplicate execution paths after extraction.
+- [ ] Record all breaking schema/API changes in this section with date stamps.
 
 Test/runtime optimization follow-up:
 - [x] Add fast harness mode (`--fast`) and explicit core/runtime test filtering for local iteration.
