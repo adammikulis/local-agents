@@ -700,18 +700,18 @@ Test slice:
 - [ ] Create branch at fixed tick, diverge decisions, confirm deterministic diffs (Sections 9, 12.1).
 
 ### 15.8 Phase 7: `llama.cpp-server` Production Hardening
-- [ ] Finalize server lifecycle, pinning, profiles, and request contracts (Sections 17.1-17.3).
-- [ ] Enforce context budgets, pruning, KV/cache isolation, and evidence trace persistence (Sections 17.4-17.9).
-- [ ] Add and enforce runtime-heavy CI checks for dependency/empty-generation/isolation failures (Sections 12.5, 17.10).
+- [x] Finalize server lifecycle, pinning, profiles, and request contracts (Sections 17.1-17.3).
+- [x] Enforce context budgets, pruning, KV/cache isolation, and evidence trace persistence (Sections 17.4-17.9).
+- [x] Add and enforce runtime-heavy CI checks for dependency/empty-generation/isolation failures (Sections 12.5, 17.10).
 Test slice:
-- [ ] Parallel cognition runs complete without KV bleed; evidence traces are stored and replay-auditable.
+- [x] Parallel cognition runs complete without KV bleed; evidence traces are stored and replay-auditable.
 
 ### 15.9 Phase 8: Demo-Ready Vertical Slice
 - [ ] Complete minimal HUD/inspector workflows and debug overlays (Sections 10, 13.6).
-- [ ] Verify done criteria across a 30-day seeded run (Section 1.3).
+- [x] Verify done criteria across a 30-day seeded run (Section 1.3).
 - [ ] Final docs pass: schema table, graph field table, playbook keys aligned to implementation (Section 14).
 Test slice:
-- [ ] End-to-end run: generate world, seed settlement, survive/grow, show culture effects, fork timeline, inspect graph evidence.
+- [x] End-to-end run: generate world, seed settlement, survive/grow, show culture effects, fork timeline, inspect graph evidence.
 
 ## 16) Non-Negotiable Defaults
 
@@ -724,82 +724,82 @@ Test slice:
 ## 17) LLM Runtime + Graph Recall Contract
 
 ### 17.1 Runtime Mode Decision
-- [ ] Primary inference backend for the vertical slice is `llama.cpp-server` (not ad-hoc mixed modes).
-- [ ] `AgentRuntime` calls are treated as orchestration wrappers around server-backed inference, not a separate fallback behavior.
-- [ ] Server lifecycle manager is defined (start, health-check, restart, shutdown) with explicit errors surfaced to simulation/UI.
+- [x] Primary inference backend for the vertical slice is `llama.cpp-server` (not ad-hoc mixed modes).
+- [x] `AgentRuntime` calls are treated as orchestration wrappers around server-backed inference, not a separate fallback behavior.
+- [x] Server lifecycle manager is defined (start, health-check, restart, shutdown) with explicit errors surfaced to simulation/UI.
 
 ### 17.2 Version and Capability Pinning
 - [ ] Pin exact `llama.cpp` server revision/build in scripts and docs.
-- [ ] Record enabled capabilities used by this project (parallel requests, speculative decoding, batching).
-- [ ] Add runtime startup report including version, flags, context size, and thread/gpu settings.
+- [x] Record enabled capabilities used by this project (parallel requests, speculative decoding, batching).
+- [x] Add runtime startup report including version, flags, context size, and thread/gpu settings.
 
 ### 17.3 Deterministic Request Contract
-- [ ] Every request includes deterministic fields:
-- [ ] `seed`
-- [ ] `temperature`
-- [ ] `top_p`
-- [ ] `max_tokens`
-- [ ] `stop`
-- [ ] `reset_context`
-- [ ] `cache_prompt`
-- [ ] Define per-task generation profiles:
-- [ ] narrator direction
-- [ ] internal thought
-- [ ] dialogue exchange
-- [ ] dream generation
-- [ ] oral transmission utterance
-- [ ] Keep profile constants in versioned config resources, not scattered literals.
+- [x] Every request includes deterministic fields:
+- [x] `seed`
+- [x] `temperature`
+- [x] `top_p`
+- [x] `max_tokens`
+- [x] `stop`
+- [x] `reset_context`
+- [x] `cache_prompt`
+- [x] Define per-task generation profiles:
+- [x] narrator direction
+- [x] internal thought
+- [x] dialogue exchange
+- [x] dream generation
+- [x] oral transmission utterance
+- [x] Keep profile constants in versioned config resources, not scattered literals.
 
 ### 17.4 Graph Recall Pipeline (Exact Order)
-- [ ] Define fixed retrieval order per generation task:
-- [ ] 1) villager state/resource snapshot
-- [ ] 2) high-salience waking memories
-- [ ] 3) dream memories (explicitly labeled uncertain)
-- [ ] 4) beliefs
-- [ ] 5) belief-truth conflicts
-- [ ] 6) role/household/economic context
-- [ ] 7) oral knowledge and ritual/taboo context (when implemented)
-- [ ] Retrieval merge/sort is deterministic (stable key ordering + explicit scoring).
-- [ ] Context assembler emits canonical JSON shape with schema version.
+- [x] Define fixed retrieval order per generation task:
+- [x] 1) villager state/resource snapshot
+- [x] 2) high-salience waking memories
+- [x] 3) dream memories (explicitly labeled uncertain)
+- [x] 4) beliefs
+- [x] 5) belief-truth conflicts
+- [x] 6) role/household/economic context
+- [x] 7) oral knowledge and ritual/taboo context (when implemented)
+- [x] Retrieval merge/sort is deterministic (stable key ordering + explicit scoring).
+- [x] Context assembler emits canonical JSON shape with schema version.
 
 ### 17.5 Token Budget and Context Pruning
-- [ ] Set hard token budgets per context section (state, memories, beliefs, conflicts, culture).
-- [ ] Use deterministic truncation rules (importance then recency then id order).
-- [ ] Reject oversize payloads with explicit errors; do not silently mutate contract behavior.
+- [x] Set hard token budgets per context section (state, memories, beliefs, conflicts, culture).
+- [x] Use deterministic truncation rules (importance then recency then id order).
+- [x] Reject oversize payloads with explicit errors; do not silently mutate contract behavior.
 
 ### 17.6 KV/Cache Isolation and Parallel Safety
-- [ ] Enforce per-request/per-NPC context isolation for internal thought/dialogue/dream generation.
-- [ ] No bleed-over of conversational KV cache between NPCs.
+- [x] Enforce per-request/per-NPC context isolation for internal thought/dialogue/dream generation.
+- [x] No bleed-over of conversational KV cache between NPCs.
 - [ ] If server session reuse is used, session affinity policy is explicit and deterministic.
-- [ ] `reset_context` default is task-specific and documented.
-- [ ] Prompt-cache reuse is opt-in per task and disabled where contamination risk exists.
+- [x] `reset_context` default is task-specific and documented.
+- [x] Prompt-cache reuse is opt-in per task and disabled where contamination risk exists.
 
 ### 17.7 Scheduling and Throughput
 - [ ] Define deterministic generation scheduler:
-- [ ] stable NPC ordering
-- [ ] stable dialogue pairing order
-- [ ] bounded generations per tick
+- [x] stable NPC ordering
+- [x] stable dialogue pairing order
+- [x] bounded generations per tick
 - [ ] deferred queue policy for overflow
 - [ ] Document speculative decoding usage constraints and expected behavior under load.
 
 ### 17.8 Failure Policy (Fail-Fast)
-- [ ] On server unavailable/timeout/model-not-loaded, simulation emits explicit dependency errors and halts affected phase.
-- [ ] No fallback to synthetic/local stub outputs for required cognition features.
-- [ ] Retry behavior is bounded and deterministic (fixed retry count/backoff policy).
+- [x] On server unavailable/timeout/model-not-loaded, simulation emits explicit dependency errors and halts affected phase.
+- [x] No fallback to synthetic/local stub outputs for required cognition features.
+- [x] Retry behavior is bounded and deterministic (fixed retry count/backoff policy).
 
 ### 17.9 Evidence Trace and Auditability
-- [ ] Persist generation evidence trace for each LLM output:
-- [ ] query keys used
-- [ ] referenced graph node ids/claim ids
-- [ ] prompt profile id
-- [ ] seed and sampler params
-- [ ] Store trace in graph/event logs for replay debugging.
+- [x] Persist generation evidence trace for each LLM output:
+- [x] query keys used
+- [x] referenced graph node ids/claim ids
+- [x] prompt profile id
+- [x] seed and sampler params
+- [x] Store trace in graph/event logs for replay debugging.
 
 ### 17.10 LLM/Graph Test Requirements
-- [ ] Deterministic replay test for server-backed generation with fixed seed profiles.
-- [ ] KV isolation test: two NPCs generating concurrently must not share context artifacts.
-- [ ] Recall pipeline test: expected sections present in canonical order.
-- [ ] Empty-generation and dependency-error CI guards remain mandatory.
+- [x] Deterministic replay test for server-backed generation with fixed seed profiles.
+- [x] KV isolation test: two NPCs generating concurrently must not share context artifacts.
+- [x] Recall pipeline test: expected sections present in canonical order.
+- [x] Empty-generation and dependency-error CI guards remain mandatory.
 
 ## 18) Local LLM Enrichment Plan (Richer Simulation Experience)
 
