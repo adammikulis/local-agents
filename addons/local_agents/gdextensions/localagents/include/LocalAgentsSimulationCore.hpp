@@ -35,6 +35,8 @@ public:
 
     Dictionary step_simulation(double delta_seconds, int64_t step_index);
     Dictionary step_structure_lifecycle(int64_t step_index);
+    Dictionary execute_environment_stage(const StringName &stage_name, const Dictionary &payload = Dictionary());
+    Dictionary execute_voxel_stage(const StringName &stage_name, const Dictionary &payload = Dictionary());
     Dictionary get_debug_snapshot() const;
 
     void reset();
@@ -48,6 +50,10 @@ private:
     std::unique_ptr<local_agents::simulation::IComputeManager> compute_manager_;
     std::unique_ptr<local_agents::simulation::IQueryService> query_service_;
     std::unique_ptr<local_agents::simulation::ISimProfiler> sim_profiler_;
+    int64_t environment_stage_dispatch_count_ = 0;
+    int64_t voxel_stage_dispatch_count_ = 0;
+    Dictionary environment_stage_counters_;
+    Dictionary voxel_stage_counters_;
 };
 
 } // namespace godot

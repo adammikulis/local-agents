@@ -3,6 +3,7 @@ class_name LocalAgentsSolarExposureSystem
 
 const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
 const SolarComputeBackendScript = preload("res://addons/local_agents/simulation/SolarComputeBackend.gd")
+const CadencePolicyScript = preload("res://addons/local_agents/simulation/CadencePolicy.gd")
 
 var _configured: bool = false
 var _emit_rows: bool = true
@@ -199,8 +200,9 @@ func step(tick: int, delta: float, environment_snapshot: Dictionary, weather_sna
 		var uv_index = 0.0
 		var heat_load = 0.0
 		var plant_growth_factor = 0.0
-		var cadence = _cadence_for_activity(float(_activity_buffer[i]) if i < _activity_buffer.size() else 0.0)
-		var should_step = _should_step_tile(i, tick, cadence)
+		var cadence = CadencePolicyScript.cadence_for_activity(float(_activity_buffer[i]) if i < _activity_buffer.size() else 0.0, _idle_cadence)
+		var step_key = _ordered_tile_ids[i] if i >= 0 and i < _ordered_tile_ids.size() else str(i)
+		var should_step = CadencePolicyScript.should_step_with_key(step_key, tick, cadence, _seed)
 		var local_delta = delta * float(cadence) if should_step else 0.0
 		if use_compute and i < packed_sunlight.size():
 			insolation = clampf(float(packed_sunlight[i]), 0.0, 1.0)
@@ -587,14 +589,3 @@ func _write_activity_buffer(local_activity: Dictionary) -> void:
 		var tile_id = _ordered_tile_ids[i]
 		if local_activity.has(tile_id):
 			_activity_buffer[i] = clampf(float(local_activity.get(tile_id, 0.0)), 0.0, 1.0)
-
-func _cadence_for_activity(activity: float) -> int:
-	var a = clampf(activity, 0.0, 1.0)
-	return clampi(int(round(lerpf(float(_idle_cadence), 1.0, a))), 1, maxi(1, _idle_cadence))
-
-func _should_step_tile(index: int, tick: int, cadence: int) -> bool:
-	if cadence <= 1:
-		return true
-	var tile_id = _ordered_tile_ids[index] if index >= 0 and index < _ordered_tile_ids.size() else str(index)
-	var phase = abs(int(hash("%s|%d" % [tile_id, _seed]))) % cadence
-	return (tick + phase) % cadence == 0

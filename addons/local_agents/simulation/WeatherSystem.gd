@@ -3,6 +3,7 @@ class_name LocalAgentsWeatherSystem
 
 const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
 const WeatherComputeBackendScript = preload("res://addons/local_agents/simulation/WeatherComputeBackend.gd")
+const CadencePolicyScript = preload("res://addons/local_agents/simulation/CadencePolicy.gd")
 
 var _width: int = 0
 var _height: int = 0
@@ -277,8 +278,8 @@ func step(tick: int, delta: float, local_activity: Dictionary = {}) -> Dictionar
 	for y in range(_height):
 		for x in range(_width):
 			var idx = _i(x, y)
-			var cadence = _cadence_for_activity(float(_activity[idx]))
-			if cadence > 1 and not _should_step_index(idx, tick, cadence):
+			var cadence = CadencePolicyScript.cadence_for_activity(float(_activity[idx]), _idle_cadence)
+			if cadence > 1 and not CadencePolicyScript.should_step_with_key(str(idx), tick, cadence, _seed):
 				next_cloud[idx] = _cloud[idx]
 				next_humidity[idx] = _humidity[idx]
 				next_rain[idx] = _rain[idx]
@@ -538,13 +539,3 @@ func _write_activity_buffer(local_activity: Dictionary) -> void:
 		if x < 0 or x >= _width or y < 0 or y >= _height:
 			continue
 		_activity[_i(x, y)] = clampf(float(local_activity.get(tile_id, 0.0)), 0.0, 1.0)
-
-func _cadence_for_activity(activity: float) -> int:
-	var a = clampf(activity, 0.0, 1.0)
-	return clampi(int(round(lerpf(float(_idle_cadence), 1.0, a))), 1, maxi(1, _idle_cadence))
-
-func _should_step_index(idx: int, tick: int, cadence: int) -> bool:
-	if cadence <= 1:
-		return true
-	var phase = abs(int(hash("%d|%d" % [idx, _seed]))) % cadence
-	return (tick + phase) % cadence == 0

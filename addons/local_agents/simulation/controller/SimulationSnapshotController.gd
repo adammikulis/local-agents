@@ -16,12 +16,61 @@ static func get_solar_snapshot(controller) -> Dictionary:
 	return controller._solar_snapshot.duplicate(true)
 
 static func runtime_backend_metrics(controller) -> Dictionary:
-	return {
+	var metrics := {
 		"hydrology_compute": bool(controller._hydrology_system != null and controller._hydrology_system.has_method("is_compute_active") and controller._hydrology_system.is_compute_active()),
 		"weather_compute": bool(controller._weather_system != null and controller._weather_system.has_method("is_compute_active") and controller._weather_system.is_compute_active()),
 		"erosion_compute": bool(controller._erosion_system != null and controller._erosion_system.has_method("is_compute_active") and controller._erosion_system.is_compute_active()),
 		"solar_compute": bool(controller._solar_system != null and controller._solar_system.has_method("is_compute_active") and controller._solar_system.is_compute_active()),
 	}
+	var native_metrics := _native_sim_core_runtime_metrics()
+	if not native_metrics.is_empty():
+		metrics["native_sim_core"] = native_metrics
+	return metrics
+
+static func _native_sim_core_runtime_metrics() -> Dictionary:
+	if OS.get_environment("LOCAL_AGENTS_ENABLE_NATIVE_SIM_CORE").strip_edges() != "1":
+		return {}
+	var core = _native_sim_core_singleton()
+	var metrics: Dictionary = {
+		"enabled": true,
+		"available": bool(core != null),
+	}
+	if core == null:
+		metrics["error"] = "core_unavailable"
+		return metrics
+	if not core.has_method("get_debug_snapshot"):
+		metrics["error"] = "core_missing_method_get_debug_snapshot"
+		return metrics
+	var snapshot_variant = core.call("get_debug_snapshot")
+	if not (snapshot_variant is Dictionary):
+		metrics["error"] = "core_snapshot_invalid_response"
+		return metrics
+	var snapshot: Dictionary = snapshot_variant
+	metrics["ok"] = bool(snapshot.get("ok", false))
+	if not bool(metrics.get("ok", false)):
+		metrics["error"] = String(snapshot.get("error", "core_snapshot_failed"))
+		return metrics
+	var field_registry = _dictionary_or_empty(snapshot.get("field_registry", {}))
+	var scheduler = _dictionary_or_empty(snapshot.get("scheduler", {}))
+	var compute_manager = _dictionary_or_empty(snapshot.get("compute_manager", {}))
+	var sim_profiler = _dictionary_or_empty(snapshot.get("sim_profiler", {}))
+	metrics["field_count"] = int(field_registry.get("field_count", 0))
+	metrics["scheduler_system_count"] = int(scheduler.get("system_count", 0))
+	metrics["compute_executed_steps"] = int(compute_manager.get("executed_steps", 0))
+	metrics["total_steps"] = int(sim_profiler.get("total_steps", 0))
+	metrics["last_step_index"] = int(sim_profiler.get("last_step_index", -1))
+	metrics["last_delta_seconds"] = float(sim_profiler.get("last_delta_seconds", 0.0))
+	return metrics
+
+static func _native_sim_core_singleton():
+	if not Engine.has_singleton("LocalAgentsSimulationCore"):
+		return null
+	return Engine.get_singleton("LocalAgentsSimulationCore")
+
+static func _dictionary_or_empty(value) -> Dictionary:
+	if value is Dictionary:
+		return value
+	return {}
 
 static func build_environment_signal_snapshot(controller, tick: int = -1):
 	var snapshot_resource = controller.EnvironmentSignalSnapshotResourceScript.new()

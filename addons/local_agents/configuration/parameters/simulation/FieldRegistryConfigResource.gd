@@ -8,7 +8,7 @@ const FieldChannelConfigResourceScript = preload("res://addons/local_agents/conf
 @export var map_width: int = 24
 @export var map_height: int = 24
 @export var voxel_world_height: int = 36
-@export var channels: Array[LocalAgentsFieldChannelConfigResource] = []
+@export var channels: Array[Resource] = []
 
 func ensure_defaults() -> void:
 	if not channels.is_empty():
@@ -52,7 +52,7 @@ func from_dict(values: Dictionary) -> void:
 		for row_variant in channel_rows_variant:
 			if row_variant == null:
 				continue
-			if row_variant is LocalAgentsFieldChannelConfigResource:
+			if row_variant is Resource and row_variant.get_script() == FieldChannelConfigResourceScript:
 				channels.append(row_variant)
 				continue
 			if row_variant is Dictionary:
@@ -61,7 +61,7 @@ func from_dict(values: Dictionary) -> void:
 				channels.append(row)
 	ensure_defaults()
 
-func _make_channel(channel_id_value: String) -> LocalAgentsFieldChannelConfigResource:
+func _make_channel(channel_id_value: String) -> Resource:
 	var channel := FieldChannelConfigResourceScript.new()
 	channel.channel_id = channel_id_value
 	return channel

@@ -107,6 +107,7 @@ var _culture_driver_events: Array = []
 var _cultural_policy: Dictionary = {}
 var _culture_context_cues: Dictionary = {}
 var _last_tick_processed: int = 0
+var _last_tick_profile: Dictionary = {}
 var _initialized: bool = false
 var _cognition_contract_config
 var _llama_server_options: Dictionary = {
@@ -157,6 +158,7 @@ func _ready() -> void:
     _ensure_initialized()
 func _ensure_initialized() -> void:
     SimulationControllerCoreLoopHelpersScript.ensure_initialized(self)
+    SimulationRuntimeFacadeScript.ensure_native_sim_core_initialized(self)
 func configure(seed_text: String, narrator_enabled: bool = true, dream_llm_enabled: bool = true) -> void:
     SimulationConfigControllerScript.configure(self, seed_text, narrator_enabled, dream_llm_enabled)
 func _store_path_for_instance() -> String:

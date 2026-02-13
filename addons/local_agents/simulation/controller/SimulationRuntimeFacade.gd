@@ -1,14 +1,25 @@
 extends RefCounted
 
 const FieldRegistryConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FieldRegistryConfigResource.gd")
+const NativeComputeBridgeScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
+static var _native_field_registry_session_configured: bool = false
+
+static func ensure_native_sim_core_initialized(controller, tick: int = -1) -> bool:
+	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
+		return true
+	if _native_field_registry_session_configured:
+		return true
+	if not apply_native_field_registry_config(controller, null, tick):
+		return false
+	_native_field_registry_session_configured = true
+	return true
 
 static func generation_cap(controller, task: String, fallback: int) -> int:
 	var key = "max_generations_per_tick_%s" % task
 	return maxi(1, int(controller._llama_server_options.get(key, fallback)))
 
 static func apply_native_field_registry_config(controller, config_resource, tick: int = -1) -> bool:
-	var core = _simulation_core_singleton()
-	if core == null:
+	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
 		return true
 	var effective_tick = tick
 	if effective_tick < 0:
@@ -21,15 +32,15 @@ static func apply_native_field_registry_config(controller, config_resource, tick
 	if not normalized.has_method("to_dict"):
 		return controller._emit_dependency_error(effective_tick, "native_field_registry", "invalid_config_resource")
 	var payload: Dictionary = normalized.call("to_dict")
-	var result = _call_required_core_method(
+	var dispatch = NativeComputeBridgeScript.dispatch_stage_call(
 		controller,
 		effective_tick,
 		"native_field_registry",
-		core,
 		"configure_field_registry",
-		[payload]
+		[payload],
+		true
 	)
-	return _required_call_ok(controller, effective_tick, "native_field_registry", "configure_field_registry", result)
+	return bool(dispatch.get("ok", false))
 
 static func enqueue_thought_npcs(controller, npc_ids: Array) -> void:
 	for npc_id_variant in npc_ids:
@@ -143,19 +154,19 @@ static func run_dialogue_cycle(controller, npc_ids: Array, tick: int) -> bool:
 	return true
 
 static func run_structure_lifecycle(controller, tick: int) -> void:
-	var native_core = _simulation_core_singleton()
-	if native_core != null:
-		if not apply_native_field_registry_config(controller, null, tick):
+	if NativeComputeBridgeScript.is_native_sim_core_enabled():
+		if not ensure_native_sim_core_initialized(controller, tick):
 			return
-		var native_result = _call_required_core_method(
+		var dispatch = NativeComputeBridgeScript.dispatch_stage_call(
 			controller,
 			tick,
 			"structure_lifecycle",
-			native_core,
 			"step_structure_lifecycle",
-			[tick]
+			[tick],
+			true
 		)
-		if _required_call_ok(controller, tick, "structure_lifecycle", "step_structure_lifecycle", native_result):
+		if bool(dispatch.get("ok", false)):
+			var native_result = dispatch.get("result", {})
 			if native_result is Dictionary:
 				var native_payload = native_result as Dictionary
 				controller._structure_lifecycle_events = {
@@ -282,39 +293,3 @@ static func persist_llm_trace_event(controller, tick: int, task: String, actor_i
 		scope = "individual"
 		owner_id = String(normalized_referenced[0])
 	controller._log_resource_event(tick, "sim_llm_trace_event", scope, owner_id, payload)
-
-static func _simulation_core_singleton():
-	if OS.get_environment("LOCAL_AGENTS_ENABLE_NATIVE_SIM_CORE").strip_edges() != "1":
-		return null
-	if not Engine.has_singleton("LocalAgentsSimulationCore"):
-		return null
-	return Engine.get_singleton("LocalAgentsSimulationCore")
-
-static func _call_required_core_method(controller, tick: int, phase: String, core, method_name: String, args: Array):
-	if core == null:
-		return {
-			"ok": false,
-			"error": "core_unavailable",
-		}
-	if not core.has_method(method_name):
-		controller._emit_dependency_error(tick, phase, "core_missing_method_%s" % method_name)
-		return {
-			"ok": false,
-			"error": "core_missing_method_%s" % method_name,
-		}
-	return core.callv(method_name, args)
-
-static func _required_call_ok(controller, tick: int, phase: String, method_name: String, result) -> bool:
-	if result is bool:
-		if bool(result):
-			return true
-		return controller._emit_dependency_error(tick, phase, "core_call_failed_%s" % method_name)
-	if result is Dictionary:
-		var payload = result as Dictionary
-		if bool(payload.get("ok", false)):
-			return true
-		var error_code = String(payload.get("error", "core_call_failed_%s" % method_name))
-		return controller._emit_dependency_error(tick, phase, error_code)
-	if result == null:
-		return controller._emit_dependency_error(tick, phase, "core_call_null_%s" % method_name)
-	return controller._emit_dependency_error(tick, phase, "core_call_invalid_response_%s" % method_name)

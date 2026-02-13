@@ -2,6 +2,7 @@ extends RefCounted
 class_name LocalAgentsHydrologySystemHelpers
 
 const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
+const CadencePolicyScript = preload("res://addons/local_agents/simulation/CadencePolicy.gd")
 
 static func next_downhill_tile(tile_id: String, by_id: Dictionary, by_xy: Dictionary) -> String:
 	if not by_id.has(tile_id):
@@ -78,15 +79,10 @@ static func coastal_activity_bonus(tile: Dictionary) -> float:
 	return clampf(shore_band * (0.25 + ocean_bias * 0.55), 0.0, 1.0)
 
 static func cadence_for_activity(activity: float, idle_cadence: int) -> int:
-	var max_cadence = maxi(1, idle_cadence)
-	var a = clampf(activity, 0.0, 1.0)
-	return clampi(int(round(lerpf(float(max_cadence), 1.0, a))), 1, max_cadence)
+	return CadencePolicyScript.cadence_for_activity(activity, idle_cadence)
 
 static func should_step_tile(tile_id: String, tick: int, cadence: int, seed: int) -> bool:
-	if cadence <= 1:
-		return true
-	var phase = abs(int(hash("%s|%d" % [tile_id, seed]))) % cadence
-	return (tick + phase) % cadence == 0
+	return CadencePolicyScript.should_step_with_key(tile_id, tick, cadence, seed)
 
 static func weather_at_tile(
 	tile_id: String,

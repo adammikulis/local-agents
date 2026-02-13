@@ -3,6 +3,7 @@ class_name LocalAgentsErosionSystem
 
 const ErosionComputeBackendScript = preload("res://addons/local_agents/simulation/ErosionComputeBackend.gd")
 const ErosionVoxelWorldHelpersScript = preload("res://addons/local_agents/simulation/erosion/ErosionVoxelWorldHelpers.gd")
+const CadencePolicyScript = preload("res://addons/local_agents/simulation/CadencePolicy.gd")
 
 var _configured: bool = false
 var _emit_rows: bool = true
@@ -259,8 +260,8 @@ func _step_cpu(
 	for tile_id_variant in tile_index.keys():
 		var tile_id = String(tile_id_variant)
 		var activity = _activity_value(local_activity, tile_id)
-		var cadence = _cadence_for_activity(activity)
-		if cadence > 1 and not _should_step_tile(tile_id, tick, cadence):
+		var cadence = CadencePolicyScript.cadence_for_activity(activity, _idle_cadence)
+		if cadence > 1 and not CadencePolicyScript.should_step_with_key(tile_id, tick, cadence, _seed):
 			continue
 		var local_step_scale = step_scale * float(cadence)
 		var tile = tile_index.get(tile_id, {})
@@ -546,13 +547,3 @@ func _activity_value(local_activity: Dictionary, tile_id: String) -> float:
 	if not local_activity.has(tile_id):
 		return 0.0
 	return clampf(float(local_activity.get(tile_id, 0.0)), 0.0, 1.0)
-
-func _cadence_for_activity(activity: float) -> int:
-	var a = clampf(activity, 0.0, 1.0)
-	return clampi(int(round(lerpf(float(_idle_cadence), 1.0, a))), 1, maxi(1, _idle_cadence))
-
-func _should_step_tile(tile_id: String, tick: int, cadence: int) -> bool:
-	if cadence <= 1:
-		return true
-	var phase = abs(int(hash("%s|%d" % [tile_id, _seed]))) % cadence
-	return (tick + phase) % cadence == 0

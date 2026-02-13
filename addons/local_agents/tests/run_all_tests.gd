@@ -8,6 +8,7 @@ const CORE_TESTS := TestLaneRegistry.DETERMINISTIC_TESTS
 const FAST_CORE_TESTS := [
     "res://addons/local_agents/tests/test_smoke_agent.gd",
     "res://addons/local_agents/tests/test_agent_utilities.gd",
+    "res://addons/local_agents/tests/test_field_registry_config_resource.gd",
     "res://addons/local_agents/tests/test_simulation_worldgen_determinism.gd",
     "res://addons/local_agents/tests/test_simulation_flowmap_bake.gd",
     "res://addons/local_agents/tests/test_simulation_erosion_delta_tiles.gd",
