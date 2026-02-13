@@ -17,8 +17,10 @@ const FAST_RUNTIME_TESTS := [
 const HEAVY_RUNTIME_TEST := "res://addons/local_agents/tests/test_agent_runtime_heavy.gd"
 
 const TestModelHelper := preload("res://addons/local_agents/tests/test_model_helper.gd")
+const DEFAULT_TIMEOUT_SECONDS := 120
+const GPU_MOBILE_TIMEOUT_SECONDS := 180
 
-var _timeout_seconds: int = 420
+var _timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
 var _poll_interval_seconds: float = 0.25
 var _failures: Array[String] = []
 var _selected_tests: Array[String] = []
@@ -141,7 +143,9 @@ func _timeout_from_args() -> int:
 	for arg in _all_cmdline_args():
 		if arg.begins_with("--timeout-sec="):
 			return maxi(30, int(arg.trim_prefix("--timeout-sec=")))
-	return 180 if _fast_mode else 420
+	if _gpu_enabled:
+		return GPU_MOBILE_TIMEOUT_SECONDS
+	return DEFAULT_TIMEOUT_SECONDS
 
 func _workers_from_args() -> int:
 	for arg in _all_cmdline_args():
@@ -154,7 +158,7 @@ func _timeout_for_test(script_path: String) -> int:
 	if not _fast_mode:
 		return timeout
 	if script_path == HEAVY_RUNTIME_TEST:
-		return maxi(timeout, 300)
+		return timeout
 	return timeout
 
 func _has_flag(flag: String) -> bool:

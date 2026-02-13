@@ -156,18 +156,28 @@ godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd --fas
 Bounded runtime-heavy harness (each heavy test runs in its own process with per-test timeout):
 
 ```bash
-godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout-sec=420
+godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd
+```
+
+CI timeout policy for deterministic replay/runtime shards:
+- Default shard budget: `120` seconds.
+- GPU/mobile-oriented shard budget: `180` seconds.
+
+Optional explicit GPU/mobile run:
+
+```bash
+godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --use-gpu --timeout-sec=180
 ```
 
 Run a subset with `--tests` (comma-separated, full path or filename):
 
 ```bash
-godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout-sec=420 --tests=test_simulation_villager_cognition.gd,test_agent_runtime_heavy.gd
+godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout-sec=120 --tests=test_simulation_villager_cognition.gd,test_agent_runtime_heavy.gd
 ```
 
 Useful runtime test flags:
 - `--workers=<N>`: run bounded runtime tests in parallel processes.
-- `--fast`: select a reduced runtime-heavy subset and shorter default timeout.
+- `--fast`: select a reduced runtime-heavy subset.
 - `--use-gpu --gpu-layers=<N>`: opt into GPU layer offload for runtime tests.
 - `--context-size=<N> --max-tokens=<N>`: override runtime model load context and token limits in heavy tests.
 

@@ -139,15 +139,43 @@ Implemented (feature inventory):
 - [x] World simulation controller path and world-gen demo path both drive weather + solar state into `EnvironmentController`.
 - [x] Demo environment now enables volumetric fog + SDFGI with day/night sun animation for lighting continuity.
 
-Refactor and deeper integration backlog:
-- [x] Extract shared `EnvironmentSignalSnapshotResource` (weather + erosion + solar + hydrology deltas) to replace ad-hoc dictionary payload passing between simulation, ecology, and rendering controllers.
-- [x] Centralize tile/column indexing helpers into one reusable runtime utility to avoid repeated `"x:y"` key parsing and per-system duplicate loops.
-- [ ] Move CPU weather/erosion update hotspots to GPU compute/viewport pipelines where deterministic replay can be preserved (start with weather advection + cloud transport).
-- [x] Separate `EnvironmentController` responsibilities into focused renderer nodes/services (`TerrainRenderer`, `WaterRenderer`, `CloudRenderer`, `PostFXRenderer`) while preserving current scene contract.
-  - Status: extracted `TerrainRenderer`, `CloudRenderer`, `RiverRenderer`, `PostFXRenderer`, and `WaterSourceRenderer`; `EnvironmentController` now coordinates delegating render components.
-- [ ] Add explicit age-progression resource layers (era-specific biome/resource presets) so world generation is age-agnostic and not implicitly neolithic-scoped.
-- [x] Add schema-versioned snapshot resources for timelapse save/load to replace raw dictionary snapshots and improve migration safety.
-- [x] Add headless integration test that runs weather + erosion + solar for N ticks and validates deterministic terrain chunk delta behavior.
+Native integration execution checklist:
+- [ ] Canonical source: execute Concern I against [VOXEL_NATIVE_INTEGRATION_PLAN.md](VOXEL_NATIVE_INTEGRATION_PLAN.md) and keep this concern synchronized when phase scope changes.
+- [ ] Enforce day-one hybrid storage (`dense + sparse`) in native `FieldRegistry` contracts; remove script-side canonical storage for shared simulation fields.
+- [ ] Treat Vulkan compute as required baseline for native simulation compute paths; block feature completion if Vulkan path is missing.
+- [ ] Preserve D3D12 backend compatibility where Godot exposes equivalent compute/render behavior; track compatibility gaps as explicit blockers.
+- [ ] Use epsilon-bounded parity (not bitwise parity) as the deterministic validation contract across CPU/GPU/backend comparisons.
+- [ ] Keep migration order fixed: hydrology + terrain/erosion first, smell/wind + ecology behavior layers second.
+- [ ] Move full simulation ownership into native core; GDScript remains orchestration, configuration, and debug/HUD snapshot consumption only.
+- [ ] Start with a native-defined simulation graph (native-first topology); avoid script-defined graph execution for integrated domains.
+
+Phase 1: Native infrastructure and ownership boundaries
+- [ ] Add native `sim/` scaffolding for `FieldRegistry`, `Scheduler`, `ComputeManager`, and graph runtime registration in `addons/local_agents/gdextensions/localagents/`.
+- [ ] Introduce script-facing runtime facade/adapters that delegate field access, cadence/locality scheduling, and dispatch lifecycle to native services.
+- [ ] Migrate shared environment state contracts to typed resources/handles where still dictionary-backed in active paths.
+- [ ] Wire capability checks and actionable fail-fast errors for required native runtime dependencies (no compatibility shim paths).
+- [ ] Add Phase 1 parity gates for existing smell/wind/terrain deterministic tests and keep behavior equivalent within epsilon tolerances.
+
+Phase 2: Hydrology + terrain/environment core migration first
+- [ ] Port hydrology, erosion/destruction, weather, and solar heavy update loops to native kernels/graph stages.
+- [ ] Route terrain/environment spatial query hotspots through native query services and remove duplicate script-side scan caches.
+- [ ] Prioritize GPU residency and shared buffer/pipeline ownership in native compute manager for these domains.
+- [ ] Add integrated fixed-seed N-tick replay coverage for weather + hydrology + erosion + solar equivalence.
+- [ ] Exit Phase 2 only when script layers for these systems are adapter-only and no longer own numeric loops.
+
+Phase 3: Smell/wind and ecology signal migration
+- [ ] Convert `SmellFieldSystem.gd` and `WindFieldSystem.gd` into thin adapters over native execution stages.
+- [ ] Move smell/wind locality gating and cadence orchestration into native scheduler/graph stages.
+- [ ] Port strongest-signal, nearest-resource/danger, and top-k radius queries to native query APIs for ecology callers.
+- [ ] Add targeted parity tests for smell/wind field evolution and native query results under fixed seeds.
+- [ ] Exit Phase 3 only when smell/wind/ecology signal execution is native-owned and script logic is declarative orchestration.
+
+Phase 4: Remove duplicate script logic and lock native-first flow
+- [ ] Delete or reduce obsolete duplicated logic in `addons/local_agents/simulation/*ComputeBackend.gd`.
+- [ ] Remove legacy cadence/voxel gating duplication from `EnvironmentTickScheduler.gd` and `VoxelProcessGateController.gd` after native scheduler takeover.
+- [ ] Remove remaining transitional code paths that duplicate native execution in script systems.
+- [ ] Update docs/tests to reflect native-first graph ownership and required Vulkan baseline with D3D12 compatibility note.
+- [ ] Record completed migration and any breaking contract changes in this section and keep unchecked items for remaining work only.
 
 Test/runtime optimization follow-up:
 - [x] Add fast harness mode (`--fast`) and explicit core/runtime test filtering for local iteration.
@@ -155,6 +183,7 @@ Test/runtime optimization follow-up:
 - [x] Add opt-in runtime GPU test mode (`--use-gpu`, `--gpu-layers=N`) while keeping deterministic CPU defaults.
 - [x] Add runtime override knobs for context and max tokens in heavy tests (`--context-size`, `--max-tokens` and env vars).
 - [x] Add voxel CPU-vs-GPU benchmark harness for pipeline comparison (`benchmark_voxel_pipeline.gd`) and document run commands.
+- [x] Standardize deterministic replay CI timeout budgets: `120s` per shard by default, `180s` for GPU/mobile-oriented matrix jobs.
 
 ## Immediate Queue (Ready to Spawn)
 

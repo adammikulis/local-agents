@@ -30,9 +30,15 @@ add_subdirectory(${LLAMA_CPP_DIR} "${CMAKE_BINARY_DIR}/llama.cpp" EXCLUDE_FROM_A
 set(SRC
     src/AgentNode.cpp
     src/AgentRuntime.cpp
+    src/LocalAgentsComputeManager.cpp
+    src/LocalAgentsFieldRegistry.cpp
     src/ModelDownloadManager.cpp
     src/NetworkGraph.cpp
+    src/LocalAgentsQueryService.cpp
     src/LocalAgentsRegister.cpp
+    src/LocalAgentsScheduler.cpp
+    src/LocalAgentsSimProfiler.cpp
+    src/LocalAgentsSimulationCore.cpp
 )
 
 set(SQLITE_SRC

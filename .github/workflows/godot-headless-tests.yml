@@ -160,10 +160,11 @@ jobs:
           ./scripts/fetch_dependencies.sh --skip-models --skip-voices
           ./scripts/build_extension.sh 2>&1 | tee "${GITHUB_WORKSPACE}/logs/runtime-heavy-build.log"
 
-      - name: Run full runtime-heavy harness
+      - name: Run bounded runtime-heavy harness (policy shard budget)
         run: |
           mkdir -p logs
-          godot4 --headless --no-window --path . -s addons/local_agents/tests/run_all_tests.gd --include-heavy \
+          # Harness defaults: 120s per shard; 180s when --use-gpu is enabled.
+          godot4 --headless --no-window --path . -s addons/local_agents/tests/run_runtime_tests_bounded.gd \
             2>&1 | tee logs/runtime-heavy-tests.log
 
       - name: Enforce runtime log health
