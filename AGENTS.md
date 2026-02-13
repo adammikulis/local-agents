@@ -2,14 +2,7 @@
 
 This file defines implementation rules for this repository. Higher sections are intentionally higher priority.
 
-## Current Repo Policy
-
-- There are no downstream consumers to preserve in this repo right now.
-- Prioritize rapid feature improvement and stronger simulation behavior over compatibility.
-- Break APIs freely when it improves architecture or enables required capabilities.
-- Remove old abstractions when replacing systems; avoid compatibility shims and legacy paths.
-
-## Execution Model (Highest Priority)
+## Sub-Agent-First Execution Model (Highest Priority)
 
 - Planning-first, impact-first execution: each wave starts with a concrete target and explicit priority order.
 - The main thread is executive only: planning, user interaction, architecture decisions, sub-agent lifecycle, integration/deconflict, verification, and commit/push flow.
@@ -43,6 +36,13 @@ Lane trigger rule: if a wave touches any domain, spawn the corresponding lane(s)
 - Give validation agents explicit acceptance criteria and test commands before they start.
 - Merge findings as structured pass/fail artifacts with notable failures.
 - Reassign/redeploy immediately if an agent becomes blocked or stale.
+
+## Current Repo Policy
+
+- There are no downstream consumers to preserve in this repo right now.
+- Prioritize rapid feature improvement and stronger simulation behavior over compatibility.
+- Break APIs freely when it improves architecture or enables required capabilities.
+- Remove old abstractions when replacing systems; avoid compatibility shims and legacy paths.
 
 ## File Size and Refactor Discipline
 
