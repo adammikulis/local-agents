@@ -2,6 +2,7 @@
 #define LOCAL_AGENTS_SIMULATION_CORE_HPP
 
 #include <godot_cpp/classes/ref_counted.hpp>
+#include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/string_name.hpp>
 
@@ -42,6 +43,9 @@ public:
     Dictionary apply_voxel_stage(const StringName &stage_name, const Dictionary &payload = Dictionary());
     Dictionary execute_environment_stage(const StringName &stage_name, const Dictionary &payload = Dictionary());
     Dictionary execute_voxel_stage(const StringName &stage_name, const Dictionary &payload = Dictionary());
+    Dictionary ingest_physics_contacts(const Array &contact_rows);
+    void clear_physics_contacts();
+    Dictionary get_physics_contact_snapshot() const;
     Dictionary get_debug_snapshot() const;
 
     void reset();
@@ -60,6 +64,14 @@ private:
     int64_t voxel_stage_dispatch_count_ = 0;
     Dictionary environment_stage_counters_;
     Dictionary voxel_stage_counters_;
+    Array physics_contact_rows_;
+    int64_t physics_contact_capacity_ = 256;
+    int64_t physics_contact_batches_ingested_ = 0;
+    int64_t physics_contact_rows_ingested_total_ = 0;
+    int64_t physics_contact_rows_dropped_total_ = 0;
+    double physics_contact_total_impulse_ = 0.0;
+    double physics_contact_max_impulse_ = 0.0;
+    double physics_contact_total_relative_speed_ = 0.0;
 };
 
 } // namespace godot

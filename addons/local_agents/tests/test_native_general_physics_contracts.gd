@@ -1,7 +1,9 @@
 @tool
 extends RefCounted
 
-const PIPELINE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipeline.cpp"
+const SIM_SOURCE_DIR := "res://addons/local_agents/gdextensions/localagents/src/sim"
+const LEGACY_PIPELINE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipeline.cpp"
+const BRIDGE_GD_PATH := "res://addons/local_agents/simulation/controller/NativeComputeBridge.gd"
 
 func run_test(_tree: SceneTree) -> bool:
 	var ok := true
@@ -9,18 +11,20 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = _test_stage_dispatch_and_summary_contracts_cover_all_domains() and ok
 	ok = _test_stage_results_include_conservation_payload_contract() and ok
 	ok = _test_conservation_diagnostics_fields_contract() and ok
+	ok = _test_optional_field_evolution_summary_keys_contract() and ok
 	ok = _test_core_equation_contracts_present() and ok
 	ok = _test_boundary_condition_contracts_present() and ok
 	ok = _test_porous_flow_contracts_present() and ok
 	ok = _test_phase_change_contracts_present() and ok
 	ok = _test_shock_impulse_contracts_present() and ok
 	ok = _test_friction_contact_contracts_present() and ok
+	ok = _test_bridge_declares_contact_canonical_input_fields() and ok
 	if ok:
 		print("Native generalized physics source contracts passed (stage domains, conservation diagnostics, and generalized physics terms).")
 	return ok
 
 func _test_pipeline_declares_all_generalized_stage_domains() -> bool:
-	var source := _read_source(PIPELINE_CPP_PATH)
+	var source := _read_pipeline_sources()
 	if source == "":
 		return false
 	var ok := true
@@ -32,7 +36,7 @@ func _test_pipeline_declares_all_generalized_stage_domains() -> bool:
 	return ok
 
 func _test_stage_dispatch_and_summary_contracts_cover_all_domains() -> bool:
-	var source := _read_source(PIPELINE_CPP_PATH)
+	var source := _read_pipeline_sources()
 	if source == "":
 		return false
 	var ok := true
@@ -46,11 +50,14 @@ func _test_stage_dispatch_and_summary_contracts_cover_all_domains() -> bool:
 	ok = _assert(source.contains("summary[\"thermal\"] = thermal_results;"), "Summary must include thermal stage results") and ok
 	ok = _assert(source.contains("summary[\"reaction\"] = reaction_results;"), "Summary must include reaction stage results") and ok
 	ok = _assert(source.contains("summary[\"destruction\"] = destruction_results;"), "Summary must include destruction stage results") and ok
-	ok = _assert(source.contains("summary[\"stage_counts\"] = Dictionary::make("), "Summary must include per-domain stage_counts dictionary") and ok
+	ok = _assert(
+		_contains_any(source, ["summary[\"stage_counts\"] = Dictionary::make(", "summary[\"stage_counts\"] = unified_pipeline::make_dictionary("]),
+		"Summary must include per-domain stage_counts dictionary"
+	) and ok
 	return ok
 
 func _test_stage_results_include_conservation_payload_contract() -> bool:
-	var source := _read_source(PIPELINE_CPP_PATH)
+	var source := _read_pipeline_sources()
 	if source == "":
 		return false
 	var ok := true
@@ -59,14 +66,17 @@ func _test_stage_results_include_conservation_payload_contract() -> bool:
 	ok = _assert(source.contains("\"stage_type\", String(\"thermal\")"), "Thermal runner must stamp stage_type") and ok
 	ok = _assert(source.contains("\"stage_type\", String(\"reaction\")"), "Reaction runner must stamp stage_type") and ok
 	ok = _assert(source.contains("\"stage_type\", String(\"destruction\")"), "Destruction runner must stamp stage_type") and ok
-	ok = _assert(source.contains("result[\"conservation\"] = Dictionary::make("), "Each stage runner must emit conservation payload") and ok
+	ok = _assert(
+		_contains_any(source, ["result[\"conservation\"] = Dictionary::make(", "result[\"conservation\"] = unified_pipeline::make_dictionary("]),
+		"Each stage runner must emit conservation payload"
+	) and ok
 	ok = _assert(source.contains("\"mass_proxy_delta\""), "Conservation payload must include mass_proxy_delta") and ok
 	ok = _assert(source.contains("\"energy_proxy_delta\""), "Conservation payload must include energy_proxy_delta") and ok
 	ok = _assert(source.contains("\"energy_proxy_metric\""), "Conservation payload must include energy_proxy_metric") and ok
 	return ok
 
 func _test_conservation_diagnostics_fields_contract() -> bool:
-	var source := _read_source(PIPELINE_CPP_PATH)
+	var source := _read_pipeline_sources()
 	if source == "":
 		return false
 	var ok := true
@@ -86,8 +96,23 @@ func _test_conservation_diagnostics_fields_contract() -> bool:
 	ok = _assert(source.contains("summary[\"conservation_diagnostics\"] = conservation_diagnostics;"), "Summary must publish conservation_diagnostics") and ok
 	return ok
 
+func _test_optional_field_evolution_summary_keys_contract() -> bool:
+	var source := _read_pipeline_sources()
+	if source == "":
+		return false
+
+	var mentions_field_evolution := source.contains("field_mass_drift_proxy") or source.contains("field_energy_drift_proxy") or source.contains("field_cell_count_updated")
+	if not mentions_field_evolution:
+		return true
+
+	var ok := true
+	ok = _assert(_contains_summary_key_contract(source, "field_mass_drift_proxy"), "Field evolution summary must expose field_mass_drift_proxy when field evolution keys are present") and ok
+	ok = _assert(_contains_summary_key_contract(source, "field_energy_drift_proxy"), "Field evolution summary must expose field_energy_drift_proxy when field evolution keys are present") and ok
+	ok = _assert(_contains_summary_key_contract(source, "field_cell_count_updated"), "Field evolution summary must expose field_cell_count_updated when field evolution keys are present") and ok
+	return ok
+
 func _test_core_equation_contracts_present() -> bool:
-	var source := _read_source(PIPELINE_CPP_PATH)
+	var source := _read_pipeline_sources()
 	if source == "":
 		return false
 	var ok := true
@@ -103,7 +128,7 @@ func _test_core_equation_contracts_present() -> bool:
 	return ok
 
 func _test_boundary_condition_contracts_present() -> bool:
-	var source := _read_source(PIPELINE_CPP_PATH)
+	var source := _read_pipeline_sources()
 	if source == "":
 		return false
 	var ok := true
@@ -116,13 +141,22 @@ func _test_boundary_condition_contracts_present() -> bool:
 	return ok
 
 func _test_porous_flow_contracts_present() -> bool:
-	var source := _read_source(PIPELINE_CPP_PATH)
+	var source := _read_pipeline_sources()
 	if source == "":
 		return false
 	var ok := true
-	ok = _assert(source.contains("const double permeability = clamped(stage_config.get(\"permeability\", 0.0), 0.0, 1.0e3, 0.0);"), "Pressure stage must include permeability term for porous flow") and ok
-	ok = _assert(source.contains("const double dynamic_viscosity = clamped(stage_config.get(\"dynamic_viscosity\", 1.0), 1.0e-9, 1.0e9, 1.0);"), "Pressure stage must include dynamic viscosity term for Darcy flow") and ok
-	ok = _assert(source.contains("const double porosity = clamped(stage_config.get(\"porosity\", 0.0), 0.0, 1.0, 0.0);"), "Pressure stage must include porosity term") and ok
+	ok = _assert(
+		_contains_any(source, ["const double permeability = clamped(stage_config.get(\"permeability\", 0.0), 0.0, 1.0e3, 0.0);", "const double permeability = unified_pipeline::clamped(stage_config.get(\"permeability\", 0.0), 0.0, 1.0e3, 0.0);"]),
+		"Pressure stage must include permeability term for porous flow"
+	) and ok
+	ok = _assert(
+		_contains_any(source, ["const double dynamic_viscosity = clamped(stage_config.get(\"dynamic_viscosity\", 1.0), 1.0e-9, 1.0e9, 1.0);", "const double dynamic_viscosity = unified_pipeline::clamped(stage_config.get(\"dynamic_viscosity\", 1.0), 1.0e-9, 1.0e9, 1.0);"]),
+		"Pressure stage must include dynamic viscosity term for Darcy flow"
+	) and ok
+	ok = _assert(
+		_contains_any(source, ["const double porosity = clamped(stage_config.get(\"porosity\", 0.0), 0.0, 1.0, 0.0);", "const double porosity = unified_pipeline::clamped(stage_config.get(\"porosity\", 0.0), 0.0, 1.0, 0.0);"]),
+		"Pressure stage must include porosity term"
+	) and ok
 	ok = _assert(source.contains("const double darcy_velocity = -(permeability / dynamic_viscosity) * pressure_gradient;"), "Pressure stage must include Darcy velocity equation") and ok
 	ok = _assert(source.contains("const double seepage_flux = porosity * darcy_velocity * boundary_dir;"), "Pressure stage must include boundary-coupled seepage flux") and ok
 	ok = _assert(source.contains("const double seepage_density_rate = -density * seepage_flux * seepage_coupling;"), "Pressure stage must include seepage density coupling term") and ok
@@ -131,7 +165,7 @@ func _test_porous_flow_contracts_present() -> bool:
 	return ok
 
 func _test_phase_change_contracts_present() -> bool:
-	var source := _read_source(PIPELINE_CPP_PATH)
+	var source := _read_pipeline_sources()
 	if source == "":
 		return false
 	var ok := true
@@ -139,19 +173,31 @@ func _test_phase_change_contracts_present() -> bool:
 	ok = _assert(source.contains("const double freeze_extent = std::min(liquid_fraction, std::max(0.0, melting_point - temperature) * phase_response * delta_seconds);"), "Thermal stage must include freeze_extent phase-transition term") and ok
 	ok = _assert(source.contains("const double boil_extent = std::min(std::max(0.0, 1.0 - vapor_fraction), std::max(0.0, temperature - boiling_point) * phase_response * delta_seconds);"), "Thermal stage must include boil_extent phase-transition term") and ok
 	ok = _assert(source.contains("const double condense_extent = std::min(vapor_fraction, std::max(0.0, boiling_point - temperature) * phase_response * delta_seconds);"), "Thermal stage must include condense_extent phase-transition term") and ok
-	ok = _assert(source.contains("\"phase_change\", Dictionary::make(\"melt_extent\", melt_extent, \"freeze_extent\", freeze_extent, \"boil_extent\", boil_extent,"), "Thermal stage result must expose phase_change payload") and ok
+	ok = _assert(
+		_contains_any(source, ["\"phase_change\", Dictionary::make(\"melt_extent\", melt_extent, \"freeze_extent\", freeze_extent, \"boil_extent\", boil_extent,", "\"phase_change\", unified_pipeline::make_dictionary(\"melt_extent\", melt_extent, \"freeze_extent\", freeze_extent, \"boil_extent\", boil_extent,"]),
+		"Thermal stage result must expose phase_change payload"
+	) and ok
 	ok = _assert(source.contains("const double phase_change_extent = std::min("), "Reaction stage must compute phase_change_extent") and ok
 	ok = _assert(source.contains("const double phase_change_latent_energy = phase_change_extent * latent_heat_phase_change;"), "Reaction stage must compute phase_change latent energy") and ok
-	ok = _assert(source.contains("\"phase_change\", Dictionary::make(\"phase_change_extent\", phase_change_extent, \"latent_energy_consumed\", phase_change_latent_energy),"), "Reaction stage result must expose phase_change payload") and ok
+	ok = _assert(
+		_contains_any(source, ["\"phase_change\", Dictionary::make(\"phase_change_extent\", phase_change_extent, \"latent_energy_consumed\", phase_change_latent_energy),", "\"phase_change\", unified_pipeline::make_dictionary(\"phase_change_extent\", phase_change_extent, \"latent_energy_consumed\", phase_change_latent_energy),"]),
+		"Reaction stage result must expose phase_change payload"
+	) and ok
 	return ok
 
 func _test_shock_impulse_contracts_present() -> bool:
-	var source := _read_source(PIPELINE_CPP_PATH)
+	var source := _read_pipeline_sources()
 	if source == "":
 		return false
 	var ok := true
-	ok = _assert(source.contains("const double shock_impulse = clamped(frame_inputs.get(\"shock_impulse\", stage_config.get(\"shock_impulse\", 0.0)), -1.0e9, 1.0e9, 0.0);"), "Mechanics/pressure stages must accept shock_impulse inputs") and ok
-	ok = _assert(source.contains("const double shock_distance = clamped(frame_inputs.get(\"shock_distance\", stage_config.get(\"shock_distance\", 0.0)), 0.0, 1.0e9, 0.0);"), "Mechanics/pressure stages must accept shock_distance inputs") and ok
+	ok = _assert(
+		_contains_any(source, ["const double shock_impulse = clamped(frame_inputs.get(\"shock_impulse\", stage_config.get(\"shock_impulse\", 0.0)), -1.0e9, 1.0e9, 0.0);", "const double shock_impulse = unified_pipeline::clamped(frame_inputs.get(\"shock_impulse\", stage_config.get(\"shock_impulse\", 0.0)), -1.0e9, 1.0e9, 0.0);"]),
+		"Mechanics/pressure stages must accept shock_impulse inputs"
+	) and ok
+	ok = _assert(
+		_contains_any(source, ["const double shock_distance = clamped(frame_inputs.get(\"shock_distance\", stage_config.get(\"shock_distance\", 0.0)), 0.0, 1.0e9, 0.0);", "const double shock_distance = unified_pipeline::clamped(frame_inputs.get(\"shock_distance\", stage_config.get(\"shock_distance\", 0.0)), 0.0, 1.0e9, 0.0);"]),
+		"Mechanics/pressure stages must accept shock_distance inputs"
+	) and ok
 	ok = _assert(source.contains("const double shock_decay = std::exp(-shock_attenuation * shock_distance);"), "Shock handling must include exponential attenuation") and ok
 	ok = _assert(source.contains("const double shock_force = shock_impulse_effective / std::max(1.0e-6, delta_seconds);"), "Mechanics stage must convert impulse into force") and ok
 	ok = _assert(source.contains("const double shock_pressure_term = shock_impulse * shock_decay * shock_pressure_gain * boundary_scalar;"), "Pressure stage must include shock pressure coupling term") and ok
@@ -160,24 +206,95 @@ func _test_shock_impulse_contracts_present() -> bool:
 	return ok
 
 func _test_friction_contact_contracts_present() -> bool:
-	var source := _read_source(PIPELINE_CPP_PATH)
+	var source := _read_pipeline_sources()
 	if source == "":
 		return false
 	var ok := true
-	ok = _assert(source.contains("const double normal_force = clamped(frame_inputs.get(\"normal_force\", stage_config.get(\"normal_force\", mass * 9.81)), 0.0, 1.0e12, mass * 9.81);"), "Destruction stage must include normal_force contact term") and ok
-	ok = _assert(source.contains("const double contact_velocity = clamped(frame_inputs.get(\"contact_velocity\", stage_config.get(\"contact_velocity\", 0.0)), -1.0e6, 1.0e6, 0.0);"), "Destruction stage must include contact_velocity term") and ok
-	ok = _assert(source.contains("const double friction_static_mu = clamped(stage_config.get(\"friction_static_mu\", 0.6), 0.0, 10.0, 0.6);"), "Destruction stage must include static friction coefficient") and ok
-	ok = _assert(source.contains("const double friction_dynamic_mu = clamped(stage_config.get(\"friction_dynamic_mu\", 0.4), 0.0, 10.0, 0.4);"), "Destruction stage must include dynamic friction coefficient") and ok
+	ok = _assert(
+		_contains_any(source, ["const double normal_force = clamped(frame_inputs.get(\"normal_force\", stage_config.get(\"normal_force\", mass * 9.81)), 0.0, 1.0e12, mass * 9.81);", "const double normal_force = unified_pipeline::clamped(frame_inputs.get(\"normal_force\", stage_config.get(\"normal_force\", mass * 9.81)), 0.0, 1.0e12, mass * 9.81);"]),
+		"Destruction stage must include normal_force contact term"
+	) and ok
+	ok = _assert(
+		_contains_any(source, ["const double contact_velocity = clamped(frame_inputs.get(\"contact_velocity\", stage_config.get(\"contact_velocity\", 0.0)), -1.0e6, 1.0e6, 0.0);", "const double contact_velocity = unified_pipeline::clamped(frame_inputs.get(\"contact_velocity\", stage_config.get(\"contact_velocity\", 0.0)), -1.0e6, 1.0e6, 0.0);"]),
+		"Destruction stage must include contact_velocity term"
+	) and ok
+	ok = _assert(
+		_contains_any(source, ["const double friction_static_mu = clamped(stage_config.get(\"friction_static_mu\", 0.6), 0.0, 10.0, 0.6);", "const double friction_static_mu = unified_pipeline::clamped(stage_config.get(\"friction_static_mu\", 0.6), 0.0, 10.0, 0.6);"]),
+		"Destruction stage must include static friction coefficient"
+	) and ok
+	ok = _assert(
+		_contains_any(source, ["const double friction_dynamic_mu = clamped(stage_config.get(\"friction_dynamic_mu\", 0.4), 0.0, 10.0, 0.4);", "const double friction_dynamic_mu = unified_pipeline::clamped(stage_config.get(\"friction_dynamic_mu\", 0.4), 0.0, 10.0, 0.4);"]),
+		"Destruction stage must include dynamic friction coefficient"
+	) and ok
 	ok = _assert(source.contains("const bool sliding = std::abs(tangential_load) > static_limit;"), "Destruction stage must compute sliding/contact regime") and ok
 	ok = _assert(source.contains("const double friction_force = sliding"), "Destruction stage must compute friction_force from sliding mode") and ok
 	ok = _assert(source.contains("const double friction_dissipation = std::abs(friction_force * contact_velocity) * delta_seconds;"), "Destruction stage must include friction dissipation energy") and ok
 	ok = _assert(source.contains("\"friction_force\", friction_force, \"friction_dissipation\", friction_dissipation,"), "Destruction result payload must expose friction/contact fields") and ok
 	return ok
 
+func _test_bridge_declares_contact_canonical_input_fields() -> bool:
+	var source := _read_source(BRIDGE_GD_PATH)
+	if source == "":
+		return false
+	var ok := true
+	ok = _assert(source.contains("const _CANONICAL_INPUT_KEYS"), "Bridge must define canonical input keys list") and ok
+	ok = _assert(source.contains("\"contact_impulse\""), "Bridge canonical input keys must include contact_impulse") and ok
+	ok = _assert(source.contains("\"contact_normal\""), "Bridge canonical input keys must include contact_normal") and ok
+	ok = _assert(source.contains("\"contact_point\""), "Bridge canonical input keys must include contact_point") and ok
+	ok = _assert(source.contains("\"body_velocity\""), "Bridge canonical input keys must include body_velocity") and ok
+	ok = _assert(source.contains("\"body_id\""), "Bridge canonical input keys must include body_id") and ok
+	ok = _assert(source.contains("\"rigid_obstacle_mask\""), "Bridge canonical input keys must include rigid_obstacle_mask") and ok
+	return ok
+
 func _assert(condition: bool, message: String) -> bool:
 	if not condition:
 		push_error(message)
 	return condition
+
+func _contains_summary_key_contract(source: String, key: String) -> bool:
+	var direct_key := "summary[\"%s\"]" % key
+	var nested_key := "\"%s\"" % key
+	return source.contains(direct_key) or (source.contains("summary[\"field_evolution\"]") and source.contains(nested_key))
+
+func _contains_any(source: String, needles: Array[String]) -> bool:
+	for needle in needles:
+		if source.contains(needle):
+			return true
+	return false
+
+func _read_pipeline_sources() -> String:
+	var files := _list_sim_source_files()
+	if files.is_empty():
+		return ""
+
+	var combined := PackedStringArray()
+	for path in files:
+		var source := _read_source(path)
+		if source == "":
+			return ""
+		combined.append("// file: %s\n%s" % [path, source])
+	return "\n".join(combined)
+
+func _list_sim_source_files() -> PackedStringArray:
+	var files := PackedStringArray()
+	var sim_dir := DirAccess.open(SIM_SOURCE_DIR)
+	if sim_dir == null:
+		_assert(false, "Failed to open sim source dir: %s" % SIM_SOURCE_DIR)
+		files.append(LEGACY_PIPELINE_CPP_PATH)
+		return files
+
+	sim_dir.list_dir_begin()
+	var entry := sim_dir.get_next()
+	while entry != "":
+		if not sim_dir.current_is_dir() and (entry.ends_with(".cpp") or entry.ends_with(".hpp")):
+			files.append("%s/%s" % [SIM_SOURCE_DIR, entry])
+		entry = sim_dir.get_next()
+	sim_dir.list_dir_end()
+
+	files.sort()
+	if files.is_empty():
+		files.append(LEGACY_PIPELINE_CPP_PATH)
+	return files
 
 func _read_source(path: String) -> String:
 	var file := FileAccess.open(path, FileAccess.READ)

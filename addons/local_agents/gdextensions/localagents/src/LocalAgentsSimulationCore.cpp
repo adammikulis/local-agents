@@ -8,11 +8,14 @@
 #include "VoxelEditEngine.hpp"
 
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/variant/array.hpp>
 
 using namespace godot;
 using namespace local_agents::simulation;
 
 namespace {
+constexpr int64_t kDefaultPhysicsContactCapacity = 256;
+
 int64_t increment_stage_counter(Dictionary &counters, const StringName &stage_name) {
     const String stage_key = String(stage_name);
     int64_t count = 0;
@@ -33,6 +36,40 @@ Dictionary build_stage_dispatch_counters(
     counters["stage_dispatch_count"] = stage_dispatch_count;
     return counters;
 }
+
+double get_numeric_dictionary_value(const Dictionary &row, const StringName &key) {
+    if (!row.has(key)) {
+        return 0.0;
+    }
+    const Variant value = row[key];
+    switch (value.get_type()) {
+        case Variant::INT:
+            return static_cast<double>(static_cast<int64_t>(value));
+        case Variant::FLOAT:
+            return static_cast<double>(value);
+        default:
+            return 0.0;
+    }
+}
+
+Dictionary normalize_contact_row(const Variant &raw_row) {
+    Dictionary normalized;
+    if (raw_row.get_type() != Variant::DICTIONARY) {
+        return normalized;
+    }
+
+    const Dictionary source = raw_row;
+    normalized["body_a"] = source.get("body_a", StringName());
+    normalized["body_b"] = source.get("body_b", StringName());
+    normalized["shape_a"] = static_cast<int64_t>(source.get("shape_a", static_cast<int64_t>(-1)));
+    normalized["shape_b"] = static_cast<int64_t>(source.get("shape_b", static_cast<int64_t>(-1)));
+    normalized["impulse"] = get_numeric_dictionary_value(source, StringName("impulse"));
+    normalized["relative_speed"] = get_numeric_dictionary_value(source, StringName("relative_speed"));
+    normalized["contact_point"] = source.get("contact_point", Dictionary());
+    normalized["normal"] = source.get("normal", Dictionary());
+    normalized["frame"] = static_cast<int64_t>(source.get("frame", static_cast<int64_t>(0)));
+    return normalized;
+}
 } // namespace
 
 LocalAgentsSimulationCore::LocalAgentsSimulationCore() {
@@ -42,6 +79,7 @@ LocalAgentsSimulationCore::LocalAgentsSimulationCore() {
     query_service_ = std::make_unique<LocalAgentsQueryService>();
     sim_profiler_ = std::make_unique<LocalAgentsSimProfiler>();
     voxel_edit_engine_ = std::make_unique<VoxelEditEngine>();
+    physics_contact_capacity_ = kDefaultPhysicsContactCapacity;
 }
 
 LocalAgentsSimulationCore::~LocalAgentsSimulationCore() = default;
@@ -77,6 +115,11 @@ void LocalAgentsSimulationCore::_bind_methods() {
                          &LocalAgentsSimulationCore::execute_environment_stage, DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("execute_voxel_stage", "stage_name", "payload"),
                          &LocalAgentsSimulationCore::execute_voxel_stage, DEFVAL(Dictionary()));
+    ClassDB::bind_method(D_METHOD("ingest_physics_contacts", "contact_rows"),
+                         &LocalAgentsSimulationCore::ingest_physics_contacts);
+    ClassDB::bind_method(D_METHOD("clear_physics_contacts"), &LocalAgentsSimulationCore::clear_physics_contacts);
+    ClassDB::bind_method(D_METHOD("get_physics_contact_snapshot"),
+                         &LocalAgentsSimulationCore::get_physics_contact_snapshot);
     ClassDB::bind_method(D_METHOD("get_debug_snapshot"), &LocalAgentsSimulationCore::get_debug_snapshot);
     ClassDB::bind_method(D_METHOD("reset"), &LocalAgentsSimulationCore::reset);
 }
@@ -182,16 +225,21 @@ Dictionary LocalAgentsSimulationCore::apply_environment_stage(const StringName &
         return result;
     }
 
+    Dictionary effective_payload = payload.duplicate(true);
+    if (!effective_payload.has("physics_contacts") && !physics_contact_rows_.is_empty()) {
+        effective_payload["physics_contacts"] = get_physics_contact_snapshot();
+    }
+
     environment_stage_dispatch_count_ += 1;
     const int64_t stage_dispatch_count = increment_stage_counter(environment_stage_counters_, stage_name);
-    Dictionary result = voxel_edit_engine_->execute_stage(String("environment"), stage_name, payload);
+    Dictionary result = voxel_edit_engine_->execute_stage(String("environment"), stage_name, effective_payload);
     if (compute_manager_) {
         Dictionary scheduled_frame;
         scheduled_frame["ok"] = true;
         scheduled_frame["step_index"] = static_cast<int64_t>(environment_stage_dispatch_count_);
-        scheduled_frame["delta_seconds"] = static_cast<double>(payload.get("delta", 0.0));
+        scheduled_frame["delta_seconds"] = static_cast<double>(effective_payload.get("delta", 0.0));
         scheduled_frame["stage_name"] = String(stage_name);
-        scheduled_frame["inputs"] = payload.get("inputs", Dictionary());
+        scheduled_frame["inputs"] = effective_payload.get("inputs", Dictionary());
         result["pipeline"] = compute_manager_->execute_step(scheduled_frame);
     }
     result["counters"] = build_stage_dispatch_counters(environment_stage_dispatch_count_, stage_dispatch_count);
@@ -221,6 +269,78 @@ Dictionary LocalAgentsSimulationCore::execute_voxel_stage(const StringName &stag
     return apply_voxel_stage(stage_name, payload);
 }
 
+Dictionary LocalAgentsSimulationCore::ingest_physics_contacts(const Array &contact_rows) {
+    Dictionary result;
+    if (physics_contact_capacity_ <= 0) {
+        result["ok"] = false;
+        result["error"] = String("physics_contact_capacity_invalid");
+        return result;
+    }
+
+    int64_t accepted = 0;
+    int64_t dropped = 0;
+    for (int64_t i = 0; i < contact_rows.size(); i++) {
+        const Dictionary normalized = normalize_contact_row(contact_rows[i]);
+        if (normalized.is_empty()) {
+            continue;
+        }
+        const double impulse = static_cast<double>(normalized.get("impulse", 0.0));
+        const double relative_speed = static_cast<double>(normalized.get("relative_speed", 0.0));
+        physics_contact_total_impulse_ += impulse;
+        physics_contact_total_relative_speed_ += relative_speed;
+        if (impulse > physics_contact_max_impulse_) {
+            physics_contact_max_impulse_ = impulse;
+        }
+
+        physics_contact_rows_.append(normalized);
+        physics_contact_rows_ingested_total_ += 1;
+        accepted += 1;
+        while (physics_contact_rows_.size() > physics_contact_capacity_) {
+            physics_contact_rows_.remove_at(0);
+            physics_contact_rows_dropped_total_ += 1;
+            dropped += 1;
+        }
+    }
+    physics_contact_batches_ingested_ += 1;
+
+    result["ok"] = true;
+    result["accepted_rows"] = accepted;
+    result["dropped_rows"] = dropped;
+    result["snapshot"] = get_physics_contact_snapshot();
+    return result;
+}
+
+void LocalAgentsSimulationCore::clear_physics_contacts() {
+    physics_contact_rows_.clear();
+    physics_contact_batches_ingested_ = 0;
+    physics_contact_rows_ingested_total_ = 0;
+    physics_contact_rows_dropped_total_ = 0;
+    physics_contact_total_impulse_ = 0.0;
+    physics_contact_max_impulse_ = 0.0;
+    physics_contact_total_relative_speed_ = 0.0;
+}
+
+Dictionary LocalAgentsSimulationCore::get_physics_contact_snapshot() const {
+    Dictionary snapshot;
+    const int64_t buffered_count = physics_contact_rows_.size();
+    snapshot["buffered_rows"] = physics_contact_rows_.duplicate(true);
+    snapshot["buffered_count"] = buffered_count;
+    snapshot["capacity"] = physics_contact_capacity_;
+    snapshot["batches_ingested"] = physics_contact_batches_ingested_;
+    snapshot["rows_ingested_total"] = physics_contact_rows_ingested_total_;
+    snapshot["rows_dropped_total"] = physics_contact_rows_dropped_total_;
+    snapshot["total_impulse"] = physics_contact_total_impulse_;
+    snapshot["max_impulse"] = physics_contact_max_impulse_;
+    snapshot["total_relative_speed"] = physics_contact_total_relative_speed_;
+    snapshot["average_impulse"] = physics_contact_rows_ingested_total_ > 0
+        ? physics_contact_total_impulse_ / static_cast<double>(physics_contact_rows_ingested_total_)
+        : 0.0;
+    snapshot["average_relative_speed"] = physics_contact_rows_ingested_total_ > 0
+        ? physics_contact_total_relative_speed_ / static_cast<double>(physics_contact_rows_ingested_total_)
+        : 0.0;
+    return snapshot;
+}
+
 Dictionary LocalAgentsSimulationCore::get_debug_snapshot() const {
     if (!field_registry_ || !scheduler_ || !compute_manager_ || !query_service_ || !sim_profiler_) {
         Dictionary snapshot;
@@ -246,6 +366,7 @@ Dictionary LocalAgentsSimulationCore::get_debug_snapshot() const {
     } else {
         snapshot["voxel_edit"] = Dictionary();
     }
+    snapshot["physics_contacts"] = get_physics_contact_snapshot();
     snapshot["ok"] = true;
     return snapshot;
 }
@@ -266,6 +387,7 @@ void LocalAgentsSimulationCore::reset() {
     if (voxel_edit_engine_) {
         voxel_edit_engine_->reset();
     }
+    clear_physics_contacts();
     environment_stage_dispatch_count_ = 0;
     voxel_stage_dispatch_count_ = 0;
     environment_stage_counters_.clear();

@@ -166,13 +166,22 @@ func step(
     var width = int(environment_snapshot.get("width", 0))
     var seed = int(hydrology_snapshot.get("seed", 0))
     var changed_map: Dictionary = {}
+    var physics_contacts_variant = local_activity.get("physics_contacts", null)
+    if physics_contacts_variant == null:
+        physics_contacts_variant = environment_snapshot.get("physics_contacts", null)
+    if physics_contacts_variant == null:
+        physics_contacts_variant = hydrology_snapshot.get("physics_contacts", null)
+    if physics_contacts_variant == null:
+        physics_contacts_variant = weather_snapshot.get("physics_contacts", null)
+    var physics_contacts: Array = physics_contacts_variant if physics_contacts_variant is Array else []
     var native_step = _step_native_environment_stage(
         tick,
         delta,
         environment_snapshot,
         hydrology_snapshot,
         weather_snapshot,
-        local_activity
+        local_activity,
+        physics_contacts
     )
     if not native_step.is_empty():
         return native_step
@@ -436,7 +445,8 @@ func _step_native_environment_stage(
     environment_snapshot: Dictionary,
     hydrology_snapshot: Dictionary,
     weather_snapshot: Dictionary,
-    local_activity: Dictionary
+    local_activity: Dictionary,
+    physics_contacts: Array = []
 ) -> Dictionary:
     if not _native_environment_stage_dispatch_enabled:
         return {}
@@ -452,7 +462,8 @@ func _step_native_environment_stage(
             hydrology_snapshot,
             weather_snapshot,
             local_activity,
-            _native_view_metrics
+            _native_view_metrics,
+            physics_contacts
         ),
         false
     )

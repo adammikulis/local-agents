@@ -164,7 +164,7 @@ func step(tick: int, delta: float, environment_snapshot: Dictionary, weather_sna
 		packed_growth.resize(count)
 	var native_payload := {
 		"tick": tick, "delta": delta, "seed": _seed, "width": _width, "height": _height, "idle_cadence": _idle_cadence, "emit_rows": _emit_rows,
-		"sun_altitude": sun_alt, "sun_dir": {"x": sun_dir.x, "y": sun_dir.y}, "ordered_flat_indices": _ordered_flat_indices, "local_activity": local_activity, "weather_snapshot": weather_snapshot,
+		"sun_altitude": sun_alt, "sun_dir": {"x": sun_dir.x, "y": sun_dir.y}, "ordered_flat_indices": _ordered_flat_indices, "local_activity": local_activity, "physics_contacts": local_activity.get("physics_contacts", weather_snapshot.get("physics_contacts", environment_snapshot.get("physics_contacts", []))), "weather_snapshot": weather_snapshot,
 		"buffers": {"activity": _activity_buffer, "weather_cloud": weather_cloud, "weather_fog": weather_fog, "weather_humidity": weather_humidity, "sunlight_total": _sunlight_buffer, "uv_index": _uv_buffer, "heat_load": _heat_buffer, "plant_growth_factor": _growth_buffer},
 	}
 	var native_dispatch = NativeComputeBridgeScript.dispatch_environment_stage("solar_exposure_step", native_payload)

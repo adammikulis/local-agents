@@ -22,7 +22,8 @@ static func build_environment_stage_payload(
 	hydrology_snapshot: Dictionary,
 	weather_snapshot: Dictionary,
 	local_activity: Dictionary,
-	native_view_metrics: Dictionary = {}
+	native_view_metrics: Dictionary = {},
+	physics_contacts: Array = []
 ) -> Dictionary:
 	var payload := {
 		"tick": tick,
@@ -32,5 +33,7 @@ static func build_environment_stage_payload(
 		"weather": weather_snapshot.duplicate(true),
 		"local_activity": local_activity.duplicate(true),
 	}
+	if not physics_contacts.is_empty():
+		payload["physics_contacts"] = physics_contacts.duplicate(true)
 	payload.merge(sanitize_native_view_metrics(native_view_metrics), true)
 	return payload

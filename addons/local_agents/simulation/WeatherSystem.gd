@@ -253,7 +253,7 @@ func step(tick: int, delta: float, local_activity: Dictionary = {}) -> Dictionar
 			"wind_speed": _wind_speed,
 			"wind_dir": {"x": wind.x, "y": wind.y},
 			"emit_rows": _emit_rows,
-			"local_activity": local_activity,
+			"local_activity": local_activity, "physics_contacts": local_activity.get("physics_contacts", []),
 			"buffers": {
 				"base_moisture": _base_moisture,
 				"base_temperature": _base_temperature,
