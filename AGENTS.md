@@ -26,6 +26,17 @@ This file defines implementation rules for this repository. Higher sections are 
   7. Commit scoped changes and keep plan/status updates synchronized.
 - Ask user questions only when an architectural or requirement decision is truly ambiguous.
 
+### Additional Sub-Agent Lanes (including but not limited to)
+
+- GitHub-Operations lane: manage branch hygiene, PR lifecycle (`gh` status/labels/reviewers/checks), and PR synchronization; owns status/error triage and merge blockers.
+- Code-Review lane: perform independent review of each wave output (logic correctness, API changes, coupling risks, contracts, and file-size/type constraints); owns prioritized findings with file:line references.
+- Test-Infrastructure lane: own CI + test harness changes (`.github`, `tests`, local bootstrap scripts, headless/runtime suites, flake handling, performance budgets); owns deterministic command matrix and pass/fail expectations.
+- Merge-Conflict lane: resolve rebase/cherry-pick/patch conflicts with intent-preserving merges and minimal semantic drift; owns conflict-resolution notes and post-resolution verification.
+- Release-Versioning lane: drive version strategy, changelog/release notes, migration notes, and release gating checks (including final verification and tag prep).
+- Documentation lane: update `README`, `ARCHITECTURE_PLAN.md`, and maintainer/user docs when behavior or workflows change; owns consistency checks and migration wording.
+
+Lane trigger rule: if a wave touches any domain, spawn the corresponding lane(s) alongside implementation/validation and complete them before merge.
+
 ### Validation Defaults
 
 - For any changed native or simulation contract area, spawn a validation sub-agent unless the change is docs-only.
