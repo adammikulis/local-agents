@@ -5,6 +5,7 @@
 #include "LocalAgentsQueryService.hpp"
 #include "LocalAgentsScheduler.hpp"
 #include "LocalAgentsSimProfiler.hpp"
+#include "VoxelEditEngine.hpp"
 
 #include <godot_cpp/core/class_db.hpp>
 
@@ -23,59 +24,14 @@ int64_t increment_stage_counter(Dictionary &counters, const StringName &stage_na
     return count;
 }
 
-Dictionary build_stage_dispatch_result(
-    const String &stage_domain,
-    const StringName &stage_name,
-    const Dictionary &payload,
+Dictionary build_stage_dispatch_counters(
     int64_t domain_dispatch_count,
     int64_t stage_dispatch_count
 ) {
-    Dictionary result;
-    result["ok"] = true;
-    result["stage_domain"] = stage_domain;
-    result["stage_name"] = stage_name;
-    result["payload"] = payload.duplicate(true);
-
     Dictionary counters;
     counters["domain_dispatch_count"] = domain_dispatch_count;
     counters["stage_dispatch_count"] = stage_dispatch_count;
-    result["counters"] = counters;
-
-    Dictionary execution;
-    execution["backend"] = String("gpu_dispatch_stub");
-    execution["kernel_status"] = String("not_implemented");
-    execution["dispatched"] = false;
-    execution["reason"] = String("no_gpu_stage_kernel_registered");
-    result["execution"] = execution;
-    return result;
-}
-
-Dictionary build_stage_dispatch_error(
-    const String &stage_domain,
-    const StringName &stage_name,
-    const Dictionary &payload,
-    const String &error_code,
-    int64_t domain_dispatch_count,
-    int64_t stage_dispatch_count
-) {
-    Dictionary result;
-    result["ok"] = false;
-    result["stage_domain"] = stage_domain;
-    result["stage_name"] = stage_name;
-    result["payload"] = payload.duplicate(true);
-    result["error"] = error_code;
-
-    Dictionary counters;
-    counters["domain_dispatch_count"] = domain_dispatch_count;
-    counters["stage_dispatch_count"] = stage_dispatch_count;
-    result["counters"] = counters;
-
-    Dictionary execution;
-    execution["backend"] = String("gpu_dispatch_stub");
-    execution["kernel_status"] = String("not_implemented");
-    execution["dispatched"] = false;
-    result["execution"] = execution;
-    return result;
+    return counters;
 }
 } // namespace
 
@@ -85,6 +41,7 @@ LocalAgentsSimulationCore::LocalAgentsSimulationCore() {
     compute_manager_ = std::make_unique<LocalAgentsComputeManager>();
     query_service_ = std::make_unique<LocalAgentsQueryService>();
     sim_profiler_ = std::make_unique<LocalAgentsSimProfiler>();
+    voxel_edit_engine_ = std::make_unique<VoxelEditEngine>();
 }
 
 LocalAgentsSimulationCore::~LocalAgentsSimulationCore() = default;
@@ -108,6 +65,14 @@ void LocalAgentsSimulationCore::_bind_methods() {
                          &LocalAgentsSimulationCore::step_simulation);
     ClassDB::bind_method(D_METHOD("step_structure_lifecycle", "step_index"),
                          &LocalAgentsSimulationCore::step_structure_lifecycle);
+    ClassDB::bind_method(D_METHOD("enqueue_environment_voxel_edit_op", "stage_name", "op_payload"),
+                         &LocalAgentsSimulationCore::enqueue_environment_voxel_edit_op, DEFVAL(Dictionary()));
+    ClassDB::bind_method(D_METHOD("enqueue_voxel_edit_op", "stage_name", "op_payload"),
+                         &LocalAgentsSimulationCore::enqueue_voxel_edit_op, DEFVAL(Dictionary()));
+    ClassDB::bind_method(D_METHOD("apply_environment_stage", "stage_name", "payload"),
+                         &LocalAgentsSimulationCore::apply_environment_stage, DEFVAL(Dictionary()));
+    ClassDB::bind_method(D_METHOD("apply_voxel_stage", "stage_name", "payload"),
+                         &LocalAgentsSimulationCore::apply_voxel_stage, DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("execute_environment_stage", "stage_name", "payload"),
                          &LocalAgentsSimulationCore::execute_environment_stage, DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("execute_voxel_stage", "stage_name", "payload"),
@@ -125,18 +90,20 @@ bool LocalAgentsSimulationCore::register_system(const StringName &system_name, c
 }
 
 bool LocalAgentsSimulationCore::configure(const Dictionary &simulation_config) {
-    if (!field_registry_ || !scheduler_ || !compute_manager_) {
+    if (!field_registry_ || !scheduler_ || !compute_manager_ || !voxel_edit_engine_) {
         return false;
     }
 
     Dictionary field_registry_config = simulation_config.get("field_registry", Dictionary());
     Dictionary scheduler_config = simulation_config.get("scheduler", Dictionary());
     Dictionary compute_config = simulation_config.get("compute", Dictionary());
+    Dictionary voxel_edit_config = simulation_config.get("voxel_edit", Dictionary());
 
     const bool field_ok = field_registry_->configure(field_registry_config);
     const bool scheduler_ok = scheduler_->configure(scheduler_config);
     const bool compute_ok = compute_manager_->configure(compute_config);
-    return field_ok && scheduler_ok && compute_ok;
+    const bool voxel_edit_ok = voxel_edit_engine_->configure(voxel_edit_config);
+    return field_ok && scheduler_ok && compute_ok && voxel_edit_ok;
 }
 
 bool LocalAgentsSimulationCore::configure_field_registry(const Dictionary &field_registry_config) {
@@ -184,50 +151,74 @@ Dictionary LocalAgentsSimulationCore::step_structure_lifecycle(int64_t step_inde
     return result;
 }
 
-Dictionary LocalAgentsSimulationCore::execute_environment_stage(const StringName &stage_name, const Dictionary &payload) {
-    if (String(stage_name).is_empty()) {
-        return build_stage_dispatch_error(
-            String("environment"),
-            stage_name,
-            payload,
-            String("invalid_stage_name"),
-            environment_stage_dispatch_count_,
-            0
-        );
+Dictionary LocalAgentsSimulationCore::enqueue_environment_voxel_edit_op(
+    const StringName &stage_name,
+    const Dictionary &op_payload
+) {
+    if (!voxel_edit_engine_) {
+        Dictionary result;
+        result["ok"] = false;
+        result["error"] = String("voxel_edit_engine_uninitialized");
+        return result;
+    }
+    return voxel_edit_engine_->enqueue_op(String("environment"), stage_name, op_payload);
+}
+
+Dictionary LocalAgentsSimulationCore::enqueue_voxel_edit_op(const StringName &stage_name, const Dictionary &op_payload) {
+    if (!voxel_edit_engine_) {
+        Dictionary result;
+        result["ok"] = false;
+        result["error"] = String("voxel_edit_engine_uninitialized");
+        return result;
+    }
+    return voxel_edit_engine_->enqueue_op(String("voxel"), stage_name, op_payload);
+}
+
+Dictionary LocalAgentsSimulationCore::apply_environment_stage(const StringName &stage_name, const Dictionary &payload) {
+    if (!voxel_edit_engine_) {
+        Dictionary result;
+        result["ok"] = false;
+        result["error"] = String("voxel_edit_engine_uninitialized");
+        return result;
     }
 
     environment_stage_dispatch_count_ += 1;
     const int64_t stage_dispatch_count = increment_stage_counter(environment_stage_counters_, stage_name);
-    return build_stage_dispatch_result(
-        String("environment"),
-        stage_name,
-        payload,
-        environment_stage_dispatch_count_,
-        stage_dispatch_count
-    );
+    Dictionary result = voxel_edit_engine_->execute_stage(String("environment"), stage_name, payload);
+    if (compute_manager_) {
+        Dictionary scheduled_frame;
+        scheduled_frame["ok"] = true;
+        scheduled_frame["step_index"] = static_cast<int64_t>(environment_stage_dispatch_count_);
+        scheduled_frame["delta_seconds"] = static_cast<double>(payload.get("delta", 0.0));
+        scheduled_frame["stage_name"] = String(stage_name);
+        scheduled_frame["inputs"] = payload.get("inputs", Dictionary());
+        result["pipeline"] = compute_manager_->execute_step(scheduled_frame);
+    }
+    result["counters"] = build_stage_dispatch_counters(environment_stage_dispatch_count_, stage_dispatch_count);
+    return result;
 }
 
-Dictionary LocalAgentsSimulationCore::execute_voxel_stage(const StringName &stage_name, const Dictionary &payload) {
-    if (String(stage_name).is_empty()) {
-        return build_stage_dispatch_error(
-            String("voxel"),
-            stage_name,
-            payload,
-            String("invalid_stage_name"),
-            voxel_stage_dispatch_count_,
-            0
-        );
+Dictionary LocalAgentsSimulationCore::apply_voxel_stage(const StringName &stage_name, const Dictionary &payload) {
+    if (!voxel_edit_engine_) {
+        Dictionary result;
+        result["ok"] = false;
+        result["error"] = String("voxel_edit_engine_uninitialized");
+        return result;
     }
 
     voxel_stage_dispatch_count_ += 1;
     const int64_t stage_dispatch_count = increment_stage_counter(voxel_stage_counters_, stage_name);
-    return build_stage_dispatch_result(
-        String("voxel"),
-        stage_name,
-        payload,
-        voxel_stage_dispatch_count_,
-        stage_dispatch_count
-    );
+    Dictionary result = voxel_edit_engine_->execute_stage(String("voxel"), stage_name, payload);
+    result["counters"] = build_stage_dispatch_counters(voxel_stage_dispatch_count_, stage_dispatch_count);
+    return result;
+}
+
+Dictionary LocalAgentsSimulationCore::execute_environment_stage(const StringName &stage_name, const Dictionary &payload) {
+    return apply_environment_stage(stage_name, payload);
+}
+
+Dictionary LocalAgentsSimulationCore::execute_voxel_stage(const StringName &stage_name, const Dictionary &payload) {
+    return apply_voxel_stage(stage_name, payload);
 }
 
 Dictionary LocalAgentsSimulationCore::get_debug_snapshot() const {
@@ -250,6 +241,11 @@ Dictionary LocalAgentsSimulationCore::get_debug_snapshot() const {
     stage_dispatch["voxel_total"] = voxel_stage_dispatch_count_;
     stage_dispatch["voxel_stages"] = voxel_stage_counters_.duplicate(true);
     snapshot["stage_dispatch"] = stage_dispatch;
+    if (voxel_edit_engine_) {
+        snapshot["voxel_edit"] = voxel_edit_engine_->get_debug_snapshot();
+    } else {
+        snapshot["voxel_edit"] = Dictionary();
+    }
     snapshot["ok"] = true;
     return snapshot;
 }
@@ -266,6 +262,9 @@ void LocalAgentsSimulationCore::reset() {
     }
     if (sim_profiler_) {
         sim_profiler_->reset();
+    }
+    if (voxel_edit_engine_) {
+        voxel_edit_engine_->reset();
     }
     environment_stage_dispatch_count_ = 0;
     voxel_stage_dispatch_count_ = 0;
