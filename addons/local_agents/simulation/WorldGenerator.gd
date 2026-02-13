@@ -19,6 +19,7 @@ const BLOCK_WATER := "water"
 func generate(seed: int, config) -> Dictionary:
     var width = int(config.map_width)
     var height = int(config.map_height)
+    var simulated_year = float(_config_value(config, "simulated_year", -8000.0))
     var tiles: Array = []
     var tile_index: Dictionary = {}
     var voxel_world_height = maxi(8, int(config.voxel_world_height))
@@ -46,8 +47,8 @@ func generate(seed: int, config) -> Dictionary:
             var surface_y = _surface_height(normalized_surface, config, voxel_world_height)
             var elevation = clampf(float(surface_y) / float(maxi(1, voxel_world_height - 1)), 0.0, 1.0)
             var temperature = clampf((1.0 - latitude) * 0.65 + temperature_noise * 0.35 - elevation * 0.25, 0.0, 1.0)
-            moisture = clampf(moisture + float(_config_value(config, "era_moisture_shift", 0.0)), 0.0, 1.0)
-            temperature = clampf(temperature + float(_config_value(config, "era_temperature_shift", 0.0)), 0.0, 1.0)
+            moisture = clampf(moisture + float(_config_value(config, "progression_moisture_shift", 0.0)), 0.0, 1.0)
+            temperature = clampf(temperature + float(_config_value(config, "progression_temperature_shift", 0.0)), 0.0, 1.0)
             var slope = _estimate_slope(surface_noise, x, z)
 
             var tile_resource = WorldTileResourceScript.new()
@@ -97,6 +98,7 @@ func generate(seed: int, config) -> Dictionary:
     return {
         "schema_version": 1,
         "seed": seed,
+        "simulated_year": simulated_year,
         "width": width,
         "height": height,
         "tiles": tiles,
@@ -403,7 +405,7 @@ func _classify_biome(elevation: float, moisture: float, temperature: float) -> S
     return "plains"
 
 func _resource_densities(biome: String, config = null) -> Dictionary:
-    return _apply_era_resource_multipliers(_base_resource_densities(biome), config)
+    return _apply_progression_resource_multipliers(_base_resource_densities(biome), config)
 
 func _base_resource_densities(biome: String) -> Dictionary:
     match biome:
@@ -420,14 +422,14 @@ func _base_resource_densities(biome: String) -> Dictionary:
         _:
             return {"food_density": 0.52, "wood_density": 0.49, "stone_density": 0.36}
 
-func _apply_era_resource_multipliers(base: Dictionary, config) -> Dictionary:
+func _apply_progression_resource_multipliers(base: Dictionary, config) -> Dictionary:
     var food_mult = 1.0
     var wood_mult = 1.0
     var stone_mult = 1.0
     if config != null:
-        food_mult = clampf(float(_config_value(config, "era_food_density_multiplier", 1.0)), 0.1, 3.0)
-        wood_mult = clampf(float(_config_value(config, "era_wood_density_multiplier", 1.0)), 0.1, 3.0)
-        stone_mult = clampf(float(_config_value(config, "era_stone_density_multiplier", 1.0)), 0.1, 3.0)
+        food_mult = clampf(float(_config_value(config, "progression_food_density_multiplier", 1.0)), 0.1, 3.0)
+        wood_mult = clampf(float(_config_value(config, "progression_wood_density_multiplier", 1.0)), 0.1, 3.0)
+        stone_mult = clampf(float(_config_value(config, "progression_stone_density_multiplier", 1.0)), 0.1, 3.0)
     return {
         "food_density": clampf(float(base.get("food_density", 0.5)) * food_mult, 0.0, 1.0),
         "wood_density": clampf(float(base.get("wood_density", 0.5)) * wood_mult, 0.0, 1.0),

@@ -190,6 +190,30 @@ max_value = 0.95
 step = 0.01
 value = 0.57
 
+[node name="StartYearLabel" type="Label" parent="CanvasLayer/PanelContainer/MarginContainer/RootVBox/Grid"]
+layout_mode = 2
+text = "Start Year"
+
+[node name="StartYearSpinBox" type="SpinBox" parent="CanvasLayer/PanelContainer/MarginContainer/RootVBox/Grid"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = -20000.0
+max_value = 5000.0
+step = 1.0
+value = -8000.0
+
+[node name="YearsPerTickLabel" type="Label" parent="CanvasLayer/PanelContainer/MarginContainer/RootVBox/Grid"]
+layout_mode = 2
+text = "Years / Tick"
+
+[node name="YearsPerTickSpinBox" type="SpinBox" parent="CanvasLayer/PanelContainer/MarginContainer/RootVBox/Grid"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.01
+max_value = 50.0
+step = 0.01
+value = 0.25
+
 [node name="FlowRow" type="HBoxContainer" parent="CanvasLayer/PanelContainer/MarginContainer/RootVBox"]
 layout_mode = 2
 theme_override_constants/separation = 8

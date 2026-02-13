@@ -7,6 +7,8 @@ const ErosionSystemScript = preload("res://addons/local_agents/simulation/Erosio
 const SolarExposureSystemScript = preload("res://addons/local_agents/simulation/SolarExposureSystem.gd")
 const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
 const WorldGenConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldGenConfigResource.gd")
+const WorldProgressionProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldProgressionProfileResource.gd")
+const WorldProgressionProfileDefault = preload("res://addons/local_agents/configuration/parameters/simulation/WorldProgressionProfile_Default.tres")
 const VoxelTimelapseSnapshotResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/VoxelTimelapseSnapshotResource.gd")
 const FlowArrowPulseShader = preload("res://addons/local_agents/scenes/simulation/shaders/FlowArrowPulse.gdshader")
 const AtmosphereCycleControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/AtmosphereCycleController.gd")
@@ -26,6 +28,8 @@ const AtmosphereCycleControllerScript = preload("res://addons/local_agents/scene
 @onready var _surface_range_spin: SpinBox = %SurfaceRangeSpinBox
 @onready var _noise_frequency_spin: SpinBox = %NoiseFrequencySpinBox
 @onready var _cave_threshold_spin: SpinBox = %CaveThresholdSpinBox
+@onready var _start_year_spin: SpinBox = %StartYearSpinBox
+@onready var _years_per_tick_spin: SpinBox = %YearsPerTickSpinBox
 @onready var _show_flow_checkbox: CheckBox = %ShowFlowCheckBox
 @onready var _flow_strength_threshold_spin: SpinBox = %FlowStrengthThresholdSpinBox
 @onready var _flow_stride_spin: SpinBox = %FlowStrideSpinBox
@@ -43,6 +47,7 @@ var _hydrology = HydrologySystemScript.new()
 var _weather = WeatherSystemScript.new()
 var _erosion = ErosionSystemScript.new()
 var _solar = SolarExposureSystemScript.new()
+var _world_progression_profile = WorldProgressionProfileDefault.duplicate(true)
 var _rng := RandomNumberGenerator.new()
 var _atmosphere_cycle = AtmosphereCycleControllerScript.new()
 @export var day_night_cycle_enabled: bool = true
@@ -53,6 +58,7 @@ var _atmosphere_cycle = AtmosphereCycleControllerScript.new()
 var _time_of_day: float = 0.24
 var _sim_accum: float = 0.0
 var _sim_tick: int = 0
+var _simulated_seconds: float = 0.0
 var _world_snapshot: Dictionary = {}
 var _hydrology_snapshot: Dictionary = {}
 var _weather_snapshot: Dictionary = {}
@@ -79,6 +85,8 @@ func _ready() -> void:
 	_water_wave_strength_spin.value_changed.connect(_on_water_shader_control_changed)
 	_water_flow_dir_x_spin.value_changed.connect(_on_water_shader_control_changed)
 	_water_flow_dir_z_spin.value_changed.connect(_on_water_shader_control_changed)
+	_start_year_spin.value_changed.connect(func(_v: float): _generate_world())
+	_years_per_tick_spin.value_changed.connect(func(_v: float): _refresh_hud())
 	if _simulation_hud != null:
 		_simulation_hud.play_pressed.connect(_on_hud_play_pressed)
 		_simulation_hud.pause_pressed.connect(_on_hud_pause_pressed)
@@ -98,15 +106,7 @@ func _on_random_seed_pressed() -> void:
 	_generate_world()
 
 func _generate_world() -> void:
-	var config = WorldGenConfigResourceScript.new()
-	config.map_width = int(_width_spin.value)
-	config.map_height = int(_depth_spin.value)
-	config.voxel_world_height = int(_world_height_spin.value)
-	config.voxel_sea_level = int(_sea_level_spin.value)
-	config.voxel_surface_height_range = int(_surface_range_spin.value)
-	config.voxel_noise_frequency = float(_noise_frequency_spin.value)
-	config.cave_noise_threshold = float(_cave_threshold_spin.value)
-	config.voxel_surface_height_base = maxi(2, int(float(config.voxel_world_height) * 0.22))
+	var config = _current_worldgen_config_for_tick(0)
 
 	var seed_text = _seed_line_edit.text.strip_edges()
 	if seed_text == "":
@@ -118,6 +118,7 @@ func _generate_world() -> void:
 	_world_snapshot = world.duplicate(true)
 	_hydrology_snapshot = hydrology.duplicate(true)
 	_sim_tick = 0
+	_simulated_seconds = 0.0
 	_sim_accum = 0.0
 	_landslide_count = 0
 	_active_branch_id = "main"
@@ -177,26 +178,27 @@ func _step_environment_simulation(delta: float) -> void:
 	var terrain_changed = false
 	var changed_tiles_map: Dictionary = {}
 	while _sim_accum >= tick_duration:
-		_sim_accum -= tick_duration
-		_sim_tick += 1
-		_weather_snapshot = _weather.step(_sim_tick, tick_duration)
-		var erosion_result: Dictionary = _erosion.step(
-			_sim_tick,
-			tick_duration,
-			_world_snapshot,
-			_hydrology_snapshot,
-			_weather_snapshot
-		)
-		_world_snapshot = erosion_result.get("environment", _world_snapshot)
-		_hydrology_snapshot = erosion_result.get("hydrology", _hydrology_snapshot)
-		_erosion_snapshot = erosion_result.get("erosion", _erosion_snapshot)
-		terrain_changed = terrain_changed or bool(erosion_result.get("changed", false))
-		var changed_tiles: Array = erosion_result.get("changed_tiles", [])
-		for tile_variant in changed_tiles:
-			changed_tiles_map[String(tile_variant)] = true
-		_solar_snapshot = _solar.step(_sim_tick, tick_duration, _world_snapshot, _weather_snapshot)
-		_solar_snapshot["seed"] = _solar_seed
-		_record_timelapse_snapshot(_sim_tick)
+			_sim_accum -= tick_duration
+			_sim_tick += 1
+			_simulated_seconds += tick_duration
+			_weather_snapshot = _weather.step(_sim_tick, tick_duration)
+			var erosion_result: Dictionary = _erosion.step(
+				_sim_tick,
+				tick_duration,
+				_world_snapshot,
+				_hydrology_snapshot,
+				_weather_snapshot
+			)
+			_world_snapshot = erosion_result.get("environment", _world_snapshot)
+			_hydrology_snapshot = erosion_result.get("hydrology", _hydrology_snapshot)
+			_erosion_snapshot = erosion_result.get("erosion", _erosion_snapshot)
+			terrain_changed = terrain_changed or bool(erosion_result.get("changed", false))
+			var changed_tiles: Array = erosion_result.get("changed_tiles", [])
+			for tile_variant in changed_tiles:
+				changed_tiles_map[String(tile_variant)] = true
+			_solar_snapshot = _solar.step(_sim_tick, tick_duration, _world_snapshot, _weather_snapshot)
+			_solar_snapshot["seed"] = _solar_seed
+			_record_timelapse_snapshot(_sim_tick)
 	if _environment_controller.has_method("set_weather_state"):
 		_environment_controller.set_weather_state(_weather_snapshot)
 	if _environment_controller.has_method("set_solar_state"):
@@ -230,6 +232,8 @@ func _record_timelapse_snapshot(tick: int) -> void:
 	var snapshot_resource = VoxelTimelapseSnapshotResourceScript.new()
 	snapshot_resource.tick = tick
 	snapshot_resource.time_of_day = _time_of_day
+	snapshot_resource.simulated_year = _year_at_tick(tick)
+	snapshot_resource.simulated_seconds = _simulated_seconds
 	snapshot_resource.world = _world_snapshot.duplicate(true)
 	snapshot_resource.hydrology = _hydrology_snapshot.duplicate(true)
 	snapshot_resource.weather = _weather_snapshot.duplicate(true)
@@ -331,6 +335,46 @@ func _update_stats(world: Dictionary, hydrology: Dictionary, seed: int) -> void:
 		_landslide_count,
 		_time_of_day
 	]
+	var year = _year_at_tick(_sim_tick)
+	_stats_label.text += " | year=%0.1f | sim_t=%s" % [year, _format_duration_hms(_simulated_seconds)]
+
+func _current_worldgen_config_for_tick(tick: int) -> Resource:
+	var config = WorldGenConfigResourceScript.new()
+	config.map_width = int(_width_spin.value)
+	config.map_height = int(_depth_spin.value)
+	config.voxel_world_height = int(_world_height_spin.value)
+	config.voxel_sea_level = int(_sea_level_spin.value)
+	config.voxel_surface_height_range = int(_surface_range_spin.value)
+	config.voxel_noise_frequency = float(_noise_frequency_spin.value)
+	config.cave_noise_threshold = float(_cave_threshold_spin.value)
+	config.voxel_surface_height_base = maxi(2, int(float(config.voxel_world_height) * 0.22))
+	_apply_year_progression(config, tick)
+	return config
+
+func _year_at_tick(tick: int) -> float:
+	return float(_start_year_spin.value) + float(tick) * float(_years_per_tick_spin.value)
+
+func _apply_year_progression(config: Resource, tick: int) -> void:
+	if config == null:
+		return
+	var year = _year_at_tick(tick)
+	if _world_progression_profile != null and _world_progression_profile.has_method("apply_to_worldgen_config"):
+		_world_progression_profile.call("apply_to_worldgen_config", config, year)
+		return
+	config.simulated_year = year
+	config.progression_profile_id = "year_%d" % int(round(year))
+	config.progression_temperature_shift = 0.0
+	config.progression_moisture_shift = 0.0
+	config.progression_food_density_multiplier = 1.0
+	config.progression_wood_density_multiplier = 1.0
+	config.progression_stone_density_multiplier = 1.0
+
+func _current_worldgen_config() -> Resource:
+	return _current_worldgen_config_for_tick(_sim_tick)
+
+func _legacy_stats_placeholder() -> void:
+	# Removed by refactor; kept as no-op to avoid accidental merge conflicts.
+	pass
 
 func _update_day_night(delta: float) -> void:
 	if _sun_light == null:
@@ -362,18 +406,6 @@ func _apply_demo_fog() -> void:
 	env.volumetric_fog_density = lerpf(0.012, 0.075, clampf(humidity * 0.72 + rain * 0.28, 0.0, 1.0))
 	env.volumetric_fog_emission_energy = lerpf(0.32, 0.88, 1.0 - absf(_time_of_day - 0.5) * 2.0)
 
-func _current_worldgen_config() -> Resource:
-	var config = WorldGenConfigResourceScript.new()
-	config.map_width = int(_width_spin.value)
-	config.map_height = int(_depth_spin.value)
-	config.voxel_world_height = int(_world_height_spin.value)
-	config.voxel_sea_level = int(_sea_level_spin.value)
-	config.voxel_surface_height_range = int(_surface_range_spin.value)
-	config.voxel_noise_frequency = float(_noise_frequency_spin.value)
-	config.cave_noise_threshold = float(_cave_threshold_spin.value)
-	config.voxel_surface_height_base = maxi(2, int(float(config.voxel_world_height) * 0.22))
-	return config
-
 func _restore_to_tick(target_tick: int) -> void:
 	if _timelapse_snapshots.is_empty():
 		return
@@ -399,6 +431,7 @@ func _restore_to_tick(target_tick: int) -> void:
 	if snapshot_dict.is_empty():
 		return
 	_sim_tick = int(snapshot_dict.get("tick", selected_tick))
+	_simulated_seconds = maxf(0.0, float(snapshot_dict.get("simulated_seconds", float(_sim_tick) / maxf(0.1, weather_ticks_per_second))))
 	_time_of_day = clampf(float(snapshot_dict.get("time_of_day", _time_of_day)), 0.0, 1.0)
 	_world_snapshot = snapshot_dict.get("world", {}).duplicate(true)
 	_hydrology_snapshot = snapshot_dict.get("hydrology", {}).duplicate(true)
@@ -429,7 +462,8 @@ func _refresh_hud() -> void:
 	if _simulation_hud == null:
 		return
 	var mode = "playing" if _is_playing else "paused"
-	_simulation_hud.set_status_text("Tick %d | Branch %s | %s x%d" % [_sim_tick, _active_branch_id, mode, _ticks_per_frame])
+	var year = _year_at_tick(_sim_tick)
+	_simulation_hud.set_status_text("Year %.1f | T+%s | Tick %d | Branch %s | %s x%d" % [year, _format_duration_hms(_simulated_seconds), _sim_tick, _active_branch_id, mode, _ticks_per_frame])
 	var avg_rain = clampf(float(_weather_snapshot.get("avg_rain_intensity", 0.0)), 0.0, 1.0)
 	var avg_cloud = clampf(float(_weather_snapshot.get("avg_cloud_cover", 0.0)), 0.0, 1.0)
 	var avg_fog = clampf(float(_weather_snapshot.get("avg_fog_intensity", 0.0)), 0.0, 1.0)
@@ -462,3 +496,10 @@ func _on_hud_fork_pressed() -> void:
 	_fork_index += 1
 	_active_branch_id = "branch_%02d" % _fork_index
 	_refresh_hud()
+
+func _format_duration_hms(total_seconds: float) -> String:
+	var whole = maxi(0, int(floor(total_seconds)))
+	var hours = int(whole / 3600)
+	var minutes = int((whole % 3600) / 60)
+	var seconds = int(whole % 60)
+	return "%02d:%02d:%02d" % [hours, minutes, seconds]

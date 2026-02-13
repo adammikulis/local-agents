@@ -3,6 +3,7 @@ class_name LocalAgentsWorldSimulationController
 
 const FlowTraversalProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FlowTraversalProfileResource.gd")
 const WorldGenConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldGenConfigResource.gd")
+const WorldProgressionProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldProgressionProfileResource.gd")
 const EnvironmentSignalSnapshotResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/EnvironmentSignalSnapshotResource.gd")
 const AtmosphereCycleControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/AtmosphereCycleController.gd")
 
@@ -20,6 +21,11 @@ const AtmosphereCycleControllerScript = preload("res://addons/local_agents/scene
 @export var auto_play_on_ready: bool = true
 @export var flow_traversal_profile_override: Resource
 @export var worldgen_config_override: Resource
+@export var world_progression_profile_override: Resource
+@export var start_year: float = -8000.0
+@export var years_per_tick: float = 0.25
+@export var start_simulated_seconds: float = 0.0
+@export var simulated_seconds_per_tick: float = 1.0
 @export var day_night_cycle_enabled: bool = true
 @export var day_length_seconds: float = 180.0
 @export_range(0.0, 1.0, 0.001) var start_time_of_day: float = 0.28
@@ -30,14 +36,18 @@ var _current_tick: int = 0
 var _fork_index: int = 0
 var _last_state: Dictionary = {}
 var _time_of_day: float = 0.28
+var _simulated_seconds: float = 0.0
 var _atmosphere_cycle = AtmosphereCycleControllerScript.new()
 
 func _ready() -> void:
 	_time_of_day = clampf(start_time_of_day, 0.0, 1.0)
+	_simulated_seconds = maxf(0.0, start_simulated_seconds)
 	if flow_traversal_profile_override == null:
 		flow_traversal_profile_override = FlowTraversalProfileResourceScript.new()
 	if worldgen_config_override == null:
 		worldgen_config_override = WorldGenConfigResourceScript.new()
+	if world_progression_profile_override == null:
+		world_progression_profile_override = WorldProgressionProfileResourceScript.new()
 	if simulation_controller.has_method("set_flow_traversal_profile") and flow_traversal_profile_override != null:
 		simulation_controller.set_flow_traversal_profile(flow_traversal_profile_override)
 	if simulation_hud != null:
@@ -56,6 +66,7 @@ func _ready() -> void:
 		simulation_controller.configure(world_seed_text, false, false)
 	if not simulation_controller.has_method("configure_environment"):
 		return
+	_apply_year_progression(worldgen_config_override, _year_at_tick(0))
 	var setup: Dictionary = simulation_controller.configure_environment(worldgen_config_override)
 	if not bool(setup.get("ok", false)):
 		return
@@ -72,9 +83,12 @@ func _ready() -> void:
 	if settlement_controller.has_method("spawn_initial_settlement"):
 		settlement_controller.spawn_initial_settlement(setup.get("spawn", {}))
 	_current_tick = 0
+	_simulated_seconds = _seconds_at_tick(_current_tick)
 	_is_playing = auto_play_on_ready
 	if simulation_controller.has_method("current_snapshot"):
 		_last_state = simulation_controller.current_snapshot(0)
+		_last_state["simulated_year"] = _year_at_tick(0)
+		_last_state["simulated_seconds"] = _simulated_seconds
 		_sync_environment_from_state(_last_state, false)
 	_refresh_hud()
 
@@ -97,7 +111,10 @@ func _advance_tick() -> void:
 	var result: Dictionary = simulation_controller.process_tick(next_tick, 1.0)
 	if bool(result.get("ok", false)):
 		_current_tick = next_tick
+		_simulated_seconds = _seconds_at_tick(_current_tick)
 		_last_state = result.get("state", {}).duplicate(true)
+		_last_state["simulated_year"] = _year_at_tick(_current_tick)
+		_last_state["simulated_seconds"] = _simulated_seconds
 		_sync_environment_from_state(_last_state, false)
 
 func _sync_environment_from_state(state: Dictionary, force_rebuild: bool) -> void:
@@ -145,8 +162,11 @@ func _on_hud_rewind_pressed() -> void:
 	var restored: Dictionary = simulation_controller.restore_to_tick(target_tick)
 	if bool(restored.get("ok", false)):
 		_current_tick = int(restored.get("tick", target_tick))
+		_simulated_seconds = _seconds_at_tick(_current_tick)
 		if simulation_controller.has_method("current_snapshot"):
 			_last_state = simulation_controller.current_snapshot(_current_tick)
+			_last_state["simulated_year"] = _year_at_tick(_current_tick)
+			_last_state["simulated_seconds"] = _simulated_seconds
 			_sync_environment_from_state(_last_state, true)
 	_refresh_hud()
 
@@ -159,6 +179,8 @@ func _on_hud_fork_pressed() -> void:
 	if bool(forked.get("ok", false)):
 		if simulation_controller.has_method("current_snapshot"):
 			_last_state = simulation_controller.current_snapshot(_current_tick)
+			_last_state["simulated_year"] = _year_at_tick(_current_tick)
+			_last_state["simulated_seconds"] = _simulated_seconds
 			_sync_environment_from_state(_last_state, true)
 	_refresh_hud()
 
@@ -169,7 +191,9 @@ func _refresh_hud() -> void:
 	if simulation_controller.has_method("get_active_branch_id"):
 		branch_id = String(simulation_controller.get_active_branch_id())
 	var mode = "playing" if _is_playing else "paused"
-	simulation_hud.set_status_text("Tick %d | Branch %s | %s x%d" % [_current_tick, branch_id, mode, _ticks_per_frame])
+	var year = _year_at_tick(_current_tick)
+	var time_text = _format_duration_hms(_simulated_seconds)
+	simulation_hud.set_status_text("Year %.1f | T+%s | Tick %d | Branch %s | %s x%d" % [year, time_text, _current_tick, branch_id, mode, _ticks_per_frame])
 
 	var structures = 0
 	var oral_events = int((_last_state.get("oral_transfer_events", []) as Array).size())
@@ -281,3 +305,25 @@ func _apply_atmospheric_fog(daylight: float) -> void:
 		lerpf(0.36, 0.84, daylight),
 		1.0
 	)
+
+func _year_at_tick(tick: int) -> float:
+	return start_year + float(tick) * years_per_tick
+
+func _seconds_at_tick(tick: int) -> float:
+	return maxf(0.0, start_simulated_seconds + float(tick) * maxf(0.0001, simulated_seconds_per_tick))
+
+func _apply_year_progression(config: Resource, year: float) -> void:
+	if config == null:
+		return
+	if world_progression_profile_override != null and world_progression_profile_override.has_method("apply_to_worldgen_config"):
+		world_progression_profile_override.call("apply_to_worldgen_config", config, year)
+		return
+	config.set("simulated_year", year)
+	config.set("progression_profile_id", "year_%d" % int(round(year)))
+
+func _format_duration_hms(total_seconds: float) -> String:
+	var whole = maxi(0, int(floor(total_seconds)))
+	var hours = int(whole / 3600)
+	var minutes = int((whole % 3600) / 60)
+	var seconds = int(whole % 60)
+	return "%02d:%02d:%02d" % [hours, minutes, seconds]

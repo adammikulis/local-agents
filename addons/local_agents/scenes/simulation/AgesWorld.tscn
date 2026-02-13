@@ -1,4 +1,4 @@
-[gd_scene load_steps=15 format=3]
+[gd_scene load_steps=16 format=3]
 
 [ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd" id="1_world"]
 [ext_resource type="Script" path="res://addons/local_agents/simulation/SimulationController.gd" id="2_sim"]
@@ -11,6 +11,7 @@
 [ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/EcologyController.gd" id="9_ecology"]
 [ext_resource type="Resource" path="res://addons/local_agents/configuration/parameters/simulation/FlowTraversalProfile_Default.tres" id="10_flow_profile"]
 [ext_resource type="Resource" path="res://addons/local_agents/configuration/parameters/simulation/WorldGenConfig_Default.tres" id="11_worldgen_config"]
+[ext_resource type="Resource" path="res://addons/local_agents/configuration/parameters/simulation/WorldProgressionProfile_Default.tres" id="12_world_progression"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_world"]
 sky_top_color = Color(0.18, 0.42, 0.78, 1)
@@ -39,6 +40,7 @@ sdfgi_energy = 1.0
 script = ExtResource("1_world")
 flow_traversal_profile_override = ExtResource("10_flow_profile")
 worldgen_config_override = ExtResource("11_worldgen_config")
+world_progression_profile_override = ExtResource("12_world_progression")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_world")

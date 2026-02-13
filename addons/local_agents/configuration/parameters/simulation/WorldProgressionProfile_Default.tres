@@ -1,0 +1,8 @@
+[gd_resource type="Resource" script_class="LocalAgentsWorldProgressionProfileResource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/configuration/parameters/simulation/WorldProgressionProfileResource.gd" id="1_progression_script"]
+
+[resource]
+script = ExtResource("1_progression_script")
+start_year = -10000.0
+end_year = 2500.0

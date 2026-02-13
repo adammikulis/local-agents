@@ -4,6 +4,8 @@ class_name LocalAgentsVoxelTimelapseSnapshotResource
 @export var schema_version: int = 1
 @export var tick: int = 0
 @export var time_of_day: float = 0.0
+@export var simulated_year: float = -8000.0
+@export var simulated_seconds: float = 0.0
 @export var world: Dictionary = {}
 @export var hydrology: Dictionary = {}
 @export var weather: Dictionary = {}
@@ -12,10 +14,12 @@ class_name LocalAgentsVoxelTimelapseSnapshotResource
 
 func to_dict() -> Dictionary:
 	return {
-		"schema_version": schema_version,
-		"tick": tick,
-		"time_of_day": time_of_day,
-		"world": world.duplicate(true),
+			"schema_version": schema_version,
+			"tick": tick,
+			"time_of_day": time_of_day,
+			"simulated_year": simulated_year,
+			"simulated_seconds": simulated_seconds,
+			"world": world.duplicate(true),
 		"hydrology": hydrology.duplicate(true),
 		"weather": weather.duplicate(true),
 		"erosion": erosion.duplicate(true),
@@ -26,6 +30,8 @@ func from_dict(values: Dictionary) -> void:
 	schema_version = int(values.get("schema_version", schema_version))
 	tick = int(values.get("tick", tick))
 	time_of_day = clampf(float(values.get("time_of_day", time_of_day)), 0.0, 1.0)
+	simulated_year = float(values.get("simulated_year", simulated_year))
+	simulated_seconds = maxf(0.0, float(values.get("simulated_seconds", simulated_seconds)))
 	var world_variant = values.get("world", {})
 	world = world_variant.duplicate(true) if world_variant is Dictionary else {}
 	var hydrology_variant = values.get("hydrology", {})
@@ -36,4 +42,3 @@ func from_dict(values: Dictionary) -> void:
 	erosion = erosion_variant.duplicate(true) if erosion_variant is Dictionary else {}
 	var solar_variant = values.get("solar", {})
 	solar = solar_variant.duplicate(true) if solar_variant is Dictionary else {}
-
