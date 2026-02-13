@@ -13,16 +13,24 @@ This file defines implementation rules for this repository. Higher sections are 
 
 - Main-thread role is executive only: planning, user interaction, architecture decisions, sub-agent orchestration, integration/deconflict, verification, and commit/push flow.
 - Default to sub-agent-first implementation. Keep main-thread direct edits for glue/integration and cross-cutting fixes.
+- Testing is a default sub-agent workstream: spawn dedicated sub-agents for contract checks, regression suites, benchmark/CI smoke, and performance probes before reporting pass/fail.
 - Before each wave, close stale or finished sub-agents to avoid stale references and thread/session pressure.
 - Proactively close agents as soon as they finish assigned work.
 - Workflow loop:
   1. Update `ARCHITECTURE_PLAN.md` first with checkbox state.
-  2. Spawn as many scoped sub-agents as can safely execute in parallel.
+  2. Spawn as many scoped implementation and validation sub-agents as can safely execute in parallel.
   3. Integrate and deconflict outputs as they complete; do not wait for perfect synchronization.
   4. Run targeted verification.
   5. Create feature-scoped commits and push.
   6. Repeat.
 - Ask user questions only when an architectural or requirement decision is ambiguous.
+
+### Testing Sub-Agent Defaults
+
+- For any changed native or simulation contract area, spawn a test sub-agent unless the change is docs-only.
+- Give test agents explicit acceptance criteria and test command set before execution.
+- Merge test outputs as structured findings (pass/fail + artifact path + notable failures).
+- If a test agent returns stale or blocked, close it and reassign.
 
 ## File Size and Refactor Discipline
 
