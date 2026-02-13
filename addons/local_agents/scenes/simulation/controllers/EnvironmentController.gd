@@ -26,6 +26,11 @@ const LightingSystemAdapterScript = preload("res://addons/local_agents/scenes/si
 @export_range(1, 16, 1) var surface_texture_update_interval_ticks: int = 4
 @export_range(1, 16, 1) var solar_texture_update_interval_ticks: int = 4
 @export_range(512, 65536, 512) var field_texture_update_budget_cells: int = 8192
+@export var adaptive_texture_budget_enabled: bool = true
+@export_range(8.0, 50.0, 0.5) var target_frame_time_ms: float = 16.7
+@export_range(0.1, 1.0, 0.05) var texture_budget_min_scale: float = 0.3
+@export_range(0.5, 2.0, 0.05) var texture_budget_max_scale: float = 1.0
+@export_range(0.02, 0.5, 0.01) var texture_budget_smoothing: float = 0.14
 var _generation_snapshot: Dictionary = {}
 var _hydrology_snapshot: Dictionary = {}
 var _weather_snapshot: Dictionary = {}
@@ -95,8 +100,11 @@ var _atmosphere_adapter
 var _ocean_adapter
 var _post_fx_adapter
 var _lighting_adapter
+var _frame_time_ema_ms: float = 16.7
+var _effective_texture_budget_cells: int = 8192
 
 func _process(_delta: float) -> void:
+	_update_adaptive_texture_budget(_delta)
 	_poll_chunk_build()
 	_ensure_system_adapters()
 	_lighting_adapter.process(self, _delta)
@@ -203,7 +211,7 @@ func _ensure_renderer_nodes() -> void:
 		_cloud_renderer = CloudRendererScript.new()
 		_cloud_renderer.name = "CloudRenderer"
 		add_child(_cloud_renderer)
-	_apply_cloud_quality_settings()
+		_apply_cloud_quality_settings()
 	if _river_renderer == null:
 		_river_renderer = RiverRendererScript.new()
 		_river_renderer.name = "RiverRenderer"
@@ -269,6 +277,24 @@ func set_terrain_chunk_size(next_size: int) -> void:
 	if _generation_snapshot.is_empty():
 		return
 	_request_chunk_rebuild([])
+
+func get_effective_texture_budget_cells() -> int:
+	return maxi(512, _effective_texture_budget_cells)
+
+func _update_adaptive_texture_budget(delta: float) -> void:
+	var base_budget = maxi(512, int(field_texture_update_budget_cells))
+	if not adaptive_texture_budget_enabled:
+		_effective_texture_budget_cells = base_budget
+		return
+	var frame_ms = clampf(delta * 1000.0, 1.0, 200.0)
+	_frame_time_ema_ms = lerpf(_frame_time_ema_ms, frame_ms, 0.08)
+	var target_ms = maxf(8.0, target_frame_time_ms)
+	var pressure = clampf((_frame_time_ema_ms - target_ms) / target_ms, -0.8, 3.0)
+	var target_scale = clampf(1.0 - pressure * 0.65, texture_budget_min_scale, texture_budget_max_scale)
+	var desired = int(round((float(base_budget) * target_scale) / 512.0) * 512.0)
+	desired = maxi(512, desired)
+	var smoothed = int(round(lerpf(float(_effective_texture_budget_cells), float(desired), texture_budget_smoothing)))
+	_effective_texture_budget_cells = maxi(512, int(round(float(smoothed) / 512.0) * 512.0))
 
 func set_water_render_mode(next_mode: String) -> void:
 	var normalized = String(next_mode).to_lower().strip_edges()
@@ -352,7 +378,8 @@ func _request_chunk_rebuild(chunk_keys: Array = []) -> void:
 	)
 
 func _poll_chunk_build() -> void:
-	_ensure_renderer_nodes()
+	if _terrain_renderer == null:
+		_ensure_renderer_nodes()
 	_terrain_renderer.poll()
 
 func _wait_for_chunk_build() -> void:

@@ -1,6 +1,12 @@
 extends RefCounted
 class_name AtmosphereSystemAdapter
 
+func _texture_budget_for_controller(controller: Node, expected_cells: int) -> int:
+	var budget = int(controller.field_texture_update_budget_cells)
+	if controller.has_method("get_effective_texture_budget_cells"):
+		budget = int(controller.call("get_effective_texture_budget_cells"))
+	return mini(maxi(512, budget), expected_cells)
+
 func ensure_volumetric_cloud_shell(controller: Node) -> void:
 	if not controller.clouds_enabled:
 		if controller._cloud_renderer != null:
@@ -184,7 +190,7 @@ func update_surface_state_texture(controller: Node, weather_snapshot: Dictionary
 	var avg_humidity = clampf(float(weather_snapshot.get("avg_humidity", 0.0)), 0.0, 1.0)
 	var dirty = 0
 	var expected = width * height
-	var budget = mini(maxi(512, controller.field_texture_update_budget_cells), expected)
+	var budget = _texture_budget_for_controller(controller, expected)
 	var start = clampi(controller._surface_field_update_cursor, 0, maxi(0, expected - 1))
 	for offset in range(budget):
 		var idx = (start + offset) % expected
@@ -251,7 +257,7 @@ func update_solar_field_texture(controller: Node, solar_snapshot: Dictionary) ->
 	var rows: Array = solar_snapshot.get("rows", [])
 	var dirty = 0
 	if use_buffers:
-		var budget = mini(maxi(512, controller.field_texture_update_budget_cells), expected)
+		var budget = _texture_budget_for_controller(controller, expected)
 		var start = clampi(controller._solar_field_update_cursor, 0, maxi(0, expected - 1))
 		for offset in range(budget):
 			var i = (start + offset) % expected
@@ -342,7 +348,7 @@ func update_weather_field_texture(controller: Node, weather_snapshot: Dictionary
 	var expected_cells = width * height
 	var dirty_count = 0
 	if use_buffers:
-		var budget = mini(maxi(512, controller.field_texture_update_budget_cells), expected_cells)
+		var budget = _texture_budget_for_controller(controller, expected_cells)
 		var start = clampi(controller._weather_field_update_cursor, 0, maxi(0, expected_cells - 1))
 		for offset in range(budget):
 			var i = (start + offset) % expected_cells

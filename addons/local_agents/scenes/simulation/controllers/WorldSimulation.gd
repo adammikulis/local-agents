@@ -7,6 +7,7 @@ const WorldProgressionProfileResourceScript = preload("res://addons/local_agents
 const EnvironmentSignalSnapshotResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/EnvironmentSignalSnapshotResource.gd")
 const AtmosphereCycleControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/AtmosphereCycleController.gd")
 const SimulationLoopControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/SimulationLoopController.gd")
+const SimulationGraphicsSettingsScript = preload("res://addons/local_agents/scenes/simulation/controllers/SimulationGraphicsSettings.gd")
 
 @onready var simulation_controller: Node = $SimulationController
 @onready var environment_controller: Node3D = $EnvironmentController
@@ -45,6 +46,7 @@ const SimulationLoopControllerScript = preload("res://addons/local_agents/scenes
 @export_range(0.0, 1.0, 0.001) var start_time_of_day: float = 0.28
 @export_range(1, 16, 1) var visual_environment_update_interval_ticks: int = 4
 @export_range(1, 16, 1) var living_profile_push_interval_ticks: int = 4
+@export_range(1, 8, 1) var hud_refresh_interval_ticks: int = 2
 
 var _loop_controller = SimulationLoopControllerScript.new()
 var _last_state: Dictionary = {}
@@ -58,26 +60,16 @@ var _camera_pitch: float = deg_to_rad(55.0)
 var _mmb_down: bool = false
 var _rmb_down: bool = false
 var _spawn_mode: String = "none"
-var _graphics_state: Dictionary = {
-	"water_shader_enabled": false,
-	"ocean_surface_enabled": false,
-	"river_overlays_enabled": false,
-	"rain_post_fx_enabled": false,
-	"clouds_enabled": false,
-	"cloud_quality": "low",
-	"cloud_density_scale": 0.25,
-	"rain_visual_intensity_scale": 0.25,
-	"shadows_enabled": false,
-	"ssr_enabled": false,
-	"ssao_enabled": false,
-	"ssil_enabled": false,
-	"sdfgi_enabled": false,
-	"glow_enabled": false,
-	"fog_enabled": false,
-	"volumetric_fog_enabled": false,
-}
+var _graphics_state: Dictionary = SimulationGraphicsSettingsScript.default_state()
+var _supported_environment_flags: Dictionary = {}
+var _last_fog_enabled: bool = false
+var _last_volumetric_fog_enabled: bool = false
+var _last_hud_refresh_tick: int = -1
+var _rolling_sim_timing_ms: Dictionary = {}
+var _rolling_sim_timing_tick: int = -1
 
 func _ready() -> void:
+	_graphics_state = SimulationGraphicsSettingsScript.merge_with_defaults(_graphics_state)
 	_time_of_day = clampf(start_time_of_day, 0.0, 1.0)
 	_loop_controller.configure(
 		simulation_controller,
@@ -107,10 +99,9 @@ func _ready() -> void:
 			simulation_hud.overlays_changed.connect(_on_hud_overlays_changed)
 		if simulation_hud.has_signal("graphics_option_changed"):
 			simulation_hud.graphics_option_changed.connect(_on_hud_graphics_option_changed)
-		if simulation_hud.has_signal("performance_mode_requested"):
-			simulation_hud.performance_mode_requested.connect(_on_hud_performance_mode_requested)
 	_initialize_camera_orbit()
 	_on_hud_overlays_changed(false, false, false, false, false, false)
+	_cache_environment_supported_flags()
 	_apply_graphics_state()
 	if has_node("EcologyController"):
 		var ecology_controller = get_node("EcologyController")
@@ -248,7 +239,10 @@ func _apply_loop_result(result: Dictionary) -> void:
 		_last_state = _loop_controller.last_state()
 		if not _last_state.is_empty():
 			_sync_environment_from_state(_last_state, force_rebuild)
-	_refresh_hud()
+	var current_tick = _loop_controller.current_tick()
+	if force_rebuild or _last_hud_refresh_tick < 0 or current_tick % maxi(1, hud_refresh_interval_ticks) == 0:
+		_last_hud_refresh_tick = current_tick
+		_refresh_hud()
 
 func _sync_environment_from_state(state: Dictionary, force_rebuild: bool) -> void:
 	if environment_controller == null:
@@ -320,6 +314,7 @@ func _refresh_hud() -> void:
 		simulation_hud.set_details_text(details_text)
 	if simulation_hud.has_method("set_inspector_npc"):
 		simulation_hud.set_inspector_npc(_inspector_npc_id)
+	_update_sim_timing_hud()
 
 func _build_environment_signal_snapshot_from_setup(setup: Dictionary, tick: int) -> LocalAgentsEnvironmentSignalSnapshotResource:
 	var snapshot = EnvironmentSignalSnapshotResourceScript.new()
@@ -373,14 +368,18 @@ func _update_day_night(delta: float) -> void:
 	)
 	_apply_atmospheric_fog(float(atmosphere_state.get("daylight", 0.0)))
 
-func _apply_atmospheric_fog(daylight: float) -> void:
+func _apply_atmospheric_fog(_daylight: float) -> void:
 	if world_environment == null or world_environment.environment == null:
 		return
 	var env: Environment = world_environment.environment
 	var fog_enabled = bool(_graphics_state.get("fog_enabled", false))
 	var volumetric_fog_enabled = bool(_graphics_state.get("volumetric_fog_enabled", false))
-	_set_env_flag_if_supported(env, "fog_enabled", fog_enabled)
-	_set_env_flag_if_supported(env, "volumetric_fog_enabled", volumetric_fog_enabled)
+	if fog_enabled != _last_fog_enabled:
+		_set_env_flag_if_supported(env, "fog_enabled", fog_enabled)
+		_last_fog_enabled = fog_enabled
+	if volumetric_fog_enabled != _last_volumetric_fog_enabled:
+		_set_env_flag_if_supported(env, "volumetric_fog_enabled", volumetric_fog_enabled)
+		_last_volumetric_fog_enabled = volumetric_fog_enabled
 
 func _year_at_tick(tick: int) -> float:
 	return start_year + float(tick) * years_per_tick
@@ -401,6 +400,58 @@ func _format_duration_hms(total_seconds: float) -> String:
 	var seconds = int(whole % 60)
 	return "%02d:%02d:%02d" % [hours, minutes, seconds]
 
+func _update_sim_timing_hud() -> void:
+	if simulation_hud == null or not simulation_hud.has_method("set_sim_timing_text"):
+		return
+	if simulation_controller == null:
+		simulation_hud.call("set_sim_timing_text", "SimTiming unavailable")
+		return
+	var profile: Dictionary = {}
+	if simulation_controller.has_method("get_last_tick_profile"):
+		profile = simulation_controller.call("get_last_tick_profile")
+	else:
+		var raw = simulation_controller.get("_last_tick_profile")
+		if raw is Dictionary:
+			profile = raw as Dictionary
+	if profile.is_empty():
+		simulation_hud.call("set_sim_timing_text", "SimTiming collecting...")
+		return
+	if simulation_hud.has_method("set_sim_timing_profile"):
+		simulation_hud.call("set_sim_timing_profile", profile)
+	var tick = int(profile.get("tick", -1))
+	if tick != _rolling_sim_timing_tick:
+		_rolling_sim_timing_tick = tick
+		var alpha = 0.22
+		var keys := [
+			"total_ms",
+			"weather_ms",
+			"hydrology_ms",
+			"erosion_ms",
+			"solar_ms",
+			"resource_pipeline_ms",
+			"structure_ms",
+			"culture_ms",
+			"cognition_ms",
+			"snapshot_ms",
+		]
+		for key in keys:
+			var value = maxf(0.0, float(profile.get(key, 0.0)))
+			var prev = float(_rolling_sim_timing_ms.get(key, value))
+			_rolling_sim_timing_ms[key] = value if prev <= 0.0 else lerpf(prev, value, alpha)
+	var text = "SimTiming(avg ms): tot %.2f w %.2f h %.2f e %.2f s %.2f rp %.2f st %.2f c %.2f cg %.2f snap %.2f" % [
+		float(_rolling_sim_timing_ms.get("total_ms", 0.0)),
+		float(_rolling_sim_timing_ms.get("weather_ms", 0.0)),
+		float(_rolling_sim_timing_ms.get("hydrology_ms", 0.0)),
+		float(_rolling_sim_timing_ms.get("erosion_ms", 0.0)),
+		float(_rolling_sim_timing_ms.get("solar_ms", 0.0)),
+		float(_rolling_sim_timing_ms.get("resource_pipeline_ms", 0.0)),
+		float(_rolling_sim_timing_ms.get("structure_ms", 0.0)),
+		float(_rolling_sim_timing_ms.get("culture_ms", 0.0)),
+		float(_rolling_sim_timing_ms.get("cognition_ms", 0.0)),
+		float(_rolling_sim_timing_ms.get("snapshot_ms", 0.0)),
+	]
+	simulation_hud.call("set_sim_timing_text", text)
+
 func _on_hud_inspector_npc_changed(npc_id: String) -> void:
 	var normalized = npc_id.strip_edges()
 	_inspector_npc_id = normalized
@@ -413,54 +464,13 @@ func _on_hud_overlays_changed(paths: bool, resources: bool, conflicts: bool, sme
 		debug_overlay_root.call("set_visibility_flags", paths, resources, conflicts, smell, wind, temperature)
 
 func _on_hud_graphics_option_changed(option_id: String, value) -> void:
-	_graphics_state[String(option_id)] = value
+	var key := String(option_id)
+	_graphics_state[key] = SimulationGraphicsSettingsScript.sanitize_value(key, value)
 	_apply_graphics_state()
-
-func _on_hud_performance_mode_requested() -> void:
-	if simulation_controller != null:
-		simulation_controller.set("weather_step_interval_ticks", 4)
-		simulation_controller.set("hydrology_step_interval_ticks", 4)
-		simulation_controller.set("erosion_step_interval_ticks", 8)
-		simulation_controller.set("solar_step_interval_ticks", 8)
-		simulation_controller.set("resource_pipeline_interval_ticks", 4)
-		simulation_controller.set("structure_lifecycle_interval_ticks", 4)
-		simulation_controller.set("culture_cycle_interval_ticks", 8)
-	simulation_ticks_per_second = 2.0
-	living_profile_push_interval_ticks = 8
-	visual_environment_update_interval_ticks = 8
-	_loop_controller.set_timing(simulation_ticks_per_second, living_profile_push_interval_ticks)
-	if environment_controller != null:
-		environment_controller.set("weather_texture_update_interval_ticks", 8)
-		environment_controller.set("surface_texture_update_interval_ticks", 8)
-		environment_controller.set("solar_texture_update_interval_ticks", 8)
-		environment_controller.set("field_texture_update_budget_cells", 4096)
-	if has_node("EcologyController"):
-		var ecology_controller = get_node("EcologyController")
-		ecology_controller.set("plant_step_interval_seconds", 0.2)
-		ecology_controller.set("mammal_step_interval_seconds", 0.2)
-		ecology_controller.set("living_profile_refresh_interval_seconds", 0.4)
-		ecology_controller.set("edible_index_rebuild_interval_seconds", 0.75)
-		ecology_controller.set("max_smell_substeps_per_physics_frame", 2)
-	_graphics_state["water_shader_enabled"] = false
-	_graphics_state["ocean_surface_enabled"] = false
-	_graphics_state["river_overlays_enabled"] = false
-	_graphics_state["rain_post_fx_enabled"] = false
-	_graphics_state["clouds_enabled"] = false
-	_graphics_state["shadows_enabled"] = false
-	_graphics_state["ssr_enabled"] = false
-	_graphics_state["ssao_enabled"] = false
-	_graphics_state["ssil_enabled"] = false
-	_graphics_state["sdfgi_enabled"] = false
-	_graphics_state["glow_enabled"] = false
-	_graphics_state["fog_enabled"] = false
-	_graphics_state["volumetric_fog_enabled"] = false
-	_graphics_state["cloud_quality"] = "low"
-	_graphics_state["cloud_density_scale"] = 0.2
-	_graphics_state["rain_visual_intensity_scale"] = 0.1
-	_apply_graphics_state()
-	_refresh_hud()
 
 func _apply_graphics_state() -> void:
+	_graphics_state = SimulationGraphicsSettingsScript.merge_with_defaults(_graphics_state)
+	_apply_performance_toggles()
 	if sun_light != null:
 		sun_light.shadow_enabled = bool(_graphics_state.get("shadows_enabled", false))
 	if world_environment != null and world_environment.environment != null:
@@ -473,6 +483,8 @@ func _apply_graphics_state() -> void:
 		_set_env_flag_if_supported(env, "fog_enabled", bool(_graphics_state.get("fog_enabled", false)))
 		_set_env_flag_if_supported(env, "volumetric_fog_enabled", bool(_graphics_state.get("volumetric_fog_enabled", false)))
 	if environment_controller != null:
+		if environment_controller.has_method("set_terrain_chunk_size"):
+			environment_controller.call("set_terrain_chunk_size", int(_graphics_state.get("terrain_chunk_size_blocks", 12)))
 		if environment_controller.has_method("set_water_render_mode"):
 			environment_controller.call("set_water_render_mode", "shader" if bool(_graphics_state.get("water_shader_enabled", false)) else "simple")
 		if environment_controller.has_method("set_ocean_surface_enabled"):
@@ -494,16 +506,85 @@ func _apply_graphics_state() -> void:
 			if env_state is Dictionary:
 				for key_variant in (env_state as Dictionary).keys():
 					_graphics_state[String(key_variant)] = (env_state as Dictionary).get(key_variant)
+	_graphics_state = SimulationGraphicsSettingsScript.merge_with_defaults(_graphics_state)
 	if simulation_hud != null and simulation_hud.has_method("set_graphics_state"):
 		simulation_hud.call("set_graphics_state", _graphics_state)
+
+func _apply_performance_toggles() -> void:
+	var simulation_rate_override_enabled = bool(_graphics_state.get("simulation_rate_override_enabled", false))
+	var simulation_ticks_per_second_override = clampf(float(_graphics_state.get("simulation_ticks_per_second_override", 2.0)), 0.5, 30.0)
+	var weather_solver_decimation_enabled = bool(_graphics_state.get("weather_solver_decimation_enabled", false))
+	var hydrology_solver_decimation_enabled = bool(_graphics_state.get("hydrology_solver_decimation_enabled", false))
+	var erosion_solver_decimation_enabled = bool(_graphics_state.get("erosion_solver_decimation_enabled", false))
+	var solar_solver_decimation_enabled = bool(_graphics_state.get("solar_solver_decimation_enabled", false))
+	var climate_fast_interval_ticks = maxi(1, int(_graphics_state.get("climate_fast_interval_ticks", 4)))
+	var climate_slow_interval_ticks = maxi(1, int(_graphics_state.get("climate_slow_interval_ticks", 8)))
+	var resource_pipeline_decimation_enabled = bool(_graphics_state.get("resource_pipeline_decimation_enabled", false))
+	var structure_lifecycle_decimation_enabled = bool(_graphics_state.get("structure_lifecycle_decimation_enabled", false))
+	var culture_cycle_decimation_enabled = bool(_graphics_state.get("culture_cycle_decimation_enabled", false))
+	var society_fast_interval_ticks = maxi(1, int(_graphics_state.get("society_fast_interval_ticks", 4)))
+	var society_slow_interval_ticks = maxi(1, int(_graphics_state.get("society_slow_interval_ticks", 8)))
+	var weather_texture_upload_decimation_enabled = bool(_graphics_state.get("weather_texture_upload_decimation_enabled", false))
+	var surface_texture_upload_decimation_enabled = bool(_graphics_state.get("surface_texture_upload_decimation_enabled", false))
+	var solar_texture_upload_decimation_enabled = bool(_graphics_state.get("solar_texture_upload_decimation_enabled", false))
+	var texture_upload_interval_ticks = maxi(1, int(_graphics_state.get("texture_upload_interval_ticks", 8)))
+	var texture_upload_budget_texels = maxi(512, int(_graphics_state.get("texture_upload_budget_texels", 4096)))
+	var ecology_step_decimation_enabled = bool(_graphics_state.get("ecology_step_decimation_enabled", false))
+	var ecology_step_interval_seconds = clampf(float(_graphics_state.get("ecology_step_interval_seconds", 0.2)), 0.05, 0.5)
+	var ecology_voxel_size_meters = clampf(float(_graphics_state.get("ecology_voxel_size_meters", 1.0)), 0.5, 3.0)
+	var ecology_vertical_extent_meters = clampf(float(_graphics_state.get("ecology_vertical_extent_meters", 3.0)), 1.0, 8.0)
+
+	var target_sim_ticks_per_second = simulation_ticks_per_second_override if simulation_rate_override_enabled else simulation_ticks_per_second
+	var target_profile_push_interval = 8 if simulation_rate_override_enabled else living_profile_push_interval_ticks
+	visual_environment_update_interval_ticks = 8 if simulation_rate_override_enabled else 4
+	_loop_controller.set_timing(target_sim_ticks_per_second, target_profile_push_interval)
+
+	if simulation_controller != null:
+		simulation_controller.set("weather_step_interval_ticks", climate_fast_interval_ticks if weather_solver_decimation_enabled else 2)
+		simulation_controller.set("hydrology_step_interval_ticks", climate_fast_interval_ticks if hydrology_solver_decimation_enabled else 2)
+		simulation_controller.set("erosion_step_interval_ticks", climate_slow_interval_ticks if erosion_solver_decimation_enabled else 4)
+		simulation_controller.set("solar_step_interval_ticks", climate_slow_interval_ticks if solar_solver_decimation_enabled else 4)
+		simulation_controller.set("resource_pipeline_interval_ticks", society_fast_interval_ticks if resource_pipeline_decimation_enabled else 2)
+		simulation_controller.set("structure_lifecycle_interval_ticks", society_fast_interval_ticks if structure_lifecycle_decimation_enabled else 2)
+		simulation_controller.set("culture_cycle_interval_ticks", society_slow_interval_ticks if culture_cycle_decimation_enabled else 4)
+
+	if environment_controller != null:
+		environment_controller.set("weather_texture_update_interval_ticks", texture_upload_interval_ticks if weather_texture_upload_decimation_enabled else 4)
+		environment_controller.set("surface_texture_update_interval_ticks", texture_upload_interval_ticks if surface_texture_upload_decimation_enabled else 4)
+		environment_controller.set("solar_texture_update_interval_ticks", texture_upload_interval_ticks if solar_texture_upload_decimation_enabled else 4)
+		var any_texture_throttle = weather_texture_upload_decimation_enabled or surface_texture_upload_decimation_enabled or solar_texture_upload_decimation_enabled
+		environment_controller.set("field_texture_update_budget_cells", texture_upload_budget_texels if any_texture_throttle else 8192)
+
+	if has_node("EcologyController"):
+		var ecology_controller = get_node("EcologyController")
+		ecology_controller.set("plant_step_interval_seconds", ecology_step_interval_seconds if ecology_step_decimation_enabled else 0.1)
+		ecology_controller.set("mammal_step_interval_seconds", ecology_step_interval_seconds if ecology_step_decimation_enabled else 0.1)
+		ecology_controller.set("living_profile_refresh_interval_seconds", (ecology_step_interval_seconds * 2.0) if ecology_step_decimation_enabled else 0.2)
+		ecology_controller.set("edible_index_rebuild_interval_seconds", (ecology_step_interval_seconds * 3.5) if ecology_step_decimation_enabled else 0.35)
+		ecology_controller.set("max_smell_substeps_per_physics_frame", 2 if ecology_step_decimation_enabled else 3)
+		if ecology_controller.has_method("set_smell_voxel_size"):
+			ecology_controller.call("set_smell_voxel_size", ecology_voxel_size_meters)
+		if ecology_controller.has_method("set_smell_vertical_half_extent"):
+			ecology_controller.call("set_smell_vertical_half_extent", ecology_vertical_extent_meters)
 
 func _set_env_flag_if_supported(env: Environment, property_name: String, enabled: bool) -> void:
 	if env == null:
 		return
+	if _supported_environment_flags.is_empty():
+		_cache_environment_supported_flags()
+	if not bool(_supported_environment_flags.get(property_name, false)):
+		return
+	env.set(property_name, enabled)
+
+func _cache_environment_supported_flags() -> void:
+	_supported_environment_flags.clear()
+	if world_environment == null or world_environment.environment == null:
+		return
+	var env: Environment = world_environment.environment
 	for prop in env.get_property_list():
-		if String((prop as Dictionary).get("name", "")) == property_name:
-			env.set(property_name, enabled)
-			return
+		var name = String((prop as Dictionary).get("name", ""))
+		if name != "":
+			_supported_environment_flags[name] = true
 
 func _ensure_inspector_npc_selected() -> void:
 	if _inspector_npc_id != "":

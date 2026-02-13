@@ -5,12 +5,14 @@ var _show_performance_overlay: bool = true
 var _performance_server_path: NodePath = NodePath()
 var _performance_server: Node
 var _set_perf_text: Callable
+var _set_perf_metrics: Callable
 
-func configure(root: Node, show_performance_overlay: bool, performance_server_path: NodePath, set_perf_text: Callable) -> void:
+func configure(root: Node, show_performance_overlay: bool, performance_server_path: NodePath, set_perf_text: Callable, set_perf_metrics: Callable = Callable()) -> void:
 	_root = root
 	_show_performance_overlay = show_performance_overlay
 	_performance_server_path = performance_server_path
 	_set_perf_text = set_perf_text
+	_set_perf_metrics = set_perf_metrics
 
 func bind_performance_server() -> void:
 	if _root == null:
@@ -36,6 +38,8 @@ func bind_performance_server() -> void:
 func _on_performance_metrics_updated(metrics: Dictionary) -> void:
 	if not _show_performance_overlay:
 		return
+	if _set_perf_metrics.is_valid():
+		_set_perf_metrics.call(metrics)
 	_set_performance_text(_build_performance_text(metrics))
 
 func _build_performance_text(metrics: Dictionary) -> String:
