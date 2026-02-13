@@ -41,16 +41,16 @@ func _test_combustion_stage_uses_pressure_and_temperature_gating() -> bool:
 	if source == "":
 		return false
 	var ok := true
-	ok = _assert(source.contains("Dictionary UnifiedSimulationPipeline::run_combustion_stage"), "Pipeline must define combustion stage runner") and ok
-	ok = _assert(source.contains("const double ignition_temperature"), "Combustion stage must define ignition temperature") and ok
+	ok = _assert(source.contains("Dictionary UnifiedSimulationPipeline::run_reaction_stage"), "Pipeline must define reaction stage runner for combustion-compatible chemistry") and ok
+	ok = _assert(source.contains("const double activation_temperature"), "Reaction stage must define activation temperature") and ok
 	ok = _assert(source.contains("const double min_pressure"), "Combustion stage must define min pressure") and ok
 	ok = _assert(source.contains("const double max_pressure"), "Combustion stage must define max pressure") and ok
 	ok = _assert(source.contains("const double optimal_pressure"), "Combustion stage must define optimal pressure") and ok
 	ok = _assert(source.contains("const double pressure = clamped(frame_inputs.get(\"pressure\""), "Combustion stage must read pressure input") and ok
-	ok = _assert(source.contains("const bool ignited = temperature >= ignition_temperature"), "Combustion stage must gate ignition by temperature") and ok
+	ok = _assert(source.contains("temperature >= activation_temperature"), "Reaction stage must gate combustion-like chemistry by temperature activation") and ok
 	ok = _assert(source.contains("const double pressure_factor = pressure_window_factor"), "Combustion stage must gate intensity by pressure factor") and ok
 	ok = _assert(source.contains("result[\"heat_delta\"]"), "Combustion stage must output heat delta") and ok
-	ok = _assert(source.contains("result[\"terrain_damage_budget\"]"), "Combustion stage must output terrain damage budget") and ok
+	ok = _assert(source.contains("result[\"reaction_extent\"]"), "Reaction stage must expose reaction extent output") and ok
 	return ok
 
 func _test_bridge_builds_canonical_material_inputs() -> bool:

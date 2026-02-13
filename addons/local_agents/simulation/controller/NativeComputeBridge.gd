@@ -4,9 +4,13 @@ const NATIVE_SIM_CORE_SINGLETON_NAME := "LocalAgentsSimulationCore"
 const NATIVE_SIM_CORE_ENV_KEY := "LOCAL_AGENTS_ENABLE_NATIVE_SIM_CORE"
 const _CANONICAL_INPUT_KEYS := [
 	"pressure",
+	"pressure_gradient",
 	"temperature",
 	"density",
 	"velocity",
+	"force_proxy",
+	"acceleration_proxy",
+	"mass_proxy",
 	"moisture",
 	"porosity",
 	"cohesion",
@@ -14,11 +18,43 @@ const _CANONICAL_INPUT_KEYS := [
 	"phase",
 	"stress",
 	"strain",
+	"thermal_conductivity",
+	"thermal_capacity",
+	"thermal_diffusivity",
+	"reaction_rate",
+	"reaction_channels",
 	"fuel",
 	"oxygen",
 	"material_flammability",
 	"activity",
 ]
+const _DEFAULT_REACTION_CHANNELS := {
+	"combustion": 0.0,
+	"oxidation": 0.0,
+	"hydration": 0.0,
+	"decomposition": 0.0,
+	"corrosion": 0.0,
+}
+const _LEGACY_INPUT_KEY_ALIASES := {
+	"temperature": ["temp", "temp_k", "avg_temperature"],
+	"pressure": ["pressure_atm", "atmospheric_pressure", "hydraulic_pressure"],
+	"pressure_gradient": ["pressure_delta", "pressure_grad", "hydraulic_gradient"],
+	"density": ["air_density", "material_density"],
+	"velocity": ["wind_speed", "flow_speed", "speed"],
+	"mass_proxy": ["mass", "mass_estimate", "inertial_mass"],
+	"acceleration_proxy": ["acceleration", "accel", "accel_proxy"],
+	"force_proxy": ["force", "force_estimate", "impulse"],
+	"moisture": ["humidity", "water_content"],
+	"porosity": ["void_fraction"],
+	"cohesion": ["binding_strength"],
+	"hardness": ["rigidity", "resistance"],
+	"thermal_conductivity": ["conductivity", "thermal_k"],
+	"thermal_capacity": ["heat_capacity", "specific_heat"],
+	"thermal_diffusivity": ["diffusivity"],
+	"reaction_rate": ["reaction_intensity", "chem_reaction_rate"],
+	"material_flammability": ["flammability"],
+	"activity": ["activity_level", "activation"],
+}
 
 static func is_native_sim_core_enabled() -> bool:
 	return OS.get_environment(NATIVE_SIM_CORE_ENV_KEY).strip_edges() == "1"
@@ -193,6 +229,14 @@ static func _material_inputs_from_payload(payload: Dictionary) -> Dictionary:
 	if explicit_inputs is Dictionary:
 		out = (explicit_inputs as Dictionary).duplicate(true)
 
+	_merge_payload_material_input_overrides(out, payload)
+	_merge_environment_activity(out, payload)
+	_merge_hydrology_material_inputs(out, payload)
+	_merge_weather_material_inputs(out, payload)
+	_apply_material_input_defaults(out)
+	return _normalize_canonical_material_inputs(out)
+
+static func _merge_payload_material_input_overrides(out: Dictionary, payload: Dictionary) -> void:
 	for key_variant in _CANONICAL_INPUT_KEYS:
 		var key = String(key_variant)
 		if out.has(key):
@@ -200,6 +244,20 @@ static func _material_inputs_from_payload(payload: Dictionary) -> Dictionary:
 		if payload.has(key):
 			out[key] = payload.get(key)
 
+	for canonical_variant in _LEGACY_INPUT_KEY_ALIASES.keys():
+		var canonical_key := String(canonical_variant)
+		if out.has(canonical_key):
+			continue
+		var aliases_variant = _LEGACY_INPUT_KEY_ALIASES.get(canonical_key, [])
+		if not (aliases_variant is Array):
+			continue
+		for alias_variant in aliases_variant:
+			var alias_key := String(alias_variant)
+			if payload.has(alias_key):
+				out[canonical_key] = payload.get(alias_key)
+				break
+
+static func _merge_environment_activity(out: Dictionary, payload: Dictionary) -> void:
 	# Pull common channels from snapshots when available so weather/hydrology/erosion/solar
 	# adapters can share one native material-state input contract.
 	var environment = payload.get("environment", {})
@@ -211,58 +269,215 @@ static func _material_inputs_from_payload(payload: Dictionary) -> Dictionary:
 			if not out.has("activity") and vm.has("compute_budget_scale"):
 				out["activity"] = clampf(float(vm.get("compute_budget_scale", 1.0)), 0.0, 1.0)
 
+static func _merge_hydrology_material_inputs(out: Dictionary, payload: Dictionary) -> void:
 	var hydrology = payload.get("hydrology", {})
-	if hydrology is Dictionary:
-		var water_tiles = (hydrology as Dictionary).get("water_tiles", {})
-		if water_tiles is Dictionary and not (water_tiles as Dictionary).is_empty():
-			if not out.has("pressure"):
-				out["pressure"] = _average_tile_metric(water_tiles as Dictionary, "hydraulic_pressure", 1.0)
-			if not out.has("moisture"):
-				out["moisture"] = _average_tile_metric(water_tiles as Dictionary, "water_reliability", 0.0)
-
-	var weather = payload.get("weather", {})
-	if weather is Dictionary:
-		var weather_dict = weather as Dictionary
-		if not out.has("temperature"):
-			out["temperature"] = 273.15 + clampf(float(weather_dict.get("avg_temperature", 0.5)), 0.0, 1.0) * 70.0
-		if not out.has("oxygen"):
-			out["oxygen"] = clampf(float(weather_dict.get("avg_humidity", 0.35)) * 0.0 + 0.21, 0.0, 1.0)
-		if not out.has("density"):
-			out["density"] = 1.0
-		if not out.has("velocity"):
-			out["velocity"] = clampf(float(weather_dict.get("avg_wind_speed", 0.0)), 0.0, 1000.0)
-
-	if not out.has("temperature"):
-		out["temperature"] = 293.0
+	if not (hydrology is Dictionary):
+		return
+	var water_tiles = (hydrology as Dictionary).get("water_tiles", {})
+	if not (water_tiles is Dictionary):
+		return
+	if (water_tiles as Dictionary).is_empty():
+		return
 	if not out.has("pressure"):
-		out["pressure"] = 1.0
+		out["pressure"] = _average_tile_metric(water_tiles as Dictionary, "hydraulic_pressure", 1.0)
+	if not out.has("moisture"):
+		out["moisture"] = _average_tile_metric(water_tiles as Dictionary, "water_reliability", 0.0)
+	if not out.has("pressure_gradient"):
+		var hydraulic_gradient = _average_tile_metric(water_tiles as Dictionary, "pressure_gradient", -1.0)
+		if hydraulic_gradient < 0.0:
+			hydraulic_gradient = _average_tile_metric(water_tiles as Dictionary, "hydraulic_gradient", 0.0)
+		out["pressure_gradient"] = hydraulic_gradient
+
+static func _merge_weather_material_inputs(out: Dictionary, payload: Dictionary) -> void:
+	var weather = payload.get("weather", {})
+	if not (weather is Dictionary):
+		return
+	var weather_dict = weather as Dictionary
+	if not out.has("temperature"):
+		out["temperature"] = 273.15 + clampf(float(weather_dict.get("avg_temperature", 0.5)), 0.0, 1.0) * 70.0
+	if not out.has("oxygen"):
+		out["oxygen"] = clampf(float(weather_dict.get("avg_humidity", 0.35)) * 0.0 + 0.21, 0.0, 1.0)
 	if not out.has("density"):
 		out["density"] = 1.0
 	if not out.has("velocity"):
-		out["velocity"] = 0.0
-	if not out.has("moisture"):
-		out["moisture"] = 0.0
-	if not out.has("porosity"):
-		out["porosity"] = 0.25
-	if not out.has("cohesion"):
-		out["cohesion"] = 0.5
-	if not out.has("hardness"):
-		out["hardness"] = 0.5
-	if not out.has("phase"):
-		out["phase"] = 0
-	if not out.has("stress"):
-		out["stress"] = 0.0
-	if not out.has("strain"):
-		out["strain"] = 0.0
-	if not out.has("fuel"):
-		out["fuel"] = 0.0
-	if not out.has("oxygen"):
-		out["oxygen"] = 0.21
-	if not out.has("material_flammability"):
-		out["material_flammability"] = 0.5
-	if not out.has("activity"):
-		out["activity"] = 0.0
+		out["velocity"] = clampf(float(weather_dict.get("avg_wind_speed", 0.0)), 0.0, 200.0)
+
+static func _apply_material_input_defaults(out: Dictionary) -> void:
+	if not out.has("temperature"): out["temperature"] = 293.0
+	if not out.has("pressure"): out["pressure"] = 1.0
+	if not out.has("pressure_gradient"): out["pressure_gradient"] = 0.0
+	if not out.has("density"): out["density"] = 1.0
+	if not out.has("velocity"): out["velocity"] = 0.0
+	if not out.has("moisture"): out["moisture"] = 0.0
+	if not out.has("porosity"): out["porosity"] = 0.25
+	if not out.has("cohesion"): out["cohesion"] = 0.5
+	if not out.has("hardness"): out["hardness"] = 0.5
+	if not out.has("phase"): out["phase"] = 0
+	if not out.has("stress"): out["stress"] = 0.0
+	if not out.has("strain"): out["strain"] = 0.0
+	if not out.has("fuel"): out["fuel"] = 0.0
+	if not out.has("oxygen"): out["oxygen"] = 0.21
+	if not out.has("material_flammability"): out["material_flammability"] = 0.5
+	if not out.has("activity"): out["activity"] = 0.0
+	if not out.has("thermal_conductivity"): out["thermal_conductivity"] = -1.0
+	if not out.has("thermal_capacity"): out["thermal_capacity"] = -1.0
+	if not out.has("thermal_diffusivity"): out["thermal_diffusivity"] = -1.0
+	if not out.has("reaction_rate"): out["reaction_rate"] = -1.0
+	if not out.has("reaction_channels"): out["reaction_channels"] = {}
+	if not out.has("mass_proxy"): out["mass_proxy"] = -1.0
+	if not out.has("acceleration_proxy"): out["acceleration_proxy"] = -1.0
+	if not out.has("force_proxy"): out["force_proxy"] = -1.0
+
+static func _normalize_canonical_material_inputs(input_fields: Dictionary) -> Dictionary:
+	var out: Dictionary = input_fields.duplicate(true)
+	out["temperature"] = _normalize_temperature_input(out.get("temperature", 293.0))
+	out["pressure"] = _normalize_pressure_input(out.get("pressure", 1.0))
+	out["pressure_gradient"] = _normalize_signed_input(out.get("pressure_gradient", 0.0), 50.0)
+	out["density"] = clampf(float(out.get("density", 1.0)), 0.001, 50000.0)
+	out["velocity"] = clampf(float(out.get("velocity", 0.0)), 0.0, 200.0)
+	out["moisture"] = clampf(float(out.get("moisture", 0.0)), 0.0, 1.0)
+	out["porosity"] = clampf(float(out.get("porosity", 0.25)), 0.0, 1.0)
+	out["cohesion"] = clampf(float(out.get("cohesion", 0.5)), 0.0, 1.0)
+	out["hardness"] = clampf(float(out.get("hardness", 0.5)), 0.0, 1.0)
+	out["phase"] = int(out.get("phase", 0))
+	out["stress"] = _normalize_signed_input(out.get("stress", 0.0), 5.0e8)
+	out["strain"] = clampf(float(out.get("strain", 0.0)), -1.0, 1.0)
+	out["fuel"] = clampf(float(out.get("fuel", 0.0)), 0.0, 1.0)
+	out["oxygen"] = clampf(float(out.get("oxygen", 0.21)), 0.0, 1.0)
+	out["material_flammability"] = clampf(float(out.get("material_flammability", 0.5)), 0.0, 1.0)
+	out["activity"] = clampf(float(out.get("activity", 0.0)), 0.0, 1.0)
+	out["mass_proxy"] = _normalize_mass_proxy(out)
+	out["acceleration_proxy"] = _normalize_acceleration_proxy(out)
+	out["force_proxy"] = _normalize_force_proxy(out)
+	out["thermal_conductivity"] = _normalize_thermal_conductivity(out)
+	out["thermal_capacity"] = _normalize_thermal_capacity(out)
+	out["thermal_diffusivity"] = _normalize_thermal_diffusivity(out)
+	out["reaction_channels"] = _normalize_reaction_channels(out.get("reaction_channels", {}), out)
+	out["reaction_rate"] = _normalize_reaction_rate(out)
 	return out
+
+static func _normalize_temperature_input(raw_value) -> float:
+	var value = float(raw_value)
+	if value <= 2.0:
+		return 173.15 + clampf(value, 0.0, 1.0) * 210.0
+	return clampf(value, 120.0, 2200.0)
+
+static func _normalize_pressure_input(raw_value) -> float:
+	var value = float(raw_value)
+	if value <= 5.0:
+		return clampf(value, 0.0, 5.0) * 101325.0
+	return clampf(value, 0.0, 5.0e7)
+
+static func _normalize_signed_input(raw_value, max_magnitude: float) -> float:
+	return clampf(float(raw_value), -max_magnitude, max_magnitude)
+
+static func _normalize_mass_proxy(inputs: Dictionary) -> float:
+	var raw_mass = float(inputs.get("mass_proxy", -1.0))
+	if raw_mass >= 0.0:
+		if raw_mass > 1.0:
+			return clampf(raw_mass / 5000.0, 0.0, 1.0)
+		return clampf(raw_mass, 0.0, 1.0)
+	var density = float(inputs.get("density", 1.0))
+	var porosity = clampf(float(inputs.get("porosity", 0.25)), 0.0, 1.0)
+	return clampf((density * (1.0 - porosity)) / 5000.0, 0.0, 1.0)
+
+static func _normalize_acceleration_proxy(inputs: Dictionary) -> float:
+	var raw_accel = float(inputs.get("acceleration_proxy", -1.0))
+	if raw_accel >= 0.0:
+		if raw_accel > 1.0:
+			return clampf(raw_accel / 200.0, 0.0, 1.0)
+		return clampf(raw_accel, 0.0, 1.0)
+	var pressure_grad = absf(float(inputs.get("pressure_gradient", 0.0)))
+	var stress_mag = absf(float(inputs.get("stress", 0.0)))
+	var strain_mag = absf(float(inputs.get("strain", 0.0)))
+	var normalized_grad = clampf(pressure_grad / 50.0, 0.0, 1.0)
+	var normalized_stress = clampf(stress_mag / 5.0e8, 0.0, 1.0)
+	return clampf(normalized_grad * 0.5 + normalized_stress * 0.35 + strain_mag * 0.15, 0.0, 1.0)
+
+static func _normalize_force_proxy(inputs: Dictionary) -> float:
+	var raw_force = float(inputs.get("force_proxy", -1.0))
+	if raw_force >= 0.0:
+		if raw_force > 1.0:
+			return clampf(raw_force / 1.0e6, 0.0, 1.0)
+		return clampf(raw_force, 0.0, 1.0)
+	var mass_proxy = float(inputs.get("mass_proxy", 0.0))
+	var accel_proxy = float(inputs.get("acceleration_proxy", 0.0))
+	return clampf(mass_proxy * accel_proxy, 0.0, 1.0)
+
+static func _normalize_thermal_conductivity(inputs: Dictionary) -> float:
+	var raw_value = float(inputs.get("thermal_conductivity", -1.0))
+	if raw_value >= 0.0:
+		if raw_value > 1.0:
+			return clampf(raw_value / 400.0, 0.0, 1.0)
+		return clampf(raw_value, 0.0, 1.0)
+	var hardness = clampf(float(inputs.get("hardness", 0.5)), 0.0, 1.0)
+	var moisture = clampf(float(inputs.get("moisture", 0.0)), 0.0, 1.0)
+	var porosity = clampf(float(inputs.get("porosity", 0.25)), 0.0, 1.0)
+	return clampf(hardness * 0.65 + moisture * 0.25 + (1.0 - porosity) * 0.1, 0.0, 1.0)
+
+static func _normalize_thermal_capacity(inputs: Dictionary) -> float:
+	var raw_value = float(inputs.get("thermal_capacity", -1.0))
+	if raw_value >= 0.0:
+		if raw_value > 1.0:
+			return clampf(raw_value / 6000.0, 0.0, 1.0)
+		return clampf(raw_value, 0.0, 1.0)
+	var moisture = clampf(float(inputs.get("moisture", 0.0)), 0.0, 1.0)
+	var density = clampf(float(inputs.get("density", 1.0)) / 5000.0, 0.0, 1.0)
+	return clampf(moisture * 0.55 + density * 0.45, 0.0, 1.0)
+
+static func _normalize_thermal_diffusivity(inputs: Dictionary) -> float:
+	var raw_value = float(inputs.get("thermal_diffusivity", -1.0))
+	if raw_value >= 0.0:
+		if raw_value > 1.0:
+			return clampf(raw_value / 1.5e-4, 0.0, 1.0)
+		return clampf(raw_value, 0.0, 1.0)
+	var conductivity = float(inputs.get("thermal_conductivity", 0.5))
+	var capacity = maxf(float(inputs.get("thermal_capacity", 0.5)), 0.0001)
+	var mass_proxy = maxf(float(inputs.get("mass_proxy", 0.1)), 0.0001)
+	return clampf(conductivity / (capacity * (0.3 + mass_proxy)), 0.0, 1.0)
+
+static func _normalize_reaction_channels(channels_variant, inputs: Dictionary) -> Dictionary:
+	var channels: Dictionary = _DEFAULT_REACTION_CHANNELS.duplicate(true)
+	if channels_variant is Dictionary:
+		for key_variant in (channels_variant as Dictionary).keys():
+			var key := String(key_variant)
+			channels[key] = clampf(float((channels_variant as Dictionary).get(key, 0.0)), 0.0, 1.0)
+	var fuel = clampf(float(inputs.get("fuel", 0.0)), 0.0, 1.0)
+	var oxygen = clampf(float(inputs.get("oxygen", 0.21)), 0.0, 1.0)
+	var flammability = clampf(float(inputs.get("material_flammability", 0.5)), 0.0, 1.0)
+	var moisture = clampf(float(inputs.get("moisture", 0.0)), 0.0, 1.0)
+	var activity = clampf(float(inputs.get("activity", 0.0)), 0.0, 1.0)
+	if not channels.has("combustion") or float(channels.get("combustion", 0.0)) <= 0.0:
+		channels["combustion"] = clampf(fuel * oxygen * flammability * (0.35 + activity * 0.65), 0.0, 1.0)
+	if not channels.has("oxidation") or float(channels.get("oxidation", 0.0)) <= 0.0:
+		channels["oxidation"] = clampf(oxygen * (0.4 + (1.0 - moisture) * 0.6), 0.0, 1.0)
+	if not channels.has("hydration") or float(channels.get("hydration", 0.0)) <= 0.0:
+		channels["hydration"] = clampf(moisture * (0.55 + activity * 0.45), 0.0, 1.0)
+	if not channels.has("decomposition") or float(channels.get("decomposition", 0.0)) <= 0.0:
+		var thermal_drive = clampf((float(inputs.get("temperature", 293.0)) - 260.0) / 500.0, 0.0, 1.0)
+		channels["decomposition"] = clampf(thermal_drive * (0.45 + activity * 0.55), 0.0, 1.0)
+	if not channels.has("corrosion") or float(channels.get("corrosion", 0.0)) <= 0.0:
+		channels["corrosion"] = clampf(oxygen * moisture * (0.4 + activity * 0.6), 0.0, 1.0)
+	return channels
+
+static func _normalize_reaction_rate(inputs: Dictionary) -> float:
+	var raw_value = float(inputs.get("reaction_rate", -1.0))
+	if raw_value >= 0.0:
+		if raw_value > 1.0:
+			return clampf(raw_value / 100.0, 0.0, 1.0)
+		return clampf(raw_value, 0.0, 1.0)
+	var channels_variant = inputs.get("reaction_channels", {})
+	var channels: Dictionary = channels_variant if channels_variant is Dictionary else {}
+	if channels.is_empty():
+		return 0.0
+	var total := 0.0
+	var count := 0
+	for value_variant in channels.values():
+		total += clampf(float(value_variant), 0.0, 1.0)
+		count += 1
+	if count <= 0:
+		return 0.0
+	return clampf(total / float(count), 0.0, 1.0)
 
 static func _average_tile_metric(rows: Dictionary, key: String, fallback: float) -> float:
 	var total := 0.0

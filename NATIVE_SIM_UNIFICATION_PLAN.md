@@ -99,6 +99,24 @@ Exit criteria:
 3. Determinism
 - Fixed seed + fixed tick count replay must be stable for CPU path and policy decisions.
 
+4. Generalized stage-contract gate
+- Native pipeline step summary must consistently expose all core stage domains:
+  - `mechanics`
+  - `pressure`
+  - `thermal`
+  - `reaction`
+  - `destruction`
+- `stage_counts` and `conservation_diagnostics.by_stage_type` must include those same domains each step.
+
+5. Conservation diagnostics shape gate
+- Each stage result must expose `conservation` with:
+  - `mass_proxy_delta`
+  - `energy_proxy_delta`
+  - `energy_proxy_metric`
+- Aggregated diagnostics must expose:
+  - per-stage totals: `count`, `mass_proxy_delta_sum`, `energy_proxy_delta_sum`
+  - overall totals: `stage_count`, `mass_proxy_delta_total`, `energy_proxy_delta_total`
+
 ## Open Design Decisions (to confirm)
 1. Material profile schema location
 - Native-only config blob vs Godot `Resource` mirrored into native.

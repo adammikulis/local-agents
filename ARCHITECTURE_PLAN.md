@@ -149,6 +149,8 @@ Native integration execution checklist:
 - [ ] Move full simulation ownership into native core; GDScript remains orchestration, configuration, and debug/HUD snapshot consumption only.
 - [ ] Start with a native-defined simulation graph (native-first topology); avoid script-defined graph execution for integrated domains.
 - [x] February 13, 2026: Added deterministic headless-native voxel op contract coverage for operation ordering counters, fallback path selection metadata, and changed-region payload shape (`test_native_voxel_op_contracts.gd`).
+- [ ] Add deterministic native generalized-physics stage contract coverage for mechanics/pressure/thermal/reaction/destruction summary fields and per-domain stage counts.
+- [ ] Add deterministic conservation diagnostics contract coverage ensuring per-stage (`count`, `mass_proxy_delta_sum`, `energy_proxy_delta_sum`) and overall (`stage_count`, `mass_proxy_delta_total`, `energy_proxy_delta_total`) fields are always present.
 - [ ] Remaining gap: move changed-region payloads from dictionary rows (`changed_region`, `changed_regions`) to typed `Resource` contracts before native edit engine exits Phase 2.
 - [ ] Remaining gap: validate native voxel op ordering/fallback contracts against non-stub GPU kernels once compute-stage registration is implemented.
 
@@ -168,6 +170,8 @@ Phase 2: Hydrology + terrain/environment core migration first
 - [ ] Add integrated fixed-seed N-tick replay coverage for weather + hydrology + erosion + solar equivalence.
 - [ ] Add deterministic unified material-flow parity gate with epsilon contract (`<= 1e-4`) for CPU/native snapshot comparisons.
 - [ ] Add deterministic foveated throttling gate validating monotonic throttle scalars (`op_stride`, `voxel_scale`, `compute_budget_scale`) under far-camera/high-uniformity views.
+- [ ] Add deterministic gate that fails Phase 2 completion if any generalized physics domain (`mechanics`, `pressure`, `thermal`, `reaction`, `destruction`) is missing from pipeline output summary contracts.
+- [ ] Add deterministic gate that fails Phase 2 completion if conservation diagnostics omit per-stage or overall aggregate proxy totals.
 - [ ] Exit Phase 2 only when script layers for these systems are adapter-only and no longer own numeric loops.
 
 Phase 3: Smell/wind and ecology signal migration
