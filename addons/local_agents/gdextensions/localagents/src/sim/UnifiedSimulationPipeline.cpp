@@ -255,18 +255,33 @@ Dictionary UnifiedSimulationPipeline::run_mechanics_stage(
 
     const double mass = clamped(frame_inputs.get("mass", stage_config.get("mass", 1.0)), 1.0e-6, 1.0e9, 1.0);
     const double force = clamped(frame_inputs.get("force", stage_config.get("force", 0.0)), -1.0e9, 1.0e9, 0.0);
+    const double density = clamped(frame_inputs.get("density", stage_config.get("density", 1.0)), 1.0e-6, 1.0e9, 1.0);
+    const double pressure_gradient = clamped(
+        frame_inputs.get("pressure_gradient", stage_config.get("pressure_gradient", 0.0)),
+        -1.0e9,
+        1.0e9,
+        0.0);
     const double external_force = clamped(frame_inputs.get("external_force", stage_config.get("external_force", 0.0)), -1.0e9, 1.0e9, 0.0);
+    const double body_force = clamped(frame_inputs.get("body_force", stage_config.get("body_force", 0.0)), -1.0e9, 1.0e9, 0.0);
     const double damping = clamped(stage_config.get("damping", 0.0), 0.0, 100.0, 0.0);
+    const double viscosity = clamped(stage_config.get("viscosity", 0.0), 0.0, 1.0e6, 0.0);
     const double velocity = clamped(frame_inputs.get("velocity", stage_config.get("velocity", 0.0)), -1.0e6, 1.0e6, 0.0);
     const double position = clamped(frame_inputs.get("position", stage_config.get("position", 0.0)), -1.0e12, 1.0e12, 0.0);
 
+    // Momentum-lite equation terms: d(rho*u)/dt = -grad(p) + rho*g + external - drag - viscous_loss.
+    const double pressure_force = -pressure_gradient;
+    const double body_force_term = density * body_force;
     const double drag_force = damping * velocity;
-    const double net_force = force + external_force - drag_force;
+    const double viscous_force = viscosity * velocity;
+    const double net_force = force + pressure_force + body_force_term + external_force - drag_force - viscous_force;
     const double acceleration = net_force / mass;
     const double velocity_delta = acceleration * delta_seconds;
     const double velocity_next = velocity + velocity_delta;
     const double displacement_delta = velocity_next * delta_seconds;
     const double position_next = position + displacement_delta;
+    const double momentum_before = mass * velocity;
+    const double momentum_after = mass * velocity_next;
+    const double momentum_delta = momentum_after - momentum_before;
 
     const double kinetic_energy_before = 0.5 * mass * velocity * velocity;
     const double kinetic_energy_after = 0.5 * mass * velocity_next * velocity_next;
@@ -277,6 +292,11 @@ Dictionary UnifiedSimulationPipeline::run_mechanics_stage(
     result["stage"] = stage_name;
     result["ok"] = true;
     result["mass"] = mass;
+    result["density"] = density;
+    result["pressure_force"] = pressure_force;
+    result["body_force_term"] = body_force_term;
+    result["viscous_force"] = viscous_force;
+    result["drag_force"] = drag_force;
     result["net_force"] = net_force;
     result["acceleration"] = acceleration;
     result["velocity"] = velocity;
@@ -285,6 +305,7 @@ Dictionary UnifiedSimulationPipeline::run_mechanics_stage(
     result["position"] = position;
     result["displacement_delta"] = displacement_delta;
     result["position_next"] = position_next;
+    result["momentum_delta"] = momentum_delta;
     result["conservation"] = Dictionary::make(
         "mass_proxy_delta", 0.0,
         "energy_proxy_delta", energy_delta,
@@ -308,11 +329,24 @@ Dictionary UnifiedSimulationPipeline::run_pressure_stage(
     const double reference_temperature = clamped(stage_config.get("reference_temperature", 293.15), 0.0, 2.0e4, 293.15);
     const double pressure_source = clamped(stage_config.get("pressure_source", 0.0), -1.0e9, 1.0e9, 0.0);
     const double relaxation_rate = clamped(stage_config.get("relaxation_rate", 0.0), 0.0, 1.0e6, 0.0);
+    const double density_source = clamped(stage_config.get("density_source", 0.0), -1.0e9, 1.0e9, 0.0);
+    const double density_sink = clamped(stage_config.get("density_sink", 0.0), 0.0, 1.0e9, 0.0);
+    const double eos_gamma = clamped(stage_config.get("eos_gamma", 1.0), 0.0, 10.0, 1.0);
+    const double eos_r = clamped(stage_config.get("eos_r", 1.0), 0.0, 1.0e6, 1.0);
 
+    // Continuity equation (mass conservation): d(rho)/dt = -rho * div(u) + source - sink.
+    const double density_rate = -density * velocity_divergence + density_source - density_sink;
+    const double density_delta = density_rate * delta_seconds;
+    const double density_next = std::max(1.0e-6, density + density_delta);
+
+    // EOS closure (idealized): p_eos = gamma * rho * R * T.
+    const double pressure_eos = eos_gamma * density_next * eos_r * temperature;
     const double compression_term = -bulk_modulus * velocity_divergence;
     const double thermal_term = thermal_pressure_coeff * (temperature - reference_temperature);
     const double relaxation_term = -relaxation_rate * pressure;
-    const double pressure_rate = compression_term + thermal_term + pressure_source + relaxation_term;
+    const double eos_relaxation_gain = clamped(stage_config.get("eos_relaxation_gain", 0.0), 0.0, 1.0e6, 0.0);
+    const double eos_term = eos_relaxation_gain * (pressure_eos - pressure);
+    const double pressure_rate = compression_term + thermal_term + pressure_source + relaxation_term + eos_term;
 
     const double pressure_delta = pressure_rate * delta_seconds;
     const double pressure_next = std::max(0.0, pressure + pressure_delta);
@@ -325,12 +359,18 @@ Dictionary UnifiedSimulationPipeline::run_pressure_stage(
     result["pressure"] = pressure;
     result["pressure_delta"] = pressure_delta;
     result["pressure_next"] = pressure_next;
+    result["density"] = density;
+    result["density_rate"] = density_rate;
+    result["density_delta"] = density_delta;
+    result["density_next"] = density_next;
+    result["pressure_eos"] = pressure_eos;
     result["pressure_rate"] = pressure_rate;
     result["compression_term"] = compression_term;
     result["thermal_term"] = thermal_term;
+    result["eos_term"] = eos_term;
     result["relaxation_term"] = relaxation_term;
     result["conservation"] = Dictionary::make(
-        "mass_proxy_delta", 0.0,
+        "mass_proxy_delta", density_delta,
         "energy_proxy_delta", -pressure_work_proxy,
         "energy_proxy_metric", String("pressure_work"));
     return result;
@@ -358,10 +398,19 @@ Dictionary UnifiedSimulationPipeline::run_thermal_stage(
     const double cooling_rate = clamped(stage_config.get("cooling_rate", 0.0), 0.0, 1.0e6, 0.0);
     const double thermal_mass = clamped(stage_config.get("thermal_mass", 1.0), 1.0e-6, 1.0e12, 1.0);
     const double internal_heat = clamped(stage_config.get("internal_heat", 0.0), -1.0e9, 1.0e9, 0.0);
+    const double advection_coeff = clamped(stage_config.get("advection_coeff", 0.0), 0.0, 1.0e6, 0.0);
+    const double velocity = clamped(frame_inputs.get("velocity", stage_config.get("velocity", 0.0)), -1.0e6, 1.0e6, 0.0);
+    const double stefan_boltzmann = clamped(stage_config.get("stefan_boltzmann", 5.670374419e-8), 0.0, 1.0, 5.670374419e-8);
+    const double emissivity = clamped(stage_config.get("emissivity", 0.85), 0.0, 1.0, 0.85);
 
     const double conduction_flux = thermal_conductivity * (neighbor_temperature - temperature);
+    const double advection_flux = -advection_coeff * velocity * (temperature - ambient_temperature);
     const double cooling_flux = cooling_rate * (temperature - ambient_temperature);
-    const double heat_rate = conduction_flux - cooling_flux + internal_heat;
+    // Radiative cooling approximation: q_rad = eps * sigma * (T^4 - T_ambient^4).
+    const double t4 = temperature * temperature * temperature * temperature;
+    const double ta4 = ambient_temperature * ambient_temperature * ambient_temperature * ambient_temperature;
+    const double radiative_flux = emissivity * stefan_boltzmann * (t4 - ta4);
+    const double heat_rate = conduction_flux + advection_flux - cooling_flux - radiative_flux + internal_heat;
     const double temperature_rate = heat_rate / thermal_mass;
     const double temperature_delta = temperature_rate * delta_seconds;
     const double temperature_next = std::max(0.0, temperature + temperature_delta);
@@ -375,7 +424,9 @@ Dictionary UnifiedSimulationPipeline::run_thermal_stage(
     result["temperature_delta"] = temperature_delta;
     result["temperature_next"] = temperature_next;
     result["conduction_flux"] = conduction_flux;
+    result["advection_flux"] = advection_flux;
     result["cooling_flux"] = cooling_flux;
+    result["radiative_flux"] = radiative_flux;
     result["internal_heat"] = internal_heat;
     result["conservation"] = Dictionary::make(
         "mass_proxy_delta", 0.0,
@@ -399,7 +450,9 @@ Dictionary UnifiedSimulationPipeline::run_reaction_stage(
     const double min_pressure = clamped(stage_config.get("min_pressure", 0.5), 0.0, 1.0e9, 0.5);
     const double max_pressure = clamped(stage_config.get("max_pressure", 3.5), min_pressure, 1.0e9, 3.5);
     const double optimal_pressure = clamped(stage_config.get("optimal_pressure", 1.2), min_pressure, max_pressure, 1.2);
-    const double reaction_rate = clamped(stage_config.get("reaction_rate", 0.0), 0.0, 1.0e6, 0.0);
+    const double pre_exponential_factor = clamped(stage_config.get("arrhenius_a", stage_config.get("reaction_rate", 0.0)), 0.0, 1.0e9, 0.0);
+    const double activation_energy = clamped(stage_config.get("arrhenius_ea", 1.0), 0.0, 1.0e9, 1.0);
+    const double gas_constant = clamped(stage_config.get("arrhenius_r", 8.314462618), 1.0e-6, 1.0e6, 8.314462618);
     const double stoichiometric_ratio_b = clamped(stage_config.get("stoichiometric_ratio_b", 1.0), 1.0e-6, 1.0e6, 1.0);
     const double product_yield = clamped(stage_config.get("product_yield", 1.0), 0.0, 2.0, 1.0);
     const double heat_release_per_extent = clamped(stage_config.get("heat_release_per_extent", 0.0), -1.0e9, 1.0e9, 0.0);
@@ -412,7 +465,10 @@ Dictionary UnifiedSimulationPipeline::run_reaction_stage(
         1.0);
     const double pressure_factor = pressure_window_factor(pressure, min_pressure, max_pressure, optimal_pressure);
     const double limiting_extent = std::min(reactant_a, reactant_b / stoichiometric_ratio_b);
-    const double kinetic_extent = reaction_rate * temp_factor * pressure_factor * delta_seconds;
+    const double inv_rt = 1.0 / std::max(1.0e-9, gas_constant * temperature);
+    const double arrhenius_exponent = std::clamp(-activation_energy * inv_rt, -700.0, 0.0);
+    const double arrhenius_k = pre_exponential_factor * std::exp(arrhenius_exponent);
+    const double kinetic_extent = arrhenius_k * temp_factor * pressure_factor * delta_seconds;
     const double reaction_extent = std::min(limiting_extent, kinetic_extent);
 
     const double reactant_a_consumed = reaction_extent;
@@ -431,6 +487,8 @@ Dictionary UnifiedSimulationPipeline::run_reaction_stage(
     result["temperature"] = temperature;
     result["pressure"] = pressure;
     result["pressure_factor"] = pressure_factor;
+    result["arrhenius_k"] = arrhenius_k;
+    result["arrhenius_exponent"] = arrhenius_exponent;
     result["temperature_activation_factor"] = temp_factor;
     result["reaction_extent"] = reaction_extent;
     result["reactant_a_consumed"] = reactant_a_consumed;
