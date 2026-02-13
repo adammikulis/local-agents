@@ -76,7 +76,7 @@ Rendering style:
 ## Key Scenes and Scripts
 
 - Scene: `addons/local_agents/scenes/simulation/PlantRabbitField.tscn`
-- Scene: `addons/local_agents/examples/WorldGenVoxelDemo.tscn` (seed + sliders + visible baked flowmap arrows)
+- Scene: `addons/local_agents/scenes/demos/VoxelWorldDemo.tscn` (seed + sliders + visible baked flowmap arrows)
 - Controller: `addons/local_agents/scenes/simulation/controllers/PlantRabbitField.gd`
 - Ecology orchestration: `addons/local_agents/scenes/simulation/controllers/EcologyController.gd`
 - Plant actor: `addons/local_agents/scenes/simulation/actors/EdiblePlantCapsule.gd`
@@ -112,7 +112,7 @@ Rendering style:
 
 ### Demos and Controls
 
-- `WorldGenVoxelDemo` seed/sliders for terrain dimensions, sea level, noise, cave threshold.
+- `VoxelWorldDemo` seed/sliders for terrain dimensions, sea level, noise, cave threshold.
 - Flow-map visualizer controls (show/hide, threshold, stride) with animated flow arrows.
 - Timelapse-style simulation controls (play/pause/fast-forward/rewind/fork) and state restore.
 - Live stats for weather/erosion/solar metrics in demo HUD/status labels.
@@ -123,7 +123,7 @@ Rendering style:
 godot --path . --editor
 ```
 
-Project is configured to launch `PlantRabbitField` as main scene.
+Project is configured to launch the demo launcher as main scene.
 
 Headless smoke boot:
 
@@ -134,7 +134,7 @@ godot --headless --no-window --path . addons/local_agents/scenes/simulation/Plan
 World generation demo:
 
 ```bash
-godot --path . addons/local_agents/examples/WorldGenVoxelDemo.tscn
+godot --path . addons/local_agents/scenes/demos/VoxelWorldDemo.tscn
 ```
 
 ## Tests

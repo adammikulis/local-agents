@@ -71,6 +71,9 @@ var _ticks_per_frame: int = 1
 var _fork_index: int = 0
 var _active_branch_id: String = "main"
 var _timelapse_snapshots: Dictionary = {}
+var _flow_overlay_mm_instance: MultiMeshInstance3D
+var _flow_overlay_mesh: BoxMesh
+var _flow_overlay_material: ShaderMaterial
 
 func _ready() -> void:
 	_rng.randomize()
@@ -249,12 +252,16 @@ func _record_timelapse_snapshot(tick: int) -> void:
 		_timelapse_snapshots.erase(keys[i])
 
 func _render_flow_overlay(world: Dictionary, config) -> void:
-	for child in _flow_overlay_root.get_children():
-		child.queue_free()
+	_ensure_flow_overlay_multimesh()
+	if _flow_overlay_mm_instance == null or _flow_overlay_mm_instance.multimesh == null:
+		return
+	var mm := _flow_overlay_mm_instance.multimesh
 	if not _show_flow_checkbox.button_pressed:
+		mm.instance_count = 0
 		return
 	var flow_map: Dictionary = world.get("flow_map", {})
 	if flow_map.is_empty():
+		mm.instance_count = 0
 		return
 	var rows: Array = flow_map.get("rows", [])
 	var voxel_world: Dictionary = world.get("voxel_world", {})
@@ -269,6 +276,9 @@ func _render_flow_overlay(world: Dictionary, config) -> void:
 
 	var stride = maxi(1, int(_flow_stride_spin.value))
 	var strength_threshold = clampf(float(_flow_strength_threshold_spin.value), 0.0, 1.0)
+	var transforms: Array[Transform3D] = []
+	var colors: Array[Color] = []
+	var custom_data: Array[Color] = []
 	for i in range(0, rows.size(), stride):
 		var row_variant = rows[i]
 		if not (row_variant is Dictionary):
@@ -287,21 +297,46 @@ func _render_flow_overlay(world: Dictionary, config) -> void:
 		var z = int(row.get("y", 0))
 		var tile_id = TileKeyUtilsScript.tile_id(x, z)
 		var surface_y = int(surface_by_tile.get(tile_id, config.voxel_sea_level))
-		var marker = MeshInstance3D.new()
-		var mesh = BoxMesh.new()
 		var length = 0.35 + strength * 0.8
-		mesh.size = Vector3(0.08, 0.06, length)
-		marker.mesh = mesh
 		var color = Color(0.2, 0.75 + 0.2 * strength, 1.0 - 0.35 * strength, 1.0)
-		var material = ShaderMaterial.new()
-		material.shader = FlowArrowPulseShader
-		material.set_shader_parameter("base_color", color)
-		material.set_shader_parameter("strength", strength)
-		material.set_shader_parameter("pulse_speed", 2.0 + strength * 3.0)
-		marker.material_override = material
-		marker.position = Vector3(float(x) + 0.5, float(surface_y) + 1.15, float(z) + 0.5)
-		_flow_overlay_root.add_child(marker)
-		marker.look_at(marker.global_position + Vector3(direction.x, 0.0, direction.y), Vector3.UP)
+		var forward = Vector3(direction.x, 0.0, direction.y).normalized()
+		var right = Vector3.UP.cross(forward).normalized()
+		if right.length_squared() < 0.00001:
+			right = Vector3.RIGHT
+		var basis := Basis(right, Vector3.UP, forward).scaled(Vector3(1.0, 1.0, length))
+		var origin = Vector3(float(x) + 0.5, float(surface_y) + 1.15, float(z) + 0.5)
+		transforms.append(Transform3D(basis, origin))
+		colors.append(color)
+		custom_data.append(Color(strength, 2.0 + strength * 3.0, 0.0, 0.0))
+	var count = mini(transforms.size(), mini(colors.size(), custom_data.size()))
+	mm.instance_count = count
+	for index in range(count):
+		mm.set_instance_transform(index, transforms[index])
+		mm.set_instance_color(index, colors[index])
+		mm.set_instance_custom_data(index, custom_data[index])
+
+func _ensure_flow_overlay_multimesh() -> void:
+	if _flow_overlay_root == null:
+		return
+	if _flow_overlay_mesh == null:
+		_flow_overlay_mesh = BoxMesh.new()
+		_flow_overlay_mesh.size = Vector3(0.08, 0.06, 1.0)
+	if _flow_overlay_material == null:
+		_flow_overlay_material = ShaderMaterial.new()
+		_flow_overlay_material.shader = FlowArrowPulseShader
+	if _flow_overlay_mm_instance != null and is_instance_valid(_flow_overlay_mm_instance):
+		return
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	mm.use_custom_data = true
+	mm.mesh = _flow_overlay_mesh
+	mm.instance_count = 0
+	_flow_overlay_mm_instance = MultiMeshInstance3D.new()
+	_flow_overlay_mm_instance.multimesh = mm
+	_flow_overlay_mm_instance.material_override = _flow_overlay_material
+	_flow_overlay_mm_instance.name = "FlowOverlayMultiMesh"
+	_flow_overlay_root.add_child(_flow_overlay_mm_instance)
 
 func _frame_camera(world: Dictionary) -> void:
 	var width = float(world.get("width", 1))

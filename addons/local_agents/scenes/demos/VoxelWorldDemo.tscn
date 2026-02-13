@@ -1,6 +1,6 @@
 [gd_scene load_steps=8 format=3]
 
-[ext_resource type="Script" path="res://addons/local_agents/examples/WorldGenVoxelDemo.gd" id="1_demo_script"]
+[ext_resource type="Script" path="res://addons/local_agents/scenes/demos/VoxelWorldDemo.gd" id="1_demo_script"]
 [ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/EnvironmentController.gd" id="2_environment_script"]
 [ext_resource type="PackedScene" path="res://addons/local_agents/scenes/simulation/ui/SimulationHud.tscn" id="3_sim_hud"]
 
@@ -30,7 +30,7 @@ sdfgi_use_occlusion = true
 sdfgi_read_sky_light = true
 sdfgi_energy = 1.0
 
-[node name="WorldGenVoxelDemo" type="Node3D"]
+[node name="VoxelWorldDemo" type="Node3D"]
 script = ExtResource("1_demo_script")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]

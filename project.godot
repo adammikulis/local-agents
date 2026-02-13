@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="LocalAgents"
-run/main_scene="res://addons/local_agents/scenes/simulation/PlantRabbitField.tscn"
+run/main_scene="res://addons/local_agents/scenes/demos/DemoLauncher.tscn"
 config/features=PackedStringArray("4.6", "Mobile")
 config/icon="res://icon.svg"
 
