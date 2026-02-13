@@ -1,5 +1,8 @@
 #include "LocalAgentsSimProfiler.hpp"
 
+#include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/variant/variant.hpp>
+
 using namespace godot;
 
 namespace local_agents::simulation {
@@ -25,11 +28,11 @@ void LocalAgentsSimProfiler::reset() {
 
 Dictionary LocalAgentsSimProfiler::get_debug_snapshot() const {
     Dictionary snapshot;
-    snapshot["component"] = String("SimProfiler");
-    snapshot["total_steps"] = total_steps_;
-    snapshot["last_step_index"] = last_step_index_;
-    snapshot["last_delta_seconds"] = last_delta_seconds_;
-    snapshot["last_step_result"] = last_step_result_.duplicate(true);
+    snapshot[Variant(String("component"))] = String("SimProfiler");
+    snapshot[Variant(String("total_steps"))] = total_steps_;
+    snapshot[Variant(String("last_step_index"))] = last_step_index_;
+    snapshot[Variant(String("last_delta_seconds"))] = last_delta_seconds_;
+    snapshot[Variant(String("last_step_result"))] = last_step_result_.duplicate(true);
     return snapshot;
 }
 

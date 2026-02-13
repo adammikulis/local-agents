@@ -27,6 +27,12 @@ endif()
 add_subdirectory(${GODOT_CPP_DIR} "${CMAKE_BINARY_DIR}/godot-cpp" EXCLUDE_FROM_ALL)
 add_subdirectory(${LLAMA_CPP_DIR} "${CMAKE_BINARY_DIR}/llama.cpp" EXCLUDE_FROM_ALL)
 
+set(SIM_SRC
+    src/sim/UnifiedSimulationPipeline.cpp
+    src/sim/UnifiedSimulationPipelineInternal.cpp
+    src/sim/UnifiedSimulationPipelineStages.cpp
+)
+
 set(SRC
     src/AgentNode.cpp
     src/AgentRuntime.cpp
@@ -39,7 +45,7 @@ set(SRC
     src/LocalAgentsScheduler.cpp
     src/LocalAgentsSimProfiler.cpp
     src/LocalAgentsSimulationCore.cpp
-    src/sim/UnifiedSimulationPipeline.cpp
+    ${SIM_SRC}
     src/VoxelEditEngine.cpp
 )
 
