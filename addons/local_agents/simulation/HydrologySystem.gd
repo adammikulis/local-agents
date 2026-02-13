@@ -2,7 +2,21 @@ extends RefCounted
 class_name LocalAgentsHydrologySystem
 
 const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
+const HydrologyComputeBackendScript = preload("res://addons/local_agents/simulation/HydrologyComputeBackend.gd")
 const _IDLE_CADENCE := 8
+
+var _compute_requested: bool = false
+var _compute_active: bool = false
+var _compute_backend = HydrologyComputeBackendScript.new()
+var _ordered_tile_ids: Array[String] = []
+
+func set_compute_enabled(enabled: bool) -> void:
+    _compute_requested = enabled
+    if not enabled:
+        _compute_active = false
+
+func is_compute_active() -> bool:
+    return _compute_active
 
 func build_network(world_data: Dictionary, config) -> Dictionary:
     var width = int(world_data.get("width", 0))
@@ -97,7 +111,7 @@ func build_network(world_data: Dictionary, config) -> Dictionary:
         return a_key < b_key
     )
 
-    return {
+    var result = {
         "schema_version": 1,
         "source_tiles": sources,
         "segments": segments,
@@ -106,6 +120,8 @@ func build_network(world_data: Dictionary, config) -> Dictionary:
         "springs": springs,
         "water_table": water_table,
     }
+    _refresh_compute_backend_from_snapshots(world_data, result)
+    return result
 
 func step(
     tick: int,
@@ -142,6 +158,36 @@ func step(
 
     var tile_ids = water_tiles.keys()
     tile_ids.sort_custom(func(a, b): return String(a) < String(b))
+    var use_compute = _compute_active and _ordered_tile_ids.size() == tile_ids.size()
+    if use_compute:
+        var compute_result = _step_compute(
+            tick,
+            delta,
+            seed,
+            width,
+            tile_index,
+            water_tiles,
+            local_activity,
+            weather_tiles,
+            weather_snapshot,
+            weather_rain,
+            weather_wetness,
+            weather_buffer_ok
+        )
+        if not compute_result.is_empty():
+            var compute_changed: Array = compute_result.get("changed_tiles", [])
+            if not compute_changed.is_empty():
+                _sync_tiles(environment_snapshot, tile_index)
+            hydrology_snapshot["water_tiles"] = water_tiles
+            hydrology_snapshot["tick"] = tick
+            return {
+                "environment": environment_snapshot,
+                "hydrology": hydrology_snapshot,
+                "changed": not compute_changed.is_empty(),
+                "changed_tiles": compute_changed,
+            }
+        _compute_active = false
+
     for tile_id_variant in tile_ids:
         var tile_id = String(tile_id_variant)
         if not tile_index.has(tile_id):
@@ -222,6 +268,146 @@ func step(
         "changed": not changed_tiles.is_empty(),
         "changed_tiles": changed_tiles,
     }
+
+func _refresh_compute_backend_from_snapshots(environment_snapshot: Dictionary, hydrology_snapshot: Dictionary) -> void:
+    _ordered_tile_ids.clear()
+    var tile_index: Dictionary = environment_snapshot.get("tile_index", {})
+    var water_tiles: Dictionary = hydrology_snapshot.get("water_tiles", {})
+    if tile_index.is_empty() or water_tiles.is_empty():
+        _compute_active = false
+        return
+    var ids = water_tiles.keys()
+    ids.sort_custom(func(a, b): return String(a) < String(b))
+    var base_moisture := PackedFloat32Array()
+    var base_elevation := PackedFloat32Array()
+    var base_slope := PackedFloat32Array()
+    var base_heat := PackedFloat32Array()
+    var spring_discharge := PackedFloat32Array()
+    var flow := PackedFloat32Array()
+    var reliability := PackedFloat32Array()
+    var flood_risk := PackedFloat32Array()
+    var water_depth := PackedFloat32Array()
+    var pressure := PackedFloat32Array()
+    var recharge := PackedFloat32Array()
+    base_moisture.resize(ids.size())
+    base_elevation.resize(ids.size())
+    base_slope.resize(ids.size())
+    base_heat.resize(ids.size())
+    spring_discharge.resize(ids.size())
+    flow.resize(ids.size())
+    reliability.resize(ids.size())
+    flood_risk.resize(ids.size())
+    water_depth.resize(ids.size())
+    pressure.resize(ids.size())
+    recharge.resize(ids.size())
+    for i in range(ids.size()):
+        var tile_id = String(ids[i])
+        _ordered_tile_ids.append(tile_id)
+        var tile_row = tile_index.get(tile_id, {})
+        var water_row = water_tiles.get(tile_id, {})
+        base_moisture[i] = clampf(float((tile_row as Dictionary).get("moisture", 0.5)) if tile_row is Dictionary else 0.5, 0.0, 1.0)
+        base_elevation[i] = clampf(float((tile_row as Dictionary).get("elevation", 0.5)) if tile_row is Dictionary else 0.5, 0.0, 1.0)
+        base_slope[i] = clampf(float((tile_row as Dictionary).get("slope", 0.0)) if tile_row is Dictionary else 0.0, 0.0, 1.0)
+        base_heat[i] = clampf(float((tile_row as Dictionary).get("heat_load", 0.0)) if tile_row is Dictionary else 0.0, 0.0, 1.5)
+        spring_discharge[i] = clampf(float((water_row as Dictionary).get("spring_discharge", 0.0)) if water_row is Dictionary else 0.0, 0.0, 8.0)
+        flow[i] = maxf(0.0, float((water_row as Dictionary).get("flow", 0.0)) if water_row is Dictionary else 0.0)
+        reliability[i] = clampf(float((water_row as Dictionary).get("water_reliability", 0.0)) if water_row is Dictionary else 0.0, 0.0, 1.0)
+        flood_risk[i] = clampf(float((water_row as Dictionary).get("flood_risk", 0.0)) if water_row is Dictionary else 0.0, 0.0, 1.0)
+        water_depth[i] = clampf(float((water_row as Dictionary).get("water_table_depth", 8.0)) if water_row is Dictionary else 8.0, 0.0, 99.0)
+        pressure[i] = clampf(float((water_row as Dictionary).get("hydraulic_pressure", 0.0)) if water_row is Dictionary else 0.0, 0.0, 1.0)
+        recharge[i] = clampf(float((water_row as Dictionary).get("groundwater_recharge", 0.0)) if water_row is Dictionary else 0.0, 0.0, 1.0)
+    _compute_active = false
+    if _compute_requested:
+        _compute_active = _compute_backend.configure(
+            base_moisture,
+            base_elevation,
+            base_slope,
+            base_heat,
+            spring_discharge,
+            flow,
+            reliability,
+            flood_risk,
+            water_depth,
+            pressure,
+            recharge
+        )
+
+func _step_compute(
+    tick: int,
+    delta: float,
+    seed: int,
+    width: int,
+    tile_index: Dictionary,
+    water_tiles: Dictionary,
+    local_activity: Dictionary,
+    weather_tiles: Dictionary,
+    weather_snapshot: Dictionary,
+    weather_rain: PackedFloat32Array,
+    weather_wetness: PackedFloat32Array,
+    weather_buffer_ok: bool
+) -> Dictionary:
+    var count = _ordered_tile_ids.size()
+    if count <= 0:
+        return {}
+    var rain := PackedFloat32Array()
+    var wetness := PackedFloat32Array()
+    var activity := PackedFloat32Array()
+    rain.resize(count)
+    wetness.resize(count)
+    activity.resize(count)
+    for i in range(count):
+        var tile_id = _ordered_tile_ids[i]
+        var weather = _weather_at_tile(tile_id, weather_tiles, weather_snapshot, weather_rain, weather_wetness, weather_buffer_ok, width)
+        rain[i] = clampf(float(weather.get("rain", 0.0)), 0.0, 1.0)
+        wetness[i] = clampf(float(weather.get("wetness", rain[i])), 0.0, 1.0)
+        var tile_row = tile_index.get(tile_id, {})
+        var local_act = clampf(float(local_activity.get(tile_id, 0.0)), 0.0, 1.0)
+        var coastal_bonus = _coastal_activity_bonus(tile_row as Dictionary) if tile_row is Dictionary else 0.0
+        activity[i] = maxf(local_act, coastal_bonus)
+    var gpu = _compute_backend.step(delta, tick, _IDLE_CADENCE, seed, rain, wetness, activity)
+    if gpu.is_empty():
+        return {}
+    var flow: PackedFloat32Array = gpu.get("flow", PackedFloat32Array())
+    var reliability: PackedFloat32Array = gpu.get("water_reliability", PackedFloat32Array())
+    var flood_risk: PackedFloat32Array = gpu.get("flood_risk", PackedFloat32Array())
+    var water_depth: PackedFloat32Array = gpu.get("water_table_depth", PackedFloat32Array())
+    var pressure: PackedFloat32Array = gpu.get("hydraulic_pressure", PackedFloat32Array())
+    var recharge: PackedFloat32Array = gpu.get("groundwater_recharge", PackedFloat32Array())
+    if flow.size() != count or reliability.size() != count or flood_risk.size() != count or water_depth.size() != count or pressure.size() != count or recharge.size() != count:
+        return {}
+    var changed_tiles: Array = []
+    for i in range(count):
+        var tile_id = _ordered_tile_ids[i]
+        if not water_tiles.has(tile_id):
+            continue
+        var water_row = water_tiles.get(tile_id, {})
+        var tile_row = tile_index.get(tile_id, {})
+        if not (water_row is Dictionary) or not (tile_row is Dictionary):
+            continue
+        var prev_depth = clampf(float((water_row as Dictionary).get("water_table_depth", 8.0)), 0.0, 99.0)
+        var prev_pressure = clampf(float((water_row as Dictionary).get("hydraulic_pressure", 0.0)), 0.0, 1.0)
+        var prev_recharge = clampf(float((water_row as Dictionary).get("groundwater_recharge", 0.0)), 0.0, 1.0)
+        (water_row as Dictionary)["flow"] = maxf(0.0, float(flow[i]))
+        (water_row as Dictionary)["water_reliability"] = clampf(float(reliability[i]), 0.0, 1.0)
+        (water_row as Dictionary)["flood_risk"] = clampf(float(flood_risk[i]), 0.0, 1.0)
+        (water_row as Dictionary)["water_table_depth"] = clampf(float(water_depth[i]), 0.0, 99.0)
+        (water_row as Dictionary)["hydraulic_pressure"] = clampf(float(pressure[i]), 0.0, 1.0)
+        (water_row as Dictionary)["groundwater_recharge"] = clampf(float(recharge[i]), 0.0, 1.0)
+        water_tiles[tile_id] = (water_row as Dictionary)
+        var next_depth = float((water_row as Dictionary).get("water_table_depth", prev_depth))
+        var next_pressure = float((water_row as Dictionary).get("hydraulic_pressure", prev_pressure))
+        var next_recharge = float((water_row as Dictionary).get("groundwater_recharge", prev_recharge))
+        if absf(next_depth - prev_depth) > 0.01 or absf(next_pressure - prev_pressure) > 0.004 or absf(next_recharge - prev_recharge) > 0.004:
+            (tile_row as Dictionary)["water_table_depth"] = next_depth
+            (tile_row as Dictionary)["hydraulic_pressure"] = next_pressure
+            (tile_row as Dictionary)["groundwater_recharge"] = next_recharge
+            var moisture = clampf(float((tile_row as Dictionary).get("moisture", 0.5)), 0.0, 1.0)
+            var rel = clampf(float((water_row as Dictionary).get("water_reliability", 0.0)), 0.0, 1.0)
+            (tile_row as Dictionary)["moisture"] = clampf(moisture * 0.985 + rel * 0.015, 0.0, 1.0)
+            tile_index[tile_id] = (tile_row as Dictionary)
+            changed_tiles.append(tile_id)
+    changed_tiles.sort_custom(func(a, b): return String(a) < String(b))
+    return {"changed_tiles": changed_tiles}
 
 func _build_network_from_flow_map(flow_map: Dictionary, tiles: Array, springs: Dictionary, water_table: Dictionary, config) -> Dictionary:
     var by_tile: Dictionary = {}
@@ -314,7 +500,7 @@ func _build_network_from_flow_map(flow_map: Dictionary, tiles: Array, springs: D
         return a_key < b_key
     )
 
-    return {
+    var result = {
         "schema_version": 1,
         "source_tiles": sources,
         "segments": segments,
@@ -324,6 +510,8 @@ func _build_network_from_flow_map(flow_map: Dictionary, tiles: Array, springs: D
         "springs": springs,
         "water_table": water_table,
     }
+    _refresh_compute_backend_from_snapshots({"tile_index": by_tile}, result)
+    return result
 
 func _next_downhill_tile(tile_id: String, by_id: Dictionary, by_xy: Dictionary) -> String:
     if not by_id.has(tile_id):
