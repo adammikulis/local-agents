@@ -39,6 +39,7 @@ func run_test(_tree: SceneTree) -> bool:
 	var ok := true
 	ok = _test_channel_round_trip_and_normalization() and ok
 	ok = _test_registry_defaults_and_serialization_contract() and ok
+	ok = _test_validate_canonical_channel_contracts() and ok
 	ok = _test_channel_resource_save_load_serialization() and ok
 	ok = _test_bounded_runtime_timeout_defaults() and ok
 	if ok:
@@ -149,6 +150,66 @@ func _test_registry_defaults_and_serialization_contract() -> bool:
 	ok = _assert(_has_default_channels_in_any_order(rebuilt.channels, canonical_ids), "Rebuilt registry should keep canonical channel IDs") and ok
 	return ok
 
+func _test_validate_canonical_channel_contracts() -> bool:
+	var registry := _new_registry()
+	if registry == null:
+		return false
+	registry.ensure_defaults()
+
+	var baseline_validation: Dictionary = registry.validate_canonical_channel_contracts(false)
+	var baseline_errors_variant = baseline_validation.get("errors", [])
+	var baseline_errors: Array = baseline_errors_variant if baseline_errors_variant is Array else []
+	var ok := _assert(bool(baseline_validation.get("ok", false)), "Baseline validation should pass for canonical defaults")
+	ok = _assert(baseline_errors.is_empty(), "Baseline validation should return zero canonical metadata errors") and ok
+
+	var mass_density_channel: Resource = _find_channel_by_id(registry.channels, "mass_density")
+	ok = _assert(mass_density_channel != null, "mass_density canonical channel should be available for validation mutation") and ok
+	if mass_density_channel == null:
+		return false
+
+	var corrupted_metadata := _expected_metadata_for_canonical_channel("mass_density")
+	corrupted_metadata["unit"] = "kg"
+	corrupted_metadata["strict"] = false
+	corrupted_metadata["canonical"] = false
+	var corrupted_range := corrupted_metadata.get("range", {})
+	if corrupted_range is Dictionary:
+		corrupted_range = (corrupted_range as Dictionary).duplicate(true)
+		corrupted_range["min"] = 1000.0
+		corrupted_range["max"] = 10.0
+		corrupted_metadata["range"] = corrupted_range
+	mass_density_channel.set("metadata", corrupted_metadata)
+
+	var report_without_fix: Dictionary = registry.validate_canonical_channel_contracts(false)
+	ok = _assert(not bool(report_without_fix.get("ok", true)), "Invalid canonical metadata should fail validation in non-enforcing mode") and ok
+	var non_enforcing_errors_variant = report_without_fix.get("errors", [])
+	var non_enforcing_errors: Array = non_enforcing_errors_variant if non_enforcing_errors_variant is Array else []
+	ok = _assert(non_enforcing_errors.size() > 0, "Invalid canonical metadata should emit at least one validation error") and ok
+	var metadata_after_non_enforcing := mass_density_channel.get("metadata")
+	ok = _assert(metadata_after_non_enforcing is Dictionary and String((metadata_after_non_enforcing as Dictionary).get("unit", "")) == "kg", "Non-enforcing validation should not mutate invalid canonical metadata") and ok
+
+	var report_with_fix: Dictionary = registry.validate_canonical_channel_contracts(true)
+	ok = _assert(not bool(report_with_fix.get("ok", true)), "Invalid canonical metadata should still report errors when repaired") and ok
+	var restored_metadata_variant := mass_density_channel.get("metadata")
+	ok = _assert(_metadata_matches_expectations(
+		restored_metadata_variant,
+		_expected_metadata_for_canonical_channel("mass_density")
+	), "Enforced validation should restore canonical mass_density metadata contract") and ok
+
+	var sparse := _new_registry()
+	if sparse == null:
+		return false
+	sparse.channels.clear()
+	var custom := _new_channel()
+	if custom == null:
+		return false
+	custom.channel_id = "custom_density_override"
+	sparse.channels.append(custom)
+	var missing_report: Dictionary = sparse.validate_canonical_channel_contracts(true)
+	ok = _assert(len(sparse.channels) > 1, "Validation should inject canonical channels when absent") and ok
+	ok = _assert(not bool(missing_report.get("ok", true)), "Missing canonical channels should produce a validation report with errors") and ok
+	ok = _assert(_has_default_channels_in_any_order(_canonical_channels_only(sparse.channels), _canonical_field_ids()), "Validation should restore canonical channel IDs for sparse registry") and ok
+	return ok
+
 func _test_channel_resource_save_load_serialization() -> bool:
 	var channel = _new_channel()
 	if channel == null:
@@ -227,6 +288,24 @@ func _metadata_matches_expectations(actual_metadata_variant: Variant, expected_m
 			return false
 	return true
 
+func _find_channel_by_id(channels: Array, target_channel_id: String) -> Resource:
+	for channel_variant in channels:
+		if not (channel_variant is Resource):
+			continue
+		var channel_id := String((channel_variant as Resource).get("channel_id"))
+		if channel_id == target_channel_id:
+			return channel_variant
+	return null
+
+func _expected_metadata_for_canonical_channel(channel_id: String) -> Dictionary:
+	var expected_channel_variant: Variant = CANONICAL_FIELD_DEFAULTS_BY_ID.get(channel_id, {})
+	if not (expected_channel_variant is Dictionary):
+		return {}
+	var expected_metadata_variant: Variant = (expected_channel_variant as Dictionary).get("metadata", {})
+	if expected_metadata_variant is Dictionary:
+		return (expected_metadata_variant as Dictionary).duplicate(true)
+	return {}
+
 func _canonical_field_ids() -> Array[String]:
 	var ids: Array[String] = []
 	for key in CANONICAL_FIELD_DEFAULTS_BY_ID.keys():
@@ -243,6 +322,16 @@ func _has_default_channels_in_any_order(channels: Array, expected_channel_ids: A
 	actual.sort()
 	expected.sort()
 	return actual == expected
+
+func _canonical_channels_only(channels: Array) -> Array:
+	var filtered := []
+	for channel in channels:
+		if not (channel is Resource):
+			continue
+		var channel_id := String((channel as Resource).get("channel_id"))
+		if CANONICAL_FIELD_DEFAULTS_BY_ID.has(channel_id):
+			filtered.append(channel)
+	return filtered
 
 func _new_registry() -> Resource:
 	var script = load(FIELD_REGISTRY_SCRIPT_PATH)

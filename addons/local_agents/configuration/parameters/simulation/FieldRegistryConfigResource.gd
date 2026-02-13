@@ -162,11 +162,13 @@ const _CANONICAL_FIELD_CHANNEL_DESCRIPTORS: Array[Dictionary] = [
 
 func ensure_defaults() -> void:
 	if not channels.is_empty():
+		validate_canonical_channel_contracts(true)
 		return
 	channels = []
 	for descriptor_variant in _CANONICAL_FIELD_CHANNEL_DESCRIPTORS:
 		if descriptor_variant is Dictionary:
 			channels.append(_make_channel_from_descriptor(descriptor_variant as Dictionary))
+	validate_canonical_channel_contracts(true)
 
 func to_dict() -> Dictionary:
 	ensure_defaults()
@@ -206,6 +208,102 @@ func from_dict(values: Dictionary) -> void:
 				row.from_dict(row_variant as Dictionary)
 				channels.append(row)
 	ensure_defaults()
+
+func validate_canonical_channel_contracts(enforce: bool = true) -> Dictionary:
+	var errors: Array = []
+	var canonical_channels: Dictionary = _index_channels_by_id()
+	for descriptor_variant in _CANONICAL_FIELD_CHANNEL_DESCRIPTORS:
+		if not (descriptor_variant is Dictionary):
+			continue
+		var descriptor := descriptor_variant as Dictionary
+		var channel_id := String(descriptor.get("channel_id", ""))
+		if channel_id.is_empty():
+			continue
+
+		var channel_variant: Variant = canonical_channels.get(channel_id, null)
+		if not (channel_variant is Resource):
+			if enforce:
+				var rebuilt := _make_channel_from_descriptor(descriptor)
+				channels.append(rebuilt)
+				canonical_channels[channel_id] = rebuilt
+				errors.append("Missing canonical channel '%s'; added from descriptor" % channel_id)
+			else:
+				errors.append("Missing canonical channel '%s'" % channel_id)
+			continue
+
+		var channel := channel_variant as Resource
+		var metadata_variant = channel.get("metadata")
+		if not (metadata_variant is Dictionary):
+			if enforce:
+				channel.set("metadata", (descriptor.get("metadata", {}).duplicate(true) if descriptor.get("metadata") is Dictionary else {}))
+			errors.append("Canonical channel '%s' metadata is invalid or missing" % channel_id)
+			continue
+
+		var metadata := metadata_variant as Dictionary
+		var metadata_mutated := false
+		var expected_metadata_variant := descriptor.get("metadata", {})
+		if expected_metadata_variant is Dictionary:
+			var expected_metadata := expected_metadata_variant as Dictionary
+			var expected_strict: bool = bool(expected_metadata.get("strict", true))
+			if metadata.get("strict", false) != expected_strict:
+				if enforce:
+					metadata["strict"] = expected_strict
+					metadata_mutated = true
+				errors.append("Canonical channel '%s' metadata.strict expected %s" % [channel_id, expected_strict])
+
+			var expected_unit := String(expected_metadata.get("unit", ""))
+			var observed_unit := String(metadata.get("unit", ""))
+			if observed_unit != expected_unit:
+				if enforce:
+					metadata["unit"] = expected_unit
+					metadata_mutated = true
+				errors.append("Canonical channel '%s' metadata.unit expected '%s'" % [channel_id, expected_unit])
+
+			var expected_range_variant := expected_metadata.get("range", {})
+			var observed_range_variant := metadata.get("range", {})
+			if not _metadata_range_equals(observed_range_variant, expected_range_variant):
+				if enforce:
+					metadata["range"] = (expected_range_variant.duplicate(true) if expected_range_variant is Dictionary else {})
+					metadata_mutated = true
+				errors.append("Canonical channel '%s' metadata.range expected %s" % [channel_id, str(expected_range_variant)])
+
+			if enforce:
+				var expected_canonical: bool = bool(expected_metadata.get("canonical", true))
+				if metadata.get("canonical", false) != expected_canonical:
+					metadata["canonical"] = expected_canonical
+					metadata_mutated = true
+		else:
+			if enforce:
+				channel.set("metadata", descriptor.get("metadata", {}).duplicate(true))
+			errors.append("Canonical channel '%s' metadata template is not a dictionary" % channel_id)
+
+		if metadata_mutated and enforce:
+			channel.set("metadata", metadata)
+	return {
+		"ok": errors.is_empty(),
+		"errors": errors,
+	}
+
+func _index_channels_by_id() -> Dictionary:
+	var by_id: Dictionary = {}
+	for row_variant in channels:
+		if not (row_variant is Resource):
+			continue
+		var row := row_variant as Resource
+		var row_id := String(row.get("channel_id"))
+		if row_id == "" or by_id.has(row_id):
+			continue
+		by_id[row_id] = row
+	return by_id
+
+func _metadata_range_equals(lhs_variant: Variant, rhs_variant: Variant) -> bool:
+	if not (lhs_variant is Dictionary) or not (rhs_variant is Dictionary):
+		return false
+	var lhs := lhs_variant as Dictionary
+	var rhs := rhs_variant as Dictionary
+	if not lhs.has("min") or not lhs.has("max") or not rhs.has("min") or not rhs.has("max"):
+		return false
+	return is_equal_approx(float(lhs.get("min", 0.0)), float(rhs.get("min", 0.0))) and is_equal_approx(float(lhs.get("max", 0.0)), float(rhs.get("max", 0.0)))
 
 func _make_channel_from_descriptor(descriptor: Dictionary) -> Resource:
 	var channel := FieldChannelConfigResourceScript.new()
