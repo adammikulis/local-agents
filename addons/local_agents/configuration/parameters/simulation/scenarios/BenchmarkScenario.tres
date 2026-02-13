@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="LocalAgentsSimulationScenarioResource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/configuration/parameters/simulation/scenarios/SimulationScenarioResource.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+scenario_id = "benchmark"
+display_name = "Benchmark"
+seed_text = "benchmark_seed"
+auto_generate_on_ready = true
+start_paused = false
+backend_mode = "ultra"
+world_width = 128
+world_depth = 128
+world_height = 48
+sea_level = 12

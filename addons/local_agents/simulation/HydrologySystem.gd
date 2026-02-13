@@ -1,13 +1,18 @@
 extends RefCounted
 class_name LocalAgentsHydrologySystem
 
+const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
+const _IDLE_CADENCE := 8
+
 func build_network(world_data: Dictionary, config) -> Dictionary:
     var width = int(world_data.get("width", 0))
     var height = int(world_data.get("height", 0))
     var tiles: Array = world_data.get("tiles", [])
     var flow_map: Dictionary = world_data.get("flow_map", {})
+    var springs: Dictionary = world_data.get("springs", {})
+    var water_table: Dictionary = world_data.get("water_table", {})
     if not flow_map.is_empty():
-        return _build_network_from_flow_map(flow_map, tiles, config)
+        return _build_network_from_flow_map(flow_map, tiles, springs, water_table, config)
 
     var by_xy: Dictionary = {}
     var by_id: Dictionary = {}
@@ -22,11 +27,27 @@ func build_network(world_data: Dictionary, config) -> Dictionary:
         by_id[tile_id] = row
 
     var sources: Array = []
+    var spring_all: Array = springs.get("all", [])
+    var spring_ids: Dictionary = {}
+    for spring_variant in spring_all:
+        if not (spring_variant is Dictionary):
+            continue
+        var spring_row = spring_variant as Dictionary
+        var spring_id = String(spring_row.get("tile_id", ""))
+        if spring_id == "":
+            continue
+        spring_ids[spring_id] = spring_row
+        sources.append(spring_id)
     for row_variant in tiles:
         var row: Dictionary = row_variant
+        var tile_id = String(row.get("tile_id", ""))
+        if tile_id == "":
+            continue
+        if spring_ids.has(tile_id):
+            continue
         if float(row.get("elevation", 0.0)) >= float(config.spring_elevation_threshold) and float(row.get("moisture", 0.0)) >= float(config.spring_moisture_threshold):
-            sources.append(String(row.get("tile_id", "")))
-    sources.sort()
+            sources.append(tile_id)
+    sources = _dedupe_sorted_strings(sources)
 
     var flow_by_tile: Dictionary = {}
     var segments: Array = []
@@ -52,12 +73,22 @@ func build_network(world_data: Dictionary, config) -> Dictionary:
         var tile_id = String(row.get("tile_id", ""))
         var flow = float(flow_by_tile.get(tile_id, 0.0))
         var moisture = float(row.get("moisture", 0.0))
-        var perennial = clampf((flow / 5.0) * 0.7 + moisture * 0.3, 0.0, 1.0)
-        var flood_risk = clampf((flow - float(config.floodplain_flow_threshold) + 1.0) / 4.0, 0.0, 1.0)
+        var depth = clampf(float(row.get("water_table_depth", 99.0)), 0.0, 99.0)
+        var pressure = clampf(float(row.get("hydraulic_pressure", 0.0)), 0.0, 1.0)
+        var recharge = clampf(float(row.get("groundwater_recharge", 0.0)), 0.0, 1.0)
+        var spring_row = spring_ids.get(tile_id, {})
+        var spring_discharge = clampf(float((spring_row as Dictionary).get("discharge", 0.0)) if spring_row is Dictionary else 0.0, 0.0, 8.0)
+        var groundwater = clampf(1.0 - (depth / 12.0), 0.0, 1.0)
+        var perennial = clampf((flow / 5.0) * 0.45 + moisture * 0.14 + groundwater * 0.16 + pressure * 0.12 + recharge * 0.08 + spring_discharge * 0.05, 0.0, 1.0)
+        var flood_risk = clampf((flow - float(config.floodplain_flow_threshold) + 1.0) / 4.0 + spring_discharge * 0.03, 0.0, 1.0)
         water_tiles[tile_id] = {
             "flow": flow,
             "water_reliability": perennial,
             "flood_risk": flood_risk,
+            "water_table_depth": depth,
+            "hydraulic_pressure": pressure,
+            "groundwater_recharge": recharge,
+            "spring_discharge": spring_discharge,
         }
 
     segments.sort_custom(func(a, b):
@@ -72,9 +103,127 @@ func build_network(world_data: Dictionary, config) -> Dictionary:
         "segments": segments,
         "water_tiles": water_tiles,
         "total_flow_index": _total_flow(flow_by_tile),
+        "springs": springs,
+        "water_table": water_table,
     }
 
-func _build_network_from_flow_map(flow_map: Dictionary, tiles: Array, config) -> Dictionary:
+func step(
+    tick: int,
+    delta: float,
+    environment_snapshot: Dictionary,
+    hydrology_snapshot: Dictionary,
+    weather_snapshot: Dictionary,
+    local_activity: Dictionary = {}
+) -> Dictionary:
+    if environment_snapshot.is_empty() or hydrology_snapshot.is_empty():
+        return {
+            "environment": environment_snapshot,
+            "hydrology": hydrology_snapshot,
+            "changed": false,
+            "changed_tiles": [],
+        }
+    var tile_index: Dictionary = environment_snapshot.get("tile_index", {})
+    var water_tiles: Dictionary = hydrology_snapshot.get("water_tiles", {})
+    if tile_index.is_empty() or water_tiles.is_empty():
+        return {
+            "environment": environment_snapshot,
+            "hydrology": hydrology_snapshot,
+            "changed": false,
+            "changed_tiles": [],
+        }
+    var weather_tiles: Dictionary = weather_snapshot.get("tile_index", {})
+    var weather_buffers: Dictionary = weather_snapshot.get("buffers", {})
+    var weather_rain: PackedFloat32Array = weather_buffers.get("rain", PackedFloat32Array())
+    var weather_wetness: PackedFloat32Array = weather_buffers.get("wetness", PackedFloat32Array())
+    var weather_buffer_ok = weather_rain.size() > 0 and weather_wetness.size() == weather_rain.size()
+    var width = int(environment_snapshot.get("width", 0))
+    var seed = int(hydrology_snapshot.get("seed", 0))
+    var changed_map: Dictionary = {}
+
+    var tile_ids = water_tiles.keys()
+    tile_ids.sort_custom(func(a, b): return String(a) < String(b))
+    for tile_id_variant in tile_ids:
+        var tile_id = String(tile_id_variant)
+        if not tile_index.has(tile_id):
+            continue
+        var tile_row = tile_index.get(tile_id, {})
+        var water_row = water_tiles.get(tile_id, {})
+        if not (tile_row is Dictionary) or not (water_row is Dictionary):
+            continue
+        var activity = maxf(
+            clampf(float(local_activity.get(tile_id, 0.0)), 0.0, 1.0),
+            _coastal_activity_bonus(tile_row as Dictionary)
+        )
+        var cadence = _cadence_for_activity(activity)
+        if cadence > 1 and not _should_step_tile(tile_id, tick, cadence, seed):
+            continue
+        var local_dt = maxf(0.0, delta) * float(cadence)
+        var weather = _weather_at_tile(tile_id, weather_tiles, weather_snapshot, weather_rain, weather_wetness, weather_buffer_ok, width)
+        var rain = clampf(float(weather.get("rain", 0.0)), 0.0, 1.0)
+        var wetness = clampf(float(weather.get("wetness", rain)), 0.0, 1.0)
+        var tile = tile_row as Dictionary
+        var water = (water_row as Dictionary).duplicate(true)
+        var moisture = clampf(float(tile.get("moisture", 0.5)), 0.0, 1.0)
+        var elevation = clampf(float(tile.get("elevation", 0.5)), 0.0, 1.0)
+        var slope = clampf(float(tile.get("slope", 0.0)), 0.0, 1.0)
+        var heat = clampf(float(tile.get("heat_load", 0.0)), 0.0, 1.5)
+        var spring_discharge = clampf(float(water.get("spring_discharge", 0.0)), 0.0, 8.0)
+        var prev_depth = clampf(float(water.get("water_table_depth", tile.get("water_table_depth", 8.0))), 0.0, 99.0)
+        var prev_pressure = clampf(float(water.get("hydraulic_pressure", tile.get("hydraulic_pressure", 0.0))), 0.0, 1.0)
+        var prev_recharge = clampf(float(water.get("groundwater_recharge", tile.get("groundwater_recharge", 0.0))), 0.0, 1.0)
+        var prev_flow = maxf(0.0, float(water.get("flow", 0.0)))
+
+        var runoff = clampf((slope * 0.55 + rain * 0.45) * (0.7 + wetness * 0.3), 0.0, 1.0)
+        var infiltration = clampf((0.06 + moisture * 0.2 + wetness * 0.22 + rain * 0.1) * (1.0 - slope * 0.45), 0.0, 1.0)
+        var evap_loss = clampf(0.01 + heat * 0.05 + (1.0 - moisture) * 0.025, 0.0, 0.2)
+        var recharge = clampf(prev_recharge * 0.92 + infiltration * local_dt - runoff * 0.015 * local_dt - evap_loss * 0.05 * local_dt, 0.0, 1.0)
+        var pressure = clampf(prev_pressure * 0.9 + recharge * 0.1 * local_dt + spring_discharge * 0.01 - runoff * 0.03 * local_dt, 0.0, 1.0)
+        var target_depth = clampf(8.0 + elevation * 10.0 - recharge * 7.5 - pressure * 4.5 - spring_discharge * 0.9 + heat * 1.9, 0.0, 99.0)
+        var depth = lerpf(prev_depth, target_depth, clampf(0.12 * local_dt, 0.0, 1.0))
+        var groundwater = clampf(1.0 - (depth / 12.0), 0.0, 1.0)
+        var flow = maxf(0.0, prev_flow * 0.93 + rain * 0.45 * local_dt + runoff * 0.38 + groundwater * 0.35 + spring_discharge * 0.2)
+        var flow_norm = 1.0 - exp(-flow * 0.18)
+        var reliability = clampf(flow_norm * 0.48 + groundwater * 0.19 + moisture * 0.14 + recharge * 0.11 + pressure * 0.08, 0.0, 1.0)
+        var flood_risk = clampf(float(water.get("flood_risk", 0.0)) * 0.9 + rain * 0.2 + runoff * 0.26 + pressure * 0.14 + spring_discharge * 0.03, 0.0, 1.0)
+
+        water["flow"] = flow
+        water["water_reliability"] = reliability
+        water["flood_risk"] = flood_risk
+        water["water_table_depth"] = depth
+        water["hydraulic_pressure"] = pressure
+        water["groundwater_recharge"] = recharge
+        water_tiles[tile_id] = water
+
+        var tile_changed = (
+            absf(depth - prev_depth) > 0.01
+            or absf(pressure - prev_pressure) > 0.004
+            or absf(recharge - prev_recharge) > 0.004
+        )
+        if not tile_changed:
+            continue
+        tile["water_table_depth"] = depth
+        tile["hydraulic_pressure"] = pressure
+        tile["groundwater_recharge"] = recharge
+        tile["moisture"] = clampf(moisture * 0.985 + reliability * 0.015, 0.0, 1.0)
+        tile_index[tile_id] = tile
+        changed_map[tile_id] = true
+
+    var changed_tiles: Array = []
+    for tile_id_variant in changed_map.keys():
+        changed_tiles.append(String(tile_id_variant))
+    changed_tiles.sort_custom(func(a, b): return String(a) < String(b))
+    if not changed_tiles.is_empty():
+        _sync_tiles(environment_snapshot, tile_index)
+    hydrology_snapshot["water_tiles"] = water_tiles
+    hydrology_snapshot["tick"] = tick
+    return {
+        "environment": environment_snapshot,
+        "hydrology": hydrology_snapshot,
+        "changed": not changed_tiles.is_empty(),
+        "changed_tiles": changed_tiles,
+    }
+
+func _build_network_from_flow_map(flow_map: Dictionary, tiles: Array, springs: Dictionary, water_table: Dictionary, config) -> Dictionary:
     var by_tile: Dictionary = {}
     for row_variant in tiles:
         if not (row_variant is Dictionary):
@@ -88,6 +237,17 @@ func _build_network_from_flow_map(flow_map: Dictionary, tiles: Array, config) ->
     var max_flow = maxf(0.001, float(flow_map.get("max_flow", 1.0)))
     var segments: Array = []
     var sources: Array = []
+    var spring_rows: Array = springs.get("all", [])
+    var springs_by_tile: Dictionary = {}
+    for spring_variant in spring_rows:
+        if not (spring_variant is Dictionary):
+            continue
+        var spring_row = spring_variant as Dictionary
+        var spring_id = String(spring_row.get("tile_id", ""))
+        if spring_id == "":
+            continue
+        springs_by_tile[spring_id] = spring_row
+        sources.append(spring_id)
     var water_tiles: Dictionary = {}
     var total_flow = 0.0
 
@@ -105,20 +265,31 @@ func _build_network_from_flow_map(flow_map: Dictionary, tiles: Array, config) ->
         total_flow += accumulation
         var flow_norm = clampf(accumulation / max_flow, 0.0, 1.0)
         var moisture = clampf(float(row.get("moisture", 0.0)), 0.0, 1.0)
-        var reliability = clampf(flow_norm * 0.78 + moisture * 0.22, 0.0, 1.0)
-        var flood_risk = clampf((flow_norm - 0.55) * 2.1, 0.0, 1.0)
+        var tile_row = by_tile.get(tile_id, {})
+        var wt_depth = clampf(float((tile_row as Dictionary).get("water_table_depth", 99.0)) if tile_row is Dictionary else 99.0, 0.0, 99.0)
+        var wt_pressure = clampf(float((tile_row as Dictionary).get("hydraulic_pressure", 0.0)) if tile_row is Dictionary else 0.0, 0.0, 1.0)
+        var wt_recharge = clampf(float((tile_row as Dictionary).get("groundwater_recharge", 0.0)) if tile_row is Dictionary else 0.0, 0.0, 1.0)
+        var spring_row = springs_by_tile.get(tile_id, {})
+        var spring_discharge = clampf(float((spring_row as Dictionary).get("discharge", 0.0)) if spring_row is Dictionary else 0.0, 0.0, 8.0)
+        var groundwater = clampf(1.0 - (wt_depth / 12.0), 0.0, 1.0)
+        var reliability = clampf(flow_norm * 0.58 + moisture * 0.14 + groundwater * 0.14 + wt_pressure * 0.09 + wt_recharge * 0.05 + spring_discharge * 0.04, 0.0, 1.0)
+        var flood_risk = clampf((flow_norm - 0.55) * 2.1 + spring_discharge * 0.04, 0.0, 1.0)
         water_tiles[tile_id] = {
             "flow": accumulation,
             "water_reliability": reliability,
             "flood_risk": flood_risk,
+            "water_table_depth": wt_depth,
+            "hydraulic_pressure": wt_pressure,
+            "groundwater_recharge": wt_recharge,
+            "spring_discharge": spring_discharge,
         }
 
-        var tile = by_tile.get(tile_id, {})
+        var tile = tile_row
         var tile_elevation = 0.0
         if tile is Dictionary:
             tile_elevation = float((tile as Dictionary).get("elevation", 0.0))
         var elevation = clampf(float(row.get("elevation", tile_elevation)), 0.0, 1.0)
-        if elevation >= float(config.spring_elevation_threshold) and moisture >= float(config.spring_moisture_threshold):
+        if not springs_by_tile.has(tile_id) and elevation >= float(config.spring_elevation_threshold) and moisture >= float(config.spring_moisture_threshold):
             sources.append(tile_id)
 
     if sources.is_empty():
@@ -135,7 +306,7 @@ func _build_network_from_flow_map(flow_map: Dictionary, tiles: Array, config) ->
             var tile_id = String(row.get("tile_id", ""))
             if tile_id != "":
                 sources.append(tile_id)
-    sources.sort()
+    sources = _dedupe_sorted_strings(sources)
 
     segments.sort_custom(func(a, b):
         var a_key = "%s>%s" % [String(a.get("from", "")), String(a.get("to", ""))]
@@ -150,6 +321,8 @@ func _build_network_from_flow_map(flow_map: Dictionary, tiles: Array, config) ->
         "water_tiles": water_tiles,
         "total_flow_index": total_flow,
         "flow_map_schema_version": int(flow_map.get("schema_version", 1)),
+        "springs": springs,
+        "water_table": water_table,
     }
 
 func _next_downhill_tile(tile_id: String, by_id: Dictionary, by_xy: Dictionary) -> String:
@@ -188,3 +361,77 @@ func _total_flow(flow_by_tile: Dictionary) -> float:
     for key in keys:
         total += float(flow_by_tile.get(key, 0.0))
     return total
+
+func _dedupe_sorted_strings(values: Array) -> Array:
+    var normalized: Array = []
+    for value_variant in values:
+        var value = String(value_variant)
+        if value == "":
+            continue
+        normalized.append(value)
+    normalized.sort()
+    var out: Array = []
+    var last = ""
+    for value_variant in normalized:
+        var value = String(value_variant)
+        if value == last:
+            continue
+        out.append(value)
+        last = value
+    return out
+
+func _sync_tiles(environment_snapshot: Dictionary, tile_index: Dictionary) -> void:
+    var tiles: Array = environment_snapshot.get("tiles", [])
+    for i in range(tiles.size()):
+        if not (tiles[i] is Dictionary):
+            continue
+        var row = tiles[i] as Dictionary
+        var tile_id = String(row.get("tile_id", "%d:%d" % [int(row.get("x", 0)), int(row.get("y", 0))]))
+        if tile_index.has(tile_id):
+            tiles[i] = (tile_index[tile_id] as Dictionary).duplicate(true)
+    environment_snapshot["tiles"] = tiles
+    environment_snapshot["tile_index"] = tile_index
+
+func _coastal_activity_bonus(tile: Dictionary) -> float:
+    var elevation = clampf(float(tile.get("elevation", 0.5)), 0.0, 1.0)
+    var continentalness = clampf(float(tile.get("continentalness", 0.5)), 0.0, 1.0)
+    var shore_band = clampf(1.0 - absf(elevation - 0.34) * 4.0, 0.0, 1.0)
+    var ocean_bias = clampf((0.58 - continentalness) * 2.0, 0.0, 1.0)
+    return clampf(shore_band * (0.25 + ocean_bias * 0.55), 0.0, 1.0)
+
+func _cadence_for_activity(activity: float) -> int:
+    var a = clampf(activity, 0.0, 1.0)
+    return clampi(int(round(lerpf(float(_IDLE_CADENCE), 1.0, a))), 1, _IDLE_CADENCE)
+
+func _should_step_tile(tile_id: String, tick: int, cadence: int, seed: int) -> bool:
+    if cadence <= 1:
+        return true
+    var phase = abs(int(hash("%s|%d" % [tile_id, seed]))) % cadence
+    return (tick + phase) % cadence == 0
+
+func _weather_at_tile(
+    tile_id: String,
+    weather_tiles: Dictionary,
+    weather_snapshot: Dictionary,
+    weather_rain: PackedFloat32Array,
+    weather_wetness: PackedFloat32Array,
+    weather_buffer_ok: bool,
+    width: int
+) -> Dictionary:
+    if weather_buffer_ok and width > 0:
+        var coords = TileKeyUtilsScript.parse_tile_id(tile_id)
+        if coords.x != 2147483647 and coords.y != 2147483647:
+            var idx = coords.y * width + coords.x
+            if idx >= 0 and idx < weather_rain.size():
+                return {
+                    "rain": clampf(float(weather_rain[idx]), 0.0, 1.0),
+                    "wetness": clampf(float(weather_wetness[idx]), 0.0, 1.0),
+                }
+    var weather_row = weather_tiles.get(tile_id, {})
+    if weather_row is Dictionary:
+        return {
+            "rain": clampf(float((weather_row as Dictionary).get("rain", weather_snapshot.get("avg_rain_intensity", 0.0))), 0.0, 1.0),
+            "wetness": clampf(float((weather_row as Dictionary).get("wetness", weather_snapshot.get("avg_rain_intensity", 0.0))), 0.0, 1.0),
+        }
+    var avg_rain = clampf(float(weather_snapshot.get("avg_rain_intensity", 0.0)), 0.0, 1.0)
+    return {"rain": avg_rain, "wetness": avg_rain}

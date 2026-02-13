@@ -5,6 +5,7 @@ const RiverRendererScript = preload("res://addons/local_agents/scenes/simulation
 const PostFXRendererScript = preload("res://addons/local_agents/scenes/simulation/controllers/renderers/PostFXRenderer.gd")
 const WaterSourceRendererScript = preload("res://addons/local_agents/scenes/simulation/controllers/renderers/WaterSourceRenderer.gd")
 const TerrainRendererScript = preload("res://addons/local_agents/scenes/simulation/controllers/renderers/TerrainRenderer.gd")
+const WaterFlowShader = preload("res://addons/local_agents/scenes/simulation/shaders/VoxelWaterFlow.gdshader")
 
 @onready var terrain_root: Node3D = $TerrainRoot
 @onready var water_root: Node3D = $WaterRoot
@@ -42,6 +43,22 @@ var _water_shader_params := {
 	"weather_wind_speed": 0.5,
 	"weather_cloud_scale": 0.045,
 	"weather_cloud_strength": 0.55,
+	"moon_dir": Vector2(1.0, 0.0),
+	"moon_phase": 0.5,
+	"moon_tidal_strength": 1.0,
+	"moon_tide_range": 0.26,
+	"lunar_wave_boost": 0.4,
+	"gravity_source_pos": Vector2(0.0, 0.0),
+	"gravity_source_strength": 1.0,
+	"gravity_source_radius": 96.0,
+	"ocean_wave_amplitude": 0.18,
+	"ocean_wave_frequency": 0.65,
+	"ocean_chop": 0.55,
+	"ocean_detail": 0.66,
+	"camera_world_pos": Vector3.ZERO,
+	"far_simplify_start": 24.0,
+	"far_simplify_end": 96.0,
+	"far_detail_min": 0.28,
 	"weather_field_blend": 1.0,
 }
 var _cloud_renderer
@@ -50,6 +67,12 @@ var _post_fx_renderer
 var _water_source_renderer
 var _terrain_renderer
 var _lightning_flash: float = 0.0
+var _ocean_root: Node3D
+var _ocean_mesh_instance: MeshInstance3D
+var _ocean_material: ShaderMaterial
+var _ocean_plane_mesh: PlaneMesh
+var _ocean_size_cache: Vector2 = Vector2.ZERO
+var _ocean_sea_level_cache: float = -INF
 
 func _process(_delta: float) -> void:
 	_poll_chunk_build()
@@ -64,6 +87,9 @@ func clear_generated() -> void:
 	_terrain_renderer.clear_generated()
 	for child in water_root.get_children():
 		child.queue_free()
+	if _ocean_root != null and is_instance_valid(_ocean_root):
+		for child in _ocean_root.get_children():
+			child.queue_free()
 	_ensure_renderer_nodes()
 	_cloud_renderer.clear_generated()
 	_river_renderer.clear_generated()
@@ -81,7 +107,9 @@ func apply_generation_data(generation: Dictionary, hydrology: Dictionary) -> voi
 	_ensure_cloud_layer()
 	_ensure_volumetric_cloud_shell()
 	_ensure_rain_post_fx()
+	_ensure_ocean_surface()
 	_update_cloud_layer_geometry()
+	_update_ocean_surface_geometry()
 	_update_weather_field_texture(_weather_snapshot)
 	_refresh_surface_state_from_generation()
 	_update_surface_state_texture(_weather_snapshot)
@@ -96,6 +124,7 @@ func apply_generation_delta(generation: Dictionary, hydrology: Dictionary, chang
 	_update_weather_field_texture(_weather_snapshot)
 	_update_surface_state_texture(_weather_snapshot)
 	_update_solar_field_texture(_solar_snapshot)
+	_update_ocean_surface_geometry()
 	var chunk_keys = _chunk_keys_for_changed_tiles(changed_tiles)
 	if chunk_keys.is_empty():
 		_request_chunk_rebuild([])
@@ -165,6 +194,10 @@ func _ensure_renderer_nodes() -> void:
 	if _terrain_renderer == null:
 		_terrain_renderer = TerrainRendererScript.new()
 		_terrain_renderer.configure(terrain_root)
+	if _ocean_root == null or not is_instance_valid(_ocean_root):
+		_ocean_root = Node3D.new()
+		_ocean_root.name = "OceanRoot"
+		add_child(_ocean_root)
 
 func _sync_terrain_renderer_context() -> void:
 	_ensure_renderer_nodes()
@@ -182,6 +215,7 @@ func set_solar_state(solar_snapshot: Dictionary) -> void:
 	_update_solar_field_texture(_solar_snapshot)
 	_sync_terrain_renderer_context()
 	_terrain_renderer.refresh_material_uniforms()
+	_apply_ocean_material_uniforms()
 
 func set_water_shader_params(params: Dictionary) -> void:
 	for key_variant in params.keys():
@@ -189,6 +223,16 @@ func set_water_shader_params(params: Dictionary) -> void:
 		_water_shader_params[key] = params.get(key_variant)
 	_sync_terrain_renderer_context()
 	_terrain_renderer.set_water_shader_params(params)
+	_apply_ocean_material_uniforms()
+
+func set_terrain_chunk_size(next_size: int) -> void:
+	var clamped = clampi(next_size, 4, 64)
+	if clamped == terrain_chunk_size:
+		return
+	terrain_chunk_size = clamped
+	if _generation_snapshot.is_empty():
+		return
+	_request_chunk_rebuild([])
 
 func _apply_weather_to_cached_materials(rain: float, cloud: float, humidity: float) -> void:
 	_sync_terrain_renderer_context()
@@ -199,6 +243,8 @@ func _request_chunk_rebuild(chunk_keys: Array = []) -> void:
 	var block_rows: Array = voxel_world.get("block_rows", [])
 	if block_rows.is_empty() or terrain_root == null:
 		return
+	var chunk_rows_by_chunk: Dictionary = voxel_world.get("block_rows_by_chunk", {})
+	var chunk_rows_chunk_size = int(voxel_world.get("block_rows_chunk_size", 0))
 	var normalized_chunk_keys: Array = []
 	for key_variant in chunk_keys:
 		var key = String(key_variant).strip_edges()
@@ -207,7 +253,13 @@ func _request_chunk_rebuild(chunk_keys: Array = []) -> void:
 		normalized_chunk_keys.append(key)
 	normalized_chunk_keys.sort()
 	_sync_terrain_renderer_context()
-	_terrain_renderer.request_chunk_rebuild(block_rows, normalized_chunk_keys, terrain_chunk_size)
+	_terrain_renderer.request_chunk_rebuild(
+		block_rows,
+		normalized_chunk_keys,
+		terrain_chunk_size,
+		chunk_rows_by_chunk,
+		chunk_rows_chunk_size
+	)
 
 func _poll_chunk_build() -> void:
 	_ensure_renderer_nodes()
@@ -268,6 +320,7 @@ func _update_rain_post_fx_weather(rain: float, wind: Vector2, wind_speed: float)
 	_ensure_renderer_nodes()
 	_post_fx_renderer.update_weather(rain, wind, wind_speed)
 	_post_fx_renderer.apply_lightning(_lightning_flash)
+	_apply_ocean_material_uniforms()
 
 func _ensure_cloud_layer() -> void:
 	_ensure_renderer_nodes()
@@ -556,6 +609,56 @@ func _update_lightning_uniforms() -> void:
 	_river_renderer.apply_lightning(_lightning_flash)
 	_cloud_renderer.apply_lightning(_lightning_flash)
 	_post_fx_renderer.apply_lightning(_lightning_flash)
+	_apply_ocean_material_uniforms()
+
+func _ensure_ocean_surface() -> void:
+	_ensure_renderer_nodes()
+	if _ocean_root == null:
+		return
+	if _ocean_mesh_instance == null or not is_instance_valid(_ocean_mesh_instance):
+		_ocean_mesh_instance = MeshInstance3D.new()
+		_ocean_mesh_instance.name = "OceanSurface"
+		_ocean_root.add_child(_ocean_mesh_instance)
+	if _ocean_material == null:
+		_ocean_material = ShaderMaterial.new()
+		_ocean_material.shader = WaterFlowShader
+	_ocean_mesh_instance.material_override = _ocean_material
+	_apply_ocean_material_uniforms()
+
+func _update_ocean_surface_geometry() -> void:
+	_ensure_ocean_surface()
+	if _ocean_mesh_instance == null:
+		return
+	var width = maxi(1, int(_generation_snapshot.get("width", 1)))
+	var depth = maxi(1, int(_generation_snapshot.get("height", 1)))
+	var voxel_world: Dictionary = _generation_snapshot.get("voxel_world", {})
+	var sea_level = float(voxel_world.get("sea_level", 1))
+	var next_size = Vector2(float(width), float(depth))
+	if _ocean_plane_mesh == null:
+		_ocean_plane_mesh = PlaneMesh.new()
+	if _ocean_size_cache != next_size:
+		_ocean_plane_mesh.size = next_size
+		_ocean_size_cache = next_size
+		_ocean_mesh_instance.mesh = _ocean_plane_mesh
+	if not is_equal_approx(_ocean_sea_level_cache, sea_level):
+		_ocean_sea_level_cache = sea_level
+	_ocean_mesh_instance.position = Vector3(next_size.x * 0.5, sea_level + 0.52, next_size.y * 0.5)
+	_ocean_mesh_instance.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
+
+func _apply_ocean_material_uniforms() -> void:
+	if _ocean_material == null:
+		return
+	for key_variant in _water_shader_params.keys():
+		_ocean_material.set_shader_parameter(String(key_variant), _water_shader_params[key_variant])
+	_ocean_material.set_shader_parameter("weather_field_tex", _weather_field_texture)
+	_ocean_material.set_shader_parameter("weather_field_world_size", _weather_field_world_size)
+	_ocean_material.set_shader_parameter("weather_field_blend", 1.0)
+	_ocean_material.set_shader_parameter("surface_field_tex", _surface_field_texture)
+	_ocean_material.set_shader_parameter("surface_field_world_size", _weather_field_world_size)
+	_ocean_material.set_shader_parameter("surface_field_blend", 1.0)
+	_ocean_material.set_shader_parameter("solar_field_tex", _solar_field_texture)
+	_ocean_material.set_shader_parameter("solar_field_world_size", _weather_field_world_size)
+	_ocean_material.set_shader_parameter("solar_field_blend", 1.0)
 
 func _pack_weather_color(c: Color) -> int:
 	var r = int(clampi(int(round(c.r * 255.0)), 0, 255))

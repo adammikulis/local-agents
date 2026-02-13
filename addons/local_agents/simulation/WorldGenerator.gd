@@ -11,6 +11,8 @@ const BLOCK_SAND := "sand"
 const BLOCK_SNOW := "snow"
 const BLOCK_STONE := "stone"
 const BLOCK_GRAVEL := "gravel"
+const BLOCK_BASALT := "basalt"
+const BLOCK_OBSIDIAN := "obsidian"
 const BLOCK_COAL_ORE := "coal_ore"
 const BLOCK_COPPER_ORE := "copper_ore"
 const BLOCK_IRON_ORE := "iron_ore"
@@ -23,11 +25,24 @@ func generate(seed: int, config) -> Dictionary:
     var tiles: Array = []
     var tile_index: Dictionary = {}
     var voxel_world_height = maxi(8, int(config.voxel_world_height))
-    var surface_noise = _build_noise(seed + 1601, float(config.voxel_noise_frequency), int(config.voxel_noise_octaves))
+    var surface_noise = _build_noise(
+        seed + 1601,
+        float(config.voxel_noise_frequency),
+        int(config.voxel_noise_octaves),
+        float(_config_value(config, "voxel_noise_lacunarity", 2.0)),
+        float(_config_value(config, "voxel_noise_gain", 0.5))
+    )
     var cave_noise = _build_noise(seed + 2113, float(config.cave_noise_frequency), 3)
     var ore_noise = _build_noise(seed + 2963, float(config.ore_noise_frequency), 2)
     var biome_noise = _build_noise(seed + 3323, float(config.moisture_frequency), maxi(1, int(config.moisture_octaves)))
     var temp_noise = _build_noise(seed + 3467, float(config.temperature_frequency), maxi(1, int(config.temperature_octaves)))
+    var tectonic_noise = _build_noise(seed + 3889, float(_config_value(config, "elevation_frequency", 0.135)) * 0.72, maxi(1, int(_config_value(config, "elevation_octaves", 3))), 2.35, 0.46)
+    var continental_noise = _build_noise(seed + 3989, float(_config_value(config, "elevation_frequency", 0.135)) * 0.32, maxi(2, int(_config_value(config, "elevation_octaves", 3))), 2.0, 0.52)
+    var volcanic_noise = _build_noise(seed + 4153, float(_config_value(config, "volcanic_noise_frequency", 0.028)), 2, 2.2, 0.58)
+    var geothermal_noise = _build_noise(seed + 4339, float(_config_value(config, "geothermal_noise_frequency", 0.041)), 3, 2.0, 0.57)
+    var aquifer_noise = _build_noise(seed + 4483, float(_config_value(config, "aquifer_noise_frequency", 0.047)), 3, 2.1, 0.54)
+    var volcanic_features: Array = _collect_volcanic_features(width, height, voxel_world_height, volcanic_noise, continental_noise, config)
+    var volcanic_delta_by_tile: Dictionary = _build_volcanic_delta_index(width, height, volcanic_features, config)
 
     var voxel_columns: Array = []
     var block_rows: Array = []
@@ -39,16 +54,25 @@ func generate(seed: int, config) -> Dictionary:
     for z in range(height):
         for x in range(width):
             var tile_id = "%d:%d" % [x, z]
-            var surface_noise_value = surface_noise.get_noise_2d(float(x), float(z))
+            var surface_noise_value = _sample_surface_noise(surface_noise, x, z, float(_config_value(config, "voxel_surface_smoothing", 0.35)))
             var normalized_surface = clampf((surface_noise_value + 1.0) * 0.5, 0.0, 1.0)
+            var tectonic = clampf((tectonic_noise.get_noise_2d(float(x + 7), float(z - 9)) + 1.0) * 0.5, 0.0, 1.0)
+            var continental = clampf((continental_noise.get_noise_2d(float(x - 17), float(z + 13)) + 1.0) * 0.5, 0.0, 1.0)
+            var island_bias = _island_bias(x, z, width, height, continental, tectonic)
+            normalized_surface = clampf(normalized_surface * 0.46 + tectonic * 0.24 + island_bias * 0.52 - 0.18, 0.0, 1.0)
             var moisture = clampf((biome_noise.get_noise_2d(float(x + 31), float(z - 17)) + 1.0) * 0.5, 0.0, 1.0)
             var latitude = absf(((float(z) / float(maxi(1, height - 1))) * 2.0) - 1.0)
             var temperature_noise = clampf((temp_noise.get_noise_2d(float(x - 11), float(z + 23)) + 1.0) * 0.5, 0.0, 1.0)
             var surface_y = _surface_height(normalized_surface, config, voxel_world_height)
+            surface_y = clampi(surface_y + int(volcanic_delta_by_tile.get(tile_id, 0)), 1, voxel_world_height - 2)
             var elevation = clampf(float(surface_y) / float(maxi(1, voxel_world_height - 1)), 0.0, 1.0)
+            var geothermal_activity = clampf((geothermal_noise.get_noise_2d(float(x + 47), float(z + 83)) + 1.0) * 0.5, 0.0, 1.0)
+            geothermal_activity = clampf(geothermal_activity * 0.7 + _volcanic_influence(tile_id, volcanic_features) * 0.6, 0.0, 1.0)
+            var aquifer_potential = clampf((aquifer_noise.get_noise_2d(float(x - 53), float(z + 29)) + 1.0) * 0.5, 0.0, 1.0)
             var temperature = clampf((1.0 - latitude) * 0.65 + temperature_noise * 0.35 - elevation * 0.25, 0.0, 1.0)
             moisture = clampf(moisture + float(_config_value(config, "progression_moisture_shift", 0.0)), 0.0, 1.0)
             temperature = clampf(temperature + float(_config_value(config, "progression_temperature_shift", 0.0)), 0.0, 1.0)
+            temperature = clampf(temperature + geothermal_activity * 0.08, 0.0, 1.0)
             var slope = _estimate_slope(surface_noise, x, z)
 
             var tile_resource = WorldTileResourceScript.new()
@@ -67,6 +91,11 @@ func generate(seed: int, config) -> Dictionary:
             tile_resource.stone_density = float(densities.get("stone_density", 0.3))
 
             var row = tile_resource.to_dict()
+            row["tectonic_uplift"] = tectonic
+            row["continentalness"] = continental
+            row["islandness"] = island_bias
+            row["geothermal_activity"] = geothermal_activity
+            row["aquifer_potential"] = aquifer_potential
             tiles.append(row)
             tile_index[tile_id] = row
             height_map_index[tile_id] = surface_y
@@ -79,6 +108,7 @@ func generate(seed: int, config) -> Dictionary:
                 tile_resource.biome,
                 moisture,
                 temperature,
+                geothermal_activity,
                 voxel_world_height,
                 config,
                 cave_noise,
@@ -94,6 +124,34 @@ func generate(seed: int, config) -> Dictionary:
 
     var flow_map_resource = FlowMapResourceScript.new()
     flow_map_resource.from_dict(_bake_flow_map(width, height, height_map_index, moisture_map_index, elevation_map_index))
+    var hydrogeo = _build_hydrogeology(tiles, tile_index, flow_map_resource.to_dict(), config, voxel_world_height)
+    var springs: Dictionary = hydrogeo.get("springs", {})
+    var water_table: Dictionary = hydrogeo.get("water_table", {})
+    var water_table_rows: Array = hydrogeo.get("water_table_rows", [])
+
+    var column_index_by_tile: Dictionary = {}
+    for i in range(voxel_columns.size()):
+        var column_variant = voxel_columns[i]
+        if not (column_variant is Dictionary):
+            continue
+        var column = column_variant as Dictionary
+        column_index_by_tile["%d:%d" % [int(column.get("x", 0)), int(column.get("z", 0))]] = i
+    var chunk_row_index = _build_chunk_row_index(block_rows, 12)
+    var packed_surface_y := PackedInt32Array()
+    var packed_surface_albedo := PackedFloat32Array()
+    packed_surface_y.resize(width * height)
+    packed_surface_albedo.resize(width * height)
+    for column_variant in voxel_columns:
+        if not (column_variant is Dictionary):
+            continue
+        var column = column_variant as Dictionary
+        var x = int(column.get("x", 0))
+        var z = int(column.get("z", 0))
+        var idx = z * width + x
+        if idx < 0 or idx >= packed_surface_y.size():
+            continue
+        packed_surface_y[idx] = int(column.get("surface_y", 0))
+        packed_surface_albedo[idx] = _albedo_from_rgba(column.get("top_block_rgba", [0.5, 0.5, 0.5, 1.0]))
 
     return {
         "schema_version": 1,
@@ -104,6 +162,18 @@ func generate(seed: int, config) -> Dictionary:
         "tiles": tiles,
         "tile_index": tile_index,
         "flow_map": flow_map_resource.to_dict(),
+        "geology": {
+            "schema_version": 1,
+            "volcanic_features": volcanic_features,
+            "plate_uplift_seed": seed + 3889,
+            "continental_seed": seed + 3989,
+        },
+        "springs": springs,
+        "water_table": {
+            "schema_version": 1,
+            "rows": water_table_rows,
+            "row_index": water_table,
+        },
         "voxel_world": {
             "schema_version": 1,
             "width": width,
@@ -111,21 +181,75 @@ func generate(seed: int, config) -> Dictionary:
             "height": voxel_world_height,
             "sea_level": int(config.voxel_sea_level),
             "columns": voxel_columns,
+            "column_index_by_tile": column_index_by_tile,
             "block_rows": block_rows,
+            "block_rows_by_chunk": chunk_row_index,
+            "block_rows_chunk_size": 12,
             "block_type_counts": block_type_counts,
+            "surface_y_buffer": packed_surface_y,
+            "surface_albedo_buffer": packed_surface_albedo,
         }
     }
 
-func _build_noise(seed: int, frequency: float, octaves: int) -> FastNoiseLite:
+func rebake_flow_map(world: Dictionary) -> Dictionary:
+    if world.is_empty():
+        return {}
+    var width = int(world.get("width", 0))
+    var height = int(world.get("height", 0))
+    if width <= 0 or height <= 0:
+        return {}
+    var tiles: Array = world.get("tiles", [])
+    var columns: Array = (world.get("voxel_world", {}) as Dictionary).get("columns", [])
+    var surface_by_tile: Dictionary = {}
+    for column_variant in columns:
+        if not (column_variant is Dictionary):
+            continue
+        var column = column_variant as Dictionary
+        var tile_id = "%d:%d" % [int(column.get("x", 0)), int(column.get("z", 0))]
+        surface_by_tile[tile_id] = int(column.get("surface_y", 0))
+    var height_map_index: Dictionary = {}
+    var moisture_map_index: Dictionary = {}
+    var elevation_map_index: Dictionary = {}
+    var world_height = maxi(1, int((world.get("voxel_world", {}) as Dictionary).get("height", 1)))
+    for tile_variant in tiles:
+        if not (tile_variant is Dictionary):
+            continue
+        var tile = tile_variant as Dictionary
+        var tile_id = String(tile.get("tile_id", ""))
+        if tile_id == "":
+            continue
+        var elev = clampf(float(tile.get("elevation", 0.0)), 0.0, 1.0)
+        var moisture = clampf(float(tile.get("moisture", 0.0)), 0.0, 1.0)
+        var surface_y = int(round(elev * float(maxi(1, world_height - 1))))
+        if surface_by_tile.has(tile_id):
+            surface_y = int(surface_by_tile[tile_id])
+        height_map_index[tile_id] = surface_y
+        moisture_map_index[tile_id] = moisture
+        elevation_map_index[tile_id] = elev
+    return _bake_flow_map(width, height, height_map_index, moisture_map_index, elevation_map_index)
+
+func _build_noise(seed: int, frequency: float, octaves: int, lacunarity: float = 2.0, gain: float = 0.5) -> FastNoiseLite:
     var noise = FastNoiseLite.new()
     noise.seed = seed
     noise.frequency = maxf(0.001, frequency)
     noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
     noise.fractal_type = FastNoiseLite.FRACTAL_FBM
     noise.fractal_octaves = maxi(1, octaves)
-    noise.fractal_lacunarity = 2.0
-    noise.fractal_gain = 0.5
+    noise.fractal_lacunarity = clampf(lacunarity, 1.1, 4.0)
+    noise.fractal_gain = clampf(gain, 0.05, 1.0)
     return noise
+
+func _sample_surface_noise(surface_noise: FastNoiseLite, x: int, z: int, smoothing: float) -> float:
+    var smooth = clampf(smoothing, 0.0, 1.0)
+    var center = surface_noise.get_noise_2d(float(x), float(z))
+    if smooth <= 0.001:
+        return center
+    var east = surface_noise.get_noise_2d(float(x + 1), float(z))
+    var west = surface_noise.get_noise_2d(float(x - 1), float(z))
+    var north = surface_noise.get_noise_2d(float(x), float(z + 1))
+    var south = surface_noise.get_noise_2d(float(x), float(z - 1))
+    var average = (center + east + west + north + south) / 5.0
+    return lerpf(center, average, smooth)
 
 func _surface_height(surface_value: float, config, voxel_world_height: int) -> int:
     var base_height = clampi(int(config.voxel_surface_height_base), 1, voxel_world_height - 2)
@@ -147,14 +271,15 @@ func _build_voxel_column(
     biome: String,
     moisture: float,
     temperature: float,
+    geothermal_activity: float,
     voxel_world_height: int,
     config,
     cave_noise: FastNoiseLite,
     ore_noise: FastNoiseLite
 ) -> Dictionary:
     var blocks: Array = []
-    var top_block = _surface_block_for(biome, moisture, temperature)
-    var subsoil_block = _subsoil_block_for(biome, moisture)
+    var top_block = _surface_block_for(biome, moisture, temperature, geothermal_activity)
+    var subsoil_block = _subsoil_block_for(biome, moisture, geothermal_activity)
     var stone_layers = 0
     var water_layers = 0
     var resource_counts = {
@@ -174,7 +299,7 @@ func _build_voxel_column(
         elif y >= surface_y - 2:
             block_type = subsoil_block
         else:
-            block_type = _underground_block(x, y, z, ore_noise, config)
+            block_type = _underground_block(x, y, z, ore_noise, geothermal_activity, config)
             if block_type == BLOCK_STONE or block_type == BLOCK_GRAVEL:
                 stone_layers += 1
             elif block_type == BLOCK_COAL_ORE:
@@ -206,7 +331,11 @@ func _build_voxel_column(
         "blocks": blocks,
     }
 
-func _surface_block_for(biome: String, moisture: float, temperature: float) -> String:
+func _surface_block_for(biome: String, moisture: float, temperature: float, geothermal_activity: float = 0.0) -> String:
+    if geothermal_activity > 0.74 and moisture < 0.55:
+        return BLOCK_OBSIDIAN
+    if geothermal_activity > 0.62:
+        return BLOCK_BASALT
     if biome == "highland" and temperature < 0.3:
         return BLOCK_SNOW
     if moisture < 0.24:
@@ -215,7 +344,9 @@ func _surface_block_for(biome: String, moisture: float, temperature: float) -> S
         return BLOCK_CLAY
     return BLOCK_GRASS
 
-func _subsoil_block_for(biome: String, moisture: float) -> String:
+func _subsoil_block_for(biome: String, moisture: float, geothermal_activity: float = 0.0) -> String:
+    if geothermal_activity > 0.58:
+        return BLOCK_BASALT
     if biome == "highland":
         return BLOCK_GRAVEL
     if moisture > 0.68:
@@ -224,8 +355,10 @@ func _subsoil_block_for(biome: String, moisture: float) -> String:
         return BLOCK_SAND
     return BLOCK_DIRT
 
-func _underground_block(x: int, y: int, z: int, ore_noise: FastNoiseLite, config) -> String:
+func _underground_block(x: int, y: int, z: int, ore_noise: FastNoiseLite, geothermal_activity: float, config) -> String:
     var ore_value = ore_noise.get_noise_3d(float(x), float(y), float(z))
+    if geothermal_activity > 0.66 and y > 4 and y < 24 and ore_value > 0.48:
+        return BLOCK_BASALT
     if y <= 8 and ore_value > float(config.iron_ore_threshold):
         return BLOCK_IRON_ORE
     if y <= 14 and ore_value > float(config.copper_ore_threshold):
@@ -252,6 +385,10 @@ func _block_color_rgba(block_type: String) -> Array:
             return [0.45, 0.45, 0.47, 1.0]
         BLOCK_GRAVEL:
             return [0.52, 0.5, 0.48, 1.0]
+        BLOCK_BASALT:
+            return [0.2, 0.2, 0.22, 1.0]
+        BLOCK_OBSIDIAN:
+            return [0.1, 0.08, 0.14, 1.0]
         BLOCK_COAL_ORE:
             return [0.22, 0.22, 0.22, 1.0]
         BLOCK_COPPER_ORE:
@@ -262,6 +399,15 @@ func _block_color_rgba(block_type: String) -> Array:
             return [0.18, 0.35, 0.76, 0.62]
         _:
             return [0.5, 0.5, 0.5, 1.0]
+
+func _albedo_from_rgba(rgba_value) -> float:
+    if rgba_value is Array and (rgba_value as Array).size() >= 3:
+        var arr = rgba_value as Array
+        var r = clampf(float(arr[0]), 0.0, 1.0)
+        var g = clampf(float(arr[1]), 0.0, 1.0)
+        var b = clampf(float(arr[2]), 0.0, 1.0)
+        return clampf(r * 0.2126 + g * 0.7152 + b * 0.0722, 0.02, 0.95)
+    return 0.35
 
 func _bake_flow_map(
     width: int,
@@ -326,6 +472,12 @@ func _bake_flow_map(
 
     var rows: Array = []
     var row_index: Dictionary = {}
+    var flow_dir_x := PackedFloat32Array()
+    var flow_dir_y := PackedFloat32Array()
+    var flow_strength := PackedFloat32Array()
+    flow_dir_x.resize(width * height)
+    flow_dir_y.resize(width * height)
+    flow_strength.resize(width * height)
     for tile_id_variant in all_ids:
         var tile_id = String(tile_id_variant)
         var parts = tile_id.split(":")
@@ -356,6 +508,11 @@ func _bake_flow_map(
         }
         rows.append(row)
         row_index[tile_id] = row
+        var flat = z * width + x
+        if flat >= 0 and flat < flow_strength.size():
+            flow_dir_x[flat] = float(dir_x)
+            flow_dir_y[flat] = float(dir_y)
+            flow_strength[flat] = float(row.get("channel_strength", 0.0))
 
     return {
         "schema_version": 1,
@@ -364,6 +521,9 @@ func _bake_flow_map(
         "max_flow": max_flow,
         "rows": rows,
         "row_index": row_index,
+        "flow_dir_x_buffer": flow_dir_x,
+        "flow_dir_y_buffer": flow_dir_y,
+        "flow_strength_buffer": flow_strength,
     }
 
 func _next_downhill_tile_id(tile_id: String, width: int, height: int, height_map: Dictionary) -> String:
@@ -445,3 +605,248 @@ func _config_value(config, key: String, default_value):
     if value == null:
         return default_value
     return value
+
+func _build_chunk_row_index(block_rows: Array, chunk_size: int) -> Dictionary:
+    var size = maxi(4, chunk_size)
+    var by_chunk: Dictionary = {}
+    for row_variant in block_rows:
+        if not (row_variant is Dictionary):
+            continue
+        var row = row_variant as Dictionary
+        var x = int(row.get("x", 0))
+        var z = int(row.get("z", 0))
+        var cx = int(floor(float(x) / float(size)))
+        var cz = int(floor(float(z) / float(size)))
+        var key = "%d:%d" % [cx, cz]
+        var rows: Array = by_chunk.get(key, [])
+        rows.append(row)
+        by_chunk[key] = rows
+    return by_chunk
+
+func _island_bias(x: int, z: int, width: int, height: int, continental: float, tectonic: float) -> float:
+    var nx = 0.0
+    var nz = 0.0
+    if width > 1:
+        nx = (float(x) / float(width - 1)) * 2.0 - 1.0
+    if height > 1:
+        nz = (float(z) / float(height - 1)) * 2.0 - 1.0
+    var radial = clampf(1.0 - sqrt(nx * nx + nz * nz), 0.0, 1.0)
+    var continental_lift = clampf((continental - 0.42) * 1.8, 0.0, 1.0)
+    var hotspot_islands = clampf((tectonic - 0.62) * 2.4, 0.0, 1.0) * clampf((0.46 - continental) * 2.2, 0.0, 1.0)
+    return clampf(radial * 0.58 + continental_lift * 0.32 + hotspot_islands * 0.58, 0.0, 1.0)
+
+func _collect_volcanic_features(
+    width: int,
+    height: int,
+    voxel_world_height: int,
+    volcanic_noise: FastNoiseLite,
+    continental_noise: FastNoiseLite,
+    config
+) -> Array:
+    var features: Array = []
+    var threshold = clampf(float(_config_value(config, "volcanic_threshold", 0.76)), 0.0, 1.0)
+    var min_radius = maxi(1, int(_config_value(config, "volcanic_radius_min", 2)))
+    var max_radius = maxi(min_radius, int(_config_value(config, "volcanic_radius_max", 5)))
+    var cone_height = clampf(float(_config_value(config, "volcanic_cone_height", 6.0)), 0.0, 24.0)
+    var crater_depth = clampf(float(_config_value(config, "volcanic_crater_depth", 2.0)), 0.0, 12.0)
+    var claimed: Dictionary = {}
+    for z in range(height):
+        for x in range(width):
+            var n = clampf((volcanic_noise.get_noise_2d(float(x), float(z)) + 1.0) * 0.5, 0.0, 1.0)
+            if n < threshold:
+                continue
+            var continental = clampf((continental_noise.get_noise_2d(float(x - 13), float(z + 17)) + 1.0) * 0.5, 0.0, 1.0)
+            var radius = clampi(min_radius + int(round((1.0 - threshold) * 6.0 + (n - threshold) * 11.0)), min_radius, max_radius)
+            var id = "%d:%d" % [x, z]
+            if claimed.has(id):
+                continue
+            var activity = clampf((n - threshold) / maxf(0.001, 1.0 - threshold), 0.0, 1.0)
+            var oceanic = clampf((0.54 - continental) * 2.0, 0.0, 1.0)
+            features.append({
+                "id": "volcano:%d:%d" % [x, z],
+                "tile_id": id,
+                "x": x,
+                "y": z,
+                "radius": radius,
+                "cone_height": cone_height * (0.45 + activity * 0.75 + oceanic * 0.25),
+                "crater_depth": crater_depth * (0.55 + activity * 0.85),
+                "activity": activity,
+                "oceanic": oceanic,
+            })
+            for dz in range(-radius, radius + 1):
+                for dx in range(-radius, radius + 1):
+                    var nx = x + dx
+                    var nz = z + dz
+                    if nx < 0 or nx >= width or nz < 0 or nz >= height:
+                        continue
+                    if dx * dx + dz * dz <= radius * radius:
+                        claimed["%d:%d" % [nx, nz]] = true
+    return features
+
+func _build_volcanic_delta_index(width: int, height: int, features: Array, config) -> Dictionary:
+    var index: Dictionary = {}
+    for z in range(height):
+        for x in range(width):
+            var tile_id = "%d:%d" % [x, z]
+            var delta = 0.0
+            for feature_variant in features:
+                if not (feature_variant is Dictionary):
+                    continue
+                var feature = feature_variant as Dictionary
+                var fx = int(feature.get("x", x))
+                var fz = int(feature.get("y", z))
+                var radius = maxf(1.0, float(feature.get("radius", 2)))
+                var cone = maxf(0.0, float(feature.get("cone_height", 0.0)))
+                var crater = maxf(0.0, float(feature.get("crater_depth", 0.0)))
+                var dx = float(x - fx)
+                var dz = float(z - fz)
+                var dist = sqrt(dx * dx + dz * dz)
+                if dist > radius:
+                    continue
+                var ring = 1.0 - (dist / radius)
+                delta += ring * cone
+                if dist < radius * 0.38:
+                    var crater_t = 1.0 - (dist / maxf(0.001, radius * 0.38))
+                    delta -= crater_t * crater
+            index[tile_id] = int(round(delta))
+    return index
+
+func _volcanic_influence(tile_id: String, features: Array) -> float:
+    var parts = tile_id.split(":")
+    if parts.size() != 2:
+        return 0.0
+    var x = int(parts[0])
+    var z = int(parts[1])
+    var influence = 0.0
+    for feature_variant in features:
+        if not (feature_variant is Dictionary):
+            continue
+        var feature = feature_variant as Dictionary
+        var fx = int(feature.get("x", x))
+        var fz = int(feature.get("y", z))
+        var radius = maxf(1.0, float(feature.get("radius", 2)))
+        var dx = float(x - fx)
+        var dz = float(z - fz)
+        var dist = sqrt(dx * dx + dz * dz)
+        if dist > radius * 1.6:
+            continue
+        var t = 1.0 - clampf(dist / (radius * 1.6), 0.0, 1.0)
+        influence = maxf(influence, t * clampf(float(feature.get("activity", 0.0)) * 0.7 + 0.3, 0.0, 1.0))
+    return clampf(influence, 0.0, 1.0)
+
+func _build_hydrogeology(tiles: Array, tile_index: Dictionary, flow_map: Dictionary, config, voxel_world_height: int) -> Dictionary:
+    var rows: Array = flow_map.get("rows", [])
+    var flow_by_tile: Dictionary = {}
+    for row_variant in rows:
+        if not (row_variant is Dictionary):
+            continue
+        var row = row_variant as Dictionary
+        var tile_id = String(row.get("tile_id", ""))
+        if tile_id == "":
+            continue
+        flow_by_tile[tile_id] = clampf(float(row.get("channel_strength", 0.0)), 0.0, 1.0)
+
+    var water_table_rows: Array = []
+    var water_table_index: Dictionary = {}
+    var hot_springs: Array = []
+    var cold_springs: Array = []
+    var all_springs: Array = []
+
+    var base_depth = clampf(float(_config_value(config, "water_table_base_depth", 8.0)), 0.0, 96.0)
+    var elev_factor = clampf(float(_config_value(config, "water_table_elevation_factor", 9.0)), 0.0, 96.0)
+    var moisture_factor = clampf(float(_config_value(config, "water_table_moisture_factor", 6.5)), 0.0, 96.0)
+    var flow_factor = clampf(float(_config_value(config, "water_table_flow_factor", 4.0)), 0.0, 96.0)
+    var aquifer_factor = clampf(float(_config_value(config, "water_table_aquifer_factor", 3.0)), 0.0, 96.0)
+    var spring_max_depth = clampf(float(_config_value(config, "spring_max_depth", 11.0)), 0.0, float(voxel_world_height))
+    var spring_pressure_threshold = clampf(float(_config_value(config, "spring_pressure_threshold", 0.52)), 0.0, 1.0)
+    var hot_geothermal_threshold = clampf(float(_config_value(config, "hot_spring_geothermal_threshold", 0.62)), 0.0, 1.0)
+    var cold_temperature_threshold = clampf(float(_config_value(config, "cold_spring_temperature_threshold", 0.56)), 0.0, 1.0)
+    var spring_discharge_base = maxf(0.01, float(_config_value(config, "spring_discharge_base", 1.15)))
+
+    for tile_variant in tiles:
+        if not (tile_variant is Dictionary):
+            continue
+        var tile = tile_variant as Dictionary
+        var tile_id = String(tile.get("tile_id", ""))
+        if tile_id == "":
+            continue
+        var elevation = clampf(float(tile.get("elevation", 0.0)), 0.0, 1.0)
+        var moisture = clampf(float(tile.get("moisture", 0.0)), 0.0, 1.0)
+        var temperature = clampf(float(tile.get("temperature", 0.0)), 0.0, 1.0)
+        var geothermal = clampf(float(tile.get("geothermal_activity", 0.0)), 0.0, 1.0)
+        var aquifer = clampf(float(tile.get("aquifer_potential", 0.0)), 0.0, 1.0)
+        var flow = clampf(float(flow_by_tile.get(tile_id, 0.0)), 0.0, 1.0)
+        var depth = base_depth + elevation * elev_factor - moisture * moisture_factor - flow * flow_factor - aquifer * aquifer_factor - geothermal * 1.6
+        depth = clampf(depth, 0.0, float(maxi(1, voxel_world_height - 1)))
+        var pressure = clampf((spring_max_depth - depth) / maxf(0.001, spring_max_depth), 0.0, 1.0)
+        pressure = clampf(pressure * 0.62 + moisture * 0.16 + flow * 0.14 + aquifer * 0.14, 0.0, 1.0)
+        var recharge = clampf(moisture * 0.5 + flow * 0.3 + aquifer * 0.2, 0.0, 1.0)
+
+        tile["water_table_depth"] = depth
+        tile["hydraulic_pressure"] = pressure
+        tile["groundwater_recharge"] = recharge
+
+        var wt_row = {
+            "tile_id": tile_id,
+            "depth": depth,
+            "pressure": pressure,
+            "recharge": recharge,
+            "aquifer_potential": aquifer,
+            "geothermal_activity": geothermal,
+        }
+        water_table_rows.append(wt_row)
+        water_table_index[tile_id] = wt_row
+        tile_index[tile_id] = tile
+
+        if pressure < spring_pressure_threshold or depth > spring_max_depth:
+            tile["spring_type"] = ""
+            tile["spring_discharge"] = 0.0
+            continue
+
+        var spring_type = ""
+        if geothermal >= hot_geothermal_threshold:
+            spring_type = "hot"
+        elif temperature <= cold_temperature_threshold:
+            spring_type = "cold"
+        if spring_type == "":
+            tile["spring_type"] = ""
+            tile["spring_discharge"] = 0.0
+            continue
+
+        var discharge = spring_discharge_base * (0.42 + pressure * 0.74 + flow * 0.55 + recharge * 0.35 + (0.24 if spring_type == "hot" else 0.08))
+        var spring_row = {
+            "tile_id": tile_id,
+            "x": int(tile.get("x", 0)),
+            "y": int(tile.get("y", 0)),
+            "type": spring_type,
+            "discharge": discharge,
+            "pressure": pressure,
+            "depth": depth,
+            "geothermal_activity": geothermal,
+        }
+        all_springs.append(spring_row)
+        if spring_type == "hot":
+            hot_springs.append(spring_row)
+        else:
+            cold_springs.append(spring_row)
+        tile["spring_type"] = spring_type
+        tile["spring_discharge"] = discharge
+        tile_index[tile_id] = tile
+
+    all_springs.sort_custom(func(a, b):
+        var ad = float((a as Dictionary).get("discharge", 0.0))
+        var bd = float((b as Dictionary).get("discharge", 0.0))
+        if is_equal_approx(ad, bd):
+            return String((a as Dictionary).get("tile_id", "")) < String((b as Dictionary).get("tile_id", ""))
+        return ad > bd
+    )
+
+    return {
+        "water_table": water_table_index,
+        "water_table_rows": water_table_rows,
+        "springs": {
+            "all": all_springs,
+            "hot": hot_springs,
+            "cold": cold_springs,
+        },
+    }

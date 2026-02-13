@@ -23,9 +23,15 @@ var _compute_requested: bool = false
 var _compute_active: bool = false
 var _compute_backend = ErosionComputeBackendScript.new()
 var _idle_cadence: int = 8
+var _geomorph_apply_interval_ticks: int = 6
+var _geomorph_last_apply_tick: int = -1
+var _pending_geomorph_delta_by_tile: Dictionary = {}
 
 func set_emit_rows(enabled: bool) -> void:
 	_emit_rows = enabled
+
+func set_geomorph_apply_interval_ticks(interval_ticks: int) -> void:
+	_geomorph_apply_interval_ticks = maxi(1, interval_ticks)
 
 func apply_geomorph_delta(
 	environment_snapshot: Dictionary,
@@ -156,6 +162,8 @@ func configure_environment(environment_snapshot: Dictionary, _water_snapshot: Di
 	_landslide_events = []
 	_last_changed_tiles = []
 	_ordered_tile_ids.clear()
+	_geomorph_last_apply_tick = -1
+	_pending_geomorph_delta_by_tile.clear()
 	var tile_index: Dictionary = environment_snapshot.get("tile_index", {})
 	var keys = tile_index.keys()
 	keys.sort_custom(func(a, b): return String(a) < String(b))
@@ -320,7 +328,6 @@ func _step_cpu(
 		if elev_drop <= 0.0:
 			continue
 		changed_ids[tile_id] = elev_drop
-		tile_row["elevation"] = clampf(float(tile_row.get("elevation", 0.0)) - elev_drop, 0.0, 1.0)
 		tile_row["slope"] = clampf(float(tile_row.get("slope", 0.0)) * (0.985 + rain * 0.01 + frost_damage * 0.012), 0.0, 1.0)
 		tile_row["moisture"] = clampf(float(tile_row.get("moisture", 0.0)) + rain * 0.01, 0.0, 1.0)
 		tile_row["freeze_thaw_damage"] = frost_damage
@@ -337,12 +344,11 @@ func _step_cpu(
 	for tile_id_variant in changed_ids.keys():
 		var tile_id = String(tile_id_variant)
 		delta_by_tile[tile_id] = -absf(float(changed_ids.get(tile_id, 0.0)))
-	var geomorph_result = apply_geomorph_delta(environment_snapshot, water_snapshot, delta_by_tile)
+	var geomorph_result = _apply_batched_geomorph_delta(tick, environment_snapshot, water_snapshot, delta_by_tile)
 	environment_snapshot = geomorph_result.get("environment", environment_snapshot)
 	water_snapshot = geomorph_result.get("hydrology", water_snapshot)
 	var voxel_changed = bool(geomorph_result.get("voxel_changed", false))
 	var changed_tiles: Array = geomorph_result.get("changed_tiles", [])
-	_last_changed_tiles = changed_tiles.duplicate(true)
 	if not landslide_rows.is_empty():
 		_landslide_events.append_array(landslide_rows)
 	if _landslide_events.size() > 128:
@@ -435,11 +441,10 @@ func _step_compute(
 			var row = (tile_index.get(tile_id, {}) as Dictionary).duplicate(true)
 			row["freeze_thaw_damage"] = _frost_buffer[i]
 			tile_index[tile_id] = row
-	var geomorph_result = apply_geomorph_delta(environment_snapshot, water_snapshot, delta_by_tile)
+	var geomorph_result = _apply_batched_geomorph_delta(tick, environment_snapshot, water_snapshot, delta_by_tile)
 	environment_snapshot = geomorph_result.get("environment", environment_snapshot)
 	water_snapshot = geomorph_result.get("hydrology", water_snapshot)
 	var changed_tiles: Array = geomorph_result.get("changed_tiles", [])
-	_last_changed_tiles = changed_tiles.duplicate(true)
 	return {
 		"environment": environment_snapshot,
 		"hydrology": water_snapshot,
@@ -447,6 +452,43 @@ func _step_compute(
 		"changed": not changed_tiles.is_empty(),
 		"changed_tiles": changed_tiles.duplicate(true),
 	}
+
+func _apply_batched_geomorph_delta(tick: int, environment_snapshot: Dictionary, water_snapshot: Dictionary, delta_by_tile: Dictionary) -> Dictionary:
+	_accumulate_geomorph_delta(delta_by_tile)
+	if _pending_geomorph_delta_by_tile.is_empty():
+		_last_changed_tiles = []
+		return {
+			"environment": environment_snapshot,
+			"hydrology": water_snapshot,
+			"voxel_changed": false,
+			"changed_tiles": [],
+		}
+	var elapsed = tick - _geomorph_last_apply_tick
+	if _geomorph_last_apply_tick >= 0 and elapsed < _geomorph_apply_interval_ticks:
+		_last_changed_tiles = []
+		return {
+			"environment": environment_snapshot,
+			"hydrology": water_snapshot,
+			"voxel_changed": false,
+			"changed_tiles": [],
+		}
+	var batch_delta = _pending_geomorph_delta_by_tile.duplicate(true)
+	_pending_geomorph_delta_by_tile.clear()
+	_geomorph_last_apply_tick = tick
+	var geomorph_result = apply_geomorph_delta(environment_snapshot, water_snapshot, batch_delta)
+	_last_changed_tiles = (geomorph_result.get("changed_tiles", []) as Array).duplicate(true)
+	return geomorph_result
+
+func _accumulate_geomorph_delta(delta_by_tile: Dictionary) -> void:
+	if delta_by_tile.is_empty():
+		return
+	for tile_id_variant in delta_by_tile.keys():
+		var tile_id = String(tile_id_variant)
+		var delta = float(delta_by_tile.get(tile_id, 0.0))
+		if absf(delta) <= 0.000001:
+			continue
+		var prev = float(_pending_geomorph_delta_by_tile.get(tile_id, 0.0))
+		_pending_geomorph_delta_by_tile[tile_id] = prev + delta
 
 func current_snapshot(tick: int) -> Dictionary:
 	var rows: Array = []

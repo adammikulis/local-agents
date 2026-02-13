@@ -31,10 +31,12 @@ const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKey
 @export var debug_max_smell_voxels: int = 120
 @export var debug_max_temp_voxels: int = 160
 @export var debug_max_wind_vectors: int = 90
+@export_range(0.35, 1.0, 0.05) var debug_visual_scale: float = 0.65
 @export var shelter_step_seconds: float = 0.5
 @export var shelter_work_scalar: float = 0.35
 @export var shelter_builder_search_radius: float = 2.4
 @export var shelter_decay_per_second: float = 0.006
+@export var actor_refresh_interval_seconds: float = 0.5
 
 @onready var plant_root: Node3D = $PlantRoot
 @onready var rabbit_root: Node3D = $RabbitRoot
@@ -46,9 +48,12 @@ var _wind_step_accumulator: float = 0.0
 var _smell_source_refresh_accumulator: float = 0.0
 var _shelter_step_accumulator: float = 0.0
 var _debug_accumulator: float = 0.0
+var _actor_refresh_accumulator: float = 0.0
 var _seed_sequence: int = 0
 var _rabbit_sequence: int = 0
 var _smell_sources: Array[Node] = []
+var _mammal_actors: Array[Node] = []
+var _living_creatures: Array[Node] = []
 var _edible_plants_by_voxel: Dictionary = {}
 var _smell_field
 var _wind_field
@@ -86,6 +91,7 @@ func _ready() -> void:
 	_spawn_initial_plants(initial_plant_count)
 	_spawn_initial_rabbits(initial_rabbit_count)
 	_refresh_smell_sources()
+	_refresh_actor_caches()
 	_rebuild_edible_plant_index()
 
 func _physics_process(delta: float) -> void:
@@ -119,6 +125,27 @@ func apply_debug_settings(settings: Dictionary) -> void:
 	if _debug_smell_layer == "":
 		_debug_smell_layer = "all"
 	_apply_debug_visibility()
+
+func set_debug_quality(density_scalar: float) -> void:
+	var s = clampf(density_scalar, 0.2, 1.0)
+	debug_max_smell_voxels = maxi(24, int(round(120.0 * s)))
+	debug_max_temp_voxels = maxi(32, int(round(160.0 * s)))
+	debug_max_wind_vectors = maxi(24, int(round(90.0 * s)))
+	debug_refresh_seconds = lerpf(0.8, 0.3, s)
+	debug_visual_scale = lerpf(0.5, 0.8, s)
+	_debug_voxel_mesh = null
+	_debug_arrow_mesh = null
+	_ensure_debug_resources()
+	if _debug_smell_mm_instance != null and is_instance_valid(_debug_smell_mm_instance):
+		_debug_smell_mm_instance.queue_free()
+		_debug_smell_mm_instance = null
+	if _debug_temperature_mm_instance != null and is_instance_valid(_debug_temperature_mm_instance):
+		_debug_temperature_mm_instance.queue_free()
+		_debug_temperature_mm_instance = null
+	if _debug_wind_mm_instance != null and is_instance_valid(_debug_wind_mm_instance):
+		_debug_wind_mm_instance.queue_free()
+		_debug_wind_mm_instance = null
+	_ensure_debug_multimesh_instances()
 
 func _apply_debug_visibility() -> void:
 	if _debug_smell_root != null:
@@ -290,6 +317,16 @@ func _refresh_smell_sources() -> void:
 		if node is Node:
 			_smell_sources.append(node)
 
+func _refresh_actor_caches() -> void:
+	_mammal_actors.clear()
+	_living_creatures.clear()
+	for node in get_tree().get_nodes_in_group("mammal_actor"):
+		if node is Node:
+			_mammal_actors.append(node)
+	for node in get_tree().get_nodes_in_group("living_creature"):
+		if node is Node:
+			_living_creatures.append(node)
+
 func _step_smell_field(delta: float) -> void:
 	_smell_step_accumulator += delta
 	while _smell_step_accumulator >= smell_sim_step_seconds:
@@ -345,7 +382,11 @@ func _solar_air_context() -> Dictionary:
 	return out
 
 func _step_mammals(delta: float) -> void:
-	for mammal in get_tree().get_nodes_in_group("mammal_actor"):
+	_actor_refresh_accumulator += maxf(0.0, delta)
+	if _actor_refresh_accumulator >= actor_refresh_interval_seconds:
+		_actor_refresh_accumulator = 0.0
+		_refresh_actor_caches()
+	for mammal in _mammal_actors:
 		if not is_instance_valid(mammal):
 			continue
 		var can_smell_entity := true
@@ -426,7 +467,7 @@ func _on_rabbit_seed_dropped(rabbit_id: String, count: int) -> void:
 
 func _refresh_living_entity_profiles() -> void:
 	_living_entity_profiles.clear()
-	for node in get_tree().get_nodes_in_group("living_creature"):
+	for node in _living_creatures:
 		if not is_instance_valid(node):
 			continue
 		if not node.has_method("get_living_entity_profile"):
@@ -669,10 +710,11 @@ func _voxel_key(voxel: Vector3i) -> String:
 func _ensure_debug_resources() -> void:
 	if _debug_voxel_mesh == null:
 		_debug_voxel_mesh = BoxMesh.new()
-		_debug_voxel_mesh.size = Vector3.ONE * (smell_voxel_size * 0.9)
+		_debug_voxel_mesh.size = Vector3.ONE * (smell_voxel_size * 0.9 * debug_visual_scale)
 	if _debug_arrow_mesh == null:
 		_debug_arrow_mesh = BoxMesh.new()
-		_debug_arrow_mesh.size = Vector3(0.08, 0.08, 0.45)
+		var arrow_scale = clampf(debug_visual_scale, 0.35, 1.0)
+		_debug_arrow_mesh.size = Vector3(0.08, 0.08, 0.45) * arrow_scale
 	if _debug_voxel_material == null:
 		_debug_voxel_material = StandardMaterial3D.new()
 		_debug_voxel_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA

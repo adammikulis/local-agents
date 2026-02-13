@@ -11,13 +11,19 @@ config_version=5
 [application]
 
 config/name="LocalAgents"
-run/main_scene="res://addons/local_agents/scenes/demos/DemoLauncher.tscn"
+run/main_scene="res://addons/local_agents/scenes/simulation/WorldSimulation.tscn"
 config/features=PackedStringArray("4.6", "Mobile")
 config/icon="res://icon.svg"
 
 [autoload]
 
 AgentManager="*res://addons/local_agents/agent_manager/AgentManager.gd"
+
+[display]
+
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+window/vsync/vsync_mode=0
 
 [editor_plugins]
 

@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="LocalAgentsSimulationScenarioResource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/configuration/parameters/simulation/scenarios/SimulationScenarioResource.gd" id="1_script"]
+
+[resource]
+script = ExtResource("1_script")
+scenario_id = "sandbox"
+display_name = "Sandbox"
+seed_text = "sandbox_seed"
+auto_generate_on_ready = true
+start_paused = false
+backend_mode = "gpu_hybrid"
+world_width = 96
+world_depth = 96
+world_height = 48
+sea_level = 12

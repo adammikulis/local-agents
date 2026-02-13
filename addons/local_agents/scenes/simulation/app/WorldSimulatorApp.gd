@@ -10,6 +10,8 @@ const WorldGenConfigResourceScript = preload("res://addons/local_agents/configur
 const WorldProgressionProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldProgressionProfileResource.gd")
 const WorldProgressionProfileDefault = preload("res://addons/local_agents/configuration/parameters/simulation/WorldProgressionProfile_Default.tres")
 const VoxelTimelapseSnapshotResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/VoxelTimelapseSnapshotResource.gd")
+const SimulationStateResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/SimulationStateResource.gd")
+const SimulationScenarioResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/scenarios/SimulationScenarioResource.gd")
 const FlowFieldInstancedShader = preload("res://addons/local_agents/scenes/simulation/shaders/FlowFieldInstanced.gdshader")
 const LavaSurfaceShader = preload("res://addons/local_agents/scenes/simulation/shaders/VoxelLavaSurface.gdshader")
 const AtmosphereCycleControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/AtmosphereCycleController.gd")
@@ -17,6 +19,17 @@ const SettlementControllerScript = preload("res://addons/local_agents/scenes/sim
 const VillagerControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/VillagerController.gd")
 const CultureControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/CultureController.gd")
 const EcologyControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/EcologyController.gd")
+const WorldSessionControllerScript = preload("res://addons/local_agents/scenes/simulation/app/controllers/WorldSessionController.gd")
+const SimulationLoopControllerScript = preload("res://addons/local_agents/scenes/simulation/app/controllers/SimulationLoopController.gd")
+const EnvironmentSystemsControllerScript = preload("res://addons/local_agents/scenes/simulation/app/controllers/EnvironmentSystemsController.gd")
+const GeologyControllerScript = preload("res://addons/local_agents/scenes/simulation/app/controllers/GeologyController.gd")
+const InteractionControllerScript = preload("res://addons/local_agents/scenes/simulation/app/controllers/InteractionController.gd")
+const HudControllerScript = preload("res://addons/local_agents/scenes/simulation/app/controllers/HudController.gd")
+const TickSchedulerScript = preload("res://addons/local_agents/scenes/simulation/app/controllers/EnvironmentTickScheduler.gd")
+const TerrainRendererAdapterScript = preload("res://addons/local_agents/scenes/simulation/app/renderers/TerrainRendererAdapter.gd")
+const WaterRendererAdapterScript = preload("res://addons/local_agents/scenes/simulation/app/renderers/WaterRendererAdapter.gd")
+const FeatureMarkerRendererScript = preload("res://addons/local_agents/scenes/simulation/app/renderers/FeatureMarkerRenderer.gd")
+const OverlayRendererAdapterScript = preload("res://addons/local_agents/scenes/simulation/app/renderers/OverlayRendererAdapter.gd")
 
 @onready var _environment_controller: Node3D = $EnvironmentController
 @onready var _flow_overlay_root: Node3D = $FlowOverlayRoot
@@ -28,6 +41,7 @@ const EcologyControllerScript = preload("res://addons/local_agents/scenes/simula
 @onready var _camera: Camera3D = $Camera3D
 @onready var _sun_light: DirectionalLight3D = $DirectionalLight3D
 @onready var _world_environment: WorldEnvironment = $WorldEnvironment
+@onready var _ui_canvas: CanvasLayer = $CanvasLayer
 @onready var _seed_line_edit: LineEdit = %SeedLineEdit
 @onready var _random_seed_button: Button = %RandomSeedButton
 @onready var _generate_button: Button = %GenerateButton
@@ -96,11 +110,29 @@ const EcologyControllerScript = preload("res://addons/local_agents/scenes/simula
 @onready var _perf_compare_label: Label = %PerfCompareLabel
 @onready var _simulation_hud: CanvasLayer = $SimulationHud
 
-var _world_generator = WorldGeneratorScript.new()
-var _hydrology = HydrologySystemScript.new()
-var _weather = WeatherSystemScript.new()
-var _erosion = ErosionSystemScript.new()
-var _solar = SolarExposureSystemScript.new()
+@export var startup_scenario: Resource
+
+var _session_controller = WorldSessionControllerScript.new()
+var _simulation_loop_controller = SimulationLoopControllerScript.new()
+var _environment_systems_controller = EnvironmentSystemsControllerScript.new()
+var _interaction_controller = InteractionControllerScript.new()
+var _geology_controller = GeologyControllerScript.new()
+var _hud_controller = HudControllerScript.new()
+var _tick_scheduler = TickSchedulerScript.new()
+var _terrain_renderer = TerrainRendererAdapterScript.new()
+var _water_renderer = WaterRendererAdapterScript.new()
+var _feature_marker_renderer = FeatureMarkerRendererScript.new()
+var _overlay_renderer = OverlayRendererAdapterScript.new()
+var _state: LocalAgentsSimulationStateResource = SimulationStateResourceScript.new()
+
+var _world_generator = _environment_systems_controller.world_generator
+var _hydrology = _environment_systems_controller.hydrology_system
+var _weather = _environment_systems_controller.weather_system
+var _erosion = _environment_systems_controller.erosion_system
+var _solar = _environment_systems_controller.solar_system
+var _camera_controller = _interaction_controller.camera_controller
+var _feature_query = _interaction_controller.feature_query
+var _volcanic = _geology_controller
 var _world_progression_profile = WorldProgressionProfileDefault.duplicate(true)
 var _rng := RandomNumberGenerator.new()
 var _atmosphere_cycle = AtmosphereCycleControllerScript.new()
@@ -153,7 +185,6 @@ var _flow_overlay_stride: int = 1
 var _flow_overlay_instance_count: int = 0
 var _flow_overlay_dirty: bool = true
 var _clouds_enabled: bool = true
-var _eruption_accum: float = 0.0
 var _lava_root: Node3D
 var _lava_fx: Array = []
 var _tide_uniform_accum: float = 0.0
@@ -200,6 +231,78 @@ var _perf_ewma_by_mode := {
 	"gpu_aggressive": {},
 	"ultra": {},
 }
+var _debug_column_visible: bool = true
+var _debug_compact_mode: bool = false
+var _debug_column_panel: PanelContainer
+var _debug_column_body: VBoxContainer
+var _debug_column_toggle: Button
+var _debug_compact_toggle: Button
+var _manual_vent_place_mode: bool = false
+var _manual_eruption_active: bool = false
+var _manual_selected_vent_tile_id: String = ""
+var _manual_place_vent_button: Button
+var _manual_erupt_button: Button
+var _manual_vent_status_label: Label
+var _feature_inspect_label: Label
+var _selected_feature: Dictionary = {}
+var _feature_select_marker: MeshInstance3D
+var _rts_bottom_panel: PanelContainer
+var _rts_tabs: TabContainer
+
+func apply_scenario_resource(scenario: Resource) -> void:
+	if scenario == null:
+		return
+	if not (scenario is SimulationScenarioResourceScript):
+		return
+	var typed = scenario as SimulationScenarioResourceScript
+	startup_scenario = typed
+	_seed_line_edit.text = typed.seed_text
+	_width_spin.value = typed.world_width
+	_depth_spin.value = typed.world_depth
+	_world_height_spin.value = typed.world_height
+	_sea_level_spin.value = typed.sea_level
+	var selected_idx = 1
+	match typed.backend_mode:
+		"cpu":
+			selected_idx = 0
+		"gpu_hybrid":
+			selected_idx = 1
+		"gpu_aggressive":
+			selected_idx = 2
+		"ultra":
+			selected_idx = 3
+	_sim_backend_option.selected = clampi(selected_idx, 0, maxi(0, _sim_backend_option.item_count - 1))
+	_apply_sim_backend_mode()
+	if typed.auto_generate_on_ready:
+		_generate_world()
+	if typed.start_paused:
+		_is_playing = false
+
+func _push_state_from_runtime() -> void:
+	_state.sim_tick = _sim_tick
+	_state.simulated_seconds = _simulated_seconds
+	_state.simulation_accumulator = _sim_accum
+	_state.active_branch_id = _active_branch_id
+	_state.landslide_count = _landslide_count
+	_state.solar_seed = _solar_seed
+	_state.world_snapshot.set_from_dictionary(_world_snapshot, _sim_tick)
+	_state.hydrology_snapshot.set_from_dictionary(_hydrology_snapshot, _sim_tick)
+	_state.weather_snapshot.set_from_dictionary(_weather_snapshot, _sim_tick)
+	_state.geology_snapshot.set_from_dictionary(_world_snapshot.get("geology", {}), _sim_tick)
+	_state.solar_snapshot.set_from_dictionary(_solar_snapshot, _sim_tick)
+	_session_controller.state = _state
+
+func _pull_runtime_from_state() -> void:
+	_sim_tick = _state.sim_tick
+	_simulated_seconds = _state.simulated_seconds
+	_sim_accum = _state.simulation_accumulator
+	_active_branch_id = _state.active_branch_id
+	_landslide_count = _state.landslide_count
+	_solar_seed = _state.solar_seed
+	_world_snapshot = _state.world_snapshot.to_dictionary()
+	_hydrology_snapshot = _state.hydrology_snapshot.to_dictionary()
+	_weather_snapshot = _state.weather_snapshot.to_dictionary()
+	_solar_snapshot = _state.solar_snapshot.to_dictionary()
 
 func _ready() -> void:
 	_rng.randomize()
@@ -282,9 +385,17 @@ func _ready() -> void:
 	_on_terrain_chunk_size_changed(_terrain_chunk_spin.value)
 	_apply_environment_toggles()
 	_apply_tide_shader_controls(true)
+	_setup_debug_column_ui()
+	_setup_manual_eruption_controls()
+	_interaction_controller.configure_camera(_camera)
 	_set_graphics_options_expanded(false)
 	_on_hud_overlays_changed(true, true, true, true, true, true)
-	_on_random_seed_pressed()
+	if startup_scenario != null:
+		apply_scenario_resource(startup_scenario)
+	elif _seed_line_edit.text.strip_edges() == "":
+		_on_random_seed_pressed()
+	else:
+		_generate_world()
 
 func _on_graphics_button_pressed() -> void:
 	_set_graphics_options_expanded(_graphics_button.button_pressed)
@@ -308,6 +419,7 @@ func _set_graphics_options_expanded(expanded: bool) -> void:
 			(node_variant as CanvasItem).visible = expanded
 
 func _process(delta: float) -> void:
+	_interaction_controller.process_camera(delta)
 	_update_day_night(delta)
 	_tide_uniform_accum += maxf(0.0, delta)
 	_apply_tide_shader_controls(false)
@@ -316,6 +428,52 @@ func _process(delta: float) -> void:
 	if _is_playing:
 		_step_environment_simulation(delta * float(_ticks_per_frame))
 	_refresh_hud()
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey:
+		var key_event = event as InputEventKey
+		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_F3:
+			_set_debug_column_visible(not _debug_column_visible)
+			get_viewport().set_input_as_handled()
+			return
+		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_F4:
+			_set_debug_compact_mode(not _debug_compact_mode)
+			get_viewport().set_input_as_handled()
+			return
+		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_V:
+			_manual_vent_place_mode = not _manual_vent_place_mode
+			if _manual_place_vent_button != null and is_instance_valid(_manual_place_vent_button):
+				_manual_place_vent_button.button_pressed = _manual_vent_place_mode
+			_refresh_manual_vent_status()
+			get_viewport().set_input_as_handled()
+			return
+		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_B:
+			_manual_eruption_active = not _manual_eruption_active
+			if _manual_erupt_button != null and is_instance_valid(_manual_erupt_button):
+				_manual_erupt_button.button_pressed = _manual_eruption_active
+			_refresh_manual_vent_status()
+			get_viewport().set_input_as_handled()
+			return
+	if event is InputEventMouseButton:
+		var mouse_button = event as InputEventMouseButton
+		if mouse_button.pressed and mouse_button.button_index == MOUSE_BUTTON_LEFT and _manual_vent_place_mode:
+			var tile = _tile_from_screen_position(mouse_button.position)
+			if tile.x >= 0 and tile.y >= 0:
+				_spawn_manual_vent_at(tile.x, tile.y)
+				_manual_vent_place_mode = false
+				if _manual_place_vent_button != null and is_instance_valid(_manual_place_vent_button):
+					_manual_place_vent_button.button_pressed = false
+				_refresh_manual_vent_status()
+			get_viewport().set_input_as_handled()
+			return
+		if mouse_button.pressed and mouse_button.button_index == MOUSE_BUTTON_LEFT and not _manual_vent_place_mode:
+			var inspect_tile = _tile_from_screen_position(mouse_button.position)
+			if inspect_tile.x >= 0 and inspect_tile.y >= 0:
+				_inspect_feature_at_tile(inspect_tile.x, inspect_tile.y)
+			get_viewport().set_input_as_handled()
+			return
+	if _interaction_controller.handle_camera_input(event):
+		get_viewport().set_input_as_handled()
 
 func _on_random_seed_pressed() -> void:
 	_seed_line_edit.text = "demo_%d" % _rng.randi_range(10000, 99999)
@@ -330,8 +488,9 @@ func _generate_world() -> void:
 		seed_text = "demo_seed"
 		_seed_line_edit.text = seed_text
 	var seed = int(hash(seed_text))
-	var world = _world_generator.generate(seed, config)
-	var hydrology = _hydrology.build_network(world, config)
+	var generated = _environment_systems_controller.generate(seed, config)
+	var world = generated.get("world", {})
+	var hydrology = generated.get("hydrology", {})
 	_world_snapshot = world.duplicate(true)
 	_hydrology_snapshot = hydrology.duplicate(true)
 	_sim_tick = 0
@@ -342,10 +501,10 @@ func _generate_world() -> void:
 	_is_playing = true
 	_ticks_per_frame = 1
 	_timelapse_snapshots.clear()
-	_eruption_accum = 0.0
 	_pending_hydro_changed_tiles.clear()
 	_pending_hydro_rebake_events = 0
 	_pending_hydro_rebake_seconds = 0.0
+	_geology_controller.reset()
 	_weather_tick_accum = 0.0
 	_erosion_tick_accum = 0.0
 	_solar_tick_accum = 0.0
@@ -353,6 +512,10 @@ func _generate_world() -> void:
 	_terrain_apply_accum = terrain_apply_interval_seconds
 	_pending_terrain_changed_tiles.clear()
 	_local_activity_by_tile.clear()
+	_manual_vent_place_mode = false
+	_manual_eruption_active = false
+	_manual_selected_vent_tile_id = ""
+	_selected_feature.clear()
 	_flow_overlay_dirty = true
 	_weather_bench_cpu_ms = -1.0
 	_weather_bench_gpu_ms = -1.0
@@ -366,7 +529,9 @@ func _generate_world() -> void:
 	var weather_seed = int(hash("%s_weather" % seed_text))
 	var erosion_seed = int(hash("%s_erosion" % seed_text))
 	var solar_seed = int(hash("%s_solar" % seed_text))
+	var volcanic_seed = int(hash("%s_volcanic" % seed_text))
 	_solar_seed = solar_seed
+	_geology_controller.set_seed(volcanic_seed)
 	_apply_sim_backend_mode()
 	_weather.configure_environment(_world_snapshot, _hydrology_snapshot, weather_seed)
 	_weather_snapshot = _weather.current_snapshot(0)
@@ -375,21 +540,17 @@ func _generate_world() -> void:
 	_solar.configure_environment(_world_snapshot, solar_seed)
 	_solar_snapshot = _solar.current_snapshot(0)
 	_solar_snapshot["seed"] = solar_seed
+	_refresh_manual_vent_status()
 
-	if _environment_controller.has_method("apply_generation_data"):
-		if _environment_controller.has_method("set_terrain_chunk_size"):
-			_environment_controller.call("set_terrain_chunk_size", int(round(_terrain_chunk_spin.value)))
-		_environment_controller.apply_generation_data(_world_snapshot, _hydrology_snapshot)
-	if _environment_controller.has_method("set_weather_state"):
-		_environment_controller.set_weather_state(_weather_snapshot)
-	if _environment_controller.has_method("set_solar_state"):
-		_environment_controller.set_solar_state(_solar_snapshot)
+	_terrain_renderer.apply_generation(_environment_controller, _world_snapshot, _hydrology_snapshot, int(round(_terrain_chunk_spin.value)))
+	_water_renderer.apply_state(_environment_controller, _weather_snapshot, _solar_snapshot)
 	_sync_living_world_features(true)
 	_apply_water_shader_controls()
 	_render_flow_overlay(_world_snapshot, config)
 	_frame_camera(_world_snapshot)
 	_update_stats(_world_snapshot, _hydrology_snapshot, seed)
 	_record_timelapse_snapshot(_sim_tick)
+	_push_state_from_runtime()
 	call_deferred("_run_gpu_benchmarks")
 
 func _on_water_shader_control_changed(_value: float) -> void:
@@ -635,7 +796,7 @@ func _apply_water_shader_controls() -> void:
 		"wave_strength": _water_wave_strength_spin.value,
 	}
 	params.merge(_build_tide_shader_params(), true)
-	_environment_controller.call("set_water_shader_params", params)
+	_water_renderer.apply_shader_params(_environment_controller, params)
 
 func _apply_tide_shader_controls(force: bool = false) -> void:
 	if _environment_controller == null:
@@ -665,7 +826,7 @@ func _apply_tide_shader_controls(force: bool = false) -> void:
 	if not force and signature == _tide_uniform_signature:
 		return
 	_tide_uniform_signature = signature
-	_environment_controller.call("set_water_shader_params", params)
+	_water_renderer.apply_shader_params(_environment_controller, params)
 
 func _build_tide_shader_params() -> Dictionary:
 	var cycle_days = maxf(1.0, float(_moon_cycle_days_spin.value)) if _moon_cycle_days_spin != null else lunar_cycle_days
@@ -719,7 +880,11 @@ func _step_environment_simulation(delta: float) -> void:
 	var processed_ticks = 0
 	var max_ticks = maxi(1, max_sim_ticks_per_frame)
 	var frame_start_us = Time.get_ticks_usec()
-	var budget_us = int(round(maxf(1.0, sim_budget_ms_per_frame) * 1000.0))
+	var budget_us = _tick_scheduler.frame_budget_us(sim_budget_ms_per_frame)
+	var intervals = _tick_scheduler.intervals_for_mode(_sim_backend_mode)
+	var weather_interval = int(intervals.get("weather", 1))
+	var erosion_interval = int(intervals.get("erosion", 1))
+	var solar_interval = int(intervals.get("solar", 1))
 	var async_weather_result = _consume_weather_worker_result()
 	if not async_weather_result.is_empty():
 		_weather_snapshot = async_weather_result.get("snapshot", _weather_snapshot)
@@ -746,14 +911,11 @@ func _step_environment_simulation(delta: float) -> void:
 		processed_ticks += 1
 		_sim_tick += 1
 		_simulated_seconds += tick_duration
-		var weather_interval = 1 if _sim_backend_mode == "cpu" else (2 if _sim_backend_mode == "gpu_hybrid" else (3 if _sim_backend_mode == "gpu_aggressive" else 4))
-		var erosion_interval = 1 if _sim_backend_mode == "cpu" else (2 if _sim_backend_mode == "gpu_hybrid" else (3 if _sim_backend_mode == "gpu_aggressive" else 4))
-		var solar_interval = 1 if _sim_backend_mode == "cpu" else (3 if _sim_backend_mode == "gpu_hybrid" else (4 if _sim_backend_mode == "gpu_aggressive" else 6))
 		_weather_tick_accum += tick_duration
 		_erosion_tick_accum += tick_duration
 		_solar_tick_accum += tick_duration
 		var local_activity = _build_local_activity_field()
-		if (_sim_tick % weather_interval == 0) or (_weather_snapshot.is_empty()):
+		if _tick_scheduler.should_step_subsystem(_sim_tick, weather_interval, _weather_snapshot.is_empty()):
 			var weather_compute_active = _weather != null and _weather.has_method("is_compute_active") and bool(_weather.call("is_compute_active"))
 			if (_sim_backend_mode == "gpu_aggressive" or _sim_backend_mode == "ultra") and not weather_compute_active and not _weather_thread_busy:
 				_start_weather_worker(_sim_tick, _weather_tick_accum, local_activity)
@@ -772,7 +934,7 @@ func _step_environment_simulation(delta: float) -> void:
 				var tile_id = String(tile_variant)
 				changed_tiles_map[tile_id] = true
 				_pending_terrain_changed_tiles[tile_id] = true
-		if _sim_tick % erosion_interval == 0:
+		if _tick_scheduler.should_step_subsystem(_sim_tick, erosion_interval, false):
 			var erosion_compute_active = _erosion != null and _erosion.has_method("is_compute_active") and bool(_erosion.call("is_compute_active"))
 			if (_sim_backend_mode == "gpu_aggressive" or _sim_backend_mode == "ultra") and not erosion_compute_active and not _erosion_thread_busy:
 				_start_erosion_worker(_sim_tick, _erosion_tick_accum, local_activity)
@@ -798,7 +960,7 @@ func _step_environment_simulation(delta: float) -> void:
 					var tile_id = String(tile_variant)
 					changed_tiles_map[tile_id] = true
 					_pending_terrain_changed_tiles[tile_id] = true
-		if _sim_tick % solar_interval == 0:
+		if _tick_scheduler.should_step_subsystem(_sim_tick, solar_interval, false):
 			var solar_compute_active = _solar != null and _solar.has_method("is_compute_active") and bool(_solar.call("is_compute_active"))
 			if (_sim_backend_mode == "gpu_aggressive" or _sim_backend_mode == "ultra") and not solar_compute_active and not _solar_thread_busy:
 				_start_solar_worker(_sim_tick, _solar_tick_accum, local_activity)
@@ -814,10 +976,7 @@ func _step_environment_simulation(delta: float) -> void:
 		tick_total_ms_acc += float(Time.get_ticks_usec() - tick_start_us) / 1000.0
 		if Time.get_ticks_usec() - frame_start_us >= budget_us:
 			break
-	if _environment_controller.has_method("set_weather_state"):
-		_environment_controller.set_weather_state(_weather_snapshot)
-	if _environment_controller.has_method("set_solar_state"):
-		_environment_controller.set_solar_state(_solar_snapshot)
+	_water_renderer.apply_state(_environment_controller, _weather_snapshot, _solar_snapshot)
 	_sync_living_world_features(false)
 	_apply_water_shader_controls()
 	_terrain_apply_accum += maxf(0.0, delta)
@@ -830,7 +989,7 @@ func _step_environment_simulation(delta: float) -> void:
 	var did_apply = false
 	if should_apply and _environment_controller.has_method("apply_generation_delta"):
 		var apply_start_us = Time.get_ticks_usec()
-		_environment_controller.apply_generation_delta(_world_snapshot, _hydrology_snapshot, _pending_terrain_changed_tiles.keys())
+		_terrain_renderer.apply_delta(_environment_controller, _world_snapshot, _hydrology_snapshot, _pending_terrain_changed_tiles.keys())
 		_pending_terrain_changed_tiles.clear()
 		_terrain_apply_accum = 0.0
 		did_apply = true
@@ -838,7 +997,7 @@ func _step_environment_simulation(delta: float) -> void:
 		_perf_record("terrain_apply_ms", float(Time.get_ticks_usec() - apply_start_us) / 1000.0)
 	elif should_apply and _environment_controller.has_method("apply_generation_data"):
 		var apply_full_start_us = Time.get_ticks_usec()
-		_environment_controller.apply_generation_data(_world_snapshot, _hydrology_snapshot)
+		_terrain_renderer.apply_generation(_environment_controller, _world_snapshot, _hydrology_snapshot, int(round(_terrain_chunk_spin.value)))
 		_pending_terrain_changed_tiles.clear()
 		_terrain_apply_accum = 0.0
 		did_apply = true
@@ -862,45 +1021,39 @@ func _step_environment_simulation(delta: float) -> void:
 	var slides: Array = _erosion_snapshot.get("recent_landslides", [])
 	_landslide_count = slides.size()
 	_update_stats(_world_snapshot, _hydrology_snapshot, int(hash(_seed_line_edit.text.strip_edges())))
+	_push_state_from_runtime()
 
 func _step_volcanic_island_growth(tick_duration: float) -> Dictionary:
-	if _world_snapshot.is_empty():
-		return {"changed": false, "changed_tiles": []}
-	var geology: Dictionary = _world_snapshot.get("geology", {})
-	var volcanoes: Array = geology.get("volcanic_features", [])
-	if volcanoes.is_empty():
-		return {"changed": false, "changed_tiles": []}
-	_pending_hydro_rebake_seconds += maxf(0.0, tick_duration)
-	_eruption_accum += maxf(0.0, tick_duration)
 	var eruption_interval = maxf(0.1, float(_eruption_interval_spin.value)) if _eruption_interval_spin != null else maxf(0.1, eruption_interval_seconds)
-	if _eruption_accum < eruption_interval:
-		return {"changed": false, "changed_tiles": []}
-	_eruption_accum = 0.0
 	var new_vent_chance = clampf(float(_new_vent_chance_spin.value), 0.0, 1.0) if _new_vent_chance_spin != null else clampf(new_vent_spawn_chance, 0.0, 1.0)
-	if _rng.randf() <= new_vent_chance:
-		_try_spawn_new_vent()
-		geology = _world_snapshot.get("geology", {})
-		volcanoes = geology.get("volcanic_features", [])
-	var changed_tiles_map: Dictionary = {}
-	var eruption_count = mini(2, maxi(1, int(round(float(_ticks_per_frame) * 0.5))))
-	for _i in range(eruption_count):
-		var volcano = _pick_eruption_volcano(volcanoes)
-		if volcano.is_empty():
-			continue
-		var changed = _apply_eruption_to_world(volcano)
-		for tile_variant in changed:
-			changed_tiles_map[String(tile_variant)] = true
-		_spawn_lava_plume(volcano)
-	if changed_tiles_map.is_empty():
-		if _pending_hydro_rebake_events > 0 and _pending_hydro_rebake_seconds >= hydrology_rebake_max_seconds:
-			_rebake_hydrology_from_pending()
-		return {"changed": false, "changed_tiles": []}
-	_pending_hydro_rebake_events += 1
-	for tile_variant in changed_tiles_map.keys():
-		_pending_hydro_changed_tiles[String(tile_variant)] = true
-	if _pending_hydro_rebake_events >= maxi(1, hydrology_rebake_every_eruption_events) or _pending_hydro_rebake_seconds >= hydrology_rebake_max_seconds:
+	var island_growth = maxf(0.0, float(_island_growth_spin.value)) if _island_growth_spin != null else island_growth_per_eruption
+	var result = _volcanic.step(
+		_world_snapshot,
+		_sim_tick,
+		tick_duration,
+		_ticks_per_frame,
+		eruption_interval,
+		new_vent_chance,
+		island_growth,
+		_manual_eruption_active,
+		_manual_selected_vent_tile_id,
+		hydrology_rebake_every_eruption_events,
+		hydrology_rebake_max_seconds,
+		Callable(self, "_spawn_lava_plume")
+	)
+	_world_snapshot = result.get("world", _world_snapshot)
+	_manual_selected_vent_tile_id = String(result.get("selected_tile_id", _manual_selected_vent_tile_id))
+	var pending = _volcanic.pending_state()
+	_pending_hydro_rebake_events = int(pending.get("events", _pending_hydro_rebake_events))
+	_pending_hydro_rebake_seconds = float(pending.get("seconds", _pending_hydro_rebake_seconds))
+	_pending_hydro_changed_tiles = (pending.get("tiles", {}) as Dictionary).duplicate(true)
+	if bool(result.get("rebake_due", false)):
 		_rebake_hydrology_from_pending()
-	return {"changed": true, "changed_tiles": changed_tiles_map.keys()}
+	_refresh_manual_vent_status()
+	return {
+		"changed": bool(result.get("changed", false)),
+		"changed_tiles": result.get("changed_tiles", []),
+	}
 
 func _rebake_hydrology_from_pending() -> void:
 	if _pending_hydro_rebake_events <= 0 and _pending_hydro_changed_tiles.is_empty():
@@ -915,235 +1068,8 @@ func _rebake_hydrology_from_pending() -> void:
 	_pending_hydro_changed_tiles.clear()
 	_pending_hydro_rebake_events = 0
 	_pending_hydro_rebake_seconds = 0.0
+	_volcanic.clear_pending_rebake()
 	_flow_overlay_dirty = true
-
-func _pick_eruption_volcano(volcanoes: Array) -> Dictionary:
-	if volcanoes.is_empty():
-		return {}
-	var best_score = -1.0
-	var best: Dictionary = {}
-	for volcano_variant in volcanoes:
-		if not (volcano_variant is Dictionary):
-			continue
-		var volcano = volcano_variant as Dictionary
-		var activity = clampf(float(volcano.get("activity", 0.0)), 0.0, 1.0)
-		var oceanic = clampf(float(volcano.get("oceanic", 0.0)), 0.0, 1.0)
-		var jitter = _rng.randf() * 0.45
-		var score = activity * 0.85 + oceanic * 0.25 + jitter
-		if score > best_score:
-			best_score = score
-			best = volcano
-	return best
-
-func _try_spawn_new_vent() -> void:
-	var geology: Dictionary = _world_snapshot.get("geology", {})
-	var volcanoes: Array = geology.get("volcanic_features", [])
-	var by_id: Dictionary = {}
-	for v_variant in volcanoes:
-		if not (v_variant is Dictionary):
-			continue
-		var v = v_variant as Dictionary
-		by_id[String(v.get("tile_id", ""))] = true
-	var tiles: Array = _world_snapshot.get("tiles", [])
-	var best_tile: Dictionary = {}
-	var best_score = -1.0
-	for tile_variant in tiles:
-		if not (tile_variant is Dictionary):
-			continue
-		var tile = tile_variant as Dictionary
-		var tile_id = String(tile.get("tile_id", ""))
-		if tile_id == "" or by_id.has(tile_id):
-			continue
-		var elev = clampf(float(tile.get("elevation", 0.0)), 0.0, 1.0)
-		var geothermal = clampf(float(tile.get("geothermal_activity", 0.0)), 0.0, 1.0)
-		var continentalness = clampf(float(tile.get("continentalness", 0.5)), 0.0, 1.0)
-		var oceanic = clampf((0.62 - continentalness) * 2.0, 0.0, 1.0)
-		var near_sea = clampf(1.0 - absf(elev - 0.34) * 2.0, 0.0, 1.0)
-		var score = geothermal * 0.58 + oceanic * 0.26 + near_sea * 0.16 + _rng.randf() * 0.15
-		if score > best_score:
-			best_score = score
-			best_tile = tile
-	if best_tile.is_empty() or best_score < 0.56:
-		return
-	var tx = int(best_tile.get("x", 0))
-	var tz = int(best_tile.get("y", 0))
-	var feature = {
-		"id": "volcano:%d:%d:%d" % [tx, tz, _sim_tick],
-		"tile_id": "%d:%d" % [tx, tz],
-		"x": tx,
-		"y": tz,
-		"radius": _rng.randi_range(1, 3),
-		"cone_height": 3.0 + _rng.randf() * 2.4,
-		"crater_depth": 1.0 + _rng.randf() * 1.2,
-		"activity": clampf(float(best_tile.get("geothermal_activity", 0.5)) * 0.9 + 0.1, 0.2, 1.0),
-		"oceanic": clampf((0.62 - float(best_tile.get("continentalness", 0.5))) * 2.0, 0.0, 1.0),
-	}
-	volcanoes.append(feature)
-	geology["volcanic_features"] = volcanoes
-	_world_snapshot["geology"] = geology
-
-func _apply_eruption_to_world(volcano: Dictionary) -> Array:
-	var changed: Array = []
-	var voxel_world: Dictionary = _world_snapshot.get("voxel_world", {})
-	var columns: Array = voxel_world.get("columns", [])
-	var tile_index: Dictionary = _world_snapshot.get("tile_index", {})
-	var tiles: Array = _world_snapshot.get("tiles", [])
-	var sea_level = int(voxel_world.get("sea_level", 1))
-	var world_height = int(voxel_world.get("height", 36))
-	var chunk_size = maxi(4, int(voxel_world.get("block_rows_chunk_size", 12)))
-	var vx = int(volcano.get("x", 0))
-	var vz = int(volcano.get("y", 0))
-	var radius = maxi(1, int(volcano.get("radius", 2)))
-	var lava_yield = maxf(0.0, float(_island_growth_spin.value)) if _island_growth_spin != null else island_growth_per_eruption
-	var growth_base = maxf(0.2, lava_yield * (0.7 + float(volcano.get("activity", 0.5))))
-
-	var column_by_tile: Dictionary = voxel_world.get("column_index_by_tile", {})
-	if column_by_tile.is_empty():
-		for i in range(columns.size()):
-			var column_variant = columns[i]
-			if not (column_variant is Dictionary):
-				continue
-			var column = column_variant as Dictionary
-			column_by_tile["%d:%d" % [int(column.get("x", 0)), int(column.get("z", 0))]] = i
-
-	var affected_chunks: Dictionary = {}
-	for dz in range(-radius - 1, radius + 2):
-		for dx in range(-radius - 1, radius + 2):
-			var tx = vx + dx
-			var tz = vz + dz
-			if tx < 0 or tz < 0 or tx >= int(_world_snapshot.get("width", 0)) or tz >= int(_world_snapshot.get("height", 0)):
-				continue
-			var dist = sqrt(float(dx * dx + dz * dz))
-			if dist > float(radius) + 1.0:
-				continue
-			var falloff = clampf(1.0 - dist / (float(radius) + 1.0), 0.0, 1.0)
-			var growth = int(round(growth_base * falloff * 2.2))
-			if growth <= 0:
-				continue
-			var tile_id = "%d:%d" % [tx, tz]
-			if not column_by_tile.has(tile_id):
-				continue
-			affected_chunks["%d:%d" % [int(floor(float(tx) / float(chunk_size))), int(floor(float(tz) / float(chunk_size)))]] = true
-			var col_idx = int(column_by_tile[tile_id])
-			var col = columns[col_idx] as Dictionary
-			var surface_y = int(col.get("surface_y", sea_level))
-			var next_surface = clampi(surface_y + growth, 1, world_height - 2)
-			col["surface_y"] = next_surface
-			col["top_block"] = "basalt" if falloff > 0.34 else "obsidian"
-			col["subsoil_block"] = "basalt"
-			columns[col_idx] = col
-			var tile = tile_index.get(tile_id, {})
-			if tile is Dictionary:
-				var row = tile as Dictionary
-				row["elevation"] = clampf(float(next_surface) / float(maxi(1, world_height - 1)), 0.0, 1.0)
-				row["geothermal_activity"] = clampf(float(row.get("geothermal_activity", 0.0)) + 0.06 + falloff * 0.12, 0.0, 1.0)
-				row["temperature"] = clampf(float(row.get("temperature", 0.0)) + 0.03 + falloff * 0.08, 0.0, 1.0)
-				row["water_table_depth"] = maxf(0.0, float(row.get("water_table_depth", 8.0)) + float(growth) * 0.35 - falloff * 1.3)
-				row["hydraulic_pressure"] = clampf(float(row.get("hydraulic_pressure", 0.0)) + falloff * 0.08, 0.0, 1.0)
-				row["groundwater_recharge"] = clampf(float(row.get("groundwater_recharge", 0.0)) + falloff * 0.03, 0.0, 1.0)
-				row["biome"] = "highland" if next_surface > sea_level + 8 else String(row.get("biome", "plains"))
-				tile_index[tile_id] = row
-			changed.append(tile_id)
-
-	for i in range(tiles.size()):
-		var tile_variant = tiles[i]
-		if not (tile_variant is Dictionary):
-			continue
-		var tile = tile_variant as Dictionary
-		var tile_id = String(tile.get("tile_id", ""))
-		if tile_id == "" or not tile_index.has(tile_id):
-			continue
-		tiles[i] = (tile_index[tile_id] as Dictionary).duplicate(true)
-
-	var chunk_rows_by_chunk: Dictionary = voxel_world.get("block_rows_by_chunk", {})
-	_rebuild_chunk_rows_from_columns(columns, chunk_rows_by_chunk, chunk_size, sea_level, affected_chunks.keys())
-	var block_rows: Array = []
-	var counts: Dictionary = {}
-	var keys = chunk_rows_by_chunk.keys()
-	keys.sort_custom(func(a, b): return String(a) < String(b))
-	for key_variant in keys:
-		var rows_variant = chunk_rows_by_chunk.get(key_variant, [])
-		if not (rows_variant is Array):
-			continue
-		var rows = rows_variant as Array
-		block_rows.append_array(rows)
-		for row_variant in rows:
-			if not (row_variant is Dictionary):
-				continue
-			var row = row_variant as Dictionary
-			var block_type = String(row.get("type", "air"))
-			counts[block_type] = int(counts.get(block_type, 0)) + 1
-	voxel_world["columns"] = columns
-	voxel_world["column_index_by_tile"] = column_by_tile
-	voxel_world["block_rows"] = block_rows
-	voxel_world["block_rows_by_chunk"] = chunk_rows_by_chunk
-	voxel_world["block_rows_chunk_size"] = chunk_size
-	voxel_world["block_type_counts"] = counts
-	voxel_world["surface_y_buffer"] = _pack_surface_y_buffer(columns, int(_world_snapshot.get("width", 0)), int(_world_snapshot.get("height", 0)))
-	_world_snapshot["voxel_world"] = voxel_world
-	_world_snapshot["tile_index"] = tile_index
-	_world_snapshot["tiles"] = tiles
-	return changed
-
-func _rebuild_chunk_rows_from_columns(
-	columns: Array,
-	chunk_rows_by_chunk: Dictionary,
-	chunk_size: int,
-	sea_level: int,
-	target_chunk_keys: Array
-) -> void:
-	var target: Dictionary = {}
-	for key_variant in target_chunk_keys:
-		var key = String(key_variant)
-		if key == "":
-			continue
-		target[key] = true
-	for key_variant in target.keys():
-		var key = String(key_variant)
-		var parts = key.split(":")
-		if parts.size() != 2:
-			continue
-		var cx = int(parts[0])
-		var cz = int(parts[1])
-		var rows: Array = []
-		for column_variant in columns:
-			if not (column_variant is Dictionary):
-				continue
-			var column = column_variant as Dictionary
-			var x = int(column.get("x", 0))
-			var z = int(column.get("z", 0))
-			if int(floor(float(x) / float(chunk_size))) != cx or int(floor(float(z) / float(chunk_size))) != cz:
-				continue
-			var surface_y = int(column.get("surface_y", sea_level))
-			var top_block = String(column.get("top_block", "stone"))
-			var subsoil = String(column.get("subsoil_block", "stone"))
-			for y in range(surface_y + 1):
-				var block_type = "stone"
-				if y == surface_y:
-					block_type = top_block
-				elif y >= surface_y - 2:
-					block_type = subsoil
-				rows.append({"x": x, "y": y, "z": z, "type": block_type})
-			if surface_y < sea_level:
-				for wy in range(surface_y + 1, sea_level + 1):
-					rows.append({"x": x, "y": wy, "z": z, "type": "water"})
-			chunk_rows_by_chunk[key] = rows
-
-func _pack_surface_y_buffer(columns: Array, width: int, height: int) -> PackedInt32Array:
-	var packed := PackedInt32Array()
-	if width <= 0 or height <= 0:
-		return packed
-	packed.resize(width * height)
-	for column_variant in columns:
-		if not (column_variant is Dictionary):
-			continue
-		var column = column_variant as Dictionary
-		var x = int(column.get("x", 0))
-		var z = int(column.get("z", 0))
-		if x < 0 or x >= width or z < 0 or z >= height:
-			continue
-		packed[z * width + x] = int(column.get("surface_y", 0))
-	return packed
 
 func _ensure_lava_root() -> void:
 	if _lava_root != null and is_instance_valid(_lava_root):
@@ -1440,14 +1366,337 @@ func _update_flow_overlay_textures(world: Dictionary, flow_map: Dictionary, conf
 		_flow_overlay_height_texture.update(_flow_overlay_height_image)
 
 func _frame_camera(world: Dictionary) -> void:
-	var width = float(world.get("width", 1))
-	var depth = float(world.get("height", 1))
-	var voxel_world: Dictionary = world.get("voxel_world", {})
-	var world_height = float(voxel_world.get("height", 24))
-	var center = Vector3(width * 0.5, world_height * 0.35, depth * 0.5)
-	var distance = maxf(width, depth) * 1.05
-	_camera.position = center + Vector3(distance * 0.75, world_height * 0.6 + 10.0, distance)
-	_camera.look_at(center, Vector3.UP)
+	_interaction_controller.camera_controller.frame_world(world)
+
+func _initialize_camera_orbit() -> void:
+	_interaction_controller.camera_controller.initialize_orbit()
+
+func _rebuild_orbit_state_from_camera() -> void:
+	pass
+
+func _apply_camera_transform() -> void:
+	pass
+
+func _update_camera_keyboard(delta: float) -> void:
+	_interaction_controller.process_camera(delta)
+
+func _setup_debug_column_ui() -> void:
+	if _ui_canvas == null or _stats_label == null or _perf_compare_label == null:
+		return
+	if _debug_column_panel != null and is_instance_valid(_debug_column_panel):
+		return
+	_debug_column_toggle = Button.new()
+	_debug_column_toggle.text = "Debug ▾"
+	_debug_column_toggle.anchor_left = 1.0
+	_debug_column_toggle.anchor_right = 1.0
+	_debug_column_toggle.anchor_top = 0.0
+	_debug_column_toggle.anchor_bottom = 0.0
+	_debug_column_toggle.offset_left = -118.0
+	_debug_column_toggle.offset_top = 12.0
+	_debug_column_toggle.offset_right = -12.0
+	_debug_column_toggle.offset_bottom = 38.0
+	_debug_column_toggle.focus_mode = Control.FOCUS_NONE
+	_debug_column_toggle.pressed.connect(func():
+		_set_debug_column_visible(not _debug_column_visible)
+	)
+	_ui_canvas.add_child(_debug_column_toggle)
+
+	_debug_compact_toggle = Button.new()
+	_debug_compact_toggle.text = "Compact Off"
+	_debug_compact_toggle.anchor_left = 1.0
+	_debug_compact_toggle.anchor_right = 1.0
+	_debug_compact_toggle.anchor_top = 0.0
+	_debug_compact_toggle.anchor_bottom = 0.0
+	_debug_compact_toggle.offset_left = -242.0
+	_debug_compact_toggle.offset_top = 12.0
+	_debug_compact_toggle.offset_right = -122.0
+	_debug_compact_toggle.offset_bottom = 38.0
+	_debug_compact_toggle.focus_mode = Control.FOCUS_NONE
+	_debug_compact_toggle.pressed.connect(func():
+		_set_debug_compact_mode(not _debug_compact_mode)
+	)
+	_ui_canvas.add_child(_debug_compact_toggle)
+
+	_debug_column_panel = PanelContainer.new()
+	_debug_column_panel.anchor_left = 1.0
+	_debug_column_panel.anchor_right = 1.0
+	_debug_column_panel.anchor_top = 0.0
+	_debug_column_panel.anchor_bottom = 0.0
+	_debug_column_panel.offset_left = -372.0
+	_debug_column_panel.offset_top = 44.0
+	_debug_column_panel.offset_right = -12.0
+	_debug_column_panel.offset_bottom = 280.0
+	_debug_column_panel.mouse_filter = Control.MOUSE_FILTER_PASS
+	_ui_canvas.add_child(_debug_column_panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 8)
+	margin.add_theme_constant_override("margin_top", 8)
+	margin.add_theme_constant_override("margin_right", 8)
+	margin.add_theme_constant_override("margin_bottom", 8)
+	_debug_column_panel.add_child(margin)
+
+	_debug_column_body = VBoxContainer.new()
+	_debug_column_body.add_theme_constant_override("separation", 4)
+	margin.add_child(_debug_column_body)
+
+	if _stats_label.get_parent() != null:
+		_stats_label.get_parent().remove_child(_stats_label)
+	_debug_column_body.add_child(_stats_label)
+	_stats_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_stats_label.add_theme_font_size_override("font_size", 11)
+
+	if _perf_compare_label.get_parent() != null:
+		_perf_compare_label.get_parent().remove_child(_perf_compare_label)
+	_debug_column_body.add_child(_perf_compare_label)
+	_perf_compare_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_perf_compare_label.add_theme_font_size_override("font_size", 11)
+	_apply_debug_column_layout()
+	_set_debug_column_visible(true)
+
+func _set_debug_column_visible(visible: bool) -> void:
+	_debug_column_visible = visible
+	if _debug_column_panel != null and is_instance_valid(_debug_column_panel):
+		_debug_column_panel.visible = visible
+	if _debug_column_toggle != null and is_instance_valid(_debug_column_toggle):
+		_debug_column_toggle.text = "Debug ▾" if visible else "Debug ▸"
+	if _debug_compact_toggle != null and is_instance_valid(_debug_compact_toggle):
+		_debug_compact_toggle.visible = visible
+
+func _setup_manual_eruption_controls() -> void:
+	if _ui_canvas == null:
+		return
+	if _rts_bottom_panel != null and is_instance_valid(_rts_bottom_panel):
+		return
+	_rts_bottom_panel = PanelContainer.new()
+	_rts_bottom_panel.anchor_left = 0.0
+	_rts_bottom_panel.anchor_right = 1.0
+	_rts_bottom_panel.anchor_top = 1.0
+	_rts_bottom_panel.anchor_bottom = 1.0
+	_rts_bottom_panel.offset_left = 10.0
+	_rts_bottom_panel.offset_top = -146.0
+	_rts_bottom_panel.offset_right = -10.0
+	_rts_bottom_panel.offset_bottom = -10.0
+	_rts_bottom_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_ui_canvas.add_child(_rts_bottom_panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 8)
+	margin.add_theme_constant_override("margin_top", 8)
+	margin.add_theme_constant_override("margin_right", 8)
+	margin.add_theme_constant_override("margin_bottom", 8)
+	_rts_bottom_panel.add_child(margin)
+
+	_rts_tabs = TabContainer.new()
+	_rts_tabs.tab_alignment = TabBar.ALIGNMENT_LEFT
+	margin.add_child(_rts_tabs)
+
+	var geology_tab := VBoxContainer.new()
+	geology_tab.name = "Geology"
+	geology_tab.add_theme_constant_override("separation", 6)
+	_rts_tabs.add_child(geology_tab)
+
+	var vent_row := HBoxContainer.new()
+	vent_row.add_theme_constant_override("separation", 8)
+	geology_tab.add_child(vent_row)
+
+	_manual_place_vent_button = Button.new()
+	_manual_place_vent_button.text = "Place Vent (V)"
+	_manual_place_vent_button.toggle_mode = true
+	_manual_place_vent_button.toggled.connect(func(enabled: bool):
+		_manual_vent_place_mode = enabled
+		_refresh_manual_vent_status()
+	)
+	vent_row.add_child(_manual_place_vent_button)
+
+	_manual_erupt_button = Button.new()
+	_manual_erupt_button.text = "Erupt Hold (B)"
+	_manual_erupt_button.toggle_mode = true
+	_manual_erupt_button.toggled.connect(func(enabled: bool):
+		_manual_eruption_active = enabled
+		_refresh_manual_vent_status()
+	)
+	vent_row.add_child(_manual_erupt_button)
+
+	var stop_button := Button.new()
+	stop_button.text = "Stop"
+	stop_button.pressed.connect(func():
+		_manual_vent_place_mode = false
+		_manual_eruption_active = false
+		if _manual_place_vent_button != null and is_instance_valid(_manual_place_vent_button):
+			_manual_place_vent_button.button_pressed = false
+		if _manual_erupt_button != null and is_instance_valid(_manual_erupt_button):
+			_manual_erupt_button.button_pressed = false
+		_refresh_manual_vent_status()
+	)
+	vent_row.add_child(stop_button)
+
+	_manual_vent_status_label = Label.new()
+	_manual_vent_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_manual_vent_status_label.text = "Vent: none | Mode: idle"
+	geology_tab.add_child(_manual_vent_status_label)
+
+	_feature_inspect_label = Label.new()
+	_feature_inspect_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_feature_inspect_label.text = "Inspect: click terrain to select vent/spring."
+	geology_tab.add_child(_feature_inspect_label)
+
+	var eruption_hint := Label.new()
+	eruption_hint.text = "LMB terrain while Place Vent is active to add/select vent."
+	geology_tab.add_child(eruption_hint)
+
+	var simulation_tab := VBoxContainer.new()
+	simulation_tab.name = "Simulation"
+	var sim_label := Label.new()
+	sim_label.text = "Time controls in HUD. Backend/quality on left panel."
+	simulation_tab.add_child(sim_label)
+	_rts_tabs.add_child(simulation_tab)
+
+	var events_tab := VBoxContainer.new()
+	events_tab.name = "Events"
+	events_tab.add_theme_constant_override("separation", 6)
+	var events_row := HBoxContainer.new()
+	events_row.add_theme_constant_override("separation", 8)
+	events_tab.add_child(events_row)
+	var lightning_button := Button.new()
+	lightning_button.text = "Lightning Strike"
+	lightning_button.pressed.connect(_on_lightning_strike_pressed)
+	events_row.add_child(lightning_button)
+	var vent_random_button := Button.new()
+	vent_random_button.text = "Spawn Random Vent"
+	vent_random_button.pressed.connect(func():
+		var spawned = _volcanic.try_spawn_new_vent(_world_snapshot, _sim_tick)
+		_world_snapshot = spawned.get("world", _world_snapshot)
+		_refresh_manual_vent_status()
+	)
+	events_row.add_child(vent_random_button)
+	var events_hint := Label.new()
+	events_hint.text = "Manual world events are centralized here."
+	events_tab.add_child(events_hint)
+	_rts_tabs.add_child(events_tab)
+
+	var camera_tab := VBoxContainer.new()
+	camera_tab.name = "Camera"
+	var cam_label := Label.new()
+	cam_label.text = "RMB orbit | MMB pan | Wheel zoom | WASD/QE move"
+	camera_tab.add_child(cam_label)
+	_rts_tabs.add_child(camera_tab)
+
+	_refresh_manual_vent_status()
+	_ensure_feature_select_marker()
+
+func _refresh_manual_vent_status() -> void:
+	if _manual_vent_status_label == null or not is_instance_valid(_manual_vent_status_label):
+		return
+	var vent_text = _manual_selected_vent_tile_id if _manual_selected_vent_tile_id != "" else "none"
+	var mode = "idle"
+	if _manual_vent_place_mode:
+		mode = "placing"
+	elif _manual_eruption_active:
+		mode = "erupting"
+	var vent_info = _feature_query.find_volcano_by_tile_id(_world_snapshot, _manual_selected_vent_tile_id)
+	if not vent_info.is_empty():
+		_manual_vent_status_label.text = "Vent: %s | Mode: %s | activity %.2f | radius %d" % [
+			vent_text,
+			mode,
+			clampf(float(vent_info.get("activity", 0.0)), 0.0, 1.0),
+			int(vent_info.get("radius", 0)),
+		]
+	else:
+		_manual_vent_status_label.text = "Vent: %s | Mode: %s" % [vent_text, mode]
+	_refresh_feature_inspect_text()
+	_update_feature_select_marker()
+
+func _tile_from_screen_position(screen_pos: Vector2) -> Vector2i:
+	return _interaction_controller.tile_from_screen_position(_camera, _world_snapshot, screen_pos)
+
+func _spawn_manual_vent_at(tx: int, tz: int) -> void:
+	if _world_snapshot.is_empty():
+		return
+	var island_growth = maxf(0.0, float(_island_growth_spin.value)) if _island_growth_spin != null else island_growth_per_eruption
+	var spawned = _volcanic.spawn_manual_vent_at(_world_snapshot, tx, tz, _sim_tick, island_growth)
+	_world_snapshot = spawned.get("world", _world_snapshot)
+	var tile_id = String(spawned.get("selected_tile_id", ""))
+	if tile_id != "":
+		_manual_selected_vent_tile_id = tile_id
+		_local_activity_by_tile[tile_id] = 1.0
+	var feature = spawned.get("feature", {})
+	if feature is Dictionary and tile_id != "":
+		_selected_feature = {"kind": "vent", "tile_id": tile_id, "data": (feature as Dictionary).duplicate(true)}
+	_refresh_manual_vent_status()
+
+func _inspect_feature_at_tile(tx: int, tz: int) -> void:
+	var tile_id = TileKeyUtilsScript.tile_id(tx, tz)
+	var vent = _feature_query.find_volcano_by_tile_id(_world_snapshot, tile_id)
+	if vent.is_empty():
+		vent = _feature_query.find_volcano_covering_tile(_world_snapshot, tx, tz)
+	if not vent.is_empty():
+		_manual_selected_vent_tile_id = String(vent.get("tile_id", tile_id))
+		_selected_feature = {
+			"kind": "vent",
+			"tile_id": _manual_selected_vent_tile_id,
+			"data": vent.duplicate(true),
+		}
+		_refresh_manual_vent_status()
+		return
+	var spring = _feature_query.find_spring_by_tile_id(_world_snapshot, tile_id)
+	if not spring.is_empty():
+		_selected_feature = {
+			"kind": "spring",
+			"tile_id": tile_id,
+			"data": spring.duplicate(true),
+		}
+		_refresh_manual_vent_status()
+		return
+	_selected_feature = {
+		"kind": "tile",
+		"tile_id": tile_id,
+		"data": {},
+	}
+	_refresh_manual_vent_status()
+
+func _refresh_feature_inspect_text() -> void:
+	if _feature_inspect_label == null or not is_instance_valid(_feature_inspect_label):
+		return
+	_feature_inspect_label.text = _feature_query.build_inspect_text(_selected_feature)
+
+func _ensure_feature_select_marker() -> void:
+	_feature_select_marker = _feature_marker_renderer.ensure_marker(self, _feature_select_marker)
+
+func _update_feature_select_marker() -> void:
+	if _feature_select_marker == null or not is_instance_valid(_feature_select_marker):
+		return
+	if _selected_feature.is_empty():
+		_feature_marker_renderer.update_marker(_feature_select_marker, 0, 0, 0.0, false)
+		return
+	var tile_id = String(_selected_feature.get("tile_id", ""))
+	if tile_id == "":
+		_feature_marker_renderer.update_marker(_feature_select_marker, 0, 0, 0.0, false)
+		return
+	var coords = TileKeyUtilsScript.parse_tile_id(tile_id)
+	if coords.x == 2147483647:
+		_feature_marker_renderer.update_marker(_feature_select_marker, 0, 0, 0.0, false)
+		return
+	var y = _surface_height_for_tile(tile_id) + 0.25
+	_feature_marker_renderer.update_marker(_feature_select_marker, coords.x, coords.y, y, true)
+
+func _set_debug_compact_mode(compact: bool) -> void:
+	_debug_compact_mode = compact
+	if _debug_compact_toggle != null and is_instance_valid(_debug_compact_toggle):
+		_debug_compact_toggle.text = "Compact On" if compact else "Compact Off"
+	_apply_debug_column_layout()
+
+func _apply_debug_column_layout() -> void:
+	if _debug_column_panel == null or not is_instance_valid(_debug_column_panel):
+		return
+	var panel_width = 252.0 if _debug_compact_mode else 360.0
+	_debug_column_panel.offset_left = -12.0 - panel_width
+	_debug_column_panel.offset_right = -12.0
+	_debug_column_panel.offset_bottom = 210.0 if _debug_compact_mode else 280.0
+	if _stats_label != null:
+		_stats_label.add_theme_font_size_override("font_size", 10 if _debug_compact_mode else 11)
+	if _perf_compare_label != null:
+		_perf_compare_label.add_theme_font_size_override("font_size", 10 if _debug_compact_mode else 11)
 
 func _update_stats(world: Dictionary, hydrology: Dictionary, seed: int) -> void:
 	var voxel_world: Dictionary = world.get("voxel_world", {})
@@ -1463,23 +1712,42 @@ func _update_stats(world: Dictionary, hydrology: Dictionary, seed: int) -> void:
 	var volcanoes = int((geology.get("volcanic_features", []) as Array).size())
 	var springs: Dictionary = world.get("springs", {})
 	var spring_count = int((springs.get("all", []) as Array).size())
-	_stats_label.text = "seed=%d | mode=%s | blocks=%d | water_tiles=%d | max_flow=%0.2f | rain=%0.2f | fog=%0.2f | sun=%0.2f | uv=%0.2f | volcanoes=%d | springs=%d | slides=%d | tod=%0.2f" % [
-		seed,
-		_sim_backend_mode,
-		int((voxel_world.get("block_rows", []) as Array).size()),
-		int(water_tiles.size()),
-		max_flow,
-		avg_rain,
-		avg_fog,
-		avg_sun,
-		avg_uv,
-		volcanoes,
-		spring_count,
-		_landslide_count,
-		_time_of_day
-	]
 	var year = _year_at_tick(_sim_tick)
-	_stats_label.text += " | year=%0.1f | sim_t=%s" % [year, _format_duration_hms(_simulated_seconds)]
+	if _debug_compact_mode:
+		_stats_label.text = "seed %d | %s\nblk %d water %d flow %.2f\nrain %.2f fog %.2f sun %.2f uv %.2f\nvolc %d spring %d slide %d\nyear %.1f t+%s" % [
+			seed,
+			_sim_backend_mode,
+			int((voxel_world.get("block_rows", []) as Array).size()),
+			int(water_tiles.size()),
+			max_flow,
+			avg_rain,
+			avg_fog,
+			avg_sun,
+			avg_uv,
+			volcanoes,
+			spring_count,
+			_landslide_count,
+			year,
+			_format_duration_hms(_simulated_seconds),
+		]
+	else:
+		_stats_label.text = "seed=%d | mode=%s | blocks=%d | water_tiles=%d | max_flow=%0.2f | rain=%0.2f | fog=%0.2f | sun=%0.2f | uv=%0.2f | volcanoes=%d | springs=%d | slides=%d | tod=%0.2f | year=%0.1f | sim_t=%s" % [
+			seed,
+			_sim_backend_mode,
+			int((voxel_world.get("block_rows", []) as Array).size()),
+			int(water_tiles.size()),
+			max_flow,
+			avg_rain,
+			avg_fog,
+			avg_sun,
+			avg_uv,
+			volcanoes,
+			spring_count,
+			_landslide_count,
+			_time_of_day,
+			year,
+			_format_duration_hms(_simulated_seconds),
+		]
 
 func _current_worldgen_config_for_tick(tick: int) -> Resource:
 	var config = WorldGenConfigResourceScript.new()
@@ -1562,6 +1830,7 @@ func _restore_to_tick(target_tick: int) -> void:
 	_pending_hydro_changed_tiles.clear()
 	_pending_hydro_rebake_events = 0
 	_pending_hydro_rebake_seconds = 0.0
+	_volcanic.reset()
 	_pending_terrain_changed_tiles.clear()
 	_flow_overlay_accum = flow_overlay_refresh_seconds
 	_terrain_apply_accum = terrain_apply_interval_seconds
@@ -1605,42 +1874,34 @@ func _restore_to_tick(target_tick: int) -> void:
 	var slides: Array = _erosion_snapshot.get("recent_landslides", [])
 	_landslide_count = slides.size()
 	if _environment_controller.has_method("apply_generation_data"):
-		_environment_controller.apply_generation_data(_world_snapshot, _hydrology_snapshot)
+		_terrain_renderer.apply_generation(_environment_controller, _world_snapshot, _hydrology_snapshot, int(round(_terrain_chunk_spin.value)))
 	if _show_flow_checkbox.button_pressed:
 		_render_flow_overlay(_world_snapshot, _current_worldgen_config())
-	if _environment_controller.has_method("set_weather_state"):
-		_environment_controller.set_weather_state(_weather_snapshot)
-	if _environment_controller.has_method("set_solar_state"):
-		_environment_controller.set_solar_state(_solar_snapshot)
+	_water_renderer.apply_state(_environment_controller, _weather_snapshot, _solar_snapshot)
 	_sync_living_world_features(true)
 	_apply_water_shader_controls()
 	_update_stats(_world_snapshot, _hydrology_snapshot, int(hash(_seed_line_edit.text.strip_edges())))
+	_push_state_from_runtime()
 
 func _refresh_hud() -> void:
 	if _simulation_hud == null:
 		return
 	var mode = "playing" if _is_playing else "paused"
 	var year = _year_at_tick(_sim_tick)
-	_simulation_hud.set_status_text("Year %.1f | T+%s | Tick %d | Branch %s | %s x%d" % [year, _format_duration_hms(_simulated_seconds), _sim_tick, _active_branch_id, mode, _ticks_per_frame])
-	var avg_rain = clampf(float(_weather_snapshot.get("avg_rain_intensity", 0.0)), 0.0, 1.0)
-	var avg_cloud = clampf(float(_weather_snapshot.get("avg_cloud_cover", 0.0)), 0.0, 1.0)
-	var avg_fog = clampf(float(_weather_snapshot.get("avg_fog_intensity", 0.0)), 0.0, 1.0)
-	var avg_sun = clampf(float(_solar_snapshot.get("avg_insolation", 0.0)), 0.0, 1.0)
-	var avg_uv = clampf(float(_solar_snapshot.get("avg_uv_index", 0.0)), 0.0, 2.0)
+	_simulation_hud.set_status_text(_hud_controller.build_status_text(year, _format_duration_hms(_simulated_seconds), _sim_tick, _active_branch_id, mode, _ticks_per_frame))
 	var lunar = _current_lunar_debug()
-	var details = "Rain: %.2f | Cloud: %.2f | Fog: %.2f | Sun: %.2f | UV: %.2f | Landslides: %d | Moon: %.0f%% %s | Tide x%.2f" % [
-		avg_rain,
-		avg_cloud,
-		avg_fog,
-		avg_sun,
-		avg_uv,
+	var details = _hud_controller.build_details_text(
+		_weather_snapshot,
+		_solar_snapshot,
 		_landslide_count,
 		float(lunar.get("phase_percent", 0.0)),
 		String(lunar.get("state", "Neap")),
 		float(lunar.get("multiplier", 1.0)),
-	]
+		_sim_backend_mode,
+		_ocean_quality_option.get_item_text(_ocean_quality_option.selected)
+	)
 	if _simulation_hud.has_method("set_details_text"):
-		_simulation_hud.set_details_text("%s | Backend: %s | OceanQ: %s" % [details, _sim_backend_mode, _ocean_quality_option.get_item_text(_ocean_quality_option.selected)])
+		_simulation_hud.set_details_text(details)
 	_update_perf_compare_label()
 
 func _update_perf_compare_label() -> void:
@@ -1648,12 +1909,10 @@ func _update_perf_compare_label() -> void:
 		return
 	var modes = ["cpu", "gpu_hybrid", "gpu_aggressive", "ultra"]
 	var lines: Array[String] = []
-	for mode in modes:
-		var row = (_perf_ewma_by_mode.get(mode, {}) as Dictionary)
-		var marker = "*" if mode == _sim_backend_mode else " "
-		lines.append("%s %s: tick %.2fms | w %.2f e %.2f s %.2f v %.2f t %.2f" % [
-			marker,
-			mode,
+	if _debug_compact_mode:
+		var row = (_perf_ewma_by_mode.get(_sim_backend_mode, {}) as Dictionary)
+		lines.append("%s tick %.2fms | w %.2f e %.2f s %.2f v %.2f t %.2f" % [
+			_sim_backend_mode,
 			float(row.get("tick_total_ms", 0.0)),
 			float(row.get("weather_ms", 0.0)),
 			float(row.get("erosion_ms", 0.0)),
@@ -1661,11 +1920,28 @@ func _update_perf_compare_label() -> void:
 			float(row.get("volcanic_ms", 0.0)),
 			float(row.get("terrain_apply_ms", 0.0)),
 		])
+	else:
+		for mode in modes:
+			var row_full = (_perf_ewma_by_mode.get(mode, {}) as Dictionary)
+			var marker = "*" if mode == _sim_backend_mode else " "
+			lines.append("%s %s: tick %.2fms | w %.2f e %.2f s %.2f v %.2f t %.2f" % [
+				marker,
+				mode,
+				float(row_full.get("tick_total_ms", 0.0)),
+				float(row_full.get("weather_ms", 0.0)),
+				float(row_full.get("erosion_ms", 0.0)),
+				float(row_full.get("solar_ms", 0.0)),
+				float(row_full.get("volcanic_ms", 0.0)),
+				float(row_full.get("terrain_apply_ms", 0.0)),
+			])
 	var weather_bench_text = "weather bench cpu %.2fms gpu %.2fms" % [_weather_bench_cpu_ms, _weather_bench_gpu_ms] if _weather_bench_cpu_ms >= 0.0 else "weather bench pending"
 	var solar_bench_text = "solar bench cpu %.2fms gpu %.2fms" % [_solar_bench_cpu_ms, _solar_bench_gpu_ms] if _solar_bench_cpu_ms >= 0.0 else "solar bench pending"
 	var budget_text = "budget %.1fms debt %.2f credit %.2f" % [sim_budget_ms_per_frame, _sim_budget_debt_ms, _sim_budget_credit_ms]
-	lines.append(weather_bench_text)
-	lines.append(solar_bench_text)
+	if _debug_compact_mode:
+		lines.append("bench w %.2f/%.2f s %.2f/%.2f" % [_weather_bench_cpu_ms, _weather_bench_gpu_ms, _solar_bench_cpu_ms, _solar_bench_gpu_ms])
+	else:
+		lines.append(weather_bench_text)
+		lines.append(solar_bench_text)
 	lines.append(budget_text)
 	_perf_compare_label.text = "\n".join(lines)
 
@@ -1939,7 +2215,4 @@ func _sync_living_world_features(force_respawn_settlement: bool) -> void:
 		_villager_controller.call("clear_generated")
 
 func _on_hud_overlays_changed(paths: bool, resources: bool, conflicts: bool, smell: bool, wind: bool, temperature: bool) -> void:
-	if _debug_overlay_root == null:
-		return
-	if _debug_overlay_root.has_method("set_visibility_flags"):
-		_debug_overlay_root.call("set_visibility_flags", paths, resources, conflicts, smell, wind, temperature)
+	_overlay_renderer.apply_visibility(_debug_overlay_root, paths, resources, conflicts, smell, wind, temperature)

@@ -65,7 +65,13 @@ func clear_generated() -> void:
 	_material_cache.clear()
 	_chunk_node_index.clear()
 
-func request_chunk_rebuild(block_rows: Array, chunk_keys: Array, chunk_size: int) -> void:
+func request_chunk_rebuild(
+	block_rows: Array,
+	chunk_keys: Array,
+	chunk_size: int,
+	chunk_rows_by_chunk: Dictionary = {},
+	chunk_rows_chunk_size: int = 0
+) -> void:
 	if block_rows.is_empty() or _terrain_root == null:
 		return
 	var normalized_chunk_keys: Array = []
@@ -75,10 +81,13 @@ func request_chunk_rebuild(block_rows: Array, chunk_keys: Array, chunk_size: int
 			normalized_chunk_keys.append(key)
 	normalized_chunk_keys.sort()
 	var is_partial = not normalized_chunk_keys.is_empty()
+	var use_chunk_rows_fast_path = is_partial and not chunk_rows_by_chunk.is_empty() and int(chunk_rows_chunk_size) == maxi(4, chunk_size)
 	var payload := {
 		"request_id": _chunk_build_request_id + 1,
 		"chunk_size": maxi(4, chunk_size),
-		"block_rows": block_rows.duplicate(true),
+		"block_rows": [] if use_chunk_rows_fast_path else block_rows.duplicate(true),
+		"chunk_rows_by_chunk": chunk_rows_by_chunk.duplicate(true),
+		"chunk_rows_chunk_size": int(chunk_rows_chunk_size),
 		"partial": is_partial,
 		"target_chunk_keys": normalized_chunk_keys,
 	}
@@ -165,6 +174,8 @@ func _start_chunk_build(payload: Dictionary) -> void:
 func _thread_build_chunk_payload(payload: Dictionary) -> Dictionary:
 	var rows: Array = payload.get("block_rows", [])
 	var chunk_size = maxi(4, int(payload.get("chunk_size", 12)))
+	var chunk_rows_by_chunk: Dictionary = payload.get("chunk_rows_by_chunk", {})
+	var chunk_rows_chunk_size = int(payload.get("chunk_rows_chunk_size", 0))
 	var partial = bool(payload.get("partial", false))
 	var target_chunk_keys: Array = payload.get("target_chunk_keys", [])
 	var target_set: Dictionary = {}
@@ -177,7 +188,15 @@ func _thread_build_chunk_payload(payload: Dictionary) -> Dictionary:
 	if partial:
 		for key_variant in target_set.keys():
 			chunk_map[String(key_variant)] = {}
-	for row_variant in rows:
+	var source_rows: Array = rows
+	if partial and chunk_rows_chunk_size == chunk_size and not chunk_rows_by_chunk.is_empty():
+		source_rows = []
+		for key_variant in target_set.keys():
+			var key = String(key_variant)
+			var chunk_rows_variant = chunk_rows_by_chunk.get(key, [])
+			if chunk_rows_variant is Array:
+				source_rows.append_array((chunk_rows_variant as Array).duplicate(true))
+	for row_variant in source_rows:
 		if not (row_variant is Dictionary):
 			continue
 		var row = row_variant as Dictionary
@@ -353,6 +372,10 @@ func _block_color(block_type: String) -> Color:
 			return Color(0.45, 0.45, 0.47, 1.0)
 		"gravel":
 			return Color(0.52, 0.5, 0.48, 1.0)
+		"basalt":
+			return Color(0.2, 0.2, 0.22, 1.0)
+		"obsidian":
+			return Color(0.1, 0.08, 0.14, 1.0)
 		"coal_ore":
 			return Color(0.22, 0.22, 0.22, 1.0)
 		"copper_ore":
@@ -363,4 +386,3 @@ func _block_color(block_type: String) -> Color:
 			return Color(0.18, 0.35, 0.76, 0.62)
 		_:
 			return Color(1.0, 0.0, 1.0, 1.0)
-

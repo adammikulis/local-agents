@@ -32,6 +32,7 @@ const AtmosphereCycleControllerScript = preload("res://addons/local_agents/scene
 @export var flow_traversal_profile_override: Resource
 @export var worldgen_config_override: Resource
 @export var world_progression_profile_override: Resource
+@export var enable_cognition_runtime: bool = false
 @export var start_year: float = -8000.0
 @export var years_per_tick: float = 0.25
 @export var start_simulated_seconds: float = 0.0
@@ -87,6 +88,8 @@ func _ready() -> void:
 		return
 	if simulation_controller.has_method("configure"):
 		simulation_controller.configure(world_seed_text, false, false)
+	if simulation_controller.has_method("set_cognition_features"):
+		simulation_controller.set_cognition_features(enable_cognition_runtime, enable_cognition_runtime, enable_cognition_runtime)
 	if not simulation_controller.has_method("configure_environment"):
 		return
 	_apply_year_progression(worldgen_config_override, _year_at_tick(0))
@@ -303,21 +306,7 @@ func _apply_atmospheric_fog(daylight: float) -> void:
 	if world_environment == null or world_environment.environment == null:
 		return
 	var env: Environment = world_environment.environment
-	var weather: Dictionary = _last_state.get("weather_snapshot", {})
-	var humidity = clampf(float(weather.get("avg_humidity", 0.0)), 0.0, 1.0)
-	var rain = clampf(float(weather.get("avg_rain_intensity", 0.0)), 0.0, 1.0)
-	var cloud = clampf(float(weather.get("avg_cloud_cover", 0.0)), 0.0, 1.0)
-	var fog_target = clampf(humidity * 0.45 + rain * 0.35 + cloud * 0.2, 0.0, 1.0)
-	var night_boost = 1.0 - daylight
-	env.volumetric_fog_enabled = true
-	env.volumetric_fog_density = lerpf(0.015, 0.08, clampf(fog_target * 0.78 + night_boost * 0.22, 0.0, 1.0))
-	env.volumetric_fog_emission_energy = lerpf(0.35, 0.9, daylight)
-	env.volumetric_fog_albedo = Color(
-		lerpf(0.26, 0.74, daylight),
-		lerpf(0.3, 0.78, daylight),
-		lerpf(0.36, 0.84, daylight),
-		1.0
-	)
+	env.volumetric_fog_enabled = false
 
 func _year_at_tick(tick: int) -> float:
 	return start_year + float(tick) * years_per_tick
