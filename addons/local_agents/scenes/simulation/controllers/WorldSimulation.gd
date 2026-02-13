@@ -16,9 +16,19 @@ const AtmosphereCycleControllerScript = preload("res://addons/local_agents/scene
 @onready var simulation_hud: CanvasLayer = $SimulationHud
 @onready var sun_light: DirectionalLight3D = $DirectionalLight3D
 @onready var world_environment: WorldEnvironment = $WorldEnvironment
+@onready var world_camera: Camera3D = $Camera3D
 @export var world_seed_text: String = "world_progression_main"
 @export var auto_generate_on_ready: bool = true
 @export var auto_play_on_ready: bool = true
+@export var auto_frame_camera_on_generate: bool = true
+@export var camera_controls_enabled: bool = true
+@export var orbit_sensitivity: float = 0.007
+@export var pan_sensitivity: float = 0.01
+@export var zoom_step_ratio: float = 0.1
+@export var min_zoom_distance: float = 3.0
+@export var max_zoom_distance: float = 120.0
+@export var min_pitch_degrees: float = 18.0
+@export var max_pitch_degrees: float = 82.0
 @export var flow_traversal_profile_override: Resource
 @export var worldgen_config_override: Resource
 @export var world_progression_profile_override: Resource
@@ -35,9 +45,16 @@ var _ticks_per_frame: int = 1
 var _current_tick: int = 0
 var _fork_index: int = 0
 var _last_state: Dictionary = {}
+var _inspector_npc_id: String = ""
 var _time_of_day: float = 0.28
 var _simulated_seconds: float = 0.0
 var _atmosphere_cycle = AtmosphereCycleControllerScript.new()
+var _camera_focus: Vector3 = Vector3.ZERO
+var _camera_distance: float = 16.0
+var _camera_yaw: float = 0.0
+var _camera_pitch: float = deg_to_rad(55.0)
+var _mmb_down: bool = false
+var _rmb_down: bool = false
 
 func _ready() -> void:
 	_time_of_day = clampf(start_time_of_day, 0.0, 1.0)
@@ -56,6 +73,12 @@ func _ready() -> void:
 		simulation_hud.fast_forward_pressed.connect(_on_hud_fast_forward_pressed)
 		simulation_hud.rewind_pressed.connect(_on_hud_rewind_pressed)
 		simulation_hud.fork_pressed.connect(_on_hud_fork_pressed)
+		if simulation_hud.has_signal("inspector_npc_changed"):
+			simulation_hud.inspector_npc_changed.connect(_on_hud_inspector_npc_changed)
+		if simulation_hud.has_signal("overlays_changed"):
+			simulation_hud.overlays_changed.connect(_on_hud_overlays_changed)
+	_initialize_camera_orbit()
+	_on_hud_overlays_changed(true, true, true, true, true, true)
 	if has_node("EcologyController"):
 		var ecology_controller = get_node("EcologyController")
 		if ecology_controller.has_method("set_debug_overlay"):
@@ -79,6 +102,8 @@ func _ready() -> void:
 		environment_controller.set_weather_state(setup.get("weather", {}))
 	if environment_controller.has_method("set_solar_state"):
 		environment_controller.set_solar_state(setup.get("solar", {}))
+	if auto_frame_camera_on_generate:
+		_frame_camera_from_environment(setup.get("environment", {}))
 	_apply_environment_signals(_build_environment_signal_snapshot_from_setup(setup, 0))
 	if settlement_controller.has_method("spawn_initial_settlement"):
 		settlement_controller.spawn_initial_settlement(setup.get("spawn", {}))
@@ -99,6 +124,15 @@ func _process(_delta: float) -> void:
 	for _i in range(_ticks_per_frame):
 		_advance_tick()
 	_refresh_hud()
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not camera_controls_enabled:
+		return
+	if event is InputEventMouseMotion:
+		_handle_camera_mouse_motion(event as InputEventMouseMotion)
+		return
+	if event is InputEventMouseButton:
+		_handle_camera_mouse_button(event as InputEventMouseButton)
 
 func _advance_tick() -> void:
 	if not simulation_controller.has_method("process_tick"):
@@ -205,6 +239,10 @@ func _refresh_hud() -> void:
 	var belief_conflicts = _active_belief_conflicts(_current_tick)
 	var detail_lines: Array[String] = []
 	detail_lines.append("Structures: %d | Oral events: %d | Ritual events: %d | Belief conflicts: %d" % [structures, oral_events, ritual_events, belief_conflicts])
+	_ensure_inspector_npc_selected()
+	var inspector_lines = _inspector_summary_lines(_current_tick)
+	for line in inspector_lines:
+		detail_lines.append(String(line))
 	if branch_id != "main" and simulation_controller.has_method("branch_diff"):
 		var diff: Dictionary = simulation_controller.branch_diff("main", branch_id, maxi(0, _current_tick - 48), _current_tick)
 		if bool(diff.get("ok", false)):
@@ -215,6 +253,8 @@ func _refresh_hud() -> void:
 	var details_text = "\n".join(detail_lines)
 	if simulation_hud.has_method("set_details_text"):
 		simulation_hud.set_details_text(details_text)
+	if simulation_hud.has_method("set_inspector_npc"):
+		simulation_hud.set_inspector_npc(_inspector_npc_id)
 
 func _active_belief_conflicts(tick: int) -> int:
 	if not simulation_controller.has_method("get_backstory_service"):
@@ -327,3 +367,155 @@ func _format_duration_hms(total_seconds: float) -> String:
 	var minutes = int((whole % 3600) / 60)
 	var seconds = int(whole % 60)
 	return "%02d:%02d:%02d" % [hours, minutes, seconds]
+
+func _on_hud_inspector_npc_changed(npc_id: String) -> void:
+	var normalized = npc_id.strip_edges()
+	_inspector_npc_id = normalized
+	_refresh_hud()
+
+func _on_hud_overlays_changed(paths: bool, resources: bool, conflicts: bool, smell: bool, wind: bool, temperature: bool) -> void:
+	if debug_overlay_root == null:
+		return
+	if debug_overlay_root.has_method("set_visibility_flags"):
+		debug_overlay_root.call("set_visibility_flags", paths, resources, conflicts, smell, wind, temperature)
+
+func _ensure_inspector_npc_selected() -> void:
+	if _inspector_npc_id != "":
+		return
+	var villagers: Dictionary = _last_state.get("villagers", {})
+	var ids = villagers.keys()
+	ids.sort_custom(func(a, b): return String(a) < String(b))
+	if ids.is_empty():
+		return
+	_inspector_npc_id = String(ids[0])
+
+func _inspector_summary_lines(tick: int) -> Array[String]:
+	var lines: Array[String] = []
+	if _inspector_npc_id == "":
+		lines.append("Inspector: no npc selected")
+		return lines
+	lines.append("Inspector NPC: %s" % _inspector_npc_id)
+	if not simulation_controller.has_method("get_backstory_service"):
+		lines.append("Truth/Belief: unavailable")
+		return lines
+	var service = simulation_controller.get_backstory_service()
+	if service == null:
+		lines.append("Truth/Belief: unavailable")
+		return lines
+	var world_day = int(tick / 24)
+	var beliefs_count = 0
+	var truths_count = 0
+	var conflicts_count = 0
+	if service.has_method("get_beliefs_for_npc"):
+		var beliefs_result: Dictionary = service.get_beliefs_for_npc(_inspector_npc_id, world_day, 8)
+		if bool(beliefs_result.get("ok", false)):
+			beliefs_count = int((beliefs_result.get("beliefs", []) as Array).size())
+	if service.has_method("get_truths_for_subject"):
+		var truths_result: Dictionary = service.get_truths_for_subject(_inspector_npc_id, world_day, 8)
+		if bool(truths_result.get("ok", false)):
+			truths_count = int((truths_result.get("truths", []) as Array).size())
+	if service.has_method("get_belief_truth_conflicts"):
+		var conflicts_result: Dictionary = service.get_belief_truth_conflicts(_inspector_npc_id, world_day, 8)
+		if bool(conflicts_result.get("ok", false)):
+			var conflicts: Array = conflicts_result.get("conflicts", [])
+			conflicts_count = int(conflicts.size())
+			if not conflicts.is_empty() and conflicts[0] is Dictionary:
+				var top = conflicts[0] as Dictionary
+				lines.append("Top conflict: %s | conf=%.2f | sev=%.2f" % [
+					String(top.get("predicate", "")),
+					float(top.get("belief_confidence", 0.0)),
+					float(top.get("severity", 0.0))
+				])
+	lines.append("Truth/Belief: truths=%d beliefs=%d conflicts=%d" % [truths_count, beliefs_count, conflicts_count])
+	return lines
+
+func _frame_camera_from_environment(environment_snapshot: Dictionary) -> void:
+	if world_camera == null:
+		return
+	if environment_snapshot.is_empty():
+		return
+	var width = float(environment_snapshot.get("width", 1))
+	var depth = float(environment_snapshot.get("height", 1))
+	var voxel_world: Dictionary = environment_snapshot.get("voxel_world", {})
+	var world_height = float(voxel_world.get("height", 24))
+	var center = Vector3(width * 0.5, world_height * 0.35, depth * 0.5)
+	var distance = maxf(width, depth) * 1.05
+	world_camera.position = center + Vector3(distance * 0.75, world_height * 0.6 + 10.0, distance)
+	world_camera.look_at(center, Vector3.UP)
+	_camera_focus = center
+	_rebuild_orbit_state_from_camera()
+
+func _initialize_camera_orbit() -> void:
+	if world_camera == null:
+		return
+	_camera_focus = Vector3.ZERO
+	_rebuild_orbit_state_from_camera()
+
+func _rebuild_orbit_state_from_camera() -> void:
+	if world_camera == null:
+		return
+	var offset := world_camera.global_position - _camera_focus
+	_camera_distance = clampf(offset.length(), min_zoom_distance, max_zoom_distance)
+	if _camera_distance > 0.001:
+		_camera_pitch = clampf(asin(offset.y / _camera_distance), deg_to_rad(min_pitch_degrees), deg_to_rad(max_pitch_degrees))
+		_camera_yaw = atan2(offset.x, offset.z)
+
+func _handle_camera_mouse_button(event: InputEventMouseButton) -> void:
+	if event.button_index == MOUSE_BUTTON_MIDDLE:
+		_mmb_down = event.pressed
+		return
+	if event.button_index == MOUSE_BUTTON_RIGHT:
+		_rmb_down = event.pressed
+		return
+	if event.button_index == MOUSE_BUTTON_WHEEL_UP and event.pressed:
+		_camera_distance = maxf(min_zoom_distance, _camera_distance * (1.0 - zoom_step_ratio))
+		_apply_camera_transform()
+		return
+	if event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed:
+		_camera_distance = minf(max_zoom_distance, _camera_distance * (1.0 + zoom_step_ratio))
+		_apply_camera_transform()
+		return
+
+func _handle_camera_mouse_motion(event: InputEventMouseMotion) -> void:
+	if not _mmb_down and not _rmb_down:
+		return
+	if _rmb_down or Input.is_key_pressed(KEY_SHIFT):
+		_pan_camera(event.relative)
+	else:
+		_orbit_camera(event.relative)
+	_apply_camera_transform()
+
+func _orbit_camera(relative: Vector2) -> void:
+	_camera_yaw -= relative.x * orbit_sensitivity
+	_camera_pitch = clampf(
+		_camera_pitch - relative.y * orbit_sensitivity,
+		deg_to_rad(min_pitch_degrees),
+		deg_to_rad(max_pitch_degrees)
+	)
+
+func _pan_camera(relative: Vector2) -> void:
+	if world_camera == null:
+		return
+	var right := world_camera.global_transform.basis.x
+	right.y = 0.0
+	if right.length_squared() > 0.0001:
+		right = right.normalized()
+	var forward := -world_camera.global_transform.basis.z
+	forward.y = 0.0
+	if forward.length_squared() > 0.0001:
+		forward = forward.normalized()
+	var scale := pan_sensitivity * _camera_distance
+	_camera_focus += (-right * relative.x + forward * relative.y) * scale
+	_camera_focus.y = maxf(0.0, _camera_focus.y)
+
+func _apply_camera_transform() -> void:
+	if world_camera == null:
+		return
+	var horizontal := cos(_camera_pitch) * _camera_distance
+	var offset := Vector3(
+		sin(_camera_yaw) * horizontal,
+		sin(_camera_pitch) * _camera_distance,
+		cos(_camera_yaw) * horizontal
+	)
+	world_camera.global_position = _camera_focus + offset
+	world_camera.look_at(_camera_focus, Vector3.UP)

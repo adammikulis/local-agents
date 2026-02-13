@@ -10,8 +10,8 @@ anchors_preset = 1
 anchor_right = 0.0
 offset_left = 16.0
 offset_top = 16.0
-offset_right = 340.0
-offset_bottom = 170.0
+offset_right = 480.0
+offset_bottom = 330.0
 
 [node name="Margin" type="MarginContainer" parent="Panel"]
 layout_mode = 2
@@ -57,8 +57,77 @@ text = "FF"
 layout_mode = 2
 text = "Fork"
 
+[node name="InspectorTitle" type="Label" parent="Panel/Margin/VBox"]
+layout_mode = 2
+text = "Inspector"
+
+[node name="InspectorControls" type="HBoxContainer" parent="Panel/Margin/VBox"]
+layout_mode = 2
+
+[node name="InspectorNpcEdit" type="LineEdit" parent="Panel/Margin/VBox/InspectorControls"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "npc id (e.g. npc_vs_0)"
+
+[node name="InspectorApplyButton" type="Button" parent="Panel/Margin/VBox/InspectorControls"]
+layout_mode = 2
+text = "Inspect"
+
+[node name="OverlayTitle" type="Label" parent="Panel/Margin/VBox"]
+layout_mode = 2
+text = "Debug Overlays"
+
+[node name="OverlayGrid" type="GridContainer" parent="Panel/Margin/VBox"]
+layout_mode = 2
+columns = 3
+
+[node name="PathToggle" type="CheckBox" parent="Panel/Margin/VBox/OverlayGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+button_pressed = true
+text = "Paths"
+
+[node name="ResourceToggle" type="CheckBox" parent="Panel/Margin/VBox/OverlayGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+button_pressed = true
+text = "Resources"
+
+[node name="ConflictToggle" type="CheckBox" parent="Panel/Margin/VBox/OverlayGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+button_pressed = true
+text = "Conflicts"
+
+[node name="SmellToggle" type="CheckBox" parent="Panel/Margin/VBox/OverlayGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+button_pressed = true
+text = "Smell"
+
+[node name="WindToggle" type="CheckBox" parent="Panel/Margin/VBox/OverlayGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+button_pressed = true
+text = "Wind"
+
+[node name="TemperatureToggle" type="CheckBox" parent="Panel/Margin/VBox/OverlayGrid"]
+unique_name_in_owner = true
+layout_mode = 2
+button_pressed = true
+text = "Temp"
+
 [connection signal="pressed" from="Panel/Margin/VBox/Buttons/PlayButton" to="." method="_on_play_button_pressed"]
 [connection signal="pressed" from="Panel/Margin/VBox/Buttons/PauseButton" to="." method="_on_pause_button_pressed"]
 [connection signal="pressed" from="Panel/Margin/VBox/Buttons/RewindButton" to="." method="_on_rewind_button_pressed"]
 [connection signal="pressed" from="Panel/Margin/VBox/Buttons/FastForwardButton" to="." method="_on_fast_forward_button_pressed"]
 [connection signal="pressed" from="Panel/Margin/VBox/Buttons/ForkButton" to="." method="_on_fork_button_pressed"]
+[connection signal="pressed" from="Panel/Margin/VBox/InspectorControls/InspectorApplyButton" to="." method="_on_inspector_apply_button_pressed"]
+[connection signal="text_submitted" from="Panel/Margin/VBox/InspectorControls/InspectorNpcEdit" to="." method="_on_inspector_npc_edit_text_submitted"]
+[connection signal="toggled" from="Panel/Margin/VBox/OverlayGrid/PathToggle" to="." method="_on_overlay_toggled"]
+[connection signal="toggled" from="Panel/Margin/VBox/OverlayGrid/ResourceToggle" to="." method="_on_overlay_toggled"]
+[connection signal="toggled" from="Panel/Margin/VBox/OverlayGrid/ConflictToggle" to="." method="_on_overlay_toggled"]
+[connection signal="toggled" from="Panel/Margin/VBox/OverlayGrid/SmellToggle" to="." method="_on_overlay_toggled"]
+[connection signal="toggled" from="Panel/Margin/VBox/OverlayGrid/WindToggle" to="." method="_on_overlay_toggled"]
+[connection signal="toggled" from="Panel/Margin/VBox/OverlayGrid/TemperatureToggle" to="." method="_on_overlay_toggled"]

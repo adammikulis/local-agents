@@ -707,7 +707,7 @@ Test slice:
 - [x] Parallel cognition runs complete without KV bleed; evidence traces are stored and replay-auditable.
 
 ### 15.9 Phase 8: Demo-Ready Vertical Slice
-- [ ] Complete minimal HUD/inspector workflows and debug overlays (Sections 10, 13.6).
+- [x] Complete minimal HUD/inspector workflows and debug overlays (Sections 10, 13.6).
 - [x] Verify done criteria across a 30-day seeded run (Section 1.3).
 - [ ] Final docs pass: schema table, graph field table, playbook keys aligned to implementation (Section 14).
 Test slice:
