@@ -169,6 +169,54 @@ Wave A validation gates:
 - [x] February 13, 2026: Added low-level physics-server contact coupling schema through bridge canonical inputs and normalization (`NativeComputeBridge.gd`), plus deterministic source-contract coverage (`test_native_general_physics_contracts.gd`, `test_native_combustion_pressure_contracts.gd`).
 - [x] February 13, 2026: Added optional physics-contact payload forwarding through environment stage dispatch paths.
 
+### Wave A+: Native Handle Stage Math (Post-Continuity)
+
+P0/P1 action:
+- [x] 2026-02-13: Wave A+ starter task for handle-backed field evolution input plumbing.
+  - Owners: `Scope-A: C++ Stage Math Lane`.
+  - Files: `addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipeline.cpp`, `addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipelineInternal.cpp`, `addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipelineFieldEvolution.cpp`.
+  - Acceptance criteria: `run_field_buffer_evolution` must prioritize field-handle-derived field-name resolution for its source arrays while preserving existing continuity contracts and all currently exposed summary keys.
+
+Priority band: P1 (runtime correctness + determinism gate)
+
+Scope ownership:
+- `Scope-A: C++ Stage Math Lane` — owns handle-resolution plumbing and hot-path stage execution:
+  - `addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipeline.cpp`
+  - `addons/local_agents/gdextensions/localagents/include/sim/UnifiedSimulationPipeline.hpp`
+  - `addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipelineInternal.cpp`
+  - `addons/local_agents/gdextensions/localagents/include/sim/UnifiedSimulationPipelineInternal.hpp`
+  - `addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipelineStages.cpp`
+- `Scope-B: Data Bridge Lane` — owns payload-to-handle contract from caller space:
+  - `addons/local_agents/simulation/controller/NativeComputeBridge.gd`
+  - `addons/local_agents/simulation/controller/PhysicsServerContactBridge.gd`
+- `Scope-C: Validation Lane` — owns contract/runtime tests and deterministic migration proof:
+  - `addons/local_agents/tests/test_native_general_physics_contracts.gd`
+  - `addons/local_agents/tests/test_native_general_physics_wave_a_contracts.gd`
+  - `addons/local_agents/tests/test_native_general_physics_wave_a_runtime.gd`
+  - `addons/local_agents/tests/test_native_voxel_op_contracts.gd`
+
+Wave A+ slice goals:
+- [ ] Stage math consumes native field-handle-backed buffers where available in mechanics/pressure/thermal/reaction/destruction paths.
+- [ ] Group liquid transport updates by neighbor neighborhood to reduce per-cell artifacting for contiguous water bodies before deeper scalar-to-vector stage refactors.
+- [ ] Remove scalar-only execution dependencies for hot fields (`mass`, `velocity`, `density`, `pressure`, `temperature`) in native stage math; scalar paths become explicit compatibility fallbacks only.
+- [ ] Make continuity-carry behavior explicit in stage math inputs (consume persisted `field_buffers`/`updated_fields` for `neighbor_topology`, `mass`, `density`, `pressure`, `temperature`, `velocity`) without changing existing continuity contracts.
+
+Acceptance criteria:
+- [ ] `run_mechanics_stage`, `run_pressure_stage`, `run_thermal_stage`, `run_reaction_stage`, and `run_destruction_stage` must prefer handle-backed arrays from `frame_inputs`/`field_handles` over scalar fallbacks when valid handles exist.
+- [ ] `UnifiedSimulationPipeline::resolve_stage_field_inputs` must not be the primary source of hot-field values when field handles are supplied; scalar-only dependencies in `UnifiedSimulationPipelineStages.cpp` must be reduced or removed.
+- [ ] `execute_step` in `field_handle` mode must set `summary["field_handle_mode"] == "field_handles"` and preserve all existing keys in `summary`/`conservation_diagnostics`/`field_evolution` unchanged except for any newly added handle-aware diagnostics.
+- [ ] Continuity runtime contract remains intact in both modes:
+  - `field_buffers` carry/reuse across multiple `execute_step` calls (`Mass`, `Pressure`, `Temperature`, `Velocity`, `Density`, `neighbor_topology`).
+  - `run_field_buffer_evolution(...).updated_fields` remains present and deterministic.
+- [ ] Deterministic migration safety:
+  - Existing `test_native_general_physics_wave_a_contracts.gd` and `test_native_general_physics_wave_a_runtime.gd` pass in scalar mode and in explicit `field_handle_mode` scenarios.
+  - New regression asserts that stage math reads from resolved field handle payloads and emits diagnostics when fallback scalar path is used.
+
+Risk controls:
+- [ ] Add structured diagnostics for handle resolution miss/unusable type before fallback.
+- [ ] Cache field-handle lookup per stage execution to cap overhead.
+- [ ] Keep scalar fallback isolated behind a compatibility gate (not implicit mixed usage in native hot paths).
+
 ### Wave B: Reaction, Failure, Boundaries, and Scheduler Coupling
 
 Reaction and chemistry:

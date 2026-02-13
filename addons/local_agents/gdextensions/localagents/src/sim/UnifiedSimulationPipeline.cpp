@@ -69,7 +69,7 @@ String resolve_field_name_from_handle(const Variant &handle_variant) {
         return String(handle.get("field_name", String())).strip_edges();
     }
     if (handle.has("schema_row")) {
-        const Variant schema_variant = handle.get("schema_row");
+        const Variant schema_variant = handle.get("schema_row", Dictionary());
         if (schema_variant.get_type() == Variant::DICTIONARY) {
             const Dictionary schema = schema_variant;
             if (schema.has("field_name")) {
@@ -106,7 +106,7 @@ Dictionary resolve_stage_field_inputs(const Dictionary &frame_inputs, const Arra
         if (key.is_empty() || !frame_inputs.has(key)) {
             continue;
         }
-        const Variant value = frame_inputs.get(key);
+        const Variant value = frame_inputs.get(key, Variant());
         const Variant::Type value_type = value.get_type();
         if (value_type == Variant::INT || value_type == Variant::FLOAT) {
             stage_inputs[key] = value;
@@ -121,7 +121,7 @@ Dictionary resolve_stage_field_inputs(const Dictionary &frame_inputs, const Arra
                 continue;
             }
             if (!stage_inputs.has(field_name) && frame_inputs.has(field_name)) {
-                const Variant value = frame_inputs.get(field_name);
+                const Variant value = frame_inputs.get(field_name, Variant());
                 const Variant::Type value_type = value.get_type();
                 if (value_type == Variant::INT || value_type == Variant::FLOAT) {
                     stage_inputs[field_name] = value;
@@ -136,7 +136,8 @@ Dictionary resolve_stage_field_inputs(const Dictionary &frame_inputs, const Arra
 
 Dictionary build_field_buffer_input_patch(const Dictionary &field_evolution) {
     const Dictionary updated_fields = field_evolution.get("updated_fields", Dictionary());
-    if (updated_fields.get_type() != Variant::DICTIONARY) {
+    const Variant updated_fields_type = field_evolution.get("updated_fields", Dictionary());
+    if (updated_fields_type.get_type() != Variant::DICTIONARY || updated_fields.is_empty()) {
         return Dictionary();
     }
 
@@ -212,13 +213,13 @@ Dictionary merge_field_inputs_for_next_step(const Dictionary &incoming_inputs, c
     }
 
     const Dictionary patch_field_buffers = patch.get("field_buffers", Dictionary());
-    if (patch_field_buffers.get_type() != Variant::DICTIONARY || patch_field_buffers.is_empty()) {
+    if (patch_field_buffers.is_empty()) {
         return merged_inputs;
     }
 
     Dictionary merged_field_buffers = patch_field_buffers.duplicate(true);
-    if (merged_inputs.has("field_buffers") && merged_inputs.get("field_buffers").get_type() == Variant::DICTIONARY) {
-        const Dictionary incoming_field_buffers = merged_inputs.get("field_buffers");
+    if (merged_inputs.has("field_buffers")) {
+        const Dictionary incoming_field_buffers = merged_inputs.get("field_buffers", Dictionary());
         const Array incoming_buffer_keys = incoming_field_buffers.keys();
         for (int64_t i = 0; i < incoming_buffer_keys.size(); i++) {
             const String field_key = String(incoming_buffer_keys[i]);
@@ -369,6 +370,7 @@ Dictionary UnifiedSimulationPipeline::execute_step(const Dictionary &scheduled_f
         pressure_stages_,
         thermal_stages_,
         frame_inputs,
+        field_handles,
         delta_seconds);
 
     Dictionary summary;

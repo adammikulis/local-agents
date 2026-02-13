@@ -35,6 +35,7 @@ godot::Dictionary run_field_buffer_evolution(
     const godot::Array &pressure_stages,
     const godot::Array &thermal_stages,
     const godot::Dictionary &frame_inputs,
+    const godot::Array &field_handles,
     double delta_seconds);
 
 } // namespace local_agents::simulation::unified_pipeline

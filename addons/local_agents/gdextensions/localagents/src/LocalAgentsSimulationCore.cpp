@@ -111,7 +111,7 @@ Dictionary normalize_contact_row(const Variant &raw_row) {
 
 Array collect_input_field_handles(
     const Dictionary &frame_inputs,
-    const IFieldRegistry *registry,
+    IFieldRegistry *registry,
     bool &did_inject_handles
 ) {
     Array field_handles;
@@ -161,7 +161,7 @@ Array collect_input_field_handles(
     };
 
     if (frame_inputs.has("field_handles")) {
-        const Variant explicit_handles_variant = frame_inputs.get("field_handles");
+        const Variant explicit_handles_variant = frame_inputs.get("field_handles", Variant());
         if (explicit_handles_variant.get_type() == Variant::ARRAY) {
             const Array explicit_handles = explicit_handles_variant;
             for (int64_t i = 0; i < explicit_handles.size(); i += 1) {
@@ -186,7 +186,7 @@ Array collect_input_field_handles(
         if (key == String("field_handles")) {
             continue;
         }
-        const Variant input_value = frame_inputs.get(key);
+        const Variant input_value = frame_inputs.get(key, Variant());
         String field_reference;
         if (input_value.get_type() == Variant::STRING || input_value.get_type() == Variant::STRING_NAME) {
             field_reference = String(input_value);
@@ -209,7 +209,7 @@ Array collect_input_field_handles(
 
 Dictionary maybe_inject_field_handles_into_environment_inputs(
     const Dictionary &environment_payload,
-    const IFieldRegistry *registry
+    IFieldRegistry *registry
 ) {
     const Dictionary source_inputs = environment_payload.get("inputs", Dictionary());
     if (source_inputs.is_empty()) {
