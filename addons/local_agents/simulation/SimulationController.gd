@@ -140,6 +140,9 @@ var weather_step_interval_ticks: int = 2
 var hydrology_step_interval_ticks: int = 2
 var erosion_step_interval_ticks: int = 4
 var solar_step_interval_ticks: int = 4
+var locality_processing_enabled: bool = true
+var locality_dynamic_tick_rate_enabled: bool = true
+var locality_activity_radius_tiles: int = 1
 var weather_gpu_compute_enabled: bool = true
 var hydrology_gpu_compute_enabled: bool = true
 var erosion_gpu_compute_enabled: bool = true
@@ -292,6 +295,11 @@ func set_erosion_gpu_compute_enabled(enabled: bool) -> void:
 func set_solar_gpu_compute_enabled(enabled: bool) -> void:
     solar_gpu_compute_enabled = enabled
     _sync_compute_preferences()
+
+func set_locality_processing_config(enabled: bool, dynamic_enabled: bool, radius_tiles: int) -> void:
+    locality_processing_enabled = enabled
+    locality_dynamic_tick_rate_enabled = dynamic_enabled
+    locality_activity_radius_tiles = maxi(0, radius_tiles)
 
 func _sync_compute_preferences() -> void:
     if _hydrology_system != null and _hydrology_system.has_method("set_compute_enabled"):

@@ -47,6 +47,10 @@ func _apply_shelter_step(step_delta: float, living_entity_profiles: Array) -> vo
 		if not bool(profile.has("position")):
 			continue
 		var position = _position_from_profile(profile)
+		if _owner.voxel_process_gating_enabled and _owner.voxel_gate_shelter_enabled and _owner._smell_field != null:
+			var voxel: Vector3i = _owner._smell_field.world_to_voxel(position)
+			if not _owner.should_process_voxel_system("shelter_build", voxel, step_delta, _owner.shelter_step_seconds):
+				continue
 		var carry_channels = _normalized_carry_channels(profile)
 		var build_channels = _normalized_build_channels(profile)
 		var build_power = _build_power(carry_channels, build_channels)
@@ -88,6 +92,11 @@ func _apply_shelter_decay(delta: float) -> void:
 		var site: Dictionary = _shelter_sites.get(site_id, {})
 		if site.is_empty():
 			continue
+		if _owner.voxel_process_gating_enabled and _owner.voxel_gate_shelter_enabled and _owner._smell_field != null:
+			var site_pos := Vector3(float(site.get("x", 0.0)), float(site.get("y", 0.0)), float(site.get("z", 0.0)))
+			var site_voxel: Vector3i = _owner._smell_field.world_to_voxel(site_pos)
+			if not _owner.should_process_voxel_system("shelter_decay", site_voxel, delta, _owner.shelter_step_seconds):
+				continue
 		var untouched_time = _sim_time_seconds - float(site.get("last_touched_time", _sim_time_seconds))
 		if untouched_time <= 8.0:
 			continue

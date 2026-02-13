@@ -182,10 +182,17 @@ func _apply_performance_toggles(
 ) -> Dictionary:
 	var simulation_rate_override_enabled = bool(graphics_state.get("simulation_rate_override_enabled", false))
 	var simulation_ticks_per_second_override = clampf(float(graphics_state.get("simulation_ticks_per_second_override", 2.0)), 0.5, 30.0)
+	var simulation_locality_enabled = bool(graphics_state.get("simulation_locality_enabled", true))
+	var simulation_locality_dynamic_enabled = bool(graphics_state.get("simulation_locality_dynamic_enabled", true))
+	var simulation_locality_radius_tiles = maxi(0, int(graphics_state.get("simulation_locality_radius_tiles", 1)))
 	var weather_solver_decimation_enabled = bool(graphics_state.get("weather_solver_decimation_enabled", false))
 	var hydrology_solver_decimation_enabled = bool(graphics_state.get("hydrology_solver_decimation_enabled", false))
 	var erosion_solver_decimation_enabled = bool(graphics_state.get("erosion_solver_decimation_enabled", false))
 	var solar_solver_decimation_enabled = bool(graphics_state.get("solar_solver_decimation_enabled", false))
+	var weather_gpu_compute_enabled = bool(graphics_state.get("weather_gpu_compute_enabled", true))
+	var hydrology_gpu_compute_enabled = bool(graphics_state.get("hydrology_gpu_compute_enabled", true))
+	var erosion_gpu_compute_enabled = bool(graphics_state.get("erosion_gpu_compute_enabled", true))
+	var solar_gpu_compute_enabled = bool(graphics_state.get("solar_gpu_compute_enabled", true))
 	var climate_fast_interval_ticks = maxi(1, int(graphics_state.get("climate_fast_interval_ticks", 4)))
 	var climate_slow_interval_ticks = maxi(1, int(graphics_state.get("climate_slow_interval_ticks", 8)))
 	var resource_pipeline_decimation_enabled = bool(graphics_state.get("resource_pipeline_decimation_enabled", false))
@@ -202,6 +209,22 @@ func _apply_performance_toggles(
 	var ecology_step_interval_seconds = clampf(float(graphics_state.get("ecology_step_interval_seconds", 0.2)), 0.05, 0.5)
 	var ecology_voxel_size_meters = clampf(float(graphics_state.get("ecology_voxel_size_meters", 1.0)), 0.5, 3.0)
 	var ecology_vertical_extent_meters = clampf(float(graphics_state.get("ecology_vertical_extent_meters", 3.0)), 1.0, 8.0)
+	var smell_gpu_compute_enabled = bool(graphics_state.get("smell_gpu_compute_enabled", false))
+	var wind_gpu_compute_enabled = bool(graphics_state.get("wind_gpu_compute_enabled", false))
+	var voxel_process_gating_enabled = bool(graphics_state.get("voxel_process_gating_enabled", true))
+	var voxel_dynamic_tick_rate_enabled = bool(graphics_state.get("voxel_dynamic_tick_rate_enabled", true))
+	var voxel_tick_min_interval_seconds = clampf(float(graphics_state.get("voxel_tick_min_interval_seconds", 0.05)), 0.01, 1.2)
+	var voxel_tick_max_interval_seconds = clampf(float(graphics_state.get("voxel_tick_max_interval_seconds", 0.6)), voxel_tick_min_interval_seconds, 3.0)
+	var voxel_smell_step_radius_cells = maxi(1, int(graphics_state.get("voxel_smell_step_radius_cells", 1)))
+	var smell_query_acceleration_enabled = bool(graphics_state.get("smell_query_acceleration_enabled", true))
+	var smell_query_top_k_per_layer = maxi(8, int(graphics_state.get("smell_query_top_k_per_layer", 48)))
+	var smell_query_update_interval_seconds = clampf(float(graphics_state.get("smell_query_update_interval_seconds", 0.25)), 0.01, 2.0)
+	var voxel_gate_smell_enabled = bool(graphics_state.get("voxel_gate_smell_enabled", true))
+	var voxel_gate_plants_enabled = bool(graphics_state.get("voxel_gate_plants_enabled", true))
+	var voxel_gate_mammals_enabled = bool(graphics_state.get("voxel_gate_mammals_enabled", true))
+	var voxel_gate_shelter_enabled = bool(graphics_state.get("voxel_gate_shelter_enabled", true))
+	var voxel_gate_profile_refresh_enabled = bool(graphics_state.get("voxel_gate_profile_refresh_enabled", true))
+	var voxel_gate_edible_index_enabled = bool(graphics_state.get("voxel_gate_edible_index_enabled", true))
 
 	var target_sim_ticks_per_second = simulation_ticks_per_second_override if simulation_rate_override_enabled else simulation_ticks_per_second
 	var target_profile_push_interval = 8 if simulation_rate_override_enabled else living_profile_push_interval_ticks
@@ -209,6 +232,30 @@ func _apply_performance_toggles(
 	_loop_controller.set_timing(target_sim_ticks_per_second, target_profile_push_interval)
 
 	if _simulation_controller != null:
+		if _simulation_controller.has_method("set_locality_processing_config"):
+			_simulation_controller.call(
+				"set_locality_processing_config",
+				simulation_locality_enabled,
+				simulation_locality_dynamic_enabled,
+				simulation_locality_radius_tiles
+			)
+		else:
+			_simulation_controller.set("locality_processing_enabled", simulation_locality_enabled)
+			_simulation_controller.set("locality_dynamic_tick_rate_enabled", simulation_locality_dynamic_enabled)
+			_simulation_controller.set("locality_activity_radius_tiles", simulation_locality_radius_tiles)
+		if _simulation_controller.has_method("set_gpu_compute_modes"):
+			_simulation_controller.call(
+				"set_gpu_compute_modes",
+				weather_gpu_compute_enabled,
+				hydrology_gpu_compute_enabled,
+				erosion_gpu_compute_enabled,
+				solar_gpu_compute_enabled
+			)
+		else:
+			_simulation_controller.set("weather_gpu_compute_enabled", weather_gpu_compute_enabled)
+			_simulation_controller.set("hydrology_gpu_compute_enabled", hydrology_gpu_compute_enabled)
+			_simulation_controller.set("erosion_gpu_compute_enabled", erosion_gpu_compute_enabled)
+			_simulation_controller.set("solar_gpu_compute_enabled", solar_gpu_compute_enabled)
 		_simulation_controller.set("weather_step_interval_ticks", climate_fast_interval_ticks if weather_solver_decimation_enabled else 2)
 		_simulation_controller.set("hydrology_step_interval_ticks", climate_fast_interval_ticks if hydrology_solver_decimation_enabled else 2)
 		_simulation_controller.set("erosion_step_interval_ticks", climate_slow_interval_ticks if erosion_solver_decimation_enabled else 4)
@@ -225,17 +272,53 @@ func _apply_performance_toggles(
 		_environment_controller.set("field_texture_update_budget_cells", texture_upload_budget_texels if any_texture_throttle else 8192)
 
 	if _ecology_controller != null:
+		if _ecology_controller.has_method("set_smell_gpu_compute_enabled"):
+			_ecology_controller.call("set_smell_gpu_compute_enabled", smell_gpu_compute_enabled)
+		else:
+			_ecology_controller.set("smell_gpu_compute_enabled", smell_gpu_compute_enabled)
+		if _ecology_controller.has_method("set_wind_gpu_compute_enabled"):
+			_ecology_controller.call("set_wind_gpu_compute_enabled", wind_gpu_compute_enabled)
+		else:
+			_ecology_controller.set("wind_gpu_compute_enabled", wind_gpu_compute_enabled)
 		_ecology_controller.set("plant_step_interval_seconds", ecology_step_interval_seconds if ecology_step_decimation_enabled else 0.1)
 		_ecology_controller.set("mammal_step_interval_seconds", ecology_step_interval_seconds if ecology_step_decimation_enabled else 0.1)
 		_ecology_controller.set("living_profile_refresh_interval_seconds", (ecology_step_interval_seconds * 2.0) if ecology_step_decimation_enabled else 0.2)
 		_ecology_controller.set("edible_index_rebuild_interval_seconds", (ecology_step_interval_seconds * 3.5) if ecology_step_decimation_enabled else 0.35)
 		_ecology_controller.set("max_smell_substeps_per_physics_frame", 2 if ecology_step_decimation_enabled else 3)
+		_ecology_controller.set("voxel_process_gating_enabled", voxel_process_gating_enabled)
+		_ecology_controller.set("voxel_dynamic_tick_rate_enabled", voxel_dynamic_tick_rate_enabled)
+		_ecology_controller.set("voxel_tick_min_interval_seconds", voxel_tick_min_interval_seconds)
+		_ecology_controller.set("voxel_tick_max_interval_seconds", voxel_tick_max_interval_seconds)
+		_ecology_controller.set("voxel_smell_step_radius_cells", voxel_smell_step_radius_cells)
+		_ecology_controller.set_meta("smell_query_acceleration_enabled", smell_query_acceleration_enabled)
+		_ecology_controller.set_meta("smell_query_top_k_per_layer", smell_query_top_k_per_layer)
+		_ecology_controller.set_meta("smell_query_update_interval_seconds", smell_query_update_interval_seconds)
+		_ecology_controller.set("voxel_gate_smell_enabled", voxel_gate_smell_enabled)
+		_ecology_controller.set("voxel_gate_plants_enabled", voxel_gate_plants_enabled)
+		_ecology_controller.set("voxel_gate_mammals_enabled", voxel_gate_mammals_enabled)
+		_ecology_controller.set("voxel_gate_shelter_enabled", voxel_gate_shelter_enabled)
+		_ecology_controller.set("voxel_gate_profile_refresh_enabled", voxel_gate_profile_refresh_enabled)
+		_ecology_controller.set("voxel_gate_edible_index_enabled", voxel_gate_edible_index_enabled)
+		_apply_smell_query_acceleration_config(
+			smell_query_acceleration_enabled,
+			smell_query_top_k_per_layer,
+			smell_query_update_interval_seconds
+		)
 		if _ecology_controller.has_method("set_smell_voxel_size"):
 			_ecology_controller.call("set_smell_voxel_size", ecology_voxel_size_meters)
 		if _ecology_controller.has_method("set_smell_vertical_half_extent"):
 			_ecology_controller.call("set_smell_vertical_half_extent", ecology_vertical_extent_meters)
 
 	return {"visual_environment_update_interval_ticks": visual_environment_update_interval_ticks}
+
+func _apply_smell_query_acceleration_config(enabled: bool, top_k_per_layer: int, update_interval_seconds: float) -> void:
+	if _ecology_controller == null:
+		return
+	var smell_field = _ecology_controller.get("_smell_field")
+	if smell_field == null:
+		return
+	if smell_field.has_method("set_query_acceleration"):
+		smell_field.call("set_query_acceleration", enabled, top_k_per_layer, update_interval_seconds)
 
 func _set_env_flag_if_supported(env: Environment, property_name: String, enabled: bool) -> void:
 	if env == null:

@@ -231,19 +231,20 @@ static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool
         svc._flow_network_system.step_decay()
     svc._erosion_changed_last_tick = false
     svc._erosion_changed_tiles_last_tick = []
+    var local_activity: Dictionary = _build_local_activity_map(svc)
     if svc._weather_system != null and _should_run_system_tick(tick, int(svc.weather_step_interval_ticks)):
         var t0 = Time.get_ticks_usec()
-        svc._weather_snapshot = svc._weather_system.step(tick, fixed_delta)
+        svc._weather_snapshot = svc._weather_system.step(tick, fixed_delta, local_activity)
         weather_us = Time.get_ticks_usec() - t0
     if svc._hydrology_system != null and _should_run_system_tick(tick, int(svc.hydrology_step_interval_ticks)):
         var t1 = Time.get_ticks_usec()
-        var hydrology_step: Dictionary = svc._hydrology_system.step(tick, fixed_delta, svc._environment_snapshot, svc._water_network_snapshot, svc._weather_snapshot)
+        var hydrology_step: Dictionary = svc._hydrology_system.step(tick, fixed_delta, svc._environment_snapshot, svc._water_network_snapshot, svc._weather_snapshot, local_activity)
         svc._environment_snapshot = hydrology_step.get("environment", svc._environment_snapshot)
         svc._water_network_snapshot = hydrology_step.get("hydrology", svc._water_network_snapshot)
         hydrology_us = Time.get_ticks_usec() - t1
     if svc._erosion_system != null and _should_run_system_tick(tick, int(svc.erosion_step_interval_ticks)):
         var t2 = Time.get_ticks_usec()
-        var erosion_result: Dictionary = svc._erosion_system.step(tick, fixed_delta, svc._environment_snapshot, svc._water_network_snapshot, svc._weather_snapshot)
+        var erosion_result: Dictionary = svc._erosion_system.step(tick, fixed_delta, svc._environment_snapshot, svc._water_network_snapshot, svc._weather_snapshot, local_activity)
         svc._environment_snapshot = erosion_result.get("environment", svc._environment_snapshot)
         svc._water_network_snapshot = erosion_result.get("hydrology", svc._water_network_snapshot)
         svc._erosion_snapshot = erosion_result.get("erosion", svc._erosion_snapshot)
@@ -252,7 +253,7 @@ static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool
         erosion_us = Time.get_ticks_usec() - t2
     if svc._solar_system != null and _should_run_system_tick(tick, int(svc.solar_step_interval_ticks)):
         var t3 = Time.get_ticks_usec()
-        svc._solar_snapshot = svc._solar_system.step(tick, fixed_delta, svc._environment_snapshot, svc._weather_snapshot)
+        svc._solar_snapshot = svc._solar_system.step(tick, fixed_delta, svc._environment_snapshot, svc._weather_snapshot, local_activity)
         solar_us = Time.get_ticks_usec() - t3
     if svc._flow_network_system != null:
         svc._flow_network_system.configure_environment(svc._environment_snapshot, svc._water_network_snapshot)
@@ -355,6 +356,75 @@ static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool
 
 static func _should_run_system_tick(tick: int, interval_ticks: int) -> bool:
     return tick % maxi(1, interval_ticks) == 0
+
+static func _build_local_activity_map(svc) -> Dictionary:
+    if svc == null:
+        return {}
+    if not bool(svc.locality_processing_enabled):
+        return {}
+    var radius = maxi(0, int(svc.locality_activity_radius_tiles))
+    var dynamic_enabled = bool(svc.locality_dynamic_tick_rate_enabled)
+    var activity: Dictionary = {}
+
+    for profile_variant in svc._external_living_entity_profiles:
+        if not (profile_variant is Dictionary):
+            continue
+        var profile = profile_variant as Dictionary
+        var position_variant = profile.get("position", null)
+        var position = _world_position_from_variant(position_variant)
+        if position == null:
+            continue
+        _accumulate_tile_activity(activity, svc, position, radius, 1.0, dynamic_enabled)
+
+    for npc_id_variant in svc._villager_positions.keys():
+        var pos_variant = svc._villager_positions.get(npc_id_variant, null)
+        var npc_pos = _world_position_from_variant(pos_variant)
+        if npc_pos == null:
+            continue
+        _accumulate_tile_activity(activity, svc, npc_pos, radius, 0.8, dynamic_enabled)
+
+    for household_id_variant in svc._household_positions.keys():
+        var home_variant = svc._household_positions.get(household_id_variant, null)
+        var home_pos = _world_position_from_variant(home_variant)
+        if home_pos == null:
+            continue
+        _accumulate_tile_activity(activity, svc, home_pos, radius, 0.5, dynamic_enabled)
+
+    if svc._community_anchor_position is Vector3:
+        _accumulate_tile_activity(activity, svc, svc._community_anchor_position, radius, 0.35, dynamic_enabled)
+
+    var keys = activity.keys()
+    for key_variant in keys:
+        var key = String(key_variant)
+        var value = maxf(0.0, float(activity.get(key, 0.0)))
+        activity[key] = 1.0 if not dynamic_enabled else clampf(1.0 - exp(-value), 0.0, 1.0)
+    return activity
+
+static func _accumulate_tile_activity(activity: Dictionary, svc, world_position: Vector3, radius_tiles: int, amount: float, dynamic_enabled: bool) -> void:
+    var center_tile_id = svc.TileKeyUtilsScript.from_world_xz(world_position)
+    var center = svc.TileKeyUtilsScript.parse_tile_id(center_tile_id)
+    if center == Vector2i(2147483647, 2147483647):
+        return
+    var radius = maxi(0, radius_tiles)
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            var tile_id = svc.TileKeyUtilsScript.tile_id(center.x + dx, center.y + dy)
+            var weight = 1.0
+            if dynamic_enabled:
+                weight = 1.0 / (1.0 + float(abs(dx) + abs(dy)))
+            activity[tile_id] = float(activity.get(tile_id, 0.0)) + maxf(0.0, amount) * weight
+
+static func _world_position_from_variant(value: Variant) -> Variant:
+    if value is Vector3:
+        return value as Vector3
+    if value is Dictionary:
+        var row = value as Dictionary
+        return Vector3(
+            float(row.get("x", 0.0)),
+            float(row.get("y", 0.0)),
+            float(row.get("z", 0.0))
+        )
+    return null
 
 static func sync_compute_preferences(svc) -> void:
     if svc == null:

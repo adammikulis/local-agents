@@ -4,9 +4,14 @@ var _owner: Variant
 var _mammal_actors: Array[Node] = []
 var _living_creatures: Array[Node] = []
 var _actor_refresh_accumulator: float = 0.0
+var _smell_query_config_refresh_accumulator: float = 0.0
+var _last_smell_query_acceleration_enabled: bool = true
+var _last_smell_query_top_k_per_layer: int = 48
+var _last_smell_query_update_interval_seconds: float = 0.25
 
 func setup(owner: Variant) -> void:
 	_owner = owner
+	_sync_smell_query_runtime_config(true)
 
 func spawn_rabbit_at(world_position: Vector3) -> Node3D:
 	_owner._rabbit_sequence += 1
@@ -34,12 +39,19 @@ func refresh_actor_caches() -> void:
 
 func step_mammals(delta: float) -> void:
 	_actor_refresh_accumulator += maxf(0.0, delta)
+	_smell_query_config_refresh_accumulator += maxf(0.0, delta)
+	_sync_smell_query_runtime_config(false)
 	if _actor_refresh_accumulator >= _owner.actor_refresh_interval_seconds:
 		_actor_refresh_accumulator = 0.0
 		refresh_actor_caches()
 	for mammal in _mammal_actors:
 		if not is_instance_valid(mammal):
 			continue
+		if _owner.voxel_process_gating_enabled and _owner.voxel_gate_mammals_enabled and _owner._smell_field != null:
+			var voxel: Vector3i = _owner._smell_field.world_to_voxel(mammal.global_position)
+			if not _owner.should_process_voxel_system("mammal", voxel, delta, _owner.mammal_step_interval_seconds):
+				_keep_inside_bounds(mammal)
+				continue
 		var can_smell_entity := true
 		if mammal.has_method("can_smell"):
 			can_smell_entity = bool(mammal.call("can_smell"))
@@ -77,11 +89,32 @@ func step_mammals(delta: float) -> void:
 		_owner._plant_growth_controller.try_eat_nearby_plant(mammal)
 		_keep_inside_bounds(mammal)
 
-func refresh_living_entity_profiles() -> Array:
+func _sync_smell_query_runtime_config(force: bool) -> void:
+	if _owner == null or _owner._smell_field == null:
+		return
+	if not force and _smell_query_config_refresh_accumulator < 0.2:
+		return
+	_smell_query_config_refresh_accumulator = 0.0
+	var enabled := bool(_owner.get_meta("smell_query_acceleration_enabled", true))
+	var top_k := int(_owner.get_meta("smell_query_top_k_per_layer", 48))
+	var update_interval := float(_owner.get_meta("smell_query_update_interval_seconds", 0.25))
+	if not force and enabled == _last_smell_query_acceleration_enabled and top_k == _last_smell_query_top_k_per_layer and is_equal_approx(update_interval, _last_smell_query_update_interval_seconds):
+		return
+	_last_smell_query_acceleration_enabled = enabled
+	_last_smell_query_top_k_per_layer = top_k
+	_last_smell_query_update_interval_seconds = update_interval
+	if _owner._smell_field.has_method("set_query_acceleration"):
+		_owner._smell_field.call("set_query_acceleration", enabled, top_k, update_interval)
+
+func refresh_living_entity_profiles(delta: float = 0.0) -> Array:
 	var profiles: Array = []
 	for node in _living_creatures:
 		if not is_instance_valid(node):
 			continue
+		if _owner.voxel_process_gating_enabled and _owner.voxel_gate_profile_refresh_enabled and _owner._smell_field != null and node is Node3D:
+			var voxel: Vector3i = _owner._smell_field.world_to_voxel((node as Node3D).global_position)
+			if not _owner.should_process_voxel_system("profile_refresh", voxel, maxf(0.001, delta), _owner.living_profile_refresh_interval_seconds):
+				continue
 		if not node.has_method("get_living_entity_profile"):
 			continue
 		var payload_variant = node.call("get_living_entity_profile")

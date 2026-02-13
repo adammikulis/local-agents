@@ -15,6 +15,13 @@ const FRAME_GRAPH_TOGGLE_ROWS := [
 	{"key": "frame_graph_snapshot_enabled", "label": "Snapshot", "series": "snapshot_ms", "color": Color(0.82, 0.82, 0.82, 0.8)},
 ]
 
+const GPU_COMPUTE_TOGGLE_ROWS := [
+	{"key": "weather_gpu_compute_enabled", "label": "Weather GPU Compute"},
+	{"key": "hydrology_gpu_compute_enabled", "label": "Hydrology GPU Compute"},
+	{"key": "erosion_gpu_compute_enabled", "label": "Erosion GPU Compute"},
+	{"key": "solar_gpu_compute_enabled", "label": "Solar GPU Compute"},
+]
+
 var _hud: CanvasLayer
 var _emit_graphics_option_changed: Callable
 var _set_frame_series_visible: Callable
@@ -54,6 +61,7 @@ func set_graphics_state(state: Dictionary) -> void:
 			checkbox.button_pressed = bool(state.get(option_id, false))
 	_set_pair_value("terrain_chunk_size_blocks", float(state.get("terrain_chunk_size_blocks", 12.0)))
 	_set_pair_value("simulation_ticks_per_second_override", float(state.get("simulation_ticks_per_second_override", 2.0)))
+	_set_pair_value("simulation_locality_radius_tiles", float(maxi(0, int(state.get("simulation_locality_radius_tiles", 1)))))
 	_set_pair_value("climate_fast_interval_ticks", float(state.get("climate_fast_interval_ticks", 4.0)))
 	_set_pair_value("climate_slow_interval_ticks", float(state.get("climate_slow_interval_ticks", 8.0)))
 	_set_pair_value("society_fast_interval_ticks", float(state.get("society_fast_interval_ticks", 4.0)))
@@ -63,6 +71,11 @@ func set_graphics_state(state: Dictionary) -> void:
 	_set_pair_value("ecology_step_interval_seconds", float(state.get("ecology_step_interval_seconds", 0.2)))
 	_set_pair_value("ecology_voxel_size_meters", clampf(float(state.get("ecology_voxel_size_meters", 1.0)), 0.5, 3.0))
 	_set_pair_value("ecology_vertical_extent_meters", clampf(float(state.get("ecology_vertical_extent_meters", 3.0)), 1.0, 8.0))
+	_set_pair_value("voxel_tick_min_interval_seconds", clampf(float(state.get("voxel_tick_min_interval_seconds", 0.05)), 0.01, 1.2))
+	_set_pair_value("voxel_tick_max_interval_seconds", clampf(float(state.get("voxel_tick_max_interval_seconds", 0.6)), 0.02, 3.0))
+	_set_pair_value("voxel_smell_step_radius_cells", float(maxi(1, int(state.get("voxel_smell_step_radius_cells", 1)))))
+	_set_pair_value("smell_query_top_k_per_layer", float(maxi(8, int(state.get("smell_query_top_k_per_layer", 48)))))
+	_set_pair_value("smell_query_update_interval_seconds", clampf(float(state.get("smell_query_update_interval_seconds", 0.25)), 0.01, 2.0))
 	_apply_cloud_quality(state)
 	_set_cloud_density(float(state.get("cloud_density_scale", 0.25)))
 	_set_rain_visual(float(state.get("rain_visual_intensity_scale", 0.25)))
@@ -233,10 +246,13 @@ func _organize_graphics_layout() -> void:
 
 	_move_nodes_by_name(render_content, ["WaterShaderCheck", "OceanSurfaceCheck", "RiverOverlaysCheck", "TerrainChunkSizeRow", "RainPostFxCheck", "CloudsCheck", "ShadowsCheck", "SsrCheck", "SsaoCheck", "SsilCheck", "SdfgiCheck", "GlowCheck", "FogCheck", "VolumetricFogCheck", "CloudQualityRow", "CloudDensityRow", "RainVisualRow"])
 	_move_nodes_by_name(sim_content, ["SimRateOverrideCheck", "SimulationTickRateRow"])
+	_ensure_simulation_locality_controls(sim_content)
+	_ensure_gpu_compute_controls(climate_content)
 	_move_nodes_by_name(climate_content, ["ClimatePipelineTitle", "WeatherSolverDecimationCheck", "HydrologySolverDecimationCheck", "ErosionSolverDecimationCheck", "SolarSolverDecimationCheck", "ClimateFastIntervalRow", "ClimateSlowIntervalRow"])
 	_move_nodes_by_name(society_content, ["SocietyPipelineTitle", "ResourcePipelineDecimationCheck", "StructureLifecycleDecimationCheck", "CultureCycleDecimationCheck", "SocietyFastIntervalRow", "SocietySlowIntervalRow"])
 	_move_nodes_by_name(texture_content, ["TextureUploadsTitle", "WeatherTextureUploadDecimationCheck", "SurfaceTextureUploadDecimationCheck", "SolarTextureUploadDecimationCheck", "TextureUploadIntervalRow", "TextureUploadBudgetRow"])
 	_move_nodes_by_name(ecology_content, ["EcologyStepDecimationCheck", "EcologyStepIntervalRow", "EcologyVoxelSizeRow", "EcologyVerticalExtentRow"])
+	_ensure_voxel_gating_controls(ecology_content)
 	_ensure_frame_graph_toggle_controls(graph_content)
 
 func _ensure_graphics_section(section_id: String, title: String) -> VBoxContainer:
@@ -307,6 +323,136 @@ func _ensure_frame_graph_toggle_controls(parent: VBoxContainer) -> void:
 			grid.add_child(check)
 			check.owner = _hud.owner
 		_frame_graph_checkboxes[key] = check
+
+func _ensure_gpu_compute_controls(parent: VBoxContainer) -> void:
+	if parent == null:
+		return
+	var title = parent.get_node_or_null("GpuComputeTitle") as Label
+	if title == null:
+		title = Label.new()
+		title.name = "GpuComputeTitle"
+		title.text = "GPU Compute Backends"
+		parent.add_child(title)
+		title.owner = _hud.owner
+	for row in GPU_COMPUTE_TOGGLE_ROWS:
+		var key := String(row.get("key", ""))
+		if key == "":
+			continue
+		var check = parent.get_node_or_null("GpuToggle_%s" % key) as CheckBox
+		if check == null:
+			check = CheckBox.new()
+			check.name = "GpuToggle_%s" % key
+			check.text = String(row.get("label", key))
+			check.button_pressed = true
+			check.toggled.connect(_on_gpu_toggle_changed.bind(key))
+			parent.add_child(check)
+			check.owner = _hud.owner
+		_toggle_controls[key] = check
+
+func _ensure_voxel_gating_controls(parent: VBoxContainer) -> void:
+	if parent == null:
+		return
+	var title = parent.get_node_or_null("VoxelGatingTitle") as Label
+	if title == null:
+		title = Label.new()
+		title.name = "VoxelGatingTitle"
+		title.text = "Voxel Process Gating"
+		parent.add_child(title)
+		title.owner = _hud.owner
+	_create_dynamic_toggle(parent, "voxel_process_gating_enabled", "Enable Voxel Gating")
+	_create_dynamic_toggle(parent, "voxel_dynamic_tick_rate_enabled", "Dynamic Tick Rate")
+	_create_dynamic_toggle(parent, "smell_gpu_compute_enabled", "Smell GPU Compute")
+	_create_dynamic_toggle(parent, "wind_gpu_compute_enabled", "Wind GPU Compute")
+	_create_dynamic_toggle(parent, "smell_query_acceleration_enabled", "Accelerate Mammal Smell Queries")
+	_create_dynamic_toggle(parent, "voxel_gate_smell_enabled", "Gate Smell by Voxel")
+	_create_dynamic_toggle(parent, "voxel_gate_plants_enabled", "Gate Plants by Voxel")
+	_create_dynamic_toggle(parent, "voxel_gate_mammals_enabled", "Gate Mammals by Voxel")
+	_create_dynamic_toggle(parent, "voxel_gate_shelter_enabled", "Gate Shelter by Voxel")
+	_create_dynamic_toggle(parent, "voxel_gate_profile_refresh_enabled", "Gate Profile Refresh by Voxel")
+	_create_dynamic_toggle(parent, "voxel_gate_edible_index_enabled", "Gate Edible Index by Voxel")
+	_create_dynamic_pair(parent, "voxel_tick_min_interval_seconds", "Voxel Tick Min (s)", 0.01, 1.2, 0.01, false)
+	_create_dynamic_pair(parent, "voxel_tick_max_interval_seconds", "Voxel Tick Max (s)", 0.02, 3.0, 0.01, false)
+	_create_dynamic_pair(parent, "voxel_smell_step_radius_cells", "Smell Local Radius", 1.0, 4.0, 1.0, true)
+	_create_dynamic_pair(parent, "smell_query_top_k_per_layer", "Smell Candidate Top-K", 8.0, 256.0, 1.0, true)
+	_create_dynamic_pair(parent, "smell_query_update_interval_seconds", "Smell Cache Update (s)", 0.01, 2.0, 0.01, false)
+
+func _ensure_simulation_locality_controls(parent: VBoxContainer) -> void:
+	if parent == null:
+		return
+	var title = parent.get_node_or_null("SimulationLocalityTitle") as Label
+	if title == null:
+		title = Label.new()
+		title.name = "SimulationLocalityTitle"
+		title.text = "Simulation Locality"
+		parent.add_child(title)
+		title.owner = _hud.owner
+	_create_dynamic_toggle(parent, "simulation_locality_enabled", "Enable Regional Locality")
+	_create_dynamic_toggle(parent, "simulation_locality_dynamic_enabled", "Dynamic Regional Tick Rate")
+	_create_dynamic_pair(parent, "simulation_locality_radius_tiles", "Locality Radius (tiles)", 0.0, 6.0, 1.0, true)
+
+func _on_gpu_toggle_changed(_pressed: bool, option_id: String) -> void:
+	if _graphics_ui_syncing:
+		return
+	var check = _toggle_controls.get(option_id, null) as CheckBox
+	if check == null:
+		return
+	_emit_option(option_id, check.button_pressed)
+
+func _on_dynamic_pair_changed(value: float, option_id: String, integer_mode: bool) -> void:
+	if integer_mode:
+		_sync_int_pair(value, option_id)
+	else:
+		_sync_float_pair_by_option(value, option_id)
+
+func _create_dynamic_toggle(parent: VBoxContainer, option_id: String, label_text: String) -> void:
+	var node_name = "DynToggle_%s" % option_id
+	var check = parent.get_node_or_null(node_name) as CheckBox
+	if check == null:
+		check = CheckBox.new()
+		check.name = node_name
+		check.text = label_text
+		check.toggled.connect(_on_gpu_toggle_changed.bind(option_id))
+		parent.add_child(check)
+		check.owner = _hud.owner
+	_toggle_controls[option_id] = check
+
+func _create_dynamic_pair(parent: VBoxContainer, option_id: String, label_text: String, min_value: float, max_value: float, step: float, integer_mode: bool) -> void:
+	var row_name = "DynPair_%s" % option_id
+	var row = parent.get_node_or_null(row_name) as HBoxContainer
+	if row == null:
+		row = HBoxContainer.new()
+		row.name = row_name
+		row.add_theme_constant_override("separation", 8)
+		var label := Label.new()
+		label.text = label_text
+		label.custom_minimum_size = Vector2(180.0, 0.0)
+		row.add_child(label)
+		var slider := HSlider.new()
+		slider.custom_minimum_size = Vector2(160.0, 0.0)
+		slider.min_value = min_value
+		slider.max_value = max_value
+		slider.step = step
+		row.add_child(slider)
+		var spin := SpinBox.new()
+		spin.min_value = min_value
+		spin.max_value = max_value
+		spin.step = step
+		spin.custom_minimum_size = Vector2(96.0, 0.0)
+		row.add_child(spin)
+		slider.value_changed.connect(_on_dynamic_pair_changed.bind(option_id, integer_mode))
+		spin.value_changed.connect(_on_dynamic_pair_changed.bind(option_id, integer_mode))
+		parent.add_child(row)
+		row.owner = _hud.owner
+		label.owner = _hud.owner
+		slider.owner = _hud.owner
+		spin.owner = _hud.owner
+	var nodes := row.get_children()
+	if nodes.size() < 3:
+		return
+	var slider_node = nodes[1] as HSlider
+	var spin_node = nodes[2] as SpinBox
+	if slider_node != null and spin_node != null:
+		_pair_controls[option_id] = _pair(slider_node, spin_node)
 
 func _on_frame_graph_checkbox_toggled(_pressed: bool, option_id: String) -> void:
 	on_frame_graph_toggle_changed(option_id)

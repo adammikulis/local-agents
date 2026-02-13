@@ -6,9 +6,11 @@ var _smell_emit_accumulator: float = 0.0
 var _smell_step_accumulator: float = 0.0
 var _wind_step_accumulator: float = 0.0
 var _smell_source_refresh_accumulator: float = 0.0
+var _last_compute_request: bool = false
 
 func setup(owner: Variant) -> void:
 	_owner = owner
+	_sync_compute_preference()
 
 func emit_smell(delta: float) -> void:
 	_smell_emit_accumulator += delta
@@ -22,6 +24,10 @@ func emit_smell(delta: float) -> void:
 	for source in _smell_sources:
 		if not is_instance_valid(source):
 			continue
+		if _owner.voxel_process_gating_enabled and _owner.voxel_gate_smell_enabled and _owner._smell_field != null:
+			var source_voxel: Vector3i = _owner._smell_field.world_to_voxel(source.global_position)
+			if not _owner.should_process_voxel_system("smell_emit", source_voxel, _owner.smell_emit_interval_seconds, _owner.smell_emit_interval_seconds):
+				continue
 		if source.has_method("can_emit_smell") and not bool(source.call("can_emit_smell")):
 			continue
 		if not source.has_method("get_smell_source_payload"):
@@ -51,6 +57,7 @@ func clear_sources() -> void:
 	_smell_sources.clear()
 
 func step_smell_field(delta: float) -> void:
+	_sync_compute_preference()
 	_smell_step_accumulator += delta
 	var steps := 0
 	while _smell_step_accumulator >= _owner.smell_sim_step_seconds and steps < maxi(1, _owner.max_smell_substeps_per_physics_frame):
@@ -66,7 +73,21 @@ func step_smell_field(delta: float) -> void:
 				var diurnal_phase := fmod(_owner._sim_time_seconds / 24.0, TAU)
 				_owner._wind_field.step(wind_delta, 0.52, diurnal_phase, _owner.rain_intensity, _solar_air_context())
 			wind_source = Callable(_owner._wind_field, "sample_wind")
-		_owner._smell_field.step(_owner.smell_sim_step_seconds, wind_source, _owner.smell_base_decay_per_second, _owner.rain_intensity, _owner.rain_decay_multiplier)
+		if _owner.voxel_process_gating_enabled and _owner.voxel_gate_smell_enabled:
+			var active_voxels: Array[Vector3i] = _owner.collect_active_smell_voxels()
+			if active_voxels.is_empty():
+				continue
+			_owner._smell_field.step_local(
+				_owner.smell_sim_step_seconds,
+				active_voxels,
+				maxi(1, int(_owner.voxel_smell_step_radius_cells)),
+				wind_source,
+				_owner.smell_base_decay_per_second,
+				_owner.rain_intensity,
+				_owner.rain_decay_multiplier
+			)
+		else:
+			_owner._smell_field.step(_owner.smell_sim_step_seconds, wind_source, _owner.smell_base_decay_per_second, _owner.rain_intensity, _owner.rain_decay_multiplier)
 	if _smell_step_accumulator > _owner.smell_sim_step_seconds * float(maxi(1, _owner.max_smell_substeps_per_physics_frame)):
 		_smell_step_accumulator = _owner.smell_sim_step_seconds * float(maxi(1, _owner.max_smell_substeps_per_physics_frame))
 
@@ -115,3 +136,14 @@ func _solar_air_context() -> Dictionary:
 		"avg_heat_load": clampf(float(_owner._solar_snapshot.get("avg_heat_load", 0.0)), 0.0, 1.5),
 		"air_heating_scalar": 1.0,
 	}
+
+func _sync_compute_preference() -> void:
+	if _owner == null or _owner._smell_field == null:
+		return
+	if not _owner._smell_field.has_method("set_compute_enabled"):
+		return
+	var requested: bool = _owner.get("smell_gpu_compute_enabled") == true
+	if requested == _last_compute_request:
+		return
+	_last_compute_request = requested
+	_owner._smell_field.set_compute_enabled(requested)

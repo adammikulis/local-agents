@@ -24,6 +24,10 @@ func step_plants(delta: float) -> void:
 	for plant in _owner.plant_root.get_children():
 		if not is_instance_valid(plant):
 			continue
+		if _owner.voxel_process_gating_enabled and _owner.voxel_gate_plants_enabled and _owner._smell_field != null:
+			var voxel: Vector3i = _owner._smell_field.world_to_voxel(plant.global_position)
+			if not _owner.should_process_voxel_system("plant", voxel, delta, _owner.plant_step_interval_seconds):
+				continue
 		var env_context = _owner._smell_system_controller.plant_environment_context(plant.global_position)
 		if plant.has_method("simulation_step_with_environment"):
 			plant.call("simulation_step_with_environment", delta, env_context)
@@ -42,6 +46,9 @@ func rebuild_edible_plant_index() -> void:
 		var voxel: Vector3i = _owner._smell_field.world_to_voxel(plant.global_position)
 		if voxel == Vector3i(2147483647, 2147483647, 2147483647):
 			continue
+		if _owner.voxel_process_gating_enabled and _owner.voxel_gate_edible_index_enabled:
+			if not _owner.is_voxel_region_active(voxel, 1):
+				continue
 		var key := _voxel_key(voxel)
 		var bucket: Array = _edible_plants_by_voxel.get(key, [])
 		bucket.append(plant)

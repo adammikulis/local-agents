@@ -21,10 +21,17 @@ const DEFAULTS := {
 	"volumetric_fog_enabled": false,
 	"simulation_rate_override_enabled": false,
 	"simulation_ticks_per_second_override": 2.0,
+	"simulation_locality_enabled": true,
+	"simulation_locality_dynamic_enabled": true,
+	"simulation_locality_radius_tiles": 1,
 	"weather_solver_decimation_enabled": false,
 	"hydrology_solver_decimation_enabled": false,
 	"erosion_solver_decimation_enabled": false,
 	"solar_solver_decimation_enabled": false,
+	"weather_gpu_compute_enabled": true,
+	"hydrology_gpu_compute_enabled": true,
+	"erosion_gpu_compute_enabled": true,
+	"solar_gpu_compute_enabled": true,
 	"climate_fast_interval_ticks": 4,
 	"climate_slow_interval_ticks": 8,
 	"resource_pipeline_decimation_enabled": false,
@@ -41,6 +48,22 @@ const DEFAULTS := {
 	"ecology_step_interval_seconds": 0.2,
 	"ecology_voxel_size_meters": 1.0,
 	"ecology_vertical_extent_meters": 3.0,
+	"smell_gpu_compute_enabled": false,
+	"wind_gpu_compute_enabled": false,
+	"smell_query_acceleration_enabled": true,
+	"smell_query_top_k_per_layer": 48,
+	"smell_query_update_interval_seconds": 0.25,
+	"voxel_process_gating_enabled": true,
+	"voxel_dynamic_tick_rate_enabled": true,
+	"voxel_tick_min_interval_seconds": 0.05,
+	"voxel_tick_max_interval_seconds": 0.6,
+	"voxel_smell_step_radius_cells": 1,
+	"voxel_gate_smell_enabled": true,
+	"voxel_gate_plants_enabled": true,
+	"voxel_gate_mammals_enabled": true,
+	"voxel_gate_shelter_enabled": true,
+	"voxel_gate_profile_refresh_enabled": true,
+	"voxel_gate_edible_index_enabled": true,
 	"frame_graph_total_enabled": true,
 	"frame_graph_weather_enabled": true,
 	"frame_graph_hydrology_enabled": true,
@@ -82,6 +105,8 @@ static func sanitize_value(option_id: String, value):
 			return clampf(float(value), 0.1, 1.5)
 		"simulation_ticks_per_second_override":
 			return clampf(float(value), 0.5, 30.0)
+		"simulation_locality_radius_tiles":
+			return maxi(0, mini(6, int(round(float(value)))))
 		"climate_fast_interval_ticks":
 			return maxi(1, mini(16, int(round(float(value)))))
 		"climate_slow_interval_ticks":
@@ -100,6 +125,16 @@ static func sanitize_value(option_id: String, value):
 			return clampf(float(value), 0.5, 3.0)
 		"ecology_vertical_extent_meters":
 			return clampf(float(value), 1.0, 8.0)
+		"voxel_tick_min_interval_seconds":
+			return clampf(float(value), 0.01, 1.2)
+		"voxel_tick_max_interval_seconds":
+			return clampf(float(value), 0.02, 3.0)
+		"voxel_smell_step_radius_cells":
+			return maxi(1, mini(4, int(round(float(value)))))
+		"smell_query_top_k_per_layer":
+			return maxi(8, mini(256, int(round(float(value)))))
+		"smell_query_update_interval_seconds":
+			return clampf(float(value), 0.01, 2.0)
 		_:
 			if DEFAULTS.has(option_id) and DEFAULTS[option_id] is bool:
 				return bool(value)

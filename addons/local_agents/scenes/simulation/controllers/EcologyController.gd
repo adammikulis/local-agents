@@ -11,6 +11,7 @@ const MammalBehaviorControllerScript = preload("res://addons/local_agents/scenes
 const EcologyDebugRendererScript = preload("res://addons/local_agents/scenes/simulation/controllers/ecology/EcologyDebugRenderer.gd")
 const ShelterConstructionControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/ecology/ShelterConstructionController.gd")
 const SmellSystemControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/ecology/SmellSystemController.gd")
+const VoxelProcessGateControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/ecology/VoxelProcessGateController.gd")
 
 @export var initial_plant_count: int = 14
 @export var initial_rabbit_count: int = 4
@@ -25,6 +26,8 @@ const SmellSystemControllerScript = preload("res://addons/local_agents/scenes/si
 @export var wind_direction: Vector3 = Vector3(1.0, 0.0, 0.0)
 @export_range(0.0, 1.0, 0.01) var wind_intensity: float = 0.0
 @export var wind_speed: float = 1.25
+@export var smell_gpu_compute_enabled: bool = false
+@export var wind_gpu_compute_enabled: bool = false
 @export var smell_sim_step_seconds: float = 0.1
 @export var wind_sim_step_seconds: float = 0.2
 @export_range(1, 16, 1) var max_smell_substeps_per_physics_frame: int = 3
@@ -49,6 +52,18 @@ const SmellSystemControllerScript = preload("res://addons/local_agents/scenes/si
 @export var mammal_step_interval_seconds: float = 0.1
 @export var living_profile_refresh_interval_seconds: float = 0.2
 @export var edible_index_rebuild_interval_seconds: float = 0.35
+@export var voxel_process_gating_enabled: bool = true
+@export var voxel_dynamic_tick_rate_enabled: bool = true
+@export var voxel_tick_min_interval_seconds: float = 0.05
+@export var voxel_tick_max_interval_seconds: float = 0.6
+@export var voxel_activity_refresh_interval_seconds: float = 0.2
+@export_range(1, 4, 1) var voxel_smell_step_radius_cells: int = 1
+@export var voxel_gate_smell_enabled: bool = true
+@export var voxel_gate_plants_enabled: bool = true
+@export var voxel_gate_mammals_enabled: bool = true
+@export var voxel_gate_shelter_enabled: bool = true
+@export var voxel_gate_profile_refresh_enabled: bool = true
+@export var voxel_gate_edible_index_enabled: bool = true
 
 @onready var plant_root: Node3D = $PlantRoot
 @onready var rabbit_root: Node3D = $RabbitRoot
@@ -72,6 +87,9 @@ var _mammal_behavior_controller: RefCounted
 var _debug_renderer: RefCounted
 var _shelter_construction_controller: RefCounted
 var _smell_system_controller: RefCounted
+var _voxel_process_gate_controller: RefCounted
+var _voxel_activity_map: Dictionary = {}
+var _voxel_activity_refresh_accumulator: float = 0.0
 
 func _ready() -> void:
 	_smell_field = SmellFieldSystemScript.new()
@@ -79,21 +97,28 @@ func _ready() -> void:
 	_smell_field.configure(world_bounds_radius, smell_voxel_size, smell_vertical_half_extent)
 	_wind_field.configure(world_bounds_radius, smell_voxel_size, smell_vertical_half_extent)
 	_wind_field.set_global_wind(wind_direction, wind_intensity, wind_speed)
+	if _smell_field != null and _smell_field.has_method("set_compute_enabled"):
+		_smell_field.set_compute_enabled(smell_gpu_compute_enabled)
+	if _wind_field != null and _wind_field.has_method("set_compute_enabled"):
+		_wind_field.set_compute_enabled(wind_gpu_compute_enabled)
 	_plant_growth_controller = PlantGrowthControllerScript.new()
 	_mammal_behavior_controller = MammalBehaviorControllerScript.new()
 	_debug_renderer = EcologyDebugRendererScript.new()
 	_shelter_construction_controller = ShelterConstructionControllerScript.new()
 	_smell_system_controller = SmellSystemControllerScript.new()
+	_voxel_process_gate_controller = VoxelProcessGateControllerScript.new()
 	_plant_growth_controller.setup(self)
 	_mammal_behavior_controller.setup(self)
 	_debug_renderer.setup(self)
 	_shelter_construction_controller.setup(self)
 	_smell_system_controller.setup(self)
+	_voxel_process_gate_controller.setup(self)
 	_plant_growth_controller.spawn_initial_plants(initial_plant_count)
 	_mammal_behavior_controller.spawn_initial_rabbits(initial_rabbit_count)
 	_smell_system_controller.refresh_smell_sources()
 	_mammal_behavior_controller.refresh_actor_caches()
 	_plant_growth_controller.rebuild_edible_plant_index()
+	_refresh_voxel_activity_map()
 
 func _physics_process(delta: float) -> void:
 	if delta <= 0.0:
@@ -103,11 +128,16 @@ func _physics_process(delta: float) -> void:
 	_mammal_step_accumulator += delta
 	_profile_refresh_accumulator += delta
 	_edible_index_accumulator += delta
+	_voxel_activity_refresh_accumulator += delta
+	if _voxel_activity_refresh_accumulator >= maxf(0.05, voxel_activity_refresh_interval_seconds):
+		_voxel_activity_refresh_accumulator = 0.0
+		_refresh_voxel_activity_map()
 	if _plant_step_accumulator >= maxf(0.01, plant_step_interval_seconds):
 		_plant_growth_controller.step_plants(_plant_step_accumulator)
 		_plant_step_accumulator = 0.0
 	if _edible_index_accumulator >= maxf(0.05, edible_index_rebuild_interval_seconds):
-		_plant_growth_controller.rebuild_edible_plant_index()
+		if not voxel_process_gating_enabled or not voxel_gate_edible_index_enabled or has_voxel_activity():
+			_plant_growth_controller.rebuild_edible_plant_index()
 		_edible_index_accumulator = 0.0
 	_smell_system_controller.emit_smell(delta)
 	_smell_system_controller.step_smell_field(delta)
@@ -115,7 +145,8 @@ func _physics_process(delta: float) -> void:
 		_mammal_behavior_controller.step_mammals(_mammal_step_accumulator)
 		_mammal_step_accumulator = 0.0
 	if _profile_refresh_accumulator >= maxf(0.05, living_profile_refresh_interval_seconds):
-		_refresh_living_entity_profiles()
+		if not voxel_process_gating_enabled or not voxel_gate_profile_refresh_enabled or has_voxel_activity():
+			_refresh_living_entity_profiles()
 		_profile_refresh_accumulator = 0.0
 	_step_shelter_construction(delta)
 	_debug_renderer.update_debug(delta)
@@ -159,6 +190,16 @@ func set_wind(next_direction: Vector3, next_intensity: float, enabled: bool = tr
 	wind_enabled = enabled
 	if _wind_field != null:
 		_wind_field.set_global_wind(wind_direction, wind_intensity if wind_enabled else 0.0, wind_speed)
+
+func set_smell_gpu_compute_enabled(enabled: bool) -> void:
+	smell_gpu_compute_enabled = enabled
+	if _smell_field != null and _smell_field.has_method("set_compute_enabled"):
+		_smell_field.set_compute_enabled(enabled)
+
+func set_wind_gpu_compute_enabled(enabled: bool) -> void:
+	wind_gpu_compute_enabled = enabled
+	if _wind_field != null and _wind_field.has_method("set_compute_enabled"):
+		_wind_field.set_compute_enabled(enabled)
 
 func set_smell_voxel_size(size_meters: float) -> void:
 	var clamped = clampf(size_meters, 0.5, 3.0)
@@ -210,8 +251,95 @@ func _on_rabbit_seed_dropped(rabbit_id: String, count: int) -> void:
 	_mammal_behavior_controller.on_rabbit_seed_dropped(rabbit_id, count)
 
 func _refresh_living_entity_profiles() -> void:
-	_living_entity_profiles = _mammal_behavior_controller.refresh_living_entity_profiles()
+	_living_entity_profiles = _mammal_behavior_controller.refresh_living_entity_profiles(_profile_refresh_accumulator)
 
 func _step_shelter_construction(delta: float) -> void:
 	_shelter_construction_controller.set_sim_time(_sim_time_seconds)
+	if voxel_process_gating_enabled and voxel_gate_shelter_enabled and not has_voxel_activity():
+		return
 	_shelter_construction_controller.step_shelter_construction(delta, _living_entity_profiles)
+
+func has_voxel_activity() -> bool:
+	return not _voxel_activity_map.is_empty()
+
+func voxel_activity_for_voxel(voxel: Vector3i) -> float:
+	if _voxel_activity_map.is_empty():
+		return 0.0
+	return clampf(float(_voxel_activity_map.get(_voxel_key(voxel), 0.0)), 0.0, 1.0)
+
+func is_voxel_region_active(voxel: Vector3i, radius_cells: int = 1) -> bool:
+	if _voxel_activity_map.is_empty():
+		return false
+	var radius := maxi(0, radius_cells)
+	for dz in range(-radius, radius + 1):
+		for dy in range(-radius, radius + 1):
+			for dx in range(-radius, radius + 1):
+				var candidate := Vector3i(voxel.x + dx, voxel.y + dy, voxel.z + dz)
+				if voxel_activity_for_voxel(candidate) > 0.001:
+					return true
+	return false
+
+func should_process_voxel_system(system_id: String, voxel: Vector3i, delta: float, base_interval_seconds: float) -> bool:
+	if _smell_field == null:
+		return true
+	if voxel == Vector3i(2147483647, 2147483647, 2147483647):
+		return true
+	var activity := voxel_activity_for_voxel(voxel)
+	return _voxel_process_gate_controller.should_process(system_id, voxel, delta, base_interval_seconds, activity)
+
+func collect_active_smell_voxels(max_voxels: int = 192) -> Array[Vector3i]:
+	var rows: Array[Vector3i] = []
+	if _voxel_activity_map.is_empty():
+		return rows
+	var keys = _voxel_activity_map.keys()
+	keys.sort_custom(func(a, b): return float(_voxel_activity_map.get(a, 0.0)) > float(_voxel_activity_map.get(b, 0.0)))
+	for key_variant in keys:
+		if rows.size() >= maxi(16, max_voxels):
+			break
+		var v: Vector3i = _parse_voxel_key(String(key_variant))
+		if _smell_field == null:
+			continue
+		var world: Vector3 = _smell_field.voxel_to_world(v)
+		var voxel_check: Vector3i = _smell_field.world_to_voxel(world)
+		if voxel_check != v:
+			continue
+		rows.append(v)
+	return rows
+
+func _refresh_voxel_activity_map() -> void:
+	_voxel_activity_map.clear()
+	if _smell_field == null:
+		return
+	for node in get_tree().get_nodes_in_group("mammal_actor"):
+		if not (node is Node3D):
+			continue
+		_accumulate_world_activity((node as Node3D).global_position, 1.0)
+	for node in get_tree().get_nodes_in_group("living_smell_source"):
+		if not (node is Node3D):
+			continue
+		_accumulate_world_activity((node as Node3D).global_position, 0.55)
+	for node in plant_root.get_children():
+		if not (node is Node3D):
+			continue
+		_accumulate_world_activity((node as Node3D).global_position, 0.25)
+	var keys = _voxel_activity_map.keys()
+	for key_variant in keys:
+		var key := String(key_variant)
+		var value := clampf(float(_voxel_activity_map.get(key, 0.0)), 0.0, 8.0)
+		_voxel_activity_map[key] = clampf(1.0 - exp(-value), 0.0, 1.0)
+
+func _accumulate_world_activity(world_position: Vector3, amount: float) -> void:
+	var voxel: Vector3i = _smell_field.world_to_voxel(world_position)
+	if voxel == Vector3i(2147483647, 2147483647, 2147483647):
+		return
+	var key := _voxel_key(voxel)
+	_voxel_activity_map[key] = float(_voxel_activity_map.get(key, 0.0)) + maxf(0.0, amount)
+
+func _voxel_key(voxel: Vector3i) -> String:
+	return "%d:%d:%d" % [voxel.x, voxel.y, voxel.z]
+
+func _parse_voxel_key(key: String) -> Vector3i:
+	var parts = key.split(":")
+	if parts.size() != 3:
+		return Vector3i.ZERO
+	return Vector3i(int(parts[0]), int(parts[1]), int(parts[2]))
