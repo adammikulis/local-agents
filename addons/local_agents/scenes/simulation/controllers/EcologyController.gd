@@ -27,10 +27,10 @@ const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKey
 @export var rabbit_eat_distance: float = 0.24
 @export var seed_spawn_radius: float = 0.42
 
-@export var debug_refresh_seconds: float = 0.3
-@export var debug_max_smell_voxels: int = 260
-@export var debug_max_temp_voxels: int = 320
-@export var debug_max_wind_vectors: int = 180
+@export var debug_refresh_seconds: float = 0.6
+@export var debug_max_smell_voxels: int = 120
+@export var debug_max_temp_voxels: int = 160
+@export var debug_max_wind_vectors: int = 90
 @export var shelter_step_seconds: float = 0.5
 @export var shelter_work_scalar: float = 0.35
 @export var shelter_builder_search_radius: float = 2.4
@@ -68,6 +68,9 @@ var _debug_voxel_mesh: BoxMesh
 var _debug_arrow_mesh: BoxMesh
 var _debug_voxel_material: StandardMaterial3D
 var _debug_arrow_material: StandardMaterial3D
+var _debug_smell_mm_instance: MultiMeshInstance3D
+var _debug_temperature_mm_instance: MultiMeshInstance3D
+var _debug_wind_mm_instance: MultiMeshInstance3D
 var _debug_show_smell: bool = true
 var _debug_show_wind: bool = true
 var _debug_show_temperature: bool = true
@@ -105,9 +108,7 @@ func set_debug_overlay(overlay: Node3D) -> void:
 	_debug_smell_root = _debug_overlay.get_node_or_null("SmellDebug")
 	_debug_wind_root = _debug_overlay.get_node_or_null("WindDebug")
 	_debug_temperature_root = _debug_overlay.get_node_or_null("TemperatureDebug")
-	_clear_debug_children(_debug_smell_root)
-	_clear_debug_children(_debug_wind_root)
-	_clear_debug_children(_debug_temperature_root)
+	_ensure_debug_multimesh_instances()
 	_apply_debug_visibility()
 
 func apply_debug_settings(settings: Dictionary) -> void:
@@ -194,9 +195,7 @@ func clear_generated() -> void:
 	_smell_sources.clear()
 	if _smell_field != null:
 		_smell_field.clear()
-	_clear_debug_children(_debug_smell_root)
-	_clear_debug_children(_debug_wind_root)
-	_clear_debug_children(_debug_temperature_root)
+	_reset_debug_multimesh()
 	_living_entity_profiles.clear()
 	_shelter_sites.clear()
 	_shelter_site_sequence = 0
@@ -688,6 +687,7 @@ func _ensure_debug_resources() -> void:
 func _update_debug(delta: float) -> void:
 	if _debug_overlay == null:
 		return
+	_ensure_debug_multimesh_instances()
 	_debug_accumulator += delta
 	if _debug_accumulator < debug_refresh_seconds:
 		return
@@ -700,74 +700,122 @@ func _update_debug(delta: float) -> void:
 		_render_wind_debug()
 
 func _render_smell_debug() -> void:
-	_clear_debug_children(_debug_smell_root)
+	if _debug_smell_mm_instance == null or _debug_smell_root == null:
+		return
 	var budget := maxi(24, debug_max_smell_voxels)
+	var transforms: Array[Transform3D] = []
+	var colors: Array[Color] = []
 	match _debug_smell_layer:
 		"food":
-			_draw_voxel_cells(_debug_smell_root, _smell_field.build_layer_cells("chem_cis_3_hexenol", 0.02, budget), Color(0.25, 0.95, 0.28, 0.2), 0.35, 0.12)
+			_append_voxel_cells(_smell_field.build_layer_cells("chem_cis_3_hexenol", 0.02, budget), Color(0.25, 0.95, 0.28, 0.2), 0.35, 0.12, transforms, colors)
 		"floral":
-			_draw_voxel_cells(_debug_smell_root, _smell_field.build_layer_cells("chem_linalool", 0.02, budget), Color(1.0, 0.86, 0.38, 0.2), 0.35, 0.16)
+			_append_voxel_cells(_smell_field.build_layer_cells("chem_linalool", 0.02, budget), Color(1.0, 0.86, 0.38, 0.2), 0.35, 0.16, transforms, colors)
 		"danger":
-			_draw_voxel_cells(_debug_smell_root, _smell_field.build_layer_cells("chem_ammonia", 0.02, budget), Color(1.0, 0.3, 0.3, 0.22), 0.35, 0.22)
+			_append_voxel_cells(_smell_field.build_layer_cells("chem_ammonia", 0.02, budget), Color(1.0, 0.3, 0.3, 0.22), 0.35, 0.22, transforms, colors)
 		"hexanal":
-			_draw_voxel_cells(_debug_smell_root, _smell_field.build_layer_cells("chem_hexanal", 0.02, budget), Color(0.45, 0.95, 0.68, 0.2), 0.35, 0.14)
+			_append_voxel_cells(_smell_field.build_layer_cells("chem_hexanal", 0.02, budget), Color(0.45, 0.95, 0.68, 0.2), 0.35, 0.14, transforms, colors)
 		"methyl_salicylate":
-			_draw_voxel_cells(_debug_smell_root, _smell_field.build_layer_cells("chem_methyl_salicylate", 0.02, budget), Color(0.95, 0.55, 0.95, 0.22), 0.35, 0.2)
+			_append_voxel_cells(_smell_field.build_layer_cells("chem_methyl_salicylate", 0.02, budget), Color(0.95, 0.55, 0.95, 0.22), 0.35, 0.2, transforms, colors)
 		_:
 			var food_cells: Array = _smell_field.build_layer_cells("chem_cis_3_hexenol", 0.02, budget / 3)
 			var floral_cells: Array = _smell_field.build_layer_cells("chem_linalool", 0.02, budget / 3)
 			var danger_cells: Array = _smell_field.build_layer_cells("chem_ammonia", 0.02, budget / 3)
-			_draw_voxel_cells(_debug_smell_root, food_cells, Color(0.25, 0.95, 0.28, 0.2), 0.35, 0.1)
-			_draw_voxel_cells(_debug_smell_root, floral_cells, Color(1.0, 0.86, 0.38, 0.2), 0.35, 0.16)
-			_draw_voxel_cells(_debug_smell_root, danger_cells, Color(1.0, 0.3, 0.3, 0.22), 0.35, 0.22)
+			_append_voxel_cells(food_cells, Color(0.25, 0.95, 0.28, 0.2), 0.35, 0.1, transforms, colors)
+			_append_voxel_cells(floral_cells, Color(1.0, 0.86, 0.38, 0.2), 0.35, 0.16, transforms, colors)
+			_append_voxel_cells(danger_cells, Color(1.0, 0.3, 0.3, 0.22), 0.35, 0.22, transforms, colors)
+	_commit_multimesh_instances(_debug_smell_mm_instance, transforms, colors)
 
 func _render_temperature_debug() -> void:
-	_clear_debug_children(_debug_temperature_root)
+	if _debug_temperature_mm_instance == null or _debug_temperature_root == null:
+		return
 	var rows: Array = _wind_field.build_temperature_cells(debug_max_temp_voxels, 0.03)
+	var transforms: Array[Transform3D] = []
+	var colors: Array[Color] = []
 	for row in rows:
 		var world := Vector3(row.get("world", Vector3.ZERO))
 		var temp := clampf(float(row.get("temperature", 0.0)), 0.0, 1.0)
 		var color := Color(0.15, 0.35, 1.0, 0.16).lerp(Color(1.0, 0.2, 0.18, 0.3), temp)
-		_spawn_debug_voxel(_debug_temperature_root, world + Vector3(0.0, 0.35, 0.0), color)
+		var world_lifted = world + Vector3(0.0, 0.35, 0.0)
+		var local = _debug_temperature_root.to_local(world_lifted)
+		transforms.append(Transform3D(Basis.IDENTITY, local))
+		colors.append(color)
+	_commit_multimesh_instances(_debug_temperature_mm_instance, transforms, colors)
 
 func _render_wind_debug() -> void:
-	_clear_debug_children(_debug_wind_root)
+	if _debug_wind_mm_instance == null or _debug_wind_root == null:
+		return
 	var rows: Array = _wind_field.build_debug_vectors(debug_max_wind_vectors, 0.03)
+	var transforms: Array[Transform3D] = []
+	var colors: Array[Color] = []
 	for row in rows:
 		var world := Vector3(row.get("world", Vector3.ZERO)) + Vector3(0.0, 0.48, 0.0)
 		var wind := Vector2(row.get("wind", Vector2.ZERO))
 		var speed := float(row.get("speed", 0.0))
 		if wind.length_squared() <= 0.00001:
 			continue
-		var arrow := MeshInstance3D.new()
-		arrow.mesh = _debug_arrow_mesh
-		arrow.material_override = _debug_arrow_material
-		arrow.global_position = world
-		arrow.look_at(world + Vector3(wind.x, 0.0, wind.y), Vector3.UP)
-		arrow.scale = Vector3(1.0, 1.0, clampf(0.6 + speed * 0.6, 0.6, 1.8))
-		arrow.modulate = Color(0.68, 0.92, 1.0, clampf(0.2 + speed * 0.28, 0.2, 0.55))
-		_debug_wind_root.add_child(arrow)
+		var forward = Vector3(wind.x, 0.0, wind.y).normalized()
+		var right = Vector3.UP.cross(forward).normalized()
+		if right.length_squared() < 0.00001:
+			right = Vector3.RIGHT
+		var basis := Basis(right, Vector3.UP, forward).scaled(Vector3(1.0, 1.0, clampf(0.6 + speed * 0.6, 0.6, 1.8)))
+		var local = _debug_wind_root.to_local(world)
+		transforms.append(Transform3D(basis, local))
+		colors.append(Color(0.68, 0.92, 1.0, clampf(0.2 + speed * 0.28, 0.2, 0.55)))
+	_commit_multimesh_instances(_debug_wind_mm_instance, transforms, colors)
 
-func _draw_voxel_cells(root: Node3D, rows: Array[Dictionary], base_color: Color, alpha_scalar: float, y_lift: float) -> void:
+func _append_voxel_cells(rows: Array[Dictionary], base_color: Color, alpha_scalar: float, y_lift: float, transforms: Array[Transform3D], colors: Array[Color]) -> void:
+	if _debug_smell_root == null:
+		return
 	for row in rows:
 		var world := Vector3(row.get("world", Vector3.ZERO)) + Vector3(0.0, y_lift, 0.0)
 		var value := clampf(float(row.get("value", 0.0)), 0.0, 1.0)
 		var color := base_color
 		color.a = clampf(base_color.a + value * alpha_scalar, 0.12, 0.58)
-		_spawn_debug_voxel(root, world, color)
+		var local = _debug_smell_root.to_local(world)
+		transforms.append(Transform3D(Basis.IDENTITY, local))
+		colors.append(color)
 
-func _spawn_debug_voxel(root: Node3D, world: Vector3, color: Color) -> void:
-	if root == null:
+func _commit_multimesh_instances(instance: MultiMeshInstance3D, transforms: Array[Transform3D], colors: Array[Color]) -> void:
+	if instance == null:
 		return
-	var cube := MeshInstance3D.new()
-	cube.mesh = _debug_voxel_mesh
-	cube.material_override = _debug_voxel_material
-	cube.global_position = world
-	cube.modulate = color
-	root.add_child(cube)
+	var mm := instance.multimesh
+	if mm == null:
+		return
+	var count = mini(transforms.size(), colors.size())
+	mm.instance_count = count
+	for i in range(count):
+		mm.set_instance_transform(i, transforms[i])
+		mm.set_instance_color(i, colors[i])
 
-func _clear_debug_children(root: Node3D) -> void:
-	if root == null:
-		return
-	for child in root.get_children():
-		child.queue_free()
+func _ensure_debug_multimesh_instances() -> void:
+	if _debug_smell_root != null and not is_instance_valid(_debug_smell_mm_instance):
+		_debug_smell_mm_instance = _build_debug_mm_instance(_debug_voxel_mesh, _debug_voxel_material)
+		_debug_smell_mm_instance.name = "SmellDebugMultiMesh"
+		_debug_smell_root.add_child(_debug_smell_mm_instance)
+	if _debug_temperature_root != null and not is_instance_valid(_debug_temperature_mm_instance):
+		_debug_temperature_mm_instance = _build_debug_mm_instance(_debug_voxel_mesh, _debug_voxel_material)
+		_debug_temperature_mm_instance.name = "TemperatureDebugMultiMesh"
+		_debug_temperature_root.add_child(_debug_temperature_mm_instance)
+	if _debug_wind_root != null and not is_instance_valid(_debug_wind_mm_instance):
+		_debug_wind_mm_instance = _build_debug_mm_instance(_debug_arrow_mesh, _debug_arrow_material)
+		_debug_wind_mm_instance.name = "WindDebugMultiMesh"
+		_debug_wind_root.add_child(_debug_wind_mm_instance)
+
+func _build_debug_mm_instance(mesh: Mesh, material: Material) -> MultiMeshInstance3D:
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	mm.instance_count = 0
+	mm.mesh = mesh
+	var out := MultiMeshInstance3D.new()
+	out.multimesh = mm
+	out.material_override = material
+	return out
+
+func _reset_debug_multimesh() -> void:
+	if _debug_smell_mm_instance != null and _debug_smell_mm_instance.multimesh != null:
+		_debug_smell_mm_instance.multimesh.instance_count = 0
+	if _debug_temperature_mm_instance != null and _debug_temperature_mm_instance.multimesh != null:
+		_debug_temperature_mm_instance.multimesh.instance_count = 0
+	if _debug_wind_mm_instance != null and _debug_wind_mm_instance.multimesh != null:
+		_debug_wind_mm_instance.multimesh.instance_count = 0
