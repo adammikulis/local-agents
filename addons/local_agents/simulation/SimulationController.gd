@@ -35,6 +35,9 @@ const SimulationControllerCoreLoopHelpersScript = preload("res://addons/local_ag
 const SimulationControllerCultureStateHelpersScript = preload("res://addons/local_agents/simulation/SimulationControllerCultureStateHelpers.gd")
 const SimulationControllerOpsHelpersScript = preload("res://addons/local_agents/simulation/SimulationControllerOpsHelpers.gd")
 const SimulationControllerRuntimeHelpersScript = preload("res://addons/local_agents/simulation/SimulationControllerRuntimeHelpers.gd")
+const SimulationConfigControllerScript = preload("res://addons/local_agents/simulation/controller/SimulationConfigController.gd")
+const SimulationSnapshotControllerScript = preload("res://addons/local_agents/simulation/controller/SimulationSnapshotController.gd")
+const SimulationRuntimeFacadeScript = preload("res://addons/local_agents/simulation/controller/SimulationRuntimeFacade.gd")
 const CommunityLedgerScript = preload("res://addons/local_agents/simulation/CommunityLedgerSystem.gd")
 const HouseholdLedgerScript = preload("res://addons/local_agents/simulation/HouseholdLedgerSystem.gd")
 const IndividualLedgerScript = preload("res://addons/local_agents/simulation/IndividualLedgerSystem.gd")
@@ -137,6 +140,10 @@ var weather_step_interval_ticks: int = 2
 var hydrology_step_interval_ticks: int = 2
 var erosion_step_interval_ticks: int = 4
 var solar_step_interval_ticks: int = 4
+var weather_gpu_compute_enabled: bool = true
+var hydrology_gpu_compute_enabled: bool = true
+var erosion_gpu_compute_enabled: bool = true
+var solar_gpu_compute_enabled: bool = true
 var resource_pipeline_interval_ticks: int = 2
 var structure_lifecycle_interval_ticks: int = 2
 var culture_cycle_interval_ticks: int = 4
@@ -148,381 +155,111 @@ func _ready() -> void:
 func _ensure_initialized() -> void:
     SimulationControllerCoreLoopHelpersScript.ensure_initialized(self)
 func configure(seed_text: String, narrator_enabled: bool = true, dream_llm_enabled: bool = true) -> void:
-    _ensure_initialized()
-    _reset_store_for_instance()
-    _rng.set_base_seed_from_text(seed_text)
-    active_branch_id = "main"
-    _branch_lineage = []
-    _branch_fork_tick = -1
-    _last_tick_processed = 0
-    _pending_thought_npc_ids.clear()
-    _pending_dream_npc_ids.clear()
-    _pending_dialogue_pairs.clear()
-    self.narrator_enabled = narrator_enabled
-    _narrator.enabled = narrator_enabled
-    _dreams.llm_enabled = dream_llm_enabled
-    _mind.llm_enabled = dream_llm_enabled
-    if _culture_cycle != null:
-        _culture_cycle.llm_enabled = dream_llm_enabled
-    _store.open(_store_path_for_instance())
-    _apply_llama_server_integration()
-    configure_environment(_worldgen_config)
+    SimulationConfigControllerScript.configure(self, seed_text, narrator_enabled, dream_llm_enabled)
 func _store_path_for_instance() -> String:
     return ProjectSettings.globalize_path("user://local_agents/sim_%d.sqlite3" % get_instance_id())
 
 func _reset_store_for_instance() -> void:
-    if _store != null:
-        _store.close()
-    var path = _store_path_for_instance()
-    for suffix in ["", "-wal", "-shm", "-journal"]:
-        var candidate = path + suffix
-        if FileAccess.file_exists(candidate):
-            DirAccess.remove_absolute(candidate)
+    SimulationConfigControllerScript.reset_store_for_instance(self)
 
 func configure_environment(config_resource = null) -> Dictionary:
     return SimulationControllerCoreLoopHelpersScript.configure_environment(self, config_resource)
 
 func get_environment_snapshot() -> Dictionary:
-    return _environment_snapshot.duplicate(true)
+    return SimulationSnapshotControllerScript.get_environment_snapshot(self)
 
 func get_water_network_snapshot() -> Dictionary:
-    return _water_network_snapshot.duplicate(true)
+    return SimulationSnapshotControllerScript.get_water_network_snapshot(self)
 
 func get_weather_snapshot() -> Dictionary:
-    return _weather_snapshot.duplicate(true)
+    return SimulationSnapshotControllerScript.get_weather_snapshot(self)
 
 func get_erosion_snapshot() -> Dictionary:
-    return _erosion_snapshot.duplicate(true)
+    return SimulationSnapshotControllerScript.get_erosion_snapshot(self)
 
 func get_solar_snapshot() -> Dictionary:
-    return _solar_snapshot.duplicate(true)
+    return SimulationSnapshotControllerScript.get_solar_snapshot(self)
 
 func runtime_backend_metrics() -> Dictionary:
-    return {
-        "hydrology_compute": bool(_hydrology_system != null and _hydrology_system.has_method("is_compute_active") and _hydrology_system.is_compute_active()),
-        "weather_compute": bool(_weather_system != null and _weather_system.has_method("is_compute_active") and _weather_system.is_compute_active()),
-        "erosion_compute": bool(_erosion_system != null and _erosion_system.has_method("is_compute_active") and _erosion_system.is_compute_active()),
-        "solar_compute": bool(_solar_system != null and _solar_system.has_method("is_compute_active") and _solar_system.is_compute_active()),
-    }
+    return SimulationSnapshotControllerScript.runtime_backend_metrics(self)
 
 func build_environment_signal_snapshot(tick: int = -1):
-    var snapshot_resource = EnvironmentSignalSnapshotResourceScript.new()
-    snapshot_resource.tick = tick if tick >= 0 else _last_tick_processed
-    snapshot_resource.environment_snapshot = _environment_snapshot.duplicate(true)
-    snapshot_resource.water_network_snapshot = _water_network_snapshot.duplicate(true)
-    snapshot_resource.weather_snapshot = _weather_snapshot.duplicate(true)
-    snapshot_resource.erosion_snapshot = _erosion_snapshot.duplicate(true)
-    snapshot_resource.solar_snapshot = _solar_snapshot.duplicate(true)
-    snapshot_resource.erosion_changed = _erosion_changed_last_tick
-    snapshot_resource.erosion_changed_tiles = _erosion_changed_tiles_last_tick.duplicate(true)
-    return snapshot_resource
+    return SimulationSnapshotControllerScript.build_environment_signal_snapshot(self, tick)
 
 func get_spawn_artifact() -> Dictionary:
-    return _spawn_artifact.duplicate(true)
+    return SimulationSnapshotControllerScript.get_spawn_artifact(self)
 
 func get_backstory_service():
-    return _backstory_service
+    return SimulationSnapshotControllerScript.get_backstory_service(self)
 
 func get_store():
-    return _store
+    return SimulationSnapshotControllerScript.get_store(self)
 
 func list_llm_trace_events(tick_from: int, tick_to: int, task: String = "") -> Array:
-    _ensure_initialized()
-    var out: Array = []
-    if _store == null:
-        return out
-    var rows: Array = _store.list_resource_events(world_id, active_branch_id, tick_from, tick_to)
-    for row_variant in rows:
-        if not (row_variant is Dictionary):
-            continue
-        var row = row_variant as Dictionary
-        if String(row.get("event_type", "")) != "sim_llm_trace_event":
-            continue
-        var payload: Dictionary = row.get("payload", {})
-        var task_name = String(payload.get("task", ""))
-        if task.strip_edges() != "" and task_name != task.strip_edges():
-            continue
-        out.append({
-            "tick": int(row.get("tick", 0)),
-            "task": task_name,
-            "scope": String(row.get("scope", "")),
-            "owner_id": String(row.get("owner_id", "")),
-            "actor_ids": payload.get("actor_ids", []),
-            "profile_id": String(payload.get("profile_id", "")),
-            "seed": int(payload.get("seed", 0)),
-            "query_keys": payload.get("query_keys", []),
-            "referenced_ids": payload.get("referenced_ids", []),
-            "sampler_params": payload.get("sampler_params", {}),
-        })
-    out.sort_custom(func(a, b):
-        var ad = a as Dictionary
-        var bd = b as Dictionary
-        var at = int(ad.get("tick", 0))
-        var bt = int(bd.get("tick", 0))
-        if at != bt:
-            return at < bt
-        return String(ad.get("task", "")) < String(bd.get("task", ""))
-    )
-    return out
+    return SimulationSnapshotControllerScript.list_llm_trace_events(self, tick_from, tick_to, task)
 
 func get_active_branch_id() -> String:
-    return active_branch_id
+    return SimulationSnapshotControllerScript.get_active_branch_id(self)
 
 func fork_branch(new_branch_id: String, fork_tick: int) -> Dictionary:
-    _ensure_initialized()
-    var target = new_branch_id.strip_edges()
-    if target == "":
-        return {"ok": false, "error": "invalid_branch_id"}
-    if target == active_branch_id:
-        return {"ok": false, "error": "branch_id_unchanged"}
-    var entry = {
-        "branch_id": active_branch_id,
-        "tick": maxi(0, fork_tick),
-    }
-    var next_lineage: Array = _branch_lineage.duplicate(true)
-    next_lineage.append(entry)
-    var fork_hash = str(hash(JSON.stringify(current_snapshot(maxi(0, fork_tick)), "", false, true)))
-    if _store != null:
-        _store.create_checkpoint(world_id, target, maxi(0, fork_tick), fork_hash, next_lineage, maxi(0, fork_tick))
-    active_branch_id = target
-    _branch_lineage = next_lineage
-    _branch_fork_tick = maxi(0, fork_tick)
-    return {
-        "ok": true,
-        "branch_id": active_branch_id,
-        "lineage": _branch_lineage.duplicate(true),
-        "fork_tick": _branch_fork_tick,
-    }
+    return SimulationSnapshotControllerScript.fork_branch(self, new_branch_id, fork_tick)
 
 func restore_to_tick(target_tick: int, branch_id: String = "") -> Dictionary:
-    _ensure_initialized()
-    var effective_branch = branch_id.strip_edges()
-    if effective_branch == "":
-        effective_branch = active_branch_id
-    if _store == null:
-        return {"ok": false, "error": "store_unavailable"}
-    var events: Array = _store.list_events(world_id, effective_branch, 0, maxi(0, target_tick))
-    if events.is_empty():
-        return {"ok": false, "error": "snapshot_not_found", "tick": target_tick, "branch_id": effective_branch}
-    var selected: Dictionary = {}
-    for row_variant in events:
-        if not (row_variant is Dictionary):
-            continue
-        var row = row_variant as Dictionary
-        if String(row.get("event_type", "")) != "tick":
-            continue
-        selected = row
-    if selected.is_empty():
-        return {"ok": false, "error": "snapshot_not_found", "tick": target_tick, "branch_id": effective_branch}
-    var payload: Dictionary = selected.get("payload", {})
-    if payload.is_empty():
-        return {"ok": false, "error": "snapshot_payload_missing"}
-    _apply_snapshot(payload)
-    active_branch_id = effective_branch
-    _last_tick_processed = int(payload.get("tick", target_tick))
-    return {"ok": true, "tick": _last_tick_processed, "branch_id": active_branch_id}
+    return SimulationSnapshotControllerScript.restore_to_tick(self, target_tick, branch_id)
 
 func branch_diff(base_branch_id: String, compare_branch_id: String, tick_from: int, tick_to: int) -> Dictionary:
-    _ensure_initialized()
-    if _branch_analysis == null:
-        return {"ok": false, "error": "branch_analysis_unavailable"}
-    return _branch_analysis.compare_branches(
-        _store,
-        world_id,
-        base_branch_id,
-        compare_branch_id,
-        tick_from,
-        tick_to,
-        _backstory_service
-    )
+    return SimulationSnapshotControllerScript.branch_diff(self, base_branch_id, compare_branch_id, tick_from, tick_to)
 
 func set_cognition_features(enable_thoughts: bool, enable_dialogue: bool, enable_dreams: bool) -> void:
-    _ensure_initialized()
-    thoughts_enabled = enable_thoughts
-    dialogue_enabled = enable_dialogue
-    dreams_enabled = enable_dreams
-    if _culture_cycle != null:
-        _culture_cycle.llm_enabled = enable_thoughts or enable_dialogue or enable_dreams
+    SimulationConfigControllerScript.set_cognition_features(self, enable_thoughts, enable_dialogue, enable_dreams)
 
 func set_cognition_contract_config(config_resource) -> void:
-    _ensure_initialized()
-    if config_resource == null:
-        _cognition_contract_config = CognitionContractConfigResourceScript.new()
-    else:
-        _cognition_contract_config = config_resource
-    _apply_cognition_contract()
-    _apply_llama_server_integration()
+    SimulationConfigControllerScript.set_cognition_contract_config(self, config_resource)
 
 func _apply_cognition_contract() -> void:
-    if _cognition_contract_config == null:
-        _cognition_contract_config = CognitionContractConfigResourceScript.new()
-    if _cognition_contract_config.has_method("ensure_defaults"):
-        _cognition_contract_config.call("ensure_defaults")
-    if _narrator != null and _narrator.has_method("set_request_profile"):
-        _narrator.call("set_request_profile", _cognition_contract_config.call("profile_for_task", "narrator_direction"))
-    if _mind != null and _mind.has_method("set_request_profile"):
-        _mind.call("set_request_profile", "internal_thought", _cognition_contract_config.call("profile_for_task", "internal_thought"))
-        _mind.call("set_request_profile", "dialogue_exchange", _cognition_contract_config.call("profile_for_task", "dialogue_exchange"))
-    if _mind != null and _mind.has_method("set_contract_limits"):
-        _mind.call("set_contract_limits", {
-            "context_schema_version": int(_cognition_contract_config.get("context_schema_version")),
-            "max_prompt_chars": int(_cognition_contract_config.get("max_prompt_chars")),
-            "state_chars": int(_cognition_contract_config.get("budget_state_chars")),
-            "waking_memories": int(_cognition_contract_config.get("budget_waking_memories")),
-            "dream_memories": int(_cognition_contract_config.get("budget_dream_memories")),
-            "beliefs": int(_cognition_contract_config.get("budget_beliefs")),
-            "conflicts": int(_cognition_contract_config.get("budget_conflicts")),
-            "oral_knowledge": int(_cognition_contract_config.get("budget_oral_knowledge")),
-            "ritual_events": int(_cognition_contract_config.get("budget_ritual_events")),
-            "taboo_ids": int(_cognition_contract_config.get("budget_taboo_ids")),
-        })
-    if _dreams != null and _dreams.has_method("set_request_profile"):
-        _dreams.call("set_request_profile", _cognition_contract_config.call("profile_for_task", "dream_generation"))
-    if _culture_cycle != null and _culture_cycle.has_method("set_request_profile"):
-        _culture_cycle.call("set_request_profile", _cognition_contract_config.call("profile_for_task", "oral_transmission_utterance"))
+    SimulationConfigControllerScript.apply_cognition_contract(self)
 
 func set_llama_server_options(options: Dictionary) -> void:
-    _ensure_initialized()
-    for key_variant in options.keys():
-        var key = String(key_variant)
-        _llama_server_options[key] = options[key]
-    _apply_llama_server_integration()
+    SimulationConfigControllerScript.set_llama_server_options(self, options)
 
 func get_llama_server_options() -> Dictionary:
-    _ensure_initialized()
-    return _llama_server_options.duplicate(true)
+    return SimulationConfigControllerScript.get_llama_server_options(self)
 
 func _apply_llama_server_integration() -> void:
-    var generation_options := _llama_server_options.duplicate(true)
-    var resolved_model_path := _resolve_llama_model_path(generation_options)
-    if resolved_model_path != "":
-        generation_options["server_model_path"] = resolved_model_path
-        if not generation_options.has("model_path"):
-            generation_options["model_path"] = resolved_model_path
-        if not generation_options.has("server_model"):
-            generation_options["server_model"] = resolved_model_path.get_file()
-    var resolved_runtime_dir := _resolve_runtime_directory(generation_options)
-    if resolved_runtime_dir != "":
-        generation_options["runtime_directory"] = resolved_runtime_dir
-    if _narrator != null and _narrator.has_method("set_runtime_options"):
-        _narrator.call("set_runtime_options", generation_options)
-    if _mind != null and _mind.has_method("set_runtime_options"):
-        _mind.call("set_runtime_options", generation_options)
-    if _dreams != null and _dreams.has_method("set_runtime_options"):
-        _dreams.call("set_runtime_options", generation_options)
-    if _culture_cycle != null and _culture_cycle.has_method("set_runtime_options"):
-        _culture_cycle.call("set_runtime_options", generation_options)
-    if _backstory_service != null and _backstory_service.has_method("set_embedding_options"):
-        var embedding_options := generation_options.duplicate(true)
-        embedding_options["normalize"] = true
-        embedding_options["server_embeddings"] = true
-        if not embedding_options.has("server_pooling"):
-            embedding_options["server_pooling"] = "mean"
-        if resolved_model_path != "":
-            embedding_options["server_model_path"] = resolved_model_path
-            if not embedding_options.has("model_path"):
-                embedding_options["model_path"] = resolved_model_path
-            if not embedding_options.has("server_model"):
-                embedding_options["server_model"] = resolved_model_path.get_file()
-        if resolved_runtime_dir != "":
-            embedding_options["runtime_directory"] = resolved_runtime_dir
-        _backstory_service.call("set_embedding_options", embedding_options)
+    SimulationConfigControllerScript.apply_llama_server_integration(self)
 
 func _resolve_llama_model_path(options: Dictionary) -> String:
-    for key in ["server_model_path", "model_path", "model"]:
-        var candidate := String(options.get(key, "")).strip_edges()
-        if candidate == "":
-            continue
-        var normalized := RuntimePathsScript.normalize_path(candidate)
-        if normalized != "" and FileAccess.file_exists(normalized):
-            return normalized
-    if OS.has_environment("LOCAL_AGENTS_TEST_GGUF"):
-        var from_env := RuntimePathsScript.normalize_path(OS.get_environment("LOCAL_AGENTS_TEST_GGUF").strip_edges())
-        if from_env != "" and FileAccess.file_exists(from_env):
-            return from_env
-    if Engine.has_singleton("AgentRuntime"):
-        var runtime = Engine.get_singleton("AgentRuntime")
-        if runtime != null and runtime.has_method("get_default_model_path"):
-            var runtime_model := RuntimePathsScript.normalize_path(String(runtime.call("get_default_model_path")).strip_edges())
-            if runtime_model != "" and FileAccess.file_exists(runtime_model):
-                return runtime_model
-    var fallback := RuntimePathsScript.resolve_default_model()
-    if fallback != "" and FileAccess.file_exists(fallback):
-        return fallback
-    return ""
+    return SimulationConfigControllerScript.resolve_llama_model_path(self, options)
 
 func _resolve_runtime_directory(options: Dictionary) -> String:
-    var explicit_dir := RuntimePathsScript.normalize_path(String(options.get("runtime_directory", "")).strip_edges())
-    if explicit_dir != "":
-        return explicit_dir
-    var runtime_dir := RuntimePathsScript.runtime_dir()
-    if runtime_dir != "":
-        return runtime_dir
-    return ""
+    return SimulationConfigControllerScript.resolve_runtime_directory(self, options)
 
 func set_narrator_directive(text: String) -> void:
-    _ensure_initialized()
-    if _narrator_directive_resource == null:
-        _narrator_directive_resource = NarratorDirectiveResourceScript.new()
-    _narrator_directive_resource.set_text(text, -1)
+    SimulationConfigControllerScript.set_narrator_directive(self, text)
 
 func set_dream_influence(npc_id: String, influence: Dictionary) -> void:
-    _ensure_initialized()
-    _dreams.set_dream_influence(npc_id, influence)
+    SimulationConfigControllerScript.set_dream_influence(self, npc_id, influence)
 
 func set_profession_profile(profile_resource) -> void:
-    _ensure_initialized()
-    if profile_resource == null:
-        return
-    _economy_system.set_profession_profile(profile_resource)
+    SimulationConfigControllerScript.set_profession_profile(self, profile_resource)
 
 func set_flow_traversal_profile(profile_resource) -> void:
-    _ensure_initialized()
-    if profile_resource == null:
-        _flow_traversal_profile = FlowTraversalProfileResourceScript.new()
-    else:
-        _flow_traversal_profile = profile_resource
-    if _flow_network_system != null:
-        _flow_network_system.set_flow_profile(_flow_traversal_profile)
+    SimulationConfigControllerScript.set_flow_traversal_profile(self, profile_resource)
 
 func set_flow_formation_config(config_resource) -> void:
-    _ensure_initialized()
-    if config_resource == null:
-        _flow_formation_config = FlowFormationConfigResourceScript.new()
-    else:
-        _flow_formation_config = config_resource
-    if _flow_network_system != null:
-        _flow_network_system.set_flow_formation_config(_flow_formation_config)
+    SimulationConfigControllerScript.set_flow_formation_config(self, config_resource)
 
 func set_flow_runtime_config(config_resource) -> void:
-    _ensure_initialized()
-    if config_resource == null:
-        _flow_runtime_config = FlowRuntimeConfigResourceScript.new()
-    else:
-        _flow_runtime_config = config_resource
-    if _flow_network_system != null:
-        _flow_network_system.set_flow_runtime_config(_flow_runtime_config)
+    SimulationConfigControllerScript.set_flow_runtime_config(self, config_resource)
 
 func set_structure_lifecycle_config(config_resource) -> void:
-    _ensure_initialized()
-    if config_resource == null:
-        _structure_lifecycle_config = StructureLifecycleConfigResourceScript.new()
-    else:
-        _structure_lifecycle_config = config_resource
-    if _structure_lifecycle_system != null:
-        _structure_lifecycle_system.set_config(_structure_lifecycle_config)
+    SimulationConfigControllerScript.set_structure_lifecycle_config(self, config_resource)
 
 func set_culture_context_cues(cues: Dictionary) -> void:
-    _ensure_initialized()
-    _culture_context_cues = cues.duplicate(true)
+    SimulationConfigControllerScript.set_culture_context_cues(self, cues)
 
 func set_living_entity_profiles(profiles: Array) -> void:
-    _ensure_initialized()
-    _external_living_entity_profiles.clear()
-    for row_variant in profiles:
-        if not (row_variant is Dictionary):
-            continue
-        _external_living_entity_profiles.append((row_variant as Dictionary).duplicate(true))
+    SimulationConfigControllerScript.set_living_entity_profiles(self, profiles)
 
 func register_villager(npc_id: String, display_name: String, initial_state: Dictionary = {}) -> Dictionary:
     return SimulationControllerCoreLoopHelpersScript.register_villager(self, npc_id, display_name, initial_state)
@@ -533,123 +270,71 @@ func process_tick(tick: int, fixed_delta: float, include_state: bool = true) -> 
 func current_snapshot(tick: int) -> Dictionary:
     return SimulationControllerCoreLoopHelpersScript.current_snapshot(self, tick)
 
+func set_gpu_compute_modes(weather_enabled: bool, hydrology_enabled: bool, erosion_enabled: bool, solar_enabled: bool) -> void:
+    weather_gpu_compute_enabled = weather_enabled
+    hydrology_gpu_compute_enabled = hydrology_enabled
+    erosion_gpu_compute_enabled = erosion_enabled
+    solar_gpu_compute_enabled = solar_enabled
+    _sync_compute_preferences()
+
+func set_weather_gpu_compute_enabled(enabled: bool) -> void:
+    weather_gpu_compute_enabled = enabled
+    _sync_compute_preferences()
+
+func set_hydrology_gpu_compute_enabled(enabled: bool) -> void:
+    hydrology_gpu_compute_enabled = enabled
+    _sync_compute_preferences()
+
+func set_erosion_gpu_compute_enabled(enabled: bool) -> void:
+    erosion_gpu_compute_enabled = enabled
+    _sync_compute_preferences()
+
+func set_solar_gpu_compute_enabled(enabled: bool) -> void:
+    solar_gpu_compute_enabled = enabled
+    _sync_compute_preferences()
+
+func _sync_compute_preferences() -> void:
+    if _hydrology_system != null and _hydrology_system.has_method("set_compute_enabled"):
+        _hydrology_system.set_compute_enabled(hydrology_gpu_compute_enabled)
+    if _weather_system != null and _weather_system.has_method("set_compute_enabled"):
+        _weather_system.set_compute_enabled(weather_gpu_compute_enabled)
+    if _erosion_system != null and _erosion_system.has_method("set_compute_enabled"):
+        _erosion_system.set_compute_enabled(erosion_gpu_compute_enabled)
+    if _solar_system != null and _solar_system.has_method("set_compute_enabled"):
+        _solar_system.set_compute_enabled(solar_gpu_compute_enabled)
+
 func _generation_cap(task: String, fallback: int) -> int:
-    var key = "max_generations_per_tick_%s" % task
-    return maxi(1, int(_llama_server_options.get(key, fallback)))
+    return SimulationRuntimeFacadeScript.generation_cap(self, task, fallback)
 
 func _enqueue_thought_npcs(npc_ids: Array) -> void:
-    for npc_id_variant in npc_ids:
-        var npc_id = String(npc_id_variant).strip_edges()
-        if npc_id == "" or _pending_thought_npc_ids.has(npc_id):
-            continue
-        _pending_thought_npc_ids.append(npc_id)
+    SimulationRuntimeFacadeScript.enqueue_thought_npcs(self, npc_ids)
 
 func _enqueue_dream_npcs(npc_ids: Array) -> void:
-    for npc_id_variant in npc_ids:
-        var npc_id = String(npc_id_variant).strip_edges()
-        if npc_id == "" or _pending_dream_npc_ids.has(npc_id):
-            continue
-        _pending_dream_npc_ids.append(npc_id)
+    SimulationRuntimeFacadeScript.enqueue_dream_npcs(self, npc_ids)
 
 func _enqueue_dialogue_pairs(npc_ids: Array) -> void:
-    if npc_ids.size() < 2:
-        return
-    for index in range(0, npc_ids.size() - 1, 2):
-        var source_id = String(npc_ids[index]).strip_edges()
-        var target_id = String(npc_ids[index + 1]).strip_edges()
-        if source_id == "" or target_id == "":
-            continue
-        var pair_key = "%s|%s" % [source_id, target_id]
-        var already_queued = false
-        for pair_variant in _pending_dialogue_pairs:
-            if not (pair_variant is Dictionary):
-                continue
-            var pair = pair_variant as Dictionary
-            if "%s|%s" % [String(pair.get("source_id", "")), String(pair.get("target_id", ""))] == pair_key:
-                already_queued = true
-                break
-        if not already_queued:
-            _pending_dialogue_pairs.append({
-                "source_id": source_id,
-                "target_id": target_id,
-            })
+    SimulationRuntimeFacadeScript.enqueue_dialogue_pairs(self, npc_ids)
 
 func _drain_thought_queue(tick: int, limit: int) -> bool:
-    var consumed = 0
-    while consumed < limit and not _pending_thought_npc_ids.is_empty():
-        var npc_id = String(_pending_thought_npc_ids[0]).strip_edges()
-        _pending_thought_npc_ids.remove_at(0)
-        if npc_id == "":
-            continue
-        if not _run_thought_cycle(npc_id, tick):
-            return false
-        consumed += 1
-    return true
+    return SimulationRuntimeFacadeScript.drain_thought_queue(self, tick, limit)
 
 func _drain_dream_queue(tick: int, limit: int) -> bool:
-    var consumed = 0
-    while consumed < limit and not _pending_dream_npc_ids.is_empty():
-        var npc_id = String(_pending_dream_npc_ids[0]).strip_edges()
-        _pending_dream_npc_ids.remove_at(0)
-        if npc_id == "":
-            continue
-        if not _run_dream_cycle(npc_id, tick):
-            return false
-        consumed += 1
-    return true
+    return SimulationRuntimeFacadeScript.drain_dream_queue(self, tick, limit)
 
 func _drain_dialogue_queue(tick: int, limit: int) -> bool:
-    var consumed = 0
-    while consumed < limit and not _pending_dialogue_pairs.is_empty():
-        var pair_variant = _pending_dialogue_pairs[0]
-        _pending_dialogue_pairs.remove_at(0)
-        if not (pair_variant is Dictionary):
-            continue
-        var pair = pair_variant as Dictionary
-        var source_id = String(pair.get("source_id", "")).strip_edges()
-        var target_id = String(pair.get("target_id", "")).strip_edges()
-        if source_id == "" or target_id == "":
-            continue
-        if not _run_dialogue_pair(source_id, target_id, tick):
-            return false
-        consumed += 1
-    return true
+    return SimulationRuntimeFacadeScript.drain_dialogue_queue(self, tick, limit)
 
 func _apply_need_decay(npc_id: String, fixed_delta: float) -> void:
-    var state = _villagers.get(npc_id, null)
-    if state == null:
-        return
-    state.energy = clampf(float(state.energy) - (0.004 * fixed_delta), 0.0, 1.0)
-    state.hunger = clampf(float(state.hunger) + (0.006 * fixed_delta), 0.0, 1.0)
-
-    var econ_state = _individual_ledgers.get(npc_id, null)
-    if econ_state != null:
-        econ_state.energy = clampf(float(state.energy), 0.0, 1.0)
-        _individual_ledgers[npc_id] = _individual_ledger_system.ensure_bounds(econ_state)
+    SimulationRuntimeFacadeScript.apply_need_decay(self, npc_id, fixed_delta)
 
 func _generate_narrator_direction(tick: int) -> bool:
-    var seed = _rng.derive_seed("narrator", world_id, active_branch_id, tick)
-    var result = _narrator.generate_direction(current_snapshot(tick), seed, _directive_text())
-    if not bool(result.get("ok", false)):
-        return _emit_dependency_error(tick, "narrator", String(result.get("error", "narrator_failed")))
-    _persist_llm_trace_event(tick, "narrator_direction", [], result.get("trace", {}))
-    emit_signal("narrator_direction_generated", tick, result.get("text", ""))
-    return true
+    return SimulationRuntimeFacadeScript.generate_narrator_direction(self, tick)
 
 func _run_thought_cycle(npc_id: String, tick: int) -> bool:
     return SimulationControllerRuntimeHelpersScript.run_thought_cycle(self, npc_id, tick)
 
 func _run_dialogue_cycle(npc_ids: Array, tick: int) -> bool:
-    if npc_ids.size() < 2:
-        return true
-    for index in range(0, npc_ids.size() - 1, 2):
-        var source_id = String(npc_ids[index]).strip_edges()
-        var target_id = String(npc_ids[index + 1]).strip_edges()
-        if source_id == "" or target_id == "":
-            continue
-        if not _run_dialogue_pair(source_id, target_id, tick):
-            return false
-    return true
+    return SimulationRuntimeFacadeScript.run_dialogue_cycle(self, npc_ids, tick)
 
 func _run_dialogue_pair(source_id: String, target_id: String, tick: int) -> bool:
     return SimulationControllerRuntimeHelpersScript.run_dialogue_pair(self, source_id, target_id, tick)
@@ -661,59 +346,10 @@ func _run_resource_pipeline(tick: int, npc_ids: Array) -> void:
     SimulationControllerRuntimeHelpersScript.run_resource_pipeline(self, tick, npc_ids)
 
 func _run_structure_lifecycle(tick: int) -> void:
-    if _structure_lifecycle_system == null:
-        return
-    var household_counts = _household_member_counts()
-    var result: Dictionary = _structure_lifecycle_system.step_lifecycle(
-        tick,
-        household_counts,
-        _household_growth_metrics,
-        _household_positions,
-        _water_network_snapshot
-    )
-    _structure_lifecycle_events = {
-        "expanded": result.get("expanded", []),
-        "abandoned": result.get("abandoned", []),
-    }
-    if not _structure_lifecycle_events.get("expanded", []).is_empty():
-        _log_resource_event(tick, "sim_structure_event", "settlement", "settlement_main", {
-            "kind": "structure_expansion",
-            "structure_ids": _structure_lifecycle_events.get("expanded", []),
-        })
-    if not _structure_lifecycle_events.get("abandoned", []).is_empty():
-        _log_resource_event(tick, "sim_structure_event", "settlement", "settlement_main", {
-            "kind": "structure_abandonment",
-            "structure_ids": _structure_lifecycle_events.get("abandoned", []),
-        })
+    SimulationRuntimeFacadeScript.run_structure_lifecycle(self, tick)
 
 func _assert_resource_invariants(tick: int, npc_ids: Array) -> void:
-    for key in ["food", "water", "wood", "stone", "tools", "currency", "labor_pool", "waste"]:
-        var value = float(_community_ledger.to_dict().get(key, 0.0))
-        if value < -0.000001:
-            _emit_dependency_error(tick, "resource_invariant", "community_negative_" + key)
-
-    var household_ids = _household_ledgers.keys()
-    household_ids.sort()
-    for hid in household_ids:
-        var ledger = _household_ledgers.get(String(hid), null)
-        if ledger == null:
-            continue
-        var row = ledger.to_dict()
-        for key in ["food", "water", "wood", "stone", "tools", "currency", "debt", "waste"]:
-            if float(row.get(key, 0.0)) < -0.000001:
-                _emit_dependency_error(tick, "resource_invariant", "household_negative_" + key)
-
-    for npc_id in npc_ids:
-        var state = _individual_ledgers.get(npc_id, null)
-        if state == null:
-            continue
-        var row = state.to_dict()
-        var inv: Dictionary = row.get("inventory", {})
-        for key in ["food", "water", "currency", "tools", "waste"]:
-            if float(inv.get(key, 0.0)) < -0.000001:
-                _emit_dependency_error(tick, "resource_invariant", "individual_negative_" + key)
-        if float(row.get("wage_due", 0.0)) < -0.000001:
-            _emit_dependency_error(tick, "resource_invariant", "individual_negative_wage_due")
+    SimulationRuntimeFacadeScript.assert_resource_invariants(self, tick, npc_ids)
 
 func _memory_refs_from_recall(recall: Dictionary) -> Array:
     return SimulationControllerOpsHelpersScript.memory_refs_from_recall(recall)
@@ -767,68 +403,10 @@ func _dependency_error_result(tick: int, phase: String) -> Dictionary:
     }
 
 func _log_resource_event(tick: int, event_type: String, scope: String, owner_id: String, payload: Dictionary) -> void:
-    if not resource_event_logging_enabled:
-        return
-    if _store == null:
-        return
-    var normalized_scope = scope.strip_edges()
-    if normalized_scope == "":
-        normalized_scope = "settlement"
-    var normalized_owner = owner_id.strip_edges()
-    if normalized_owner == "":
-        normalized_owner = "settlement_main"
-    var bundle = BundleResourceScript.new()
-    bundle.from_dict(payload)
-    var normalized = payload.duplicate(true)
-    if not bundle.to_dict().is_empty():
-        normalized["resource_bundle"] = bundle.to_dict()
-    var event_id: int = _store.append_resource_event(world_id, active_branch_id, tick, _resource_event_sequence, event_type, normalized_scope, normalized_owner, normalized)
-    if event_id == -1:
-        _store.open(_store_path_for_instance())
-        event_id = _store.append_resource_event(world_id, active_branch_id, tick, _resource_event_sequence, event_type, normalized_scope, normalized_owner, normalized)
-    if event_id == -1:
-        _emit_dependency_error(tick, "resource_event_store", "append_failed")
-    _resource_event_sequence += 1
+    SimulationRuntimeFacadeScript.log_resource_event(self, tick, event_type, scope, owner_id, payload)
 
 func _persist_llm_trace_event(tick: int, task: String, actor_ids: Array, trace_variant) -> void:
-    if not resource_event_logging_enabled:
-        return
-    if not (trace_variant is Dictionary):
-        return
-    var trace: Dictionary = trace_variant
-    if trace.is_empty():
-        return
-    var query_keys: Array = trace.get("query_keys", [])
-    var referenced_ids: Array = trace.get("referenced_ids", [])
-    var normalized_actors: Array = _normalize_id_array(actor_ids)
-    var normalized_referenced: Array = _normalize_id_array(referenced_ids)
-    var profile_id = String(trace.get("profile_id", "")).strip_edges()
-    var sampler_params: Dictionary = {}
-    var sampler_variant = trace.get("sampler_params", {})
-    if sampler_variant is Dictionary:
-        sampler_params = (sampler_variant as Dictionary).duplicate(true)
-    var payload := {
-        "kind": "llm_trace",
-        "task": task,
-        "actor_ids": normalized_actors,
-        "profile_id": profile_id,
-        "seed": int(trace.get("seed", 0)),
-        "query_keys": _normalize_id_array(query_keys),
-        "referenced_ids": normalized_referenced,
-        "sampler_params": sampler_params,
-    }
-    if _store == null:
-        _emit_dependency_error(tick, "llm_trace_store", "store_unavailable")
-        return
-    var scope = "settlement"
-    var owner_id = "settlement_main"
-    if normalized_actors.size() == 1:
-        scope = "individual"
-        owner_id = String(normalized_actors[0])
-    elif normalized_referenced.size() == 1:
-        scope = "individual"
-        owner_id = String(normalized_referenced[0])
-    _log_resource_event(tick, "sim_llm_trace_event", scope, owner_id, payload)
+    SimulationRuntimeFacadeScript.persist_llm_trace_event(self, tick, task, actor_ids, trace_variant)
 
 func _normalize_id_array(values: Array) -> Array:
     return SimulationControllerOpsHelpersScript.normalize_id_array(values)

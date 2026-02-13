@@ -104,14 +104,13 @@ static func configure_environment(svc, config_resource = null) -> Dictionary:
     var settlement_seed = svc._rng.derive_seed("settlement", svc.world_id, svc.active_branch_id, 0)
 
     svc._environment_snapshot = svc._world_generator.generate(world_seed, svc._worldgen_config)
-    if svc._hydrology_system != null and svc._hydrology_system.has_method("set_compute_enabled"):
-        svc._hydrology_system.set_compute_enabled(true)
+    sync_compute_preferences(svc)
     svc._water_network_snapshot = svc._hydrology_system.build_network(svc._environment_snapshot, svc._worldgen_config)
     svc._water_network_snapshot["seed"] = hydrology_seed
     svc._weather_snapshot = {}
     if svc._weather_system != null:
         svc._weather_system.set_emit_rows(false)
-        svc._weather_system.set_compute_enabled(true)
+        svc._weather_system.set_compute_enabled(bool(svc.weather_gpu_compute_enabled))
         var weather_setup: Dictionary = svc._weather_system.configure_environment(svc._environment_snapshot, svc._water_network_snapshot, weather_seed)
         if bool(weather_setup.get("ok", false)):
             svc._weather_snapshot = svc._weather_system.current_snapshot(0)
@@ -121,7 +120,7 @@ static func configure_environment(svc, config_resource = null) -> Dictionary:
     svc._erosion_changed_tiles_last_tick = []
     if svc._erosion_system != null:
         svc._erosion_system.set_emit_rows(false)
-        svc._erosion_system.set_compute_enabled(true)
+        svc._erosion_system.set_compute_enabled(bool(svc.erosion_gpu_compute_enabled))
         if svc._erosion_system.has_method("set_geomorph_apply_interval_ticks"):
             svc._erosion_system.call("set_geomorph_apply_interval_ticks", 6)
         svc._erosion_system.configure_environment(svc._environment_snapshot, svc._water_network_snapshot, erosion_seed)
@@ -132,7 +131,7 @@ static func configure_environment(svc, config_resource = null) -> Dictionary:
         svc._solar_system.set_emit_rows(false)
         if svc._solar_system.has_method("set_sync_stride"):
             svc._solar_system.call("set_sync_stride", 4)
-        svc._solar_system.set_compute_enabled(true)
+        svc._solar_system.set_compute_enabled(bool(svc.solar_gpu_compute_enabled))
         var solar_setup: Dictionary = svc._solar_system.configure_environment(svc._environment_snapshot, solar_seed)
         if bool(solar_setup.get("ok", false)):
             svc._solar_snapshot = svc._solar_system.current_snapshot(0)
@@ -209,6 +208,7 @@ static func register_villager(svc, npc_id: String, display_name: String, initial
 
 static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool = true) -> Dictionary:
     ensure_initialized(svc)
+    sync_compute_preferences(svc)
     var tick_start_us = Time.get_ticks_usec()
     var weather_us := 0
     var hydrology_us := 0
@@ -355,6 +355,18 @@ static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool
 
 static func _should_run_system_tick(tick: int, interval_ticks: int) -> bool:
     return tick % maxi(1, interval_ticks) == 0
+
+static func sync_compute_preferences(svc) -> void:
+    if svc == null:
+        return
+    if svc._hydrology_system != null and svc._hydrology_system.has_method("set_compute_enabled"):
+        svc._hydrology_system.set_compute_enabled(bool(svc.hydrology_gpu_compute_enabled))
+    if svc._weather_system != null and svc._weather_system.has_method("set_compute_enabled"):
+        svc._weather_system.set_compute_enabled(bool(svc.weather_gpu_compute_enabled))
+    if svc._erosion_system != null and svc._erosion_system.has_method("set_compute_enabled"):
+        svc._erosion_system.set_compute_enabled(bool(svc.erosion_gpu_compute_enabled))
+    if svc._solar_system != null and svc._solar_system.has_method("set_compute_enabled"):
+        svc._solar_system.set_compute_enabled(bool(svc.solar_gpu_compute_enabled))
 
 static func current_snapshot(svc, tick: int) -> Dictionary:
     ensure_initialized(svc)
