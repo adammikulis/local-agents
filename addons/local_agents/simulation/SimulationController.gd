@@ -6,7 +6,6 @@ signal villager_dream_recorded(npc_id, tick, memory_id, dream_text, effect)
 signal villager_thought_recorded(npc_id, tick, memory_id, thought_text)
 signal villager_dialogue_recorded(source_npc_id, target_npc_id, tick, event_id, dialogue_text)
 signal simulation_dependency_error(tick, phase, error_code)
-
 const DeterministicRngScript = preload("res://addons/local_agents/simulation/DeterministicRNG.gd")
 const RuntimePathsScript = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 const NarratorScript = preload("res://addons/local_agents/simulation/NarratorDirector.gd")
@@ -51,7 +50,6 @@ const HouseholdMembershipResourceScript = preload("res://addons/local_agents/con
 const NarratorDirectiveResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/NarratorDirectiveResource.gd")
 const VillagerEconomyStateResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/VillagerEconomyStateResource.gd")
 const VillagerInventoryResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/VillagerInventoryResource.gd")
-
 var world_id: String = "world_main"
 var active_branch_id: String = "main"
 var _branch_lineage: Array = []
@@ -120,7 +118,6 @@ var _llama_server_options: Dictionary = {
     "cache_prompt": false,
     "server_slots": 4,
 }
-
 var _community_ledger_system
 var _household_ledger_system
 var _individual_ledger_system
@@ -136,10 +133,13 @@ var dreams_enabled: bool = true
 var persist_tick_history_enabled: bool = false
 var persist_tick_history_interval: int = 24
 var resource_event_logging_enabled: bool = false
+var weather_step_interval_ticks: int = 2
+var hydrology_step_interval_ticks: int = 2
+var erosion_step_interval_ticks: int = 4
+var solar_step_interval_ticks: int = 4
 var _pending_thought_npc_ids: Array = []
 var _pending_dream_npc_ids: Array = []
 var _pending_dialogue_pairs: Array = []
-
 func _ready() -> void:
     _ensure_initialized()
 

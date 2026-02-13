@@ -221,20 +221,20 @@ static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool
         svc._flow_network_system.step_decay()
     svc._erosion_changed_last_tick = false
     svc._erosion_changed_tiles_last_tick = []
-    if svc._weather_system != null:
+    if svc._weather_system != null and _should_run_system_tick(tick, int(svc.weather_step_interval_ticks)):
         svc._weather_snapshot = svc._weather_system.step(tick, fixed_delta)
-    if svc._hydrology_system != null:
+    if svc._hydrology_system != null and _should_run_system_tick(tick, int(svc.hydrology_step_interval_ticks)):
         var hydrology_step: Dictionary = svc._hydrology_system.step(tick, fixed_delta, svc._environment_snapshot, svc._water_network_snapshot, svc._weather_snapshot)
         svc._environment_snapshot = hydrology_step.get("environment", svc._environment_snapshot)
         svc._water_network_snapshot = hydrology_step.get("hydrology", svc._water_network_snapshot)
-    if svc._erosion_system != null:
+    if svc._erosion_system != null and _should_run_system_tick(tick, int(svc.erosion_step_interval_ticks)):
         var erosion_result: Dictionary = svc._erosion_system.step(tick, fixed_delta, svc._environment_snapshot, svc._water_network_snapshot, svc._weather_snapshot)
         svc._environment_snapshot = erosion_result.get("environment", svc._environment_snapshot)
         svc._water_network_snapshot = erosion_result.get("hydrology", svc._water_network_snapshot)
         svc._erosion_snapshot = erosion_result.get("erosion", svc._erosion_snapshot)
         svc._erosion_changed_last_tick = bool(erosion_result.get("changed", false))
         svc._erosion_changed_tiles_last_tick = (erosion_result.get("changed_tiles", []) as Array).duplicate(true)
-    if svc._solar_system != null:
+    if svc._solar_system != null and _should_run_system_tick(tick, int(svc.solar_step_interval_ticks)):
         svc._solar_snapshot = svc._solar_system.step(tick, fixed_delta, svc._environment_snapshot, svc._weather_snapshot)
     if svc._flow_network_system != null:
         svc._flow_network_system.configure_environment(svc._environment_snapshot, svc._water_network_snapshot)
@@ -298,6 +298,9 @@ static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool
         "event_id": event_id,
         "state": state_payload,
     }
+
+static func _should_run_system_tick(tick: int, interval_ticks: int) -> bool:
+    return tick % maxi(1, interval_ticks) == 0
 
 static func current_snapshot(svc, tick: int) -> Dictionary:
     ensure_initialized(svc)
