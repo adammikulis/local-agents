@@ -23,6 +23,11 @@ theme_override_constants/margin_bottom = 8
 [node name="VBox" type="VBoxContainer" parent="Panel/Margin"]
 layout_mode = 2
 
+[node name="PerfLabel" type="Label" parent="Panel/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "FPS -- | RAM -- | VRAM -- | Obj -- | Draw --"
+
 [node name="StatusLabel" type="Label" parent="Panel/Margin/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
