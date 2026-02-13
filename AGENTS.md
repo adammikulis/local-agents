@@ -49,6 +49,8 @@ This file defines implementation rules for working in this Godot repository.
 
 - Default execution behavior is to spawn sub-agents as needed whenever concerns can be split safely.
 - Default completion behavior is to proactively create feature-scoped commits and push them unless the user asks otherwise.
+- Before spawning any new sub-agent wave, close stale/finished agents from prior waves to avoid hitting thread/session limits.
+- If agent spawning fails due to thread limits, immediately close inactive agents and retry before continuing manually.
 - Spawn sub-agents for distinct concerns (runtime, downloads, tests, docs, build scripts) when work can proceed in parallel.
 - Give each sub-agent clear file ownership and expected outputs before starting.
 - Merge sub-agent work back into a single concern-based architecture plan with checkbox state updates.
