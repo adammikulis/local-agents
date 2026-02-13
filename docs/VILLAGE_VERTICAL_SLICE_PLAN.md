@@ -775,11 +775,11 @@ Test slice:
 - [x] Prompt-cache reuse is opt-in per task and disabled where contamination risk exists.
 
 ### 17.7 Scheduling and Throughput
-- [ ] Define deterministic generation scheduler:
+- [x] Define deterministic generation scheduler:
 - [x] stable NPC ordering
 - [x] stable dialogue pairing order
 - [x] bounded generations per tick
-- [ ] deferred queue policy for overflow
+- [x] deferred queue policy for overflow
 - [ ] Document speculative decoding usage constraints and expected behavior under load.
 
 ### 17.8 Failure Policy (Fail-Fast)

@@ -133,6 +133,9 @@ var narrator_enabled: bool = true
 var thoughts_enabled: bool = true
 var dialogue_enabled: bool = true
 var dreams_enabled: bool = true
+var _pending_thought_npc_ids: Array = []
+var _pending_dream_npc_ids: Array = []
+var _pending_dialogue_pairs: Array = []
 
 func _ready() -> void:
     _ensure_initialized()
@@ -225,6 +228,9 @@ func configure(seed_text: String, narrator_enabled: bool = true, dream_llm_enabl
     _branch_lineage = []
     _branch_fork_tick = -1
     _last_tick_processed = 0
+    _pending_thought_npc_ids.clear()
+    _pending_dream_npc_ids.clear()
+    _pending_dialogue_pairs.clear()
     self.narrator_enabled = narrator_enabled
     _narrator.enabled = narrator_enabled
     _dreams.llm_enabled = dream_llm_enabled
@@ -740,19 +746,23 @@ func process_tick(tick: int, fixed_delta: float) -> Dictionary:
         if not _generate_narrator_direction(tick):
             return _dependency_error_result(tick, "narrator")
 
-    if thoughts_enabled and _is_thought_tick(tick):
-        for npc_id in npc_ids:
-            if not _run_thought_cycle(npc_id, tick):
-                return _dependency_error_result(tick, "thought")
+    if thoughts_enabled:
+        if _is_thought_tick(tick):
+            _enqueue_thought_npcs(npc_ids)
+        if not _drain_thought_queue(tick, _generation_cap("thought", 8)):
+            return _dependency_error_result(tick, "thought")
 
-    if dialogue_enabled and _is_dialogue_tick(tick):
-        if not _run_dialogue_cycle(npc_ids, tick):
+    if dialogue_enabled:
+        if _is_dialogue_tick(tick):
+            _enqueue_dialogue_pairs(npc_ids)
+        if not _drain_dialogue_queue(tick, _generation_cap("dialogue", 4)):
             return _dependency_error_result(tick, "dialogue")
 
-    if dreams_enabled and _is_dream_tick(tick):
-        for npc_id in npc_ids:
-            if not _run_dream_cycle(npc_id, tick):
-                return _dependency_error_result(tick, "dream")
+    if dreams_enabled:
+        if _is_dream_tick(tick):
+            _enqueue_dream_npcs(npc_ids)
+        if not _drain_dream_queue(tick, _generation_cap("dream", 8)):
+            return _dependency_error_result(tick, "dream")
 
     var snapshot = current_snapshot(tick)
     var event_id = _store.begin_event(world_id, active_branch_id, tick, "tick", snapshot)
@@ -830,7 +840,94 @@ func current_snapshot(tick: int) -> Dictionary:
         "directive": _directive_text(),
         "cognition_contract": _cognition_contract_config.to_dict() if (_cognition_contract_config != null and _cognition_contract_config.has_method("to_dict")) else {},
         "llama_server_options": _llama_server_options.duplicate(true),
+        "cognition_scheduler": {
+            "pending_thoughts": _pending_thought_npc_ids.duplicate(true),
+            "pending_dialogues": _pending_dialogue_pairs.duplicate(true),
+            "pending_dreams": _pending_dream_npc_ids.duplicate(true),
+        },
     }
+
+func _generation_cap(task: String, fallback: int) -> int:
+    var key = "max_generations_per_tick_%s" % task
+    return maxi(1, int(_llama_server_options.get(key, fallback)))
+
+func _enqueue_thought_npcs(npc_ids: Array) -> void:
+    for npc_id_variant in npc_ids:
+        var npc_id = String(npc_id_variant).strip_edges()
+        if npc_id == "" or _pending_thought_npc_ids.has(npc_id):
+            continue
+        _pending_thought_npc_ids.append(npc_id)
+
+func _enqueue_dream_npcs(npc_ids: Array) -> void:
+    for npc_id_variant in npc_ids:
+        var npc_id = String(npc_id_variant).strip_edges()
+        if npc_id == "" or _pending_dream_npc_ids.has(npc_id):
+            continue
+        _pending_dream_npc_ids.append(npc_id)
+
+func _enqueue_dialogue_pairs(npc_ids: Array) -> void:
+    if npc_ids.size() < 2:
+        return
+    for index in range(0, npc_ids.size() - 1, 2):
+        var source_id = String(npc_ids[index]).strip_edges()
+        var target_id = String(npc_ids[index + 1]).strip_edges()
+        if source_id == "" or target_id == "":
+            continue
+        var pair_key = "%s|%s" % [source_id, target_id]
+        var already_queued = false
+        for pair_variant in _pending_dialogue_pairs:
+            if not (pair_variant is Dictionary):
+                continue
+            var pair = pair_variant as Dictionary
+            if "%s|%s" % [String(pair.get("source_id", "")), String(pair.get("target_id", ""))] == pair_key:
+                already_queued = true
+                break
+        if not already_queued:
+            _pending_dialogue_pairs.append({
+                "source_id": source_id,
+                "target_id": target_id,
+            })
+
+func _drain_thought_queue(tick: int, limit: int) -> bool:
+    var consumed = 0
+    while consumed < limit and not _pending_thought_npc_ids.is_empty():
+        var npc_id = String(_pending_thought_npc_ids[0]).strip_edges()
+        _pending_thought_npc_ids.remove_at(0)
+        if npc_id == "":
+            continue
+        if not _run_thought_cycle(npc_id, tick):
+            return false
+        consumed += 1
+    return true
+
+func _drain_dream_queue(tick: int, limit: int) -> bool:
+    var consumed = 0
+    while consumed < limit and not _pending_dream_npc_ids.is_empty():
+        var npc_id = String(_pending_dream_npc_ids[0]).strip_edges()
+        _pending_dream_npc_ids.remove_at(0)
+        if npc_id == "":
+            continue
+        if not _run_dream_cycle(npc_id, tick):
+            return false
+        consumed += 1
+    return true
+
+func _drain_dialogue_queue(tick: int, limit: int) -> bool:
+    var consumed = 0
+    while consumed < limit and not _pending_dialogue_pairs.is_empty():
+        var pair_variant = _pending_dialogue_pairs[0]
+        _pending_dialogue_pairs.remove_at(0)
+        if not (pair_variant is Dictionary):
+            continue
+        var pair = pair_variant as Dictionary
+        var source_id = String(pair.get("source_id", "")).strip_edges()
+        var target_id = String(pair.get("target_id", "")).strip_edges()
+        if source_id == "" or target_id == "":
+            continue
+        if not _run_dialogue_pair(source_id, target_id, tick):
+            return false
+        consumed += 1
+    return true
 
 func _apply_need_decay(npc_id: String, fixed_delta: float) -> void:
     var state = _villagers.get(npc_id, null)
@@ -897,47 +994,54 @@ func _run_dialogue_cycle(npc_ids: Array, tick: int) -> bool:
     if npc_ids.size() < 2:
         return true
     for index in range(0, npc_ids.size() - 1, 2):
-        var source_id = String(npc_ids[index])
-        var target_id = String(npc_ids[index + 1])
-        var source_state_resource = _villagers.get(source_id, null)
-        var target_state_resource = _villagers.get(target_id, null)
-        if source_state_resource == null or target_state_resource == null:
+        var source_id = String(npc_ids[index]).strip_edges()
+        var target_id = String(npc_ids[index + 1]).strip_edges()
+        if source_id == "" or target_id == "":
             continue
-        var source_state: Dictionary = source_state_resource.to_dict()
-        var target_state: Dictionary = target_state_resource.to_dict()
-        var world_day = int(tick / 24)
-        source_state["belief_context"] = _belief_context_for_npc(source_id, world_day, 4)
-        target_state["belief_context"] = _belief_context_for_npc(target_id, world_day, 4)
-        source_state["culture_context"] = _culture_context_for_npc(source_id, world_day)
-        target_state["culture_context"] = _culture_context_for_npc(target_id, world_day)
-        var source_recall = _mind.select_recall_context(_backstory_service, source_id, world_day, 4, 1)
-        var target_recall = _mind.select_recall_context(_backstory_service, target_id, world_day, 4, 1)
-        var seed = _rng.derive_seed("dialogue", source_id + "->" + target_id, active_branch_id, tick)
-        var result = _mind.generate_dialogue_exchange(source_id, target_id, source_state, target_state, source_recall, target_recall, seed, _directive_text())
-        if not bool(result.get("ok", false)):
-            return _emit_dependency_error(tick, "dialogue", String(result.get("error", "dialogue_failed")))
-        var dialogue_text = String(result.get("text", "")).strip_edges()
-        if dialogue_text == "":
-            continue
+        if not _run_dialogue_pair(source_id, target_id, tick):
+            return false
+    return true
 
-        var event_id = "dialogue:%s:%s:%s:%d" % [world_id, source_id, target_id, tick]
-        _backstory_service.record_event(
-            event_id,
-            "villager_dialogue",
-            dialogue_text,
-            world_day,
-            "",
-            [source_id, target_id],
-            {
-                "source": "llm_dialogue",
-                "is_factual": true,
-                "source_recall": _memory_refs_from_recall(source_recall),
-                "target_recall": _memory_refs_from_recall(target_recall),
-                "evidence_trace": result.get("trace", {}),
-            }
-        )
-        _persist_llm_trace_event(tick, "dialogue_exchange", [source_id, target_id], result.get("trace", {}))
-        emit_signal("villager_dialogue_recorded", source_id, target_id, tick, event_id, dialogue_text)
+func _run_dialogue_pair(source_id: String, target_id: String, tick: int) -> bool:
+    var source_state_resource = _villagers.get(source_id, null)
+    var target_state_resource = _villagers.get(target_id, null)
+    if source_state_resource == null or target_state_resource == null:
+        return true
+    var source_state: Dictionary = source_state_resource.to_dict()
+    var target_state: Dictionary = target_state_resource.to_dict()
+    var world_day = int(tick / 24)
+    source_state["belief_context"] = _belief_context_for_npc(source_id, world_day, 4)
+    target_state["belief_context"] = _belief_context_for_npc(target_id, world_day, 4)
+    source_state["culture_context"] = _culture_context_for_npc(source_id, world_day)
+    target_state["culture_context"] = _culture_context_for_npc(target_id, world_day)
+    var source_recall = _mind.select_recall_context(_backstory_service, source_id, world_day, 4, 1)
+    var target_recall = _mind.select_recall_context(_backstory_service, target_id, world_day, 4, 1)
+    var seed = _rng.derive_seed("dialogue", source_id + "->" + target_id, active_branch_id, tick)
+    var result = _mind.generate_dialogue_exchange(source_id, target_id, source_state, target_state, source_recall, target_recall, seed, _directive_text())
+    if not bool(result.get("ok", false)):
+        return _emit_dependency_error(tick, "dialogue", String(result.get("error", "dialogue_failed")))
+    var dialogue_text = String(result.get("text", "")).strip_edges()
+    if dialogue_text == "":
+        return true
+
+    var event_id = "dialogue:%s:%s:%s:%d" % [world_id, source_id, target_id, tick]
+    _backstory_service.record_event(
+        event_id,
+        "villager_dialogue",
+        dialogue_text,
+        world_day,
+        "",
+        [source_id, target_id],
+        {
+            "source": "llm_dialogue",
+            "is_factual": true,
+            "source_recall": _memory_refs_from_recall(source_recall),
+            "target_recall": _memory_refs_from_recall(target_recall),
+            "evidence_trace": result.get("trace", {}),
+        }
+    )
+    _persist_llm_trace_event(tick, "dialogue_exchange", [source_id, target_id], result.get("trace", {}))
+    emit_signal("villager_dialogue_recorded", source_id, target_id, tick, event_id, dialogue_text)
     return true
 
 func _run_dream_cycle(npc_id: String, tick: int) -> bool:
@@ -1671,6 +1775,25 @@ func _apply_snapshot(snapshot: Dictionary) -> void:
     var llama_options_variant = snapshot.get("llama_server_options", null)
     if llama_options_variant is Dictionary:
         _llama_server_options = (llama_options_variant as Dictionary).duplicate(true)
+    var scheduler_variant = snapshot.get("cognition_scheduler", null)
+    if scheduler_variant is Dictionary:
+        var scheduler = scheduler_variant as Dictionary
+        _pending_thought_npc_ids = _normalize_id_array(scheduler.get("pending_thoughts", []) as Array)
+        _pending_dream_npc_ids = _normalize_id_array(scheduler.get("pending_dreams", []) as Array)
+        _pending_dialogue_pairs.clear()
+        var pending_pairs: Array = scheduler.get("pending_dialogues", [])
+        for pair_variant in pending_pairs:
+            if not (pair_variant is Dictionary):
+                continue
+            var pair = pair_variant as Dictionary
+            var source_id = String(pair.get("source_id", "")).strip_edges()
+            var target_id = String(pair.get("target_id", "")).strip_edges()
+            if source_id == "" or target_id == "":
+                continue
+            _pending_dialogue_pairs.append({
+                "source_id": source_id,
+                "target_id": target_id,
+            })
     _apply_llama_server_integration()
 
     _community_ledger = _community_ledger_system.initial_community_ledger()
