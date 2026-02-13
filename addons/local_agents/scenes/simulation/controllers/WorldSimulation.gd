@@ -416,6 +416,50 @@ func _on_hud_graphics_option_changed(option_id: String, value) -> void:
 	_graphics_state[String(option_id)] = value
 	_apply_graphics_state()
 
+func _on_hud_performance_mode_requested() -> void:
+	if simulation_controller != null:
+		simulation_controller.set("weather_step_interval_ticks", 4)
+		simulation_controller.set("hydrology_step_interval_ticks", 4)
+		simulation_controller.set("erosion_step_interval_ticks", 8)
+		simulation_controller.set("solar_step_interval_ticks", 8)
+		simulation_controller.set("resource_pipeline_interval_ticks", 4)
+		simulation_controller.set("structure_lifecycle_interval_ticks", 4)
+		simulation_controller.set("culture_cycle_interval_ticks", 8)
+	simulation_ticks_per_second = 2.0
+	living_profile_push_interval_ticks = 8
+	visual_environment_update_interval_ticks = 8
+	_loop_controller.set_timing(simulation_ticks_per_second, living_profile_push_interval_ticks)
+	if environment_controller != null:
+		environment_controller.set("weather_texture_update_interval_ticks", 8)
+		environment_controller.set("surface_texture_update_interval_ticks", 8)
+		environment_controller.set("solar_texture_update_interval_ticks", 8)
+		environment_controller.set("field_texture_update_budget_cells", 4096)
+	if has_node("EcologyController"):
+		var ecology_controller = get_node("EcologyController")
+		ecology_controller.set("plant_step_interval_seconds", 0.2)
+		ecology_controller.set("mammal_step_interval_seconds", 0.2)
+		ecology_controller.set("living_profile_refresh_interval_seconds", 0.4)
+		ecology_controller.set("edible_index_rebuild_interval_seconds", 0.75)
+		ecology_controller.set("max_smell_substeps_per_physics_frame", 2)
+	_graphics_state["water_shader_enabled"] = false
+	_graphics_state["ocean_surface_enabled"] = false
+	_graphics_state["river_overlays_enabled"] = false
+	_graphics_state["rain_post_fx_enabled"] = false
+	_graphics_state["clouds_enabled"] = false
+	_graphics_state["shadows_enabled"] = false
+	_graphics_state["ssr_enabled"] = false
+	_graphics_state["ssao_enabled"] = false
+	_graphics_state["ssil_enabled"] = false
+	_graphics_state["sdfgi_enabled"] = false
+	_graphics_state["glow_enabled"] = false
+	_graphics_state["fog_enabled"] = false
+	_graphics_state["volumetric_fog_enabled"] = false
+	_graphics_state["cloud_quality"] = "low"
+	_graphics_state["cloud_density_scale"] = 0.2
+	_graphics_state["rain_visual_intensity_scale"] = 0.1
+	_apply_graphics_state()
+	_refresh_hud()
+
 func _apply_graphics_state() -> void:
 	if sun_light != null:
 		sun_light.shadow_enabled = bool(_graphics_state.get("shadows_enabled", false))
