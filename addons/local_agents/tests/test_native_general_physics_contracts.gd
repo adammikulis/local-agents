@@ -3,6 +3,7 @@ extends RefCounted
 
 const SIM_SOURCE_DIR := "res://addons/local_agents/gdextensions/localagents/src/sim"
 const LEGACY_PIPELINE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipeline.cpp"
+const INTERNAL_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipelineInternal.cpp"
 const BRIDGE_GD_PATH := "res://addons/local_agents/simulation/controller/NativeComputeBridge.gd"
 
 func run_test(_tree: SceneTree) -> bool:
@@ -11,6 +12,8 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = _test_stage_dispatch_and_summary_contracts_cover_all_domains() and ok
 	ok = _test_stage_results_include_conservation_payload_contract() and ok
 	ok = _test_conservation_diagnostics_fields_contract() and ok
+	ok = _test_mass_energy_step_drift_bound_contracts() and ok
+	ok = _test_mass_energy_overall_drift_bound_contracts() and ok
 	ok = _test_field_handle_summary_and_diagnostics_contract() and ok
 	ok = _test_optional_field_evolution_summary_keys_contract() and ok
 	ok = _test_field_evolution_invariant_and_stage_coupling_contract() and ok
@@ -21,6 +24,9 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = _test_shock_impulse_contracts_present() and ok
 	ok = _test_friction_contact_contracts_present() and ok
 	ok = _test_bridge_declares_contact_canonical_input_fields() and ok
+	ok = _test_wave_a_coupling_pressure_to_mechanics_contract() and ok
+	ok = _test_wave_a_coupling_reaction_to_thermal_contract() and ok
+	ok = _test_wave_a_coupling_damage_to_voxel_ops_contract() and ok
 	if ok:
 		print("Native generalized physics source contracts passed (stage domains, conservation diagnostics, and generalized physics terms).")
 	return ok
@@ -147,11 +153,158 @@ func _test_field_evolution_invariant_and_stage_coupling_contract() -> bool:
 		ok = _assert(_contains_direct_summary_key_contract(source, "stage_coupling"), "Summary must expose stage_coupling when stage_coupling marker is present") and ok
 	if has_coupling_markers:
 		ok = _assert(_contains_direct_summary_key_contract(source, "coupling_markers"), "Summary must expose coupling_markers when coupling markers are present") and ok
+	return ok
 
-	if has_stage_coupling or has_coupling_markers:
-		ok = _assert(_contains_coupling_key_contract(source, "pressure->mechanics"), "Coupling contracts must include pressure->mechanics key") and ok
-		ok = _assert(_contains_coupling_key_contract(source, "reaction->thermal"), "Coupling contracts must include reaction->thermal key") and ok
-		ok = _assert(_contains_coupling_key_contract(source, "damage->voxel"), "Coupling contracts must include damage->voxel key") and ok
+func _test_mass_energy_step_drift_bound_contracts() -> bool:
+	var internal_source := _read_source(INTERNAL_CPP_PATH)
+	if internal_source == "":
+		return false
+	var ok := true
+	ok = _assert(
+		_contains_any(
+			internal_source,
+			[
+				"const double mass_delta = clamped(conservation.get(\"mass_proxy_delta\", 0.0), -1.0e18, 1.0e18, 0.0);",
+				"const double mass_delta = clamped(conservation.get(\"mass_proxy_delta\", 0.0), -1e18, 1e18, 0.0);"
+			]
+		),
+		"Per-step mass drift must be clamped before accumulation."
+	) and ok
+	ok = _assert(
+		_contains_any(
+			internal_source,
+			[
+				"const double energy_delta = clamped(conservation.get(\"energy_proxy_delta\", 0.0), -1.0e18, 1.0e18, 0.0);",
+				"const double energy_delta = clamped(conservation.get(\"energy_proxy_delta\", 0.0), -1e18, 1e18, 0.0);"
+			]
+		),
+		"Per-step energy drift must be clamped before accumulation."
+	) and ok
+	ok = _assert(
+		_contains_any(
+			internal_source,
+			[
+				"const double previous_mass_sum = clamped(stage_total.get(\"mass_proxy_delta_sum\", 0.0), -1.0e18, 1.0e18, 0.0);",
+				"const double previous_mass_sum = clamped(stage_total.get(\"mass_proxy_delta_sum\", 0.0), -1e18, 1e18, 0.0);"
+			]
+		),
+		"Per-step mass sum accumulation must read bounded history."
+	) and ok
+	ok = _assert(
+		_contains_any(
+			internal_source,
+			[
+				"const double previous_energy_sum = clamped(stage_total.get(\"energy_proxy_delta_sum\", 0.0), -1.0e18, 1.0e18, 0.0);",
+				"const double previous_energy_sum = clamped(stage_total.get(\"energy_proxy_delta_sum\", 0.0), -1e18, 1e18, 0.0);"
+			]
+		),
+		"Per-step energy sum accumulation must read bounded history."
+	) and ok
+	return ok
+
+func _test_mass_energy_overall_drift_bound_contracts() -> bool:
+	var internal_source := _read_source(INTERNAL_CPP_PATH)
+	if internal_source == "":
+		return false
+	var pipeline_source := _read_source(LEGACY_PIPELINE_CPP_PATH)
+	if pipeline_source == "":
+		return false
+	var ok := true
+	ok = _assert(
+		_contains_any(
+			internal_source,
+			[
+				"mass_total += clamped(stage_total.get(\"mass_proxy_delta_sum\", 0.0), -1.0e18, 1.0e18, 0.0);",
+				"mass_total += clamped(stage_total.get(\"mass_proxy_delta_sum\", 0.0), -1e18, 1e18, 0.0);"
+			]
+		),
+		"Overall mass drift total must aggregate bounded per-stage sums."
+	) and ok
+	ok = _assert(
+		_contains_any(
+			internal_source,
+			[
+				"energy_total += clamped(stage_total.get(\"energy_proxy_delta_sum\", 0.0), -1.0e18, 1.0e18, 0.0);",
+				"energy_total += clamped(stage_total.get(\"energy_proxy_delta_sum\", 0.0), -1e18, 1e18, 0.0);"
+			]
+		),
+		"Overall energy drift total must aggregate bounded per-stage sums."
+	) and ok
+	ok = _assert(
+		_contains_any(
+			pipeline_source,
+			[
+				"summary[\"field_mass_drift_proxy\"] = unified_pipeline::clamped(field_evolution.get(\"mass_drift_proxy\", 0.0), -1.0e18, 1.0e18, 0.0);",
+				"summary[\"field_mass_drift_proxy\"] = unified_pipeline::clamped(field_evolution.get(\"mass_drift_proxy\", 0.0), -1e18, 1e18, 0.0);"
+			]
+		),
+		"Step summary must clamp field mass drift proxy."
+	) and ok
+	ok = _assert(
+		_contains_any(
+			pipeline_source,
+			[
+				"summary[\"field_energy_drift_proxy\"] = unified_pipeline::clamped(field_evolution.get(\"energy_drift_proxy\", 0.0), -1.0e18, 1.0e18, 0.0);",
+				"summary[\"field_energy_drift_proxy\"] = unified_pipeline::clamped(field_evolution.get(\"energy_drift_proxy\", 0.0), -1e18, 1e18, 0.0);"
+			]
+		),
+		"Step summary must clamp field energy drift proxy."
+	) and ok
+	ok = _assert(
+		_contains_any(
+			internal_source,
+			[
+				"diagnostics[\"overall\"] = unified_pipeline::make_dictionary(",
+				"diagnostics[\"overall\"] = Dictionary::make("
+			]
+		),
+		"Summary must expose bounded overall conservation totals."
+	) and ok
+	return ok
+
+func _test_wave_a_coupling_pressure_to_mechanics_contract() -> bool:
+	var source := _read_pipeline_sources()
+	if source == "":
+		return false
+	var ok := true
+	ok = _assert(source.contains("markers.append(String(\"pressure->mechanics\"))"), "Wave A coupling markers must include pressure->mechanics") and ok
+	ok = _assert(source.contains("stage_coupling[\"pressure->mechanics\"] = unified_pipeline::make_dictionary("), "Wave A must expose pressure->mechanics coupling mapping") and ok
+	ok = _assert(source.contains("\"marker\", String(\"pressure->mechanics\"),"), "pressure->mechanics mapping must stamp marker field") and ok
+	ok = _assert(source.contains("\"wave\", String(\"A\")"), "pressure->mechanics mapping must identify Wave A") and ok
+	ok = _assert(source.contains("\"source_stage\", String(\"pressure\")"), "pressure->mechanics mapping must identify pressure as source stage") and ok
+	ok = _assert(source.contains("\"target_stage\", String(\"mechanics\")"), "pressure->mechanics mapping must identify mechanics as target stage") and ok
+	ok = _assert(source.contains("\"scalar\", pressure_to_mechanics"), "pressure->mechanics mapping must surface pressure_to_mechanics scalar") and ok
+	ok = _assert(source.contains("\"pressure_to_mechanics_scalar\", pressure_to_mechanics"), "pressure->mechanics scalar diagnostics must publish pressure_to_mechanics_scalar") and ok
+	return ok
+
+func _test_wave_a_coupling_reaction_to_thermal_contract() -> bool:
+	var source := _read_pipeline_sources()
+	if source == "":
+		return false
+	var ok := true
+	ok = _assert(source.contains("markers.append(String(\"reaction->thermal\"))"), "Wave A coupling markers must include reaction->thermal") and ok
+	ok = _assert(source.contains("stage_coupling[\"reaction->thermal\"] = unified_pipeline::make_dictionary("), "Wave A must expose reaction->thermal coupling mapping") and ok
+	ok = _assert(source.contains("\"marker\", String(\"reaction->thermal\"),"), "reaction->thermal mapping must stamp marker field") and ok
+	ok = _assert(source.contains("\"wave\", String(\"A\")"), "reaction->thermal mapping must identify Wave A") and ok
+	ok = _assert(source.contains("\"source_stage\", String(\"reaction\")"), "reaction->thermal mapping must identify reaction as source stage") and ok
+	ok = _assert(source.contains("\"target_stage\", String(\"thermal\")"), "reaction->thermal mapping must identify thermal as target stage") and ok
+	ok = _assert(source.contains("\"scalar\", reaction_to_thermal"), "reaction->thermal mapping must surface reaction_to_thermal scalar") and ok
+	ok = _assert(source.contains("\"reaction_to_thermal_scalar\", reaction_to_thermal"), "reaction->thermal scalar diagnostics must publish reaction_to_thermal_scalar") and ok
+	return ok
+
+func _test_wave_a_coupling_damage_to_voxel_ops_contract() -> bool:
+	var source := _read_pipeline_sources()
+	if source == "":
+		return false
+	var ok := true
+	ok = _assert(source.contains("markers.append(String(\"damage->voxel\"))"), "Wave A coupling markers must include damage->voxel") and ok
+	ok = _assert(source.contains("stage_coupling[\"damage->voxel\"] = unified_pipeline::make_dictionary("), "Wave A must expose damage->voxel coupling mapping for voxel ops") and ok
+	ok = _assert(source.contains("\"marker\", String(\"damage->voxel\"),"), "damage->voxel mapping must stamp marker field") and ok
+	ok = _assert(source.contains("\"wave\", String(\"A\")"), "damage->voxel mapping must identify Wave A") and ok
+	ok = _assert(source.contains("\"source_stage\", String(\"damage\")"), "damage->voxel ops mapping must identify damage as source stage") and ok
+	ok = _assert(source.contains("\"target_stage\", String(\"voxel\")"), "damage->voxel ops mapping must identify voxel ops as target stage") and ok
+	ok = _assert(source.contains("\"scalar\", damage_to_voxel"), "damage->voxel mapping must surface damage_to_voxel scalar") and ok
+	ok = _assert(source.contains("\"damage_to_voxel_scalar\", damage_to_voxel"), "damage->voxel scalar diagnostics must publish damage_to_voxel_scalar") and ok
 	return ok
 
 func _test_core_equation_contracts_present() -> bool:
@@ -302,10 +455,6 @@ func _contains_summary_key_contract(source: String, key: String) -> bool:
 func _contains_direct_summary_key_contract(source: String, key: String) -> bool:
 	var direct_key := "summary[\"%s\"]" % key
 	return source.contains(direct_key)
-
-func _contains_coupling_key_contract(source: String, key: String) -> bool:
-	var quoted_key := "\"%s\"" % key
-	return source.contains(quoted_key) and (source.contains("\"stage_coupling\"") or source.contains("\"coupling_markers\""))
 
 func _contains_any(source: String, needles: Array[String]) -> bool:
 	for needle in needles:
