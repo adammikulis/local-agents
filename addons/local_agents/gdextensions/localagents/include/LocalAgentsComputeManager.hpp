@@ -2,6 +2,7 @@
 #define LOCAL_AGENTS_COMPUTE_MANAGER_HPP
 
 #include "LocalAgentsSimulationInterfaces.hpp"
+#include "sim/UnifiedSimulationPipeline.hpp"
 
 namespace local_agents::simulation {
 
@@ -15,6 +16,7 @@ public:
 private:
     godot::Dictionary config_;
     int64_t executed_steps_ = 0;
+    UnifiedSimulationPipeline pipeline_;
 };
 
 } // namespace local_agents::simulation

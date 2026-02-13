@@ -39,6 +39,8 @@ set(SRC
     src/LocalAgentsScheduler.cpp
     src/LocalAgentsSimProfiler.cpp
     src/LocalAgentsSimulationCore.cpp
+    src/sim/UnifiedSimulationPipeline.cpp
+    src/VoxelEditEngine.cpp
 )
 
 set(SQLITE_SRC

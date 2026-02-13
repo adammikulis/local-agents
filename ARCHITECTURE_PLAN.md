@@ -161,8 +161,10 @@ Phase 1: Native infrastructure and ownership boundaries
 
 Phase 2: Hydrology + terrain/environment core migration first
 - [ ] Port hydrology, erosion/destruction, weather, and solar heavy update loops to native kernels/graph stages.
+- [ ] Add native combustion/reaction stage with pressure + temperature + fuel + oxygen gating and couple resulting heat/damage budgets into unified terrain destruction ops.
 - [ ] Route terrain/environment spatial query hotspots through native query services and remove duplicate script-side scan caches.
 - [ ] Prioritize GPU residency and shared buffer/pipeline ownership in native compute manager for these domains.
+- [ ] Enforce canonical physics channel set in native field contracts: pressure, temperature, density, velocity, moisture, porosity, cohesion, hardness, phase, stress/strain, fuel, oxygen.
 - [ ] Add integrated fixed-seed N-tick replay coverage for weather + hydrology + erosion + solar equivalence.
 - [ ] Add deterministic unified material-flow parity gate with epsilon contract (`<= 1e-4`) for CPU/native snapshot comparisons.
 - [ ] Add deterministic foveated throttling gate validating monotonic throttle scalars (`op_stride`, `voxel_scale`, `compute_budget_scale`) under far-camera/high-uniformity views.

@@ -5,7 +5,7 @@ Move full world simulation ownership to native C++ (`GDExtension`) and converge 
 
 ## Architecture Target
 1. Native `MaterialState` fields
-- Unified voxel/tile channels: phase, density, cohesion, porosity, hardness, moisture, temperature, pressure, velocity, sediment load, energy.
+- Unified voxel/tile channels: pressure, temperature, density, velocity, moisture, porosity, cohesion, hardness, phase, stress, strain, sediment load, fuel, oxygen, energy.
 - Stored in centralized native field registry with typed channels and explicit layouts (SoA).
 
 2. Native `TransportSolver`
@@ -16,8 +16,10 @@ Move full world simulation ownership to native C++ (`GDExtension`) and converge 
 - Shared carve/fill/fracture/compaction ops from stress + transport + impact energy.
 - Terrain erosion, landslides, and meteor impacts all emit the same voxel edit operation contracts.
 
-4. Native `ReactionSolver`
+4. Native `ReactionSolver` (includes combustion)
 - Thermal/phase/chemical transitions (e.g. melt/solidify, boiling/condense, reaction heat).
+- Pressure- and temperature-dependent combustion with fuel/oxygen/material gating and moisture damping.
+- Emits heat, consumes reactants, and contributes terrain damage budget into destruction ops.
 
 5. Unified runtime policy (foveated simulation)
 - View/activity-aware cadence and resolution scaling:
@@ -48,8 +50,15 @@ Exit criteria:
 - Add native interfaces:
   - `ITransportSolver`
   - `IDestructionSolver`
+  - `ICombustionSolver`
 - Implement `TransportSolverPipeline` in native compute manager path.
 - Route terrain delta generation through destruction solver output -> voxel edit engine.
+- Add pressure-aware combustion stage contracts:
+  - ignition temperature threshold
+  - pressure window (`min`, `max`, `optimal`)
+  - fuel + oxygen gating
+  - material flammability + moisture damping
+  - heat release + terrain damage coupling outputs
 
 Exit criteria:
 - Hydrology and erosion logic no longer own primary numeric loops in `.gd`.
@@ -57,7 +66,7 @@ Exit criteria:
 
 ### Phase 3: Domain Convergence
 - Re-express “hydrology” and “erosion” as parameter sets over shared solvers.
-- Add lava/impact profiles through same material and destruction ops.
+- Add lava/impact/combustion profiles through same material + reaction + destruction ops.
 - Migrate weather coupling to shared field channels (moisture, energy, pressure).
 
 Exit criteria:

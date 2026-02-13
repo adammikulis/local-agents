@@ -39,6 +39,33 @@ public:
     virtual godot::Dictionary get_debug_snapshot() const = 0;
 };
 
+class ITransportSolver {
+public:
+    virtual ~ITransportSolver() = default;
+
+    virtual bool configure(const godot::Dictionary &config) = 0;
+    virtual godot::Dictionary execute_stage(const godot::Dictionary &stage_config, const godot::Dictionary &stage_inputs) = 0;
+    virtual void reset() = 0;
+};
+
+class IDestructionSolver {
+public:
+    virtual ~IDestructionSolver() = default;
+
+    virtual bool configure(const godot::Dictionary &config) = 0;
+    virtual godot::Dictionary execute_stage(const godot::Dictionary &stage_config, const godot::Dictionary &stage_inputs) = 0;
+    virtual void reset() = 0;
+};
+
+class ICombustionSolver {
+public:
+    virtual ~ICombustionSolver() = default;
+
+    virtual bool configure(const godot::Dictionary &config) = 0;
+    virtual godot::Dictionary execute_stage(const godot::Dictionary &stage_config, const godot::Dictionary &stage_inputs) = 0;
+    virtual void reset() = 0;
+};
+
 class ISimProfiler {
 public:
     virtual ~ISimProfiler() = default;
