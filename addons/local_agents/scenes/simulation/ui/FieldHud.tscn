@@ -15,14 +15,13 @@ mouse_filter = 1
 
 [node name="InspectorPanel" type="PanelContainer" parent="RootControl"]
 anchors_preset = 9
-anchor_left = 0.74
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = -8.0
-offset_top = 8.0
+anchor_right = 0.32
+anchor_bottom = 0.75
+offset_left = 8.0
+offset_top = 132.0
 offset_right = -8.0
-offset_bottom = -96.0
-grow_horizontal = 0
+offset_bottom = -8.0
+grow_horizontal = 2
 grow_vertical = 2
 
 [node name="InspectorMargin" type="MarginContainer" parent="RootControl/InspectorPanel"]
@@ -44,10 +43,13 @@ text = "Click an actor to view details."
 
 [node name="BottomPanel" type="PanelContainer" parent="RootControl"]
 anchors_preset = 12
-anchor_top = 1.0
+anchor_top = 0.75
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_top = -130.0
+offset_left = 0.0
+offset_top = 0.0
+offset_right = 0.0
+offset_bottom = 0.0
 grow_horizontal = 2
 grow_vertical = 0
 
@@ -103,15 +105,15 @@ text = "Spawn Random"
 text = "Debug"
 
 [node name="ShowSmellCheck" type="CheckButton" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/DebugRow" unique_name_in_owner=true]
-button_pressed = true
+button_pressed = false
 text = "Smell"
 
 [node name="ShowWindCheck" type="CheckButton" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/DebugRow" unique_name_in_owner=true]
-button_pressed = true
+button_pressed = false
 text = "Wind"
 
 [node name="ShowTempCheck" type="CheckButton" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/DebugRow" unique_name_in_owner=true]
-button_pressed = true
+button_pressed = false
 text = "Temp"
 
 [node name="SmellLayerLabel" type="Label" parent="RootControl/BottomPanel/BottomMargin/BottomVBox/DebugRow"]

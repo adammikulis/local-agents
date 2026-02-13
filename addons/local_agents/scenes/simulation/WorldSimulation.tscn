@@ -1,18 +1,19 @@
-[gd_scene load_steps=17 format=3]
+[gd_scene format=3 uid="uid://dynh70pmwjatx"]
 
-[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd" id="1_world"]
-[ext_resource type="Script" path="res://addons/local_agents/simulation/SimulationController.gd" id="2_sim"]
-[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/PerformanceTelemetryServer.gd" id="13_perf_server"]
-[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/EnvironmentController.gd" id="3_env"]
-[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/SettlementController.gd" id="4_settlement"]
-[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/VillagerController.gd" id="5_villagers"]
-[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/CultureController.gd" id="6_culture"]
+[ext_resource type="Script" uid="uid://cxg0xvwi6iqff" path="res://addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd" id="1_world"]
+[ext_resource type="Script" uid="uid://clmuav00d2xeg" path="res://addons/local_agents/simulation/SimulationController.gd" id="2_sim"]
+[ext_resource type="Script" uid="uid://djbuk33krqql3" path="res://addons/local_agents/scenes/simulation/controllers/EnvironmentController.gd" id="3_env"]
+[ext_resource type="Script" uid="uid://cs4um3ernunba" path="res://addons/local_agents/scenes/simulation/controllers/SettlementController.gd" id="4_settlement"]
+[ext_resource type="Script" uid="uid://elp78fthfpgt" path="res://addons/local_agents/scenes/simulation/controllers/VillagerController.gd" id="5_villagers"]
+[ext_resource type="Script" uid="uid://c750ug3a03v3h" path="res://addons/local_agents/scenes/simulation/controllers/CultureController.gd" id="6_culture"]
 [ext_resource type="PackedScene" path="res://addons/local_agents/scenes/simulation/debug/DebugOverlay.tscn" id="7_debug"]
 [ext_resource type="PackedScene" path="res://addons/local_agents/scenes/simulation/ui/SimulationHud.tscn" id="8_hud"]
-[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/EcologyController.gd" id="9_ecology"]
+[ext_resource type="Script" uid="uid://bgopb4i75impm" path="res://addons/local_agents/scenes/simulation/controllers/EcologyController.gd" id="9_ecology"]
 [ext_resource type="Resource" path="res://addons/local_agents/configuration/parameters/simulation/FlowTraversalProfile_Default.tres" id="10_flow_profile"]
 [ext_resource type="Resource" path="res://addons/local_agents/configuration/parameters/simulation/WorldGenConfig_Default.tres" id="11_worldgen_config"]
 [ext_resource type="Resource" path="res://addons/local_agents/configuration/parameters/simulation/WorldProgressionProfile_Default.tres" id="12_world_progression"]
+[ext_resource type="Script" uid="uid://cukythmycap53" path="res://addons/local_agents/scenes/simulation/controllers/PerformanceTelemetryServer.gd" id="13_perf_server"]
+[ext_resource type="PackedScene" path="res://addons/local_agents/scenes/simulation/ui/FieldHud.tscn" id="14_field_hud"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_world"]
 sky_top_color = Color(0.18, 0.42, 0.78, 1)
@@ -26,68 +27,66 @@ sky_material = SubResource("ProceduralSkyMaterial_world")
 [sub_resource type="Environment" id="Environment_world"]
 background_mode = 2
 sky = SubResource("Sky_world")
-background_energy_multiplier = 1.0
 ambient_light_source = 3
 ambient_light_energy = 0.9
-sdfgi_enabled = false
+tonemap_mode = 4
+sdfgi_use_occlusion = true
 sdfgi_cascades = 2
 sdfgi_min_cell_size = 0.35
-sdfgi_y_scale = 1
-sdfgi_use_occlusion = true
-sdfgi_read_sky_light = true
-sdfgi_energy = 1.0
 
-[node name="WorldSimulation" type="Node3D"]
+[node name="WorldSimulation" type="Node3D" unique_id=2127334031]
 script = ExtResource("1_world")
 flow_traversal_profile_override = ExtResource("10_flow_profile")
 worldgen_config_override = ExtResource("11_worldgen_config")
 world_progression_profile_override = ExtResource("12_world_progression")
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1258845425]
 environment = SubResource("Environment_world")
 
-[node name="SimulationController" type="Node" parent="."]
+[node name="SimulationController" type="Node" parent="." unique_id=1448032774]
 script = ExtResource("2_sim")
 
-[node name="PerformanceTelemetryServer" type="Node" parent="."]
+[node name="PerformanceTelemetryServer" type="Node" parent="." unique_id=918037041]
 script = ExtResource("13_perf_server")
 
-[node name="EnvironmentController" type="Node3D" parent="."]
+[node name="EnvironmentController" type="Node3D" parent="." unique_id=1976999026]
 script = ExtResource("3_env")
 
-[node name="TerrainRoot" type="Node3D" parent="EnvironmentController"]
+[node name="TerrainRoot" type="Node3D" parent="EnvironmentController" unique_id=458229188]
 
-[node name="WaterRoot" type="Node3D" parent="EnvironmentController"]
+[node name="WaterRoot" type="Node3D" parent="EnvironmentController" unique_id=961366419]
 
-[node name="SettlementController" type="Node3D" parent="."]
+[node name="SettlementController" type="Node3D" parent="." unique_id=1592276240]
 script = ExtResource("4_settlement")
 
-[node name="SettlementRoot" type="Node3D" parent="SettlementController"]
+[node name="SettlementRoot" type="Node3D" parent="SettlementController" unique_id=1748143632]
 
-[node name="VillagerController" type="Node3D" parent="."]
+[node name="VillagerController" type="Node3D" parent="." unique_id=1212144881]
 script = ExtResource("5_villagers")
 
-[node name="VillagerRoot" type="Node3D" parent="VillagerController"]
+[node name="VillagerRoot" type="Node3D" parent="VillagerController" unique_id=1034760088]
 
-[node name="CultureController" type="Node3D" parent="."]
+[node name="CultureController" type="Node3D" parent="." unique_id=1068657411]
 script = ExtResource("6_culture")
 
-[node name="EcologyController" type="Node3D" parent="."]
+[node name="EcologyController" type="Node3D" parent="." unique_id=2134405285]
 script = ExtResource("9_ecology")
 
-[node name="PlantRoot" type="Node3D" parent="EcologyController"]
+[node name="PlantRoot" type="Node3D" parent="EcologyController" unique_id=1790888063]
 
-[node name="RabbitRoot" type="Node3D" parent="EcologyController"]
+[node name="RabbitRoot" type="Node3D" parent="EcologyController" unique_id=1918586067]
 
-[node name="DebugOverlayRoot" parent="." instance=ExtResource("7_debug")]
+[node name="DebugOverlayRoot" parent="." unique_id=664357504 instance=ExtResource("7_debug")]
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.859009, -0.246761, 0.448301, 0, 0.876727, 0.480988, -0.511962, -0.413126, 0.752907, 0, 7.0, 0)
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1816803764]
+transform = Transform3D(0.859009, -0.246761, 0.448301, 0, 0.876727, 0.480988, -0.511962, -0.413126, 0.752907, 0, 7, 0)
 light_energy = 1.15
 shadow_enabled = true
 
-[node name="Camera3D" type="Camera3D" parent="."]
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1034959490]
 transform = Transform3D(0.994522, 0, -0.104528, -0.0441546, 0.906279, -0.420364, 0.0947338, 0.422677, 0.901314, 0, 8.2, 11.5)
 current = true
 
-[node name="SimulationHud" parent="." instance=ExtResource("8_hud")]
+[node name="SimulationHud" parent="." unique_id=332746410 instance=ExtResource("8_hud")]
+
+[node name="FieldHud" parent="." unique_id=1824013068 instance=ExtResource("14_field_hud")]

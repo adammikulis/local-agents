@@ -9,11 +9,13 @@ signal fork_pressed
 signal inspector_npc_changed(npc_id)
 signal overlays_changed(paths, resources, conflicts, smell, wind, temperature)
 signal graphics_option_changed(option_id, value)
+signal performance_mode_requested
 
 @export var show_performance_overlay: bool = true
 @export var performance_server_path: NodePath = NodePath("../PerformanceTelemetryServer")
 
 @onready var perf_label: Label = get_node_or_null("%PerfLabel")
+@onready var sim_timing_label: Label = get_node_or_null("%SimTimingLabel")
 @onready var status_label: Label = %StatusLabel
 @onready var details_label: Label = get_node_or_null("%DetailsLabel")
 @onready var inspector_npc_edit: LineEdit = get_node_or_null("%InspectorNpcEdit")
@@ -83,6 +85,11 @@ func set_performance_text(text: String) -> void:
 	if perf_label == null:
 		return
 	perf_label.text = text
+
+func set_sim_timing_text(text: String) -> void:
+	if sim_timing_label == null:
+		return
+	sim_timing_label.text = text
 
 func _on_play_button_pressed() -> void:
 	emit_signal("play_pressed")
@@ -230,6 +237,9 @@ func _on_rain_visual_spin_changed(value: float) -> void:
 		rain_visual_slider.value = value
 	_graphics_ui_syncing = false
 	emit_signal("graphics_option_changed", "rain_visual_intensity_scale", value)
+
+func _on_performance_mode_button_pressed() -> void:
+	emit_signal("performance_mode_requested")
 
 func set_inspector_npc(npc_id: String) -> void:
 	if inspector_npc_edit == null:
