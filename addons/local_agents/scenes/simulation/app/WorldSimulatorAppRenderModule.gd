@@ -29,6 +29,10 @@ const TerrainRendererAdapterScript = preload("res://addons/local_agents/scenes/s
 const WaterRendererAdapterScript = preload("res://addons/local_agents/scenes/simulation/app/renderers/WaterRendererAdapter.gd")
 const FeatureMarkerRendererScript = preload("res://addons/local_agents/scenes/simulation/app/renderers/FeatureMarkerRenderer.gd")
 const OverlayRendererAdapterScript = preload("res://addons/local_agents/scenes/simulation/app/renderers/OverlayRendererAdapter.gd")
+const WaterRenderControllerScript = preload("res://addons/local_agents/scenes/simulation/app/render/WaterRenderController.gd")
+const CloudRenderControllerScript = preload("res://addons/local_agents/scenes/simulation/app/render/CloudRenderController.gd")
+const LightingFxControllerScript = preload("res://addons/local_agents/scenes/simulation/app/render/LightingFxController.gd")
+const TerrainQualityControllerScript = preload("res://addons/local_agents/scenes/simulation/app/render/TerrainQualityController.gd")
 @onready var _environment_controller: Node3D = $EnvironmentController
 @onready var _flow_overlay_root: Node3D = $FlowOverlayRoot
 @onready var _debug_overlay_root: Node3D = $DebugOverlayRoot
@@ -120,6 +124,10 @@ var _terrain_renderer = TerrainRendererAdapterScript.new()
 var _water_renderer = WaterRendererAdapterScript.new()
 var _feature_marker_renderer = FeatureMarkerRendererScript.new()
 var _overlay_renderer = OverlayRendererAdapterScript.new()
+var _water_render_controller = WaterRenderControllerScript.new()
+var _cloud_render_controller = CloudRenderControllerScript.new()
+var _lighting_fx_controller = LightingFxControllerScript.new()
+var _terrain_quality_controller = TerrainQualityControllerScript.new()
 var _state: LocalAgentsSimulationStateResource = SimulationStateResourceScript.new()
 
 var _world_generator = _environment_systems_controller.world_generator
@@ -251,18 +259,10 @@ func _on_water_shader_control_changed(_value: float) -> void:
 	_apply_water_shader_controls()
 
 func _on_lightning_strike_pressed() -> void:
-	if _environment_controller == null:
-		return
-	if not _environment_controller.has_method("trigger_lightning"):
-		return
-	_environment_controller.call("trigger_lightning", clampf(float(_lightning_intensity_spin.value), 0.1, 2.0))
+	_lighting_fx_controller.on_lightning_strike_pressed(self)
 
 func _on_terrain_chunk_size_changed(v: float) -> void:
-	if _environment_controller == null:
-		return
-	if not _environment_controller.has_method("set_terrain_chunk_size"):
-		return
-	_environment_controller.call("set_terrain_chunk_size", int(round(v)))
+	_terrain_quality_controller.on_terrain_chunk_size_changed(self, v)
 
 func _on_apply_terrain_preset_pressed() -> void:
 	match _terrain_preset_option.selected:
@@ -305,257 +305,28 @@ func _on_apply_terrain_preset_pressed() -> void:
 	_generate_world()
 
 func _apply_cloud_and_debug_quality() -> void:
-	if _environment_controller != null and _environment_controller.has_method("set_cloud_quality_settings"):
-		var density = float(_cloud_density_spin.value)
-		if not _clouds_enabled:
-			density = 0.0
-		var tier = "medium"
-		match _cloud_quality_option.selected:
-			0:
-				tier = "low"
-			1:
-				tier = "medium"
-			2:
-				tier = "high"
-			_:
-				tier = "ultra"
-		_environment_controller.call("set_cloud_quality_settings", tier, density)
-	if _ecology_controller != null and _ecology_controller.has_method("set_debug_quality"):
-		_ecology_controller.call("set_debug_quality", float(_debug_density_spin.value))
+	_cloud_render_controller.apply_cloud_and_debug_quality(self)
 
 func _apply_ocean_quality_preset() -> void:
-	match _ocean_quality_option.selected:
-		0:
-			tide_uniform_updates_per_second = 2.0
-			_ocean_detail = 0.35
-		1:
-			tide_uniform_updates_per_second = 6.0
-			_ocean_detail = 0.66
-		2:
-			tide_uniform_updates_per_second = 10.0
-			_ocean_detail = 0.82
-		_:
-			tide_uniform_updates_per_second = 16.0
-			_ocean_detail = 1.0
-	_apply_tide_shader_controls(true)
+	_water_render_controller.apply_ocean_quality_preset(self)
 
 func _apply_sim_backend_mode() -> void:
-	match _sim_backend_option.selected:
-		0:
-			_sim_backend_mode = "cpu"
-		1:
-			_sim_backend_mode = "gpu_hybrid"
-		2:
-			_sim_backend_mode = "gpu_aggressive"
-		_:
-			_sim_backend_mode = "ultra"
-	var compact = _sim_backend_mode != "cpu"
-	_ultra_perf_mode = _sim_backend_mode == "ultra"
-	if _weather != null and _weather.has_method("set_emit_rows"):
-		_weather.call("set_emit_rows", not compact)
-	if _weather != null and _weather.has_method("set_compute_enabled"):
-		_weather.call("set_compute_enabled", _sim_backend_mode == "gpu_aggressive" or _sim_backend_mode == "ultra")
-	if _erosion != null and _erosion.has_method("set_emit_rows"):
-		_erosion.call("set_emit_rows", not compact)
-	if _erosion != null and _erosion.has_method("set_compute_enabled"):
-		_erosion.call("set_compute_enabled", _sim_backend_mode == "gpu_aggressive" or _sim_backend_mode == "ultra")
-	if _solar != null and _solar.has_method("set_emit_rows"):
-		_solar.call("set_emit_rows", not compact)
-	if _solar != null and _solar.has_method("set_compute_enabled"):
-		_solar.call("set_compute_enabled", _sim_backend_mode == "gpu_aggressive" or _sim_backend_mode == "ultra")
-	if _solar != null and _solar.has_method("set_sync_stride"):
-		var sync_stride = 1
-		if _sim_backend_mode == "gpu_hybrid":
-			sync_stride = 2
-		elif _sim_backend_mode == "gpu_aggressive":
-			sync_stride = 4
-		elif _sim_backend_mode == "ultra":
-			sync_stride = 8
-		_solar.call("set_sync_stride", sync_stride)
-	if _sim_backend_mode == "ultra":
-		max_sim_ticks_per_frame = mini(max_sim_ticks_per_frame, 2)
-		timelapse_record_every_ticks = maxi(8, timelapse_record_every_ticks)
-		flow_overlay_refresh_seconds = maxf(flow_overlay_refresh_seconds, 0.5)
-		terrain_apply_interval_seconds = maxf(terrain_apply_interval_seconds, 0.18)
-		sim_budget_ms_per_frame = minf(sim_budget_ms_per_frame, 3.0)
-	elif _sim_backend_mode == "gpu_aggressive":
-		max_sim_ticks_per_frame = mini(max_sim_ticks_per_frame, 3)
-		timelapse_record_every_ticks = maxi(4, timelapse_record_every_ticks)
-		flow_overlay_refresh_seconds = maxf(flow_overlay_refresh_seconds, 0.35)
-		terrain_apply_interval_seconds = maxf(terrain_apply_interval_seconds, 0.12)
-		sim_budget_ms_per_frame = minf(sim_budget_ms_per_frame, 5.0)
-	elif compact:
-		max_sim_ticks_per_frame = mini(max_sim_ticks_per_frame, 4)
-	else:
-		max_sim_ticks_per_frame = maxi(max_sim_ticks_per_frame, 6)
-	_sim_tick_cap_spin.value = max_sim_ticks_per_frame
-	_timelapse_stride_spin.value = timelapse_record_every_ticks
-	_flow_refresh_spin.value = flow_overlay_refresh_seconds
-	_terrain_apply_spin.value = terrain_apply_interval_seconds
-	_sim_budget_ms_spin.value = sim_budget_ms_per_frame
+	_terrain_quality_controller.apply_sim_backend_mode(self)
 
 func _apply_dynamic_quality(delta: float) -> void:
-	if _auto_scale_checkbox == null or not _auto_scale_checkbox.button_pressed:
-		return
-	_dynamic_quality_accum += maxf(0.0, delta)
-	if _dynamic_quality_accum < dynamic_quality_check_seconds:
-		return
-	_dynamic_quality_accum = 0.0
-	var fps = Engine.get_frames_per_second()
-	if fps <= 0:
-		return
-	var mode_perf = (_perf_ewma_by_mode.get(_sim_backend_mode, {}) as Dictionary)
-	var tick_ms = float(mode_perf.get("tick_total_ms", 0.0))
-	var target_frame_ms = 1000.0 / maxf(1.0, dynamic_target_fps)
-	var target_sim_ms = minf(sim_budget_ms_per_frame, target_frame_ms * 0.5)
-	if tick_ms > 0.0:
-		if tick_ms > target_sim_ms * 1.08:
-			_sim_budget_debt_ms += tick_ms - target_sim_ms
-			_sim_budget_credit_ms = maxf(0.0, _sim_budget_credit_ms - 0.5)
-		elif tick_ms < target_sim_ms * 0.82:
-			_sim_budget_credit_ms += target_sim_ms - tick_ms
-			_sim_budget_debt_ms = maxf(0.0, _sim_budget_debt_ms - 0.5)
-	var low_pressure = float(fps) < dynamic_target_fps - 6.0 or _sim_budget_debt_ms > target_sim_ms * 2.0
-	var high_pressure = float(fps) > dynamic_target_fps + 8.0 and _sim_budget_credit_ms > target_sim_ms * 2.0
-	_dynamic_pressure_low = _dynamic_pressure_low + 1 if low_pressure else maxi(0, _dynamic_pressure_low - 1)
-	_dynamic_pressure_high = _dynamic_pressure_high + 1 if high_pressure else maxi(0, _dynamic_pressure_high - 1)
-	if _dynamic_pressure_low >= 2:
-		_dynamic_pressure_low = 0
-		if _ocean_quality_option.selected > 0:
-			_ocean_quality_option.selected -= 1
-			_apply_ocean_quality_preset()
-		elif _cloud_quality_option.selected > 0:
-			_cloud_quality_option.selected -= 1
-			_apply_cloud_and_debug_quality()
-		elif _enable_sdfgi_checkbox.button_pressed:
-			_enable_sdfgi_checkbox.button_pressed = false
-			_apply_environment_toggles()
-		elif _enable_glow_checkbox.button_pressed:
-			_enable_glow_checkbox.button_pressed = false
-			_apply_environment_toggles()
-		elif _enable_shadows_checkbox.button_pressed:
-			_enable_shadows_checkbox.button_pressed = false
-			_apply_environment_toggles()
-		max_sim_ticks_per_frame = maxi(1, max_sim_ticks_per_frame - 1)
-		sim_budget_ms_per_frame = clampf(sim_budget_ms_per_frame - 0.5, 1.0, 25.0)
-		_sim_budget_ms_spin.value = sim_budget_ms_per_frame
-		_sim_tick_cap_spin.value = max_sim_ticks_per_frame
-		_sim_budget_debt_ms = maxf(0.0, _sim_budget_debt_ms - target_sim_ms * 0.5)
-	elif _dynamic_pressure_high >= 3:
-		_dynamic_pressure_high = 0
-		if _cloud_quality_option.selected < _cloud_quality_option.item_count - 1:
-			_cloud_quality_option.selected += 1
-			_apply_cloud_and_debug_quality()
-		elif _ocean_quality_option.selected < _ocean_quality_option.item_count - 1:
-			_ocean_quality_option.selected += 1
-			_apply_ocean_quality_preset()
-		elif not _enable_shadows_checkbox.button_pressed:
-			_enable_shadows_checkbox.button_pressed = true
-			_apply_environment_toggles()
-		elif not _enable_glow_checkbox.button_pressed:
-			_enable_glow_checkbox.button_pressed = true
-			_apply_environment_toggles()
-		elif not _enable_sdfgi_checkbox.button_pressed:
-			_enable_sdfgi_checkbox.button_pressed = true
-			_apply_environment_toggles()
-		max_sim_ticks_per_frame = mini(12, max_sim_ticks_per_frame + 1)
-		sim_budget_ms_per_frame = clampf(sim_budget_ms_per_frame + 0.5, 1.0, 25.0)
-		_sim_budget_ms_spin.value = sim_budget_ms_per_frame
-		_sim_tick_cap_spin.value = max_sim_ticks_per_frame
-		_sim_budget_credit_ms = maxf(0.0, _sim_budget_credit_ms - target_sim_ms * 0.5)
+	_terrain_quality_controller.apply_dynamic_quality(self, delta)
 
 func _apply_environment_toggles() -> void:
-	if _sun_light != null:
-		_sun_light.shadow_enabled = _enable_shadows_checkbox.button_pressed
-	if _world_environment == null or _world_environment.environment == null:
-		return
-	var env: Environment = _world_environment.environment
-	env.sdfgi_enabled = _enable_sdfgi_checkbox.button_pressed
-	env.glow_enabled = _enable_glow_checkbox.button_pressed
-	_apply_demo_fog()
+	_lighting_fx_controller.apply_environment_toggles(self)
 
 func _apply_water_shader_controls() -> void:
-	if _environment_controller == null:
-		return
-	if not _environment_controller.has_method("set_water_shader_params"):
-		return
-	var flow_dir = Vector2(_water_flow_dir_x_spin.value, _water_flow_dir_z_spin.value)
-	if flow_dir.length_squared() < 0.0001:
-		flow_dir = Vector2(1.0, 0.0)
-	var params = {
-		"flow_dir": flow_dir.normalized(),
-		"flow_speed": _water_flow_speed_spin.value,
-		"noise_scale": _water_noise_scale_spin.value,
-		"foam_strength": _water_foam_strength_spin.value,
-		"wave_strength": _water_wave_strength_spin.value,
-	}
-	params.merge(_build_tide_shader_params(), true)
-	_water_renderer.apply_shader_params(_environment_controller, params)
+	_water_render_controller.apply_water_shader_controls(self)
 
 func _apply_tide_shader_controls(force: bool = false) -> void:
-	if _environment_controller == null:
-		return
-	if not _environment_controller.has_method("set_water_shader_params"):
-		return
-	var update_interval = 1.0 / maxf(1.0, tide_uniform_updates_per_second)
-	if not force and _tide_uniform_accum < update_interval:
-		return
-	_tide_uniform_accum = 0.0
-	var params = _build_tide_shader_params()
-	var signature = "%.3f|%.3f|%.3f|%.2f|%.2f|%.2f|%.2f|%.2f|%.2f|%.2f|%.2f|%.2f|%.2f" % [
-		float(params.get("moon_phase", 0.0)),
-		float((params.get("moon_dir", Vector2.ONE) as Vector2).x),
-		float((params.get("moon_dir", Vector2.ONE) as Vector2).y),
-		float(params.get("moon_tidal_strength", 0.0)),
-		float(params.get("moon_tide_range", 0.0)),
-		float(params.get("lunar_wave_boost", 0.0)),
-		float(params.get("gravity_source_strength", 0.0)),
-		float(params.get("gravity_source_radius", 0.0)),
-		float(params.get("ocean_wave_amplitude", 0.0)),
-		float(params.get("ocean_wave_frequency", 0.0)),
-		float(params.get("ocean_chop", 0.0)),
-		float((params.get("gravity_source_pos", Vector2.ZERO) as Vector2).x),
-		float((params.get("gravity_source_pos", Vector2.ZERO) as Vector2).y),
-	]
-	if not force and signature == _tide_uniform_signature:
-		return
-	_tide_uniform_signature = signature
-	_water_renderer.apply_shader_params(_environment_controller, params)
+	_water_render_controller.apply_tide_shader_controls(self, force)
 
 func _build_tide_shader_params() -> Dictionary:
-	var cycle_days = maxf(1.0, float(_moon_cycle_days_spin.value)) if _moon_cycle_days_spin != null else lunar_cycle_days
-	var lunar_period_seconds = maxf(1.0, cycle_days * maxf(10.0, day_length_seconds))
-	var moon_phase = fposmod(_simulated_seconds, lunar_period_seconds) / lunar_period_seconds
-	var moon_angle = moon_phase * TAU
-	var moon_dir = Vector2(cos(moon_angle), sin(moon_angle))
-	if moon_dir.length_squared() < 0.0001:
-		moon_dir = Vector2(1.0, 0.0)
-	var world_width = float(_world_snapshot.get("width", int(_width_spin.value)))
-	var world_depth = float(_world_snapshot.get("height", int(_depth_spin.value)))
-	var camera_pos = _camera.global_position if _camera != null else Vector3.ZERO
-	var far_start = maxf(world_width, world_depth) * 0.35
-	var far_end = maxf(world_width, world_depth) * 1.2
-	var gravity_orbit = maxf(world_width, world_depth) * 0.55
-	var gravity_pos = Vector2(world_width * 0.5, world_depth * 0.5) + moon_dir * gravity_orbit
-	var spring_neap = absf(cos(moon_phase * TAU))
-	return {
-		"moon_dir": moon_dir.normalized(),
-		"moon_phase": moon_phase,
-		"moon_tidal_strength": float(_moon_tide_strength_spin.value) if _moon_tide_strength_spin != null else 1.0,
-		"moon_tide_range": float(_moon_tide_range_spin.value) if _moon_tide_range_spin != null else 0.26,
-		"lunar_wave_boost": lerpf(0.25, 1.0, spring_neap),
-		"gravity_source_pos": gravity_pos,
-		"gravity_source_strength": float(_gravity_strength_spin.value) if _gravity_strength_spin != null else 1.0,
-		"gravity_source_radius": float(_gravity_radius_spin.value) if _gravity_radius_spin != null else 96.0,
-		"ocean_wave_amplitude": float(_ocean_amplitude_spin.value) if _ocean_amplitude_spin != null else 0.18,
-		"ocean_wave_frequency": float(_ocean_frequency_spin.value) if _ocean_frequency_spin != null else 0.65,
-		"ocean_chop": float(_ocean_chop_spin.value) if _ocean_chop_spin != null else 0.55,
-		"ocean_detail": _ocean_detail,
-		"camera_world_pos": camera_pos,
-		"far_simplify_start": float(_water_lod_start_spin.value) if _water_lod_start_spin != null else far_start,
-		"far_simplify_end": float(_water_lod_end_spin.value) if _water_lod_end_spin != null else far_end,
-		"far_detail_min": float(_water_lod_min_spin.value) if _water_lod_min_spin != null else 0.28,
-	}
+	return _water_render_controller.build_tide_shader_params(self)
 
 
 func _ensure_lava_root() -> void:
@@ -888,12 +659,4 @@ func _update_day_night(delta: float) -> void:
 	_apply_demo_fog()
 
 func _apply_demo_fog() -> void:
-	if _world_environment == null or _world_environment.environment == null:
-		return
-	var env: Environment = _world_environment.environment
-	var fog_on = _enable_fog_checkbox.button_pressed
-	env.volumetric_fog_enabled = fog_on
-	if fog_on:
-		env.volumetric_fog_density = 0.02
-		env.volumetric_fog_albedo = Color(0.82, 0.87, 0.93, 1.0)
-		env.volumetric_fog_emission_energy = 0.02
+	_lighting_fx_controller.apply_demo_fog(self)
