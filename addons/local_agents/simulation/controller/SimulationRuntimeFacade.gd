@@ -42,6 +42,90 @@ static func apply_native_field_registry_config(controller, config_resource, tick
 	)
 	return bool(dispatch.get("ok", false))
 
+static func enqueue_native_voxel_edit_ops(controller, tick: int, voxel_ops: Array, strict: bool = false) -> Dictionary:
+	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
+		if strict:
+			controller._emit_dependency_error(tick, "voxel_edit_enqueue", "native_sim_core_disabled")
+			return {
+				"ok": false,
+				"executed": false,
+				"dispatched": false,
+				"error": "native_sim_core_disabled",
+			}
+		return {
+			"ok": true,
+			"executed": false,
+			"dispatched": false,
+			"error": "",
+			"fallback": true,
+			"queued_count": 0,
+		}
+	if not ensure_native_sim_core_initialized(controller, tick):
+		return {
+			"ok": false,
+			"executed": false,
+			"dispatched": false,
+			"error": "native_field_registry_unavailable",
+		}
+	var dispatch = NativeComputeBridgeScript.dispatch_voxel_edit_enqueue_call(
+		controller,
+		tick,
+		"voxel_edit_enqueue",
+		voxel_ops,
+		strict
+	)
+	var native_payload = NativeComputeBridgeScript.voxel_stage_result(dispatch)
+	return {
+		"ok": bool(dispatch.get("ok", false)),
+		"executed": bool(dispatch.get("executed", false)),
+		"dispatched": NativeComputeBridgeScript.is_voxel_stage_dispatched(dispatch),
+		"result": dispatch.get("result", {}),
+		"voxel_result": native_payload,
+		"error": String(dispatch.get("error", "")),
+		"queued_count": int(native_payload.get("queued_count", 0)),
+	}
+
+static func execute_native_voxel_stage(controller, tick: int, stage_name: StringName, payload: Dictionary = {}, strict: bool = false) -> Dictionary:
+	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
+		if strict:
+			controller._emit_dependency_error(tick, "voxel_stage", "native_sim_core_disabled")
+			return {
+				"ok": false,
+				"executed": false,
+				"dispatched": false,
+				"error": "native_sim_core_disabled",
+			}
+		return {
+			"ok": true,
+			"executed": false,
+			"dispatched": false,
+			"error": "",
+			"fallback": true,
+		}
+	if not ensure_native_sim_core_initialized(controller, tick):
+		return {
+			"ok": false,
+			"executed": false,
+			"dispatched": false,
+			"error": "native_field_registry_unavailable",
+		}
+	var dispatch = NativeComputeBridgeScript.dispatch_voxel_stage_call(
+		controller,
+		tick,
+		"voxel_stage",
+		stage_name,
+		payload,
+		strict
+	)
+	return {
+		"ok": bool(dispatch.get("ok", false)),
+		"executed": bool(dispatch.get("executed", false)),
+		"dispatched": NativeComputeBridgeScript.is_voxel_stage_dispatched(dispatch),
+		"result": dispatch.get("result", {}),
+		"voxel_result": NativeComputeBridgeScript.voxel_stage_result(dispatch),
+		"error": String(dispatch.get("error", "")),
+	}
+
 static func enqueue_thought_npcs(controller, npc_ids: Array) -> void:
 	for npc_id_variant in npc_ids:
 		var npc_id = String(npc_id_variant).strip_edges()

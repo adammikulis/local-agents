@@ -232,6 +232,17 @@ static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool
     svc._erosion_changed_last_tick = false
     svc._erosion_changed_tiles_last_tick = []
     var local_activity: Dictionary = _build_local_activity_map(svc)
+    var native_view_metrics: Dictionary = svc.get_native_view_metrics() if svc.has_method("get_native_view_metrics") else {}
+    native_view_metrics["uniformity_score"] = _activity_uniformity_score(local_activity)
+    svc._environment_snapshot["_native_view_metrics"] = native_view_metrics.duplicate(true)
+    if svc._weather_system != null and svc._weather_system.has_method("set_native_view_metrics"):
+        svc._weather_system.call("set_native_view_metrics", native_view_metrics)
+    if svc._hydrology_system != null and svc._hydrology_system.has_method("set_native_view_metrics"):
+        svc._hydrology_system.call("set_native_view_metrics", native_view_metrics)
+    if svc._erosion_system != null and svc._erosion_system.has_method("set_native_view_metrics"):
+        svc._erosion_system.call("set_native_view_metrics", native_view_metrics)
+    if svc._solar_system != null and svc._solar_system.has_method("set_native_view_metrics"):
+        svc._solar_system.call("set_native_view_metrics", native_view_metrics)
     if svc._weather_system != null and _should_run_system_tick(tick, int(svc.weather_step_interval_ticks)):
         var t0 = Time.get_ticks_usec()
         svc._weather_snapshot = svc._weather_system.step(tick, fixed_delta, local_activity)
@@ -413,6 +424,27 @@ static func _accumulate_tile_activity(activity: Dictionary, svc, world_position:
             if dynamic_enabled:
                 weight = 1.0 / (1.0 + float(abs(dx) + abs(dy)))
             activity[tile_id] = float(activity.get(tile_id, 0.0)) + maxf(0.0, amount) * weight
+
+static func _activity_uniformity_score(local_activity: Dictionary) -> float:
+    if local_activity.is_empty():
+        return 1.0
+    var keys = local_activity.keys()
+    keys.sort_custom(func(a, b): return String(a) < String(b))
+    var sum := 0.0
+    var values: Array[float] = []
+    for key_variant in keys:
+        var value = clampf(float(local_activity.get(key_variant, 0.0)), 0.0, 1.0)
+        values.append(value)
+        sum += value
+    var count = float(maxi(1, values.size()))
+    var mean = sum / count
+    var variance := 0.0
+    for value in values:
+        var delta = value - mean
+        variance += delta * delta
+    variance /= count
+    var stddev = sqrt(maxf(0.0, variance))
+    return clampf(1.0 - stddev, 0.0, 1.0)
 
 static func _world_position_from_variant(value: Variant) -> Variant:
     if value is Vector3:

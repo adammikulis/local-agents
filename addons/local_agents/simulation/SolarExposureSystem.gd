@@ -4,7 +4,7 @@ class_name LocalAgentsSolarExposureSystem
 const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
 const SolarComputeBackendScript = preload("res://addons/local_agents/simulation/SolarComputeBackend.gd")
 const CadencePolicyScript = preload("res://addons/local_agents/simulation/CadencePolicy.gd")
-
+const NativeComputeBridgeScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
 var _configured: bool = false
 var _emit_rows: bool = true
 var _seed: int = 0
@@ -141,9 +141,9 @@ func step(tick: int, delta: float, environment_snapshot: Dictionary, weather_sna
 	var tod = fposmod(float(tick), 24.0) / 24.0
 	var sun_alt = maxf(0.0, sin((tod - 0.25) * TAU))
 	var sun_dir = Vector2(cos((tod - 0.25) * TAU), sin((tod - 0.25) * TAU))
-	var use_compute = _compute_active and weather_buffer_ok
+	var use_compute = false
+	var use_compute_backend = _compute_active and weather_buffer_ok
 	_write_activity_buffer(local_activity)
-
 	var solar_rows: Array = []
 	var solar_index: Dictionary = {}
 	var sync_spatial = _emit_rows or (tick % _sync_stride == 0)
@@ -162,15 +162,32 @@ func step(tick: int, delta: float, environment_snapshot: Dictionary, weather_sna
 		packed_uv.resize(count)
 		packed_heat.resize(count)
 		packed_growth.resize(count)
-	if use_compute:
+	var native_payload := {
+		"tick": tick, "delta": delta, "seed": _seed, "width": _width, "height": _height, "idle_cadence": _idle_cadence, "emit_rows": _emit_rows,
+		"sun_altitude": sun_alt, "sun_dir": {"x": sun_dir.x, "y": sun_dir.y}, "ordered_flat_indices": _ordered_flat_indices, "local_activity": local_activity, "weather_snapshot": weather_snapshot,
+		"buffers": {"activity": _activity_buffer, "weather_cloud": weather_cloud, "weather_fog": weather_fog, "weather_humidity": weather_humidity, "sunlight_total": _sunlight_buffer, "uv_index": _uv_buffer, "heat_load": _heat_buffer, "plant_growth_factor": _growth_buffer},
+	}
+	var native_dispatch = NativeComputeBridgeScript.dispatch_environment_stage("solar_exposure_step", native_payload)
+	if bool(native_dispatch.get("dispatched", false)):
+		var native_fields: Dictionary = native_dispatch.get("result_fields", {})
+		var native_sun: PackedFloat32Array = native_fields.get("sunlight_total", PackedFloat32Array())
+		var native_uv: PackedFloat32Array = native_fields.get("uv_index", PackedFloat32Array())
+		var native_heat: PackedFloat32Array = native_fields.get("heat_load", PackedFloat32Array())
+		var native_growth: PackedFloat32Array = native_fields.get("plant_growth_factor", PackedFloat32Array())
+		if native_sun.size() == _ordered_tile_ids.size() and native_uv.size() == _ordered_tile_ids.size() and native_heat.size() == _ordered_tile_ids.size() and native_growth.size() == _ordered_tile_ids.size():
+			packed_sunlight = native_sun
+			packed_uv = native_uv
+			packed_heat = native_heat
+			packed_growth = native_growth
+			use_compute = true
+	if use_compute_backend and not use_compute:
 		var gpu = _compute_backend.step(weather_cloud, weather_fog, weather_humidity, _activity_buffer, sun_dir, sun_alt, tick, _idle_cadence, _seed)
 		if not gpu.is_empty():
 			packed_sunlight = gpu.get("sunlight_total", packed_sunlight)
 			packed_uv = gpu.get("uv_index", packed_uv)
 			packed_heat = gpu.get("heat_load", packed_heat)
 			packed_growth = gpu.get("plant_growth_factor", packed_growth)
-		else:
-			use_compute = false
+			use_compute = true
 
 	for i in range(_ordered_tile_ids.size()):
 		var tile_id = _ordered_tile_ids[i]
@@ -427,14 +444,6 @@ func _build_aspect_gradient(tile_id: String) -> Vector2:
 	var ny = float(_surface_y.get(TileKeyUtilsScript.tile_id(x, y + 1), c))
 	var sy = float(_surface_y.get(TileKeyUtilsScript.tile_id(x, y - 1), c))
 	return Vector2(ex - wx, ny - sy)
-
-func _aspect_factor(tile_id: String, sun_dir: Vector2) -> float:
-	var grad = _build_aspect_gradient(tile_id)
-	if grad.length_squared() < 0.0001:
-		return 1.0
-	var downhill = (-grad).normalized()
-	var facing = clampf(downhill.dot(sun_dir.normalized()), -1.0, 1.0)
-	return clampf(0.62 + 0.38 * (facing * 0.5 + 0.5), 0.3, 1.0)
 
 func _sync_tiles(environment_snapshot: Dictionary, tile_index: Dictionary) -> void:
 	var tiles: Array = environment_snapshot.get("tiles", [])

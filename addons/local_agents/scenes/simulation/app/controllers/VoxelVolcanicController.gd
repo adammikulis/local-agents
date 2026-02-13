@@ -2,6 +2,9 @@ extends RefCounted
 class_name LocalAgentsVoxelVolcanicController
 
 const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
+const NativeComputeBridgeScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
+const VoxelEditDispatchScript = preload("res://addons/local_agents/simulation/VoxelEditDispatch.gd")
+const _NATIVE_VOXEL_EDIT_STAGE_NAME := &"volcanic_eruption_voxel_ops"
 
 var _rng := RandomNumberGenerator.new()
 var _eruption_accum: float = 0.0
@@ -226,6 +229,10 @@ func _pick_eruption_volcano(volcanoes: Array) -> Dictionary:
 	return best
 
 func _apply_eruption_to_world(world_snapshot: Dictionary, volcano: Dictionary, island_growth: float) -> Dictionary:
+	var operation_plan = _build_eruption_voxel_edit_ops(world_snapshot, volcano, island_growth)
+	var native_result = _dispatch_native_eruption_voxel_ops(world_snapshot, volcano, island_growth, operation_plan)
+	if not native_result.is_empty():
+		return native_result
 	var changed: Array = []
 	var voxel_world: Dictionary = world_snapshot.get("voxel_world", {})
 	var columns: Array = voxel_world.get("columns", [])
@@ -323,6 +330,80 @@ func _apply_eruption_to_world(world_snapshot: Dictionary, volcano: Dictionary, i
 	world_snapshot["tile_index"] = tile_index
 	world_snapshot["tiles"] = tiles
 	return {"world": world_snapshot, "changed_tiles": changed}
+
+func _build_eruption_voxel_edit_ops(world_snapshot: Dictionary, volcano: Dictionary, island_growth: float) -> Dictionary:
+	var operations: Array = []
+	var changed_tiles_map: Dictionary = {}
+	var vx = int(volcano.get("x", 0))
+	var vz = int(volcano.get("y", 0))
+	var radius = maxi(1, int(volcano.get("radius", 2)))
+	var crater_depth = maxf(0.0, float(volcano.get("crater_depth", 1.0)))
+	var lava_yield = maxf(0.0, island_growth)
+	var growth_base = maxf(0.2, lava_yield * (0.7 + float(volcano.get("activity", 0.5))))
+	var width = int(world_snapshot.get("width", 0))
+	var height = int(world_snapshot.get("height", 0))
+	for dz in range(-radius - 1, radius + 2):
+		for dx in range(-radius - 1, radius + 2):
+			var tx = vx + dx
+			var tz = vz + dz
+			if tx < 0 or tz < 0 or tx >= width or tz >= height:
+				continue
+			var dist = sqrt(float(dx * dx + dz * dz))
+			if dist > float(radius) + 1.0:
+				continue
+			var falloff = clampf(1.0 - dist / (float(radius) + 1.0), 0.0, 1.0)
+			var growth = int(round(growth_base * falloff * 2.2))
+			if growth <= 0:
+				continue
+			var op_type = "deposit"
+			var level_delta = growth
+			if dist <= maxf(1.0, float(radius) * 0.35):
+				op_type = "crater"
+				level_delta = -maxi(1, int(round(crater_depth * clampf(1.0 - dist / maxf(1.0, float(radius)), 0.0, 1.0))))
+			elif dist <= maxf(1.0, float(radius) * 0.72):
+				op_type = "carve"
+				var carve_depth = int(round(maxf(1.0, crater_depth * 0.45) * falloff))
+				level_delta = -maxi(1, carve_depth)
+			var tile_id = TileKeyUtilsScript.tile_id(tx, tz)
+			operations.append({
+				"type": op_type,
+				"tile_id": tile_id,
+				"x": tx,
+				"z": tz,
+				"delta_levels": level_delta,
+				"falloff": falloff,
+				"radius": radius,
+				"center_x": vx,
+				"center_z": vz,
+				"top_block": "basalt" if falloff > 0.34 else "obsidian",
+				"subsoil_block": "basalt",
+			})
+			changed_tiles_map[tile_id] = true
+	var changed_tiles: Array = changed_tiles_map.keys()
+	changed_tiles.sort_custom(func(a, b): return String(a) < String(b))
+	return {"operations": operations, "changed_tiles": changed_tiles}
+
+func _dispatch_native_eruption_voxel_ops(world_snapshot: Dictionary, volcano: Dictionary, island_growth: float, operation_plan: Dictionary) -> Dictionary:
+	var operations: Array = operation_plan.get("operations", [])
+	if operations.is_empty():
+		return {}
+	var stage_result = VoxelEditDispatchScript.dispatch_operations(
+		NativeComputeBridgeScript.is_native_sim_core_enabled(),
+		_NATIVE_VOXEL_EDIT_STAGE_NAME,
+		{
+			"world": world_snapshot.duplicate(true),
+			"volcano": volcano.duplicate(true),
+			"island_growth": island_growth,
+			"operations": operations.duplicate(true),
+		}
+	)
+	if stage_result.is_empty():
+		return {}
+	var world_variant = stage_result.get("world", world_snapshot)
+	if not (world_variant is Dictionary):
+		return {}
+	var changed_tiles = VoxelEditDispatchScript.normalize_changed_tiles(stage_result.get("changed_tiles", operation_plan.get("changed_tiles", [])))
+	return {"world": world_variant as Dictionary, "changed_tiles": changed_tiles}
 
 func _rebuild_chunk_rows_from_columns(
 	columns: Array,

@@ -142,6 +142,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_update_day_night(delta)
+	_push_native_view_metrics()
 	_apply_loop_result(_loop_controller.process_frame(delta, Callable(self, "_collect_living_entity_profiles")))
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -276,6 +277,11 @@ func _apply_graphics_state() -> void:
 		visual_environment_update_interval_ticks = maxi(1, int(_graphics_state.get("_visual_environment_update_interval_ticks", visual_environment_update_interval_ticks)))
 		_graphics_state.erase("_visual_environment_update_interval_ticks")
 	_hud_binding_controller.push_graphics_state(simulation_hud, _graphics_state)
+
+func _push_native_view_metrics() -> void:
+	if simulation_controller == null or not simulation_controller.has_method("set_native_view_metrics"):
+		return
+	simulation_controller.call("set_native_view_metrics", _camera_controller.native_view_metrics())
 
 # Compatibility wrappers retained for existing scene wiring and scripts.
 func _screen_to_ground(screen_pos: Vector2) -> Variant:

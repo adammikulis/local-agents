@@ -4,6 +4,7 @@ class_name LocalAgentsWeatherSystem
 const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
 const WeatherComputeBackendScript = preload("res://addons/local_agents/simulation/WeatherComputeBackend.gd")
 const CadencePolicyScript = preload("res://addons/local_agents/simulation/CadencePolicy.gd")
+const NativeComputeBridgeScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
 
 var _width: int = 0
 var _height: int = 0
@@ -238,6 +239,64 @@ func step(tick: int, delta: float, local_activity: Dictionary = {}) -> Dictionar
 	_update_wind(tick, delta)
 	var wind = Vector2(cos(_wind_angle), sin(_wind_angle))
 	_write_activity_buffer(local_activity)
+	var native_dispatch = NativeComputeBridgeScript.dispatch_environment_stage(
+		"weather_step",
+		{
+			"tick": tick,
+			"delta": delta,
+			"seed": _seed,
+			"width": _width,
+			"height": _height,
+			"idle_cadence": _idle_cadence,
+			"time_accum": _time_accum,
+			"wind_angle": _wind_angle,
+			"wind_speed": _wind_speed,
+			"wind_dir": {"x": wind.x, "y": wind.y},
+			"emit_rows": _emit_rows,
+			"local_activity": local_activity,
+			"buffers": {
+				"base_moisture": _base_moisture,
+				"base_temperature": _base_temperature,
+				"water_reliability": _water_reliability,
+				"elevation": _elevation,
+				"slope": _slope,
+				"cloud": _cloud,
+				"humidity": _humidity,
+				"rain": _rain,
+				"wetness": _wetness,
+				"fog": _fog,
+				"orographic": _orographic,
+				"rain_shadow": _rain_shadow,
+				"activity": _activity,
+			},
+		}
+	)
+	if bool(native_dispatch.get("dispatched", false)):
+		var native_fields: Dictionary = native_dispatch.get("result_fields", {})
+		var native_cloud: PackedFloat32Array = native_fields.get("cloud", PackedFloat32Array())
+		var native_humidity: PackedFloat32Array = native_fields.get("humidity", PackedFloat32Array())
+		var native_rain: PackedFloat32Array = native_fields.get("rain", PackedFloat32Array())
+		var native_wetness: PackedFloat32Array = native_fields.get("wetness", PackedFloat32Array())
+		var native_fog: PackedFloat32Array = native_fields.get("fog", PackedFloat32Array())
+		var native_orographic: PackedFloat32Array = native_fields.get("orographic", PackedFloat32Array())
+		var native_shadow: PackedFloat32Array = native_fields.get("rain_shadow", PackedFloat32Array())
+		if native_cloud.size() == n and native_humidity.size() == n and native_rain.size() == n and native_wetness.size() == n and native_fog.size() == n and native_orographic.size() == n and native_shadow.size() == n:
+			_cloud = native_cloud
+			_humidity = native_humidity
+			_rain = native_rain
+			_wetness = native_wetness
+			_fog = native_fog
+			_orographic = native_orographic
+			_rain_shadow = native_shadow
+			var native_wind = native_fields.get("wind_dir", {})
+			if native_wind is Dictionary:
+				var wx = float((native_wind as Dictionary).get("x", wind.x))
+				var wy = float((native_wind as Dictionary).get("y", wind.y))
+				if absf(wx) > 0.0001 or absf(wy) > 0.0001:
+					wind = Vector2(wx, wy).normalized()
+					_wind_angle = wind.angle()
+			_wind_speed = clampf(float(native_fields.get("wind_speed", _wind_speed)), 0.05, 2.0)
+			return current_snapshot(tick)
 	if _compute_active:
 		var gpu_result = _compute_backend.step(delta, _wind_speed, _activity, tick, _idle_cadence, _hash01(tick, _seed & 1023, _seed))
 		if not gpu_result.is_empty():

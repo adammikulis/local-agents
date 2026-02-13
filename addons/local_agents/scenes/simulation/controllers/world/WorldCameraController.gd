@@ -120,6 +120,15 @@ func apply_camera_transform() -> void:
 	_world_camera.global_position = _camera_focus + offset
 	_world_camera.look_at(_camera_focus, Vector3.UP)
 
+func native_view_metrics() -> Dictionary:
+	var zoom_factor := 0.0
+	var denom := maxf(0.001, _max_zoom_distance - _min_zoom_distance)
+	zoom_factor = clampf((_camera_distance - _min_zoom_distance) / denom, 0.0, 1.0)
+	return {
+		"camera_distance": _camera_distance,
+		"zoom_factor": zoom_factor,
+	}
+
 func screen_to_ground(screen_pos: Vector2) -> Variant:
 	if _world_camera == null:
 		return null

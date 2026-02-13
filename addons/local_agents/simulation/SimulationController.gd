@@ -108,6 +108,7 @@ var _cultural_policy: Dictionary = {}
 var _culture_context_cues: Dictionary = {}
 var _last_tick_processed: int = 0
 var _last_tick_profile: Dictionary = {}
+var _native_view_metrics: Dictionary = {}
 var _initialized: bool = false
 var _cognition_contract_config
 var _llama_server_options: Dictionary = {
@@ -187,6 +188,12 @@ func get_solar_snapshot() -> Dictionary:
 
 func runtime_backend_metrics() -> Dictionary:
     return SimulationSnapshotControllerScript.runtime_backend_metrics(self)
+
+func set_native_view_metrics(metrics: Dictionary) -> void:
+    _native_view_metrics = metrics.duplicate(true) if metrics != null else {}
+
+func get_native_view_metrics() -> Dictionary:
+    return _native_view_metrics.duplicate(true)
 
 func build_environment_signal_snapshot(tick: int = -1):
     return SimulationSnapshotControllerScript.build_environment_signal_snapshot(self, tick)
@@ -315,6 +322,12 @@ func _sync_compute_preferences() -> void:
 
 func _generation_cap(task: String, fallback: int) -> int:
     return SimulationRuntimeFacadeScript.generation_cap(self, task, fallback)
+
+func enqueue_native_voxel_edit_ops(tick: int, voxel_ops: Array, strict: bool = false) -> Dictionary:
+    return SimulationRuntimeFacadeScript.enqueue_native_voxel_edit_ops(self, tick, voxel_ops, strict)
+
+func execute_native_voxel_stage(tick: int, stage_name: StringName, payload: Dictionary = {}, strict: bool = false) -> Dictionary:
+    return SimulationRuntimeFacadeScript.execute_native_voxel_stage(self, tick, stage_name, payload, strict)
 
 func _enqueue_thought_npcs(npc_ids: Array) -> void:
     SimulationRuntimeFacadeScript.enqueue_thought_npcs(self, npc_ids)

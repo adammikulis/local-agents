@@ -2,6 +2,7 @@ extends RefCounted
 class_name LocalAgentsSmellFieldSystem
 const VoxelGridSystemScript = preload("res://addons/local_agents/simulation/VoxelGridSystem.gd")
 const SmellComputeBackendScript = preload("res://addons/local_agents/simulation/SmellComputeBackend.gd")
+const NativeComputeBridgeScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
 var _grid = VoxelGridSystemScript.new()
 var _layers: Dictionary = {}
 var _compute_requested: bool = false
@@ -72,6 +73,9 @@ func step(delta: float, wind_source: Variant, base_decay_per_second: float, rain
 		_refresh_compute_state()
 	var decay := base_decay_per_second * (1.0 + rain_intensity * rain_decay_multiplier)
 	var decay_factor := clampf(1.0 - decay * delta, 0.0, 1.0)
+	var native_dispatch := NativeComputeBridgeScript.dispatch_voxel_stage("smell_step", {"delta": delta, "decay_factor": decay_factor, "layer_count": _layers.size()})
+	if bool(native_dispatch.get("dispatched", false)):
+		return
 	for layer_name_variant in _sorted_layer_names():
 		var layer_name := String(layer_name_variant)
 		_step_layer(layer_name, delta, decay_factor, wind_source)
@@ -83,6 +87,9 @@ func step_local(delta: float, active_voxels: Array[Vector3i], radius_cells: int,
 	var decay := base_decay_per_second * (1.0 + rain_intensity * rain_decay_multiplier)
 	var decay_factor := clampf(1.0 - decay * delta, 0.0, 1.0)
 	var touched: Dictionary = _build_touched_voxels(active_voxels, maxi(1, radius_cells))
+	var native_dispatch := NativeComputeBridgeScript.dispatch_voxel_stage("smell_step_local", {"delta": delta, "decay_factor": decay_factor, "layer_count": _layers.size(), "active_voxel_count": active_voxels.size(), "touched_count": touched.size()})
+	if bool(native_dispatch.get("dispatched", false)):
+		return
 	for layer_name_variant in _sorted_layer_names():
 		var layer_name := String(layer_name_variant)
 		_step_layer_local(layer_name, delta, decay_factor, wind_source, touched)
