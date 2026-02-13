@@ -1,8 +1,8 @@
 extends RefCounted
 class_name LocalAgentsHydrologySystem
 
-const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
 const HydrologyComputeBackendScript = preload("res://addons/local_agents/simulation/HydrologyComputeBackend.gd")
+const HydrologySystemHelpersScript = preload("res://addons/local_agents/simulation/hydrology/HydrologySystemHelpers.gd")
 const _IDLE_CADENCE := 8
 
 var _compute_requested: bool = false
@@ -61,7 +61,7 @@ func build_network(world_data: Dictionary, config) -> Dictionary:
             continue
         if float(row.get("elevation", 0.0)) >= float(config.spring_elevation_threshold) and float(row.get("moisture", 0.0)) >= float(config.spring_moisture_threshold):
             sources.append(tile_id)
-    sources = _dedupe_sorted_strings(sources)
+    sources = HydrologySystemHelpersScript.dedupe_sorted_strings(sources)
 
     var flow_by_tile: Dictionary = {}
     var segments: Array = []
@@ -75,7 +75,7 @@ func build_network(world_data: Dictionary, config) -> Dictionary:
                 break
             visited[current_id] = true
             flow_by_tile[current_id] = float(flow_by_tile.get(current_id, 0.0)) + 1.0
-            var next_id = _next_downhill_tile(current_id, by_id, by_xy)
+            var next_id = HydrologySystemHelpersScript.next_downhill_tile(current_id, by_id, by_xy)
             if next_id == "":
                 break
             segments.append({"from": current_id, "to": next_id})
@@ -116,7 +116,7 @@ func build_network(world_data: Dictionary, config) -> Dictionary:
         "source_tiles": sources,
         "segments": segments,
         "water_tiles": water_tiles,
-        "total_flow_index": _total_flow(flow_by_tile),
+        "total_flow_index": HydrologySystemHelpersScript.total_flow(flow_by_tile),
         "springs": springs,
         "water_table": water_table,
     }
@@ -177,7 +177,7 @@ func step(
         if not compute_result.is_empty():
             var compute_changed: Array = compute_result.get("changed_tiles", [])
             if not compute_changed.is_empty():
-                _sync_tiles(environment_snapshot, tile_index)
+                HydrologySystemHelpersScript.sync_tiles(environment_snapshot, tile_index)
             hydrology_snapshot["water_tiles"] = water_tiles
             hydrology_snapshot["tick"] = tick
             return {
@@ -198,13 +198,13 @@ func step(
             continue
         var activity = maxf(
             clampf(float(local_activity.get(tile_id, 0.0)), 0.0, 1.0),
-            _coastal_activity_bonus(tile_row as Dictionary)
+            HydrologySystemHelpersScript.coastal_activity_bonus(tile_row as Dictionary)
         )
-        var cadence = _cadence_for_activity(activity)
-        if cadence > 1 and not _should_step_tile(tile_id, tick, cadence, seed):
+        var cadence = HydrologySystemHelpersScript.cadence_for_activity(activity, _IDLE_CADENCE)
+        if cadence > 1 and not HydrologySystemHelpersScript.should_step_tile(tile_id, tick, cadence, seed):
             continue
         var local_dt = maxf(0.0, delta) * float(cadence)
-        var weather = _weather_at_tile(tile_id, weather_tiles, weather_snapshot, weather_rain, weather_wetness, weather_buffer_ok, width)
+        var weather = HydrologySystemHelpersScript.weather_at_tile(tile_id, weather_tiles, weather_snapshot, weather_rain, weather_wetness, weather_buffer_ok, width)
         var rain = clampf(float(weather.get("rain", 0.0)), 0.0, 1.0)
         var wetness = clampf(float(weather.get("wetness", rain)), 0.0, 1.0)
         var tile = tile_row as Dictionary
@@ -259,7 +259,7 @@ func step(
         changed_tiles.append(String(tile_id_variant))
     changed_tiles.sort_custom(func(a, b): return String(a) < String(b))
     if not changed_tiles.is_empty():
-        _sync_tiles(environment_snapshot, tile_index)
+        HydrologySystemHelpersScript.sync_tiles(environment_snapshot, tile_index)
     hydrology_snapshot["water_tiles"] = water_tiles
     hydrology_snapshot["tick"] = tick
     return {
@@ -357,12 +357,12 @@ func _step_compute(
     activity.resize(count)
     for i in range(count):
         var tile_id = _ordered_tile_ids[i]
-        var weather = _weather_at_tile(tile_id, weather_tiles, weather_snapshot, weather_rain, weather_wetness, weather_buffer_ok, width)
+        var weather = HydrologySystemHelpersScript.weather_at_tile(tile_id, weather_tiles, weather_snapshot, weather_rain, weather_wetness, weather_buffer_ok, width)
         rain[i] = clampf(float(weather.get("rain", 0.0)), 0.0, 1.0)
         wetness[i] = clampf(float(weather.get("wetness", rain[i])), 0.0, 1.0)
         var tile_row = tile_index.get(tile_id, {})
         var local_act = clampf(float(local_activity.get(tile_id, 0.0)), 0.0, 1.0)
-        var coastal_bonus = _coastal_activity_bonus(tile_row as Dictionary) if tile_row is Dictionary else 0.0
+        var coastal_bonus = HydrologySystemHelpersScript.coastal_activity_bonus(tile_row as Dictionary) if tile_row is Dictionary else 0.0
         activity[i] = maxf(local_act, coastal_bonus)
     var gpu = _compute_backend.step(delta, tick, _IDLE_CADENCE, seed, rain, wetness, activity)
     if gpu.is_empty():
@@ -492,7 +492,7 @@ func _build_network_from_flow_map(flow_map: Dictionary, tiles: Array, springs: D
             var tile_id = String(row.get("tile_id", ""))
             if tile_id != "":
                 sources.append(tile_id)
-    sources = _dedupe_sorted_strings(sources)
+    sources = HydrologySystemHelpersScript.dedupe_sorted_strings(sources)
 
     segments.sort_custom(func(a, b):
         var a_key = "%s>%s" % [String(a.get("from", "")), String(a.get("to", ""))]
@@ -512,114 +512,3 @@ func _build_network_from_flow_map(flow_map: Dictionary, tiles: Array, springs: D
     }
     _refresh_compute_backend_from_snapshots({"tile_index": by_tile}, result)
     return result
-
-func _next_downhill_tile(tile_id: String, by_id: Dictionary, by_xy: Dictionary) -> String:
-    if not by_id.has(tile_id):
-        return ""
-    var tile: Dictionary = by_id[tile_id]
-    var x = int(tile.get("x", 0))
-    var y = int(tile.get("y", 0))
-    var current_elevation = float(tile.get("elevation", 0.0))
-
-    var best_id = ""
-    var best_elevation = current_elevation
-    var neighbors = [
-        "%d:%d" % [x + 1, y],
-        "%d:%d" % [x - 1, y],
-        "%d:%d" % [x, y + 1],
-        "%d:%d" % [x, y - 1],
-    ]
-    neighbors.sort()
-
-    for xy_key in neighbors:
-        if not by_xy.has(xy_key):
-            continue
-        var candidate: Dictionary = by_xy[xy_key]
-        var candidate_elevation = float(candidate.get("elevation", 0.0))
-        if candidate_elevation < best_elevation - 0.001:
-            best_elevation = candidate_elevation
-            best_id = String(candidate.get("tile_id", ""))
-
-    return best_id
-
-func _total_flow(flow_by_tile: Dictionary) -> float:
-    var total = 0.0
-    var keys = flow_by_tile.keys()
-    keys.sort_custom(func(a, b): return String(a) < String(b))
-    for key in keys:
-        total += float(flow_by_tile.get(key, 0.0))
-    return total
-
-func _dedupe_sorted_strings(values: Array) -> Array:
-    var normalized: Array = []
-    for value_variant in values:
-        var value = String(value_variant)
-        if value == "":
-            continue
-        normalized.append(value)
-    normalized.sort()
-    var out: Array = []
-    var last = ""
-    for value_variant in normalized:
-        var value = String(value_variant)
-        if value == last:
-            continue
-        out.append(value)
-        last = value
-    return out
-
-func _sync_tiles(environment_snapshot: Dictionary, tile_index: Dictionary) -> void:
-    var tiles: Array = environment_snapshot.get("tiles", [])
-    for i in range(tiles.size()):
-        if not (tiles[i] is Dictionary):
-            continue
-        var row = tiles[i] as Dictionary
-        var tile_id = String(row.get("tile_id", "%d:%d" % [int(row.get("x", 0)), int(row.get("y", 0))]))
-        if tile_index.has(tile_id):
-            tiles[i] = (tile_index[tile_id] as Dictionary).duplicate(true)
-    environment_snapshot["tiles"] = tiles
-    environment_snapshot["tile_index"] = tile_index
-
-func _coastal_activity_bonus(tile: Dictionary) -> float:
-    var elevation = clampf(float(tile.get("elevation", 0.5)), 0.0, 1.0)
-    var continentalness = clampf(float(tile.get("continentalness", 0.5)), 0.0, 1.0)
-    var shore_band = clampf(1.0 - absf(elevation - 0.34) * 4.0, 0.0, 1.0)
-    var ocean_bias = clampf((0.58 - continentalness) * 2.0, 0.0, 1.0)
-    return clampf(shore_band * (0.25 + ocean_bias * 0.55), 0.0, 1.0)
-
-func _cadence_for_activity(activity: float) -> int:
-    var a = clampf(activity, 0.0, 1.0)
-    return clampi(int(round(lerpf(float(_IDLE_CADENCE), 1.0, a))), 1, _IDLE_CADENCE)
-
-func _should_step_tile(tile_id: String, tick: int, cadence: int, seed: int) -> bool:
-    if cadence <= 1:
-        return true
-    var phase = abs(int(hash("%s|%d" % [tile_id, seed]))) % cadence
-    return (tick + phase) % cadence == 0
-
-func _weather_at_tile(
-    tile_id: String,
-    weather_tiles: Dictionary,
-    weather_snapshot: Dictionary,
-    weather_rain: PackedFloat32Array,
-    weather_wetness: PackedFloat32Array,
-    weather_buffer_ok: bool,
-    width: int
-) -> Dictionary:
-    if weather_buffer_ok and width > 0:
-        var coords = TileKeyUtilsScript.parse_tile_id(tile_id)
-        if coords.x != 2147483647 and coords.y != 2147483647:
-            var idx = coords.y * width + coords.x
-            if idx >= 0 and idx < weather_rain.size():
-                return {
-                    "rain": clampf(float(weather_rain[idx]), 0.0, 1.0),
-                    "wetness": clampf(float(weather_wetness[idx]), 0.0, 1.0),
-                }
-    var weather_row = weather_tiles.get(tile_id, {})
-    if weather_row is Dictionary:
-        return {
-            "rain": clampf(float((weather_row as Dictionary).get("rain", weather_snapshot.get("avg_rain_intensity", 0.0))), 0.0, 1.0),
-            "wetness": clampf(float((weather_row as Dictionary).get("wetness", weather_snapshot.get("avg_rain_intensity", 0.0))), 0.0, 1.0),
-        }
-    var avg_rain = clampf(float(weather_snapshot.get("avg_rain_intensity", 0.0)), 0.0, 1.0)
-    return {"rain": avg_rain, "wetness": avg_rain}
