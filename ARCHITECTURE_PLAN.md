@@ -159,7 +159,9 @@ Mechanics / pressure / thermal evolution:
 Wave A validation gates:
 - [x] February 13, 2026: Add deterministic invariants tests for bounded mass/energy drift per step.
 - [x] February 13, 2026: Added source-contract stage-coupling tests for `pressure -> mechanics`, `reaction -> thermal`, `damage -> voxel ops` gates.
-- [x] February 13, 2026: Ensure each stage reads/writes native field handles (script layer remains orchestration/visualization only).
+- [ ] Ensure stage execution is fully native handle-driven.
+  - Field-handle plumbing (marker/io payloads) is implemented, but stage math still consumes scalar inputs and does not yet persist `updated_fields` back into the next-step state.
+- [ ] Feed `run_field_buffer_evolution` outputs back into stage inputs for next-step continuity.
 - [x] February 13, 2026: Landed Wave A stage-coupling marker and scalar payload wiring (`pressure->mechanics`, `reaction->thermal`, `damage->voxel`) for deterministic validation.
 - [x] February 13, 2026: Added Wave A stage-coupling source-contract tests for `pressure->mechanics`, `reaction->thermal`, and `damage->voxel` transitions in `test_native_general_physics_contracts.gd`.
 - [x] February 13, 2026: Added deterministic bridge-contract tests for physics-server contact ingestion and voxel response emission payloads.
