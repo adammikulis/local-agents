@@ -5,32 +5,34 @@ This file defines implementation rules for this repository. Higher sections are 
 ## Sub-Agent-First Execution Model (Highest Priority)
 
 - Planning-first, impact-first execution: each wave starts with a concrete target and explicit priority order.
-- The main thread is executive only: planning, user interaction, architecture decisions, sub-agent lifecycle, integration/deconflict, verification, and commit/push flow.
+- Initial investigation is mandatory: launch a planning sub-agent to scan current state and risks before any implementation edits.
+- The main thread is executive only: coordination of user communication, architecture decisions, and lane orchestration.
 - Use sub-agents for both planning and execution (mandatory):
+  - validation and verification should also be assigned explicitly to validation lanes for contract-heavy or native-path changes.
   - planning must always be done by a planning sub-agent that maps scope, owners, acceptance criteria, and risk calls before implementation starts.
   - spawn implementation/validation sub-agents whenever responsibilities can be split safely.
 - Workflow loop:
   1. Update `ARCHITECTURE_PLAN.md` first with priority band (P0/P1/P2), owners, and acceptance criteria.
   2. Launch one or more planning sub-agents for decomposition + coupling-risk assessment.
   3. Launch scoped implementation and validation sub-agents in parallel.
-  4. Keep main-thread focus on communication, integration, and conflict resolution while agents own execution.
+  4. Keep main-thread focus on coordination and escalation while agents own execution, integration/deconflict, verification, and commit/push flow.
   5. Proactively close stale or completed sub-agents as soon as they finish their assigned work; do not wait for the next task cycle to avoid stale refs.
   6. Track active agent slots; if only 4 or fewer slots remain, notify the user immediately and proceed conservatively with spawn decisions.
   7. Deconflict overlaps immediately and merge outputs as soon as they land.
-  8. Run targeted verification on the highest-impact wave.
-  9. Commit scoped changes and keep plan/status updates synchronized.
-- Ask user questions only when an architectural or requirement decision is truly ambiguous.
+  8. Run targeted verification on the highest-impact wave via validation lanes.
+  9. Keep plan/status updates synchronized as scoped changes are committed via sub-agent lanes.
+- Ask user questions only when an architectural or requirement decision is truly ambiguous, through the coordinating sub-agent.
 
 ### Additional Sub-Agent Lanes (including but not limited to)
 
-- GitHub-Operations lane: manage branch hygiene, PR lifecycle (`gh` status/labels/reviewers/checks), and PR synchronization; owns status/error triage and merge blockers.
+- GitHub-Operations lane: manage branch hygiene, PR lifecycle (`gh` status/labels/reviewers/checks), commit/push flow, and PR synchronization; owns status/error triage and merge blockers.
 - Code-Review lane: perform independent review of each wave output (logic correctness, API changes, coupling risks, contracts, and file-size/type constraints); owns prioritized findings with file:line references.
 - Test-Infrastructure lane: own CI + test harness changes (`.github`, `tests`, local bootstrap scripts, headless/runtime suites, flake handling, performance budgets); owns deterministic command matrix and pass/fail expectations.
 - Merge-Conflict lane: resolve rebase/cherry-pick/patch conflicts with intent-preserving merges and minimal semantic drift; owns conflict-resolution notes and post-resolution verification.
 - Release-Versioning lane: drive version strategy, changelog/release notes, migration notes, and release gating checks (including final verification and tag prep).
 - Documentation lane: update `README`, `ARCHITECTURE_PLAN.md`, and maintainer/user docs when behavior or workflows change; owns consistency checks and migration wording.
 
-Lane trigger rule: if a wave touches any domain, spawn the corresponding lane(s) alongside implementation/validation and complete them before merge.
+Lane trigger rule: if a wave touches any domain, spawn the corresponding lane(s) with explicit ownership and complete sub-agent outputs before merge.
 
 ### Validation Defaults
 
