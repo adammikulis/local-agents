@@ -200,17 +200,17 @@ func _update_cloud_slices_geometry(width: float, depth: float, world_height: flo
 	for i in range(count):
 		var t = float(i) + 1.0
 		var angle = t * 2.3999632
-		var radial = radius * sqrt(clampf(fract(sin(t * 12.9898) * 43758.5453), 0.0, 1.0))
+		var radial = radius * sqrt(clampf(_fractf(sin(t * 12.9898) * 43758.5453), 0.0, 1.0))
 		var x = center.x + cos(angle) * radial
 		var z = center.z + sin(angle) * radial
-		var y_band = 0.15 + 0.8 * fract(sin(t * 78.233) * 12345.678)
+		var y_band = 0.15 + 0.8 * _fractf(sin(t * 78.233) * 12345.678)
 		var y = center.y + 3.0 + y_band * 36.0
-		var size = lerpf(28.0, 140.0, fract(sin(t * 21.17) * 96431.21))
+		var size = lerpf(28.0, 140.0, _fractf(sin(t * 21.17) * 96431.21))
 		var transform = Transform3D(Basis.IDENTITY.scaled(Vector3(size, 1.0, size)), Vector3(x, y, z))
 		mm.set_instance_transform(i, transform)
-		var alpha = lerpf(0.12, 0.42, fract(sin(t * 4.711) * 1531.0))
+		var alpha = lerpf(0.12, 0.42, _fractf(sin(t * 4.711) * 1531.0))
 		mm.set_instance_color(i, Color(1.0, 1.0, 1.0, alpha))
-		mm.set_instance_custom_data(i, Color(fract(sin(t * 5.17) * 7123.0), fract(sin(t * 9.13) * 9941.0), fract(sin(t * 3.73) * 4487.0), 1.0))
+		mm.set_instance_custom_data(i, Color(_fractf(sin(t * 5.17) * 7123.0), _fractf(sin(t * 9.13) * 9941.0), _fractf(sin(t * 3.73) * 4487.0), 1.0))
 	if _cloud_slices_material != null:
 		_cloud_slices_material.set_shader_parameter("world_center_xz", Vector2(center.x, center.z))
 		_cloud_slices_material.set_shader_parameter("world_span", span)
@@ -248,3 +248,6 @@ func _slice_base_count_for_tier(tier: String) -> int:
 			return 128
 		_:
 			return 64
+
+func _fractf(value: float) -> float:
+	return value - floor(value)

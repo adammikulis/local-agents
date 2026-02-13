@@ -229,16 +229,7 @@ func _refresh_hud() -> void:
 	var time_text = _format_duration_hms(_simulated_seconds)
 	simulation_hud.set_status_text("Year %.1f | T+%s | Tick %d | Branch %s | %s x%d" % [year, time_text, _current_tick, branch_id, mode, _ticks_per_frame])
 
-	var structures = 0
-	var oral_events = int((_last_state.get("oral_transfer_events", []) as Array).size())
-	var ritual_events = int((_last_state.get("ritual_events", []) as Array).size())
-	var structures_by_household: Dictionary = _last_state.get("structures", {})
-	for household_id in structures_by_household.keys():
-		structures += int((structures_by_household.get(household_id, []) as Array).size())
-
-	var belief_conflicts = _active_belief_conflicts(_current_tick)
 	var detail_lines: Array[String] = []
-	detail_lines.append("Structures: %d | Oral events: %d | Ritual events: %d | Belief conflicts: %d" % [structures, oral_events, ritual_events, belief_conflicts])
 	_ensure_inspector_npc_selected()
 	var inspector_lines = _inspector_summary_lines(_current_tick)
 	for line in inspector_lines:
@@ -255,24 +246,6 @@ func _refresh_hud() -> void:
 		simulation_hud.set_details_text(details_text)
 	if simulation_hud.has_method("set_inspector_npc"):
 		simulation_hud.set_inspector_npc(_inspector_npc_id)
-
-func _active_belief_conflicts(tick: int) -> int:
-	if not simulation_controller.has_method("get_backstory_service"):
-		return 0
-	var service = simulation_controller.get_backstory_service()
-	if service == null:
-		return 0
-	var villagers: Dictionary = _last_state.get("villagers", {})
-	var ids = villagers.keys()
-	ids.sort_custom(func(a, b): return String(a) < String(b))
-	if ids.is_empty():
-		return 0
-	var npc_id = String(ids[0])
-	var world_day = int(tick / 24)
-	var result: Dictionary = service.get_belief_truth_conflicts(npc_id, world_day, 8)
-	if not bool(result.get("ok", false)):
-		return 0
-	return int((result.get("conflicts", []) as Array).size())
 
 func _build_environment_signal_snapshot_from_setup(setup: Dictionary, tick: int) -> LocalAgentsEnvironmentSignalSnapshotResource:
 	var snapshot = EnvironmentSignalSnapshotResourceScript.new()
@@ -395,38 +368,7 @@ func _inspector_summary_lines(tick: int) -> Array[String]:
 		lines.append("Inspector: no npc selected")
 		return lines
 	lines.append("Inspector NPC: %s" % _inspector_npc_id)
-	if not simulation_controller.has_method("get_backstory_service"):
-		lines.append("Truth/Belief: unavailable")
-		return lines
-	var service = simulation_controller.get_backstory_service()
-	if service == null:
-		lines.append("Truth/Belief: unavailable")
-		return lines
-	var world_day = int(tick / 24)
-	var beliefs_count = 0
-	var truths_count = 0
-	var conflicts_count = 0
-	if service.has_method("get_beliefs_for_npc"):
-		var beliefs_result: Dictionary = service.get_beliefs_for_npc(_inspector_npc_id, world_day, 8)
-		if bool(beliefs_result.get("ok", false)):
-			beliefs_count = int((beliefs_result.get("beliefs", []) as Array).size())
-	if service.has_method("get_truths_for_subject"):
-		var truths_result: Dictionary = service.get_truths_for_subject(_inspector_npc_id, world_day, 8)
-		if bool(truths_result.get("ok", false)):
-			truths_count = int((truths_result.get("truths", []) as Array).size())
-	if service.has_method("get_belief_truth_conflicts"):
-		var conflicts_result: Dictionary = service.get_belief_truth_conflicts(_inspector_npc_id, world_day, 8)
-		if bool(conflicts_result.get("ok", false)):
-			var conflicts: Array = conflicts_result.get("conflicts", [])
-			conflicts_count = int(conflicts.size())
-			if not conflicts.is_empty() and conflicts[0] is Dictionary:
-				var top = conflicts[0] as Dictionary
-				lines.append("Top conflict: %s | conf=%.2f | sev=%.2f" % [
-					String(top.get("predicate", "")),
-					float(top.get("belief_confidence", 0.0)),
-					float(top.get("severity", 0.0))
-				])
-	lines.append("Truth/Belief: truths=%d beliefs=%d conflicts=%d" % [truths_count, beliefs_count, conflicts_count])
+	lines.append("Inspector details trimmed for performance")
 	return lines
 
 func _frame_camera_from_environment(environment_snapshot: Dictionary) -> void:

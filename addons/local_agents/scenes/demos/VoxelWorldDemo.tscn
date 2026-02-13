@@ -1,8 +1,9 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://addons/local_agents/scenes/demos/VoxelWorldDemo.gd" id="1_demo_script"]
 [ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/EnvironmentController.gd" id="2_environment_script"]
 [ext_resource type="PackedScene" path="res://addons/local_agents/scenes/simulation/ui/SimulationHud.tscn" id="3_sim_hud"]
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/PerformanceTelemetryServer.gd" id="4_perf_server"]
 
 [sub_resource type="LabelSettings" id="LabelSettings_header"]
 font_size = 18
@@ -38,6 +39,9 @@ environment = SubResource("Environment_demo")
 
 [node name="EnvironmentController" type="Node3D" parent="."]
 script = ExtResource("2_environment_script")
+
+[node name="PerformanceTelemetryServer" type="Node" parent="."]
+script = ExtResource("4_perf_server")
 
 [node name="TerrainRoot" type="Node3D" parent="EnvironmentController"]
 

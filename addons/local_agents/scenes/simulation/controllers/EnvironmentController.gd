@@ -9,6 +9,8 @@ const TerrainRendererScript = preload("res://addons/local_agents/scenes/simulati
 @onready var terrain_root: Node3D = $TerrainRoot
 @onready var water_root: Node3D = $WaterRoot
 @export_range(4, 64, 1) var terrain_chunk_size: int = 12
+@export_enum("low", "medium", "high", "ultra") var cloud_quality_tier: String = "medium"
+@export_range(0.25, 3.0, 0.05) var cloud_slice_density: float = 0.8
 var _generation_snapshot: Dictionary = {}
 var _hydrology_snapshot: Dictionary = {}
 var _weather_snapshot: Dictionary = {}
@@ -147,6 +149,7 @@ func _ensure_renderer_nodes() -> void:
 		_cloud_renderer = CloudRendererScript.new()
 		_cloud_renderer.name = "CloudRenderer"
 		add_child(_cloud_renderer)
+	_apply_cloud_quality_settings()
 	if _river_renderer == null:
 		_river_renderer = RiverRendererScript.new()
 		_river_renderer.name = "RiverRenderer"
@@ -276,6 +279,7 @@ func _update_cloud_layer_geometry() -> void:
 
 func _update_cloud_layer_weather(rain: float, cloud: float, humidity: float, wind: Vector2, wind_speed: float) -> void:
 	_ensure_renderer_nodes()
+	_apply_cloud_quality_settings()
 	_cloud_renderer.update_weather(
 		rain,
 		cloud,
@@ -286,6 +290,19 @@ func _update_cloud_layer_weather(rain: float, cloud: float, humidity: float, win
 		_weather_field_world_size,
 		_lightning_flash
 	)
+
+func set_cloud_quality_settings(tier: String, slice_density: float) -> void:
+	cloud_quality_tier = String(tier).to_lower().strip_edges()
+	cloud_slice_density = clampf(slice_density, 0.25, 3.0)
+	_apply_cloud_quality_settings()
+
+func _apply_cloud_quality_settings() -> void:
+	if _cloud_renderer == null:
+		return
+	if _cloud_renderer.has_method("set_quality_tier"):
+		_cloud_renderer.call("set_quality_tier", cloud_quality_tier)
+	if _cloud_renderer.has_method("set_slice_density"):
+		_cloud_renderer.call("set_slice_density", cloud_slice_density)
 
 func _ensure_weather_field_texture() -> void:
 	var width = maxi(1, int(_generation_snapshot.get("width", 1)))

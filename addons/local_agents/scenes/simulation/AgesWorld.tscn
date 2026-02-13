@@ -1,7 +1,8 @@
-[gd_scene load_steps=16 format=3]
+[gd_scene load_steps=17 format=3]
 
 [ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd" id="1_world"]
 [ext_resource type="Script" path="res://addons/local_agents/simulation/SimulationController.gd" id="2_sim"]
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/PerformanceTelemetryServer.gd" id="13_perf_server"]
 [ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/EnvironmentController.gd" id="3_env"]
 [ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/SettlementController.gd" id="4_settlement"]
 [ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/VillagerController.gd" id="5_villagers"]
@@ -47,6 +48,9 @@ environment = SubResource("Environment_world")
 
 [node name="SimulationController" type="Node" parent="."]
 script = ExtResource("2_sim")
+
+[node name="PerformanceTelemetryServer" type="Node" parent="."]
+script = ExtResource("13_perf_server")
 
 [node name="EnvironmentController" type="Node3D" parent="."]
 script = ExtResource("3_env")
