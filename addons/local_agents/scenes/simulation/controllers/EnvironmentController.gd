@@ -5,13 +5,27 @@ const RiverRendererScript = preload("res://addons/local_agents/scenes/simulation
 const PostFXRendererScript = preload("res://addons/local_agents/scenes/simulation/controllers/renderers/PostFXRenderer.gd")
 const WaterSourceRendererScript = preload("res://addons/local_agents/scenes/simulation/controllers/renderers/WaterSourceRenderer.gd")
 const TerrainRendererScript = preload("res://addons/local_agents/scenes/simulation/controllers/renderers/TerrainRenderer.gd")
-const WaterFlowShader = preload("res://addons/local_agents/scenes/simulation/shaders/VoxelWaterFlow.gdshader")
+const AtmosphereSystemAdapterScript = preload("res://addons/local_agents/scenes/simulation/controllers/adapters/AtmosphereSystemAdapter.gd")
+const OceanSystemAdapterScript = preload("res://addons/local_agents/scenes/simulation/controllers/adapters/OceanSystemAdapter.gd")
+const PostFxSystemAdapterScript = preload("res://addons/local_agents/scenes/simulation/controllers/adapters/PostFxSystemAdapter.gd")
+const LightingSystemAdapterScript = preload("res://addons/local_agents/scenes/simulation/controllers/adapters/LightingSystemAdapter.gd")
 
 @onready var terrain_root: Node3D = $TerrainRoot
 @onready var water_root: Node3D = $WaterRoot
 @export_range(4, 64, 1) var terrain_chunk_size: int = 12
+@export_enum("simple", "shader") var water_render_mode: String = "simple"
+@export var ocean_surface_enabled: bool = false
+@export var river_overlays_enabled: bool = false
+@export var rain_post_fx_enabled: bool = false
+@export var clouds_enabled: bool = false
+@export_range(0.2, 2.0, 0.05) var cloud_density_scale: float = 0.25
+@export_range(0.1, 1.5, 0.05) var rain_visual_intensity_scale: float = 0.25
 @export_enum("low", "medium", "high", "ultra") var cloud_quality_tier: String = "medium"
 @export_range(0.25, 3.0, 0.05) var cloud_slice_density: float = 0.8
+@export_range(1, 16, 1) var weather_texture_update_interval_ticks: int = 4
+@export_range(1, 16, 1) var surface_texture_update_interval_ticks: int = 4
+@export_range(1, 16, 1) var solar_texture_update_interval_ticks: int = 4
+@export_range(512, 65536, 512) var field_texture_update_budget_cells: int = 8192
 var _generation_snapshot: Dictionary = {}
 var _hydrology_snapshot: Dictionary = {}
 var _weather_snapshot: Dictionary = {}
@@ -25,10 +39,12 @@ var _surface_field_image: Image
 var _surface_field_texture: ImageTexture
 var _surface_field_cache := PackedInt32Array()
 var _surface_field_last_update_tick: int = -1
+var _surface_field_update_cursor: int = 0
 var _solar_field_image: Image
 var _solar_field_texture: ImageTexture
 var _solar_field_cache := PackedInt32Array()
 var _solar_field_last_tick: int = -1
+var _solar_field_update_cursor: int = 0
 var _tile_temperature_map := PackedFloat32Array()
 var _tile_flow_map := PackedFloat32Array()
 var _water_shader_params := {
@@ -73,11 +89,17 @@ var _ocean_material: ShaderMaterial
 var _ocean_plane_mesh: PlaneMesh
 var _ocean_size_cache: Vector2 = Vector2.ZERO
 var _ocean_sea_level_cache: float = -INF
+var _last_lightning_uniform: float = -1.0
+var _weather_field_update_cursor: int = 0
+var _atmosphere_adapter
+var _ocean_adapter
+var _post_fx_adapter
+var _lighting_adapter
 
 func _process(_delta: float) -> void:
 	_poll_chunk_build()
-	_lightning_flash = maxf(0.0, _lightning_flash - _delta * 2.6)
-	_update_lightning_uniforms()
+	_ensure_system_adapters()
+	_lighting_adapter.process(self, _delta)
 
 func _exit_tree() -> void:
 	_wait_for_chunk_build()
@@ -94,6 +116,8 @@ func clear_generated() -> void:
 	_cloud_renderer.clear_generated()
 	_river_renderer.clear_generated()
 	_post_fx_renderer.clear_generated()
+	if _ocean_root != null and is_instance_valid(_ocean_root):
+		_ocean_root.visible = ocean_surface_enabled
 
 func apply_generation_data(generation: Dictionary, hydrology: Dictionary) -> void:
 	_generation_snapshot = generation.duplicate(true)
@@ -145,7 +169,7 @@ func get_hydrology_snapshot() -> Dictionary:
 func set_weather_state(weather_snapshot: Dictionary) -> void:
 	_weather_snapshot = weather_snapshot.duplicate(true)
 	_update_weather_field_texture(_weather_snapshot)
-	var rain = clampf(float(_weather_snapshot.get("avg_rain_intensity", 0.0)), 0.0, 1.0)
+	var rain = clampf(float(_weather_snapshot.get("avg_rain_intensity", 0.0)) * rain_visual_intensity_scale, 0.0, 1.0)
 	var cloud = clampf(float(_weather_snapshot.get("avg_cloud_cover", 0.0)), 0.0, 1.0)
 	var humidity = clampf(float(_weather_snapshot.get("avg_humidity", 0.0)), 0.0, 1.0)
 	var wind_row: Dictionary = _weather_snapshot.get("wind_dir", {})
@@ -174,6 +198,7 @@ func set_weather_state(weather_snapshot: Dictionary) -> void:
 	_update_rain_post_fx_weather(rain, wind, wind_speed)
 
 func _ensure_renderer_nodes() -> void:
+	_ensure_system_adapters()
 	if _cloud_renderer == null:
 		_cloud_renderer = CloudRendererScript.new()
 		_cloud_renderer.name = "CloudRenderer"
@@ -199,9 +224,20 @@ func _ensure_renderer_nodes() -> void:
 		_ocean_root.name = "OceanRoot"
 		add_child(_ocean_root)
 
+func _ensure_system_adapters() -> void:
+	if _atmosphere_adapter == null:
+		_atmosphere_adapter = AtmosphereSystemAdapterScript.new()
+	if _ocean_adapter == null:
+		_ocean_adapter = OceanSystemAdapterScript.new()
+	if _post_fx_adapter == null:
+		_post_fx_adapter = PostFxSystemAdapterScript.new()
+	if _lighting_adapter == null:
+		_lighting_adapter = LightingSystemAdapterScript.new()
+
 func _sync_terrain_renderer_context() -> void:
 	_ensure_renderer_nodes()
 	_terrain_renderer.set_weather_snapshot(_weather_snapshot)
+	_terrain_renderer.set_water_render_mode(water_render_mode)
 	_terrain_renderer.set_render_context(
 		_water_shader_params,
 		_weather_field_texture,
@@ -233,6 +269,60 @@ func set_terrain_chunk_size(next_size: int) -> void:
 	if _generation_snapshot.is_empty():
 		return
 	_request_chunk_rebuild([])
+
+func set_water_render_mode(next_mode: String) -> void:
+	var normalized = String(next_mode).to_lower().strip_edges()
+	if normalized != "shader":
+		normalized = "simple"
+	if water_render_mode == normalized:
+		return
+	water_render_mode = normalized
+	_sync_terrain_renderer_context()
+	_request_chunk_rebuild([])
+
+func set_ocean_surface_enabled(enabled: bool) -> void:
+	ocean_surface_enabled = enabled
+	if ocean_surface_enabled:
+		_ensure_ocean_surface()
+		_update_ocean_surface_geometry()
+	else:
+		if _ocean_root != null and is_instance_valid(_ocean_root):
+			_ocean_root.visible = false
+
+func set_river_overlays_enabled(enabled: bool) -> void:
+	river_overlays_enabled = enabled
+	_rebuild_river_flow_overlays()
+
+func set_rain_post_fx_enabled(enabled: bool) -> void:
+	rain_post_fx_enabled = enabled
+	_ensure_rain_post_fx()
+
+func set_clouds_enabled(enabled: bool) -> void:
+	clouds_enabled = enabled
+	_ensure_cloud_layer()
+	_ensure_volumetric_cloud_shell()
+	_update_cloud_layer_geometry()
+
+func set_cloud_density_scale(scale: float) -> void:
+	cloud_density_scale = clampf(scale, 0.2, 2.0)
+	set_cloud_quality_settings(cloud_quality_tier, cloud_density_scale)
+
+func set_rain_visual_intensity_scale(scale: float) -> void:
+	rain_visual_intensity_scale = clampf(scale, 0.1, 1.5)
+	if not _weather_snapshot.is_empty():
+		set_weather_state(_weather_snapshot)
+
+func get_graphics_state() -> Dictionary:
+	return {
+		"water_shader_enabled": water_render_mode == "shader",
+		"ocean_surface_enabled": ocean_surface_enabled,
+		"river_overlays_enabled": river_overlays_enabled,
+		"rain_post_fx_enabled": rain_post_fx_enabled,
+		"clouds_enabled": clouds_enabled,
+		"cloud_quality": cloud_quality_tier,
+		"cloud_density_scale": cloud_density_scale,
+		"rain_visual_intensity_scale": rain_visual_intensity_scale,
+	}
 
 func _apply_weather_to_cached_materials(rain: float, cloud: float, humidity: float) -> void:
 	_sync_terrain_renderer_context()
@@ -293,383 +383,110 @@ func _chunk_keys_for_changed_tiles(changed_tiles: Array) -> Array:
 
 func _rebuild_river_flow_overlays() -> void:
 	_ensure_renderer_nodes()
+	if not river_overlays_enabled:
+		_river_renderer.clear_generated()
+		return
 	_river_renderer.rebuild_overlays(_generation_snapshot, _weather_snapshot)
 
 func _update_river_material_weather(rain: float, cloud: float, wind: Vector2, wind_speed: float) -> void:
+	if not river_overlays_enabled:
+		return
 	_ensure_renderer_nodes()
 	_river_renderer.update_weather(rain, cloud, wind_speed)
 	_river_renderer.apply_lightning(_lightning_flash)
 
 func _ensure_volumetric_cloud_shell() -> void:
-	_ensure_renderer_nodes()
-	_cloud_renderer.ensure_layers()
-	_update_volumetric_cloud_geometry()
+	_ensure_system_adapters()
+	_atmosphere_adapter.ensure_volumetric_cloud_shell(self)
 
 func _update_volumetric_cloud_geometry() -> void:
-	_ensure_renderer_nodes()
-	_cloud_renderer.update_geometry(_generation_snapshot)
+	_ensure_system_adapters()
+	_atmosphere_adapter.update_volumetric_cloud_geometry(self)
 
 func _update_volumetric_cloud_weather(rain: float, cloud: float, humidity: float, wind: Vector2, wind_speed: float) -> void:
-	_update_cloud_layer_weather(rain, cloud, humidity, wind, wind_speed)
+	_ensure_system_adapters()
+	_atmosphere_adapter.update_volumetric_cloud_weather(self, rain, cloud, humidity, wind, wind_speed)
 
 func _ensure_rain_post_fx() -> void:
-	_ensure_renderer_nodes()
-	_post_fx_renderer.ensure_layer()
+	_ensure_system_adapters()
+	_post_fx_adapter.ensure_rain_post_fx(self)
 
 func _update_rain_post_fx_weather(rain: float, wind: Vector2, wind_speed: float) -> void:
-	_ensure_renderer_nodes()
-	_post_fx_renderer.update_weather(rain, wind, wind_speed)
-	_post_fx_renderer.apply_lightning(_lightning_flash)
-	_apply_ocean_material_uniforms()
+	_ensure_system_adapters()
+	_post_fx_adapter.update_rain_post_fx_weather(self, rain, wind, wind_speed)
 
 func _ensure_cloud_layer() -> void:
-	_ensure_renderer_nodes()
-	_cloud_renderer.ensure_layers()
+	_ensure_system_adapters()
+	_atmosphere_adapter.ensure_cloud_layer(self)
 
 func _update_cloud_layer_geometry() -> void:
-	_ensure_renderer_nodes()
-	_cloud_renderer.update_geometry(_generation_snapshot)
+	_ensure_system_adapters()
+	_atmosphere_adapter.update_cloud_layer_geometry(self)
 
 func _update_cloud_layer_weather(rain: float, cloud: float, humidity: float, wind: Vector2, wind_speed: float) -> void:
-	_ensure_renderer_nodes()
-	_apply_cloud_quality_settings()
-	_cloud_renderer.update_weather(
-		rain,
-		cloud,
-		humidity,
-		wind,
-		wind_speed,
-		_weather_field_texture,
-		_weather_field_world_size,
-		_lightning_flash
-	)
+	_ensure_system_adapters()
+	_atmosphere_adapter.update_cloud_layer_weather(self, rain, cloud, humidity, wind, wind_speed)
 
 func set_cloud_quality_settings(tier: String, slice_density: float) -> void:
-	cloud_quality_tier = String(tier).to_lower().strip_edges()
-	cloud_slice_density = clampf(slice_density, 0.25, 3.0)
-	_apply_cloud_quality_settings()
+	_ensure_system_adapters()
+	_atmosphere_adapter.set_cloud_quality_settings(self, tier, slice_density)
 
 func _apply_cloud_quality_settings() -> void:
-	if _cloud_renderer == null:
-		return
-	if _cloud_renderer.has_method("set_quality_tier"):
-		_cloud_renderer.call("set_quality_tier", cloud_quality_tier)
-	if _cloud_renderer.has_method("set_slice_density"):
-		_cloud_renderer.call("set_slice_density", cloud_slice_density)
+	_ensure_system_adapters()
+	_atmosphere_adapter.apply_cloud_quality_settings(self)
 
 func _ensure_weather_field_texture() -> void:
-	var width = maxi(1, int(_generation_snapshot.get("width", 1)))
-	var height = maxi(1, int(_generation_snapshot.get("height", 1)))
-	var needs_recreate = (
-		_weather_field_image == null
-		or _weather_field_texture == null
-		or _weather_field_image.get_width() != width
-		or _weather_field_image.get_height() != height
-	)
-	_weather_field_world_size = Vector2(float(width), float(height))
-	if not needs_recreate:
-		return
-	_weather_field_image = Image.create(width, height, false, Image.FORMAT_RGBA8)
-	_weather_field_image.fill(Color(0.0, 0.0, 0.0, 1.0))
-	_weather_field_texture = ImageTexture.create_from_image(_weather_field_image)
-	_weather_field_cache.resize(width * height)
-	for i in range(_weather_field_cache.size()):
-		_weather_field_cache[i] = -1
-	_weather_field_last_avg_pack = -1
+	_ensure_system_adapters()
+	_atmosphere_adapter.ensure_weather_field_texture(self)
 
 func _ensure_surface_field_texture() -> void:
-	var width = maxi(1, int(_generation_snapshot.get("width", 1)))
-	var height = maxi(1, int(_generation_snapshot.get("height", 1)))
-	var needs_recreate = (
-		_surface_field_image == null
-		or _surface_field_texture == null
-		or _surface_field_image.get_width() != width
-		or _surface_field_image.get_height() != height
-	)
-	if not needs_recreate:
-		return
-	_surface_field_image = Image.create(width, height, false, Image.FORMAT_RGBA8)
-	_surface_field_image.fill(Color(0.0, 0.0, 0.0, 1.0))
-	_surface_field_texture = ImageTexture.create_from_image(_surface_field_image)
-	_surface_field_cache.resize(width * height)
-	for i in range(_surface_field_cache.size()):
-		_surface_field_cache[i] = -1
-	_tile_temperature_map.resize(width * height)
-	_tile_flow_map.resize(width * height)
-	for i in range(width * height):
-		_tile_temperature_map[i] = 0.5
-		_tile_flow_map[i] = 0.0
-	_surface_field_last_update_tick = -1
+	_ensure_system_adapters()
+	_atmosphere_adapter.ensure_surface_field_texture(self)
 
 func _ensure_solar_field_texture() -> void:
-	var width = maxi(1, int(_generation_snapshot.get("width", 1)))
-	var height = maxi(1, int(_generation_snapshot.get("height", 1)))
-	var needs_recreate = (
-		_solar_field_image == null
-		or _solar_field_texture == null
-		or _solar_field_image.get_width() != width
-		or _solar_field_image.get_height() != height
-	)
-	if not needs_recreate:
-		return
-	_solar_field_image = Image.create(width, height, false, Image.FORMAT_RGBA8)
-	_solar_field_image.fill(Color(0.0, 0.0, 0.0, 1.0))
-	_solar_field_texture = ImageTexture.create_from_image(_solar_field_image)
-	_solar_field_cache.resize(width * height)
-	for i in range(_solar_field_cache.size()):
-		_solar_field_cache[i] = -1
-	_solar_field_last_tick = -1
+	_ensure_system_adapters()
+	_atmosphere_adapter.ensure_solar_field_texture(self)
 
 func _refresh_surface_state_from_generation() -> void:
-	_ensure_surface_field_texture()
-	if _surface_field_image == null:
-		return
-	var width = _surface_field_image.get_width()
-	var height = _surface_field_image.get_height()
-	var tile_index: Dictionary = _generation_snapshot.get("tile_index", {})
-	var flow_rows_by_tile: Dictionary = {}
-	var flow_rows: Array = (_generation_snapshot.get("flow_map", {}) as Dictionary).get("rows", [])
-	for row_variant in flow_rows:
-		if not (row_variant is Dictionary):
-			continue
-		var row = row_variant as Dictionary
-		var tile_id = "%d:%d" % [int(row.get("x", 0)), int(row.get("y", 0))]
-		flow_rows_by_tile[tile_id] = clampf(float(row.get("channel_strength", 0.0)), 0.0, 1.0)
-	for y in range(height):
-		for x in range(width):
-			var idx = y * width + x
-			var tile_id = "%d:%d" % [x, y]
-			var tile = tile_index.get(tile_id, {})
-			var temp = clampf(float((tile as Dictionary).get("temperature", 0.5)) if tile is Dictionary else 0.5, 0.0, 1.0)
-			var flow = clampf(float(flow_rows_by_tile.get(tile_id, 0.0)), 0.0, 1.0)
-			_tile_temperature_map[idx] = temp
-			_tile_flow_map[idx] = flow
-			var snow = clampf((0.34 - temp) * 2.2, 0.0, 1.0)
-			var c = Color(0.0, snow, flow, 0.0)
-			var pack = _pack_weather_color(c)
-			_surface_field_cache[idx] = pack
-			_surface_field_image.set_pixel(x, y, c)
-	_surface_field_texture.update(_surface_field_image)
+	_ensure_system_adapters()
+	_atmosphere_adapter.refresh_surface_state_from_generation(self)
 
 func _update_surface_state_texture(weather_snapshot: Dictionary) -> void:
-	_ensure_surface_field_texture()
-	if _surface_field_image == null or _surface_field_texture == null:
-		return
-	var tick = int(weather_snapshot.get("tick", -1))
-	if tick == _surface_field_last_update_tick:
-		return
-	_surface_field_last_update_tick = tick
-	var width = _surface_field_image.get_width()
-	var height = _surface_field_image.get_height()
-	var rows: Array = weather_snapshot.get("rows", [])
-	var by_tile: Dictionary = {}
-	for row_variant in rows:
-		if row_variant is Dictionary:
-			var row = row_variant as Dictionary
-			by_tile["%d:%d" % [int(row.get("x", 0)), int(row.get("y", 0))]] = row
-	var avg_rain = clampf(float(weather_snapshot.get("avg_rain_intensity", 0.0)), 0.0, 1.0)
-	var avg_humidity = clampf(float(weather_snapshot.get("avg_humidity", 0.0)), 0.0, 1.0)
-	var dirty = 0
-	for y in range(height):
-		for x in range(width):
-			var idx = y * width + x
-			var prev = _surface_field_image.get_pixel(x, y)
-			var row = by_tile.get("%d:%d" % [x, y], {})
-			var rain = clampf(float((row as Dictionary).get("rain", avg_rain)) if row is Dictionary else avg_rain, 0.0, 1.0)
-			var humidity = clampf(float((row as Dictionary).get("humidity", avg_humidity)) if row is Dictionary else avg_humidity, 0.0, 1.0)
-			var temp = _tile_temperature_map[idx] if idx < _tile_temperature_map.size() else 0.5
-			var flow = _tile_flow_map[idx] if idx < _tile_flow_map.size() else 0.0
-			var wet = clampf(prev.r * 0.965 + rain * 0.09 + humidity * 0.012, 0.0, 1.0)
-			var snow = prev.g
-			if temp < 0.34:
-				snow = clampf(snow * 0.995 + rain * (0.024 + (0.34 - temp) * 0.02), 0.0, 1.0)
-			else:
-				snow = clampf(snow - (0.008 + temp * 0.018 + wet * 0.01), 0.0, 1.0)
-			var erosion = clampf(prev.a * 0.986 + rain * flow * 0.022 + wet * flow * 0.009, 0.0, 1.0)
-			var next = Color(wet, snow, flow, erosion)
-			var pack = _pack_weather_color(next)
-			if _surface_field_cache[idx] == pack:
-				continue
-			_surface_field_cache[idx] = pack
-			_surface_field_image.set_pixel(x, y, next)
-			dirty += 1
-	if dirty > 0:
-		_surface_field_texture.update(_surface_field_image)
+	_ensure_system_adapters()
+	_atmosphere_adapter.update_surface_state_texture(self, weather_snapshot)
 
 func _update_solar_field_texture(solar_snapshot: Dictionary) -> void:
-	_ensure_solar_field_texture()
-	if _solar_field_image == null or _solar_field_texture == null:
-		return
-	var tick = int(solar_snapshot.get("tick", -1))
-	if tick == _solar_field_last_tick:
-		return
-	_solar_field_last_tick = tick
-	var width = _solar_field_image.get_width()
-	var height = _solar_field_image.get_height()
-	var avg_absorbed = clampf(float(solar_snapshot.get("avg_insolation", 0.0)), 0.0, 1.0)
-	var avg_uv = clampf(float(solar_snapshot.get("avg_uv_index", 0.0)) / 2.0, 0.0, 1.0)
-	var avg_heat = clampf(float(solar_snapshot.get("avg_heat_load", 0.0)) / 1.5, 0.0, 1.0)
-	var avg_growth = clampf(float(solar_snapshot.get("avg_growth_factor", 0.0)), 0.0, 1.0)
-	var rows: Array = solar_snapshot.get("rows", [])
-	var dirty = 0
-	var expected = width * height
-	if rows.size() < expected:
-		var fill = Color(avg_absorbed, avg_uv, avg_heat, avg_growth)
-		var fill_pack = _pack_weather_color(fill)
-		for i in range(_solar_field_cache.size()):
-			if _solar_field_cache[i] == fill_pack:
-				continue
-			_solar_field_cache[i] = fill_pack
-			var x = i % width
-			var y = i / width
-			_solar_field_image.set_pixel(x, y, fill)
-			dirty += 1
-	for row_variant in rows:
-		if not (row_variant is Dictionary):
-			continue
-		var row = row_variant as Dictionary
-		var tile_id = String(row.get("tile_id", ""))
-		var parts = tile_id.split(":")
-		if parts.size() != 2:
-			continue
-		var x = int(parts[0])
-		var y = int(parts[1])
-		if x < 0 or x >= width or y < 0 or y >= height:
-			continue
-		var c = Color(
-			clampf(float(row.get("sunlight_absorbed", row.get("sunlight_total", 0.0))), 0.0, 1.5) / 1.5,
-			clampf(float(row.get("uv_index", 0.0)), 0.0, 2.0) / 2.0,
-			clampf(float(row.get("heat_load", 0.0)), 0.0, 1.5) / 1.5,
-			clampf(float(row.get("plant_growth_factor", 0.0)), 0.0, 1.0)
-		)
-		var pack = _pack_weather_color(c)
-		var idx = y * width + x
-		if idx < 0 or idx >= _solar_field_cache.size():
-			continue
-		if _solar_field_cache[idx] == pack:
-			continue
-		_solar_field_cache[idx] = pack
-		_solar_field_image.set_pixel(x, y, c)
-		dirty += 1
-	if dirty > 0:
-		_solar_field_texture.update(_solar_field_image)
+	_ensure_system_adapters()
+	_atmosphere_adapter.update_solar_field_texture(self, solar_snapshot)
 
 func _update_weather_field_texture(weather_snapshot: Dictionary) -> void:
-	_ensure_weather_field_texture()
-	if _weather_field_image == null or _weather_field_texture == null:
-		return
-	var width = _weather_field_image.get_width()
-	var height = _weather_field_image.get_height()
-	var avg_cloud = clampf(float(weather_snapshot.get("avg_cloud_cover", 0.0)), 0.0, 1.0)
-	var avg_rain = clampf(float(weather_snapshot.get("avg_rain_intensity", 0.0)), 0.0, 1.0)
-	var avg_humidity = clampf(float(weather_snapshot.get("avg_humidity", 0.0)), 0.0, 1.0)
-	var avg_fog = clampf(float(weather_snapshot.get("avg_fog_intensity", 0.0)), 0.0, 1.0)
-	var fill_color = Color(avg_cloud, avg_rain, avg_humidity, avg_fog)
-	var avg_pack = _pack_weather_color(fill_color)
-	var rows: Array = weather_snapshot.get("rows", [])
-	var expected_cells = width * height
-	var dirty_count = 0
-	if rows.size() < expected_cells and avg_pack != _weather_field_last_avg_pack:
-		_fill_weather_field(fill_color, avg_pack)
-		dirty_count = expected_cells
-	_weather_field_last_avg_pack = avg_pack
-	for row_variant in rows:
-		if not (row_variant is Dictionary):
-			continue
-		var row = row_variant as Dictionary
-		var x = int(row.get("x", -1))
-		var y = int(row.get("y", -1))
-		if x < 0 or x >= width or y < 0 or y >= height:
-			continue
-		var pixel = Color(
-			clampf(float(row.get("cloud", avg_cloud)), 0.0, 1.0),
-			clampf(float(row.get("rain", avg_rain)), 0.0, 1.0),
-			clampf(float(row.get("humidity", avg_humidity)), 0.0, 1.0),
-			clampf(float(row.get("fog", avg_fog)), 0.0, 1.0)
-		)
-		var pack = _pack_weather_color(pixel)
-		var idx = y * width + x
-		if idx < 0 or idx >= _weather_field_cache.size():
-			continue
-		if _weather_field_cache[idx] == pack:
-			continue
-		_weather_field_cache[idx] = pack
-		_weather_field_image.set_pixel(x, y, pixel)
-		dirty_count += 1
-	if dirty_count <= 0:
-		return
-	_weather_field_texture.update(_weather_field_image)
+	_ensure_system_adapters()
+	_atmosphere_adapter.update_weather_field_texture(self, weather_snapshot)
 
 func trigger_lightning(intensity: float = 1.0) -> void:
-	_lightning_flash = clampf(maxf(_lightning_flash, intensity), 0.0, 2.0)
-	_update_lightning_uniforms()
+	_ensure_system_adapters()
+	_lighting_adapter.trigger_lightning(self, intensity)
 
 func _update_lightning_uniforms() -> void:
-	_ensure_renderer_nodes()
-	_river_renderer.apply_lightning(_lightning_flash)
-	_cloud_renderer.apply_lightning(_lightning_flash)
-	_post_fx_renderer.apply_lightning(_lightning_flash)
-	_apply_ocean_material_uniforms()
+	_ensure_system_adapters()
+	_lighting_adapter.update_lightning_uniforms(self)
 
 func _ensure_ocean_surface() -> void:
-	_ensure_renderer_nodes()
-	if _ocean_root == null:
-		return
-	if _ocean_mesh_instance == null or not is_instance_valid(_ocean_mesh_instance):
-		_ocean_mesh_instance = MeshInstance3D.new()
-		_ocean_mesh_instance.name = "OceanSurface"
-		_ocean_root.add_child(_ocean_mesh_instance)
-	if _ocean_material == null:
-		_ocean_material = ShaderMaterial.new()
-		_ocean_material.shader = WaterFlowShader
-	_ocean_mesh_instance.material_override = _ocean_material
-	_apply_ocean_material_uniforms()
+	_ensure_system_adapters()
+	_ocean_adapter.ensure_ocean_surface(self)
 
 func _update_ocean_surface_geometry() -> void:
-	_ensure_ocean_surface()
-	if _ocean_mesh_instance == null:
-		return
-	var width = maxi(1, int(_generation_snapshot.get("width", 1)))
-	var depth = maxi(1, int(_generation_snapshot.get("height", 1)))
-	var voxel_world: Dictionary = _generation_snapshot.get("voxel_world", {})
-	var sea_level = float(voxel_world.get("sea_level", 1))
-	var next_size = Vector2(float(width), float(depth))
-	if _ocean_plane_mesh == null:
-		_ocean_plane_mesh = PlaneMesh.new()
-	if _ocean_size_cache != next_size:
-		_ocean_plane_mesh.size = next_size
-		_ocean_size_cache = next_size
-		_ocean_mesh_instance.mesh = _ocean_plane_mesh
-	if not is_equal_approx(_ocean_sea_level_cache, sea_level):
-		_ocean_sea_level_cache = sea_level
-	_ocean_mesh_instance.position = Vector3(next_size.x * 0.5, sea_level + 0.52, next_size.y * 0.5)
-	_ocean_mesh_instance.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
+	_ensure_system_adapters()
+	_ocean_adapter.update_ocean_surface_geometry(self)
 
 func _apply_ocean_material_uniforms() -> void:
-	if _ocean_material == null:
-		return
-	for key_variant in _water_shader_params.keys():
-		_ocean_material.set_shader_parameter(String(key_variant), _water_shader_params[key_variant])
-	_ocean_material.set_shader_parameter("weather_field_tex", _weather_field_texture)
-	_ocean_material.set_shader_parameter("weather_field_world_size", _weather_field_world_size)
-	_ocean_material.set_shader_parameter("weather_field_blend", 1.0)
-	_ocean_material.set_shader_parameter("surface_field_tex", _surface_field_texture)
-	_ocean_material.set_shader_parameter("surface_field_world_size", _weather_field_world_size)
-	_ocean_material.set_shader_parameter("surface_field_blend", 1.0)
-	_ocean_material.set_shader_parameter("solar_field_tex", _solar_field_texture)
-	_ocean_material.set_shader_parameter("solar_field_world_size", _weather_field_world_size)
-	_ocean_material.set_shader_parameter("solar_field_blend", 1.0)
+	_ensure_system_adapters()
+	_ocean_adapter.apply_ocean_material_uniforms(self)
 
 func _pack_weather_color(c: Color) -> int:
-	var r = int(clampi(int(round(c.r * 255.0)), 0, 255))
-	var g = int(clampi(int(round(c.g * 255.0)), 0, 255))
-	var b = int(clampi(int(round(c.b * 255.0)), 0, 255))
-	var a = int(clampi(int(round(c.a * 255.0)), 0, 255))
-	return r | (g << 8) | (b << 16) | (a << 24)
+	_ensure_system_adapters()
+	return _atmosphere_adapter.pack_weather_color(c)
 
 func _fill_weather_field(color: Color, pack: int) -> void:
-	if _weather_field_image == null:
-		return
-	_weather_field_image.fill(color)
-	for i in range(_weather_field_cache.size()):
-		_weather_field_cache[i] = pack
+	_ensure_system_adapters()
+	_atmosphere_adapter.fill_weather_field(self, color, pack)
