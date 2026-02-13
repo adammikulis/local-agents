@@ -6,6 +6,7 @@ const PIPELINE_HPP_PATH := "res://addons/local_agents/gdextensions/localagents/i
 const LEGACY_PIPELINE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipeline.cpp"
 const INTERNAL_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipelineInternal.cpp"
 const BRIDGE_GD_PATH := "res://addons/local_agents/simulation/controller/NativeComputeBridge.gd"
+const WaveAInvariantChecks := preload("res://addons/local_agents/tests/test_native_general_physics_wave_a_contracts.gd")
 
 func run_test(_tree: SceneTree) -> bool:
 	var ok := true
@@ -15,6 +16,7 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = _test_conservation_diagnostics_fields_contract() and ok
 	ok = _test_mass_energy_step_drift_bound_contracts() and ok
 	ok = _test_mass_energy_overall_drift_bound_contracts() and ok
+	ok = _test_wave_a_invariant_contracts(_tree) and ok
 	ok = _test_field_handle_summary_and_diagnostics_contract() and ok
 	ok = _test_optional_field_evolution_summary_keys_contract() and ok
 	ok = _test_field_evolution_invariant_and_stage_coupling_contract() and ok
@@ -151,8 +153,8 @@ func _test_field_evolution_invariant_and_stage_coupling_contract() -> bool:
 	var ok := true
 	ok = _assert(source.contains("summary[\"field_mass_drift_proxy\"] = unified_pipeline::clamped(field_evolution.get(\"mass_drift_proxy\", 0.0), -1.0e18, 1.0e18, 0.0);"), "Summary must expose field_mass_drift_proxy invariant proxy") and ok
 	ok = _assert(source.contains("summary[\"field_energy_drift_proxy\"] = unified_pipeline::clamped(field_evolution.get(\"energy_drift_proxy\", 0.0), -1.0e18, 1.0e18, 0.0);"), "Summary must expose field_energy_drift_proxy invariant proxy") and ok
-	ok = _assert(source.contains("\"mass_drift_proxy\", mass_after - mass_before,"), "Field evolution must compute mass_drift_proxy from before/after totals") and ok
-	ok = _assert(source.contains("\"energy_drift_proxy\", energy_after - energy_before);"), "Field evolution must compute energy_drift_proxy from before/after totals") and ok
+	ok = _assert(source.contains("\"mass_drift_proxy\", mass_drift_proxy"), "Field evolution should expose bounded mass_drift_proxy") and ok
+	ok = _assert(source.contains("\"energy_drift_proxy\", energy_drift_proxy"), "Field evolution should expose bounded energy_drift_proxy") and ok
 	ok = _assert(source.contains("\"pair_updates\", pair_updates,"), "Field evolution must publish pair_updates stage-coupling marker") and ok
 	ok = _assert(source.contains("result[\"updated_fields\"] = unified_pipeline::make_dictionary("), "Field evolution must publish updated_fields coupling payload") and ok
 	var has_stage_coupling := source.contains("\"stage_coupling\"")
@@ -269,6 +271,10 @@ func _test_mass_energy_overall_drift_bound_contracts() -> bool:
 		"Summary must expose bounded overall conservation totals."
 	) and ok
 	return ok
+
+func _test_wave_a_invariant_contracts(_tree: SceneTree) -> bool:
+	var checks = WaveAInvariantChecks.new()
+	return checks.run_test(_tree)
 
 func _test_wave_a_coupling_pressure_to_mechanics_contract() -> bool:
 	var source := _read_pipeline_sources()

@@ -11,26 +11,27 @@ This file defines implementation rules for this repository. Higher sections are 
 
 ## Execution Model (Highest Priority)
 
-- Main-thread role is executive only: planning, user interaction, architecture decisions, sub-agent orchestration, integration/deconflict, verification, and commit/push flow.
-- Default to sub-agent-first implementation. Keep main-thread direct edits for glue/integration and cross-cutting fixes.
-- Testing is a default sub-agent workstream: spawn dedicated sub-agents for contract checks, regression suites, benchmark/CI smoke, and performance probes before reporting pass/fail.
-- Before each wave, close stale or finished sub-agents to avoid stale references and thread/session pressure.
-- Proactively close agents as soon as they finish assigned work.
+- Planning-first, impact-first execution: each wave starts with a concrete target and explicit priority order.
+- The main thread is executive only: planning, user interaction, architecture decisions, sub-agent lifecycle, integration/deconflict, verification, and commit/push flow.
+- Use sub-agents for both planning and execution:
+  - spawn a planning sub-agent to map scope, owners, and acceptance criteria for each wave.
+  - spawn implementation/validation sub-agents whenever responsibilities can be split safely.
 - Workflow loop:
-  1. Update `ARCHITECTURE_PLAN.md` first with checkbox state.
-  2. Spawn as many scoped implementation and validation sub-agents as can safely execute in parallel.
-  3. Integrate and deconflict outputs as they complete; do not wait for perfect synchronization.
-  4. Run targeted verification.
-  5. Create feature-scoped commits and push.
-  6. Repeat.
-- Ask user questions only when an architectural or requirement decision is ambiguous.
+  1. Update `ARCHITECTURE_PLAN.md` first with priority band (P0/P1/P2), owners, and acceptance criteria.
+  2. Launch planning sub-agent(s) for decomposition + coupling-risk assessment.
+  3. Launch scoped implementation and validation sub-agents in parallel.
+  4. Keep main-thread focus on communication, integration, and conflict resolution while agents own execution.
+  5. Proactively close stale or completed sub-agents, deconflict overlaps immediately, and merge outputs as soon as they land.
+  6. Run targeted verification on the highest-impact wave.
+  7. Commit scoped changes and keep plan/status updates synchronized.
+- Ask user questions only when an architectural or requirement decision is truly ambiguous.
 
-### Testing Sub-Agent Defaults
+### Validation Defaults
 
-- For any changed native or simulation contract area, spawn a test sub-agent unless the change is docs-only.
-- Give test agents explicit acceptance criteria and test command set before execution.
-- Merge test outputs as structured findings (pass/fail + artifact path + notable failures).
-- If a test agent returns stale or blocked, close it and reassign.
+- For any changed native or simulation contract area, spawn a validation sub-agent unless the change is docs-only.
+- Give validation agents explicit acceptance criteria and test commands before they start.
+- Merge findings as structured pass/fail artifacts with notable failures.
+- Reassign/redeploy immediately if an agent becomes blocked or stale.
 
 ## File Size and Refactor Discipline
 

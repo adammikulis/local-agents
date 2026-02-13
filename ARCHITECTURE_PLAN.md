@@ -11,6 +11,13 @@ This plan is organized by engineering concern so work can be split into focused 
 - [x] Record breaking API/schema changes in this file before merge.
 - [x] Keep memory/graph implementation out of this execution stream when separately owned.
 
+## Wave Protocol
+
+- [x] Planning for each wave starts with a planner sub-agent that defines scope, owners, and acceptance criteria.
+- [x] Implementation and validation are split into parallel sub-agent streams where responsibilities can be partitioned safely.
+- [x] Main thread tracks deconflict/merge and drives the `ARCHITECTURE_PLAN.md -> execution -> verification -> commit` loop.
+- [x] Stale/finished sub-agents are proactively closed and replaced as needed.
+
 ## Concern A: Runtime and GDExtension Stability
 
 Scope: `addons/local_agents/gdextensions/localagents/`, `addons/local_agents/runtime/`, `addons/local_agents/agents/`
@@ -21,10 +28,6 @@ Scope: `addons/local_agents/gdextensions/localagents/`, `addons/local_agents/run
 - [x] Complete end-to-end runtime initialization validation on fresh machines after dependency/build scripts run.
 - [x] Add structured runtime health endpoint/API for editor and tests (extension loaded, model loaded, runtime binaries found).
 - [x] Add JSON grammar/options coverage in `AgentRuntime` generation path.
-
-Sub-agent split:
-- Runtime-Core: extension lifecycle, `AgentRuntime`, `AgentNode` contracts.
-- Runtime-API: GDScript bridge consistency and backward-compatible error payloads.
 
 ## Concern B: Model Download and Asset Pipeline
 
@@ -38,10 +41,6 @@ Scope: `controllers/ModelDownloadService.gd`, `controllers/DownloadController.gd
 - [x] Consolidate UI and headless download orchestration behind shared helper(s) to avoid duplicate logic.
 - [x] Add checksum and manifest verification for downloaded model/voice artifacts.
 
-Sub-agent split:
-- Download-Runtime: native downloader behavior, split GGUF handling, cache behavior.
-- Download-GDS: editor/service orchestration, logs, retries, UI status integration.
-
 ## Concern C: Chat, Controller Boundaries, and Scene Architecture
 
 Scope: `controllers/ChatController.gd`, `agent_manager/AgentManager.gd`, `editor/*`, `configuration/ui/*`
@@ -51,10 +50,6 @@ Scope: `controllers/ChatController.gd`, `agent_manager/AgentManager.gd`, `editor
 - [x] Continue decomposition of oversized controllers into mediator + focused services (conversation/session/history).
 - [x] Add explicit runtime state badges in Chat tab (runtime loaded/model loaded/speech ready).
 - [x] Ensure editor-only and runtime-only responsibilities are separated cleanly.
-
-Sub-agent split:
-- UI-Orchestration: mediator/controller boundaries and tab interactions.
-- UX-State: status visibility, recoverable error flows, disable/enable behavior.
 
 ## Concern D: Memory and Graph Capabilities
 
@@ -66,10 +61,6 @@ Scope: `controllers/ConversationStore.gd`, `docs/NETWORK_GRAPH.md`, future graph
 - [ ] Add migration/maintenance tools (purge/export/repair).
 - [ ] Implement editor Memory and Graph inspection tabs.
 
-Sub-agent split:
-- Graph-Core: schema, persistence contracts, migration safety.
-- Graph-UX: memory/graph visualization and inspection workflows.
-
 ## Concern E: Speech and Transcription
 
 Scope: `runtime/audio/SpeechService.gd`, `agents/Agent.gd`, native speech/transcription runtime hooks
@@ -78,10 +69,6 @@ Scope: `runtime/audio/SpeechService.gd`, `agents/Agent.gd`, native speech/transc
 - [x] Agent-level speech playback pipeline exists with async job callbacks.
 - [x] Add deterministic smoke tests with small fixtures for speech/transcription success/failure paths.
 - [x] Improve voice asset resolution/reporting in UI when assets are missing or mismatched.
-
-Sub-agent split:
-- Speech-Runtime: native process lifecycle and payload contracts.
-- Speech-GDS: service orchestration, playback, and UX errors.
 
 ## Concern F: Test Strategy and CI Gating
 
@@ -94,10 +81,6 @@ Scope: `addons/local_agents/tests/*`, CI pipeline setup
 - [x] Wire headless tests into CI with separate jobs for core-only and runtime-heavy suites.
 - [x] Add CI artifacts/log collection for failed runtime/download checks.
 
-Sub-agent split:
-- Test-Harness: harness behavior, skip/fail policy, deterministic outputs.
-- CI-Infra: matrix jobs, caching, artifacts, merge gates.
-
 ## Concern G: Cross-Platform Build and Packaging
 
 Scope: build scripts, release packaging, binary layout
@@ -106,10 +89,6 @@ Scope: build scripts, release packaging, binary layout
 - [x] Provide Linux/Windows parity for bundled binaries and runtime tools.
 - [x] Add `build_all.sh` and reproducible packaging outputs per platform.
 - [x] Add binary size/performance regression checks per release.
-
-Sub-agent split:
-- Build-Systems: platform-specific build scripts and binary staging.
-- Release-Quality: packaging verification and regression tracking.
 
 ## Concern H: Demos, Docs, and Onboarding
 
@@ -120,9 +99,6 @@ Scope: `README.md`, examples, docs, screenshots/tutorials
 - [x] Restore/polish 3D demo parity and HUD components.
 - [x] Refresh docs/screenshots/tutorials around download/runtime health workflows.
 
-Sub-agent split:
-- Demo-Scenes: examples and in-engine demo parity.
-- Docs-Onboarding: quickstart accuracy and release-facing docs.
 
 ## Concern I: Voxel Physics Engine Upgrades (Native-First)
 
@@ -153,10 +129,10 @@ Current state baseline (completed):
 ### Wave A: Field Model + Conservative Core Solvers
 
 Next Wave Scope (in-progress) - February 13, 2026:
-- [ ] Land native field handles API.
+- [x] February 13, 2026: Land native field handles API.
 - [x] Add field-handle execution diagnostics in pipeline.
-- [ ] Add field-handle-aware stage input plumbing in pipeline executor.
-- [ ] Add invariants and stage-coupling source-contract gates.
+- [x] February 13, 2026: Add field-handle-aware stage input plumbing in pipeline executor.
+- [x] February 13, 2026: Add invariants and stage-coupling source-contract gates.
 
 Data model and state layer:
 - [ ] Move hot-path simulation from per-step scalar dictionaries to typed native field handles.
@@ -181,8 +157,8 @@ Mechanics / pressure / thermal evolution:
 - [ ] Feed voxel-derived resistance/fracture feedback into physics-server responses through explicit bridge outputs.
 
 Wave A validation gates:
-- [ ] Add deterministic invariants tests for bounded mass/energy drift per step.
-- [ ] Add stage-coupling tests for `pressure -> mechanics`, `reaction -> thermal`, `damage -> voxel ops`.
+- [x] February 13, 2026: Add deterministic invariants tests for bounded mass/energy drift per step.
+- [x] February 13, 2026: Added source-contract stage-coupling tests for `pressure -> mechanics`, `reaction -> thermal`, `damage -> voxel ops` gates.
 - [x] February 13, 2026: Ensure each stage reads/writes native field handles (script layer remains orchestration/visualization only).
 - [x] February 13, 2026: Landed Wave A stage-coupling marker and scalar payload wiring (`pressure->mechanics`, `reaction->thermal`, `damage->voxel`) for deterministic validation.
 - [x] February 13, 2026: Added Wave A stage-coupling source-contract tests for `pressure->mechanics`, `reaction->thermal`, and `damage->voxel` transitions in `test_native_general_physics_contracts.gd`.
@@ -251,14 +227,6 @@ Test/runtime optimization follow-up:
 - [x] Add runtime override knobs for context and max tokens in heavy tests (`--context-size`, `--max-tokens` and env vars).
 - [x] Add voxel CPU-vs-GPU benchmark harness for pipeline comparison (`benchmark_voxel_pipeline.gd`) and document run commands.
 - [x] Standardize deterministic replay CI timeout budgets: `120s` per shard by default, `180s` for GPU/mobile-oriented matrix jobs.
-
-## Immediate Queue (Ready to Spawn)
-
-- [x] Fix Piper voice fetch URLs and make dependency fetch resilient to missing optional voice assets.
-- [x] Finish native build verification and confirm `scripts/check_extension.gd` passes with produced binaries.
-- [x] Run full runtime-heavy tests with real model load/embed/generate and capture pass/fail baseline.
-- [x] Add CI split jobs: `core-headless` and `runtime-heavy`.
-- [x] Update README test section to align with current harness behavior.
 
 ## Breaking Changes
 

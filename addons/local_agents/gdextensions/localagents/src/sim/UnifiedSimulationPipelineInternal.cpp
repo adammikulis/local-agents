@@ -504,6 +504,8 @@ Dictionary run_field_buffer_evolution(
     const double mass_after = sum_array(mass_next);
     const double energy_before = proxy_energy_total(mass, velocity, pressure, temperature);
     const double energy_after = proxy_energy_total(mass_next, velocity_next, pressure_next, temperature_next);
+    const double mass_drift_proxy = clamped(mass_after - mass_before, -1.0e18, 1.0e18, 0.0);
+    const double energy_drift_proxy = clamped(energy_after - energy_before, -1.0e18, 1.0e18, 0.0);
 
     Dictionary result = unified_pipeline::make_dictionary(
         "enabled", true,
@@ -514,8 +516,8 @@ Dictionary run_field_buffer_evolution(
         "pressure_diffusivity", pressure_diffusivity,
         "thermal_diffusivity", thermal_diffusivity,
         "mass_transfer_coeff", mass_transfer_coeff,
-        "mass_drift_proxy", mass_after - mass_before,
-        "energy_drift_proxy", energy_after - energy_before);
+        "mass_drift_proxy", mass_drift_proxy,
+        "energy_drift_proxy", energy_drift_proxy);
     result["updated_fields"] = unified_pipeline::make_dictionary(
         "mass", mass_next,
         "density", density_next,

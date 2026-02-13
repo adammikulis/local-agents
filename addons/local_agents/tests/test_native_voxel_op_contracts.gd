@@ -11,8 +11,25 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = _test_fallback_path_selection_contract_source() and ok
 	ok = _test_changed_region_payload_shape_contract_source() and ok
 	ok = _test_adaptive_multires_and_zoom_throttle_contract_source() and ok
+	ok = _test_environment_stage_field_handle_injection_contract_source() and ok
 	if ok:
 		print("Native voxel op source contracts passed (ordering, fallback selection, changed-region payload shape).")
+	return ok
+
+func _test_environment_stage_field_handle_injection_contract_source() -> bool:
+	var source := _read_script_source(NATIVE_CORE_CPP_PATH)
+	if source == "":
+		return false
+	var ok := true
+	ok = _assert(source.contains("bool extract_reference_from_dictionary(const Dictionary &payload, String &out_ref)"), "Core must define dictionary-based field reference extractor for handle injection") and ok
+	ok = _assert(source.contains("Array collect_input_field_handles("), "Core must define field-handle collection helper for environment inputs") and ok
+	ok = _assert(source.contains("const Dictionary resolved = registry->resolve_field_handle(token);"), "Handle injection should resolve registered handles before creating new ones") and ok
+	ok = _assert(source.contains("const Dictionary created = registry->create_field_handle(token);"), "Handle injection should create handles when resolving by field name") and ok
+	ok = _assert(source.contains("const Dictionary source_inputs = environment_payload.get(\"inputs\", Dictionary());"), "Handle injection must read payload.inputs before pipeline dispatch") and ok
+	ok = _assert(source.contains("const Dictionary scheduled_frame_inputs = maybe_inject_field_handles_into_environment_inputs(effective_payload, field_registry_.get());"), "Environment stage must inject computed field_handles before compute execution") and ok
+	ok = _assert(source.contains("scheduled_frame[\"inputs\"] = scheduled_frame_inputs;"), "Environment stage should dispatch injected inputs into scheduled_frame") and ok
+	ok = _assert(source.contains("if (!did_inject_handles) {"), "Field handle injection should preserve scalar path by skipping injection if no valid references are found") and ok
+	ok = _assert(source.contains("pipeline_inputs[\"field_handles\"] = field_handles;"), "Injected field_handles should be added to a duplicated pipeline input dictionary") and ok
 	return ok
 
 func _test_voxel_op_ordering_contract_source() -> bool:
