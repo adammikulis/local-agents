@@ -280,6 +280,8 @@ func configure_environment(config_resource = null) -> Dictionary:
     _water_network_snapshot["seed"] = hydrology_seed
     _weather_snapshot = {}
     if _weather_system != null:
+        _weather_system.set_emit_rows(false)
+        _weather_system.set_compute_enabled(true)
         var weather_setup: Dictionary = _weather_system.configure_environment(_environment_snapshot, _water_network_snapshot, weather_seed)
         if bool(weather_setup.get("ok", false)):
             _weather_snapshot = _weather_system.current_snapshot(0)
@@ -288,11 +290,19 @@ func configure_environment(config_resource = null) -> Dictionary:
     _erosion_changed_last_tick = false
     _erosion_changed_tiles_last_tick = []
     if _erosion_system != null:
+        _erosion_system.set_emit_rows(false)
+        _erosion_system.set_compute_enabled(true)
+        if _erosion_system.has_method("set_geomorph_apply_interval_ticks"):
+            _erosion_system.call("set_geomorph_apply_interval_ticks", 6)
         _erosion_system.configure_environment(_environment_snapshot, _water_network_snapshot, erosion_seed)
         _erosion_snapshot = _erosion_system.current_snapshot(0)
     _erosion_snapshot["seed"] = erosion_seed
     _solar_snapshot = {}
     if _solar_system != null:
+        _solar_system.set_emit_rows(false)
+        if _solar_system.has_method("set_sync_stride"):
+            _solar_system.call("set_sync_stride", 4)
+        _solar_system.set_compute_enabled(true)
         var solar_setup: Dictionary = _solar_system.configure_environment(_environment_snapshot, solar_seed)
         if bool(solar_setup.get("ok", false)):
             _solar_snapshot = _solar_system.current_snapshot(0)
