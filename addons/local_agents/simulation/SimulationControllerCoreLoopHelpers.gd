@@ -209,6 +209,16 @@ static func register_villager(svc, npc_id: String, display_name: String, initial
 
 static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool = true) -> Dictionary:
     ensure_initialized(svc)
+    var tick_start_us = Time.get_ticks_usec()
+    var weather_us := 0
+    var hydrology_us := 0
+    var erosion_us := 0
+    var solar_us := 0
+    var pipeline_us := 0
+    var structure_us := 0
+    var culture_us := 0
+    var cognition_us := 0
+    var snapshot_us := 0
     svc._resource_event_sequence = 0
     svc._last_partial_delivery_count = 0
     svc._household_growth_metrics = {}
@@ -222,30 +232,48 @@ static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool
     svc._erosion_changed_last_tick = false
     svc._erosion_changed_tiles_last_tick = []
     if svc._weather_system != null and _should_run_system_tick(tick, int(svc.weather_step_interval_ticks)):
+        var t0 = Time.get_ticks_usec()
         svc._weather_snapshot = svc._weather_system.step(tick, fixed_delta)
+        weather_us = Time.get_ticks_usec() - t0
     if svc._hydrology_system != null and _should_run_system_tick(tick, int(svc.hydrology_step_interval_ticks)):
+        var t1 = Time.get_ticks_usec()
         var hydrology_step: Dictionary = svc._hydrology_system.step(tick, fixed_delta, svc._environment_snapshot, svc._water_network_snapshot, svc._weather_snapshot)
         svc._environment_snapshot = hydrology_step.get("environment", svc._environment_snapshot)
         svc._water_network_snapshot = hydrology_step.get("hydrology", svc._water_network_snapshot)
+        hydrology_us = Time.get_ticks_usec() - t1
     if svc._erosion_system != null and _should_run_system_tick(tick, int(svc.erosion_step_interval_ticks)):
+        var t2 = Time.get_ticks_usec()
         var erosion_result: Dictionary = svc._erosion_system.step(tick, fixed_delta, svc._environment_snapshot, svc._water_network_snapshot, svc._weather_snapshot)
         svc._environment_snapshot = erosion_result.get("environment", svc._environment_snapshot)
         svc._water_network_snapshot = erosion_result.get("hydrology", svc._water_network_snapshot)
         svc._erosion_snapshot = erosion_result.get("erosion", svc._erosion_snapshot)
         svc._erosion_changed_last_tick = bool(erosion_result.get("changed", false))
         svc._erosion_changed_tiles_last_tick = (erosion_result.get("changed_tiles", []) as Array).duplicate(true)
+        erosion_us = Time.get_ticks_usec() - t2
     if svc._solar_system != null and _should_run_system_tick(tick, int(svc.solar_step_interval_ticks)):
+        var t3 = Time.get_ticks_usec()
         svc._solar_snapshot = svc._solar_system.step(tick, fixed_delta, svc._environment_snapshot, svc._weather_snapshot)
+        solar_us = Time.get_ticks_usec() - t3
     if svc._flow_network_system != null:
         svc._flow_network_system.configure_environment(svc._environment_snapshot, svc._water_network_snapshot)
     var npc_ids = svc._sorted_npc_ids()
     for npc_id in npc_ids:
         svc._apply_need_decay(npc_id, fixed_delta)
 
-    svc._run_resource_pipeline(tick, npc_ids)
-    svc._run_structure_lifecycle(tick)
-    svc._run_culture_cycle(tick)
+    if _should_run_system_tick(tick, int(svc.resource_pipeline_interval_ticks)):
+        var t4 = Time.get_ticks_usec()
+        svc._run_resource_pipeline(tick, npc_ids)
+        pipeline_us = Time.get_ticks_usec() - t4
+    if _should_run_system_tick(tick, int(svc.structure_lifecycle_interval_ticks)):
+        var t5 = Time.get_ticks_usec()
+        svc._run_structure_lifecycle(tick)
+        structure_us = Time.get_ticks_usec() - t5
+    if _should_run_system_tick(tick, int(svc.culture_cycle_interval_ticks)):
+        var t6 = Time.get_ticks_usec()
+        svc._run_culture_cycle(tick)
+        culture_us = Time.get_ticks_usec() - t6
 
+    var cognition_start_us = Time.get_ticks_usec()
     if svc.narrator_enabled and tick > 0 and tick % 24 == 0:
         if not svc._generate_narrator_direction(tick):
             return svc._dependency_error_result(tick, "narrator")
@@ -267,11 +295,13 @@ static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool
             svc._enqueue_dream_npcs(npc_ids)
         if not svc._drain_dream_queue(tick, svc._generation_cap("dream", 8)):
             return svc._dependency_error_result(tick, "dream")
+    cognition_us = Time.get_ticks_usec() - cognition_start_us
 
     var event_id: int = -1
     var should_persist_tick: bool = svc.persist_tick_history_enabled and (tick % maxi(1, svc.persist_tick_history_interval) == 0)
     var state_payload: Dictionary = {}
     if include_state or should_persist_tick:
+        var t7 = Time.get_ticks_usec()
         var snapshot = current_snapshot(svc, tick)
         if include_state:
             state_payload = snapshot
@@ -286,12 +316,36 @@ static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool
                     svc._branch_lineage.duplicate(true),
                     svc._branch_fork_tick
                 )
+        snapshot_us = Time.get_ticks_usec() - t7
     else:
         state_payload = {
             "tick": tick,
             "environment_signals": svc.build_environment_signal_snapshot(tick).to_dict(),
         }
     svc._last_tick_processed = tick
+    var total_us = Time.get_ticks_usec() - tick_start_us
+    svc._last_tick_profile = {
+        "tick": tick,
+        "total_ms": float(total_us) / 1000.0,
+        "weather_ms": float(weather_us) / 1000.0,
+        "hydrology_ms": float(hydrology_us) / 1000.0,
+        "erosion_ms": float(erosion_us) / 1000.0,
+        "solar_ms": float(solar_us) / 1000.0,
+        "resource_pipeline_ms": float(pipeline_us) / 1000.0,
+        "structure_ms": float(structure_us) / 1000.0,
+        "culture_ms": float(culture_us) / 1000.0,
+        "cognition_ms": float(cognition_us) / 1000.0,
+        "snapshot_ms": float(snapshot_us) / 1000.0,
+        "step_intervals": {
+            "weather": int(svc.weather_step_interval_ticks),
+            "hydrology": int(svc.hydrology_step_interval_ticks),
+            "erosion": int(svc.erosion_step_interval_ticks),
+            "solar": int(svc.solar_step_interval_ticks),
+            "resource_pipeline": int(svc.resource_pipeline_interval_ticks),
+            "structure_lifecycle": int(svc.structure_lifecycle_interval_ticks),
+            "culture_cycle": int(svc.culture_cycle_interval_ticks),
+        },
+    }
     return {
         "ok": true,
         "tick": tick,

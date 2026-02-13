@@ -8,6 +8,9 @@ var _simulated_seconds_per_tick: float = 1.0
 
 var _is_playing: bool = false
 var _ticks_per_frame: int = 1
+var _tick_accumulator: float = 0.0
+var _simulation_ticks_per_second: float = 4.0
+var _living_profile_push_interval_ticks: int = 4
 var _current_tick: int = 0
 var _fork_index: int = 0
 var _simulated_seconds: float = 0.0
@@ -31,18 +34,24 @@ func initialize_from_snapshot(tick: int, auto_play: bool, snapshot: Dictionary) 
 	_current_tick = maxi(0, tick)
 	_is_playing = auto_play
 	_ticks_per_frame = 1
+	_tick_accumulator = 0.0
 	_simulated_seconds = _seconds_at_tick(_current_tick)
 	_last_state = _decorate_state_with_time(snapshot)
 
-func process_frame(living_entity_profiles_provider: Callable) -> Dictionary:
+func process_frame(delta: float, living_entity_profiles_provider: Callable) -> Dictionary:
 	if not _is_playing:
 		return {"state_changed": false, "state_advanced": false, "force_rebuild": false}
 	var did_advance := false
-	for _i in range(_ticks_per_frame):
+	_tick_accumulator += maxf(0.0, delta)
+	var tick_interval = 1.0 / maxf(0.5, _simulation_ticks_per_second)
+	var processed = 0
+	while _tick_accumulator >= tick_interval and processed < maxi(1, _ticks_per_frame):
 		if _advance_tick(living_entity_profiles_provider):
 			did_advance = true
+		_tick_accumulator -= tick_interval
+		processed += 1
 	return {
-		"state_changed": true,
+		"state_changed": did_advance,
 		"state_advanced": did_advance,
 		"force_rebuild": false,
 	}
@@ -106,10 +115,18 @@ func is_playing() -> bool:
 func last_state() -> Dictionary:
 	return _last_state
 
+func set_timing(simulation_ticks_per_second: float, living_profile_push_interval_ticks: int) -> void:
+	_simulation_ticks_per_second = maxf(0.5, simulation_ticks_per_second)
+	_living_profile_push_interval_ticks = maxi(1, living_profile_push_interval_ticks)
+
 func _advance_tick(living_entity_profiles_provider: Callable) -> bool:
 	if _simulation_controller == null or not _simulation_controller.has_method("process_tick"):
 		return false
-	if living_entity_profiles_provider.is_valid() and _simulation_controller.has_method("set_living_entity_profiles"):
+	if (
+		living_entity_profiles_provider.is_valid()
+		and _simulation_controller.has_method("set_living_entity_profiles")
+		and (_current_tick % _living_profile_push_interval_ticks == 0)
+	):
 		var profiles = living_entity_profiles_provider.call()
 		if profiles != null:
 			_simulation_controller.call("set_living_entity_profiles", profiles)

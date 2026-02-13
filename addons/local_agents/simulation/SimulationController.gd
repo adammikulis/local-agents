@@ -137,15 +137,16 @@ var weather_step_interval_ticks: int = 2
 var hydrology_step_interval_ticks: int = 2
 var erosion_step_interval_ticks: int = 4
 var solar_step_interval_ticks: int = 4
+var resource_pipeline_interval_ticks: int = 2
+var structure_lifecycle_interval_ticks: int = 2
+var culture_cycle_interval_ticks: int = 4
 var _pending_thought_npc_ids: Array = []
 var _pending_dream_npc_ids: Array = []
 var _pending_dialogue_pairs: Array = []
 func _ready() -> void:
     _ensure_initialized()
-
 func _ensure_initialized() -> void:
     SimulationControllerCoreLoopHelpersScript.ensure_initialized(self)
-
 func configure(seed_text: String, narrator_enabled: bool = true, dream_llm_enabled: bool = true) -> void:
     _ensure_initialized()
     _reset_store_for_instance()
@@ -166,7 +167,6 @@ func configure(seed_text: String, narrator_enabled: bool = true, dream_llm_enabl
     _store.open(_store_path_for_instance())
     _apply_llama_server_integration()
     configure_environment(_worldgen_config)
-
 func _store_path_for_instance() -> String:
     return ProjectSettings.globalize_path("user://local_agents/sim_%d.sqlite3" % get_instance_id())
 

@@ -39,10 +39,12 @@ const SimulationLoopControllerScript = preload("res://addons/local_agents/scenes
 @export var years_per_tick: float = 0.25
 @export var start_simulated_seconds: float = 0.0
 @export var simulated_seconds_per_tick: float = 1.0
+@export_range(0.5, 30.0, 0.5) var simulation_ticks_per_second: float = 4.0
 @export var day_night_cycle_enabled: bool = true
 @export var day_length_seconds: float = 180.0
 @export_range(0.0, 1.0, 0.001) var start_time_of_day: float = 0.28
 @export_range(1, 16, 1) var visual_environment_update_interval_ticks: int = 4
+@export_range(1, 16, 1) var living_profile_push_interval_ticks: int = 4
 
 var _loop_controller = SimulationLoopControllerScript.new()
 var _last_state: Dictionary = {}
@@ -84,6 +86,7 @@ func _ready() -> void:
 		start_simulated_seconds,
 		simulated_seconds_per_tick
 	)
+	_loop_controller.set_timing(simulation_ticks_per_second, living_profile_push_interval_ticks)
 	if flow_traversal_profile_override == null:
 		flow_traversal_profile_override = FlowTraversalProfileResourceScript.new()
 	if worldgen_config_override == null:
@@ -104,6 +107,8 @@ func _ready() -> void:
 			simulation_hud.overlays_changed.connect(_on_hud_overlays_changed)
 		if simulation_hud.has_signal("graphics_option_changed"):
 			simulation_hud.graphics_option_changed.connect(_on_hud_graphics_option_changed)
+		if simulation_hud.has_signal("performance_mode_requested"):
+			simulation_hud.performance_mode_requested.connect(_on_hud_performance_mode_requested)
 	_initialize_camera_orbit()
 	_on_hud_overlays_changed(false, false, false, false, false, false)
 	_apply_graphics_state()
@@ -159,7 +164,7 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	_update_day_night(_delta)
-	_apply_loop_result(_loop_controller.process_frame(Callable(self, "_collect_living_entity_profiles")))
+	_apply_loop_result(_loop_controller.process_frame(_delta, Callable(self, "_collect_living_entity_profiles")))
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not camera_controls_enabled:
