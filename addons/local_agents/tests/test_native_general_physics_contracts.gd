@@ -2,6 +2,7 @@
 extends RefCounted
 
 const SIM_SOURCE_DIR := "res://addons/local_agents/gdextensions/localagents/src/sim"
+const PIPELINE_HPP_PATH := "res://addons/local_agents/gdextensions/localagents/include/sim/UnifiedSimulationPipeline.hpp"
 const LEGACY_PIPELINE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipeline.cpp"
 const INTERNAL_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipelineInternal.cpp"
 const BRIDGE_GD_PATH := "res://addons/local_agents/simulation/controller/NativeComputeBridge.gd"
@@ -47,12 +48,19 @@ func _test_stage_dispatch_and_summary_contracts_cover_all_domains() -> bool:
 	var source := _read_pipeline_sources()
 	if source == "":
 		return false
+	var pipeline_header := _read_source(PIPELINE_HPP_PATH)
+	if pipeline_header == "":
+		return false
+	var pipeline_cpp := _read_source(LEGACY_PIPELINE_CPP_PATH)
+	if pipeline_cpp == "":
+		return false
+
 	var ok := true
-	ok = _assert(source.contains("run_mechanics_stage(stage_variant, frame_inputs, delta_seconds)"), "Pipeline must execute mechanics stage runner") and ok
-	ok = _assert(source.contains("run_pressure_stage(stage_variant, frame_inputs, delta_seconds)"), "Pipeline must execute pressure stage runner") and ok
-	ok = _assert(source.contains("run_thermal_stage(stage_variant, frame_inputs, delta_seconds)"), "Pipeline must execute thermal stage runner") and ok
-	ok = _assert(source.contains("run_reaction_stage(stage_variant, frame_inputs, delta_seconds)"), "Pipeline must execute reaction stage runner") and ok
-	ok = _assert(source.contains("run_destruction_stage(stage_variant, frame_inputs, delta_seconds)"), "Pipeline must execute destruction stage runner") and ok
+	for stage_name in ["mechanics", "pressure", "thermal", "reaction", "destruction"]:
+		var method_name := "run_%s_stage" % stage_name
+		var arg_count := _extract_stage_runner_param_count(pipeline_header, method_name)
+		ok = _assert(arg_count > 0, "Pipeline header must declare %s runner signature." % method_name) and ok
+		ok = _assert(_has_stage_runner_call_with_arity(pipeline_cpp, method_name, arg_count), "Pipeline must execute %s stage runner." % stage_name) and ok
 	ok = _assert(source.contains("summary[\"mechanics\"] = mechanics_results;"), "Summary must include mechanics stage results") and ok
 	ok = _assert(source.contains("summary[\"pressure\"] = pressure_results;"), "Summary must include pressure stage results") and ok
 	ok = _assert(source.contains("summary[\"thermal\"] = thermal_results;"), "Summary must include thermal stage results") and ok
@@ -387,11 +395,11 @@ func _test_shock_impulse_contracts_present() -> bool:
 		return false
 	var ok := true
 	ok = _assert(
-		_contains_any(source, ["const double shock_impulse = clamped(frame_inputs.get(\"shock_impulse\", stage_config.get(\"shock_impulse\", 0.0)), -1.0e9, 1.0e9, 0.0);", "const double shock_impulse = unified_pipeline::clamped(frame_inputs.get(\"shock_impulse\", stage_config.get(\"shock_impulse\", 0.0)), -1.0e9, 1.0e9, 0.0);"]),
+		_contains_any(source, ["const double shock_impulse = clamped(stage_field_inputs.get(\"shock_impulse\", stage_config.get(\"shock_impulse\", 0.0)), -1.0e9, 1.0e9, 0.0);", "const double shock_impulse = unified_pipeline::clamped(stage_field_inputs.get(\"shock_impulse\", stage_config.get(\"shock_impulse\", 0.0)), -1.0e9, 1.0e9, 0.0);"]),
 		"Mechanics/pressure stages must accept shock_impulse inputs"
 	) and ok
 	ok = _assert(
-		_contains_any(source, ["const double shock_distance = clamped(frame_inputs.get(\"shock_distance\", stage_config.get(\"shock_distance\", 0.0)), 0.0, 1.0e9, 0.0);", "const double shock_distance = unified_pipeline::clamped(frame_inputs.get(\"shock_distance\", stage_config.get(\"shock_distance\", 0.0)), 0.0, 1.0e9, 0.0);"]),
+		_contains_any(source, ["const double shock_distance = clamped(stage_field_inputs.get(\"shock_distance\", stage_config.get(\"shock_distance\", 0.0)), 0.0, 1.0e9, 0.0);", "const double shock_distance = unified_pipeline::clamped(stage_field_inputs.get(\"shock_distance\", stage_config.get(\"shock_distance\", 0.0)), 0.0, 1.0e9, 0.0);"]),
 		"Mechanics/pressure stages must accept shock_distance inputs"
 	) and ok
 	ok = _assert(source.contains("const double shock_decay = std::exp(-shock_attenuation * shock_distance);"), "Shock handling must include exponential attenuation") and ok
@@ -407,11 +415,11 @@ func _test_friction_contact_contracts_present() -> bool:
 		return false
 	var ok := true
 	ok = _assert(
-		_contains_any(source, ["const double normal_force = clamped(frame_inputs.get(\"normal_force\", stage_config.get(\"normal_force\", mass * 9.81)), 0.0, 1.0e12, mass * 9.81);", "const double normal_force = unified_pipeline::clamped(frame_inputs.get(\"normal_force\", stage_config.get(\"normal_force\", mass * 9.81)), 0.0, 1.0e12, mass * 9.81);"]),
+		_contains_any(source, ["const double normal_force = clamped(stage_field_inputs.get(\"normal_force\", stage_config.get(\"normal_force\", mass * 9.81)), 0.0, 1.0e12, mass * 9.81);", "const double normal_force = unified_pipeline::clamped(stage_field_inputs.get(\"normal_force\", stage_config.get(\"normal_force\", mass * 9.81)), 0.0, 1.0e12, mass * 9.81);"]),
 		"Destruction stage must include normal_force contact term"
 	) and ok
 	ok = _assert(
-		_contains_any(source, ["const double contact_velocity = clamped(frame_inputs.get(\"contact_velocity\", stage_config.get(\"contact_velocity\", 0.0)), -1.0e6, 1.0e6, 0.0);", "const double contact_velocity = unified_pipeline::clamped(frame_inputs.get(\"contact_velocity\", stage_config.get(\"contact_velocity\", 0.0)), -1.0e6, 1.0e6, 0.0);"]),
+		_contains_any(source, ["const double contact_velocity = clamped(stage_field_inputs.get(\"contact_velocity\", stage_config.get(\"contact_velocity\", 0.0)), -1.0e6, 1.0e6, 0.0);", "const double contact_velocity = unified_pipeline::clamped(stage_field_inputs.get(\"contact_velocity\", stage_config.get(\"contact_velocity\", 0.0)), -1.0e6, 1.0e6, 0.0);"]),
 		"Destruction stage must include contact_velocity term"
 	) and ok
 	ok = _assert(
@@ -461,6 +469,78 @@ func _contains_any(source: String, needles: Array[String]) -> bool:
 		if source.contains(needle):
 			return true
 	return false
+
+func _extract_stage_runner_param_count(source: String, function_name: String) -> int:
+	var marker := "%s(" % function_name
+	var marker_pos := source.find(marker)
+	if marker_pos < 0:
+		return -1
+	var args := _extract_parenthesized_args(source, marker_pos)
+	return _count_csv_args(args)
+
+func _has_stage_runner_call_with_arity(source: String, function_name: String, expected_arity: int) -> bool:
+	var marker := "%s(" % function_name
+	var search_pos := 0
+	while true:
+		var marker_pos := source.find(marker, search_pos)
+		if marker_pos < 0:
+			return false
+		search_pos = marker_pos + marker.length()
+		if marker_pos >= 2 and source.substr(marker_pos - 2, 2) == "::":
+			continue
+		var args := _extract_parenthesized_args(source, marker_pos)
+		if args == "":
+			continue
+		if _count_csv_args(args) == expected_arity:
+			return true
+	return false
+
+func _extract_parenthesized_args(source: String, marker_pos: int) -> String:
+	var open := source.find("(", marker_pos)
+	if open < 0:
+		return ""
+	var depth := 1
+	var idx := open + 1
+	while idx < source.length():
+		var ch := source.substr(idx, 1)
+		if ch == "(":
+			depth += 1
+		elif ch == ")":
+			depth -= 1
+			if depth == 0:
+				return source.substr(open + 1, idx - open - 1)
+		idx += 1
+	return ""
+
+func _count_csv_args(arg_text: String) -> int:
+	var args := arg_text.strip_edges()
+	if args == "":
+		return 0
+	var depth := 0
+	var in_single_quote := false
+	var in_double_quote := false
+	var was_escape := false
+	var count := 1
+	var idx := 0
+	while idx < args.length():
+		var ch := args.substr(idx, 1)
+		if was_escape:
+			was_escape = false
+		elif ch == "\\":
+			was_escape = true
+		elif ch == "'" and not in_double_quote:
+			in_single_quote = not in_single_quote
+		elif ch == "\"" and not in_single_quote:
+			in_double_quote = not in_double_quote
+		elif not in_single_quote and not in_double_quote:
+			if ch == "(" or ch == "[" or ch == "{":
+				depth += 1
+			elif ch == ")" or ch == "]" or ch == "}":
+				depth = max(depth - 1, 0)
+			elif ch == "," and depth == 0:
+				count += 1
+		idx += 1
+	return count
 
 func _read_pipeline_sources() -> String:
 	var files := _list_sim_source_files()

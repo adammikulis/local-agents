@@ -9,28 +9,28 @@ using namespace godot;
 
 namespace local_agents::simulation {
 
-Dictionary UnifiedSimulationPipeline::run_mechanics_stage(const Dictionary &stage_config, const Dictionary &frame_inputs, double delta_seconds) const {
+Dictionary UnifiedSimulationPipeline::run_mechanics_stage(const Dictionary &stage_config, const Dictionary &stage_field_inputs, double delta_seconds) const {
     const String stage_name = String(stage_config.get("name", "mechanics"));
 
-    const double mass = unified_pipeline::clamped(frame_inputs.get("mass", stage_config.get("mass", 1.0)), 1.0e-6, 1.0e9, 1.0);
-    const double force = unified_pipeline::clamped(frame_inputs.get("force", stage_config.get("force", 0.0)), -1.0e9, 1.0e9, 0.0);
-    const double density = unified_pipeline::clamped(frame_inputs.get("density", stage_config.get("density", 1.0)), 1.0e-6, 1.0e9, 1.0);
+    const double mass = unified_pipeline::clamped(stage_field_inputs.get("mass", stage_config.get("mass", 1.0)), 1.0e-6, 1.0e9, 1.0);
+    const double force = unified_pipeline::clamped(stage_field_inputs.get("force", stage_config.get("force", 0.0)), -1.0e9, 1.0e9, 0.0);
+    const double density = unified_pipeline::clamped(stage_field_inputs.get("density", stage_config.get("density", 1.0)), 1.0e-6, 1.0e9, 1.0);
     const double pressure_gradient = unified_pipeline::clamped(
-        frame_inputs.get("pressure_gradient", stage_config.get("pressure_gradient", 0.0)),
+        stage_field_inputs.get("pressure_gradient", stage_config.get("pressure_gradient", 0.0)),
         -1.0e9,
         1.0e9,
         0.0);
-    const double external_force = unified_pipeline::clamped(frame_inputs.get("external_force", stage_config.get("external_force", 0.0)), -1.0e9, 1.0e9, 0.0);
-    const double body_force = unified_pipeline::clamped(frame_inputs.get("body_force", stage_config.get("body_force", 0.0)), -1.0e9, 1.0e9, 0.0);
+    const double external_force = unified_pipeline::clamped(stage_field_inputs.get("external_force", stage_config.get("external_force", 0.0)), -1.0e9, 1.0e9, 0.0);
+    const double body_force = unified_pipeline::clamped(stage_field_inputs.get("body_force", stage_config.get("body_force", 0.0)), -1.0e9, 1.0e9, 0.0);
     const double damping = unified_pipeline::clamped(stage_config.get("damping", 0.0), 0.0, 100.0, 0.0);
     const double viscosity = unified_pipeline::clamped(stage_config.get("viscosity", 0.0), 0.0, 1.0e6, 0.0);
-    const double velocity = unified_pipeline::clamped(frame_inputs.get("velocity", stage_config.get("velocity", 0.0)), -1.0e6, 1.0e6, 0.0);
-    const double position = unified_pipeline::clamped(frame_inputs.get("position", stage_config.get("position", 0.0)), -1.0e12, 1.0e12, 0.0);
-    const double shock_impulse = unified_pipeline::clamped(frame_inputs.get("shock_impulse", stage_config.get("shock_impulse", 0.0)), -1.0e9, 1.0e9, 0.0);
-    const double shock_distance = unified_pipeline::clamped(frame_inputs.get("shock_distance", stage_config.get("shock_distance", 0.0)), 0.0, 1.0e9, 0.0);
+    const double velocity = unified_pipeline::clamped(stage_field_inputs.get("velocity", stage_config.get("velocity", 0.0)), -1.0e6, 1.0e6, 0.0);
+    const double position = unified_pipeline::clamped(stage_field_inputs.get("position", stage_config.get("position", 0.0)), -1.0e12, 1.0e12, 0.0);
+    const double shock_impulse = unified_pipeline::clamped(stage_field_inputs.get("shock_impulse", stage_config.get("shock_impulse", 0.0)), -1.0e9, 1.0e9, 0.0);
+    const double shock_distance = unified_pipeline::clamped(stage_field_inputs.get("shock_distance", stage_config.get("shock_distance", 0.0)), 0.0, 1.0e9, 0.0);
     const double shock_attenuation = unified_pipeline::clamped(stage_config.get("shock_attenuation", 0.0), 0.0, 1.0e3, 0.0);
     const double shock_gain = unified_pipeline::clamped(stage_config.get("shock_gain", 1.0), -1.0e6, 1.0e6, 1.0);
-    const Dictionary boundary = unified_pipeline::boundary_contract(stage_config, frame_inputs);
+    const Dictionary boundary = unified_pipeline::boundary_contract(stage_config, stage_field_inputs);
     const double boundary_dir = unified_pipeline::clamped(boundary.get("directional_multiplier", 1.0), -1.0, 1.0, 1.0);
 
     const double pressure_force = -pressure_gradient;
@@ -65,15 +65,15 @@ Dictionary UnifiedSimulationPipeline::run_mechanics_stage(const Dictionary &stag
     return result;
 }
 
-Dictionary UnifiedSimulationPipeline::run_pressure_stage(const Dictionary &stage_config, const Dictionary &frame_inputs, double delta_seconds) const {
+Dictionary UnifiedSimulationPipeline::run_pressure_stage(const Dictionary &stage_config, const Dictionary &stage_field_inputs, double delta_seconds) const {
     const String stage_name = String(stage_config.get("name", "pressure"));
 
-    const double pressure = unified_pipeline::clamped(frame_inputs.get("pressure", stage_config.get("pressure", 1.0)), 0.0, 1.0e9, 1.0);
-    const double density = unified_pipeline::clamped(frame_inputs.get("density", stage_config.get("density", 1.0)), 1.0e-6, 1.0e9, 1.0);
-    const double temperature = unified_pipeline::clamped(frame_inputs.get("temperature", stage_config.get("temperature", 293.15)), 0.0, 2.0e4, 293.15);
-    const double velocity_divergence = unified_pipeline::clamped(frame_inputs.get("velocity_divergence", stage_config.get("velocity_divergence", 0.0)), -1.0e4, 1.0e4, 0.0);
-    const double pressure_gradient = unified_pipeline::clamped(frame_inputs.get("pressure_gradient", stage_config.get("pressure_gradient", 0.0)), -1.0e9, 1.0e9, 0.0);
-    const Dictionary boundary = unified_pipeline::boundary_contract(stage_config, frame_inputs);
+    const double pressure = unified_pipeline::clamped(stage_field_inputs.get("pressure", stage_config.get("pressure", 1.0)), 0.0, 1.0e9, 1.0);
+    const double density = unified_pipeline::clamped(stage_field_inputs.get("density", stage_config.get("density", 1.0)), 1.0e-6, 1.0e9, 1.0);
+    const double temperature = unified_pipeline::clamped(stage_field_inputs.get("temperature", stage_config.get("temperature", 293.15)), 0.0, 2.0e4, 293.15);
+    const double velocity_divergence = unified_pipeline::clamped(stage_field_inputs.get("velocity_divergence", stage_config.get("velocity_divergence", 0.0)), -1.0e4, 1.0e4, 0.0);
+    const double pressure_gradient = unified_pipeline::clamped(stage_field_inputs.get("pressure_gradient", stage_config.get("pressure_gradient", 0.0)), -1.0e9, 1.0e9, 0.0);
+    const Dictionary boundary = unified_pipeline::boundary_contract(stage_config, stage_field_inputs);
     const double boundary_dir = unified_pipeline::clamped(boundary.get("directional_multiplier", 1.0), -1.0, 1.0, 1.0);
     const double boundary_scalar = unified_pipeline::clamped(boundary.get("scalar_multiplier", 1.0), 0.0, 1.0, 1.0);
 
@@ -90,8 +90,8 @@ Dictionary UnifiedSimulationPipeline::run_pressure_stage(const Dictionary &stage
     const double dynamic_viscosity = unified_pipeline::clamped(stage_config.get("dynamic_viscosity", 1.0), 1.0e-9, 1.0e9, 1.0);
     const double porosity = unified_pipeline::clamped(stage_config.get("porosity", 0.0), 0.0, 1.0, 0.0);
     const double seepage_coupling = unified_pipeline::clamped(stage_config.get("seepage_coupling", 1.0), -1.0e6, 1.0e6, 1.0);
-    const double shock_impulse = unified_pipeline::clamped(frame_inputs.get("shock_impulse", stage_config.get("shock_impulse", 0.0)), -1.0e9, 1.0e9, 0.0);
-    const double shock_distance = unified_pipeline::clamped(frame_inputs.get("shock_distance", stage_config.get("shock_distance", 0.0)), 0.0, 1.0e9, 0.0);
+    const double shock_impulse = unified_pipeline::clamped(stage_field_inputs.get("shock_impulse", stage_config.get("shock_impulse", 0.0)), -1.0e9, 1.0e9, 0.0);
+    const double shock_distance = unified_pipeline::clamped(stage_field_inputs.get("shock_distance", stage_config.get("shock_distance", 0.0)), 0.0, 1.0e9, 0.0);
     const double shock_attenuation = unified_pipeline::clamped(stage_config.get("shock_attenuation", 0.0), 0.0, 1.0e3, 0.0);
     const double shock_pressure_gain = unified_pipeline::clamped(stage_config.get("shock_pressure_gain", 0.0), -1.0e6, 1.0e6, 0.0);
 
@@ -126,17 +126,17 @@ Dictionary UnifiedSimulationPipeline::run_pressure_stage(const Dictionary &stage
     return result;
 }
 
-Dictionary UnifiedSimulationPipeline::run_thermal_stage(const Dictionary &stage_config, const Dictionary &frame_inputs, double delta_seconds) const {
+Dictionary UnifiedSimulationPipeline::run_thermal_stage(const Dictionary &stage_config, const Dictionary &stage_field_inputs, double delta_seconds) const {
     const String stage_name = String(stage_config.get("name", "thermal"));
 
-    const double temperature = unified_pipeline::clamped(frame_inputs.get("temperature", stage_config.get("temperature", 293.15)), 0.0, 2.0e4, 293.15);
+    const double temperature = unified_pipeline::clamped(stage_field_inputs.get("temperature", stage_config.get("temperature", 293.15)), 0.0, 2.0e4, 293.15);
     const double neighbor_temperature = unified_pipeline::clamped(
-        frame_inputs.get("neighbor_temperature", stage_config.get("neighbor_temperature", temperature)),
+        stage_field_inputs.get("neighbor_temperature", stage_config.get("neighbor_temperature", temperature)),
         0.0,
         2.0e4,
         temperature);
     const double ambient_temperature = unified_pipeline::clamped(
-        frame_inputs.get("ambient_temperature", stage_config.get("ambient_temperature", 293.15)),
+        stage_field_inputs.get("ambient_temperature", stage_config.get("ambient_temperature", 293.15)),
         0.0,
         2.0e4,
         293.15);
@@ -146,7 +146,7 @@ Dictionary UnifiedSimulationPipeline::run_thermal_stage(const Dictionary &stage_
     const double thermal_mass = unified_pipeline::clamped(stage_config.get("thermal_mass", 1.0), 1.0e-6, 1.0e12, 1.0);
     const double internal_heat = unified_pipeline::clamped(stage_config.get("internal_heat", 0.0), -1.0e9, 1.0e9, 0.0);
     const double advection_coeff = unified_pipeline::clamped(stage_config.get("advection_coeff", 0.0), 0.0, 1.0e6, 0.0);
-    const double velocity = unified_pipeline::clamped(frame_inputs.get("velocity", stage_config.get("velocity", 0.0)), -1.0e6, 1.0e6, 0.0);
+    const double velocity = unified_pipeline::clamped(stage_field_inputs.get("velocity", stage_config.get("velocity", 0.0)), -1.0e6, 1.0e6, 0.0);
     const double stefan_boltzmann = unified_pipeline::clamped(stage_config.get("stefan_boltzmann", 5.670374419e-8), 0.0, 1.0, 5.670374419e-8);
     const double emissivity = unified_pipeline::clamped(stage_config.get("emissivity", 0.85), 0.0, 1.0, 0.85);
     const double melting_point = unified_pipeline::clamped(stage_config.get("melting_point", 273.15), 0.0, 2.0e4, 273.15);
@@ -154,9 +154,9 @@ Dictionary UnifiedSimulationPipeline::run_thermal_stage(const Dictionary &stage_
     const double phase_response = unified_pipeline::clamped(stage_config.get("phase_response_rate", 0.0), 0.0, 1.0e6, 0.0);
     const double latent_heat_fusion = unified_pipeline::clamped(stage_config.get("latent_heat_fusion", 0.0), 0.0, 1.0e9, 0.0);
     const double latent_heat_vaporization = unified_pipeline::clamped(stage_config.get("latent_heat_vaporization", 0.0), 0.0, 1.0e9, 0.0);
-    const double liquid_fraction = unified_pipeline::clamped(frame_inputs.get("liquid_fraction", stage_config.get("liquid_fraction", 0.0)), 0.0, 1.0, 0.0);
-    const double vapor_fraction = unified_pipeline::clamped(frame_inputs.get("vapor_fraction", stage_config.get("vapor_fraction", 0.0)), 0.0, 1.0, 0.0);
-    const Dictionary boundary = unified_pipeline::boundary_contract(stage_config, frame_inputs);
+    const double liquid_fraction = unified_pipeline::clamped(stage_field_inputs.get("liquid_fraction", stage_config.get("liquid_fraction", 0.0)), 0.0, 1.0, 0.0);
+    const double vapor_fraction = unified_pipeline::clamped(stage_field_inputs.get("vapor_fraction", stage_config.get("vapor_fraction", 0.0)), 0.0, 1.0, 0.0);
+    const Dictionary boundary = unified_pipeline::boundary_contract(stage_config, stage_field_inputs);
     const double boundary_dir = unified_pipeline::clamped(boundary.get("directional_multiplier", 1.0), -1.0, 1.0, 1.0);
     const double boundary_scalar = unified_pipeline::clamped(boundary.get("scalar_multiplier", 1.0), 0.0, 1.0, 1.0);
 
@@ -191,13 +191,13 @@ Dictionary UnifiedSimulationPipeline::run_thermal_stage(const Dictionary &stage_
     return result;
 }
 
-Dictionary UnifiedSimulationPipeline::run_reaction_stage(const Dictionary &stage_config, const Dictionary &frame_inputs, double delta_seconds) const {
+Dictionary UnifiedSimulationPipeline::run_reaction_stage(const Dictionary &stage_config, const Dictionary &stage_field_inputs, double delta_seconds) const {
     const String stage_name = String(stage_config.get("name", "reaction"));
 
-    const double temperature = unified_pipeline::clamped(frame_inputs.get("temperature", stage_config.get("temperature", 293.15)), 0.0, 2.0e4, 293.15);
-    const double pressure = unified_pipeline::clamped(frame_inputs.get("pressure", stage_config.get("pressure", 1.0)), 0.0, 1.0e9, 1.0);
-    const double reactant_a = unified_pipeline::clamped(frame_inputs.get("reactant_a", stage_config.get("reactant_a", 0.0)), 0.0, 1.0e9, 0.0);
-    const double reactant_b = unified_pipeline::clamped(frame_inputs.get("reactant_b", stage_config.get("reactant_b", 0.0)), 0.0, 1.0e9, 0.0);
+    const double temperature = unified_pipeline::clamped(stage_field_inputs.get("temperature", stage_config.get("temperature", 293.15)), 0.0, 2.0e4, 293.15);
+    const double pressure = unified_pipeline::clamped(stage_field_inputs.get("pressure", stage_config.get("pressure", 1.0)), 0.0, 1.0e9, 1.0);
+    const double reactant_a = unified_pipeline::clamped(stage_field_inputs.get("reactant_a", stage_config.get("reactant_a", 0.0)), 0.0, 1.0e9, 0.0);
+    const double reactant_b = unified_pipeline::clamped(stage_field_inputs.get("reactant_b", stage_config.get("reactant_b", 0.0)), 0.0, 1.0e9, 0.0);
 
     const double activation_temperature = unified_pipeline::clamped(stage_config.get("activation_temperature", 700.0), 0.0, 2.0e4, 700.0);
     const double min_pressure = unified_pipeline::clamped(stage_config.get("min_pressure", 0.5), 0.0, 1.0e9, 0.5);
@@ -211,8 +211,8 @@ Dictionary UnifiedSimulationPipeline::run_reaction_stage(const Dictionary &stage
     const double heat_release_per_extent = unified_pipeline::clamped(stage_config.get("heat_release_per_extent", 0.0), -1.0e9, 1.0e9, 0.0);
     const double terrain_damage_factor = unified_pipeline::clamped(stage_config.get("terrain_damage_factor", 0.01), 0.0, 1.0e3, 0.01);
     const double latent_heat_phase_change = unified_pipeline::clamped(stage_config.get("latent_heat_phase_change", 0.0), 0.0, 1.0e9, 0.0);
-    const double phase_capacity = unified_pipeline::clamped(frame_inputs.get("phase_transition_capacity", stage_config.get("phase_transition_capacity", 1.0)), 0.0, 1.0e9, 1.0);
-    const Dictionary boundary = unified_pipeline::boundary_contract(stage_config, frame_inputs);
+    const double phase_capacity = unified_pipeline::clamped(stage_field_inputs.get("phase_transition_capacity", stage_config.get("phase_transition_capacity", 1.0)), 0.0, 1.0e9, 1.0);
+    const Dictionary boundary = unified_pipeline::boundary_contract(stage_config, stage_field_inputs);
     const double boundary_scalar = unified_pipeline::clamped(boundary.get("scalar_multiplier", 1.0), 0.0, 1.0, 1.0);
 
     const bool activated = temperature >= activation_temperature;
@@ -253,29 +253,29 @@ Dictionary UnifiedSimulationPipeline::run_reaction_stage(const Dictionary &stage
 
 Dictionary UnifiedSimulationPipeline::run_destruction_stage(
     const Dictionary &stage_config,
-    const Dictionary &frame_inputs,
+    const Dictionary &stage_field_inputs,
     double delta_seconds) const {
     const String stage_name = String(stage_config.get("name", "destruction"));
 
-    const double stress = unified_pipeline::clamped(frame_inputs.get("stress", stage_config.get("stress", 0.0)), 0.0, 1.0e9, 0.0);
-    const double strain = unified_pipeline::clamped(frame_inputs.get("strain", stage_config.get("strain", 0.0)), 0.0, 1.0e3, 0.0);
-    const double damage = unified_pipeline::clamped(frame_inputs.get("damage", stage_config.get("damage", 0.0)), 0.0, 1.0, 0.0);
-    const double mass = unified_pipeline::clamped(frame_inputs.get("mass", stage_config.get("mass", 1.0)), 0.0, 1.0e9, 1.0);
+    const double stress = unified_pipeline::clamped(stage_field_inputs.get("stress", stage_config.get("stress", 0.0)), 0.0, 1.0e9, 0.0);
+    const double strain = unified_pipeline::clamped(stage_field_inputs.get("strain", stage_config.get("strain", 0.0)), 0.0, 1.0e3, 0.0);
+    const double damage = unified_pipeline::clamped(stage_field_inputs.get("damage", stage_config.get("damage", 0.0)), 0.0, 1.0, 0.0);
+    const double mass = unified_pipeline::clamped(stage_field_inputs.get("mass", stage_config.get("mass", 1.0)), 0.0, 1.0e9, 1.0);
 
     const double fracture_threshold = unified_pipeline::clamped(stage_config.get("fracture_threshold", 1.0), 1.0e-6, 1.0e9, 1.0);
-    const double cohesion = unified_pipeline::clamped(frame_inputs.get("cohesion", stage_config.get("cohesion", 0.5)), 0.0, 1.0, 0.5);
-    const double hardness = unified_pipeline::clamped(frame_inputs.get("hardness", stage_config.get("hardness", 0.5)), 0.0, 1.0, 0.5);
+    const double cohesion = unified_pipeline::clamped(stage_field_inputs.get("cohesion", stage_config.get("cohesion", 0.5)), 0.0, 1.0, 0.5);
+    const double hardness = unified_pipeline::clamped(stage_field_inputs.get("hardness", stage_config.get("hardness", 0.5)), 0.0, 1.0, 0.5);
     const double damage_gain = unified_pipeline::clamped(stage_config.get("damage_gain", 1.0), 0.0, 1.0e6, 1.0);
     const double mass_loss_factor = unified_pipeline::clamped(stage_config.get("mass_loss_factor", 0.1), 0.0, 1.0, 0.1);
-    const double normal_force = unified_pipeline::clamped(frame_inputs.get("normal_force", stage_config.get("normal_force", mass * 9.81)), 0.0, 1.0e12, mass * 9.81);
-    const double contact_velocity = unified_pipeline::clamped(frame_inputs.get("contact_velocity", stage_config.get("contact_velocity", 0.0)), -1.0e6, 1.0e6, 0.0);
+    const double normal_force = unified_pipeline::clamped(stage_field_inputs.get("normal_force", stage_config.get("normal_force", mass * 9.81)), 0.0, 1.0e12, mass * 9.81);
+    const double contact_velocity = unified_pipeline::clamped(stage_field_inputs.get("contact_velocity", stage_config.get("contact_velocity", 0.0)), -1.0e6, 1.0e6, 0.0);
     const double friction_static_mu = unified_pipeline::clamped(stage_config.get("friction_static_mu", 0.6), 0.0, 10.0, 0.6);
     const double friction_dynamic_mu = unified_pipeline::clamped(stage_config.get("friction_dynamic_mu", 0.4), 0.0, 10.0, 0.4);
-    const double slope_angle_deg = unified_pipeline::clamped(frame_inputs.get("slope_angle_deg", stage_config.get("slope_angle_deg", 0.0)), 0.0, 89.9, 0.0);
+    const double slope_angle_deg = unified_pipeline::clamped(stage_field_inputs.get("slope_angle_deg", stage_config.get("slope_angle_deg", 0.0)), 0.0, 89.9, 0.0);
     const double slope_failure_angle_deg = unified_pipeline::clamped(stage_config.get("slope_failure_angle_deg", 35.0), 0.1, 89.9, 35.0);
     const double slope_failure_gain = unified_pipeline::clamped(stage_config.get("slope_failure_gain", 1.0), 0.0, 1.0e6, 1.0);
     const double gravity = unified_pipeline::clamped(stage_config.get("gravity", 9.81), 0.0, 1.0e3, 9.81);
-    const Dictionary boundary = unified_pipeline::boundary_contract(stage_config, frame_inputs);
+    const Dictionary boundary = unified_pipeline::boundary_contract(stage_config, stage_field_inputs);
     const double boundary_scalar = unified_pipeline::clamped(boundary.get("scalar_multiplier", 1.0), 0.0, 1.0, 1.0);
 
     const double overstress = std::max(0.0, stress - fracture_threshold);

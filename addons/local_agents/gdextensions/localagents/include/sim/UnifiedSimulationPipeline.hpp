@@ -19,23 +19,23 @@ public:
 private:
     godot::Dictionary run_mechanics_stage(
         const godot::Dictionary &stage_config,
-        const godot::Dictionary &frame_inputs,
+        const godot::Dictionary &stage_field_inputs,
         double delta_seconds) const;
     godot::Dictionary run_pressure_stage(
         const godot::Dictionary &stage_config,
-        const godot::Dictionary &frame_inputs,
+        const godot::Dictionary &stage_field_inputs,
         double delta_seconds) const;
     godot::Dictionary run_thermal_stage(
         const godot::Dictionary &stage_config,
-        const godot::Dictionary &frame_inputs,
+        const godot::Dictionary &stage_field_inputs,
         double delta_seconds) const;
     godot::Dictionary run_reaction_stage(
         const godot::Dictionary &stage_config,
-        const godot::Dictionary &frame_inputs,
+        const godot::Dictionary &stage_field_inputs,
         double delta_seconds) const;
     godot::Dictionary run_destruction_stage(
         const godot::Dictionary &stage_config,
-        const godot::Dictionary &frame_inputs,
+        const godot::Dictionary &stage_field_inputs,
         double delta_seconds) const;
 
     godot::Dictionary config_;

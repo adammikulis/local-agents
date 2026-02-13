@@ -55,8 +55,8 @@ func _test_combustion_stage_uses_pressure_and_temperature_gating() -> bool:
 		_contains_any(
 			source,
 			[
-				"const double pressure = clamped(frame_inputs.get(\"pressure\"",
-				"const double pressure = unified_pipeline::clamped(frame_inputs.get(\"pressure\"",
+				"const double pressure = clamped(stage_field_inputs.get(\"pressure\"",
+				"const double pressure = unified_pipeline::clamped(stage_field_inputs.get(\"pressure\"",
 			]
 		),
 		"Combustion stage must read pressure input"

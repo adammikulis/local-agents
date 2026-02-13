@@ -60,6 +60,80 @@ Dictionary make_field_handle_entry(const Variant &handle_variant, int64_t index)
     return entry;
 }
 
+String resolve_field_name_from_handle(const Variant &handle_variant) {
+    if (handle_variant.get_type() != Variant::DICTIONARY) {
+        return String();
+    }
+    const Dictionary handle = handle_variant;
+    if (handle.has("field_name")) {
+        return String(handle.get("field_name", String())).strip_edges();
+    }
+    if (handle.has("schema_row")) {
+        const Variant schema_variant = handle.get("schema_row");
+        if (schema_variant.get_type() == Variant::DICTIONARY) {
+            const Dictionary schema = schema_variant;
+            if (schema.has("field_name")) {
+                return String(schema.get("field_name", String())).strip_edges();
+            }
+        }
+    }
+    return String();
+}
+
+void resolve_scalar_aliases(Dictionary &stage_inputs, const Dictionary &frame_inputs) {
+    if (!stage_inputs.has("mass") && frame_inputs.has("mass_density")) {
+        stage_inputs["mass"] = frame_inputs.get("mass_density", 0.0);
+    }
+    if (!stage_inputs.has("velocity") && frame_inputs.has("momentum_x")) {
+        stage_inputs["velocity"] = frame_inputs.get("momentum_x", 0.0);
+    }
+    if (!stage_inputs.has("liquid_fraction") && frame_inputs.has("phase_fraction_liquid")) {
+        stage_inputs["liquid_fraction"] = frame_inputs.get("phase_fraction_liquid", 0.0);
+    }
+    if (!stage_inputs.has("vapor_fraction") && frame_inputs.has("phase_fraction_vapor")) {
+        stage_inputs["vapor_fraction"] = frame_inputs.get("phase_fraction_vapor", 0.0);
+    }
+    if (!stage_inputs.has("phase_transition_capacity") && frame_inputs.has("yield_strength")) {
+        stage_inputs["phase_transition_capacity"] = frame_inputs.get("yield_strength", 1.0);
+    }
+}
+
+Dictionary resolve_stage_field_inputs(const Dictionary &frame_inputs, const Array &field_handles, bool field_handles_provided) {
+    Dictionary stage_inputs;
+    const Array keys = frame_inputs.keys();
+    for (int64_t i = 0; i < keys.size(); i++) {
+        const String key = String(keys[i]);
+        if (key.is_empty() || !frame_inputs.has(key)) {
+            continue;
+        }
+        const Variant value = frame_inputs.get(key);
+        const Variant::Type value_type = value.get_type();
+        if (value_type == Variant::INT || value_type == Variant::FLOAT) {
+            stage_inputs[key] = value;
+        }
+    }
+
+    if (field_handles_provided) {
+        for (int64_t i = 0; i < field_handles.size(); i++) {
+            const Variant handle_variant = field_handles[i];
+            const String field_name = resolve_field_name_from_handle(handle_variant);
+            if (field_name.is_empty()) {
+                continue;
+            }
+            if (!stage_inputs.has(field_name) && frame_inputs.has(field_name)) {
+                const Variant value = frame_inputs.get(field_name);
+                const Variant::Type value_type = value.get_type();
+                if (value_type == Variant::INT || value_type == Variant::FLOAT) {
+                    stage_inputs[field_name] = value;
+                }
+            }
+        }
+    }
+
+    resolve_scalar_aliases(stage_inputs, frame_inputs);
+    return stage_inputs;
+}
+
 } // namespace
 
 bool UnifiedSimulationPipeline::configure(const Dictionary &config) {
@@ -81,6 +155,7 @@ Dictionary UnifiedSimulationPipeline::execute_step(const Dictionary &scheduled_f
     bool field_handles_provided = false;
     const Array field_handles = to_field_handles_array(frame_inputs, field_handles_provided);
     const int64_t field_handle_count = field_handles.size();
+    const Dictionary stage_field_inputs = resolve_stage_field_inputs(frame_inputs, field_handles, field_handles_provided);
     const String field_handle_mode = field_handles_provided ? String("field_handles") : String("scalar");
     Array field_handle_io;
     String field_handle_marker;
@@ -100,7 +175,7 @@ Dictionary UnifiedSimulationPipeline::execute_step(const Dictionary &scheduled_f
         if (channel.is_empty()) {
             continue;
         }
-        if (!frame_inputs.has(channel)) {
+        if (!stage_field_inputs.has(channel)) {
             missing_channels.append(channel);
         }
     }
@@ -131,7 +206,7 @@ Dictionary UnifiedSimulationPipeline::execute_step(const Dictionary &scheduled_f
         if (stage_variant.get_type() != Variant::DICTIONARY) {
             continue;
         }
-        const Dictionary stage_result = run_mechanics_stage(stage_variant, frame_inputs, delta_seconds);
+        const Dictionary stage_result = run_mechanics_stage(stage_variant, stage_field_inputs, delta_seconds);
         mechanics_results.append(stage_result);
         Dictionary stage_totals = conservation_diagnostics.get("by_stage_type", Dictionary());
         unified_pipeline::append_conservation(stage_totals, "mechanics", stage_result);
@@ -143,7 +218,7 @@ Dictionary UnifiedSimulationPipeline::execute_step(const Dictionary &scheduled_f
         if (stage_variant.get_type() != Variant::DICTIONARY) {
             continue;
         }
-        const Dictionary stage_result = run_pressure_stage(stage_variant, frame_inputs, delta_seconds);
+        const Dictionary stage_result = run_pressure_stage(stage_variant, stage_field_inputs, delta_seconds);
         pressure_results.append(stage_result);
         Dictionary stage_totals = conservation_diagnostics.get("by_stage_type", Dictionary());
         unified_pipeline::append_conservation(stage_totals, "pressure", stage_result);
@@ -155,7 +230,7 @@ Dictionary UnifiedSimulationPipeline::execute_step(const Dictionary &scheduled_f
         if (stage_variant.get_type() != Variant::DICTIONARY) {
             continue;
         }
-        const Dictionary stage_result = run_thermal_stage(stage_variant, frame_inputs, delta_seconds);
+        const Dictionary stage_result = run_thermal_stage(stage_variant, stage_field_inputs, delta_seconds);
         thermal_results.append(stage_result);
         Dictionary stage_totals = conservation_diagnostics.get("by_stage_type", Dictionary());
         unified_pipeline::append_conservation(stage_totals, "thermal", stage_result);
@@ -167,7 +242,7 @@ Dictionary UnifiedSimulationPipeline::execute_step(const Dictionary &scheduled_f
         if (stage_variant.get_type() != Variant::DICTIONARY) {
             continue;
         }
-        const Dictionary stage_result = run_reaction_stage(stage_variant, frame_inputs, delta_seconds);
+        const Dictionary stage_result = run_reaction_stage(stage_variant, stage_field_inputs, delta_seconds);
         reaction_results.append(stage_result);
         Dictionary stage_totals = conservation_diagnostics.get("by_stage_type", Dictionary());
         unified_pipeline::append_conservation(stage_totals, "reaction", stage_result);
@@ -179,7 +254,7 @@ Dictionary UnifiedSimulationPipeline::execute_step(const Dictionary &scheduled_f
         if (stage_variant.get_type() != Variant::DICTIONARY) {
             continue;
         }
-        const Dictionary stage_result = run_destruction_stage(stage_variant, frame_inputs, delta_seconds);
+        const Dictionary stage_result = run_destruction_stage(stage_variant, stage_field_inputs, delta_seconds);
         destruction_results.append(stage_result);
         Dictionary stage_totals = conservation_diagnostics.get("by_stage_type", Dictionary());
         unified_pipeline::append_conservation(stage_totals, "destruction", stage_result);

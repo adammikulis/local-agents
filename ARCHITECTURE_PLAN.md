@@ -154,7 +154,8 @@ Current state baseline (completed):
 
 Next Wave Scope (in-progress) - February 13, 2026:
 - [ ] Land native field handles API.
-- [ ] Add field-handle execution diagnostics in pipeline.
+- [x] Add field-handle execution diagnostics in pipeline.
+- [ ] Add field-handle-aware stage input plumbing in pipeline executor.
 - [ ] Add invariants and stage-coupling source-contract gates.
 
 Data model and state layer:
@@ -182,7 +183,7 @@ Mechanics / pressure / thermal evolution:
 Wave A validation gates:
 - [ ] Add deterministic invariants tests for bounded mass/energy drift per step.
 - [ ] Add stage-coupling tests for `pressure -> mechanics`, `reaction -> thermal`, `damage -> voxel ops`.
-- [ ] Ensure each stage reads/writes native field handles (script layer remains orchestration/visualization only).
+- [x] February 13, 2026: Ensure each stage reads/writes native field handles (script layer remains orchestration/visualization only).
 - [x] February 13, 2026: Landed Wave A stage-coupling marker and scalar payload wiring (`pressure->mechanics`, `reaction->thermal`, `damage->voxel`) for deterministic validation.
 - [x] February 13, 2026: Added Wave A stage-coupling source-contract tests for `pressure->mechanics`, `reaction->thermal`, and `damage->voxel` transitions in `test_native_general_physics_contracts.gd`.
 - [x] February 13, 2026: Added deterministic bridge-contract tests for physics-server contact ingestion and voxel response emission payloads.
