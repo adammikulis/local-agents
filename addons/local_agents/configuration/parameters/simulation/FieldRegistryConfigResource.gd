@@ -3,6 +3,156 @@ class_name LocalAgentsFieldRegistryConfigResource
 
 const FieldChannelConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FieldChannelConfigResource.gd")
 
+const _CANONICAL_FIELD_CHANNEL_DESCRIPTORS: Array[Dictionary] = [
+	{
+		"channel_id": "mass_density",
+		"default_value": 1.0,
+		"clamp_min": 0.0,
+		"clamp_max": 1000000.0,
+		"metadata": {"unit": "kg/m^3", "range": {"min": 0.0, "max": 1000000.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "momentum_x",
+		"default_value": 0.0,
+		"clamp_min": -1000000.0,
+		"clamp_max": 1000000.0,
+		"metadata": {"unit": "kg*m/s", "range": {"min": -1000000.0, "max": 1000000.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "momentum_y",
+		"default_value": 0.0,
+		"clamp_min": -1000000.0,
+		"clamp_max": 1000000.0,
+		"metadata": {"unit": "kg*m/s", "range": {"min": -1000000.0, "max": 1000000.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "momentum_z",
+		"default_value": 0.0,
+		"clamp_min": -1000000.0,
+		"clamp_max": 1000000.0,
+		"metadata": {"unit": "kg*m/s", "range": {"min": -1000000.0, "max": 1000000.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "pressure",
+		"default_value": 1.0,
+		"clamp_min": 0.0,
+		"clamp_max": 1000000000.0,
+		"metadata": {"unit": "Pa", "range": {"min": 0.0, "max": 1000000000.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "temperature",
+		"default_value": 293.15,
+		"clamp_min": 1.0,
+		"clamp_max": 1000000.0,
+		"metadata": {"unit": "K", "range": {"min": 1.0, "max": 1000000.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "internal_energy",
+		"default_value": 0.0,
+		"clamp_min": 0.0,
+		"clamp_max": 1000000.0,
+		"metadata": {"unit": "J/kg", "range": {"min": 0.0, "max": 1000000.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "phase_fraction_solid",
+		"default_value": 0.0,
+		"clamp_min": 0.0,
+		"clamp_max": 1.0,
+		"metadata": {"unit": "fraction", "range": {"min": 0.0, "max": 1.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "phase_fraction_liquid",
+		"default_value": 0.0,
+		"clamp_min": 0.0,
+		"clamp_max": 1.0,
+		"metadata": {"unit": "fraction", "range": {"min": 0.0, "max": 1.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "phase_fraction_gas",
+		"default_value": 0.0,
+		"clamp_min": 0.0,
+		"clamp_max": 1.0,
+		"metadata": {"unit": "fraction", "range": {"min": 0.0, "max": 1.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "porosity",
+		"default_value": 0.25,
+		"clamp_min": 0.0,
+		"clamp_max": 1.0,
+		"metadata": {"unit": "fraction", "range": {"min": 0.0, "max": 1.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "permeability",
+		"default_value": 1.0,
+		"clamp_min": 0.0,
+		"clamp_max": 1000000.0,
+		"metadata": {"unit": "m^2", "range": {"min": 0.0, "max": 1000000.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "cohesion",
+		"default_value": 0.5,
+		"clamp_min": 0.0,
+		"clamp_max": 1.0,
+		"metadata": {"unit": "dimensionless", "range": {"min": 0.0, "max": 1.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "friction_static",
+		"default_value": 0.6,
+		"clamp_min": 0.0,
+		"clamp_max": 10.0,
+		"metadata": {"unit": "dimensionless", "range": {"min": 0.0, "max": 10.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "friction_dynamic",
+		"default_value": 0.4,
+		"clamp_min": 0.0,
+		"clamp_max": 10.0,
+		"metadata": {"unit": "dimensionless", "range": {"min": 0.0, "max": 10.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "yield_strength",
+		"default_value": 1.0,
+		"clamp_min": 0.0,
+		"clamp_max": 1.0e8,
+		"metadata": {"unit": "Pa", "range": {"min": 0.0, "max": 1.0e8}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "damage",
+		"default_value": 0.0,
+		"clamp_min": 0.0,
+		"clamp_max": 1.0,
+		"metadata": {"unit": "dimensionless", "range": {"min": 0.0, "max": 1.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "fuel",
+		"default_value": 0.0,
+		"clamp_min": 0.0,
+		"clamp_max": 1.0,
+		"metadata": {"unit": "fraction", "range": {"min": 0.0, "max": 1.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "oxidizer",
+		"default_value": 0.21,
+		"clamp_min": 0.0,
+		"clamp_max": 1.0,
+		"metadata": {"unit": "fraction", "range": {"min": 0.0, "max": 1.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "reaction_progress",
+		"default_value": 0.0,
+		"clamp_min": 0.0,
+		"clamp_max": 1.0,
+		"metadata": {"unit": "dimensionless", "range": {"min": 0.0, "max": 1.0}, "strict": true, "canonical": true}
+	},
+	{
+		"channel_id": "latent_energy_reservoir",
+		"default_value": 0.0,
+		"clamp_min": 0.0,
+		"clamp_max": 1.0e9,
+		"metadata": {"unit": "J/kg", "range": {"min": 0.0, "max": 1.0e9}, "strict": true, "canonical": true}
+	},
+]
+
 @export var schema_version: int = 1
 @export var registry_id: String = "default_registry"
 @export var map_width: int = 24
@@ -13,14 +163,10 @@ const FieldChannelConfigResourceScript = preload("res://addons/local_agents/conf
 func ensure_defaults() -> void:
 	if not channels.is_empty():
 		return
-	channels = [
-		_make_channel("temperature"),
-		_make_channel("humidity"),
-		_make_channel("surface_water"),
-		_make_channel("flow_strength"),
-		_make_channel("erosion_potential"),
-		_make_channel("solar_exposure"),
-	]
+	channels = []
+	for descriptor_variant in _CANONICAL_FIELD_CHANNEL_DESCRIPTORS:
+		if descriptor_variant is Dictionary:
+			channels.append(_make_channel_from_descriptor(descriptor_variant as Dictionary))
 
 func to_dict() -> Dictionary:
 	ensure_defaults()
@@ -60,6 +206,13 @@ func from_dict(values: Dictionary) -> void:
 				row.from_dict(row_variant as Dictionary)
 				channels.append(row)
 	ensure_defaults()
+
+func _make_channel_from_descriptor(descriptor: Dictionary) -> Resource:
+	var channel := FieldChannelConfigResourceScript.new()
+	if descriptor.is_empty():
+		return channel
+	channel.from_dict(descriptor.duplicate(true))
+	return channel
 
 func _make_channel(channel_id_value: String) -> Resource:
 	var channel := FieldChannelConfigResourceScript.new()

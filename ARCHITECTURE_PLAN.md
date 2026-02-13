@@ -159,11 +159,11 @@ Next Wave Scope (in-progress) - February 13, 2026:
 
 Data model and state layer:
 - [ ] Move hot-path simulation from per-step scalar dictionaries to typed native field handles.
-- [ ] Add canonical native field registry schema for:
-- [ ] `mass_density`, `momentum_x/y/z`, `pressure`, `temperature`, `internal_energy`.
-- [ ] `phase_fraction_solid/liquid/gas`, `porosity`, `permeability`.
-- [ ] `cohesion`, `friction_static`, `friction_dynamic`, `yield_strength`, `damage`.
-- [ ] `fuel`, `oxidizer`, `reaction_progress`, `latent_energy_reservoir`.
+- [x] February 13, 2026: Add canonical native field registry schema for:
+- `mass_density`, `momentum_x/y/z`, `pressure`, `temperature`, `internal_energy`.
+- `phase_fraction_solid/liquid/gas`, `porosity`, `permeability`.
+- `cohesion`, `friction_static`, `friction_dynamic`, `yield_strength`, `damage`.
+- `fuel`, `oxidizer`, `reaction_progress`, `latent_energy_reservoir`.
 - [ ] Add strict units/range metadata and runtime validation for field channels.
 - [ ] Add SoA layout metadata + sparse chunk indexing + deterministic chunk ordering.
 - [ ] Replace dictionary snapshots for hot paths with typed native handles.

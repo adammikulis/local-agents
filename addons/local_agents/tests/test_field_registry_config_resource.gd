@@ -6,11 +6,39 @@ const FIELD_REGISTRY_SCRIPT_PATH := "res://addons/local_agents/configuration/par
 
 const BOUNDED_RUNTIME_SCRIPT_PATH := "res://addons/local_agents/tests/run_runtime_tests_bounded.gd"
 const TEMP_RESOURCE_PATH := "user://local_agents/tests/tmp_field_registry_config_resource.tres"
+const CANONICAL_FIELD_DEFAULTS_BY_ID: Dictionary = {
+	"mass_density": {"default_value": 1.0, "clamp_min": 0.0, "clamp_max": 1000000.0, "metadata": {"unit": "kg/m^3", "range": {"min": 0.0, "max": 1000000.0}, "strict": true, "canonical": true}},
+	"momentum_x": {"default_value": 0.0, "clamp_min": -1000000.0, "clamp_max": 1000000.0, "metadata": {"unit": "kg*m/s", "range": {"min": -1000000.0, "max": 1000000.0}, "strict": true, "canonical": true}},
+	"momentum_y": {"default_value": 0.0, "clamp_min": -1000000.0, "clamp_max": 1000000.0, "metadata": {"unit": "kg*m/s", "range": {"min": -1000000.0, "max": 1000000.0}, "strict": true, "canonical": true}},
+	"momentum_z": {"default_value": 0.0, "clamp_min": -1000000.0, "clamp_max": 1000000.0, "metadata": {"unit": "kg*m/s", "range": {"min": -1000000.0, "max": 1000000.0}, "strict": true, "canonical": true}},
+	"pressure": {"default_value": 1.0, "clamp_min": 0.0, "clamp_max": 1000000000.0, "metadata": {"unit": "Pa", "range": {"min": 0.0, "max": 1000000000.0}, "strict": true, "canonical": true}},
+	"temperature": {"default_value": 293.15, "clamp_min": 1.0, "clamp_max": 1000000.0, "metadata": {"unit": "K", "range": {"min": 1.0, "max": 1000000.0}, "strict": true, "canonical": true}},
+	"internal_energy": {"default_value": 0.0, "clamp_min": 0.0, "clamp_max": 1000000.0, "metadata": {"unit": "J/kg", "range": {"min": 0.0, "max": 1000000.0}, "strict": true, "canonical": true}},
+	"phase_fraction_solid": {"default_value": 0.0, "clamp_min": 0.0, "clamp_max": 1.0, "metadata": {"unit": "fraction", "range": {"min": 0.0, "max": 1.0}, "strict": true, "canonical": true}},
+	"phase_fraction_liquid": {"default_value": 0.0, "clamp_min": 0.0, "clamp_max": 1.0, "metadata": {"unit": "fraction", "range": {"min": 0.0, "max": 1.0}, "strict": true, "canonical": true}},
+	"phase_fraction_gas": {"default_value": 0.0, "clamp_min": 0.0, "clamp_max": 1.0, "metadata": {"unit": "fraction", "range": {"min": 0.0, "max": 1.0}, "strict": true, "canonical": true}},
+	"porosity": {"default_value": 0.25, "clamp_min": 0.0, "clamp_max": 1.0, "metadata": {"unit": "fraction", "range": {"min": 0.0, "max": 1.0}, "strict": true, "canonical": true}},
+	"permeability": {"default_value": 1.0, "clamp_min": 0.0, "clamp_max": 1000000.0, "metadata": {"unit": "m^2", "range": {"min": 0.0, "max": 1000000.0}, "strict": true, "canonical": true}},
+	"cohesion": {"default_value": 0.5, "clamp_min": 0.0, "clamp_max": 1.0, "metadata": {"unit": "dimensionless", "range": {"min": 0.0, "max": 1.0}, "strict": true, "canonical": true}},
+	"friction_static": {"default_value": 0.6, "clamp_min": 0.0, "clamp_max": 10.0, "metadata": {"unit": "dimensionless", "range": {"min": 0.0, "max": 10.0}, "strict": true, "canonical": true}},
+	"friction_dynamic": {"default_value": 0.4, "clamp_min": 0.0, "clamp_max": 10.0, "metadata": {"unit": "dimensionless", "range": {"min": 0.0, "max": 10.0}, "strict": true, "canonical": true}},
+	"yield_strength": {"default_value": 1.0, "clamp_min": 0.0, "clamp_max": 1.0e8, "metadata": {"unit": "Pa", "range": {"min": 0.0, "max": 1.0e8}, "strict": true, "canonical": true}},
+	"damage": {"default_value": 0.0, "clamp_min": 0.0, "clamp_max": 1.0, "metadata": {"unit": "dimensionless", "range": {"min": 0.0, "max": 1.0}, "strict": true, "canonical": true}},
+	"fuel": {"default_value": 0.0, "clamp_min": 0.0, "clamp_max": 1.0, "metadata": {"unit": "fraction", "range": {"min": 0.0, "max": 1.0}, "strict": true, "canonical": true}},
+	"oxidizer": {"default_value": 0.21, "clamp_min": 0.0, "clamp_max": 1.0, "metadata": {"unit": "fraction", "range": {"min": 0.0, "max": 1.0}, "strict": true, "canonical": true}},
+	"reaction_progress": {"default_value": 0.0, "clamp_min": 0.0, "clamp_max": 1.0, "metadata": {"unit": "dimensionless", "range": {"min": 0.0, "max": 1.0}, "strict": true, "canonical": true}},
+	"latent_energy_reservoir": {"default_value": 0.0, "clamp_min": 0.0, "clamp_max": 1.0e9, "metadata": {"unit": "J/kg", "range": {"min": 0.0, "max": 1.0e9}, "strict": true, "canonical": true}},
+}
+
+const CANONICAL_SHARED_FIELD_DEFAULTS: Dictionary = {
+	"storage_type": "float32",
+	"component_count": 1,
+}
 
 func run_test(_tree: SceneTree) -> bool:
 	var ok := true
 	ok = _test_channel_round_trip_and_normalization() and ok
-	ok = _test_registry_serialization_contract_source() and ok
+	ok = _test_registry_defaults_and_serialization_contract() and ok
 	ok = _test_channel_resource_save_load_serialization() and ok
 	ok = _test_bounded_runtime_timeout_defaults() and ok
 	if ok:
@@ -55,26 +83,70 @@ func _test_channel_round_trip_and_normalization() -> bool:
 	ok = _assert(round_trip.component_count == channel.component_count, "component_count should round-trip through to_dict/from_dict") and ok
 	return ok
 
-func _test_registry_serialization_contract_source() -> bool:
-	var source := _read_script_source(FIELD_REGISTRY_SCRIPT_PATH)
-	if source == "":
+func _test_registry_defaults_and_serialization_contract() -> bool:
+	var registry = _new_registry()
+	if registry == null:
 		return false
+	registry.ensure_defaults()
+	var canonical_ids := _canonical_field_ids()
+
 	var ok := true
-	ok = _assert(source.contains("@export var registry_id: String = \"default_registry\""), "Registry should define default registry_id") and ok
-	ok = _assert(source.contains("@export var map_width: int = 24"), "Registry should define default map_width") and ok
-	ok = _assert(source.contains("@export var map_height: int = 24"), "Registry should define default map_height") and ok
-	ok = _assert(source.contains("@export var voxel_world_height: int = 36"), "Registry should define default voxel_world_height") and ok
-	ok = _assert(source.contains("\"schema_version\": schema_version"), "Registry to_dict should include schema_version") and ok
-	ok = _assert(source.contains("\"registry_id\": registry_id"), "Registry to_dict should include registry_id") and ok
-	ok = _assert(source.contains("\"channels\": channel_rows"), "Registry to_dict should include channels") and ok
-	ok = _assert(source.contains("channel_rows.append(channel.to_dict())"), "Registry serialization should delegate channel to_dict") and ok
-	ok = _assert(source.contains("row.from_dict(row_variant as Dictionary)"), "Registry deserialization should delegate channel from_dict") and ok
-	ok = _assert(source.contains("if registry_id == \"\":\n\t\tregistry_id = \"default_registry\""), "Registry from_dict should normalize blank registry_id") and ok
-	ok = _assert(source.contains("map_width = maxi(1, int(values.get(\"map_width\", map_width)))"), "Registry from_dict should bound map_width") and ok
-	ok = _assert(source.contains("map_height = maxi(1, int(values.get(\"map_height\", map_height)))"), "Registry from_dict should bound map_height") and ok
-	ok = _assert(source.contains("voxel_world_height = maxi(1, int(values.get(\"voxel_world_height\", voxel_world_height)))"), "Registry from_dict should bound voxel_world_height") and ok
-	for channel_id in ["temperature", "humidity", "surface_water", "flow_strength", "erosion_potential", "solar_exposure"]:
-		ok = _assert(source.contains("_make_channel(\"%s\")" % channel_id), "Registry ensure_defaults missing channel %s" % channel_id) and ok
+	ok = _assert(registry.schema_version == 1, "Registry should default schema_version to 1") and ok
+	ok = _assert(registry.registry_id == "default_registry", "Registry should default registry_id to default_registry") and ok
+	ok = _assert(registry.map_width == 24, "Registry should default map_width to 24") and ok
+	ok = _assert(registry.map_height == 24, "Registry should default map_height to 24") and ok
+	ok = _assert(registry.voxel_world_height == 36, "Registry should default voxel_world_height to 36") and ok
+	ok = _assert(_has_default_channels_in_any_order(registry.channels, canonical_ids), "Registry canonical channel IDs should match expected set") and ok
+	ok = _assert(not registry.channels.is_empty(), "Registry should generate canonical channels via ensure_defaults") and ok
+
+	for entry in registry.channels:
+		if not (entry is Resource):
+			ok = _assert(false, "Registry channels should always be resources") and ok
+			continue
+		var channel: Resource = entry
+		var channel_id := String(channel.get("channel_id"))
+		var expected_channel_variant: Variant = CANONICAL_FIELD_DEFAULTS_BY_ID.get(channel_id)
+		ok = _assert(expected_channel_variant is Dictionary, "Canonical channel id %s should be recognized" % channel_id) and ok
+		if not (expected_channel_variant is Dictionary):
+			continue
+		var expected_channel := expected_channel_variant as Dictionary
+		ok = _assert(CANONICAL_SHARED_FIELD_DEFAULTS["storage_type"] == String(channel.storage_type), "Canonical channel %s should keep default storage_type" % channel_id) and ok
+		ok = _assert(int(CANONICAL_SHARED_FIELD_DEFAULTS["component_count"]) == int(channel.component_count), "Canonical channel %s should keep default component_count" % channel_id) and ok
+		var default_value_matches := is_equal_approx(float(channel.default_value), float(expected_channel.get("default_value", 0.0)))
+		ok = _assert(default_value_matches, "Canonical channel %s should keep default default_value" % channel_id) and ok
+		var clamp_min_matches := is_equal_approx(float(channel.clamp_min), float(expected_channel.get("clamp_min", 0.0)))
+		ok = _assert(clamp_min_matches, "Canonical channel %s should keep default clamp_min" % channel_id) and ok
+		var clamp_max_matches := is_equal_approx(float(channel.clamp_max), float(expected_channel.get("clamp_max", 0.0)))
+		ok = _assert(clamp_max_matches, "Canonical channel %s should keep default clamp_max" % channel_id) and ok
+		var metadata_expected_variant: Variant = expected_channel.get("metadata")
+		ok = _assert(metadata_expected_variant is Dictionary, "Canonical channel %s should define metadata expectations" % channel_id) and ok
+		if metadata_expected_variant is Dictionary:
+			ok = _assert(_metadata_matches_expectations(channel.get("metadata"), metadata_expected_variant as Dictionary), "Canonical channel %s metadata should match expected contract" % channel_id) and ok
+
+	var serialized: Dictionary = registry.to_dict()
+	ok = _assert(serialized.get("schema_version") == 1, "Registry to_dict should include schema_version") and ok
+	ok = _assert(String(serialized.get("registry_id")) == "default_registry", "Registry to_dict should include registry_id") and ok
+	var serialized_channels: Variant = serialized.get("channels")
+	if serialized_channels == null:
+		serialized_channels = []
+	ok = _assert(serialized_channels is Array, "Registry to_dict should include channels") and ok
+	ok = _assert((serialized_channels as Array).size() == registry.channels.size(), "Registry to_dict should serialize all channels") and ok
+
+	var rebuilt := _new_registry()
+	if rebuilt == null:
+		return false
+	rebuilt.from_dict({
+		"registry_id": "   ",
+		"map_width": 0,
+		"map_height": 0,
+		"voxel_world_height": 0,
+		"channels": serialized_channels,
+	})
+	ok = _assert(rebuilt.registry_id == "default_registry", "Registry from_dict should normalize blank registry_id") and ok
+	ok = _assert(rebuilt.map_width == 1, "Registry from_dict should clamp map_width to at least 1") and ok
+	ok = _assert(rebuilt.map_height == 1, "Registry from_dict should clamp map_height to at least 1") and ok
+	ok = _assert(rebuilt.voxel_world_height == 1, "Registry from_dict should clamp voxel_world_height to at least 1") and ok
+	ok = _assert(_has_default_channels_in_any_order(rebuilt.channels, canonical_ids), "Rebuilt registry should keep canonical channel IDs") and ok
 	return ok
 
 func _test_channel_resource_save_load_serialization() -> bool:
@@ -120,12 +192,64 @@ func _assert(condition: bool, message: String) -> bool:
 		push_error(message)
 	return condition
 
-func _read_script_source(script_path: String) -> String:
-	var file := FileAccess.open(script_path, FileAccess.READ)
-	if file == null:
-		_assert(false, "Failed to open script source: %s" % script_path)
-		return ""
-	return file.get_as_text()
+func _metadata_matches_expectations(actual_metadata_variant: Variant, expected_metadata: Dictionary) -> bool:
+	if not (actual_metadata_variant is Dictionary):
+		return false
+	var actual_metadata := actual_metadata_variant as Dictionary
+	var actual_keys: Array = actual_metadata.keys()
+	var expected_keys: Array = expected_metadata.keys()
+	actual_keys.sort()
+	expected_keys.sort()
+	if actual_keys != expected_keys:
+		return false
+	for key in expected_keys:
+		if key == "range":
+			var expected_range_variant: Variant = expected_metadata.get(key)
+			if not (expected_range_variant is Dictionary):
+				return false
+			var expected_range := expected_range_variant as Dictionary
+			var actual_range_variant: Variant = actual_metadata.get(key, {})
+			if not (actual_range_variant is Dictionary):
+				return false
+			var actual_range := actual_range_variant as Dictionary
+			for bound in ["min", "max"]:
+				if not expected_range.has(bound):
+					return false
+				if not is_equal_approx(float(actual_range.get(bound)), float(expected_range.get(bound))):
+					return false
+			continue
+		var expected_value := expected_metadata.get(key)
+		var actual_value := actual_metadata.get(key)
+		if expected_value is float or expected_value is int:
+			if not is_equal_approx(float(actual_value), float(expected_value)):
+				return false
+		elif actual_value != expected_value:
+			return false
+	return true
+
+func _canonical_field_ids() -> Array[String]:
+	var ids: Array[String] = []
+	for key in CANONICAL_FIELD_DEFAULTS_BY_ID.keys():
+		ids.append(String(key))
+	ids.sort()
+	return ids
+
+func _has_default_channels_in_any_order(channels: Array, expected_channel_ids: Array[String]) -> bool:
+	var actual := []
+	for channel in channels:
+		if channel is Resource:
+			actual.append(String((channel as Resource).get("channel_id")))
+	var expected = expected_channel_ids.duplicate()
+	actual.sort()
+	expected.sort()
+	return actual == expected
+
+func _new_registry() -> Resource:
+	var script = load(FIELD_REGISTRY_SCRIPT_PATH)
+	if script == null or not script.has_method("new"):
+		_assert(false, "Failed to load FieldRegistryConfig resource script")
+		return null
+	return script.new()
 
 func _new_channel() -> Resource:
 	var script = load(FIELD_CHANNEL_SCRIPT_PATH)
