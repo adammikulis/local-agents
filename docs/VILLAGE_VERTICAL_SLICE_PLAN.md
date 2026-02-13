@@ -577,6 +577,8 @@ Deliverables:
 
 ## 14) Contract Tables (Initial)
 
+Published artifact: `docs/VERTICAL_SLICE_CONTRACT_TABLES.md`
+
 ### 14.1 Resource Schema Table
 
 | Resource | Purpose | Required Fields | Deterministic Notes |
@@ -709,7 +711,7 @@ Test slice:
 ### 15.9 Phase 8: Demo-Ready Vertical Slice
 - [x] Complete minimal HUD/inspector workflows and debug overlays (Sections 10, 13.6).
 - [x] Verify done criteria across a 30-day seeded run (Section 1.3).
-- [ ] Final docs pass: schema table, graph field table, playbook keys aligned to implementation (Section 14).
+- [x] Final docs pass: schema table, graph field table, playbook keys aligned to implementation (Section 14).
 Test slice:
 - [x] End-to-end run: generate world, seed settlement, survive/grow, show culture effects, fork timeline, inspect graph evidence.
 
