@@ -3,12 +3,17 @@ class_name LocalAgentsHydrologySystem
 
 const HydrologyComputeBackendScript = preload("res://addons/local_agents/simulation/HydrologyComputeBackend.gd")
 const HydrologySystemHelpersScript = preload("res://addons/local_agents/simulation/hydrology/HydrologySystemHelpers.gd")
+const MaterialFlowNativeStageHelpersScript = preload("res://addons/local_agents/simulation/material_flow/MaterialFlowNativeStageHelpers.gd")
+const NativeComputeBridgeScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
 const _IDLE_CADENCE := 8
+const _NATIVE_STAGE_NAME := "hydrology_step"
 
 var _compute_requested: bool = false
 var _compute_active: bool = false
 var _compute_backend = HydrologyComputeBackendScript.new()
 var _ordered_tile_ids: Array[String] = []
+var _native_environment_stage_dispatch_enabled: bool = false
+var _native_view_metrics: Dictionary = {}
 
 func set_compute_enabled(enabled: bool) -> void:
     _compute_requested = enabled
@@ -17,6 +22,12 @@ func set_compute_enabled(enabled: bool) -> void:
 
 func is_compute_active() -> bool:
     return _compute_active
+
+func set_native_environment_stage_dispatch_enabled(enabled: bool) -> void:
+    _native_environment_stage_dispatch_enabled = enabled
+
+func set_native_view_metrics(metrics: Dictionary) -> void:
+    _native_view_metrics = MaterialFlowNativeStageHelpersScript.sanitize_native_view_metrics(metrics)
 
 func build_network(world_data: Dictionary, config) -> Dictionary:
     var width = int(world_data.get("width", 0))
@@ -155,6 +166,16 @@ func step(
     var width = int(environment_snapshot.get("width", 0))
     var seed = int(hydrology_snapshot.get("seed", 0))
     var changed_map: Dictionary = {}
+    var native_step = _step_native_environment_stage(
+        tick,
+        delta,
+        environment_snapshot,
+        hydrology_snapshot,
+        weather_snapshot,
+        local_activity
+    )
+    if not native_step.is_empty():
+        return native_step
 
     var tile_ids = water_tiles.keys()
     tile_ids.sort_custom(func(a, b): return String(a) < String(b))
@@ -408,6 +429,57 @@ func _step_compute(
             changed_tiles.append(tile_id)
     changed_tiles.sort_custom(func(a, b): return String(a) < String(b))
     return {"changed_tiles": changed_tiles}
+
+func _step_native_environment_stage(
+    tick: int,
+    delta: float,
+    environment_snapshot: Dictionary,
+    hydrology_snapshot: Dictionary,
+    weather_snapshot: Dictionary,
+    local_activity: Dictionary
+) -> Dictionary:
+    if not _native_environment_stage_dispatch_enabled:
+        return {}
+    var dispatch = NativeComputeBridgeScript.dispatch_environment_stage_call(
+        null,
+        tick,
+        "hydrology",
+        _NATIVE_STAGE_NAME,
+        MaterialFlowNativeStageHelpersScript.build_environment_stage_payload(
+            tick,
+            delta,
+            environment_snapshot,
+            hydrology_snapshot,
+            weather_snapshot,
+            local_activity,
+            _native_view_metrics
+        ),
+        false
+    )
+    if not NativeComputeBridgeScript.is_environment_stage_dispatched(dispatch):
+        return {}
+    var native_result = NativeComputeBridgeScript.environment_stage_result(dispatch)
+    if native_result.is_empty():
+        return {}
+    var native_environment = native_result.get("environment", environment_snapshot)
+    var native_hydrology = native_result.get("hydrology", hydrology_snapshot)
+    if not (native_environment is Dictionary) or not (native_hydrology is Dictionary):
+        return {}
+    var env = native_environment as Dictionary
+    var hydro = native_hydrology as Dictionary
+    var changed_tiles_variant = native_result.get("changed_tiles", [])
+    if not (changed_tiles_variant is Array):
+        changed_tiles_variant = []
+    var changed_tiles: Array = (changed_tiles_variant as Array).duplicate(true)
+    changed_tiles.sort_custom(func(a, b): return String(a) < String(b))
+    var changed = bool(native_result.get("changed", not changed_tiles.is_empty()))
+    hydro["tick"] = tick
+    return {
+        "environment": env,
+        "hydrology": hydro,
+        "changed": changed,
+        "changed_tiles": changed_tiles,
+    }
 
 func _build_network_from_flow_map(flow_map: Dictionary, tiles: Array, springs: Dictionary, water_table: Dictionary, config) -> Dictionary:
     var by_tile: Dictionary = {}

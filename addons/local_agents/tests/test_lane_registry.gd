@@ -2,7 +2,7 @@
 extends RefCounted
 class_name LocalAgentsTestLaneRegistry
 
-const DETERMINISTIC_TESTS := [
+const DETERMINISTIC_TESTS: Array[String] = [
 	"res://addons/local_agents/tests/test_smoke_agent.gd",
 	"res://addons/local_agents/tests/test_agent_utilities.gd",
 	"res://addons/local_agents/tests/test_field_registry_config_resource.gd",
@@ -14,6 +14,7 @@ const DETERMINISTIC_TESTS := [
 	"res://addons/local_agents/tests/test_freeze_thaw_erosion.gd",
 	"res://addons/local_agents/tests/test_solar_albedo_from_rgba.gd",
 	"res://addons/local_agents/tests/test_wind_air_column_solar_heating.gd",
+	"res://addons/local_agents/tests/test_native_voxel_op_contracts.gd",
 	"res://addons/local_agents/tests/test_simulation_voxel_terrain_generation.gd",
 	"res://addons/local_agents/tests/test_simulation_water_first_spawn.gd",
 	"res://addons/local_agents/tests/test_simulation_branching.gd",
@@ -33,14 +34,16 @@ const DETERMINISTIC_TESTS := [
 	"res://addons/local_agents/tests/test_simulation_dream_labeling.gd",
 	"res://addons/local_agents/tests/test_simulation_resource_ledgers.gd",
 	"res://addons/local_agents/tests/test_simulation_economy_events.gd",
+	"res://addons/local_agents/tests/test_simulation_material_flow_parity.gd",
+	"res://addons/local_agents/tests/test_simulation_material_flow_foveated_throttling.gd",
 ]
 
-const INTEGRATION_TESTS := [
+const INTEGRATION_TESTS: Array[String] = [
 	"res://addons/local_agents/tests/test_simulation_vertical_slice_30day.gd",
 	"res://addons/local_agents/tests/test_world_simulator_app_loop.gd",
 ]
 
-const RUNTIME_HEAVY_TESTS := [
+const RUNTIME_HEAVY_TESTS: Array[String] = [
 	"res://addons/local_agents/tests/test_simulation_villager_cognition.gd",
 	"res://addons/local_agents/tests/test_simulation_no_empty_generation.gd",
 	"res://addons/local_agents/tests/test_simulation_cognition_trace_isolation.gd",
@@ -49,6 +52,6 @@ const RUNTIME_HEAVY_TESTS := [
 	"res://addons/local_agents/tests/test_agent_runtime_heavy.gd",
 ]
 
-const PERF_BENCHMARKS := [
+const PERF_BENCHMARKS: Array[String] = [
 	"res://addons/local_agents/tests/benchmark_voxel_pipeline.gd",
 ]
