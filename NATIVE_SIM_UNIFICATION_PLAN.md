@@ -59,10 +59,17 @@ Exit criteria:
   - fuel + oxygen gating
   - material flammability + moisture damping
   - heat release + terrain damage coupling outputs
+- Add generalized physics contract milestones for remaining tranche:
+  - boundary-condition contract helper (`open` / `closed` / `reflective`) reused by all stage domains
+  - porous-flow pressure coupling terms (`permeability`, `dynamic_viscosity`, `porosity`, Darcy seepage)
+  - shock/impulse coupling terms in mechanics + pressure (`shock_impulse`, `shock_distance`, attenuation, response terms)
+  - thermal/reaction phase-change payloads (melt/freeze/boil/condense + latent energy accounting)
+  - friction/contact destruction terms (`normal_force`, `contact_velocity`, static/dynamic friction, dissipation)
 
 Exit criteria:
 - Hydrology and erosion logic no longer own primary numeric loops in `.gd`.
 - GDScript systems are orchestration adapters only.
+- Generalized physics stage outputs expose boundary/porous-flow/phase-change/shock/friction contracts without domain-specific alias fields.
 
 ### Phase 3: Domain Convergence
 - Re-express “hydrology” and “erosion” as parameter sets over shared solvers.
@@ -116,6 +123,15 @@ Exit criteria:
 - Aggregated diagnostics must expose:
   - per-stage totals: `count`, `mass_proxy_delta_sum`, `energy_proxy_delta_sum`
   - overall totals: `stage_count`, `mass_proxy_delta_total`, `energy_proxy_delta_total`
+
+6. Remaining generalized physics contract gate
+- Source-contract tests must assert presence of:
+  - boundary-condition modes/payload fields
+  - porous-flow pressure terms and outputs
+  - shock/impulse attenuation + response terms
+  - phase-change terms/payloads for thermal and reaction stages
+  - friction/contact dissipation terms/payloads in destruction stage
+- Gate remains required for deterministic headless suite completion.
 
 ## Open Design Decisions (to confirm)
 1. Material profile schema location

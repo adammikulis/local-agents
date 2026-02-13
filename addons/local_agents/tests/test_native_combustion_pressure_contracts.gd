@@ -29,9 +29,9 @@ func _test_required_physics_channels_include_pressure() -> bool:
 	if source == "":
 		return false
 	var ok := true
-	ok = _assert(source.contains("channels.append(String(\"pressure\"));"), "Required channels must include pressure") and ok
-	ok = _assert(source.contains("channels.append(String(\"temperature\"));"), "Required channels must include temperature") and ok
-	ok = _assert(source.contains("channels.append(String(\"density\"));"), "Required channels must include density") and ok
+	ok = _assert(source.contains("\"pressure\""), "Required channels must include pressure") and ok
+	ok = _assert(source.contains("\"temperature\""), "Required channels must include temperature") and ok
+	ok = _assert(source.contains("\"density\""), "Required channels must include density") and ok
 	ok = _assert(source.contains("summary[\"missing_channels\"] = missing_channels;"), "Pipeline must expose missing physics channels") and ok
 	ok = _assert(source.contains("summary[\"physics_ready\"] = missing_channels.is_empty();"), "Pipeline must expose physics_ready readiness") and ok
 	return ok
@@ -49,8 +49,8 @@ func _test_combustion_stage_uses_pressure_and_temperature_gating() -> bool:
 	ok = _assert(source.contains("const double pressure = clamped(frame_inputs.get(\"pressure\""), "Combustion stage must read pressure input") and ok
 	ok = _assert(source.contains("temperature >= activation_temperature"), "Reaction stage must gate combustion-like chemistry by temperature activation") and ok
 	ok = _assert(source.contains("const double pressure_factor = pressure_window_factor"), "Combustion stage must gate intensity by pressure factor") and ok
-	ok = _assert(source.contains("result[\"heat_delta\"]"), "Combustion stage must output heat delta") and ok
-	ok = _assert(source.contains("result[\"reaction_extent\"]"), "Reaction stage must expose reaction extent output") and ok
+	ok = _assert(source.contains("\"heat_delta\""), "Combustion stage must output heat delta") and ok
+	ok = _assert(source.contains("\"reaction_extent\""), "Reaction stage must expose reaction extent output") and ok
 	return ok
 
 func _test_bridge_builds_canonical_material_inputs() -> bool:

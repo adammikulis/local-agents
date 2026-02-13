@@ -23,6 +23,11 @@ const _CANONICAL_INPUT_KEYS := [
 	"thermal_diffusivity",
 	"reaction_rate",
 	"reaction_channels",
+	"phase_change_channels",
+	"porous_flow_channels",
+	"shock_impulse_channels",
+	"friction_contact_channels",
+	"boundary_condition_channels",
 	"fuel",
 	"oxygen",
 	"material_flammability",
@@ -34,6 +39,12 @@ const _DEFAULT_REACTION_CHANNELS := {
 	"hydration": 0.0,
 	"decomposition": 0.0,
 	"corrosion": 0.0,
+}
+const _DEFAULT_GENERALIZED_CHANNELS := {"phase_change_channels": {"melting": 0.0, "freezing": 0.0, "evaporation": 0.0, "condensation": 0.0}, "porous_flow_channels": {"seepage": 0.0, "capillary": 0.0, "drainage": 0.0, "retention": 0.0}, "shock_impulse_channels": {"impact": 0.0, "blast": 0.0, "shear_wave": 0.0, "vibration": 0.0}, "friction_contact_channels": {"static": 0.0, "kinetic": 0.0, "rolling": 0.0, "adhesion": 0.0}, "boundary_condition_channels": {"dirichlet": 0.0, "neumann": 0.0, "robin": 0.0, "reflective": 0.0, "periodic": 0.0}}
+const _MATERIAL_INPUT_DEFAULTS := {
+	"temperature": 293.0, "pressure": 1.0, "pressure_gradient": 0.0, "density": 1.0, "velocity": 0.0, "moisture": 0.0, "porosity": 0.25, "cohesion": 0.5, "hardness": 0.5, "phase": 0, "stress": 0.0, "strain": 0.0, "fuel": 0.0, "oxygen": 0.21, "material_flammability": 0.5, "activity": 0.0,
+	"thermal_conductivity": -1.0, "thermal_capacity": -1.0, "thermal_diffusivity": -1.0, "reaction_rate": -1.0, "reaction_channels": {}, "phase_change_channels": {}, "porous_flow_channels": {}, "shock_impulse_channels": {}, "friction_contact_channels": {}, "boundary_condition_channels": {},
+	"mass_proxy": -1.0, "acceleration_proxy": -1.0, "force_proxy": -1.0,
 }
 const _LEGACY_INPUT_KEY_ALIASES := {
 	"temperature": ["temp", "temp_k", "avg_temperature"],
@@ -52,13 +63,16 @@ const _LEGACY_INPUT_KEY_ALIASES := {
 	"thermal_capacity": ["heat_capacity", "specific_heat"],
 	"thermal_diffusivity": ["diffusivity"],
 	"reaction_rate": ["reaction_intensity", "chem_reaction_rate"],
+	"phase_change_channels": ["phase_transitions", "phase_change", "transition_channels"],
+	"porous_flow_channels": ["porous_channels", "flow_channels", "permeability_channels"],
+	"shock_impulse_channels": ["shock_channels", "impulse_channels", "impact_channels"],
+	"friction_contact_channels": ["friction_channels", "contact_channels", "tribology_channels"],
+	"boundary_condition_channels": ["boundary_channels", "boundary_conditions", "bc_channels"],
 	"material_flammability": ["flammability"],
 	"activity": ["activity_level", "activation"],
 }
-
 static func is_native_sim_core_enabled() -> bool:
 	return OS.get_environment(NATIVE_SIM_CORE_ENV_KEY).strip_edges() == "1"
-
 static func dispatch_stage_call(controller, tick: int, phase: String, method_name: String, args: Array = [], strict: bool = false) -> Dictionary:
 	if not is_native_sim_core_enabled():
 		var disabled_error = "native_sim_core_disabled"
@@ -69,7 +83,6 @@ static func dispatch_stage_call(controller, tick: int, phase: String, method_nam
 			"executed": false,
 			"error": disabled_error,
 		}
-
 	if not Engine.has_singleton(NATIVE_SIM_CORE_SINGLETON_NAME):
 		var unavailable_error = "native_sim_core_unavailable"
 		if strict:
@@ -79,7 +92,6 @@ static func dispatch_stage_call(controller, tick: int, phase: String, method_nam
 			"executed": false,
 			"error": unavailable_error,
 		}
-
 	var core = Engine.get_singleton(NATIVE_SIM_CORE_SINGLETON_NAME)
 	if core == null:
 		var core_missing_error = "native_sim_core_unavailable"
@@ -90,7 +102,6 @@ static func dispatch_stage_call(controller, tick: int, phase: String, method_nam
 			"executed": false,
 			"error": core_missing_error,
 		}
-
 	if not core.has_method(method_name):
 		var missing_method_error = "core_missing_method_%s" % method_name
 		if strict:
@@ -228,7 +239,6 @@ static func _material_inputs_from_payload(payload: Dictionary) -> Dictionary:
 	var explicit_inputs = payload.get("inputs", {})
 	if explicit_inputs is Dictionary:
 		out = (explicit_inputs as Dictionary).duplicate(true)
-
 	_merge_payload_material_input_overrides(out, payload)
 	_merge_environment_activity(out, payload)
 	_merge_hydrology_material_inputs(out, payload)
@@ -258,8 +268,6 @@ static func _merge_payload_material_input_overrides(out: Dictionary, payload: Di
 				break
 
 static func _merge_environment_activity(out: Dictionary, payload: Dictionary) -> void:
-	# Pull common channels from snapshots when available so weather/hydrology/erosion/solar
-	# adapters can share one native material-state input contract.
 	var environment = payload.get("environment", {})
 	if environment is Dictionary:
 		var env = environment as Dictionary
@@ -303,30 +311,15 @@ static func _merge_weather_material_inputs(out: Dictionary, payload: Dictionary)
 		out["velocity"] = clampf(float(weather_dict.get("avg_wind_speed", 0.0)), 0.0, 200.0)
 
 static func _apply_material_input_defaults(out: Dictionary) -> void:
-	if not out.has("temperature"): out["temperature"] = 293.0
-	if not out.has("pressure"): out["pressure"] = 1.0
-	if not out.has("pressure_gradient"): out["pressure_gradient"] = 0.0
-	if not out.has("density"): out["density"] = 1.0
-	if not out.has("velocity"): out["velocity"] = 0.0
-	if not out.has("moisture"): out["moisture"] = 0.0
-	if not out.has("porosity"): out["porosity"] = 0.25
-	if not out.has("cohesion"): out["cohesion"] = 0.5
-	if not out.has("hardness"): out["hardness"] = 0.5
-	if not out.has("phase"): out["phase"] = 0
-	if not out.has("stress"): out["stress"] = 0.0
-	if not out.has("strain"): out["strain"] = 0.0
-	if not out.has("fuel"): out["fuel"] = 0.0
-	if not out.has("oxygen"): out["oxygen"] = 0.21
-	if not out.has("material_flammability"): out["material_flammability"] = 0.5
-	if not out.has("activity"): out["activity"] = 0.0
-	if not out.has("thermal_conductivity"): out["thermal_conductivity"] = -1.0
-	if not out.has("thermal_capacity"): out["thermal_capacity"] = -1.0
-	if not out.has("thermal_diffusivity"): out["thermal_diffusivity"] = -1.0
-	if not out.has("reaction_rate"): out["reaction_rate"] = -1.0
-	if not out.has("reaction_channels"): out["reaction_channels"] = {}
-	if not out.has("mass_proxy"): out["mass_proxy"] = -1.0
-	if not out.has("acceleration_proxy"): out["acceleration_proxy"] = -1.0
-	if not out.has("force_proxy"): out["force_proxy"] = -1.0
+	for key_variant in _MATERIAL_INPUT_DEFAULTS.keys():
+		var key := String(key_variant)
+		if out.has(key):
+			continue
+		var value = _MATERIAL_INPUT_DEFAULTS.get(key)
+		if value is Dictionary:
+			out[key] = (value as Dictionary).duplicate(true)
+		else:
+			out[key] = value
 
 static func _normalize_canonical_material_inputs(input_fields: Dictionary) -> Dictionary:
 	var out: Dictionary = input_fields.duplicate(true)
@@ -353,6 +346,9 @@ static func _normalize_canonical_material_inputs(input_fields: Dictionary) -> Di
 	out["thermal_capacity"] = _normalize_thermal_capacity(out)
 	out["thermal_diffusivity"] = _normalize_thermal_diffusivity(out)
 	out["reaction_channels"] = _normalize_reaction_channels(out.get("reaction_channels", {}), out)
+	for channel_key_variant in _DEFAULT_GENERALIZED_CHANNELS.keys():
+		var channel_key := String(channel_key_variant)
+		out[channel_key] = _normalize_contract_channels(out.get(channel_key, {}), _DEFAULT_GENERALIZED_CHANNELS.get(channel_key, {}))
 	out["reaction_rate"] = _normalize_reaction_rate(out)
 	return out
 
@@ -458,6 +454,15 @@ static func _normalize_reaction_channels(channels_variant, inputs: Dictionary) -
 		channels["decomposition"] = clampf(thermal_drive * (0.45 + activity * 0.55), 0.0, 1.0)
 	if not channels.has("corrosion") or float(channels.get("corrosion", 0.0)) <= 0.0:
 		channels["corrosion"] = clampf(oxygen * moisture * (0.4 + activity * 0.6), 0.0, 1.0)
+	return channels
+
+static func _normalize_contract_channels(channels_variant, defaults_variant) -> Dictionary:
+	var defaults: Dictionary = defaults_variant if defaults_variant is Dictionary else {}
+	var channels: Dictionary = defaults.duplicate(true)
+	if not (channels_variant is Dictionary):
+		return channels
+	for key_variant in (channels_variant as Dictionary).keys():
+		channels[String(key_variant)] = clampf(float((channels_variant as Dictionary).get(key_variant, 0.0)), 0.0, 1.0)
 	return channels
 
 static func _normalize_reaction_rate(inputs: Dictionary) -> float:

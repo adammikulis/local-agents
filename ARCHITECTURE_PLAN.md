@@ -151,6 +151,12 @@ Native integration execution checklist:
 - [x] February 13, 2026: Added deterministic headless-native voxel op contract coverage for operation ordering counters, fallback path selection metadata, and changed-region payload shape (`test_native_voxel_op_contracts.gd`).
 - [ ] Add deterministic native generalized-physics stage contract coverage for mechanics/pressure/thermal/reaction/destruction summary fields and per-domain stage counts.
 - [ ] Add deterministic conservation diagnostics contract coverage ensuring per-stage (`count`, `mass_proxy_delta_sum`, `energy_proxy_delta_sum`) and overall (`stage_count`, `mass_proxy_delta_total`, `energy_proxy_delta_total`) fields are always present.
+- [x] February 13, 2026: Extended deterministic source-contract coverage for remaining generalized physics tranche in `test_native_general_physics_contracts.gd`:
+  - boundary conditions (`open`/`closed`/`reflective`, directional/scalar multipliers)
+  - porous-flow pressure coupling (permeability, dynamic viscosity, porosity, Darcy seepage terms)
+  - shock/impulse attenuation and mechanics/pressure response terms
+  - thermal + reaction phase-change payload terms and latent-energy accounting
+  - destruction friction/contact terms and dissipation payload fields
 - [ ] Remaining gap: move changed-region payloads from dictionary rows (`changed_region`, `changed_regions`) to typed `Resource` contracts before native edit engine exits Phase 2.
 - [ ] Remaining gap: validate native voxel op ordering/fallback contracts against non-stub GPU kernels once compute-stage registration is implemented.
 
@@ -172,6 +178,11 @@ Phase 2: Hydrology + terrain/environment core migration first
 - [ ] Add deterministic foveated throttling gate validating monotonic throttle scalars (`op_stride`, `voxel_scale`, `compute_budget_scale`) under far-camera/high-uniformity views.
 - [ ] Add deterministic gate that fails Phase 2 completion if any generalized physics domain (`mechanics`, `pressure`, `thermal`, `reaction`, `destruction`) is missing from pipeline output summary contracts.
 - [ ] Add deterministic gate that fails Phase 2 completion if conservation diagnostics omit per-stage or overall aggregate proxy totals.
+- [ ] Add deterministic gate that fails Phase 2 completion if boundary-condition contracts (`open`/`closed`/`reflective`) or boundary multipliers are missing from stage payloads.
+- [ ] Add deterministic gate that fails Phase 2 completion if porous-flow terms (`permeability`, `dynamic_viscosity`, `porosity`, Darcy seepage outputs) are missing from pressure stage contracts.
+- [ ] Add deterministic gate that fails Phase 2 completion if shock/impulse terms (`shock_impulse`, `shock_distance`, attenuation, mechanics/pressure outputs) are missing from generalized stage contracts.
+- [ ] Add deterministic gate that fails Phase 2 completion if phase-change terms/payloads are missing from thermal/reaction stage contracts.
+- [ ] Add deterministic gate that fails Phase 2 completion if friction/contact terms (`normal_force`, `contact_velocity`, static/dynamic friction, dissipation outputs) are missing from destruction stage contracts.
 - [ ] Exit Phase 2 only when script layers for these systems are adapter-only and no longer own numeric loops.
 
 Phase 3: Smell/wind and ecology signal migration
