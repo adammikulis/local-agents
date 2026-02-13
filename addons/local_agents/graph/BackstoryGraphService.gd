@@ -9,6 +9,10 @@ const BackstoryCypherPlaybookScript = preload("res://addons/local_agents/graph/B
 const BackstoryRelationshipOpsScript = preload("res://addons/local_agents/graph/BackstoryRelationshipOps.gd")
 const BackstoryKnowledgeOpsScript = preload("res://addons/local_agents/graph/BackstoryKnowledgeOps.gd")
 const BackstoryMemoryStateOpsScript = preload("res://addons/local_agents/graph/BackstoryMemoryStateOps.gd")
+const BackstoryEmbeddingOpsScript = preload("res://addons/local_agents/graph/BackstoryEmbeddingOps.gd")
+const BackstoryGraphQueryOpsScript = preload("res://addons/local_agents/graph/BackstoryGraphQueryOps.gd")
+const BackstoryRelationshipStateOpsScript = preload("res://addons/local_agents/graph/BackstoryRelationshipStateOps.gd")
+const BackstoryClaimOpsScript = preload("res://addons/local_agents/graph/BackstoryClaimOps.gd")
 const STORE_DIR = "user://local_agents"
 const DB_PATH = STORE_DIR + "/network.sqlite3"
 
@@ -268,45 +272,7 @@ func _ensure_graph() -> bool:
     return true
 
 func _index_memory_embedding_node(node_id: int, memory_id: String, npc_id: String, summary: String, embed_options: Dictionary) -> Dictionary:
-    if summary.strip_edges() == "":
-        return {"ok": false, "error": "empty_memory_summary"}
-    var runtime := _agent_runtime()
-    if runtime == null or not runtime.has_method("embed_text"):
-        return {"ok": false, "error": "runtime_unavailable"}
-    var backend_ready = _ensure_embedding_backend_ready(embed_options, runtime)
-    if not bool(backend_ready.get("ok", false)):
-        return {
-            "ok": false,
-            "error": "embedding_backend_unavailable",
-            "backend": backend_ready,
-        }
-
-    var vector: PackedFloat32Array = runtime.call("embed_text", summary, embed_options)
-    if vector.is_empty():
-        return {"ok": false, "error": "embedding_failed"}
-
-    var embedding_model := String(embed_options.get("server_model", embed_options.get("model", ""))).strip_edges()
-    if embedding_model == "" and runtime.has_method("get_default_model_path"):
-        var model_path := String(runtime.call("get_default_model_path")).strip_edges()
-        if model_path != "":
-            embedding_model = model_path.get_file()
-    if embedding_model == "":
-        embedding_model = "unknown"
-
-    var embedding_id := int(_graph.add_embedding(node_id, vector, {
-        "type": "memory",
-        "memory_id": memory_id,
-        "npc_id": npc_id,
-        "source": "backstory_memory",
-        "strategy_hint": "cosine",
-        "embedding_model": embedding_model,
-    }))
-    if embedding_id == -1:
-        return {"ok": false, "error": "embedding_store_failed"}
-    return {
-        "ok": true,
-        "embedding_id": embedding_id,
-    }
+    return BackstoryEmbeddingOpsScript.index_memory_embedding_node(self, node_id, memory_id, npc_id, summary, embed_options)
 
 func _resolved_database_path() -> String:
     if _database_path_override != "":
@@ -314,320 +280,64 @@ func _resolved_database_path() -> String:
     return DB_PATH
 
 func _ensure_embedding_backend_ready(embed_options: Dictionary, runtime: Object) -> Dictionary:
-    var backend = String(embed_options.get("backend", "")).strip_edges().to_lower()
-    if backend == "" or backend == "local":
-        return {"ok": true, "backend": backend}
-    if backend != "llama_server":
-        return {"ok": true, "backend": backend}
-    if not bool(embed_options.get("server_autostart", true)):
-        return {"ok": true, "backend": backend}
-
-    var resolved_model = _resolve_embedding_model_path(embed_options, runtime)
-    if resolved_model == "":
-        return {
-            "ok": false,
-            "error": "embedding_model_missing",
-            "backend": backend,
-        }
-    var runtime_dir = RuntimePaths.normalize_path(String(embed_options.get("runtime_directory", "")))
-    var lifecycle = _embedding_server_manager.ensure_running(embed_options, resolved_model, runtime_dir)
-    if not bool(lifecycle.get("ok", false)):
-        return {
-            "ok": false,
-            "error": "embedding_server_unavailable",
-            "backend": backend,
-            "lifecycle": lifecycle,
-        }
-    return {
-        "ok": true,
-        "backend": backend,
-        "base_url": lifecycle.get("base_url", ""),
-        "model_path": resolved_model,
-    }
+    return BackstoryEmbeddingOpsScript.ensure_embedding_backend_ready(self, embed_options, runtime)
 
 func _resolve_embedding_model_path(embed_options: Dictionary, runtime: Object) -> String:
-    var explicit_keys = ["server_model_path", "model_path", "model"]
-    for key in explicit_keys:
-        var candidate = String(embed_options.get(key, "")).strip_edges()
-        if candidate == "":
-            continue
-        var normalized = RuntimePaths.normalize_path(candidate)
-        if normalized != "" and FileAccess.file_exists(normalized):
-            return normalized
-    if runtime != null and runtime.has_method("get_default_model_path"):
-        var runtime_default = String(runtime.call("get_default_model_path")).strip_edges()
-        var normalized_runtime_default = RuntimePaths.normalize_path(runtime_default)
-        if normalized_runtime_default != "" and FileAccess.file_exists(normalized_runtime_default):
-            return normalized_runtime_default
-    var fallback = RuntimePaths.resolve_default_model()
-    if fallback != "" and FileAccess.file_exists(fallback):
-        return fallback
-    return ""
+    return BackstoryEmbeddingOpsScript.resolve_embedding_model_path(embed_options, runtime)
 
 func _node_by_external_id(space: String, key: String, value: Variant) -> Dictionary:
-    if not _ensure_graph():
-        return {}
-    var rows = _graph.list_nodes_by_metadata(space, key, value, 1, 0)
-    if rows.is_empty():
-        return {}
-    return rows[0]
+    return BackstoryGraphQueryOpsScript.node_by_external_id(self, space, key, value)
 
 func _node_id_by_external_id(space: String, key: String, value: Variant) -> int:
-    var row = _node_by_external_id(space, key, value)
-    return int(row.get("id", -1))
+    return BackstoryGraphQueryOpsScript.node_id_by_external_id(self, space, key, value)
 
 func _nodes_for_npc(space: String, npc_id: String, world_day: int, limit: int) -> Array:
-    var rows = _graph.list_nodes_by_metadata(space, "npc_id", npc_id, limit * 4, 0)
-    var items: Array = []
-    for row in rows:
-        var data: Dictionary = row.get("data", {})
-        var row_day = int(data.get("world_day", -1))
-        if world_day >= 0 and row_day >= 0 and row_day > world_day:
-            continue
-        items.append(data.duplicate(true))
-    items.sort_custom(func(a, b): return int(a.get("world_day", -1)) > int(b.get("world_day", -1)))
-    if items.size() > limit:
-        items.resize(limit)
-    return items
+    return BackstoryGraphQueryOpsScript.nodes_for_npc(self, space, npc_id, world_day, limit)
 
 func _active_relationships_for_npc(npc_node_id: int, world_day: int, limit: int) -> Array:
-    var edges = _graph.get_edges(npc_node_id, DEFAULT_SCAN_LIMIT)
-    var relationships: Array = []
-    for edge in edges:
-        if int(edge.get("source_id", -1)) != npc_node_id:
-            continue
-        var data: Dictionary = edge.get("data", {})
-        if data.get("type", "") != "relationship":
-            continue
-        var from_day = int(data.get("from_day", -1))
-        var to_day = int(data.get("to_day", -1))
-        if world_day >= 0:
-            if from_day >= 0 and from_day > world_day:
-                continue
-            if to_day >= 0 and to_day < world_day:
-                continue
-        relationships.append({
-            "relationship_type": String(data.get("relationship_type", edge.get("kind", ""))),
-            "target_id": String(data.get("target_id", "")),
-            "target_space": String(data.get("target_space", "")),
-            "from_day": from_day,
-            "to_day": to_day,
-            "confidence": float(data.get("confidence", edge.get("weight", 0.0))),
-            "source": String(data.get("source", "")),
-            "exclusive": bool(data.get("exclusive", false)),
-            "metadata": data.get("metadata", {}).duplicate(true),
-        })
-    relationships.sort_custom(func(a, b): return int(a.get("from_day", -1)) > int(b.get("from_day", -1)))
-    if relationships.size() > limit:
-        relationships.resize(limit)
-    return relationships
+    return BackstoryGraphQueryOpsScript.active_relationships_for_npc(self, npc_node_id, world_day, limit)
 
 func _active_exclusive_memberships(npc_node_id: int) -> Array:
-    var edges = _graph.get_edges(npc_node_id, DEFAULT_SCAN_LIMIT)
-    var active: Array = []
-    for edge in edges:
-        if int(edge.get("source_id", -1)) != npc_node_id:
-            continue
-        var kind = String(edge.get("kind", ""))
-        if kind != "MEMBER_OF":
-            continue
-        var data: Dictionary = edge.get("data", {})
-        if not bool(data.get("exclusive", false)):
-            continue
-        if int(data.get("to_day", -1)) != -1:
-            continue
-        active.append({
-            "target_id": String(data.get("target_id", "")),
-            "target_space": String(data.get("target_space", "")),
-            "kind": kind,
-            "from_day": int(data.get("from_day", -1)),
-        })
-    return active
+    return BackstoryGraphQueryOpsScript.active_exclusive_memberships(self, npc_node_id)
 
 func _recent_relationship_stats(source_npc_id: String, target_npc_id: String, world_day: int, recent_window_days: int, recent_limit: int) -> Dictionary:
-    var rows = _graph.list_nodes_by_metadata(RELATIONSHIP_EVENT_SPACE, "relationship_key", _relationship_key(source_npc_id, target_npc_id), DEFAULT_SCAN_LIMIT, 0)
-    var window_start = world_day - recent_window_days
-    var selected: Array = []
-    for row in rows:
-        var data: Dictionary = row.get("data", {})
-        var row_day = int(data.get("world_day", -1))
-        if row_day < 0:
-            continue
-        if row_day < window_start or row_day > world_day:
-            continue
-        selected.append(data.duplicate(true))
-
-    selected.sort_custom(func(a, b): return int(a.get("world_day", -1)) > int(b.get("world_day", -1)))
-    if selected.size() > recent_limit:
-        selected.resize(recent_limit)
-
-    var valence_sum = 0.0
-    var trust_sum = 0.0
-    var respect_sum = 0.0
-    for item in selected:
-        valence_sum += float(item.get("valence_delta", 0.0))
-        trust_sum += float(item.get("trust_delta", 0.0))
-        respect_sum += float(item.get("respect_delta", 0.0))
-
-    var count = selected.size()
-    var valence_avg = 0.0
-    var trust_avg = 0.0
-    var respect_avg = 0.0
-    if count > 0:
-        valence_avg = valence_sum / float(count)
-        trust_avg = trust_sum / float(count)
-        respect_avg = respect_sum / float(count)
-
-    return {
-        "window_days": recent_window_days,
-        "sample_count": count,
-        "valence_sum": clampf(valence_sum, -100.0, 100.0),
-        "trust_sum": clampf(trust_sum, -100.0, 100.0),
-        "respect_sum": clampf(respect_sum, -100.0, 100.0),
-        "valence_avg": clampf(valence_avg, -1.0, 1.0),
-        "trust_avg": clampf(trust_avg, -1.0, 1.0),
-        "respect_avg": clampf(respect_avg, -1.0, 1.0),
-        "events": selected,
-    }
+    return BackstoryRelationshipStateOpsScript.recent_relationship_stats(self, source_npc_id, target_npc_id, world_day, recent_window_days, recent_limit)
 
 func _recompute_long_term_from_recent(source_npc_id: String, target_npc_id: String, world_day: int, recent_window_days: int = 14, recent_weight: float = 0.85) -> Dictionary:
-    var upsert = update_relationship_profile(source_npc_id, target_npc_id, world_day, {}, {})
-    if not upsert.get("ok", false):
-        return upsert
-
-    var recent = _recent_relationship_stats(source_npc_id, target_npc_id, world_day, recent_window_days, 128)
-    var existing_rows = _graph.list_nodes_by_metadata(RELATIONSHIP_PROFILE_SPACE, "relationship_key", _relationship_key(source_npc_id, target_npc_id), 1, 0)
-    if existing_rows.is_empty():
-        return _error("profile_missing", "Relationship profile missing during recompute")
-    var profile = existing_rows[0]
-    var profile_data: Dictionary = profile.get("data", {}).duplicate(true)
-    var long_term = _normalize_long_term(profile_data.get("long_term", {}))
-
-    var recent_valence = float(recent.get("valence_avg", 0.0))
-    var recent_trust = float(recent.get("trust_avg", 0.0))
-    var recent_respect = float(recent.get("respect_avg", 0.0))
-    var carry = 1.0 - clampf(recent_weight, 0.0, 1.0)
-    long_term["bond"] = clampf(float(long_term.get("bond", 0.0)) * carry + recent_valence * recent_weight, -1.0, 1.0)
-    long_term["trust"] = clampf(float(long_term.get("trust", 0.0)) * carry + recent_trust * recent_weight, -1.0, 1.0)
-    long_term["respect"] = clampf(float(long_term.get("respect", 0.0)) * carry + recent_respect * recent_weight, -1.0, 1.0)
-    long_term["history_weight"] = clampf(1.0 - recent_weight, 0.0, 1.0)
-
-    profile_data["long_term"] = long_term
-    profile_data["world_day"] = world_day
-    profile_data["updated_at"] = _timestamp()
-    if not _graph.update_node_data(int(profile.get("id", -1)), profile_data):
-        return _error("update_failed", "Failed to update relationship profile long-term values")
-    return _ok({
-        "relationship_key": _relationship_key(source_npc_id, target_npc_id),
-        "long_term": long_term,
-        "recent": recent,
-    })
+    return BackstoryRelationshipStateOpsScript.recompute_long_term_from_recent(self, source_npc_id, target_npc_id, world_day, recent_window_days, recent_weight)
 
 func _normalize_long_term(long_term: Dictionary) -> Dictionary:
-    return {
-        "bond": clampf(float(long_term.get("bond", 0.0)), -1.0, 1.0),
-        "trust": clampf(float(long_term.get("trust", 0.0)), -1.0, 1.0),
-        "respect": clampf(float(long_term.get("respect", 0.0)), -1.0, 1.0),
-        "history_weight": clampf(float(long_term.get("history_weight", 0.5)), 0.0, 1.0),
-    }
+    return BackstoryRelationshipStateOpsScript.normalize_long_term(long_term)
 
 func _normalize_relationship_tags(tags: Dictionary) -> Dictionary:
-    return {
-        "friend": bool(tags.get("friend", false)),
-        "family": bool(tags.get("family", false)),
-        "enemy": bool(tags.get("enemy", false)),
-    }
+    return BackstoryRelationshipStateOpsScript.normalize_relationship_tags(tags)
 
 func _relationship_key(source_npc_id: String, target_npc_id: String) -> String:
-    return "%s->%s" % [source_npc_id, target_npc_id]
+    return BackstoryRelationshipStateOpsScript.relationship_key(source_npc_id, target_npc_id)
 
 func _claim_key(subject_id: String, predicate: String) -> String:
-    return "%s|%s" % [subject_id.strip_edges().to_lower(), predicate.strip_edges().to_lower()]
+    return BackstoryClaimOpsScript.claim_key(subject_id, predicate)
 
 func _normalize_claim_value(value: Variant) -> String:
-    if value == null:
-        return "null"
-    match typeof(value):
-        TYPE_STRING:
-            return String(value).strip_edges().to_lower()
-        TYPE_BOOL:
-            if bool(value):
-                return "true"
-            return "false"
-        TYPE_INT, TYPE_FLOAT:
-            return String(value)
-        _:
-            return JSON.stringify(value, "", false, true).strip_edges().to_lower()
+    return BackstoryClaimOpsScript.normalize_claim_value(value)
 
 func _latest_truth_for_claim(claim_key: String, world_day: int = -1) -> Dictionary:
-    var rows = _graph.list_nodes_by_metadata(TRUTH_SPACE, "claim_key", claim_key, DEFAULT_SCAN_LIMIT, 0)
-    var best: Dictionary = {}
-    var best_day := -2147483648
-    var best_updated := -2147483648
-    for row in rows:
-        var data: Dictionary = row.get("data", {})
-        var row_day = int(data.get("world_day", -1))
-        if world_day >= 0 and row_day >= 0 and row_day > world_day:
-            continue
-        var updated = int(data.get("updated_at", 0))
-        if best.is_empty() or row_day > best_day or (row_day == best_day and updated > best_updated):
-            best = data.duplicate(true)
-            best_day = row_day
-            best_updated = updated
-    return best
+    return BackstoryClaimOpsScript.latest_truth_for_claim(self, claim_key, world_day)
 
 func _resolve_relationship_target(relationship_type: String, target_entity_id: String) -> Dictionary:
-    var kind = relationship_type.to_upper()
-    if kind == "MEMBER_OF":
-        var faction_node_id = _node_id_by_external_id(FACTION_SPACE, "id", target_entity_id)
-        if faction_node_id != -1:
-            return {"node_id": faction_node_id, "space": FACTION_SPACE}
-    var npc_node_id = _node_id_by_external_id(NPC_SPACE, "npc_id", target_entity_id)
-    if npc_node_id != -1:
-        return {"node_id": npc_node_id, "space": NPC_SPACE}
-    var place_node_id = _node_id_by_external_id(PLACE_SPACE, "id", target_entity_id)
-    if place_node_id != -1:
-        return {"node_id": place_node_id, "space": PLACE_SPACE}
-    var quest_node_id = _node_id_by_external_id(QUEST_SPACE, "id", target_entity_id)
-    if quest_node_id != -1:
-        return {"node_id": quest_node_id, "space": QUEST_SPACE}
-    return {"node_id": -1, "space": ""}
+    return BackstoryGraphQueryOpsScript.resolve_relationship_target(self, relationship_type, target_entity_id)
 
 func _dialogue_state_value(npc_id: String, state_key: String, fallback: Variant = null) -> Variant:
-    var row = _node_by_external_id(DIALOGUE_STATE_SPACE, "state_key", state_key)
-    if row.is_empty():
-        return fallback
-    var data: Dictionary = row.get("data", {})
-    if String(data.get("npc_id", "")) != npc_id:
-        var rows = _graph.list_nodes_by_metadata(DIALOGUE_STATE_SPACE, "npc_id", npc_id, 512, 0)
-        for item in rows:
-            var item_data: Dictionary = item.get("data", {})
-            if String(item_data.get("state_key", "")) == state_key:
-                return item_data.get("state_value", fallback)
-        return fallback
-    return data.get("state_value", fallback)
+    return BackstoryGraphQueryOpsScript.dialogue_state_value(self, npc_id, state_key, fallback)
 
 func _post_day_nodes(space: String, npc_id: String, day: int) -> Array:
-    var rows = _graph.list_nodes_by_metadata(space, "npc_id", npc_id, 512, 0)
-    var result: Array = []
-    for row in rows:
-        var data: Dictionary = row.get("data", {})
-        if int(data.get("world_day", -1)) > day:
-            result.append(data.duplicate(true))
-    return result
+    return BackstoryGraphQueryOpsScript.post_day_nodes(self, space, npc_id, day)
 
 func _oral_knowledge_seed_id(npc_id: String, category: String, world_day: int) -> String:
-    return "%s:%s:%d" % [npc_id, category.strip_edges().to_lower(), max(0, world_day)]
+    return BackstoryClaimOpsScript.oral_knowledge_seed_id(npc_id, category, world_day)
 
 func _lineage_edge_exists(source_node_id: int, target_node_id: int) -> bool:
-    var edges = _graph.get_edges(source_node_id, DEFAULT_SCAN_LIMIT)
-    for edge in edges:
-        if int(edge.get("target_id", -1)) != target_node_id:
-            continue
-        if String(edge.get("kind", "")) != "DERIVES_FROM":
-            continue
-        return true
-    return false
+    return BackstoryGraphQueryOpsScript.lineage_edge_exists(self, source_node_id, target_node_id)
 
 func _npc_label(npc_id: String) -> String:
     return "npc:%s" % npc_id
