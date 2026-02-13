@@ -8,11 +8,8 @@ const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKey
 const WorldGenConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldGenConfigResource.gd")
 const WorldProgressionProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldProgressionProfileResource.gd")
 const WorldProgressionProfileDefault = preload("res://addons/local_agents/configuration/parameters/simulation/WorldProgressionProfile_Default.tres")
-const VoxelTimelapseSnapshotResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/VoxelTimelapseSnapshotResource.gd")
 const SimulationStateResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/SimulationStateResource.gd")
 const SimulationScenarioResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/scenarios/SimulationScenarioResource.gd")
-const FlowFieldInstancedShader = preload("res://addons/local_agents/scenes/simulation/shaders/FlowFieldInstanced.gdshader")
-const LavaSurfaceShader = preload("res://addons/local_agents/scenes/simulation/shaders/VoxelLavaSurface.gdshader")
 const AtmosphereCycleControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/AtmosphereCycleController.gd")
 const SettlementControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/SettlementController.gd")
 const VillagerControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/VillagerController.gd")
@@ -33,6 +30,7 @@ const WaterRenderControllerScript = preload("res://addons/local_agents/scenes/si
 const CloudRenderControllerScript = preload("res://addons/local_agents/scenes/simulation/app/render/CloudRenderController.gd")
 const LightingFxControllerScript = preload("res://addons/local_agents/scenes/simulation/app/render/LightingFxController.gd")
 const TerrainQualityControllerScript = preload("res://addons/local_agents/scenes/simulation/app/render/TerrainQualityController.gd")
+const RenderEffectsRuntimeScript = preload("res://addons/local_agents/scenes/simulation/app/render/WorldSimulatorRenderEffectsRuntime.gd")
 @onready var _environment_controller: Node3D = $EnvironmentController
 @onready var _flow_overlay_root: Node3D = $FlowOverlayRoot
 @onready var _debug_overlay_root: Node3D = $DebugOverlayRoot
@@ -128,6 +126,7 @@ var _water_render_controller = WaterRenderControllerScript.new()
 var _cloud_render_controller = CloudRenderControllerScript.new()
 var _lighting_fx_controller = LightingFxControllerScript.new()
 var _terrain_quality_controller = TerrainQualityControllerScript.new()
+var _render_effects_runtime = RenderEffectsRuntimeScript.new()
 var _state: LocalAgentsSimulationStateResource = SimulationStateResourceScript.new()
 
 var _world_generator = _environment_systems_controller.world_generator
@@ -265,44 +264,7 @@ func _on_terrain_chunk_size_changed(v: float) -> void:
 	_terrain_quality_controller.on_terrain_chunk_size_changed(self, v)
 
 func _on_apply_terrain_preset_pressed() -> void:
-	match _terrain_preset_option.selected:
-		0:
-			_surface_base_spin.value = 3.0
-			_surface_range_spin.value = 7.0
-			_sea_level_spin.value = 12.0
-			_noise_frequency_spin.value = 0.06
-			_noise_octaves_spin.value = 4.0
-			_noise_lacunarity_spin.value = 1.95
-			_noise_gain_spin.value = 0.48
-			_surface_smoothing_spin.value = 0.58
-		1:
-			_surface_base_spin.value = 7.0
-			_surface_range_spin.value = 8.0
-			_sea_level_spin.value = 11.0
-			_noise_frequency_spin.value = 0.05
-			_noise_octaves_spin.value = 3.0
-			_noise_lacunarity_spin.value = 1.75
-			_noise_gain_spin.value = 0.38
-			_surface_smoothing_spin.value = 0.62
-		2:
-			_surface_base_spin.value = 8.0
-			_surface_range_spin.value = 12.0
-			_sea_level_spin.value = 12.0
-			_noise_frequency_spin.value = 0.06
-			_noise_octaves_spin.value = 4.0
-			_noise_lacunarity_spin.value = 1.9
-			_noise_gain_spin.value = 0.44
-			_surface_smoothing_spin.value = 0.48
-		_:
-			_surface_base_spin.value = 10.0
-			_surface_range_spin.value = 18.0
-			_sea_level_spin.value = 13.0
-			_noise_frequency_spin.value = 0.075
-			_noise_octaves_spin.value = 5.0
-			_noise_lacunarity_spin.value = 2.2
-			_noise_gain_spin.value = 0.54
-			_surface_smoothing_spin.value = 0.3
-	_generate_world()
+	_render_effects_runtime.on_apply_terrain_preset_pressed(self)
 
 func _apply_cloud_and_debug_quality() -> void:
 	_cloud_render_controller.apply_cloud_and_debug_quality(self)
@@ -330,298 +292,34 @@ func _build_tide_shader_params() -> Dictionary:
 
 
 func _ensure_lava_root() -> void:
-	if _lava_root != null and is_instance_valid(_lava_root):
-		return
-	_lava_root = Node3D.new()
-	_lava_root.name = "LavaFXRoot"
-	add_child(_lava_root)
-	_lava_pool_cursor = 0
+	_render_effects_runtime.ensure_lava_root(self)
 
 func _clear_lava_fx() -> void:
-	_lava_pool_cursor = 0
-	for fx_variant in _lava_fx:
-		if not (fx_variant is Dictionary):
-			continue
-		var fx = fx_variant as Dictionary
-		fx["ttl"] = 0.0
-		var node = fx.get("node", null)
-		if node is Node3D and is_instance_valid(node):
-			(node as Node3D).visible = false
-	if _lava_root != null and is_instance_valid(_lava_root):
-		for child in _lava_root.get_children():
-			child.queue_free()
-	_lava_fx.clear()
+	_render_effects_runtime.clear_lava_fx(self)
 
 func _ensure_lava_pool() -> void:
-	_ensure_lava_root()
-	var pool_size = maxi(4, max_active_lava_fx)
-	if _lava_fx.size() >= pool_size:
-		return
-	for _i in range(_lava_fx.size(), pool_size):
-		var root := Node3D.new()
-		root.visible = false
-		_lava_root.add_child(root)
-		var mesh := MeshInstance3D.new()
-		var disc := CylinderMesh.new()
-		disc.top_radius = 0.7
-		disc.bottom_radius = 0.95
-		disc.height = 0.28
-		mesh.mesh = disc
-		var lava_mat := ShaderMaterial.new()
-		lava_mat.shader = LavaSurfaceShader
-		mesh.material_override = lava_mat
-		root.add_child(mesh)
-		var particles := GPUParticles3D.new()
-		particles.amount = 84
-		particles.lifetime = 1.4
-		particles.preprocess = 0.4
-		particles.one_shot = true
-		particles.explosiveness = 0.78
-		particles.randomness = 0.45
-		particles.draw_pass_1 = SphereMesh.new()
-		var process := ParticleProcessMaterial.new()
-		process.direction = Vector3(0.0, 1.0, 0.0)
-		process.initial_velocity_min = 2.3
-		process.initial_velocity_max = 5.8
-		process.gravity = Vector3(0.0, -8.5, 0.0)
-		process.scale_min = 0.08
-		process.scale_max = 0.22
-		process.color = Color(1.0, 0.38, 0.1, 1.0)
-		particles.process_material = process
-		root.add_child(particles)
-		_lava_fx.append({
-			"node": root,
-			"material": lava_mat,
-			"particles": particles,
-			"ttl": 0.0,
-		})
+	_render_effects_runtime.ensure_lava_pool(self)
 
 func _spawn_lava_plume(volcano: Dictionary) -> void:
-	_ensure_lava_pool()
-	if _lava_fx.is_empty():
-		return
-	var pool_size = _lava_fx.size()
-	var fx_idx = _lava_pool_cursor % pool_size
-	_lava_pool_cursor = (_lava_pool_cursor + 1) % pool_size
-	var fx = _lava_fx[fx_idx] as Dictionary
-	var vx = float(volcano.get("x", 0)) + 0.5
-	var vz = float(volcano.get("y", 0)) + 0.5
-	var tile_id = "%d:%d" % [int(volcano.get("x", 0)), int(volcano.get("y", 0))]
-	var height = _surface_height_for_tile(tile_id) + 1.1
-	var root = fx.get("node", null)
-	if not (root is Node3D) or not is_instance_valid(root):
-		return
-	var root_node = root as Node3D
-	root_node.name = "LavaFX_%s" % tile_id.replace(":", "_")
-	root_node.visible = true
-	root_node.position = Vector3(vx, height, vz)
-	var lava_mat = fx.get("material", null)
-	if lava_mat is ShaderMaterial:
-		var smat := lava_mat as ShaderMaterial
-		smat.set_shader_parameter("flow_speed", 1.6 + float(volcano.get("activity", 0.5)) * 2.2)
-		smat.set_shader_parameter("pulse_strength", 1.0 + float(volcano.get("activity", 0.5)))
-		smat.set_shader_parameter("cooling", 0.0)
-	var particles = fx.get("particles", null)
-	if particles is GPUParticles3D:
-		var p = particles as GPUParticles3D
-		p.emitting = false
-		p.restart()
-		p.emitting = true
-	fx["ttl"] = 4.0
-	_lava_fx[fx_idx] = fx
+	_render_effects_runtime.spawn_lava_plume(self, volcano)
 
 func _update_lava_fx(delta: float) -> void:
-	if _lava_fx.is_empty():
-		return
-	for i in range(_lava_fx.size()):
-		var fx_variant = _lava_fx[i]
-		if not (fx_variant is Dictionary):
-			continue
-		var fx = fx_variant as Dictionary
-		var ttl = float(fx.get("ttl", 0.0)) - delta
-		var node = fx.get("node", null)
-		var material = fx.get("material", null)
-		if material is ShaderMaterial:
-			var cool = clampf(1.0 - ttl / 4.0, 0.0, 1.0)
-			(material as ShaderMaterial).set_shader_parameter("cooling", cool)
-		if ttl <= 0.0:
-			if node is Node3D and is_instance_valid(node):
-				(node as Node3D).visible = false
-			fx["ttl"] = 0.0
-			_lava_fx[i] = fx
-			continue
-		fx["ttl"] = ttl
-		_lava_fx[i] = fx
+	_render_effects_runtime.update_lava_fx(self, delta)
 
 func _surface_height_for_tile(tile_id: String) -> float:
-	var voxel_world: Dictionary = _world_snapshot.get("voxel_world", {})
-	var columns: Array = voxel_world.get("columns", [])
-	var column_index: Dictionary = voxel_world.get("column_index_by_tile", {})
-	if column_index.has(tile_id):
-		var idx = int(column_index.get(tile_id, -1))
-		if idx >= 0 and idx < columns.size() and columns[idx] is Dictionary:
-			return float((columns[idx] as Dictionary).get("surface_y", 0))
-	for column_variant in columns:
-		if not (column_variant is Dictionary):
-			continue
-		var column = column_variant as Dictionary
-		var cid = "%d:%d" % [int(column.get("x", 0)), int(column.get("z", 0))]
-		if cid == tile_id:
-			return float(column.get("surface_y", 0))
-	return float(voxel_world.get("sea_level", 1))
+	return _render_effects_runtime.surface_height_for_tile(self, tile_id)
 
 func _record_timelapse_snapshot(tick: int) -> void:
-	var snapshot_resource = VoxelTimelapseSnapshotResourceScript.new()
-	snapshot_resource.tick = tick
-	snapshot_resource.time_of_day = _time_of_day
-	snapshot_resource.simulated_year = _year_at_tick(tick)
-	snapshot_resource.simulated_seconds = _simulated_seconds
-	snapshot_resource.world = _world_snapshot.duplicate(true)
-	snapshot_resource.hydrology = _hydrology_snapshot.duplicate(true)
-	snapshot_resource.weather = _weather_snapshot.duplicate(true)
-	snapshot_resource.erosion = _erosion_snapshot.duplicate(true)
-	snapshot_resource.solar = _solar_snapshot.duplicate(true)
-	_timelapse_snapshots[tick] = snapshot_resource
-	var keys = _timelapse_snapshots.keys()
-	var max_snapshots = 192 if _ultra_perf_mode else 480
-	if keys.size() <= max_snapshots:
-		return
-	keys.sort()
-	var drop_count = keys.size() - max_snapshots
-	for i in range(drop_count):
-		_timelapse_snapshots.erase(keys[i])
+	_render_effects_runtime.record_timelapse_snapshot(self, tick)
 
 func _render_flow_overlay(world: Dictionary, config) -> void:
-	_ensure_flow_overlay_multimesh()
-	if _flow_overlay_mm_instance == null or _flow_overlay_mm_instance.multimesh == null:
-		return
-	var mm := _flow_overlay_mm_instance.multimesh
-	if not _show_flow_checkbox.button_pressed:
-		mm.instance_count = 0
-		return
-	var flow_map: Dictionary = world.get("flow_map", {})
-	if flow_map.is_empty():
-		mm.instance_count = 0
-		return
-	var width = int(flow_map.get("width", int(world.get("width", 0))))
-	var height = int(flow_map.get("height", int(world.get("height", 0))))
-	if width <= 0 or height <= 0:
-		mm.instance_count = 0
-		return
-	var stride = maxi(1, int(_flow_stride_spin.value))
-	var grid_w = maxi(1, int(ceil(float(width) / float(stride))))
-	var grid_h = maxi(1, int(ceil(float(height) / float(stride))))
-	var instance_count = grid_w * grid_h
-	if _flow_overlay_grid_w != grid_w or _flow_overlay_grid_h != grid_h or _flow_overlay_stride != stride:
-		_flow_overlay_grid_w = grid_w
-		_flow_overlay_grid_h = grid_h
-		_flow_overlay_stride = stride
-		_flow_overlay_instance_count = instance_count
-		mm.instance_count = instance_count
-		for i in range(instance_count):
-			mm.set_instance_transform(i, Transform3D.IDENTITY)
-	else:
-		mm.instance_count = instance_count
-	if _flow_overlay_dirty:
-		_update_flow_overlay_textures(world, flow_map, config)
-		_flow_overlay_dirty = false
-	if _flow_overlay_material != null:
-		_flow_overlay_material.set_shader_parameter("flow_texture", _flow_overlay_dir_texture)
-		_flow_overlay_material.set_shader_parameter("height_texture", _flow_overlay_height_texture)
-		_flow_overlay_material.set_shader_parameter("grid_width", grid_w)
-		_flow_overlay_material.set_shader_parameter("grid_height", grid_h)
-		_flow_overlay_material.set_shader_parameter("sample_stride", stride)
-		_flow_overlay_material.set_shader_parameter("strength_threshold", clampf(float(_flow_strength_threshold_spin.value), 0.0, 1.0))
-		_flow_overlay_material.set_shader_parameter("sea_level", float(config.voxel_sea_level))
-		_flow_overlay_material.set_shader_parameter("time_sec", _simulated_seconds)
-		_flow_overlay_material.set_shader_parameter("cell_size", 1.0)
+	_render_effects_runtime.render_flow_overlay(self, world, config)
 
 func _ensure_flow_overlay_multimesh() -> void:
-	if _flow_overlay_root == null:
-		return
-	if _flow_overlay_mesh == null:
-		_flow_overlay_mesh = BoxMesh.new()
-		_flow_overlay_mesh.size = Vector3(0.08, 0.06, 1.0)
-	if _flow_overlay_material == null:
-		_flow_overlay_material = ShaderMaterial.new()
-		_flow_overlay_material.shader = FlowFieldInstancedShader
-	if _flow_overlay_mm_instance != null and is_instance_valid(_flow_overlay_mm_instance):
-		return
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.use_colors = false
-	mm.use_custom_data = false
-	mm.mesh = _flow_overlay_mesh
-	mm.instance_count = 0
-	_flow_overlay_mm_instance = MultiMeshInstance3D.new()
-	_flow_overlay_mm_instance.multimesh = mm
-	_flow_overlay_mm_instance.material_override = _flow_overlay_material
-	_flow_overlay_mm_instance.name = "FlowOverlayMultiMesh"
-	_flow_overlay_root.add_child(_flow_overlay_mm_instance)
+	_render_effects_runtime.ensure_flow_overlay_multimesh(self)
 
 func _update_flow_overlay_textures(world: Dictionary, flow_map: Dictionary, config) -> void:
-	var width = int(flow_map.get("width", int(world.get("width", 0))))
-	var height = int(flow_map.get("height", int(world.get("height", 0))))
-	if width <= 0 or height <= 0:
-		return
-	if _flow_overlay_dir_image == null or _flow_overlay_dir_image.get_width() != width or _flow_overlay_dir_image.get_height() != height:
-		_flow_overlay_dir_image = Image.create(width, height, false, Image.FORMAT_RGBA8)
-		_flow_overlay_height_image = Image.create(width, height, false, Image.FORMAT_RF)
-		_flow_overlay_dir_texture = ImageTexture.create_from_image(_flow_overlay_dir_image)
-		_flow_overlay_height_texture = ImageTexture.create_from_image(_flow_overlay_height_image)
-	_flow_overlay_dir_image.fill(Color(0.5, 0.5, 0.0, 1.0))
-	_flow_overlay_height_image.fill(Color(float(config.voxel_sea_level), 0.0, 0.0, 1.0))
-	var voxel_world: Dictionary = world.get("voxel_world", {})
-	var columns: Array = voxel_world.get("columns", [])
-	var surface_buf: PackedInt32Array = voxel_world.get("surface_y_buffer", PackedInt32Array())
-	if surface_buf.size() == width * height:
-		for z in range(height):
-			for x in range(width):
-				var flat = z * width + x
-				var h = float(surface_buf[flat])
-				_flow_overlay_height_image.set_pixel(x, z, Color(h, 0.0, 0.0, 1.0))
-	else:
-		for column_variant in columns:
-			if not (column_variant is Dictionary):
-				continue
-			var column = column_variant as Dictionary
-			var x = int(column.get("x", 0))
-			var z = int(column.get("z", 0))
-			if x < 0 or x >= width or z < 0 or z >= height:
-				continue
-			var h = float(int(column.get("surface_y", config.voxel_sea_level)))
-			_flow_overlay_height_image.set_pixel(x, z, Color(h, 0.0, 0.0, 1.0))
-	var rows: Array = flow_map.get("rows", [])
-	var packed_dx: PackedFloat32Array = flow_map.get("flow_dir_x_buffer", PackedFloat32Array())
-	var packed_dy: PackedFloat32Array = flow_map.get("flow_dir_y_buffer", PackedFloat32Array())
-	var packed_strength: PackedFloat32Array = flow_map.get("flow_strength_buffer", PackedFloat32Array())
-	if packed_dx.size() == width * height and packed_dy.size() == width * height and packed_strength.size() == width * height:
-		for z in range(height):
-			for x in range(width):
-				var flat = z * width + x
-				var dir = Vector2(float(packed_dx[flat]), float(packed_dy[flat]))
-				var strength = clampf(float(packed_strength[flat]), 0.0, 1.0)
-				if dir.length_squared() > 0.00001:
-					dir = dir.normalized()
-				_flow_overlay_dir_image.set_pixel(x, z, Color(dir.x * 0.5 + 0.5, dir.y * 0.5 + 0.5, strength, 1.0))
-	else:
-		for row_variant in rows:
-			if not (row_variant is Dictionary):
-				continue
-			var row = row_variant as Dictionary
-			var x = int(row.get("x", 0))
-			var z = int(row.get("y", 0))
-			if x < 0 or x >= width or z < 0 or z >= height:
-				continue
-			var dir = Vector2(float(row.get("dir_x", 0.0)), float(row.get("dir_y", 0.0)))
-			var strength = clampf(float(row.get("channel_strength", 0.0)), 0.0, 1.0)
-			if dir.length_squared() > 0.00001:
-				dir = dir.normalized()
-			_flow_overlay_dir_image.set_pixel(x, z, Color(dir.x * 0.5 + 0.5, dir.y * 0.5 + 0.5, strength, 1.0))
-	if _flow_overlay_dir_texture != null:
-		_flow_overlay_dir_texture.update(_flow_overlay_dir_image)
-	if _flow_overlay_height_texture != null:
-		_flow_overlay_height_texture.update(_flow_overlay_height_image)
+	_render_effects_runtime.update_flow_overlay_textures(self, world, flow_map, config)
 
 func _frame_camera(world: Dictionary) -> void:
 	_interaction_controller.camera_controller.frame_world(world)
@@ -640,23 +338,7 @@ func _update_camera_keyboard(delta: float) -> void:
 
 
 func _update_day_night(delta: float) -> void:
-	if _sun_light == null:
-		return
-	_time_of_day = _atmosphere_cycle.advance_time(_time_of_day, delta, day_night_cycle_enabled, day_length_seconds)
-	_atmosphere_cycle.apply_to_light_and_environment(
-		_time_of_day,
-		_sun_light,
-		_world_environment,
-		0.06,
-		1.38,
-		0.04,
-		1.15,
-		0.02,
-		1.0,
-		0.05,
-		1.0
-	)
-	_apply_demo_fog()
+	_render_effects_runtime.update_day_night(self, delta)
 
 func _apply_demo_fog() -> void:
 	_lighting_fx_controller.apply_demo_fog(self)
