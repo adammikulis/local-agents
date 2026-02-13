@@ -9,7 +9,7 @@ env:
 
 jobs:
   core-headless:
-    name: core-headless
+    name: deterministic-and-integration
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -21,6 +21,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake curl git pkg-config unzip
+
+      - name: Enforce max file length (no exceptions)
+        env:
+          MAX_FILE_LINES: "900"
+        run: |
+          ./scripts/check_max_file_length.sh
 
       - name: Install Godot headless binary
         run: |
@@ -44,11 +50,17 @@ jobs:
             exit 1
           fi
 
-      - name: Run core headless harness
+      - name: Run deterministic headless harness
         run: |
           mkdir -p logs
-          godot4 --headless --no-window --path . -s addons/local_agents/tests/run_all_tests.gd --skip-heavy \
-            2>&1 | tee logs/core-headless-tests.log
+          godot4 --headless --no-window --path . -s addons/local_agents/tests/run_deterministic_tests.gd \
+            2>&1 | tee logs/deterministic-tests.log
+
+      - name: Run integration headless harness
+        run: |
+          mkdir -p logs
+          godot4 --headless --no-window --path . -s addons/local_agents/tests/run_integration_tests.gd \
+            2>&1 | tee logs/integration-tests.log
 
       - name: Upload core artifacts on failure
         if: failure()
@@ -61,6 +73,47 @@ jobs:
             addons/local_agents/gdextensions/localagents/build/CMakeFiles/CMakeOutput.log
             addons/local_agents/gdextensions/localagents/build/CMakeFiles/CMakeError.log
             ~/.local/share/godot/app_userdata/LocalAgents/**
+
+  perf-benchmarks:
+    name: perf-benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake curl git pkg-config unzip
+
+      - name: Enforce max file length (no exceptions)
+        env:
+          MAX_FILE_LINES: "900"
+        run: |
+          ./scripts/check_max_file_length.sh
+
+      - name: Install Godot headless binary
+        run: |
+          curl -fsSL -o /tmp/godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          unzip -q /tmp/godot.zip -d /tmp
+          chmod +x "/tmp/Godot_v${GODOT_VERSION}_linux.x86_64"
+          sudo mv "/tmp/Godot_v${GODOT_VERSION}_linux.x86_64" /usr/local/bin/godot4
+          godot4 --version
+
+      - name: Build localagents extension
+        run: |
+          mkdir -p logs
+          cd addons/local_agents/gdextensions/localagents
+          ./scripts/fetch_dependencies.sh --skip-models --skip-voices
+          ./scripts/build_extension.sh 2>&1 | tee "${GITHUB_WORKSPACE}/logs/perf-build.log"
+
+      - name: Run perf benchmark harness
+        run: |
+          mkdir -p logs
+          godot4 --headless --no-window --path . -s addons/local_agents/tests/run_perf_benchmarks.gd \
+            2>&1 | tee logs/perf-benchmarks.log
 
   runtime-heavy:
     name: runtime-heavy
@@ -75,6 +128,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake curl git pkg-config unzip
+
+      - name: Enforce max file length (no exceptions)
+        env:
+          MAX_FILE_LINES: "900"
+        run: |
+          ./scripts/check_max_file_length.sh
 
       - name: Install Godot headless binary
         run: |

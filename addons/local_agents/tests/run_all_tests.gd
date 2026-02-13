@@ -1,40 +1,10 @@
 @tool
 extends SceneTree
 
-const CORE_TESTS := [
-    "res://addons/local_agents/tests/test_smoke_agent.gd",
-    "res://addons/local_agents/tests/test_agent_utilities.gd",
-    "res://addons/local_agents/tests/test_speech_service_smoke.gd",
-    "res://addons/local_agents/tests/test_llama_server_provider.gd",
-    "res://addons/local_agents/tests/test_backstory_graph_service.gd",
-    "res://addons/local_agents/tests/test_deterministic_simulation.gd",
-    "res://addons/local_agents/tests/test_simulation_worldgen_determinism.gd",
-    "res://addons/local_agents/tests/test_simulation_flowmap_bake.gd",
-    "res://addons/local_agents/tests/test_simulation_erosion_delta_tiles.gd",
-    "res://addons/local_agents/tests/test_simulation_environment_signal_determinism.gd",
-    "res://addons/local_agents/tests/test_freeze_thaw_erosion.gd",
-    "res://addons/local_agents/tests/test_solar_albedo_from_rgba.gd",
-    "res://addons/local_agents/tests/test_wind_air_column_solar_heating.gd",
-    "res://addons/local_agents/tests/test_simulation_voxel_terrain_generation.gd",
-    "res://addons/local_agents/tests/test_simulation_water_first_spawn.gd",
-    "res://addons/local_agents/tests/test_simulation_branching.gd",
-    "res://addons/local_agents/tests/test_simulation_rewind_branch_diff.gd",
-    "res://addons/local_agents/tests/test_simulation_path_logistics.gd",
-    "res://addons/local_agents/tests/test_simulation_settlement_growth.gd",
-    "res://addons/local_agents/tests/test_simulation_oral_tradition.gd",
-    "res://addons/local_agents/tests/test_simulation_culture_policy_effects.gd",
-    "res://addons/local_agents/tests/test_cultural_driver_json_contract.gd",
-    "res://addons/local_agents/tests/test_simulation_cognition_contract.gd",
-    "res://addons/local_agents/tests/test_simulation_path_decay.gd",
-    "res://addons/local_agents/tests/test_path_traversal_profile.gd",
-    "res://addons/local_agents/tests/test_wind_field_system.gd",
-    "res://addons/local_agents/tests/test_smell_field_system.gd",
-    "res://addons/local_agents/tests/test_ecology_shelter_capabilities.gd",
-    "res://addons/local_agents/tests/test_structure_lifecycle_depletion.gd",
-    "res://addons/local_agents/tests/test_simulation_dream_labeling.gd",
-    "res://addons/local_agents/tests/test_simulation_resource_ledgers.gd",
-    "res://addons/local_agents/tests/test_simulation_economy_events.gd",
-]
+const TestLaneRegistry := preload("res://addons/local_agents/tests/test_lane_registry.gd")
+const TestRunnerHelper := preload("res://addons/local_agents/tests/test_runner_helper.gd")
+
+const CORE_TESTS := TestLaneRegistry.DETERMINISTIC_TESTS
 const FAST_CORE_TESTS := [
     "res://addons/local_agents/tests/test_smoke_agent.gd",
     "res://addons/local_agents/tests/test_agent_utilities.gd",
@@ -50,18 +20,8 @@ const FAST_CORE_TESTS := [
     "res://addons/local_agents/tests/test_smell_field_system.gd",
 ]
 
-const LONG_TESTS := [
-    "res://addons/local_agents/tests/test_simulation_vertical_slice_30day.gd",
-]
-
-const RUNTIME_TESTS := [
-    "res://addons/local_agents/tests/test_simulation_villager_cognition.gd",
-    "res://addons/local_agents/tests/test_simulation_no_empty_generation.gd",
-    "res://addons/local_agents/tests/test_simulation_cognition_trace_isolation.gd",
-    "res://addons/local_agents/tests/test_llama_server_e2e.gd",
-    "res://addons/local_agents/tests/test_agent_integration.gd",
-    "res://addons/local_agents/tests/test_agent_runtime_heavy.gd",
-]
+const LONG_TESTS := TestLaneRegistry.INTEGRATION_TESTS
+const RUNTIME_TESTS := TestLaneRegistry.RUNTIME_HEAVY_TESTS
 
 const HEAVY_TEST := "res://addons/local_agents/tests/test_agent_runtime_heavy.gd"
 const HEAVY_FLAG := "--include-heavy"
@@ -82,6 +42,7 @@ var _gpu_enabled := false
 var _gpu_layers: int = 0
 var _override_context_size: int = 0
 var _override_max_tokens: int = 0
+var _runner := TestRunnerHelper.new()
 
 func _init() -> void:
     _fast_mode = _has_flag(FAST_FLAG)
@@ -128,25 +89,7 @@ func _run_all() -> void:
     _finish()
 
 func _run_case(script_path: String) -> void:
-    var script := load(script_path)
-    if script == null:
-        _record_failure(script_path, "Failed to load script")
-        return
-    if not script.has_method("new"):
-        _record_failure(script_path, "Script is not instantiable")
-        return
-    var instance = script.new()
-    if instance == null or not instance.has_method("run_test"):
-        _record_failure(script_path, "run_test method missing")
-        return
-    print("==> Running %s" % script_path)
-    var result = instance.run_test(self)
-    var ok := true
-    if typeof(result) == TYPE_BOOL:
-        ok = result
-    if ok:
-        print("==> %s passed" % script_path)
-    else:
+    if not _runner.run_script_case(self, script_path):
         _record_failure(script_path, "Reported failure")
 
 func _should_run_runtime_tests() -> bool:
@@ -252,9 +195,16 @@ func _all_cmdline_args() -> PackedStringArray:
     return args
 
 func _record_failure(name: String, message: String) -> void:
-    _failures.append("%s: %s" % [name, message])
+    var entry = "%s: %s" % [name, message]
+    if not _failures.has(entry):
+        _failures.append(entry)
+    if not _runner.failures.has(entry):
+        _runner.failures.append(entry)
 
 func _finish() -> void:
+    for failure in _runner.failures:
+        if not _failures.has(failure):
+            _failures.append(failure)
     if _failures.is_empty():
         print("All Local Agents tests passed.")
         quit(0)

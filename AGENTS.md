@@ -10,6 +10,29 @@ This file defines implementation rules for working in this Godot repository.
 - Do not keep compatibility shims, legacy code paths, or legacy assumptions.
 - When replacing systems, remove old abstractions instead of layering around them.
 
+## File Size Limits (Strict)
+
+- CI enforces a hard max file length with no allowlist and no exceptions via `scripts/check_max_file_length.sh`.
+- Default limit is `MAX_FILE_LINES=900` and applies to first-party source/config files (`.gd`, `.gdshader`, `.tscn`, `.tres`, workflow YAML).
+- If a file exceeds the limit, refactor it immediately; do not raise the limit to bypass design work.
+
+## Required Refactor Pattern For Large Files
+
+- Split by responsibility, not by arbitrary chunks:
+  - orchestration/controller
+  - domain systems
+  - render adapters
+  - input/interaction
+  - HUD/presentation binding
+- Move reusable runtime state into typed `Resource` classes instead of parallel dictionaries.
+- Keep app/root scenes as composition roots only; move behavior into focused controllers.
+- Standardize communication as `signal up, call down` while splitting.
+- Preserve behavior with incremental extraction:
+  1. create new module + tests
+  2. delegate old call sites to new module
+  3. remove old inlined code once equivalent behavior is verified
+- Do not leave transitional compatibility aliases or duplicate execution paths after extraction.
+
 ## Core Principles
 
 - Prefer simple scene-first architecture over deep inheritance chains.

@@ -110,12 +110,14 @@ Rendering style:
 - GPU rain post-processing shader and lightning flash propagation to weather materials.
 - Volumetric fog + automatic day/night sun animation, integrated with global lighting and SDFGI-enabled demo environment.
 
-### Demos and Controls
+### Unified Demo and Controls
 
-- `VoxelWorldDemo` seed/sliders for terrain dimensions, sea level, noise, cave threshold.
+- Single canonical scene: `VoxelWorldDemo` (project main scene).
+- Terrain controls include dimensions, sea level, surface base/range, noise frequency/octaves/lacunarity/gain, smoothing, and cave threshold.
 - Flow-map visualizer controls (show/hide, threshold, stride) with animated flow arrows.
 - Timelapse-style simulation controls (play/pause/fast-forward/rewind/fork) and state restore.
 - Live stats for weather/erosion/solar metrics in demo HUD/status labels.
+- Integrated runtime stack in one scene: worldgen + weather/erosion/solar + settlement/culture/ecology controllers + debug overlays.
 
 ## Run
 
@@ -123,7 +125,7 @@ Rendering style:
 godot --path . --editor
 ```
 
-Project is configured to launch the demo launcher as main scene.
+Project is configured to launch `VoxelWorldDemo` as the main scene.
 
 Headless smoke boot:
 
