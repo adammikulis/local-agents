@@ -8,6 +8,11 @@
 
 namespace local_agents::simulation {
 
+using godot::Array;
+using godot::Dictionary;
+using godot::String;
+using godot::Variant;
+
 double as_scalar(const Variant &value);
 String as_status_string(const Variant &value, const String &fallback);
 bool as_bool(const Variant &value);

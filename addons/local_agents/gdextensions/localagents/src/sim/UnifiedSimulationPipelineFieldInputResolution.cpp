@@ -2,6 +2,10 @@
 #include "sim/UnifiedSimulationPipelineInternal.hpp"
 #include "sim/UnifiedSimulationPipelineFieldInputResolution.hpp"
 
+#include <godot_cpp/variant/packed_float32_array.hpp>
+#include <godot_cpp/variant/packed_float64_array.hpp>
+#include <godot_cpp/variant/string_name.hpp>
+
 #include <algorithm>
 #include <cmath>
 
@@ -56,13 +60,13 @@ bool as_scalar_mean(const Variant &value, double &scalar_value) {
             count += 1;
         }
     } else if (value.get_type() == Variant::PACKED_FLOAT32_ARRAY) {
-        const PackedFloat32Array source = value;
+        const godot::PackedFloat32Array source = value;
         for (int64_t i = 0; i < source.size(); i++) {
             total += static_cast<double>(source[i]);
             count += 1;
         }
     } else if (value.get_type() == Variant::PACKED_FLOAT64_ARRAY) {
-        const PackedFloat64Array source = value;
+        const godot::PackedFloat64Array source = value;
         for (int64_t i = 0; i < source.size(); i++) {
             total += source[i];
             count += 1;
@@ -265,7 +269,9 @@ Dictionary resolve_stage_field_inputs(
         const Array candidate_keys = hot_field_candidate_keys(field_name);
 
         const Variant field_buffers_variant = frame_inputs.get("field_buffers", Variant());
-        const Dictionary field_buffers = field_buffers_variant.get_type() == Variant::DICTIONARY ? field_buffers_variant : Dictionary();
+        const Dictionary field_buffers = field_buffers_variant.get_type() == Variant::DICTIONARY
+            ? Dictionary(field_buffers_variant)
+            : Dictionary();
         String candidate_key;
         if (try_resolve_scalar_from_candidate_keys(
                 field_buffers,
@@ -324,7 +330,7 @@ String as_status_string(const Variant &value, const String &fallback) {
         return String(value);
     }
     if (value.get_type() == Variant::STRING_NAME) {
-        return String(static_cast<StringName>(value));
+        return String(static_cast<godot::StringName>(value));
     }
     return fallback;
 }

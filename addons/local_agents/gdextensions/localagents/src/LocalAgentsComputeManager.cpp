@@ -1,6 +1,5 @@
 #include "LocalAgentsComputeManager.hpp"
 
-#include <godot_cpp/variant/string_name.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
 using namespace godot;
@@ -9,15 +8,15 @@ namespace local_agents::simulation {
 
 namespace {
 
-const Variant KEY_PIPELINE = StringName("pipeline");
-const Variant KEY_OK = StringName("ok");
-const Variant KEY_EXECUTED_STEPS = StringName("executed_steps");
-const Variant KEY_SCHEDULED_FRAME = StringName("scheduled_frame");
-const Variant KEY_COMPONENT = StringName("component");
-const Variant KEY_CONFIG = StringName("config");
-const Variant KEY_FIELD_HANDLE_MODE = StringName("field_handle_mode");
-const Variant KEY_FIELD_HANDLE_COUNT = StringName("field_handle_count");
-const Variant KEY_FIELD_HANDLE_MARKER = StringName("field_handle_marker");
+constexpr const char *KEY_PIPELINE = "pipeline";
+constexpr const char *KEY_OK = "ok";
+constexpr const char *KEY_EXECUTED_STEPS = "executed_steps";
+constexpr const char *KEY_SCHEDULED_FRAME = "scheduled_frame";
+constexpr const char *KEY_COMPONENT = "component";
+constexpr const char *KEY_CONFIG = "config";
+constexpr const char *KEY_FIELD_HANDLE_MODE = "field_handle_mode";
+constexpr const char *KEY_FIELD_HANDLE_COUNT = "field_handle_count";
+constexpr const char *KEY_FIELD_HANDLE_MARKER = "field_handle_marker";
 
 } // namespace
 

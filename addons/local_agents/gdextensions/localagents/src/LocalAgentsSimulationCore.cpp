@@ -491,7 +491,7 @@ bool LocalAgentsSimulationCore::configure(const Dictionary &simulation_config) {
     Dictionary compute_config = simulation_config.get("compute", Dictionary());
     Dictionary voxel_edit_config = simulation_config.get("voxel_edit", Dictionary());
     const Dictionary impact_fracture_config = simulation_config.has("impact_fracture")
-        ? simulation_config.get("impact_fracture", Dictionary())
+        ? Dictionary(simulation_config.get("impact_fracture", Dictionary()))
         : simulation_config;
     const ImpactFractureProfile profile = read_impact_fracture_profile(impact_fracture_config);
     impact_signal_gain_ = profile.impact_signal_gain;
@@ -660,9 +660,18 @@ Dictionary LocalAgentsSimulationCore::apply_environment_stage(const StringName &
                 emission_payload["source_stage"] = String(stage_name);
                 emission_payload["feedback_status"] = result.get("physics_server_feedback", Dictionary());
                 const Dictionary feedback_reference = result.get("physics_server_feedback", Dictionary());
-                emission_payload["failure_feedback"] = feedback_reference.is_empty() ? Dictionary() : feedback_reference.get("failure_feedback", Dictionary());
-                emission_payload["failure_source"] = feedback_reference.is_empty() ? Dictionary() : feedback_reference.get("failure_source", Dictionary());
-                emission_payload["destruction_feedback"] = feedback_reference.is_empty() ? Dictionary() : feedback_reference.get("destruction", Dictionary());
+                const Dictionary failure_feedback = feedback_reference.is_empty()
+                    ? Dictionary()
+                    : Dictionary(feedback_reference.get("failure_feedback", Dictionary()));
+                const Dictionary failure_source = feedback_reference.is_empty()
+                    ? Dictionary()
+                    : Dictionary(feedback_reference.get("failure_source", Dictionary()));
+                const Dictionary destruction_feedback = feedback_reference.is_empty()
+                    ? Dictionary()
+                    : Dictionary(feedback_reference.get("destruction", Dictionary()));
+                emission_payload["failure_feedback"] = failure_feedback;
+                emission_payload["failure_source"] = failure_source;
+                emission_payload["destruction_feedback"] = destruction_feedback;
                 const Dictionary execution = voxel_edit_engine_->execute_stage(
                     plan_target_domain,
                     StringName(plan_stage_name),

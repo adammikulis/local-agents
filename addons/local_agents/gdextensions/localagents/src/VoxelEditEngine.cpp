@@ -1,5 +1,6 @@
 #include "VoxelEditEngine.hpp"
 #include "FailureEmissionDeterministicNoise.hpp"
+#include "sim/VoxelGpuDispatchMetadata.hpp"
 
 #include <godot_cpp/variant/variant.hpp>
 #include <godot_cpp/variant/vector3.hpp>
@@ -196,6 +197,16 @@ bool VoxelEditEngine::configure(const Dictionary &config) {
         }
         zoom_throttle_threshold_ = std::clamp(parsed, 0.0, 1.0);
     }
+    if (config.has("gpu_backend_enabled")) {
+        gpu_backend_enabled_ = static_cast<bool>(config["gpu_backend_enabled"]);
+    }
+    if (config.has("gpu_backend_name")) {
+        const String parsed_backend_name = String(config["gpu_backend_name"]).strip_edges();
+        if (parsed_backend_name.is_empty()) {
+            return false;
+        }
+        gpu_backend_name_ = parsed_backend_name;
+    }
     config_ = config.duplicate(true);
     return true;
 }
@@ -247,45 +258,252 @@ Dictionary VoxelEditEngine::execute_stage(
     StageBuffer &buffer = ensure_stage_buffer(stage_domain.to_lower(), stage_name);
     const int64_t pending_before = static_cast<int64_t>(buffer.pending_ops.size());
     std::vector<VoxelEditOp> ops_to_execute = buffer.pending_ops;
-    buffer.pending_ops.clear();
-
-    std::sort(
-        ops_to_execute.begin(),
-        ops_to_execute.end(),
-        [](const VoxelEditOp &lhs, const VoxelEditOp &rhs) { return lhs.sequence_id < rhs.sequence_id; }
+    std::sort(ops_to_execute.begin(), ops_to_execute.end(), [](const VoxelEditOp &lhs, const VoxelEditOp &rhs) {
+        return lhs.sequence_id < rhs.sequence_id;
+    });
+    StageRuntimePolicy runtime_policy = build_runtime_policy(payload);
+    runtime_policy.stride_phase = static_cast<int32_t>(
+        buffer.execute_total % static_cast<int64_t>(std::max(1, runtime_policy.op_stride))
     );
-    const StageRuntimePolicy runtime_policy = build_runtime_policy(payload);
+    const int32_t voxel_scale = std::max(1, runtime_policy.voxel_scale);
+    const int32_t op_stride = std::max(1, runtime_policy.op_stride);
+    const int32_t stride_phase = static_cast<int32_t>(runtime_policy.stride_phase % op_stride);
 
-    Dictionary execution;
-    execution["backend_requested"] = String("gpu");
-    execution["gpu_attempted"] = true;
-    execution["gpu_dispatched"] = false;
-    execution["gpu_status"] = String("not_available");
-    execution["backend_used"] = String("cpu_fallback");
-    execution["cpu_fallback_used"] = true;
-    execution["voxel_scale"] = runtime_policy.voxel_scale;
-    execution["op_stride"] = runtime_policy.op_stride;
-    execution["zoom_factor"] = runtime_policy.zoom_factor;
-    execution["uniformity_score"] = runtime_policy.uniformity_score;
-    execution["zoom_throttle_applied"] = runtime_policy.zoom_throttle_applied;
-    execution["uniformity_upscale_applied"] = runtime_policy.uniformity_upscale_applied;
+    if (!gpu_backend_enabled_) {
+        Dictionary execution;
+        execution["backend_requested"] = String("gpu");
+        execution["gpu_attempted"] = true;
+        execution["gpu_dispatched"] = false;
+        execution["gpu_status"] = String("not_available");
+        execution["backend_used"] = String("none");
+        execution["cpu_fallback_used"] = false;
+        execution["error_code"] = String("gpu_backend_unavailable");
+        execution["voxel_scale"] = runtime_policy.voxel_scale;
+        execution["op_stride"] = runtime_policy.op_stride;
+        execution["zoom_factor"] = runtime_policy.zoom_factor;
+        execution["uniformity_score"] = runtime_policy.uniformity_score;
+        execution["zoom_throttle_applied"] = runtime_policy.zoom_throttle_applied;
+        execution["uniformity_upscale_applied"] = runtime_policy.uniformity_upscale_applied;
+        execution["stride_phase"] = runtime_policy.stride_phase;
 
-    StageExecutionStats cpu_stats = execute_cpu_stage(ops_to_execute, buffer, runtime_policy);
+        Dictionary changed_region;
+        changed_region["min"] = Variant();
+        changed_region["max"] = Variant();
+        Array changed_chunks;
+
+        buffer.execute_total += 1;
+        buffer.requeued_total += pending_before;
+        buffer.pending_ops = std::move(ops_to_execute);
+        buffer.last_changed_region = changed_region.duplicate(true);
+        buffer.last_changed_chunks = changed_chunks.duplicate(true);
+
+        Dictionary result = make_stage_identity(stage_domain, stage_name, payload);
+        result["ok"] = false;
+        result["error"] = String("gpu_backend_unavailable");
+        result["ops_requested"] = pending_before;
+        result["ops_scanned"] = static_cast<int64_t>(0);
+        result["ops_processed"] = static_cast<int64_t>(0);
+        result["ops_requeued"] = pending_before;
+        result["ops_changed"] = static_cast<int64_t>(0);
+        result["queue_pending_before"] = pending_before;
+        result["queue_pending_after"] = static_cast<int64_t>(buffer.pending_ops.size());
+        result["pending_ops"] = static_cast<int64_t>(buffer.pending_ops.size());
+        result["stage_processed_total"] = buffer.processed_total;
+        result["stage_requeued_total"] = buffer.requeued_total;
+        result["changed_region"] = changed_region.duplicate(true);
+        result["changed_chunks"] = changed_chunks.duplicate(true);
+        result["execution"] = execution;
+
+        buffer.last_execution = result.duplicate(true);
+        return result;
+    }
+
+    const String gpu_shader_path = String("res://addons/local_agents/scenes/simulation/shaders/VoxelEditStageCompute.glsl");
+    std::vector<float> gpu_previous_values;
+    gpu_previous_values.reserve(ops_to_execute.size());
+    std::unordered_map<VoxelKey, double, VoxelKeyHash> simulated_values = voxel_values_;
+    for (const VoxelEditOp &op : ops_to_execute) {
+        if (op_stride > 1) {
+            if (static_cast<int32_t>((op.sequence_id + static_cast<uint64_t>(stride_phase)) % static_cast<uint64_t>(op_stride)) != 0) {
+                gpu_previous_values.push_back(0.0f);
+                continue;
+            }
+        }
+
+        const int32_t qx = floor_div(op.voxel.x, voxel_scale) * voxel_scale;
+        const int32_t qy = floor_div(op.voxel.y, voxel_scale) * voxel_scale;
+        const int32_t qz = floor_div(op.voxel.z, voxel_scale) * voxel_scale;
+        const VoxelKey voxel_key{qx, qy, qz};
+        const auto value_it = simulated_values.find(voxel_key);
+        const double previous_value = value_it == simulated_values.end() ? 0.0 : value_it->second;
+        gpu_previous_values.push_back(static_cast<float>(previous_value));
+
+        double next_value = previous_value;
+        if (op.operation == String("set")) {
+            next_value = op.value;
+        } else if (op.operation == String("add")) {
+            next_value = previous_value + op.value;
+        } else if (op.operation == String("max")) {
+            next_value = std::max(previous_value, op.value);
+        } else if (op.operation == String("min")) {
+            next_value = std::min(previous_value, op.value);
+        } else if (op.operation == String("fracture")) {
+            next_value = previous_value - std::abs(op.value);
+        } else if (op.operation == String("cleave")) {
+            const double signed_distance = op.cleave_normal_x * static_cast<double>(qx)
+                + op.cleave_normal_y * static_cast<double>(qy)
+                + op.cleave_normal_z * static_cast<double>(qz)
+                - op.cleave_plane_offset;
+            if (signed_distance >= 0.0) {
+                next_value = previous_value - std::abs(op.value);
+            }
+        }
+        next_value = std::max(0.0, next_value);
+        if (next_value <= 0.0) {
+            simulated_values.erase(voxel_key);
+        } else {
+            simulated_values[voxel_key] = next_value;
+        }
+    }
+
+    const VoxelGpuExecutionResult gpu_result = VoxelEditGpuExecutor::execute(
+        ops_to_execute,
+        gpu_previous_values,
+        runtime_policy,
+        chunk_size_,
+        gpu_shader_path
+    );
+    if (!gpu_result.ok) {
+        Dictionary execution;
+        execution["backend_requested"] = String("gpu");
+        execution["gpu_attempted"] = true;
+        execution["gpu_dispatched"] = false;
+        execution["gpu_status"] = String("dispatch_failed");
+        execution["backend_used"] = String("none");
+        execution["cpu_fallback_used"] = false;
+        execution["error_code"] = gpu_result.error_code.is_empty() ? String("gpu_dispatch_failed") : gpu_result.error_code;
+        execution["voxel_scale"] = runtime_policy.voxel_scale;
+        execution["op_stride"] = runtime_policy.op_stride;
+        execution["zoom_factor"] = runtime_policy.zoom_factor;
+        execution["uniformity_score"] = runtime_policy.uniformity_score;
+        execution["zoom_throttle_applied"] = runtime_policy.zoom_throttle_applied;
+        execution["uniformity_upscale_applied"] = runtime_policy.uniformity_upscale_applied;
+        execution["stride_phase"] = runtime_policy.stride_phase;
+
+        Dictionary changed_region;
+        changed_region["min"] = Variant();
+        changed_region["max"] = Variant();
+        Array changed_chunks;
+
+        buffer.execute_total += 1;
+        buffer.requeued_total += pending_before;
+        buffer.pending_ops = std::move(ops_to_execute);
+        buffer.last_changed_region = changed_region.duplicate(true);
+        buffer.last_changed_chunks = changed_chunks.duplicate(true);
+
+        Dictionary result = make_stage_identity(stage_domain, stage_name, payload);
+        result["ok"] = false;
+        result["error"] = execution["error_code"];
+        result["ops_requested"] = pending_before;
+        result["ops_scanned"] = static_cast<int64_t>(0);
+        result["ops_processed"] = static_cast<int64_t>(0);
+        result["ops_requeued"] = pending_before;
+        result["ops_changed"] = static_cast<int64_t>(0);
+        result["queue_pending_before"] = pending_before;
+        result["queue_pending_after"] = static_cast<int64_t>(buffer.pending_ops.size());
+        result["pending_ops"] = static_cast<int64_t>(buffer.pending_ops.size());
+        result["stage_processed_total"] = buffer.processed_total;
+        result["stage_requeued_total"] = buffer.requeued_total;
+        result["changed_region"] = changed_region.duplicate(true);
+        result["changed_chunks"] = changed_chunks.duplicate(true);
+        result["execution"] = execution;
+
+        buffer.last_execution = result.duplicate(true);
+        return result;
+    }
+
+    const StageExecutionStats gpu_stats = gpu_result.stats;
+    for (int64_t i = 0; i < gpu_stats.changed_entries.size(); i += 1) {
+        const Variant changed_entry_value = gpu_stats.changed_entries[i];
+        if (changed_entry_value.get_type() != Variant::DICTIONARY) {
+            continue;
+        }
+        const Dictionary changed_entry = changed_entry_value;
+        if (!changed_entry.has("changed") || !static_cast<bool>(changed_entry["changed"])) {
+            continue;
+        }
+        int32_t x = 0;
+        int32_t y = 0;
+        int32_t z = 0;
+        double result_value = 0.0;
+        if (!changed_entry.has("x") || !parse_int32_variant(changed_entry["x"], x)) {
+            continue;
+        }
+        if (!changed_entry.has("y") || !parse_int32_variant(changed_entry["y"], y)) {
+            continue;
+        }
+        if (!changed_entry.has("z") || !parse_int32_variant(changed_entry["z"], z)) {
+            continue;
+        }
+        if (!changed_entry.has("result_value") || !parse_double_variant(changed_entry["result_value"], result_value)) {
+            continue;
+        }
+
+        const VoxelKey key{x, y, z};
+        const double clamped_value = std::max(0.0, result_value);
+        if (clamped_value <= 0.0) {
+            voxel_values_.erase(key);
+        } else {
+            voxel_values_[key] = clamped_value;
+        }
+    }
 
     buffer.execute_total += 1;
-    buffer.applied_total += cpu_stats.ops_changed;
-    buffer.last_changed_region = cpu_stats.changed_region.duplicate(true);
-    buffer.last_changed_chunks = cpu_stats.changed_chunks.duplicate(true);
+    buffer.processed_total += gpu_stats.ops_processed;
+    buffer.requeued_total += gpu_stats.ops_requeued;
+    buffer.applied_total += gpu_stats.ops_changed;
+    buffer.pending_ops = gpu_result.deferred_ops;
+    buffer.last_changed_region = gpu_stats.changed_region.duplicate(true);
+    buffer.last_changed_chunks = gpu_stats.changed_chunks.duplicate(true);
+
+    VoxelGpuDispatchMetadataInput dispatch_metadata;
+    dispatch_metadata.stage_domain = stage_domain;
+    dispatch_metadata.stage_name = stage_name;
+    dispatch_metadata.backend_name = gpu_backend_name_;
+    dispatch_metadata.ops_requested = pending_before;
+    dispatch_metadata.ops_scanned = gpu_stats.ops_scanned;
+    dispatch_metadata.ops_processed = gpu_stats.ops_processed;
+    dispatch_metadata.ops_requeued = gpu_stats.ops_requeued;
+    dispatch_metadata.ops_changed = gpu_stats.ops_changed;
+    dispatch_metadata.queue_pending_before = pending_before;
+    dispatch_metadata.queue_pending_after = static_cast<int64_t>(buffer.pending_ops.size());
+    dispatch_metadata.voxel_scale = runtime_policy.voxel_scale;
+    dispatch_metadata.op_stride = runtime_policy.op_stride;
+    dispatch_metadata.stride_phase = runtime_policy.stride_phase;
+    dispatch_metadata.zoom_factor = runtime_policy.zoom_factor;
+    dispatch_metadata.uniformity_score = runtime_policy.uniformity_score;
+    dispatch_metadata.zoom_throttle_applied = runtime_policy.zoom_throttle_applied;
+    dispatch_metadata.uniformity_upscale_applied = runtime_policy.uniformity_upscale_applied;
+    dispatch_metadata.changed_region = gpu_stats.changed_region.duplicate(true);
+    dispatch_metadata.changed_chunks = gpu_stats.changed_chunks.duplicate(true);
+    const Dictionary execution = build_voxel_gpu_dispatch_metadata(dispatch_metadata);
 
     Dictionary result = make_stage_identity(stage_domain, stage_name, payload);
     result["ok"] = true;
+    result["dispatched"] = true;
     result["ops_requested"] = pending_before;
-    result["ops_processed"] = cpu_stats.ops_processed;
-    result["ops_changed"] = cpu_stats.ops_changed;
+    result["ops_scanned"] = gpu_stats.ops_scanned;
+    result["ops_processed"] = gpu_stats.ops_processed;
+    result["ops_requeued"] = gpu_stats.ops_requeued;
+    result["ops_changed"] = gpu_stats.ops_changed;
+    result["queue_pending_before"] = pending_before;
+    result["queue_pending_after"] = static_cast<int64_t>(buffer.pending_ops.size());
     result["pending_ops"] = static_cast<int64_t>(buffer.pending_ops.size());
-    result["changed_region"] = cpu_stats.changed_region.duplicate(true);
-    result["changed_chunks"] = cpu_stats.changed_chunks.duplicate(true);
-    result["execution"] = execution;
+    result["stage_processed_total"] = buffer.processed_total;
+    result["stage_requeued_total"] = buffer.requeued_total;
+    result["changed_region"] = gpu_stats.changed_region.duplicate(true);
+    result["changed_chunks"] = gpu_stats.changed_chunks.duplicate(true);
+    result["execution"] = execution.duplicate(true);
 
     buffer.last_execution = result.duplicate(true);
     return result;
@@ -315,6 +533,8 @@ Dictionary VoxelEditEngine::get_debug_snapshot() const {
         stage_snapshot["pending_ops"] = static_cast<int64_t>(buffer.pending_ops.size());
         stage_snapshot["enqueued_total"] = buffer.enqueued_total;
         stage_snapshot["execute_total"] = buffer.execute_total;
+        stage_snapshot["processed_total"] = buffer.processed_total;
+        stage_snapshot["requeued_total"] = buffer.requeued_total;
         stage_snapshot["applied_total"] = buffer.applied_total;
         stage_snapshot["last_changed_region"] = buffer.last_changed_region.duplicate(true);
         stage_snapshot["last_changed_chunks"] = buffer.last_changed_chunks.duplicate(true);
@@ -335,6 +555,8 @@ void VoxelEditEngine::reset() {
     near_distance_ = 24.0;
     far_distance_ = 140.0;
     zoom_throttle_threshold_ = 0.55;
+    gpu_backend_enabled_ = true;
+    gpu_backend_name_ = String("native_voxel_gpu");
     next_sequence_id_ = 1;
     config_.clear();
     stage_buffers_.clear();
@@ -536,7 +758,10 @@ VoxelEditEngine::StageExecutionStats VoxelEditEngine::execute_cpu_stage(
     StageExecutionStats stats;
     const int32_t voxel_scale = std::max(1, policy.voxel_scale);
     const int32_t op_stride = std::max(1, policy.op_stride);
+    const int32_t stride_phase = static_cast<int32_t>(policy.stride_phase % op_stride);
+    stats.ops_scanned = static_cast<int64_t>(ops.size());
     stats.ops_processed = 0;
+    stats.ops_requeued = 0;
 
     bool has_region = false;
     int32_t min_x = 0;
@@ -546,6 +771,8 @@ VoxelEditEngine::StageExecutionStats VoxelEditEngine::execute_cpu_stage(
     int32_t max_y = 0;
     int32_t max_z = 0;
     std::set<ChunkKey> changed_chunks;
+    std::vector<VoxelEditOp> deferred_ops;
+    deferred_ops.reserve(ops.size());
 
     const auto apply_voxel_delta = [&](const VoxelKey &key, double previous_value, double next_value) {
         if (next_value == previous_value) {
@@ -590,7 +817,9 @@ VoxelEditEngine::StageExecutionStats VoxelEditEngine::execute_cpu_stage(
 
     for (const VoxelEditOp &op : ops) {
         if (op_stride > 1) {
-            if (static_cast<int32_t>(op.sequence_id % static_cast<uint64_t>(op_stride)) != 0) {
+            if (static_cast<int32_t>((op.sequence_id + static_cast<uint64_t>(stride_phase)) % static_cast<uint64_t>(op_stride)) != 0) {
+                deferred_ops.push_back(op);
+                stats.ops_requeued += 1;
                 continue;
             }
         }
@@ -678,6 +907,7 @@ VoxelEditEngine::StageExecutionStats VoxelEditEngine::execute_cpu_stage(
         }
         apply_voxel_delta(voxel_key, previous_value, next_value);
     }
+    buffer.pending_ops.swap(deferred_ops);
 
     Dictionary changed_region;
     changed_region["valid"] = has_region;

@@ -157,10 +157,10 @@ double resolve_masked_double_setting(
     const Dictionary mapping = mapping_variant;
     const String mask_key = String::num_int64(mask);
     if (mapping.has(mask)) {
-        return as_double(mapping.get(mask), fallback);
+        return as_double(mapping.get(mask, Variant(fallback)), fallback);
     }
     if (mapping.has(mask_key)) {
-        return as_double(mapping.get(mask_key), fallback);
+        return as_double(mapping.get(mask_key, Variant(fallback)), fallback);
     }
     return fallback;
 }

@@ -39,21 +39,21 @@ void append_validation_failure(Dictionary &failure, const String &field_name, co
     failure["reason"] = reason;
 }
 
-const String VALIDATION_REASON_COMPONENTS_INVALID = "components_invalid";
-const String VALIDATION_REASON_FIELD_NAME_MISSING = "field_name_missing";
-const String VALIDATION_REASON_LAYOUT_INVALID = "layout_invalid";
-const String VALIDATION_REASON_METADATA_MISSING = "metadata_missing";
-const String VALIDATION_REASON_METADATA_UNIT_MISSING = "metadata_unit_missing";
-const String VALIDATION_REASON_METADATA_RANGE_MISSING = "metadata_range_missing";
-const String VALIDATION_REASON_METADATA_RANGE_MIN_MISSING = "metadata_range_min_missing";
-const String VALIDATION_REASON_METADATA_RANGE_MAX_MISSING = "metadata_range_max_missing";
-const String VALIDATION_REASON_METADATA_RANGE_MIN_INVALID = "metadata_range_min_invalid";
-const String VALIDATION_REASON_METADATA_RANGE_MAX_INVALID = "metadata_range_max_invalid";
-const String VALIDATION_REASON_METADATA_RANGE_INVERTED = "metadata_range_inverted";
-const String VALIDATION_REASON_ROLE_TAGS_INVALID = "role_tags_invalid";
-const String VALIDATION_REASON_CONFIG_ROWS_INVALID = "config_rows_invalid";
-const String VALIDATION_REASON_SPARSE_CHUNK_SIZE_INVALID = "sparse_chunk_size_invalid";
-const String VALIDATION_REASON_SPARSE_INVALID = "sparse_invalid";
+constexpr const char *VALIDATION_REASON_COMPONENTS_INVALID = "components_invalid";
+constexpr const char *VALIDATION_REASON_FIELD_NAME_MISSING = "field_name_missing";
+constexpr const char *VALIDATION_REASON_LAYOUT_INVALID = "layout_invalid";
+constexpr const char *VALIDATION_REASON_METADATA_MISSING = "metadata_missing";
+constexpr const char *VALIDATION_REASON_METADATA_UNIT_MISSING = "metadata_unit_missing";
+constexpr const char *VALIDATION_REASON_METADATA_RANGE_MISSING = "metadata_range_missing";
+constexpr const char *VALIDATION_REASON_METADATA_RANGE_MIN_MISSING = "metadata_range_min_missing";
+constexpr const char *VALIDATION_REASON_METADATA_RANGE_MAX_MISSING = "metadata_range_max_missing";
+constexpr const char *VALIDATION_REASON_METADATA_RANGE_MIN_INVALID = "metadata_range_min_invalid";
+constexpr const char *VALIDATION_REASON_METADATA_RANGE_MAX_INVALID = "metadata_range_max_invalid";
+constexpr const char *VALIDATION_REASON_METADATA_RANGE_INVERTED = "metadata_range_inverted";
+constexpr const char *VALIDATION_REASON_ROLE_TAGS_INVALID = "role_tags_invalid";
+constexpr const char *VALIDATION_REASON_CONFIG_ROWS_INVALID = "config_rows_invalid";
+constexpr const char *VALIDATION_REASON_SPARSE_CHUNK_SIZE_INVALID = "sparse_chunk_size_invalid";
+constexpr const char *VALIDATION_REASON_SPARSE_INVALID = "sparse_invalid";
 
 Dictionary dictionary_or_empty(const Variant &value) {
     if (value.get_type() != Variant::DICTIONARY) {

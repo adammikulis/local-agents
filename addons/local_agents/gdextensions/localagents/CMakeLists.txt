@@ -28,6 +28,8 @@ add_subdirectory(${GODOT_CPP_DIR} "${CMAKE_BINARY_DIR}/godot-cpp" EXCLUDE_FROM_A
 add_subdirectory(${LLAMA_CPP_DIR} "${CMAKE_BINARY_DIR}/llama.cpp" EXCLUDE_FROM_ALL)
 
 set(SIM_SRC
+    src/sim/VoxelEditGpuExecutor.cpp
+    src/sim/VoxelGpuDispatchMetadata.cpp
     src/sim/UnifiedSimulationPipeline.cpp
     src/sim/UnifiedSimulationPipelineFieldInputResolution.cpp
     src/sim/UnifiedSimulationPipelineFieldEvolution.cpp

@@ -15,6 +15,8 @@ using namespace godot;
 namespace local_agents::simulation::unified_pipeline {
 namespace {
 
+Array to_numeric_array(const Variant &value);
+
 bool is_known_field_alias_added(const Array &values, const String &candidate) {
     for (int64_t i = 0; i < values.size(); i += 1) {
         const Variant known = values[i];

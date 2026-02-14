@@ -2,13 +2,13 @@
 #define VOXEL_EDIT_ENGINE_HPP
 
 #include "VoxelEditOp.hpp"
+#include "sim/VoxelEditGpuExecutor.hpp"
 
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/string_name.hpp>
 
-#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -34,18 +34,6 @@ public:
     void reset();
 
 private:
-    struct StageBuffer {
-        godot::String stage_domain;
-        godot::StringName stage_name;
-        std::vector<VoxelEditOp> pending_ops;
-        int64_t enqueued_total = 0;
-        int64_t execute_total = 0;
-        int64_t applied_total = 0;
-        godot::Dictionary last_changed_region;
-        godot::Array last_changed_chunks;
-        godot::Dictionary last_execution;
-    };
-
     struct VoxelKey {
         int32_t x = 0;
         int32_t y = 0;
@@ -60,20 +48,22 @@ private:
         std::size_t operator()(const VoxelKey &key) const;
     };
 
-    struct StageExecutionStats {
-        int64_t ops_processed = 0;
-        int64_t ops_changed = 0;
-        godot::Dictionary changed_region;
-        godot::Array changed_chunks;
+    struct StageBuffer {
+        godot::String stage_domain;
+        godot::StringName stage_name;
+        std::vector<VoxelEditOp> pending_ops;
+        int64_t enqueued_total = 0;
+        int64_t execute_total = 0;
+        int64_t processed_total = 0;
+        int64_t requeued_total = 0;
+        int64_t applied_total = 0;
+        godot::Dictionary last_changed_region;
+        godot::Array last_changed_chunks;
+        godot::Dictionary last_execution;
     };
-    struct StageRuntimePolicy {
-        int32_t voxel_scale = 1;
-        int32_t op_stride = 1;
-        double zoom_factor = 1.0;
-        double uniformity_score = 0.0;
-        bool zoom_throttle_applied = false;
-        bool uniformity_upscale_applied = false;
-    };
+
+    using StageRuntimePolicy = VoxelGpuRuntimePolicy;
+    using StageExecutionStats = VoxelGpuExecutionStats;
 
     static constexpr int32_t k_default_chunk_size = 16;
 
@@ -117,6 +107,8 @@ private:
     double near_distance_ = 24.0;
     double far_distance_ = 140.0;
     double zoom_throttle_threshold_ = 0.55;
+    bool gpu_backend_enabled_ = true;
+    godot::String gpu_backend_name_ = "native_voxel_gpu";
     uint64_t next_sequence_id_ = 1;
     godot::Dictionary config_;
     std::map<std::string, StageBuffer> stage_buffers_;

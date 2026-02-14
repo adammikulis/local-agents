@@ -7,15 +7,15 @@ using namespace godot;
 namespace local_agents::simulation {
 
 namespace {
-const Variant KEY_OK = StringName("ok");
-const Variant KEY_STEP_INDEX = StringName("step_index");
-const Variant KEY_DELTA_SECONDS = StringName("delta_seconds");
-const Variant KEY_SCHEDULED_SYSTEMS = StringName("scheduled_systems");
-const Variant KEY_SYSTEMS = StringName("systems");
-const Variant KEY_COMPONENT = StringName("component");
-const Variant KEY_SYSTEM_COUNT = StringName("system_count");
-const Variant KEY_CONFIG = StringName("config");
-const Variant KEY_REGISTRATION_ORDER = StringName("registration_order");
+constexpr const char *KEY_OK = "ok";
+constexpr const char *KEY_STEP_INDEX = "step_index";
+constexpr const char *KEY_DELTA_SECONDS = "delta_seconds";
+constexpr const char *KEY_SCHEDULED_SYSTEMS = "scheduled_systems";
+constexpr const char *KEY_SYSTEMS = "systems";
+constexpr const char *KEY_COMPONENT = "component";
+constexpr const char *KEY_SYSTEM_COUNT = "system_count";
+constexpr const char *KEY_CONFIG = "config";
+constexpr const char *KEY_REGISTRATION_ORDER = "registration_order";
 } // namespace
 
 bool LocalAgentsScheduler::register_system(const StringName &system_name, const Dictionary &system_config) {
