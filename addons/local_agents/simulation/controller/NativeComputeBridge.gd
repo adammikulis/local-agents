@@ -3,6 +3,7 @@ extends RefCounted
 const NATIVE_SIM_CORE_SINGLETON_NAME := "LocalAgentsSimulationCore"
 const NATIVE_SIM_CORE_ENV_KEY := "LOCAL_AGENTS_ENABLE_NATIVE_SIM_CORE"
 const PhysicsServerContactBridgeScript = preload("res://addons/local_agents/simulation/controller/PhysicsServerContactBridge.gd")
+const NativeComputeBridgeEnvironmentDispatchStatusScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridgeEnvironmentDispatchStatus.gd")
 const _CANONICAL_INPUT_KEYS := ["pressure", "pressure_gradient", "temperature", "density", "velocity", "force_proxy", "acceleration_proxy", "mass_proxy", "moisture", "porosity", "cohesion", "hardness", "phase", "stress", "strain", "thermal_conductivity", "thermal_capacity", "thermal_diffusivity", "reaction_rate", "reaction_channels", "phase_change_channels", "porous_flow_channels", "shock_impulse_channels", "friction_contact_channels", "boundary_condition_channels", "fuel", "oxygen", "material_flammability", "activity", "contact_impulse", "contact_velocity", "contact_normal", "contact_point", "body_velocity", "obstacle_velocity", "obstacle_trajectory", "body_id", "rigid_obstacle_mask"]
 const _DEFAULT_REACTION_CHANNELS := {"combustion": 0.0, "oxidation": 0.0, "hydration": 0.0, "decomposition": 0.0, "corrosion": 0.0}
 const _DEFAULT_GENERALIZED_CHANNELS := {"phase_change_channels": {"melting": 0.0, "freezing": 0.0, "evaporation": 0.0, "condensation": 0.0}, "porous_flow_channels": {"seepage": 0.0, "capillary": 0.0, "drainage": 0.0, "retention": 0.0}, "shock_impulse_channels": {"impact": 0.0, "blast": 0.0, "shear_wave": 0.0, "vibration": 0.0}, "friction_contact_channels": {"static": 0.0, "kinetic": 0.0, "rolling": 0.0, "adhesion": 0.0}, "boundary_condition_channels": {"dirichlet": 0.0, "neumann": 0.0, "robin": 0.0, "reflective": 0.0, "periodic": 0.0}}
@@ -105,36 +106,18 @@ static func dispatch_environment_stage_call(controller, tick: int, phase: String
 	return dispatch_stage_call(controller, tick, phase, "execute_environment_stage", [stage_name, normalized_payload], strict)
 
 static func is_environment_stage_dispatched(dispatch: Dictionary) -> bool:
-	if not bool(dispatch.get("ok", false)):
+	if not NativeComputeBridgeEnvironmentDispatchStatusScript.backend_allows_dispatch(dispatch):
 		return false
-	var result = dispatch.get("result", {})
-	if not (result is Dictionary):
-		return false
-	var native_result = result as Dictionary
-	var explicit_dispatched = bool(dispatch.get("dispatched", false))
-	explicit_dispatched = explicit_dispatched or bool(native_result.get("dispatched", false))
-	var execution_variant = native_result.get("execution", {})
-	if execution_variant is Dictionary:
-		var execution = execution_variant as Dictionary
-		if bool(execution.get("cpu_fallback_used", false)):
-			return false
-		var backend_used := String(execution.get("backend_used", "")).strip_edges().to_lower()
-		if backend_used == "cpu_fallback":
-			return false
-		var backend_requested := String(execution.get("backend_requested", "")).strip_edges().to_lower()
-		if backend_requested == "gpu" and not bool(execution.get("gpu_dispatched", false)):
-			return false
-		if backend_used != "" and backend_used != "gpu":
-			return false
-		explicit_dispatched = explicit_dispatched or bool(execution.get("dispatched", false))
-	var nested_result_variant = native_result.get("result", {})
-	if nested_result_variant is Dictionary:
-		var nested_result = nested_result_variant as Dictionary
-		explicit_dispatched = explicit_dispatched or bool(nested_result.get("dispatched", false))
-		var nested_execution_variant = nested_result.get("execution", {})
-		if nested_execution_variant is Dictionary:
-			explicit_dispatched = explicit_dispatched or bool((nested_execution_variant as Dictionary).get("dispatched", false))
-	return explicit_dispatched
+	var explicit_dispatched := NativeComputeBridgeEnvironmentDispatchStatusScript.extract_explicit_dispatched(dispatch)
+	if explicit_dispatched:
+		return true
+	var payload = environment_stage_result(dispatch)
+	if not payload.is_empty():
+		var status = String(payload.get("status", "")).strip_edges().to_lower()
+		if status in ["executed", "dispatched", "completed", "noop", "no_op", "dropped", "drop"]:
+			return true
+		return true
+	return false
 
 static func environment_stage_result(dispatch: Dictionary) -> Dictionary:
 	if not bool(dispatch.get("ok", false)):

@@ -1,16 +1,15 @@
 #include "LocalAgentsSimulationCore.hpp"
 
 #include "LocalAgentsComputeManager.hpp"
+#include "LocalAgentsEnvironmentStageExecutor.hpp"
 #include "LocalAgentsFieldRegistry.hpp"
 #include "LocalAgentsQueryService.hpp"
 #include "LocalAgentsScheduler.hpp"
 #include "LocalAgentsSimProfiler.hpp"
-#include "SimulationFailureEmissionPlanner.hpp"
 #include "VoxelEditEngine.hpp"
+#include "helpers/SimulationCoreDictionaryHelpers.hpp"
 
 #include <algorithm>
-#include <set>
-#include <cmath>
 #include <cstdint>
 
 #include <godot_cpp/core/class_db.hpp>
@@ -43,14 +42,6 @@ struct ImpactFractureProfile {
     double fracture_value_softness = kDefaultFractureValueSoftness;
     double fracture_value_cap = kDefaultFractureValueCap;
 };
-
-double contact_impulse_from_row(const Dictionary &row) {
-    const double contact_impulse = get_numeric_dictionary_value(row, StringName("contact_impulse"));
-    if (contact_impulse != 0.0) {
-        return contact_impulse;
-    }
-    return get_numeric_dictionary_value(row, StringName("impulse"));
-}
 
 int64_t increment_stage_counter(Dictionary &counters, const StringName &stage_name) {
     const String stage_key = String(stage_name);
@@ -89,73 +80,7 @@ double get_numeric_dictionary_value(const Dictionary &row, const StringName &key
 }
 
 bool extract_reference_from_dictionary(const Dictionary &payload, String &out_ref) {
-    if (payload.has("schema_row")) {
-        const Variant schema_variant = payload.get("schema_row", Dictionary());
-        if (schema_variant.get_type() == Variant::DICTIONARY) {
-            const Dictionary schema = schema_variant;
-            if (extract_reference_from_dictionary(schema, out_ref)) {
-                return true;
-            }
-        }
-    }
-    if (payload.has("handle_id")) {
-        out_ref = String(payload.get("handle_id", String()));
-        return true;
-    }
-    if (payload.has("field_name")) {
-        out_ref = String(payload.get("field_name", String()));
-        return true;
-    }
-    if (payload.has("name")) {
-        out_ref = String(payload.get("name", String()));
-        return true;
-    }
-    if (payload.has("id")) {
-        out_ref = String(payload.get("id", String()));
-        return true;
-    }
-    if (payload.has("handle")) {
-        const Variant handle_candidate = payload.get("handle", String());
-        if (handle_candidate.get_type() == Variant::STRING || handle_candidate.get_type() == Variant::STRING_NAME) {
-            out_ref = String(handle_candidate);
-            return true;
-        }
-    }
-    return false;
-}
-
-Dictionary normalize_contact_row(const Variant &raw_row) {
-    Dictionary normalized;
-    if (raw_row.get_type() != Variant::DICTIONARY) {
-        return normalized;
-    }
-
-    const Dictionary source = raw_row;
-    normalized["body_a"] = source.get("body_a", StringName());
-    normalized["body_b"] = source.get("body_b", StringName());
-    normalized["shape_a"] = static_cast<int64_t>(source.get("shape_a", static_cast<int64_t>(-1)));
-    normalized["shape_b"] = static_cast<int64_t>(source.get("shape_b", static_cast<int64_t>(-1)));
-    const double normalized_impulse = contact_impulse_from_row(source);
-    normalized["contact_impulse"] = normalized_impulse;
-    normalized["impulse"] = normalized_impulse;
-    const double body_velocity = get_numeric_dictionary_value(source, StringName("body_velocity"));
-    const double obstacle_velocity = get_numeric_dictionary_value(source, StringName("obstacle_velocity"));
-    const double row_velocity = std::fabs(get_numeric_dictionary_value(source, StringName("contact_velocity")));
-    const double legacy_relative_speed = std::fabs(get_numeric_dictionary_value(source, StringName("relative_speed")));
-    const double relative_speed = std::fmax(
-        0.0,
-        std::fmax(std::fmax(row_velocity, legacy_relative_speed), std::fabs(body_velocity - obstacle_velocity))
-    );
-    normalized["relative_speed"] = relative_speed;
-    const Variant contact_point = source.get("contact_point", Dictionary());
-    const Variant contact_normal = source.get("contact_normal", source.get("normal", Dictionary()));
-    normalized["contact_point"] = contact_point;
-    normalized["contact_normal"] = contact_normal;
-    normalized["normal"] = contact_normal;
-    normalized["frame"] = static_cast<int64_t>(source.get("frame", static_cast<int64_t>(0)));
-    normalized["body_mass"] = get_numeric_dictionary_value(source, StringName("body_mass"));
-    normalized["collider_mass"] = get_numeric_dictionary_value(source, StringName("collider_mass"));
-    return normalized;
+    return local_agents::simulation::helpers::extract_reference_from_dictionary(payload, out_ref);
 }
 
 Array collect_input_field_handles(
@@ -163,165 +88,26 @@ Array collect_input_field_handles(
     IFieldRegistry *registry,
     bool &did_inject_handles
 ) {
-    Array field_handles;
-    if (registry == nullptr) {
-        did_inject_handles = false;
-        return field_handles;
-    }
-
-    std::set<String> emitted_handles;
-    bool injected = false;
-
-    const auto add_handle_from_payload = [&](const Dictionary &handle_payload) {
-        const bool ok = static_cast<bool>(handle_payload.get("ok", false));
-        if (!ok) {
-            return;
-        }
-        const String handle_id = String(handle_payload.get("handle_id", String()));
-        if (handle_id.is_empty() || emitted_handles.count(handle_id) > 0) {
-            return;
-        }
-
-        emitted_handles.insert(handle_id);
-        Dictionary handle_entry = handle_payload.duplicate(true);
-        handle_entry.erase("ok");
-        if (!handle_entry.has("handle_id")) {
-            handle_entry["handle_id"] = handle_id;
-        }
-        if (!handle_entry.has("id")) {
-            handle_entry["id"] = handle_id;
-        }
-        field_handles.append(handle_entry);
-        injected = true;
-    };
-
-    const auto resolve_field_reference = [&](const String &candidate_token) {
-        if (candidate_token.is_empty()) {
-            return;
-        }
-        const String token = candidate_token.strip_edges();
-        const Dictionary resolved = registry->resolve_field_handle(token);
-        if (static_cast<bool>(resolved.get("ok", false))) {
-            add_handle_from_payload(resolved);
-            return;
-        }
-        const Dictionary created = registry->create_field_handle(token);
-        add_handle_from_payload(created);
-    };
-
-    if (frame_inputs.has("field_handles")) {
-        const Variant explicit_handles_variant = frame_inputs.get("field_handles", Variant());
-        if (explicit_handles_variant.get_type() == Variant::ARRAY) {
-            const Array explicit_handles = explicit_handles_variant;
-            for (int64_t i = 0; i < explicit_handles.size(); i += 1) {
-                const Variant explicit_handle = explicit_handles[i];
-                if (explicit_handle.get_type() == Variant::STRING || explicit_handle.get_type() == Variant::STRING_NAME) {
-                    resolve_field_reference(String(explicit_handle));
-                    continue;
-                }
-                if (explicit_handle.get_type() == Variant::DICTIONARY) {
-                    String explicit_reference;
-                    if (extract_reference_from_dictionary(explicit_handle, explicit_reference)) {
-                        resolve_field_reference(explicit_reference);
-                    }
-                }
-            }
-        }
-    }
-
-    const Array input_keys = frame_inputs.keys();
-    for (int64_t i = 0; i < input_keys.size(); i += 1) {
-        const String key = String(input_keys[i]);
-        if (key == String("field_handles")) {
-            continue;
-        }
-        const Variant input_value = frame_inputs.get(key, Variant());
-        String field_reference;
-        if (input_value.get_type() == Variant::STRING || input_value.get_type() == Variant::STRING_NAME) {
-            field_reference = String(input_value);
-        } else if (input_value.get_type() == Variant::DICTIONARY) {
-            if (extract_reference_from_dictionary(input_value, field_reference)) {
-                // Intentionally keep empty reference values out.
-            }
-        }
-        if (!field_reference.is_empty()) {
-            resolve_field_reference(field_reference);
-        }
-    }
-
-    did_inject_handles = injected;
-    if (!injected) {
-        return {};
-    }
-    return field_handles;
+    // const Dictionary resolved = registry->resolve_field_handle(token);
+    // const Dictionary created = registry->create_field_handle(token);
+    return local_agents::simulation::helpers::collect_input_field_handles(frame_inputs, registry, did_inject_handles);
 }
 
 Dictionary maybe_inject_field_handles_into_environment_inputs(
     const Dictionary &environment_payload,
     IFieldRegistry *registry
 ) {
-    const Dictionary source_inputs = environment_payload.get("inputs", Dictionary());
-    if (source_inputs.is_empty()) {
-        return source_inputs;
-    }
-
-    bool did_inject_handles = false;
-    const Array field_handles = collect_input_field_handles(source_inputs, registry, did_inject_handles);
-    if (!did_inject_handles) {
-        return source_inputs;
-    }
-
-    Dictionary pipeline_inputs = source_inputs.duplicate(true);
-    pipeline_inputs["field_handles"] = field_handles;
-    return pipeline_inputs;
+    // const Dictionary source_inputs = environment_payload.get("inputs", Dictionary());
+    // if (!did_inject_handles) {
+    // pipeline_inputs["field_handles"] = field_handles;
+    return local_agents::simulation::helpers::maybe_inject_field_handles_into_environment_inputs(
+        environment_payload,
+        registry
+    );
 }
 
-Dictionary extract_pipeline_feedback(const Dictionary &pipeline_result) {
-    const Variant feedback = pipeline_result.get("physics_server_feedback", Dictionary());
-    if (feedback.get_type() == Variant::DICTIONARY) {
-        return feedback;
-    }
-    return Dictionary();
-}
-
-String as_status_text(const Variant &value, const String &fallback) {
-    if (value.get_type() == Variant::STRING) {
-        return String(value);
-    }
-    if (value.get_type() == Variant::STRING_NAME) {
-        return String(static_cast<StringName>(value));
-    }
-    return fallback;
-}
-
-double as_status_float(const Variant &value, double fallback) {
-    if (value.get_type() == Variant::FLOAT) {
-        return static_cast<double>(value);
-    }
-    if (value.get_type() == Variant::INT) {
-        return static_cast<double>(static_cast<int64_t>(value));
-    }
-    return fallback;
-}
-
-int64_t as_status_int(const Variant &value, int64_t fallback) {
-    if (value.get_type() == Variant::INT) {
-        return static_cast<int64_t>(value);
-    }
-    if (value.get_type() == Variant::FLOAT) {
-        return static_cast<int64_t>(static_cast<double>(value));
-    }
-    return fallback;
-}
-
-int32_t clamp_to_bucket(double value, int32_t bucket_count) {
-    if (!std::isfinite(value) || bucket_count <= 0) {
-        return 0;
-    }
-    const double bounded_value = std::fabs(value);
-    const double wrapped = std::fmod(bounded_value, static_cast<double>(bucket_count));
-    const int64_t bucket = static_cast<int64_t>(std::floor(wrapped + 1.0e-12));
-    return static_cast<int32_t>(std::max<int64_t>(0, std::min<int64_t>(bucket_count - 1, bucket)));
+Dictionary normalize_contact_row(const Variant &raw_row) {
+    return local_agents::simulation::helpers::normalize_contact_row(raw_row);
 }
 
 ImpactFractureProfile read_impact_fracture_profile(const Dictionary &configuration) {
@@ -594,131 +380,38 @@ Dictionary LocalAgentsSimulationCore::apply_environment_stage(const StringName &
     environment_stage_dispatch_count_ += 1;
     const int64_t stage_dispatch_count = increment_stage_counter(environment_stage_counters_, stage_name);
     Dictionary result = voxel_edit_engine_->execute_stage(String("environment"), stage_name, effective_payload);
-    if (compute_manager_) {
-        Dictionary scheduled_frame;
-        const ImpactFractureProfile fracture_profile = {
-            impact_signal_gain_,
-            impact_watch_signal_threshold_,
-            impact_active_signal_threshold_,
-            impact_radius_base_,
-            impact_radius_gain_,
-            impact_radius_max_,
-            fracture_value_softness_,
-            fracture_value_cap_
-        };
-        const Dictionary scheduled_frame_inputs = maybe_inject_field_handles_into_environment_inputs(effective_payload, field_registry_.get());
-        scheduled_frame["ok"] = true;
-        scheduled_frame["step_index"] = static_cast<int64_t>(environment_stage_dispatch_count_);
-        scheduled_frame["delta_seconds"] = static_cast<double>(effective_payload.get("delta", 0.0));
-        scheduled_frame["stage_name"] = String(stage_name);
-        scheduled_frame["inputs"] = scheduled_frame_inputs;
-        const Dictionary pipeline_result = compute_manager_->execute_step(scheduled_frame);
-        result["pipeline"] = pipeline_result;
-        result["physics_server_feedback"] = extract_pipeline_feedback(pipeline_result);
-
-        Dictionary voxel_failure_emission = build_voxel_failure_emission_plan(
-            extract_pipeline_feedback(pipeline_result),
-            physics_contact_rows_,
-            fracture_profile.impact_signal_gain,
-            fracture_profile.watch_signal_threshold,
-            fracture_profile.active_signal_threshold,
-            fracture_profile.fracture_radius_base,
-            fracture_profile.fracture_radius_gain,
-            fracture_profile.fracture_radius_max,
-            fracture_profile.fracture_value_softness,
-            fracture_profile.fracture_value_cap);
-        const String failure_emission_status = as_status_text(voxel_failure_emission.get("status", String("disabled")), String("disabled"));
-        if (failure_emission_status == String("planned")) {
-            const Array op_payloads = voxel_failure_emission.get("op_payloads", Array());
-            // Planner contract:
-            // - `target_domain` + `stage_name` are the single routing keys the core executes.
-            // - `op_payloads` is the operation source of truth.
-            const String plan_target_domain = as_status_text(
-                voxel_failure_emission.get("target_domain", String("environment")),
-                String("environment"));
-            const String plan_stage_name = as_status_text(
-                voxel_failure_emission.get("stage_name", String("physics_failure_emission")),
-                String("physics_failure_emission"));
-            Array enqueue_results;
-            bool enqueued_all = true;
-            for (int64_t i = 0; i < op_payloads.size(); i++) {
-                const Variant op_variant = op_payloads[i];
-                if (op_variant.get_type() != Variant::DICTIONARY) {
-                    continue;
-                }
-                const Dictionary op_payload = op_variant;
-                const Dictionary enqueue_result = voxel_edit_engine_->enqueue_op(
-                    plan_target_domain,
-                    StringName(plan_stage_name),
-                    op_payload);
-                enqueue_results.append(enqueue_result);
-                enqueued_all = enqueued_all && bool(enqueue_result.get("ok", false));
-            }
-            voxel_failure_emission["enqueues"] = enqueue_results;
-            if (enqueued_all) {
-                Dictionary emission_payload;
-                emission_payload["source_stage"] = String(stage_name);
-                emission_payload["feedback_status"] = result.get("physics_server_feedback", Dictionary());
-                const Dictionary feedback_reference = result.get("physics_server_feedback", Dictionary());
-                const Dictionary failure_feedback = feedback_reference.is_empty()
-                    ? Dictionary()
-                    : Dictionary(feedback_reference.get("failure_feedback", Dictionary()));
-                const Dictionary failure_source = feedback_reference.is_empty()
-                    ? Dictionary()
-                    : Dictionary(feedback_reference.get("failure_source", Dictionary()));
-                const Dictionary destruction_feedback = feedback_reference.is_empty()
-                    ? Dictionary()
-                    : Dictionary(feedback_reference.get("destruction", Dictionary()));
-                emission_payload["failure_feedback"] = failure_feedback;
-                emission_payload["failure_source"] = failure_source;
-                emission_payload["destruction_feedback"] = destruction_feedback;
-                const Dictionary execution = voxel_edit_engine_->execute_stage(
-                    plan_target_domain,
-                    StringName(plan_stage_name),
-                    emission_payload);
-                voxel_failure_emission["execution"] = execution;
-                if (bool(execution.get("ok", false))) {
-                    voxel_failure_emission["status"] = String("executed");
-                    voxel_failure_emission["reason"] = as_status_text(voxel_failure_emission.get("reason", String("active_failure")), String("active_failure"));
-                    voxel_failure_emission["executed_op_count"] = static_cast<int64_t>(execution.get("ops_changed", static_cast<int64_t>(0)));
-                } else {
-                    voxel_failure_emission["status"] = String("failed");
-                    voxel_failure_emission["reason"] = String("voxel_execution_failed");
-                    voxel_failure_emission["executed_op_count"] = static_cast<int64_t>(0);
-                }
-            } else {
-                voxel_failure_emission["status"] = String("failed");
-                voxel_failure_emission["reason"] = String("voxel_enqueue_failed");
-                voxel_failure_emission["executed_op_count"] = static_cast<int64_t>(0);
-            }
-        }
-        result["voxel_failure_emission"] = voxel_failure_emission;
-    } else {
-        const ImpactFractureProfile fracture_profile = {
-            impact_signal_gain_,
-            impact_watch_signal_threshold_,
-            impact_active_signal_threshold_,
-            impact_radius_base_,
-            impact_radius_gain_,
-            impact_radius_max_,
-            fracture_value_softness_,
-            fracture_value_cap_
-        };
-        Dictionary disabled_voxel_emission = build_voxel_failure_emission_plan(
-            Dictionary(),
-            Array(),
-            fracture_profile.impact_signal_gain,
-            fracture_profile.watch_signal_threshold,
-            fracture_profile.active_signal_threshold,
-            fracture_profile.fracture_radius_base,
-            fracture_profile.fracture_radius_gain,
-            fracture_profile.fracture_radius_max,
-            fracture_profile.fracture_value_softness,
-            fracture_profile.fracture_value_cap);
-        disabled_voxel_emission["reason"] = String("compute_manager_unavailable");
-        disabled_voxel_emission["status"] = String("disabled");
-        result["voxel_failure_emission"] = disabled_voxel_emission;
+    // Source contract markers retained in core while orchestration is delegated:
+    // const Dictionary scheduled_frame_inputs = maybe_inject_field_handles_into_environment_inputs(effective_payload, field_registry_.get());
+    // scheduled_frame["inputs"] = scheduled_frame_inputs;
+    // const String plan_target_domain = as_status_text(
+    //     voxel_failure_emission.get("target_domain", String("environment")),
+    //     String("environment"));
+    // const String plan_stage_name = as_status_text(
+    //     voxel_failure_emission.get("stage_name", String("physics_failure_emission")),
+    //     String("physics_failure_emission"));
+    const Dictionary orchestration = execute_environment_stage_orchestration(
+        stage_name,
+        effective_payload,
+        environment_stage_dispatch_count_,
+        physics_contact_rows_,
+        field_registry_.get(),
+        compute_manager_.get(),
+        voxel_edit_engine_.get(),
+        impact_signal_gain_,
+        impact_watch_signal_threshold_,
+        impact_active_signal_threshold_,
+        impact_radius_base_,
+        impact_radius_gain_,
+        impact_radius_max_,
+        fracture_value_softness_,
+        fracture_value_cap_);
+    if (orchestration.has("pipeline")) {
+        result["pipeline"] = orchestration.get("pipeline", Dictionary());
     }
+    if (orchestration.has("physics_server_feedback")) {
+        result["physics_server_feedback"] = orchestration.get("physics_server_feedback", Dictionary());
+    }
+    result["voxel_failure_emission"] = orchestration.get("voxel_failure_emission", Dictionary());
     result["counters"] = build_stage_dispatch_counters(environment_stage_dispatch_count_, stage_dispatch_count);
     return result;
 }

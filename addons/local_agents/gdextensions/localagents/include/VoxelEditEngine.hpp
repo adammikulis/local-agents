@@ -1,6 +1,7 @@
 #ifndef VOXEL_EDIT_ENGINE_HPP
 #define VOXEL_EDIT_ENGINE_HPP
 
+#include "helpers/VoxelEditCpuExecutionHelpers.hpp"
 #include "VoxelEditOp.hpp"
 #include "sim/VoxelEditGpuExecutor.hpp"
 
@@ -34,19 +35,8 @@ public:
     void reset();
 
 private:
-    struct VoxelKey {
-        int32_t x = 0;
-        int32_t y = 0;
-        int32_t z = 0;
-
-        bool operator==(const VoxelKey &other) const {
-            return x == other.x && y == other.y && z == other.z;
-        }
-    };
-
-    struct VoxelKeyHash {
-        std::size_t operator()(const VoxelKey &key) const;
-    };
+    using VoxelKey = helpers::VoxelEditCpuVoxelKey;
+    using VoxelKeyHash = helpers::VoxelEditCpuVoxelKeyHash;
 
     struct StageBuffer {
         godot::String stage_domain;
@@ -92,11 +82,6 @@ private:
         godot::String &error_code_out
     ) const;
     StageBuffer &ensure_stage_buffer(const godot::String &stage_domain, const godot::StringName &stage_name);
-    StageExecutionStats execute_cpu_stage(
-        const std::vector<VoxelEditOp> &ops,
-        StageBuffer &buffer,
-        const StageRuntimePolicy &policy
-    );
     StageRuntimePolicy build_runtime_policy(const godot::Dictionary &payload) const;
 
     int32_t chunk_size_ = k_default_chunk_size;
