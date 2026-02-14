@@ -29,11 +29,11 @@ Integrate all voxel/tile simulation domains into a single native simulation core
   - `addons/local_agents/simulation/ErosionComputeBackend.gd`
   - `addons/local_agents/simulation/SolarComputeBackend.gd`
 - Scheduler/cadence logic is duplicated across environment systems and controllers:
-  - `addons/local_agents/scenes/simulation/app/controllers/EnvironmentTickScheduler.gd`
+  - `addons/local_agents/scenes/simulation/controllers/SimulationLoopController.gd`
   - `addons/local_agents/scenes/simulation/controllers/ecology/VoxelProcessGateController.gd`
   - local cadence helpers inside environment systems.
 - Orchestration/UI layers are already mostly adapter-friendly:
-  - `addons/local_agents/scenes/simulation/app/WorldSimulatorAppSimulationModule.gd`
+  - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd`
   - `addons/local_agents/scenes/simulation/controllers/PerformanceTelemetryServer.gd`
   - `addons/local_agents/simulation/controller/SimulationSnapshotController.gd`
 
@@ -113,7 +113,7 @@ Add native types (new):
 - `addons/local_agents/gdextensions/localagents/src/sim/Scheduler.cpp`
 
 Script adapters to simplify/delete:
-- `addons/local_agents/scenes/simulation/app/controllers/EnvironmentTickScheduler.gd`
+- `addons/local_agents/scenes/simulation/controllers/SimulationLoopController.gd`
 - `addons/local_agents/scenes/simulation/controllers/ecology/VoxelProcessGateController.gd`
 - local `_cadence_for_activity`/`_should_step_*` helpers in environment systems.
 
@@ -277,7 +277,7 @@ Scope:
 File-level removals/refactors:
 - Reduce or remove duplicated code paths in:
   - `addons/local_agents/simulation/*ComputeBackend.gd`
-  - `addons/local_agents/scenes/simulation/app/controllers/EnvironmentTickScheduler.gd`
+  - `addons/local_agents/scenes/simulation/controllers/SimulationLoopController.gd`
   - `addons/local_agents/scenes/simulation/controllers/ecology/VoxelProcessGateController.gd`
 
 Done when:
