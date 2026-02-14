@@ -6,7 +6,12 @@ const _EMPTY_SAMPLE := {
 	"contact_point": Vector3.ZERO,
 	"contact_normal": Vector3.ZERO,
 	"contact_impulse": 0.0,
+	"contact_velocity": 0.0,
 	"body_velocity": Vector3.ZERO,
+	"body_mass": 0.0,
+	"collider_mass": 0.0,
+	"obstacle_velocity": Vector3.ZERO,
+	"obstacle_trajectory": Vector3.ZERO,
 	"rigid_obstacle_mask": 0,
 }
 
@@ -115,15 +120,25 @@ static func _sample_body_contacts(body: CollisionObject3D) -> Array:
 	var body_velocity := _sample_body_velocity(body, state)
 	var body_id := body.get_instance_id()
 	var basis := body.global_transform.basis
+	var obstacle_trajectory := Vector3.ZERO
+	var body_velocity_scalar := body_velocity.length()
+	if body_velocity.length_squared() > 0.0:
+		obstacle_trajectory = body_velocity.normalized()
 	for index in contact_count:
 		var row := _EMPTY_SAMPLE.duplicate(true)
 		row["body_id"] = body_id
-		row["collider_id"] = _sample_collider_id(state, index)
+		var collider_id := _sample_collider_id(state, index)
+		row["collider_id"] = collider_id
 		row["contact_point"] = _sample_contact_point(body, state, index)
 		row["contact_normal"] = _sample_contact_normal(state, basis, index)
 		row["contact_impulse"] = _sample_contact_impulse(state, index)
 		row["body_velocity"] = body_velocity
-		row["rigid_obstacle_mask"] = _sample_rigid_obstacle_mask(row["collider_id"])
+		row["obstacle_velocity"] = body_velocity
+		row["obstacle_trajectory"] = obstacle_trajectory
+		row["body_mass"] = _sample_body_mass(body)
+		row["collider_mass"] = _sample_body_mass(instance_from_id(collider_id))
+		row["contact_velocity"] = body_velocity_scalar
+		row["rigid_obstacle_mask"] = _sample_rigid_obstacle_mask(collider_id)
 		rows.append(row)
 	return rows
 
@@ -138,6 +153,21 @@ static func _sample_body_velocity(body: CollisionObject3D, state) -> Vector3:
 		if body_velocity is Vector3:
 			return body_velocity
 	return Vector3.ZERO
+
+
+static func _sample_body_mass(body_variant) -> float:
+	if body_variant == null or not (body_variant is Object):
+		return 0.0
+	var body := body_variant as Object
+	if body.has_method("get_mass"):
+		var mass_variant = body.call("get_mass")
+		if mass_variant is float or mass_variant is int:
+			return maxf(0.0, float(mass_variant))
+	if body.has_method("get_total_mass"):
+		var mass_variant = body.call("get_total_mass")
+		if mass_variant is float or mass_variant is int:
+			return maxf(0.0, float(mass_variant))
+	return 0.0
 
 
 static func _sample_collider_id(state, contact_index: int) -> int:

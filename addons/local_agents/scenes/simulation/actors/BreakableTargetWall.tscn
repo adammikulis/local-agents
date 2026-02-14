@@ -1,0 +1,246 @@
+[gd_scene format=3]
+
+[sub_resource type="BoxMesh" id="BoxMesh_brick"]
+size = Vector3(0.75, 0.3, 0.2)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_brick"]
+size = Vector3(0.75, 0.3, 0.2)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_base"]
+size = Vector3(6.4, 0.12, 0.45)
+
+[node name="BreakableTargetWall" type="Node3D"]
+
+[node name="BaseSupport" type="StaticBody3D" parent="."]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="BaseSupport"]
+position = Vector3(0, -0.06, 0)
+shape = SubResource("BoxShape3D_base")
+
+[node name="Brick_00" type="RigidBody3D" parent="."]
+position = Vector3(-2.34, 0.15, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_00"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_00"]
+shape = SubResource("BoxShape3D_brick")
+
+[node name="Brick_01" type="RigidBody3D" parent="."]
+position = Vector3(-1.56, 0.15, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_01"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_01"]
+shape = SubResource("BoxShape3D_brick")
+
+[node name="Brick_02" type="RigidBody3D" parent="."]
+position = Vector3(-0.78, 0.15, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_02"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_02"]
+shape = SubResource("BoxShape3D_brick")
+
+[node name="Brick_03" type="RigidBody3D" parent="."]
+position = Vector3(0, 0.15, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_03"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_03"]
+shape = SubResource("BoxShape3D_brick")
+
+[node name="Brick_04" type="RigidBody3D" parent="."]
+position = Vector3(0.78, 0.15, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_04"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_04"]
+shape = SubResource("BoxShape3D_brick")
+
+[node name="Brick_05" type="RigidBody3D" parent="."]
+position = Vector3(1.56, 0.15, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_05"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_05"]
+shape = SubResource("BoxShape3D_brick")
+
+[node name="Brick_06" type="RigidBody3D" parent="."]
+position = Vector3(-1.95, 0.47, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_06"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_06"]
+shape = SubResource("BoxShape3D_brick")
+
+[node name="Brick_07" type="RigidBody3D" parent="."]
+position = Vector3(-1.17, 0.47, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_07"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_07"]
+shape = SubResource("BoxShape3D_brick")
+
+[node name="Brick_08" type="RigidBody3D" parent="."]
+position = Vector3(-0.39, 0.47, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_08"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_08"]
+shape = SubResource("BoxShape3D_brick")
+
+[node name="Brick_09" type="RigidBody3D" parent="."]
+position = Vector3(0.39, 0.47, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_09"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_09"]
+shape = SubResource("BoxShape3D_brick")
+
+[node name="Brick_10" type="RigidBody3D" parent="."]
+position = Vector3(1.17, 0.47, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_10"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_10"]
+shape = SubResource("BoxShape3D_brick")
+
+[node name="Brick_11" type="RigidBody3D" parent="."]
+position = Vector3(1.95, 0.47, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_11"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_11"]
+shape = SubResource("BoxShape3D_brick")
+
+[node name="Brick_12" type="RigidBody3D" parent="."]
+position = Vector3(-2.34, 0.79, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_12"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_12"]
+shape = SubResource("BoxShape3D_brick")
+
+[node name="Brick_13" type="RigidBody3D" parent="."]
+position = Vector3(-1.56, 0.79, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_13"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_13"]
+shape = SubResource("BoxShape3D_brick")
+
+[node name="Brick_14" type="RigidBody3D" parent="."]
+position = Vector3(-0.78, 0.79, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_14"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_14"]
+shape = SubResource("BoxShape3D_brick")
+
+[node name="Brick_15" type="RigidBody3D" parent="."]
+position = Vector3(0, 0.79, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_15"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_15"]
+shape = SubResource("BoxShape3D_brick")
+
+[node name="Brick_16" type="RigidBody3D" parent="."]
+position = Vector3(0.78, 0.79, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_16"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_16"]
+shape = SubResource("BoxShape3D_brick")
+
+[node name="Brick_17" type="RigidBody3D" parent="."]
+position = Vector3(1.56, 0.79, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_17"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_17"]
+shape = SubResource("BoxShape3D_brick")
+
+[node name="Brick_18" type="RigidBody3D" parent="."]
+position = Vector3(2.34, 0.79, 0)
+mass = 0.65
+linear_damp = 0.05
+angular_damp = 0.1
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Brick_18"]
+mesh = SubResource("BoxMesh_brick")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Brick_18"]
+shape = SubResource("BoxShape3D_brick")

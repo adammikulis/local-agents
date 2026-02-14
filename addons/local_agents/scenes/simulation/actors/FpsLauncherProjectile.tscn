@@ -1,0 +1,32 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/actors/FpsLauncherProjectile.gd" id="1_projectile_script"]
+
+[sub_resource type="SphereMesh" id="SphereMesh_projectile"]
+radius = 0.07
+height = 0.14
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_projectile"]
+albedo_color = Color(0.98, 0.72, 0.24, 1)
+emission_enabled = true
+emission = Color(0.98, 0.62, 0.18, 1)
+emission_energy_multiplier = 0.35
+roughness = 0.22
+metallic = 0.05
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_projectile"]
+radius = 0.07
+
+[node name="FpsLauncherProjectile" type="RigidBody3D"]
+script = ExtResource("1_projectile_script")
+mass = 0.2
+gravity_scale = 0.8
+linear_damp = 0.05
+continuous_cd = true
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("SphereMesh_projectile")
+material_override = SubResource("StandardMaterial3D_projectile")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("SphereShape3D_projectile")
