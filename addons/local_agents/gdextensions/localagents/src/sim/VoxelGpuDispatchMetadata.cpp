@@ -105,6 +105,9 @@ Dictionary build_voxel_gpu_dispatch_metadata(const VoxelGpuDispatchMetadataInput
     execution["backend_requested"] = String("gpu");
     execution["backend_used"] = String("gpu");
     execution["backend_name"] = input.backend_name;
+    execution["stage_domain"] = input.stage_domain;
+    execution["stage_name"] = String(input.stage_name);
+    execution["gpu_required"] = true;
     execution["gpu_attempted"] = true;
     execution["gpu_dispatched"] = true;
     execution["gpu_status"] = String("dispatched");

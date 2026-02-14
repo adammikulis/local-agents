@@ -29,12 +29,21 @@ add_subdirectory(${LLAMA_CPP_DIR} "${CMAKE_BINARY_DIR}/llama.cpp" EXCLUDE_FROM_A
 
 set(SIM_SRC
     src/sim/VoxelEditGpuExecutor.cpp
+    src/sim/VoxelGpuResourceCache.cpp
     src/sim/VoxelGpuDispatchMetadata.cpp
-    src/sim/UnifiedSimulationPipeline.cpp
-    src/sim/UnifiedSimulationPipelineFieldInputResolution.cpp
-    src/sim/UnifiedSimulationPipelineFieldEvolution.cpp
-    src/sim/UnifiedSimulationPipelineInternal.cpp
-    src/sim/UnifiedSimulationPipelineStages.cpp
+    src/sim/CoreSimulationPipeline.cpp
+    src/sim/CoreSimulationPipelineFieldInputResolution.cpp
+    src/sim/CoreSimulationPipelineFieldInputResolutionScalarHelpers.cpp
+    src/sim/CoreSimulationPipelineFieldEvolution.cpp
+    src/sim/CoreSimulationPipelineInternal.cpp
+    src/sim/CoreSimulationPipelineStages.cpp
+)
+
+set(HELPER_SRC
+    src/helpers/SimulationCoreDictionaryHelpers.cpp
+    src/helpers/VoxelEditCpuExecutionHelpers.cpp
+    src/helpers/VoxelEditParsingHelpers.cpp
+    src/helpers/VoxelEditPayloadValidationHelpers.cpp
 )
 
 set(SRC
@@ -42,6 +51,7 @@ set(SRC
     src/AgentRuntime.cpp
     src/LocalAgentsComputeManager.cpp
     src/LocalAgentsFieldRegistry.cpp
+    src/LocalAgentsEnvironmentStageExecutor.cpp
     src/ModelDownloadManager.cpp
     src/NetworkGraph.cpp
     src/LocalAgentsQueryService.cpp
@@ -51,6 +61,7 @@ set(SRC
     src/LocalAgentsSimulationCore.cpp
     src/FailureEmissionDeterministicNoise.cpp
     src/SimulationFailureEmissionPlanner.cpp
+    ${HELPER_SRC}
     ${SIM_SRC}
     src/VoxelEditEngine.cpp
 )

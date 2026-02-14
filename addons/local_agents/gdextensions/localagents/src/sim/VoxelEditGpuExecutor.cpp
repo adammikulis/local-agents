@@ -1,19 +1,10 @@
 #include "sim/VoxelEditGpuExecutor.hpp"
+#include "sim/VoxelGpuResourceCache.hpp"
 
 #include <godot_cpp/classes/display_server.hpp>
 #include <godot_cpp/classes/os.hpp>
-#include <godot_cpp/classes/rd_shader_file.hpp>
-#include <godot_cpp/classes/rd_shader_spirv.hpp>
-#include <godot_cpp/classes/rd_uniform.hpp>
-#include <godot_cpp/classes/ref.hpp>
-#include <godot_cpp/classes/rendering_device.hpp>
-#include <godot_cpp/classes/rendering_server.hpp>
-#include <godot_cpp/classes/resource.hpp>
-#include <godot_cpp/classes/resource_loader.hpp>
-#include <godot_cpp/core/memory.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
-#include <godot_cpp/variant/rid.hpp>
-#include <godot_cpp/variant/typed_array.hpp>
+#include <godot_cpp/classes/rendering_device.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -27,9 +18,8 @@ namespace local_agents::simulation {
 namespace {
 
 constexpr int64_t k_workgroup_size = 64;
-constexpr int64_t k_op_stride_bytes = 48;
+constexpr int64_t k_op_stride_bytes = 88;
 constexpr int64_t k_out_stride_bytes = 32;
-constexpr int64_t k_param_stride_bytes = 16;
 
 struct ChunkKey {
     int32_t x = 0;
@@ -81,20 +71,26 @@ int32_t operation_to_code(const String &operation) {
     return 0;
 }
 
-void add_storage_uniform(const RID &buffer_rid, const int32_t binding, TypedArray<Ref<RDUniform>> &uniforms) {
-    Ref<RDUniform> uniform;
-    uniform.instantiate();
-    uniform->set_uniform_type(RenderingDevice::UNIFORM_TYPE_STORAGE_BUFFER);
-    uniform->set_binding(binding);
-    uniform->add_id(buffer_rid);
-    uniforms.append(uniform);
+int32_t shape_to_code(const String &shape) {
+    String normalized = shape.to_lower();
+    if (normalized == String("radial")) {
+        return 1;
+    }
+    return 0;
 }
 
-void free_if_valid(RenderingDevice *rd, RID &rid) {
-    if (rd != nullptr && rid.is_valid()) {
-        rd->free_rid(rid);
-        rid = RID();
+int32_t noise_mode_to_code(const String &noise_mode) {
+    const String normalized = noise_mode.to_lower();
+    if (normalized == String("multiply")) {
+        return 1;
     }
+    if (normalized == String("replace")) {
+        return 2;
+    }
+    if (normalized == String("add")) {
+        return 3;
+    }
+    return 0;
 }
 
 VoxelGpuExecutionResult fail_result(const String &error_code, const std::vector<VoxelEditOp> &pending_ops) {
@@ -105,11 +101,17 @@ VoxelGpuExecutionResult fail_result(const String &error_code, const std::vector<
     return result;
 }
 
+String unavailable_error_code(const bool gpu_required, const String &fallback_error) {
+    if (gpu_required) {
+        return String("gpu_required_but_unavailable");
+    }
+    return fallback_error;
+}
+
 } // namespace
 
 VoxelGpuExecutionResult VoxelEditGpuExecutor::execute(
     const std::vector<VoxelEditOp> &ops,
-    const std::vector<float> &previous_values,
     const VoxelGpuRuntimePolicy &policy,
     const int32_t chunk_size,
     const String &shader_path
@@ -119,10 +121,8 @@ VoxelGpuExecutionResult VoxelEditGpuExecutor::execute(
 
     std::vector<VoxelEditOp> deferred_ops;
     std::vector<VoxelEditOp> dispatch_ops;
-    std::vector<float> dispatch_previous_values;
     deferred_ops.reserve(ops.size());
     dispatch_ops.reserve(ops.size());
-    dispatch_previous_values.reserve(ops.size());
 
     const int32_t op_stride = std::max(1, policy.op_stride);
     const int32_t stride_phase = static_cast<int32_t>(policy.stride_phase % op_stride);
@@ -136,183 +136,111 @@ VoxelGpuExecutionResult VoxelEditGpuExecutor::execute(
             }
         }
         dispatch_ops.push_back(op);
-        dispatch_previous_values.push_back(op_index < previous_values.size() ? previous_values[op_index] : 0.0f);
     }
     stats.ops_processed = static_cast<int64_t>(dispatch_ops.size());
+    const bool gpu_required = true;
+    if (dispatch_ops.empty()) {
+        Dictionary changed_region;
+        changed_region["valid"] = false;
+        changed_region["min"] = Dictionary();
+        changed_region["max"] = Dictionary();
+
+        stats.changed_region = changed_region;
+        stats.changed_chunks = Array();
+        stats.changed_entries = Array();
+
+        VoxelGpuExecutionResult result;
+        result.ok = true;
+        result.stats = stats;
+        result.deferred_ops = std::move(deferred_ops);
+        return result;
+    }
 
     OS *os = OS::get_singleton();
     if (os != nullptr && os->has_feature(StringName("headless"))) {
-        return fail_result(String("gpu_backend_unavailable"), ops);
+        return fail_result(unavailable_error_code(gpu_required, String("gpu_backend_unavailable")), ops);
     }
 
     DisplayServer *display_server = DisplayServer::get_singleton();
     if (display_server == nullptr) {
-        return fail_result(String("gpu_backend_unavailable"), ops);
+        return fail_result(unavailable_error_code(gpu_required, String("gpu_backend_unavailable")), ops);
     }
 
-    RenderingServer *rendering_server = RenderingServer::get_singleton();
-    if (rendering_server == nullptr) {
-        return fail_result(String("gpu_rendering_server_unavailable"), ops);
+    const int64_t dispatch_count = static_cast<int64_t>(dispatch_ops.size());
+    VoxelGpuResourceCache &cache = VoxelGpuResourceCache::for_current_thread();
+    const VoxelGpuResourceAcquireResult acquire_result = cache.acquire(shader_path, dispatch_count);
+    if (!acquire_result.ok || acquire_result.bindings.rd == nullptr) {
+        return fail_result(acquire_result.error_code, ops);
     }
 
-    RenderingDevice *rd = rendering_server->create_local_rendering_device();
-    if (rd == nullptr) {
-        return fail_result(String("gpu_device_create_failed"), ops);
-    }
+    RenderingDevice *rd = acquire_result.bindings.rd;
 
-    RID shader_rid;
-    RID pipeline_rid;
-    RID ops_rid;
-    RID out_rid;
-    RID params_rid;
-    RID uniform_set_rid;
-
-    const Ref<Resource> shader_resource = ResourceLoader::get_singleton()->load(shader_path, String("RDShaderFile"));
-    const Ref<RDShaderFile> shader_file = shader_resource;
-    if (shader_file.is_null()) {
-        memdelete(rd);
-        return fail_result(String("gpu_shader_load_failed"), ops);
-    }
-
-    const Ref<RDShaderSPIRV> shader_spirv = shader_file->get_spirv();
-    if (shader_spirv.is_null()) {
-        memdelete(rd);
-        return fail_result(String("gpu_shader_spirv_missing"), ops);
-    }
-
-    shader_rid = rd->shader_create_from_spirv(shader_spirv, String("VoxelEditStageCompute"));
-    if (!shader_rid.is_valid()) {
-        memdelete(rd);
-        return fail_result(String("gpu_shader_create_failed"), ops);
-    }
-
-    pipeline_rid = rd->compute_pipeline_create(shader_rid);
-    if (!pipeline_rid.is_valid()) {
-        free_if_valid(rd, shader_rid);
-        memdelete(rd);
-        return fail_result(String("gpu_pipeline_create_failed"), ops);
-    }
-
-    const int64_t dispatch_count = std::max<int64_t>(1, static_cast<int64_t>(dispatch_ops.size()));
+    const int32_t voxel_scale = std::max(1, policy.voxel_scale);
 
     PackedByteArray op_bytes;
     op_bytes.resize(dispatch_count * k_op_stride_bytes);
     for (int64_t i = 0; i < dispatch_count; i += 1) {
         const int64_t offset = i * k_op_stride_bytes;
-        if (i >= static_cast<int64_t>(dispatch_ops.size())) {
-            op_bytes.encode_s32(offset + 0, 0);
-            op_bytes.encode_s32(offset + 4, 0);
-            op_bytes.encode_s32(offset + 8, 0);
-            op_bytes.encode_s32(offset + 12, 0);
-            op_bytes.encode_u32(offset + 16, 0);
-            op_bytes.encode_u32(offset + 20, 0);
-            op_bytes.encode_float(offset + 24, 0.0);
-            op_bytes.encode_float(offset + 28, 0.0);
-            op_bytes.encode_float(offset + 32, 0.0);
-            op_bytes.encode_float(offset + 36, 0.0);
-            op_bytes.encode_float(offset + 40, 0.0);
-            op_bytes.encode_float(offset + 44, 0.0);
-            continue;
-        }
-
         const VoxelEditOp &op = dispatch_ops[static_cast<size_t>(i)];
+        const int32_t aligned_x = floor_div(op.voxel.x, voxel_scale) * voxel_scale;
+        const int32_t aligned_y = floor_div(op.voxel.y, voxel_scale) * voxel_scale;
+        const int32_t aligned_z = floor_div(op.voxel.z, voxel_scale) * voxel_scale;
         op_bytes.encode_s32(offset + 0, op.voxel.x);
         op_bytes.encode_s32(offset + 4, op.voxel.y);
         op_bytes.encode_s32(offset + 8, op.voxel.z);
-        op_bytes.encode_s32(offset + 12, operation_to_code(op.operation));
-        op_bytes.encode_u32(offset + 16, static_cast<int64_t>(static_cast<uint32_t>(op.sequence_id & 0xffffffffULL)));
-        op_bytes.encode_u32(offset + 20, static_cast<int64_t>(static_cast<uint32_t>((op.sequence_id >> 32u) & 0xffffffffULL)));
-        op_bytes.encode_float(offset + 24, static_cast<float>(op.value));
-        op_bytes.encode_float(offset + 28, dispatch_previous_values[static_cast<size_t>(i)]);
-        op_bytes.encode_float(offset + 32, static_cast<float>(op.cleave_normal_x));
-        op_bytes.encode_float(offset + 36, static_cast<float>(op.cleave_normal_y));
-        op_bytes.encode_float(offset + 40, static_cast<float>(op.cleave_normal_z));
-        op_bytes.encode_float(offset + 44, static_cast<float>(op.cleave_plane_offset));
+        op_bytes.encode_s32(offset + 12, aligned_x);
+        op_bytes.encode_s32(offset + 16, aligned_y);
+        op_bytes.encode_s32(offset + 20, aligned_z);
+        op_bytes.encode_s32(offset + 24, operation_to_code(op.operation));
+        op_bytes.encode_u32(offset + 28, static_cast<int64_t>(static_cast<uint32_t>(op.sequence_id & 0xffffffffULL)));
+        op_bytes.encode_u32(offset + 32, static_cast<int64_t>(static_cast<uint32_t>((op.sequence_id >> 32u) & 0xffffffffULL)));
+        op_bytes.encode_float(offset + 36, static_cast<float>(op.value));
+        op_bytes.encode_float(offset + 40, 0.0f);
+        op_bytes.encode_float(offset + 44, static_cast<float>(op.cleave_normal_x));
+        op_bytes.encode_float(offset + 48, static_cast<float>(op.cleave_normal_y));
+        op_bytes.encode_float(offset + 52, static_cast<float>(op.cleave_normal_z));
+        op_bytes.encode_float(offset + 56, static_cast<float>(op.cleave_plane_offset));
+        op_bytes.encode_float(offset + 60, static_cast<float>(op.radius));
+        op_bytes.encode_s32(offset + 64, shape_to_code(op.shape));
+        op_bytes.encode_u32(offset + 68, static_cast<int64_t>(static_cast<uint32_t>(op.noise_seed & 0xffffffffULL)));
+        op_bytes.encode_u32(offset + 72, static_cast<int64_t>(static_cast<uint32_t>((static_cast<uint64_t>(op.noise_seed) >> 32u) & 0xffffffffULL)));
+        op_bytes.encode_float(offset + 76, static_cast<float>(op.noise_amplitude));
+        op_bytes.encode_float(offset + 80, static_cast<float>(op.noise_frequency));
+        op_bytes.encode_s32(offset + 84, noise_mode_to_code(op.noise_mode));
     }
-
-    PackedByteArray out_bytes;
-    out_bytes.resize(dispatch_count * k_out_stride_bytes);
 
     PackedByteArray param_bytes;
-    param_bytes.resize(k_param_stride_bytes);
+    param_bytes.resize(8);
     param_bytes.encode_u32(0, static_cast<int64_t>(dispatch_ops.size()));
-    param_bytes.encode_s32(4, std::max(1, policy.voxel_scale));
-    param_bytes.encode_s32(8, 0);
-    param_bytes.encode_s32(12, 0);
+    param_bytes.encode_s32(4, voxel_scale);
 
-    ops_rid = rd->storage_buffer_create(static_cast<uint32_t>(op_bytes.size()), op_bytes);
-    out_rid = rd->storage_buffer_create(static_cast<uint32_t>(out_bytes.size()), out_bytes);
-    params_rid = rd->storage_buffer_create(static_cast<uint32_t>(param_bytes.size()), param_bytes);
-    if (!ops_rid.is_valid() || !out_rid.is_valid() || !params_rid.is_valid()) {
-        free_if_valid(rd, params_rid);
-        free_if_valid(rd, out_rid);
-        free_if_valid(rd, ops_rid);
-        free_if_valid(rd, pipeline_rid);
-        free_if_valid(rd, shader_rid);
-        memdelete(rd);
-        return fail_result(String("gpu_buffer_create_failed"), ops);
-    }
+    rd->buffer_update(acquire_result.bindings.ops_rid, 0, static_cast<uint32_t>(op_bytes.size()), op_bytes);
+    rd->buffer_update(acquire_result.bindings.params_rid, 0, static_cast<uint32_t>(param_bytes.size()), param_bytes);
 
-    TypedArray<Ref<RDUniform>> uniforms;
-    add_storage_uniform(ops_rid, 0, uniforms);
-    add_storage_uniform(out_rid, 1, uniforms);
-    add_storage_uniform(params_rid, 2, uniforms);
-    uniform_set_rid = rd->uniform_set_create(uniforms, shader_rid, 0);
-    if (!uniform_set_rid.is_valid()) {
-        free_if_valid(rd, params_rid);
-        free_if_valid(rd, out_rid);
-        free_if_valid(rd, ops_rid);
-        free_if_valid(rd, pipeline_rid);
-        free_if_valid(rd, shader_rid);
-        memdelete(rd);
-        return fail_result(String("gpu_uniform_set_create_failed"), ops);
-    }
-
-    const uint64_t max_workgroup_size_x = rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_WORKGROUP_SIZE_X);
-    const uint64_t max_workgroup_invocations = rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_WORKGROUP_INVOCATIONS);
-    const uint64_t max_workgroup_count_x = rd->limit_get(RenderingDevice::LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_X);
+    const uint64_t max_workgroup_size_x = acquire_result.bindings.max_workgroup_size_x;
+    const uint64_t max_workgroup_invocations = acquire_result.bindings.max_workgroup_invocations;
+    const uint64_t max_workgroup_count_x = acquire_result.bindings.max_workgroup_count_x;
     if (max_workgroup_size_x == 0 || max_workgroup_invocations == 0 || max_workgroup_count_x == 0) {
-        free_if_valid(rd, uniform_set_rid);
-        free_if_valid(rd, params_rid);
-        free_if_valid(rd, out_rid);
-        free_if_valid(rd, ops_rid);
-        free_if_valid(rd, pipeline_rid);
-        free_if_valid(rd, shader_rid);
-        memdelete(rd);
         return fail_result(String("gpu_compute_limits_unavailable"), ops);
     }
     if (k_workgroup_size > static_cast<int64_t>(max_workgroup_size_x) || k_workgroup_size > static_cast<int64_t>(max_workgroup_invocations)) {
-        free_if_valid(rd, uniform_set_rid);
-        free_if_valid(rd, params_rid);
-        free_if_valid(rd, out_rid);
-        free_if_valid(rd, ops_rid);
-        free_if_valid(rd, pipeline_rid);
-        free_if_valid(rd, shader_rid);
-        memdelete(rd);
         return fail_result(String("gpu_compute_workgroup_unsupported"), ops);
     }
 
     const uint32_t group_count = static_cast<uint32_t>((dispatch_count + (k_workgroup_size - 1)) / k_workgroup_size);
     if (group_count > max_workgroup_count_x) {
-        free_if_valid(rd, uniform_set_rid);
-        free_if_valid(rd, params_rid);
-        free_if_valid(rd, out_rid);
-        free_if_valid(rd, ops_rid);
-        free_if_valid(rd, pipeline_rid);
-        free_if_valid(rd, shader_rid);
-        memdelete(rd);
         return fail_result(String("gpu_compute_dispatch_too_large"), ops);
     }
 
     const int64_t compute_list = rd->compute_list_begin();
-    rd->compute_list_bind_compute_pipeline(compute_list, pipeline_rid);
-    rd->compute_list_bind_uniform_set(compute_list, uniform_set_rid, 0);
+    rd->compute_list_bind_compute_pipeline(compute_list, acquire_result.bindings.pipeline_rid);
+    rd->compute_list_bind_uniform_set(compute_list, acquire_result.bindings.uniform_set_rid, 0);
     rd->compute_list_dispatch(compute_list, std::max<uint32_t>(1, group_count), 1, 1);
     rd->compute_list_end();
     rd->submit();
     rd->sync();
 
-    const PackedByteArray readback = rd->buffer_get_data(out_rid);
+    const PackedByteArray readback = rd->buffer_get_data(acquire_result.bindings.out_rid);
 
     bool has_region = false;
     int32_t min_x = 0;
@@ -391,14 +319,6 @@ VoxelGpuExecutionResult VoxelEditGpuExecutor::execute(
     for (const ChunkKey &chunk : changed_chunks) {
         changed_chunks_array.append(build_point_dict(chunk.x, chunk.y, chunk.z));
     }
-
-    free_if_valid(rd, uniform_set_rid);
-    free_if_valid(rd, params_rid);
-    free_if_valid(rd, out_rid);
-    free_if_valid(rd, ops_rid);
-    free_if_valid(rd, pipeline_rid);
-    free_if_valid(rd, shader_rid);
-    memdelete(rd);
 
     stats.changed_region = changed_region;
     stats.changed_chunks = changed_chunks_array;

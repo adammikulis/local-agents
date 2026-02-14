@@ -44,7 +44,6 @@ class VoxelEditGpuExecutor final {
 public:
     static VoxelGpuExecutionResult execute(
         const std::vector<VoxelEditOp> &ops,
-        const std::vector<float> &previous_values,
         const VoxelGpuRuntimePolicy &policy,
         int32_t chunk_size,
         const godot::String &shader_path
