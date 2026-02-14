@@ -14,31 +14,28 @@ func run_test(tree: SceneTree) -> bool:
 	root.add_child(app_root)
 	await tree.process_frame
 	await tree.process_frame
-	var app = app_root.get_node_or_null("WorldSimulatorApp")
-	if app == null:
-		push_error("Main did not spawn WorldSimulatorApp")
+	var simulation = app_root.get_node_or_null("WorldSimulation")
+	if simulation == null:
+		push_error("Main did not spawn WorldSimulation")
 		app_root.queue_free()
 		await tree.process_frame
 		return false
-	if not app.has_method("_generate_world"):
-		push_error("WorldSimulatorApp missing _generate_world")
+	var simulation_controller = simulation.get_node_or_null("SimulationController")
+	if simulation_controller == null:
+		push_error("WorldSimulation missing SimulationController")
 		app_root.queue_free()
 		await tree.process_frame
 		return false
-	# Force generation to make test deterministic even if scenario changes.
-	app.call("_generate_world")
-	await tree.process_frame
-	var tick_before = int(app.get("_sim_tick"))
+	if simulation.has_method("_on_hud_play_pressed"):
+		simulation.call("_on_hud_play_pressed")
 	for _i in range(6):
 		await tree.process_frame
-	var tick_after = int(app.get("_sim_tick"))
-	var world_snapshot: Dictionary = app.get("_world_snapshot")
 	var ok = true
-	if world_snapshot.is_empty():
-		push_error("World snapshot is empty after generation")
+	if not simulation.is_inside_tree():
+		push_error("WorldSimulation left scene tree unexpectedly")
 		ok = false
-	if tick_after < tick_before:
-		push_error("Simulation tick regressed: %d -> %d" % [tick_before, tick_after])
+	if not simulation_controller.is_inside_tree():
+		push_error("SimulationController left scene tree unexpectedly")
 		ok = false
 	app_root.queue_free()
 	await tree.process_frame

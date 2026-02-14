@@ -10,6 +10,7 @@ const SimulationGraphicsSettingsScript = preload("res://addons/local_agents/scen
 const WorldCameraControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldCameraController.gd")
 const WorldHudBindingControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldHudBindingController.gd")
 const WorldEnvironmentSyncControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldEnvironmentSyncController.gd")
+const FpsLauncherControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd")
 
 @onready var simulation_controller: Node = $SimulationController
 @onready var environment_controller: Node3D = $EnvironmentController
@@ -22,6 +23,7 @@ const WorldEnvironmentSyncControllerScript = preload("res://addons/local_agents/
 @onready var sun_light: DirectionalLight3D = $DirectionalLight3D
 @onready var world_environment: WorldEnvironment = $WorldEnvironment
 @onready var world_camera: Camera3D = $Camera3D
+@onready var fps_launcher_controller: Node = get_node_or_null("FpsLauncherController")
 
 @export var world_seed_text: String = "world_progression_main"
 @export var auto_generate_on_ready: bool = true
@@ -50,6 +52,7 @@ const WorldEnvironmentSyncControllerScript = preload("res://addons/local_agents/
 @export_range(1, 16, 1) var visual_environment_update_interval_ticks: int = 4
 @export_range(1, 16, 1) var living_profile_push_interval_ticks: int = 4
 @export_range(1, 8, 1) var hud_refresh_interval_ticks: int = 2
+@export_enum("voxel_destruction_only", "full_sim", "lightweight_demo") var runtime_demo_profile: String = "voxel_destruction_only"
 
 var _loop_controller = SimulationLoopControllerScript.new()
 var _last_state: Dictionary = {}
@@ -58,6 +61,8 @@ var _atmosphere_cycle = AtmosphereCycleControllerScript.new()
 var _spawn_mode: String = "none"
 var _graphics_state: Dictionary = SimulationGraphicsSettingsScript.default_state()
 var _last_hud_refresh_tick: int = -1
+var _runtime_profile_baseline: Dictionary = {}
+var _runtime_demo_profile_applied: String = ""
 
 var _camera_controller = WorldCameraControllerScript.new()
 var _hud_binding_controller = WorldHudBindingControllerScript.new()
@@ -84,6 +89,12 @@ func _ready() -> void:
 	_camera_controller.configure(world_camera, orbit_sensitivity, pan_sensitivity, zoom_step_ratio, min_zoom_distance, max_zoom_distance, min_pitch_degrees, max_pitch_degrees)
 	_environment_sync_controller.configure(environment_controller, world_environment, sun_light, simulation_controller, _ecology_controller, _loop_controller, _atmosphere_cycle)
 	_environment_sync_controller.cache_environment_supported_flags()
+	if fps_launcher_controller == null:
+		fps_launcher_controller = FpsLauncherControllerScript.new()
+		fps_launcher_controller.name = "FpsLauncherController"
+		add_child(fps_launcher_controller)
+	if fps_launcher_controller.has_method("configure"):
+		fps_launcher_controller.call("configure", world_camera, self)
 
 	_hud_binding_controller.connect_simulation_hud(simulation_hud, {
 		"play": Callable(self, "_on_hud_play_pressed"),
@@ -103,7 +114,7 @@ func _ready() -> void:
 
 	_initialize_camera_orbit()
 	_on_hud_overlays_changed(false, false, false, false, false, false)
-	_apply_graphics_state()
+	_apply_runtime_demo_profile(runtime_demo_profile)
 	if _ecology_controller != null and _ecology_controller.has_method("set_debug_overlay"):
 		_ecology_controller.call("set_debug_overlay", debug_overlay_root)
 	if not auto_generate_on_ready:
@@ -119,6 +130,12 @@ func _ready() -> void:
 	var setup: Dictionary = simulation_controller.configure_environment(worldgen_config_override)
 	if not bool(setup.get("ok", false)):
 		return
+	if simulation_controller.has_method("stamp_default_voxel_target_wall"):
+		var wall_result = simulation_controller.call("stamp_default_voxel_target_wall", 0, world_camera.global_transform, false)
+		if wall_result is Dictionary and bool((wall_result as Dictionary).get("changed", false)):
+			var wall = wall_result as Dictionary
+			setup["environment"] = wall.get("environment_snapshot", setup.get("environment", {}))
+			setup["hydrology"] = wall.get("water_network_snapshot", setup.get("hydrology", {}))
 	if environment_controller.has_method("apply_generation_data"):
 		environment_controller.apply_generation_data(setup.get("environment", {}), setup.get("hydrology", {}))
 	if environment_controller.has_method("set_weather_state"):
@@ -142,6 +159,25 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_update_day_night(delta)
+	if fps_launcher_controller != null and fps_launcher_controller.has_method("step"):
+		fps_launcher_controller.call("step", delta)
+	if fps_launcher_controller != null and fps_launcher_controller.has_method("sample_active_projectile_contacts"):
+		var rows_variant = fps_launcher_controller.call("sample_active_projectile_contacts")
+		if rows_variant is Array:
+			var rows := rows_variant as Array
+			if not rows.is_empty() and simulation_controller != null and simulation_controller.has_method("ingest_physics_contacts"):
+				var ingest = simulation_controller.call("ingest_physics_contacts", _loop_controller.current_tick(), rows, false)
+				if ingest is Dictionary and bool((ingest as Dictionary).get("changed", false)):
+					var ingest_result = ingest as Dictionary
+					_sync_environment_from_state({
+						"tick": _loop_controller.current_tick(),
+						"environment_snapshot": ingest_result.get("environment_snapshot", {}),
+						"water_network_snapshot": ingest_result.get("water_network_snapshot", {}),
+						"weather_snapshot": simulation_controller.call("get_weather_snapshot") if simulation_controller.has_method("get_weather_snapshot") else {},
+						"solar_snapshot": simulation_controller.call("get_solar_snapshot") if simulation_controller.has_method("get_solar_snapshot") else {},
+						"erosion_changed": true,
+						"erosion_changed_tiles": (ingest_result.get("changed_tiles", []) as Array).duplicate(true),
+					}, false)
 	_push_native_view_metrics()
 	_apply_loop_result(_loop_controller.process_frame(delta, Callable(self, "_collect_living_entity_profiles")))
 
@@ -154,8 +190,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mouse_event = event as InputEventMouseButton
 		_handle_camera_mouse_button(mouse_event)
-		if mouse_event.button_index == MOUSE_BUTTON_LEFT and mouse_event.pressed and _spawn_mode != "none":
-			_handle_spawn_click(mouse_event.position)
+		if mouse_event.button_index == MOUSE_BUTTON_LEFT and mouse_event.pressed:
+			if _spawn_mode != "none":
+				_handle_spawn_click(mouse_event.position)
+			elif fps_launcher_controller != null and fps_launcher_controller.has_method("try_fire_from_screen_center"):
+				fps_launcher_controller.call("try_fire_from_screen_center")
 
 func _on_field_spawn_mode_requested(mode: String) -> void:
 	_spawn_mode = mode
@@ -267,6 +306,12 @@ func _on_hud_graphics_option_changed(option_id: String, value) -> void:
 	_graphics_state[key] = _environment_sync_controller.sanitize_graphics_value(key, value)
 	_apply_graphics_state()
 
+func set_runtime_demo_profile(profile_id: String) -> void:
+	_apply_runtime_demo_profile(profile_id)
+
+func runtime_demo_profile_id() -> String:
+	return _runtime_demo_profile_applied if _runtime_demo_profile_applied != "" else _sanitize_runtime_demo_profile(runtime_demo_profile)
+
 func _apply_graphics_state() -> void:
 	_graphics_state = _environment_sync_controller.apply_graphics_state(
 		_graphics_state,
@@ -274,9 +319,162 @@ func _apply_graphics_state() -> void:
 		living_profile_push_interval_ticks
 	)
 	if _graphics_state.has("_visual_environment_update_interval_ticks"):
-		visual_environment_update_interval_ticks = maxi(1, int(_graphics_state.get("_visual_environment_update_interval_ticks", visual_environment_update_interval_ticks)))
-		_graphics_state.erase("_visual_environment_update_interval_ticks")
-	_hud_binding_controller.push_graphics_state(simulation_hud, _graphics_state)
+			visual_environment_update_interval_ticks = maxi(1, int(_graphics_state.get("_visual_environment_update_interval_ticks", visual_environment_update_interval_ticks)))
+			_graphics_state.erase("_visual_environment_update_interval_ticks")
+		_hud_binding_controller.push_graphics_state(simulation_hud, _graphics_state)
+
+func _apply_runtime_demo_profile(profile_id: String) -> void:
+	_capture_runtime_profile_baseline_if_needed()
+	var sanitized_profile := _sanitize_runtime_demo_profile(profile_id)
+	_restore_runtime_profile_baseline()
+	var profile_settings := _runtime_profile_settings(sanitized_profile)
+	var controller_settings_variant = profile_settings.get("controller", {})
+	if controller_settings_variant is Dictionary:
+		_apply_runtime_controller_settings(controller_settings_variant as Dictionary)
+	var graphics_settings_variant = profile_settings.get("graphics", {})
+	if graphics_settings_variant is Dictionary:
+		_apply_runtime_graphics_settings(graphics_settings_variant as Dictionary)
+	runtime_demo_profile = sanitized_profile
+	_runtime_demo_profile_applied = sanitized_profile
+	_apply_graphics_state()
+
+func _capture_runtime_profile_baseline_if_needed() -> void:
+	if not _runtime_profile_baseline.is_empty():
+		return
+	_runtime_profile_baseline = {
+		"simulation_ticks_per_second": simulation_ticks_per_second,
+		"living_profile_push_interval_ticks": living_profile_push_interval_ticks,
+		"visual_environment_update_interval_ticks": visual_environment_update_interval_ticks,
+		"hud_refresh_interval_ticks": hud_refresh_interval_ticks,
+		"day_night_cycle_enabled": day_night_cycle_enabled,
+		"graphics_state": SimulationGraphicsSettingsScript.merge_with_defaults(_graphics_state).duplicate(true),
+	}
+
+func _restore_runtime_profile_baseline() -> void:
+	if _runtime_profile_baseline.is_empty():
+		return
+	simulation_ticks_per_second = float(_runtime_profile_baseline.get("simulation_ticks_per_second", simulation_ticks_per_second))
+	living_profile_push_interval_ticks = maxi(1, int(_runtime_profile_baseline.get("living_profile_push_interval_ticks", living_profile_push_interval_ticks)))
+	visual_environment_update_interval_ticks = maxi(1, int(_runtime_profile_baseline.get("visual_environment_update_interval_ticks", visual_environment_update_interval_ticks)))
+	hud_refresh_interval_ticks = maxi(1, int(_runtime_profile_baseline.get("hud_refresh_interval_ticks", hud_refresh_interval_ticks)))
+	day_night_cycle_enabled = bool(_runtime_profile_baseline.get("day_night_cycle_enabled", day_night_cycle_enabled))
+	var baseline_graphics_variant = _runtime_profile_baseline.get("graphics_state", {})
+	if baseline_graphics_variant is Dictionary:
+		_graphics_state = (baseline_graphics_variant as Dictionary).duplicate(true)
+	else:
+		_graphics_state = SimulationGraphicsSettingsScript.default_state()
+
+func _apply_runtime_controller_settings(settings: Dictionary) -> void:
+	if settings.has("simulation_ticks_per_second"):
+		simulation_ticks_per_second = clampf(float(settings.get("simulation_ticks_per_second")), 0.5, 30.0)
+	if settings.has("living_profile_push_interval_ticks"):
+		living_profile_push_interval_ticks = maxi(1, int(settings.get("living_profile_push_interval_ticks")))
+	if settings.has("visual_environment_update_interval_ticks"):
+		visual_environment_update_interval_ticks = maxi(1, int(settings.get("visual_environment_update_interval_ticks")))
+	if settings.has("hud_refresh_interval_ticks"):
+		hud_refresh_interval_ticks = maxi(1, int(settings.get("hud_refresh_interval_ticks")))
+	if settings.has("day_night_cycle_enabled"):
+		day_night_cycle_enabled = bool(settings.get("day_night_cycle_enabled"))
+
+func _apply_runtime_graphics_settings(settings: Dictionary) -> void:
+	for key_variant in settings.keys():
+		var key := String(key_variant)
+		_graphics_state[key] = _environment_sync_controller.sanitize_graphics_value(key, settings.get(key_variant))
+
+func _sanitize_runtime_demo_profile(profile_id: String) -> String:
+	var normalized := String(profile_id).strip_edges().to_lower()
+	if normalized in ["full_sim", "voxel_destruction_only", "lightweight_demo"]:
+		return normalized
+	return "voxel_destruction_only"
+
+func _runtime_profile_settings(profile_id: String) -> Dictionary:
+	match profile_id:
+		"full_sim":
+			return {
+				"controller": {
+					"simulation_ticks_per_second": 4.0,
+					"living_profile_push_interval_ticks": 4,
+					"visual_environment_update_interval_ticks": 2,
+					"hud_refresh_interval_ticks": 1,
+					"day_night_cycle_enabled": true,
+				},
+				"graphics": {
+					"water_shader_enabled": true,
+					"ocean_surface_enabled": true,
+					"river_overlays_enabled": true,
+					"rain_post_fx_enabled": true,
+					"clouds_enabled": true,
+					"cloud_quality": "medium",
+					"cloud_density_scale": 0.6,
+					"rain_visual_intensity_scale": 0.65,
+					"shadows_enabled": true,
+					"ssao_enabled": true,
+					"glow_enabled": true,
+					"simulation_rate_override_enabled": false,
+					"simulation_locality_enabled": false,
+					"weather_solver_decimation_enabled": false,
+					"hydrology_solver_decimation_enabled": false,
+					"erosion_solver_decimation_enabled": false,
+					"solar_solver_decimation_enabled": false,
+					"resource_pipeline_decimation_enabled": false,
+					"structure_lifecycle_decimation_enabled": false,
+					"culture_cycle_decimation_enabled": false,
+					"ecology_step_decimation_enabled": false,
+				},
+			}
+		"lightweight_demo":
+			return {
+				"controller": {
+					"simulation_ticks_per_second": 4.0,
+					"living_profile_push_interval_ticks": 8,
+					"visual_environment_update_interval_ticks": 8,
+					"hud_refresh_interval_ticks": 4,
+					"day_night_cycle_enabled": false,
+				},
+				"graphics": {
+					"water_shader_enabled": false,
+					"ocean_surface_enabled": false,
+					"river_overlays_enabled": false,
+					"rain_post_fx_enabled": false,
+					"clouds_enabled": false,
+					"shadows_enabled": false,
+					"ssr_enabled": false,
+					"ssao_enabled": false,
+					"ssil_enabled": false,
+					"sdfgi_enabled": false,
+					"glow_enabled": false,
+					"fog_enabled": false,
+					"volumetric_fog_enabled": false,
+					"simulation_rate_override_enabled": true,
+					"simulation_ticks_per_second_override": 2.0,
+					"simulation_locality_enabled": true,
+					"simulation_locality_dynamic_enabled": true,
+					"simulation_locality_radius_tiles": 1,
+					"weather_solver_decimation_enabled": true,
+					"hydrology_solver_decimation_enabled": true,
+					"erosion_solver_decimation_enabled": true,
+					"solar_solver_decimation_enabled": true,
+					"resource_pipeline_decimation_enabled": true,
+					"structure_lifecycle_decimation_enabled": true,
+					"culture_cycle_decimation_enabled": true,
+					"weather_texture_upload_decimation_enabled": true,
+					"surface_texture_upload_decimation_enabled": true,
+					"solar_texture_upload_decimation_enabled": true,
+					"texture_upload_interval_ticks": 12,
+					"texture_upload_budget_texels": 2048,
+					"ecology_step_decimation_enabled": true,
+					"ecology_step_interval_seconds": 0.35,
+					"smell_gpu_compute_enabled": false,
+					"wind_gpu_compute_enabled": false,
+					"voxel_process_gating_enabled": true,
+					"voxel_dynamic_tick_rate_enabled": true,
+					"voxel_tick_min_interval_seconds": 0.12,
+					"voxel_tick_max_interval_seconds": 0.9,
+				},
+			}
+		_:
+			# voxel_destruction_only intentionally maps to baseline-only behavior.
+			return {}
 
 func _push_native_view_metrics() -> void:
 	if simulation_controller == null or not simulation_controller.has_method("set_native_view_metrics"):

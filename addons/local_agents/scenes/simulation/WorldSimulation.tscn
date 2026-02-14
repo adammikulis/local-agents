@@ -14,6 +14,7 @@
 [ext_resource type="Resource" path="res://addons/local_agents/configuration/parameters/simulation/WorldProgressionProfile_Default.tres" id="12_world_progression"]
 [ext_resource type="Script" uid="uid://cukythmycap53" path="res://addons/local_agents/scenes/simulation/controllers/PerformanceTelemetryServer.gd" id="13_perf_server"]
 [ext_resource type="PackedScene" path="res://addons/local_agents/scenes/simulation/ui/FieldHud.tscn" id="14_field_hud"]
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd" id="15_fps_launcher"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_world"]
 sky_top_color = Color(0.18, 0.42, 0.78, 1)
@@ -36,6 +37,10 @@ sdfgi_min_cell_size = 0.35
 
 [node name="WorldSimulation" type="Node3D" unique_id=2127334031]
 script = ExtResource("1_world")
+auto_play_on_ready = false
+years_per_tick = 0.0
+simulated_seconds_per_tick = 0.0
+day_night_cycle_enabled = false
 flow_traversal_profile_override = ExtResource("10_flow_profile")
 worldgen_config_override = ExtResource("11_worldgen_config")
 world_progression_profile_override = ExtResource("12_world_progression")
@@ -48,6 +53,7 @@ script = ExtResource("2_sim")
 
 [node name="PerformanceTelemetryServer" type="Node" parent="." unique_id=918037041]
 script = ExtResource("13_perf_server")
+process_mode = 4
 
 [node name="EnvironmentController" type="Node3D" parent="." unique_id=1976999026]
 script = ExtResource("3_env")
@@ -58,19 +64,23 @@ script = ExtResource("3_env")
 
 [node name="SettlementController" type="Node3D" parent="." unique_id=1592276240]
 script = ExtResource("4_settlement")
+process_mode = 4
 
 [node name="SettlementRoot" type="Node3D" parent="SettlementController" unique_id=1748143632]
 
 [node name="VillagerController" type="Node3D" parent="." unique_id=1212144881]
 script = ExtResource("5_villagers")
+process_mode = 4
 
 [node name="VillagerRoot" type="Node3D" parent="VillagerController" unique_id=1034760088]
 
 [node name="CultureController" type="Node3D" parent="." unique_id=1068657411]
 script = ExtResource("6_culture")
+process_mode = 4
 
 [node name="EcologyController" type="Node3D" parent="." unique_id=2134405285]
 script = ExtResource("9_ecology")
+process_mode = 4
 
 [node name="PlantRoot" type="Node3D" parent="EcologyController" unique_id=1790888063]
 
@@ -87,6 +97,11 @@ shadow_enabled = true
 transform = Transform3D(0.994522, 0, -0.104528, -0.0441546, 0.906279, -0.420364, 0.0947338, 0.422677, 0.901314, 0, 8.2, 11.5)
 current = true
 
+[node name="FpsLauncherController" type="Node" parent="." unique_id=1995302122]
+script = ExtResource("15_fps_launcher")
+
 [node name="SimulationHud" parent="." unique_id=332746410 instance=ExtResource("8_hud")]
+process_mode = 4
 
 [node name="FieldHud" parent="." unique_id=1824013068 instance=ExtResource("14_field_hud")]
+process_mode = 4
