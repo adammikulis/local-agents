@@ -2,7 +2,6 @@ extends Node
 class_name FpsLauncherController
 
 const DEFAULT_PROJECTILE_SCENE = preload("res://addons/local_agents/scenes/simulation/actors/FpsLauncherProjectile.tscn")
-const PhysicsServerContactBridgeScript = preload("res://addons/local_agents/simulation/controller/PhysicsServerContactBridge.gd")
 
 @export var projectile_scene: PackedScene = DEFAULT_PROJECTILE_SCENE
 @export_range(1.0, 300.0, 0.5) var launch_speed: float = 60.0
@@ -56,12 +55,6 @@ func try_fire_from_screen_center() -> bool:
 	projectile.tree_exited.connect(_on_projectile_tree_exited.bind(projectile), CONNECT_ONE_SHOT)
 	_cooldown_remaining = cooldown_seconds
 	return true
-
-func sample_active_projectile_contacts() -> Array:
-	_prune_inactive()
-	if _active_projectiles.is_empty():
-		return []
-	return PhysicsServerContactBridgeScript.sample_contact_rows(_active_projectiles)
 
 func _prune_inactive() -> void:
 	for i in range(_active_projectiles.size() - 1, -1, -1):

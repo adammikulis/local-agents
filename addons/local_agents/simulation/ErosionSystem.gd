@@ -74,84 +74,14 @@ func apply_geomorph_delta(
 	)
 	if not native_result.is_empty():
 		return native_result
-	var column_overrides: Dictionary = options.get("column_overrides", {})
-	var water_tiles: Dictionary = water_snapshot.get("water_tiles", {})
-	var changed_tiles: Array = []
-	var changed_map: Dictionary = {}
-	for tile_id_variant in delta_by_tile.keys():
-		var tile_id = String(tile_id_variant)
-		var delta = float(delta_by_tile.get(tile_id, 0.0))
-		if absf(delta) <= 0.000001:
-			continue
-		if not tile_index.has(tile_id):
-			continue
-		var tile = tile_index.get(tile_id, {})
-		if not (tile is Dictionary):
-			continue
-		var tile_row = tile as Dictionary
-		var old_elev = clampf(float(tile_row.get("elevation", 0.0)), 0.0, 1.0)
-		var next_elev = clampf(old_elev + delta, 0.0, 1.0)
-		if absf(next_elev - old_elev) <= 0.000001:
-			continue
-		tile_row["elevation"] = next_elev
-		tile_index[tile_id] = tile_row
-		if not column_index.has(tile_id):
-			continue
-		var idx = int(column_index.get(tile_id, -1))
-		if idx < 0 or idx >= columns.size() or not (columns[idx] is Dictionary):
-			continue
-		var col = columns[idx] as Dictionary
-		var old_surface = int(col.get("surface_y", 0))
-		var delta_levels = int(round((next_elev - old_elev) * float(maxi(1, world_height - 1))))
-		if delta_levels == 0:
-			delta_levels = 1 if next_elev > old_elev else -1
-		var new_surface = clampi(old_surface + delta_levels, 1, world_height - 2)
-		if new_surface == old_surface:
-			continue
-		col["surface_y"] = new_surface
-		if column_overrides.has(tile_id) and column_overrides.get(tile_id, {}) is Dictionary:
-			var ov = column_overrides.get(tile_id, {}) as Dictionary
-			if ov.has("top_block"):
-				col["top_block"] = String(ov.get("top_block", col.get("top_block", "stone")))
-			if ov.has("subsoil_block"):
-				col["subsoil_block"] = String(ov.get("subsoil_block", col.get("subsoil_block", "stone")))
-		columns[idx] = col
-		changed_map[tile_id] = true
-		var hydro = water_tiles.get(tile_id, {})
-		if hydro is Dictionary:
-			var h = (hydro as Dictionary).duplicate(true)
-			var wet_adj = -delta * 0.35
-			h["water_reliability"] = clampf(float(h.get("water_reliability", 0.0)) + wet_adj, 0.0, 1.0)
-			h["flood_risk"] = clampf(float(h.get("flood_risk", 0.0)) + maxf(0.0, -delta) * 0.08, 0.0, 1.0)
-			water_tiles[tile_id] = h
-	for tile_id_variant in changed_map.keys():
-		changed_tiles.append(String(tile_id_variant))
-	changed_tiles.sort_custom(func(a, b): return String(a) < String(b))
-	if changed_tiles.is_empty():
-		return {
-			"environment": environment_snapshot,
-			"hydrology": water_snapshot,
-			"voxel_changed": false,
-			"changed_tiles": [],
-		}
-	ErosionVoxelWorldHelpersScript.update_tiles_array(environment_snapshot, tile_index)
-	voxel_world["columns"] = columns
-	voxel_world["column_index_by_tile"] = ErosionVoxelWorldHelpersScript.build_column_index(columns)
-	voxel_world["block_rows"] = ErosionVoxelWorldHelpersScript.rebuild_block_rows(voxel_world)
-	var chunk_size = maxi(4, int(voxel_world.get("block_rows_chunk_size", 12)))
-	voxel_world["block_rows_chunk_size"] = chunk_size
-	voxel_world["block_rows_by_chunk"] = ErosionVoxelWorldHelpersScript.build_chunk_row_index(voxel_world.get("block_rows", []), chunk_size)
-	voxel_world["block_type_counts"] = ErosionVoxelWorldHelpersScript.recount_block_types(voxel_world.get("block_rows", []))
-	var width = int(environment_snapshot.get("width", 0))
-	var height = int(environment_snapshot.get("height", 0))
-	voxel_world["surface_y_buffer"] = ErosionVoxelWorldHelpersScript.build_surface_y_buffer(columns, width, height)
-	environment_snapshot["voxel_world"] = voxel_world
-	water_snapshot["water_tiles"] = water_tiles
 	return {
 		"environment": environment_snapshot,
 		"hydrology": water_snapshot,
-		"voxel_changed": true,
-		"changed_tiles": changed_tiles,
+		"voxel_changed": false,
+		"changed_tiles": [],
+		"status": "error",
+		"error": "native_geomorph_stage_dispatch_unavailable",
+		"details": "native geomorph stage dispatch unavailable or returned no result",
 	}
 func set_compute_enabled(enabled: bool) -> void:
 	_compute_requested = enabled
@@ -241,6 +171,14 @@ func step(
 	var native_step = _step_native_environment_stage(tick, delta, environment_snapshot, water_snapshot, weather_snapshot, local_activity)
 	if not native_step.is_empty():
 		return native_step
+	if _native_environment_stage_dispatch_enabled:
+		return _fail_fast_step(
+			environment_snapshot,
+			water_snapshot,
+			tick,
+			"native_erosion_stage_dispatch_unavailable",
+			"native erosion stage dispatch unavailable or failed"
+		)
 	var can_compute = _compute_active and weather_rain.size() == _ordered_tile_ids.size() and weather_cloud.size() == _ordered_tile_ids.size() and weather_wetness.size() == _ordered_tile_ids.size()
 	if can_compute:
 		return _step_compute(
@@ -254,7 +192,13 @@ func step(
 			weather_wetness,
 			local_activity
 		)
-	return _step_cpu(tick, delta, environment_snapshot, water_snapshot, weather_snapshot, tile_index, weather_tiles, water_tiles, local_activity)
+	return _fail_fast_step(
+		environment_snapshot,
+		water_snapshot,
+		tick,
+		"erosion_gpu_unavailable",
+		"erosion GPU compute unavailable or weather buffers invalid"
+	)
 func _step_cpu(
 	tick: int,
 	delta: float,
@@ -353,6 +297,14 @@ func _step_cpu(
 		var tile_id = String(tile_id_variant)
 		delta_by_tile[tile_id] = -absf(float(changed_ids.get(tile_id, 0.0)))
 	var geomorph_result = _apply_batched_geomorph_delta(tick, environment_snapshot, water_snapshot, delta_by_tile)
+	if String(geomorph_result.get("status", "")) == "error":
+		return _fail_fast_step(
+			environment_snapshot,
+			water_snapshot,
+			tick,
+			String(geomorph_result.get("error", "native_geomorph_stage_dispatch_unavailable")),
+			String(geomorph_result.get("details", "native geomorph stage dispatch unavailable or returned no result"))
+		)
 	environment_snapshot = geomorph_result.get("environment", environment_snapshot)
 	water_snapshot = geomorph_result.get("hydrology", water_snapshot)
 	var voxel_changed = bool(geomorph_result.get("voxel_changed", false))
@@ -390,6 +342,7 @@ func _step_compute(
 		}
 	var flow_norm := PackedFloat32Array()
 	var water_rel := PackedFloat32Array()
+	var previous_activity := _activity_buffer.duplicate()
 	flow_norm.resize(count)
 	water_rel.resize(count)
 	var flow_scale = _max_flow(water_tiles)
@@ -418,14 +371,15 @@ func _step_compute(
 		_idle_cadence
 	)
 	if gpu.is_empty():
+		_activity_buffer = previous_activity
 		_compute_active = false
-		var weather_tiles: Dictionary = {}
-		var weather_snapshot := {
-			"tile_index": weather_tiles,
-			"avg_rain_intensity": 0.0,
-			"avg_cloud_cover": 0.0,
-		}
-		return _step_cpu(tick, delta, environment_snapshot, water_snapshot, weather_snapshot, tile_index, weather_tiles, water_tiles, local_activity)
+		return _fail_fast_step(
+			environment_snapshot,
+			water_snapshot,
+			tick,
+			"erosion_gpu_step_failed",
+			"erosion GPU step returned empty result"
+		)
 	var budget: PackedFloat32Array = gpu.get("erosion_budget", _erosion_buffer)
 	var frost: PackedFloat32Array = gpu.get("frost_damage", _frost_buffer)
 	var temp_prev: PackedFloat32Array = gpu.get("temp_prev", _temp_prev_buffer)
@@ -448,6 +402,14 @@ func _step_compute(
 			row["freeze_thaw_damage"] = _frost_buffer[i]
 			tile_index[tile_id] = row
 	var geomorph_result = _apply_batched_geomorph_delta(tick, environment_snapshot, water_snapshot, delta_by_tile)
+	if String(geomorph_result.get("status", "")) == "error":
+		return _fail_fast_step(
+			environment_snapshot,
+			water_snapshot,
+			tick,
+			String(geomorph_result.get("error", "native_geomorph_stage_dispatch_unavailable")),
+			String(geomorph_result.get("details", "native geomorph stage dispatch unavailable or returned no result"))
+		)
 	environment_snapshot = geomorph_result.get("environment", environment_snapshot)
 	water_snapshot = geomorph_result.get("hydrology", water_snapshot)
 	var changed_tiles: Array = geomorph_result.get("changed_tiles", [])
@@ -457,6 +419,24 @@ func _step_compute(
 		"erosion": current_snapshot(tick),
 		"changed": not changed_tiles.is_empty(),
 		"changed_tiles": changed_tiles.duplicate(true),
+	}
+
+func _fail_fast_step(
+	environment_snapshot: Dictionary,
+	water_snapshot: Dictionary,
+	tick: int,
+	error_code: String,
+	details: String = ""
+) -> Dictionary:
+	return {
+		"environment": environment_snapshot,
+		"hydrology": water_snapshot,
+		"erosion": current_snapshot(tick),
+		"changed": false,
+		"changed_tiles": [],
+		"status": "error",
+		"error": error_code,
+		"details": details,
 	}
 func _apply_batched_geomorph_delta(tick: int, environment_snapshot: Dictionary, water_snapshot: Dictionary, delta_by_tile: Dictionary) -> Dictionary:
 	_accumulate_geomorph_delta(delta_by_tile)

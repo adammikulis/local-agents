@@ -303,6 +303,7 @@ func _apply_chunk_build_result(result: Dictionary) -> void:
 			instance.multimesh = mm
 			instance.material_override = _material_for_block(block_type)
 			chunk_node.add_child(instance)
+		_build_chunk_collision_body(chunk_node, by_type)
 
 func _mesh_for_block(block_type: String) -> Mesh:
 	if _mesh_cache.has(block_type):
@@ -316,6 +317,40 @@ func _mesh_for_block(block_type: String) -> Mesh:
 	cube.size = Vector3.ONE
 	_mesh_cache[block_type] = cube
 	return cube
+
+func _build_chunk_collision_body(chunk_node: Node3D, by_type: Dictionary) -> void:
+	if chunk_node == null:
+		return
+	var collision_body := StaticBody3D.new()
+	collision_body.name = "ChunkCollision"
+	var box_shape := BoxShape3D.new()
+	box_shape.size = Vector3.ONE
+	var has_collision := false
+	var block_types = by_type.keys()
+	block_types.sort_custom(func(a, b): return String(a) < String(b))
+	for type_variant in block_types:
+		var block_type = String(type_variant)
+		if not _block_type_has_collision(block_type):
+			continue
+		var positions_variant = by_type.get(block_type, [])
+		if not (positions_variant is Array):
+			continue
+		var positions: Array = positions_variant
+		for pos_variant in positions:
+			if not (pos_variant is Vector3):
+				continue
+			var shape := CollisionShape3D.new()
+			shape.shape = box_shape
+			shape.transform = Transform3D(Basis.IDENTITY, pos_variant)
+			collision_body.add_child(shape)
+			has_collision = true
+	if has_collision:
+		chunk_node.add_child(collision_body)
+	else:
+		collision_body.queue_free()
+
+func _block_type_has_collision(block_type: String) -> bool:
+	return block_type != "water"
 
 func _material_for_block(block_type: String) -> Material:
 	if _material_cache.has(block_type):

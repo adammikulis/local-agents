@@ -185,118 +185,41 @@ func step(
     )
     if not native_step.is_empty():
         return native_step
+    if _native_environment_stage_dispatch_enabled:
+        return _fail_fast_step("native_hydrology_stage_dispatch_unavailable", environment_snapshot, hydrology_snapshot, "native hydrology stage dispatch unavailable or failed")
 
     var tile_ids = water_tiles.keys()
     tile_ids.sort_custom(func(a, b): return String(a) < String(b))
     var use_compute = _compute_active and _ordered_tile_ids.size() == tile_ids.size()
-    if use_compute:
-        var compute_result = _step_compute(
-            tick,
-            delta,
-            seed,
-            width,
-            tile_index,
-            water_tiles,
-            local_activity,
-            weather_tiles,
-            weather_snapshot,
-            weather_rain,
-            weather_wetness,
-            weather_buffer_ok
-        )
-        if not compute_result.is_empty():
-            var compute_changed: Array = compute_result.get("changed_tiles", [])
-            if not compute_changed.is_empty():
-                HydrologySystemHelpersScript.sync_tiles(environment_snapshot, tile_index)
-            hydrology_snapshot["water_tiles"] = water_tiles
-            hydrology_snapshot["tick"] = tick
-            return {
-                "environment": environment_snapshot,
-                "hydrology": hydrology_snapshot,
-                "changed": not compute_changed.is_empty(),
-                "changed_tiles": compute_changed,
-            }
+    if not use_compute:
+        return _fail_fast_step("hydrology_gpu_unavailable", environment_snapshot, hydrology_snapshot, "hydrology compute unavailable or misconfigured")
+    var compute_result = _step_compute(
+        tick,
+        delta,
+        seed,
+        width,
+        tile_index,
+        water_tiles,
+        local_activity,
+        weather_tiles,
+        weather_snapshot,
+        weather_rain,
+        weather_wetness,
+        weather_buffer_ok
+    )
+    if compute_result.is_empty():
         _compute_active = false
-
-    for tile_id_variant in tile_ids:
-        var tile_id = String(tile_id_variant)
-        if not tile_index.has(tile_id):
-            continue
-        var tile_row = tile_index.get(tile_id, {})
-        var water_row = water_tiles.get(tile_id, {})
-        if not (tile_row is Dictionary) or not (water_row is Dictionary):
-            continue
-        var activity = maxf(
-            clampf(float(local_activity.get(tile_id, 0.0)), 0.0, 1.0),
-            HydrologySystemHelpersScript.coastal_activity_bonus(tile_row as Dictionary)
-        )
-        var cadence = HydrologySystemHelpersScript.cadence_for_activity(activity, _IDLE_CADENCE)
-        if cadence > 1 and not HydrologySystemHelpersScript.should_step_tile(tile_id, tick, cadence, seed):
-            continue
-        var local_dt = maxf(0.0, delta) * float(cadence)
-        var weather = HydrologySystemHelpersScript.weather_at_tile(tile_id, weather_tiles, weather_snapshot, weather_rain, weather_wetness, weather_buffer_ok, width)
-        var rain = clampf(float(weather.get("rain", 0.0)), 0.0, 1.0)
-        var wetness = clampf(float(weather.get("wetness", rain)), 0.0, 1.0)
-        var tile = tile_row as Dictionary
-        var water = (water_row as Dictionary).duplicate(true)
-        var moisture = clampf(float(tile.get("moisture", 0.5)), 0.0, 1.0)
-        var elevation = clampf(float(tile.get("elevation", 0.5)), 0.0, 1.0)
-        var slope = clampf(float(tile.get("slope", 0.0)), 0.0, 1.0)
-        var heat = clampf(float(tile.get("heat_load", 0.0)), 0.0, 1.5)
-        var spring_discharge = clampf(float(water.get("spring_discharge", 0.0)), 0.0, 8.0)
-        var prev_depth = clampf(float(water.get("water_table_depth", tile.get("water_table_depth", 8.0))), 0.0, 99.0)
-        var prev_pressure = clampf(float(water.get("hydraulic_pressure", tile.get("hydraulic_pressure", 0.0))), 0.0, 1.0)
-        var prev_recharge = clampf(float(water.get("groundwater_recharge", tile.get("groundwater_recharge", 0.0))), 0.0, 1.0)
-        var prev_flow = maxf(0.0, float(water.get("flow", 0.0)))
-
-        var runoff = clampf((slope * 0.55 + rain * 0.45) * (0.7 + wetness * 0.3), 0.0, 1.0)
-        var infiltration = clampf((0.06 + moisture * 0.2 + wetness * 0.22 + rain * 0.1) * (1.0 - slope * 0.45), 0.0, 1.0)
-        var evap_loss = clampf(0.01 + heat * 0.05 + (1.0 - moisture) * 0.025, 0.0, 0.2)
-        var recharge = clampf(prev_recharge * 0.92 + infiltration * local_dt - runoff * 0.015 * local_dt - evap_loss * 0.05 * local_dt, 0.0, 1.0)
-        var pressure = clampf(prev_pressure * 0.9 + recharge * 0.1 * local_dt + spring_discharge * 0.01 - runoff * 0.03 * local_dt, 0.0, 1.0)
-        var target_depth = clampf(8.0 + elevation * 10.0 - recharge * 7.5 - pressure * 4.5 - spring_discharge * 0.9 + heat * 1.9, 0.0, 99.0)
-        var depth = lerpf(prev_depth, target_depth, clampf(0.12 * local_dt, 0.0, 1.0))
-        var groundwater = clampf(1.0 - (depth / 12.0), 0.0, 1.0)
-        var flow = maxf(0.0, prev_flow * 0.93 + rain * 0.45 * local_dt + runoff * 0.38 + groundwater * 0.35 + spring_discharge * 0.2)
-        var flow_norm = 1.0 - exp(-flow * 0.18)
-        var reliability = clampf(flow_norm * 0.48 + groundwater * 0.19 + moisture * 0.14 + recharge * 0.11 + pressure * 0.08, 0.0, 1.0)
-        var flood_risk = clampf(float(water.get("flood_risk", 0.0)) * 0.9 + rain * 0.2 + runoff * 0.26 + pressure * 0.14 + spring_discharge * 0.03, 0.0, 1.0)
-
-        water["flow"] = flow
-        water["water_reliability"] = reliability
-        water["flood_risk"] = flood_risk
-        water["water_table_depth"] = depth
-        water["hydraulic_pressure"] = pressure
-        water["groundwater_recharge"] = recharge
-        water_tiles[tile_id] = water
-
-        var tile_changed = (
-            absf(depth - prev_depth) > 0.01
-            or absf(pressure - prev_pressure) > 0.004
-            or absf(recharge - prev_recharge) > 0.004
-        )
-        if not tile_changed:
-            continue
-        tile["water_table_depth"] = depth
-        tile["hydraulic_pressure"] = pressure
-        tile["groundwater_recharge"] = recharge
-        tile["moisture"] = clampf(moisture * 0.985 + reliability * 0.015, 0.0, 1.0)
-        tile_index[tile_id] = tile
-        changed_map[tile_id] = true
-
-    var changed_tiles: Array = []
-    for tile_id_variant in changed_map.keys():
-        changed_tiles.append(String(tile_id_variant))
-    changed_tiles.sort_custom(func(a, b): return String(a) < String(b))
-    if not changed_tiles.is_empty():
+        return _fail_fast_step("hydrology_gpu_step_failed", environment_snapshot, hydrology_snapshot, "hydrology compute step returned empty result")
+    var compute_changed: Array = compute_result.get("changed_tiles", [])
+    if not compute_changed.is_empty():
         HydrologySystemHelpersScript.sync_tiles(environment_snapshot, tile_index)
     hydrology_snapshot["water_tiles"] = water_tiles
     hydrology_snapshot["tick"] = tick
     return {
         "environment": environment_snapshot,
         "hydrology": hydrology_snapshot,
-        "changed": not changed_tiles.is_empty(),
-        "changed_tiles": changed_tiles,
+        "changed": not compute_changed.is_empty(),
+        "changed_tiles": compute_changed,
     }
 
 func _refresh_compute_backend_from_snapshots(environment_snapshot: Dictionary, hydrology_snapshot: Dictionary) -> void:
@@ -595,3 +518,14 @@ func _build_network_from_flow_map(flow_map: Dictionary, tiles: Array, springs: D
     }
     _refresh_compute_backend_from_snapshots({"tile_index": by_tile}, result)
     return result
+
+func _fail_fast_step(error_code: String, environment_snapshot: Dictionary, hydrology_snapshot: Dictionary, details: String = "") -> Dictionary:
+    return {
+        "environment": environment_snapshot,
+        "hydrology": hydrology_snapshot,
+        "changed": false,
+        "changed_tiles": [],
+        "status": "error",
+        "error": error_code,
+        "details": details,
+    }

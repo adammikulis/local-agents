@@ -147,7 +147,12 @@ func apply_generation_data(generation: Dictionary, hydrology: Dictionary) -> voi
 	_update_surface_state_texture(_weather_snapshot)
 	_update_solar_field_texture(_solar_snapshot)
 
-func apply_generation_delta(generation: Dictionary, hydrology: Dictionary, changed_tiles: Array) -> void:
+func apply_generation_delta(
+	generation: Dictionary,
+	hydrology: Dictionary,
+	changed_tiles: Array,
+	changed_chunk_keys: Array = []
+) -> void:
 	_generation_snapshot = generation.duplicate(true)
 	_hydrology_snapshot = hydrology.duplicate(true)
 	_ensure_weather_field_texture()
@@ -157,7 +162,9 @@ func apply_generation_delta(generation: Dictionary, hydrology: Dictionary, chang
 	_update_surface_state_texture(_weather_snapshot)
 	_update_solar_field_texture(_solar_snapshot)
 	_update_ocean_surface_geometry()
-	var chunk_keys = _chunk_keys_for_changed_tiles(changed_tiles)
+	var chunk_keys = _normalize_chunk_keys(changed_chunk_keys)
+	if chunk_keys.is_empty():
+		chunk_keys = _chunk_keys_for_changed_tiles(changed_tiles)
 	if chunk_keys.is_empty():
 		_request_chunk_rebuild([])
 		_rebuild_water_sources()
@@ -401,12 +408,34 @@ func _chunk_keys_for_changed_tiles(changed_tiles: Array) -> Array:
 		var parts = tile_id.split(":")
 		if parts.size() != 2:
 			continue
-		var x = int(parts[0])
-		var z = int(parts[1])
+		var x_text = String(parts[0]).strip_edges()
+		var z_text = String(parts[1]).strip_edges()
+		if not x_text.is_valid_int() or not z_text.is_valid_int():
+			continue
+		var x = int(x_text)
+		var z = int(z_text)
 		keys_map[_chunk_key_for_tile(x, z)] = true
 	var keys = keys_map.keys()
 	keys.sort()
 	return keys
+
+func _normalize_chunk_keys(chunk_keys: Array) -> Array:
+	var normalized_map: Dictionary = {}
+	for key_variant in chunk_keys:
+		var key = String(key_variant).strip_edges()
+		if key == "":
+			continue
+		var parts = key.split(":")
+		if parts.size() != 2:
+			continue
+		var cx_text = String(parts[0]).strip_edges()
+		var cz_text = String(parts[1]).strip_edges()
+		if not cx_text.is_valid_int() or not cz_text.is_valid_int():
+			continue
+		normalized_map["%d:%d" % [int(cx_text), int(cz_text)]] = true
+	var normalized = normalized_map.keys()
+	normalized.sort()
+	return normalized
 
 func _rebuild_river_flow_overlays() -> void:
 	_ensure_renderer_nodes()

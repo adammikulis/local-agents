@@ -124,10 +124,6 @@ func is_compute_active() -> bool:
 func step(tick: int, delta: float, environment_snapshot: Dictionary, weather_snapshot: Dictionary, local_activity: Dictionary = {}) -> Dictionary:
 	if not _configured:
 		return {}
-	if tick > 0 and tick % 24 == 0:
-		for tile_id in _ordered_tile_ids:
-			_daily_sun[tile_id] = 0.0
-			_daily_uv[tile_id] = 0.0
 
 	var tile_index: Dictionary = environment_snapshot.get("tile_index", {})
 	if tile_index.is_empty():
@@ -143,7 +139,7 @@ func step(tick: int, delta: float, environment_snapshot: Dictionary, weather_sna
 	var sun_dir = Vector2(cos((tod - 0.25) * TAU), sin((tod - 0.25) * TAU))
 	var use_compute = false
 	var use_compute_backend = _compute_active and weather_buffer_ok
-	_write_activity_buffer(local_activity)
+	var local_activity_buffer = _build_activity_buffer(local_activity)
 	var solar_rows: Array = []
 	var solar_index: Dictionary = {}
 	var sync_spatial = _emit_rows or (tick % _sync_stride == 0)
@@ -156,6 +152,7 @@ func step(tick: int, delta: float, environment_snapshot: Dictionary, weather_sna
 	var packed_uv := PackedFloat32Array()
 	var packed_heat := PackedFloat32Array()
 	var packed_growth := PackedFloat32Array()
+	var compute_source = ""
 	if not _emit_rows:
 		var count = _ordered_tile_ids.size()
 		packed_sunlight.resize(count)
@@ -165,29 +162,64 @@ func step(tick: int, delta: float, environment_snapshot: Dictionary, weather_sna
 	var native_payload := {
 		"tick": tick, "delta": delta, "seed": _seed, "width": _width, "height": _height, "idle_cadence": _idle_cadence, "emit_rows": _emit_rows,
 		"sun_altitude": sun_alt, "sun_dir": {"x": sun_dir.x, "y": sun_dir.y}, "ordered_flat_indices": _ordered_flat_indices, "local_activity": local_activity, "physics_contacts": local_activity.get("physics_contacts", weather_snapshot.get("physics_contacts", environment_snapshot.get("physics_contacts", []))), "weather_snapshot": weather_snapshot,
-		"buffers": {"activity": _activity_buffer, "weather_cloud": weather_cloud, "weather_fog": weather_fog, "weather_humidity": weather_humidity, "sunlight_total": _sunlight_buffer, "uv_index": _uv_buffer, "heat_load": _heat_buffer, "plant_growth_factor": _growth_buffer},
+		"buffers": {"activity": local_activity_buffer, "weather_cloud": weather_cloud, "weather_fog": weather_fog, "weather_humidity": weather_humidity, "sunlight_total": _sunlight_buffer, "uv_index": _uv_buffer, "heat_load": _heat_buffer, "plant_growth_factor": _growth_buffer},
 	}
 	var native_dispatch = NativeComputeBridgeScript.dispatch_environment_stage("solar_exposure_step", native_payload)
-	if bool(native_dispatch.get("dispatched", false)):
-		var native_fields: Dictionary = native_dispatch.get("result_fields", {})
+	var native_dispatched = NativeComputeBridgeScript.is_environment_stage_dispatched(native_dispatch)
+	if native_dispatched:
+		var native_fields: Dictionary = NativeComputeBridgeScript.environment_stage_result(native_dispatch)
 		var native_sun: PackedFloat32Array = native_fields.get("sunlight_total", PackedFloat32Array())
 		var native_uv: PackedFloat32Array = native_fields.get("uv_index", PackedFloat32Array())
 		var native_heat: PackedFloat32Array = native_fields.get("heat_load", PackedFloat32Array())
 		var native_growth: PackedFloat32Array = native_fields.get("plant_growth_factor", PackedFloat32Array())
-		if native_sun.size() == _ordered_tile_ids.size() and native_uv.size() == _ordered_tile_ids.size() and native_heat.size() == _ordered_tile_ids.size() and native_growth.size() == _ordered_tile_ids.size():
+		var native_validation = _validate_compute_output(native_sun, native_uv, native_heat, native_growth, _ordered_tile_ids.size())
+		if bool(native_validation.get("ok", false)):
 			packed_sunlight = native_sun
 			packed_uv = native_uv
 			packed_heat = native_heat
 			packed_growth = native_growth
 			use_compute = true
+			compute_source = "native"
+		else:
+			var native_reason = String(native_validation.get("error", "invalid_output"))
+			var native_details = String(native_validation.get("details", ""))
+			return _fail_fast_solar_snapshot(tick, sun_dir, sun_alt, "solar_native_invalid_output", "%s%s" % [native_reason, ": %s" % native_details if native_details != "" else ""])
 	if use_compute_backend and not use_compute:
-		var gpu = _compute_backend.step(weather_cloud, weather_fog, weather_humidity, _activity_buffer, sun_dir, sun_alt, tick, _idle_cadence, _seed)
+		var gpu = _compute_backend.step(weather_cloud, weather_fog, weather_humidity, local_activity_buffer, sun_dir, sun_alt, tick, _idle_cadence, _seed)
 		if not gpu.is_empty():
-			packed_sunlight = gpu.get("sunlight_total", packed_sunlight)
-			packed_uv = gpu.get("uv_index", packed_uv)
-			packed_heat = gpu.get("heat_load", packed_heat)
-			packed_growth = gpu.get("plant_growth_factor", packed_growth)
-			use_compute = true
+			var gpu_sun: PackedFloat32Array = gpu.get("sunlight_total", PackedFloat32Array())
+			var gpu_uv: PackedFloat32Array = gpu.get("uv_index", PackedFloat32Array())
+			var gpu_heat: PackedFloat32Array = gpu.get("heat_load", PackedFloat32Array())
+			var gpu_growth: PackedFloat32Array = gpu.get("plant_growth_factor", PackedFloat32Array())
+			var gpu_validation = _validate_compute_output(gpu_sun, gpu_uv, gpu_heat, gpu_growth, _ordered_tile_ids.size())
+			if bool(gpu_validation.get("ok", false)):
+				packed_sunlight = gpu_sun
+				packed_uv = gpu_uv
+				packed_heat = gpu_heat
+				packed_growth = gpu_growth
+				use_compute = true
+				compute_source = "gpu"
+			else:
+				var gpu_reason = String(gpu_validation.get("error", "invalid_output"))
+				var gpu_details = String(gpu_validation.get("details", ""))
+				return _fail_fast_solar_snapshot(tick, sun_dir, sun_alt, "solar_gpu_invalid_output", "%s%s" % [gpu_reason, ": %s" % gpu_details if gpu_details != "" else ""])
+	if not use_compute:
+		var native_error = String(native_dispatch.get("error", "")).strip_edges()
+		if native_error == "":
+			var native_result_variant = native_dispatch.get("result", {})
+			if native_result_variant is Dictionary:
+				native_error = String((native_result_variant as Dictionary).get("error", "")).strip_edges()
+		var native_details = "solar native dispatch unavailable and GPU compute unavailable or failed"
+		if native_error != "":
+			native_details = "%s (%s)" % [native_details, native_error]
+		return _fail_fast_solar_snapshot(tick, sun_dir, sun_alt, "solar_native_and_gpu_unavailable", native_details)
+	if compute_source == "":
+		return _fail_fast_solar_snapshot(tick, sun_dir, sun_alt, "solar_compute_source_missing", "compute path activated without a resolved source")
+	if tick > 0 and tick % 24 == 0:
+		for tile_id in _ordered_tile_ids:
+			_daily_sun[tile_id] = 0.0
+			_daily_uv[tile_id] = 0.0
+	_activity_buffer = local_activity_buffer
 
 	for i in range(_ordered_tile_ids.size()):
 		var tile_id = _ordered_tile_ids[i]
@@ -221,43 +253,12 @@ func step(tick: int, delta: float, environment_snapshot: Dictionary, weather_sna
 		var step_key = _ordered_tile_ids[i] if i >= 0 and i < _ordered_tile_ids.size() else str(i)
 		var should_step = CadencePolicyScript.should_step_with_key(step_key, tick, cadence, _seed)
 		var local_delta = delta * float(cadence) if should_step else 0.0
-		if use_compute and i < packed_sunlight.size():
-			insolation = clampf(float(packed_sunlight[i]), 0.0, 1.0)
-			uv_index = clampf(float(packed_uv[i]), 0.0, 2.0)
-			heat_load = clampf(float(packed_heat[i]), 0.0, 1.5)
-			plant_growth_factor = clampf(float(packed_growth[i]), 0.0, 1.0)
-			direct = clampf(insolation * maxf(0.25, 1.0 - cloud * 0.4), 0.0, 1.0)
-			diffuse = clampf(insolation - direct, 0.0, 1.0)
-		else:
-			if not should_step and i < _sunlight_buffer.size():
-				insolation = clampf(float(_sunlight_buffer[i]), 0.0, 1.0)
-				uv_index = clampf(float(_uv_buffer[i]), 0.0, 2.0)
-				heat_load = clampf(float(_heat_buffer[i]), 0.0, 1.5)
-				plant_growth_factor = clampf(float(_growth_buffer[i]), 0.0, 1.0)
-				direct = clampf(insolation * maxf(0.25, 1.0 - cloud * 0.4), 0.0, 1.0)
-				diffuse = clampf(insolation - direct, 0.0, 1.0)
-			else:
-				var temperature = clampf(float(tile.get("temperature", 0.5)), 0.0, 1.0)
-				var elevation = clampf(float(tile.get("elevation", 0.5)), 0.0, 1.0)
-				var aspect_grad = _aspect_gradient.get(tile_id, Vector2.ZERO)
-				var aspect_factor = 1.0
-				if aspect_grad is Vector2:
-					var grad = (aspect_grad as Vector2)
-					if grad.length_squared() > 0.0001:
-						var downhill = (-grad).normalized()
-						var facing = clampf(downhill.dot(sun_dir.normalized()), -1.0, 1.0)
-						aspect_factor = clampf(0.62 + 0.38 * (facing * 0.5 + 0.5), 0.3, 1.0)
-				var cloud_atten = (1.0 - cloud * 0.72)
-				var fog_atten = (1.0 - fog * 0.45)
-				direct = sun_alt * cloud_atten * fog_atten * (1.0 - shade * 0.75) * aspect_factor
-				diffuse = (0.18 + cloud * 0.5) * (1.0 - fog * 0.35)
-				insolation = clampf(direct + diffuse * 0.5, 0.0, 1.0)
-				uv_index = clampf((direct * 1.1 + (1.0 - cloud) * 0.25) * (0.65 + elevation * 0.7) * (0.75 + sun_alt * 0.5), 0.0, 2.0)
-				var absorbed_cpu = insolation * (1.0 - albedo)
-				heat_load = clampf(absorbed_cpu * (0.78 + (1.0 - cloud) * 0.26) + uv_index * 0.15 - moisture * 0.08, 0.0, 1.5)
-				var temp_optimal = 1.0 - clampf(absf(temperature - 0.56) * 1.2, 0.0, 1.0)
-				var uv_stress = clampf(maxf(0.0, uv_index - 1.15) * 0.45, 0.0, 1.0)
-				plant_growth_factor = clampf((absorbed_cpu * 0.7 + insolation * 0.3) * (0.35 + moisture * 0.65) * temp_optimal * (1.0 - uv_stress), 0.0, 1.0)
+		insolation = clampf(float(packed_sunlight[i]), 0.0, 1.0)
+		uv_index = clampf(float(packed_uv[i]), 0.0, 2.0)
+		heat_load = clampf(float(packed_heat[i]), 0.0, 1.5)
+		plant_growth_factor = clampf(float(packed_growth[i]), 0.0, 1.0)
+		direct = clampf(insolation * maxf(0.25, 1.0 - cloud * 0.4), 0.0, 1.0)
+		diffuse = clampf(insolation - direct, 0.0, 1.0)
 		if i < _sunlight_buffer.size():
 			_sunlight_buffer[i] = insolation
 			_uv_buffer[i] = uv_index
@@ -589,12 +590,45 @@ func _albedo_from_rgba(rgba_variant: Variant) -> float:
 	return clampf(luminance * rough_alpha, 0.02, 0.9)
 
 func _write_activity_buffer(local_activity: Dictionary) -> void:
-	if _activity_buffer.size() != _ordered_tile_ids.size():
-		_activity_buffer.resize(_ordered_tile_ids.size())
-	_activity_buffer.fill(0.0)
+	_activity_buffer = _build_activity_buffer(local_activity)
+
+func _build_activity_buffer(local_activity: Dictionary) -> PackedFloat32Array:
+	var activity := PackedFloat32Array()
+	activity.resize(_ordered_tile_ids.size())
+	activity.fill(0.0)
 	if local_activity.is_empty():
-		return
+		return activity
 	for i in range(_ordered_tile_ids.size()):
 		var tile_id = _ordered_tile_ids[i]
 		if local_activity.has(tile_id):
-			_activity_buffer[i] = clampf(float(local_activity.get(tile_id, 0.0)), 0.0, 1.0)
+			activity[i] = clampf(float(local_activity.get(tile_id, 0.0)), 0.0, 1.0)
+	return activity
+
+func _validate_compute_output(sunlight: PackedFloat32Array, uv: PackedFloat32Array, heat: PackedFloat32Array, growth: PackedFloat32Array, expected_size: int) -> Dictionary:
+	if sunlight.size() != expected_size or uv.size() != expected_size or heat.size() != expected_size or growth.size() != expected_size:
+		return {
+			"ok": false,
+			"error": "size_mismatch",
+			"details": "expected=%d sunlight=%d uv=%d heat=%d growth=%d" % [expected_size, sunlight.size(), uv.size(), heat.size(), growth.size()],
+		}
+	for i in range(expected_size):
+		var s = float(sunlight[i])
+		var u = float(uv[i])
+		var h = float(heat[i])
+		var g = float(growth[i])
+		if is_nan(s) or is_inf(s) or is_nan(u) or is_inf(u) or is_nan(h) or is_inf(h) or is_nan(g) or is_inf(g):
+			return {"ok": false, "error": "non_finite_value", "details": "index=%d" % i}
+	return {"ok": true}
+
+func _fail_fast_solar_snapshot(tick: int, sun_dir: Vector2, sun_alt: float, error_code: String, details: String = "") -> Dictionary:
+	var out = _last_snapshot.duplicate(true)
+	if out.is_empty():
+		out = _build_snapshot(tick, [], {})
+	out["tick"] = tick
+	out["sun_dir"] = {"x": sun_dir.x, "y": sun_dir.y}
+	out["sun_altitude"] = sun_alt
+	out["status"] = "error"
+	out["error"] = error_code
+	if details != "":
+		out["details"] = details
+	return out

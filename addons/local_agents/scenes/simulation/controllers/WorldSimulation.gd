@@ -7,10 +7,13 @@ const WorldProgressionProfileResourceScript = preload("res://addons/local_agents
 const AtmosphereCycleControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/AtmosphereCycleController.gd")
 const SimulationLoopControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/SimulationLoopController.gd")
 const SimulationGraphicsSettingsScript = preload("res://addons/local_agents/scenes/simulation/controllers/SimulationGraphicsSettings.gd")
+const SimulationVoxelTerrainMutatorScript = preload("res://addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd")
+const VoxelRateTierSchedulerScript = preload("res://addons/local_agents/simulation/controller/VoxelRateTierScheduler.gd")
 const WorldCameraControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldCameraController.gd")
 const WorldHudBindingControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldHudBindingController.gd")
 const WorldEnvironmentSyncControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldEnvironmentSyncController.gd")
 const FpsLauncherControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd")
+const _VOXEL_NATIVE_STAGE_NAME := &"physics_failure_emission"
 
 @onready var simulation_controller: Node = $SimulationController
 @onready var environment_controller: Node3D = $EnvironmentController
@@ -63,6 +66,7 @@ var _graphics_state: Dictionary = SimulationGraphicsSettingsScript.default_state
 var _last_hud_refresh_tick: int = -1
 var _runtime_profile_baseline: Dictionary = {}
 var _runtime_demo_profile_applied: String = ""
+var _voxel_rate_scheduler = VoxelRateTierSchedulerScript.new()
 
 var _camera_controller = WorldCameraControllerScript.new()
 var _hud_binding_controller = WorldHudBindingControllerScript.new()
@@ -179,6 +183,7 @@ func _process(delta: float) -> void:
 						"erosion_changed_tiles": (ingest_result.get("changed_tiles", []) as Array).duplicate(true),
 					}, false)
 	_push_native_view_metrics()
+	_process_native_voxel_rate(delta)
 	_apply_loop_result(_loop_controller.process_frame(delta, Callable(self, "_collect_living_entity_profiles")))
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -318,10 +323,71 @@ func _apply_graphics_state() -> void:
 		simulation_ticks_per_second,
 		living_profile_push_interval_ticks
 	)
+	_configure_voxel_scheduler()
 	if _graphics_state.has("_visual_environment_update_interval_ticks"):
 			visual_environment_update_interval_ticks = maxi(1, int(_graphics_state.get("_visual_environment_update_interval_ticks", visual_environment_update_interval_ticks)))
 			_graphics_state.erase("_visual_environment_update_interval_ticks")
 		_hud_binding_controller.push_graphics_state(simulation_hud, _graphics_state)
+
+func _configure_voxel_scheduler() -> void:
+	_voxel_rate_scheduler.configure(
+		bool(_graphics_state.get("voxel_process_gating_enabled", true)),
+		bool(_graphics_state.get("voxel_dynamic_tick_rate_enabled", true)),
+		clampf(float(_graphics_state.get("voxel_tick_min_interval_seconds", 0.05)), 0.01, 1.2),
+		clampf(float(_graphics_state.get("voxel_tick_max_interval_seconds", 0.6)), 0.01, 3.0)
+	)
+
+func _process_native_voxel_rate(delta: float) -> void:
+	if simulation_controller == null or not simulation_controller.has_method("execute_native_voxel_stage"):
+		return
+	var view_metrics := _camera_controller.native_view_metrics()
+	var base_budget = clampf(float(view_metrics.get("compute_budget_scale", 1.0)), 0.05, 1.0)
+	var pulses = _voxel_rate_scheduler.advance(delta, base_budget)
+	if pulses.is_empty():
+		return
+	var tick = _loop_controller.current_tick()
+	for pulse_variant in pulses:
+		if not (pulse_variant is Dictionary):
+			continue
+		var pulse = pulse_variant as Dictionary
+		var payload := {
+			"tick": tick,
+			"delta": delta,
+			"rate_tier": String(pulse.get("tier_id", "high")),
+			"compute_budget_scale": float(pulse.get("compute_budget_scale", base_budget)),
+			"zoom_factor": clampf(float(view_metrics.get("zoom_factor", 0.0)), 0.0, 1.0),
+			"camera_distance": maxf(0.0, float(view_metrics.get("camera_distance", 0.0))),
+			"uniformity_score": clampf(float(view_metrics.get("uniformity_score", 0.0)), 0.0, 1.0),
+		}
+		var dispatch_variant = simulation_controller.call("execute_native_voxel_stage", tick, _VOXEL_NATIVE_STAGE_NAME, payload, false)
+		if not (dispatch_variant is Dictionary):
+			continue
+		var dispatch = dispatch_variant as Dictionary
+		var stage_payload: Dictionary = {}
+		var voxel_payload = dispatch.get("voxel_result", {})
+		if voxel_payload is Dictionary:
+			stage_payload = (voxel_payload as Dictionary).duplicate(true)
+		var raw_result = dispatch.get("result", {})
+		if raw_result is Dictionary:
+			stage_payload["result"] = (raw_result as Dictionary).duplicate(true)
+		if stage_payload.is_empty():
+			continue
+		_apply_native_voxel_stage_result(tick, stage_payload)
+
+func _apply_native_voxel_stage_result(tick: int, stage_payload: Dictionary) -> void:
+	var mutation = SimulationVoxelTerrainMutatorScript.apply_native_voxel_stage_delta(simulation_controller, tick, stage_payload)
+	if not bool(mutation.get("changed", false)):
+		return
+	_sync_environment_from_state({
+		"tick": tick,
+		"environment_snapshot": mutation.get("environment_snapshot", simulation_controller.current_environment_snapshot() if simulation_controller.has_method("current_environment_snapshot") else {}),
+		"water_network_snapshot": mutation.get("water_network_snapshot", simulation_controller.current_water_network_snapshot() if simulation_controller.has_method("current_water_network_snapshot") else {}),
+		"weather_snapshot": simulation_controller.call("get_weather_snapshot") if simulation_controller.has_method("get_weather_snapshot") else {},
+		"solar_snapshot": simulation_controller.call("get_solar_snapshot") if simulation_controller.has_method("get_solar_snapshot") else {},
+		"erosion_changed": true,
+		"erosion_changed_tiles": (mutation.get("changed_tiles", []) as Array).duplicate(true),
+		"erosion_changed_chunks": (mutation.get("changed_chunks", []) as Array).duplicate(true),
+	}, false)
 
 func _apply_runtime_demo_profile(profile_id: String) -> void:
 	_capture_runtime_profile_baseline_if_needed()

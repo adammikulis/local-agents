@@ -329,9 +329,6 @@ func enqueue_native_voxel_edit_ops(tick: int, voxel_ops: Array, strict: bool = f
 func execute_native_voxel_stage(tick: int, stage_name: StringName, payload: Dictionary = {}, strict: bool = false) -> Dictionary:
     return SimulationRuntimeFacadeScript.execute_native_voxel_stage(self, tick, stage_name, payload, strict)
 
-func ingest_physics_contacts(tick: int, rows: Array, strict: bool = false) -> Dictionary:
-    return SimulationRuntimeFacadeScript.ingest_native_physics_contacts(self, tick, rows, strict)
-
 func stamp_default_voxel_target_wall(tick: int, camera_transform: Transform3D, strict: bool = false) -> Dictionary:
     return SimulationRuntimeFacadeScript.stamp_default_voxel_target_wall(self, tick, camera_transform, strict)
 

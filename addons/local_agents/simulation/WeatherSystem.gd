@@ -219,26 +219,13 @@ func benchmark_cpu_vs_compute(iterations: int = 16, delta: float = 0.5) -> Dicti
 func step(tick: int, delta: float, local_activity: Dictionary = {}) -> Dictionary:
 	if not _configured:
 		return {}
-	_time_accum += maxf(0.0, delta)
 	var n = _width * _height
-	var next_cloud := PackedFloat32Array()
-	var next_humidity := PackedFloat32Array()
-	var next_rain := PackedFloat32Array()
-	var next_wetness := PackedFloat32Array()
-	var next_fog := PackedFloat32Array()
-	var next_orographic := PackedFloat32Array()
-	var next_shadow := PackedFloat32Array()
-	next_cloud.resize(n)
-	next_humidity.resize(n)
-	next_rain.resize(n)
-	next_wetness.resize(n)
-	next_fog.resize(n)
-	next_orographic.resize(n)
-	next_shadow.resize(n)
-
-	_update_wind(tick, delta)
-	var wind = Vector2(cos(_wind_angle), sin(_wind_angle))
-	_write_activity_buffer(local_activity)
+	var next_time_accum = _time_accum + maxf(0.0, delta)
+	var wind_state = _predict_wind(tick, delta, next_time_accum, _wind_angle, _wind_speed)
+	var next_wind_angle = float(wind_state.get("angle", _wind_angle))
+	var next_wind_speed = clampf(float(wind_state.get("speed", _wind_speed)), 0.05, 2.0)
+	var wind = Vector2(cos(next_wind_angle), sin(next_wind_angle))
+	var activity_buffer = _build_activity_buffer(local_activity)
 	var native_dispatch = NativeComputeBridgeScript.dispatch_environment_stage(
 		"weather_step",
 		{
@@ -248,9 +235,9 @@ func step(tick: int, delta: float, local_activity: Dictionary = {}) -> Dictionar
 			"width": _width,
 			"height": _height,
 			"idle_cadence": _idle_cadence,
-			"time_accum": _time_accum,
-			"wind_angle": _wind_angle,
-			"wind_speed": _wind_speed,
+			"time_accum": next_time_accum,
+			"wind_angle": next_wind_angle,
+			"wind_speed": next_wind_speed,
 			"wind_dir": {"x": wind.x, "y": wind.y},
 			"emit_rows": _emit_rows,
 			"local_activity": local_activity, "physics_contacts": local_activity.get("physics_contacts", []),
@@ -267,12 +254,13 @@ func step(tick: int, delta: float, local_activity: Dictionary = {}) -> Dictionar
 				"fog": _fog,
 				"orographic": _orographic,
 				"rain_shadow": _rain_shadow,
-				"activity": _activity,
+				"activity": activity_buffer,
 			},
 		}
 	)
-	if bool(native_dispatch.get("dispatched", false)):
-		var native_fields: Dictionary = native_dispatch.get("result_fields", {})
+	var native_dispatched = NativeComputeBridgeScript.is_environment_stage_dispatched(native_dispatch)
+	if native_dispatched:
+		var native_fields: Dictionary = NativeComputeBridgeScript.environment_stage_result(native_dispatch)
 		var native_cloud: PackedFloat32Array = native_fields.get("cloud", PackedFloat32Array())
 		var native_humidity: PackedFloat32Array = native_fields.get("humidity", PackedFloat32Array())
 		var native_rain: PackedFloat32Array = native_fields.get("rain", PackedFloat32Array())
@@ -280,33 +268,51 @@ func step(tick: int, delta: float, local_activity: Dictionary = {}) -> Dictionar
 		var native_fog: PackedFloat32Array = native_fields.get("fog", PackedFloat32Array())
 		var native_orographic: PackedFloat32Array = native_fields.get("orographic", PackedFloat32Array())
 		var native_shadow: PackedFloat32Array = native_fields.get("rain_shadow", PackedFloat32Array())
-		if native_cloud.size() == n and native_humidity.size() == n and native_rain.size() == n and native_wetness.size() == n and native_fog.size() == n and native_orographic.size() == n and native_shadow.size() == n:
-			_cloud = native_cloud
-			_humidity = native_humidity
-			_rain = native_rain
-			_wetness = native_wetness
-			_fog = native_fog
-			_orographic = native_orographic
-			_rain_shadow = native_shadow
-			var native_wind = native_fields.get("wind_dir", {})
-			if native_wind is Dictionary:
-				var wx = float((native_wind as Dictionary).get("x", wind.x))
-				var wy = float((native_wind as Dictionary).get("y", wind.y))
-				if absf(wx) > 0.0001 or absf(wy) > 0.0001:
-					wind = Vector2(wx, wy).normalized()
-					_wind_angle = wind.angle()
-			_wind_speed = clampf(float(native_fields.get("wind_speed", _wind_speed)), 0.05, 2.0)
-			return current_snapshot(tick)
+		if native_cloud.size() != n or native_humidity.size() != n or native_rain.size() != n or native_wetness.size() != n or native_fog.size() != n or native_orographic.size() != n or native_shadow.size() != n:
+			return _fail_fast_weather_snapshot(tick, "native_weather_result_invalid", "native weather stage returned invalid buffer sizes")
+		_cloud = native_cloud
+		_humidity = native_humidity
+		_rain = native_rain
+		_wetness = native_wetness
+		_fog = native_fog
+		_orographic = native_orographic
+		_rain_shadow = native_shadow
+		var native_wind = native_fields.get("wind_dir", {})
+		if native_wind is Dictionary:
+			var wx = float((native_wind as Dictionary).get("x", wind.x))
+			var wy = float((native_wind as Dictionary).get("y", wind.y))
+			if absf(wx) > 0.0001 or absf(wy) > 0.0001:
+				wind = Vector2(wx, wy).normalized()
+				next_wind_angle = wind.angle()
+		next_wind_speed = clampf(float(native_fields.get("wind_speed", next_wind_speed)), 0.05, 2.0)
+		_activity = activity_buffer
+		_time_accum = next_time_accum
+		_wind_angle = next_wind_angle
+		_wind_speed = next_wind_speed
+		return current_snapshot(tick)
 	if _compute_active:
-		var gpu_result = _compute_backend.step(delta, _wind_speed, _activity, tick, _idle_cadence, _hash01(tick, _seed & 1023, _seed))
+		var gpu_result = _compute_backend.step(delta, next_wind_speed, activity_buffer, tick, _idle_cadence, _hash01(tick, _seed & 1023, _seed))
 		if not gpu_result.is_empty():
-			_cloud = gpu_result.get("cloud", _cloud)
-			_humidity = gpu_result.get("humidity", _humidity)
-			_rain = gpu_result.get("rain", _rain)
-			_wetness = gpu_result.get("wetness", _wetness)
-			_fog = gpu_result.get("fog", _fog)
-			_orographic = gpu_result.get("orographic", _orographic)
-			_rain_shadow = gpu_result.get("rain_shadow", _rain_shadow)
+			var gpu_cloud: PackedFloat32Array = gpu_result.get("cloud", PackedFloat32Array())
+			var gpu_humidity: PackedFloat32Array = gpu_result.get("humidity", PackedFloat32Array())
+			var gpu_rain: PackedFloat32Array = gpu_result.get("rain", PackedFloat32Array())
+			var gpu_wetness: PackedFloat32Array = gpu_result.get("wetness", PackedFloat32Array())
+			var gpu_fog: PackedFloat32Array = gpu_result.get("fog", PackedFloat32Array())
+			var gpu_orographic: PackedFloat32Array = gpu_result.get("orographic", PackedFloat32Array())
+			var gpu_shadow: PackedFloat32Array = gpu_result.get("rain_shadow", PackedFloat32Array())
+			if gpu_cloud.size() != n or gpu_humidity.size() != n or gpu_rain.size() != n or gpu_wetness.size() != n or gpu_fog.size() != n or gpu_orographic.size() != n or gpu_shadow.size() != n:
+				return _fail_fast_weather_snapshot(tick, "weather_gpu_result_invalid", "weather GPU step returned invalid buffer sizes")
+			_cloud = gpu_cloud
+			_humidity = gpu_humidity
+			_rain = gpu_rain
+			_wetness = gpu_wetness
+			_fog = gpu_fog
+			_orographic = gpu_orographic
+			_rain_shadow = gpu_shadow
+			_activity = activity_buffer
+			_time_accum = next_time_accum
+			_wind_angle = next_wind_angle
+			_wind_speed = next_wind_speed
 			var sum_cloud_gpu = 0.0
 			var sum_humidity_gpu = 0.0
 			var sum_rain_gpu = 0.0
@@ -327,92 +333,16 @@ func step(tick: int, delta: float, local_activity: Dictionary = {}) -> Dictionar
 					"fog": sum_fog_gpu * inv_gpu,
 				}
 			)
-	var advection = _wind_speed * 0.85
-
-	var sum_cloud = 0.0
-	var sum_humidity = 0.0
-	var sum_rain = 0.0
-	var sum_fog = 0.0
-
-	for y in range(_height):
-		for x in range(_width):
-			var idx = _i(x, y)
-			var cadence = CadencePolicyScript.cadence_for_activity(float(_activity[idx]), _idle_cadence)
-			if cadence > 1 and not CadencePolicyScript.should_step_with_key(str(idx), tick, cadence, _seed):
-				next_cloud[idx] = _cloud[idx]
-				next_humidity[idx] = _humidity[idx]
-				next_rain[idx] = _rain[idx]
-				next_wetness[idx] = _wetness[idx]
-				next_fog[idx] = _fog[idx]
-				next_orographic[idx] = _orographic[idx]
-				next_shadow[idx] = _rain_shadow[idx]
-				sum_cloud += float(next_cloud[idx])
-				sum_humidity += float(next_humidity[idx])
-				sum_rain += float(next_rain[idx])
-				sum_fog += float(next_fog[idx])
-				continue
-			var local_step_scale = maxf(1.0, float(cadence))
-			var sx = float(x) - wind.x * advection
-			var sy = float(y) - wind.y * advection
-			var adv_cloud = _sample_bilinear(_cloud, sx, sy)
-			var adv_humidity = _sample_bilinear(_humidity, sx, sy)
-			var adv_wetness = _sample_bilinear(_wetness, sx, sy)
-
-			var upx = int(round(float(x) - wind.x))
-			var upy = int(round(float(y) - wind.y))
-			var up_idx = _i_clamped(upx, upy)
-			var elev_here = float(_elevation[idx])
-			var elev_upwind = float(_elevation[up_idx])
-			var elev_delta = elev_here - elev_upwind
-			var uplift = maxf(0.0, elev_delta * 2.8 + float(_slope[idx]) * 0.35)
-			var lee = maxf(0.0, -elev_delta * 2.2)
-			var shadow = clampf(lee * (0.45 + _wind_speed * 0.35), 0.0, 1.0)
-
-			var base_temp = float(_base_temperature[idx])
-			var cool_air = maxf(0.0, 0.55 - base_temp)
-			var moisture_source = 0.012 + float(_base_moisture[idx]) * 0.028 + float(_water_reliability[idx]) * 0.04
-			var evaporation = clampf((0.008 + base_temp * 0.025 + (1.0 - adv_wetness) * 0.02) * local_step_scale, 0.003, 0.12)
-			var condensation_threshold = 0.44 - cool_air * 0.18 - uplift * 0.08
-			var condensation = maxf(0.0, adv_cloud * adv_humidity * (0.68 + uplift * 0.95) - condensation_threshold) * local_step_scale
-			var rain = clampf(condensation * (1.05 + cool_air * 0.25), 0.0, 1.0)
-			rain *= (1.0 - shadow * 0.72)
-			var humidity = clampf(adv_humidity + moisture_source + evaporation - rain * 0.19, 0.0, 1.0)
-			var cloud = clampf(adv_cloud + humidity * 0.06 + uplift * 0.04 - rain * 0.16 - (0.01 + _wind_speed * 0.015), 0.0, 1.0)
-			var wetness = clampf(adv_wetness * 0.95 + rain * 0.52, 0.0, 1.0)
-			var fog = clampf(humidity * 0.52 + wetness * 0.38 + cool_air * 0.22 - _wind_speed * 0.24, 0.0, 1.0)
-
-			next_cloud[idx] = cloud
-			next_humidity[idx] = humidity
-			next_rain[idx] = rain
-			next_wetness[idx] = wetness
-			next_fog[idx] = fog
-			next_orographic[idx] = clampf(uplift, 0.0, 1.0)
-			next_shadow[idx] = shadow
-
-			sum_cloud += cloud
-			sum_humidity += humidity
-			sum_rain += rain
-			sum_fog += fog
-
-	_cloud = next_cloud
-	_humidity = next_humidity
-	_rain = next_rain
-	_wetness = next_wetness
-	_fog = next_fog
-	_orographic = next_orographic
-	_rain_shadow = next_shadow
-
-	var inv_n = 1.0 / float(maxi(1, n))
-	return _snapshot_dict(
-		tick,
-		wind,
-		{
-			"cloud": sum_cloud * inv_n,
-			"humidity": sum_humidity * inv_n,
-			"rain": sum_rain * inv_n,
-			"fog": sum_fog * inv_n,
-		}
-	)
+		return _fail_fast_weather_snapshot(tick, "weather_gpu_step_failed", "weather GPU step unavailable or returned empty result")
+	var native_error = String(native_dispatch.get("error", "")).strip_edges()
+	if native_error == "":
+		var native_result_variant = native_dispatch.get("result", {})
+		if native_result_variant is Dictionary:
+			native_error = String((native_result_variant as Dictionary).get("error", "")).strip_edges()
+	var native_details = "native weather dispatch unavailable and GPU compute inactive"
+	if native_error != "":
+		native_details = "%s (%s)" % [native_details, native_error]
+	return _fail_fast_weather_snapshot(tick, "weather_native_and_gpu_unavailable", native_details)
 
 func current_snapshot(tick: int = 0) -> Dictionary:
 	if not _configured:
@@ -548,11 +478,12 @@ func _snapshot_dict(tick: int, wind: Vector2, averages: Dictionary) -> Dictionar
 		}
 	return out
 
-func _update_wind(tick: int, delta: float) -> void:
-	var t = float(tick) * 0.041 + _time_accum * 0.09 + float(_seed % 997) * 0.001
+func _predict_wind(tick: int, delta: float, time_accum: float, start_angle: float, start_speed: float) -> Dictionary:
+	var t = float(tick) * 0.041 + time_accum * 0.09 + float(_seed % 997) * 0.001
 	var drift = sin(t * 0.83) * 0.018 + cos(t * 0.57) * 0.014
-	_wind_angle = fposmod(_wind_angle + drift * maxf(0.2, delta), TAU)
-	_wind_speed = clampf(0.25 + 0.4 * (0.5 + 0.5 * sin(t * 0.61)), 0.12, 1.2)
+	var next_angle = fposmod(start_angle + drift * maxf(0.2, delta), TAU)
+	var next_speed = clampf(0.25 + 0.4 * (0.5 + 0.5 * sin(t * 0.61)), 0.12, 1.2)
+	return {"angle": next_angle, "speed": clampf(next_speed, 0.05, 2.0), "previous_speed": start_speed}
 
 func _sample_bilinear(values: PackedFloat32Array, x: float, y: float) -> float:
 	var x0 = int(floor(x))
@@ -583,11 +514,14 @@ func _hash01(x: int, y: int, seed: int) -> float:
 	return float(n) / 1000000.0
 
 func _write_activity_buffer(local_activity: Dictionary) -> void:
-	if _activity.size() != _width * _height:
-		_activity.resize(_width * _height)
-	_activity.fill(0.0)
+	_activity = _build_activity_buffer(local_activity)
+
+func _build_activity_buffer(local_activity: Dictionary) -> PackedFloat32Array:
+	var activity := PackedFloat32Array()
+	activity.resize(_width * _height)
+	activity.fill(0.0)
 	if local_activity.is_empty():
-		return
+		return activity
 	for tile_id_variant in local_activity.keys():
 		var tile_id = String(tile_id_variant)
 		var coords = TileKeyUtilsScript.parse_tile_id(tile_id)
@@ -597,4 +531,13 @@ func _write_activity_buffer(local_activity: Dictionary) -> void:
 		var y = coords.y
 		if x < 0 or x >= _width or y < 0 or y >= _height:
 			continue
-		_activity[_i(x, y)] = clampf(float(local_activity.get(tile_id, 0.0)), 0.0, 1.0)
+		activity[_i(x, y)] = clampf(float(local_activity.get(tile_id, 0.0)), 0.0, 1.0)
+	return activity
+
+func _fail_fast_weather_snapshot(tick: int, error_code: String, details: String = "") -> Dictionary:
+	var snapshot = current_snapshot(tick)
+	snapshot["status"] = "error"
+	snapshot["error"] = error_code
+	if details != "":
+		snapshot["details"] = details
+	return snapshot

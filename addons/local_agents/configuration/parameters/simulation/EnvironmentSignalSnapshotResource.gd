@@ -10,6 +10,7 @@ class_name LocalAgentsEnvironmentSignalSnapshotResource
 @export var solar_snapshot: Dictionary = {}
 @export var erosion_changed: bool = false
 @export var erosion_changed_tiles: Array = []
+@export var erosion_changed_chunks: Array = []
 
 func to_dict() -> Dictionary:
 	return {
@@ -22,6 +23,7 @@ func to_dict() -> Dictionary:
 		"solar_snapshot": solar_snapshot.duplicate(true),
 		"erosion_changed": erosion_changed,
 		"erosion_changed_tiles": erosion_changed_tiles.duplicate(true),
+		"erosion_changed_chunks": erosion_changed_chunks.duplicate(true),
 	}
 
 func from_dict(values: Dictionary) -> void:
@@ -40,4 +42,5 @@ func from_dict(values: Dictionary) -> void:
 	erosion_changed = bool(values.get("erosion_changed", erosion_changed))
 	var changed_variant = values.get("erosion_changed_tiles", [])
 	erosion_changed_tiles = changed_variant.duplicate(true) if changed_variant is Array else []
-
+	var changed_chunks_variant = values.get("erosion_changed_chunks", [])
+	erosion_changed_chunks = changed_chunks_variant.duplicate(true) if changed_chunks_variant is Array else []

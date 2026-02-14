@@ -66,6 +66,7 @@ func build_snapshot_from_state(state: Dictionary, fallback_tick: int):
 		snapshot.solar_snapshot = state.get("solar_snapshot", {}).duplicate(true)
 		snapshot.erosion_changed = bool(state.get("erosion_changed", false))
 		snapshot.erosion_changed_tiles = (state.get("erosion_changed_tiles", []) as Array).duplicate(true)
+		snapshot.erosion_changed_chunks = (state.get("erosion_changed_chunks", []) as Array).duplicate(true)
 	return snapshot
 
 func apply_environment_signals(snapshot) -> void:
@@ -83,7 +84,8 @@ func sync_from_state(state: Dictionary, force_rebuild: bool, visual_interval_tic
 			_environment_controller.apply_generation_delta(
 				env_signals.environment_snapshot,
 				env_signals.water_network_snapshot,
-				env_signals.erosion_changed_tiles
+				env_signals.erosion_changed_tiles,
+				env_signals.erosion_changed_chunks
 			)
 		elif _environment_controller.has_method("apply_generation_data"):
 			_environment_controller.apply_generation_data(

@@ -8,6 +8,7 @@ var _layers: Dictionary = {}
 var _compute_requested: bool = false
 var _compute_active: bool = false
 var _compute_backend = SmellComputeBackendScript.new()
+var _last_step_status: Dictionary = {"ok": true}
 var _query_acceleration_enabled: bool = true
 var _query_top_k_per_layer: int = 48
 var _query_cache_refresh_interval_seconds: float = 0.25
@@ -27,6 +28,9 @@ func set_compute_enabled(enabled: bool) -> void:
 	_refresh_compute_state()
 func is_compute_active() -> bool:
 	return _compute_active
+
+func last_step_status() -> Dictionary:
+	return _last_step_status.duplicate(true)
 func set_query_acceleration(enabled: bool, top_k_per_layer: int, cache_refresh_interval_seconds: float) -> void:
 	var next_enabled := enabled
 	var next_top_k := maxi(4, mini(1024, top_k_per_layer))
@@ -68,19 +72,22 @@ func deposit_chemical(chemical: String, world_position: Vector3, strength: float
 	_deposit_into_layer(_chemical_layer(chemical), world_position, strength)
 func step(delta: float, wind_source: Variant, base_decay_per_second: float, rain_intensity: float, rain_decay_multiplier: float) -> void:
 	if delta <= 0.0:
+		_set_step_status(true)
 		return
 	if _compute_requested and not _compute_active:
 		_refresh_compute_state()
 	var decay := base_decay_per_second * (1.0 + rain_intensity * rain_decay_multiplier)
 	var decay_factor := clampf(1.0 - decay * delta, 0.0, 1.0)
 	var native_dispatch := NativeComputeBridgeScript.dispatch_voxel_stage("smell_step", {"delta": delta, "decay_factor": decay_factor, "layer_count": _layers.size()})
-	if bool(native_dispatch.get("dispatched", false)):
+	if not bool(native_dispatch.get("dispatched", false)):
+		_set_step_status(false, "native_smell_step_dispatch_failed", "smell_step dispatch unavailable or failed")
+		push_error("SmellFieldSystem: smell_step dispatch unavailable or failed")
 		return
-	for layer_name_variant in _sorted_layer_names():
-		var layer_name := String(layer_name_variant)
-		_step_layer(layer_name, delta, decay_factor, wind_source)
+	_set_step_status(true)
+
 func step_local(delta: float, active_voxels: Array[Vector3i], radius_cells: int, wind_source: Variant, base_decay_per_second: float, rain_intensity: float, rain_decay_multiplier: float) -> void:
 	if delta <= 0.0 or active_voxels.is_empty():
+		_set_step_status(true)
 		return
 	if _compute_requested and not _compute_active:
 		_refresh_compute_state()
@@ -88,11 +95,11 @@ func step_local(delta: float, active_voxels: Array[Vector3i], radius_cells: int,
 	var decay_factor := clampf(1.0 - decay * delta, 0.0, 1.0)
 	var touched: Dictionary = _build_touched_voxels(active_voxels, maxi(1, radius_cells))
 	var native_dispatch := NativeComputeBridgeScript.dispatch_voxel_stage("smell_step_local", {"delta": delta, "decay_factor": decay_factor, "layer_count": _layers.size(), "active_voxel_count": active_voxels.size(), "touched_count": touched.size()})
-	if bool(native_dispatch.get("dispatched", false)):
+	if not bool(native_dispatch.get("dispatched", false)):
+		_set_step_status(false, "native_smell_step_local_dispatch_failed", "smell_step_local dispatch unavailable or failed")
+		push_error("SmellFieldSystem: smell_step_local dispatch unavailable or failed")
 		return
-	for layer_name_variant in _sorted_layer_names():
-		var layer_name := String(layer_name_variant)
-		_step_layer_local(layer_name, delta, decay_factor, wind_source, touched)
+	_set_step_status(true)
 func strongest_weighted_chemical_position(origin: Vector3, chemical_weights: Dictionary, sample_radius_voxels: int = 8) -> Variant:
 	var scored := _strongest_weighted_chemical(origin, chemical_weights, sample_radius_voxels)
 	return scored.get("position", null)
@@ -541,6 +548,13 @@ func _rebuild_query_cache() -> void:
 	_query_cache_dirty = false
 func _mark_query_cache_dirty() -> void:
 	_query_cache_dirty = true
+
+func _set_step_status(ok: bool, error_code: String = "", details: String = "") -> void:
+	_last_step_status = {"ok": ok}
+	if not ok:
+		_last_step_status["error"] = error_code
+		if details != "":
+			_last_step_status["details"] = details
 func _build_touched_voxels(active_voxels: Array[Vector3i], radius_cells: int) -> Dictionary:
 	var touched: Dictionary = {}
 	var radius := maxi(1, radius_cells)

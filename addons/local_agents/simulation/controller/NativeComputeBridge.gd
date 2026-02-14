@@ -65,12 +65,23 @@ static func is_voxel_stage_dispatched(dispatch: Dictionary) -> bool:
 	var result = dispatch.get("result", {})
 	if not (result is Dictionary):
 		return false
-	if bool((result as Dictionary).get("dispatched", false)):
+	var payload_result = result as Dictionary
+	var execution_variant = payload_result.get("execution", {})
+	if execution_variant is Dictionary:
+		var execution = execution_variant as Dictionary
+		if bool(execution.get("cpu_fallback_used", false)):
+			return false
+		var backend_used := String(execution.get("backend_used", "")).strip_edges().to_lower()
+		if backend_used == "cpu_fallback":
+			return false
+		var backend_requested := String(execution.get("backend_requested", "")).strip_edges().to_lower()
+		if backend_requested == "gpu":
+			return bool(execution.get("gpu_dispatched", false))
+	if bool(payload_result.get("dispatched", false)):
 		return true
-	var execution = (result as Dictionary).get("execution", {})
-	if not (execution is Dictionary):
-		return false
-	return bool((execution as Dictionary).get("dispatched", false))
+	if execution_variant is Dictionary:
+		return bool((execution_variant as Dictionary).get("dispatched", false))
+	return false
 
 static func voxel_stage_result(dispatch: Dictionary) -> Dictionary:
 	if not bool(dispatch.get("ok", false)):
@@ -99,10 +110,31 @@ static func is_environment_stage_dispatched(dispatch: Dictionary) -> bool:
 	var result = dispatch.get("result", {})
 	if not (result is Dictionary):
 		return false
-	var execution = (result as Dictionary).get("execution", {})
-	if not (execution is Dictionary):
-		return false
-	return bool((execution as Dictionary).get("dispatched", false))
+	var native_result = result as Dictionary
+	var explicit_dispatched = bool(dispatch.get("dispatched", false))
+	explicit_dispatched = explicit_dispatched or bool(native_result.get("dispatched", false))
+	var execution_variant = native_result.get("execution", {})
+	if execution_variant is Dictionary:
+		var execution = execution_variant as Dictionary
+		if bool(execution.get("cpu_fallback_used", false)):
+			return false
+		var backend_used := String(execution.get("backend_used", "")).strip_edges().to_lower()
+		if backend_used == "cpu_fallback":
+			return false
+		var backend_requested := String(execution.get("backend_requested", "")).strip_edges().to_lower()
+		if backend_requested == "gpu" and not bool(execution.get("gpu_dispatched", false)):
+			return false
+		if backend_used != "" and backend_used != "gpu":
+			return false
+		explicit_dispatched = explicit_dispatched or bool(execution.get("dispatched", false))
+	var nested_result_variant = native_result.get("result", {})
+	if nested_result_variant is Dictionary:
+		var nested_result = nested_result_variant as Dictionary
+		explicit_dispatched = explicit_dispatched or bool(nested_result.get("dispatched", false))
+		var nested_execution_variant = nested_result.get("execution", {})
+		if nested_execution_variant is Dictionary:
+			explicit_dispatched = explicit_dispatched or bool((nested_execution_variant as Dictionary).get("dispatched", false))
+	return explicit_dispatched
 
 static func environment_stage_result(dispatch: Dictionary) -> Dictionary:
 	if not bool(dispatch.get("ok", false)):
@@ -110,8 +142,15 @@ static func environment_stage_result(dispatch: Dictionary) -> Dictionary:
 	var native_result = dispatch.get("result", {})
 	if not (native_result is Dictionary):
 		return {}
-	var payload = native_result.get("result", {})
+	var payload = native_result.get("result_fields", {})
 	if payload is Dictionary:
+		return payload as Dictionary
+	payload = native_result.get("result", {})
+	if payload is Dictionary:
+		var nested_result = payload as Dictionary
+		var nested_fields = nested_result.get("result_fields", {})
+		if nested_fields is Dictionary:
+			return nested_fields as Dictionary
 		return payload as Dictionary
 	payload = native_result.get("step_result", {})
 	if payload is Dictionary:
@@ -119,6 +158,20 @@ static func environment_stage_result(dispatch: Dictionary) -> Dictionary:
 	payload = native_result.get("payload", {})
 	if payload is Dictionary:
 		return payload as Dictionary
+	var status = String((native_result as Dictionary).get("status", "")).strip_edges()
+	if status != "":
+		var status_payload := {"status": status}
+		if (native_result as Dictionary).get("error", null) != null:
+			status_payload["error"] = String((native_result as Dictionary).get("error", ""))
+		if (native_result as Dictionary).get("execution", {}) is Dictionary:
+			status_payload["execution"] = ((native_result as Dictionary).get("execution", {}) as Dictionary).duplicate(true)
+		if (native_result as Dictionary).get("pipeline", {}) is Dictionary:
+			status_payload["pipeline"] = ((native_result as Dictionary).get("pipeline", {}) as Dictionary).duplicate(true)
+		if (native_result as Dictionary).get("physics_server_feedback", {}) is Dictionary:
+			status_payload["physics_server_feedback"] = ((native_result as Dictionary).get("physics_server_feedback", {}) as Dictionary).duplicate(true)
+		if (native_result as Dictionary).get("voxel_failure_emission", {}) is Dictionary:
+			status_payload["voxel_failure_emission"] = ((native_result as Dictionary).get("voxel_failure_emission", {}) as Dictionary).duplicate(true)
+		return status_payload
 	return {}
 
 static func dispatch_environment_stage(stage_name: String, payload: Dictionary) -> Dictionary:
@@ -644,12 +697,32 @@ static func _normalize_voxel_stage_result(result) -> Dictionary:
 	if not (result is Dictionary):
 		return {"ok": false, "executed": true, "dispatched": false, "error": "core_call_invalid_response_execute_voxel_stage"}
 	var payload_result = result as Dictionary
+	var execution_variant = payload_result.get("execution", {})
+	var execution: Dictionary = execution_variant if execution_variant is Dictionary else {}
 	var dispatched = bool(payload_result.get("dispatched", false))
+	if not dispatched and not execution.is_empty():
+		dispatched = bool(execution.get("dispatched", false))
+	var backend_requested := String(execution.get("backend_requested", "")).strip_edges().to_lower()
+	var backend_used := String(execution.get("backend_used", "")).strip_edges().to_lower()
+	var gpu_dispatched := bool(execution.get("gpu_dispatched", dispatched))
+	var cpu_fallback_used := bool(execution.get("cpu_fallback_used", false))
+	var base_error := String(payload_result.get("error", execution.get("error_code", "")))
+	if cpu_fallback_used or backend_used == "cpu_fallback":
+		var error_code := base_error if base_error != "" else "gpu_backend_required_cpu_fallback_disallowed"
+		return {"ok": false, "executed": true, "dispatched": false, "result": payload_result, "error": error_code}
+	if backend_requested == "gpu" and not gpu_dispatched:
+		var unavailable_error := base_error if base_error != "" else "gpu_backend_unavailable"
+		return {"ok": false, "executed": true, "dispatched": false, "result": payload_result, "error": unavailable_error}
+	if backend_used != "" and backend_used != "gpu":
+		var backend_error := base_error if base_error != "" else "gpu_backend_required"
+		return {"ok": false, "executed": true, "dispatched": false, "result": payload_result, "error": backend_error}
+	if not bool(payload_result.get("ok", false)):
+		var payload_error := base_error if base_error != "" else "core_call_failed_execute_voxel_stage"
+		return {"ok": false, "executed": true, "dispatched": false, "result": payload_result, "error": payload_error}
 	if not dispatched:
-		var execution_variant = payload_result.get("execution", {})
-		if execution_variant is Dictionary:
-			dispatched = bool((execution_variant as Dictionary).get("dispatched", false))
-	return {"ok": bool(payload_result.get("ok", false)), "executed": true, "dispatched": dispatched, "result": payload_result, "error": String(payload_result.get("error", ""))}
+		var dispatch_error := base_error if base_error != "" else "gpu_dispatch_not_confirmed"
+		return {"ok": false, "executed": true, "dispatched": false, "result": payload_result, "error": dispatch_error}
+	return {"ok": true, "executed": true, "dispatched": true, "result": payload_result, "error": ""}
 
 static func _normalize_dispatch_result(controller, tick: int, phase: String, method_name: String, result, strict: bool) -> Dictionary:
 	if result is bool:
