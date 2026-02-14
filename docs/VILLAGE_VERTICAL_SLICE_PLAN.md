@@ -295,7 +295,7 @@ Design intent:
 - [ ] Terrain collision uses `StaticBody3D` + `CollisionShape3D`/heightfield-compatible setup.
 - [ ] Water uses simple mesh + optional `Area3D` for interaction zones (not full fluid sim).
 - [ ] Villagers use primitive capsule representation:
-- [ ] `CharacterBody3D` (preferred for deterministic movement) or constrained `RigidBody3D` if needed.
+- [ ] `CharacterBody3D` (required baseline for deterministic movement); avoid general `RigidBody3D` usage in village runtime.
 - [ ] `MeshInstance3D` with `CapsuleMesh`.
 - [ ] `CollisionShape3D` with `CapsuleShape3D`.
 - [ ] Buildings are primitive neolithic placeholders:

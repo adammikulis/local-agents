@@ -357,10 +357,15 @@ Wave B validation gates:
 ### Wave C: GPU-First Runtime + Query Migration + CI Gates
 
 GPU-first implementation:
+- [ ] P0 (Owners: Runtime Simulation lane, Native Compute lane, Documentation lane, Validation/Test-Infrastructure lane): Immediate full GPU migration of voxel hot path in `VoxelEditEngine` with fail-fast-only execution policy.
+  - Policy lock: `VoxelEditEngine` must not expose a CPU success execution path; if required GPU backend/capabilities are unavailable, return fail-fast error only.
+  - File targets: new helper/backend/shader + shim split in `addons/local_agents/gdextensions/localagents/include/sim/VoxelEditGpuExecutor.hpp`, `addons/local_agents/gdextensions/localagents/src/sim/VoxelEditGpuExecutor.cpp`, `addons/local_agents/gdextensions/localagents/src/LocalAgentsComputeManager.cpp`, `addons/local_agents/scenes/simulation/shaders/VoxelEditStageCompute.glsl`, and `addons/local_agents/gdextensions/localagents/src/VoxelEditEngine.cpp` (call-site shim/orchestration only).
+  - File-size split requirement: `addons/local_agents/gdextensions/localagents/src/VoxelEditEngine.cpp` is already above the 540-line precondition (currently 849 lines), so helper extraction is mandatory before implementation and resulting files must stay under the 600-line hard cap.
+  - Acceptance criteria: Voxel hot-path stage execution is dispatched on real GPU compute kernels, readback is implemented for required downstream sync/contract fields, and validation confirms no CPU-success stage execution path remains in `VoxelEditEngine`.
 - [ ] Implement compute kernels for all hot stages and keep core fields resident on GPU.
 - [ ] Add ping-pong buffers, barrier/fence correctness, and sparse active-region dispatch.
 - [ ] Add backend capability gating and mobile quality tiers.
-- [ ] Keep CPU fallback behaviorally aligned to epsilon contracts.
+- [ ] Keep any remaining non-`VoxelEditEngine` CPU fallback paths behaviorally aligned to epsilon contracts.
 - [ ] Keep physics-server sync/readback deltas minimal and bounded (no full-scene per-frame bridge copies).
 
 Query/gameplay integration:

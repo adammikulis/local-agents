@@ -42,6 +42,7 @@ const DETERMINISTIC_TESTS: Array[String] = [
 	"res://addons/local_agents/tests/test_simulation_material_flow_parity.gd",
 	"res://addons/local_agents/tests/test_simulation_material_flow_foveated_throttling.gd",
 	"res://addons/local_agents/tests/test_physics_server_coupling_gate.gd",
+	"res://addons/local_agents/tests/test_voxel_chunk_collision_parity_contracts.gd",
 ]
 
 const INTEGRATION_TESTS: Array[String] = [

@@ -11,6 +11,11 @@ Progress tracking for active implementation has moved to `ARCHITECTURE_PLAN.md` 
 
 Integrate all voxel/tile simulation domains into a single native simulation core (GDExtension) so GDScript remains orchestration/UI only. This covers smell, wind, weather, hydrology, erosion/destruction, solar, water simulation, ecology signals, and shared spatial query services.
 
+Physics integration policy for this plan:
+- Use `PhysicsServer3D` as the contact/collision manifold bridge only.
+- Keep gameplay/runtime mechanics voxel-native-first; do not treat broad `RigidBody3D` behavior as baseline simulation architecture.
+- Reserve rigid-body projectile usage for contained demo/testing fixtures and contract validation lanes.
+
 ## Current State Summary (repo-specific)
 
 - Voxel/tile simulation is implemented primarily in GDScript systems under `addons/local_agents/simulation/`.

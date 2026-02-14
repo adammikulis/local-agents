@@ -51,7 +51,7 @@ func _test_directional_impact_emits_cleave_with_deterministic_payload(core: Obje
 	var first_plan := _extract_failure_emission(first_result)
 	var second_plan := _extract_failure_emission(second_result)
 	var ok := true
-	ok = _assert(String(first_plan.get("status", "")) == "planned" or String(first_plan.get("status", "")) == "executed", "Directional impact path should produce planned/executed voxel failure emission.") and ok
+	ok = _assert(String(first_plan.get("status", "")) == "executed", "Directional impact path should execute voxel failure emission against environment stage.") and ok
 	ok = _assert(int(first_plan.get("planned_op_count", 0)) > 0, "Directional impact path should emit at least one voxel op.") and ok
 
 	var first_op := _extract_first_op_payload(first_plan)
@@ -73,6 +73,11 @@ func _test_directional_impact_emits_cleave_with_deterministic_payload(core: Obje
 	ok = _assert(_is_numeric(first_op.get("impact_work", 0.0)), "Directional cleave impact_work should be numeric.") and ok
 	ok = _assert_noise_payload_present(first_op, "Directional cleave op payload") and ok
 	ok = _assert_noise_payload_present(second_op, "Directional cleave replay payload") and ok
+	ok = _assert_environment_stage_driver(first_plan, "Directional cleave plan") and ok
+	ok = _assert_environment_stage_driver(second_plan, "Directional cleave replay plan") and ok
+	ok = _assert_execution_mutated_wall(first_plan, "Directional cleave plan execution") and ok
+	ok = _assert_execution_mutated_wall(second_plan, "Directional cleave replay execution") and ok
+	ok = _assert_execution_replay_stable(first_plan, second_plan, "Directional cleave execution replay") and ok
 
 	ok = _assert(String(first_op.get("operation", "")) == String(second_op.get("operation", "")), "Directional cleave operation should be deterministic across replay.") and ok
 	ok = _assert(String(first_op.get("reason", "")) == String(second_op.get("reason", "")), "Directional cleave reason should be deterministic across replay.") and ok
@@ -97,7 +102,7 @@ func _test_low_directionality_falls_back_to_fracture(core: Object) -> bool:
 	var first_plan := _extract_failure_emission(first_result)
 	var second_plan := _extract_failure_emission(second_result)
 	var ok := true
-	ok = _assert(String(first_plan.get("status", "")) == "planned" or String(first_plan.get("status", "")) == "executed", "Fallback path should produce planned/executed voxel failure emission.") and ok
+	ok = _assert(String(first_plan.get("status", "")) == "executed", "Fallback path should execute voxel failure emission against environment stage.") and ok
 	ok = _assert(int(first_plan.get("planned_op_count", 0)) > 0, "Fallback path should emit at least one voxel op.") and ok
 
 	var first_op := _extract_first_op_payload(first_plan)
@@ -123,6 +128,11 @@ func _test_low_directionality_falls_back_to_fracture(core: Object) -> bool:
 	) and ok
 	ok = _assert_noise_payload_present(first_op, "Fallback fracture op payload") and ok
 	ok = _assert_noise_payload_present(second_op, "Fallback fracture replay payload") and ok
+	ok = _assert_environment_stage_driver(first_plan, "Fallback fracture plan") and ok
+	ok = _assert_environment_stage_driver(second_plan, "Fallback fracture replay plan") and ok
+	ok = _assert_execution_mutated_wall(first_plan, "Fallback fracture plan execution") and ok
+	ok = _assert_execution_mutated_wall(second_plan, "Fallback fracture replay execution") and ok
+	ok = _assert_execution_replay_stable(first_plan, second_plan, "Fallback fracture execution replay") and ok
 	ok = _assert_noise_payload_replay_stable(first_op, second_op, "Fallback fracture replay") and ok
 	return ok
 
@@ -229,8 +239,60 @@ func _extract_first_op_payload(plan: Dictionary) -> Dictionary:
 		return payloads[0]
 	return {}
 
+func _extract_execution(plan: Dictionary) -> Dictionary:
+	var execution = plan.get("execution", {})
+	if execution is Dictionary:
+		return execution
+	return {}
+
 func _is_numeric(value: Variant) -> bool:
 	return value is int or value is float
+
+func _assert_environment_stage_driver(plan: Dictionary, label: String) -> bool:
+	var ok := true
+	ok = _assert(String(plan.get("target_domain", "")) == "environment", "%s should target the environment voxel domain." % label) and ok
+	ok = _assert(String(plan.get("stage_name", "")) == "physics_failure_emission", "%s should execute the physics_failure_emission stage." % label) and ok
+	ok = _assert(
+		String(plan.get("op_kind", "")) == "cleave" or String(plan.get("op_kind", "")) == "fracture",
+		"%s should emit only cleave/fracture op kinds (no local carve path)." % label
+	) and ok
+	return ok
+
+func _assert_execution_mutated_wall(plan: Dictionary, label: String) -> bool:
+	var execution := _extract_execution(plan)
+	var ok := true
+	ok = _assert(bool(execution.get("ok", false)), "%s should complete successfully." % label) and ok
+	ok = _assert(int(execution.get("ops_changed", 0)) > 0, "%s should report changed voxel operations." % label) and ok
+	var changed_region: Dictionary = execution.get("changed_region", {})
+	ok = _assert(bool(changed_region.get("valid", false)), "%s should provide a valid changed_region (changed tiles)." % label) and ok
+	var region_min: Dictionary = changed_region.get("min", {})
+	var region_max: Dictionary = changed_region.get("max", {})
+	for key in ["x", "y", "z"]:
+		ok = _assert(region_min.has(key), "%s changed_region.min should include '%s'." % [label, key]) and ok
+		ok = _assert(region_max.has(key), "%s changed_region.max should include '%s'." % [label, key]) and ok
+	var changed_chunks = execution.get("changed_chunks", [])
+	ok = _assert(changed_chunks is Array, "%s should expose changed_chunks as an array." % label) and ok
+	if changed_chunks is Array:
+		ok = _assert((changed_chunks as Array).size() > 0, "%s should include at least one changed chunk." % label) and ok
+	return ok
+
+func _assert_execution_replay_stable(first_plan: Dictionary, second_plan: Dictionary, label: String) -> bool:
+	var first_execution := _extract_execution(first_plan)
+	var second_execution := _extract_execution(second_plan)
+	var ok := true
+	ok = _assert(
+		int(first_execution.get("ops_changed", -1)) == int(second_execution.get("ops_changed", -2)),
+		"%s should preserve ops_changed across replay." % label
+	) and ok
+	ok = _assert(
+		first_execution.get("changed_region", {}) == second_execution.get("changed_region", {}),
+		"%s should preserve changed_region payload across replay." % label
+	) and ok
+	ok = _assert(
+		first_execution.get("changed_chunks", []) == second_execution.get("changed_chunks", []),
+		"%s should preserve changed_chunks ordering across replay." % label
+	) and ok
+	return ok
 
 func _assert_noise_payload_present(op_payload: Dictionary, label: String) -> bool:
 	var ok := true

@@ -8,11 +8,14 @@ const MAX_TICKS := 84
 func run_test(tree: SceneTree) -> bool:
 	var baseline_controller = SimulationControllerScript.new()
 	var foveated_controller = SimulationControllerScript.new()
+	var replay_controller = SimulationControllerScript.new()
 	tree.get_root().add_child(baseline_controller)
 	tree.get_root().add_child(foveated_controller)
+	tree.get_root().add_child(replay_controller)
 
 	_configure_controller(baseline_controller, "seed-material-flow-foveated")
 	_configure_controller(foveated_controller, "seed-material-flow-foveated")
+	_configure_controller(replay_controller, "seed-material-flow-foveated")
 
 	if baseline_controller.has_method("set_native_view_metrics"):
 		baseline_controller.call("set_native_view_metrics", {
@@ -28,38 +31,53 @@ func run_test(tree: SceneTree) -> bool:
 			"uniformity_score": 0.96,
 			"compute_budget_scale": 0.2,
 		})
+	if replay_controller.has_method("set_native_view_metrics"):
+		replay_controller.call("set_native_view_metrics", {
+			"camera_distance": 108.0,
+			"zoom_factor": 1.0,
+			"uniformity_score": 0.96,
+			"compute_budget_scale": 0.2,
+		})
 
 	var baseline_signals: Array = []
 	var foveated_signals: Array = []
+	var replay_signals: Array = []
 	var emitted_ticks := 0
 
 	for tick in range(1, MAX_TICKS + 1):
 		var baseline_result: Dictionary = baseline_controller.process_tick(tick, 1.0)
 		var foveated_result: Dictionary = foveated_controller.process_tick(tick, 1.0)
-		if not bool(baseline_result.get("ok", false)) or not bool(foveated_result.get("ok", false)):
+		var replay_result: Dictionary = replay_controller.process_tick(tick, 1.0)
+		if not bool(baseline_result.get("ok", false)) or not bool(foveated_result.get("ok", false)) or not bool(replay_result.get("ok", false)):
 			push_error("Material-flow foveated throttling tick failed at %d" % tick)
 			baseline_controller.queue_free()
 			foveated_controller.queue_free()
+			replay_controller.queue_free()
 			return false
 
 		var baseline_state: Dictionary = baseline_result.get("state", {})
 		var foveated_state: Dictionary = foveated_result.get("state", {})
+		var replay_state: Dictionary = replay_result.get("state", {})
 		var baseline_snapshot = _find_unified_material_flow_snapshot(baseline_state)
 		var foveated_snapshot = _find_unified_material_flow_snapshot(foveated_state)
-		if not (baseline_snapshot is Dictionary and foveated_snapshot is Dictionary):
+		var replay_snapshot = _find_unified_material_flow_snapshot(replay_state)
+		if not (baseline_snapshot is Dictionary and foveated_snapshot is Dictionary and replay_snapshot is Dictionary):
 			continue
-		if (baseline_snapshot as Dictionary).is_empty() or (foveated_snapshot as Dictionary).is_empty():
+		if (baseline_snapshot as Dictionary).is_empty() or (foveated_snapshot as Dictionary).is_empty() or (replay_snapshot as Dictionary).is_empty():
 			continue
 
 		emitted_ticks += 1
 		var baseline_signal = _extract_throttle_signal(baseline_snapshot, baseline_state)
 		var foveated_signal = _extract_throttle_signal(foveated_snapshot, foveated_state)
-		if not baseline_signal.is_empty() and not foveated_signal.is_empty():
+		var replay_signal = _extract_throttle_signal(replay_snapshot, replay_state)
+		if not baseline_signal.is_empty() and not foveated_signal.is_empty() and not replay_signal.is_empty():
 			baseline_signals.append(baseline_signal)
 			foveated_signals.append(foveated_signal)
+			replay_signals.append(replay_signal)
 
 	baseline_controller.queue_free()
 	foveated_controller.queue_free()
+	replay_controller.queue_free()
 
 	if emitted_ticks == 0:
 		print("Simulation material-flow foveated throttling test skipped: unified material-flow snapshot not emitted yet.")
@@ -67,6 +85,12 @@ func run_test(tree: SceneTree) -> bool:
 	if baseline_signals.is_empty() or foveated_signals.is_empty():
 		print("Simulation material-flow foveated throttling test skipped: unified snapshot emitted without throttle metadata.")
 		return true
+	if replay_signals.is_empty():
+		print("Simulation material-flow foveated throttling test skipped: replay run emitted no comparable throttle metadata.")
+		return true
+
+	if not _assert_deterministic_tier_ordering(foveated_signals, replay_signals):
+		return false
 
 	var baseline_summary = _summarize_signals(baseline_signals)
 	var foveated_summary = _summarize_signals(foveated_signals)
@@ -184,3 +208,29 @@ func _copy_number_if_present(target: Dictionary, source: Dictionary, key: String
 	var value = source.get(key)
 	if typeof(value) == TYPE_FLOAT or typeof(value) == TYPE_INT:
 		target[key] = float(value)
+
+func _assert_deterministic_tier_ordering(foveated_signals: Array, replay_signals: Array) -> bool:
+	if foveated_signals.size() != replay_signals.size():
+		push_error("Expected foveated replay runs to emit the same number of variable-rate throttle rows")
+		return false
+	for row_index in range(foveated_signals.size()):
+		var lhs_variant = foveated_signals[row_index]
+		var rhs_variant = replay_signals[row_index]
+		if not (lhs_variant is Dictionary and rhs_variant is Dictionary):
+			push_error("Expected throttle rows to be dictionaries for deterministic tier ordering checks")
+			return false
+		var lhs: Dictionary = lhs_variant
+		var rhs: Dictionary = rhs_variant
+		for key in ["op_stride", "voxel_scale", "compute_budget_scale"]:
+			var lhs_has = lhs.has(key)
+			var rhs_has = rhs.has(key)
+			if lhs_has != rhs_has:
+				push_error("Foveated replay tier metadata mismatch for key '%s' at row %d" % [key, row_index])
+				return false
+			if lhs_has:
+				var lhs_value = float(lhs.get(key, 0.0))
+				var rhs_value = float(rhs.get(key, 0.0))
+				if abs(lhs_value - rhs_value) > 1.0e-9:
+					push_error("Variable-rate tier ordering diverged for key '%s' at row %d" % [key, row_index])
+					return false
+	return true

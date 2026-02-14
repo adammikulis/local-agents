@@ -202,5 +202,7 @@ Targeted deterministic checks include:
 ## Notes
 
 - Runtime is intentionally scene-first and resource-driven.
+- Prefer voxel-native simulation/collision/destruction as the default implementation path.
+- Use `RigidBody3D` only as a minimal, exception-based choice.
 - Required systems should fail fast rather than silently fallback.
 - `ARCHITECTURE_PLAN.md` tracks breaking changes and migration status.

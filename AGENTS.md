@@ -57,6 +57,8 @@ Lane trigger rule: if a wave touches any domain, spawn the corresponding lane(s)
 
 - There are no downstream consumers to preserve in this repo right now.
 - Prioritize rapid feature improvement and stronger simulation behavior over compatibility.
+- Default to voxel-native simulation, collision, and destruction paths.
+- Keep `RigidBody3D` usage minimal and exception-based with explicit justification.
 - Break APIs freely when it improves architecture or enables required capabilities.
 - Remove old abstractions when replacing systems; avoid compatibility shims and legacy paths.
 
