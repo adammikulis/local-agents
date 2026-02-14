@@ -2,23 +2,28 @@
 extends SceneTree
 
 var _did_finish := false
-var _timeout_seconds := 180.0
+var _timeout_seconds := 120.0
+const _CANONICAL_HELPER := "scripts/run_single_test.sh"
+const _TEST_ROOT := "res://addons/local_agents/tests/"
 
 func _init() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
+	var script_path := _test_script_from_args()
+	if script_path == "":
+		_fail_bad_invocation("Missing required --test=<res://addons/local_agents/tests/test_*.gd> argument")
+		return
+	if not _is_valid_test_path(script_path):
+		_fail_bad_invocation("Invalid --test path '%s'. Expected res://addons/local_agents/tests/test_*.gd" % script_path)
+		return
+
 	_timeout_seconds = _timeout_from_args()
 	if _timeout_seconds <= 0.0:
-		push_error("Invalid --timeout value; expected > 0 seconds")
-		_finish(2)
+		_fail_bad_invocation("Missing or invalid --timeout=<seconds> argument; expected a positive number")
 		return
 	_arm_timeout_watchdog()
 
-	var script_path := _test_script_from_args()
-	if script_path == "":
-		_fail(2, "Missing --test=<res://...> argument")
-		return
 	var script := load(script_path)
 	if script == null:
 		_fail(2, "Failed to load test script: %s" % script_path)
@@ -32,7 +37,7 @@ func _run() -> void:
 		return
 	print("==> Running %s" % script_path)
 	var result = instance.run_test(self)
-	if result is GDScriptFunctionState:
+	if _is_awaitable_result(result):
 		result = await result
 		if _did_finish:
 			return
@@ -58,7 +63,30 @@ func _timeout_from_args() -> float:
 			if value > 0.0:
 				return value
 			return -1.0
-	return 180.0
+	return -1.0
+
+func _is_valid_test_path(script_path: String) -> bool:
+	if not script_path.begins_with(_TEST_ROOT):
+		return false
+	var file_name := script_path.trim_prefix(_TEST_ROOT)
+	if file_name == "" or file_name.contains("/"):
+		return false
+	if not file_name.begins_with("test_"):
+		return false
+	return file_name.ends_with(".gd")
+
+func _fail_bad_invocation(message: String) -> void:
+	var usage := "Use %s <test_*.gd> [--timeout=120] or run: godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=%stest_example.gd --timeout=120" % [_CANONICAL_HELPER, _TEST_ROOT]
+	_fail(2, "%s. %s" % [message, usage])
+
+func _is_awaitable_result(result: Variant) -> bool:
+	if result == null:
+		return false
+	if not (result is Object):
+		return false
+	# Godot 4.6 no longer resolves GDScriptFunctionState as a type literal in scripts.
+	# Detect by runtime class name to keep async run_test support without parse-time coupling.
+	return String((result as Object).get_class()) == "GDScriptFunctionState"
 
 func _arm_timeout_watchdog() -> void:
 	var watchdog := create_timer(_timeout_seconds)

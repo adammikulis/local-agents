@@ -110,7 +110,7 @@ Rendering style:
 - GPU rain post-processing shader and lightning flash propagation to weather materials.
 - Volumetric fog + automatic day/night sun animation, integrated with global lighting and SDFGI-enabled demo environment.
 
-### Unified Demo and Controls
+### Integrated Demo and Controls
 
 - Single canonical scene: `VoxelWorldDemo` (project main scene).
 - Terrain controls include dimensions, sea level, surface base/range, noise frequency/octaves/lacunarity/gain, smoothing, and cave threshold.
@@ -158,6 +158,27 @@ Bounded runtime-heavy harness (each heavy test runs in its own process with per-
 ```bash
 godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd
 ```
+
+Run one `test_*.gd` module via the canonical helper (default timeout is `120` seconds):
+
+```bash
+scripts/run_single_test.sh test_native_voxel_op_contracts.gd
+scripts/run_single_test.sh test_native_voxel_op_contracts.gd --timeout=180
+```
+
+Equivalent direct harness invocation (when needed):
+
+```bash
+godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_op_contracts.gd --timeout=120
+```
+
+Banned direct invocation (do not run test modules as SceneTree scripts):
+
+```bash
+godot --headless --no-window -s addons/local_agents/tests/test_native_voxel_op_contracts.gd
+```
+
+This is enforced in automation via `scripts/check_no_direct_refcounted_invocation.sh` (invoked by `scripts/check_max_file_length.sh`).
 
 CI timeout policy for deterministic replay/runtime shards:
 - Default shard budget: `120` seconds.

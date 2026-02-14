@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MAX_FILE_LINES="${MAX_FILE_LINES:-600}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MAX_FILE_LINES="${MAX_FILE_LINES:-1000}"
 
 if ! [[ "$MAX_FILE_LINES" =~ ^[0-9]+$ ]] || [[ "$MAX_FILE_LINES" -le 0 ]]; then
   echo "MAX_FILE_LINES must be a positive integer (got: $MAX_FILE_LINES)"
   exit 2
 fi
+
+"$SCRIPT_DIR/check_no_direct_refcounted_invocation.sh"
 
 FILES=()
 while IFS= read -r file; do

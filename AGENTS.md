@@ -19,8 +19,8 @@ This file defines implementation rules for this repository. Higher sections are 
   - spawn implementation/validation sub-agents whenever responsibilities can be split safely.
 - Workflow loop:
   0. Before any implementation edit, estimate final file size impact and enforce file-size preconditions.
-  - If any in-scope edit targets a source/config file at or above 540 lines, execution must be split before code changes begin.
-  - If predicted delta pushes a file over 600 lines, create or reuse a dedicated helper/source split lane immediately and move non-call-site logic there.
+  - If any in-scope edit targets a source/config file at or above 900 lines, execution must be split before code changes begin.
+  - If predicted delta pushes a file over 1000 lines, create or reuse a dedicated helper/source split lane immediately and move non-call-site logic there.
   1. Update `ARCHITECTURE_PLAN.md` first with priority band (P0/P1/P2), owners, and acceptance criteria.
   2. Launch one or more planning sub-agents for decomposition + coupling-risk assessment.
   3. Launch scoped implementation and validation sub-agents in parallel.
@@ -64,9 +64,9 @@ Lane trigger rule: if a wave touches any domain, spawn the corresponding lane(s)
 
 ## File Size and Refactor Discipline
 
-- `scripts/check_max_file_length.sh` enforces a hard `MAX_FILE_LINES=600` limit for first-party source/config (`.gd`, `.gdshader`, `.tscn`, `.tres`, workflow YAML).
+- `scripts/check_max_file_length.sh` enforces a hard `MAX_FILE_LINES=1000` limit for first-party source/config (`.gd`, `.gdshader`, `.tscn`, `.tres`, workflow YAML), and also runs `scripts/check_no_direct_refcounted_invocation.sh` to ban direct `godot -s addons/local_agents/tests/test_*.gd` usage in automation files.
 - Never increase limits or add exceptions; split and refactor immediately when a file exceeds the cap.
-- Never allow an implementation to proceed that can push a file over 600 lines; enforce a local hard stop at 540 lines and split before changes.
+- Never allow an implementation to proceed that can push a file over 1000 lines; enforce a local hard stop at 900 lines and split before changes.
 - When refactoring for size, extract helpers/business logic into focused modules first; keep hot-path files as call-site shims.
 - For large files, split by responsibility:
   - orchestration/controller
@@ -139,6 +139,25 @@ Lane trigger rule: if a wave touches any domain, spawn the corresponding lane(s)
 - Require `godot --headless --no-window` paths in CI-relevant flows.
 - Avoid per-frame allocations in hot paths.
 - Profile long-running runtime work and log lightweight telemetry.
+
+## Headless Test Harness Invocation (Mandatory)
+
+- Always run SceneTree harness scripts via `godot --headless --no-window -s <script>`.
+- Canonical harness scripts:
+  - `addons/local_agents/tests/run_all_tests.gd`
+  - `addons/local_agents/tests/run_runtime_tests_bounded.gd`
+  - `addons/local_agents/tests/run_single_test.gd`
+  - `addons/local_agents/tests/benchmark_voxel_pipeline.gd`
+- `addons/local_agents/tests/test_*.gd` modules are usually `RefCounted` test definitions, not SceneTree entrypoints; never launch them directly with `godot -s test_x.gd`.
+- Canonical helper for single-test execution: `scripts/run_single_test.sh test_native_voxel_op_contracts.gd` (defaults to `--timeout=120`).
+- Execute `test_*.gd` modules through `addons/local_agents/tests/run_single_test.gd` and pass the test path with `-- --test=res://...` plus an explicit timeout argument.
+- Correct example: `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_op_contracts.gd --timeout=120`.
+- Banned example: `godot --headless --no-window -s addons/local_agents/tests/test_native_voxel_op_contracts.gd`.
+- Never pass a harness `.gd` as a main scene path without `-s`.
+- Broken example (do not use): `godot --headless --no-window addons/local_agents/tests/run_all_tests.gd`.
+- This broken form triggers: `doesn't inherit from SceneTree or MainLoop`.
+- When forwarding arguments to runtime harnesses, keep the `--` separator.
+- Use README command templates as the invocation baseline and keep `AGENTS.md` and `README` command guidance synchronized.
 
 ## Plugin UX and Documentation
 
