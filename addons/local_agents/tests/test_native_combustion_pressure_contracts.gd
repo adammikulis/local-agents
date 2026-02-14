@@ -2,7 +2,7 @@
 extends RefCounted
 
 const SIM_SOURCE_DIR := "res://addons/local_agents/gdextensions/localagents/src/sim"
-const LEGACY_PIPELINE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipeline.cpp"
+const LEGACY_PIPELINE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/CoreSimulationPipeline.cpp"
 const INTERFACES_HPP_PATH := "res://addons/local_agents/gdextensions/localagents/include/LocalAgentsSimulationInterfaces.hpp"
 const CORE_HPP_PATH := "res://addons/local_agents/gdextensions/localagents/include/LocalAgentsSimulationCore.hpp"
 const CORE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/LocalAgentsSimulationCore.cpp"
@@ -46,7 +46,7 @@ func _test_combustion_stage_uses_pressure_and_temperature_gating() -> bool:
 	if source == "":
 		return false
 	var ok := true
-	ok = _assert(source.contains("Dictionary UnifiedSimulationPipeline::run_reaction_stage"), "Pipeline must define reaction stage runner for combustion-compatible chemistry") and ok
+	ok = _assert(source.contains("Dictionary CoreSimulationPipeline::run_reaction_stage"), "Pipeline must define reaction stage runner for combustion-compatible chemistry") and ok
 	ok = _assert(source.contains("const double activation_temperature"), "Reaction stage must define activation temperature") and ok
 	ok = _assert(source.contains("const double min_pressure"), "Combustion stage must define min pressure") and ok
 	ok = _assert(source.contains("const double max_pressure"), "Combustion stage must define max pressure") and ok

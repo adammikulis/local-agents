@@ -9,7 +9,7 @@
 
 namespace local_agents::simulation {
 
-class UnifiedSimulationPipeline final {
+class CoreSimulationPipeline final {
 public:
     bool configure(const godot::Dictionary &config);
     godot::Dictionary execute_step(const godot::Dictionary &scheduled_frame);

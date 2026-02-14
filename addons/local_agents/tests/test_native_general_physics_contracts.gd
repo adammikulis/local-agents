@@ -2,9 +2,9 @@
 extends RefCounted
 
 const SIM_SOURCE_DIR := "res://addons/local_agents/gdextensions/localagents/src/sim"
-const PIPELINE_HPP_PATH := "res://addons/local_agents/gdextensions/localagents/include/sim/UnifiedSimulationPipeline.hpp"
-const LEGACY_PIPELINE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipeline.cpp"
-const INTERNAL_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipelineInternal.cpp"
+const PIPELINE_HPP_PATH := "res://addons/local_agents/gdextensions/localagents/include/sim/CoreSimulationPipeline.hpp"
+const LEGACY_PIPELINE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/CoreSimulationPipeline.cpp"
+const INTERNAL_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/CoreSimulationPipelineInternal.cpp"
 const BRIDGE_GD_PATH := "res://addons/local_agents/simulation/controller/NativeComputeBridge.gd"
 const WaveAInvariantChecks := preload("res://addons/local_agents/tests/test_native_general_physics_wave_a_contracts.gd")
 

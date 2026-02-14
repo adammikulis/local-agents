@@ -86,7 +86,7 @@ Explicitly removed from GDScript:
 
 ## Native Core Components (build in this order)
 
-## A. Unified Field/Buffer Registry (highest ROI)
+## A. Integrated Field/Buffer Registry (highest ROI)
 
 Purpose: single source of truth for all tile + voxel fields.
 
@@ -305,7 +305,7 @@ Done when:
 - Add CMake targets and class bindings.
 - Provide minimal script-callable bridge.
 
-## Workstream 2: Unified data contracts
+## Workstream 2: Canonical data contracts
 
 - Introduce field/channel config resources.
 - Replace shared dictionary payloads with typed handles.

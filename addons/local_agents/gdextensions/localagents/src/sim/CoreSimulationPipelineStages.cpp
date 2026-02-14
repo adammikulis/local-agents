@@ -1,6 +1,6 @@
-#include "sim/UnifiedSimulationPipeline.hpp"
+#include "sim/CoreSimulationPipeline.hpp"
 
-#include "sim/UnifiedSimulationPipelineInternal.hpp"
+#include "sim/CoreSimulationPipelineInternal.hpp"
 
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
@@ -198,7 +198,7 @@ double resolve_hot_field_scalar(
 
         if (allow_compatibility_fallback) {
             UtilityFunctions::push_warning(
-                String("UnifiedSimulationPipeline::") + stage_type + String("_stage: using compatibility fallback for unresolved hot field '")
+                String("CoreSimulationPipeline::") + stage_type + String("_stage: using compatibility fallback for unresolved hot field '")
                     + field_name + String("' in stage '") + stage_name + String("'."));
             return unified_pipeline::clamped(stage_config.get(field_name, config_fallback), min_v, max_v, config_fallback);
         }
@@ -211,14 +211,14 @@ double resolve_hot_field_scalar(
     }
 
     UtilityFunctions::push_warning(
-        String("UnifiedSimulationPipeline::") + stage_type + String("_stage: using compatibility fallback for hot field '")
+        String("CoreSimulationPipeline::") + stage_type + String("_stage: using compatibility fallback for hot field '")
             + field_name + "' in stage '" + stage_name + String("'."));
     return unified_pipeline::clamped(stage_config.get(field_name, config_fallback), min_v, max_v, config_fallback);
 }
 
 } // namespace
 
-Dictionary UnifiedSimulationPipeline::run_mechanics_stage(const Dictionary &stage_config, const Dictionary &stage_field_inputs, double delta_seconds) const {
+Dictionary CoreSimulationPipeline::run_mechanics_stage(const Dictionary &stage_config, const Dictionary &stage_field_inputs, double delta_seconds) const {
     const String stage_name = String(stage_config.get("name", "mechanics"));
     const bool compatibility_fallback = compatibility_fallback_enabled(stage_config);
 
@@ -280,7 +280,7 @@ Dictionary UnifiedSimulationPipeline::run_mechanics_stage(const Dictionary &stag
     return result;
 }
 
-Dictionary UnifiedSimulationPipeline::run_pressure_stage(const Dictionary &stage_config, const Dictionary &stage_field_inputs, double delta_seconds) const {
+Dictionary CoreSimulationPipeline::run_pressure_stage(const Dictionary &stage_config, const Dictionary &stage_field_inputs, double delta_seconds) const {
     const String stage_name = String(stage_config.get("name", "pressure"));
     const bool compatibility_fallback = compatibility_fallback_enabled(stage_config);
 
@@ -342,7 +342,7 @@ Dictionary UnifiedSimulationPipeline::run_pressure_stage(const Dictionary &stage
     return result;
 }
 
-Dictionary UnifiedSimulationPipeline::run_thermal_stage(const Dictionary &stage_config, const Dictionary &stage_field_inputs, double delta_seconds) const {
+Dictionary CoreSimulationPipeline::run_thermal_stage(const Dictionary &stage_config, const Dictionary &stage_field_inputs, double delta_seconds) const {
     const String stage_name = String(stage_config.get("name", "thermal"));
     const bool compatibility_fallback = compatibility_fallback_enabled(stage_config);
 
@@ -408,7 +408,7 @@ Dictionary UnifiedSimulationPipeline::run_thermal_stage(const Dictionary &stage_
     return result;
 }
 
-Dictionary UnifiedSimulationPipeline::run_reaction_stage(const Dictionary &stage_config, const Dictionary &stage_field_inputs, double delta_seconds) const {
+Dictionary CoreSimulationPipeline::run_reaction_stage(const Dictionary &stage_config, const Dictionary &stage_field_inputs, double delta_seconds) const {
     const String stage_name = String(stage_config.get("name", "reaction"));
     const bool compatibility_fallback = compatibility_fallback_enabled(stage_config);
 
@@ -469,7 +469,7 @@ Dictionary UnifiedSimulationPipeline::run_reaction_stage(const Dictionary &stage
     return result;
 }
 
-Dictionary UnifiedSimulationPipeline::run_destruction_stage(
+Dictionary CoreSimulationPipeline::run_destruction_stage(
     const Dictionary &stage_config,
     const Dictionary &stage_field_inputs,
     double delta_seconds) const {

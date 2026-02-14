@@ -1,4 +1,4 @@
-#include "sim/UnifiedSimulationPipelineInternal.hpp"
+#include "sim/CoreSimulationPipelineInternal.hpp"
 
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/packed_float64_array.hpp>

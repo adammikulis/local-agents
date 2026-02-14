@@ -33,7 +33,7 @@ func run_test(tree: SceneTree) -> bool:
 		var has_b = snapshot_b is Dictionary and not (snapshot_b as Dictionary).is_empty()
 
 		if has_a != has_b:
-			push_error("Unified material-flow snapshot presence diverged at tick %d" % tick)
+			push_error("Canonical material-flow snapshot presence diverged at tick %d" % tick)
 			controller_a.queue_free()
 			controller_b.queue_free()
 			return false
@@ -43,7 +43,7 @@ func run_test(tree: SceneTree) -> bool:
 		emitted_ticks += 1
 		var mismatch = _compare_variants(snapshot_a, snapshot_b, "snapshot")
 		if mismatch != "":
-			push_error("Unified material-flow parity mismatch at tick %d: %s" % [tick, mismatch])
+			push_error("Canonical material-flow parity mismatch at tick %d: %s" % [tick, mismatch])
 			controller_a.queue_free()
 			controller_b.queue_free()
 			return false

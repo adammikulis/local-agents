@@ -1,7 +1,7 @@
-#include "sim/UnifiedSimulationPipeline.hpp"
+#include "sim/CoreSimulationPipeline.hpp"
 
-#include "sim/UnifiedSimulationPipelineInternal.hpp"
-#include "sim/UnifiedSimulationPipelineFieldInputResolution.hpp"
+#include "sim/CoreSimulationPipelineInternal.hpp"
+#include "sim/CoreSimulationPipelineFieldInputResolution.hpp"
 
 using namespace godot;
 
@@ -159,7 +159,7 @@ Dictionary merge_field_inputs_for_next_step(const Dictionary &incoming_inputs, c
     return merged_inputs;
 }
 
-bool UnifiedSimulationPipeline::configure(const Dictionary &config) {
+bool CoreSimulationPipeline::configure(const Dictionary &config) {
     config_ = config.duplicate(true);
     carried_field_inputs_.clear();
     required_channels_ = config.get("required_channels", unified_pipeline::default_required_channels());
@@ -171,7 +171,7 @@ bool UnifiedSimulationPipeline::configure(const Dictionary &config) {
     return true;
 }
 
-Dictionary UnifiedSimulationPipeline::execute_step(const Dictionary &scheduled_frame) {
+Dictionary CoreSimulationPipeline::execute_step(const Dictionary &scheduled_frame) {
     executed_steps_ += 1;
 
     const double delta_seconds = unified_pipeline::clamped(scheduled_frame.get("delta_seconds", 1.0 / 60.0), 1.0e-6, 10.0, 1.0 / 60.0);
@@ -374,7 +374,7 @@ Dictionary UnifiedSimulationPipeline::execute_step(const Dictionary &scheduled_f
     return summary;
 }
 
-void UnifiedSimulationPipeline::reset() {
+void CoreSimulationPipeline::reset() {
     config_.clear();
     required_channels_.clear();
     mechanics_stages_.clear();
@@ -387,7 +387,7 @@ void UnifiedSimulationPipeline::reset() {
     carried_field_inputs_.clear();
 }
 
-Dictionary UnifiedSimulationPipeline::get_debug_snapshot() const {
+Dictionary CoreSimulationPipeline::get_debug_snapshot() const {
     Dictionary snapshot;
     snapshot["configured"] = !config_.is_empty();
     snapshot["required_channels"] = required_channels_.duplicate(true);

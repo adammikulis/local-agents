@@ -8,7 +8,7 @@ Move full world simulation ownership to native C++ (`GDExtension`) and converge 
 
 ## Architecture Target
 1. Native `MaterialState` fields
-- Unified voxel/tile channels: pressure, temperature, density, velocity, moisture, porosity, cohesion, hardness, phase, stress, strain, sediment load, fuel, oxygen, energy.
+- Canonical voxel/tile channels: pressure, temperature, density, velocity, moisture, porosity, cohesion, hardness, phase, stress, strain, sediment load, fuel, oxygen, energy.
 - Stored in centralized native field registry with typed channels and explicit layouts (SoA).
 
 2. Native `TransportSolver`
@@ -24,7 +24,7 @@ Move full world simulation ownership to native C++ (`GDExtension`) and converge 
 - Pressure- and temperature-dependent combustion with fuel/oxygen/material gating and moisture damping.
 - Emits heat, consumes reactants, and contributes terrain damage budget into destruction ops.
 
-5. Unified runtime policy (foveated simulation)
+5. Integrated runtime policy (foveated simulation)
 - View/activity-aware cadence and resolution scaling:
   - `zoom_factor`
   - `camera_distance`

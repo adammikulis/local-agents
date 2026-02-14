@@ -1,9 +1,9 @@
 @tool
 extends RefCounted
 
-const INTERNAL_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipelineInternal.cpp"
-const PIPELINE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/UnifiedSimulationPipeline.cpp"
-const PIPELINE_HPP_PATH := "res://addons/local_agents/gdextensions/localagents/include/sim/UnifiedSimulationPipeline.hpp"
+const INTERNAL_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/CoreSimulationPipelineInternal.cpp"
+const PIPELINE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/CoreSimulationPipeline.cpp"
+const PIPELINE_HPP_PATH := "res://addons/local_agents/gdextensions/localagents/include/sim/CoreSimulationPipeline.hpp"
 
 func run_test(_tree: SceneTree) -> bool:
 	var ok := true
