@@ -31,7 +31,20 @@ struct VoxelEditOp {
     godot::StringName stage_name;
     VoxelCoordI voxel;
     godot::String operation;
+    godot::String shape = "sphere";
     double value = 0.0;
+    double radius = 1.0;
+    double cleave_normal_x = 0.0;
+    double cleave_normal_y = 1.0;
+    double cleave_normal_z = 0.0;
+    double cleave_plane_offset = 0.0;
+    int64_t noise_seed = 0;
+    double noise_amplitude = 0.0;
+    double noise_frequency = 0.0;
+    int32_t noise_octaves = 0;
+    double noise_lacunarity = 2.0;
+    double noise_gain = 0.5;
+    godot::String noise_mode = "none";
 };
 
 } // namespace local_agents::simulation

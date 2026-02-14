@@ -30,6 +30,7 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = _test_wave_a_coupling_pressure_to_mechanics_contract() and ok
 	ok = _test_wave_a_coupling_reaction_to_thermal_contract() and ok
 	ok = _test_wave_a_coupling_damage_to_voxel_ops_contract() and ok
+	ok = _test_pipeline_feedback_contract() and ok
 	if ok:
 		print("Native generalized physics source contracts passed (stage domains, conservation diagnostics, and generalized physics terms).")
 	return ok
@@ -321,6 +322,44 @@ func _test_wave_a_coupling_damage_to_voxel_ops_contract() -> bool:
 	ok = _assert(source.contains("\"damage_to_voxel_scalar\", damage_to_voxel"), "damage->voxel scalar diagnostics must publish damage_to_voxel_scalar") and ok
 	return ok
 
+func _test_pipeline_feedback_contract() -> bool:
+	var source := _read_pipeline_sources()
+	if source == "":
+		return false
+	var ok := true
+	ok = _assert(
+		source.contains("summary[\"physics_server_feedback\"] = summarize_physics_server_feedback(destruction_results, field_evolution);"),
+		"Pipeline summary should expose physics_server_feedback bridge payload."
+	) and ok
+	ok = _assert(source.contains("feedback[\"schema\"] = String(\"physics_server_feedback_v1\");"), "Physics-server feedback summary should declare schema.") and ok
+	ok = _assert(source.contains("feedback[\"enabled\"] = !destruction_results.is_empty() || field_evolution.has(\"updated_fields\");"), "Physics-server feedback should expose enabled flag from destruction/field_evolution state.") and ok
+	ok = _assert(source.contains("feedback[\"has_feedback\"] = active_destruction_stages > 0;"), "Physics-server feedback should expose has_feedback flag from destruction stages.") and ok
+	ok = _assert(source.contains("feedback[\"destruction_stage_count\"] = static_cast<int64_t>(destruction_results.size());"), "Feedback should expose destruction_stage_count.") and ok
+	ok = _assert(source.contains("\"destruction_feedback_count\", active_destruction_stages"), "Feedback should expose destruction_feedback_count.") and ok
+	ok = _assert(source.contains("\"coupling_markers_present\""), "Feedback should expose coupling_markers_present flag.") and ok
+	ok = _assert(source.contains("feedback[\"destruction\"] = unified_pipeline::make_dictionary("), "Feedback should expose destruction summary aggregate.") and ok
+	ok = _assert(source.contains("\"friction_abs_force_max\""), "Destruction feedback should include friction_abs_force_max.") and ok
+	ok = _assert(source.contains("\"friction_dissipation_total\""), "Destruction feedback should include friction_dissipation_total.") and ok
+	ok = _assert(source.contains("\"fracture_energy_total\""), "Destruction feedback should include fracture_energy_total.") and ok
+	ok = _assert(source.contains("\"resistance_avg\""), "Destruction feedback should include resistance_avg.") and ok
+	ok = _assert(source.contains("\"resistance_max\""), "Destruction feedback should include resistance_max.") and ok
+	ok = _assert(source.contains("feedback[\"failure_coupling\"] = unified_pipeline::make_dictionary("), "Feedback should expose failure_coupling mapping block.") and ok
+	ok = _assert(source.contains("damage_to_voxel_scalar"), "Failure coupling should include damage_to_voxel_scalar.") and ok
+	ok = _assert(source.contains("pressure_to_mechanics_scalar"), "Failure coupling should include pressure_to_mechanics_scalar.") and ok
+	ok = _assert(source.contains("reaction_to_thermal_scalar"), "Failure coupling should include reaction_to_thermal_scalar.") and ok
+	ok = _assert(source.contains("\"resistance\", resistance_proxy"), "Destruction stage result should expose resistance feedback value.") and ok
+	ok = _assert(source.contains("\"resistance_raw\", resistance"), "Destruction stage result should expose resistance_raw compatibility fallback.") and ok
+	ok = _assert(source.contains("\"failure_status\", failure_status"), "Destruction stage result should expose failure_status.") and ok
+	ok = _assert(source.contains("\"failure_reason\", failure_reason"), "Destruction stage result should expose failure_reason.") and ok
+	ok = _assert(source.contains("\"failure_mode\", failure_mode"), "Destruction stage result should expose failure_mode.") and ok
+	ok = _assert(source.contains("\"friction_state\", friction_state"), "Destruction stage result should expose friction_state.") and ok
+	ok = _assert(source.contains("\"friction_state_code\", friction_state_code"), "Destruction stage result should expose friction_state_code.") and ok
+	ok = _assert(source.contains("\"overstress_ratio\", normalized_overstress_ratio"), "Destruction stage result should expose overstress_ratio.") and ok
+	ok = _assert(source.contains("feedback[\"failure_feedback\"]"), "Physics-server feedback should expose failure_feedback block.") and ok
+	ok = _assert(source.contains("feedback[\"failure_source\"]"), "Physics-server feedback should expose failure_source block.") and ok
+	ok = _assert(source.contains("feedback[\"voxel_emission\"]"), "Physics-server feedback should expose voxel_emission block.") and ok
+	return ok
+
 func _test_core_equation_contracts_present() -> bool:
 	var source := _read_pipeline_sources()
 	if source == "":
@@ -343,9 +382,31 @@ func _test_boundary_condition_contracts_present() -> bool:
 		return false
 	var ok := true
 	ok = _assert(source.contains("Dictionary boundary_contract(const Dictionary &stage_config, const Dictionary &frame_inputs)"), "Pipeline must define reusable boundary contract helper") and ok
-	ok = _assert(source.contains("const String mode = (mode_raw == \"closed\" || mode_raw == \"reflective\") ? mode_raw : String(\"open\");"), "Boundary contract must normalize to open/closed/reflective modes") and ok
-	ok = _assert(source.contains("if (mode == \"closed\") {"), "Boundary contract must define closed boundary mode behavior") and ok
+	ok = _assert(
+		_contains_any(
+			source,
+			[
+				"const String mode_raw = String(frame_inputs.get(\"boundary_mode\", stage_config.get(\"boundary_mode\", \"open\"))).to_lower().strip_edges();",
+				"const String mode_raw = String(frame_inputs.get(\"boundary_mode\", stage_config.get(\"boundary_mode\", \"open\"))).to_lower();"
+			]
+		),
+		"Boundary contract must lower-case and normalize raw boundary mode input."
+	) and ok
+	ok = _assert(source.contains("if (mode_raw == \"open\" || mode_raw == \"inflow/outflow\") {"), "Boundary contract must canonicalize inflow/outflow to open mode") and ok
+	ok = _assert(source.contains("else if (mode_raw == \"reflective\") {"), "Boundary contract must canonicalize reflective mode") and ok
+	ok = _assert(source.contains("else if (mode_raw == \"no-slip\" || mode_raw == \"no-penetration\") {"), "Boundary contract must canonicalize no-slip and no-penetration modes") and ok
+	ok = _assert(source.contains("mode = String(\"open\");"), "Boundary contract must default unknown modes to open") and ok
+	ok = _assert(source.contains("if (mode == \"no-slip\" || mode == \"no-penetration\") {"), "Boundary contract must define no-slip/no-penetration boundary mode behavior") and ok
 	ok = _assert(source.contains("} else if (mode == \"reflective\") {"), "Boundary contract must define reflective boundary mode behavior") and ok
+	ok = _assert(source.contains("const double obstacle_velocity = std::abs(as_number(frame_inputs.get(\"obstacle_velocity\", stage_config.get(\"obstacle_velocity\", 0.0)), 0.0));"), "Boundary contract must read obstacle_velocity and apply magnitude") and ok
+	ok = _assert(_contains_any(source, ["const double moving_obstacle_speed_scale = clamped(", "const double moving_obstacle_speed_scale = unified_pipeline::clamped("]), "Boundary contract must read moving_obstacle_speed_scale with fallback 0 and clamp") and ok
+	ok = _assert(source.contains("const double effective_obstacle_attenuation = std::clamp(obstacle_attenuation + obstacle_velocity * moving_obstacle_speed_scale, 0.0, 1.0);"), "Boundary contract must compute effective obstacle attenuation in backward-safe form") and ok
+	ok = _assert(source.contains("double directional_multiplier = (1.0 - effective_obstacle_attenuation) * constraint_factor;"), "Boundary contract must apply directional multiplier using effective obstacle attenuation") and ok
+	ok = _assert(source.contains("\"obstacle_attenuation\", obstacle_attenuation,"), "Boundary diagnostics should include obstacle_attenuation") and ok
+	ok = _assert(source.contains("\"obstacle_velocity\", obstacle_velocity,"), "Boundary diagnostics should include obstacle_velocity") and ok
+	ok = _assert(source.contains("\"obstacle_trajectory\", obstacle_trajectory,"), "Boundary diagnostics should include obstacle_trajectory") and ok
+	ok = _assert(source.contains("\"moving_obstacle_speed_scale\", moving_obstacle_speed_scale,"), "Boundary diagnostics should include moving_obstacle_speed_scale") and ok
+	ok = _assert(source.contains("\"effective_obstacle_attenuation\", effective_obstacle_attenuation,"), "Boundary diagnostics should include effective_obstacle_attenuation") and ok
 	ok = _assert(source.contains("\"directional_multiplier\", directional_multiplier,"), "Boundary contract payload must include directional_multiplier") and ok
 	ok = _assert(source.contains("\"scalar_multiplier\", std::abs(directional_multiplier)"), "Boundary contract payload must include scalar_multiplier") and ok
 	return ok
@@ -451,9 +512,23 @@ func _test_bridge_declares_contact_canonical_input_fields() -> bool:
 	ok = _assert(source.contains("\"contact_impulse\""), "Bridge canonical input keys must include contact_impulse") and ok
 	ok = _assert(source.contains("\"contact_normal\""), "Bridge canonical input keys must include contact_normal") and ok
 	ok = _assert(source.contains("\"contact_point\""), "Bridge canonical input keys must include contact_point") and ok
+	ok = _assert(source.contains("\"obstacle_velocity\""), "Bridge canonical input keys must include obstacle_velocity") and ok
+	ok = _assert(source.contains("\"obstacle_trajectory\""), "Bridge canonical input keys must include obstacle_trajectory") and ok
 	ok = _assert(source.contains("\"body_velocity\""), "Bridge canonical input keys must include body_velocity") and ok
 	ok = _assert(source.contains("\"body_id\""), "Bridge canonical input keys must include body_id") and ok
 	ok = _assert(source.contains("\"rigid_obstacle_mask\""), "Bridge canonical input keys must include rigid_obstacle_mask") and ok
+	ok = _assert(source.contains("\"obstacle_velocity\": 0.0"), "Bridge contact defaults should include obstacle_velocity default 0") and ok
+	ok = _assert(source.contains("\"obstacle_trajectory\": Vector3.ZERO"), "Bridge contact defaults should include obstacle_trajectory default Vector3.ZERO") and ok
+	ok = _assert(source.contains("\"obstacle_velocity\": [\"obstacle_speed\", \"obstacle_speed_magnitude\", \"motion_speed\"]"), "Bridge legacy input aliases should include obstacle_velocity") and ok
+	ok = _assert(source.contains("\"obstacle_trajectory\": [\"obstacle_direction\", \"motion_trajectory\", \"trajectory\"]"), "Bridge legacy input aliases should include obstacle_trajectory") and ok
+	ok = _assert(source.contains("var obstacle_velocity_sum := 0.0"), "Bridge contact aggregation must accumulate obstacle_velocity") and ok
+	ok = _assert(source.contains("var obstacle_trajectory_sum := Vector3.ZERO"), "Bridge contact aggregation must accumulate obstacle_trajectory") and ok
+	ok = _assert(source.contains("\"obstacle_velocity\", obstacle_velocity_sum / maxf(weight_total, 1.0)"), "Bridge contact aggregation should emit aggregated obstacle_velocity") and ok
+	ok = _assert(source.contains("\"obstacle_trajectory\", obstacle_trajectory_sum / maxf(weight_total, 1.0)"), "Bridge contact aggregation should emit aggregated obstacle_trajectory") and ok
+	ok = _assert(source.contains("deterministic_rows := rows.duplicate(true)"), "Bridge contact aggregation should duplicate rows for deterministic sorting") and ok
+	ok = _assert(source.contains("deterministic_rows.sort_custom(_sort_aggregated_contact_rows)"), "Bridge contact aggregation should sort rows with a deterministic comparator") and ok
+	ok = _assert(source.contains("left_obstacle_velocity"), "Bridge contact row comparator should consider obstacle_velocity") and ok
+	ok = _assert(source.contains("left_obstacle_trajectory"), "Bridge contact row comparator should consider obstacle_trajectory") and ok
 	return ok
 
 func _assert(condition: bool, message: String) -> bool:

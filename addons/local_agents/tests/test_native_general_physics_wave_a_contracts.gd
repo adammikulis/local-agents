@@ -42,6 +42,22 @@ func _test_execute_step_continuity_contracts() -> bool:
 		"Wave A execute_step should build a carried patch from updated field buffers."
 	) and ok
 	ok = _assert(
+		pipeline_source.contains("summary[\"field_handle_mode\"] = field_handle_mode;"),
+		"Wave A continuity summary should surface field_handle_mode across scalar and handle modes."
+	) and ok
+	ok = _assert(
+		pipeline_source.contains("summary[\"field_handle_count\"] = field_handle_count;"),
+		"Wave A continuity summary should carry field_handle_count."
+	) and ok
+	ok = _assert(
+		pipeline_source.contains("summary[\"field_handle_marker\"] = field_handle_marker;"),
+		"Wave A continuity summary should emit deterministic field_handle_marker when handles are supplied."
+	) and ok
+	ok = _assert(
+		pipeline_source.contains("summary[\"field_handle_io\"] = field_handle_io;"),
+		"Wave A continuity summary should emit deterministic field_handle_io when handles are supplied."
+	) and ok
+	ok = _assert(
 		pipeline_source.contains("if (!field_input_patch.is_empty())") and pipeline_source.contains("carried_field_inputs_ = field_input_patch;"),
 		"Wave A continuity should persist updated field buffers for the next step."
 	) and ok

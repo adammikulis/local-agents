@@ -29,6 +29,7 @@ add_subdirectory(${LLAMA_CPP_DIR} "${CMAKE_BINARY_DIR}/llama.cpp" EXCLUDE_FROM_A
 
 set(SIM_SRC
     src/sim/UnifiedSimulationPipeline.cpp
+    src/sim/UnifiedSimulationPipelineFieldInputResolution.cpp
     src/sim/UnifiedSimulationPipelineFieldEvolution.cpp
     src/sim/UnifiedSimulationPipelineInternal.cpp
     src/sim/UnifiedSimulationPipelineStages.cpp
@@ -46,6 +47,8 @@ set(SRC
     src/LocalAgentsScheduler.cpp
     src/LocalAgentsSimProfiler.cpp
     src/LocalAgentsSimulationCore.cpp
+    src/FailureEmissionDeterministicNoise.cpp
+    src/SimulationFailureEmissionPlanner.cpp
     ${SIM_SRC}
     src/VoxelEditEngine.cpp
 )

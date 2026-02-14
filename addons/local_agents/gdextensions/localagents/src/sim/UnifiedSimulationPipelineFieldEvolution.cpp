@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 using namespace godot;
 
@@ -24,166 +25,10 @@ bool is_known_field_alias_added(const Array &values, const String &candidate) {
     return false;
 }
 
-String normalize_handle_token(const String &token) {
-    const String stripped = token.strip_edges();
-    if (stripped.begins_with("field::")) {
-        return stripped.substr(7, stripped.length() - 7);
-    }
-    if (stripped.ends_with("_field")) {
-        return stripped.substr(0, stripped.length() - 6);
-    }
-    return stripped;
-}
-
 void append_scalar_if_nonempty(Array &values, const String &candidate) {
     if (!candidate.is_empty() && !is_known_field_alias_added(values, candidate)) {
         values.append(candidate);
     }
-}
-
-Array build_field_source_aliases(const String &field_name) {
-    Array aliases;
-    append_scalar_if_nonempty(aliases, field_name);
-    if (field_name == String("mass")) {
-        append_scalar_if_nonempty(aliases, String("mass_density"));
-    } else if (field_name == String("velocity")) {
-        append_scalar_if_nonempty(aliases, String("momentum_x"));
-    }
-    return aliases;
-}
-
-String field_name_from_handle(const Variant &handle_variant) {
-    if (handle_variant.get_type() != Variant::DICTIONARY) {
-        if (handle_variant.get_type() == Variant::STRING || handle_variant.get_type() == Variant::STRING_NAME) {
-            return normalize_handle_token(String(handle_variant));
-        }
-        return String();
-    }
-    const Dictionary handle = handle_variant;
-    if (handle.has("handle_id")) {
-        return normalize_handle_token(String(handle.get("handle_id", String())));
-    }
-    if (handle.has("id")) {
-        return normalize_handle_token(String(handle.get("id", String())));
-    }
-    if (handle.has("handle")) {
-        return normalize_handle_token(String(handle.get("handle", String())));
-    }
-    if (handle.has("name")) {
-        return normalize_handle_token(String(handle.get("name", String())));
-    }
-    if (handle.has("field_name")) {
-        return normalize_handle_token(String(handle.get("field_name", String())));
-    }
-    if (handle.has("schema_row")) {
-        const Variant schema_variant = handle.get("schema_row", Dictionary());
-        if (schema_variant.get_type() == Variant::DICTIONARY) {
-            const Dictionary schema = schema_variant;
-            if (schema.has("field_name")) {
-                return normalize_handle_token(String(schema.get("field_name", String())));
-            }
-            if (schema.has("handle_id")) {
-                return normalize_handle_token(String(schema.get("handle_id", String())));
-            }
-            if (schema.has("id")) {
-                return normalize_handle_token(String(schema.get("id", String())));
-            }
-            if (schema.has("handle")) {
-                return normalize_handle_token(String(schema.get("handle", String())));
-            }
-            if (schema.has("name")) {
-                return normalize_handle_token(String(schema.get("name", String())));
-            }
-        }
-    }
-    return String();
-}
-
-String handle_reference_from_variant(const Variant &handle_variant, int64_t index) {
-    if (handle_variant.get_type() != Variant::DICTIONARY) {
-        if (handle_variant.get_type() == Variant::STRING || handle_variant.get_type() == Variant::STRING_NAME) {
-            return normalize_handle_token(String(handle_variant));
-        }
-        return String("index::") + String::num_int64(index);
-    }
-    const Dictionary handle = handle_variant;
-    if (handle.has("handle_id")) {
-        return normalize_handle_token(String(handle.get("handle_id", String())));
-    }
-    if (handle.has("id")) {
-        return normalize_handle_token(String(handle.get("id", String())));
-    }
-    if (handle.has("handle")) {
-        return normalize_handle_token(String(handle.get("handle", String())));
-    }
-    if (handle.has("name")) {
-        return normalize_handle_token(String(handle.get("name", String())));
-    }
-    if (handle.has("field_name")) {
-        return normalize_handle_token(String(handle.get("field_name", String())));
-    }
-    if (handle.has("schema_row")) {
-        const Variant schema_variant = handle.get("schema_row", Dictionary());
-        if (schema_variant.get_type() == Variant::DICTIONARY) {
-            const Dictionary schema = schema_variant;
-            if (schema.has("handle_id")) {
-                return normalize_handle_token(String(schema.get("handle_id", String())));
-            }
-            if (schema.has("id")) {
-                return normalize_handle_token(String(schema.get("id", String())));
-            }
-            if (schema.has("handle")) {
-                return normalize_handle_token(String(schema.get("handle", String())));
-            }
-            if (schema.has("name")) {
-                return normalize_handle_token(String(schema.get("name", String())));
-            }
-            if (schema.has("field_name")) {
-                return normalize_handle_token(String(schema.get("field_name", String())));
-            }
-        }
-    }
-    return String("index::") + String::num_int64(index);
-}
-
-Array collect_handle_lookup_keys(const Variant &handle_variant) {
-    Array keys;
-    if (handle_variant.get_type() != Variant::DICTIONARY) {
-        append_scalar_if_nonempty(keys, String(handle_variant).strip_edges());
-        return keys;
-    }
-
-    const Dictionary handle = handle_variant;
-    append_scalar_if_nonempty(keys, String(handle.get("handle_id", String())).strip_edges());
-    append_scalar_if_nonempty(keys, String(handle.get("id", String())).strip_edges());
-    append_scalar_if_nonempty(keys, String(handle.get("handle", String())).strip_edges());
-    append_scalar_if_nonempty(keys, String(handle.get("name", String())).strip_edges());
-    append_scalar_if_nonempty(keys, String(handle.get("field_name", String())).strip_edges());
-    if (handle.has("schema_row")) {
-        const Variant schema_variant = handle.get("schema_row", Dictionary());
-        if (schema_variant.get_type() == Variant::DICTIONARY) {
-            const Dictionary schema = schema_variant;
-            append_scalar_if_nonempty(keys, String(schema.get("handle_id", String())).strip_edges());
-            append_scalar_if_nonempty(keys, String(schema.get("id", String())).strip_edges());
-            append_scalar_if_nonempty(keys, String(schema.get("handle", String())).strip_edges());
-            append_scalar_if_nonempty(keys, String(schema.get("field_name", String())).strip_edges());
-            append_scalar_if_nonempty(keys, String(schema.get("name", String())).strip_edges());
-        }
-    }
-    const int64_t key_count = keys.size();
-    for (int64_t i = 0; i < key_count; i++) {
-        const String key = String(keys[i]).strip_edges();
-        if (key.is_empty()) {
-            continue;
-        }
-        if (key.begins_with("field::")) {
-            append_scalar_if_nonempty(keys, key.substr(7, key.length() - 7));
-        }
-        if (key.ends_with("_field")) {
-            append_scalar_if_nonempty(keys, key.substr(0, key.length() - 6));
-        }
-    }
-    return keys;
 }
 
 void append_resolution_attempt(
@@ -276,16 +121,6 @@ Dictionary summarize_field_resolution_diagnostics(const Dictionary &field_resolu
         "by_field", field_resolution_by_field.duplicate(true));
 }
 
-String normalize_handle_field_for_evolution(const String &handle_field_name) {
-    if (handle_field_name == String("mass_density")) {
-        return String("mass");
-    }
-    if (handle_field_name == String("momentum_x") || handle_field_name == String("momentum_y") || handle_field_name == String("momentum_z")) {
-        return String("velocity");
-    }
-    return handle_field_name;
-}
-
 double as_number(const Variant &value, double fallback) {
     if (value.get_type() == Variant::FLOAT) {
         return static_cast<double>(value);
@@ -304,6 +139,35 @@ int64_t as_index(const Variant &value, int64_t fallback) {
         return static_cast<int64_t>(static_cast<double>(value));
     }
     return fallback;
+}
+
+bool as_neighbor_index(const Variant &value, int64_t &neighbor_index) {
+    if (value.get_type() == Variant::INT) {
+        neighbor_index = static_cast<int64_t>(value);
+        return true;
+    }
+    if (value.get_type() == Variant::FLOAT) {
+        const double raw = static_cast<double>(value);
+        if (!std::isfinite(raw) ||
+            raw < static_cast<double>(std::numeric_limits<int64_t>::min()) ||
+            raw > static_cast<double>(std::numeric_limits<int64_t>::max())) {
+            return false;
+        }
+        const double neighbor_floor = std::floor(raw);
+        if (neighbor_floor != raw) {
+            return false;
+        }
+        neighbor_index = static_cast<int64_t>(raw);
+        return true;
+    }
+    return false;
+}
+
+bool to_valid_neighbor_index(const Variant &value, int64_t cell_count, int64_t &neighbor_index) {
+    if (!as_neighbor_index(value, neighbor_index)) {
+        return false;
+    }
+    return neighbor_index >= 0 && neighbor_index < cell_count;
 }
 
 Array to_numeric_array(const Variant &value) {
@@ -380,8 +244,9 @@ Array to_topology(const Variant &value) {
 Array read_field_evolution_buffer(
     const Dictionary &field_buffers,
     const Dictionary &frame_inputs,
-    const Array &field_handles,
+    const Dictionary &field_handle_cache,
     const String &requested_field,
+    bool field_handles_provided,
     Dictionary &field_resolution_by_field) {
     Dictionary field_diagnostics = unified_pipeline::make_dictionary(
         "requested_field", requested_field,
@@ -395,34 +260,42 @@ Array read_field_evolution_buffer(
         "matched_handle_count", static_cast<int64_t>(0),
         "attempts", Array());
     Array attempts;
-    Array aliases = build_field_source_aliases(requested_field);
+    Array aliases = unified_pipeline::build_field_source_aliases(requested_field);
+    Array alias_candidate_keys;
+    for (int64_t i = 0; i < aliases.size(); i += 1) {
+        const String alias_candidate = String(aliases[i]).strip_edges();
+        append_scalar_if_nonempty(alias_candidate_keys, alias_candidate);
+        if (!alias_candidate.is_empty()) {
+            append_scalar_if_nonempty(alias_candidate_keys, alias_candidate + String("_field"));
+        }
+    }
+
     Array matched_handle_refs;
     bool resolved = false;
     bool resolved_via_handle = false;
     bool fallback_used = false;
+    String fallback_reason;
     Array resolved_values;
     String resolved_source;
     String resolved_key;
     String resolved_path;
     String resolved_via_handle_ref;
 
-    const String normalized_requested_field = normalize_handle_field_for_evolution(requested_field);
-    for (int64_t i = 0; i < field_handles.size() && !resolved; i += 1) {
-        const String source_field = field_name_from_handle(field_handles[i]);
-        const String handle_field = normalize_handle_field_for_evolution(source_field);
-        if (handle_field.is_empty() || handle_field != normalized_requested_field) {
+    const String normalized_requested_field = unified_pipeline::canonicalize_resolve_field(requested_field);
+    const Array cache_handle_refs = field_handle_cache.get(normalized_requested_field, Array());
+    for (int64_t i = 0; i < cache_handle_refs.size() && !resolved; i += 1) {
+        const String handle_ref = String(cache_handle_refs[i]).strip_edges();
+        if (handle_ref.is_empty()) {
             continue;
         }
-        const String handle_ref = handle_reference_from_variant(field_handles[i], i);
         append_scalar_if_nonempty(matched_handle_refs, handle_ref);
-        Array handle_lookup_keys = collect_handle_lookup_keys(field_handles[i]);
         String candidate_key;
         if (try_resolve_numeric_candidates(
                 field_buffers,
                 String("field_buffers"),
                 String("handle_backed"),
                 handle_ref,
-                handle_lookup_keys,
+                alias_candidate_keys,
                 resolved_values,
                 candidate_key,
                 attempts)) {
@@ -439,7 +312,7 @@ Array read_field_evolution_buffer(
                 String("frame_inputs"),
                 String("handle_backed"),
                 handle_ref,
-                handle_lookup_keys,
+                alias_candidate_keys,
                 resolved_values,
                 candidate_key,
                 attempts)) {
@@ -454,7 +327,6 @@ Array read_field_evolution_buffer(
     }
 
     if (!resolved) {
-        fallback_used = true;
         for (int64_t i = 0; i < aliases.size() && !resolved; i += 1) {
             const String alias = String(aliases[i]).strip_edges();
             if (alias.is_empty()) {
@@ -473,6 +345,8 @@ Array read_field_evolution_buffer(
                     candidate_key,
                     attempts)) {
                 resolved = true;
+                fallback_used = field_handles_provided;
+                fallback_reason = field_handles_provided ? String("fallback_scalar") : String("none");
                 resolved_source = String("field_buffers");
                 resolved_key = candidate_key;
                 resolved_path = String("fallback");
@@ -489,6 +363,8 @@ Array read_field_evolution_buffer(
                     candidate_key,
                     attempts)) {
                 resolved = true;
+                fallback_used = field_handles_provided;
+                fallback_reason = field_handles_provided ? String("fallback_scalar") : String("none");
                 resolved_source = String("frame_inputs");
                 resolved_key = candidate_key;
                 resolved_path = String("fallback");
@@ -509,6 +385,8 @@ Array read_field_evolution_buffer(
                         candidate_key,
                         attempts)) {
                     resolved = true;
+                    fallback_used = field_handles_provided;
+                    fallback_reason = field_handles_provided ? String("fallback_scalar") : String("none");
                     resolved_source = String("frame_inputs");
                     resolved_key = candidate_key;
                     resolved_path = String("fallback_field");
@@ -516,12 +394,25 @@ Array read_field_evolution_buffer(
                 }
             }
         }
+
+        if (!resolved) {
+            fallback_reason = field_handles_provided ? String("missing") : String("none");
+        }
     }
 
     field_diagnostics["resolved"] = resolved;
     field_diagnostics["resolved_via_handle"] = resolved_via_handle;
     field_diagnostics["fallback_used"] = fallback_used;
-    field_diagnostics["mode"] = resolved_via_handle ? String("handle") : (fallback_used ? String("fallback") : String("none"));
+    field_diagnostics["fallback_reason"] = fallback_reason;
+    if (resolved_via_handle) {
+        field_diagnostics["mode"] = String("handle");
+    } else if (fallback_used) {
+        field_diagnostics["mode"] = String("fallback_scalar");
+    } else if (resolved) {
+        field_diagnostics["mode"] = field_handles_provided ? String("missing") : String("scalar");
+    } else {
+        field_diagnostics["mode"] = String("missing");
+    }
     field_diagnostics["attempt_count"] = static_cast<int64_t>(attempts.size());
     field_diagnostics["matched_handle_count"] = static_cast<int64_t>(matched_handle_refs.size());
     field_diagnostics["matched_handles"] = matched_handle_refs;
@@ -531,6 +422,7 @@ Array read_field_evolution_buffer(
     field_diagnostics["status"] = resolved ? String("resolved") : String("missing");
     if (resolved_via_handle && !resolved_via_handle_ref.is_empty()) {
         field_diagnostics["resolved_handle_ref"] = resolved_via_handle_ref;
+        field_diagnostics["resolved_handle"] = resolved_via_handle_ref;
     }
     field_diagnostics["attempts"] = attempts;
     if (!resolved_key.is_empty()) {
@@ -630,8 +522,8 @@ void apply_surface_group_smoothing(
         double pressure_weight_sum = 1.0;
         double velocity_sum = as_number(velocity[i], 0.0);
         for (int64_t n = 0; n < neighbors.size(); n++) {
-            const int64_t neighbor = as_index(neighbors[n], -1);
-            if (neighbor < 0 || neighbor >= cell_count) {
+            int64_t neighbor = -1;
+            if (!to_valid_neighbor_index(neighbors[n], cell_count, neighbor)) {
                 continue;
             }
             const double neighbor_velocity = as_number(velocity[neighbor], 0.0);
@@ -726,15 +618,48 @@ Dictionary run_field_buffer_evolution(
     const Array &thermal_stages,
     const Dictionary &frame_inputs,
     const Array &field_handles,
+    const Dictionary &field_handle_cache,
+    bool field_handles_provided,
     double delta_seconds) {
+    (void)field_handles;
     const Dictionary field_buffers = frame_inputs.get("field_buffers", Dictionary());
     Dictionary field_resolution_by_field;
 
-    Array mass = read_field_evolution_buffer(field_buffers, frame_inputs, field_handles, String("mass"), field_resolution_by_field);
-    Array pressure = read_field_evolution_buffer(field_buffers, frame_inputs, field_handles, String("pressure"), field_resolution_by_field);
-    Array temperature = read_field_evolution_buffer(field_buffers, frame_inputs, field_handles, String("temperature"), field_resolution_by_field);
-    Array velocity = read_field_evolution_buffer(field_buffers, frame_inputs, field_handles, String("velocity"), field_resolution_by_field);
-    Array density = read_field_evolution_buffer(field_buffers, frame_inputs, field_handles, String("density"), field_resolution_by_field);
+    Array mass = read_field_evolution_buffer(
+        field_buffers,
+        frame_inputs,
+        field_handle_cache,
+        String("mass"),
+        field_handles_provided,
+        field_resolution_by_field);
+    Array pressure = read_field_evolution_buffer(
+        field_buffers,
+        frame_inputs,
+        field_handle_cache,
+        String("pressure"),
+        field_handles_provided,
+        field_resolution_by_field);
+    Array temperature = read_field_evolution_buffer(
+        field_buffers,
+        frame_inputs,
+        field_handle_cache,
+        String("temperature"),
+        field_handles_provided,
+        field_resolution_by_field);
+    Array velocity = read_field_evolution_buffer(
+        field_buffers,
+        frame_inputs,
+        field_handle_cache,
+        String("velocity"),
+        field_handles_provided,
+        field_resolution_by_field);
+    Array density = read_field_evolution_buffer(
+        field_buffers,
+        frame_inputs,
+        field_handle_cache,
+        String("density"),
+        field_handles_provided,
+        field_resolution_by_field);
     const Dictionary field_handle_resolution_diagnostics = summarize_field_resolution_diagnostics(field_resolution_by_field);
     Array topology = to_topology(field_buffers.get("neighbor_topology", frame_inputs.get("neighbor_topology", Variant())));
 
@@ -859,37 +784,55 @@ Dictionary run_field_buffer_evolution(
     Array velocity_updated = velocity_next.duplicate();
     Array density_updated = density_next.duplicate();
 
+    Array mass_deltas;
+    Array pressure_deltas;
+    Array temperature_deltas;
+    Array velocity_deltas;
+    Array density_deltas;
+    mass_deltas.resize(cell_count);
+    pressure_deltas.resize(cell_count);
+    temperature_deltas.resize(cell_count);
+    velocity_deltas.resize(cell_count);
+    density_deltas.resize(cell_count);
+    for (int64_t i = 0; i < cell_count; i += 1) {
+        mass_deltas[i] = 0.0;
+        pressure_deltas[i] = 0.0;
+        temperature_deltas[i] = 0.0;
+        velocity_deltas[i] = 0.0;
+        density_deltas[i] = 0.0;
+    }
+
     int64_t pair_updates = 0;
     for (int64_t i = 0; i < cell_count; i++) {
         const Array neighbors = to_topology_row(topology[i]);
         for (int64_t n = 0; n < neighbors.size(); n++) {
-            const int64_t j = as_index(neighbors[n], -1);
-            if (j <= i || j < 0 || j >= cell_count) {
+            int64_t j = -1;
+            if (!to_valid_neighbor_index(neighbors[n], cell_count, j) || j <= i) {
                 continue;
             }
 
-            const double mass_i = std::max(1.0e-6, clamped(mass_updated[i], 0.0, 1.0e9, 0.0));
-            const double mass_j = std::max(1.0e-6, clamped(mass_updated[j], 0.0, 1.0e9, 0.0));
-            const double velocity_i = clamped(velocity_updated[i], -1.0e6, 1.0e6, 0.0);
-            const double velocity_j = clamped(velocity_updated[j], -1.0e6, 1.0e6, 0.0);
-            const double pressure_i = clamped(pressure_updated[i], -1.0e9, 1.0e9, 0.0);
-            const double pressure_j = clamped(pressure_updated[j], -1.0e9, 1.0e9, 0.0);
-            const double temperature_i = clamped(temperature_updated[i], 0.0, 2.0e4, 0.0);
-            const double temperature_j = clamped(temperature_updated[j], 0.0, 2.0e4, 0.0);
+            const double mass_i = std::max(1.0e-6, clamped(as_number(mass_updated[i], 0.0), 0.0, 1.0e9, 0.0));
+            const double mass_j = std::max(1.0e-6, clamped(as_number(mass_updated[j], 0.0), 0.0, 1.0e9, 0.0));
+            const double velocity_i = clamped(as_number(velocity_updated[i], 0.0), -1.0e6, 1.0e6, 0.0);
+            const double velocity_j = clamped(as_number(velocity_updated[j], 0.0), -1.0e6, 1.0e6, 0.0);
+            const double pressure_i = clamped(as_number(pressure_updated[i], 0.0), -1.0e9, 1.0e9, 0.0);
+            const double pressure_j = clamped(as_number(pressure_updated[j], 0.0), -1.0e9, 1.0e9, 0.0);
+            const double temperature_i = clamped(as_number(temperature_updated[i], 0.0), 0.0, 2.0e4, 0.0);
+            const double temperature_j = clamped(as_number(temperature_updated[j], 0.0), 0.0, 2.0e4, 0.0);
 
             const double impulse = mechanics_rate * (velocity_j - velocity_i) * delta_seconds;
             const double velocity_delta_i = impulse / mass_i;
             const double velocity_delta_j = -impulse / mass_j;
-            velocity_updated[i] = clamped(as_number(velocity_updated[i], 0.0) + velocity_delta_i, -1.0e6, 1.0e6, 0.0);
-            velocity_updated[j] = clamped(as_number(velocity_updated[j], 0.0) + velocity_delta_j, -1.0e6, 1.0e6, 0.0);
+            velocity_deltas[i] = as_number(velocity_deltas[i], 0.0) + velocity_delta_i;
+            velocity_deltas[j] = as_number(velocity_deltas[j], 0.0) + velocity_delta_j;
 
             const double pressure_flux = pressure_diffusivity * (pressure_j - pressure_i) * delta_seconds;
-            pressure_updated[i] = as_number(pressure_updated[i], 0.0) + pressure_flux;
-            pressure_updated[j] = as_number(pressure_updated[j], 0.0) - pressure_flux;
+            pressure_deltas[i] = as_number(pressure_deltas[i], 0.0) + pressure_flux;
+            pressure_deltas[j] = as_number(pressure_deltas[j], 0.0) - pressure_flux;
 
             const double thermal_flux = thermal_diffusivity * (temperature_j - temperature_i) * delta_seconds;
-            temperature_updated[i] = std::max(0.0, as_number(temperature_updated[i], 0.0) + thermal_flux);
-            temperature_updated[j] = std::max(0.0, as_number(temperature_updated[j], 0.0) - thermal_flux);
+            temperature_deltas[i] = as_number(temperature_deltas[i], 0.0) + thermal_flux;
+            temperature_deltas[j] = as_number(temperature_deltas[j], 0.0) - thermal_flux;
 
             const double desired_transfer = mass_transfer_coeff * (pressure_j - pressure_i) * delta_seconds;
             const double max_from_i = std::max(0.0, as_number(mass_updated[i], 0.0) - 1.0e-6);
@@ -901,13 +844,27 @@ Dictionary run_field_buffer_evolution(
                 transfer_to_i = std::max(transfer_to_i, -max_from_i);
             }
 
-            mass_updated[i] = std::max(1.0e-6, as_number(mass_updated[i], 0.0) + transfer_to_i);
-            mass_updated[j] = std::max(1.0e-6, as_number(mass_updated[j], 0.0) - transfer_to_i);
-            density_updated[i] = std::max(1.0e-6, as_number(density_updated[i], 0.0) + transfer_to_i);
-            density_updated[j] = std::max(1.0e-6, as_number(density_updated[j], 0.0) - transfer_to_i);
+            mass_deltas[i] = as_number(mass_deltas[i], 0.0) + transfer_to_i;
+            mass_deltas[j] = as_number(mass_deltas[j], 0.0) - transfer_to_i;
+            density_deltas[i] = as_number(density_deltas[i], 0.0) + transfer_to_i;
+            density_deltas[j] = as_number(density_deltas[j], 0.0) - transfer_to_i;
 
             pair_updates += 1;
         }
+    }
+
+    for (int64_t i = 0; i < cell_count; i += 1) {
+        const double base_mass = as_number(mass_updated[i], 0.0);
+        const double base_pressure = as_number(pressure_updated[i], 0.0);
+        const double base_temperature = as_number(temperature_updated[i], 0.0);
+        const double base_velocity = as_number(velocity_updated[i], 0.0);
+        const double base_density = as_number(density_updated[i], 0.0);
+
+        mass_updated[i] = std::max(1.0e-6, base_mass + as_number(mass_deltas[i], 0.0));
+        pressure_updated[i] = base_pressure + as_number(pressure_deltas[i], 0.0);
+        temperature_updated[i] = std::max(0.0, base_temperature + as_number(temperature_deltas[i], 0.0));
+        velocity_updated[i] = clamped(base_velocity + as_number(velocity_deltas[i], 0.0), -1.0e6, 1.0e6, 0.0);
+        density_updated[i] = std::max(1.0e-6, base_density + as_number(density_deltas[i], 0.0));
     }
 
     apply_surface_group_smoothing(

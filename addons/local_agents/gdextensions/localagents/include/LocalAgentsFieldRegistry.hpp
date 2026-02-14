@@ -45,8 +45,14 @@ private:
         const godot::String &field_name,
         const godot::Dictionary &field_config,
         godot::Dictionary &normalized_field_config,
-        godot::Dictionary &normalized_schema
+        godot::Dictionary &normalized_schema,
+        godot::Dictionary &validation_failure
     ) const;
+    void set_last_configure_status(
+        bool ok,
+        const godot::Array &failures,
+        const godot::String &operation
+    );
     bool collect_config_rows(const godot::Dictionary &config, godot::Array &rows) const;
     void rebuild_normalized_schema_rows();
     void refresh_field_handle_mappings();
@@ -59,6 +65,7 @@ private:
     godot::Dictionary handle_by_field_;
     godot::Dictionary field_by_handle_;
     godot::Dictionary normalized_schema_by_handle_;
+    godot::Dictionary last_configure_status_;
 };
 
 } // namespace local_agents::simulation

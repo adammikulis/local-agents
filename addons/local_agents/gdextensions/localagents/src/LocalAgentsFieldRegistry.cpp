@@ -33,6 +33,28 @@ String normalized_text(const Variant &value) {
     return String(value).strip_edges();
 }
 
+void append_validation_failure(Dictionary &failure, const String &field_name, const String &reason) {
+    failure.clear();
+    failure["field_name"] = field_name;
+    failure["reason"] = reason;
+}
+
+const String VALIDATION_REASON_COMPONENTS_INVALID = "components_invalid";
+const String VALIDATION_REASON_FIELD_NAME_MISSING = "field_name_missing";
+const String VALIDATION_REASON_LAYOUT_INVALID = "layout_invalid";
+const String VALIDATION_REASON_METADATA_MISSING = "metadata_missing";
+const String VALIDATION_REASON_METADATA_UNIT_MISSING = "metadata_unit_missing";
+const String VALIDATION_REASON_METADATA_RANGE_MISSING = "metadata_range_missing";
+const String VALIDATION_REASON_METADATA_RANGE_MIN_MISSING = "metadata_range_min_missing";
+const String VALIDATION_REASON_METADATA_RANGE_MAX_MISSING = "metadata_range_max_missing";
+const String VALIDATION_REASON_METADATA_RANGE_MIN_INVALID = "metadata_range_min_invalid";
+const String VALIDATION_REASON_METADATA_RANGE_MAX_INVALID = "metadata_range_max_invalid";
+const String VALIDATION_REASON_METADATA_RANGE_INVERTED = "metadata_range_inverted";
+const String VALIDATION_REASON_ROLE_TAGS_INVALID = "role_tags_invalid";
+const String VALIDATION_REASON_CONFIG_ROWS_INVALID = "config_rows_invalid";
+const String VALIDATION_REASON_SPARSE_CHUNK_SIZE_INVALID = "sparse_chunk_size_invalid";
+const String VALIDATION_REASON_SPARSE_INVALID = "sparse_invalid";
+
 Dictionary dictionary_or_empty(const Variant &value) {
     if (value.get_type() != Variant::DICTIONARY) {
         return Dictionary();
@@ -66,12 +88,21 @@ String build_deterministic_handle_id(const String &field_name) {
 bool LocalAgentsFieldRegistry::register_field(const StringName &field_name, const Dictionary &field_config) {
     const String key = normalized_field_key(field_name);
     if (key.is_empty()) {
+        Dictionary failure;
+        append_validation_failure(failure, "", VALIDATION_REASON_FIELD_NAME_MISSING);
+        Array failures;
+        failures.append(failure);
+        set_last_configure_status(false, failures, String("register_field"));
         return false;
     }
 
     Dictionary normalized_field_config;
     Dictionary normalized_schema;
-    if (!normalize_field_entry(key, field_config, normalized_field_config, normalized_schema)) {
+    Dictionary validation_failure;
+    if (!normalize_field_entry(key, field_config, normalized_field_config, normalized_schema, validation_failure)) {
+        Array failures;
+        failures.append(validation_failure);
+        set_last_configure_status(false, failures, String("register_field"));
         return false;
     }
 
@@ -82,6 +113,8 @@ bool LocalAgentsFieldRegistry::register_field(const StringName &field_name, cons
     normalized_schema_by_field_[key] = normalized_schema;
     rebuild_normalized_schema_rows();
     refresh_field_handle_mappings();
+    Array failures;
+    set_last_configure_status(true, failures, String("register_field"));
     return true;
 }
 
@@ -155,6 +188,11 @@ Dictionary LocalAgentsFieldRegistry::list_field_handles_snapshot() const {
 bool LocalAgentsFieldRegistry::configure(const Dictionary &config) {
     Array config_rows;
     if (!collect_config_rows(config, config_rows)) {
+        Array failures;
+        Dictionary failure;
+        append_validation_failure(failure, "", VALIDATION_REASON_CONFIG_ROWS_INVALID);
+        failures.append(failure);
+        set_last_configure_status(false, failures, String("configure"));
         return false;
     }
 
@@ -171,17 +209,31 @@ bool LocalAgentsFieldRegistry::configure(const Dictionary &config) {
     for (int64_t index = 0; index < config_rows.size(); index += 1) {
         const Variant row_variant = config_rows[index];
         if (row_variant.get_type() != Variant::DICTIONARY) {
+            Array failures;
+            Dictionary failure;
+            append_validation_failure(failure, "", VALIDATION_REASON_CONFIG_ROWS_INVALID);
+            failures.append(failure);
+            set_last_configure_status(false, failures, String("configure"));
             return false;
         }
         const Dictionary row = row_variant;
         const String field_name = normalized_text(row.get("field_name", String()));
         if (field_name.is_empty()) {
+            Array failures;
+            Dictionary failure;
+            append_validation_failure(failure, "", VALIDATION_REASON_FIELD_NAME_MISSING);
+            failures.append(failure);
+            set_last_configure_status(false, failures, String("configure"));
             return false;
         }
 
         Dictionary normalized_field_config;
         Dictionary normalized_schema;
-        if (!normalize_field_entry(field_name, row, normalized_field_config, normalized_schema)) {
+        Dictionary validation_failure;
+        if (!normalize_field_entry(field_name, row, normalized_field_config, normalized_schema, validation_failure)) {
+            Array failures;
+            failures.append(validation_failure);
+            set_last_configure_status(false, failures, String("configure"));
             return false;
         }
 
@@ -198,6 +250,8 @@ bool LocalAgentsFieldRegistry::configure(const Dictionary &config) {
     rebuild_normalized_schema_rows();
     refresh_field_handle_mappings();
     config_ = config.duplicate(true);
+    Array failures;
+    set_last_configure_status(true, failures, String("configure"));
     return true;
 }
 
@@ -210,6 +264,7 @@ void LocalAgentsFieldRegistry::clear() {
     handle_by_field_.clear();
     field_by_handle_.clear();
     normalized_schema_by_handle_.clear();
+    last_configure_status_.clear();
 }
 
 Dictionary LocalAgentsFieldRegistry::get_debug_snapshot() const {
@@ -224,33 +279,59 @@ Dictionary LocalAgentsFieldRegistry::get_debug_snapshot() const {
     snapshot["handles_by_field"] = handle_by_field_.duplicate(true);
     snapshot["fields_by_handle"] = field_by_handle_.duplicate(true);
     snapshot["normalized_schema_by_handle"] = normalized_schema_by_handle_.duplicate(true);
+    snapshot["configure_status"] = last_configure_status_.duplicate(true);
     return snapshot;
+}
+
+void LocalAgentsFieldRegistry::set_last_configure_status(
+    const bool ok,
+    const Array &failures,
+    const String &operation
+) {
+    last_configure_status_.clear();
+    last_configure_status_["ok"] = ok;
+    last_configure_status_["operation"] = operation;
+    last_configure_status_["failures"] = failures.duplicate(true);
 }
 
 bool LocalAgentsFieldRegistry::normalize_field_entry(
     const String &field_name,
     const Dictionary &field_config,
     Dictionary &normalized_field_config,
-    Dictionary &normalized_schema
+    Dictionary &normalized_schema,
+    Dictionary &validation_failure
 ) const {
+    append_validation_failure(validation_failure, field_name, String());
+
     normalized_field_config = field_config.duplicate(true);
     normalized_field_config["field_name"] = field_name;
 
     const Dictionary metadata = dictionary_or_empty(field_config.get("metadata", Dictionary()));
-    const String units = normalized_text(field_config.has("units") ? field_config["units"] : metadata.get("units", String()));
+    if (metadata.is_empty()) {
+        append_validation_failure(validation_failure, field_name, VALIDATION_REASON_METADATA_MISSING);
+        return false;
+    }
+    const String units = normalized_text(metadata.get("unit", String()));
+    if (units.is_empty()) {
+        append_validation_failure(validation_failure, field_name, VALIDATION_REASON_METADATA_UNIT_MISSING);
+        return false;
+    }
     normalized_field_config["units"] = units;
 
     int64_t components = 1;
     if (field_config.has("components")) {
         if (!parse_positive_int64(field_config["components"], components)) {
+            append_validation_failure(validation_failure, field_name, VALIDATION_REASON_COMPONENTS_INVALID);
             return false;
         }
     } else if (field_config.has("component_count")) {
         if (!parse_positive_int64(field_config["component_count"], components)) {
+            append_validation_failure(validation_failure, field_name, VALIDATION_REASON_COMPONENTS_INVALID);
             return false;
         }
     } else if (metadata.has("components")) {
         if (!parse_positive_int64(metadata["components"], components)) {
+            append_validation_failure(validation_failure, field_name, VALIDATION_REASON_COMPONENTS_INVALID);
             return false;
         }
     }
@@ -261,46 +342,45 @@ bool LocalAgentsFieldRegistry::normalize_field_entry(
         layout = String("soa");
     }
     if (layout != String("soa")) {
+        append_validation_failure(validation_failure, field_name, VALIDATION_REASON_LAYOUT_INVALID);
         return false;
     }
     normalized_field_config["layout"] = layout;
 
-    bool has_min = false;
-    bool has_max = false;
     double min_value = 0.0;
     double max_value = 0.0;
-    if (field_config.has("min")) {
-        if (!parse_finite_double(field_config["min"], min_value)) {
-            return false;
-        }
-        has_min = true;
-    } else if (field_config.has("clamp_min")) {
-        if (!parse_finite_double(field_config["clamp_min"], min_value)) {
-            return false;
-        }
-        has_min = true;
+    const Dictionary range = dictionary_or_empty(metadata.get("range", Dictionary()));
+    if (!metadata.has("range") || range.is_empty()) {
+        append_validation_failure(validation_failure, field_name, VALIDATION_REASON_METADATA_RANGE_MISSING);
+        return false;
     }
-    if (field_config.has("max")) {
-        if (!parse_finite_double(field_config["max"], max_value)) {
-            return false;
-        }
-        has_max = true;
-    } else if (field_config.has("clamp_max")) {
-        if (!parse_finite_double(field_config["clamp_max"], max_value)) {
-            return false;
-        }
-        has_max = true;
+    if (!range.has("min")) {
+        append_validation_failure(validation_failure, field_name, VALIDATION_REASON_METADATA_RANGE_MIN_MISSING);
+        return false;
     }
-    if (has_min && has_max && min_value > max_value) {
-        std::swap(min_value, max_value);
+    if (!range.has("max")) {
+        append_validation_failure(validation_failure, field_name, VALIDATION_REASON_METADATA_RANGE_MAX_MISSING);
+        return false;
     }
-    if (has_min) {
-        normalized_field_config["min"] = min_value;
+    if (!parse_finite_double(range.get("min", 0.0), min_value)) {
+        append_validation_failure(validation_failure, field_name, VALIDATION_REASON_METADATA_RANGE_MIN_INVALID);
+        return false;
     }
-    if (has_max) {
-        normalized_field_config["max"] = max_value;
+    if (!parse_finite_double(range.get("max", 0.0), max_value)) {
+        append_validation_failure(validation_failure, field_name, VALIDATION_REASON_METADATA_RANGE_MAX_INVALID);
+        return false;
     }
+    if (min_value > max_value) {
+        append_validation_failure(validation_failure, field_name, VALIDATION_REASON_METADATA_RANGE_INVERTED);
+        return false;
+    }
+    normalized_field_config["min"] = min_value;
+    normalized_field_config["max"] = max_value;
 
+    if (field_config.has("sparse") && field_config["sparse"].get_type() != Variant::DICTIONARY) {
+        append_validation_failure(validation_failure, field_name, VALIDATION_REASON_SPARSE_INVALID);
+        return false;
+    }
     const Dictionary sparse_config = field_config.has("sparse")
                                          ? dictionary_or_empty(field_config["sparse"])
                                          : dictionary_or_empty(metadata.get("sparse", Dictionary()));
@@ -316,10 +396,12 @@ bool LocalAgentsFieldRegistry::normalize_field_entry(
     int64_t sparse_chunk_size = 0;
     if (sparse_config.has("chunk_size")) {
         if (!parse_positive_int64(sparse_config["chunk_size"], sparse_chunk_size)) {
+            append_validation_failure(validation_failure, field_name, VALIDATION_REASON_SPARSE_CHUNK_SIZE_INVALID);
             return false;
         }
     } else if (field_config.has("chunk_size")) {
         if (!parse_positive_int64(field_config["chunk_size"], sparse_chunk_size)) {
+            append_validation_failure(validation_failure, field_name, VALIDATION_REASON_SPARSE_CHUNK_SIZE_INVALID);
             return false;
         }
     }
@@ -365,6 +447,7 @@ bool LocalAgentsFieldRegistry::normalize_field_entry(
             role_tags.append(tag);
         }
     } else {
+        append_validation_failure(validation_failure, field_name, VALIDATION_REASON_ROLE_TAGS_INVALID);
         return false;
     }
     normalized_field_config["role_tags"] = to_string_array(role_tags);
@@ -374,14 +457,10 @@ bool LocalAgentsFieldRegistry::normalize_field_entry(
     normalized_schema["units"] = units;
     normalized_schema["components"] = components;
     normalized_schema["layout"] = layout;
-    normalized_schema["has_min"] = has_min;
-    normalized_schema["has_max"] = has_max;
-    if (has_min) {
-        normalized_schema["min"] = min_value;
-    }
-    if (has_max) {
-        normalized_schema["max"] = max_value;
-    }
+    normalized_schema["has_min"] = true;
+    normalized_schema["has_max"] = true;
+    normalized_schema["min"] = min_value;
+    normalized_schema["max"] = max_value;
     normalized_schema["sparse"] = normalized_sparse;
     normalized_schema["role_tags"] = to_string_array(role_tags);
     return true;

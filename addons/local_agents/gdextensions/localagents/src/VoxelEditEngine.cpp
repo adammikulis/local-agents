@@ -1,6 +1,8 @@
 #include "VoxelEditEngine.hpp"
+#include "FailureEmissionDeterministicNoise.hpp"
 
 #include <godot_cpp/variant/variant.hpp>
+#include <godot_cpp/variant/vector3.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -60,6 +62,53 @@ bool parse_double_variant(const Variant &value, double &out) {
         return true;
     }
     return false;
+}
+
+bool parse_fracture_shape(const String &shape, String &out_shape) {
+    String normalized = shape.to_lower();
+    if (normalized.is_empty()) {
+        return false;
+    }
+    if (normalized == String("sphere") || normalized == String("radial") || normalized == String("round")) {
+        out_shape = normalized == String("round") ? String("sphere") : normalized;
+        return true;
+    }
+    return false;
+}
+
+bool parse_vector3_variant(const Variant &value, double &out_x, double &out_y, double &out_z) {
+    if (value.get_type() == Variant::VECTOR3) {
+        const Vector3 vector = value;
+        if (!std::isfinite(vector.x) || !std::isfinite(vector.y) || !std::isfinite(vector.z)) {
+            return false;
+        }
+        out_x = vector.x;
+        out_y = vector.y;
+        out_z = vector.z;
+        return true;
+    }
+    if (value.get_type() != Variant::DICTIONARY) {
+        return false;
+    }
+    const Dictionary source = value;
+    if (!source.has("x") || !source.has("y") || !source.has("z")) {
+        return false;
+    }
+
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+    if (!parse_double_variant(source["x"], x) || !parse_double_variant(source["y"], y) || !parse_double_variant(source["z"], z)) {
+        return false;
+    }
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) {
+        return false;
+    }
+
+    out_x = x;
+    out_y = y;
+    out_z = z;
+    return true;
 }
 
 Dictionary build_point_dict(int32_t x, int32_t y, int32_t z) {
@@ -294,7 +343,7 @@ void VoxelEditEngine::reset() {
 
 bool VoxelEditEngine::is_valid_operation(const String &operation) {
     return operation == String("set") || operation == String("add") || operation == String("max") ||
-           operation == String("min");
+           operation == String("min") || operation == String("fracture") || operation == String("cleave");
 }
 
 std::string VoxelEditEngine::to_stage_key(const String &stage_domain, const StringName &stage_name) {
@@ -383,6 +432,78 @@ bool VoxelEditEngine::parse_op_payload(
         error_code_out = String("invalid_value");
         return false;
     }
+    if (!std::isfinite(value) || value < 0.0) {
+        error_code_out = String("invalid_value");
+        return false;
+    }
+
+    String shape = String("sphere");
+    if (operation == String("fracture") || operation == String("cleave")) {
+        shape = String(op_payload.get("shape", String("sphere")));
+        if (operation == String("fracture") && !parse_fracture_shape(shape, shape)) {
+            error_code_out = String("invalid_fracture_shape");
+            return false;
+        }
+
+        double radius = 1.0;
+        if (op_payload.has("radius") && !parse_double_variant(op_payload["radius"], radius)) {
+            error_code_out = String("invalid_fracture_radius");
+            return false;
+        }
+        if (radius <= 0.0 || !std::isfinite(radius)) {
+            error_code_out = String("invalid_fracture_radius");
+            return false;
+        }
+        op_out.radius = radius;
+        op_out.shape = shape;
+        DeterministicNoiseProfile noise_profile;
+        read_deterministic_noise_fields(op_payload, noise_profile);
+        op_out.noise_seed = noise_profile.seed;
+        op_out.noise_amplitude = noise_profile.amplitude;
+        op_out.noise_frequency = noise_profile.frequency;
+        op_out.noise_octaves = noise_profile.octaves;
+        op_out.noise_lacunarity = noise_profile.lacunarity;
+        op_out.noise_gain = noise_profile.gain;
+        op_out.noise_mode = noise_profile.mode;
+
+        if (operation == String("cleave")) {
+            if (!op_payload.has("plane_normal")) {
+                error_code_out = String("missing_cleave_plane_normal");
+                return false;
+            }
+            double plane_x = 0.0;
+            double plane_y = 0.0;
+            double plane_z = 0.0;
+            if (!parse_vector3_variant(op_payload.get("plane_normal", Dictionary()), plane_x, plane_y, plane_z)) {
+                error_code_out = String("invalid_cleave_plane_normal");
+                return false;
+            }
+            const double plane_length = std::sqrt(plane_x * plane_x + plane_y * plane_y + plane_z * plane_z);
+            if (!std::isfinite(plane_length) || plane_length <= 1.0e-6) {
+                error_code_out = String("invalid_cleave_plane_normal");
+                return false;
+            }
+            const double normalized_x = plane_x / plane_length;
+            const double normalized_y = plane_y / plane_length;
+            const double normalized_z = plane_z / plane_length;
+
+            double plane_offset = (normalized_x * static_cast<double>(x))
+                + (normalized_y * static_cast<double>(y))
+                + (normalized_z * static_cast<double>(z));
+            if (op_payload.has("plane_offset") && !parse_double_variant(op_payload["plane_offset"], plane_offset)) {
+                error_code_out = String("invalid_cleave_plane_offset");
+                return false;
+            }
+            if (!std::isfinite(plane_offset)) {
+                error_code_out = String("invalid_cleave_plane_offset");
+                return false;
+            }
+            op_out.cleave_normal_x = normalized_x;
+            op_out.cleave_normal_y = normalized_y;
+            op_out.cleave_normal_z = normalized_z;
+            op_out.cleave_plane_offset = plane_offset;
+        }
+    }
 
     op_out.domain = parsed_domain;
     op_out.stage_name = stage_name;
@@ -426,44 +547,24 @@ VoxelEditEngine::StageExecutionStats VoxelEditEngine::execute_cpu_stage(
     int32_t max_z = 0;
     std::set<ChunkKey> changed_chunks;
 
-    for (const VoxelEditOp &op : ops) {
-        if (op_stride > 1) {
-            if (static_cast<int32_t>(op.sequence_id % static_cast<uint64_t>(op_stride)) != 0) {
-                continue;
-            }
-        }
-        const int32_t qx = floor_div(op.voxel.x, voxel_scale) * voxel_scale;
-        const int32_t qy = floor_div(op.voxel.y, voxel_scale) * voxel_scale;
-        const int32_t qz = floor_div(op.voxel.z, voxel_scale) * voxel_scale;
-        stats.ops_processed += 1;
-
-        const VoxelKey voxel_key{qx, qy, qz};
-        const auto voxel_iter = voxel_values_.find(voxel_key);
-        const double previous_value = voxel_iter == voxel_values_.end() ? 0.0 : voxel_iter->second;
-
-        double next_value = previous_value;
-        if (op.operation == String("set")) {
-            next_value = op.value;
-        } else if (op.operation == String("add")) {
-            next_value = previous_value + op.value;
-        } else if (op.operation == String("max")) {
-            next_value = std::max(previous_value, op.value);
-        } else if (op.operation == String("min")) {
-            next_value = std::min(previous_value, op.value);
-        }
-
+    const auto apply_voxel_delta = [&](const VoxelKey &key, double previous_value, double next_value) {
         if (next_value == previous_value) {
-            continue;
+            return;
         }
-
-        if (next_value == 0.0) {
-            voxel_values_.erase(voxel_key);
+        const double clamped_next = std::max(0.0, next_value);
+        if (previous_value <= 0.0 && clamped_next == 0.0) {
+            return;
+        }
+        if (clamped_next == 0.0) {
+            voxel_values_.erase(key);
         } else {
-            voxel_values_[voxel_key] = next_value;
+            voxel_values_[key] = clamped_next;
         }
-
         stats.ops_changed += 1;
 
+        const int32_t qx = key.x;
+        const int32_t qy = key.y;
+        const int32_t qz = key.z;
         if (!has_region) {
             min_x = qx;
             min_y = qy;
@@ -480,12 +581,102 @@ VoxelEditEngine::StageExecutionStats VoxelEditEngine::execute_cpu_stage(
             max_y = std::max(max_y, qy);
             max_z = std::max(max_z, qz);
         }
-
         changed_chunks.insert(ChunkKey{
             floor_div(qx, chunk_size_),
             floor_div(qy, chunk_size_),
             floor_div(qz, chunk_size_),
         });
+    };
+
+    for (const VoxelEditOp &op : ops) {
+        if (op_stride > 1) {
+            if (static_cast<int32_t>(op.sequence_id % static_cast<uint64_t>(op_stride)) != 0) {
+                continue;
+            }
+        }
+        const int32_t qx = floor_div(op.voxel.x, voxel_scale) * voxel_scale;
+        const int32_t qy = floor_div(op.voxel.y, voxel_scale) * voxel_scale;
+        const int32_t qz = floor_div(op.voxel.z, voxel_scale) * voxel_scale;
+        stats.ops_processed += 1;
+
+        const VoxelKey voxel_key{qx, qy, qz};
+        const auto voxel_iter = voxel_values_.find(voxel_key);
+        const double previous_value = voxel_iter == voxel_values_.end() ? 0.0 : voxel_iter->second;
+
+        if (op.operation == String("fracture") || op.operation == String("cleave")) {
+            const double radius = std::max(0.0, op.radius);
+            const int32_t radius_cells = static_cast<int32_t>(std::floor(radius / static_cast<double>(voxel_scale)));
+            const double radius_squared = radius * radius;
+            const bool radial_shape = op.shape == String("radial");
+            const bool is_cleave = op.operation == String("cleave");
+            const DeterministicNoiseProfile noise_profile = {
+                op.noise_seed,
+                op.noise_amplitude,
+                op.noise_frequency,
+                op.noise_octaves,
+                op.noise_lacunarity,
+                op.noise_gain,
+                op.noise_mode
+            };
+            for (int32_t dz = -radius_cells; dz <= radius_cells; ++dz) {
+                const double world_dz = static_cast<double>(dz) * static_cast<double>(voxel_scale);
+                const int32_t z = qz + dz * voxel_scale;
+                const double dz_sq = world_dz * world_dz;
+                for (int32_t dy = -radius_cells; dy <= radius_cells; ++dy) {
+                    const double world_dy = static_cast<double>(dy) * static_cast<double>(voxel_scale);
+                    const int32_t y = qy + dy * voxel_scale;
+                    for (int32_t dx = -radius_cells; dx <= radius_cells; ++dx) {
+                        const double world_dx = static_cast<double>(dx) * static_cast<double>(voxel_scale);
+                        const int32_t x = qx + dx * voxel_scale;
+                        const double dist2 = world_dx * world_dx + (radial_shape ? dz_sq : dz_sq + world_dy * world_dy);
+                        if (dist2 > radius_squared) {
+                            continue;
+                        }
+                        const double base_falloff = radius == 0.0 ? 1.0 : std::max(0.0, 1.0 - std::sqrt(dist2) / radius);
+                        double falloff = base_falloff;
+                        if (is_cleave) {
+                            const double signed_distance = op.cleave_normal_x * static_cast<double>(x)
+                                + op.cleave_normal_y * static_cast<double>(y)
+                                + op.cleave_normal_z * static_cast<double>(z)
+                                - op.cleave_plane_offset;
+                            if (signed_distance < 0.0) {
+                                continue;
+                            }
+                            const double directional_component = std::clamp(
+                                signed_distance / std::max(1.0, radius),
+                                0.0,
+                                1.0);
+                            falloff *= (0.25 + 0.75 * directional_component);
+                        }
+                        falloff = sample_deterministic_noise_falloff(
+                            noise_profile,
+                            qx,
+                            qy,
+                            qz,
+                            x,
+                            y,
+                            z,
+                            falloff);
+                        const VoxelKey fracture_key{x, y, z};
+                        const auto fracture_iter = voxel_values_.find(fracture_key);
+                        const double fracture_prev = fracture_iter == voxel_values_.end() ? 0.0 : fracture_iter->second;
+                        apply_voxel_delta(fracture_key, fracture_prev, fracture_prev - op.value * falloff);
+                    }
+                }
+            }
+            continue;
+        }
+        double next_value = previous_value;
+        if (op.operation == String("set")) {
+            next_value = op.value;
+        } else if (op.operation == String("add")) {
+            next_value = previous_value + op.value;
+        } else if (op.operation == String("max")) {
+            next_value = std::max(previous_value, op.value);
+        } else if (op.operation == String("min")) {
+            next_value = std::min(previous_value, op.value);
+        }
+        apply_voxel_delta(voxel_key, previous_value, next_value);
     }
 
     Dictionary changed_region;

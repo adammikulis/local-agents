@@ -18,6 +18,8 @@ const DETERMINISTIC_TESTS: Array[String] = [
 	"res://addons/local_agents/tests/test_native_combustion_pressure_contracts.gd",
 	"res://addons/local_agents/tests/test_native_general_physics_wave_a_runtime.gd",
 	"res://addons/local_agents/tests/test_native_general_physics_contracts.gd",
+	"res://addons/local_agents/tests/test_native_general_physics_failure_emission_runtime.gd",
+	"res://addons/local_agents/tests/test_native_general_physics_failure_emission_contracts.gd",
 	"res://addons/local_agents/tests/test_simulation_voxel_terrain_generation.gd",
 	"res://addons/local_agents/tests/test_simulation_water_first_spawn.gd",
 	"res://addons/local_agents/tests/test_simulation_branching.gd",
@@ -39,11 +41,12 @@ const DETERMINISTIC_TESTS: Array[String] = [
 	"res://addons/local_agents/tests/test_simulation_economy_events.gd",
 	"res://addons/local_agents/tests/test_simulation_material_flow_parity.gd",
 	"res://addons/local_agents/tests/test_simulation_material_flow_foveated_throttling.gd",
+	"res://addons/local_agents/tests/test_physics_server_coupling_gate.gd",
 ]
 
 const INTEGRATION_TESTS: Array[String] = [
 	"res://addons/local_agents/tests/test_simulation_vertical_slice_30day.gd",
-	"res://addons/local_agents/tests/test_world_simulator_app_loop.gd",
+	"res://addons/local_agents/tests/test_world_simulation_loop.gd",
 ]
 
 const RUNTIME_HEAVY_TESTS: Array[String] = [

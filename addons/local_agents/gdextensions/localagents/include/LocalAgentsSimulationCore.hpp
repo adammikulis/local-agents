@@ -75,6 +75,14 @@ private:
     double physics_contact_total_impulse_ = 0.0;
     double physics_contact_max_impulse_ = 0.0;
     double physics_contact_total_relative_speed_ = 0.0;
+    double impact_signal_gain_ = 1.0e-5;
+    double impact_watch_signal_threshold_ = 2.2;
+    double impact_active_signal_threshold_ = 4.0;
+    double impact_radius_base_ = 1.0;
+    double impact_radius_gain_ = 0.5;
+    double impact_radius_max_ = 12.0;
+    double fracture_value_softness_ = 2.4;
+    double fracture_value_cap_ = 0.95;
 };
 
 } // namespace godot

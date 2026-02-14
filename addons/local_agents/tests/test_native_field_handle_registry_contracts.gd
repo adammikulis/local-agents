@@ -4,9 +4,12 @@ extends RefCounted
 const INTERFACES_HPP_PATH := "res://addons/local_agents/gdextensions/localagents/include/LocalAgentsSimulationInterfaces.hpp"
 const REGISTRY_HPP_PATH := "res://addons/local_agents/gdextensions/localagents/include/LocalAgentsFieldRegistry.hpp"
 const REGISTRY_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/LocalAgentsFieldRegistry.cpp"
+const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const CORE_SINGLETON_NAME := "LocalAgentsSimulationCore"
 
 func run_test(_tree: SceneTree) -> bool:
 	var ok := true
+	ok = _test_configure_validation_reason_contracts() and ok
 	ok = _test_interfaces_declare_field_handle_contract() and ok
 	ok = _test_registry_header_declares_field_handle_overrides() and ok
 	ok = _test_registry_cpp_defines_deterministic_handle_contracts() and ok
@@ -15,6 +18,84 @@ func run_test(_tree: SceneTree) -> bool:
 	if ok:
 		print("Native field-handle registry source contracts passed (Wave A handles + invariants).")
 	return ok
+
+func _test_configure_validation_reason_contracts() -> bool:
+	if not ExtensionLoader.ensure_initialized():
+		return _assert(false, "LocalAgentsExtensionLoader should be initialized for native runtime registry validation test.")
+	if not Engine.has_singleton(CORE_SINGLETON_NAME):
+		return _assert(false, "Native simulation core singleton should be available for runtime registry validation test.")
+	var core = Engine.get_singleton(CORE_SINGLETON_NAME)
+	if core == null:
+		return _assert(false, "LocalAgentsSimulationCore singleton should be non-null for runtime registry validation test.")
+	var ok := true
+
+	var valid_payload := {
+		"fields": [
+			{"field_name": "mass_density", "metadata": {"unit": "kg/m^3", "range": {"min": 0.0, "max": 1000000.0}}
+			}
+		]
+	}
+	ok = _assert(bool(core.call("configure_field_registry", valid_payload)), "configure_field_registry should accept valid strict metadata.")
+	if not ok:
+		return false
+	var valid_status := _extract_configure_status(core)
+	ok = _assert(valid_status.get("ok", false) == true, "Successful configuration should report ok=true.")
+	ok = _assert(valid_status.get("operation", "") == "configure", "configure_field_registry status should expose operation=configure on success.")
+	ok = _assert(int(valid_status.get("failures", []).size()) == 0, "Successful configure should expose no validation failures.")
+	if not ok:
+		return false
+
+	var invalid_unit_payload := {
+		"fields": [
+			{"field_name": "mass_density", "metadata": {"range": {"min": 0.0, "max": 1.0}}
+			}
+		]
+	}
+	ok = _assert(not bool(core.call("configure_field_registry", invalid_unit_payload)), "configure_field_registry should reject missing metadata.unit.")
+	var missing_unit_status := _extract_configure_status(core)
+	var missing_unit_reasons = missing_unit_status.get("failures", [])
+	ok = _assert(missing_unit_reasons is Array and missing_unit_reasons.size() > 0, "Missing unit rejection should emit at least one structured failure reason.")
+	if missing_unit_reasons is Array and missing_unit_reasons.size() > 0:
+		var reason_variant = missing_unit_reasons[0]
+		ok = _assert(reason_variant is Dictionary and String(reason_variant.get("reason", "")) == "metadata_unit_missing", "Missing unit rejection should report metadata_unit_missing.")
+
+	var non_numeric_range_payload := {
+		"fields": [
+			{"field_name": "mass_density", "metadata": {"unit": "kg/m^3", "range": {"min": "low", "max": 1.0}}
+			}
+		]
+	}
+	ok = _assert(not bool(core.call("configure_field_registry", non_numeric_range_payload)), "configure_field_registry should reject non-numeric metadata.range min.")
+	var non_numeric_status := _extract_configure_status(core)
+	var non_numeric_reasons = non_numeric_status.get("failures", [])
+	ok = _assert(non_numeric_reasons is Array and non_numeric_reasons.size() > 0, "Non-numeric range rejection should emit at least one structured failure reason.")
+	if non_numeric_reasons is Array and non_numeric_reasons.size() > 0:
+		var reason_variant = non_numeric_reasons[0]
+		ok = _assert(reason_variant is Dictionary and String(reason_variant.get("reason", "")) == "metadata_range_min_invalid", "Non-numeric range rejection should report metadata_range_min_invalid.")
+
+	var inverted_range_payload := {
+		"fields": [
+			{"field_name": "mass_density", "metadata": {"unit": "kg/m^3", "range": {"min": 100.0, "max": 1.0}}
+			}
+		]
+	}
+	ok = _assert(not bool(core.call("configure_field_registry", inverted_range_payload)), "configure_field_registry should reject inverted metadata.range values.")
+	var inverted_range_status := _extract_configure_status(core)
+	var inverted_range_reasons = inverted_range_status.get("failures", [])
+	ok = _assert(inverted_range_reasons is Array and inverted_range_reasons.size() > 0, "Inverted range rejection should emit at least one structured failure reason.")
+	if inverted_range_reasons is Array and inverted_range_reasons.size() > 0:
+		var reason_variant = inverted_range_reasons[0]
+		ok = _assert(reason_variant is Dictionary and String(reason_variant.get("reason", "")) == "metadata_range_inverted", "Inverted range rejection should report metadata_range_inverted.")
+	return ok
+
+func _extract_configure_status(core) -> Dictionary:
+	var snapshot := core.call("get_debug_snapshot")
+	if not (snapshot is Dictionary):
+		return {}
+	var field_registry := snapshot.get("field_registry", {})
+	if not (field_registry is Dictionary):
+		return {}
+	return field_registry.get("configure_status", {})
 
 func _test_interfaces_declare_field_handle_contract() -> bool:
 	var source := _read_source(INTERFACES_HPP_PATH)

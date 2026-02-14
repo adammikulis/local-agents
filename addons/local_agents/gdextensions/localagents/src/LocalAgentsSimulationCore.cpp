@@ -5,9 +5,13 @@
 #include "LocalAgentsQueryService.hpp"
 #include "LocalAgentsScheduler.hpp"
 #include "LocalAgentsSimProfiler.hpp"
+#include "SimulationFailureEmissionPlanner.hpp"
 #include "VoxelEditEngine.hpp"
 
+#include <algorithm>
 #include <set>
+#include <cmath>
+#include <cstdint>
 
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/array.hpp>
@@ -16,7 +20,37 @@ using namespace godot;
 using namespace local_agents::simulation;
 
 namespace {
+double get_numeric_dictionary_value(const Dictionary &row, const StringName &key);
+
 constexpr int64_t kDefaultPhysicsContactCapacity = 256;
+constexpr double kImpactSignalGainMin = 1.0e-7;
+constexpr double kImpactSignalDefaultScale = 1.0e-5;
+constexpr double kWatchSignalDefault = 2.2;
+constexpr double kActiveSignalDefault = 4.0;
+constexpr double kMaxFractureRadius = 12.0;
+constexpr double kDefaultFractureRadiusBase = 1.0;
+constexpr double kDefaultFractureRadiusGain = 0.5;
+constexpr double kDefaultFractureValueSoftness = 2.4;
+constexpr double kDefaultFractureValueCap = 0.95;
+
+struct ImpactFractureProfile {
+    double impact_signal_gain = kImpactSignalDefaultScale;
+    double watch_signal_threshold = kWatchSignalDefault;
+    double active_signal_threshold = kActiveSignalDefault;
+    double fracture_radius_base = kDefaultFractureRadiusBase;
+    double fracture_radius_gain = kDefaultFractureRadiusGain;
+    double fracture_radius_max = kMaxFractureRadius;
+    double fracture_value_softness = kDefaultFractureValueSoftness;
+    double fracture_value_cap = kDefaultFractureValueCap;
+};
+
+double contact_impulse_from_row(const Dictionary &row) {
+    const double contact_impulse = get_numeric_dictionary_value(row, StringName("contact_impulse"));
+    if (contact_impulse != 0.0) {
+        return contact_impulse;
+    }
+    return get_numeric_dictionary_value(row, StringName("impulse"));
+}
 
 int64_t increment_stage_counter(Dictionary &counters, const StringName &stage_name) {
     const String stage_key = String(stage_name);
@@ -101,11 +135,26 @@ Dictionary normalize_contact_row(const Variant &raw_row) {
     normalized["body_b"] = source.get("body_b", StringName());
     normalized["shape_a"] = static_cast<int64_t>(source.get("shape_a", static_cast<int64_t>(-1)));
     normalized["shape_b"] = static_cast<int64_t>(source.get("shape_b", static_cast<int64_t>(-1)));
-    normalized["impulse"] = get_numeric_dictionary_value(source, StringName("impulse"));
-    normalized["relative_speed"] = get_numeric_dictionary_value(source, StringName("relative_speed"));
-    normalized["contact_point"] = source.get("contact_point", Dictionary());
-    normalized["normal"] = source.get("normal", Dictionary());
+    const double normalized_impulse = contact_impulse_from_row(source);
+    normalized["contact_impulse"] = normalized_impulse;
+    normalized["impulse"] = normalized_impulse;
+    const double body_velocity = get_numeric_dictionary_value(source, StringName("body_velocity"));
+    const double obstacle_velocity = get_numeric_dictionary_value(source, StringName("obstacle_velocity"));
+    const double row_velocity = std::fabs(get_numeric_dictionary_value(source, StringName("contact_velocity")));
+    const double legacy_relative_speed = std::fabs(get_numeric_dictionary_value(source, StringName("relative_speed")));
+    const double relative_speed = std::fmax(
+        0.0,
+        std::fmax(std::fmax(row_velocity, legacy_relative_speed), std::fabs(body_velocity - obstacle_velocity))
+    );
+    normalized["relative_speed"] = relative_speed;
+    const Variant contact_point = source.get("contact_point", Dictionary());
+    const Variant contact_normal = source.get("contact_normal", source.get("normal", Dictionary()));
+    normalized["contact_point"] = contact_point;
+    normalized["contact_normal"] = contact_normal;
+    normalized["normal"] = contact_normal;
     normalized["frame"] = static_cast<int64_t>(source.get("frame", static_cast<int64_t>(0)));
+    normalized["body_mass"] = get_numeric_dictionary_value(source, StringName("body_mass"));
+    normalized["collider_mass"] = get_numeric_dictionary_value(source, StringName("collider_mass"));
     return normalized;
 }
 
@@ -226,6 +275,114 @@ Dictionary maybe_inject_field_handles_into_environment_inputs(
     pipeline_inputs["field_handles"] = field_handles;
     return pipeline_inputs;
 }
+
+Dictionary extract_pipeline_feedback(const Dictionary &pipeline_result) {
+    const Variant feedback = pipeline_result.get("physics_server_feedback", Dictionary());
+    if (feedback.get_type() == Variant::DICTIONARY) {
+        return feedback;
+    }
+    return Dictionary();
+}
+
+String as_status_text(const Variant &value, const String &fallback) {
+    if (value.get_type() == Variant::STRING) {
+        return String(value);
+    }
+    if (value.get_type() == Variant::STRING_NAME) {
+        return String(static_cast<StringName>(value));
+    }
+    return fallback;
+}
+
+double as_status_float(const Variant &value, double fallback) {
+    if (value.get_type() == Variant::FLOAT) {
+        return static_cast<double>(value);
+    }
+    if (value.get_type() == Variant::INT) {
+        return static_cast<double>(static_cast<int64_t>(value));
+    }
+    return fallback;
+}
+
+int64_t as_status_int(const Variant &value, int64_t fallback) {
+    if (value.get_type() == Variant::INT) {
+        return static_cast<int64_t>(value);
+    }
+    if (value.get_type() == Variant::FLOAT) {
+        return static_cast<int64_t>(static_cast<double>(value));
+    }
+    return fallback;
+}
+
+int32_t clamp_to_bucket(double value, int32_t bucket_count) {
+    if (!std::isfinite(value) || bucket_count <= 0) {
+        return 0;
+    }
+    const double bounded_value = std::fabs(value);
+    const double wrapped = std::fmod(bounded_value, static_cast<double>(bucket_count));
+    const int64_t bucket = static_cast<int64_t>(std::floor(wrapped + 1.0e-12));
+    return static_cast<int32_t>(std::max<int64_t>(0, std::min<int64_t>(bucket_count - 1, bucket)));
+}
+
+ImpactFractureProfile read_impact_fracture_profile(const Dictionary &configuration) {
+    ImpactFractureProfile profile;
+    if (configuration.has("impact_signal_gain")) {
+        const double signal_gain = get_numeric_dictionary_value(configuration, StringName("impact_signal_gain"));
+        if (signal_gain >= kImpactSignalGainMin) {
+            profile.impact_signal_gain = signal_gain;
+        }
+    }
+    if (configuration.has("watch_signal_threshold")) {
+        const double watch_signal_threshold = get_numeric_dictionary_value(configuration, StringName("watch_signal_threshold"));
+        if (watch_signal_threshold > 0.0) {
+            profile.watch_signal_threshold = watch_signal_threshold;
+        }
+    }
+    if (configuration.has("active_signal_threshold")) {
+        const double active_signal_threshold = get_numeric_dictionary_value(configuration, StringName("active_signal_threshold"));
+        if (active_signal_threshold > 0.0) {
+            profile.active_signal_threshold = active_signal_threshold;
+        }
+    }
+    if (configuration.has("fracture_radius_base")) {
+        const double fracture_radius_base = get_numeric_dictionary_value(configuration, StringName("fracture_radius_base"));
+        if (fracture_radius_base > 0.0) {
+            profile.fracture_radius_base = fracture_radius_base;
+        }
+    }
+    if (configuration.has("fracture_radius_gain")) {
+        const double fracture_radius_gain = get_numeric_dictionary_value(configuration, StringName("fracture_radius_gain"));
+        if (fracture_radius_gain >= 0.0) {
+            profile.fracture_radius_gain = fracture_radius_gain;
+        }
+    }
+    if (configuration.has("fracture_radius_max")) {
+        const double fracture_radius_max = get_numeric_dictionary_value(configuration, StringName("fracture_radius_max"));
+        if (fracture_radius_max > 0.0) {
+            profile.fracture_radius_max = fracture_radius_max;
+        }
+    }
+    if (configuration.has("fracture_value_softness")) {
+        const double fracture_value_softness = get_numeric_dictionary_value(configuration, StringName("fracture_value_softness"));
+        if (fracture_value_softness > 0.0) {
+            profile.fracture_value_softness = fracture_value_softness;
+        }
+    }
+    if (configuration.has("fracture_value_cap")) {
+        const double fracture_value_cap = get_numeric_dictionary_value(configuration, StringName("fracture_value_cap"));
+        if (fracture_value_cap > 0.0 && fracture_value_cap <= 1.0) {
+            profile.fracture_value_cap = fracture_value_cap;
+        }
+    }
+    if (profile.watch_signal_threshold >= profile.active_signal_threshold) {
+        profile.watch_signal_threshold = std::max(
+            0.1,
+            std::min(profile.watch_signal_threshold, profile.active_signal_threshold - 0.1)
+        );
+    }
+    return profile;
+}
+
 } // namespace
 
 LocalAgentsSimulationCore::LocalAgentsSimulationCore() {
@@ -333,6 +490,18 @@ bool LocalAgentsSimulationCore::configure(const Dictionary &simulation_config) {
     Dictionary scheduler_config = simulation_config.get("scheduler", Dictionary());
     Dictionary compute_config = simulation_config.get("compute", Dictionary());
     Dictionary voxel_edit_config = simulation_config.get("voxel_edit", Dictionary());
+    const Dictionary impact_fracture_config = simulation_config.has("impact_fracture")
+        ? simulation_config.get("impact_fracture", Dictionary())
+        : simulation_config;
+    const ImpactFractureProfile profile = read_impact_fracture_profile(impact_fracture_config);
+    impact_signal_gain_ = profile.impact_signal_gain;
+    impact_watch_signal_threshold_ = profile.watch_signal_threshold;
+    impact_active_signal_threshold_ = profile.active_signal_threshold;
+    impact_radius_base_ = profile.fracture_radius_base;
+    impact_radius_gain_ = profile.fracture_radius_gain;
+    impact_radius_max_ = profile.fracture_radius_max;
+    fracture_value_softness_ = profile.fracture_value_softness;
+    fracture_value_cap_ = profile.fracture_value_cap;
 
     const bool field_ok = field_registry_->configure(field_registry_config);
     const bool scheduler_ok = scheduler_->configure(scheduler_config);
@@ -427,13 +596,119 @@ Dictionary LocalAgentsSimulationCore::apply_environment_stage(const StringName &
     Dictionary result = voxel_edit_engine_->execute_stage(String("environment"), stage_name, effective_payload);
     if (compute_manager_) {
         Dictionary scheduled_frame;
+        const ImpactFractureProfile fracture_profile = {
+            impact_signal_gain_,
+            impact_watch_signal_threshold_,
+            impact_active_signal_threshold_,
+            impact_radius_base_,
+            impact_radius_gain_,
+            impact_radius_max_,
+            fracture_value_softness_,
+            fracture_value_cap_
+        };
         const Dictionary scheduled_frame_inputs = maybe_inject_field_handles_into_environment_inputs(effective_payload, field_registry_.get());
         scheduled_frame["ok"] = true;
         scheduled_frame["step_index"] = static_cast<int64_t>(environment_stage_dispatch_count_);
         scheduled_frame["delta_seconds"] = static_cast<double>(effective_payload.get("delta", 0.0));
         scheduled_frame["stage_name"] = String(stage_name);
         scheduled_frame["inputs"] = scheduled_frame_inputs;
-        result["pipeline"] = compute_manager_->execute_step(scheduled_frame);
+        const Dictionary pipeline_result = compute_manager_->execute_step(scheduled_frame);
+        result["pipeline"] = pipeline_result;
+        result["physics_server_feedback"] = extract_pipeline_feedback(pipeline_result);
+
+        Dictionary voxel_failure_emission = build_voxel_failure_emission_plan(
+            extract_pipeline_feedback(pipeline_result),
+            physics_contact_rows_,
+            fracture_profile.impact_signal_gain,
+            fracture_profile.watch_signal_threshold,
+            fracture_profile.active_signal_threshold,
+            fracture_profile.fracture_radius_base,
+            fracture_profile.fracture_radius_gain,
+            fracture_profile.fracture_radius_max,
+            fracture_profile.fracture_value_softness,
+            fracture_profile.fracture_value_cap);
+        const String failure_emission_status = as_status_text(voxel_failure_emission.get("status", String("disabled")), String("disabled"));
+        if (failure_emission_status == String("planned")) {
+            const Array op_payloads = voxel_failure_emission.get("op_payloads", Array());
+            // Planner contract:
+            // - `target_domain` + `stage_name` are the single routing keys the core executes.
+            // - `op_payloads` is the operation source of truth.
+            const String plan_target_domain = as_status_text(
+                voxel_failure_emission.get("target_domain", String("environment")),
+                String("environment"));
+            const String plan_stage_name = as_status_text(
+                voxel_failure_emission.get("stage_name", String("physics_failure_emission")),
+                String("physics_failure_emission"));
+            Array enqueue_results;
+            bool enqueued_all = true;
+            for (int64_t i = 0; i < op_payloads.size(); i++) {
+                const Variant op_variant = op_payloads[i];
+                if (op_variant.get_type() != Variant::DICTIONARY) {
+                    continue;
+                }
+                const Dictionary op_payload = op_variant;
+                const Dictionary enqueue_result = voxel_edit_engine_->enqueue_op(
+                    plan_target_domain,
+                    StringName(plan_stage_name),
+                    op_payload);
+                enqueue_results.append(enqueue_result);
+                enqueued_all = enqueued_all && bool(enqueue_result.get("ok", false));
+            }
+            voxel_failure_emission["enqueues"] = enqueue_results;
+            if (enqueued_all) {
+                Dictionary emission_payload;
+                emission_payload["source_stage"] = String(stage_name);
+                emission_payload["feedback_status"] = result.get("physics_server_feedback", Dictionary());
+                const Dictionary feedback_reference = result.get("physics_server_feedback", Dictionary());
+                emission_payload["failure_feedback"] = feedback_reference.is_empty() ? Dictionary() : feedback_reference.get("failure_feedback", Dictionary());
+                emission_payload["failure_source"] = feedback_reference.is_empty() ? Dictionary() : feedback_reference.get("failure_source", Dictionary());
+                emission_payload["destruction_feedback"] = feedback_reference.is_empty() ? Dictionary() : feedback_reference.get("destruction", Dictionary());
+                const Dictionary execution = voxel_edit_engine_->execute_stage(
+                    plan_target_domain,
+                    StringName(plan_stage_name),
+                    emission_payload);
+                voxel_failure_emission["execution"] = execution;
+                if (bool(execution.get("ok", false))) {
+                    voxel_failure_emission["status"] = String("executed");
+                    voxel_failure_emission["reason"] = as_status_text(voxel_failure_emission.get("reason", String("active_failure")), String("active_failure"));
+                    voxel_failure_emission["executed_op_count"] = static_cast<int64_t>(execution.get("ops_changed", static_cast<int64_t>(0)));
+                } else {
+                    voxel_failure_emission["status"] = String("failed");
+                    voxel_failure_emission["reason"] = String("voxel_execution_failed");
+                    voxel_failure_emission["executed_op_count"] = static_cast<int64_t>(0);
+                }
+            } else {
+                voxel_failure_emission["status"] = String("failed");
+                voxel_failure_emission["reason"] = String("voxel_enqueue_failed");
+                voxel_failure_emission["executed_op_count"] = static_cast<int64_t>(0);
+            }
+        }
+        result["voxel_failure_emission"] = voxel_failure_emission;
+    } else {
+        const ImpactFractureProfile fracture_profile = {
+            impact_signal_gain_,
+            impact_watch_signal_threshold_,
+            impact_active_signal_threshold_,
+            impact_radius_base_,
+            impact_radius_gain_,
+            impact_radius_max_,
+            fracture_value_softness_,
+            fracture_value_cap_
+        };
+        Dictionary disabled_voxel_emission = build_voxel_failure_emission_plan(
+            Dictionary(),
+            Array(),
+            fracture_profile.impact_signal_gain,
+            fracture_profile.watch_signal_threshold,
+            fracture_profile.active_signal_threshold,
+            fracture_profile.fracture_radius_base,
+            fracture_profile.fracture_radius_gain,
+            fracture_profile.fracture_radius_max,
+            fracture_profile.fracture_value_softness,
+            fracture_profile.fracture_value_cap);
+        disabled_voxel_emission["reason"] = String("compute_manager_unavailable");
+        disabled_voxel_emission["status"] = String("disabled");
+        result["voxel_failure_emission"] = disabled_voxel_emission;
     }
     result["counters"] = build_stage_dispatch_counters(environment_stage_dispatch_count_, stage_dispatch_count);
     return result;

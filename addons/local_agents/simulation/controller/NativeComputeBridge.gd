@@ -3,16 +3,17 @@ extends RefCounted
 const NATIVE_SIM_CORE_SINGLETON_NAME := "LocalAgentsSimulationCore"
 const NATIVE_SIM_CORE_ENV_KEY := "LOCAL_AGENTS_ENABLE_NATIVE_SIM_CORE"
 const PhysicsServerContactBridgeScript = preload("res://addons/local_agents/simulation/controller/PhysicsServerContactBridge.gd")
-const _CANONICAL_INPUT_KEYS := ["pressure", "pressure_gradient", "temperature", "density", "velocity", "force_proxy", "acceleration_proxy", "mass_proxy", "moisture", "porosity", "cohesion", "hardness", "phase", "stress", "strain", "thermal_conductivity", "thermal_capacity", "thermal_diffusivity", "reaction_rate", "reaction_channels", "phase_change_channels", "porous_flow_channels", "shock_impulse_channels", "friction_contact_channels", "boundary_condition_channels", "fuel", "oxygen", "material_flammability", "activity", "contact_impulse", "contact_normal", "contact_point", "body_velocity", "body_id", "rigid_obstacle_mask"]
+const _CANONICAL_INPUT_KEYS := ["pressure", "pressure_gradient", "temperature", "density", "velocity", "force_proxy", "acceleration_proxy", "mass_proxy", "moisture", "porosity", "cohesion", "hardness", "phase", "stress", "strain", "thermal_conductivity", "thermal_capacity", "thermal_diffusivity", "reaction_rate", "reaction_channels", "phase_change_channels", "porous_flow_channels", "shock_impulse_channels", "friction_contact_channels", "boundary_condition_channels", "fuel", "oxygen", "material_flammability", "activity", "contact_impulse", "contact_velocity", "contact_normal", "contact_point", "body_velocity", "obstacle_velocity", "obstacle_trajectory", "body_id", "rigid_obstacle_mask"]
 const _DEFAULT_REACTION_CHANNELS := {"combustion": 0.0, "oxidation": 0.0, "hydration": 0.0, "decomposition": 0.0, "corrosion": 0.0}
 const _DEFAULT_GENERALIZED_CHANNELS := {"phase_change_channels": {"melting": 0.0, "freezing": 0.0, "evaporation": 0.0, "condensation": 0.0}, "porous_flow_channels": {"seepage": 0.0, "capillary": 0.0, "drainage": 0.0, "retention": 0.0}, "shock_impulse_channels": {"impact": 0.0, "blast": 0.0, "shear_wave": 0.0, "vibration": 0.0}, "friction_contact_channels": {"static": 0.0, "kinetic": 0.0, "rolling": 0.0, "adhesion": 0.0}, "boundary_condition_channels": {"dirichlet": 0.0, "neumann": 0.0, "robin": 0.0, "reflective": 0.0, "periodic": 0.0}}
 const _MATERIAL_INPUT_DEFAULTS := {
 	"temperature": 293.0, "pressure": 1.0, "pressure_gradient": 0.0, "density": 1.0, "velocity": 0.0, "moisture": 0.0, "porosity": 0.25, "cohesion": 0.5, "hardness": 0.5, "phase": 0, "stress": 0.0, "strain": 0.0, "fuel": 0.0, "oxygen": 0.21, "material_flammability": 0.5, "activity": 0.0,
 	"thermal_conductivity": -1.0, "thermal_capacity": -1.0, "thermal_diffusivity": -1.0, "reaction_rate": -1.0, "reaction_channels": {}, "phase_change_channels": {}, "porous_flow_channels": {}, "shock_impulse_channels": {}, "friction_contact_channels": {}, "boundary_condition_channels": {},
 	"mass_proxy": -1.0, "acceleration_proxy": -1.0, "force_proxy": -1.0,
-	"contact_impulse": 0.0, "contact_normal": Vector3.ZERO, "contact_point": Vector3.ZERO, "body_velocity": 0.0, "body_id": -1, "rigid_obstacle_mask": 0,
+	"contact_impulse": 0.0, "contact_velocity": 0.0, "contact_normal": Vector3.ZERO, "contact_point": Vector3.ZERO, "body_velocity": 0.0, "obstacle_velocity": 0.0, "obstacle_trajectory": Vector3.ZERO,
+	"body_id": -1, "rigid_obstacle_mask": 0,
 }
-const _LEGACY_INPUT_KEY_ALIASES := {"temperature": ["temp", "temp_k", "avg_temperature"], "pressure": ["pressure_atm", "atmospheric_pressure", "hydraulic_pressure"], "pressure_gradient": ["pressure_delta", "pressure_grad", "hydraulic_gradient"], "density": ["air_density", "material_density"], "velocity": ["wind_speed", "flow_speed", "speed"], "mass_proxy": ["mass", "mass_estimate", "inertial_mass"], "acceleration_proxy": ["acceleration", "accel", "accel_proxy"], "force_proxy": ["force", "force_estimate", "impulse"], "moisture": ["humidity", "water_content"], "porosity": ["void_fraction"], "cohesion": ["binding_strength"], "hardness": ["rigidity", "resistance"], "thermal_conductivity": ["conductivity", "thermal_k"], "thermal_capacity": ["heat_capacity", "specific_heat"], "thermal_diffusivity": ["diffusivity"], "reaction_rate": ["reaction_intensity", "chem_reaction_rate"], "phase_change_channels": ["phase_transitions", "phase_change", "transition_channels"], "porous_flow_channels": ["porous_channels", "flow_channels", "permeability_channels"], "shock_impulse_channels": ["shock_channels", "impulse_channels", "impact_channels"], "friction_contact_channels": ["friction_channels", "contact_channels", "tribology_channels"], "boundary_condition_channels": ["boundary_channels", "boundary_conditions", "bc_channels"], "material_flammability": ["flammability"], "activity": ["activity_level", "activation"], "contact_impulse": ["impulse", "normal_impulse", "collision_impulse"], "contact_normal": ["normal", "collision_normal"], "contact_point": ["point", "collision_point", "position"], "body_velocity": ["velocity_magnitude", "linear_speed", "body_speed"], "body_id": ["id", "rid", "collider_id"], "rigid_obstacle_mask": ["obstacle_mask", "collision_mask", "collision_layer"]}
+const _LEGACY_INPUT_KEY_ALIASES := {"temperature": ["temp", "temp_k", "avg_temperature"], "pressure": ["pressure_atm", "atmospheric_pressure", "hydraulic_pressure"], "pressure_gradient": ["pressure_delta", "pressure_grad", "hydraulic_gradient"], "density": ["air_density", "material_density"], "velocity": ["wind_speed", "flow_speed", "speed"], "mass_proxy": ["mass", "mass_estimate", "inertial_mass"], "acceleration_proxy": ["acceleration", "accel", "accel_proxy"], "force_proxy": ["force", "force_estimate", "impulse"], "moisture": ["humidity", "water_content"], "porosity": ["void_fraction"], "cohesion": ["binding_strength"], "hardness": ["rigidity", "resistance"], "thermal_conductivity": ["conductivity", "thermal_k"], "thermal_capacity": ["heat_capacity", "specific_heat"], "thermal_diffusivity": ["diffusivity"], "reaction_rate": ["reaction_intensity", "chem_reaction_rate"], "phase_change_channels": ["phase_transitions", "phase_change", "transition_channels"], "porous_flow_channels": ["porous_channels", "flow_channels", "permeability_channels"], "shock_impulse_channels": ["shock_channels", "impulse_channels", "impact_channels"], "friction_contact_channels": ["friction_channels", "contact_channels", "tribology_channels"], "boundary_condition_channels": ["boundary_channels", "boundary_conditions", "bc_channels"], "material_flammability": ["flammability"], "activity": ["activity_level", "activation"], "contact_impulse": ["impulse", "normal_impulse", "collision_impulse"], "contact_velocity": ["impact_velocity", "relative_velocity", "contact_speed"], "contact_normal": ["normal", "collision_normal"], "contact_point": ["point", "collision_point", "position"], "body_velocity": ["velocity_magnitude", "linear_speed", "body_speed"], "obstacle_velocity": ["obstacle_speed", "obstacle_speed_magnitude", "motion_speed"], "obstacle_trajectory": ["obstacle_direction", "motion_trajectory"], "body_id": ["id", "rid", "collider_id"], "rigid_obstacle_mask": ["obstacle_mask", "collision_mask", "collision_layer"]}
 static func is_native_sim_core_enabled() -> bool:
 	return OS.get_environment(NATIVE_SIM_CORE_ENV_KEY).strip_edges() == "1"
 static func dispatch_stage_call(controller, tick: int, phase: String, method_name: String, args: Array = [], strict: bool = false) -> Dictionary:
@@ -260,9 +261,12 @@ static func _normalize_canonical_material_inputs(input_fields: Dictionary) -> Di
 	out["material_flammability"] = clampf(float(out.get("material_flammability", 0.5)), 0.0, 1.0)
 	out["activity"] = clampf(float(out.get("activity", 0.0)), 0.0, 1.0)
 	out["contact_impulse"] = clampf(float(out.get("contact_impulse", 0.0)), 0.0, 1.0e8)
+	out["contact_velocity"] = clampf(float(out.get("contact_velocity", 0.0)), 0.0, 1.0e6)
 	out["contact_normal"] = _read_vector3(out.get("contact_normal", Vector3.ZERO))
 	out["contact_point"] = _read_vector3(out.get("contact_point", Vector3.ZERO))
 	out["body_velocity"] = clampf(float(out.get("body_velocity", 0.0)), 0.0, 200.0)
+	out["obstacle_velocity"] = _read_contact_velocity(out.get("obstacle_velocity", 0.0))
+	out["obstacle_trajectory"] = _read_vector3(out.get("obstacle_trajectory", Vector3.ZERO))
 	out["body_id"] = int(out.get("body_id", -1))
 	out["rigid_obstacle_mask"] = maxi(int(out.get("rigid_obstacle_mask", 0)), 0)
 	out["mass_proxy"] = _normalize_mass_proxy(out)
@@ -449,30 +453,55 @@ static func _normalize_contact_row(row: Dictionary) -> Dictionary:
 	var point := _read_vector3_from_keys(row, ["contact_point", "point", "position"])
 	var velocity_raw = row.get("body_velocity", row.get("linear_velocity", row.get("velocity", 0.0)))
 	var velocity = _read_contact_velocity(velocity_raw)
+	var obstacle_velocity = _read_contact_velocity(row.get("obstacle_velocity", row.get("motion_speed", 0.0)))
+	var body_mass = maxf(0.0, _read_float(row, ["body_mass", "mass"], 0.0))
+	var collider_mass = maxf(0.0, _read_float(row, ["collider_mass"], 0.0))
+	var row_contact_velocity = _read_contact_velocity(row.get("contact_velocity", 0.0))
+	if row_contact_velocity <= 0.0:
+		row_contact_velocity = absf(velocity - obstacle_velocity)
+	var obstacle_trajectory = _read_vector3_from_keys(row, ["obstacle_trajectory", "motion_trajectory", "trajectory"])
 	return {
 		"contact_impulse": impulse,
+		"contact_velocity": row_contact_velocity,
 		"contact_normal": normal,
 		"contact_point": point,
 		"body_velocity": velocity,
+		"obstacle_velocity": obstacle_velocity,
+		"body_mass": body_mass,
+		"collider_mass": collider_mass,
+		"obstacle_trajectory": obstacle_trajectory,
 		"body_id": int(_read_float(row, ["body_id", "id", "rid"], -1.0)),
 		"rigid_obstacle_mask": maxi(int(_read_float(row, ["rigid_obstacle_mask", "obstacle_mask", "collision_mask", "collision_layer"], 0.0)), 0),
 	}
 
 static func _aggregate_contact_inputs(rows: Array[Dictionary]) -> Dictionary:
+	var deterministic_rows := rows.duplicate(true)
+	deterministic_rows.sort_custom(_sort_aggregated_contact_rows)
 	var total_impulse := 0.0
 	var normal_sum := Vector3.ZERO
+	var contact_velocity_sum := 0.0
 	var point_sum := Vector3.ZERO
 	var velocity_sum := 0.0
+	var obstacle_velocity_sum := 0.0
+	var obstacle_trajectory_sum := Vector3.ZERO
+	var body_mass_sum := 0.0
+	var collider_mass_sum := 0.0
 	var strongest_impulse := -1.0
 	var strongest_id := -1
 	var strongest_mask := 0
-	for row in rows:
+	for row in deterministic_rows:
 		var impulse = maxf(float(row.get("contact_impulse", 0.0)), 0.0)
 		var weight = impulse if impulse > 0.0 else 1.0
 		total_impulse += impulse
 		normal_sum += _read_vector3(row.get("contact_normal", Vector3.ZERO)) * weight
 		point_sum += _read_vector3(row.get("contact_point", Vector3.ZERO)) * weight
 		velocity_sum += maxf(float(row.get("body_velocity", 0.0)), 0.0) * weight
+		var row_obstacle_velocity = maxf(_read_contact_velocity(row.get("obstacle_velocity", 0.0)), 0.0)
+		obstacle_velocity_sum += row_obstacle_velocity * weight
+		obstacle_trajectory_sum += _read_vector3(row.get("obstacle_trajectory", Vector3.ZERO)) * weight
+		contact_velocity_sum += maxf(_read_contact_velocity(row.get("contact_velocity", 0.0)), 0.0) * weight
+		body_mass_sum += maxf(float(row.get("body_mass", 0.0)), 0.0) * weight
+		collider_mass_sum += maxf(float(row.get("collider_mass", 0.0)), 0.0) * weight
 		if impulse > strongest_impulse:
 			strongest_impulse = impulse
 			strongest_id = int(row.get("body_id", -1))
@@ -483,12 +512,68 @@ static func _aggregate_contact_inputs(rows: Array[Dictionary]) -> Dictionary:
 		avg_normal = avg_normal.normalized()
 	return {
 		"contact_impulse": total_impulse,
+		"contact_velocity": contact_velocity_sum / maxf(weight_total, 1.0),
 		"contact_normal": avg_normal,
 		"contact_point": point_sum / maxf(weight_total, 1.0),
 		"body_velocity": velocity_sum / maxf(weight_total, 1.0),
+		"obstacle_velocity": obstacle_velocity_sum / maxf(weight_total, 1.0),
+		"body_mass": body_mass_sum / maxf(weight_total, 1.0),
+		"collider_mass": collider_mass_sum / maxf(weight_total, 1.0),
+		"obstacle_trajectory": obstacle_trajectory_sum / maxf(weight_total, 1.0),
 		"body_id": strongest_id,
 		"rigid_obstacle_mask": strongest_mask,
 	}
+
+static func _sort_aggregated_contact_rows(left_variant, right_variant) -> bool:
+	if not (left_variant is Dictionary) or not (right_variant is Dictionary):
+		return false
+	var left: Dictionary = left_variant
+	var right: Dictionary = right_variant
+	var left_body := int(left.get("body_id", 0))
+	var right_body := int(right.get("body_id", 0))
+	if left_body != right_body:
+		return left_body < right_body
+	var left_mask := int(left.get("rigid_obstacle_mask", 0))
+	var right_mask := int(right.get("rigid_obstacle_mask", 0))
+	if left_mask != right_mask:
+		return left_mask < right_mask
+	var left_impulse := float(left.get("contact_impulse", 0.0))
+	var right_impulse := float(right.get("contact_impulse", 0.0))
+	if not is_equal_approx(left_impulse, right_impulse):
+		return left_impulse < right_impulse
+	var left_velocity := _read_contact_velocity(left.get("body_velocity", 0.0))
+	var right_velocity := _read_contact_velocity(right.get("body_velocity", 0.0))
+	if not is_equal_approx(left_velocity, right_velocity):
+		return left_velocity < right_velocity
+	var left_obstacle_velocity := _read_contact_velocity(left.get("obstacle_velocity", 0.0))
+	var right_obstacle_velocity := _read_contact_velocity(right.get("obstacle_velocity", 0.0))
+	if not is_equal_approx(left_obstacle_velocity, right_obstacle_velocity):
+		return left_obstacle_velocity < right_obstacle_velocity
+	var left_obstacle_trajectory := _read_vector3(left.get("obstacle_trajectory", Vector3.ZERO))
+	var right_obstacle_trajectory := _read_vector3(right.get("obstacle_trajectory", Vector3.ZERO))
+	if not is_equal_approx(left_obstacle_trajectory.x, right_obstacle_trajectory.x):
+		return left_obstacle_trajectory.x < right_obstacle_trajectory.x
+	if not is_equal_approx(left_obstacle_trajectory.y, right_obstacle_trajectory.y):
+		return left_obstacle_trajectory.y < right_obstacle_trajectory.y
+	if not is_equal_approx(left_obstacle_trajectory.z, right_obstacle_trajectory.z):
+		return left_obstacle_trajectory.z < right_obstacle_trajectory.z
+	var left_normal := _read_vector3(left.get("contact_normal", Vector3.ZERO))
+	var right_normal := _read_vector3(right.get("contact_normal", Vector3.ZERO))
+	if not is_equal_approx(left_normal.x, right_normal.x):
+		return left_normal.x < right_normal.x
+	if not is_equal_approx(left_normal.y, right_normal.y):
+		return left_normal.y < right_normal.y
+	if not is_equal_approx(left_normal.z, right_normal.z):
+		return left_normal.z < right_normal.z
+	var left_point := _read_vector3(left.get("contact_point", Vector3.ZERO))
+	var right_point := _read_vector3(right.get("contact_point", Vector3.ZERO))
+	if not is_equal_approx(left_point.x, right_point.x):
+		return left_point.x < right_point.x
+	if not is_equal_approx(left_point.y, right_point.y):
+		return left_point.y < right_point.y
+	if not is_equal_approx(left_point.z, right_point.z):
+		return left_point.z < right_point.z
+	return false
 
 static func _read_contact_velocity(raw_value) -> float:
 	if raw_value is Vector2 or raw_value is Vector3 or raw_value is Array or raw_value is Dictionary:
@@ -544,6 +629,12 @@ static func _normalize_environment_stage_result(result) -> Dictionary:
 			result_fields = (payload.get("step_result", {}) as Dictionary)
 		elif payload.get("payload", {}) is Dictionary:
 			result_fields = (payload.get("payload", {}) as Dictionary)
+		if payload.get("physics_server_feedback", {}) is Dictionary:
+			result_fields["physics_server_feedback"] = payload.get("physics_server_feedback", {})
+		if payload.get("voxel_failure_emission", {}) is Dictionary:
+			result_fields["voxel_failure_emission"] = payload.get("voxel_failure_emission", {})
+		if payload.get("pipeline", {}) is Dictionary:
+			result_fields["pipeline"] = payload.get("pipeline", {})
 		return {"ok": bool(payload.get("ok", true)), "executed": true, "dispatched": dispatched, "result": payload, "result_fields": result_fields, "error": String(payload.get("error", ""))}
 	if result is bool:
 		return {"ok": bool(result), "executed": true, "dispatched": bool(result), "result": result, "result_fields": {}, "error": ""}

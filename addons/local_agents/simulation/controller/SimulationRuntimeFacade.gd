@@ -2,6 +2,7 @@ extends RefCounted
 
 const FieldRegistryConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FieldRegistryConfigResource.gd")
 const NativeComputeBridgeScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
+const SimulationVoxelTerrainMutatorScript = preload("res://addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd")
 static var _native_field_registry_session_configured: bool = false
 
 static func ensure_native_sim_core_initialized(controller, tick: int = -1) -> bool:
@@ -125,6 +126,69 @@ static func execute_native_voxel_stage(controller, tick: int, stage_name: String
 		"voxel_result": NativeComputeBridgeScript.voxel_stage_result(dispatch),
 		"error": String(dispatch.get("error", "")),
 	}
+
+static func ingest_native_physics_contacts(controller, tick: int, rows: Array, strict: bool = false) -> Dictionary:
+	if rows.is_empty():
+		return {
+			"ok": true,
+			"executed": false,
+			"dispatched": false,
+			"error": "",
+			"changed": false,
+			"changed_tiles": [],
+		}
+	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
+		if strict:
+			controller._emit_dependency_error(tick, "physics_contact_ingest", "native_sim_core_disabled")
+			return {
+				"ok": false,
+				"executed": false,
+				"dispatched": false,
+				"error": "native_sim_core_disabled",
+			}
+		return {
+			"ok": true,
+			"executed": false,
+			"dispatched": false,
+			"error": "",
+			"fallback": true,
+			"changed": false,
+			"changed_tiles": [],
+		}
+	var dispatch = NativeComputeBridgeScript.dispatch_stage_call(
+		controller,
+		tick,
+		"physics_contact_ingest",
+		"ingest_physics_contacts",
+		[rows],
+		strict
+	)
+	var response := {
+		"ok": bool(dispatch.get("ok", false)),
+		"executed": bool(dispatch.get("executed", false)),
+		"dispatched": bool(dispatch.get("ok", false)),
+		"result": dispatch.get("result", {}),
+		"error": String(dispatch.get("error", "")),
+		"changed": false,
+		"changed_tiles": [],
+	}
+	if not bool(response.get("ok", false)):
+		return response
+	var mutation = SimulationVoxelTerrainMutatorScript.apply_projectile_contact_damage(controller, tick, rows)
+	response["changed"] = bool(mutation.get("changed", false))
+	response["changed_tiles"] = (mutation.get("changed_tiles", []) as Array).duplicate(true)
+	if bool(response.get("changed", false)):
+		response["environment_snapshot"] = mutation.get("environment_snapshot", controller._environment_snapshot.duplicate(true))
+		response["water_network_snapshot"] = mutation.get("water_network_snapshot", controller._water_network_snapshot.duplicate(true))
+	return response
+
+static func stamp_default_voxel_target_wall(controller, tick: int, camera_transform: Transform3D, strict: bool = false) -> Dictionary:
+	if controller == null:
+		return {"ok": false, "changed": false, "error": "invalid_controller", "tick": tick}
+	var mutation = SimulationVoxelTerrainMutatorScript.stamp_default_target_wall(controller, tick, camera_transform)
+	if not bool(mutation.get("ok", false)) and strict:
+		controller._emit_dependency_error(tick, "voxel_target_wall", String(mutation.get("error", "wall_stamp_failed")))
+	return mutation
 
 static func enqueue_thought_npcs(controller, npc_ids: Array) -> void:
 	for npc_id_variant in npc_ids:

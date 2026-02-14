@@ -37,6 +37,7 @@ const CANONICAL_SHARED_FIELD_DEFAULTS: Dictionary = {
 
 func run_test(_tree: SceneTree) -> bool:
 	var ok := true
+	ok = _test_channel_metadata_roundtrip_and_strict_schema() and ok
 	ok = _test_channel_round_trip_and_normalization() and ok
 	ok = _test_registry_defaults_and_serialization_contract() and ok
 	ok = _test_validate_canonical_channel_contracts() and ok
@@ -44,6 +45,39 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = _test_bounded_runtime_timeout_defaults() and ok
 	if ok:
 		print("Field registry/channel resource tests passed")
+	return ok
+
+func _test_channel_metadata_roundtrip_and_strict_schema() -> bool:
+	var metadata_source := {"unit": "kg/m^3", "range": {"min": "0", "max": "100"}, "nested": {"value": 5}}
+	var channel = _new_channel()
+	if channel == null:
+		return false
+	channel.from_dict({
+		"schema_version": 3,
+		"channel_id": "mass_density",
+		"storage_type": "float32",
+		"component_count": 1,
+		"default_value": 10.0,
+		"clamp_min": 0.0,
+		"clamp_max": 100.0,
+		"metadata": metadata_source,
+	})
+
+	var metadata := _channel_metadata(channel, {})
+	var ok := true
+	ok = _assert(String(metadata.get("unit", "")) == "kg/m^3", "Metadata should normalize to strict unit key.")
+	ok = _assert(is_equal_approx(float(metadata.get("range", {}).get("min", -1.0)), 0.0), "Metadata range min should normalize to numeric.")
+	ok = _assert(is_equal_approx(float(metadata.get("range", {}).get("max", -1.0)), 100.0), "Metadata range max should normalize to numeric.")
+	ok = _assert(metadata.has("nested"), "Metadata strict keys should keep extra metadata fields.")
+
+	var round_trip := _new_channel()
+	if round_trip == null:
+		return false
+	round_trip.from_dict(channel.to_dict())
+	var round_trip_metadata := _channel_metadata(round_trip, {})
+	ok = _assert(String(round_trip_metadata.get("unit", "")) == "kg/m^3", "Serialized metadata should round-trip with unit key.")
+	ok = _assert(is_equal_approx(float(round_trip_metadata.get("range", {}).get("min", -1.0)), 0.0), "Serialized metadata should round-trip range min.")
+	ok = _assert(is_equal_approx(float(round_trip_metadata.get("range", {}).get("max", -1.0)), 100.0), "Serialized metadata should round-trip range max.")
 	return ok
 
 func _test_channel_round_trip_and_normalization() -> bool:
@@ -216,7 +250,7 @@ func _test_channel_resource_save_load_serialization() -> bool:
 		return false
 	channel.channel_id = "temperature"
 	channel.default_value = 12.5
-	channel.metadata = {"units": "celsius"}
+	channel.metadata = {"unit": "celsius"}
 
 	var temp_dir := ProjectSettings.globalize_path(TEMP_RESOURCE_PATH).get_base_dir()
 	DirAccess.make_dir_recursive_absolute(temp_dir)
@@ -233,7 +267,7 @@ func _test_channel_resource_save_load_serialization() -> bool:
 		ok = _assert(is_equal_approx(float(loaded.get("default_value")), 12.5), "Loaded channel should keep default_value") and ok
 		var metadata_variant = loaded.get("metadata")
 		var metadata: Dictionary = metadata_variant if metadata_variant is Dictionary else {}
-		ok = _assert(String(metadata.get("units", "")) == "celsius", "Loaded channel should keep metadata") and ok
+		ok = _assert(String(metadata.get("unit", "")) == "celsius", "Loaded channel should keep metadata.unit") and ok
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(TEMP_RESOURCE_PATH))
 	return ok
@@ -346,3 +380,7 @@ func _new_channel() -> Resource:
 		_assert(false, "Failed to load FieldChannelConfig resource script")
 		return null
 	return script.new()
+
+func _channel_metadata(channel: Resource, fallback: Dictionary) -> Dictionary:
+	var metadata_variant = channel.get("metadata")
+	return metadata_variant if metadata_variant is Dictionary else fallback
