@@ -9,6 +9,7 @@ func run_test(tree: SceneTree) -> bool:
 
     controller.configure("seed-economy-events", false, false)
     controller.set_cognition_features(false, false, false)
+    controller.resource_event_logging_enabled = true
     controller.register_villager("npc_e1", "E1", {"household_id": "home_e1", "profession": "farmer"})
     controller.register_villager("npc_e2", "E2", {"household_id": "home_e1", "profession": "merchant"})
     controller.register_villager("npc_e3", "E3", {"household_id": "home_e2", "profession": "woodcutter"})

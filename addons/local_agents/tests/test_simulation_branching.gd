@@ -10,6 +10,9 @@ func run_test(tree: SceneTree) -> bool:
 	sim.world_id = "world_branch_%d" % Time.get_ticks_usec()
 	sim.configure("seed-branching", false, false)
 	sim.set_cognition_features(false, false, false)
+	sim.resource_event_logging_enabled = true
+	sim.persist_tick_history_enabled = true
+	sim.persist_tick_history_interval = 1
 	sim.register_villager("npc_branch_1", "BranchOne", {"household_id": "home_branch"})
 	sim.register_villager("npc_branch_2", "BranchTwo", {"household_id": "home_branch"})
 

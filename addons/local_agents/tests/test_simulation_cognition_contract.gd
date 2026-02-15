@@ -41,6 +41,7 @@ func run_test(tree: SceneTree) -> bool:
 	controller.set_cognition_contract_config(contract)
 	controller.configure("seed-cognition-contract", false, false)
 	controller.set_cognition_features(false, false, false)
+	controller.resource_event_logging_enabled = true
 	controller.register_villager("npc_contract", "Contract NPC", {"household_id": "house_contract"})
 
 	var trace_payload = {
@@ -50,14 +51,15 @@ func run_test(tree: SceneTree) -> bool:
 		"referenced_ids": ["npc_contract"],
 		"sampler_params": {"temperature": 0.5, "top_p": 0.9},
 	}
-	controller.call("_persist_llm_trace_event", 1, "internal_thought", ["npc_contract"], trace_payload)
-	var rows: Array = controller.list_llm_trace_events(1, 1, "internal_thought")
+	controller.call("_persist_llm_trace_event", 1, "thought_generation", ["npc_contract"], trace_payload)
+	var rows: Array = controller.list_llm_trace_events(1, 1)
 	var found = false
 	for row_variant in rows:
 		if not (row_variant is Dictionary):
 			continue
 		var row = row_variant as Dictionary
-		if String(row.get("task", "")) != "internal_thought":
+		var task_name := String(row.get("task", ""))
+		if task_name != "thought_generation" and task_name != "internal_thought":
 			continue
 		if String(row.get("profile_id", "")) != "thought_contract_test":
 			continue

@@ -10,6 +10,9 @@ func run_test(tree: SceneTree) -> bool:
 	sim.world_id = "world_rewind_diff_%d" % Time.get_ticks_usec()
 	sim.configure("seed-rewind-diff", false, false)
 	sim.set_cognition_features(false, false, false)
+	sim.resource_event_logging_enabled = true
+	sim.persist_tick_history_enabled = true
+	sim.persist_tick_history_interval = 1
 	sim.register_villager("npc_rd_1", "RD1", {"household_id": "home_rd"})
 	sim.register_villager("npc_rd_2", "RD2", {"household_id": "home_rd"})
 	sim.call("_persist_llm_trace_event", 12, "internal_thought", ["npc_rd_1"], {

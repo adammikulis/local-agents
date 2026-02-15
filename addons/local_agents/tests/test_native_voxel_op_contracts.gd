@@ -73,14 +73,15 @@ func _test_fallback_path_selection_contract_source() -> bool:
 	ok = _assert(engine_source.contains("execution[\"gpu_status\"] = String(\"not_available\");"), "Voxel op fallback contract must report gpu_status=not_available") and ok
 	ok = _assert(engine_source.contains("execution[\"backend_used\"] = String(\"none\");"), "Voxel op fallback contract must not claim cpu_fallback backend usage") and ok
 	ok = _assert(engine_source.contains("execution[\"cpu_fallback_used\"] = false;"), "Voxel op fallback contract must report cpu_fallback_used=false") and ok
-	ok = _assert(engine_source.contains("execution[\"error_code\"] = String(\"gpu_backend_unavailable\");"), "Voxel op fallback contract must expose gpu_backend_unavailable error_code") and ok
-	ok = _assert(engine_source.contains("result[\"error\"] = String(\"gpu_backend_unavailable\");"), "Voxel op fallback contract must fail fast with gpu_backend_unavailable") and ok
+	ok = _assert(engine_source.contains("execution[\"error_code\"] = String(\"gpu_required\");"), "Voxel op fallback contract must expose canonical gpu_required error_code") and ok
+	ok = _assert(engine_source.contains("result[\"error\"] = String(\"gpu_required\");"), "Voxel op fallback contract must fail fast with canonical gpu_required code") and ok
 
 	ok = _assert(bridge_source.contains("var backend_used := String(execution.get(\"backend_used\", \"\")).strip_edges().to_lower()"), "Native bridge must read execution.backend_used for strict backend validation") and ok
 	ok = _assert(bridge_source.contains("var gpu_dispatched := bool(execution.get(\"gpu_dispatched\", dispatched))"), "Native bridge must read execution.gpu_dispatched for strict GPU dispatch validation") and ok
 	ok = _assert(bridge_source.contains("if cpu_fallback_used or backend_used == \"cpu_fallback\":"), "Native bridge must reject cpu_fallback backend usage") and ok
 	ok = _assert(bridge_source.contains("if backend_requested == \"gpu\" and not gpu_dispatched:"), "Native bridge must fail fast when gpu backend is requested but not dispatched") and ok
-	ok = _assert(bridge_source.contains("var unavailable_error := base_error if base_error != \"\" else \"gpu_backend_unavailable\""), "Native bridge must emit gpu_backend_unavailable when GPU dispatch is missing") and ok
+	ok = _assert(bridge_source.contains("var unavailable_error := _canonicalize_voxel_error(base_error, \"gpu_unavailable\")"), "Native bridge must canonicalize missing GPU dispatch errors to gpu_unavailable") and ok
+	ok = _assert(bridge_source.contains("static func _canonicalize_voxel_error(raw_error: String, fallback_code: String) -> String:"), "Native bridge must include canonical voxel error taxonomy mapping helper") and ok
 	return ok
 
 func _test_gpu_dispatch_success_contract_source() -> bool:

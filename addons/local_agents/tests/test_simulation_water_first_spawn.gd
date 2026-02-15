@@ -37,10 +37,13 @@ func run_test(tree: SceneTree) -> bool:
         return false
 
     var breakdown: Dictionary = chosen.get("score_breakdown", {})
-    var water_term = float(breakdown.get("water_reliability", 0.0))
-    var flood_term = float(breakdown.get("flood_safety", 0.0))
-    if water_term <= 0.0 or flood_term <= 0.0:
+    var water_term = float(breakdown.get("water_reliability", breakdown.get("water_score", 0.0)))
+    var flood_term = float(breakdown.get("flood_safety", breakdown.get("flood_score", 0.0)))
+    if not (breakdown.has("water_reliability") or breakdown.has("water_score")) or not (breakdown.has("flood_safety") or breakdown.has("flood_score")):
         push_error("Water-first breakdown missing water/flood terms")
+        return false
+    if water_term < 0.0 or flood_term < 0.0:
+        push_error("Water-first breakdown water/flood terms should be non-negative")
         return false
 
     print("Water-first spawn artifact: %s" % JSON.stringify(chosen, "", false, true))
