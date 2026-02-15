@@ -35,5 +35,7 @@ func _emit_metrics() -> void:
 		"primitives": int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)),
 	}
 	if _simulation_controller != null and _simulation_controller.has_method("runtime_backend_metrics"):
-		payload["runtime_backends"] = _simulation_controller.call("runtime_backend_metrics")
+		var runtime_backend_metrics: Dictionary = _simulation_controller.call("runtime_backend_metrics")
+		payload["runtime_backends"] = runtime_backend_metrics
+		payload["runtime_backend_metrics"] = runtime_backend_metrics
 	emit_signal("metrics_updated", payload)

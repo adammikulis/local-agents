@@ -101,6 +101,21 @@ var _culture_context_cues: Dictionary = {}
 var _last_tick_processed: int = 0
 var _last_tick_profile: Dictionary = {}
 var _native_view_metrics: Dictionary = {}
+var _transform_dispatch_pulse_count: int = 0
+var _transform_gpu_dispatch_success_count: int = 0
+var _transform_gpu_dispatch_failure_count: int = 0
+var _transform_stage_ms_current: Dictionary = {
+	"stage_a": 0.0,
+	"stage_b": 0.0,
+	"stage_c": 0.0,
+	"stage_d": 0.0,
+}
+var _transform_stage_ms_aggregate: Dictionary = {
+	"stage_a": 0.0,
+	"stage_b": 0.0,
+	"stage_c": 0.0,
+	"stage_d": 0.0,
+}
 var _initialized: bool = false
 var _cognition_contract_config
 var _llama_server_options: Dictionary = {
@@ -203,6 +218,36 @@ func set_native_view_metrics(metrics: Dictionary) -> void:
 
 func get_native_view_metrics() -> Dictionary:
 	return _native_view_metrics.duplicate(true)
+
+func set_transform_dispatch_metrics(metrics: Dictionary) -> void:
+	if metrics == null:
+		return
+	_transform_dispatch_pulse_count = maxi(0, int(metrics.get("pulse_count", _transform_dispatch_pulse_count)))
+	_transform_gpu_dispatch_success_count = maxi(0, int(metrics.get("gpu_dispatch_success_count", _transform_gpu_dispatch_success_count)))
+	_transform_gpu_dispatch_failure_count = maxi(0, int(metrics.get("gpu_dispatch_failure_count", _transform_gpu_dispatch_failure_count)))
+	var per_stage_current_variant = metrics.get("per_stage_ms_current", {})
+	if per_stage_current_variant is Dictionary:
+		_transform_stage_ms_current = _normalize_transform_stage_ms(per_stage_current_variant as Dictionary, _transform_stage_ms_current)
+	var per_stage_aggregate_variant = metrics.get("per_stage_ms_aggregate", {})
+	if per_stage_aggregate_variant is Dictionary:
+		_transform_stage_ms_aggregate = _normalize_transform_stage_ms(per_stage_aggregate_variant as Dictionary, _transform_stage_ms_aggregate)
+
+func get_transform_dispatch_metrics() -> Dictionary:
+	return {
+		"pulse_count": _transform_dispatch_pulse_count,
+		"gpu_dispatch_success_count": _transform_gpu_dispatch_success_count,
+		"gpu_dispatch_failure_count": _transform_gpu_dispatch_failure_count,
+		"per_stage_ms_current": _transform_stage_ms_current.duplicate(true),
+		"per_stage_ms_aggregate": _transform_stage_ms_aggregate.duplicate(true),
+	}
+
+func _normalize_transform_stage_ms(stage_ms: Dictionary, fallback: Dictionary) -> Dictionary:
+	var normalized: Dictionary = fallback.duplicate(true)
+	normalized["stage_a"] = float(stage_ms.get("stage_a", normalized.get("stage_a", 0.0)))
+	normalized["stage_b"] = float(stage_ms.get("stage_b", normalized.get("stage_b", 0.0)))
+	normalized["stage_c"] = float(stage_ms.get("stage_c", normalized.get("stage_c", 0.0)))
+	normalized["stage_d"] = float(stage_ms.get("stage_d", normalized.get("stage_d", 0.0)))
+	return normalized
 
 func build_environment_signal_snapshot(tick: int = -1):
 	return SimulationSnapshotControllerScript.build_environment_signal_snapshot(self, tick)

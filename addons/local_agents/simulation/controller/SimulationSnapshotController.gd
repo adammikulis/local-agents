@@ -52,6 +52,13 @@ static func get_transform_diagnostics(controller) -> Dictionary:
 static func runtime_backend_metrics(controller) -> Dictionary:
 	var transform_diagnostics := get_transform_diagnostics(controller)
 	var dispatch_contract_status: Dictionary = transform_diagnostics.get("dispatch_contract_status", {})
+	var transform_dispatch_metrics: Dictionary = {}
+	if controller != null and controller.has_method("get_transform_dispatch_metrics"):
+		var transform_dispatch_metrics_variant = controller.call("get_transform_dispatch_metrics")
+		if transform_dispatch_metrics_variant is Dictionary:
+			transform_dispatch_metrics = (transform_dispatch_metrics_variant as Dictionary).duplicate(true)
+	var transform_dispatch_stage_ms_current := _dictionary_or_empty(transform_dispatch_metrics.get("per_stage_ms_current", {}))
+	var transform_dispatch_stage_ms_aggregate := _dictionary_or_empty(transform_dispatch_metrics.get("per_stage_ms_aggregate", {}))
 	var transform_compute_active := false
 	var metrics := {
 		"network_transform_compute": transform_compute_active,
@@ -64,6 +71,11 @@ static func runtime_backend_metrics(controller) -> Dictionary:
 		"emitter_model": _dictionary_or_empty(transform_diagnostics.get("emitter_model", {})),
 		"transform_dispatch_contract_status": dispatch_contract_status.duplicate(true),
 		"dispatch_contract_status": String(dispatch_contract_status.get("status", dispatch_contract_status.get("error", "unknown"))),
+		"transform_dispatch_pulse_count": int(transform_dispatch_metrics.get("pulse_count", 0)),
+		"transform_gpu_dispatch_success_count": int(transform_dispatch_metrics.get("gpu_dispatch_success_count", 0)),
+		"transform_gpu_dispatch_failure_count": int(transform_dispatch_metrics.get("gpu_dispatch_failure_count", 0)),
+		"transform_dispatch_stage_ms_current": transform_dispatch_stage_ms_current,
+		"transform_dispatch_stage_ms_aggregate": transform_dispatch_stage_ms_aggregate,
 	}
 	var native_metrics := _native_sim_core_runtime_metrics()
 	if not native_metrics.is_empty():

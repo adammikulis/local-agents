@@ -202,10 +202,16 @@ func _apply_performance_toggles(
 	var transform_stage_b_solver_decimation_enabled = bool(graphics_state.get("transform_stage_b_solver_decimation_enabled", false))
 	var transform_stage_c_solver_decimation_enabled = bool(graphics_state.get("transform_stage_c_solver_decimation_enabled", false))
 	var transform_stage_d_solver_decimation_enabled = bool(graphics_state.get("transform_stage_d_solver_decimation_enabled", false))
-	var transform_stage_a_gpu_compute_enabled = bool(graphics_state.get("transform_stage_a_gpu_compute_enabled", true))
-	var transform_stage_b_gpu_compute_enabled = bool(graphics_state.get("transform_stage_b_gpu_compute_enabled", true))
-	var transform_stage_c_gpu_compute_enabled = bool(graphics_state.get("transform_stage_c_gpu_compute_enabled", true))
-	var transform_stage_d_gpu_compute_enabled = bool(graphics_state.get("transform_stage_d_gpu_compute_enabled", true))
+	var requested_transform_stage_a_gpu_compute_enabled = bool(graphics_state.get("transform_stage_a_gpu_compute_enabled", true))
+	var requested_transform_stage_b_gpu_compute_enabled = bool(graphics_state.get("transform_stage_b_gpu_compute_enabled", true))
+	var requested_transform_stage_c_gpu_compute_enabled = bool(graphics_state.get("transform_stage_c_gpu_compute_enabled", true))
+	var requested_transform_stage_d_gpu_compute_enabled = bool(graphics_state.get("transform_stage_d_gpu_compute_enabled", true))
+	if not requested_transform_stage_a_gpu_compute_enabled or not requested_transform_stage_b_gpu_compute_enabled or not requested_transform_stage_c_gpu_compute_enabled or not requested_transform_stage_d_gpu_compute_enabled:
+		push_error("GPU_REQUIRED: transform-stage GPU compute cannot be disabled; forcing GPU compute on for all transform stages.")
+	var transform_stage_a_gpu_compute_enabled = true
+	var transform_stage_b_gpu_compute_enabled = true
+	var transform_stage_c_gpu_compute_enabled = true
+	var transform_stage_d_gpu_compute_enabled = true
 	var climate_fast_interval_ticks = maxi(1, int(graphics_state.get("climate_fast_interval_ticks", 4)))
 	var climate_slow_interval_ticks = maxi(1, int(graphics_state.get("climate_slow_interval_ticks", 8)))
 	var resource_pipeline_decimation_enabled = bool(graphics_state.get("resource_pipeline_decimation_enabled", false))
@@ -242,6 +248,10 @@ func _apply_performance_toggles(
 	var target_sim_ticks_per_second = simulation_ticks_per_second_override if simulation_rate_override_enabled else simulation_ticks_per_second
 	var target_profile_push_interval = 8 if simulation_rate_override_enabled else living_profile_push_interval_ticks
 	var visual_environment_update_interval_ticks = 8 if simulation_rate_override_enabled else 4
+	graphics_state["transform_stage_a_gpu_compute_enabled"] = true
+	graphics_state["transform_stage_b_gpu_compute_enabled"] = true
+	graphics_state["transform_stage_c_gpu_compute_enabled"] = true
+	graphics_state["transform_stage_d_gpu_compute_enabled"] = true
 	_loop_controller.set_timing(target_sim_ticks_per_second, target_profile_push_interval)
 
 	if _simulation_controller != null:
