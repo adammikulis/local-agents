@@ -3,11 +3,11 @@
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-layout(set = 0, binding = 0, std430) restrict buffer BaseMoisture { float v[]; } base_moisture;
-layout(set = 0, binding = 1, std430) restrict buffer BaseTemp { float v[]; } base_temp;
-layout(set = 0, binding = 2, std430) restrict buffer WaterReliability { float v[]; } water_reliability;
-layout(set = 0, binding = 3, std430) restrict buffer Elevation { float v[]; } elevation;
-layout(set = 0, binding = 4, std430) restrict buffer Slope { float v[]; } slope;
+layout(set = 0, binding = 0, std430) readonly buffer BaseMoisture { float v[]; } base_moisture;
+layout(set = 0, binding = 1, std430) readonly buffer BaseTemp { float v[]; } base_temp;
+layout(set = 0, binding = 2, std430) readonly buffer WaterReliability { float v[]; } water_reliability;
+layout(set = 0, binding = 3, std430) readonly buffer Elevation { float v[]; } elevation;
+layout(set = 0, binding = 4, std430) readonly buffer Slope { float v[]; } slope;
 layout(set = 0, binding = 5, std430) restrict buffer Cloud { float v[]; } cloud;
 layout(set = 0, binding = 6, std430) restrict buffer Humidity { float v[]; } humidity;
 layout(set = 0, binding = 7, std430) restrict buffer Rain { float v[]; } rain;

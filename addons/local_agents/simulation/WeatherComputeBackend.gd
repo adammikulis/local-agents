@@ -184,40 +184,34 @@ func upload_dynamic(
 
 func release() -> void:
 	_free_buffers()
-	if _rd != null:
-		if _uniform_set_rid.is_valid():
-			_rd.free_rid(_uniform_set_rid)
-		if _pipeline_rid.is_valid():
-			_rd.free_rid(_pipeline_rid)
-		if _shader_rid.is_valid():
-			_rd.free_rid(_shader_rid)
+	_pipeline_rid = _release_rid(_pipeline_rid)
+	_shader_rid = _release_rid(_shader_rid)
 	_configured = false
 	_supported = false
 	_count = 0
 
 func _free_buffers() -> void:
-	if _rd == null:
-		return
-	for rid in [_buf_base_moisture, _buf_base_temp, _buf_water_reliability, _buf_elevation, _buf_slope, _buf_cloud, _buf_humidity, _buf_rain, _buf_wetness, _buf_fog, _buf_orographic, _buf_rain_shadow, _buf_activity, _buf_params]:
-		if rid.is_valid():
-			_rd.free_rid(rid)
-	if _uniform_set_rid.is_valid():
-		_rd.free_rid(_uniform_set_rid)
-	_uniform_set_rid = RID()
-	_buf_base_moisture = RID()
-	_buf_base_temp = RID()
-	_buf_water_reliability = RID()
-	_buf_elevation = RID()
-	_buf_slope = RID()
-	_buf_cloud = RID()
-	_buf_humidity = RID()
-	_buf_rain = RID()
-	_buf_wetness = RID()
-	_buf_fog = RID()
-	_buf_orographic = RID()
-	_buf_rain_shadow = RID()
-	_buf_activity = RID()
-	_buf_params = RID()
+	_buf_base_moisture = _release_rid(_buf_base_moisture)
+	_buf_base_temp = _release_rid(_buf_base_temp)
+	_buf_water_reliability = _release_rid(_buf_water_reliability)
+	_buf_elevation = _release_rid(_buf_elevation)
+	_buf_slope = _release_rid(_buf_slope)
+	_buf_cloud = _release_rid(_buf_cloud)
+	_buf_humidity = _release_rid(_buf_humidity)
+	_buf_rain = _release_rid(_buf_rain)
+	_buf_wetness = _release_rid(_buf_wetness)
+	_buf_fog = _release_rid(_buf_fog)
+	_buf_orographic = _release_rid(_buf_orographic)
+	_buf_rain_shadow = _release_rid(_buf_rain_shadow)
+	_buf_activity = _release_rid(_buf_activity)
+	_buf_params = _release_rid(_buf_params)
+	_uniform_set_rid = _release_rid(_uniform_set_rid)
+
+func _release_rid(rid: RID) -> RID:
+	if _rd == null or not rid.is_valid():
+		return RID()
+	_rd.free_rid(rid)
+	return RID()
 
 func _storage_buffer_from_f32(data: PackedFloat32Array) -> RID:
 	var bytes = data.to_byte_array()

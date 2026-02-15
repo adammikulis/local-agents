@@ -112,16 +112,16 @@ var _native_view_metrics: Dictionary = {}
 var _initialized: bool = false
 var _cognition_contract_config
 var _llama_server_options: Dictionary = {
-    "backend": "llama_server",
-    "server_base_url": "http://127.0.0.1:8080",
-    "server_autostart": true,
-    "server_shutdown_on_exit": false,
-    "server_start_timeout_ms": 45000,
-    "server_ready_timeout_ms": 2500,
-    "server_embeddings": true,
-    "server_pooling": "mean",
-    "cache_prompt": false,
-    "server_slots": 4,
+	"backend": "llama_server",
+	"server_base_url": "http://127.0.0.1:8080",
+	"server_autostart": true,
+	"server_shutdown_on_exit": false,
+	"server_start_timeout_ms": 45000,
+	"server_ready_timeout_ms": 2500,
+	"server_embeddings": true,
+	"server_pooling": "mean",
+	"cache_prompt": false,
+	"server_slots": 4,
 }
 var _community_ledger_system
 var _household_ledger_system
@@ -156,349 +156,349 @@ var _pending_thought_npc_ids: Array = []
 var _pending_dream_npc_ids: Array = []
 var _pending_dialogue_pairs: Array = []
 func _ready() -> void:
-    _ensure_initialized()
+	_ensure_initialized()
 func _ensure_initialized() -> void:
-    SimulationControllerCoreLoopHelpersScript.ensure_initialized(self)
-    SimulationRuntimeFacadeScript.ensure_native_sim_core_initialized(self)
+	SimulationControllerCoreLoopHelpersScript.ensure_initialized(self)
+	SimulationRuntimeFacadeScript.ensure_native_sim_core_initialized(self)
 func configure(seed_text: String, narrator_enabled: bool = true, dream_llm_enabled: bool = true) -> void:
-    SimulationConfigControllerScript.configure(self, seed_text, narrator_enabled, dream_llm_enabled)
+	SimulationConfigControllerScript.configure(self, seed_text, narrator_enabled, dream_llm_enabled)
 func _store_path_for_instance() -> String:
-    return ProjectSettings.globalize_path("user://local_agents/sim_%d.sqlite3" % get_instance_id())
+	return ProjectSettings.globalize_path("user://local_agents/sim_%d.sqlite3" % get_instance_id())
 
 func _reset_store_for_instance() -> void:
-    SimulationConfigControllerScript.reset_store_for_instance(self)
+	SimulationConfigControllerScript.reset_store_for_instance(self)
 
 func configure_environment(config_resource = null) -> Dictionary:
-    return SimulationControllerCoreLoopHelpersScript.configure_environment(self, config_resource)
+	return SimulationControllerCoreLoopHelpersScript.configure_environment(self, config_resource)
 
 func get_environment_snapshot() -> Dictionary:
-    return SimulationSnapshotControllerScript.get_environment_snapshot(self)
+	return SimulationSnapshotControllerScript.get_environment_snapshot(self)
 
 func get_water_network_snapshot() -> Dictionary:
-    return SimulationSnapshotControllerScript.get_water_network_snapshot(self)
+	return SimulationSnapshotControllerScript.get_water_network_snapshot(self)
 
 func get_weather_snapshot() -> Dictionary:
-    return SimulationSnapshotControllerScript.get_weather_snapshot(self)
+	return SimulationSnapshotControllerScript.get_weather_snapshot(self)
 
 func get_erosion_snapshot() -> Dictionary:
-    return SimulationSnapshotControllerScript.get_erosion_snapshot(self)
+	return SimulationSnapshotControllerScript.get_erosion_snapshot(self)
 
 func get_solar_snapshot() -> Dictionary:
-    return SimulationSnapshotControllerScript.get_solar_snapshot(self)
+	return SimulationSnapshotControllerScript.get_solar_snapshot(self)
 
 func runtime_backend_metrics() -> Dictionary:
-    return SimulationSnapshotControllerScript.runtime_backend_metrics(self)
+	return SimulationSnapshotControllerScript.runtime_backend_metrics(self)
 
 func set_native_view_metrics(metrics: Dictionary) -> void:
-    _native_view_metrics = metrics.duplicate(true) if metrics != null else {}
+	_native_view_metrics = metrics.duplicate(true) if metrics != null else {}
 
 func get_native_view_metrics() -> Dictionary:
-    return _native_view_metrics.duplicate(true)
+	return _native_view_metrics.duplicate(true)
 
 func build_environment_signal_snapshot(tick: int = -1):
-    return SimulationSnapshotControllerScript.build_environment_signal_snapshot(self, tick)
+	return SimulationSnapshotControllerScript.build_environment_signal_snapshot(self, tick)
 
 func get_spawn_artifact() -> Dictionary:
-    return SimulationSnapshotControllerScript.get_spawn_artifact(self)
+	return SimulationSnapshotControllerScript.get_spawn_artifact(self)
 
 func get_backstory_service():
-    return SimulationSnapshotControllerScript.get_backstory_service(self)
+	return SimulationSnapshotControllerScript.get_backstory_service(self)
 
 func get_store():
-    return SimulationSnapshotControllerScript.get_store(self)
+	return SimulationSnapshotControllerScript.get_store(self)
 
 func list_llm_trace_events(tick_from: int, tick_to: int, task: String = "") -> Array:
-    return SimulationSnapshotControllerScript.list_llm_trace_events(self, tick_from, tick_to, task)
+	return SimulationSnapshotControllerScript.list_llm_trace_events(self, tick_from, tick_to, task)
 
 func get_active_branch_id() -> String:
-    return SimulationSnapshotControllerScript.get_active_branch_id(self)
+	return SimulationSnapshotControllerScript.get_active_branch_id(self)
 
 func fork_branch(new_branch_id: String, fork_tick: int) -> Dictionary:
-    return SimulationSnapshotControllerScript.fork_branch(self, new_branch_id, fork_tick)
+	return SimulationSnapshotControllerScript.fork_branch(self, new_branch_id, fork_tick)
 
 func restore_to_tick(target_tick: int, branch_id: String = "") -> Dictionary:
-    return SimulationSnapshotControllerScript.restore_to_tick(self, target_tick, branch_id)
+	return SimulationSnapshotControllerScript.restore_to_tick(self, target_tick, branch_id)
 
 func branch_diff(base_branch_id: String, compare_branch_id: String, tick_from: int, tick_to: int) -> Dictionary:
-    return SimulationSnapshotControllerScript.branch_diff(self, base_branch_id, compare_branch_id, tick_from, tick_to)
+	return SimulationSnapshotControllerScript.branch_diff(self, base_branch_id, compare_branch_id, tick_from, tick_to)
 
 func set_cognition_features(enable_thoughts: bool, enable_dialogue: bool, enable_dreams: bool) -> void:
-    SimulationConfigControllerScript.set_cognition_features(self, enable_thoughts, enable_dialogue, enable_dreams)
+	SimulationConfigControllerScript.set_cognition_features(self, enable_thoughts, enable_dialogue, enable_dreams)
 
 func set_cognition_contract_config(config_resource) -> void:
-    SimulationConfigControllerScript.set_cognition_contract_config(self, config_resource)
+	SimulationConfigControllerScript.set_cognition_contract_config(self, config_resource)
 
 func _apply_cognition_contract() -> void:
-    SimulationConfigControllerScript.apply_cognition_contract(self)
+	SimulationConfigControllerScript.apply_cognition_contract(self)
 
 func set_llama_server_options(options: Dictionary) -> void:
-    SimulationConfigControllerScript.set_llama_server_options(self, options)
+	SimulationConfigControllerScript.set_llama_server_options(self, options)
 
 func get_llama_server_options() -> Dictionary:
-    return SimulationConfigControllerScript.get_llama_server_options(self)
+	return SimulationConfigControllerScript.get_llama_server_options(self)
 
 func _apply_llama_server_integration() -> void:
-    SimulationConfigControllerScript.apply_llama_server_integration(self)
+	SimulationConfigControllerScript.apply_llama_server_integration(self)
 
 func _resolve_llama_model_path(options: Dictionary) -> String:
-    return SimulationConfigControllerScript.resolve_llama_model_path(self, options)
+	return SimulationConfigControllerScript.resolve_llama_model_path(self, options)
 
 func _resolve_runtime_directory(options: Dictionary) -> String:
-    return SimulationConfigControllerScript.resolve_runtime_directory(self, options)
+	return SimulationConfigControllerScript.resolve_runtime_directory(self, options)
 
 func set_narrator_directive(text: String) -> void:
-    SimulationConfigControllerScript.set_narrator_directive(self, text)
+	SimulationConfigControllerScript.set_narrator_directive(self, text)
 
 func set_dream_influence(npc_id: String, influence: Dictionary) -> void:
-    SimulationConfigControllerScript.set_dream_influence(self, npc_id, influence)
+	SimulationConfigControllerScript.set_dream_influence(self, npc_id, influence)
 
 func set_profession_profile(profile_resource) -> void:
-    SimulationConfigControllerScript.set_profession_profile(self, profile_resource)
+	SimulationConfigControllerScript.set_profession_profile(self, profile_resource)
 
 func set_flow_traversal_profile(profile_resource) -> void:
-    SimulationConfigControllerScript.set_flow_traversal_profile(self, profile_resource)
+	SimulationConfigControllerScript.set_flow_traversal_profile(self, profile_resource)
 
 func set_flow_formation_config(config_resource) -> void:
-    SimulationConfigControllerScript.set_flow_formation_config(self, config_resource)
+	SimulationConfigControllerScript.set_flow_formation_config(self, config_resource)
 
 func set_flow_runtime_config(config_resource) -> void:
-    SimulationConfigControllerScript.set_flow_runtime_config(self, config_resource)
+	SimulationConfigControllerScript.set_flow_runtime_config(self, config_resource)
 
 func set_structure_lifecycle_config(config_resource) -> void:
-    SimulationConfigControllerScript.set_structure_lifecycle_config(self, config_resource)
+	SimulationConfigControllerScript.set_structure_lifecycle_config(self, config_resource)
 
 func set_culture_context_cues(cues: Dictionary) -> void:
-    SimulationConfigControllerScript.set_culture_context_cues(self, cues)
+	SimulationConfigControllerScript.set_culture_context_cues(self, cues)
 
 func set_living_entity_profiles(profiles: Array) -> void:
-    SimulationConfigControllerScript.set_living_entity_profiles(self, profiles)
+	SimulationConfigControllerScript.set_living_entity_profiles(self, profiles)
 
 func register_villager(npc_id: String, display_name: String, initial_state: Dictionary = {}) -> Dictionary:
-    return SimulationControllerCoreLoopHelpersScript.register_villager(self, npc_id, display_name, initial_state)
+	return SimulationControllerCoreLoopHelpersScript.register_villager(self, npc_id, display_name, initial_state)
 
 func process_tick(tick: int, fixed_delta: float, include_state: bool = true) -> Dictionary:
-    return SimulationControllerCoreLoopHelpersScript.process_tick(self, tick, fixed_delta, include_state)
+	return SimulationControllerCoreLoopHelpersScript.process_tick(self, tick, fixed_delta, include_state)
 
 func current_snapshot(tick: int) -> Dictionary:
-    return SimulationControllerCoreLoopHelpersScript.current_snapshot(self, tick)
+	return SimulationControllerCoreLoopHelpersScript.current_snapshot(self, tick)
 
 func set_gpu_compute_modes(weather_enabled: bool, hydrology_enabled: bool, erosion_enabled: bool, solar_enabled: bool) -> void:
-    weather_gpu_compute_enabled = weather_enabled
-    hydrology_gpu_compute_enabled = hydrology_enabled
-    erosion_gpu_compute_enabled = erosion_enabled
-    solar_gpu_compute_enabled = solar_enabled
-    _sync_compute_preferences()
+	weather_gpu_compute_enabled = weather_enabled
+	hydrology_gpu_compute_enabled = hydrology_enabled
+	erosion_gpu_compute_enabled = erosion_enabled
+	solar_gpu_compute_enabled = solar_enabled
+	_sync_compute_preferences()
 
 func set_weather_gpu_compute_enabled(enabled: bool) -> void:
-    weather_gpu_compute_enabled = enabled
-    _sync_compute_preferences()
+	weather_gpu_compute_enabled = enabled
+	_sync_compute_preferences()
 
 func set_hydrology_gpu_compute_enabled(enabled: bool) -> void:
-    hydrology_gpu_compute_enabled = enabled
-    _sync_compute_preferences()
+	hydrology_gpu_compute_enabled = enabled
+	_sync_compute_preferences()
 
 func set_erosion_gpu_compute_enabled(enabled: bool) -> void:
-    erosion_gpu_compute_enabled = enabled
-    _sync_compute_preferences()
+	erosion_gpu_compute_enabled = enabled
+	_sync_compute_preferences()
 
 func set_solar_gpu_compute_enabled(enabled: bool) -> void:
-    solar_gpu_compute_enabled = enabled
-    _sync_compute_preferences()
+	solar_gpu_compute_enabled = enabled
+	_sync_compute_preferences()
 
 func set_locality_processing_config(enabled: bool, dynamic_enabled: bool, radius_tiles: int) -> void:
-    locality_processing_enabled = enabled
-    locality_dynamic_tick_rate_enabled = dynamic_enabled
-    locality_activity_radius_tiles = maxi(0, radius_tiles)
+	locality_processing_enabled = enabled
+	locality_dynamic_tick_rate_enabled = dynamic_enabled
+	locality_activity_radius_tiles = maxi(0, radius_tiles)
 
 func _sync_compute_preferences() -> void:
-    if _hydrology_system != null and _hydrology_system.has_method("set_compute_enabled"):
-        _hydrology_system.set_compute_enabled(hydrology_gpu_compute_enabled)
-    if _weather_system != null and _weather_system.has_method("set_compute_enabled"):
-        _weather_system.set_compute_enabled(weather_gpu_compute_enabled)
-    if _erosion_system != null and _erosion_system.has_method("set_compute_enabled"):
-        _erosion_system.set_compute_enabled(erosion_gpu_compute_enabled)
-    if _solar_system != null and _solar_system.has_method("set_compute_enabled"):
-        _solar_system.set_compute_enabled(solar_gpu_compute_enabled)
+	if _hydrology_system != null and _hydrology_system.has_method("set_compute_enabled"):
+		_hydrology_system.set_compute_enabled(hydrology_gpu_compute_enabled)
+	if _weather_system != null and _weather_system.has_method("set_compute_enabled"):
+		_weather_system.set_compute_enabled(weather_gpu_compute_enabled)
+	if _erosion_system != null and _erosion_system.has_method("set_compute_enabled"):
+		_erosion_system.set_compute_enabled(erosion_gpu_compute_enabled)
+	if _solar_system != null and _solar_system.has_method("set_compute_enabled"):
+		_solar_system.set_compute_enabled(solar_gpu_compute_enabled)
 
 func _generation_cap(task: String, fallback: int) -> int:
-    return SimulationRuntimeFacadeScript.generation_cap(self, task, fallback)
+	return SimulationRuntimeFacadeScript.generation_cap(self, task, fallback)
 
 func enqueue_native_voxel_edit_ops(tick: int, voxel_ops: Array, strict: bool = false) -> Dictionary:
-    return SimulationRuntimeFacadeScript.enqueue_native_voxel_edit_ops(self, tick, voxel_ops, strict)
+	return SimulationRuntimeFacadeScript.enqueue_native_voxel_edit_ops(self, tick, voxel_ops, strict)
 
 func execute_native_voxel_stage(tick: int, stage_name: StringName, payload: Dictionary = {}, strict: bool = false) -> Dictionary:
-    return SimulationRuntimeFacadeScript.execute_native_voxel_stage(self, tick, stage_name, payload, strict)
+	return SimulationRuntimeFacadeScript.execute_native_voxel_stage(self, tick, stage_name, payload, strict)
 
 func stamp_default_voxel_target_wall(tick: int, camera_transform: Transform3D, strict: bool = false) -> Dictionary:
-    return SimulationRuntimeFacadeScript.stamp_default_voxel_target_wall(self, tick, camera_transform, strict)
+	return SimulationRuntimeFacadeScript.stamp_default_voxel_target_wall(self, tick, camera_transform, strict)
 
 func _enqueue_thought_npcs(npc_ids: Array) -> void:
-    SimulationRuntimeFacadeScript.enqueue_thought_npcs(self, npc_ids)
+	SimulationRuntimeFacadeScript.enqueue_thought_npcs(self, npc_ids)
 
 func _enqueue_dream_npcs(npc_ids: Array) -> void:
-    SimulationRuntimeFacadeScript.enqueue_dream_npcs(self, npc_ids)
+	SimulationRuntimeFacadeScript.enqueue_dream_npcs(self, npc_ids)
 
 func _enqueue_dialogue_pairs(npc_ids: Array) -> void:
-    SimulationRuntimeFacadeScript.enqueue_dialogue_pairs(self, npc_ids)
+	SimulationRuntimeFacadeScript.enqueue_dialogue_pairs(self, npc_ids)
 
 func _drain_thought_queue(tick: int, limit: int) -> bool:
-    return SimulationRuntimeFacadeScript.drain_thought_queue(self, tick, limit)
+	return SimulationRuntimeFacadeScript.drain_thought_queue(self, tick, limit)
 
 func _drain_dream_queue(tick: int, limit: int) -> bool:
-    return SimulationRuntimeFacadeScript.drain_dream_queue(self, tick, limit)
+	return SimulationRuntimeFacadeScript.drain_dream_queue(self, tick, limit)
 
 func _drain_dialogue_queue(tick: int, limit: int) -> bool:
-    return SimulationRuntimeFacadeScript.drain_dialogue_queue(self, tick, limit)
+	return SimulationRuntimeFacadeScript.drain_dialogue_queue(self, tick, limit)
 
 func _apply_need_decay(npc_id: String, fixed_delta: float) -> void:
-    SimulationRuntimeFacadeScript.apply_need_decay(self, npc_id, fixed_delta)
+	SimulationRuntimeFacadeScript.apply_need_decay(self, npc_id, fixed_delta)
 
 func _generate_narrator_direction(tick: int) -> bool:
-    return SimulationRuntimeFacadeScript.generate_narrator_direction(self, tick)
+	return SimulationRuntimeFacadeScript.generate_narrator_direction(self, tick)
 
 func _run_thought_cycle(npc_id: String, tick: int) -> bool:
-    return SimulationControllerRuntimeHelpersScript.run_thought_cycle(self, npc_id, tick)
+	return SimulationControllerRuntimeHelpersScript.run_thought_cycle(self, npc_id, tick)
 
 func _run_dialogue_cycle(npc_ids: Array, tick: int) -> bool:
-    return SimulationRuntimeFacadeScript.run_dialogue_cycle(self, npc_ids, tick)
+	return SimulationRuntimeFacadeScript.run_dialogue_cycle(self, npc_ids, tick)
 
 func _run_dialogue_pair(source_id: String, target_id: String, tick: int) -> bool:
-    return SimulationControllerRuntimeHelpersScript.run_dialogue_pair(self, source_id, target_id, tick)
+	return SimulationControllerRuntimeHelpersScript.run_dialogue_pair(self, source_id, target_id, tick)
 
 func _run_dream_cycle(npc_id: String, tick: int) -> bool:
-    return SimulationControllerRuntimeHelpersScript.run_dream_cycle(self, npc_id, tick)
+	return SimulationControllerRuntimeHelpersScript.run_dream_cycle(self, npc_id, tick)
 
 func _run_resource_pipeline(tick: int, npc_ids: Array) -> void:
-    SimulationControllerRuntimeHelpersScript.run_resource_pipeline(self, tick, npc_ids)
+	SimulationControllerRuntimeHelpersScript.run_resource_pipeline(self, tick, npc_ids)
 
 func _run_structure_lifecycle(tick: int) -> void:
-    SimulationRuntimeFacadeScript.run_structure_lifecycle(self, tick)
+	SimulationRuntimeFacadeScript.run_structure_lifecycle(self, tick)
 
 func _assert_resource_invariants(tick: int, npc_ids: Array) -> void:
-    SimulationRuntimeFacadeScript.assert_resource_invariants(self, tick, npc_ids)
+	SimulationRuntimeFacadeScript.assert_resource_invariants(self, tick, npc_ids)
 
 func _memory_refs_from_recall(recall: Dictionary) -> Array:
-    return SimulationControllerOpsHelpersScript.memory_refs_from_recall(recall)
+	return SimulationControllerOpsHelpersScript.memory_refs_from_recall(recall)
 
 func _sorted_npc_ids() -> Array:
-    return SimulationControllerOpsHelpersScript.sorted_npc_ids(self)
+	return SimulationControllerOpsHelpersScript.sorted_npc_ids(self)
 
 func _serialize_villagers() -> Dictionary:
-    return SimulationControllerOpsHelpersScript.serialize_villagers(self)
+	return SimulationControllerOpsHelpersScript.serialize_villagers(self)
 
 func _serialize_household_ledgers() -> Dictionary:
-    return SimulationControllerOpsHelpersScript.serialize_household_ledgers(self)
+	return SimulationControllerOpsHelpersScript.serialize_household_ledgers(self)
 
 func _serialize_individual_ledgers() -> Dictionary:
-    return SimulationControllerOpsHelpersScript.serialize_individual_ledgers(self)
+	return SimulationControllerOpsHelpersScript.serialize_individual_ledgers(self)
 
 func _serialize_carry_profiles() -> Dictionary:
-    return SimulationControllerOpsHelpersScript.serialize_carry_profiles(self)
+	return SimulationControllerOpsHelpersScript.serialize_carry_profiles(self)
 
 func _belief_context_for_npc(npc_id: String, world_day: int, limit: int) -> Dictionary:
-    return SimulationControllerOpsHelpersScript.belief_context_for_npc(self, npc_id, world_day, limit)
+	return SimulationControllerOpsHelpersScript.belief_context_for_npc(self, npc_id, world_day, limit)
 
 func _culture_context_for_npc(npc_id: String, world_day: int) -> Dictionary:
-    return SimulationControllerOpsHelpersScript.culture_context_for_npc(self, npc_id, world_day)
+	return SimulationControllerOpsHelpersScript.culture_context_for_npc(self, npc_id, world_day)
 
 func _directive_text() -> String:
-    if _narrator_directive_resource == null:
-        return ""
-    return String(_narrator_directive_resource.text)
+	if _narrator_directive_resource == null:
+		return ""
+	return String(_narrator_directive_resource.text)
 
 func _is_thought_tick(tick: int) -> bool:
-    return tick > 0 and tick % 24 == 8
+	return tick > 0 and tick % 24 == 8
 
 func _is_dialogue_tick(tick: int) -> bool:
-    return tick > 0 and tick % 24 == 14
+	return tick > 0 and tick % 24 == 14
 
 func _is_dream_tick(tick: int) -> bool:
-    return tick > 0 and tick % 24 == 22
+	return tick > 0 and tick % 24 == 22
 
 func _emit_dependency_error(tick: int, phase: String, error_code: String) -> bool:
-    push_error("Simulation dependency error at tick %d phase %s: %s" % [tick, phase, error_code])
-    emit_signal("simulation_dependency_error", tick, phase, error_code)
-    return false
+	push_error("Simulation dependency error at tick %d phase %s: %s" % [tick, phase, error_code])
+	emit_signal("simulation_dependency_error", tick, phase, error_code)
+	return false
 
 func _dependency_error_result(tick: int, phase: String) -> Dictionary:
-    return {
-        "ok": false,
-        "tick": tick,
-        "error": "dependency_error",
-        "phase": phase,
-    }
+	return {
+		"ok": false,
+		"tick": tick,
+		"error": "dependency_error",
+		"phase": phase,
+	}
 
 func _log_resource_event(tick: int, event_type: String, scope: String, owner_id: String, payload: Dictionary) -> void:
-    SimulationRuntimeFacadeScript.log_resource_event(self, tick, event_type, scope, owner_id, payload)
+	SimulationRuntimeFacadeScript.log_resource_event(self, tick, event_type, scope, owner_id, payload)
 
 func _persist_llm_trace_event(tick: int, task: String, actor_ids: Array, trace_variant) -> void:
-    SimulationRuntimeFacadeScript.persist_llm_trace_event(self, tick, task, actor_ids, trace_variant)
+	SimulationRuntimeFacadeScript.persist_llm_trace_event(self, tick, task, actor_ids, trace_variant)
 
 func _normalize_id_array(values: Array) -> Array:
-    return SimulationControllerOpsHelpersScript.normalize_id_array(values)
+	return SimulationControllerOpsHelpersScript.normalize_id_array(values)
 
 func _apply_carry_assignments(members: Array, assignments: Dictionary) -> void:
-    SimulationControllerOpsHelpersScript.apply_carry_assignments(self, members, assignments)
+	SimulationControllerOpsHelpersScript.apply_carry_assignments(self, members, assignments)
 
 func _apply_route_transport(assignments: Dictionary, start: Vector3, target: Vector3, tick: int) -> Dictionary:
-    return SimulationControllerOpsHelpersScript.apply_route_transport(self, assignments, start, target, tick)
+	return SimulationControllerOpsHelpersScript.apply_route_transport(self, assignments, start, target, tick)
 
 func _merge_payloads(primary: Dictionary, secondary: Dictionary) -> Dictionary:
-    return SimulationControllerOpsHelpersScript.merge_payloads(primary, secondary)
+	return SimulationControllerOpsHelpersScript.merge_payloads(primary, secondary)
 
 func _spawn_offset_position(entity_id: String, radius: float) -> Vector3:
-    return SimulationControllerOpsHelpersScript.spawn_offset_position(self, entity_id, radius)
+	return SimulationControllerOpsHelpersScript.spawn_offset_position(self, entity_id, radius)
 
 func _household_position(household_id: String) -> Vector3:
-    return SimulationControllerOpsHelpersScript.household_position(self, household_id)
+	return SimulationControllerOpsHelpersScript.household_position(self, household_id)
 
 func _sum_payload(payload: Dictionary) -> float:
-    return SimulationControllerOpsHelpersScript.sum_payload(payload)
+	return SimulationControllerOpsHelpersScript.sum_payload(payload)
 
 func _mean_route_path_strength(route_profiles: Dictionary) -> float:
-    return SimulationControllerOpsHelpersScript.mean_route_path_strength(route_profiles)
+	return SimulationControllerOpsHelpersScript.mean_route_path_strength(route_profiles)
 
 func _household_member_counts() -> Dictionary:
-    return SimulationControllerOpsHelpersScript.household_member_counts(self)
+	return SimulationControllerOpsHelpersScript.household_member_counts(self)
 
 func _seed_sacred_site() -> void:
-    SimulationControllerOpsHelpersScript.seed_sacred_site(self)
+	SimulationControllerOpsHelpersScript.seed_sacred_site(self)
 
 func _run_culture_cycle(tick: int) -> void:
-    SimulationControllerCultureStateHelpersScript.run_culture_cycle(self, tick)
+	SimulationControllerCultureStateHelpersScript.run_culture_cycle(self, tick)
 
 func _ensure_culture_event_metadata(event: Dictionary) -> Dictionary:
-    return SimulationControllerCultureStateHelpersScript.ensure_culture_event_metadata(event)
+	return SimulationControllerCultureStateHelpersScript.ensure_culture_event_metadata(event)
 
 func _apply_snapshot(snapshot: Dictionary) -> void:
-    SimulationControllerCultureStateHelpersScript.apply_snapshot(self, snapshot)
+	SimulationControllerCultureStateHelpersScript.apply_snapshot(self, snapshot)
 
 func _build_culture_context(tick: int) -> Dictionary:
-    return SimulationControllerCultureStateHelpersScript.build_culture_context(self, tick)
+	return SimulationControllerCultureStateHelpersScript.build_culture_context(self, tick)
 
 func _derive_cultural_policy(drivers: Array) -> Dictionary:
-    return SimulationControllerCultureStateHelpersScript.derive_cultural_policy(drivers)
+	return SimulationControllerCultureStateHelpersScript.derive_cultural_policy(drivers)
 
 func _cultural_policy_strength(policy_name: String) -> float:
-    return clampf(float(_cultural_policy.get(policy_name, 0.0)), 0.0, 1.0)
+	return clampf(float(_cultural_policy.get(policy_name, 0.0)), 0.0, 1.0)
 
 func _tile_context_for_position(position: Vector3) -> Dictionary:
-    return SimulationControllerCultureStateHelpersScript.tile_context_for_position(self, position)
+	return SimulationControllerCultureStateHelpersScript.tile_context_for_position(self, position)
 
 func _recent_resource_event_context(tick_from: int, tick_to: int) -> Array:
-    return SimulationControllerCultureStateHelpersScript.recent_resource_event_context(self, tick_from, tick_to)
+	return SimulationControllerCultureStateHelpersScript.recent_resource_event_context(self, tick_from, tick_to)
 
 func _event_magnitude(payload: Dictionary) -> float:
-    return SimulationControllerCultureStateHelpersScript.event_magnitude(payload)
+	return SimulationControllerCultureStateHelpersScript.event_magnitude(payload)
 
 func _apply_community_dict(ledger, payload_variant) -> void:
-    SimulationControllerCultureStateHelpersScript.apply_community_dict(ledger, payload_variant)
+	SimulationControllerCultureStateHelpersScript.apply_community_dict(ledger, payload_variant)
 
 func _apply_household_dict(ledger, payload_variant) -> void:
-    SimulationControllerCultureStateHelpersScript.apply_household_dict(ledger, payload_variant)
+	SimulationControllerCultureStateHelpersScript.apply_household_dict(ledger, payload_variant)
 
 func _apply_individual_dict(state, payload_variant) -> void:
-    SimulationControllerCultureStateHelpersScript.apply_individual_dict(state, payload_variant)
+	SimulationControllerCultureStateHelpersScript.apply_individual_dict(state, payload_variant)
 
 func _apply_carry_profile_dict(profile, payload_variant) -> void:
-    SimulationControllerCultureStateHelpersScript.apply_carry_profile_dict(profile, payload_variant)
+	SimulationControllerCultureStateHelpersScript.apply_carry_profile_dict(profile, payload_variant)

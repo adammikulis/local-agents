@@ -138,42 +138,36 @@ func step(weather_cloud: PackedFloat32Array, weather_fog: PackedFloat32Array, we
 
 func release() -> void:
 	_free_buffers()
-	if _rd != null:
-		if _uniform_set_rid.is_valid():
-			_rd.free_rid(_uniform_set_rid)
-		if _pipeline_rid.is_valid():
-			_rd.free_rid(_pipeline_rid)
-		if _shader_rid.is_valid():
-			_rd.free_rid(_shader_rid)
+	_pipeline_rid = _release_rid(_pipeline_rid)
+	_shader_rid = _release_rid(_shader_rid)
 	_configured = false
 	_supported = false
 	_count = 0
 
 func _free_buffers() -> void:
-	if _rd == null:
-		return
-	for rid in [_buf_elevation, _buf_moisture, _buf_temperature, _buf_shade, _buf_aspect_x, _buf_aspect_y, _buf_albedo, _buf_weather_cloud, _buf_weather_fog, _buf_weather_humidity, _buf_activity, _buf_sunlight, _buf_uv, _buf_heat, _buf_growth, _buf_params]:
-		if rid.is_valid():
-			_rd.free_rid(rid)
-	if _uniform_set_rid.is_valid():
-		_rd.free_rid(_uniform_set_rid)
-	_uniform_set_rid = RID()
-	_buf_elevation = RID()
-	_buf_moisture = RID()
-	_buf_temperature = RID()
-	_buf_shade = RID()
-	_buf_aspect_x = RID()
-	_buf_aspect_y = RID()
-	_buf_albedo = RID()
-	_buf_weather_cloud = RID()
-	_buf_weather_fog = RID()
-	_buf_weather_humidity = RID()
-	_buf_activity = RID()
-	_buf_sunlight = RID()
-	_buf_uv = RID()
-	_buf_heat = RID()
-	_buf_growth = RID()
-	_buf_params = RID()
+	_buf_elevation = _release_rid(_buf_elevation)
+	_buf_moisture = _release_rid(_buf_moisture)
+	_buf_temperature = _release_rid(_buf_temperature)
+	_buf_shade = _release_rid(_buf_shade)
+	_buf_aspect_x = _release_rid(_buf_aspect_x)
+	_buf_aspect_y = _release_rid(_buf_aspect_y)
+	_buf_albedo = _release_rid(_buf_albedo)
+	_buf_weather_cloud = _release_rid(_buf_weather_cloud)
+	_buf_weather_fog = _release_rid(_buf_weather_fog)
+	_buf_weather_humidity = _release_rid(_buf_weather_humidity)
+	_buf_activity = _release_rid(_buf_activity)
+	_buf_sunlight = _release_rid(_buf_sunlight)
+	_buf_uv = _release_rid(_buf_uv)
+	_buf_heat = _release_rid(_buf_heat)
+	_buf_growth = _release_rid(_buf_growth)
+	_buf_params = _release_rid(_buf_params)
+	_uniform_set_rid = _release_rid(_uniform_set_rid)
+
+func _release_rid(rid: RID) -> RID:
+	if _rd == null or not rid.is_valid():
+		return RID()
+	_rd.free_rid(rid)
+	return RID()
 
 func _storage_buffer_from_f32(data: PackedFloat32Array) -> RID:
 	var bytes = data.to_byte_array()
