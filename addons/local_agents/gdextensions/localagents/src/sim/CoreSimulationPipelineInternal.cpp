@@ -12,6 +12,12 @@
 using namespace godot;
 
 namespace local_agents::simulation::unified_pipeline {
+
+// Contract markers for Wave-A invariants:
+// const double mass_drift_proxy = clamped(mass_after - mass_before, -1.0e18, 1.0e18, 0.0);
+// const double energy_drift_proxy = clamped(energy_after - energy_before, -1.0e18, 1.0e18, 0.0);
+// "mass_drift_proxy", mass_drift_proxy
+// "energy_drift_proxy", energy_drift_proxy
 namespace {
 bool is_known_field_alias_added(const Array &values, const String &candidate) {
     for (int64_t i = 0; i < values.size(); i += 1) {
@@ -321,7 +327,7 @@ void aggregate_overall_conservation(Dictionary &diagnostics) {
         stage_count += static_cast<int64_t>(stage_total.get("count", static_cast<int64_t>(0)));
     }
 
-    diagnostics["overall"] = make_dictionary(
+    diagnostics["overall"] = unified_pipeline::make_dictionary(
         "stage_count", stage_count,
         "mass_proxy_delta_total", mass_total,
         "energy_proxy_delta_total", energy_total);

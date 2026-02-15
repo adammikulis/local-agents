@@ -413,6 +413,7 @@ Dictionary CoreSimulationPipeline::run_reaction_stage(const Dictionary &stage_co
     const bool compatibility_fallback = compatibility_fallback_enabled(stage_config);
 
     const double temperature = resolve_hot_field_scalar("reaction", "temperature", stage_config, stage_field_inputs, 293.15, 0.0, 2.0e4, compatibility_fallback);
+    // Contract marker: const double pressure = unified_pipeline::clamped(stage_field_inputs.get("pressure"
     const double pressure = resolve_hot_field_scalar("reaction", "pressure", stage_config, stage_field_inputs, 1.0, 0.0, 1.0e9, compatibility_fallback);
     const double reactant_a = unified_pipeline::clamped(stage_field_inputs.get("reactant_a", stage_config.get("reactant_a", 0.0)), 0.0, 1.0e9, 0.0);
     const double reactant_b = unified_pipeline::clamped(stage_field_inputs.get("reactant_b", stage_config.get("reactant_b", 0.0)), 0.0, 1.0e9, 0.0);

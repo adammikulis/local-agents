@@ -45,6 +45,45 @@ VoxelGpuExecutionStats build_empty_changed_stats() {
     stats.changed_chunks = changed_chunks_array;
     return stats;
 }
+
+String canonicalize_gpu_error_code(const String &raw_error_code) {
+    const String lowered = raw_error_code.to_lower();
+    if (lowered.is_empty()) {
+        return String("dispatch_failed");
+    }
+    if (
+        lowered == String("gpu_unavailable") ||
+        lowered == String("gpu_required") ||
+        lowered == String("contract_mismatch") ||
+        lowered == String("descriptor_invalid") ||
+        lowered == String("dispatch_failed") ||
+        lowered == String("readback_invalid") ||
+        lowered == String("memory_exhausted") ||
+        lowered == String("unsupported_legacy_stage")
+    ) {
+        return lowered;
+    }
+    if (
+        lowered.find("gpu_backend_unavailable") >= 0 ||
+        lowered.find("rendering_server_unavailable") >= 0 ||
+        lowered.find("device_create_failed") >= 0
+    ) {
+        return String("gpu_unavailable");
+    }
+    if (lowered.find("cpu_fallback") >= 0 || lowered.find("backend_required") >= 0) {
+        return String("gpu_required");
+    }
+    if (lowered.find("readback") >= 0) {
+        return String("readback_invalid");
+    }
+    if (lowered.find("buffer_create_failed") >= 0) {
+        return String("memory_exhausted");
+    }
+    if (lowered.find("metadata_overflow") >= 0 || lowered.find("invalid_") >= 0 || lowered.find("missing") >= 0) {
+        return String("descriptor_invalid");
+    }
+    return String("dispatch_failed");
+}
 } // namespace
 
 bool VoxelEditEngine::configure(const Dictionary &config) {
@@ -182,7 +221,8 @@ Dictionary VoxelEditEngine::execute_stage(
         execution["gpu_status"] = String("not_available");
         execution["backend_used"] = String("none");
         execution["cpu_fallback_used"] = false;
-        execution["error_code"] = String("gpu_backend_unavailable");
+        execution["error_code"] = String("gpu_required");
+        execution["error_detail"] = String("gpu_backend_disabled");
         execution["voxel_scale"] = runtime_policy.voxel_scale;
         execution["op_stride"] = runtime_policy.op_stride;
         execution["zoom_factor"] = runtime_policy.zoom_factor;
@@ -190,7 +230,7 @@ Dictionary VoxelEditEngine::execute_stage(
         execution["zoom_throttle_applied"] = runtime_policy.zoom_throttle_applied;
         execution["uniformity_upscale_applied"] = runtime_policy.uniformity_upscale_applied;
         execution["kernel_pass"] = kernel_pass;
-        execution["dispatch_reason"] = String("gpu_backend_unavailable");
+        execution["dispatch_reason"] = String("gpu_required");
         execution["stride_phase"] = runtime_policy.stride_phase;
 
         const StageExecutionStats stats = build_empty_changed_stats();
@@ -203,7 +243,7 @@ Dictionary VoxelEditEngine::execute_stage(
 
         Dictionary result = make_stage_identity(stage_domain, stage_name, payload);
         result["ok"] = false;
-        result["error"] = String("gpu_backend_unavailable");
+        result["error"] = String("gpu_required");
         result["ops_requested"] = pending_before;
         result["ops_scanned"] = static_cast<int64_t>(0);
         result["ops_processed"] = static_cast<int64_t>(0);
@@ -235,6 +275,7 @@ Dictionary VoxelEditEngine::execute_stage(
         gpu_shader_path
     );
     if (!gpu_result.ok) {
+        const String canonical_error_code = canonicalize_gpu_error_code(gpu_result.error_code);
         Dictionary execution;
         execution["backend_requested"] = String("gpu");
         execution["gpu_attempted"] = true;
@@ -242,7 +283,8 @@ Dictionary VoxelEditEngine::execute_stage(
         execution["gpu_status"] = String("dispatch_failed");
         execution["backend_used"] = String("none");
         execution["cpu_fallback_used"] = false;
-        execution["error_code"] = gpu_result.error_code.is_empty() ? String("gpu_dispatch_failed") : gpu_result.error_code;
+        execution["error_code"] = canonical_error_code;
+        execution["error_detail"] = gpu_result.error_code;
         execution["voxel_scale"] = runtime_policy.voxel_scale;
         execution["op_stride"] = runtime_policy.op_stride;
         execution["zoom_factor"] = runtime_policy.zoom_factor;
@@ -250,7 +292,7 @@ Dictionary VoxelEditEngine::execute_stage(
         execution["zoom_throttle_applied"] = runtime_policy.zoom_throttle_applied;
         execution["uniformity_upscale_applied"] = runtime_policy.uniformity_upscale_applied;
         execution["kernel_pass"] = kernel_pass;
-        execution["dispatch_reason"] = execution["error_code"];
+        execution["dispatch_reason"] = canonical_error_code;
         execution["stride_phase"] = runtime_policy.stride_phase;
 
         const StageExecutionStats stats = build_empty_changed_stats();
@@ -263,7 +305,7 @@ Dictionary VoxelEditEngine::execute_stage(
 
         Dictionary result = make_stage_identity(stage_domain, stage_name, payload);
         result["ok"] = false;
-        result["error"] = execution["error_code"];
+        result["error"] = canonical_error_code;
         result["ops_requested"] = pending_before;
         result["ops_scanned"] = static_cast<int64_t>(0);
         result["ops_processed"] = static_cast<int64_t>(0);

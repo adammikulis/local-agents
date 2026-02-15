@@ -24,8 +24,8 @@ public:
     struct TransformStageDispatch {
         bool is_routed = false;
         bool is_routable = false;
-        String requested_stage_name;
-        String dispatched_stage_name;
+        godot::String requested_stage_name;
+        godot::String dispatched_stage_name;
         TransformStageId stage_id = TransformStageId::kUnknown;
         uint8_t domain_mask = 0;
     };

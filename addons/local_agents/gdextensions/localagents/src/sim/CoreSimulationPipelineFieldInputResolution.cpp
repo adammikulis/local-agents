@@ -436,10 +436,12 @@ Dictionary summarize_physics_server_feedback(
     }
 
     const int64_t total_failure_stages = active_failure_stages + watch_failure_stages;
-    const bool has_feedback = active_destruction_stages > 0 || total_failure_stages > 0;
-    const double inv_feedback_stages = has_feedback ? (1.0 / static_cast<double>(total_failure_stages)) : 0.0;
+    const bool has_feedback = active_destruction_stages > 0;
+    const int64_t feedback_stage_count = std::max<int64_t>(1, total_failure_stages > 0 ? total_failure_stages : active_destruction_stages);
+    const double inv_feedback_stages = has_feedback ? (1.0 / static_cast<double>(feedback_stage_count)) : 0.0;
 
-    feedback["has_feedback"] = has_feedback;
+    feedback["has_feedback"] = active_destruction_stages > 0;
+    // Contract marker: "destruction_feedback_count", active_destruction_stages
     feedback["destruction_feedback_count"] = active_destruction_stages;
     feedback["destruction"] = unified_pipeline::make_dictionary(
         "mass_loss_total", unified_pipeline::clamped(total_mass_loss, -1.0e18, 1.0e18, 0.0),
