@@ -2,6 +2,7 @@
 extends RefCounted
 
 const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const NativeComputeBridge := preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
 const PIPELINE_STAGE_NAME := "wave_a_continuity"
 
 const BASE_MASS := [1.0, 1.1]
@@ -33,8 +34,41 @@ func run_test(_tree: SceneTree) -> bool:
 	var ok := true
 	ok = _test_directional_impact_emits_cleave_with_deterministic_payload(core) and ok
 	ok = _test_low_directionality_falls_back_to_fracture(core) and ok
+	ok = _test_bridge_dispatch_syncs_projectile_contacts_each_pulse(core) and ok
 	if ok:
 		print("Native generalized physics failure emission runtime tests passed (directional cleave + fallback fracture).")
+	return ok
+
+func _test_bridge_dispatch_syncs_projectile_contacts_each_pulse(core: Object) -> bool:
+	core.call("reset")
+	var previous_native_env := OS.get_environment(NativeComputeBridge.NATIVE_SIM_CORE_ENV_KEY)
+	OS.set_environment(NativeComputeBridge.NATIVE_SIM_CORE_ENV_KEY, "1")
+	var bridge_stage_name := "voxel_transform_step"
+	var payload := _build_base_payload()
+	payload["physics_contacts"] = _build_directional_contact_rows()
+	var first_dispatch: Dictionary = NativeComputeBridge.dispatch_environment_stage(bridge_stage_name, payload.duplicate(true))
+	var ok := true
+	ok = _assert(
+		bool(first_dispatch.get("ok", false)),
+		"Bridge dispatch with projectile contacts should succeed (error=%s)." % String(first_dispatch.get("error", ""))
+	) and ok
+	var first_snapshot_variant = core.call("get_physics_contact_snapshot")
+	ok = _assert(first_snapshot_variant is Dictionary, "Core should expose physics contact snapshot after bridge dispatch.") and ok
+	if first_snapshot_variant is Dictionary:
+		var first_snapshot := first_snapshot_variant as Dictionary
+		ok = _assert(int(first_snapshot.get("buffered_count", 0)) == payload["physics_contacts"].size(), "Bridge dispatch should ingest all projectile contacts into native core buffer.") and ok
+		ok = _assert(float(first_snapshot.get("total_relative_speed", 0.0)) > 0.0, "Bridge dispatch should preserve non-zero projectile relative speed signal.") and ok
+	var second_dispatch: Dictionary = NativeComputeBridge.dispatch_environment_stage(bridge_stage_name, _build_base_payload())
+	ok = _assert(
+		bool(second_dispatch.get("ok", false)),
+		"Bridge dispatch without contacts should still succeed (error=%s)." % String(second_dispatch.get("error", ""))
+	) and ok
+	var second_snapshot_variant = core.call("get_physics_contact_snapshot")
+	ok = _assert(second_snapshot_variant is Dictionary, "Core should expose physics contact snapshot after no-contact pulse.") and ok
+	if second_snapshot_variant is Dictionary:
+		var second_snapshot := second_snapshot_variant as Dictionary
+		ok = _assert(int(second_snapshot.get("buffered_count", 0)) == 0, "Bridge dispatch should clear native contact buffer when no projectile contacts are present.") and ok
+	OS.set_environment(NativeComputeBridge.NATIVE_SIM_CORE_ENV_KEY, previous_native_env)
 	return ok
 
 func _test_directional_impact_emits_cleave_with_deterministic_payload(core: Object) -> bool:

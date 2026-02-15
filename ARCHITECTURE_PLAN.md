@@ -20,6 +20,25 @@ This plan is organized by engineering concern so work can be split into focused 
 
 ## Current Wave (pre-implementation)
 
+- [ ] P0 (Owners: Runtime Simulation lane B, Native Compute lane, Validation/Test-Infrastructure lane): Make FPS projectile contacts reliably drive voxel destruction through native failure-emission orchestration.
+  - Scope:
+    - `addons/local_agents/simulation/controller/NativeComputeBridge.gd`: synchronize normalized `physics_contacts` rows into native core contact buffers on every environment-stage pulse (`clear_physics_contacts` + `ingest_physics_contacts`) and fail loudly on sync contract errors.
+    - `addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd`: only adjust row schema if required after bridge normalization audit.
+    - `addons/local_agents/gdextensions/localagents/src/SimulationFailureEmissionPlanner.cpp` and related helpers only if contact-field contract mismatch remains after bridge sync/normalization.
+    - Focused tests under `addons/local_agents/tests/` for projectile-contact destruction contract coverage.
+  - File-size preconditions:
+    - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd` is at the 1000-line cap and is excluded from this wave unless unavoidable.
+    - `addons/local_agents/simulation/controller/NativeComputeBridge.gd` is near the 1000-line cap; keep delta minimal and split immediately if projected size would exceed 1000 lines.
+  - Acceptance criteria:
+    - FPS launcher projectile contact rows are normalized into the schema expected by native failure-emission planning (`contact_impulse` + velocity/speed fields).
+    - Contact rows reach native core orchestration every pulse when present and are cleared when absent (no stale-contact masking).
+    - Contract sync failures are surfaced as explicit dispatch errors; no silent success on failed contact sync.
+    - Existing GPU-required semantics remain unchanged (`gpu_required`/`gpu_unavailable` hard-fail behavior preserved).
+  - Validation sequence (required order):
+    - Non-headless launch first (real display/video path).
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
 - [ ] P0/P1/P2 (Owners: Runtime Simulation lane, HUD/UI lane, Validation/Test-Infrastructure lane, Documentation lane): Add explicit camera/FPS fire mode toggle in `WorldSimulation` and compose input mode handling via a dedicated helper.
   - P0 Scope:
     - Add `addons/local_agents/scenes/simulation/controllers/world/WorldInputController.gd` and move direct input-routing/editing logic from `WorldSimulation.gd` into it before behavior edits.
@@ -42,6 +61,30 @@ This plan is organized by engineering concern so work can be split into focused 
     - Cursor over any active HUD control blocks firing.
     - `Mode: Camera` / `Mode: FPS` is visible and updates on mode transitions.
     - `WorldSimulation` edits include helper split before direct input/mode behavior changes.
+
+- [ ] P0 (Owners: Planning lane, Runtime Simulation lane, Validation/Test-Infrastructure lane, Documentation lane): Add FPS-entry mouse capture with standard forward/back/strafe + mouse look controls.
+  - Scope (exact file/method targets):
+    - `addons/local_agents/scenes/simulation/controllers/world/WorldInputController.gd`: extend `configure(...)`, `toggle_fps_mode()`, `_handle_key_input(...)`, `_handle_camera_motion(...)`, `_handle_mouse_button(...)` to explicitly transition mouse mode on FPS entry/exit and route camera motion by mode.
+    - `addons/local_agents/scenes/simulation/controllers/world/WorldCameraController.gd`: extend `handle_mouse_motion(...)` and add dedicated FPS-oriented methods (for example mode enter/exit sync + per-frame movement step) to support yaw/pitch mouse look and WASD planar locomotion.
+    - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd`: update `_ready()` wiring and `_process(delta)` to drive FPS movement every frame and keep launcher/camera interactions mode-aware.
+    - `project.godot` (if action-map driven approach is selected): add/normalize explicit FPS movement actions for forward/back/left/right; otherwise keep key polling localized in camera controller with no project input-map churn.
+  - File-size preconditions:
+    - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd` is at 1000 lines (hard cap); extract FPS wiring helpers to `addons/local_agents/scenes/simulation/controllers/world/` before any delta that would increase file length.
+    - `addons/local_agents/scenes/simulation/controllers/world/WorldInputController.gd` (205 lines) and `addons/local_agents/scenes/simulation/controllers/world/WorldCameraController.gd` (142 lines) are below split thresholds and are preferred edit targets for this wave.
+  - Acceptance criteria:
+    - Entering FPS mode captures mouse (`Input.MOUSE_MODE_CAPTURED`) and immediately enables free mouse look without requiring Ctrl/MMB/RMB modifiers.
+    - Exiting FPS mode restores visible pointer (`Input.MOUSE_MODE_VISIBLE`) and restores existing orbit/pan/zoom camera behavior.
+    - `W/S` moves forward/back relative to camera yaw; `A/D` strafes left/right; diagonal movement is normalized.
+    - FPS firing behavior stays gated by mode + HUD blocking checks, with no regressions to spawn-mode click behavior.
+    - No regressions in launcher center-ray firing (`_try_fire_from_screen_center`) while moving/looking in FPS mode.
+  - Risks:
+    - Input-routing overlap can cause double-application (orbit + mouselook in the same event path) unless mode branches are strict.
+    - Captured-mouse lifecycle can get stuck on scene focus changes unless entry/exit paths are centralized and idempotent.
+    - World-space movement tied to camera pitch can introduce unwanted vertical drift unless horizontal projection is enforced for locomotion vectors.
+  - Validation sequence (required order):
+    - Non-headless launch first (real display/video path): verify FPS entry captures cursor, mouselook responds immediately, and `W/A/S/D` movement is directional and reversible.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
 
 - [ ] P0/P1 (Owners: Planning lane, Runtime Simulation lane, Native Compute lane, Validation/Test-Infrastructure lane, Documentation lane): Wave D - move remaining CPU simulation hot paths to native/GPU execution.
   - Highest-impact CPU GDScript still active (investigated February 15, 2026):

@@ -151,6 +151,20 @@ static func dispatch_environment_stage_call(controller, tick: int, phase: String
 	dispatch_metadata["dispatch_index"] = dispatch_index
 	dispatch_metadata["source"] = _ENVIRONMENT_STAGE_DISPATCH_SOURCE
 	normalized_payload["environment_stage_dispatch"] = dispatch_metadata
+	var normalized_contacts_variant = normalized_payload.get("physics_server_contacts", [])
+	var normalized_contacts: Array = normalized_contacts_variant if normalized_contacts_variant is Array else []
+	if not is_native_sim_core_enabled():
+		return {"ok": false, "executed": false, "dispatched": false, "error": "native_sim_core_disabled"}
+	if not Engine.has_singleton(NATIVE_SIM_CORE_SINGLETON_NAME):
+		return {"ok": false, "executed": false, "dispatched": false, "error": "native_sim_core_unavailable"}
+	var core = Engine.get_singleton(NATIVE_SIM_CORE_SINGLETON_NAME)
+	if core == null or not core.has_method("clear_physics_contacts"):
+		return {"ok": false, "executed": false, "dispatched": false, "error": "core_missing_method_clear_physics_contacts"}
+	core.call("clear_physics_contacts")
+	if not normalized_contacts.is_empty():
+		var ingest_contacts = dispatch_stage_call(controller, tick, phase, "ingest_physics_contacts", [normalized_contacts], strict)
+		if not bool(ingest_contacts.get("ok", false)):
+			return {"ok": false, "executed": false, "dispatched": false, "error": String(ingest_contacts.get("error", "core_call_failed_ingest_physics_contacts"))}
 	return dispatch_stage_call(controller, tick, phase, "execute_environment_stage", [normalized_stage_name, normalized_payload], strict)
 
 static func is_environment_stage_dispatched(dispatch: Dictionary) -> bool:
@@ -224,23 +238,31 @@ static func dispatch_environment_stage(stage_name: String, payload: Dictionary) 
 	dispatch_metadata["dispatch_index"] = dispatch_index
 	dispatch_metadata["source"] = _ENVIRONMENT_STAGE_DISPATCH_SOURCE
 	normalized_payload["environment_stage_dispatch"] = dispatch_metadata
+	var normalized_contacts_variant = normalized_payload.get("physics_server_contacts", [])
+	var normalized_contacts: Array = normalized_contacts_variant if normalized_contacts_variant is Array else []
 	if not is_native_sim_core_enabled():
 		return {"ok": false, "executed": false, "dispatched": false, "error": "native_sim_core_disabled"}
 	if not Engine.has_singleton(NATIVE_SIM_CORE_SINGLETON_NAME):
 		return {"ok": false, "executed": false, "dispatched": false, "error": "native_sim_core_unavailable"}
 	var core = Engine.get_singleton(NATIVE_SIM_CORE_SINGLETON_NAME)
-	if core == null:
-		return {"ok": false, "executed": false, "dispatched": false, "error": "native_sim_core_unavailable"}
-	if not core.has_method("execute_environment_stage"):
-		return {"ok": false, "executed": false, "dispatched": false, "error": "core_missing_method_execute_environment_stage"}
-	var result = core.callv("execute_environment_stage", [normalized_stage_name, normalized_payload])
-	return _normalize_environment_stage_result(result)
+	if core == null or not core.has_method("clear_physics_contacts"):
+		return {"ok": false, "executed": false, "dispatched": false, "error": "core_missing_method_clear_physics_contacts"}
+	core.call("clear_physics_contacts")
+	if not normalized_contacts.is_empty():
+		var ingest_contacts = dispatch_stage_call(null, 0, "", "ingest_physics_contacts", [normalized_contacts], false)
+		if not bool(ingest_contacts.get("ok", false)):
+			return {"ok": false, "executed": false, "dispatched": false, "error": String(ingest_contacts.get("error", "core_call_failed_ingest_physics_contacts"))}
+	var execute_dispatch = dispatch_stage_call(null, 0, "", "execute_environment_stage", [normalized_stage_name, normalized_payload], false)
+	if not bool(execute_dispatch.get("ok", false)):
+		return {"ok": false, "executed": false, "dispatched": false, "error": String(execute_dispatch.get("error", "core_call_failed_execute_environment_stage"))}
+	return _normalize_environment_stage_result(execute_dispatch.get("result", {}))
 
 static func _normalize_environment_payload(payload: Dictionary) -> Dictionary:
 	var normalized: Dictionary = payload.duplicate(true)
 	var normalized_contacts := _normalize_physics_contacts_from_payload(normalized)
 	if not normalized_contacts.is_empty():
 		normalized["physics_server_contacts"] = normalized_contacts
+		normalized["physics_contacts"] = normalized_contacts
 	var inputs := _material_inputs_from_payload(normalized)
 	var material_identity := _material_identity_from_payload(normalized, inputs)
 	inputs["material_id"] = String(material_identity.get("material_id", "material:unknown")).strip_edges()
@@ -621,12 +643,16 @@ static func _normalize_contact_row(row: Dictionary) -> Dictionary:
 	var body_mass = maxf(0.0, _read_float(row, ["body_mass", "mass"], 0.0))
 	var collider_mass = maxf(0.0, _read_float(row, ["collider_mass"], 0.0))
 	var row_contact_velocity = _read_contact_velocity(row.get("contact_velocity", 0.0))
+	var row_relative_speed = _read_contact_velocity(row.get("relative_speed", 0.0))
 	if row_contact_velocity <= 0.0:
-		row_contact_velocity = absf(velocity - obstacle_velocity)
+		row_contact_velocity = maxf(row_relative_speed, absf(velocity - obstacle_velocity))
+	var relative_speed = maxf(row_contact_velocity, maxf(row_relative_speed, absf(velocity - obstacle_velocity)))
 	var obstacle_trajectory = _read_vector3_from_keys(row, ["obstacle_trajectory", "motion_trajectory", "trajectory"])
 	return {
 		"contact_impulse": impulse,
+		"impulse": impulse,
 		"contact_velocity": row_contact_velocity,
+		"relative_speed": relative_speed,
 		"contact_normal": normal,
 		"contact_point": point,
 		"body_velocity": velocity,
