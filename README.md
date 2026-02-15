@@ -94,20 +94,19 @@ Rendering style:
 
 ### Runtime Simulation
 
-- Weather simulation on tile fields with wind advection, humidity, cloud cover, rain, fog, orographic lift, and rain shadow.
-- Erosion simulation with rainfall/flow transport, freeze-thaw crack expansion, frost damage carryover, and landslide events.
-- Solar exposure simulation with per-tile sunlight, absorption, reflection, UV dose, heat load, and plant growth factor.
-- Air-column heating in wind simulation from solar forcing (not only surface heating).
-- Surface albedo derived from generated top block RGBA data (no hardcoded reflectance constants).
+- Deterministic voxel transform pipeline with generic transport/thermal/mechanics/failure passes (single runtime authority).
+- Transform snapshots and diagnostics are stage-agnostic contract payloads (`transform_snapshot`, `transform_diagnostics`) for runtime/bridge consumers.
+- Preset-based emitters drive destruction/environment edit emission; profile switches are preset changes, not runtime-stack swaps.
+- Material identity is required on active voxel state (`material_id`, `material_profile_id`, `material_phase_id`).
+- Legacy named stage requests (weather/hydrology/erosion/solar) are unsupported in active runtime and fail as `unsupported_legacy_stage`.
 
 ### Rendering and GPU Shaders
 
 - Chunked terrain rendering via `MultiMeshInstance3D` for voxel blocks.
-- GPU water flow shading with weather + solar field texture sampling.
-- GPU terrain weather shading with wetness/snow/erosion + solar field texture sampling.
+- GPU flow and terrain shading sample generic transform field textures/buffers (no named stage authority).
 - GPU river-flow overlay shader driven by baked flow-map rows.
 - GPU cloud layers: animated cloud plane + volumetric cloud shell.
-- GPU rain post-processing shader and lightning flash propagation to weather materials.
+- GPU post-processing effects are driven by transform diagnostics/material state instead of named weather-stage contracts.
 - Volumetric fog + automatic day/night sun animation, integrated with global lighting and SDFGI-enabled demo environment.
 
 ### Integrated Demo and Controls
@@ -116,8 +115,8 @@ Rendering style:
 - Terrain controls include dimensions, sea level, surface base/range, noise frequency/octaves/lacunarity/gain, smoothing, and cave threshold.
 - Flow-map visualizer controls (show/hide, threshold, stride) with animated flow arrows.
 - Timelapse-style simulation controls (play/pause/fast-forward/rewind/fork) and state restore.
-- Live stats for weather/erosion/solar metrics in demo HUD/status labels.
-- Integrated runtime stack in one scene: worldgen + weather/erosion/solar + settlement/culture/ecology controllers + debug overlays.
+- Live stats report generic transform metrics/diagnostics in demo HUD/status labels.
+- Integrated runtime stack in one scene: worldgen + unified transform runtime + settlement/culture/ecology controllers + debug overlays.
 
 ## Run
 

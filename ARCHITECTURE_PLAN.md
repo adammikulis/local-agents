@@ -42,6 +42,127 @@ This plan is organized by engineering concern so work can be split into focused 
     - Overly broad acceptance criteria can create delayed merges and avoidable rework.
   - Closeout notes: Thirdparty dependency and runtime split fixes are closed for this wave; parse checks pass, and remaining diffs are the new runtime split files listed in the P0 closeout notes.
 
+## Unified GPU Voxel Transform Direction (active)
+
+- One unified voxel transform system is the only supported simulation path (no separate erosion/weather/etc systems).
+- All active voxels/chunks execute via GPU shader passes (compute/fragment as required by pass type).
+- GPU is required for transform execution; unavailable GPU path is a hard fail with explicit contract status.
+- No CPU-success fallback is allowed for transform execution.
+- Condense/spread/split/spawn-style behaviors are represented as generic voxel transform ops under shared pass descriptors.
+- Base Godot physics compatibility is required: `PhysicsServer3D`/`RigidBody3D` may provide contact and impulse inputs, but never simulation-authoritative voxel transform state.
+- `RigidBody3D` usage is reduced to exception-based interaction surfaces (projectiles/props/player interaction), not ownership of destruction or voxel evolution logic.
+- Precision policy is `fp32` by default for transform fields and shader passes.
+- Precision is profile-driven and switchable to `fp64` for large-world deployments (`precision_profile=fp64`) on compatible builds/hardware, with identical pass contracts and no CPU fallback path.
+
+Unified GPU voxel performance architecture:
+- Active-set scheduling is mandatory: chunks/voxels are sleeping by default and wake only on local delta, halo-neighbor delta, or external impulse/contact.
+- Two-tier wake logic is required: coarse chunk wake pass first, then fine voxel wake pass inside woken chunks.
+- Dirty-region + halo invalidation is required: only dirty regions plus configured halo are eligible for transform passes.
+- Sparse brick residency is required for transform storage and dispatch; dense full-world traversal is non-authoritative.
+- GPU stream compaction is required for active worklists before expensive kernels.
+- Multi-rate pass scheduling is required: fast impulse/stress passes every tick, slower diffusion/settling passes on deterministic cadence.
+- Pass fusion is allowed only when it reduces bandwidth without breaking determinism or contract observability.
+- Field quantization is policy-driven: integer/bit-packed metadata where possible, `fp32` default for numeric transforms, explicit opt-in for lower/higher precision profiles.
+- Deterministic dispatch order is mandatory across wake, compaction, pass execution, and reductions.
+- Legacy named runtime systems (`erosion`, `weather`, and equivalent concept-specific transform systems) are removed immediately as of February 15, 2026; generic transform ops are the only supported path.
+- No compatibility adapters are allowed for removed named systems unless explicitly recorded as a dated blocker in this file.
+- Requests or configs that reference removed named legacy stages must fail with `unsupported_legacy_stage`; remapping to generic passes is not allowed implicitly.
+
+Locked architecture decisions (recorded February 15, 2026):
+- Canonical voxel state schema:
+  - Required baseline fields: `occupancy`, `material_id`, `material_profile_id`, `material_phase_id`, `mass`, `temperature`, `moisture`, `stress`, `damage`, `velocity`, `phase`, `flags`.
+  - Material identity is required and explicit for every active voxel (`material_id`, `material_profile_id`, `material_phase_id`); missing identity fields are contract-invalid.
+  - Default precision profile: `fp32` for numeric transform fields; packed integer/bitfield encoding for ids and flags.
+  - Optional profile: `fp64` via `precision_profile=fp64` for large-world stability on compatible builds/hardware; pass contracts remain unchanged.
+  - Ownership model: every pass declares read/write sets explicitly; writes are single-owner per pass boundary with deterministic handoff via defined barriers.
+- Pass DAG + determinism contract:
+  - Pass order is fixed per tick by canonical DAG; runtime cannot reorder passes dynamically.
+  - Barrier points and reduction contracts are explicit in dispatch descriptors.
+  - Tie-breaking rules are stable and index-based to preserve seeded replay determinism.
+- Active-set lifecycle contract:
+  - Wake triggers: local state delta, halo-neighbor delta, external contact/impulse, or explicit runtime event injection.
+  - Wake flow: chunk-level wake evaluation first, voxel-level refinement second.
+  - Required controls: `halo_radius`, `wake_hysteresis_ticks`, and `max_wake_latency_ticks`.
+- GPU memory model:
+  - Sparse brick/chunk residency is authoritative for transform execution.
+  - Required metadata includes active residency maps, brick indirection tables, and compacted active-work indices.
+  - Buffer pools and fragmentation controls are required and must be observable in diagnostics.
+  - Large-world strategy uses streamed brick residency windows; full dense-world allocation is non-authoritative.
+- Kernel interface standard:
+  - Every kernel pass uses a typed descriptor containing `kernel_pass`, read/write field bindings, barrier mode, precision profile, and scheduling class.
+  - Unknown/incomplete descriptors must hard fail with explicit contract status.
+- Failure policy:
+  - Missing required GPU capability is a hard fail, never a CPU-success fallback.
+  - Required failure taxonomy: `gpu_required`, `gpu_unavailable`, `contract_mismatch`, `descriptor_invalid`, `dispatch_failed`, `readback_invalid`, `unsupported_legacy_stage`.
+  - Runtime/UI surfaces failure status directly without silent downgrade behavior.
+- Migration cut lines:
+  - P0 cutoff date: February 15, 2026 for removing named legacy transform systems from active runtime paths.
+  - P1 cutoff date: February 22, 2026 for removing residual named-system contracts/config aliases from native/runtime interfaces.
+  - P2 cutoff date: March 1, 2026 for CI hard-gates that fail any legacy named-system code path or CPU transform execution path.
+  - Physics boundary lock (effective immediately): Godot physics contact ingestion is an input contract only; voxel transform outputs cannot be authored by rigid-body/physics fallback paths.
+
+Required performance/determinism budgets (must be explicit per profile):
+- `max_wake_latency_ticks`: maximum allowed ticks between wake trigger and active voxel participation.
+- `max_active_voxel_ratio_normal`: maximum active voxel ratio during normal workloads.
+- `max_active_voxel_ratio_stress`: maximum active voxel ratio during stress workloads.
+- `max_ms_per_stage`: per-pass latency budget in milliseconds.
+- `max_ms_per_tick`: end-to-end simulation tick budget in milliseconds.
+- `max_gpu_mem_mb`: maximum GPU memory budget for residency/work buffers.
+- `determinism_tolerance_fp32`: bounded replay drift tolerance for `fp32` profile.
+- `determinism_tolerance_fp64`: bounded replay drift tolerance for `fp64` profile when enabled.
+
+Required control/tuning surface (configuration-first, no code-path forks):
+- Scheduling controls: `tick_interval`, `phase_offset`, `rate_class`, `max_stage_iterations`.
+- Active-set controls: `halo_radius`, `wake_hysteresis_ticks`, `wake_threshold`, `sleep_threshold`.
+- Compaction controls: `compaction_interval`, `min_compaction_density`, `worklist_capacity`.
+- Residency controls: `brick_size`, `resident_brick_budget`, `stream_window_radius`, `eviction_policy`.
+- Precision controls: `precision_profile` (`fp32` default, `fp64` optional), per-pass precision overrides where contract-approved.
+- Fusion controls: `fusion_group`, `fusion_enabled`, `max_fused_passes`.
+- Readback/sync controls: `readback_interval`, `max_readback_bytes_per_tick`, `sync_mode`.
+- Diagnostics controls: `contract_trace_level`, `perf_telemetry_enabled`, `determinism_audit_enabled`.
+
+## Migration Plan (active phases)
+
+- [ ] P0 (Owners: Runtime Simulation lane, Native Compute lane, Documentation lane, Validation/Test-Infrastructure lane): Lock architecture and remove contradictory paths.
+  - Acceptance criteria:
+    - Active plan text documents a single unified voxel transform path and removes independent subsystem-loop guidance.
+    - `headless_gpu_dispatch_contract` includes hard-fail states (`gpu_required`, `gpu_unavailable`, `contract_mismatch`) and rejects CPU-success fallback.
+    - Runtime guidance requires shader-pass execution across active voxel/chunk sets.
+    - Precision contract is explicit: `fp32` default profile with switchable `fp64` profile semantics documented before implementation cutover.
+    - Legacy named transform systems are removed from active runtime paths with no adapter layer.
+  - Risks:
+    - Legacy terminology may reintroduce split-system assumptions.
+    - Capability reporting gaps may mask true GPU-unavailable failures.
+    - Immediate removal can break stale local workflows until all entrypoints/config docs are updated in the same wave.
+- [ ] P1 (Owners: Native Compute lane, Runtime Simulation lane, Documentation lane, Validation/Test-Infrastructure lane): Unify op schema and pass descriptors.
+  - Acceptance criteria:
+    - Generic op schema covers condense/spread/split/spawn behaviors with shared payload fields and deterministic pass descriptors.
+    - `VoxelEditEngine` remains orchestration-only; `VoxelEditGpuExecutor` owns pass resolution and dispatch metadata.
+    - Dispatch contracts remain deterministic with `kernel_pass`, `dispatched`, `backend_used`, and `dispatch_reason`.
+    - Active-set lifecycle contract is implemented (`wake_reason`, `sleep_state`, `wake_hysteresis_ticks`, `halo_radius`) and consumed by GPU scheduling.
+    - Sparse-brick + stream-compaction path is authoritative for active transform worklists.
+    - Multi-rate pass descriptors are explicit and deterministic (`rate_class`, `tick_interval`, `phase_offset`) with no ad-hoc controller timing.
+    - Canonical voxel state schema and per-pass read/write ownership declarations are implemented and validated in contract tests.
+    - Physics integration contract is explicit: contact/impulse ingestion from `PhysicsServer3D` is deterministic input-only, with no rigid-body-owned voxel mutation path.
+  - Risks:
+    - Engine/executor/shader schema drift can break determinism.
+    - Weak descriptor validation can allow ambiguous dispatch behavior.
+    - Wake/sleep threshold tuning can cause thrash or latency spikes without strict deterministic caps.
+- [ ] P2 (Owners: Validation/Test-Infrastructure lane, CI/Gating lane, Documentation lane): Enforce and gate.
+  - Acceptance criteria:
+    - CI fails when CPU fallback paths exist in transform execution.
+    - Runtime validation asserts shader-pass coverage across active voxel/chunk sets for generic ops.
+    - CI/runtime gates assert deterministic active-set behavior (wake/sleep transitions, halo invalidation, compaction ordering) under repeated seeded runs.
+    - CI/runtime gates assert precision-profile conformance (`fp32` baseline, `fp64` profile where enabled) with bounded drift budgets per contract.
+    - CI fails if any named legacy transform-system entrypoint/contract path remains.
+    - CI/runtime gates enforce numeric budgets (`max_wake_latency_ticks`, active-ratio caps, per-stage/tick ms budgets, GPU memory caps) with profile-specific thresholds.
+    - CI/runtime gates verify control-surface plumbing (all required controls are externally configurable and reflected in dispatch contracts/diagnostics).
+    - This section is treated as canonical for migration sequencing and acceptance criteria.
+  - Risks:
+    - Coverage gaps can miss chunk/pass-sequencing regressions.
+    - Drift between docs and CI policy can weaken enforcement.
+    - Precision-profile drift can introduce non-reproducible outcomes across hardware tiers.
+
 ## Concern A: Runtime and GDExtension Stability
 
 Scope: `addons/local_agents/gdextensions/localagents/`, `addons/local_agents/runtime/`, `addons/local_agents/agents/`
@@ -136,7 +257,7 @@ Planned entries:
   - Acceptance criteria: Validation commands include `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_op_contracts.gd --timeout=120` and `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_field_handle_registry_contracts.gd --timeout=120`.
 - [ ] P0 (Owners: Documentation lane, Runtime Simulation lane, Validation/Test-Infrastructure lane): Consolidate simulation runtime by hard-cutting legacy `WorldSimulatorApp` stack, enforcing `WorldSimulation` as the single voxel runtime path, and moving feature-set selection to in-runtime demo profiles/toggles.
   - Acceptance criteria: Docs define `WorldSimulation` as the only supported runtime path for simulation demos and remove/replace all `WorldSimulatorApp` setup guidance; legacy `WorldSimulatorApp` launch/config wiring is marked removed with no compatibility route documented.
-  - Acceptance criteria: Docs specify the in-runtime demo profile/toggle model (for example destruction-only, full-systems, perf/stress) and require profile switching without runtime-stack swaps.
+  - Acceptance criteria: Docs specify the in-runtime demo profile/toggle model as generic-op presets (for example destruction-only, full-transform, perf/stress) and require profile switching without runtime-stack swaps.
   - Acceptance criteria: Ownership + rollout notes include deterministic validation expectations for each demo profile/toggle set and explicitly map validation commands/suites to profile behaviors.
   - Risks: Legacy scene/tooling references may still assume `WorldSimulatorApp`, creating partial migrations and broken onboarding flows until all references are cut.
   - Risks: Profile/toggle combinatorics can introduce unvalidated runtime states unless profile boundaries and required defaults are constrained.
@@ -147,7 +268,7 @@ Planned entries:
 - [ ] P1 (Owners: Runtime Simulation lane, Native Compute lane, Documentation lane, Validation/Test-Infrastructure lane): Split `LocalAgentsSimulationCore` orchestration from `CoreSimulationPipeline` stage execution boundaries.
   - Acceptance criteria: Stage ownership is explicit (`LocalAgentsSimulationCore` orchestrates inputs/outputs; `CoreSimulationPipeline` owns deterministic stage execution) with no duplicated stage logic across boundaries.
   - Acceptance criteria: Canonical validation commands are `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_general_physics_wave_a_runtime.gd --timeout=120`, `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_general_physics_wave_a_contracts.gd --timeout=120`, and `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_op_contracts.gd --timeout=120`.
-- [ ] P1 (Owners: Runtime Simulation lane, Native Compute lane, Validation/Test-Infrastructure lane): Align compute backend parameter contracts and shader interfaces (wind/weather/sun/hydrology/erosion) so kernel launch order and tile counts are deterministic and fail-fast safe.
+- [ ] P1 (Owners: Runtime Simulation lane, Native Compute lane, Validation/Test-Infrastructure lane): Align unified voxel-transform parameter contracts and shader interfaces so kernel launch order and tile counts are deterministic and fail-fast safe.
   - Acceptance criteria: Backend `PackedFloat32Array` layouts for params and shader `std430` structs are verified by code-level review and shared regression tests or runtime assertions.
   - Acceptance criteria: Stage toggles (`set_compute_enabled` + native dispatch enablement) are applied consistently for compute-capable stages at startup and per-tick preference sync.
   - Acceptance criteria: Invalid RID frees are detectable with debug logging rather than silent partial frees when configure/dispatch is re-entered.
@@ -163,9 +284,9 @@ Planned entries:
 - [ ] P0 (Owner: Documentation lane): Replace rigid-brick target wall guidance with pure voxel-engine target wall + projectile-impact voxel destruction path in default `WorldSimulation`.
   - Acceptance criteria: Docs specify default `WorldSimulation` setup for voxel-only target walls, projectile impact flow that emits voxel destruction edits on hit, and a deterministic launcher test scenario with repeatable destruction expectations.
   - Risks: Voxel resolution/material tuning may introduce non-repeatable destruction profiles; coupling projectile impact and voxel-edit timing may cause flaky benchmark outcomes if determinism constraints are underspecified.
-- [ ] P0 (Owner: Documentation lane): Add `voxel-destruction-only demo mode` for default `WorldSimulation` that disables non-essential smell/ecology/society/weather/economy loops while preserving launcher startup and voxel wall destruction flow.
-  - Acceptance criteria: Docs define the default demo-mode configuration with smell/ecology/society/weather/economy loops disabled, confirm launcher boot remains enabled, and document deterministic projectile-to-voxel-wall destruction behavior.
-  - Risks: Hidden dependencies on disabled loops may break startup/HUD assumptions; incomplete loop shutdown may leave background timers/signals active and reduce determinism.
+- [ ] P0 (Owner: Documentation lane): Add `voxel-destruction-only demo mode` for default `WorldSimulation` using unified generic voxel ops while preserving launcher startup and voxel wall destruction flow.
+  - Acceptance criteria: Docs define the default demo-mode configuration as constrained generic-op presets (not subsystem loop toggles), confirm launcher boot remains enabled, and document deterministic projectile-to-voxel-wall destruction behavior.
+  - Risks: Hidden dependencies on removed behavior-specific paths may break startup/HUD assumptions; incomplete profile constraints may leave non-demo transforms active and reduce determinism.
 - [ ] P0 (Owners: Native Compute lane, Documentation lane, Validation/Test-Infrastructure lane): Enforce file-size split precondition for field-input resolution before GPU-only implementation continuation.
   - Acceptance criteria: `addons/local_agents/gdextensions/localagents/src/sim/CoreSimulationPipelineFieldInputResolution.cpp` is reduced below 540 lines by extracting scalar candidate/alias resolution helpers into focused `src/sim` + `include/sim` modules with behavior parity.
   - Acceptance criteria: Caller-facing APIs remain stable while build wiring includes the extracted helper translation unit(s) without changing compile assumptions.
@@ -209,9 +330,9 @@ Planned entries:
     - P0 migration contract acceptance.
     - Stable field registry and bridge contract behavior in existing Wave A test baselines.
   - Acceptance criteria:
-    - Hot stages prefer typed native fields for mechanics/pressure/thermal/reaction when handles are available.
-    - Scalar fallback paths are explicit, reason-coded, and non-default on the primary path.
-    - Demo profile toggles are deterministic and do not require runtime-stack swaps.
+    - Hot stages run through unified generic voxel transform ops with typed field bindings and deterministic pass descriptors.
+    - No CPU/scalar-success fallback path is allowed on the primary path.
+    - Demo profile toggles are deterministic generic-op presets and do not require runtime-stack swaps.
   - File targets:
     - `addons/local_agents/gdextensions/localagents/src/sim/CoreSimulationPipeline.cpp`
     - `addons/local_agents/gdextensions/localagents/src/sim/CoreSimulationPipelineInternal.cpp`
@@ -405,15 +526,16 @@ Wave A+ validation matrix:
 #### Wave A+ / Data contracts
 
 Compact contract stability (durable):
-- `stage_field_input_diagnostics`: required hot-stage input diagnostic payload for per-stage resolution attempts (`ok`, `source`, `reason`, `field`, `field_alias`).
-- `field_evolution.handle_resolution_diagnostics`: required payload for per-step handle resolution outcomes, including explicit misses and fallback reasons.
+- `transform_snapshot`: required per-step generic transform snapshot payload (stage-agnostic) with deterministic carry-forward fields.
+- `transform_diagnostics`: required per-step generic diagnostics payload covering handle resolution outcomes, explicit misses, fallback reasons, and source selection.
 - `field_handle_mode`: required summary marker with values `field_handles` when handle mode is active, or explicit compatibility mode value.
-- `field_evolution.updated_fields`: required key that remains present and deterministic across `execute_step` reentry.
+- `transform_snapshot.updated_fields`: required key that remains present and deterministic across `execute_step` reentry.
+- Legacy stage-specific contract keys (including `stage_field_input_diagnostics`) are unsupported for active runtime authority and must not be reintroduced.
 
 Wave A+ contract matrix:
 
 Completed milestones:
-- [x] P0, Scope-A: C++ Stage Math Lane: Existing contract assertions now retain `stage_field_input_diagnostics` flow and deterministic updates to `run_field_buffer_evolution` contract payloads for `updated_fields`.
+- [x] P0, Scope-A: C++ Stage Math Lane: Existing contract assertions now retain `transform_diagnostics` flow and deterministic updates to `transform_snapshot.updated_fields`.
 
 | Status | Priority | Owner | Dependency | Last touched | Scope Files | Definition of Done | Acceptance criteria | Blockers | Test anchors |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -445,9 +567,9 @@ Fracture/failure and destruction coupling:
 - [ ] Replace scalar damage with stress-invariant criteria (Mohr-Coulomb or Drucker-Prager-lite profiles).
 - [ ] Add plastic compaction and brittle fracture branches via material profiles (data-driven, no code forks).
 - [ ] Couple damage to porosity/permeability evolution.
-- [x] February 14, 2026: Emit voxel edit operations from physically derived failure fields.
+- [x] February 14, 2026: Emit voxel edit operations from physically derived failure fields through preset-based emitters.
   - Status: Completed.
-  - Definition of Done: `run_destruction_stage` emits explicit failure-status output, pipeline feedback now includes failure-source and voxel_emission contracts, and `LocalAgentsSimulationCore::apply_environment_stage` executes deterministic environment voxel emission based on active failure feedback.
+  - Definition of Done: `run_destruction_stage` emits explicit failure-status output, pipeline feedback includes failure-source plus preset-based emitter contract fields (`emitter_preset_id`, `emitter_material_identity`), and `LocalAgentsSimulationCore::apply_environment_stage` executes deterministic environment voxel emission based on active failure feedback.
   - Test anchors: `test_native_general_physics_contracts.gd`, `test_native_general_physics_wave_a_runtime.gd`.
 
 #### Deterministic Cleave Wave 1 (implementation)
@@ -507,6 +629,9 @@ Wave B validation gates:
   - `execute_voxel_stage` payloads expose a canonical `kernel_pass` token plus pass input fields (for example radius/shape/noise metadata), and acceptors reject unknown/missing pass metadata with explicit error codes.
   - `VoxelEditEngine` remains an orchestration shim: no inline shader/pipeline selection logic and no pass-specific fallback semantics in the call-site layer.
   - `headless_gpu_dispatch_contract` includes per-pass dispatch fields (`kernel_pass`, `dispatched`, `backend_used`, `dispatch_reason`) and never reports successful execution when GPU pass mapping is unresolved.
+  - Pass descriptors carry performance semantics (`rate_class`, `fusion_group`, `active_set_policy`, `precision_profile`) and reject incomplete descriptors.
+  - Active-set scheduling contracts are emitted/validated per pass (`wake_reason`, `active_chunk_count`, `active_voxel_count`, `sleep_transition_count`) for deterministic replay observability.
+  - Precision defaults to `fp32`; `fp64` profile is feature-flagged and contract-compatible without controller-side branching.
   - Validation commands include:
     - `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_dispatch_contracts.gd --timeout=120`
     - `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_op_contracts.gd --timeout=120`
@@ -545,8 +670,14 @@ GPU-first implementation:
   - Acceptance criteria: Validation commands include `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_op_contracts.gd --timeout=120` and `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_simulation_voxel_terrain_generation.gd --timeout=120`.
 - [ ] Implement compute kernels for all hot stages and keep core fields resident on GPU.
 - [ ] Add ping-pong buffers, barrier/fence correctness, and sparse active-region dispatch.
+- [ ] Implement active-set sleep/wake scheduler and deterministic dirty-halo invalidation on GPU worklists.
+- [ ] Implement sparse-brick residency + GPU stream compaction for active voxel/chunk sets.
+- [ ] Implement deterministic multi-rate pass scheduling and bounded pass fusion policy.
+- [ ] Standardize precision profiles with `fp32` default and switchable `fp64` execution profile for large-world scenarios.
+- [ ] Add configuration-first tuning surface for scheduler, active-set, compaction, residency, precision, fusion, and readback controls with deterministic contract visibility.
 - [ ] Add backend capability gating and mobile quality tiers.
-- [ ] Keep any remaining non-`VoxelEditEngine` CPU fallback paths behaviorally aligned to epsilon contracts.
+- [ ] Remove any remaining non-`VoxelEditEngine` CPU fallback paths; GPU-required transform execution must fail fast when GPU contracts are unmet.
+- [ ] Remove legacy named transform-system runtime paths immediately; no adapter bridge is permitted on primary or secondary execution paths.
 - [ ] Keep physics-server sync/readback deltas minimal and bounded (no full-scene per-frame bridge copies).
 
 Query/gameplay integration:
@@ -556,7 +687,7 @@ Query/gameplay integration:
 - [ ] Expose unified query surfaces that combine voxel risk fields with physics-server collision/contact state.
 
 CI confidence and production gates:
-- [ ] Add GPU-vs-CPU epsilon parity suites and backend matrix coverage.
+- [ ] Add GPU-required contract conformance suites and backend matrix coverage.
 - [ ] Add performance gates (`ms/stage`, bandwidth, active-cell throughput).
 - [ ] Gate completion on contracts + invariants + parity + perf checks passing in CI.
 - [ ] Add physics-server-coupled regression scenarios (impact-settling, pile collapse, fracture under repeated contacts) with deterministic replay checks.
@@ -586,7 +717,7 @@ Completed milestones:
 Completed milestones:
 - [x] February 12, 2026: Ecology runtime migration completed from legacy hex-grid paths to shared voxel-grid systems (`VoxelGridSystem`, `SmellFieldSystem`, `WindFieldSystem`), making hex/grid contracts non-authoritative for active runtime.
 - [x] February 12, 2026: `SpatialFlowNetworkSystem` now drives route keying by voxel coordinates.
-- [x] February 12, 2026: Procedural terrain/runtime stack now uses voxel-world generation and deterministic flow payloads (`flow_map`/`columns`/`block_rows`) for hydrology, rendering, and solar/weather propagation.
+- [x] February 12, 2026: Procedural terrain/runtime stack now uses voxel-world generation and deterministic flow payloads (`flow_map`/`columns`/`block_rows`) for generic transport/render coupling; named weather/hydrology/erosion/solar stages are non-authoritative legacy terms.
 
 ## Deferred / Decision Log
 

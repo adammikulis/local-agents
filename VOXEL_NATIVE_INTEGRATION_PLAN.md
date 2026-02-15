@@ -30,10 +30,7 @@ Physics integration policy for this plan:
 - Numeric hotspots are in per-system loops in:
   - `addons/local_agents/simulation/SmellFieldSystem.gd`
   - `addons/local_agents/simulation/WindFieldSystem.gd`
-  - `addons/local_agents/simulation/WeatherSystem.gd`
-  - `addons/local_agents/simulation/HydrologySystem.gd`
-  - `addons/local_agents/simulation/ErosionSystem.gd`
-  - `addons/local_agents/simulation/SolarExposureSystem.gd`
+  - unified voxel transform contracts (`voxel_transform_step`) and typed transform diagnostics/state adapters.
 - GPU compute exists but is fragmented into bespoke backends:
   - `addons/local_agents/simulation/SmellComputeBackend.gd`
   - `addons/local_agents/simulation/WindComputeBackend.gd`
@@ -109,7 +106,7 @@ Add script-side config resources (new):
 - `addons/local_agents/configuration/parameters/simulation/FieldChannelConfigResource.gd`
 
 Migration targets:
-- Replace ad-hoc layer dictionaries in `SmellFieldSystem.gd`, `WindFieldSystem.gd`, `WeatherSystem.gd`, `HydrologySystem.gd`, `ErosionSystem.gd`, `SolarExposureSystem.gd` with field handles.
+- Replace ad-hoc layer dictionaries in `SmellFieldSystem.gd`, `WindFieldSystem.gd`, and unified transform diagnostics/state contracts with field handles.
 - Replace `voxel_world` dictionary fragments in volcanic/environment paths with typed field descriptors.
 
 Exit criteria:
@@ -250,9 +247,7 @@ Scope:
 - Port hydrology + erosion/destruction + weather/solar update graph and terrain query paths first.
 
 File-level work:
-- Convert heavy loops in `addons/local_agents/simulation/HydrologySystem.gd` to native calls.
-- Convert heavy loops in `addons/local_agents/simulation/ErosionSystem.gd` to native calls.
-- Convert heavy loops in `addons/local_agents/simulation/WeatherSystem.gd` and `addons/local_agents/simulation/SolarExposureSystem.gd` to native calls.
+- Continue collapsing any remaining scripted transform loops into native voxel transform stages and diagnostics/state adapters.
 - Route terrain/environment spatial queries to native QueryService.
 
 Parity gates:

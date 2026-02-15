@@ -9,6 +9,7 @@ This file defines implementation rules for this repository. Higher sections are 
 - The main thread is executive only: coordination of user communication, architecture decisions, and lane orchestration.
 - **Main-thread hard rule**: The main thread MUST NOT perform implementation edits. That means no `apply_patch`, no file edits, no config rewrites, and no direct code edits in source/config docs (except this instruction file when updating process).
 - **Main-thread hard rule**: The main thread MUST NOT perform planning, merge/review coordination, validation planning, or verification tasks if a sub-agent can do them.
+- **User override rule**: If the user explicitly requests main-thread execution (for example, “do this yourself without spawning a sub-agent”), that request overrides main-thread behavior rules in this file for the scoped task, as long as higher-priority system/developer safety constraints are still respected.
 - **Allowed on main thread only**: user-facing communication, high-level escalation, and explicit lane orchestration only.
 - **Allowed to read on main thread**: repository state checks and agent outputs for context.
 - **Implementation rule**: all source/config/behavior edits are executed by spawned `worker` lanes.
@@ -58,6 +59,9 @@ Lane trigger rule: if a wave touches any domain, spawn the corresponding lane(s)
 - There are no downstream consumers to preserve in this repo right now.
 - Prioritize rapid feature improvement and stronger simulation behavior over compatibility.
 - Default to voxel-native simulation, collision, and destruction paths.
+- GPU availability is a required runtime invariant for this program; unsupported/non-GPU environments are out of scope.
+- If required GPU capabilities are unavailable, startup must hard-exit with an explicit `GPU_REQUIRED` warning/error.
+- Do not implement or preserve degraded/non-GPU execution paths for simulation features.
 - Keep `RigidBody3D` usage minimal and exception-based with explicit justification.
 - Break APIs freely when it improves architecture or enables required capabilities.
 - Remove old abstractions when replacing systems; avoid compatibility shims and legacy paths.
@@ -126,6 +130,7 @@ Lane trigger rule: if a wave touches any domain, spawn the corresponding lane(s)
 
 - Required GDExtensions are mandatory dependencies for features that need them.
 - Do not ship local fallback code paths for missing required extensions; fail loudly and stop.
+- Treat required GPU compute/fragment capabilities as mandatory dependencies for voxel simulation paths; fail loudly and stop when unavailable.
 - Initialize required extensions explicitly and guard calls with singleton/method availability checks.
 - Keep compatibility with current Godot stable and track third-party API changes in focused commits.
 - Pin and document third-party revisions on behavior change.
