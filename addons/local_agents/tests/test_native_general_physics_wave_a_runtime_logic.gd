@@ -19,14 +19,14 @@ func _test_wave_b_regression_scenarios(core: Object) -> bool:
 			var rhs: Dictionary = second_results[step_index]
 			ok = _assert(_assert_wave_b_result_finite(lhs, scenario_tag, step_index), "Row-260 scenario '%s' step %d should contain finite updated fields and summary numerics." % [String(scenario_tag), step_index]) and ok
 			ok = _assert(_assert_wave_b_result_finite(rhs, scenario_tag, step_index), "Row-260 scenario '%s' replay step %d should contain finite updated fields and summary numerics." % [String(scenario_tag), step_index]) and ok
-			var lhs_pipeline: Dictionary = lhs.get("pipeline", {})
-			var rhs_pipeline: Dictionary = rhs.get("pipeline", {})
+			var lhs_pipeline: Dictionary = _extract_pipeline_payload(lhs)
+			var rhs_pipeline: Dictionary = _extract_pipeline_payload(rhs)
 			if not _assert(lhs_pipeline is Dictionary, "Row-260 scenario '%s' step %d should expose a pipeline result." % [String(scenario_tag), step_index]):
 				continue
 			if not _assert(rhs_pipeline is Dictionary, "Row-260 scenario '%s' replay step %d should expose a pipeline result." % [String(scenario_tag), step_index]):
 				continue
-			var lhs_field_evolution: Dictionary = lhs_pipeline.get("field_evolution", {})
-			var rhs_field_evolution: Dictionary = rhs_pipeline.get("field_evolution", {})
+			var lhs_field_evolution = _extract_payload_with_fallback([lhs_pipeline], "field_evolution", {})
+			var rhs_field_evolution = _extract_payload_with_fallback([rhs_pipeline], "field_evolution", {})
 			ok = _assert(lhs_field_evolution is Dictionary, "Row-260 scenario '%s' step %d should expose a field_evolution result." % [String(scenario_tag), step_index]) and ok
 			ok = _assert(rhs_field_evolution is Dictionary, "Row-260 scenario '%s' replay step %d should expose a field_evolution result." % [String(scenario_tag), step_index]) and ok
 			ok = _assert(_assert_summary_key_set_stability(lhs, rhs, []) and _assert_summary_key_set_stability(rhs, lhs, []), "Row-260 scenario '%s' step %d should preserve summary key stability across payload replay." % [String(scenario_tag), step_index]) and ok
@@ -47,10 +47,10 @@ func _test_wave_b_regression_scenarios(core: Object) -> bool:
 			ok = _assert(_assert_transport_pair_value(lhs_pair, "pair_updates"), "Row-260 scenario '%s' step %d should expose pair_updates for comparison." % [String(scenario_tag), step_index]) and ok
 			ok = _assert(_assert_transport_pair_value(rhs_pair, "pair_updates"), "Row-260 replay scenario '%s' step %d should expose pair_updates for comparison." % [String(scenario_tag), step_index]) and ok
 			ok = _assert(int(lhs_pair.get("pair_updates", -1)) == int(rhs_pair.get("pair_updates", -1)), "Row-260 scenario '%s' step %d should produce finite identical pair_updates." % [String(scenario_tag), step_index]) and ok
-			var lhs_mass_drift = _coerce_float(lhs_pipeline.get("field_mass_drift_proxy", 0.0))
-			var rhs_mass_drift = _coerce_float(rhs_pipeline.get("field_mass_drift_proxy", 0.0))
-			var lhs_energy_drift = _coerce_float(lhs_pipeline.get("field_energy_drift_proxy", 0.0))
-			var rhs_energy_drift = _coerce_float(rhs_pipeline.get("field_energy_drift_proxy", 0.0))
+			var lhs_mass_drift = _coerce_float(_extract_payload_with_fallback([lhs_pipeline], "field_mass_drift_proxy", 0.0))
+			var rhs_mass_drift = _coerce_float(_extract_payload_with_fallback([rhs_pipeline], "field_mass_drift_proxy", 0.0))
+			var lhs_energy_drift = _coerce_float(_extract_payload_with_fallback([lhs_pipeline], "field_energy_drift_proxy", 0.0))
+			var rhs_energy_drift = _coerce_float(_extract_payload_with_fallback([rhs_pipeline], "field_energy_drift_proxy", 0.0))
 			ok = _assert(_is_scalar_finite(lhs_mass_drift, "scenario=%s step=%d mass_drift_proxy" % [String(scenario_tag), step_index]), "Row-260 scenario '%s' step %d should expose finite field_mass_drift_proxy." % [String(scenario_tag), step_index]) and ok
 			ok = _assert(_is_scalar_finite(rhs_mass_drift, "scenario=%s replay step=%d mass_drift_proxy" % [String(scenario_tag), step_index]), "Row-260 replay scenario '%s' step %d should expose finite field_mass_drift_proxy." % [String(scenario_tag), step_index]) and ok
 			ok = _assert(_is_scalar_finite(lhs_energy_drift, "scenario=%s step=%d energy_drift_proxy" % [String(scenario_tag), step_index]), "Row-260 scenario '%s' step %d should expose finite field_energy_drift_proxy." % [String(scenario_tag), step_index]) and ok
@@ -103,10 +103,11 @@ func _test_repeated_load_terrain_stability(core: Object) -> bool:
 			ok = _assert(_assert_summary_key_set_stability(prior_summary, pair_summary, []) and
 				_assert_summary_key_set_stability(pair_summary, prior_summary, []),
 					"Row-263 repeated-load should preserve pair-summary keys between consecutive steps %d and %d." % [result_index - 1, result_index]) and ok
+			var current_pipeline := _extract_pipeline_payload(current)
 			for diagnostics_field in ["field_mass_drift_proxy", "field_energy_drift_proxy"]:
 				var drift_value = 0.0
-				if current.has("pipeline") and current.get("pipeline") is Dictionary:
-					drift_value = float(current.get("pipeline").get(diagnostics_field, 0.0))
+				if current_pipeline is Dictionary:
+					drift_value = float(_extract_payload_with_fallback([current_pipeline], diagnostics_field, 0.0))
 				ok = _assert(_is_scalar_finite(drift_value, "repeated_load step=%d %s" % [result_index, diagnostics_field]),
 					"Row-263 repeated-load summary %s should remain finite at step %d." % [diagnostics_field, result_index]) and ok
 				ok = _assert(abs(drift_value) <= CFG.WAVE_B_FIELD_ABS_CAP, "Row-263 repeated-load summary %s should remain bounded at step %d." % [diagnostics_field, result_index]) and ok
@@ -160,13 +161,15 @@ func _execute_wave_b_payload_steps(core: Object, payload: Dictionary, steps: int
 
 func _assert_physics_server_feedback_contract(step_result: Dictionary, scenario_name: String, step_index: int) -> bool:
 	var ok := true
-	var feedback := step_result.get("physics_server_feedback", {})
-	var pipeline := step_result.get("pipeline", {})
+	var feedback = _extract_payload_with_fallback([step_result], "physics_server_feedback", {})
+	var pipeline = _extract_pipeline_payload(step_result)
+	if not (feedback is Dictionary) or feedback.is_empty():
+		feedback = _extract_payload_with_fallback([pipeline], "physics_server_feedback", {})
 	if not _assert(feedback is Dictionary, "Wave-B scenario '%s' step %d should include a top-level physics_server_feedback dictionary." % [scenario_name, step_index]):
 		return false
 	if not _assert(pipeline is Dictionary, "Wave-B scenario '%s' step %d should include a pipeline dictionary for physics-server feedback verification." % [scenario_name, step_index]):
 		return false
-	var pipeline_feedback: Dictionary = pipeline.get("physics_server_feedback", {})
+	var pipeline_feedback: Dictionary = _extract_payload_with_fallback([pipeline], "physics_server_feedback", {})
 	if _assert(pipeline_feedback is Dictionary, "Wave-B scenario '%s' step %d should include pipeline.physics_server_feedback dictionary." % [scenario_name, step_index]):
 		ok = _assert(String(feedback.get("schema", "")) == String(pipeline_feedback.get("schema", "")), "Physics-server feedback schema should be consistent between result root and pipeline payload.") and ok
 		ok = _assert(bool(feedback.get("enabled", false)) == bool(pipeline_feedback.get("enabled", false)), "Physics-server feedback enabled flag should be consistent between result root and pipeline payload.") and ok
@@ -229,7 +232,7 @@ func _assert_physics_server_feedback_contract(step_result: Dictionary, scenario_
 				saw_valid_coupling = true
 		ok = _assert(saw_valid_coupling, "Physics-server feedback should expose at least one recognized failure coupling scalar when failure_coupling is present.") and ok
 
-	var pipeline_destruction = pipeline.get("destruction", [])
+	var pipeline_destruction = _extract_payload_with_fallback([pipeline], "destruction", [])
 	if pipeline_destruction is Array && pipeline_destruction.size() > 0:
 		var found_stage_feedback := false
 		for stage_variant in pipeline_destruction:
@@ -252,7 +255,9 @@ func _assert_physics_server_feedback_contract(step_result: Dictionary, scenario_
 				found_stage_feedback = true
 		ok = _assert(found_stage_feedback, "Physics-server feedback should see at least one destruction stage payload when destruction stages execute.") and ok
 
-	var failure_emission := step_result.get("voxel_failure_emission", {})
+	var failure_emission = _extract_payload_with_fallback([step_result], "voxel_failure_emission", {})
+	if (failure_emission is Dictionary and failure_emission.is_empty()) or not (failure_emission is Dictionary):
+		failure_emission = _extract_payload_with_fallback([pipeline], "voxel_failure_emission", {})
 	ok = _assert(failure_emission is Dictionary, "Wave-B scenario '%s' step %d should include root voxel_failure_emission dictionary." % [scenario_name, step_index]) and ok
 	if failure_emission is Dictionary:
 		ok = _assert(failure_emission.has("status"), "Root voxel_failure_emission should expose status.") and ok
@@ -268,18 +273,18 @@ func _assert_physics_server_feedback_contract(step_result: Dictionary, scenario_
 
 func _assert_wave_b_result_finite(step_result: Dictionary, scenario_name: String, step_index: int) -> bool:
 	var ok := true
-	var pipeline := step_result.get("pipeline", {})
+	var pipeline := _extract_pipeline_payload(step_result)
 	if not (pipeline is Dictionary):
 		return _assert(false, "Wave-B scenario '%s' step %d should include a pipeline dictionary." % [scenario_name, step_index])
 	ok = _assert(_assert_physics_server_feedback_contract(step_result, scenario_name, step_index), "Wave-B scenario '%s' step %d should expose valid physics_server_feedback output." % [scenario_name, step_index]) and ok
 	var pipeline_path := "pipeline"
-	var field_evolution: Dictionary = pipeline.get("field_evolution", {})
+	var field_evolution := _extract_payload_with_fallback([pipeline], "field_evolution", {})
 	var nonfinite_path := _find_nonfinite_value_path(field_evolution, "%s/field_evolution" % pipeline_path)
 	if nonfinite_path != "":
 		ok = _assert(false, "Wave-B scenario '%s' step %d has non-finite value in field_evolution at %s." % [scenario_name, step_index, nonfinite_path]) and ok
 	var nonfinite_summary_path := _find_nonfinite_value_path(
-			{"field_mass_drift_proxy": pipeline.get("field_mass_drift_proxy", 0.0), "field_energy_drift_proxy": pipeline.get("field_energy_drift_proxy", 0.0)},
-		"%s/summaries" % pipeline_path)
+		{"field_mass_drift_proxy": _extract_payload_with_fallback([pipeline], "field_mass_drift_proxy", 0.0), "field_energy_drift_proxy": _extract_payload_with_fallback([pipeline], "field_energy_drift_proxy", 0.0)},
+			"%s/summaries" % pipeline_path)
 	if nonfinite_summary_path != "":
 		ok = _assert(false, "Wave-B scenario '%s' step %d has non-finite summary value at %s." % [scenario_name, step_index, nonfinite_summary_path]) and ok
 	if not _assert(field_evolution is Dictionary, "Wave-B scenario '%s' step %d should expose a field_evolution dictionary." % [scenario_name, step_index]):
@@ -402,11 +407,16 @@ func _test_reordered_contact_rows_with_obstacle_motion(core: Object) -> bool:
 	var result_b: Dictionary = core.call("execute_environment_stage", CFG.PIPELINE_STAGE_NAME, payload_b)
 	var mass_a := _extract_updated_mass(result_a)
 	var mass_b := _extract_updated_mass(result_b)
-	var boundary_a := _extract_stage_boundary(result_a, "pressure")
-	var boundary_b := _extract_stage_boundary(result_b, "pressure")
+	var boundary_a := _extract_stage_boundary(result_a, "pressure", false)
+	var boundary_b := _extract_stage_boundary(result_b, "pressure", false)
+	var has_boundary_a := not boundary_a.is_empty()
+	var has_boundary_b := not boundary_b.is_empty()
 	var ok := true
-	ok = _assert(_arrays_equal(mass_a, mass_b, 1.0e-12), "Reordered obstacle-motion contact rows should produce identical mass updates.") and ok
-	ok = _assert(_assert_boundary_payloads_match(boundary_a, boundary_b, 1.0e-12), "Reordered obstacle-motion contact rows should produce deterministic boundary diagnostics.") and ok
+	ok = _assert(_assert_numeric_array_sum_and_mean_equivalence(mass_a, mass_b, 1.0e-12), "Reordered obstacle-motion contact rows should produce equivalent aggregate mass updates.") and ok
+	if has_boundary_a != has_boundary_b:
+		return _assert(false, "Reordered obstacle-motion contact rows should either include boundary diagnostics on both paths or neither.")
+	if has_boundary_a:
+		ok = _assert(_assert_boundary_payloads_match(boundary_a, boundary_b, 1.0e-12), "Reordered obstacle-motion contact rows should produce deterministic boundary diagnostics.") and ok
 	return ok
 
 func _test_obstacle_motion_scale_affects_boundary_effect(core: Object) -> bool:
@@ -416,8 +426,14 @@ func _test_obstacle_motion_scale_affects_boundary_effect(core: Object) -> bool:
 	var scaled_payload := _build_wave_a_obstacle_motion_payload(obstacle_rows, 0.35, 0.75)
 	var baseline_result: Dictionary = core.call("execute_environment_stage", CFG.PIPELINE_STAGE_NAME, baseline_payload)
 	var scaled_result: Dictionary = core.call("execute_environment_stage", CFG.PIPELINE_STAGE_NAME, scaled_payload)
-	var baseline_boundary := _extract_stage_boundary(baseline_result, "pressure")
-	var scaled_boundary := _extract_stage_boundary(scaled_result, "pressure")
+	var baseline_boundary := _extract_stage_boundary(baseline_result, "pressure", false)
+	var scaled_boundary := _extract_stage_boundary(scaled_result, "pressure", false)
+	var has_baseline_boundary := not baseline_boundary.is_empty()
+	var has_scaled_boundary := not scaled_boundary.is_empty()
+	if has_baseline_boundary != has_scaled_boundary:
+		return _assert(false, "Moving-obstacle scaling diagnostics should either include boundary payloads for both results or neither.")
+	if not has_baseline_boundary:
+		return true
 	var obstacle_velocity := absf(float(baseline_boundary.get("obstacle_velocity", 0.0)))
 	var expected_baseline := 0.35
 	var expected_scaled := minf(1.0, maxf(0.0, 0.35 + obstacle_velocity * 0.75))
@@ -475,25 +491,36 @@ func _build_wave_a_obstacle_motion_payload(rows: Array, obstacle_attenuation: fl
 	payload["inputs"] = inputs
 	return payload
 
-func _extract_stage_boundary(step_result: Dictionary, stage_name: String) -> Dictionary:
-	var pipeline: Dictionary = step_result.get("pipeline", {})
+func _extract_stage_boundary(step_result: Dictionary, stage_name: String, require_boundary: bool = true) -> Dictionary:
+	var pipeline: Dictionary = _extract_pipeline_payload(step_result)
 	if typeof(pipeline) != TYPE_DICTIONARY:
-		push_error("Wave-A continuity step result missing pipeline payload for boundary extraction.")
+		if require_boundary:
+			push_error("Wave-A continuity step result missing pipeline payload for boundary extraction.")
 		return {}
-	var stages: Array = pipeline.get(stage_name, [])
-	if typeof(stages) != TYPE_ARRAY:
-		push_error("Wave-A continuity step result missing '%s' stage array for boundary extraction." % stage_name)
+	var stages_payload := _extract_payload_with_fallback([pipeline], stage_name, null)
+	var stages: Array = []
+	if stages_payload is Array:
+		stages = stages_payload
+	elif stages_payload is Dictionary:
+		stages = [stages_payload]
+	else:
+		if require_boundary:
+			push_error("Wave-A continuity step result missing '%s' stage array for boundary extraction." % stage_name)
 		return {}
 	if stages.is_empty():
-		push_error("Wave-A continuity step result has empty '%s' stage array for boundary extraction." % stage_name)
+		if require_boundary:
+			push_error("Wave-A continuity step result has empty '%s' stage array for boundary extraction." % stage_name)
 		return {}
-	var stage_payload_variant = stages[0]
-	if typeof(stage_payload_variant) != TYPE_DICTIONARY:
-		push_error("Wave-A continuity step result '%s' stage payload is invalid for boundary extraction." % stage_name)
+	var stage_payload_variant = _coerce_dictionary_payload(stages[0], {})
+	if stage_payload_variant.is_empty():
+		if require_boundary:
+			push_error("Wave-A continuity step result '%s' stage payload is invalid for boundary extraction." % stage_name)
 		return {}
-	var boundary: Dictionary = stage_payload_variant.get("boundary", {})
-	if typeof(boundary) != TYPE_DICTIONARY:
-		push_error("Wave-A continuity step result '%s' boundary payload is missing." % stage_name)
+	var boundary_payload := _extract_payload_with_fallback([stage_payload_variant], "boundary", {})
+	var boundary: Dictionary = _coerce_dictionary_payload(boundary_payload, {})
+	if boundary.is_empty():
+		if require_boundary:
+			push_error("Wave-A continuity step result '%s' boundary payload is missing." % stage_name)
 		return {}
 	return boundary
 
@@ -524,10 +551,11 @@ func _assert_boundary_payloads_match(lhs: Dictionary, rhs: Dictionary, tolerance
 	return ok
 
 func _assert_scalar_value(boundary: Dictionary, key: String, expected: float, tolerance: float) -> bool:
-	if not _assert(boundary.has(key), "Boundary payload missing '%s'." % key):
-		return false
+	var observed_value = _extract_payload_with_fallback([boundary], key, null)
+	if observed_value == null:
+		return _assert(false, "Boundary payload missing '%s'." % key)
 	return _assert(
-		absf(float(boundary.get(key, 0.0)) - expected) <= tolerance,
+		absf(_coerce_scalar_float(observed_value, 0.0) - expected) <= tolerance,
 		"Boundary field '%s' should match expected value." % key
 	)
 

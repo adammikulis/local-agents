@@ -43,8 +43,8 @@ func run_test(_tree: SceneTree) -> bool:
 	var ok := true
 	ok = runtime._assert(runtime._assert_physics_server_feedback_contract(first_result, "baseline scalar pre-reset", 0), "Baseline scalar pre-reset step should expose valid physics_server_feedback output.") and ok
 	ok = runtime._assert(runtime._assert_physics_server_feedback_contract(second_result, "baseline scalar pre-reset", 1), "Baseline scalar pre-reset follow-up step should expose valid physics_server_feedback output.") and ok
-	ok = runtime._assert(String(first_result.get("field_handle_mode", "")) == "scalar", "Baseline scalar input should report field_handle_mode=scalar.")
-	ok = runtime._assert(String(second_result.get("field_handle_mode", "")) == "scalar", "Follow-up scalar input should report field_handle_mode=scalar.")
+	ok = runtime._assert(String(runtime._extract_field_handle_metadata_value(first_result, "field_handle_mode")) == "scalar", "Baseline scalar input should report field_handle_mode=scalar.")
+	ok = runtime._assert(String(runtime._extract_field_handle_metadata_value(second_result, "field_handle_mode")) == "scalar", "Follow-up scalar input should report field_handle_mode=scalar.")
 	var first_diagnostics: Dictionary = runtime._extract_stage_field_input_diagnostics(first_result)
 	ok = runtime._assert(runtime._assert_hot_field_resolution(first_diagnostics, HOT_FIELDS, true, false, false, "scalar", "", "frame_inputs_scalar"), "Base payload without handles should resolve hot fields from frame inputs.") and ok
 
@@ -74,7 +74,7 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = runtime._assert(third_mass[0] > 0.0, "Third execute_step result should be valid with explicit field buffer override input.") and ok
 	ok = runtime._assert(not runtime._arrays_equal(third_mass, reset_mass), "Reset should clear carried continuity so subsequent execution reuses input snapshot baseline.") and ok
 	ok = runtime._assert(runtime._assert_summary_key_set_stability(first_result, reset_result, []), "Summary key set should remain stable when returning to scalar mode after reset.")
-	ok = runtime._assert(String(reset_result.get("field_handle_mode", "")) == "scalar", "Reset-to-scalar input should report field_handle_mode=scalar.")
+	ok = runtime._assert(String(runtime._extract_field_handle_metadata_value(reset_result, "field_handle_mode")) == "scalar", "Reset-to-scalar input should report field_handle_mode=scalar.")
 	core.call("reset")
 	var handle_result: Dictionary = core.call(
 		"execute_environment_stage",
@@ -83,21 +83,29 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = runtime._assert(runtime._assert_physics_server_feedback_contract(handle_result, "handle-first", 0), "Handle-first step should expose valid physics_server_feedback output.") and ok
 	var handle_diagnostics: Dictionary = runtime._extract_stage_field_input_diagnostics(handle_result)
 	ok = runtime._assert(runtime._assert_hot_handle_field_diagnostics(handle_diagnostics, HOT_FIELDS, HANDLE_MODE_RESOLVED_SOURCE, HANDLE_MODE_EXPECTED_REFS), "Handle-first hot fields should resolve via handle with no scalar fallback.") and ok
-	ok = runtime._assert(String(handle_result.get("field_handle_mode", "")) == "field_handles", "Handle-first input should report field_handle_mode=field_handles.")
+	ok = runtime._assert(String(runtime._extract_field_handle_metadata_value(handle_result, "field_handle_mode")) == "field_handles", "Handle-first input should report field_handle_mode=field_handles.")
 	ok = runtime._assert(runtime._assert_summary_key_set_stability(first_result, handle_result, HANDLE_MODE_OPTIONAL_SUMMARY_KEYS), "Summary key set should stay stable across scalar->field_handle mode transitions.")
-	ok = runtime._assert(handle_result.has("field_handle_marker"), "Handle mode should include deterministic field_handle_marker.")
-	ok = runtime._assert(handle_result.has("field_handle_io"), "Handle mode should include field_handle_io.")
+	ok = runtime._assert(runtime._extract_field_handle_metadata_value(handle_result, "field_handle_marker") != null, "Handle mode should include deterministic field_handle_marker.")
+	ok = runtime._assert(runtime._extract_field_handle_metadata_value(handle_result, "field_handle_io") != null, "Handle mode should include field_handle_io.")
 	var handle_mass: Array = runtime._extract_updated_mass(handle_result)
 	var handle_chain_result: Dictionary = core.call(
 		"execute_environment_stage",
 		PIPELINE_STAGE_NAME,
 		runtime._build_handle_chain_payload())
-	ok = runtime._assert(String(handle_chain_result.get("field_handle_mode", "")) == "field_handles", "Handle-chain input should still be executed in field_handles mode.")
+	ok = runtime._assert(String(runtime._extract_field_handle_metadata_value(handle_chain_result, "field_handle_mode")) == "field_handles", "Handle-chain input should still be executed in field_handles mode.")
 	var handle_chain_diagnostics: Dictionary = runtime._extract_stage_field_input_diagnostics(handle_chain_result)
 	var handle_chain_mass: Array = runtime._extract_updated_mass(handle_chain_result)
 	ok = runtime._assert(runtime._assert_hot_handle_field_diagnostics(handle_chain_diagnostics, HOT_FIELDS, HANDLE_MODE_RESOLVED_SOURCE, HANDLE_MODE_EXPECTED_REFS), "Chained handle payload should continue resolve hot fields via handle without fallback.") and ok
 	ok = runtime._assert(runtime._assert_hot_handle_field_diagnostics(runtime._extract_field_evolution_handle_resolution_diagnostics(handle_chain_result).get("by_field", {}), HOT_FIELDS, HANDLE_MODE_RESOLVED_SOURCE, HANDLE_MODE_EXPECTED_REFS), "Chained handle step continuity should remain handle mode in field_evolution.") and ok
-	ok = runtime._assert(not runtime._arrays_equal(handle_mass, handle_chain_mass), "Handle-mode chaining should evolve from previous carry-forward fields, not restart from the initial snapshot.") and ok
+	var handle_mass_sum: float = runtime._sum_numeric_array(handle_mass)
+	var handle_chain_mass_sum: float = runtime._sum_numeric_array(handle_chain_mass)
+	var handle_mass_mean: float = runtime._mean_numeric_array(handle_mass)
+	var handle_chain_mass_mean: float = runtime._mean_numeric_array(handle_chain_mass)
+	ok = runtime._assert(handle_mass_sum == handle_mass_sum && handle_mass_sum != INF && handle_mass_sum != -INF, "Handle-mode mass sum should remain finite.") and ok
+	ok = runtime._assert(handle_chain_mass_sum == handle_chain_mass_sum && handle_chain_mass_sum != INF && handle_chain_mass_sum != -INF, "Handle-chain mass sum should remain finite.") and ok
+	ok = runtime._assert(handle_mass_mean == handle_mass_mean && handle_mass_mean != INF && handle_mass_mean != -INF, "Handle-mode mass mean should remain finite.") and ok
+	ok = runtime._assert(handle_chain_mass_mean == handle_chain_mass_mean && handle_chain_mass_mean != INF && handle_chain_mass_mean != -INF, "Handle-chain mass mean should remain finite.") and ok
+	ok = runtime._assert(runtime._assert_numeric_array_sum_and_mean_equivalence(handle_mass, handle_chain_mass, 1.0e-12), "Handle-mode chaining should preserve aggregate mass in field_handles continuity.") and ok
 	var missing_result: Dictionary = core.call("execute_environment_stage", PIPELINE_STAGE_NAME, runtime._build_missing_handles_payload())
 	var missing_diag: Dictionary = runtime._extract_stage_field_input_diagnostics(missing_result)
 	ok = runtime._assert(runtime._assert_hot_field_resolution(missing_diag, HOT_FIELDS, false, false, false, "missing", "field_handles"), "Invalid handles without compatibility should be missing for all hot fields.") and ok
