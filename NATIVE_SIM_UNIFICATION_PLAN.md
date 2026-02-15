@@ -1,150 +1,77 @@
-# Native Simulation Unification Plan (GPU-First, CPU Fallback)
+# Native Simulation Unification Plan (GPU-Only Unified Voxel Pipeline)
 
 ## Status Note
-Progress tracking for active implementation has moved to `ARCHITECTURE_PLAN.md` under Concern I (Wave A/B/C checkboxes). This document is background/reference only.
+
+Active execution tracking is in `ARCHITECTURE_PLAN.md`. This document defines the native target model and migration intent.
 
 ## Objective
-Move full world simulation ownership to native C++ (`GDExtension`) and converge domain systems into a unified material model where transport + destruction are shared kernels, not siloed hydrology/erosion codepaths.
 
-## Architecture Target
-1. Native `MaterialState` fields
-- Canonical voxel/tile channels: pressure, temperature, density, velocity, moisture, porosity, cohesion, hardness, phase, stress, strain, sediment load, fuel, oxygen, energy.
-- Stored in centralized native field registry with typed channels and explicit layouts (SoA).
+Converge all voxel evolution into one GPU-only transform pipeline in native C++ (`GDExtension`).
 
-2. Native `TransportSolver`
-- Shared advection/diffusion/seepage/deposition kernels.
-- Water/lava/gas/sediment are material profiles (coefficients), not separate systems.
+- No named high-level runtime systems (`weather`, `hydrology`, `erosion`, `solar`, etc.).
+- Behavior differences are material coefficients, field state, and emitter presets.
+- No CPU-success fallback for transform execution.
 
-3. Native `DestructionSolver`
-- Shared carve/fill/fracture/compaction ops from stress + transport + impact energy.
-- Terrain erosion, landslides, and meteor impacts all emit the same voxel edit operation contracts.
+## Canonical Runtime Model
 
-4. Native `ReactionSolver` (includes combustion)
-- Thermal/phase/chemical transitions (e.g. melt/solidify, boiling/condense, reaction heat).
-- Pressure- and temperature-dependent combustion with fuel/oxygen/material gating and moisture damping.
-- Emits heat, consumes reactants, and contributes terrain damage budget into destruction ops.
+1. Unified voxel state schema
+- Required identity: `material_id`, `material_profile_id`, `material_phase_id`.
+- Required dynamics: `mass`, `temperature`, `moisture`, `stress`, `damage`, `velocity`, `phase`, `flags`.
+- `fp32` is default precision profile.
+- `fp64` is optional via `precision_profile=fp64` on compatible builds/hardware.
 
-5. Integrated runtime policy (foveated simulation)
-- View/activity-aware cadence and resolution scaling:
-  - `zoom_factor`
-  - `camera_distance`
-  - `uniformity_score`
-  - `compute_budget_scale`
-- Guarantees monotonic throttling for far/off-focus regions and no starvation.
+2. Unified transform operations
+- Condense, spread, split, spawn, fracture, transport, reaction, and phase change are generic transform ops.
+- Passes execute over active sets only (wake/sleep + dirty/halo invalidation).
+- Fixed deterministic pass DAG and reduction rules per tick.
 
-## Immediate Work (In Progress)
-- Shared material-flow native stage helper added:
-  - `addons/local_agents/simulation/material_flow/MaterialFlowNativeStageHelpers.gd`
-- Hydrology + erosion now consume shared view-policy payload fields for native stage dispatch.
-- Native view metrics are propagated from world camera/controller through simulation tick orchestration.
+3. Material and emitter semantics
+- Materials are explicit data profiles (not codepath categories).
+- Emitters are data presets (`radiant_heat`, mass/energy injection, boundary forcing).
+- "Sun", geothermal, volcanic, and atmospheric sources are preset configurations over the same emitter contract.
 
-## Phase Plan
+4. GPU execution policy
+- Compute/fragment shader passes are authoritative for voxel transforms.
+- Missing required GPU capability is hard-fail (`gpu_required` / `gpu_unavailable`).
+- Runtime cannot silently downgrade to CPU transform logic.
 
-### Phase 1: Contract Unification (now)
-- Keep existing hydrology/erosion scripts as adapters.
-- Standardize native stage payload + result schema across environment domains.
-- Ensure all stage payloads carry unified policy fields.
+## Migration Phases
+
+### Phase 1: Contract lock
+- Freeze canonical voxel schema, pass descriptor contract, and failure taxonomy.
+- Remove legacy named-system dispatch contracts from active runtime path.
 
 Exit criteria:
-- Hydrology + erosion + solar + weather use shared policy contract in native payloads.
-- No bespoke payload field names per system for runtime policy.
+- Runtime/controller/native boundaries use only unified voxel transform contracts.
+- No CPU fallback language or behavior remains in transform flow.
 
-### Phase 2: Native Solver Core
-- Add native interfaces:
-  - `ITransportSolver`
-  - `IDestructionSolver`
-  - `ICombustionSolver`
-- Implement `TransportSolverPipeline` in native compute manager path.
-- Route terrain delta generation through destruction solver output -> voxel edit engine.
-- Add pressure-aware combustion stage contracts:
-  - ignition temperature threshold
-  - pressure window (`min`, `max`, `optimal`)
-  - fuel + oxygen gating
-  - material flammability + moisture damping
-  - heat release + terrain damage coupling outputs
-- Add generalized physics contract milestones for remaining tranche:
-  - boundary-condition contract helper (`open` / `closed` / `reflective`) reused by all stage domains
-  - porous-flow pressure coupling terms (`permeability`, `dynamic_viscosity`, `porosity`, Darcy seepage)
-  - shock/impulse coupling terms in mechanics + pressure (`shock_impulse`, `shock_distance`, attenuation, response terms)
-  - thermal/reaction phase-change payloads (melt/freeze/boil/condense + latent energy accounting)
-  - friction/contact destruction terms (`normal_force`, `contact_velocity`, static/dynamic friction, dissipation)
+### Phase 2: Native execution convergence
+- Route all transform stages through shared native dispatch and resource management.
+- Normalize diagnostics and determinism metadata (`kernel_pass`, `dispatch_reason`, replay signatures).
 
 Exit criteria:
-- Hydrology and erosion logic no longer own primary numeric loops in `.gd`.
-- GDScript systems are orchestration adapters only.
-- Generalized physics stage outputs expose boundary/porous-flow/phase-change/shock/friction contracts without domain-specific alias fields.
+- GDScript is orchestration-only for simulation transforms.
+- All heavy voxel math executes in native GPU path.
 
-### Phase 3: Domain Convergence
-- Re-express “hydrology” and “erosion” as parameter sets over shared solvers.
-- Add lava/impact/combustion profiles through same material + reaction + destruction ops.
-- Migrate weather coupling to shared field channels (moisture, energy, pressure).
+### Phase 3: Legacy removal hard gate
+- Remove residual named-system references from tests/docs/contracts.
+- CI/runtime gates fail any CPU transform execution path or legacy stage entrypoint.
 
 Exit criteria:
-- Domain behavior differences represented as data/config, not forked solver implementations.
-
-### Phase 4: GPU Residency + Mobile/D3D12 hardening
-- Keep core fields resident on GPU.
-- Use compact active-region lists + indirect dispatch where available.
-- Ensure Vulkan-required compute path + validated D3D12 backend behavior.
-- Maintain CPU fallback contract for unsupported/limited capabilities.
-
-Exit criteria:
-- Stable GPU-first execution on desktop and mobile profiles with feature gating.
-- CPU fallback passes deterministic regression contracts.
+- Unified pipeline is the only production path.
+- Legacy stage/config usage fails with explicit contract errors.
 
 ## Verification Gates
-1. Epsilon-bounded parity
-- Deterministic replay compares unified vs legacy outputs while migration is active.
-- Primary tolerances:
-  - scalar field deltas (per tick) within defined epsilon
-  - changed-region counts/trends within bounded error
 
-2. Foveated throttling monotonicity
-- Near/focus run must not be less detailed than far/peripheral run.
-- Required monotonic checks:
-  - `op_stride`
-  - `voxel_scale`
-  - `compute_budget_scale`
+1. Determinism gate
+- Fixed-seed replay remains bounded under profile-specific tolerances (`fp32` baseline, `fp64` optional).
 
-3. Determinism
-- Fixed seed + fixed tick count replay must be stable for CPU path and policy decisions.
+2. Dispatch integrity gate
+- Every transform tick exposes canonical dispatch metadata and canonical failure codes.
 
-4. Generalized stage-contract gate
-- Native pipeline step summary must consistently expose all core stage domains:
-  - `mechanics`
-  - `pressure`
-  - `thermal`
-  - `reaction`
-  - `destruction`
-- `stage_counts` and `conservation_diagnostics.by_stage_type` must include those same domains each step.
+3. Active-set gate
+- Wake/sleep/halo/compaction behavior remains deterministic and within configured latency budgets.
 
-5. Conservation diagnostics shape gate
-- Each stage result must expose `conservation` with:
-  - `mass_proxy_delta`
-  - `energy_proxy_delta`
-  - `energy_proxy_metric`
-- Aggregated diagnostics must expose:
-  - per-stage totals: `count`, `mass_proxy_delta_sum`, `energy_proxy_delta_sum`
-  - overall totals: `stage_count`, `mass_proxy_delta_total`, `energy_proxy_delta_total`
-
-6. Remaining generalized physics contract gate
-- Source-contract tests must assert presence of:
-  - boundary-condition modes/payload fields
-  - porous-flow pressure terms and outputs
-  - shock/impulse attenuation + response terms
-  - phase-change terms/payloads for thermal and reaction stages
-  - friction/contact dissipation terms/payloads in destruction stage
-- Gate remains required for deterministic headless suite completion.
-
-## Open Design Decisions (to confirm)
-1. Material profile schema location
-- Native-only config blob vs Godot `Resource` mirrored into native.
-
-2. Solver scheduling granularity
-- Tile-level cadence only vs mixed tile+voxel region cadence.
-
-3. Query service ownership
-- Keep agent query paths script-side temporarily vs immediate native migration.
-
-## Current Principle
-No new large numeric loops in `.gd`. All new heavy simulation behavior must land in native C++ with shared GPU-first pipelines and CPU fallback contracts.
+4. Validation evidence gate
+- Headless harness sweeps pass.
+- Non-headless launch on real video path succeeds before "works" claims.

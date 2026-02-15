@@ -20,6 +20,86 @@ This plan is organized by engineering concern so work can be split into focused 
 
 ## Current Wave (pre-implementation)
 
+- [ ] P0/P1/P2 (Owners: Runtime Simulation lane, HUD/UI lane, Validation/Test-Infrastructure lane, Documentation lane): Add explicit camera/FPS fire mode toggle in `WorldSimulation` and compose input mode handling via a dedicated helper.
+  - P0 Scope:
+    - Add `addons/local_agents/scenes/simulation/controllers/world/WorldInputController.gd` and move direct input-routing/editing logic from `WorldSimulation.gd` into it before behavior edits.
+    - Default `WorldSimulation` interaction state is camera mode.
+    - Add `F` toggle to switch between camera mode and FPS/Fire mode.
+    - Ensure 2nd `F` press returns to camera mode.
+  - P1 Scope:
+    - Add a visible mode label in `SimulationHud` and keep it synced with input mode transitions.
+    - Add explicit gating so space and left-click trigger fire only when FPS mode is active and not over HUD.
+    - Keep normal camera orbit/pan/zoom behavior intact in camera mode.
+  - P2 Scope:
+    - Add manual/harness checks for mode switching and no-fire-in-camera mode under HUD-occluded pointer cases.
+    - Update behavior documentation where FPS/space/left-click controls are described.
+  - File-size preconditions:
+    - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd` is 1035 lines before this work; split before edits so no in-scope source is edited inline.
+  - Acceptance criteria:
+    - `F` toggles modes deterministically; pressing again exits FPS mode.
+    - `Space` and left-click fire only work in FPS mode.
+    - Cursor over any active HUD control blocks firing.
+    - `Mode: Camera` / `Mode: FPS` is visible and updates on mode transitions.
+    - `WorldSimulation` edits include helper split before direct input/mode behavior changes.
+
+- [ ] P0/P1 (Owners: Planning lane, Runtime Simulation lane, Native Compute lane, Validation/Test-Infrastructure lane, Documentation lane): Wave D - move remaining CPU simulation hot paths to native/GPU execution.
+  - Highest-impact CPU GDScript still active (investigated February 15, 2026):
+    - `addons/local_agents/simulation/SimulationControllerRuntimeHelpers.gd` (`run_resource_pipeline`): per-tick/per-household/per-member resource, transport, and market loops are still GDScript-authoritative.
+    - `addons/local_agents/simulation/SpatialFlowNetworkSystem.gd` (`evaluate_route`, `_route_terrain_profile`, `_route_edge_keys`): route sampling and terrain/flow scoring are still CPU GDScript loops called inside the resource pipeline.
+    - `addons/local_agents/simulation/StructureLifecycleSystem.gd` (`step_lifecycle`): expansion/abandonment/path-extension/camp decisions still run in GDScript when native path is unavailable; native hook exists but is currently stubbed (`addons/local_agents/gdextensions/localagents/src/LocalAgentsSimulationCore.cpp` `step_structure_lifecycle`).
+    - `addons/local_agents/simulation/SimulationControllerCoreLoopHelpers.gd` (`_build_local_activity_map`): per-tick locality/contact aggregation remains in GDScript.
+  - File-size preconditions (before implementation wave starts):
+    - In-scope files are below 900 lines (`SimulationRuntimeFacade.gd` 726, `SimulationControllerCoreLoopHelpers.gd` 651, `LocalAgentsSimulationCore.cpp` 565), so this wave can start without mandatory pre-split.
+    - If planned deltas push any in-scope file above 900 lines, split immediately; never allow any source/config file to exceed 1000 lines.
+  - Concrete implementation decomposition (explicit files and bounded scope):
+    - P0-A (bounded deliverable for next implementation turn): Make structure lifecycle truly native-backed and remove stub behavior.
+      - Files: `addons/local_agents/gdextensions/localagents/src/LocalAgentsSimulationCore.cpp`, `addons/local_agents/gdextensions/localagents/include/LocalAgentsSimulationCore.hpp`, `addons/local_agents/simulation/controller/SimulationRuntimeFacade.gd`, `addons/local_agents/tests/test_native_general_physics_contracts.gd` (or new focused native-structure-lifecycle contract test), `addons/local_agents/tests/test_native_general_physics_wave_a_runtime.gd` (runtime assertion hook).
+      - Bound: parity for `expanded`/`abandoned` contract outputs and deterministic ordering only; no household-ledger/resource-pipeline migration in this slice.
+    - P0-B: Move route-evaluation hot loop from GDScript to native/GPU contract path.
+      - Files: `addons/local_agents/simulation/SimulationControllerRuntimeHelpers.gd`, `addons/local_agents/simulation/SimulationControllerOpsHelpers.gd`, `addons/local_agents/simulation/SpatialFlowNetworkSystem.gd`, `addons/local_agents/gdextensions/localagents/src/LocalAgentsSimulationCore.cpp`, `addons/local_agents/gdextensions/localagents/src/LocalAgentsEnvironmentStageExecutor.cpp`, `addons/local_agents/gdextensions/localagents/include/LocalAgentsEnvironmentStageExecutor.hpp`.
+      - Bound: native batch route metrics (`delivery_efficiency`, `avg_path_strength`, `eta_ticks`, terrain penalties) consumed by GDScript orchestration; keep economic ledger ownership unchanged in this slice.
+    - P1-C: Nativeize locality/contact activity aggregation currently in `_build_local_activity_map`.
+      - Files: `addons/local_agents/simulation/SimulationControllerCoreLoopHelpers.gd`, `addons/local_agents/simulation/controller/NativeComputeBridge.gd`, `addons/local_agents/gdextensions/localagents/src/LocalAgentsSimulationCore.cpp`, `addons/local_agents/gdextensions/localagents/src/LocalAgentsEnvironmentStageExecutor.cpp`.
+      - Bound: replace GDScript activity-map construction with native-produced activity/uniformity metrics; no behavior changes to cognition cadence/queue logic.
+  - Acceptance criteria:
+    - P0-A: `step_structure_lifecycle` returns deterministic non-stub lifecycle outputs under native mode; runtime uses those outputs as authoritative and preserves existing event schema.
+    - P0-B: route evaluation for resource transport no longer executes per-sample terrain loops in GDScript on the primary path; native contract returns deterministic route metrics consumed by existing pipeline.
+    - P1-C: `_build_local_activity_map` is no longer the primary runtime path for locality/contact aggregation when native core is enabled.
+    - No CPU-success fallback is introduced for GPU-required voxel transform paths while migrating these systems.
+  - Risks:
+    - Migrating structure decisions can drift semantics if GDScript and native thresholds diverge without fixture parity tests.
+    - Route-scoring migration can regress determinism if sample order or float rounding is not fixed across native/GDScript boundaries.
+    - Over-scoping resource-pipeline migration can destabilize ledger invariants; keep economic ownership in GDScript until route/native metrics are stable.
+  - Validation sequence (required order):
+    - Non-headless launch first (real display/video path) to catch parser/runtime scene errors early.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
+- [ ] P0 (Owners: Planning lane, Runtime Simulation lane, Native Compute lane, HUD/UI lane, Validation/Test-Infrastructure lane, Documentation lane): Align target-wall profile controls, runtime mutator behavior, and GPU backend metadata surfaces before implementation starts.
+  - Scope:
+    - `addons/local_agents/configuration/parameters/simulation/TargetWallProfileResource.gd`
+    - `addons/local_agents/scenes/simulation/controllers/SimulationGraphicsSettings.gd`
+    - `addons/local_agents/scenes/simulation/ui/hud/SimulationHudGraphicsPanelController.gd`
+    - `addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd`
+    - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd`
+    - Runtime GPU backend metadata bridges: `addons/local_agents/simulation/controller/NativeComputeBridge.gd`, `addons/local_agents/simulation/controller/NativeComputeBridgeEnvironmentDispatchStatus.gd`, `addons/local_agents/simulation/controller/SimulationRuntimeFacade.gd`, `addons/local_agents/simulation/controller/SimulationSnapshotController.gd`, `addons/local_agents/scenes/simulation/controllers/PerformanceTelemetryServer.gd`, `addons/local_agents/scenes/simulation/ui/SimulationHudPresenter.gd`
+  - File-size preconditions (must enforce before code edits):
+    - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd` is 996 lines; split/extract is mandatory before any change that could increase file size.
+    - `addons/local_agents/simulation/controller/NativeComputeBridge.gd` is 966 lines; split/extract is mandatory before any change that could increase file size.
+  - Acceptance criteria:
+    - Target-wall profile fields exposed in resources/UI are either wired into wall stamping semantics or explicitly removed from runtime/config/UI to eliminate dead controls.
+    - GPU backend metadata (`backend_used`, `dispatch_reason`, `dispatch_contract_status`, pass/material/emitter descriptor fields) remains canonical from bridge dispatch through snapshot/runtime telemetry/HUD formatting without lossy remapping.
+    - Runtime GPU-required semantics remain hard-fail (`GPU_REQUIRED`) with explicit structured metadata preserved for diagnostics.
+    - Ownership split is explicit: runtime mutator semantics, dispatch/contract bridge semantics, and HUD/telemetry presentation are implemented and validated in separate lanes.
+  - Risks:
+    - Dead UI controls (`pillar_height_scale`, `pillar_density_scale`) can mislead tuning and create non-deterministic expectations.
+    - Backend metadata normalization drift across bridge/facade/snapshot/HUD can mask GPU contract failures.
+    - Large-file pressure in `WorldSimulation.gd`/`NativeComputeBridge.gd` can block safe implementation unless split first.
+  - Validation sequence (required order):
+    - Non-headless launch first (real display/video path) to catch parser/runtime scene errors early.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
 - [x] P0 (Owners: Runtime Simulation lane, Native Compute lane, Validation/Test-Infrastructure lane, Documentation lane): Complete simulation-path hardening before next implementation wave starts.
   - Acceptance criteria:
     - All required contracts for the next hot-path are explicit in this file and mapped to test anchors.
@@ -69,6 +149,10 @@ Unified GPU voxel performance architecture:
 - Requests or configs that reference removed named legacy stages must fail with `unsupported_legacy_stage`; remapping to generic passes is not allowed implicitly.
 
 Locked architecture decisions (recorded February 15, 2026):
+- Runtime target bootstrap contract:
+  - Default `WorldSimulation` runtime setup must call `configure_environment(...)` then `stamp_default_voxel_target_wall(...)` to seed destructible target columns in the active environment snapshot.
+  - Default fracture-prone column material profile is canonical `rock`; runtime/config aliases like `stone` and `gravel` resolve to `rock`.
+  - Unified transform execution remains GPU-required for runtime target setup and follow-on simulation ticks; no CPU-success fallback path is allowed.
 - Canonical voxel state schema:
   - Required baseline fields: `occupancy`, `material_id`, `material_profile_id`, `material_phase_id`, `mass`, `temperature`, `moisture`, `stress`, `damage`, `velocity`, `phase`, `flags`.
   - Material identity is required and explicit for every active voxel (`material_id`, `material_profile_id`, `material_phase_id`); missing identity fields are contract-invalid.
@@ -157,6 +241,7 @@ Required control/tuning surface (configuration-first, no code-path forks):
     - CI fails if any named legacy transform-system entrypoint/contract path remains.
     - CI/runtime gates enforce numeric budgets (`max_wake_latency_ticks`, active-ratio caps, per-stage/tick ms budgets, GPU memory caps) with profile-specific thresholds.
     - CI/runtime gates verify control-surface plumbing (all required controls are externally configurable and reflected in dispatch contracts/diagnostics).
+    - Readiness/\"works\" claims require both headless harness evidence and at least one non-headless real video-path launch validation on the current tree.
     - This section is treated as canonical for migration sequencing and acceptance criteria.
   - Risks:
     - Coverage gaps can miss chunk/pass-sequencing regressions.

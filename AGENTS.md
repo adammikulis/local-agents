@@ -2,6 +2,13 @@
 
 This file defines implementation rules for this repository. Higher sections are intentionally higher priority.
 
+## Required Startup Reading (Mandatory)
+
+- Read `GODOT_BEST_PRACTICES.md` at session startup before planning or implementation.
+- Treat `GODOT_BEST_PRACTICES.md` as required process, not optional guidance.
+- Godot operational/testing/validation and invocation rules are canonical in `GODOT_BEST_PRACTICES.md` and are fully enforceable.
+- Validation order default is mandatory: run a real non-headless launch first to surface parser/runtime scene errors early, then run headless harness sweeps.
+
 ## Sub-Agent-First Execution Model (Highest Priority)
 
 - Planning-first, impact-first execution: each wave starts with a concrete target and explicit priority order.
@@ -53,6 +60,7 @@ Lane trigger rule: if a wave touches any domain, spawn the corresponding lane(s)
 - Give validation agents explicit acceptance criteria and test commands before they start.
 - Merge findings as structured pass/fail artifacts with notable failures.
 - Reassign/redeploy immediately if an agent becomes blocked or stale.
+- Required sequence for \"does it work\" checks: non-headless launch first, then full headless harness suites.
 
 ## Current Repo Policy
 
@@ -82,97 +90,14 @@ Lane trigger rule: if a wave touches any domain, spawn the corresponding lane(s)
 - App/root scenes are composition roots only; move behavior into focused controllers.
 - Use incremental migration: add new module + tests, move call sites, then remove old inlined code.
 
-## Core Design Rules
+## Godot Process and Validation Rules (Canonical Location)
 
-- Keep gameplay logic in GDScript unless native is required for performance or platform APIs.
-- Prefer explicit data flow (`signal up, call down`) instead of hidden singleton coupling.
-- Decompose concerns with clear ownership; avoid deep inheritance chains.
-- If a feature can be done with scenes/Resources/graphs first, do so before ad-hoc dictionary state.
-- Deterministic behavior in headless tests is mandatory.
-- Do not add defensive fallback behavior for required systems. Required dependencies must fail fast with actionable errors.
-
-## Project Structure
-
-- Plugin boundary is `addons/local_agents/`.
-- Use `hex_pointy` grid defaults unless explicitly required otherwise.
-- Centralize partitioning/grid config in shared configuration resources.
-- Keep editor code under `addons/local_agents/editor/`; mark scripts with `@tool` only where required.
-- Keep runtime logic outside editor UI controllers.
-- Store reusable data under `configuration/parameters/` as `Resource` classes.
-- If domain state is reused, serialized, edited, or shared, use typed resources instead of one-off dictionaries.
-
-## GDScript, Nodes, and Communication
-
-- Use explicit types where they improve correctness and tooling.
-- Use custom class annotations when helpful, and `preload` for load-order sensitive paths.
-- In unstable bootstrap chains, avoid brittle class annotations and use runtime checks.
-- Validate external inputs before use.
-- Return structured error dictionaries for runtime/service APIs.
-- Scenes should stay composable and shallow with stable wiring via exported `NodePath`/`@onready` references.
-- One responsibility per controller node.
-- Avoid anonymous callables in `.tscn` containing business logic.
-- Communication rule: signals for cross-node flow, calls downward from controllers.
-- Use one-way local intent via child/leaf signals upward.
-- Connect signals in `_ready()` and disconnect on teardown for non-trivial lifecycles.
-- Avoid duplicate signals for the same transition.
-
-## Concurrency, Paths, and Assets
-
-- Keep UI thread non-blocking; use worker threads/native async for expensive work.
-- Never mutate UI from worker threads; use deferred calls for handoff.
-- Join and clean up `Thread` instances on node exit.
-- Normalize `res://`, `user://`, and absolute paths before file operations.
-- Use `RuntimePaths` helpers for platform-specific outputs.
-- Ensure directories exist before writes and handle write errors explicitly.
-- Do not commit downloaded runtime artifacts, models, or caches.
-
-## Native Extensions and Build Hygiene
-
-- Required GDExtensions are mandatory dependencies for features that need them.
-- Do not ship local fallback code paths for missing required extensions; fail loudly and stop.
-- Treat required GPU compute/fragment capabilities as mandatory dependencies for voxel simulation paths; fail loudly and stop when unavailable.
-- Initialize required extensions explicitly and guard calls with singleton/method availability checks.
-- Keep compatibility with current Godot stable and track third-party API changes in focused commits.
-- Pin and document third-party revisions on behavior change.
-- Keep fetch/build scripts idempotent and support clean rebuilds from empty `thirdparty/` and `bin/`.
-- Align CI commands with local scripts.
-
-## Testing and Performance
-
-- Maintain a fast headless-safe core suite and a higher-cost runtime suite.
-- Auto-acquire required test assets/models when available; fail loudly when acquisition fails.
-- Require `godot --headless --no-window` paths in CI-relevant flows.
-- Avoid per-frame allocations in hot paths.
-- Profile long-running runtime work and log lightweight telemetry.
-
-## Headless Test Harness Invocation (Mandatory)
-
-- Always run SceneTree harness scripts via `godot --headless --no-window -s <script>`.
-- Canonical harness scripts:
-  - `addons/local_agents/tests/run_all_tests.gd`
-  - `addons/local_agents/tests/run_runtime_tests_bounded.gd`
-  - `addons/local_agents/tests/run_single_test.gd`
-  - `addons/local_agents/tests/benchmark_voxel_pipeline.gd`
-- `addons/local_agents/tests/test_*.gd` modules are usually `RefCounted` test definitions, not SceneTree entrypoints; never launch them directly with `godot -s test_x.gd`.
-- Canonical helper for single-test execution: `scripts/run_single_test.sh test_native_voxel_op_contracts.gd` (defaults to `--timeout=120`).
-- Execute `test_*.gd` modules through `addons/local_agents/tests/run_single_test.gd` and pass the test path with `-- --test=res://...` plus an explicit timeout argument.
-- Correct example: `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_op_contracts.gd --timeout=120`.
-- Banned example: `godot --headless --no-window -s addons/local_agents/tests/test_native_voxel_op_contracts.gd`.
-- Never pass a harness `.gd` as a main scene path without `-s`.
-- Broken example (do not use): `godot --headless --no-window addons/local_agents/tests/run_all_tests.gd`.
-- This broken form triggers: `doesn't inherit from SceneTree or MainLoop`.
-- When forwarding arguments to runtime harnesses, keep the `--` separator.
-- Use README command templates as the invocation baseline and keep `AGENTS.md` and `README` command guidance synchronized.
-
-## Plugin UX and Documentation
-
-- Keep plugin activation lazy for expensive runtime initialization.
-- Long actions must show status and clear failure details in UI.
-- Disable conflicting controls while background work is active.
-- For required dependencies, show explicit error states rather than silent fallback behavior.
-- Update README/testing docs when behavior or commands change.
+- `GODOT_BEST_PRACTICES.md` is the canonical and enforceable source for Godot-specific design, runtime, testing, validation, harness invocation, and process guidance.
+- Keep `AGENTS.md` focused on orchestration, lane ownership, and repository policy.
+- If behavior or commands change, update `README` and `GODOT_BEST_PRACTICES.md` together.
 - Record breaking changes and migrations in `ARCHITECTURE_PLAN.md`.
-- Keep commits scoped by domain (runtime/editor/tests/docs) where practical.
+- When an avoidable Godot/runtime/parser/test-process error is found, append a dated entry to `GODOT_BEST_PRACTICES.md` under `Error Log / Preventative Patterns`.
+- Commit scope policy remains: keep commits scoped by domain (runtime/editor/tests/docs) where practical.
 
 ## Skills Reference
 

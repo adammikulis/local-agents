@@ -98,6 +98,9 @@ Rendering style:
 - Transform snapshots and diagnostics are stage-agnostic contract payloads (`transform_snapshot`, `transform_diagnostics`) for runtime/bridge consumers.
 - Preset-based emitters drive destruction/environment edit emission; profile switches are preset changes, not runtime-stack swaps.
 - Material identity is required on active voxel state (`material_id`, `material_profile_id`, `material_phase_id`).
+- Runtime target bootstrap stamps default destructible target columns/wall during setup (`WorldSimulation` calls `simulation_controller.stamp_default_voxel_target_wall(...)` after `configure_environment(...)`).
+- Default fracture-prone column material profile is `rock` via canonical profile resolution (`stone`/`gravel` canonicalize to `rock`).
+- Transform execution is GPU-required; no CPU-success fallback path exists for unified transform runtime.
 - Legacy named stage requests (weather/hydrology/erosion/solar) are unsupported in active runtime and fail as `unsupported_legacy_stage`.
 
 ### Rendering and GPU Shaders
@@ -117,6 +120,30 @@ Rendering style:
 - Timelapse-style simulation controls (play/pause/fast-forward/rewind/fork) and state restore.
 - Live stats report generic transform metrics/diagnostics in demo HUD/status labels.
 - Integrated runtime stack in one scene: worldgen + unified transform runtime + settlement/culture/ecology controllers + debug overlays.
+
+Runtime target setup hook/config points:
+- Hook point: `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd` (`configure_environment` then `stamp_default_voxel_target_wall` during ready/bootstrap).
+- Column mutation path: `addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd` (`stamp_default_target_wall`, `_apply_column_surface_delta`).
+- Canonical material profiles: `addons/local_agents/configuration/parameters/simulation/MaterialProfileTableResource.gd` (`rock`, `soil`, `water`, `ice`, `metal`, `wood`, `unknown`).
+
+Profile resources (defaults + wiring):
+- `TargetWallProfileResource` (`addons/local_agents/configuration/parameters/simulation/TargetWallProfileResource.gd`)
+  - `wall_height_levels=6`
+  - `column_extra_levels=4`
+  - `column_span_interval=3`
+  - `material_profile_key="rock"`
+  - `destructible_tag="target_wall"`
+  - `brittleness=1.0`
+- `FpsLauncherProfileResource` (`addons/local_agents/configuration/parameters/simulation/FpsLauncherProfileResource.gd`)
+  - `launch_speed=60.0`
+  - `launch_mass=0.2`
+  - `projectile_radius=0.07`
+  - `projectile_ttl_seconds=4.0`
+  - `launch_energy_scale=1.0`
+- Wiring
+  - `WorldSimulation` (`addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd`) exposes `target_wall_profile_override` and `fps_launcher_profile_override`; in `_ready()` it applies the target-wall override via `simulation_controller.set_target_wall_profile(...)` and stamps via `stamp_default_voxel_target_wall(...)`.
+  - `WorldSimulation` configures `FpsLauncherController` with `configure(world_camera, self, fps_launcher_profile_override)`.
+  - `FpsLauncherController` (`addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd`) maps the profile into live launcher values in `_apply_profile_resource(...)`.
 
 ## Run
 
