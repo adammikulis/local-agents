@@ -66,6 +66,11 @@ layout(set = 0, binding = 2, std430) buffer ParamsBuffer {
     uint value_count;
     uint value_capacity;
     uint hash_capacity;
+    uint kernel_version;
+    uint pass_index;
+    uint pass_count;
+    uint pass_op_start;
+    uint pass_op_count;
 }
 params_buffer;
 
@@ -156,9 +161,19 @@ void main() {
     if (gl_GlobalInvocationID.x != 0u) {
         return;
     }
+    if (params_buffer.kernel_version != 1u) {
+        return;
+    }
+
+    const uint op_count = params_buffer.op_count;
+    const uint pass_op_start = params_buffer.pass_op_start;
+    const uint pass_op_end = min(pass_op_start + params_buffer.pass_op_count, op_count);
+    if (pass_op_start >= pass_op_end || op_count == 0u) {
+        return;
+    }
 
     uint value_count = min(params_buffer.value_count, params_buffer.value_capacity);
-    for (uint index = 0u; index < params_buffer.op_count; index += 1u) {
+    for (uint index = pass_op_start; index < pass_op_end; index += 1u) {
         const OpEntry op = ops_buffer.entries[index];
 
         ChangedEntry entry;

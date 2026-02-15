@@ -363,6 +363,8 @@ func _process_native_voxel_rate(delta: float) -> void:
 		if not (dispatch_variant is Dictionary):
 			continue
 		var dispatch = dispatch_variant as Dictionary
+		if not bool(dispatch.get("dispatched", false)):
+			continue
 		var stage_payload: Dictionary = {}
 		var voxel_payload = dispatch.get("voxel_result", {})
 		if voxel_payload is Dictionary:
@@ -370,6 +372,10 @@ func _process_native_voxel_rate(delta: float) -> void:
 		var raw_result = dispatch.get("result", {})
 		if raw_result is Dictionary:
 			stage_payload["result"] = (raw_result as Dictionary).duplicate(true)
+		stage_payload["kernel_pass"] = String(dispatch.get("kernel_pass", ""))
+		stage_payload["backend_used"] = String(dispatch.get("backend_used", ""))
+		stage_payload["dispatch_reason"] = String(dispatch.get("dispatch_reason", ""))
+		stage_payload["dispatched"] = bool(dispatch.get("dispatched", false))
 		if stage_payload.is_empty():
 			continue
 		_apply_native_voxel_stage_result(tick, stage_payload)

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <set>
 #include <tuple>
 #include <vector>
@@ -18,6 +19,10 @@ namespace {
 constexpr int64_t k_workgroup_size = 64;
 constexpr int64_t k_op_stride_bytes = 88;
 constexpr int64_t k_out_stride_bytes = 32;
+constexpr uint32_t k_kernel_version = 1U;
+constexpr int64_t k_param_base_bytes = 8;
+constexpr int64_t k_param_pass_bytes = 20;
+constexpr int64_t k_u32_max = static_cast<int64_t>(std::numeric_limits<uint32_t>::max());
 
 struct ChunkKey {
     int32_t x = 0;
@@ -97,6 +102,47 @@ VoxelGpuExecutionResult fail_result(const String &error_code, const std::vector<
     result.error_code = error_code;
     result.deferred_ops = pending_ops;
     return result;
+}
+
+PackedByteArray make_base_param_bytes(const int64_t op_count, const int32_t voxel_scale) {
+    PackedByteArray param_bytes;
+    param_bytes.resize(k_param_base_bytes);
+    param_bytes.encode_u32(0, static_cast<int64_t>(op_count));
+    param_bytes.encode_s32(4, voxel_scale);
+    return param_bytes;
+}
+
+PackedByteArray make_pass_param_bytes(
+    const uint32_t pass_index,
+    const uint32_t pass_count,
+    const uint32_t pass_op_start,
+    const uint32_t pass_op_count
+) {
+    PackedByteArray param_bytes;
+    param_bytes.resize(k_param_pass_bytes);
+    param_bytes.encode_u32(0, k_kernel_version);
+    param_bytes.encode_u32(4, pass_index);
+    param_bytes.encode_u32(8, pass_count);
+    param_bytes.encode_u32(12, pass_op_start);
+    param_bytes.encode_u32(16, pass_op_count);
+    return param_bytes;
+}
+
+PackedByteArray make_dispatch_base_params(const int64_t op_count, const int32_t voxel_scale) {
+    return make_base_param_bytes(op_count, voxel_scale);
+}
+
+PackedByteArray make_dispatch_pass_params(
+    const uint32_t pass_index,
+    const uint32_t pass_count,
+    const uint32_t pass_op_start,
+    const uint32_t pass_op_count
+) {
+    return make_pass_param_bytes(pass_index, pass_count, pass_op_start, pass_op_count);
+}
+
+bool fits_u32(const int64_t value) {
+    return value >= 0 && value <= k_u32_max;
 }
 } // namespace
 
@@ -188,13 +234,7 @@ VoxelGpuExecutionResult VoxelEditGpuExecutor::execute(
         op_bytes.encode_s32(offset + 84, noise_mode_to_code(op.noise_mode));
     }
 
-    PackedByteArray param_bytes;
-    param_bytes.resize(8);
-    param_bytes.encode_u32(0, static_cast<int64_t>(dispatch_ops.size()));
-    param_bytes.encode_s32(4, voxel_scale);
-
     rd->buffer_update(acquire_result.bindings.ops_rid, 0, static_cast<uint32_t>(op_bytes.size()), op_bytes);
-    rd->buffer_update(acquire_result.bindings.params_rid, 0, static_cast<uint32_t>(param_bytes.size()), param_bytes);
 
     const uint64_t max_workgroup_size_x = acquire_result.bindings.max_workgroup_size_x;
     const uint64_t max_workgroup_invocations = acquire_result.bindings.max_workgroup_invocations;
@@ -205,18 +245,71 @@ VoxelGpuExecutionResult VoxelEditGpuExecutor::execute(
     if (k_workgroup_size > static_cast<int64_t>(max_workgroup_size_x) || k_workgroup_size > static_cast<int64_t>(max_workgroup_invocations)) {
         return fail_result(String("gpu_compute_workgroup_unsupported"), ops);
     }
-
-    const uint32_t group_count = static_cast<uint32_t>((dispatch_count + (k_workgroup_size - 1)) / k_workgroup_size);
-    if (group_count > max_workgroup_count_x) {
-        return fail_result(String("gpu_compute_dispatch_too_large"), ops);
+    if (!fits_u32(dispatch_count)) {
+        return fail_result(String("gpu_compute_dispatch_metadata_overflow"), ops);
     }
 
-    const int64_t compute_list = rd->compute_list_begin();
-    rd->compute_list_bind_compute_pipeline(compute_list, acquire_result.bindings.pipeline_rid);
-    rd->compute_list_bind_uniform_set(compute_list, acquire_result.bindings.uniform_set_rid, 0);
-    rd->compute_list_dispatch(compute_list, std::max<uint32_t>(1, group_count), 1, 1);
-    rd->compute_list_end();
-    rd->submit();
+    const int64_t max_dispatch_workgroups = std::min<int64_t>(
+        static_cast<int64_t>(max_workgroup_count_x),
+        k_u32_max / k_workgroup_size
+    );
+    if (max_dispatch_workgroups <= 0) {
+        return fail_result(String("gpu_compute_workgroup_unsupported"), ops);
+    }
+
+    const int64_t max_ops_per_pass = std::min<int64_t>(dispatch_count, max_dispatch_workgroups * k_workgroup_size);
+    if (max_ops_per_pass <= 0) {
+        return fail_result(String("gpu_compute_dispatch_too_large"), ops);
+    }
+    const int64_t pass_count = (dispatch_count + (max_ops_per_pass - 1)) / max_ops_per_pass;
+    if (pass_count <= 0) {
+        return fail_result(String("gpu_compute_dispatch_too_large"), ops);
+    }
+    if (!fits_u32(pass_count)) {
+        return fail_result(String("gpu_compute_dispatch_metadata_overflow"), ops);
+    }
+
+    const PackedByteArray base_params = make_dispatch_base_params(dispatch_count, voxel_scale);
+
+    for (int64_t pass_index = 0; pass_index < pass_count; pass_index += 1) {
+        const int64_t pass_op_start = pass_index * max_ops_per_pass;
+        const int64_t pass_op_count = std::min<int64_t>(max_ops_per_pass, dispatch_count - pass_op_start);
+        if (pass_op_count <= 0) {
+            continue;
+        }
+        if (!fits_u32(pass_index) || !fits_u32(pass_op_start) || !fits_u32(pass_op_count)) {
+            return fail_result(String("gpu_compute_dispatch_metadata_overflow"), ops);
+        }
+        const uint64_t pass_op_end_u64 = static_cast<uint64_t>(pass_op_start) + static_cast<uint64_t>(pass_op_count);
+        if (pass_op_end_u64 > static_cast<uint64_t>(dispatch_count) || pass_op_end_u64 > static_cast<uint64_t>(k_u32_max)) {
+            return fail_result(String("gpu_compute_dispatch_metadata_overflow"), ops);
+        }
+        const int32_t pass_group_count = static_cast<int32_t>((pass_op_count + (k_workgroup_size - 1)) / k_workgroup_size);
+        if (!fits_u32(pass_group_count)) {
+            return fail_result(String("gpu_compute_dispatch_metadata_overflow"), ops);
+        }
+
+        rd->buffer_update(acquire_result.bindings.params_rid, 0, static_cast<uint32_t>(base_params.size()), base_params);
+        const PackedByteArray pass_params = make_dispatch_pass_params(
+            static_cast<uint32_t>(pass_index),
+            static_cast<uint32_t>(pass_count),
+            static_cast<uint32_t>(pass_op_start),
+            static_cast<uint32_t>(pass_op_count)
+        );
+        rd->buffer_update(
+            acquire_result.bindings.params_rid,
+            static_cast<uint32_t>(k_param_base_bytes + 12),
+            static_cast<uint32_t>(pass_params.size()),
+            pass_params
+        );
+
+        const int64_t compute_list = rd->compute_list_begin();
+        rd->compute_list_bind_compute_pipeline(compute_list, acquire_result.bindings.pipeline_rid);
+        rd->compute_list_bind_uniform_set(compute_list, acquire_result.bindings.uniform_set_rid, 0);
+        rd->compute_list_dispatch(compute_list, std::max<uint32_t>(1, static_cast<uint32_t>(pass_group_count)), 1, 1);
+        rd->compute_list_end();
+        rd->submit();
+    }
     rd->sync();
 
     const PackedByteArray readback = rd->buffer_get_data(acquire_result.bindings.out_rid);

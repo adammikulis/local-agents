@@ -415,6 +415,29 @@ Wave B validation gates:
 - [x] Add deterministic boundary consistency checks across chunk edges (active-region transition consistency remains follow-up). — 2026-02-13. Scope: `addons/local_agents/gdextensions/localagents/src/sim/CoreSimulationPipelineFieldEvolution.cpp` ("FieldEvolution.cpp"); tests: `addons/local_agents/tests/test_native_general_physics_wave_a_runtime.gd`.
 - [x] Require coherent repeated-load terrain response without numerical explosion. — 2026-02-14. Repeated-load stability checks added in `addons/local_agents/tests/test_native_general_physics_wave_a_runtime.gd`.
 
+### Wave 1: Voxel Kernel Pass Abstraction (GPU-only transition hardening)
+
+- [ ] Not started (P0)
+- Owners/Lane ownership:
+  - Runtime Simulation lane (controller contract and contract surfacing)
+  - Native Compute lane (pass abstraction, shader entrypoint/buffer binding maps, and executor behavior)
+  - Documentation lane (contract docs + runbook updates)
+  - Validation/Test-Infrastructure lane (contract and harness gates)
+- Definition of done:
+  - `VoxelEditStageCompute.glsl` is treated as a multi-pass compute surface behind a typed executor map (logical `kernel_pass` -> dispatch descriptor), not by ad-hoc controller-side branching.
+  - `VoxelEditGpuExecutor` is the single resolver for pass->shader/pipeline/binding metadata and enforces fail-fast when requested pass metadata is incomplete.
+  - All voxel edit entrypoints remain hot-path deterministic under repeated seeded runs.
+- Required acceptance criteria:
+  - `execute_voxel_stage` payloads expose a canonical `kernel_pass` token plus pass input fields (for example radius/shape/noise metadata), and acceptors reject unknown/missing pass metadata with explicit error codes.
+  - `VoxelEditEngine` remains an orchestration shim: no inline shader/pipeline selection logic and no pass-specific fallback semantics in the call-site layer.
+  - `headless_gpu_dispatch_contract` includes per-pass dispatch fields (`kernel_pass`, `dispatched`, `backend_used`, `dispatch_reason`) and never reports successful execution when GPU pass mapping is unresolved.
+  - Validation commands include:
+    - `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_dispatch_contracts.gd --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_op_contracts.gd --timeout=120`
+  - Controller-side follow-up before wave complete:
+    - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd` must treat voxel stage results as opaque dispatch contracts and avoid pass-specific heuristics.
+    - `addons/local_agents/simulation/controller/SimulationRuntimeFacade.gd` and `addons/local_agents/simulation/controller/NativeComputeBridge.gd` must keep pass-selection authority out of orchestration and validate `kernel_pass` + dispatch contract fields only.
+
 ### Wave C: GPU-First Runtime + Query Migration + CI Gates
 
 GPU-first implementation:

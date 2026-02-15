@@ -7,6 +7,14 @@ Status: Draft for decision
 ## Status Note
 Progress tracking for active implementation has moved to `ARCHITECTURE_PLAN.md` under Concern I (Wave A/B/C checkboxes). This document is background/reference only.
 
+### Current Wave 1 alignment (GPU kernel pass abstraction)
+
+- Wave 1 is currently a controller-to-executor abstraction hardening pass: the canonical pass selection and shader/pipeline resolution should live in the native executor layer (`VoxelEditGpuExecutor`), while `VoxelEditEngine` and GDScript controllers stay orchestration-only.
+- Required controller follow-up (logged in `ARCHITECTURE_PLAN.md`) is to remove any pass-specific shader/pipeline branching from:
+  - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd`
+  - `addons/local_agents/simulation/controller/SimulationRuntimeFacade.gd`
+  - `addons/local_agents/simulation/controller/NativeComputeBridge.gd`
+
 ## Objective
 
 Integrate all voxel/tile simulation domains into a single native simulation core (GDExtension) so GDScript remains orchestration/UI only. This covers smell, wind, weather, hydrology, erosion/destruction, solar, water simulation, ecology signals, and shared spatial query services.

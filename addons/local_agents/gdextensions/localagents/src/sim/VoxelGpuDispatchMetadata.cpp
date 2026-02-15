@@ -119,6 +119,8 @@ Dictionary build_voxel_gpu_dispatch_metadata(const VoxelGpuDispatchMetadataInput
     execution["uniformity_score"] = input.uniformity_score;
     execution["zoom_throttle_applied"] = input.zoom_throttle_applied;
     execution["uniformity_upscale_applied"] = input.uniformity_upscale_applied;
+    execution["kernel_pass"] = input.kernel_pass;
+    execution["dispatch_reason"] = input.dispatch_reason;
     execution["stride_phase"] = input.stride_phase;
     execution["readback"] = readback;
     return execution;

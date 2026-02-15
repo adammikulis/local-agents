@@ -45,12 +45,12 @@ static func dispatch_stage_call(controller, tick: int, phase: String, method_nam
 
 static func dispatch_voxel_stage(stage_name: StringName, payload: Dictionary = {}) -> Dictionary:
 	if not is_native_sim_core_enabled():
-		return {"ok": false, "executed": false, "dispatched": false, "error": "native_sim_core_disabled"}
+		return {"ok": false, "executed": false, "dispatched": false, "kernel_pass": "", "backend_used": "", "dispatch_reason": "native_sim_core_disabled", "error": "native_sim_core_disabled"}
 	if not Engine.has_singleton(NATIVE_SIM_CORE_SINGLETON_NAME):
-		return {"ok": false, "executed": false, "dispatched": false, "error": "native_sim_core_unavailable"}
+		return {"ok": false, "executed": false, "dispatched": false, "kernel_pass": "", "backend_used": "", "dispatch_reason": "native_sim_core_unavailable", "error": "native_sim_core_unavailable"}
 	var core = Engine.get_singleton(NATIVE_SIM_CORE_SINGLETON_NAME)
 	if core == null or not core.has_method("execute_voxel_stage"):
-		return {"ok": false, "executed": false, "dispatched": false, "error": "core_missing_method_execute_voxel_stage"}
+		return {"ok": false, "executed": false, "dispatched": false, "kernel_pass": "", "backend_used": "", "dispatch_reason": "core_missing_method_execute_voxel_stage", "error": "core_missing_method_execute_voxel_stage"}
 	var result = core.call("execute_voxel_stage", stage_name, payload)
 	return _normalize_voxel_stage_result(result)
 
@@ -83,6 +83,19 @@ static func is_voxel_stage_dispatched(dispatch: Dictionary) -> bool:
 	if execution_variant is Dictionary:
 		return bool((execution_variant as Dictionary).get("dispatched", false))
 	return false
+
+static func _voxel_stage_contract_fields(payload_result: Dictionary, execution: Dictionary) -> Dictionary:
+	var backend_requested := String(execution.get("backend_requested", "")).strip_edges().to_lower()
+	var backend_used := String(execution.get("backend_used", "")).strip_edges().to_lower()
+	if backend_used == "":
+		backend_used = backend_requested
+	var kernel_pass := String(execution.get("kernel_pass", payload_result.get("kernel_pass", ""))).strip_edges()
+	var dispatch_reason := String(execution.get("dispatch_reason", payload_result.get("dispatch_reason", payload_result.get("reason", "")))).strip_edges()
+	return {
+		"kernel_pass": kernel_pass,
+		"backend_used": backend_used,
+		"dispatch_reason": dispatch_reason,
+	}
 
 static func voxel_stage_result(dispatch: Dictionary) -> Dictionary:
 	if not bool(dispatch.get("ok", false)):
@@ -678,34 +691,91 @@ static func _normalize_environment_stage_result(result) -> Dictionary:
 
 static func _normalize_voxel_stage_result(result) -> Dictionary:
 	if not (result is Dictionary):
-		return {"ok": false, "executed": true, "dispatched": false, "error": "core_call_invalid_response_execute_voxel_stage"}
+		return {"ok": false, "executed": true, "dispatched": false, "kernel_pass": "", "backend_used": "", "dispatch_reason": "", "result": result, "error": "core_call_invalid_response_execute_voxel_stage"}
 	var payload_result = result as Dictionary
 	var execution_variant = payload_result.get("execution", {})
 	var execution: Dictionary = execution_variant if execution_variant is Dictionary else {}
 	var dispatched = bool(payload_result.get("dispatched", false))
 	if not dispatched and not execution.is_empty():
 		dispatched = bool(execution.get("dispatched", false))
+	var contract = _voxel_stage_contract_fields(payload_result, execution)
 	var backend_requested := String(execution.get("backend_requested", "")).strip_edges().to_lower()
 	var backend_used := String(execution.get("backend_used", "")).strip_edges().to_lower()
+	if backend_used == "":
+		backend_used = backend_requested
 	var gpu_dispatched := bool(execution.get("gpu_dispatched", dispatched))
 	var cpu_fallback_used := bool(execution.get("cpu_fallback_used", false))
 	var base_error := String(payload_result.get("error", execution.get("error_code", "")))
 	if cpu_fallback_used or backend_used == "cpu_fallback":
 		var error_code := base_error if base_error != "" else "gpu_backend_required_cpu_fallback_disallowed"
-		return {"ok": false, "executed": true, "dispatched": false, "result": payload_result, "error": error_code}
+		return {
+			"ok": false,
+			"executed": true,
+			"dispatched": false,
+			"kernel_pass": contract.get("kernel_pass", ""),
+			"backend_used": backend_used,
+			"dispatch_reason": contract.get("dispatch_reason", ""),
+			"result": payload_result,
+			"error": error_code,
+		}
 	if backend_requested == "gpu" and not gpu_dispatched:
 		var unavailable_error := base_error if base_error != "" else "gpu_backend_unavailable"
-		return {"ok": false, "executed": true, "dispatched": false, "result": payload_result, "error": unavailable_error}
+		return {
+			"ok": false,
+			"executed": true,
+			"dispatched": false,
+			"kernel_pass": contract.get("kernel_pass", ""),
+			"backend_used": backend_used,
+			"dispatch_reason": contract.get("dispatch_reason", ""),
+			"result": payload_result,
+			"error": unavailable_error,
+		}
 	if backend_used != "" and backend_used != "gpu":
 		var backend_error := base_error if base_error != "" else "gpu_backend_required"
-		return {"ok": false, "executed": true, "dispatched": false, "result": payload_result, "error": backend_error}
+		return {
+			"ok": false,
+			"executed": true,
+			"dispatched": false,
+			"kernel_pass": contract.get("kernel_pass", ""),
+			"backend_used": backend_used,
+			"dispatch_reason": contract.get("dispatch_reason", ""),
+			"result": payload_result,
+			"error": backend_error,
+		}
 	if not bool(payload_result.get("ok", false)):
 		var payload_error := base_error if base_error != "" else "core_call_failed_execute_voxel_stage"
-		return {"ok": false, "executed": true, "dispatched": false, "result": payload_result, "error": payload_error}
+		return {
+			"ok": false,
+			"executed": true,
+			"dispatched": false,
+			"kernel_pass": contract.get("kernel_pass", ""),
+			"backend_used": backend_used,
+			"dispatch_reason": contract.get("dispatch_reason", ""),
+			"result": payload_result,
+			"error": payload_error,
+		}
 	if not dispatched:
 		var dispatch_error := base_error if base_error != "" else "gpu_dispatch_not_confirmed"
-		return {"ok": false, "executed": true, "dispatched": false, "result": payload_result, "error": dispatch_error}
-	return {"ok": true, "executed": true, "dispatched": true, "result": payload_result, "error": ""}
+		return {
+			"ok": false,
+			"executed": true,
+			"dispatched": false,
+			"kernel_pass": contract.get("kernel_pass", ""),
+			"backend_used": backend_used,
+			"dispatch_reason": contract.get("dispatch_reason", ""),
+			"result": payload_result,
+			"error": dispatch_error,
+		}
+	return {
+		"ok": true,
+		"executed": true,
+		"dispatched": true,
+		"kernel_pass": contract.get("kernel_pass", ""),
+		"backend_used": backend_used,
+		"dispatch_reason": contract.get("dispatch_reason", ""),
+		"result": payload_result,
+		"error": "",
+	}
 
 static func _normalize_dispatch_result(controller, tick: int, phase: String, method_name: String, result, strict: bool) -> Dictionary:
 	if result is bool:

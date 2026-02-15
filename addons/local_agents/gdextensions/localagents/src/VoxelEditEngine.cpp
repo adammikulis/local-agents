@@ -163,6 +163,7 @@ Dictionary VoxelEditEngine::execute_stage(
 
     StageBuffer &buffer = ensure_stage_buffer(stage_domain.to_lower(), stage_name);
     const int64_t pending_before = static_cast<int64_t>(buffer.pending_ops.size());
+    const String kernel_pass = String("voxel_edit_compute");
     // Invariant: pending_ops are appended in enqueue order and retain sequence_id ordering; explicit std::sort(ops, lhs.sequence_id < rhs.sequence_id) is redundant.
     std::vector<VoxelEditOp> ops_to_execute = buffer.pending_ops;
     StageRuntimePolicy runtime_policy = build_runtime_policy(payload);
@@ -188,6 +189,8 @@ Dictionary VoxelEditEngine::execute_stage(
         execution["uniformity_score"] = runtime_policy.uniformity_score;
         execution["zoom_throttle_applied"] = runtime_policy.zoom_throttle_applied;
         execution["uniformity_upscale_applied"] = runtime_policy.uniformity_upscale_applied;
+        execution["kernel_pass"] = kernel_pass;
+        execution["dispatch_reason"] = String("gpu_backend_unavailable");
         execution["stride_phase"] = runtime_policy.stride_phase;
 
         const StageExecutionStats stats = build_empty_changed_stats();
@@ -246,6 +249,8 @@ Dictionary VoxelEditEngine::execute_stage(
         execution["uniformity_score"] = runtime_policy.uniformity_score;
         execution["zoom_throttle_applied"] = runtime_policy.zoom_throttle_applied;
         execution["uniformity_upscale_applied"] = runtime_policy.uniformity_upscale_applied;
+        execution["kernel_pass"] = kernel_pass;
+        execution["dispatch_reason"] = execution["error_code"];
         execution["stride_phase"] = runtime_policy.stride_phase;
 
         const StageExecutionStats stats = build_empty_changed_stats();
@@ -339,6 +344,8 @@ Dictionary VoxelEditEngine::execute_stage(
     dispatch_metadata.uniformity_score = runtime_policy.uniformity_score;
     dispatch_metadata.zoom_throttle_applied = runtime_policy.zoom_throttle_applied;
     dispatch_metadata.uniformity_upscale_applied = runtime_policy.uniformity_upscale_applied;
+    dispatch_metadata.kernel_pass = kernel_pass;
+    dispatch_metadata.dispatch_reason = String("dispatched");
     dispatch_metadata.changed_region = gpu_stats.changed_region.duplicate(true);
     dispatch_metadata.changed_chunks = gpu_stats.changed_chunks.duplicate(true);
     const Dictionary execution = build_voxel_gpu_dispatch_metadata(dispatch_metadata);

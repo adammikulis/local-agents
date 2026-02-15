@@ -20,7 +20,7 @@ namespace {
 
 constexpr int64_t k_op_stride_bytes = 88;
 constexpr int64_t k_out_stride_bytes = 32;
-constexpr int64_t k_param_stride_bytes = 20;
+constexpr int64_t k_param_stride_bytes = 40;
 constexpr int64_t k_value_stride_bytes = 32;
 constexpr int64_t k_hash_stride_bytes = 4;
 
@@ -259,6 +259,11 @@ bool VoxelGpuResourceCache::ensure_buffers(const int64_t dispatch_count, String 
     param_bytes.encode_u32(8, static_cast<int64_t>(std::min<uint32_t>(preserved_value_count, static_cast<uint32_t>(required_count))));
     param_bytes.encode_u32(12, static_cast<int64_t>(required_count));
     param_bytes.encode_u32(16, static_cast<int64_t>(required_hash_count));
+    param_bytes.encode_u32(20, 0U);
+    param_bytes.encode_u32(24, 0U);
+    param_bytes.encode_u32(28, 0U);
+    param_bytes.encode_u32(32, 0U);
+    param_bytes.encode_u32(36, 0U);
 
     ops_rid_ = rd_->storage_buffer_create(static_cast<uint32_t>(op_bytes.size()), op_bytes);
     out_rid_ = rd_->storage_buffer_create(static_cast<uint32_t>(out_bytes.size()), out_bytes);

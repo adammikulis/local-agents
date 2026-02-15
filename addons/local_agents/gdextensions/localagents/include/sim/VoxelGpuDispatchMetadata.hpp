@@ -28,6 +28,8 @@ struct VoxelGpuDispatchMetadataInput {
     double uniformity_score = 0.0;
     bool zoom_throttle_applied = false;
     bool uniformity_upscale_applied = false;
+    godot::String kernel_pass;
+    godot::String dispatch_reason;
     godot::Dictionary changed_region;
     godot::Array changed_chunks;
 };
