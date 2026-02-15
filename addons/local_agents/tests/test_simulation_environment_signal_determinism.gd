@@ -51,16 +51,16 @@ func _run_trace(tree: SceneTree) -> Dictionary:
 		if signals.is_empty():
 			controller.queue_free()
 			return {"ok": false, "error": "missing_environment_signals_%d" % tick}
-		var changed_tiles: Array = signals.get("erosion_changed_tiles", [])
+		var changed_tiles: Array = signals.get("transform_changed_tiles", [])
 		changed_tiles.sort()
-		var changed_flag = bool(signals.get("erosion_changed", false))
+		var changed_flag = bool(signals.get("transform_changed", false))
 		if changed_tiles.is_empty() == changed_flag:
 			controller.queue_free()
 			return {"ok": false, "error": "changed_flag_mismatch_%d" % tick}
 		if changed_flag:
 			changed_ticks += 1
-		var weather: Dictionary = signals.get("weather_snapshot", {})
-		var solar: Dictionary = signals.get("solar_snapshot", {})
+		var weather: Dictionary = signals.get("atmosphere_state_snapshot", {})
+		var solar: Dictionary = signals.get("exposure_state_snapshot", {})
 		trace.append({
 			"tick": tick,
 			"changed": changed_flag,

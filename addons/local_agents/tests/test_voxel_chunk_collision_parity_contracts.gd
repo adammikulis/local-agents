@@ -9,7 +9,7 @@ const TERRAIN_RENDERER_GD_PATH := "res://addons/local_agents/scenes/simulation/c
 func run_test(_tree: SceneTree) -> bool:
 	var ok := true
 	ok = _test_dead_local_projectile_contact_carve_symbols_removed_runtime_path() and ok
-	ok = _test_erosion_changed_chunks_propagated_through_resource_sync_controller() and ok
+	ok = _test_transform_changed_chunks_propagated_through_resource_sync_controller() and ok
 	ok = _test_terrain_renderer_chunk_collision_parity_hooks_in_rebuild_lifecycle() and ok
 	if ok:
 		print("Voxel chunk collision parity source contracts passed (runtime symbol removal + erosion chunk propagation + terrain collision hooks).")
@@ -30,7 +30,7 @@ func _test_dead_local_projectile_contact_carve_symbols_removed_runtime_path() ->
 	) and ok
 	return ok
 
-func _test_erosion_changed_chunks_propagated_through_resource_sync_controller() -> bool:
+func _test_transform_changed_chunks_propagated_through_resource_sync_controller() -> bool:
 	var resource_source := _read_script_source(ENVIRONMENT_SIGNAL_SNAPSHOT_RESOURCE_GD_PATH)
 	if resource_source == "":
 		return false
@@ -42,15 +42,15 @@ func _test_erosion_changed_chunks_propagated_through_resource_sync_controller() 
 		return false
 
 	var ok := true
-	ok = _assert(resource_source.contains("@export var erosion_changed_chunks: Array = []"), "Environment signal resource contract must declare erosion_changed_chunks export.") and ok
-	ok = _assert(resource_source.contains("\"erosion_changed_chunks\": erosion_changed_chunks.duplicate(true),"), "Environment signal resource contract must serialize erosion_changed_chunks through to_dict.") and ok
-	ok = _assert(resource_source.contains("var changed_chunks_variant = values.get(\"erosion_changed_chunks\", [])"), "Environment signal resource contract must read erosion_changed_chunks in from_dict.") and ok
-	ok = _assert(resource_source.contains("erosion_changed_chunks = changed_chunks_variant.duplicate(true) if changed_chunks_variant is Array else []"), "Environment signal resource contract must deep-copy erosion_changed_chunks in from_dict.") and ok
+	ok = _assert(resource_source.contains("@export var transform_changed_chunks: Array = []"), "Environment signal resource contract must declare transform_changed_chunks export.") and ok
+	ok = _assert(resource_source.contains("\"transform_changed_chunks\": transform_changed_chunks.duplicate(true),"), "Environment signal resource contract must serialize transform_changed_chunks through to_dict.") and ok
+	ok = _assert(resource_source.contains("var changed_chunks_variant = values.get(\"transform_changed_chunks\", [])"), "Environment signal resource contract must read transform_changed_chunks in from_dict.") and ok
+	ok = _assert(resource_source.contains("transform_changed_chunks = changed_chunks_variant.duplicate(true) if changed_chunks_variant is Array else []"), "Environment signal resource contract must deep-copy transform_changed_chunks in from_dict.") and ok
 
-	ok = _assert(sync_controller_source.contains("snapshot.erosion_changed_chunks = (state.get(\"erosion_changed_chunks\", []) as Array).duplicate(true)"), "WorldEnvironmentSyncController contract must hydrate erosion_changed_chunks from state fallback path.") and ok
-	ok = _assert(sync_controller_source.contains("env_signals.erosion_changed_chunks"), "WorldEnvironmentSyncController contract must forward erosion_changed_chunks into generation-delta sync.") and ok
+	ok = _assert(sync_controller_source.contains("snapshot.transform_changed_chunks = (state.get(\"transform_changed_chunks\", []) as Array).duplicate(true)"), "WorldEnvironmentSyncController contract must hydrate transform_changed_chunks from state fallback path.") and ok
+	ok = _assert(sync_controller_source.contains("env_signals.transform_changed_chunks"), "WorldEnvironmentSyncController contract must forward transform_changed_chunks into generation-delta sync.") and ok
 
-	ok = _assert(world_simulation_source.contains("\"erosion_changed_chunks\": (mutation.get(\"changed_chunks\", []) as Array).duplicate(true),"), "WorldSimulation contract must emit erosion_changed_chunks into environment_signals payload.") and ok
+	ok = _assert(world_simulation_source.contains("\"transform_changed_chunks\": (mutation.get(\"changed_chunks\", []) as Array).duplicate(true),"), "WorldSimulation contract must emit transform_changed_chunks into environment_signals payload.") and ok
 	return ok
 
 func _test_terrain_renderer_chunk_collision_parity_hooks_in_rebuild_lifecycle() -> bool:

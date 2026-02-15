@@ -39,8 +39,8 @@ func run_test(_tree: SceneTree) -> bool:
 	var rough = a.evaluate_route(path_start, rough_target)
 	var preferred_b = b.evaluate_route(path_start, path_target)
 	var rough_b = b.evaluate_route(path_start, rough_target)
-	var dry = a.evaluate_route(path_start, path_target, {"tick": 10, "rain_intensity": 0.0})
-	var wet = a.evaluate_route(path_start, path_target, {"tick": 190, "rain_intensity": 0.0})
+	var dry = a.evaluate_route(path_start, path_target, {"tick": 10, "stage_intensity": 0.0})
+	var wet = a.evaluate_route(path_start, path_target, {"tick": 190, "stage_intensity": 0.0})
 
 	if float(preferred.get("travel_cost", 9999.0)) >= float(rough.get("travel_cost", 0.0)):
 		push_error("Expected established low-brush path route to be faster than rough route")

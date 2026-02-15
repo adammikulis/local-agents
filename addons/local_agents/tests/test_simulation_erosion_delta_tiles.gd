@@ -28,19 +28,19 @@ func run_test(tree: SceneTree) -> bool:
 			push_error("Tick processing failed in erosion delta test")
 			return false
 		var state: Dictionary = result.get("state", {})
-		var erosion_snapshot: Dictionary = state.get("erosion_snapshot", {})
-		var changed_flag = bool(state.get("erosion_changed", false))
-		var changed_tiles: Array = state.get("erosion_changed_tiles", [])
+		var deformation_state_snapshot: Dictionary = state.get("deformation_state_snapshot", {})
+		var changed_flag = bool(state.get("transform_changed", false))
+		var changed_tiles: Array = state.get("transform_changed_tiles", [])
 		if changed_tiles.is_empty() != (not changed_flag):
 			controller.queue_free()
-			push_error("erosion_changed flag does not match erosion_changed_tiles payload")
+			push_error("transform_changed flag does not match transform_changed_tiles payload")
 			return false
 		if not changed_tiles.is_empty():
 			changed_seen = true
-		var erosion_snapshot_tiles: Array = erosion_snapshot.get("changed_tiles", [])
-		if erosion_snapshot_tiles.size() != changed_tiles.size():
+		var deformation_snapshot_tiles: Array = deformation_state_snapshot.get("changed_tiles", [])
+		if deformation_snapshot_tiles.size() != changed_tiles.size():
 			controller.queue_free()
-			push_error("erosion_snapshot.changed_tiles not synchronized with state erosion_changed_tiles")
+			push_error("deformation_state_snapshot.changed_tiles not synchronized with state transform_changed_tiles")
 			return false
 
 	controller.queue_free()
