@@ -16,6 +16,7 @@ var _handle_camera_mouse_motion_fn: Callable = Callable()
 var _handle_camera_mouse_button_fn: Callable = Callable()
 var _is_input_enabled: bool = true
 var _is_fps_mode: bool = false
+var _process_frame_connected: bool = false
 
 func configure(
 	host: Node,
@@ -41,6 +42,8 @@ func configure(
 	_handle_camera_mouse_motion_fn = handle_camera_motion_fn
 	_handle_camera_mouse_button_fn = handle_camera_button_fn
 	_is_input_enabled = is_input_enabled
+	_ensure_process_frame_connection()
+	_apply_fps_mode_state()
 	_update_mode_label()
 
 func set_input_enabled(enabled: bool) -> void:
@@ -70,7 +73,7 @@ func refresh_mode_label() -> void:
 
 func toggle_fps_mode() -> void:
 	_is_fps_mode = not _is_fps_mode
-	_update_mode_label()
+	_apply_fps_mode_state()
 
 func handle_unhandled_input(event: InputEvent) -> void:
 	if not _is_input_enabled:
@@ -203,3 +206,43 @@ func _update_mode_label() -> void:
 		set_mode_label(_FPS_MODE_LABEL)
 	else:
 		set_mode_label(_CAMERA_MODE_LABEL)
+
+func _ensure_process_frame_connection() -> void:
+	if _process_frame_connected or _host == null:
+		return
+	var tree := _host.get_tree()
+	if tree == null:
+		return
+	var frame_callable := Callable(self, "_on_process_frame")
+	if not tree.process_frame.is_connected(frame_callable):
+		tree.process_frame.connect(frame_callable)
+	_process_frame_connected = true
+
+func _on_process_frame() -> void:
+	if not _is_input_enabled or not _is_fps_mode or _spawn_mode_active() or _is_text_ui_focus_active():
+		return
+	var camera_controller: Object = _camera_controller_object()
+	if camera_controller == null or not camera_controller.has_method("step_fps"):
+		return
+	var delta := 1.0 / 60.0
+	if _host != null:
+		delta = maxf(0.0, _host.get_process_delta_time())
+	camera_controller.call("step_fps", delta)
+
+func _apply_fps_mode_state() -> void:
+	if _is_fps_mode:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	else:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	var camera_controller: Object = _camera_controller_object()
+	if camera_controller != null and camera_controller.has_method("set_fps_mode"):
+		camera_controller.call("set_fps_mode", _is_fps_mode)
+	_update_mode_label()
+
+func _camera_controller_object() -> Object:
+	if not _handle_camera_mouse_motion_fn.is_valid():
+		return null
+	var controller_variant = _handle_camera_mouse_motion_fn.get_object()
+	if controller_variant is Object:
+		return controller_variant as Object
+	return null

@@ -16,6 +16,14 @@ var _camera_yaw: float = 0.0
 var _camera_pitch: float = deg_to_rad(55.0)
 var _mmb_down: bool = false
 var _rmb_down: bool = false
+var _fps_mode_enabled: bool = false
+var _fps_look_sensitivity: float = 0.0035
+var _fps_move_speed: float = 18.0
+var _fps_sprint_multiplier: float = 2.0
+var _fps_yaw: float = PI
+var _fps_pitch: float = 0.0
+var _fps_min_pitch_radians: float = deg_to_rad(-89.0)
+var _fps_max_pitch_radians: float = deg_to_rad(89.0)
 
 func configure(
 	world_camera: Camera3D,
@@ -66,6 +74,8 @@ func rebuild_orbit_state_from_camera() -> void:
 		_camera_yaw = atan2(offset.x, offset.z)
 
 func handle_mouse_button(event: InputEventMouseButton) -> void:
+	if _fps_mode_enabled:
+		return
 	if event.button_index == MOUSE_BUTTON_MIDDLE:
 		_mmb_down = event.pressed
 		return
@@ -81,6 +91,11 @@ func handle_mouse_button(event: InputEventMouseButton) -> void:
 		apply_camera_transform()
 
 func handle_mouse_motion(event: InputEventMouseMotion) -> void:
+	if _fps_mode_enabled:
+		_fps_yaw += event.relative.x * _fps_look_sensitivity
+		_fps_pitch = clampf(_fps_pitch - event.relative.y * _fps_look_sensitivity, _fps_min_pitch_radians, _fps_max_pitch_radians)
+		_apply_fps_look_transform()
+		return
 	if not Input.is_key_pressed(KEY_CTRL):
 		return
 	if not _mmb_down and not _rmb_down:
@@ -90,6 +105,88 @@ func handle_mouse_motion(event: InputEventMouseMotion) -> void:
 	else:
 		orbit_camera(event.relative)
 	apply_camera_transform()
+
+func set_fps_mode(enabled: bool) -> void:
+	if _world_camera == null:
+		_fps_mode_enabled = enabled
+		return
+	if enabled == _fps_mode_enabled:
+		if enabled:
+			_sync_fps_angles_from_camera()
+		return
+	if enabled:
+		_sync_fps_angles_from_camera()
+	else:
+		_sync_orbit_state_from_camera_pose()
+	_fps_mode_enabled = enabled
+	_mmb_down = false
+	_rmb_down = false
+
+func step_fps(delta: float) -> void:
+	if not _fps_mode_enabled or _world_camera == null:
+		return
+	var forward := -_world_camera.global_transform.basis.z
+	forward.y = 0.0
+	if forward.length_squared() > 0.0001:
+		forward = forward.normalized()
+	var right := _world_camera.global_transform.basis.x
+	right.y = 0.0
+	if right.length_squared() > 0.0001:
+		right = right.normalized()
+	var move_direction := Vector3.ZERO
+	if Input.is_key_pressed(KEY_W):
+		move_direction += forward
+	if Input.is_key_pressed(KEY_S):
+		move_direction -= forward
+	if Input.is_key_pressed(KEY_D):
+		move_direction += right
+	if Input.is_key_pressed(KEY_A):
+		move_direction -= right
+	if move_direction.length_squared() <= 0.0:
+		return
+	move_direction = move_direction.normalized()
+	var speed := _fps_move_speed
+	if Input.is_key_pressed(KEY_SHIFT):
+		speed *= _fps_sprint_multiplier
+	_world_camera.global_position += move_direction * speed * maxf(delta, 0.0)
+
+func _sync_fps_angles_from_camera() -> void:
+	if _world_camera == null:
+		return
+	var forward := -_world_camera.global_transform.basis.z
+	if forward.length_squared() <= 0.0001:
+		return
+	forward = forward.normalized()
+	_fps_pitch = clampf(asin(forward.y), _fps_min_pitch_radians, _fps_max_pitch_radians)
+	var horizontal_len := Vector2(forward.x, forward.z).length()
+	if horizontal_len > 0.0001:
+		_fps_yaw = atan2(forward.x, forward.z)
+	_apply_fps_look_transform()
+
+func _sync_orbit_state_from_camera_pose() -> void:
+	if _world_camera == null:
+		return
+	_sync_fps_angles_from_camera()
+	_camera_pitch = clampf(_fps_pitch, _min_pitch_radians, _max_pitch_radians)
+	_camera_yaw = _fps_yaw
+	var horizontal := cos(_camera_pitch) * _camera_distance
+	var offset := Vector3(
+		sin(_camera_yaw) * horizontal,
+		sin(_camera_pitch) * _camera_distance,
+		cos(_camera_yaw) * horizontal
+	)
+	_camera_focus = _world_camera.global_position - offset
+
+func _apply_fps_look_transform() -> void:
+	if _world_camera == null:
+		return
+	var cos_pitch := cos(_fps_pitch)
+	var forward := Vector3(
+		sin(_fps_yaw) * cos_pitch,
+		sin(_fps_pitch),
+		cos(_fps_yaw) * cos_pitch
+	)
+	_world_camera.look_at(_world_camera.global_position + forward, Vector3.UP)
 
 func orbit_camera(relative: Vector2) -> void:
 	_camera_yaw -= relative.x * _orbit_sensitivity
