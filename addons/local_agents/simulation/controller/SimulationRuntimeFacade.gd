@@ -82,19 +82,19 @@ static func enqueue_native_voxel_edit_ops(controller, tick: int, voxel_ops: Arra
 		"queued_count": int(native_payload.get("queued_count", 0)),
 	}
 
-	static func execute_native_voxel_stage(controller, tick: int, stage_name: StringName, payload: Dictionary = {}, strict: bool = false) -> Dictionary:
-		if not NativeComputeBridgeScript.is_native_sim_core_enabled():
-			if strict:
-				controller._emit_dependency_error(tick, "voxel_stage", "native_sim_core_disabled")
-			return {
-				"ok": false,
-				"executed": false,
-				"dispatched": false,
-				"kernel_pass": "",
-				"backend_used": "",
-				"dispatch_reason": "",
-				"error": "native_sim_core_disabled",
-			}
+static func execute_native_voxel_stage(controller, tick: int, stage_name: StringName, payload: Dictionary = {}, strict: bool = false) -> Dictionary:
+	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
+		if strict:
+			controller._emit_dependency_error(tick, "voxel_stage", "native_sim_core_disabled")
+		return {
+			"ok": false,
+			"executed": false,
+			"dispatched": false,
+			"kernel_pass": "",
+			"backend_used": "",
+			"dispatch_reason": "",
+			"error": "native_sim_core_disabled",
+		}
 	if not ensure_native_sim_core_initialized(controller, tick):
 		return {
 			"ok": false,
