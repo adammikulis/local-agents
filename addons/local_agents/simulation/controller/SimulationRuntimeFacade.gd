@@ -588,24 +588,44 @@ static func run_structure_lifecycle(controller, tick: int) -> void:
 	if NativeComputeBridgeScript.is_native_sim_core_enabled():
 		if not ensure_native_sim_core_initialized(controller, tick):
 			return
+		var lifecycle_payload: Dictionary = {
+			"config": controller._structure_lifecycle_config.to_dict() if controller._structure_lifecycle_config != null and controller._structure_lifecycle_config.has_method("to_dict") else {},
+			"structures": controller._structure_lifecycle_system.export_structures() if controller._structure_lifecycle_system != null else {},
+			"anchors": controller._structure_lifecycle_system.export_anchors() if controller._structure_lifecycle_system != null else [],
+			"runtime_state": controller._structure_lifecycle_system.export_runtime_state() if controller._structure_lifecycle_system != null else {},
+			"household_members": controller._household_member_counts(),
+			"household_metrics": controller._household_growth_metrics.duplicate(true),
+			"household_positions": controller._household_positions.duplicate(true),
+			"water_snapshot": controller._network_state_snapshot.duplicate(true),
+		}
 		var dispatch = NativeComputeBridgeScript.dispatch_stage_call(
 			controller,
 			tick,
 			"structure_lifecycle",
 			"step_structure_lifecycle",
-			[tick],
+			[tick, lifecycle_payload],
 			true
 		)
-		if bool(dispatch.get("ok", false)):
-			var native_result = dispatch.get("result", {})
-			if native_result is Dictionary:
-				var native_payload = native_result as Dictionary
-				controller._structure_lifecycle_events = {
-					"expanded": native_payload.get("expanded", []),
-					"abandoned": native_payload.get("abandoned", []),
-				}
-			else:
-				controller._structure_lifecycle_events = {"expanded": [], "abandoned": []}
+		if not bool(dispatch.get("ok", false)):
+			return
+		var native_result = dispatch.get("result", {})
+		var native_payload: Dictionary = native_result if native_result is Dictionary else {}
+		var native_structures: Dictionary = native_payload.get("structures", {}) if native_payload.get("structures", {}) is Dictionary else {}
+		var native_anchors: Array = native_payload.get("anchors", []) if native_payload.get("anchors", []) is Array else []
+		var native_runtime_state: Dictionary = native_payload.get("runtime_state", {}) if native_payload.get("runtime_state", {}) is Dictionary else {}
+		if controller._structure_lifecycle_system != null:
+			controller._structure_lifecycle_system.import_lifecycle_state(
+				native_structures,
+				native_anchors,
+				native_runtime_state
+			)
+		controller._structure_lifecycle_events = {
+			"expanded": native_payload.get("expanded", []),
+			"abandoned": native_payload.get("abandoned", []),
+			"camps": native_payload.get("camps", []),
+			"path_extensions": native_payload.get("path_extensions", []),
+		}
+		_log_structure_lifecycle_events(controller, tick, controller._structure_lifecycle_events)
 		return
 	if controller._structure_lifecycle_system == null:
 		return
@@ -620,16 +640,44 @@ static func run_structure_lifecycle(controller, tick: int) -> void:
 	controller._structure_lifecycle_events = {
 		"expanded": result.get("expanded", []),
 		"abandoned": result.get("abandoned", []),
+		"camps": result.get("camps", []),
+		"path_extensions": result.get("path_extensions", []),
 	}
-	if not controller._structure_lifecycle_events.get("expanded", []).is_empty():
+	_log_structure_lifecycle_events(controller, tick, controller._structure_lifecycle_events)
+
+static func _log_structure_lifecycle_events(controller, tick: int, events: Dictionary) -> void:
+	var expanded: Array = events.get("expanded", []) if events.get("expanded", []) is Array else []
+	var abandoned: Array = events.get("abandoned", []) if events.get("abandoned", []) is Array else []
+	var camps: Array = events.get("camps", []) if events.get("camps", []) is Array else []
+	var path_extensions: Array = events.get("path_extensions", []) if events.get("path_extensions", []) is Array else []
+	if not expanded.is_empty():
 		controller._log_resource_event(tick, "sim_structure_event", "settlement", "settlement_main", {
 			"kind": "structure_expansion",
-			"structure_ids": controller._structure_lifecycle_events.get("expanded", []),
+			"structure_ids": expanded,
 		})
-	if not controller._structure_lifecycle_events.get("abandoned", []).is_empty():
+	if not abandoned.is_empty():
 		controller._log_resource_event(tick, "sim_structure_event", "settlement", "settlement_main", {
 			"kind": "structure_abandonment",
-			"structure_ids": controller._structure_lifecycle_events.get("abandoned", []),
+			"structure_ids": abandoned,
+		})
+	if not camps.is_empty():
+		var camp_ids: Array = []
+		for camp_variant in camps:
+			if not (camp_variant is Dictionary):
+				continue
+			var camp_row = camp_variant as Dictionary
+			var camp_id = String(camp_row.get("structure_id", "")).strip_edges()
+			if camp_id != "":
+				camp_ids.append(camp_id)
+		if not camp_ids.is_empty():
+			controller._log_resource_event(tick, "sim_structure_event", "settlement", "settlement_main", {
+				"kind": "structure_camp_spawn",
+				"structure_ids": camp_ids,
+			})
+	if not path_extensions.is_empty():
+		controller._log_resource_event(tick, "sim_structure_event", "settlement", "settlement_main", {
+			"kind": "structure_path_extension",
+			"events": path_extensions,
 		})
 
 static func assert_resource_invariants(controller, tick: int, npc_ids: Array) -> void:

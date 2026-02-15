@@ -8,6 +8,7 @@
 #include "LocalAgentsSimProfiler.hpp"
 #include "VoxelEditEngine.hpp"
 #include "helpers/SimulationCoreDictionaryHelpers.hpp"
+#include "helpers/StructureLifecycleNativeHelpers.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -206,8 +207,8 @@ void LocalAgentsSimulationCore::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("step_simulation", "delta_seconds", "step_index"),
                          &LocalAgentsSimulationCore::step_simulation);
-    ClassDB::bind_method(D_METHOD("step_structure_lifecycle", "step_index"),
-                         &LocalAgentsSimulationCore::step_structure_lifecycle);
+    ClassDB::bind_method(D_METHOD("step_structure_lifecycle", "step_index", "lifecycle_payload"),
+                         &LocalAgentsSimulationCore::step_structure_lifecycle, DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("enqueue_environment_voxel_edit_op", "stage_name", "op_payload"),
                          &LocalAgentsSimulationCore::enqueue_environment_voxel_edit_op, DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("enqueue_voxel_edit_op", "stage_name", "op_payload"),
@@ -332,13 +333,14 @@ Dictionary LocalAgentsSimulationCore::step_simulation(double delta_seconds, int6
     return result;
 }
 
-Dictionary LocalAgentsSimulationCore::step_structure_lifecycle(int64_t step_index) {
-    Dictionary result;
-    result["ok"] = true;
-    result["step_index"] = step_index;
-    result["expanded"] = Array();
-    result["abandoned"] = Array();
-    return result;
+Dictionary LocalAgentsSimulationCore::step_structure_lifecycle(
+    int64_t step_index,
+    const Dictionary &lifecycle_payload
+) {
+    return local_agents::simulation::helpers::step_structure_lifecycle_native(
+        step_index,
+        lifecycle_payload
+    );
 }
 
 Dictionary LocalAgentsSimulationCore::enqueue_environment_voxel_edit_op(

@@ -40,6 +40,7 @@ set(SIM_SRC
 )
 
 set(HELPER_SRC
+    src/helpers/StructureLifecycleNativeHelpers.cpp
     src/helpers/SimulationCoreDictionaryHelpers.cpp
     src/helpers/VoxelEditCpuExecutionHelpers.cpp
     src/helpers/VoxelEditParsingHelpers.cpp

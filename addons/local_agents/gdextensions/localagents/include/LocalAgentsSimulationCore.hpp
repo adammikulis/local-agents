@@ -39,7 +39,10 @@ public:
     bool configure_compute_manager(const Dictionary &compute_config = Dictionary());
 
     Dictionary step_simulation(double delta_seconds, int64_t step_index);
-    Dictionary step_structure_lifecycle(int64_t step_index);
+    Dictionary step_structure_lifecycle(
+        int64_t step_index,
+        const Dictionary &lifecycle_payload = Dictionary()
+    );
     Dictionary enqueue_environment_voxel_edit_op(const StringName &stage_name, const Dictionary &op_payload);
     Dictionary enqueue_voxel_edit_op(const StringName &stage_name, const Dictionary &op_payload);
     Dictionary apply_environment_stage(const StringName &stage_name, const Dictionary &payload = Dictionary());
