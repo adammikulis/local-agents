@@ -13,6 +13,7 @@ const WorldCameraControllerScript = preload("res://addons/local_agents/scenes/si
 const WorldHudBindingControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldHudBindingController.gd")
 const WorldEnvironmentSyncControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldEnvironmentSyncController.gd")
 const WorldGraphicsTargetWallControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldGraphicsTargetWallController.gd")
+const WorldInputControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldInputController.gd")
 const FpsLauncherControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd")
 const _VOXEL_NATIVE_STAGE_NAME := &"physics_failure_emission"
 
@@ -111,6 +112,7 @@ var _camera_controller = WorldCameraControllerScript.new()
 var _hud_binding_controller = WorldHudBindingControllerScript.new()
 var _environment_sync_controller = WorldEnvironmentSyncControllerScript.new()
 var _graphics_target_wall_controller = WorldGraphicsTargetWallControllerScript.new()
+var _input_controller = WorldInputControllerScript.new()
 var _ecology_controller: Node = null
 
 func _ready() -> void:
@@ -140,6 +142,19 @@ func _ready() -> void:
 		add_child(fps_launcher_controller)
 	if fps_launcher_controller.has_method("configure"):
 		fps_launcher_controller.call("configure", world_camera, self, fps_launcher_profile_override)
+	_input_controller.configure(
+		self,
+		simulation_hud,
+		field_hud,
+		Callable(self, "_get_spawn_mode"),
+		Callable(self, "_set_spawn_mode"),
+		Callable(self, "_try_fire_from_screen_center"),
+		Callable(self, "_handle_spawn_click"),
+		Callable(simulation_hud, "set_mode_label"),
+		Callable(_camera_controller, "handle_mouse_motion"),
+		Callable(_camera_controller, "handle_mouse_button"),
+		camera_controls_enabled
+	)
 	_hud_binding_controller.connect_simulation_hud(simulation_hud, {
 		"play": Callable(self, "_on_hud_play_pressed"),
 		"pause": Callable(self, "_on_hud_pause_pressed"),
@@ -151,12 +166,12 @@ func _ready() -> void:
 		"graphics_option_changed": Callable(self, "_on_hud_graphics_option_changed")
 	})
 	_hud_binding_controller.connect_field_hud(field_hud, {
-		"spawn_mode_requested": Callable(self, "_on_field_spawn_mode_requested"),
+		"spawn_mode_requested": Callable(self, "_set_spawn_mode"),
 		"spawn_random_requested": Callable(self, "_on_field_spawn_random_requested"),
 		"debug_settings_changed": Callable(self, "_on_field_debug_settings_changed")
 	}, _spawn_mode)
 
-	_initialize_camera_orbit()
+	_camera_controller.initialize_orbit()
 	_on_hud_overlays_changed(false, false, false, false, false, false)
 	_apply_runtime_demo_profile(runtime_demo_profile)
 	if _ecology_controller != null and _ecology_controller.has_method("set_debug_overlay"):
@@ -184,7 +199,7 @@ func _ready() -> void:
 	if environment_controller.has_method("set_transform_stage_d_state"):
 		environment_controller.set_transform_stage_d_state(setup.get("exposure_state_snapshot", {}))
 	if auto_frame_camera_on_generate:
-		_frame_camera_from_environment(setup.get("environment", {}))
+		_camera_controller.frame_from_environment(setup.get("environment", {}))
 	_apply_environment_signals(_build_environment_signal_snapshot_from_setup(setup, 0))
 	if settlement_controller.has_method("spawn_initial_settlement"):
 		settlement_controller.spawn_initial_settlement(setup.get("spawn", {}))
@@ -208,28 +223,12 @@ func _process(delta: float) -> void:
 			if rows_variant is Array:
 				projectile_contact_rows = rows_variant as Array
 	_push_native_view_metrics()
-	_process_native_voxel_rate(delta)
+	_process_native_voxel_rate(delta, projectile_contact_rows)
 	_apply_loop_result(_loop_controller.process_frame(delta, Callable(self, "_collect_living_entity_profiles"), projectile_contact_rows))
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not camera_controls_enabled:
-		return
-	if event is InputEventKey:
-		var key_event = event as InputEventKey
-		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_SPACE:
-			_try_fire_from_screen_center()
-			return
-	if event is InputEventMouseMotion:
-		_handle_camera_mouse_motion(event as InputEventMouseMotion)
-		return
-	if event is InputEventMouseButton:
-		var mouse_event = event as InputEventMouseButton
-		_handle_camera_mouse_button(mouse_event)
-		if mouse_event.button_index == MOUSE_BUTTON_LEFT and mouse_event.pressed:
-			if _spawn_mode != "none":
-				_handle_spawn_click(mouse_event.position)
-			else:
-				_try_fire_from_screen_center()
+	if _input_controller != null:
+		_input_controller.handle_unhandled_input(event)
 
 func _try_fire_from_screen_center() -> void:
 	if _spawn_mode != "none":
@@ -237,33 +236,27 @@ func _try_fire_from_screen_center() -> void:
 	if fps_launcher_controller != null and fps_launcher_controller.has_method("try_fire_from_screen_center"):
 		fps_launcher_controller.call("try_fire_from_screen_center")
 
-func _on_field_spawn_mode_requested(mode: String) -> void:
-	_spawn_mode = mode
-	_hud_binding_controller.set_field_spawn_mode(field_hud, _spawn_mode)
-
 func _on_field_spawn_random_requested(plants: int, rabbits: int) -> void:
-	if _ecology_controller != null and _ecology_controller.has_method("spawn_random"):
-		_ecology_controller.call("spawn_random", plants, rabbits)
-	_hud_binding_controller.set_field_random_spawn_status(field_hud, plants, rabbits)
+	if _ecology_controller != null and _ecology_controller.has_method("spawn_random"): _ecology_controller.call("spawn_random", plants, rabbits); _hud_binding_controller.set_field_random_spawn_status(field_hud, plants, rabbits)
 
 func _on_field_debug_settings_changed(settings: Dictionary) -> void:
-	if _ecology_controller != null and _ecology_controller.has_method("apply_debug_settings"):
-		_ecology_controller.call("apply_debug_settings", settings)
+	if _ecology_controller != null and _ecology_controller.has_method("apply_debug_settings"): _ecology_controller.call("apply_debug_settings", settings)
 
 func _handle_spawn_click(screen_pos: Vector2) -> void:
-	if _spawn_mode == "none" or _ecology_controller == null:
-		return
-	var point = _screen_to_ground(screen_pos)
-	if point == null:
-		return
+	if _spawn_mode == "none" or _ecology_controller == null: return
+	var point = _camera_controller.screen_to_ground(screen_pos); if point == null: return
 	if _spawn_mode == "plant" and _ecology_controller.has_method("spawn_plant_at"):
 		_ecology_controller.call("spawn_plant_at", point, 0.0)
 	elif _spawn_mode == "rabbit" and _ecology_controller.has_method("spawn_rabbit_at"):
 		_ecology_controller.call("spawn_rabbit_at", point)
-	_spawn_mode = "none"
-	if field_hud != null and field_hud.has_method("set_spawn_mode"):
-		field_hud.call("set_spawn_mode", _spawn_mode)
-	_hud_binding_controller.set_field_selection_restored(field_hud)
+	_set_spawn_mode("none"); _hud_binding_controller.set_field_selection_restored(field_hud)
+
+func _get_spawn_mode() -> String: return _spawn_mode
+
+func _set_spawn_mode(mode: String) -> void:
+	_spawn_mode = String(mode).strip_edges()
+	_spawn_mode = "none" if _spawn_mode == "" else _spawn_mode
+	_hud_binding_controller.set_field_spawn_mode(field_hud, _spawn_mode)
 
 func _collect_living_entity_profiles():
 	if _ecology_controller != null and _ecology_controller.has_method("collect_living_entity_profiles"):
@@ -582,7 +575,7 @@ func _configure_voxel_scheduler() -> void:
 		clampf(float(_graphics_state.get("voxel_tick_max_interval_seconds", 0.6)), 0.01, 3.0)
 	)
 
-func _process_native_voxel_rate(delta: float) -> void:
+func _process_native_voxel_rate(delta: float, projectile_contact_rows: Array = []) -> void:
 	var tick = _loop_controller.current_tick()
 	if simulation_controller == null or not simulation_controller.has_method("execute_native_voxel_stage"):
 		_fail_native_voxel_dependency(tick, "native voxel dispatch unavailable: execute_native_voxel_stage missing", "missing_dispatch_method", "", 0.0)
@@ -604,8 +597,8 @@ func _process_native_voxel_rate(delta: float) -> void:
 			"compute_budget_scale": float(pulse.get("compute_budget_scale", base_budget)),
 			"zoom_factor": clampf(float(view_metrics.get("zoom_factor", 0.0)), 0.0, 1.0),
 			"camera_distance": maxf(0.0, float(view_metrics.get("camera_distance", 0.0))),
-			"uniformity_score": clampf(float(view_metrics.get("uniformity_score", 0.0)), 0.0, 1.0),
-		}
+			"uniformity_score": clampf(float(view_metrics.get("uniformity_score", 0.0)), 0.0, 1.0), "physics_contacts": projectile_contact_rows.duplicate(true),
+			}
 		var dispatch_start_usec := Time.get_ticks_usec()
 		var dispatch_variant = simulation_controller.call("execute_native_voxel_stage", tick, _VOXEL_NATIVE_STAGE_NAME, payload, false)
 		var dispatch_duration_ms := float(maxi(0, Time.get_ticks_usec() - dispatch_start_usec)) / 1000.0
@@ -1005,31 +998,3 @@ func _push_native_view_metrics() -> void:
 	if simulation_controller == null or not simulation_controller.has_method("set_native_view_metrics"):
 		return
 	simulation_controller.call("set_native_view_metrics", _camera_controller.native_view_metrics())
-
-# Compatibility wrappers retained for existing scene wiring and scripts.
-func _screen_to_ground(screen_pos: Vector2) -> Variant:
-	return _camera_controller.screen_to_ground(screen_pos)
-
-func _frame_camera_from_environment(environment_snapshot: Dictionary) -> void:
-	_camera_controller.frame_from_environment(environment_snapshot)
-
-func _initialize_camera_orbit() -> void:
-	_camera_controller.initialize_orbit()
-
-func _rebuild_orbit_state_from_camera() -> void:
-	_camera_controller.rebuild_orbit_state_from_camera()
-
-func _handle_camera_mouse_button(event: InputEventMouseButton) -> void:
-	_camera_controller.handle_mouse_button(event)
-
-func _handle_camera_mouse_motion(event: InputEventMouseMotion) -> void:
-	_camera_controller.handle_mouse_motion(event)
-
-func _orbit_camera(relative: Vector2) -> void:
-	_camera_controller.orbit_camera(relative)
-
-func _pan_camera(relative: Vector2) -> void:
-	_camera_controller.pan_camera(relative)
-
-func _apply_camera_transform() -> void:
-	_camera_controller.apply_camera_transform()

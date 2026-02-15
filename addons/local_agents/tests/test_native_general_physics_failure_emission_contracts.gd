@@ -4,6 +4,7 @@ extends RefCounted
 const NATIVE_FAILURE_EMISSION_PLANNER_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/SimulationFailureEmissionPlanner.cpp"
 const NATIVE_FAILURE_EMISSION_NOISE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/FailureEmissionDeterministicNoise.cpp"
 const NATIVE_CORE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/LocalAgentsSimulationCore.cpp"
+const WORLD_SIMULATION_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd"
 
 func run_test(_tree: SceneTree) -> bool:
 	var planner_source := _read_source(NATIVE_FAILURE_EMISSION_PLANNER_CPP_PATH)
@@ -15,10 +16,14 @@ func run_test(_tree: SceneTree) -> bool:
 	var core_source := _read_source(NATIVE_CORE_CPP_PATH)
 	if core_source == "":
 		return false
+	var world_simulation_source := _read_source(WORLD_SIMULATION_GD_PATH)
+	if world_simulation_source == "":
+		return false
 	var ok := true
 	ok = _test_directional_failure_cleave_contract(planner_source) and ok
 	ok = _test_fallback_fracture_contract(planner_source) and ok
 	ok = _test_environment_stage_driver_contract(planner_source, core_source) and ok
+	ok = _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_simulation_source) and ok
 	ok = _test_noise_metadata_contract(planner_source, noise_source) and ok
 	if ok:
 		print("Native generalized physics failure emission contracts passed (directional cleave + fallback fracture source markers).")
@@ -81,6 +86,18 @@ func _test_noise_metadata_contract(planner_source: String, noise_source: String)
 	ok = _assert(
 		noise_source.contains("payload[\"noise_gain\"]") or noise_source.contains("payload[\"noise_persistence\"]"),
 		"Emission payload contract must include deterministic fractal gain metadata marker."
+	) and ok
+	return ok
+
+func _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_simulation_source: String) -> bool:
+	var ok := true
+	ok = _assert(
+		world_simulation_source.contains("_process_native_voxel_rate(delta, projectile_contact_rows)"),
+		"WorldSimulation must pass sampled projectile contact rows into native voxel rate processing."
+	) and ok
+	ok = _assert(
+		world_simulation_source.contains("\"physics_contacts\": projectile_contact_rows.duplicate(true)"),
+		"WorldSimulation native voxel dispatch payload must include physics_contacts rows for failure emission input."
 	) and ok
 	return ok
 

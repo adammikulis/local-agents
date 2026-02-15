@@ -34,7 +34,8 @@ This plan is organized by engineering concern so work can be split into focused 
     - Add manual/harness checks for mode switching and no-fire-in-camera mode under HUD-occluded pointer cases.
     - Update behavior documentation where FPS/space/left-click controls are described.
   - File-size preconditions:
-    - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd` is 1035 lines before this work; split before edits so no in-scope source is edited inline.
+    - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd` is 1035 lines before this wave; pre-split plan is to extract direct input handling into `addons/local_agents/scenes/simulation/controllers/world/WorldInputController.gd` and keep this file under 1000-line ceiling after extraction.
+    - Keep this file below the 900-line hard-stop threshold by continuing to migrate input/mode routing helpers if this wave grows near that boundary.
   - Acceptance criteria:
     - `F` toggles modes deterministically; pressing again exits FPS mode.
     - `Space` and left-click fire only work in FPS mode.
@@ -686,6 +687,8 @@ Fracture/failure and destruction coupling:
 - Owner lane: Scope-A: Physics Bridge Lane (physics-server contact ingestion), Scope-C: Validation Lane (deterministic contact-contract checks), Documentation lane (plan/status tracking in this file)
 - Acceptance criteria: Projectile contact manifolds from `PhysicsServer3D` are ingested into native bridge payloads each step with stable schema (`impulse`, `normal`, `contact_point`, `body_id`, `relative_velocity`), ordering is deterministic for identical seeded runs, and mechanics/destruction stages consume the ingested payload without scalar-only side channels.
 - Risks: Contact ordering jitter across frames can destabilize deterministic replay, missing/partial manifold fields can silently degrade coupling fidelity, and dense projectile bursts may exceed per-step bridge budget without bounded ingestion caps.
+- 2026-02-15 execution slice (P0, Runtime Simulation lane owner): wire `WorldSimulation._process_native_voxel_rate` payload so FPS launcher projectile contact rows sampled in `_process` are forwarded as `physics_contacts` to `execute_native_voxel_stage` (`voxel_transform_step`) and therefore available to native physics failure emission input normalization.
+- Acceptance criteria for this slice: when projectile contacts are sampled in the same frame, dispatched native voxel-stage payloads include `physics_contacts` rows without introducing any CPU fallback/degraded path.
 
 Boundary and scheduling correctness:
 - [x] Implement face-stencil boundary behavior (`open`, `inflow/outflow`, `reflective`, `no-slip`, `no-penetration`) — 2026-02-13. Scope: `addons/local_agents/gdextensions/localagents/src/sim/CoreSimulationPipelineInternal.cpp`; tests: `test_native_general_physics_contracts.gd`.
