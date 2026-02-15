@@ -18,6 +18,30 @@ This plan is organized by engineering concern so work can be split into focused 
 - [x] Main thread tracks deconflict/merge and drives the `ARCHITECTURE_PLAN.md -> execution -> verification -> commit` loop.
 - [x] Stale/finished sub-agents are proactively closed and replaced as needed.
 
+## Current Wave (pre-implementation)
+
+- [x] P0 (Owners: Runtime Simulation lane, Native Compute lane, Validation/Test-Infrastructure lane, Documentation lane): Complete simulation-path hardening before next implementation wave starts.
+  - Acceptance criteria:
+    - All required contracts for the next hot-path are explicit in this file and mapped to test anchors.
+    - Required dependencies and file-size split preconditions are documented before code changes begin.
+    - No CPU-success fallback remains documented for primary GPU-native simulation execution.
+  - Risks:
+    - Missing dependency preconditions can block implementation start.
+    - GPU capability variance may force additional scoped split/refactor work.
+    - Contract scope drift can desynchronize execution and verification owners.
+  - Closeout notes: Runtime test split and parser hardening are complete for this wave. `addons/local_agents/tests/run_single_test.gd` parses successfully with canonical invocation patterns on current Godot stable, and remaining diffs are limited to the new runtime split files (`addons/local_agents/gdextensions/localagents/include/sim/VoxelEditGpuExecutor.hpp`, `addons/local_agents/gdextensions/localagents/src/sim/VoxelEditGpuExecutor.cpp`, `addons/local_agents/gdextensions/localagents/src/LocalAgentsComputeManager.cpp`, `addons/local_agents/scenes/simulation/shaders/VoxelEditStageCompute.glsl`, `addons/local_agents/gdextensions/localagents/src/VoxelEditEngine.cpp`).
+
+- [x] P1 (Owners: Simulation Foundations lane, Scope-A: Native Layout lane, Documentation lane): Add deterministic replay and observability guardrails tied to the next wave’s implementation scope.
+  - Acceptance criteria:
+    - Determinism requirements, seed/replay assumptions, and pass/fail observability are updated before implementation edits.
+    - Validation matrix is updated with canonical harness commands for the wave’s affected contracts.
+    - Ownership and ownership handoff points are recorded for any new helper/extractor modules.
+  - Risks:
+    - Replay assumptions may lag behind implementation changes without continuous updates.
+    - Insufficient observability can hide deterministic regressions until late-stage validation.
+    - Overly broad acceptance criteria can create delayed merges and avoidable rework.
+  - Closeout notes: Thirdparty dependency and runtime split fixes are closed for this wave; parse checks pass, and remaining diffs are the new runtime split files listed in the P0 closeout notes.
+
 ## Concern A: Runtime and GDExtension Stability
 
 Scope: `addons/local_agents/gdextensions/localagents/`, `addons/local_agents/runtime/`, `addons/local_agents/agents/`
@@ -394,6 +418,17 @@ Wave B validation gates:
 ### Wave C: GPU-First Runtime + Query Migration + CI Gates
 
 GPU-first implementation:
+- [ ] P0 (Owners: Runtime Simulation lane, Native Compute lane, Documentation lane, Validation/Test-Infrastructure lane): Start wave for headless GPU dispatch contract + staged pipeline GPU-first migration before merge.
+  - Dependency: Requires completion of current VoxelEditEngine split/composition hardening and a stable `CoreSimulationPipeline` stage boundary contract before any broader GPU-only feature expansion.
+  - Ownership split: Runtime Simulation lane owns stage sequencing + contract schema, Native Compute lane owns GPU dispatch execution + capability enforcement, Documentation lane owns canonical plan/runbook updates, Validation/Test-Infrastructure lane owns contract test harness maintenance.
+  - Acceptance criteria:
+    - Add deterministic `headless_gpu_dispatch_contract` output from simulation entrypoints exposing per-stage dispatch decisions and explicit fail-fast reason codes when GPU requirement is unmet (`gpu_required`, `gpu_unavailable`, `contract_mismatch`).
+    - Enforce staged migration in `CoreSimulationPipeline`: each native hot stage only progresses when its GPU dispatch contract is satisfied; no CPU-success fallback is allowed on the primary path.
+    - Headless paths must remain authoritative for contract validation, and any missing capability or contract mismatch must terminate with a structured hard-fail status.
+  - Test hooks:
+    - `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_dispatch_contracts.gd --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_general_physics_wave_a_contracts.gd --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --suite=native_voxel --timeout=120`
 - [ ] P0 (Owners: Runtime Simulation lane, Native Compute lane, Documentation lane, Validation/Test-Infrastructure lane): Immediate full GPU migration of voxel hot path in `VoxelEditEngine` with fail-fast-only execution policy.
   - Policy lock: `VoxelEditEngine` must not expose a CPU success execution path; if required GPU backend/capabilities are unavailable, return fail-fast error only.
   - File targets: new helper/backend/shader + shim split in `addons/local_agents/gdextensions/localagents/include/sim/VoxelEditGpuExecutor.hpp`, `addons/local_agents/gdextensions/localagents/src/sim/VoxelEditGpuExecutor.cpp`, `addons/local_agents/gdextensions/localagents/src/LocalAgentsComputeManager.cpp`, `addons/local_agents/scenes/simulation/shaders/VoxelEditStageCompute.glsl`, and `addons/local_agents/gdextensions/localagents/src/VoxelEditEngine.cpp` (call-site shim/orchestration only).

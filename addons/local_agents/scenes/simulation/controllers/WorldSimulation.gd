@@ -325,9 +325,9 @@ func _apply_graphics_state() -> void:
 	)
 	_configure_voxel_scheduler()
 	if _graphics_state.has("_visual_environment_update_interval_ticks"):
-			visual_environment_update_interval_ticks = maxi(1, int(_graphics_state.get("_visual_environment_update_interval_ticks", visual_environment_update_interval_ticks)))
-			_graphics_state.erase("_visual_environment_update_interval_ticks")
-		_hud_binding_controller.push_graphics_state(simulation_hud, _graphics_state)
+		visual_environment_update_interval_ticks = maxi(1, int(_graphics_state.get("_visual_environment_update_interval_ticks", visual_environment_update_interval_ticks)))
+		_graphics_state.erase("_visual_environment_update_interval_ticks")
+	_hud_binding_controller.push_graphics_state(simulation_hud, _graphics_state)
 
 func _configure_voxel_scheduler() -> void:
 	_voxel_rate_scheduler.configure(

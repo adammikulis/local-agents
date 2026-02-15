@@ -54,15 +54,15 @@ func _normalize_metadata(metadata_variant: Dictionary) -> Dictionary:
 	if unit != "":
 		normalized["unit"] = unit
 
-	var normalized_range := normalized.get("range", null)
-	if normalized_range is Dictionary:
-		var range_dict = normalized_range.duplicate(true)
-		if range_dict.has("min") and range_dict.has("max"):
-			var raw_min := range_dict.get("min")
-			var raw_max := range_dict.get("max")
-			if _is_finite_number(raw_min) and _is_finite_number(raw_max):
-				range_dict["min"] = float(raw_min)
-				range_dict["max"] = float(raw_max)
+		var normalized_range := normalized.get("range", null)
+		if normalized_range is Dictionary:
+			var range_dict: Dictionary = normalized_range.duplicate(true)
+			if range_dict.has("min") and range_dict.has("max"):
+				var raw_min: Variant = range_dict.get("min")
+				var raw_max: Variant = range_dict.get("max")
+				if _is_finite_number(raw_min) and _is_finite_number(raw_max):
+					range_dict["min"] = float(raw_min)
+					range_dict["max"] = float(raw_max)
 				normalized["range"] = range_dict
 			else:
 				normalized.erase("range")

@@ -1,8 +1,6 @@
 #include "sim/VoxelEditGpuExecutor.hpp"
 #include "sim/VoxelGpuResourceCache.hpp"
 
-#include <godot_cpp/classes/display_server.hpp>
-#include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/classes/rendering_device.hpp>
 
@@ -100,14 +98,6 @@ VoxelGpuExecutionResult fail_result(const String &error_code, const std::vector<
     result.deferred_ops = pending_ops;
     return result;
 }
-
-String unavailable_error_code(const bool gpu_required, const String &fallback_error) {
-    if (gpu_required) {
-        return String("gpu_required_but_unavailable");
-    }
-    return fallback_error;
-}
-
 } // namespace
 
 VoxelGpuExecutionResult VoxelEditGpuExecutor::execute(
@@ -138,7 +128,6 @@ VoxelGpuExecutionResult VoxelEditGpuExecutor::execute(
         dispatch_ops.push_back(op);
     }
     stats.ops_processed = static_cast<int64_t>(dispatch_ops.size());
-    const bool gpu_required = true;
     if (dispatch_ops.empty()) {
         Dictionary changed_region;
         changed_region["valid"] = false;
@@ -154,16 +143,6 @@ VoxelGpuExecutionResult VoxelEditGpuExecutor::execute(
         result.stats = stats;
         result.deferred_ops = std::move(deferred_ops);
         return result;
-    }
-
-    OS *os = OS::get_singleton();
-    if (os != nullptr && os->has_feature(StringName("headless"))) {
-        return fail_result(unavailable_error_code(gpu_required, String("gpu_backend_unavailable")), ops);
-    }
-
-    DisplayServer *display_server = DisplayServer::get_singleton();
-    if (display_server == nullptr) {
-        return fail_result(unavailable_error_code(gpu_required, String("gpu_backend_unavailable")), ops);
     }
 
     const int64_t dispatch_count = static_cast<int64_t>(dispatch_ops.size());

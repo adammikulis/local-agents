@@ -89,10 +89,10 @@ func _test_configure_validation_reason_contracts() -> bool:
 	return ok
 
 func _extract_configure_status(core) -> Dictionary:
-	var snapshot := core.call("get_debug_snapshot")
+	var snapshot: Dictionary = core.call("get_debug_snapshot")
 	if not (snapshot is Dictionary):
 		return {}
-	var field_registry := snapshot.get("field_registry", {})
+	var field_registry: Dictionary = snapshot.get("field_registry", {})
 	if not (field_registry is Dictionary):
 		return {}
 	return field_registry.get("configure_status", {})

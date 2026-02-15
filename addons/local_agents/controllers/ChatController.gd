@@ -168,7 +168,7 @@ func _refresh_conversations() -> void:
 		return
 	_conversation_list.clear()
 	for convo in conversation_index:
-		var title := _conversation_session_service.get_conversation_title_from_entry(convo)
+		var title: String = _conversation_session_service.get_conversation_title_from_entry(convo)
 		_conversation_list.add_item(title)
 	_saved_chats_controller.set_conversations(conversation_index)
 	_conversation_list.select(selected_index)
@@ -210,7 +210,7 @@ func _on_saved_chats_pressed() -> void:
 	_saved_chats_window.popup()
 
 func _on_conversation_selected(index: int) -> void:
-	var conversation_id := _conversation_session_service.select_conversation_by_list_index(index)
+	var conversation_id: int = _conversation_session_service.select_conversation_by_list_index(index)
 	if conversation_id == -1:
 		return
 	_load_conversation(conversation_id)
@@ -223,16 +223,16 @@ func _on_new_conversation_pressed() -> void:
 	_refresh_conversations()
 
 func _on_rename_conversation_pressed() -> void:
-	var selected_conversation_id := _conversation_session_service.get_selected_conversation_id()
+	var selected_conversation_id: int = _conversation_session_service.get_selected_conversation_id()
 	if selected_conversation_id == -1:
 		return
-	var current_title := _conversation_session_service.get_conversation_title(selected_conversation_id)
+	var current_title: String = _conversation_session_service.get_conversation_title(selected_conversation_id)
 	_rename_line_edit.text = current_title
 	_rename_window.popup()
 	_rename_line_edit.grab_focus()
 
 func _on_rename_confirmed() -> void:
-	var selected_conversation_id := _conversation_session_service.get_selected_conversation_id()
+	var selected_conversation_id: int = _conversation_session_service.get_selected_conversation_id()
 	if selected_conversation_id == -1:
 		_rename_window.hide()
 		return
@@ -324,7 +324,7 @@ func _on_agent_message(role: String, content: String) -> void:
 
 func _load_conversation(conversation_id: int) -> void:
 	var convo: Dictionary = _conversation_session_service.load_conversation(conversation_id)
-	var messages := _conversation_history_service.sorted_messages_from_conversation(convo)
+	var messages: Array = _conversation_history_service.sorted_messages_from_conversation(convo)
 	_sync_agent_with_messages(messages)
 	_conversation_history_service.render_conversation(_history_label, messages)
 	_conversation_session_service.set_selected_conversation_id(conversation_id)
@@ -332,11 +332,11 @@ func _load_conversation(conversation_id: int) -> void:
 	_update_state_labels()
 
 func _refresh_graph() -> void:
-	var selected_conversation_id := _conversation_session_service.get_selected_conversation_id()
+	var selected_conversation_id: int = _conversation_session_service.get_selected_conversation_id()
 	if selected_conversation_id == -1:
 		return
 	var convo: Dictionary = _conversation_session_service.load_conversation(selected_conversation_id)
-	var messages := _conversation_history_service.sorted_messages_from_conversation(convo)
+	var messages: Array = _conversation_history_service.sorted_messages_from_conversation(convo)
 	_sync_agent_with_messages(messages)
 	_refresh_graph_with_conversation(convo)
 
@@ -357,7 +357,7 @@ func _refresh_graph_with_conversation(convo: Dictionary) -> void:
 		item.set_metadata(0, message)
 
 func _on_saved_chat_selected(conversation_id: int) -> void:
-	var index := _conversation_session_service.find_list_index_for_conversation_id(conversation_id)
+	var index: int = _conversation_session_service.find_list_index_for_conversation_id(conversation_id)
 	if index != -1:
 		_conversation_list.select(index)
 		_on_conversation_selected(index)
@@ -372,8 +372,8 @@ func _update_status(text: String) -> void:
 	_status_label.text = _status_text
 
 func _update_state_labels() -> void:
-	var selected_conversation_id := _conversation_session_service.get_selected_conversation_id()
-	var convo_name := _conversation_session_service.get_conversation_title(selected_conversation_id)
+	var selected_conversation_id: int = _conversation_session_service.get_selected_conversation_id()
+	var convo_name: String = _conversation_session_service.get_conversation_title(selected_conversation_id)
 	_conversation_status_label.text = convo_name
 	var model_loaded: bool = _agent != null and _agent.agent_node != null and _agent.agent_node.get_default_model_path() != ""
 	_load_model_button.disabled = _agent == null
@@ -389,12 +389,12 @@ func _update_state_labels() -> void:
 func _sync_agent_with_messages(messages: Array) -> void:
 	if not _agent or not _agent.has_method("set_history"):
 		return
-	var filtered := _conversation_history_service.build_agent_history(messages)
+	var filtered: Array = _conversation_history_service.build_agent_history(messages)
 	_agent.set_history(filtered)
 
 func _sync_agent_with_current_conversation() -> void:
 	var convo: Dictionary = _conversation_session_service.load_selected_conversation()
 	if convo.is_empty():
 		return
-	var messages := _conversation_history_service.sorted_messages_from_conversation(convo)
+	var messages: Array = _conversation_history_service.sorted_messages_from_conversation(convo)
 	_sync_agent_with_messages(messages)

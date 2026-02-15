@@ -9,10 +9,10 @@ func _ready() -> void:
         _output_label.text = "GraphExample: assign a LocalAgentsGraph resource."
         return
     var graph: LocalAgentsGraph = GraphResource
-    var food_node := _ensure_node(graph, "Food", {"nutrition": 5})
-    var poison_node := _ensure_node(graph, "Poison", {"toxicity": 10})
-    var apple_node := _ensure_node(graph, "Apple", {"type": "fruit"})
-    var berry_node := _ensure_node(graph, "Oozing Berry", {"type": "berry"})
+    var food_node: Dictionary = _ensure_node(graph, "Food", {"nutrition": 5})
+    var poison_node: Dictionary = _ensure_node(graph, "Poison", {"toxicity": 10})
+    var apple_node: Dictionary = _ensure_node(graph, "Apple", {"type": "fruit"})
+    var berry_node: Dictionary = _ensure_node(graph, "Oozing Berry", {"type": "berry"})
     _ensure_edge(graph, apple_node.id, food_node.id, "heals")
     _ensure_edge(graph, berry_node.id, poison_node.id, "hurts")
     _render_summary(graph)
