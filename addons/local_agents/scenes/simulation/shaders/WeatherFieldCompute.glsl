@@ -28,11 +28,12 @@ layout(set = 0, binding = 13, std430) readonly buffer Params {
 	float idle_cadence;
 	float phase_seed;
 	float reserved;
+	float count;
 } params;
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;
-	if (idx >= cloud.v.length()) {
+	if (idx >= uint(params.count)) {
 		return;
 	}
 	float c = clamp(cloud.v[idx], 0.0, 1.0);

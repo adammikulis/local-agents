@@ -93,7 +93,7 @@ func configure(
 	var zeros = PackedFloat32Array()
 	zeros.resize(_count)
 	_buf_activity = _storage_buffer_from_f32(zeros)
-	var params := PackedFloat32Array([0.0, 0.4, 1.0, 1.0, 0.01, 0.24, 0.0, 0.0, 0.0, 8.0, 0.0, 0.0])
+	var params := PackedFloat32Array([0.0, 0.4, 1.0, 1.0, 0.01, 0.24, 0.0, 0.0, 0.0, 8.0, 0.0, float(_count)])
 	_buf_params = _storage_buffer_from_f32(params)
 	var uniforms: Array[RDUniform] = []
 	uniforms.append(_ssbo_uniform(0, _buf_base_moisture))
@@ -132,6 +132,7 @@ func step(delta: float, wind_speed: float, activity: PackedFloat32Array, tick: i
 		float(maxi(1, idle_cadence)),
 		seed_jitter * 997.0,
 		0.0,
+		float(_count),
 	])
 	_rd.buffer_update(_buf_params, 0, params.to_byte_array().size(), params.to_byte_array())
 	var list_id = _rd.compute_list_begin()
