@@ -7,10 +7,17 @@ const _WALL_FORWARD_DISTANCE_METERS := 9.0
 const _WALL_HALF_SPAN_TILES := 4
 const _WALL_HEIGHT_LEVELS := 6
 const _WALL_THICKNESS_TILES := 1
+const _WALL_COLUMN_SPAN_INTERVAL := 3
+const _WALL_COLUMN_EXTRA_LEVELS := 4
+const _WALL_COLUMN_DESTRUCTIBLE_TAG := "target_wall"
+const _WALL_COLUMN_MATERIAL_PROFILE_KEY := "rock"
+const _WALL_COLUMN_BRITTLENESS := 1.0
+const _WALL_PILLAR_HEIGHT_SCALE := 1.0
+const _WALL_PILLAR_DENSITY_SCALE := 1.0
 const _NATIVE_OP_VALUE_TO_LEVELS := 3.0
 const _NATIVE_OP_MAX_LEVELS := 6
 
-static func stamp_default_target_wall(controller, tick: int, camera_transform: Transform3D) -> Dictionary:
+static func stamp_default_target_wall(controller, tick: int, camera_transform: Transform3D, target_wall_profile = null) -> Dictionary:
 	if controller == null:
 		return {"ok": false, "changed": false, "error": "invalid_controller", "tick": tick}
 	var env_snapshot = controller._environment_snapshot.duplicate(true)
@@ -28,8 +35,21 @@ static func stamp_default_target_wall(controller, tick: int, camera_transform: T
 	var anchor_x := clampi(int(round(camera_transform.origin.x + forward.x * _WALL_FORWARD_DISTANCE_METERS)), 0, width - 1)
 	var anchor_z := clampi(int(round(camera_transform.origin.z + forward.z * _WALL_FORWARD_DISTANCE_METERS)), 0, height - 1)
 	var axis_z_dominant := absf(forward.z) >= absf(forward.x)
+	var profile = _resolve_target_wall_profile(target_wall_profile)
+	var wall_height_levels := int(profile.get("wall_height_levels", _WALL_HEIGHT_LEVELS))
+	var column_span_interval := int(profile.get("column_span_interval", _WALL_COLUMN_SPAN_INTERVAL))
+	var column_extra_levels := int(profile.get("column_extra_levels", _WALL_COLUMN_EXTRA_LEVELS))
+	var destructible_tag := String(profile.get("destructible_tag", _WALL_COLUMN_DESTRUCTIBLE_TAG))
+	var material_profile_key := String(profile.get("material_profile_key", _WALL_COLUMN_MATERIAL_PROFILE_KEY))
+	var brittleness := float(profile.get("brittleness", _WALL_COLUMN_BRITTLENESS))
+	var pillar_height_scale := clampf(float(profile.get("pillar_height_scale", _WALL_PILLAR_HEIGHT_SCALE)), 0.25, 3.0)
+	var pillar_density_scale := clampf(float(profile.get("pillar_density_scale", _WALL_PILLAR_DENSITY_SCALE)), 0.25, 3.0)
+	var effective_column_span_interval := maxi(1, int(round(float(column_span_interval) / pillar_density_scale)))
+	var effective_column_extra_levels := maxi(0, int(round(float(column_extra_levels) * pillar_height_scale)))
+	var structural_strength_scale := _strength_scale_for_brittleness(brittleness)
 	var changed_tiles_map: Dictionary = {}
 	var tile_height_overrides: Dictionary = {}
+	var tile_column_metadata_overrides: Dictionary = {}
 	for span in range(-_WALL_HALF_SPAN_TILES, _WALL_HALF_SPAN_TILES + 1):
 		for depth in range(0, _WALL_THICKNESS_TILES):
 			var tx := anchor_x
@@ -44,10 +64,69 @@ static func stamp_default_target_wall(controller, tick: int, camera_transform: T
 				continue
 			var tile_id = TileKeyUtilsScript.tile_id(tx, tz)
 			changed_tiles_map[tile_id] = true
-			tile_height_overrides[tile_id] = _WALL_HEIGHT_LEVELS
-	var result = _apply_column_surface_delta(controller, env_snapshot, changed_tiles_map.keys(), tile_height_overrides, true)
+			var column_height_levels := wall_height_levels
+			if depth == 0 and abs(span) % effective_column_span_interval == 0:
+				column_height_levels += effective_column_extra_levels
+			tile_height_overrides[tile_id] = column_height_levels
+			tile_column_metadata_overrides[tile_id] = {
+				"destructible": true,
+				"destructible_tag": destructible_tag,
+				"material_profile_key": material_profile_key,
+				"brittleness": brittleness,
+				"structural_strength_scale": structural_strength_scale,
+				"fracture_threshold_scale": structural_strength_scale,
+			}
+	var result = _apply_column_surface_delta(
+		controller,
+		env_snapshot,
+		changed_tiles_map.keys(),
+		tile_height_overrides,
+		true,
+		tile_column_metadata_overrides
+	)
 	result["tick"] = tick
 	return result
+
+static func _resolve_target_wall_profile(target_wall_profile) -> Dictionary:
+	var profile: Dictionary = {
+		"wall_height_levels": _WALL_HEIGHT_LEVELS,
+		"column_extra_levels": _WALL_COLUMN_EXTRA_LEVELS,
+		"column_span_interval": _WALL_COLUMN_SPAN_INTERVAL,
+		"material_profile_key": _WALL_COLUMN_MATERIAL_PROFILE_KEY,
+		"destructible_tag": _WALL_COLUMN_DESTRUCTIBLE_TAG,
+		"brittleness": _WALL_COLUMN_BRITTLENESS,
+		"pillar_height_scale": _WALL_PILLAR_HEIGHT_SCALE,
+		"pillar_density_scale": _WALL_PILLAR_DENSITY_SCALE,
+	}
+	if target_wall_profile == null:
+		return profile
+	var values: Dictionary = {}
+	if target_wall_profile.has_method("to_dict"):
+		var values_variant = target_wall_profile.call("to_dict")
+		if values_variant is Dictionary:
+			values = (values_variant as Dictionary).duplicate(true)
+	else:
+		values = {
+			"wall_height_levels": target_wall_profile.get("wall_height_levels", profile.get("wall_height_levels", _WALL_HEIGHT_LEVELS)),
+			"column_extra_levels": target_wall_profile.get("column_extra_levels", profile.get("column_extra_levels", _WALL_COLUMN_EXTRA_LEVELS)),
+			"column_span_interval": target_wall_profile.get("column_span_interval", profile.get("column_span_interval", _WALL_COLUMN_SPAN_INTERVAL)),
+			"material_profile_key": target_wall_profile.get("material_profile_key", profile.get("material_profile_key", _WALL_COLUMN_MATERIAL_PROFILE_KEY)),
+			"destructible_tag": target_wall_profile.get("destructible_tag", profile.get("destructible_tag", _WALL_COLUMN_DESTRUCTIBLE_TAG)),
+			"brittleness": target_wall_profile.get("brittleness", profile.get("brittleness", _WALL_COLUMN_BRITTLENESS)),
+			"pillar_height_scale": target_wall_profile.get("pillar_height_scale", profile.get("pillar_height_scale", _WALL_PILLAR_HEIGHT_SCALE)),
+			"pillar_density_scale": target_wall_profile.get("pillar_density_scale", profile.get("pillar_density_scale", _WALL_PILLAR_DENSITY_SCALE)),
+		}
+	profile["wall_height_levels"] = maxi(1, int(values.get("wall_height_levels", profile.get("wall_height_levels", _WALL_HEIGHT_LEVELS))))
+	profile["column_extra_levels"] = maxi(0, int(values.get("column_extra_levels", profile.get("column_extra_levels", _WALL_COLUMN_EXTRA_LEVELS))))
+	profile["column_span_interval"] = maxi(1, int(values.get("column_span_interval", profile.get("column_span_interval", _WALL_COLUMN_SPAN_INTERVAL))))
+	var material_profile_key := String(values.get("material_profile_key", profile.get("material_profile_key", _WALL_COLUMN_MATERIAL_PROFILE_KEY))).strip_edges()
+	var destructible_tag := String(values.get("destructible_tag", profile.get("destructible_tag", _WALL_COLUMN_DESTRUCTIBLE_TAG))).strip_edges()
+	profile["material_profile_key"] = _WALL_COLUMN_MATERIAL_PROFILE_KEY if material_profile_key == "" else material_profile_key
+	profile["destructible_tag"] = _WALL_COLUMN_DESTRUCTIBLE_TAG if destructible_tag == "" else destructible_tag
+	profile["brittleness"] = clampf(float(values.get("brittleness", profile.get("brittleness", _WALL_COLUMN_BRITTLENESS))), 0.1, 3.0)
+	profile["pillar_height_scale"] = clampf(float(values.get("pillar_height_scale", profile.get("pillar_height_scale", _WALL_PILLAR_HEIGHT_SCALE))), 0.25, 3.0)
+	profile["pillar_density_scale"] = clampf(float(values.get("pillar_density_scale", profile.get("pillar_density_scale", _WALL_PILLAR_DENSITY_SCALE))), 0.25, 3.0)
+	return profile
 
 static func apply_native_voxel_stage_delta(controller, tick: int, payload: Dictionary) -> Dictionary:
 	if controller == null:
@@ -179,7 +258,8 @@ static func _apply_column_surface_delta(
 	env_snapshot: Dictionary,
 	changed_tiles: Array,
 	height_overrides: Dictionary,
-	raise_surface: bool
+	raise_surface: bool,
+	column_metadata_overrides: Dictionary = {}
 ) -> Dictionary:
 	var voxel_world: Dictionary = env_snapshot.get("voxel_world", {})
 	var columns: Array = voxel_world.get("columns", [])
@@ -219,12 +299,29 @@ static func _apply_column_surface_delta(
 			next_surface = clampi(current_surface + delta_levels, 1, world_height - 2)
 		else:
 			next_surface = clampi(current_surface - delta_levels, 0, world_height - 2)
-		if next_surface == current_surface:
+		var metadata_changed := false
+		var metadata_variant = column_metadata_overrides.get(tile_id, {})
+		if metadata_variant is Dictionary:
+			var metadata = metadata_variant as Dictionary
+			for key_variant in metadata.keys():
+				var key := String(key_variant)
+				var value = metadata.get(key_variant)
+				if column.get(key) == value:
+					continue
+				column[key] = value
+				metadata_changed = true
+		if next_surface == current_surface and not metadata_changed:
 			continue
 		column["surface_y"] = next_surface
-		if raise_surface:
-			column["top_block"] = "stone"
-			column["subsoil_block"] = "stone"
+		if raise_surface and next_surface != current_surface:
+			var material_profile_key := String(column.get("material_profile_key", _WALL_COLUMN_MATERIAL_PROFILE_KEY))
+			var brittleness := clampf(float(column.get("brittleness", _WALL_COLUMN_BRITTLENESS)), 0.1, 3.0)
+			var block_profile := _wall_material_blocks(material_profile_key, brittleness)
+			column["top_block"] = String(block_profile.get("top_block", "gravel"))
+			column["subsoil_block"] = String(block_profile.get("subsoil_block", "dirt"))
+			var structural_strength_scale := _strength_scale_for_brittleness(brittleness)
+			column["structural_strength_scale"] = structural_strength_scale
+			column["fracture_threshold_scale"] = structural_strength_scale
 		columns[column_index] = column
 		touched_chunks["%d:%d" % [int(floor(float(x) / float(chunk_size))), int(floor(float(z) / float(chunk_size)))]] = true
 		changed_tiles_sorted.append(tile_id)
@@ -298,6 +395,26 @@ static func _apply_column_surface_delta(
 		"environment_snapshot": env_snapshot.duplicate(true),
 		"network_state_snapshot": controller._network_state_snapshot.duplicate(true),
 	}
+
+static func _strength_scale_for_brittleness(brittleness: float) -> float:
+	return clampf(1.15 - (clampf(brittleness, 0.1, 3.0) * 0.35), 0.15, 1.15)
+
+static func _wall_material_blocks(material_profile_key: String, brittleness: float) -> Dictionary:
+	var material_key := material_profile_key.strip_edges().to_lower()
+	var brittle := clampf(brittleness, 0.1, 3.0)
+	if material_key.find("sand") != -1:
+		return {"top_block": "sand", "subsoil_block": "sand"}
+	if material_key.find("clay") != -1:
+		return {"top_block": "clay", "subsoil_block": "clay" if brittle <= 1.4 else "sand"}
+	if material_key.find("gravel") != -1:
+		return {"top_block": "gravel", "subsoil_block": "gravel"}
+	if brittle >= 2.0:
+		return {"top_block": "sand", "subsoil_block": "gravel"}
+	if brittle >= 1.2:
+		return {"top_block": "gravel", "subsoil_block": "dirt"}
+	if brittle <= 0.6:
+		return {"top_block": "clay", "subsoil_block": "dirt"}
+	return {"top_block": "dirt", "subsoil_block": "gravel"}
 
 static func _rebuild_chunk_rows_from_columns(
 	columns: Array,

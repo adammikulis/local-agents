@@ -76,6 +76,9 @@ func set_graphics_state(state: Dictionary) -> void:
 	_set_pair_value("terrain_chunk_size_blocks", float(state.get("terrain_chunk_size_blocks", 12.0)))
 	_set_pair_value("simulation_ticks_per_second_override", float(state.get("simulation_ticks_per_second_override", 2.0)))
 	_set_pair_value("simulation_locality_radius_tiles", float(maxi(0, int(state.get("simulation_locality_radius_tiles", 1)))))
+	_set_pair_value("pillar_height_scale", clampf(float(state.get("pillar_height_scale", 1.0)), 0.25, 3.0))
+	_set_pair_value("pillar_density_scale", clampf(float(state.get("pillar_density_scale", 1.0)), 0.25, 3.0))
+	_set_pair_value("wall_brittleness_scale", clampf(float(state.get("wall_brittleness_scale", 1.0)), 0.1, 3.0))
 	_set_pair_value("climate_fast_interval_ticks", float(state.get("climate_fast_interval_ticks", 4.0)))
 	_set_pair_value("climate_slow_interval_ticks", float(state.get("climate_slow_interval_ticks", 8.0)))
 	_set_pair_value("society_fast_interval_ticks", float(state.get("society_fast_interval_ticks", 4.0)))
@@ -421,6 +424,9 @@ func _ensure_simulation_locality_controls(parent: VBoxContainer) -> void:
 	_create_dynamic_toggle(parent, "simulation_locality_enabled", "Enable Regional Locality")
 	_create_dynamic_toggle(parent, "simulation_locality_dynamic_enabled", "Dynamic Regional Tick Rate")
 	_create_dynamic_pair(parent, "simulation_locality_radius_tiles", "Locality Radius (tiles)", 0.0, 6.0, 1.0, true)
+	_create_dynamic_pair(parent, "pillar_height_scale", "Pillar Height", 0.25, 3.0, 0.05, false)
+	_create_dynamic_pair(parent, "pillar_density_scale", "Pillar Density", 0.25, 3.0, 0.05, false)
+	_create_dynamic_pair(parent, "wall_brittleness_scale", "Wall Brittleness", 0.1, 3.0, 0.05, false)
 
 func _on_gpu_toggle_changed(_pressed: bool, option_id: String) -> void:
 	if _graphics_ui_syncing:

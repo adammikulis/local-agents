@@ -35,6 +35,9 @@ const DEFAULTS := {
 	"simulation_locality_enabled": true,
 	"simulation_locality_dynamic_enabled": true,
 	"simulation_locality_radius_tiles": 1,
+	"pillar_height_scale": 1.0,
+	"pillar_density_scale": 1.0,
+	"wall_brittleness_scale": 1.0,
 	"transform_stage_a_solver_decimation_enabled": false,
 	"transform_stage_b_solver_decimation_enabled": false,
 	"transform_stage_c_solver_decimation_enabled": false,
@@ -119,6 +122,12 @@ static func sanitize_value(option_id: String, value):
 			return clampf(float(value), 0.5, 30.0)
 		"simulation_locality_radius_tiles":
 			return maxi(0, mini(6, int(round(float(value)))))
+		"pillar_height_scale":
+			return clampf(float(value), 0.25, 3.0)
+		"pillar_density_scale":
+			return clampf(float(value), 0.25, 3.0)
+		"wall_brittleness_scale":
+			return clampf(float(value), 0.1, 3.0)
 		"climate_fast_interval_ticks":
 			return maxi(1, mini(16, int(round(float(value)))))
 		"climate_slow_interval_ticks":

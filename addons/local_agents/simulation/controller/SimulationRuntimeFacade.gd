@@ -7,6 +7,8 @@ const NativeComputeBridgeScript = preload("res://addons/local_agents/simulation/
 const SimulationVoxelTerrainMutatorScript = preload("res://addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd")
 const _ENVIRONMENT_STAGE_NAME_VOXEL_TRANSFORM := "voxel_transform_step"
 const _UNKNOWN_MATERIAL_ID := "material:unknown"
+const _UNKNOWN_MATERIAL_PROFILE_ID := "profile:unknown"
+const _UNKNOWN_MATERIAL_PHASE_ID := "phase:unknown"
 const _UNKNOWN_ELEMENT_ID := "element:unknown"
 const _MATERIAL_PROFILE_REQUIRED_FIELDS: Array[String] = [
 	"density",
@@ -129,13 +131,27 @@ static func execute_native_voxel_stage(controller, tick: int, stage_name: String
 			normalized_payload,
 			strict
 		)
+		var environment_result_variant = environment_dispatch.get("result", {})
+		var environment_result: Dictionary = {}
+		if environment_result_variant is Dictionary:
+			environment_result = (environment_result_variant as Dictionary).duplicate(true)
+		var execution_variant = environment_result.get("execution", {})
+		if not (execution_variant is Dictionary):
+			var nested_result_variant = environment_result.get("result", {})
+			if nested_result_variant is Dictionary:
+				execution_variant = (nested_result_variant as Dictionary).get("execution", {})
+		var execution: Dictionary = execution_variant if execution_variant is Dictionary else {}
+		var dispatched := NativeComputeBridgeScript.is_environment_stage_dispatched(environment_dispatch)
+		var backend_used := _canonical_environment_backend(environment_dispatch, execution)
+		var kernel_pass := String(execution.get("kernel_pass", "")).strip_edges()
+		var dispatch_reason := _canonical_environment_dispatch_reason(environment_dispatch, execution, environment_result)
 		return {
 			"ok": bool(environment_dispatch.get("ok", false)),
 			"executed": bool(environment_dispatch.get("executed", false)),
-			"dispatched": NativeComputeBridgeScript.is_environment_stage_dispatched(environment_dispatch),
-			"kernel_pass": "",
-			"backend_used": "",
-			"dispatch_reason": "",
+			"dispatched": dispatched,
+			"kernel_pass": kernel_pass,
+			"backend_used": backend_used,
+			"dispatch_reason": dispatch_reason,
 			"result": environment_dispatch.get("result", {}),
 			"voxel_result": NativeComputeBridgeScript.environment_stage_result(environment_dispatch),
 			"error": String(environment_dispatch.get("error", "")),
@@ -162,14 +178,9 @@ static func execute_native_voxel_stage(controller, tick: int, stage_name: String
 			"dispatch_reason": "",
 			"error": "native_field_registry_unavailable",
 		}
-	var dispatch = NativeComputeBridgeScript.dispatch_voxel_stage_call(
-		controller,
-		tick,
-		"voxel_stage",
-		stage_name,
-		normalized_payload,
-		strict
-	)
+	var dispatch = NativeComputeBridgeScript.dispatch_voxel_stage(stage_name, normalized_payload)
+	if strict and not bool(dispatch.get("ok", false)) and controller != null and controller.has_method("_emit_dependency_error"):
+		controller._emit_dependency_error(tick, "voxel_stage", String(dispatch.get("error", "core_call_failed_execute_voxel_stage")))
 	return {
 		"ok": bool(dispatch.get("ok", false)),
 		"executed": bool(dispatch.get("executed", false)),
@@ -181,6 +192,42 @@ static func execute_native_voxel_stage(controller, tick: int, stage_name: String
 		"voxel_result": NativeComputeBridgeScript.voxel_stage_result(dispatch),
 		"error": String(dispatch.get("error", "")),
 	}
+
+static func _canonical_environment_backend(environment_dispatch: Dictionary, execution: Dictionary) -> String:
+	var backend_used := String(execution.get("backend_used", "")).strip_edges().to_lower()
+	if backend_used != "":
+		return backend_used
+	var backend_requested := String(execution.get("backend_requested", "")).strip_edges().to_lower()
+	if backend_requested != "":
+		return backend_requested
+	var native_result_variant = environment_dispatch.get("result", {})
+	if not (native_result_variant is Dictionary):
+		return ""
+	var native_result = native_result_variant as Dictionary
+	var dispatch_execution_variant = native_result.get("execution", {})
+	if dispatch_execution_variant is Dictionary:
+		var dispatch_execution = dispatch_execution_variant as Dictionary
+		backend_used = String(dispatch_execution.get("backend_used", "")).strip_edges().to_lower()
+		if backend_used != "":
+			return backend_used
+		backend_requested = String(dispatch_execution.get("backend_requested", "")).strip_edges().to_lower()
+		if backend_requested != "":
+			return backend_requested
+	return ""
+
+static func _canonical_environment_dispatch_reason(environment_dispatch: Dictionary, execution: Dictionary, environment_result: Dictionary) -> String:
+	var dispatch_reason := String(execution.get("dispatch_reason", "")).strip_edges()
+	if dispatch_reason != "":
+		return dispatch_reason
+	var native_result_variant = environment_dispatch.get("result", {})
+	if native_result_variant is Dictionary:
+		var native_result = native_result_variant as Dictionary
+		var dispatch_execution_variant = native_result.get("execution", {})
+		if dispatch_execution_variant is Dictionary:
+			dispatch_reason = String((dispatch_execution_variant as Dictionary).get("dispatch_reason", "")).strip_edges()
+			if dispatch_reason != "":
+				return dispatch_reason
+	return String(environment_result.get("status", "")).strip_edges()
 
 static func _with_required_material_identity(payload: Dictionary) -> Dictionary:
 	var normalized: Dictionary = payload.duplicate(true)
@@ -195,12 +242,28 @@ static func _with_required_material_identity(payload: Dictionary) -> Dictionary:
 	var material_id := String(material_identity.get("material_id", normalized.get("material_id", inputs.get("material_id", _UNKNOWN_MATERIAL_ID)))).strip_edges()
 	if material_id == "":
 		material_id = _UNKNOWN_MATERIAL_ID
+	var material_profile_id := String(
+		material_identity.get("material_profile_id", normalized.get("material_profile_id", inputs.get("material_profile_id", _UNKNOWN_MATERIAL_PROFILE_ID)))
+	).strip_edges()
+	if material_profile_id == "":
+		material_profile_id = _UNKNOWN_MATERIAL_PROFILE_ID
+	var phase_source = material_identity.get(
+		"material_phase_id",
+		normalized.get("material_phase_id", inputs.get("material_phase_id", normalized.get("phase", inputs.get("phase", _UNKNOWN_MATERIAL_PHASE_ID))))
+	)
+	var material_phase_id := _canonical_phase_id_from_value(phase_source)
+	if material_phase_id == "":
+		material_phase_id = _UNKNOWN_MATERIAL_PHASE_ID
 	var element_id := String(material_identity.get("element_id", normalized.get("element_id", inputs.get("element_id", _UNKNOWN_ELEMENT_ID)))).strip_edges()
 	if element_id == "":
 		element_id = _UNKNOWN_ELEMENT_ID
 	material_identity["material_id"] = material_id
+	material_identity["material_profile_id"] = material_profile_id
+	material_identity["material_phase_id"] = material_phase_id
 	material_identity["element_id"] = element_id
 	inputs["material_id"] = material_id
+	inputs["material_profile_id"] = material_profile_id
+	inputs["material_phase_id"] = material_phase_id
 	inputs["element_id"] = element_id
 	normalized["inputs"] = inputs
 	normalized["material_identity"] = material_identity
@@ -241,7 +304,19 @@ static func _inject_voxel_transform_material_contract(payload: Dictionary) -> Di
 	var profile_key := String(resolved_profile.get("profile_key", "unknown")).strip_edges()
 	if profile_key == "":
 		profile_key = "unknown"
+	var material_profile_id := String(material_identity.get("material_profile_id", normalized.get("material_profile_id", "profile:%s" % profile_key))).strip_edges()
+	if material_profile_id == "":
+		material_profile_id = "profile:%s" % profile_key
+	var phase_source = material_identity.get(
+		"material_phase_id",
+		normalized.get("material_phase_id", normalized.get("phase", (normalized.get("inputs", {}) as Dictionary).get("phase", _UNKNOWN_MATERIAL_PHASE_ID)))
+	)
+	var material_phase_id := _canonical_phase_id_from_value(phase_source)
+	if material_phase_id == "":
+		material_phase_id = _UNKNOWN_MATERIAL_PHASE_ID
 	material_identity["material_id"] = material_id
+	material_identity["material_profile_id"] = material_profile_id
+	material_identity["material_phase_id"] = material_phase_id
 	material_identity["element_id"] = element_id
 	normalized["material_identity"] = material_identity
 	normalized["material_profile"] = resolved_profile
@@ -252,6 +327,8 @@ static func _inject_voxel_transform_material_contract(payload: Dictionary) -> Di
 		pass_descriptor = (pass_descriptor_variant as Dictionary).duplicate(true)
 	pass_descriptor["material_model"] = {
 		"material_id": material_id,
+		"material_profile_id": material_profile_id,
+		"material_phase_id": material_phase_id,
 		"element_id": element_id,
 		"profile_version": int(table.schema_version),
 		"profile_key": profile_key,
@@ -275,6 +352,29 @@ static func _inject_voxel_transform_material_contract(payload: Dictionary) -> Di
 	}
 	normalized["pass_descriptor"] = pass_descriptor
 	return {"ok": true, "payload": normalized}
+
+static func _canonical_phase_id_from_value(raw_value) -> String:
+	if raw_value is String:
+		var raw_string := String(raw_value).strip_edges().to_lower()
+		if raw_string == "":
+			return _UNKNOWN_MATERIAL_PHASE_ID
+		if raw_string.begins_with("phase:"):
+			return raw_string
+		if raw_string in ["solid", "liquid", "gas", "plasma"]:
+			return "phase:%s" % raw_string
+		return "phase:%s" % raw_string
+	var phase_index := int(raw_value)
+	match phase_index:
+		0:
+			return "phase:solid"
+		1:
+			return "phase:liquid"
+		2:
+			return "phase:gas"
+		3:
+			return "phase:plasma"
+		_:
+			return _UNKNOWN_MATERIAL_PHASE_ID
 
 static func _inject_voxel_transform_emitter_contract(payload: Dictionary) -> Dictionary:
 	var normalized: Dictionary = payload.duplicate(true)
@@ -365,10 +465,10 @@ static func _inject_voxel_transform_emitter_contract(payload: Dictionary) -> Dic
 	normalized["emitters"] = merged
 	return {"ok": true, "payload": normalized}
 
-static func stamp_default_voxel_target_wall(controller, tick: int, camera_transform: Transform3D, strict: bool = false) -> Dictionary:
+static func stamp_default_voxel_target_wall(controller, tick: int, camera_transform: Transform3D, target_wall_profile = null, strict: bool = false) -> Dictionary:
 	if controller == null:
 		return {"ok": false, "changed": false, "error": "invalid_controller", "tick": tick}
-	var mutation = SimulationVoxelTerrainMutatorScript.stamp_default_target_wall(controller, tick, camera_transform)
+	var mutation = SimulationVoxelTerrainMutatorScript.stamp_default_target_wall(controller, tick, camera_transform, target_wall_profile)
 	if not bool(mutation.get("ok", false)) and strict:
 		controller._emit_dependency_error(tick, "voxel_target_wall", String(mutation.get("error", "wall_stamp_failed")))
 	return mutation
