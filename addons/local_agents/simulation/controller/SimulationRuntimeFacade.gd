@@ -3,6 +3,16 @@ extends RefCounted
 const FieldRegistryConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FieldRegistryConfigResource.gd")
 const NativeComputeBridgeScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
 const SimulationVoxelTerrainMutatorScript = preload("res://addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd")
+const _NATIVE_ENVIRONMENT_STAGE_NAME_WEATHER := "weather_step"
+const _NATIVE_ENVIRONMENT_STAGE_NAME_HYDROLOGY := "hydrology_step"
+const _NATIVE_ENVIRONMENT_STAGE_NAME_EROSION := "erosion_step"
+const _NATIVE_ENVIRONMENT_STAGE_NAME_SOLAR := "solar_exposure_step"
+const _NATIVE_ENVIRONMENT_STAGES := {
+	_NATIVE_ENVIRONMENT_STAGE_NAME_WEATHER: true,
+	_NATIVE_ENVIRONMENT_STAGE_NAME_HYDROLOGY: true,
+	_NATIVE_ENVIRONMENT_STAGE_NAME_EROSION: true,
+	_NATIVE_ENVIRONMENT_STAGE_NAME_SOLAR: true,
+}
 static var _native_field_registry_session_configured: bool = false
 
 static func ensure_native_sim_core_initialized(controller, tick: int = -1) -> bool:
@@ -83,6 +93,27 @@ static func enqueue_native_voxel_edit_ops(controller, tick: int, voxel_ops: Arra
 	}
 
 static func execute_native_voxel_stage(controller, tick: int, stage_name: StringName, payload: Dictionary = {}, strict: bool = false) -> Dictionary:
+	var normalized_stage_name = String(stage_name).strip_edges().to_lower()
+	if _NATIVE_ENVIRONMENT_STAGES.get(normalized_stage_name, false):
+		var environment_dispatch = NativeComputeBridgeScript.dispatch_environment_stage_call(
+			controller,
+			tick,
+			"voxel_stage",
+			normalized_stage_name,
+			payload,
+			strict
+		)
+		return {
+			"ok": bool(environment_dispatch.get("ok", false)),
+			"executed": bool(environment_dispatch.get("executed", false)),
+			"dispatched": NativeComputeBridgeScript.is_environment_stage_dispatched(environment_dispatch),
+			"kernel_pass": "",
+			"backend_used": "",
+			"dispatch_reason": "",
+			"result": environment_dispatch.get("result", {}),
+			"voxel_result": NativeComputeBridgeScript.environment_stage_result(environment_dispatch),
+			"error": String(environment_dispatch.get("error", "")),
+		}
 	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
 		if strict:
 			controller._emit_dependency_error(tick, "voxel_stage", "native_sim_core_disabled")

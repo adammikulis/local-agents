@@ -2,6 +2,17 @@ extends RefCounted
 class_name LocalAgentsSimulationGraphicsSettings
 
 const DEFAULTS := {
+	"weather_system_enabled": true,
+	"hydrology_system_enabled": true,
+	"erosion_system_enabled": true,
+	"solar_system_enabled": true,
+	"resource_pipeline_enabled": true,
+	"structure_lifecycle_enabled": true,
+	"culture_cycle_enabled": true,
+	"ecology_system_enabled": true,
+	"settlement_system_enabled": true,
+	"villager_system_enabled": true,
+	"cognition_system_enabled": true,
 	"water_shader_enabled": false,
 	"ocean_surface_enabled": false,
 	"river_overlays_enabled": false,

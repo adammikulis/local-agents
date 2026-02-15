@@ -4,6 +4,21 @@ const NATIVE_SIM_CORE_SINGLETON_NAME := "LocalAgentsSimulationCore"
 const NATIVE_SIM_CORE_ENV_KEY := "LOCAL_AGENTS_ENABLE_NATIVE_SIM_CORE"
 const PhysicsServerContactBridgeScript = preload("res://addons/local_agents/simulation/controller/PhysicsServerContactBridge.gd")
 const NativeComputeBridgeEnvironmentDispatchStatusScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridgeEnvironmentDispatchStatus.gd")
+const _SUPPORTED_ENVIRONMENT_STAGE_NAME_WEATHER := "weather_step"
+const _SUPPORTED_ENVIRONMENT_STAGE_NAME_HYDROLOGY := "hydrology_step"
+const _SUPPORTED_ENVIRONMENT_STAGE_NAME_EROSION := "erosion_step"
+const _SUPPORTED_ENVIRONMENT_STAGE_NAME_SOLAR := "solar_exposure_step"
+const _SUPPORTED_ENVIRONMENT_STAGES := {
+    _SUPPORTED_ENVIRONMENT_STAGE_NAME_WEATHER: true,
+    _SUPPORTED_ENVIRONMENT_STAGE_NAME_HYDROLOGY: true,
+    _SUPPORTED_ENVIRONMENT_STAGE_NAME_EROSION: true,
+    _SUPPORTED_ENVIRONMENT_STAGE_NAME_SOLAR: true,
+}
+const _INVALID_ENVIRONMENT_STAGE_NAME_ERROR := "invalid_environment_stage_name"
+const _UNSUPPORTED_ENVIRONMENT_STAGE_ERROR := "native_environment_stage_unsupported"
+const _ENVIRONMENT_STAGE_DISPATCH_SOURCE := "simulation_runtime_bridge"
+
+static var _environment_stage_dispatch_index: int = 0
 const _CANONICAL_INPUT_KEYS := ["pressure", "pressure_gradient", "temperature", "density", "velocity", "force_proxy", "acceleration_proxy", "mass_proxy", "moisture", "porosity", "cohesion", "hardness", "phase", "stress", "strain", "thermal_conductivity", "thermal_capacity", "thermal_diffusivity", "reaction_rate", "reaction_channels", "phase_change_channels", "porous_flow_channels", "shock_impulse_channels", "friction_contact_channels", "boundary_condition_channels", "fuel", "oxygen", "material_flammability", "activity", "contact_impulse", "contact_velocity", "contact_normal", "contact_point", "body_velocity", "obstacle_velocity", "obstacle_trajectory", "body_id", "rigid_obstacle_mask"]
 const _DEFAULT_REACTION_CHANNELS := {"combustion": 0.0, "oxidation": 0.0, "hydration": 0.0, "decomposition": 0.0, "corrosion": 0.0}
 const _DEFAULT_GENERALIZED_CHANNELS := {"phase_change_channels": {"melting": 0.0, "freezing": 0.0, "evaporation": 0.0, "condensation": 0.0}, "porous_flow_channels": {"seepage": 0.0, "capillary": 0.0, "drainage": 0.0, "retention": 0.0}, "shock_impulse_channels": {"impact": 0.0, "blast": 0.0, "shear_wave": 0.0, "vibration": 0.0}, "friction_contact_channels": {"static": 0.0, "kinetic": 0.0, "rolling": 0.0, "adhesion": 0.0}, "boundary_condition_channels": {"dirichlet": 0.0, "neumann": 0.0, "robin": 0.0, "reflective": 0.0, "periodic": 0.0}}
@@ -115,8 +130,29 @@ static func voxel_stage_result(dispatch: Dictionary) -> Dictionary:
 	return native_result as Dictionary
 
 static func dispatch_environment_stage_call(controller, tick: int, phase: String, stage_name: String, payload: Dictionary = {}, strict: bool = false) -> Dictionary:
+	var normalized_stage_name = String(stage_name).strip_edges().to_lower()
+	if normalized_stage_name == "":
+		if strict and controller != null and controller.has_method("_emit_dependency_error"):
+			controller._emit_dependency_error(tick, phase, _INVALID_ENVIRONMENT_STAGE_NAME_ERROR)
+		return {"ok": false, "executed": false, "dispatched": false, "error": _INVALID_ENVIRONMENT_STAGE_NAME_ERROR}
+	if not _SUPPORTED_ENVIRONMENT_STAGES.get(normalized_stage_name, false):
+		if strict and controller != null and controller.has_method("_emit_dependency_error"):
+			controller._emit_dependency_error(tick, phase, _UNSUPPORTED_ENVIRONMENT_STAGE_ERROR)
+		return {"ok": false, "executed": false, "dispatched": false, "error": _UNSUPPORTED_ENVIRONMENT_STAGE_ERROR}
 	var normalized_payload = _normalize_environment_payload(payload)
-	return dispatch_stage_call(controller, tick, phase, "execute_environment_stage", [stage_name, normalized_payload], strict)
+	var dispatch_index = _environment_stage_dispatch_index + 1
+	_environment_stage_dispatch_index = dispatch_index
+	var existing_dispatch_meta_variant = normalized_payload.get("environment_stage_dispatch", {})
+	var dispatch_metadata: Dictionary = {}
+	if existing_dispatch_meta_variant is Dictionary:
+		dispatch_metadata = existing_dispatch_meta_variant as Dictionary
+	dispatch_metadata = dispatch_metadata.duplicate(true)
+	dispatch_metadata["requested_stage_name"] = normalized_stage_name
+	dispatch_metadata["dispatched_stage_name"] = normalized_stage_name
+	dispatch_metadata["dispatch_index"] = dispatch_index
+	dispatch_metadata["source"] = _ENVIRONMENT_STAGE_DISPATCH_SOURCE
+	normalized_payload["environment_stage_dispatch"] = dispatch_metadata
+	return dispatch_stage_call(controller, tick, phase, "execute_environment_stage", [normalized_stage_name, normalized_payload], strict)
 
 static func is_environment_stage_dispatched(dispatch: Dictionary) -> bool:
 	if not NativeComputeBridgeEnvironmentDispatchStatusScript.backend_allows_dispatch(dispatch):
@@ -171,6 +207,24 @@ static func environment_stage_result(dispatch: Dictionary) -> Dictionary:
 	return {}
 
 static func dispatch_environment_stage(stage_name: String, payload: Dictionary) -> Dictionary:
+	var normalized_stage_name = String(stage_name).strip_edges().to_lower()
+	if normalized_stage_name == "":
+		return {"ok": false, "executed": false, "dispatched": false, "error": _INVALID_ENVIRONMENT_STAGE_NAME_ERROR}
+	if not _SUPPORTED_ENVIRONMENT_STAGES.get(normalized_stage_name, false):
+		return {"ok": false, "executed": false, "dispatched": false, "error": _UNSUPPORTED_ENVIRONMENT_STAGE_ERROR}
+	var normalized_payload = _normalize_environment_payload(payload)
+	var dispatch_index = _environment_stage_dispatch_index + 1
+	_environment_stage_dispatch_index = dispatch_index
+	var existing_dispatch_meta_variant = normalized_payload.get("environment_stage_dispatch", {})
+	var dispatch_metadata: Dictionary = {}
+	if existing_dispatch_meta_variant is Dictionary:
+		dispatch_metadata = existing_dispatch_meta_variant as Dictionary
+	dispatch_metadata = dispatch_metadata.duplicate(true)
+	dispatch_metadata["requested_stage_name"] = normalized_stage_name
+	dispatch_metadata["dispatched_stage_name"] = normalized_stage_name
+	dispatch_metadata["dispatch_index"] = dispatch_index
+	dispatch_metadata["source"] = _ENVIRONMENT_STAGE_DISPATCH_SOURCE
+	normalized_payload["environment_stage_dispatch"] = dispatch_metadata
 	if not is_native_sim_core_enabled():
 		return {"ok": false, "executed": false, "dispatched": false, "error": "native_sim_core_disabled"}
 	if not Engine.has_singleton(NATIVE_SIM_CORE_SINGLETON_NAME):
@@ -180,8 +234,7 @@ static func dispatch_environment_stage(stage_name: String, payload: Dictionary) 
 		return {"ok": false, "executed": false, "dispatched": false, "error": "native_sim_core_unavailable"}
 	if not core.has_method("execute_environment_stage"):
 		return {"ok": false, "executed": false, "dispatched": false, "error": "core_missing_method_execute_environment_stage"}
-	var normalized_payload = _normalize_environment_payload(payload)
-	var result = core.callv("execute_environment_stage", [stage_name, normalized_payload])
+	var result = core.callv("execute_environment_stage", [normalized_stage_name, normalized_payload])
 	return _normalize_environment_stage_result(result)
 
 static func _normalize_environment_payload(payload: Dictionary) -> Dictionary:

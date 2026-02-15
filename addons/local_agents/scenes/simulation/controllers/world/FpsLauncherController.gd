@@ -2,6 +2,7 @@ extends Node
 class_name FpsLauncherController
 
 const DEFAULT_PROJECTILE_SCENE = preload("res://addons/local_agents/scenes/simulation/actors/FpsLauncherProjectile.tscn")
+const PhysicsServerContactBridgeScript = preload("res://addons/local_agents/simulation/controller/PhysicsServerContactBridge.gd")
 
 @export var projectile_scene: PackedScene = DEFAULT_PROJECTILE_SCENE
 @export_range(1.0, 300.0, 0.5) var launch_speed: float = 60.0
@@ -23,10 +24,18 @@ func step(delta: float) -> void:
 	_cooldown_remaining = maxf(0.0, _cooldown_remaining - delta)
 	_prune_inactive()
 
+func sample_active_projectile_contact_rows() -> Array:
+	var rows := PhysicsServerContactBridgeScript.sample_contact_rows(_active_projectiles)
+	if rows is Array:
+		return rows.duplicate(true)
+	return []
+
 func try_fire_from_screen_center() -> bool:
 	if _camera == null or not is_instance_valid(_camera):
 		return false
 	if _spawn_parent == null or not is_instance_valid(_spawn_parent):
+		return false
+	if not _camera.is_inside_tree() or not _spawn_parent.is_inside_tree():
 		return false
 	if _cooldown_remaining > 0.0:
 		return false
@@ -45,12 +54,13 @@ func try_fire_from_screen_center() -> bool:
 	var center := viewport.get_visible_rect().size * 0.5
 	var ray_origin := _camera.project_ray_origin(center)
 	var ray_direction := _camera.project_ray_normal(center).normalized()
-	projectile.global_position = ray_origin + ray_direction * spawn_distance
+	_spawn_parent.add_child(projectile)
+	var spawn_local := _spawn_parent.to_local(ray_origin + ray_direction * spawn_distance)
+	projectile.position = spawn_local
 	projectile.linear_velocity = ray_direction * launch_speed
 	projectile.continuous_cd = true
 	if projectile.has_method("set_ttl_seconds"):
 		projectile.call("set_ttl_seconds", projectile_ttl_seconds)
-	_spawn_parent.add_child(projectile)
 	_active_projectiles.append(projectile)
 	projectile.tree_exited.connect(_on_projectile_tree_exited.bind(projectile), CONNECT_ONE_SHOT)
 	_cooldown_remaining = cooldown_seconds

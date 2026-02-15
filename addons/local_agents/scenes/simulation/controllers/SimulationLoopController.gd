@@ -38,15 +38,16 @@ func initialize_from_snapshot(tick: int, auto_play: bool, snapshot: Dictionary) 
 	_simulated_seconds = _seconds_at_tick(_current_tick)
 	_last_state = _decorate_state_with_time(snapshot)
 
-func process_frame(delta: float, living_entity_profiles_provider: Callable) -> Dictionary:
+func process_frame(delta: float, living_entity_profiles_provider: Callable, physics_contact_rows: Array = []) -> Dictionary:
 	if not _is_playing:
 		return {"state_changed": false, "state_advanced": false, "force_rebuild": false}
 	var did_advance := false
 	_tick_accumulator += maxf(0.0, delta)
+	var normalized_physics_contact_rows: Array = _normalize_physics_contact_rows(physics_contact_rows)
 	var tick_interval = 1.0 / maxf(0.5, _simulation_ticks_per_second)
 	var processed = 0
 	while _tick_accumulator >= tick_interval and processed < maxi(1, _ticks_per_frame):
-		if _advance_tick(living_entity_profiles_provider):
+		if _advance_tick(living_entity_profiles_provider, normalized_physics_contact_rows):
 			did_advance = true
 		_tick_accumulator -= tick_interval
 		processed += 1
@@ -119,7 +120,7 @@ func set_timing(simulation_ticks_per_second: float, living_profile_push_interval
 	_simulation_ticks_per_second = maxf(0.5, simulation_ticks_per_second)
 	_living_profile_push_interval_ticks = maxi(1, living_profile_push_interval_ticks)
 
-func _advance_tick(living_entity_profiles_provider: Callable) -> bool:
+func _advance_tick(living_entity_profiles_provider: Callable, physics_contact_rows: Array = []) -> bool:
 	if _simulation_controller == null or not _simulation_controller.has_method("process_tick"):
 		return false
 	if (
@@ -131,7 +132,7 @@ func _advance_tick(living_entity_profiles_provider: Callable) -> bool:
 		if profiles != null:
 			_simulation_controller.call("set_living_entity_profiles", profiles)
 	var next_tick = _current_tick + 1
-	var result: Dictionary = _simulation_controller.process_tick(next_tick, 1.0, false)
+	var result: Dictionary = _simulation_controller.process_tick(next_tick, 1.0, false, physics_contact_rows)
 	if not bool(result.get("ok", false)):
 		return false
 	_current_tick = next_tick
@@ -139,6 +140,11 @@ func _advance_tick(living_entity_profiles_provider: Callable) -> bool:
 	var state: Dictionary = result.get("state", {})
 	_last_state = _decorate_state_with_time(state)
 	return true
+
+func _normalize_physics_contact_rows(physics_contact_rows: Variant) -> Array:
+	if physics_contact_rows is Array:
+		return physics_contact_rows.duplicate(true)
+	return []
 
 func _decorate_state_with_time(state: Dictionary) -> Dictionary:
 	if state.is_empty():

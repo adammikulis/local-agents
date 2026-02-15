@@ -135,6 +135,17 @@ var narrator_enabled: bool = true
 var thoughts_enabled: bool = true
 var dialogue_enabled: bool = true
 var dreams_enabled: bool = true
+var weather_system_enabled: bool = true
+var hydrology_system_enabled: bool = true
+var erosion_system_enabled: bool = true
+var solar_system_enabled: bool = true
+var resource_pipeline_enabled: bool = true
+var structure_lifecycle_enabled: bool = true
+var culture_system_enabled: bool = true
+var ecology_system_enabled: bool = true
+var settlement_system_enabled: bool = true
+var villager_system_enabled: bool = true
+var cognition_system_enabled: bool = true
 var persist_tick_history_enabled: bool = false
 var persist_tick_history_interval: int = 24
 var resource_event_logging_enabled: bool = false
@@ -276,8 +287,8 @@ func set_living_entity_profiles(profiles: Array) -> void:
 func register_villager(npc_id: String, display_name: String, initial_state: Dictionary = {}) -> Dictionary:
 	return SimulationControllerCoreLoopHelpersScript.register_villager(self, npc_id, display_name, initial_state)
 
-func process_tick(tick: int, fixed_delta: float, include_state: bool = true) -> Dictionary:
-	return SimulationControllerCoreLoopHelpersScript.process_tick(self, tick, fixed_delta, include_state)
+func process_tick(tick: int, fixed_delta: float, include_state: bool = true, physics_contact_rows: Array = []) -> Dictionary:
+	return SimulationControllerCoreLoopHelpersScript.process_tick(self, tick, fixed_delta, include_state, physics_contact_rows)
 
 func current_snapshot(tick: int) -> Dictionary:
 	return SimulationControllerCoreLoopHelpersScript.current_snapshot(self, tick)
@@ -304,6 +315,39 @@ func set_erosion_gpu_compute_enabled(enabled: bool) -> void:
 func set_solar_gpu_compute_enabled(enabled: bool) -> void:
 	solar_gpu_compute_enabled = enabled
 	_sync_compute_preferences()
+
+func set_weather_system_enabled(enabled: bool) -> void:
+	weather_system_enabled = enabled
+
+func set_hydrology_system_enabled(enabled: bool) -> void:
+	hydrology_system_enabled = enabled
+
+func set_erosion_system_enabled(enabled: bool) -> void:
+	erosion_system_enabled = enabled
+
+func set_solar_system_enabled(enabled: bool) -> void:
+	solar_system_enabled = enabled
+
+func set_resource_pipeline_enabled(enabled: bool) -> void:
+	resource_pipeline_enabled = enabled
+
+func set_structure_lifecycle_enabled(enabled: bool) -> void:
+	structure_lifecycle_enabled = enabled
+
+func set_culture_system_enabled(enabled: bool) -> void:
+	culture_system_enabled = enabled
+
+func set_ecology_system_enabled(enabled: bool) -> void:
+	ecology_system_enabled = enabled
+
+func set_settlement_system_enabled(enabled: bool) -> void:
+	settlement_system_enabled = enabled
+
+func set_villager_system_enabled(enabled: bool) -> void:
+	villager_system_enabled = enabled
+
+func set_cognition_system_enabled(enabled: bool) -> void:
+	cognition_system_enabled = enabled
 
 func set_locality_processing_config(enabled: bool, dynamic_enabled: bool, radius_tiles: int) -> void:
 	locality_processing_enabled = enabled

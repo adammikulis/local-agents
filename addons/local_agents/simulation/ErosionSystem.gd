@@ -63,29 +63,101 @@ func apply_geomorph_delta(
 	if column_index.is_empty():
 		column_index = ErosionVoxelWorldHelpersScript.build_column_index(columns)
 	var tick = int(options.get("tick", -1))
-	var native_result = VoxelEditDispatchScript.dispatch_geomorph_delta_ops(
-		_native_environment_stage_dispatch_enabled,
-		_NATIVE_VOXEL_EDIT_STAGE_NAME,
-		tick,
-		environment_snapshot,
-		water_snapshot,
-		delta_by_tile,
-		options.get("column_overrides", {})
-	)
-	if not native_result.is_empty():
-		return native_result
+	var changed_ids: Dictionary = _normalize_erosion_delta(delta_by_tile)
+	if changed_ids.is_empty():
+		return {
+			"environment": environment_snapshot,
+			"hydrology": water_snapshot,
+			"voxel_changed": false,
+			"changed_tiles": [],
+		}
+	if _native_environment_stage_dispatch_enabled:
+		var native_result = VoxelEditDispatchScript.dispatch_geomorph_delta_ops(
+			true,
+			_NATIVE_VOXEL_EDIT_STAGE_NAME,
+			tick,
+			environment_snapshot,
+			water_snapshot,
+			changed_ids,
+			options.get("column_overrides", {})
+		)
+		if not native_result.is_empty():
+			return native_result
+		return {
+			"environment": environment_snapshot,
+			"hydrology": water_snapshot,
+			"voxel_changed": false,
+			"changed_tiles": [],
+			"status": "error",
+			"error": "native_geomorph_stage_dispatch_failed",
+			"details": "native geomorph stage dispatch returned no result",
+		}
+	var cpu_changed = ErosionVoxelWorldHelpersScript.apply_voxel_surface_erosion(environment_snapshot, changed_ids)
+	var changed_tiles: Array = []
+	if cpu_changed:
+		for tile_id_variant in changed_ids.keys():
+			changed_tiles.append(String(tile_id_variant))
+		changed_tiles.sort_custom(func(a, b): return String(a) < String(b))
+		_refresh_erosion_tile_rows(environment_snapshot, changed_tiles)
 	return {
 		"environment": environment_snapshot,
 		"hydrology": water_snapshot,
-		"voxel_changed": false,
-		"changed_tiles": [],
-		"status": "error",
-		"error": "native_geomorph_stage_dispatch_unavailable",
-		"details": "native geomorph stage dispatch unavailable or returned no result",
+		"voxel_changed": bool(cpu_changed),
+		"changed_tiles": changed_tiles,
 	}
+
+static func _normalize_erosion_delta(delta_by_tile: Dictionary) -> Dictionary:
+	var normalized: Dictionary = {}
+	for key_variant in delta_by_tile.keys():
+		var tile_id := String(key_variant)
+		var value = float(delta_by_tile.get(key_variant, 0.0))
+		var drop = absf(value)
+		if drop <= 0.0:
+			continue
+		normalized[tile_id] = drop
+	return normalized
+
+func _refresh_erosion_tile_rows(environment_snapshot: Dictionary, changed_tiles: Array) -> void:
+	if changed_tiles.is_empty():
+		return
+	var tile_index: Dictionary = environment_snapshot.get("tile_index", {})
+	var voxel_world: Dictionary = environment_snapshot.get("voxel_world", {})
+	if tile_index.is_empty():
+		return
+	var columns: Array = voxel_world.get("columns", [])
+	if columns.is_empty():
+		return
+	var column_by_tile: Dictionary = voxel_world.get("column_index_by_tile", {})
+	if column_by_tile.is_empty():
+		column_by_tile = ErosionVoxelWorldHelpersScript.build_column_index(columns)
+	for tile_id_variant in changed_tiles:
+		var tile_id := String(tile_id_variant)
+		if not tile_index.has(tile_id):
+			continue
+		var row_index = column_by_tile.get(tile_id, -1)
+		if row_index is String or row_index is float:
+			row_index = int(row_index)
+		if typeof(row_index) != TYPE_INT and typeof(row_index) != TYPE_FLOAT:
+			continue
+		var i = int(row_index)
+		if i < 0 or i >= columns.size():
+			continue
+		var column_variant = columns[i]
+		if not (column_variant is Dictionary):
+			continue
+		var column = column_variant as Dictionary
+		var tile_row = tile_index.get(tile_id, {})
+		if tile_row is Dictionary:
+			(tile_row as Dictionary)["surface_y"] = int(column.get("surface_y", 1))
+			tile_index[tile_id] = tile_row as Dictionary
+	ErosionVoxelWorldHelpersScript.update_tiles_array(environment_snapshot, tile_index)
 func set_compute_enabled(enabled: bool) -> void:
+	if enabled == _compute_requested:
+		if not enabled or _compute_active:
+			return
 	_compute_requested = enabled
 	if not enabled:
+		_compute_backend.release()
 		_compute_active = false
 		return
 	if not _configured:
@@ -190,6 +262,18 @@ func step(
 			weather_rain,
 			weather_cloud,
 			weather_wetness,
+			local_activity
+		)
+	if _compute_requested:
+		return _step_cpu(
+			tick,
+			delta,
+			environment_snapshot,
+			water_snapshot,
+			weather_snapshot,
+			environment_snapshot.get("tile_index", {}),
+			weather_snapshot.get("tile_index", {}),
+			water_snapshot.get("water_tiles", {}),
 			local_activity
 		)
 	return _fail_fast_step(
@@ -533,6 +617,10 @@ func _step_native_environment_stage(
 	weather_snapshot: Dictionary,
 	local_activity: Dictionary
 ) -> Dictionary:
+	var physics_contacts: Array = []
+	var physics_contacts_variant = local_activity.get("physics_contacts", null)
+	if physics_contacts_variant is Array:
+		physics_contacts = (physics_contacts_variant as Array).duplicate(true)
 	var native_payload = MaterialFlowNativeStageHelpersScript.build_environment_stage_payload(
 		tick,
 		delta,
@@ -540,7 +628,8 @@ func _step_native_environment_stage(
 		water_snapshot,
 		weather_snapshot,
 		local_activity,
-		_native_view_metrics
+		_native_view_metrics,
+		physics_contacts
 	)
 	var native_result = VoxelEditDispatchScript.dispatch_environment_stage_payload(_native_environment_stage_dispatch_enabled, tick, "erosion", _NATIVE_STAGE_NAME, native_payload)
 	if native_result.is_empty():

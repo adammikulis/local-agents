@@ -67,6 +67,19 @@ var _last_hud_refresh_tick: int = -1
 var _runtime_profile_baseline: Dictionary = {}
 var _runtime_demo_profile_applied: String = ""
 var _voxel_rate_scheduler = VoxelRateTierSchedulerScript.new()
+var _system_toggle_state: Dictionary = {
+	"weather_system_enabled": true,
+	"hydrology_system_enabled": true,
+	"erosion_system_enabled": true,
+	"solar_system_enabled": true,
+	"resource_pipeline_enabled": true,
+	"structure_lifecycle_enabled": true,
+	"culture_cycle_enabled": true,
+	"ecology_system_enabled": true,
+	"settlement_system_enabled": true,
+	"villager_system_enabled": true,
+	"cognition_system_enabled": true,
+}
 
 var _camera_controller = WorldCameraControllerScript.new()
 var _hud_binding_controller = WorldHudBindingControllerScript.new()
@@ -165,26 +178,19 @@ func _process(delta: float) -> void:
 	_update_day_night(delta)
 	if fps_launcher_controller != null and fps_launcher_controller.has_method("step"):
 		fps_launcher_controller.call("step", delta)
-	if fps_launcher_controller != null and fps_launcher_controller.has_method("sample_active_projectile_contacts"):
-		var rows_variant = fps_launcher_controller.call("sample_active_projectile_contacts")
-		if rows_variant is Array:
-			var rows := rows_variant as Array
-			if not rows.is_empty() and simulation_controller != null and simulation_controller.has_method("ingest_physics_contacts"):
-				var ingest = simulation_controller.call("ingest_physics_contacts", _loop_controller.current_tick(), rows, false)
-				if ingest is Dictionary and bool((ingest as Dictionary).get("changed", false)):
-					var ingest_result = ingest as Dictionary
-					_sync_environment_from_state({
-						"tick": _loop_controller.current_tick(),
-						"environment_snapshot": ingest_result.get("environment_snapshot", {}),
-						"water_network_snapshot": ingest_result.get("water_network_snapshot", {}),
-						"weather_snapshot": simulation_controller.call("get_weather_snapshot") if simulation_controller.has_method("get_weather_snapshot") else {},
-						"solar_snapshot": simulation_controller.call("get_solar_snapshot") if simulation_controller.has_method("get_solar_snapshot") else {},
-						"erosion_changed": true,
-						"erosion_changed_tiles": (ingest_result.get("changed_tiles", []) as Array).duplicate(true),
-					}, false)
+	var projectile_contact_rows: Array = []
+	if fps_launcher_controller != null:
+		if fps_launcher_controller.has_method("sample_active_projectile_contact_rows"):
+			var rows_variant = fps_launcher_controller.call("sample_active_projectile_contact_rows")
+			if rows_variant is Array:
+				projectile_contact_rows = rows_variant as Array
+		elif fps_launcher_controller.has_method("sample_active_projectile_contacts"):
+			var rows_variant = fps_launcher_controller.call("sample_active_projectile_contacts")
+			if rows_variant is Array:
+				projectile_contact_rows = rows_variant as Array
 	_push_native_view_metrics()
 	_process_native_voxel_rate(delta)
-	_apply_loop_result(_loop_controller.process_frame(delta, Callable(self, "_collect_living_entity_profiles")))
+	_apply_loop_result(_loop_controller.process_frame(delta, Callable(self, "_collect_living_entity_profiles"), projectile_contact_rows))
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not camera_controls_enabled:
@@ -323,11 +329,180 @@ func _apply_graphics_state() -> void:
 		simulation_ticks_per_second,
 		living_profile_push_interval_ticks
 	)
+	_apply_runtime_system_toggles()
 	_configure_voxel_scheduler()
 	if _graphics_state.has("_visual_environment_update_interval_ticks"):
 		visual_environment_update_interval_ticks = maxi(1, int(_graphics_state.get("_visual_environment_update_interval_ticks", visual_environment_update_interval_ticks)))
 		_graphics_state.erase("_visual_environment_update_interval_ticks")
 	_hud_binding_controller.push_graphics_state(simulation_hud, _graphics_state)
+
+func _apply_runtime_system_toggles() -> void:
+	var weather_system_enabled: bool = bool(_graphics_state.get("weather_system_enabled", true))
+	var hydrology_system_enabled: bool = bool(_graphics_state.get("hydrology_system_enabled", true))
+	var erosion_system_enabled: bool = bool(_graphics_state.get("erosion_system_enabled", true))
+	var solar_system_enabled: bool = bool(_graphics_state.get("solar_system_enabled", true))
+	var resource_pipeline_enabled: bool = bool(_graphics_state.get("resource_pipeline_enabled", true))
+	var structure_lifecycle_enabled: bool = bool(_graphics_state.get("structure_lifecycle_enabled", true))
+	var culture_cycle_enabled: bool = bool(_graphics_state.get("culture_cycle_enabled", true))
+	var ecology_system_enabled: bool = bool(_graphics_state.get("ecology_system_enabled", true))
+	var settlement_system_enabled: bool = bool(_graphics_state.get("settlement_system_enabled", true))
+	var villager_system_enabled: bool = bool(_graphics_state.get("villager_system_enabled", true))
+	var cognition_system_enabled: bool = bool(_graphics_state.get("cognition_system_enabled", true))
+
+	if simulation_controller != null:
+		if simulation_controller.has_method("set_weather_system_enabled"):
+			simulation_controller.call("set_weather_system_enabled", weather_system_enabled)
+		else:
+			simulation_controller.set("weather_system_enabled", weather_system_enabled)
+		if simulation_controller.has_method("set_hydrology_system_enabled"):
+			simulation_controller.call("set_hydrology_system_enabled", hydrology_system_enabled)
+		else:
+			simulation_controller.set("hydrology_system_enabled", hydrology_system_enabled)
+		if simulation_controller.has_method("set_erosion_system_enabled"):
+			simulation_controller.call("set_erosion_system_enabled", erosion_system_enabled)
+		else:
+			simulation_controller.set("erosion_system_enabled", erosion_system_enabled)
+		if simulation_controller.has_method("set_solar_system_enabled"):
+			simulation_controller.call("set_solar_system_enabled", solar_system_enabled)
+		else:
+			simulation_controller.set("solar_system_enabled", solar_system_enabled)
+		if simulation_controller.has_method("set_resource_pipeline_enabled"):
+			simulation_controller.call("set_resource_pipeline_enabled", resource_pipeline_enabled)
+		else:
+			simulation_controller.set("resource_pipeline_enabled", resource_pipeline_enabled)
+		if simulation_controller.has_method("set_structure_lifecycle_enabled"):
+			simulation_controller.call("set_structure_lifecycle_enabled", structure_lifecycle_enabled)
+		else:
+			simulation_controller.set("structure_lifecycle_enabled", structure_lifecycle_enabled)
+		if simulation_controller.has_method("set_culture_system_enabled"):
+			simulation_controller.call("set_culture_system_enabled", culture_cycle_enabled)
+		else:
+			simulation_controller.set("culture_system_enabled", culture_cycle_enabled)
+		if simulation_controller.has_method("set_ecology_system_enabled"):
+			simulation_controller.call("set_ecology_system_enabled", ecology_system_enabled)
+		else:
+			simulation_controller.set("ecology_system_enabled", ecology_system_enabled)
+		if simulation_controller.has_method("set_cognition_system_enabled"):
+			simulation_controller.call("set_cognition_system_enabled", cognition_system_enabled)
+		else:
+			simulation_controller.set("cognition_system_enabled", cognition_system_enabled)
+
+	_update_node_system_runtime(
+		"settlement_system_enabled",
+		settlement_system_enabled,
+		settlement_controller,
+		true,
+		true,
+		true
+	)
+	_update_node_system_runtime(
+		"villager_system_enabled",
+		villager_system_enabled,
+		villager_controller,
+		true,
+		true,
+		true
+	)
+	_update_node_system_runtime(
+		"culture_cycle_enabled",
+		culture_cycle_enabled,
+		culture_controller,
+		true,
+		true,
+		true
+	)
+	_update_ecology_system_runtime(ecology_system_enabled)
+
+func _update_node_system_runtime(
+	state_key: String,
+	enabled: bool,
+	node: Node,
+	set_visible: bool,
+	set_processing: bool,
+	clear_on_disable: bool
+) -> void:
+	var previously_enabled := bool(_system_toggle_state.get(state_key, true))
+	if not (node is Node):
+		_system_toggle_state[state_key] = enabled
+		return
+	if node == null:
+		_system_toggle_state[state_key] = enabled
+		return
+	if set_processing and node.has_method("set_process"):
+		node.set_process(enabled)
+	if set_processing and node.has_method("set_physics_process"):
+		node.set_physics_process(enabled)
+	if set_visible and node is Node3D:
+		(node as Node3D).visible = enabled
+	if clear_on_disable and previously_enabled and not enabled and node.has_method("clear_generated"):
+		node.call("clear_generated")
+	_system_toggle_state[state_key] = enabled
+
+func _update_ecology_system_runtime(enabled: bool) -> void:
+	var previously_enabled := bool(_system_toggle_state.get("ecology_system_enabled", true))
+	if _ecology_controller == null:
+		_system_toggle_state["ecology_system_enabled"] = enabled
+		return
+	if _ecology_controller.has_method("set_process"):
+		_ecology_controller.set_process(enabled)
+	if _ecology_controller.has_method("set_physics_process"):
+		_ecology_controller.set_physics_process(enabled)
+	if _ecology_controller is Node3D:
+		(_ecology_controller as Node3D).visible = enabled
+
+	var smell_enabled := bool(_graphics_state.get("smell_gpu_compute_enabled", false))
+	var wind_enabled := bool(_graphics_state.get("wind_gpu_compute_enabled", false))
+	var voxel_gate_smell_enabled := bool(_graphics_state.get("voxel_gate_smell_enabled", true))
+	var voxel_gate_plants_enabled := bool(_graphics_state.get("voxel_gate_plants_enabled", true))
+	var voxel_gate_mammals_enabled := bool(_graphics_state.get("voxel_gate_mammals_enabled", true))
+	var voxel_gate_shelter_enabled := bool(_graphics_state.get("voxel_gate_shelter_enabled", true))
+	var voxel_gate_profile_refresh_enabled := bool(_graphics_state.get("voxel_gate_profile_refresh_enabled", true))
+	var voxel_gate_edible_index_enabled := bool(_graphics_state.get("voxel_gate_edible_index_enabled", true))
+
+	if enabled:
+		if _ecology_controller.has_method("set_smell_gpu_compute_enabled"):
+			_ecology_controller.call("set_smell_gpu_compute_enabled", smell_enabled)
+		else:
+			_ecology_controller.set("smell_gpu_compute_enabled", smell_enabled)
+		if _ecology_controller.has_method("set_wind_gpu_compute_enabled"):
+			_ecology_controller.call("set_wind_gpu_compute_enabled", wind_enabled)
+		else:
+			_ecology_controller.set("wind_gpu_compute_enabled", wind_enabled)
+		_set_node_property_if_exists(_ecology_controller, "voxel_gate_smell_enabled", voxel_gate_smell_enabled)
+		_set_node_property_if_exists(_ecology_controller, "voxel_gate_plants_enabled", voxel_gate_plants_enabled)
+		_set_node_property_if_exists(_ecology_controller, "voxel_gate_mammals_enabled", voxel_gate_mammals_enabled)
+		_set_node_property_if_exists(_ecology_controller, "voxel_gate_shelter_enabled", voxel_gate_shelter_enabled)
+		_set_node_property_if_exists(_ecology_controller, "voxel_gate_profile_refresh_enabled", voxel_gate_profile_refresh_enabled)
+		_set_node_property_if_exists(_ecology_controller, "voxel_gate_edible_index_enabled", voxel_gate_edible_index_enabled)
+	else:
+		if _ecology_controller.has_method("set_smell_gpu_compute_enabled"):
+			_ecology_controller.call("set_smell_gpu_compute_enabled", false)
+		else:
+			_ecology_controller.set("smell_gpu_compute_enabled", false)
+		if _ecology_controller.has_method("set_wind_gpu_compute_enabled"):
+			_ecology_controller.call("set_wind_gpu_compute_enabled", false)
+		else:
+			_ecology_controller.set("wind_gpu_compute_enabled", false)
+		_set_node_property_if_exists(_ecology_controller, "voxel_gate_smell_enabled", false)
+		_set_node_property_if_exists(_ecology_controller, "voxel_gate_plants_enabled", false)
+		_set_node_property_if_exists(_ecology_controller, "voxel_gate_mammals_enabled", false)
+		_set_node_property_if_exists(_ecology_controller, "voxel_gate_shelter_enabled", false)
+		_set_node_property_if_exists(_ecology_controller, "voxel_gate_profile_refresh_enabled", false)
+		_set_node_property_if_exists(_ecology_controller, "voxel_gate_edible_index_enabled", false)
+		if previously_enabled and not enabled and _ecology_controller.has_method("clear_generated"):
+			_ecology_controller.call("clear_generated")
+	_system_toggle_state["ecology_system_enabled"] = enabled
+
+func _set_node_property_if_exists(node: Object, property_name: String, value) -> void:
+	if node == null:
+		return
+	var has_property := false
+	for property in node.get_property_list():
+		if String(property.get("name", "")) == property_name:
+			has_property = true
+			break
+	if has_property:
+		node.set(property_name, value)
 
 func _configure_voxel_scheduler() -> void:
 	_voxel_rate_scheduler.configure(
@@ -461,6 +636,41 @@ func _sanitize_runtime_demo_profile(profile_id: String) -> String:
 
 func _runtime_profile_settings(profile_id: String) -> Dictionary:
 	match profile_id:
+		"voxel_destruction_only":
+			return {
+				"controller": {
+					"simulation_ticks_per_second": 4.0,
+					"living_profile_push_interval_ticks": 4,
+					"visual_environment_update_interval_ticks": 2,
+					"hud_refresh_interval_ticks": 1,
+					"day_night_cycle_enabled": false,
+				},
+				"graphics": {
+					"weather_system_enabled": false,
+					"hydrology_system_enabled": false,
+					"erosion_system_enabled": true,
+					"solar_system_enabled": false,
+					"resource_pipeline_enabled": false,
+					"structure_lifecycle_enabled": false,
+					"culture_cycle_enabled": false,
+					"ecology_system_enabled": false,
+					"settlement_system_enabled": false,
+					"villager_system_enabled": false,
+					"cognition_system_enabled": false,
+					"smell_gpu_compute_enabled": false,
+					"wind_gpu_compute_enabled": false,
+					"voxel_gate_smell_enabled": false,
+					"voxel_gate_plants_enabled": false,
+					"voxel_gate_mammals_enabled": false,
+					"voxel_gate_shelter_enabled": false,
+					"voxel_gate_profile_refresh_enabled": false,
+					"voxel_gate_edible_index_enabled": false,
+					"voxel_process_gating_enabled": true,
+					"voxel_dynamic_tick_rate_enabled": true,
+					"voxel_tick_min_interval_seconds": 0.12,
+					"voxel_tick_max_interval_seconds": 0.9,
+				},
+			}
 		"full_sim":
 			return {
 				"controller": {
@@ -544,9 +754,24 @@ func _runtime_profile_settings(profile_id: String) -> Dictionary:
 					"voxel_tick_max_interval_seconds": 0.9,
 				},
 			}
-		_:
-			# voxel_destruction_only intentionally maps to baseline-only behavior.
-			return {}
+		_: 
+			return {
+				"graphics": {
+					"weather_system_enabled": false,
+					"hydrology_system_enabled": false,
+					"erosion_system_enabled": false,
+					"solar_system_enabled": false,
+					"resource_pipeline_enabled": false,
+					"structure_lifecycle_enabled": false,
+					"culture_cycle_enabled": false,
+					"ecology_system_enabled": false,
+					"settlement_system_enabled": false,
+					"villager_system_enabled": false,
+					"cognition_system_enabled": false,
+					"simulation_rate_override_enabled": true,
+					"simulation_ticks_per_second_override": 2.0,
+				},
+			}
 
 func _push_native_view_metrics() -> void:
 	if simulation_controller == null or not simulation_controller.has_method("set_native_view_metrics"):

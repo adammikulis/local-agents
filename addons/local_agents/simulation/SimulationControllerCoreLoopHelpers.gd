@@ -1,6 +1,8 @@
 extends RefCounted
 class_name LocalAgentsSimulationControllerCoreLoopHelpers
 
+const NativeComputeBridgeScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
+
 static func ensure_initialized(svc) -> void:
     if svc._initialized:
         return
@@ -206,7 +208,7 @@ static func register_villager(svc, npc_id: String, display_name: String, initial
     var upsert = svc._backstory_service.upsert_npc(npc_id, display_name, {}, {"source": "simulation"})
     return {"ok": bool(upsert.get("ok", false)), "npc_id": npc_id}
 
-static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool = true) -> Dictionary:
+static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool = true, physics_contact_rows: Array = []) -> Dictionary:
     ensure_initialized(svc)
     sync_compute_preferences(svc)
     var tick_start_us = Time.get_ticks_usec()
@@ -231,7 +233,7 @@ static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool
         svc._flow_network_system.step_decay()
     svc._erosion_changed_last_tick = false
     svc._erosion_changed_tiles_last_tick = []
-    var local_activity: Dictionary = _build_local_activity_map(svc)
+    var local_activity: Dictionary = _build_local_activity_map(svc, physics_contact_rows)
     var native_view_metrics: Dictionary = svc.get_native_view_metrics() if svc.has_method("get_native_view_metrics") else {}
     native_view_metrics["uniformity_score"] = _activity_uniformity_score(local_activity)
     svc._environment_snapshot["_native_view_metrics"] = native_view_metrics.duplicate(true)
@@ -243,17 +245,17 @@ static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool
         svc._erosion_system.call("set_native_view_metrics", native_view_metrics)
     if svc._solar_system != null and svc._solar_system.has_method("set_native_view_metrics"):
         svc._solar_system.call("set_native_view_metrics", native_view_metrics)
-    if svc._weather_system != null and _should_run_system_tick(tick, int(svc.weather_step_interval_ticks)):
+    if svc.weather_system_enabled and svc._weather_system != null and _should_run_system_tick(tick, int(svc.weather_step_interval_ticks)):
         var t0 = Time.get_ticks_usec()
         svc._weather_snapshot = svc._weather_system.step(tick, fixed_delta, local_activity)
         weather_us = Time.get_ticks_usec() - t0
-    if svc._hydrology_system != null and _should_run_system_tick(tick, int(svc.hydrology_step_interval_ticks)):
+    if svc.hydrology_system_enabled and svc._hydrology_system != null and _should_run_system_tick(tick, int(svc.hydrology_step_interval_ticks)):
         var t1 = Time.get_ticks_usec()
         var hydrology_step: Dictionary = svc._hydrology_system.step(tick, fixed_delta, svc._environment_snapshot, svc._water_network_snapshot, svc._weather_snapshot, local_activity)
         svc._environment_snapshot = hydrology_step.get("environment", svc._environment_snapshot)
         svc._water_network_snapshot = hydrology_step.get("hydrology", svc._water_network_snapshot)
         hydrology_us = Time.get_ticks_usec() - t1
-    if svc._erosion_system != null and _should_run_system_tick(tick, int(svc.erosion_step_interval_ticks)):
+    if svc.erosion_system_enabled and svc._erosion_system != null and _should_run_system_tick(tick, int(svc.erosion_step_interval_ticks)):
         var t2 = Time.get_ticks_usec()
         var erosion_result: Dictionary = svc._erosion_system.step(tick, fixed_delta, svc._environment_snapshot, svc._water_network_snapshot, svc._weather_snapshot, local_activity)
         svc._environment_snapshot = erosion_result.get("environment", svc._environment_snapshot)
@@ -262,7 +264,7 @@ static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool
         svc._erosion_changed_last_tick = bool(erosion_result.get("changed", false))
         svc._erosion_changed_tiles_last_tick = (erosion_result.get("changed_tiles", []) as Array).duplicate(true)
         erosion_us = Time.get_ticks_usec() - t2
-    if svc._solar_system != null and _should_run_system_tick(tick, int(svc.solar_step_interval_ticks)):
+    if svc.solar_system_enabled and svc._solar_system != null and _should_run_system_tick(tick, int(svc.solar_step_interval_ticks)):
         var t3 = Time.get_ticks_usec()
         svc._solar_snapshot = svc._solar_system.step(tick, fixed_delta, svc._environment_snapshot, svc._weather_snapshot, local_activity)
         solar_us = Time.get_ticks_usec() - t3
@@ -272,42 +274,47 @@ static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool
     for npc_id in npc_ids:
         svc._apply_need_decay(npc_id, fixed_delta)
 
-    if _should_run_system_tick(tick, int(svc.resource_pipeline_interval_ticks)):
+    if svc.resource_pipeline_enabled and _should_run_system_tick(tick, int(svc.resource_pipeline_interval_ticks)):
         var t4 = Time.get_ticks_usec()
         svc._run_resource_pipeline(tick, npc_ids)
         pipeline_us = Time.get_ticks_usec() - t4
-    if _should_run_system_tick(tick, int(svc.structure_lifecycle_interval_ticks)):
+    if svc.structure_lifecycle_enabled and _should_run_system_tick(tick, int(svc.structure_lifecycle_interval_ticks)):
         var t5 = Time.get_ticks_usec()
         svc._run_structure_lifecycle(tick)
         structure_us = Time.get_ticks_usec() - t5
-    if _should_run_system_tick(tick, int(svc.culture_cycle_interval_ticks)):
+    if svc.culture_system_enabled and _should_run_system_tick(tick, int(svc.culture_cycle_interval_ticks)):
         var t6 = Time.get_ticks_usec()
         svc._run_culture_cycle(tick)
         culture_us = Time.get_ticks_usec() - t6
 
-    var cognition_start_us = Time.get_ticks_usec()
-    if svc.narrator_enabled and tick > 0 and tick % 24 == 0:
-        if not svc._generate_narrator_direction(tick):
-            return svc._dependency_error_result(tick, "narrator")
+    if svc.cognition_system_enabled:
+        var cognition_start_us = Time.get_ticks_usec()
+        if svc.narrator_enabled and tick > 0 and tick % 24 == 0:
+            if not svc._generate_narrator_direction(tick):
+                return svc._dependency_error_result(tick, "narrator")
 
-    if svc.thoughts_enabled:
-        if svc._is_thought_tick(tick):
-            svc._enqueue_thought_npcs(npc_ids)
-        if not svc._drain_thought_queue(tick, svc._generation_cap("thought", 8)):
-            return svc._dependency_error_result(tick, "thought")
+        if svc.thoughts_enabled:
+            if svc._is_thought_tick(tick):
+                svc._enqueue_thought_npcs(npc_ids)
+            if not svc._drain_thought_queue(tick, svc._generation_cap("thought", 8)):
+                return svc._dependency_error_result(tick, "thought")
 
-    if svc.dialogue_enabled:
-        if svc._is_dialogue_tick(tick):
-            svc._enqueue_dialogue_pairs(npc_ids)
-        if not svc._drain_dialogue_queue(tick, svc._generation_cap("dialogue", 4)):
-            return svc._dependency_error_result(tick, "dialogue")
+        if svc.dialogue_enabled:
+            if svc._is_dialogue_tick(tick):
+                svc._enqueue_dialogue_pairs(npc_ids)
+            if not svc._drain_dialogue_queue(tick, svc._generation_cap("dialogue", 4)):
+                return svc._dependency_error_result(tick, "dialogue")
 
-    if svc.dreams_enabled:
-        if svc._is_dream_tick(tick):
-            svc._enqueue_dream_npcs(npc_ids)
-        if not svc._drain_dream_queue(tick, svc._generation_cap("dream", 8)):
-            return svc._dependency_error_result(tick, "dream")
-    cognition_us = Time.get_ticks_usec() - cognition_start_us
+        if svc.dreams_enabled:
+            if svc._is_dream_tick(tick):
+                svc._enqueue_dream_npcs(npc_ids)
+            if not svc._drain_dream_queue(tick, svc._generation_cap("dream", 8)):
+                return svc._dependency_error_result(tick, "dream")
+        cognition_us = Time.get_ticks_usec() - cognition_start_us
+    else:
+        svc._pending_thought_npc_ids = []
+        svc._pending_dream_npc_ids = []
+        svc._pending_dialogue_pairs = []
 
     var event_id: int = -1
     var should_persist_tick: bool = svc.persist_tick_history_enabled and (tick % maxi(1, svc.persist_tick_history_interval) == 0)
@@ -368,14 +375,20 @@ static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool
 static func _should_run_system_tick(tick: int, interval_ticks: int) -> bool:
     return tick % maxi(1, interval_ticks) == 0
 
-static func _build_local_activity_map(svc) -> Dictionary:
+static func _build_local_activity_map(svc, physics_contact_rows: Array = []) -> Dictionary:
+    var activity: Dictionary = {}
+    var normalized_contacts: Array = []
+    if physics_contact_rows is Array:
+        normalized_contacts = physics_contact_rows.duplicate(true)
     if svc == null:
-        return {}
+        activity["physics_contacts"] = normalized_contacts
+        return activity
     if not bool(svc.locality_processing_enabled):
-        return {}
+        _accumulate_contact_activity(activity, svc, normalized_contacts, 0, bool(svc.locality_dynamic_tick_rate_enabled))
+        activity["physics_contacts"] = normalized_contacts
+        return activity
     var radius = maxi(0, int(svc.locality_activity_radius_tiles))
     var dynamic_enabled = bool(svc.locality_dynamic_tick_rate_enabled)
-    var activity: Dictionary = {}
 
     for profile_variant in svc._external_living_entity_profiles:
         if not (profile_variant is Dictionary):
@@ -409,7 +422,50 @@ static func _build_local_activity_map(svc) -> Dictionary:
         var key = String(key_variant)
         var value = maxf(0.0, float(activity.get(key, 0.0)))
         activity[key] = 1.0 if not dynamic_enabled else clampf(1.0 - exp(-value), 0.0, 1.0)
+    _accumulate_contact_activity(activity, svc, normalized_contacts, radius, dynamic_enabled)
+    activity["physics_contacts"] = normalized_contacts
     return activity
+
+static func _accumulate_contact_activity(activity: Dictionary, svc, contacts: Array, radius_tiles: int, dynamic_enabled: bool) -> void:
+    if svc == null or contacts.is_empty():
+        return
+    for contact_variant in contacts:
+        if not (contact_variant is Dictionary):
+            continue
+        var row := contact_variant as Dictionary
+        var contact_point_variant = row.get("contact_point", null)
+        var contact_position = _world_position_from_variant(contact_point_variant)
+        if contact_position == null:
+            continue
+        var impact = _contact_activity_strength(row)
+        if impact <= 0.0:
+            continue
+        _accumulate_tile_activity(activity, svc, contact_position, radius_tiles, impact, dynamic_enabled)
+
+static func _contact_activity_strength(contact_row: Dictionary) -> float:
+    var impulse = maxf(0.0, float(contact_row.get("contact_impulse", 0.0)))
+    var velocity = _contact_velocity_scalar(contact_row.get("contact_velocity", 0.0))
+    if velocity <= 0.0:
+        velocity = _contact_velocity_scalar(contact_row.get("body_velocity", 0.0))
+    if velocity <= 0.0:
+        velocity = _contact_velocity_scalar(contact_row.get("obstacle_velocity", 0.0))
+    var body_mass = maxf(0.0, float(contact_row.get("body_mass", 0.0)))
+    return clampf(0.0125 * velocity * velocity * body_mass + 0.06 * impulse + 0.04 * velocity + 0.02 * body_mass, 0.0, 1.0)
+
+static func _contact_velocity_scalar(velocity_value) -> float:
+    if velocity_value is Vector3 or velocity_value is Vector2:
+        return float(velocity_value.length())
+    if velocity_value is Array:
+        var values = velocity_value as Array
+        if values.size() >= 3:
+            return Vector3(float(values[0]), float(values[1]), float(values[2])).length()
+        if values.size() == 2:
+            return Vector3(float(values[0]), float(values[1]), 0.0).length()
+        return 0.0
+    if velocity_value is Dictionary:
+        var row = velocity_value as Dictionary
+        return Vector3(float(row.get("x", 0.0)), float(row.get("y", 0.0)), float(row.get("z", 0.0))).length()
+    return maxf(0.0, float(velocity_value))
 
 static func _accumulate_tile_activity(activity: Dictionary, svc, world_position: Vector3, radius_tiles: int, amount: float, dynamic_enabled: bool) -> void:
     var center_tile_id = svc.TileKeyUtilsScript.from_world_xz(world_position)
@@ -433,7 +489,10 @@ static func _activity_uniformity_score(local_activity: Dictionary) -> float:
     var sum := 0.0
     var values: Array[float] = []
     for key_variant in keys:
-        var value = clampf(float(local_activity.get(key_variant, 0.0)), 0.0, 1.0)
+        var raw_value = local_activity.get(key_variant, 0.0)
+        if not (raw_value is float or raw_value is int):
+            continue
+        var value = clampf(float(raw_value), 0.0, 1.0)
         values.append(value)
         sum += value
     var count = float(maxi(1, values.size()))
@@ -463,12 +522,23 @@ static func sync_compute_preferences(svc) -> void:
         return
     if svc._hydrology_system != null and svc._hydrology_system.has_method("set_compute_enabled"):
         svc._hydrology_system.set_compute_enabled(bool(svc.hydrology_gpu_compute_enabled))
+    var native_environment_stages_enabled = false
+    if NativeComputeBridgeScript != null:
+        native_environment_stages_enabled = NativeComputeBridgeScript.is_native_sim_core_enabled()
+    if svc._hydrology_system != null and svc._hydrology_system.has_method("set_native_environment_stage_dispatch_enabled"):
+        svc._hydrology_system.call("set_native_environment_stage_dispatch_enabled", native_environment_stages_enabled)
     if svc._weather_system != null and svc._weather_system.has_method("set_compute_enabled"):
         svc._weather_system.set_compute_enabled(bool(svc.weather_gpu_compute_enabled))
+    if svc._weather_system != null and svc._weather_system.has_method("set_native_environment_stage_dispatch_enabled"):
+        svc._weather_system.call("set_native_environment_stage_dispatch_enabled", native_environment_stages_enabled)
     if svc._erosion_system != null and svc._erosion_system.has_method("set_compute_enabled"):
         svc._erosion_system.set_compute_enabled(bool(svc.erosion_gpu_compute_enabled))
+    if svc._erosion_system != null and svc._erosion_system.has_method("set_native_environment_stage_dispatch_enabled"):
+        svc._erosion_system.call("set_native_environment_stage_dispatch_enabled", native_environment_stages_enabled)
     if svc._solar_system != null and svc._solar_system.has_method("set_compute_enabled"):
         svc._solar_system.set_compute_enabled(bool(svc.solar_gpu_compute_enabled))
+    if svc._solar_system != null and svc._solar_system.has_method("set_native_environment_stage_dispatch_enabled"):
+        svc._solar_system.call("set_native_environment_stage_dispatch_enabled", native_environment_stages_enabled)
 
 static func current_snapshot(svc, tick: int) -> Dictionary:
     ensure_initialized(svc)

@@ -15,6 +15,20 @@ const FRAME_GRAPH_TOGGLE_ROWS := [
 	{"key": "frame_graph_snapshot_enabled", "label": "Snapshot", "series": "snapshot_ms", "color": Color(0.82, 0.82, 0.82, 0.8)},
 ]
 
+const SYSTEM_ENABLE_TOGGLE_ROWS := [
+	{"key": "weather_system_enabled", "label": "Weather"},
+	{"key": "hydrology_system_enabled", "label": "Hydrology"},
+	{"key": "erosion_system_enabled", "label": "Erosion"},
+	{"key": "solar_system_enabled", "label": "Solar"},
+	{"key": "resource_pipeline_enabled", "label": "Resource Pipeline"},
+	{"key": "structure_lifecycle_enabled", "label": "Structure Lifecycle"},
+	{"key": "culture_cycle_enabled", "label": "Culture Cycle"},
+	{"key": "ecology_system_enabled", "label": "Ecology"},
+	{"key": "settlement_system_enabled", "label": "Settlement View"},
+	{"key": "villager_system_enabled", "label": "Villagers"},
+	{"key": "cognition_system_enabled", "label": "Cognition"},
+]
+
 const GPU_COMPUTE_TOGGLE_ROWS := [
 	{"key": "weather_gpu_compute_enabled", "label": "Weather GPU Compute"},
 	{"key": "hydrology_gpu_compute_enabled", "label": "Hydrology GPU Compute"},
@@ -236,6 +250,7 @@ func _initialize_graphics_controls() -> void:
 func _organize_graphics_layout() -> void:
 	if _graphics_vbox == null:
 		return
+	var systems_content := _ensure_graphics_section("SystemEnable", "Default Launch & Runtime Systems")
 	var render_content := _ensure_graphics_section("RenderEnv", "Render & Environment")
 	var sim_content := _ensure_graphics_section("SimulationRate", "Simulation")
 	var climate_content := _ensure_graphics_section("ClimatePipeline", "Climate Pipeline")
@@ -243,6 +258,7 @@ func _organize_graphics_layout() -> void:
 	var texture_content := _ensure_graphics_section("TextureUploads", "GPU Texture Uploads")
 	var ecology_content := _ensure_graphics_section("Ecology", "Ecology")
 	var graph_content := _ensure_graphics_section("FrameGraph", "Frame Inspector Graph")
+	_ensure_system_enable_controls(systems_content)
 
 	_move_nodes_by_name(render_content, ["WaterShaderCheck", "OceanSurfaceCheck", "RiverOverlaysCheck", "TerrainChunkSizeRow", "RainPostFxCheck", "CloudsCheck", "ShadowsCheck", "SsrCheck", "SsaoCheck", "SsilCheck", "SdfgiCheck", "GlowCheck", "FogCheck", "VolumetricFogCheck", "CloudQualityRow", "CloudDensityRow", "RainVisualRow"])
 	_move_nodes_by_name(sim_content, ["SimRateOverrideCheck", "SimulationTickRateRow"])
@@ -254,6 +270,22 @@ func _organize_graphics_layout() -> void:
 	_move_nodes_by_name(ecology_content, ["EcologyStepDecimationCheck", "EcologyStepIntervalRow", "EcologyVoxelSizeRow", "EcologyVerticalExtentRow"])
 	_ensure_voxel_gating_controls(ecology_content)
 	_ensure_frame_graph_toggle_controls(graph_content)
+
+func _ensure_system_enable_controls(parent: VBoxContainer) -> void:
+	if parent == null:
+		return
+	var title = parent.get_node_or_null("SystemEnableTitle") as Label
+	if title == null:
+		title = Label.new()
+		title.name = "SystemEnableTitle"
+		title.text = "Default Launch & Runtime Systems"
+		parent.add_child(title)
+		title.owner = _hud.owner
+	for row in SYSTEM_ENABLE_TOGGLE_ROWS:
+		var key := String(row.get("key", ""))
+		if key == "":
+			continue
+		_create_dynamic_toggle(parent, key, String(row.get("label", key)))
 
 func _ensure_graphics_section(section_id: String, title: String) -> VBoxContainer:
 	if _graphics_vbox == null:

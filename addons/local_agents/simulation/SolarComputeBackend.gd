@@ -11,6 +11,7 @@ var _uniform_set_rid: RID
 var _configured: bool = false
 var _supported: bool = false
 var _count: int = 0
+var _owned_rids: Array[RID] = []
 
 var _buf_elevation: RID
 var _buf_moisture: RID
@@ -41,10 +42,10 @@ func initialize() -> bool:
 	var shader_spirv: RDShaderSPIRV = shader_file.get_spirv()
 	if shader_spirv == null:
 		return false
-	_shader_rid = _rd.shader_create_from_spirv(shader_spirv)
+	_shader_rid = _track_rid(_rd.shader_create_from_spirv(shader_spirv))
 	if not _shader_rid.is_valid():
 		return false
-	_pipeline_rid = _rd.compute_pipeline_create(_shader_rid)
+	_pipeline_rid = _track_rid(_rd.compute_pipeline_create(_shader_rid))
 	if not _pipeline_rid.is_valid():
 		return false
 	_supported = true
@@ -84,7 +85,7 @@ func configure(
 	_buf_uv = _storage_buffer_from_f32(zeros)
 	_buf_heat = _storage_buffer_from_f32(zeros)
 	_buf_growth = _storage_buffer_from_f32(zeros)
-	var params = PackedFloat32Array([1.0, 0.0, 0.0, 8.0, 0.0, 0.0, 0.0, 0.0])
+	var params = PackedFloat32Array([1.0, 0.0, 0.0, 8.0, 0.0, 0.0, 0.0, 0.0, float(_count)])
 	_buf_params = _storage_buffer_from_f32(params)
 	var uniforms: Array[RDUniform] = []
 	uniforms.append(_ssbo_uniform(0, _buf_elevation))
@@ -103,7 +104,7 @@ func configure(
 	uniforms.append(_ssbo_uniform(13, _buf_heat))
 	uniforms.append(_ssbo_uniform(14, _buf_growth))
 	uniforms.append(_ssbo_uniform(15, _buf_params))
-	_uniform_set_rid = _rd.uniform_set_create(uniforms, _shader_rid, 0)
+	_uniform_set_rid = _track_rid(_rd.uniform_set_create(uniforms, _shader_rid, 0))
 	_configured = _uniform_set_rid.is_valid()
 	return _configured
 
@@ -119,7 +120,7 @@ func step(weather_cloud: PackedFloat32Array, weather_fog: PackedFloat32Array, we
 	_rd.buffer_update(_buf_weather_fog, 0, weather_fog.to_byte_array().size(), weather_fog.to_byte_array())
 	_rd.buffer_update(_buf_weather_humidity, 0, weather_humidity.to_byte_array().size(), weather_humidity.to_byte_array())
 	_rd.buffer_update(_buf_activity, 0, activity.to_byte_array().size(), activity.to_byte_array())
-	var params = PackedFloat32Array([sun_dir.x, sun_dir.y, clampf(sun_alt, 0.0, 1.0), float(maxi(1, idle_cadence)), float(tick), float(seed), 0.0, 0.0])
+	var params = PackedFloat32Array([sun_dir.x, sun_dir.y, clampf(sun_alt, 0.0, 1.0), float(maxi(1, idle_cadence)), float(tick), float(seed), 0.0, 0.0, float(_count)])
 	_rd.buffer_update(_buf_params, 0, params.to_byte_array().size(), params.to_byte_array())
 	var list_id = _rd.compute_list_begin()
 	_rd.compute_list_bind_compute_pipeline(list_id, _pipeline_rid)
@@ -140,11 +141,34 @@ func release() -> void:
 	_free_buffers()
 	_pipeline_rid = _release_rid(_pipeline_rid)
 	_shader_rid = _release_rid(_shader_rid)
+	_owned_rids.clear()
+	_rd = null
 	_configured = false
 	_supported = false
 	_count = 0
 
 func _free_buffers() -> void:
+	if _rd == null:
+		_uniform_set_rid = RID()
+		_buf_elevation = RID()
+		_buf_moisture = RID()
+		_buf_temperature = RID()
+		_buf_shade = RID()
+		_buf_aspect_x = RID()
+		_buf_aspect_y = RID()
+		_buf_albedo = RID()
+		_buf_weather_cloud = RID()
+		_buf_weather_fog = RID()
+		_buf_weather_humidity = RID()
+		_buf_activity = RID()
+		_buf_sunlight = RID()
+		_buf_uv = RID()
+		_buf_heat = RID()
+		_buf_growth = RID()
+		_buf_params = RID()
+		return
+	if _uniform_set_rid.is_valid():
+		_uniform_set_rid = _release_rid(_uniform_set_rid)
 	_buf_elevation = _release_rid(_buf_elevation)
 	_buf_moisture = _release_rid(_buf_moisture)
 	_buf_temperature = _release_rid(_buf_temperature)
@@ -161,17 +185,19 @@ func _free_buffers() -> void:
 	_buf_heat = _release_rid(_buf_heat)
 	_buf_growth = _release_rid(_buf_growth)
 	_buf_params = _release_rid(_buf_params)
-	_uniform_set_rid = _release_rid(_uniform_set_rid)
-
-func _release_rid(rid: RID) -> RID:
-	if _rd == null or not rid.is_valid():
-		return RID()
-	_rd.free_rid(rid)
-	return RID()
+	_configured = false
 
 func _storage_buffer_from_f32(data: PackedFloat32Array) -> RID:
 	var bytes = data.to_byte_array()
-	return _rd.storage_buffer_create(bytes.size(), bytes)
+	var rid = _rd.storage_buffer_create(bytes.size(), bytes)
+	if rid.is_valid() and not _owned_rids.has(rid):
+		_owned_rids.append(rid)
+	return rid
+
+func _track_rid(rid: RID) -> RID:
+	if rid.is_valid() and not _owned_rids.has(rid):
+		_owned_rids.append(rid)
+	return rid
 
 func _ssbo_uniform(binding: int, rid: RID) -> RDUniform:
 	var u := RDUniform.new()
@@ -179,3 +205,18 @@ func _ssbo_uniform(binding: int, rid: RID) -> RDUniform:
 	u.binding = binding
 	u.add_id(rid)
 	return u
+
+func _release_rid(rid: RID) -> RID:
+	if _rd == null or not rid.is_valid():
+		return RID()
+	if not _owned_rids.has(rid):
+		return RID()
+	var owned = false
+	for i in range(_owned_rids.size() - 1, -1, -1):
+		if _owned_rids[i] == rid:
+			_owned_rids.remove_at(i)
+			owned = true
+	if not owned:
+		return RID()
+	_rd.free_rid(rid)
+	return RID()

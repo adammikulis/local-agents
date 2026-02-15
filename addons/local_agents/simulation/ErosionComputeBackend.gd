@@ -11,6 +11,7 @@ var _uniform_set_rid: RID
 var _configured: bool = false
 var _supported: bool = false
 var _count: int = 0
+var _owned_rids: Array[RID] = []
 
 var _buf_slope: RID
 var _buf_temp_base: RID
@@ -38,10 +39,10 @@ func initialize() -> bool:
 	var shader_spirv: RDShaderSPIRV = shader_file.get_spirv()
 	if shader_spirv == null:
 		return false
-	_shader_rid = _rd.shader_create_from_spirv(shader_spirv)
+	_shader_rid = _track_rid(_rd.shader_create_from_spirv(shader_spirv))
 	if not _shader_rid.is_valid():
 		return false
-	_pipeline_rid = _rd.compute_pipeline_create(_shader_rid)
+	_pipeline_rid = _track_rid(_rd.compute_pipeline_create(_shader_rid))
 	if not _pipeline_rid.is_valid():
 		return false
 	_supported = true
@@ -70,7 +71,7 @@ func configure(slope: PackedFloat32Array, temp_base: PackedFloat32Array, activit
 	_buf_frost_damage = _storage_buffer_from_f32(frost_damage)
 	_buf_temp_prev = _storage_buffer_from_f32(temp_prev)
 	_buf_elev_drop = _storage_buffer_from_f32(zeros)
-	var params = PackedFloat32Array([0.0, 1.0, 0.34, 0.0, 8.0])
+	var params = PackedFloat32Array([0.0, 1.0, 0.34, 0.0, 8.0, float(_count)])
 	_buf_params = _storage_buffer_from_f32(params)
 	var uniforms: Array[RDUniform] = []
 	uniforms.append(_ssbo_uniform(0, _buf_slope))
@@ -86,7 +87,7 @@ func configure(slope: PackedFloat32Array, temp_base: PackedFloat32Array, activit
 	uniforms.append(_ssbo_uniform(10, _buf_temp_prev))
 	uniforms.append(_ssbo_uniform(11, _buf_elev_drop))
 	uniforms.append(_ssbo_uniform(12, _buf_params))
-	_uniform_set_rid = _rd.uniform_set_create(uniforms, _shader_rid, 0)
+	_uniform_set_rid = _track_rid(_rd.uniform_set_create(uniforms, _shader_rid, 0))
 	_configured = _uniform_set_rid.is_valid()
 	return _configured
 
@@ -104,7 +105,7 @@ func step(rain: PackedFloat32Array, cloud: PackedFloat32Array, wetness: PackedFl
 	_rd.buffer_update(_buf_flow_norm, 0, flow_norm.to_byte_array().size(), flow_norm.to_byte_array())
 	_rd.buffer_update(_buf_water_rel, 0, water_rel.to_byte_array().size(), water_rel.to_byte_array())
 	_rd.buffer_update(_buf_activity, 0, activity.to_byte_array().size(), activity.to_byte_array())
-	var params = PackedFloat32Array([float(tick), clampf(delta, 0.1, 2.0), 0.34, seed_jitter, float(maxi(1, idle_cadence))])
+	var params = PackedFloat32Array([float(tick), clampf(delta, 0.1, 2.0), 0.34, seed_jitter, float(maxi(1, idle_cadence)), float(_count)])
 	_rd.buffer_update(_buf_params, 0, params.to_byte_array().size(), params.to_byte_array())
 	var list_id = _rd.compute_list_begin()
 	_rd.compute_list_bind_compute_pipeline(list_id, _pipeline_rid)
@@ -123,43 +124,76 @@ func step(rain: PackedFloat32Array, cloud: PackedFloat32Array, wetness: PackedFl
 
 func release() -> void:
 	_free_buffers()
-	if _rd != null:
-		if _uniform_set_rid.is_valid():
-			_rd.free_rid(_uniform_set_rid)
-		if _pipeline_rid.is_valid():
-			_rd.free_rid(_pipeline_rid)
-		if _shader_rid.is_valid():
-			_rd.free_rid(_shader_rid)
+	_pipeline_rid = _release_rid(_pipeline_rid)
+	_shader_rid = _release_rid(_shader_rid)
+	_owned_rids.clear()
+	_rd = null
 	_configured = false
 	_supported = false
 	_count = 0
 
 func _free_buffers() -> void:
 	if _rd == null:
+		_buf_slope = RID()
+		_buf_temp_base = RID()
+		_buf_rain = RID()
+		_buf_cloud = RID()
+		_buf_wetness = RID()
+		_buf_flow_norm = RID()
+		_buf_water_rel = RID()
+		_buf_activity = RID()
+		_buf_erosion_budget = RID()
+		_buf_frost_damage = RID()
+		_buf_temp_prev = RID()
+		_buf_elev_drop = RID()
+		_buf_params = RID()
+		_uniform_set_rid = RID()
+		_configured = false
 		return
-	for rid in [_buf_slope, _buf_temp_base, _buf_rain, _buf_cloud, _buf_wetness, _buf_flow_norm, _buf_water_rel, _buf_activity, _buf_erosion_budget, _buf_frost_damage, _buf_temp_prev, _buf_elev_drop, _buf_params]:
-		if rid.is_valid():
-			_rd.free_rid(rid)
 	if _uniform_set_rid.is_valid():
-		_rd.free_rid(_uniform_set_rid)
-	_uniform_set_rid = RID()
-	_buf_slope = RID()
-	_buf_temp_base = RID()
-	_buf_rain = RID()
-	_buf_cloud = RID()
-	_buf_wetness = RID()
-	_buf_flow_norm = RID()
-	_buf_water_rel = RID()
-	_buf_activity = RID()
-	_buf_erosion_budget = RID()
-	_buf_frost_damage = RID()
-	_buf_temp_prev = RID()
-	_buf_elev_drop = RID()
-	_buf_params = RID()
+		_uniform_set_rid = _release_rid(_uniform_set_rid)
+	_buf_slope = _release_rid(_buf_slope)
+	_buf_temp_base = _release_rid(_buf_temp_base)
+	_buf_rain = _release_rid(_buf_rain)
+	_buf_cloud = _release_rid(_buf_cloud)
+	_buf_wetness = _release_rid(_buf_wetness)
+	_buf_flow_norm = _release_rid(_buf_flow_norm)
+	_buf_water_rel = _release_rid(_buf_water_rel)
+	_buf_activity = _release_rid(_buf_activity)
+	_buf_erosion_budget = _release_rid(_buf_erosion_budget)
+	_buf_frost_damage = _release_rid(_buf_frost_damage)
+	_buf_temp_prev = _release_rid(_buf_temp_prev)
+	_buf_elev_drop = _release_rid(_buf_elev_drop)
+	_buf_params = _release_rid(_buf_params)
+	_configured = false
+
+func _release_rid(rid: RID) -> RID:
+	if _rd == null or not rid.is_valid():
+		return RID()
+	if not _owned_rids.has(rid):
+		return RID()
+	var owned = false
+	for i in range(_owned_rids.size() - 1, -1, -1):
+		if _owned_rids[i] == rid:
+			_owned_rids.remove_at(i)
+			owned = true
+			break
+	if not owned:
+		return RID()
+	_rd.free_rid(rid)
+	return RID()
 
 func _storage_buffer_from_f32(data: PackedFloat32Array) -> RID:
 	var bytes = data.to_byte_array()
-	return _rd.storage_buffer_create(bytes.size(), bytes)
+	var rid = _rd.storage_buffer_create(bytes.size(), bytes)
+	if rid.is_valid() and not _owned_rids.has(rid):
+		_owned_rids.append(rid)
+	return rid
+
+func _track_rid(rid: RID) -> RID:
+	if rid.is_valid() and not _owned_rids.has(rid):
+		_owned_rids.append(rid)
+	return rid
 
 func _ssbo_uniform(binding: int, rid: RID) -> RDUniform:
 	var u := RDUniform.new()

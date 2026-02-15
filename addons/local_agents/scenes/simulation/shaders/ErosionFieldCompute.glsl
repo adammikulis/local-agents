@@ -21,11 +21,12 @@ layout(set = 0, binding = 12, std430) readonly buffer Params {
 	float freeze_thresh;
 	float seed_jitter;
 	float idle_cadence;
+	float tile_count;
 } params;
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;
-	if (idx >= erosion_budget.v.length()) {
+	if (idx >= uint(params.tile_count)) {
 		return;
 	}
 	float sl = clamp(slope.v[idx], 0.0, 1.0);

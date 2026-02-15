@@ -11,6 +11,7 @@ var _uniform_set_rid: RID
 var _configured: bool = false
 var _supported: bool = false
 var _count: int = 0
+var _owned_rids: Array[RID] = []
 
 var _buf_temp_read: RID
 var _buf_temp_write: RID
@@ -32,10 +33,10 @@ func initialize() -> bool:
 	var shader_spirv: RDShaderSPIRV = shader_file.get_spirv()
 	if shader_spirv == null:
 		return false
-	_shader_rid = _rd.shader_create_from_spirv(shader_spirv)
+	_shader_rid = _track_rid(_rd.shader_create_from_spirv(shader_spirv))
 	if not _shader_rid.is_valid():
 		return false
-	_pipeline_rid = _rd.compute_pipeline_create(_shader_rid)
+	_pipeline_rid = _track_rid(_rd.compute_pipeline_create(_shader_rid))
 	if not _pipeline_rid.is_valid():
 		return false
 	_supported = true
@@ -90,6 +91,8 @@ func configure(
 			float(vertical_cells),
 			0.0,
 			terrain_seed,
+			0.0,
+			float(_count),
 		])
 	)
 	_configured = _buf_temp_read.is_valid() and _buf_temp_write.is_valid() and _buf_wind_x_read.is_valid() and _buf_wind_z_read.is_valid() and _buf_wind_x_write.is_valid() and _buf_wind_z_write.is_valid() and _buf_params.is_valid()
@@ -141,6 +144,8 @@ func step(
 		float(maxi(1, vertical_cells)),
 		0.0,
 		terrain_seed,
+		0.0,
+		float(_count),
 	])
 	if not _dispatch_pass(params, 0.0):
 		return {}
@@ -158,13 +163,11 @@ func step(
 
 func release() -> void:
 	_free_buffers()
-	if _rd != null:
-		if _uniform_set_rid.is_valid():
-			_rd.free_rid(_uniform_set_rid)
-		if _pipeline_rid.is_valid():
-			_rd.free_rid(_pipeline_rid)
-		if _shader_rid.is_valid():
-			_rd.free_rid(_shader_rid)
+	_uniform_set_rid = _release_rid(_uniform_set_rid)
+	_pipeline_rid = _release_rid(_pipeline_rid)
+	_shader_rid = _release_rid(_shader_rid)
+	_owned_rids.clear()
+	_rd = null
 	_configured = false
 	_supported = false
 	_count = 0
@@ -173,12 +176,11 @@ func _dispatch_pass(base_params: PackedFloat32Array, phase: float) -> bool:
 	if _rd == null:
 		return false
 	var params = base_params
-	params[18] = phase
+	params[19] = phase
+	params[20] = float(_count)
 	var bytes = params.to_byte_array()
 	_rd.buffer_update(_buf_params, 0, bytes.size(), bytes)
-	if _uniform_set_rid.is_valid():
-		_rd.free_rid(_uniform_set_rid)
-	_uniform_set_rid = RID()
+	_uniform_set_rid = _release_rid(_uniform_set_rid)
 	var uniforms: Array[RDUniform] = []
 	uniforms.append(_ssbo_uniform(0, _buf_temp_read))
 	uniforms.append(_ssbo_uniform(1, _buf_temp_write))
@@ -187,7 +189,7 @@ func _dispatch_pass(base_params: PackedFloat32Array, phase: float) -> bool:
 	uniforms.append(_ssbo_uniform(4, _buf_wind_x_write))
 	uniforms.append(_ssbo_uniform(5, _buf_wind_z_write))
 	uniforms.append(_ssbo_uniform(6, _buf_params))
-	_uniform_set_rid = _rd.uniform_set_create(uniforms, _shader_rid, 0)
+	_uniform_set_rid = _track_rid(_rd.uniform_set_create(uniforms, _shader_rid, 0))
 	if not _uniform_set_rid.is_valid():
 		return false
 	var list_id = _rd.compute_list_begin()
@@ -214,12 +216,14 @@ func _swap_wind_buffers() -> void:
 func _free_buffers() -> void:
 	if _rd == null:
 		return
-	for rid in [_buf_temp_read, _buf_temp_write, _buf_wind_x_read, _buf_wind_z_read, _buf_wind_x_write, _buf_wind_z_write, _buf_params]:
-		if rid.is_valid():
-			_rd.free_rid(rid)
-	if _uniform_set_rid.is_valid():
-		_rd.free_rid(_uniform_set_rid)
-	_uniform_set_rid = RID()
+	_buf_temp_read = _release_rid(_buf_temp_read)
+	_buf_temp_write = _release_rid(_buf_temp_write)
+	_buf_wind_x_read = _release_rid(_buf_wind_x_read)
+	_buf_wind_z_read = _release_rid(_buf_wind_z_read)
+	_buf_wind_x_write = _release_rid(_buf_wind_x_write)
+	_buf_wind_z_write = _release_rid(_buf_wind_z_write)
+	_buf_params = _release_rid(_buf_params)
+	_uniform_set_rid = _release_rid(_uniform_set_rid)
 	_buf_temp_read = RID()
 	_buf_temp_write = RID()
 	_buf_wind_x_read = RID()
@@ -230,7 +234,29 @@ func _free_buffers() -> void:
 
 func _storage_buffer_from_f32(data: PackedFloat32Array) -> RID:
 	var bytes = data.to_byte_array()
-	return _rd.storage_buffer_create(bytes.size(), bytes)
+	var rid = _rd.storage_buffer_create(bytes.size(), bytes)
+	if rid.is_valid():
+		_owned_rids.append(rid)
+	return rid
+
+func _track_rid(rid: RID) -> RID:
+	if rid.is_valid():
+		_owned_rids.append(rid)
+	return rid
+
+func _release_rid(rid: RID) -> RID:
+	if _rd == null or not rid.is_valid():
+		return RID()
+	var owned = false
+	for i in range(_owned_rids.size() - 1, -1, -1):
+		if _owned_rids[i] == rid:
+			_owned_rids.remove_at(i)
+			owned = true
+			break
+	if not owned:
+		return RID()
+	_rd.free_rid(rid)
+	return RID()
 
 func _ssbo_uniform(binding: int, rid: RID) -> RDUniform:
 	var out := RDUniform.new()

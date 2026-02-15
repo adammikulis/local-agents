@@ -58,10 +58,17 @@ Dictionary execute_environment_stage_orchestration(
         Dictionary scheduled_frame;
         const Dictionary scheduled_frame_inputs =
             helpers::maybe_inject_field_handles_into_environment_inputs(effective_payload, field_registry);
+        const String normalized_stage_name = String(stage_name).strip_edges().to_lower();
         scheduled_frame["ok"] = true;
         scheduled_frame["step_index"] = static_cast<int64_t>(environment_stage_dispatch_count);
         scheduled_frame["delta_seconds"] = static_cast<double>(effective_payload.get("delta", 0.0));
-        scheduled_frame["stage_name"] = String(stage_name);
+        scheduled_frame["stage_name"] = normalized_stage_name;
+        Dictionary environment_stage_dispatch;
+        environment_stage_dispatch["requested_stage_name"] = normalized_stage_name;
+        environment_stage_dispatch["dispatched_stage_name"] = normalized_stage_name;
+        environment_stage_dispatch["dispatch_index"] = static_cast<int64_t>(environment_stage_dispatch_count);
+        environment_stage_dispatch["source"] = String("environment_stage_executor");
+        scheduled_frame["environment_stage_dispatch"] = environment_stage_dispatch;
         scheduled_frame["inputs"] = scheduled_frame_inputs;
         const Dictionary pipeline_result = compute_manager->execute_step(scheduled_frame);
         result["pipeline"] = pipeline_result;

@@ -11,6 +11,7 @@ var _uniform_set_rid: RID
 var _configured: bool = false
 var _supported: bool = false
 var _count: int = 0
+var _owned_rids: Array[RID] = []
 
 var _buf_base_moisture: RID
 var _buf_base_temp: RID
@@ -39,10 +40,10 @@ func initialize() -> bool:
 	var shader_spirv: RDShaderSPIRV = shader_file.get_spirv()
 	if shader_spirv == null:
 		return false
-	_shader_rid = _rd.shader_create_from_spirv(shader_spirv)
+	_shader_rid = _track_rid(_rd.shader_create_from_spirv(shader_spirv))
 	if not _shader_rid.is_valid():
 		return false
-	_pipeline_rid = _rd.compute_pipeline_create(_shader_rid)
+	_pipeline_rid = _track_rid(_rd.compute_pipeline_create(_shader_rid))
 	if not _pipeline_rid.is_valid():
 		return false
 	_supported = true
@@ -93,7 +94,20 @@ func configure(
 	var zeros = PackedFloat32Array()
 	zeros.resize(_count)
 	_buf_activity = _storage_buffer_from_f32(zeros)
-	var params := PackedFloat32Array([0.0, 0.4, 1.0, 1.0, 0.01, 0.24, 0.0, 0.0, 0.0, 8.0, 0.0, float(_count)])
+	var params := PackedFloat32Array([
+		0.0,
+		0.4,
+		1.0,
+		1.0,
+		0.01,
+		0.24,
+		0.0,
+		0.0,
+		0.0,
+		8.0,
+		0.0,
+		float(_count),
+	])
 	_buf_params = _storage_buffer_from_f32(params)
 	var uniforms: Array[RDUniform] = []
 	uniforms.append(_ssbo_uniform(0, _buf_base_moisture))
@@ -110,7 +124,7 @@ func configure(
 	uniforms.append(_ssbo_uniform(11, _buf_rain_shadow))
 	uniforms.append(_ssbo_uniform(12, _buf_activity))
 	uniforms.append(_ssbo_uniform(13, _buf_params))
-	_uniform_set_rid = _rd.uniform_set_create(uniforms, _shader_rid, 0)
+	_uniform_set_rid = _track_rid(_rd.uniform_set_create(uniforms, _shader_rid, 0))
 	_configured = _uniform_set_rid.is_valid()
 	return _configured
 
@@ -187,11 +201,33 @@ func release() -> void:
 	_free_buffers()
 	_pipeline_rid = _release_rid(_pipeline_rid)
 	_shader_rid = _release_rid(_shader_rid)
+	_owned_rids.clear()
+	_rd = null
 	_configured = false
 	_supported = false
 	_count = 0
 
 func _free_buffers() -> void:
+	if _rd == null:
+		_buf_base_moisture = RID()
+		_buf_base_temp = RID()
+		_buf_water_reliability = RID()
+		_buf_elevation = RID()
+		_buf_slope = RID()
+		_buf_cloud = RID()
+		_buf_humidity = RID()
+		_buf_rain = RID()
+		_buf_wetness = RID()
+		_buf_fog = RID()
+		_buf_orographic = RID()
+		_buf_rain_shadow = RID()
+		_buf_activity = RID()
+		_buf_params = RID()
+		_uniform_set_rid = RID()
+		_configured = false
+		return
+	if _uniform_set_rid.is_valid():
+		_uniform_set_rid = _release_rid(_uniform_set_rid)
 	_buf_base_moisture = _release_rid(_buf_base_moisture)
 	_buf_base_temp = _release_rid(_buf_base_temp)
 	_buf_water_reliability = _release_rid(_buf_water_reliability)
@@ -206,17 +242,35 @@ func _free_buffers() -> void:
 	_buf_rain_shadow = _release_rid(_buf_rain_shadow)
 	_buf_activity = _release_rid(_buf_activity)
 	_buf_params = _release_rid(_buf_params)
-	_uniform_set_rid = _release_rid(_uniform_set_rid)
+	_configured = false
 
 func _release_rid(rid: RID) -> RID:
 	if _rd == null or not rid.is_valid():
+		return RID()
+	if not _owned_rids.has(rid):
+		return RID()
+	var owned = false
+	for i in range(_owned_rids.size() - 1, -1, -1):
+		if _owned_rids[i] == rid:
+			_owned_rids.remove_at(i)
+			owned = true
+			break
+	if not owned:
 		return RID()
 	_rd.free_rid(rid)
 	return RID()
 
 func _storage_buffer_from_f32(data: PackedFloat32Array) -> RID:
 	var bytes = data.to_byte_array()
-	return _rd.storage_buffer_create(bytes.size(), bytes)
+	var rid = _rd.storage_buffer_create(bytes.size(), bytes)
+	if rid.is_valid() and not _owned_rids.has(rid):
+		_owned_rids.append(rid)
+	return rid
+
+func _track_rid(rid: RID) -> RID:
+	if rid.is_valid() and not _owned_rids.has(rid):
+		_owned_rids.append(rid)
+	return rid
 
 func _ssbo_uniform(binding: int, rid: RID) -> RDUniform:
 	var u := RDUniform.new()

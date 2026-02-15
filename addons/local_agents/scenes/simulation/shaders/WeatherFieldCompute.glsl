@@ -8,13 +8,13 @@ layout(set = 0, binding = 1, std430) readonly buffer BaseTemp { float v[]; } bas
 layout(set = 0, binding = 2, std430) readonly buffer WaterReliability { float v[]; } water_reliability;
 layout(set = 0, binding = 3, std430) readonly buffer Elevation { float v[]; } elevation;
 layout(set = 0, binding = 4, std430) readonly buffer Slope { float v[]; } slope;
-layout(set = 0, binding = 5, std430) restrict buffer Cloud { float v[]; } cloud;
-layout(set = 0, binding = 6, std430) restrict buffer Humidity { float v[]; } humidity;
-layout(set = 0, binding = 7, std430) restrict buffer Rain { float v[]; } rain;
-layout(set = 0, binding = 8, std430) restrict buffer Wetness { float v[]; } wetness;
-layout(set = 0, binding = 9, std430) restrict buffer Fog { float v[]; } fog;
-layout(set = 0, binding = 10, std430) restrict buffer Orographic { float v[]; } orographic;
-layout(set = 0, binding = 11, std430) restrict buffer RainShadow { float v[]; } rain_shadow;
+layout(set = 0, binding = 5, std430) buffer Cloud { float v[]; } cloud;
+layout(set = 0, binding = 6, std430) buffer Humidity { float v[]; } humidity;
+layout(set = 0, binding = 7, std430) buffer Rain { float v[]; } rain;
+layout(set = 0, binding = 8, std430) buffer Wetness { float v[]; } wetness;
+layout(set = 0, binding = 9, std430) buffer Fog { float v[]; } fog;
+layout(set = 0, binding = 10, std430) buffer Orographic { float v[]; } orographic;
+layout(set = 0, binding = 11, std430) buffer RainShadow { float v[]; } rain_shadow;
 layout(set = 0, binding = 12, std430) readonly buffer Activity { float v[]; } activity;
 layout(set = 0, binding = 13, std430) readonly buffer Params {
 	float dt;
@@ -28,12 +28,12 @@ layout(set = 0, binding = 13, std430) readonly buffer Params {
 	float idle_cadence;
 	float phase_seed;
 	float reserved;
-	float count;
+	float tile_count;
 } params;
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;
-	if (idx >= uint(params.count)) {
+	if (idx >= uint(params.tile_count)) {
 		return;
 	}
 	float c = clamp(cloud.v[idx], 0.0, 1.0);

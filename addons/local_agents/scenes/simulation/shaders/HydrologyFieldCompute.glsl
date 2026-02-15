@@ -11,22 +11,23 @@ layout(set = 0, binding = 4, std430) readonly buffer SpringDischarge { float v[]
 layout(set = 0, binding = 5, std430) readonly buffer Rain { float v[]; } rain;
 layout(set = 0, binding = 6, std430) readonly buffer Wetness { float v[]; } wetness;
 layout(set = 0, binding = 7, std430) readonly buffer Activity { float v[]; } activity;
-layout(set = 0, binding = 8, std430) restrict buffer Flow { float v[]; } flow;
-layout(set = 0, binding = 9, std430) restrict buffer Reliability { float v[]; } reliability;
-layout(set = 0, binding = 10, std430) restrict buffer FloodRisk { float v[]; } flood_risk;
-layout(set = 0, binding = 11, std430) restrict buffer WaterDepth { float v[]; } water_depth;
-layout(set = 0, binding = 12, std430) restrict buffer Pressure { float v[]; } pressure;
-layout(set = 0, binding = 13, std430) restrict buffer Recharge { float v[]; } recharge;
+layout(set = 0, binding = 8, std430) buffer Flow { float v[]; } flow;
+layout(set = 0, binding = 9, std430) buffer Reliability { float v[]; } reliability;
+layout(set = 0, binding = 10, std430) buffer FloodRisk { float v[]; } flood_risk;
+layout(set = 0, binding = 11, std430) buffer WaterDepth { float v[]; } water_depth;
+layout(set = 0, binding = 12, std430) buffer Pressure { float v[]; } pressure;
+layout(set = 0, binding = 13, std430) buffer Recharge { float v[]; } recharge;
 layout(set = 0, binding = 14, std430) readonly buffer Params {
 	float dt;
 	float tick;
 	float idle_cadence;
 	float phase_seed;
+	float tile_count;
 } params;
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;
-	if (idx >= flow.v.length()) {
+	if (idx >= uint(params.tile_count)) {
 		return;
 	}
 	float act = clamp(activity.v[idx], 0.0, 1.0);

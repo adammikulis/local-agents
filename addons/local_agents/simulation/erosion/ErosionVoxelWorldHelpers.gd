@@ -31,7 +31,7 @@ static func apply_voxel_surface_erosion(environment_snapshot: Dictionary, change
 			continue
 		var c = columns[i] as Dictionary
 		var tile_id = TileKeyUtilsScript.tile_id(int(c.get("x", 0)), int(c.get("z", 0)))
-		var elev_drop = float(changed_ids.get(tile_id, 0.0))
+		var elev_drop = absf(float(changed_ids.get(tile_id, 0.0)))
 		if elev_drop <= 0.0:
 			continue
 		var levels = maxi(0, int(round(elev_drop * float(maxi(8, world_height)))))

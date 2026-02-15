@@ -187,6 +187,17 @@ func _apply_performance_toggles(
 	var simulation_locality_enabled = bool(graphics_state.get("simulation_locality_enabled", true))
 	var simulation_locality_dynamic_enabled = bool(graphics_state.get("simulation_locality_dynamic_enabled", true))
 	var simulation_locality_radius_tiles = maxi(0, int(graphics_state.get("simulation_locality_radius_tiles", 1)))
+	var weather_system_enabled = bool(graphics_state.get("weather_system_enabled", true))
+	var hydrology_system_enabled = bool(graphics_state.get("hydrology_system_enabled", true))
+	var erosion_system_enabled = bool(graphics_state.get("erosion_system_enabled", true))
+	var solar_system_enabled = bool(graphics_state.get("solar_system_enabled", true))
+	var resource_pipeline_enabled = bool(graphics_state.get("resource_pipeline_enabled", true))
+	var structure_lifecycle_enabled = bool(graphics_state.get("structure_lifecycle_enabled", true))
+	var culture_cycle_enabled = bool(graphics_state.get("culture_cycle_enabled", true))
+	var ecology_system_enabled = bool(graphics_state.get("ecology_system_enabled", true))
+	var settlement_system_enabled = bool(graphics_state.get("settlement_system_enabled", true))
+	var villager_system_enabled = bool(graphics_state.get("villager_system_enabled", true))
+	var cognition_system_enabled = bool(graphics_state.get("cognition_system_enabled", true))
 	var weather_solver_decimation_enabled = bool(graphics_state.get("weather_solver_decimation_enabled", false))
 	var hydrology_solver_decimation_enabled = bool(graphics_state.get("hydrology_solver_decimation_enabled", false))
 	var erosion_solver_decimation_enabled = bool(graphics_state.get("erosion_solver_decimation_enabled", false))
@@ -234,6 +245,50 @@ func _apply_performance_toggles(
 	_loop_controller.set_timing(target_sim_ticks_per_second, target_profile_push_interval)
 
 	if _simulation_controller != null:
+		if _simulation_controller.has_method("set_weather_system_enabled"):
+			_simulation_controller.call("set_weather_system_enabled", weather_system_enabled)
+		else:
+			_simulation_controller.set("weather_system_enabled", weather_system_enabled)
+		if _simulation_controller.has_method("set_hydrology_system_enabled"):
+			_simulation_controller.call("set_hydrology_system_enabled", hydrology_system_enabled)
+		else:
+			_simulation_controller.set("hydrology_system_enabled", hydrology_system_enabled)
+		if _simulation_controller.has_method("set_erosion_system_enabled"):
+			_simulation_controller.call("set_erosion_system_enabled", erosion_system_enabled)
+		else:
+			_simulation_controller.set("erosion_system_enabled", erosion_system_enabled)
+		if _simulation_controller.has_method("set_solar_system_enabled"):
+			_simulation_controller.call("set_solar_system_enabled", solar_system_enabled)
+		else:
+			_simulation_controller.set("solar_system_enabled", solar_system_enabled)
+		if _simulation_controller.has_method("set_resource_pipeline_enabled"):
+			_simulation_controller.call("set_resource_pipeline_enabled", resource_pipeline_enabled)
+		else:
+			_simulation_controller.set("resource_pipeline_enabled", resource_pipeline_enabled)
+		if _simulation_controller.has_method("set_structure_lifecycle_enabled"):
+			_simulation_controller.call("set_structure_lifecycle_enabled", structure_lifecycle_enabled)
+		else:
+			_simulation_controller.set("structure_lifecycle_enabled", structure_lifecycle_enabled)
+		if _simulation_controller.has_method("set_culture_system_enabled"):
+			_simulation_controller.call("set_culture_system_enabled", culture_cycle_enabled)
+		else:
+			_simulation_controller.set("culture_system_enabled", culture_cycle_enabled)
+		if _simulation_controller.has_method("set_ecology_system_enabled"):
+			_simulation_controller.call("set_ecology_system_enabled", ecology_system_enabled)
+		else:
+			_simulation_controller.set("ecology_system_enabled", ecology_system_enabled)
+		if _simulation_controller.has_method("set_settlement_system_enabled"):
+			_simulation_controller.call("set_settlement_system_enabled", settlement_system_enabled)
+		else:
+			_simulation_controller.set("settlement_system_enabled", settlement_system_enabled)
+		if _simulation_controller.has_method("set_villager_system_enabled"):
+			_simulation_controller.call("set_villager_system_enabled", villager_system_enabled)
+		else:
+			_simulation_controller.set("villager_system_enabled", villager_system_enabled)
+		if _simulation_controller.has_method("set_cognition_system_enabled"):
+			_simulation_controller.call("set_cognition_system_enabled", cognition_system_enabled)
+		else:
+			_simulation_controller.set("cognition_system_enabled", cognition_system_enabled)
 		if _simulation_controller.has_method("set_locality_processing_config"):
 			_simulation_controller.call(
 				"set_locality_processing_config",

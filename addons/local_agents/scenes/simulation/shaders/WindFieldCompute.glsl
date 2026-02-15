@@ -4,11 +4,11 @@
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, std430) readonly buffer TempRead { float v[]; } temp_read;
-layout(set = 0, binding = 1, std430) restrict buffer TempWrite { float v[]; } temp_write;
+layout(set = 0, binding = 1, std430) buffer TempWrite { float v[]; } temp_write;
 layout(set = 0, binding = 2, std430) readonly buffer WindReadX { float v[]; } wind_read_x;
 layout(set = 0, binding = 3, std430) readonly buffer WindReadZ { float v[]; } wind_read_z;
-layout(set = 0, binding = 4, std430) restrict buffer WindWriteX { float v[]; } wind_write_x;
-layout(set = 0, binding = 5, std430) restrict buffer WindWriteZ { float v[]; } wind_write_z;
+layout(set = 0, binding = 4, std430) buffer WindWriteX { float v[]; } wind_write_x;
+layout(set = 0, binding = 5, std430) buffer WindWriteZ { float v[]; } wind_write_z;
 layout(set = 0, binding = 6, std430) readonly buffer Params {
 	float dt;
 	float ambient_temp;
@@ -28,8 +28,10 @@ layout(set = 0, binding = 6, std430) readonly buffer Params {
 	float base_speed;
 	float radius_cells;
 	float vertical_cells;
-	float phase;
+	float wind_pass_phase;
 	float terrain_seed;
+	float phase;
+	float tile_count;
 } params;
 
 int width_cells() {
@@ -168,11 +170,11 @@ void run_wind_pass(uint idx_u, ivec3 cell) {
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;
-	if (idx >= temp_read.v.length()) {
+	if (idx >= uint(params.tile_count)) {
 		return;
 	}
 	ivec3 cell = cell_for_index(int(idx));
-	if (params.phase < 0.5) {
+	if (params.wind_pass_phase < 0.5) {
 		run_temperature_pass(idx, cell);
 		return;
 	}

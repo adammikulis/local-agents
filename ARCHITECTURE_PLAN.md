@@ -147,6 +147,10 @@ Planned entries:
 - [ ] P1 (Owners: Runtime Simulation lane, Native Compute lane, Documentation lane, Validation/Test-Infrastructure lane): Split `LocalAgentsSimulationCore` orchestration from `CoreSimulationPipeline` stage execution boundaries.
   - Acceptance criteria: Stage ownership is explicit (`LocalAgentsSimulationCore` orchestrates inputs/outputs; `CoreSimulationPipeline` owns deterministic stage execution) with no duplicated stage logic across boundaries.
   - Acceptance criteria: Canonical validation commands are `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_general_physics_wave_a_runtime.gd --timeout=120`, `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_general_physics_wave_a_contracts.gd --timeout=120`, and `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_op_contracts.gd --timeout=120`.
+- [ ] P1 (Owners: Runtime Simulation lane, Native Compute lane, Validation/Test-Infrastructure lane): Align compute backend parameter contracts and shader interfaces (wind/weather/sun/hydrology/erosion) so kernel launch order and tile counts are deterministic and fail-fast safe.
+  - Acceptance criteria: Backend `PackedFloat32Array` layouts for params and shader `std430` structs are verified by code-level review and shared regression tests or runtime assertions.
+  - Acceptance criteria: Stage toggles (`set_compute_enabled` + native dispatch enablement) are applied consistently for compute-capable stages at startup and per-tick preference sync.
+  - Acceptance criteria: Invalid RID frees are detectable with debug logging rather than silent partial frees when configure/dispatch is re-entered.
 - [ ] P0 (Owners: Documentation lane, Runtime Simulation lane, Native Compute lane, Simulation Destruction lane, Validation/Test-Infrastructure lane): GPU-only voxel destruction demo readiness with scope limited to GPU-only voxel dispatch, destruction-stage handshake via `LocalAgentsSimulationCore -> failure emission plan -> VoxelEditEngine`, file-size split constraints for in-scope files above 540 lines, and deterministic demo/HUD signal behavior.
   - Acceptance criteria: Demo readiness docs require GPU-only voxel dispatch for destruction flows with no CPU-success fallback path documented for the primary demo path.
   - Acceptance criteria: Docs define the destruction-stage handshake contract as `LocalAgentsSimulationCore -> failure emission plan -> VoxelEditEngine` with explicit stage ownership and fail-fast behavior for missing handshake links.
@@ -167,7 +171,79 @@ Planned entries:
   - Acceptance criteria: Caller-facing APIs remain stable while build wiring includes the extracted helper translation unit(s) without changing compile assumptions.
   - Acceptance criteria: Validation passes for `./scripts/run_single_test.sh test_native_voxel_op_contracts.gd --timeout=120`, `./scripts/run_single_test.sh test_native_general_physics_failure_emission_contracts.gd --timeout=120`, and `scripts/check_max_file_length.sh`.
   - Risks: Helper extraction can accidentally drift diagnostic key strings or fallback-mode behavior if resolver ordering changes.
+ 
+## Migration Plan (from prior output)
 
+- `Priority: P0`
+  - Owners:
+    - Runtime Simulation lane
+    - Native Compute lane
+    - Documentation lane
+    - Validation/Test-Infrastructure lane
+  - Dependencies:
+    - Canonical harness and command docs updated in this file.
+    - Field-size preconditions enforced under 900 lines for edited files.
+  - Acceptance criteria:
+    - `WorldSimulation` is the default runtime path; references to legacy `WorldSimulatorApp` are removed from migration-relevant docs.
+    - `VoxelEditEngine` and call-sites execute through a single GPU-only pass-dispatch contract with explicit fail-fast behavior.
+    - Dispatch summaries include `kernel_pass`, `dispatched`, `backend_used`, `dispatch_reason`, and explicit hard-fail reasons when contracts cannot be satisfied.
+  - File targets:
+    - `addons/local_agents/gdextensions/localagents/include/sim/VoxelEditGpuExecutor.hpp`
+    - `addons/local_agents/gdextensions/localagents/src/sim/VoxelEditGpuExecutor.cpp`
+    - `addons/local_agents/gdextensions/localagents/src/VoxelEditEngine.cpp`
+    - `addons/local_agents/gdextensions/localagents/src/LocalAgentsComputeManager.cpp`
+    - `addons/local_agents/scenes/simulation/shaders/VoxelEditStageCompute.glsl`
+    - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd`
+    - `addons/local_agents/simulation/controller/SimulationRuntimeFacade.gd`
+    - `addons/local_agents/simulation/controller/NativeComputeBridge.gd`
+    - `addons/local_agents/tests/run_single_test.gd`
+    - `addons/local_agents/tests/run_runtime_tests_bounded.gd`
+
+- `Priority: P1`
+  - Owners:
+    - Simulation Foundations lane
+    - Native Layout lane
+    - Validation/Test-Infrastructure lane
+    - Documentation lane
+  - Dependencies:
+    - P0 migration contract acceptance.
+    - Stable field registry and bridge contract behavior in existing Wave A test baselines.
+  - Acceptance criteria:
+    - Hot stages prefer typed native fields for mechanics/pressure/thermal/reaction when handles are available.
+    - Scalar fallback paths are explicit, reason-coded, and non-default on the primary path.
+    - Demo profile toggles are deterministic and do not require runtime-stack swaps.
+  - File targets:
+    - `addons/local_agents/gdextensions/localagents/src/sim/CoreSimulationPipeline.cpp`
+    - `addons/local_agents/gdextensions/localagents/src/sim/CoreSimulationPipelineInternal.cpp`
+    - `addons/local_agents/gdextensions/localagents/src/sim/CoreSimulationPipelineStages.cpp`
+    - `addons/local_agents/gdextensions/localagents/src/sim/CoreSimulationPipelineFieldEvolution.cpp`
+    - `addons/local_agents/gdextensions/localagents/src/sim/CoreSimulationPipelineGpu.cpp`
+    - `addons/local_agents/gdextensions/localagents/src/LocalAgentsFieldRegistry.cpp`
+    - `addons/local_agents/tests/test_native_general_physics_wave_a_runtime.gd`
+    - `addons/local_agents/tests/test_native_general_physics_wave_a_contracts.gd`
+    - `addons/local_agents/tests/test_native_voxel_op_contracts.gd`
+    - `addons/local_agents/tests/test_field_registry_config_resource.gd`
+
+- `Priority: P2`
+  - Owners:
+    - Query Integration lane
+    - CI/Gating lane
+    - Documentation lane
+  - Dependencies:
+    - P1 stage/field migrations are complete.
+    - Deterministic replay and replay seeds are stable on expanded contract coverage.
+  - Acceptance criteria:
+    - One gameplay/AI path is migrated to native query services without raw scalar snapshot consumers.
+    - GPU-vs-CPU parity and performance gates are introduced for migrated hot paths.
+    - This plan remains aligned with `README.md` and `ARCHITECTURE_PLAN.md` execution order.
+  - File targets:
+    - `addons/local_agents/gdextensions/localagents/src/godot/NativeComputeBridge.gd`
+    - `addons/local_agents/gdextensions/localagents/src/godot/NativeComputeBridge.cpp`
+    - `addons/local_agents/controllers/AgentController.gd`
+    - `addons/local_agents/tests/test_query_migration_contracts.gd`
+    - `addons/local_agents/tests/benchmark_voxel_pipeline.gd`
+    - `scripts/check_max_file_length.sh`
+    - `README.md`
 
 ## Concern I: Voxel Physics Engine Upgrades (Native-First)
 

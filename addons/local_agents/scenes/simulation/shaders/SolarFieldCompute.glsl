@@ -14,10 +14,10 @@ layout(set = 0, binding = 7, std430) readonly buffer WeatherCloud { float v[]; }
 layout(set = 0, binding = 8, std430) readonly buffer WeatherFog { float v[]; } weather_fog;
 layout(set = 0, binding = 9, std430) readonly buffer WeatherHumidity { float v[]; } weather_humidity;
 layout(set = 0, binding = 10, std430) readonly buffer Activity { float v[]; } activity;
-layout(set = 0, binding = 11, std430) restrict buffer Sunlight { float v[]; } sunlight;
-layout(set = 0, binding = 12, std430) restrict buffer UvIndex { float v[]; } uv_index;
-layout(set = 0, binding = 13, std430) restrict buffer HeatLoad { float v[]; } heat_load;
-layout(set = 0, binding = 14, std430) restrict buffer Growth { float v[]; } growth;
+layout(set = 0, binding = 11, std430) buffer Sunlight { float v[]; } sunlight;
+layout(set = 0, binding = 12, std430) buffer UvIndex { float v[]; } uv_index;
+layout(set = 0, binding = 13, std430) buffer HeatLoad { float v[]; } heat_load;
+layout(set = 0, binding = 14, std430) buffer Growth { float v[]; } growth;
 layout(set = 0, binding = 15, std430) readonly buffer Params {
 	float sun_dir_x;
 	float sun_dir_y;
@@ -27,11 +27,12 @@ layout(set = 0, binding = 15, std430) readonly buffer Params {
 	float seed;
 	float reserved;
 	float reserved2;
+	float tile_count;
 } params;
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;
-	if (idx >= sunlight.v.length()) {
+	if (idx >= uint(params.tile_count)) {
 		return;
 	}
 	float cloud = clamp(weather_cloud.v[idx], 0.0, 1.0);

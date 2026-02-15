@@ -110,8 +110,12 @@ func set_sync_stride(stride: int) -> void:
 	_sync_stride = maxi(1, stride)
 
 func set_compute_enabled(enabled: bool) -> void:
+	if enabled == _compute_requested:
+		if not enabled or _compute_active:
+			return
 	_compute_requested = enabled
 	if not enabled:
+		_compute_backend.release()
 		_compute_active = false
 		return
 	if not _configured:
