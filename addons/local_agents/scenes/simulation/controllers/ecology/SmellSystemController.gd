@@ -71,7 +71,7 @@ func step_smell_field(delta: float) -> void:
 				_wind_step_accumulator = 0.0
 				_owner._wind_field.set_global_wind(_owner.wind_direction, _owner.wind_intensity, _owner.wind_speed)
 				var diurnal_phase := fmod(_owner._sim_time_seconds / 24.0, TAU)
-				_owner._wind_field.step(wind_delta, 0.52, diurnal_phase, _owner.rain_intensity, _solar_air_context())
+				_owner._wind_field.step(wind_delta, 0.52, diurnal_phase, _owner.rain_intensity, _transform_stage_d_air_context())
 			wind_source = Callable(_owner._wind_field, "sample_wind")
 		if _owner.voxel_process_gating_enabled and _owner.voxel_gate_smell_enabled:
 			var active_voxels: Array[Vector3i] = _owner.collect_active_smell_voxels()
@@ -128,12 +128,12 @@ func _tile_at_world(world_position: Vector3) -> Dictionary:
 	var row = tile_index.get(tile_id, {})
 	return row as Dictionary if row is Dictionary else {}
 
-func _solar_air_context() -> Dictionary:
+func _transform_stage_d_air_context() -> Dictionary:
 	return {
-		"sun_altitude": clampf(float(_owner._solar_snapshot.get("sun_altitude", 0.0)), 0.0, 1.0),
-		"avg_insolation": clampf(float(_owner._solar_snapshot.get("avg_insolation", 0.0)), 0.0, 1.0),
-		"avg_uv_index": clampf(float(_owner._solar_snapshot.get("avg_uv_index", 0.0)), 0.0, 2.0),
-		"avg_heat_load": clampf(float(_owner._solar_snapshot.get("avg_heat_load", 0.0)), 0.0, 1.5),
+		"sun_altitude": clampf(float(_owner._transform_stage_d_state.get("sun_altitude", 0.0)), 0.0, 1.0),
+		"avg_insolation": clampf(float(_owner._transform_stage_d_state.get("avg_insolation", 0.0)), 0.0, 1.0),
+		"avg_uv_index": clampf(float(_owner._transform_stage_d_state.get("avg_uv_index", 0.0)), 0.0, 2.0),
+		"avg_heat_load": clampf(float(_owner._transform_stage_d_state.get("avg_heat_load", 0.0)), 0.0, 1.5),
 		"air_heating_scalar": 1.0,
 	}
 

@@ -4,22 +4,16 @@ const NATIVE_SIM_CORE_SINGLETON_NAME := "LocalAgentsSimulationCore"
 const NATIVE_SIM_CORE_ENV_KEY := "LOCAL_AGENTS_ENABLE_NATIVE_SIM_CORE"
 const PhysicsServerContactBridgeScript = preload("res://addons/local_agents/simulation/controller/PhysicsServerContactBridge.gd")
 const NativeComputeBridgeEnvironmentDispatchStatusScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridgeEnvironmentDispatchStatus.gd")
-const _SUPPORTED_ENVIRONMENT_STAGE_NAME_WEATHER := "weather_step"
-const _SUPPORTED_ENVIRONMENT_STAGE_NAME_HYDROLOGY := "hydrology_step"
-const _SUPPORTED_ENVIRONMENT_STAGE_NAME_EROSION := "erosion_step"
-const _SUPPORTED_ENVIRONMENT_STAGE_NAME_SOLAR := "solar_exposure_step"
+const _ENVIRONMENT_STAGE_NAME_VOXEL_TRANSFORM := "voxel_transform_step"
 const _SUPPORTED_ENVIRONMENT_STAGES := {
-    _SUPPORTED_ENVIRONMENT_STAGE_NAME_WEATHER: true,
-    _SUPPORTED_ENVIRONMENT_STAGE_NAME_HYDROLOGY: true,
-    _SUPPORTED_ENVIRONMENT_STAGE_NAME_EROSION: true,
-    _SUPPORTED_ENVIRONMENT_STAGE_NAME_SOLAR: true,
+    _ENVIRONMENT_STAGE_NAME_VOXEL_TRANSFORM: true,
 }
 const _INVALID_ENVIRONMENT_STAGE_NAME_ERROR := "invalid_environment_stage_name"
 const _UNSUPPORTED_ENVIRONMENT_STAGE_ERROR := "native_environment_stage_unsupported"
 const _ENVIRONMENT_STAGE_DISPATCH_SOURCE := "simulation_runtime_bridge"
 
 static var _environment_stage_dispatch_index: int = 0
-const _CANONICAL_INPUT_KEYS := ["pressure", "pressure_gradient", "temperature", "density", "velocity", "force_proxy", "acceleration_proxy", "mass_proxy", "moisture", "porosity", "cohesion", "hardness", "phase", "stress", "strain", "thermal_conductivity", "thermal_capacity", "thermal_diffusivity", "reaction_rate", "reaction_channels", "phase_change_channels", "porous_flow_channels", "shock_impulse_channels", "friction_contact_channels", "boundary_condition_channels", "fuel", "oxygen", "material_flammability", "activity", "contact_impulse", "contact_velocity", "contact_normal", "contact_point", "body_velocity", "obstacle_velocity", "obstacle_trajectory", "body_id", "rigid_obstacle_mask"]
+const _CANONICAL_INPUT_KEYS := ["pressure", "pressure_gradient", "temperature", "density", "velocity", "force_proxy", "acceleration_proxy", "mass_proxy", "moisture", "porosity", "cohesion", "hardness", "phase", "stress", "strain", "thermal_conductivity", "thermal_capacity", "thermal_diffusivity", "reaction_rate", "reaction_channels", "phase_change_channels", "porous_flow_channels", "shock_impulse_channels", "friction_contact_channels", "boundary_condition_channels", "fuel", "oxygen", "material_flammability", "activity", "contact_impulse", "contact_velocity", "contact_normal", "contact_point", "body_velocity", "obstacle_velocity", "obstacle_trajectory", "body_id", "rigid_obstacle_mask", "material_id", "element_id"]
 const _DEFAULT_REACTION_CHANNELS := {"combustion": 0.0, "oxidation": 0.0, "hydration": 0.0, "decomposition": 0.0, "corrosion": 0.0}
 const _DEFAULT_GENERALIZED_CHANNELS := {"phase_change_channels": {"melting": 0.0, "freezing": 0.0, "evaporation": 0.0, "condensation": 0.0}, "porous_flow_channels": {"seepage": 0.0, "capillary": 0.0, "drainage": 0.0, "retention": 0.0}, "shock_impulse_channels": {"impact": 0.0, "blast": 0.0, "shear_wave": 0.0, "vibration": 0.0}, "friction_contact_channels": {"static": 0.0, "kinetic": 0.0, "rolling": 0.0, "adhesion": 0.0}, "boundary_condition_channels": {"dirichlet": 0.0, "neumann": 0.0, "robin": 0.0, "reflective": 0.0, "periodic": 0.0}}
 const _MATERIAL_INPUT_DEFAULTS := {
@@ -27,9 +21,9 @@ const _MATERIAL_INPUT_DEFAULTS := {
 	"thermal_conductivity": -1.0, "thermal_capacity": -1.0, "thermal_diffusivity": -1.0, "reaction_rate": -1.0, "reaction_channels": {}, "phase_change_channels": {}, "porous_flow_channels": {}, "shock_impulse_channels": {}, "friction_contact_channels": {}, "boundary_condition_channels": {},
 	"mass_proxy": -1.0, "acceleration_proxy": -1.0, "force_proxy": -1.0,
 	"contact_impulse": 0.0, "contact_velocity": 0.0, "contact_normal": Vector3.ZERO, "contact_point": Vector3.ZERO, "body_velocity": 0.0, "obstacle_velocity": 0.0, "obstacle_trajectory": Vector3.ZERO,
-	"body_id": -1, "rigid_obstacle_mask": 0,
+	"body_id": -1, "rigid_obstacle_mask": 0, "material_id": "material:unknown", "element_id": "element:unknown",
 }
-const _LEGACY_INPUT_KEY_ALIASES := {"temperature": ["temp", "temp_k", "avg_temperature"], "pressure": ["pressure_atm", "atmospheric_pressure", "hydraulic_pressure"], "pressure_gradient": ["pressure_delta", "pressure_grad", "hydraulic_gradient"], "density": ["air_density", "material_density"], "velocity": ["wind_speed", "flow_speed", "speed"], "mass_proxy": ["mass", "mass_estimate", "inertial_mass"], "acceleration_proxy": ["acceleration", "accel", "accel_proxy"], "force_proxy": ["force", "force_estimate", "impulse"], "moisture": ["humidity", "water_content"], "porosity": ["void_fraction"], "cohesion": ["binding_strength"], "hardness": ["rigidity", "resistance"], "thermal_conductivity": ["conductivity", "thermal_k"], "thermal_capacity": ["heat_capacity", "specific_heat"], "thermal_diffusivity": ["diffusivity"], "reaction_rate": ["reaction_intensity", "chem_reaction_rate"], "phase_change_channels": ["phase_transitions", "phase_change", "transition_channels"], "porous_flow_channels": ["porous_channels", "flow_channels", "permeability_channels"], "shock_impulse_channels": ["shock_channels", "impulse_channels", "impact_channels"], "friction_contact_channels": ["friction_channels", "contact_channels", "tribology_channels"], "boundary_condition_channels": ["boundary_channels", "boundary_conditions", "bc_channels"], "material_flammability": ["flammability"], "activity": ["activity_level", "activation"], "contact_impulse": ["impulse", "normal_impulse", "collision_impulse"], "contact_velocity": ["impact_velocity", "relative_velocity", "contact_speed"], "contact_normal": ["normal", "collision_normal"], "contact_point": ["point", "collision_point", "position"], "body_velocity": ["velocity_magnitude", "linear_speed", "body_speed"], "obstacle_velocity": ["obstacle_speed", "obstacle_speed_magnitude", "motion_speed"], "obstacle_trajectory": ["obstacle_direction", "motion_trajectory"], "body_id": ["id", "rid", "collider_id"], "rigid_obstacle_mask": ["obstacle_mask", "collision_mask", "collision_layer"]}
+const _LEGACY_INPUT_KEY_ALIASES := {"temperature": ["temp", "temp_k", "avg_temperature"], "pressure": ["pressure_atm", "atmospheric_pressure", "hydraulic_pressure"], "pressure_gradient": ["pressure_delta", "pressure_grad", "hydraulic_gradient"], "density": ["air_density", "material_density"], "velocity": ["wind_speed", "flow_speed", "speed"], "mass_proxy": ["mass", "mass_estimate", "inertial_mass"], "acceleration_proxy": ["acceleration", "accel", "accel_proxy"], "force_proxy": ["force", "force_estimate", "impulse"], "moisture": ["humidity", "water_content"], "porosity": ["void_fraction"], "cohesion": ["binding_strength"], "hardness": ["rigidity", "resistance"], "thermal_conductivity": ["conductivity", "thermal_k"], "thermal_capacity": ["heat_capacity", "specific_heat"], "thermal_diffusivity": ["diffusivity"], "reaction_rate": ["reaction_intensity", "chem_reaction_rate"], "phase_change_channels": ["phase_transitions", "phase_change", "transition_channels"], "porous_flow_channels": ["porous_channels", "flow_channels", "permeability_channels"], "shock_impulse_channels": ["shock_channels", "impulse_channels", "impact_channels"], "friction_contact_channels": ["friction_channels", "contact_channels", "tribology_channels"], "boundary_condition_channels": ["boundary_channels", "boundary_conditions", "bc_channels"], "material_flammability": ["flammability"], "activity": ["activity_level", "activation"], "contact_impulse": ["impulse", "normal_impulse", "collision_impulse"], "contact_velocity": ["impact_velocity", "relative_velocity", "contact_speed"], "contact_normal": ["normal", "collision_normal"], "contact_point": ["point", "collision_point", "position"], "body_velocity": ["velocity_magnitude", "linear_speed", "body_speed"], "obstacle_velocity": ["obstacle_speed", "obstacle_speed_magnitude", "motion_speed"], "obstacle_trajectory": ["obstacle_direction", "motion_trajectory"], "body_id": ["id", "rid", "collider_id"], "rigid_obstacle_mask": ["obstacle_mask", "collision_mask", "collision_layer"], "material_id": ["material", "material_name", "material_type"], "element_id": ["element", "element_name", "element_type"]}
 static func is_native_sim_core_enabled() -> bool:
 	return OS.get_environment(NATIVE_SIM_CORE_ENV_KEY).strip_edges() == "1"
 static func dispatch_stage_call(controller, tick: int, phase: String, method_name: String, args: Array = [], strict: bool = false) -> Dictionary:
@@ -243,8 +237,28 @@ static func _normalize_environment_payload(payload: Dictionary) -> Dictionary:
 	if not normalized_contacts.is_empty():
 		normalized["physics_server_contacts"] = normalized_contacts
 	var inputs := _material_inputs_from_payload(normalized)
+	var material_identity := _material_identity_from_payload(normalized, inputs)
+	inputs["material_id"] = String(material_identity.get("material_id", "material:unknown")).strip_edges()
+	inputs["element_id"] = String(material_identity.get("element_id", "element:unknown")).strip_edges()
 	normalized["inputs"] = inputs
+	normalized["material_identity"] = material_identity
 	return normalized
+
+static func _material_identity_from_payload(payload: Dictionary, inputs: Dictionary) -> Dictionary:
+	var explicit_identity_variant = payload.get("material_identity", {})
+	var explicit_identity: Dictionary = {}
+	if explicit_identity_variant is Dictionary:
+		explicit_identity = (explicit_identity_variant as Dictionary).duplicate(true)
+	var material_id := String(explicit_identity.get("material_id", payload.get("material_id", inputs.get("material_id", "material:unknown")))).strip_edges()
+	if material_id == "":
+		material_id = "material:unknown"
+	var element_id := String(explicit_identity.get("element_id", payload.get("element_id", inputs.get("element_id", "element:unknown")))).strip_edges()
+	if element_id == "":
+		element_id = "element:unknown"
+	return {
+		"material_id": material_id,
+		"element_id": element_id,
+	}
 
 static func _material_inputs_from_payload(payload: Dictionary) -> Dictionary:
 	var out: Dictionary = {}
@@ -254,8 +268,8 @@ static func _material_inputs_from_payload(payload: Dictionary) -> Dictionary:
 	_merge_payload_material_input_overrides(out, payload)
 	_merge_environment_activity(out, payload)
 	_merge_physics_contact_inputs(out, payload)
-	_merge_hydrology_material_inputs(out, payload)
-	_merge_weather_material_inputs(out, payload)
+	_merge_network_state_material_inputs(out, payload)
+	_merge_atmosphere_state_material_inputs(out, payload)
 	_apply_material_input_defaults(out)
 	return _normalize_canonical_material_inputs(out)
 
@@ -300,11 +314,11 @@ static func _merge_physics_contact_inputs(out: Dictionary, payload: Dictionary) 
 		if not out.has(key):
 			out[key] = aggregates.get(key)
 
-static func _merge_hydrology_material_inputs(out: Dictionary, payload: Dictionary) -> void:
-	var hydrology = payload.get("hydrology", {})
-	if not (hydrology is Dictionary):
+static func _merge_network_state_material_inputs(out: Dictionary, payload: Dictionary) -> void:
+	var network_state = payload.get("network_state", {})
+	if not (network_state is Dictionary):
 		return
-	var water_tiles = (hydrology as Dictionary).get("water_tiles", {})
+	var water_tiles = (network_state as Dictionary).get("water_tiles", {})
 	if not (water_tiles is Dictionary):
 		return
 	if (water_tiles as Dictionary).is_empty():
@@ -319,19 +333,19 @@ static func _merge_hydrology_material_inputs(out: Dictionary, payload: Dictionar
 			hydraulic_gradient = _average_tile_metric(water_tiles as Dictionary, "hydraulic_gradient", 0.0)
 		out["pressure_gradient"] = hydraulic_gradient
 
-static func _merge_weather_material_inputs(out: Dictionary, payload: Dictionary) -> void:
-	var weather = payload.get("weather", {})
-	if not (weather is Dictionary):
+static func _merge_atmosphere_state_material_inputs(out: Dictionary, payload: Dictionary) -> void:
+	var atmosphere_state = payload.get("atmosphere_state", {})
+	if not (atmosphere_state is Dictionary):
 		return
-	var weather_dict = weather as Dictionary
+	var atmosphere = atmosphere_state as Dictionary
 	if not out.has("temperature"):
-		out["temperature"] = 273.15 + clampf(float(weather_dict.get("avg_temperature", 0.5)), 0.0, 1.0) * 70.0
+		out["temperature"] = 273.15 + clampf(float(atmosphere.get("avg_temperature", 0.5)), 0.0, 1.0) * 70.0
 	if not out.has("oxygen"):
-		out["oxygen"] = clampf(float(weather_dict.get("avg_humidity", 0.35)) * 0.0 + 0.21, 0.0, 1.0)
+		out["oxygen"] = clampf(float(atmosphere.get("avg_humidity", 0.35)) * 0.0 + 0.21, 0.0, 1.0)
 	if not out.has("density"):
 		out["density"] = 1.0
 	if not out.has("velocity"):
-		out["velocity"] = clampf(float(weather_dict.get("avg_wind_speed", 0.0)), 0.0, 200.0)
+		out["velocity"] = clampf(float(atmosphere.get("avg_wind_speed", 0.0)), 0.0, 200.0)
 
 static func _apply_material_input_defaults(out: Dictionary) -> void:
 	for key_variant in _MATERIAL_INPUT_DEFAULTS.keys():
@@ -371,6 +385,10 @@ static func _normalize_canonical_material_inputs(input_fields: Dictionary) -> Di
 	out["obstacle_trajectory"] = _read_vector3(out.get("obstacle_trajectory", Vector3.ZERO))
 	out["body_id"] = int(out.get("body_id", -1))
 	out["rigid_obstacle_mask"] = maxi(int(out.get("rigid_obstacle_mask", 0)), 0)
+	var material_id := String(out.get("material_id", "material:unknown")).strip_edges()
+	var element_id := String(out.get("element_id", "element:unknown")).strip_edges()
+	out["material_id"] = material_id if material_id != "" else "material:unknown"
+	out["element_id"] = element_id if element_id != "" else "element:unknown"
 	out["mass_proxy"] = _normalize_mass_proxy(out)
 	out["acceleration_proxy"] = _normalize_acceleration_proxy(out)
 	out["force_proxy"] = _normalize_force_proxy(out)
@@ -737,6 +755,15 @@ static func _normalize_environment_stage_result(result) -> Dictionary:
 			result_fields["voxel_failure_emission"] = payload.get("voxel_failure_emission", {})
 		if payload.get("pipeline", {}) is Dictionary:
 			result_fields["pipeline"] = payload.get("pipeline", {})
+		var result_inputs_variant = result_fields.get("inputs", {})
+		var result_inputs: Dictionary = {}
+		if result_inputs_variant is Dictionary:
+			result_inputs = (result_inputs_variant as Dictionary).duplicate(true)
+		var material_identity = _material_identity_from_payload(result_fields, result_inputs)
+		result_fields["material_identity"] = material_identity
+		result_inputs["material_id"] = String(material_identity.get("material_id", "material:unknown")).strip_edges()
+		result_inputs["element_id"] = String(material_identity.get("element_id", "element:unknown")).strip_edges()
+		result_fields["inputs"] = result_inputs
 		return {"ok": bool(payload.get("ok", true)), "executed": true, "dispatched": dispatched, "result": payload, "result_fields": result_fields, "error": String(payload.get("error", ""))}
 	if result is bool:
 		return {"ok": bool(result), "executed": true, "dispatched": bool(result), "result": result, "result_fields": {}, "error": ""}

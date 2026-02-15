@@ -14,11 +14,7 @@ const MindScript = preload("res://addons/local_agents/simulation/VillagerMindSer
 const StoreScript = preload("res://addons/local_agents/simulation/SimulationStore.gd")
 const BackstoryServiceScript = preload("res://addons/local_agents/graph/BackstoryGraphService.gd")
 const WorldGeneratorScript = preload("res://addons/local_agents/simulation/WorldGenerator.gd")
-const HydrologySystemScript = preload("res://addons/local_agents/simulation/HydrologySystem.gd")
 const SettlementSeederScript = preload("res://addons/local_agents/simulation/SettlementSeeder.gd")
-const WeatherSystemScript = preload("res://addons/local_agents/simulation/WeatherSystem.gd")
-const ErosionSystemScript = preload("res://addons/local_agents/simulation/ErosionSystem.gd")
-const SolarExposureSystemScript = preload("res://addons/local_agents/simulation/SolarExposureSystem.gd")
 const WorldGenConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldGenConfigResource.gd")
 const SpatialFlowNetworkSystemScript = preload("res://addons/local_agents/simulation/SpatialFlowNetworkSystem.gd")
 const StructureLifecycleSystemScript = preload("res://addons/local_agents/simulation/StructureLifecycleSystem.gd")
@@ -73,19 +69,15 @@ var _community_ledger
 var _narrator_directive_resource
 var _backstory_service
 var _world_generator
-var _hydrology_system
 var _settlement_seeder
-var _weather_system
-var _erosion_system
-var _solar_system
 var _worldgen_config
 var _environment_snapshot: Dictionary = {}
-var _water_network_snapshot: Dictionary = {}
-var _weather_snapshot: Dictionary = {}
-var _erosion_snapshot: Dictionary = {}
-var _solar_snapshot: Dictionary = {}
-var _erosion_changed_last_tick: bool = false
-var _erosion_changed_tiles_last_tick: Array = []
+var _network_state_snapshot: Dictionary = {}
+var _atmosphere_state_snapshot: Dictionary = {}
+var _deformation_state_snapshot: Dictionary = {}
+var _exposure_state_snapshot: Dictionary = {}
+var _transform_changed_last_tick: bool = false
+var _transform_changed_tiles_last_tick: Array = []
 var _spawn_artifact: Dictionary = {}
 var _flow_network_system
 var _flow_traversal_profile
@@ -135,10 +127,10 @@ var narrator_enabled: bool = true
 var thoughts_enabled: bool = true
 var dialogue_enabled: bool = true
 var dreams_enabled: bool = true
-var weather_system_enabled: bool = true
-var hydrology_system_enabled: bool = true
-var erosion_system_enabled: bool = true
-var solar_system_enabled: bool = true
+var transform_stage_a_system_enabled: bool = false
+var transform_stage_b_system_enabled: bool = false
+var transform_stage_c_system_enabled: bool = false
+var transform_stage_d_system_enabled: bool = false
 var resource_pipeline_enabled: bool = true
 var structure_lifecycle_enabled: bool = true
 var culture_system_enabled: bool = true
@@ -149,17 +141,17 @@ var cognition_system_enabled: bool = true
 var persist_tick_history_enabled: bool = false
 var persist_tick_history_interval: int = 24
 var resource_event_logging_enabled: bool = false
-var weather_step_interval_ticks: int = 2
-var hydrology_step_interval_ticks: int = 2
-var erosion_step_interval_ticks: int = 4
-var solar_step_interval_ticks: int = 4
+var atmosphere_transform_step_interval_ticks: int = 2
+var network_transform_step_interval_ticks: int = 2
+var deformation_transform_step_interval_ticks: int = 4
+var exposure_transform_step_interval_ticks: int = 4
 var locality_processing_enabled: bool = true
 var locality_dynamic_tick_rate_enabled: bool = true
 var locality_activity_radius_tiles: int = 1
-var weather_gpu_compute_enabled: bool = true
-var hydrology_gpu_compute_enabled: bool = true
-var erosion_gpu_compute_enabled: bool = true
-var solar_gpu_compute_enabled: bool = true
+var transform_stage_a_gpu_compute_enabled: bool = true
+var transform_stage_b_gpu_compute_enabled: bool = true
+var transform_stage_c_gpu_compute_enabled: bool = true
+var transform_stage_d_gpu_compute_enabled: bool = true
 var resource_pipeline_interval_ticks: int = 2
 var structure_lifecycle_interval_ticks: int = 2
 var culture_cycle_interval_ticks: int = 4
@@ -185,17 +177,23 @@ func configure_environment(config_resource = null) -> Dictionary:
 func get_environment_snapshot() -> Dictionary:
 	return SimulationSnapshotControllerScript.get_environment_snapshot(self)
 
-func get_water_network_snapshot() -> Dictionary:
-	return SimulationSnapshotControllerScript.get_water_network_snapshot(self)
+func get_network_state_snapshot() -> Dictionary:
+	return SimulationSnapshotControllerScript.get_network_state_snapshot(self)
 
-func get_weather_snapshot() -> Dictionary:
-	return SimulationSnapshotControllerScript.get_weather_snapshot(self)
+func get_atmosphere_state_snapshot() -> Dictionary:
+	return SimulationSnapshotControllerScript.get_atmosphere_state_snapshot(self)
 
-func get_erosion_snapshot() -> Dictionary:
-	return SimulationSnapshotControllerScript.get_erosion_snapshot(self)
+func get_deformation_state_snapshot() -> Dictionary:
+	return SimulationSnapshotControllerScript.get_deformation_state_snapshot(self)
 
-func get_solar_snapshot() -> Dictionary:
-	return SimulationSnapshotControllerScript.get_solar_snapshot(self)
+func get_exposure_state_snapshot() -> Dictionary:
+	return SimulationSnapshotControllerScript.get_exposure_state_snapshot(self)
+
+func get_transform_state() -> Dictionary:
+	return SimulationSnapshotControllerScript.get_transform_state(self)
+
+func get_transform_diagnostics() -> Dictionary:
+	return SimulationSnapshotControllerScript.get_transform_diagnostics(self)
 
 func runtime_backend_metrics() -> Dictionary:
 	return SimulationSnapshotControllerScript.runtime_backend_metrics(self)
@@ -293,40 +291,39 @@ func process_tick(tick: int, fixed_delta: float, include_state: bool = true, phy
 func current_snapshot(tick: int) -> Dictionary:
 	return SimulationControllerCoreLoopHelpersScript.current_snapshot(self, tick)
 
-func set_gpu_compute_modes(weather_enabled: bool, hydrology_enabled: bool, erosion_enabled: bool, solar_enabled: bool) -> void:
-	weather_gpu_compute_enabled = weather_enabled
-	hydrology_gpu_compute_enabled = hydrology_enabled
-	erosion_gpu_compute_enabled = erosion_enabled
-	solar_gpu_compute_enabled = solar_enabled
+func set_transform_stage_gpu_compute_modes(stage_a_enabled: bool, stage_b_enabled: bool, stage_c_enabled: bool, stage_d_enabled: bool) -> void:
+	transform_stage_a_gpu_compute_enabled = stage_a_enabled
+	transform_stage_b_gpu_compute_enabled = stage_b_enabled
+	transform_stage_c_gpu_compute_enabled = stage_c_enabled
+	transform_stage_d_gpu_compute_enabled = stage_d_enabled
 	_sync_compute_preferences()
 
-func set_weather_gpu_compute_enabled(enabled: bool) -> void:
-	weather_gpu_compute_enabled = enabled
+func set_transform_stage_gpu_compute_enabled(stage_id: String, enabled: bool) -> void:
+	match String(stage_id).strip_edges().to_lower():
+		"stage_a":
+			transform_stage_a_gpu_compute_enabled = enabled
+		"stage_b":
+			transform_stage_b_gpu_compute_enabled = enabled
+		"stage_c":
+			transform_stage_c_gpu_compute_enabled = enabled
+		"stage_d":
+			transform_stage_d_gpu_compute_enabled = enabled
+		_:
+			return
 	_sync_compute_preferences()
 
-func set_hydrology_gpu_compute_enabled(enabled: bool) -> void:
-	hydrology_gpu_compute_enabled = enabled
-	_sync_compute_preferences()
-
-func set_erosion_gpu_compute_enabled(enabled: bool) -> void:
-	erosion_gpu_compute_enabled = enabled
-	_sync_compute_preferences()
-
-func set_solar_gpu_compute_enabled(enabled: bool) -> void:
-	solar_gpu_compute_enabled = enabled
-	_sync_compute_preferences()
-
-func set_weather_system_enabled(enabled: bool) -> void:
-	weather_system_enabled = enabled
-
-func set_hydrology_system_enabled(enabled: bool) -> void:
-	hydrology_system_enabled = enabled
-
-func set_erosion_system_enabled(enabled: bool) -> void:
-	erosion_system_enabled = enabled
-
-func set_solar_system_enabled(enabled: bool) -> void:
-	solar_system_enabled = enabled
+func set_transform_stage_system_enabled(stage_id: String, enabled: bool) -> void:
+	match String(stage_id).strip_edges().to_lower():
+		"stage_a":
+			transform_stage_a_system_enabled = enabled
+		"stage_b":
+			transform_stage_b_system_enabled = enabled
+		"stage_c":
+			transform_stage_c_system_enabled = enabled
+		"stage_d":
+			transform_stage_d_system_enabled = enabled
+		_:
+			return
 
 func set_resource_pipeline_enabled(enabled: bool) -> void:
 	resource_pipeline_enabled = enabled
@@ -355,14 +352,9 @@ func set_locality_processing_config(enabled: bool, dynamic_enabled: bool, radius
 	locality_activity_radius_tiles = maxi(0, radius_tiles)
 
 func _sync_compute_preferences() -> void:
-	if _hydrology_system != null and _hydrology_system.has_method("set_compute_enabled"):
-		_hydrology_system.set_compute_enabled(hydrology_gpu_compute_enabled)
-	if _weather_system != null and _weather_system.has_method("set_compute_enabled"):
-		_weather_system.set_compute_enabled(weather_gpu_compute_enabled)
-	if _erosion_system != null and _erosion_system.has_method("set_compute_enabled"):
-		_erosion_system.set_compute_enabled(erosion_gpu_compute_enabled)
-	if _solar_system != null and _solar_system.has_method("set_compute_enabled"):
-		_solar_system.set_compute_enabled(solar_gpu_compute_enabled)
+	# Transform-stage GPU compute preferences are resolved by runtime backends.
+	# Active environment stepping is unified under voxel_transform_step.
+	return
 
 func _generation_cap(task: String, fallback: int) -> int:
 	return SimulationRuntimeFacadeScript.generation_cap(self, task, fallback)

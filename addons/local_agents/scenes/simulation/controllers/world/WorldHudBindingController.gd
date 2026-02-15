@@ -144,10 +144,10 @@ func _update_sim_timing_hud(simulation_hud: CanvasLayer, simulation_controller: 
 		var alpha = 0.22
 		var keys := [
 			"total_ms",
-			"weather_ms",
-			"hydrology_ms",
-			"erosion_ms",
-			"solar_ms",
+			"transform_stage_a_ms",
+			"transform_stage_b_ms",
+			"transform_stage_c_ms",
+			"transform_stage_d_ms",
 			"resource_pipeline_ms",
 			"structure_ms",
 			"culture_ms",
@@ -160,10 +160,10 @@ func _update_sim_timing_hud(simulation_hud: CanvasLayer, simulation_controller: 
 			_rolling_sim_timing_ms[key] = value if prev <= 0.0 else lerpf(prev, value, alpha)
 	var text = "SimTiming(avg ms): tot %.2f w %.2f h %.2f e %.2f s %.2f rp %.2f st %.2f c %.2f cg %.2f snap %.2f" % [
 		float(_rolling_sim_timing_ms.get("total_ms", 0.0)),
-		float(_rolling_sim_timing_ms.get("weather_ms", 0.0)),
-		float(_rolling_sim_timing_ms.get("hydrology_ms", 0.0)),
-		float(_rolling_sim_timing_ms.get("erosion_ms", 0.0)),
-		float(_rolling_sim_timing_ms.get("solar_ms", 0.0)),
+		float(_rolling_sim_timing_ms.get("transform_stage_a_ms", 0.0)),
+		float(_rolling_sim_timing_ms.get("transform_stage_b_ms", 0.0)),
+		float(_rolling_sim_timing_ms.get("transform_stage_c_ms", 0.0)),
+		float(_rolling_sim_timing_ms.get("transform_stage_d_ms", 0.0)),
 		float(_rolling_sim_timing_ms.get("resource_pipeline_ms", 0.0)),
 		float(_rolling_sim_timing_ms.get("structure_ms", 0.0)),
 		float(_rolling_sim_timing_ms.get("culture_ms", 0.0)),

@@ -237,27 +237,27 @@ custom_arrow_step = 0.5
 
 [node name="ClimatePipelineTitle" type="Label" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
 layout_mode = 2
-text = "Climate Pipeline"
+text = "Transform Pipeline"
 
-[node name="WeatherSolverDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+[node name="TransformStageASolverDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Weather Solver Decimation"
+text = "Transform Stage A Decimation"
 
-[node name="HydrologySolverDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+[node name="TransformStageBSolverDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Hydrology Solver Decimation"
+text = "Transform Stage B Decimation"
 
 [node name="ErosionSolverDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Erosion Solver Decimation"
+text = "Transform Stage C Decimation"
 
-[node name="SolarSolverDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+[node name="TransformStageDSolverDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Solar Solver Decimation"
+text = "Transform Stage D Decimation"
 
 [node name="ClimateFastIntervalRow" type="HBoxContainer" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
 layout_mode = 2
@@ -382,20 +382,20 @@ custom_arrow_step = 1.0
 layout_mode = 2
 text = "GPU Texture Uploads"
 
-[node name="WeatherTextureUploadDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+[node name="TransformStageATextureUploadDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Weather Texture Upload Decimation"
+text = "Transform Stage A Texture Upload Decimation"
 
 [node name="SurfaceTextureUploadDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Surface Texture Upload Decimation"
 
-[node name="SolarTextureUploadDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
+[node name="TransformStageDTextureUploadDecimationCheck" type="CheckBox" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Solar Texture Upload Decimation"
+text = "Transform Stage D Texture Upload Decimation"
 
 [node name="TextureUploadIntervalRow" type="HBoxContainer" parent="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox"]
 layout_mode = 2
@@ -526,4 +526,3 @@ max_value = 8.0
 step = 0.1
 value = 3.0
 custom_arrow_step = 0.1
-

@@ -6,10 +6,25 @@ const PhysicsServerContactBridgeScript = preload("res://addons/local_agents/simu
 
 @export var projectile_scene: PackedScene = DEFAULT_PROJECTILE_SCENE
 @export_range(1.0, 300.0, 0.5) var launch_speed: float = 60.0
+@export_range(0.05, 20.0, 0.01) var launch_mass: float = 0.2
 @export_range(0.1, 20.0, 0.1) var projectile_ttl_seconds: float = 4.0
 @export_range(0.1, 5.0, 0.1) var spawn_distance: float = 0.8
 @export_range(0.01, 2.0, 0.01) var cooldown_seconds: float = 0.15
 @export_range(1, 256, 1) var max_active_projectiles: int = 24
+@export_range(1.0, 30.0, 0.5) var launch_speed_step: float = 5.0
+@export_range(0.01, 4.0, 0.01) var launch_mass_step: float = 0.05
+@export_range(0.05, 1.0, 0.01) var projectile_ttl_step: float = 0.1
+@export_range(0.0, 180.0, 1.0) var launch_energy_scale: float = 1.0
+@export_range(0.05, 10.0, 0.05) var launch_energy_scale_step: float = 0.2
+
+const _LAUNCH_SPEED_MIN := 1.0
+const _LAUNCH_SPEED_MAX := 300.0
+const _LAUNCH_MASS_MIN := 0.05
+const _LAUNCH_MASS_MAX := 20.0
+const _TTL_MIN := 0.1
+const _TTL_MAX := 20.0
+const _ENERGY_SCALE_MIN := 0.1
+const _ENERGY_SCALE_MAX := 180.0
 
 var _camera: Camera3D = null
 var _spawn_parent: Node3D = null
@@ -19,6 +34,61 @@ var _active_projectiles: Array[RigidBody3D] = []
 func configure(active_camera: Camera3D, spawn_parent: Node3D) -> void:
 	_camera = active_camera
 	_spawn_parent = spawn_parent
+
+func handle_hotkey(event: InputEvent) -> bool:
+	if not (event is InputEventKey):
+		return false
+	var key_event := event as InputEventKey
+	if not key_event.pressed or key_event.echo:
+		return false
+	var step_scale := 1.0
+	if key_event.shift_pressed:
+		step_scale = 4.0
+	if key_event.ctrl_pressed:
+		step_scale = 0.25
+	var adjusted_speed_step = launch_speed_step * step_scale
+	var adjusted_mass_step = launch_mass_step * step_scale
+	var adjusted_ttl_step = projectile_ttl_step * step_scale
+	var adjusted_energy_step = launch_energy_scale_step * step_scale
+	match key_event.keycode:
+		KEY_BRACKETLEFT:
+			launch_speed = clampf(launch_speed - adjusted_speed_step, _LAUNCH_SPEED_MIN, _LAUNCH_SPEED_MAX)
+			_print_profile("launcher speed")
+			return true
+		KEY_BRACKETRIGHT:
+			launch_speed = clampf(launch_speed + adjusted_speed_step, _LAUNCH_SPEED_MIN, _LAUNCH_SPEED_MAX)
+			_print_profile("launcher speed")
+			return true
+		KEY_MINUS:
+			launch_mass = clampf(launch_mass - adjusted_mass_step, _LAUNCH_MASS_MIN, _LAUNCH_MASS_MAX)
+			_print_profile("launcher mass")
+			return true
+		KEY_EQUAL:
+			launch_mass = clampf(launch_mass + adjusted_mass_step, _LAUNCH_MASS_MIN, _LAUNCH_MASS_MAX)
+			_print_profile("launcher mass")
+			return true
+		KEY_COMMA:
+			projectile_ttl_seconds = clampf(projectile_ttl_seconds - adjusted_ttl_step, _TTL_MIN, _TTL_MAX)
+			_print_profile("projectile ttl")
+			return true
+		KEY_PERIOD:
+			projectile_ttl_seconds = clampf(projectile_ttl_seconds + adjusted_ttl_step, _TTL_MIN, _TTL_MAX)
+			_print_profile("projectile ttl")
+			return true
+		KEY_SLASH:
+			launch_energy_scale = clampf(launch_energy_scale - adjusted_energy_step, _ENERGY_SCALE_MIN, _ENERGY_SCALE_MAX)
+			_print_profile("impact multiplier")
+			return true
+		KEY_APOSTROPHE:
+			launch_energy_scale = clampf(launch_energy_scale + adjusted_energy_step, _ENERGY_SCALE_MIN, _ENERGY_SCALE_MAX)
+			_print_profile("impact multiplier")
+			return true
+		KEY_0:
+			if key_event.ctrl_pressed:
+				_print_profile("launcher profile")
+				return true
+			return false
+	return false
 
 func step(delta: float) -> void:
 	_cooldown_remaining = maxf(0.0, _cooldown_remaining - delta)
@@ -57,14 +127,34 @@ func try_fire_from_screen_center() -> bool:
 	_spawn_parent.add_child(projectile)
 	var spawn_local := _spawn_parent.to_local(ray_origin + ray_direction * spawn_distance)
 	projectile.position = spawn_local
-	projectile.linear_velocity = ray_direction * launch_speed
+	var speed_scale = launch_speed * launch_energy_scale
+	projectile.mass = launch_mass
+	projectile.linear_velocity = ray_direction * speed_scale
 	projectile.continuous_cd = true
 	if projectile.has_method("set_ttl_seconds"):
 		projectile.call("set_ttl_seconds", projectile_ttl_seconds)
+	if projectile.has_node("CollisionShape3D"):
+		var collision = projectile.get_node("CollisionShape3D")
+		if collision is CollisionShape3D and collision.shape is SphereShape3D:
+			var sphere = collision.shape as SphereShape3D
+			var adjusted_shape = SphereShape3D.new()
+			adjusted_shape.radius = maxf(0.02, sphere.radius)
+			collision.shape = adjusted_shape
 	_active_projectiles.append(projectile)
 	projectile.tree_exited.connect(_on_projectile_tree_exited.bind(projectile), CONNECT_ONE_SHOT)
 	_cooldown_remaining = cooldown_seconds
 	return true
+
+func _print_profile(trigger: String = "launcher profile") -> void:
+	print("[Launcher] %s -> speed=%.1f mass=%.3f ttl=%.2f impact_scale=%.2f cooldown=%.2f active=%d" % [
+		trigger,
+		launch_speed,
+		launch_mass,
+		projectile_ttl_seconds,
+		launch_energy_scale,
+		cooldown_seconds,
+		_active_projectiles.size()
+	])
 
 func _prune_inactive() -> void:
 	for i in range(_active_projectiles.size() - 1, -1, -1):

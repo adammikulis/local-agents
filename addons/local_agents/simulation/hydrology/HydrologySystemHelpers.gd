@@ -84,29 +84,29 @@ static func cadence_for_activity(activity: float, idle_cadence: int) -> int:
 static func should_step_tile(tile_id: String, tick: int, cadence: int, seed: int) -> bool:
 	return CadencePolicyScript.should_step_with_key(tile_id, tick, cadence, seed)
 
-static func weather_at_tile(
+static func transform_stage_a_at_tile(
 	tile_id: String,
-	weather_tiles: Dictionary,
-	weather_snapshot: Dictionary,
-	weather_rain: PackedFloat32Array,
-	weather_wetness: PackedFloat32Array,
-	weather_buffer_ok: bool,
+	stage_a_tiles: Dictionary,
+	atmosphere_state_snapshot: Dictionary,
+	stage_a_rain: PackedFloat32Array,
+	stage_a_wetness: PackedFloat32Array,
+	stage_a_buffer_ok: bool,
 	width: int
 ) -> Dictionary:
-	if weather_buffer_ok and width > 0:
+	if stage_a_buffer_ok and width > 0:
 		var coords = TileKeyUtilsScript.parse_tile_id(tile_id)
 		if coords.x != 2147483647 and coords.y != 2147483647:
 			var idx = coords.y * width + coords.x
-			if idx >= 0 and idx < weather_rain.size():
+			if idx >= 0 and idx < stage_a_rain.size():
 				return {
-					"rain": clampf(float(weather_rain[idx]), 0.0, 1.0),
-					"wetness": clampf(float(weather_wetness[idx]), 0.0, 1.0),
+					"rain": clampf(float(stage_a_rain[idx]), 0.0, 1.0),
+					"wetness": clampf(float(stage_a_wetness[idx]), 0.0, 1.0),
 				}
-	var weather_row = weather_tiles.get(tile_id, {})
-	if weather_row is Dictionary:
+	var stage_a_row = stage_a_tiles.get(tile_id, {})
+	if stage_a_row is Dictionary:
 		return {
-			"rain": clampf(float((weather_row as Dictionary).get("rain", weather_snapshot.get("avg_rain_intensity", 0.0))), 0.0, 1.0),
-			"wetness": clampf(float((weather_row as Dictionary).get("wetness", weather_snapshot.get("avg_rain_intensity", 0.0))), 0.0, 1.0),
+			"rain": clampf(float((stage_a_row as Dictionary).get("rain", atmosphere_state_snapshot.get("avg_rain_intensity", 0.0))), 0.0, 1.0),
+			"wetness": clampf(float((stage_a_row as Dictionary).get("wetness", atmosphere_state_snapshot.get("avg_rain_intensity", 0.0))), 0.0, 1.0),
 		}
-	var avg_rain = clampf(float(weather_snapshot.get("avg_rain_intensity", 0.0)), 0.0, 1.0)
+	var avg_rain = clampf(float(atmosphere_state_snapshot.get("avg_rain_intensity", 0.0)), 0.0, 1.0)
 	return {"rain": avg_rain, "wetness": avg_rain}

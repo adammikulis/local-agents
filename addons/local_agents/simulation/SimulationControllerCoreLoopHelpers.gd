@@ -42,16 +42,8 @@ static func ensure_initialized(svc) -> void:
         svc.add_child(svc._backstory_service)
     if svc._world_generator == null:
         svc._world_generator = svc.WorldGeneratorScript.new()
-    if svc._hydrology_system == null:
-        svc._hydrology_system = svc.HydrologySystemScript.new()
     if svc._settlement_seeder == null:
         svc._settlement_seeder = svc.SettlementSeederScript.new()
-    if svc._weather_system == null:
-        svc._weather_system = svc.WeatherSystemScript.new()
-    if svc._erosion_system == null:
-        svc._erosion_system = svc.ErosionSystemScript.new()
-    if svc._solar_system == null:
-        svc._solar_system = svc.SolarExposureSystemScript.new()
     if svc._worldgen_config == null:
         svc._worldgen_config = svc.WorldGenConfigResourceScript.new()
     if svc._flow_network_system == null:
@@ -91,56 +83,57 @@ static func configure_environment(svc, config_resource = null) -> Dictionary:
         svc._worldgen_config = svc.WorldGenConfigResourceScript.new()
     if svc._world_generator == null:
         svc._world_generator = svc.WorldGeneratorScript.new()
-    if svc._hydrology_system == null:
-        svc._hydrology_system = svc.HydrologySystemScript.new()
     if svc._settlement_seeder == null:
         svc._settlement_seeder = svc.SettlementSeederScript.new()
     if svc._rng == null:
         return {"ok": false, "error": "rng_unavailable"}
 
-    var world_seed = svc._rng.derive_seed("environment", svc.world_id, svc.active_branch_id, 0)
-    var hydrology_seed = svc._rng.derive_seed("hydrology", svc.world_id, svc.active_branch_id, 0)
-    var weather_seed = svc._rng.derive_seed("weather", svc.world_id, svc.active_branch_id, 0)
-    var erosion_seed = svc._rng.derive_seed("erosion", svc.world_id, svc.active_branch_id, 0)
-    var solar_seed = svc._rng.derive_seed("solar", svc.world_id, svc.active_branch_id, 0)
+    var environment_seed = svc._rng.derive_seed("environment", svc.world_id, svc.active_branch_id, 0)
+    var network_transform_seed = svc._rng.derive_seed("network_transform", svc.world_id, svc.active_branch_id, 0)
+    var atmosphere_transform_seed = svc._rng.derive_seed("atmosphere_transform", svc.world_id, svc.active_branch_id, 0)
+    var deformation_transform_seed = svc._rng.derive_seed("deformation_transform", svc.world_id, svc.active_branch_id, 0)
+    var exposure_transform_seed = svc._rng.derive_seed("exposure_transform", svc.world_id, svc.active_branch_id, 0)
     var settlement_seed = svc._rng.derive_seed("settlement", svc.world_id, svc.active_branch_id, 0)
 
-    svc._environment_snapshot = svc._world_generator.generate(world_seed, svc._worldgen_config)
+    svc._environment_snapshot = svc._world_generator.generate(environment_seed, svc._worldgen_config)
     sync_compute_preferences(svc)
-    svc._water_network_snapshot = svc._hydrology_system.build_network(svc._environment_snapshot, svc._worldgen_config)
-    svc._water_network_snapshot["seed"] = hydrology_seed
-    svc._weather_snapshot = {}
-    if svc._weather_system != null:
-        svc._weather_system.set_emit_rows(false)
-        svc._weather_system.set_compute_enabled(bool(svc.weather_gpu_compute_enabled))
-        var weather_setup: Dictionary = svc._weather_system.configure_environment(svc._environment_snapshot, svc._water_network_snapshot, weather_seed)
-        if bool(weather_setup.get("ok", false)):
-            svc._weather_snapshot = svc._weather_system.current_snapshot(0)
-    svc._weather_snapshot["seed"] = weather_seed
-    svc._erosion_snapshot = {}
-    svc._erosion_changed_last_tick = false
-    svc._erosion_changed_tiles_last_tick = []
-    if svc._erosion_system != null:
-        svc._erosion_system.set_emit_rows(false)
-        svc._erosion_system.set_compute_enabled(bool(svc.erosion_gpu_compute_enabled))
-        if svc._erosion_system.has_method("set_geomorph_apply_interval_ticks"):
-            svc._erosion_system.call("set_geomorph_apply_interval_ticks", 6)
-        svc._erosion_system.configure_environment(svc._environment_snapshot, svc._water_network_snapshot, erosion_seed)
-        svc._erosion_snapshot = svc._erosion_system.current_snapshot(0)
-    svc._erosion_snapshot["seed"] = erosion_seed
-    svc._solar_snapshot = {}
-    if svc._solar_system != null:
-        svc._solar_system.set_emit_rows(false)
-        if svc._solar_system.has_method("set_sync_stride"):
-            svc._solar_system.call("set_sync_stride", 4)
-        svc._solar_system.set_compute_enabled(bool(svc.solar_gpu_compute_enabled))
-        var solar_setup: Dictionary = svc._solar_system.configure_environment(svc._environment_snapshot, solar_seed)
-        if bool(solar_setup.get("ok", false)):
-            svc._solar_snapshot = svc._solar_system.current_snapshot(0)
-    svc._solar_snapshot["seed"] = solar_seed
+    svc._network_state_snapshot = {
+        "schema_version": 1,
+        "status": "native_environment_stage_pending",
+        "error": "native_environment_stage_not_initialized",
+        "stage": "voxel_transform_step",
+        "source_tiles": [],
+        "segments": [],
+        "water_tiles": {},
+        "total_flow_index": 0.0,
+        "seed": network_transform_seed,
+    }
+    svc._atmosphere_state_snapshot = {
+        "status": "native_environment_stage_pending",
+        "error": "native_environment_stage_not_initialized",
+        "stage": "voxel_transform_step",
+        "seed": atmosphere_transform_seed,
+    }
+    svc._deformation_state_snapshot = {
+        "status": "native_environment_stage_pending",
+        "error": "native_environment_stage_not_initialized",
+        "stage": "voxel_transform_step",
+        "seed": deformation_transform_seed,
+    }
+    svc._transform_changed_last_tick = false
+    svc._transform_changed_tiles_last_tick = []
+    svc._exposure_state_snapshot = {
+        "schema_version": 1,
+        "status": "native_environment_stage_pending",
+        "error": "native_environment_stage_not_initialized",
+        "stage": "voxel_transform_step",
+        "seed": exposure_transform_seed,
+        "rows": [],
+        "tile_index": {},
+    }
     if svc._flow_network_system != null:
-        svc._flow_network_system.configure_environment(svc._environment_snapshot, svc._water_network_snapshot)
-    svc._spawn_artifact = svc._settlement_seeder.select_site(svc._environment_snapshot, svc._water_network_snapshot, svc._worldgen_config)
+        svc._flow_network_system.configure_environment(svc._environment_snapshot, svc._network_state_snapshot)
+    svc._spawn_artifact = svc._settlement_seeder.select_site(svc._environment_snapshot, svc._network_state_snapshot, svc._worldgen_config)
     svc._spawn_artifact["seed"] = settlement_seed
     var chosen = svc._spawn_artifact.get("chosen", {})
     svc._community_anchor_position = Vector3(float(chosen.get("x", 0.0)), 0.0, float(chosen.get("y", 0.0)))
@@ -151,10 +144,10 @@ static func configure_environment(svc, config_resource = null) -> Dictionary:
     return {
         "ok": true,
         "environment": svc._environment_snapshot.duplicate(true),
-        "hydrology": svc._water_network_snapshot.duplicate(true),
-        "weather": svc._weather_snapshot.duplicate(true),
-        "erosion": svc._erosion_snapshot.duplicate(true),
-        "solar": svc._solar_snapshot.duplicate(true),
+        "network_state": svc._network_state_snapshot.duplicate(true),
+        "atmosphere_state": svc._atmosphere_state_snapshot.duplicate(true),
+        "deformation_state": svc._deformation_state_snapshot.duplicate(true),
+        "exposure_state": svc._exposure_state_snapshot.duplicate(true),
         "spawn": svc._spawn_artifact.duplicate(true),
     }
 
@@ -212,10 +205,10 @@ static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool
     ensure_initialized(svc)
     sync_compute_preferences(svc)
     var tick_start_us = Time.get_ticks_usec()
-    var weather_us := 0
-    var hydrology_us := 0
-    var erosion_us := 0
-    var solar_us := 0
+    var atmosphere_transform_us := 0
+    var network_transform_us := 0
+    var deformation_transform_us := 0
+    var exposure_transform_us := 0
     var pipeline_us := 0
     var structure_us := 0
     var culture_us := 0
@@ -231,45 +224,117 @@ static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool
     svc._cultural_policy = {}
     if svc._flow_network_system != null:
         svc._flow_network_system.step_decay()
-    svc._erosion_changed_last_tick = false
-    svc._erosion_changed_tiles_last_tick = []
+    svc._transform_changed_last_tick = false
+    svc._transform_changed_tiles_last_tick = []
     var local_activity: Dictionary = _build_local_activity_map(svc, physics_contact_rows)
     var native_view_metrics: Dictionary = svc.get_native_view_metrics() if svc.has_method("get_native_view_metrics") else {}
     native_view_metrics["uniformity_score"] = _activity_uniformity_score(local_activity)
     svc._environment_snapshot["_native_view_metrics"] = native_view_metrics.duplicate(true)
-    if svc._weather_system != null and svc._weather_system.has_method("set_native_view_metrics"):
-        svc._weather_system.call("set_native_view_metrics", native_view_metrics)
-    if svc._hydrology_system != null and svc._hydrology_system.has_method("set_native_view_metrics"):
-        svc._hydrology_system.call("set_native_view_metrics", native_view_metrics)
-    if svc._erosion_system != null and svc._erosion_system.has_method("set_native_view_metrics"):
-        svc._erosion_system.call("set_native_view_metrics", native_view_metrics)
-    if svc._solar_system != null and svc._solar_system.has_method("set_native_view_metrics"):
-        svc._solar_system.call("set_native_view_metrics", native_view_metrics)
-    if svc.weather_system_enabled and svc._weather_system != null and _should_run_system_tick(tick, int(svc.weather_step_interval_ticks)):
-        var t0 = Time.get_ticks_usec()
-        svc._weather_snapshot = svc._weather_system.step(tick, fixed_delta, local_activity)
-        weather_us = Time.get_ticks_usec() - t0
-    if svc.hydrology_system_enabled and svc._hydrology_system != null and _should_run_system_tick(tick, int(svc.hydrology_step_interval_ticks)):
-        var t1 = Time.get_ticks_usec()
-        var hydrology_step: Dictionary = svc._hydrology_system.step(tick, fixed_delta, svc._environment_snapshot, svc._water_network_snapshot, svc._weather_snapshot, local_activity)
-        svc._environment_snapshot = hydrology_step.get("environment", svc._environment_snapshot)
-        svc._water_network_snapshot = hydrology_step.get("hydrology", svc._water_network_snapshot)
-        hydrology_us = Time.get_ticks_usec() - t1
-    if svc.erosion_system_enabled and svc._erosion_system != null and _should_run_system_tick(tick, int(svc.erosion_step_interval_ticks)):
-        var t2 = Time.get_ticks_usec()
-        var erosion_result: Dictionary = svc._erosion_system.step(tick, fixed_delta, svc._environment_snapshot, svc._water_network_snapshot, svc._weather_snapshot, local_activity)
-        svc._environment_snapshot = erosion_result.get("environment", svc._environment_snapshot)
-        svc._water_network_snapshot = erosion_result.get("hydrology", svc._water_network_snapshot)
-        svc._erosion_snapshot = erosion_result.get("erosion", svc._erosion_snapshot)
-        svc._erosion_changed_last_tick = bool(erosion_result.get("changed", false))
-        svc._erosion_changed_tiles_last_tick = (erosion_result.get("changed_tiles", []) as Array).duplicate(true)
-        erosion_us = Time.get_ticks_usec() - t2
-    if svc.solar_system_enabled and svc._solar_system != null and _should_run_system_tick(tick, int(svc.solar_step_interval_ticks)):
-        var t3 = Time.get_ticks_usec()
-        svc._solar_snapshot = svc._solar_system.step(tick, fixed_delta, svc._environment_snapshot, svc._weather_snapshot, local_activity)
-        solar_us = Time.get_ticks_usec() - t3
+    var network_transform_pending_status := {
+        "status": "native_environment_stage_pending",
+        "stage": "voxel_transform_step",
+        "error": "native_environment_stage_not_initialized",
+        "tick": tick,
+        "material_identity_required": true,
+        "material_identity": {"material_id": "material:unknown", "element_id": "element:unknown"},
+        "material_profile": {
+            "density": 1200.0,
+            "heat_capacity": 1000.0,
+            "thermal_conductivity": 1.0,
+            "cohesion": 0.5,
+            "hardness": 0.5,
+            "porosity": 0.25,
+            "freeze_temp_k": 273.15,
+            "melt_temp_k": 1200.0,
+            "thermal_expansion": 1.0e-5,
+            "brittle_threshold": 0.5,
+            "fracture_toughness": 1.0,
+            "moisture_capacity": 0.25,
+            "profile_key": "unknown",
+        },
+        "emitters": {
+            "schema_version": 1,
+            "profile_table_key": "canonical_emitters_v1",
+            "enabled": true,
+            "radiant_heat_enabled": true,
+            "sources": [
+                {"source_id": "sun", "enabled": true, "radiant_heat": 1.0, "temperature_k": 5772.0},
+                {"source_id": "geothermal", "enabled": true, "radiant_heat": 0.35, "temperature_k": 700.0},
+                {"source_id": "volcanic", "enabled": true, "radiant_heat": 0.8, "temperature_k": 1400.0},
+            ],
+        },
+        "pass_descriptor": {
+            "material_model": {
+                "material_id": "material:unknown",
+                "element_id": "element:unknown",
+                "profile_version": 1,
+                "profile_key": "unknown",
+            },
+            "emitter_model": {
+                "profile_version": 1,
+                "profile_key": "canonical_emitters_v1",
+                "enabled": true,
+                "radiant_heat_enabled": true,
+            },
+        },
+    }
+    svc._network_state_snapshot["transform_runtime_step_status"] = network_transform_pending_status.duplicate(true)
+    svc._environment_snapshot["transform_runtime_step_status"] = network_transform_pending_status.duplicate(true)
+    var exposure_transform_pending_status := {
+        "status": "native_environment_stage_pending",
+        "stage": "voxel_transform_step",
+        "error": "native_environment_stage_not_initialized",
+        "tick": tick,
+        "material_identity_required": true,
+        "material_identity": {"material_id": "material:unknown", "element_id": "element:unknown"},
+        "material_profile": {
+            "density": 1200.0,
+            "heat_capacity": 1000.0,
+            "thermal_conductivity": 1.0,
+            "cohesion": 0.5,
+            "hardness": 0.5,
+            "porosity": 0.25,
+            "freeze_temp_k": 273.15,
+            "melt_temp_k": 1200.0,
+            "thermal_expansion": 1.0e-5,
+            "brittle_threshold": 0.5,
+            "fracture_toughness": 1.0,
+            "moisture_capacity": 0.25,
+            "profile_key": "unknown",
+        },
+        "emitters": {
+            "schema_version": 1,
+            "profile_table_key": "canonical_emitters_v1",
+            "enabled": true,
+            "radiant_heat_enabled": true,
+            "sources": [
+                {"source_id": "sun", "enabled": true, "radiant_heat": 1.0, "temperature_k": 5772.0},
+                {"source_id": "geothermal", "enabled": true, "radiant_heat": 0.35, "temperature_k": 700.0},
+                {"source_id": "volcanic", "enabled": true, "radiant_heat": 0.8, "temperature_k": 1400.0},
+            ],
+        },
+        "pass_descriptor": {
+            "material_model": {
+                "material_id": "material:unknown",
+                "element_id": "element:unknown",
+                "profile_version": 1,
+                "profile_key": "unknown",
+            },
+            "emitter_model": {
+                "profile_version": 1,
+                "profile_key": "canonical_emitters_v1",
+                "enabled": true,
+                "radiant_heat_enabled": true,
+            },
+        },
+    }
+    if not (svc._exposure_state_snapshot is Dictionary):
+        svc._exposure_state_snapshot = {}
+    svc._atmosphere_state_snapshot["transform_runtime_step_status"] = network_transform_pending_status.duplicate(true)
+    svc._deformation_state_snapshot["transform_runtime_step_status"] = network_transform_pending_status.duplicate(true)
+    svc._exposure_state_snapshot["transform_runtime_step_status"] = exposure_transform_pending_status.duplicate(true)
     if svc._flow_network_system != null:
-        svc._flow_network_system.configure_environment(svc._environment_snapshot, svc._water_network_snapshot)
+        svc._flow_network_system.configure_environment(svc._environment_snapshot, svc._network_state_snapshot)
     var npc_ids = svc._sorted_npc_ids()
     for npc_id in npc_ids:
         svc._apply_need_decay(npc_id, fixed_delta)
@@ -346,20 +411,20 @@ static func process_tick(svc, tick: int, fixed_delta: float, include_state: bool
     svc._last_tick_profile = {
         "tick": tick,
         "total_ms": float(total_us) / 1000.0,
-        "weather_ms": float(weather_us) / 1000.0,
-        "hydrology_ms": float(hydrology_us) / 1000.0,
-        "erosion_ms": float(erosion_us) / 1000.0,
-        "solar_ms": float(solar_us) / 1000.0,
+        "atmosphere_transform_ms": float(atmosphere_transform_us) / 1000.0,
+        "network_transform_ms": float(network_transform_us) / 1000.0,
+        "deformation_transform_ms": float(deformation_transform_us) / 1000.0,
+        "exposure_transform_ms": float(exposure_transform_us) / 1000.0,
         "resource_pipeline_ms": float(pipeline_us) / 1000.0,
         "structure_ms": float(structure_us) / 1000.0,
         "culture_ms": float(culture_us) / 1000.0,
         "cognition_ms": float(cognition_us) / 1000.0,
         "snapshot_ms": float(snapshot_us) / 1000.0,
         "step_intervals": {
-            "weather": int(svc.weather_step_interval_ticks),
-            "hydrology": int(svc.hydrology_step_interval_ticks),
-            "erosion": int(svc.erosion_step_interval_ticks),
-            "solar": int(svc.solar_step_interval_ticks),
+            "atmosphere_transform": int(svc.atmosphere_transform_step_interval_ticks),
+            "network_transform": int(svc.network_transform_step_interval_ticks),
+            "deformation_transform": int(svc.deformation_transform_step_interval_ticks),
+            "exposure_transform": int(svc.exposure_transform_step_interval_ticks),
             "resource_pipeline": int(svc.resource_pipeline_interval_ticks),
             "structure_lifecycle": int(svc.structure_lifecycle_interval_ticks),
             "culture_cycle": int(svc.culture_cycle_interval_ticks),
@@ -520,25 +585,6 @@ static func _world_position_from_variant(value: Variant) -> Variant:
 static func sync_compute_preferences(svc) -> void:
     if svc == null:
         return
-    if svc._hydrology_system != null and svc._hydrology_system.has_method("set_compute_enabled"):
-        svc._hydrology_system.set_compute_enabled(bool(svc.hydrology_gpu_compute_enabled))
-    var native_environment_stages_enabled = false
-    if NativeComputeBridgeScript != null:
-        native_environment_stages_enabled = NativeComputeBridgeScript.is_native_sim_core_enabled()
-    if svc._hydrology_system != null and svc._hydrology_system.has_method("set_native_environment_stage_dispatch_enabled"):
-        svc._hydrology_system.call("set_native_environment_stage_dispatch_enabled", native_environment_stages_enabled)
-    if svc._weather_system != null and svc._weather_system.has_method("set_compute_enabled"):
-        svc._weather_system.set_compute_enabled(bool(svc.weather_gpu_compute_enabled))
-    if svc._weather_system != null and svc._weather_system.has_method("set_native_environment_stage_dispatch_enabled"):
-        svc._weather_system.call("set_native_environment_stage_dispatch_enabled", native_environment_stages_enabled)
-    if svc._erosion_system != null and svc._erosion_system.has_method("set_compute_enabled"):
-        svc._erosion_system.set_compute_enabled(bool(svc.erosion_gpu_compute_enabled))
-    if svc._erosion_system != null and svc._erosion_system.has_method("set_native_environment_stage_dispatch_enabled"):
-        svc._erosion_system.call("set_native_environment_stage_dispatch_enabled", native_environment_stages_enabled)
-    if svc._solar_system != null and svc._solar_system.has_method("set_compute_enabled"):
-        svc._solar_system.set_compute_enabled(bool(svc.solar_gpu_compute_enabled))
-    if svc._solar_system != null and svc._solar_system.has_method("set_native_environment_stage_dispatch_enabled"):
-        svc._solar_system.call("set_native_environment_stage_dispatch_enabled", native_environment_stages_enabled)
 
 static func current_snapshot(svc, tick: int) -> Dictionary:
     ensure_initialized(svc)
@@ -561,12 +607,12 @@ static func current_snapshot(svc, tick: int) -> Dictionary:
         "branch_fork_tick": svc._branch_fork_tick,
         "worldgen_config": svc._worldgen_config.to_dict() if svc._worldgen_config != null else {},
         "environment_snapshot": svc._environment_snapshot.duplicate(true),
-        "water_network_snapshot": svc._water_network_snapshot.duplicate(true),
-        "weather_snapshot": svc._weather_snapshot.duplicate(true),
-        "erosion_snapshot": svc._erosion_snapshot.duplicate(true),
-        "solar_snapshot": svc._solar_snapshot.duplicate(true),
-        "erosion_changed": svc._erosion_changed_last_tick,
-        "erosion_changed_tiles": svc._erosion_changed_tiles_last_tick.duplicate(true),
+        "network_state_snapshot": svc._network_state_snapshot.duplicate(true),
+        "atmosphere_state_snapshot": svc._atmosphere_state_snapshot.duplicate(true),
+        "deformation_state_snapshot": svc._deformation_state_snapshot.duplicate(true),
+        "exposure_state_snapshot": svc._exposure_state_snapshot.duplicate(true),
+        "transform_changed": svc._transform_changed_last_tick,
+        "transform_changed_tiles": svc._transform_changed_tiles_last_tick.duplicate(true),
         "environment_signals": env_signal_snapshot.to_dict(),
         "spawn_artifact": svc._spawn_artifact.duplicate(true),
         "flow_network": svc._flow_network_system.export_network() if svc._flow_network_system != null else {},

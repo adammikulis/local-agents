@@ -142,8 +142,8 @@ static func apply_route_transport(svc, assignments: Dictionary, start: Vector3, 
 		var assignment: Dictionary = assignments.get(npc_id, {})
 		var profile: Dictionary = {}
 		if svc._flow_network_system != null:
-			var rain_intensity = clampf(float(svc._weather_snapshot.get("avg_rain_intensity", 0.0)), 0.0, 1.0)
-			profile = svc._flow_network_system.evaluate_route(start, target, {"tick": tick, "rain_intensity": rain_intensity})
+			var rain_intensity = clampf(float(svc._atmosphere_state_snapshot.get("avg_rain_intensity", 0.0)), 0.0, 1.0)
+			profile = svc._flow_network_system.evaluate_route(start, target, {"tick": tick, "stage_intensity": rain_intensity})
 		var efficiency = clampf(float(profile.get("delivery_efficiency", 1.0)), 0.2, 1.0)
 		var jitter = svc._rng.randomf("route_delivery", npc_id, svc.active_branch_id, tick)
 		var route_discipline = svc._cultural_policy_strength("route_discipline")

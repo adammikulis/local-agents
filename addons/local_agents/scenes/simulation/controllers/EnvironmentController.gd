@@ -22,9 +22,9 @@ const LightingSystemAdapterScript = preload("res://addons/local_agents/scenes/si
 @export_range(0.1, 1.5, 0.05) var rain_visual_intensity_scale: float = 0.25
 @export_enum("low", "medium", "high", "ultra") var cloud_quality_tier: String = "medium"
 @export_range(0.25, 3.0, 0.05) var cloud_slice_density: float = 0.8
-@export_range(1, 16, 1) var weather_texture_update_interval_ticks: int = 4
+@export_range(1, 16, 1) var transform_stage_a_texture_update_interval_ticks: int = 4
 @export_range(1, 16, 1) var surface_texture_update_interval_ticks: int = 4
-@export_range(1, 16, 1) var solar_texture_update_interval_ticks: int = 4
+@export_range(1, 16, 1) var transform_stage_d_texture_update_interval_ticks: int = 4
 @export_range(512, 65536, 512) var field_texture_update_budget_cells: int = 8192
 @export var adaptive_texture_budget_enabled: bool = true
 @export_range(8.0, 50.0, 0.5) var target_frame_time_ms: float = 16.7
@@ -32,24 +32,24 @@ const LightingSystemAdapterScript = preload("res://addons/local_agents/scenes/si
 @export_range(0.5, 2.0, 0.05) var texture_budget_max_scale: float = 1.0
 @export_range(0.02, 0.5, 0.01) var texture_budget_smoothing: float = 0.14
 var _generation_snapshot: Dictionary = {}
-var _hydrology_snapshot: Dictionary = {}
-var _weather_snapshot: Dictionary = {}
-var _solar_snapshot: Dictionary = {}
-var _weather_field_image: Image
-var _weather_field_texture: ImageTexture
-var _weather_field_world_size: Vector2 = Vector2.ONE
-var _weather_field_cache := PackedInt32Array()
-var _weather_field_last_avg_pack: int = -1
+var _transform_stage_b_state: Dictionary = {}
+var _transform_stage_a_state: Dictionary = {}
+var _transform_stage_d_state: Dictionary = {}
+var _transform_stage_a_field_image: Image
+var _transform_stage_a_field_texture: ImageTexture
+var _transform_stage_a_field_world_size: Vector2 = Vector2.ONE
+var _transform_stage_a_field_cache := PackedInt32Array()
+var _transform_stage_a_field_last_avg_pack: int = -1
 var _surface_field_image: Image
 var _surface_field_texture: ImageTexture
 var _surface_field_cache := PackedInt32Array()
 var _surface_field_last_update_tick: int = -1
 var _surface_field_update_cursor: int = 0
-var _solar_field_image: Image
-var _solar_field_texture: ImageTexture
-var _solar_field_cache := PackedInt32Array()
-var _solar_field_last_tick: int = -1
-var _solar_field_update_cursor: int = 0
+var _transform_stage_d_field_image: Image
+var _transform_stage_d_field_texture: ImageTexture
+var _transform_stage_d_field_cache := PackedInt32Array()
+var _transform_stage_d_field_last_tick: int = -1
+var _transform_stage_d_field_update_cursor: int = 0
 var _tile_temperature_map := PackedFloat32Array()
 var _tile_flow_map := PackedFloat32Array()
 var _water_shader_params := {
@@ -58,12 +58,12 @@ var _water_shader_params := {
 	"noise_scale": 0.48,
 	"foam_strength": 0.36,
 	"wave_strength": 0.32,
-	"rain_intensity": 0.0,
+	"transform_intensity": 0.0,
 	"cloud_shadow": 0.0,
-	"weather_wind_dir": Vector2(1.0, 0.0),
-	"weather_wind_speed": 0.5,
-	"weather_cloud_scale": 0.045,
-	"weather_cloud_strength": 0.55,
+	"transform_wind_dir": Vector2(1.0, 0.0),
+	"transform_wind_speed": 0.5,
+	"transform_cloud_scale": 0.045,
+	"transform_cloud_strength": 0.55,
 	"moon_dir": Vector2(1.0, 0.0),
 	"moon_phase": 0.5,
 	"moon_tidal_strength": 1.0,
@@ -80,7 +80,7 @@ var _water_shader_params := {
 	"far_simplify_start": 24.0,
 	"far_simplify_end": 96.0,
 	"far_detail_min": 0.28,
-	"weather_field_blend": 1.0,
+	"transform_field_blend": 1.0,
 }
 var _cloud_renderer
 var _river_renderer
@@ -95,7 +95,7 @@ var _ocean_plane_mesh: PlaneMesh
 var _ocean_size_cache: Vector2 = Vector2.ZERO
 var _ocean_sea_level_cache: float = -INF
 var _last_lightning_uniform: float = -1.0
-var _weather_field_update_cursor: int = 0
+var _transform_stage_a_field_update_cursor: int = 0
 var _atmosphere_adapter
 var _ocean_adapter
 var _post_fx_adapter
@@ -127,12 +127,12 @@ func clear_generated() -> void:
 	if _ocean_root != null and is_instance_valid(_ocean_root):
 		_ocean_root.visible = ocean_surface_enabled
 
-func apply_generation_data(generation: Dictionary, hydrology: Dictionary) -> void:
+func apply_generation_data(generation: Dictionary, transform_stage_b_state: Dictionary) -> void:
 	_generation_snapshot = generation.duplicate(true)
-	_hydrology_snapshot = hydrology.duplicate(true)
-	_ensure_weather_field_texture()
+	_transform_stage_b_state = transform_stage_b_state.duplicate(true)
+	_ensure_transform_stage_a_field_texture()
 	_ensure_surface_field_texture()
-	_ensure_solar_field_texture()
+	_ensure_transform_stage_d_field_texture()
 	_request_chunk_rebuild([])
 	_rebuild_water_sources()
 	_rebuild_river_flow_overlays()
@@ -142,25 +142,25 @@ func apply_generation_data(generation: Dictionary, hydrology: Dictionary) -> voi
 	_ensure_ocean_surface()
 	_update_cloud_layer_geometry()
 	_update_ocean_surface_geometry()
-	_update_weather_field_texture(_weather_snapshot)
+	_update_transform_stage_a_field_texture(_transform_stage_a_state)
 	_refresh_surface_state_from_generation()
-	_update_surface_state_texture(_weather_snapshot)
-	_update_solar_field_texture(_solar_snapshot)
+	_update_surface_state_texture(_transform_stage_a_state)
+	_update_transform_stage_d_field_texture(_transform_stage_d_state)
 
 func apply_generation_delta(
 	generation: Dictionary,
-	hydrology: Dictionary,
+	transform_stage_b_state: Dictionary,
 	changed_tiles: Array,
 	changed_chunk_keys: Array = []
 ) -> void:
 	_generation_snapshot = generation.duplicate(true)
-	_hydrology_snapshot = hydrology.duplicate(true)
-	_ensure_weather_field_texture()
+	_transform_stage_b_state = transform_stage_b_state.duplicate(true)
+	_ensure_transform_stage_a_field_texture()
 	_ensure_surface_field_texture()
-	_ensure_solar_field_texture()
-	_update_weather_field_texture(_weather_snapshot)
-	_update_surface_state_texture(_weather_snapshot)
-	_update_solar_field_texture(_solar_snapshot)
+	_ensure_transform_stage_d_field_texture()
+	_update_transform_stage_a_field_texture(_transform_stage_a_state)
+	_update_surface_state_texture(_transform_stage_a_state)
+	_update_transform_stage_d_field_texture(_transform_stage_d_state)
 	_update_ocean_surface_geometry()
 	var chunk_keys = _normalize_chunk_keys(changed_chunk_keys)
 	if chunk_keys.is_empty():
@@ -173,44 +173,44 @@ func apply_generation_delta(
 
 func _rebuild_water_sources() -> void:
 	_ensure_renderer_nodes()
-	_water_source_renderer.rebuild_sources(water_root, _hydrology_snapshot)
+	_water_source_renderer.rebuild_sources(water_root, _transform_stage_b_state)
 
 func get_generation_snapshot() -> Dictionary:
 	return _generation_snapshot.duplicate(true)
 
-func get_hydrology_snapshot() -> Dictionary:
-	return _hydrology_snapshot.duplicate(true)
+func get_transform_stage_b_state() -> Dictionary:
+	return _transform_stage_b_state.duplicate(true)
 
-func set_weather_state(weather_snapshot: Dictionary) -> void:
-	_weather_snapshot = weather_snapshot.duplicate(true)
-	_update_weather_field_texture(_weather_snapshot)
-	var rain = clampf(float(_weather_snapshot.get("avg_rain_intensity", 0.0)) * rain_visual_intensity_scale, 0.0, 1.0)
-	var cloud = clampf(float(_weather_snapshot.get("avg_cloud_cover", 0.0)), 0.0, 1.0)
-	var humidity = clampf(float(_weather_snapshot.get("avg_humidity", 0.0)), 0.0, 1.0)
-	var wind_row: Dictionary = _weather_snapshot.get("wind_dir", {})
+func set_transform_stage_a_state(stage_a_state: Dictionary) -> void:
+	_transform_stage_a_state = stage_a_state.duplicate(true)
+	_update_transform_stage_a_field_texture(_transform_stage_a_state)
+	var rain = clampf(float(_transform_stage_a_state.get("avg_rain_intensity", 0.0)) * rain_visual_intensity_scale, 0.0, 1.0)
+	var cloud = clampf(float(_transform_stage_a_state.get("avg_cloud_cover", 0.0)), 0.0, 1.0)
+	var humidity = clampf(float(_transform_stage_a_state.get("avg_humidity", 0.0)), 0.0, 1.0)
+	var wind_row: Dictionary = _transform_stage_a_state.get("wind_dir", {})
 	var wind = Vector2(float(wind_row.get("x", 1.0)), float(wind_row.get("y", 0.0)))
 	if wind.length_squared() < 0.0001:
 		wind = Vector2(1.0, 0.0)
 	wind = wind.normalized()
-	var wind_speed = clampf(float(_weather_snapshot.get("wind_speed", 0.5)), 0.05, 2.0)
+	var wind_speed = clampf(float(_transform_stage_a_state.get("wind_speed", 0.5)), 0.05, 2.0)
 	var cloud_scale = lerpf(0.06, 0.028, cloud)
 	var cloud_strength = clampf(0.4 + cloud * 0.5, 0.0, 1.0)
 	set_water_shader_params({
-		"rain_intensity": rain,
+		"transform_intensity": rain,
 		"cloud_shadow": cloud * 0.85,
 		"flow_speed": 0.88 + rain * 0.45,
 		"foam_strength": 0.28 + rain * 0.44,
 		"wave_strength": 0.24 + rain * 0.5,
-		"weather_wind_dir": wind,
-		"weather_wind_speed": wind_speed,
-		"weather_cloud_scale": cloud_scale,
-		"weather_cloud_strength": cloud_strength,
+		"transform_wind_dir": wind,
+		"transform_wind_speed": wind_speed,
+		"transform_cloud_scale": cloud_scale,
+		"transform_cloud_strength": cloud_strength,
 	})
-	_apply_weather_to_cached_materials(rain, cloud, humidity)
-	_update_cloud_layer_weather(rain, cloud, humidity, wind, wind_speed)
-	_update_river_material_weather(rain, cloud, wind, wind_speed)
-	_update_volumetric_cloud_weather(rain, cloud, humidity, wind, wind_speed)
-	_update_rain_post_fx_weather(rain, wind, wind_speed)
+	_apply_transform_stage_to_cached_materials(rain, cloud, humidity)
+	_update_cloud_layer_transform_stage(rain, cloud, humidity, wind, wind_speed)
+	_update_river_transform_stage(rain, cloud, wind, wind_speed)
+	_update_volumetric_cloud_transform_stage(rain, cloud, humidity, wind, wind_speed)
+	_update_rain_post_fx_transform_stage(rain, wind, wind_speed)
 
 func _ensure_renderer_nodes() -> void:
 	_ensure_system_adapters()
@@ -251,29 +251,30 @@ func _ensure_system_adapters() -> void:
 
 func _sync_terrain_renderer_context() -> void:
 	_ensure_renderer_nodes()
-	_terrain_renderer.set_weather_snapshot(_weather_snapshot)
+	_terrain_renderer.set_transform_stage_a_state(_transform_stage_a_state)
 	_terrain_renderer.set_water_render_mode(water_render_mode)
 	_terrain_renderer.set_render_context(
 		_water_shader_params,
-		_weather_field_texture,
-		_weather_field_world_size,
+		_transform_stage_a_field_texture,
+		_transform_stage_a_field_world_size,
 		_surface_field_texture,
-		_solar_field_texture
+		_transform_stage_d_field_texture
 	)
 
-func set_solar_state(solar_snapshot: Dictionary) -> void:
-	_solar_snapshot = solar_snapshot.duplicate(true)
-	_update_solar_field_texture(_solar_snapshot)
+func set_transform_stage_d_state(stage_d_state: Dictionary) -> void:
+	_transform_stage_d_state = stage_d_state.duplicate(true)
+	_update_transform_stage_d_field_texture(_transform_stage_d_state)
 	_sync_terrain_renderer_context()
 	_terrain_renderer.refresh_material_uniforms()
 	_apply_ocean_material_uniforms()
 
 func set_water_shader_params(params: Dictionary) -> void:
-	for key_variant in params.keys():
+	var normalized_params = params.duplicate(true)
+	for key_variant in normalized_params.keys():
 		var key = String(key_variant)
-		_water_shader_params[key] = params.get(key_variant)
+		_water_shader_params[key] = normalized_params.get(key_variant)
 	_sync_terrain_renderer_context()
-	_terrain_renderer.set_water_shader_params(params)
+	_terrain_renderer.set_water_shader_params(normalized_params)
 	_apply_ocean_material_uniforms()
 
 func set_terrain_chunk_size(next_size: int) -> void:
@@ -342,8 +343,8 @@ func set_cloud_density_scale(scale: float) -> void:
 
 func set_rain_visual_intensity_scale(scale: float) -> void:
 	rain_visual_intensity_scale = clampf(scale, 0.1, 1.5)
-	if not _weather_snapshot.is_empty():
-		set_weather_state(_weather_snapshot)
+	if not _transform_stage_a_state.is_empty():
+		set_transform_stage_a_state(_transform_stage_a_state)
 
 func get_graphics_state() -> Dictionary:
 	return {
@@ -357,9 +358,9 @@ func get_graphics_state() -> Dictionary:
 		"rain_visual_intensity_scale": rain_visual_intensity_scale,
 	}
 
-func _apply_weather_to_cached_materials(rain: float, cloud: float, humidity: float) -> void:
+func _apply_transform_stage_to_cached_materials(rain: float, cloud: float, humidity: float) -> void:
 	_sync_terrain_renderer_context()
-	_terrain_renderer.apply_weather_to_materials(rain, cloud, humidity)
+	_terrain_renderer.apply_transform_stage_to_materials(rain, cloud, humidity)
 
 func _request_chunk_rebuild(chunk_keys: Array = []) -> void:
 	var voxel_world: Dictionary = _generation_snapshot.get("voxel_world", {})
@@ -442,13 +443,13 @@ func _rebuild_river_flow_overlays() -> void:
 	if not river_overlays_enabled:
 		_river_renderer.clear_generated()
 		return
-	_river_renderer.rebuild_overlays(_generation_snapshot, _weather_snapshot)
+	_river_renderer.rebuild_overlays(_generation_snapshot, _transform_stage_a_state)
 
-func _update_river_material_weather(rain: float, cloud: float, wind: Vector2, wind_speed: float) -> void:
+func _update_river_transform_stage(rain: float, cloud: float, wind: Vector2, wind_speed: float) -> void:
 	if not river_overlays_enabled:
 		return
 	_ensure_renderer_nodes()
-	_river_renderer.update_weather(rain, cloud, wind_speed)
+	_river_renderer.update_transform_stage(rain, cloud, wind_speed)
 	_river_renderer.apply_lightning(_lightning_flash)
 
 func _ensure_volumetric_cloud_shell() -> void:
@@ -459,17 +460,17 @@ func _update_volumetric_cloud_geometry() -> void:
 	_ensure_system_adapters()
 	_atmosphere_adapter.update_volumetric_cloud_geometry(self)
 
-func _update_volumetric_cloud_weather(rain: float, cloud: float, humidity: float, wind: Vector2, wind_speed: float) -> void:
+func _update_volumetric_cloud_transform_stage(rain: float, cloud: float, humidity: float, wind: Vector2, wind_speed: float) -> void:
 	_ensure_system_adapters()
-	_atmosphere_adapter.update_volumetric_cloud_weather(self, rain, cloud, humidity, wind, wind_speed)
+	_atmosphere_adapter.update_volumetric_cloud_transform_stage(self, rain, cloud, humidity, wind, wind_speed)
 
 func _ensure_rain_post_fx() -> void:
 	_ensure_system_adapters()
-	_post_fx_adapter.ensure_rain_post_fx(self)
+	_post_fx_adapter.ensure_transform_post_fx(self)
 
-func _update_rain_post_fx_weather(rain: float, wind: Vector2, wind_speed: float) -> void:
+func _update_rain_post_fx_transform_stage(rain: float, wind: Vector2, wind_speed: float) -> void:
 	_ensure_system_adapters()
-	_post_fx_adapter.update_rain_post_fx_weather(self, rain, wind, wind_speed)
+	_post_fx_adapter.update_transform_post_fx_state(self, rain, wind, wind_speed)
 
 func _ensure_cloud_layer() -> void:
 	_ensure_system_adapters()
@@ -479,9 +480,9 @@ func _update_cloud_layer_geometry() -> void:
 	_ensure_system_adapters()
 	_atmosphere_adapter.update_cloud_layer_geometry(self)
 
-func _update_cloud_layer_weather(rain: float, cloud: float, humidity: float, wind: Vector2, wind_speed: float) -> void:
+func _update_cloud_layer_transform_stage(rain: float, cloud: float, humidity: float, wind: Vector2, wind_speed: float) -> void:
 	_ensure_system_adapters()
-	_atmosphere_adapter.update_cloud_layer_weather(self, rain, cloud, humidity, wind, wind_speed)
+	_atmosphere_adapter.update_cloud_layer_transform_stage(self, rain, cloud, humidity, wind, wind_speed)
 
 func set_cloud_quality_settings(tier: String, slice_density: float) -> void:
 	_ensure_system_adapters()
@@ -491,33 +492,33 @@ func _apply_cloud_quality_settings() -> void:
 	_ensure_system_adapters()
 	_atmosphere_adapter.apply_cloud_quality_settings(self)
 
-func _ensure_weather_field_texture() -> void:
+func _ensure_transform_stage_a_field_texture() -> void:
 	_ensure_system_adapters()
-	_atmosphere_adapter.ensure_weather_field_texture(self)
+	_atmosphere_adapter.ensure_transform_stage_a_field_texture(self)
 
 func _ensure_surface_field_texture() -> void:
 	_ensure_system_adapters()
 	_atmosphere_adapter.ensure_surface_field_texture(self)
 
-func _ensure_solar_field_texture() -> void:
+func _ensure_transform_stage_d_field_texture() -> void:
 	_ensure_system_adapters()
-	_atmosphere_adapter.ensure_solar_field_texture(self)
+	_atmosphere_adapter.ensure_transform_stage_d_field_texture(self)
 
 func _refresh_surface_state_from_generation() -> void:
 	_ensure_system_adapters()
 	_atmosphere_adapter.refresh_surface_state_from_generation(self)
 
-func _update_surface_state_texture(weather_snapshot: Dictionary) -> void:
+func _update_surface_state_texture(stage_a_state: Dictionary) -> void:
 	_ensure_system_adapters()
-	_atmosphere_adapter.update_surface_state_texture(self, weather_snapshot)
+	_atmosphere_adapter.update_surface_state_texture(self, stage_a_state)
 
-func _update_solar_field_texture(solar_snapshot: Dictionary) -> void:
+func _update_transform_stage_d_field_texture(stage_d_state: Dictionary) -> void:
 	_ensure_system_adapters()
-	_atmosphere_adapter.update_solar_field_texture(self, solar_snapshot)
+	_atmosphere_adapter.update_transform_stage_d_field_texture(self, stage_d_state)
 
-func _update_weather_field_texture(weather_snapshot: Dictionary) -> void:
+func _update_transform_stage_a_field_texture(stage_a_state: Dictionary) -> void:
 	_ensure_system_adapters()
-	_atmosphere_adapter.update_weather_field_texture(self, weather_snapshot)
+	_atmosphere_adapter.update_transform_stage_a_field_texture(self, stage_a_state)
 
 func trigger_lightning(intensity: float = 1.0) -> void:
 	_ensure_system_adapters()
@@ -539,10 +540,10 @@ func _apply_ocean_material_uniforms() -> void:
 	_ensure_system_adapters()
 	_ocean_adapter.apply_ocean_material_uniforms(self)
 
-func _pack_weather_color(c: Color) -> int:
+func _pack_transform_stage_color(c: Color) -> int:
 	_ensure_system_adapters()
-	return _atmosphere_adapter.pack_weather_color(c)
+	return _atmosphere_adapter.pack_transform_stage_color(c)
 
-func _fill_weather_field(color: Color, pack: int) -> void:
+func _fill_transform_stage_a_field(color: Color, pack: int) -> void:
 	_ensure_system_adapters()
-	_atmosphere_adapter.fill_weather_field(self, color, pack)
+	_atmosphere_adapter.fill_transform_stage_a_field(self, color, pack)

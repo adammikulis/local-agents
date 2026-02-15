@@ -2,10 +2,10 @@ extends RefCounted
 class_name LocalAgentsSimulationGraphicsSettings
 
 const DEFAULTS := {
-	"weather_system_enabled": true,
-	"hydrology_system_enabled": true,
-	"erosion_system_enabled": true,
-	"solar_system_enabled": true,
+	"transform_stage_a_system_enabled": true,
+	"transform_stage_b_system_enabled": true,
+	"transform_stage_c_system_enabled": true,
+	"transform_stage_d_system_enabled": true,
 	"resource_pipeline_enabled": true,
 	"structure_lifecycle_enabled": true,
 	"culture_cycle_enabled": true,
@@ -35,14 +35,14 @@ const DEFAULTS := {
 	"simulation_locality_enabled": true,
 	"simulation_locality_dynamic_enabled": true,
 	"simulation_locality_radius_tiles": 1,
-	"weather_solver_decimation_enabled": false,
-	"hydrology_solver_decimation_enabled": false,
-	"erosion_solver_decimation_enabled": false,
-	"solar_solver_decimation_enabled": false,
-	"weather_gpu_compute_enabled": true,
-	"hydrology_gpu_compute_enabled": true,
-	"erosion_gpu_compute_enabled": true,
-	"solar_gpu_compute_enabled": true,
+	"transform_stage_a_solver_decimation_enabled": false,
+	"transform_stage_b_solver_decimation_enabled": false,
+	"transform_stage_c_solver_decimation_enabled": false,
+	"transform_stage_d_solver_decimation_enabled": false,
+	"transform_stage_a_gpu_compute_enabled": true,
+	"transform_stage_b_gpu_compute_enabled": true,
+	"transform_stage_c_gpu_compute_enabled": true,
+	"transform_stage_d_gpu_compute_enabled": true,
 	"climate_fast_interval_ticks": 4,
 	"climate_slow_interval_ticks": 8,
 	"resource_pipeline_decimation_enabled": false,
@@ -50,9 +50,9 @@ const DEFAULTS := {
 	"culture_cycle_decimation_enabled": false,
 	"society_fast_interval_ticks": 4,
 	"society_slow_interval_ticks": 8,
-	"weather_texture_upload_decimation_enabled": false,
-	"surface_texture_upload_decimation_enabled": false,
-	"solar_texture_upload_decimation_enabled": false,
+	"transform_stage_a_texture_upload_decimation_enabled": false,
+	"transform_stage_b_texture_upload_decimation_enabled": false,
+	"transform_stage_d_texture_upload_decimation_enabled": false,
 	"texture_upload_interval_ticks": 8,
 	"texture_upload_budget_texels": 4096,
 	"ecology_step_decimation_enabled": false,
@@ -76,10 +76,10 @@ const DEFAULTS := {
 	"voxel_gate_profile_refresh_enabled": true,
 	"voxel_gate_edible_index_enabled": true,
 	"frame_graph_total_enabled": true,
-	"frame_graph_weather_enabled": true,
-	"frame_graph_hydrology_enabled": true,
-	"frame_graph_erosion_enabled": true,
-	"frame_graph_solar_enabled": true,
+	"frame_graph_transform_stage_a_enabled": true,
+	"frame_graph_transform_stage_b_enabled": true,
+	"frame_graph_transform_stage_c_enabled": true,
+	"frame_graph_transform_stage_d_enabled": true,
 	"frame_graph_resource_pipeline_enabled": true,
 	"frame_graph_structure_enabled": true,
 	"frame_graph_culture_enabled": true,
@@ -93,7 +93,8 @@ static func default_state() -> Dictionary:
 static func merge_with_defaults(state: Dictionary) -> Dictionary:
 	var merged := default_state()
 	for key_variant in state.keys():
-		merged[String(key_variant)] = state.get(key_variant)
+		var key := String(key_variant)
+		merged[key] = state.get(key_variant)
 	return sanitize_state(merged)
 
 static func sanitize_state(state: Dictionary) -> Dictionary:

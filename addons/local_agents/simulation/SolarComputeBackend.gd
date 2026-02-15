@@ -20,9 +20,9 @@ var _buf_shade: RID
 var _buf_aspect_x: RID
 var _buf_aspect_y: RID
 var _buf_albedo: RID
-var _buf_weather_cloud: RID
-var _buf_weather_fog: RID
-var _buf_weather_humidity: RID
+var _buf_transform_stage_a_cloud: RID
+var _buf_transform_stage_a_fog: RID
+var _buf_transform_stage_a_humidity: RID
 var _buf_activity: RID
 var _buf_sunlight: RID
 var _buf_uv: RID
@@ -77,9 +77,9 @@ func configure(
 	_buf_albedo = _storage_buffer_from_f32(albedo)
 	var zeros = PackedFloat32Array()
 	zeros.resize(_count)
-	_buf_weather_cloud = _storage_buffer_from_f32(zeros)
-	_buf_weather_fog = _storage_buffer_from_f32(zeros)
-	_buf_weather_humidity = _storage_buffer_from_f32(zeros)
+	_buf_transform_stage_a_cloud = _storage_buffer_from_f32(zeros)
+	_buf_transform_stage_a_fog = _storage_buffer_from_f32(zeros)
+	_buf_transform_stage_a_humidity = _storage_buffer_from_f32(zeros)
 	_buf_activity = _storage_buffer_from_f32(zeros)
 	_buf_sunlight = _storage_buffer_from_f32(zeros)
 	_buf_uv = _storage_buffer_from_f32(zeros)
@@ -95,9 +95,9 @@ func configure(
 	uniforms.append(_ssbo_uniform(4, _buf_aspect_x))
 	uniforms.append(_ssbo_uniform(5, _buf_aspect_y))
 	uniforms.append(_ssbo_uniform(6, _buf_albedo))
-	uniforms.append(_ssbo_uniform(7, _buf_weather_cloud))
-	uniforms.append(_ssbo_uniform(8, _buf_weather_fog))
-	uniforms.append(_ssbo_uniform(9, _buf_weather_humidity))
+	uniforms.append(_ssbo_uniform(7, _buf_transform_stage_a_cloud))
+	uniforms.append(_ssbo_uniform(8, _buf_transform_stage_a_fog))
+	uniforms.append(_ssbo_uniform(9, _buf_transform_stage_a_humidity))
 	uniforms.append(_ssbo_uniform(10, _buf_activity))
 	uniforms.append(_ssbo_uniform(11, _buf_sunlight))
 	uniforms.append(_ssbo_uniform(12, _buf_uv))
@@ -111,14 +111,14 @@ func configure(
 func is_configured() -> bool:
 	return _configured and _supported and _uniform_set_rid.is_valid()
 
-func step(weather_cloud: PackedFloat32Array, weather_fog: PackedFloat32Array, weather_humidity: PackedFloat32Array, activity: PackedFloat32Array, sun_dir: Vector2, sun_alt: float, tick: int, idle_cadence: int, seed: int) -> Dictionary:
+func step(transform_stage_a_cloud: PackedFloat32Array, transform_stage_a_fog: PackedFloat32Array, transform_stage_a_humidity: PackedFloat32Array, activity: PackedFloat32Array, sun_dir: Vector2, sun_alt: float, tick: int, idle_cadence: int, seed: int) -> Dictionary:
 	if not is_configured():
 		return {}
-	if weather_cloud.size() != _count or weather_fog.size() != _count or weather_humidity.size() != _count or activity.size() != _count:
+	if transform_stage_a_cloud.size() != _count or transform_stage_a_fog.size() != _count or transform_stage_a_humidity.size() != _count or activity.size() != _count:
 		return {}
-	_rd.buffer_update(_buf_weather_cloud, 0, weather_cloud.to_byte_array().size(), weather_cloud.to_byte_array())
-	_rd.buffer_update(_buf_weather_fog, 0, weather_fog.to_byte_array().size(), weather_fog.to_byte_array())
-	_rd.buffer_update(_buf_weather_humidity, 0, weather_humidity.to_byte_array().size(), weather_humidity.to_byte_array())
+	_rd.buffer_update(_buf_transform_stage_a_cloud, 0, transform_stage_a_cloud.to_byte_array().size(), transform_stage_a_cloud.to_byte_array())
+	_rd.buffer_update(_buf_transform_stage_a_fog, 0, transform_stage_a_fog.to_byte_array().size(), transform_stage_a_fog.to_byte_array())
+	_rd.buffer_update(_buf_transform_stage_a_humidity, 0, transform_stage_a_humidity.to_byte_array().size(), transform_stage_a_humidity.to_byte_array())
 	_rd.buffer_update(_buf_activity, 0, activity.to_byte_array().size(), activity.to_byte_array())
 	var params = PackedFloat32Array([sun_dir.x, sun_dir.y, clampf(sun_alt, 0.0, 1.0), float(maxi(1, idle_cadence)), float(tick), float(seed), 0.0, 0.0, float(_count)])
 	_rd.buffer_update(_buf_params, 0, params.to_byte_array().size(), params.to_byte_array())
@@ -157,9 +157,9 @@ func _free_buffers() -> void:
 		_buf_aspect_x = RID()
 		_buf_aspect_y = RID()
 		_buf_albedo = RID()
-		_buf_weather_cloud = RID()
-		_buf_weather_fog = RID()
-		_buf_weather_humidity = RID()
+		_buf_transform_stage_a_cloud = RID()
+		_buf_transform_stage_a_fog = RID()
+		_buf_transform_stage_a_humidity = RID()
 		_buf_activity = RID()
 		_buf_sunlight = RID()
 		_buf_uv = RID()
@@ -176,9 +176,9 @@ func _free_buffers() -> void:
 	_buf_aspect_x = _release_rid(_buf_aspect_x)
 	_buf_aspect_y = _release_rid(_buf_aspect_y)
 	_buf_albedo = _release_rid(_buf_albedo)
-	_buf_weather_cloud = _release_rid(_buf_weather_cloud)
-	_buf_weather_fog = _release_rid(_buf_weather_fog)
-	_buf_weather_humidity = _release_rid(_buf_weather_humidity)
+	_buf_transform_stage_a_cloud = _release_rid(_buf_transform_stage_a_cloud)
+	_buf_transform_stage_a_fog = _release_rid(_buf_transform_stage_a_fog)
+	_buf_transform_stage_a_humidity = _release_rid(_buf_transform_stage_a_humidity)
 	_buf_activity = _release_rid(_buf_activity)
 	_buf_sunlight = _release_rid(_buf_sunlight)
 	_buf_uv = _release_rid(_buf_uv)

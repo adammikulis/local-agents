@@ -80,8 +80,8 @@ func route_profile(start: Vector3, target: Vector3, context: Dictionary = {}) ->
 		float(_traversal_profile.max_speed_multiplier)
 	)
 	var seasonal_multiplier = _seasonal_multiplier(context)
-	var weather_multiplier = _weather_multiplier(context)
-	speed_multiplier *= seasonal_multiplier * weather_multiplier
+	var transform_multiplier = _environment_multiplier(context)
+	speed_multiplier *= seasonal_multiplier * transform_multiplier
 	speed_multiplier = clampf(speed_multiplier, float(_traversal_profile.min_speed_multiplier), float(_traversal_profile.max_speed_multiplier))
 	var travel_cost = planar_distance / speed_multiplier
 	var efficiency = clampf(
@@ -100,7 +100,7 @@ func route_profile(start: Vector3, target: Vector3, context: Dictionary = {}) ->
 		"terrain": terrain,
 		"terrain_penalty": terrain_penalty,
 		"seasonal_multiplier": seasonal_multiplier,
-		"weather_multiplier": weather_multiplier,
+		"environment_multiplier": transform_multiplier,
 		"speed_multiplier": speed_multiplier,
 		"travel_cost": travel_cost,
 		"delivery_efficiency": efficiency,
@@ -262,12 +262,12 @@ func _seasonal_multiplier(context: Dictionary) -> float:
 		return clampf(float(_path_traversal_config.dry_season_bonus), 0.5, 1.5)
 	return clampf(float(_path_traversal_config.wet_season_slowdown), 0.3, 1.0)
 
-func _weather_multiplier(context: Dictionary) -> float:
-	if not bool(_path_traversal_config.weather_modifiers_enabled):
+func _environment_multiplier(context: Dictionary) -> float:
+	if not bool(_path_traversal_config.transform_modifiers_enabled):
 		return 1.0
-	var rain_intensity = clampf(float(context.get("rain_intensity", 0.0)), 0.0, 1.0)
+	var stage_intensity = clampf(float(context.get("stage_intensity", 0.0)), 0.0, 1.0)
 	return clampf(
-		1.0 - rain_intensity * float(_path_traversal_config.rain_slowdown_per_intensity),
-		float(_path_traversal_config.min_weather_multiplier),
+		1.0 - stage_intensity * float(_path_traversal_config.stage_intensity_slowdown_per_unit),
+		float(_path_traversal_config.min_transform_multiplier),
 		1.0
 	)

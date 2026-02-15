@@ -3,9 +3,9 @@ class_name LocalAgentsSettlementSeeder
 
 const SpawnCandidateResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/SpawnCandidateResource.gd")
 
-func select_site(world_data: Dictionary, hydrology: Dictionary, config) -> Dictionary:
+func select_site(world_data: Dictionary, environment_water: Dictionary, config) -> Dictionary:
     var tiles: Array = world_data.get("tiles", [])
-    var water_tiles: Dictionary = hydrology.get("water_tiles", {})
+    var water_tiles: Dictionary = environment_water.get("water_tiles", {})
     var by_id: Dictionary = world_data.get("tile_index", {})
 
     var candidates: Array = []

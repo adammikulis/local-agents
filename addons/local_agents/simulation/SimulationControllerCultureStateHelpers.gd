@@ -83,12 +83,12 @@ static func apply_snapshot(svc, snapshot: Dictionary) -> void:
 	svc._branch_lineage = (snapshot.get("branch_lineage", []) as Array).duplicate(true)
 	svc._branch_fork_tick = int(snapshot.get("branch_fork_tick", svc._branch_fork_tick))
 	svc._environment_snapshot = snapshot.get("environment_snapshot", {}).duplicate(true)
-	svc._water_network_snapshot = snapshot.get("water_network_snapshot", {}).duplicate(true)
-	svc._weather_snapshot = snapshot.get("weather_snapshot", {}).duplicate(true)
-	svc._erosion_snapshot = snapshot.get("erosion_snapshot", {}).duplicate(true)
-	svc._solar_snapshot = snapshot.get("solar_snapshot", {}).duplicate(true)
-	svc._erosion_changed_last_tick = bool(snapshot.get("erosion_changed", false))
-	svc._erosion_changed_tiles_last_tick = (snapshot.get("erosion_changed_tiles", []) as Array).duplicate(true)
+	svc._network_state_snapshot = snapshot.get("network_state_snapshot", {}).duplicate(true)
+	svc._atmosphere_state_snapshot = snapshot.get("atmosphere_state_snapshot", {}).duplicate(true)
+	svc._deformation_state_snapshot = snapshot.get("deformation_state_snapshot", {}).duplicate(true)
+	svc._exposure_state_snapshot = snapshot.get("exposure_state_snapshot", {}).duplicate(true)
+	svc._transform_changed_last_tick = bool(snapshot.get("transform_changed", false))
+	svc._transform_changed_tiles_last_tick = (snapshot.get("transform_changed_tiles", []) as Array).duplicate(true)
 	svc._spawn_artifact = snapshot.get("spawn_artifact", {}).duplicate(true)
 	svc._sacred_site_id = String(snapshot.get("sacred_site_id", svc._sacred_site_id))
 	if svc._culture_cycle != null:
@@ -163,20 +163,8 @@ static func apply_snapshot(svc, snapshot: Dictionary) -> void:
 		svc._carry_profiles[npc_id] = profile
 
 	if svc._flow_network_system != null:
-		svc._flow_network_system.configure_environment(svc._environment_snapshot, svc._water_network_snapshot)
+		svc._flow_network_system.configure_environment(svc._environment_snapshot, svc._network_state_snapshot)
 		svc._flow_network_system.import_network(snapshot.get("flow_network", {}))
-	if svc._weather_system != null:
-		var weather_seed = int(svc._weather_snapshot.get("seed", 0))
-		svc._weather_system.configure_environment(svc._environment_snapshot, svc._water_network_snapshot, weather_seed)
-		svc._weather_system.import_snapshot(svc._weather_snapshot)
-	if svc._erosion_system != null:
-		var erosion_seed = int(svc._erosion_snapshot.get("seed", 0))
-		svc._erosion_system.configure_environment(svc._environment_snapshot, svc._water_network_snapshot, erosion_seed)
-		svc._erosion_system.import_snapshot(svc._erosion_snapshot)
-	if svc._solar_system != null:
-		var solar_seed = int(svc._solar_snapshot.get("seed", 0))
-		svc._solar_system.configure_environment(svc._environment_snapshot, solar_seed)
-		svc._solar_system.import_snapshot(svc._solar_snapshot)
 
 	if svc._structure_lifecycle_system != null:
 		svc._structure_lifecycle_system.import_lifecycle_state(snapshot.get("structures", {}), snapshot.get("anchors", []), snapshot.get("structure_lifecycle_runtime", {}))
@@ -293,7 +281,7 @@ static func tile_context_for_position(svc, position: Vector3) -> Dictionary:
 	var tile_id = TileKeyUtilsScript.from_world_xz(position)
 	var tile_index: Dictionary = svc._environment_snapshot.get("tile_index", {})
 	var tile = tile_index.get(tile_id, {})
-	var water_tiles: Dictionary = svc._water_network_snapshot.get("water_tiles", {})
+	var water_tiles: Dictionary = svc._network_state_snapshot.get("water_tiles", {})
 	var water = water_tiles.get(tile_id, {})
 	return {
 		"biome": String(tile.get("biome", "plains")),

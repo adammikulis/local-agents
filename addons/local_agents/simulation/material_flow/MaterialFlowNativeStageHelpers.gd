@@ -18,9 +18,9 @@ static func sanitize_native_view_metrics(metrics: Dictionary) -> Dictionary:
 static func build_environment_stage_payload(
 	tick: int,
 	delta: float,
+	generation_snapshot: Dictionary,
+	transform_snapshot: Dictionary,
 	environment_snapshot: Dictionary,
-	hydrology_snapshot: Dictionary,
-	weather_snapshot: Dictionary,
 	local_activity: Dictionary,
 	native_view_metrics: Dictionary = {},
 	physics_contacts: Array = []
@@ -28,9 +28,9 @@ static func build_environment_stage_payload(
 	var payload := {
 		"tick": tick,
 		"delta": delta,
-		"environment": environment_snapshot.duplicate(true),
-		"hydrology": hydrology_snapshot.duplicate(true),
-		"weather": weather_snapshot.duplicate(true),
+		"environment": generation_snapshot.duplicate(true),
+		"environment_transform": transform_snapshot.duplicate(true),
+		"environment_context": environment_snapshot.duplicate(true),
 		"local_activity": local_activity.duplicate(true),
 	}
 	if not physics_contacts.is_empty():

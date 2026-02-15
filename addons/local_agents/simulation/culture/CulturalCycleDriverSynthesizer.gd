@@ -60,12 +60,12 @@ Return STRICT JSON with this schema:
   "drivers": [
     {
       "label": "short_snake_case",
-      "topic": "one_of:[water_route_reliability,safe_foraging_zones,seasonal_weather_cues,toolcraft_recipe,ritual_obligation,belonging_oath,kinship_continuity,ownership_boundary,bone_craft_memory]",
+      "topic": "one_of:[water_route_reliability,safe_foraging_zones,seasonal_environmental_cues,toolcraft_recipe,ritual_obligation,belonging_oath,kinship_continuity,ownership_boundary,bone_craft_memory]",
       "gain_loss": -1.0_to_1.0,
       "salience": 0.0_to_1.0,
       "scope": "settlement_or_household",
       "owner_id": "household_id_or_empty",
-      "tags": ["belonging","ownership","food","water","kinship","weather","bone","ritual","craft"],
+      "tags": ["belonging","ownership","food","water","kinship","environment","bone","ritual","craft"],
       "summary": "brief phrase"
     }
   ]

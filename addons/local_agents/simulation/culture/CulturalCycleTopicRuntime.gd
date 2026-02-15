@@ -145,7 +145,7 @@ func topic_base_content(topic: String, household_id: String, household_context: 
 			return "Follow the reliable channel near %s before midday." % household_id
 		"safe_foraging_zones":
 			return "Gather roots along the safer slope edges around %s." % household_id
-		"seasonal_weather_cues":
+		"seasonal_environmental_cues":
 			return "Low morning haze means stronger valley winds by dusk."
 		"toolcraft_recipe":
 			return "Harden stone flakes in brief hearth heat before binding."
@@ -179,7 +179,7 @@ func topic_detail_variant(topic: String, detail_drift: float) -> String:
 				"Some retell it with a steeper ridge marker while keeping the %s teaching." % anchor,
 				"Others swap the tree landmark, but keep the %s teaching intact." % anchor,
 			]
-		"seasonal_weather_cues":
+		"seasonal_environmental_cues":
 			variants = [
 				"Keep the %s teaching." % anchor,
 				"Some now watch the haze later in the day, still within the %s teaching." % anchor,
@@ -244,8 +244,8 @@ func topic_motifs(topic: String) -> Array:
 			return [topic, "water"]
 		"safe_foraging_zones":
 			return [topic, "food"]
-		"seasonal_weather_cues":
-			return [topic, "weather"]
+		"seasonal_environmental_cues":
+			return [topic, "environment"]
 		"toolcraft_recipe":
 			return [topic, "craft"]
 		"ritual_obligation":
@@ -295,7 +295,7 @@ func topic_weights_for_household(household_id: String, household_context: Dictio
 	var weights: Dictionary = {
 		"water_route_reliability": 0.6,
 		"safe_foraging_zones": 0.6,
-		"seasonal_weather_cues": 0.55,
+		"seasonal_environmental_cues": 0.55,
 		"toolcraft_recipe": 0.52,
 		"ritual_obligation": 0.48,
 		"belonging_oath": 0.64,
@@ -343,8 +343,8 @@ func topic_weights_for_household(household_id: String, household_context: Dictio
 					weights["bone_craft_memory"] = float(weights["bone_craft_memory"]) + salience * 0.74
 				"ritual":
 					weights["ritual_obligation"] = float(weights["ritual_obligation"]) + salience * 0.48
-				"weather":
-					weights["seasonal_weather_cues"] = float(weights["seasonal_weather_cues"]) + salience * 0.52
+				"environment":
+					weights["seasonal_environmental_cues"] = float(weights["seasonal_environmental_cues"]) + salience * 0.52
 				_:
 					pass
 	return weights
@@ -411,8 +411,8 @@ func tag_matches_topic(tag: String, topic: String) -> bool:
 			return tag == "water"
 		"safe_foraging_zones":
 			return tag == "food"
-		"seasonal_weather_cues":
-			return tag == "weather"
+		"seasonal_environmental_cues":
+			return tag == "environment"
 		"toolcraft_recipe":
 			return tag == "craft"
 		"ritual_obligation":

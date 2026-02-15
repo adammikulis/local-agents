@@ -4,10 +4,10 @@ const SimulationGraphicsSettingsScript = preload("res://addons/local_agents/scen
 
 const FRAME_GRAPH_TOGGLE_ROWS := [
 	{"key": "frame_graph_total_enabled", "label": "Total", "series": "total_ms", "color": Color(1.0, 1.0, 1.0, 0.95)},
-	{"key": "frame_graph_weather_enabled", "label": "Weather", "series": "weather_ms", "color": Color(0.35, 0.78, 1.0, 0.9)},
-	{"key": "frame_graph_hydrology_enabled", "label": "Hydrology", "series": "hydrology_ms", "color": Color(0.2, 1.0, 0.95, 0.9)},
-	{"key": "frame_graph_erosion_enabled", "label": "Erosion", "series": "erosion_ms", "color": Color(0.95, 0.62, 0.24, 0.9)},
-	{"key": "frame_graph_solar_enabled", "label": "Solar", "series": "solar_ms", "color": Color(1.0, 0.92, 0.28, 0.9)},
+	{"key": "frame_graph_transform_stage_a_enabled", "label": "Transform Stage A", "series": "transform_stage_a_ms", "color": Color(0.35, 0.78, 1.0, 0.9)},
+	{"key": "frame_graph_transform_stage_b_enabled", "label": "Transform Stage B", "series": "transform_stage_b_ms", "color": Color(0.2, 1.0, 0.95, 0.9)},
+	{"key": "frame_graph_transform_stage_c_enabled", "label": "Transform Stage C", "series": "transform_stage_c_ms", "color": Color(0.95, 0.62, 0.24, 0.9)},
+	{"key": "frame_graph_transform_stage_d_enabled", "label": "Transform Stage D", "series": "transform_stage_d_ms", "color": Color(1.0, 0.92, 0.28, 0.9)},
 	{"key": "frame_graph_resource_pipeline_enabled", "label": "Resource", "series": "resource_pipeline_ms", "color": Color(0.5, 1.0, 0.44, 0.9)},
 	{"key": "frame_graph_structure_enabled", "label": "Structure", "series": "structure_ms", "color": Color(0.95, 0.45, 0.8, 0.9)},
 	{"key": "frame_graph_culture_enabled", "label": "Culture", "series": "culture_ms", "color": Color(0.88, 0.72, 1.0, 0.9)},
@@ -16,10 +16,10 @@ const FRAME_GRAPH_TOGGLE_ROWS := [
 ]
 
 const SYSTEM_ENABLE_TOGGLE_ROWS := [
-	{"key": "weather_system_enabled", "label": "Weather"},
-	{"key": "hydrology_system_enabled", "label": "Hydrology"},
-	{"key": "erosion_system_enabled", "label": "Erosion"},
-	{"key": "solar_system_enabled", "label": "Solar"},
+	{"key": "transform_stage_a_system_enabled", "label": "Transform Stage A"},
+	{"key": "transform_stage_b_system_enabled", "label": "Transform Stage B"},
+	{"key": "transform_stage_c_system_enabled", "label": "Transform Stage C"},
+	{"key": "transform_stage_d_system_enabled", "label": "Transform Stage D"},
 	{"key": "resource_pipeline_enabled", "label": "Resource Pipeline"},
 	{"key": "structure_lifecycle_enabled", "label": "Structure Lifecycle"},
 	{"key": "culture_cycle_enabled", "label": "Culture Cycle"},
@@ -30,10 +30,10 @@ const SYSTEM_ENABLE_TOGGLE_ROWS := [
 ]
 
 const GPU_COMPUTE_TOGGLE_ROWS := [
-	{"key": "weather_gpu_compute_enabled", "label": "Weather GPU Compute"},
-	{"key": "hydrology_gpu_compute_enabled", "label": "Hydrology GPU Compute"},
-	{"key": "erosion_gpu_compute_enabled", "label": "Erosion GPU Compute"},
-	{"key": "solar_gpu_compute_enabled", "label": "Solar GPU Compute"},
+	{"key": "transform_stage_a_gpu_compute_enabled", "label": "Transform Stage A GPU"},
+	{"key": "transform_stage_b_gpu_compute_enabled", "label": "Transform Stage B GPU"},
+	{"key": "transform_stage_c_gpu_compute_enabled", "label": "Transform Stage C GPU"},
+	{"key": "transform_stage_d_gpu_compute_enabled", "label": "Transform Stage D GPU"},
 ]
 
 var _hud: CanvasLayer
@@ -208,16 +208,16 @@ func _bind_nodes() -> void:
 		"fog_enabled": _hud.get_node_or_null("%FogCheck") as CheckBox,
 		"volumetric_fog_enabled": _hud.get_node_or_null("%VolumetricFogCheck") as CheckBox,
 		"simulation_rate_override_enabled": _hud.get_node_or_null("%SimRateOverrideCheck") as CheckBox,
-		"weather_solver_decimation_enabled": _hud.get_node_or_null("%WeatherSolverDecimationCheck") as CheckBox,
-		"hydrology_solver_decimation_enabled": _hud.get_node_or_null("%HydrologySolverDecimationCheck") as CheckBox,
-		"erosion_solver_decimation_enabled": _hud.get_node_or_null("%ErosionSolverDecimationCheck") as CheckBox,
-		"solar_solver_decimation_enabled": _hud.get_node_or_null("%SolarSolverDecimationCheck") as CheckBox,
+		"transform_stage_a_solver_decimation_enabled": _hud.get_node_or_null("%TransformStageASolverDecimationCheck") as CheckBox,
+		"transform_stage_b_solver_decimation_enabled": _hud.get_node_or_null("%TransformStageBSolverDecimationCheck") as CheckBox,
+		"transform_stage_c_solver_decimation_enabled": _hud.get_node_or_null("%ErosionSolverDecimationCheck") as CheckBox,
+		"transform_stage_d_solver_decimation_enabled": _hud.get_node_or_null("%TransformStageDSolverDecimationCheck") as CheckBox,
 		"resource_pipeline_decimation_enabled": _hud.get_node_or_null("%ResourcePipelineDecimationCheck") as CheckBox,
 		"structure_lifecycle_decimation_enabled": _hud.get_node_or_null("%StructureLifecycleDecimationCheck") as CheckBox,
 		"culture_cycle_decimation_enabled": _hud.get_node_or_null("%CultureCycleDecimationCheck") as CheckBox,
-		"weather_texture_upload_decimation_enabled": _hud.get_node_or_null("%WeatherTextureUploadDecimationCheck") as CheckBox,
-		"surface_texture_upload_decimation_enabled": _hud.get_node_or_null("%SurfaceTextureUploadDecimationCheck") as CheckBox,
-		"solar_texture_upload_decimation_enabled": _hud.get_node_or_null("%SolarTextureUploadDecimationCheck") as CheckBox,
+		"transform_stage_a_texture_upload_decimation_enabled": _hud.get_node_or_null("%TransformStageATextureUploadDecimationCheck") as CheckBox,
+		"transform_stage_b_texture_upload_decimation_enabled": _hud.get_node_or_null("%SurfaceTextureUploadDecimationCheck") as CheckBox,
+		"transform_stage_d_texture_upload_decimation_enabled": _hud.get_node_or_null("%TransformStageDTextureUploadDecimationCheck") as CheckBox,
 		"ecology_step_decimation_enabled": _hud.get_node_or_null("%EcologyStepDecimationCheck") as CheckBox,
 	}
 
@@ -253,7 +253,7 @@ func _organize_graphics_layout() -> void:
 	var systems_content := _ensure_graphics_section("SystemEnable", "Default Launch & Runtime Systems")
 	var render_content := _ensure_graphics_section("RenderEnv", "Render & Environment")
 	var sim_content := _ensure_graphics_section("SimulationRate", "Simulation")
-	var climate_content := _ensure_graphics_section("ClimatePipeline", "Climate Pipeline")
+	var climate_content := _ensure_graphics_section("ClimatePipeline", "Transform Pipeline")
 	var society_content := _ensure_graphics_section("SocietyPipeline", "Society Pipeline")
 	var texture_content := _ensure_graphics_section("TextureUploads", "GPU Texture Uploads")
 	var ecology_content := _ensure_graphics_section("Ecology", "Ecology")
@@ -264,9 +264,9 @@ func _organize_graphics_layout() -> void:
 	_move_nodes_by_name(sim_content, ["SimRateOverrideCheck", "SimulationTickRateRow"])
 	_ensure_simulation_locality_controls(sim_content)
 	_ensure_gpu_compute_controls(climate_content)
-	_move_nodes_by_name(climate_content, ["ClimatePipelineTitle", "WeatherSolverDecimationCheck", "HydrologySolverDecimationCheck", "ErosionSolverDecimationCheck", "SolarSolverDecimationCheck", "ClimateFastIntervalRow", "ClimateSlowIntervalRow"])
+	_move_nodes_by_name(climate_content, ["ClimatePipelineTitle", "TransformStageASolverDecimationCheck", "TransformStageBSolverDecimationCheck", "ErosionSolverDecimationCheck", "TransformStageDSolverDecimationCheck", "ClimateFastIntervalRow", "ClimateSlowIntervalRow"])
 	_move_nodes_by_name(society_content, ["SocietyPipelineTitle", "ResourcePipelineDecimationCheck", "StructureLifecycleDecimationCheck", "CultureCycleDecimationCheck", "SocietyFastIntervalRow", "SocietySlowIntervalRow"])
-	_move_nodes_by_name(texture_content, ["TextureUploadsTitle", "WeatherTextureUploadDecimationCheck", "SurfaceTextureUploadDecimationCheck", "SolarTextureUploadDecimationCheck", "TextureUploadIntervalRow", "TextureUploadBudgetRow"])
+	_move_nodes_by_name(texture_content, ["TextureUploadsTitle", "TransformStageATextureUploadDecimationCheck", "SurfaceTextureUploadDecimationCheck", "TransformStageDTextureUploadDecimationCheck", "TextureUploadIntervalRow", "TextureUploadBudgetRow"])
 	_move_nodes_by_name(ecology_content, ["EcologyStepDecimationCheck", "EcologyStepIntervalRow", "EcologyVoxelSizeRow", "EcologyVerticalExtentRow"])
 	_ensure_voxel_gating_controls(ecology_content)
 	_ensure_frame_graph_toggle_controls(graph_content)

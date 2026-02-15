@@ -6,9 +6,9 @@ class_name LocalAgentsFlowRuntimeConfigResource
 @export var seasonal_cycle_ticks: int = 240
 @export var wet_season_slowdown: float = 0.85
 @export var dry_season_bonus: float = 1.05
-@export var weather_modifiers_enabled: bool = true
-@export var rain_slowdown_per_intensity: float = 0.25
-@export var min_weather_multiplier: float = 0.7
+@export var transform_modifiers_enabled: bool = true
+@export var stage_intensity_slowdown_per_unit: float = 0.25
+@export var min_transform_multiplier: float = 0.7
 
 func to_dict() -> Dictionary:
     return {
@@ -17,9 +17,9 @@ func to_dict() -> Dictionary:
         "seasonal_cycle_ticks": seasonal_cycle_ticks,
         "wet_season_slowdown": wet_season_slowdown,
         "dry_season_bonus": dry_season_bonus,
-        "weather_modifiers_enabled": weather_modifiers_enabled,
-        "rain_slowdown_per_intensity": rain_slowdown_per_intensity,
-        "min_weather_multiplier": min_weather_multiplier,
+        "transform_modifiers_enabled": transform_modifiers_enabled,
+        "stage_intensity_slowdown_per_unit": stage_intensity_slowdown_per_unit,
+        "min_transform_multiplier": min_transform_multiplier,
     }
 
 func from_dict(values: Dictionary) -> void:
@@ -28,6 +28,6 @@ func from_dict(values: Dictionary) -> void:
     seasonal_cycle_ticks = maxi(24, int(values.get("seasonal_cycle_ticks", seasonal_cycle_ticks)))
     wet_season_slowdown = clampf(float(values.get("wet_season_slowdown", wet_season_slowdown)), 0.4, 1.0)
     dry_season_bonus = clampf(float(values.get("dry_season_bonus", dry_season_bonus)), 1.0, 1.4)
-    weather_modifiers_enabled = bool(values.get("weather_modifiers_enabled", weather_modifiers_enabled))
-    rain_slowdown_per_intensity = clampf(float(values.get("rain_slowdown_per_intensity", rain_slowdown_per_intensity)), 0.0, 0.8)
-    min_weather_multiplier = clampf(float(values.get("min_weather_multiplier", min_weather_multiplier)), 0.3, 1.0)
+    transform_modifiers_enabled = bool(values.get("transform_modifiers_enabled", transform_modifiers_enabled))
+    stage_intensity_slowdown_per_unit = clampf(float(values.get("stage_intensity_slowdown_per_unit", stage_intensity_slowdown_per_unit)), 0.0, 0.8)
+    min_transform_multiplier = clampf(float(values.get("min_transform_multiplier", min_transform_multiplier)), 0.3, 1.0)

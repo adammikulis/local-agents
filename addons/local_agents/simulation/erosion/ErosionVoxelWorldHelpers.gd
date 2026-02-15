@@ -15,7 +15,7 @@ static func update_tiles_array(environment_snapshot: Dictionary, tile_index: Dic
 	environment_snapshot["tiles"] = tiles
 	environment_snapshot["tile_index"] = tile_index
 
-static func apply_voxel_surface_erosion(environment_snapshot: Dictionary, changed_ids: Dictionary) -> bool:
+static func apply_voxel_surface_transform(environment_snapshot: Dictionary, changed_ids: Dictionary) -> bool:
 	if changed_ids.is_empty():
 		return false
 	var voxel_world: Dictionary = environment_snapshot.get("voxel_world", {})

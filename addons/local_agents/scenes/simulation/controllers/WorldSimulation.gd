@@ -68,10 +68,10 @@ var _runtime_profile_baseline: Dictionary = {}
 var _runtime_demo_profile_applied: String = ""
 var _voxel_rate_scheduler = VoxelRateTierSchedulerScript.new()
 var _system_toggle_state: Dictionary = {
-	"weather_system_enabled": true,
-	"hydrology_system_enabled": true,
-	"erosion_system_enabled": true,
-	"solar_system_enabled": true,
+	"transform_stage_a_system_enabled": true,
+	"transform_stage_b_system_enabled": true,
+	"transform_stage_c_system_enabled": true,
+	"transform_stage_d_system_enabled": true,
 	"resource_pipeline_enabled": true,
 	"structure_lifecycle_enabled": true,
 	"culture_cycle_enabled": true,
@@ -152,13 +152,13 @@ func _ready() -> void:
 		if wall_result is Dictionary and bool((wall_result as Dictionary).get("changed", false)):
 			var wall = wall_result as Dictionary
 			setup["environment"] = wall.get("environment_snapshot", setup.get("environment", {}))
-			setup["hydrology"] = wall.get("water_network_snapshot", setup.get("hydrology", {}))
+			setup["network_state_snapshot"] = wall.get("network_state_snapshot", setup.get("network_state_snapshot", {}))
 	if environment_controller.has_method("apply_generation_data"):
-		environment_controller.apply_generation_data(setup.get("environment", {}), setup.get("hydrology", {}))
-	if environment_controller.has_method("set_weather_state"):
-		environment_controller.set_weather_state(setup.get("weather", {}))
-	if environment_controller.has_method("set_solar_state"):
-		environment_controller.set_solar_state(setup.get("solar", {}))
+		environment_controller.apply_generation_data(setup.get("environment", {}), setup.get("network_state_snapshot", {}))
+	if environment_controller.has_method("set_transform_stage_a_state"):
+		environment_controller.set_transform_stage_a_state(setup.get("atmosphere_state_snapshot", {}))
+	if environment_controller.has_method("set_transform_stage_d_state"):
+		environment_controller.set_transform_stage_d_state(setup.get("exposure_state_snapshot", {}))
 	if auto_frame_camera_on_generate:
 		_frame_camera_from_environment(setup.get("environment", {}))
 	_apply_environment_signals(_build_environment_signal_snapshot_from_setup(setup, 0))
@@ -337,10 +337,10 @@ func _apply_graphics_state() -> void:
 	_hud_binding_controller.push_graphics_state(simulation_hud, _graphics_state)
 
 func _apply_runtime_system_toggles() -> void:
-	var weather_system_enabled: bool = bool(_graphics_state.get("weather_system_enabled", true))
-	var hydrology_system_enabled: bool = bool(_graphics_state.get("hydrology_system_enabled", true))
-	var erosion_system_enabled: bool = bool(_graphics_state.get("erosion_system_enabled", true))
-	var solar_system_enabled: bool = bool(_graphics_state.get("solar_system_enabled", true))
+	var transform_stage_a_system_enabled: bool = bool(_graphics_state.get("transform_stage_a_system_enabled", true))
+	var transform_stage_b_system_enabled: bool = bool(_graphics_state.get("transform_stage_b_system_enabled", true))
+	var transform_stage_c_system_enabled: bool = bool(_graphics_state.get("transform_stage_c_system_enabled", true))
+	var transform_stage_d_system_enabled: bool = bool(_graphics_state.get("transform_stage_d_system_enabled", true))
 	var resource_pipeline_enabled: bool = bool(_graphics_state.get("resource_pipeline_enabled", true))
 	var structure_lifecycle_enabled: bool = bool(_graphics_state.get("structure_lifecycle_enabled", true))
 	var culture_cycle_enabled: bool = bool(_graphics_state.get("culture_cycle_enabled", true))
@@ -350,22 +350,22 @@ func _apply_runtime_system_toggles() -> void:
 	var cognition_system_enabled: bool = bool(_graphics_state.get("cognition_system_enabled", true))
 
 	if simulation_controller != null:
-		if simulation_controller.has_method("set_weather_system_enabled"):
-			simulation_controller.call("set_weather_system_enabled", weather_system_enabled)
+		if simulation_controller.has_method("set_transform_stage_system_enabled"):
+			simulation_controller.call("set_transform_stage_system_enabled", "stage_a", transform_stage_a_system_enabled)
 		else:
-			simulation_controller.set("weather_system_enabled", weather_system_enabled)
-		if simulation_controller.has_method("set_hydrology_system_enabled"):
-			simulation_controller.call("set_hydrology_system_enabled", hydrology_system_enabled)
+			simulation_controller.set("transform_stage_a_system_enabled", transform_stage_a_system_enabled)
+		if simulation_controller.has_method("set_transform_stage_system_enabled"):
+			simulation_controller.call("set_transform_stage_system_enabled", "stage_b", transform_stage_b_system_enabled)
 		else:
-			simulation_controller.set("hydrology_system_enabled", hydrology_system_enabled)
-		if simulation_controller.has_method("set_erosion_system_enabled"):
-			simulation_controller.call("set_erosion_system_enabled", erosion_system_enabled)
+			simulation_controller.set("transform_stage_b_system_enabled", transform_stage_b_system_enabled)
+		if simulation_controller.has_method("set_transform_stage_system_enabled"):
+			simulation_controller.call("set_transform_stage_system_enabled", "stage_c", transform_stage_c_system_enabled)
 		else:
-			simulation_controller.set("erosion_system_enabled", erosion_system_enabled)
-		if simulation_controller.has_method("set_solar_system_enabled"):
-			simulation_controller.call("set_solar_system_enabled", solar_system_enabled)
+			simulation_controller.set("transform_stage_c_system_enabled", transform_stage_c_system_enabled)
+		if simulation_controller.has_method("set_transform_stage_system_enabled"):
+			simulation_controller.call("set_transform_stage_system_enabled", "stage_d", transform_stage_d_system_enabled)
 		else:
-			simulation_controller.set("solar_system_enabled", solar_system_enabled)
+			simulation_controller.set("transform_stage_d_system_enabled", transform_stage_d_system_enabled)
 		if simulation_controller.has_method("set_resource_pipeline_enabled"):
 			simulation_controller.call("set_resource_pipeline_enabled", resource_pipeline_enabled)
 		else:
@@ -562,12 +562,13 @@ func _apply_native_voxel_stage_result(tick: int, stage_payload: Dictionary) -> v
 	_sync_environment_from_state({
 		"tick": tick,
 		"environment_snapshot": mutation.get("environment_snapshot", simulation_controller.current_environment_snapshot() if simulation_controller.has_method("current_environment_snapshot") else {}),
-		"water_network_snapshot": mutation.get("water_network_snapshot", simulation_controller.current_water_network_snapshot() if simulation_controller.has_method("current_water_network_snapshot") else {}),
-		"weather_snapshot": simulation_controller.call("get_weather_snapshot") if simulation_controller.has_method("get_weather_snapshot") else {},
-		"solar_snapshot": simulation_controller.call("get_solar_snapshot") if simulation_controller.has_method("get_solar_snapshot") else {},
-		"erosion_changed": true,
-		"erosion_changed_tiles": (mutation.get("changed_tiles", []) as Array).duplicate(true),
-		"erosion_changed_chunks": (mutation.get("changed_chunks", []) as Array).duplicate(true),
+		"network_state_snapshot": mutation.get("network_state_snapshot", simulation_controller.current_network_state_snapshot() if simulation_controller.has_method("current_network_state_snapshot") else {}),
+		"atmosphere_state_snapshot": simulation_controller.call("get_atmosphere_state_snapshot") if simulation_controller.has_method("get_atmosphere_state_snapshot") else {},
+		"deformation_state_snapshot": simulation_controller.call("get_deformation_state_snapshot") if simulation_controller.has_method("get_deformation_state_snapshot") else {},
+		"exposure_state_snapshot": simulation_controller.call("get_exposure_state_snapshot") if simulation_controller.has_method("get_exposure_state_snapshot") else {},
+		"transform_changed": true,
+		"transform_changed_tiles": (mutation.get("changed_tiles", []) as Array).duplicate(true),
+		"transform_changed_chunks": (mutation.get("changed_chunks", []) as Array).duplicate(true),
 	}, false)
 
 func _apply_runtime_demo_profile(profile_id: String) -> void:
@@ -646,10 +647,10 @@ func _runtime_profile_settings(profile_id: String) -> Dictionary:
 					"day_night_cycle_enabled": false,
 				},
 				"graphics": {
-					"weather_system_enabled": false,
-					"hydrology_system_enabled": false,
-					"erosion_system_enabled": true,
-					"solar_system_enabled": false,
+					"transform_stage_a_system_enabled": false,
+					"transform_stage_b_system_enabled": false,
+					"transform_stage_c_system_enabled": true,
+					"transform_stage_d_system_enabled": false,
 					"resource_pipeline_enabled": false,
 					"structure_lifecycle_enabled": false,
 					"culture_cycle_enabled": false,
@@ -694,10 +695,10 @@ func _runtime_profile_settings(profile_id: String) -> Dictionary:
 					"glow_enabled": true,
 					"simulation_rate_override_enabled": false,
 					"simulation_locality_enabled": false,
-					"weather_solver_decimation_enabled": false,
-					"hydrology_solver_decimation_enabled": false,
-					"erosion_solver_decimation_enabled": false,
-					"solar_solver_decimation_enabled": false,
+					"transform_stage_a_solver_decimation_enabled": false,
+					"transform_stage_b_solver_decimation_enabled": false,
+					"transform_stage_c_solver_decimation_enabled": false,
+					"transform_stage_d_solver_decimation_enabled": false,
 					"resource_pipeline_decimation_enabled": false,
 					"structure_lifecycle_decimation_enabled": false,
 					"culture_cycle_decimation_enabled": false,
@@ -732,16 +733,16 @@ func _runtime_profile_settings(profile_id: String) -> Dictionary:
 					"simulation_locality_enabled": true,
 					"simulation_locality_dynamic_enabled": true,
 					"simulation_locality_radius_tiles": 1,
-					"weather_solver_decimation_enabled": true,
-					"hydrology_solver_decimation_enabled": true,
-					"erosion_solver_decimation_enabled": true,
-					"solar_solver_decimation_enabled": true,
+					"transform_stage_a_solver_decimation_enabled": true,
+					"transform_stage_b_solver_decimation_enabled": true,
+					"transform_stage_c_solver_decimation_enabled": true,
+					"transform_stage_d_solver_decimation_enabled": true,
 					"resource_pipeline_decimation_enabled": true,
 					"structure_lifecycle_decimation_enabled": true,
 					"culture_cycle_decimation_enabled": true,
-					"weather_texture_upload_decimation_enabled": true,
-					"surface_texture_upload_decimation_enabled": true,
-					"solar_texture_upload_decimation_enabled": true,
+					"transform_stage_a_texture_upload_decimation_enabled": true,
+					"transform_stage_b_texture_upload_decimation_enabled": true,
+					"transform_stage_d_texture_upload_decimation_enabled": true,
 					"texture_upload_interval_ticks": 12,
 					"texture_upload_budget_texels": 2048,
 					"ecology_step_decimation_enabled": true,
@@ -757,10 +758,10 @@ func _runtime_profile_settings(profile_id: String) -> Dictionary:
 		_: 
 			return {
 				"graphics": {
-					"weather_system_enabled": false,
-					"hydrology_system_enabled": false,
-					"erosion_system_enabled": false,
-					"solar_system_enabled": false,
+					"transform_stage_a_system_enabled": false,
+					"transform_stage_b_system_enabled": false,
+					"transform_stage_c_system_enabled": false,
+					"transform_stage_d_system_enabled": false,
 					"resource_pipeline_enabled": false,
 					"structure_lifecycle_enabled": false,
 					"culture_cycle_enabled": false,

@@ -11,22 +11,26 @@ namespace local_agents::simulation {
 
 class CoreSimulationPipeline final {
 public:
-    enum class EnvironmentStageId : uint8_t {
+    enum class TransformStageId : uint8_t {
         kUnknown = 0,
-        kWeather = 1,
-        kHydrology = 2,
-        kErosion = 3,
-        kSolarExposure = 4
+        kThermalTransform = 1,
+        kPressureTransform = 2,
+        kDestructionTransform = 3,
+        kRadianceTransform = 4
     };
+    // Deprecated compatibility alias. Prefer TransformStageId.
+    using EnvironmentStageId = TransformStageId;
 
-    struct EnvironmentStageDispatch {
+    struct TransformStageDispatch {
         bool is_routed = false;
         bool is_routable = false;
         String requested_stage_name;
         String dispatched_stage_name;
-        EnvironmentStageId stage_id = EnvironmentStageId::kUnknown;
+        TransformStageId stage_id = TransformStageId::kUnknown;
         uint8_t domain_mask = 0;
     };
+    // Deprecated compatibility alias. Prefer TransformStageDispatch.
+    using EnvironmentStageDispatch = TransformStageDispatch;
 
     bool configure(const godot::Dictionary &config);
     godot::Dictionary execute_step(const godot::Dictionary &scheduled_frame);
@@ -54,7 +58,7 @@ private:
         const godot::Dictionary &stage_config,
         const godot::Dictionary &stage_field_inputs,
         double delta_seconds) const;
-    EnvironmentStageDispatch resolve_environment_stage_dispatch(const godot::String &requested_stage_name) const;
+    TransformStageDispatch resolve_transform_stage_dispatch(const godot::String &requested_stage_name) const;
 
     godot::Dictionary config_;
     godot::Array required_channels_;

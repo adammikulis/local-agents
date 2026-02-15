@@ -75,43 +75,43 @@ func update_geometry(generation_snapshot: Dictionary) -> void:
 	_update_volumetric_geometry(generation_snapshot)
 	_update_cloud_slices_geometry(width, depth, world_height, span)
 
-func update_weather(
+func update_transform_stage(
 	rain: float,
 	cloud: float,
 	humidity: float,
 	wind: Vector2,
 	wind_speed: float,
-	weather_field_tex: Texture2D,
-	weather_field_world_size: Vector2,
+	transform_stage_a_field_tex: Texture2D,
+	transform_stage_a_field_world_size: Vector2,
 	lightning_flash: float
 ) -> void:
 	_ensure_cloud_layer()
 	_ensure_volumetric_cloud_shell()
 	_ensure_cloud_slices()
 	if _cloud_layer_material != null:
-		_cloud_layer_material.set_shader_parameter("cloud_cover", cloud)
-		_cloud_layer_material.set_shader_parameter("cloud_density", clampf(0.45 + humidity * 0.42, 0.0, 1.0))
-		_cloud_layer_material.set_shader_parameter("rain_intensity", rain)
-		_cloud_layer_material.set_shader_parameter("weather_wind_dir", wind)
-		_cloud_layer_material.set_shader_parameter("weather_wind_speed", wind_speed)
-		_cloud_layer_material.set_shader_parameter("weather_cloud_scale", lerpf(0.032, 0.015, cloud))
+		_cloud_layer_material.set_shader_parameter("atmosphere_cover", cloud)
+		_cloud_layer_material.set_shader_parameter("atmosphere_density", clampf(0.45 + humidity * 0.42, 0.0, 1.0))
+		_cloud_layer_material.set_shader_parameter("atmosphere_precipitation", rain)
+		_cloud_layer_material.set_shader_parameter("atmosphere_flow_dir", wind)
+		_cloud_layer_material.set_shader_parameter("atmosphere_flow_speed", wind_speed)
+		_cloud_layer_material.set_shader_parameter("atmosphere_pattern_scale", lerpf(0.032, 0.015, cloud))
 		_cloud_layer_material.set_shader_parameter("layer_variation", clampf(0.25 + humidity * 0.5, 0.0, 1.0))
-		_cloud_layer_material.set_shader_parameter("weather_field_tex", weather_field_tex)
-		_cloud_layer_material.set_shader_parameter("weather_field_world_size", weather_field_world_size)
-		_cloud_layer_material.set_shader_parameter("weather_field_blend", 1.0)
+		_cloud_layer_material.set_shader_parameter("transform_field_tex", transform_stage_a_field_tex)
+		_cloud_layer_material.set_shader_parameter("transform_field_world_size", transform_stage_a_field_world_size)
+		_cloud_layer_material.set_shader_parameter("transform_field_blend", 1.0)
 	if _volumetric_cloud_material != null:
-		_volumetric_cloud_material.set_shader_parameter("rain_intensity", rain)
-		_volumetric_cloud_material.set_shader_parameter("cloud_cover", cloud)
-		_volumetric_cloud_material.set_shader_parameter("cloud_density", clampf(0.4 + humidity * 0.5, 0.0, 1.0))
-		_volumetric_cloud_material.set_shader_parameter("weather_wind_dir", wind)
-		_volumetric_cloud_material.set_shader_parameter("weather_wind_speed", wind_speed)
+		_volumetric_cloud_material.set_shader_parameter("atmosphere_precipitation", rain)
+		_volumetric_cloud_material.set_shader_parameter("atmosphere_cover", cloud)
+		_volumetric_cloud_material.set_shader_parameter("atmosphere_density", clampf(0.4 + humidity * 0.5, 0.0, 1.0))
+		_volumetric_cloud_material.set_shader_parameter("atmosphere_flow_dir", wind)
+		_volumetric_cloud_material.set_shader_parameter("atmosphere_flow_speed", wind_speed)
 		_volumetric_cloud_material.set_shader_parameter("lightning_flash", lightning_flash)
 	if _cloud_slices_material != null:
 		_cloud_slices_material.set_shader_parameter("rain_intensity", rain)
 		_cloud_slices_material.set_shader_parameter("cloud_cover", cloud)
 		_cloud_slices_material.set_shader_parameter("cloud_density", clampf(0.4 + humidity * 0.5, 0.0, 1.0))
-		_cloud_slices_material.set_shader_parameter("weather_wind_dir", wind)
-		_cloud_slices_material.set_shader_parameter("weather_wind_speed", wind_speed)
+		_cloud_slices_material.set_shader_parameter("transform_wind_dir", wind)
+		_cloud_slices_material.set_shader_parameter("transform_wind_speed", wind_speed)
 		_cloud_slices_material.set_shader_parameter("lightning_flash", lightning_flash)
 
 func apply_lightning(lightning_flash: float) -> void:

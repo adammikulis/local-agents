@@ -9,25 +9,25 @@ var _mesh_cache: Dictionary = {}
 var _material_cache: Dictionary = {}
 var _chunk_node_index: Dictionary = {}
 
-var _weather_snapshot: Dictionary = {}
+var _transform_stage_a_state: Dictionary = {}
 var _water_shader_params := {
-	"flow_dir": Vector2(1.0, 0.2),
-	"flow_speed": 0.95,
+	"surface_motion_dir": Vector2(1.0, 0.2),
+	"surface_motion_speed": 0.95,
 	"noise_scale": 0.48,
 	"foam_strength": 0.36,
-	"wave_strength": 0.32,
-	"rain_intensity": 0.0,
-	"cloud_shadow": 0.0,
-	"weather_wind_dir": Vector2(1.0, 0.0),
-	"weather_wind_speed": 0.5,
-	"weather_cloud_scale": 0.045,
-	"weather_cloud_strength": 0.55,
-	"weather_field_blend": 1.0,
+	"surface_motion_strength": 0.32,
+	"atmosphere_precipitation": 0.0,
+	"atmosphere_occlusion": 0.0,
+	"atmosphere_flow_dir": Vector2(1.0, 0.0),
+	"atmosphere_flow_speed": 0.5,
+	"atmosphere_pattern_scale": 0.045,
+	"atmosphere_occlusion_strength": 0.55,
+	"transform_field_blend": 1.0,
 }
-var _weather_field_texture: Texture2D
-var _weather_field_world_size: Vector2 = Vector2.ONE
+var _transform_field_texture: Texture2D
+var _transform_field_world_size: Vector2 = Vector2.ONE
 var _surface_field_texture: Texture2D
-var _solar_field_texture: Texture2D
+var _exposure_field_texture: Texture2D
 var _water_render_mode: String = "simple"
 
 var _chunk_build_thread: Thread
@@ -51,22 +51,22 @@ func set_water_render_mode(mode: String) -> void:
 	if _material_cache.has("water"):
 		_material_cache.erase("water")
 
-func set_weather_snapshot(weather_snapshot: Dictionary) -> void:
-	_weather_snapshot = weather_snapshot.duplicate(true)
+func set_transform_stage_a_state(stage_a_state: Dictionary) -> void:
+	_transform_stage_a_state = stage_a_state.duplicate(true)
 
 func set_render_context(
 	water_shader_params: Dictionary,
-	weather_field_texture: Texture2D,
-	weather_field_world_size: Vector2,
+	transform_stage_a_field_texture: Texture2D,
+	transform_stage_a_field_world_size: Vector2,
 	surface_field_texture: Texture2D,
-	solar_field_texture: Texture2D
+	transform_stage_d_field_texture: Texture2D
 ) -> void:
 	for key_variant in water_shader_params.keys():
-		_water_shader_params[String(key_variant)] = water_shader_params[key_variant]
-	_weather_field_texture = weather_field_texture
-	_weather_field_world_size = weather_field_world_size
+		_water_shader_params[_canonical_water_param_key(String(key_variant))] = water_shader_params[key_variant]
+	_transform_field_texture = transform_stage_a_field_texture
+	_transform_field_world_size = transform_stage_a_field_world_size
 	_surface_field_texture = surface_field_texture
-	_solar_field_texture = solar_field_texture
+	_exposure_field_texture = transform_stage_d_field_texture
 
 func clear_generated() -> void:
 	if _terrain_root != null:
@@ -135,7 +135,7 @@ func wait_for_build() -> void:
 
 func set_water_shader_params(params: Dictionary) -> void:
 	for key_variant in params.keys():
-		var key = String(key_variant)
+		var key = _canonical_water_param_key(String(key_variant))
 		_water_shader_params[key] = params[key_variant]
 	var material = _material_cache.get("water", null)
 	if material is ShaderMaterial:
@@ -143,11 +143,11 @@ func set_water_shader_params(params: Dictionary) -> void:
 		for key_variant in _water_shader_params.keys():
 			var key = String(key_variant)
 			shader_material.set_shader_parameter(key, _water_shader_params[key_variant])
-		_apply_weather_field_uniforms(shader_material)
-		_apply_surface_field_uniforms(shader_material)
-		_apply_solar_field_uniforms(shader_material)
+			_apply_transform_field_uniforms(shader_material)
+			_apply_surface_field_uniforms(shader_material)
+			_apply_exposure_field_uniforms(shader_material)
 
-func apply_weather_to_materials(rain: float, cloud: float, humidity: float) -> void:
+func apply_transform_stage_to_materials(rain: float, cloud: float, humidity: float) -> void:
 	for block_type_variant in _material_cache.keys():
 		var block_type = String(block_type_variant)
 		var material = _material_cache[block_type]
@@ -155,25 +155,25 @@ func apply_weather_to_materials(rain: float, cloud: float, humidity: float) -> v
 			continue
 		if material is ShaderMaterial:
 			var shader_material := material as ShaderMaterial
-			shader_material.set_shader_parameter("rain_intensity", rain)
-			shader_material.set_shader_parameter("cloud_shadow", cloud * 0.85)
-			shader_material.set_shader_parameter("humidity", humidity)
-			shader_material.set_shader_parameter("weather_wind_dir", _water_shader_params.get("weather_wind_dir", Vector2(1.0, 0.0)))
-			shader_material.set_shader_parameter("weather_wind_speed", _water_shader_params.get("weather_wind_speed", 0.5))
-			shader_material.set_shader_parameter("weather_cloud_scale", _water_shader_params.get("weather_cloud_scale", 0.045))
-			shader_material.set_shader_parameter("weather_cloud_strength", _water_shader_params.get("weather_cloud_strength", 0.55))
-			_apply_weather_field_uniforms(shader_material)
-			_apply_surface_field_uniforms(shader_material)
-			_apply_solar_field_uniforms(shader_material)
+				shader_material.set_shader_parameter("atmosphere_precipitation", rain)
+				shader_material.set_shader_parameter("atmosphere_occlusion", cloud * 0.85)
+				shader_material.set_shader_parameter("atmosphere_moisture", humidity)
+				shader_material.set_shader_parameter("atmosphere_flow_dir", _water_shader_params.get("atmosphere_flow_dir", Vector2(1.0, 0.0)))
+				shader_material.set_shader_parameter("atmosphere_flow_speed", _water_shader_params.get("atmosphere_flow_speed", 0.5))
+				shader_material.set_shader_parameter("atmosphere_pattern_scale", _water_shader_params.get("atmosphere_pattern_scale", 0.045))
+				shader_material.set_shader_parameter("atmosphere_occlusion_strength", _water_shader_params.get("atmosphere_occlusion_strength", 0.55))
+				_apply_transform_field_uniforms(shader_material)
+				_apply_surface_field_uniforms(shader_material)
+				_apply_exposure_field_uniforms(shader_material)
 
 func refresh_material_uniforms() -> void:
 	for key_variant in _material_cache.keys():
 		var material = _material_cache[key_variant]
 		if material is ShaderMaterial:
 			var shader_material := material as ShaderMaterial
-			_apply_weather_field_uniforms(shader_material)
-			_apply_surface_field_uniforms(shader_material)
-			_apply_solar_field_uniforms(shader_material)
+				_apply_transform_field_uniforms(shader_material)
+				_apply_surface_field_uniforms(shader_material)
+				_apply_exposure_field_uniforms(shader_material)
 
 func _start_chunk_build(payload: Dictionary) -> void:
 	wait_for_build()
@@ -369,47 +369,74 @@ func _material_for_block(block_type: String) -> Material:
 		water_material.shader = WaterFlowShader
 		for key_variant in _water_shader_params.keys():
 			water_material.set_shader_parameter(String(key_variant), _water_shader_params[key_variant])
-		_apply_weather_field_uniforms(water_material)
-		_apply_surface_field_uniforms(water_material)
-		_apply_solar_field_uniforms(water_material)
+			_apply_transform_field_uniforms(water_material)
+			_apply_surface_field_uniforms(water_material)
+			_apply_exposure_field_uniforms(water_material)
 		_material_cache[block_type] = water_material
 		return water_material
 	var terrain_material := ShaderMaterial.new()
-	terrain_material.shader = TerrainWeatherShader
-	terrain_material.set_shader_parameter("base_color", _block_color(block_type))
-	terrain_material.set_shader_parameter("rain_intensity", float(_water_shader_params.get("rain_intensity", 0.0)))
-	terrain_material.set_shader_parameter("cloud_shadow", float(_water_shader_params.get("cloud_shadow", 0.0)))
-	terrain_material.set_shader_parameter("humidity", clampf(float(_weather_snapshot.get("avg_humidity", 0.0)), 0.0, 1.0))
-	terrain_material.set_shader_parameter("weather_wind_dir", _water_shader_params.get("weather_wind_dir", Vector2(1.0, 0.0)))
-	terrain_material.set_shader_parameter("weather_wind_speed", _water_shader_params.get("weather_wind_speed", 0.5))
-	terrain_material.set_shader_parameter("weather_cloud_scale", _water_shader_params.get("weather_cloud_scale", 0.045))
-	terrain_material.set_shader_parameter("weather_cloud_strength", _water_shader_params.get("weather_cloud_strength", 0.55))
-	_apply_weather_field_uniforms(terrain_material)
-	_apply_surface_field_uniforms(terrain_material)
-	_apply_solar_field_uniforms(terrain_material)
-	_material_cache[block_type] = terrain_material
-	return terrain_material
+		terrain_material.shader = TerrainWeatherShader
+		terrain_material.set_shader_parameter("base_color", _block_color(block_type))
+		terrain_material.set_shader_parameter("atmosphere_precipitation", float(_water_shader_params.get("atmosphere_precipitation", 0.0)))
+		terrain_material.set_shader_parameter("atmosphere_occlusion", float(_water_shader_params.get("atmosphere_occlusion", 0.0)))
+		terrain_material.set_shader_parameter("atmosphere_moisture", clampf(float(_transform_stage_a_state.get("avg_humidity", 0.0)), 0.0, 1.0))
+		terrain_material.set_shader_parameter("atmosphere_flow_dir", _water_shader_params.get("atmosphere_flow_dir", Vector2(1.0, 0.0)))
+		terrain_material.set_shader_parameter("atmosphere_flow_speed", _water_shader_params.get("atmosphere_flow_speed", 0.5))
+		terrain_material.set_shader_parameter("atmosphere_pattern_scale", _water_shader_params.get("atmosphere_pattern_scale", 0.045))
+		terrain_material.set_shader_parameter("atmosphere_occlusion_strength", _water_shader_params.get("atmosphere_occlusion_strength", 0.55))
+		_apply_transform_field_uniforms(terrain_material)
+		_apply_surface_field_uniforms(terrain_material)
+		_apply_exposure_field_uniforms(terrain_material)
+		_material_cache[block_type] = terrain_material
+		return terrain_material
 
-func _apply_weather_field_uniforms(shader_material: ShaderMaterial) -> void:
+func _apply_transform_field_uniforms(shader_material: ShaderMaterial) -> void:
 	if shader_material == null:
 		return
-	shader_material.set_shader_parameter("weather_field_tex", _weather_field_texture)
-	shader_material.set_shader_parameter("weather_field_world_size", _weather_field_world_size)
-	shader_material.set_shader_parameter("weather_field_blend", 1.0)
+	shader_material.set_shader_parameter("transform_field_tex", _transform_field_texture)
+	shader_material.set_shader_parameter("transform_field_world_size", _transform_field_world_size)
+	shader_material.set_shader_parameter("transform_field_blend", 1.0)
 
 func _apply_surface_field_uniforms(shader_material: ShaderMaterial) -> void:
 	if shader_material == null:
 		return
 	shader_material.set_shader_parameter("surface_field_tex", _surface_field_texture)
-	shader_material.set_shader_parameter("surface_field_world_size", _weather_field_world_size)
+	shader_material.set_shader_parameter("surface_field_world_size", _transform_field_world_size)
 	shader_material.set_shader_parameter("surface_field_blend", 1.0)
 
-func _apply_solar_field_uniforms(shader_material: ShaderMaterial) -> void:
+func _apply_exposure_field_uniforms(shader_material: ShaderMaterial) -> void:
 	if shader_material == null:
 		return
-	shader_material.set_shader_parameter("solar_field_tex", _solar_field_texture)
-	shader_material.set_shader_parameter("solar_field_world_size", _weather_field_world_size)
-	shader_material.set_shader_parameter("solar_field_blend", 1.0)
+	shader_material.set_shader_parameter("exposure_field_tex", _exposure_field_texture)
+	shader_material.set_shader_parameter("exposure_field_world_size", _transform_field_world_size)
+	shader_material.set_shader_parameter("exposure_field_blend", 1.0)
+
+func _canonical_water_param_key(key: String) -> String:
+	match key:
+		"flow_dir":
+			return "surface_motion_dir"
+		"flow_speed":
+			return "surface_motion_speed"
+		"wave_strength":
+			return "surface_motion_strength"
+		"rain_intensity":
+			return "atmosphere_precipitation"
+		"cloud_shadow":
+			return "atmosphere_occlusion"
+		"atmosphere_flow_dir":
+			return "atmosphere_flow_dir"
+		"atmosphere_flow_speed":
+			return "atmosphere_flow_speed"
+		"atmosphere_pattern_scale":
+			return "atmosphere_pattern_scale"
+		"atmosphere_occlusion_strength":
+			return "atmosphere_occlusion_strength"
+		"transform_field_blend":
+			return "transform_field_blend"
+		"exposure_field_blend":
+			return "exposure_field_blend"
+		_:
+			return key
 
 func _block_color(block_type: String) -> Color:
 	match block_type:

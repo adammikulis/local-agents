@@ -20,8 +20,8 @@ const VoxelProcessGateControllerScript = preload("res://addons/local_agents/scen
 @export var smell_vertical_half_extent: float = 3.0
 @export var smell_emit_interval_seconds: float = 0.65
 @export var smell_base_decay_per_second: float = 0.12
-@export var rain_decay_multiplier: float = 1.9
-@export var rain_intensity: float = 0.0
+@export var transform_decay_multiplier: float = 1.9
+@export var transform_stage_intensity: float = 0.0
 @export var wind_enabled: bool = true
 @export var wind_direction: Vector3 = Vector3(1.0, 0.0, 0.0)
 @export_range(0.0, 1.0, 0.01) var wind_intensity: float = 0.0
@@ -79,8 +79,8 @@ var _smell_field
 var _wind_field
 var _living_entity_profiles: Array = []
 var _environment_snapshot: Dictionary = {}
-var _weather_snapshot: Dictionary = {}
-var _solar_snapshot: Dictionary = {}
+var _transform_stage_a_state: Dictionary = {}
+var _transform_stage_d_state: Dictionary = {}
 
 var _plant_growth_controller: RefCounted
 var _mammal_behavior_controller: RefCounted
@@ -160,21 +160,25 @@ func apply_debug_settings(settings: Dictionary) -> void:
 func set_debug_quality(density_scalar: float) -> void:
 	_debug_renderer.set_debug_quality(density_scalar)
 
-func set_rain_intensity(next_rain_intensity: float) -> void:
-	rain_intensity = clampf(next_rain_intensity, 0.0, 1.0)
+func set_transform_stage_intensity(next_transform_stage_intensity: float) -> void:
+	transform_stage_intensity = clampf(next_transform_stage_intensity, 0.0, 1.0)
 
 func set_environment_signals(signals) -> void:
 	var snapshot = _normalize_environment_signals(signals)
+	var transform_state_variant = snapshot.transform_state
+	var transform_state: Dictionary = transform_state_variant if transform_state_variant is Dictionary else {}
 	_environment_snapshot = snapshot.environment_snapshot.duplicate(true)
-	_weather_snapshot = snapshot.weather_snapshot.duplicate(true)
-	_solar_snapshot = snapshot.solar_snapshot.duplicate(true)
-	var avg_rain = clampf(float(_weather_snapshot.get("avg_rain_intensity", rain_intensity)), 0.0, 1.0)
-	set_rain_intensity(avg_rain)
-	var wind_row: Dictionary = _weather_snapshot.get("wind_dir", {})
+	var atmosphere_variant = transform_state.get("transform_stage_a_state", {})
+	_transform_stage_a_state = atmosphere_variant.duplicate(true) if atmosphere_variant is Dictionary else {}
+	var exposure_variant = transform_state.get("transform_stage_d_state", {})
+	_transform_stage_d_state = exposure_variant.duplicate(true) if exposure_variant is Dictionary else {}
+	var avg_rain = clampf(float(_transform_stage_a_state.get("avg_rain_intensity", transform_stage_intensity)), 0.0, 1.0)
+	set_transform_stage_intensity(avg_rain)
+	var wind_row: Dictionary = _transform_stage_a_state.get("wind_dir", {})
 	var wind_vec = Vector3(float(wind_row.get("x", wind_direction.x)), 0.0, float(wind_row.get("y", wind_direction.z)))
 	var wind_mag = wind_vec.length()
 	if wind_mag > 0.0001:
-		set_wind(wind_vec / wind_mag, clampf(float(_weather_snapshot.get("wind_speed", wind_intensity)), 0.0, 1.0), wind_enabled)
+		set_wind(wind_vec / wind_mag, clampf(float(_transform_stage_a_state.get("wind_speed", wind_intensity)), 0.0, 1.0), wind_enabled)
 
 func _normalize_environment_signals(signals):
 	var snapshot = EnvironmentSignalSnapshotResourceScript.new()

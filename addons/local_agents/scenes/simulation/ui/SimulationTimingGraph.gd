@@ -7,10 +7,10 @@ class_name LocalAgentsSimulationTimingGraph
 @export var graph_grid_color: Color = Color(0.28, 0.33, 0.42, 0.3)
 @export var graph_border_color: Color = Color(0.62, 0.7, 0.88, 0.55)
 @export var total_color: Color = Color(1.0, 1.0, 1.0, 0.95)
-@export var weather_color: Color = Color(0.35, 0.78, 1.0, 0.9)
-@export var hydrology_color: Color = Color(0.2, 1.0, 0.95, 0.9)
-@export var erosion_color: Color = Color(0.95, 0.62, 0.24, 0.9)
-@export var solar_color: Color = Color(1.0, 0.92, 0.28, 0.9)
+@export var transform_stage_a_color: Color = Color(0.35, 0.78, 1.0, 0.9)
+@export var transform_stage_b_color: Color = Color(0.2, 1.0, 0.95, 0.9)
+@export var transform_stage_c_color: Color = Color(0.95, 0.62, 0.24, 0.9)
+@export var transform_stage_d_color: Color = Color(1.0, 0.92, 0.28, 0.9)
 @export var resource_color: Color = Color(0.5, 1.0, 0.44, 0.9)
 @export var structure_color: Color = Color(0.95, 0.45, 0.8, 0.9)
 @export var culture_color: Color = Color(0.88, 0.72, 1.0, 0.9)
@@ -18,10 +18,10 @@ class_name LocalAgentsSimulationTimingGraph
 @export var snapshot_color: Color = Color(0.82, 0.82, 0.82, 0.8)
 
 const _SERIES_KEYS := [
-	"weather_ms",
-	"hydrology_ms",
-	"erosion_ms",
-	"solar_ms",
+	"transform_stage_a_ms",
+	"transform_stage_b_ms",
+	"transform_stage_c_ms",
+	"transform_stage_d_ms",
 	"resource_pipeline_ms",
 	"structure_ms",
 	"culture_ms",
@@ -33,10 +33,10 @@ var _series_history: Dictionary = {}
 var _y_max_ms: float = 5.0
 var _series_visible: Dictionary = {
 	"total_ms": true,
-	"weather_ms": true,
-	"hydrology_ms": true,
-	"erosion_ms": true,
-	"solar_ms": true,
+	"transform_stage_a_ms": true,
+	"transform_stage_b_ms": true,
+	"transform_stage_c_ms": true,
+	"transform_stage_d_ms": true,
 	"resource_pipeline_ms": true,
 	"structure_ms": true,
 	"culture_ms": true,
@@ -94,10 +94,10 @@ func _draw() -> void:
 		return
 	draw_rect(r, graph_background_color, true)
 	_draw_grid(r)
-	_draw_series(r, "weather_ms", weather_color)
-	_draw_series(r, "hydrology_ms", hydrology_color)
-	_draw_series(r, "erosion_ms", erosion_color)
-	_draw_series(r, "solar_ms", solar_color)
+	_draw_series(r, "transform_stage_a_ms", transform_stage_a_color)
+	_draw_series(r, "transform_stage_b_ms", transform_stage_b_color)
+	_draw_series(r, "transform_stage_c_ms", transform_stage_c_color)
+	_draw_series(r, "transform_stage_d_ms", transform_stage_d_color)
 	_draw_series(r, "resource_pipeline_ms", resource_color)
 	_draw_series(r, "structure_ms", structure_color)
 	_draw_series(r, "culture_ms", culture_color)

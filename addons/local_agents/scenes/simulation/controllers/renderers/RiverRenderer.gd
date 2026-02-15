@@ -11,7 +11,7 @@ func clear_generated() -> void:
 		for child in _river_root.get_children():
 			child.queue_free()
 
-func rebuild_overlays(generation_snapshot: Dictionary, weather_snapshot: Dictionary) -> void:
+func rebuild_overlays(generation_snapshot: Dictionary, transform_stage_a_state: Dictionary) -> void:
 	_ensure_root()
 	for child in _river_root.get_children():
 		child.queue_free()
@@ -66,13 +66,13 @@ func rebuild_overlays(generation_snapshot: Dictionary, weather_snapshot: Diction
 		_river_material.shader = RiverFlowShader
 	mi.material_override = _river_material
 	_river_root.add_child(mi)
-	update_weather(
-		clampf(float(weather_snapshot.get("avg_rain_intensity", 0.0)), 0.0, 1.0),
-		clampf(float(weather_snapshot.get("avg_cloud_cover", 0.0)), 0.0, 1.0),
+	update_transform_stage(
+		clampf(float(transform_stage_a_state.get("avg_rain_intensity", 0.0)), 0.0, 1.0),
+		clampf(float(transform_stage_a_state.get("avg_cloud_cover", 0.0)), 0.0, 1.0),
 		0.5
 	)
 
-func update_weather(rain: float, cloud: float, wind_speed: float) -> void:
+func update_transform_stage(rain: float, cloud: float, wind_speed: float) -> void:
 	if _river_material == null:
 		return
 	_river_material.set_shader_parameter("rain_intensity", rain)
@@ -89,4 +89,3 @@ func _ensure_root() -> void:
 	_river_root = Node3D.new()
 	_river_root.name = "RiverRoot"
 	add_child(_river_root)
-

@@ -88,7 +88,7 @@ static func dispatch_geomorph_delta_ops(enabled: bool, stage_name: StringName, t
 		operations.append({"type": "terrain_delta", "tile_id": tile_id, "delta_elevation": delta, "column_override": column_overrides.get(tile_id, {})})
 	if operations.is_empty():
 		return {}
-	var stage_result = dispatch_operations(enabled, stage_name, {"tick": tick, "environment": environment_snapshot.duplicate(true), "hydrology": water_snapshot.duplicate(true), "operations": operations})
+	var stage_result = dispatch_operations(enabled, stage_name, {"tick": tick, "environment": environment_snapshot.duplicate(true), "network_state": water_snapshot.duplicate(true), "operations": operations})
 	if not bool(stage_result.get("ok", true)):
 		return {
 			"ok": false,
@@ -100,8 +100,8 @@ static func dispatch_geomorph_delta_ops(enabled: bool, stage_name: StringName, t
 	if stage_result.is_empty():
 		return {}
 	var env_variant = stage_result.get("environment", environment_snapshot)
-	var hydro_variant = stage_result.get("hydrology", water_snapshot)
-	if not (env_variant is Dictionary) or not (hydro_variant is Dictionary):
+	var network_state_variant = stage_result.get("network_state", water_snapshot)
+	if not (env_variant is Dictionary) or not (network_state_variant is Dictionary):
 		return {}
 	var changed_tiles = normalize_changed_tiles(stage_result.get("changed_tiles", []))
 	return {
@@ -110,7 +110,7 @@ static func dispatch_geomorph_delta_ops(enabled: bool, stage_name: StringName, t
 		"dispatched": true,
 		"status": String(stage_result.get("status", "executed")),
 		"environment": env_variant as Dictionary,
-		"hydrology": hydro_variant as Dictionary,
+		"network_state": network_state_variant as Dictionary,
 		"voxel_changed": bool(stage_result.get("voxel_changed", stage_result.get("changed", not changed_tiles.is_empty()))),
 		"changed_tiles": changed_tiles,
 	}

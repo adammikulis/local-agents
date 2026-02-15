@@ -21,7 +21,7 @@ var _buf_wetness: RID
 var _buf_flow_norm: RID
 var _buf_water_rel: RID
 var _buf_activity: RID
-var _buf_erosion_budget: RID
+var _buf_surface_drop_budget: RID
 var _buf_frost_damage: RID
 var _buf_temp_prev: RID
 var _buf_elev_drop: RID
@@ -48,13 +48,13 @@ func initialize() -> bool:
 	_supported = true
 	return true
 
-func configure(slope: PackedFloat32Array, temp_base: PackedFloat32Array, activity: PackedFloat32Array, erosion_budget: PackedFloat32Array, frost_damage: PackedFloat32Array, temp_prev: PackedFloat32Array) -> bool:
+func configure(slope: PackedFloat32Array, temp_base: PackedFloat32Array, activity: PackedFloat32Array, surface_drop_budget: PackedFloat32Array, frost_damage: PackedFloat32Array, temp_prev: PackedFloat32Array) -> bool:
 	if not initialize():
 		return false
 	_count = slope.size()
 	if _count <= 0:
 		return false
-	if temp_base.size() != _count or activity.size() != _count or erosion_budget.size() != _count or frost_damage.size() != _count or temp_prev.size() != _count:
+	if temp_base.size() != _count or activity.size() != _count or surface_drop_budget.size() != _count or frost_damage.size() != _count or temp_prev.size() != _count:
 		return false
 	_free_buffers()
 	_buf_slope = _storage_buffer_from_f32(slope)
@@ -67,7 +67,7 @@ func configure(slope: PackedFloat32Array, temp_base: PackedFloat32Array, activit
 	_buf_flow_norm = _storage_buffer_from_f32(zeros)
 	_buf_water_rel = _storage_buffer_from_f32(zeros)
 	_buf_activity = _storage_buffer_from_f32(activity)
-	_buf_erosion_budget = _storage_buffer_from_f32(erosion_budget)
+	_buf_surface_drop_budget = _storage_buffer_from_f32(surface_drop_budget)
 	_buf_frost_damage = _storage_buffer_from_f32(frost_damage)
 	_buf_temp_prev = _storage_buffer_from_f32(temp_prev)
 	_buf_elev_drop = _storage_buffer_from_f32(zeros)
@@ -82,7 +82,7 @@ func configure(slope: PackedFloat32Array, temp_base: PackedFloat32Array, activit
 	uniforms.append(_ssbo_uniform(5, _buf_flow_norm))
 	uniforms.append(_ssbo_uniform(6, _buf_water_rel))
 	uniforms.append(_ssbo_uniform(7, _buf_activity))
-	uniforms.append(_ssbo_uniform(8, _buf_erosion_budget))
+	uniforms.append(_ssbo_uniform(8, _buf_surface_drop_budget))
 	uniforms.append(_ssbo_uniform(9, _buf_frost_damage))
 	uniforms.append(_ssbo_uniform(10, _buf_temp_prev))
 	uniforms.append(_ssbo_uniform(11, _buf_elev_drop))
@@ -116,7 +116,7 @@ func step(rain: PackedFloat32Array, cloud: PackedFloat32Array, wetness: PackedFl
 	_rd.submit()
 	_rd.sync()
 	return {
-		"erosion_budget": _rd.buffer_get_data(_buf_erosion_budget).to_float32_array(),
+		"surface_wear_budget": _rd.buffer_get_data(_buf_surface_drop_budget).to_float32_array(),
 		"frost_damage": _rd.buffer_get_data(_buf_frost_damage).to_float32_array(),
 		"temp_prev": _rd.buffer_get_data(_buf_temp_prev).to_float32_array(),
 		"elev_drop": _rd.buffer_get_data(_buf_elev_drop).to_float32_array(),
@@ -142,7 +142,7 @@ func _free_buffers() -> void:
 		_buf_flow_norm = RID()
 		_buf_water_rel = RID()
 		_buf_activity = RID()
-		_buf_erosion_budget = RID()
+		_buf_surface_drop_budget = RID()
 		_buf_frost_damage = RID()
 		_buf_temp_prev = RID()
 		_buf_elev_drop = RID()
@@ -160,7 +160,7 @@ func _free_buffers() -> void:
 	_buf_flow_norm = _release_rid(_buf_flow_norm)
 	_buf_water_rel = _release_rid(_buf_water_rel)
 	_buf_activity = _release_rid(_buf_activity)
-	_buf_erosion_budget = _release_rid(_buf_erosion_budget)
+	_buf_surface_drop_budget = _release_rid(_buf_surface_drop_budget)
 	_buf_frost_damage = _release_rid(_buf_frost_damage)
 	_buf_temp_prev = _release_rid(_buf_temp_prev)
 	_buf_elev_drop = _release_rid(_buf_elev_drop)

@@ -35,7 +35,7 @@ func ensure_layer() -> void:
 	_rain_fx_rect.material = _rain_fx_material
 	_rain_fx_layer.add_child(_rain_fx_rect)
 
-func update_weather(rain: float, wind: Vector2, wind_speed: float) -> void:
+func update_transform_stage(rain: float, wind: Vector2, wind_speed: float) -> void:
 	ensure_layer()
 	if _rain_fx_material == null:
 		return
@@ -46,4 +46,3 @@ func update_weather(rain: float, wind: Vector2, wind_speed: float) -> void:
 func apply_lightning(lightning_flash: float) -> void:
 	if _rain_fx_material != null:
 		_rain_fx_material.set_shader_parameter("lightning_flash", lightning_flash)
-

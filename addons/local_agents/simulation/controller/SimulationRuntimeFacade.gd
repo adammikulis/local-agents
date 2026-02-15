@@ -1,18 +1,27 @@
 extends RefCounted
 
 const FieldRegistryConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FieldRegistryConfigResource.gd")
+const EmitterProfileTableResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/EmitterProfileTableResource.gd")
+const MaterialProfileTableResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/MaterialProfileTableResource.gd")
 const NativeComputeBridgeScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
 const SimulationVoxelTerrainMutatorScript = preload("res://addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd")
-const _NATIVE_ENVIRONMENT_STAGE_NAME_WEATHER := "weather_step"
-const _NATIVE_ENVIRONMENT_STAGE_NAME_HYDROLOGY := "hydrology_step"
-const _NATIVE_ENVIRONMENT_STAGE_NAME_EROSION := "erosion_step"
-const _NATIVE_ENVIRONMENT_STAGE_NAME_SOLAR := "solar_exposure_step"
-const _NATIVE_ENVIRONMENT_STAGES := {
-	_NATIVE_ENVIRONMENT_STAGE_NAME_WEATHER: true,
-	_NATIVE_ENVIRONMENT_STAGE_NAME_HYDROLOGY: true,
-	_NATIVE_ENVIRONMENT_STAGE_NAME_EROSION: true,
-	_NATIVE_ENVIRONMENT_STAGE_NAME_SOLAR: true,
-}
+const _ENVIRONMENT_STAGE_NAME_VOXEL_TRANSFORM := "voxel_transform_step"
+const _UNKNOWN_MATERIAL_ID := "material:unknown"
+const _UNKNOWN_ELEMENT_ID := "element:unknown"
+const _MATERIAL_PROFILE_REQUIRED_FIELDS: Array[String] = [
+	"density",
+	"heat_capacity",
+	"thermal_conductivity",
+	"cohesion",
+	"hardness",
+	"porosity",
+	"freeze_temp_k",
+	"melt_temp_k",
+	"thermal_expansion",
+	"brittle_threshold",
+	"fracture_toughness",
+	"moisture_capacity",
+]
 static var _native_field_registry_session_configured: bool = false
 
 static func ensure_native_sim_core_initialized(controller, tick: int = -1) -> bool:
@@ -94,13 +103,30 @@ static func enqueue_native_voxel_edit_ops(controller, tick: int, voxel_ops: Arra
 
 static func execute_native_voxel_stage(controller, tick: int, stage_name: StringName, payload: Dictionary = {}, strict: bool = false) -> Dictionary:
 	var normalized_stage_name = String(stage_name).strip_edges().to_lower()
-	if _NATIVE_ENVIRONMENT_STAGES.get(normalized_stage_name, false):
+	var normalized_payload = _with_required_material_identity(payload)
+	if normalized_stage_name == _ENVIRONMENT_STAGE_NAME_VOXEL_TRANSFORM:
+		var material_contract = _inject_voxel_transform_material_contract(normalized_payload)
+		if not bool(material_contract.get("ok", false)):
+			var contract_error := String(material_contract.get("error", "invalid_voxel_transform_material_contract"))
+			if strict:
+				controller._emit_dependency_error(tick, "voxel_stage", contract_error)
+			return {
+				"ok": false,
+				"executed": false,
+				"dispatched": false,
+				"kernel_pass": "",
+				"backend_used": "",
+				"dispatch_reason": "",
+				"error": contract_error,
+			}
+		normalized_payload = (material_contract.get("payload", {}) as Dictionary).duplicate(true)
+	if normalized_stage_name == _ENVIRONMENT_STAGE_NAME_VOXEL_TRANSFORM:
 		var environment_dispatch = NativeComputeBridgeScript.dispatch_environment_stage_call(
 			controller,
 			tick,
 			"voxel_stage",
 			normalized_stage_name,
-			payload,
+			normalized_payload,
 			strict
 		)
 		return {
@@ -141,7 +167,7 @@ static func execute_native_voxel_stage(controller, tick: int, stage_name: String
 		tick,
 		"voxel_stage",
 		stage_name,
-		payload,
+		normalized_payload,
 		strict
 	)
 	return {
@@ -155,6 +181,189 @@ static func execute_native_voxel_stage(controller, tick: int, stage_name: String
 		"voxel_result": NativeComputeBridgeScript.voxel_stage_result(dispatch),
 		"error": String(dispatch.get("error", "")),
 	}
+
+static func _with_required_material_identity(payload: Dictionary) -> Dictionary:
+	var normalized: Dictionary = payload.duplicate(true)
+	var input_variant = normalized.get("inputs", {})
+	var inputs: Dictionary = {}
+	if input_variant is Dictionary:
+		inputs = (input_variant as Dictionary).duplicate(true)
+	var material_identity_variant = normalized.get("material_identity", {})
+	var material_identity: Dictionary = {}
+	if material_identity_variant is Dictionary:
+		material_identity = (material_identity_variant as Dictionary).duplicate(true)
+	var material_id := String(material_identity.get("material_id", normalized.get("material_id", inputs.get("material_id", _UNKNOWN_MATERIAL_ID)))).strip_edges()
+	if material_id == "":
+		material_id = _UNKNOWN_MATERIAL_ID
+	var element_id := String(material_identity.get("element_id", normalized.get("element_id", inputs.get("element_id", _UNKNOWN_ELEMENT_ID)))).strip_edges()
+	if element_id == "":
+		element_id = _UNKNOWN_ELEMENT_ID
+	material_identity["material_id"] = material_id
+	material_identity["element_id"] = element_id
+	inputs["material_id"] = material_id
+	inputs["element_id"] = element_id
+	normalized["inputs"] = inputs
+	normalized["material_identity"] = material_identity
+	return normalized
+
+static func _inject_voxel_transform_material_contract(payload: Dictionary) -> Dictionary:
+	var normalized := _with_required_material_identity(payload)
+	var identity_variant = normalized.get("material_identity", {})
+	var material_identity: Dictionary = {}
+	if identity_variant is Dictionary:
+		material_identity = (identity_variant as Dictionary).duplicate(true)
+	var material_id := String(material_identity.get("material_id", _UNKNOWN_MATERIAL_ID)).strip_edges()
+	if material_id == "":
+		material_id = _UNKNOWN_MATERIAL_ID
+	var element_id := String(material_identity.get("element_id", _UNKNOWN_ELEMENT_ID)).strip_edges()
+	if element_id == "":
+		element_id = _UNKNOWN_ELEMENT_ID
+
+	var table := MaterialProfileTableResourceScript.new()
+	table.ensure_defaults()
+	var resolved_profile = table.resolve_profile(material_id)
+	var profile_validation = table.validate_profile(resolved_profile)
+	if not bool(profile_validation.get("ok", false)):
+		return {
+			"ok": false,
+			"error": "invalid_material_profile_required_fields",
+			"missing_fields": profile_validation.get("missing_fields", []),
+		}
+	for key in _MATERIAL_PROFILE_REQUIRED_FIELDS:
+		if not resolved_profile.has(key):
+			return {
+				"ok": false,
+				"error": "invalid_material_profile_required_fields",
+				"missing_fields": [key],
+			}
+		resolved_profile[key] = float(resolved_profile.get(key, 0.0))
+
+	var profile_key := String(resolved_profile.get("profile_key", "unknown")).strip_edges()
+	if profile_key == "":
+		profile_key = "unknown"
+	material_identity["material_id"] = material_id
+	material_identity["element_id"] = element_id
+	normalized["material_identity"] = material_identity
+	normalized["material_profile"] = resolved_profile
+
+	var pass_descriptor_variant = normalized.get("pass_descriptor", {})
+	var pass_descriptor: Dictionary = {}
+	if pass_descriptor_variant is Dictionary:
+		pass_descriptor = (pass_descriptor_variant as Dictionary).duplicate(true)
+	pass_descriptor["material_model"] = {
+		"material_id": material_id,
+		"element_id": element_id,
+		"profile_version": int(table.schema_version),
+		"profile_key": profile_key,
+	}
+	var emitter_contract_result = _inject_voxel_transform_emitter_contract(normalized)
+	if not bool(emitter_contract_result.get("ok", false)):
+		return emitter_contract_result
+	var normalized_from_emitter_variant = emitter_contract_result.get("payload", normalized)
+	if normalized_from_emitter_variant is Dictionary:
+		normalized = (normalized_from_emitter_variant as Dictionary).duplicate(true)
+	var emitters_variant = normalized.get("emitters", {})
+	var emitters: Dictionary = {}
+	if emitters_variant is Dictionary:
+		emitters = (emitters_variant as Dictionary).duplicate(true)
+	pass_descriptor["emitter_model"] = {
+		"profile_version": int(emitters.get("schema_version", 1)),
+		"preset_table_key": String(emitters.get("preset_table_key", "generic_emitters_v2")).strip_edges(),
+		"profile_key": String(emitters.get("preset_table_key", "generic_emitters_v2")).strip_edges(),
+		"enabled": bool(emitters.get("enabled", true)),
+		"radiant_heat_enabled": bool(emitters.get("radiant_heat_enabled", true)),
+	}
+	normalized["pass_descriptor"] = pass_descriptor
+	return {"ok": true, "payload": normalized}
+
+static func _inject_voxel_transform_emitter_contract(payload: Dictionary) -> Dictionary:
+	var normalized: Dictionary = payload.duplicate(true)
+	var emitter_table := EmitterProfileTableResourceScript.new()
+	emitter_table.ensure_defaults()
+	var default_emitters = emitter_table.default_contract_dict()
+	var emitters_variant = normalized.get("emitters", null)
+	if emitters_variant == null:
+		normalized["emitters"] = default_emitters
+		return {"ok": true, "payload": normalized}
+	if not (emitters_variant is Dictionary):
+		return {
+			"ok": false,
+			"error": "invalid_emitters_schema_type",
+			"details": {"expected": "Dictionary", "observed": typeof(emitters_variant)},
+		}
+	var provided = (emitters_variant as Dictionary).duplicate(true)
+	var merged: Dictionary = default_emitters.duplicate(true)
+	if provided.has("schema_version"):
+		merged["schema_version"] = int(provided.get("schema_version", merged.get("schema_version", 1)))
+	if provided.has("preset_table_key"):
+		var key = String(provided.get("preset_table_key", merged.get("preset_table_key", "generic_emitters_v2"))).strip_edges()
+		var normalized_key = "generic_emitters_v2" if key == "" else key
+		merged["preset_table_key"] = normalized_key
+	if provided.has("enabled"):
+		merged["enabled"] = bool(provided.get("enabled", true))
+	if provided.has("radiant_heat_enabled"):
+		merged["radiant_heat_enabled"] = bool(provided.get("radiant_heat_enabled", true))
+	if provided.has("presets"):
+		var presets_variant = provided.get("presets", [])
+		if not (presets_variant is Array):
+			return {
+				"ok": false,
+				"error": "invalid_emitters_presets_type",
+				"details": {"expected": "Array", "observed": typeof(presets_variant)},
+			}
+		var provided_presets = presets_variant as Array
+		var preset_index: Dictionary = {}
+		for preset_variant in merged.get("presets", []):
+			if preset_variant is Dictionary:
+				var preset_row = preset_variant as Dictionary
+				var preset_id = String(preset_row.get("preset_id", "")).strip_edges().to_lower()
+				if preset_id != "":
+					preset_index[preset_id] = preset_row.duplicate(true)
+		for provided_preset_variant in provided_presets:
+			if not (provided_preset_variant is Dictionary):
+				return {
+					"ok": false,
+					"error": "invalid_emitters_preset_row_type",
+				}
+			var provided_preset = provided_preset_variant as Dictionary
+			var preset_id = String(provided_preset.get("preset_id", "")).strip_edges().to_lower()
+			if preset_id == "":
+				return {
+					"ok": false,
+					"error": "invalid_emitters_preset_id",
+				}
+			var base_preset_variant = preset_index.get(preset_id, {
+				"preset_id": preset_id,
+				"enabled": true,
+				"radiant_heat": 0.0,
+				"temperature_k": 0.0,
+			})
+			var base_preset: Dictionary = {}
+			if base_preset_variant is Dictionary:
+				base_preset = (base_preset_variant as Dictionary).duplicate(true)
+			base_preset["preset_id"] = preset_id
+			if provided_preset.has("enabled"):
+				base_preset["enabled"] = bool(provided_preset.get("enabled", base_preset.get("enabled", true)))
+			if provided_preset.has("radiant_heat"):
+				base_preset["radiant_heat"] = float(provided_preset.get("radiant_heat", base_preset.get("radiant_heat", 0.0)))
+			if provided_preset.has("temperature_k"):
+				base_preset["temperature_k"] = float(provided_preset.get("temperature_k", base_preset.get("temperature_k", 0.0)))
+			preset_index[preset_id] = base_preset
+		var merged_presets: Array[Dictionary] = []
+		for preset_key in preset_index.keys():
+			var preset_row_variant = preset_index.get(preset_key, {})
+			if preset_row_variant is Dictionary:
+				merged_presets.append((preset_row_variant as Dictionary).duplicate(true))
+		merged["presets"] = merged_presets
+	var validation = emitter_table.validate_emitters_contract(merged)
+	if not bool(validation.get("ok", false)):
+		return {
+			"ok": false,
+			"error": "invalid_emitters_schema_fields",
+			"errors": validation.get("errors", []),
+		}
+	normalized["emitters"] = merged
+	return {"ok": true, "payload": normalized}
 
 static func stamp_default_voxel_target_wall(controller, tick: int, camera_transform: Transform3D, strict: bool = false) -> Dictionary:
 	if controller == null:
@@ -306,7 +515,7 @@ static func run_structure_lifecycle(controller, tick: int) -> void:
 		household_counts,
 		controller._household_growth_metrics,
 		controller._household_positions,
-		controller._water_network_snapshot
+		controller._network_state_snapshot
 	)
 	controller._structure_lifecycle_events = {
 		"expanded": result.get("expanded", []),

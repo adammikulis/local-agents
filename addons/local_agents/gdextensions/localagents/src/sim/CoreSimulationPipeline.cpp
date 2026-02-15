@@ -15,11 +15,11 @@ constexpr uint8_t kDomainThermalMask = 1u << 2;
 constexpr uint8_t kDomainReactionMask = 1u << 3;
 constexpr uint8_t kDomainDestructionMask = 1u << 4;
 
-godot::String normalize_environment_stage_name(const godot::String &value) {
+godot::String normalize_transform_stage_name(const godot::String &value) {
     return value.strip_edges().to_lower();
 }
 
-godot::String resolve_requested_environment_stage_name(
+godot::String resolve_requested_transform_stage_name(
     const godot::Dictionary &scheduled_frame,
     godot::String &metadata_requested_stage_name,
     godot::String &metadata_dispatched_stage_name,
@@ -33,15 +33,24 @@ godot::String resolve_requested_environment_stage_name(
     metadata_source = String();
     metadata_dispatch_index = -1;
 
-    const Variant dispatch_variant = scheduled_frame.get("environment_stage_dispatch", Variant());
-    if (dispatch_variant.get_type() != Variant::DICTIONARY) {
-        return fallback_stage_name;
+    Variant dispatch_variant = scheduled_frame.get("transform_stage_dispatch", Variant());
+    if (dispatch_variant.get_type() == Variant::DICTIONARY) {
+        metadata_source = String("transform_stage_dispatch");
+    } else {
+        dispatch_variant = scheduled_frame.get("environment_stage_dispatch", Variant());
+        if (dispatch_variant.get_type() != Variant::DICTIONARY) {
+            return fallback_stage_name;
+        }
+        metadata_source = String("environment_stage_dispatch");
     }
 
     const Dictionary dispatch_metadata = dispatch_variant;
     metadata_requested_stage_name = String(dispatch_metadata.get("requested_stage_name", String()));
     metadata_dispatched_stage_name = String(dispatch_metadata.get("dispatched_stage_name", String()));
-    metadata_source = String(dispatch_metadata.get("source", String()));
+    const String dispatch_source = String(dispatch_metadata.get("source", String()));
+    if (!dispatch_source.is_empty()) {
+        metadata_source = dispatch_source;
+    }
     metadata_dispatch_index = static_cast<int64_t>(dispatch_metadata.get("dispatch_index", Variant(int64_t(-1))));
 
     const String metadata_requested = metadata_requested_stage_name.strip_edges();
@@ -227,19 +236,19 @@ Dictionary CoreSimulationPipeline::execute_step(const Dictionary &scheduled_fram
     String metadata_dispatched_stage_name;
     String metadata_source;
     int64_t metadata_dispatch_index = -1;
-    const String requested_stage_name = resolve_requested_environment_stage_name(
+    const String requested_stage_name = resolve_requested_transform_stage_name(
         scheduled_frame,
         metadata_requested_stage_name,
         metadata_dispatched_stage_name,
         metadata_source,
         metadata_dispatch_index);
-    const EnvironmentStageDispatch environment_stage_dispatch = resolve_environment_stage_dispatch(requested_stage_name);
-    const bool stage_routing_enabled = environment_stage_dispatch.is_routable;
-    const bool run_mechanics = !stage_routing_enabled || ((environment_stage_dispatch.domain_mask & kDomainMechanicsMask) != 0);
-    const bool run_pressure = !stage_routing_enabled || ((environment_stage_dispatch.domain_mask & kDomainPressureMask) != 0);
-    const bool run_thermal = !stage_routing_enabled || ((environment_stage_dispatch.domain_mask & kDomainThermalMask) != 0);
-    const bool run_reaction = !stage_routing_enabled || ((environment_stage_dispatch.domain_mask & kDomainReactionMask) != 0);
-    const bool run_destruction = !stage_routing_enabled || ((environment_stage_dispatch.domain_mask & kDomainDestructionMask) != 0);
+    const TransformStageDispatch transform_stage_dispatch = resolve_transform_stage_dispatch(requested_stage_name);
+    const bool stage_routing_enabled = transform_stage_dispatch.is_routable;
+    const bool run_mechanics = !stage_routing_enabled || ((transform_stage_dispatch.domain_mask & kDomainMechanicsMask) != 0);
+    const bool run_pressure = !stage_routing_enabled || ((transform_stage_dispatch.domain_mask & kDomainPressureMask) != 0);
+    const bool run_thermal = !stage_routing_enabled || ((transform_stage_dispatch.domain_mask & kDomainThermalMask) != 0);
+    const bool run_reaction = !stage_routing_enabled || ((transform_stage_dispatch.domain_mask & kDomainReactionMask) != 0);
+    const bool run_destruction = !stage_routing_enabled || ((transform_stage_dispatch.domain_mask & kDomainDestructionMask) != 0);
     const Array mechanics_stage_batch = run_mechanics ? mechanics_stages_ : Array();
     const Array pressure_stage_batch = run_pressure ? pressure_stages_ : Array();
     const Array thermal_stage_batch = run_thermal ? thermal_stages_ : Array();
@@ -427,26 +436,28 @@ Dictionary CoreSimulationPipeline::execute_step(const Dictionary &scheduled_fram
     summary["field_mass_drift_proxy"] = unified_pipeline::clamped(field_evolution.get("mass_drift_proxy", 0.0), -1.0e18, 1.0e18, 0.0);
     summary["field_energy_drift_proxy"] = unified_pipeline::clamped(field_evolution.get("energy_drift_proxy", 0.0), -1.0e18, 1.0e18, 0.0);
     summary["field_cell_count_updated"] = static_cast<int64_t>(field_evolution.get("cell_count_updated", static_cast<int64_t>(0)));
-    Dictionary environment_stage_dispatch_summary = unified_pipeline::make_dictionary(
-        "requested_stage_name", environment_stage_dispatch.requested_stage_name,
-        "dispatched_stage_name", environment_stage_dispatch.dispatched_stage_name,
-        "stage_id", static_cast<int64_t>(environment_stage_dispatch.stage_id),
-        "is_routable", environment_stage_dispatch.is_routable,
-        "is_routed", environment_stage_dispatch.is_routed,
-        "domain_mask", static_cast<int64_t>(environment_stage_dispatch.domain_mask));
+    Dictionary transform_stage_dispatch_summary = unified_pipeline::make_dictionary(
+        "requested_stage_name", transform_stage_dispatch.requested_stage_name,
+        "dispatched_stage_name", transform_stage_dispatch.dispatched_stage_name,
+        "stage_id", static_cast<int64_t>(transform_stage_dispatch.stage_id),
+        "is_routable", transform_stage_dispatch.is_routable,
+        "is_routed", transform_stage_dispatch.is_routed,
+        "domain_mask", static_cast<int64_t>(transform_stage_dispatch.domain_mask));
     if (!metadata_source.is_empty()) {
-        environment_stage_dispatch_summary["source"] = metadata_source;
+        transform_stage_dispatch_summary["source"] = metadata_source;
     }
     if (!metadata_requested_stage_name.is_empty()) {
-        environment_stage_dispatch_summary["metadata_requested_stage_name"] = metadata_requested_stage_name;
+        transform_stage_dispatch_summary["metadata_requested_stage_name"] = metadata_requested_stage_name;
     }
     if (!metadata_dispatched_stage_name.is_empty()) {
-        environment_stage_dispatch_summary["metadata_dispatched_stage_name"] = metadata_dispatched_stage_name;
+        transform_stage_dispatch_summary["metadata_dispatched_stage_name"] = metadata_dispatched_stage_name;
     }
     if (metadata_dispatch_index >= 0) {
-        environment_stage_dispatch_summary["dispatch_index"] = metadata_dispatch_index;
+        transform_stage_dispatch_summary["dispatch_index"] = metadata_dispatch_index;
     }
-    summary["environment_stage_dispatch"] = environment_stage_dispatch_summary;
+    summary["transform_stage_dispatch"] = transform_stage_dispatch_summary;
+    // Deprecated compatibility key. Prefer "transform_stage_dispatch".
+    summary["environment_stage_dispatch"] = transform_stage_dispatch_summary;
     summary["stage_coupling"] = field_evolution.get("stage_coupling", Dictionary());
     summary["coupling_markers"] = field_evolution.get("coupling_markers", Array());
     summary["coupling_scalar_diagnostics"] = field_evolution.get("coupling_scalar_diagnostics", Dictionary());
@@ -468,48 +479,49 @@ Dictionary CoreSimulationPipeline::execute_step(const Dictionary &scheduled_fram
     return summary;
 }
 
-CoreSimulationPipeline::EnvironmentStageDispatch CoreSimulationPipeline::resolve_environment_stage_dispatch(
+CoreSimulationPipeline::TransformStageDispatch CoreSimulationPipeline::resolve_transform_stage_dispatch(
     const String &requested_stage_name
 ) const {
-    EnvironmentStageDispatch dispatch;
+    TransformStageDispatch dispatch;
     dispatch.requested_stage_name = requested_stage_name;
     dispatch.dispatched_stage_name = requested_stage_name;
 
-    const String normalized_stage_name = normalize_environment_stage_name(requested_stage_name);
+    const String normalized_stage_name = normalize_transform_stage_name(requested_stage_name);
     if (normalized_stage_name.is_empty()) {
         return dispatch;
     }
 
-    if (normalized_stage_name == "weather_step") {
-        dispatch.dispatched_stage_name = normalized_stage_name;
-        dispatch.stage_id = EnvironmentStageId::kWeather;
+    // Canonical transform-stage contracts only.
+    if (normalized_stage_name == "thermal_transform_step") {
+        dispatch.dispatched_stage_name = String("thermal_transform_step");
+        dispatch.stage_id = TransformStageId::kThermalTransform;
         dispatch.domain_mask = kDomainThermalMask;
         dispatch.is_routable = true;
         dispatch.is_routed = true;
         return dispatch;
     }
 
-    if (normalized_stage_name == "hydrology_step") {
-        dispatch.dispatched_stage_name = normalized_stage_name;
-        dispatch.stage_id = EnvironmentStageId::kHydrology;
+    if (normalized_stage_name == "pressure_transform_step") {
+        dispatch.dispatched_stage_name = String("pressure_transform_step");
+        dispatch.stage_id = TransformStageId::kPressureTransform;
         dispatch.domain_mask = kDomainPressureMask;
         dispatch.is_routable = true;
         dispatch.is_routed = true;
         return dispatch;
     }
 
-    if (normalized_stage_name == "erosion_step") {
-        dispatch.dispatched_stage_name = normalized_stage_name;
-        dispatch.stage_id = EnvironmentStageId::kErosion;
+    if (normalized_stage_name == "destruction_transform_step") {
+        dispatch.dispatched_stage_name = String("destruction_transform_step");
+        dispatch.stage_id = TransformStageId::kDestructionTransform;
         dispatch.domain_mask = kDomainDestructionMask;
         dispatch.is_routable = true;
         dispatch.is_routed = true;
         return dispatch;
     }
 
-    if (normalized_stage_name == "solar_exposure_step") {
-        dispatch.dispatched_stage_name = normalized_stage_name;
-        dispatch.stage_id = EnvironmentStageId::kSolarExposure;
+    if (normalized_stage_name == "radiance_transform_step") {
+        dispatch.dispatched_stage_name = String("radiance_transform_step");
+        dispatch.stage_id = TransformStageId::kRadianceTransform;
         dispatch.domain_mask = kDomainThermalMask;
         dispatch.is_routable = true;
         dispatch.is_routed = true;

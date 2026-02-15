@@ -287,8 +287,8 @@ static func _apply_column_surface_delta(
 			tiles[i] = (tile_index[tile_id] as Dictionary).duplicate(true)
 		env_snapshot["tiles"] = tiles
 	controller._environment_snapshot = env_snapshot
-	controller._erosion_changed_last_tick = true
-	controller._erosion_changed_tiles_last_tick = changed_tiles_sorted.duplicate(true)
+	controller._transform_changed_last_tick = true
+	controller._transform_changed_tiles_last_tick = changed_tiles_sorted.duplicate(true)
 	return {
 		"ok": true,
 		"changed": true,
@@ -296,7 +296,7 @@ static func _apply_column_surface_delta(
 		"changed_tiles": changed_tiles_sorted,
 		"changed_chunks": touched_chunks_sorted,
 		"environment_snapshot": env_snapshot.duplicate(true),
-		"water_network_snapshot": controller._water_network_snapshot.duplicate(true),
+		"network_state_snapshot": controller._network_state_snapshot.duplicate(true),
 	}
 
 static func _rebuild_chunk_rows_from_columns(

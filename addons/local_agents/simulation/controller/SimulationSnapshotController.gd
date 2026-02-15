@@ -3,24 +3,67 @@ extends RefCounted
 static func get_environment_snapshot(controller) -> Dictionary:
 	return controller._environment_snapshot.duplicate(true)
 
-static func get_water_network_snapshot(controller) -> Dictionary:
-	return controller._water_network_snapshot.duplicate(true)
+static func get_network_state_snapshot(controller) -> Dictionary:
+	return controller._network_state_snapshot.duplicate(true)
 
-static func get_weather_snapshot(controller) -> Dictionary:
-	return controller._weather_snapshot.duplicate(true)
+static func get_atmosphere_state_snapshot(controller) -> Dictionary:
+	return controller._atmosphere_state_snapshot.duplicate(true)
 
-static func get_erosion_snapshot(controller) -> Dictionary:
-	return controller._erosion_snapshot.duplicate(true)
+static func get_deformation_state_snapshot(controller) -> Dictionary:
+	return controller._deformation_state_snapshot.duplicate(true)
 
-static func get_solar_snapshot(controller) -> Dictionary:
-	return controller._solar_snapshot.duplicate(true)
+static func get_exposure_state_snapshot(controller) -> Dictionary:
+	return controller._exposure_state_snapshot.duplicate(true)
+
+static func get_transform_state(controller) -> Dictionary:
+	return {
+		"network_state": controller._network_state_snapshot.duplicate(true),
+		"atmosphere_state": get_atmosphere_state_snapshot(controller),
+		"deformation_state": get_deformation_state_snapshot(controller),
+		"exposure_state": get_exposure_state_snapshot(controller),
+	}
+
+static func get_transform_diagnostics(controller) -> Dictionary:
+	var status_candidates: Array = [
+		controller._network_state_snapshot.get("transform_runtime_step_status", {}),
+		controller._environment_snapshot.get("transform_runtime_step_status", {}),
+		controller._atmosphere_state_snapshot.get("transform_runtime_step_status", {}),
+		controller._deformation_state_snapshot.get("transform_runtime_step_status", {}),
+		controller._exposure_state_snapshot.get("transform_runtime_step_status", {}),
+	]
+	var dispatch_contract_status: Dictionary = {}
+	for status_variant in status_candidates:
+		if status_variant is Dictionary and not (status_variant as Dictionary).is_empty():
+			dispatch_contract_status = (status_variant as Dictionary).duplicate(true)
+			break
+	var pass_descriptor_variant = dispatch_contract_status.get("pass_descriptor", {})
+	var pass_descriptor: Dictionary = (pass_descriptor_variant as Dictionary).duplicate(true) if pass_descriptor_variant is Dictionary else {}
+	var material_variant = pass_descriptor.get("material_model", {})
+	var emitter_variant = pass_descriptor.get("emitter_model", {})
+	var material_model: Dictionary = (material_variant as Dictionary).duplicate(true) if material_variant is Dictionary else {}
+	var emitter_model: Dictionary = (emitter_variant as Dictionary).duplicate(true) if emitter_variant is Dictionary else {}
+	return {
+		"pass_descriptor": pass_descriptor,
+		"material_model": material_model,
+		"emitter_model": emitter_model,
+		"dispatch_contract_status": dispatch_contract_status,
+	}
 
 static func runtime_backend_metrics(controller) -> Dictionary:
+	var transform_diagnostics := get_transform_diagnostics(controller)
+	var dispatch_contract_status: Dictionary = transform_diagnostics.get("dispatch_contract_status", {})
+	var transform_compute_active := false
 	var metrics := {
-		"hydrology_compute": bool(controller._hydrology_system != null and controller._hydrology_system.has_method("is_compute_active") and controller._hydrology_system.is_compute_active()),
-		"weather_compute": bool(controller._weather_system != null and controller._weather_system.has_method("is_compute_active") and controller._weather_system.is_compute_active()),
-		"erosion_compute": bool(controller._erosion_system != null and controller._erosion_system.has_method("is_compute_active") and controller._erosion_system.is_compute_active()),
-		"solar_compute": bool(controller._solar_system != null and controller._solar_system.has_method("is_compute_active") and controller._solar_system.is_compute_active()),
+		"network_transform_compute": transform_compute_active,
+		"atmosphere_transform_compute": transform_compute_active,
+		"deformation_transform_compute": transform_compute_active,
+		"exposure_transform_compute": transform_compute_active,
+		"transform_compute_enabled": transform_compute_active,
+		"pass_descriptor": _dictionary_or_empty(transform_diagnostics.get("pass_descriptor", {})),
+		"material_model": _dictionary_or_empty(transform_diagnostics.get("material_model", {})),
+		"emitter_model": _dictionary_or_empty(transform_diagnostics.get("emitter_model", {})),
+		"transform_dispatch_contract_status": dispatch_contract_status.duplicate(true),
+		"dispatch_contract_status": String(dispatch_contract_status.get("status", dispatch_contract_status.get("error", "unknown"))),
 	}
 	var native_metrics := _native_sim_core_runtime_metrics()
 	if not native_metrics.is_empty():
@@ -69,19 +112,24 @@ static func _native_sim_core_singleton():
 
 static func _dictionary_or_empty(value) -> Dictionary:
 	if value is Dictionary:
-		return value
+		return (value as Dictionary).duplicate(true)
 	return {}
 
 static func build_environment_signal_snapshot(controller, tick: int = -1):
 	var snapshot_resource = controller.EnvironmentSignalSnapshotResourceScript.new()
 	snapshot_resource.tick = tick if tick >= 0 else controller._last_tick_processed
 	snapshot_resource.environment_snapshot = controller._environment_snapshot.duplicate(true)
-	snapshot_resource.water_network_snapshot = controller._water_network_snapshot.duplicate(true)
-	snapshot_resource.weather_snapshot = controller._weather_snapshot.duplicate(true)
-	snapshot_resource.erosion_snapshot = controller._erosion_snapshot.duplicate(true)
-	snapshot_resource.solar_snapshot = controller._solar_snapshot.duplicate(true)
-	snapshot_resource.erosion_changed = controller._erosion_changed_last_tick
-	snapshot_resource.erosion_changed_tiles = controller._erosion_changed_tiles_last_tick.duplicate(true)
+	snapshot_resource.network_state_snapshot = controller._network_state_snapshot.duplicate(true)
+	snapshot_resource.transform_state = get_transform_state(controller)
+	var diagnostics = get_transform_diagnostics(controller)
+	snapshot_resource.transform_diagnostics = diagnostics.duplicate(true)
+	snapshot_resource.pass_descriptor = _dictionary_or_empty(diagnostics.get("pass_descriptor", {}))
+	snapshot_resource.material_model = _dictionary_or_empty(diagnostics.get("material_model", {}))
+	snapshot_resource.emitter_model = _dictionary_or_empty(diagnostics.get("emitter_model", {}))
+	snapshot_resource.dispatch_contract_status = _dictionary_or_empty(diagnostics.get("dispatch_contract_status", {}))
+	snapshot_resource.transform_changed = controller._transform_changed_last_tick
+	snapshot_resource.transform_changed_tiles = controller._transform_changed_tiles_last_tick.duplicate(true)
+	snapshot_resource.transform_changed_chunks = []
 	return snapshot_resource
 
 static func get_spawn_artifact(controller) -> Dictionary:

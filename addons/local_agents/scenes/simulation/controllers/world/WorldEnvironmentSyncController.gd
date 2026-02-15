@@ -46,10 +46,10 @@ func build_snapshot_from_setup(setup: Dictionary, tick: int):
 	var snapshot = EnvironmentSignalSnapshotResourceScript.new()
 	snapshot.tick = tick
 	snapshot.environment_snapshot = setup.get("environment", {}).duplicate(true)
-	snapshot.water_network_snapshot = setup.get("hydrology", {}).duplicate(true)
-	snapshot.weather_snapshot = setup.get("weather", {}).duplicate(true)
-	snapshot.erosion_snapshot = setup.get("erosion", {}).duplicate(true)
-	snapshot.solar_snapshot = setup.get("solar", {}).duplicate(true)
+	snapshot.network_state_snapshot = setup.get("network_state_snapshot", {}).duplicate(true)
+	snapshot.atmosphere_state_snapshot = setup.get("atmosphere_state_snapshot", {}).duplicate(true)
+	snapshot.deformation_state_snapshot = setup.get("deformation_state_snapshot", {}).duplicate(true)
+	snapshot.exposure_state_snapshot = setup.get("exposure_state_snapshot", {}).duplicate(true)
 	return snapshot
 
 func build_snapshot_from_state(state: Dictionary, fallback_tick: int):
@@ -60,13 +60,13 @@ func build_snapshot_from_state(state: Dictionary, fallback_tick: int):
 	else:
 		snapshot.tick = int(state.get("tick", fallback_tick))
 		snapshot.environment_snapshot = state.get("environment_snapshot", {}).duplicate(true)
-		snapshot.water_network_snapshot = state.get("water_network_snapshot", {}).duplicate(true)
-		snapshot.weather_snapshot = state.get("weather_snapshot", {}).duplicate(true)
-		snapshot.erosion_snapshot = state.get("erosion_snapshot", {}).duplicate(true)
-		snapshot.solar_snapshot = state.get("solar_snapshot", {}).duplicate(true)
-		snapshot.erosion_changed = bool(state.get("erosion_changed", false))
-		snapshot.erosion_changed_tiles = (state.get("erosion_changed_tiles", []) as Array).duplicate(true)
-		snapshot.erosion_changed_chunks = (state.get("erosion_changed_chunks", []) as Array).duplicate(true)
+		snapshot.network_state_snapshot = state.get("network_state_snapshot", {}).duplicate(true)
+		snapshot.atmosphere_state_snapshot = state.get("atmosphere_state_snapshot", {}).duplicate(true)
+		snapshot.deformation_state_snapshot = state.get("deformation_state_snapshot", {}).duplicate(true)
+		snapshot.exposure_state_snapshot = state.get("exposure_state_snapshot", {}).duplicate(true)
+		snapshot.transform_changed = bool(state.get("transform_changed", false))
+		snapshot.transform_changed_tiles = (state.get("transform_changed_tiles", []) as Array).duplicate(true)
+		snapshot.transform_changed_chunks = (state.get("transform_changed_chunks", []) as Array).duplicate(true)
 	return snapshot
 
 func apply_environment_signals(snapshot) -> void:
@@ -79,23 +79,23 @@ func sync_from_state(state: Dictionary, force_rebuild: bool, visual_interval_tic
 	var env_signals = build_snapshot_from_state(state, _loop_controller.current_tick())
 	var tick = _loop_controller.current_tick()
 	var do_visual_update: bool = force_rebuild or (tick % maxi(1, visual_interval_ticks) == 0)
-	if force_rebuild or bool(env_signals.erosion_changed):
+	if force_rebuild or bool(env_signals.transform_changed):
 		if not force_rebuild and _environment_controller.has_method("apply_generation_delta"):
 			_environment_controller.apply_generation_delta(
 				env_signals.environment_snapshot,
-				env_signals.water_network_snapshot,
-				env_signals.erosion_changed_tiles,
-				env_signals.erosion_changed_chunks
+				env_signals.network_state_snapshot,
+				env_signals.transform_changed_tiles,
+				env_signals.transform_changed_chunks
 			)
 		elif _environment_controller.has_method("apply_generation_data"):
 			_environment_controller.apply_generation_data(
 				env_signals.environment_snapshot,
-				env_signals.water_network_snapshot
+				env_signals.network_state_snapshot
 			)
-	if do_visual_update and _environment_controller.has_method("set_weather_state"):
-		_environment_controller.set_weather_state(env_signals.weather_snapshot)
-	if do_visual_update and _environment_controller.has_method("set_solar_state"):
-		_environment_controller.set_solar_state(env_signals.solar_snapshot)
+	if do_visual_update and _environment_controller.has_method("set_transform_stage_a_state"):
+		_environment_controller.set_transform_stage_a_state(env_signals.atmosphere_state_snapshot)
+	if do_visual_update and _environment_controller.has_method("set_transform_stage_d_state"):
+		_environment_controller.set_transform_stage_d_state(env_signals.exposure_state_snapshot)
 	apply_environment_signals(env_signals)
 
 func update_day_night(
@@ -187,10 +187,10 @@ func _apply_performance_toggles(
 	var simulation_locality_enabled = bool(graphics_state.get("simulation_locality_enabled", true))
 	var simulation_locality_dynamic_enabled = bool(graphics_state.get("simulation_locality_dynamic_enabled", true))
 	var simulation_locality_radius_tiles = maxi(0, int(graphics_state.get("simulation_locality_radius_tiles", 1)))
-	var weather_system_enabled = bool(graphics_state.get("weather_system_enabled", true))
-	var hydrology_system_enabled = bool(graphics_state.get("hydrology_system_enabled", true))
-	var erosion_system_enabled = bool(graphics_state.get("erosion_system_enabled", true))
-	var solar_system_enabled = bool(graphics_state.get("solar_system_enabled", true))
+	var transform_stage_a_system_enabled = bool(graphics_state.get("transform_stage_a_system_enabled", true))
+	var transform_stage_b_system_enabled = bool(graphics_state.get("transform_stage_b_system_enabled", true))
+	var transform_stage_c_system_enabled = bool(graphics_state.get("transform_stage_c_system_enabled", true))
+	var transform_stage_d_system_enabled = bool(graphics_state.get("transform_stage_d_system_enabled", true))
 	var resource_pipeline_enabled = bool(graphics_state.get("resource_pipeline_enabled", true))
 	var structure_lifecycle_enabled = bool(graphics_state.get("structure_lifecycle_enabled", true))
 	var culture_cycle_enabled = bool(graphics_state.get("culture_cycle_enabled", true))
@@ -198,14 +198,14 @@ func _apply_performance_toggles(
 	var settlement_system_enabled = bool(graphics_state.get("settlement_system_enabled", true))
 	var villager_system_enabled = bool(graphics_state.get("villager_system_enabled", true))
 	var cognition_system_enabled = bool(graphics_state.get("cognition_system_enabled", true))
-	var weather_solver_decimation_enabled = bool(graphics_state.get("weather_solver_decimation_enabled", false))
-	var hydrology_solver_decimation_enabled = bool(graphics_state.get("hydrology_solver_decimation_enabled", false))
-	var erosion_solver_decimation_enabled = bool(graphics_state.get("erosion_solver_decimation_enabled", false))
-	var solar_solver_decimation_enabled = bool(graphics_state.get("solar_solver_decimation_enabled", false))
-	var weather_gpu_compute_enabled = bool(graphics_state.get("weather_gpu_compute_enabled", true))
-	var hydrology_gpu_compute_enabled = bool(graphics_state.get("hydrology_gpu_compute_enabled", true))
-	var erosion_gpu_compute_enabled = bool(graphics_state.get("erosion_gpu_compute_enabled", true))
-	var solar_gpu_compute_enabled = bool(graphics_state.get("solar_gpu_compute_enabled", true))
+	var transform_stage_a_solver_decimation_enabled = bool(graphics_state.get("transform_stage_a_solver_decimation_enabled", false))
+	var transform_stage_b_solver_decimation_enabled = bool(graphics_state.get("transform_stage_b_solver_decimation_enabled", false))
+	var transform_stage_c_solver_decimation_enabled = bool(graphics_state.get("transform_stage_c_solver_decimation_enabled", false))
+	var transform_stage_d_solver_decimation_enabled = bool(graphics_state.get("transform_stage_d_solver_decimation_enabled", false))
+	var transform_stage_a_gpu_compute_enabled = bool(graphics_state.get("transform_stage_a_gpu_compute_enabled", true))
+	var transform_stage_b_gpu_compute_enabled = bool(graphics_state.get("transform_stage_b_gpu_compute_enabled", true))
+	var transform_stage_c_gpu_compute_enabled = bool(graphics_state.get("transform_stage_c_gpu_compute_enabled", true))
+	var transform_stage_d_gpu_compute_enabled = bool(graphics_state.get("transform_stage_d_gpu_compute_enabled", true))
 	var climate_fast_interval_ticks = maxi(1, int(graphics_state.get("climate_fast_interval_ticks", 4)))
 	var climate_slow_interval_ticks = maxi(1, int(graphics_state.get("climate_slow_interval_ticks", 8)))
 	var resource_pipeline_decimation_enabled = bool(graphics_state.get("resource_pipeline_decimation_enabled", false))
@@ -213,9 +213,9 @@ func _apply_performance_toggles(
 	var culture_cycle_decimation_enabled = bool(graphics_state.get("culture_cycle_decimation_enabled", false))
 	var society_fast_interval_ticks = maxi(1, int(graphics_state.get("society_fast_interval_ticks", 4)))
 	var society_slow_interval_ticks = maxi(1, int(graphics_state.get("society_slow_interval_ticks", 8)))
-	var weather_texture_upload_decimation_enabled = bool(graphics_state.get("weather_texture_upload_decimation_enabled", false))
-	var surface_texture_upload_decimation_enabled = bool(graphics_state.get("surface_texture_upload_decimation_enabled", false))
-	var solar_texture_upload_decimation_enabled = bool(graphics_state.get("solar_texture_upload_decimation_enabled", false))
+	var transform_stage_a_texture_upload_decimation_enabled = bool(graphics_state.get("transform_stage_a_texture_upload_decimation_enabled", false))
+	var transform_stage_b_texture_upload_decimation_enabled = bool(graphics_state.get("transform_stage_b_texture_upload_decimation_enabled", false))
+	var transform_stage_d_texture_upload_decimation_enabled = bool(graphics_state.get("transform_stage_d_texture_upload_decimation_enabled", false))
 	var texture_upload_interval_ticks = maxi(1, int(graphics_state.get("texture_upload_interval_ticks", 8)))
 	var texture_upload_budget_texels = maxi(512, int(graphics_state.get("texture_upload_budget_texels", 4096)))
 	var ecology_step_decimation_enabled = bool(graphics_state.get("ecology_step_decimation_enabled", false))
@@ -245,22 +245,22 @@ func _apply_performance_toggles(
 	_loop_controller.set_timing(target_sim_ticks_per_second, target_profile_push_interval)
 
 	if _simulation_controller != null:
-		if _simulation_controller.has_method("set_weather_system_enabled"):
-			_simulation_controller.call("set_weather_system_enabled", weather_system_enabled)
+		if _simulation_controller.has_method("set_transform_stage_system_enabled"):
+			_simulation_controller.call("set_transform_stage_system_enabled", "stage_a", transform_stage_a_system_enabled)
 		else:
-			_simulation_controller.set("weather_system_enabled", weather_system_enabled)
-		if _simulation_controller.has_method("set_hydrology_system_enabled"):
-			_simulation_controller.call("set_hydrology_system_enabled", hydrology_system_enabled)
+			_simulation_controller.set("transform_stage_a_system_enabled", transform_stage_a_system_enabled)
+		if _simulation_controller.has_method("set_transform_stage_system_enabled"):
+			_simulation_controller.call("set_transform_stage_system_enabled", "stage_b", transform_stage_b_system_enabled)
 		else:
-			_simulation_controller.set("hydrology_system_enabled", hydrology_system_enabled)
-		if _simulation_controller.has_method("set_erosion_system_enabled"):
-			_simulation_controller.call("set_erosion_system_enabled", erosion_system_enabled)
+			_simulation_controller.set("transform_stage_b_system_enabled", transform_stage_b_system_enabled)
+		if _simulation_controller.has_method("set_transform_stage_system_enabled"):
+			_simulation_controller.call("set_transform_stage_system_enabled", "stage_c", transform_stage_c_system_enabled)
 		else:
-			_simulation_controller.set("erosion_system_enabled", erosion_system_enabled)
-		if _simulation_controller.has_method("set_solar_system_enabled"):
-			_simulation_controller.call("set_solar_system_enabled", solar_system_enabled)
+			_simulation_controller.set("transform_stage_c_system_enabled", transform_stage_c_system_enabled)
+		if _simulation_controller.has_method("set_transform_stage_system_enabled"):
+			_simulation_controller.call("set_transform_stage_system_enabled", "stage_d", transform_stage_d_system_enabled)
 		else:
-			_simulation_controller.set("solar_system_enabled", solar_system_enabled)
+			_simulation_controller.set("transform_stage_d_system_enabled", transform_stage_d_system_enabled)
 		if _simulation_controller.has_method("set_resource_pipeline_enabled"):
 			_simulation_controller.call("set_resource_pipeline_enabled", resource_pipeline_enabled)
 		else:
@@ -300,33 +300,33 @@ func _apply_performance_toggles(
 			_simulation_controller.set("locality_processing_enabled", simulation_locality_enabled)
 			_simulation_controller.set("locality_dynamic_tick_rate_enabled", simulation_locality_dynamic_enabled)
 			_simulation_controller.set("locality_activity_radius_tiles", simulation_locality_radius_tiles)
-		if _simulation_controller.has_method("set_gpu_compute_modes"):
+		if _simulation_controller.has_method("set_transform_stage_gpu_compute_modes"):
 			_simulation_controller.call(
-				"set_gpu_compute_modes",
-				weather_gpu_compute_enabled,
-				hydrology_gpu_compute_enabled,
-				erosion_gpu_compute_enabled,
-				solar_gpu_compute_enabled
+				"set_transform_stage_gpu_compute_modes",
+				transform_stage_a_gpu_compute_enabled,
+				transform_stage_b_gpu_compute_enabled,
+				transform_stage_c_gpu_compute_enabled,
+				transform_stage_d_gpu_compute_enabled
 			)
 		else:
-			_simulation_controller.set("weather_gpu_compute_enabled", weather_gpu_compute_enabled)
-			_simulation_controller.set("hydrology_gpu_compute_enabled", hydrology_gpu_compute_enabled)
-			_simulation_controller.set("erosion_gpu_compute_enabled", erosion_gpu_compute_enabled)
-			_simulation_controller.set("solar_gpu_compute_enabled", solar_gpu_compute_enabled)
-		_simulation_controller.set("weather_step_interval_ticks", climate_fast_interval_ticks if weather_solver_decimation_enabled else 2)
-		_simulation_controller.set("hydrology_step_interval_ticks", climate_fast_interval_ticks if hydrology_solver_decimation_enabled else 2)
-		_simulation_controller.set("erosion_step_interval_ticks", climate_slow_interval_ticks if erosion_solver_decimation_enabled else 4)
-		_simulation_controller.set("solar_step_interval_ticks", climate_slow_interval_ticks if solar_solver_decimation_enabled else 4)
+			_simulation_controller.set("transform_stage_a_gpu_compute_enabled", transform_stage_a_gpu_compute_enabled)
+			_simulation_controller.set("transform_stage_b_gpu_compute_enabled", transform_stage_b_gpu_compute_enabled)
+			_simulation_controller.set("transform_stage_c_gpu_compute_enabled", transform_stage_c_gpu_compute_enabled)
+			_simulation_controller.set("transform_stage_d_gpu_compute_enabled", transform_stage_d_gpu_compute_enabled)
+		_simulation_controller.set("atmosphere_transform_step_interval_ticks", climate_fast_interval_ticks if transform_stage_a_solver_decimation_enabled else 2)
+		_simulation_controller.set("network_transform_step_interval_ticks", climate_fast_interval_ticks if transform_stage_b_solver_decimation_enabled else 2)
+		_simulation_controller.set("deformation_transform_step_interval_ticks", climate_slow_interval_ticks if transform_stage_c_solver_decimation_enabled else 4)
+		_simulation_controller.set("exposure_transform_step_interval_ticks", climate_slow_interval_ticks if transform_stage_d_solver_decimation_enabled else 4)
 		_simulation_controller.set("resource_pipeline_interval_ticks", society_fast_interval_ticks if resource_pipeline_decimation_enabled else 2)
 		_simulation_controller.set("structure_lifecycle_interval_ticks", society_fast_interval_ticks if structure_lifecycle_decimation_enabled else 2)
 		_simulation_controller.set("culture_cycle_interval_ticks", society_slow_interval_ticks if culture_cycle_decimation_enabled else 4)
 
-	if _environment_controller != null:
-		_environment_controller.set("weather_texture_update_interval_ticks", texture_upload_interval_ticks if weather_texture_upload_decimation_enabled else 4)
-		_environment_controller.set("surface_texture_update_interval_ticks", texture_upload_interval_ticks if surface_texture_upload_decimation_enabled else 4)
-		_environment_controller.set("solar_texture_update_interval_ticks", texture_upload_interval_ticks if solar_texture_upload_decimation_enabled else 4)
-		var any_texture_throttle = weather_texture_upload_decimation_enabled or surface_texture_upload_decimation_enabled or solar_texture_upload_decimation_enabled
-		_environment_controller.set("field_texture_update_budget_cells", texture_upload_budget_texels if any_texture_throttle else 8192)
+		if _environment_controller != null:
+			_environment_controller.set("transform_stage_a_texture_update_interval_ticks", texture_upload_interval_ticks if transform_stage_a_texture_upload_decimation_enabled else 4)
+			_environment_controller.set("surface_texture_update_interval_ticks", texture_upload_interval_ticks if transform_stage_b_texture_upload_decimation_enabled else 4)
+			_environment_controller.set("transform_stage_d_texture_update_interval_ticks", texture_upload_interval_ticks if transform_stage_d_texture_upload_decimation_enabled else 4)
+			var any_texture_throttle = transform_stage_a_texture_upload_decimation_enabled or transform_stage_b_texture_upload_decimation_enabled or transform_stage_d_texture_upload_decimation_enabled
+			_environment_controller.set("field_texture_update_budget_cells", texture_upload_budget_texels if any_texture_throttle else 8192)
 
 	if _ecology_controller != null:
 		if _ecology_controller.has_method("set_smell_gpu_compute_enabled"):

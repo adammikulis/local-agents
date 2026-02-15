@@ -50,13 +50,55 @@ func apply_ocean_material_uniforms(controller: Node) -> void:
 	if controller._ocean_material == null:
 		return
 	for key_variant in controller._water_shader_params.keys():
-		controller._ocean_material.set_shader_parameter(String(key_variant), controller._water_shader_params[key_variant])
-	controller._ocean_material.set_shader_parameter("weather_field_tex", controller._weather_field_texture)
-	controller._ocean_material.set_shader_parameter("weather_field_world_size", controller._weather_field_world_size)
-	controller._ocean_material.set_shader_parameter("weather_field_blend", 1.0)
+		var canonical_key = _canonical_water_param_key(String(key_variant))
+		controller._ocean_material.set_shader_parameter(canonical_key, controller._water_shader_params[key_variant])
+	controller._ocean_material.set_shader_parameter("transform_field_tex", controller._transform_stage_a_field_texture)
+	controller._ocean_material.set_shader_parameter("transform_field_world_size", controller._transform_stage_a_field_world_size)
+	controller._ocean_material.set_shader_parameter("transform_field_blend", 1.0)
 	controller._ocean_material.set_shader_parameter("surface_field_tex", controller._surface_field_texture)
-	controller._ocean_material.set_shader_parameter("surface_field_world_size", controller._weather_field_world_size)
+	controller._ocean_material.set_shader_parameter("surface_field_world_size", controller._transform_stage_a_field_world_size)
 	controller._ocean_material.set_shader_parameter("surface_field_blend", 1.0)
-	controller._ocean_material.set_shader_parameter("solar_field_tex", controller._solar_field_texture)
-	controller._ocean_material.set_shader_parameter("solar_field_world_size", controller._weather_field_world_size)
-	controller._ocean_material.set_shader_parameter("solar_field_blend", 1.0)
+	controller._ocean_material.set_shader_parameter("exposure_field_tex", controller._transform_stage_d_field_texture)
+	controller._ocean_material.set_shader_parameter("exposure_field_world_size", controller._transform_stage_a_field_world_size)
+	controller._ocean_material.set_shader_parameter("exposure_field_blend", 1.0)
+
+func _canonical_water_param_key(key: String) -> String:
+	match key:
+		"flow_dir":
+			return "surface_motion_dir"
+		"flow_speed":
+			return "surface_motion_speed"
+		"wave_strength":
+			return "surface_motion_strength"
+		"rain_intensity":
+			return "atmosphere_precipitation"
+		"cloud_shadow":
+			return "atmosphere_occlusion"
+		"atmosphere_flow_dir":
+			return "atmosphere_flow_dir"
+		"atmosphere_flow_speed":
+			return "atmosphere_flow_speed"
+		"atmosphere_pattern_scale":
+			return "atmosphere_pattern_scale"
+		"atmosphere_occlusion_strength":
+			return "atmosphere_occlusion_strength"
+		"moon_tidal_strength":
+			return "orbital_pull_strength"
+		"moon_tide_range":
+			return "orbital_displacement_range"
+		"lunar_wave_boost":
+			return "orbital_motion_boost"
+		"ocean_wave_amplitude":
+			return "surface_wave_amplitude"
+		"ocean_wave_frequency":
+			return "surface_wave_frequency"
+		"ocean_chop":
+			return "surface_wave_chop"
+		"ocean_detail":
+			return "surface_detail"
+		"transform_field_blend":
+			return "transform_field_blend"
+		"exposure_field_blend":
+			return "exposure_field_blend"
+		_:
+			return key

@@ -10,14 +10,14 @@ layout(set = 0, binding = 3, std430) readonly buffer WindReadZ { float v[]; } wi
 layout(set = 0, binding = 4, std430) buffer WindWriteX { float v[]; } wind_write_x;
 layout(set = 0, binding = 5, std430) buffer WindWriteZ { float v[]; } wind_write_z;
 layout(set = 0, binding = 6, std430) readonly buffer Params {
-	float dt;
-	float ambient_temp;
-	float diurnal_phase;
-	float rain_intensity;
-	float sun_altitude;
-	float avg_insolation;
-	float avg_uv_index;
-	float avg_heat_load;
+		float dt;
+		float ambient_temp;
+		float diurnal_phase;
+		float atmosphere_precipitation;
+		float light_altitude;
+		float avg_exposure_direct;
+		float avg_exposure_uv;
+		float avg_exposure_heat;
 	float air_heating_scalar;
 	float voxel_size;
 	float vertical_half_extent;
@@ -118,16 +118,16 @@ void run_temperature_pass(uint idx_u, ivec3 cell) {
 	float lapse = (y_norm - 0.5) * 0.24;
 	float diurnal = 0.1 * sin(params.diurnal_phase + float(cell.x) * 0.07);
 	float terrain = terrain_height(cell);
-	float uv_norm = clamp(params.avg_uv_index / 1.6, 0.0, 1.0);
-	float solar_ground_heat = params.sun_altitude * params.avg_insolation * (0.12 + params.avg_heat_load * 0.08) * near_ground * params.air_heating_scalar;
-	float uv_air_heat = params.sun_altitude * uv_norm * 0.05 * clamp(y_norm * 1.2, 0.1, 1.0) * params.air_heating_scalar;
-	float evaporative_cooling = params.rain_intensity * 0.1 * near_ground;
+	float uv_norm = clamp(params.avg_exposure_uv / 1.6, 0.0, 1.0);
+	float direct_ground_heat = params.light_altitude * params.avg_exposure_direct * (0.12 + params.avg_exposure_heat * 0.08) * near_ground * params.air_heating_scalar;
+	float uv_air_heat = params.light_altitude * uv_norm * 0.05 * clamp(y_norm * 1.2, 0.1, 1.0) * params.air_heating_scalar;
+	float evaporative_cooling = params.atmosphere_precipitation * 0.1 * near_ground;
 	float target_temp = clamp(
-		params.ambient_temp + diurnal - terrain * 0.2 - lapse + solar_ground_heat + uv_air_heat - evaporative_cooling,
+		params.ambient_temp + diurnal - terrain * 0.2 - lapse + direct_ground_heat + uv_air_heat - evaporative_cooling,
 		0.0,
 		1.2
 	);
-	float relaxation = clamp(0.1 * params.dt * (1.0 - params.rain_intensity * 0.35), 0.01, 0.35);
+	float relaxation = clamp(0.1 * params.dt * (1.0 - params.atmosphere_precipitation * 0.35), 0.01, 0.35);
 	float updated_temp = mix(temp, target_temp, relaxation);
 	float below = read_temp(cell + ivec3(0, -1, 0), updated_temp);
 	float above = read_temp(cell + ivec3(0, 1, 0), updated_temp);
@@ -158,9 +158,9 @@ void run_wind_pass(uint idx_u, ivec3 cell) {
 	}
 	vec2 terrain_channel = valley_axis(cell);
 	vec2 base = base_dir * (params.base_intensity * params.base_speed);
-	vec2 thermals = gradient * (0.65 + (1.0 - params.rain_intensity) * 0.25);
+	vec2 thermals = gradient * (0.65 + (1.0 - params.atmosphere_precipitation) * 0.25);
 	vec2 channeling = terrain_channel * dot(terrain_channel, base_dir) * 0.22;
-	float drag = clamp(0.18 + abs(terrain_height(cell)) * 0.3 + params.rain_intensity * 0.22, 0.1, 0.85);
+	float drag = clamp(0.18 + abs(terrain_height(cell)) * 0.3 + params.atmosphere_precipitation * 0.22, 0.1, 0.85);
 	vec2 computed = (base + thermals + channeling) * (1.0 - drag * 0.4);
 	vec2 prev = vec2(wind_read_x.v[idx], wind_read_z.v[idx]);
 	vec2 next = mix(prev, computed, clamp(0.12 + params.dt * 0.2, 0.08, 0.5));

@@ -62,20 +62,20 @@ func step(
 	ambient_temp: float = 0.5,
 	diurnal_phase: float = 0.0,
 	rain_intensity: float = 0.0,
-	solar_context: Dictionary = {}
+	exposure_context: Dictionary = {}
 ) -> void:
 	if delta <= 0.0:
 		return
 	if _temperature.is_empty() or _ordered_voxels.is_empty():
 		configure(_grid.half_extent(), _grid.voxel_size(), _grid.vertical_half_extent())
 	if _compute_active:
-		var gpu = _step_compute(delta, ambient_temp, diurnal_phase, rain_intensity, solar_context)
+		var gpu = _step_compute(delta, ambient_temp, diurnal_phase, rain_intensity, exposure_context)
 		if not gpu.is_empty():
 			_temperature = gpu.get("temperature", _temperature)
 			_wind = gpu.get("wind", _wind)
 			return
 		_compute_active = false
-	_step_cpu(delta, ambient_temp, diurnal_phase, rain_intensity, solar_context)
+	_step_cpu(delta, ambient_temp, diurnal_phase, rain_intensity, exposure_context)
 
 func sample_wind(world_position: Vector3) -> Vector2:
 	var voxel := _grid.world_to_voxel(world_position)
@@ -150,15 +150,15 @@ func _step_cpu(
 	ambient_temp: float,
 	diurnal_phase: float,
 	rain_intensity: float,
-	solar_context: Dictionary
+	exposure_context: Dictionary
 ) -> void:
 	var next_temp := {}
 	var next_wind := {}
-	var sun_altitude = clampf(float(solar_context.get("sun_altitude", 0.0)), 0.0, 1.0)
-	var avg_insolation = clampf(float(solar_context.get("avg_insolation", 0.0)), 0.0, 1.0)
-	var avg_uv = clampf(float(solar_context.get("avg_uv_index", 0.0)), 0.0, 2.0)
-	var avg_heat = clampf(float(solar_context.get("avg_heat_load", 0.0)), 0.0, 1.5)
-	var air_heating_scalar = clampf(float(solar_context.get("air_heating_scalar", 1.0)), 0.2, 2.0)
+	var sun_altitude = clampf(float(exposure_context.get("sun_altitude", 0.0)), 0.0, 1.0)
+	var avg_insolation = clampf(float(exposure_context.get("avg_insolation", 0.0)), 0.0, 1.0)
+	var avg_uv = clampf(float(exposure_context.get("avg_uv_index", 0.0)), 0.0, 2.0)
+	var avg_heat = clampf(float(exposure_context.get("avg_heat_load", 0.0)), 0.0, 1.5)
+	var air_heating_scalar = clampf(float(exposure_context.get("air_heating_scalar", 1.0)), 0.2, 2.0)
 	var vertical_extent = maxf(_grid.voxel_size(), _grid.vertical_half_extent())
 	var uv_norm = clampf(avg_uv / 1.6, 0.0, 1.0)
 	for voxel in _ordered_voxels:
@@ -169,11 +169,11 @@ func _step_cpu(
 		var near_ground = clampf(1.0 - y_norm * 0.72, 0.0, 1.0)
 		var lapse = (y_norm - 0.5) * 0.24
 		var diurnal = 0.1 * sin(diurnal_phase + float(voxel.x) * 0.07)
-		var solar_ground_heat = sun_altitude * avg_insolation * (0.12 + avg_heat * 0.08) * near_ground * air_heating_scalar
+		var exposure_ground_heat = sun_altitude * avg_insolation * (0.12 + avg_heat * 0.08) * near_ground * air_heating_scalar
 		var uv_air_heat = sun_altitude * uv_norm * 0.05 * clampf(y_norm * 1.2, 0.1, 1.0) * air_heating_scalar
 		var evaporative_cooling = rain_intensity * 0.1 * near_ground
 		var target_temp := clampf(
-			ambient_temp + diurnal - terrain * 0.2 - lapse + solar_ground_heat + uv_air_heat - evaporative_cooling,
+			ambient_temp + diurnal - terrain * 0.2 - lapse + exposure_ground_heat + uv_air_heat - evaporative_cooling,
 			0.0,
 			1.2
 		)
@@ -204,13 +204,13 @@ func _step_compute(
 	ambient_temp: float,
 	diurnal_phase: float,
 	rain_intensity: float,
-	solar_context: Dictionary
+	exposure_context: Dictionary
 ) -> Dictionary:
-	var sun_altitude = clampf(float(solar_context.get("sun_altitude", 0.0)), 0.0, 1.0)
-	var avg_insolation = clampf(float(solar_context.get("avg_insolation", 0.0)), 0.0, 1.0)
-	var avg_uv = clampf(float(solar_context.get("avg_uv_index", 0.0)), 0.0, 2.0)
-	var avg_heat = clampf(float(solar_context.get("avg_heat_load", 0.0)), 0.0, 1.5)
-	var air_heating_scalar = clampf(float(solar_context.get("air_heating_scalar", 1.0)), 0.2, 2.0)
+	var sun_altitude = clampf(float(exposure_context.get("sun_altitude", 0.0)), 0.0, 1.0)
+	var avg_insolation = clampf(float(exposure_context.get("avg_insolation", 0.0)), 0.0, 1.0)
+	var avg_uv = clampf(float(exposure_context.get("avg_uv_index", 0.0)), 0.0, 2.0)
+	var avg_heat = clampf(float(exposure_context.get("avg_heat_load", 0.0)), 0.0, 1.5)
+	var air_heating_scalar = clampf(float(exposure_context.get("air_heating_scalar", 1.0)), 0.2, 2.0)
 	var gpu = _compute_backend.step(
 		delta,
 		ambient_temp,

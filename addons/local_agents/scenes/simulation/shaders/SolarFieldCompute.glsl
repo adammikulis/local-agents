@@ -10,13 +10,13 @@ layout(set = 0, binding = 3, std430) readonly buffer Shade { float v[]; } shade;
 layout(set = 0, binding = 4, std430) readonly buffer AspectX { float v[]; } aspect_x;
 layout(set = 0, binding = 5, std430) readonly buffer AspectY { float v[]; } aspect_y;
 layout(set = 0, binding = 6, std430) readonly buffer Albedo { float v[]; } albedo;
-layout(set = 0, binding = 7, std430) readonly buffer WeatherCloud { float v[]; } weather_cloud;
-layout(set = 0, binding = 8, std430) readonly buffer WeatherFog { float v[]; } weather_fog;
-layout(set = 0, binding = 9, std430) readonly buffer WeatherHumidity { float v[]; } weather_humidity;
+layout(set = 0, binding = 7, std430) readonly buffer AtmosphereCover { float v[]; } atmosphere_cover;
+layout(set = 0, binding = 8, std430) readonly buffer AtmosphereHaze { float v[]; } atmosphere_haze;
+layout(set = 0, binding = 9, std430) readonly buffer AtmosphereMoisture { float v[]; } atmosphere_moisture;
 layout(set = 0, binding = 10, std430) readonly buffer Activity { float v[]; } activity;
-layout(set = 0, binding = 11, std430) buffer Sunlight { float v[]; } sunlight;
-layout(set = 0, binding = 12, std430) buffer UvIndex { float v[]; } uv_index;
-layout(set = 0, binding = 13, std430) buffer HeatLoad { float v[]; } heat_load;
+layout(set = 0, binding = 11, std430) buffer ExposureDirect { float v[]; } exposure_direct;
+layout(set = 0, binding = 12, std430) buffer ExposureUv { float v[]; } exposure_uv;
+layout(set = 0, binding = 13, std430) buffer ExposureHeat { float v[]; } exposure_heat;
 layout(set = 0, binding = 14, std430) buffer Growth { float v[]; } growth;
 layout(set = 0, binding = 15, std430) readonly buffer Params {
 	float sun_dir_x;
@@ -35,9 +35,9 @@ void main() {
 	if (idx >= uint(params.tile_count)) {
 		return;
 	}
-	float cloud = clamp(weather_cloud.v[idx], 0.0, 1.0);
-	float fog = clamp(weather_fog.v[idx], 0.0, 1.0);
-	float humidity = clamp(weather_humidity.v[idx], 0.0, 1.0);
+	float cloud = clamp(atmosphere_cover.v[idx], 0.0, 1.0);
+	float fog = clamp(atmosphere_haze.v[idx], 0.0, 1.0);
+	float humidity = clamp(atmosphere_moisture.v[idx], 0.0, 1.0);
 	float moist = clamp(moisture.v[idx], 0.0, 1.0);
 	float temp = clamp(temperature.v[idx], 0.0, 1.0);
 	float elev = clamp(elevation.v[idx], 0.0, 1.0);
@@ -72,8 +72,8 @@ void main() {
 	float uv_stress = clamp(max(0.0, uv - 1.15) * 0.45, 0.0, 1.0);
 	float plant_growth = clamp((absorbed * 0.7 + insolation * 0.3) * (0.35 + moist * 0.65) * temp_optimal * (1.0 - uv_stress), 0.0, 1.0);
 
-	sunlight.v[idx] = insolation;
-	uv_index.v[idx] = uv;
-	heat_load.v[idx] = heat;
+	exposure_direct.v[idx] = insolation;
+	exposure_uv.v[idx] = uv;
+	exposure_heat.v[idx] = heat;
 	growth.v[idx] = plant_growth;
 }

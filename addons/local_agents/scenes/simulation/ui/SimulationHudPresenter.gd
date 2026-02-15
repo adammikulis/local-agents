@@ -55,12 +55,20 @@ func _build_performance_text(metrics: Dictionary) -> String:
 	var backend_flags := ""
 	var runtime_backends: Dictionary = metrics.get("runtime_backends", {})
 	if runtime_backends is Dictionary and not runtime_backends.is_empty():
-		backend_flags = " | C[%s%s%s%s]" % [
-			"H" if bool(runtime_backends.get("hydrology_compute", false)) else "h",
-			"W" if bool(runtime_backends.get("weather_compute", false)) else "w",
-			"E" if bool(runtime_backends.get("erosion_compute", false)) else "e",
-			"S" if bool(runtime_backends.get("solar_compute", false)) else "s",
-		]
+		var dispatch_status = String(runtime_backends.get("dispatch_contract_status", "unknown")).strip_edges()
+		if dispatch_status == "":
+			dispatch_status = "unknown"
+		var material_model_variant = runtime_backends.get("material_model", {})
+		var material_model: Dictionary = material_model_variant if material_model_variant is Dictionary else {}
+		var emitter_model_variant = runtime_backends.get("emitter_model", {})
+		var emitter_model: Dictionary = emitter_model_variant if emitter_model_variant is Dictionary else {}
+		var material_key = String(material_model.get("profile_key", "none")).strip_edges()
+		if material_key == "":
+			material_key = "none"
+		var emitter_key = String(emitter_model.get("profile_key", "none")).strip_edges()
+		if emitter_key == "":
+			emitter_key = "none"
+		backend_flags = " | X[%s|M:%s|E:%s]" % [dispatch_status, material_key, emitter_key]
 	return "FPS %d (%.1f ms) | RAM %s | VRAM %s | Obj %d | Prim %d | Draw %d%s" % [
 		fps,
 		frame_ms,
