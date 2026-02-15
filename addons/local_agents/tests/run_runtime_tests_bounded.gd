@@ -45,7 +45,9 @@ func _init() -> void:
 
 func _run_all() -> void:
 	if _selected_tests.is_empty():
-		_selected_tests = (FAST_RUNTIME_TESTS if _fast_mode else RUNTIME_TESTS).duplicate()
+		var default_tests: Array[String] = []
+		default_tests.append_array(FAST_RUNTIME_TESTS if _fast_mode else RUNTIME_TESTS)
+		_selected_tests = default_tests
 	if not _validate_selected_tests():
 		quit(1)
 		return
@@ -78,7 +80,8 @@ func _run_all() -> void:
 	quit(1)
 
 func _run_all_bounded() -> void:
-	var queue: Array[String] = _selected_tests.duplicate()
+	var queue: Array[String] = []
+	queue.append_array(_selected_tests)
 	while not queue.is_empty() or not _processes.is_empty():
 		while _processes.size() < _workers and not queue.is_empty():
 			var script_path = String(queue.pop_front())
@@ -127,6 +130,7 @@ func _start_case_process(script_path: String, timeout_seconds: int) -> void:
 		"res://addons/local_agents/tests/run_single_test.gd",
 		"--",
 		"--test=%s" % script_path,
+		"--timeout=%d" % timeout_seconds,
 	])
 	var pid := OS.create_process(executable, args, false)
 	if pid <= 0:

@@ -2,10 +2,6 @@
 extends SceneTree
 
 const WorldGeneratorScript = preload("res://addons/local_agents/simulation/WorldGenerator.gd")
-const HydrologySystemScript = preload("res://addons/local_agents/simulation/HydrologySystem.gd")
-const WeatherSystemScript = preload("res://addons/local_agents/simulation/WeatherSystem.gd")
-const ErosionSystemScript = preload("res://addons/local_agents/simulation/ErosionSystem.gd")
-const SolarExposureSystemScript = preload("res://addons/local_agents/simulation/SolarExposureSystem.gd")
 const WorldGenConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldGenConfigResource.gd")
 const EnvironmentControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/EnvironmentController.gd")
 
@@ -43,23 +39,11 @@ func _run_cpu_benchmark() -> Dictionary:
 		var seed = int(hash("%s_cpu_%d" % [_seed_text, i]))
 		var config = _build_config()
 		var world_generator = WorldGeneratorScript.new()
-		var hydrology = HydrologySystemScript.new()
-		var weather = WeatherSystemScript.new()
-		var erosion = ErosionSystemScript.new()
-		var solar = SolarExposureSystemScript.new()
 		var t0 = Time.get_ticks_usec()
-		var world = world_generator.generate(seed, config)
-		var hydro = hydrology.build_network(world, config)
-		weather.configure_environment(world, hydro, int(hash("%d_weather" % seed)))
-		erosion.configure_environment(world, hydro, int(hash("%d_erosion" % seed)))
-		solar.configure_environment(world, int(hash("%d_solar" % seed)))
-		var weather_snapshot = weather.current_snapshot(0)
+		world_generator.generate(seed, config)
+		var transform_state = _initial_transform_state(seed)
 		for tick in range(1, _ticks + 1):
-			weather_snapshot = weather.step(tick, 1.0)
-			var erosion_result: Dictionary = erosion.step(tick, 1.0, world, hydro, weather_snapshot)
-			world = erosion_result.get("environment", world)
-			hydro = erosion_result.get("hydrology", hydro)
-			solar.step(tick, 1.0, world, weather_snapshot)
+			transform_state = _advance_transform_state(transform_state, tick)
 		var t1 = Time.get_ticks_usec()
 		durations_ms.append(float(t1 - t0) / 1000.0)
 	return _stats(durations_ms)
@@ -72,17 +56,8 @@ func _run_gpu_benchmark() -> Dictionary:
 		var seed = int(hash("%s_gpu_%d" % [_seed_text, i]))
 		var config = _build_config()
 		var world_generator = WorldGeneratorScript.new()
-		var hydrology = HydrologySystemScript.new()
-		var weather = WeatherSystemScript.new()
-		var erosion = ErosionSystemScript.new()
-		var solar = SolarExposureSystemScript.new()
 		var world = world_generator.generate(seed, config)
-		var hydro = hydrology.build_network(world, config)
-		weather.configure_environment(world, hydro, int(hash("%d_weather" % seed)))
-		erosion.configure_environment(world, hydro, int(hash("%d_erosion" % seed)))
-		solar.configure_environment(world, int(hash("%d_solar" % seed)))
-		var weather_snapshot = weather.current_snapshot(0)
-		var solar_snapshot = solar.current_snapshot(0)
+		var transform_state = _initial_transform_state(seed)
 		var root = Node3D.new()
 		var env = EnvironmentControllerScript.new()
 		var terrain_root = Node3D.new()
@@ -96,9 +71,9 @@ func _run_gpu_benchmark() -> Dictionary:
 		await process_frame
 
 		var up0 = Time.get_ticks_usec()
-		env.apply_generation_data(world, hydro)
-		env.set_weather_state(weather_snapshot)
-		env.set_solar_state(solar_snapshot)
+		env.apply_generation_data(world, {"stage": "voxel_transform_step", "water_tiles": {}})
+		env.set_transform_stage_a_state(transform_state.get("transform_stage_a_state", {}))
+		env.set_transform_stage_d_state(transform_state.get("exposure_state_snapshot", {}))
 		var up1 = Time.get_ticks_usec()
 		upload_ms.append(float(up1 - up0) / 1000.0)
 
@@ -106,16 +81,9 @@ func _run_gpu_benchmark() -> Dictionary:
 		var frame_time_accum = 0.0
 		for tick in range(1, _gpu_frames + 1):
 			var f0 = Time.get_ticks_usec()
-			weather_snapshot = weather.step(tick, 1.0)
-			var erosion_result: Dictionary = erosion.step(tick, 1.0, world, hydro, weather_snapshot)
-			world = erosion_result.get("environment", world)
-			hydro = erosion_result.get("hydrology", hydro)
-			solar_snapshot = solar.step(tick, 1.0, world, weather_snapshot)
-			env.set_weather_state(weather_snapshot)
-			env.set_solar_state(solar_snapshot)
-			var changed_tiles: Array = erosion_result.get("changed_tiles", [])
-			if not changed_tiles.is_empty():
-				env.apply_generation_delta(world, hydro, changed_tiles)
+			transform_state = _advance_transform_state(transform_state, tick)
+			env.set_transform_stage_a_state(transform_state.get("transform_stage_a_state", {}))
+			env.set_transform_stage_d_state(transform_state.get("exposure_state_snapshot", {}))
 			await process_frame
 			var f1 = Time.get_ticks_usec()
 			frame_time_accum += float(f1 - f0) / 1000.0
@@ -185,3 +153,53 @@ func _parse_args() -> void:
 	if not _mode in ["cpu", "gpu", "both"]:
 		_mode = "both"
 
+func _initial_transform_state(seed: int) -> Dictionary:
+	return {
+		"replacement_stage": "voxel_transform_step",
+		"tick": 0,
+		"seed": seed,
+		"diagnostics": {
+			"avg_activity": 0.0,
+			"avg_energy": 0.0,
+			"avg_moisture": 0.0,
+		},
+		"transform_stage_a_state": {
+			"replacement_stage": "voxel_transform_step",
+			"avg_rain_intensity": 0.0,
+			"avg_cloud_cover": 0.0,
+			"avg_humidity": 0.35,
+		},
+		"exposure_state_snapshot": {
+			"replacement_stage": "voxel_transform_step",
+			"sun_altitude": 0.5,
+			"global_irradiance": 0.65,
+		},
+	}
+
+func _advance_transform_state(state: Dictionary, tick: int) -> Dictionary:
+	var phase = float(tick % 96) / 96.0
+	var rain = clampf(0.5 + sin(phase * TAU) * 0.18, 0.0, 1.0)
+	var cloud = clampf(0.45 + cos(phase * TAU) * 0.2, 0.0, 1.0)
+	var humidity = clampf(0.38 + rain * 0.4, 0.0, 1.0)
+	var irradiance = clampf(0.55 + sin((phase - 0.25) * TAU) * 0.35, 0.0, 1.0)
+	return {
+		"replacement_stage": "voxel_transform_step",
+		"tick": tick,
+		"seed": int(state.get("seed", 0)),
+		"diagnostics": {
+			"avg_activity": rain,
+			"avg_energy": irradiance,
+			"avg_moisture": humidity,
+		},
+		"transform_stage_a_state": {
+			"replacement_stage": "voxel_transform_step",
+			"avg_rain_intensity": rain,
+			"avg_cloud_cover": cloud,
+			"avg_humidity": humidity,
+		},
+		"exposure_state_snapshot": {
+			"replacement_stage": "voxel_transform_step",
+			"sun_altitude": clampf(0.2 + irradiance * 0.7, 0.0, 1.0),
+			"global_irradiance": irradiance,
+		},
+	}

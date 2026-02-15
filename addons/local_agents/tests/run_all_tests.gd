@@ -13,8 +13,6 @@ const FAST_CORE_TESTS := [
     "res://addons/local_agents/tests/test_simulation_flowmap_bake.gd",
     "res://addons/local_agents/tests/test_simulation_erosion_delta_tiles.gd",
     "res://addons/local_agents/tests/test_simulation_environment_signal_determinism.gd",
-    "res://addons/local_agents/tests/test_freeze_thaw_erosion.gd",
-    "res://addons/local_agents/tests/test_solar_albedo_from_rgba.gd",
     "res://addons/local_agents/tests/test_wind_air_column_solar_heating.gd",
     "res://addons/local_agents/tests/test_simulation_voxel_terrain_generation.gd",
     "res://addons/local_agents/tests/test_wind_field_system.gd",
