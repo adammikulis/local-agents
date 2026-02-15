@@ -71,23 +71,23 @@ func step_smell_field(delta: float) -> void:
 				_wind_step_accumulator = 0.0
 				_owner._wind_field.set_global_wind(_owner.wind_direction, _owner.wind_intensity, _owner.wind_speed)
 				var diurnal_phase := fmod(_owner._sim_time_seconds / 24.0, TAU)
-				_owner._wind_field.step(wind_delta, 0.52, diurnal_phase, _owner.rain_intensity, _transform_stage_d_air_context())
+				_owner._wind_field.step(wind_delta, 0.52, diurnal_phase, float(_owner.transform_stage_intensity), _transform_stage_d_air_context())
 			wind_source = Callable(_owner._wind_field, "sample_wind")
 		if _owner.voxel_process_gating_enabled and _owner.voxel_gate_smell_enabled:
 			var active_voxels: Array[Vector3i] = _owner.collect_active_smell_voxels()
 			if active_voxels.is_empty():
 				continue
-			_owner._smell_field.step_local(
-				_owner.smell_sim_step_seconds,
-				active_voxels,
-				maxi(1, int(_owner.voxel_smell_step_radius_cells)),
-				wind_source,
-				_owner.smell_base_decay_per_second,
-				_owner.rain_intensity,
-				_owner.rain_decay_multiplier
-			)
+				_owner._smell_field.step_local(
+					_owner.smell_sim_step_seconds,
+					active_voxels,
+					maxi(1, int(_owner.voxel_smell_step_radius_cells)),
+					wind_source,
+					_owner.smell_base_decay_per_second,
+					float(_owner.transform_stage_intensity),
+					_owner.transform_decay_multiplier
+				)
 		else:
-			_owner._smell_field.step(_owner.smell_sim_step_seconds, wind_source, _owner.smell_base_decay_per_second, _owner.rain_intensity, _owner.rain_decay_multiplier)
+			_owner._smell_field.step(_owner.smell_sim_step_seconds, wind_source, _owner.smell_base_decay_per_second, float(_owner.transform_stage_intensity), _owner.transform_decay_multiplier)
 	if _smell_step_accumulator > _owner.smell_sim_step_seconds * float(maxi(1, _owner.max_smell_substeps_per_physics_frame)):
 		_smell_step_accumulator = _owner.smell_sim_step_seconds * float(maxi(1, _owner.max_smell_substeps_per_physics_frame))
 
@@ -117,7 +117,7 @@ func plant_environment_context(world_position: Vector3) -> Dictionary:
 		"plant_growth_factor": growth,
 		"moisture": moisture,
 		"air_temperature": air_temp,
-		"rain_intensity": _owner.rain_intensity,
+		"rain_intensity": float(_owner.transform_stage_intensity),
 	}
 
 func _tile_at_world(world_position: Vector3) -> Dictionary:

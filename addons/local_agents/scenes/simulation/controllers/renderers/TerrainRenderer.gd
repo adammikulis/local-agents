@@ -155,25 +155,25 @@ func apply_transform_stage_to_materials(rain: float, cloud: float, humidity: flo
 			continue
 		if material is ShaderMaterial:
 			var shader_material := material as ShaderMaterial
-				shader_material.set_shader_parameter("atmosphere_precipitation", rain)
-				shader_material.set_shader_parameter("atmosphere_occlusion", cloud * 0.85)
-				shader_material.set_shader_parameter("atmosphere_moisture", humidity)
-				shader_material.set_shader_parameter("atmosphere_flow_dir", _water_shader_params.get("atmosphere_flow_dir", Vector2(1.0, 0.0)))
-				shader_material.set_shader_parameter("atmosphere_flow_speed", _water_shader_params.get("atmosphere_flow_speed", 0.5))
-				shader_material.set_shader_parameter("atmosphere_pattern_scale", _water_shader_params.get("atmosphere_pattern_scale", 0.045))
-				shader_material.set_shader_parameter("atmosphere_occlusion_strength", _water_shader_params.get("atmosphere_occlusion_strength", 0.55))
-				_apply_transform_field_uniforms(shader_material)
-				_apply_surface_field_uniforms(shader_material)
-				_apply_exposure_field_uniforms(shader_material)
+			shader_material.set_shader_parameter("atmosphere_precipitation", rain)
+			shader_material.set_shader_parameter("atmosphere_occlusion", cloud * 0.85)
+			shader_material.set_shader_parameter("atmosphere_moisture", humidity)
+			shader_material.set_shader_parameter("atmosphere_flow_dir", _water_shader_params.get("atmosphere_flow_dir", Vector2(1.0, 0.0)))
+			shader_material.set_shader_parameter("atmosphere_flow_speed", _water_shader_params.get("atmosphere_flow_speed", 0.5))
+			shader_material.set_shader_parameter("atmosphere_pattern_scale", _water_shader_params.get("atmosphere_pattern_scale", 0.045))
+			shader_material.set_shader_parameter("atmosphere_occlusion_strength", _water_shader_params.get("atmosphere_occlusion_strength", 0.55))
+			_apply_transform_field_uniforms(shader_material)
+			_apply_surface_field_uniforms(shader_material)
+			_apply_exposure_field_uniforms(shader_material)
 
 func refresh_material_uniforms() -> void:
 	for key_variant in _material_cache.keys():
 		var material = _material_cache[key_variant]
 		if material is ShaderMaterial:
 			var shader_material := material as ShaderMaterial
-				_apply_transform_field_uniforms(shader_material)
-				_apply_surface_field_uniforms(shader_material)
-				_apply_exposure_field_uniforms(shader_material)
+			_apply_transform_field_uniforms(shader_material)
+			_apply_surface_field_uniforms(shader_material)
+			_apply_exposure_field_uniforms(shader_material)
 
 func _start_chunk_build(payload: Dictionary) -> void:
 	wait_for_build()
@@ -375,20 +375,20 @@ func _material_for_block(block_type: String) -> Material:
 		_material_cache[block_type] = water_material
 		return water_material
 	var terrain_material := ShaderMaterial.new()
-		terrain_material.shader = TerrainWeatherShader
-		terrain_material.set_shader_parameter("base_color", _block_color(block_type))
-		terrain_material.set_shader_parameter("atmosphere_precipitation", float(_water_shader_params.get("atmosphere_precipitation", 0.0)))
-		terrain_material.set_shader_parameter("atmosphere_occlusion", float(_water_shader_params.get("atmosphere_occlusion", 0.0)))
-		terrain_material.set_shader_parameter("atmosphere_moisture", clampf(float(_transform_stage_a_state.get("avg_humidity", 0.0)), 0.0, 1.0))
-		terrain_material.set_shader_parameter("atmosphere_flow_dir", _water_shader_params.get("atmosphere_flow_dir", Vector2(1.0, 0.0)))
-		terrain_material.set_shader_parameter("atmosphere_flow_speed", _water_shader_params.get("atmosphere_flow_speed", 0.5))
-		terrain_material.set_shader_parameter("atmosphere_pattern_scale", _water_shader_params.get("atmosphere_pattern_scale", 0.045))
-		terrain_material.set_shader_parameter("atmosphere_occlusion_strength", _water_shader_params.get("atmosphere_occlusion_strength", 0.55))
-		_apply_transform_field_uniforms(terrain_material)
-		_apply_surface_field_uniforms(terrain_material)
-		_apply_exposure_field_uniforms(terrain_material)
-		_material_cache[block_type] = terrain_material
-		return terrain_material
+	terrain_material.shader = TerrainWeatherShader
+	terrain_material.set_shader_parameter("base_color", _block_color(block_type))
+	terrain_material.set_shader_parameter("atmosphere_precipitation", float(_water_shader_params.get("atmosphere_precipitation", 0.0)))
+	terrain_material.set_shader_parameter("atmosphere_occlusion", float(_water_shader_params.get("atmosphere_occlusion", 0.0)))
+	terrain_material.set_shader_parameter("atmosphere_moisture", clampf(float(_transform_stage_a_state.get("avg_humidity", 0.0)), 0.0, 1.0))
+	terrain_material.set_shader_parameter("atmosphere_flow_dir", _water_shader_params.get("atmosphere_flow_dir", Vector2(1.0, 0.0)))
+	terrain_material.set_shader_parameter("atmosphere_flow_speed", _water_shader_params.get("atmosphere_flow_speed", 0.5))
+	terrain_material.set_shader_parameter("atmosphere_pattern_scale", _water_shader_params.get("atmosphere_pattern_scale", 0.045))
+	terrain_material.set_shader_parameter("atmosphere_occlusion_strength", _water_shader_params.get("atmosphere_occlusion_strength", 0.55))
+	_apply_transform_field_uniforms(terrain_material)
+	_apply_surface_field_uniforms(terrain_material)
+	_apply_exposure_field_uniforms(terrain_material)
+	_material_cache[block_type] = terrain_material
+	return terrain_material
 
 func _apply_transform_field_uniforms(shader_material: ShaderMaterial) -> void:
 	if shader_material == null:

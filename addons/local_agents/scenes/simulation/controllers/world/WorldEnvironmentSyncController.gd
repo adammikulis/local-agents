@@ -47,9 +47,12 @@ func build_snapshot_from_setup(setup: Dictionary, tick: int):
 	snapshot.tick = tick
 	snapshot.environment_snapshot = setup.get("environment", {}).duplicate(true)
 	snapshot.network_state_snapshot = setup.get("network_state_snapshot", {}).duplicate(true)
-	snapshot.atmosphere_state_snapshot = setup.get("atmosphere_state_snapshot", {}).duplicate(true)
-	snapshot.deformation_state_snapshot = setup.get("deformation_state_snapshot", {}).duplicate(true)
-	snapshot.exposure_state_snapshot = setup.get("exposure_state_snapshot", {}).duplicate(true)
+	snapshot.transform_state = {
+		"network_state": setup.get("network_state_snapshot", {}).duplicate(true),
+		"atmosphere_state": setup.get("atmosphere_state_snapshot", {}).duplicate(true),
+		"deformation_state": setup.get("deformation_state_snapshot", {}).duplicate(true),
+		"exposure_state": setup.get("exposure_state_snapshot", {}).duplicate(true),
+	}
 	return snapshot
 
 func build_snapshot_from_state(state: Dictionary, fallback_tick: int):
@@ -61,13 +64,36 @@ func build_snapshot_from_state(state: Dictionary, fallback_tick: int):
 		snapshot.tick = int(state.get("tick", fallback_tick))
 		snapshot.environment_snapshot = state.get("environment_snapshot", {}).duplicate(true)
 		snapshot.network_state_snapshot = state.get("network_state_snapshot", {}).duplicate(true)
-		snapshot.atmosphere_state_snapshot = state.get("atmosphere_state_snapshot", {}).duplicate(true)
-		snapshot.deformation_state_snapshot = state.get("deformation_state_snapshot", {}).duplicate(true)
-		snapshot.exposure_state_snapshot = state.get("exposure_state_snapshot", {}).duplicate(true)
+		snapshot.transform_state = {
+			"network_state": state.get("network_state_snapshot", {}).duplicate(true),
+			"atmosphere_state": state.get("atmosphere_state_snapshot", {}).duplicate(true),
+			"deformation_state": state.get("deformation_state_snapshot", {}).duplicate(true),
+			"exposure_state": state.get("exposure_state_snapshot", {}).duplicate(true),
+		}
 		snapshot.transform_changed = bool(state.get("transform_changed", false))
 		snapshot.transform_changed_tiles = (state.get("transform_changed_tiles", []) as Array).duplicate(true)
 		snapshot.transform_changed_chunks = (state.get("transform_changed_chunks", []) as Array).duplicate(true)
 	return snapshot
+
+func _snapshot_transform_state(snapshot) -> Dictionary:
+	if snapshot == null:
+		return {}
+	var transform_state_variant = snapshot.transform_state
+	if transform_state_variant is Dictionary:
+		return (transform_state_variant as Dictionary).duplicate(true)
+	return {}
+
+func _snapshot_network_state(snapshot) -> Dictionary:
+	var transform_state := _snapshot_transform_state(snapshot)
+	return (transform_state.get("network_state", {}) as Dictionary).duplicate(true) if transform_state.get("network_state", {}) is Dictionary else {}
+
+func _snapshot_atmosphere_state(snapshot) -> Dictionary:
+	var transform_state := _snapshot_transform_state(snapshot)
+	return (transform_state.get("atmosphere_state", {}) as Dictionary).duplicate(true) if transform_state.get("atmosphere_state", {}) is Dictionary else {}
+
+func _snapshot_exposure_state(snapshot) -> Dictionary:
+	var transform_state := _snapshot_transform_state(snapshot)
+	return (transform_state.get("exposure_state", {}) as Dictionary).duplicate(true) if transform_state.get("exposure_state", {}) is Dictionary else {}
 
 func apply_environment_signals(snapshot) -> void:
 	if _ecology_controller != null and _ecology_controller.has_method("set_environment_signals"):
@@ -83,19 +109,19 @@ func sync_from_state(state: Dictionary, force_rebuild: bool, visual_interval_tic
 		if not force_rebuild and _environment_controller.has_method("apply_generation_delta"):
 			_environment_controller.apply_generation_delta(
 				env_signals.environment_snapshot,
-				env_signals.network_state_snapshot,
+				_snapshot_network_state(env_signals),
 				env_signals.transform_changed_tiles,
 				env_signals.transform_changed_chunks
 			)
 		elif _environment_controller.has_method("apply_generation_data"):
 			_environment_controller.apply_generation_data(
 				env_signals.environment_snapshot,
-				env_signals.network_state_snapshot
+				_snapshot_network_state(env_signals)
 			)
 	if do_visual_update and _environment_controller.has_method("set_transform_stage_a_state"):
-		_environment_controller.set_transform_stage_a_state(env_signals.atmosphere_state_snapshot)
+		_environment_controller.set_transform_stage_a_state(_snapshot_atmosphere_state(env_signals))
 	if do_visual_update and _environment_controller.has_method("set_transform_stage_d_state"):
-		_environment_controller.set_transform_stage_d_state(env_signals.exposure_state_snapshot)
+		_environment_controller.set_transform_stage_d_state(_snapshot_exposure_state(env_signals))
 	apply_environment_signals(env_signals)
 
 func update_day_night(

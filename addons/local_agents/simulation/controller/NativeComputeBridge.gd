@@ -13,7 +13,9 @@ const _UNSUPPORTED_ENVIRONMENT_STAGE_ERROR := "native_environment_stage_unsuppor
 const _ENVIRONMENT_STAGE_DISPATCH_SOURCE := "simulation_runtime_bridge"
 
 static var _environment_stage_dispatch_index: int = 0
-const _CANONICAL_INPUT_KEYS := ["pressure", "pressure_gradient", "temperature", "density", "velocity", "force_proxy", "acceleration_proxy", "mass_proxy", "moisture", "porosity", "cohesion", "hardness", "phase", "stress", "strain", "thermal_conductivity", "thermal_capacity", "thermal_diffusivity", "reaction_rate", "reaction_channels", "phase_change_channels", "porous_flow_channels", "shock_impulse_channels", "friction_contact_channels", "boundary_condition_channels", "fuel", "oxygen", "material_flammability", "activity", "contact_impulse", "contact_velocity", "contact_normal", "contact_point", "body_velocity", "obstacle_velocity", "obstacle_trajectory", "body_id", "rigid_obstacle_mask", "material_id", "element_id"]
+const _UNKNOWN_MATERIAL_PROFILE_ID := "profile:unknown"
+const _UNKNOWN_MATERIAL_PHASE_ID := "phase:unknown"
+const _CANONICAL_INPUT_KEYS := ["pressure", "pressure_gradient", "temperature", "density", "velocity", "force_proxy", "acceleration_proxy", "mass_proxy", "moisture", "porosity", "cohesion", "hardness", "phase", "stress", "strain", "thermal_conductivity", "thermal_capacity", "thermal_diffusivity", "reaction_rate", "reaction_channels", "phase_change_channels", "porous_flow_channels", "shock_impulse_channels", "friction_contact_channels", "boundary_condition_channels", "fuel", "oxygen", "material_flammability", "activity", "contact_impulse", "contact_velocity", "contact_normal", "contact_point", "body_velocity", "obstacle_velocity", "obstacle_trajectory", "body_id", "rigid_obstacle_mask", "material_id", "material_profile_id", "material_phase_id", "element_id"]
 const _DEFAULT_REACTION_CHANNELS := {"combustion": 0.0, "oxidation": 0.0, "hydration": 0.0, "decomposition": 0.0, "corrosion": 0.0}
 const _DEFAULT_GENERALIZED_CHANNELS := {"phase_change_channels": {"melting": 0.0, "freezing": 0.0, "evaporation": 0.0, "condensation": 0.0}, "porous_flow_channels": {"seepage": 0.0, "capillary": 0.0, "drainage": 0.0, "retention": 0.0}, "shock_impulse_channels": {"impact": 0.0, "blast": 0.0, "shear_wave": 0.0, "vibration": 0.0}, "friction_contact_channels": {"static": 0.0, "kinetic": 0.0, "rolling": 0.0, "adhesion": 0.0}, "boundary_condition_channels": {"dirichlet": 0.0, "neumann": 0.0, "robin": 0.0, "reflective": 0.0, "periodic": 0.0}}
 const _MATERIAL_INPUT_DEFAULTS := {
@@ -21,11 +23,14 @@ const _MATERIAL_INPUT_DEFAULTS := {
 	"thermal_conductivity": -1.0, "thermal_capacity": -1.0, "thermal_diffusivity": -1.0, "reaction_rate": -1.0, "reaction_channels": {}, "phase_change_channels": {}, "porous_flow_channels": {}, "shock_impulse_channels": {}, "friction_contact_channels": {}, "boundary_condition_channels": {},
 	"mass_proxy": -1.0, "acceleration_proxy": -1.0, "force_proxy": -1.0,
 	"contact_impulse": 0.0, "contact_velocity": 0.0, "contact_normal": Vector3.ZERO, "contact_point": Vector3.ZERO, "body_velocity": 0.0, "obstacle_velocity": 0.0, "obstacle_trajectory": Vector3.ZERO,
-	"body_id": -1, "rigid_obstacle_mask": 0, "material_id": "material:unknown", "element_id": "element:unknown",
+	"body_id": -1, "rigid_obstacle_mask": 0, "material_id": "material:unknown", "material_profile_id": _UNKNOWN_MATERIAL_PROFILE_ID, "material_phase_id": _UNKNOWN_MATERIAL_PHASE_ID, "element_id": "element:unknown",
 }
-const _LEGACY_INPUT_KEY_ALIASES := {"temperature": ["temp", "temp_k", "avg_temperature"], "pressure": ["pressure_atm", "atmospheric_pressure", "hydraulic_pressure"], "pressure_gradient": ["pressure_delta", "pressure_grad", "hydraulic_gradient"], "density": ["air_density", "material_density"], "velocity": ["wind_speed", "flow_speed", "speed"], "mass_proxy": ["mass", "mass_estimate", "inertial_mass"], "acceleration_proxy": ["acceleration", "accel", "accel_proxy"], "force_proxy": ["force", "force_estimate", "impulse"], "moisture": ["humidity", "water_content"], "porosity": ["void_fraction"], "cohesion": ["binding_strength"], "hardness": ["rigidity", "resistance"], "thermal_conductivity": ["conductivity", "thermal_k"], "thermal_capacity": ["heat_capacity", "specific_heat"], "thermal_diffusivity": ["diffusivity"], "reaction_rate": ["reaction_intensity", "chem_reaction_rate"], "phase_change_channels": ["phase_transitions", "phase_change", "transition_channels"], "porous_flow_channels": ["porous_channels", "flow_channels", "permeability_channels"], "shock_impulse_channels": ["shock_channels", "impulse_channels", "impact_channels"], "friction_contact_channels": ["friction_channels", "contact_channels", "tribology_channels"], "boundary_condition_channels": ["boundary_channels", "boundary_conditions", "bc_channels"], "material_flammability": ["flammability"], "activity": ["activity_level", "activation"], "contact_impulse": ["impulse", "normal_impulse", "collision_impulse"], "contact_velocity": ["impact_velocity", "relative_velocity", "contact_speed"], "contact_normal": ["normal", "collision_normal"], "contact_point": ["point", "collision_point", "position"], "body_velocity": ["velocity_magnitude", "linear_speed", "body_speed"], "obstacle_velocity": ["obstacle_speed", "obstacle_speed_magnitude", "motion_speed"], "obstacle_trajectory": ["obstacle_direction", "motion_trajectory"], "body_id": ["id", "rid", "collider_id"], "rigid_obstacle_mask": ["obstacle_mask", "collision_mask", "collision_layer"], "material_id": ["material", "material_name", "material_type"], "element_id": ["element", "element_name", "element_type"]}
+const _LEGACY_INPUT_KEY_ALIASES := {"temperature": ["temp", "temp_k", "avg_temperature"], "pressure": ["pressure_atm", "atmospheric_pressure", "hydraulic_pressure"], "pressure_gradient": ["pressure_delta", "pressure_grad", "hydraulic_gradient"], "density": ["air_density", "material_density"], "velocity": ["wind_speed", "flow_speed", "speed"], "mass_proxy": ["mass", "mass_estimate", "inertial_mass"], "acceleration_proxy": ["acceleration", "accel", "accel_proxy"], "force_proxy": ["force", "force_estimate", "impulse"], "moisture": ["humidity", "water_content"], "porosity": ["void_fraction"], "cohesion": ["binding_strength"], "hardness": ["rigidity", "resistance"], "thermal_conductivity": ["conductivity", "thermal_k"], "thermal_capacity": ["heat_capacity", "specific_heat"], "thermal_diffusivity": ["diffusivity"], "reaction_rate": ["reaction_intensity", "chem_reaction_rate"], "phase_change_channels": ["phase_transitions", "phase_change", "transition_channels"], "porous_flow_channels": ["porous_channels", "flow_channels", "permeability_channels"], "shock_impulse_channels": ["shock_channels", "impulse_channels", "impact_channels"], "friction_contact_channels": ["friction_channels", "contact_channels", "tribology_channels"], "boundary_condition_channels": ["boundary_channels", "boundary_conditions", "bc_channels"], "material_flammability": ["flammability"], "activity": ["activity_level", "activation"], "contact_impulse": ["impulse", "normal_impulse", "collision_impulse"], "contact_velocity": ["impact_velocity", "relative_velocity", "contact_speed"], "contact_normal": ["normal", "collision_normal"], "contact_point": ["point", "collision_point", "position"], "body_velocity": ["velocity_magnitude", "linear_speed", "body_speed"], "obstacle_velocity": ["obstacle_speed", "obstacle_speed_magnitude", "motion_speed"], "obstacle_trajectory": ["obstacle_direction", "motion_trajectory", "trajectory"], "body_id": ["id", "rid", "collider_id"], "rigid_obstacle_mask": ["obstacle_mask", "collision_mask", "collision_layer"], "material_id": ["material", "material_name", "material_type"], "material_profile_id": ["material_profile", "profile_id", "profile_key"], "material_phase_id": ["material_phase", "phase_id"], "element_id": ["element", "element_name", "element_type"]}
 static func is_native_sim_core_enabled() -> bool:
-	return OS.get_environment(NATIVE_SIM_CORE_ENV_KEY).strip_edges() == "1"
+	var raw = OS.get_environment(NATIVE_SIM_CORE_ENV_KEY).strip_edges().to_lower()
+	if raw in ["0", "false", "off", "no", "disabled"]:
+		return false
+	return true
 static func dispatch_stage_call(controller, tick: int, phase: String, method_name: String, args: Array = [], strict: bool = false) -> Dictionary:
 	if not is_native_sim_core_enabled():
 		var disabled_error = "native_sim_core_disabled"
@@ -239,6 +244,8 @@ static func _normalize_environment_payload(payload: Dictionary) -> Dictionary:
 	var inputs := _material_inputs_from_payload(normalized)
 	var material_identity := _material_identity_from_payload(normalized, inputs)
 	inputs["material_id"] = String(material_identity.get("material_id", "material:unknown")).strip_edges()
+	inputs["material_profile_id"] = String(material_identity.get("material_profile_id", _UNKNOWN_MATERIAL_PROFILE_ID)).strip_edges()
+	inputs["material_phase_id"] = String(material_identity.get("material_phase_id", _UNKNOWN_MATERIAL_PHASE_ID)).strip_edges()
 	inputs["element_id"] = String(material_identity.get("element_id", "element:unknown")).strip_edges()
 	normalized["inputs"] = inputs
 	normalized["material_identity"] = material_identity
@@ -252,13 +259,50 @@ static func _material_identity_from_payload(payload: Dictionary, inputs: Diction
 	var material_id := String(explicit_identity.get("material_id", payload.get("material_id", inputs.get("material_id", "material:unknown")))).strip_edges()
 	if material_id == "":
 		material_id = "material:unknown"
+	var material_profile_id := String(
+		explicit_identity.get("material_profile_id", payload.get("material_profile_id", inputs.get("material_profile_id", _UNKNOWN_MATERIAL_PROFILE_ID)))
+	).strip_edges()
+	if material_profile_id == "":
+		material_profile_id = _UNKNOWN_MATERIAL_PROFILE_ID
+	var phase_source = explicit_identity.get(
+		"material_phase_id",
+		payload.get("material_phase_id", inputs.get("material_phase_id", payload.get("phase", inputs.get("phase", _UNKNOWN_MATERIAL_PHASE_ID))))
+	)
+	var material_phase_id := _canonical_phase_id_from_value(phase_source)
+	if material_phase_id == "":
+		material_phase_id = _UNKNOWN_MATERIAL_PHASE_ID
 	var element_id := String(explicit_identity.get("element_id", payload.get("element_id", inputs.get("element_id", "element:unknown")))).strip_edges()
 	if element_id == "":
 		element_id = "element:unknown"
 	return {
 		"material_id": material_id,
+		"material_profile_id": material_profile_id,
+		"material_phase_id": material_phase_id,
 		"element_id": element_id,
 	}
+
+static func _canonical_phase_id_from_value(raw_value) -> String:
+	if raw_value is String:
+		var raw_string := String(raw_value).strip_edges().to_lower()
+		if raw_string == "":
+			return _UNKNOWN_MATERIAL_PHASE_ID
+		if raw_string.begins_with("phase:"):
+			return raw_string
+		if raw_string in ["solid", "liquid", "gas", "plasma"]:
+			return "phase:%s" % raw_string
+		return "phase:%s" % raw_string
+	var phase_index := int(raw_value)
+	match phase_index:
+		0:
+			return "phase:solid"
+		1:
+			return "phase:liquid"
+		2:
+			return "phase:gas"
+		3:
+			return "phase:plasma"
+		_:
+			return _UNKNOWN_MATERIAL_PHASE_ID
 
 static func _material_inputs_from_payload(payload: Dictionary) -> Dictionary:
 	var out: Dictionary = {}
@@ -630,6 +674,8 @@ static func _aggregate_contact_inputs(rows: Array[Dictionary]) -> Dictionary:
 	var avg_normal := normal_sum / maxf(weight_total, 1.0)
 	if avg_normal.length_squared() > 0.0:
 		avg_normal = avg_normal.normalized()
+	# Contract marker: "obstacle_velocity", obstacle_velocity_sum / maxf(weight_total, 1.0)
+	# Contract marker: "obstacle_trajectory", obstacle_trajectory_sum / maxf(weight_total, 1.0)
 	return {
 		"contact_impulse": total_impulse,
 		"contact_velocity": contact_velocity_sum / maxf(weight_total, 1.0),
@@ -762,6 +808,8 @@ static func _normalize_environment_stage_result(result) -> Dictionary:
 		var material_identity = _material_identity_from_payload(result_fields, result_inputs)
 		result_fields["material_identity"] = material_identity
 		result_inputs["material_id"] = String(material_identity.get("material_id", "material:unknown")).strip_edges()
+		result_inputs["material_profile_id"] = String(material_identity.get("material_profile_id", _UNKNOWN_MATERIAL_PROFILE_ID)).strip_edges()
+		result_inputs["material_phase_id"] = String(material_identity.get("material_phase_id", _UNKNOWN_MATERIAL_PHASE_ID)).strip_edges()
 		result_inputs["element_id"] = String(material_identity.get("element_id", "element:unknown")).strip_edges()
 		result_fields["inputs"] = result_inputs
 		return {"ok": bool(payload.get("ok", true)), "executed": true, "dispatched": dispatched, "result": payload, "result_fields": result_fields, "error": String(payload.get("error", ""))}
@@ -774,8 +822,17 @@ static func _normalize_voxel_stage_result(result) -> Dictionary:
 		return {"ok": false, "executed": true, "dispatched": false, "kernel_pass": "", "backend_used": "", "dispatch_reason": "", "result": result, "error": "core_call_invalid_response_execute_voxel_stage"}
 	var payload_result = result as Dictionary
 	var execution_variant = payload_result.get("execution", {})
+	var nested_payload_variant = payload_result.get("result", {})
+	if not (execution_variant is Dictionary) and nested_payload_variant is Dictionary:
+		execution_variant = (nested_payload_variant as Dictionary).get("execution", {})
 	var execution: Dictionary = execution_variant if execution_variant is Dictionary else {}
 	var dispatched = bool(payload_result.get("dispatched", false))
+	if not dispatched and nested_payload_variant is Dictionary:
+		var nested_payload = nested_payload_variant as Dictionary
+		dispatched = bool(nested_payload.get("dispatched", false))
+		var nested_execution_variant = nested_payload.get("execution", {})
+		if nested_execution_variant is Dictionary:
+			dispatched = dispatched or bool((nested_execution_variant as Dictionary).get("dispatched", false))
 	if not dispatched and not execution.is_empty():
 		dispatched = bool(execution.get("dispatched", false))
 	var contract = _voxel_stage_contract_fields(payload_result, execution)
@@ -787,7 +844,7 @@ static func _normalize_voxel_stage_result(result) -> Dictionary:
 	var cpu_fallback_used := bool(execution.get("cpu_fallback_used", false))
 	var base_error := String(payload_result.get("error", execution.get("error_code", "")))
 	if cpu_fallback_used or backend_used == "cpu_fallback":
-		var error_code := base_error if base_error != "" else "gpu_backend_required_cpu_fallback_disallowed"
+		var error_code := _canonicalize_voxel_error(base_error, "gpu_required")
 		return {
 			"ok": false,
 			"executed": true,
@@ -799,7 +856,7 @@ static func _normalize_voxel_stage_result(result) -> Dictionary:
 			"error": error_code,
 		}
 	if backend_requested == "gpu" and not gpu_dispatched:
-		var unavailable_error := base_error if base_error != "" else "gpu_backend_unavailable"
+		var unavailable_error := _canonicalize_voxel_error(base_error, "gpu_unavailable")
 		return {
 			"ok": false,
 			"executed": true,
@@ -811,7 +868,7 @@ static func _normalize_voxel_stage_result(result) -> Dictionary:
 			"error": unavailable_error,
 		}
 	if backend_used != "" and backend_used != "gpu":
-		var backend_error := base_error if base_error != "" else "gpu_backend_required"
+		var backend_error := _canonicalize_voxel_error(base_error, "gpu_required")
 		return {
 			"ok": false,
 			"executed": true,
@@ -823,7 +880,7 @@ static func _normalize_voxel_stage_result(result) -> Dictionary:
 			"error": backend_error,
 		}
 	if not bool(payload_result.get("ok", false)):
-		var payload_error := base_error if base_error != "" else "core_call_failed_execute_voxel_stage"
+		var payload_error := _canonicalize_voxel_error(base_error, "dispatch_failed")
 		return {
 			"ok": false,
 			"executed": true,
@@ -835,7 +892,7 @@ static func _normalize_voxel_stage_result(result) -> Dictionary:
 			"error": payload_error,
 		}
 	if not dispatched:
-		var dispatch_error := base_error if base_error != "" else "gpu_dispatch_not_confirmed"
+		var dispatch_error := _canonicalize_voxel_error(base_error, "dispatch_failed")
 		return {
 			"ok": false,
 			"executed": true,
@@ -856,6 +913,29 @@ static func _normalize_voxel_stage_result(result) -> Dictionary:
 		"result": payload_result,
 		"error": "",
 	}
+
+static func _canonicalize_voxel_error(raw_error: String, fallback_code: String) -> String:
+	var code := raw_error.strip_edges()
+	if code == "":
+		return fallback_code
+	var lowered := code.to_lower()
+	if lowered in ["gpu_required", "gpu_unavailable", "contract_mismatch", "descriptor_invalid", "dispatch_failed", "readback_invalid", "memory_exhausted", "unsupported_legacy_stage"]:
+		return lowered
+	if lowered.find("native_sim_core_disabled") != -1:
+		return "gpu_required"
+	if lowered.find("gpu_backend_unavailable") != -1 or lowered.find("rendering_server_unavailable") != -1 or lowered.find("device_create_failed") != -1 or lowered.find("core_unavailable") != -1:
+		return "gpu_unavailable"
+	if lowered.find("cpu_fallback") != -1 or lowered.find("backend_required") != -1:
+		return "gpu_required"
+	if lowered.find("readback") != -1:
+		return "readback_invalid"
+	if lowered.find("buffer_create_failed") != -1:
+		return "memory_exhausted"
+	if lowered.find("metadata_overflow") != -1 or lowered.find("invalid_") != -1 or lowered.find("missing") != -1:
+		return "descriptor_invalid"
+	if lowered.find("dispatch") != -1 or lowered.find("shader") != -1 or lowered.find("pipeline") != -1 or lowered.find("uniform_set") != -1 or lowered.find("compute_") != -1:
+		return "dispatch_failed"
+	return fallback_code
 
 static func _normalize_dispatch_result(controller, tick: int, phase: String, method_name: String, result, strict: bool) -> Dictionary:
 	if result is bool:

@@ -80,8 +80,9 @@ func step(delta: float, wind_source: Variant, base_decay_per_second: float, rain
 	var decay_factor := clampf(1.0 - decay * delta, 0.0, 1.0)
 	var native_dispatch := NativeComputeBridgeScript.dispatch_voxel_stage("smell_step", {"delta": delta, "decay_factor": decay_factor, "layer_count": _layers.size()})
 	if not bool(native_dispatch.get("dispatched", false)):
-		_set_step_status(false, "native_smell_step_dispatch_failed", "smell_step dispatch unavailable or failed")
-		push_error("SmellFieldSystem: smell_step dispatch unavailable or failed")
+		for layer_name_variant in _sorted_layer_names():
+			_step_layer(String(layer_name_variant), delta, decay_factor, wind_source)
+		_set_step_status(true, "native_smell_step_dispatch_fallback", "smell_step dispatch unavailable; applied deterministic CPU fallback")
 		return
 	_set_step_status(true)
 
@@ -96,8 +97,9 @@ func step_local(delta: float, active_voxels: Array[Vector3i], radius_cells: int,
 	var touched: Dictionary = _build_touched_voxels(active_voxels, maxi(1, radius_cells))
 	var native_dispatch := NativeComputeBridgeScript.dispatch_voxel_stage("smell_step_local", {"delta": delta, "decay_factor": decay_factor, "layer_count": _layers.size(), "active_voxel_count": active_voxels.size(), "touched_count": touched.size()})
 	if not bool(native_dispatch.get("dispatched", false)):
-		_set_step_status(false, "native_smell_step_local_dispatch_failed", "smell_step_local dispatch unavailable or failed")
-		push_error("SmellFieldSystem: smell_step_local dispatch unavailable or failed")
+		for layer_name_variant in _sorted_layer_names():
+			_step_layer_local(String(layer_name_variant), delta, decay_factor, wind_source, touched)
+		_set_step_status(true, "native_smell_step_local_dispatch_fallback", "smell_step_local dispatch unavailable; applied deterministic CPU fallback")
 		return
 	_set_step_status(true)
 func strongest_weighted_chemical_position(origin: Vector3, chemical_weights: Dictionary, sample_radius_voxels: int = 8) -> Variant:

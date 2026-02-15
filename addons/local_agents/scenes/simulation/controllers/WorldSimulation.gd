@@ -12,6 +12,7 @@ const VoxelRateTierSchedulerScript = preload("res://addons/local_agents/simulati
 const WorldCameraControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldCameraController.gd")
 const WorldHudBindingControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldHudBindingController.gd")
 const WorldEnvironmentSyncControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldEnvironmentSyncController.gd")
+const WorldGraphicsTargetWallControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldGraphicsTargetWallController.gd")
 const FpsLauncherControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd")
 const _VOXEL_NATIVE_STAGE_NAME := &"physics_failure_emission"
 
@@ -41,6 +42,8 @@ const _VOXEL_NATIVE_STAGE_NAME := &"physics_failure_emission"
 @export var min_pitch_degrees: float = 18.0
 @export var max_pitch_degrees: float = 82.0
 @export var flow_traversal_profile_override: Resource
+@export var target_wall_profile_override: Resource
+@export var fps_launcher_profile_override: Resource
 @export var worldgen_config_override: Resource
 @export var world_progression_profile_override: Resource
 @export var enable_cognition_runtime: bool = false
@@ -107,6 +110,7 @@ var _system_toggle_state: Dictionary = {
 var _camera_controller = WorldCameraControllerScript.new()
 var _hud_binding_controller = WorldHudBindingControllerScript.new()
 var _environment_sync_controller = WorldEnvironmentSyncControllerScript.new()
+var _graphics_target_wall_controller = WorldGraphicsTargetWallControllerScript.new()
 var _ecology_controller: Node = null
 
 func _ready() -> void:
@@ -125,6 +129,7 @@ func _ready() -> void:
 		world_progression_profile_override = WorldProgressionProfileResourceScript.new()
 	if simulation_controller.has_method("set_flow_traversal_profile") and flow_traversal_profile_override != null:
 		simulation_controller.set_flow_traversal_profile(flow_traversal_profile_override)
+	_sync_target_wall_profile(false)
 
 	_camera_controller.configure(world_camera, orbit_sensitivity, pan_sensitivity, zoom_step_ratio, min_zoom_distance, max_zoom_distance, min_pitch_degrees, max_pitch_degrees)
 	_environment_sync_controller.configure(environment_controller, world_environment, sun_light, simulation_controller, _ecology_controller, _loop_controller, _atmosphere_cycle)
@@ -134,8 +139,7 @@ func _ready() -> void:
 		fps_launcher_controller.name = "FpsLauncherController"
 		add_child(fps_launcher_controller)
 	if fps_launcher_controller.has_method("configure"):
-		fps_launcher_controller.call("configure", world_camera, self)
-
+		fps_launcher_controller.call("configure", world_camera, self, fps_launcher_profile_override)
 	_hud_binding_controller.connect_simulation_hud(simulation_hud, {
 		"play": Callable(self, "_on_hud_play_pressed"),
 		"pause": Callable(self, "_on_hud_pause_pressed"),
@@ -159,7 +163,6 @@ func _ready() -> void:
 		_ecology_controller.call("set_debug_overlay", debug_overlay_root)
 	if not auto_generate_on_ready:
 		return
-
 	if simulation_controller.has_method("configure"):
 		simulation_controller.configure(world_seed_text, false, false)
 	if simulation_controller.has_method("set_cognition_features"):
@@ -170,12 +173,10 @@ func _ready() -> void:
 	var setup: Dictionary = simulation_controller.configure_environment(worldgen_config_override)
 	if not bool(setup.get("ok", false)):
 		return
-	if simulation_controller.has_method("stamp_default_voxel_target_wall"):
-		var wall_result = simulation_controller.call("stamp_default_voxel_target_wall", 0, world_camera.global_transform, false)
-		if wall_result is Dictionary and bool((wall_result as Dictionary).get("changed", false)):
-			var wall = wall_result as Dictionary
-			setup["environment"] = wall.get("environment_snapshot", setup.get("environment", {}))
-			setup["network_state_snapshot"] = wall.get("network_state_snapshot", setup.get("network_state_snapshot", {}))
+	var wall_result := _graphics_target_wall_controller.stamp_target_wall(simulation_controller, world_camera, 0, false)
+	if bool(wall_result.get("changed", false)):
+		setup["environment"] = wall_result.get("environment_snapshot", setup.get("environment", {}))
+		setup["network_state_snapshot"] = wall_result.get("network_state_snapshot", setup.get("network_state_snapshot", {}))
 	if environment_controller.has_method("apply_generation_data"):
 		environment_controller.apply_generation_data(setup.get("environment", {}), setup.get("network_state_snapshot", {}))
 	if environment_controller.has_method("set_transform_stage_a_state"):
@@ -187,7 +188,6 @@ func _ready() -> void:
 	_apply_environment_signals(_build_environment_signal_snapshot_from_setup(setup, 0))
 	if settlement_controller.has_method("spawn_initial_settlement"):
 		settlement_controller.spawn_initial_settlement(setup.get("spawn", {}))
-
 	var initial_snapshot: Dictionary = {}
 	if simulation_controller.has_method("current_snapshot"):
 		initial_snapshot = simulation_controller.current_snapshot(0)
@@ -207,10 +207,6 @@ func _process(delta: float) -> void:
 			var rows_variant = fps_launcher_controller.call("sample_active_projectile_contact_rows")
 			if rows_variant is Array:
 				projectile_contact_rows = rows_variant as Array
-		elif fps_launcher_controller.has_method("sample_active_projectile_contacts"):
-			var rows_variant = fps_launcher_controller.call("sample_active_projectile_contacts")
-			if rows_variant is Array:
-				projectile_contact_rows = rows_variant as Array
 	_push_native_view_metrics()
 	_process_native_voxel_rate(delta)
 	_apply_loop_result(_loop_controller.process_frame(delta, Callable(self, "_collect_living_entity_profiles"), projectile_contact_rows))
@@ -218,6 +214,11 @@ func _process(delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not camera_controls_enabled:
 		return
+	if event is InputEventKey:
+		var key_event = event as InputEventKey
+		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_SPACE:
+			_try_fire_from_screen_center()
+			return
 	if event is InputEventMouseMotion:
 		_handle_camera_mouse_motion(event as InputEventMouseMotion)
 		return
@@ -227,8 +228,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		if mouse_event.button_index == MOUSE_BUTTON_LEFT and mouse_event.pressed:
 			if _spawn_mode != "none":
 				_handle_spawn_click(mouse_event.position)
-			elif fps_launcher_controller != null and fps_launcher_controller.has_method("try_fire_from_screen_center"):
-				fps_launcher_controller.call("try_fire_from_screen_center")
+			else:
+				_try_fire_from_screen_center()
+
+func _try_fire_from_screen_center() -> void:
+	if _spawn_mode != "none":
+		return
+	if fps_launcher_controller != null and fps_launcher_controller.has_method("try_fire_from_screen_center"):
+		fps_launcher_controller.call("try_fire_from_screen_center")
 
 func _on_field_spawn_mode_requested(mode: String) -> void:
 	_spawn_mode = mode
@@ -336,9 +343,14 @@ func _on_hud_overlays_changed(paths: bool, resources: bool, conflicts: bool, sme
 		debug_overlay_root.call("set_visibility_flags", paths, resources, conflicts, smell, wind, temperature)
 
 func _on_hud_graphics_option_changed(option_id: String, value) -> void:
-	var key := String(option_id)
-	_graphics_state[key] = _environment_sync_controller.sanitize_graphics_value(key, value)
-	_apply_graphics_state()
+	_graphics_state = _graphics_target_wall_controller.apply_hud_graphics_option(
+		_graphics_state,
+		option_id,
+		value,
+		_environment_sync_controller
+	)
+	var restamp_target_wall := _graphics_target_wall_controller.is_target_wall_graphics_option(option_id)
+	_apply_graphics_state(restamp_target_wall)
 
 func set_runtime_demo_profile(profile_id: String) -> void:
 	_apply_runtime_demo_profile(profile_id)
@@ -346,18 +358,53 @@ func set_runtime_demo_profile(profile_id: String) -> void:
 func runtime_demo_profile_id() -> String:
 	return _runtime_demo_profile_applied if _runtime_demo_profile_applied != "" else _sanitize_runtime_demo_profile(runtime_demo_profile)
 
-func _apply_graphics_state() -> void:
-	_graphics_state = _environment_sync_controller.apply_graphics_state(
+func _apply_graphics_state(restamp_target_wall: bool = false) -> void:
+	_graphics_state = _graphics_target_wall_controller.apply_graphics_state(
 		_graphics_state,
+		_environment_sync_controller,
 		simulation_ticks_per_second,
 		living_profile_push_interval_ticks
 	)
 	_apply_runtime_system_toggles()
 	_configure_voxel_scheduler()
-	if _graphics_state.has("_visual_environment_update_interval_ticks"):
-		visual_environment_update_interval_ticks = maxi(1, int(_graphics_state.get("_visual_environment_update_interval_ticks", visual_environment_update_interval_ticks)))
-		_graphics_state.erase("_visual_environment_update_interval_ticks")
+	var interval_payload := _graphics_target_wall_controller.consume_visual_environment_interval(
+		_graphics_state,
+		visual_environment_update_interval_ticks
+	)
+	var graphics_state_variant = interval_payload.get("graphics_state", _graphics_state)
+	if graphics_state_variant is Dictionary:
+		_graphics_state = (graphics_state_variant as Dictionary).duplicate(true)
+	visual_environment_update_interval_ticks = maxi(1, int(interval_payload.get("visual_environment_update_interval_ticks", visual_environment_update_interval_ticks)))
+	_sync_target_wall_profile(restamp_target_wall)
 	_hud_binding_controller.push_graphics_state(simulation_hud, _graphics_state)
+
+func _sync_target_wall_profile(restamp_target_wall: bool) -> void:
+	var profile_payload := _graphics_target_wall_controller.sync_target_wall_profile(
+		target_wall_profile_override,
+		_graphics_state,
+		simulation_controller
+	)
+	var profile_variant = profile_payload.get("profile", target_wall_profile_override)
+	if profile_variant is Resource:
+		target_wall_profile_override = profile_variant as Resource
+	if restamp_target_wall and bool(profile_payload.get("profile_changed", false)):
+		var tick := _loop_controller.current_tick() if _loop_controller != null else 0
+		_apply_target_wall_restamp_result(_graphics_target_wall_controller.stamp_target_wall(simulation_controller, world_camera, tick, false), tick)
+
+func _apply_target_wall_restamp_result(wall_result: Dictionary, tick: int) -> void:
+	if wall_result.is_empty() or not bool(wall_result.get("changed", false)):
+		return
+	_sync_environment_from_state({
+		"tick": tick,
+		"environment_snapshot": wall_result.get("environment_snapshot", simulation_controller.current_environment_snapshot() if simulation_controller.has_method("current_environment_snapshot") else {}),
+		"network_state_snapshot": wall_result.get("network_state_snapshot", simulation_controller.current_network_state_snapshot() if simulation_controller.has_method("current_network_state_snapshot") else {}),
+		"atmosphere_state_snapshot": simulation_controller.call("get_atmosphere_state_snapshot") if simulation_controller.has_method("get_atmosphere_state_snapshot") else {},
+		"deformation_state_snapshot": simulation_controller.call("get_deformation_state_snapshot") if simulation_controller.has_method("get_deformation_state_snapshot") else {},
+		"exposure_state_snapshot": simulation_controller.call("get_exposure_state_snapshot") if simulation_controller.has_method("get_exposure_state_snapshot") else {},
+		"transform_changed": true,
+		"transform_changed_tiles": (wall_result.get("changed_tiles", []) as Array).duplicate(true),
+		"transform_changed_chunks": (wall_result.get("changed_chunks", []) as Array).duplicate(true),
+	}, false)
 
 func _apply_runtime_system_toggles() -> void:
 	var transform_stage_a_system_enabled: bool = bool(_graphics_state.get("transform_stage_a_system_enabled", true))
@@ -566,7 +613,7 @@ func _process_native_voxel_rate(delta: float) -> void:
 			_record_native_voxel_dispatch_failure(tick, tier_id, "", "invalid_dispatch_result", dispatch_duration_ms, false, {})
 			continue
 		var dispatch = dispatch_variant as Dictionary
-		var backend_used := String(dispatch.get("backend_used", ""))
+		var backend_used := _graphics_target_wall_controller.normalize_gpu_backend_used(dispatch)
 		var dispatch_reason := String(dispatch.get("dispatch_reason", ""))
 		if not bool(dispatch.get("dispatched", false)):
 			_fail_native_voxel_dependency(tick, "native voxel stage was not dispatched", tier_id, dispatch_reason, dispatch_duration_ms, dispatch)

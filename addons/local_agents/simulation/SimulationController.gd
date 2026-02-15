@@ -21,6 +21,7 @@ const StructureLifecycleSystemScript = preload("res://addons/local_agents/simula
 const BranchAnalysisServiceScript = preload("res://addons/local_agents/simulation/BranchAnalysisService.gd")
 const CulturalCycleSystemScript = preload("res://addons/local_agents/simulation/CulturalCycleSystem.gd")
 const FlowTraversalProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FlowTraversalProfileResource.gd")
+const TargetWallProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/TargetWallProfileResource.gd")
 const FlowFormationConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FlowFormationConfigResource.gd")
 const FlowRuntimeConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FlowRuntimeConfigResource.gd")
 const StructureLifecycleConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/StructureLifecycleConfigResource.gd")
@@ -81,6 +82,7 @@ var _transform_changed_tiles_last_tick: Array = []
 var _spawn_artifact: Dictionary = {}
 var _flow_network_system
 var _flow_traversal_profile
+var _target_wall_profile
 var _flow_formation_config
 var _flow_runtime_config
 var _structure_lifecycle_system
@@ -312,6 +314,15 @@ func set_profession_profile(profile_resource) -> void:
 func set_flow_traversal_profile(profile_resource) -> void:
 	SimulationConfigControllerScript.set_flow_traversal_profile(self, profile_resource)
 
+func set_target_wall_profile(profile_resource) -> void:
+	if profile_resource == null:
+		_target_wall_profile = null
+		return
+	if profile_resource is TargetWallProfileResourceScript:
+		_target_wall_profile = profile_resource
+		return
+	_target_wall_profile = profile_resource
+
 func set_flow_formation_config(config_resource) -> void:
 	SimulationConfigControllerScript.set_flow_formation_config(self, config_resource)
 
@@ -411,7 +422,7 @@ func execute_native_voxel_stage(tick: int, stage_name: StringName, payload: Dict
 	return SimulationRuntimeFacadeScript.execute_native_voxel_stage(self, tick, stage_name, payload, strict)
 
 func stamp_default_voxel_target_wall(tick: int, camera_transform: Transform3D, strict: bool = false) -> Dictionary:
-	return SimulationRuntimeFacadeScript.stamp_default_voxel_target_wall(self, tick, camera_transform, strict)
+	return SimulationRuntimeFacadeScript.stamp_default_voxel_target_wall(self, tick, camera_transform, _target_wall_profile, strict)
 
 func _enqueue_thought_npcs(npc_ids: Array) -> void:
 	SimulationRuntimeFacadeScript.enqueue_thought_npcs(self, npc_ids)

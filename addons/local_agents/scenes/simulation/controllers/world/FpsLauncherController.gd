@@ -3,11 +3,13 @@ class_name FpsLauncherController
 
 const DEFAULT_PROJECTILE_SCENE = preload("res://addons/local_agents/scenes/simulation/actors/FpsLauncherProjectile.tscn")
 const PhysicsServerContactBridgeScript = preload("res://addons/local_agents/simulation/controller/PhysicsServerContactBridge.gd")
+const FpsLauncherProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FpsLauncherProfileResource.gd")
 
 @export var projectile_scene: PackedScene = DEFAULT_PROJECTILE_SCENE
 @export_range(1.0, 300.0, 0.5) var launch_speed: float = 60.0
 @export_range(0.05, 20.0, 0.01) var launch_mass: float = 0.2
 @export_range(0.1, 20.0, 0.1) var projectile_ttl_seconds: float = 4.0
+@export_range(0.02, 2.0, 0.01) var projectile_radius: float = 0.07
 @export_range(0.1, 5.0, 0.1) var spawn_distance: float = 0.8
 @export_range(0.01, 2.0, 0.01) var cooldown_seconds: float = 0.15
 @export_range(1, 256, 1) var max_active_projectiles: int = 24
@@ -23,6 +25,8 @@ const _LAUNCH_MASS_MIN := 0.05
 const _LAUNCH_MASS_MAX := 20.0
 const _TTL_MIN := 0.1
 const _TTL_MAX := 20.0
+const _RADIUS_MIN := 0.02
+const _RADIUS_MAX := 2.0
 const _ENERGY_SCALE_MIN := 0.1
 const _ENERGY_SCALE_MAX := 180.0
 
@@ -31,9 +35,42 @@ var _spawn_parent: Node3D = null
 var _cooldown_remaining: float = 0.0
 var _active_projectiles: Array[RigidBody3D] = []
 
-func configure(active_camera: Camera3D, spawn_parent: Node3D) -> void:
+func configure(active_camera: Camera3D, spawn_parent: Node3D, profile_resource: Resource = null) -> void:
 	_camera = active_camera
 	_spawn_parent = spawn_parent
+	_apply_profile_resource(profile_resource)
+
+func _apply_profile_resource(profile_resource: Resource) -> void:
+	if profile_resource == null:
+		return
+	var values: Dictionary = {}
+	if profile_resource is FpsLauncherProfileResourceScript:
+		values = (profile_resource as FpsLauncherProfileResourceScript).to_dict()
+	elif profile_resource.has_method("to_dict"):
+		var values_variant = profile_resource.call("to_dict")
+		if values_variant is Dictionary:
+			values = (values_variant as Dictionary).duplicate(true)
+	if values.is_empty():
+		var launch_speed_value: Variant = profile_resource.get("launch_speed")
+		if launch_speed_value != null:
+			values["launch_speed"] = launch_speed_value
+		var launch_mass_value: Variant = profile_resource.get("launch_mass")
+		if launch_mass_value != null:
+			values["launch_mass"] = launch_mass_value
+		var projectile_radius_value: Variant = profile_resource.get("projectile_radius")
+		if projectile_radius_value != null:
+			values["projectile_radius"] = projectile_radius_value
+		var projectile_ttl_value: Variant = profile_resource.get("projectile_ttl_seconds")
+		if projectile_ttl_value != null:
+			values["projectile_ttl_seconds"] = projectile_ttl_value
+		var launch_energy_scale_value: Variant = profile_resource.get("launch_energy_scale")
+		if launch_energy_scale_value != null:
+			values["launch_energy_scale"] = launch_energy_scale_value
+	launch_speed = clampf(float(values.get("launch_speed", launch_speed)), _LAUNCH_SPEED_MIN, _LAUNCH_SPEED_MAX)
+	launch_mass = clampf(float(values.get("launch_mass", launch_mass)), _LAUNCH_MASS_MIN, _LAUNCH_MASS_MAX)
+	projectile_radius = clampf(float(values.get("projectile_radius", projectile_radius)), _RADIUS_MIN, _RADIUS_MAX)
+	projectile_ttl_seconds = clampf(float(values.get("projectile_ttl_seconds", projectile_ttl_seconds)), _TTL_MIN, _TTL_MAX)
+	launch_energy_scale = clampf(float(values.get("launch_energy_scale", launch_energy_scale)), _ENERGY_SCALE_MIN, _ENERGY_SCALE_MAX)
 
 func handle_hotkey(event: InputEvent) -> bool:
 	if not (event is InputEventKey):
@@ -136,9 +173,8 @@ func try_fire_from_screen_center() -> bool:
 	if projectile.has_node("CollisionShape3D"):
 		var collision = projectile.get_node("CollisionShape3D")
 		if collision is CollisionShape3D and collision.shape is SphereShape3D:
-			var sphere = collision.shape as SphereShape3D
 			var adjusted_shape = SphereShape3D.new()
-			adjusted_shape.radius = maxf(0.02, sphere.radius)
+			adjusted_shape.radius = clampf(projectile_radius, _RADIUS_MIN, _RADIUS_MAX)
 			collision.shape = adjusted_shape
 	_active_projectiles.append(projectile)
 	projectile.tree_exited.connect(_on_projectile_tree_exited.bind(projectile), CONNECT_ONE_SHOT)

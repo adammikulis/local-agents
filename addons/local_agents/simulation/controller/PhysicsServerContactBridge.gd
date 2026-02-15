@@ -36,7 +36,7 @@ static func summarize_contact_rows(rows: Array) -> Dictionary:
 		if not (row_variant is Dictionary):
 			continue
 		var row: Dictionary = row_variant
-		var impulse := float(row.get("contact_impulse", 0.0))
+		var impulse := _to_float(row.get("contact_impulse", 0.0))
 		var normal := _vector3_or_zero(row.get("contact_normal", Vector3.ZERO))
 		impulse_sum += impulse
 		normal_y_sum += normal.y
@@ -45,7 +45,7 @@ static func summarize_contact_rows(rows: Array) -> Dictionary:
 		contact_count += 1
 	var avg_normal_y := 0.0
 	if contact_count > 0:
-		avg_normal_y = normal_y_sum / float(contact_count)
+		avg_normal_y = normal_y_sum / _to_float(contact_count, 1.0)
 	return {
 		"impulse_sum": impulse_sum,
 		"contact_count": contact_count,
@@ -162,11 +162,11 @@ static func _sample_body_mass(body_variant) -> float:
 	if body.has_method("get_mass"):
 		var mass_variant = body.call("get_mass")
 		if mass_variant is float or mass_variant is int:
-			return maxf(0.0, float(mass_variant))
+			return maxf(0.0, _to_float(mass_variant))
 	if body.has_method("get_total_mass"):
 		var mass_variant = body.call("get_total_mass")
 		if mass_variant is float or mass_variant is int:
-			return maxf(0.0, float(mass_variant))
+			return maxf(0.0, _to_float(mass_variant))
 	return 0.0
 
 
@@ -212,7 +212,7 @@ static func _sample_contact_impulse(state, contact_index: int) -> float:
 	if state == null:
 		return 0.0
 	if state.has_method("get_contact_impulse"):
-		return maxf(0.0, float(state.call("get_contact_impulse", contact_index)))
+		return maxf(0.0, _to_float(state.call("get_contact_impulse", contact_index)))
 	return 0.0
 
 
@@ -263,8 +263,8 @@ static func _sort_contact_rows(a, b) -> bool:
 	var right_collider := int(right.get("collider_id", 0))
 	if left_collider != right_collider:
 		return left_collider < right_collider
-	var left_impulse := float(left.get("contact_impulse", 0.0))
-	var right_impulse := float(right.get("contact_impulse", 0.0))
+	var left_impulse := _to_float(left.get("contact_impulse", 0.0))
+	var right_impulse := _to_float(right.get("contact_impulse", 0.0))
 	if not is_equal_approx(left_impulse, right_impulse):
 		return left_impulse < right_impulse
 	var left_point := _vector3_or_zero(left.get("contact_point", Vector3.ZERO))
@@ -276,3 +276,23 @@ static func _sort_contact_rows(a, b) -> bool:
 	if not is_equal_approx(left_point.z, right_point.z):
 		return left_point.z < right_point.z
 	return false
+
+
+static func _to_float(value, fallback: float = 0.0) -> float:
+	if value is float:
+		return value
+	if value is int:
+		return value * 1.0
+	if value is String:
+		return value.to_float()
+	if value is Vector3:
+		return value.length()
+	if value is Vector2:
+		return value.length()
+	if value is bool:
+		return 1.0 if value else 0.0
+	if value is Dictionary:
+		return _to_float(value.get("magnitude", 0.0), fallback)
+	if value is Array and not value.is_empty():
+		return _to_float(value[0], fallback)
+	return fallback

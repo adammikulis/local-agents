@@ -91,20 +91,29 @@ func search_code(query: String, top_k: int = 5, expand: int = 64) -> Array:
     var matches := _graph.search_embeddings(emb, top_k, expand)
     var results: Array = []
     for match in matches:
-        var node_id := int(match.get("node_id", -1))
+        if not (match is Dictionary):
+            continue
+        var match_row: Dictionary = match
+        var node_id := int(match_row.get("node_id", -1))
         if node_id == -1:
             continue
-        var node := _graph.get_node(node_id)
+        var node_variant = _graph.get_node(node_id)
+        if not (node_variant is Dictionary):
+            continue
+        var node: Dictionary = node_variant
         if node.is_empty():
             continue
-        var data: Dictionary = node.get("data", {})
+        var data_variant = node.get("data", {})
+        if not (data_variant is Dictionary):
+            continue
+        var data: Dictionary = data_variant
         results.append({
             "node_id": node_id,
             "path": data.get("path", ""),
             "extension": data.get("extension", ""),
-            "similarity": float(match.get("similarity", 0.0)),
+            "similarity": float(match_row.get("similarity", 0.0)),
         })
-    results.sort_custom(func(a, b): return float(a.get("similarity", 0.0)) > float(b.get("similarity", 0.0)))
+    results.sort_custom(_sort_results_by_similarity)
     return results
 
 func list_code_nodes(limit: int = 256, offset: int = 0) -> Array:
@@ -154,19 +163,35 @@ func _store_code_embedding(node_id: int, content: String) -> void:
     if emb.is_empty():
         return
     var embedding_model := _resolve_embedding_model(runtime)
+    var node_variant = _graph.get_node(node_id)
+    var node_data: Dictionary = {}
+    if node_variant is Dictionary:
+        var node: Dictionary = node_variant
+        var node_data_variant = node.get("data", {})
+        if node_data_variant is Dictionary:
+            node_data = node_data_variant
     _graph.add_embedding(node_id, emb, {
         "type": "code_chunk",
-        "path": _graph.get_node(node_id).get("data", {}).get("path", ""),
+        "path": node_data.get("path", ""),
         "embedding_model": embedding_model,
     })
 
 func _clear_code_space() -> void:
     var code_nodes := _graph.list_nodes(CODE_SPACE, 65536, 0)
     for row in code_nodes:
-        _graph.remove_node(int(row.get("id", -1)))
+        if not (row is Dictionary):
+            continue
+        var code_row: Dictionary = row
+        _graph.remove_node(int(code_row.get("id", -1)))
     var dir_nodes := _graph.list_nodes(DIRECTORY_SPACE, 65536, 0)
     for row in dir_nodes:
-        _graph.remove_node(int(row.get("id", -1)))
+        if not (row is Dictionary):
+            continue
+        var dir_row: Dictionary = row
+        _graph.remove_node(int(dir_row.get("id", -1)))
+
+func _sort_results_by_similarity(a: Dictionary, b: Dictionary) -> bool:
+    return float(a.get("similarity", 0.0)) > float(b.get("similarity", 0.0))
 
 func _read_file(path: String) -> String:
     var file := FileAccess.open(path, FileAccess.READ)

@@ -81,6 +81,8 @@ func handle_mouse_button(event: InputEventMouseButton) -> void:
 		apply_camera_transform()
 
 func handle_mouse_motion(event: InputEventMouseMotion) -> void:
+	if not Input.is_key_pressed(KEY_CTRL):
+		return
 	if not _mmb_down and not _rmb_down:
 		return
 	if _rmb_down or Input.is_key_pressed(KEY_SHIFT):
