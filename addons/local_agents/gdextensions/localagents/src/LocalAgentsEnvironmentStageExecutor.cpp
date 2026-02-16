@@ -277,6 +277,17 @@ Dictionary execute_environment_stage_orchestration(
         }
         result["voxel_failure_emission"] = voxel_failure_emission;
         result["authoritative_mutation"] = authoritative_mutation;
+        result["native_ops"] = voxel_failure_emission.get("op_payloads", Array());
+        const Variant authority_execution_variant = authoritative_mutation.get("execution", Dictionary());
+        if (authority_execution_variant.get_type() == Variant::DICTIONARY) {
+            const Dictionary authority_execution = authority_execution_variant;
+            if (authority_execution.has("changed_chunks")) {
+                result["changed_chunks"] = authority_execution.get("changed_chunks", Array());
+            }
+            if (authority_execution.has("changed_region")) {
+                result["changed_region"] = authority_execution.get("changed_region", Dictionary());
+            }
+        }
         return result;
     }
 

@@ -145,10 +145,6 @@ Dictionary maybe_inject_field_handles_into_environment_inputs(
     );
 }
 
-Dictionary normalize_contact_row(const Variant &raw_row) {
-    return local_agents::simulation::helpers::normalize_contact_row(raw_row);
-}
-
 ImpactFractureProfile read_impact_fracture_profile(const Dictionary &configuration) {
     ImpactFractureProfile profile;
     if (configuration.has("impact_signal_gain")) {
@@ -259,6 +255,10 @@ void LocalAgentsSimulationCore::_bind_methods() {
                          &LocalAgentsSimulationCore::execute_environment_stage, DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("execute_voxel_stage", "stage_name", "payload"),
                          &LocalAgentsSimulationCore::execute_voxel_stage, DEFVAL(Dictionary()));
+    ClassDB::bind_method(D_METHOD("normalize_and_aggregate_physics_contacts", "contact_rows"),
+                         &LocalAgentsSimulationCore::normalize_and_aggregate_physics_contacts);
+    ClassDB::bind_method(D_METHOD("build_canonical_voxel_dispatch_contract", "dispatch_payload"),
+                         &LocalAgentsSimulationCore::build_canonical_voxel_dispatch_contract);
     ClassDB::bind_method(D_METHOD("ingest_physics_contacts", "contact_rows"),
                          &LocalAgentsSimulationCore::ingest_physics_contacts);
     ClassDB::bind_method(D_METHOD("clear_physics_contacts"), &LocalAgentsSimulationCore::clear_physics_contacts);
@@ -507,6 +507,28 @@ Dictionary LocalAgentsSimulationCore::apply_environment_stage(const StringName &
             result["changed_chunks"] = authoritative_execution.get("changed_chunks", Array());
         }
     }
+    const Dictionary canonical_dispatch_contract =
+        local_agents::simulation::helpers::build_canonical_voxel_dispatch_contract(result);
+    result["canonical_voxel_dispatch_contract"] = canonical_dispatch_contract.duplicate(true);
+    result["native_ops"] = canonical_dispatch_contract.get("native_ops", Array());
+    result["changed_chunks"] = canonical_dispatch_contract.get(
+        "changed_chunks",
+        result.get("changed_chunks", Array()));
+    const Variant canonical_changed_region_variant = canonical_dispatch_contract.get("changed_region", Dictionary());
+    if (canonical_changed_region_variant.get_type() == Variant::DICTIONARY) {
+        const Dictionary canonical_changed_region = canonical_changed_region_variant;
+        if (!canonical_changed_region.is_empty()) {
+            result["changed_region"] = canonical_changed_region.duplicate(true);
+        }
+    }
+    const Variant native_mutation_authority_variant =
+        canonical_dispatch_contract.get("native_mutation_authority", Dictionary());
+    if (native_mutation_authority_variant.get_type() == Variant::DICTIONARY) {
+        const Dictionary native_mutation_authority = native_mutation_authority_variant;
+        if (!native_mutation_authority.is_empty()) {
+            result["native_mutation_authority"] = native_mutation_authority.duplicate(true);
+        }
+    }
     if (!authoritative_ok) {
         result["error"] = canonicalize_stage_error(String(
             authoritative_mutation.get("error_code", authoritative_mutation.get("error", String("dispatch_failed")))),
@@ -538,6 +560,18 @@ Dictionary LocalAgentsSimulationCore::execute_voxel_stage(const StringName &stag
     return apply_voxel_stage(stage_name, payload);
 }
 
+Dictionary LocalAgentsSimulationCore::normalize_and_aggregate_physics_contacts(const Array &contact_rows) const {
+    Dictionary result = local_agents::simulation::helpers::normalize_and_aggregate_contact_rows(contact_rows);
+    result["ok"] = true;
+    return result;
+}
+
+Dictionary LocalAgentsSimulationCore::build_canonical_voxel_dispatch_contract(const Dictionary &dispatch_payload) const {
+    Dictionary result = local_agents::simulation::helpers::build_canonical_voxel_dispatch_contract(dispatch_payload);
+    result["ok"] = true;
+    return result;
+}
+
 Dictionary LocalAgentsSimulationCore::ingest_physics_contacts(const Array &contact_rows) {
     Dictionary result;
     if (physics_contact_capacity_ <= 0) {
@@ -546,13 +580,16 @@ Dictionary LocalAgentsSimulationCore::ingest_physics_contacts(const Array &conta
         return result;
     }
 
+    const Dictionary normalized_payload = local_agents::simulation::helpers::normalize_and_aggregate_contact_rows(contact_rows);
+    const Array normalized_rows = normalized_payload.get("normalized_rows", Array());
     int64_t accepted = 0;
     int64_t dropped = 0;
-    for (int64_t i = 0; i < contact_rows.size(); i++) {
-        const Dictionary normalized = normalize_contact_row(contact_rows[i]);
-        if (normalized.is_empty()) {
+    for (int64_t i = 0; i < normalized_rows.size(); i++) {
+        const Variant normalized_variant = normalized_rows[i];
+        if (normalized_variant.get_type() != Variant::DICTIONARY) {
             continue;
         }
+        const Dictionary normalized = normalized_variant;
         const double impulse = static_cast<double>(normalized.get("impulse", 0.0));
         const double relative_speed = static_cast<double>(normalized.get("relative_speed", 0.0));
         physics_contact_total_impulse_ += impulse;
@@ -575,6 +612,7 @@ Dictionary LocalAgentsSimulationCore::ingest_physics_contacts(const Array &conta
     result["ok"] = true;
     result["accepted_rows"] = accepted;
     result["dropped_rows"] = dropped;
+    result["aggregated_inputs"] = normalized_payload.get("aggregated_inputs", Dictionary());
     result["snapshot"] = get_physics_contact_snapshot();
     return result;
 }

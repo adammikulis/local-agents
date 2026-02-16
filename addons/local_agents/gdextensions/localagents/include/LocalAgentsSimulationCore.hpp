@@ -49,6 +49,8 @@ public:
     Dictionary apply_voxel_stage(const StringName &stage_name, const Dictionary &payload = Dictionary());
     Dictionary execute_environment_stage(const StringName &stage_name, const Dictionary &payload = Dictionary());
     Dictionary execute_voxel_stage(const StringName &stage_name, const Dictionary &payload = Dictionary());
+    Dictionary normalize_and_aggregate_physics_contacts(const Array &contact_rows) const;
+    Dictionary build_canonical_voxel_dispatch_contract(const Dictionary &dispatch_payload) const;
     Dictionary ingest_physics_contacts(const Array &contact_rows);
     void clear_physics_contacts();
     Dictionary get_physics_contact_snapshot() const;
