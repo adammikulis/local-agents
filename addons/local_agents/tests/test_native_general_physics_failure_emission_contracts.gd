@@ -100,8 +100,16 @@ func _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_s
 		"WorldSimulation must pass sampled projectile contact rows into native voxel rate processing."
 	) and ok
 	ok = _assert(
-		world_simulation_source.contains("\"physics_contacts\": projectile_contact_rows.duplicate(true)"),
-		"WorldSimulation native voxel dispatch payload must include physics_contacts rows for failure emission input."
+		world_simulation_source.contains("\"physics_contacts\": dispatch_contact_rows.duplicate(true)"),
+		"WorldSimulation native voxel dispatch payload must include persisted physics_contacts rows for failure emission input."
+	) and ok
+	ok = _assert(
+		world_simulation_source.contains("if pulses.is_empty() and dispatch_contact_rows.is_empty():"),
+		"WorldSimulation must skip native voxel dispatch only when no scheduler pulse and no pending projectile contacts."
+	) and ok
+	ok = _assert(
+		world_simulation_source.contains("if pulses.is_empty():") and world_simulation_source.contains("\"forced_contact_flush\": true"),
+		"WorldSimulation must force one native voxel pulse when projectile contacts are pending but scheduler yields no pulse."
 	) and ok
 	return ok
 

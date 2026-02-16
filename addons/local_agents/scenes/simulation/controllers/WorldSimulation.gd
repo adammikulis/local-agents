@@ -217,11 +217,8 @@ func _process(delta: float) -> void:
 	if fps_launcher_controller != null and fps_launcher_controller.has_method("step"):
 		fps_launcher_controller.call("step", delta)
 	var projectile_contact_rows: Array = []
-	if fps_launcher_controller != null:
-		if fps_launcher_controller.has_method("sample_active_projectile_contact_rows"):
-			var rows_variant = fps_launcher_controller.call("sample_active_projectile_contact_rows")
-			if rows_variant is Array:
-				projectile_contact_rows = rows_variant as Array
+	if fps_launcher_controller != null and fps_launcher_controller.has_method("sample_active_projectile_contact_rows"):
+		var rows_variant = fps_launcher_controller.call("sample_active_projectile_contact_rows"); if rows_variant is Array: projectile_contact_rows = rows_variant as Array
 	_push_native_view_metrics()
 	_process_native_voxel_rate(delta, projectile_contact_rows)
 	_apply_loop_result(_loop_controller.process_frame(delta, Callable(self, "_collect_living_entity_profiles"), projectile_contact_rows))
@@ -583,22 +580,19 @@ func _process_native_voxel_rate(delta: float, projectile_contact_rows: Array = [
 	var view_metrics := _camera_controller.native_view_metrics()
 	var base_budget = clampf(float(view_metrics.get("compute_budget_scale", 1.0)), 0.05, 1.0)
 	var pulses = _voxel_rate_scheduler.advance(delta, base_budget)
-	if pulses.is_empty():
+	var dispatch_contact_rows: Array = projectile_contact_rows.duplicate(true)
+	if fps_launcher_controller != null and fps_launcher_controller.has_method("sample_voxel_dispatch_contact_rows"):
+		var rows_variant = fps_launcher_controller.call("sample_voxel_dispatch_contact_rows"); if rows_variant is Array: dispatch_contact_rows = rows_variant as Array
+	if pulses.is_empty() and dispatch_contact_rows.is_empty():
 		return
+	if pulses.is_empty(): pulses = [{"tier_id": "contact_flush", "compute_budget_scale": base_budget, "forced_contact_flush": true}]
+	var attempted_dispatch := false
 	for pulse_variant in pulses:
-		if not (pulse_variant is Dictionary):
-			continue
+		if not (pulse_variant is Dictionary): continue
+		attempted_dispatch = true
 		var pulse = pulse_variant as Dictionary
 		var tier_id := String(pulse.get("tier_id", "high"))
-		var payload := {
-			"tick": tick,
-			"delta": delta,
-			"rate_tier": tier_id,
-			"compute_budget_scale": float(pulse.get("compute_budget_scale", base_budget)),
-			"zoom_factor": clampf(float(view_metrics.get("zoom_factor", 0.0)), 0.0, 1.0),
-			"camera_distance": maxf(0.0, float(view_metrics.get("camera_distance", 0.0))),
-			"uniformity_score": clampf(float(view_metrics.get("uniformity_score", 0.0)), 0.0, 1.0), "physics_contacts": projectile_contact_rows.duplicate(true),
-			}
+		var payload := {"tick": tick, "delta": delta, "rate_tier": tier_id, "compute_budget_scale": float(pulse.get("compute_budget_scale", base_budget)), "zoom_factor": clampf(float(view_metrics.get("zoom_factor", 0.0)), 0.0, 1.0), "camera_distance": maxf(0.0, float(view_metrics.get("camera_distance", 0.0))), "uniformity_score": clampf(float(view_metrics.get("uniformity_score", 0.0)), 0.0, 1.0), "physics_contacts": dispatch_contact_rows.duplicate(true)}
 		var dispatch_start_usec := Time.get_ticks_usec()
 		var dispatch_variant = simulation_controller.call("execute_native_voxel_stage", tick, _VOXEL_NATIVE_STAGE_NAME, payload, false)
 		var dispatch_duration_ms := float(maxi(0, Time.get_ticks_usec() - dispatch_start_usec)) / 1000.0
@@ -609,26 +603,27 @@ func _process_native_voxel_rate(delta: float, projectile_contact_rows: Array = [
 		var backend_used := _graphics_target_wall_controller.normalize_gpu_backend_used(dispatch)
 		var dispatch_reason := String(dispatch.get("dispatch_reason", ""))
 		if not bool(dispatch.get("dispatched", false)):
+			if fps_launcher_controller != null and fps_launcher_controller.has_method("acknowledge_voxel_dispatch_contact_rows"): fps_launcher_controller.call("acknowledge_voxel_dispatch_contact_rows", dispatch_contact_rows.size())
 			_fail_native_voxel_dependency(tick, "native voxel stage was not dispatched", tier_id, dispatch_reason, dispatch_duration_ms, dispatch)
 			return
 		if backend_used.findn("gpu") == -1:
+			if fps_launcher_controller != null and fps_launcher_controller.has_method("acknowledge_voxel_dispatch_contact_rows"): fps_launcher_controller.call("acknowledge_voxel_dispatch_contact_rows", dispatch_contact_rows.size())
 			_fail_native_voxel_dependency(tick, "native voxel stage backend is not GPU: %s" % backend_used, tier_id, dispatch_reason, dispatch_duration_ms, dispatch)
 			return
 		_record_native_voxel_dispatch_success(tick, tier_id, backend_used, dispatch_reason, dispatch_duration_ms, dispatch)
 		var stage_payload: Dictionary = {}
 		var voxel_payload = dispatch.get("voxel_result", {})
-		if voxel_payload is Dictionary:
-			stage_payload = (voxel_payload as Dictionary).duplicate(true)
+		if voxel_payload is Dictionary: stage_payload = (voxel_payload as Dictionary).duplicate(true)
 		var raw_result = dispatch.get("result", {})
-		if raw_result is Dictionary:
-			stage_payload["result"] = (raw_result as Dictionary).duplicate(true)
+		if raw_result is Dictionary: stage_payload["result"] = (raw_result as Dictionary).duplicate(true)
 		stage_payload["kernel_pass"] = String(dispatch.get("kernel_pass", ""))
 		stage_payload["backend_used"] = backend_used
 		stage_payload["dispatch_reason"] = dispatch_reason
 		stage_payload["dispatched"] = bool(dispatch.get("dispatched", false))
-		if stage_payload.is_empty():
-			continue
+		if stage_payload.is_empty(): continue
 		_apply_native_voxel_stage_result(tick, stage_payload)
+	if attempted_dispatch and fps_launcher_controller != null and fps_launcher_controller.has_method("acknowledge_voxel_dispatch_contact_rows"):
+		fps_launcher_controller.call("acknowledge_voxel_dispatch_contact_rows", dispatch_contact_rows.size())
 
 func native_voxel_dispatch_runtime() -> Dictionary:
 	return _native_voxel_dispatch_runtime.duplicate(true)

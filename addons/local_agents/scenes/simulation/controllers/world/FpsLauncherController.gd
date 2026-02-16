@@ -35,6 +35,7 @@ var _spawn_parent: Node3D = null
 var _cooldown_remaining: float = 0.0
 var _active_projectiles: Array[RigidBody3D] = []
 var _pending_contact_rows: Array[Dictionary] = []
+var _sampled_contact_cursor: int = 0
 const _MAX_PENDING_CONTACT_ROWS := 96
 
 func configure(active_camera: Camera3D, spawn_parent: Node3D, profile_resource: Resource = null) -> void:
@@ -137,14 +138,40 @@ func sample_active_projectile_contact_rows() -> Array:
 	var sampled_rows: Array = []
 	var rows := PhysicsServerContactBridgeScript.sample_contact_rows(_active_projectiles)
 	if rows is Array:
-		sampled_rows = (rows as Array).duplicate(true)
-	if not _pending_contact_rows.is_empty():
-		sampled_rows.append_array(_pending_contact_rows.duplicate(true))
-		_pending_contact_rows.clear()
+		for row_variant in rows:
+			if not (row_variant is Dictionary):
+				continue
+			_queue_projectile_contact_row(row_variant as Dictionary)
+	var cursor_start := clampi(_sampled_contact_cursor, 0, _pending_contact_rows.size())
+	for index in range(cursor_start, _pending_contact_rows.size()):
+		var row_variant = _pending_contact_rows[index]
+		if not (row_variant is Dictionary):
+			continue
+		sampled_rows.append((row_variant as Dictionary).duplicate(true))
+	_sampled_contact_cursor = _pending_contact_rows.size()
 	return sampled_rows
 
 func record_projectile_contact_row(row: Dictionary) -> void:
 	_queue_projectile_contact_row(row)
+
+func sample_voxel_dispatch_contact_rows() -> Array:
+	var sampled_rows: Array = []
+	for row in _pending_contact_rows:
+		sampled_rows.append(row.duplicate(true))
+	return sampled_rows
+
+func pending_voxel_dispatch_contact_count() -> int:
+	return _pending_contact_rows.size()
+
+func acknowledge_voxel_dispatch_contact_rows(consumed_count: int) -> void:
+	var count := maxi(0, consumed_count)
+	if count <= 0:
+		return
+	var remove_count := mini(count, _pending_contact_rows.size())
+	if remove_count <= 0:
+		return
+	_pending_contact_rows = _pending_contact_rows.slice(remove_count, _pending_contact_rows.size())
+	_sampled_contact_cursor = maxi(0, _sampled_contact_cursor - remove_count)
 
 func try_fire_from_screen_center() -> bool:
 	if _camera == null or not is_instance_valid(_camera):
@@ -255,6 +282,7 @@ func _queue_projectile_contact_row(row: Dictionary) -> void:
 	_pending_contact_rows.append(normalized)
 	while _pending_contact_rows.size() > _MAX_PENDING_CONTACT_ROWS:
 		_pending_contact_rows.remove_at(0)
+		_sampled_contact_cursor = maxi(0, _sampled_contact_cursor - 1)
 
 func _print_profile(trigger: String = "launcher profile") -> void:
 	print("[Launcher] %s -> speed=%.1f mass=%.3f ttl=%.2f impact_scale=%.2f cooldown=%.2f active=%d" % [
