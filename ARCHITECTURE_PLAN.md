@@ -64,6 +64,29 @@ This plan is organized by engineering concern so work can be split into focused 
     - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
     - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
 
+- [ ] Wave 0C (`P0`): Native-owned orchestration migration (cadence, queue/deadline, tick dispatch, telemetry).
+  - Owner lanes:
+    - Native Compute
+    - Runtime Bindings
+    - Test-Infrastructure
+    - Validation
+  - Scope:
+    - Move orchestration authority for cadence scheduling, queue/deadline lifecycle, per-tick dispatch decisions, and diagnostics telemetry emission into native contracts.
+    - Keep GDScript surfaces (`bridge`, `runtime facade`, `world wiring`, `HUD/telemetry presenters`) as wrappers/adapters only; no simulation-authoritative orchestration state decisions remain in GDScript.
+    - Preserve explicit typed failure taxonomy when native/GPU prerequisites are unavailable; do not introduce CPU/GDScript-success fallback branches.
+  - File-size preconditions and split notes (mandatory before implementation edits):
+    - `addons/local_agents/simulation/controller/NativeComputeBridge.gd` is currently 996 lines (large-file precondition triggered); no growth is allowed in this wave until helper extraction moves non-call-site logic out of the file.
+    - If orchestration wrapper call-sites need edits in `NativeComputeBridge.gd`, execute helper split first (for example bridge environment/dispatch/telemetry helper modules), then keep bridge edits as thin wiring only.
+  - Acceptance criteria:
+    - Native core owns cadence and queue/deadline state transitions, including deadline miss classification and dispatch gating contract outputs.
+    - Tick dispatch contract exposed to runtime wrappers is canonical and deterministic per tick (one authoritative dispatch decision/result surface).
+    - Telemetry contract fields for orchestration are native-authored and surfaced through wrappers without local recomputation of authoritative counters.
+    - GDScript wrappers remain adapter-only and do not apply orchestration-authoritative branching for cadence, queue/deadline, or tick dispatch outcomes.
+  - Mandatory validation order:
+    - Non-headless launch first (real display path) to verify startup + live tick dispatch path with queue/deadline telemetry visible.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
 - [ ] Wave 0 (`P0`): Full native/GPU destruction authority migration.
   - Priority and owner lanes:
     - `P0`: Planning lane owns scope lock, fallback inventory, and phase gate definitions.
