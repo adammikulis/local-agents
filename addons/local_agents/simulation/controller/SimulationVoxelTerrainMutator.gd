@@ -18,12 +18,7 @@ const _WALL_PILLAR_DENSITY_SCALE := 1.0
 const _NATIVE_OP_VALUE_TO_LEVELS := 3.0
 const _NATIVE_OP_MAX_LEVELS := 6
 const _PATH_INVALID_CONTROLLER := "stage_invalid_controller"
-const _PATH_CONTACT_FALLBACK_PRE_OPS := "contact_confirmed_column_fallback_pre_ops"
-const _PATH_CHANGED_REGION_FALLBACK := "changed_region_column_fallback"
-const _PATH_NO_OP_PAYLOAD := "native_voxel_op_payload_missing"
 const _PATH_NATIVE_OPS_PRIMARY := "native_ops_payload_primary"
-const _PATH_DIRECT_IMPACT_OP_FALLBACK := "direct_impact_ops_payload_fallback"
-const _PATH_CONTACT_FALLBACK_POST_OPS := "contact_confirmed_column_fallback_post_ops"
 const _PATH_STAGE_NO_MUTATION := "native_voxel_stage_no_mutation"
 
 static func stamp_default_target_wall(controller, tick: int, camera_transform: Transform3D, target_wall_profile = null) -> Dictionary:
@@ -147,75 +142,33 @@ static func apply_native_voxel_stage_delta(controller, tick: int, payload: Dicti
 			"changed_tiles": [],
 			"changed_chunks": [],
 		}, _PATH_INVALID_CONTROLLER, false)
-	var native_ops = _extract_native_op_payloads(payload)
-	var direct_impact_ops := _build_direct_impact_voxel_ops(controller, payload)
+	var native_ops := _build_direct_impact_voxel_ops(controller, payload)
 	var changed_chunk_rows = _extract_changed_chunks(payload)
 	var changed_chunks = _normalize_chunk_keys(changed_chunk_rows)
-	var failure_paths: Array = []
-	if native_ops.is_empty() and not direct_impact_ops.is_empty():
-		native_ops = direct_impact_ops.duplicate(true)
 	if native_ops.is_empty():
-		var contact_fallback_result := _apply_contact_confirmed_direct_fallback(controller, tick, payload, _PATH_CONTACT_FALLBACK_PRE_OPS)
-		if bool(contact_fallback_result.get("changed", false)):
-			return contact_fallback_result
-		failure_paths.append(String(contact_fallback_result.get("mutation_path", _PATH_CONTACT_FALLBACK_PRE_OPS)))
-		var env_snapshot = controller._environment_snapshot.duplicate(true)
-		var changed_region = _extract_changed_region(payload)
-		var changed_tiles = _tiles_from_changed_chunks_or_region(env_snapshot, payload, changed_chunk_rows, changed_region)
-		if not changed_tiles.is_empty():
-			var lowered_levels: Dictionary = {}
-			for tile_variant in changed_tiles:
-				var tile_id := String(tile_variant).strip_edges()
-				if tile_id == "":
-					continue
-				lowered_levels[tile_id] = 1
-			if not lowered_levels.is_empty():
-				var fallback_result = _apply_column_surface_delta(
-					controller,
-					env_snapshot,
-					lowered_levels.keys(),
-					lowered_levels,
-					false
-				)
-				fallback_result = _stage_result(fallback_result, _PATH_CHANGED_REGION_FALLBACK)
-				fallback_result["tick"] = tick
-				if bool(fallback_result.get("changed", false)):
-					return fallback_result
-		failure_paths.append(_PATH_CHANGED_REGION_FALLBACK)
-		var missing_result := {
+		var no_mutation_result := {
 			"ok": false,
 			"changed": false,
-			"error": "native_voxel_op_payload_missing",
-			"details": "native voxel op payload required; CPU surface-delta fallback disabled",
+			"error": "native_voxel_stage_no_mutation",
+			"details": "native voxel stage requires projectile contact-derived native ops",
 			"tick": tick,
 			"changed_tiles": [],
 			"changed_chunks": changed_chunks,
 		}
-		missing_result["failure_paths"] = failure_paths.duplicate(true)
-		return _stage_result(missing_result, _PATH_NO_OP_PAYLOAD, false)
+		no_mutation_result["failure_paths"] = [_PATH_STAGE_NO_MUTATION]
+		return _stage_result(no_mutation_result, _PATH_STAGE_NO_MUTATION, false)
 	var ops_result = apply_native_voxel_ops_payload(controller, tick, {"op_payloads": native_ops, "changed_chunks": changed_chunk_rows})
 	ops_result = _stage_result(ops_result, _PATH_NATIVE_OPS_PRIMARY)
 	if bool(ops_result.get("changed", false)):
 		return ops_result
-	failure_paths.append(_PATH_NATIVE_OPS_PRIMARY)
-	if not direct_impact_ops.is_empty() and not _native_op_arrays_equal(native_ops, direct_impact_ops):
-		var direct_fallback_result := apply_native_voxel_ops_payload(controller, tick, {"op_payloads": direct_impact_ops, "changed_chunks": changed_chunk_rows})
-		direct_fallback_result = _stage_result(direct_fallback_result, _PATH_DIRECT_IMPACT_OP_FALLBACK)
-		if bool(direct_fallback_result.get("changed", false)):
-			return direct_fallback_result
-		failure_paths.append(_PATH_DIRECT_IMPACT_OP_FALLBACK)
-	var post_ops_contact_fallback_result := _apply_contact_confirmed_direct_fallback(controller, tick, payload, _PATH_CONTACT_FALLBACK_POST_OPS)
-	if bool(post_ops_contact_fallback_result.get("changed", false)):
-		return post_ops_contact_fallback_result
-	failure_paths.append(String(post_ops_contact_fallback_result.get("mutation_path", _PATH_CONTACT_FALLBACK_POST_OPS)))
 	ops_result["ok"] = false
 	ops_result["changed"] = false
 	ops_result["error"] = "native_voxel_stage_no_mutation"
-	ops_result["details"] = "native voxel stage produced no direct op mutations; CPU surface-delta fallback disabled"
+	ops_result["details"] = "native voxel stage produced no contact-derived op mutations"
 	ops_result["tick"] = tick
 	ops_result["changed_tiles"] = []
 	ops_result["changed_chunks"] = changed_chunks
-	ops_result["failure_paths"] = failure_paths.duplicate(true)
+	ops_result["failure_paths"] = [_PATH_STAGE_NO_MUTATION]
 	return _stage_result(ops_result, _PATH_STAGE_NO_MUTATION, false)
 
 static func _build_direct_impact_voxel_ops(controller, payload: Dictionary) -> Array:
@@ -261,46 +214,6 @@ static func _build_direct_impact_voxel_ops(controller, payload: Dictionary) -> A
 		seq += 1
 	return ops
 
-static func _apply_contact_confirmed_direct_fallback(controller, tick: int, payload: Dictionary, path_tag: String = _PATH_CONTACT_FALLBACK_PRE_OPS) -> Dictionary:
-	var env_snapshot: Dictionary = controller._environment_snapshot.duplicate(true)
-	var contacts := _extract_projectile_contact_rows(payload)
-	if contacts.is_empty() or env_snapshot.is_empty():
-		return _stage_result({"ok": false, "changed": false, "error": "contact_fallback_unavailable", "tick": tick, "changed_tiles": [], "changed_chunks": []}, path_tag, false)
-	var changed_chunks = _extract_changed_chunks(payload)
-	var changed_region = _extract_changed_region(payload)
-	var lowered_levels: Dictionary = {}
-	for row_variant in contacts:
-		if not (row_variant is Dictionary):
-			continue
-		var row = row_variant as Dictionary
-		var point := _extract_contact_point(row)
-		var target := _resolve_existing_contact_tile(env_snapshot, payload, point, changed_chunks, changed_region)
-		if target.is_empty():
-			continue
-		var tile_id := TileKeyUtilsScript.tile_id(int(target.get("x", 0)), int(target.get("z", 0)))
-		var impulse := maxf(0.0, float(row.get("contact_impulse", row.get("impulse", 0.0))))
-		var speed := maxf(0.0, float(row.get("relative_speed", row.get("contact_velocity", 0.0))))
-		var value := clampf((impulse * 0.02) + (speed * 0.01), 0.35, 2.0)
-		var levels := clampi(int(round(value * _NATIVE_OP_VALUE_TO_LEVELS)), 1, _NATIVE_OP_MAX_LEVELS)
-		lowered_levels[tile_id] = maxi(int(lowered_levels.get(tile_id, 0)), levels)
-	if lowered_levels.is_empty():
-		var changed_tiles = _mutable_changed_tiles(env_snapshot, payload, changed_chunks, changed_region)
-		for tile_variant in changed_tiles:
-			var tile_id := String(tile_variant).strip_edges()
-			if tile_id != "":
-				lowered_levels[tile_id] = 1
-	if lowered_levels.is_empty():
-		return _stage_result({"ok": false, "changed": false, "error": "contact_fallback_targets_missing", "tick": tick, "changed_tiles": [], "changed_chunks": []}, path_tag, false)
-	var fallback_result = _apply_column_surface_delta(
-		controller,
-		env_snapshot,
-		lowered_levels.keys(),
-		lowered_levels,
-		false
-	)
-	fallback_result["tick"] = tick
-	return _stage_result(fallback_result, path_tag)
-
 static func _extract_projectile_contact_rows(payload: Dictionary) -> Array:
 	var out: Array = []
 	_collect_projectile_contact_rows(payload, out, 0)
@@ -331,20 +244,6 @@ static func _extract_contact_point(row: Dictionary) -> Vector3:
 		var point_dict = point_variant as Dictionary
 		return Vector3(float(point_dict.get("x", 0.0)), float(point_dict.get("y", 0.0)), float(point_dict.get("z", 0.0)))
 	return Vector3.ZERO
-
-static func _native_op_arrays_equal(a: Array, b: Array) -> bool:
-	if a.size() != b.size():
-		return false
-	for i in range(a.size()):
-		var left_variant = a[i]
-		var right_variant = b[i]
-		if not (left_variant is Dictionary and right_variant is Dictionary):
-			return false
-		var left = left_variant as Dictionary
-		var right = right_variant as Dictionary
-		if _native_op_less(left, right) or _native_op_less(right, left):
-			return false
-	return true
 
 static func apply_native_voxel_ops_payload(controller, tick: int, payload: Dictionary) -> Dictionary:
 	if controller == null:

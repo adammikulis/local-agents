@@ -70,22 +70,19 @@ func run_test(tree: SceneTree) -> bool:
 
 	var mutation: Dictionary = SimulationVoxelTerrainMutatorScript.apply_native_voxel_stage_delta(controller, 1, payload)
 	var ok := true
-	ok = _assert(bool(mutation.get("changed", false)), "Direct-impact fallback should mutate terrain when native ops no-op after a confirmed projectile hit.") and ok
+	ok = _assert(bool(mutation.get("changed", false)), "Canonical contact-derived native ops path should mutate terrain when projectile contact is confirmed.") and ok
 	var changed_tiles_variant = mutation.get("changed_tiles", [])
 	var changed_tiles: Array = changed_tiles_variant if changed_tiles_variant is Array else []
-	ok = _assert(changed_tiles.size() > 0, "Direct-impact fallback should always return changed_tiles > 0 for confirmed projectile contacts.") and ok
-	ok = _assert(changed_tiles.has(tile_id), "Direct-impact fallback should include impacted contact tile in changed_tiles list.") and ok
+	ok = _assert(changed_tiles.size() > 0, "Canonical contact-derived native ops path should return changed_tiles > 0 for confirmed projectile contacts.") and ok
+	ok = _assert(changed_tiles.has(tile_id), "Canonical contact-derived native ops path should include impacted contact tile in changed_tiles list.") and ok
 	var error_code := String(mutation.get("error", ""))
 	ok = _assert(error_code != "native_voxel_stage_no_mutation", "Confirmed projectile contact should not end with native_voxel_stage_no_mutation.") and ok
 	ok = _assert(error_code != "native_voxel_op_payload_missing", "Confirmed projectile contact should not end with native_voxel_op_payload_missing.") and ok
 	var mutation_path := String(mutation.get("mutation_path", ""))
-	ok = _assert(mutation_path in [
-		"direct_impact_ops_payload_fallback",
-		"contact_confirmed_column_fallback_post_ops",
-	], "Direct-impact fallback should report explicit stable fallback mutation path tag.") and ok
-	ok = _assert(String(mutation.get("mutation_path_state", "")) == "success", "Direct-impact fallback success should report mutation_path_state=success.") and ok
+	ok = _assert(mutation_path == "native_ops_payload_primary", "Confirmed projectile contact should report canonical native_ops_payload_primary mutation path.") and ok
+	ok = _assert(String(mutation.get("mutation_path_state", "")) == "success", "Canonical path success should report mutation_path_state=success.") and ok
 	var end_surface := _surface_y_for_tile(controller._environment_snapshot, tile_id)
-	ok = _assert(end_surface < start_surface, "Direct-impact fallback should lower impacted tile surface for visible destruction.") and ok
+	ok = _assert(end_surface < start_surface, "Canonical contact-derived native ops path should lower impacted tile surface for visible destruction.") and ok
 
 	controller.queue_free()
 	if ok:

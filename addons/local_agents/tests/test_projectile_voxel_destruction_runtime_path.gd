@@ -48,13 +48,19 @@ func run_test(tree: SceneTree) -> bool:
 
 	var mutation: Dictionary = SimulationVoxelTerrainMutatorScript.apply_native_voxel_stage_delta(controller, 1, payload)
 	var ok := true
-	ok = _assert(bool(mutation.get("changed", false)), "Changed-region fallback should mutate terrain when projectile runtime payload has no direct op payloads.") and ok
+	ok = _assert(not bool(mutation.get("changed", false)), "Canonical contact-derived mutation path should not mutate terrain when projectile runtime payload has no contact rows.") and ok
 	var changed_tiles_variant = mutation.get("changed_tiles", [])
 	var changed_tiles: Array = changed_tiles_variant if changed_tiles_variant is Array else []
-	ok = _assert(changed_tiles.has(tile_id), "Changed-region fallback should include impacted tile in changed_tiles list.") and ok
+	ok = _assert(changed_tiles.is_empty(), "No-mutation path should report an empty changed_tiles list.") and ok
+	ok = _assert(String(mutation.get("error", "")) == "native_voxel_stage_no_mutation", "No-contact runtime payload should return native_voxel_stage_no_mutation.") and ok
+	ok = _assert(String(mutation.get("mutation_path", "")) == "native_voxel_stage_no_mutation", "No-contact runtime payload should report canonical native_voxel_stage_no_mutation mutation_path.") and ok
+	ok = _assert(String(mutation.get("mutation_path_state", "")) == "failure", "No-mutation path should report mutation_path_state=failure.") and ok
+	var failure_paths_variant = mutation.get("failure_paths", [])
+	var failure_paths: Array = failure_paths_variant if failure_paths_variant is Array else []
+	ok = _assert(failure_paths.size() == 1 and String(failure_paths[0]) == "native_voxel_stage_no_mutation", "No-mutation path should return stable failure_paths metadata with only native_voxel_stage_no_mutation.") and ok
 
 	var end_surface := _surface_y_for_tile(controller._environment_snapshot, tile_id)
-	ok = _assert(end_surface < start_surface, "Changed-region fallback should lower impacted tile surface for visible destruction.") and ok
+	ok = _assert(end_surface == start_surface, "No-contact runtime payload should leave impacted tile surface unchanged.") and ok
 
 	controller.queue_free()
 	if ok:
