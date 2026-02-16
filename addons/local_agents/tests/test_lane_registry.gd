@@ -41,6 +41,7 @@ const DETERMINISTIC_TESTS: Array[String] = [
 	"res://addons/local_agents/tests/test_simulation_material_flow_foveated_throttling.gd",
 	"res://addons/local_agents/tests/test_physics_server_coupling_gate.gd",
 	"res://addons/local_agents/tests/test_fps_launcher_contact_rows.gd",
+	"res://addons/local_agents/tests/test_fps_fire_contact_mutation_runtime_path.gd",
 	"res://addons/local_agents/tests/test_projectile_voxel_destruction_runtime_path.gd",
 	"res://addons/local_agents/tests/test_projectile_direct_impact_mutation_guarantee.gd",
 	"res://addons/local_agents/tests/test_world_camera_fps_vertical_controls.gd",
