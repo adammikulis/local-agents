@@ -35,7 +35,7 @@ func run_test(tree: SceneTree) -> bool:
 	var chunk_x := int(floor(float(tile_x) / float(chunk_size)))
 	var chunk_z := int(floor(float(tile_z) / float(chunk_size)))
 	var payload := {
-		"op_payloads": [
+		"native_ops": [
 			{
 				"sequence_id": 0,
 				"x": tile_x,

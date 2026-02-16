@@ -32,18 +32,14 @@ func run_test(tree: SceneTree) -> bool:
 	var start_surface := int(target.get("surface_y", 0))
 	var chunk_size := int(target.get("chunk_size", 12))
 	var payload := {
-		"result": {
-			"execution": {
-				"changed_region": {
-					"valid": true,
-					"min": {"x": tile_x, "y": start_surface, "z": tile_z},
-					"max": {"x": tile_x, "y": start_surface, "z": tile_z},
-				},
-				"changed_chunks": [
-					{"x": int(floor(float(tile_x) / float(chunk_size))), "y": 0, "z": int(floor(float(tile_z) / float(chunk_size)))}
-				],
-			},
+		"changed_region": {
+			"valid": true,
+			"min": {"x": tile_x, "y": start_surface, "z": tile_z},
+			"max": {"x": tile_x, "y": start_surface, "z": tile_z},
 		},
+		"changed_chunks": [
+			{"x": int(floor(float(tile_x) / float(chunk_size))), "y": 0, "z": int(floor(float(tile_z) / float(chunk_size)))}
+		],
 	}
 
 	var mutation: Dictionary = SimulationVoxelTerrainMutatorScript.apply_native_voxel_stage_delta(controller, 1, payload)

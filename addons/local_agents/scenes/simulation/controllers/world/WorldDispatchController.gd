@@ -45,7 +45,6 @@ func process_native_voxel_rate(delta: float, projectile_contact_rows: Array, con
 		return
 	pulses = WorldDispatchContractsScript.ensure_pulses_with_contact_flush(pulses, base_budget)
 
-	var payload := WorldDispatchContractsScript.build_dispatch_payload(tick, delta, "high", base_budget, view_metrics, dispatch_contact_rows)
 	var attempted_dispatch := false
 	var any_mutation_applied := false
 	var graphics_target_wall_controller = context.get("graphics_target_wall_controller", null)
@@ -59,10 +58,16 @@ func process_native_voxel_rate(delta: float, projectile_contact_rows: Array, con
 		WorldNativeVoxelDispatchRuntimeScript.record_dispatch_attempt_after_fire(native_voxel_dispatch_runtime)
 		var pulse = pulse_variant as Dictionary
 		var tier_id := String(pulse.get("tier_id", "high"))
-		payload["rate_tier"] = tier_id
-		payload["compute_budget_scale"] = float(pulse.get("compute_budget_scale", base_budget))
+		var pulse_payload := WorldDispatchContractsScript.build_dispatch_payload(
+			tick,
+			delta,
+			tier_id,
+			float(pulse.get("compute_budget_scale", base_budget)),
+			view_metrics,
+			dispatch_contact_rows
+		)
 		var dispatch_start_usec := Time.get_ticks_usec()
-		var dispatch_variant = simulation_controller.call("execute_native_voxel_stage", tick, _native_stage_name, payload, false)
+		var dispatch_variant = simulation_controller.call("execute_native_voxel_stage", tick, _native_stage_name, pulse_payload, false)
 		var dispatch_duration_ms := float(maxi(0, Time.get_ticks_usec() - dispatch_start_usec)) / 1000.0
 		if not (dispatch_variant is Dictionary):
 			_record_native_voxel_dispatch_failure(native_voxel_dispatch_runtime, simulation_controller, tick, tier_id, "", "invalid_dispatch_result", dispatch_duration_ms, false, {})

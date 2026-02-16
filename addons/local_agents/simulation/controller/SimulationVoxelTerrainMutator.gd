@@ -143,7 +143,7 @@ static func apply_native_voxel_stage_delta(controller, tick: int, payload: Dicti
 			"changed_chunks": [],
 		}, _PATH_INVALID_CONTROLLER, false)
 	var native_ops := _build_direct_impact_voxel_ops(controller, payload)
-	var changed_chunk_rows = _extract_changed_chunks(payload)
+	var changed_chunk_rows = _resolve_changed_chunks_from_payload(payload)
 	var changed_chunks = _normalize_chunk_keys(changed_chunk_rows)
 	if native_ops.is_empty():
 		var no_mutation_result := {
@@ -180,8 +180,8 @@ static func _build_direct_impact_voxel_ops(controller, payload: Dictionary) -> A
 	var contacts := _extract_projectile_contact_rows(payload)
 	if contacts.is_empty():
 		return []
-	var changed_chunks = _extract_changed_chunks(payload)
-	var changed_region = _extract_changed_region(payload)
+	var changed_chunks = _resolve_changed_chunks_from_payload(payload)
+	var changed_region = _resolve_changed_region_from_payload(payload)
 	var ops: Array = []
 	var seq := 0
 	for row_variant in contacts:
@@ -775,13 +775,22 @@ static func _native_op_less(left: Dictionary, right: Dictionary) -> bool:
 	return String(left.get("operation", "set")) < String(right.get("operation", "set"))
 
 static func _resolve_native_ops_from_payload(payload: Dictionary) -> Array:
+	var native_rows = payload.get("native_ops", null)
+	if native_rows is Array:
+		var native_out: Array = []
+		for row_variant in (native_rows as Array):
+			if row_variant is Dictionary:
+				native_out.append((row_variant as Dictionary).duplicate(true))
+		if not native_out.is_empty():
+			return native_out
 	var payload_rows = payload.get("op_payloads", null)
 	if payload_rows is Array:
 		var out: Array = []
 		for row_variant in (payload_rows as Array):
 			if row_variant is Dictionary:
 				out.append((row_variant as Dictionary).duplicate(true))
-		return out
+		if not out.is_empty():
+			return out
 	return _extract_native_op_payloads(payload)
 
 static func _resolve_changed_chunks_from_payload(payload: Dictionary) -> Array:
@@ -795,8 +804,17 @@ static func _resolve_changed_chunks_from_payload(payload: Dictionary) -> Array:
 				var key := String(row_variant).strip_edges()
 				if key != "":
 					out.append(key)
-		return out
+		if not out.is_empty():
+			return out
 	return _extract_changed_chunks(payload)
+
+static func _resolve_changed_region_from_payload(payload: Dictionary) -> Dictionary:
+	var direct_region = payload.get("changed_region", null)
+	if direct_region is Dictionary:
+		var region = direct_region as Dictionary
+		if bool(region.get("valid", false)):
+			return region.duplicate(true)
+	return _extract_changed_region(payload)
 
 static func _chunk_keys_for_tiles(env_snapshot: Dictionary, changed_tiles: Array) -> Array:
 	if changed_tiles.is_empty():

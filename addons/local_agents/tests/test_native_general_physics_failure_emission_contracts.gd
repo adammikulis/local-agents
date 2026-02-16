@@ -113,6 +113,17 @@ func _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_s
 		"World dispatch contract must include persisted physics_contacts rows for failure emission input."
 	) and ok
 	ok = _assert(
+		world_dispatch_controller_source.contains("var pulse_payload := WorldDispatchContractsScript.build_dispatch_payload(")
+			and not world_dispatch_controller_source.contains("payload[\"rate_tier\"] = tier_id"),
+		"WorldDispatchController must build a canonical per-pulse payload instead of mutating a reused payload dictionary."
+	) and ok
+	ok = _assert(
+		world_dispatch_contracts_source.contains("stage_payload[\"native_ops\"] = _flatten_native_ops(dispatch)")
+			and world_dispatch_contracts_source.contains("stage_payload[\"changed_chunks\"] = _normalize_changed_chunks(_extract_changed_chunks(dispatch))")
+			and world_dispatch_contracts_source.contains("stage_payload[\"changed_region\"] = changed_region"),
+		"WorldDispatchContracts stage payload must expose canonical native_ops/changed_chunks/changed_region fields directly."
+	) and ok
+	ok = _assert(
 		world_dispatch_controller_source.contains("if pulses.is_empty() and dispatch_contact_rows.is_empty():"),
 		"WorldDispatchController must skip native voxel dispatch only when no scheduler pulse and no pending projectile contacts."
 	) and ok
