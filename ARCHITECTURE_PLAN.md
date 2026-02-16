@@ -20,6 +20,26 @@ This plan is organized by engineering concern so work can be split into focused 
 
 ## Ordered Wave Sequence (Planning lane update 2026-02-16)
 
+- [ ] Wave 0A (`P0`): Continue all-native migration from latest baseline commits.
+  - Owner lanes:
+    - Native Compute
+    - Runtime Simulation
+    - Test-Infrastructure
+  - Scope:
+    - Continue removal of remaining simulation-authoritative GDScript/CPU-success branches identified after latest baseline commits.
+    - Keep mutation/destruction authority native + GPU only, with explicit typed failures when native/GPU requirements are unavailable.
+  - File-size precondition (mandatory before implementation edits):
+    - `addons/local_agents/simulation/controller/NativeComputeBridge.gd` is ~992 lines; split helper/business logic before adding growth in this wave.
+    - No task in this wave may increase `NativeComputeBridge.gd`; extraction must occur first.
+  - Acceptance criteria:
+    - Active simulation-authoritative paths execute through native/GPU contracts only.
+    - No reachable CPU-success or GDScript-success fallback branch remains for in-scope migrated paths.
+    - Missing native/GPU prerequisites fail fast with explicit typed reasons (`NATIVE_REQUIRED`/`native_unavailable`, `GPU_REQUIRED`/`gpu_unavailable`).
+  - Required validation order:
+    - Non-headless launch first (real display path).
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
 - [ ] Wave 0 (`P0`): Full native/GPU destruction authority migration.
   - Priority and owner lanes:
     - `P0`: Planning lane owns scope lock, fallback inventory, and phase gate definitions.
