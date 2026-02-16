@@ -145,6 +145,7 @@ static func execute_native_voxel_stage(controller, tick: int, stage_name: String
 		var backend_used := _canonical_environment_backend(environment_dispatch, execution)
 		var kernel_pass := String(execution.get("kernel_pass", "")).strip_edges()
 		var dispatch_reason := _canonical_environment_dispatch_reason(environment_dispatch, execution, environment_result)
+		var native_mutation_authority := _extract_native_mutation_authority(environment_dispatch, environment_result, execution)
 		return {
 			"ok": bool(environment_dispatch.get("ok", false)),
 			"executed": bool(environment_dispatch.get("executed", false)),
@@ -154,6 +155,7 @@ static func execute_native_voxel_stage(controller, tick: int, stage_name: String
 			"dispatch_reason": dispatch_reason,
 			"result": environment_dispatch.get("result", {}),
 			"voxel_result": NativeComputeBridgeScript.environment_stage_result(environment_dispatch),
+			"native_mutation_authority": native_mutation_authority,
 			"error": String(environment_dispatch.get("error", "")),
 		}
 	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
@@ -190,6 +192,7 @@ static func execute_native_voxel_stage(controller, tick: int, stage_name: String
 		"dispatch_reason": String(dispatch.get("dispatch_reason", "")),
 		"result": dispatch.get("result", {}),
 		"voxel_result": NativeComputeBridgeScript.voxel_stage_result(dispatch),
+		"native_mutation_authority": _extract_native_mutation_authority(dispatch, NativeComputeBridgeScript.voxel_stage_result(dispatch), {}),
 		"error": String(dispatch.get("error", "")),
 	}
 
@@ -228,6 +231,32 @@ static func _canonical_environment_dispatch_reason(environment_dispatch: Diction
 			if dispatch_reason != "":
 				return dispatch_reason
 	return String(environment_result.get("status", "")).strip_edges()
+
+static func _extract_native_mutation_authority(dispatch: Dictionary, payload: Dictionary, execution: Dictionary) -> Dictionary:
+	var authority: Dictionary = {}
+	if not execution.is_empty():
+		authority = _merge_native_authority_fields(authority, execution)
+	authority = _merge_native_authority_fields(authority, payload)
+	authority = _merge_native_authority_fields(authority, dispatch)
+	return authority
+
+static func _merge_native_authority_fields(current: Dictionary, source: Dictionary) -> Dictionary:
+	var merged := current.duplicate(true)
+	if source.has("ops_changed"):
+		merged["ops_changed"] = maxi(0, int(source.get("ops_changed", 0)))
+	if source.has("changed"):
+		merged["changed"] = bool(source.get("changed", false))
+	elif source.has("voxel_changed") and not merged.has("changed"):
+		merged["changed"] = bool(source.get("voxel_changed", false))
+	if source.has("changed_chunks"):
+		var changed_chunks_variant = source.get("changed_chunks", [])
+		if changed_chunks_variant is Array:
+			merged["changed_chunks"] = (changed_chunks_variant as Array).duplicate(true)
+	if source.has("changed_region"):
+		var changed_region_variant = source.get("changed_region", {})
+		if changed_region_variant is Dictionary:
+			merged["changed_region"] = (changed_region_variant as Dictionary).duplicate(true)
+	return merged
 
 static func _with_required_material_identity(payload: Dictionary) -> Dictionary:
 	var normalized: Dictionary = payload.duplicate(true)

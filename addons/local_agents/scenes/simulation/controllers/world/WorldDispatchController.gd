@@ -83,11 +83,11 @@ func process_native_voxel_rate(delta: float, projectile_contact_rows: Array, con
 			_fail_native_voxel_dependency(native_voxel_dispatch_runtime, simulation_controller, tick, "native voxel stage backend is not GPU: %s" % backend_used, tier_id, dispatch_reason, dispatch_duration_ms, dispatch)
 			return
 		_record_native_voxel_dispatch_success(native_voxel_dispatch_runtime, simulation_controller, tick, tier_id, backend_used, dispatch_reason, dispatch_duration_ms, dispatch)
-		var executed_op_count := WorldNativeVoxelDispatchRuntimeScript.record_destruction_plan(native_voxel_dispatch_runtime, dispatch)
-		var stage_payload := WorldDispatchContractsScript.build_stage_payload(dispatch, backend_used, dispatch_reason, dispatch_contact_rows, executed_op_count)
+		var native_executed_op_count := WorldNativeVoxelDispatchRuntimeScript.record_destruction_plan(native_voxel_dispatch_runtime, dispatch)
+		var stage_payload := WorldDispatchContractsScript.build_stage_payload(dispatch, backend_used, dispatch_reason, dispatch_contact_rows, native_executed_op_count)
 		if stage_payload.is_empty():
 			continue
-		var mutation := WorldDispatchContractsScript.build_native_authoritative_mutation(dispatch, stage_payload, executed_op_count)
+		var mutation := WorldDispatchContractsScript.build_native_authoritative_mutation(dispatch, stage_payload, native_executed_op_count)
 		WorldNativeVoxelDispatchRuntimeScript.record_mutation(native_voxel_dispatch_runtime, stage_payload, mutation, Engine.get_process_frames())
 		if not bool(mutation.get("changed", false)):
 			continue

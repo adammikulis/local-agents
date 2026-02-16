@@ -36,14 +36,22 @@ static func build_stage_payload(dispatch: Dictionary, backend_used: String, disp
 	var changed_region := _extract_changed_region(dispatch)
 	if not changed_region.is_empty():
 		stage_payload["changed_region"] = changed_region
-	stage_payload["_destruction_executed_op_count"] = executed_op_count
+	var native_authority := _resolve_native_mutation_authority(dispatch, stage_payload)
+	if not native_authority.is_empty():
+		stage_payload["native_mutation_authority"] = native_authority
+		if native_authority.has("ops_changed"):
+			stage_payload["_destruction_executed_op_count"] = maxi(0, int(native_authority.get("ops_changed", 0)))
+		else:
+			stage_payload["_destruction_executed_op_count"] = maxi(0, executed_op_count)
+	else:
+		stage_payload["_destruction_executed_op_count"] = maxi(0, executed_op_count)
 	return stage_payload
 
-static func build_native_authoritative_mutation(dispatch: Dictionary, stage_payload: Dictionary, executed_op_count: int) -> Dictionary:
-	var normalized_executed_op_count := maxi(0, executed_op_count)
+static func build_native_authoritative_mutation(dispatch: Dictionary, stage_payload: Dictionary, _executed_op_count: int) -> Dictionary:
 	var changed_chunks_variant = stage_payload.get("changed_chunks", [])
 	var changed_chunks: Array = changed_chunks_variant if changed_chunks_variant is Array else []
-	var changed := normalized_executed_op_count > 0
+	var native_authority := _resolve_native_mutation_authority(dispatch, stage_payload)
+	var changed := _authority_reports_changed(native_authority, stage_payload)
 	var mutation: Dictionary = {
 		"ok": changed,
 		"changed": changed,
@@ -54,6 +62,8 @@ static func build_native_authoritative_mutation(dispatch: Dictionary, stage_payl
 		"mutation_path": "native_result_authoritative",
 		"mutation_path_state": "success" if changed else "failure",
 	}
+	if not native_authority.is_empty():
+		mutation["native_mutation_authority"] = native_authority.duplicate(true)
 	if not changed:
 		mutation["failure_paths"] = [_native_no_mutation_error(dispatch)]
 	return mutation
@@ -176,3 +186,89 @@ static func _find_changed_region(source: Dictionary, depth: int) -> Dictionary:
 			if not nested_region.is_empty():
 				return nested_region
 	return {}
+
+static func _authority_reports_changed(native_authority: Dictionary, stage_payload: Dictionary) -> bool:
+	if native_authority.has("changed"):
+		return bool(native_authority.get("changed", false))
+	if native_authority.has("ops_changed"):
+		return int(native_authority.get("ops_changed", 0)) > 0
+	var authority_changed_chunks_variant = native_authority.get("changed_chunks", [])
+	if authority_changed_chunks_variant is Array and not (authority_changed_chunks_variant as Array).is_empty():
+		return true
+	var authority_changed_region_variant = native_authority.get("changed_region", {})
+	if authority_changed_region_variant is Dictionary and bool((authority_changed_region_variant as Dictionary).get("valid", false)):
+		return true
+	var stage_changed_chunks_variant = stage_payload.get("changed_chunks", [])
+	if stage_changed_chunks_variant is Array and not (stage_changed_chunks_variant as Array).is_empty():
+		return true
+	var stage_changed_region_variant = stage_payload.get("changed_region", {})
+	return stage_changed_region_variant is Dictionary and bool((stage_changed_region_variant as Dictionary).get("valid", false))
+
+static func _resolve_native_mutation_authority(dispatch: Dictionary, stage_payload: Dictionary) -> Dictionary:
+	var explicit_authority_variant = dispatch.get("native_mutation_authority", {})
+	if explicit_authority_variant is Dictionary:
+		var explicit_authority = explicit_authority_variant as Dictionary
+		if not explicit_authority.is_empty():
+			return explicit_authority.duplicate(true)
+	return _extract_native_mutation_authority(dispatch, stage_payload)
+
+static func _extract_native_mutation_authority(dispatch: Dictionary, stage_payload: Dictionary) -> Dictionary:
+	var authority: Dictionary = {}
+	var execution := _extract_execution_payload(dispatch)
+	if not execution.is_empty():
+		authority = _merge_authority_fields(authority, execution)
+	var voxel_result_variant = dispatch.get("voxel_result", {})
+	if voxel_result_variant is Dictionary:
+		authority = _merge_authority_fields(authority, voxel_result_variant as Dictionary)
+	var raw_result_variant = dispatch.get("result", {})
+	if raw_result_variant is Dictionary:
+		authority = _merge_authority_fields(authority, raw_result_variant as Dictionary)
+	authority = _merge_authority_fields(authority, dispatch)
+	var stage_authority_variant = stage_payload.get("native_mutation_authority", {})
+	if stage_authority_variant is Dictionary:
+		authority = _merge_authority_fields(authority, stage_authority_variant as Dictionary)
+	if stage_payload.has("changed_chunks") and not authority.has("changed_chunks"):
+		var changed_chunks_variant = stage_payload.get("changed_chunks", [])
+		if changed_chunks_variant is Array:
+			authority["changed_chunks"] = (changed_chunks_variant as Array).duplicate(true)
+	if stage_payload.has("changed_region") and not authority.has("changed_region"):
+		var changed_region_variant = stage_payload.get("changed_region", {})
+		if changed_region_variant is Dictionary:
+			authority["changed_region"] = (changed_region_variant as Dictionary).duplicate(true)
+	return authority
+
+static func _extract_execution_payload(dispatch: Dictionary) -> Dictionary:
+	var execution_variant = dispatch.get("execution", {})
+	if execution_variant is Dictionary:
+		return (execution_variant as Dictionary).duplicate(true)
+	var raw_result_variant = dispatch.get("result", {})
+	if raw_result_variant is Dictionary:
+		var raw_result = raw_result_variant as Dictionary
+		execution_variant = raw_result.get("execution", {})
+		if execution_variant is Dictionary:
+			return (execution_variant as Dictionary).duplicate(true)
+	var voxel_result_variant = dispatch.get("voxel_result", {})
+	if voxel_result_variant is Dictionary:
+		var voxel_result = voxel_result_variant as Dictionary
+		execution_variant = voxel_result.get("execution", {})
+		if execution_variant is Dictionary:
+			return (execution_variant as Dictionary).duplicate(true)
+	return {}
+
+static func _merge_authority_fields(current: Dictionary, source: Dictionary) -> Dictionary:
+	var merged := current.duplicate(true)
+	if source.has("ops_changed"):
+		merged["ops_changed"] = maxi(0, int(source.get("ops_changed", 0)))
+	if source.has("changed"):
+		merged["changed"] = bool(source.get("changed", false))
+	elif source.has("voxel_changed") and not merged.has("changed"):
+		merged["changed"] = bool(source.get("voxel_changed", false))
+	if source.has("changed_chunks"):
+		var changed_chunks_variant = source.get("changed_chunks", [])
+		if changed_chunks_variant is Array:
+			merged["changed_chunks"] = (changed_chunks_variant as Array).duplicate(true)
+	if source.has("changed_region"):
+		var changed_region_variant = source.get("changed_region", {})
+		if changed_region_variant is Dictionary:
+			merged["changed_region"] = (changed_region_variant as Dictionary).duplicate(true)
+	return merged
