@@ -7,6 +7,7 @@ func run_test(tree: SceneTree) -> bool:
 	var ok := true
 	ok = _run_chunk_bounce_and_contact_queue_test(tree) and ok
 	ok = _run_rigidbody_response_test(tree) and ok
+	ok = _run_mutation_deadline_invariant_test(tree) and ok
 	if ok:
 		print("FpsLauncher voxel-chunk contact queue-until-dispatch regression test passed.")
 	return ok
@@ -73,7 +74,7 @@ func _run_chunk_bounce_and_contact_queue_test(tree: SceneTree) -> bool:
 	var pending_rows_after_delay := controller.sample_voxel_dispatch_contact_rows()
 	ok = _assert(pending_rows_after_delay.size() >= 1, "Pending projectile-contact rows should survive multiple frames without scheduled pulse.") and ok
 
-	controller.acknowledge_voxel_dispatch_contact_rows(pending_rows_after_delay.size())
+	controller.acknowledge_voxel_dispatch_contact_rows(pending_rows_after_delay.size(), true)
 	ok = _assert(controller.pending_voxel_dispatch_contact_count() == 0, "Pending projectile-contact row should clear only after explicit dispatch ack.") and ok
 	var pending_rows_after_ack := controller.sample_voxel_dispatch_contact_rows()
 	ok = _assert(pending_rows_after_ack.is_empty(), "Dispatch-contact sampling should be empty after ack consumes queued rows.") and ok
@@ -120,6 +121,34 @@ func _run_rigidbody_response_test(tree: SceneTree) -> bool:
 	if contact_row_variant is Dictionary:
 		contact_row = contact_row_variant as Dictionary
 	ok = _assert(float(contact_row.get("collider_mass", 0.0)) > 0.0, "Contact row should preserve rigidbody mass semantics for collider payload.") and ok
+
+	tree.get_root().remove_child(root)
+	root.free()
+	return ok
+
+func _run_mutation_deadline_invariant_test(tree: SceneTree) -> bool:
+	var controller := FpsLauncherControllerScript.new()
+	var root := Node3D.new()
+	var camera := Camera3D.new()
+	root.add_child(camera)
+	root.add_child(controller)
+	tree.get_root().add_child(root)
+	controller.configure(camera, root, null)
+	controller.record_projectile_contact_row({
+		"body_id": 101,
+		"contact_point": Vector3(2.0, 1.0, 2.0),
+		"contact_impulse": 14.0,
+		"relative_speed": 22.0,
+		"projectile_kind": "voxel_chunk",
+	})
+
+	var ok := true
+	ok = _assert(controller.pending_voxel_dispatch_contact_count() == 1, "Launcher should queue projectile contact row for mutation dispatch.") and ok
+	controller.acknowledge_voxel_dispatch_contact_rows(1, false)
+	ok = _assert(controller.pending_voxel_dispatch_contact_count() == 1, "Non-mutating dispatch ack must not clear projectile contact rows.") and ok
+	for _i in range(FpsLauncherControllerScript.MAX_PROJECTILE_MUTATION_FRAMES + 2):
+		controller.step(0.016)
+	ok = _assert(controller.pending_voxel_dispatch_contact_count() == 0, "Projectile rows that miss mutation deadline must be purged after PROJECTILE_MUTATION_DEADLINE_EXCEEDED.") and ok
 
 	tree.get_root().remove_child(root)
 	root.free()

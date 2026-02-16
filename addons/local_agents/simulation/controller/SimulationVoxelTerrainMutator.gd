@@ -132,7 +132,10 @@ static func apply_native_voxel_stage_delta(controller, tick: int, payload: Dicti
 	if controller == null:
 		return {"ok": false, "changed": false, "error": "invalid_controller", "tick": tick, "changed_tiles": [], "changed_chunks": []}
 	var native_ops = _extract_native_op_payloads(payload)
+	var direct_impact_ops := _build_direct_impact_voxel_ops(controller, payload)
 	var changed_chunks = _normalize_chunk_keys(_extract_changed_chunks(payload))
+	if native_ops.is_empty() and not direct_impact_ops.is_empty():
+		native_ops = direct_impact_ops.duplicate(true)
 	if native_ops.is_empty():
 		var env_snapshot = controller._environment_snapshot.duplicate(true)
 		var changed_tiles = _tiles_from_changed_chunks_or_region(env_snapshot, payload)
@@ -166,6 +169,11 @@ static func apply_native_voxel_stage_delta(controller, tick: int, payload: Dicti
 	var ops_result = apply_native_voxel_ops_payload(controller, tick, {"op_payloads": native_ops, "source": payload})
 	if bool(ops_result.get("changed", false)):
 		return ops_result
+	if not direct_impact_ops.is_empty() and not _native_op_arrays_equal(native_ops, direct_impact_ops):
+		var direct_fallback_result := apply_native_voxel_ops_payload(controller, tick, {"op_payloads": direct_impact_ops, "source": payload})
+		direct_fallback_result["mutation_path"] = "direct_impact_fallback"
+		if bool(direct_fallback_result.get("changed", false)):
+			return direct_fallback_result
 	ops_result["ok"] = false
 	ops_result["changed"] = false
 	ops_result["error"] = "native_voxel_stage_no_mutation"
@@ -174,6 +182,87 @@ static func apply_native_voxel_stage_delta(controller, tick: int, payload: Dicti
 	ops_result["changed_tiles"] = []
 	ops_result["changed_chunks"] = changed_chunks
 	return ops_result
+
+static func _build_direct_impact_voxel_ops(controller, payload: Dictionary) -> Array:
+	var env_snapshot: Dictionary = controller._environment_snapshot.duplicate(true)
+	var width := int(env_snapshot.get("width", 0))
+	var height := int(env_snapshot.get("height", 0))
+	if width <= 0 or height <= 0:
+		return []
+	var contacts := _extract_projectile_contact_rows(payload)
+	if contacts.is_empty():
+		return []
+	var ops: Array = []
+	var seq := 0
+	for row_variant in contacts:
+		if not (row_variant is Dictionary):
+			continue
+		var row = row_variant as Dictionary
+		var point := _extract_contact_point(row)
+		var x := clampi(int(round(point.x)), 0, width - 1)
+		var z := clampi(int(round(point.z)), 0, height - 1)
+		var impulse := maxf(0.0, float(row.get("contact_impulse", row.get("impulse", 0.0))))
+		var speed := maxf(0.0, float(row.get("relative_speed", row.get("contact_velocity", 0.0))))
+		var value := clampf((impulse * 0.02) + (speed * 0.01), 0.35, 2.0)
+		var radius := clampf(float(row.get("projectile_radius", 0.0)), 0.0, 1.6)
+		if radius <= 0.0:
+			radius = clampf(0.35 + minf(1.25, value * 0.4), 0.35, 1.6)
+		ops.append({
+			"sequence_id": seq,
+			"x": x,
+			"y": maxi(0, int(round(point.y))),
+			"z": z,
+			"operation": "fracture",
+			"value": value,
+			"radius": radius,
+			"source": "projectile_direct_impact",
+			"projectile_id": int(row.get("body_id", 0)),
+		})
+		seq += 1
+	return ops
+
+static func _extract_projectile_contact_rows(payload: Dictionary) -> Array:
+	var out: Array = []
+	_collect_projectile_contact_rows(payload, out, 0)
+	return out
+
+static func _collect_projectile_contact_rows(source: Dictionary, out: Array, depth: int) -> void:
+	if depth > 3:
+		return
+	for key in ["physics_contacts", "physics_server_contacts", "contacts"]:
+		var rows_variant = source.get(key, [])
+		if not (rows_variant is Array):
+			continue
+		for row_variant in (rows_variant as Array):
+			if row_variant is Dictionary:
+				var row = row_variant as Dictionary
+				if int(row.get("body_id", 0)) > 0 and String(row.get("projectile_kind", "")).to_lower() == "voxel_chunk":
+					out.append(row.duplicate(true))
+	for key in ["voxel_failure_emission", "result_fields", "result", "payload", "execution", "voxel_result", "source"]:
+		var nested_variant = source.get(key, {})
+		if nested_variant is Dictionary:
+			_collect_projectile_contact_rows(nested_variant as Dictionary, out, depth + 1)
+
+static func _extract_contact_point(row: Dictionary) -> Vector3:
+	var point_variant = row.get("contact_point", row.get("position", Vector3.ZERO))
+	if point_variant is Vector3:
+		return point_variant as Vector3
+	if point_variant is Dictionary:
+		var point_dict = point_variant as Dictionary
+		return Vector3(float(point_dict.get("x", 0.0)), float(point_dict.get("y", 0.0)), float(point_dict.get("z", 0.0)))
+	return Vector3.ZERO
+
+static func _native_op_arrays_equal(a: Array, b: Array) -> bool:
+	if a.size() != b.size():
+		return false
+	for i in range(a.size()):
+		var left_variant = a[i]
+		var right_variant = b[i]
+		if not (left_variant is Dictionary and right_variant is Dictionary):
+			return false
+		if String(_native_op_sort_key(left_variant as Dictionary)) != String(_native_op_sort_key(right_variant as Dictionary)):
+			return false
+	return true
 
 static func apply_native_voxel_ops_payload(controller, tick: int, payload: Dictionary) -> Dictionary:
 	if controller == null:

@@ -15,6 +15,7 @@ const WorldEnvironmentSyncControllerScript = preload("res://addons/local_agents/
 const WorldGraphicsTargetWallControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldGraphicsTargetWallController.gd")
 const WorldInputControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldInputController.gd")
 const FpsLauncherControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd")
+const WorldNativeVoxelDispatchRuntimeScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldNativeVoxelDispatchRuntime.gd")
 const _VOXEL_NATIVE_STAGE_NAME := &"voxel_transform_step"
 
 @onready var simulation_controller: Node = $SimulationController
@@ -80,6 +81,12 @@ var _native_voxel_dispatch_runtime: Dictionary = {
 	"last_error_tick": -1,
 	"last_backend": "",
 	"last_dispatch_reason": "",
+	"hits_queued": 0,
+	"contacts_dispatched": 0,
+	"plans_planned": 0,
+	"ops_applied": 0,
+	"changed_tiles": 0,
+	"last_drop_reason": "",
 	"per_stage_ms_current": {
 		"stage_a": 0.0,
 		"stage_b": 0.0,
@@ -583,10 +590,12 @@ func _process_native_voxel_rate(delta: float, projectile_contact_rows: Array = [
 	var dispatch_contact_rows: Array = projectile_contact_rows.duplicate(true)
 	if fps_launcher_controller != null and fps_launcher_controller.has_method("sample_voxel_dispatch_contact_rows"):
 		var rows_variant = fps_launcher_controller.call("sample_voxel_dispatch_contact_rows"); if rows_variant is Array: dispatch_contact_rows = rows_variant as Array
+	WorldNativeVoxelDispatchRuntimeScript.record_hits_queued(_native_voxel_dispatch_runtime, dispatch_contact_rows.size())
 	if pulses.is_empty() and dispatch_contact_rows.is_empty():
 		return
 	if pulses.is_empty(): pulses = [{"tier_id": "contact_flush", "compute_budget_scale": base_budget, "forced_contact_flush": true}]
 	var attempted_dispatch := false
+	var any_mutation_applied := false
 	for pulse_variant in pulses:
 		if not (pulse_variant is Dictionary): continue
 		attempted_dispatch = true
@@ -603,14 +612,13 @@ func _process_native_voxel_rate(delta: float, projectile_contact_rows: Array = [
 		var backend_used := _graphics_target_wall_controller.normalize_gpu_backend_used(dispatch)
 		var dispatch_reason := String(dispatch.get("dispatch_reason", ""))
 		if not bool(dispatch.get("dispatched", false)):
-			if fps_launcher_controller != null and fps_launcher_controller.has_method("acknowledge_voxel_dispatch_contact_rows"): fps_launcher_controller.call("acknowledge_voxel_dispatch_contact_rows", dispatch_contact_rows.size())
 			_fail_native_voxel_dependency(tick, "native voxel stage was not dispatched", tier_id, dispatch_reason, dispatch_duration_ms, dispatch)
 			return
 		if backend_used.findn("gpu") == -1:
-			if fps_launcher_controller != null and fps_launcher_controller.has_method("acknowledge_voxel_dispatch_contact_rows"): fps_launcher_controller.call("acknowledge_voxel_dispatch_contact_rows", dispatch_contact_rows.size())
 			_fail_native_voxel_dependency(tick, "native voxel stage backend is not GPU: %s" % backend_used, tier_id, dispatch_reason, dispatch_duration_ms, dispatch)
 			return
 		_record_native_voxel_dispatch_success(tick, tier_id, backend_used, dispatch_reason, dispatch_duration_ms, dispatch)
+		var executed_op_count := WorldNativeVoxelDispatchRuntimeScript.record_destruction_plan(_native_voxel_dispatch_runtime, dispatch)
 		var stage_payload: Dictionary = {}
 		var voxel_payload = dispatch.get("voxel_result", {})
 		if voxel_payload is Dictionary: stage_payload = (voxel_payload as Dictionary).duplicate(true)
@@ -620,160 +628,56 @@ func _process_native_voxel_rate(delta: float, projectile_contact_rows: Array = [
 		stage_payload["backend_used"] = backend_used
 		stage_payload["dispatch_reason"] = dispatch_reason
 		stage_payload["dispatched"] = bool(dispatch.get("dispatched", false))
+		stage_payload["physics_contacts"] = dispatch_contact_rows.duplicate(true)
+		stage_payload["_destruction_executed_op_count"] = executed_op_count
 		if stage_payload.is_empty(): continue
-		_apply_native_voxel_stage_result(tick, stage_payload)
-	if attempted_dispatch and fps_launcher_controller != null and fps_launcher_controller.has_method("acknowledge_voxel_dispatch_contact_rows"):
-		fps_launcher_controller.call("acknowledge_voxel_dispatch_contact_rows", dispatch_contact_rows.size())
-
+		any_mutation_applied = _apply_native_voxel_stage_result(tick, stage_payload) or any_mutation_applied
+	if attempted_dispatch and any_mutation_applied and fps_launcher_controller != null and fps_launcher_controller.has_method("acknowledge_voxel_dispatch_contact_rows"):
+		WorldNativeVoxelDispatchRuntimeScript.record_contacts_dispatched(_native_voxel_dispatch_runtime, dispatch_contact_rows.size())
+		fps_launcher_controller.call("acknowledge_voxel_dispatch_contact_rows", dispatch_contact_rows.size(), true)
 func native_voxel_dispatch_runtime() -> Dictionary:
 	return _native_voxel_dispatch_runtime.duplicate(true)
-
 func _record_native_voxel_dispatch_success(tick: int, tier_id: String, backend_used: String, dispatch_reason: String, duration_ms: float, dispatch: Dictionary = {}) -> void:
-	_native_voxel_dispatch_runtime["pulses_total"] = int(_native_voxel_dispatch_runtime.get("pulses_total", 0)) + 1
-	_native_voxel_dispatch_runtime["pulses_success"] = int(_native_voxel_dispatch_runtime.get("pulses_success", 0)) + 1
-	_native_voxel_dispatch_runtime["last_backend"] = backend_used
-	_native_voxel_dispatch_runtime["last_dispatch_reason"] = dispatch_reason
-	_record_native_voxel_dispatch_pulse(tick, tier_id, backend_used, dispatch_reason, duration_ms, true, dispatch)
-
+	WorldNativeVoxelDispatchRuntimeScript.record_success(
+		_native_voxel_dispatch_runtime,
+		simulation_controller,
+		tick,
+		tier_id,
+		backend_used,
+		dispatch_reason,
+		duration_ms,
+		dispatch
+	)
 func _record_native_voxel_dispatch_failure(tick: int, tier_id: String, backend_used: String, dispatch_reason: String, duration_ms: float, is_dependency_error: bool, dispatch: Dictionary = {}) -> void:
-	_native_voxel_dispatch_runtime["pulses_total"] = int(_native_voxel_dispatch_runtime.get("pulses_total", 0)) + 1
-	_native_voxel_dispatch_runtime["pulses_failed"] = int(_native_voxel_dispatch_runtime.get("pulses_failed", 0)) + 1
-	_native_voxel_dispatch_runtime["last_backend"] = backend_used
-	_native_voxel_dispatch_runtime["last_dispatch_reason"] = dispatch_reason
-	if is_dependency_error:
-		_native_voxel_dispatch_runtime["dependency_errors"] = int(_native_voxel_dispatch_runtime.get("dependency_errors", 0)) + 1
-	_record_native_voxel_dispatch_pulse(tick, tier_id, backend_used, dispatch_reason, duration_ms, false, dispatch)
-
-func _record_native_voxel_dispatch_pulse(tick: int, tier_id: String, backend_used: String, dispatch_reason: String, duration_ms: float, success: bool, dispatch: Dictionary = {}) -> void:
-	var timing_variant = _native_voxel_dispatch_runtime.get("pulse_timings", [])
-	var pulse_timings: Array = timing_variant if timing_variant is Array else []
-	pulse_timings.append({
-		"tick": tick,
-		"tier_id": tier_id,
-		"duration_ms": duration_ms,
-		"backend_used": backend_used,
-		"dispatch_reason": dispatch_reason,
-		"success": success,
-	})
-	while pulse_timings.size() > 64:
-		pulse_timings.remove_at(0)
-	_native_voxel_dispatch_runtime["pulse_timings"] = pulse_timings
-	var per_stage_ms_current := _extract_transform_stage_ms_current(dispatch, duration_ms)
-	_native_voxel_dispatch_runtime["per_stage_ms_current"] = per_stage_ms_current
-	var aggregate_variant = _native_voxel_dispatch_runtime.get("per_stage_ms_aggregate", {})
-	var per_stage_ms_aggregate := _normalize_transform_stage_ms(aggregate_variant if aggregate_variant is Dictionary else {})
-	per_stage_ms_aggregate["stage_a"] = float(per_stage_ms_aggregate.get("stage_a", 0.0)) + float(per_stage_ms_current.get("stage_a", 0.0))
-	per_stage_ms_aggregate["stage_b"] = float(per_stage_ms_aggregate.get("stage_b", 0.0)) + float(per_stage_ms_current.get("stage_b", 0.0))
-	per_stage_ms_aggregate["stage_c"] = float(per_stage_ms_aggregate.get("stage_c", 0.0)) + float(per_stage_ms_current.get("stage_c", 0.0))
-	per_stage_ms_aggregate["stage_d"] = float(per_stage_ms_aggregate.get("stage_d", 0.0)) + float(per_stage_ms_current.get("stage_d", 0.0))
-	_native_voxel_dispatch_runtime["per_stage_ms_aggregate"] = per_stage_ms_aggregate
-	_push_transform_dispatch_metrics()
+	WorldNativeVoxelDispatchRuntimeScript.record_failure(
+		_native_voxel_dispatch_runtime,
+		simulation_controller,
+		tick,
+		tier_id,
+		backend_used,
+		dispatch_reason,
+		duration_ms,
+		is_dependency_error,
+		dispatch
+	)
 
 func _fail_native_voxel_dependency(tick: int, reason: String, tier_id: String, dispatch_reason: String, duration_ms: float, dispatch: Dictionary = {}) -> void:
-	_native_voxel_dispatch_runtime["last_error"] = reason
-	_native_voxel_dispatch_runtime["last_error_tick"] = tick
-	_record_native_voxel_dispatch_failure(tick, tier_id, "", dispatch_reason, duration_ms, true, dispatch)
-	push_error("GPU_REQUIRED: %s" % reason)
+	WorldNativeVoxelDispatchRuntimeScript.fail_dependency(
+		_native_voxel_dispatch_runtime,
+		simulation_controller,
+		tick,
+		reason,
+		tier_id,
+		dispatch_reason,
+		duration_ms,
+		dispatch
+	)
 
-func _push_transform_dispatch_metrics() -> void:
-	if simulation_controller == null or not simulation_controller.has_method("set_transform_dispatch_metrics"):
-		return
-	var per_stage_current_variant = _native_voxel_dispatch_runtime.get("per_stage_ms_current", {})
-	var per_stage_aggregate_variant = _native_voxel_dispatch_runtime.get("per_stage_ms_aggregate", {})
-	simulation_controller.set_transform_dispatch_metrics({
-		"pulse_count": int(_native_voxel_dispatch_runtime.get("pulses_total", 0)),
-		"gpu_dispatch_success_count": int(_native_voxel_dispatch_runtime.get("pulses_success", 0)),
-		"gpu_dispatch_failure_count": int(_native_voxel_dispatch_runtime.get("pulses_failed", 0)),
-		"per_stage_ms_current": _normalize_transform_stage_ms(per_stage_current_variant if per_stage_current_variant is Dictionary else {}),
-		"per_stage_ms_aggregate": _normalize_transform_stage_ms(per_stage_aggregate_variant if per_stage_aggregate_variant is Dictionary else {}),
-	})
-
-func _normalize_transform_stage_ms(stage_ms: Dictionary) -> Dictionary:
-	return {
-		"stage_a": float(stage_ms.get("stage_a", 0.0)),
-		"stage_b": float(stage_ms.get("stage_b", 0.0)),
-		"stage_c": float(stage_ms.get("stage_c", 0.0)),
-		"stage_d": float(stage_ms.get("stage_d", 0.0)),
-	}
-
-func _extract_transform_stage_ms_current(dispatch: Dictionary, fallback_duration_ms: float) -> Dictionary:
-	var per_stage := _normalize_transform_stage_ms({})
-	var stage_ms_sources: Array = []
-	var root_per_stage_variant = dispatch.get("per_stage_ms", {})
-	if root_per_stage_variant is Dictionary:
-		stage_ms_sources.append(root_per_stage_variant as Dictionary)
-	var root_stage_dispatch_variant = dispatch.get("stage_dispatch_ms", {})
-	if root_stage_dispatch_variant is Dictionary:
-		stage_ms_sources.append(root_stage_dispatch_variant as Dictionary)
-	var result_variant = dispatch.get("result", {})
-	if result_variant is Dictionary:
-		var result_payload = result_variant as Dictionary
-		var result_per_stage_variant = result_payload.get("per_stage_ms", {})
-		if result_per_stage_variant is Dictionary:
-			stage_ms_sources.append(result_per_stage_variant as Dictionary)
-		var result_stage_dispatch_variant = result_payload.get("stage_dispatch_ms", {})
-		if result_stage_dispatch_variant is Dictionary:
-			stage_ms_sources.append(result_stage_dispatch_variant as Dictionary)
-		var execution_variant = result_payload.get("execution", {})
-		if execution_variant is Dictionary:
-			var execution_payload = execution_variant as Dictionary
-			var execution_per_stage_variant = execution_payload.get("per_stage_ms", {})
-			if execution_per_stage_variant is Dictionary:
-				stage_ms_sources.append(execution_per_stage_variant as Dictionary)
-			var execution_stage_dispatch_variant = execution_payload.get("stage_dispatch_ms", {})
-			if execution_stage_dispatch_variant is Dictionary:
-				stage_ms_sources.append(execution_stage_dispatch_variant as Dictionary)
-	var voxel_result_variant = dispatch.get("voxel_result", {})
-	if voxel_result_variant is Dictionary:
-		var voxel_payload = voxel_result_variant as Dictionary
-		var voxel_per_stage_variant = voxel_payload.get("per_stage_ms", {})
-		if voxel_per_stage_variant is Dictionary:
-			stage_ms_sources.append(voxel_per_stage_variant as Dictionary)
-		var voxel_stage_dispatch_variant = voxel_payload.get("stage_dispatch_ms", {})
-		if voxel_stage_dispatch_variant is Dictionary:
-			stage_ms_sources.append(voxel_stage_dispatch_variant as Dictionary)
-	for source_variant in stage_ms_sources:
-		if not (source_variant is Dictionary):
-			continue
-		var source = source_variant as Dictionary
-		for key_variant in source.keys():
-			var bucket = _map_transform_dispatch_bucket(String(key_variant))
-			if bucket == "":
-				continue
-			var raw_ms = source.get(key_variant, 0.0)
-			var stage_ms := 0.0
-			if raw_ms is float or raw_ms is int:
-				stage_ms = maxf(0.0, float(raw_ms))
-			elif raw_ms is Dictionary:
-				var nested_ms = (raw_ms as Dictionary).get("ms", 0.0)
-				stage_ms = maxf(0.0, float(nested_ms))
-			per_stage[bucket] = float(per_stage.get(bucket, 0.0)) + stage_ms
-	var kernel_pass_bucket = _map_transform_dispatch_bucket(String(dispatch.get("kernel_pass", "")))
-	if kernel_pass_bucket != "":
-		per_stage[kernel_pass_bucket] = maxf(float(per_stage.get(kernel_pass_bucket, 0.0)), maxf(0.0, fallback_duration_ms))
-	var dispatch_reason_bucket = _map_transform_dispatch_bucket(String(dispatch.get("dispatch_reason", "")))
-	if dispatch_reason_bucket != "" and kernel_pass_bucket == "":
-		per_stage[dispatch_reason_bucket] = maxf(float(per_stage.get(dispatch_reason_bucket, 0.0)), maxf(0.0, fallback_duration_ms))
-	return _normalize_transform_stage_ms(per_stage)
-
-func _map_transform_dispatch_bucket(raw_stage_token: String) -> String:
-	var token := raw_stage_token.strip_edges().to_lower()
-	if token == "":
-		return ""
-	if token == "stage_a" or token.contains("stage_a") or token.contains("atmosphere"):
-		return "stage_a"
-	if token == "stage_b" or token.contains("stage_b") or token.contains("network"):
-		return "stage_b"
-	if token == "stage_c" or token.contains("stage_c") or token.contains("deformation") or token.contains("voxel"):
-		return "stage_c"
-	if token == "stage_d" or token.contains("stage_d") or token.contains("exposure") or token.contains("solar"):
-		return "stage_d"
-	return ""
-
-func _apply_native_voxel_stage_result(tick: int, stage_payload: Dictionary) -> void:
+func _apply_native_voxel_stage_result(tick: int, stage_payload: Dictionary) -> bool:
 	var mutation = SimulationVoxelTerrainMutatorScript.apply_native_voxel_stage_delta(simulation_controller, tick, stage_payload)
+	WorldNativeVoxelDispatchRuntimeScript.record_mutation(_native_voxel_dispatch_runtime, stage_payload, mutation)
 	if not bool(mutation.get("changed", false)):
-		return
+		return false
 	_sync_environment_from_state({
 		"tick": tick,
 		"environment_snapshot": mutation.get("environment_snapshot", simulation_controller.current_environment_snapshot() if simulation_controller.has_method("current_environment_snapshot") else {}),
@@ -785,6 +689,7 @@ func _apply_native_voxel_stage_result(tick: int, stage_payload: Dictionary) -> v
 		"transform_changed_tiles": (mutation.get("changed_tiles", []) as Array).duplicate(true),
 		"transform_changed_chunks": (mutation.get("changed_chunks", []) as Array).duplicate(true),
 	}, false)
+	return true
 
 func _apply_runtime_demo_profile(profile_id: String) -> void:
 	_capture_runtime_profile_baseline_if_needed()

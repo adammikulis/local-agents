@@ -47,6 +47,8 @@ const _BOUNCE_RESTITUTION := 0.65
 const _BOUNCE_TANGENTIAL_DAMPING := 0.92
 const _SURFACE_SEPARATION := 0.01
 const _MIN_BOUNCE_SPEED := 0.8
+const MAX_PROJECTILE_MUTATION_FRAMES := 6
+const _PROJECTILE_MUTATION_DEADLINE_ERROR := "PROJECTILE_MUTATION_DEADLINE_EXCEEDED"
 
 var _camera: Camera3D = null
 var _spawn_parent: Node3D = null
@@ -55,6 +57,7 @@ var _active_projectiles: Array[ChunkProjectileState] = []
 var _pending_contact_rows: Array[Dictionary] = []
 var _sampled_contact_cursor: int = 0
 var _next_projectile_id: int = 1
+var _simulation_frame_index: int = 0
 
 func configure(active_camera: Camera3D, spawn_parent: Node3D, profile_resource: Resource = null) -> void:
 	_camera = active_camera
@@ -149,10 +152,13 @@ func handle_hotkey(event: InputEvent) -> bool:
 	return false
 
 func step(delta: float) -> void:
+	_simulation_frame_index += 1
 	_cooldown_remaining = maxf(0.0, _cooldown_remaining - delta)
 	if delta <= 0.0:
+		_validate_projectile_mutation_deadlines()
 		return
 	_advance_projectiles(delta)
+	_validate_projectile_mutation_deadlines()
 
 func sample_active_projectile_contact_rows() -> Array:
 	var sampled_rows: Array = []
@@ -177,12 +183,14 @@ func sample_voxel_dispatch_contact_rows() -> Array:
 func pending_voxel_dispatch_contact_count() -> int:
 	return _pending_contact_rows.size()
 
-func acknowledge_voxel_dispatch_contact_rows(consumed_count: int) -> void:
+func acknowledge_voxel_dispatch_contact_rows(consumed_count: int, mutation_applied: bool = false) -> void:
 	var count := maxi(0, consumed_count)
 	if count <= 0:
 		return
 	var remove_count := mini(count, _pending_contact_rows.size())
 	if remove_count <= 0:
+		return
+	if not mutation_applied:
 		return
 	_pending_contact_rows = _pending_contact_rows.slice(remove_count, _pending_contact_rows.size())
 	_sampled_contact_cursor = maxi(0, _sampled_contact_cursor - remove_count)
@@ -396,6 +404,8 @@ func _build_contact_row(projectile: ChunkProjectileState, hit: Dictionary, fallb
 		"failure_emission_profile": "dense_hard_voxel_chunk",
 		"projectile_radius": projectile.radius,
 		"projectile_ttl": projectile.ttl_seconds,
+		"hit_frame": _simulation_frame_index,
+		"deadline_frame": _simulation_frame_index + MAX_PROJECTILE_MUTATION_FRAMES,
 	}
 
 func _queue_projectile_contact_row(row: Dictionary) -> void:
@@ -415,10 +425,36 @@ func _queue_projectile_contact_row(row: Dictionary) -> void:
 	normalized["projectile_hardness_tag"] = String(normalized.get("projectile_hardness_tag", projectile_hardness_tag))
 	normalized["projectile_material_tag"] = String(normalized.get("projectile_material_tag", projectile_material_tag))
 	normalized["failure_emission_profile"] = String(normalized.get("failure_emission_profile", "dense_hard_voxel_chunk"))
+	normalized["hit_frame"] = int(normalized.get("hit_frame", _simulation_frame_index))
+	normalized["deadline_frame"] = int(normalized.get("deadline_frame", int(normalized.get("hit_frame", _simulation_frame_index)) + MAX_PROJECTILE_MUTATION_FRAMES))
 	_pending_contact_rows.append(normalized)
 	while _pending_contact_rows.size() > _MAX_PENDING_CONTACT_ROWS:
 		_pending_contact_rows.remove_at(0)
 		_sampled_contact_cursor = maxi(0, _sampled_contact_cursor - 1)
+
+func _validate_projectile_mutation_deadlines() -> void:
+	if _pending_contact_rows.is_empty():
+		return
+	for i in range(_pending_contact_rows.size() - 1, -1, -1):
+		var row = _pending_contact_rows[i]
+		var deadline_frame := int(row.get("deadline_frame", int(row.get("hit_frame", _simulation_frame_index)) + MAX_PROJECTILE_MUTATION_FRAMES))
+		if _simulation_frame_index <= deadline_frame:
+			continue
+		_emit_projectile_mutation_deadline_error(row)
+		_pending_contact_rows.remove_at(i)
+		_sampled_contact_cursor = maxi(0, mini(_sampled_contact_cursor, _pending_contact_rows.size()))
+
+func _emit_projectile_mutation_deadline_error(row: Dictionary) -> void:
+	push_error("%s: projectile_id=%d hit_frame=%d deadline_frame=%d current_frame=%d contact_point=%s impulse=%.3f relative_speed=%.3f" % [
+		_PROJECTILE_MUTATION_DEADLINE_ERROR,
+		int(row.get("body_id", 0)),
+		int(row.get("hit_frame", -1)),
+		int(row.get("deadline_frame", -1)),
+		_simulation_frame_index,
+		str(row.get("contact_point", Vector3.ZERO)),
+		float(row.get("contact_impulse", 0.0)),
+		float(row.get("relative_speed", 0.0)),
+	])
 
 func active_projectile_count() -> int:
 	return _active_projectiles.size()
