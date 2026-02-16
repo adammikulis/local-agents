@@ -6,15 +6,13 @@ var _performance_server_path: NodePath = NodePath()
 var _performance_server: Node
 var _set_perf_text: Callable
 var _set_perf_metrics: Callable
-var _runtime_diagnostics_provider: Callable
 
-func configure(root: Node, show_performance_overlay: bool, performance_server_path: NodePath, set_perf_text: Callable, set_perf_metrics: Callable = Callable(), runtime_diagnostics_provider: Callable = Callable()) -> void:
+func configure(root: Node, show_performance_overlay: bool, performance_server_path: NodePath, set_perf_text: Callable, set_perf_metrics: Callable = Callable()) -> void:
 	_root = root
 	_show_performance_overlay = show_performance_overlay
 	_performance_server_path = performance_server_path
 	_set_perf_text = set_perf_text
 	_set_perf_metrics = set_perf_metrics
-	_runtime_diagnostics_provider = runtime_diagnostics_provider
 
 func bind_performance_server() -> void:
 	if _root == null:
@@ -117,8 +115,4 @@ func _destruction_diagnostics(metrics: Dictionary) -> Dictionary:
 		var backend_diag_variant = runtime_backends.get("destruction_pipeline", {})
 		if backend_diag_variant is Dictionary:
 			diagnostics = (backend_diag_variant as Dictionary).duplicate(true)
-	if diagnostics.is_empty() and _runtime_diagnostics_provider.is_valid():
-		var runtime_diag_variant = _runtime_diagnostics_provider.call()
-		if runtime_diag_variant is Dictionary:
-			diagnostics = (runtime_diag_variant as Dictionary).duplicate(true)
 	return diagnostics

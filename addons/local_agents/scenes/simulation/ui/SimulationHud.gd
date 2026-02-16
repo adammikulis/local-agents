@@ -46,8 +46,7 @@ func _ready() -> void:
 		show_performance_overlay,
 		performance_server_path,
 		Callable(self, "set_performance_text"),
-		Callable(self, "set_performance_metrics"),
-		Callable(self, "_runtime_diagnostics_for_perf")
+		Callable(self, "set_performance_metrics")
 	)
 	_hud_presenter.bind_performance_server()
 
@@ -222,11 +221,3 @@ func _emit_inspector_npc_changed(npc_id: String) -> void:
 
 func _emit_overlays_changed(paths: bool, resources: bool, conflicts: bool, smell: bool, wind: bool, temperature: bool) -> void:
 	emit_signal("overlays_changed", paths, resources, conflicts, smell, wind, temperature)
-
-func _runtime_diagnostics_for_perf() -> Dictionary:
-	var world_root = get_parent()
-	if world_root != null and world_root.has_method("native_voxel_dispatch_runtime"):
-		var runtime_variant = world_root.call("native_voxel_dispatch_runtime")
-		if runtime_variant is Dictionary:
-			return (runtime_variant as Dictionary).duplicate(true)
-	return {}
