@@ -523,8 +523,8 @@ func _test_bridge_declares_contact_canonical_input_fields() -> bool:
 	ok = _assert(source.contains("\"obstacle_trajectory\": [\"obstacle_direction\", \"motion_trajectory\", \"trajectory\"]"), "Bridge legacy input aliases should include obstacle_trajectory") and ok
 	ok = _assert(source.contains("var obstacle_velocity_sum := 0.0"), "Bridge contact aggregation must accumulate obstacle_velocity") and ok
 	ok = _assert(source.contains("var obstacle_trajectory_sum := Vector3.ZERO"), "Bridge contact aggregation must accumulate obstacle_trajectory") and ok
-	ok = _assert(source.contains("\"obstacle_velocity\", obstacle_velocity_sum / maxf(weight_total, 1.0)"), "Bridge contact aggregation should emit aggregated obstacle_velocity") and ok
-	ok = _assert(source.contains("\"obstacle_trajectory\", obstacle_trajectory_sum / maxf(weight_total, 1.0)"), "Bridge contact aggregation should emit aggregated obstacle_trajectory") and ok
+	ok = _assert(source.contains("\"obstacle_velocity\": obstacle_velocity_sum / maxf(weight_total, 1.0)"), "Bridge contact aggregation should emit aggregated obstacle_velocity") and ok
+	ok = _assert(source.contains("\"obstacle_trajectory\": obstacle_trajectory_sum / maxf(weight_total, 1.0)"), "Bridge contact aggregation should emit aggregated obstacle_trajectory") and ok
 	ok = _assert(source.contains("deterministic_rows := rows.duplicate(true)"), "Bridge contact aggregation should duplicate rows for deterministic sorting") and ok
 	ok = _assert(source.contains("deterministic_rows.sort_custom(_sort_aggregated_contact_rows)"), "Bridge contact aggregation should sort rows with a deterministic comparator") and ok
 	ok = _assert(source.contains("left_obstacle_velocity"), "Bridge contact row comparator should consider obstacle_velocity") and ok
