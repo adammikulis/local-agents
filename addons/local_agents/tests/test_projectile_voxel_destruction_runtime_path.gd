@@ -51,9 +51,13 @@ func run_test(tree: SceneTree) -> bool:
 	ok = _assert(String(mutation.get("error", "")) == "native_voxel_stage_no_mutation", "No-contact runtime payload should return native_voxel_stage_no_mutation.") and ok
 	ok = _assert(String(mutation.get("mutation_path", "")) == "native_voxel_stage_no_mutation", "No-contact runtime payload should report canonical native_voxel_stage_no_mutation mutation_path.") and ok
 	ok = _assert(String(mutation.get("mutation_path_state", "")) == "failure", "No-mutation path should report mutation_path_state=failure.") and ok
+	ok = _assert(String(mutation.get("details", "")) == "native voxel stage requires projectile contact-derived native ops", "No-contact runtime payload should expose deterministic fail-fast details for native-authoritative mutation contract.") and ok
 	var failure_paths_variant = mutation.get("failure_paths", [])
 	var failure_paths: Array = failure_paths_variant if failure_paths_variant is Array else []
 	ok = _assert(failure_paths.size() == 1 and String(failure_paths[0]) == "native_voxel_stage_no_mutation", "No-mutation path should return stable failure_paths metadata with only native_voxel_stage_no_mutation.") and ok
+	var changed_chunks_variant = mutation.get("changed_chunks", [])
+	var changed_chunks: Array = changed_chunks_variant if changed_chunks_variant is Array else []
+	ok = _assert(changed_chunks.size() == 1 and String(changed_chunks[0]) == "%d:%d" % [int(floor(float(tile_x) / float(chunk_size))), int(floor(float(tile_z) / float(chunk_size)))], "No-contact runtime payload should preserve normalized changed_chunks metadata without CPU-success fallback mutation.") and ok
 
 	var end_surface := _surface_y_for_tile(controller._environment_snapshot, tile_id)
 	ok = _assert(end_surface == start_surface, "No-contact runtime payload should leave impacted tile surface unchanged.") and ok

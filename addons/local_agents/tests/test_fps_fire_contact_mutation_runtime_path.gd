@@ -93,6 +93,24 @@ func run_test(tree: SceneTree) -> bool:
 	var mutation_path := String(mutation.get("mutation_path", ""))
 	ok = _assert(mutation_path == "native_ops_payload_primary", "FPS fire runtime-path mutation should use canonical native_ops_payload_primary mutation path for contact-confirmed hits.") and ok
 	ok = _assert(String(mutation.get("mutation_path_state", "")) == "success", "Successful runtime-path mutation should report mutation_path_state=success.") and ok
+	ok = _assert(String(mutation.get("error", "")) == "", "Successful native-authoritative runtime-path mutation should report empty typed error code.") and ok
+	var success_failure_paths_variant = mutation.get("failure_paths", [])
+	var success_failure_paths: Array = success_failure_paths_variant if success_failure_paths_variant is Array else []
+	ok = _assert(success_failure_paths.is_empty(), "Successful native-authoritative runtime-path mutation should not emit failure_paths metadata.") and ok
+
+	var missing_contact_mutation := SimulationVoxelTerrainMutatorScript.apply_native_voxel_stage_delta(
+		simulation_controller,
+		2,
+		{"physics_contacts": []}
+	)
+	ok = _assert(not bool(missing_contact_mutation.get("changed", false)), "Missing contact rows must fail fast and never mutate via CPU fallback-success path.") and ok
+	ok = _assert(String(missing_contact_mutation.get("error", "")) == "native_voxel_stage_no_mutation", "Missing contact rows must return typed native_voxel_stage_no_mutation error.") and ok
+	ok = _assert(String(missing_contact_mutation.get("mutation_path", "")) == "native_voxel_stage_no_mutation", "Missing contact rows must report native_voxel_stage_no_mutation mutation path.") and ok
+	ok = _assert(String(missing_contact_mutation.get("mutation_path_state", "")) == "failure", "Missing contact rows must report mutation_path_state=failure.") and ok
+	ok = _assert(String(missing_contact_mutation.get("details", "")) == "native voxel stage requires projectile contact-derived native ops", "Missing contact rows must expose deterministic fail-fast detail for native-authoritative mutation contract.") and ok
+	var missing_failure_paths_variant = missing_contact_mutation.get("failure_paths", [])
+	var missing_failure_paths: Array = missing_failure_paths_variant if missing_failure_paths_variant is Array else []
+	ok = _assert(missing_failure_paths.size() == 1 and String(missing_failure_paths[0]) == "native_voxel_stage_no_mutation", "Missing contact rows must emit only native_voxel_stage_no_mutation in failure_paths metadata.") and ok
 
 	launcher.acknowledge_voxel_dispatch_contact_rows(contact_rows.size(), true)
 	ok = _assert(launcher.pending_voxel_dispatch_contact_count() == 0, "Mutation-confirmed ack should clear pending projectile contacts.") and ok

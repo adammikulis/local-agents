@@ -6,6 +6,8 @@ const VOXEL_EDIT_ENGINE_CPP_PATH := "res://addons/local_agents/gdextensions/loca
 const VOXEL_GPU_EXECUTOR_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/VoxelEditGpuExecutor.cpp"
 const VOXEL_GPU_DISPATCH_METADATA_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/VoxelGpuDispatchMetadata.cpp"
 const NATIVE_BRIDGE_GD_PATH := "res://addons/local_agents/simulation/controller/NativeComputeBridge.gd"
+const SIMULATION_VOXEL_MUTATOR_GD_PATH := "res://addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd"
+const WORLD_DISPATCH_CONTRACTS_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/world/WorldDispatchContracts.gd"
 
 func run_test(_tree: SceneTree) -> bool:
 	var ok := true
@@ -14,6 +16,7 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = _test_gpu_dispatch_success_contract_source() and ok
 	ok = _test_environment_stage_dispatch_and_result_extraction_contract_source() and ok
 	ok = _test_changed_region_payload_shape_contract_source() and ok
+	ok = _test_native_authoritative_destruction_contract_source() and ok
 	ok = _test_adaptive_multires_and_zoom_throttle_contract_source() and ok
 	ok = _test_variable_rate_deterministic_processing_contract_source() and ok
 	ok = _test_environment_stage_field_handle_injection_contract_source() and ok
@@ -35,6 +38,23 @@ func _test_environment_stage_field_handle_injection_contract_source() -> bool:
 	ok = _assert(source.contains("scheduled_frame[\"inputs\"] = scheduled_frame_inputs;"), "Environment stage should dispatch injected inputs into scheduled_frame") and ok
 	ok = _assert(source.contains("if (!did_inject_handles) {"), "Field handle injection should preserve scalar path by skipping injection if no valid references are found") and ok
 	ok = _assert(source.contains("pipeline_inputs[\"field_handles\"] = field_handles;"), "Injected field_handles should be added to a duplicated pipeline input dictionary") and ok
+	return ok
+
+func _test_native_authoritative_destruction_contract_source() -> bool:
+	var mutator_source := _read_script_source(SIMULATION_VOXEL_MUTATOR_GD_PATH)
+	if mutator_source == "":
+		return false
+	var dispatch_contract_source := _read_script_source(WORLD_DISPATCH_CONTRACTS_GD_PATH)
+	if dispatch_contract_source == "":
+		return false
+	var ok := true
+	ok = _assert(mutator_source.contains("\"details\": \"native voxel op payload required; CPU fallback disabled\""), "Simulation voxel mutator must carry typed fail-fast detail proving CPU fallback success is forbidden.") and ok
+	ok = _assert(mutator_source.contains("\"error\": \"native_voxel_stage_no_mutation\""), "Simulation voxel mutator must emit typed native_voxel_stage_no_mutation when authoritative contacts are missing.") and ok
+	ok = _assert(mutator_source.contains("if int(row.get(\"body_id\", 0)) > 0 and String(row.get(\"projectile_kind\", \"\")).to_lower() == \"voxel_chunk\":"), "Simulation voxel mutator must gate authority to voxel_chunk projectile contacts only.") and ok
+	ok = _assert(dispatch_contract_source.contains("\"mutation_path\": \"native_result_authoritative\""), "World dispatch contract must mark authoritative destruction path as native_result_authoritative.") and ok
+	ok = _assert(dispatch_contract_source.contains("\"error\": \"\" if changed else _native_no_mutation_error(dispatch)"), "World dispatch contract must emit typed fail-fast errors when authoritative mutation is absent.") and ok
+	ok = _assert(dispatch_contract_source.contains("if dispatch_reason in [\"gpu_required\", \"gpu_unavailable\", \"native_required\", \"native_unavailable\"]:"), "World dispatch contract must preserve typed GPU/native requirement failures without fallback-success behavior.") and ok
+	ok = _assert(dispatch_contract_source.contains("return \"native_voxel_stage_no_mutation\""), "World dispatch contract must default to native_voxel_stage_no_mutation for no-mutation fail-fast paths.") and ok
 	return ok
 
 func _test_voxel_op_ordering_contract_source() -> bool:
