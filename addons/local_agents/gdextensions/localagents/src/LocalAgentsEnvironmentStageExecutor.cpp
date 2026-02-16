@@ -28,6 +28,37 @@ String as_status_text(const Variant &value, const String &fallback) {
     return fallback;
 }
 
+String canonicalize_native_contract_error(const String &raw_error_code) {
+    const String lowered = raw_error_code.strip_edges().to_lower();
+    if (lowered.is_empty()) {
+        return String("dispatch_failed");
+    }
+    if (lowered == String("gpu_required") || lowered.find("gpu_required") >= 0) {
+        return String("gpu_required");
+    }
+    if (
+        lowered == String("gpu_unavailable") ||
+        lowered.find("gpu_backend_unavailable") >= 0 ||
+        lowered.find("rendering_server_unavailable") >= 0 ||
+        lowered.find("device_create_failed") >= 0
+    ) {
+        return String("gpu_unavailable");
+    }
+    if (
+        lowered == String("native_required") ||
+        lowered == String("native_unavailable") ||
+        lowered.find("native_sim_core_unavailable") >= 0 ||
+        lowered.find("native_required") >= 0 ||
+        lowered.find("core_missing_method") >= 0
+    ) {
+        return String("native_required");
+    }
+    if (lowered.find("dispatch") >= 0 || lowered.find("shader") >= 0 || lowered.find("compute") >= 0) {
+        return String("dispatch_failed");
+    }
+    return lowered;
+}
+
 } // namespace
 
 namespace local_agents::simulation {
@@ -97,6 +128,7 @@ Dictionary execute_environment_stage_orchestration(
                 String("physics_failure_emission"));
             Array enqueue_results;
             bool enqueued_all = true;
+            String first_enqueue_error;
             for (int64_t i = 0; i < op_payloads.size(); i++) {
                 const Variant op_variant = op_payloads[i];
                 if (op_variant.get_type() != Variant::DICTIONARY) {
@@ -108,7 +140,11 @@ Dictionary execute_environment_stage_orchestration(
                     StringName(plan_stage_name),
                     op_payload);
                 enqueue_results.append(enqueue_result);
-                enqueued_all = enqueued_all && bool(enqueue_result.get("ok", false));
+                const bool enqueue_ok = bool(enqueue_result.get("ok", false));
+                enqueued_all = enqueued_all && enqueue_ok;
+                if (!enqueue_ok && first_enqueue_error.is_empty()) {
+                    first_enqueue_error = as_status_text(enqueue_result.get("error", String()), String());
+                }
             }
             voxel_failure_emission["enqueues"] = enqueue_results;
             if (enqueued_all) {
@@ -133,6 +169,7 @@ Dictionary execute_environment_stage_orchestration(
                     StringName(plan_stage_name),
                     emission_payload);
                 voxel_failure_emission["execution"] = execution;
+                result["authoritative_voxel_execution"] = execution.duplicate(true);
                 if (bool(execution.get("ok", false))) {
                     voxel_failure_emission["status"] = String("executed");
                     voxel_failure_emission["reason"] = as_status_text(
@@ -140,15 +177,25 @@ Dictionary execute_environment_stage_orchestration(
                         String("active_failure"));
                     voxel_failure_emission["executed_op_count"] =
                         static_cast<int64_t>(execution.get("ops_changed", static_cast<int64_t>(0)));
+                    voxel_failure_emission["error"] = String();
+                    voxel_failure_emission["error_code"] = String();
                 } else {
+                    const String execution_error = canonicalize_native_contract_error(
+                        as_status_text(execution.get("error", String()), String("dispatch_failed")));
                     voxel_failure_emission["status"] = String("failed");
                     voxel_failure_emission["reason"] = String("voxel_execution_failed");
                     voxel_failure_emission["executed_op_count"] = static_cast<int64_t>(0);
+                    voxel_failure_emission["error"] = execution_error;
+                    voxel_failure_emission["error_code"] = execution_error;
                 }
             } else {
+                const String enqueue_error = canonicalize_native_contract_error(
+                    first_enqueue_error.is_empty() ? String("native_required") : first_enqueue_error);
                 voxel_failure_emission["status"] = String("failed");
                 voxel_failure_emission["reason"] = String("voxel_enqueue_failed");
                 voxel_failure_emission["executed_op_count"] = static_cast<int64_t>(0);
+                voxel_failure_emission["error"] = enqueue_error;
+                voxel_failure_emission["error_code"] = enqueue_error;
             }
         }
         result["voxel_failure_emission"] = voxel_failure_emission;

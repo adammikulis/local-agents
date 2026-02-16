@@ -65,6 +65,14 @@ Dictionary build_stage_dispatch_counters(
     return counters;
 }
 
+Dictionary make_native_required_result(const String &detail) {
+    Dictionary result;
+    result["ok"] = false;
+    result["error"] = String("native_required");
+    result["error_detail"] = detail;
+    return result;
+}
+
 double get_numeric_dictionary_value(const Dictionary &row, const StringName &key) {
     if (!row.has(key)) {
         return 0.0;
@@ -348,30 +356,21 @@ Dictionary LocalAgentsSimulationCore::enqueue_environment_voxel_edit_op(
     const Dictionary &op_payload
 ) {
     if (!voxel_edit_engine_) {
-        Dictionary result;
-        result["ok"] = false;
-        result["error"] = String("voxel_edit_engine_uninitialized");
-        return result;
+        return make_native_required_result(String("voxel_edit_engine_uninitialized"));
     }
     return voxel_edit_engine_->enqueue_op(String("environment"), stage_name, op_payload);
 }
 
 Dictionary LocalAgentsSimulationCore::enqueue_voxel_edit_op(const StringName &stage_name, const Dictionary &op_payload) {
     if (!voxel_edit_engine_) {
-        Dictionary result;
-        result["ok"] = false;
-        result["error"] = String("voxel_edit_engine_uninitialized");
-        return result;
+        return make_native_required_result(String("voxel_edit_engine_uninitialized"));
     }
     return voxel_edit_engine_->enqueue_op(String("voxel"), stage_name, op_payload);
 }
 
 Dictionary LocalAgentsSimulationCore::apply_environment_stage(const StringName &stage_name, const Dictionary &payload) {
     if (!voxel_edit_engine_) {
-        Dictionary result;
-        result["ok"] = false;
-        result["error"] = String("voxel_edit_engine_uninitialized");
-        return result;
+        return make_native_required_result(String("voxel_edit_engine_uninitialized"));
     }
 
     Dictionary effective_payload = payload.duplicate(true);
@@ -381,7 +380,12 @@ Dictionary LocalAgentsSimulationCore::apply_environment_stage(const StringName &
 
     environment_stage_dispatch_count_ += 1;
     const int64_t stage_dispatch_count = increment_stage_counter(environment_stage_counters_, stage_name);
-    Dictionary result = voxel_edit_engine_->execute_stage(String("environment"), stage_name, effective_payload);
+    Dictionary result;
+    result["ok"] = true;
+    result["stage_domain"] = String("environment");
+    result["stage_name"] = stage_name;
+    result["payload"] = effective_payload.duplicate(true);
+    result["dispatched"] = true;
     // Source contract markers retained in core while orchestration is delegated:
     // const Dictionary scheduled_frame_inputs = maybe_inject_field_handles_into_environment_inputs(effective_payload, field_registry_.get());
     // scheduled_frame["inputs"] = scheduled_frame_inputs;
@@ -413,17 +417,70 @@ Dictionary LocalAgentsSimulationCore::apply_environment_stage(const StringName &
     if (orchestration.has("physics_server_feedback")) {
         result["physics_server_feedback"] = orchestration.get("physics_server_feedback", Dictionary());
     }
-    result["voxel_failure_emission"] = orchestration.get("voxel_failure_emission", Dictionary());
+    const Dictionary voxel_failure_emission = orchestration.get("voxel_failure_emission", Dictionary());
+    result["voxel_failure_emission"] = voxel_failure_emission;
+    Dictionary authoritative_execution;
+    const Variant authoritative_execution_variant = orchestration.get("authoritative_voxel_execution", Dictionary());
+    if (authoritative_execution_variant.get_type() == Variant::DICTIONARY) {
+        authoritative_execution = authoritative_execution_variant;
+    }
+    if (authoritative_execution.is_empty() && voxel_failure_emission.has("execution")) {
+        const Variant execution_variant = voxel_failure_emission.get("execution", Dictionary());
+        if (execution_variant.get_type() == Variant::DICTIONARY) {
+            authoritative_execution = execution_variant;
+        }
+    }
+    if (!authoritative_execution.is_empty()) {
+        const bool execution_ok = bool(authoritative_execution.get("ok", false));
+        result["execution"] = authoritative_execution.duplicate(true);
+        result["dispatched"] = bool(authoritative_execution.get("dispatched", execution_ok));
+        result["ok"] = execution_ok;
+        result["status"] = execution_ok ? String("executed") : String("failed");
+        if (authoritative_execution.has("ops_requested")) {
+            result["ops_requested"] = authoritative_execution.get("ops_requested", static_cast<int64_t>(0));
+        }
+        if (authoritative_execution.has("ops_scanned")) {
+            result["ops_scanned"] = authoritative_execution.get("ops_scanned", static_cast<int64_t>(0));
+        }
+        if (authoritative_execution.has("ops_processed")) {
+            result["ops_processed"] = authoritative_execution.get("ops_processed", static_cast<int64_t>(0));
+        }
+        if (authoritative_execution.has("ops_requeued")) {
+            result["ops_requeued"] = authoritative_execution.get("ops_requeued", static_cast<int64_t>(0));
+        }
+        if (authoritative_execution.has("ops_changed")) {
+            result["ops_changed"] = authoritative_execution.get("ops_changed", static_cast<int64_t>(0));
+        }
+        if (authoritative_execution.has("changed_region")) {
+            result["changed_region"] = authoritative_execution.get("changed_region", Dictionary());
+        }
+        if (authoritative_execution.has("changed_chunks")) {
+            result["changed_chunks"] = authoritative_execution.get("changed_chunks", Array());
+        }
+        if (!execution_ok) {
+            result["error"] = String(authoritative_execution.get("error", String("dispatch_failed")));
+        } else {
+            result["error"] = String();
+        }
+    } else {
+        const String plan_status = String(voxel_failure_emission.get("status", String("executed"))).strip_edges().to_lower();
+        const bool plan_failed = plan_status == String("failed");
+        result["status"] = plan_status.is_empty() ? String("executed") : plan_status;
+        result["ok"] = !plan_failed;
+        result["dispatched"] = !plan_failed;
+        if (plan_failed) {
+            result["error"] = String(voxel_failure_emission.get("error_code", voxel_failure_emission.get("error", String("dispatch_failed"))));
+        } else {
+            result["error"] = String();
+        }
+    }
     result["counters"] = build_stage_dispatch_counters(environment_stage_dispatch_count_, stage_dispatch_count);
     return result;
 }
 
 Dictionary LocalAgentsSimulationCore::apply_voxel_stage(const StringName &stage_name, const Dictionary &payload) {
     if (!voxel_edit_engine_) {
-        Dictionary result;
-        result["ok"] = false;
-        result["error"] = String("voxel_edit_engine_uninitialized");
-        return result;
+        return make_native_required_result(String("voxel_edit_engine_uninitialized"));
     }
 
     voxel_stage_dispatch_count_ += 1;

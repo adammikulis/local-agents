@@ -97,6 +97,7 @@ This plan is organized by engineering concern so work can be split into focused 
 
 - [~] Wave 2 (`P0`): Collapse mutator to one canonical op path.
   - Status (2026-02-16): Planning lane scope finalized for canonical single mutation path; implementation and validation lanes pending execution.
+  - Native Compute lane update (2026-02-16): in progress on native environment-stage authority so destruction/mutation execution payload is authored by native stage output with fail-fast GPU/native contract semantics.
   - Owner lanes:
     - Planning lane: canonical op lifecycle contract + exact fallback-removal inventory.
     - Runtime Simulation lane: remove duplicate mutator branch dependencies from runtime/test callers.
