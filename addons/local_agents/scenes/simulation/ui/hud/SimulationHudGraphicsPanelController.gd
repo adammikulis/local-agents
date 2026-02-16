@@ -187,7 +187,11 @@ func on_ecology_vertical_extent_changed(value: float) -> void:
 	_sync_float_pair_by_option(value, "ecology_vertical_extent_meters")
 
 func _bind_nodes() -> void:
-	_graphics_button = _hud.get_node_or_null("%GraphicsButton") as Button
+	var panel_graphics_button := _hud.get_node_or_null("%PerfGraphicsButton") as Button
+	var legacy_graphics_button := _hud.get_node_or_null("%GraphicsButton") as Button
+	_graphics_button = panel_graphics_button if panel_graphics_button != null else legacy_graphics_button
+	if panel_graphics_button != null and legacy_graphics_button != null:
+		legacy_graphics_button.visible = false
 	_graphics_panel = _hud.get_node_or_null("%GraphicsPanel") as PanelContainer
 	_graphics_vbox = _hud.get_node_or_null("GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox") as VBoxContainer
 	_cloud_quality_option = _hud.get_node_or_null("%CloudQualityOption") as OptionButton

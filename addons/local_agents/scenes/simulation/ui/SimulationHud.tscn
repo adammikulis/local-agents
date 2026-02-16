@@ -3,6 +3,35 @@
 [ext_resource type="PackedScene" path="res://addons/local_agents/scenes/simulation/ui/SimulationHudBase.tscn" id="1_base"]
 
 [node name="SimulationHud" instance=ExtResource("1_base")]
+[node name="GraphicsButton" parent="."]
+visible = false
+
+[node name="GraphicsPanel" parent="."]
+offset_top = 222.0
+offset_bottom = 606.0
+
+[node name="PerformancePanel" type="PanelContainer" parent="."]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -456.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = 212.0
+grow_horizontal = 0
+
+[node name="PerformanceMargin" type="MarginContainer" parent="PerformancePanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 8
+
+[node name="PerformanceVBox" type="VBoxContainer" parent="PerformancePanel/PerformanceMargin"]
+layout_mode = 2
+theme_override_constants/separation = 4
+theme_override_font_sizes/font_size = 10
+
 [node name="Margin" type="MarginContainer" parent="Panel"]
 layout_mode = 2
 theme_override_constants/margin_left = 8
@@ -15,12 +44,12 @@ layout_mode = 2
 theme_override_constants/separation = 4
 theme_override_font_sizes/font_size = 10
 
-[node name="PerfLabel" type="Label" parent="Panel/Margin/VBox"]
+[node name="PerfLabel" type="Label" parent="PerformancePanel/PerformanceMargin/PerformanceVBox"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "FPS -- | RAM -- | VRAM -- | Obj -- | Draw --"
 
-[node name="SimTimingLabel" type="Label" parent="Panel/Margin/VBox"]
+[node name="SimTimingLabel" type="Label" parent="PerformancePanel/PerformanceMargin/PerformanceVBox"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "SimTiming --"
@@ -29,6 +58,11 @@ text = "SimTiming --"
 unique_name_in_owner = true
 layout_mode = 2
 text = "Ages Sim: idle"
+
+[node name="ModeLabel" type="Label" parent="Panel/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Mode: Camera"
 
 [node name="DetailsLabel" type="Label" parent="Panel/Margin/VBox"]
 unique_name_in_owner = true
@@ -124,6 +158,12 @@ layout_mode = 2
 button_pressed = true
 text = "Temp"
 
+[node name="PerfGraphicsButton" type="Button" parent="PerformancePanel/PerformanceMargin/PerformanceVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Graphics"
+
 [connection signal="pressed" from="Panel/Margin/VBox/Buttons/PlayButton" to="." method="_on_play_button_pressed"]
 [connection signal="pressed" from="Panel/Margin/VBox/Buttons/PauseButton" to="." method="_on_pause_button_pressed"]
 [connection signal="pressed" from="Panel/Margin/VBox/Buttons/RewindButton" to="." method="_on_rewind_button_pressed"]
@@ -137,6 +177,7 @@ text = "Temp"
 [connection signal="toggled" from="Panel/Margin/VBox/OverlayGrid/SmellToggle" to="." method="_on_overlay_toggled"]
 [connection signal="toggled" from="Panel/Margin/VBox/OverlayGrid/WindToggle" to="." method="_on_overlay_toggled"]
 [connection signal="toggled" from="Panel/Margin/VBox/OverlayGrid/TemperatureToggle" to="." method="_on_overlay_toggled"]
+[connection signal="pressed" from="PerformancePanel/PerformanceMargin/PerformanceVBox/PerfGraphicsButton" to="." method="_on_graphics_button_pressed"]
 [connection signal="pressed" from="GraphicsButton" to="." method="_on_graphics_button_pressed"]
 [connection signal="toggled" from="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/WaterShaderCheck" to="." method="_on_graphics_toggle"]
 [connection signal="toggled" from="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/OceanSurfaceCheck" to="." method="_on_graphics_toggle"]
