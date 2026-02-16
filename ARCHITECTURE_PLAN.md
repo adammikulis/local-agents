@@ -118,6 +118,12 @@ This plan is organized by engineering concern so work can be split into focused 
 - [~] Wave 2 (`P0`): Collapse mutator to one canonical op path.
   - Status (2026-02-16): Planning lane scope finalized for canonical single mutation path; implementation and validation lanes pending execution.
   - Native Compute lane update (2026-02-16): in progress on native environment-stage authority so destruction/mutation execution payload is authored by native stage output with fail-fast GPU/native contract semantics.
+  - Native Compute lane update (2026-02-16, P0 active): environment-stage native output now owns authoritative destruction/mutation status (`ok`, `status`, `dispatched`, `mutation_applied`, canonical `error_code`) so runtime no longer infers success from missing execution payloads.
+    - Owner: Native Compute lane.
+    - Acceptance criteria for this slice:
+      - Runtime consumes authoritative native mutation/destruction status directly.
+      - Missing native/GPU dependencies fail fast with canonical typed codes only (`gpu_required`, `gpu_unavailable`, `native_required`, `dispatch_failed`).
+      - No CPU/GDScript success fallback branch is introduced.
   - Owner lanes:
     - Planning lane: canonical op lifecycle contract + exact fallback-removal inventory.
     - Runtime Simulation lane: remove duplicate mutator branch dependencies from runtime/test callers.

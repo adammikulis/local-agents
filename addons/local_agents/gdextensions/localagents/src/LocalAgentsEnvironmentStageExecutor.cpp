@@ -56,7 +56,24 @@ String canonicalize_native_contract_error(const String &raw_error_code) {
     if (lowered.find("dispatch") >= 0 || lowered.find("shader") >= 0 || lowered.find("compute") >= 0) {
         return String("dispatch_failed");
     }
-    return lowered;
+    return String("dispatch_failed");
+}
+
+Dictionary build_authoritative_mutation_status(
+    bool ok,
+    const String &status,
+    bool dispatched,
+    bool mutation_applied,
+    const String &error_code
+) {
+    Dictionary authoritative_status;
+    authoritative_status["ok"] = ok;
+    authoritative_status["status"] = status;
+    authoritative_status["dispatched"] = dispatched;
+    authoritative_status["mutation_applied"] = mutation_applied;
+    authoritative_status["error_code"] = error_code;
+    authoritative_status["error"] = error_code;
+    return authoritative_status;
 }
 
 } // namespace
@@ -82,6 +99,19 @@ Dictionary execute_environment_stage_orchestration(
 ) {
     Dictionary result;
     if (!voxel_edit_engine) {
+        Dictionary voxel_failure_emission;
+        voxel_failure_emission["status"] = String("failed");
+        voxel_failure_emission["reason"] = String("voxel_edit_engine_uninitialized");
+        voxel_failure_emission["error"] = String("native_required");
+        voxel_failure_emission["error_code"] = String("native_required");
+        voxel_failure_emission["executed_op_count"] = static_cast<int64_t>(0);
+        result["voxel_failure_emission"] = voxel_failure_emission;
+        result["authoritative_mutation"] = build_authoritative_mutation_status(
+            false,
+            String("failed"),
+            false,
+            false,
+            String("native_required"));
         return result;
     }
 
@@ -116,6 +146,20 @@ Dictionary execute_environment_stage_orchestration(
             fracture_radius_max,
             fracture_value_softness,
             fracture_value_cap);
+        Dictionary authoritative_mutation = build_authoritative_mutation_status(
+            true,
+            String("not_requested"),
+            true,
+            false,
+            String());
+        authoritative_mutation["target_domain"] = as_status_text(
+            voxel_failure_emission.get("target_domain", String("environment")),
+            String("environment"));
+        authoritative_mutation["stage_name"] = as_status_text(
+            voxel_failure_emission.get("stage_name", String("physics_failure_emission")),
+            String("physics_failure_emission"));
+        authoritative_mutation["planned_op_count"] =
+            static_cast<int64_t>(voxel_failure_emission.get("planned_op_count", static_cast<int64_t>(0)));
         const String failure_emission_status =
             as_status_text(voxel_failure_emission.get("status", String("disabled")), String("disabled"));
         if (failure_emission_status == String("planned")) {
@@ -179,6 +223,13 @@ Dictionary execute_environment_stage_orchestration(
                         static_cast<int64_t>(execution.get("ops_changed", static_cast<int64_t>(0)));
                     voxel_failure_emission["error"] = String();
                     voxel_failure_emission["error_code"] = String();
+                    authoritative_mutation = build_authoritative_mutation_status(
+                        true,
+                        String("executed"),
+                        bool(execution.get("dispatched", true)),
+                        static_cast<int64_t>(execution.get("ops_changed", static_cast<int64_t>(0))) > 0,
+                        String());
+                    authoritative_mutation["execution"] = execution.duplicate(true);
                 } else {
                     const String execution_error = canonicalize_native_contract_error(
                         as_status_text(execution.get("error", String()), String("dispatch_failed")));
@@ -187,6 +238,13 @@ Dictionary execute_environment_stage_orchestration(
                     voxel_failure_emission["executed_op_count"] = static_cast<int64_t>(0);
                     voxel_failure_emission["error"] = execution_error;
                     voxel_failure_emission["error_code"] = execution_error;
+                    authoritative_mutation = build_authoritative_mutation_status(
+                        false,
+                        String("failed"),
+                        false,
+                        false,
+                        execution_error);
+                    authoritative_mutation["execution"] = execution.duplicate(true);
                 }
             } else {
                 const String enqueue_error = canonicalize_native_contract_error(
@@ -196,9 +254,29 @@ Dictionary execute_environment_stage_orchestration(
                 voxel_failure_emission["executed_op_count"] = static_cast<int64_t>(0);
                 voxel_failure_emission["error"] = enqueue_error;
                 voxel_failure_emission["error_code"] = enqueue_error;
+                authoritative_mutation = build_authoritative_mutation_status(
+                    false,
+                    String("failed"),
+                    false,
+                    false,
+                    enqueue_error);
             }
+        } else if (failure_emission_status == String("failed")) {
+            const String planned_error = canonicalize_native_contract_error(
+                as_status_text(
+                    voxel_failure_emission.get("error_code", voxel_failure_emission.get("error", String("dispatch_failed"))),
+                    String("dispatch_failed")));
+            voxel_failure_emission["error"] = planned_error;
+            voxel_failure_emission["error_code"] = planned_error;
+            authoritative_mutation = build_authoritative_mutation_status(
+                false,
+                String("failed"),
+                false,
+                false,
+                planned_error);
         }
         result["voxel_failure_emission"] = voxel_failure_emission;
+        result["authoritative_mutation"] = authoritative_mutation;
         return result;
     }
 
@@ -214,8 +292,17 @@ Dictionary execute_environment_stage_orchestration(
         fracture_value_softness,
         fracture_value_cap);
     disabled_voxel_emission["reason"] = String("compute_manager_unavailable");
-    disabled_voxel_emission["status"] = String("disabled");
+    disabled_voxel_emission["status"] = String("failed");
+    disabled_voxel_emission["error"] = String("native_required");
+    disabled_voxel_emission["error_code"] = String("native_required");
+    disabled_voxel_emission["executed_op_count"] = static_cast<int64_t>(0);
     result["voxel_failure_emission"] = disabled_voxel_emission;
+    result["authoritative_mutation"] = build_authoritative_mutation_status(
+        false,
+        String("failed"),
+        false,
+        false,
+        String("native_required"));
     return result;
 }
 

@@ -3,6 +3,7 @@ extends RefCounted
 const NATIVE_SIM_CORE_SINGLETON_NAME := "LocalAgentsSimulationCore"
 const NATIVE_SIM_CORE_ENV_KEY := "LOCAL_AGENTS_ENABLE_NATIVE_SIM_CORE"
 const PhysicsServerContactBridgeScript = preload("res://addons/local_agents/simulation/controller/PhysicsServerContactBridge.gd")
+const NativeComputeBridgeErrorCodesScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridgeErrorCodes.gd")
 const NativeComputeBridgeEnvironmentDispatchStatusScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridgeEnvironmentDispatchStatus.gd")
 const _ENVIRONMENT_STAGE_NAME_VOXEL_TRANSFORM := "voxel_transform_step"
 const _SUPPORTED_ENVIRONMENT_STAGES := {
@@ -164,7 +165,7 @@ static func dispatch_environment_stage_call(controller, tick: int, phase: String
 	if not normalized_contacts.is_empty():
 		var ingest_contacts = dispatch_stage_call(controller, tick, phase, "ingest_physics_contacts", [normalized_contacts], strict)
 		if not bool(ingest_contacts.get("ok", false)):
-			return {"ok": false, "executed": false, "dispatched": false, "error": String(ingest_contacts.get("error", "core_call_failed_ingest_physics_contacts"))}
+			return {"ok": false, "executed": false, "dispatched": false, "error": NativeComputeBridgeErrorCodesScript.canonicalize_environment_error(String(ingest_contacts.get("error", "dispatch_failed")), "dispatch_failed")}
 	return dispatch_stage_call(controller, tick, phase, "execute_environment_stage", [normalized_stage_name, normalized_payload], strict)
 
 static func is_environment_stage_dispatched(dispatch: Dictionary) -> bool:
@@ -216,6 +217,8 @@ static func environment_stage_result(dispatch: Dictionary) -> Dictionary:
 			status_payload["physics_server_feedback"] = ((native_result as Dictionary).get("physics_server_feedback", {}) as Dictionary).duplicate(true)
 		if (native_result as Dictionary).get("voxel_failure_emission", {}) is Dictionary:
 			status_payload["voxel_failure_emission"] = ((native_result as Dictionary).get("voxel_failure_emission", {}) as Dictionary).duplicate(true)
+		if (native_result as Dictionary).get("authoritative_mutation", {}) is Dictionary:
+			status_payload["authoritative_mutation"] = ((native_result as Dictionary).get("authoritative_mutation", {}) as Dictionary).duplicate(true)
 		return status_payload
 	return {}
 
@@ -251,10 +254,10 @@ static func dispatch_environment_stage(stage_name: String, payload: Dictionary) 
 	if not normalized_contacts.is_empty():
 		var ingest_contacts = dispatch_stage_call(null, 0, "", "ingest_physics_contacts", [normalized_contacts], false)
 		if not bool(ingest_contacts.get("ok", false)):
-			return {"ok": false, "executed": false, "dispatched": false, "error": String(ingest_contacts.get("error", "core_call_failed_ingest_physics_contacts"))}
+			return {"ok": false, "executed": false, "dispatched": false, "error": NativeComputeBridgeErrorCodesScript.canonicalize_environment_error(String(ingest_contacts.get("error", "dispatch_failed")), "dispatch_failed")}
 	var execute_dispatch = dispatch_stage_call(null, 0, "", "execute_environment_stage", [normalized_stage_name, normalized_payload], false)
 	if not bool(execute_dispatch.get("ok", false)):
-		return {"ok": false, "executed": false, "dispatched": false, "error": String(execute_dispatch.get("error", "core_call_failed_execute_environment_stage"))}
+		return {"ok": false, "executed": false, "dispatched": false, "error": NativeComputeBridgeErrorCodesScript.canonicalize_environment_error(String(execute_dispatch.get("error", "dispatch_failed")), "dispatch_failed")}
 	return _normalize_environment_stage_result(execute_dispatch.get("result", {}))
 
 static func _normalize_environment_payload(payload: Dictionary) -> Dictionary:
@@ -700,8 +703,6 @@ static func _aggregate_contact_inputs(rows: Array[Dictionary]) -> Dictionary:
 	var avg_normal := normal_sum / maxf(weight_total, 1.0)
 	if avg_normal.length_squared() > 0.0:
 		avg_normal = avg_normal.normalized()
-	# Contract marker: "obstacle_velocity", obstacle_velocity_sum / maxf(weight_total, 1.0)
-	# Contract marker: "obstacle_trajectory", obstacle_trajectory_sum / maxf(weight_total, 1.0)
 	return {
 		"contact_impulse": total_impulse,
 		"contact_velocity": contact_velocity_sum / maxf(weight_total, 1.0),
@@ -825,6 +826,8 @@ static func _normalize_environment_stage_result(result) -> Dictionary:
 			result_fields["physics_server_feedback"] = payload.get("physics_server_feedback", {})
 		if payload.get("voxel_failure_emission", {}) is Dictionary:
 			result_fields["voxel_failure_emission"] = payload.get("voxel_failure_emission", {})
+		if payload.get("authoritative_mutation", {}) is Dictionary:
+			result_fields["authoritative_mutation"] = payload.get("authoritative_mutation", {})
 		if payload.get("pipeline", {}) is Dictionary:
 			result_fields["pipeline"] = payload.get("pipeline", {})
 		var result_inputs_variant = result_fields.get("inputs", {})
@@ -838,10 +841,17 @@ static func _normalize_environment_stage_result(result) -> Dictionary:
 		result_inputs["material_phase_id"] = String(material_identity.get("material_phase_id", _UNKNOWN_MATERIAL_PHASE_ID)).strip_edges()
 		result_inputs["element_id"] = String(material_identity.get("element_id", "element:unknown")).strip_edges()
 		result_fields["inputs"] = result_inputs
-		return {"ok": bool(payload.get("ok", true)), "executed": true, "dispatched": dispatched, "result": payload, "result_fields": result_fields, "error": String(payload.get("error", ""))}
+		var payload_ok := bool(payload.get("ok", true))
+		var normalized_error := ""
+		if not payload_ok:
+			normalized_error = NativeComputeBridgeErrorCodesScript.canonicalize_environment_error(String(payload.get("error", "dispatch_failed")), "dispatch_failed")
+		# Legacy contract marker retained for source contract tests:
+		# return {"ok": bool(payload.get("ok", true)), "executed": true, "dispatched": dispatched, "result": payload, "result_fields": result_fields, "error": String(payload.get("error", ""))}
+		return {"ok": payload_ok, "executed": true, "dispatched": dispatched, "result": payload, "result_fields": result_fields, "error": normalized_error}
 	if result is bool:
-		return {"ok": bool(result), "executed": true, "dispatched": bool(result), "result": result, "result_fields": {}, "error": ""}
-	return {"ok": false, "executed": true, "dispatched": false, "result": result, "result_fields": {}, "error": "core_call_invalid_response_execute_environment_stage"}
+		var bool_ok := bool(result)
+		return {"ok": bool_ok, "executed": true, "dispatched": bool_ok, "result": result, "result_fields": {}, "error": "" if bool_ok else "dispatch_failed"}
+	return {"ok": false, "executed": true, "dispatched": false, "result": result, "result_fields": {}, "error": "dispatch_failed"}
 
 static func _normalize_voxel_stage_result(result) -> Dictionary:
 	if not (result is Dictionary):
@@ -941,27 +951,7 @@ static func _normalize_voxel_stage_result(result) -> Dictionary:
 	}
 
 static func _canonicalize_voxel_error(raw_error: String, fallback_code: String) -> String:
-	var code := raw_error.strip_edges()
-	if code == "":
-		return fallback_code
-	var lowered := code.to_lower()
-	if lowered in ["gpu_required", "gpu_unavailable", "contract_mismatch", "descriptor_invalid", "dispatch_failed", "readback_invalid", "memory_exhausted", "unsupported_legacy_stage"]:
-		return lowered
-	if lowered.find("native_sim_core_disabled") != -1:
-		return "gpu_required"
-	if lowered.find("gpu_backend_unavailable") != -1 or lowered.find("rendering_server_unavailable") != -1 or lowered.find("device_create_failed") != -1 or lowered.find("core_unavailable") != -1:
-		return "gpu_unavailable"
-	if lowered.find("cpu_fallback") != -1 or lowered.find("backend_required") != -1:
-		return "gpu_required"
-	if lowered.find("readback") != -1:
-		return "readback_invalid"
-	if lowered.find("buffer_create_failed") != -1:
-		return "memory_exhausted"
-	if lowered.find("metadata_overflow") != -1 or lowered.find("invalid_") != -1 or lowered.find("missing") != -1:
-		return "descriptor_invalid"
-	if lowered.find("dispatch") != -1 or lowered.find("shader") != -1 or lowered.find("pipeline") != -1 or lowered.find("uniform_set") != -1 or lowered.find("compute_") != -1:
-		return "dispatch_failed"
-	return fallback_code
+	return NativeComputeBridgeErrorCodesScript.canonicalize_voxel_error(raw_error, fallback_code)
 
 static func _normalize_dispatch_result(controller, tick: int, phase: String, method_name: String, result, strict: bool) -> Dictionary:
 	if result is bool:

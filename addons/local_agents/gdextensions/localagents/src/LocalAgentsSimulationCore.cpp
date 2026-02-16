@@ -73,6 +73,36 @@ Dictionary make_native_required_result(const String &detail) {
     return result;
 }
 
+String canonicalize_stage_error(const String &raw_error_code, const String &fallback_code = String("dispatch_failed")) {
+    const String lowered = raw_error_code.strip_edges().to_lower();
+    if (lowered.is_empty()) {
+        return fallback_code;
+    }
+    if (lowered == String("gpu_required") || lowered.find("gpu_required") >= 0) {
+        return String("gpu_required");
+    }
+    if (
+        lowered == String("gpu_unavailable") ||
+        lowered.find("gpu_backend_unavailable") >= 0 ||
+        lowered.find("rendering_server_unavailable") >= 0 ||
+        lowered.find("device_create_failed") >= 0
+    ) {
+        return String("gpu_unavailable");
+    }
+    if (
+        lowered == String("native_required") ||
+        lowered == String("native_unavailable") ||
+        lowered.find("native_required") >= 0 ||
+        lowered.find("native_sim_core_unavailable") >= 0 ||
+        lowered.find("core_missing_method") >= 0 ||
+        lowered.find("compute_manager_unavailable") >= 0 ||
+        lowered.find("voxel_edit_engine_uninitialized") >= 0
+    ) {
+        return String("native_required");
+    }
+    return String("dispatch_failed");
+}
+
 double get_numeric_dictionary_value(const Dictionary &row, const StringName &key) {
     if (!row.has(key)) {
         return 0.0;
@@ -419,23 +449,42 @@ Dictionary LocalAgentsSimulationCore::apply_environment_stage(const StringName &
     }
     const Dictionary voxel_failure_emission = orchestration.get("voxel_failure_emission", Dictionary());
     result["voxel_failure_emission"] = voxel_failure_emission;
+    Dictionary authoritative_mutation;
+    const Variant authoritative_mutation_variant = orchestration.get("authoritative_mutation", Dictionary());
+    if (authoritative_mutation_variant.get_type() == Variant::DICTIONARY) {
+        authoritative_mutation = authoritative_mutation_variant;
+    }
+    if (authoritative_mutation.is_empty()) {
+        authoritative_mutation["ok"] = false;
+        authoritative_mutation["status"] = String("failed");
+        authoritative_mutation["dispatched"] = false;
+        authoritative_mutation["mutation_applied"] = false;
+        authoritative_mutation["error"] = String("dispatch_failed");
+        authoritative_mutation["error_code"] = String("dispatch_failed");
+    }
+    result["authoritative_mutation"] = authoritative_mutation.duplicate(true);
+    const bool authoritative_ok = bool(authoritative_mutation.get("ok", false));
+    result["ok"] = authoritative_ok;
+    result["dispatched"] = bool(authoritative_mutation.get("dispatched", authoritative_ok));
+    const String authoritative_status = String(
+        authoritative_mutation.get("status", authoritative_ok ? String("executed") : String("failed"))).strip_edges().to_lower();
+    result["status"] = authoritative_status.is_empty()
+        ? (authoritative_ok ? String("executed") : String("failed"))
+        : authoritative_status;
+    result["mutation_applied"] = bool(authoritative_mutation.get("mutation_applied", false));
     Dictionary authoritative_execution;
-    const Variant authoritative_execution_variant = orchestration.get("authoritative_voxel_execution", Dictionary());
+    const Variant authoritative_execution_variant = authoritative_mutation.get("execution", Dictionary());
     if (authoritative_execution_variant.get_type() == Variant::DICTIONARY) {
         authoritative_execution = authoritative_execution_variant;
     }
-    if (authoritative_execution.is_empty() && voxel_failure_emission.has("execution")) {
-        const Variant execution_variant = voxel_failure_emission.get("execution", Dictionary());
-        if (execution_variant.get_type() == Variant::DICTIONARY) {
-            authoritative_execution = execution_variant;
+    if (authoritative_execution.is_empty()) {
+        const Variant orchestration_execution_variant = orchestration.get("authoritative_voxel_execution", Dictionary());
+        if (orchestration_execution_variant.get_type() == Variant::DICTIONARY) {
+            authoritative_execution = orchestration_execution_variant;
         }
     }
     if (!authoritative_execution.is_empty()) {
-        const bool execution_ok = bool(authoritative_execution.get("ok", false));
         result["execution"] = authoritative_execution.duplicate(true);
-        result["dispatched"] = bool(authoritative_execution.get("dispatched", execution_ok));
-        result["ok"] = execution_ok;
-        result["status"] = execution_ok ? String("executed") : String("failed");
         if (authoritative_execution.has("ops_requested")) {
             result["ops_requested"] = authoritative_execution.get("ops_requested", static_cast<int64_t>(0));
         }
@@ -457,22 +506,13 @@ Dictionary LocalAgentsSimulationCore::apply_environment_stage(const StringName &
         if (authoritative_execution.has("changed_chunks")) {
             result["changed_chunks"] = authoritative_execution.get("changed_chunks", Array());
         }
-        if (!execution_ok) {
-            result["error"] = String(authoritative_execution.get("error", String("dispatch_failed")));
-        } else {
-            result["error"] = String();
-        }
+    }
+    if (!authoritative_ok) {
+        result["error"] = canonicalize_stage_error(String(
+            authoritative_mutation.get("error_code", authoritative_mutation.get("error", String("dispatch_failed")))),
+            String("dispatch_failed"));
     } else {
-        const String plan_status = String(voxel_failure_emission.get("status", String("executed"))).strip_edges().to_lower();
-        const bool plan_failed = plan_status == String("failed");
-        result["status"] = plan_status.is_empty() ? String("executed") : plan_status;
-        result["ok"] = !plan_failed;
-        result["dispatched"] = !plan_failed;
-        if (plan_failed) {
-            result["error"] = String(voxel_failure_emission.get("error_code", voxel_failure_emission.get("error", String("dispatch_failed"))));
-        } else {
-            result["error"] = String();
-        }
+        result["error"] = String();
     }
     result["counters"] = build_stage_dispatch_counters(environment_stage_dispatch_count_, stage_dispatch_count);
     return result;
