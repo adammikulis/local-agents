@@ -14,6 +14,7 @@ class ChunkProjectileState:
 	var ttl_seconds: float = 4.0
 	var material_tag: String = "dense_voxel"
 	var hardness_tag: String = "hard"
+	var visual_node: Node3D = null
 
 @export_range(1.0, 300.0, 0.5) var launch_speed: float = 60.0
 @export_range(0.05, 20.0, 0.01) var launch_mass: float = 0.2
@@ -211,6 +212,7 @@ func try_fire_from_screen_center() -> bool:
 	projectile.ttl_seconds = clampf(projectile_ttl_seconds, _TTL_MIN, _TTL_MAX)
 	projectile.material_tag = projectile_material_tag
 	projectile.hardness_tag = projectile_hardness_tag
+	projectile.visual_node = _spawn_visual_node(projectile)
 	_active_projectiles.append(projectile)
 	_cooldown_remaining = cooldown_seconds
 	return true
@@ -224,18 +226,23 @@ func _advance_projectiles(delta: float) -> void:
 			continue
 		projectile.ttl_seconds -= delta
 		if projectile.ttl_seconds <= 0.0:
+			_release_visual_node(projectile)
 			_active_projectiles.remove_at(i)
 			continue
 		var start := projectile.position
 		var end := start + projectile.velocity * delta
 		if space_state == null:
 			projectile.position = end
+			_sync_visual_node(projectile)
 			continue
 		var hit := _intersect_segment(space_state, start, end)
 		if hit.is_empty():
 			projectile.position = end
+			_sync_visual_node(projectile)
 			continue
+		_apply_rigidbody_collision_response(projectile, hit)
 		_queue_projectile_contact_row(_build_contact_row(projectile, hit, end))
+		_release_visual_node(projectile)
 		_active_projectiles.remove_at(i)
 
 func _physics_space_state() -> PhysicsDirectSpaceState3D:
@@ -258,6 +265,26 @@ func _intersect_segment(space_state: PhysicsDirectSpaceState3D, from_point: Vect
 	if result is Dictionary:
 		return result as Dictionary
 	return {}
+
+func _apply_rigidbody_collision_response(projectile: ChunkProjectileState, hit: Dictionary) -> void:
+	var collider_variant: Variant = hit.get("collider")
+	if not (collider_variant is RigidBody3D):
+		return
+	var rigid := collider_variant as RigidBody3D
+	if not is_instance_valid(rigid):
+		return
+	var projectile_mass := maxf(0.01, projectile.mass)
+	var impulse_vector := projectile.velocity * projectile_mass
+	if impulse_vector.length_squared() <= 1.0e-9:
+		return
+	var hit_point_variant: Variant = hit.get("position", rigid.global_position)
+	var hit_point := rigid.global_position
+	if hit_point_variant is Vector3:
+		hit_point = hit_point_variant as Vector3
+	var local_offset := hit_point - rigid.global_position
+	rigid.apply_impulse(impulse_vector, local_offset)
+	var rigid_mass := maxf(0.01, rigid.mass)
+	rigid.linear_velocity += impulse_vector / rigid_mass
 
 func _build_query_excludes() -> Array[RID]:
 	var excludes: Array[RID] = []
@@ -345,6 +372,42 @@ func _queue_projectile_contact_row(row: Dictionary) -> void:
 	while _pending_contact_rows.size() > _MAX_PENDING_CONTACT_ROWS:
 		_pending_contact_rows.remove_at(0)
 		_sampled_contact_cursor = maxi(0, _sampled_contact_cursor - 1)
+
+func active_projectile_count() -> int:
+	return _active_projectiles.size()
+
+func _spawn_visual_node(projectile: ChunkProjectileState) -> Node3D:
+	if _spawn_parent == null or not is_instance_valid(_spawn_parent):
+		return null
+	var visual_root := Node3D.new()
+	visual_root.name = "VoxelChunkProjectile_%d" % projectile.projectile_id
+	var mesh_instance := MeshInstance3D.new()
+	var sphere := SphereMesh.new()
+	var clamped_radius := clampf(projectile.radius, _RADIUS_MIN, _RADIUS_MAX)
+	sphere.radius = clamped_radius
+	sphere.height = clamped_radius * 2.0
+	mesh_instance.mesh = sphere
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(0.94, 0.91, 0.77, 1.0)
+	material.roughness = 0.35
+	mesh_instance.material_override = material
+	visual_root.add_child(mesh_instance)
+	_spawn_parent.add_child(visual_root)
+	visual_root.global_position = projectile.position
+	return visual_root
+
+func _sync_visual_node(projectile: ChunkProjectileState) -> void:
+	var visual_node := projectile.visual_node
+	if visual_node == null or not is_instance_valid(visual_node):
+		return
+	visual_node.global_position = projectile.position
+
+func _release_visual_node(projectile: ChunkProjectileState) -> void:
+	var visual_node := projectile.visual_node
+	projectile.visual_node = null
+	if visual_node == null or not is_instance_valid(visual_node):
+		return
+	visual_node.queue_free()
 
 func _print_profile(trigger: String = "launcher profile") -> void:
 	print("[Launcher] %s -> speed=%.1f mass=%.3f ttl=%.2f impact_scale=%.2f cooldown=%.2f active=%d" % [

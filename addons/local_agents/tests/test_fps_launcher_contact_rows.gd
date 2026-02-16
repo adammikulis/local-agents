@@ -7,13 +7,16 @@ func run_test(tree: SceneTree) -> bool:
 	var controller := FpsLauncherControllerScript.new()
 	var root := Node3D.new()
 	var camera := Camera3D.new()
-	var target := StaticBody3D.new()
+	var target := RigidBody3D.new()
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
 	box.size = Vector3(2.0, 2.0, 0.6)
 	shape.shape = box
 	target.add_child(shape)
 	target.position = Vector3(0.0, 0.0, -3.0)
+	target.mass = 3.0
+	target.gravity_scale = 0.0
+	target.sleeping = false
 	root.add_child(target)
 	root.add_child(camera)
 	root.add_child(controller)
@@ -32,7 +35,10 @@ func run_test(tree: SceneTree) -> bool:
 
 	var ok := true
 	ok = _assert(controller.try_fire_from_screen_center(), "Launcher should spawn a voxel-chunk projectile from screen center.") and ok
+	ok = _assert(controller.active_projectile_count() == 1, "Fire action should create one active voxel-chunk projectile state immediately after spawn.") and ok
 	controller.step(0.12)
+	ok = _assert(controller.active_projectile_count() == 0, "Projectile should leave active state after contact row emission consumes the impact.") and ok
+	ok = _assert(target.linear_velocity.length() > 0.0, "Voxel-chunk projectile collision should preserve rigidbody response by applying non-zero impulse to the target.") and ok
 
 	var first_rows := controller.sample_active_projectile_contact_rows()
 	ok = _assert(first_rows.size() == 1, "Voxel-chunk collision should emit one contact row on first sample call.") and ok
@@ -44,6 +50,7 @@ func run_test(tree: SceneTree) -> bool:
 		ok = _assert(String(row.get("projectile_material_tag", "")) == "dense_steel", "Contact row should preserve projectile material tag.") and ok
 		ok = _assert(float(row.get("contact_impulse", 0.0)) > 0.0, "Contact row should preserve positive contact_impulse.") and ok
 		ok = _assert(float(row.get("relative_speed", 0.0)) > 0.0, "Contact row should preserve positive relative_speed.") and ok
+		ok = _assert(float(row.get("collider_mass", 0.0)) > 0.0, "Contact row should preserve rigidbody mass semantics for collider payload.") and ok
 
 	var second_rows := controller.sample_active_projectile_contact_rows()
 	ok = _assert(second_rows.is_empty(), "Projectile-contact queue should be consumed after one sample pass.") and ok
