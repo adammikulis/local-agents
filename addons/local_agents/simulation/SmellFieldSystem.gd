@@ -76,13 +76,14 @@ func step(delta: float, wind_source: Variant, base_decay_per_second: float, rain
 		return
 	if _compute_requested and not _compute_active:
 		_refresh_compute_state()
+	if _compute_requested and not _compute_active:
+		_set_native_failure_status("gpu_unavailable", "smell_step compute backend unavailable")
+		return
 	var decay := base_decay_per_second * (1.0 + rain_intensity * rain_decay_multiplier)
 	var decay_factor := clampf(1.0 - decay * delta, 0.0, 1.0)
 	var native_dispatch := NativeComputeBridgeScript.dispatch_voxel_stage("smell_step", {"delta": delta, "decay_factor": decay_factor, "layer_count": _layers.size()})
 	if not bool(native_dispatch.get("dispatched", false)):
-		for layer_name_variant in _sorted_layer_names():
-			_step_layer(String(layer_name_variant), delta, decay_factor, wind_source)
-		_set_step_status(true, "native_smell_step_dispatch_fallback", "smell_step dispatch unavailable; applied deterministic CPU fallback")
+		_set_native_failure_status(_canonical_failure_reason(native_dispatch), "smell_step dispatch unavailable")
 		return
 	_set_step_status(true)
 
@@ -92,14 +93,15 @@ func step_local(delta: float, active_voxels: Array[Vector3i], radius_cells: int,
 		return
 	if _compute_requested and not _compute_active:
 		_refresh_compute_state()
+	if _compute_requested and not _compute_active:
+		_set_native_failure_status("gpu_unavailable", "smell_step_local compute backend unavailable")
+		return
 	var decay := base_decay_per_second * (1.0 + rain_intensity * rain_decay_multiplier)
 	var decay_factor := clampf(1.0 - decay * delta, 0.0, 1.0)
 	var touched: Dictionary = _build_touched_voxels(active_voxels, maxi(1, radius_cells))
 	var native_dispatch := NativeComputeBridgeScript.dispatch_voxel_stage("smell_step_local", {"delta": delta, "decay_factor": decay_factor, "layer_count": _layers.size(), "active_voxel_count": active_voxels.size(), "touched_count": touched.size()})
 	if not bool(native_dispatch.get("dispatched", false)):
-		for layer_name_variant in _sorted_layer_names():
-			_step_layer_local(String(layer_name_variant), delta, decay_factor, wind_source, touched)
-		_set_step_status(true, "native_smell_step_local_dispatch_fallback", "smell_step_local dispatch unavailable; applied deterministic CPU fallback")
+		_set_native_failure_status(_canonical_failure_reason(native_dispatch), "smell_step_local dispatch unavailable")
 		return
 	_set_step_status(true)
 func strongest_weighted_chemical_position(origin: Vector3, chemical_weights: Dictionary, sample_radius_voxels: int = 8) -> Variant:
@@ -557,6 +559,24 @@ func _set_step_status(ok: bool, error_code: String = "", details: String = "") -
 		_last_step_status["error"] = error_code
 		if details != "":
 			_last_step_status["details"] = details
+
+func _set_native_failure_status(reason: String, details: String) -> void:
+	var typed_reason := reason.strip_edges().to_lower()
+	if typed_reason == "":
+		typed_reason = "native_required"
+	_set_step_status(false, typed_reason, details)
+
+func _canonical_failure_reason(dispatch: Dictionary) -> String:
+	var raw_error := String(dispatch.get("error", "")).strip_edges().to_lower()
+	if raw_error in ["gpu_required", "gpu_unavailable", "native_required"]:
+		return raw_error
+	if raw_error.find("gpu_") != -1:
+		return "gpu_unavailable"
+	if raw_error.find("native") != -1 or raw_error.find("core_missing_method") != -1:
+		return "native_required"
+	if raw_error.find("dispatch_failed") != -1 or raw_error.find("dispatch") != -1:
+		return "gpu_unavailable"
+	return "native_required"
 func _build_touched_voxels(active_voxels: Array[Vector3i], radius_cells: int) -> Dictionary:
 	var touched: Dictionary = {}
 	var radius := maxi(1, radius_cells)

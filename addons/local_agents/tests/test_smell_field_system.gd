@@ -3,6 +3,7 @@ extends RefCounted
 
 const SmellFieldSystemScript = preload("res://addons/local_agents/simulation/SmellFieldSystem.gd")
 const StateHasherScript = preload("res://addons/local_agents/simulation/SimulationStateHasher.gd")
+const NATIVE_SIM_CORE_ENV_KEY := "LOCAL_AGENTS_ENABLE_NATIVE_SIM_CORE"
 
 func run_test(_tree: SceneTree) -> bool:
 	var a = SmellFieldSystemScript.new()
@@ -43,6 +44,34 @@ func run_test(_tree: SceneTree) -> bool:
 	if float(danger_probe.get("score", 0.0)) <= 0.0:
 		push_error("Danger probe should detect non-zero danger")
 		return false
+	if not _test_native_dispatch_failure_blocks_cpu_mutation(hasher):
+		return false
 
 	print("Smell field deterministic fixture hash: %s" % hash_a)
+	return true
+
+func _test_native_dispatch_failure_blocks_cpu_mutation(hasher: RefCounted) -> bool:
+	var previous_env := OS.get_environment(NATIVE_SIM_CORE_ENV_KEY)
+	OS.set_environment(NATIVE_SIM_CORE_ENV_KEY, "0")
+	var system = SmellFieldSystemScript.new()
+	system.configure(8.0, 0.55, 2.5)
+	system.deposit("plant_food", Vector3(1.25, 0.0, -0.75), 0.9)
+	system.deposit_chemical("ammonia", Vector3(-0.5, 0.0, 0.25), 0.7)
+	var before_snapshot: Dictionary = system.snapshot()
+	var before_hash = hasher.call("hash_state", before_snapshot)
+	system.step(0.2, Vector2(0.2, 0.1), 0.12, 0.15, 1.9)
+	var after_snapshot: Dictionary = system.snapshot()
+	var after_hash = hasher.call("hash_state", after_snapshot)
+	OS.set_environment(NATIVE_SIM_CORE_ENV_KEY, previous_env)
+	if before_hash != after_hash:
+		push_error("Smell field must not mutate layers when native dispatch is unavailable")
+		return false
+	var status: Dictionary = system.last_step_status()
+	if bool(status.get("ok", true)):
+		push_error("Expected smell step to fail fast when native dispatch is unavailable")
+		return false
+	var error_code := String(status.get("error", ""))
+	if error_code not in ["gpu_required", "gpu_unavailable", "native_required"]:
+		push_error("Expected typed smell dependency error; got '%s'" % error_code)
+		return false
 	return true

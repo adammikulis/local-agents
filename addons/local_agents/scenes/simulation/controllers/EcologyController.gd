@@ -90,8 +90,14 @@ var _smell_system_controller: RefCounted
 var _voxel_process_gate_controller: RefCounted
 var _voxel_activity_map: Dictionary = {}
 var _voxel_activity_refresh_accumulator: float = 0.0
+var _smell_dependency_failed: bool = false
+var _smell_dependency_error_code: String = ""
+var _smell_dependency_error_details: String = ""
 
 func _ready() -> void:
+	_smell_dependency_failed = false
+	_smell_dependency_error_code = ""
+	_smell_dependency_error_details = ""
 	_smell_field = SmellFieldSystemScript.new()
 	_wind_field = WindFieldSystemScript.new()
 	_smell_field.configure(world_bounds_radius, smell_voxel_size, smell_vertical_half_extent)
@@ -123,6 +129,8 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if delta <= 0.0:
 		return
+	if _smell_dependency_failed:
+		return
 	_sim_time_seconds += delta
 	_plant_step_accumulator += delta
 	_mammal_step_accumulator += delta
@@ -150,6 +158,26 @@ func _physics_process(delta: float) -> void:
 		_profile_refresh_accumulator = 0.0
 	_step_shelter_construction(delta)
 	_debug_renderer.update_debug(delta)
+
+func on_smell_dependency_failure(error_code: String, details: String = "") -> void:
+	var normalized_error := error_code.strip_edges().to_lower()
+	if normalized_error not in ["gpu_required", "gpu_unavailable", "native_required"]:
+		normalized_error = "native_required"
+	_smell_dependency_failed = true
+	_smell_dependency_error_code = normalized_error
+	_smell_dependency_error_details = details.strip_edges()
+	var message := "Ecology smell dependency failure: %s" % _smell_dependency_error_code
+	if _smell_dependency_error_details != "":
+		message = "%s (%s)" % [message, _smell_dependency_error_details]
+	push_error(message)
+	set_physics_process(false)
+
+func smell_dependency_failure_state() -> Dictionary:
+	return {
+		"failed": _smell_dependency_failed,
+		"error": _smell_dependency_error_code,
+		"details": _smell_dependency_error_details,
+	}
 
 func set_debug_overlay(overlay: Node3D) -> void:
 	_debug_renderer.set_debug_overlay(overlay)

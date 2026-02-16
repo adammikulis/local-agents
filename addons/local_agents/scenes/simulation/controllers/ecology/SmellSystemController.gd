@@ -7,6 +7,8 @@ var _smell_step_accumulator: float = 0.0
 var _wind_step_accumulator: float = 0.0
 var _smell_source_refresh_accumulator: float = 0.0
 var _last_compute_request: bool = false
+var _dependency_failed: bool = false
+var _dependency_error_code: String = ""
 
 func setup(owner: Variant) -> void:
 	_owner = owner
@@ -57,6 +59,8 @@ func clear_sources() -> void:
 	_smell_sources.clear()
 
 func step_smell_field(delta: float) -> void:
+	if _dependency_failed:
+		return
 	_sync_compute_preference()
 	_smell_step_accumulator += delta
 	var steps := 0
@@ -77,17 +81,19 @@ func step_smell_field(delta: float) -> void:
 			var active_voxels: Array[Vector3i] = _owner.collect_active_smell_voxels()
 			if active_voxels.is_empty():
 				continue
-				_owner._smell_field.step_local(
-					_owner.smell_sim_step_seconds,
-					active_voxels,
-					maxi(1, int(_owner.voxel_smell_step_radius_cells)),
-					wind_source,
-					_owner.smell_base_decay_per_second,
-					float(_owner.transform_stage_intensity),
-					_owner.transform_decay_multiplier
-				)
+			_owner._smell_field.step_local(
+				_owner.smell_sim_step_seconds,
+				active_voxels,
+				maxi(1, int(_owner.voxel_smell_step_radius_cells)),
+				wind_source,
+				_owner.smell_base_decay_per_second,
+				float(_owner.transform_stage_intensity),
+				_owner.transform_decay_multiplier
+			)
 		else:
 			_owner._smell_field.step(_owner.smell_sim_step_seconds, wind_source, _owner.smell_base_decay_per_second, float(_owner.transform_stage_intensity), _owner.transform_decay_multiplier)
+		if _handle_step_failure_if_any():
+			return
 	if _smell_step_accumulator > _owner.smell_sim_step_seconds * float(maxi(1, _owner.max_smell_substeps_per_physics_frame)):
 		_smell_step_accumulator = _owner.smell_sim_step_seconds * float(maxi(1, _owner.max_smell_substeps_per_physics_frame))
 
@@ -147,3 +153,19 @@ func _sync_compute_preference() -> void:
 		return
 	_last_compute_request = requested
 	_owner._smell_field.set_compute_enabled(requested)
+
+func _handle_step_failure_if_any() -> bool:
+	if _owner == null or _owner._smell_field == null or not _owner._smell_field.has_method("last_step_status"):
+		return false
+	var status_variant: Variant = _owner._smell_field.call("last_step_status")
+	if not (status_variant is Dictionary):
+		return false
+	var status: Dictionary = status_variant
+	if bool(status.get("ok", true)):
+		return false
+	_dependency_failed = true
+	_dependency_error_code = String(status.get("error", "native_required")).strip_edges()
+	var details := String(status.get("details", "")).strip_edges()
+	if _owner != null and _owner.has_method("on_smell_dependency_failure"):
+		_owner.call("on_smell_dependency_failure", _dependency_error_code, details)
+	return true
