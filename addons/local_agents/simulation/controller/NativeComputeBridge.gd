@@ -261,6 +261,9 @@ static func dispatch_environment_stage(stage_name: String, payload: Dictionary) 
 		return {"ok": false, "executed": false, "dispatched": false, "error": NativeComputeBridgeErrorCodesScript.canonicalize_environment_error(String(execute_dispatch.get("error", "dispatch_failed")), "dispatch_failed")}
 	return _normalize_environment_stage_result(execute_dispatch.get("result", {}))
 
+static func normalize_environment_payload(payload: Dictionary) -> Dictionary:
+	return _normalize_environment_payload(payload)
+
 static func _normalize_environment_payload(payload: Dictionary) -> Dictionary:
 	var normalized = NativeComputeBridgeEnvironmentBindingsScript.normalize_environment_payload(
 		payload,
