@@ -89,7 +89,15 @@ func run_test(tree: SceneTree) -> bool:
 	ok = _assert(bool(mutation.get("changed", false)), "FPS fire contact runtime path should mutate voxel terrain after impact.") and ok
 	var changed_tiles_variant = mutation.get("changed_tiles", [])
 	var changed_tiles: Array = changed_tiles_variant if changed_tiles_variant is Array else []
-	ok = _assert(not changed_tiles.is_empty(), "FPS fire runtime path mutation should report changed_tiles.") and ok
+	ok = _assert(changed_tiles.size() > 0, "FPS fire runtime path mutation should report changed_tiles > 0 for contact-confirmed projectile impacts.") and ok
+	var mutation_path := String(mutation.get("mutation_path", ""))
+	ok = _assert(mutation_path in [
+		"native_ops_payload_primary",
+		"direct_impact_ops_payload_fallback",
+		"contact_confirmed_column_fallback_pre_ops",
+		"contact_confirmed_column_fallback_post_ops",
+	], "FPS fire runtime-path mutation should report explicit stable mutation_path tag for contact-confirmed hits.") and ok
+	ok = _assert(String(mutation.get("mutation_path_state", "")) == "success", "Successful runtime-path mutation should report mutation_path_state=success.") and ok
 
 	launcher.acknowledge_voxel_dispatch_contact_rows(contact_rows.size(), true)
 	ok = _assert(launcher.pending_voxel_dispatch_contact_count() == 0, "Mutation-confirmed ack should clear pending projectile contacts.") and ok

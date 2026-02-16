@@ -149,6 +149,22 @@ func _run_mutation_deadline_invariant_test(tree: SceneTree) -> bool:
 	for _i in range(FpsLauncherControllerScript.MAX_PROJECTILE_MUTATION_FRAMES + 2):
 		controller.step(0.016)
 	ok = _assert(controller.pending_voxel_dispatch_contact_count() == 0, "Projectile rows that miss mutation deadline must be purged after PROJECTILE_MUTATION_DEADLINE_EXCEEDED.") and ok
+	var status_variant: Variant = controller.projectile_mutation_deadline_status()
+	var status: Dictionary = status_variant if status_variant is Dictionary else {}
+	ok = _assert(not bool(status.get("ok", true)), "Deadline invariant should hard-fail status contract when queued projectile contact expires.") and ok
+	ok = _assert(String(status.get("error", "")) == "PROJECTILE_MUTATION_DEADLINE_EXCEEDED", "Deadline failure contract should preserve PROJECTILE_MUTATION_DEADLINE_EXCEEDED error code.") and ok
+	ok = _assert(int(status.get("expired_contacts", 0)) > 0, "Deadline failure contract should report expired contact rows explicitly.") and ok
+	var expired_rows_variant: Variant = controller.sample_expired_voxel_dispatch_contact_rows()
+	var expired_rows: Array = expired_rows_variant if expired_rows_variant is Array else []
+	ok = _assert(expired_rows.size() == 1, "Deadline invariant should report deterministic expired row count for single stale projectile contact.") and ok
+	if expired_rows.size() == 1 and expired_rows[0] is Dictionary:
+		var expired_row := expired_rows[0] as Dictionary
+		ok = _assert(String(expired_row.get("error_code", "")) == "PROJECTILE_MUTATION_DEADLINE_EXCEEDED", "Expired contact row should carry PROJECTILE_MUTATION_DEADLINE_EXCEEDED error_code.") and ok
+		ok = _assert(int(expired_row.get("expired_frame", -1)) > int(expired_row.get("deadline_frame", 0)), "Expired contact row should include expired_frame beyond deadline_frame.") and ok
+	var consumed_expired_variant: Variant = controller.consume_expired_voxel_dispatch_contact_rows()
+	var consumed_expired: Array = consumed_expired_variant if consumed_expired_variant is Array else []
+	ok = _assert(consumed_expired.size() == 1, "consume_expired_voxel_dispatch_contact_rows should deterministically return stale row payloads.") and ok
+	ok = _assert(controller.sample_expired_voxel_dispatch_contact_rows().is_empty(), "Expired contact reporting queue should clear after consume call.") and ok
 
 	tree.get_root().remove_child(root)
 	root.free()
