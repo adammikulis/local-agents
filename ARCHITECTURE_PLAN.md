@@ -40,6 +40,26 @@ This plan is organized by engineering concern so work can be split into focused 
     - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
     - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
 
+- [ ] Wave 0B (`P0`): Native-first binding architecture migration for contacts + dispatch contracts.
+  - Owner lanes:
+    - Native Compute
+    - Runtime Bindings
+    - Test-Infrastructure
+  - Scope:
+    - Migrate contact normalization/aggregation and dispatch-contract shaping into native code as the authoritative producer.
+    - Keep GDScript binding surfaces as thin wrapper APIs for consumers (no simulation-authoritative shaping logic in GDScript).
+  - File-size precondition (mandatory before implementation edits):
+    - `addons/local_agents/simulation/controller/NativeComputeBridge.gd` remains split-required (currently near cap); extract helper/binding modules before any behavior growth.
+    - No task in this wave may increase `NativeComputeBridge.gd`; call-site shim only after split.
+  - Acceptance criteria:
+    - Native outputs provide canonical normalized contact aggregates and dispatch-ready contract payloads with deterministic ordering/schema.
+    - GDScript bridge/controllers expose typed wrapper/binding APIs only and do not perform contract-authoritative normalization/aggregation/shaping.
+    - Contract failures remain explicit/typed; no CPU/GDScript-success fallback path is introduced for simulation-authoritative contact/dispatch outcomes.
+  - Required validation order:
+    - Non-headless launch first (real display path).
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
 - [ ] Wave 0 (`P0`): Full native/GPU destruction authority migration.
   - Priority and owner lanes:
     - `P0`: Planning lane owns scope lock, fallback inventory, and phase gate definitions.
