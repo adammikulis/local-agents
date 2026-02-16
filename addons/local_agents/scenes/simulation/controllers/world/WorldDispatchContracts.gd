@@ -39,6 +39,25 @@ static func build_stage_payload(dispatch: Dictionary, backend_used: String, disp
 	stage_payload["_destruction_executed_op_count"] = executed_op_count
 	return stage_payload
 
+static func build_native_authoritative_mutation(dispatch: Dictionary, stage_payload: Dictionary, executed_op_count: int) -> Dictionary:
+	var normalized_executed_op_count := maxi(0, executed_op_count)
+	var changed_chunks_variant = stage_payload.get("changed_chunks", [])
+	var changed_chunks: Array = changed_chunks_variant if changed_chunks_variant is Array else []
+	var changed := normalized_executed_op_count > 0
+	var mutation: Dictionary = {
+		"ok": changed,
+		"changed": changed,
+		"error": "" if changed else _native_no_mutation_error(dispatch),
+		"tick": int(stage_payload.get("tick", -1)),
+		"changed_tiles": [],
+		"changed_chunks": changed_chunks.duplicate(true),
+		"mutation_path": "native_result_authoritative",
+		"mutation_path_state": "success" if changed else "failure",
+	}
+	if not changed:
+		mutation["failure_paths"] = [_native_no_mutation_error(dispatch)]
+	return mutation
+
 static func build_mutation_sync_state(simulation_controller: Node, tick: int, mutation: Dictionary) -> Dictionary:
 	return {
 		"tick": tick,
@@ -51,6 +70,12 @@ static func build_mutation_sync_state(simulation_controller: Node, tick: int, mu
 		"transform_changed_tiles": (mutation.get("changed_tiles", []) as Array).duplicate(true),
 		"transform_changed_chunks": (mutation.get("changed_chunks", []) as Array).duplicate(true),
 	}
+
+static func _native_no_mutation_error(dispatch: Dictionary) -> String:
+	var dispatch_reason := String(dispatch.get("dispatch_reason", "")).strip_edges().to_lower()
+	if dispatch_reason in ["gpu_required", "gpu_unavailable", "native_required", "native_unavailable"]:
+		return dispatch_reason
+	return "native_voxel_stage_no_mutation"
 
 static func _flatten_native_ops(source: Dictionary) -> Array:
 	var out: Array = []

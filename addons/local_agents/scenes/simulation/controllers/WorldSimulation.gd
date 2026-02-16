@@ -9,7 +9,6 @@ const SimulationGraphicsSettingsScript = preload("res://addons/local_agents/scen
 const VoxelRateTierSchedulerScript = preload("res://addons/local_agents/simulation/controller/VoxelRateTierScheduler.gd")
 const WorldCameraControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldCameraController.gd")
 const WorldDispatchControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldDispatchController.gd")
-const WorldDestructionOrchestratorScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldDestructionOrchestrator.gd")
 const WorldHudBindingControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldHudBindingController.gd")
 const WorldEnvironmentSyncControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldEnvironmentSyncController.gd")
 const WorldGraphicsTargetWallControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldGraphicsTargetWallController.gd")
@@ -89,7 +88,6 @@ var _system_toggle_state: Dictionary = {
 
 var _camera_controller = WorldCameraControllerScript.new()
 var _dispatch_controller = WorldDispatchControllerScript.new()
-var _destruction_orchestrator = WorldDestructionOrchestratorScript.new()
 var _hud_binding_controller = WorldHudBindingControllerScript.new()
 var _environment_sync_controller = WorldEnvironmentSyncControllerScript.new()
 var _graphics_target_wall_controller = WorldGraphicsTargetWallControllerScript.new()
@@ -562,7 +560,6 @@ func _process_native_voxel_rate(delta: float, projectile_contact_rows: Array = [
 		"camera_controller": _camera_controller,
 		"graphics_target_wall_controller": _graphics_target_wall_controller,
 		"native_voxel_dispatch_runtime": _native_voxel_dispatch_runtime,
-		"destruction_orchestrator": _destruction_orchestrator,
 		"sync_environment_from_state": Callable(self, "_sync_environment_from_state").bind(false),
 	})
 

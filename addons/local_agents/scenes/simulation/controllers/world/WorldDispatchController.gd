@@ -50,7 +50,6 @@ func process_native_voxel_rate(delta: float, projectile_contact_rows: Array, con
 	var graphics_target_wall_controller = context.get("graphics_target_wall_controller", null)
 	var sync_environment_callable_variant = context.get("sync_environment_from_state", Callable())
 	var sync_environment_callable: Callable = sync_environment_callable_variant if sync_environment_callable_variant is Callable else Callable()
-	var destruction_orchestrator = context.get("destruction_orchestrator", null)
 	for pulse_variant in pulses:
 		if not (pulse_variant is Dictionary):
 			continue
@@ -88,15 +87,13 @@ func process_native_voxel_rate(delta: float, projectile_contact_rows: Array, con
 		var stage_payload := WorldDispatchContractsScript.build_stage_payload(dispatch, backend_used, dispatch_reason, dispatch_contact_rows, executed_op_count)
 		if stage_payload.is_empty():
 			continue
-		if destruction_orchestrator != null and destruction_orchestrator.has_method("apply_stage_result"):
-			any_mutation_applied = bool(destruction_orchestrator.call(
-				"apply_stage_result",
-				simulation_controller,
-				native_voxel_dispatch_runtime,
-				tick,
-				stage_payload,
-				sync_environment_callable
-			)) or any_mutation_applied
+		var mutation := WorldDispatchContractsScript.build_native_authoritative_mutation(dispatch, stage_payload, executed_op_count)
+		WorldNativeVoxelDispatchRuntimeScript.record_mutation(native_voxel_dispatch_runtime, stage_payload, mutation, Engine.get_process_frames())
+		if not bool(mutation.get("changed", false)):
+			continue
+		any_mutation_applied = true
+		if sync_environment_callable.is_valid():
+			sync_environment_callable.call(WorldDispatchContractsScript.build_mutation_sync_state(simulation_controller, tick, mutation))
 	if attempted_dispatch and any_mutation_applied and fps_launcher_controller != null and fps_launcher_controller.has_method("acknowledge_voxel_dispatch_contact_rows"):
 		WorldNativeVoxelDispatchRuntimeScript.record_contacts_dispatched(native_voxel_dispatch_runtime, dispatch_contact_rows.size())
 		fps_launcher_controller.call("acknowledge_voxel_dispatch_contact_rows", dispatch_contact_rows.size(), true)
