@@ -1,6 +1,5 @@
 extends Node3D
 class_name LocalAgentsWorldSimulationController
-
 const FlowTraversalProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FlowTraversalProfileResource.gd")
 const WorldGenConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldGenConfigResource.gd")
 const WorldProgressionProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/WorldProgressionProfileResource.gd")
@@ -218,9 +217,9 @@ func _ready() -> void:
 	if not _last_state.is_empty():
 		_sync_environment_from_state(_last_state, false)
 	_refresh_hud()
-
 func _process(delta: float) -> void:
 	_update_day_night(delta)
+	WorldNativeVoxelDispatchRuntimeScript.set_fps_mode_active(_native_voxel_dispatch_runtime, _input_controller != null and _input_controller.is_fps_mode())
 	if fps_launcher_controller != null and fps_launcher_controller.has_method("step"):
 		fps_launcher_controller.call("step", delta)
 	var projectile_contact_rows: Array = []
@@ -229,20 +228,19 @@ func _process(delta: float) -> void:
 	_push_native_view_metrics()
 	_process_native_voxel_rate(delta, projectile_contact_rows)
 	_apply_loop_result(_loop_controller.process_frame(delta, Callable(self, "_collect_living_entity_profiles"), projectile_contact_rows))
-
 func _unhandled_input(event: InputEvent) -> void:
 	if _input_controller != null:
 		_input_controller.handle_unhandled_input(event)
-
 func _try_fire_from_screen_center() -> void:
 	if _spawn_mode != "none":
 		return
+	WorldNativeVoxelDispatchRuntimeScript.record_fire_attempt(_native_voxel_dispatch_runtime)
+	var fired := false
 	if fps_launcher_controller != null and fps_launcher_controller.has_method("try_fire_from_screen_center"):
-		fps_launcher_controller.call("try_fire_from_screen_center")
-
+		fired = bool(fps_launcher_controller.call("try_fire_from_screen_center"))
+	WorldNativeVoxelDispatchRuntimeScript.record_fire_result(_native_voxel_dispatch_runtime, fired, Engine.get_process_frames())
 func _on_field_spawn_random_requested(plants: int, rabbits: int) -> void:
 	if _ecology_controller != null and _ecology_controller.has_method("spawn_random"): _ecology_controller.call("spawn_random", plants, rabbits); _hud_binding_controller.set_field_random_spawn_status(field_hud, plants, rabbits)
-
 func _on_field_debug_settings_changed(settings: Dictionary) -> void:
 	if _ecology_controller != null and _ecology_controller.has_method("apply_debug_settings"): _ecology_controller.call("apply_debug_settings", settings)
 
@@ -599,6 +597,7 @@ func _process_native_voxel_rate(delta: float, projectile_contact_rows: Array = [
 	for pulse_variant in pulses:
 		if not (pulse_variant is Dictionary): continue
 		attempted_dispatch = true
+		WorldNativeVoxelDispatchRuntimeScript.record_dispatch_attempt_after_fire(_native_voxel_dispatch_runtime)
 		var pulse = pulse_variant as Dictionary
 		var tier_id := String(pulse.get("tier_id", "high"))
 		var payload := {"tick": tick, "delta": delta, "rate_tier": tier_id, "compute_budget_scale": float(pulse.get("compute_budget_scale", base_budget)), "zoom_factor": clampf(float(view_metrics.get("zoom_factor", 0.0)), 0.0, 1.0), "camera_distance": maxf(0.0, float(view_metrics.get("camera_distance", 0.0))), "uniformity_score": clampf(float(view_metrics.get("uniformity_score", 0.0)), 0.0, 1.0), "physics_contacts": dispatch_contact_rows.duplicate(true)}
@@ -675,7 +674,7 @@ func _fail_native_voxel_dependency(tick: int, reason: String, tier_id: String, d
 
 func _apply_native_voxel_stage_result(tick: int, stage_payload: Dictionary) -> bool:
 	var mutation = SimulationVoxelTerrainMutatorScript.apply_native_voxel_stage_delta(simulation_controller, tick, stage_payload)
-	WorldNativeVoxelDispatchRuntimeScript.record_mutation(_native_voxel_dispatch_runtime, stage_payload, mutation)
+	WorldNativeVoxelDispatchRuntimeScript.record_mutation(_native_voxel_dispatch_runtime, stage_payload, mutation, Engine.get_process_frames())
 	if not bool(mutation.get("changed", false)):
 		return false
 	_sync_environment_from_state({

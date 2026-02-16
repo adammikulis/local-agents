@@ -37,6 +37,27 @@ static func record_contacts_dispatched(runtime: Dictionary, contacts_count: int)
 		return
 	runtime["contacts_dispatched"] = int(runtime.get("contacts_dispatched", 0)) + count
 
+static func set_fps_mode_active(runtime: Dictionary, active: bool) -> void:
+	runtime["fps_mode_active"] = active
+
+static func record_fire_attempt(runtime: Dictionary) -> void:
+	runtime["fire_attempts"] = int(runtime.get("fire_attempts", 0)) + 1
+
+static func record_fire_result(runtime: Dictionary, fired: bool, frame_index: int) -> void:
+	if not fired:
+		return
+	runtime["fire_successes"] = int(runtime.get("fire_successes", 0)) + 1
+	runtime["dispatch_attempts_after_fire"] = 0
+	runtime["first_mutation_frames_since_fire"] = -1
+	runtime["_last_successful_fire_frame"] = maxi(0, frame_index)
+
+static func record_dispatch_attempt_after_fire(runtime: Dictionary) -> void:
+	if int(runtime.get("_last_successful_fire_frame", -1)) < 0:
+		return
+	if int(runtime.get("first_mutation_frames_since_fire", -1)) >= 0:
+		return
+	runtime["dispatch_attempts_after_fire"] = int(runtime.get("dispatch_attempts_after_fire", 0)) + 1
+
 static func record_destruction_plan(runtime: Dictionary, dispatch: Dictionary) -> int:
 	var snapshot := WorldNativeVoxelDispatchMetricsScript.destruction_pipeline_snapshot_from_dispatch(dispatch)
 	var planned_op_count := maxi(0, int(snapshot.get("planned_op_count", 0)))
@@ -47,7 +68,7 @@ static func record_destruction_plan(runtime: Dictionary, dispatch: Dictionary) -
 		runtime["last_drop_reason"] = drop_reason
 	return maxi(0, int(snapshot.get("executed_op_count", 0)))
 
-static func record_mutation(runtime: Dictionary, stage_payload: Dictionary, mutation: Dictionary) -> void:
+static func record_mutation(runtime: Dictionary, stage_payload: Dictionary, mutation: Dictionary, frame_index: int = -1) -> void:
 	var executed_op_count := maxi(0, int(stage_payload.get("_destruction_executed_op_count", 0)))
 	if executed_op_count <= 0:
 		executed_op_count = WorldNativeVoxelDispatchMetricsScript.count_native_voxel_ops(stage_payload)
@@ -59,6 +80,15 @@ static func record_mutation(runtime: Dictionary, stage_payload: Dictionary, muta
 		var mutation_error := String(mutation.get("error", "")).strip_edges()
 		if mutation_error != "":
 			runtime["last_drop_reason"] = mutation_error
+		return
+	if int(runtime.get("_last_successful_fire_frame", -1)) < 0:
+		return
+	if int(runtime.get("first_mutation_frames_since_fire", -1)) >= 0:
+		return
+	var resolved_frame := frame_index
+	if resolved_frame < 0:
+		resolved_frame = Engine.get_process_frames()
+	runtime["first_mutation_frames_since_fire"] = maxi(0, resolved_frame - int(runtime.get("_last_successful_fire_frame", resolved_frame)))
 
 static func _record_pulse(runtime: Dictionary, simulation_controller, tick: int, tier_id: String, backend_used: String, dispatch_reason: String, duration_ms: float, success: bool, dispatch: Dictionary = {}) -> void:
 	var timing_variant = runtime.get("pulse_timings", [])

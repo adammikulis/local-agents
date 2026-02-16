@@ -20,6 +20,7 @@ signal graphics_option_changed(option_id, value)
 @onready var perf_label: Label = get_node_or_null("%PerfLabel")
 @onready var status_label: Label = %StatusLabel
 @onready var details_label: Label = get_node_or_null("%DetailsLabel")
+@onready var mode_label: Label = get_node_or_null("%ModeLabel")
 
 var _hud_presenter = SimulationHudPresenterScript.new()
 var _graphics_panel_controller = SimulationHudGraphicsPanelControllerScript.new()
@@ -45,12 +46,21 @@ func _ready() -> void:
 		show_performance_overlay,
 		performance_server_path,
 		Callable(self, "set_performance_text"),
-		Callable(self, "set_performance_metrics")
+		Callable(self, "set_performance_metrics"),
+		Callable(self, "_runtime_diagnostics_for_perf")
 	)
 	_hud_presenter.bind_performance_server()
 
 func set_status_text(text: String) -> void:
 	status_label.text = text
+
+func set_mode_label(text: String) -> void:
+	if mode_label == null:
+		return
+	mode_label.text = text
+
+func set_input_mode_text(text: String) -> void:
+	set_mode_label(text)
 
 func set_details_text(text: String) -> void:
 	if details_label == null:
@@ -212,3 +222,11 @@ func _emit_inspector_npc_changed(npc_id: String) -> void:
 
 func _emit_overlays_changed(paths: bool, resources: bool, conflicts: bool, smell: bool, wind: bool, temperature: bool) -> void:
 	emit_signal("overlays_changed", paths, resources, conflicts, smell, wind, temperature)
+
+func _runtime_diagnostics_for_perf() -> Dictionary:
+	var world_root = get_parent()
+	if world_root != null and world_root.has_method("native_voxel_dispatch_runtime"):
+		var runtime_variant = world_root.call("native_voxel_dispatch_runtime")
+		if runtime_variant is Dictionary:
+			return (runtime_variant as Dictionary).duplicate(true)
+	return {}
