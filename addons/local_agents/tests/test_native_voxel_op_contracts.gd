@@ -8,6 +8,7 @@ const VOXEL_GPU_DISPATCH_METADATA_CPP_PATH := "res://addons/local_agents/gdexten
 const NATIVE_BRIDGE_GD_PATH := "res://addons/local_agents/simulation/controller/NativeComputeBridge.gd"
 const SIMULATION_VOXEL_MUTATOR_GD_PATH := "res://addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd"
 const WORLD_DISPATCH_CONTRACTS_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/world/WorldDispatchContracts.gd"
+const NativeComputeBridgeScript := preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
 
 func run_test(_tree: SceneTree) -> bool:
 	var ok := true
@@ -20,6 +21,8 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = _test_adaptive_multires_and_zoom_throttle_contract_source() and ok
 	ok = _test_variable_rate_deterministic_processing_contract_source() and ok
 	ok = _test_environment_stage_field_handle_injection_contract_source() and ok
+	ok = _test_voxel_result_fail_fast_error_canonicalization_behavior() and ok
+	ok = _test_environment_stage_result_contract_shaping_behavior() and ok
 	if ok:
 		print("Native voxel op source contracts passed (ordering, fallback selection, changed-region payload shape).")
 	return ok
@@ -203,6 +206,81 @@ func _test_variable_rate_deterministic_processing_contract_source() -> bool:
 	ok = _assert(source.contains("result[\"queue_pending_after\"] = static_cast<int64_t>(buffer.pending_ops.size());"), "Result contract must expose queue_pending_after for fairness accounting.") and ok
 	ok = _assert(source.contains("buffer.requeued_total += gpu_stats.ops_requeued;"), "Stage-level fairness accounting must accumulate requeued totals.") and ok
 	ok = _assert(source.contains("result[\"ops_changed\"] = gpu_stats.ops_changed;"), "Result contract must expose ops_changed for variable-rate verification.") and ok
+	return ok
+
+func _test_voxel_result_fail_fast_error_canonicalization_behavior() -> bool:
+	var cpu_fallback_result: Dictionary = NativeComputeBridgeScript._normalize_voxel_stage_result({
+		"ok": true,
+		"dispatched": true,
+		"execution": {
+			"backend_requested": "gpu",
+			"backend_used": "cpu_fallback",
+			"cpu_fallback_used": true,
+			"gpu_dispatched": false,
+		},
+		"error": "cpu_fallback_forbidden",
+	})
+	var gpu_unavailable_result: Dictionary = NativeComputeBridgeScript._normalize_voxel_stage_result({
+		"ok": true,
+		"dispatched": false,
+		"execution": {
+			"backend_requested": "gpu",
+			"backend_used": "gpu",
+			"cpu_fallback_used": false,
+			"gpu_dispatched": false,
+		},
+		"error": "rendering_server_unavailable",
+	})
+	var descriptor_invalid_result: Dictionary = NativeComputeBridgeScript._normalize_voxel_stage_result({
+		"ok": false,
+		"dispatched": true,
+		"execution": {
+			"backend_requested": "gpu",
+			"backend_used": "gpu",
+			"cpu_fallback_used": false,
+			"gpu_dispatched": true,
+		},
+		"error": "missing_descriptor_set",
+	})
+	var ok := true
+	ok = _assert(not bool(cpu_fallback_result.get("ok", true)), "Wrapper must reject cpu_fallback as non-authoritative for voxel stage results.") and ok
+	ok = _assert(String(cpu_fallback_result.get("error", "")) == "gpu_required", "Wrapper must canonicalize cpu fallback failures to gpu_required.") and ok
+	ok = _assert(String(gpu_unavailable_result.get("error", "")) == "gpu_unavailable", "Wrapper must preserve gpu_unavailable typed errors when GPU dispatch is missing.") and ok
+	ok = _assert(String(descriptor_invalid_result.get("error", "")) == "descriptor_invalid", "Wrapper must preserve typed descriptor_invalid fail-fast errors from native dispatch contracts.") and ok
+	return ok
+
+func _test_environment_stage_result_contract_shaping_behavior() -> bool:
+	var normalized: Dictionary = NativeComputeBridgeScript._normalize_environment_stage_result({
+		"ok": true,
+		"execution": {"dispatched": true},
+		"result_fields": {
+			"inputs": {
+				"material_id": "material:basalt",
+				"material_profile_id": "profile:basalt",
+				"phase": "solid",
+			},
+		},
+		"physics_server_feedback": {"schema": "physics_server_feedback_v1"},
+	})
+	var fields_variant = normalized.get("result_fields", {})
+	var fields: Dictionary = fields_variant if fields_variant is Dictionary else {}
+	var inputs_variant = fields.get("inputs", {})
+	var inputs: Dictionary = inputs_variant if inputs_variant is Dictionary else {}
+	var extracted := NativeComputeBridgeScript.environment_stage_result({
+		"ok": true,
+		"result": {
+			"result_fields": {
+				"status": "executed",
+				"physics_server_feedback": {"schema": "physics_server_feedback_v1"},
+			},
+		},
+	})
+	var ok := true
+	ok = _assert(bool(normalized.get("dispatched", false)), "Wrapper should derive dispatched=true from execution metadata.") and ok
+	ok = _assert(String(inputs.get("material_phase_id", "")) == "phase:solid", "Wrapper should shape canonical material_phase_id in normalized inputs.") and ok
+	ok = _assert(fields.get("physics_server_feedback", {}) is Dictionary, "Wrapper should preserve physics_server_feedback in result_fields contract payload.") and ok
+	ok = _assert(String(extracted.get("status", "")) == "executed", "Wrapper environment_stage_result should shape nested result_fields payloads into contract dictionaries.") and ok
+	ok = _assert(extracted.get("physics_server_feedback", {}) is Dictionary, "Wrapper environment_stage_result should keep physics_server_feedback payload in shaped contract output.") and ok
 	return ok
 
 func _assert(condition: bool, message: String) -> bool:

@@ -7,6 +7,7 @@ const NATIVE_CORE_CPP_PATH := "res://addons/local_agents/gdextensions/localagent
 const WORLD_SIMULATION_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd"
 const WORLD_DISPATCH_CONTROLLER_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/world/WorldDispatchController.gd"
 const WORLD_DISPATCH_CONTRACTS_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/world/WorldDispatchContracts.gd"
+const NativeComputeBridgeScript := preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
 
 func run_test(_tree: SceneTree) -> bool:
 	var planner_source := _read_source(NATIVE_FAILURE_EMISSION_PLANNER_CPP_PATH)
@@ -33,8 +34,65 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = _test_environment_stage_driver_contract(planner_source, core_source) and ok
 	ok = _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_simulation_source, world_dispatch_controller_source, world_dispatch_contracts_source) and ok
 	ok = _test_noise_metadata_contract(planner_source, noise_source) and ok
+	ok = _test_wrapper_shapes_failure_emission_contract_payloads() and ok
+	ok = _test_wrapper_preserves_typed_environment_fail_fast_errors() and ok
 	if ok:
 		print("Native generalized physics failure emission contracts passed (directional cleave + fallback fracture source markers).")
+	return ok
+
+func _test_wrapper_shapes_failure_emission_contract_payloads() -> bool:
+	var normalized: Dictionary = NativeComputeBridgeScript._normalize_environment_stage_result({
+		"ok": true,
+		"dispatched": true,
+		"result_fields": {
+			"inputs": {
+				"material_id": "material:stone",
+				"material_profile_id": "profile:stone",
+				"phase": 1,
+				"element_id": "element:si",
+			},
+		},
+		"voxel_failure_emission": {
+			"status": "executed",
+			"target_domain": "environment",
+			"stage_name": "physics_failure_emission",
+		},
+		"authoritative_mutation": {"changed": true},
+		"pipeline": {"summary_ready": true},
+	})
+	var fields_variant = normalized.get("result_fields", {})
+	var fields: Dictionary = fields_variant if fields_variant is Dictionary else {}
+	var inputs_variant = fields.get("inputs", {})
+	var inputs: Dictionary = inputs_variant if inputs_variant is Dictionary else {}
+	var identity_variant = fields.get("material_identity", {})
+	var identity: Dictionary = identity_variant if identity_variant is Dictionary else {}
+	var failure_variant = fields.get("voxel_failure_emission", {})
+	var failure_payload: Dictionary = failure_variant if failure_variant is Dictionary else {}
+	var ok := true
+	ok = _assert(bool(normalized.get("ok", false)), "Wrapper should preserve successful native failure-emission dispatch envelopes.") and ok
+	ok = _assert(bool(normalized.get("dispatched", false)), "Wrapper should preserve dispatched=true from native result envelope.") and ok
+	ok = _assert(String(failure_payload.get("target_domain", "")) == "environment", "Wrapper should keep failure-emission target_domain in result_fields payload.") and ok
+	ok = _assert(String(failure_payload.get("stage_name", "")) == "physics_failure_emission", "Wrapper should keep failure-emission stage_name in result_fields payload.") and ok
+	ok = _assert(fields.get("authoritative_mutation", {}) is Dictionary, "Wrapper should preserve authoritative_mutation payload contract.") and ok
+	ok = _assert(fields.get("pipeline", {}) is Dictionary, "Wrapper should preserve pipeline payload contract.") and ok
+	ok = _assert(String(inputs.get("material_phase_id", "")) == "phase:liquid", "Wrapper should canonicalize numeric phase identifiers to typed phase ids.") and ok
+	ok = _assert(String(identity.get("material_phase_id", "")) == "phase:liquid", "Wrapper should include canonicalized material_identity fields for downstream contracts.") and ok
+	return ok
+
+func _test_wrapper_preserves_typed_environment_fail_fast_errors() -> bool:
+	var missing_native: Dictionary = NativeComputeBridgeScript._normalize_environment_stage_result({
+		"ok": false,
+		"error": "core_missing_method_execute_environment_stage",
+	})
+	var missing_error := String(missing_native.get("error", ""))
+	var blank_error: Dictionary = NativeComputeBridgeScript._normalize_environment_stage_result({
+		"ok": false,
+		"error": "",
+	})
+	var blank_code := String(blank_error.get("error", ""))
+	var ok := true
+	ok = _assert(missing_error == "native_required", "Wrapper should preserve typed native_required fail-fast error when native contract is unavailable.") and ok
+	ok = _assert(blank_code == "dispatch_failed", "Wrapper should keep dispatch_failed fallback when native errors are empty.") and ok
 	return ok
 
 func _test_directional_failure_cleave_contract(source: String) -> bool:

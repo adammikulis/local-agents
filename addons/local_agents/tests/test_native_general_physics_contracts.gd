@@ -6,6 +6,7 @@ const PIPELINE_HPP_PATH := "res://addons/local_agents/gdextensions/localagents/i
 const LEGACY_PIPELINE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/CoreSimulationPipeline.cpp"
 const INTERNAL_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/CoreSimulationPipelineInternal.cpp"
 const BRIDGE_GD_PATH := "res://addons/local_agents/simulation/controller/NativeComputeBridge.gd"
+const NativeComputeBridgeScript := preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
 const WaveAInvariantChecks := preload("res://addons/local_agents/tests/test_native_general_physics_wave_a_contracts.gd")
 
 func run_test(_tree: SceneTree) -> bool:
@@ -27,6 +28,7 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = _test_shock_impulse_contracts_present() and ok
 	ok = _test_friction_contact_contracts_present() and ok
 	ok = _test_bridge_declares_contact_canonical_input_fields() and ok
+	ok = _test_bridge_contact_aggregation_behavior() and ok
 	ok = _test_wave_a_coupling_pressure_to_mechanics_contract() and ok
 	ok = _test_wave_a_coupling_reaction_to_thermal_contract() and ok
 	ok = _test_wave_a_coupling_damage_to_voxel_ops_contract() and ok
@@ -531,10 +533,72 @@ func _test_bridge_declares_contact_canonical_input_fields() -> bool:
 	ok = _assert(source.contains("left_obstacle_trajectory"), "Bridge contact row comparator should consider obstacle_trajectory") and ok
 	return ok
 
+func _test_bridge_contact_aggregation_behavior() -> bool:
+	var payload_a := {
+		"contact_samples": [
+			{
+				"body_id": 88,
+				"rigid_obstacle_mask": 9,
+				"contact_impulse": 3.0,
+				"contact_normal": Vector3(0.0, 0.0, 1.0),
+				"contact_point": Vector3(2.0, 4.0, 1.0),
+				"body_velocity": 9.0,
+				"obstacle_velocity": 3.0,
+				"obstacle_trajectory": Vector3(1.0, 0.0, 0.0),
+			},
+			{
+				"id": 11,
+				"collision_mask": 6,
+				"normal_impulse": 7.0,
+				"collision_normal": Vector3(0.0, 2.0, 0.0),
+				"collision_point": {"x": 8.0, "y": 4.0, "z": 1.0},
+				"velocity": 5.0,
+				"motion_trajectory": Vector3(0.0, 0.0, 1.0),
+				"obstacle_speed_magnitude": 1.0,
+			},
+		],
+	}
+	var payload_b := {
+		"contact_samples": (payload_a.get("contact_samples", []) as Array).duplicate(true),
+	}
+	(payload_b["contact_samples"] as Array).reverse()
+	var normalized_a: Dictionary = NativeComputeBridgeScript._normalize_environment_payload(payload_a)
+	var normalized_b: Dictionary = NativeComputeBridgeScript._normalize_environment_payload(payload_b)
+	var inputs_a_variant = normalized_a.get("inputs", {})
+	var inputs_b_variant = normalized_b.get("inputs", {})
+	var inputs_a: Dictionary = inputs_a_variant if inputs_a_variant is Dictionary else {}
+	var inputs_b: Dictionary = inputs_b_variant if inputs_b_variant is Dictionary else {}
+	var normal_a_variant = inputs_a.get("contact_normal", Vector3.ZERO)
+	var normal_b_variant = inputs_b.get("contact_normal", Vector3.ZERO)
+	var point_a_variant = inputs_a.get("contact_point", Vector3.ZERO)
+	var point_b_variant = inputs_b.get("contact_point", Vector3.ZERO)
+	var ok := true
+	ok = _assert(_is_approx(float(inputs_a.get("contact_impulse", 0.0)), 30.0), "Bridge aggregation should sum canonicalized contact rows across accepted payload channels.") and ok
+	ok = _assert(_is_approx(float(inputs_a.get("contact_impulse", 0.0)), float(inputs_b.get("contact_impulse", -1.0))), "Bridge aggregation should remain deterministic regardless of input row order.") and ok
+	ok = _assert(int(inputs_a.get("body_id", -1)) == 11, "Bridge aggregation should select strongest-impulse row body_id as authoritative output.") and ok
+	ok = _assert(int(inputs_a.get("rigid_obstacle_mask", -1)) == 6, "Bridge aggregation should select strongest-impulse rigid_obstacle_mask as authoritative output.") and ok
+	ok = _assert(_is_approx(float(inputs_a.get("obstacle_velocity", 0.0)), 0.9), "Bridge aggregation should preserve weighted obstacle_velocity influence.") and ok
+	ok = _assert(_is_approx(float(inputs_a.get("contact_velocity", 0.0)), 5.3), "Bridge aggregation should preserve weighted contact_velocity influence.") and ok
+	ok = _assert(normal_a_variant is Vector3 and normal_b_variant is Vector3, "Bridge aggregation should shape contact_normal as Vector3.") and ok
+	if normal_a_variant is Vector3 and normal_b_variant is Vector3:
+		var normal_a := normal_a_variant as Vector3
+		var normal_b := normal_b_variant as Vector3
+		ok = _assert(normal_a.distance_to(normal_b) <= 1.0e-6, "Bridge aggregation should produce order-invariant contact_normal outputs.") and ok
+		ok = _assert(absf(normal_a.length() - 1.0) <= 1.0e-4, "Bridge aggregation should normalize aggregated contact_normal.") and ok
+	ok = _assert(point_a_variant is Vector3 and point_b_variant is Vector3, "Bridge aggregation should shape contact_point as Vector3.") and ok
+	if point_a_variant is Vector3 and point_b_variant is Vector3:
+		var point_a := point_a_variant as Vector3
+		var point_b := point_b_variant as Vector3
+		ok = _assert(point_a.distance_to(point_b) <= 1.0e-6, "Bridge aggregation should keep contact_point deterministic across row orderings.") and ok
+	return ok
+
 func _assert(condition: bool, message: String) -> bool:
 	if not condition:
 		push_error(message)
 	return condition
+
+func _is_approx(lhs: float, rhs: float, epsilon: float = 1.0e-4) -> bool:
+	return absf(lhs - rhs) <= epsilon
 
 func _contains_summary_key_contract(source: String, key: String) -> bool:
 	var direct_key := "summary[\"%s\"]" % key
