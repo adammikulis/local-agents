@@ -133,12 +133,17 @@ static func apply_native_voxel_stage_delta(controller, tick: int, payload: Dicti
 		return {"ok": false, "changed": false, "error": "invalid_controller", "tick": tick, "changed_tiles": [], "changed_chunks": []}
 	var native_ops = _extract_native_op_payloads(payload)
 	var direct_impact_ops := _build_direct_impact_voxel_ops(controller, payload)
-	var changed_chunks = _normalize_chunk_keys(_extract_changed_chunks(payload))
+	var changed_chunk_rows = _extract_changed_chunks(payload)
+	var changed_chunks = _normalize_chunk_keys(changed_chunk_rows)
 	if native_ops.is_empty() and not direct_impact_ops.is_empty():
 		native_ops = direct_impact_ops.duplicate(true)
 	if native_ops.is_empty():
+		var contact_fallback_result := _apply_contact_confirmed_direct_fallback(controller, tick, payload)
+		if bool(contact_fallback_result.get("changed", false)):
+			return contact_fallback_result
 		var env_snapshot = controller._environment_snapshot.duplicate(true)
-		var changed_tiles = _tiles_from_changed_chunks_or_region(env_snapshot, payload)
+		var changed_region = _extract_changed_region(payload)
+		var changed_tiles = _tiles_from_changed_chunks_or_region(env_snapshot, payload, changed_chunk_rows, changed_region)
 		if not changed_tiles.is_empty():
 			var lowered_levels: Dictionary = {}
 			for tile_variant in changed_tiles:
@@ -166,14 +171,17 @@ static func apply_native_voxel_stage_delta(controller, tick: int, payload: Dicti
 			"changed_tiles": [],
 			"changed_chunks": changed_chunks,
 		}
-	var ops_result = apply_native_voxel_ops_payload(controller, tick, {"op_payloads": native_ops, "source": payload})
+	var ops_result = apply_native_voxel_ops_payload(controller, tick, {"op_payloads": native_ops, "changed_chunks": changed_chunk_rows})
 	if bool(ops_result.get("changed", false)):
 		return ops_result
 	if not direct_impact_ops.is_empty() and not _native_op_arrays_equal(native_ops, direct_impact_ops):
-		var direct_fallback_result := apply_native_voxel_ops_payload(controller, tick, {"op_payloads": direct_impact_ops, "source": payload})
+		var direct_fallback_result := apply_native_voxel_ops_payload(controller, tick, {"op_payloads": direct_impact_ops, "changed_chunks": changed_chunk_rows})
 		direct_fallback_result["mutation_path"] = "direct_impact_fallback"
 		if bool(direct_fallback_result.get("changed", false)):
 			return direct_fallback_result
+	var post_ops_contact_fallback_result := _apply_contact_confirmed_direct_fallback(controller, tick, payload)
+	if bool(post_ops_contact_fallback_result.get("changed", false)):
+		return post_ops_contact_fallback_result
 	ops_result["ok"] = false
 	ops_result["changed"] = false
 	ops_result["error"] = "native_voxel_stage_no_mutation"
@@ -192,6 +200,8 @@ static func _build_direct_impact_voxel_ops(controller, payload: Dictionary) -> A
 	var contacts := _extract_projectile_contact_rows(payload)
 	if contacts.is_empty():
 		return []
+	var changed_chunks = _extract_changed_chunks(payload)
+	var changed_region = _extract_changed_region(payload)
 	var ops: Array = []
 	var seq := 0
 	for row_variant in contacts:
@@ -199,8 +209,11 @@ static func _build_direct_impact_voxel_ops(controller, payload: Dictionary) -> A
 			continue
 		var row = row_variant as Dictionary
 		var point := _extract_contact_point(row)
-		var x := clampi(int(round(point.x)), 0, width - 1)
-		var z := clampi(int(round(point.z)), 0, height - 1)
+		var target := _resolve_existing_contact_tile(env_snapshot, payload, point, changed_chunks, changed_region)
+		if target.is_empty():
+			continue
+		var x := clampi(int(target.get("x", 0)), 0, width - 1)
+		var z := clampi(int(target.get("z", 0)), 0, height - 1)
 		var impulse := maxf(0.0, float(row.get("contact_impulse", row.get("impulse", 0.0))))
 		var speed := maxf(0.0, float(row.get("relative_speed", row.get("contact_velocity", 0.0))))
 		var value := clampf((impulse * 0.02) + (speed * 0.01), 0.35, 2.0)
@@ -220,6 +233,48 @@ static func _build_direct_impact_voxel_ops(controller, payload: Dictionary) -> A
 		})
 		seq += 1
 	return ops
+
+static func _apply_contact_confirmed_direct_fallback(controller, tick: int, payload: Dictionary) -> Dictionary:
+	var env_snapshot: Dictionary = controller._environment_snapshot.duplicate(true)
+	var contacts := _extract_projectile_contact_rows(payload)
+	if contacts.is_empty() or env_snapshot.is_empty():
+		return {"ok": false, "changed": false, "error": "contact_fallback_unavailable", "tick": tick, "changed_tiles": [], "changed_chunks": []}
+	var changed_chunks = _extract_changed_chunks(payload)
+	var changed_region = _extract_changed_region(payload)
+	var lowered_levels: Dictionary = {}
+	for row_variant in contacts:
+		if not (row_variant is Dictionary):
+			continue
+		var row = row_variant as Dictionary
+		var point := _extract_contact_point(row)
+		var target := _resolve_existing_contact_tile(env_snapshot, payload, point, changed_chunks, changed_region)
+		if target.is_empty():
+			continue
+		var tile_id := TileKeyUtilsScript.tile_id(int(target.get("x", 0)), int(target.get("z", 0)))
+		var impulse := maxf(0.0, float(row.get("contact_impulse", row.get("impulse", 0.0))))
+		var speed := maxf(0.0, float(row.get("relative_speed", row.get("contact_velocity", 0.0))))
+		var value := clampf((impulse * 0.02) + (speed * 0.01), 0.35, 2.0)
+		var levels := clampi(int(round(value * _NATIVE_OP_VALUE_TO_LEVELS)), 1, _NATIVE_OP_MAX_LEVELS)
+		lowered_levels[tile_id] = maxi(int(lowered_levels.get(tile_id, 0)), levels)
+	if lowered_levels.is_empty():
+		var changed_tiles = _tiles_from_changed_chunks_or_region(env_snapshot, payload, changed_chunks, changed_region)
+		for tile_variant in changed_tiles:
+			var tile_id := String(tile_variant).strip_edges()
+			if tile_id != "":
+				lowered_levels[tile_id] = 1
+	if lowered_levels.is_empty():
+		return {"ok": false, "changed": false, "error": "contact_fallback_targets_missing", "tick": tick, "changed_tiles": [], "changed_chunks": []}
+	var fallback_result = _apply_column_surface_delta(
+		controller,
+		env_snapshot,
+		lowered_levels.keys(),
+		lowered_levels,
+		false
+	)
+	fallback_result["tick"] = tick
+	if bool(fallback_result.get("changed", false)):
+		fallback_result["mutation_path"] = "contact_confirmed_column_fallback"
+	return fallback_result
 
 static func _extract_projectile_contact_rows(payload: Dictionary) -> Array:
 	var out: Array = []
@@ -260,14 +315,18 @@ static func _native_op_arrays_equal(a: Array, b: Array) -> bool:
 		var right_variant = b[i]
 		if not (left_variant is Dictionary and right_variant is Dictionary):
 			return false
-		if String(_native_op_sort_key(left_variant as Dictionary)) != String(_native_op_sort_key(right_variant as Dictionary)):
+		var left = left_variant as Dictionary
+		var right = right_variant as Dictionary
+		if _native_op_less(left, right) or _native_op_less(right, left):
 			return false
 	return true
 
 static func apply_native_voxel_ops_payload(controller, tick: int, payload: Dictionary) -> Dictionary:
 	if controller == null:
 		return {"ok": false, "changed": false, "error": "invalid_controller", "tick": tick, "changed_tiles": [], "changed_chunks": []}
-	var ops = _extract_native_op_payloads(payload)
+	var changed_chunk_rows = _resolve_changed_chunks_from_payload(payload)
+	var extracted_changed_chunks = _normalize_chunk_keys(changed_chunk_rows)
+	var ops = _resolve_native_ops_from_payload(payload)
 	if ops.is_empty():
 		return {
 			"ok": false,
@@ -276,7 +335,7 @@ static func apply_native_voxel_ops_payload(controller, tick: int, payload: Dicti
 			"details": "native voxel op payload required; CPU fallback disabled",
 			"tick": tick,
 			"changed_tiles": [],
-			"changed_chunks": _normalize_chunk_keys(_extract_changed_chunks(payload)),
+			"changed_chunks": extracted_changed_chunks,
 		}
 	var env_snapshot = controller._environment_snapshot.duplicate(true)
 	if env_snapshot.is_empty():
@@ -287,7 +346,7 @@ static func apply_native_voxel_ops_payload(controller, tick: int, payload: Dicti
 			"details": "environment snapshot unavailable for native voxel op mutation",
 			"tick": tick,
 			"changed_tiles": [],
-			"changed_chunks": _normalize_chunk_keys(_extract_changed_chunks(payload)),
+			"changed_chunks": extracted_changed_chunks,
 		}
 	var width := int(env_snapshot.get("width", 0))
 	var height := int(env_snapshot.get("height", 0))
@@ -299,9 +358,9 @@ static func apply_native_voxel_ops_payload(controller, tick: int, payload: Dicti
 			"details": "environment dimensions invalid for native voxel op mutation",
 			"tick": tick,
 			"changed_tiles": [],
-			"changed_chunks": _normalize_chunk_keys(_extract_changed_chunks(payload)),
+			"changed_chunks": extracted_changed_chunks,
 		}
-	ops.sort_custom(func(a, b): return _native_op_sort_key(a as Dictionary) < _native_op_sort_key(b as Dictionary))
+	ops.sort_custom(func(a, b): return _native_op_less(a as Dictionary, b as Dictionary))
 	var signed_levels: Dictionary = {}
 	for op_variant in ops:
 		if not (op_variant is Dictionary):
@@ -332,7 +391,7 @@ static func apply_native_voxel_ops_payload(controller, tick: int, payload: Dicti
 			"details": "native voxel ops resolved to no valid signed surface deltas",
 			"tick": tick,
 			"changed_tiles": [],
-			"changed_chunks": _normalize_chunk_keys(_extract_changed_chunks(payload)),
+			"changed_chunks": extracted_changed_chunks,
 		}
 	var lower_overrides: Dictionary = {}
 	var raise_overrides: Dictionary = {}
@@ -346,11 +405,12 @@ static func apply_native_voxel_ops_payload(controller, tick: int, payload: Dicti
 	var merged_tiles_map: Dictionary = {}
 	var last_result: Dictionary = {"ok": true, "changed": false, "error": "", "changed_tiles": [], "changed_chunks": []}
 	if not lower_overrides.is_empty():
-		last_result = _apply_column_surface_delta(controller, controller._environment_snapshot.duplicate(true), lower_overrides.keys(), lower_overrides, false)
+		last_result = _apply_column_surface_delta(controller, env_snapshot, lower_overrides.keys(), lower_overrides, false, {}, false)
+		env_snapshot = controller._environment_snapshot
 		for tile_variant in last_result.get("changed_tiles", []):
 			merged_tiles_map[String(tile_variant)] = true
 	if not raise_overrides.is_empty():
-		last_result = _apply_column_surface_delta(controller, controller._environment_snapshot.duplicate(true), raise_overrides.keys(), raise_overrides, true)
+		last_result = _apply_column_surface_delta(controller, env_snapshot, raise_overrides.keys(), raise_overrides, true, {}, false)
 		for tile_variant in last_result.get("changed_tiles", []):
 			merged_tiles_map[String(tile_variant)] = true
 	var merged_tiles: Array = merged_tiles_map.keys()
@@ -360,6 +420,9 @@ static func apply_native_voxel_ops_payload(controller, tick: int, payload: Dicti
 	last_result["changed"] = not merged_tiles.is_empty()
 	last_result["changed_tiles"] = merged_tiles
 	last_result["changed_chunks"] = changed_chunks
+	if bool(last_result.get("changed", false)):
+		last_result["environment_snapshot"] = controller._environment_snapshot.duplicate(true)
+		last_result["network_state_snapshot"] = controller._network_state_snapshot.duplicate(true)
 	return last_result
 
 static func _apply_column_surface_delta(
@@ -368,7 +431,8 @@ static func _apply_column_surface_delta(
 	changed_tiles: Array,
 	height_overrides: Dictionary,
 	raise_surface: bool,
-	column_metadata_overrides: Dictionary = {}
+	column_metadata_overrides: Dictionary = {},
+	include_snapshots: bool = true
 ) -> Dictionary:
 	var voxel_world: Dictionary = env_snapshot.get("voxel_world", {})
 	var columns: Array = voxel_world.get("columns", [])
@@ -495,15 +559,17 @@ static func _apply_column_surface_delta(
 	controller._environment_snapshot = env_snapshot
 	controller._transform_changed_last_tick = true
 	controller._transform_changed_tiles_last_tick = changed_tiles_sorted.duplicate(true)
-	return {
+	var result: Dictionary = {
 		"ok": true,
 		"changed": true,
 		"error": "",
 		"changed_tiles": changed_tiles_sorted,
 		"changed_chunks": touched_chunks_sorted,
-		"environment_snapshot": env_snapshot.duplicate(true),
-		"network_state_snapshot": controller._network_state_snapshot.duplicate(true),
 	}
+	if include_snapshots:
+		result["environment_snapshot"] = env_snapshot.duplicate(true)
+		result["network_state_snapshot"] = controller._network_state_snapshot.duplicate(true)
+	return result
 
 static func _strength_scale_for_brittleness(brittleness: float) -> float:
 	return clampf(1.15 - (clampf(brittleness, 0.1, 3.0) * 0.35), 0.15, 1.15)
@@ -623,14 +689,25 @@ static func _collect_changed_chunks(source: Dictionary, out: Array, depth: int) 
 		if nested_variant is Dictionary:
 			_collect_changed_chunks(nested_variant as Dictionary, out, depth + 1)
 
-static func _tiles_from_changed_chunks_or_region(env_snapshot: Dictionary, payload: Dictionary) -> Array:
+static func _tiles_from_changed_chunks_or_region(
+	env_snapshot: Dictionary,
+	payload: Dictionary,
+	changed_chunks: Array = [],
+	changed_region: Dictionary = {}
+) -> Array:
 	var voxel_world: Dictionary = env_snapshot.get("voxel_world", {})
 	var columns: Array = voxel_world.get("columns", [])
 	if columns.is_empty():
 		return []
+	var column_by_tile := _column_index_by_tile(voxel_world, columns)
+	if column_by_tile.is_empty():
+		return []
 	var chunk_size = maxi(4, int(voxel_world.get("block_rows_chunk_size", 12)))
 	var tiles_map: Dictionary = {}
-	for chunk_variant in _extract_changed_chunks(payload):
+	var effective_chunks: Array = changed_chunks
+	if effective_chunks.is_empty():
+		effective_chunks = _extract_changed_chunks(payload)
+	for chunk_variant in effective_chunks:
 		if not (chunk_variant is Dictionary):
 			continue
 		var chunk = chunk_variant as Dictionary
@@ -643,22 +720,107 @@ static func _tiles_from_changed_chunks_or_region(env_snapshot: Dictionary, paylo
 			var x := int(column.get("x", 0))
 			var z := int(column.get("z", 0))
 			if int(floor(float(x) / float(chunk_size))) == cx and int(floor(float(z) / float(chunk_size))) == cz:
-				tiles_map[TileKeyUtilsScript.tile_id(x, z)] = true
-	var region := _extract_changed_region(payload)
+				var tile_id := TileKeyUtilsScript.tile_id(x, z)
+				if column_by_tile.has(tile_id):
+					tiles_map[tile_id] = true
+	var region := changed_region
+	if region.is_empty():
+		region = _extract_changed_region(payload)
 	if not region.is_empty():
 		var min_row = region.get("min", {})
 		var max_row = region.get("max", {})
 		if min_row is Dictionary and max_row is Dictionary:
+			var width := int(env_snapshot.get("width", int(voxel_world.get("width", 0))))
+			var height := int(env_snapshot.get("height", int(voxel_world.get("depth", 0))))
 			var min_x = int((min_row as Dictionary).get("x", 0))
 			var min_z = int((min_row as Dictionary).get("z", 0))
 			var max_x = int((max_row as Dictionary).get("x", min_x))
 			var max_z = int((max_row as Dictionary).get("z", min_z))
+			if width > 0 and height > 0:
+				min_x = clampi(min_x, 0, width - 1)
+				max_x = clampi(max_x, 0, width - 1)
+				min_z = clampi(min_z, 0, height - 1)
+				max_z = clampi(max_z, 0, height - 1)
 			for z in range(mini(min_z, max_z), maxi(min_z, max_z) + 1):
 				for x in range(mini(min_x, max_x), maxi(min_x, max_x) + 1):
-					tiles_map[TileKeyUtilsScript.tile_id(x, z)] = true
+					var tile_id := TileKeyUtilsScript.tile_id(x, z)
+					if column_by_tile.has(tile_id):
+						tiles_map[tile_id] = true
 	var tiles: Array = tiles_map.keys()
 	tiles.sort_custom(func(a, b): return String(a) < String(b))
 	return tiles
+
+static func _resolve_existing_contact_tile(
+	env_snapshot: Dictionary,
+	payload: Dictionary,
+	contact_point: Vector3,
+	changed_chunks: Array = [],
+	changed_region: Dictionary = {}
+) -> Dictionary:
+	var voxel_world: Dictionary = env_snapshot.get("voxel_world", {})
+	var columns: Array = voxel_world.get("columns", [])
+	if columns.is_empty():
+		return {}
+	var column_by_tile := _column_index_by_tile(voxel_world, columns)
+	if column_by_tile.is_empty():
+		return {}
+	var width := int(env_snapshot.get("width", int(voxel_world.get("width", 0))))
+	var height := int(env_snapshot.get("height", int(voxel_world.get("depth", 0))))
+	if width <= 0 or height <= 0:
+		return {}
+	var candidates: Dictionary = {}
+	var direct_x := clampi(int(round(contact_point.x)), 0, width - 1)
+	var direct_z := clampi(int(round(contact_point.z)), 0, height - 1)
+	var direct_id := TileKeyUtilsScript.tile_id(direct_x, direct_z)
+	if column_by_tile.has(direct_id):
+		candidates[direct_id] = true
+	for tile_variant in _tiles_from_changed_chunks_or_region(env_snapshot, payload, changed_chunks, changed_region):
+		var tile_id := String(tile_variant).strip_edges()
+		if tile_id != "" and column_by_tile.has(tile_id):
+			candidates[tile_id] = true
+	if candidates.is_empty():
+		for column_variant in columns:
+			if not (column_variant is Dictionary):
+				continue
+			var column = column_variant as Dictionary
+			candidates[TileKeyUtilsScript.tile_id(int(column.get("x", 0)), int(column.get("z", 0)))] = true
+	var best_tile_id := ""
+	var best_score := INF
+	for tile_variant in candidates.keys():
+		var tile_id := String(tile_variant)
+		var parsed := TileKeyUtilsScript.parse_tile_id(tile_id)
+		if parsed.x == 2147483647:
+			continue
+		var dx := float(parsed.x) - contact_point.x
+		var dz := float(parsed.y) - contact_point.z
+		var score := dx * dx + dz * dz
+		var column_index := int(column_by_tile.get(tile_id, -1))
+		if column_index >= 0 and column_index < columns.size():
+			var column_variant = columns[column_index]
+			if column_variant is Dictionary:
+				var surface := int((column_variant as Dictionary).get("surface_y", 0))
+				if surface <= 0:
+					score += 1000000.0
+		if score < best_score:
+			best_score = score
+			best_tile_id = tile_id
+	if best_tile_id == "":
+		return {}
+	var resolved := TileKeyUtilsScript.parse_tile_id(best_tile_id)
+	if resolved.x == 2147483647:
+		return {}
+	return {"x": resolved.x, "z": resolved.y}
+
+static func _column_index_by_tile(voxel_world: Dictionary, columns: Array) -> Dictionary:
+	var column_by_tile: Dictionary = voxel_world.get("column_index_by_tile", {})
+	if column_by_tile.is_empty():
+		for i in range(columns.size()):
+			var column_variant = columns[i]
+			if not (column_variant is Dictionary):
+				continue
+			var column = column_variant as Dictionary
+			column_by_tile[TileKeyUtilsScript.tile_id(int(column.get("x", 0)), int(column.get("z", 0)))] = i
+	return column_by_tile
 
 static func _extract_changed_region(payload: Dictionary) -> Dictionary:
 	return _find_changed_region(payload, 0)
@@ -679,14 +841,48 @@ static func _find_changed_region(source: Dictionary, depth: int) -> Dictionary:
 				return nested
 	return {}
 
-static func _native_op_sort_key(op: Dictionary) -> String:
-	return "%020d|%08d|%08d|%08d|%s" % [
-		int(op.get("sequence_id", 0)),
-		int(op.get("x", 0)),
-		int(op.get("y", 0)),
-		int(op.get("z", 0)),
-		String(op.get("operation", "set"))
-	]
+static func _native_op_less(left: Dictionary, right: Dictionary) -> bool:
+	var left_sequence := int(left.get("sequence_id", 0))
+	var right_sequence := int(right.get("sequence_id", 0))
+	if left_sequence != right_sequence:
+		return left_sequence < right_sequence
+	var left_x := int(left.get("x", 0))
+	var right_x := int(right.get("x", 0))
+	if left_x != right_x:
+		return left_x < right_x
+	var left_y := int(left.get("y", 0))
+	var right_y := int(right.get("y", 0))
+	if left_y != right_y:
+		return left_y < right_y
+	var left_z := int(left.get("z", 0))
+	var right_z := int(right.get("z", 0))
+	if left_z != right_z:
+		return left_z < right_z
+	return String(left.get("operation", "set")) < String(right.get("operation", "set"))
+
+static func _resolve_native_ops_from_payload(payload: Dictionary) -> Array:
+	var payload_rows = payload.get("op_payloads", null)
+	if payload_rows is Array:
+		var out: Array = []
+		for row_variant in (payload_rows as Array):
+			if row_variant is Dictionary:
+				out.append((row_variant as Dictionary).duplicate(true))
+		return out
+	return _extract_native_op_payloads(payload)
+
+static func _resolve_changed_chunks_from_payload(payload: Dictionary) -> Array:
+	var payload_rows = payload.get("changed_chunks", null)
+	if payload_rows is Array:
+		var out: Array = []
+		for row_variant in (payload_rows as Array):
+			if row_variant is Dictionary:
+				out.append((row_variant as Dictionary).duplicate(true))
+			elif row_variant is String:
+				var key := String(row_variant).strip_edges()
+				if key != "":
+					out.append(key)
+		return out
+	return _extract_changed_chunks(payload)
 
 static func _chunk_keys_for_tiles(env_snapshot: Dictionary, changed_tiles: Array) -> Array:
 	if changed_tiles.is_empty():
