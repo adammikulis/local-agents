@@ -6,6 +6,7 @@
 #include "LocalAgentsQueryService.hpp"
 #include "LocalAgentsScheduler.hpp"
 #include "LocalAgentsSimProfiler.hpp"
+#include "LocalAgentsVoxelOrchestration.hpp"
 #include "VoxelEditEngine.hpp"
 #include "helpers/SimulationCoreDictionaryHelpers.hpp"
 #include "helpers/StructureLifecycleNativeHelpers.hpp"
@@ -213,6 +214,7 @@ LocalAgentsSimulationCore::LocalAgentsSimulationCore() {
     query_service_ = std::make_unique<LocalAgentsQueryService>();
     sim_profiler_ = std::make_unique<LocalAgentsSimProfiler>();
     voxel_edit_engine_ = std::make_unique<VoxelEditEngine>();
+    voxel_orchestration_ = std::make_unique<LocalAgentsVoxelOrchestration>();
     physics_contact_capacity_ = kDefaultPhysicsContactCapacity;
 }
 
@@ -264,6 +266,22 @@ void LocalAgentsSimulationCore::_bind_methods() {
     ClassDB::bind_method(D_METHOD("clear_physics_contacts"), &LocalAgentsSimulationCore::clear_physics_contacts);
     ClassDB::bind_method(D_METHOD("get_physics_contact_snapshot"),
                          &LocalAgentsSimulationCore::get_physics_contact_snapshot);
+    ClassDB::bind_method(D_METHOD("configure_voxel_orchestration", "config"),
+                         &LocalAgentsSimulationCore::configure_voxel_orchestration, DEFVAL(Dictionary()));
+    ClassDB::bind_method(D_METHOD("queue_projectile_contact_rows", "contact_rows", "frame_index"),
+                         &LocalAgentsSimulationCore::queue_projectile_contact_rows);
+    ClassDB::bind_method(D_METHOD("acknowledge_projectile_contact_rows", "consumed_count", "mutation_applied", "frame_index"),
+                         &LocalAgentsSimulationCore::acknowledge_projectile_contact_rows);
+    ClassDB::bind_method(
+        D_METHOD("execute_voxel_orchestration_tick", "tick", "delta_seconds", "frame_index", "frame_context"),
+        &LocalAgentsSimulationCore::execute_voxel_orchestration_tick,
+        DEFVAL(Dictionary()));
+    ClassDB::bind_method(D_METHOD("get_voxel_orchestration_state"),
+                         &LocalAgentsSimulationCore::get_voxel_orchestration_state);
+    ClassDB::bind_method(D_METHOD("get_voxel_orchestration_metrics"),
+                         &LocalAgentsSimulationCore::get_voxel_orchestration_metrics);
+    ClassDB::bind_method(D_METHOD("reset_voxel_orchestration"),
+                         &LocalAgentsSimulationCore::reset_voxel_orchestration);
     ClassDB::bind_method(D_METHOD("get_debug_snapshot"), &LocalAgentsSimulationCore::get_debug_snapshot);
     ClassDB::bind_method(D_METHOD("reset"), &LocalAgentsSimulationCore::reset);
 }
@@ -648,6 +666,132 @@ Dictionary LocalAgentsSimulationCore::get_physics_contact_snapshot() const {
     return snapshot;
 }
 
+Dictionary LocalAgentsSimulationCore::configure_voxel_orchestration(const Dictionary &config) {
+    if (!voxel_orchestration_) {
+        return make_native_required_result(String("voxel_orchestration_uninitialized"));
+    }
+    return voxel_orchestration_->configure(config);
+}
+
+Dictionary LocalAgentsSimulationCore::queue_projectile_contact_rows(const Array &contact_rows, int64_t frame_index) {
+    if (!voxel_orchestration_) {
+        return make_native_required_result(String("voxel_orchestration_uninitialized"));
+    }
+    return voxel_orchestration_->queue_projectile_contact_rows(contact_rows, frame_index);
+}
+
+Dictionary LocalAgentsSimulationCore::acknowledge_projectile_contact_rows(
+    int64_t consumed_count,
+    bool mutation_applied,
+    int64_t frame_index
+) {
+    if (!voxel_orchestration_) {
+        return make_native_required_result(String("voxel_orchestration_uninitialized"));
+    }
+    return voxel_orchestration_->acknowledge_projectile_contact_rows(consumed_count, mutation_applied, frame_index);
+}
+
+Dictionary LocalAgentsSimulationCore::execute_voxel_orchestration_tick(
+    int64_t tick,
+    double delta_seconds,
+    int64_t frame_index,
+    const Dictionary &frame_context
+) {
+    if (!voxel_orchestration_) {
+        return make_native_required_result(String("voxel_orchestration_uninitialized"));
+    }
+
+    Dictionary decision = voxel_orchestration_->execute_tick_decision(tick, delta_seconds, frame_index, frame_context);
+    const bool should_dispatch = bool(decision.get("should_dispatch", false));
+    if (!should_dispatch) {
+        decision["dispatched"] = false;
+        decision["ack_required"] = false;
+        decision["mutation_applied"] = false;
+        decision["orchestration_state"] = voxel_orchestration_->get_state();
+        decision["orchestration_metrics"] = voxel_orchestration_->get_metrics();
+        return decision;
+    }
+
+    const Array dispatch_contact_rows = decision.get("dispatch_contact_rows", Array());
+    clear_physics_contacts();
+    if (!dispatch_contact_rows.is_empty()) {
+        const Dictionary ingest_result = ingest_physics_contacts(dispatch_contact_rows);
+        if (!bool(ingest_result.get("ok", false))) {
+            Dictionary result = decision.duplicate(true);
+            result["ok"] = false;
+            result["dispatched"] = false;
+            result["ack_required"] = false;
+            result["mutation_applied"] = false;
+            result["error"] = canonicalize_stage_error(String(
+                ingest_result.get("error_code", ingest_result.get("error", String("dispatch_failed")))),
+                String("dispatch_failed"));
+            result["error_code"] = result["error"];
+            result["ingest_result"] = ingest_result;
+            result["orchestration_state"] = voxel_orchestration_->get_state();
+            result["orchestration_metrics"] = voxel_orchestration_->get_metrics();
+            return result;
+        }
+    }
+
+    Dictionary payload = decision.get("frame_payload", Dictionary());
+    payload["tick"] = tick;
+    payload["delta"] = delta_seconds;
+    const Dictionary contact_snapshot = get_physics_contact_snapshot();
+    payload["physics_contacts"] = contact_snapshot;
+    payload["physics_server_contacts"] = contact_snapshot.get("buffered_rows", Array());
+
+    const String stage_name = String(decision.get("stage_name", String("voxel_transform_step"))).strip_edges().to_lower();
+    const Dictionary dispatch = execute_environment_stage(StringName(stage_name), payload);
+    Dictionary result = decision.duplicate(true);
+    result["dispatch"] = dispatch.duplicate(true);
+    result["dispatched"] = bool(dispatch.get("dispatched", false));
+    result["mutation_applied"] = bool(dispatch.get("mutation_applied", false));
+    result["ack_required"] = static_cast<int64_t>(decision.get("consumed_count", static_cast<int64_t>(0))) > 0;
+    if (dispatch.has("error")) {
+        result["error"] = dispatch.get("error", String());
+    }
+    if (dispatch.has("error_code")) {
+        result["error_code"] = dispatch.get("error_code", String());
+    } else if (dispatch.has("error")) {
+        result["error_code"] = dispatch.get("error", String());
+    }
+    result["ok"] = bool(result.get("ok", true)) && bool(dispatch.get("ok", false));
+    result["orchestration_state"] = voxel_orchestration_->get_state();
+    result["orchestration_metrics"] = voxel_orchestration_->get_metrics();
+    return result;
+}
+
+Dictionary LocalAgentsSimulationCore::get_voxel_orchestration_state() const {
+    if (!voxel_orchestration_) {
+        Dictionary result;
+        result["ok"] = false;
+        result["error"] = String("voxel_orchestration_uninitialized");
+        return result;
+    }
+    Dictionary result = voxel_orchestration_->get_state();
+    result["ok"] = true;
+    return result;
+}
+
+Dictionary LocalAgentsSimulationCore::get_voxel_orchestration_metrics() const {
+    if (!voxel_orchestration_) {
+        Dictionary result;
+        result["ok"] = false;
+        result["error"] = String("voxel_orchestration_uninitialized");
+        return result;
+    }
+    Dictionary result = voxel_orchestration_->get_metrics();
+    result["ok"] = true;
+    return result;
+}
+
+void LocalAgentsSimulationCore::reset_voxel_orchestration() {
+    if (voxel_orchestration_) {
+        voxel_orchestration_->reset();
+    }
+    clear_physics_contacts();
+}
+
 Dictionary LocalAgentsSimulationCore::get_debug_snapshot() const {
     if (!field_registry_ || !scheduler_ || !compute_manager_ || !query_service_ || !sim_profiler_) {
         Dictionary snapshot;
@@ -674,6 +818,13 @@ Dictionary LocalAgentsSimulationCore::get_debug_snapshot() const {
         snapshot["voxel_edit"] = Dictionary();
     }
     snapshot["physics_contacts"] = get_physics_contact_snapshot();
+    if (voxel_orchestration_) {
+        snapshot["voxel_orchestration_state"] = voxel_orchestration_->get_state();
+        snapshot["voxel_orchestration_metrics"] = voxel_orchestration_->get_metrics();
+    } else {
+        snapshot["voxel_orchestration_state"] = Dictionary();
+        snapshot["voxel_orchestration_metrics"] = Dictionary();
+    }
     snapshot["ok"] = true;
     return snapshot;
 }
@@ -693,6 +844,9 @@ void LocalAgentsSimulationCore::reset() {
     }
     if (voxel_edit_engine_) {
         voxel_edit_engine_->reset();
+    }
+    if (voxel_orchestration_) {
+        voxel_orchestration_->reset();
     }
     clear_physics_contacts();
     environment_stage_dispatch_count_ = 0;

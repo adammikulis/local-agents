@@ -60,6 +60,7 @@ set(SRC
     src/LocalAgentsScheduler.cpp
     src/LocalAgentsSimProfiler.cpp
     src/LocalAgentsSimulationCore.cpp
+    src/LocalAgentsVoxelOrchestration.cpp
     src/FailureEmissionDeterministicNoise.cpp
     src/SimulationFailureEmissionPlanner.cpp
     ${HELPER_SRC}

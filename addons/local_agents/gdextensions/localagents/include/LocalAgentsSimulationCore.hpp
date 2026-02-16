@@ -16,6 +16,7 @@ class IComputeManager;
 class IQueryService;
 class ISimProfiler;
 class VoxelEditEngine;
+class LocalAgentsVoxelOrchestration;
 }
 
 namespace godot {
@@ -54,6 +55,18 @@ public:
     Dictionary ingest_physics_contacts(const Array &contact_rows);
     void clear_physics_contacts();
     Dictionary get_physics_contact_snapshot() const;
+    Dictionary configure_voxel_orchestration(const Dictionary &config = Dictionary());
+    Dictionary queue_projectile_contact_rows(const Array &contact_rows, int64_t frame_index);
+    Dictionary acknowledge_projectile_contact_rows(int64_t consumed_count, bool mutation_applied, int64_t frame_index);
+    Dictionary execute_voxel_orchestration_tick(
+        int64_t tick,
+        double delta_seconds,
+        int64_t frame_index,
+        const Dictionary &frame_context = Dictionary()
+    );
+    Dictionary get_voxel_orchestration_state() const;
+    Dictionary get_voxel_orchestration_metrics() const;
+    void reset_voxel_orchestration();
     Dictionary get_debug_snapshot() const;
 
     void reset();
@@ -80,6 +93,7 @@ private:
     double physics_contact_total_impulse_ = 0.0;
     double physics_contact_max_impulse_ = 0.0;
     double physics_contact_total_relative_speed_ = 0.0;
+    std::unique_ptr<local_agents::simulation::LocalAgentsVoxelOrchestration> voxel_orchestration_;
     double impact_signal_gain_ = 1.0e-5;
     double impact_watch_signal_threshold_ = 2.2;
     double impact_active_signal_threshold_ = 4.0;
