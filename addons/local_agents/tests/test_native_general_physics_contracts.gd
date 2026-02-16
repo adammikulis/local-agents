@@ -7,6 +7,7 @@ const LEGACY_PIPELINE_CPP_PATH := "res://addons/local_agents/gdextensions/locala
 const INTERNAL_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/CoreSimulationPipelineInternal.cpp"
 const BRIDGE_GD_PATH := "res://addons/local_agents/simulation/controller/NativeComputeBridge.gd"
 const NativeComputeBridgeScript := preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
+const NativeComputeBridgeEnvironmentBindingsScript := preload("res://addons/local_agents/simulation/controller/NativeComputeBridgeEnvironmentBindings.gd")
 const WaveAInvariantChecks := preload("res://addons/local_agents/tests/test_native_general_physics_wave_a_contracts.gd")
 
 func run_test(_tree: SceneTree) -> bool:
@@ -506,90 +507,80 @@ func _test_friction_contact_contracts_present() -> bool:
 	return ok
 
 func _test_bridge_declares_contact_canonical_input_fields() -> bool:
-	var source := _read_source(BRIDGE_GD_PATH)
-	if source == "":
-		return false
-	var ok := true
-	ok = _assert(source.contains("const _CANONICAL_INPUT_KEYS"), "Bridge must define canonical input keys list") and ok
-	ok = _assert(source.contains("\"contact_impulse\""), "Bridge canonical input keys must include contact_impulse") and ok
-	ok = _assert(source.contains("\"contact_normal\""), "Bridge canonical input keys must include contact_normal") and ok
-	ok = _assert(source.contains("\"contact_point\""), "Bridge canonical input keys must include contact_point") and ok
-	ok = _assert(source.contains("\"obstacle_velocity\""), "Bridge canonical input keys must include obstacle_velocity") and ok
-	ok = _assert(source.contains("\"obstacle_trajectory\""), "Bridge canonical input keys must include obstacle_trajectory") and ok
-	ok = _assert(source.contains("\"body_velocity\""), "Bridge canonical input keys must include body_velocity") and ok
-	ok = _assert(source.contains("\"body_id\""), "Bridge canonical input keys must include body_id") and ok
-	ok = _assert(source.contains("\"rigid_obstacle_mask\""), "Bridge canonical input keys must include rigid_obstacle_mask") and ok
-	ok = _assert(source.contains("\"obstacle_velocity\": 0.0"), "Bridge contact defaults should include obstacle_velocity default 0") and ok
-	ok = _assert(source.contains("\"obstacle_trajectory\": Vector3.ZERO"), "Bridge contact defaults should include obstacle_trajectory default Vector3.ZERO") and ok
-	ok = _assert(source.contains("\"obstacle_velocity\": [\"obstacle_speed\", \"obstacle_speed_magnitude\", \"motion_speed\"]"), "Bridge legacy input aliases should include obstacle_velocity") and ok
-	ok = _assert(source.contains("\"obstacle_trajectory\": [\"obstacle_direction\", \"motion_trajectory\", \"trajectory\"]"), "Bridge legacy input aliases should include obstacle_trajectory") and ok
-	ok = _assert(source.contains("var obstacle_velocity_sum := 0.0"), "Bridge contact aggregation must accumulate obstacle_velocity") and ok
-	ok = _assert(source.contains("var obstacle_trajectory_sum := Vector3.ZERO"), "Bridge contact aggregation must accumulate obstacle_trajectory") and ok
-	ok = _assert(source.contains("\"obstacle_velocity\": obstacle_velocity_sum / maxf(weight_total, 1.0)"), "Bridge contact aggregation should emit aggregated obstacle_velocity") and ok
-	ok = _assert(source.contains("\"obstacle_trajectory\": obstacle_trajectory_sum / maxf(weight_total, 1.0)"), "Bridge contact aggregation should emit aggregated obstacle_trajectory") and ok
-	ok = _assert(source.contains("deterministic_rows := rows.duplicate(true)"), "Bridge contact aggregation should duplicate rows for deterministic sorting") and ok
-	ok = _assert(source.contains("deterministic_rows.sort_custom(_sort_aggregated_contact_rows)"), "Bridge contact aggregation should sort rows with a deterministic comparator") and ok
-	ok = _assert(source.contains("left_obstacle_velocity"), "Bridge contact row comparator should consider obstacle_velocity") and ok
-	ok = _assert(source.contains("left_obstacle_trajectory"), "Bridge contact row comparator should consider obstacle_trajectory") and ok
-	return ok
-
-func _test_bridge_contact_aggregation_behavior() -> bool:
-	var payload_a := {
+	var payload := {
+		"phase": "liquid",
 		"contact_samples": [
 			{
-				"body_id": 88,
-				"rigid_obstacle_mask": 9,
-				"contact_impulse": 3.0,
-				"contact_normal": Vector3(0.0, 0.0, 1.0),
-				"contact_point": Vector3(2.0, 4.0, 1.0),
-				"body_velocity": 9.0,
-				"obstacle_velocity": 3.0,
-				"obstacle_trajectory": Vector3(1.0, 0.0, 0.0),
+				"id": 44,
+				"normal_impulse": 5.0,
 			},
 			{
-				"id": 11,
-				"collision_mask": 6,
-				"normal_impulse": 7.0,
-				"collision_normal": Vector3(0.0, 2.0, 0.0),
-				"collision_point": {"x": 8.0, "y": 4.0, "z": 1.0},
-				"velocity": 5.0,
-				"motion_trajectory": Vector3(0.0, 0.0, 1.0),
-				"obstacle_speed_magnitude": 1.0,
+				"id": 21,
+				"normal_impulse": 2.0,
 			},
 		],
 	}
-	var payload_b := {
-		"contact_samples": (payload_a.get("contact_samples", []) as Array).duplicate(true),
-	}
-	(payload_b["contact_samples"] as Array).reverse()
-	var normalized_a: Dictionary = NativeComputeBridgeScript._normalize_environment_payload(payload_a)
-	var normalized_b: Dictionary = NativeComputeBridgeScript._normalize_environment_payload(payload_b)
-	var inputs_a_variant = normalized_a.get("inputs", {})
-	var inputs_b_variant = normalized_b.get("inputs", {})
-	var inputs_a: Dictionary = inputs_a_variant if inputs_a_variant is Dictionary else {}
-	var inputs_b: Dictionary = inputs_b_variant if inputs_b_variant is Dictionary else {}
-	var normal_a_variant = inputs_a.get("contact_normal", Vector3.ZERO)
-	var normal_b_variant = inputs_b.get("contact_normal", Vector3.ZERO)
-	var point_a_variant = inputs_a.get("contact_point", Vector3.ZERO)
-	var point_b_variant = inputs_b.get("contact_point", Vector3.ZERO)
+	var normalized: Dictionary = NativeComputeBridgeScript._normalize_environment_payload(payload)
+	var contacts := NativeComputeBridgeScript._normalize_physics_contacts_from_payload(payload)
+	var inputs_variant = normalized.get("inputs", {})
+	var inputs: Dictionary = inputs_variant if inputs_variant is Dictionary else {}
+	var identity_variant = normalized.get("material_identity", {})
+	var identity: Dictionary = identity_variant if identity_variant is Dictionary else {}
 	var ok := true
-	ok = _assert(_is_approx(float(inputs_a.get("contact_impulse", 0.0)), 30.0), "Bridge aggregation should sum canonicalized contact rows across accepted payload channels.") and ok
-	ok = _assert(_is_approx(float(inputs_a.get("contact_impulse", 0.0)), float(inputs_b.get("contact_impulse", -1.0))), "Bridge aggregation should remain deterministic regardless of input row order.") and ok
-	ok = _assert(int(inputs_a.get("body_id", -1)) == 11, "Bridge aggregation should select strongest-impulse row body_id as authoritative output.") and ok
-	ok = _assert(int(inputs_a.get("rigid_obstacle_mask", -1)) == 6, "Bridge aggregation should select strongest-impulse rigid_obstacle_mask as authoritative output.") and ok
-	ok = _assert(_is_approx(float(inputs_a.get("obstacle_velocity", 0.0)), 0.9), "Bridge aggregation should preserve weighted obstacle_velocity influence.") and ok
-	ok = _assert(_is_approx(float(inputs_a.get("contact_velocity", 0.0)), 5.3), "Bridge aggregation should preserve weighted contact_velocity influence.") and ok
-	ok = _assert(normal_a_variant is Vector3 and normal_b_variant is Vector3, "Bridge aggregation should shape contact_normal as Vector3.") and ok
-	if normal_a_variant is Vector3 and normal_b_variant is Vector3:
-		var normal_a := normal_a_variant as Vector3
-		var normal_b := normal_b_variant as Vector3
-		ok = _assert(normal_a.distance_to(normal_b) <= 1.0e-6, "Bridge aggregation should produce order-invariant contact_normal outputs.") and ok
-		ok = _assert(absf(normal_a.length() - 1.0) <= 1.0e-4, "Bridge aggregation should normalize aggregated contact_normal.") and ok
-	ok = _assert(point_a_variant is Vector3 and point_b_variant is Vector3, "Bridge aggregation should shape contact_point as Vector3.") and ok
-	if point_a_variant is Vector3 and point_b_variant is Vector3:
-		var point_a := point_a_variant as Vector3
-		var point_b := point_b_variant as Vector3
-		ok = _assert(point_a.distance_to(point_b) <= 1.0e-6, "Bridge aggregation should keep contact_point deterministic across row orderings.") and ok
+	ok = _assert(contacts.size() == 2, "Bridge must preserve contact rows for native ingestion.") and ok
+	ok = _assert(
+		normalized.get("physics_server_contacts", []) is Array and int((normalized.get("physics_server_contacts", []) as Array).size()) == 2,
+		"Bridge payload normalization should expose contact rows on physics_server_contacts."
+	) and ok
+	ok = _assert(
+		normalized.get("physics_contacts", []) is Array and int((normalized.get("physics_contacts", []) as Array).size()) == 2,
+		"Bridge payload normalization should mirror contact rows on physics_contacts."
+	) and ok
+	ok = _assert(String(inputs.get("material_phase_id", "")) == "phase:liquid", "Bridge should canonicalize material_phase_id on normalized inputs.") and ok
+	ok = _assert(String(identity.get("material_phase_id", "")) == "phase:liquid", "Bridge should expose canonicalized phase id on material_identity.") and ok
+	ok = _assert(not inputs.has("contact_impulse"), "Bridge should not synthesize aggregate contact inputs before native snapshot binding.") and ok
+	return ok
+
+func _test_bridge_contact_aggregation_behavior() -> bool:
+	var payload := {
+		"phase": "solid",
+		"contact_samples": [
+			{
+				"body_id": 88,
+				"contact_impulse": 3.0,
+			},
+			{
+				"normal_impulse": 7.0,
+			},
+		],
+	}
+	var normalized: Dictionary = NativeComputeBridgeScript._normalize_environment_payload(payload)
+	var bound: Dictionary = NativeComputeBridgeEnvironmentBindingsScript.apply_native_contact_snapshot(
+		normalized,
+		{
+			"total_impulse": 29.0,
+			"average_relative_speed": 3.75,
+			"buffered_rows": [
+				{"body_id": 101, "normal_impulse": 13.0},
+				{"body_id": 102, "normal_impulse": 16.0},
+			],
+		}
+	)
+	var inputs_variant = bound.get("inputs", {})
+	var inputs: Dictionary = inputs_variant if inputs_variant is Dictionary else {}
+	var physics_contacts_variant = bound.get("physics_contacts", {})
+	var physics_contacts: Dictionary = physics_contacts_variant if physics_contacts_variant is Dictionary else {}
+	var physics_rows_variant = bound.get("physics_server_contacts", [])
+	var physics_rows: Array = physics_rows_variant if physics_rows_variant is Array else []
+	var ok := true
+	ok = _assert(_is_approx(float(inputs.get("contact_impulse", 0.0)), 29.0), "Bridge should bind native snapshot total_impulse to contact_impulse.") and ok
+	ok = _assert(_is_approx(float(inputs.get("contact_velocity", 0.0)), 3.75), "Bridge should bind native snapshot average_relative_speed to contact_velocity.") and ok
+	ok = _assert(
+		physics_contacts.get("buffered_rows", []) is Array and int((physics_contacts.get("buffered_rows", []) as Array).size()) == 2,
+		"Bridge should preserve native snapshot payload in physics_contacts."
+	) and ok
+	ok = _assert(physics_rows.size() == 2, "Bridge should surface native buffered rows on physics_server_contacts after snapshot binding.") and ok
+	ok = _assert(String(inputs.get("material_phase_id", "")) == "phase:solid", "Bridge should preserve material identity fields while binding native snapshot contacts.") and ok
 	return ok
 
 func _assert(condition: bool, message: String) -> bool:

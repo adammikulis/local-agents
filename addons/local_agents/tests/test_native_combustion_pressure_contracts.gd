@@ -8,6 +8,7 @@ const CORE_HPP_PATH := "res://addons/local_agents/gdextensions/localagents/inclu
 const CORE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/LocalAgentsSimulationCore.cpp"
 const BRIDGE_GD_PATH := "res://addons/local_agents/simulation/controller/NativeComputeBridge.gd"
 const NativeComputeBridgeScript := preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
+const NativeComputeBridgeEnvironmentBindingsScript := preload("res://addons/local_agents/simulation/controller/NativeComputeBridgeEnvironmentBindings.gd")
 
 func run_test(_tree: SceneTree) -> bool:
 	var ok := true
@@ -74,147 +75,74 @@ func _test_combustion_stage_uses_pressure_and_temperature_gating() -> bool:
 	return ok
 
 func _test_bridge_builds_canonical_material_inputs() -> bool:
-	var source := _read_source(BRIDGE_GD_PATH)
-	if source == "":
-		return false
-	var ok := true
-	ok = _assert(source.contains("const _CANONICAL_INPUT_KEYS"), "Bridge must define canonical material input keys") and ok
-	ok = _assert(source.contains("static func _normalize_environment_payload(payload: Dictionary) -> Dictionary:"), "Bridge must normalize environment payload") and ok
-	ok = _assert(source.contains("normalized[\"inputs\"] = inputs"), "Bridge must inject normalized inputs payload") and ok
-	ok = _assert(source.contains("if not out.has(\"pressure\")"), "Bridge must default pressure when missing") and ok
-	return ok
-
-func _test_environment_payload_normalization_supports_physics_contact_rows() -> bool:
-	var source := _read_source(BRIDGE_GD_PATH)
-	if source == "":
-		return false
-	var ok := true
-	ok = _assert(source.contains("static func _normalize_environment_payload(payload: Dictionary) -> Dictionary:"), "Bridge must normalize environment payload before stage dispatch") and ok
-	ok = _assert(
-		_contains_any(
-			source,
-			["_merge_physics_contact_inputs(", "_normalize_physics_contacts_from_payload("]
-		),
-		"Bridge normalization must include a dedicated physics-contact merge path"
-	) and ok
-	ok = _assert(
-		_contains_any(
-			source,
-			[
-				"payload.get(\"physics_contacts\"",
-				"payload.get(\"contact_samples\"",
-				"payload.get(\"physics_server_contacts\"",
-				"for key in [\"physics_server_contacts\", \"physics_contacts\", \"contact_samples\"]",
-			]
-		),
-		"Bridge normalization must accept physics contact row payloads"
-	) and ok
-	ok = _assert(
-		_contains_any(
-			source,
-			[
-				"out[\"contact_impulse\"]",
-				"inputs[\"contact_impulse\"]",
-			]
-		),
-		"Bridge must map aggregate contact influence into canonical contact_impulse input"
-	) and ok
-	ok = _assert(
-		_contains_any(
-			source,
-			[
-				"out[\"contact_normal\"]",
-				"inputs[\"contact_normal\"]",
-			]
-		),
-		"Bridge must map aggregate contact influence into canonical contact_normal input"
-	) and ok
-	ok = _assert(
-		_contains_any(
-			source,
-			[
-				"out[\"contact_point\"]",
-				"inputs[\"contact_point\"]",
-			]
-		),
-		"Bridge must map aggregate contact influence into canonical contact_point input"
-	) and ok
-	ok = _assert(
-		_contains_any(
-			source,
-			[
-				"out[\"body_velocity\"]",
-				"inputs[\"body_velocity\"]",
-			]
-		),
-		"Bridge must map aggregate contact influence into canonical body_velocity input"
-	) and ok
-	ok = _assert(
-		_contains_any(
-			source,
-			[
-				"out[\"body_id\"]",
-				"inputs[\"body_id\"]",
-			]
-		),
-		"Bridge must map aggregate contact influence into canonical body_id input"
-	) and ok
-	ok = _assert(
-		_contains_any(
-			source,
-			[
-				"out[\"rigid_obstacle_mask\"]",
-				"inputs[\"rigid_obstacle_mask\"]",
-			]
-		),
-		"Bridge must map aggregate contact influence into canonical rigid_obstacle_mask input"
-	) and ok
-	return ok
-
-func _test_bridge_normalization_and_contact_aggregation_behavior() -> bool:
-	var payload := {
-		"pressure_atm": 1.5,
-		"physics_contacts": [
-			{
-				"id": 9,
-				"collision_mask": 5,
-				"normal_impulse": 4.0,
-				"collision_normal": Vector3(0.0, 3.0, 0.0),
-				"collision_point": [1.0, 2.0, 3.0],
-				"velocity": Vector3(3.0, 4.0, 0.0),
-				"motion_speed": 12.0,
-			},
-			{
-				"body_id": 3,
-				"rigid_obstacle_mask": 2,
-				"contact_impulse": 6.0,
-				"contact_normal": {"x": 1.0, "y": 0.0, "z": 0.0},
-				"contact_point": Vector3(4.0, 2.0, 3.0),
-				"body_velocity": 6.0,
-				"obstacle_velocity": 2.0,
-			},
-		],
-	}
-	var normalized: Dictionary = NativeComputeBridgeScript._normalize_environment_payload(payload)
-	var contacts_variant = normalized.get("physics_server_contacts", [])
-	var contacts: Array = contacts_variant if contacts_variant is Array else []
+	var normalized: Dictionary = NativeComputeBridgeScript._normalize_environment_payload({
+		"material_id": "ore:copper",
+		"phase": "gas",
+		"inputs": {
+			"element_id": "element:cu",
+		},
+	})
+	var identity_variant = normalized.get("material_identity", {})
+	var identity: Dictionary = identity_variant if identity_variant is Dictionary else {}
 	var inputs_variant = normalized.get("inputs", {})
 	var inputs: Dictionary = inputs_variant if inputs_variant is Dictionary else {}
 	var ok := true
-	ok = _assert(contacts.size() == 2, "Bridge normalization should preserve both physics contacts after canonicalization.") and ok
-	ok = _assert(_is_approx(float(inputs.get("contact_impulse", 0.0)), 20.0), "Bridge aggregation should sum canonicalized contact rows used by native wrapper aggregation.") and ok
-	ok = _assert(_is_approx(float(inputs.get("contact_velocity", 0.0)), 5.2), "Bridge aggregation should compute weighted contact velocity average.") and ok
-	ok = _assert(_is_approx(float(inputs.get("body_velocity", 0.0)), 5.6), "Bridge aggregation should compute weighted body_velocity average.") and ok
-	ok = _assert(_is_approx(float(inputs.get("obstacle_velocity", 0.0)), 6.0), "Bridge aggregation should compute weighted obstacle_velocity average.") and ok
-	ok = _assert(int(inputs.get("body_id", -1)) == 3, "Bridge aggregation should use strongest-impulse body_id as canonical authority row.") and ok
-	ok = _assert(int(inputs.get("rigid_obstacle_mask", 0)) == 2, "Bridge aggregation should use strongest-impulse rigid_obstacle_mask.") and ok
-	ok = _assert(_is_approx(float(inputs.get("pressure", 0.0)), 151987.5), "Bridge normalization should canonicalize pressure aliases into native pressure units.") and ok
-	var contact_normal_variant = inputs.get("contact_normal", Vector3.ZERO)
-	ok = _assert(contact_normal_variant is Vector3, "Bridge aggregation should shape contact_normal as Vector3.") and ok
-	if contact_normal_variant is Vector3:
-		var contact_normal := contact_normal_variant as Vector3
-		ok = _assert(absf(contact_normal.length() - 1.0) <= 1.0e-4, "Bridge aggregation should normalize aggregated contact_normal.") and ok
-		ok = _assert(contact_normal.x > 0.8 and contact_normal.y > 0.5, "Bridge aggregation should preserve weighted normal direction from authoritative rows.") and ok
+	ok = _assert(String(identity.get("material_id", "")) == "ore:copper", "Bridge must preserve material_id in normalized material_identity.") and ok
+	ok = _assert(String(identity.get("material_phase_id", "")) == "phase:gas", "Bridge must canonicalize phase into material_phase_id.") and ok
+	ok = _assert(String(inputs.get("material_phase_id", "")) == "phase:gas", "Bridge must inject canonicalized material_phase_id into normalized inputs.") and ok
+	ok = _assert(String(inputs.get("element_id", "")) == "element:cu", "Bridge must preserve explicit element_id through normalization.") and ok
+	return ok
+
+func _test_environment_payload_normalization_supports_physics_contact_rows() -> bool:
+	var normalized: Dictionary = NativeComputeBridgeScript._normalize_environment_payload({
+		"contact_samples": [
+			{"id": 9, "normal_impulse": 4.0},
+			{"body_id": 3, "contact_impulse": 6.0},
+		],
+	})
+	var contacts_variant = normalized.get("physics_server_contacts", [])
+	var contacts: Array = contacts_variant if contacts_variant is Array else []
+	var mirrored_variant = normalized.get("physics_contacts", [])
+	var mirrored: Array = mirrored_variant if mirrored_variant is Array else []
+	var inputs_variant = normalized.get("inputs", {})
+	var inputs: Dictionary = inputs_variant if inputs_variant is Dictionary else {}
+	var ok := true
+	ok = _assert(contacts.size() == 2, "Bridge normalization must accept and preserve physics contact row payloads.") and ok
+	ok = _assert(mirrored.size() == 2, "Bridge normalization must mirror preserved contact rows on physics_contacts.") and ok
+	ok = _assert(not inputs.has("contact_impulse"), "Bridge normalization should defer aggregate contact inputs until native snapshot is applied.") and ok
+	return ok
+
+func _test_bridge_normalization_and_contact_aggregation_behavior() -> bool:
+	var normalized: Dictionary = NativeComputeBridgeScript._normalize_environment_payload({
+		"pressure_atm": 1.5,
+		"physics_contacts": [
+			{"id": 9, "normal_impulse": 4.0},
+			{"body_id": 3, "contact_impulse": 6.0},
+		],
+	})
+	var bound: Dictionary = NativeComputeBridgeEnvironmentBindingsScript.apply_native_contact_snapshot(
+		normalized,
+		{
+			"total_impulse": 20.0,
+			"average_relative_speed": 5.2,
+			"buffered_rows": [
+				{"id": 9, "normal_impulse": 4.0},
+				{"body_id": 3, "contact_impulse": 6.0},
+			],
+		}
+	)
+	var contacts_variant = bound.get("physics_server_contacts", [])
+	var contacts: Array = contacts_variant if contacts_variant is Array else []
+	var inputs_variant = bound.get("inputs", {})
+	var inputs: Dictionary = inputs_variant if inputs_variant is Dictionary else {}
+	var snapshot_variant = bound.get("physics_contacts", {})
+	var snapshot: Dictionary = snapshot_variant if snapshot_variant is Dictionary else {}
+	var ok := true
+	ok = _assert(contacts.size() == 2, "Bridge snapshot binding should surface native buffered rows on physics_server_contacts.") and ok
+	ok = _assert(_is_approx(float(inputs.get("contact_impulse", 0.0)), 20.0), "Bridge should bind native snapshot total_impulse into canonical contact_impulse input.") and ok
+	ok = _assert(_is_approx(float(inputs.get("contact_velocity", 0.0)), 5.2), "Bridge should bind native snapshot average_relative_speed into canonical contact_velocity input.") and ok
+	ok = _assert(snapshot.get("buffered_rows", []) is Array and int((snapshot.get("buffered_rows", []) as Array).size()) == 2, "Bridge should preserve native snapshot payload on physics_contacts.") and ok
+	ok = _assert(not inputs.has("pressure"), "Bridge normalization should not pre-canonicalize pressure aliases before native environment-stage execution.") and ok
 	return ok
 
 func _test_environment_result_contract_shaping_behavior() -> bool:
