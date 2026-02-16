@@ -100,7 +100,7 @@ func _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_s
 		"WorldSimulation must pass sampled projectile contact rows into native voxel rate processing."
 	) and ok
 	ok = _assert(
-		world_simulation_source.contains("\"physics_contacts\": dispatch_contact_rows.duplicate(true)"),
+		world_simulation_source.contains("\"physics_contacts\": dispatch_contact_rows"),
 		"WorldSimulation native voxel dispatch payload must include persisted physics_contacts rows for failure emission input."
 	) and ok
 	ok = _assert(

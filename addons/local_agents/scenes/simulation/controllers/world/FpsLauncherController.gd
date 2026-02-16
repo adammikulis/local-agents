@@ -175,10 +175,7 @@ func record_projectile_contact_row(row: Dictionary) -> void:
 	_queue_projectile_contact_row(row)
 
 func sample_voxel_dispatch_contact_rows() -> Array:
-	var sampled_rows: Array = []
-	for row in _pending_contact_rows:
-		sampled_rows.append(row.duplicate(true))
-	return sampled_rows
+	return _pending_contact_rows.duplicate(false)
 
 func pending_voxel_dispatch_contact_count() -> int:
 	return _pending_contact_rows.size()

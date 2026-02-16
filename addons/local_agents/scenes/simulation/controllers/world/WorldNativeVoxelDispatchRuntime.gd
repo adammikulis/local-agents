@@ -2,6 +2,7 @@ extends RefCounted
 class_name WorldNativeVoxelDispatchRuntime
 
 const WorldNativeVoxelDispatchMetricsScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldNativeVoxelDispatchMetrics.gd")
+const _METRICS_PUSH_INTERVAL_PULSES := 4
 
 static func record_success(runtime: Dictionary, simulation_controller, tick: int, tier_id: String, backend_used: String, dispatch_reason: String, duration_ms: float, dispatch: Dictionary = {}) -> void:
 	runtime["pulses_total"] = int(runtime.get("pulses_total", 0)) + 1
@@ -113,7 +114,23 @@ static func _record_pulse(runtime: Dictionary, simulation_controller, tick: int,
 	per_stage_ms_aggregate["stage_c"] = float(per_stage_ms_aggregate.get("stage_c", 0.0)) + float(per_stage_ms_current.get("stage_c", 0.0))
 	per_stage_ms_aggregate["stage_d"] = float(per_stage_ms_aggregate.get("stage_d", 0.0)) + float(per_stage_ms_current.get("stage_d", 0.0))
 	runtime["per_stage_ms_aggregate"] = per_stage_ms_aggregate
-	push_transform_dispatch_metrics(runtime, simulation_controller)
+	if _should_push_transform_dispatch_metrics(runtime, success):
+		push_transform_dispatch_metrics(runtime, simulation_controller)
+
+static func _should_push_transform_dispatch_metrics(runtime: Dictionary, success: bool) -> bool:
+	if not success:
+		runtime["_last_metrics_push_pulse"] = int(runtime.get("pulses_total", 0))
+		return true
+	var pulse_count := int(runtime.get("pulses_total", 0))
+	var last_push_pulse := int(runtime.get("_last_metrics_push_pulse", -1))
+	var push_interval := maxi(1, int(runtime.get("metrics_push_interval_pulses", _METRICS_PUSH_INTERVAL_PULSES)))
+	if pulse_count <= 1 or last_push_pulse < 0:
+		runtime["_last_metrics_push_pulse"] = pulse_count
+		return true
+	if pulse_count - last_push_pulse >= push_interval:
+		runtime["_last_metrics_push_pulse"] = pulse_count
+		return true
+	return false
 
 static func push_transform_dispatch_metrics(runtime: Dictionary, simulation_controller) -> void:
 	if simulation_controller == null or not simulation_controller.has_method("set_transform_dispatch_metrics"):

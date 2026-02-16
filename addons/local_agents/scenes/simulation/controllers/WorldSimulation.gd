@@ -585,13 +585,14 @@ func _process_native_voxel_rate(delta: float, projectile_contact_rows: Array = [
 	var view_metrics := _camera_controller.native_view_metrics()
 	var base_budget = clampf(float(view_metrics.get("compute_budget_scale", 1.0)), 0.05, 1.0)
 	var pulses = _voxel_rate_scheduler.advance(delta, base_budget)
-	var dispatch_contact_rows: Array = projectile_contact_rows.duplicate(true)
+	var dispatch_contact_rows: Array = projectile_contact_rows
 	if fps_launcher_controller != null and fps_launcher_controller.has_method("sample_voxel_dispatch_contact_rows"):
 		var rows_variant = fps_launcher_controller.call("sample_voxel_dispatch_contact_rows"); if rows_variant is Array: dispatch_contact_rows = rows_variant as Array
 	WorldNativeVoxelDispatchRuntimeScript.record_hits_queued(_native_voxel_dispatch_runtime, dispatch_contact_rows.size())
 	if pulses.is_empty() and dispatch_contact_rows.is_empty():
 		return
 	if pulses.is_empty(): pulses = [{"tier_id": "contact_flush", "compute_budget_scale": base_budget, "forced_contact_flush": true}]
+	var payload: Dictionary = {"tick": tick, "delta": delta, "rate_tier": "high", "compute_budget_scale": base_budget, "zoom_factor": clampf(float(view_metrics.get("zoom_factor", 0.0)), 0.0, 1.0), "camera_distance": maxf(0.0, float(view_metrics.get("camera_distance", 0.0))), "uniformity_score": clampf(float(view_metrics.get("uniformity_score", 0.0)), 0.0, 1.0), "physics_contacts": dispatch_contact_rows}
 	var attempted_dispatch := false
 	var any_mutation_applied := false
 	for pulse_variant in pulses:
@@ -600,7 +601,8 @@ func _process_native_voxel_rate(delta: float, projectile_contact_rows: Array = [
 		WorldNativeVoxelDispatchRuntimeScript.record_dispatch_attempt_after_fire(_native_voxel_dispatch_runtime)
 		var pulse = pulse_variant as Dictionary
 		var tier_id := String(pulse.get("tier_id", "high"))
-		var payload := {"tick": tick, "delta": delta, "rate_tier": tier_id, "compute_budget_scale": float(pulse.get("compute_budget_scale", base_budget)), "zoom_factor": clampf(float(view_metrics.get("zoom_factor", 0.0)), 0.0, 1.0), "camera_distance": maxf(0.0, float(view_metrics.get("camera_distance", 0.0))), "uniformity_score": clampf(float(view_metrics.get("uniformity_score", 0.0)), 0.0, 1.0), "physics_contacts": dispatch_contact_rows.duplicate(true)}
+		payload["rate_tier"] = tier_id
+		payload["compute_budget_scale"] = float(pulse.get("compute_budget_scale", base_budget))
 		var dispatch_start_usec := Time.get_ticks_usec()
 		var dispatch_variant = simulation_controller.call("execute_native_voxel_stage", tick, _VOXEL_NATIVE_STAGE_NAME, payload, false)
 		var dispatch_duration_ms := float(maxi(0, Time.get_ticks_usec() - dispatch_start_usec)) / 1000.0
@@ -620,14 +622,14 @@ func _process_native_voxel_rate(delta: float, projectile_contact_rows: Array = [
 		var executed_op_count := WorldNativeVoxelDispatchRuntimeScript.record_destruction_plan(_native_voxel_dispatch_runtime, dispatch)
 		var stage_payload: Dictionary = {}
 		var voxel_payload = dispatch.get("voxel_result", {})
-		if voxel_payload is Dictionary: stage_payload = (voxel_payload as Dictionary).duplicate(true)
+		if voxel_payload is Dictionary: stage_payload = (voxel_payload as Dictionary).duplicate(false)
 		var raw_result = dispatch.get("result", {})
-		if raw_result is Dictionary: stage_payload["result"] = (raw_result as Dictionary).duplicate(true)
+		if raw_result is Dictionary: stage_payload["result"] = (raw_result as Dictionary).duplicate(false)
 		stage_payload["kernel_pass"] = String(dispatch.get("kernel_pass", ""))
 		stage_payload["backend_used"] = backend_used
 		stage_payload["dispatch_reason"] = dispatch_reason
 		stage_payload["dispatched"] = bool(dispatch.get("dispatched", false))
-		stage_payload["physics_contacts"] = dispatch_contact_rows.duplicate(true)
+		stage_payload["physics_contacts"] = dispatch_contact_rows
 		stage_payload["_destruction_executed_op_count"] = executed_op_count
 		if stage_payload.is_empty(): continue
 		any_mutation_applied = _apply_native_voxel_stage_result(tick, stage_payload) or any_mutation_applied
@@ -659,7 +661,6 @@ func _record_native_voxel_dispatch_failure(tick: int, tier_id: String, backend_u
 		is_dependency_error,
 		dispatch
 	)
-
 func _fail_native_voxel_dependency(tick: int, reason: String, tier_id: String, dispatch_reason: String, duration_ms: float, dispatch: Dictionary = {}) -> void:
 	WorldNativeVoxelDispatchRuntimeScript.fail_dependency(
 		_native_voxel_dispatch_runtime,
