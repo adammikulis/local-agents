@@ -90,6 +90,9 @@ func run_test(tree: SceneTree) -> bool:
 	var changed_tiles_variant = mutation.get("changed_tiles", [])
 	var changed_tiles: Array = changed_tiles_variant if changed_tiles_variant is Array else []
 	ok = _assert(changed_tiles.size() > 0, "FPS fire runtime path mutation should report changed_tiles > 0 for contact-confirmed projectile impacts.") and ok
+	var changed_chunks_variant = mutation.get("changed_chunks", [])
+	var changed_chunks: Array = changed_chunks_variant if changed_chunks_variant is Array else []
+	ok = _assert(changed_chunks.size() > 0, "FPS fire runtime-path mutation should report changed_chunks for native-authoritative destruction telemetry.") and ok
 	var mutation_path := String(mutation.get("mutation_path", ""))
 	ok = _assert(mutation_path == "native_ops_payload_primary", "FPS fire runtime-path mutation should use canonical native_ops_payload_primary mutation path for contact-confirmed hits.") and ok
 	ok = _assert(String(mutation.get("mutation_path_state", "")) == "success", "Successful runtime-path mutation should report mutation_path_state=success.") and ok
@@ -114,6 +117,9 @@ func run_test(tree: SceneTree) -> bool:
 
 	launcher.acknowledge_voxel_dispatch_contact_rows(contact_rows.size(), true)
 	ok = _assert(launcher.pending_voxel_dispatch_contact_count() == 0, "Mutation-confirmed ack should clear pending projectile contacts.") and ok
+	for _i in range(18):
+		launcher.step(0.12)
+	ok = _assert(launcher.active_projectile_count() == 0, "Projectile runtime path should destroy projectile state after impact/TTL progression.") and ok
 
 	input_controller.set_input_enabled(false)
 	root.queue_free()

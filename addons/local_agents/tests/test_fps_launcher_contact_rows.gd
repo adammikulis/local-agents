@@ -144,6 +144,18 @@ func _run_mutation_deadline_invariant_test(tree: SceneTree) -> bool:
 
 	var ok := true
 	ok = _assert(controller.pending_voxel_dispatch_contact_count() == 1, "Launcher should queue projectile contact row for mutation dispatch.") and ok
+	var queued_rows_variant: Variant = controller.sample_voxel_dispatch_contact_rows()
+	var queued_rows: Array = queued_rows_variant if queued_rows_variant is Array else []
+	ok = _assert(queued_rows.size() == 1, "Queued projectile-contact row should be sampleable before deadline expiry.") and ok
+	if queued_rows.size() == 1 and queued_rows[0] is Dictionary:
+		var queued_row := queued_rows[0] as Dictionary
+		ok = _assert(
+			int(queued_row.get("deadline_frame", -1)) > int(queued_row.get("hit_frame", 0)),
+			"Queued projectile-contact row should expose future deadline_frame relative to hit_frame."
+		) and ok
+	var initial_status_variant: Variant = controller.projectile_mutation_deadline_status()
+	var initial_status: Dictionary = initial_status_variant if initial_status_variant is Dictionary else {}
+	ok = _assert(bool(initial_status.get("ok", false)), "Deadline status should be healthy immediately after queuing contact rows.") and ok
 	controller.acknowledge_voxel_dispatch_contact_rows(1, false)
 	ok = _assert(controller.pending_voxel_dispatch_contact_count() == 1, "Non-mutating dispatch ack must not clear projectile contact rows.") and ok
 	for _i in range(FpsLauncherControllerScript.MAX_PROJECTILE_MUTATION_FRAMES + 2):
@@ -160,6 +172,7 @@ func _run_mutation_deadline_invariant_test(tree: SceneTree) -> bool:
 	if expired_rows.size() == 1 and expired_rows[0] is Dictionary:
 		var expired_row := expired_rows[0] as Dictionary
 		ok = _assert(String(expired_row.get("error_code", "")) == "PROJECTILE_MUTATION_DEADLINE_EXCEEDED", "Expired contact row should carry PROJECTILE_MUTATION_DEADLINE_EXCEEDED error_code.") and ok
+		ok = _assert(int(expired_row.get("body_id", 0)) == 101, "Expired contact row should preserve original projectile body_id for telemetry continuity.") and ok
 		ok = _assert(int(expired_row.get("expired_frame", -1)) > int(expired_row.get("deadline_frame", 0)), "Expired contact row should include expired_frame beyond deadline_frame.") and ok
 	var consumed_expired_variant: Variant = controller.consume_expired_voxel_dispatch_contact_rows()
 	var consumed_expired: Array = consumed_expired_variant if consumed_expired_variant is Array else []
