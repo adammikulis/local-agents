@@ -34,6 +34,8 @@ var _camera: Camera3D = null
 var _spawn_parent: Node3D = null
 var _cooldown_remaining: float = 0.0
 var _active_projectiles: Array[RigidBody3D] = []
+var _pending_contact_rows: Array[Dictionary] = []
+const _MAX_PENDING_CONTACT_ROWS := 96
 
 func configure(active_camera: Camera3D, spawn_parent: Node3D, profile_resource: Resource = null) -> void:
 	_camera = active_camera
@@ -132,10 +134,17 @@ func step(delta: float) -> void:
 	_prune_inactive()
 
 func sample_active_projectile_contact_rows() -> Array:
+	var sampled_rows: Array = []
 	var rows := PhysicsServerContactBridgeScript.sample_contact_rows(_active_projectiles)
 	if rows is Array:
-		return rows.duplicate(true)
-	return []
+		sampled_rows = (rows as Array).duplicate(true)
+	if not _pending_contact_rows.is_empty():
+		sampled_rows.append_array(_pending_contact_rows.duplicate(true))
+		_pending_contact_rows.clear()
+	return sampled_rows
+
+func record_projectile_contact_row(row: Dictionary) -> void:
+	_queue_projectile_contact_row(row)
 
 func try_fire_from_screen_center() -> bool:
 	if _camera == null or not is_instance_valid(_camera):
@@ -177,9 +186,75 @@ func try_fire_from_screen_center() -> bool:
 			adjusted_shape.radius = clampf(projectile_radius, _RADIUS_MIN, _RADIUS_MAX)
 			collision.shape = adjusted_shape
 	_active_projectiles.append(projectile)
+	projectile.body_entered.connect(_on_projectile_body_entered.bind(projectile))
 	projectile.tree_exited.connect(_on_projectile_tree_exited.bind(projectile), CONNECT_ONE_SHOT)
 	_cooldown_remaining = cooldown_seconds
 	return true
+
+func _on_projectile_body_entered(hit_body: Node, projectile: RigidBody3D) -> void:
+	if projectile == null or not is_instance_valid(projectile):
+		return
+	var projectile_velocity := projectile.linear_velocity
+	var obstacle_velocity := Vector3.ZERO
+	var obstacle_mask := 0
+	var collider_id := 0
+	var collider_mass := 0.0
+	if hit_body != null and is_instance_valid(hit_body):
+		collider_id = hit_body.get_instance_id()
+		if hit_body is RigidBody3D:
+			var rigid_hit := hit_body as RigidBody3D
+			obstacle_velocity = rigid_hit.linear_velocity
+			collider_mass = maxf(0.0, rigid_hit.mass)
+		elif hit_body.has_method("get_linear_velocity"):
+			var velocity_variant = hit_body.call("get_linear_velocity")
+			if velocity_variant is Vector3:
+				obstacle_velocity = velocity_variant as Vector3
+		if hit_body.has_method("get_mass"):
+			var mass_variant = hit_body.call("get_mass")
+			if mass_variant is float or mass_variant is int:
+				collider_mass = maxf(0.0, float(mass_variant))
+		if hit_body is CollisionObject3D:
+			obstacle_mask = int((hit_body as CollisionObject3D).collision_layer)
+	var relative_velocity := projectile_velocity - obstacle_velocity
+	var relative_speed := relative_velocity.length()
+	var projectile_mass := maxf(0.01, projectile.mass)
+	var contact_impulse := maxf(0.0, projectile_mass * relative_speed)
+	var contact_normal := Vector3.ZERO
+	if relative_speed > 0.001:
+		contact_normal = (-relative_velocity).normalized()
+	var contact_point := projectile.global_position
+	var contact_row := {
+		"body_id": projectile.get_instance_id(),
+		"collider_id": collider_id,
+		"contact_point": contact_point,
+		"contact_normal": contact_normal,
+		"contact_impulse": contact_impulse,
+		"impulse": contact_impulse,
+		"contact_velocity": relative_speed,
+		"relative_speed": relative_speed,
+		"body_velocity": projectile_velocity,
+		"obstacle_velocity": obstacle_velocity,
+		"body_mass": projectile_mass,
+		"collider_mass": collider_mass,
+		"rigid_obstacle_mask": obstacle_mask,
+	}
+	_queue_projectile_contact_row(contact_row)
+
+func _queue_projectile_contact_row(row: Dictionary) -> void:
+	if row.is_empty():
+		return
+	var impulse := maxf(0.0, float(row.get("contact_impulse", row.get("impulse", 0.0))))
+	var relative_speed := maxf(0.0, float(row.get("relative_speed", row.get("contact_velocity", 0.0))))
+	if impulse <= 0.0 and relative_speed <= 0.0:
+		return
+	var normalized := row.duplicate(true)
+	normalized["contact_impulse"] = impulse
+	normalized["impulse"] = impulse
+	normalized["relative_speed"] = relative_speed
+	normalized["contact_velocity"] = maxf(0.0, float(normalized.get("contact_velocity", relative_speed)))
+	_pending_contact_rows.append(normalized)
+	while _pending_contact_rows.size() > _MAX_PENDING_CONTACT_ROWS:
+		_pending_contact_rows.remove_at(0)
 
 func _print_profile(trigger: String = "launcher profile") -> void:
 	print("[Launcher] %s -> speed=%.1f mass=%.3f ttl=%.2f impact_scale=%.2f cooldown=%.2f active=%d" % [

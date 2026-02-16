@@ -19,7 +19,7 @@ var _rmb_down: bool = false
 var _fps_mode_enabled: bool = false
 var _fps_look_sensitivity: float = 0.0035
 var _fps_move_speed: float = 18.0
-var _fps_sprint_multiplier: float = 2.0
+var _fps_vertical_speed: float = 18.0
 var _fps_yaw: float = PI
 var _fps_pitch: float = 0.0
 var _fps_min_pitch_radians: float = deg_to_rad(-89.0)
@@ -122,9 +122,13 @@ func set_fps_mode(enabled: bool) -> void:
 	_mmb_down = false
 	_rmb_down = false
 
-func step_fps(delta: float) -> void:
+func step_fps(delta: float, input_override: Dictionary = {}) -> void:
 	if not _fps_mode_enabled or _world_camera == null:
 		return
+	var is_key_pressed := func(keycode: int) -> bool:
+		if input_override.has(keycode):
+			return bool(input_override.get(keycode, false))
+		return Input.is_key_pressed(keycode)
 	var camera_basis := _world_camera.global_transform.basis.orthonormalized()
 	var forward := -camera_basis.z
 	if forward.length_squared() > 0.0001:
@@ -133,20 +137,22 @@ func step_fps(delta: float) -> void:
 	if right.length_squared() > 0.0001:
 		right = right.normalized()
 	var move_direction := Vector3.ZERO
-	if Input.is_key_pressed(KEY_W):
+	if is_key_pressed.call(KEY_W):
 		move_direction += forward
-	if Input.is_key_pressed(KEY_S):
+	if is_key_pressed.call(KEY_S):
 		move_direction -= forward
-	if Input.is_key_pressed(KEY_D):
+	if is_key_pressed.call(KEY_D):
 		move_direction += right
-	if Input.is_key_pressed(KEY_A):
+	if is_key_pressed.call(KEY_A):
 		move_direction -= right
+	if is_key_pressed.call(KEY_SHIFT):
+		move_direction += Vector3.UP
+	if is_key_pressed.call(KEY_CTRL):
+		move_direction -= Vector3.UP
 	if move_direction.length_squared() <= 0.0:
 		return
 	move_direction = move_direction.normalized()
-	var speed := _fps_move_speed
-	if Input.is_key_pressed(KEY_SHIFT):
-		speed *= _fps_sprint_multiplier
+	var speed := _fps_vertical_speed if absf(move_direction.dot(Vector3.UP)) > 0.5 else _fps_move_speed
 	_world_camera.global_position += move_direction * speed * maxf(delta, 0.0)
 
 func _sync_fps_angles_from_camera() -> void:
