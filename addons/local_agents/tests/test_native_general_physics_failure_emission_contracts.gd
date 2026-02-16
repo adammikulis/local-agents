@@ -92,6 +92,10 @@ func _test_noise_metadata_contract(planner_source: String, noise_source: String)
 func _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_simulation_source: String) -> bool:
 	var ok := true
 	ok = _assert(
+		world_simulation_source.contains("const _VOXEL_NATIVE_STAGE_NAME := &\"voxel_transform_step\""),
+		"WorldSimulation must dispatch native voxel pulses through voxel_transform_step so projectile contacts enter environment-stage failure emission."
+	) and ok
+	ok = _assert(
 		world_simulation_source.contains("_process_native_voxel_rate(delta, projectile_contact_rows)"),
 		"WorldSimulation must pass sampled projectile contact rows into native voxel rate processing."
 	) and ok

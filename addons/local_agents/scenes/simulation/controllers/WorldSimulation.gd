@@ -15,7 +15,7 @@ const WorldEnvironmentSyncControllerScript = preload("res://addons/local_agents/
 const WorldGraphicsTargetWallControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldGraphicsTargetWallController.gd")
 const WorldInputControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldInputController.gd")
 const FpsLauncherControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd")
-const _VOXEL_NATIVE_STAGE_NAME := &"physics_failure_emission"
+const _VOXEL_NATIVE_STAGE_NAME := &"voxel_transform_step"
 
 @onready var simulation_controller: Node = $SimulationController
 @onready var environment_controller: Node3D = $EnvironmentController
