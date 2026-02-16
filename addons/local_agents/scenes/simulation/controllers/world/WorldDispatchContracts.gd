@@ -32,10 +32,11 @@ static func build_stage_payload(dispatch: Dictionary, backend_used: String, disp
 	stage_payload["dispatched"] = bool(dispatch.get("dispatched", false))
 	stage_payload["physics_contacts"] = dispatch_contact_rows
 	stage_payload["native_ops"] = _flatten_native_ops(dispatch)
+	stage_payload["changed_chunks"] = _normalize_changed_chunks(_extract_changed_chunks(dispatch))
 	var native_authority := _resolve_native_mutation_authority(dispatch, stage_payload)
 	var authority_changed_chunks := _changed_chunks_from_authority(native_authority)
 	if authority_changed_chunks.is_empty():
-		authority_changed_chunks = _normalize_changed_chunks(_extract_changed_chunks(dispatch))
+		authority_changed_chunks = (stage_payload.get("changed_chunks", []) as Array).duplicate(true)
 	stage_payload["changed_chunks"] = authority_changed_chunks
 	var changed_region := _changed_region_from_authority(native_authority)
 	if changed_region.is_empty():
