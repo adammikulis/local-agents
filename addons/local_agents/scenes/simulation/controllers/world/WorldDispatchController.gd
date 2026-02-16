@@ -47,7 +47,6 @@ func process_native_voxel_rate(delta: float, projectile_contact_rows: Array, con
 
 	var attempted_dispatch := false
 	var any_mutation_applied := false
-	var graphics_target_wall_controller = context.get("graphics_target_wall_controller", null)
 	var sync_environment_callable_variant = context.get("sync_environment_from_state", Callable())
 	var sync_environment_callable: Callable = sync_environment_callable_variant if sync_environment_callable_variant is Callable else Callable()
 	for pulse_variant in pulses:
@@ -73,8 +72,6 @@ func process_native_voxel_rate(delta: float, projectile_contact_rows: Array, con
 			continue
 		var dispatch = dispatch_variant as Dictionary
 		var backend_used := String(dispatch.get("backend_used", ""))
-		if graphics_target_wall_controller != null and graphics_target_wall_controller.has_method("normalize_gpu_backend_used"):
-			backend_used = String(graphics_target_wall_controller.call("normalize_gpu_backend_used", dispatch))
 		var dispatch_reason := String(dispatch.get("dispatch_reason", ""))
 		if not bool(dispatch.get("dispatched", false)):
 			_fail_native_voxel_dependency(native_voxel_dispatch_runtime, simulation_controller, tick, "native voxel stage was not dispatched", tier_id, dispatch_reason, dispatch_duration_ms, dispatch)

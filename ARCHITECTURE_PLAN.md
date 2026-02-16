@@ -41,6 +41,10 @@ This plan is organized by engineering concern so work can be split into focused 
     - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
 
 - [ ] Wave 0B (`P0`): Native-first binding architecture migration for contacts + dispatch contracts.
+  - Runtime Bindings lane update (2026-02-16, in progress):
+    - Split `addons/local_agents/simulation/controller/NativeComputeBridge.gd` into thin bridge + `NativeComputeBridgeEnvironmentBindings.gd` helper to satisfy file-size precondition before behavior edits.
+    - Replaced bridge-side contact normalization/aggregation with native contact ingest snapshot usage (`ingest_physics_contacts` + snapshot contract fields) and kept GDScript as wrapper/binding only.
+    - Updated world dispatch/runtime wrappers to consume native mutation authority/dispatch fields directly, removing local backend/contract-shaping heuristics from the runtime path.
   - Owner lanes:
     - Native Compute
     - Runtime Bindings

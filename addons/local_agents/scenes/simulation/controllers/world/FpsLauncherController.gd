@@ -431,14 +431,15 @@ func _build_contact_row(projectile: ChunkProjectileState, hit: Dictionary, fallb
 func _queue_projectile_contact_row(row: Dictionary) -> void:
 	if row.is_empty():
 		return
-	var impulse := maxf(0.0, float(row.get("contact_impulse", row.get("impulse", 0.0))))
-	var relative_speed := maxf(0.0, float(row.get("relative_speed", row.get("contact_velocity", 0.0))))
+	var impulse := float(row.get("contact_impulse", row.get("impulse", 0.0)))
+	var relative_speed := float(row.get("relative_speed", row.get("contact_velocity", 0.0)))
 	if impulse <= 0.0 and relative_speed <= 0.0:
 		return
 	var normalized := row.duplicate(true)
-	normalized["contact_impulse"] = impulse
-	normalized["impulse"] = impulse
-	normalized["relative_speed"] = relative_speed
+	# Native core now owns canonical contact normalization. Keep launcher rows minimal + deterministic metadata.
+	normalized["contact_impulse"] = maxf(0.0, impulse)
+	normalized["impulse"] = maxf(0.0, impulse)
+	normalized["relative_speed"] = maxf(0.0, relative_speed)
 	normalized["contact_velocity"] = maxf(0.0, float(normalized.get("contact_velocity", relative_speed)))
 	normalized["projectile_kind"] = String(normalized.get("projectile_kind", "voxel_chunk"))
 	normalized["projectile_density_tag"] = String(normalized.get("projectile_density_tag", "dense"))

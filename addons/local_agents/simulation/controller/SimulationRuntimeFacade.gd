@@ -105,23 +105,7 @@ static func enqueue_native_voxel_edit_ops(controller, tick: int, voxel_ops: Arra
 
 static func execute_native_voxel_stage(controller, tick: int, stage_name: StringName, payload: Dictionary = {}, strict: bool = false) -> Dictionary:
 	var normalized_stage_name = String(stage_name).strip_edges().to_lower()
-	var normalized_payload = _with_required_material_identity(payload)
-	if normalized_stage_name == _ENVIRONMENT_STAGE_NAME_VOXEL_TRANSFORM:
-		var material_contract = _inject_voxel_transform_material_contract(normalized_payload)
-		if not bool(material_contract.get("ok", false)):
-			var contract_error := String(material_contract.get("error", "invalid_voxel_transform_material_contract"))
-			if strict:
-				controller._emit_dependency_error(tick, "voxel_stage", contract_error)
-			return {
-				"ok": false,
-				"executed": false,
-				"dispatched": false,
-				"kernel_pass": "",
-				"backend_used": "",
-				"dispatch_reason": "",
-				"error": contract_error,
-			}
-		normalized_payload = (material_contract.get("payload", {}) as Dictionary).duplicate(true)
+	var normalized_payload = NativeComputeBridgeScript.normalize_environment_payload(payload) if normalized_stage_name == _ENVIRONMENT_STAGE_NAME_VOXEL_TRANSFORM else _with_required_material_identity(payload)
 	if normalized_stage_name == _ENVIRONMENT_STAGE_NAME_VOXEL_TRANSFORM:
 		var environment_dispatch = NativeComputeBridgeScript.dispatch_environment_stage_call(
 			controller,
@@ -131,21 +115,18 @@ static func execute_native_voxel_stage(controller, tick: int, stage_name: String
 			normalized_payload,
 			strict
 		)
-		var environment_result_variant = environment_dispatch.get("result", {})
-		var environment_result: Dictionary = {}
-		if environment_result_variant is Dictionary:
-			environment_result = (environment_result_variant as Dictionary).duplicate(true)
-		var execution_variant = environment_result.get("execution", {})
+		var environment_payload := NativeComputeBridgeScript.environment_stage_result(environment_dispatch)
+		var execution_variant = environment_payload.get("execution", {})
 		if not (execution_variant is Dictionary):
-			var nested_result_variant = environment_result.get("result", {})
+			var nested_result_variant = environment_dispatch.get("result", {})
 			if nested_result_variant is Dictionary:
 				execution_variant = (nested_result_variant as Dictionary).get("execution", {})
 		var execution: Dictionary = execution_variant if execution_variant is Dictionary else {}
 		var dispatched := NativeComputeBridgeScript.is_environment_stage_dispatched(environment_dispatch)
 		var backend_used := _canonical_environment_backend(environment_dispatch, execution)
 		var kernel_pass := String(execution.get("kernel_pass", "")).strip_edges()
-		var dispatch_reason := _canonical_environment_dispatch_reason(environment_dispatch, execution, environment_result)
-		var native_mutation_authority := _extract_native_mutation_authority(environment_dispatch, environment_result, execution)
+		var dispatch_reason := _canonical_environment_dispatch_reason(environment_dispatch, execution, environment_payload)
+		var native_mutation_authority := _extract_native_mutation_authority(environment_dispatch, environment_payload, execution)
 		return {
 			"ok": bool(environment_dispatch.get("ok", false)),
 			"executed": bool(environment_dispatch.get("executed", false)),
@@ -154,7 +135,7 @@ static func execute_native_voxel_stage(controller, tick: int, stage_name: String
 			"backend_used": backend_used,
 			"dispatch_reason": dispatch_reason,
 			"result": environment_dispatch.get("result", {}),
-			"voxel_result": NativeComputeBridgeScript.environment_stage_result(environment_dispatch),
+			"voxel_result": environment_payload,
 			"native_mutation_authority": native_mutation_authority,
 			"error": String(environment_dispatch.get("error", "")),
 		}
