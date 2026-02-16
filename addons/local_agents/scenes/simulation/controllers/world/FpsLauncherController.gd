@@ -1,11 +1,20 @@
 extends Node
 class_name FpsLauncherController
 
-const DEFAULT_PROJECTILE_SCENE = preload("res://addons/local_agents/scenes/simulation/actors/FpsLauncherProjectile.tscn")
-const PhysicsServerContactBridgeScript = preload("res://addons/local_agents/simulation/controller/PhysicsServerContactBridge.gd")
 const FpsLauncherProfileResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/FpsLauncherProfileResource.gd")
 
-@export var projectile_scene: PackedScene = DEFAULT_PROJECTILE_SCENE
+class ChunkProjectileState:
+	extends RefCounted
+
+	var projectile_id: int = 0
+	var position: Vector3 = Vector3.ZERO
+	var velocity: Vector3 = Vector3.ZERO
+	var radius: float = 0.07
+	var mass: float = 0.2
+	var ttl_seconds: float = 4.0
+	var material_tag: String = "dense_voxel"
+	var hardness_tag: String = "hard"
+
 @export_range(1.0, 300.0, 0.5) var launch_speed: float = 60.0
 @export_range(0.05, 20.0, 0.01) var launch_mass: float = 0.2
 @export_range(0.1, 20.0, 0.1) var projectile_ttl_seconds: float = 4.0
@@ -18,6 +27,8 @@ const FpsLauncherProfileResourceScript = preload("res://addons/local_agents/conf
 @export_range(0.05, 1.0, 0.01) var projectile_ttl_step: float = 0.1
 @export_range(0.0, 180.0, 1.0) var launch_energy_scale: float = 1.0
 @export_range(0.05, 10.0, 0.05) var launch_energy_scale_step: float = 0.2
+@export var projectile_material_tag: String = "dense_voxel"
+@export var projectile_hardness_tag: String = "hard"
 
 const _LAUNCH_SPEED_MIN := 1.0
 const _LAUNCH_SPEED_MAX := 300.0
@@ -29,14 +40,15 @@ const _RADIUS_MIN := 0.02
 const _RADIUS_MAX := 2.0
 const _ENERGY_SCALE_MIN := 0.1
 const _ENERGY_SCALE_MAX := 180.0
+const _MAX_PENDING_CONTACT_ROWS := 96
 
 var _camera: Camera3D = null
 var _spawn_parent: Node3D = null
 var _cooldown_remaining: float = 0.0
-var _active_projectiles: Array[RigidBody3D] = []
+var _active_projectiles: Array[ChunkProjectileState] = []
 var _pending_contact_rows: Array[Dictionary] = []
 var _sampled_contact_cursor: int = 0
-const _MAX_PENDING_CONTACT_ROWS := 96
+var _next_projectile_id: int = 1
 
 func configure(active_camera: Camera3D, spawn_parent: Node3D, profile_resource: Resource = null) -> void:
 	_camera = active_camera
@@ -132,16 +144,12 @@ func handle_hotkey(event: InputEvent) -> bool:
 
 func step(delta: float) -> void:
 	_cooldown_remaining = maxf(0.0, _cooldown_remaining - delta)
-	_prune_inactive()
+	if delta <= 0.0:
+		return
+	_advance_projectiles(delta)
 
 func sample_active_projectile_contact_rows() -> Array:
 	var sampled_rows: Array = []
-	var rows := PhysicsServerContactBridgeScript.sample_contact_rows(_active_projectiles)
-	if rows is Array:
-		for row_variant in rows:
-			if not (row_variant is Dictionary):
-				continue
-			_queue_projectile_contact_row(row_variant as Dictionary)
 	var cursor_start := clampi(_sampled_contact_cursor, 0, _pending_contact_rows.size())
 	for index in range(cursor_start, _pending_contact_rows.size()):
 		var row_variant = _pending_contact_rows[index]
@@ -182,76 +190,119 @@ func try_fire_from_screen_center() -> bool:
 		return false
 	if _cooldown_remaining > 0.0:
 		return false
-	_prune_inactive()
 	if _active_projectiles.size() >= maxi(1, max_active_projectiles):
 		return false
-	if projectile_scene == null:
-		return false
-	var projectile_node := projectile_scene.instantiate()
-	if not (projectile_node is RigidBody3D):
-		return false
-	var projectile := projectile_node as RigidBody3D
 	var viewport := _camera.get_viewport()
 	if viewport == null:
 		return false
 	var center := viewport.get_visible_rect().size * 0.5
 	var ray_origin := _camera.project_ray_origin(center)
 	var ray_direction := _camera.project_ray_normal(center).normalized()
-	_spawn_parent.add_child(projectile)
-	var spawn_local := _spawn_parent.to_local(ray_origin + ray_direction * spawn_distance)
-	projectile.position = spawn_local
-	var speed_scale = launch_speed * launch_energy_scale
-	projectile.mass = launch_mass
-	projectile.linear_velocity = ray_direction * speed_scale
-	projectile.continuous_cd = true
-	if projectile.has_method("set_ttl_seconds"):
-		projectile.call("set_ttl_seconds", projectile_ttl_seconds)
-	if projectile.has_node("CollisionShape3D"):
-		var collision = projectile.get_node("CollisionShape3D")
-		if collision is CollisionShape3D and collision.shape is SphereShape3D:
-			var adjusted_shape = SphereShape3D.new()
-			adjusted_shape.radius = clampf(projectile_radius, _RADIUS_MIN, _RADIUS_MAX)
-			collision.shape = adjusted_shape
+	if ray_direction == Vector3.ZERO:
+		return false
+
+	var projectile := ChunkProjectileState.new()
+	projectile.projectile_id = _next_projectile_id
+	_next_projectile_id += 1
+	projectile.position = ray_origin + ray_direction * spawn_distance
+	projectile.velocity = ray_direction * (launch_speed * launch_energy_scale)
+	projectile.radius = clampf(projectile_radius, _RADIUS_MIN, _RADIUS_MAX)
+	projectile.mass = clampf(launch_mass, _LAUNCH_MASS_MIN, _LAUNCH_MASS_MAX)
+	projectile.ttl_seconds = clampf(projectile_ttl_seconds, _TTL_MIN, _TTL_MAX)
+	projectile.material_tag = projectile_material_tag
+	projectile.hardness_tag = projectile_hardness_tag
 	_active_projectiles.append(projectile)
-	projectile.body_entered.connect(_on_projectile_body_entered.bind(projectile))
-	projectile.tree_exited.connect(_on_projectile_tree_exited.bind(projectile), CONNECT_ONE_SHOT)
 	_cooldown_remaining = cooldown_seconds
 	return true
 
-func _on_projectile_body_entered(hit_body: Node, projectile: RigidBody3D) -> void:
-	if projectile == null or not is_instance_valid(projectile):
-		return
-	var projectile_velocity := projectile.linear_velocity
+func _advance_projectiles(delta: float) -> void:
+	var space_state := _physics_space_state()
+	for i in range(_active_projectiles.size() - 1, -1, -1):
+		var projectile := _active_projectiles[i]
+		if projectile == null:
+			_active_projectiles.remove_at(i)
+			continue
+		projectile.ttl_seconds -= delta
+		if projectile.ttl_seconds <= 0.0:
+			_active_projectiles.remove_at(i)
+			continue
+		var start := projectile.position
+		var end := start + projectile.velocity * delta
+		if space_state == null:
+			projectile.position = end
+			continue
+		var hit := _intersect_segment(space_state, start, end)
+		if hit.is_empty():
+			projectile.position = end
+			continue
+		_queue_projectile_contact_row(_build_contact_row(projectile, hit, end))
+		_active_projectiles.remove_at(i)
+
+func _physics_space_state() -> PhysicsDirectSpaceState3D:
+	var viewport := get_viewport()
+	if viewport == null:
+		return null
+	var world := viewport.world_3d
+	if world == null:
+		return null
+	return world.direct_space_state
+
+func _intersect_segment(space_state: PhysicsDirectSpaceState3D, from_point: Vector3, to_point: Vector3) -> Dictionary:
+	var query := PhysicsRayQueryParameters3D.create(from_point, to_point)
+	query.collide_with_bodies = true
+	query.collide_with_areas = true
+	var excludes: Array[RID] = _build_query_excludes()
+	if not excludes.is_empty():
+		query.exclude = excludes
+	var result = space_state.intersect_ray(query)
+	if result is Dictionary:
+		return result as Dictionary
+	return {}
+
+func _build_query_excludes() -> Array[RID]:
+	var excludes: Array[RID] = []
+	if _spawn_parent != null and is_instance_valid(_spawn_parent) and _spawn_parent is CollisionObject3D:
+		excludes.append((_spawn_parent as CollisionObject3D).get_rid())
+	return excludes
+
+func _build_contact_row(projectile: ChunkProjectileState, hit: Dictionary, fallback_position: Vector3) -> Dictionary:
+	var collider := hit.get("collider")
 	var obstacle_velocity := Vector3.ZERO
 	var obstacle_mask := 0
-	var collider_id := 0
+	var collider_id := int(hit.get("collider_id", 0))
 	var collider_mass := 0.0
-	if hit_body != null and is_instance_valid(hit_body):
-		collider_id = hit_body.get_instance_id()
-		if hit_body is RigidBody3D:
-			var rigid_hit := hit_body as RigidBody3D
-			obstacle_velocity = rigid_hit.linear_velocity
-			collider_mass = maxf(0.0, rigid_hit.mass)
-		elif hit_body.has_method("get_linear_velocity"):
-			var velocity_variant = hit_body.call("get_linear_velocity")
-			if velocity_variant is Vector3:
-				obstacle_velocity = velocity_variant as Vector3
-		if hit_body.has_method("get_mass"):
-			var mass_variant = hit_body.call("get_mass")
-			if mass_variant is float or mass_variant is int:
-				collider_mass = maxf(0.0, float(mass_variant))
-		if hit_body is CollisionObject3D:
-			obstacle_mask = int((hit_body as CollisionObject3D).collision_layer)
-	var relative_velocity := projectile_velocity - obstacle_velocity
+	if collider is CollisionObject3D:
+		obstacle_mask = int((collider as CollisionObject3D).collision_layer)
+	if collider is RigidBody3D:
+		var rigid := collider as RigidBody3D
+		obstacle_velocity = rigid.linear_velocity
+		collider_mass = maxf(0.0, rigid.mass)
+	elif collider != null and is_instance_valid(collider) and collider.has_method("get_linear_velocity"):
+		var velocity_variant = collider.call("get_linear_velocity")
+		if velocity_variant is Vector3:
+			obstacle_velocity = velocity_variant as Vector3
+	if collider != null and is_instance_valid(collider) and collider.has_method("get_mass"):
+		var mass_variant = collider.call("get_mass")
+		if mass_variant is float or mass_variant is int:
+			collider_mass = maxf(collider_mass, float(mass_variant))
+
+	var relative_velocity := projectile.velocity - obstacle_velocity
 	var relative_speed := relative_velocity.length()
 	var projectile_mass := maxf(0.01, projectile.mass)
 	var contact_impulse := maxf(0.0, projectile_mass * relative_speed)
-	var contact_normal := Vector3.ZERO
-	if relative_speed > 0.001:
+	var contact_normal := hit.get("normal", Vector3.ZERO)
+	if not (contact_normal is Vector3):
+		contact_normal = Vector3.ZERO
+	if (contact_normal as Vector3) == Vector3.ZERO and relative_speed > 0.001:
 		contact_normal = (-relative_velocity).normalized()
-	var contact_point := projectile.global_position
-	var contact_row := {
-		"body_id": projectile.get_instance_id(),
+	var contact_point := hit.get("position", fallback_position)
+	if not (contact_point is Vector3):
+		contact_point = fallback_position
+	if collider_id == 0 and collider != null and is_instance_valid(collider):
+		collider_id = collider.get_instance_id()
+
+	return {
+		"body_id": projectile.projectile_id,
 		"collider_id": collider_id,
 		"contact_point": contact_point,
 		"contact_normal": contact_normal,
@@ -259,13 +310,19 @@ func _on_projectile_body_entered(hit_body: Node, projectile: RigidBody3D) -> voi
 		"impulse": contact_impulse,
 		"contact_velocity": relative_speed,
 		"relative_speed": relative_speed,
-		"body_velocity": projectile_velocity,
+		"body_velocity": projectile.velocity,
 		"obstacle_velocity": obstacle_velocity,
 		"body_mass": projectile_mass,
 		"collider_mass": collider_mass,
 		"rigid_obstacle_mask": obstacle_mask,
+		"projectile_kind": "voxel_chunk",
+		"projectile_density_tag": "dense",
+		"projectile_hardness_tag": projectile.hardness_tag,
+		"projectile_material_tag": projectile.material_tag,
+		"failure_emission_profile": "dense_hard_voxel_chunk",
+		"projectile_radius": projectile.radius,
+		"projectile_ttl": projectile.ttl_seconds,
 	}
-	_queue_projectile_contact_row(contact_row)
 
 func _queue_projectile_contact_row(row: Dictionary) -> void:
 	if row.is_empty():
@@ -279,6 +336,11 @@ func _queue_projectile_contact_row(row: Dictionary) -> void:
 	normalized["impulse"] = impulse
 	normalized["relative_speed"] = relative_speed
 	normalized["contact_velocity"] = maxf(0.0, float(normalized.get("contact_velocity", relative_speed)))
+	normalized["projectile_kind"] = String(normalized.get("projectile_kind", "voxel_chunk"))
+	normalized["projectile_density_tag"] = String(normalized.get("projectile_density_tag", "dense"))
+	normalized["projectile_hardness_tag"] = String(normalized.get("projectile_hardness_tag", projectile_hardness_tag))
+	normalized["projectile_material_tag"] = String(normalized.get("projectile_material_tag", projectile_material_tag))
+	normalized["failure_emission_profile"] = String(normalized.get("failure_emission_profile", "dense_hard_voxel_chunk"))
 	_pending_contact_rows.append(normalized)
 	while _pending_contact_rows.size() > _MAX_PENDING_CONTACT_ROWS:
 		_pending_contact_rows.remove_at(0)
@@ -292,14 +354,5 @@ func _print_profile(trigger: String = "launcher profile") -> void:
 		projectile_ttl_seconds,
 		launch_energy_scale,
 		cooldown_seconds,
-		_active_projectiles.size()
+		_active_projectiles.size(),
 	])
-
-func _prune_inactive() -> void:
-	for i in range(_active_projectiles.size() - 1, -1, -1):
-		var projectile := _active_projectiles[i]
-		if projectile == null or not is_instance_valid(projectile):
-			_active_projectiles.remove_at(i)
-
-func _on_projectile_tree_exited(projectile: RigidBody3D) -> void:
-	_active_projectiles.erase(projectile)
