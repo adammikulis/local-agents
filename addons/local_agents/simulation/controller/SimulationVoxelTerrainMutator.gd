@@ -134,6 +134,26 @@ static func apply_native_voxel_stage_delta(controller, tick: int, payload: Dicti
 	var native_ops = _extract_native_op_payloads(payload)
 	var changed_chunks = _normalize_chunk_keys(_extract_changed_chunks(payload))
 	if native_ops.is_empty():
+		var env_snapshot = controller._environment_snapshot.duplicate(true)
+		var changed_tiles = _tiles_from_changed_chunks_or_region(env_snapshot, payload)
+		if not changed_tiles.is_empty():
+			var lowered_levels: Dictionary = {}
+			for tile_variant in changed_tiles:
+				var tile_id := String(tile_variant).strip_edges()
+				if tile_id == "":
+					continue
+				lowered_levels[tile_id] = 1
+			if not lowered_levels.is_empty():
+				var fallback_result = _apply_column_surface_delta(
+					controller,
+					env_snapshot,
+					lowered_levels.keys(),
+					lowered_levels,
+					false
+				)
+				fallback_result["tick"] = tick
+				if bool(fallback_result.get("changed", false)):
+					return fallback_result
 		return {
 			"ok": false,
 			"changed": false,
