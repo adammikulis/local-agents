@@ -128,8 +128,7 @@ func poll() -> void:
 func wait_for_build() -> void:
 	if _chunk_build_thread == null:
 		return
-	if _chunk_build_thread.is_alive():
-		_chunk_build_result = _chunk_build_thread.wait_to_finish()
+	_chunk_build_result = _chunk_build_thread.wait_to_finish()
 	_chunk_build_thread = null
 	_chunk_build_in_flight = false
 
