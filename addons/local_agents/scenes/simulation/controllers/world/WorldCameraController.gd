@@ -92,7 +92,7 @@ func handle_mouse_button(event: InputEventMouseButton) -> void:
 
 func handle_mouse_motion(event: InputEventMouseMotion) -> void:
 	if _fps_mode_enabled:
-		_fps_yaw += event.relative.x * _fps_look_sensitivity
+		_fps_yaw -= event.relative.x * _fps_look_sensitivity
 		_fps_pitch = clampf(_fps_pitch - event.relative.y * _fps_look_sensitivity, _fps_min_pitch_radians, _fps_max_pitch_radians)
 		_apply_fps_look_transform()
 		return
