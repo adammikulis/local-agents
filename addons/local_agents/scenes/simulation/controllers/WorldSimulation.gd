@@ -6,7 +6,6 @@ const WorldProgressionProfileResourceScript = preload("res://addons/local_agents
 const AtmosphereCycleControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/AtmosphereCycleController.gd")
 const SimulationLoopControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/SimulationLoopController.gd")
 const SimulationGraphicsSettingsScript = preload("res://addons/local_agents/scenes/simulation/controllers/SimulationGraphicsSettings.gd")
-const VoxelRateTierSchedulerScript = preload("res://addons/local_agents/simulation/controller/VoxelRateTierScheduler.gd")
 const WorldCameraControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldCameraController.gd")
 const WorldDispatchControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldDispatchController.gd")
 const WorldHudBindingControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldHudBindingController.gd")
@@ -70,7 +69,7 @@ var _graphics_state: Dictionary = SimulationGraphicsSettingsScript.default_state
 var _last_hud_refresh_tick: int = -1
 var _runtime_profile_baseline: Dictionary = {}
 var _runtime_demo_profile_applied: String = ""
-var _voxel_rate_scheduler = VoxelRateTierSchedulerScript.new()
+var _native_tick_rate_config: Dictionary = {}
 var _native_voxel_dispatch_runtime: Dictionary = WorldNativeVoxelDispatchRuntimeScript.default_runtime()
 var _system_toggle_state: Dictionary = {
 	"transform_stage_a_system_enabled": true,
@@ -544,19 +543,20 @@ func _set_node_property_if_exists(node: Object, property_name: String, value) ->
 		node.set(property_name, value)
 
 func _configure_voxel_scheduler() -> void:
-	_voxel_rate_scheduler.configure(
-		bool(_graphics_state.get("voxel_process_gating_enabled", true)),
-		bool(_graphics_state.get("voxel_dynamic_tick_rate_enabled", true)),
-		clampf(float(_graphics_state.get("voxel_tick_min_interval_seconds", 0.05)), 0.01, 1.2),
-		clampf(float(_graphics_state.get("voxel_tick_max_interval_seconds", 0.6)), 0.01, 3.0)
-	)
+	_native_tick_rate_config = {
+		"voxel_process_gating_enabled": bool(_graphics_state.get("voxel_process_gating_enabled", true)),
+		"voxel_dynamic_tick_rate_enabled": bool(_graphics_state.get("voxel_dynamic_tick_rate_enabled", true)),
+		"voxel_tick_min_interval_seconds": clampf(float(_graphics_state.get("voxel_tick_min_interval_seconds", 0.05)), 0.01, 1.2),
+		"voxel_tick_max_interval_seconds": clampf(float(_graphics_state.get("voxel_tick_max_interval_seconds", 0.6)), 0.01, 3.0),
+		"native_tick_tier": "per_frame",
+	}
 
 func _process_native_voxel_rate(delta: float, projectile_contact_rows: Array = []) -> void:
 	_dispatch_controller.process_native_voxel_rate(delta, projectile_contact_rows, {
 		"tick": _loop_controller.current_tick(),
 		"simulation_controller": simulation_controller,
 		"fps_launcher_controller": fps_launcher_controller,
-		"voxel_rate_scheduler": _voxel_rate_scheduler,
+		"tick_rate_config": _native_tick_rate_config,
 		"camera_controller": _camera_controller,
 		"graphics_target_wall_controller": _graphics_target_wall_controller,
 		"native_voxel_dispatch_runtime": _native_voxel_dispatch_runtime,

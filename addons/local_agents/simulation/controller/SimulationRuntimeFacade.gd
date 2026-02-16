@@ -127,6 +127,7 @@ static func execute_native_voxel_stage(controller, tick: int, stage_name: String
 		var kernel_pass := String(execution.get("kernel_pass", "")).strip_edges()
 		var dispatch_reason := _canonical_environment_dispatch_reason(environment_dispatch, execution, environment_payload)
 		var native_mutation_authority := _extract_native_mutation_authority(environment_dispatch, environment_payload, execution)
+		var native_tick_contract := NativeComputeBridgeScript.environment_tick_contract(environment_dispatch, tick, normalized_payload)
 		return {
 			"ok": bool(environment_dispatch.get("ok", false)),
 			"executed": bool(environment_dispatch.get("executed", false)),
@@ -137,6 +138,7 @@ static func execute_native_voxel_stage(controller, tick: int, stage_name: String
 			"result": environment_dispatch.get("result", {}),
 			"voxel_result": environment_payload,
 			"native_mutation_authority": native_mutation_authority,
+			"native_tick_contract": native_tick_contract,
 			"error": String(environment_dispatch.get("error", "")),
 		}
 	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
@@ -174,6 +176,7 @@ static func execute_native_voxel_stage(controller, tick: int, stage_name: String
 		"result": dispatch.get("result", {}),
 		"voxel_result": NativeComputeBridgeScript.voxel_stage_result(dispatch),
 		"native_mutation_authority": _extract_native_mutation_authority(dispatch, NativeComputeBridgeScript.voxel_stage_result(dispatch), {}),
+		"native_tick_contract": {},
 		"error": String(dispatch.get("error", "")),
 	}
 

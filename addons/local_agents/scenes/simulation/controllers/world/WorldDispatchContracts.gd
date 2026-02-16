@@ -13,10 +13,22 @@ static func build_dispatch_payload(tick: int, delta: float, rate_tier: String, b
 		"physics_contacts": dispatch_contact_rows,
 	}
 
+static func build_native_tick_payload(tick: int, delta: float, base_budget: float, view_metrics: Dictionary, dispatch_contact_rows: Array, tick_rate_config: Dictionary = {}, launcher_contract: Dictionary = {}) -> Dictionary:
+	var payload := build_dispatch_payload(tick, delta, _resolve_tick_tier(tick_rate_config), base_budget, view_metrics, dispatch_contact_rows)
+	payload["native_tick_orchestration"] = {
+		"tick_rate_config": tick_rate_config.duplicate(true),
+		"launcher_contract": launcher_contract.duplicate(true),
+	}
+	return payload
+
 static func ensure_pulses_with_contact_flush(pulses: Array, base_budget: float) -> Array:
 	if not pulses.is_empty():
 		return pulses
 	return [{"tier_id": "contact_flush", "compute_budget_scale": base_budget, "forced_contact_flush": true}]
+
+static func _resolve_tick_tier(tick_rate_config: Dictionary) -> String:
+	var tier := String(tick_rate_config.get("native_tick_tier", "per_frame")).strip_edges()
+	return tier if tier != "" else "per_frame"
 
 static func build_stage_payload(dispatch: Dictionary, backend_used: String, dispatch_reason: String, dispatch_contact_rows: Array, executed_op_count: int) -> Dictionary:
 	var stage_payload: Dictionary = {}

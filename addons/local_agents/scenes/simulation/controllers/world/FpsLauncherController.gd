@@ -203,6 +203,30 @@ func projectile_mutation_deadline_status() -> Dictionary:
 		"current_frame": _simulation_frame_index,
 	}
 
+func native_tick_contact_contract() -> Dictionary:
+	var earliest_deadline := -1
+	for row_variant in _pending_contact_rows:
+		if not (row_variant is Dictionary):
+			continue
+		var deadline_frame := int((row_variant as Dictionary).get("deadline_frame", -1))
+		if deadline_frame < 0:
+			continue
+		if earliest_deadline < 0 or deadline_frame < earliest_deadline:
+			earliest_deadline = deadline_frame
+	return {
+		"pending_contacts": _pending_contact_rows.size(),
+		"expired_contacts": _expired_contact_rows.size(),
+		"deadline_violations_total": _deadline_violation_count,
+		"current_frame": _simulation_frame_index,
+		"earliest_deadline_frame": earliest_deadline,
+	}
+
+func apply_native_tick_contract(contract: Dictionary) -> void:
+	var consumed_count := maxi(0, int(contract.get("contacts_consumed", 0)))
+	if consumed_count <= 0:
+		return
+	acknowledge_voxel_dispatch_contact_rows(consumed_count, true)
+
 func acknowledge_voxel_dispatch_contact_rows(consumed_count: int, mutation_applied: bool = false) -> void:
 	var count := maxi(0, consumed_count)
 	if count <= 0:

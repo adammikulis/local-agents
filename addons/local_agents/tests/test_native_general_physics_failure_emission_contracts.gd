@@ -166,14 +166,14 @@ func _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_s
 		"WorldSimulation must pass sampled projectile contact rows into native voxel rate processing."
 	) and ok
 	ok = _assert(
-		world_dispatch_controller_source.contains("build_dispatch_payload")
+		world_dispatch_controller_source.contains("build_native_tick_payload")
 			and world_dispatch_contracts_source.contains("\"physics_contacts\": dispatch_contact_rows"),
 		"World dispatch contract must include persisted physics_contacts rows for failure emission input."
 	) and ok
 	ok = _assert(
-		world_dispatch_controller_source.contains("var pulse_payload := WorldDispatchContractsScript.build_dispatch_payload(")
-			and not world_dispatch_controller_source.contains("payload[\"rate_tier\"] = tier_id"),
-		"WorldDispatchController must build a canonical per-pulse payload instead of mutating a reused payload dictionary."
+		world_dispatch_controller_source.contains("var tick_payload := WorldDispatchContractsScript.build_native_tick_payload(")
+			and world_dispatch_contracts_source.contains("\"native_tick_orchestration\""),
+		"WorldDispatchController must build canonical per-frame native tick payloads instead of script-authoritative pulse loops."
 	) and ok
 	ok = _assert(
 		world_dispatch_contracts_source.contains("stage_payload[\"native_ops\"] = _flatten_native_ops(dispatch)")
@@ -182,14 +182,14 @@ func _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_s
 		"WorldDispatchContracts stage payload must expose canonical native_ops/changed_chunks/changed_region fields directly."
 	) and ok
 	ok = _assert(
-		world_dispatch_controller_source.contains("if pulses.is_empty() and dispatch_contact_rows.is_empty():"),
-		"WorldDispatchController must skip native voxel dispatch only when no scheduler pulse and no pending projectile contacts."
+		not world_dispatch_controller_source.contains("voxel_rate_scheduler")
+			and world_dispatch_controller_source.contains("execute_native_voxel_stage"),
+		"WorldDispatchController primary path must route cadence through native per-frame execute_native_voxel_stage orchestration."
 	) and ok
 	ok = _assert(
-		world_dispatch_controller_source.contains("ensure_pulses_with_contact_flush")
-			and world_dispatch_contracts_source.contains("if not pulses.is_empty():")
-			and world_dispatch_contracts_source.contains("\"forced_contact_flush\": true"),
-		"WorldDispatchController must force one native voxel pulse when projectile contacts are pending but scheduler yields no pulse."
+		world_dispatch_controller_source.contains("native_tick_contract")
+			and world_dispatch_controller_source.contains("apply_native_tick_contract"),
+		"WorldDispatchController must consume native tick contract outputs for launcher queue acknowledgement."
 	) and ok
 	return ok
 

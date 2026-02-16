@@ -65,6 +65,10 @@ This plan is organized by engineering concern so work can be split into focused 
     - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
 
 - [ ] Wave 0C (`P0`): Native-owned orchestration migration (cadence, queue/deadline, tick dispatch, telemetry).
+  - Native Compute lane update (2026-02-16, P0 orchestration in progress):
+    - Add native-owned orchestration API surface on `LocalAgentsSimulationCore` (`configure_voxel_orchestration`, queue/ack lifecycle, per-tick dispatch decision, state/metrics/reset).
+    - Move cadence/queue/deadline accounting and telemetry counters into native helper modules so wrappers consume canonical orchestration decisions and contracts.
+    - Preserve typed fail-fast error codes and native-authoritative mutation contract fields for queue deadline misses and dispatch gating outcomes.
   - Owner lanes:
     - Native Compute
     - Runtime Bindings
@@ -1440,3 +1444,27 @@ Completed policy records:
 Policy decisions (recorded February 12, 2026):
 - Whisper backend policy: default to `whisper.cpp` CLI/runtime integration for all supported desktop tiers (macOS/Linux/Windows) to preserve single-toolchain native distribution and headless determinism. Treat `faster-whisper` as optional future experimentation only, not a required runtime/backend path.
 - Bundled dependency versioning strategy: keep build/runtime dependencies pinned in scripts/manifests, update them via focused additive commits, and validate each bump with headless core + runtime-heavy suites before merge. Runtime artifacts remain out of git history; only scripts/metadata and reproducible fetch/build logic are committed.
+
+### Wave P0: Runtime Bindings Thin-Orchestration Migration (2026-02-16)
+
+- [ ] In progress (P0)
+- Owners/Lane ownership:
+  - Runtime Bindings lane (GDScript wrapper reduction and native tick-contract routing)
+  - Native Compute lane (native orchestration API surface and return-contract normalization)
+  - Validation/Test-Infrastructure lane (startup + targeted runtime verification sequence)
+  - Documentation lane (integration notes and migration record)
+- Scope:
+  - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd`
+  - `addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd`
+  - `addons/local_agents/simulation/controller/SimulationRuntimeFacade.gd`
+  - `addons/local_agents/simulation/controller/NativeComputeBridge.gd` (mandatory helper split due file size precondition)
+  - `addons/local_agents/scenes/simulation/controllers/world/WorldDispatchController.gd`
+  - `addons/local_agents/scenes/simulation/controllers/world/WorldDispatchContracts.gd`
+  - `addons/local_agents/scenes/simulation/controllers/world/WorldNativeVoxelDispatchRuntime.gd`
+  - `addons/local_agents/scenes/simulation/controllers/world/WorldNativeVoxelDispatchMetrics.gd` (if contract metrics wiring requires)
+- Acceptance criteria:
+  - Primary per-frame queue/deadline/cadence orchestration authority moves to native API contracts; GDScript call sites become thin adapters/wrappers.
+  - GDScript runtime keeps stable consumer-facing APIs while sourcing dispatch/tick cadence decisions from native-returned contracts.
+  - GDScript no longer computes authoritative queue deadlines/cadence on the primary path; it only forwards context and applies native contract outputs.
+  - `NativeComputeBridge.gd` remains under the 1000-line hard cap by extracting helper responsibilities before behavior growth.
+  - Validation sequence evidence includes a real non-headless launch first, followed by targeted headless runtime harness checks.
