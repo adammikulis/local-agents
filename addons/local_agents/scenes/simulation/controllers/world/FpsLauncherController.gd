@@ -42,6 +42,11 @@ const _RADIUS_MAX := 2.0
 const _ENERGY_SCALE_MIN := 0.1
 const _ENERGY_SCALE_MAX := 180.0
 const _MAX_PENDING_CONTACT_ROWS := 96
+const _MAX_COLLISION_STEPS_PER_TICK := 4
+const _BOUNCE_RESTITUTION := 0.65
+const _BOUNCE_TANGENTIAL_DAMPING := 0.92
+const _SURFACE_SEPARATION := 0.01
+const _MIN_BOUNCE_SPEED := 0.8
 
 var _camera: Camera3D = null
 var _spawn_parent: Node3D = null
@@ -229,21 +234,15 @@ func _advance_projectiles(delta: float) -> void:
 			_release_visual_node(projectile)
 			_active_projectiles.remove_at(i)
 			continue
-		var start := projectile.position
-		var end := start + projectile.velocity * delta
 		if space_state == null:
-			projectile.position = end
+			projectile.position += projectile.velocity * delta
 			_sync_visual_node(projectile)
 			continue
-		var hit := _intersect_segment(space_state, start, end)
-		if hit.is_empty():
-			projectile.position = end
-			_sync_visual_node(projectile)
+		if not _step_projectile_with_collisions(projectile, space_state, delta):
+			_release_visual_node(projectile)
+			_active_projectiles.remove_at(i)
 			continue
-		_apply_rigidbody_collision_response(projectile, hit)
-		_queue_projectile_contact_row(_build_contact_row(projectile, hit, end))
-		_release_visual_node(projectile)
-		_active_projectiles.remove_at(i)
+		_sync_visual_node(projectile)
 
 func _physics_space_state() -> PhysicsDirectSpaceState3D:
 	var viewport := get_viewport()
@@ -258,6 +257,8 @@ func _intersect_segment(space_state: PhysicsDirectSpaceState3D, from_point: Vect
 	var query := PhysicsRayQueryParameters3D.create(from_point, to_point)
 	query.collide_with_bodies = true
 	query.collide_with_areas = true
+	query.hit_from_inside = true
+	query.hit_back_faces = true
 	var excludes: Array[RID] = _build_query_excludes()
 	if not excludes.is_empty():
 		query.exclude = excludes
@@ -265,6 +266,52 @@ func _intersect_segment(space_state: PhysicsDirectSpaceState3D, from_point: Vect
 	if result is Dictionary:
 		return result as Dictionary
 	return {}
+
+func _step_projectile_with_collisions(projectile: ChunkProjectileState, space_state: PhysicsDirectSpaceState3D, delta: float) -> bool:
+	var remaining_time := delta
+	var collision_steps := 0
+	while remaining_time > 0.0 and collision_steps < _MAX_COLLISION_STEPS_PER_TICK:
+		var speed := projectile.velocity.length()
+		if speed <= _MIN_BOUNCE_SPEED:
+			return false
+		var start := projectile.position
+		var travel := projectile.velocity * remaining_time
+		var end := start + travel
+		var hit := _intersect_segment(space_state, start, end)
+		if hit.is_empty():
+			projectile.position = end
+			return true
+		_apply_rigidbody_collision_response(projectile, hit)
+		_queue_projectile_contact_row(_build_contact_row(projectile, hit, end))
+		var normal := _contact_normal_from_hit(hit, projectile.velocity)
+		var contact_point_variant: Variant = hit.get("position", start)
+		var contact_point := start
+		if contact_point_variant is Vector3:
+			contact_point = contact_point_variant as Vector3
+		projectile.position = contact_point + normal * (projectile.radius + _SURFACE_SEPARATION)
+		var reflected := projectile.velocity.bounce(normal) * _BOUNCE_RESTITUTION
+		var tangent := reflected - normal * reflected.dot(normal)
+		projectile.velocity = normal * reflected.dot(normal) + tangent * _BOUNCE_TANGENTIAL_DAMPING
+		if projectile.velocity.length() <= _MIN_BOUNCE_SPEED:
+			return false
+		var traveled_distance := maxf(0.0, start.distance_to(contact_point))
+		var total_distance := maxf(1.0e-5, travel.length())
+		var consumed := clampf(traveled_distance / total_distance, 0.0, 1.0)
+		remaining_time *= maxf(0.0, 1.0 - consumed)
+		collision_steps += 1
+	if remaining_time > 0.0:
+		projectile.position += projectile.velocity * remaining_time
+	return true
+
+func _contact_normal_from_hit(hit: Dictionary, fallback_velocity: Vector3) -> Vector3:
+	var normal_variant: Variant = hit.get("normal", Vector3.ZERO)
+	if normal_variant is Vector3:
+		var candidate := (normal_variant as Vector3).normalized()
+		if candidate.length_squared() > 1.0e-6:
+			return candidate
+	if fallback_velocity.length_squared() > 1.0e-6:
+		return (-fallback_velocity).normalized()
+	return Vector3.UP
 
 func _apply_rigidbody_collision_response(projectile: ChunkProjectileState, hit: Dictionary) -> void:
 	var collider_variant: Variant = hit.get("collider")
