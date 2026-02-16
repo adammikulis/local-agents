@@ -61,7 +61,7 @@ func process_native_voxel_rate(delta: float, projectile_contact_rows: Array, con
 		_record_native_voxel_dispatch_failure(native_voxel_dispatch_runtime, simulation_controller, tick, tick_tier_id, "", "invalid_dispatch_result", dispatch_duration_ms, false, {})
 		return
 	var dispatch = dispatch_variant as Dictionary
-	var backend_used := String(dispatch.get("backend_used", ""))
+	var backend_used := _normalize_gpu_backend_used(dispatch)
 	var dispatch_reason := String(dispatch.get("dispatch_reason", ""))
 	var native_tick_contract_variant = dispatch.get("native_tick_contract", {})
 	var native_tick_contract: Dictionary = native_tick_contract_variant if native_tick_contract_variant is Dictionary else {}
@@ -124,3 +124,21 @@ func _fail_native_voxel_dependency(runtime: Dictionary, simulation_controller: N
 		duration_ms,
 		dispatch
 	)
+
+func _normalize_gpu_backend_used(dispatch: Dictionary) -> String:
+	var backend_used := String(dispatch.get("backend_used", "")).strip_edges().to_lower()
+	if backend_used == "":
+		var voxel_result_variant = dispatch.get("voxel_result", {})
+		if voxel_result_variant is Dictionary and bool((voxel_result_variant as Dictionary).get("gpu_dispatched", false)):
+			backend_used = "gpu"
+	if backend_used == "":
+		var result_variant = dispatch.get("result", {})
+		if result_variant is Dictionary:
+			var execution_variant = (result_variant as Dictionary).get("execution", {})
+			if execution_variant is Dictionary and bool((execution_variant as Dictionary).get("gpu_dispatched", false)):
+				backend_used = "gpu"
+	if backend_used == "" and bool(dispatch.get("dispatched", false)):
+		backend_used = "gpu"
+	if backend_used.findn("gpu") != -1:
+		return "gpu"
+	return backend_used
