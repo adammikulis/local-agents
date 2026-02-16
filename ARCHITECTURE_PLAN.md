@@ -91,6 +91,31 @@ This plan is organized by engineering concern so work can be split into focused 
     - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
     - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
 
+- [ ] Wave 0D (`P0`): Full native dispatch ownership (no GDScript dispatch decisioning).
+  - Owner lanes:
+    - Native Compute
+    - Runtime Bindings
+    - Tests
+    - Validation
+  - Scope:
+    - Move final dispatch decision ownership (dispatch eligibility, selected op payload, and dispatch outcome authority) into native contracts.
+    - Keep GDScript bridge/runtime/world layers as typed wrappers/adapters only; GDScript must not perform dispatch-authoritative branching or fallback decisioning.
+    - Preserve explicit typed failures for missing native/GPU requirements; do not introduce CPU/GDScript-success fallback branches.
+  - File-size preconditions and split triggers (mandatory before implementation edits):
+    - `addons/local_agents/gdextensions/localagents/src/LocalAgentsSimulationCore.cpp` is currently 856 lines; hard-stop split trigger applies at `>=900` lines.
+    - `addons/local_agents/simulation/controller/NativeComputeBridge.gd` is currently 860 lines; hard-stop split trigger applies at `>=900` lines.
+    - If predicted delta for either file can push it above 900 lines, execute helper/module extraction before behavior edits.
+    - No task in this wave may allow either file to exceed the 1000-line repository cap.
+  - Acceptance criteria:
+    - Native contract output is the only authoritative source for dispatch decision/result fields consumed by runtime paths.
+    - No in-scope GDScript dispatch-authoritative decision branches remain reachable in bridge/runtime/world dispatch flow.
+    - Dispatch failures and native/GPU requirement failures are explicit and typed (`dispatch_failed`, `NATIVE_REQUIRED`/`native_unavailable`, `GPU_REQUIRED`/`gpu_unavailable`).
+    - Tests assert native-owned dispatch authority and reject GDScript fallback-success dispatch outcomes.
+  - Mandatory validation order:
+    - Non-headless launch first (real display path) to verify runtime startup and live dispatch execution path.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
 - [ ] Wave 0 (`P0`): Full native/GPU destruction authority migration.
   - Priority and owner lanes:
     - `P0`: Planning lane owns scope lock, fallback inventory, and phase gate definitions.
