@@ -3,6 +3,7 @@ extends RefCounted
 
 const SimulationControllerScript = preload("res://addons/local_agents/simulation/SimulationController.gd")
 const StructureLifecycleConfigResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/StructureLifecycleConfigResource.gd")
+const NativeComputeBridgeScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
 
 func run_test(tree: SceneTree) -> bool:
 	var sim = SimulationControllerScript.new()
@@ -21,6 +22,12 @@ func run_test(tree: SceneTree) -> bool:
 	for i in range(0, 6):
 		sim.register_villager("npc_sg_%d" % i, "SG_%d" % i, {"household_id": "home_growth"})
 
+	var native_available := _is_native_structure_lifecycle_available()
+	var dependency_errors: Array[String] = []
+	sim.simulation_dependency_error.connect(func(tick, phase, error_code):
+		dependency_errors.append("%d:%s:%s" % [int(tick), String(phase), String(error_code)])
+	)
+
 	var expanded = false
 	var max_huts = 0
 	for tick in range(1, 28):
@@ -32,6 +39,22 @@ func run_test(tree: SceneTree) -> bool:
 		var structures: Dictionary = state.get("structures", {})
 		var huts: Array = structures.get("home_growth", [])
 		max_huts = maxi(max_huts, huts.size())
+
+	if not native_available:
+		sim.queue_free()
+		var saw_structure_failure := false
+		for row in dependency_errors:
+			if row.find(":structure_lifecycle:gpu_required") != -1 or row.find(":structure_lifecycle:native_required") != -1:
+				saw_structure_failure = true
+				break
+		if expanded:
+			push_error("Expected no structure lifecycle expansion when native/GPU lifecycle path is unavailable")
+			return false
+		if not saw_structure_failure:
+			push_error("Expected structure lifecycle dependency error with gpu_required/native_required semantics when native path is unavailable")
+			return false
+		print("Settlement growth native-unavailable contract test passed")
+		return true
 
 	if not expanded:
 		push_error("Expected settlement growth to expand huts under sustained crowding/throughput")
@@ -67,3 +90,13 @@ func run_test(tree: SceneTree) -> bool:
 
 	print("Settlement growth deterministic test passed")
 	return true
+
+func _is_native_structure_lifecycle_available() -> bool:
+	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
+		return false
+	if not Engine.has_singleton(NativeComputeBridgeScript.NATIVE_SIM_CORE_SINGLETON_NAME):
+		return false
+	var core = Engine.get_singleton(NativeComputeBridgeScript.NATIVE_SIM_CORE_SINGLETON_NAME)
+	if core == null:
+		return false
+	return core.has_method("step_structure_lifecycle")

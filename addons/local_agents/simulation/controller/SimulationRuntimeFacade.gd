@@ -585,65 +585,79 @@ static func run_dialogue_cycle(controller, npc_ids: Array, tick: int) -> bool:
 	return true
 
 static func run_structure_lifecycle(controller, tick: int) -> void:
-	if NativeComputeBridgeScript.is_native_sim_core_enabled():
-		if not ensure_native_sim_core_initialized(controller, tick):
-			return
-		var lifecycle_payload: Dictionary = {
-			"config": controller._structure_lifecycle_config.to_dict() if controller._structure_lifecycle_config != null and controller._structure_lifecycle_config.has_method("to_dict") else {},
-			"structures": controller._structure_lifecycle_system.export_structures() if controller._structure_lifecycle_system != null else {},
-			"anchors": controller._structure_lifecycle_system.export_anchors() if controller._structure_lifecycle_system != null else [],
-			"runtime_state": controller._structure_lifecycle_system.export_runtime_state() if controller._structure_lifecycle_system != null else {},
-			"household_members": controller._household_member_counts(),
-			"household_metrics": controller._household_growth_metrics.duplicate(true),
-			"household_positions": controller._household_positions.duplicate(true),
-			"water_snapshot": controller._network_state_snapshot.duplicate(true),
-		}
-		var dispatch = NativeComputeBridgeScript.dispatch_stage_call(
-			controller,
+	controller._structure_lifecycle_events = _empty_structure_lifecycle_events()
+	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
+		controller._emit_dependency_error(tick, "structure_lifecycle", "gpu_required")
+		return
+	if not Engine.has_singleton(NativeComputeBridgeScript.NATIVE_SIM_CORE_SINGLETON_NAME):
+		controller._emit_dependency_error(tick, "structure_lifecycle", "native_required")
+		return
+	var native_core = Engine.get_singleton(NativeComputeBridgeScript.NATIVE_SIM_CORE_SINGLETON_NAME)
+	if native_core == null or not native_core.has_method("step_structure_lifecycle"):
+		controller._emit_dependency_error(tick, "structure_lifecycle", "native_required")
+		return
+	if not ensure_native_sim_core_initialized(controller, tick):
+		controller._emit_dependency_error(tick, "structure_lifecycle", "native_required")
+		return
+	var lifecycle_payload: Dictionary = {
+		"config": controller._structure_lifecycle_config.to_dict() if controller._structure_lifecycle_config != null and controller._structure_lifecycle_config.has_method("to_dict") else {},
+		"structures": controller._structure_lifecycle_system.export_structures() if controller._structure_lifecycle_system != null else {},
+		"anchors": controller._structure_lifecycle_system.export_anchors() if controller._structure_lifecycle_system != null else [],
+		"runtime_state": controller._structure_lifecycle_system.export_runtime_state() if controller._structure_lifecycle_system != null else {},
+		"household_members": controller._household_member_counts(),
+		"household_metrics": controller._household_growth_metrics.duplicate(true),
+		"household_positions": controller._household_positions.duplicate(true),
+		"water_snapshot": controller._network_state_snapshot.duplicate(true),
+	}
+	var dispatch = NativeComputeBridgeScript.dispatch_stage_call(
+		controller,
+		tick,
+		"structure_lifecycle",
+		"step_structure_lifecycle",
+		[tick, lifecycle_payload],
+		false
+	)
+	if not bool(dispatch.get("ok", false)):
+		controller._emit_dependency_error(
 			tick,
 			"structure_lifecycle",
-			"step_structure_lifecycle",
-			[tick, lifecycle_payload],
-			true
+			_structure_lifecycle_native_requirement_error(String(dispatch.get("error", "native_required")))
 		)
-		if not bool(dispatch.get("ok", false)):
-			return
-		var native_result = dispatch.get("result", {})
-		var native_payload: Dictionary = native_result if native_result is Dictionary else {}
-		var native_structures: Dictionary = native_payload.get("structures", {}) if native_payload.get("structures", {}) is Dictionary else {}
-		var native_anchors: Array = native_payload.get("anchors", []) if native_payload.get("anchors", []) is Array else []
-		var native_runtime_state: Dictionary = native_payload.get("runtime_state", {}) if native_payload.get("runtime_state", {}) is Dictionary else {}
-		if controller._structure_lifecycle_system != null:
-			controller._structure_lifecycle_system.import_lifecycle_state(
-				native_structures,
-				native_anchors,
-				native_runtime_state
-			)
-		controller._structure_lifecycle_events = {
-			"expanded": native_payload.get("expanded", []),
-			"abandoned": native_payload.get("abandoned", []),
-			"camps": native_payload.get("camps", []),
-			"path_extensions": native_payload.get("path_extensions", []),
-		}
-		_log_structure_lifecycle_events(controller, tick, controller._structure_lifecycle_events)
 		return
-	if controller._structure_lifecycle_system == null:
-		return
-	var household_counts = controller._household_member_counts()
-	var result: Dictionary = controller._structure_lifecycle_system.step_lifecycle(
-		tick,
-		household_counts,
-		controller._household_growth_metrics,
-		controller._household_positions,
-		controller._network_state_snapshot
-	)
+	var native_result = dispatch.get("result", {})
+	var native_payload: Dictionary = native_result if native_result is Dictionary else {}
+	var native_structures: Dictionary = native_payload.get("structures", {}) if native_payload.get("structures", {}) is Dictionary else {}
+	var native_anchors: Array = native_payload.get("anchors", []) if native_payload.get("anchors", []) is Array else []
+	var native_runtime_state: Dictionary = native_payload.get("runtime_state", {}) if native_payload.get("runtime_state", {}) is Dictionary else {}
+	if controller._structure_lifecycle_system != null:
+		controller._structure_lifecycle_system.import_lifecycle_state(
+			native_structures,
+			native_anchors,
+			native_runtime_state
+		)
 	controller._structure_lifecycle_events = {
-		"expanded": result.get("expanded", []),
-		"abandoned": result.get("abandoned", []),
-		"camps": result.get("camps", []),
-		"path_extensions": result.get("path_extensions", []),
+		"expanded": native_payload.get("expanded", []),
+		"abandoned": native_payload.get("abandoned", []),
+		"camps": native_payload.get("camps", []),
+		"path_extensions": native_payload.get("path_extensions", []),
 	}
 	_log_structure_lifecycle_events(controller, tick, controller._structure_lifecycle_events)
+
+static func _empty_structure_lifecycle_events() -> Dictionary:
+	return {
+		"expanded": [],
+		"abandoned": [],
+		"camps": [],
+		"path_extensions": [],
+	}
+
+static func _structure_lifecycle_native_requirement_error(raw_error: String) -> String:
+	var lowered := raw_error.strip_edges().to_lower()
+	if lowered.find("gpu") != -1 or lowered.find("native_sim_core_disabled") != -1:
+		return "gpu_required"
+	if lowered.find("native") != -1 or lowered.find("core_missing_method") != -1 or lowered.find("missing_method") != -1:
+		return "native_required"
+	return "native_required"
 
 static func _log_structure_lifecycle_events(controller, tick: int, events: Dictionary) -> void:
 	var expanded: Array = events.get("expanded", []) if events.get("expanded", []) is Array else []
