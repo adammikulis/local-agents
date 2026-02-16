@@ -18,7 +18,513 @@ This plan is organized by engineering concern so work can be split into focused 
 - [x] Main thread tracks deconflict/merge and drives the `ARCHITECTURE_PLAN.md -> execution -> verification -> commit` loop.
 - [x] Stale/finished sub-agents are proactively closed and replaced as needed.
 
-## Current Wave (pre-implementation)
+## Ordered Wave Sequence (Planning lane update 2026-02-16)
+
+- [ ] Wave 0 (`P0`): Full native/GPU destruction authority migration.
+  - Priority and owner lanes:
+    - `P0`: Planning lane owns scope lock, fallback inventory, and phase gate definitions.
+    - `P0`: Runtime Simulation lane owns removal of GDScript simulation-authority branches (keep orchestration only).
+    - `P0`: Native Compute lane owns native contract completion and GPU-required execution enforcement.
+    - `P0`: Validation/Test-Infrastructure lane owns gate evidence and fallback-forbidden assertions.
+    - `P1`: Documentation lane owns migration log, runbook updates, and invariant wording synchronization.
+  - Explicit mandate:
+    - Simulation-authoritative execution is native + GPU only.
+    - GDScript and CPU paths are orchestration/adapters only and must not become success-authoritative simulation fallbacks.
+    - Any missing required native/GPU capability is a hard failure, never a degraded success path.
+  - File-size preconditions (must be satisfied before implementation edits):
+    - `addons/local_agents/simulation/controller/NativeComputeBridge.gd` is currently near hard cap at ~992 lines; treat as split-required before adding new logic.
+    - No wave task may increase `NativeComputeBridge.gd` above 1000 lines; move non-call-site logic into focused helpers/modules first.
+    - If any planned delta touches `NativeComputeBridge.gd`, run a pre-edit extraction lane (or equivalent helper split) before behavior changes.
+  - Invariants (must hold before exit):
+    - `INV-NATIVE-001`: All voxel mutation, destruction, and simulation hot stages execute through native contracts.
+    - `INV-GPU-001`: Required GPU capabilities are present for active runtime; otherwise startup/stage exits with explicit failure (`GPU_REQUIRED` / `gpu_unavailable`).
+    - `INV-FALLBACK-001`: No CPU-success or GDScript-success fallback branch exists for primary simulation outcomes.
+    - `INV-CONTRACT-001`: Native dispatch/mutation failures are explicit and typed; silent no-op success is forbidden.
+    - `INV-VALIDATION-001`: "works/ready" claims require non-headless evidence first, then full headless sweeps on the same tree.
+  - Phased execution and acceptance gates:
+    - Phase A (Inventory + lock):
+      - Produce exact fallback inventory (file + branch + reason) for active simulation hot paths.
+      - Gate A acceptance: inventory is complete, owner-assigned, and no unresolved fallback branch remains untracked.
+    - Phase B (Contract hardening):
+      - Add/align typed native dispatch result taxonomy and fail-fast reason codes at all simulation boundaries.
+      - Gate B acceptance: every hot-stage call-site returns explicit typed failure when native/GPU preconditions fail.
+    - Phase C (Primary-path cutover):
+      - Route all authoritative simulation mutations/destruction through native/GPU path only.
+      - Gate C acceptance: contract tests prove canonical native path authority; fallback path assertions removed or converted to forbidden checks.
+    - Phase D (Fallback removal + error policy enforcement):
+      - Remove/deactivate remaining CPU/GDScript success fallback branches in simulation hot paths.
+      - Gate D acceptance: static + runtime checks show zero reachable CPU-success fallback path for simulation-authoritative outcomes.
+    - Phase E (Verification + closeout):
+      - Run required validation order and capture artifacts for non-headless + headless suites.
+      - Gate E acceptance: all mandatory commands pass on latest tree; docs + breaking change notes updated.
+  - Concrete migration checklist:
+    - [ ] Enumerate all simulation-authoritative branches currently executable outside native/GPU path.
+    - [ ] Tag each branch as remove/replace/delegate and assign owner lane + target wave.
+    - [ ] Lock typed error taxonomy for native-required and GPU-required failures.
+    - [ ] Convert any "fallback success" branch to explicit fail-fast outcome with diagnostics.
+    - [ ] Ensure runtime orchestrators only delegate to native contracts for mutation/destruction decisions.
+    - [ ] Add or update tests to assert `backend_used` is native/GPU on primary simulation paths.
+    - [ ] Add or update tests to assert missing native/GPU requirements fail with explicit typed reasons.
+    - [ ] Execute mandatory validation sequence and attach evidence before status claims.
+  - Acceptance criteria:
+    - Destruction/mutation authority is native/GPU only across active runtime hot paths.
+    - No CPU-success or GDScript-success fallback branch remains reachable for simulation-authoritative outcomes.
+    - Native/GPU precondition failures emit explicit typed reason codes (`GPU_REQUIRED`/`gpu_unavailable`, `NATIVE_REQUIRED`/`native_unavailable`).
+    - Validation evidence is recorded in required order on the same tree.
+  - Required validation order:
+    - Non-headless launch first (real display path) to verify startup and active runtime path on GPU-backed execution.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
+- [ ] Wave 1 (`P0`): Hard-fail mutation-deadline invariant + destruction reliability continuation.
+  - Owner lanes:
+    - Planning lane: invariant contract (`MAX_PROJECTILE_MUTATION_FRAMES`) and merge checkpoints.
+    - Runtime Simulation lane: projectile hit metadata emission/handoff (`projectile_id`, `hit_frame`, `deadline_frame`).
+    - Native Compute lane: deadline enforcement and explicit `PROJECTILE_MUTATION_DEADLINE_EXCEEDED` emission.
+    - Validation/Test-Infrastructure lane: bounded-frame contract and reliability regression matrix.
+    - Documentation lane (`P1`): migration + invariant notes after verification.
+  - Acceptance criteria:
+    - Valid destructible-hit projectiles mutate within bound or emit explicit deadline error (no silent no-op).
+    - Destruction reliability remains deterministic across repeated seeded runs.
+    - No active fallback path bypasses mutation decisioning.
+  - Risks:
+    - Frame-counter ownership drift between launcher/bridge/native can cause false deadline misses.
+    - Reliability fixes can mask queue backpressure if observability is incomplete.
+  - Required validation order:
+    - Non-headless launch first (real display path) to confirm startup + FPS projectile destruction behavior.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
+- [~] Wave 2 (`P0`): Collapse mutator to one canonical op path.
+  - Status (2026-02-16): Planning lane scope finalized for canonical single mutation path; implementation and validation lanes pending execution.
+  - Owner lanes:
+    - Planning lane: canonical op lifecycle contract + exact fallback-removal inventory.
+    - Runtime Simulation lane: remove duplicate mutator branch dependencies from runtime/test callers.
+    - Native Compute lane: keep one authoritative op-apply pass and explicit no-op/error taxonomy.
+    - Validation/Test-Infrastructure lane: canonical no-op taxonomy + removed-branch regression coverage.
+    - Documentation lane (`P1`): contract wording and migration notes after evidence lands.
+  - Concrete scope (canonical single mutation path):
+    - Canonical mutation authority in `apply_native_voxel_stage_delta`: `native_ops := _extract_native_op_payloads(payload)` then one `apply_native_voxel_ops_payload` invocation tagged `native_ops_payload_primary`.
+    - If canonical `native_ops` is empty, return explicit typed no-op/error (`native_voxel_op_payload_missing`) without attempting alternate mutation generation/apply branches.
+    - Preserve `mutation_path`/`mutation_path_state` contract shape, but constrain successful mutation path to canonical primary ops path only.
+  - Exact removals (redundant fallback branches and related callers):
+    - `addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd`: remove pre-op contact fallback branch `_apply_contact_confirmed_direct_fallback(..., _PATH_CONTACT_FALLBACK_PRE_OPS)`.
+    - `addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd`: remove changed-region surface-delta fallback branch tagged `_PATH_CHANGED_REGION_FALLBACK`.
+    - `addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd`: remove direct-impact synthetic op fallback apply pass (`_build_direct_impact_voxel_ops` as alternate source + second `apply_native_voxel_ops_payload` tagged `_PATH_DIRECT_IMPACT_OP_FALLBACK`).
+    - `addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd`: remove post-op contact fallback branch `_apply_contact_confirmed_direct_fallback(..., _PATH_CONTACT_FALLBACK_POST_OPS)`.
+    - `addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd`: delete now-unused path constants and helper-only fallback plumbing tied exclusively to those removed branches (`_PATH_CONTACT_FALLBACK_PRE_OPS`, `_PATH_CHANGED_REGION_FALLBACK`, `_PATH_DIRECT_IMPACT_OP_FALLBACK`, `_PATH_CONTACT_FALLBACK_POST_OPS`, plus `_apply_contact_confirmed_direct_fallback` if no remaining caller).
+    - `addons/local_agents/tests/test_fps_fire_contact_mutation_runtime_path.gd`: remove acceptance of fallback mutation paths; require canonical `mutation_path == "native_ops_payload_primary"` for success.
+    - `addons/local_agents/tests/test_projectile_direct_impact_mutation_guarantee.gd`: remove fallback-path expectations and assert canonical path / explicit typed no-op behavior only.
+  - Acceptance criteria:
+    - Exactly one successful mutation path remains: `mutation_path == "native_ops_payload_primary"` with `mutation_path_state == "success"`.
+    - Runtime no longer applies mutation via contact/changed-region/direct-impact fallback branches.
+    - Empty/missing canonical op payloads return explicit typed failure (`native_voxel_op_payload_missing`) and never silently mutate via alternate branches.
+    - `failure_paths`/diagnostics no longer reference removed fallback path tags.
+  - Risks:
+    - Existing tests and runtime observers currently expecting fallback mutation paths will fail until migrated atomically.
+    - Removal of synthetic/direct-contact fallback mutation may expose upstream payload production gaps (more explicit no-op failures).
+    - If helper cleanup is incomplete, dead constants/helpers can leave misleading diagnostics or partial branch reachability.
+  - Required validation order:
+    - Non-headless launch first (real display path): fire FPS projectiles at destructible targets and confirm mutation only occurs through canonical native op path; verify no parser/runtime scene errors.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_fps_fire_contact_mutation_runtime_path.gd --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_projectile_direct_impact_mutation_guarantee.gd --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_op_contracts.gd --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
+- [~] Wave 3 (`P1`): Split `WorldSimulation` dispatch/destruction orchestration.
+  - Status (2026-02-16): Planning lane in progress; extraction boundaries and owner mapping finalized for implementation handoff.
+  - Owner lanes:
+    - Planning lane: decomposition sequence, coupling-risk map, and file-size guardrail (`WorldSimulation.gd` must trend toward wiring-only and below 900-line precondition target).
+    - Runtime Simulation lane: execute helper/controller extraction and migrate call-sites in atomic slices.
+    - Validation/Test-Infrastructure lane: prove no behavior drift in dispatch/destruction orchestration and signal lifecycle wiring.
+    - Documentation lane (`P1`): record split map, migration notes, and post-merge ownership boundaries.
+  - Concrete extraction plan (dispatch/destruction complexity reduction):
+    - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd` (owner: Runtime Simulation lane):
+      - Keep as composition root only: `_ready()` wiring, dependency injection, and per-frame delegation.
+      - Remove inlined projectile dispatch/destruction branching logic; delegate to helper controllers.
+    - `addons/local_agents/scenes/simulation/controllers/world/WorldDispatchController.gd` (new, owner: Runtime Simulation lane):
+      - Own frame-level dispatch orchestration currently in `WorldSimulation` (`process-step gating`, `native stage trigger`, `result handoff routing`).
+      - Expose one typed entrypoint from `WorldSimulation` for per-frame dispatch (`run_dispatch_frame(delta, context)`).
+    - `addons/local_agents/scenes/simulation/controllers/world/WorldDestructionOrchestrator.gd` (new, owner: Runtime Simulation lane):
+      - Own projectile-contact to mutation orchestration (`contact intake`, `destruction request shaping`, `mutation outcome routing`).
+      - Isolate destruction-specific signals/events so `WorldSimulation` only subscribes/forwards.
+    - `addons/local_agents/scenes/simulation/controllers/world/WorldDispatchContracts.gd` (new typed helper `Resource`/contract module, owner: Runtime Simulation lane):
+      - Define typed runtime payload rows shared between dispatch and destruction controllers to reduce dictionary churn.
+      - Centralize contract normalization so validation and runtime use one schema source.
+    - `addons/local_agents/tests/test_projectile_voxel_destruction_runtime_path.gd` and `addons/local_agents/tests/test_native_voxel_op_contracts.gd` (owner: Validation/Test-Infrastructure lane):
+      - Update/extend assertions to validate helper-owned orchestration paths and unchanged mutation/error contract behavior.
+  - Migration sequence (implementation order):
+    - Phase 1: add `WorldDispatchContracts.gd` and `WorldDispatchController.gd` with adapter calls from `WorldSimulation` while preserving behavior.
+    - Phase 2: extract destruction routing into `WorldDestructionOrchestrator.gd`, rewire signals in `_ready()`, and remove duplicated inlined branches.
+    - Phase 3: prune dead inlined helpers/constants in `WorldSimulation.gd`; keep composition-only call sites.
+  - Acceptance criteria:
+    - `WorldSimulation.gd` functions as composition/wiring surface only; dispatch/destruction branch ownership moves to dedicated helpers.
+    - New helper/controller ownership is explicit and stable (`WorldDispatchController`, `WorldDestructionOrchestrator`, shared typed contract module).
+    - No behavior drift in projectile/destruction flow: canonical mutation path and explicit failure/no-op taxonomy remain unchanged.
+    - Signal lifecycle is explicit (`connect` in `_ready`, `disconnect` on teardown for non-trivial lifecycles) with no duplicate emissions.
+    - File-size objective met: `WorldSimulation.gd` reduced from current cap pressure and not increased by this wave.
+  - Risks:
+    - Signal rewiring mistakes can create dropped dispatch events or duplicate destruction emissions.
+    - Temporary dual-path routing during migration can mask contract regressions if old branches are not removed atomically.
+    - Typed contract extraction can break callers still passing legacy dictionary shapes.
+    - Split sequencing errors can leave `WorldSimulation` partially coupled to helper internals.
+  - Required validation order:
+    - Non-headless launch first (real display path): run FPS projectile firing against destructible targets and verify startup + runtime scene stability with helper-owned dispatch/destruction routing.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_projectile_voxel_destruction_runtime_path.gd --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_op_contracts.gd --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
+- [ ] Wave 4 (`P1`): Reduce dictionary contract churn in bridge/mutator.
+  - Owner lanes:
+    - Planning lane: typed-boundary schema map.
+    - Runtime Simulation lane: normalize typed rows/resources at bridge boundaries.
+    - Native Compute lane: align native payload readers with normalized schema.
+    - Validation/Test-Infrastructure lane: schema parity and malformed-payload behavior tests.
+    - Documentation lane (`P1`): schema/migration notes.
+  - Acceptance criteria:
+    - Bridge/mutator hot-path dictionary shape churn is replaced with stable typed boundary access.
+    - Malformed payloads fail explicitly with structured reasons.
+  - Risks:
+    - Schema drift between GDScript and native.
+    - Large call-site migration increasing short-term integration risk.
+  - Required validation order:
+    - Non-headless launch first.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
+- [~] Wave 5 (`P2`): Unify destruction diagnostics source.
+  - Status (2026-02-16): Planning lane scope/ownership locked for single-source destruction diagnostics; implementation and validation lanes pending execution.
+  - Owner lanes:
+    - Planning lane: single-source destruction diagnostics contract and consumer migration order.
+    - Runtime Simulation lane: remove parallel GDScript-side destruction/projectile diagnostic emitters and consume canonical snapshot only.
+    - Native Compute lane: sole producer ownership for destruction diagnostics snapshot and reason-code taxonomy.
+    - Validation/Test-Infrastructure lane: consumer contract assertions and deprecated-key regression checks.
+    - Documentation lane (`P1`): diagnostics key semantics, deprecation timeline, and migration notes.
+  - Scope (single-source ownership + contracts):
+    - Single-source owner: `Native Compute lane` owns destruction diagnostics production end-to-end (`LocalAgentsSimulationCore` stage outputs and bridge-facing snapshot assembly); runtime lanes are read-only consumers.
+    - Canonical contract surface is one destruction diagnostics snapshot channel per tick with stable keys:
+      - `hits_queued`
+      - `contacts_dispatched`
+      - `plans_planned`
+      - `ops_applied`
+      - `changed_tiles`
+      - `last_drop_reason`
+    - Required consumer contract: HUD/perf overlay, runtime log emitters, and tests must read only the canonical snapshot and must not derive or overwrite parallel counters from local controller state.
+    - Required consumer contract: all missing-data cases must be explicit typed diagnostics (`diagnostics_unavailable` with reason code), never silent zero-fill that can mask pipeline failures.
+    - Required consumer contract: deprecated destruction diagnostics keys are removed from active reads after migration and guarded by regression tests to prevent reintroduction.
+  - Acceptance criteria:
+    - Destruction diagnostics values originate from one authoritative native-owned snapshot path.
+    - HUD/log/test consumers read the same contract keys and no longer read competing fields.
+    - Deprecated diagnostics keys are either absent or explicitly mapped in one adapter with a scheduled removal gate.
+  - Risks:
+    - Temporary observability blind spots during source cutover.
+    - Consumers still bound to deprecated keys.
+    - Snapshot schema drift between native output and runtime adapters can create false-negative diagnostics.
+  - Required validation order:
+    - Non-headless launch first.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
+- [ ] Wave 6 (`P2`): Parse/teardown hygiene issues.
+  - Owner lanes:
+    - Planning lane: parser/teardown defect inventory and priority order.
+    - Runtime Simulation lane: `_ready`/`_exit_tree` and signal connect/disconnect hygiene fixes.
+    - Validation/Test-Infrastructure lane: teardown/restart repeatability tests and parser smoke checks.
+    - Documentation lane (`P1`): preventative-pattern log updates if new avoidable failures are found.
+  - Acceptance criteria:
+    - No recurring parse errors from known anti-patterns on launch.
+    - Teardown/reload cycles do not leak stale connections or worker lifecycle artifacts.
+  - Risks:
+    - Cleanup ordering changes can break latent assumptions in controller startup.
+    - Teardown bugs may only reproduce under repeated launches.
+  - Required validation order:
+    - Non-headless launch first.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
+### Wave 1 Concrete Ownership and Test Plan
+
+- File ownership:
+  - Runtime Simulation lane:
+    - `addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd`
+    - `addons/local_agents/simulation/controller/NativeComputeBridge.gd`
+  - Native Compute lane:
+    - `addons/local_agents/gdextensions/localagents/src/LocalAgentsSimulationCore.cpp`
+    - `addons/local_agents/gdextensions/localagents/include/LocalAgentsSimulationCore.hpp`
+    - `addons/local_agents/gdextensions/localagents/src/LocalAgentsEnvironmentStageExecutor.cpp`
+    - `addons/local_agents/gdextensions/localagents/include/LocalAgentsEnvironmentStageExecutor.hpp`
+    - `addons/local_agents/gdextensions/localagents/src/SimulationFailureEmissionPlanner.cpp`
+  - Validation/Test-Infrastructure lane:
+    - `addons/local_agents/tests/test_projectile_voxel_destruction_runtime_path.gd`
+    - `addons/local_agents/tests/test_native_voxel_op_contracts.gd`
+    - `addons/local_agents/tests/test_fps_launcher_contact_rows.gd`
+    - `addons/local_agents/tests/test_voxel_chunk_collision_parity_contracts.gd`
+
+- Test plan (required order):
+  - Non-headless first: launch runtime through real display path; fire FPS projectiles at destructible voxel targets; verify mutation-within-bound or explicit deadline error payload.
+  - Focused contracts:
+    - `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_projectile_voxel_destruction_runtime_path.gd --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_op_contracts.gd --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_fps_launcher_contact_rows.gd --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_voxel_chunk_collision_parity_contracts.gd --timeout=120`
+  - Full sweep gates:
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
+## Current Wave (execution started 2026-02-16)
+
+- [ ] P0 (Owners: Planning lane, Runtime Simulation lane, Native Compute lane, Validation/Test-Infrastructure lane, Documentation lane): Performance simplification wave - projectile + native voxel pipeline allocation/copy reduction.
+  - Scope (simplification-first, no behavior fallback expansion):
+    - Remove duplicated projectile/contact payload copies between FPS launcher, bridge buffering, and native ingestion boundaries.
+    - Collapse redundant fallback passes in projectile-to-destruction routing so one authoritative pass handles mutation planning.
+    - Reduce per-frame allocations and avoid recursive rebuild patterns on hot projectile/destruction paths.
+    - Replace repeated deep dictionary traversals with normalized typed row/resource contracts at handoff boundaries.
+  - P-band and lane ownership:
+    - `P0`: Planning lane owns simplification contract, decomposition, and merge/deconflict checkpoints.
+    - `P0`: Runtime Simulation lane owns launcher/bridge payload normalization and duplicate-copy removal in GDScript hot path.
+    - `P0`: Native Compute lane owns fallback-pass collapse and allocation/traversal simplification in native stage execution.
+    - `P0`: Validation/Test-Infrastructure lane owns perf-regression contract checks and deterministic runtime verification.
+    - `P1`: Documentation lane owns migration notes and process wording sync after validation evidence lands.
+  - Concrete file-level decomposition (implementation lanes):
+    - Runtime Simulation lane:
+      - `addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd` (emit canonical typed projectile/contact payload once per hit; remove duplicate intermediate copy steps).
+      - `addons/local_agents/simulation/controller/NativeComputeBridge.gd` (single authoritative handoff buffer and typed field extraction; remove redundant fallback translation passes).
+      - `addons/local_agents/simulation/controller/SimulationRuntimeFacade.gd` (keep one dispatch pass for projectile/native sync and remove duplicate per-frame routing loops).
+    - Native Compute lane:
+      - `addons/local_agents/gdextensions/localagents/src/LocalAgentsSimulationCore.cpp` (single-pass projectile contact ingestion and mutation planning inputs).
+      - `addons/local_agents/gdextensions/localagents/include/LocalAgentsSimulationCore.hpp` (typed payload/queue contract updates for copy-free pass-through).
+      - `addons/local_agents/gdextensions/localagents/src/LocalAgentsEnvironmentStageExecutor.cpp` (collapse redundant fallback execution passes and avoid recursive mutation staging).
+      - `addons/local_agents/gdextensions/localagents/include/LocalAgentsEnvironmentStageExecutor.hpp` (stage contract alignment for single-pass execution).
+      - `addons/local_agents/gdextensions/localagents/src/SimulationFailureEmissionPlanner.cpp` (remove repeated deep dictionary-style traversal patterns in failure/destruction planning inputs).
+  - Concrete file-level decomposition (validation + documentation lanes):
+    - Validation/Test-Infrastructure lane:
+      - `addons/local_agents/tests/test_projectile_voxel_destruction_runtime_path.gd` (assert no duplicated route side effects and stable destruction outcomes).
+      - `addons/local_agents/tests/test_native_voxel_op_contracts.gd` (single-pass mutation/no-op contract with explicit reason taxonomy).
+      - `addons/local_agents/tests/benchmark_voxel_pipeline.gd` (allocation/copy regression budget checks for projectile/native voxel path).
+      - `addons/local_agents/tests/run_all_tests.gd` and `addons/local_agents/tests/run_runtime_tests_bounded.gd` (coverage anchors only; canonical invocation unchanged).
+    - Documentation lane:
+      - `ARCHITECTURE_PLAN.md` (wave status, acceptance evidence, risk tracking, and rollback notes if needed).
+      - `README.md` and `GODOT_BEST_PRACTICES.md` (only if command/process wording changes).
+  - Acceptance criteria:
+    - Projectile impact payload is materialized once per hit and consumed through one authoritative bridge-to-native route without duplicate copy buffers.
+    - Redundant fallback mutation passes are removed; active runtime behavior uses one deterministic mutation planning pass.
+    - Per-frame hot path shows reduced transient allocations and no recursive mutation routing on projectile destruction updates.
+    - Deep dictionary traversal on projectile/destruction hot path is replaced by normalized typed contract access at boundaries.
+    - Existing voxel-destruction behavior and explicit error emission contracts remain intact (no silent no-op regressions).
+  - Risks:
+    - Over-aggressive copy elimination can expose shared-mutation aliasing bugs if ownership/lifetime boundaries are not explicit.
+    - Fallback-pass collapse can remove latent safety behavior if hidden call-sites still depend on old branches.
+    - Typed contract tightening can break older payload producers until all call-sites are migrated atomically.
+    - Perf assertions can flake if benchmark scene/setup and frame budget sampling are not stabilized.
+  - Required validation order (mandatory sequence):
+    - Non-headless launch first (real display/video path): run FPS projectile impacts against destructible voxels, confirm no parser/runtime scene errors and stable destruction behavior after simplification.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/benchmark_voxel_pipeline.gd -- --timeout=120`
+
+- [ ] P0 (Owners: Planning lane, Runtime Simulation lane, Native Compute lane, Validation/Test-Infrastructure lane, Documentation lane): Breaking wave - direct, reliable FPS projectile destruction with bounded-frame voxel mutation invariant.
+  - Scope (breaking, direct-path authority):
+    - Make FPS projectile impact -> native destruction -> voxel mutation a single authoritative path with no legacy rigidbody/sample fallback route.
+    - Require deterministic handoff from FPS impact payloads into native destruction planning in the same simulation ownership chain.
+    - Remove or disconnect legacy branches that allow projectile impacts to complete without a voxel mutation decision.
+  - Hard invariant (must hold):
+    - For every valid FPS projectile hit on a destructible voxel target, voxel mutation must be observed within a bounded number of simulation frames (`MAX_PROJECTILE_MUTATION_FRAMES`).
+    - If mutation is not observed within bound, runtime must emit an explicit structured error (`PROJECTILE_MUTATION_DEADLINE_EXCEEDED`) with projectile id, hit frame, deadline frame, and contact summary (no silent no-op).
+  - P-band and lane ownership:
+    - `P0`: Planning lane owns contract decomposition, bounded-frame invariant definition, and merge/deconflict checkpoints.
+    - `P0`: Runtime Simulation lane owns FPS projectile event emission, impact normalization, and bridge handoff wiring.
+    - `P0`: Native Compute lane owns queue consumption, destruction decisioning, and bounded-frame invariant enforcement at native stage boundaries.
+    - `P0`: Validation/Test-Infrastructure lane owns deterministic bounded-frame contract coverage plus regression matrix execution.
+    - `P1`: Documentation lane owns migration notes and process wording sync after verification evidence lands.
+  - Concrete file-level decomposition (implementation lanes):
+    - Runtime Simulation lane:
+      - `addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd` (authoritative projectile-hit payload normalization and id/deadline metadata emission).
+      - `addons/local_agents/simulation/controller/NativeComputeBridge.gd` (bridge contract fields for projectile mutation deadline tracking and explicit failure propagation).
+      - `addons/local_agents/scenes/simulation/controllers/world/WorldInputController.gd` (fire-mode gating stability only; no new destruction authority).
+      - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd` (wiring-only updates; keep orchestration minimal and helper-first if growth risk appears).
+    - Native Compute lane:
+      - `addons/local_agents/gdextensions/localagents/src/LocalAgentsSimulationCore.cpp`
+      - `addons/local_agents/gdextensions/localagents/include/LocalAgentsSimulationCore.hpp`
+      - `addons/local_agents/gdextensions/localagents/src/LocalAgentsEnvironmentStageExecutor.cpp`
+      - `addons/local_agents/gdextensions/localagents/include/LocalAgentsEnvironmentStageExecutor.hpp`
+      - `addons/local_agents/gdextensions/localagents/src/SimulationFailureEmissionPlanner.cpp` (mutation deadline miss taxonomy and explicit error payload path).
+  - Concrete file-level decomposition (validation lanes):
+    - Validation/Test-Infrastructure lane:
+      - `addons/local_agents/tests/test_projectile_voxel_destruction_runtime_path.gd` (bounded-frame mutation success contract).
+      - `addons/local_agents/tests/test_native_voxel_op_contracts.gd` (explicit failure contract for mutation deadline exceedance).
+      - `addons/local_agents/tests/test_fps_launcher_contact_rows.gd` (projectile id/hit-frame/deadline-frame schema coverage).
+      - `addons/local_agents/tests/test_voxel_chunk_collision_parity_contracts.gd` (deterministic collision-to-mutation parity under repeated seeded runs).
+      - `addons/local_agents/tests/run_all_tests.gd` (coverage anchor only; invocation remains canonical).
+      - `addons/local_agents/tests/run_runtime_tests_bounded.gd` (coverage anchor only; invocation remains canonical).
+    - Documentation lane:
+      - `ARCHITECTURE_PLAN.md` (wave status, acceptance evidence, and risk tracking).
+      - `README.md` and `GODOT_BEST_PRACTICES.md` (only if command/process or contract wording changes).
+  - Acceptance criteria:
+    - Valid FPS projectile hits on destructible voxel targets always produce voxel mutation within `MAX_PROJECTILE_MUTATION_FRAMES`.
+    - Mutation-deadline misses always emit explicit `PROJECTILE_MUTATION_DEADLINE_EXCEEDED` errors with required structured context.
+    - No authoritative runtime path remains where projectile hit processing can succeed silently without mutation decision output.
+    - Legacy rigidbody/sample fallback paths for projectile destruction are removed or fully disconnected from active runtime behavior.
+    - GPU-required hard-fail semantics remain intact (`GPU_REQUIRED`/`gpu_unavailable`) with no degraded non-GPU branch.
+  - Risks:
+    - Frame-bound invariant can flake if frame/tick ownership differs between launcher, bridge, and native stage without one canonical frame counter contract.
+    - Schema drift in projectile metadata (`projectile_id`, `hit_frame`, `deadline_frame`) can produce false deadline failures or hidden no-op mutations.
+    - Forcing explicit error emission on deadline misses can increase surfaced failures quickly if queue backpressure is not bounded.
+    - `WorldSimulation.gd` orchestration edits can violate file-size/coupling limits unless helper-first discipline is maintained.
+  - Required validation order (mandatory sequence):
+    - Non-headless launch first (real display/video path): enter FPS mode, fire at destructible voxel target, verify mutation occurs within bound or explicit deadline error is surfaced; confirm no parser/runtime scene errors.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
+- [ ] P0 (Owners: Planning lane, Runtime Simulation lane, Native Compute lane, Validation/Test-Infrastructure lane, Documentation lane): Breaking wave - replace FPS `RigidBody3D` projectile path with dense hard voxel-chunk projectiles.
+  - Scope (breaking, voxel-native authoritative path):
+    - Remove `RigidBody3D` as the primary FPS projectile representation and replace fire/spawn flow with deterministic dense hard voxel-chunk projectile instances.
+    - Keep destruction authoritative in native voxel pipeline; projectile impacts must emit canonical contact/destruction intents without rigidbody-dependent sampling paths.
+    - Delete/retire legacy rigidbody projectile scene/script wiring after voxel-chunk path is live (no compatibility shim layer).
+  - P-band and lane ownership:
+    - `P0`: Planning lane owns decomposition, dependency map, and merge/deconflict checkpoints before implementation starts.
+    - `P0`: Runtime Simulation lane owns FPS input/fire orchestration and projectile lifecycle migration to voxel-chunk representations.
+    - `P0`: Native Compute lane owns dense chunk projectile ingestion/collision/destruction contract in native stage execution.
+    - `P0`: Validation/Test-Infrastructure lane owns harness updates and explicit runtime/contract regression coverage.
+    - `P1`: Documentation lane owns migration notes and command/process docs synchronization after validation evidence lands.
+  - Concrete implementation decomposition (files):
+    - Runtime Simulation lane:
+      - `addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd` (remove rigidbody spawn/contact queue ownership, route fire events to voxel-chunk projectile service).
+      - `addons/local_agents/scenes/simulation/controllers/world/WorldInputController.gd` (keep mode-gated fire triggers stable during launcher migration).
+      - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd` (wiring only; avoid growth and split to helpers if call-site churn increases).
+      - `addons/local_agents/scenes/simulation/actors/FpsLauncherProjectile.gd` and `addons/local_agents/scenes/simulation/actors/FpsLauncherProjectile.tscn` (deprecate/remove rigidbody actor path once replacement is integrated).
+    - Native Compute lane:
+      - `addons/local_agents/simulation/controller/NativeComputeBridge.gd` (new/updated dispatch payload for dense hard voxel-chunk projectile events).
+      - `addons/local_agents/gdextensions/localagents/src/LocalAgentsSimulationCore.cpp`
+      - `addons/local_agents/gdextensions/localagents/include/LocalAgentsSimulationCore.hpp`
+      - `addons/local_agents/gdextensions/localagents/src/LocalAgentsEnvironmentStageExecutor.cpp`
+      - `addons/local_agents/gdextensions/localagents/include/LocalAgentsEnvironmentStageExecutor.hpp`
+    - Validation/Test-Infrastructure lane:
+      - `addons/local_agents/tests/test_projectile_voxel_destruction_runtime_path.gd`
+      - `addons/local_agents/tests/test_fps_launcher_contact_rows.gd` (migrate expectations from rigidbody contact rows to voxel-chunk projectile contract).
+      - `addons/local_agents/tests/test_voxel_chunk_collision_parity_contracts.gd`
+      - `addons/local_agents/tests/run_all_tests.gd` and `addons/local_agents/tests/run_runtime_tests_bounded.gd` (coverage anchors only; keep canonical invocation unchanged).
+    - Documentation lane:
+      - `ARCHITECTURE_PLAN.md`, `README.md`, `GODOT_BEST_PRACTICES.md` (breaking migration notes and validation/process wording updates only when behavior/commands change).
+  - Acceptance criteria:
+    - FPS fire path no longer instantiates `RigidBody3D` projectiles on the authoritative runtime route.
+    - Dense hard voxel-chunk projectiles produce deterministic collision/destruction intents on destructible voxel targets.
+    - Native destruction pipeline remains authoritative and receives projectile events without rigidbody sampling/bridge fallback paths.
+    - Legacy rigidbody projectile files/routes are removed or fully disconnected from active runtime behavior.
+    - GPU-required semantics remain hard-fail (`GPU_REQUIRED`) with no degraded non-GPU path added.
+  - Risks:
+    - Runtime/native schema drift during migration can cause silent no-op destruction if event contracts are not version-locked and tested together.
+    - Dense projectile representation can increase per-tick cost and memory pressure unless chunk density bounds and lifetimes are explicit.
+    - Partial removal of rigidbody routes can leave dual-path behavior and non-deterministic impact ordering.
+    - `WorldSimulation.gd` call-site growth risk near size cap requires helper-first extraction if edits expand orchestration surface.
+  - Required validation sequence (mandatory order):
+    - Non-headless launch first (real display/video path): enter FPS mode, fire into destructible voxel target, confirm dense voxel-chunk projectiles spawn and destruct immediately with no parser/runtime scene errors.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
+- [ ] P0 (Owners: Planning lane, Runtime Simulation lane, Native Compute lane, Validation/Test-Infrastructure lane, Documentation lane): Breaking migration wave - projectile destruction pipeline authoritative queue + contract hardening.
+  - Scope (breaking, contract-first):
+    - Native-owned impact queue is authoritative for projectile destruction intent ingestion and consumption.
+    - Native destruction stage is forced whenever the impact queue is non-empty; stage execution is decoupled from render pulse cadence.
+    - Canonical mutation contract is mandatory per destruction tick: emit concrete ops or an explicit structured no-op reason (no silent empty apply).
+    - Remove legacy sample/clear brittle handoff paths that can drop queued impacts between bridge and native stage boundaries.
+    - Add observability counters spanning queue ingestion, queue consumption, and mutation application (`queue_received`, `queue_consumed`, `ops_applied`, `noop_with_reason`).
+  - P-band and lane ownership:
+    - `P0`: Runtime Simulation lane + Native Compute lane implement contract and stage authority changes.
+    - `P0`: Validation/Test-Infrastructure lane owns regression coverage and required command matrix execution.
+    - `P1`: Documentation lane updates migration notes and contract text after implementation and validation evidence lands.
+  - Concrete file ownership decomposition (implementation/validation lanes):
+    - Runtime Simulation lane:
+      - `addons/local_agents/simulation/controller/NativeComputeBridge.gd`
+      - `addons/local_agents/simulation/controller/SimulationRuntimeFacade.gd`
+      - `addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd` (only if contact payload normalization is required for canonical queue contract)
+    - Native Compute lane:
+      - `addons/local_agents/gdextensions/localagents/src/LocalAgentsSimulationCore.cpp`
+      - `addons/local_agents/gdextensions/localagents/include/LocalAgentsSimulationCore.hpp`
+      - `addons/local_agents/gdextensions/localagents/src/LocalAgentsEnvironmentStageExecutor.cpp`
+      - `addons/local_agents/gdextensions/localagents/include/LocalAgentsEnvironmentStageExecutor.hpp`
+      - `addons/local_agents/gdextensions/localagents/src/SimulationFailureEmissionPlanner.cpp`
+    - Validation/Test-Infrastructure lane:
+      - `addons/local_agents/tests/test_native_voxel_op_contracts.gd`
+      - `addons/local_agents/tests/test_native_general_physics_wave_a_runtime.gd` (or a new focused projectile queue contract test)
+      - `addons/local_agents/tests/run_all_tests.gd` (coverage anchor only; invocation remains canonical)
+      - `addons/local_agents/tests/run_runtime_tests_bounded.gd` (coverage anchor only; invocation remains canonical)
+    - Documentation lane:
+      - `ARCHITECTURE_PLAN.md` (breaking migration status + acceptance evidence)
+      - `GODOT_BEST_PRACTICES.md` and `README.md` (only if command/process wording or contract claims change)
+  - Acceptance criteria:
+    - Projectile impact ingestion writes only to native-owned queue state; no parallel legacy buffer is authoritative.
+    - If queue depth is greater than zero, native destruction stage runs in that tick regardless of render pulse cadence.
+    - Destruction mutation result contract is explicit every tick: either non-empty ops or explicit `no_op_reason` taxonomy (for example `queue_empty`, `invalid_contact_schema`, `below_threshold`).
+    - Legacy sample/clear handoff paths are removed from active runtime route; no dual-write or dual-clear behavior remains.
+    - Observability counters report monotonic queue lifecycle transitions (`queue_received >= queue_consumed >= ops_applied + noop_with_reason`) and are surfaced through existing diagnostics/telemetry pathway.
+  - Risk calls:
+    - Queue ownership migration can introduce duplicate-consume or lost-impact bugs if bridge/native clear semantics are not cut over atomically.
+    - Forcing destruction stage on non-empty queue can increase stage frequency and expose hidden ordering/perf regressions without bounded metrics.
+    - Canonical no-op taxonomy can drift between GDScript and native if reason enums are not shared and contract-tested.
+    - Removing brittle legacy handoff code can break stale callers unless all old paths are deleted/rewired in the same wave.
+  - Required validation sequence (mandatory order):
+    - Non-headless launch first (real display/video path): fire FPS projectiles into destructible voxel target, confirm queue-driven destruction triggers immediately and no parser/runtime scene errors occur.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
+- [ ] P0 (Owners: Planning lane, Runtime Simulation lane, Native Compute lane, Validation/Test-Infrastructure lane, Documentation lane): Hotfix wave - FPS-launched projectiles still do not destroy voxels.
+  - Scope (bounded, contract-first):
+    - `addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd`: verify and normalize FPS projectile contact payload fields (position, normal, impulse, relative velocity/speed, collider metadata) before bridge handoff.
+    - `addons/local_agents/simulation/controller/NativeComputeBridge.gd`: ensure per-pulse `physics_contacts` sync (`clear_physics_contacts` then `ingest_physics_contacts`) and hard-fail status on contact-ingest contract mismatch.
+    - `addons/local_agents/gdextensions/localagents/src/SimulationFailureEmissionPlanner.cpp` (+ related native contact-mapping helper if required): align contact schema consumption with launcher/bridge payload contract used by failure-emission voxel destruction planning.
+    - `addons/local_agents/tests/test_native_voxel_op_contracts.gd` and/or focused FPS projectile destruction contract test under `addons/local_agents/tests/`: assert that FPS projectile contacts produce deterministic voxel destruction intents and do not silently no-op.
+  - File-size preconditions:
+    - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd` remains excluded (at hard cap); do not route this hotfix through world-orchestration growth.
+    - `addons/local_agents/simulation/controller/NativeComputeBridge.gd` is near split threshold; keep delta minimal and split helper logic immediately if projected size crosses limits.
+  - Acceptance criteria:
+    - FPS-launched projectile impacts generate non-empty normalized contact rows on valid voxel-target hits.
+    - Normalized contact rows reach native failure-emission planning on every environment pulse; stale contacts are cleared when no impacts are present.
+    - Native failure-emission planner produces voxel destruction operations for valid FPS projectile impacts with no silent contract downgrade.
+    - Contract failures are surfaced explicitly (`contract_mismatch`/dispatch failure taxonomy), preserving GPU-required hard-fail behavior.
+  - Risks:
+    - Schema drift between launcher payload, bridge normalization, and native planner contact readers can cause persistent no-op destruction.
+    - Over-fixing in `WorldSimulation.gd` would violate file-size/coupling constraints and delay the hotfix.
+    - Partial validation (headless-only) can miss runtime event-wiring regressions in FPS input/impact flow.
+  - Required validation sequence (mandatory order):
+    - Non-headless launch first (real display/video path): enter FPS mode, fire at destructible voxel wall, confirm impact produces immediate destruction and no parser/runtime scene errors.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
+- [ ] P1 (Owners: Planning lane, Runtime Simulation lane, HUD/UI lane, Validation/Test-Infrastructure lane, Documentation lane): Stabilize FPS observability contract and FPS movement frame-of-reference contract.
+  - Scope:
+    - `addons/local_agents/scenes/simulation/controllers/PerformanceTelemetryServer.gd`: keep `fps` sourcing canonical (`Performance.TIME_FPS`) and make update cadence/field contract explicit for downstream HUD formatting.
+    - `addons/local_agents/scenes/simulation/ui/SimulationHudPresenter.gd`: keep FPS text formatting canonical (`FPS`, computed `ms`, memory/object/draw metrics, backend flags) and avoid duplicate/competing FPS formatters.
+    - `addons/local_agents/scenes/simulation/ui/hud/SimulationHudPerformancePanelController.gd` + `addons/local_agents/scenes/simulation/ui/SimulationHud.gd`: keep single-sink `PerfLabel` update path and ensure no side-path writes bypass presenter formatting.
+    - `addons/local_agents/scenes/simulation/controllers/world/WorldInputController.gd` + `addons/local_agents/scenes/simulation/controllers/world/WorldCameraController.gd`: lock movement frame-of-reference as camera-relative planar basis (`forward/right` projected to XZ) with explicit per-frame stepping ownership.
+  - File-size preconditions:
+    - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd` is at the 1000-line cap and must not be expanded; prefer helper/controller edits under `controllers/world/` and `ui/`.
+    - In-scope FPS/movement helper files are currently below 900 lines and can absorb scoped edits without forced pre-split.
+  - Acceptance criteria:
+    - FPS HUD value follows one canonical path: telemetry emit -> presenter format -> HUD performance panel label update.
+    - FPS label semantics remain stable (`FPS N (X ms)` derived from telemetry `fps`) with no conflicting parallel formatter.
+    - FPS movement frame of reference is explicitly defined and preserved: `W/S` and `A/D` resolve against camera basis projected to horizontal plane (`y = 0`), with normalized diagonal movement.
+    - Per-frame FPS movement stepping remains owned by input controller frame callback -> camera controller `step_fps(delta)` and stays mode-gated.
+  - Risks:
+    - Mixed timing semantics (telemetry refresh interval vs movement per-frame delta) can cause apparent mismatch between displayed FPS and locomotion feel if not documented.
+    - Future edits may accidentally reintroduce pitch-coupled vertical movement unless planar projection is contract-guarded.
+    - `WorldSimulation.gd` cap pressure can trigger accidental scope expansion unless orchestration changes stay minimal.
+  - Validation sequence (required order):
+    - Non-headless launch first (real display/video path): verify FPS label updates while toggling FPS mode and moving camera; confirm no parse/runtime scene errors.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+  - Lane B implementation slice (2026-02-16):
+    - `P1` Runtime Simulation + HUD/UI ownership:
+      - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd`
+      - `addons/local_agents/scenes/simulation/ui/SimulationHudPresenter.gd`
+      - `addons/local_agents/scenes/simulation/ui/SimulationHud.gd`
+      - `addons/local_agents/scenes/simulation/ui/hud/SimulationHudPerformancePanelController.gd` (no behavior change expected; compatibility verification only)
+    - Acceptance addendum:
+      - Expose runtime destruction pipeline diagnostics in the top-right performance block: `hits_queued`, `contacts_dispatched`, `plans_planned`, `ops_applied`, `changed_tiles`, `last_drop_reason`.
+      - Maintain existing HUD render/update path and existing backend flags format compatibility.
+    - File-size guardrail:
+      - `WorldSimulation.gd` is above split threshold; extract helper-first diagnostics logic to avoid crossing 1000-line hard limit.
 
 - [ ] P0 (Owners: Runtime Simulation lane B, Native Compute lane, Validation/Test-Infrastructure lane): Make FPS projectile contacts reliably drive voxel destruction through native failure-emission orchestration.
   - Scope:
