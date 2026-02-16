@@ -5,6 +5,8 @@ const NATIVE_FAILURE_EMISSION_PLANNER_CPP_PATH := "res://addons/local_agents/gde
 const NATIVE_FAILURE_EMISSION_NOISE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/FailureEmissionDeterministicNoise.cpp"
 const NATIVE_CORE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/LocalAgentsSimulationCore.cpp"
 const WORLD_SIMULATION_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd"
+const WORLD_DISPATCH_CONTROLLER_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/world/WorldDispatchController.gd"
+const WORLD_DISPATCH_CONTRACTS_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/world/WorldDispatchContracts.gd"
 
 func run_test(_tree: SceneTree) -> bool:
 	var planner_source := _read_source(NATIVE_FAILURE_EMISSION_PLANNER_CPP_PATH)
@@ -19,11 +21,17 @@ func run_test(_tree: SceneTree) -> bool:
 	var world_simulation_source := _read_source(WORLD_SIMULATION_GD_PATH)
 	if world_simulation_source == "":
 		return false
+	var world_dispatch_controller_source := _read_source(WORLD_DISPATCH_CONTROLLER_GD_PATH)
+	if world_dispatch_controller_source == "":
+		return false
+	var world_dispatch_contracts_source := _read_source(WORLD_DISPATCH_CONTRACTS_GD_PATH)
+	if world_dispatch_contracts_source == "":
+		return false
 	var ok := true
 	ok = _test_directional_failure_cleave_contract(planner_source) and ok
 	ok = _test_fallback_fracture_contract(planner_source) and ok
 	ok = _test_environment_stage_driver_contract(planner_source, core_source) and ok
-	ok = _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_simulation_source) and ok
+	ok = _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_simulation_source, world_dispatch_controller_source, world_dispatch_contracts_source) and ok
 	ok = _test_noise_metadata_contract(planner_source, noise_source) and ok
 	if ok:
 		print("Native generalized physics failure emission contracts passed (directional cleave + fallback fracture source markers).")
@@ -89,7 +97,7 @@ func _test_noise_metadata_contract(planner_source: String, noise_source: String)
 	) and ok
 	return ok
 
-func _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_simulation_source: String) -> bool:
+func _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_simulation_source: String, world_dispatch_controller_source: String, world_dispatch_contracts_source: String) -> bool:
 	var ok := true
 	ok = _assert(
 		world_simulation_source.contains("const _VOXEL_NATIVE_STAGE_NAME := &\"voxel_transform_step\""),
@@ -100,16 +108,19 @@ func _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_s
 		"WorldSimulation must pass sampled projectile contact rows into native voxel rate processing."
 	) and ok
 	ok = _assert(
-		world_simulation_source.contains("\"physics_contacts\": dispatch_contact_rows"),
-		"WorldSimulation native voxel dispatch payload must include persisted physics_contacts rows for failure emission input."
+		world_dispatch_controller_source.contains("build_dispatch_payload")
+			and world_dispatch_contracts_source.contains("\"physics_contacts\": dispatch_contact_rows"),
+		"World dispatch contract must include persisted physics_contacts rows for failure emission input."
 	) and ok
 	ok = _assert(
-		world_simulation_source.contains("if pulses.is_empty() and dispatch_contact_rows.is_empty():"),
-		"WorldSimulation must skip native voxel dispatch only when no scheduler pulse and no pending projectile contacts."
+		world_dispatch_controller_source.contains("if pulses.is_empty() and dispatch_contact_rows.is_empty():"),
+		"WorldDispatchController must skip native voxel dispatch only when no scheduler pulse and no pending projectile contacts."
 	) and ok
 	ok = _assert(
-		world_simulation_source.contains("if pulses.is_empty():") and world_simulation_source.contains("\"forced_contact_flush\": true"),
-		"WorldSimulation must force one native voxel pulse when projectile contacts are pending but scheduler yields no pulse."
+		world_dispatch_controller_source.contains("ensure_pulses_with_contact_flush")
+			and world_dispatch_contracts_source.contains("if not pulses.is_empty():")
+			and world_dispatch_contracts_source.contains("\"forced_contact_flush\": true"),
+		"WorldDispatchController must force one native voxel pulse when projectile contacts are pending but scheduler yields no pulse."
 	) and ok
 	return ok
 

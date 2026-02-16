@@ -4,6 +4,37 @@ class_name WorldNativeVoxelDispatchRuntime
 const WorldNativeVoxelDispatchMetricsScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldNativeVoxelDispatchMetrics.gd")
 const _METRICS_PUSH_INTERVAL_PULSES := 4
 
+static func default_runtime() -> Dictionary:
+	return {
+		"pulses_total": 0,
+		"pulses_success": 0,
+		"pulses_failed": 0,
+		"dependency_errors": 0,
+		"last_error": "",
+		"last_error_tick": -1,
+		"last_backend": "",
+		"last_dispatch_reason": "",
+		"hits_queued": 0,
+		"contacts_dispatched": 0,
+		"plans_planned": 0,
+		"ops_applied": 0,
+		"changed_tiles": 0,
+		"last_drop_reason": "",
+		"per_stage_ms_current": {
+			"stage_a": 0.0,
+			"stage_b": 0.0,
+			"stage_c": 0.0,
+			"stage_d": 0.0,
+		},
+		"per_stage_ms_aggregate": {
+			"stage_a": 0.0,
+			"stage_b": 0.0,
+			"stage_c": 0.0,
+			"stage_d": 0.0,
+		},
+		"pulse_timings": [],
+	}
+
 static func record_success(runtime: Dictionary, simulation_controller, tick: int, tier_id: String, backend_used: String, dispatch_reason: String, duration_ms: float, dispatch: Dictionary = {}) -> void:
 	runtime["pulses_total"] = int(runtime.get("pulses_total", 0)) + 1
 	runtime["pulses_success"] = int(runtime.get("pulses_success", 0)) + 1

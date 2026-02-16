@@ -2,6 +2,7 @@
 extends RefCounted
 
 const WORLD_SIMULATION_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd"
+const WORLD_DISPATCH_CONTRACTS_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/world/WorldDispatchContracts.gd"
 const WORLD_ENVIRONMENT_SYNC_CONTROLLER_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/world/WorldEnvironmentSyncController.gd"
 const ENVIRONMENT_SIGNAL_SNAPSHOT_RESOURCE_GD_PATH := "res://addons/local_agents/configuration/parameters/simulation/EnvironmentSignalSnapshotResource.gd"
 const TERRAIN_RENDERER_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/renderers/TerrainRenderer.gd"
@@ -40,6 +41,9 @@ func _test_transform_changed_chunks_propagated_through_resource_sync_controller(
 	var world_simulation_source := _read_script_source(WORLD_SIMULATION_GD_PATH)
 	if world_simulation_source == "":
 		return false
+	var world_dispatch_contracts_source := _read_script_source(WORLD_DISPATCH_CONTRACTS_GD_PATH)
+	if world_dispatch_contracts_source == "":
+		return false
 
 	var ok := true
 	ok = _assert(resource_source.contains("@export var transform_changed_chunks: Array = []"), "Environment signal resource contract must declare transform_changed_chunks export.") and ok
@@ -50,7 +54,8 @@ func _test_transform_changed_chunks_propagated_through_resource_sync_controller(
 	ok = _assert(sync_controller_source.contains("snapshot.transform_changed_chunks = (state.get(\"transform_changed_chunks\", []) as Array).duplicate(true)"), "WorldEnvironmentSyncController contract must hydrate transform_changed_chunks from state fallback path.") and ok
 	ok = _assert(sync_controller_source.contains("env_signals.transform_changed_chunks"), "WorldEnvironmentSyncController contract must forward transform_changed_chunks into generation-delta sync.") and ok
 
-	ok = _assert(world_simulation_source.contains("\"transform_changed_chunks\": (mutation.get(\"changed_chunks\", []) as Array).duplicate(true),"), "WorldSimulation contract must emit transform_changed_chunks into environment_signals payload.") and ok
+	ok = _assert(world_simulation_source.contains("Callable(self, \"_sync_environment_from_state\").bind(false)"), "WorldSimulation contract must delegate mutation sync through composition-root sync callable.") and ok
+	ok = _assert(world_dispatch_contracts_source.contains("\"transform_changed_chunks\": (mutation.get(\"changed_chunks\", []) as Array).duplicate(true),"), "World dispatch contracts must emit transform_changed_chunks into environment_signals payload.") and ok
 	return ok
 
 func _test_terrain_renderer_chunk_collision_parity_hooks_in_rebuild_lifecycle() -> bool:

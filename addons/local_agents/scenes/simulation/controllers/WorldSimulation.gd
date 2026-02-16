@@ -6,9 +6,10 @@ const WorldProgressionProfileResourceScript = preload("res://addons/local_agents
 const AtmosphereCycleControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/AtmosphereCycleController.gd")
 const SimulationLoopControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/SimulationLoopController.gd")
 const SimulationGraphicsSettingsScript = preload("res://addons/local_agents/scenes/simulation/controllers/SimulationGraphicsSettings.gd")
-const SimulationVoxelTerrainMutatorScript = preload("res://addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd")
 const VoxelRateTierSchedulerScript = preload("res://addons/local_agents/simulation/controller/VoxelRateTierScheduler.gd")
 const WorldCameraControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldCameraController.gd")
+const WorldDispatchControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldDispatchController.gd")
+const WorldDestructionOrchestratorScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldDestructionOrchestrator.gd")
 const WorldHudBindingControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldHudBindingController.gd")
 const WorldEnvironmentSyncControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldEnvironmentSyncController.gd")
 const WorldGraphicsTargetWallControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldGraphicsTargetWallController.gd")
@@ -71,35 +72,7 @@ var _last_hud_refresh_tick: int = -1
 var _runtime_profile_baseline: Dictionary = {}
 var _runtime_demo_profile_applied: String = ""
 var _voxel_rate_scheduler = VoxelRateTierSchedulerScript.new()
-var _native_voxel_dispatch_runtime: Dictionary = {
-	"pulses_total": 0,
-	"pulses_success": 0,
-	"pulses_failed": 0,
-	"dependency_errors": 0,
-	"last_error": "",
-	"last_error_tick": -1,
-	"last_backend": "",
-	"last_dispatch_reason": "",
-	"hits_queued": 0,
-	"contacts_dispatched": 0,
-	"plans_planned": 0,
-	"ops_applied": 0,
-	"changed_tiles": 0,
-	"last_drop_reason": "",
-	"per_stage_ms_current": {
-		"stage_a": 0.0,
-		"stage_b": 0.0,
-		"stage_c": 0.0,
-		"stage_d": 0.0,
-	},
-	"per_stage_ms_aggregate": {
-		"stage_a": 0.0,
-		"stage_b": 0.0,
-		"stage_c": 0.0,
-		"stage_d": 0.0,
-	},
-	"pulse_timings": [],
-}
+var _native_voxel_dispatch_runtime: Dictionary = WorldNativeVoxelDispatchRuntimeScript.default_runtime()
 var _system_toggle_state: Dictionary = {
 	"transform_stage_a_system_enabled": true,
 	"transform_stage_b_system_enabled": true,
@@ -115,6 +88,8 @@ var _system_toggle_state: Dictionary = {
 }
 
 var _camera_controller = WorldCameraControllerScript.new()
+var _dispatch_controller = WorldDispatchControllerScript.new()
+var _destruction_orchestrator = WorldDestructionOrchestratorScript.new()
 var _hud_binding_controller = WorldHudBindingControllerScript.new()
 var _environment_sync_controller = WorldEnvironmentSyncControllerScript.new()
 var _graphics_target_wall_controller = WorldGraphicsTargetWallControllerScript.new()
@@ -140,6 +115,7 @@ func _ready() -> void:
 	_sync_target_wall_profile(false)
 
 	_camera_controller.configure(world_camera, orbit_sensitivity, pan_sensitivity, zoom_step_ratio, min_zoom_distance, max_zoom_distance, min_pitch_degrees, max_pitch_degrees)
+	_dispatch_controller.configure(_VOXEL_NATIVE_STAGE_NAME)
 	_environment_sync_controller.configure(environment_controller, world_environment, sun_light, simulation_controller, _ecology_controller, _loop_controller, _atmosphere_cycle)
 	_environment_sync_controller.cache_environment_supported_flags()
 	if fps_launcher_controller == null:
@@ -578,118 +554,20 @@ func _configure_voxel_scheduler() -> void:
 	)
 
 func _process_native_voxel_rate(delta: float, projectile_contact_rows: Array = []) -> void:
-	var tick = _loop_controller.current_tick()
-	if simulation_controller == null or not simulation_controller.has_method("execute_native_voxel_stage"):
-		_fail_native_voxel_dependency(tick, "native voxel dispatch unavailable: execute_native_voxel_stage missing", "missing_dispatch_method", "", 0.0)
-		return
-	var view_metrics := _camera_controller.native_view_metrics()
-	var base_budget = clampf(float(view_metrics.get("compute_budget_scale", 1.0)), 0.05, 1.0)
-	var pulses = _voxel_rate_scheduler.advance(delta, base_budget)
-	var dispatch_contact_rows: Array = projectile_contact_rows
-	if fps_launcher_controller != null and fps_launcher_controller.has_method("sample_voxel_dispatch_contact_rows"):
-		var rows_variant = fps_launcher_controller.call("sample_voxel_dispatch_contact_rows"); if rows_variant is Array: dispatch_contact_rows = rows_variant as Array
-	WorldNativeVoxelDispatchRuntimeScript.record_hits_queued(_native_voxel_dispatch_runtime, dispatch_contact_rows.size())
-	if pulses.is_empty() and dispatch_contact_rows.is_empty():
-		return
-	if pulses.is_empty(): pulses = [{"tier_id": "contact_flush", "compute_budget_scale": base_budget, "forced_contact_flush": true}]
-	var payload: Dictionary = {"tick": tick, "delta": delta, "rate_tier": "high", "compute_budget_scale": base_budget, "zoom_factor": clampf(float(view_metrics.get("zoom_factor", 0.0)), 0.0, 1.0), "camera_distance": maxf(0.0, float(view_metrics.get("camera_distance", 0.0))), "uniformity_score": clampf(float(view_metrics.get("uniformity_score", 0.0)), 0.0, 1.0), "physics_contacts": dispatch_contact_rows}
-	var attempted_dispatch := false
-	var any_mutation_applied := false
-	for pulse_variant in pulses:
-		if not (pulse_variant is Dictionary): continue
-		attempted_dispatch = true
-		WorldNativeVoxelDispatchRuntimeScript.record_dispatch_attempt_after_fire(_native_voxel_dispatch_runtime)
-		var pulse = pulse_variant as Dictionary
-		var tier_id := String(pulse.get("tier_id", "high"))
-		payload["rate_tier"] = tier_id
-		payload["compute_budget_scale"] = float(pulse.get("compute_budget_scale", base_budget))
-		var dispatch_start_usec := Time.get_ticks_usec()
-		var dispatch_variant = simulation_controller.call("execute_native_voxel_stage", tick, _VOXEL_NATIVE_STAGE_NAME, payload, false)
-		var dispatch_duration_ms := float(maxi(0, Time.get_ticks_usec() - dispatch_start_usec)) / 1000.0
-		if not (dispatch_variant is Dictionary):
-			_record_native_voxel_dispatch_failure(tick, tier_id, "", "invalid_dispatch_result", dispatch_duration_ms, false, {})
-			continue
-		var dispatch = dispatch_variant as Dictionary
-		var backend_used := _graphics_target_wall_controller.normalize_gpu_backend_used(dispatch)
-		var dispatch_reason := String(dispatch.get("dispatch_reason", ""))
-		if not bool(dispatch.get("dispatched", false)):
-			_fail_native_voxel_dependency(tick, "native voxel stage was not dispatched", tier_id, dispatch_reason, dispatch_duration_ms, dispatch)
-			return
-		if backend_used.findn("gpu") == -1:
-			_fail_native_voxel_dependency(tick, "native voxel stage backend is not GPU: %s" % backend_used, tier_id, dispatch_reason, dispatch_duration_ms, dispatch)
-			return
-		_record_native_voxel_dispatch_success(tick, tier_id, backend_used, dispatch_reason, dispatch_duration_ms, dispatch)
-		var executed_op_count := WorldNativeVoxelDispatchRuntimeScript.record_destruction_plan(_native_voxel_dispatch_runtime, dispatch)
-		var stage_payload: Dictionary = {}
-		var voxel_payload = dispatch.get("voxel_result", {})
-		if voxel_payload is Dictionary: stage_payload = (voxel_payload as Dictionary).duplicate(false)
-		var raw_result = dispatch.get("result", {})
-		if raw_result is Dictionary: stage_payload["result"] = (raw_result as Dictionary).duplicate(false)
-		stage_payload["kernel_pass"] = String(dispatch.get("kernel_pass", ""))
-		stage_payload["backend_used"] = backend_used
-		stage_payload["dispatch_reason"] = dispatch_reason
-		stage_payload["dispatched"] = bool(dispatch.get("dispatched", false))
-		stage_payload["physics_contacts"] = dispatch_contact_rows
-		stage_payload["_destruction_executed_op_count"] = executed_op_count
-		if stage_payload.is_empty(): continue
-		any_mutation_applied = _apply_native_voxel_stage_result(tick, stage_payload) or any_mutation_applied
-	if attempted_dispatch and any_mutation_applied and fps_launcher_controller != null and fps_launcher_controller.has_method("acknowledge_voxel_dispatch_contact_rows"):
-		WorldNativeVoxelDispatchRuntimeScript.record_contacts_dispatched(_native_voxel_dispatch_runtime, dispatch_contact_rows.size())
-		fps_launcher_controller.call("acknowledge_voxel_dispatch_contact_rows", dispatch_contact_rows.size(), true)
+	_dispatch_controller.process_native_voxel_rate(delta, projectile_contact_rows, {
+		"tick": _loop_controller.current_tick(),
+		"simulation_controller": simulation_controller,
+		"fps_launcher_controller": fps_launcher_controller,
+		"voxel_rate_scheduler": _voxel_rate_scheduler,
+		"camera_controller": _camera_controller,
+		"graphics_target_wall_controller": _graphics_target_wall_controller,
+		"native_voxel_dispatch_runtime": _native_voxel_dispatch_runtime,
+		"destruction_orchestrator": _destruction_orchestrator,
+		"sync_environment_from_state": Callable(self, "_sync_environment_from_state").bind(false),
+	})
+
 func native_voxel_dispatch_runtime() -> Dictionary:
 	return _native_voxel_dispatch_runtime.duplicate(true)
-func _record_native_voxel_dispatch_success(tick: int, tier_id: String, backend_used: String, dispatch_reason: String, duration_ms: float, dispatch: Dictionary = {}) -> void:
-	WorldNativeVoxelDispatchRuntimeScript.record_success(
-		_native_voxel_dispatch_runtime,
-		simulation_controller,
-		tick,
-		tier_id,
-		backend_used,
-		dispatch_reason,
-		duration_ms,
-		dispatch
-	)
-func _record_native_voxel_dispatch_failure(tick: int, tier_id: String, backend_used: String, dispatch_reason: String, duration_ms: float, is_dependency_error: bool, dispatch: Dictionary = {}) -> void:
-	WorldNativeVoxelDispatchRuntimeScript.record_failure(
-		_native_voxel_dispatch_runtime,
-		simulation_controller,
-		tick,
-		tier_id,
-		backend_used,
-		dispatch_reason,
-		duration_ms,
-		is_dependency_error,
-		dispatch
-	)
-func _fail_native_voxel_dependency(tick: int, reason: String, tier_id: String, dispatch_reason: String, duration_ms: float, dispatch: Dictionary = {}) -> void:
-	WorldNativeVoxelDispatchRuntimeScript.fail_dependency(
-		_native_voxel_dispatch_runtime,
-		simulation_controller,
-		tick,
-		reason,
-		tier_id,
-		dispatch_reason,
-		duration_ms,
-		dispatch
-	)
-
-func _apply_native_voxel_stage_result(tick: int, stage_payload: Dictionary) -> bool:
-	var mutation = SimulationVoxelTerrainMutatorScript.apply_native_voxel_stage_delta(simulation_controller, tick, stage_payload)
-	WorldNativeVoxelDispatchRuntimeScript.record_mutation(_native_voxel_dispatch_runtime, stage_payload, mutation, Engine.get_process_frames())
-	if not bool(mutation.get("changed", false)):
-		return false
-	_sync_environment_from_state({
-		"tick": tick,
-		"environment_snapshot": mutation.get("environment_snapshot", simulation_controller.current_environment_snapshot() if simulation_controller.has_method("current_environment_snapshot") else {}),
-		"network_state_snapshot": mutation.get("network_state_snapshot", simulation_controller.current_network_state_snapshot() if simulation_controller.has_method("current_network_state_snapshot") else {}),
-		"atmosphere_state_snapshot": simulation_controller.call("get_atmosphere_state_snapshot") if simulation_controller.has_method("get_atmosphere_state_snapshot") else {},
-		"deformation_state_snapshot": simulation_controller.call("get_deformation_state_snapshot") if simulation_controller.has_method("get_deformation_state_snapshot") else {},
-		"exposure_state_snapshot": simulation_controller.call("get_exposure_state_snapshot") if simulation_controller.has_method("get_exposure_state_snapshot") else {},
-		"transform_changed": true,
-		"transform_changed_tiles": (mutation.get("changed_tiles", []) as Array).duplicate(true),
-		"transform_changed_chunks": (mutation.get("changed_chunks", []) as Array).duplicate(true),
-	}, false)
-	return true
 
 func _apply_runtime_demo_profile(profile_id: String) -> void:
 	_capture_runtime_profile_baseline_if_needed()
