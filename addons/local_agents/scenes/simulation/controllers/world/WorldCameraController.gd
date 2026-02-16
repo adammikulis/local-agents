@@ -125,12 +125,11 @@ func set_fps_mode(enabled: bool) -> void:
 func step_fps(delta: float) -> void:
 	if not _fps_mode_enabled or _world_camera == null:
 		return
-	var forward := -_world_camera.global_transform.basis.z
-	forward.y = 0.0
+	var camera_basis := _world_camera.global_transform.basis.orthonormalized()
+	var forward := -camera_basis.z
 	if forward.length_squared() > 0.0001:
 		forward = forward.normalized()
-	var right := _world_camera.global_transform.basis.x
-	right.y = 0.0
+	var right := camera_basis.x
 	if right.length_squared() > 0.0001:
 		right = right.normalized()
 	var move_direction := Vector3.ZERO

@@ -11,15 +11,18 @@ var _simulation_controller: Node
 
 func _ready() -> void:
 	add_to_group("performance_telemetry_server")
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	set_process(true)
 	_simulation_controller = get_node_or_null(simulation_controller_path)
 	if emit_on_ready:
 		_emit_metrics()
 
 func _process(delta: float) -> void:
 	_accum += maxf(0.0, delta)
-	if _accum < refresh_seconds:
+	var interval := maxf(0.05, refresh_seconds)
+	if _accum < interval:
 		return
-	_accum = 0.0
+	_accum -= interval
 	_emit_metrics()
 
 func force_emit() -> void:
