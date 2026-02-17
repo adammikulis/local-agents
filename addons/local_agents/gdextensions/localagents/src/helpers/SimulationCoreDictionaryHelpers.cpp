@@ -459,6 +459,27 @@ Dictionary normalize_contact_row(const Variant &raw_row) {
         static_cast<int64_t>(source.get(
             "rigid_obstacle_mask",
             source.get("obstacle_mask", source.get("collision_mask", source.get("collision_layer", static_cast<int64_t>(0)))))));
+
+    const std::vector<StringName> preserved_projectile_fields = {
+        StringName("projectile_kind"),
+        StringName("projectile_density_tag"),
+        StringName("projectile_hardness_tag"),
+        StringName("projectile_material_tag"),
+        StringName("failure_emission_profile"),
+        StringName("projectile_radius"),
+        StringName("projectile_ttl"),
+        StringName("projectile_id"),
+        StringName("hit_frame"),
+        StringName("deadline_frame"),
+        StringName("collider_id"),
+        StringName("contact_index"),
+        StringName("impact_mode"),
+    };
+    for (const StringName &preserved_key : preserved_projectile_fields) {
+        if (source.has(preserved_key)) {
+            normalized[preserved_key] = source[preserved_key];
+        }
+    }
     return normalized;
 }
 

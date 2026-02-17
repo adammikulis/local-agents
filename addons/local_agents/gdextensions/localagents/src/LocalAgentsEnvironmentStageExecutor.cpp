@@ -38,6 +38,7 @@ String canonicalize_native_contract_error(const String &raw_error_code) {
     }
     if (
         lowered == String("gpu_unavailable") ||
+        lowered.find("gpu_rendering_device_unavailable") >= 0 ||
         lowered.find("gpu_backend_unavailable") >= 0 ||
         lowered.find("rendering_server_unavailable") >= 0 ||
         lowered.find("device_create_failed") >= 0
@@ -98,6 +99,22 @@ Dictionary execute_environment_stage_orchestration(
     double fracture_value_cap
 ) {
     Dictionary result;
+    Array failure_contact_rows = physics_contact_rows;
+    if (failure_contact_rows.is_empty()) {
+        Variant payload_contacts_variant = effective_payload.get("physics_server_contacts", Variant());
+        if (payload_contacts_variant.get_type() != Variant::ARRAY) {
+            payload_contacts_variant = effective_payload.get("physics_contacts", Variant());
+        }
+        if (payload_contacts_variant.get_type() == Variant::ARRAY) {
+            failure_contact_rows = Array(payload_contacts_variant);
+        } else if (payload_contacts_variant.get_type() == Variant::DICTIONARY) {
+            const Dictionary payload_contacts = payload_contacts_variant;
+            const Variant buffered_rows_variant = payload_contacts.get("buffered_rows", Variant());
+            if (buffered_rows_variant.get_type() == Variant::ARRAY) {
+                failure_contact_rows = Array(buffered_rows_variant);
+            }
+        }
+    }
     if (!voxel_edit_engine) {
         Dictionary voxel_failure_emission;
         voxel_failure_emission["status"] = String("failed");
@@ -137,7 +154,7 @@ Dictionary execute_environment_stage_orchestration(
 
         Dictionary voxel_failure_emission = build_voxel_failure_emission_plan(
             extract_pipeline_feedback(pipeline_result),
-            physics_contact_rows,
+            failure_contact_rows,
             impact_signal_gain,
             watch_signal_threshold,
             active_signal_threshold,

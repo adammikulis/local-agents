@@ -69,7 +69,6 @@ var _graphics_state: Dictionary = SimulationGraphicsSettingsScript.default_state
 var _last_hud_refresh_tick: int = -1
 var _runtime_profile_baseline: Dictionary = {}
 var _runtime_demo_profile_applied: String = ""
-var _native_tick_rate_config: Dictionary = {}
 var _native_voxel_dispatch_runtime: Dictionary = WorldNativeVoxelDispatchRuntimeScript.default_runtime()
 var _system_toggle_state: Dictionary = {
 	"transform_stage_a_system_enabled": true,
@@ -334,7 +333,6 @@ func _apply_graphics_state(restamp_target_wall: bool = false) -> void:
 		living_profile_push_interval_ticks
 	)
 	_apply_runtime_system_toggles()
-	_configure_voxel_scheduler()
 	var interval_payload := _graphics_target_wall_controller.consume_visual_environment_interval(
 		_graphics_state,
 		visual_environment_update_interval_ticks
@@ -542,21 +540,12 @@ func _set_node_property_if_exists(node: Object, property_name: String, value) ->
 	if has_property:
 		node.set(property_name, value)
 
-func _configure_voxel_scheduler() -> void:
-	_native_tick_rate_config = {
-		"voxel_process_gating_enabled": bool(_graphics_state.get("voxel_process_gating_enabled", true)),
-		"voxel_dynamic_tick_rate_enabled": bool(_graphics_state.get("voxel_dynamic_tick_rate_enabled", true)),
-		"voxel_tick_min_interval_seconds": clampf(float(_graphics_state.get("voxel_tick_min_interval_seconds", 0.05)), 0.01, 1.2),
-		"voxel_tick_max_interval_seconds": clampf(float(_graphics_state.get("voxel_tick_max_interval_seconds", 0.6)), 0.01, 3.0),
-		"native_tick_tier": "per_frame",
-	}
-
 func _process_native_voxel_rate(delta: float, projectile_contact_rows: Array = []) -> void:
 	_dispatch_controller.process_native_voxel_rate(delta, projectile_contact_rows, {
 		"tick": _loop_controller.current_tick(),
+		"frame_index": Engine.get_process_frames(),
 		"simulation_controller": simulation_controller,
 		"fps_launcher_controller": fps_launcher_controller,
-		"tick_rate_config": _native_tick_rate_config,
 		"camera_controller": _camera_controller,
 		"graphics_target_wall_controller": _graphics_target_wall_controller,
 		"native_voxel_dispatch_runtime": _native_voxel_dispatch_runtime,

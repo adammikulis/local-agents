@@ -64,6 +64,12 @@ public:
         int64_t frame_index,
         const Dictionary &frame_context = Dictionary()
     );
+    Dictionary execute_native_voxel_dispatch_tick(
+        int64_t tick,
+        double delta_seconds,
+        int64_t frame_index,
+        const Dictionary &frame_context = Dictionary()
+    );
     Dictionary get_voxel_orchestration_state() const;
     Dictionary get_voxel_orchestration_metrics() const;
     void reset_voxel_orchestration();

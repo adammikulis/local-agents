@@ -118,7 +118,7 @@ static func _find_voxel_failure_emission(source: Dictionary, depth: int) -> Dict
 	var direct_variant = source.get("voxel_failure_emission", {})
 	if direct_variant is Dictionary and not (direct_variant as Dictionary).is_empty():
 		return (direct_variant as Dictionary).duplicate(true)
-	for key in ["result_fields", "result", "payload", "execution", "voxel_result"]:
+	for key in ["result_fields", "result", "dispatch", "payload", "execution", "voxel_result"]:
 		var nested_variant = source.get(key, {})
 		if nested_variant is Dictionary:
 			var nested_payload = _find_voxel_failure_emission(nested_variant as Dictionary, depth + 1)
@@ -134,7 +134,7 @@ static func _count_native_voxel_ops_recursive(source: Dictionary, depth: int) ->
 		var items_variant = source.get(key, [])
 		if items_variant is Array:
 			total += (items_variant as Array).size()
-	for key in ["voxel_failure_emission", "result_fields", "result", "payload", "execution", "voxel_result", "source"]:
+	for key in ["voxel_failure_emission", "result_fields", "result", "dispatch", "payload", "execution", "voxel_result", "source"]:
 		var nested_variant = source.get(key, {})
 		if nested_variant is Dictionary:
 			total += _count_native_voxel_ops_recursive(nested_variant as Dictionary, depth + 1)

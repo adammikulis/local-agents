@@ -18,6 +18,18 @@ namespace {
 constexpr double kContactWatchSpeedThreshold = 0.0;
 constexpr double kContactWatchSpeedWeight = 0.0;
 constexpr double kSignalOffset = 1.0;
+constexpr double kProjectileSignalGainScale = 1.5e4;
+constexpr double kProjectileActiveThresholdScale = 0.55;
+constexpr double kProjectileWatchThresholdScale = 0.75;
+constexpr double kProjectileDensityScaleDense = 1.35;
+constexpr double kProjectileDensityScaleCompact = 1.2;
+constexpr double kProjectileDensityScaleSolid = 1.25;
+constexpr double kProjectileHardnessScaleHard = 1.75;
+constexpr double kProjectileHardnessScaleUltra = 1.45;
+constexpr double kProjectileProfileScaleSoft = 0.75;
+constexpr double kProjectileProfileScaleDenseHard = 1.15;
+constexpr double kProjectileProfileScaleMin = 0.35;
+constexpr double kProjectileProfileScaleMax = 3.2;
 constexpr double kDefaultMassFallback = 1.0;
 constexpr double kImpactMetricScale = 1.0e4;
 constexpr double kFallbackFractureRadius = 1.0;
@@ -110,6 +122,59 @@ double contact_impulse_from_row(const Dictionary &row) {
         return contact_impulse;
     }
     return get_numeric_dictionary_value(row, StringName("impulse"));
+}
+
+String get_string_dictionary_value(const Dictionary &row, const StringName &key, const String &fallback) {
+    if (!row.has(key)) {
+        return fallback;
+    }
+    const Variant value = row[key];
+    if (value.get_type() == Variant::STRING) {
+        return String(value);
+    }
+    if (value.get_type() == Variant::STRING_NAME) {
+        return String(static_cast<StringName>(value));
+    }
+    return fallback;
+}
+
+bool is_voxel_chunk_projectile_row(const Dictionary &row) {
+    const String projectile_kind = get_string_dictionary_value(row, StringName("projectile_kind"), String());
+    return projectile_kind.strip_edges().to_lower() == String("voxel_chunk");
+}
+
+double resolve_projectile_signal_scale(const Dictionary &row) {
+    if (!is_voxel_chunk_projectile_row(row)) {
+        return 1.0;
+    }
+
+    double scale = 1.0;
+    const String projectile_density_tag = get_string_dictionary_value(row, StringName("projectile_density_tag"), String());
+    const String density_key = projectile_density_tag.strip_edges().to_lower();
+    if (density_key == String("dense")) {
+        scale *= kProjectileDensityScaleDense;
+    } else if (density_key == String("solid")) {
+        scale *= kProjectileDensityScaleSolid;
+    } else if (density_key == String("compact")) {
+        scale *= kProjectileDensityScaleCompact;
+    }
+
+    const String projectile_hardness_tag = get_string_dictionary_value(row, StringName("projectile_hardness_tag"), String());
+    const String hardness_key = projectile_hardness_tag.strip_edges().to_lower();
+    if (hardness_key == String("hard")) {
+        scale *= kProjectileHardnessScaleHard;
+    } else if (hardness_key == String("ultra")) {
+        scale *= kProjectileHardnessScaleUltra;
+    }
+
+    const String profile_key = get_string_dictionary_value(row, StringName("failure_emission_profile"), String());
+    const String profile_key_lc = profile_key.strip_edges().to_lower();
+    if (profile_key_lc.find("dense_hard") != -1) {
+        scale *= kProjectileProfileScaleDenseHard;
+    } else if (profile_key_lc.find("fragile") != -1 || profile_key_lc.find("soft") != -1) {
+        scale *= kProjectileProfileScaleSoft;
+    }
+    return std::clamp(scale, kProjectileProfileScaleMin, kProjectileProfileScaleMax);
 }
 
 double read_collision_mass_proxy(const Dictionary &row) {
@@ -264,6 +329,7 @@ ContactFailureProjection project_contact_failure(
     Vector3 weighted_normal = Vector3(0.0, 0.0, 0.0);
     double normal_weight = 0.0;
     int64_t counted_rows = 0;
+    bool has_voxel_chunk_projectile_rows = false;
     double best_signal = -1.0;
     uint64_t best_tie_breaker_key = std::numeric_limits<uint64_t>::max();
 
@@ -281,12 +347,20 @@ ContactFailureProjection project_contact_failure(
 
         const double row_mass = normalize_mass_proxy(row, row_relative_speed, row_impulse);
         const double row_work = 0.5 * row_mass * row_relative_speed * row_relative_speed;
-        const double row_signal = std::log1p(std::fabs(row_work) * profile.impact_signal_gain + kSignalOffset);
+        const bool row_is_projectile = is_voxel_chunk_projectile_row(row);
+        const double projectile_signal_scale = resolve_projectile_signal_scale(row);
+        if (row_is_projectile) {
+            has_voxel_chunk_projectile_rows = true;
+        }
+        const double effective_work = row_work * (row_is_projectile ? projectile_signal_scale : 1.0);
+        const double row_signal = row_is_projectile
+            ? std::log1p(std::fabs(effective_work) * profile.impact_signal_gain * kProjectileSignalGainScale)
+            : std::log1p(std::fabs(row_work) * profile.impact_signal_gain + kSignalOffset);
         const double row_weight = row_signal + kContactWatchSpeedWeight * row_relative_speed;
 
         total_impulse += row_impulse;
         total_relative_speed += row_relative_speed;
-        total_work += row_work;
+        total_work += row_is_projectile ? effective_work : row_work;
         counted_rows += 1;
 
         int32_t point_x = 0;
@@ -355,14 +429,23 @@ ContactFailureProjection project_contact_failure(
         projection.directionality_quality = std::clamp(static_cast<double>(normalized_weighted_normal.length()), 0.0, 1.0);
         projection.normal = normalized_weighted_normal.normalized();
     }
-    projection.impact_signal = std::log1p(std::fabs(total_work) * profile.impact_signal_gain + kSignalOffset);
+    projection.impact_signal = has_voxel_chunk_projectile_rows
+        ? std::log1p(std::fabs(total_work) * profile.impact_signal_gain * kProjectileSignalGainScale)
+        : std::log1p(std::fabs(total_work) * profile.impact_signal_gain + kSignalOffset);
 
-    if (projection.impact_signal >= profile.active_signal_threshold) {
+    const double active_signal_threshold = has_voxel_chunk_projectile_rows
+        ? std::max(1.0e-6, profile.active_signal_threshold * kProjectileActiveThresholdScale)
+        : profile.active_signal_threshold;
+    const double watch_signal_threshold = has_voxel_chunk_projectile_rows
+        ? std::max(1.0e-6, profile.watch_signal_threshold * kProjectileWatchThresholdScale)
+        : profile.watch_signal_threshold;
+
+    if (projection.impact_signal >= active_signal_threshold) {
         projection.severity = FailureSeverityLevel::kActive;
         projection.reason = String("impact_critical");
         projection.mode = String("impact");
     } else if (
-        projection.impact_signal >= profile.watch_signal_threshold || projection.strongest_relative_speed >= kContactWatchSpeedThreshold
+        projection.impact_signal >= watch_signal_threshold || projection.strongest_relative_speed >= kContactWatchSpeedThreshold
     ) {
         projection.severity = FailureSeverityLevel::kWatch;
         projection.reason = String("watch_impact");
@@ -707,6 +790,7 @@ Dictionary build_voxel_failure_emission_plan(
     write_deterministic_noise_fields(op_payload, noise_profile);
     op_payload["reason"] = use_pipeline_failure ? failure_reason : contact_projection.reason;
     op_payload["contact_signal"] = contact_projection.impact_signal;
+    op_payload["impact_signal"] = contact_projection.impact_signal;
     op_payload["impact_work"] = contact_projection.impact_work;
     op_payload["directionality_quality"] = contact_projection.directionality_quality;
 

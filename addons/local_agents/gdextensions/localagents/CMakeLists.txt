@@ -45,6 +45,7 @@ set(HELPER_SRC
     src/helpers/VoxelEditCpuExecutionHelpers.cpp
     src/helpers/VoxelEditParsingHelpers.cpp
     src/helpers/VoxelEditPayloadValidationHelpers.cpp
+    src/helpers/NativeVoxelTerrainMutatorSurfaceDeltaHelpers.cpp
 )
 
 set(SRC
@@ -60,6 +61,7 @@ set(SRC
     src/LocalAgentsScheduler.cpp
     src/LocalAgentsSimProfiler.cpp
     src/LocalAgentsSimulationCore.cpp
+    src/LocalAgentsNativeVoxelTerrainMutator.cpp
     src/LocalAgentsVoxelOrchestration.cpp
     src/FailureEmissionDeterministicNoise.cpp
     src/SimulationFailureEmissionPlanner.cpp

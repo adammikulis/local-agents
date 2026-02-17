@@ -22,6 +22,10 @@ static func normalize_physics_contacts_from_payload(payload: Dictionary) -> Arra
 	return rows
 
 static func normalize_contact_row(row: Dictionary) -> Dictionary:
+	var normalized: Dictionary = {}
+	for key in row.keys():
+		normalized[key] = row.get(key)
+
 	var impulse = maxf(0.0, read_float(row, ["contact_impulse", "impulse", "normal_impulse"], 0.0))
 	var normal := read_vector3_from_keys(row, ["contact_normal", "normal", "collision_normal"]).normalized()
 	var point := read_vector3_from_keys(row, ["contact_point", "point", "position"])
@@ -36,21 +40,20 @@ static func normalize_contact_row(row: Dictionary) -> Dictionary:
 		row_contact_velocity = maxf(row_relative_speed, absf(velocity - obstacle_velocity))
 	var relative_speed = maxf(row_contact_velocity, maxf(row_relative_speed, absf(velocity - obstacle_velocity)))
 	var obstacle_trajectory = read_vector3_from_keys(row, ["obstacle_trajectory", "motion_trajectory", "trajectory"])
-	return {
-		"contact_impulse": impulse,
-		"impulse": impulse,
-		"contact_velocity": row_contact_velocity,
-		"relative_speed": relative_speed,
-		"contact_normal": normal,
-		"contact_point": point,
-		"body_velocity": velocity,
-		"obstacle_velocity": obstacle_velocity,
-		"body_mass": body_mass,
-		"collider_mass": collider_mass,
-		"obstacle_trajectory": obstacle_trajectory,
-		"body_id": int(read_float(row, ["body_id", "id", "rid"], -1.0)),
-		"rigid_obstacle_mask": maxi(int(read_float(row, ["rigid_obstacle_mask", "obstacle_mask", "collision_mask", "collision_layer"], 0.0)), 0),
-	}
+	normalized["contact_impulse"] = impulse
+	normalized["impulse"] = impulse
+	normalized["contact_velocity"] = row_contact_velocity
+	normalized["relative_speed"] = relative_speed
+	normalized["contact_normal"] = normal
+	normalized["contact_point"] = point
+	normalized["body_velocity"] = velocity
+	normalized["obstacle_velocity"] = obstacle_velocity
+	normalized["body_mass"] = body_mass
+	normalized["collider_mass"] = collider_mass
+	normalized["obstacle_trajectory"] = obstacle_trajectory
+	normalized["body_id"] = int(read_float(row, ["body_id", "id", "rid"], -1.0))
+	normalized["rigid_obstacle_mask"] = maxi(int(read_float(row, ["rigid_obstacle_mask", "obstacle_mask", "collision_mask", "collision_layer"], 0.0)), 0)
+	return normalized
 
 static func aggregate_contact_inputs(rows: Array[Dictionary]) -> Dictionary:
 	var deterministic_rows := rows.duplicate(true)

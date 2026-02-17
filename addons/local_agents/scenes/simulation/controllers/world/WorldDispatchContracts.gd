@@ -1,11 +1,11 @@
 extends RefCounted
 class_name WorldDispatchContracts
 
-static func build_dispatch_payload(tick: int, delta: float, rate_tier: String, base_budget: float, view_metrics: Dictionary, dispatch_contact_rows: Array) -> Dictionary:
+static func build_dispatch_payload(tick: int, delta: float, base_budget: float, view_metrics: Dictionary, dispatch_contact_rows: Array) -> Dictionary:
 	return {
 		"tick": tick,
 		"delta": delta,
-		"rate_tier": rate_tier,
+		"rate_tier": "native_consolidated_tick",
 		"compute_budget_scale": base_budget,
 		"zoom_factor": clampf(float(view_metrics.get("zoom_factor", 0.0)), 0.0, 1.0),
 		"camera_distance": maxf(0.0, float(view_metrics.get("camera_distance", 0.0))),
@@ -13,29 +13,20 @@ static func build_dispatch_payload(tick: int, delta: float, rate_tier: String, b
 		"physics_contacts": dispatch_contact_rows,
 	}
 
-static func build_native_tick_payload(tick: int, delta: float, base_budget: float, view_metrics: Dictionary, dispatch_contact_rows: Array, tick_rate_config: Dictionary = {}, launcher_contract: Dictionary = {}) -> Dictionary:
-	var payload := build_dispatch_payload(tick, delta, _resolve_tick_tier(tick_rate_config), base_budget, view_metrics, dispatch_contact_rows)
+static func build_native_tick_payload(tick: int, delta: float, base_budget: float, view_metrics: Dictionary, dispatch_contact_rows: Array, launcher_contract: Dictionary = {}, frame_context: Dictionary = {}) -> Dictionary:
+	var payload := build_dispatch_payload(tick, delta, base_budget, view_metrics, dispatch_contact_rows)
 	payload["native_tick_orchestration"] = {
-		"tick_rate_config": tick_rate_config.duplicate(true),
 		"launcher_contract": launcher_contract.duplicate(true),
+		"frame_context": frame_context.duplicate(true),
 	}
 	return payload
 
-static func ensure_pulses_with_contact_flush(pulses: Array, base_budget: float) -> Array:
-	if not pulses.is_empty():
-		return pulses
-	return [{"tier_id": "contact_flush", "compute_budget_scale": base_budget, "forced_contact_flush": true}]
-
-static func _resolve_tick_tier(tick_rate_config: Dictionary) -> String:
-	var tier := String(tick_rate_config.get("native_tick_tier", "per_frame")).strip_edges()
-	return tier if tier != "" else "per_frame"
-
 static func build_stage_payload(dispatch: Dictionary, backend_used: String, dispatch_reason: String, dispatch_contact_rows: Array, executed_op_count: int) -> Dictionary:
 	var stage_payload: Dictionary = {}
-	var voxel_payload = dispatch.get("voxel_result", {})
-	if voxel_payload is Dictionary:
-		stage_payload = (voxel_payload as Dictionary).duplicate(false)
-	var raw_result = dispatch.get("result", {})
+	var dispatch_payload = _extract_primary_payload_view(dispatch)
+	if dispatch_payload is Dictionary and not dispatch_payload.is_empty():
+		stage_payload = dispatch_payload.duplicate(false)
+	var raw_result = _extract_primary_result_payload(dispatch)
 	if raw_result is Dictionary:
 		stage_payload["result"] = (raw_result as Dictionary).duplicate(false)
 	stage_payload["kernel_pass"] = String(dispatch.get("kernel_pass", ""))
@@ -120,7 +111,7 @@ static func _collect_native_ops(source: Dictionary, out: Array, depth: int) -> v
 		for row_variant in (rows_variant as Array):
 			if row_variant is Dictionary:
 				out.append((row_variant as Dictionary).duplicate(true))
-	for key in ["voxel_failure_emission", "result_fields", "result", "payload", "execution", "voxel_result", "source"]:
+	for key in ["voxel_failure_emission", "result_fields", "result", "dispatch", "payload", "execution", "voxel_result", "source"]:
 		var nested_variant = source.get(key, {})
 		if nested_variant is Dictionary:
 			_collect_native_ops(nested_variant as Dictionary, out, depth + 1)
@@ -142,7 +133,7 @@ static func _collect_changed_chunks(source: Dictionary, out: Array, depth: int) 
 				var row_key := String(row_variant).strip_edges()
 				if row_key != "":
 					out.append(row_key)
-	for key in ["voxel_failure_emission", "result_fields", "result", "payload", "execution", "voxel_result", "source"]:
+	for key in ["voxel_failure_emission", "result_fields", "result", "dispatch", "payload", "execution", "voxel_result", "source"]:
 		var nested_variant = source.get(key, {})
 		if nested_variant is Dictionary:
 			_collect_changed_chunks(nested_variant as Dictionary, out, depth + 1)
@@ -197,7 +188,7 @@ static func _find_changed_region(source: Dictionary, depth: int) -> Dictionary:
 		var region = region_variant as Dictionary
 		if bool(region.get("valid", false)):
 			return region.duplicate(true)
-	for key in ["voxel_failure_emission", "result_fields", "result", "payload", "execution", "voxel_result", "source"]:
+	for key in ["voxel_failure_emission", "result_fields", "result", "dispatch", "payload", "execution", "voxel_result", "source"]:
 		var nested_variant = source.get(key, {})
 		if nested_variant is Dictionary:
 			var nested_region := _find_changed_region(nested_variant as Dictionary, depth + 1)
@@ -254,6 +245,9 @@ static func _extract_native_mutation_authority(dispatch: Dictionary, stage_paylo
 	var raw_result_variant = dispatch.get("result", {})
 	if raw_result_variant is Dictionary:
 		authority = _merge_authority_fields(authority, raw_result_variant as Dictionary)
+	var dispatch_variant = dispatch.get("dispatch", {})
+	if dispatch_variant is Dictionary:
+		authority = _merge_authority_fields(authority, dispatch_variant as Dictionary)
 	authority = _merge_authority_fields(authority, dispatch)
 	var stage_authority_variant = stage_payload.get("native_mutation_authority", {})
 	if stage_authority_variant is Dictionary:
@@ -282,7 +276,14 @@ static func _changed_region_from_authority(authority: Dictionary) -> Dictionary:
 			return changed_region.duplicate(true)
 	return {}
 
-static func _extract_execution_payload(dispatch: Dictionary) -> Dictionary:
+static func _extract_execution_payload(dispatch: Dictionary, depth: int = 0) -> Dictionary:
+	if depth > 6:
+		return {}
+	var dispatch_variant = dispatch.get("dispatch", {})
+	if dispatch_variant is Dictionary:
+		var nested_execution = _extract_execution_payload(dispatch_variant as Dictionary, depth + 1)
+		if not nested_execution.is_empty():
+			return nested_execution
 	var execution_variant = dispatch.get("execution", {})
 	if execution_variant is Dictionary:
 		return (execution_variant as Dictionary).duplicate(true)
@@ -298,6 +299,40 @@ static func _extract_execution_payload(dispatch: Dictionary) -> Dictionary:
 		execution_variant = voxel_result.get("execution", {})
 		if execution_variant is Dictionary:
 			return (execution_variant as Dictionary).duplicate(true)
+	return {}
+
+static func _extract_primary_payload_view(dispatch: Dictionary) -> Dictionary:
+	var dispatch_variant = dispatch.get("dispatch", {})
+	if dispatch_variant is Dictionary:
+		return dispatch_variant as Dictionary
+	var voxel_result_variant = dispatch.get("voxel_result", {})
+	if voxel_result_variant is Dictionary:
+		return voxel_result_variant as Dictionary
+	var raw_result_variant = dispatch.get("result", {})
+	if raw_result_variant is Dictionary:
+		var raw_result = raw_result_variant as Dictionary
+		var nested = raw_result.get("voxel_result", {})
+		if nested is Dictionary:
+			return nested as Dictionary
+		var nested_dispatch = raw_result.get("dispatch", {})
+		if nested_dispatch is Dictionary:
+			return nested_dispatch as Dictionary
+	return {}
+
+static func _extract_primary_result_payload(dispatch: Dictionary) -> Dictionary:
+	var dispatch_variant = dispatch.get("dispatch", {})
+	if dispatch_variant is Dictionary:
+		var nested_result = dispatch_variant.get("result", {})
+		if nested_result is Dictionary:
+			return nested_result as Dictionary
+	var result_variant = dispatch.get("result", {})
+	if result_variant is Dictionary:
+		var result = result_variant as Dictionary
+		if result.has("dispatch"):
+			var nested_dispatch = result.get("dispatch", {})
+			if nested_dispatch is Dictionary:
+				return nested_dispatch as Dictionary
+		return result
 	return {}
 
 static func _merge_authority_fields(current: Dictionary, source: Dictionary) -> Dictionary:

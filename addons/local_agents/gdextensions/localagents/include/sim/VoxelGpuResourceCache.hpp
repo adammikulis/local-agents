@@ -65,6 +65,7 @@ private:
     godot::RID value_hash_rid_;
     godot::RID uniform_set_rid_;
 
+    bool owns_rd_ = false;
     int64_t ops_capacity_entries_ = 0;
     int64_t out_capacity_entries_ = 0;
     int64_t value_capacity_entries_ = 0;

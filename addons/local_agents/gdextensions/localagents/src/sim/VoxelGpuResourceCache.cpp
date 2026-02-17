@@ -163,8 +163,13 @@ bool VoxelGpuResourceCache::ensure_device(String &error_code) {
     }
 
     rd_ = rendering_server->create_local_rendering_device();
+    owns_rd_ = rd_ != nullptr;
     if (rd_ == nullptr) {
-        error_code = String("gpu_device_create_failed");
+        rd_ = rendering_server->get_rendering_device();
+        owns_rd_ = false;
+    }
+    if (rd_ == nullptr) {
+        error_code = String("gpu_rendering_device_unavailable");
         return false;
     }
 
@@ -334,7 +339,10 @@ void VoxelGpuResourceCache::release() {
 
     free_pipeline_resources();
     free_buffer_resources();
-    memdelete(rd_);
+    if (owns_rd_) {
+        memdelete(rd_);
+    }
+    owns_rd_ = false;
     rd_ = nullptr;
 }
 

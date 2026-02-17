@@ -6,6 +6,7 @@
 #include "AgentNode.hpp"
 #include "AgentRuntime.hpp"
 #include "LocalAgentsSimulationCore.hpp"
+#include "LocalAgentsNativeVoxelTerrainMutator.hpp"
 #include "NetworkGraph.hpp"
 
 using namespace godot;
@@ -23,6 +24,7 @@ void initialize_local_agents(ModuleInitializationLevel p_level) {
     ClassDB::register_class<AgentNode>();
     ClassDB::register_class<NetworkGraph>();
     ClassDB::register_class<LocalAgentsSimulationCore>();
+    ClassDB::register_class<LocalAgentsNativeVoxelTerrainMutator>();
 
     if (!g_agent_runtime_singleton) {
         g_agent_runtime_singleton = memnew(AgentRuntime);

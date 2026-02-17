@@ -104,6 +104,70 @@ String canonicalize_stage_error(const String &raw_error_code, const String &fall
     return String("dispatch_failed");
 }
 
+String canonicalize_orchestration_tick_error(const String &raw_error_code, const String &fallback_code) {
+    const String canonical = canonicalize_stage_error(raw_error_code, fallback_code);
+    if (canonical != String("dispatch_failed")) {
+        return canonical;
+    }
+    const String lowered = raw_error_code.strip_edges().to_lower();
+    if (!lowered.is_empty()) {
+        return lowered;
+    }
+    return fallback_code;
+}
+
+Array extract_tick_contact_rows(const Dictionary &frame_context) {
+    const Variant direct_rows_variant = frame_context.get("projectile_contact_rows", Variant());
+    if (direct_rows_variant.get_type() == Variant::ARRAY) {
+        return Array(direct_rows_variant);
+    }
+    const Variant physics_server_rows_variant = frame_context.get("physics_server_contacts", Variant());
+    if (physics_server_rows_variant.get_type() == Variant::ARRAY) {
+        return Array(physics_server_rows_variant);
+    }
+
+    const Variant physics_contacts_variant = frame_context.get("physics_contacts", Variant());
+    if (physics_contacts_variant.get_type() == Variant::ARRAY) {
+        return Array(physics_contacts_variant);
+    }
+    if (physics_contacts_variant.get_type() == Variant::DICTIONARY) {
+        const Dictionary physics_contacts = physics_contacts_variant;
+        const Variant buffered_rows_variant = physics_contacts.get("buffered_rows", Variant());
+        if (buffered_rows_variant.get_type() == Variant::ARRAY) {
+            return Array(buffered_rows_variant);
+        }
+    }
+    return Array();
+}
+
+String resolve_native_tick_tier(const Dictionary &frame_context, const Dictionary &decision) {
+    const bool queue_forces_dispatch = bool(decision.get("queue_forces_dispatch", false));
+    if (queue_forces_dispatch) {
+        return String("contact_flush");
+    }
+
+    if (frame_context.has("native_tick_orchestration")) {
+        const Variant orchestration_variant = frame_context.get("native_tick_orchestration", Dictionary());
+        if (orchestration_variant.get_type() == Variant::DICTIONARY) {
+            const Dictionary orchestration = orchestration_variant;
+            const Variant tick_rate_config_variant = orchestration.get("tick_rate_config", Dictionary());
+            if (tick_rate_config_variant.get_type() == Variant::DICTIONARY) {
+                const Dictionary tick_rate_config = tick_rate_config_variant;
+                const String native_tick_tier = String(tick_rate_config.get("native_tick_tier", String())).strip_edges().to_lower();
+                if (!native_tick_tier.is_empty()) {
+                    return native_tick_tier;
+                }
+            }
+        }
+    }
+
+    const String explicit_rate_tier = String(frame_context.get("rate_tier", String())).strip_edges().to_lower();
+    if (!explicit_rate_tier.is_empty()) {
+        return explicit_rate_tier;
+    }
+    return bool(decision.get("should_dispatch", false)) ? String("per_frame") : String("cadence_wait");
+}
+
 double get_numeric_dictionary_value(const Dictionary &row, const StringName &key) {
     if (!row.has(key)) {
         return 0.0;
@@ -275,6 +339,10 @@ void LocalAgentsSimulationCore::_bind_methods() {
     ClassDB::bind_method(
         D_METHOD("execute_voxel_orchestration_tick", "tick", "delta_seconds", "frame_index", "frame_context"),
         &LocalAgentsSimulationCore::execute_voxel_orchestration_tick,
+        DEFVAL(Dictionary()));
+    ClassDB::bind_method(
+        D_METHOD("execute_native_voxel_dispatch_tick", "tick", "delta_seconds", "frame_index", "frame_context"),
+        &LocalAgentsSimulationCore::execute_native_voxel_dispatch_tick,
         DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("get_voxel_orchestration_state"),
                          &LocalAgentsSimulationCore::get_voxel_orchestration_state);
@@ -697,19 +765,90 @@ Dictionary LocalAgentsSimulationCore::execute_voxel_orchestration_tick(
     int64_t frame_index,
     const Dictionary &frame_context
 ) {
+    return execute_native_voxel_dispatch_tick(tick, delta_seconds, frame_index, frame_context);
+}
+
+Dictionary LocalAgentsSimulationCore::execute_native_voxel_dispatch_tick(
+    int64_t tick,
+    double delta_seconds,
+    int64_t frame_index,
+    const Dictionary &frame_context
+) {
     if (!voxel_orchestration_) {
         return make_native_required_result(String("voxel_orchestration_uninitialized"));
     }
 
+    const Array queued_contact_rows = extract_tick_contact_rows(frame_context);
+    Dictionary queue_result;
+    if (!queued_contact_rows.is_empty()) {
+        queue_result = voxel_orchestration_->queue_projectile_contact_rows(queued_contact_rows, frame_index);
+        if (!bool(queue_result.get("ok", false))) {
+            Dictionary result;
+            result["ok"] = false;
+            result["tick"] = tick;
+            result["delta_seconds"] = delta_seconds;
+            result["frame_index"] = frame_index;
+            result["dispatched"] = false;
+            result["ack_required"] = false;
+            result["mutation_applied"] = false;
+            result["contacts_submitted"] = queued_contact_rows.size();
+            result["contacts_consumed"] = static_cast<int64_t>(0);
+            result["contacts_acked"] = static_cast<int64_t>(0);
+            const String error_code = canonicalize_orchestration_tick_error(
+                String(queue_result.get("error_code", queue_result.get("error", String("dispatch_failed")))),
+                String("dispatch_failed"));
+            result["error"] = error_code;
+            result["error_code"] = error_code;
+            result["queue_result"] = queue_result.duplicate(true);
+            result["orchestration_state"] = voxel_orchestration_->get_state();
+            result["orchestration_metrics"] = voxel_orchestration_->get_metrics();
+            Dictionary native_tick_contract;
+            native_tick_contract["tick"] = tick;
+            native_tick_contract["delta"] = delta_seconds;
+            native_tick_contract["dispatched"] = false;
+            native_tick_contract["status"] = String("queue_failed");
+            native_tick_contract["error"] = error_code;
+            native_tick_contract["contacts_submitted"] = queued_contact_rows.size();
+            native_tick_contract["contacts_consumed"] = static_cast<int64_t>(0);
+            native_tick_contract["contacts_acked"] = static_cast<int64_t>(0);
+            native_tick_contract["rate_tier"] = resolve_native_tick_tier(frame_context, Dictionary());
+            result["native_tick_contract"] = native_tick_contract;
+            return result;
+        }
+    }
+
     Dictionary decision = voxel_orchestration_->execute_tick_decision(tick, delta_seconds, frame_index, frame_context);
+    const String rate_tier = resolve_native_tick_tier(frame_context, decision);
+    const int64_t consumed_count = static_cast<int64_t>(decision.get("consumed_count", static_cast<int64_t>(0)));
     const bool should_dispatch = bool(decision.get("should_dispatch", false));
     if (!should_dispatch) {
-        decision["dispatched"] = false;
-        decision["ack_required"] = false;
-        decision["mutation_applied"] = false;
-        decision["orchestration_state"] = voxel_orchestration_->get_state();
-        decision["orchestration_metrics"] = voxel_orchestration_->get_metrics();
-        return decision;
+        Dictionary result = decision.duplicate(true);
+        result["dispatched"] = false;
+        result["ack_required"] = false;
+        result["mutation_applied"] = false;
+        result["contacts_submitted"] = queued_contact_rows.size();
+        result["contacts_consumed"] = static_cast<int64_t>(0);
+        result["contacts_acked"] = static_cast<int64_t>(0);
+        result["rate_tier"] = rate_tier;
+        if (!queue_result.is_empty()) {
+            result["queue_result"] = queue_result.duplicate(true);
+        }
+        result["orchestration_state"] = voxel_orchestration_->get_state();
+        result["orchestration_metrics"] = voxel_orchestration_->get_metrics();
+        Dictionary native_tick_contract;
+        native_tick_contract["tick"] = tick;
+        native_tick_contract["delta"] = delta_seconds;
+        native_tick_contract["dispatched"] = false;
+        native_tick_contract["status"] = String("cadence_wait");
+        native_tick_contract["error"] = String(result.get("error", String()));
+        native_tick_contract["contacts_submitted"] = queued_contact_rows.size();
+        native_tick_contract["contacts_consumed"] = static_cast<int64_t>(0);
+        native_tick_contract["contacts_acked"] = static_cast<int64_t>(0);
+        native_tick_contract["rate_tier"] = rate_tier;
+        native_tick_contract["queue_pending_before"] = static_cast<int64_t>(decision.get("pending_count", static_cast<int64_t>(0)));
+        native_tick_contract["queue_pending_after"] = static_cast<int64_t>(decision.get("pending_count", static_cast<int64_t>(0)));
+        result["native_tick_contract"] = native_tick_contract;
+        return result;
     }
 
     const Array dispatch_contact_rows = decision.get("dispatch_contact_rows", Array());
@@ -722,13 +861,32 @@ Dictionary LocalAgentsSimulationCore::execute_voxel_orchestration_tick(
             result["dispatched"] = false;
             result["ack_required"] = false;
             result["mutation_applied"] = false;
-            result["error"] = canonicalize_stage_error(String(
+            const String error_code = canonicalize_orchestration_tick_error(String(
                 ingest_result.get("error_code", ingest_result.get("error", String("dispatch_failed")))),
                 String("dispatch_failed"));
-            result["error_code"] = result["error"];
+            result["error"] = error_code;
+            result["error_code"] = error_code;
             result["ingest_result"] = ingest_result;
+            result["contacts_submitted"] = queued_contact_rows.size();
+            result["contacts_consumed"] = static_cast<int64_t>(0);
+            result["contacts_acked"] = static_cast<int64_t>(0);
+            result["rate_tier"] = rate_tier;
+            if (!queue_result.is_empty()) {
+                result["queue_result"] = queue_result.duplicate(true);
+            }
             result["orchestration_state"] = voxel_orchestration_->get_state();
             result["orchestration_metrics"] = voxel_orchestration_->get_metrics();
+            Dictionary native_tick_contract;
+            native_tick_contract["tick"] = tick;
+            native_tick_contract["delta"] = delta_seconds;
+            native_tick_contract["dispatched"] = false;
+            native_tick_contract["status"] = String("ingest_failed");
+            native_tick_contract["error"] = error_code;
+            native_tick_contract["contacts_submitted"] = queued_contact_rows.size();
+            native_tick_contract["contacts_consumed"] = static_cast<int64_t>(0);
+            native_tick_contract["contacts_acked"] = static_cast<int64_t>(0);
+            native_tick_contract["rate_tier"] = rate_tier;
+            result["native_tick_contract"] = native_tick_contract;
             return result;
         }
     }
@@ -736,6 +894,7 @@ Dictionary LocalAgentsSimulationCore::execute_voxel_orchestration_tick(
     Dictionary payload = decision.get("frame_payload", Dictionary());
     payload["tick"] = tick;
     payload["delta"] = delta_seconds;
+    payload["rate_tier"] = rate_tier;
     const Dictionary contact_snapshot = get_physics_contact_snapshot();
     payload["physics_contacts"] = contact_snapshot;
     payload["physics_server_contacts"] = contact_snapshot.get("buffered_rows", Array());
@@ -745,8 +904,16 @@ Dictionary LocalAgentsSimulationCore::execute_voxel_orchestration_tick(
     Dictionary result = decision.duplicate(true);
     result["dispatch"] = dispatch.duplicate(true);
     result["dispatched"] = bool(dispatch.get("dispatched", false));
-    result["mutation_applied"] = bool(dispatch.get("mutation_applied", false));
-    result["ack_required"] = static_cast<int64_t>(decision.get("consumed_count", static_cast<int64_t>(0))) > 0;
+    const bool mutation_applied = bool(dispatch.get("mutation_applied", false));
+    result["mutation_applied"] = mutation_applied;
+    result["ack_required"] = consumed_count > 0;
+    result["contacts_submitted"] = queued_contact_rows.size();
+    result["contacts_consumed"] = consumed_count;
+    result["contacts_acked"] = static_cast<int64_t>(0);
+    result["rate_tier"] = rate_tier;
+    if (!queue_result.is_empty()) {
+        result["queue_result"] = queue_result.duplicate(true);
+    }
     if (dispatch.has("error")) {
         result["error"] = dispatch.get("error", String());
     }
@@ -756,8 +923,51 @@ Dictionary LocalAgentsSimulationCore::execute_voxel_orchestration_tick(
         result["error_code"] = dispatch.get("error", String());
     }
     result["ok"] = bool(result.get("ok", true)) && bool(dispatch.get("ok", false));
-    result["orchestration_state"] = voxel_orchestration_->get_state();
+
+    Dictionary ack_result;
+    if (consumed_count > 0) {
+        ack_result = voxel_orchestration_->acknowledge_projectile_contact_rows(consumed_count, mutation_applied, frame_index);
+        result["acknowledgement"] = ack_result.duplicate(true);
+        result["contacts_acked"] = static_cast<int64_t>(ack_result.get("consumed_count", static_cast<int64_t>(0)));
+        result["contacts_requeued"] = static_cast<int64_t>(ack_result.get("requeued_count", static_cast<int64_t>(0)));
+        result["deadline_exceeded_count"] = static_cast<int64_t>(
+            ack_result.get("deadline_exceeded_count", static_cast<int64_t>(0)));
+        if (!bool(ack_result.get("ok", true))) {
+            const String error_code = canonicalize_orchestration_tick_error(String(
+                ack_result.get("error_code", ack_result.get("error", String("dispatch_failed")))),
+                String("dispatch_failed"));
+            result["ok"] = false;
+            result["error"] = error_code;
+            result["error_code"] = error_code;
+        }
+    }
+
+    const Variant native_mutation_authority_variant = dispatch.get("native_mutation_authority", Dictionary());
+    if (native_mutation_authority_variant.get_type() == Variant::DICTIONARY) {
+        const Dictionary native_mutation_authority = native_mutation_authority_variant;
+        if (!native_mutation_authority.is_empty()) {
+            result["native_mutation_authority"] = native_mutation_authority.duplicate(true);
+        }
+    }
+
+    const Dictionary orchestration_state = voxel_orchestration_->get_state();
+    result["orchestration_state"] = orchestration_state;
     result["orchestration_metrics"] = voxel_orchestration_->get_metrics();
+
+    Dictionary native_tick_contract;
+    native_tick_contract["tick"] = tick;
+    native_tick_contract["delta"] = delta_seconds;
+    native_tick_contract["dispatched"] = bool(result.get("dispatched", false));
+    native_tick_contract["status"] = String(result.get("status", dispatch.get("status", String())));
+    native_tick_contract["error"] = String(result.get("error", String()));
+    native_tick_contract["contacts_submitted"] = queued_contact_rows.size();
+    native_tick_contract["contacts_consumed"] = consumed_count;
+    native_tick_contract["contacts_acked"] = static_cast<int64_t>(result.get("contacts_acked", static_cast<int64_t>(0)));
+    native_tick_contract["rate_tier"] = rate_tier;
+    native_tick_contract["queue_pending_before"] = static_cast<int64_t>(decision.get("pending_count", static_cast<int64_t>(0)));
+    native_tick_contract["queue_pending_after"] = static_cast<int64_t>(
+        orchestration_state.get("pending_count", static_cast<int64_t>(0)));
+    result["native_tick_contract"] = native_tick_contract;
     return result;
 }
 

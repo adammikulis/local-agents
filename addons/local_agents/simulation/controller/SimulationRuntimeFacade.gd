@@ -4,7 +4,6 @@ const FieldRegistryConfigResourceScript = preload("res://addons/local_agents/con
 const EmitterProfileTableResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/EmitterProfileTableResource.gd")
 const MaterialProfileTableResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/MaterialProfileTableResource.gd")
 const NativeComputeBridgeScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
-const SimulationVoxelTerrainMutatorScript = preload("res://addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd")
 const _ENVIRONMENT_STAGE_NAME_VOXEL_TRANSFORM := "voxel_transform_step"
 const _UNKNOWN_MATERIAL_ID := "material:unknown"
 const _UNKNOWN_MATERIAL_PROFILE_ID := "profile:unknown"
@@ -25,6 +24,7 @@ const _MATERIAL_PROFILE_REQUIRED_FIELDS: Array[String] = [
 	"moisture_capacity",
 ]
 static var _native_field_registry_session_configured: bool = false
+static var _native_voxel_terrain_mutator: Object = null
 
 static func ensure_native_sim_core_initialized(controller, tick: int = -1) -> bool:
 	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
@@ -107,40 +107,7 @@ static func execute_native_voxel_stage(controller, tick: int, stage_name: String
 	var normalized_stage_name = String(stage_name).strip_edges().to_lower()
 	var normalized_payload = NativeComputeBridgeScript.normalize_environment_payload(payload) if normalized_stage_name == _ENVIRONMENT_STAGE_NAME_VOXEL_TRANSFORM else _with_required_material_identity(payload)
 	if normalized_stage_name == _ENVIRONMENT_STAGE_NAME_VOXEL_TRANSFORM:
-		var environment_dispatch = NativeComputeBridgeScript.dispatch_environment_stage_call(
-			controller,
-			tick,
-			"voxel_stage",
-			normalized_stage_name,
-			normalized_payload,
-			strict
-		)
-		var environment_payload := NativeComputeBridgeScript.environment_stage_result(environment_dispatch)
-		var execution_variant = environment_payload.get("execution", {})
-		if not (execution_variant is Dictionary):
-			var nested_result_variant = environment_dispatch.get("result", {})
-			if nested_result_variant is Dictionary:
-				execution_variant = (nested_result_variant as Dictionary).get("execution", {})
-		var execution: Dictionary = execution_variant if execution_variant is Dictionary else {}
-		var dispatched := NativeComputeBridgeScript.is_environment_stage_dispatched(environment_dispatch)
-		var backend_used := _canonical_environment_backend(environment_dispatch, execution)
-		var kernel_pass := String(execution.get("kernel_pass", "")).strip_edges()
-		var dispatch_reason := _canonical_environment_dispatch_reason(environment_dispatch, execution, environment_payload)
-		var native_mutation_authority := _extract_native_mutation_authority(environment_dispatch, environment_payload, execution)
-		var native_tick_contract := NativeComputeBridgeScript.environment_tick_contract(environment_dispatch, tick, normalized_payload)
-		return {
-			"ok": bool(environment_dispatch.get("ok", false)),
-			"executed": bool(environment_dispatch.get("executed", false)),
-			"dispatched": dispatched,
-			"kernel_pass": kernel_pass,
-			"backend_used": backend_used,
-			"dispatch_reason": dispatch_reason,
-			"result": environment_dispatch.get("result", {}),
-			"voxel_result": environment_payload,
-			"native_mutation_authority": native_mutation_authority,
-			"native_tick_contract": native_tick_contract,
-			"error": String(environment_dispatch.get("error", "")),
-		}
+		return NativeComputeBridgeScript.dispatch_voxel_orchestration_tick_call(controller, tick, normalized_payload, strict)
 	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
 		if strict:
 			controller._emit_dependency_error(tick, "voxel_stage", "native_sim_core_disabled")
@@ -179,42 +146,6 @@ static func execute_native_voxel_stage(controller, tick: int, stage_name: String
 		"native_tick_contract": {},
 		"error": String(dispatch.get("error", "")),
 	}
-
-static func _canonical_environment_backend(environment_dispatch: Dictionary, execution: Dictionary) -> String:
-	var backend_used := String(execution.get("backend_used", "")).strip_edges().to_lower()
-	if backend_used != "":
-		return backend_used
-	var backend_requested := String(execution.get("backend_requested", "")).strip_edges().to_lower()
-	if backend_requested != "":
-		return backend_requested
-	var native_result_variant = environment_dispatch.get("result", {})
-	if not (native_result_variant is Dictionary):
-		return ""
-	var native_result = native_result_variant as Dictionary
-	var dispatch_execution_variant = native_result.get("execution", {})
-	if dispatch_execution_variant is Dictionary:
-		var dispatch_execution = dispatch_execution_variant as Dictionary
-		backend_used = String(dispatch_execution.get("backend_used", "")).strip_edges().to_lower()
-		if backend_used != "":
-			return backend_used
-		backend_requested = String(dispatch_execution.get("backend_requested", "")).strip_edges().to_lower()
-		if backend_requested != "":
-			return backend_requested
-	return ""
-
-static func _canonical_environment_dispatch_reason(environment_dispatch: Dictionary, execution: Dictionary, environment_result: Dictionary) -> String:
-	var dispatch_reason := String(execution.get("dispatch_reason", "")).strip_edges()
-	if dispatch_reason != "":
-		return dispatch_reason
-	var native_result_variant = environment_dispatch.get("result", {})
-	if native_result_variant is Dictionary:
-		var native_result = native_result_variant as Dictionary
-		var dispatch_execution_variant = native_result.get("execution", {})
-		if dispatch_execution_variant is Dictionary:
-			dispatch_reason = String((dispatch_execution_variant as Dictionary).get("dispatch_reason", "")).strip_edges()
-			if dispatch_reason != "":
-				return dispatch_reason
-	return String(environment_result.get("status", "")).strip_edges()
 
 static func _extract_native_mutation_authority(dispatch: Dictionary, payload: Dictionary, execution: Dictionary) -> Dictionary:
 	var authority: Dictionary = {}
@@ -481,10 +412,26 @@ static func _inject_voxel_transform_emitter_contract(payload: Dictionary) -> Dic
 static func stamp_default_voxel_target_wall(controller, tick: int, camera_transform: Transform3D, target_wall_profile = null, strict: bool = false) -> Dictionary:
 	if controller == null:
 		return {"ok": false, "changed": false, "error": "invalid_controller", "tick": tick}
-	var mutation = SimulationVoxelTerrainMutatorScript.stamp_default_target_wall(controller, tick, camera_transform, target_wall_profile)
+	var mutator = _get_native_voxel_terrain_mutator()
+	if mutator == null:
+		if strict:
+			controller._emit_dependency_error(tick, "voxel_target_wall", "native_required")
+		return {"ok": false, "changed": false, "error": "native_required", "tick": tick, "changed_tiles": [], "changed_chunks": []}
+	var mutation = mutator.stamp_default_target_wall(controller, tick, camera_transform, target_wall_profile)
 	if not bool(mutation.get("ok", false)) and strict:
 		controller._emit_dependency_error(tick, "voxel_target_wall", String(mutation.get("error", "wall_stamp_failed")))
 	return mutation
+
+static func _get_native_voxel_terrain_mutator() -> Object:
+	if is_instance_valid(_native_voxel_terrain_mutator):
+		return _native_voxel_terrain_mutator
+	if not ClassDB.class_exists("LocalAgentsNativeVoxelTerrainMutator"):
+		return null
+	var mutator := ClassDB.instantiate("LocalAgentsNativeVoxelTerrainMutator")
+	if mutator == null:
+		return null
+	_native_voxel_terrain_mutator = mutator
+	return mutator
 
 static func enqueue_thought_npcs(controller, npc_ids: Array) -> void:
 	for npc_id_variant in npc_ids:

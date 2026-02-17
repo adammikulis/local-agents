@@ -6,9 +6,12 @@ const NativeComputeBridgeContactNormalizationScript = preload("res://addons/loca
 const NativeComputeBridgeErrorCodesScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridgeErrorCodes.gd")
 const NativeComputeBridgeEnvironmentDispatchStatusScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridgeEnvironmentDispatchStatus.gd")
 const NativeComputeBridgeEnvironmentBindingsScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridgeEnvironmentBindings.gd")
+const NativeComputeBridgeOrchestrationTickScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridgeOrchestrationTick.gd")
 const _ENVIRONMENT_STAGE_NAME_VOXEL_TRANSFORM := "voxel_transform_step"
+const _ENVIRONMENT_STAGE_NAME_WAVE_A_CONTINUITY := "wave_a_continuity"
 const _SUPPORTED_ENVIRONMENT_STAGES := {
     _ENVIRONMENT_STAGE_NAME_VOXEL_TRANSFORM: true,
+    _ENVIRONMENT_STAGE_NAME_WAVE_A_CONTINUITY: true,
 }
 const _INVALID_ENVIRONMENT_STAGE_NAME_ERROR := "invalid_environment_stage_name"
 const _UNSUPPORTED_ENVIRONMENT_STAGE_ERROR := "native_environment_stage_unsupported"
@@ -75,6 +78,32 @@ static func dispatch_voxel_stage_call(controller, tick: int, phase: String, stag
 
 static func dispatch_voxel_edit_enqueue_call(controller, tick: int, phase: String, voxel_ops: Array, strict: bool = false) -> Dictionary:
 	return dispatch_stage_call(controller, tick, phase, "enqueue_voxel_edit_ops", [voxel_ops], strict)
+
+static func dispatch_voxel_orchestration_tick_call(controller, tick: int, payload: Dictionary = {}, strict: bool = false) -> Dictionary:
+	var normalized_payload = _normalize_environment_payload(payload)
+	var orchestration_variant = normalized_payload.get("native_tick_orchestration", {})
+	var orchestration: Dictionary = orchestration_variant if orchestration_variant is Dictionary else {}
+	var frame_context_variant = orchestration.get("frame_context", {})
+	var frame_context: Dictionary = frame_context_variant if frame_context_variant is Dictionary else {}
+	frame_context = frame_context.duplicate(true)
+	frame_context["native_tick_orchestration"] = orchestration.duplicate(true)
+	if not frame_context.has("physics_contacts"):
+		var payload_contacts_variant = normalized_payload.get("physics_contacts", normalized_payload.get("physics_server_contacts", []))
+		var payload_contacts: Array = payload_contacts_variant if payload_contacts_variant is Array else []
+		frame_context["physics_contacts"] = payload_contacts
+	var delta_seconds := maxf(0.0, float(normalized_payload.get("delta", 0.0)))
+	var frame_index := int(frame_context.get("frame_index", normalized_payload.get("frame_index", tick)))
+	if frame_index < 0:
+		frame_index = tick
+	var dispatch = dispatch_stage_call(
+		controller,
+		tick,
+		"voxel_stage",
+		"execute_voxel_orchestration_tick",
+		[tick, delta_seconds, frame_index, frame_context],
+		strict
+	)
+	return NativeComputeBridgeOrchestrationTickScript.normalize_tick_dispatch(dispatch, tick, normalized_payload, delta_seconds, frame_index)
 
 static func is_voxel_stage_dispatched(dispatch: Dictionary) -> bool:
 	if not bool(dispatch.get("ok", false)):
