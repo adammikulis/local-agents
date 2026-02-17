@@ -18,7 +18,17 @@ const FAST_RUNTIME_TESTS := [
 	"res://addons/local_agents/tests/test_simulation_cognition_trace_isolation.gd",
 	"res://addons/local_agents/tests/test_llama_server_e2e.gd",
 ]
+const DESTRUCTION_TESTS := [
+	"res://addons/local_agents/tests/test_fps_fire_contact_mutation_runtime_path.gd",
+	"res://addons/local_agents/tests/test_projectile_voxel_destruction_runtime_path.gd",
+	"res://addons/local_agents/tests/test_native_orchestration_dispatch_runtime_contract.gd",
+	"res://addons/local_agents/tests/test_native_voxel_op_contracts.gd",
+]
 const HEAVY_RUNTIME_TEST := "res://addons/local_agents/tests/test_agent_runtime_heavy.gd"
+const SUITE_RUNTIME := "runtime"
+const SUITE_FAST := "fast"
+const SUITE_DESTRUCTION := "destruction"
+const DEFAULT_SUITE := SUITE_RUNTIME
 
 const TestModelHelper := preload("res://addons/local_agents/tests/test_model_helper.gd")
 const DEFAULT_TIMEOUT_SECONDS := 120
@@ -29,6 +39,8 @@ var _poll_interval_seconds: float = 0.25
 var _failures: Array[String] = []
 var _selected_tests: Array[String] = []
 var _fast_mode: bool = false
+var _suite: String = DEFAULT_SUITE
+var _suite_parse_failed: bool = false
 var _workers: int = 1
 var _processes: Dictionary = {}
 var _gpu_enabled: bool = false
@@ -42,16 +54,18 @@ func _init() -> void:
 	_gpu_layers = _int_arg("--gpu-layers=", 0)
 	_override_context_size = _int_arg("--context-size=", 0)
 	_override_max_tokens = _int_arg("--max-tokens=", 0)
+	_suite = _suite_from_args()
 	_timeout_seconds = _timeout_from_args()
 	_workers = _workers_from_args()
 	_selected_tests = _tests_from_args()
 	call_deferred("_run_all")
 
 func _run_all() -> void:
+	if _suite_parse_failed:
+		quit(1)
+		return
 	if _selected_tests.is_empty():
-		var default_tests: Array[String] = []
-		default_tests.append_array(FAST_RUNTIME_TESTS if _fast_mode else RUNTIME_TESTS)
-		_selected_tests = default_tests
+		_selected_tests = _default_tests_for_suite()
 	if not _validate_selected_tests():
 		quit(1)
 		return
@@ -62,13 +76,14 @@ func _run_all() -> void:
 		quit(0)
 		return
 
-	var model_helper = TestModelHelper.new()
-	var ensured := model_helper.ensure_local_model()
-	if ensured == "":
-		push_error("Failed to auto-download required test model")
-		quit(1)
-		return
-	OS.set_environment("LOCAL_AGENTS_TEST_GGUF", ensured)
+	if _requires_model_assets():
+		var model_helper = TestModelHelper.new()
+		var ensured := model_helper.ensure_local_model()
+		if ensured == "":
+			push_error("Failed to auto-download required test model")
+			quit(1)
+			return
+		OS.set_environment("LOCAL_AGENTS_TEST_GGUF", ensured)
 	OS.set_environment("LOCAL_AGENTS_TEST_FAST", "1" if _fast_mode else "0")
 	OS.set_environment("LOCAL_AGENTS_TEST_USE_GPU", "1" if _gpu_enabled else "0")
 	if _gpu_layers > 0:
@@ -215,15 +230,18 @@ func _resolve_test_token(token: String) -> String:
 		return token
 	if FAST_RUNTIME_TESTS.has(token):
 		return token
-	for script_path in RUNTIME_TESTS:
+	if DESTRUCTION_TESTS.has(token):
+		return token
+	for script_path in _all_allowed_tests():
 		if script_path.ends_with("/%s" % token) or script_path.get_file() == token:
 			return script_path
 	return ""
 
 func _validate_selected_tests() -> bool:
 	var ok := true
+	var allowed_tests := _all_allowed_tests()
 	for script_path in _selected_tests:
-		if RUNTIME_TESTS.has(script_path):
+		if allowed_tests.has(script_path):
 			continue
 		push_error("Unknown runtime test in --tests filter: %s" % script_path)
 		ok = false
@@ -249,6 +267,47 @@ func _apply_cognition_runtime_gate() -> void:
 	for script_path in skipped:
 		print("==> %s skipped due to missing cognition runtime (%s)" % [script_path, skip_reason])
 	_selected_tests = kept
+
+func _suite_from_args() -> String:
+	for arg in _all_cmdline_args():
+		if not arg.begins_with("--suite="):
+			continue
+		var raw = arg.trim_prefix("--suite=").strip_edges().to_lower()
+		if raw == "":
+			continue
+		if raw == SUITE_RUNTIME or raw == SUITE_FAST or raw == SUITE_DESTRUCTION:
+			return raw
+		push_error("Unknown runtime test suite: %s" % raw)
+		_suite_parse_failed = true
+		return ""
+	return SUITE_FAST if _fast_mode else DEFAULT_SUITE
+
+func _default_tests_for_suite() -> Array[String]:
+	var selected: Array[String] = []
+	if _suite == SUITE_FAST:
+		selected.append_array(FAST_RUNTIME_TESTS)
+		return selected
+	if _suite == SUITE_DESTRUCTION:
+		selected.append_array(DESTRUCTION_TESTS)
+		return selected
+	selected.append_array(RUNTIME_TESTS)
+	return selected
+
+func _all_allowed_tests() -> Array[String]:
+	var tests: Array[String] = []
+	for script_path in RUNTIME_TESTS:
+		if not tests.has(script_path):
+			tests.append(script_path)
+	for script_path in DESTRUCTION_TESTS:
+		if not tests.has(script_path):
+			tests.append(script_path)
+	return tests
+
+func _requires_model_assets() -> bool:
+	for script_path in _selected_tests:
+		if RUNTIME_TESTS.has(script_path):
+			return true
+	return false
 
 func _cognition_runtime_skip_reason() -> String:
 	if not ClassDB.class_exists("NetworkGraph"):

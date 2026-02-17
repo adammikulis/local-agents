@@ -5,6 +5,9 @@ const NATIVE_CORE_CPP_PATH := "res://addons/local_agents/gdextensions/localagent
 const VOXEL_EDIT_ENGINE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/VoxelEditEngine.cpp"
 const VOXEL_GPU_EXECUTOR_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/VoxelEditGpuExecutor.cpp"
 const VOXEL_GPU_DISPATCH_METADATA_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/sim/VoxelGpuDispatchMetadata.cpp"
+const VOXEL_DISPATCH_BRIDGE_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/LocalAgentsVoxelDispatchBridge.cpp"
+const NATIVE_VOXEL_MUTATOR_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/LocalAgentsNativeVoxelTerrainMutator.cpp"
+const FRACTURE_DEBRIS_EMITTER_CPP_PATH := "res://addons/local_agents/gdextensions/localagents/src/helpers/LocalAgentsFractureDebrisEmitter.cpp"
 const NATIVE_BRIDGE_GD_PATH := "res://addons/local_agents/simulation/controller/NativeComputeBridge.gd"
 const SIMULATION_VOXEL_MUTATOR_GD_PATH := "res://addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd"
 const WORLD_DISPATCH_CONTRACTS_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/world/WorldDispatchContracts.gd"
@@ -22,6 +25,8 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = _test_adaptive_multires_and_zoom_throttle_contract_source() and ok
 	ok = _test_variable_rate_deterministic_processing_contract_source() and ok
 	ok = _test_environment_stage_field_handle_injection_contract_source() and ok
+	ok = _test_spawn_entries_shader_first_flow_contract_source() and ok
+	ok = _test_partial_chip_spawn_entries_contract_source() and ok
 	ok = _test_voxel_result_fail_fast_error_canonicalization_behavior() and ok
 	ok = _test_environment_stage_result_contract_shaping_behavior() and ok
 	if ok:
@@ -42,6 +47,67 @@ func _test_environment_stage_field_handle_injection_contract_source() -> bool:
 	ok = _assert(source.contains("scheduled_frame[\"inputs\"] = scheduled_frame_inputs;"), "Environment stage should dispatch injected inputs into scheduled_frame") and ok
 	ok = _assert(source.contains("if (!did_inject_handles) {"), "Field handle injection should preserve scalar path by skipping injection if no valid references are found") and ok
 	ok = _assert(source.contains("pipeline_inputs[\"field_handles\"] = field_handles;"), "Injected field_handles should be added to a duplicated pipeline input dictionary") and ok
+	return ok
+
+func _test_spawn_entries_shader_first_flow_contract_source() -> bool:
+	var engine_source := _read_script_source(VOXEL_EDIT_ENGINE_CPP_PATH)
+	if engine_source == "":
+		return false
+	var executor_source := _read_script_source(VOXEL_GPU_EXECUTOR_CPP_PATH)
+	if executor_source == "":
+		return false
+	var bridge_source := _read_script_source(VOXEL_DISPATCH_BRIDGE_CPP_PATH)
+	if bridge_source == "":
+		return false
+	var emitter_source := _read_script_source(FRACTURE_DEBRIS_EMITTER_CPP_PATH)
+	if emitter_source == "":
+		return false
+	var ok := true
+	ok = _assert(executor_source.contains("stats.spawn_metadata_required = true;"), "GPU executor must mark spawn metadata as required for fracture/cleave ops.") and ok
+	ok = _assert(executor_source.contains("stats.spawn_entries = spawn_entries;"), "GPU executor must expose spawn_entries readback payload.") and ok
+	ok = _assert(executor_source.contains("spawn_entry[\"impulse_direction\"]"), "GPU executor spawn metadata must include impulse_direction payload.") and ok
+	ok = _assert(executor_source.contains("spawn_entry[\"impulse_size\"]"), "GPU executor spawn metadata must include impulse_size payload.") and ok
+	ok = _assert(executor_source.contains("spawn_entry[\"projectile_material_tag\"]"), "GPU executor spawn metadata must include projectile_material_tag payload.") and ok
+	ok = _assert(executor_source.contains("spawn_entry[\"spawn_synthesized\"] = !spawn_valid;"), "GPU executor must synthesize spawn metadata when GPU readback spawn_valid is false.") and ok
+	ok = _assert(engine_source.contains("result[\"spawn_entries\"] = gpu_stats.spawn_entries.duplicate(true);"), "Voxel engine result payload must include propagated spawn_entries.") and ok
+	ok = _assert(engine_source.contains("result[\"spawn_entries_required\"] = spawn_entries_required;"), "Voxel engine result payload must include spawn_entries_required marker.") and ok
+	ok = _assert(engine_source.contains("result[\"error\"] = String(\"spawn_entries_required_missing\");"), "Voxel engine must hard-fail when required spawn metadata is missing.") and ok
+	ok = _assert(engine_source.contains("execution[\"spawn_entries_status\"] = spawn_entries_missing ? String(\"error_required_missing\")"), "Voxel engine must expose error_required_missing status for missing required spawn metadata.") and ok
+	ok = _assert(bridge_source.contains("collect_spawn_entries(dispatch, spawn_entries, 0);"), "Dispatch bridge stage payload builder must collect spawn_entries recursively.") and ok
+	ok = _assert(bridge_source.contains("stage_payload[\"spawn_entries\"] = spawn_entries;"), "Dispatch bridge stage payload must expose spawn_entries for debris emission.") and ok
+	ok = _assert(bridge_source.contains("stage_payload[\"spawn_entries_status\"] = spawn_entries_missing ? String(\"error_required_missing\")"), "Dispatch bridge should classify missing required spawn entries as strict error status.") and ok
+	ok = _assert(bridge_source.contains("stage_payload[\"spawn_entries_warning\"] = spawn_entries_missing ? String(\"spawn_entries_required_missing\") : String();"), "Dispatch bridge should preserve typed spawn_entries warning fields in stage payload.") and ok
+	ok = _assert(bridge_source.contains("const bool spawn_entries_missing = spawn_entries_required && as_array(stage_payload.get(\"spawn_entries\", Array())).is_empty();"), "Dispatch bridge must re-check required spawn_entries before mutator/debris flow.") and ok
+	ok = _assert(bridge_source.contains("status[\"error\"] = missing_error;"), "Dispatch bridge must hard-fail process_native_voxel_rate when required spawn entries are missing.") and ok
+	ok = _assert(emitter_source.contains("Array spawn_entries = normalize_spawn_entries(as_array(stage_payload.get(\"spawn_entries\", Array())), default_material_tag);"), "Debris emitter must consume spawn_entries when present.") and ok
+	ok = _assert(emitter_source.contains("if (!has_spawn_entries && spawn_entries_required)"), "Debris emitter should explicitly guard required spawn metadata.") and ok
+	ok = _assert(emitter_source.contains("UtilityFunctions::print(String(\"NATIVE_REQUIRED: spawn_entries_required_missing\"));"), "Debris emitter should hard-fail required spawn metadata omissions.") and ok
+	ok = _assert(emitter_source.contains("spawn_fracture_chunk_projectiles"), "Debris emitter must route fracture spawn entries through FpsLauncherController chunk projectile spawning.") and ok
+	ok = _assert(not emitter_source.contains("RigidBody3D"), "Debris emitter must not spawn rigid bodies for fracture debris.") and ok
+	ok = _assert(not emitter_source.contains("const Array contact_rows = as_array(stage_payload.get(\"physics_contacts\", Array()));"), "Debris emitter must not synthesize spawn entries from contact rows.") and ok
+	ok = _assert(not emitter_source.contains("const Array changed_chunks = as_array(stage_payload.get(\"changed_chunks\", Array()));"), "Debris emitter must not synthesize spawn entries from changed chunk rows.") and ok
+	ok = _assert(not emitter_source.contains("stage_payload.get(\"changed_region\", Variant())"), "Debris emitter must not synthesize spawn entries from changed region payloads.") and ok
+	ok = _assert(not emitter_source.contains("NATIVE_FRACTURE_DEBRIS_TRANSITIONAL_FALLBACK"), "Debris emitter must not retain transitional spawn fallback path markers.") and ok
+	return ok
+
+func _test_partial_chip_spawn_entries_contract_source() -> bool:
+	var mutator_source := _read_script_source(NATIVE_VOXEL_MUTATOR_CPP_PATH)
+	if mutator_source == "":
+		return false
+	var emitter_source := _read_script_source(FRACTURE_DEBRIS_EMITTER_CPP_PATH)
+	if emitter_source == "":
+		return false
+	var ok := true
+	ok = _assert(mutator_source.contains("const bool chip_progress_increased = next_chip_progress > (prior_chip_progress + 1.0e-6);"), "Native mutator must detect fracture_chip_progress increase for partial chip events.") and ok
+	ok = _assert(mutator_source.contains("const bool emit_spawn_entry = (chip_progress_increased && voxel_not_fully_removed) || (levels_to_remove > 0 && voxel_not_fully_removed);"), "Native mutator must emit spawn metadata for partial chip progress and fractured non-fully-removed voxel events.") and ok
+	ok = _assert(mutator_source.contains("spawn_entry[\"fracture_chip_state\"] = levels_to_remove > 0 ? String(\"fractured\") : String(\"chipped\");"), "Native mutator spawn entries must preserve chipped/fractured state for destruction evidence contracts.") and ok
+	ok = _assert(mutator_source.contains("spawn_entry[\"projectile_kind\"] = String(\"voxel_chunk\");"), "Native mutator chip spawn entries must preserve voxel_chunk projectile metadata.") and ok
+	ok = _assert(mutator_source.contains("spawn_entry[\"projectile_material_tag\"] = resolved_material_tag;"), "Native mutator chip spawn entries must preserve material-tag mapping into debris payloads.") and ok
+	ok = _assert(mutator_source.contains("out[\"spawn_entries\"] = spawn_entries;"), "Native mutator result payload must expose chip-event spawn_entries for debris emission.") and ok
+	ok = _assert(mutator_source.contains("out[\"spawn_entries_required\"] = chip_spawn_required;"), "Native mutator result payload must require spawn entries when chip events are observed.") and ok
+	ok = _assert(mutator_source.contains("out[\"chip_progress_spawn_count\"] = chip_progress_spawn_count;"), "Native mutator result payload must expose chip spawn evidence counters.") and ok
+	ok = _assert(mutator_source.contains("simulation_controller->set(StringName(\"_native_mutator_spawn_payload\"), mutator_spawn_payload);"), "Native mutator must expose same-tick spawn payload for debris emitter handoff.") and ok
+	ok = _assert(emitter_source.contains("simulation_controller->get(StringName(\"_native_mutator_spawn_payload\"))"), "Debris emitter must consume mutator-provided spawn payload when stage payload omits spawn entries.") and ok
 	return ok
 
 func _test_native_authoritative_destruction_contract_source() -> bool:
@@ -128,7 +194,7 @@ func _test_gpu_dispatch_success_contract_source() -> bool:
 	ok = _assert(engine_source.contains("const VoxelGpuExecutionResult gpu_result = VoxelEditGpuExecutor::execute("), "Voxel engine success path must dispatch through VoxelEditGpuExecutor") and ok
 	ok = _assert(not engine_source.contains("const StageExecutionStats cpu_stats = execute_cpu_stage("), "Voxel engine success path must not execute CPU stage") and ok
 	ok = _assert(executor_source.contains("result.deferred_ops = pending_ops;"), "GPU executor failure path must requeue ordered pending ops to avoid loss") and ok
-	ok = _assert(engine_source.contains("const Dictionary execution = build_voxel_gpu_dispatch_metadata(dispatch_metadata);"), "Voxel engine must build dispatched GPU execution metadata through native helper") and ok
+	ok = _assert(engine_source.contains("build_voxel_gpu_dispatch_metadata(dispatch_metadata);"), "Voxel engine must build dispatched GPU execution metadata through native helper") and ok
 	ok = _assert(engine_source.contains("result[\"dispatched\"] = true;"), "Voxel engine must flag dispatched=true on GPU success path") and ok
 	ok = _assert(engine_source.contains("result[\"ok\"] = true;"), "Voxel engine must report ok=true when GPU dispatch succeeds") and ok
 	ok = _assert(metadata_source.contains("execution[\"readback\"] = readback;"), "GPU success metadata must expose deterministic readback payload") and ok

@@ -44,14 +44,17 @@ func run_test(tree: SceneTree) -> bool:
 		sim.queue_free()
 		var saw_structure_failure := false
 		for row in dependency_errors:
-			if row.find(":structure_lifecycle:gpu_required") != -1 or row.find(":structure_lifecycle:native_required") != -1:
+			if row.find(":structure_lifecycle:gpu_required") != -1 \
+				or row.find(":structure_lifecycle:gpu_unavailable") != -1 \
+				or row.find(":structure_lifecycle:native_required") != -1 \
+				or row.find(":structure_lifecycle:native_unavailable") != -1:
 				saw_structure_failure = true
 				break
 		if expanded:
 			push_error("Expected no structure lifecycle expansion when native/GPU lifecycle path is unavailable")
 			return false
 		if not saw_structure_failure:
-			push_error("Expected structure lifecycle dependency error with gpu_required/native_required semantics when native path is unavailable")
+			push_error("Expected structure lifecycle dependency error with typed native/GPU required semantics when native path is unavailable")
 			return false
 		print("Settlement growth native-unavailable contract test passed")
 		return true
@@ -92,8 +95,6 @@ func run_test(tree: SceneTree) -> bool:
 	return true
 
 func _is_native_structure_lifecycle_available() -> bool:
-	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
-		return false
 	if not Engine.has_singleton(NativeComputeBridgeScript.NATIVE_SIM_CORE_SINGLETON_NAME):
 		return false
 	var core = Engine.get_singleton(NativeComputeBridgeScript.NATIVE_SIM_CORE_SINGLETON_NAME)

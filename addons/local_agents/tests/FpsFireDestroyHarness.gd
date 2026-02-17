@@ -24,7 +24,6 @@ func _run() -> void:
 	await _wait_frames(6)
 	ok = _assert(_world_controller.has_method("set_fps_mode_for_testing"), "World controller missing set_fps_mode_for_testing.") and ok
 	ok = _assert(_world_controller.has_method("fire_from_screen_center_for_testing"), "World controller missing fire_from_screen_center_for_testing.") and ok
-	ok = _assert(_world_controller.has_method("set_native_voxel_dispatch_enabled_for_testing"), "World controller missing set_native_voxel_dispatch_enabled_for_testing.") and ok
 	ok = _assert(_world_controller.has_method("active_fps_projectile_count_for_testing"), "World controller missing active_fps_projectile_count_for_testing.") and ok
 	ok = _assert(_world_controller.has_method("native_voxel_dispatch_runtime"), "World controller missing native_voxel_dispatch_runtime.") and ok
 	if not ok:
@@ -33,8 +32,6 @@ func _run() -> void:
 
 	var fps_enabled := bool(_world_controller.call("set_fps_mode_for_testing", true))
 	ok = _assert(fps_enabled, "Failed to force FPS mode before fire request.") and ok
-	var dispatch_enabled := bool(_world_controller.call("set_native_voxel_dispatch_enabled_for_testing", true))
-	ok = _assert(dispatch_enabled, "Failed to keep world-native dispatch active for runtime mutation assertions.") and ok
 	var runtime_before: Dictionary = _runtime_snapshot()
 	_final_runtime = runtime_before.duplicate(true)
 	var fired := bool(_world_controller.call("fire_from_screen_center_for_testing"))

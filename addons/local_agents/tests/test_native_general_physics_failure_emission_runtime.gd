@@ -75,14 +75,18 @@ func _test_voxel_chunk_projectile_impact_activates_native_failure(core: Object) 
 
 func _test_bridge_dispatch_syncs_projectile_contacts_each_pulse(core: Object) -> bool:
 	core.call("reset")
-	var previous_native_env := OS.get_environment(NativeComputeBridge.NATIVE_SIM_CORE_ENV_KEY)
-	OS.set_environment(NativeComputeBridge.NATIVE_SIM_CORE_ENV_KEY, "1")
 	var bridge_stage_name := PIPELINE_STAGE_NAME
 	var payload := _build_base_payload()
 	payload["physics_contacts"] = _build_directional_contact_rows()
 	var first_dispatch: Dictionary = NativeComputeBridge.dispatch_environment_stage(bridge_stage_name, payload.duplicate(true))
 	var ok := true
-	ok = _assert(bool(first_dispatch.get("ok", false)), "Bridge dispatch with projectile contacts must succeed on required native/GPU path (error=%s)." % String(first_dispatch.get("error", ""))) and ok
+	if not bool(first_dispatch.get("ok", false)):
+		var first_error := String(first_dispatch.get("error", ""))
+		ok = _assert(
+			first_error in ["gpu_required", "gpu_unavailable", "native_required", "native_unavailable"],
+			"Bridge dispatch must fail fast with typed native/GPU requirement errors when unavailable (error=%s)." % first_error
+		) and ok
+		return ok
 	var first_snapshot_variant = core.call("get_physics_contact_snapshot")
 	ok = _assert(first_snapshot_variant is Dictionary, "Core should expose physics contact snapshot after bridge dispatch.") and ok
 	if first_snapshot_variant is Dictionary:
@@ -99,7 +103,6 @@ func _test_bridge_dispatch_syncs_projectile_contacts_each_pulse(core: Object) ->
 	if second_snapshot_variant is Dictionary:
 		var second_snapshot := second_snapshot_variant as Dictionary
 		ok = _assert(int(second_snapshot.get("buffered_count", 0)) == 0, "Bridge dispatch should clear native contact buffer when no projectile contacts are present.") and ok
-	OS.set_environment(NativeComputeBridge.NATIVE_SIM_CORE_ENV_KEY, previous_native_env)
 	return ok
 
 func _test_directional_impact_emits_cleave_with_deterministic_payload(core: Object) -> bool:

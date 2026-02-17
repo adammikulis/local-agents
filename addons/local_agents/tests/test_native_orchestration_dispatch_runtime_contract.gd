@@ -89,7 +89,6 @@ func _run_native_dispatch_success_contract_test() -> bool:
 	var synced_states: Array = []
 
 	simulation_controller.dispatch_responses.append(simulation_controller._success_dispatch(1))
-
 	var context := {
 		"tick": 91,
 		"frame_index": 287,
@@ -100,15 +99,24 @@ func _run_native_dispatch_success_contract_test() -> bool:
 			"contact_point": Vector3(1.0, 2.0, 3.0),
 			"contact_impulse": 8.0,
 			"relative_speed": 14.0,
+			"projectile_kind": "voxel_chunk",
+			"projectile_density_tag": "dense",
+			"projectile_hardness_tag": "hard",
+			"projectile_material_tag": "dense_voxel",
+			"failure_emission_profile": "dense_hard_voxel_chunk",
+			"projectile_radius": 0.07,
+			"body_mass": 0.2,
 			"deadline_frame": 293,
 		}],
+		"fracture_contact_rows": [],
+		"debris_contact_rows": [],
 		"voxel_rate_scheduler": scheduler,
 		"camera_controller": camera_controller,
 		"sync_environment_from_state": func(state: Dictionary) -> void:
 			synced_states.append(state.duplicate(true)),
 	}
 
-	controller.process_native_voxel_rate(0.05, context)
+	var result: Dictionary = controller.process_native_voxel_rate(0.05, context)
 
 	var ok := true
 	ok = _assert(simulation_controller.calls.size() == 1, "Native orchestration should dispatch exactly one pulse per process invocation.") and ok
@@ -124,16 +132,27 @@ func _run_native_dispatch_success_contract_test() -> bool:
 		ok = _assert(int(payload.get("simulation_tick", -1)) == 91, "Dispatch payload should expose simulation tick metadata for telemetry contracts.") and ok
 		ok = _assert(String(payload.get("rate_tier", "")) == "native_consolidated_tick", "Dispatch payload should use the native consolidated tick rate tier.") and ok
 		ok = _assert(_is_approx(float(payload.get("compute_budget_scale", 0.0)), 0.6), "Dispatch payload should preserve compute_budget_scale from native view metrics.") and ok
-		ok = _assert(contacts.size() == 1, "Dispatch payload should forward provided projectile contact rows directly.") and ok
+		ok = _assert(contacts.size() == 1, "Dispatch payload should use launcher projectile contact rows when rigid-body debris reporter rows are disabled.") and ok
+		var projectile_row: Dictionary = contacts[0] if contacts[0] is Dictionary else {}
+		ok = _assert(String(projectile_row.get("projectile_kind", "")) == "voxel_chunk", "Projectile dispatch row should include projectile_kind metadata for native failure emission.") and ok
+		ok = _assert(String(projectile_row.get("projectile_density_tag", "")) == "dense", "Projectile dispatch row should include projectile_density_tag metadata for native failure emission.") and ok
+		ok = _assert(String(projectile_row.get("projectile_hardness_tag", "")) == "hard", "Projectile dispatch row should include projectile_hardness_tag metadata for native failure emission.") and ok
+		ok = _assert(String(projectile_row.get("projectile_material_tag", "")) == "dense_voxel", "Projectile dispatch row should include projectile_material_tag metadata for native failure emission.") and ok
+		ok = _assert(String(projectile_row.get("failure_emission_profile", "")) == "dense_hard_voxel_chunk", "Projectile dispatch row should include failure_emission_profile metadata for native failure emission.") and ok
+		ok = _assert(_is_approx(float(projectile_row.get("projectile_radius", 0.0)), 0.07), "Projectile dispatch row should include projectile_radius metadata for native failure emission.") and ok
+		ok = _assert(_is_approx(float(projectile_row.get("body_mass", 0.0)), 0.2), "Projectile dispatch row should include body_mass metadata for native failure emission.") and ok
+		ok = _assert(int(projectile_row.get("deadline_frame", -1)) == 293, "Projectile dispatch row should carry deadline_frame metadata for native queue/deadline contracts.") and ok
 		var orchestration_variant = payload.get("native_tick_orchestration", {})
 		var orchestration: Dictionary = orchestration_variant if orchestration_variant is Dictionary else {}
 		var contract_variant = orchestration.get("orchestration_contract", {})
 		var contract: Dictionary = contract_variant if contract_variant is Dictionary else {}
-		ok = _assert(int(contract.get("pending_contacts", 0)) == 1, "Dispatch payload should expose pending_contacts based on provided projectile rows.") and ok
+		ok = _assert(int(contract.get("pending_contacts", 0)) == 1, "Dispatch payload should expose pending_contacts from launcher projectile rows only.") and ok
 
 	ok = _assert(int(runtime.get("pulses_total", 0)) == 1 and int(runtime.get("pulses_success", 0)) == 1, "Runtime telemetry should track successful native dispatch pulse counters.") and ok
-	ok = _assert(int(runtime.get("contacts_dispatched", 0)) == 1, "Runtime telemetry contacts_dispatched should follow native tick contract contacts_consumed.") and ok
-	ok = _assert(int(runtime.get("ops_applied", 0)) > 0, "Runtime telemetry should increment ops_applied when native mutation executes.") and ok
+	ok = _assert(not bool(result.get("ok", true)), "Contact-driven dispatch without native mutation evidence must fail closed and never report success.") and ok
+	ok = _assert(not bool(result.get("mutation_applied", true)), "Contact-only dispatch payloads without native mutation evidence must not report mutation_applied=true.") and ok
+	ok = _assert(int(runtime.get("contacts_dispatched", 0)) == 0, "Runtime telemetry contacts_dispatched must remain 0 when native mutation is not applied.") and ok
+	ok = _assert(int(runtime.get("ops_applied", 0)) > 0, "Runtime telemetry should keep native executed-op accounting even when mutation fails closed.") and ok
 	var timings_variant = runtime.get("pulse_timings", [])
 	var timings: Array = timings_variant if timings_variant is Array else []
 	ok = _assert(timings.size() == 1, "Runtime telemetry should append one pulse timing sample for single dispatch pulse.") and ok
@@ -142,7 +161,7 @@ func _run_native_dispatch_success_contract_test() -> bool:
 		ok = _assert(String(timing.get("backend_used", "")).to_lower().begins_with("gpu"), "Telemetry contract should report GPU backend usage.") and ok
 		ok = _assert(String(timing.get("dispatch_reason", "")) == "native_gpu_primary", "Telemetry contract should pass through native dispatch_reason origin unchanged.") and ok
 	ok = _assert(int(simulation_controller.metrics_payload.get("pulse_count", 0)) == 1, "Runtime telemetry push should sync pulse_count into simulation controller metrics contract.") and ok
-	ok = _assert(synced_states.size() == 1, "Successful native mutation should emit exactly one sync_environment_from_state payload.") and ok
+	ok = _assert(synced_states.size() == 0, "No sync_environment_from_state payload should be emitted when native mutation is not applied.") and ok
 	simulation_controller.free()
 	return ok
 

@@ -10,6 +10,7 @@ if ! [[ "$MAX_FILE_LINES" =~ ^[0-9]+$ ]] || [[ "$MAX_FILE_LINES" -le 0 ]]; then
 fi
 
 "$SCRIPT_DIR/check_no_direct_refcounted_invocation.sh"
+"$SCRIPT_DIR/check_policy_plan_markers.sh"
 
 FILES=()
 while IFS= read -r file; do
@@ -17,7 +18,8 @@ while IFS= read -r file; do
 done < <(
   rg --files addons/local_agents scripts .github/workflows \
     -g '*.gd' -g '*.gdshader' -g '*.tscn' -g '*.tres' -g '*.yml' -g '*.yaml' \
-  | rg -v '/gdextensions/localagents/(thirdparty|build)/'
+  | rg -v '/gdextensions/localagents/(thirdparty|build|build_native)/' \
+  | rg -v '/build_native/'
 )
 
 if [[ ${#FILES[@]} -eq 0 ]]; then
