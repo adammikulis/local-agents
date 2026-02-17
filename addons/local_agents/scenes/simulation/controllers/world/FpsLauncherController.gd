@@ -225,7 +225,8 @@ func apply_native_tick_contract(contract: Dictionary) -> void:
 	var consumed_count := maxi(0, int(contract.get("contacts_consumed", 0)))
 	if consumed_count <= 0:
 		return
-	acknowledge_voxel_dispatch_contact_rows(consumed_count, true)
+	var mutation_applied := bool(contract.get("mutation_applied", true))
+	acknowledge_voxel_dispatch_contact_rows(consumed_count, mutation_applied)
 
 func acknowledge_voxel_dispatch_contact_rows(consumed_count: int, mutation_applied: bool = false) -> void:
 	var count := maxi(0, consumed_count)
