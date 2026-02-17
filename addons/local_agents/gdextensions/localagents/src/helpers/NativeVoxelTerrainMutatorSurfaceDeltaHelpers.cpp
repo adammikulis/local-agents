@@ -283,7 +283,7 @@ Dictionary apply_column_surface_delta(
         const int x = read_int_from_variant(column.get("x", 0), 0);
         const int z = read_int_from_variant(column.get("z", 0), 0);
         const int current_surface = read_int_from_variant(column.get("surface_y", sea_level), sea_level);
-        const int delta_levels = std::max(1, read_int_from_variant(height_overrides.get(tile_key, 0), 0));
+        const int delta_levels = std::max(0, read_int_from_variant(height_overrides.get(tile_key, 0), 0));
         int next_surface = current_surface;
         if (raise_surface) {
             next_surface = std::clamp(current_surface + delta_levels, 0, std::max(0, world_height - 2));

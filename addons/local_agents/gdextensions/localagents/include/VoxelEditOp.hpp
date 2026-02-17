@@ -45,6 +45,7 @@ struct VoxelEditOp {
     double noise_lacunarity = 2.0;
     double noise_gain = 0.5;
     godot::String noise_mode = "none";
+    godot::String projectile_material_tag = "dense_voxel";
 };
 
 } // namespace local_agents::simulation

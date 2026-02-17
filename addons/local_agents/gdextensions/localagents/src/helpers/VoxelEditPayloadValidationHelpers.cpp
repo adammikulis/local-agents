@@ -8,6 +8,25 @@
 using namespace godot;
 
 namespace local_agents::simulation::helpers {
+namespace {
+
+String resolve_projectile_material_tag(const Dictionary &op_payload) {
+    static const char *kTagKeys[] = {
+        "destroyed_voxel_material_tag",
+        "projectile_material_tag",
+        "material_tag",
+        "material_profile_key",
+    };
+    for (const char *key : kTagKeys) {
+        const String raw = String(op_payload.get(StringName(key), String())).strip_edges();
+        if (!raw.is_empty()) {
+            return raw;
+        }
+    }
+    return String("dense_voxel");
+}
+
+} // namespace
 
 bool is_valid_operation(const String &operation) {
     return operation == String("set") || operation == String("add") || operation == String("max") ||
@@ -150,6 +169,7 @@ bool parse_op_payload(
     op_out.voxel.z = z;
     op_out.operation = operation;
     op_out.value = value;
+    op_out.projectile_material_tag = resolve_projectile_material_tag(op_payload);
     return true;
 }
 

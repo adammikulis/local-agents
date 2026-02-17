@@ -1,5 +1,6 @@
 #include "LocalAgentsVoxelDispatchBridge.hpp"
 #include "helpers/LocalAgentsFractureDebrisEmitter.hpp"
+#include "helpers/SimulationCoreDictionaryHelpers.hpp"
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/object.hpp>
@@ -108,75 +109,32 @@ String resolve_dependency_error(const String &dispatch_reason, const String &dis
     return String();
 }
 Array normalize_contact_rows(const Variant &rows_variant) {
-    const Array rows = as_array(rows_variant);
-    Array out;
-    for (int64_t i = 0; i < rows.size(); i += 1) {
-        if (rows[i].get_type() == Variant::DICTIONARY) {
-            out.append(static_cast<Dictionary>(rows[i]).duplicate(true));
-        }
-    }
-    return out;
+    return local_agents::simulation::helpers::normalize_contact_rows(as_array(rows_variant));
 }
-String maybe_contact_key_component(const Dictionary &row, const char *field_name) {
-    const StringName key(field_name);
-    if (!row.has(key)) {
-        return String();
-    }
-    const Variant value = row.get(key, Variant());
-    if (value.get_type() == Variant::NIL) {
-        return String();
-    }
-    const String value_text = String(value).strip_edges();
-    if (value_text.is_empty()) {
-        return String();
-    }
-    return String(field_name) + "=" + value_text;
+Array merge_dispatch_contact_rows(const Array &left_rows, const Array &right_rows) {
+    return local_agents::simulation::helpers::merge_and_dedupe_contact_rows(
+        left_rows,
+        right_rows,
+        Array());
 }
-String contact_row_dedupe_key(const Dictionary &row) {
-    String key;
-    static const char *primary_fields[] = {
-        "contact_id",
-        "projectile_id",
-        "body_id",
-        "collider_id",
-        "other_body_id",
-        "shape_index",
-        "collider_shape_index",
-        "frame"
+Array simulation_buffered_contact_rows(Object *simulation_controller);
+Array resolve_dispatch_contact_rows(const Dictionary &context, Object *simulation_controller) {
+    Array unified_contact_rows;
+    static const char *impact_contact_row_keys[] = {
+        "dispatch_contact_rows",
+        "projectile_contact_rows",
+        "debris_contact_rows",
+        "fracture_contact_rows",
+        "impact_contact_rows",
+        "reimpact_contact_rows",
+        "re_impact_contact_rows",
     };
-    for (const char *field_name : primary_fields) {
-        const String field = maybe_contact_key_component(row, field_name);
-        if (!field.is_empty()) {
-            if (!key.is_empty()) {
-                key += "|";
-            }
-            key += field;
-        }
+    for (const char *key : impact_contact_row_keys) {
+        const Array key_rows = normalize_contact_rows(context.get(key, Array()));
+        unified_contact_rows = merge_dispatch_contact_rows(unified_contact_rows, key_rows);
     }
-    return key;
-}
-Array merge_dispatch_contact_rows(const Array &projectile_rows, const Array &physics_rows) {
-    Array merged;
-    Dictionary seen_keys;
-    auto append_rows = [&](const Array &rows) {
-        for (int64_t i = 0; i < rows.size(); i += 1) {
-            if (rows[i].get_type() != Variant::DICTIONARY) {
-                continue;
-            }
-            const Dictionary row = static_cast<Dictionary>(rows[i]).duplicate(true);
-            const String key = contact_row_dedupe_key(row);
-            if (!key.is_empty()) {
-                if (as_bool(seen_keys.get(key, false), false)) {
-                    continue;
-                }
-                seen_keys[key] = true;
-            }
-            merged.append(row);
-        }
-    };
-    append_rows(projectile_rows);
-    append_rows(physics_rows);
-    return merged;
+    const Array buffered_rows = simulation_buffered_contact_rows(simulation_controller);
+    return merge_dispatch_contact_rows(unified_contact_rows, buffered_rows);
 }
 Array simulation_buffered_contact_rows(Object *simulation_controller) {
     if (simulation_controller == nullptr || !simulation_controller->has_method(StringName("get_physics_contact_snapshot"))) {
@@ -416,6 +374,25 @@ void collect_changed_chunks(const Dictionary &source, Array &out, int depth = 0)
         }
     }
 }
+void collect_spawn_entries(const Dictionary &source, Array &out, int depth = 0) {
+    if (depth > 3) {
+        return;
+    }
+    const Array rows = as_array(source.get("spawn_entries", Array()));
+    for (int64_t i = 0; i < rows.size(); i += 1) {
+        if (rows[i].get_type() != Variant::DICTIONARY) {
+            continue;
+        }
+        out.append(static_cast<Dictionary>(rows[i]).duplicate(true));
+    }
+    static const char *nested_keys[] = {"voxel_failure_emission", "result_fields", "result", "dispatch", "payload", "execution", "voxel_result", "source"};
+    for (const char *key : nested_keys) {
+        const Variant nested_variant = source.get(key, Variant());
+        if (nested_variant.get_type() == Variant::DICTIONARY) {
+            collect_spawn_entries(static_cast<Dictionary>(nested_variant), out, depth + 1);
+        }
+    }
+}
 Array normalize_changed_chunks(const Array &rows) {
     Dictionary seen;
     std::vector<Dictionary> normalized;
@@ -590,6 +567,14 @@ Dictionary build_stage_payload(
     Array raw_chunks;
     collect_changed_chunks(dispatch, raw_chunks, 0);
     stage_payload["changed_chunks"] = normalize_changed_chunks(raw_chunks);
+    Array spawn_entries;
+    collect_spawn_entries(dispatch, spawn_entries, 0);
+    const bool spawn_entries_required = extract_bool_recursive(dispatch, "spawn_entries_required");
+    const bool spawn_entries_missing = spawn_entries_required && spawn_entries.is_empty();
+    stage_payload["spawn_entries"] = spawn_entries;
+    stage_payload["spawn_entries_required"] = spawn_entries_required;
+    stage_payload["spawn_entries_status"] = spawn_entries_missing ? String("error_required_missing") : (spawn_entries_required ? String("required") : String("not_required"));
+    stage_payload["spawn_entries_warning"] = spawn_entries_missing ? String("spawn_entries_required_missing") : String();
     Dictionary changed_region = find_changed_region(dispatch, 0);
     if (!changed_region.is_empty()) {
         stage_payload["changed_region"] = changed_region;
@@ -666,64 +651,6 @@ bool has_native_mutation_signal(const Dictionary &dispatch, const Dictionary &st
         }
     }
     return false;
-}
-bool parse_vec3(const Variant &value, Vector3 &out) {
-    if (value.get_type() == Variant::VECTOR3) {
-        out = static_cast<Vector3>(value);
-        return true;
-    }
-    if (value.get_type() != Variant::DICTIONARY) {
-        return false;
-    }
-    const Dictionary dict = static_cast<Dictionary>(value);
-    out = Vector3(as_f64(dict.get("x", 0.0), 0.0), as_f64(dict.get("y", 0.0), 0.0), as_f64(dict.get("z", 0.0), 0.0));
-    return true;
-}
-double read_contact_signal_strength(const Dictionary &row) {
-    return std::max({
-        std::max(0.0, as_f64(row.get("contact_impulse", 0.0), 0.0)),
-        std::max(0.0, as_f64(row.get("impulse", 0.0), 0.0)),
-        std::max(0.0, as_f64(row.get("impact_impulse", 0.0), 0.0)),
-        std::max(0.0, as_f64(row.get("relative_speed", 0.0), 0.0)),
-        std::max(0.0, as_f64(row.get("speed", 0.0), 0.0)),
-        std::max(0.0, as_f64(row.get("impact_speed", 0.0), 0.0))
-    });
-}
-Array synthesize_direct_contact_ops(const Array &dispatch_contact_rows) {
-    Array direct_ops;
-    for (int64_t i = 0; i < dispatch_contact_rows.size(); i += 1) {
-        if (dispatch_contact_rows[i].get_type() != Variant::DICTIONARY) {
-            continue;
-        }
-        const Dictionary row = dispatch_contact_rows[i];
-        Vector3 contact_point;
-        if (!(row.has("contact_point") && parse_vec3(row.get("contact_point", Variant()), contact_point))) {
-            continue;
-        }
-        const double signal = read_contact_signal_strength(row);
-        const double normalized = std::clamp(signal / 16.0, 0.0, 1.0);
-        const double radius = std::max(2.6, 2.6 + (1.0 * normalized));
-        const double value = std::max(2.2, 2.2 + (1.2 * normalized));
-        Dictionary op;
-        op["operation"] = "fracture";
-        op["x"] = static_cast<int64_t>(std::llround(contact_point.x));
-        op["y"] = static_cast<int64_t>(std::llround(contact_point.y));
-        op["z"] = static_cast<int64_t>(std::llround(contact_point.z));
-        op["radius"] = radius;
-        op["value"] = value;
-        op["shape"] = "sphere";
-        Vector3 impact_normal;
-        if (row.has("impact_normal") && parse_vec3(row.get("impact_normal", Variant()), impact_normal) && impact_normal.length() > 0.00001) {
-            const Vector3 norm = impact_normal.normalized();
-            Dictionary normal_dict;
-            normal_dict["x"] = norm.x;
-            normal_dict["y"] = norm.y;
-            normal_dict["z"] = norm.z;
-            op["impact_normal"] = normal_dict;
-        }
-        direct_ops.append(op);
-    }
-    return direct_ops;
 }
 Dictionary build_mutation_sync_state(Object *simulation_controller, int64_t tick, const Dictionary &mutation) {
     Dictionary state;
@@ -839,9 +766,7 @@ Dictionary LocalAgentsVoxelDispatchBridge::process_native_voxel_rate(double delt
         view_metrics = as_dictionary(camera_controller->call("native_view_metrics"));
     }
     const double base_budget = std::clamp(as_f64(view_metrics.get("compute_budget_scale", 1.0), 1.0), 0.05, 1.0);
-    const Array projectile_contact_rows = normalize_contact_rows(context.get("projectile_contact_rows", Array()));
-    const Array buffered_contact_rows = simulation_buffered_contact_rows(simulation_controller);
-    const Array dispatch_contact_rows = merge_dispatch_contact_rows(projectile_contact_rows, buffered_contact_rows);
+    const Array dispatch_contact_rows = resolve_dispatch_contact_rows(context, simulation_controller);
     const int64_t queued_contact_count = dispatch_contact_rows.size();
     runtime_record_hits_queued(runtime, queued_contact_count);
     Dictionary orchestration_contract;
@@ -911,30 +836,22 @@ Dictionary LocalAgentsVoxelDispatchBridge::process_native_voxel_rate(double delt
     runtime_record_success(runtime, simulation_controller, tick, tick_tier_id, backend_used, dispatch_reason, dispatch_duration_ms, dispatch);
     const int64_t native_executed_op_count = runtime_record_destruction_plan(runtime, dispatch);
     Dictionary stage_payload = build_stage_payload(dispatch, backend_used, dispatch_reason, dispatch_contact_rows, native_executed_op_count);
-    int64_t direct_contact_ops_count = 0;
-    const Array payload_native_ops = as_array(stage_payload.get("native_ops", Array()));
-    if (payload_native_ops.is_empty() && !dispatch_contact_rows.is_empty()) {
-        const Array direct_contact_ops = synthesize_direct_contact_ops(dispatch_contact_rows);
-        if (!direct_contact_ops.is_empty()) {
-            direct_contact_ops_count = direct_contact_ops.size();
-            stage_payload["native_ops"] = direct_contact_ops;
-            const int64_t existing_ops = std::max<int64_t>(0, as_i64(stage_payload.get("_destruction_executed_op_count", 0), 0));
-            stage_payload["_destruction_executed_op_count"] = std::max<int64_t>(existing_ops, direct_contact_ops_count);
-            double radius_sum = 0.0, value_sum = 0.0;
-            int64_t op_metric_count = 0;
-            for (int64_t i = 0; i < direct_contact_ops.size(); i += 1) {
-                if (direct_contact_ops[i].get_type() != Variant::DICTIONARY) { continue; } const Dictionary op = direct_contact_ops[i];
-                radius_sum += std::max(0.0, as_f64(op.get("radius", 0.0), 0.0)); value_sum += std::max(0.0, as_f64(op.get("value", 0.0), 0.0)); op_metric_count += 1;
-            }
-            const double avg_radius = op_metric_count > 0 ? (radius_sum / static_cast<double>(op_metric_count)) : 0.0, avg_value = op_metric_count > 0 ? (value_sum / static_cast<double>(op_metric_count)) : 0.0;
-            UtilityFunctions::print(vformat("DIRECT_CONTACT_OPS_USED count=%d radius=%.2f value=%.2f", direct_contact_ops_count, avg_radius, avg_value));
-        }
+    const bool spawn_entries_required = as_bool(stage_payload.get("spawn_entries_required", false), false);
+    const bool spawn_entries_missing = spawn_entries_required && as_array(stage_payload.get("spawn_entries", Array())).is_empty();
+    if (spawn_entries_missing) {
+        const String missing_error = "spawn_entries_required_missing";
+        runtime["last_error"] = missing_error;
+        runtime["last_error_tick"] = tick;
+        status["dispatched"] = true;
+        status["error"] = missing_error;
+        status["mutation_error"] = missing_error;
+        UtilityFunctions::push_error(String("NATIVE_REQUIRED: ") + missing_error);
+        return status;
     }
-    status["direct_contact_ops_used"] = direct_contact_ops_count > 0;
-    status["direct_contact_ops_count"] = direct_contact_ops_count;
     const Dictionary mutation_authoritative = build_native_authoritative_mutation(dispatch, stage_payload);
     const bool has_stage_mutation_signal = has_native_mutation_signal(dispatch, stage_payload);
-    const bool can_apply_stage_mutation = !stage_payload.is_empty() && has_stage_mutation_signal;
+    const bool contact_driven_mutation_required = !dispatch_contact_rows.is_empty();
+    const bool can_apply_stage_mutation = !stage_payload.is_empty() && (has_stage_mutation_signal || contact_driven_mutation_required);
     bool mutation_applied = false;
     Dictionary applied_mutation = mutation_authoritative;
     if (can_apply_stage_mutation) {
@@ -943,7 +860,7 @@ Dictionary LocalAgentsVoxelDispatchBridge::process_native_voxel_rate(double delt
         }
         if (!mutator_.is_valid()) {
             applied_mutation["changed"] = false;
-            applied_mutation["error"] = "native_mutator_unavailable";
+            applied_mutation["error"] = "native_required";
             applied_mutation["mutation_path"] = "native_mutator_apply";
             applied_mutation["mutation_path_state"] = "failure";
         } else {
@@ -976,10 +893,10 @@ Dictionary LocalAgentsVoxelDispatchBridge::process_native_voxel_rate(double delt
     }
     const int64_t emitted_debris_count = mutation_applied ? fracture_debris_emitter.emit_for_mutation(simulation_controller, tick, stage_payload) : 0;
     runtime["debris_emitted_total"] = as_i64(runtime.get("debris_emitted_total", 0), 0) + std::max<int64_t>(0, emitted_debris_count);
-    status["ok"] = true;
+    status["ok"] = !contact_driven_mutation_required || mutation_applied;
     status["dispatched"] = true;
     status["mutation_applied"] = mutation_applied;
-    if (can_apply_stage_mutation && !mutation_applied) {
+    if (!mutation_applied) {
         String mutation_error = as_string(applied_mutation.get("error", String()), String()).strip_edges();
         if (mutation_error.is_empty()) {
             mutation_error = native_no_mutation_error(dispatch);
@@ -990,6 +907,10 @@ Dictionary LocalAgentsVoxelDispatchBridge::process_native_voxel_rate(double delt
         }
         status["mutation_error"] = mutation_error;
         status["mutation_path"] = mutation_path;
+        status["error"] = mutation_error;
+        if (mutation_error == "native_required" || mutation_error == "native_unavailable") {
+            status["dependency_error"] = "native_required";
+        }
     }
     status["contacts_consumed"] = consumed_contacts;
     status["debris_emitted"] = emitted_debris_count;

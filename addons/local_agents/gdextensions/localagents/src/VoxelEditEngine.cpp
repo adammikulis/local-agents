@@ -43,6 +43,7 @@ VoxelGpuExecutionStats build_empty_changed_stats() {
     }
     stats.changed_region = changed_region;
     stats.changed_chunks = changed_chunks_array;
+    stats.spawn_entries = Array();
     return stats;
 }
 
@@ -256,6 +257,8 @@ Dictionary VoxelEditEngine::execute_stage(
         result["stage_requeued_total"] = buffer.requeued_total;
         result["changed_region"] = stats.changed_region.duplicate(true);
         result["changed_chunks"] = stats.changed_chunks.duplicate(true);
+        result["spawn_entries_required"] = stats.spawn_metadata_required;
+        result["spawn_entries"] = stats.spawn_entries.duplicate(true);
         result["execution"] = execution;
 
         buffer.last_execution = result.duplicate(true);
@@ -318,6 +321,8 @@ Dictionary VoxelEditEngine::execute_stage(
         result["stage_requeued_total"] = buffer.requeued_total;
         result["changed_region"] = stats.changed_region.duplicate(true);
         result["changed_chunks"] = stats.changed_chunks.duplicate(true);
+        result["spawn_entries_required"] = stats.spawn_metadata_required;
+        result["spawn_entries"] = stats.spawn_entries.duplicate(true);
         result["execution"] = execution;
 
         buffer.last_execution = result.duplicate(true);
@@ -325,6 +330,10 @@ Dictionary VoxelEditEngine::execute_stage(
     }
 
     const StageExecutionStats gpu_stats = gpu_result.stats;
+    const bool spawn_entries_required = gpu_stats.spawn_metadata_required;
+    const bool spawn_entries_missing =
+        spawn_entries_required &&
+        gpu_stats.spawn_entries.is_empty();
     for (int64_t i = 0; i < gpu_stats.changed_entries.size(); i += 1) {
         const Variant changed_entry_value = gpu_stats.changed_entries[i];
         if (changed_entry_value.get_type() != Variant::DICTIONARY) {
@@ -390,7 +399,39 @@ Dictionary VoxelEditEngine::execute_stage(
     dispatch_metadata.dispatch_reason = String("dispatched");
     dispatch_metadata.changed_region = gpu_stats.changed_region.duplicate(true);
     dispatch_metadata.changed_chunks = gpu_stats.changed_chunks.duplicate(true);
-    const Dictionary execution = build_voxel_gpu_dispatch_metadata(dispatch_metadata);
+    Dictionary execution = build_voxel_gpu_dispatch_metadata(dispatch_metadata);
+    execution["spawn_entries_status"] = spawn_entries_missing ? String("error_required_missing") : (spawn_entries_required ? String("required") : String("not_required"));
+    execution["spawn_entries_warning"] = spawn_entries_missing ? String("spawn_entries_required_missing") : String();
+    if (spawn_entries_missing) {
+        execution["error_code"] = String("spawn_entries_required_missing");
+    }
+
+    if (spawn_entries_missing) {
+        Dictionary result = make_stage_identity(stage_domain, stage_name, payload);
+        result["ok"] = false;
+        result["error"] = String("spawn_entries_required_missing");
+        result["dispatched"] = true;
+        result["ops_requested"] = pending_before;
+        result["ops_scanned"] = gpu_stats.ops_scanned;
+        result["ops_processed"] = gpu_stats.ops_processed;
+        result["ops_requeued"] = gpu_stats.ops_requeued;
+        result["ops_changed"] = gpu_stats.ops_changed;
+        result["queue_pending_before"] = pending_before;
+        result["queue_pending_after"] = static_cast<int64_t>(buffer.pending_ops.size());
+        result["pending_ops"] = static_cast<int64_t>(buffer.pending_ops.size());
+        result["stage_processed_total"] = buffer.processed_total;
+        result["stage_requeued_total"] = buffer.requeued_total;
+        result["changed_region"] = gpu_stats.changed_region.duplicate(true);
+        result["changed_chunks"] = gpu_stats.changed_chunks.duplicate(true);
+        result["spawn_entries_required"] = spawn_entries_required;
+        result["spawn_entries"] = gpu_stats.spawn_entries.duplicate(true);
+        result["spawn_entries_status"] = execution.get("spawn_entries_status", String("not_required"));
+        result["spawn_entries_warning"] = execution.get("spawn_entries_warning", String());
+        result["execution"] = execution.duplicate(true);
+
+        buffer.last_execution = result.duplicate(true);
+        return result;
+    }
 
     Dictionary result = make_stage_identity(stage_domain, stage_name, payload);
     result["ok"] = true;
@@ -407,6 +448,10 @@ Dictionary VoxelEditEngine::execute_stage(
     result["stage_requeued_total"] = buffer.requeued_total;
     result["changed_region"] = gpu_stats.changed_region.duplicate(true);
     result["changed_chunks"] = gpu_stats.changed_chunks.duplicate(true);
+    result["spawn_entries_required"] = spawn_entries_required;
+    result["spawn_entries"] = gpu_stats.spawn_entries.duplicate(true);
+    result["spawn_entries_status"] = execution.get("spawn_entries_status", String("not_required"));
+    result["spawn_entries_warning"] = execution.get("spawn_entries_warning", String());
     result["execution"] = execution.duplicate(true);
 
     buffer.last_execution = result.duplicate(true);

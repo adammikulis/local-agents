@@ -97,7 +97,6 @@ var _input_controller = WorldInputControllerScript.new()
 var _ecology_controller: Node = null
 var _requested_test_mode: String = ""
 var _active_test_harness: Node = null
-var _native_voxel_dispatch_enabled_for_testing: bool = true
 var _requested_test_mode_minimized: bool = false
 var _requested_test_mode_disable_input: bool = false
 var _environment_chunk_size: int = 12
@@ -224,8 +223,7 @@ func _process(delta: float) -> void:
 	if fps_launcher_controller != null and fps_launcher_controller.has_method("step"):
 		fps_launcher_controller.call("step", delta)
 	_push_native_view_metrics()
-	if _native_voxel_dispatch_enabled_for_testing:
-		_process_native_voxel_rate(delta)
+	_process_native_voxel_rate(delta)
 	_apply_loop_result(_loop_controller.process_frame(delta, Callable(self, "_collect_living_entity_profiles"), []))
 func _unhandled_input(event: InputEvent) -> void:
 	if _input_controller != null:
@@ -252,10 +250,6 @@ func set_fps_mode_for_testing(enabled: bool) -> bool:
 	if currently_enabled != enabled:
 		_input_controller.toggle_fps_mode()
 	return _input_controller.is_fps_mode() == enabled
-
-func set_native_voxel_dispatch_enabled_for_testing(enabled: bool) -> bool:
-	_native_voxel_dispatch_enabled_for_testing = enabled
-	return _native_voxel_dispatch_enabled_for_testing == enabled
 
 func active_fps_projectile_count_for_testing() -> int:
 	if fps_launcher_controller != null and fps_launcher_controller.has_method("active_projectile_count"):
@@ -595,22 +589,33 @@ func _set_node_property_if_exists(node: Object, property_name: String, value) ->
 		node.set(property_name, value)
 
 func _process_native_voxel_rate(delta: float) -> void:
-	var projectile_contact_rows: Array = []
+	var dispatch_contact_rows: Array = []
 	if fps_launcher_controller != null and fps_launcher_controller.has_method("sample_active_projectile_contact_rows"):
 		var sampled_rows_variant = fps_launcher_controller.call("sample_active_projectile_contact_rows")
 		if sampled_rows_variant is Array:
-			projectile_contact_rows = (sampled_rows_variant as Array).duplicate(true)
-	_dispatch_controller.process_native_voxel_rate(delta, {
+			dispatch_contact_rows = (sampled_rows_variant as Array).duplicate(true)
+	var dispatch_result: Dictionary = _dispatch_controller.process_native_voxel_rate(delta, {
 		"tick": _loop_controller.current_tick(),
 		"frame_index": Engine.get_process_frames(),
 		"simulation_controller": simulation_controller,
 		"fps_launcher_controller": fps_launcher_controller,
-		"projectile_contact_rows": projectile_contact_rows,
+		"dispatch_contact_rows": dispatch_contact_rows,
 		"camera_controller": _camera_controller,
 		"graphics_target_wall_controller": _graphics_target_wall_controller,
 		"native_voxel_dispatch_runtime": _native_voxel_dispatch_runtime,
 		"sync_environment_from_state": Callable(self, "_sync_environment_from_state").bind(false),
 	})
+	var dispatch_error := String(dispatch_result.get("error", "")).strip_edges()
+	if dispatch_error.begins_with("native_contact_serializer_"):
+		push_error("NATIVE_REQUIRED: %s" % dispatch_error)
+		return
+	var dependency_error := String(dispatch_result.get("dependency_error", dispatch_result.get("error_code", ""))).strip_edges().to_lower()
+	if dependency_error == "gpu_required" or dependency_error == "gpu_unavailable":
+		push_error("GPU_REQUIRED: %s" % dependency_error)
+		return
+	if dependency_error == "native_required" or dependency_error == "native_unavailable":
+		push_error("NATIVE_REQUIRED: %s" % dependency_error)
+		return
 
 func _handle_mutation_glow(payload: Dictionary) -> void:
 	if mutation_glow_controller == null or not mutation_glow_controller.has_method("spawn_markers"):

@@ -118,27 +118,46 @@ String canonicalize_orchestration_tick_error(const String &raw_error_code, const
 }
 
 Array extract_tick_contact_rows(const Dictionary &frame_context) {
-    const Variant direct_rows_variant = frame_context.get("projectile_contact_rows", Variant());
-    if (direct_rows_variant.get_type() == Variant::ARRAY) {
-        return Array(direct_rows_variant);
+    Array unified_contact_rows;
+    static const char *impact_contact_row_keys[] = {
+        "dispatch_contact_rows",
+        "projectile_contact_rows",
+        "debris_contact_rows",
+        "fracture_contact_rows",
+        "impact_contact_rows",
+        "reimpact_contact_rows",
+        "re_impact_contact_rows",
+    };
+    for (const char *key : impact_contact_row_keys) {
+        const Array key_rows = local_agents::simulation::helpers::normalize_contact_rows(
+            Array(frame_context.get(key, Array())));
+        unified_contact_rows = local_agents::simulation::helpers::merge_and_dedupe_contact_rows(
+            unified_contact_rows,
+            key_rows,
+            Array());
     }
-    const Variant physics_server_rows_variant = frame_context.get("physics_server_contacts", Variant());
-    if (physics_server_rows_variant.get_type() == Variant::ARRAY) {
-        return Array(physics_server_rows_variant);
-    }
+    const Array physics_server_rows = local_agents::simulation::helpers::normalize_contact_rows(
+        Array(frame_context.get("physics_server_contacts", Array())));
 
+    Array physics_contact_rows;
     const Variant physics_contacts_variant = frame_context.get("physics_contacts", Variant());
     if (physics_contacts_variant.get_type() == Variant::ARRAY) {
-        return Array(physics_contacts_variant);
-    }
-    if (physics_contacts_variant.get_type() == Variant::DICTIONARY) {
+        physics_contact_rows = local_agents::simulation::helpers::normalize_contact_rows(
+            Array(physics_contacts_variant));
+    } else if (physics_contacts_variant.get_type() == Variant::DICTIONARY) {
         const Dictionary physics_contacts = physics_contacts_variant;
-        const Variant buffered_rows_variant = physics_contacts.get("buffered_rows", Variant());
-        if (buffered_rows_variant.get_type() == Variant::ARRAY) {
-            return Array(buffered_rows_variant);
-        }
+        physics_contact_rows = local_agents::simulation::helpers::normalize_contact_rows(
+            Array(physics_contacts.get("buffered_rows", Array())));
     }
-    return Array();
+
+    const Array merged_supplemental = local_agents::simulation::helpers::merge_and_dedupe_contact_rows(
+        physics_server_rows,
+        physics_contact_rows,
+        Array());
+    return local_agents::simulation::helpers::merge_and_dedupe_contact_rows(
+        unified_contact_rows,
+        merged_supplemental,
+        Array());
 }
 
 String resolve_native_tick_tier(const Dictionary &frame_context, const Dictionary &decision) {

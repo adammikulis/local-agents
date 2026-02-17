@@ -24,8 +24,6 @@ static func canonicalize_voxel_error(raw_error: String, fallback_code: String) -
 	var lowered := code.to_lower()
 	if lowered in ["gpu_required", "gpu_unavailable", "contract_mismatch", "descriptor_invalid", "dispatch_failed", "readback_invalid", "memory_exhausted", "unsupported_legacy_stage"]:
 		return lowered
-	if lowered.find("native_sim_core_disabled") != -1:
-		return "gpu_required"
 	if lowered.find("gpu_backend_unavailable") != -1 or lowered.find("rendering_server_unavailable") != -1 or lowered.find("device_create_failed") != -1 or lowered.find("core_unavailable") != -1:
 		return "gpu_unavailable"
 	if lowered.find("cpu_fallback") != -1 or lowered.find("backend_required") != -1:

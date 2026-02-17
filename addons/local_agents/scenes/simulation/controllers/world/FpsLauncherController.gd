@@ -41,6 +41,9 @@ const _RADIUS_MIN := 0.02
 const _RADIUS_MAX := 2.0
 const _ENERGY_SCALE_MIN := 0.1
 const _ENERGY_SCALE_MAX := 180.0
+const _DEBRIS_VOLUME_RATIO_MIN := 0.70
+const _DEBRIS_VOLUME_RATIO_MAX := 0.90
+const _THREE_OVER_FOUR_PI := 0.238732414637843
 const _MAX_RECENT_CONTACT_ROWS := 96
 const _MAX_COLLISION_STEPS_PER_TICK := 4
 const _BOUNCE_RESTITUTION := 0.65
@@ -174,6 +177,78 @@ func record_projectile_contact_row(row: Dictionary) -> void:
 func sample_voxel_dispatch_contact_rows() -> Array:
 	return _recent_contact_rows.duplicate(true)
 
+func spawn_fracture_chunk_projectiles(spawn_entries: Array, _tick: int = -1, default_material_tag: String = "") -> int:
+	if _spawn_parent == null or not is_instance_valid(_spawn_parent):
+		return 0
+	var fallback_material_tag := projectile_material_tag if default_material_tag.strip_edges() == "" else default_material_tag.strip_edges()
+	var emission_rows: Array[Dictionary] = []
+	var emission_cap := maxi(0, maxi(1, max_active_projectiles) - _active_projectiles.size())
+	if emission_cap <= 0:
+		return 0
+	for row_variant in spawn_entries:
+		if emission_rows.size() >= emission_cap:
+			break
+		if not (row_variant is Dictionary):
+			continue
+		emission_rows.append((row_variant as Dictionary))
+	if emission_rows.is_empty():
+		return 0
+	var original_destroyed_volume := float(emission_rows.size())
+	var ratio_seed := _deterministic_unit_interval(emission_rows.size(), _tick)
+	var target_volume_ratio := lerpf(_DEBRIS_VOLUME_RATIO_MIN, _DEBRIS_VOLUME_RATIO_MAX, ratio_seed)
+	var target_total_debris_volume := maxf(0.0, original_destroyed_volume * target_volume_ratio)
+	var per_entry_weights: Array[float] = []
+	per_entry_weights.resize(emission_rows.size())
+	var total_weight := 0.0
+	var default_total_volume := 0.0
+	var default_total_mass := 0.0
+	for i in range(emission_rows.size()):
+		var weight_row := emission_rows[i]
+		var default_radius := clampf(float(weight_row.get("projectile_radius", projectile_radius)), _RADIUS_MIN, _RADIUS_MAX)
+		var default_volume := maxf(1.0e-6, _sphere_volume_from_radius(default_radius))
+		var default_mass := clampf(maxf(0.05, float(weight_row.get("body_mass", launch_mass))), _LAUNCH_MASS_MIN, _LAUNCH_MASS_MAX)
+		default_total_volume += default_volume
+		default_total_mass += default_mass
+		var jitter := 0.85 + 0.30 * _deterministic_unit_interval(i, _tick)
+		var weight := default_volume * jitter
+		per_entry_weights[i] = weight
+		total_weight += weight
+	if total_weight <= 1.0e-8:
+		total_weight = float(emission_rows.size())
+		for i in range(per_entry_weights.size()):
+			per_entry_weights[i] = 1.0
+	var fallback_density := launch_mass / maxf(1.0e-6, _sphere_volume_from_radius(clampf(projectile_radius, _RADIUS_MIN, _RADIUS_MAX)))
+	var mass_per_volume := fallback_density
+	if default_total_volume > 1.0e-6:
+		mass_per_volume = maxf(0.01, default_total_mass / default_total_volume)
+	var emitted := 0
+	for i in range(emission_rows.size()):
+		if _active_projectiles.size() >= maxi(1, max_active_projectiles):
+			break
+		var row := emission_rows[i]
+		var chunk_volume := target_total_debris_volume * (per_entry_weights[i] / total_weight)
+		var chunk_radius := clampf(_radius_from_sphere_volume(chunk_volume), _RADIUS_MIN, _RADIUS_MAX)
+		var chunk_mass := clampf(maxf(_LAUNCH_MASS_MIN, chunk_volume * mass_per_volume), _LAUNCH_MASS_MIN, _LAUNCH_MASS_MAX)
+		var projectile := ChunkProjectileState.new()
+		projectile.projectile_id = _next_projectile_id
+		_next_projectile_id += 1
+		projectile.position = _spawn_entry_position(row)
+		var impulse_direction := _vector3_from_variant(row.get("impulse_direction", Vector3.UP), Vector3.UP).normalized()
+		if impulse_direction.length_squared() <= 1.0e-6:
+			impulse_direction = Vector3.UP
+		var impulse_size := maxf(0.0, float(row.get("impulse_size", 0.0)))
+		var launch_speed_for_entry := maxf(4.0, impulse_size * maxf(0.1, launch_energy_scale))
+		projectile.velocity = impulse_direction * launch_speed_for_entry
+		projectile.radius = chunk_radius
+		projectile.mass = chunk_mass
+		projectile.ttl_seconds = clampf(float(row.get("projectile_ttl", minf(projectile_ttl_seconds, 1.2))), _TTL_MIN, _TTL_MAX)
+		projectile.material_tag = _spawn_entry_material_tag(row, fallback_material_tag)
+		projectile.hardness_tag = String(row.get("projectile_hardness_tag", projectile_hardness_tag))
+		projectile.visual_node = _spawn_visual_node(projectile)
+		_active_projectiles.append(projectile)
+		emitted += 1
+	return emitted
+
 func try_fire_from_screen_center() -> bool:
 	if _camera == null or not is_instance_valid(_camera):
 		return false
@@ -208,6 +283,41 @@ func try_fire_from_screen_center() -> bool:
 	_active_projectiles.append(projectile)
 	_cooldown_remaining = cooldown_seconds
 	return true
+
+func _vector3_from_variant(value: Variant, fallback: Vector3) -> Vector3:
+	if value is Vector3:
+		return value as Vector3
+	if value is Dictionary:
+		var dict := value as Dictionary
+		return Vector3(float(dict.get("x", fallback.x)), float(dict.get("y", fallback.y)), float(dict.get("z", fallback.z)))
+	return fallback
+
+func _spawn_entry_position(row: Dictionary) -> Vector3:
+	return _vector3_from_variant(row.get("position", row), Vector3(float(row.get("x", 0.0)), float(row.get("y", 0.0)), float(row.get("z", 0.0))))
+
+func _spawn_entry_material_tag(row: Dictionary, fallback: String) -> String:
+	var keys: Array[String] = ["destroyed_voxel_material_tag", "projectile_material_tag", "material_tag", "material_profile_key"]
+	for key in keys:
+		var value := String(row.get(key, "")).strip_edges()
+		if value != "":
+			return value
+	return fallback
+
+func _deterministic_unit_interval(seed_a: int, seed_b: int) -> float:
+	var mixed_a := (int(seed_a) + 1) * 1103515245
+	var mixed_b := (int(seed_b) + 37) * 12345
+	var hashed := (mixed_a ^ mixed_b) & 0x7fffffff
+	return float(hashed) / 2147483647.0
+
+func _sphere_volume_from_radius(radius: float) -> float:
+	var safe_radius := maxf(0.0, radius)
+	return (4.0 * PI / 3.0) * safe_radius * safe_radius * safe_radius
+
+func _radius_from_sphere_volume(volume: float) -> float:
+	var safe_volume := maxf(0.0, volume)
+	if safe_volume <= 0.0:
+		return _RADIUS_MIN
+	return pow(safe_volume * _THREE_OVER_FOUR_PI, 1.0 / 3.0)
 
 func _advance_projectiles(delta: float) -> void:
 	var space_state := _physics_space_state()

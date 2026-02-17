@@ -30,6 +30,18 @@ constexpr double kWallPillarDensityScaleMax = 3.0;
 constexpr double kNativeOpValueToLevels = 3.0;
 constexpr int kNativeOpMaxLevels = 6;
 constexpr double kWallBrittleness = 1.0;
+constexpr double kColumnChipProgressMax = 0.999;
+constexpr double kDurabilityScaleMin = 0.45;
+constexpr double kDurabilityScaleMax = 3.5;
+constexpr double kDurabilityFallback = 1.1;
+constexpr double kMaterialDurabilitySand = 0.55;
+constexpr double kMaterialDurabilityDirt = 0.8;
+constexpr double kMaterialDurabilityGravel = 1.15;
+constexpr double kMaterialDurabilityClay = 1.35;
+constexpr double kMaterialDurabilityRock = 1.9;
+constexpr double kMaterialDurabilityBasalt = 2.2;
+constexpr double kMaterialDurabilityMetal = 2.8;
+constexpr double kMaterialDurabilityWood = 1.0;
 
 constexpr int kNativeOpEmptyLevel = 0;
 constexpr int kWallForwardDistanceMeters = 9;
@@ -41,6 +53,7 @@ constexpr int kTileValueMin = 0;
 constexpr const char *kPathInvalidController = "stage_invalid_controller";
 constexpr const char *kPathNativeOpsPrimary = "native_ops_payload_primary";
 constexpr const char *kPathNoMutation = "native_voxel_stage_no_mutation";
+constexpr const char *kGlobalSolidDestructibleTag = "solid_voxel";
 
 static int clamp_i64_to_int(const double value, const int min_value, const int max_value, const int fallback) {
     if (!std::isfinite(value)) {
@@ -346,6 +359,102 @@ static Dictionary wall_material_blocks(const String &material_profile_key, const
     return profile;
 }
 
+static bool is_non_solid_block_type(const String &block_type) {
+    const String key = block_type.strip_edges().to_lower();
+    return key == String("air") || key == String("water") || key == String("void") || key == String("empty");
+}
+
+static bool is_solid_column(const Dictionary &column) {
+    const String top_block = read_string_from_variant(column.get("top_block", String("stone")), String("stone"));
+    return !is_non_solid_block_type(top_block);
+}
+
+static String resolve_column_material_key(const Dictionary &column) {
+    String material_key = read_string_from_variant(column.get("material_profile_key", String()), String()).strip_edges().to_lower();
+    if (!material_key.is_empty()) {
+        return material_key;
+    }
+    material_key = read_string_from_variant(column.get("top_block", String()), String()).strip_edges().to_lower();
+    if (!material_key.is_empty()) {
+        return material_key;
+    }
+    material_key = read_string_from_variant(column.get("subsoil_block", String()), String()).strip_edges().to_lower();
+    if (!material_key.is_empty()) {
+        return material_key;
+    }
+    return String("rock");
+}
+
+static double base_material_durability(const String &material_key) {
+    const String key = material_key.strip_edges().to_lower();
+    if (key.find("sand") != -1) {
+        return kMaterialDurabilitySand;
+    }
+    if (key.find("dirt") != -1 || key.find("soil") != -1) {
+        return kMaterialDurabilityDirt;
+    }
+    if (key.find("gravel") != -1) {
+        return kMaterialDurabilityGravel;
+    }
+    if (key.find("clay") != -1) {
+        return kMaterialDurabilityClay;
+    }
+    if (key.find("basalt") != -1) {
+        return kMaterialDurabilityBasalt;
+    }
+    if (key.find("metal") != -1 || key.find("steel") != -1 || key.find("iron") != -1) {
+        return kMaterialDurabilityMetal;
+    }
+    if (key.find("wood") != -1 || key.find("timber") != -1) {
+        return kMaterialDurabilityWood;
+    }
+    if (key.find("rock") != -1 || key.find("stone") != -1) {
+        return kMaterialDurabilityRock;
+    }
+    return kDurabilityFallback;
+}
+
+static double resolve_column_durability(const Dictionary &column, const String &material_key) {
+    if (column.has("durability_hits")) {
+        return std::max(0.1, read_float_from_variant(column.get("durability_hits", kDurabilityFallback), kDurabilityFallback));
+    }
+    const double base = base_material_durability(material_key);
+    const double fracture_threshold_scale = std::clamp(read_float_from_variant(column.get("fracture_threshold_scale", 1.0), 1.0), 0.25, 4.0);
+    const double structural_strength_scale = std::clamp(read_float_from_variant(column.get("structural_strength_scale", fracture_threshold_scale), fracture_threshold_scale), 0.25, 4.0);
+    const double durability_scale = std::clamp((fracture_threshold_scale + structural_strength_scale) * 0.5, kDurabilityScaleMin, kDurabilityScaleMax);
+    return std::max(0.1, base * durability_scale);
+}
+
+static String resolve_spawn_material_tag(const Dictionary &op, const String &fallback) {
+    const Array keys = Array::make("destroyed_voxel_material_tag", "projectile_material_tag", "material_tag", "material_profile_key");
+    for (int64_t i = 0; i < keys.size(); i += 1) {
+        const String key = String(keys[i]);
+        const String value = read_string_from_variant(op.get(key, String()), String()).strip_edges();
+        if (!value.is_empty()) {
+            return value;
+        }
+    }
+    return fallback;
+}
+
+static Dictionary resolve_column_index_by_tile(const Array &columns, const Dictionary &voxel_world) {
+    Dictionary column_index_by_tile = voxel_world.get("column_index_by_tile", Dictionary());
+    if (!column_index_by_tile.is_empty()) {
+        return column_index_by_tile;
+    }
+    const int64_t columns_size = columns.size();
+    for (int64_t i = 0; i < columns_size; i += 1) {
+        const Variant column_variant = columns[i];
+        if (column_variant.get_type() != Variant::DICTIONARY) {
+            continue;
+        }
+        const Dictionary column = static_cast<Dictionary>(column_variant);
+        const String key = tile_id(read_int_from_variant(column.get("x", 0), 0), read_int_from_variant(column.get("z", 0), 0));
+        column_index_by_tile[key] = i;
+    }
+    return column_index_by_tile;
+}
+
 static Array chunk_keys_for_tiles(const Dictionary &env_snapshot, const Array &changed_tiles) {
     Dictionary voxel_world = env_snapshot.get("voxel_world", Dictionary());
     const int chunk_size = std::max(4, read_int_from_variant(voxel_world.get("block_rows_chunk_size", kWallDefaultChunkSize), kWallDefaultChunkSize));
@@ -493,6 +602,8 @@ Dictionary LocalAgentsNativeVoxelTerrainMutator::apply_native_voxel_ops_payload(
     });
 
     Dictionary signed_levels;
+    Dictionary impact_damage_by_tile;
+    Dictionary impact_material_tag_by_tile;
     for (const Dictionary &op : sorted_ops) {
         const int x = read_int_from_variant(op.get("x", 0), 0);
         const int z = read_int_from_variant(op.get("z", 0), 0);
@@ -512,13 +623,23 @@ Dictionary LocalAgentsNativeVoxelTerrainMutator::apply_native_voxel_ops_payload(
                 const int tx = std::clamp(x + dx, 0, width - 1);
                 const int tz = std::clamp(z + dz, 0, height - 1);
                 const String tile_key = tile_id(tx, tz);
-                const int prior = read_int_from_variant(signed_levels.get(tile_key, 0), 0);
-                signed_levels[tile_key] = prior + sign * levels;
+                if (raise_surface) {
+                    const int prior = read_int_from_variant(signed_levels.get(tile_key, 0), 0);
+                    signed_levels[tile_key] = prior + sign * levels;
+                } else {
+                    const double prior_damage = read_float_from_variant(impact_damage_by_tile.get(tile_key, 0.0), 0.0);
+                    impact_damage_by_tile[tile_key] = prior_damage + static_cast<double>(levels);
+                    const String fallback_material = read_string_from_variant(impact_material_tag_by_tile.get(tile_key, String()), String());
+                    const String resolved_material_tag = resolve_spawn_material_tag(op, fallback_material).strip_edges();
+                    if (!resolved_material_tag.is_empty()) {
+                        impact_material_tag_by_tile[tile_key] = resolved_material_tag;
+                    }
+                }
             }
         }
     }
 
-    if (signed_levels.is_empty()) {
+    if (signed_levels.is_empty() && impact_damage_by_tile.is_empty()) {
         ops_result["ok"] = false;
         ops_result["changed"] = false;
         ops_result["error"] = String("native_voxel_ops_empty_after_normalization");
@@ -529,6 +650,7 @@ Dictionary LocalAgentsNativeVoxelTerrainMutator::apply_native_voxel_ops_payload(
     }
 
     Dictionary lower_overrides;
+    Dictionary lower_metadata_overrides;
     Dictionary raise_overrides;
     const Array signed_keys = signed_levels.keys();
     for (int64_t i = 0; i < signed_keys.size(); i += 1) {
@@ -541,11 +663,122 @@ Dictionary LocalAgentsNativeVoxelTerrainMutator::apply_native_voxel_ops_payload(
         }
     }
 
+    Dictionary voxel_world = env_snapshot.get("voxel_world", Dictionary());
+    const Array columns = voxel_world.get("columns", Array());
+    const Dictionary column_index_by_tile = resolve_column_index_by_tile(columns, voxel_world);
+    const int world_height = std::max(kWorldHeightMin, read_int_from_variant(voxel_world.get("height", 0), 0));
+    Array spawn_entries;
+    bool chip_spawn_required = false;
+    int64_t chip_progress_spawn_count = 0;
+    const Array damage_keys = impact_damage_by_tile.keys();
+    for (int64_t i = 0; i < damage_keys.size(); i += 1) {
+        const String tile_key = String(damage_keys[i]).strip_edges();
+        if (tile_key.is_empty() || !column_index_by_tile.has(tile_key)) {
+            continue;
+        }
+        const int64_t column_index = read_int_from_variant(column_index_by_tile.get(tile_key, -1), -1);
+        if (column_index < 0 || column_index >= columns.size()) {
+            continue;
+        }
+        const Variant column_variant = columns[column_index];
+        if (column_variant.get_type() != Variant::DICTIONARY) {
+            continue;
+        }
+        const Dictionary column = static_cast<Dictionary>(column_variant);
+        if (!is_solid_column(column)) {
+            continue;
+        }
+
+        const String material_key = resolve_column_material_key(column);
+        const double durability = resolve_column_durability(column, material_key);
+        const double impact_damage = std::max(0.0, read_float_from_variant(impact_damage_by_tile.get(tile_key, 0.0), 0.0));
+        if (impact_damage <= 0.0) {
+            continue;
+        }
+
+        const double prior_chip_progress = std::clamp(read_float_from_variant(column.get("fracture_chip_progress", 0.0), 0.0), 0.0, kColumnChipProgressMax);
+        const double normalized_damage = impact_damage / std::max(0.1, durability);
+        const double total_progress = prior_chip_progress + normalized_damage;
+        const int levels_to_remove = std::max(0, static_cast<int>(std::floor(total_progress + 1.0e-6)));
+        const double next_chip_progress = std::clamp(total_progress - static_cast<double>(levels_to_remove), 0.0, kColumnChipProgressMax);
+        const int current_surface = std::clamp(read_int_from_variant(column.get("surface_y", 0), 0), kTileValueMin, std::max(kTileValueMin, world_height - 1));
+        const int next_surface = std::clamp(current_surface - levels_to_remove, kTileValueMin, std::max(kTileValueMin, world_height - 1));
+
+        if (levels_to_remove > 0) {
+            lower_overrides[tile_key] = levels_to_remove;
+        } else {
+            lower_overrides[tile_key] = kNativeOpEmptyLevel;
+        }
+
+        Dictionary row_metadata;
+        row_metadata["destructible"] = true;
+        row_metadata["destructible_tag"] = String(kGlobalSolidDestructibleTag);
+        row_metadata["material_profile_key"] = material_key;
+        row_metadata["durability_hits"] = durability;
+        row_metadata["fracture_chip_progress"] = next_chip_progress;
+        row_metadata["fracture_chip_hits"] = read_int_from_variant(column.get("fracture_chip_hits", 0), 0) + 1;
+        row_metadata["fracture_chip_damage_last"] = normalized_damage;
+        row_metadata["fracture_chip_state"] = levels_to_remove > 0 ? String("fractured") : String("chipped");
+        lower_metadata_overrides[tile_key] = row_metadata;
+
+        const bool chip_progress_increased = next_chip_progress > (prior_chip_progress + 1.0e-6);
+        const bool voxel_not_fully_removed = levels_to_remove <= 0 || next_surface > kTileValueMin;
+        const bool emit_spawn_entry = (chip_progress_increased && voxel_not_fully_removed) || (levels_to_remove > 0 && voxel_not_fully_removed);
+        if (emit_spawn_entry) {
+            const String op_material_tag = read_string_from_variant(impact_material_tag_by_tile.get(tile_key, String()), String()).strip_edges();
+            const String resolved_material_tag = op_material_tag.is_empty()
+                ? (material_key.is_empty() ? String("dense_voxel") : material_key)
+                : op_material_tag;
+
+            Dictionary spawn_entry;
+            spawn_entry["x"] = read_int_from_variant(column.get("x", 0), 0);
+            spawn_entry["y"] = current_surface;
+            spawn_entry["z"] = read_int_from_variant(column.get("z", 0), 0);
+
+            Dictionary position;
+            position["x"] = spawn_entry["x"];
+            position["y"] = spawn_entry["y"];
+            position["z"] = spawn_entry["z"];
+            spawn_entry["position"] = position;
+
+            Dictionary impulse_direction;
+            impulse_direction["x"] = 0.0;
+            impulse_direction["y"] = 1.0;
+            impulse_direction["z"] = 0.0;
+            spawn_entry["impulse_direction"] = impulse_direction;
+            spawn_entry["impulse_size"] = std::max(0.35, std::min(6.0, normalized_damage + 0.2));
+            spawn_entry["projectile_kind"] = String("voxel_chunk");
+            spawn_entry["projectile_material_tag"] = resolved_material_tag;
+            spawn_entry["destroyed_voxel_material_tag"] = material_key;
+            spawn_entry["material_tag"] = resolved_material_tag;
+            spawn_entry["projectile_hardness_tag"] = String("hard");
+            spawn_entry["projectile_radius"] = 0.07;
+            spawn_entry["projectile_ttl"] = 1.2;
+            spawn_entry["spawn_synthesized"] = true;
+            spawn_entry["fracture_chip_progress_prior"] = prior_chip_progress;
+            spawn_entry["fracture_chip_progress_next"] = next_chip_progress;
+            spawn_entry["fracture_chip_state"] = levels_to_remove > 0 ? String("fractured") : String("chipped");
+            spawn_entry["sequence_id"] = read_int_from_variant(column.get("fracture_chip_hits", 0), 0) + 1;
+            spawn_entries.append(spawn_entry);
+            chip_spawn_required = true;
+            if (chip_progress_increased) {
+                chip_progress_spawn_count += 1;
+            }
+        }
+    }
+
     Dictionary merged_tiles;
     Array merged_tiles_sorted;
 
     if (!lower_overrides.is_empty()) {
-        Dictionary lower_result = local_agents::mutator::helpers::apply_column_surface_delta(simulation_controller, env_snapshot, lower_overrides.keys(), lower_overrides, false, Dictionary(), false);
+        Dictionary lower_result = local_agents::mutator::helpers::apply_column_surface_delta(
+            simulation_controller,
+            env_snapshot,
+            lower_overrides.keys(),
+            lower_overrides,
+            false,
+            lower_metadata_overrides,
+            false);
         if (bool(lower_result.get("changed", false))) {
             const Variant tiles_variant = lower_result.get("changed_tiles", Array());
             if (tiles_variant.get_type() == Variant::ARRAY) {
@@ -609,6 +842,17 @@ Dictionary LocalAgentsNativeVoxelTerrainMutator::apply_native_voxel_ops_payload(
     out["ok"] = bool(out["changed"]);
     out["changed_tiles"] = changed_tiles;
     out["changed_chunks"] = changed_chunks_final;
+    out["spawn_entries"] = spawn_entries;
+    out["spawn_entries_required"] = chip_spawn_required;
+    out["spawn_entries_status"] = chip_spawn_required ? String("required") : String("not_required");
+    out["spawn_entries_warning"] = String();
+    out["chip_progress_spawn_count"] = chip_progress_spawn_count;
+    Dictionary mutator_spawn_payload;
+    mutator_spawn_payload["tick"] = tick;
+    mutator_spawn_payload["spawn_entries"] = spawn_entries.duplicate(true);
+    mutator_spawn_payload["spawn_entries_required"] = chip_spawn_required;
+    mutator_spawn_payload["chip_progress_spawn_count"] = chip_progress_spawn_count;
+    simulation_controller->set(StringName("_native_mutator_spawn_payload"), mutator_spawn_payload);
     if (bool(out["changed"])) {
         const Variant env_snapshot_result = simulation_controller->get("_environment_snapshot");
         const Variant network_snapshot = simulation_controller->get("_network_state_snapshot");

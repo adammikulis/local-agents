@@ -27,8 +27,6 @@ static var _native_field_registry_session_configured: bool = false
 static var _native_voxel_terrain_mutator: Object = null
 
 static func ensure_native_sim_core_initialized(controller, tick: int = -1) -> bool:
-	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
-		return true
 	if _native_field_registry_session_configured:
 		return true
 	if not apply_native_field_registry_config(controller, null, tick):
@@ -41,8 +39,6 @@ static func generation_cap(controller, task: String, fallback: int) -> int:
 	return maxi(1, int(controller._llama_server_options.get(key, fallback)))
 
 static func apply_native_field_registry_config(controller, config_resource, tick: int = -1) -> bool:
-	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
-		return true
 	var effective_tick = tick
 	if effective_tick < 0:
 		effective_tick = int(controller._last_tick_processed)
@@ -65,16 +61,6 @@ static func apply_native_field_registry_config(controller, config_resource, tick
 	return bool(dispatch.get("ok", false))
 
 static func enqueue_native_voxel_edit_ops(controller, tick: int, voxel_ops: Array, strict: bool = false) -> Dictionary:
-	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
-		if strict:
-			controller._emit_dependency_error(tick, "voxel_edit_enqueue", "native_sim_core_disabled")
-		return {
-			"ok": false,
-			"executed": false,
-			"dispatched": false,
-			"error": "native_sim_core_disabled",
-			"queued_count": 0,
-		}
 	if not ensure_native_sim_core_initialized(controller, tick):
 		return {
 			"ok": false,
@@ -108,18 +94,6 @@ static func execute_native_voxel_stage(controller, tick: int, stage_name: String
 	var normalized_payload = NativeComputeBridgeScript.normalize_environment_payload(payload) if normalized_stage_name == _ENVIRONMENT_STAGE_NAME_VOXEL_TRANSFORM else _with_required_material_identity(payload)
 	if normalized_stage_name == _ENVIRONMENT_STAGE_NAME_VOXEL_TRANSFORM:
 		return NativeComputeBridgeScript.dispatch_voxel_orchestration_tick_call(controller, tick, normalized_payload, strict)
-	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
-		if strict:
-			controller._emit_dependency_error(tick, "voxel_stage", "native_sim_core_disabled")
-		return {
-			"ok": false,
-			"executed": false,
-			"dispatched": false,
-			"kernel_pass": "",
-			"backend_used": "",
-			"dispatch_reason": "",
-			"error": "native_sim_core_disabled",
-		}
 	if not ensure_native_sim_core_initialized(controller, tick):
 		return {
 			"ok": false,
@@ -546,9 +520,6 @@ static func run_dialogue_cycle(controller, npc_ids: Array, tick: int) -> bool:
 
 static func run_structure_lifecycle(controller, tick: int) -> void:
 	controller._structure_lifecycle_events = _empty_structure_lifecycle_events()
-	if not NativeComputeBridgeScript.is_native_sim_core_enabled():
-		controller._emit_dependency_error(tick, "structure_lifecycle", "gpu_required")
-		return
 	if not Engine.has_singleton(NativeComputeBridgeScript.NATIVE_SIM_CORE_SINGLETON_NAME):
 		controller._emit_dependency_error(tick, "structure_lifecycle", "native_required")
 		return
@@ -613,7 +584,7 @@ static func _empty_structure_lifecycle_events() -> Dictionary:
 
 static func _structure_lifecycle_native_requirement_error(raw_error: String) -> String:
 	var lowered := raw_error.strip_edges().to_lower()
-	if lowered.find("gpu") != -1 or lowered.find("native_sim_core_disabled") != -1:
+	if lowered.find("gpu") != -1:
 		return "gpu_required"
 	if lowered.find("native") != -1 or lowered.find("core_missing_method") != -1 or lowered.find("missing_method") != -1:
 		return "native_required"

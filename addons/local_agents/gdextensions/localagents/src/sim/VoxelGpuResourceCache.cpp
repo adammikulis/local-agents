@@ -26,7 +26,7 @@ std::mutex g_cache_registry_mutex;
 std::vector<VoxelGpuResourceCache *> g_cache_registry;
 
 constexpr int64_t k_op_stride_bytes = 88;
-constexpr int64_t k_out_stride_bytes = 32;
+constexpr int64_t k_out_stride_bytes = 56;
 constexpr int64_t k_param_stride_bytes = 40;
 constexpr int64_t k_value_stride_bytes = 32;
 constexpr int64_t k_hash_stride_bytes = 4;

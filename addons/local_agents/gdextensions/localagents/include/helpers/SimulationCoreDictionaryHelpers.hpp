@@ -13,6 +13,12 @@ namespace local_agents::simulation::helpers {
 bool extract_reference_from_dictionary(const godot::Dictionary &payload, godot::String &out_ref);
 godot::Dictionary normalize_contact_row(const godot::Variant &raw_row);
 godot::Array normalize_contact_rows(const godot::Array &contact_rows);
+godot::String contact_row_dedupe_key(const godot::Dictionary &row);
+godot::Array merge_and_dedupe_contact_rows(
+    const godot::Array &projectile_rows,
+    const godot::Array &debris_rows,
+    const godot::Array &physics_rows
+);
 godot::Dictionary aggregate_contact_rows(const godot::Array &normalized_contact_rows);
 godot::Dictionary normalize_and_aggregate_contact_rows(const godot::Array &contact_rows);
 godot::Dictionary build_canonical_voxel_dispatch_contract(const godot::Dictionary &dispatch_payload);

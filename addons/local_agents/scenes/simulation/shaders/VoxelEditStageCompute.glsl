@@ -36,6 +36,12 @@ struct ChangedEntry {
     uint sequence_low;
     uint sequence_high;
     float result_value;
+    float impulse_dir_x;
+    float impulse_dir_y;
+    float impulse_dir_z;
+    float impulse_size;
+    uint spawn_valid;
+    uint operation;
     uint reserved;
 };
 
@@ -157,6 +163,32 @@ bool is_power_of_two_u32(const uint value) {
     return value != 0u && ((value & (value - 1u)) == 0u);
 }
 
+vec3 spawn_impulse_direction(const OpEntry op, const ChangedEntry entry) {
+    vec3 direction = vec3(0.0, 1.0, 0.0);
+    if (op.operation == 6) {
+        vec3 normal = vec3(op.cleave_normal_x, op.cleave_normal_y, op.cleave_normal_z);
+        if (dot(normal, normal) > 0.000001) {
+            return normalize(normal);
+        }
+        return direction;
+    }
+    vec3 outward = vec3(float(entry.x - op.x), float(entry.y - op.y), float(entry.z - op.z));
+    if (dot(outward, outward) <= 0.000001) {
+        outward = vec3(op.cleave_normal_x, op.cleave_normal_y, op.cleave_normal_z);
+    }
+    outward.y += 0.35;
+    if (dot(outward, outward) <= 0.000001) {
+        return direction;
+    }
+    return normalize(outward);
+}
+
+float spawn_impulse_size(const OpEntry op, const float previous_value, const float next_value) {
+    const float delta = abs(next_value - previous_value);
+    const float op_energy = abs(op.value) * 0.35;
+    return max(0.0, max(delta, op_energy));
+}
+
 void main() {
     if (gl_GlobalInvocationID.x != 0u) {
         return;
@@ -265,6 +297,15 @@ void main() {
         entry.sequence_low = op.sequence_low;
         entry.sequence_high = op.sequence_high;
         entry.result_value = next_value;
+        const bool is_fracture_like = op.operation == 5 || op.operation == 6;
+        const bool spawn_valid = is_fracture_like && entry.changed != 0u;
+        const vec3 spawn_direction = spawn_impulse_direction(op, entry);
+        entry.impulse_dir_x = spawn_direction.x;
+        entry.impulse_dir_y = spawn_direction.y;
+        entry.impulse_dir_z = spawn_direction.z;
+        entry.impulse_size = spawn_impulse_size(op, previous_value, next_value);
+        entry.spawn_valid = spawn_valid ? 1u : 0u;
+        entry.operation = uint(max(op.operation, 0));
         entry.reserved = 0u;
         out_buffer.entries[index] = entry;
     }

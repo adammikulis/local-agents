@@ -115,6 +115,22 @@ double read_weighted_contact_impulse(const Dictionary &row) {
     return std::fmax(0.0, static_cast<double>(row.get("contact_impulse", 0.0)));
 }
 
+String maybe_contact_key_component(const Dictionary &row, const char *field_name) {
+    const StringName key(field_name);
+    if (!row.has(key)) {
+        return String();
+    }
+    const Variant value = row.get(key, Variant());
+    if (value.get_type() == Variant::NIL) {
+        return String();
+    }
+    const String value_text = String(value).strip_edges();
+    if (value_text.is_empty()) {
+        return String();
+    }
+    return String(field_name) + "=" + value_text;
+}
+
 void collect_nested_dictionaries(
     const Dictionary &source,
     Array &out,
@@ -461,6 +477,8 @@ Dictionary normalize_contact_row(const Variant &raw_row) {
             source.get("obstacle_mask", source.get("collision_mask", source.get("collision_layer", static_cast<int64_t>(0)))))));
 
     const std::vector<StringName> preserved_projectile_fields = {
+        StringName("contact_source"),
+        StringName("contact_id"),
         StringName("projectile_kind"),
         StringName("projectile_density_tag"),
         StringName("projectile_hardness_tag"),
@@ -472,7 +490,10 @@ Dictionary normalize_contact_row(const Variant &raw_row) {
         StringName("hit_frame"),
         StringName("deadline_frame"),
         StringName("collider_id"),
+        StringName("other_body_id"),
         StringName("contact_index"),
+        StringName("shape_index"),
+        StringName("collider_shape_index"),
         StringName("impact_mode"),
     };
     for (const StringName &preserved_key : preserved_projectile_fields) {
@@ -485,14 +506,65 @@ Dictionary normalize_contact_row(const Variant &raw_row) {
 
 Array normalize_contact_rows(const Array &contact_rows) {
     Array normalized_rows;
+    std::set<String> seen_keys;
     for (int64_t i = 0; i < contact_rows.size(); i += 1) {
         const Dictionary normalized = normalize_contact_row(contact_rows[i]);
         if (normalized.is_empty()) {
             continue;
         }
+        const String dedupe_key = contact_row_dedupe_key(normalized);
+        if (!dedupe_key.is_empty()) {
+            if (seen_keys.count(dedupe_key) > 0) {
+                continue;
+            }
+            seen_keys.insert(dedupe_key);
+        }
         normalized_rows.append(normalized);
     }
     return normalized_rows;
+}
+
+String contact_row_dedupe_key(const Dictionary &row) {
+    String key;
+    static const char *primary_fields[] = {
+        "contact_id",
+        "projectile_id",
+        "body_id",
+        "collider_id",
+        "other_body_id",
+        "shape_index",
+        "collider_shape_index",
+        "frame"
+    };
+    for (const char *field_name : primary_fields) {
+        const String field = maybe_contact_key_component(row, field_name);
+        if (field.is_empty()) {
+            continue;
+        }
+        if (!key.is_empty()) {
+            key += "|";
+        }
+        key += field;
+    }
+    return key;
+}
+
+Array merge_and_dedupe_contact_rows(
+    const Array &projectile_rows,
+    const Array &debris_rows,
+    const Array &physics_rows
+) {
+    Array merged_rows;
+    auto append_rows = [&merged_rows](const Array &rows) {
+        const Array normalized_rows = normalize_contact_rows(rows);
+        for (int64_t i = 0; i < normalized_rows.size(); i += 1) {
+            merged_rows.append(normalized_rows[i]);
+        }
+    };
+    append_rows(projectile_rows);
+    append_rows(debris_rows);
+    append_rows(physics_rows);
+    return normalize_contact_rows(merged_rows);
 }
 
 Dictionary aggregate_contact_rows(const Array &normalized_contact_rows) {

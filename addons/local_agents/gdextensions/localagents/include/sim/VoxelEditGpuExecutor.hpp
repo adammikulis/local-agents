@@ -28,9 +28,11 @@ struct VoxelGpuExecutionStats {
     int64_t ops_processed = 0;
     int64_t ops_requeued = 0;
     int64_t ops_changed = 0;
+    bool spawn_metadata_required = false;
     godot::Dictionary changed_region;
     godot::Array changed_chunks;
     godot::Array changed_entries;
+    godot::Array spawn_entries;
 };
 
 struct VoxelGpuExecutionResult {

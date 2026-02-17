@@ -1,7 +1,6 @@
 extends RefCounted
 
 const NATIVE_SIM_CORE_SINGLETON_NAME := "LocalAgentsSimulationCore"
-const NATIVE_SIM_CORE_ENV_KEY := "LOCAL_AGENTS_ENABLE_NATIVE_SIM_CORE"
 const NativeComputeBridgeContactNormalizationScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridgeContactNormalization.gd")
 const NativeComputeBridgeErrorCodesScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridgeErrorCodes.gd")
 const NativeComputeBridgeEnvironmentDispatchStatusScript = preload("res://addons/local_agents/simulation/controller/NativeComputeBridgeEnvironmentDispatchStatus.gd")
@@ -31,17 +30,7 @@ const _MATERIAL_INPUT_DEFAULTS := {
 	"body_id": -1, "rigid_obstacle_mask": 0, "material_id": "material:unknown", "material_profile_id": _UNKNOWN_MATERIAL_PROFILE_ID, "material_phase_id": _UNKNOWN_MATERIAL_PHASE_ID, "element_id": "element:unknown",
 }
 const _LEGACY_INPUT_KEY_ALIASES := {"temperature": ["temp", "temp_k", "avg_temperature"], "pressure": ["pressure_atm", "atmospheric_pressure", "hydraulic_pressure"], "pressure_gradient": ["pressure_delta", "pressure_grad", "hydraulic_gradient"], "density": ["air_density", "material_density"], "velocity": ["wind_speed", "flow_speed", "speed"], "mass_proxy": ["mass", "mass_estimate", "inertial_mass"], "acceleration_proxy": ["acceleration", "accel", "accel_proxy"], "force_proxy": ["force", "force_estimate", "impulse"], "moisture": ["humidity", "water_content"], "porosity": ["void_fraction"], "cohesion": ["binding_strength"], "hardness": ["rigidity", "resistance"], "thermal_conductivity": ["conductivity", "thermal_k"], "thermal_capacity": ["heat_capacity", "specific_heat"], "thermal_diffusivity": ["diffusivity"], "reaction_rate": ["reaction_intensity", "chem_reaction_rate"], "phase_change_channels": ["phase_transitions", "phase_change", "transition_channels"], "porous_flow_channels": ["porous_channels", "flow_channels", "permeability_channels"], "shock_impulse_channels": ["shock_channels", "impulse_channels", "impact_channels"], "friction_contact_channels": ["friction_channels", "contact_channels", "tribology_channels"], "boundary_condition_channels": ["boundary_channels", "boundary_conditions", "bc_channels"], "material_flammability": ["flammability"], "activity": ["activity_level", "activation"], "contact_impulse": ["impulse", "normal_impulse", "collision_impulse"], "contact_velocity": ["impact_velocity", "relative_velocity", "contact_speed"], "contact_normal": ["normal", "collision_normal"], "contact_point": ["point", "collision_point", "position"], "body_velocity": ["velocity_magnitude", "linear_speed", "body_speed"], "obstacle_velocity": ["obstacle_speed", "obstacle_speed_magnitude", "motion_speed"], "obstacle_trajectory": ["obstacle_direction", "motion_trajectory", "trajectory"], "body_id": ["id", "rid", "collider_id"], "rigid_obstacle_mask": ["obstacle_mask", "collision_mask", "collision_layer"], "material_id": ["material", "material_name", "material_type"], "material_profile_id": ["material_profile", "profile_id", "profile_key"], "material_phase_id": ["material_phase", "phase_id"], "element_id": ["element", "element_name", "element_type"]}
-static func is_native_sim_core_enabled() -> bool:
-	var raw = OS.get_environment(NATIVE_SIM_CORE_ENV_KEY).strip_edges().to_lower()
-	if raw in ["0", "false", "off", "no", "disabled"]:
-		return false
-	return true
 static func dispatch_stage_call(controller, tick: int, phase: String, method_name: String, args: Array = [], strict: bool = false) -> Dictionary:
-	if not is_native_sim_core_enabled():
-		var disabled_error = "native_sim_core_disabled"
-		if strict:
-			controller._emit_dependency_error(tick, phase, disabled_error)
-		return {"ok": false, "executed": false, "error": disabled_error}
 	if not Engine.has_singleton(NATIVE_SIM_CORE_SINGLETON_NAME):
 		var unavailable_error = "native_sim_core_unavailable"
 		if strict:
@@ -63,8 +52,6 @@ static func dispatch_stage_call(controller, tick: int, phase: String, method_nam
 	return _normalize_dispatch_result(controller, tick, phase, method_name, result, strict)
 
 static func dispatch_voxel_stage(stage_name: StringName, payload: Dictionary = {}) -> Dictionary:
-	if not is_native_sim_core_enabled():
-		return {"ok": false, "executed": false, "dispatched": false, "kernel_pass": "", "backend_used": "", "dispatch_reason": "native_sim_core_disabled", "error": "native_sim_core_disabled"}
 	if not Engine.has_singleton(NATIVE_SIM_CORE_SINGLETON_NAME):
 		return {"ok": false, "executed": false, "dispatched": false, "kernel_pass": "", "backend_used": "", "dispatch_reason": "native_sim_core_unavailable", "error": "native_sim_core_unavailable"}
 	var core = Engine.get_singleton(NATIVE_SIM_CORE_SINGLETON_NAME)
@@ -184,8 +171,6 @@ static func dispatch_environment_stage_call(controller, tick: int, phase: String
 	normalized_payload["environment_stage_dispatch"] = dispatch_metadata
 	var normalized_contacts_variant = normalized_payload.get("physics_server_contacts", [])
 	var normalized_contacts: Array = normalized_contacts_variant if normalized_contacts_variant is Array else []
-	if not is_native_sim_core_enabled():
-		return {"ok": false, "executed": false, "dispatched": false, "error": "native_sim_core_disabled"}
 	if not Engine.has_singleton(NATIVE_SIM_CORE_SINGLETON_NAME):
 		return {"ok": false, "executed": false, "dispatched": false, "error": "native_sim_core_unavailable"}
 	var core = Engine.get_singleton(NATIVE_SIM_CORE_SINGLETON_NAME)
@@ -286,6 +271,11 @@ static func dispatch_environment_stage(stage_name: String, payload: Dictionary) 
 	if not _SUPPORTED_ENVIRONMENT_STAGES.get(normalized_stage_name, false):
 		return {"ok": false, "executed": false, "dispatched": false, "error": _UNSUPPORTED_ENVIRONMENT_STAGE_ERROR}
 	var normalized_payload = _normalize_environment_payload(payload)
+	if bool(normalized_payload.get("_abort_native_dispatch", false)):
+		var serializer_error := String(normalized_payload.get("native_contact_serializer_error", "native_contact_serializer_failed")).strip_edges()
+		if serializer_error == "":
+			serializer_error = "native_contact_serializer_failed"
+		return {"ok": false, "executed": false, "dispatched": false, "error": serializer_error}
 	var dispatch_index = _environment_stage_dispatch_index + 1
 	_environment_stage_dispatch_index = dispatch_index
 	var existing_dispatch_meta_variant = normalized_payload.get("environment_stage_dispatch", {})
@@ -300,8 +290,6 @@ static func dispatch_environment_stage(stage_name: String, payload: Dictionary) 
 	normalized_payload["environment_stage_dispatch"] = dispatch_metadata
 	var normalized_contacts_variant = normalized_payload.get("physics_server_contacts", [])
 	var normalized_contacts: Array = normalized_contacts_variant if normalized_contacts_variant is Array else []
-	if not is_native_sim_core_enabled():
-		return {"ok": false, "executed": false, "dispatched": false, "error": "native_sim_core_disabled"}
 	if not Engine.has_singleton(NATIVE_SIM_CORE_SINGLETON_NAME):
 		return {"ok": false, "executed": false, "dispatched": false, "error": "native_sim_core_unavailable"}
 	var core = Engine.get_singleton(NATIVE_SIM_CORE_SINGLETON_NAME)
@@ -321,21 +309,31 @@ static func normalize_environment_payload(payload: Dictionary) -> Dictionary:
 	return _normalize_environment_payload(payload)
 
 static func _normalize_environment_payload(payload: Dictionary) -> Dictionary:
+	var contact_contract := _normalize_physics_contacts_contract(payload)
+	if not bool(contact_contract.get("ok", false)):
+		var failure_payload: Dictionary = payload.duplicate(true)
+		var failure_error := String(contact_contract.get("error", "native_contact_serializer_failed")).strip_edges()
+		if failure_error == "":
+			failure_error = "native_contact_serializer_failed"
+		failure_payload["_abort_native_dispatch"] = true
+		failure_payload["native_contact_serializer_error"] = failure_error
+		return failure_payload
 	var normalized = NativeComputeBridgeEnvironmentBindingsScript.normalize_environment_payload(
 		payload,
 		_UNKNOWN_MATERIAL_PROFILE_ID,
 		_UNKNOWN_MATERIAL_PHASE_ID
 	)
+	var contact_rows_variant = contact_contract.get("rows", [])
+	if contact_rows_variant is Array and not (contact_rows_variant as Array).is_empty():
+		var contact_rows = (contact_rows_variant as Array).duplicate(true)
+		normalized["physics_server_contacts"] = contact_rows
+		normalized["physics_contacts"] = contact_rows.duplicate(true)
 	if bool(payload.get("_legacy_material_input_normalization", false)):
-		return _normalize_environment_payload_with_material_defaults(payload)
+		return _normalize_environment_payload_with_material_defaults(normalized)
 	return normalized
 
 static func _normalize_environment_payload_with_material_defaults(payload: Dictionary) -> Dictionary:
 	var normalized: Dictionary = payload.duplicate(true)
-	var normalized_contacts := _normalize_physics_contacts_from_payload(normalized)
-	if not normalized_contacts.is_empty():
-		normalized["physics_server_contacts"] = normalized_contacts
-		normalized["physics_contacts"] = normalized_contacts
 	var inputs := _material_inputs_from_payload(normalized)
 	var material_identity := _material_identity_from_payload(normalized, inputs)
 	inputs["material_id"] = String(material_identity.get("material_id", "material:unknown")).strip_edges()
@@ -444,7 +442,16 @@ static func _merge_environment_activity(out: Dictionary, payload: Dictionary) ->
 				out["activity"] = clampf(float(vm.get("compute_budget_scale", 1.0)), 0.0, 1.0)
 
 static func _merge_physics_contact_inputs(out: Dictionary, payload: Dictionary) -> void:
-	var rows := _normalize_physics_contacts_from_payload(payload)
+	var contact_contract := _normalize_physics_contacts_contract(payload)
+	if not bool(contact_contract.get("ok", false)):
+		out["native_contact_serializer_error"] = String(contact_contract.get("error", "native_contact_serializer_failed")).strip_edges()
+		return
+	var rows_variant = contact_contract.get("rows", [])
+	var rows: Array[Dictionary] = []
+	if rows_variant is Array:
+		for row_variant in (rows_variant as Array):
+			if row_variant is Dictionary:
+				rows.append((row_variant as Dictionary).duplicate(true))
 	if rows.is_empty():
 		return
 	var aggregates := _aggregate_contact_inputs(rows)
@@ -690,6 +697,9 @@ static func _average_tile_metric(rows: Dictionary, key: String, fallback: float)
 
 static func _normalize_physics_contacts_from_payload(payload: Dictionary) -> Array[Dictionary]:
 	return NativeComputeBridgeContactNormalizationScript.normalize_physics_contacts_from_payload(payload)
+
+static func _normalize_physics_contacts_contract(payload: Dictionary) -> Dictionary:
+	return NativeComputeBridgeContactNormalizationScript.normalize_physics_contacts_contract(payload)
 
 static func _normalize_contact_row(row: Dictionary) -> Dictionary:
 	return NativeComputeBridgeContactNormalizationScript.normalize_contact_row(row)

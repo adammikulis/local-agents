@@ -19,16 +19,16 @@ constexpr double kContactWatchSpeedThreshold = 0.0;
 constexpr double kContactWatchSpeedWeight = 0.0;
 constexpr double kSignalOffset = 1.0;
 constexpr double kProjectileSignalGainScale = 1.5e4;
-constexpr double kProjectileActiveThresholdScale = 0.55;
-constexpr double kProjectileWatchThresholdScale = 0.75;
-constexpr double kProjectileDensityScaleDense = 1.35;
-constexpr double kProjectileDensityScaleCompact = 1.2;
-constexpr double kProjectileDensityScaleSolid = 1.25;
-constexpr double kProjectileHardnessScaleHard = 1.75;
-constexpr double kProjectileHardnessScaleUltra = 1.45;
-constexpr double kProjectileProfileScaleSoft = 0.75;
-constexpr double kProjectileProfileScaleDenseHard = 1.15;
-constexpr double kProjectileProfileScaleMin = 0.35;
+constexpr double kProjectileActiveThresholdScale = 0.0;
+constexpr double kProjectileWatchThresholdScale = 0.0;
+constexpr double kProjectileDensityScaleDense = 1.0;
+constexpr double kProjectileDensityScaleCompact = 1.0;
+constexpr double kProjectileDensityScaleSolid = 1.0;
+constexpr double kProjectileHardnessScaleHard = 1.0;
+constexpr double kProjectileHardnessScaleUltra = 1.0;
+constexpr double kProjectileProfileScaleSoft = 1.0;
+constexpr double kProjectileProfileScaleDenseHard = 1.0;
+constexpr double kProjectileProfileScaleMin = 1.0;
 constexpr double kProjectileProfileScaleMax = 3.2;
 constexpr double kDefaultMassFallback = 1.0;
 constexpr double kImpactMetricScale = 1.0e4;
@@ -434,10 +434,10 @@ ContactFailureProjection project_contact_failure(
         : std::log1p(std::fabs(total_work) * profile.impact_signal_gain + kSignalOffset);
 
     const double active_signal_threshold = has_voxel_chunk_projectile_rows
-        ? std::max(1.0e-6, profile.active_signal_threshold * kProjectileActiveThresholdScale)
+        ? std::max(0.0, profile.active_signal_threshold * kProjectileActiveThresholdScale)
         : profile.active_signal_threshold;
     const double watch_signal_threshold = has_voxel_chunk_projectile_rows
-        ? std::max(1.0e-6, profile.watch_signal_threshold * kProjectileWatchThresholdScale)
+        ? std::max(0.0, profile.watch_signal_threshold * kProjectileWatchThresholdScale)
         : profile.watch_signal_threshold;
 
     if (projection.impact_signal >= active_signal_threshold) {

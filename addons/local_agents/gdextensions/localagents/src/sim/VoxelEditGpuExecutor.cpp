@@ -5,6 +5,7 @@
 #include <godot_cpp/classes/rendering_device.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <set>
@@ -18,7 +19,7 @@ namespace {
 
 constexpr int64_t k_workgroup_size = 64;
 constexpr int64_t k_op_stride_bytes = 88;
-constexpr int64_t k_out_stride_bytes = 32;
+constexpr int64_t k_out_stride_bytes = 56;
 constexpr uint32_t k_kernel_version = 1U;
 constexpr int64_t k_param_base_bytes = 8;
 constexpr int64_t k_param_pass_bytes = 20;
@@ -50,6 +51,80 @@ Dictionary build_point_dict(const int32_t x, const int32_t y, const int32_t z) {
     point["y"] = y;
     point["z"] = z;
     return point;
+}
+
+Dictionary build_vector_dict(const double x, const double y, const double z) {
+    Dictionary point;
+    point["x"] = x;
+    point["y"] = y;
+    point["z"] = z;
+    return point;
+}
+
+double finite_or_default(const float value, const double fallback = 0.0) {
+    const double casted = static_cast<double>(value);
+    return std::isfinite(casted) ? casted : fallback;
+}
+
+bool is_fracture_like_operation(const String &operation) {
+    const String normalized = operation.to_lower();
+    return normalized == String("fracture") || normalized == String("cleave");
+}
+
+Dictionary build_spawn_entry(
+    const int32_t x,
+    const int32_t y,
+    const int32_t z,
+    const int64_t sequence_id,
+    const float impulse_dir_x,
+    const float impulse_dir_y,
+    const float impulse_dir_z,
+    const float impulse_size_raw,
+    const bool spawn_valid,
+    const VoxelEditOp &op
+) {
+    double dir_x = finite_or_default(impulse_dir_x, 0.0);
+    double dir_y = finite_or_default(impulse_dir_y, 0.0);
+    double dir_z = finite_or_default(impulse_dir_z, 0.0);
+    double dir_length_sq = dir_x * dir_x + dir_y * dir_y + dir_z * dir_z;
+    if (dir_length_sq <= 1.0e-8) {
+        dir_x = std::isfinite(op.cleave_normal_x) ? op.cleave_normal_x : 0.0;
+        dir_y = std::isfinite(op.cleave_normal_y) ? op.cleave_normal_y : 1.0;
+        dir_z = std::isfinite(op.cleave_normal_z) ? op.cleave_normal_z : 0.0;
+        dir_length_sq = dir_x * dir_x + dir_y * dir_y + dir_z * dir_z;
+    }
+    if (dir_length_sq <= 1.0e-8) {
+        dir_x = 0.0;
+        dir_y = 1.0;
+        dir_z = 0.0;
+        dir_length_sq = 1.0;
+    }
+    const double inv_norm = 1.0 / std::sqrt(dir_length_sq);
+    dir_x *= inv_norm;
+    dir_y *= inv_norm;
+    dir_z *= inv_norm;
+
+    double resolved_impulse_size = finite_or_default(impulse_size_raw, 0.0);
+    if (resolved_impulse_size < 0.0) {
+        resolved_impulse_size = 0.0;
+    }
+    if (!spawn_valid || resolved_impulse_size <= 0.0) {
+        const double value_scale = std::max(0.0, std::abs(op.value));
+        const double radius_scale = std::max(0.0, op.radius);
+        resolved_impulse_size = std::max(1.0, std::min(8.0, value_scale + radius_scale * 0.5 + 0.25));
+    }
+
+    Dictionary spawn_entry;
+    spawn_entry["x"] = x;
+    spawn_entry["y"] = y;
+    spawn_entry["z"] = z;
+    spawn_entry["sequence_id"] = sequence_id;
+    spawn_entry["position"] = build_point_dict(x, y, z);
+    spawn_entry["impulse_direction"] = build_vector_dict(dir_x, dir_y, dir_z);
+    spawn_entry["impulse_size"] = resolved_impulse_size;
+    spawn_entry["projectile_material_tag"] = op.projectile_material_tag.strip_edges().is_empty() ? String("dense_voxel") : op.projectile_material_tag;
+    spawn_entry["spawn_synthesized"] = !spawn_valid;
+    return spawn_entry;
 }
 
 int32_t operation_to_code(const String &operation) {
@@ -183,6 +258,7 @@ VoxelGpuExecutionResult VoxelEditGpuExecutor::execute(
         stats.changed_region = changed_region;
         stats.changed_chunks = Array();
         stats.changed_entries = Array();
+        stats.spawn_entries = Array();
 
         VoxelGpuExecutionResult result;
         result.ok = true;
@@ -323,6 +399,7 @@ VoxelGpuExecutionResult VoxelEditGpuExecutor::execute(
     int32_t max_z = 0;
     std::set<ChunkKey> changed_chunks;
     Array changed_entries;
+    Array spawn_entries;
 
     const int64_t readable_entries = std::min<int64_t>(
         static_cast<int64_t>(dispatch_ops.size()),
@@ -339,6 +416,12 @@ VoxelGpuExecutionResult VoxelEditGpuExecutor::execute(
         const uint64_t sequence_high = static_cast<uint64_t>(readback.decode_u32(offset + 20));
         const uint64_t sequence_id = sequence_low | (sequence_high << 32u);
         const float result_value = readback.decode_float(offset + 24);
+        const float impulse_dir_x = readback.decode_float(offset + 28);
+        const float impulse_dir_y = readback.decode_float(offset + 32);
+        const float impulse_dir_z = readback.decode_float(offset + 36);
+        const float impulse_size = readback.decode_float(offset + 40);
+        const bool spawn_valid = readback.decode_u32(offset + 44) != 0;
+        const int32_t operation_code = static_cast<int32_t>(readback.decode_u32(offset + 48));
 
         Dictionary changed_entry;
         changed_entry["x"] = x;
@@ -347,7 +430,34 @@ VoxelGpuExecutionResult VoxelEditGpuExecutor::execute(
         changed_entry["changed"] = changed;
         changed_entry["sequence_id"] = static_cast<int64_t>(sequence_id);
         changed_entry["result_value"] = static_cast<double>(result_value);
+        changed_entry["spawn_valid"] = spawn_valid;
+        changed_entry["operation_code"] = operation_code;
         changed_entries.append(changed_entry);
+
+        const VoxelEditOp &decoded_op = dispatch_ops[static_cast<size_t>(i)];
+        const bool fracture_like_changed = changed && (
+            operation_code == 5 ||
+            operation_code == 6 ||
+            is_fracture_like_operation(decoded_op.operation)
+        );
+        if (fracture_like_changed) {
+            stats.spawn_metadata_required = true;
+        }
+        if (fracture_like_changed) {
+            const Dictionary spawn_entry = build_spawn_entry(
+                x,
+                y,
+                z,
+                static_cast<int64_t>(sequence_id),
+                impulse_dir_x,
+                impulse_dir_y,
+                impulse_dir_z,
+                impulse_size,
+                spawn_valid,
+                decoded_op
+            );
+            spawn_entries.append(spawn_entry);
+        }
 
         if (!changed) {
             continue;
@@ -395,6 +505,7 @@ VoxelGpuExecutionResult VoxelEditGpuExecutor::execute(
     stats.changed_region = changed_region;
     stats.changed_chunks = changed_chunks_array;
     stats.changed_entries = changed_entries;
+    stats.spawn_entries = spawn_entries;
 
     VoxelGpuExecutionResult result;
     result.ok = true;

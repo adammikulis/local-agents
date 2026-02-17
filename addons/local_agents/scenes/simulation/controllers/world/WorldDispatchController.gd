@@ -19,7 +19,9 @@ func process_native_voxel_rate(delta: float, context: Dictionary) -> Dictionary:
 			"dispatched": false,
 			"mutation_applied": false,
 			"contacts_consumed": 0,
-			"error": "native_voxel_dispatch_bridge_unavailable",
+			"error": "native_required",
+			"error_code": "native_required",
+			"dependency_error": "native_required",
 		}
 	var bridge_context := context.duplicate(false)
 	bridge_context["native_stage_name"] = String(_native_stage_name)
@@ -32,7 +34,9 @@ func process_native_voxel_rate(delta: float, context: Dictionary) -> Dictionary:
 		"dispatched": false,
 		"mutation_applied": false,
 		"contacts_consumed": 0,
-		"error": "invalid_native_voxel_dispatch_bridge_result",
+		"error": "native_required",
+		"error_code": "native_required",
+		"dependency_error": "native_required",
 	}
 
 func _resolve_native_bridge() -> Object:
