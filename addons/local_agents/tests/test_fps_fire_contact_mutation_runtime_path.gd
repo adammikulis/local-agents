@@ -73,7 +73,7 @@ func run_test(tree: SceneTree) -> bool:
 	ok = _assert(launcher.active_projectile_count() == 1, "FPS fire request should create an active projectile in runtime-path test.") and ok
 
 	launcher.step(0.12)
-	var contact_rows := launcher.sample_voxel_dispatch_contact_rows()
+	var contact_rows := launcher.sample_active_projectile_contact_rows()
 	ok = _assert(contact_rows.size() >= 1, "Fired projectile should produce contact rows after impact.") and ok
 	if contact_rows.size() >= 1 and contact_rows[0] is Dictionary:
 		var first_row := contact_rows[0] as Dictionary
@@ -143,8 +143,6 @@ func run_test(tree: SceneTree) -> bool:
 	var missing_failure_paths: Array = missing_failure_paths_variant if missing_failure_paths_variant is Array else []
 	ok = _assert(missing_failure_paths.size() == 1 and String(missing_failure_paths[0]) == "native_voxel_op_payload_missing", "Missing native_ops payload must emit only native_voxel_op_payload_missing in failure_paths metadata.") and ok
 
-	launcher.acknowledge_voxel_dispatch_contact_rows(contact_rows.size(), true)
-	ok = _assert(launcher.pending_voxel_dispatch_contact_count() == 0, "Mutation-confirmed ack should clear pending projectile contacts.") and ok
 	for _i in range(18):
 		launcher.step(0.12)
 	ok = _assert(launcher.active_projectile_count() == 0, "Projectile runtime path should destroy projectile state after impact/TTL progression.") and ok

@@ -162,8 +162,8 @@ func _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_s
 		"WorldSimulation must dispatch native voxel pulses through voxel_transform_step so projectile contacts enter environment-stage failure emission."
 	) and ok
 	ok = _assert(
-		world_simulation_source.contains("_process_native_voxel_rate(delta, projectile_contact_rows)"),
-		"WorldSimulation must pass sampled projectile contact rows into native voxel rate processing."
+		world_simulation_source.contains("_process_native_voxel_rate(delta)"),
+		"WorldSimulation must process native voxel rate using the current per-frame dispatch signature."
 	) and ok
 	ok = _assert(
 		world_dispatch_controller_source.contains("build_native_tick_payload")
@@ -188,8 +188,9 @@ func _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_s
 	) and ok
 	ok = _assert(
 		world_dispatch_controller_source.contains("native_tick_contract")
-			and world_dispatch_controller_source.contains("apply_native_tick_contract"),
-		"WorldDispatchController must consume native tick contract outputs for launcher queue acknowledgement."
+			and world_dispatch_controller_source.contains("record_contacts_dispatched")
+			and not world_dispatch_controller_source.contains("apply_native_tick_contract"),
+		"WorldDispatchController must consume native tick contract outputs without launcher-owned queue acknowledgement shims."
 	) and ok
 	return ok
 
