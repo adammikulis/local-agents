@@ -8,6 +8,7 @@ const VOXEL_GPU_DISPATCH_METADATA_CPP_PATH := "res://addons/local_agents/gdexten
 const NATIVE_BRIDGE_GD_PATH := "res://addons/local_agents/simulation/controller/NativeComputeBridge.gd"
 const SIMULATION_VOXEL_MUTATOR_GD_PATH := "res://addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd"
 const WORLD_DISPATCH_CONTRACTS_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/world/WorldDispatchContracts.gd"
+const WORLD_NATIVE_VOXEL_DISPATCH_METRICS_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/world/WorldNativeVoxelDispatchMetrics.gd"
 const NativeComputeBridgeScript := preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
 
 func run_test(_tree: SceneTree) -> bool:
@@ -50,14 +51,19 @@ func _test_native_authoritative_destruction_contract_source() -> bool:
 	var dispatch_contract_source := _read_script_source(WORLD_DISPATCH_CONTRACTS_GD_PATH)
 	if dispatch_contract_source == "":
 		return false
+	var dispatch_metrics_source := _read_script_source(WORLD_NATIVE_VOXEL_DISPATCH_METRICS_GD_PATH)
+	if dispatch_metrics_source == "":
+		return false
 	var ok := true
 	ok = _assert(mutator_source.contains("\"details\": \"native voxel op payload required; CPU fallback disabled\""), "Simulation voxel mutator must carry typed fail-fast detail proving CPU fallback success is forbidden.") and ok
-	ok = _assert(mutator_source.contains("\"error\": \"native_voxel_stage_no_mutation\""), "Simulation voxel mutator must emit typed native_voxel_stage_no_mutation when authoritative contacts are missing.") and ok
-	ok = _assert(mutator_source.contains("if int(row.get(\"body_id\", 0)) > 0 and String(row.get(\"projectile_kind\", \"\")).to_lower() == \"voxel_chunk\":"), "Simulation voxel mutator must gate authority to voxel_chunk projectile contacts only.") and ok
+	ok = _assert(mutator_source.contains("\"error\": \"native_voxel_op_payload_missing\""), "Simulation voxel mutator must emit typed native_voxel_op_payload_missing when native-op payload is unavailable.") and ok
+	ok = _assert(mutator_source.contains("if native_rows is Array:"), "Simulation voxel mutator must treat native_ops as the authoritative native mutation input.") and ok
+	ok = _assert(mutator_source.contains("[\"voxel_failure_emission\", \"result_fields\", \"result\", \"dispatch\", \"payload\", \"execution\", \"voxel_result\", \"source\"]"), "Simulation voxel mutator recursive extraction must traverse nested dispatch payloads for canonical op/chunk region recovery.") and ok
 	ok = _assert(dispatch_contract_source.contains("\"mutation_path\": \"native_result_authoritative\""), "World dispatch contract must mark authoritative destruction path as native_result_authoritative.") and ok
 	ok = _assert(dispatch_contract_source.contains("\"error\": \"\" if changed else _native_no_mutation_error(dispatch)"), "World dispatch contract must emit typed fail-fast errors when authoritative mutation is absent.") and ok
 	ok = _assert(dispatch_contract_source.contains("if dispatch_reason in [\"gpu_required\", \"gpu_unavailable\", \"native_required\", \"native_unavailable\"]:"), "World dispatch contract must preserve typed GPU/native requirement failures without fallback-success behavior.") and ok
 	ok = _assert(dispatch_contract_source.contains("return \"native_voxel_stage_no_mutation\""), "World dispatch contract must default to native_voxel_stage_no_mutation for no-mutation fail-fast paths.") and ok
+	ok = _assert(dispatch_metrics_source.contains("[\"result_fields\", \"result\", \"dispatch\", \"payload\", \"execution\", \"voxel_result\"]"), "World dispatch metrics recursive extraction must traverse nested dispatch payloads when locating failure-emission payloads.") and ok
 	return ok
 
 func _test_voxel_op_ordering_contract_source() -> bool:

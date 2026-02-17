@@ -31,30 +31,23 @@ func run_test(tree: SceneTree) -> bool:
 	var tile_z := int(target.get("z", 0))
 	var start_surface := int(target.get("surface_y", 0))
 	var chunk_size := int(target.get("chunk_size", 12))
-	var payload := {
-		"changed_region": {
-			"valid": true,
-			"min": {"x": tile_x, "y": start_surface, "z": tile_z},
-			"max": {"x": tile_x, "y": start_surface, "z": tile_z},
-		},
+	var mutation: Dictionary = SimulationVoxelTerrainMutatorScript.apply_native_voxel_stage_delta(controller, 1, {
 		"changed_chunks": [
 			{"x": int(floor(float(tile_x) / float(chunk_size))), "y": 0, "z": int(floor(float(tile_z) / float(chunk_size)))}
 		],
-	}
-
-	var mutation: Dictionary = SimulationVoxelTerrainMutatorScript.apply_native_voxel_stage_delta(controller, 1, payload)
+	})
 	var ok := true
-	ok = _assert(not bool(mutation.get("changed", false)), "Canonical contact-derived mutation path should not mutate terrain when projectile runtime payload has no contact rows.") and ok
+	ok = _assert(not bool(mutation.get("changed", false)), "Missing native_ops payload should fail fast and never mutate terrain via native-authoritative path.") and ok
 	var changed_tiles_variant = mutation.get("changed_tiles", [])
 	var changed_tiles: Array = changed_tiles_variant if changed_tiles_variant is Array else []
 	ok = _assert(changed_tiles.is_empty(), "No-mutation path should report an empty changed_tiles list.") and ok
-	ok = _assert(String(mutation.get("error", "")) == "native_voxel_stage_no_mutation", "No-contact runtime payload should return native_voxel_stage_no_mutation.") and ok
-	ok = _assert(String(mutation.get("mutation_path", "")) == "native_voxel_stage_no_mutation", "No-contact runtime payload should report canonical native_voxel_stage_no_mutation mutation_path.") and ok
+	ok = _assert(String(mutation.get("error", "")) == "native_voxel_op_payload_missing", "Missing native_ops payload should return native_voxel_op_payload_missing.") and ok
+	ok = _assert(String(mutation.get("mutation_path", "")) == "native_ops_payload_primary", "Missing native_ops payload should report native_ops_payload_primary mutation_path.") and ok
 	ok = _assert(String(mutation.get("mutation_path_state", "")) == "failure", "No-mutation path should report mutation_path_state=failure.") and ok
-	ok = _assert(String(mutation.get("details", "")) == "native voxel stage requires projectile contact-derived native ops", "No-contact runtime payload should expose deterministic fail-fast details for native-authoritative mutation contract.") and ok
+	ok = _assert(String(mutation.get("details", "")) == "native voxel op payload required; CPU fallback disabled", "Missing native_ops payload should expose deterministic fail-fast details for native-authoritative mutation contract.") and ok
 	var failure_paths_variant = mutation.get("failure_paths", [])
 	var failure_paths: Array = failure_paths_variant if failure_paths_variant is Array else []
-	ok = _assert(failure_paths.size() == 1 and String(failure_paths[0]) == "native_voxel_stage_no_mutation", "No-mutation path should return stable failure_paths metadata with only native_voxel_stage_no_mutation.") and ok
+	ok = _assert(failure_paths.size() == 1 and String(failure_paths[0]) == "native_voxel_op_payload_missing", "Missing native_ops payload should return stable failure_paths metadata with only native_voxel_op_payload_missing.") and ok
 	var changed_chunks_variant = mutation.get("changed_chunks", [])
 	var changed_chunks: Array = changed_chunks_variant if changed_chunks_variant is Array else []
 	ok = _assert(changed_chunks.size() == 1 and String(changed_chunks[0]) == "%d:%d" % [int(floor(float(tile_x) / float(chunk_size))), int(floor(float(tile_z) / float(chunk_size)))], "No-contact runtime payload should preserve normalized changed_chunks metadata without CPU-success fallback mutation.") and ok

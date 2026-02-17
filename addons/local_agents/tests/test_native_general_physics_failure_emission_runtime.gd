@@ -33,25 +33,56 @@ func run_test(_tree: SceneTree) -> bool:
 
 	var ok := true
 	ok = _test_directional_impact_emits_cleave_with_deterministic_payload(core) and ok
-	ok = _test_low_directionality_falls_back_to_fracture(core) and ok
+	ok = _test_voxel_chunk_projectile_impact_activates_native_failure(core) and ok
+	ok = _test_low_directionality_emits_fracture(core) and ok
 	ok = _test_bridge_dispatch_syncs_projectile_contacts_each_pulse(core) and ok
 	if ok:
-		print("Native generalized physics failure emission runtime tests passed (directional cleave + fallback fracture).")
+		print("Native generalized physics failure emission runtime tests passed (directional cleave + fracture).")
+	return ok
+
+func _test_voxel_chunk_projectile_impact_activates_native_failure(core: Object) -> bool:
+	var payload := _build_base_payload()
+	payload["inputs"]["stress"] = 1.0
+	payload["inputs"]["cohesion"] = 1.0
+	var projectile_rows := _build_directional_contact_rows()
+	for index in range(projectile_rows.size()):
+		var row_variant = projectile_rows[index]
+		if row_variant is Dictionary:
+			var row := row_variant as Dictionary
+			row["projectile_kind"] = "voxel_chunk"
+			row["projectile_density_tag"] = "dense"
+			row["projectile_hardness_tag"] = "hard"
+			row["failure_emission_profile"] = "dense_hard_voxel_chunk"
+			projectile_rows[index] = row
+	var rows_for_test := projectile_rows
+	payload["physics_contacts"] = rows_for_test
+
+	var result: Dictionary = core.call("execute_environment_stage", PIPELINE_STAGE_NAME, payload.duplicate(true))
+	var plan := _extract_failure_emission(result)
+	var ok := true
+	ok = _assert(String(plan.get("status", "")) == "executed", "Voxel-chunk projectile contacts should execute a native failure-emission plan.") and ok
+	ok = _assert(int(plan.get("planned_op_count", 0)) > 0, "Voxel-chunk projectile contacts should generate at least one op_payload for terrain damage.") and ok
+	var op_payload := _extract_first_op_payload(plan)
+	ok = _assert(not op_payload.is_empty(), "Voxel-chunk projectile failure emission should include a first op payload.") and ok
+	if not op_payload.is_empty():
+		ok = _assert(
+			String(op_payload.get("operation", "")) == "fracture" or String(op_payload.get("operation", "")) == "cleave",
+			"Voxel-chunk projectile failure emission should produce a fracture or cleave op."
+		) and ok
+		ok = _assert(float(op_payload.get("impact_signal", 0.0)) > 0.0, "Voxel-chunk projectile failure emission payload should report a positive impact_signal.") and ok
+	ok = _assert_execution_mutated_wall(plan, "Voxel-chunk projectile failure plan execution") and ok
 	return ok
 
 func _test_bridge_dispatch_syncs_projectile_contacts_each_pulse(core: Object) -> bool:
 	core.call("reset")
 	var previous_native_env := OS.get_environment(NativeComputeBridge.NATIVE_SIM_CORE_ENV_KEY)
 	OS.set_environment(NativeComputeBridge.NATIVE_SIM_CORE_ENV_KEY, "1")
-	var bridge_stage_name := "voxel_transform_step"
+	var bridge_stage_name := PIPELINE_STAGE_NAME
 	var payload := _build_base_payload()
 	payload["physics_contacts"] = _build_directional_contact_rows()
 	var first_dispatch: Dictionary = NativeComputeBridge.dispatch_environment_stage(bridge_stage_name, payload.duplicate(true))
 	var ok := true
-	ok = _assert(
-		bool(first_dispatch.get("ok", false)),
-		"Bridge dispatch with projectile contacts should succeed (error=%s)." % String(first_dispatch.get("error", ""))
-	) and ok
+	ok = _assert(bool(first_dispatch.get("ok", false)), "Bridge dispatch with projectile contacts must succeed on required native/GPU path (error=%s)." % String(first_dispatch.get("error", ""))) and ok
 	var first_snapshot_variant = core.call("get_physics_contact_snapshot")
 	ok = _assert(first_snapshot_variant is Dictionary, "Core should expose physics contact snapshot after bridge dispatch.") and ok
 	if first_snapshot_variant is Dictionary:
@@ -84,9 +115,6 @@ func _test_directional_impact_emits_cleave_with_deterministic_payload(core: Obje
 
 	var first_plan := _extract_failure_emission(first_result)
 	var second_plan := _extract_failure_emission(second_result)
-	if String(first_plan.get("status", "")) != "executed" or int(first_plan.get("planned_op_count", 0)) <= 0:
-		print("Skipping low-directionality fallback fracture assertions: current runtime did not emit executable fallback fracture plan.")
-		return true
 	var ok := true
 	ok = _assert(String(first_plan.get("status", "")) == "executed", "Directional impact path should execute voxel failure emission against environment stage.") and ok
 	ok = _assert(int(first_plan.get("planned_op_count", 0)) > 0, "Directional impact path should emit at least one voxel op.") and ok
@@ -123,7 +151,7 @@ func _test_directional_impact_emits_cleave_with_deterministic_payload(core: Obje
 	ok = _assert_noise_payload_replay_stable(first_op, second_op, "Directional cleave replay") and ok
 	return ok
 
-func _test_low_directionality_falls_back_to_fracture(core: Object) -> bool:
+func _test_low_directionality_emits_fracture(core: Object) -> bool:
 	core.call("reset")
 	var payload := _build_base_payload()
 	payload["physics_contacts"] = _build_low_directionality_contact_rows()
@@ -138,15 +166,22 @@ func _test_low_directionality_falls_back_to_fracture(core: Object) -> bool:
 
 	var first_plan := _extract_failure_emission(first_result)
 	var second_plan := _extract_failure_emission(second_result)
-	var first_status := String(first_plan.get("status", ""))
 	var first_op := _extract_first_op_payload(first_plan)
-	if first_status != "executed" or int(first_plan.get("planned_op_count", 0)) <= 0 or first_op.is_empty():
-		print("Skipping low-directionality fallback fracture assertions: current runtime emitted no executable fallback fracture payload.")
-		return true
 	var second_op := _extract_first_op_payload(second_plan)
 	var ok := true
-	ok = _assert(String(first_op.get("operation", "")) == "fracture", "Low-directionality/non-impact fallback should emit fracture operation.") and ok
+	ok = _assert(String(first_plan.get("status", "")) == "executed", "Low-directionality/non-impact path should execute a native fracture plan.") and ok
+	ok = _assert(int(first_plan.get("planned_op_count", 0)) > 0, "Low-directionality/non-impact path should emit at least one native voxel op.") and ok
+	ok = _assert(not first_op.is_empty(), "Low-directionality/non-impact path should provide first op payload.") and ok
+	ok = _assert(String(second_plan.get("status", "")) == "executed", "Low-directionality/non-impact replay should execute a native fracture plan.") and ok
+	ok = _assert(int(second_plan.get("planned_op_count", 0)) > 0, "Low-directionality/non-impact replay should emit at least one native voxel op.") and ok
+	ok = _assert(not second_op.is_empty(), "Low-directionality/non-impact replay should provide first op payload.") and ok
+	ok = _assert(String(first_op.get("operation", "")) == "fracture", "Low-directionality/non-impact path should emit fracture operation.") and ok
 	ok = _assert(String(second_op.get("operation", "")) == "fracture", "Low-directionality/non-impact replay should emit fracture operation.") and ok
+	ok = _assert_environment_stage_driver(first_plan, "Low-directionality fracture plan") and ok
+	ok = _assert_environment_stage_driver(second_plan, "Low-directionality fracture replay plan") and ok
+	ok = _assert_execution_mutated_wall(first_plan, "Low-directionality fracture plan execution") and ok
+	ok = _assert_execution_mutated_wall(second_plan, "Low-directionality fracture replay execution") and ok
+	ok = _assert_execution_replay_stable(first_plan, second_plan, "Low-directionality fracture execution replay") and ok
 	return ok
 
 func _build_base_payload() -> Dictionary:

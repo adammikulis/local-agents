@@ -34,28 +34,22 @@ func run_test(tree: SceneTree) -> bool:
 	var chunk_size := 12
 	var chunk_x := int(floor(float(tile_x) / float(chunk_size)))
 	var chunk_z := int(floor(float(tile_z) / float(chunk_size)))
+	var changed_chunks = [
+		{"x": chunk_x, "z": chunk_z}
+	]
 	var payload := {
 		"native_ops": [
-			{
-				"sequence_id": 0,
-				"x": tile_x,
-				"y": start_surface,
-				"z": tile_z,
-				"operation": "fracture",
-				"value": 1.0,
-				"radius": 0.0,
-			},
-			{
-				"sequence_id": 1,
-				"x": tile_x,
-				"y": start_surface,
-				"z": tile_z,
-				"operation": "add",
-				"value": 1.0,
-				"radius": 0.0,
+		{
+			"sequence_id": 0,
+			"x": tile_x,
+			"y": start_surface,
+			"z": tile_z,
+			"operation": "fracture",
+			"value": 1.0,
+			"radius": 0.0,
 			},
 		],
-		"changed_chunks": [{"x": chunk_x, "z": chunk_z}],
+		"changed_chunks": changed_chunks,
 		"physics_contacts": [
 			{
 				"body_id": 501,
@@ -88,26 +82,27 @@ func run_test(tree: SceneTree) -> bool:
 	var end_surface := _surface_y_for_tile(controller._environment_snapshot, tile_id)
 	ok = _assert(end_surface < start_surface, "Canonical contact-derived native ops path should lower impacted tile surface for visible destruction.") and ok
 
-	var non_authoritative_payload := payload.duplicate(true)
-	non_authoritative_payload["physics_contacts"] = [
-		{
-			"body_id": 501,
-			"projectile_kind": "rigid_body",
-			"contact_point": Vector3(float(tile_x) + 0.5, float(start_surface), float(tile_z) + 0.5),
-			"contact_impulse": 32.0,
-			"relative_speed": 40.0,
-			"projectile_radius": 0.4,
-		}
-	]
-	var blocked_mutation: Dictionary = SimulationVoxelTerrainMutatorScript.apply_native_voxel_stage_delta(controller, 2, non_authoritative_payload)
-	ok = _assert(not bool(blocked_mutation.get("changed", false)), "Non-authoritative contact payloads must fail fast and never mutate through CPU fallback-success paths.") and ok
-	ok = _assert(String(blocked_mutation.get("error", "")) == "native_voxel_stage_no_mutation", "Non-authoritative contact payloads must return typed native_voxel_stage_no_mutation error.") and ok
-	ok = _assert(String(blocked_mutation.get("mutation_path", "")) == "native_voxel_stage_no_mutation", "Non-authoritative contact payloads must report native_voxel_stage_no_mutation mutation path.") and ok
-	ok = _assert(String(blocked_mutation.get("mutation_path_state", "")) == "failure", "Non-authoritative contact payloads must report mutation_path_state=failure.") and ok
-	ok = _assert(String(blocked_mutation.get("details", "")) == "native voxel stage requires projectile contact-derived native ops", "Non-authoritative contact payloads must expose deterministic fail-fast detail for native authority contract.") and ok
-	var blocked_failure_paths_variant = blocked_mutation.get("failure_paths", [])
-	var blocked_failure_paths: Array = blocked_failure_paths_variant if blocked_failure_paths_variant is Array else []
-	ok = _assert(blocked_failure_paths.size() == 1 and String(blocked_failure_paths[0]) == "native_voxel_stage_no_mutation", "Non-authoritative contact payloads must emit only native_voxel_stage_no_mutation in failure_paths metadata.") and ok
+	var missing_native_ops_mutation: Dictionary = SimulationVoxelTerrainMutatorScript.apply_native_voxel_stage_delta(controller, 2, {
+		"physics_contacts": [
+			{
+				"body_id": 501,
+				"projectile_kind": "voxel_chunk",
+				"contact_point": Vector3(float(tile_x) + 0.4, float(start_surface), float(tile_z) + 0.4),
+				"contact_impulse": 32.0,
+				"relative_speed": 40.0,
+				"projectile_radius": 0.4,
+			}
+		],
+		"changed_chunks": changed_chunks,
+	})
+	ok = _assert(not bool(missing_native_ops_mutation.get("changed", false)), "Payloads without native_ops must fail fast and never mutate via native-authoritative path.") and ok
+	ok = _assert(String(missing_native_ops_mutation.get("error", "")) == "native_voxel_op_payload_missing", "Payloads without native_ops must return typed native_voxel_op_payload_missing error.") and ok
+	ok = _assert(String(missing_native_ops_mutation.get("mutation_path", "")) == "native_ops_payload_primary", "Payloads without native_ops must report native_ops_payload_primary mutation path.") and ok
+	ok = _assert(String(missing_native_ops_mutation.get("mutation_path_state", "")) == "failure", "Payloads without native_ops must report mutation_path_state=failure.") and ok
+	ok = _assert(String(missing_native_ops_mutation.get("details", "")) == "native voxel op payload required; CPU fallback disabled", "Payloads without native_ops must expose deterministic fail-fast detail for native-authoritative contract.") and ok
+	var missing_native_ops_failure_paths_variant = missing_native_ops_mutation.get("failure_paths", [])
+	var missing_native_ops_failure_paths: Array = missing_native_ops_failure_paths_variant if missing_native_ops_failure_paths_variant is Array else []
+	ok = _assert(missing_native_ops_failure_paths.size() == 1 and String(missing_native_ops_failure_paths[0]) == "native_voxel_op_payload_missing", "Payloads without native_ops must emit only native_voxel_op_payload_missing in failure_paths metadata.") and ok
 
 	controller.queue_free()
 	if ok:

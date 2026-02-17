@@ -8,6 +8,7 @@ func run_test(tree: SceneTree) -> bool:
 	ok = _run_chunk_bounce_and_contact_queue_test(tree) and ok
 	ok = _run_rigidbody_response_test(tree) and ok
 	ok = _run_mutation_deadline_invariant_test(tree) and ok
+	ok = _run_native_tick_contract_ack_deadline_test(tree) and ok
 	if ok:
 		print("FpsLauncher voxel-chunk contact queue-until-dispatch regression test passed.")
 	return ok
@@ -178,6 +179,57 @@ func _run_mutation_deadline_invariant_test(tree: SceneTree) -> bool:
 	var consumed_expired: Array = consumed_expired_variant if consumed_expired_variant is Array else []
 	ok = _assert(consumed_expired.size() == 1, "consume_expired_voxel_dispatch_contact_rows should deterministically return stale row payloads.") and ok
 	ok = _assert(controller.sample_expired_voxel_dispatch_contact_rows().is_empty(), "Expired contact reporting queue should clear after consume call.") and ok
+
+	tree.get_root().remove_child(root)
+	root.free()
+	return ok
+
+func _run_native_tick_contract_ack_deadline_test(tree: SceneTree) -> bool:
+	var controller := FpsLauncherControllerScript.new()
+	var root := Node3D.new()
+	var camera := Camera3D.new()
+	root.add_child(camera)
+	root.add_child(controller)
+	tree.get_root().add_child(root)
+	controller.configure(camera, root, null)
+	controller.record_projectile_contact_row({
+		"body_id": 202,
+		"contact_point": Vector3(1.0, 1.0, 1.0),
+		"contact_impulse": 11.0,
+		"relative_speed": 18.0,
+		"projectile_kind": "voxel_chunk",
+	})
+
+	var ok := true
+	ok = _assert(controller.pending_voxel_dispatch_contact_count() == 1, "Native tick contract test should start with one queued contact row.") and ok
+	controller.apply_native_tick_contract({"contacts_consumed": 0})
+	ok = _assert(controller.pending_voxel_dispatch_contact_count() == 1, "contacts_consumed=0 should leave queued rows pending for deadline tracking.") and ok
+	for _i in range(FpsLauncherControllerScript.MAX_PROJECTILE_MUTATION_FRAMES + 2):
+		controller.step(0.016)
+	var expired_status_variant: Variant = controller.projectile_mutation_deadline_status()
+	var expired_status: Dictionary = expired_status_variant if expired_status_variant is Dictionary else {}
+	ok = _assert(not bool(expired_status.get("ok", true)), "Unconsumed rows should trip deadline error after native contract reports contacts_consumed=0.") and ok
+	ok = _assert(String(expired_status.get("error", "")) == "PROJECTILE_MUTATION_DEADLINE_EXCEEDED", "Deadline error taxonomy should remain PROJECTILE_MUTATION_DEADLINE_EXCEEDED after contacts_consumed=0.") and ok
+
+	var controller_cleared := FpsLauncherControllerScript.new()
+	root.add_child(controller_cleared)
+	controller_cleared.configure(camera, root, null)
+	controller_cleared.record_projectile_contact_row({
+		"body_id": 203,
+		"contact_point": Vector3(1.0, 1.0, 2.0),
+		"contact_impulse": 13.0,
+		"relative_speed": 20.0,
+		"projectile_kind": "voxel_chunk",
+	})
+	ok = _assert(controller_cleared.pending_voxel_dispatch_contact_count() == 1, "Native tick contract positive branch should start with one queued row.") and ok
+	controller_cleared.apply_native_tick_contract({"contacts_consumed": 1})
+	ok = _assert(controller_cleared.pending_voxel_dispatch_contact_count() == 0, "contacts_consumed>0 should clear queued rows through native tick contract ack path.") and ok
+	for _j in range(FpsLauncherControllerScript.MAX_PROJECTILE_MUTATION_FRAMES + 2):
+		controller_cleared.step(0.016)
+	var cleared_status_variant: Variant = controller_cleared.projectile_mutation_deadline_status()
+	var cleared_status: Dictionary = cleared_status_variant if cleared_status_variant is Dictionary else {}
+	ok = _assert(bool(cleared_status.get("ok", false)), "Consumed rows should keep deadline status healthy after native tick contract ack.") and ok
+	ok = _assert(int(cleared_status.get("expired_contacts", 0)) == 0, "Consumed rows should not generate expired contact records.") and ok
 
 	tree.get_root().remove_child(root)
 	root.free()
