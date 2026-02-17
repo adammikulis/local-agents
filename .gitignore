@@ -24,7 +24,9 @@ android/
 .releases
 addons/local_agents/gdextensions/localagents/thirdparty/
 addons/local_agents/gdextensions/localagents/build/
+addons/local_agents/gdextensions/localagents/build_native/
 addons/local_agents/gdextensions/localagents/bin/
+addons/local_agents/gdextensions/localagents/cmake_trace.txt
 addons/local_agents/models/
 addons/local_agents/voices/
 !addons/local_agents/models/
@@ -34,3 +36,4 @@ addons/local_agents/voices/
 
 # Local tooling bundles (e.g. downloaded Godot editor archives)
 tools/
+logs/validation_lane/
