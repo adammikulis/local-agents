@@ -10,11 +10,14 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 - Keep command invocation patterns canonical and copied from repo harness docs.
 - Always run SceneTree harness entrypoints with `-s`; otherwise Godot can fail with `doesn't inherit from SceneTree or MainLoop`.
 - Do not claim "works" unless required validation steps have run on the current tree.
+- Simulation-authoritative execution is native + GPU only; GDScript is orchestration/adapters only for simulation paths.
+- CPU/GDScript success fallbacks for simulation outcomes are forbidden; missing requirements must fail explicitly.
 - When a preventable error appears, add a dated entry to `Error Log / Preventative Patterns` in this file.
 
 ## Godot Design and Structure Process
 
-- Keep gameplay logic in GDScript unless native is required for performance or platform APIs.
+- Keep simulation-authoritative gameplay logic (physics/destruction/voxel mutation/state evolution) in native code with GPU execution contracts.
+- Keep GDScript focused on orchestration, scene wiring, input/UI, and typed boundary adapters.
 - Prefer explicit data flow (`signal up, call down`) over hidden singleton coupling.
 - Decompose concerns with clear ownership; avoid deep inheritance chains.
 - Use scenes/Resources/graphs before ad-hoc dictionary state.
@@ -54,6 +57,28 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 - Initialize required extensions explicitly and guard calls with singleton/method availability checks.
 - Keep fetch/build scripts idempotent and aligned with CI/local command usage.
 
+## Native/GPU-only Execution Mandate (Enforceable)
+
+- This repository is native/GPU-authoritative for simulation behavior; CPU/GDScript fallback success paths are disallowed.
+- Do not implement or preserve alternate simulation-authoritative execution in GDScript.
+- If native extension contracts or required GPU capabilities are unavailable, stop execution with explicit failure; never degrade to CPU-success simulation.
+- Required invariants:
+  - `INV-NATIVE-001`: Voxel mutation/destruction/simulation hot stages execute through native contracts only.
+  - `INV-GPU-001`: GPU capability requirement is mandatory; unavailable GPU emits hard failure (`GPU_REQUIRED` / `gpu_unavailable`).
+  - `INV-FALLBACK-001`: No reachable CPU-success or GDScript-success fallback path for simulation-authoritative outcomes.
+  - `INV-CONTRACT-001`: No silent success/no-op on contract failure; failures must be typed and explicit.
+- Concrete migration checklist (for each touched simulation path):
+  - [ ] Identify existing CPU/GDScript-success fallback branches.
+  - [ ] Replace fallback-success branches with explicit fail-fast outcomes.
+  - [ ] Route mutation/destruction authority through native interfaces only.
+  - [ ] Add/adjust tests asserting native/GPU backend usage on primary path.
+  - [ ] Add/adjust tests asserting typed failure when native/GPU requirements are unmet.
+  - [ ] Re-run mandatory validation sequence before any status claim.
+- Error policy (mandatory):
+  - Startup/runtime must hard-fail on missing GPU requirement with explicit `GPU_REQUIRED`/`gpu_unavailable` diagnostics.
+  - Missing required native extension/contract must hard-fail with explicit `NATIVE_REQUIRED`/`native_unavailable` diagnostics.
+  - Attempts to take CPU/GDScript fallback-success simulation path must emit explicit failure (`CPU_FALLBACK_FORBIDDEN`/`fallback_blocked`) and stop that execution path.
+
 ## Validation and Status Claim Gates
 
 - Maintain a fast headless-safe core suite and a higher-cost runtime suite.
@@ -74,6 +99,10 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
   - non-headless run through an actual video/display path
 - If non-headless launch is not possible in the environment, state that limitation explicitly and do not claim "works/ready".
 - If a user reports an immediate parse/runtime error after a "works" claim, treat it as process failure: stop, acknowledge failed validation, rerun full validation, and do not re-claim status until all required checks pass.
+- For native/GPU-authoritative simulation changes, validation evidence must also show:
+  - primary-path execution uses native/GPU backend metadata (no CPU-success backend on authoritative simulation path),
+  - missing native/GPU requirements fail with explicit typed reason codes,
+  - no fallback-success branch remains reachable for simulation-authoritative outcomes.
 
 ## Headless Harness Invocation (Mandatory)
 

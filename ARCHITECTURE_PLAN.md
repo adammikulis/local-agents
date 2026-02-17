@@ -92,6 +92,15 @@ This plan is organized by engineering concern so work can be split into focused 
     - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
 
 - [ ] Wave 0D (`P0`): Full native dispatch ownership (no GDScript dispatch decisioning).
+  - Native Compute lane update (2026-02-16, in progress):
+    - Added consolidated native API target on `LocalAgentsSimulationCore`: `execute_native_voxel_dispatch_tick(...)`.
+    - Consolidated native tick contract now owns queue ingest, cadence/tier/deadline dispatch decisioning, in-flight ack lifecycle, and authoritative dispatch/mutation outputs in one native call.
+    - Existing orchestration entrypoints remain compatibility wrappers while runtime integration migrates to the consolidated API surface.
+  - Tests lane update (2026-02-16, in progress):
+    - Replace source-string orchestration contract checks with behavior-level runtime/native contract assertions.
+    - Add coverage that runtime ack/deadline outcomes are driven by native tick contract outputs (no local fallback-success ack decisioning).
+    - Extend runtime-path regression coverage so projectile destruction success path remains validated alongside fail-fast no-mutation path.
+    - Preserve typed error taxonomy assertions for native-authoritative no-mutation/dependency outcomes.
   - Owner lanes:
     - Native Compute
     - Runtime Bindings
@@ -111,6 +120,7 @@ This plan is organized by engineering concern so work can be split into focused 
     - No in-scope GDScript dispatch-authoritative decision branches remain reachable in bridge/runtime/world dispatch flow.
     - Dispatch failures and native/GPU requirement failures are explicit and typed (`dispatch_failed`, `NATIVE_REQUIRED`/`native_unavailable`, `GPU_REQUIRED`/`gpu_unavailable`).
     - Tests assert native-owned dispatch authority and reject GDScript fallback-success dispatch outcomes.
+    - Tests assert native tick contract ownership of contact ack/deadline outcomes and preserve projectile destruction runtime-path behavior.
   - Mandatory validation order:
     - Non-headless launch first (real display path) to verify runtime startup and live dispatch execution path.
     - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
@@ -377,6 +387,21 @@ This plan is organized by engineering concern so work can be split into focused 
     - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
 
 ## Current Wave (execution started 2026-02-16)
+
+- [ ] P0 (Owners: Planning lane, Runtime Simulation lane, Native Compute lane, Validation/Test-Infrastructure lane, Documentation lane): Breaking migration alignment - native single-backend authority lock.
+  - P-band and lane ownership:
+    - `P0`: Planning lane owns final cutover scope and fallback-removal sequencing.
+    - `P0`: Runtime Simulation lane owns call-site migration to native single-backend contracts (no dual-path success routing).
+    - `P0`: Native Compute lane owns canonical single-backend contract surface and typed fail-fast semantics.
+    - `P0`: Validation/Test-Infrastructure lane owns contract evidence for single-backend authority and fallback-forbidden behavior.
+    - `P1`: Documentation lane owns migration notes and breaking-change wording synchronization.
+  - Acceptance criteria:
+    - Active simulation-authoritative runtime paths consume one native/GPU backend contract only.
+    - No CPU/GDScript-success fallback branch remains reachable for in-scope paths after cutover.
+    - Missing native/GPU prerequisites fail with explicit typed reasons (`NATIVE_REQUIRED`/`native_unavailable`, `GPU_REQUIRED`/`gpu_unavailable`).
+  - Breaking changes / migration intent:
+    - Treat single-backend cutover as an intentional breaking migration; remove dual-path compatibility behavior rather than preserving shims.
+    - Migrate remaining consumers to canonical native contract fields and delete legacy fallback-only payload keys once validation evidence lands.
 
 - [ ] P0 (Owners: Planning lane, Runtime Simulation lane, Native Compute lane, Validation/Test-Infrastructure lane, Documentation lane): Performance simplification wave - projectile + native voxel pipeline allocation/copy reduction.
   - Scope (simplification-first, no behavior fallback expansion):

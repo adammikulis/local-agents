@@ -67,6 +67,12 @@ Lane trigger rule: if a wave touches any domain, spawn the corresponding lane(s)
 - There are no downstream consumers to preserve in this repo right now.
 - Prioritize rapid feature improvement and stronger simulation behavior over compatibility.
 - Default to voxel-native simulation, collision, and destruction paths.
+- Zero-fallback mandate (non-negotiable): do not add, preserve, or reintroduce fallback behavior for simulation, destruction, collision, or dispatch paths.
+- If the native/GPU path cannot execute, fail fast with explicit typed errors (`GPU_REQUIRED`/`NATIVE_REQUIRED`) instead of routing to alternate logic.
+- Tests and runtime flows must assert native-path execution for rigid-body voxel damage; skip/soft-pass fallback assertions are forbidden.
+- Test integrity mandate (non-negotiable): never fabricate, synthesize, or infer execution success/results when native execution fails.
+- Test integrity mandate (non-negotiable): do not add assertions or harness logic that converts hard runtime failures into soft passes.
+- Test integrity mandate (non-negotiable): no fake tests, no mocked success for native destruction paths, and no synthetic payload/result generation to satisfy assertions.
 - GPU availability is a required runtime invariant for this program; unsupported/non-GPU environments are out of scope.
 - If required GPU capabilities are unavailable, startup must hard-exit with an explicit `GPU_REQUIRED` warning/error.
 - Do not implement or preserve degraded/non-GPU execution paths for simulation features.
