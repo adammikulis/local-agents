@@ -40,6 +40,7 @@ set(SIM_SRC
 )
 
 set(HELPER_SRC
+    src/helpers/LocalAgentsFractureDebrisEmitter.cpp
     src/helpers/StructureLifecycleNativeHelpers.cpp
     src/helpers/SimulationCoreDictionaryHelpers.cpp
     src/helpers/VoxelEditCpuExecutionHelpers.cpp
@@ -62,7 +63,9 @@ set(SRC
     src/LocalAgentsSimProfiler.cpp
     src/LocalAgentsSimulationCore.cpp
     src/LocalAgentsNativeVoxelTerrainMutator.cpp
+    src/LocalAgentsVoxelDispatchBridge.cpp
     src/LocalAgentsVoxelOrchestration.cpp
+    src/LocalAgentsWorldSimulationNativeUtils.cpp
     src/FailureEmissionDeterministicNoise.cpp
     src/SimulationFailureEmissionPlanner.cpp
     ${HELPER_SRC}

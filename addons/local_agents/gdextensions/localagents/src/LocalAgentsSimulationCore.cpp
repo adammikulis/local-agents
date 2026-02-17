@@ -33,6 +33,7 @@ constexpr double kDefaultFractureRadiusBase = 1.0;
 constexpr double kDefaultFractureRadiusGain = 0.5;
 constexpr double kDefaultFractureValueSoftness = 2.4;
 constexpr double kDefaultFractureValueCap = 0.95;
+constexpr const char *kCanonicalProjectileMutationStage = "voxel_transform_step";
 
 struct ImpactFractureProfile {
     double impact_signal_gain = kImpactSignalDefaultScale;
@@ -899,8 +900,7 @@ Dictionary LocalAgentsSimulationCore::execute_native_voxel_dispatch_tick(
     payload["physics_contacts"] = contact_snapshot;
     payload["physics_server_contacts"] = contact_snapshot.get("buffered_rows", Array());
 
-    const String stage_name = String(decision.get("stage_name", String("voxel_transform_step"))).strip_edges().to_lower();
-    const Dictionary dispatch = execute_environment_stage(StringName(stage_name), payload);
+    const Dictionary dispatch = execute_environment_stage(StringName(kCanonicalProjectileMutationStage), payload);
     Dictionary result = decision.duplicate(true);
     result["dispatch"] = dispatch.duplicate(true);
     result["dispatched"] = bool(dispatch.get("dispatched", false));

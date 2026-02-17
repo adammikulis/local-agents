@@ -7,7 +7,10 @@
 #include "AgentRuntime.hpp"
 #include "LocalAgentsSimulationCore.hpp"
 #include "LocalAgentsNativeVoxelTerrainMutator.hpp"
+#include "LocalAgentsVoxelDispatchBridge.hpp"
+#include "LocalAgentsWorldSimulationNativeUtils.hpp"
 #include "NetworkGraph.hpp"
+#include "sim/VoxelGpuResourceCache.hpp"
 
 using namespace godot;
 
@@ -25,6 +28,8 @@ void initialize_local_agents(ModuleInitializationLevel p_level) {
     ClassDB::register_class<NetworkGraph>();
     ClassDB::register_class<LocalAgentsSimulationCore>();
     ClassDB::register_class<LocalAgentsNativeVoxelTerrainMutator>();
+    ClassDB::register_class<LocalAgentsVoxelDispatchBridge>();
+    ClassDB::register_class<LocalAgentsWorldSimulationNativeUtils>();
 
     if (!g_agent_runtime_singleton) {
         g_agent_runtime_singleton = memnew(AgentRuntime);
@@ -41,6 +46,9 @@ void terminate_local_agents(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
         return;
     }
+
+    local_agents::simulation::VoxelGpuResourceCache::release_all_thread_caches();
+    local_agents::simulation::VoxelGpuResourceCache::mark_engine_terminating();
 
     if (g_agent_runtime_singleton) {
         Engine::get_singleton()->unregister_singleton(StringName("AgentRuntime"));

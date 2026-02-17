@@ -12,11 +12,18 @@
 #include <godot_cpp/variant/typed_array.hpp>
 
 #include <algorithm>
+#include <atomic>
+#include <mutex>
+#include <vector>
 
 using namespace godot;
 
 namespace local_agents::simulation {
 namespace {
+
+std::atomic<bool> g_rd_api_available = true;
+std::mutex g_cache_registry_mutex;
+std::vector<VoxelGpuResourceCache *> g_cache_registry;
 
 constexpr int64_t k_op_stride_bytes = 88;
 constexpr int64_t k_out_stride_bytes = 32;
@@ -98,10 +105,13 @@ PackedByteArray rebuild_hash_bytes(PackedByteArray &value_bytes, const uint32_t 
 }
 
 void free_if_valid(RenderingDevice *rd, RID &rid) {
-    if (rd != nullptr && rid.is_valid()) {
-        rd->free_rid(rid);
-        rid = RID();
+    if (!rid.is_valid()) {
+        return;
     }
+    if (g_rd_api_available.load(std::memory_order_acquire) && rd != nullptr) {
+        rd->free_rid(rid);
+    }
+    rid = RID();
 }
 
 void add_storage_uniform(const RID &buffer_rid, const int32_t binding, TypedArray<Ref<RDUniform>> &uniforms) {
@@ -117,7 +127,31 @@ void add_storage_uniform(const RID &buffer_rid, const int32_t binding, TypedArra
 
 VoxelGpuResourceCache &VoxelGpuResourceCache::for_current_thread() {
     thread_local VoxelGpuResourceCache cache;
+    thread_local bool registered = false;
+    if (!registered) {
+        std::lock_guard<std::mutex> lock(g_cache_registry_mutex);
+        g_cache_registry.push_back(&cache);
+        registered = true;
+    }
     return cache;
+}
+
+void VoxelGpuResourceCache::release_all_thread_caches() {
+    std::vector<VoxelGpuResourceCache *> caches;
+    {
+        std::lock_guard<std::mutex> lock(g_cache_registry_mutex);
+        caches = g_cache_registry;
+    }
+
+    for (VoxelGpuResourceCache *cache : caches) {
+        if (cache != nullptr) {
+            cache->release();
+        }
+    }
+}
+
+void VoxelGpuResourceCache::mark_engine_terminating() {
+    g_rd_api_available.store(false, std::memory_order_release);
 }
 
 VoxelGpuResourceAcquireResult VoxelGpuResourceCache::acquire(const String &shader_path, const int64_t dispatch_count) {
@@ -152,6 +186,10 @@ VoxelGpuResourceCache::~VoxelGpuResourceCache() {
 }
 
 bool VoxelGpuResourceCache::ensure_device(String &error_code) {
+    if (!g_rd_api_available.load(std::memory_order_acquire)) {
+        error_code = String("gpu_rendering_device_unavailable");
+        return false;
+    }
     if (rd_ != nullptr) {
         return true;
     }
@@ -334,6 +372,25 @@ void VoxelGpuResourceCache::free_buffer_resources() {
 
 void VoxelGpuResourceCache::release() {
     if (rd_ == nullptr) {
+        return;
+    }
+
+    if (!g_rd_api_available.load(std::memory_order_acquire)) {
+        shader_rid_ = RID();
+        pipeline_rid_ = RID();
+        ops_rid_ = RID();
+        out_rid_ = RID();
+        params_rid_ = RID();
+        value_rid_ = RID();
+        value_hash_rid_ = RID();
+        uniform_set_rid_ = RID();
+        shader_path_ = String();
+        ops_capacity_entries_ = 0;
+        out_capacity_entries_ = 0;
+        value_capacity_entries_ = 0;
+        value_hash_capacity_entries_ = 0;
+        owns_rd_ = false;
+        rd_ = nullptr;
         return;
     }
 

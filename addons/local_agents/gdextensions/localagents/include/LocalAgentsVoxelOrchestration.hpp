@@ -6,7 +6,6 @@
 #include <godot_cpp/variant/string.hpp>
 
 #include <cstdint>
-#include <deque>
 
 namespace local_agents::simulation {
 
@@ -33,40 +32,20 @@ public:
     void reset();
 
 private:
-public:
-    struct QueuedContactRow {
-        godot::Dictionary row;
-        int64_t enqueued_frame = 0;
-        int64_t source_frame = 0;
-        int64_t deadline_frame = 0;
-    };
-
-private:
     godot::Dictionary fail_result(const godot::String &error_code, const godot::String &error_detail) const;
-    int64_t read_row_deadline_frame(const godot::Dictionary &row, int64_t frame_index) const;
-    godot::Dictionary flush_deadline_exceeded_rows(int64_t frame_index);
 
     int64_t cadence_frames_ = 1;
     int64_t max_rows_per_tick_ = 256;
-    int64_t max_queue_rows_ = 2048;
-    int64_t default_deadline_frames_ = 8;
-    bool force_dispatch_on_queue_ = true;
     godot::String stage_name_ = godot::String("voxel_transform_step");
-
-    std::deque<QueuedContactRow> pending_rows_;
-    std::deque<QueuedContactRow> in_flight_rows_;
+    godot::Array immediate_contact_rows_;
 
     int64_t ticks_total_ = 0;
     int64_t ticks_dispatched_ = 0;
     int64_t ticks_skipped_cadence_ = 0;
-    int64_t ticks_forced_contact_flush_ = 0;
     int64_t queue_received_batches_ = 0;
     int64_t queue_received_rows_ = 0;
-    int64_t queue_dropped_rows_ = 0;
     int64_t queue_acknowledged_rows_ = 0;
     int64_t queue_consumed_rows_ = 0;
-    int64_t queue_requeued_rows_ = 0;
-    int64_t deadline_exceeded_rows_ = 0;
 
     int64_t last_tick_frame_index_ = -1;
     int64_t last_dispatch_frame_index_ = -1;

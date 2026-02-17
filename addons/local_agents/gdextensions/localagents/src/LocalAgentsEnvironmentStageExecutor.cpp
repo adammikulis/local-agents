@@ -9,6 +9,8 @@
 using namespace godot;
 
 namespace {
+constexpr const char *kCanonicalProjectileMutationDomain = "environment";
+constexpr const char *kCanonicalProjectileMutationStage = "physics_failure_emission";
 
 Dictionary extract_pipeline_feedback(const Dictionary &pipeline_result) {
     const Variant feedback = pipeline_result.get("physics_server_feedback", Dictionary());
@@ -74,6 +76,14 @@ Dictionary build_authoritative_mutation_status(
     authoritative_status["mutation_applied"] = mutation_applied;
     authoritative_status["error_code"] = error_code;
     authoritative_status["error"] = error_code;
+    Dictionary execution_evidence;
+    execution_evidence["ok"] = ok;
+    execution_evidence["status"] = status;
+    execution_evidence["dispatched"] = dispatched;
+    execution_evidence["mutation_applied"] = mutation_applied;
+    execution_evidence["error_code"] = error_code;
+    execution_evidence["error"] = error_code;
+    authoritative_status["execution"] = execution_evidence;
     return authoritative_status;
 }
 
@@ -169,24 +179,14 @@ Dictionary execute_environment_stage_orchestration(
             true,
             false,
             String());
-        authoritative_mutation["target_domain"] = as_status_text(
-            voxel_failure_emission.get("target_domain", String("environment")),
-            String("environment"));
-        authoritative_mutation["stage_name"] = as_status_text(
-            voxel_failure_emission.get("stage_name", String("physics_failure_emission")),
-            String("physics_failure_emission"));
+        authoritative_mutation["target_domain"] = String(kCanonicalProjectileMutationDomain);
+        authoritative_mutation["stage_name"] = String(kCanonicalProjectileMutationStage);
         authoritative_mutation["planned_op_count"] =
             static_cast<int64_t>(voxel_failure_emission.get("planned_op_count", static_cast<int64_t>(0)));
         const String failure_emission_status =
             as_status_text(voxel_failure_emission.get("status", String("disabled")), String("disabled"));
         if (failure_emission_status == String("planned")) {
             const Array op_payloads = voxel_failure_emission.get("op_payloads", Array());
-            const String plan_target_domain = as_status_text(
-                voxel_failure_emission.get("target_domain", String("environment")),
-                String("environment"));
-            const String plan_stage_name = as_status_text(
-                voxel_failure_emission.get("stage_name", String("physics_failure_emission")),
-                String("physics_failure_emission"));
             Array enqueue_results;
             bool enqueued_all = true;
             String first_enqueue_error;
@@ -197,8 +197,8 @@ Dictionary execute_environment_stage_orchestration(
                 }
                 const Dictionary op_payload = op_variant;
                 const Dictionary enqueue_result = voxel_edit_engine->enqueue_op(
-                    plan_target_domain,
-                    StringName(plan_stage_name),
+                    String(kCanonicalProjectileMutationDomain),
+                    StringName(kCanonicalProjectileMutationStage),
                     op_payload);
                 enqueue_results.append(enqueue_result);
                 const bool enqueue_ok = bool(enqueue_result.get("ok", false));
@@ -226,8 +226,8 @@ Dictionary execute_environment_stage_orchestration(
                 emission_payload["failure_source"] = failure_source;
                 emission_payload["destruction_feedback"] = destruction_feedback;
                 const Dictionary execution = voxel_edit_engine->execute_stage(
-                    plan_target_domain,
-                    StringName(plan_stage_name),
+                    String(kCanonicalProjectileMutationDomain),
+                    StringName(kCanonicalProjectileMutationStage),
                     emission_payload);
                 voxel_failure_emission["execution"] = execution;
                 result["authoritative_voxel_execution"] = execution.duplicate(true);

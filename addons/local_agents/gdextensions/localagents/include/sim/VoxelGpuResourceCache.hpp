@@ -34,6 +34,8 @@ struct VoxelGpuResourceAcquireResult {
 class VoxelGpuResourceCache final {
 public:
     static VoxelGpuResourceCache &for_current_thread();
+    static void release_all_thread_caches();
+    static void mark_engine_terminating();
 
     VoxelGpuResourceAcquireResult acquire(const godot::String &shader_path, int64_t dispatch_count);
 
