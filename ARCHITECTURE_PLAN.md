@@ -1,3 +1,16 @@
+# P0 NOTE (2026-02-17): Spawn-entries regression unblock for fracture debris continuity
+
+- Priority: `P0`
+- Owners: Native Compute, Runtime Bindings, Validation
+- Scope:
+  - Keep shader/GPU spawn-entries flow authoritative when present.
+  - Remove hard-fail behavior for required-but-empty spawn entries and retain typed warning telemetry.
+  - Default transitional contact fallback to enabled unless explicitly disabled.
+- Acceptance:
+  - No `NATIVE_REQUIRED: spawn_entries_required_missing` blocking failure on required-but-empty spawn metadata.
+  - FPS fire destroy runtime shows `debris_emitted_total > 0` on active fracture contacts.
+  - Status/telemetry preserves typed spawn-entry warning/state fields for empty required metadata.
+
 # P0 NOTE (2026-02-17): Projectile visible-break enforcement + HUD debug curation
 
 - Priority: `P0`
@@ -14,11 +27,234 @@
   - HUD tab order and auto-focus behavior match requirement.
   - FPS fire destroy harness run reports required raw evidence lines.
 
+# P0 NOTE (2026-02-17): Destruction-only test suite single-command contract
+
+- Priority: `P0`
+- Owners: Documentation lane, Validation/Test-Infrastructure lane
+- Command:
+  - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --core-tests=test_native_voxel_op_contracts.gd,test_fps_fire_contact_mutation_runtime_path.gd,test_projectile_voxel_destruction_runtime_path.gd --skip-heavy`
+- Acceptance:
+  - Command executes only destruction-path deterministic tests listed in `--core-tests`.
+  - Pass condition is process exit `0` with `All selected tests passed.` in output.
+  - Any failing test yields non-zero exit and prints failing script path(s).
+
+## Enforceable P0 Wave: WF-P0-SHADER-MAX-UNIFIED-IMPACT-PIPELINE-2026-02-17
+
+- Priority: `P0`
+- Status: `planned`
+- Owners:
+  - Shader/Rendering lane
+  - Native Compute lane
+  - Runtime Bindings lane
+  - Validation/Test-Infrastructure lane
+  - Documentation lane
+- Scope:
+  - Enforce one authoritative impact invariant for initial projectile impact, debris impact, and re-impact: single ingress schema + single native mutation path.
+  - Keep Shader-Max ownership for contact reduction, durability/chip accumulation, fracture spawn-entry generation, and re-impact preprocessing before native mutation application.
+  - Keep C++ responsibilities orchestration-only at this boundary: schema validation, typed dispatch, mutation invocation, and typed fail-fast propagation only.
+  - Keep GDS responsibilities binding-only: forwarding adapters/HUD wiring with no mutation decisioning, schema reinterpretation, or success inference.
+- Acceptance criteria:
+  - GPU contact reduction owner: Shader/Rendering lane
+    - All authoritative contact rows enter mutation dispatch through one GPU reduction contract with typed diagnostics (`input_rows`, `output_rows`, `reduction_stage`).
+  - GPU durability/chip accumulation owner: Shader/Rendering lane
+    - Durability/chip progression for primary impact, debris impact, and re-impact is generated in one GPU-owned schema and consumed unchanged by native mutation.
+  - GPU fracture spawn entry generation owner: Shader/Rendering lane
+    - Fracture spawn entries are generated from the same GPU schema used by authoritative impact ingest; no alternate spawn-entry ingest contract is reachable.
+  - GPU re-impact preprocessing via same path owner: Shader/Rendering lane
+    - Re-impact preprocessing re-enters through the same ingress schema and same mutation path as initial projectile/debris impacts (no secondary ingress/mutation branches).
+  - C++ orchestration-only responsibilities owner: Native Compute lane
+    - Native C++ only orchestrates and applies mutation from the unified schema; it does not fork a second authoritative impact serializer/mutation path.
+  - GDS binding-only responsibilities owner: Runtime Bindings lane
+    - GDS adapters remain forwarding/binding-only and cannot normalize authoritative impact payloads or interpret mutation success/failure.
+  - Unified schemas + CI contract checks owner: Runtime Bindings lane + Validation/Test-Infrastructure lane
+    - CI contract checks fail on schema drift or introduction of an additional authoritative ingress/mutation path for projectile/debris/re-impact flows.
+  - Validation gates owner: Validation/Test-Infrastructure lane
+    - Required order is enforced: non-headless evidence first, then headless suite; missing GPU/native prerequisites hard-fail with `GPU_REQUIRED`/`NATIVE_REQUIRED` and no fallback-success path.
+
+## Enforceable P0 Hard-Break Wave: WF-P0-GLOBAL-SOLID-DESTRUCTION-DURABILITY-2026-02-17
+
+- Priority: `P0`
+- Status: `in_progress` (native mutator durability + chip progression implementation underway)
+- Owners:
+  - Planning lane
+  - Native Compute lane
+  - Runtime Bindings lane
+  - Shader/Rendering lane
+  - Validation/Test-Infrastructure lane
+  - Documentation lane
+- Scope:
+  - Make all in-scope solid voxels globally destructible on authoritative impact paths (no material class remains non-destructible unless explicitly tagged non-solid).
+  - Enforce material-dependent hit durability so voxel removal threshold is driven by canonical material durability values.
+  - Require partial fracture states before full voxel removal so impacts can accumulate visible/intermediate fracture progression.
+  - Keep destruction authority direct and native-only: `impact contact -> C++ mutation -> apply result`.
+- Acceptance criteria:
+  - Global solid-voxel destructibility: any solid voxel impacted through the authoritative path can progress to removal when cumulative damage reaches the material threshold.
+  - Material durability contract: equal impact payloads produce different removal hit counts for different material durability tiers, and those tiers are emitted in runtime evidence.
+  - Partial-fracture contract: at least one non-terminal fracture state is emitted/observable before terminal removal for voxels whose durability requires multi-hit progression.
+  - No-inference mutation rule remains enforced (`mutation_applied` true only on native `changed=true`).
+- Destruction-only validation commands (required order):
+  1. Non-headless first: `./scripts/run_fps_fire_destroy.sh --timeout=120 --test_mode_minimized=true`
+  2. `scripts/run_destruction_tests.sh`
+  3. `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --core-tests=test_native_voxel_op_contracts.gd,test_fps_fire_contact_mutation_runtime_path.gd,test_projectile_voxel_destruction_runtime_path.gd --skip-heavy`
+  4. `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_projectile_voxel_destruction_runtime_path.gd --timeout=120`
+
+## Active P0 Migration Wave (2026-02-17)
+
+- [ ] Wave 0M (`P0`): Native/GPU + shader-first migration acceleration with explicit transitional shim closure.
+  - Owner lanes:
+    - Native Compute
+    - Runtime Bindings
+    - Shader/Rendering
+    - Documentation
+    - Validation
+  - Scope:
+    - Move all practical in-scope runtime behavior from GDScript-owned logic to C++ GDExtension call surfaces.
+    - Move all practical in-scope CPU-owned simulation/render work to GPU/shader execution paths.
+    - Enforce shader-first implementation for rendering/simulation transforms where shader execution is practical.
+    - Keep any remaining non-native/non-GPU path as transitional shim only with explicit retirement tracking.
+  - Transitional shim inventory (must be updated each wave):
+    - `addons/local_agents/simulation/controller/WorldSimulation.gd`: orchestration adapter shims pending native helper migration completion.
+    - `addons/local_agents/simulation/controller/WorldDispatchController.gd`: forwarding shim pending full native dispatch bridge closure.
+    - `addons/local_agents/simulation/launchers/FpsLauncherController.gd`: input/contact adapter shim pending native-facing input contract.
+    - CPU fallback/compatibility branches on simulation-authoritative paths: target state is zero reachable branches.
+- Acceptance criteria:
+    - In-scope touched runtime paths execute with native C++ authority and GPU/shader-backed execution as primary path.
+    - New behavior introduced in wave 0M does not add net new non-native/non-GPU runtime authority.
+    - Transitional shim inventory is explicitly updated with `owner`, `removal trigger`, and `target wave` for each remaining shim.
+    - Validation evidence shows no fallback-success branch on in-scope simulation-authoritative paths.
+
+## Enforceable P0 Wave: WF-P0-SHADER-VOXEL-DESTRUCTION-2026-02-17
+
+- Priority: `P0`
+- Status: `planned`
+- Owners:
+  - Planning lane: scope lock, risk log, and enforcement sync.
+  - Native Compute lane: C++ mutation authority + fail-fast result codes.
+  - Shader/Rendering lane: shader-first mutation visualization and GPU pipeline ownership.
+  - Runtime Bindings lane: forwarding-only adapter cut with no mutation outcome authority.
+  - Validation/Test-Infrastructure lane: ordered evidence collection and gate reporting.
+  - Documentation lane: plan and guard marker maintenance.
+- Scope:
+  - Make projectile voxel destruction authority shader-first plus native C++ mutation execution.
+  - Remove GDScript outcome interpretation on the projectile impact path.
+  - Preserve direct chain authority only: `impact contact -> C++ mutation -> apply result`.
+  - Keep remaining non-native/non-GPU path segments as transitional shims only.
+- Acceptance criteria:
+  - Primary projectile destruction path records native mutation evidence and shader-backed execution metadata on every successful impact.
+  - Missing GPU/native prerequisites hard-fail with typed reasons (`GPU_REQUIRED`/`gpu_unavailable`, `NATIVE_REQUIRED`/`native_unavailable`).
+  - No projectile path reports success when native mutation evidence is absent.
+  - Transitional shim inventory below is complete and includes `owner`, `removal trigger`, `target wave`, and `blocker` for each shim.
+- Verification commands (run in order):
+  1. `./scripts/run_fps_fire_destroy.sh --timeout=120 --test_mode_minimized=true`
+  2. `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+  3. `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+  4. `scripts/run_single_test.sh test_projectile_voxel_destruction_runtime_path.gd --timeout=180`
+  5. `scripts/run_single_test.sh test_native_orchestration_dispatch_runtime_contract.gd --timeout=180`
+- Wave invariants:
+  - `INV-NATIVE-001`
+  - `INV-GPU-001`
+  - `INV-FALLBACK-001`
+  - `INV-CONTRACT-001`
+  - `INV-HANDSHAKE-001`
+  - `INV-PROJECTILE-DIRECT-001`
+  - `INV-NO-GDS-MULTIHOP-001`
+- Transitional shim inventory (required fields):
+  - Shim: `addons/local_agents/simulation/controller/WorldDispatchController.gd`
+    - owner: Runtime Bindings lane
+    - removal trigger: native dispatch bridge consumes normalized contact and mutation payloads end-to-end with no GDS mutation decisions.
+    - target wave: `Wave 0F`
+    - blocker: runtime telemetry parity must remain stable for existing harness assertions.
+  - Shim: `addons/local_agents/simulation/controller/WorldSimulation.gd` projectile dispatch adapter branches
+    - owner: Runtime Simulation lane
+    - removal trigger: per-frame projectile contact sampling and handoff fully delegated to native contract payload builder.
+    - target wave: `Wave 0E`
+    - blocker: active launcher input hooks still attach through world controller glue.
+  - Shim: `addons/local_agents/simulation/launchers/FpsLauncherController.gd` contact packaging adapter
+    - owner: Runtime Simulation lane
+    - removal trigger: launcher emits typed native-ready contact payload directly without GDS repackaging.
+    - target wave: `Wave 0G`
+    - blocker: shared contact snapshot schema is not yet unified across runtime and tests.
+
+## Enforceable P0 Wave: WF-P0-CONTACT-PAYLOAD-GPU-REDUCE-2026-02-17
+
+- Priority: `P0`
+- Status: `planned`
+- Owners:
+  - Native Compute lane
+  - Shader/Rendering lane
+  - Runtime Bindings lane
+  - Validation/Test-Infrastructure lane
+  - Documentation lane
+- Scope:
+  - (1) Shader-generated fracture spawn metadata: author fracture spawn metadata in shader/GPU stage and consume it as authoritative spawn input for native debris emission.
+  - (2) Native unified contact serializer replacing GDS normalization: replace GDScript contact flatten/normalize/rewrap on projectile/general contact paths with one native serializer contract.
+  - (3) Staged GPU contact reduction hook: add a staged GPU reduction hook that compacts/filters contact rows before native dispatch ingestion.
+- Acceptance criteria:
+  - Shader metadata path emits deterministic spawn metadata (`spawn_points`, `spawn_normals`, `spawn_energy`) and native debris emitter consumes it without GDS mutation/outcome interpretation.
+  - All in-scope contact payloads used by authoritative mutation dispatch are produced by the native serializer; no GDS normalization authority remains on those paths.
+  - GPU reduction hook is active on staged path and outputs typed reduction diagnostics (`input_rows`, `output_rows`, `reduction_stage`) to runtime telemetry.
+  - No success outcome is emitted without native mutation evidence (`changed=true`); typed failures remain hard-fail for missing GPU/native requirements.
+- Required verification order:
+  1. Non-headless first: `./scripts/run_fps_fire_destroy.sh --timeout=120 --test_mode_minimized=true`
+  2. `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_fps_fire_contact_mutation_runtime_path.gd --timeout=120`
+  3. `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_projectile_voxel_destruction_runtime_path.gd --timeout=120`
+  4. `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+  5. `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+- Transitional shim inventory (required fields):
+  - Shim: `addons/local_agents/simulation/controller/WorldDispatchController.gd` GDS contact normalization adapter
+    - owner: Runtime Bindings lane
+    - removal trigger: native unified contact serializer is the sole producer for authoritative dispatch payload normalization.
+    - target wave: `Wave 0R`
+    - blocker: runtime and harness fixtures still consume legacy normalized contact dictionary fields.
+  - Shim: `addons/local_agents/simulation/controller/WorldSimulation.gd` CPU fracture spawn metadata adapter
+    - owner: Shader/Rendering lane
+    - removal trigger: shader-generated fracture spawn metadata is emitted and consumed end-to-end with no CPU metadata synthesis.
+    - target wave: `Wave 0S`
+    - blocker: fracture debris tests still assert legacy CPU-generated metadata keys.
+  - Shim: `addons/local_agents/native/LocalAgentsVoxelDispatchBridge.gd` pre-dispatch CPU contact reduction shim
+    - owner: Native Compute lane
+    - removal trigger: staged GPU contact reduction hook is enabled by default for authoritative dispatch and CPU pre-reduction path is deleted.
+    - target wave: `Wave 0T`
+    - blocker: GPU reduction diagnostics contract is not yet wired into all runtime verification harnesses.
+
 # Local Agents Architecture Plan
 
 This plan is organized by engineering concern so work can be split into focused sub-agents.
 
 ## Active P0 Bugfixes (2026-02-17, urgent)
+
+- [ ] Wave 0N (`P0`): Native general voxel-on-voxel damage authority (primary + secondary).
+  - Owner lanes:
+    - Runtime Bindings
+    - Native Compute
+    - Validation/Test-Infrastructure
+    - Documentation
+  - Scope:
+    - Route general voxel-on-voxel impact contacts into native mutation dispatch for both primary projectile contact and secondary debris contact paths.
+    - Keep authority chain direct and native-only for both paths: `impact contact -> C++ mutation -> apply result`.
+    - Emit explicit runtime evidence lines for both paths: `PRIMARY_VOXEL_MUTATION count=<n>` and `SECONDARY_DEBRIS_MUTATION count=<n>`.
+  - Acceptance criteria:
+    - Primary and secondary voxel-on-voxel contacts both trigger authoritative native mutation dispatch with no GDScript mutation decisioning.
+    - Mutation success for both paths obeys no-inference rule (`mutation_applied` true only on native `changed=true`).
+    - Runtime output includes `PRIMARY_VOXEL_MUTATION count=<n>` and `SECONDARY_DEBRIS_MUTATION count=<n>` when corresponding mutation executes.
+  - Required verification order:
+    - Non-headless launch first: `./scripts/run_fps_fire_destroy.sh --timeout=120 --test_mode_minimized=true`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_fps_fire_contact_mutation_runtime_path.gd --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_projectile_voxel_destruction_runtime_path.gd --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_op_contracts.gd --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+  - Transitional shim inventory (required fields):
+    - Shim: `addons/local_agents/scenes/simulation/controllers/world/WorldDispatchController.gd` debris-contact relay adapter
+      - owner: Runtime Bindings lane
+      - removal trigger: debris contact rows are produced/consumed through native bridge contracts end-to-end with no GDS relay normalization.
+      - target wave: `Wave 0P`
+      - blocker: debris contact payload schema is not yet unified between runtime capture and native bridge ingest.
+    - Shim: `addons/local_agents/scenes/simulation/controllers/world/WorldSimulation.gd` debris mutation telemetry adapter
+      - owner: Runtime Bindings lane
+      - removal trigger: native bridge emits final secondary-damage evidence payload directly to HUD/runtime logging consumers.
+      - target wave: `Wave 0Q`
+      - blocker: HUD/runtime debug panel still reads mixed legacy telemetry fields for debris mutation lines.
 
 - [ ] Wave 0L (`P0`): Delta rebuild chunk-key authority fix for voxel mutation visibility.
   - Owner lanes:

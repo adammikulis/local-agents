@@ -15,16 +15,22 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 - Always run SceneTree harness entrypoints with `-s`; otherwise Godot can fail with `doesn't inherit from SceneTree or MainLoop`.
 - Do not claim "works" unless required validation steps have run on the current tree.
 - Simulation-authoritative execution is native + GPU only; GDScript is orchestration/adapters only for simulation paths.
+- Shader-first execution mandate (non-negotiable): simulation/render authority defaults to shader/native GPU stages when practical.
+- Reduced cross-boundary interactions mandate (non-negotiable): minimize C++<->GDS and CPU<->GPU boundary hops; keep interaction paths single-hop unless an engine boundary is required.
+- GPU-native handshake requirement (non-negotiable): startup must complete native-extension + GPU-capability + shader-pipeline handshake before enabling gameplay mutation/destruction paths.
 - CPU/GDScript success fallbacks for simulation outcomes are forbidden; missing requirements must fail explicitly.
 - GDS adapter authority rule: gameplay-runtime GDS layers are adapter-only and must not own mutation outcome logic or decide mutation success/failure.
 - Projectile impact destruction rule: enforce a direct authoritative flow only as `impact contact -> C++ mutation -> apply result`.
 - Ban multi-hop GDS contract layers on projectile destruction paths: no flatten/interpret/rewrap chains in GDS for mutation authority.
+- Strict transitional tracking for remaining CPU/GDS pieces (non-negotiable): each remaining CPU/GDS transitional segment must be listed in `ARCHITECTURE_PLAN.md` with `owner`, `removal trigger`, `target wave`, and explicit blocker.
 - When a preventable error appears, add a dated entry to `Error Log / Preventative Patterns` in this file.
 
 ## Godot Design and Structure Process
 
 - Keep simulation-authoritative gameplay logic (physics/destruction/voxel mutation/state evolution) in native code with GPU execution contracts.
+- Prefer shader/native execution stages over CPU orchestration for simulation/render hot paths.
 - Keep runtime execution paths short and direct; avoid multi-hop controller/stage chains unless required by a concrete engine or contract boundary.
+- Reduce cross-boundary handoffs between runtime layers; avoid repeated GDS/native or CPU/GPU ping-pong in authoritative paths.
 - Keep GDScript focused on orchestration, scene wiring, input/UI, and typed boundary adapters.
 - Prefer explicit data flow (`signal up, call down`) over hidden singleton coupling.
 - Decompose concerns with clear ownership; avoid deep inheritance chains.
@@ -75,6 +81,8 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
   - `INV-GPU-001`: GPU capability requirement is mandatory; unavailable GPU emits hard failure (`GPU_REQUIRED` / `gpu_unavailable`).
   - `INV-FALLBACK-001`: No reachable CPU-success or GDScript-success fallback path for simulation-authoritative outcomes.
   - `INV-CONTRACT-001`: No silent success/no-op on contract failure; failures must be typed and explicit.
+  - `INV-HANDSHAKE-001`: Required GPU-native handshake must complete before simulation-authoritative gameplay is enabled.
+  - `INV-BOUNDARY-001`: Authoritative simulation/destruction paths must not include avoidable multi-hop cross-boundary interactions.
   - `INV-PROJECTILE-CPP-001`: Projectile impact -> voxel mutation authority is C++ native stage owned end-to-end; GDScript must not own queue/deadline mutation decisions for this path.
   - `INV-STAGE-SHIM-001`: Stage-shim/controller layers are adapter-only and cannot author/override projectile mutation success, deadline pass/fail, or mutation-applied outcomes.
   - `INV-GDS-ADAPTER-ONLY-001`: Gameplay-runtime GDS adapters are forwarding-only for mutation paths and cannot own or interpret mutation outcome authority.
@@ -87,6 +95,8 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
   - [ ] For projectile impacts, keep queue/deadline lifecycle and mutation pass/fail authority in C++ native stage contracts only (no GDScript queue ownership).
   - [ ] Remove or block stage-shim authority for projectile mutation outcomes; shims may only forward payloads and consume typed native outputs.
   - [ ] Add/adjust tests asserting native/GPU backend usage on primary path.
+  - [ ] Verify GPU-native handshake evidence is emitted before enabling authoritative simulation paths.
+  - [ ] Remove avoidable cross-boundary interaction hops from touched authoritative paths.
   - [ ] Add/adjust tests asserting typed failure when native/GPU requirements are unmet.
   - [ ] Re-run mandatory validation sequence before any status claim.
 - Error policy (mandatory):
@@ -129,6 +139,7 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
   - `addons/local_agents/tests/benchmark_voxel_pipeline.gd`
 - `addons/local_agents/tests/test_*.gd` modules are usually `RefCounted` test definitions, not SceneTree entrypoints; never launch directly with `godot -s test_x.gd`.
 - Canonical helper for single-test execution: `scripts/run_single_test.sh test_native_voxel_op_contracts.gd` (defaults to `--timeout=120`).
+- Canonical helper for destruction-path validation sequence: `scripts/run_destruction_tests.sh` (runs non-headless FPS fire harness first, then `--suite=destruction` headless suite).
 - Execute `test_*.gd` modules through `addons/local_agents/tests/run_single_test.gd` and pass the test path with `-- --test=res://...` and explicit timeout.
 - Correct example: `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
 - Broken example: `godot --headless --no-window addons/local_agents/tests/run_all_tests.gd` (`doesn't inherit from SceneTree or MainLoop`)

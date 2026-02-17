@@ -185,6 +185,12 @@ Bounded runtime-heavy harness (each heavy test runs in its own process with per-
 godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd
 ```
 
+Canonical destruction-only sequence (non-headless FPS fire verification first, then headless suite):
+
+```bash
+scripts/run_destruction_tests.sh
+```
+
 Run one `test_*.gd` module via the canonical helper (default timeout is `120` seconds):
 
 ```bash
@@ -220,6 +226,12 @@ Run a subset with `--tests` (comma-separated, full path or filename):
 
 ```bash
 godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout-sec=120 --tests=test_simulation_villager_cognition.gd,test_agent_runtime_heavy.gd
+```
+
+Run the destruction-only bounded suite directly:
+
+```bash
+godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --suite=destruction --timeout-sec=120
 ```
 
 Useful runtime test flags:

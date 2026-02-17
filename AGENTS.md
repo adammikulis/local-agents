@@ -72,7 +72,12 @@ Lane trigger rule: if a wave touches any domain, spawn the corresponding lane(s)
 - Simplicity mandate (non-negotiable): implement the simplest behavior that works correctly for the target path.
 - Anti-overengineering mandate (non-negotiable): do not introduce long, multi-stage, or speculative pipelines when a shorter direct path can satisfy the requirement.
 - C++-first runtime mandate (non-negotiable): runtime gameplay/simulation/destruction behavior must be implemented in C++ by default.
+- GPU-first simulation/render mandate (non-negotiable): move practical runtime compute/render work from CPU paths to GPU-backed execution.
+- Shader-first execution mandate (non-negotiable): when behavior can be implemented in shader stages (`.gdshader`/native shader pipelines), shader paths are the default authority.
+- Reduced cross-boundary interactions mandate (non-negotiable): minimize C++<->GDS and CPU<->GPU interaction hops on authoritative runtime paths.
+- GPU-native handshake requirement (non-negotiable): startup/runtime must complete native-extension + GPU-capability + shader-pipeline handshake before enabling authoritative simulation/destruction flow.
 - GDScript exception rule (non-negotiable): use GDScript for runtime behavior only when C++ is not practical for that specific boundary, and keep that GDScript limited to thin orchestration/adapters.
+- Transitional-only exception mandate (non-negotiable): any remaining non-native or non-GPU runtime path is temporary shim surface only, never target architecture.
 - GDS orchestration boundary (non-negotiable): gameplay-runtime GDS adapters are forwarding-only and must not own mutation outcome logic, mutation success/failure decisions, or mutation result interpretation.
 - Projectile impact path mandate (non-negotiable): destruction flow is direct and authoritative only as `impact contact -> C++ mutation -> apply result`.
 - Multi-hop GDS contract ban (non-negotiable): do not add or preserve multi-hop GDS flatten/interpret/rewrap layers on the projectile impact destruction path.
@@ -87,9 +92,12 @@ Lane trigger rule: if a wave touches any domain, spawn the corresponding lane(s)
 - GPU availability is a required runtime invariant for this program; unsupported/non-GPU environments are out of scope.
 - If required GPU capabilities are unavailable, startup must hard-exit with an explicit `GPU_REQUIRED` warning/error.
 - Do not implement or preserve degraded/non-GPU execution paths for simulation features.
+- Transitional shim tracking mandate (non-negotiable): every remaining non-native/non-GPU shim must be listed in `ARCHITECTURE_PLAN.md` with `owner`, `removal trigger`, and `target wave`, and the inventory must be updated each migration wave.
+- Strict transitional tracking for remaining CPU/GDS pieces (non-negotiable): every remaining CPU/GDS runtime transitional piece must be listed in `ARCHITECTURE_PLAN.md` with `owner`, `removal trigger`, `target wave`, and explicit blocker.
+- Transitional shim growth ban (non-negotiable): do not introduce net new transitional shims unless required to unblock a higher-priority native/GPU migration cut, and record explicit retirement criteria in the same wave.
 - Keep `RigidBody3D` usage minimal and exception-based with explicit justification.
 - Break APIs freely when it improves architecture or enables required capabilities.
-- Remove old abstractions when replacing systems; avoid compatibility shims and legacy paths.
+- Remove old abstractions when replacing systems; convert compatibility/legacy paths to tracked transitional shims and delete them on the scheduled wave.
 
 ## File Size and Refactor Discipline
 
