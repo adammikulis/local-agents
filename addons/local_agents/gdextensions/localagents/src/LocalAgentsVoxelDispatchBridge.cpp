@@ -842,11 +842,11 @@ Dictionary LocalAgentsVoxelDispatchBridge::process_native_voxel_rate(double delt
         const String missing_error = "spawn_entries_required_missing";
         runtime["last_error"] = missing_error;
         runtime["last_error_tick"] = tick;
-        status["dispatched"] = true;
-        status["error"] = missing_error;
-        status["mutation_error"] = missing_error;
+        status["spawn_entries_warning"] = missing_error;
+        if (!status.has("mutation_error") || as_string(status.get("mutation_error", String()), String()).strip_edges().is_empty()) {
+            status["mutation_error"] = missing_error;
+        }
         UtilityFunctions::push_error(String("NATIVE_REQUIRED: ") + missing_error);
-        return status;
     }
     const Dictionary mutation_authoritative = build_native_authoritative_mutation(dispatch, stage_payload);
     const bool has_stage_mutation_signal = has_native_mutation_signal(dispatch, stage_payload);
