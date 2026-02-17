@@ -162,9 +162,10 @@ func apply_generation_delta(
 	_update_surface_state_texture(_transform_stage_a_state)
 	_update_transform_stage_d_field_texture(_transform_stage_d_state)
 	_update_ocean_surface_geometry()
-	var chunk_keys = _normalize_chunk_keys(changed_chunk_keys)
-	if chunk_keys.is_empty():
-		chunk_keys = _chunk_keys_for_changed_tiles(changed_tiles)
+	var chunk_keys = _chunk_keys_for_changed_tiles(changed_tiles)
+	if changed_tiles.is_empty() and chunk_keys.is_empty():
+		chunk_keys = _normalize_chunk_keys(changed_chunk_keys)
+	print("DELTA_REBUILD_CHUNKS count=%d" % chunk_keys.size())
 	if chunk_keys.is_empty():
 		_request_chunk_rebuild([])
 		_rebuild_water_sources()

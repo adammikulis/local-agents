@@ -14,7 +14,10 @@ const WorldGraphicsTargetWallControllerScript = preload("res://addons/local_agen
 const WorldInputControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldInputController.gd")
 const FpsLauncherControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd")
 const WorldNativeVoxelDispatchRuntimeScript = preload("res://addons/local_agents/scenes/simulation/controllers/world/WorldNativeVoxelDispatchRuntime.gd")
+const FpsFireDestroyHarnessScript = preload("res://addons/local_agents/tests/FpsFireDestroyHarness.gd")
 const _VOXEL_NATIVE_STAGE_NAME := &"voxel_transform_step"
+const _TEST_MODE_FPS_FIRE_DESTROY := "fps_fire_destroy"
+const _WORLD_SIM_NATIVE_UTILS_CLASS := "LocalAgentsWorldSimulationNativeUtils"
 
 @onready var simulation_controller: Node = $SimulationController
 @onready var environment_controller: Node3D = $EnvironmentController
@@ -28,6 +31,7 @@ const _VOXEL_NATIVE_STAGE_NAME := &"voxel_transform_step"
 @onready var world_environment: WorldEnvironment = $WorldEnvironment
 @onready var world_camera: Camera3D = $Camera3D
 @onready var fps_launcher_controller: Node = get_node_or_null("FpsLauncherController")
+@onready var mutation_glow_controller: Node3D = $MutationGlowRoot
 
 @export var world_seed_text: String = "world_progression_main"
 @export var auto_generate_on_ready: bool = true
@@ -91,8 +95,24 @@ var _environment_sync_controller = WorldEnvironmentSyncControllerScript.new()
 var _graphics_target_wall_controller = WorldGraphicsTargetWallControllerScript.new()
 var _input_controller = WorldInputControllerScript.new()
 var _ecology_controller: Node = null
+var _requested_test_mode: String = ""
+var _active_test_harness: Node = null
+var _native_voxel_dispatch_enabled_for_testing: bool = true
+var _requested_test_mode_minimized: bool = false
+var _requested_test_mode_disable_input: bool = false
+var _environment_chunk_size: int = 12
+var _world_sim_native_utils: Object = null
+
+func _instantiate_world_sim_native_utils() -> Object:
+	if not ClassDB.class_exists(_WORLD_SIM_NATIVE_UTILS_CLASS):
+		return null
+	return ClassDB.instantiate(_WORLD_SIM_NATIVE_UTILS_CLASS)
 
 func _ready() -> void:
+	_world_sim_native_utils = _instantiate_world_sim_native_utils()
+	_requested_test_mode = _resolve_test_mode_from_user_args()
+	_requested_test_mode_minimized = _resolve_bool_flag_from_user_args("test_mode_minimized", false)
+	_requested_test_mode_disable_input = _resolve_bool_flag_from_user_args("test_mode_disable_input", false)
 	_graphics_state = SimulationGraphicsSettingsScript.merge_with_defaults(_graphics_state)
 	_time_of_day = clampf(start_time_of_day, 0.0, 1.0)
 	_loop_controller.configure(simulation_controller, start_year, years_per_tick, start_simulated_seconds, simulated_seconds_per_tick)
@@ -112,6 +132,10 @@ func _ready() -> void:
 
 	_camera_controller.configure(world_camera, orbit_sensitivity, pan_sensitivity, zoom_step_ratio, min_zoom_distance, max_zoom_distance, min_pitch_degrees, max_pitch_degrees)
 	_dispatch_controller.configure(_VOXEL_NATIVE_STAGE_NAME)
+	_dispatch_controller.set_mutation_glow_handler(Callable(self, "_handle_mutation_glow"))
+	_environment_chunk_size = _resolve_environment_chunk_size()
+	if mutation_glow_controller != null and mutation_glow_controller.has_method("set_chunk_size"):
+		mutation_glow_controller.call("set_chunk_size", _environment_chunk_size)
 	_environment_sync_controller.configure(environment_controller, world_environment, sun_light, simulation_controller, _ecology_controller, _loop_controller, _atmosphere_cycle)
 	_environment_sync_controller.cache_environment_supported_flags()
 	if fps_launcher_controller == null:
@@ -152,19 +176,23 @@ func _ready() -> void:
 	_camera_controller.initialize_orbit()
 	_on_hud_overlays_changed(false, false, false, false, false, false)
 	_apply_runtime_demo_profile(runtime_demo_profile)
+	_apply_test_mode_window_state_if_requested()
 	if _ecology_controller != null and _ecology_controller.has_method("set_debug_overlay"):
 		_ecology_controller.call("set_debug_overlay", debug_overlay_root)
 	if not auto_generate_on_ready:
+		_activate_test_mode_if_requested()
 		return
 	if simulation_controller.has_method("configure"):
 		simulation_controller.configure(world_seed_text, false, false)
 	if simulation_controller.has_method("set_cognition_features"):
 		simulation_controller.set_cognition_features(enable_cognition_runtime, enable_cognition_runtime, enable_cognition_runtime)
 	if not simulation_controller.has_method("configure_environment"):
+		_activate_test_mode_if_requested()
 		return
 	_apply_year_progression(worldgen_config_override, _year_at_tick(0))
 	var setup: Dictionary = simulation_controller.configure_environment(worldgen_config_override)
 	if not bool(setup.get("ok", false)):
+		_activate_test_mode_if_requested()
 		return
 	var wall_result := _graphics_target_wall_controller.stamp_target_wall(simulation_controller, world_camera, 0, false)
 	if bool(wall_result.get("changed", false)):
@@ -189,17 +217,16 @@ func _ready() -> void:
 	if not _last_state.is_empty():
 		_sync_environment_from_state(_last_state, false)
 	_refresh_hud()
+	_activate_test_mode_if_requested()
 func _process(delta: float) -> void:
 	_update_day_night(delta)
 	WorldNativeVoxelDispatchRuntimeScript.set_fps_mode_active(_native_voxel_dispatch_runtime, _input_controller != null and _input_controller.is_fps_mode())
 	if fps_launcher_controller != null and fps_launcher_controller.has_method("step"):
 		fps_launcher_controller.call("step", delta)
-	var projectile_contact_rows: Array = []
-	if fps_launcher_controller != null and fps_launcher_controller.has_method("sample_active_projectile_contact_rows"):
-		var rows_variant = fps_launcher_controller.call("sample_active_projectile_contact_rows"); if rows_variant is Array: projectile_contact_rows = rows_variant as Array
 	_push_native_view_metrics()
-	_process_native_voxel_rate(delta, projectile_contact_rows)
-	_apply_loop_result(_loop_controller.process_frame(delta, Callable(self, "_collect_living_entity_profiles"), projectile_contact_rows))
+	if _native_voxel_dispatch_enabled_for_testing:
+		_process_native_voxel_rate(delta)
+	_apply_loop_result(_loop_controller.process_frame(delta, Callable(self, "_collect_living_entity_profiles"), []))
 func _unhandled_input(event: InputEvent) -> void:
 	if _input_controller != null:
 		_input_controller.handle_unhandled_input(event)
@@ -211,6 +238,33 @@ func _try_fire_from_screen_center() -> void:
 	if fps_launcher_controller != null and fps_launcher_controller.has_method("try_fire_from_screen_center"):
 		fired = bool(fps_launcher_controller.call("try_fire_from_screen_center"))
 	WorldNativeVoxelDispatchRuntimeScript.record_fire_result(_native_voxel_dispatch_runtime, fired, Engine.get_process_frames())
+
+func fire_from_screen_center_for_testing() -> bool:
+	var fire_success_before := int(_native_voxel_dispatch_runtime.get("fire_successes", 0))
+	_try_fire_from_screen_center()
+	var fire_success_after := int(_native_voxel_dispatch_runtime.get("fire_successes", 0))
+	return fire_success_after > fire_success_before
+
+func set_fps_mode_for_testing(enabled: bool) -> bool:
+	if _input_controller == null:
+		return false
+	var currently_enabled := _input_controller.is_fps_mode()
+	if currently_enabled != enabled:
+		_input_controller.toggle_fps_mode()
+	return _input_controller.is_fps_mode() == enabled
+
+func set_native_voxel_dispatch_enabled_for_testing(enabled: bool) -> bool:
+	_native_voxel_dispatch_enabled_for_testing = enabled
+	return _native_voxel_dispatch_enabled_for_testing == enabled
+
+func active_fps_projectile_count_for_testing() -> int:
+	if fps_launcher_controller != null and fps_launcher_controller.has_method("active_projectile_count"):
+		return maxi(0, int(fps_launcher_controller.call("active_projectile_count")))
+	return 0
+
+func simulation_controller_for_testing():
+	return simulation_controller
+
 func _on_field_spawn_random_requested(plants: int, rabbits: int) -> void:
 	if _ecology_controller != null and _ecology_controller.has_method("spawn_random"): _ecology_controller.call("spawn_random", plants, rabbits); _hud_binding_controller.set_field_random_spawn_status(field_hud, plants, rabbits)
 func _on_field_debug_settings_changed(settings: Dictionary) -> void:
@@ -540,20 +594,101 @@ func _set_node_property_if_exists(node: Object, property_name: String, value) ->
 	if has_property:
 		node.set(property_name, value)
 
-func _process_native_voxel_rate(delta: float, projectile_contact_rows: Array = []) -> void:
-	_dispatch_controller.process_native_voxel_rate(delta, projectile_contact_rows, {
+func _process_native_voxel_rate(delta: float) -> void:
+	var projectile_contact_rows: Array = []
+	if fps_launcher_controller != null and fps_launcher_controller.has_method("sample_active_projectile_contact_rows"):
+		var sampled_rows_variant = fps_launcher_controller.call("sample_active_projectile_contact_rows")
+		if sampled_rows_variant is Array:
+			projectile_contact_rows = (sampled_rows_variant as Array).duplicate(true)
+	_dispatch_controller.process_native_voxel_rate(delta, {
 		"tick": _loop_controller.current_tick(),
 		"frame_index": Engine.get_process_frames(),
 		"simulation_controller": simulation_controller,
 		"fps_launcher_controller": fps_launcher_controller,
+		"projectile_contact_rows": projectile_contact_rows,
 		"camera_controller": _camera_controller,
 		"graphics_target_wall_controller": _graphics_target_wall_controller,
 		"native_voxel_dispatch_runtime": _native_voxel_dispatch_runtime,
 		"sync_environment_from_state": Callable(self, "_sync_environment_from_state").bind(false),
 	})
 
+func _handle_mutation_glow(payload: Dictionary) -> void:
+	if mutation_glow_controller == null or not mutation_glow_controller.has_method("spawn_markers"):
+		return
+	var positions := _build_mutation_glow_positions(payload, float(max(1, _environment_chunk_size)))
+	if positions.is_empty():
+		return
+	mutation_glow_controller.call("spawn_markers", positions)
+
+func _build_mutation_glow_positions(payload: Dictionary, chunk_center_size: float) -> Array:
+	if _world_sim_native_utils != null and _world_sim_native_utils.has_method("build_mutation_glow_positions"):
+		var positions_variant = _world_sim_native_utils.call("build_mutation_glow_positions", payload, chunk_center_size)
+		if positions_variant is Array:
+			return positions_variant
+	return []
+
+func _resolve_environment_chunk_size() -> int:
+	if environment_controller == null:
+		return 12
+	if environment_controller.has_method("get_terrain_chunk_size"):
+		return max(1, int(environment_controller.call("get_terrain_chunk_size")))
+	for property in environment_controller.get_property_list():
+		if String(property.get("name", "")) == "terrain_chunk_size":
+			return max(1, int(environment_controller.get("terrain_chunk_size")))
+	return 12
 func native_voxel_dispatch_runtime() -> Dictionary:
 	return _native_voxel_dispatch_runtime.duplicate(true)
+
+func _activate_test_mode_if_requested() -> void:
+	if _requested_test_mode != _TEST_MODE_FPS_FIRE_DESTROY:
+		return
+	if _active_test_harness != null:
+		return
+	if _requested_test_mode_disable_input and _input_controller != null and _input_controller.has_method("set_input_enabled"):
+		_input_controller.call("set_input_enabled", false)
+	_active_test_harness = FpsFireDestroyHarnessScript.new()
+	add_child(_active_test_harness)
+	if _active_test_harness.has_method("start"):
+		_active_test_harness.call_deferred("start", self)
+
+func _resolve_test_mode_from_user_args() -> String:
+	if _world_sim_native_utils != null and _world_sim_native_utils.has_method("resolve_test_mode_from_user_args"):
+		var resolved_variant = _world_sim_native_utils.call("resolve_test_mode_from_user_args", "")
+		if resolved_variant is String:
+			return resolved_variant
+	return ""
+
+func _resolve_bool_flag_from_user_args(flag_name: String, default_value: bool) -> bool:
+	if _world_sim_native_utils != null and _world_sim_native_utils.has_method("resolve_bool_flag_from_user_args"):
+		var resolved_variant = _world_sim_native_utils.call("resolve_bool_flag_from_user_args", flag_name, default_value)
+		if resolved_variant is bool:
+			return resolved_variant
+	return default_value
+
+func _apply_test_mode_window_state_if_requested() -> void:
+	if _requested_test_mode != _TEST_MODE_FPS_FIRE_DESTROY:
+		return
+	if not _requested_test_mode_minimized:
+		return
+	_apply_test_mode_minimized_window_mode()
+	call_deferred("_apply_test_mode_window_state_on_next_frame")
+
+func _apply_test_mode_window_state_on_next_frame() -> void:
+	await get_tree().process_frame
+	_apply_test_mode_minimized_window_mode()
+
+func _apply_test_mode_minimized_window_mode() -> void:
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MINIMIZED)
+	var window := get_window()
+	if window != null:
+		window.mode = Window.MODE_MINIMIZED
+
+func _sanitize_test_mode_id(mode_id: String) -> String:
+	if _world_sim_native_utils != null and _world_sim_native_utils.has_method("sanitize_test_mode_id"):
+		var sanitized_variant = _world_sim_native_utils.call("sanitize_test_mode_id", mode_id)
+		if sanitized_variant is String:
+			return sanitized_variant
+	return ""
 
 func _apply_runtime_demo_profile(profile_id: String) -> void:
 	_capture_runtime_profile_baseline_if_needed()
@@ -614,149 +749,18 @@ func _apply_runtime_graphics_settings(settings: Dictionary) -> void:
 		_graphics_state[key] = _environment_sync_controller.sanitize_graphics_value(key, settings.get(key_variant))
 
 func _sanitize_runtime_demo_profile(profile_id: String) -> String:
-	var normalized := String(profile_id).strip_edges().to_lower()
-	if normalized in ["full_sim", "voxel_destruction_only", "lightweight_demo"]:
-		return normalized
+	if _world_sim_native_utils != null and _world_sim_native_utils.has_method("sanitize_runtime_demo_profile"):
+		var sanitized_variant = _world_sim_native_utils.call("sanitize_runtime_demo_profile", profile_id)
+		if sanitized_variant is String:
+			return sanitized_variant
 	return "voxel_destruction_only"
 
 func _runtime_profile_settings(profile_id: String) -> Dictionary:
-	match profile_id:
-		"voxel_destruction_only":
-			return {
-				"controller": {
-					"simulation_ticks_per_second": 4.0,
-					"living_profile_push_interval_ticks": 4,
-					"visual_environment_update_interval_ticks": 2,
-					"hud_refresh_interval_ticks": 1,
-					"day_night_cycle_enabled": false,
-				},
-				"graphics": {
-					"transform_stage_a_system_enabled": false,
-					"transform_stage_b_system_enabled": false,
-					"transform_stage_c_system_enabled": true,
-					"transform_stage_d_system_enabled": false,
-					"resource_pipeline_enabled": false,
-					"structure_lifecycle_enabled": false,
-					"culture_cycle_enabled": false,
-					"ecology_system_enabled": false,
-					"settlement_system_enabled": false,
-					"villager_system_enabled": false,
-					"cognition_system_enabled": false,
-					"smell_gpu_compute_enabled": false,
-					"wind_gpu_compute_enabled": false,
-					"voxel_gate_smell_enabled": false,
-					"voxel_gate_plants_enabled": false,
-					"voxel_gate_mammals_enabled": false,
-					"voxel_gate_shelter_enabled": false,
-					"voxel_gate_profile_refresh_enabled": false,
-					"voxel_gate_edible_index_enabled": false,
-					"voxel_process_gating_enabled": true,
-					"voxel_dynamic_tick_rate_enabled": true,
-					"voxel_tick_min_interval_seconds": 0.12,
-					"voxel_tick_max_interval_seconds": 0.9,
-				},
-			}
-		"full_sim":
-			return {
-				"controller": {
-					"simulation_ticks_per_second": 4.0,
-					"living_profile_push_interval_ticks": 4,
-					"visual_environment_update_interval_ticks": 2,
-					"hud_refresh_interval_ticks": 1,
-					"day_night_cycle_enabled": true,
-				},
-				"graphics": {
-					"water_shader_enabled": true,
-					"ocean_surface_enabled": true,
-					"river_overlays_enabled": true,
-					"rain_post_fx_enabled": true,
-					"clouds_enabled": true,
-					"cloud_quality": "medium",
-					"cloud_density_scale": 0.6,
-					"rain_visual_intensity_scale": 0.65,
-					"shadows_enabled": true,
-					"ssao_enabled": true,
-					"glow_enabled": true,
-					"simulation_rate_override_enabled": false,
-					"simulation_locality_enabled": false,
-					"transform_stage_a_solver_decimation_enabled": false,
-					"transform_stage_b_solver_decimation_enabled": false,
-					"transform_stage_c_solver_decimation_enabled": false,
-					"transform_stage_d_solver_decimation_enabled": false,
-					"resource_pipeline_decimation_enabled": false,
-					"structure_lifecycle_decimation_enabled": false,
-					"culture_cycle_decimation_enabled": false,
-					"ecology_step_decimation_enabled": false,
-				},
-			}
-		"lightweight_demo":
-			return {
-				"controller": {
-					"simulation_ticks_per_second": 4.0,
-					"living_profile_push_interval_ticks": 8,
-					"visual_environment_update_interval_ticks": 8,
-					"hud_refresh_interval_ticks": 4,
-					"day_night_cycle_enabled": false,
-				},
-				"graphics": {
-					"water_shader_enabled": false,
-					"ocean_surface_enabled": false,
-					"river_overlays_enabled": false,
-					"rain_post_fx_enabled": false,
-					"clouds_enabled": false,
-					"shadows_enabled": false,
-					"ssr_enabled": false,
-					"ssao_enabled": false,
-					"ssil_enabled": false,
-					"sdfgi_enabled": false,
-					"glow_enabled": false,
-					"fog_enabled": false,
-					"volumetric_fog_enabled": false,
-					"simulation_rate_override_enabled": true,
-					"simulation_ticks_per_second_override": 2.0,
-					"simulation_locality_enabled": true,
-					"simulation_locality_dynamic_enabled": true,
-					"simulation_locality_radius_tiles": 1,
-					"transform_stage_a_solver_decimation_enabled": true,
-					"transform_stage_b_solver_decimation_enabled": true,
-					"transform_stage_c_solver_decimation_enabled": true,
-					"transform_stage_d_solver_decimation_enabled": true,
-					"resource_pipeline_decimation_enabled": true,
-					"structure_lifecycle_decimation_enabled": true,
-					"culture_cycle_decimation_enabled": true,
-					"transform_stage_a_texture_upload_decimation_enabled": true,
-					"transform_stage_b_texture_upload_decimation_enabled": true,
-					"transform_stage_d_texture_upload_decimation_enabled": true,
-					"texture_upload_interval_ticks": 12,
-					"texture_upload_budget_texels": 2048,
-					"ecology_step_decimation_enabled": true,
-					"ecology_step_interval_seconds": 0.35,
-					"smell_gpu_compute_enabled": false,
-					"wind_gpu_compute_enabled": false,
-					"voxel_process_gating_enabled": true,
-					"voxel_dynamic_tick_rate_enabled": true,
-					"voxel_tick_min_interval_seconds": 0.12,
-					"voxel_tick_max_interval_seconds": 0.9,
-				},
-			}
-		_: 
-			return {
-				"graphics": {
-					"transform_stage_a_system_enabled": false,
-					"transform_stage_b_system_enabled": false,
-					"transform_stage_c_system_enabled": false,
-					"transform_stage_d_system_enabled": false,
-					"resource_pipeline_enabled": false,
-					"structure_lifecycle_enabled": false,
-					"culture_cycle_enabled": false,
-					"ecology_system_enabled": false,
-					"settlement_system_enabled": false,
-					"villager_system_enabled": false,
-					"cognition_system_enabled": false,
-					"simulation_rate_override_enabled": true,
-					"simulation_ticks_per_second_override": 2.0,
-				},
-			}
+	if _world_sim_native_utils != null and _world_sim_native_utils.has_method("runtime_profile_settings"):
+		var settings_variant = _world_sim_native_utils.call("runtime_profile_settings", profile_id)
+		if settings_variant is Dictionary:
+			return settings_variant
+	return {}
 
 func _push_native_view_metrics() -> void:
 	if simulation_controller == null or not simulation_controller.has_method("set_native_view_metrics"):

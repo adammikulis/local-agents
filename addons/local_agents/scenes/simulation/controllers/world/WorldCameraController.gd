@@ -58,8 +58,8 @@ func frame_from_environment(environment_snapshot: Dictionary) -> void:
 	var voxel_world: Dictionary = environment_snapshot.get("voxel_world", {})
 	var world_height = float(voxel_world.get("height", 24))
 	var center = Vector3(width * 0.5, world_height * 0.35, depth * 0.5)
-	var distance = maxf(width, depth) * 1.05
-	_world_camera.position = center + Vector3(distance * 0.75, world_height * 0.6 + 10.0, distance)
+	var distance = maxf(width, depth) * 0.72
+	_world_camera.position = center + Vector3(distance * 0.75, world_height * 0.45 + 5.0, distance)
 	_world_camera.look_at(center, Vector3.UP)
 	_camera_focus = center
 	rebuild_orbit_state_from_camera()

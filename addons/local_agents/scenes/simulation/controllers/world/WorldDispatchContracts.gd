@@ -13,10 +13,10 @@ static func build_dispatch_payload(tick: int, delta: float, base_budget: float, 
 		"physics_contacts": dispatch_contact_rows,
 	}
 
-static func build_native_tick_payload(tick: int, delta: float, base_budget: float, view_metrics: Dictionary, dispatch_contact_rows: Array, launcher_contract: Dictionary = {}, frame_context: Dictionary = {}) -> Dictionary:
+static func build_native_tick_payload(tick: int, delta: float, base_budget: float, view_metrics: Dictionary, dispatch_contact_rows: Array, orchestration_contract: Dictionary = {}, frame_context: Dictionary = {}) -> Dictionary:
 	var payload := build_dispatch_payload(tick, delta, base_budget, view_metrics, dispatch_contact_rows)
 	payload["native_tick_orchestration"] = {
-		"launcher_contract": launcher_contract.duplicate(true),
+		"orchestration_contract": orchestration_contract.duplicate(true),
 		"frame_context": frame_context.duplicate(true),
 	}
 	return payload

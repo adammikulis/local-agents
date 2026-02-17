@@ -15,6 +15,7 @@
 [ext_resource type="Script" uid="uid://cukythmycap53" path="res://addons/local_agents/scenes/simulation/controllers/PerformanceTelemetryServer.gd" id="13_perf_server"]
 [ext_resource type="PackedScene" path="res://addons/local_agents/scenes/simulation/ui/FieldHud.tscn" id="14_field_hud"]
 [ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd" id="15_fps_launcher"]
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/controllers/world/WorldMutationGlowController.gd" id="16_mutation_glow"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_world"]
 sky_top_color = Color(0.18, 0.42, 0.78, 1)
@@ -87,6 +88,9 @@ process_mode = 4
 [node name="RabbitRoot" type="Node3D" parent="EcologyController" unique_id=1918586067]
 
 [node name="DebugOverlayRoot" parent="." unique_id=664357504 instance=ExtResource("7_debug")]
+
+[node name="MutationGlowRoot" type="Node3D" parent="." unique_id=1785310820]
+script = ExtResource("16_mutation_glow")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1816803764]
 transform = Transform3D(0.859009, -0.246761, 0.448301, 0, 0.876727, 0.480988, -0.511962, -0.413126, 0.752907, 0, 7, 0)
