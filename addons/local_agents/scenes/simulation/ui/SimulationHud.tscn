@@ -6,15 +6,19 @@
 [node name="GraphicsButton" parent="."]
 visible = false
 
+[node name="Panel" parent="."]
+offset_top = 220.0
+offset_bottom = 430.0
+
 [node name="GraphicsPanel" parent="."]
 offset_top = 222.0
 offset_bottom = 606.0
 
 [node name="PerformancePanel" type="PanelContainer" parent="."]
 anchors_preset = 1
-anchor_left = 1.0
+anchor_left = 0.5
 anchor_right = 1.0
-offset_left = -456.0
+offset_left = 16.0
 offset_top = 16.0
 offset_right = -16.0
 offset_bottom = 212.0
@@ -64,14 +68,9 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "Mode: Camera"
 
-[node name="DetailsLabel" type="Label" parent="Panel/Margin/VBox"]
-unique_name_in_owner = true
+[node name="Buttons" type="GridContainer" parent="Panel/Margin/VBox"]
 layout_mode = 2
-autowrap_mode = 3
-text = "Branch diff: n/a"
-
-[node name="Buttons" type="HBoxContainer" parent="Panel/Margin/VBox"]
-layout_mode = 2
+columns = 3
 
 [node name="PlayButton" type="Button" parent="Panel/Margin/VBox/Buttons"]
 layout_mode = 2
@@ -93,66 +92,87 @@ text = "FF"
 layout_mode = 2
 text = "Fork"
 
-[node name="InspectorTitle" type="Label" parent="Panel/Margin/VBox"]
+[node name="HudTabContainer" type="TabContainer" parent="Panel/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+current_tab = 0
+
+[node name="Debug Output" type="VBoxContainer" parent="Panel/Margin/VBox/HudTabContainer"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="DetailsLabel" type="Label" parent="Panel/Margin/VBox/HudTabContainer/Debug Output"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+autowrap_mode = 3
+text = "Waiting for contact with voxel"
+
+[node name="Inspector" type="VBoxContainer" parent="Panel/Margin/VBox/HudTabContainer"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="InspectorTitle" type="Label" parent="Panel/Margin/VBox/HudTabContainer/Inspector"]
 layout_mode = 2
 visible = false
 text = "Inspector"
 
-[node name="InspectorControls" type="HBoxContainer" parent="Panel/Margin/VBox"]
+[node name="InspectorControls" type="HBoxContainer" parent="Panel/Margin/VBox/HudTabContainer/Inspector"]
 layout_mode = 2
-visible = false
+visible = true
 
-[node name="InspectorNpcEdit" type="LineEdit" parent="Panel/Margin/VBox/InspectorControls"]
+[node name="InspectorNpcEdit" type="LineEdit" parent="Panel/Margin/VBox/HudTabContainer/Inspector/InspectorControls"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 placeholder_text = "npc id (e.g. npc_vs_0)"
 
-[node name="InspectorApplyButton" type="Button" parent="Panel/Margin/VBox/InspectorControls"]
+[node name="InspectorApplyButton" type="Button" parent="Panel/Margin/VBox/HudTabContainer/Inspector/InspectorControls"]
 layout_mode = 2
 text = "Inspect"
 
-[node name="OverlayTitle" type="Label" parent="Panel/Margin/VBox"]
+[node name="OverlayTitle" type="Label" parent="Panel/Margin/VBox/HudTabContainer/Inspector"]
 layout_mode = 2
-visible = false
+visible = true
 text = "Debug Overlays"
 
-[node name="OverlayGrid" type="GridContainer" parent="Panel/Margin/VBox"]
+[node name="OverlayGrid" type="GridContainer" parent="Panel/Margin/VBox/HudTabContainer/Inspector"]
 layout_mode = 2
-visible = false
+visible = true
 columns = 3
 
-[node name="PathToggle" type="CheckBox" parent="Panel/Margin/VBox/OverlayGrid"]
+[node name="PathToggle" type="CheckBox" parent="Panel/Margin/VBox/HudTabContainer/Inspector/OverlayGrid"]
 unique_name_in_owner = true
 layout_mode = 2
 button_pressed = true
 text = "Paths"
 
-[node name="ResourceToggle" type="CheckBox" parent="Panel/Margin/VBox/OverlayGrid"]
+[node name="ResourceToggle" type="CheckBox" parent="Panel/Margin/VBox/HudTabContainer/Inspector/OverlayGrid"]
 unique_name_in_owner = true
 layout_mode = 2
 button_pressed = true
 text = "Resources"
 
-[node name="ConflictToggle" type="CheckBox" parent="Panel/Margin/VBox/OverlayGrid"]
+[node name="ConflictToggle" type="CheckBox" parent="Panel/Margin/VBox/HudTabContainer/Inspector/OverlayGrid"]
 unique_name_in_owner = true
 layout_mode = 2
 button_pressed = true
 text = "Conflicts"
 
-[node name="SmellToggle" type="CheckBox" parent="Panel/Margin/VBox/OverlayGrid"]
+[node name="SmellToggle" type="CheckBox" parent="Panel/Margin/VBox/HudTabContainer/Inspector/OverlayGrid"]
 unique_name_in_owner = true
 layout_mode = 2
 button_pressed = true
 text = "Smell"
 
-[node name="WindToggle" type="CheckBox" parent="Panel/Margin/VBox/OverlayGrid"]
+[node name="WindToggle" type="CheckBox" parent="Panel/Margin/VBox/HudTabContainer/Inspector/OverlayGrid"]
 unique_name_in_owner = true
 layout_mode = 2
 button_pressed = true
 text = "Wind"
 
-[node name="TemperatureToggle" type="CheckBox" parent="Panel/Margin/VBox/OverlayGrid"]
+[node name="TemperatureToggle" type="CheckBox" parent="Panel/Margin/VBox/HudTabContainer/Inspector/OverlayGrid"]
 unique_name_in_owner = true
 layout_mode = 2
 button_pressed = true
@@ -169,14 +189,14 @@ text = "Graphics"
 [connection signal="pressed" from="Panel/Margin/VBox/Buttons/RewindButton" to="." method="_on_rewind_button_pressed"]
 [connection signal="pressed" from="Panel/Margin/VBox/Buttons/FastForwardButton" to="." method="_on_fast_forward_button_pressed"]
 [connection signal="pressed" from="Panel/Margin/VBox/Buttons/ForkButton" to="." method="_on_fork_button_pressed"]
-[connection signal="pressed" from="Panel/Margin/VBox/InspectorControls/InspectorApplyButton" to="." method="_on_inspector_apply_button_pressed"]
-[connection signal="text_submitted" from="Panel/Margin/VBox/InspectorControls/InspectorNpcEdit" to="." method="_on_inspector_npc_edit_text_submitted"]
-[connection signal="toggled" from="Panel/Margin/VBox/OverlayGrid/PathToggle" to="." method="_on_overlay_toggled"]
-[connection signal="toggled" from="Panel/Margin/VBox/OverlayGrid/ResourceToggle" to="." method="_on_overlay_toggled"]
-[connection signal="toggled" from="Panel/Margin/VBox/OverlayGrid/ConflictToggle" to="." method="_on_overlay_toggled"]
-[connection signal="toggled" from="Panel/Margin/VBox/OverlayGrid/SmellToggle" to="." method="_on_overlay_toggled"]
-[connection signal="toggled" from="Panel/Margin/VBox/OverlayGrid/WindToggle" to="." method="_on_overlay_toggled"]
-[connection signal="toggled" from="Panel/Margin/VBox/OverlayGrid/TemperatureToggle" to="." method="_on_overlay_toggled"]
+[connection signal="pressed" from="Panel/Margin/VBox/HudTabContainer/Inspector/InspectorControls/InspectorApplyButton" to="." method="_on_inspector_apply_button_pressed"]
+[connection signal="text_submitted" from="Panel/Margin/VBox/HudTabContainer/Inspector/InspectorControls/InspectorNpcEdit" to="." method="_on_inspector_npc_edit_text_submitted"]
+[connection signal="toggled" from="Panel/Margin/VBox/HudTabContainer/Inspector/OverlayGrid/PathToggle" to="." method="_on_overlay_toggled"]
+[connection signal="toggled" from="Panel/Margin/VBox/HudTabContainer/Inspector/OverlayGrid/ResourceToggle" to="." method="_on_overlay_toggled"]
+[connection signal="toggled" from="Panel/Margin/VBox/HudTabContainer/Inspector/OverlayGrid/ConflictToggle" to="." method="_on_overlay_toggled"]
+[connection signal="toggled" from="Panel/Margin/VBox/HudTabContainer/Inspector/OverlayGrid/SmellToggle" to="." method="_on_overlay_toggled"]
+[connection signal="toggled" from="Panel/Margin/VBox/HudTabContainer/Inspector/OverlayGrid/WindToggle" to="." method="_on_overlay_toggled"]
+[connection signal="toggled" from="Panel/Margin/VBox/HudTabContainer/Inspector/OverlayGrid/TemperatureToggle" to="." method="_on_overlay_toggled"]
 [connection signal="pressed" from="PerformancePanel/PerformanceMargin/PerformanceVBox/PerfGraphicsButton" to="." method="_on_graphics_button_pressed"]
 [connection signal="pressed" from="GraphicsButton" to="." method="_on_graphics_button_pressed"]
 [connection signal="toggled" from="GraphicsPanel/GraphicsMargin/GraphicsScroll/GraphicsVBox/WaterShaderCheck" to="." method="_on_graphics_toggle"]

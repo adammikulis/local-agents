@@ -4,6 +4,10 @@ class_name LocalAgentsWorldHudBindingController
 var _inspector_npc_id: String = ""
 var _rolling_sim_timing_ms: Dictionary = {}
 var _rolling_sim_timing_tick: int = -1
+var _debug_event_lines: Array[String] = []
+var _debug_last_runtime: Dictionary = {}
+var _inspector_focus_pending: bool = false
+const _DEBUG_EVENT_CAP := 8
 
 func connect_simulation_hud(simulation_hud: CanvasLayer, callbacks: Dictionary) -> void:
 	if simulation_hud == null:
@@ -48,7 +52,10 @@ func set_field_selection_restored(field_hud: CanvasLayer) -> void:
 		field_hud.call("set_status", "Selection mode restored")
 
 func on_inspector_npc_changed(npc_id: String) -> void:
-	_inspector_npc_id = npc_id.strip_edges()
+	var next_id := npc_id.strip_edges()
+	if next_id != "" and next_id != _inspector_npc_id:
+		_inspector_focus_pending = true
+	_inspector_npc_id = next_id
 
 func push_graphics_state(simulation_hud: CanvasLayer, graphics_state: Dictionary) -> void:
 	if simulation_hud != null and simulation_hud.has_method("set_graphics_state"):
@@ -70,22 +77,12 @@ func refresh_hud(
 	var year = loop_controller.simulated_year()
 	var time_text = _format_duration_hms(loop_controller.simulated_seconds())
 	simulation_hud.set_status_text("Year %.1f | T+%s | Tick %d | Branch %s | %s x%d" % [year, time_text, current_tick, branch_id, mode, loop_controller.ticks_per_frame()])
-
-	var detail_lines: Array[String] = []
 	_ensure_inspector_npc_selected(last_state)
-	for line in _inspector_summary_lines(current_tick):
-		detail_lines.append(String(line))
-	if branch_id != "main" and simulation_controller != null and simulation_controller.has_method("branch_diff"):
-		var diff: Dictionary = simulation_controller.branch_diff("main", branch_id, maxi(0, current_tick - 48), current_tick)
-		if bool(diff.get("ok", false)):
-			var pop_delta = int(diff.get("population_delta", 0))
-			var belief_delta = int(diff.get("belief_divergence", 0))
-			var culture_delta = float(diff.get("culture_continuity_score_delta", 0.0))
-			detail_lines.append("Diff vs main: pop %+d | belief %+d | culture %+0.3f" % [pop_delta, belief_delta, culture_delta])
-	if simulation_hud.has_method("set_details_text"):
-		simulation_hud.set_details_text("\n".join(detail_lines))
 	if simulation_hud.has_method("set_inspector_npc"):
 		simulation_hud.set_inspector_npc(_inspector_npc_id)
+	_apply_inspector_focus_if_needed(simulation_hud)
+	if simulation_hud.has_method("set_details_text"):
+		simulation_hud.set_details_text("\n".join(_curated_debug_lines(simulation_controller, current_tick)))
 	_update_sim_timing_hud(simulation_hud, simulation_controller)
 
 func _connect_if_present(emitter: Object, signal_name: String, callback: Callable) -> void:
@@ -103,6 +100,77 @@ func _ensure_inspector_npc_selected(last_state: Dictionary) -> void:
 	if ids.is_empty():
 		return
 	_inspector_npc_id = String(ids[0])
+	_inspector_focus_pending = true
+
+func _apply_inspector_focus_if_needed(simulation_hud: CanvasLayer) -> void:
+	if not _inspector_focus_pending or simulation_hud == null:
+		return
+	var tabs := simulation_hud.get_node_or_null("%HudTabContainer") as TabContainer
+	if tabs == null:
+		return
+	tabs.current_tab = 1
+	_inspector_focus_pending = false
+
+func _curated_debug_lines(simulation_controller: Node, tick: int) -> Array[String]:
+	var runtime := _read_native_dispatch_runtime(simulation_controller)
+	if runtime.is_empty():
+		return ["tick %d | mutation dispatch runtime unavailable" % tick]
+	var contacts_total := int(runtime.get("contacts_dispatched", 0))
+	var pulses_total := int(runtime.get("pulses_total", 0))
+	var pulses_success := int(runtime.get("pulses_success", 0))
+	var pulses_failed := int(runtime.get("pulses_failed", 0))
+	var ops_applied_total := int(runtime.get("ops_applied", 0))
+	var changed_chunks_total := int(runtime.get("changed_chunks", 0))
+	var changed_tiles_total := int(runtime.get("changed_tiles", 0))
+	var last_reason := String(runtime.get("last_drop_reason", runtime.get("last_dispatch_reason", ""))).strip_edges()
+	var backend := String(runtime.get("last_backend", "gpu")).strip_edges()
+	var contacts_delta := contacts_total - int(_debug_last_runtime.get("contacts_dispatched", 0))
+	var pulses_delta := pulses_total - int(_debug_last_runtime.get("pulses_total", 0))
+	var success_delta := pulses_success - int(_debug_last_runtime.get("pulses_success", 0))
+	var failed_delta := pulses_failed - int(_debug_last_runtime.get("pulses_failed", 0))
+	var ops_delta := ops_applied_total - int(_debug_last_runtime.get("ops_applied", 0))
+	var chunk_delta := changed_chunks_total - int(_debug_last_runtime.get("changed_chunks", 0))
+	var tile_delta := changed_tiles_total - int(_debug_last_runtime.get("changed_tiles", 0))
+	if contacts_delta > 0:
+		_push_debug_event("tick %d | contact with voxel: +%d (total=%d)" % [tick, contacts_delta, contacts_total])
+	if pulses_delta > 0:
+		_push_debug_event("tick %d | mutation dispatch start: +%d backend=%s" % [tick, pulses_delta, backend if backend != "" else "gpu"])
+	if success_delta > 0:
+		_push_debug_event("tick %d | mutation dispatch result: success +%d" % [tick, success_delta])
+	if failed_delta > 0:
+		_push_debug_event("tick %d | mutation dispatch result: failed +%d reason=%s" % [tick, failed_delta, last_reason if last_reason != "" else "unknown"])
+	if ops_delta > 0:
+		_push_debug_event("tick %d | mutation applied: ops +%d" % [tick, ops_delta])
+	elif failed_delta > 0:
+		_push_debug_event("tick %d | mutation failed: %s" % [tick, last_reason if last_reason != "" else "unknown"])
+	if chunk_delta > 0 or tile_delta > 0:
+		_push_debug_event("tick %d | changed summary: chunks +%d/%d tiles +%d/%d" % [tick, maxi(0, chunk_delta), changed_chunks_total, maxi(0, tile_delta), changed_tiles_total])
+	_debug_last_runtime = {
+		"contacts_dispatched": contacts_total,
+		"pulses_total": pulses_total,
+		"pulses_success": pulses_success,
+		"pulses_failed": pulses_failed,
+		"ops_applied": ops_applied_total,
+		"changed_chunks": changed_chunks_total,
+		"changed_tiles": changed_tiles_total,
+	}
+	if _debug_event_lines.is_empty():
+		_debug_event_lines.append("tick %d | waiting for contact with voxel" % tick)
+	return _debug_event_lines.duplicate()
+
+func _read_native_dispatch_runtime(simulation_controller: Node) -> Dictionary:
+	if simulation_controller == null or not simulation_controller.has_method("native_voxel_dispatch_runtime"):
+		return {}
+	var runtime_variant = simulation_controller.call("native_voxel_dispatch_runtime")
+	return runtime_variant if runtime_variant is Dictionary else {}
+
+func _push_debug_event(line: String) -> void:
+	var clean := line.strip_edges()
+	if clean == "":
+		return
+	_debug_event_lines.append(clean)
+	while _debug_event_lines.size() > _DEBUG_EVENT_CAP:
+		_debug_event_lines.remove_at(0)
 
 func _inspector_summary_lines(_tick: int) -> Array[String]:
 	var lines: Array[String] = []
