@@ -5,6 +5,10 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 ## Core Rules
 
 - This file is mandatory startup reading and required process for every session.
+- Simplicity mandate (non-negotiable): choose the simplest implementation that works correctly for the required behavior.
+- Anti-overengineering mandate (non-negotiable): reject long or complex runtime pipelines when a shorter direct path satisfies the same requirement.
+- C++-first mandate (non-negotiable): implement runtime gameplay/simulation/destruction behavior in C++ unless absolutely necessary to use GDScript.
+- GDScript exception rule (non-negotiable): when GDScript is unavoidable, keep it minimal and limited to orchestration, scene wiring, input/UI, or typed adapter boundaries.
 - Use Godot 4 constants exactly as defined in docs/API. Do not guess names.
 - Prefer explicit typing for locals that hold dynamic data (`Dictionary`, `Array`, `Object` checks).
 - Keep command invocation patterns canonical and copied from repo harness docs.
@@ -12,11 +16,15 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 - Do not claim "works" unless required validation steps have run on the current tree.
 - Simulation-authoritative execution is native + GPU only; GDScript is orchestration/adapters only for simulation paths.
 - CPU/GDScript success fallbacks for simulation outcomes are forbidden; missing requirements must fail explicitly.
+- GDS adapter authority rule: gameplay-runtime GDS layers are adapter-only and must not own mutation outcome logic or decide mutation success/failure.
+- Projectile impact destruction rule: enforce a direct authoritative flow only as `impact contact -> C++ mutation -> apply result`.
+- Ban multi-hop GDS contract layers on projectile destruction paths: no flatten/interpret/rewrap chains in GDS for mutation authority.
 - When a preventable error appears, add a dated entry to `Error Log / Preventative Patterns` in this file.
 
 ## Godot Design and Structure Process
 
 - Keep simulation-authoritative gameplay logic (physics/destruction/voxel mutation/state evolution) in native code with GPU execution contracts.
+- Keep runtime execution paths short and direct; avoid multi-hop controller/stage chains unless required by a concrete engine or contract boundary.
 - Keep GDScript focused on orchestration, scene wiring, input/UI, and typed boundary adapters.
 - Prefer explicit data flow (`signal up, call down`) over hidden singleton coupling.
 - Decompose concerns with clear ownership; avoid deep inheritance chains.
@@ -67,10 +75,17 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
   - `INV-GPU-001`: GPU capability requirement is mandatory; unavailable GPU emits hard failure (`GPU_REQUIRED` / `gpu_unavailable`).
   - `INV-FALLBACK-001`: No reachable CPU-success or GDScript-success fallback path for simulation-authoritative outcomes.
   - `INV-CONTRACT-001`: No silent success/no-op on contract failure; failures must be typed and explicit.
+  - `INV-PROJECTILE-CPP-001`: Projectile impact -> voxel mutation authority is C++ native stage owned end-to-end; GDScript must not own queue/deadline mutation decisions for this path.
+  - `INV-STAGE-SHIM-001`: Stage-shim/controller layers are adapter-only and cannot author/override projectile mutation success, deadline pass/fail, or mutation-applied outcomes.
+  - `INV-GDS-ADAPTER-ONLY-001`: Gameplay-runtime GDS adapters are forwarding-only for mutation paths and cannot own or interpret mutation outcome authority.
+  - `INV-PROJECTILE-DIRECT-001`: Projectile destruction authority executes only through the direct chain `impact contact -> C++ mutation -> apply result`.
+  - `INV-NO-GDS-MULTIHOP-001`: Multi-hop GDS contract flatten/interpret/rewrap layers are forbidden on projectile impact destruction paths.
 - Concrete migration checklist (for each touched simulation path):
   - [ ] Identify existing CPU/GDScript-success fallback branches.
   - [ ] Replace fallback-success branches with explicit fail-fast outcomes.
   - [ ] Route mutation/destruction authority through native interfaces only.
+  - [ ] For projectile impacts, keep queue/deadline lifecycle and mutation pass/fail authority in C++ native stage contracts only (no GDScript queue ownership).
+  - [ ] Remove or block stage-shim authority for projectile mutation outcomes; shims may only forward payloads and consume typed native outputs.
   - [ ] Add/adjust tests asserting native/GPU backend usage on primary path.
   - [ ] Add/adjust tests asserting typed failure when native/GPU requirements are unmet.
   - [ ] Re-run mandatory validation sequence before any status claim.
@@ -173,3 +188,13 @@ var value: Variant = payload_dict.get("key", fallback)
   - Full headless harness suite commands pass.
   - Scene-smoke harness (when gameplay/demo/input scripts changed) passes.
   - At least one real non-headless launch using an actual video/display path confirms startup/input viability, or explicitly state environment limitation and do not claim "works/ready".
+
+### 2026-02-17: projectile queue deadline miss created false-pass risk
+
+- Failure: projectile contact entered a deadline-driven queue path where mutation was missed, but wrapper/stage-shim interpretation allowed success-like reporting instead of hard failure.
+- Preventative pattern: treat projectile impact -> mutation as C++-authoritative only; GDScript/stage-shim layers cannot own queue/deadline pass/fail decisions or synthesize success outcomes.
+- Required safeguards:
+  - Queue/deadline state transitions (`queued`, `dispatched`, `deadline_exceeded`) must be authored in native C++ stage output and consumed read-only by GDScript.
+  - Success requires explicit native mutation evidence (`mutation_applied == true` or equivalent typed contract field); missing evidence must hard-fail with a typed code.
+  - Deadline misses must emit explicit typed failure (`PROJECTILE_MUTATION_DEADLINE_EXCEEDED`) and must never be downgraded to no-op/success in wrappers.
+  - Validation must include launched-window FPS fire verification plus headless contract tests asserting no success state is reachable when native mutation evidence is absent.

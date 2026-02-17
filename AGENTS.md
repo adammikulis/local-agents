@@ -61,11 +61,21 @@ Lane trigger rule: if a wave touches any domain, spawn the corresponding lane(s)
 - Merge findings as structured pass/fail artifacts with notable failures.
 - Reassign/redeploy immediately if an agent becomes blocked or stale.
 - Required sequence for \"does it work\" checks: non-headless launch first, then full headless harness suites.
+- Manual runtime proof is mandatory for player-facing behavior claims: if a change affects in-game controls/interaction (for example FPS mode + left-click destruction), validation must include an actual launched Godot window run where the behavior is exercised directly.
+- Do not mark work as `passing`, `ready`, or `fixed` for player-facing behavior unless that launched-window manual check has been performed and explicitly reported.
+- Automated/headless tests are necessary but not sufficient for player-facing pass claims; they cannot replace launched-window behavior verification.
 
 ## Current Repo Policy
 
 - There are no downstream consumers to preserve in this repo right now.
 - Prioritize rapid feature improvement and stronger simulation behavior over compatibility.
+- Simplicity mandate (non-negotiable): implement the simplest behavior that works correctly for the target path.
+- Anti-overengineering mandate (non-negotiable): do not introduce long, multi-stage, or speculative pipelines when a shorter direct path can satisfy the requirement.
+- C++-first runtime mandate (non-negotiable): runtime gameplay/simulation/destruction behavior must be implemented in C++ by default.
+- GDScript exception rule (non-negotiable): use GDScript for runtime behavior only when C++ is not practical for that specific boundary, and keep that GDScript limited to thin orchestration/adapters.
+- GDS orchestration boundary (non-negotiable): gameplay-runtime GDS adapters are forwarding-only and must not own mutation outcome logic, mutation success/failure decisions, or mutation result interpretation.
+- Projectile impact path mandate (non-negotiable): destruction flow is direct and authoritative only as `impact contact -> C++ mutation -> apply result`.
+- Multi-hop GDS contract ban (non-negotiable): do not add or preserve multi-hop GDS flatten/interpret/rewrap layers on the projectile impact destruction path.
 - Default to voxel-native simulation, collision, and destruction paths.
 - Zero-fallback mandate (non-negotiable): do not add, preserve, or reintroduce fallback behavior for simulation, destruction, collision, or dispatch paths.
 - If the native/GPU path cannot execute, fail fast with explicit typed errors (`GPU_REQUIRED`/`NATIVE_REQUIRED`) instead of routing to alternate logic.
@@ -73,6 +83,7 @@ Lane trigger rule: if a wave touches any domain, spawn the corresponding lane(s)
 - Test integrity mandate (non-negotiable): never fabricate, synthesize, or infer execution success/results when native execution fails.
 - Test integrity mandate (non-negotiable): do not add assertions or harness logic that converts hard runtime failures into soft passes.
 - Test integrity mandate (non-negotiable): no fake tests, no mocked success for native destruction paths, and no synthetic payload/result generation to satisfy assertions.
+- Pass-claim mandate (non-negotiable): for player-visible gameplay behavior, no pass claim is valid without explicit launched-window manual verification in Godot.
 - GPU availability is a required runtime invariant for this program; unsupported/non-GPU environments are out of scope.
 - If required GPU capabilities are unavailable, startup must hard-exit with an explicit `GPU_REQUIRED` warning/error.
 - Do not implement or preserve degraded/non-GPU execution paths for simulation features.

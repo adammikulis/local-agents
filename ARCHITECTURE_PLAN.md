@@ -1,6 +1,52 @@
+# P0 NOTE (2026-02-17): Projectile visible-break enforcement + HUD debug curation
+
+- Priority: `P0`
+- Owners: Runtime Bindings, HUD/Inspector UI, Validation
+- Scope:
+  - Raise direct-contact fracture op floors so projectile contact removes a visibly obvious wall column segment.
+  - Emit direct-contact runtime line with averaged fracture radius/value: `DIRECT_CONTACT_OPS_USED count=<n> radius=<r> value=<v>`.
+  - Keep no-inference mutation rule intact (`mutation_applied` true only on real native mutation `changed=true`).
+  - Constrain timing graph panel to the upper-right half of the screen and add ordered HUD tabs (`Debug Output`, `Inspector`) with auto-switch to `Inspector` on inspect selection.
+  - Curate Debug Output to key mutation/contact events only.
+- Acceptance:
+  - Projectile impacts produce visually obvious voxel break from direct-contact ops.
+  - Runtime output includes the extended direct-contact evidence line.
+  - HUD tab order and auto-focus behavior match requirement.
+  - FPS fire destroy harness run reports required raw evidence lines.
+
 # Local Agents Architecture Plan
 
 This plan is organized by engineering concern so work can be split into focused sub-agents.
+
+## Active P0 Bugfixes (2026-02-17, urgent)
+
+- [ ] Wave 0L (`P0`): Delta rebuild chunk-key authority fix for voxel mutation visibility.
+  - Owner lanes:
+    - Runtime Bindings
+    - Validation
+  - Scope:
+    - In `EnvironmentController.apply_generation_delta`, recompute renderer rebuild chunk keys from `changed_tiles` using current `terrain_chunk_size` and stop treating incoming `changed_chunk_keys` as authoritative.
+    - Allow fallback to normalized `changed_chunk_keys` only when `changed_tiles` is empty.
+    - Add runtime evidence line on delta rebuild requests: `DELTA_REBUILD_CHUNKS count=<n>`.
+  - Acceptance criteria:
+    - Delta rebuild requests use tile-derived chunk keys whenever tile deltas are present.
+    - Fallback to incoming chunk keys occurs only when tile deltas are absent.
+    - Runtime output includes `DELTA_REBUILD_CHUNKS count=<n>` during delta rebuild execution.
+
+- [ ] Wave 0K (`P0`): Direct contact-row fracture op synthesis in native dispatch bridge.
+  - Owner lanes:
+    - Runtime Bindings
+    - Validation
+  - Scope:
+    - In `LocalAgentsVoxelDispatchBridge`, when `stage_payload.native_ops` is empty and dispatch contact rows exist, synthesize direct native fracture ops from contact points (`x/y/z` rounded from `contact_point`, radius/value scaled from impulse/speed).
+    - Route synthesized direct ops as authoritative mutator input before `apply_native_voxel_stage_delta`.
+    - Preserve no-inference mutation rule (`mutation_applied` remains true only when mutator returns `changed=true`).
+    - Add status contract evidence: `direct_contact_ops_used` and `direct_contact_ops_count`.
+    - Emit runtime debug evidence line when used: `DIRECT_CONTACT_OPS_USED count=<n>`.
+  - Acceptance criteria:
+    - Contact-driven mutation path produces native ops even when dispatch payload omits `native_ops`.
+    - Runtime output includes direct-contact evidence line when synthesis is used.
+    - Non-headless FPS fire destroy harness passes with real mutation evidence.
 
 ## Operating Rules
 
@@ -18,7 +64,147 @@ This plan is organized by engineering concern so work can be split into focused 
 - [x] Main thread tracks deconflict/merge and drives the `ARCHITECTURE_PLAN.md -> execution -> verification -> commit` loop.
 - [x] Stale/finished sub-agents are proactively closed and replaced as needed.
 
+## Active P0 Bugfixes (2026-02-17)
+
+- [ ] Wave 0J (`P0`): Eliminate false-positive mutation reporting and require real runtime mutation evidence.
+  - Owner lanes:
+    - Runtime Bindings
+    - Validation
+  - Scope:
+    - `LocalAgentsVoxelDispatchBridge` must set `mutation_applied=true` only when native mutator apply returns `changed=true`.
+    - Remove synthetic/inferred mutation success derived solely from `native_tick_contract` evidence.
+    - Attempt native mutator apply whenever stage payload carries mutation signal; do not gate on fragile property-list inspection.
+    - Keep `dispatched=true` even when mutation apply fails, with explicit `mutation_error` and `mutation_path` status fields.
+    - Emit fracture debris only when real mutation apply succeeds.
+    - Add runtime counters for real outcomes: `real_mutations` and `debris_emitted_total`.
+    - Update FPS fire destroy harness to require `real_mutations` evidence, print `FPS_FIRE_DESTROY_RUNTIME=...`, and surface pass/fail with runtime evidence.
+  - Acceptance criteria:
+    - No path can report mutation success without mutator-returned `changed=true`.
+    - Runtime/harness pass evidence requires real mutation counter growth after fire.
+    - Harness output includes one terminal-visible `FPS_FIRE_DESTROY_RUNTIME=` line for verification.
+
 ## Ordered Wave Sequence (Planning lane update 2026-02-16)
+
+- [ ] Wave 0I (`P1`): First significant `WorldSimulation.gd` reduction via native utility extraction.
+  - Runtime Bindings lane update (2026-02-17):
+    - Priority: `P1`.
+    - Move reusable runtime/helper logic from `WorldSimulation.gd` into a native `RefCounted` utility and keep world controller as thin call-site wiring.
+  - Owner lanes:
+    - Runtime Bindings
+    - Native Compute
+    - Validation
+  - Scope:
+    - Add native helper class `LocalAgentsWorldSimulationNativeUtils` with utility methods for mutation-glow position building, test-mode argument parsing/sanitization, and runtime demo profile sanitization/settings lookup.
+    - Register and build the new helper in the GDExtension target.
+    - Instantiate utility once in `WorldSimulation.gd` via `ClassDB.instantiate` and replace duplicated local helper implementations with thin calls.
+    - Remove moved heavy helper blocks from `WorldSimulation.gd` to achieve a material file-size reduction in this wave.
+  - Acceptance criteria:
+    - `WorldSimulation.gd` helper behavior remains unchanged for mutation glow placement, test mode resolution/flags, and runtime profile selection.
+    - Native utility methods are callable from GDScript and return stable typed outputs (`Array`, `String`, `bool`, `Dictionary`).
+    - `WorldSimulation.gd` line count is reduced by at least 120 lines from pre-wave baseline.
+  - Required validation order:
+    - Non-headless launch first: `./scripts/run_fps_fire_destroy.sh --timeout=120 --test_mode_minimized=true`
+    - `scripts/run_single_test.sh test_projectile_voxel_destruction_runtime_path.gd --timeout=180`
+    - `scripts/run_single_test.sh test_native_orchestration_dispatch_runtime_contract.gd --timeout=180`
+
+- [ ] Wave 0H (`P0`): Native C++ fracture debris spawning on authoritative voxel mutation.
+  - Runtime Bindings lane update (2026-02-17):
+    - Priority: `P0`.
+    - Add native debris emitter helper and wire it into authoritative mutation apply path.
+  - Owner lanes:
+    - Runtime Bindings
+    - Native Compute
+    - Validation
+  - Scope:
+    - Add `LocalAgentsFractureDebrisEmitter` native helper to spawn physics debris (`RigidBody3D` + `CollisionShape3D` + `MeshInstance3D`) from `changed_chunks` / `changed_region` in stage payload.
+    - Emit debris only when authoritative runtime mutation is applied and payload contains valid changed-region/chunk metadata.
+    - Apply deterministic pseudo-random spawn offsets/impulses derived from tick + index and contact-row-informed outward impulse direction (fallback upward/outward when no contacts).
+    - Enforce perf caps (`max pieces per mutation`, `max active debris`) under dedicated runtime node root `NativeFractureDebrisRoot` attached to simulation controller.
+    - Add explicit runtime evidence line: `NATIVE_FRACTURE_DEBRIS_EMITTED count=<n>`.
+  - Acceptance criteria:
+    - On successful authoritative mutation path, debris pieces are spawned from changed payload metadata in native C++ only.
+    - Debris emission is skipped when `mutation_applied` is false or changed payload metadata is invalid/empty.
+    - Emission remains bounded by configured per-mutation and active-scene caps.
+    - Runtime output contains deterministic debris evidence line with emitted count.
+  - Required validation order:
+    - Non-headless launch first: `./scripts/run_fps_fire_destroy.sh --timeout=120 --test_mode_minimized=true`
+    - `scripts/run_single_test.sh test_fps_fire_contact_mutation_runtime_path.gd --timeout=180`
+    - `scripts/run_single_test.sh test_projectile_voxel_destruction_runtime_path.gd --timeout=180`
+
+- [ ] Wave 0G (`P0`): Immediate native contact-damage path (remove queue/deadline hot-path gating).
+  - Runtime Bindings lane update (2026-02-17):
+    - Priority: `P0`.
+    - Remove queue/deadline/requeue semantics from native orchestration hot path while preserving compatibility method names.
+  - Owner lanes:
+    - Native Compute
+    - Runtime Bindings
+    - Validation
+  - Scope:
+    - Keep `queue_projectile_contact_rows(...)` / `acknowledge_projectile_contact_rows(...)` API names for compatibility, but convert behavior to immediate/non-queueing per tick.
+    - Remove deadline-failure gating, in-flight ack gates, and mutation-dependent requeue behavior from authoritative dispatch decisioning.
+    - In `LocalAgentsVoxelDispatchBridge`, merge dispatch contact rows from both `context.projectile_contact_rows` and `simulation_controller.get_physics_contact_snapshot().buffered_rows` (when available) and deduplicate deterministically.
+    - Ensure tick payload `physics_contacts` uses merged general contacts so rigidbody/voxel collisions are eligible on the authoritative native stage path.
+    - Keep `WorldDispatchController` as a thin call-site adapter with no new dispatch-authoritative logic.
+  - Acceptance criteria:
+    - Native orchestration no longer maintains pending/in-flight deadline queues or requeue-on-no-mutation behavior on hot path.
+    - `acknowledge_projectile_contact_rows(...)` is compatibility-safe and non-gating (no failure when no in-flight rows).
+    - Native dispatch bridge tick payload and stage payload both use merged, deduplicated general contact rows from projectile and physics snapshot sources.
+    - Required targeted tests for runtime orchestration contract and general-physics failure emission pass with updated immediate behavior expectations.
+  - Required validation order:
+    - Non-headless launch first (real display path).
+    - `scripts/run_single_test.sh test_native_orchestration_dispatch_runtime_contract.gd --timeout=180`
+    - `scripts/run_single_test.sh test_native_general_physics_failure_emission_contracts.gd --timeout=180`
+
+- [ ] Wave 0F (`P0`): Voxel destruction orchestration migration to native bridge (`LocalAgentsVoxelDispatchBridge`).
+  - Runtime Bindings lane update (2026-02-17):
+    - Priority: `P0`.
+    - Move voxel destruction dispatch + mutation-apply authority out of `WorldDispatchController`/`WorldDestructionOrchestrator` GDScript into a single native GDExtension call surface.
+  - Owner lanes:
+    - Runtime Bindings
+    - Native Compute
+    - Validation
+  - Scope:
+    - Add native `LocalAgentsVoxelDispatchBridge.process_native_voxel_rate(delta, context)` as the authoritative orchestration entrypoint.
+    - Keep `WorldDispatchController` as thin call-site adapter only (context gather + single native call), with no gate/contract orchestration branches in GDScript.
+    - Apply stage delta in native bridge through `LocalAgentsNativeVoxelTerrainMutator.apply_native_voxel_stage_delta` and emit sync callable from native when mutation state is available.
+    - Remove duplicate declarations/merge damage in `WorldDispatchController.gd` and eliminate `WorldDestructionOrchestrator` runtime usage on projectile voxel destruction path.
+  - Acceptance criteria:
+    - Authoritative projectile voxel chain is direct only: `impact contact -> C++ mutation -> apply result`.
+    - GDScript world dispatch path contains no orchestration-authoritative gating, dispatch normalization, or mutation-apply decision logic.
+    - Native bridge returns structured per-tick status (`ok`, dispatch/mutation flags, contacts consumed) while preserving current runtime telemetry outputs used by tests.
+    - No new fallback-success path is introduced; dependency failures remain explicit typed native/GPU-required outcomes.
+  - Required validation order:
+    - Non-headless launch first (real display path).
+    - `scripts/run_single_test.sh test_native_orchestration_dispatch_runtime_contract.gd --timeout=180`
+    - `scripts/run_single_test.sh test_projectile_voxel_destruction_runtime_path.gd --timeout=180`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
+- [ ] Wave 0E (`P0`): C++ single-call projectile mutation cut (direct projectile contact runtime path).
+  - Documentation lane update (2026-02-17):
+    - Priority: `P0`.
+    - Cut projectile mutation path to one C++ single-call authoritative flow.
+    - Delete stage-name/cadence legacy handling for projectile path authority.
+  - Owner lanes:
+    - Runtime Simulation
+    - Runtime Bindings
+    - Validation
+  - Scope:
+    - Restore direct per-frame projectile contact row flow from `FpsLauncherController` into `WorldSimulation._process_native_voxel_rate`.
+    - Make `WorldDispatchController` consume provided contact rows directly for dispatch payload/stage payload construction.
+    - Remove projectile-path assumptions that dispatch eligibility/tick selection depends on native queue proxy state in world-layer GDScript.
+    - Delete remaining projectile-path stage-name/cadence legacy branches from authoritative decisioning surfaces.
+  - Acceptance criteria:
+    - Authoritative chain is direct only: `impact contact -> C++ mutation -> apply result`.
+    - No GDS multi-hop interpretation/flatten/rewrap layer remains on projectile mutation authority path.
+    - `WorldSimulation` passes sampled current-frame projectile rows into world dispatch context each frame.
+    - `WorldDispatchController` dispatch payload `physics_contacts` and stage payload `physics_contacts` reflect provided rows directly.
+    - No world-layer projectile-path logic depends on native queue depth/state proxy metadata for dispatch decisions.
+  - Required validation order:
+    - Non-headless launch first (real display path).
+    - `./scripts/run_fps_fire_destroy.sh --timeout=90 --test_mode_minimized=false`
+    - `scripts/run_single_test.sh test_fps_fire_contact_mutation_runtime_path.gd --timeout=180`
+    - `scripts/run_single_test.sh test_projectile_voxel_destruction_runtime_path.gd --timeout=180`
+    - `scripts/run_single_test.sh test_native_orchestration_dispatch_runtime_contract.gd --timeout=180`
 
 - [ ] Wave 0A (`P0`): Continue all-native migration from latest baseline commits.
   - Owner lanes:
@@ -183,6 +369,10 @@ This plan is organized by engineering concern so work can be split into focused 
     - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
 
 - [ ] Wave 1 (`P0`): Hard-fail mutation-deadline invariant + destruction reliability continuation.
+  - Runtime Simulation lane update (2026-02-17, P0 runtime reliability in progress):
+    - Restrict FPS contact ack to mutation-applied contracts only (`mutation_applied=true` is required; default no-ack for missing flag).
+    - Synchronize contact consumption with per-tick mutation evidence using `mutation_applied_frame` from dispatch-to-launcher contract.
+    - Gate runtime mutation success on concrete changed-voxel evidence (changed chunks/region/ops), preventing success/ack when mutation evidence is absent.
   - Owner lanes:
     - Planning lane: invariant contract (`MAX_PROJECTILE_MUTATION_FRAMES`) and merge checkpoints.
     - Runtime Simulation lane: projectile hit metadata emission/handoff (`projectile_id`, `hit_frame`, `deadline_frame`).
@@ -200,6 +390,44 @@ This plan is organized by engineering concern so work can be split into focused 
     - Non-headless launch first (real display path) to confirm startup + FPS projectile destruction behavior.
     - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
     - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
+### Wave Mutation Glow Overlay (P1)
+
+- Owner lanes:
+  - Runtime Simulation lane (WorldSimulation wiring)
+  - HUD/Graphics lane (overlay marker controller)
+  - Validation/Test-Infrastructure lane (FPS/test harness verification)
+- Scope (file list):
+  - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd`
+  - `addons/local_agents/scenes/simulation/WorldSimulation.tscn`
+  - `addons/local_agents/scenes/simulation/controllers/world/WorldDispatchController.gd`
+  - `addons/local_agents/scenes/simulation/controllers/world/WorldMutationGlowController.gd` (new overlay controller)
+- Acceptance criteria:
+  - Native mutation evidence (`runtime_mutation_applied`) in `WorldDispatchController` triggers a single glow callback; HUD/world controller renders markers only when native mutation applies.
+  - Glow positions derive from each `changed_chunks` entry (with y-preserving chunk center) and fall back to the `changed_region` center; markers fade out over a short TTL, the active count is capped, and each marker uses emissive shading for visibility.
+  - Marker controller is attached under `WorldSimulation` (near other debug roots) and configurable with the environment's chunk size so that the glow centers align with voxel chunks.
+- Validation order (minimum):
+  - `./scripts/run_fps_fire_destroy.sh --timeout=90 --test_mode_minimized=false`
+  - Targeted projectile regression (e.g., `scripts/run_single_test.sh test_projectile_voxel_destruction_runtime_path.gd --timeout=120`)
+
+### Wave Mutation Glow Overlay (P1)
+
+- Owner lanes:
+  - Runtime Simulation lane (WorldSimulation wiring)
+  - HUD/Graphics lane (overlay marker controller)
+  - Validation/Test-Infrastructure lane (FPS/test harness verification)
+- Scope (file list):
+  - `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd`
+  - `addons/local_agents/scenes/simulation/WorldSimulation.tscn`
+  - `addons/local_agents/scenes/simulation/controllers/world/WorldDispatchController.gd`
+  - `addons/local_agents/scenes/simulation/controllers/world/WorldMutationGlowController.gd` (new overlay controller)
+- Acceptance criteria:
+  - Native mutation evidence (`runtime_mutation_applied`) in `WorldDispatchController` triggers a single glow callback; HUD/world controller renders markers only when native mutation applies.
+  - Glow positions derive from each `changed_chunks` entry (with y-preserving chunk center) and fall back to the `changed_region` center; markers fade out over a short TTL, the active count is capped, and each marker uses emissive shading for visibility.
+  - Marker controller is attached under `WorldSimulation` (near other debug roots) and configurable with the environment's chunk size so that the glow centers align with voxel chunks.
+- Validation order (minimum):
+  - `./scripts/run_fps_fire_destroy.sh --timeout=90 --test_mode_minimized=false`
+  - Targeted projectile regression (e.g., `scripts/run_single_test.sh test_projectile_voxel_destruction_runtime_path.gd --timeout=120`)
 
 - [~] Wave 2 (`P0`): Collapse mutator to one canonical op path.
   - Status (2026-02-16): Planning lane scope finalized for canonical single mutation path; implementation and validation lanes pending execution.
@@ -388,6 +616,49 @@ This plan is organized by engineering concern so work can be split into focused 
 
 ## Current Wave (execution started 2026-02-16)
 
+- [ ] P0 (Owners: Planning lane, Runtime Simulation lane, Native Compute lane, Validation/Test-Infrastructure lane, Documentation lane): Refactor wave - event-authoritative projectile contact dispatch + atomic mutation outcome contract.
+  - Scope:
+    - Make projectile contact dispatch event-authoritative end-to-end so launched-window FPS fire flow consumes one canonical contact-dispatch event contract.
+    - Remove legacy tick-cadence assumptions from projectile contact dispatch gating; dispatch eligibility must derive from canonical event/deadline state only.
+    - Enforce an atomic mutation outcome contract (`mutation_applied` or explicit typed failure) for each authoritative projectile contact dispatch event.
+  - P-band and lane ownership:
+    - `P0`: Planning lane owns decomposition, coupling-risk map, and migration sequencing for event-authoritative dispatch.
+    - `P0`: Runtime Simulation lane owns FPS contact event wiring and runtime consumption of canonical dispatch/mutation outcome fields.
+    - `P0`: Native Compute lane owns canonical dispatch decision + mutation outcome authority and typed failure emission.
+    - `P0`: Validation/Test-Infrastructure lane owns launched-window and headless contract evidence for no-deadline-miss behavior.
+    - `P1`: Documentation lane owns migration wording and acceptance-evidence traceability updates.
+  - Acceptance criteria:
+    - In launched-window FPS fire flow, valid destructible-target contacts produce canonical event-authoritative dispatch outcomes with no legacy cadence-driven branch dependency.
+    - Atomic mutation outcome contract is enforced per contact event: exactly one of mutation-applied success or explicit typed failure is emitted; no silent/no-op success path remains reachable.
+    - No projectile mutation deadline misses occur in launched-window FPS fire verification runs; if a miss occurs, runtime emits explicit structured failure and the run is marked failed.
+    - Headless/runtime contract coverage remains aligned with launched-window behavior for dispatch authority and mutation outcome semantics.
+  - Risks:
+    - Event ordering regressions between contact ingest and dispatch consume stages can reintroduce deadline misses if ownership boundaries drift.
+    - Legacy cadence assumptions may remain in peripheral wrappers and mask non-authoritative branching until fully removed.
+    - Atomic outcome enforcement can expose latent payload/schema gaps across runtime/native boundaries during cutover.
+  - Required validation order:
+    - Non-headless launch first (real display path): run FPS fire flow against destructible voxel targets and verify zero projectile mutation deadline misses with canonical event-authoritative dispatch contracts.
+    - `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
+    - `godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120`
+
+- [ ] P0 (Owners: Planning lane, Runtime Simulation lane, Validation/Test-Infrastructure lane, Documentation lane): Deterministic launched-window gameplay harness wave (`--test_mode=fps_fire_destroy`).
+  - Scope:
+    - Add/maintain launched-window harness coverage for deterministic FPS fire + voxel destruction gameplay verification using canonical mode flag `--test_mode=fps_fire_destroy`.
+    - Keep ownership explicit across runtime gameplay wiring, validation execution/reporting, and documentation/runbook synchronization.
+  - Runtime Simulation lane update (2026-02-17, P0 in progress):
+    - Harness now uses deterministic contact-row capture and native-op payload mutation assertions (contact point -> `apply_native_voxel_stage_delta`) and validates canonical mutation pass/fail metadata with no synthetic success path.
+    - Window harness now includes an in-window `Quit` button that terminates immediately as harness failure.
+    - World simulation test hooks expose contact-row sample/ack and dispatch gating so harness can own deterministic mutation verification and cleanup checks.
+    - `scripts/run_fps_fire_destroy.sh` now relies on harness self-exit and uses timeout only as safety (TERM first, KILL escalation only if still alive).
+  - Acceptance criteria:
+    - Launched-window harness run using `--test_mode=fps_fire_destroy` executes deterministic FPS fire-to-destruction flow on current tree without parser/runtime scene errors.
+    - Harness outputs encode explicit pass/fail for gameplay-critical checkpoints (fire event, impact registration, destruction/mutation confirmation) with no soft-pass fallback behavior.
+    - This plan section captures wave scope/owners clearly enough for implementation and validation lanes to execute without ambiguity.
+  - Risks:
+    - Runtime input/camera state drift can make launched-window gameplay checks nondeterministic across runs.
+    - Harness mode-flag contract drift can silently run the wrong scenario and produce false confidence.
+    - Documentation/plan drift can desynchronize lane execution and validation evidence expectations.
+
 - [ ] P0 (Owners: Planning lane, Runtime Simulation lane, Native Compute lane, Validation/Test-Infrastructure lane, Documentation lane): Breaking migration alignment - native single-backend authority lock.
   - P-band and lane ownership:
     - `P0`: Planning lane owns final cutover scope and fallback-removal sequencing.
@@ -456,6 +727,7 @@ This plan is organized by engineering concern so work can be split into focused 
   - Scope (breaking, direct-path authority):
     - Make FPS projectile impact -> native destruction -> voxel mutation a single authoritative path with no legacy rigidbody/sample fallback route.
     - Require deterministic handoff from FPS impact payloads into native destruction planning in the same simulation ownership chain.
+    - Enforce C++-authoritative queue/deadline and mutation outcome ownership for projectile impacts; GDScript wrappers/stage-shims are adapter-only for this path.
     - Remove or disconnect legacy branches that allow projectile impacts to complete without a voxel mutation decision.
   - Hard invariant (must hold):
     - For every valid FPS projectile hit on a destructible voxel target, voxel mutation must be observed within a bounded number of simulation frames (`MAX_PROJECTILE_MUTATION_FRAMES`).
@@ -492,6 +764,8 @@ This plan is organized by engineering concern so work can be split into focused 
   - Acceptance criteria:
     - Valid FPS projectile hits on destructible voxel targets always produce voxel mutation within `MAX_PROJECTILE_MUTATION_FRAMES`.
     - Mutation-deadline misses always emit explicit `PROJECTILE_MUTATION_DEADLINE_EXCEEDED` errors with required structured context.
+    - Projectile queue/deadline lifecycle (`queued`, `dispatched`, `deadline_exceeded`) is authored by C++ native contracts only; GDScript does not own or rewrite these decisions.
+    - No stage-shim/controller layer can author success for projectile mutation outcomes; success is accepted only from explicit native mutation evidence.
     - No authoritative runtime path remains where projectile hit processing can succeed silently without mutation decision output.
     - Legacy rigidbody/sample fallback paths for projectile destruction are removed or fully disconnected from active runtime behavior.
     - GPU-required hard-fail semantics remain intact (`GPU_REQUIRED`/`gpu_unavailable`) with no degraded non-GPU branch.
@@ -1518,3 +1792,19 @@ Policy decisions (recorded February 12, 2026):
   - GDScript no longer computes authoritative queue deadlines/cadence on the primary path; it only forwards context and applies native contract outputs.
   - `NativeComputeBridge.gd` remains under the 1000-line hard cap by extracting helper responsibilities before behavior growth.
   - Validation sequence evidence includes a real non-headless launch first, followed by targeted headless runtime harness checks.
+
+### Wave P0: Native Shutdown RID Teardown Ordering Fix (2026-02-17)
+
+- [ ] In progress (P0)
+- Owners/Lane ownership:
+  - Native Runtime lane (RID lifecycle + RenderingDevice teardown ordering)
+  - Validation/Test-Infrastructure lane (non-headless shutdown reproduction + bounded runtime script + one-shot quit check)
+- Scope:
+  - `addons/local_agents/gdextensions/localagents/include/sim/VoxelGpuResourceCache.hpp`
+  - `addons/local_agents/gdextensions/localagents/src/sim/VoxelGpuResourceCache.cpp`
+  - `addons/local_agents/gdextensions/localagents/src/LocalAgentsRegister.cpp`
+- Acceptance criteria:
+  - GPU RIDs are explicitly released while engine rendering APIs are still available.
+  - No `RenderingDevice::free_rid` call executes from late thread-local teardown after extension termination begins.
+  - Shutdown no longer emits `gdextension_classdb_get_method_bind ... free_rid` or RID leak warnings for compute/pipeline/uniform/storage resources.
+  - Required validation commands complete without crash popup/segfault signatures in logs.
