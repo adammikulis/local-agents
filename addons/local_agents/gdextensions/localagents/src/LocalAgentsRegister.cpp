@@ -6,6 +6,7 @@
 #include "AgentNode.hpp"
 #include "AgentRuntime.hpp"
 #include "LocalAgentsSimulationCore.hpp"
+#include "LocalAgentsBoidsNativeBridge.hpp"
 #include "LocalAgentsNativeVoxelTerrainMutator.hpp"
 #include "LocalAgentsVoxelDispatchBridge.hpp"
 #include "LocalAgentsWorldSimulationNativeUtils.hpp"
@@ -27,6 +28,7 @@ void initialize_local_agents(ModuleInitializationLevel p_level) {
     ClassDB::register_class<AgentNode>();
     ClassDB::register_class<NetworkGraph>();
     ClassDB::register_class<LocalAgentsSimulationCore>();
+    ClassDB::register_class<LocalAgentsBoidsNativeBridge>();
     ClassDB::register_class<LocalAgentsNativeVoxelTerrainMutator>();
     ClassDB::register_class<LocalAgentsVoxelDispatchBridge>();
     ClassDB::register_class<LocalAgentsWorldSimulationNativeUtils>();

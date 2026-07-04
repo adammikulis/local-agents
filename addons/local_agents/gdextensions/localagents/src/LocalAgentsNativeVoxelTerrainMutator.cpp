@@ -670,6 +670,12 @@ Dictionary LocalAgentsNativeVoxelTerrainMutator::apply_native_voxel_ops_payload(
     Array spawn_entries;
     bool chip_spawn_required = false;
     int64_t chip_progress_spawn_count = 0;
+    const double payload_durability_hits = std::max(0.0, read_float_from_variant(payload.get("durability_hits", 0.0), 0.0));
+    const double payload_chip_progress_prior = std::clamp(read_float_from_variant(payload.get("fracture_chip_progress_prior", -1.0), -1.0), -1.0, kColumnChipProgressMax);
+    const double payload_chip_progress_next = std::clamp(read_float_from_variant(payload.get("fracture_chip_progress_next", -1.0), -1.0), -1.0, kColumnChipProgressMax);
+    const double payload_chip_damage_last = std::max(0.0, read_float_from_variant(payload.get("fracture_chip_damage_last", 0.0), 0.0));
+    const int payload_chip_hits = read_int_from_variant(payload.get("fracture_chip_hits", -1), -1);
+    const String payload_chip_state = read_string_from_variant(payload.get("fracture_chip_state", String()), String()).strip_edges().to_lower();
     const Array damage_keys = impact_damage_by_tile.keys();
     for (int64_t i = 0; i < damage_keys.size(); i += 1) {
         const String tile_key = String(damage_keys[i]).strip_edges();
@@ -690,19 +696,21 @@ Dictionary LocalAgentsNativeVoxelTerrainMutator::apply_native_voxel_ops_payload(
         }
 
         const String material_key = resolve_column_material_key(column);
-        const double durability = resolve_column_durability(column, material_key);
+        const double durability = payload_durability_hits > 0.0 ? payload_durability_hits : resolve_column_durability(column, material_key);
         const double impact_damage = std::max(0.0, read_float_from_variant(impact_damage_by_tile.get(tile_key, 0.0), 0.0));
         if (impact_damage <= 0.0) {
             continue;
         }
 
-        const double prior_chip_progress = std::clamp(read_float_from_variant(column.get("fracture_chip_progress", 0.0), 0.0), 0.0, kColumnChipProgressMax);
-        const double normalized_damage = impact_damage / std::max(0.1, durability);
+        const double prior_chip_progress = payload_chip_progress_prior >= 0.0 ? payload_chip_progress_prior : std::clamp(read_float_from_variant(column.get("fracture_chip_progress", 0.0), 0.0), 0.0, kColumnChipProgressMax);
+        const double normalized_damage = payload_chip_damage_last > 0.0 ? payload_chip_damage_last : (impact_damage / std::max(0.1, durability));
         const double total_progress = prior_chip_progress + normalized_damage;
-        const int levels_to_remove = std::max(0, static_cast<int>(std::floor(total_progress + 1.0e-6)));
-        const double next_chip_progress = std::clamp(total_progress - static_cast<double>(levels_to_remove), 0.0, kColumnChipProgressMax);
+        const double next_chip_progress = payload_chip_progress_next >= 0.0 ? payload_chip_progress_next : std::clamp(total_progress - std::floor(total_progress + 1.0e-6), 0.0, kColumnChipProgressMax);
+        const int levels_to_remove = std::max(0, static_cast<int>(std::floor(std::max(0.0, total_progress - next_chip_progress) + 1.0e-6)));
         const int current_surface = std::clamp(read_int_from_variant(column.get("surface_y", 0), 0), kTileValueMin, std::max(kTileValueMin, world_height - 1));
         const int next_surface = std::clamp(current_surface - levels_to_remove, kTileValueMin, std::max(kTileValueMin, world_height - 1));
+        const int next_chip_hits = payload_chip_hits >= 0 ? payload_chip_hits : (read_int_from_variant(column.get("fracture_chip_hits", 0), 0) + 1);
+        const String next_chip_state = payload_chip_state.is_empty() ? (levels_to_remove > 0 ? String("fractured") : String("chipped")) : payload_chip_state;
 
         if (levels_to_remove > 0) {
             lower_overrides[tile_key] = levels_to_remove;
@@ -716,9 +724,9 @@ Dictionary LocalAgentsNativeVoxelTerrainMutator::apply_native_voxel_ops_payload(
         row_metadata["material_profile_key"] = material_key;
         row_metadata["durability_hits"] = durability;
         row_metadata["fracture_chip_progress"] = next_chip_progress;
-        row_metadata["fracture_chip_hits"] = read_int_from_variant(column.get("fracture_chip_hits", 0), 0) + 1;
+        row_metadata["fracture_chip_hits"] = next_chip_hits;
         row_metadata["fracture_chip_damage_last"] = normalized_damage;
-        row_metadata["fracture_chip_state"] = levels_to_remove > 0 ? String("fractured") : String("chipped");
+        row_metadata["fracture_chip_state"] = next_chip_state;
         lower_metadata_overrides[tile_key] = row_metadata;
 
         const bool chip_progress_increased = next_chip_progress > (prior_chip_progress + 1.0e-6);
@@ -757,8 +765,8 @@ Dictionary LocalAgentsNativeVoxelTerrainMutator::apply_native_voxel_ops_payload(
             spawn_entry["spawn_synthesized"] = true;
             spawn_entry["fracture_chip_progress_prior"] = prior_chip_progress;
             spawn_entry["fracture_chip_progress_next"] = next_chip_progress;
-            spawn_entry["fracture_chip_state"] = levels_to_remove > 0 ? String("fractured") : String("chipped");
-            spawn_entry["sequence_id"] = read_int_from_variant(column.get("fracture_chip_hits", 0), 0) + 1;
+            spawn_entry["fracture_chip_state"] = next_chip_state;
+            spawn_entry["sequence_id"] = next_chip_hits;
             spawn_entries.append(spawn_entry);
             chip_spawn_required = true;
             if (chip_progress_increased) {

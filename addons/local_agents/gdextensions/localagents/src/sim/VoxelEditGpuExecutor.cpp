@@ -423,6 +423,8 @@ VoxelGpuExecutionResult VoxelEditGpuExecutor::execute(
         const bool spawn_valid = readback.decode_u32(offset + 44) != 0;
         const int32_t operation_code = static_cast<int32_t>(readback.decode_u32(offset + 48));
 
+        const VoxelEditOp &decoded_op = dispatch_ops[static_cast<size_t>(i)];
+
         Dictionary changed_entry;
         changed_entry["x"] = x;
         changed_entry["y"] = y;
@@ -432,9 +434,15 @@ VoxelGpuExecutionResult VoxelEditGpuExecutor::execute(
         changed_entry["result_value"] = static_cast<double>(result_value);
         changed_entry["spawn_valid"] = spawn_valid;
         changed_entry["operation_code"] = operation_code;
+        changed_entry["durability_hits"] = std::max(0.0, decoded_op.durability_hits);
+        changed_entry["fracture_chip_progress_prior"] = decoded_op.fracture_chip_progress_prior;
+        changed_entry["fracture_chip_progress_next"] = decoded_op.fracture_chip_progress_next;
+        changed_entry["fracture_chip_damage_last"] = std::max(0.0, decoded_op.fracture_chip_damage_last);
+        changed_entry["fracture_chip_hits"] = decoded_op.fracture_chip_hits;
+        changed_entry["fracture_chip_state"] = decoded_op.fracture_chip_state;
+        changed_entry["chip_progress_spawn_count"] = std::max<int64_t>(0, decoded_op.chip_progress_spawn_count);
         changed_entries.append(changed_entry);
 
-        const VoxelEditOp &decoded_op = dispatch_ops[static_cast<size_t>(i)];
         const bool fracture_like_changed = changed && (
             operation_code == 5 ||
             operation_code == 6 ||

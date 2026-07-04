@@ -18,6 +18,7 @@ using namespace godot;
 namespace {
 constexpr const char *kDefaultStageName = "voxel_transform_step";
 constexpr const char *kDefaultTierId = "native_consolidated_tick";
+constexpr const char *kDefaultContactReductionStage = "native_voxel_dispatch_bridge";
 constexpr int64_t kPulseTimingCap = 64;
 Dictionary as_dictionary(const Variant &value) {
     if (value.get_type() == Variant::DICTIONARY) {
@@ -116,6 +117,22 @@ Array merge_dispatch_contact_rows(const Array &left_rows, const Array &right_row
         left_rows,
         right_rows,
         Array());
+}
+Array normalize_contact_schema(const Array &schema_variant) {
+    Array normalized;
+    Dictionary seen;
+    for (int64_t i = 0; i < schema_variant.size(); i += 1) {
+        const String key = as_string(schema_variant[i], String()).strip_edges();
+        if (key.is_empty()) {
+            continue;
+        }
+        if (as_bool(seen.get(key, false), false)) {
+            continue;
+        }
+        seen[key] = true;
+        normalized.append(key);
+    }
+    return normalized;
 }
 Array simulation_buffered_contact_rows(Object *simulation_controller);
 Array resolve_dispatch_contact_rows(const Dictionary &context, Object *simulation_controller) {
@@ -490,6 +507,26 @@ bool extract_bool_recursive(const Dictionary &source, const String &key) {
     }
     return false;
 }
+Variant extract_recursive_value(const Dictionary &source, const String &key) {
+    std::vector<Dictionary> stack;
+    collect_nested_dicts(source, stack, 0);
+    for (const Dictionary &entry : stack) {
+        if (entry.has(key)) {
+            return entry.get(key, Variant());
+        }
+    }
+    return Variant();
+}
+void forward_chip_contract_fields(Dictionary &target, const Dictionary &source) {
+    target["chip_progress_spawn_count"] = std::max<int64_t>(0, as_i64(extract_recursive_value(source, "chip_progress_spawn_count"), 0));
+    target["durability_hits"] = std::max(0.0, as_f64(extract_recursive_value(source, "durability_hits"), 0.0));
+    target["fracture_chip_progress"] = std::max(0.0, as_f64(extract_recursive_value(source, "fracture_chip_progress"), 0.0));
+    target["fracture_chip_hits"] = std::max<int64_t>(0, as_i64(extract_recursive_value(source, "fracture_chip_hits"), 0));
+    target["fracture_chip_damage_last"] = std::max(0.0, as_f64(extract_recursive_value(source, "fracture_chip_damage_last"), 0.0));
+    target["fracture_chip_state"] = as_string(extract_recursive_value(source, "fracture_chip_state"), String());
+    target["fracture_chip_progress_prior"] = std::max(0.0, as_f64(extract_recursive_value(source, "fracture_chip_progress_prior"), 0.0));
+    target["fracture_chip_progress_next"] = std::max(0.0, as_f64(extract_recursive_value(source, "fracture_chip_progress_next"), 0.0));
+}
 Dictionary resolve_native_mutation_authority(const Dictionary &dispatch, const Dictionary &stage_payload) {
     const Dictionary explicit_authority = as_dictionary(dispatch.get("native_mutation_authority", Dictionary()));
     if (!explicit_authority.is_empty()) {
@@ -563,6 +600,28 @@ Dictionary build_stage_payload(
     stage_payload["dispatch_reason"] = dispatch_reason;
     stage_payload["dispatched"] = as_bool(dispatch.get("dispatched", false), false);
     stage_payload["physics_contacts"] = dispatch_contact_rows;
+    Array contact_schema = normalize_contact_schema(as_array(dispatch.get("contact_schema", Array())));
+    if (contact_schema.is_empty()) {
+        Dictionary seen;
+        for (int64_t i = 0; i < dispatch_contact_rows.size(); i += 1) {
+            if (dispatch_contact_rows[i].get_type() != Variant::DICTIONARY) { continue; }
+            const Array keys = static_cast<Dictionary>(dispatch_contact_rows[i]).keys();
+            for (int64_t key_index = 0; key_index < keys.size(); key_index += 1) {
+                const String key = as_string(keys[key_index], String()).strip_edges();
+                if (key.is_empty() || as_bool(seen.get(key, false), false)) { continue; }
+                seen[key] = true;
+                contact_schema.append(key);
+            }
+        }
+    }
+    stage_payload["contact_schema"] = contact_schema;
+    Dictionary contact_reduction_diagnostics = as_dictionary(dispatch.get("contact_reduction_diagnostics", Dictionary())).duplicate(false);
+    contact_reduction_diagnostics["input_rows"] = std::max<int64_t>(0, as_i64(contact_reduction_diagnostics.get("input_rows", dispatch_contact_rows.size()), dispatch_contact_rows.size()));
+    contact_reduction_diagnostics["output_rows"] = std::max<int64_t>(0, as_i64(contact_reduction_diagnostics.get("output_rows", dispatch_contact_rows.size()), dispatch_contact_rows.size()));
+    String reduction_stage = as_string(contact_reduction_diagnostics.get("reduction_stage", String()), String()).strip_edges();
+    if (reduction_stage.is_empty()) { reduction_stage = kDefaultContactReductionStage; }
+    contact_reduction_diagnostics["reduction_stage"] = reduction_stage;
+    stage_payload["contact_reduction_diagnostics"] = contact_reduction_diagnostics;
     stage_payload["native_ops"] = flatten_native_ops(dispatch);
     Array raw_chunks;
     collect_changed_chunks(dispatch, raw_chunks, 0);
@@ -579,6 +638,7 @@ Dictionary build_stage_payload(
     if (!changed_region.is_empty()) {
         stage_payload["changed_region"] = changed_region;
     }
+    forward_chip_contract_fields(stage_payload, dispatch);
     const Dictionary authority = resolve_native_mutation_authority(dispatch, stage_payload);
     if (!authority.is_empty()) {
         stage_payload["native_mutation_authority"] = authority.duplicate(true);
@@ -744,6 +804,13 @@ Dictionary LocalAgentsVoxelDispatchBridge::process_native_voxel_rate(double delt
     status["ok"] = false; status["dispatched"] = false; status["mutation_applied"] = false;
     status["mutation_error"] = String(); status["mutation_path"] = String();
     status["direct_contact_ops_used"] = false; status["direct_contact_ops_count"] = 0; status["contacts_consumed"] = 0;
+    forward_chip_contract_fields(status, Dictionary());
+    status["contact_schema"] = Array();
+    Dictionary contact_reduction_diagnostics;
+    contact_reduction_diagnostics["input_rows"] = 0;
+    contact_reduction_diagnostics["output_rows"] = 0;
+    contact_reduction_diagnostics["reduction_stage"] = String(kDefaultContactReductionStage);
+    status["contact_reduction_diagnostics"] = contact_reduction_diagnostics;
     const int64_t tick = as_i64(context.get("tick", 0), 0);
     const int64_t frame_index = std::max<int64_t>(0, as_i64(context.get("frame_index", static_cast<int64_t>(Engine::get_singleton()->get_process_frames())), 0));
     Object *simulation_controller = as_object_ptr(context.get("simulation_controller", Variant()));
@@ -836,6 +903,10 @@ Dictionary LocalAgentsVoxelDispatchBridge::process_native_voxel_rate(double delt
     runtime_record_success(runtime, simulation_controller, tick, tick_tier_id, backend_used, dispatch_reason, dispatch_duration_ms, dispatch);
     const int64_t native_executed_op_count = runtime_record_destruction_plan(runtime, dispatch);
     Dictionary stage_payload = build_stage_payload(dispatch, backend_used, dispatch_reason, dispatch_contact_rows, native_executed_op_count);
+    forward_chip_contract_fields(status, stage_payload);
+    status["contact_schema"] = as_array(stage_payload.get("contact_schema", Array())).duplicate(true);
+    status["contact_reduction_diagnostics"] = as_dictionary(
+        stage_payload.get("contact_reduction_diagnostics", contact_reduction_diagnostics)).duplicate(true);
     const bool spawn_entries_required = as_bool(stage_payload.get("spawn_entries_required", false), false);
     const bool spawn_entries_missing = spawn_entries_required && as_array(stage_payload.get("spawn_entries", Array())).is_empty();
     if (spawn_entries_missing) {
