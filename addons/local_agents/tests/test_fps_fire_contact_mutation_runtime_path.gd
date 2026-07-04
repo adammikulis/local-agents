@@ -107,6 +107,12 @@ func run_test(tree: SceneTree) -> bool:
 	var stage_payload := {
 		"native_ops": native_ops,
 		"changed_chunks": payload_changed_chunks,
+		"durability_hits": 4.25,
+		"fracture_chip_progress_prior": 0.8,
+		"fracture_chip_progress_next": 0.0,
+		"fracture_chip_damage_last": 1.2,
+		"fracture_chip_hits": 9,
+		"fracture_chip_state": "fractured",
 	}
 
 	var mutation := SimulationVoxelTerrainMutatorScript.apply_native_voxel_stage_delta(

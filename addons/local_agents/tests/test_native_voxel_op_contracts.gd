@@ -22,6 +22,7 @@ func run_test(_tree: SceneTree) -> bool:
 	ok = _test_environment_stage_dispatch_and_result_extraction_contract_source() and ok
 	ok = _test_changed_region_payload_shape_contract_source() and ok
 	ok = _test_native_authoritative_destruction_contract_source() and ok
+	ok = _test_contact_schema_reduction_diagnostics_contract_source() and ok
 	ok = _test_adaptive_multires_and_zoom_throttle_contract_source() and ok
 	ok = _test_variable_rate_deterministic_processing_contract_source() and ok
 	ok = _test_environment_stage_field_handle_injection_contract_source() and ok
@@ -69,8 +70,18 @@ func _test_spawn_entries_shader_first_flow_contract_source() -> bool:
 	ok = _assert(executor_source.contains("spawn_entry[\"impulse_size\"]"), "GPU executor spawn metadata must include impulse_size payload.") and ok
 	ok = _assert(executor_source.contains("spawn_entry[\"projectile_material_tag\"]"), "GPU executor spawn metadata must include projectile_material_tag payload.") and ok
 	ok = _assert(executor_source.contains("spawn_entry[\"spawn_synthesized\"] = !spawn_valid;"), "GPU executor must synthesize spawn metadata when GPU readback spawn_valid is false.") and ok
+	ok = _assert(executor_source.contains("changed_entry[\"durability_hits\"] = std::max(0.0, decoded_op.durability_hits);"), "GPU executor changed_entry payload must forward durability_hits metadata from parsed ops.") and ok
+	ok = _assert(executor_source.contains("changed_entry[\"fracture_chip_progress_prior\"] = decoded_op.fracture_chip_progress_prior;"), "GPU executor changed_entry payload must forward fracture_chip_progress_prior metadata from parsed ops.") and ok
+	ok = _assert(executor_source.contains("changed_entry[\"fracture_chip_progress_next\"] = decoded_op.fracture_chip_progress_next;"), "GPU executor changed_entry payload must forward fracture_chip_progress_next metadata from parsed ops.") and ok
+	ok = _assert(executor_source.contains("changed_entry[\"fracture_chip_damage_last\"] = std::max(0.0, decoded_op.fracture_chip_damage_last);"), "GPU executor changed_entry payload must forward fracture_chip_damage_last metadata from parsed ops.") and ok
+	ok = _assert(executor_source.contains("changed_entry[\"fracture_chip_hits\"] = decoded_op.fracture_chip_hits;"), "GPU executor changed_entry payload must forward fracture_chip_hits metadata from parsed ops.") and ok
+	ok = _assert(executor_source.contains("changed_entry[\"fracture_chip_state\"] = decoded_op.fracture_chip_state;"), "GPU executor changed_entry payload must forward fracture_chip_state metadata from parsed ops.") and ok
+	ok = _assert(executor_source.contains("changed_entry[\"chip_progress_spawn_count\"] = std::max<int64_t>(0, decoded_op.chip_progress_spawn_count);"), "GPU executor changed_entry payload must forward chip_progress_spawn_count metadata from parsed ops.") and ok
 	ok = _assert(engine_source.contains("result[\"spawn_entries\"] = gpu_stats.spawn_entries.duplicate(true);"), "Voxel engine result payload must include propagated spawn_entries.") and ok
 	ok = _assert(engine_source.contains("result[\"spawn_entries_required\"] = spawn_entries_required;"), "Voxel engine result payload must include spawn_entries_required marker.") and ok
+	ok = _assert(engine_source.contains("const Dictionary gpu_chip_fields = collect_gpu_chip_contract_fields(gpu_stats.changed_entries);"), "Voxel engine must collect GPU chip-contract metadata from changed_entries readback payload.") and ok
+	ok = _assert(engine_source.contains("apply_gpu_chip_contract_fields(execution, gpu_chip_fields);"), "Voxel engine execution metadata must include GPU chip-contract fields without mutator-side recompute.") and ok
+	ok = _assert(engine_source.contains("apply_gpu_chip_contract_fields(result, gpu_chip_fields);"), "Voxel engine result payload must include GPU chip-contract fields for dispatch forwarding.") and ok
 	ok = _assert(engine_source.contains("result[\"error\"] = String(\"spawn_entries_required_missing\");"), "Voxel engine must hard-fail when required spawn metadata is missing.") and ok
 	ok = _assert(engine_source.contains("execution[\"spawn_entries_status\"] = spawn_entries_missing ? String(\"error_required_missing\")"), "Voxel engine must expose error_required_missing status for missing required spawn metadata.") and ok
 	ok = _assert(bridge_source.contains("collect_spawn_entries(dispatch, spawn_entries, 0);"), "Dispatch bridge stage payload builder must collect spawn_entries recursively.") and ok
@@ -99,13 +110,25 @@ func _test_partial_chip_spawn_entries_contract_source() -> bool:
 		return false
 	var ok := true
 	ok = _assert(mutator_source.contains("const bool chip_progress_increased = next_chip_progress > (prior_chip_progress + 1.0e-6);"), "Native mutator must detect fracture_chip_progress increase for partial chip events.") and ok
+	ok = _assert(mutator_source.contains("const double durability = payload_durability_hits > 0.0 ? payload_durability_hits : resolve_column_durability(column, material_key);"), "Native mutator must consume GPU-provided durability_hits when present.") and ok
+	ok = _assert(mutator_source.contains("const double prior_chip_progress = payload_chip_progress_prior >= 0.0 ? payload_chip_progress_prior"), "Native mutator must consume GPU-provided fracture_chip_progress_prior when present.") and ok
+	ok = _assert(mutator_source.contains("const double next_chip_progress = payload_chip_progress_next >= 0.0 ? payload_chip_progress_next"), "Native mutator must consume GPU-provided fracture_chip_progress_next when present.") and ok
+	ok = _assert(mutator_source.contains("const double normalized_damage = payload_chip_damage_last > 0.0 ? payload_chip_damage_last"), "Native mutator must consume GPU-provided fracture_chip_damage_last when present.") and ok
 	ok = _assert(mutator_source.contains("const bool emit_spawn_entry = (chip_progress_increased && voxel_not_fully_removed) || (levels_to_remove > 0 && voxel_not_fully_removed);"), "Native mutator must emit spawn metadata for partial chip progress and fractured non-fully-removed voxel events.") and ok
-	ok = _assert(mutator_source.contains("spawn_entry[\"fracture_chip_state\"] = levels_to_remove > 0 ? String(\"fractured\") : String(\"chipped\");"), "Native mutator spawn entries must preserve chipped/fractured state for destruction evidence contracts.") and ok
+	ok = _assert(mutator_source.contains("spawn_entry[\"fracture_chip_state\"] = next_chip_state;"), "Native mutator spawn entries must preserve chipped/fractured state for destruction evidence contracts.") and ok
 	ok = _assert(mutator_source.contains("spawn_entry[\"projectile_kind\"] = String(\"voxel_chunk\");"), "Native mutator chip spawn entries must preserve voxel_chunk projectile metadata.") and ok
 	ok = _assert(mutator_source.contains("spawn_entry[\"projectile_material_tag\"] = resolved_material_tag;"), "Native mutator chip spawn entries must preserve material-tag mapping into debris payloads.") and ok
 	ok = _assert(mutator_source.contains("out[\"spawn_entries\"] = spawn_entries;"), "Native mutator result payload must expose chip-event spawn_entries for debris emission.") and ok
 	ok = _assert(mutator_source.contains("out[\"spawn_entries_required\"] = chip_spawn_required;"), "Native mutator result payload must require spawn entries when chip events are observed.") and ok
 	ok = _assert(mutator_source.contains("out[\"chip_progress_spawn_count\"] = chip_progress_spawn_count;"), "Native mutator result payload must expose chip spawn evidence counters.") and ok
+	ok = _assert(mutator_source.contains("row_metadata[\"durability_hits\"] = durability;"), "Native mutator row metadata must preserve durability_hits evidence.") and ok
+	ok = _assert(mutator_source.contains("row_metadata[\"fracture_chip_progress\"] = next_chip_progress;"), "Native mutator row metadata must preserve fracture_chip_progress evidence.") and ok
+	ok = _assert(mutator_source.contains("row_metadata[\"fracture_chip_hits\"] = next_chip_hits;"), "Native mutator row metadata must preserve fracture_chip_hits evidence.") and ok
+	ok = _assert(mutator_source.contains("row_metadata[\"fracture_chip_damage_last\"] = normalized_damage;"), "Native mutator row metadata must preserve fracture_chip_damage_last evidence.") and ok
+	ok = _assert(mutator_source.contains("row_metadata[\"fracture_chip_state\"] = next_chip_state;"), "Native mutator row metadata must preserve fracture_chip_state evidence.") and ok
+	ok = _assert(mutator_source.contains("spawn_entry[\"fracture_chip_progress_prior\"] = prior_chip_progress;"), "Native mutator spawn entries must preserve fracture_chip_progress_prior evidence.") and ok
+	ok = _assert(mutator_source.contains("spawn_entry[\"fracture_chip_progress_next\"] = next_chip_progress;"), "Native mutator spawn entries must preserve fracture_chip_progress_next evidence.") and ok
+	ok = _assert(mutator_source.contains("mutator_spawn_payload[\"chip_progress_spawn_count\"] = chip_progress_spawn_count;"), "Bridge handoff payload must preserve chip_progress_spawn_count evidence.") and ok
 	ok = _assert(mutator_source.contains("simulation_controller->set(StringName(\"_native_mutator_spawn_payload\"), mutator_spawn_payload);"), "Native mutator must expose same-tick spawn payload for debris emitter handoff.") and ok
 	ok = _assert(emitter_source.contains("simulation_controller->get(StringName(\"_native_mutator_spawn_payload\"))"), "Debris emitter must consume mutator-provided spawn payload when stage payload omits spawn entries.") and ok
 	return ok
@@ -130,6 +153,29 @@ func _test_native_authoritative_destruction_contract_source() -> bool:
 	ok = _assert(dispatch_contract_source.contains("if dispatch_reason in [\"gpu_required\", \"gpu_unavailable\", \"native_required\", \"native_unavailable\"]:"), "World dispatch contract must preserve typed GPU/native requirement failures without fallback-success behavior.") and ok
 	ok = _assert(dispatch_contract_source.contains("return \"native_voxel_stage_no_mutation\""), "World dispatch contract must default to native_voxel_stage_no_mutation for no-mutation fail-fast paths.") and ok
 	ok = _assert(dispatch_metrics_source.contains("[\"result_fields\", \"result\", \"dispatch\", \"payload\", \"execution\", \"voxel_result\"]"), "World dispatch metrics recursive extraction must traverse nested dispatch payloads when locating failure-emission payloads.") and ok
+	return ok
+
+func _test_contact_schema_reduction_diagnostics_contract_source() -> bool:
+	var bridge_source := _read_script_source(NATIVE_BRIDGE_GD_PATH)
+	if bridge_source == "":
+		return false
+	var dispatch_contract_source := _read_script_source(WORLD_DISPATCH_CONTRACTS_GD_PATH)
+	if dispatch_contract_source == "":
+		return false
+	var ok := true
+	ok = _assert(
+		bridge_source.contains("\"contact_schema\"") or dispatch_contract_source.contains("\"contact_schema\""),
+		"Contact schema contract key must be present in bridge or world dispatch contract source."
+	) and ok
+	ok = _assert(
+		bridge_source.contains("\"contact_reduction_diagnostics\"") or dispatch_contract_source.contains("\"contact_reduction_diagnostics\""),
+		"Contact reduction diagnostics key must be present in bridge or world dispatch contract source."
+	) and ok
+	ok = _assert(dispatch_contract_source.contains("\"contact_schema\""), "World dispatch contracts must include contact_schema payload key.") and ok
+	ok = _assert(dispatch_contract_source.contains("\"contact_reduction_diagnostics\""), "World dispatch contracts must include contact_reduction_diagnostics payload key.") and ok
+	ok = _assert(bridge_source.contains("\"input_rows\"") or dispatch_contract_source.contains("\"input_rows\""), "Contact reduction diagnostics contract must include input_rows key.") and ok
+	ok = _assert(bridge_source.contains("\"output_rows\"") or dispatch_contract_source.contains("\"output_rows\""), "Contact reduction diagnostics contract must include output_rows key.") and ok
+	ok = _assert(bridge_source.contains("\"reduction_stage\"") or dispatch_contract_source.contains("\"reduction_stage\""), "Contact reduction diagnostics contract must include reduction_stage key.") and ok
 	return ok
 
 func _test_voxel_op_ordering_contract_source() -> bool:
