@@ -15,8 +15,8 @@ var _query_cache_refresh_interval_seconds: float = 0.25
 var _query_cache_last_refresh_time_seconds: float = -1.0
 var _query_cache_dirty: bool = true
 var _query_layer_top_voxels: Dictionary = {}
-func configure(half_extent: float, voxel_size: float, vertical_half_extent: float = 3.0) -> void:
-	_grid.configure(half_extent, voxel_size, vertical_half_extent)
+func configure(half_extent: float, voxel_size: float, vertical_half_extent: float = 3.0, center: Vector3 = Vector3.ZERO) -> void:
+	_grid.configure(half_extent, voxel_size, vertical_half_extent, center)
 	_layers.clear()
 	_refresh_compute_state()
 	_mark_query_cache_dirty()

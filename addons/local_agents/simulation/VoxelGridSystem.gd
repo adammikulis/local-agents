@@ -4,12 +4,19 @@ class_name LocalAgentsVoxelGridSystem
 var _half_extent: float = 10.0
 var _voxel_size: float = 0.5
 var _vertical_half_extent: float = 3.0
+var _center: Vector3 = Vector3.ZERO
 var _invalid_voxel := Vector3i(2147483647, 2147483647, 2147483647)
 
-func configure(half_extent: float, voxel_size: float, vertical_half_extent: float = 3.0) -> void:
+# center offsets the field so it can follow the ecology area (e.g. onto voxel terrain
+# whose surface sits well above y=0). Voxel keys are stored relative to the center.
+func configure(half_extent: float, voxel_size: float, vertical_half_extent: float = 3.0, center: Vector3 = Vector3.ZERO) -> void:
 	_half_extent = maxf(1.0, half_extent)
 	_voxel_size = maxf(0.1, voxel_size)
 	_vertical_half_extent = maxf(_voxel_size, vertical_half_extent)
+	_center = center
+
+func center() -> Vector3:
+	return _center
 
 func half_extent() -> float:
 	return _half_extent
@@ -24,10 +31,11 @@ func invalid_voxel() -> Vector3i:
 	return _invalid_voxel
 
 func world_to_voxel(world_position: Vector3) -> Vector3i:
+	var local := world_position - _center
 	var voxel := Vector3i(
-		int(round(world_position.x / _voxel_size)),
-		int(round(world_position.y / _voxel_size)),
-		int(round(world_position.z / _voxel_size))
+		int(round(local.x / _voxel_size)),
+		int(round(local.y / _voxel_size)),
+		int(round(local.z / _voxel_size))
 	)
 	if not is_inside(voxel):
 		return _invalid_voxel
@@ -38,7 +46,7 @@ func voxel_to_world(voxel: Vector3i) -> Vector3:
 		float(voxel.x) * _voxel_size,
 		float(voxel.y) * _voxel_size,
 		float(voxel.z) * _voxel_size
-	)
+	) + _center
 
 func is_inside(voxel: Vector3i) -> bool:
 	var horizontal := Vector2(float(voxel.x) * _voxel_size, float(voxel.z) * _voxel_size)

@@ -8,6 +8,7 @@ var _terrain_root: Node3D
 var _mesh_cache: Dictionary = {}
 var _material_cache: Dictionary = {}
 var _chunk_node_index: Dictionary = {}
+var _native_utils = null
 
 var _transform_stage_a_state: Dictionary = {}
 var _water_shader_params := {
@@ -302,7 +303,8 @@ func _apply_chunk_build_result(result: Dictionary) -> void:
 			instance.multimesh = mm
 			instance.material_override = _material_for_block(block_type)
 			chunk_node.add_child(instance)
-		_build_chunk_collision_body(chunk_node, by_type)
+		var chunk_faces := _build_chunk_collision_body(chunk_node, by_type)
+		_build_chunk_navmesh(chunk_node, chunk_faces)
 
 func _mesh_for_block(block_type: String) -> Mesh:
 	if _mesh_cache.has(block_type):
@@ -317,36 +319,104 @@ func _mesh_for_block(block_type: String) -> Mesh:
 	_mesh_cache[block_type] = cube
 	return cube
 
-func _build_chunk_collision_body(chunk_node: Node3D, by_type: Dictionary) -> void:
+# One merged ConcavePolygonShape3D per chunk (face-culled surface triangles) instead of
+# a CollisionShape3D box per voxel. Faces are built natively when the extension is
+# available; a GDScript face-cull is the fallback. The same triangle soup is the source
+# geometry for the per-chunk navmesh (see _build_chunk_navmesh).
+func _build_chunk_collision_body(chunk_node: Node3D, by_type: Dictionary) -> PackedVector3Array:
 	if chunk_node == null:
-		return
-	var collision_body := StaticBody3D.new()
-	collision_body.name = "ChunkCollision"
-	var box_shape := BoxShape3D.new()
-	box_shape.size = Vector3.ONE
-	var has_collision := false
+		return PackedVector3Array()
+	var cells: Array = []
 	var block_types = by_type.keys()
 	block_types.sort_custom(func(a, b): return String(a) < String(b))
 	for type_variant in block_types:
-		var block_type = String(type_variant)
-		if not _block_type_has_collision(block_type):
+		if not _block_type_has_collision(String(type_variant)):
 			continue
-		var positions_variant = by_type.get(block_type, [])
+		var positions_variant = by_type.get(type_variant, [])
 		if not (positions_variant is Array):
 			continue
-		var positions: Array = positions_variant
-		for pos_variant in positions:
-			if not (pos_variant is Vector3):
+		for pos_variant in positions_variant:
+			if pos_variant is Vector3:
+				cells.append(pos_variant)
+	if cells.is_empty():
+		return PackedVector3Array()
+	var faces := _build_surface_faces(cells)
+	if faces.is_empty():
+		return faces
+	var shape := ConcavePolygonShape3D.new()
+	shape.set_faces(faces)
+	var collision_shape := CollisionShape3D.new()
+	collision_shape.shape = shape
+	var collision_body := StaticBody3D.new()
+	collision_body.name = "ChunkCollision"
+	collision_body.add_child(collision_shape)
+	chunk_node.add_child(collision_body)
+	return faces
+
+# Per-chunk navmesh baked from the same surface triangle soup. Because destruction only
+# rebuilds the changed chunk(s), re-baking here re-bakes ONLY the changed chunk's navmesh.
+func _build_chunk_navmesh(chunk_node: Node3D, faces: PackedVector3Array) -> void:
+	if chunk_node == null or faces.is_empty():
+		return
+	var nav_mesh := NavigationMesh.new()
+	nav_mesh.cell_size = 0.25
+	nav_mesh.cell_height = 0.25
+	nav_mesh.agent_radius = 0.25
+	nav_mesh.agent_height = 0.4
+	nav_mesh.agent_max_climb = 1.0
+	nav_mesh.agent_max_slope = 50.0
+	var source := NavigationMeshSourceGeometryData3D.new()
+	source.add_faces(faces, Transform3D.IDENTITY)
+	NavigationServer3D.bake_from_source_geometry_data(nav_mesh, source)
+	var region := NavigationRegion3D.new()
+	region.name = "ChunkNav"
+	region.navigation_mesh = nav_mesh
+	chunk_node.add_child(region)
+
+func _ensure_native_utils() -> void:
+	if _native_utils == null and ClassDB.class_exists("LocalAgentsWorldSimulationNativeUtils"):
+		_native_utils = ClassDB.instantiate("LocalAgentsWorldSimulationNativeUtils")
+
+func _build_surface_faces(cells: Array) -> PackedVector3Array:
+	_ensure_native_utils()
+	if _native_utils != null and _native_utils.has_method("build_voxel_surface_faces"):
+		var native_faces = _native_utils.call("build_voxel_surface_faces", cells, 1.0)
+		if native_faces is PackedVector3Array:
+			return native_faces
+	return _build_surface_faces_gd(cells)
+
+# Fallback face-cull: emit only cube faces bordering empty space.
+func _build_surface_faces_gd(cells: Array) -> PackedVector3Array:
+	var occupied: Dictionary = {}
+	for c in cells:
+		occupied[Vector3i(roundi(c.x), roundi(c.y), roundi(c.z))] = true
+	var faces := PackedVector3Array()
+	var h := 0.5
+	var dirs := [Vector3i(1,0,0), Vector3i(-1,0,0), Vector3i(0,1,0), Vector3i(0,-1,0), Vector3i(0,0,1), Vector3i(0,0,-1)]
+	var corner_sets := [
+		[Vector3(1,-1,-1), Vector3(1,1,-1), Vector3(1,1,1), Vector3(1,-1,1)],
+		[Vector3(-1,-1,1), Vector3(-1,1,1), Vector3(-1,1,-1), Vector3(-1,-1,-1)],
+		[Vector3(-1,1,-1), Vector3(-1,1,1), Vector3(1,1,1), Vector3(1,1,-1)],
+		[Vector3(-1,-1,1), Vector3(-1,-1,-1), Vector3(1,-1,-1), Vector3(1,-1,1)],
+		[Vector3(1,-1,1), Vector3(1,1,1), Vector3(-1,1,1), Vector3(-1,-1,1)],
+		[Vector3(-1,-1,-1), Vector3(-1,1,-1), Vector3(1,1,-1), Vector3(1,-1,-1)],
+	]
+	for c in cells:
+		var cell := Vector3i(roundi(c.x), roundi(c.y), roundi(c.z))
+		var center := Vector3(cell.x, cell.y, cell.z)
+		for f in range(6):
+			if occupied.has(cell + dirs[f]):
 				continue
-			var shape := CollisionShape3D.new()
-			shape.shape = box_shape
-			shape.transform = Transform3D(Basis.IDENTITY, pos_variant)
-			collision_body.add_child(shape)
-			has_collision = true
-	if has_collision:
-		chunk_node.add_child(collision_body)
-	else:
-		collision_body.queue_free()
+			var q: Array = corner_sets[f]
+			var a: Vector3 = center + (q[0] as Vector3) * h
+			var b: Vector3 = center + (q[1] as Vector3) * h
+			var cc: Vector3 = center + (q[2] as Vector3) * h
+			var d: Vector3 = center + (q[3] as Vector3) * h
+			faces.append(a); faces.append(b); faces.append(cc)
+			faces.append(a); faces.append(cc); faces.append(d)
+			faces.append(a); faces.append(cc); faces.append(b)
+			faces.append(a); faces.append(d); faces.append(cc)
+	return faces
 
 func _block_type_has_collision(block_type: String) -> bool:
 	return block_type != "water"

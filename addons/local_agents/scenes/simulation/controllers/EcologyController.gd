@@ -23,6 +23,25 @@ const VoxelProcessGateControllerScript = preload("res://addons/local_agents/scen
 @export var max_rabbit_population: int = 40
 @export var max_fox_population: int = 10
 @export var world_bounds_radius: float = 8.0
+# World-space center of the ecology area (smell/wind field + spawn/roam bounds). Leave at
+# origin for the flat sandbox; set to the map centre for voxel terrain.
+@export var field_center: Vector3 = Vector3.ZERO
+# When > 0, creatures spawn at this Y and fall onto the terrain via gravity+collision
+# instead of being placed at a fixed flat height.
+@export var spawn_drop_height: float = 0.0
+# Optional EnvironmentController providing the voxel terrain surface-height buffer. When
+# set, this is "terrain mode": ecology spawning waits until the surface is available and
+# plants are placed on the terrain surface.
+@export var environment_controller_path: NodePath
+
+var _environment: Node = null
+var _surface_buffer: PackedInt32Array = PackedInt32Array()
+var _surface_width: int = 0
+var _surface_depth: int = 0
+var _ecology_spawned: bool = false
+var _awaiting_terrain_spawn: bool = false
+var _sea_level: int = 0
+var _land_center_resolved: bool = false
 @export var smell_voxel_size: float = 1.0
 @export var smell_vertical_half_extent: float = 3.0
 @export var smell_emit_interval_seconds: float = 0.65
@@ -113,8 +132,8 @@ func _ready() -> void:
 	_smell_dependency_error_details = ""
 	_smell_field = SmellFieldSystemScript.new()
 	_wind_field = WindFieldSystemScript.new()
-	_smell_field.configure(world_bounds_radius, smell_voxel_size, smell_vertical_half_extent)
-	_wind_field.configure(world_bounds_radius, smell_voxel_size, smell_vertical_half_extent)
+	_smell_field.configure(world_bounds_radius, smell_voxel_size, smell_vertical_half_extent, field_center)
+	_wind_field.configure(world_bounds_radius, smell_voxel_size, smell_vertical_half_extent, field_center)
 	_wind_field.set_global_wind(wind_direction, wind_intensity, wind_speed)
 	if _smell_field != null and _smell_field.has_method("set_compute_enabled"):
 		_smell_field.set_compute_enabled(smell_gpu_compute_enabled)
@@ -150,10 +169,9 @@ func _ready() -> void:
 		add_child(bird_root)
 	_bird_flock_controller = BirdFlockControllerScript.new()
 	_bird_flock_controller.setup(self, bird_root)
-	_plant_growth_controller.spawn_initial_plants(initial_plant_count)
-	_mammal_behavior_controller.spawn_initial_rabbits(initial_rabbit_count)
-	_mammal_behavior_controller.spawn_initial_foxes(initial_fox_count)
-	_bird_flock_controller.spawn_initial_birds(initial_bird_count)
+	if environment_controller_path != NodePath():
+		_environment = get_node_or_null(environment_controller_path)
+	_begin_ecology_spawn()
 	_smell_system_controller.refresh_smell_sources()
 	_mammal_behavior_controller.refresh_actor_caches()
 	_plant_growth_controller.rebuild_edible_plant_index()
@@ -176,8 +194,121 @@ func _bind_boids_runtime_settings_source() -> void:
 	if _mammal_behavior_controller != null and _mammal_behavior_controller.has_method("set_boids_runtime_settings_source"):
 		_mammal_behavior_controller.call("set_boids_runtime_settings_source", source)
 
+# --- ecology spawn (terrain-aware) -----------------------------------------
+
+func _begin_ecology_spawn() -> void:
+	if _environment != null:
+		# Terrain mode: defer until the surface buffer AND the async terrain collision
+		# both exist, so creatures land on real ground instead of falling through.
+		_awaiting_terrain_spawn = true
+	else:
+		_spawn_ecology()
+
+# True once the terrain collision has been baked under the ecology area (a downward ray
+# from above the centre hits something on the world layer).
+func _terrain_collision_ready() -> bool:
+	var space := get_world_3d().direct_space_state
+	if space == null:
+		return false
+	var from := Vector3(field_center.x, field_center.y + 40.0, field_center.z)
+	var to := Vector3(field_center.x, field_center.y - 40.0, field_center.z)
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.collision_mask = 1
+	return not space.intersect_ray(query).is_empty()
+
+func _spawn_ecology() -> void:
+	if _ecology_spawned:
+		return
+	_ecology_spawned = true
+	_plant_growth_controller.spawn_initial_plants(initial_plant_count)
+	_mammal_behavior_controller.spawn_initial_rabbits(initial_rabbit_count)
+	_mammal_behavior_controller.spawn_initial_foxes(initial_fox_count)
+	_bird_flock_controller.spawn_initial_birds(initial_bird_count)
+	_smell_system_controller.refresh_smell_sources()
+	_mammal_behavior_controller.refresh_actor_caches()
+	_plant_growth_controller.rebuild_edible_plant_index()
+
+func _refresh_surface() -> void:
+	if _environment == null or not _environment.has_method("get_generation_snapshot"):
+		return
+	var snap = _environment.call("get_generation_snapshot")
+	if not (snap is Dictionary):
+		return
+	var voxel_world = snap.get("voxel_world", null)
+	if not (voxel_world is Dictionary):
+		return
+	var buffer = voxel_world.get("surface_y_buffer", null)
+	var width := int(voxel_world.get("width", 0))
+	var depth := int(voxel_world.get("depth", voxel_world.get("height", 0)))
+	_sea_level = int(voxel_world.get("sea_level", _sea_level))
+	if buffer is PackedInt32Array and width > 0 and depth > 0 and (buffer as PackedInt32Array).size() >= width * depth:
+		_surface_buffer = buffer
+		_surface_width = width
+		_surface_depth = depth
+
+# Re-centre the ecology on land: the centroid of tiles whose surface is above sea level,
+# so the smell field and spawns sit on the island rather than in the water.
+func _resolve_terrain_field_center() -> void:
+	if _land_center_resolved or not has_surface():
+		return
+	_land_center_resolved = true
+	var sum_x := 0.0
+	var sum_z := 0.0
+	var sum_y := 0.0
+	var land := 0
+	for tz in range(_surface_depth):
+		for tx in range(_surface_width):
+			var sy := _surface_buffer[tz * _surface_width + tx]
+			if sy > _sea_level:
+				sum_x += float(tx)
+				sum_z += float(tz)
+				sum_y += float(sy)
+				land += 1
+	if land <= 0:
+		return
+	field_center = Vector3(sum_x / land, sum_y / land + 0.5, sum_z / land)
+	# Re-centre the smell/wind fields on the resolved land centre.
+	if _smell_field != null:
+		_smell_field.configure(world_bounds_radius, smell_voxel_size, smell_vertical_half_extent, field_center)
+	if _wind_field != null:
+		_wind_field.configure(world_bounds_radius, smell_voxel_size, smell_vertical_half_extent, field_center)
+		_wind_field.set_global_wind(wind_direction, wind_intensity, wind_speed)
+
+func has_surface() -> bool:
+	return _surface_width > 0 and _surface_depth > 0 and _surface_buffer.size() >= _surface_width * _surface_depth
+
+# Actual terrain top at a world X/Z via a downward raycast against the live collision
+# (matches whatever geometry currently exists); falls back to the surface buffer.
+func terrain_top_at(world_x: float, world_z: float) -> float:
+	var space := get_world_3d().direct_space_state
+	if space != null:
+		var from := Vector3(world_x, field_center.y + 40.0, world_z)
+		var to := Vector3(world_x, field_center.y - 40.0, world_z)
+		var query := PhysicsRayQueryParameters3D.create(from, to)
+		query.collision_mask = 1
+		var hit := space.intersect_ray(query)
+		if not hit.is_empty():
+			return float((hit.get("position") as Vector3).y)
+	return surface_y_at(world_x, world_z)
+
+# Walkable surface height (top face of the top solid voxel) at a world X/Z.
+func surface_y_at(world_x: float, world_z: float) -> float:
+	if not has_surface():
+		return field_center.y
+	var tile_x := clampi(int(round(world_x)), 0, _surface_width - 1)
+	var tile_z := clampi(int(round(world_z)), 0, _surface_depth - 1)
+	return float(_surface_buffer[tile_z * _surface_width + tile_x]) + 0.5
+
 func _physics_process(delta: float) -> void:
 	if delta <= 0.0:
+		return
+	if _awaiting_terrain_spawn:
+		_refresh_surface()
+		if has_surface():
+			_resolve_terrain_field_center()
+		if has_surface() and _terrain_collision_ready():
+			_awaiting_terrain_spawn = false
+			_spawn_ecology()
 		return
 	if _smell_dependency_failed:
 		return

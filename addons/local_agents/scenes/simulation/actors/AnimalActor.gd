@@ -63,7 +63,7 @@ var _jump_cooldown_remaining: float = 0.0
 var _pending_behavior_velocity: Vector3 = Vector3.ZERO
 var _pending_behavior_speed: float = 0.0
 var _pending_behavior_intent: Vector3 = Vector3.ZERO
-var _has_pending_behavior_output: bool = false
+var _flock_output_ttl: float = 0.0
 
 func _ready() -> void:
 	add_to_group("living_creature")
@@ -171,7 +171,13 @@ func taxonomy_path() -> Array:
 
 # --- per-tick locomotion ----------------------------------------------------
 
-func simulation_step(delta: float) -> void:
+# Locomotion runs EVERY physics frame so gravity/move_and_slide never teleport a body
+# through thin voxel-terrain collision. Behavior decisions (food/flee/flock) are set by
+# controllers at their own cadence; simulation_step is kept only for API compatibility.
+func simulation_step(_delta: float) -> void:
+	pass
+
+func _physics_process(delta: float) -> void:
 	_age_seconds += delta
 	if _breed_cooldown_remaining > 0.0:
 		_breed_cooldown_remaining = maxf(0.0, _breed_cooldown_remaining - delta)
@@ -179,6 +185,8 @@ func simulation_step(delta: float) -> void:
 		_decision_hold_remaining = maxf(0.0, _decision_hold_remaining - delta)
 	if _jump_cooldown_remaining > 0.0:
 		_jump_cooldown_remaining = maxf(0.0, _jump_cooldown_remaining - delta)
+	if _flock_output_ttl > 0.0:
+		_flock_output_ttl = maxf(0.0, _flock_output_ttl - delta)
 	var heading := _resolve_heading(delta)
 	if can_fly:
 		_drive_flight(heading, delta)
@@ -186,15 +194,9 @@ func simulation_step(delta: float) -> void:
 		_drive_ground(heading, delta)
 
 func _resolve_heading(delta: float) -> Vector3:
-	if _has_pending_behavior_output:
-		_has_pending_behavior_output = false
-		var flock := _pending_behavior_velocity
-		var flock_speed := _pending_behavior_speed
-		_pending_behavior_velocity = Vector3.ZERO
-		_pending_behavior_speed = 0.0
-		if flock.length_squared() > 0.0001 and flock_speed > 0.0:
-			return flock.normalized() * flock_speed
-		return Vector3.ZERO
+	# Flock/boids output takes priority while fresh (persists between controller updates).
+	if _flock_output_ttl > 0.0 and _pending_behavior_velocity.length_squared() > 0.0001 and _pending_behavior_speed > 0.0:
+		return _pending_behavior_velocity.normalized() * _pending_behavior_speed
 	if _flee_remaining > 0.0:
 		_flee_remaining = maxf(0.0, _flee_remaining - delta)
 		return _heading_to(_flee_target, flee_speed, _flee_direction)
@@ -272,7 +274,7 @@ func apply_flock_output(next_velocity: Vector3, next_speed: float, next_intent: 
 	_pending_behavior_velocity = next_velocity
 	_pending_behavior_speed = maxf(0.0, float(next_speed))
 	_pending_behavior_intent = next_intent
-	_has_pending_behavior_output = true
+	_flock_output_ttl = 0.5
 
 # Back-compat alias (older boids/mammal controllers call this name).
 func apply_mammal_behavior_output(next_velocity: Vector3, next_speed: float, next_intent: Vector3 = Vector3.ZERO) -> void:

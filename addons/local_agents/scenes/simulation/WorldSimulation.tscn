@@ -30,8 +30,9 @@ sky_material = SubResource("ProceduralSkyMaterial_world")
 background_mode = 2
 sky = SubResource("Sky_world")
 ambient_light_source = 3
-ambient_light_energy = 0.9
-tonemap_mode = 4
+ambient_light_energy = 1.6
+tonemap_mode = 2
+tonemap_white = 1.3
 sdfgi_use_occlusion = true
 sdfgi_cascades = 2
 sdfgi_min_cell_size = 0.35
@@ -41,6 +42,7 @@ script = ExtResource("1_world")
 auto_play_on_ready = false
 years_per_tick = 0.0
 simulated_seconds_per_tick = 0.0
+start_time_of_day = 0.5
 day_night_cycle_enabled = false
 flow_traversal_profile_override = ExtResource("10_flow_profile")
 worldgen_config_override = ExtResource("11_worldgen_config")
@@ -81,7 +83,16 @@ process_mode = 4
 
 [node name="EcologyController" type="Node3D" parent="." unique_id=2134405285]
 script = ExtResource("9_ecology")
-process_mode = 4
+environment_controller_path = NodePath("../EnvironmentController")
+field_center = Vector3(28, 15, 28)
+world_bounds_radius = 18.0
+spawn_drop_height = 34.0
+smell_vertical_half_extent = 8.0
+initial_plant_count = 18
+initial_rabbit_count = 8
+initial_fox_count = 2
+initial_bird_count = 12
+wind_intensity = 0.0
 
 [node name="PlantRoot" type="Node3D" parent="EcologyController" unique_id=1790888063]
 
@@ -94,7 +105,8 @@ script = ExtResource("16_mutation_glow")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1816803764]
 transform = Transform3D(0.859009, -0.246761, 0.448301, 0, 0.876727, 0.480988, -0.511962, -0.413126, 0.752907, 0, 7, 0)
-light_energy = 1.15
+light_color = Color(1, 0.97, 0.9, 1)
+light_energy = 2.6
 shadow_enabled = true
 
 [node name="Camera3D" type="Camera3D" parent="." unique_id=1034959490]

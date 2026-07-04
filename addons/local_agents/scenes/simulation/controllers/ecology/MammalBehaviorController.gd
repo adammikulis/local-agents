@@ -38,9 +38,11 @@ func spawn_rabbit_at(world_position: Vector3) -> Node3D:
 	return rabbit
 
 func spawn_initial_rabbits(count: int) -> void:
+	var center: Vector3 = _owner.field_center
+	var ring := maxf(1.8, float(_owner.world_bounds_radius) * 0.35)
 	for i in range(count):
 		var angle := TAU * float(i) / float(maxi(1, count))
-		spawn_rabbit_at(Vector3(cos(angle) * 1.8, 0.18, sin(angle) * 1.8))
+		spawn_rabbit_at(Vector3(center.x + cos(angle) * ring, 0.18, center.z + sin(angle) * ring))
 
 func spawn_fox_at(world_position: Vector3) -> Node3D:
 	_owner._fox_sequence += 1
@@ -51,10 +53,11 @@ func spawn_fox_at(world_position: Vector3) -> Node3D:
 	return fox
 
 func spawn_initial_foxes(count: int) -> void:
+	var center: Vector3 = _owner.field_center
 	var ring := maxf(2.5, _owner.world_bounds_radius * 0.75)
 	for i in range(count):
 		var angle := TAU * float(i) / float(maxi(1, count)) + 0.6
-		spawn_fox_at(Vector3(cos(angle) * ring, 0.3, sin(angle) * ring))
+		spawn_fox_at(Vector3(center.x + cos(angle) * ring, 0.3, center.z + sin(angle) * ring))
 
 func refresh_actor_caches() -> void:
 	_mammal_actors.clear()
@@ -251,15 +254,25 @@ func clear_generated_rabbits() -> void:
 	_living_creatures.clear()
 
 func _keep_inside_bounds(rabbit: Node3D) -> void:
-	var planar := Vector2(rabbit.global_position.x, rabbit.global_position.z)
+	var center: Vector3 = _owner.field_center
+	var planar := Vector2(rabbit.global_position.x - center.x, rabbit.global_position.z - center.z)
 	if planar.length() <= _owner.world_bounds_radius:
 		return
 	var clamped: Vector2 = planar.normalized() * float(_owner.world_bounds_radius)
-	rabbit.global_position = Vector3(clamped.x, rabbit.global_position.y, clamped.y)
+	rabbit.global_position = Vector3(center.x + clamped.x, rabbit.global_position.y, center.z + clamped.y)
 
 func _clamp_to_field(world_position: Vector3, y: float) -> Vector3:
-	var planar := Vector2(world_position.x, world_position.z)
-	var clamped: Vector2 = planar
+	var center: Vector3 = _owner.field_center
+	var planar := Vector2(world_position.x - center.x, world_position.z - center.z)
 	if planar.length() > _owner.world_bounds_radius:
-		clamped = planar.normalized() * _owner.world_bounds_radius
-	return Vector3(clamped.x, y, clamped.y)
+		planar = planar.normalized() * _owner.world_bounds_radius
+	var world_x := center.x + planar.x
+	var world_z := center.z + planar.y
+	# Place directly on the live terrain collision (raycast) so creatures never fall
+	# through progressively-built terrain; else drop-spawn; else fixed flat height.
+	var spawn_y := y
+	if _owner.has_method("has_surface") and _owner.has_surface():
+		spawn_y = _owner.terrain_top_at(world_x, world_z) + 0.35
+	elif float(_owner.spawn_drop_height) > 0.0:
+		spawn_y = float(_owner.spawn_drop_height)
+	return Vector3(world_x, spawn_y, world_z)

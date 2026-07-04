@@ -28,12 +28,21 @@ func setup(owner: Node, bird_root: Node3D) -> void:
 	_owner = owner
 	_bird_root = bird_root
 
+const CRUISE_HEIGHT := 10.0
+
+func _center() -> Vector3:
+	return _owner.field_center
+
+func _cruise_altitude() -> float:
+	return _owner.field_center.y + CRUISE_HEIGHT
+
 func spawn_initial_birds(count: int) -> void:
+	var center: Vector3 = _center()
 	var radius := maxf(3.0, _owner.world_bounds_radius * 0.6)
-	var altitude := 8.0
+	var altitude := _cruise_altitude()
 	for i in range(count):
 		var angle := TAU * float(i) / float(maxi(1, count))
-		var pos := Vector3(cos(angle) * radius, altitude + randf_range(-1.5, 1.5), sin(angle) * radius)
+		var pos := Vector3(center.x + cos(angle) * radius, altitude + randf_range(-1.5, 1.5), center.z + sin(angle) * radius)
 		spawn_bird_at(pos)
 
 func spawn_bird_at(world_position: Vector3) -> Node3D:
@@ -66,16 +75,17 @@ func step(delta: float) -> void:
 	if _birds.is_empty():
 		return
 	var bounds_radius := maxf(6.0, _owner.world_bounds_radius * 1.3)
-	var cruise := 8.0
+	var cruise := _cruise_altitude()
+	var center: Vector3 = _center()
 	for bird in _birds:
 		if not is_instance_valid(bird):
 			continue
-		var desired := _flock_velocity(bird, bounds_radius, cruise)
+		var desired := _flock_velocity(bird, bounds_radius, cruise, center)
 		bird.apply_flock_output(desired.normalized(), desired.length())
 		if bird.has_method("simulation_step"):
 			bird.simulation_step(delta)
 
-func _flock_velocity(bird: Node3D, bounds_radius: float, cruise: float) -> Vector3:
+func _flock_velocity(bird: Node3D, bounds_radius: float, cruise: float, center: Vector3) -> Vector3:
 	var pos: Vector3 = bird.global_position
 	var vel: Vector3 = bird.velocity
 	var separation := Vector3.ZERO
@@ -105,8 +115,8 @@ func _flock_velocity(bird: Node3D, bounds_radius: float, cruise: float) -> Vecto
 	steer += Vector3(randf_range(-1.0, 1.0), randf_range(-0.4, 0.4), randf_range(-1.0, 1.0)) * WANDER_WEIGHT
 	# Altitude band around cruise height
 	steer.y += clampf(cruise - pos.y, -2.0, 2.0) * ALTITUDE_WEIGHT
-	# Soft world bounds (horizontal)
-	var horizontal := Vector3(pos.x, 0.0, pos.z)
+	# Soft world bounds (horizontal, around the ecology centre)
+	var horizontal := Vector3(pos.x - center.x, 0.0, pos.z - center.z)
 	if horizontal.length() > bounds_radius:
 		steer += -horizontal.normalized() * BOUNDS_WEIGHT * ((horizontal.length() - bounds_radius) + 1.0)
 	# Clamp speed with a minimum so the flock never stalls.
