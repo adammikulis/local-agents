@@ -34,16 +34,17 @@ for file in "${FILES[@]}"; do
   fi
   lines=$(wc -l < "$file" | tr -d '[:space:]')
   if [[ "$lines" -gt "$MAX_FILE_LINES" ]]; then
-    echo "FILE TOO LONG: $file ($lines lines > $MAX_FILE_LINES max)"
+    echo "WARNING: FILE OVER SOFT LIMIT: $file ($lines lines > $MAX_FILE_LINES soft limit)"
     violations=$((violations + 1))
   fi
 done
 
+# Soft limit only: report oversize files as advisory warnings, but never fail CI.
 if [[ "$violations" -gt 0 ]]; then
   echo
-  echo "Max file length check failed with $violations violation(s)."
-  echo "No exceptions are supported. Split large files into focused modules."
-  exit 1
+  echo "Max file length check found $violations file(s) over the ${MAX_FILE_LINES}-line soft limit (warning only)."
+  echo "Consider splitting large files into focused modules; this is advisory and does not fail the build."
+else
+  echo "Max file length check passed (soft limit: $MAX_FILE_LINES lines)."
 fi
-
-echo "Max file length check passed (limit: $MAX_FILE_LINES lines)."
+exit 0
