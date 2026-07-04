@@ -20,6 +20,7 @@ const DETERMINISTIC_TESTS: Array[String] = [
 	"res://addons/local_agents/tests/test_native_general_physics_failure_emission_runtime.gd",
 	"res://addons/local_agents/tests/test_native_general_physics_failure_emission_contracts.gd",
 	"res://addons/local_agents/tests/test_native_orchestration_dispatch_runtime_contract.gd",
+	"res://addons/local_agents/tests/test_native_projectile_dispatch_deadline_contract.gd",
 	"res://addons/local_agents/tests/test_native_debris_dispatch_contract.gd",
 	"res://addons/local_agents/tests/test_simulation_voxel_terrain_generation.gd",
 	"res://addons/local_agents/tests/test_simulation_water_first_spawn.gd",

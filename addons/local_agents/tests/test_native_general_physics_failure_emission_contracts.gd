@@ -7,6 +7,8 @@ const NATIVE_CORE_CPP_PATH := "res://addons/local_agents/gdextensions/localagent
 const WORLD_SIMULATION_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd"
 const WORLD_DISPATCH_CONTROLLER_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/world/WorldDispatchController.gd"
 const WORLD_DISPATCH_CONTRACTS_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/world/WorldDispatchContracts.gd"
+const WORLD_NATIVE_VOXEL_DISPATCH_RUNTIME_GD_PATH := "res://addons/local_agents/scenes/simulation/controllers/world/WorldNativeVoxelDispatchRuntime.gd"
+const SIMULATION_RUNTIME_FACADE_GD_PATH := "res://addons/local_agents/simulation/controller/SimulationRuntimeFacade.gd"
 const NativeComputeBridgeScript := preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
 
 func run_test(_tree: SceneTree) -> bool:
@@ -28,11 +30,17 @@ func run_test(_tree: SceneTree) -> bool:
 	var world_dispatch_contracts_source := _read_source(WORLD_DISPATCH_CONTRACTS_GD_PATH)
 	if world_dispatch_contracts_source == "":
 		return false
+	var world_native_voxel_dispatch_runtime_source := _read_source(WORLD_NATIVE_VOXEL_DISPATCH_RUNTIME_GD_PATH)
+	if world_native_voxel_dispatch_runtime_source == "":
+		return false
+	var simulation_runtime_facade_source := _read_source(SIMULATION_RUNTIME_FACADE_GD_PATH)
+	if simulation_runtime_facade_source == "":
+		return false
 	var ok := true
 	ok = _test_directional_failure_cleave_contract(planner_source) and ok
 	ok = _test_fallback_fracture_contract(planner_source) and ok
 	ok = _test_environment_stage_driver_contract(planner_source, core_source) and ok
-	ok = _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_simulation_source, world_dispatch_controller_source, world_dispatch_contracts_source) and ok
+	ok = _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_simulation_source, world_dispatch_controller_source, world_dispatch_contracts_source, world_native_voxel_dispatch_runtime_source, simulation_runtime_facade_source) and ok
 	ok = _test_noise_metadata_contract(planner_source, noise_source) and ok
 	ok = _test_wrapper_shapes_failure_emission_contract_payloads() and ok
 	ok = _test_wrapper_preserves_typed_environment_fail_fast_errors() and ok
@@ -155,7 +163,7 @@ func _test_noise_metadata_contract(planner_source: String, noise_source: String)
 	) and ok
 	return ok
 
-func _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_simulation_source: String, world_dispatch_controller_source: String, world_dispatch_contracts_source: String) -> bool:
+func _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_simulation_source: String, world_dispatch_controller_source: String, world_dispatch_contracts_source: String, world_native_voxel_dispatch_runtime_source: String, simulation_runtime_facade_source: String) -> bool:
 	var ok := true
 	ok = _assert(
 		world_simulation_source.contains("const _VOXEL_NATIVE_STAGE_NAME := &\"voxel_transform_step\""),
@@ -166,14 +174,23 @@ func _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_s
 		"WorldSimulation must process native voxel rate using the current per-frame dispatch signature."
 	) and ok
 	ok = _assert(
-		world_dispatch_controller_source.contains("build_native_tick_payload")
-			and world_dispatch_contracts_source.contains("\"physics_contacts\": dispatch_contact_rows"),
-		"World dispatch contract must include persisted physics_contacts rows for failure emission input."
+		world_simulation_source.contains("sample_active_projectile_contact_rows")
+			and world_simulation_source.contains("\"dispatch_contact_rows\": dispatch_contact_rows"),
+		"WorldSimulation must forward sampled projectile contact rows into the native voxel dispatch context for failure emission input."
 	) and ok
 	ok = _assert(
-		world_dispatch_controller_source.contains("var tick_payload := WorldDispatchContractsScript.build_native_tick_payload(")
-			and world_dispatch_contracts_source.contains("\"native_tick_orchestration\""),
-		"WorldDispatchController must build canonical per-frame native tick payloads instead of script-authoritative pulse loops."
+		world_dispatch_contracts_source.contains("static func build_native_tick_payload(")
+			and world_dispatch_contracts_source.contains("\"physics_contacts\": dispatch_contact_rows"),
+		"World dispatch contract must build native tick payloads with persisted physics_contacts rows for failure emission input."
+	) and ok
+	ok = _assert(
+		world_dispatch_contracts_source.contains("payload[\"native_tick_orchestration\"]"),
+		"World dispatch contract must stamp canonical native_tick_orchestration metadata onto per-frame tick payloads instead of script-authoritative pulse loops."
+	) and ok
+	ok = _assert(
+		world_dispatch_controller_source.contains("func process_native_voxel_rate(")
+			and world_dispatch_controller_source.contains("ClassDB.instantiate(\"LocalAgentsVoxelDispatchBridge\")"),
+		"WorldDispatchController must route the per-frame cadence into the native LocalAgentsVoxelDispatchBridge instead of a script-authoritative pulse loop."
 	) and ok
 	ok = _assert(
 		world_dispatch_contracts_source.contains("stage_payload[\"native_ops\"] = _flatten_native_ops(dispatch)")
@@ -182,15 +199,17 @@ func _test_world_simulation_forwards_projectile_contacts_to_native_stage(world_s
 		"WorldDispatchContracts stage payload must expose canonical native_ops/changed_chunks/changed_region fields directly."
 	) and ok
 	ok = _assert(
-		not world_dispatch_controller_source.contains("voxel_rate_scheduler")
-			and world_dispatch_controller_source.contains("execute_native_voxel_stage"),
-		"WorldDispatchController primary path must route cadence through native per-frame execute_native_voxel_stage orchestration."
+		simulation_runtime_facade_source.contains("static func execute_native_voxel_stage(")
+			and not simulation_runtime_facade_source.contains("voxel_rate_scheduler")
+			and not world_dispatch_controller_source.contains("voxel_rate_scheduler"),
+		"Runtime facade primary path must route cadence through native per-frame execute_native_voxel_stage orchestration without a voxel_rate_scheduler shim."
 	) and ok
 	ok = _assert(
-		world_dispatch_controller_source.contains("native_tick_contract")
-			and world_dispatch_controller_source.contains("record_contacts_dispatched")
+		simulation_runtime_facade_source.contains("native_tick_contract")
+			and world_native_voxel_dispatch_runtime_source.contains("func record_contacts_dispatched(")
+			and not simulation_runtime_facade_source.contains("apply_native_tick_contract")
 			and not world_dispatch_controller_source.contains("apply_native_tick_contract"),
-		"WorldDispatchController must consume native tick contract outputs without launcher-owned queue acknowledgement shims."
+		"Native tick contract outputs must be consumed via record_contacts_dispatched without launcher-owned apply_native_tick_contract acknowledgement shims."
 	) and ok
 	return ok
 

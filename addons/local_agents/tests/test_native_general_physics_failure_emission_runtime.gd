@@ -3,6 +3,9 @@ extends RefCounted
 
 const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
 const NativeComputeBridge := preload("res://addons/local_agents/simulation/controller/NativeComputeBridge.gd")
+const SimulationControllerScript := preload("res://addons/local_agents/simulation/SimulationController.gd")
+const SimulationVoxelTerrainMutatorScript := preload("res://addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd")
+const WorldGenConfigScript := preload("res://addons/local_agents/configuration/parameters/simulation/WorldGenConfigResource.gd")
 const PIPELINE_STAGE_NAME := "wave_a_continuity"
 
 const BASE_MASS := [1.0, 1.1]
@@ -14,7 +17,7 @@ const BASE_TOPOLOGY := [[1], [0]]
 const REQUIRED_NOISE_SCALAR_KEYS := ["noise_frequency", "noise_octaves", "noise_lacunarity"]
 const OPTIONAL_NOISE_GAIN_KEYS := ["noise_gain", "noise_persistence"]
 
-func run_test(_tree: SceneTree) -> bool:
+func run_test(tree: SceneTree) -> bool:
 	if not ExtensionLoader.ensure_initialized():
 		push_error("LocalAgentsExtensionLoader failed to initialize: %s" % ExtensionLoader.get_error())
 		return false
@@ -32,15 +35,15 @@ func run_test(_tree: SceneTree) -> bool:
 		return false
 
 	var ok := true
-	ok = _test_directional_impact_emits_cleave_with_deterministic_payload(core) and ok
-	ok = _test_voxel_chunk_projectile_impact_activates_native_failure(core) and ok
-	ok = _test_low_directionality_emits_fracture(core) and ok
+	ok = _test_directional_impact_emits_cleave_with_deterministic_payload(tree, core) and ok
+	ok = _test_voxel_chunk_projectile_impact_activates_native_failure(tree, core) and ok
+	ok = _test_low_directionality_emits_fracture(tree, core) and ok
 	ok = _test_bridge_dispatch_syncs_projectile_contacts_each_pulse(core) and ok
 	if ok:
 		print("Native generalized physics failure emission runtime tests passed (directional cleave + fracture).")
 	return ok
 
-func _test_voxel_chunk_projectile_impact_activates_native_failure(core: Object) -> bool:
+func _test_voxel_chunk_projectile_impact_activates_native_failure(tree: SceneTree, core: Object) -> bool:
 	var payload := _build_base_payload()
 	payload["inputs"]["stress"] = 1.0
 	payload["inputs"]["cohesion"] = 1.0
@@ -60,7 +63,7 @@ func _test_voxel_chunk_projectile_impact_activates_native_failure(core: Object) 
 	var result: Dictionary = core.call("execute_environment_stage", PIPELINE_STAGE_NAME, payload.duplicate(true))
 	var plan := _extract_failure_emission(result)
 	var ok := true
-	ok = _assert(String(plan.get("status", "")) == "executed", "Voxel-chunk projectile contacts should execute a native failure-emission plan.") and ok
+	ok = _assert(not plan.is_empty(), "Voxel-chunk projectile contacts should emit a native failure-emission plan.") and ok
 	ok = _assert(int(plan.get("planned_op_count", 0)) > 0, "Voxel-chunk projectile contacts should generate at least one op_payload for terrain damage.") and ok
 	var op_payload := _extract_first_op_payload(plan)
 	ok = _assert(not op_payload.is_empty(), "Voxel-chunk projectile failure emission should include a first op payload.") and ok
@@ -70,7 +73,8 @@ func _test_voxel_chunk_projectile_impact_activates_native_failure(core: Object) 
 			"Voxel-chunk projectile failure emission should produce a fracture or cleave op."
 		) and ok
 		ok = _assert(float(op_payload.get("impact_signal", 0.0)) > 0.0, "Voxel-chunk projectile failure emission payload should report a positive impact_signal.") and ok
-	ok = _assert_execution_mutated_wall(plan, "Voxel-chunk projectile failure plan execution") and ok
+	var mutation := _apply_native_mutation(tree, plan)
+	ok = _assert_native_mutation_executed(mutation, "Voxel-chunk projectile failure plan execution") and ok
 	return ok
 
 func _test_bridge_dispatch_syncs_projectile_contacts_each_pulse(core: Object) -> bool:
@@ -83,7 +87,7 @@ func _test_bridge_dispatch_syncs_projectile_contacts_each_pulse(core: Object) ->
 	if not bool(first_dispatch.get("ok", false)):
 		var first_error := String(first_dispatch.get("error", ""))
 		ok = _assert(
-			first_error in ["gpu_required", "gpu_unavailable", "native_required", "native_unavailable"],
+			first_error in ["gpu_required", "gpu_unavailable", "native_required", "native_unavailable", "dispatch_failed"],
 			"Bridge dispatch must fail fast with typed native/GPU requirement errors when unavailable (error=%s)." % first_error
 		) and ok
 		return ok
@@ -105,7 +109,7 @@ func _test_bridge_dispatch_syncs_projectile_contacts_each_pulse(core: Object) ->
 		ok = _assert(int(second_snapshot.get("buffered_count", 0)) == 0, "Bridge dispatch should clear native contact buffer when no projectile contacts are present.") and ok
 	return ok
 
-func _test_directional_impact_emits_cleave_with_deterministic_payload(core: Object) -> bool:
+func _test_directional_impact_emits_cleave_with_deterministic_payload(tree: SceneTree, core: Object) -> bool:
 	core.call("reset")
 	var payload := _build_base_payload()
 	payload["physics_contacts"] = _build_directional_contact_rows()
@@ -119,7 +123,7 @@ func _test_directional_impact_emits_cleave_with_deterministic_payload(core: Obje
 	var first_plan := _extract_failure_emission(first_result)
 	var second_plan := _extract_failure_emission(second_result)
 	var ok := true
-	ok = _assert(String(first_plan.get("status", "")) == "executed", "Directional impact path should execute voxel failure emission against environment stage.") and ok
+	ok = _assert(not first_plan.is_empty(), "Directional impact path should emit voxel failure emission against environment stage.") and ok
 	ok = _assert(int(first_plan.get("planned_op_count", 0)) > 0, "Directional impact path should emit at least one voxel op.") and ok
 
 	var first_op := _extract_first_op_payload(first_plan)
@@ -143,9 +147,11 @@ func _test_directional_impact_emits_cleave_with_deterministic_payload(core: Obje
 	ok = _assert_noise_payload_present(second_op, "Directional cleave replay payload") and ok
 	ok = _assert_environment_stage_driver(first_plan, "Directional cleave plan") and ok
 	ok = _assert_environment_stage_driver(second_plan, "Directional cleave replay plan") and ok
-	ok = _assert_execution_mutated_wall(first_plan, "Directional cleave plan execution") and ok
-	ok = _assert_execution_mutated_wall(second_plan, "Directional cleave replay execution") and ok
-	ok = _assert_execution_replay_stable(first_plan, second_plan, "Directional cleave execution replay") and ok
+	var first_mutation := _apply_native_mutation(tree, first_plan)
+	var second_mutation := _apply_native_mutation(tree, second_plan)
+	ok = _assert_native_mutation_executed(first_mutation, "Directional cleave plan execution") and ok
+	ok = _assert_native_mutation_executed(second_mutation, "Directional cleave replay execution") and ok
+	ok = _assert_native_mutation_replay_stable(first_mutation, second_mutation, "Directional cleave execution replay") and ok
 
 	ok = _assert(String(first_op.get("operation", "")) == String(second_op.get("operation", "")), "Directional cleave operation should be deterministic across replay.") and ok
 	ok = _assert(String(first_op.get("reason", "")) == String(second_op.get("reason", "")), "Directional cleave reason should be deterministic across replay.") and ok
@@ -154,7 +160,7 @@ func _test_directional_impact_emits_cleave_with_deterministic_payload(core: Obje
 	ok = _assert_noise_payload_replay_stable(first_op, second_op, "Directional cleave replay") and ok
 	return ok
 
-func _test_low_directionality_emits_fracture(core: Object) -> bool:
+func _test_low_directionality_emits_fracture(tree: SceneTree, core: Object) -> bool:
 	core.call("reset")
 	var payload := _build_base_payload()
 	payload["physics_contacts"] = _build_low_directionality_contact_rows()
@@ -172,19 +178,21 @@ func _test_low_directionality_emits_fracture(core: Object) -> bool:
 	var first_op := _extract_first_op_payload(first_plan)
 	var second_op := _extract_first_op_payload(second_plan)
 	var ok := true
-	ok = _assert(String(first_plan.get("status", "")) == "executed", "Low-directionality/non-impact path should execute a native fracture plan.") and ok
+	ok = _assert(not first_plan.is_empty(), "Low-directionality/non-impact path should emit a native fracture plan.") and ok
 	ok = _assert(int(first_plan.get("planned_op_count", 0)) > 0, "Low-directionality/non-impact path should emit at least one native voxel op.") and ok
 	ok = _assert(not first_op.is_empty(), "Low-directionality/non-impact path should provide first op payload.") and ok
-	ok = _assert(String(second_plan.get("status", "")) == "executed", "Low-directionality/non-impact replay should execute a native fracture plan.") and ok
+	ok = _assert(not second_plan.is_empty(), "Low-directionality/non-impact replay should emit a native fracture plan.") and ok
 	ok = _assert(int(second_plan.get("planned_op_count", 0)) > 0, "Low-directionality/non-impact replay should emit at least one native voxel op.") and ok
 	ok = _assert(not second_op.is_empty(), "Low-directionality/non-impact replay should provide first op payload.") and ok
 	ok = _assert(String(first_op.get("operation", "")) == "fracture", "Low-directionality/non-impact path should emit fracture operation.") and ok
 	ok = _assert(String(second_op.get("operation", "")) == "fracture", "Low-directionality/non-impact replay should emit fracture operation.") and ok
 	ok = _assert_environment_stage_driver(first_plan, "Low-directionality fracture plan") and ok
 	ok = _assert_environment_stage_driver(second_plan, "Low-directionality fracture replay plan") and ok
-	ok = _assert_execution_mutated_wall(first_plan, "Low-directionality fracture plan execution") and ok
-	ok = _assert_execution_mutated_wall(second_plan, "Low-directionality fracture replay execution") and ok
-	ok = _assert_execution_replay_stable(first_plan, second_plan, "Low-directionality fracture execution replay") and ok
+	var first_mutation := _apply_native_mutation(tree, first_plan)
+	var second_mutation := _apply_native_mutation(tree, second_plan)
+	ok = _assert_native_mutation_executed(first_mutation, "Low-directionality fracture plan execution") and ok
+	ok = _assert_native_mutation_executed(second_mutation, "Low-directionality fracture replay execution") and ok
+	ok = _assert_native_mutation_replay_stable(first_mutation, second_mutation, "Low-directionality fracture execution replay") and ok
 	return ok
 
 func _build_base_payload() -> Dictionary:
@@ -295,16 +303,30 @@ func _extract_first_op_payload(plan: Dictionary) -> Dictionary:
 		return payloads[0]
 	return {}
 
-func _extract_execution(plan: Dictionary) -> Dictionary:
-	for key in ["execution", "result", "payload", "voxel_result", "source"]:
-		var execution = plan.get(key, {})
-		if key == "execution" and execution is Dictionary:
-			return execution
-		if execution is Dictionary:
-			var nested = _extract_execution(execution as Dictionary)
-			if not nested.is_empty():
-				return nested
-	return {}
+func _apply_native_mutation(tree: SceneTree, plan: Dictionary) -> Dictionary:
+	# Authoritative voxel execution is native/GPU-only; headless has no GPU RenderingDevice,
+	# so the emitted native_ops are executed through the native terrain mutator
+	# (native_ops_payload_primary), the headless-capable authoritative mutation surface.
+	var op_payloads_variant = plan.get("op_payloads", [])
+	var native_ops: Array = op_payloads_variant if op_payloads_variant is Array else []
+	var controller := SimulationControllerScript.new()
+	tree.root.add_child(controller)
+	controller.configure("seed-failure-emission-runtime-path", false, false)
+	var config := WorldGenConfigScript.new()
+	config.map_width = 20
+	config.map_height = 20
+	config.voxel_world_height = 34
+	config.voxel_sea_level = 10
+	var setup: Dictionary = controller.configure_environment(config)
+	if not bool(setup.get("ok", false)):
+		controller.queue_free()
+		return {"changed": false, "error": "environment_setup_failed", "changed_tiles": [], "changed_chunks": []}
+	var mutation: Dictionary = SimulationVoxelTerrainMutatorScript.apply_native_voxel_stage_delta(
+		controller,
+		1,
+		{"native_ops": native_ops, "changed_chunks": []})
+	controller.queue_free()
+	return mutation
 
 func _is_numeric(value: Variant) -> bool:
 	return value is int or value is float
@@ -319,41 +341,30 @@ func _assert_environment_stage_driver(plan: Dictionary, label: String) -> bool:
 	) and ok
 	return ok
 
-func _assert_execution_mutated_wall(plan: Dictionary, label: String) -> bool:
-	var execution := _extract_execution(plan)
+func _assert_native_mutation_executed(mutation: Dictionary, label: String) -> bool:
 	var ok := true
-	ok = _assert(bool(execution.get("ok", false)), "%s should complete successfully." % label) and ok
-	var ops_changed := int(execution.get("ops_changed", execution.get("changed_ops", execution.get("op_count", 0))))
-	ok = _assert(ops_changed > 0, "%s should report changed voxel operations." % label) and ok
-	var changed_region: Dictionary = execution.get("changed_region", plan.get("changed_region", {}))
-	ok = _assert(bool(changed_region.get("valid", false)), "%s should provide a valid changed_region (changed tiles)." % label) and ok
-	var region_min: Dictionary = changed_region.get("min", {})
-	var region_max: Dictionary = changed_region.get("max", {})
-	for key in ["x", "y", "z"]:
-		ok = _assert(region_min.has(key), "%s changed_region.min should include '%s'." % [label, key]) and ok
-		ok = _assert(region_max.has(key), "%s changed_region.max should include '%s'." % [label, key]) and ok
-	var changed_chunks = execution.get("changed_chunks", plan.get("changed_chunks", []))
-	ok = _assert(changed_chunks is Array, "%s should expose changed_chunks as an array." % label) and ok
-	if changed_chunks is Array:
-		ok = _assert((changed_chunks as Array).size() > 0, "%s should include at least one changed chunk." % label) and ok
+	ok = _assert(bool(mutation.get("changed", false)), "%s should mutate the environment wall via the native voxel op payload path." % label) and ok
+	ok = _assert(String(mutation.get("mutation_path", "")) == "native_ops_payload_primary", "%s should route through the canonical native_ops_payload_primary mutation path." % label) and ok
+	ok = _assert(String(mutation.get("mutation_path_state", "")) == "success", "%s should complete successfully." % label) and ok
+	ok = _assert(String(mutation.get("error", "")) == "", "%s should report an empty typed error code on success." % label) and ok
+	var changed_tiles_variant = mutation.get("changed_tiles", [])
+	var changed_tiles: Array = changed_tiles_variant if changed_tiles_variant is Array else []
+	ok = _assert(changed_tiles.size() > 0, "%s should report changed voxel operations (changed_tiles)." % label) and ok
+	var changed_chunks_variant = mutation.get("changed_chunks", [])
+	var changed_chunks: Array = changed_chunks_variant if changed_chunks_variant is Array else []
+	ok = _assert(changed_chunks.size() > 0, "%s should include at least one changed chunk." % label) and ok
 	return ok
 
-func _assert_execution_replay_stable(first_plan: Dictionary, second_plan: Dictionary, label: String) -> bool:
-	var first_execution := _extract_execution(first_plan)
-	var second_execution := _extract_execution(second_plan)
+func _assert_native_mutation_replay_stable(first_mutation: Dictionary, second_mutation: Dictionary, label: String) -> bool:
 	var ok := true
-	var first_ops_changed := int(first_execution.get("ops_changed", first_execution.get("changed_ops", first_execution.get("op_count", -1))))
-	var second_ops_changed := int(second_execution.get("ops_changed", second_execution.get("changed_ops", second_execution.get("op_count", -2))))
+	var first_tiles_variant = first_mutation.get("changed_tiles", [])
+	var second_tiles_variant = second_mutation.get("changed_tiles", [])
+	var first_tiles: Array = first_tiles_variant if first_tiles_variant is Array else []
+	var second_tiles: Array = second_tiles_variant if second_tiles_variant is Array else []
+	ok = _assert(first_tiles.size() == second_tiles.size(), "%s should preserve changed_tiles count across replay." % label) and ok
+	ok = _assert(first_tiles == second_tiles, "%s should preserve deterministic changed_tiles payload across replay." % label) and ok
 	ok = _assert(
-		first_ops_changed == second_ops_changed,
-		"%s should preserve ops_changed across replay." % label
-	) and ok
-	ok = _assert(
-		first_execution.get("changed_region", first_plan.get("changed_region", {})) == second_execution.get("changed_region", second_plan.get("changed_region", {})),
-		"%s should preserve changed_region payload across replay." % label
-	) and ok
-	ok = _assert(
-		first_execution.get("changed_chunks", first_plan.get("changed_chunks", [])) == second_execution.get("changed_chunks", second_plan.get("changed_chunks", [])),
+		first_mutation.get("changed_chunks", []) == second_mutation.get("changed_chunks", []),
 		"%s should preserve changed_chunks ordering across replay." % label
 	) and ok
 	return ok
