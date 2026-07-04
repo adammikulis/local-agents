@@ -380,7 +380,22 @@ func _step_projectile_with_collisions(projectile: ChunkProjectileState, space_st
 			return true
 		_apply_rigidbody_collision_response(projectile, hit)
 		_queue_projectile_contact_row(_build_contact_row(projectile, hit, end))
-		return false
+		var normal := _contact_normal_from_hit(hit, projectile.velocity)
+		var contact_point_variant: Variant = hit.get("position", start)
+		var contact_point := start
+		if contact_point_variant is Vector3:
+			contact_point = contact_point_variant as Vector3
+		projectile.position = contact_point + normal * (projectile.radius + _SURFACE_SEPARATION)
+		var reflected := projectile.velocity.bounce(normal) * _BOUNCE_RESTITUTION
+		var tangent := reflected - normal * reflected.dot(normal)
+		projectile.velocity = normal * reflected.dot(normal) + tangent * _BOUNCE_TANGENTIAL_DAMPING
+		if projectile.velocity.length() <= _MIN_BOUNCE_SPEED:
+			return false
+		var traveled_distance := maxf(0.0, start.distance_to(contact_point))
+		var total_distance := maxf(1.0e-5, travel.length())
+		var consumed := clampf(traveled_distance / total_distance, 0.0, 1.0)
+		remaining_time *= maxf(0.0, 1.0 - consumed)
+		collision_steps += 1
 	if remaining_time > 0.0:
 		projectile.position += projectile.velocity * remaining_time
 	return true

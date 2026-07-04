@@ -1,6 +1,8 @@
 extends RefCounted
 class_name WorldDispatchContracts
 
+const DEFAULT_CONTACT_REDUCTION_STAGE := "native_voxel_dispatch_bridge"
+
 static func build_dispatch_payload(tick: int, delta: float, base_budget: float, view_metrics: Dictionary, dispatch_contact_rows: Array) -> Dictionary:
 	return {
 		"tick": tick,
@@ -34,6 +36,8 @@ static func build_stage_payload(dispatch: Dictionary, backend_used: String, disp
 	stage_payload["dispatch_reason"] = dispatch_reason
 	stage_payload["dispatched"] = bool(dispatch.get("dispatched", false))
 	stage_payload["physics_contacts"] = dispatch_contact_rows
+	stage_payload["contact_schema"] = _resolve_contact_schema(dispatch, stage_payload, dispatch_contact_rows)
+	stage_payload["contact_reduction_diagnostics"] = _resolve_contact_reduction_diagnostics(dispatch, dispatch_contact_rows)
 	stage_payload["native_ops"] = _flatten_native_ops(dispatch)
 	stage_payload["changed_chunks"] = _normalize_changed_chunks(_extract_changed_chunks(dispatch))
 	var native_authority := _resolve_native_mutation_authority(dispatch, stage_payload)
@@ -46,6 +50,7 @@ static func build_stage_payload(dispatch: Dictionary, backend_used: String, disp
 		changed_region = _extract_changed_region(dispatch)
 	if not changed_region.is_empty():
 		stage_payload["changed_region"] = changed_region
+	_forward_chip_contract_fields(stage_payload, dispatch)
 	if not native_authority.is_empty():
 		stage_payload["native_mutation_authority"] = native_authority
 		if native_authority.has("ops_changed"):
@@ -95,6 +100,97 @@ static func _native_no_mutation_error(dispatch: Dictionary) -> String:
 	if dispatch_reason in ["gpu_required", "gpu_unavailable", "native_required", "native_unavailable"]:
 		return dispatch_reason
 	return "native_voxel_stage_no_mutation"
+
+static func _resolve_contact_schema(dispatch: Dictionary, stage_payload: Dictionary, dispatch_contact_rows: Array) -> Array:
+	var stage_schema_variant = stage_payload.get("contact_schema", [])
+	if stage_schema_variant is Array and not (stage_schema_variant as Array).is_empty():
+		return _normalize_contact_schema(stage_schema_variant as Array)
+	var dispatch_schema_variant = dispatch.get("contact_schema", [])
+	if dispatch_schema_variant is Array and not (dispatch_schema_variant as Array).is_empty():
+		return _normalize_contact_schema(dispatch_schema_variant as Array)
+	var extracted_schema := _extract_contact_schema(dispatch)
+	if not extracted_schema.is_empty():
+		return extracted_schema
+	return _derive_contact_schema_from_rows(dispatch_contact_rows)
+
+static func _resolve_contact_reduction_diagnostics(dispatch: Dictionary, dispatch_contact_rows: Array) -> Dictionary:
+	var diagnostics: Dictionary = {
+		"input_rows": dispatch_contact_rows.size(),
+		"output_rows": dispatch_contact_rows.size(),
+		"reduction_stage": DEFAULT_CONTACT_REDUCTION_STAGE,
+	}
+	var extracted := _extract_contact_reduction_diagnostics(dispatch)
+	if not extracted.is_empty():
+		diagnostics = _merge_contact_reduction_diagnostics(diagnostics, extracted)
+	return diagnostics
+
+static func _merge_contact_reduction_diagnostics(base: Dictionary, source: Dictionary) -> Dictionary:
+	var merged := base.duplicate(true)
+	if source.has("input_rows"):
+		merged["input_rows"] = maxi(0, int(source.get("input_rows", merged.get("input_rows", 0))))
+	if source.has("output_rows"):
+		merged["output_rows"] = maxi(0, int(source.get("output_rows", merged.get("output_rows", 0))))
+	if source.has("reduction_stage"):
+		var stage := String(source.get("reduction_stage", "")).strip_edges()
+		if stage != "":
+			merged["reduction_stage"] = stage
+	return merged
+
+static func _extract_contact_reduction_diagnostics(source: Dictionary, depth: int = 0) -> Dictionary:
+	if depth > 6:
+		return {}
+	var diagnostics_variant = source.get("contact_reduction_diagnostics", {})
+	if diagnostics_variant is Dictionary:
+		var diagnostics := diagnostics_variant as Dictionary
+		if not diagnostics.is_empty():
+			return diagnostics.duplicate(true)
+	for key in ["dispatch", "result", "voxel_result", "execution", "payload", "source", "result_fields", "voxel_failure_emission"]:
+		var nested_variant = source.get(key, {})
+		if nested_variant is Dictionary:
+			var nested := _extract_contact_reduction_diagnostics(nested_variant as Dictionary, depth + 1)
+			if not nested.is_empty():
+				return nested
+	return {}
+
+static func _extract_contact_schema(source: Dictionary, depth: int = 0) -> Array:
+	if depth > 6:
+		return []
+	var schema_variant = source.get("contact_schema", [])
+	if schema_variant is Array and not (schema_variant as Array).is_empty():
+		return _normalize_contact_schema(schema_variant as Array)
+	for key in ["dispatch", "result", "voxel_result", "execution", "payload", "source", "result_fields", "voxel_failure_emission"]:
+		var nested_variant = source.get(key, {})
+		if nested_variant is Dictionary:
+			var nested := _extract_contact_schema(nested_variant as Dictionary, depth + 1)
+			if not nested.is_empty():
+				return nested
+	return []
+
+static func _normalize_contact_schema(raw_schema: Array) -> Array:
+	var out: Array = []
+	var seen: Dictionary = {}
+	for key_variant in raw_schema:
+		var key := String(key_variant).strip_edges()
+		if key == "" or seen.has(key):
+			continue
+		seen[key] = true
+		out.append(key)
+	return out
+
+static func _derive_contact_schema_from_rows(rows: Array) -> Array:
+	var out: Array = []
+	var seen: Dictionary = {}
+	for row_variant in rows:
+		if not (row_variant is Dictionary):
+			continue
+		var row := row_variant as Dictionary
+		for key_variant in row.keys():
+			var key := String(key_variant).strip_edges()
+			if key == "" or seen.has(key):
+				continue
+			seen[key] = true
+			out.append(key)
+	return out
 
 static func _flatten_native_ops(source: Dictionary) -> Array:
 	var out: Array = []
@@ -352,3 +448,27 @@ static func _merge_authority_fields(current: Dictionary, source: Dictionary) -> 
 		if changed_region_variant is Dictionary:
 			merged["changed_region"] = (changed_region_variant as Dictionary).duplicate(true)
 	return merged
+
+static func _extract_recursive_value(source: Dictionary, key: String, depth: int = 0) -> Variant:
+	if depth > 6:
+		return null
+	if source.has(key):
+		return source.get(key, null)
+	for nested_key in ["dispatch", "result", "voxel_result", "execution", "payload", "source", "result_fields", "voxel_failure_emission"]:
+		var nested_variant = source.get(nested_key, {})
+		if nested_variant is Dictionary:
+			var nested_value := _extract_recursive_value(nested_variant as Dictionary, key, depth + 1)
+			if nested_value != null:
+				return nested_value
+	return null
+
+static func _forward_chip_contract_fields(target: Dictionary, source: Dictionary) -> void:
+	target["chip_progress_spawn_count"] = maxi(0, int(_extract_recursive_value(source, "chip_progress_spawn_count")))
+	target["durability_hits"] = maxf(0.0, float(_extract_recursive_value(source, "durability_hits")))
+	target["fracture_chip_progress"] = maxf(0.0, float(_extract_recursive_value(source, "fracture_chip_progress")))
+	target["fracture_chip_hits"] = maxi(0, int(_extract_recursive_value(source, "fracture_chip_hits")))
+	target["fracture_chip_damage_last"] = maxf(0.0, float(_extract_recursive_value(source, "fracture_chip_damage_last")))
+	var fracture_chip_state_variant := _extract_recursive_value(source, "fracture_chip_state")
+	target["fracture_chip_state"] = String(fracture_chip_state_variant).strip_edges() if fracture_chip_state_variant is String or fracture_chip_state_variant is StringName else ""
+	target["fracture_chip_progress_prior"] = maxf(0.0, float(_extract_recursive_value(source, "fracture_chip_progress_prior")))
+	target["fracture_chip_progress_next"] = maxf(0.0, float(_extract_recursive_value(source, "fracture_chip_progress_next")))
