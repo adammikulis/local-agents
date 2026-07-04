@@ -1,7 +1,6 @@
 #ifndef VOXEL_EDIT_ENGINE_HPP
 #define VOXEL_EDIT_ENGINE_HPP
 
-#include "helpers/VoxelEditCpuExecutionHelpers.hpp"
 #include "VoxelEditOp.hpp"
 #include "sim/VoxelEditGpuExecutor.hpp"
 
@@ -35,8 +34,25 @@ public:
     void reset();
 
 private:
-    using VoxelKey = helpers::VoxelEditCpuVoxelKey;
-    using VoxelKeyHash = helpers::VoxelEditCpuVoxelKeyHash;
+    // Sparse voxel map key. (The GPU-only refactor removed the CPU executor; these
+    // small key/hash types live here now instead of the deleted CPU helper header.)
+    struct VoxelKey {
+        int32_t x = 0;
+        int32_t y = 0;
+        int32_t z = 0;
+        bool operator==(const VoxelKey &other) const {
+            return x == other.x && y == other.y && z == other.z;
+        }
+    };
+    struct VoxelKeyHash {
+        std::size_t operator()(const VoxelKey &key) const {
+            std::size_t h = 1469598103934665603ULL;
+            h = (h ^ static_cast<std::size_t>(static_cast<uint32_t>(key.x))) * 1099511628211ULL;
+            h = (h ^ static_cast<std::size_t>(static_cast<uint32_t>(key.y))) * 1099511628211ULL;
+            h = (h ^ static_cast<std::size_t>(static_cast<uint32_t>(key.z))) * 1099511628211ULL;
+            return h;
+        }
+    };
 
     struct StageBuffer {
         godot::String stage_domain;

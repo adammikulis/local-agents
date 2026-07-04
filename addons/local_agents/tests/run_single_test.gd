@@ -1,12 +1,18 @@
 @tool
 extends SceneTree
 
+const AgentResultReporter := preload("res://addons/local_agents/tests/agent_result_reporter.gd")
+
 var _did_finish := false
 var _timeout_seconds := 120.0
+var _started_ms: int = 0
+var _script_path := ""
+var _last_reason := ""
 const _CANONICAL_HELPER := "scripts/run_single_test.sh"
 const _TEST_ROOT := "res://addons/local_agents/tests/"
 
 func _init() -> void:
+	_started_ms = Time.get_ticks_msec()
 	call_deferred("_run")
 
 func _run() -> void:
@@ -17,6 +23,7 @@ func _run() -> void:
 	if not _is_valid_test_path(script_path):
 		_fail_bad_invocation("Invalid --test path '%s'. Expected res://addons/local_agents/tests/test_*.gd" % script_path)
 		return
+	_script_path = script_path
 
 	_timeout_seconds = _timeout_from_args()
 	if _timeout_seconds <= 0.0:
@@ -98,6 +105,7 @@ func _on_timeout_watchdog() -> void:
 	_fail(124, "Test timed out after %.3f seconds" % _timeout_seconds)
 
 func _fail(code: int, message: String) -> void:
+	_last_reason = message
 	push_error(message)
 	_finish(code)
 
@@ -105,4 +113,10 @@ func _finish(code: int) -> void:
 	if _did_finish:
 		return
 	_did_finish = true
+	var duration_s := float(Time.get_ticks_msec() - _started_ms) / 1000.0
+	var failed := 0 if code == 0 else 1
+	var failures: Array = []
+	if failed == 1:
+		failures.append({"name": _script_path, "reason": _last_reason})
+	AgentResultReporter.emit("single", 1 - failed, failed, failures, duration_s)
 	quit(code)

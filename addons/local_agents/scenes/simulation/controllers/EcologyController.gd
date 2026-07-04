@@ -2,12 +2,15 @@ extends Node3D
 
 const PlantScene = preload("res://addons/local_agents/scenes/simulation/actors/EdiblePlantCapsule.tscn")
 const RabbitScene = preload("res://addons/local_agents/scenes/simulation/actors/RabbitSphere.tscn")
+const FoxScene = preload("res://addons/local_agents/scenes/simulation/actors/FoxSphere.tscn")
 const SmellFieldSystemScript = preload("res://addons/local_agents/simulation/SmellFieldSystem.gd")
 const WindFieldSystemScript = preload("res://addons/local_agents/simulation/WindFieldSystem.gd")
 const EnvironmentSignalSnapshotResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/EnvironmentSignalSnapshotResource.gd")
 const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
 const PlantGrowthControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/ecology/PlantGrowthController.gd")
 const MammalBehaviorControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/ecology/MammalBehaviorController.gd")
+const BoidsBehaviorControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/ecology/BoidsBehaviorController.gd")
+const BirdFlockControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/ecology/BirdFlockController.gd")
 const EcologyDebugRendererScript = preload("res://addons/local_agents/scenes/simulation/controllers/ecology/EcologyDebugRenderer.gd")
 const ShelterConstructionControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/ecology/ShelterConstructionController.gd")
 const SmellSystemControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/ecology/SmellSystemController.gd")
@@ -15,7 +18,30 @@ const VoxelProcessGateControllerScript = preload("res://addons/local_agents/scen
 
 @export var initial_plant_count: int = 14
 @export var initial_rabbit_count: int = 4
+@export var initial_fox_count: int = 2
+@export var initial_bird_count: int = 0
+@export var max_rabbit_population: int = 40
+@export var max_fox_population: int = 10
 @export var world_bounds_radius: float = 8.0
+# World-space center of the ecology area (smell/wind field + spawn/roam bounds). Leave at
+# origin for the flat sandbox; set to the map centre for voxel terrain.
+@export var field_center: Vector3 = Vector3.ZERO
+# When > 0, creatures spawn at this Y and fall onto the terrain via gravity+collision
+# instead of being placed at a fixed flat height.
+@export var spawn_drop_height: float = 0.0
+# Optional EnvironmentController providing the voxel terrain surface-height buffer. When
+# set, this is "terrain mode": ecology spawning waits until the surface is available and
+# plants are placed on the terrain surface.
+@export var environment_controller_path: NodePath
+
+var _environment: Node = null
+var _surface_buffer: PackedInt32Array = PackedInt32Array()
+var _surface_width: int = 0
+var _surface_depth: int = 0
+var _ecology_spawned: bool = false
+var _awaiting_terrain_spawn: bool = false
+var _sea_level: int = 0
+var _land_center_resolved: bool = false
 @export var smell_voxel_size: float = 1.0
 @export var smell_vertical_half_extent: float = 3.0
 @export var smell_emit_interval_seconds: float = 0.65
@@ -35,6 +61,7 @@ const VoxelProcessGateControllerScript = preload("res://addons/local_agents/scen
 @export var rabbit_flee_duration_seconds: float = 3.4
 @export var rabbit_eat_distance: float = 0.24
 @export var seed_spawn_radius: float = 0.42
+@export var boids_runtime_settings_node_path: NodePath
 @export var debug_refresh_seconds: float = 0.6
 @export var debug_max_smell_voxels: int = 120
 @export var debug_max_temp_voxels: int = 160
@@ -67,6 +94,10 @@ const VoxelProcessGateControllerScript = preload("res://addons/local_agents/scen
 
 @onready var plant_root: Node3D = $PlantRoot
 @onready var rabbit_root: Node3D = $RabbitRoot
+var fox_root: Node3D
+var _fox_sequence: int = 0
+var bird_root: Node3D
+var _bird_flock_controller: RefCounted
 
 var _sim_time_seconds: float = 0.0
 var _plant_step_accumulator: float = 0.0
@@ -84,6 +115,7 @@ var _transform_stage_d_state: Dictionary = {}
 
 var _plant_growth_controller: RefCounted
 var _mammal_behavior_controller: RefCounted
+var _boids_behavior_controller
 var _debug_renderer: RefCounted
 var _shelter_construction_controller: RefCounted
 var _smell_system_controller: RefCounted
@@ -100,14 +132,17 @@ func _ready() -> void:
 	_smell_dependency_error_details = ""
 	_smell_field = SmellFieldSystemScript.new()
 	_wind_field = WindFieldSystemScript.new()
-	_smell_field.configure(world_bounds_radius, smell_voxel_size, smell_vertical_half_extent)
-	_wind_field.configure(world_bounds_radius, smell_voxel_size, smell_vertical_half_extent)
+	_smell_field.configure(world_bounds_radius, smell_voxel_size, smell_vertical_half_extent, field_center)
+	_wind_field.configure(world_bounds_radius, smell_voxel_size, smell_vertical_half_extent, field_center)
 	_wind_field.set_global_wind(wind_direction, wind_intensity, wind_speed)
 	if _smell_field != null and _smell_field.has_method("set_compute_enabled"):
 		_smell_field.set_compute_enabled(smell_gpu_compute_enabled)
 	if _wind_field != null and _wind_field.has_method("set_compute_enabled"):
 		_wind_field.set_compute_enabled(wind_gpu_compute_enabled)
 	_plant_growth_controller = PlantGrowthControllerScript.new()
+	_boids_behavior_controller = BoidsBehaviorControllerScript.new()
+	if _boids_behavior_controller != null and _boids_behavior_controller.has_method("setup"):
+		_boids_behavior_controller.setup(self)
 	_mammal_behavior_controller = MammalBehaviorControllerScript.new()
 	_debug_renderer = EcologyDebugRendererScript.new()
 	_shelter_construction_controller = ShelterConstructionControllerScript.new()
@@ -115,19 +150,165 @@ func _ready() -> void:
 	_voxel_process_gate_controller = VoxelProcessGateControllerScript.new()
 	_plant_growth_controller.setup(self)
 	_mammal_behavior_controller.setup(self)
+	if _mammal_behavior_controller != null and _mammal_behavior_controller.has_method("set_boids_controller"):
+		_mammal_behavior_controller.set_boids_controller(_boids_behavior_controller)
+	_bind_boids_runtime_settings_source()
 	_debug_renderer.setup(self)
 	_shelter_construction_controller.setup(self)
 	_smell_system_controller.setup(self)
 	_voxel_process_gate_controller.setup(self)
-	_plant_growth_controller.spawn_initial_plants(initial_plant_count)
-	_mammal_behavior_controller.spawn_initial_rabbits(initial_rabbit_count)
+	fox_root = get_node_or_null("FoxRoot")
+	if fox_root == null:
+		fox_root = Node3D.new()
+		fox_root.name = "FoxRoot"
+		add_child(fox_root)
+	bird_root = get_node_or_null("BirdRoot")
+	if bird_root == null:
+		bird_root = Node3D.new()
+		bird_root.name = "BirdRoot"
+		add_child(bird_root)
+	_bird_flock_controller = BirdFlockControllerScript.new()
+	_bird_flock_controller.setup(self, bird_root)
+	if environment_controller_path != NodePath():
+		_environment = get_node_or_null(environment_controller_path)
+	_begin_ecology_spawn()
 	_smell_system_controller.refresh_smell_sources()
 	_mammal_behavior_controller.refresh_actor_caches()
 	_plant_growth_controller.rebuild_edible_plant_index()
 	_refresh_voxel_activity_map()
 
+func _bind_boids_runtime_settings_source() -> void:
+	var source: Variant = null
+	if boids_runtime_settings_node_path == NodePath():
+		source = null
+	elif has_node(boids_runtime_settings_node_path):
+		var candidate = get_node_or_null(boids_runtime_settings_node_path)
+		if candidate != null:
+			source = candidate
+	else:
+		push_error("EcologyController: configured boids runtime settings node path is invalid: %s" % boids_runtime_settings_node_path)
+		source = {
+			"_boids_settings_source_invalid": true,
+			"error_detail": "Boids runtime settings node path is invalid: %s" % boids_runtime_settings_node_path,
+		}
+	if _mammal_behavior_controller != null and _mammal_behavior_controller.has_method("set_boids_runtime_settings_source"):
+		_mammal_behavior_controller.call("set_boids_runtime_settings_source", source)
+
+# --- ecology spawn (terrain-aware) -----------------------------------------
+
+func _begin_ecology_spawn() -> void:
+	if _environment != null:
+		# Terrain mode: defer until the surface buffer AND the async terrain collision
+		# both exist, so creatures land on real ground instead of falling through.
+		_awaiting_terrain_spawn = true
+	else:
+		_spawn_ecology()
+
+# True once the terrain collision has been baked under the ecology area (a downward ray
+# from above the centre hits something on the world layer).
+func _terrain_collision_ready() -> bool:
+	var space := get_world_3d().direct_space_state
+	if space == null:
+		return false
+	var from := Vector3(field_center.x, field_center.y + 40.0, field_center.z)
+	var to := Vector3(field_center.x, field_center.y - 40.0, field_center.z)
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.collision_mask = 1
+	return not space.intersect_ray(query).is_empty()
+
+func _spawn_ecology() -> void:
+	if _ecology_spawned:
+		return
+	_ecology_spawned = true
+	_plant_growth_controller.spawn_initial_plants(initial_plant_count)
+	_mammal_behavior_controller.spawn_initial_rabbits(initial_rabbit_count)
+	_mammal_behavior_controller.spawn_initial_foxes(initial_fox_count)
+	_bird_flock_controller.spawn_initial_birds(initial_bird_count)
+	_smell_system_controller.refresh_smell_sources()
+	_mammal_behavior_controller.refresh_actor_caches()
+	_plant_growth_controller.rebuild_edible_plant_index()
+
+func _refresh_surface() -> void:
+	if _environment == null or not _environment.has_method("get_generation_snapshot"):
+		return
+	var snap = _environment.call("get_generation_snapshot")
+	if not (snap is Dictionary):
+		return
+	var voxel_world = snap.get("voxel_world", null)
+	if not (voxel_world is Dictionary):
+		return
+	var buffer = voxel_world.get("surface_y_buffer", null)
+	var width := int(voxel_world.get("width", 0))
+	var depth := int(voxel_world.get("depth", voxel_world.get("height", 0)))
+	_sea_level = int(voxel_world.get("sea_level", _sea_level))
+	if buffer is PackedInt32Array and width > 0 and depth > 0 and (buffer as PackedInt32Array).size() >= width * depth:
+		_surface_buffer = buffer
+		_surface_width = width
+		_surface_depth = depth
+
+# Re-centre the ecology on land: the centroid of tiles whose surface is above sea level,
+# so the smell field and spawns sit on the island rather than in the water.
+func _resolve_terrain_field_center() -> void:
+	if _land_center_resolved or not has_surface():
+		return
+	_land_center_resolved = true
+	var sum_x := 0.0
+	var sum_z := 0.0
+	var sum_y := 0.0
+	var land := 0
+	for tz in range(_surface_depth):
+		for tx in range(_surface_width):
+			var sy := _surface_buffer[tz * _surface_width + tx]
+			if sy > _sea_level:
+				sum_x += float(tx)
+				sum_z += float(tz)
+				sum_y += float(sy)
+				land += 1
+	if land <= 0:
+		return
+	field_center = Vector3(sum_x / land, sum_y / land + 0.5, sum_z / land)
+	# Re-centre the smell/wind fields on the resolved land centre.
+	if _smell_field != null:
+		_smell_field.configure(world_bounds_radius, smell_voxel_size, smell_vertical_half_extent, field_center)
+	if _wind_field != null:
+		_wind_field.configure(world_bounds_radius, smell_voxel_size, smell_vertical_half_extent, field_center)
+		_wind_field.set_global_wind(wind_direction, wind_intensity, wind_speed)
+
+func has_surface() -> bool:
+	return _surface_width > 0 and _surface_depth > 0 and _surface_buffer.size() >= _surface_width * _surface_depth
+
+# Actual terrain top at a world X/Z via a downward raycast against the live collision
+# (matches whatever geometry currently exists); falls back to the surface buffer.
+func terrain_top_at(world_x: float, world_z: float) -> float:
+	var space := get_world_3d().direct_space_state
+	if space != null:
+		var from := Vector3(world_x, field_center.y + 40.0, world_z)
+		var to := Vector3(world_x, field_center.y - 40.0, world_z)
+		var query := PhysicsRayQueryParameters3D.create(from, to)
+		query.collision_mask = 1
+		var hit := space.intersect_ray(query)
+		if not hit.is_empty():
+			return float((hit.get("position") as Vector3).y)
+	return surface_y_at(world_x, world_z)
+
+# Walkable surface height (top face of the top solid voxel) at a world X/Z.
+func surface_y_at(world_x: float, world_z: float) -> float:
+	if not has_surface():
+		return field_center.y
+	var tile_x := clampi(int(round(world_x)), 0, _surface_width - 1)
+	var tile_z := clampi(int(round(world_z)), 0, _surface_depth - 1)
+	return float(_surface_buffer[tile_z * _surface_width + tile_x]) + 0.5
+
 func _physics_process(delta: float) -> void:
 	if delta <= 0.0:
+		return
+	if _awaiting_terrain_spawn:
+		_refresh_surface()
+		if has_surface():
+			_resolve_terrain_field_center()
+		if has_surface() and _terrain_collision_ready():
+			_awaiting_terrain_spawn = false
+			_spawn_ecology()
 		return
 	if _smell_dependency_failed:
 		return
@@ -152,6 +333,8 @@ func _physics_process(delta: float) -> void:
 	if _mammal_step_accumulator >= maxf(0.01, mammal_step_interval_seconds):
 		_mammal_behavior_controller.step_mammals(_mammal_step_accumulator)
 		_mammal_step_accumulator = 0.0
+	if _bird_flock_controller != null:
+		_bird_flock_controller.step(delta)
 	if _profile_refresh_accumulator >= maxf(0.05, living_profile_refresh_interval_seconds):
 		if not voxel_process_gating_enabled or not voxel_gate_profile_refresh_enabled or has_voxel_activity():
 			_refresh_living_entity_profiles()
@@ -252,6 +435,9 @@ func spawn_plant_at(world_position: Vector3, initial_growth_ratio: float = 0.0) 
 
 func spawn_rabbit_at(world_position: Vector3) -> Node3D:
 	return _mammal_behavior_controller.spawn_rabbit_at(world_position)
+
+func spawn_fox_at(world_position: Vector3) -> Node3D:
+	return _mammal_behavior_controller.spawn_fox_at(world_position)
 
 func spawn_random(plants: int, rabbits: int) -> void:
 	for i in range(maxi(0, plants)):

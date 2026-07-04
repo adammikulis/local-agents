@@ -5,13 +5,13 @@
 [resource]
 script = ExtResource("1_worldgen_config_script")
 schema_version = 1
-map_width = 36
-map_height = 36
-voxel_world_height = 40
+map_width = 56
+map_height = 56
+voxel_world_height = 44
 voxel_sea_level = 12
 voxel_surface_height_base = 9
 voxel_surface_height_range = 11
-voxel_noise_frequency = 0.055
+voxel_noise_frequency = 0.078
 voxel_noise_octaves = 4
 voxel_noise_lacunarity = 1.85
 voxel_noise_gain = 0.42

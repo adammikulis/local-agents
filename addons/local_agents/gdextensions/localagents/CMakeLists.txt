@@ -43,7 +43,6 @@ set(HELPER_SRC
     src/helpers/LocalAgentsFractureDebrisEmitter.cpp
     src/helpers/StructureLifecycleNativeHelpers.cpp
     src/helpers/SimulationCoreDictionaryHelpers.cpp
-    src/helpers/VoxelEditCpuExecutionHelpers.cpp
     src/helpers/VoxelEditParsingHelpers.cpp
     src/helpers/VoxelEditPayloadValidationHelpers.cpp
     src/helpers/NativeVoxelTerrainMutatorSurfaceDeltaHelpers.cpp
@@ -71,6 +70,7 @@ set(SRC
     ${HELPER_SRC}
     ${SIM_SRC}
     src/VoxelEditEngine.cpp
+    src/LocalAgentsBoidsNativeBridge.cpp
 )
 
 set(SQLITE_SRC

@@ -24,8 +24,8 @@ var _dense_width: int = 0
 var _dense_height: int = 0
 var _dense_count: int = 0
 
-func configure(half_extent: float, voxel_size: float, vertical_half_extent: float = 3.0) -> void:
-	_grid.configure(half_extent, voxel_size, vertical_half_extent)
+func configure(half_extent: float, voxel_size: float, vertical_half_extent: float = 3.0, center: Vector3 = Vector3.ZERO) -> void:
+	_grid.configure(half_extent, voxel_size, vertical_half_extent, center)
 	_ordered_voxels = _grid.all_voxels()
 	_update_dense_layout()
 	_temperature.clear()

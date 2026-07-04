@@ -1,32 +1,27 @@
-extends CharacterBody3D
+extends "res://addons/local_agents/scenes/simulation/actors/MammalActor.gd"
+class_name VillagerCapsule
 
-const MammalProfileScript = preload("res://addons/local_agents/configuration/parameters/simulation/MammalProfileResource.gd")
-const SmellEmissionProfileScript = preload("res://addons/local_agents/configuration/parameters/simulation/SmellEmissionProfileResource.gd")
-const LivingProfileScript = preload("res://addons/local_agents/configuration/parameters/simulation/LivingEntityProfileResource.gd")
-const TaxonomyScript = preload("res://addons/local_agents/simulation/LivingEntityTaxonomy.gd")
+# Human (animal/mammal/human): an omnivorous, tool-using mammal. Shares the same
+# locomotion/nav/jump/breeding base as other creatures and specializes senses, a role,
+# and build/carry channels. Locomotion lives in CreatureActor/MammalActor.
 
 @export var npc_id: String = ""
 @export var role: String = "gatherer"
-@export var move_speed: float = 1.25
-@export var flee_speed: float = 2.2
-@export var smell_kind: String = "villager"
-@export var smell_strength: float = 0.45
-@export var can_smell_enabled: bool = true
-@export var food_smell_radius_cells: int = 7
-@export var danger_smell_radius_cells: int = 5
-@export var smell_acuity: float = 0.9
-@export var decision_commit_seconds: float = 1.2
 
-@export var profile_food: Resource
-@export var profile_danger: Resource
-@export var emission_profile: Resource
-@export var living_profile: Resource
+func _register_creature_groups() -> void:
+	super._register_creature_groups()
+	add_to_group("living_human")
 
-var _food_target: Vector3 = Vector3.ZERO
-var _has_food_target: bool = false
-var _flee_direction: Vector3 = Vector3.ZERO
-var _flee_remaining: float = 0.0
-var _decision_hold_remaining: float = 0.0
+func taxonomy_subtype() -> String:
+	return "human"
+
+func _default_smell_kind() -> String:
+	return "villager"
+
+func _init_creature() -> void:
+	if diet == "herbivore":
+		diet = "omnivore"
+	super._init_creature()
 
 func set_villager_identity(next_npc_id: String, next_role: String) -> void:
 	npc_id = next_npc_id
@@ -34,87 +29,13 @@ func set_villager_identity(next_npc_id: String, next_role: String) -> void:
 	name = "Villager_%s" % npc_id
 	_configure_living_profile()
 
-func _ready() -> void:
-	add_to_group("living_smell_source")
-	add_to_group("living_creature")
-	add_to_group("living_animal")
-	add_to_group("mammal_actor")
-	add_to_group("living_mammal")
-	add_to_group("living_human")
-	if profile_food == null:
-		profile_food = MammalProfileScript.new()
-	if profile_danger == null:
-		profile_danger = MammalProfileScript.new()
-	if emission_profile == null:
-		emission_profile = SmellEmissionProfileScript.new()
-		emission_profile.set("base_strength", smell_strength)
-		emission_profile.set("chemicals", {"ammonia": 0.8, "butyric_acid": 0.6})
-	if living_profile == null:
-		living_profile = LivingProfileScript.new()
-	_configure_living_profile()
-	_init_default_profiles()
+func _default_emission_chemicals() -> Dictionary:
+	return {"ammonia": 0.8, "butyric_acid": 0.6}
 
-func simulation_step(delta: float) -> void:
-	if _decision_hold_remaining > 0.0:
-		_decision_hold_remaining = maxf(0.0, _decision_hold_remaining - delta)
-	if _flee_remaining > 0.0:
-		_flee_remaining = maxf(0.0, _flee_remaining - delta)
-		if _flee_direction.length_squared() > 0.0001:
-			global_position += _flee_direction * flee_speed * delta
-		return
-	if _has_food_target:
-		var direction := _food_target - global_position
-		direction.y = 0.0
-		var distance := direction.length()
-		if distance <= 0.06:
-			_has_food_target = false
-		else:
-			global_position += direction.normalized() * move_speed * delta
-
-func set_food_target(position: Vector3) -> void:
-	if _decision_hold_remaining > 0.0 and _has_food_target:
-		return
-	_food_target = position
-	_has_food_target = true
-	_decision_hold_remaining = decision_commit_seconds
-
-func clear_food_target() -> void:
-	if _decision_hold_remaining > 0.0 and _has_food_target:
-		return
-	_has_food_target = false
-
-func trigger_flee(away_from: Vector3, duration_seconds: float) -> void:
-	var direction := global_position - away_from
-	if direction.length_squared() <= 0.0001:
-		direction = Vector3(1.0, 0.0, 0.0)
-	_flee_direction = direction.normalized()
-	_flee_remaining = maxf(_flee_remaining, duration_seconds)
-	_decision_hold_remaining = decision_commit_seconds
-
-func is_fleeing() -> bool:
-	return _flee_remaining > 0.0
-
-func get_smell_source_payload() -> Dictionary:
-	var ep = emission_profile
-	return ep.call("to_payload", global_position, _smell_id(), smell_kind)
-
-func can_smell() -> bool:
-	return can_smell_enabled
-
-func get_food_smell_radius_cells() -> int:
-	return maxi(1, food_smell_radius_cells)
-
-func get_danger_smell_radius_cells() -> int:
-	return maxi(1, danger_smell_radius_cells)
-
-func get_food_chemical_weights() -> Dictionary:
-	return profile_food.call("as_weights", true, true)
-
-func get_danger_chemical_weights() -> Dictionary:
-	return profile_danger.call("as_weights", false, false)
-
-func get_danger_threshold() -> float:
-	return float(profile_danger.get("danger_threshold"))
+func _smell_id() -> String:
+	if npc_id.strip_edges() != "":
+		return "villager_%s" % npc_id
+	return "villager_%d" % get_instance_id()
 
 func _init_default_profiles() -> void:
 	var food = profile_food
@@ -136,13 +57,20 @@ func _init_default_profiles() -> void:
 	danger.chem_methyl_salicylate = 1.2
 	danger.chem_alkaloids = 1.0
 	danger.chem_tannins = 0.9
-	danger.chem_ammonia = 1.1
 	danger.chem_butyric_acid = 1.0
 
-func _smell_id() -> String:
-	if npc_id.strip_edges() != "":
-		return "villager_%s" % npc_id
-	return "villager_%d" % get_instance_id()
+func get_inspector_payload() -> Dictionary:
+	return {
+		"title": "Villager",
+		"id": _smell_id(),
+		"role": role,
+		"fleeing": is_fleeing(),
+		"has_food_target": _has_food_target,
+		"adult": is_adult(),
+		"move_speed": move_speed,
+		"can_smell": can_smell_enabled,
+		"position": global_position,
+	}
 
 func get_living_entity_profile() -> Dictionary:
 	if living_profile == null:
@@ -162,7 +90,7 @@ func _configure_living_profile() -> void:
 		entity_id = "villager_%d" % get_instance_id()
 	living_profile.entity_id = entity_id
 	living_profile.display_kind = "villager"
-	living_profile.taxonomy_path = TaxonomyScript.animal_path("mammal", "human")
+	living_profile.taxonomy_path = taxonomy_path()
 	living_profile.ownership_weight = 0.82
 	living_profile.belonging_weight = 0.91
 	living_profile.gather_tendency = 0.68

@@ -27,6 +27,8 @@ addons/local_agents/gdextensions/localagents/build/
 addons/local_agents/gdextensions/localagents/build_native/
 addons/local_agents/gdextensions/localagents/bin/
 addons/local_agents/gdextensions/localagents/cmake_trace.txt
+addons/local_agents/gdextensions/localagents/.cache/
+.cache/clangd/
 addons/local_agents/models/
 addons/local_agents/voices/
 !addons/local_agents/models/

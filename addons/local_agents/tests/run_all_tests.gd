@@ -33,8 +33,11 @@ const INCLUDE_LONG_FLAG := "--include-long"
 const FAST_FLAG := "--fast"
 const TestModelHelper := preload("res://addons/local_agents/tests/test_model_helper.gd")
 const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const AgentResultReporter := preload("res://addons/local_agents/tests/agent_result_reporter.gd")
 
 var _failures: Array[String] = []
+var _cases_run: int = 0
+var _started_ms: int = 0
 var _run_runtime_tests := false
 var _run_long_tests := false
 var _fast_mode := false
@@ -64,6 +67,7 @@ func _init() -> void:
     _run_long_tests = _should_run_long_tests()
     _selected_core_tests = _core_tests_from_args()
     _selected_runtime_tests = _runtime_tests_from_args()
+    _started_ms = Time.get_ticks_msec()
     call_deferred("_run_all")
 
 func _run_all() -> void:
@@ -93,6 +97,7 @@ func _run_all() -> void:
     _finish()
 
 func _run_case(script_path: String) -> void:
+    _cases_run += 1
     if not _runner.run_script_case(self, script_path):
         _record_failure(script_path, "Reported failure")
 
@@ -296,6 +301,9 @@ func _finish() -> void:
     for failure in _runner.failures:
         if not _failures.has(failure):
             _failures.append(failure)
+    var duration_s := float(Time.get_ticks_msec() - _started_ms) / 1000.0
+    var failed := _failures.size()
+    AgentResultReporter.emit("all", maxi(0, _cases_run - failed), failed, _failures, duration_s)
     if _failures.is_empty():
         print("All Local Agents tests passed.")
         quit(0)

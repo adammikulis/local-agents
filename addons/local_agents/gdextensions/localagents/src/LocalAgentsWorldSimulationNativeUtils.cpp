@@ -5,6 +5,11 @@
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 
+#include <cmath>
+#include <cstdint>
+#include <unordered_set>
+#include <vector>
+
 using namespace godot;
 
 namespace {
@@ -112,7 +117,8 @@ Dictionary make_voxel_destruction_only_profile() {
     graphics["resource_pipeline_enabled"] = false;
     graphics["structure_lifecycle_enabled"] = false;
     graphics["culture_cycle_enabled"] = false;
-    graphics["ecology_system_enabled"] = false;
+    // Ecology (plants/rabbits/foxes/birds) lives on the destructible voxel terrain.
+    graphics["ecology_system_enabled"] = true;
     graphics["settlement_system_enabled"] = false;
     graphics["villager_system_enabled"] = false;
     graphics["cognition_system_enabled"] = false;
@@ -252,6 +258,8 @@ Dictionary make_default_profile_settings() {
 void LocalAgentsWorldSimulationNativeUtils::_bind_methods() {
     ClassDB::bind_method(D_METHOD("build_mutation_glow_positions", "payload", "chunk_size"),
                          &LocalAgentsWorldSimulationNativeUtils::build_mutation_glow_positions);
+    ClassDB::bind_method(D_METHOD("build_voxel_surface_faces", "cell_positions", "cell_size"),
+                         &LocalAgentsWorldSimulationNativeUtils::build_voxel_surface_faces);
     ClassDB::bind_method(D_METHOD("sanitize_test_mode_id", "mode_id"),
                          &LocalAgentsWorldSimulationNativeUtils::sanitize_test_mode_id);
     ClassDB::bind_method(D_METHOD("resolve_test_mode_from_user_args", "default_mode"),
@@ -290,6 +298,80 @@ Array LocalAgentsWorldSimulationNativeUtils::build_mutation_glow_positions(const
         }
     }
     return centers;
+}
+
+PackedVector3Array LocalAgentsWorldSimulationNativeUtils::build_voxel_surface_faces(const Array &cell_positions, double cell_size) const {
+    PackedVector3Array faces;
+    const double size = cell_size <= 0.0 ? 1.0 : cell_size;
+    const int64_t count = cell_positions.size();
+    if (count <= 0) {
+        return faces;
+    }
+
+    // Occupancy set of integer cell coordinates (local cell index = position / size).
+    auto pack = [](int32_t x, int32_t y, int32_t z) -> int64_t {
+        return (static_cast<int64_t>(x + 1048576) << 42) |
+               (static_cast<int64_t>(y + 1048576) << 21) |
+               static_cast<int64_t>(z + 1048576);
+    };
+    std::unordered_set<int64_t> occupied;
+    occupied.reserve(static_cast<size_t>(count) * 2);
+    std::vector<int32_t> cx(count), cy(count), cz(count);
+    for (int64_t i = 0; i < count; i += 1) {
+        const Vector3 p = cell_positions[i];
+        const int32_t x = static_cast<int32_t>(std::lround(p.x / size));
+        const int32_t y = static_cast<int32_t>(std::lround(p.y / size));
+        const int32_t z = static_cast<int32_t>(std::lround(p.z / size));
+        cx[i] = x;
+        cy[i] = y;
+        cz[i] = z;
+        occupied.insert(pack(x, y, z));
+    }
+
+    const double h = size * 0.5;
+    // 6 faces: normal dir + the 4 corner offsets (in units of half-size) of that face.
+    static const int32_t dir[6][3] = {
+        {1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+    // Corner offsets per face (a, b, c, d) forming quad a-b-c, a-c-d.
+    static const double corners[6][4][3] = {
+        {{1, -1, -1}, {1, 1, -1}, {1, 1, 1}, {1, -1, 1}},     // +X
+        {{-1, -1, 1}, {-1, 1, 1}, {-1, 1, -1}, {-1, -1, -1}}, // -X
+        {{-1, 1, -1}, {-1, 1, 1}, {1, 1, 1}, {1, 1, -1}},     // +Y
+        {{-1, -1, 1}, {-1, -1, -1}, {1, -1, -1}, {1, -1, 1}}, // -Y
+        {{1, -1, 1}, {1, 1, 1}, {-1, 1, 1}, {-1, -1, 1}},     // +Z
+        {{-1, -1, -1}, {-1, 1, -1}, {1, 1, -1}, {1, -1, -1}}, // -Z
+    };
+
+    for (int64_t i = 0; i < count; i += 1) {
+        const int32_t x = cx[i];
+        const int32_t y = cy[i];
+        const int32_t z = cz[i];
+        const Vector3 center(static_cast<double>(x) * size, static_cast<double>(y) * size, static_cast<double>(z) * size);
+        for (int f = 0; f < 6; f += 1) {
+            if (occupied.count(pack(x + dir[f][0], y + dir[f][1], z + dir[f][2])) != 0) {
+                continue; // interior face, skip
+            }
+            Vector3 quad[4];
+            for (int c = 0; c < 4; c += 1) {
+                quad[c] = center + Vector3(corners[f][c][0] * h, corners[f][c][1] * h, corners[f][c][2] * h);
+            }
+            // Emit each face double-sided (both windings) so the one-sided trimesh
+            // collides from above and below regardless of winding convention.
+            faces.push_back(quad[0]);
+            faces.push_back(quad[1]);
+            faces.push_back(quad[2]);
+            faces.push_back(quad[0]);
+            faces.push_back(quad[2]);
+            faces.push_back(quad[3]);
+            faces.push_back(quad[0]);
+            faces.push_back(quad[2]);
+            faces.push_back(quad[1]);
+            faces.push_back(quad[0]);
+            faces.push_back(quad[3]);
+            faces.push_back(quad[2]);
+        }
+    }
+    return faces;
 }
 
 String LocalAgentsWorldSimulationNativeUtils::sanitize_test_mode_id(const String &mode_id) const {

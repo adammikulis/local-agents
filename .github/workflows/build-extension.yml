@@ -1,0 +1,103 @@
+name: Build Extension (Cross-Platform)
+
+# Builds the `localagents` GDExtension binary on Linux, Windows, and macOS and
+# uploads each platform's `bin/` output as an artifact. The .gdextension declares
+# linux.x86_64/windows.x86_64/macos.universal libraries, so all three must be
+# buildable even though the primary dev host only produces the macOS dylib.
+
+on:
+  push:
+    paths:
+      - "addons/local_agents/gdextensions/localagents/**"
+      - ".github/workflows/build-extension.yml"
+  pull_request:
+    paths:
+      - "addons/local_agents/gdextensions/localagents/**"
+      - ".github/workflows/build-extension.yml"
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: build-${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+
+    env:
+      EXT_DIR: addons/local_agents/gdextensions/localagents
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake curl libcurl4-openssl-dev git pkg-config patchelf
+
+      - name: Install macOS build dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install cmake curl pkg-config
+
+      - name: Install Windows build dependencies (curl via vcpkg)
+        if: runner.os == 'Windows'
+        run: |
+          "${VCPKG_INSTALLATION_ROOT}/vcpkg" install curl:x64-windows
+
+      - name: Fetch native dependencies
+        working-directory: ${{ env.EXT_DIR }}
+        run: |
+          chmod +x scripts/*.sh
+          ./scripts/fetch_dependencies.sh --skip-models --skip-voices
+
+      - name: Build extension (Linux / macOS)
+        if: runner.os != 'Windows'
+        working-directory: ${{ env.EXT_DIR }}
+        run: |
+          ./scripts/build_extension.sh --platform ${{ matrix.platform }}
+
+      - name: Build extension (Windows)
+        if: runner.os == 'Windows'
+        working-directory: ${{ env.EXT_DIR }}
+        run: |
+          ./scripts/build_extension.sh --platform windows \
+            --toolchain "${VCPKG_INSTALLATION_ROOT}/scripts/buildsystems/vcpkg.cmake" \
+            --cmake-arg "-DVCPKG_TARGET_TRIPLET=x64-windows"
+
+      - name: List produced binaries
+        working-directory: ${{ env.EXT_DIR }}
+        run: |
+          ls -la bin
+
+      - name: Upload platform binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: localagents-${{ matrix.platform }}-bin
+          if-no-files-found: error
+          path: |
+            ${{ env.EXT_DIR }}/bin/**
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: localagents-${{ matrix.platform }}-build-logs
+          if-no-files-found: ignore
+          path: |
+            ${{ env.EXT_DIR }}/build/CMakeFiles/CMakeOutput.log
+            ${{ env.EXT_DIR }}/build/CMakeFiles/CMakeError.log

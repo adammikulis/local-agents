@@ -4,6 +4,7 @@
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/packed_vector3_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
 namespace godot {
@@ -16,6 +17,10 @@ public:
     ~LocalAgentsWorldSimulationNativeUtils() override = default;
 
     Array build_mutation_glow_positions(const Dictionary &payload, double chunk_size) const;
+    // Face-culled surface triangles for a set of solid unit voxels (local cell centers).
+    // Emits only faces bordering empty space -> one merged ConcavePolygonShape3D per
+    // chunk instead of one box collider per voxel. Also serves as navmesh source geometry.
+    PackedVector3Array build_voxel_surface_faces(const Array &cell_positions, double cell_size) const;
     String sanitize_test_mode_id(const String &mode_id) const;
     String resolve_test_mode_from_user_args(const String &default_mode = String()) const;
     bool resolve_bool_flag_from_user_args(const String &flag_name, bool default_value) const;

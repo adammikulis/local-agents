@@ -65,6 +65,9 @@ cd "$REPO_ROOT"
 echo "==> [destruction] running non-headless FPS fire harness"
 "$SCRIPT_DIR/run_fps_fire_destroy.sh" --timeout="$NON_HEADLESS_TIMEOUT"
 
+echo "==> [destruction] running native voxel op contract source test"
+"$SCRIPT_DIR/run_single_test.sh" test_native_voxel_op_contracts.gd --timeout="$HEADLESS_TIMEOUT"
+
 echo "==> [destruction] running headless destruction suite"
 runtime_cmd=(
   godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd --

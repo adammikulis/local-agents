@@ -3,6 +3,7 @@
 #include "FailureEmissionDeterministicNoise.hpp"
 #include "helpers/VoxelEditParsingHelpers.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 using namespace godot;
@@ -170,6 +171,46 @@ bool parse_op_payload(
     op_out.operation = operation;
     op_out.value = value;
     op_out.projectile_material_tag = resolve_projectile_material_tag(op_payload);
+    if (op_payload.has("durability_hits")) {
+        double durability_hits = 0.0;
+        if (parse_double_variant(op_payload.get("durability_hits", 0.0), durability_hits) && std::isfinite(durability_hits)) {
+            op_out.durability_hits = std::max(0.0, durability_hits);
+        }
+    }
+    if (op_payload.has("fracture_chip_progress_prior")) {
+        double progress_prior = -1.0;
+        if (parse_double_variant(op_payload.get("fracture_chip_progress_prior", -1.0), progress_prior) && std::isfinite(progress_prior)) {
+            op_out.fracture_chip_progress_prior = progress_prior;
+        }
+    }
+    if (op_payload.has("fracture_chip_progress_next")) {
+        double progress_next = -1.0;
+        if (parse_double_variant(op_payload.get("fracture_chip_progress_next", -1.0), progress_next) && std::isfinite(progress_next)) {
+            op_out.fracture_chip_progress_next = progress_next;
+        }
+    }
+    if (op_payload.has("fracture_chip_damage_last")) {
+        double damage_last = 0.0;
+        if (parse_double_variant(op_payload.get("fracture_chip_damage_last", 0.0), damage_last) && std::isfinite(damage_last)) {
+            op_out.fracture_chip_damage_last = std::max(0.0, damage_last);
+        }
+    }
+    if (op_payload.has("fracture_chip_hits")) {
+        int32_t chip_hits = -1;
+        if (parse_int32_variant(op_payload.get("fracture_chip_hits", -1), chip_hits)) {
+            op_out.fracture_chip_hits = chip_hits;
+        }
+    }
+    if (op_payload.has("fracture_chip_state")) {
+        const String state = String(op_payload.get("fracture_chip_state", String())).strip_edges();
+        if (!state.is_empty()) {
+            op_out.fracture_chip_state = state;
+        }
+    }
+    if (op_payload.has("chip_progress_spawn_count")) {
+        int64_t spawn_count = static_cast<int64_t>(op_payload.get("chip_progress_spawn_count", static_cast<int64_t>(0)));
+        op_out.chip_progress_spawn_count = std::max<int64_t>(0, spawn_count);
+    }
     return true;
 }
 

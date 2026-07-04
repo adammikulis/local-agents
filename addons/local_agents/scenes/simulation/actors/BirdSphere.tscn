@@ -1,0 +1,30 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/actors/BirdActor.gd" id="1_bird"]
+
+[sub_resource type="PrismMesh" id="PrismMesh_bird"]
+size = Vector3(0.22, 0.16, 0.4)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_bird"]
+albedo_color = Color(0.17, 0.19, 0.26, 1)
+roughness = 0.6
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_select"]
+radius = 0.3
+
+[node name="BirdSphere" type="CharacterBody3D"]
+collision_layer = 2
+collision_mask = 0
+script = ExtResource("1_bird")
+can_fly = true
+move_speed = 4.0
+cruise_altitude = 8.0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("PrismMesh_bird")
+material_override = SubResource("StandardMaterial3D_bird")
+
+[node name="Area3D" type="Area3D" parent="."]
+
+[node name="SelectShape" type="CollisionShape3D" parent="Area3D"]
+shape = SubResource("SphereShape3D_select")

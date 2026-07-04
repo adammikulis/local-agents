@@ -94,17 +94,24 @@ func clear_generated_plants() -> void:
 	_edible_plants_by_voxel.clear()
 
 func deterministic_spawn_point(sequence: int, max_radius: float) -> Vector3:
+	var center: Vector3 = _owner.field_center
 	var angle := float(sequence) * 2.3999632
 	var radial_step := float((sequence % 11) + 1) / 11.0
 	var radius := max_radius * radial_step
-	return Vector3(cos(angle) * radius, 0.14, sin(angle) * radius)
+	return Vector3(center.x + cos(angle) * radius, 0.14, center.z + sin(angle) * radius)
 
 func _clamp_to_field(world_position: Vector3, y: float) -> Vector3:
-	var planar := Vector2(world_position.x, world_position.z)
-	var clamped := planar
+	var center: Vector3 = _owner.field_center
+	var planar := Vector2(world_position.x - center.x, world_position.z - center.z)
 	if planar.length() > _owner.world_bounds_radius:
-		clamped = planar.normalized() * _owner.world_bounds_radius
-	return Vector3(clamped.x, y, clamped.y)
+		planar = planar.normalized() * _owner.world_bounds_radius
+	var world_x := center.x + planar.x
+	var world_z := center.z + planar.y
+	# Sit plants on the live terrain surface (raycast) when terrain is available.
+	var world_y := y
+	if _owner.has_method("has_surface") and _owner.has_surface():
+		world_y = _owner.terrain_top_at(world_x, world_z) + 0.05
+	return Vector3(world_x, world_y, world_z)
 
 func _voxel_key(voxel: Vector3i) -> String:
 	return "%d:%d:%d" % [voxel.x, voxel.y, voxel.z]

@@ -46,6 +46,13 @@ struct VoxelEditOp {
     double noise_gain = 0.5;
     godot::String noise_mode = "none";
     godot::String projectile_material_tag = "dense_voxel";
+    double durability_hits = 0.0;
+    double fracture_chip_progress_prior = -1.0;
+    double fracture_chip_progress_next = -1.0;
+    double fracture_chip_damage_last = 0.0;
+    int32_t fracture_chip_hits = -1;
+    godot::String fracture_chip_state;
+    int64_t chip_progress_spawn_count = 0;
 };
 
 } // namespace local_agents::simulation

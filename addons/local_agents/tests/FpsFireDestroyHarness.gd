@@ -5,6 +5,7 @@ const _POLL_INTERVAL_SECONDS := 0.01
 const _TIMEOUT_SECONDS := 20.0
 const _PROJECTILE_SETTLE_TIMEOUT_SECONDS := 8.0
 const _REFIRE_INTERVAL_SECONDS := 0.6
+const _QUIT_KEY := KEY_Q
 
 var _world_controller: Node = null
 var _completed: bool = false
@@ -12,8 +13,18 @@ var _final_runtime: Dictionary = {}
 
 func start(world_controller: Node) -> void:
 	_world_controller = world_controller
+	set_process_input(true)
 	_install_quit_button()
 	call_deferred("_run")
+
+func _input(event: InputEvent) -> void:
+	if _completed:
+		return
+	if event is InputEventKey:
+		var key_event := event as InputEventKey
+		if key_event.pressed and not key_event.echo and key_event.keycode == _QUIT_KEY:
+			_on_quit_pressed()
+			get_viewport().set_input_as_handled()
 
 func _run() -> void:
 	var ok := true
@@ -136,10 +147,12 @@ func _wait_for_projectile_cleanup() -> Dictionary:
 func _install_quit_button() -> void:
 	var layer := CanvasLayer.new()
 	layer.name = "FpsFireDestroyHarnessUi"
+	layer.layer = 128
 	add_child(layer)
 	var button := Button.new()
 	button.name = "Quit"
 	button.text = "Quit"
+	button.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	button.size = Vector2(72.0, 30.0)
 	button.position = Vector2(10.0, 10.0)
 	button.pressed.connect(_on_quit_pressed)

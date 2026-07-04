@@ -37,10 +37,6 @@ VoxelGpuExecutionStats build_empty_changed_stats() {
         changed_region["max"] = Dictionary();
     }
     Array changed_chunks_array;
-    const std::vector<helpers::VoxelEditCpuVoxelKey> changed_chunks;
-    for (const helpers::VoxelEditCpuVoxelKey &chunk : changed_chunks) {
-        changed_chunks_array.append(build_point_dict(chunk.x, chunk.y, chunk.z));
-    }
     stats.changed_region = changed_region;
     stats.changed_chunks = changed_chunks_array;
     stats.spawn_entries = Array();
@@ -84,6 +80,130 @@ String canonicalize_gpu_error_code(const String &raw_error_code) {
         return String("descriptor_invalid");
     }
     return String("dispatch_failed");
+}
+
+Dictionary collect_gpu_chip_contract_fields(const Array &changed_entries) {
+    Dictionary fields;
+    double durability_hits = 0.0;
+    bool has_durability_hits = false;
+    double fracture_chip_progress_prior = -1.0;
+    bool has_chip_progress_prior = false;
+    double fracture_chip_progress_next = -1.0;
+    bool has_chip_progress_next = false;
+    double fracture_chip_damage_last = 0.0;
+    bool has_chip_damage_last = false;
+    int64_t fracture_chip_hits = -1;
+    bool has_chip_hits = false;
+    String fracture_chip_state;
+    bool has_chip_state = false;
+    int64_t chip_progress_spawn_count = 0;
+    bool has_spawn_count = false;
+
+    for (int64_t i = 0; i < changed_entries.size(); i += 1) {
+        const Variant changed_entry_value = changed_entries[i];
+        if (changed_entry_value.get_type() != Variant::DICTIONARY) {
+            continue;
+        }
+        const Dictionary changed_entry = changed_entry_value;
+        if (!changed_entry.has("changed") || !static_cast<bool>(changed_entry["changed"])) {
+            continue;
+        }
+
+        double parsed_double = 0.0;
+        int32_t parsed_int = 0;
+        if (changed_entry.has("durability_hits") &&
+            helpers::parse_double_variant(changed_entry["durability_hits"], parsed_double)) {
+            durability_hits = std::max(durability_hits, std::max(0.0, parsed_double));
+            has_durability_hits = true;
+        }
+        if (changed_entry.has("fracture_chip_progress_prior") &&
+            helpers::parse_double_variant(changed_entry["fracture_chip_progress_prior"], parsed_double) &&
+            parsed_double >= 0.0) {
+            fracture_chip_progress_prior = std::max(fracture_chip_progress_prior, parsed_double);
+            has_chip_progress_prior = true;
+        }
+        if (changed_entry.has("fracture_chip_progress_next") &&
+            helpers::parse_double_variant(changed_entry["fracture_chip_progress_next"], parsed_double) &&
+            parsed_double >= 0.0) {
+            fracture_chip_progress_next = std::max(fracture_chip_progress_next, parsed_double);
+            has_chip_progress_next = true;
+        }
+        if (changed_entry.has("fracture_chip_damage_last") &&
+            helpers::parse_double_variant(changed_entry["fracture_chip_damage_last"], parsed_double)) {
+            fracture_chip_damage_last = std::max(fracture_chip_damage_last, std::max(0.0, parsed_double));
+            has_chip_damage_last = true;
+        }
+        if (changed_entry.has("fracture_chip_hits") &&
+            helpers::parse_int32_variant(changed_entry["fracture_chip_hits"], parsed_int)) {
+            fracture_chip_hits = std::max<int64_t>(fracture_chip_hits, parsed_int);
+            has_chip_hits = true;
+        }
+        if (changed_entry.has("fracture_chip_state")) {
+            const String chip_state = String(changed_entry["fracture_chip_state"]).strip_edges();
+            if (!chip_state.is_empty()) {
+                fracture_chip_state = chip_state;
+                has_chip_state = true;
+            }
+        }
+        if (changed_entry.has("chip_progress_spawn_count")) {
+            int64_t spawn_count = 0;
+            if (helpers::parse_int32_variant(changed_entry["chip_progress_spawn_count"], parsed_int)) {
+                spawn_count = static_cast<int64_t>(parsed_int);
+            } else if (changed_entry["chip_progress_spawn_count"].get_type() == Variant::INT) {
+                spawn_count = static_cast<int64_t>(changed_entry["chip_progress_spawn_count"]);
+            }
+            if (spawn_count > 0) {
+                chip_progress_spawn_count += spawn_count;
+                has_spawn_count = true;
+            }
+        }
+    }
+
+    if (has_durability_hits) {
+        fields["durability_hits"] = durability_hits;
+    }
+    if (has_chip_progress_prior) {
+        fields["fracture_chip_progress_prior"] = fracture_chip_progress_prior;
+    }
+    if (has_chip_progress_next) {
+        fields["fracture_chip_progress_next"] = fracture_chip_progress_next;
+        fields["fracture_chip_progress"] = fracture_chip_progress_next;
+    }
+    if (has_chip_damage_last) {
+        fields["fracture_chip_damage_last"] = fracture_chip_damage_last;
+    }
+    if (has_chip_hits) {
+        fields["fracture_chip_hits"] = fracture_chip_hits;
+    }
+    if (has_chip_state) {
+        fields["fracture_chip_state"] = fracture_chip_state;
+    }
+    if (has_spawn_count) {
+        fields["chip_progress_spawn_count"] = chip_progress_spawn_count;
+    }
+    return fields;
+}
+
+void apply_gpu_chip_contract_fields(Dictionary &target, const Dictionary &fields) {
+    if (fields.is_empty()) {
+        return;
+    }
+    static const char *keys[] = {
+        "durability_hits",
+        "fracture_chip_progress",
+        "fracture_chip_progress_prior",
+        "fracture_chip_progress_next",
+        "fracture_chip_damage_last",
+        "fracture_chip_hits",
+        "fracture_chip_state",
+        "chip_progress_spawn_count",
+    };
+    for (const char *key : keys) {
+        const StringName field_key(key);
+        if (fields.has(field_key)) {
+            target[field_key] = fields[field_key];
+        }
+    }
 }
 } // namespace
 
@@ -330,6 +450,7 @@ Dictionary VoxelEditEngine::execute_stage(
     }
 
     const StageExecutionStats gpu_stats = gpu_result.stats;
+    const Dictionary gpu_chip_fields = collect_gpu_chip_contract_fields(gpu_stats.changed_entries);
     const bool spawn_entries_required = gpu_stats.spawn_metadata_required;
     const bool spawn_entries_missing =
         spawn_entries_required &&
@@ -400,6 +521,7 @@ Dictionary VoxelEditEngine::execute_stage(
     dispatch_metadata.changed_region = gpu_stats.changed_region.duplicate(true);
     dispatch_metadata.changed_chunks = gpu_stats.changed_chunks.duplicate(true);
     Dictionary execution = build_voxel_gpu_dispatch_metadata(dispatch_metadata);
+    apply_gpu_chip_contract_fields(execution, gpu_chip_fields);
     execution["spawn_entries_status"] = spawn_entries_missing ? String("error_required_missing") : (spawn_entries_required ? String("required") : String("not_required"));
     execution["spawn_entries_warning"] = spawn_entries_missing ? String("spawn_entries_required_missing") : String();
     if (spawn_entries_missing) {
@@ -425,6 +547,7 @@ Dictionary VoxelEditEngine::execute_stage(
         result["changed_chunks"] = gpu_stats.changed_chunks.duplicate(true);
         result["spawn_entries_required"] = spawn_entries_required;
         result["spawn_entries"] = gpu_stats.spawn_entries.duplicate(true);
+        apply_gpu_chip_contract_fields(result, gpu_chip_fields);
         result["spawn_entries_status"] = execution.get("spawn_entries_status", String("not_required"));
         result["spawn_entries_warning"] = execution.get("spawn_entries_warning", String());
         result["execution"] = execution.duplicate(true);
@@ -450,6 +573,7 @@ Dictionary VoxelEditEngine::execute_stage(
     result["changed_chunks"] = gpu_stats.changed_chunks.duplicate(true);
     result["spawn_entries_required"] = spawn_entries_required;
     result["spawn_entries"] = gpu_stats.spawn_entries.duplicate(true);
+    apply_gpu_chip_contract_fields(result, gpu_chip_fields);
     result["spawn_entries_status"] = execution.get("spawn_entries_status", String("not_required"));
     result["spawn_entries_warning"] = execution.get("spawn_entries_warning", String());
     result["execution"] = execution.duplicate(true);
