@@ -12,6 +12,21 @@ Converge all voxel evolution into one GPU-only transform pipeline in native C++ 
 - Behavior differences are material coefficients, field state, and emitter presets.
 - No CPU-success fallback for transform execution.
 
+## Integration Scope (ownership split)
+
+Native core under `addons/local_agents/gdextensions/localagents/` owns:
+- Voxel field storage and residency metadata.
+- Pass DAG scheduling and deterministic ordering.
+- GPU dispatch and shader/pipeline/buffer lifecycle.
+- Transform diagnostics and deterministic replay metadata.
+
+GDScript controllers under `addons/local_agents/simulation/controller/` own:
+- Contract shaping and validation.
+- Scene/event ingestion.
+- Runtime telemetry/HUD wiring.
+
+GDScript is orchestration/UI only; it never owns transform math or mutation outcome decisions.
+
 ## Canonical Runtime Model
 
 1. Unified voxel state schema
@@ -30,10 +45,16 @@ Converge all voxel evolution into one GPU-only transform pipeline in native C++ 
 - Emitters are data presets (`radiant_heat`, mass/energy injection, boundary forcing).
 - "Sun", geothermal, volcanic, and atmospheric sources are preset configurations over the same emitter contract.
 
-4. GPU execution policy
+4. Pass descriptor contract
+- Every pass uses a typed descriptor with pass id, read/write field sets, barriers, rate class, and precision profile.
+- Deterministic ordering and stable index-based tie-breaking are mandatory.
+- Unknown/incomplete descriptors hard-fail with explicit contract status.
+
+5. GPU execution policy
 - Compute/fragment shader passes are authoritative for voxel transforms.
 - Missing required GPU capability is hard-fail (`gpu_required` / `gpu_unavailable`).
 - Runtime cannot silently downgrade to CPU transform logic.
+- Canonical failure taxonomy: `gpu_required`, `gpu_unavailable`, `contract_mismatch`, `descriptor_invalid`, `dispatch_failed`, `readback_invalid`, `memory_exhausted`, `unsupported_legacy_stage`. Runtime surfaces the canonical code directly with no silent downgrade.
 
 ## Migration Phases
 
@@ -75,3 +96,10 @@ Exit criteria:
 4. Validation evidence gate
 - Headless harness sweeps pass.
 - Non-headless launch on real video path succeeds before "works" claims.
+
+## Notes on Naming
+
+Terms like `sun`, `geothermal`, `volcanic`, `weather`, `hydrology`, and `erosion` are allowed only as
+user-facing preset/config labels. They do not define separate runtime systems or execution paths — all
+behavior differences are material coefficients, field state, and emitter presets over the same unified
+transform pipeline.
