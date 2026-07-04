@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/simulation/BoidsAgentSource.gd" id="1_source"]
+
+[node name="BoidsAgentSource" type="Node3D"]
+script = ExtResource("1_source")
