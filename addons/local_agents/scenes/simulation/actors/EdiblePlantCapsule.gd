@@ -1,4 +1,4 @@
-extends Node3D
+extends "res://addons/local_agents/scenes/simulation/actors/PlantActor.gd"
 class_name EdiblePlantCapsule
 
 signal consumed(plant_id: String, seeds: int)
@@ -21,10 +21,7 @@ signal edible_state_changed(plant_id: String, edible: bool)
 @export_range(0.0, 2.0, 0.01) var heat_stress_threshold: float = 1.0
 
 const SmellEmissionProfileScript = preload("res://addons/local_agents/configuration/parameters/simulation/SmellEmissionProfileResource.gd")
-const LivingProfileScript = preload("res://addons/local_agents/configuration/parameters/simulation/LivingEntityProfileResource.gd")
-const TaxonomyScript = preload("res://addons/local_agents/simulation/LivingEntityTaxonomy.gd")
 @export var smell_profile: Resource
-@export var living_profile: Resource
 
 @onready var mesh_instance: MeshInstance3D = $MeshInstance3D
 
@@ -33,15 +30,10 @@ var _consumed: bool = false
 var _last_edible_state: bool = false
 
 func _ready() -> void:
-	add_to_group("living_smell_source")
-	add_to_group("living_creature")
-	add_to_group("living_plant")
+	super._ready()
 	add_to_group("living_edible_plant")
-	add_to_group("field_selectable")
 	if smell_profile == null:
 		smell_profile = SmellEmissionProfileScript.new()
-	if living_profile == null:
-		living_profile = LivingProfileScript.new()
 	_configure_living_profile()
 	if mesh_instance.material_override is StandardMaterial3D:
 		mesh_instance.material_override = (mesh_instance.material_override as StandardMaterial3D).duplicate()
@@ -119,6 +111,9 @@ func _id() -> String:
 		return plant_id
 	return "plant_%d" % get_instance_id()
 
+func taxonomy_subtype() -> String:
+	return "edible_herb"
+
 func chemical_profile() -> Dictionary:
 	var g := growth_ratio()
 	var hexanal := clampf(1.0 - g * 0.75, 0.0, 1.0)
@@ -192,7 +187,7 @@ func _configure_living_profile() -> void:
 		return
 	living_profile.entity_id = _id()
 	living_profile.display_kind = "edible_plant"
-	living_profile.taxonomy_path = TaxonomyScript.plant_path("flowering", "edible_herb")
+	living_profile.taxonomy_path = taxonomy_path()
 	living_profile.ownership_weight = 0.34
 	living_profile.belonging_weight = 0.28
 	living_profile.gather_tendency = 0.0

@@ -12,9 +12,9 @@ var _debug_arrow_material: StandardMaterial3D
 var _debug_smell_mm_instance: MultiMeshInstance3D
 var _debug_temperature_mm_instance: MultiMeshInstance3D
 var _debug_wind_mm_instance: MultiMeshInstance3D
-var _debug_show_smell: bool = true
-var _debug_show_wind: bool = true
-var _debug_show_temperature: bool = true
+var _debug_show_smell: bool = false
+var _debug_show_wind: bool = false
+var _debug_show_temperature: bool = false
 var _debug_smell_layer: String = "all"
 var _debug_accumulator: float = 0.0
 

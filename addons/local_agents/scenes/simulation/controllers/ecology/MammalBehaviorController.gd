@@ -8,10 +8,25 @@ var _smell_query_config_refresh_accumulator: float = 0.0
 var _last_smell_query_acceleration_enabled: bool = true
 var _last_smell_query_top_k_per_layer: int = 48
 var _last_smell_query_update_interval_seconds: float = 0.25
+var _boids_behavior_controller
+var _boids_runtime_settings_source: Variant = null
+var _breed_accumulator: float = 0.0
 
 func setup(owner: Variant) -> void:
 	_owner = owner
+	if _boids_behavior_controller != null and _boids_behavior_controller.has_method("set_runtime_settings_source"):
+		_boids_behavior_controller.call("set_runtime_settings_source", _boids_runtime_settings_source)
 	_sync_smell_query_runtime_config(true)
+
+func set_boids_controller(controller: Variant) -> void:
+	_boids_behavior_controller = controller
+	if _boids_behavior_controller != null and _boids_behavior_controller.has_method("set_runtime_settings_source"):
+		_boids_behavior_controller.call("set_runtime_settings_source", _boids_runtime_settings_source)
+
+func set_boids_runtime_settings_source(source: Variant) -> void:
+	_boids_runtime_settings_source = source
+	if _boids_behavior_controller != null and _boids_behavior_controller.has_method("set_runtime_settings_source"):
+		_boids_behavior_controller.call("set_runtime_settings_source", source)
 
 func spawn_rabbit_at(world_position: Vector3) -> Node3D:
 	_owner._rabbit_sequence += 1
@@ -26,6 +41,20 @@ func spawn_initial_rabbits(count: int) -> void:
 	for i in range(count):
 		var angle := TAU * float(i) / float(maxi(1, count))
 		spawn_rabbit_at(Vector3(cos(angle) * 1.8, 0.18, sin(angle) * 1.8))
+
+func spawn_fox_at(world_position: Vector3) -> Node3D:
+	_owner._fox_sequence += 1
+	var fox = _owner.FoxScene.instantiate()
+	fox.fox_id = "fox_%d" % _owner._fox_sequence
+	_owner.fox_root.add_child(fox)
+	fox.global_position = _clamp_to_field(world_position, 0.3)
+	return fox
+
+func spawn_initial_foxes(count: int) -> void:
+	var ring := maxf(2.5, _owner.world_bounds_radius * 0.75)
+	for i in range(count):
+		var angle := TAU * float(i) / float(maxi(1, count)) + 0.6
+		spawn_fox_at(Vector3(cos(angle) * ring, 0.3, sin(angle) * ring))
 
 func refresh_actor_caches() -> void:
 	_mammal_actors.clear()
@@ -44,6 +73,7 @@ func step_mammals(delta: float) -> void:
 	if _actor_refresh_accumulator >= _owner.actor_refresh_interval_seconds:
 		_actor_refresh_accumulator = 0.0
 		refresh_actor_caches()
+	var active_mammals: Array[Node] = []
 	for mammal in _mammal_actors:
 		if not is_instance_valid(mammal):
 			continue
@@ -84,10 +114,86 @@ func step_mammals(delta: float) -> void:
 					mammal.clear_food_target()
 		elif mammal.has_method("clear_food_target"):
 			mammal.clear_food_target()
+		active_mammals.append(mammal)
+	if _boids_behavior_controller != null and _boids_behavior_controller.has_method("step_mammals"):
+		_boids_behavior_controller.call("step_mammals", active_mammals, delta)
+	for mammal in active_mammals:
+		if not is_instance_valid(mammal):
+			continue
 		if mammal.has_method("simulation_step"):
 			mammal.simulation_step(delta)
 		_owner._plant_growth_controller.try_eat_nearby_plant(mammal)
 		_keep_inside_bounds(mammal)
+	_process_predation()
+	_process_breeding(delta)
+
+# Predators (foxes) catch prey (rabbits) they reach; a catch feeds the predator.
+func _process_predation() -> void:
+	var predators: Array = _owner.get_tree().get_nodes_in_group("predator_actor")
+	for predator in predators:
+		if not is_instance_valid(predator) or not (predator is Node3D):
+			continue
+		if not predator.has_method("get_prey_group"):
+			continue
+		var prey_group := String(predator.call("get_prey_group"))
+		var catch_r := 0.5
+		if predator.has_method("get_catch_radius"):
+			catch_r = float(predator.call("get_catch_radius"))
+		var catch_sq := catch_r * catch_r
+		var predator_pos: Vector3 = (predator as Node3D).global_position
+		for prey in _owner.get_tree().get_nodes_in_group(prey_group):
+			if not is_instance_valid(prey) or not (prey is Node3D):
+				continue
+			if (prey as Node3D).global_position.distance_squared_to(predator_pos) <= catch_sq:
+				if predator.has_method("mark_fed"):
+					predator.call("mark_fed")
+				prey.queue_free()
+				break
+
+# Adult same-species pairs that are close and off cooldown produce one offspring.
+func _process_breeding(delta: float) -> void:
+	_breed_accumulator += maxf(0.0, delta)
+	if _breed_accumulator < 1.0:
+		return
+	_breed_accumulator = 0.0
+	_breed_species("living_lagomorph", _owner.rabbit_root, _owner.max_rabbit_population, Callable(self, "spawn_rabbit_at"))
+	_breed_species("living_canid", _owner.fox_root, _owner.max_fox_population, Callable(self, "spawn_fox_at"))
+
+func _breed_species(group: String, root: Node, max_population: int, spawn_fn: Callable) -> void:
+	if root == null or root.get_child_count() >= max_population:
+		return
+	var ready_parents: Array = []
+	for member in _owner.get_tree().get_nodes_in_group(group):
+		if is_instance_valid(member) and member is Node3D and member.has_method("can_reproduce") and bool(member.call("can_reproduce")):
+			ready_parents.append(member)
+	if ready_parents.size() < 2:
+		return
+	var breed_radius := 1.6
+	var used: Dictionary = {}
+	for i in range(ready_parents.size()):
+		var parent_a = ready_parents[i]
+		if used.has(parent_a):
+			continue
+		for j in range(i + 1, ready_parents.size()):
+			var parent_b = ready_parents[j]
+			if used.has(parent_b):
+				continue
+			if (parent_a as Node3D).global_position.distance_to((parent_b as Node3D).global_position) > breed_radius:
+				continue
+			var midpoint: Vector3 = ((parent_a as Node3D).global_position + (parent_b as Node3D).global_position) * 0.5
+			var offset := Vector3(randf_range(-0.4, 0.4), 0.0, randf_range(-0.4, 0.4))
+			var offspring = spawn_fn.call(midpoint + offset)
+			if offspring != null and offspring.has_method("set_age_seconds"):
+				offspring.call("set_age_seconds", 0.0)
+			if parent_a.has_method("mark_bred"):
+				parent_a.call("mark_bred")
+			if parent_b.has_method("mark_bred"):
+				parent_b.call("mark_bred")
+			used[parent_a] = true
+			used[parent_b] = true
+			if root.get_child_count() >= max_population:
+				return
+			break
 
 func _sync_smell_query_runtime_config(force: bool) -> void:
 	if _owner == null or _owner._smell_field == null:

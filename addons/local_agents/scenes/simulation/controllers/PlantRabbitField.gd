@@ -22,6 +22,7 @@ var _mmb_down: bool = false
 var _rmb_down: bool = false
 
 func _ready() -> void:
+	_setup_navigation()
 	_initialize_camera_orbit()
 	if ecology_controller.has_method("set_debug_overlay"):
 		ecology_controller.call("set_debug_overlay", debug_overlay)
@@ -32,6 +33,26 @@ func _ready() -> void:
 	if field_hud.has_signal("debug_settings_changed"):
 		field_hud.connect("debug_settings_changed", _on_debug_settings_changed)
 	field_hud.call("set_spawn_mode", _spawn_mode)
+
+# Bake a flat walkable navmesh over the ground so creature NavigationAgent3D pathing
+# has a map. Terrain worlds will supply a real baked/rebaked mesh instead.
+func _setup_navigation() -> void:
+	if has_node("GroundNavRegion"):
+		return
+	var region := NavigationRegion3D.new()
+	region.name = "GroundNavRegion"
+	add_child(region)
+	var nav_mesh := NavigationMesh.new()
+	var half := 13.0
+	var y := 0.11
+	nav_mesh.vertices = PackedVector3Array([
+		Vector3(-half, y, -half),
+		Vector3(-half, y, half),
+		Vector3(half, y, half),
+		Vector3(half, y, -half),
+	])
+	nav_mesh.add_polygon(PackedInt32Array([0, 1, 2, 3]))
+	region.navigation_mesh = nav_mesh
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey:

@@ -2,12 +2,15 @@ extends Node3D
 
 const PlantScene = preload("res://addons/local_agents/scenes/simulation/actors/EdiblePlantCapsule.tscn")
 const RabbitScene = preload("res://addons/local_agents/scenes/simulation/actors/RabbitSphere.tscn")
+const FoxScene = preload("res://addons/local_agents/scenes/simulation/actors/FoxSphere.tscn")
 const SmellFieldSystemScript = preload("res://addons/local_agents/simulation/SmellFieldSystem.gd")
 const WindFieldSystemScript = preload("res://addons/local_agents/simulation/WindFieldSystem.gd")
 const EnvironmentSignalSnapshotResourceScript = preload("res://addons/local_agents/configuration/parameters/simulation/EnvironmentSignalSnapshotResource.gd")
 const TileKeyUtilsScript = preload("res://addons/local_agents/simulation/TileKeyUtils.gd")
 const PlantGrowthControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/ecology/PlantGrowthController.gd")
 const MammalBehaviorControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/ecology/MammalBehaviorController.gd")
+const BoidsBehaviorControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/ecology/BoidsBehaviorController.gd")
+const BirdFlockControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/ecology/BirdFlockController.gd")
 const EcologyDebugRendererScript = preload("res://addons/local_agents/scenes/simulation/controllers/ecology/EcologyDebugRenderer.gd")
 const ShelterConstructionControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/ecology/ShelterConstructionController.gd")
 const SmellSystemControllerScript = preload("res://addons/local_agents/scenes/simulation/controllers/ecology/SmellSystemController.gd")
@@ -15,6 +18,10 @@ const VoxelProcessGateControllerScript = preload("res://addons/local_agents/scen
 
 @export var initial_plant_count: int = 14
 @export var initial_rabbit_count: int = 4
+@export var initial_fox_count: int = 2
+@export var initial_bird_count: int = 0
+@export var max_rabbit_population: int = 40
+@export var max_fox_population: int = 10
 @export var world_bounds_radius: float = 8.0
 @export var smell_voxel_size: float = 1.0
 @export var smell_vertical_half_extent: float = 3.0
@@ -35,6 +42,7 @@ const VoxelProcessGateControllerScript = preload("res://addons/local_agents/scen
 @export var rabbit_flee_duration_seconds: float = 3.4
 @export var rabbit_eat_distance: float = 0.24
 @export var seed_spawn_radius: float = 0.42
+@export var boids_runtime_settings_node_path: NodePath
 @export var debug_refresh_seconds: float = 0.6
 @export var debug_max_smell_voxels: int = 120
 @export var debug_max_temp_voxels: int = 160
@@ -67,6 +75,10 @@ const VoxelProcessGateControllerScript = preload("res://addons/local_agents/scen
 
 @onready var plant_root: Node3D = $PlantRoot
 @onready var rabbit_root: Node3D = $RabbitRoot
+var fox_root: Node3D
+var _fox_sequence: int = 0
+var bird_root: Node3D
+var _bird_flock_controller: RefCounted
 
 var _sim_time_seconds: float = 0.0
 var _plant_step_accumulator: float = 0.0
@@ -84,6 +96,7 @@ var _transform_stage_d_state: Dictionary = {}
 
 var _plant_growth_controller: RefCounted
 var _mammal_behavior_controller: RefCounted
+var _boids_behavior_controller
 var _debug_renderer: RefCounted
 var _shelter_construction_controller: RefCounted
 var _smell_system_controller: RefCounted
@@ -108,6 +121,9 @@ func _ready() -> void:
 	if _wind_field != null and _wind_field.has_method("set_compute_enabled"):
 		_wind_field.set_compute_enabled(wind_gpu_compute_enabled)
 	_plant_growth_controller = PlantGrowthControllerScript.new()
+	_boids_behavior_controller = BoidsBehaviorControllerScript.new()
+	if _boids_behavior_controller != null and _boids_behavior_controller.has_method("setup"):
+		_boids_behavior_controller.setup(self)
 	_mammal_behavior_controller = MammalBehaviorControllerScript.new()
 	_debug_renderer = EcologyDebugRendererScript.new()
 	_shelter_construction_controller = ShelterConstructionControllerScript.new()
@@ -115,16 +131,50 @@ func _ready() -> void:
 	_voxel_process_gate_controller = VoxelProcessGateControllerScript.new()
 	_plant_growth_controller.setup(self)
 	_mammal_behavior_controller.setup(self)
+	if _mammal_behavior_controller != null and _mammal_behavior_controller.has_method("set_boids_controller"):
+		_mammal_behavior_controller.set_boids_controller(_boids_behavior_controller)
+	_bind_boids_runtime_settings_source()
 	_debug_renderer.setup(self)
 	_shelter_construction_controller.setup(self)
 	_smell_system_controller.setup(self)
 	_voxel_process_gate_controller.setup(self)
+	fox_root = get_node_or_null("FoxRoot")
+	if fox_root == null:
+		fox_root = Node3D.new()
+		fox_root.name = "FoxRoot"
+		add_child(fox_root)
+	bird_root = get_node_or_null("BirdRoot")
+	if bird_root == null:
+		bird_root = Node3D.new()
+		bird_root.name = "BirdRoot"
+		add_child(bird_root)
+	_bird_flock_controller = BirdFlockControllerScript.new()
+	_bird_flock_controller.setup(self, bird_root)
 	_plant_growth_controller.spawn_initial_plants(initial_plant_count)
 	_mammal_behavior_controller.spawn_initial_rabbits(initial_rabbit_count)
+	_mammal_behavior_controller.spawn_initial_foxes(initial_fox_count)
+	_bird_flock_controller.spawn_initial_birds(initial_bird_count)
 	_smell_system_controller.refresh_smell_sources()
 	_mammal_behavior_controller.refresh_actor_caches()
 	_plant_growth_controller.rebuild_edible_plant_index()
 	_refresh_voxel_activity_map()
+
+func _bind_boids_runtime_settings_source() -> void:
+	var source: Variant = null
+	if boids_runtime_settings_node_path == NodePath():
+		source = null
+	elif has_node(boids_runtime_settings_node_path):
+		var candidate = get_node_or_null(boids_runtime_settings_node_path)
+		if candidate != null:
+			source = candidate
+	else:
+		push_error("EcologyController: configured boids runtime settings node path is invalid: %s" % boids_runtime_settings_node_path)
+		source = {
+			"_boids_settings_source_invalid": true,
+			"error_detail": "Boids runtime settings node path is invalid: %s" % boids_runtime_settings_node_path,
+		}
+	if _mammal_behavior_controller != null and _mammal_behavior_controller.has_method("set_boids_runtime_settings_source"):
+		_mammal_behavior_controller.call("set_boids_runtime_settings_source", source)
 
 func _physics_process(delta: float) -> void:
 	if delta <= 0.0:
@@ -152,6 +202,8 @@ func _physics_process(delta: float) -> void:
 	if _mammal_step_accumulator >= maxf(0.01, mammal_step_interval_seconds):
 		_mammal_behavior_controller.step_mammals(_mammal_step_accumulator)
 		_mammal_step_accumulator = 0.0
+	if _bird_flock_controller != null:
+		_bird_flock_controller.step(delta)
 	if _profile_refresh_accumulator >= maxf(0.05, living_profile_refresh_interval_seconds):
 		if not voxel_process_gating_enabled or not voxel_gate_profile_refresh_enabled or has_voxel_activity():
 			_refresh_living_entity_profiles()
@@ -252,6 +304,9 @@ func spawn_plant_at(world_position: Vector3, initial_growth_ratio: float = 0.0) 
 
 func spawn_rabbit_at(world_position: Vector3) -> Node3D:
 	return _mammal_behavior_controller.spawn_rabbit_at(world_position)
+
+func spawn_fox_at(world_position: Vector3) -> Node3D:
+	return _mammal_behavior_controller.spawn_fox_at(world_position)
 
 func spawn_random(plants: int, rabbits: int) -> void:
 	for i in range(maxi(0, plants)):

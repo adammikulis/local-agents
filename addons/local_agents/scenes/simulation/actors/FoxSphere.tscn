@@ -1,31 +1,29 @@
 [gd_scene load_steps=6 format=3]
 
-[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/actors/RabbitSphere.gd" id="1_rabbit"]
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/actors/FoxActor.gd" id="1_fox"]
 
-[sub_resource type="SphereMesh" id="SphereMesh_rabbit"]
-radius = 0.16
-height = 0.32
+[sub_resource type="SphereMesh" id="SphereMesh_fox"]
+radius = 0.22
+height = 0.44
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_rabbit"]
-albedo_color = Color(0.95, 0.95, 0.95, 1)
-roughness = 0.76
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_fox"]
+albedo_color = Color(0.86, 0.4, 0.13, 1)
+roughness = 0.72
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_body"]
-radius = 0.16
+radius = 0.22
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_select"]
-radius = 0.28
+radius = 0.34
 
-[node name="RabbitSphere" type="CharacterBody3D"]
+[node name="FoxSphere" type="CharacterBody3D"]
 collision_layer = 2
 collision_mask = 1
-script = ExtResource("1_rabbit")
-maturity_seconds = 7.0
-breed_cooldown_seconds = 11.0
+script = ExtResource("1_fox")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="."]
-mesh = SubResource("SphereMesh_rabbit")
-material_override = SubResource("StandardMaterial3D_rabbit")
+mesh = SubResource("SphereMesh_fox")
+material_override = SubResource("StandardMaterial3D_fox")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 shape = SubResource("SphereShape3D_body")
@@ -38,6 +36,6 @@ shape = SubResource("SphereShape3D_select")
 [node name="NavigationAgent3D" type="NavigationAgent3D" parent="."]
 path_desired_distance = 0.4
 target_desired_distance = 0.4
-radius = 0.2
-height = 0.32
+radius = 0.26
+height = 0.44
 avoidance_enabled = false
