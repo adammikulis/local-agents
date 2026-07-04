@@ -31,8 +31,11 @@ const SUITE_DESTRUCTION := "destruction"
 const DEFAULT_SUITE := SUITE_RUNTIME
 
 const TestModelHelper := preload("res://addons/local_agents/tests/test_model_helper.gd")
+const AgentResultReporter := preload("res://addons/local_agents/tests/agent_result_reporter.gd")
 const DEFAULT_TIMEOUT_SECONDS := 120
 const GPU_MOBILE_TIMEOUT_SECONDS := 180
+
+var _started_ms: int = 0
 
 var _timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
 var _poll_interval_seconds: float = 0.25
@@ -58,6 +61,7 @@ func _init() -> void:
 	_timeout_seconds = _timeout_from_args()
 	_workers = _workers_from_args()
 	_selected_tests = _tests_from_args()
+	_started_ms = Time.get_ticks_msec()
 	call_deferred("_run_all")
 
 func _run_all() -> void:
@@ -95,6 +99,9 @@ func _run_all() -> void:
 	OS.set_environment("LOCAL_AGENTS_HEAVY_TIMEOUT_SEC", str(_timeout_seconds))
 	await _run_all_bounded()
 
+	var duration_s := float(Time.get_ticks_msec() - _started_ms) / 1000.0
+	var failed := _failures.size()
+	AgentResultReporter.emit("bounded", maxi(0, _selected_tests.size() - failed), failed, _failures, duration_s)
 	if _failures.is_empty():
 		print("All bounded runtime tests passed.")
 		quit(0)
