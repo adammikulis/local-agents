@@ -29,29 +29,16 @@ const MAX_STEPS_PER_FRAME: int = 3
 const SAMPLE_BUDGET: int = 700
 const READY_FRACTION: float = 0.9
 
-# --- Heat model (temperature is a relative scalar; ambient ~0, disasters inject spikes) ------
-## Fraction of a cell's temperature gradient conducted to its 4 neighbours per step.
-const CONDUCT_FRACTION: float = 0.16
-## How fast a cell relaxes toward its ambient temperature per step (radiative equilibrium).
-const AMBIENT_RELAX: float = 0.06
-## Temperatures are real degrees CELSIUS. Radiative night floor (°C the ground relaxes toward with
-## zero sun) — a cool but non-freezing night.
-const AMBIENT_NIGHT: float = 6.0
-## Ambient warming (°C) per unit of incoming solar (light_energy * elevation). Tuned so a clear noon
-## (solar ~1.4) lands ambient near 28°C; clouds/storms dimming the sun genuinely cool the ground.
-const SOLAR_WARMTH: float = 16.0
-## Altitude cooling: temperature drops by LAPSE_RATE °C per world-unit above LAPSE_REF, so high peaks
-## fall below 0°C and grow snow/ice emergently.
-const LAPSE_RATE: float = 0.42
-const LAPSE_REF: float = 15.0
+# --- Heat model (temperature is real degrees Celsius). The thermal STEP (conduction + solar/ambient
+# relax + cloud shading + wet-cell cooling) lives in its own module now (MaterialHeat.gd); the field
+# owns the module + the shared _temp array and reads the real scene sun (_sun_light) for solar input.
+const HeatScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialHeat.gd")
+var _heat = null                           # LAMaterialHeat (conduction + ambient/solar thermal step)
 ## New cells start at a mild temperature (not 0°C) so nothing freezes before the field settles.
 const INITIAL_TEMP: float = 15.0
 ## New cells start with a little ambient humidity (air is never bone-dry), so clouds/fog can form from
 ## the first cool night instead of needing a full day of evaporation to charge the atmosphere first.
 const INITIAL_VAPOR: float = 0.035
-## Pull (°C toward ambient per second) on WET cells — big water heat capacity keeps rivers/lakes near
-## ambient even beside a fire, so they act as firebreaks emergently.
-const WATER_COOL: float = 300.0
 ## Diagnostic default: a cell at/above this °C counts as "hot" (well above any natural ambient).
 const HOT_THRESHOLD: float = 60.0
 
@@ -84,10 +71,8 @@ const LAVA_MIN: float = 0.04              # below this a lava cell is spent
 # atmosphere delegators near the bottom).
 const AtmosphereScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialAtmosphere.gd")
 var _atmosphere = null                     # LAMaterialAtmosphere (vapor -> cloud/fog -> rain + wind)
-const EVAP_TEMP_REF: float = 22.0        # °C at which evaporation runs at ~1x
+const EVAP_TEMP_REF: float = 22.0        # °C at which evaporation runs at ~1x (shared: liquid evap)
 const EVAP_TEMP_GAIN: float = 0.055      # per-°C change in evaporation rate (warm water steams more)
-const CLOUD_SHADE_GAIN: float = 3.0      # cloud density -> fraction of solar blocked below it
-const CLOUD_SHADE_MAX: float = 0.75      # a cell's cloud can block at most this much of its solar
 
 # --- Phase changes (temperature-driven) live in the fluids module now (MaterialLiquid.gd): water
 # freezes/evaporates, LAVA sustains heat + solidifies to rock, and extreme heat MELTS rock to lava.
@@ -105,7 +90,6 @@ var _terrain_h: PackedFloat32Array = PackedFloat32Array()
 var _sampled: PackedByteArray = PackedByteArray()
 
 var _temp: PackedFloat32Array = PackedFloat32Array()      # temperature per cell
-var _tdelta: PackedFloat32Array = PackedFloat32Array()    # scratch for conduction
 
 ## Per-cell quantity of each MOBILE material, keyed by material id. Created lazily (a material's
 ## array is allocated the first time it is injected), so an all-water-and-heat world never pays for
@@ -128,8 +112,7 @@ var _step_accum: float = 0.0
 ## The real scene sun (DirectionalLight3D). The field reads its live energy + orientation each step to
 ## derive incoming solar — the one genuinely external forcing. Rain/wind/pressure EMERGE, never
 ## injected; even cloud/storm dimming of the sun's energy cooling the ground is a real feedback.
-var _sun_light = null
-var _solar: float = 0.0                                  # cached incoming solar (energy * elevation)
+var _sun_light = null                                    # DirectionalLight3D — MaterialHeat reads it
 
 ## Sea level (world Y). WATER cells whose ground is below this fill toward it (oceans).
 var sea_level: float = 0.0
@@ -162,8 +145,6 @@ func setup(terrain, half_extent: float, cell_size: float) -> void:
 	_sampled.resize(_cell_count)
 	_temp = PackedFloat32Array()
 	_temp.resize(_cell_count)
-	_tdelta = PackedFloat32Array()
-	_tdelta.resize(_cell_count)
 	_mdelta = PackedFloat32Array()
 	_mdelta.resize(_cell_count)
 	_vapor = PackedFloat32Array()
@@ -194,6 +175,9 @@ func setup(terrain, half_extent: float, cell_size: float) -> void:
 	_gravity = GravityScript.new()
 	_gravity.setup(self)
 
+	_heat = HeatScript.new()
+	_heat.setup(self)
+
 
 ## Ecology ref so combustion can topple/reseed/scare the actors it consumes (set by set_material_field).
 func set_ecology(e) -> void:
@@ -205,16 +189,6 @@ func set_ecology(e) -> void:
 ## pressure, wind and rain all emerge from how its energy moves through the field.
 func set_sun(light) -> void:
 	_sun_light = light
-
-
-## Incoming solar at flat ground = the sun's real energy times its downward elevation (angle of
-## incidence). Zero at night (sun below horizon), weak at dawn/dusk, peak at noon; dimmed by clouds.
-func _solar_input() -> float:
-	if _sun_light == null:
-		return 0.0
-	var travel: Vector3 = -_sun_light.global_transform.basis.z   # direction photons move
-	var elevation: float = maxf(0.0, -travel.y)                  # how straight-down the light is
-	return elevation * maxf(0.0, _sun_light.light_energy)
 
 
 # --- Grid index helpers (identical layout to the water field) ----------------
@@ -342,64 +316,11 @@ func is_ready() -> bool:
 func _material_step() -> void:
 	if _cell_count <= 0:
 		return
-	_heat_exchange_step()
+	_heat.step()
 	_liquid.step()
 	_atmosphere.step()
-	# Phase reactions, gas convection and combustion attach here as those materials/fuel come online
-	# (Phase 2+); they are no-ops until the relevant materials are injected.
-
-
-## CONDUCTION + AMBIENT RELAX + water/rain cooling. (Convection — heat carried by rising hot gas —
-## is applied in the gas-movement rule once gases are injected; see _material_step.)
-func _heat_exchange_step() -> void:
-	var dim: int = _dim
-	var water: PackedFloat32Array = _mat_array(Mat.WATER)
-
-	# 1) CONDUCTION — share a fraction of each cell/neighbour difference into _tdelta (symmetric,
-	# order-independent). Only sampled cells participate.
-	for idx in range(_cell_count):
-		_tdelta[idx] = 0.0
-	for j in range(dim):
-		var row: int = j * dim
-		for i in range(dim):
-			var idx: int = row + i
-			if _sampled[idx] == 0:
-				continue
-			var t: float = _temp[idx]
-			# Right + up neighbours only, applying the flux to BOTH cells → every pair counted once.
-			if i < dim - 1:
-				var ri: int = idx + 1
-				if _sampled[ri] != 0:
-					var f: float = (t - _temp[ri]) * CONDUCT_FRACTION * 0.25
-					_tdelta[idx] -= f
-					_tdelta[ri] += f
-			if j < dim - 1:
-				var ui: int = idx + dim
-				if _sampled[ui] != 0:
-					var f2: float = (t - _temp[ui]) * CONDUCT_FRACTION * 0.25
-					_tdelta[idx] -= f2
-					_tdelta[ui] += f2
-
-	# 2) Apply conduction, then relax toward ambient (with altitude lapse), then extra cooling on
-	# wet cells so rivers keep fires in check emergently. Ambient is driven by the REAL sun energy.
-	_solar = _solar_input()
-	var solar_warmth: float = SOLAR_WARMTH * _solar
-	for idx in range(_cell_count):
-		if _sampled[idx] == 0:
-			continue
-		var t: float = _temp[idx] + _tdelta[idx]
-		var altitude: float = _terrain_h[idx]
-		# Cloud overhead shades this cell's sunlight, so cloudy/foggy ground warms less — the
-		# emergent "clouds cool the ground below them" feedback.
-		var shade: float = minf(CLOUD_SHADE_MAX, (_cloud[idx] + _fog[idx]) * CLOUD_SHADE_GAIN)
-		var day_base: float = AMBIENT_NIGHT + solar_warmth * (1.0 - shade)
-		var ambient: float = day_base - LAPSE_RATE * maxf(0.0, altitude - LAPSE_REF)
-		t = t + (ambient - t) * AMBIENT_RELAX
-		# Cooling where wet / raining: WATER cells + rain pull toward ambient faster than open
-		# ground, so rivers/lakes/flood become firebreaks and rain suppresses fire emergently.
-		if water[idx] > WATER_THRESHOLD:
-			t = move_toward(t, ambient, WATER_COOL * STEP_DT)
-		_temp[idx] = t
+	# Phase reactions and gas convection attach here as those materials come online (Phase 2+);
+	# they are no-ops until the relevant materials are injected.
 
 
 # --- Fluids delegators (water + lava CA live in MaterialLiquid.gd) -----------
