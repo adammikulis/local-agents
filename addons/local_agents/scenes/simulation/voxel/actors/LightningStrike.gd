@@ -13,6 +13,7 @@ const HEAT_RADIUS: float = 3.0
 const SCORCH_RADIUS: float = 1.4          # small glassy crater at the point
 const LETHAL_RADIUS: float = 7.0          # direct blast: trees topple, creatures & fish die close in
 const WATER_FISH_RADIUS: float = 12.0     # water conducts — a bolt into a pool electrocutes fish wider
+const STRIKE_DAMAGE: float = 1000.0       # HP dealt at the bolt itself; falls off to 0 at the radius
 const SCARE_RADIUS: float = 34.0
 const FLASH_ENERGY: float = 34.0
 const LINGER: float = 0.7                 # seconds of afterglow before free
@@ -52,10 +53,11 @@ func strike(point: Vector3) -> void:
 				if field.has_method("splash"):
 					field.splash(point, 2.5)
 				LocalAgentsAudioDirector.emit(get_tree(), "steam", point)
-	# LETHAL BLAST — close to the bolt, trees topple and creatures (and any fish in reach) die.
+	# LETHAL BLAST — deterministic GRADED HP damage: heaviest at the bolt (fatal), falling off to
+	# nothing at LETHAL_RADIUS. Trees/creatures at the centre die; those at the rim survive hurt.
 	# Wider than this, broadcast_scare only panics the survivors: a bolt kills close, scares wide.
 	if _ecology != null and _ecology.has_method("damage_sphere"):
-		_ecology.damage_sphere(point, LETHAL_RADIUS)
+		_ecology.damage_sphere(point, LETHAL_RADIUS, STRIKE_DAMAGE)
 	# Water conducts: a strike into a pool electrocutes fish over a wider radius than the direct blast.
 	if struck_water:
 		_electrocute_fish(point, WATER_FISH_RADIUS)
@@ -66,9 +68,10 @@ func strike(point: Vector3) -> void:
 	LocalAgentsAudioDirector.emit(get_tree(), "thunder", point)
 
 
-# Electrocute fish within `radius` of a strike that hit water — with a distance FALLOFF: the current
-# weakens as it spreads through the pool, so fish at the bolt die for sure while those near the edge
-# often survive. (damage_sphere already kills whatever is right at the strike.)
+# Electrocute fish within `radius` of a strike that hit water — deterministic HP damage with a
+# distance FALLOFF: the current weakens as it spreads through the pool, so a fish at the bolt takes
+# the full STRIKE_DAMAGE (fatal) while fish near the edge take little and often survive. No random
+# chance — the same distance always deals the same damage.
 func _electrocute_fish(point: Vector3, radius: float) -> void:
 	for fish in get_tree().get_nodes_in_group("species_fish"):
 		if not is_instance_valid(fish) or not (fish is Node3D):
@@ -77,12 +80,12 @@ func _electrocute_fish(point: Vector3, radius: float) -> void:
 		var d: float = f.global_position.distance_to(point)
 		if d > radius:
 			continue
-		# Kill probability falls off with distance (1 at the bolt → 0 at the edge), squared so it
-		# stays lethal near the strike and tapers quickly toward the rim.
-		var lethality: float = 1.0 - d / radius
-		if randf() > lethality * lethality:
+		var falloff: float = LAEcologyService.blast_falloff(d, radius)
+		if falloff <= 0.0:
 			continue
-		if f.has_method("die"):
+		if f.has_method("take_damage"):
+			f.take_damage(STRIKE_DAMAGE * falloff, "electrocuted")
+		elif f.has_method("die"):
 			f.die("electrocuted")
 		elif f.has_method("queue_free"):
 			f.queue_free()

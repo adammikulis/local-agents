@@ -29,6 +29,11 @@ var maturity_age: float = 12.0
 var food_value: float = 26.0
 var max_age: float = 130.0
 
+# --- health / HP: fish are fragile; a small pool of HP so a bolt's current kills them near the
+# strike but graded damage lets edge-of-range fish survive. 0 HP = death. ---
+var health: float = 12.0
+var max_health: float = 12.0
+
 var age: float = 0.0
 var state: String = "swim"
 var _dying: bool = false
@@ -50,6 +55,9 @@ func setup(_terrain, _material, _config: Dictionary) -> void:
 	maturity_age = float(config.get("maturity_age", maturity_age))
 	food_value = float(config.get("food_value", food_value))
 	max_age = float(config.get("max_age", max_age))
+	# Fragile: HP scales gently with size, but fish die easily to a strike near the bolt.
+	max_health = float(config.get("max_health", 8.0 + size * 20.0))
+	health = max_health
 
 	collision_layer = 2                # pickable via the same layer-2 query as other actors
 	collision_mask = 0                 # movement is manual
@@ -111,6 +119,15 @@ func die(_cause: String = "", _impulse: Vector3 = Vector3.ZERO) -> void:
 
 func on_struck() -> void:
 	die("struck")
+
+
+# Deterministic HP damage (electrocution, blast). Dies via the normal death path at 0 HP.
+func take_damage(amount: float, cause: String = "", _impulse: Vector3 = Vector3.ZERO) -> void:
+	if _dying or amount <= 0.0:
+		return
+	health -= amount
+	if health <= 0.0:
+		die(cause)
 
 
 func is_mature() -> bool:
