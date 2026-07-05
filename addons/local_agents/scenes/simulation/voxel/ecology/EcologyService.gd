@@ -128,6 +128,15 @@ func fire_system():
 	return _fire
 
 
+# Broadcast a GROUND-DISTURBANCE stimulus (meteor blast, earthquake, later saturated slope). It just
+# tells the material field the earth was shaken here — loose/steep ground then slumps toward its angle
+# of repose under GRAVITY, in the field's own granular step. No landslide "system"; it's material
+# physics. One channel every disaster reuses.
+func disturb_ground(world_pos: Vector3, radius: float, strength: float) -> void:
+	if _material != null and _material.has_method("disturb_terrain"):
+		_material.disturb_terrain(world_pos, radius, strength)
+
+
 func cognition_scheduler():
 	return _cognition_sched
 

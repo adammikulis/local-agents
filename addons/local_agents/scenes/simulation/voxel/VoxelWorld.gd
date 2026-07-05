@@ -56,6 +56,7 @@ var _armed_kind: String = ""
 var _spawned_initial: bool = false
 var _ready_wait_ticks: int = 0
 var _scent_visible: bool = false
+var _temp_debug_visible: bool = false      # T toggles the terrain temperature heatmap debug view
 
 # --- Procedural audio (presentation only; reacts to events, never drives the sim) ---
 var _audio: LocalAgentsAudioDirector = null
@@ -179,6 +180,13 @@ func _ready() -> void:
 	_material.set_sun(_sun)
 	if _ecology.has_method("set_material_field"):
 		_ecology.set_material_field(_material)
+
+	# Feed the live temperature texture to the terrain shader so HOT GROUND GLOWS (meteor craters,
+	# lava, wildfire fronts) — emergent incandescence, updated in place each field step.
+	if _terrain.has_method("set_shader_param") and _material.has_method("heat_texture"):
+		_terrain.set_shader_param("heat_tex", _material.heat_texture())
+		_terrain.set_shader_param("heat_world_min", _material.heat_world_min())
+		_terrain.set_shader_param("heat_world_size", _material.heat_world_size())
 
 
 func _parse_cmdline() -> void:
@@ -419,6 +427,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			sf.set_scent_visible(_scent_visible)
 		_hud.set_status("Scent view: %s" % ("ON" if _scent_visible else "off"))
 		return
+	# Debug view: T paints the terrain by temperature (heatmap). More field views (wind, pressure)
+	# hang off the same toggle set as those systems come online.
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_T:
+		_temp_debug_visible = not _temp_debug_visible
+		if _terrain != null and _terrain.has_method("set_shader_param"):
+			_terrain.set_shader_param("heat_debug", 1.0 if _temp_debug_visible else 0.0)
+		_hud.set_status("Temperature view: %s" % ("ON" if _temp_debug_visible else "off"))
+		return
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		var pos: Vector2 = event.position
 		if _hud != null and _hud.has_method("is_pointer_over_ui") and _hud.is_pointer_over_ui(pos):
@@ -448,7 +464,8 @@ func _place_armed(screen_pos: Vector2) -> void:
 		var meteor: MeteorScript = MeteorScript.new()
 		_actors_root.add_child(meteor)
 		meteor.setup(_terrain, _ecology)
-		meteor.launch(point)
+		# Launch from over the user's head, streaking toward the clicked point.
+		meteor.launch(point, _camera.global_position)
 		_music_destruction = 1.0
 		_hud.set_status("Meteor inbound!")
 	else:
@@ -517,7 +534,7 @@ func _fire_test_meteor() -> void:
 	var m: MeteorScript = MeteorScript.new()
 	_actors_root.add_child(m)
 	m.setup(_terrain, _ecology)
-	m.launch(impact)
+	m.launch(impact, _camera.global_position)
 	_music_destruction = 1.0
 	_auto_meteor_fired = true
 	_camera.global_position = impact + Vector3(26.0, 30.0, 26.0)
