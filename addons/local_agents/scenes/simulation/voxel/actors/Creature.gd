@@ -584,21 +584,54 @@ func _kill_and_eat(prey: Node3D) -> void:
 		prey.queue_free()
 
 
+# Scavenging is just eating meat-type food off the ground — same unified path as grazing.
 func _try_scavenge(pos: Vector3) -> bool:
-	if diet == "herbivore":
+	return _try_eat_food(pos)
+
+
+# UNIFIED EATING: scan nearby food (anything exposing food_profile — plants, carcasses, …) and eat
+# the best item my diet will forage. Herbivores take carbs, carnivores/scavengers take meat,
+# omnivores both; energy gained scales with the food's STATE (a rotten carcass is worth half, cooked
+# more). One rule for every diet and every food source — living prey is the one thing not eaten here
+# (it must be hunted first, which turns it into a carcass = dead meat).
+func _try_eat_food(pos: Vector3) -> bool:
+	if energy > max_energy * 0.92:
+		return false                              # sated
+	var best: Node3D = null
+	var best_val: float = 0.0
+	var reach: float = maxf(size + 1.0, 1.4)
+	for grp in [GROUP_PLANT, GROUP_CARRION]:
+		for f in get_tree().get_nodes_in_group(grp):
+			if not is_instance_valid(f) or not (f is Node3D):
+				continue
+			if not f.has_method("food_profile"):
+				continue
+			if pos.distance_to((f as Node3D).global_position) > reach:
+				continue
+			if f.has_method("is_edible") and not f.is_edible():
+				continue
+			var prof: Dictionary = f.food_profile()
+			if not LAFood.can_forage(diet, prof):
+				continue
+			var v: float = LAFood.value(prof)
+			if v > best_val:
+				best_val = v
+				best = f
+	if best == null:
 		return false
-	for c in get_tree().get_nodes_in_group(GROUP_CARRION):
-		if not is_instance_valid(c) or not (c is Node3D):
-			continue
-		if pos.distance_to((c as Node3D).global_position) <= maxf(size + 1.0, 1.4):
-			if c.has_method("feed"):
-				var got: float = float(c.call("feed", 30.0))
-				energy = minf(max_energy, energy + got)
-				if got > 0.0:
-					_emit_call("forage")
-					_reinforce_cue_success()   # the cue that led me here paid off → learn it
-				return got > 0.0
-	return false
+	var profile: Dictionary = best.food_profile()
+	var gained: float = 0.0
+	if best.has_method("feed"):
+		gained = float(best.call("feed", 30.0)) * LAFood.state_mult(profile)   # a bite of a carcass
+	else:
+		gained = LAFood.value(profile)                                          # a whole plant
+		(best as Node3D).queue_free()
+	if gained <= 0.0:
+		return false
+	energy = minf(max_energy, energy + gained)
+	_emit_call("forage")
+	_reinforce_cue_success()
+	return true
 
 
 func _set_rock_visual(on: bool) -> void:
@@ -826,21 +859,9 @@ func _find_water_dir(pos: Vector3) -> Vector3:
 	return Vector3.ZERO
 
 
+# Grazing is just eating carbs-type food off the ground — same unified path as scavenging.
 func _try_eat_plant(pos: Vector3) -> bool:
-	if energy > max_energy * 0.92:
-		return false                          # sated: don't bother grazing
-	for p in get_tree().get_nodes_in_group(GROUP_PLANT):
-		if not is_instance_valid(p) or not (p is Node3D):
-			continue
-		if pos.distance_to((p as Node3D).global_position) <= maxf(size + 0.6, 0.9):
-			if p.has_method("is_edible") and not p.is_edible():
-				continue
-			(p as Node3D).queue_free()
-			energy = minf(max_energy, energy + 32.0)
-			_emit_call("forage")             # a feeding call: kin nearby learn to graze this situation
-			_reinforce_cue_success()
-			return true
-	return false
+	return _try_eat_food(pos)
 
 
 # --- cognition action vocabulary bridge -------------------------------------

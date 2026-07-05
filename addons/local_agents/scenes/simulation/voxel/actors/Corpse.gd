@@ -120,6 +120,13 @@ func feed(amount: float) -> float:
 func nutrition() -> float:
 	return _nutrition
 
+
+# Unified food model: a carcass is MEAT — fresh ("dead") at first, then "decayed" (worth less) as it
+# rots. Value is the meat still on it. (See LAFood — scavengers/carnivores eat it, herbivores don't.)
+func food_profile() -> Dictionary:
+	var st: String = "decayed" if _age > DECAY_LIFETIME * 0.4 else "dead"
+	return {"type": "meat", "state": st, "value": _nutrition}
+
 func get_inspector_payload() -> Dictionary:
 	return {
 		"title": "Carcass",
