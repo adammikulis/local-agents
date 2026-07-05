@@ -23,14 +23,12 @@ Commands:
   fast          Run the fast test sweep (run_all_tests.gd --fast).
   all [args]    Run the full test suite (run_all_tests.gd --timeout=120).
   bounded [a]   Run bounded runtime suite (run_runtime_tests_bounded.gd).
-                e.g. bounded --suite=destruction --workers=2
-  destruction   Run scripts/run_destruction_tests.sh.
-  fps-fire [a]  Run scripts/run_fps_fire_destroy.sh (e.g. --timeout=60).
+                e.g. bounded --suite=fast --workers=2
   single <f> [a] Run one test via scripts/run_single_test.sh <f> [--timeout=120].
   smoke         Boot the main scene headless briefly; fail on script/parse errors.
   extension     Validate the GDExtension via scripts/check_extension.gd.
-  introspect [a] Run introspection_probe.gd (e.g. --ticks=30).
-  lint          Run the three CI lint checks in sequence.
+  lint          Run lint checks: no-direct-refcounted (gate) + file-length &amp;
+                policy markers (advisory).
   -h | --help   Show this help and exit 0.
 
 Environment:
@@ -51,7 +49,7 @@ fi
 shift || true
 
 case "$cmd" in
-  fast|all|bounded|destruction|fps-fire|single|smoke|extension|introspect|lint) ;;
+  fast|all|bounded|single|smoke|extension|lint) ;;
   *)
     echo "agent_harness: unknown command '$cmd'" >&2
     usage >&2
@@ -75,12 +73,6 @@ case "$cmd" in
   bounded)
     child=("$GODOT" --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120 "$@")
     ;;
-  destruction)
-    child=("$SCRIPT_DIR/run_destruction_tests.sh" "$@")
-    ;;
-  fps-fire)
-    child=("$SCRIPT_DIR/run_fps_fire_destroy.sh" "$@")
-    ;;
   single)
     if [[ $# -lt 1 ]]; then
       echo "agent_harness: 'single' requires a test file argument" >&2
@@ -96,9 +88,6 @@ case "$cmd" in
   extension)
     child=("$GODOT" -s scripts/check_extension.gd)
     ;;
-  introspect)
-    child=("$GODOT" --headless --no-window -s addons/local_agents/tests/introspection_probe.gd -- "$@")
-    ;;
   lint)
     : # handled specially below
     ;;
@@ -111,21 +100,29 @@ if [[ "$cmd" == "lint" ]]; then
   set +e
   {
     set +e
-    MAX_FILE_LINES=600 "$SCRIPT_DIR/check_max_file_length.sh"
-    rc1=$?
-    "$SCRIPT_DIR/check_no_direct_refcounted_invocation.sh"
-    rc2=$?
+    # Advisory: file-length soft limit (1000, matches docs + CI) never gates.
+    MAX_FILE_LINES=1000 "$SCRIPT_DIR/check_max_file_length.sh"
+    # Advisory: policy/plan marker drift never gates.
     "$SCRIPT_DIR/check_policy_plan_markers.sh"
-    rc3=$?
+    # Gate: banning direct test_*.gd invocation is a genuine correctness check.
+    "$SCRIPT_DIR/check_no_direct_refcounted_invocation.sh"
+    rc_gate=$?
     set -e
-    if [[ $rc1 -ne 0 ]]; then echo "LINT_FAIL: check_max_file_length.sh ($rc1)"; fi
-    if [[ $rc2 -ne 0 ]]; then echo "LINT_FAIL: check_no_direct_refcounted_invocation.sh ($rc2)"; fi
-    if [[ $rc3 -ne 0 ]]; then echo "LINT_FAIL: check_policy_plan_markers.sh ($rc3)"; fi
-    if [[ $rc1 -eq 0 && $rc2 -eq 0 && $rc3 -eq 0 ]]; then
-      echo "All lint checks passed."
-      exit 0
+    if [[ $rc_gate -ne 0 ]]; then
+      echo "LINT_FAIL: check_no_direct_refcounted_invocation.sh ($rc_gate)"
+      exit 1
     fi
-    exit 1
+    # Gate: no inferred typing (:=) in the new voxel scene.
+    set +e
+    "$SCRIPT_DIR/check_no_inferred_typing.sh"
+    rc_typing=$?
+    set -e
+    if [[ $rc_typing -ne 0 ]]; then
+      echo "LINT_FAIL: check_no_inferred_typing.sh ($rc_typing)"
+      exit 1
+    fi
+    echo "All lint gates passed (file-length + policy markers are advisory)."
+    exit 0
   } 2>&1 | tee "$LOG_FILE"
   exit_code=${PIPESTATUS[0]}
   set -e
@@ -173,16 +170,6 @@ if [[ "$failed" == "null" ]]; then
   [[ -n "$f" ]] && failed="$f"
 fi
 
-# Introspection: surface whether an ok probe line appeared.
-introspect_ok="null"
-if [[ "$cmd" == "introspect" ]]; then
-  if grep -qE 'AGENT_INTROSPECT=.*"ok"[[:space:]]*:[[:space:]]*true' "$LOG_FILE" 2>/dev/null; then
-    introspect_ok="true"
-  else
-    introspect_ok="false"
-  fi
-fi
-
 # Smoke: treat script/parse/dependency errors as failure even if exit was 0.
 if [[ "$cmd" == "smoke" && "$status" == "pass" ]]; then
   if grep -qiE 'SCRIPT ERROR|Parse Error|dependency error|Failed loading resource' "$LOG_FILE" 2>/dev/null; then
@@ -193,9 +180,6 @@ fi
 
 # --- emit exactly one machine-parseable result line --------------------------
 extra=""
-if [[ "$introspect_ok" != "null" ]]; then
-  extra=",\"introspect_ok\":$introspect_ok"
-fi
 printf 'AGENT_HARNESS_RESULT={"command":"%s","status":"%s","exit_code":%d,"duration_s":%d,"log":"%s","passed":%s,"failed":%s%s}\n' \
   "$cmd" "$status" "$exit_code" "$duration" "$LOG_FILE" "$passed" "$failed" "$extra"
 

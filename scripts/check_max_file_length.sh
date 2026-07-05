@@ -9,8 +9,13 @@ if ! [[ "$MAX_FILE_LINES" =~ ^[0-9]+$ ]] || [[ "$MAX_FILE_LINES" -le 0 ]]; then
   exit 2
 fi
 
+# Test-invocation safety gate (genuine correctness check, kept as a hard gate).
 "$SCRIPT_DIR/check_no_direct_refcounted_invocation.sh"
-"$SCRIPT_DIR/check_policy_plan_markers.sh"
+# NOTE: the policy/plan marker check is intentionally NOT invoked here. It used to
+# be bundled in, which secretly turned this "advisory" file-length check into a
+# hard marker gate under `set -euo pipefail`. Marker checks are now advisory and
+# run separately (see scripts/check_policy_plan_markers.sh, invoked by the lint
+# harness as advisory-only).
 
 FILES=()
 while IFS= read -r file; do

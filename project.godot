@@ -11,9 +11,13 @@ config_version=5
 [application]
 
 config/name="LocalAgents"
-run/main_scene="res://addons/local_agents/scenes/simulation/WorldSimulation.tscn"
+run/main_scene="res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 config/icon="res://icon.svg"
+
+[audio]
+
+buses/default_bus_layout="res://addons/local_agents/audio/default_bus_layout.tres"
 
 [autoload]
 

@@ -27,50 +27,14 @@ endif()
 add_subdirectory(${GODOT_CPP_DIR} "${CMAKE_BINARY_DIR}/godot-cpp" EXCLUDE_FROM_ALL)
 add_subdirectory(${LLAMA_CPP_DIR} "${CMAKE_BINARY_DIR}/llama.cpp" EXCLUDE_FROM_ALL)
 
-set(SIM_SRC
-    src/sim/VoxelEditGpuExecutor.cpp
-    src/sim/VoxelGpuResourceCache.cpp
-    src/sim/VoxelGpuDispatchMetadata.cpp
-    src/sim/CoreSimulationPipeline.cpp
-    src/sim/CoreSimulationPipelineFieldInputResolution.cpp
-    src/sim/CoreSimulationPipelineFieldInputResolutionScalarHelpers.cpp
-    src/sim/CoreSimulationPipelineFieldEvolution.cpp
-    src/sim/CoreSimulationPipelineInternal.cpp
-    src/sim/CoreSimulationPipelineStages.cpp
-)
-
-set(HELPER_SRC
-    src/helpers/LocalAgentsFractureDebrisEmitter.cpp
-    src/helpers/StructureLifecycleNativeHelpers.cpp
-    src/helpers/SimulationCoreDictionaryHelpers.cpp
-    src/helpers/VoxelEditParsingHelpers.cpp
-    src/helpers/VoxelEditPayloadValidationHelpers.cpp
-    src/helpers/NativeVoxelTerrainMutatorSurfaceDeltaHelpers.cpp
-)
-
+# NOTE: the homegrown ecosystem/settlement simulation + native voxel-edit/dispatch
+# sources were removed with that stack. Only the LLM/agent/graph runtime remains.
 set(SRC
     src/AgentNode.cpp
     src/AgentRuntime.cpp
-    src/LocalAgentsComputeManager.cpp
-    src/LocalAgentsFieldRegistry.cpp
-    src/LocalAgentsEnvironmentStageExecutor.cpp
     src/ModelDownloadManager.cpp
     src/NetworkGraph.cpp
-    src/LocalAgentsQueryService.cpp
     src/LocalAgentsRegister.cpp
-    src/LocalAgentsScheduler.cpp
-    src/LocalAgentsSimProfiler.cpp
-    src/LocalAgentsSimulationCore.cpp
-    src/LocalAgentsNativeVoxelTerrainMutator.cpp
-    src/LocalAgentsVoxelDispatchBridge.cpp
-    src/LocalAgentsVoxelOrchestration.cpp
-    src/LocalAgentsWorldSimulationNativeUtils.cpp
-    src/FailureEmissionDeterministicNoise.cpp
-    src/SimulationFailureEmissionPlanner.cpp
-    ${HELPER_SRC}
-    ${SIM_SRC}
-    src/VoxelEditEngine.cpp
-    src/LocalAgentsBoidsNativeBridge.cpp
 )
 
 set(SQLITE_SRC

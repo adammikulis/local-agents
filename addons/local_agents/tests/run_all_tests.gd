@@ -8,23 +8,13 @@ const CORE_TESTS := TestLaneRegistry.DETERMINISTIC_TESTS
 const FAST_CORE_TESTS := [
     "res://addons/local_agents/tests/test_smoke_agent.gd",
     "res://addons/local_agents/tests/test_agent_utilities.gd",
-    "res://addons/local_agents/tests/test_field_registry_config_resource.gd",
-    "res://addons/local_agents/tests/test_simulation_worldgen_determinism.gd",
-    "res://addons/local_agents/tests/test_simulation_flowmap_bake.gd",
-    "res://addons/local_agents/tests/test_simulation_erosion_delta_tiles.gd",
-    "res://addons/local_agents/tests/test_simulation_environment_signal_determinism.gd",
-    "res://addons/local_agents/tests/test_wind_air_column_solar_heating.gd",
-    "res://addons/local_agents/tests/test_simulation_voxel_terrain_generation.gd",
-    "res://addons/local_agents/tests/test_wind_field_system.gd",
-    "res://addons/local_agents/tests/test_smell_field_system.gd",
+    "res://addons/local_agents/tests/test_synth_dsp.gd",
+    "res://addons/local_agents/tests/test_audio_music.gd",
 ]
 
 const LONG_TESTS := TestLaneRegistry.INTEGRATION_TESTS
 const RUNTIME_TESTS := TestLaneRegistry.RUNTIME_HEAVY_TESTS
-const COGNITION_DEPENDENT_TESTS := [
-	"res://addons/local_agents/tests/test_simulation_villager_cognition.gd",
-	"res://addons/local_agents/tests/test_simulation_cognition_trace_isolation.gd",
-]
+const COGNITION_DEPENDENT_TESTS := []
 
 const HEAVY_TEST := "res://addons/local_agents/tests/test_agent_runtime_heavy.gd"
 const HEAVY_FLAG := "--include-heavy"

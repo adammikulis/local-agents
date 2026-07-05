@@ -2,70 +2,23 @@
 extends RefCounted
 class_name LocalAgentsTestLaneRegistry
 
+# Test lanes for the LLM/agent/audio stack. The old homegrown ecosystem/settlement
+# simulation + native voxel-op tests were removed with that stack, so these lanes now
+# cover only the shipped subsystems (agent runtime, llama server, graph, audio).
+
 const DETERMINISTIC_TESTS: Array[String] = [
 	"res://addons/local_agents/tests/test_smoke_agent.gd",
 	"res://addons/local_agents/tests/test_agent_utilities.gd",
-	"res://addons/local_agents/tests/test_field_registry_config_resource.gd",
-	"res://addons/local_agents/tests/test_deterministic_simulation.gd",
-	"res://addons/local_agents/tests/test_simulation_worldgen_determinism.gd",
-	"res://addons/local_agents/tests/test_simulation_flowmap_bake.gd",
-	"res://addons/local_agents/tests/test_simulation_erosion_delta_tiles.gd",
-	"res://addons/local_agents/tests/test_simulation_environment_signal_determinism.gd",
-	"res://addons/local_agents/tests/test_wind_air_column_solar_heating.gd",
-	"res://addons/local_agents/tests/test_native_voxel_op_contracts.gd",
-	"res://addons/local_agents/tests/test_native_combustion_pressure_contracts.gd",
-	"res://addons/local_agents/tests/test_native_general_physics_wave_a_runtime.gd",
-	"res://addons/local_agents/tests/test_native_general_physics_contracts.gd",
-	"res://addons/local_agents/tests/test_native_contact_serializer_bridge_contracts.gd",
-	"res://addons/local_agents/tests/test_native_general_physics_failure_emission_runtime.gd",
-	"res://addons/local_agents/tests/test_native_general_physics_failure_emission_contracts.gd",
-	"res://addons/local_agents/tests/test_native_orchestration_dispatch_runtime_contract.gd",
-	"res://addons/local_agents/tests/test_native_projectile_dispatch_deadline_contract.gd",
-	"res://addons/local_agents/tests/test_native_debris_dispatch_contract.gd",
-	"res://addons/local_agents/tests/test_simulation_voxel_terrain_generation.gd",
-	"res://addons/local_agents/tests/test_simulation_water_first_spawn.gd",
-	"res://addons/local_agents/tests/test_simulation_branching.gd",
-	"res://addons/local_agents/tests/test_simulation_rewind_branch_diff.gd",
-	"res://addons/local_agents/tests/test_simulation_path_logistics.gd",
-	"res://addons/local_agents/tests/test_simulation_settlement_growth.gd",
-	"res://addons/local_agents/tests/test_simulation_oral_tradition.gd",
-	"res://addons/local_agents/tests/test_simulation_culture_policy_effects.gd",
-	"res://addons/local_agents/tests/test_cultural_driver_json_contract.gd",
-	"res://addons/local_agents/tests/test_simulation_cognition_contract.gd",
-	"res://addons/local_agents/tests/test_simulation_path_decay.gd",
-	"res://addons/local_agents/tests/test_path_traversal_profile.gd",
-	"res://addons/local_agents/tests/test_wind_field_system.gd",
-	"res://addons/local_agents/tests/test_smell_field_system.gd",
-	"res://addons/local_agents/tests/test_ecology_shelter_capabilities.gd",
-	"res://addons/local_agents/tests/test_structure_lifecycle_depletion.gd",
-	"res://addons/local_agents/tests/test_simulation_dream_labeling.gd",
-	"res://addons/local_agents/tests/test_simulation_resource_ledgers.gd",
-	"res://addons/local_agents/tests/test_simulation_economy_events.gd",
-	"res://addons/local_agents/tests/test_simulation_material_flow_parity.gd",
-	"res://addons/local_agents/tests/test_simulation_material_flow_foveated_throttling.gd",
-	"res://addons/local_agents/tests/test_physics_server_coupling_gate.gd",
-	"res://addons/local_agents/tests/test_fps_launcher_contact_rows.gd",
-	"res://addons/local_agents/tests/test_fps_fire_contact_mutation_runtime_path.gd",
-	"res://addons/local_agents/tests/test_projectile_voxel_destruction_runtime_path.gd",
-	"res://addons/local_agents/tests/test_projectile_direct_impact_mutation_guarantee.gd",
-	"res://addons/local_agents/tests/test_world_camera_fps_vertical_controls.gd",
-	"res://addons/local_agents/tests/test_voxel_chunk_collision_parity_contracts.gd",
+	"res://addons/local_agents/tests/test_synth_dsp.gd",
+	"res://addons/local_agents/tests/test_audio_music.gd",
 ]
 
-const INTEGRATION_TESTS: Array[String] = [
-	"res://addons/local_agents/tests/test_simulation_vertical_slice_30day.gd",
-	"res://addons/local_agents/tests/test_world_simulation_loop.gd",
-]
+const INTEGRATION_TESTS: Array[String] = []
 
 const RUNTIME_HEAVY_TESTS: Array[String] = [
-	"res://addons/local_agents/tests/test_simulation_villager_cognition.gd",
-	"res://addons/local_agents/tests/test_simulation_no_empty_generation.gd",
-	"res://addons/local_agents/tests/test_simulation_cognition_trace_isolation.gd",
 	"res://addons/local_agents/tests/test_llama_server_e2e.gd",
 	"res://addons/local_agents/tests/test_agent_integration.gd",
 	"res://addons/local_agents/tests/test_agent_runtime_heavy.gd",
 ]
 
-const PERF_BENCHMARKS: Array[String] = [
-	"res://addons/local_agents/tests/benchmark_voxel_pipeline.gd",
-]
+const PERF_BENCHMARKS: Array[String] = []
