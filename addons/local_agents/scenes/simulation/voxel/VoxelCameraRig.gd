@@ -28,6 +28,18 @@ var _yaw: float = 0.0
 var _pitch: float = 0.0
 var _looking: bool = false
 
+# Screen shake (earthquakes, big impacts). Trauma 0..1 decays; the applied offset is removed and
+# re-added each frame so it never accumulates into the fly position.
+const SHAKE_MAG: float = 1.8
+const TRAUMA_DECAY: float = 1.1
+var _trauma: float = 0.0
+var _shake_applied: Vector3 = Vector3.ZERO
+
+
+## Add camera trauma (0..1). Earthquakes/impacts call this; it decays on its own.
+func add_shake(amount: float) -> void:
+	_trauma = clampf(_trauma + amount, 0.0, 1.0)
+
 
 func _ready() -> void:
 	current = true
@@ -90,6 +102,10 @@ func _process(delta: float) -> void:
 	if Engine.is_editor_hint():
 		return
 
+	# Undo last frame's shake so movement acts on the true base position.
+	global_position -= _shake_applied
+	_shake_applied = Vector3.ZERO
+
 	var dir: Vector3 = Vector3.ZERO
 	if Input.is_key_pressed(KEY_W):
 		dir -= global_transform.basis.z
@@ -110,6 +126,13 @@ func _process(delta: float) -> void:
 		if Input.is_key_pressed(KEY_SHIFT):
 			speed *= FAST_MULTIPLIER
 		global_position += dir * speed * delta
+
+	# Apply decaying shake as a transient offset on top of the base position.
+	_trauma = maxf(0.0, _trauma - TRAUMA_DECAY * delta)
+	if _trauma > 0.0:
+		var s: float = _trauma * _trauma * SHAKE_MAG
+		_shake_applied = Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * s
+		global_position += _shake_applied
 
 
 ## Returns a world-space ray {"origin": Vector3, "dir": Vector3}.

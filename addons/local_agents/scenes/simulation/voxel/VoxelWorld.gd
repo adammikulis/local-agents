@@ -13,6 +13,8 @@ const HudScript: GDScript = preload("res://addons/local_agents/scenes/simulation
 const MeteorScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Meteor.gd")
 const VolcanoScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Volcano.gd")
 const LightningScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/LightningStrike.gd")
+const EarthquakeScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Earthquake.gd")
+const FloodScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Flood.gd")
 const AudioDirectorScript: GDScript = preload("res://addons/local_agents/audio/AudioDirector.gd")
 const WeatherScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/WeatherSystem.gd")
 const MaterialFieldScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField.gd")
@@ -509,6 +511,19 @@ func _place_armed(screen_pos: Vector2) -> void:
 		_spawn_lightning(point)
 		_music_destruction = 0.7
 		_hud.set_status("A bolt strikes!")
+	elif _armed_kind == "earthquake":
+		var quake: Node = EarthquakeScript.new()
+		_actors_root.add_child(quake)
+		quake.setup(_terrain, _ecology, _camera)
+		quake.rupture(point)
+		_music_destruction = 1.0
+		_hud.set_status("The ground heaves!")
+	elif _armed_kind == "flood":
+		var flood: Node = FloodScript.new()
+		_actors_root.add_child(flood)
+		flood.setup(_terrain, _ecology)
+		flood.surge(point)
+		_hud.set_status("Flood surge!")
 	else:
 		_ecology.spawn(_armed_kind, point)
 		if _audio != null:
@@ -717,6 +732,9 @@ func _kind_color(kind: String) -> Color:
 		"fish": return Color(0.55, 0.72, 0.86)
 		"meteor": return Color(1.0, 0.5, 0.2)
 		"volcano": return Color(0.95, 0.42, 0.12)
+		"lightning": return Color(0.82, 0.88, 1.0)
+		"earthquake": return Color(0.55, 0.40, 0.28)
+		"flood": return Color(0.30, 0.55, 0.90)
 		_: return Color(0.8, 0.9, 0.6)
 
 
