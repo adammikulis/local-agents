@@ -22,7 +22,7 @@ extends Camera3D
 ## focus_on()/frame_vista() so the world can recenter the view without fighting the rebuild.
 
 # --- Tunables -----------------------------------------------------------------
-const MIN_DISTANCE: float = 4.0           # closest zoom (units from focus) — down close on an animal
+const MIN_DISTANCE: float = 1.5           # closest zoom (units from focus) — right down onto an animal
 const MAX_DISTANCE: float = 1400.0        # farthest zoom — pull way out for a whole-world view
 const ZOOM_STEP: float = 1.15             # wheel multiplier per notch
 const PAN_SPEED: float = 140.0            # WASD/arrow-key pan, per second, scaled by distance
@@ -51,6 +51,12 @@ var _orbiting: bool = false
 # roam the island and its surrounding ocean ring but never pan off past the horizon into empty void.
 # 0 = unbounded (until VoxelWorld sets it once the world size is known).
 var _pan_limit: float = 0.0
+
+
+## Current zoom distance (focus→camera). The ocean plane reads this to size itself so it always
+## reaches the horizon when zoomed out yet keeps fine tessellation when zoomed in.
+func get_zoom_distance() -> float:
+	return _distance
 
 
 ## Clamp how far the focus can pan from the origin (world half-extent). Set once by VoxelWorld.
@@ -114,10 +120,11 @@ func frame_vista(center: Vector3) -> void:
 	_update_transform()
 
 
-## Frame a wide, high vista over `center` — a whole-island overview (dev/screenshot aid).
-func frame_overview(center: Vector3) -> void:
+## Frame a wide, high vista over `center` — a whole-island overview (dev/screenshot aid). `dist` lets a
+## test pull all the way out to check horizon/ocean coverage at max zoom.
+func frame_overview(center: Vector3, dist: float = 360.0) -> void:
 	_focus = center + Vector3(0.0, 10.0, 0.0)
-	_distance = 360.0
+	_distance = clampf(dist, MIN_DISTANCE, MAX_DISTANCE)
 	_yaw = deg_to_rad(35.0)
 	_pitch = deg_to_rad(48.0)
 	_clamp_focus()
@@ -139,6 +146,9 @@ func _update_transform() -> void:
 	var b: Basis = Basis.from_euler(Vector3(-_pitch, _yaw, 0.0))
 	global_position = _focus + b * Vector3(0.0, 0.0, _distance)
 	look_at(_focus, Vector3.UP)
+	# Push the far plane out with zoom so the (now horizon-spanning) ocean isn't clipped when pulled
+	# way out; keep it modest when zoomed in to preserve depth precision up close.
+	far = clampf(_distance * 12.0, 4000.0, 20000.0)
 
 
 func _unhandled_input(event: InputEvent) -> void:
