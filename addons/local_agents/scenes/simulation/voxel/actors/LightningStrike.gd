@@ -66,15 +66,21 @@ func strike(point: Vector3) -> void:
 	LocalAgentsAudioDirector.emit(get_tree(), "thunder", point)
 
 
-# Electrocute every fish within `radius` of a strike that hit water. damage_sphere already kills fish
-# close in (they're in "selectable" and have die()); this reaches the wider pool the current spread to.
+# Electrocute fish within `radius` of a strike that hit water — with a distance FALLOFF: the current
+# weakens as it spreads through the pool, so fish at the bolt die for sure while those near the edge
+# often survive. (damage_sphere already kills whatever is right at the strike.)
 func _electrocute_fish(point: Vector3, radius: float) -> void:
-	var r2: float = radius * radius
 	for fish in get_tree().get_nodes_in_group("species_fish"):
 		if not is_instance_valid(fish) or not (fish is Node3D):
 			continue
 		var f: Node3D = fish as Node3D
-		if f.global_position.distance_squared_to(point) > r2:
+		var d: float = f.global_position.distance_to(point)
+		if d > radius:
+			continue
+		# Kill probability falls off with distance (1 at the bolt → 0 at the edge), squared so it
+		# stays lethal near the strike and tapers quickly toward the rim.
+		var lethality: float = 1.0 - d / radius
+		if randf() > lethality * lethality:
 			continue
 		if f.has_method("die"):
 			f.die("electrocuted")
