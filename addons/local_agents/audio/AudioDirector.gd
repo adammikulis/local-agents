@@ -18,7 +18,7 @@ const AUDIO_GROUP := "local_agents_audio"
 const DEFAULT_SAMPLE_RATE := 44100
 
 @export var enabled: bool = true
-@export var music_enabled: bool = true
+@export var music_enabled: bool = false   # music OFF by default on any launch (player enables it in the audio menu)
 @export var sfx_enabled: bool = true
 
 var _voice: LocalAgentsSynthVoice = null
