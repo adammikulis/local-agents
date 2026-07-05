@@ -241,19 +241,28 @@ func _lava_step() -> void:
 			# rock, so a lava flow BUILDS a delta/levee of fresh terrain where it passed (emergent
 			# volcanic landform) rather than just vanishing.
 			if d > 0.0:
-				if edits < MELT_MAX_EDITS and _f._terrain != null and _f._terrain.has_method("fill_box"):
+				if edits < MELT_MAX_EDITS and _f._terrain != null and _f._terrain.has_method("fill_sphere"):
 					var fi: int = idx % _f._dim
 					var fj: int = idx / _f._dim
-					# Deposit a slab (a box spanning the cell horizontally, thin vertically) rather than a
-					# sphere: adjacent slabs tile into a continuous rocky crust instead of rounded blobs.
-					# A per-cell random ROUGHNESS varies each slab's height so the crust undulates like real
-					# cooled lava — never a perfectly flat, level table. Half-width over half a cell so
-					# neighbours overlap.
-					var rough: float = randf_range(0.0, _f._cell_size * 0.3)
-					var slab_h: float = clampf(d * 0.7, 0.35, _f._cell_size * 0.5) + rough
-					var hw: float = _f._cell_size * 0.6
-					_f._terrain.fill_box(Vector3(_f._cell_x(fi), _f._terrain_h[idx] + slab_h * 0.5, _f._cell_z(fj)), Vector3(hw, slab_h, hw))
-					_f._terrain_h[idx] = _f._terrain_h[idx] + slab_h
+					var cx: float = _f._cell_x(fi)
+					var cz: float = _f._cell_z(fj)
+					# Sample the true sloped surface + its NORMAL here so the solidified crust hugs the
+					# hillside at the angle it cooled on, rather than pooling level or stepping. Overlapping
+					# spheres (radius > cell spacing) merge into one smooth rolling crust; embedding each
+					# along -normal lays its exposed cap PARALLEL to the local slope. Per-cell jitter keeps
+					# it natural and undulating, never a flat level table.
+					var surf: float = _f._terrain_h[idx]
+					var nrm: Vector3 = Vector3.UP
+					if _f._terrain.has_method("raycast_terrain"):
+						var hit: Dictionary = _f._terrain.raycast_terrain(Vector3(cx, surf + 8.0, cz), Vector3.DOWN, 16.0)
+						if bool(hit.get("hit", false)):
+							nrm = hit.get("normal", Vector3.UP)
+							surf = float((hit.get("position", Vector3(cx, surf, cz)) as Vector3).y)
+					var r: float = _f._cell_size * (0.62 + randf() * 0.16)
+					var jitter: float = randf_range(-0.1, 0.25) * _f._cell_size
+					var center: Vector3 = Vector3(cx, surf, cz) - nrm * (r * 0.5) + nrm * jitter
+					_f._terrain.fill_sphere(center, r)
+					_f._terrain_h[idx] = _f._terrain_h[idx] + clampf(d, 0.3, _f._cell_size * 0.5)
 					edits += 1
 				lava[idx] = 0.0
 			continue
