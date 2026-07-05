@@ -45,6 +45,21 @@ locked invariants (full model in `NATIVE_SIM_UNIFICATION_PLAN.md`):
 Migration sequencing (P0 lock architecture -> P1 unify op schema/pass descriptors -> P2 enforce
 and CI-gate) is tracked below and in `NATIVE_SIM_UNIFICATION_PLAN.md`.
 
+## Active project: godot_voxel ecosystem sim
+
+The live scene is the from-scratch **godot_voxel ecosystem showcase** at
+`addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn` (the project `main_scene`); current
+state, layout, and run/verify commands are in `TODO.md`. Terrain is a native **island** heightmap
+ringed by an **ocean** with **3D caves** and an `is_solid(pos)`/`sdf_at(pos)` query. Fluids/heat/lava/
+weather are unified in `material/MaterialField.gd` (`LAMaterialField`), being upgraded to a dense 3D
+`material/MaterialField3D.gd`; the GPU-compute migration is planned in `GPU_FIELD_PLAN.md`.
+
+**Retired:** the old `WorldSimulation`/`PlantRabbitField`/`VoxelWorldDemo` gameplay stack was deleted,
+and the **native C++ voxel/sim sources were dropped** — the `localagents` GDExtension now ships only
+the llama.cpp/LLM agent runtime. The "Unified GPU Voxel Transform" / projectile-voxel-destruction
+material below (and the enforceable destruction wave) describes that **removed** native subsystem; it
+is retained as historical native/GPU-first policy and design intent, not as a current live path.
+
 ## Current Live Work
 
 Active threads (details and acceptance criteria are captured per-lane in commits/PRs; git history
@@ -77,17 +92,21 @@ records superseded wave-by-wave inventories):
   under the soft size limit by extracting responsibilities before behavior growth.
 - Native shutdown RID teardown ordering: release GPU RIDs while rendering APIs are still available;
   no `free_rid` from late thread-local teardown; no RID-leak warnings on shutdown.
-- Emergent atmospheric water cycle (`LAMaterialField`): added a per-cell VAPOR layer plus CLOUD/FOG
-  condensate driven by temperature. Evaporation off warm water -> vapor -> condenses (surface-saturated
-  cool cells pool ground FOG, cooler-aloft cells form CLOUD) -> thick cloud rains water back and shades
-  the sun below it. Wind advects all AIRBORNE/aerated quantities (vapor, cloud, fog) via upwind
-  transport; liquid water still flows by gravity. Rendered by `LACloudLayer` (two world-aligned density
-  sheets sampling the field's grids). Owner: sim/atmosphere. The field CA currently runs on CPU/GDScript
-  over the 2.5D `LAMaterialField`; it is being migrated to a GPU compute field (`feature/gpu-material-field`)
-  where the condensation/advection rules port directly to compute passes and a true 3D volume makes
-  cloud-base height emerge instead of being a modeled constant. The CPU step remains as the GPU kernel's
-  headless/no-GPU fallback and parity oracle (the headless smoke harness has no GPU) — a permanent part
-  of the design, not a stopgap.
+- Unified material substrate (`LAMaterialField`): a 2.5D cellular automaton over per-XZ columns that
+  owns heat, liquid water, lava, the vapor→cloud/fog→rain cycle, gravity, and combustion. Water is
+  unified here (springs → rivers/lakes → ocean; the calm sea is a cheap static GPU `LAOceanPlane` and
+  the CA mesh renders only deviations/freshwater); query API `is_water_at`/`is_ocean_at`/`surface_y_at`/
+  `depth_at`/`temp_at`/`salinity_at`. Evaporation off warm water → vapor → condenses (cool surface cells
+  pool ground FOG, cooler-aloft cells form CLOUD) → thick cloud rains back and shades the sun; wind
+  advects the airborne quantities while liquid flows by gravity (rendered by `LACloudLayer`). The hot
+  loops move to `RenderingDevice` compute (`material/MaterialGPU.gd` + `material/kernels/*.glsl`; plan
+  in `GPU_FIELD_PLAN.md`); the CPU step is the permanent headless/no-GPU fallback and parity oracle.
+- Dense 3D material field (`LAMaterialField3D`, in progress): the DENSE 3D successor to the 2.5D field
+  — a temperature + per-material amount for every (x,y,z) cell — so fluids interact with the terrain
+  caves (water pools in caverns, lava drains into tubes, gas rises shafts) instead of being clamped to
+  a surface column. Dense (flat 3D array, ~20 MB at 5-unit resolution) rather than sparse bricks. 3D
+  water CA is validated in isolation; heat/atmosphere/lava passes and `VoxelWorld` integration remain.
+  Design rationale is in the `MaterialField3D.gd` header.
 
 Validation for player-facing destruction work is non-headless launch first, then headless sweeps
 (`run_all_tests.gd`, `run_runtime_tests_bounded.gd`, destruction/fps-fire harnesses).
@@ -222,6 +241,18 @@ single authoritative wave record; superseded per-wave inventories live in git hi
 
 ## Breaking Changes
 
+- 2026-07: Active scene is the from-scratch godot_voxel ecosystem sim
+  (`scenes/simulation/voxel/VoxelWorld.tscn`). The old `WorldSimulation`/`PlantRabbitField`/
+  `VoxelWorldDemo` gameplay stack and the homegrown voxel-grid runtime were deleted; the LLM editor
+  plugin was uncoupled from the old-sim Flow config.
+- 2026-07: Native C++ voxel/sim sources dropped from the `localagents` GDExtension — it now ships only
+  the llama.cpp/LLM agent runtime (AgentRuntime/AgentNode/NetworkGraph/ModelDownloadManager). The
+  simulation runs in GDScript with GPU compute for the material field; the projectile-voxel-destruction
+  native path and its tests/scripts (`run_destruction_tests.sh`, `benchmark_voxel_pipeline.gd`,
+  `test_native_voxel_op_*`) are removed.
+- 2026-07: In the voxel scene, `WaterFieldSystem.gd` and `FireSystem.gd` were folded into
+  `LAMaterialField` (water is unified CA; wildfire is the combustion pass). No standalone water/fire
+  systems remain.
 - 2026-02-12: Ecology runtime migrated from legacy hex-grid paths to shared voxel-grid systems
   (`VoxelGridSystem`, `SmellFieldSystem`, `WindFieldSystem`); hex/grid contracts are non-authoritative.
 - 2026-02-12: `SpatialFlowNetworkSystem` keys routes by voxel coordinates.

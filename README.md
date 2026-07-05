@@ -1,267 +1,126 @@
 # Local Agents (Godot)
 
-Current project focus is a deterministic 3D simulation vertical slice with ecology, mammals, and inspectable chemical smell fields.
+A Godot 4.7 addon that pairs a local LLM/agent runtime (llama.cpp-backed GDExtension) with a
+from-scratch **godot_voxel ecosystem simulation** used as the active showcase. The current focus is
+that simulation: a native voxel **island** ringed by an **ocean**, populated by creatures whose
+believable behavior *emerges* from simple local rules (see
+`addons/local_agents/scenes/simulation/voxel/EMERGENCE.md`).
 
 ## Current Scope
 
-- `PlantRabbitField` scene as the active sandbox.
-- Edible plants as small thin green capsules with staged growth and flowering.
-- Rabbits as white spheres that forage, flee, eat plants, digest seeds, and reseed via poop.
-- Mammal smell behavior generalized via profile resources (rabbits and villagers share the same contract, with different sensitivities).
-- Smell and wind simulated on a shared sparse voxel field (clean break from active hex runtime path).
-- Click selection + inspector panel + spawn UI (targeted spawn and random spawn).
-- Camera controls for simulation editing (orbit/pan/zoom + right-click pan).
-- Debug overlays for smell, wind, and temperature with translucent voxel rendering.
+- **Active scene / main scene:** `addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn`
+  (`project.godot` → `run/main_scene`).
+- **Terrain:** a native `VoxelLodTerrain` (Transvoxel) whose surface is a baked **island heightmap**
+  (`VoxelGeneratorImage`) rising out of an **ocean**, with radial **coast/beach** ramps and **3D
+  caves** carved in. Rock-vs-void is queried via `is_solid(pos)` / `sdf_at(pos)`; destruction is
+  `carve_sphere(pos, r)`.
+- **Unified material substrate (`LAMaterialField`):** a 2.5D cellular automaton that owns heat,
+  liquid water, lava, vapor→cloud/fog→rain, gravity, and combustion. Springs feed rivers/lakes that
+  drain to the ocean; evaporation off warm water forms clouds that rain back. The calm sea is a cheap
+  static GPU **ocean plane**; the CA mesh renders only deviations and freshwater. GPU compute kernels
+  (`material/kernels/*.glsl`) run the hot loops when a `RenderingDevice` is present, with the CPU step
+  as the headless/no-GPU parity oracle.
+- **Emergent ecology:** creatures forage, flee any larger hunter, hunt their configured prey, flock by
+  imitation, get thirsty and drink from the water field, age and starve, and leave corpses that become
+  carrion. Scavengers converge on kills by reading sight/smell/sound cues ("watch the vultures").
+  Nesting species establish inherited home sites, so colonies/warrens cluster over generations.
+- **Two-tier cognition:** fast local rules for the common case, with a sparingly-invoked LLM
+  ("FunctionGemma", `cognition/`) for novel situations; useful habits are reinforced and inherited.
+- **Emergent disasters:** meteors, volcanic eruptions, lightning, earthquakes, and floods inject
+  stimuli into the shared field (craters, lava, seismic shake, wildfire that spreads to flammable
+  neighbours and is broken by rivers / suppressed by rain).
+- **Interaction:** spawn palette (icon buttons → click-to-place), click-to-select + inspector, fly
+  camera, debug overlays, day/night cycle, weather (wind/rain), procedural audio.
 
-## Core Runtime Model
+## In progress
 
-### Shared Voxel Infrastructure
+- **Dense 3D `MaterialField3D`** — the DENSE 3D successor to the 2.5D field (a temperature +
+  per-material amount for every (x,y,z) cell) so fluids interact with caves: water pools in caverns,
+  lava drains into tubes, gas rises shafts. Dense (a flat 3D array, not sparse bricks) because at the
+  sim's 5-unit resolution the volume is only ~20 MB. Design rationale lives in the file header; the
+  GPU migration plan is `GPU_FIELD_PLAN.md`.
 
-- `addons/local_agents/simulation/VoxelGridSystem.gd`
-- Used by:
-  - `SmellFieldSystem`
-  - `WindFieldSystem`
-  - `EcologyController` edible indexing/debug views
+## Key scenes and scripts
 
-### Chemistry-Driven Smell
-
-Plants and mammals emit chemical mixtures, not generic `food`/`danger` tags.
-
-Examples currently modeled:
-- Plant/flower compounds: `hexanal`, `cis_3_hexenol`, `linalool`, `benzyl_acetate`, `phenylacetaldehyde`, `geraniol`, `methyl_salicylate`.
-- Taste/defense compounds: `sugars`, `tannins`, `alkaloids`.
-- Mammal/waste compounds: `ammonia`, `butyric_acid`, `2_heptanone`.
-
-Mammals convert these into behavior using weighted sensitivity profiles (`MammalProfileResource`).
-
-### Wind and Decay
-
-- Smell advects with wind direction/intensity when enabled.
-- Smell decays over time.
-- Rain increases decay.
-- Wind field evolves spatially from base wind + terrain/temperature effects.
-
-## Field Controls
-
-Inside `PlantRabbitField`:
-
-- `LMB`: select actor / place spawn (when spawn mode active)
-- `Esc` or `RMB`: cancel spawn mode back to select
-- Spawn mode auto-resets to select after placing one entity
-- Mouse wheel: zoom
-- `MMB drag`: orbit
-- `Shift + MMB drag`: pan
-- `RMB drag`: pan
-
-Bottom HUD supports:
-- `Select`
-- `Spawn Plant`
-- `Spawn Rabbit`
-- `Spawn Random` with user-set counts
-
-Right HUD shows inspector payload for selected entities.
-
-## Debug Views
-
-Debug overlay roots:
-- `SmellDebug`
-- `WindDebug`
-- `TemperatureDebug`
-
-Rendering style:
-- Smell: translucent chemical voxel overlays.
-- Temperature: translucent blue-to-red voxel spectrum.
-- Wind: translucent directional vector markers.
-
-## Key Scenes and Scripts
-
-- Scene: `addons/local_agents/scenes/simulation/PlantRabbitField.tscn`
-- Scene: `addons/local_agents/scenes/demos/VoxelWorldDemo.tscn` (seed + sliders + visible baked flowmap arrows)
-- Controller: `addons/local_agents/scenes/simulation/controllers/PlantRabbitField.gd`
-- Ecology orchestration: `addons/local_agents/scenes/simulation/controllers/EcologyController.gd`
-- Plant actor: `addons/local_agents/scenes/simulation/actors/EdiblePlantCapsule.gd`
-- Rabbit actor: `addons/local_agents/scenes/simulation/actors/RabbitSphere.gd`
-- Villager actor: `addons/local_agents/scenes/simulation/actors/VillagerCapsule.gd`
-
-## Voxel Simulator Features
-
-### World Generation
-
-- FastNoiseLite-based 3D voxel terrain generation with deterministic seeds.
-- Minecraft-style stratified block stacks: topsoil/subsoil/stone/water with caves.
-- Multiple terrain/resource block types in generated columns and block rows (soil variants + ore blocks).
-- Deterministic baked flow maps (downhill direction, accumulation, channel strength).
-
-### Runtime Simulation
-
-- Deterministic voxel transform pipeline with generic transport/thermal/mechanics/failure passes (single runtime authority).
-- Transform snapshots and diagnostics are stage-agnostic contract payloads (`transform_snapshot`, `transform_diagnostics`) for runtime/bridge consumers.
-- Preset-based emitters drive destruction/environment edit emission; profile switches are preset changes, not runtime-stack swaps.
-- Material identity is required on active voxel state (`material_id`, `material_profile_id`, `material_phase_id`).
-- Runtime target bootstrap stamps default destructible target columns/wall during setup (`WorldSimulation` calls `simulation_controller.stamp_default_voxel_target_wall(...)` after `configure_environment(...)`).
-- Default fracture-prone column material profile is `rock` via canonical profile resolution (`stone`/`gravel` canonicalize to `rock`).
-- Transform execution is GPU-required; no CPU-success fallback path exists for unified transform runtime.
-- Legacy named stage requests (weather/hydrology/erosion/solar) are unsupported in active runtime and fail as `unsupported_legacy_stage`.
-
-### Rendering and GPU Shaders
-
-- Chunked terrain rendering via `MultiMeshInstance3D` for voxel blocks.
-- GPU flow and terrain shading sample generic transform field textures/buffers (no named stage authority).
-- GPU river-flow overlay shader driven by baked flow-map rows.
-- GPU cloud layers: animated cloud plane + volumetric cloud shell.
-- GPU post-processing effects are driven by transform diagnostics/material state instead of named weather-stage contracts.
-- Volumetric fog + automatic day/night sun animation, integrated with global lighting and SDFGI-enabled demo environment.
-
-### Integrated Demo and Controls
-
-- Single canonical scene: `VoxelWorldDemo` (project main scene).
-- Terrain controls include dimensions, sea level, surface base/range, noise frequency/octaves/lacunarity/gain, smoothing, and cave threshold.
-- Flow-map visualizer controls (show/hide, threshold, stride) with animated flow arrows.
-- Timelapse-style simulation controls (play/pause/fast-forward/rewind/fork) and state restore.
-- Live stats report generic transform metrics/diagnostics in demo HUD/status labels.
-- Integrated runtime stack in one scene: worldgen + unified transform runtime + settlement/culture/ecology controllers + debug overlays.
-
-Runtime target setup hook/config points:
-- Hook point: `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd` (`configure_environment` then `stamp_default_voxel_target_wall` during ready/bootstrap).
-- Column mutation path: `addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd` (`stamp_default_target_wall`, `_apply_column_surface_delta`).
-- Canonical material profiles: `addons/local_agents/configuration/parameters/simulation/MaterialProfileTableResource.gd` (`rock`, `soil`, `water`, `ice`, `metal`, `wood`, `unknown`).
-
-Profile resources (defaults + wiring):
-- `TargetWallProfileResource` (`addons/local_agents/configuration/parameters/simulation/TargetWallProfileResource.gd`)
-  - `wall_height_levels=6`
-  - `column_extra_levels=4`
-  - `column_span_interval=3`
-  - `material_profile_key="rock"`
-  - `destructible_tag="target_wall"`
-  - `brittleness=1.0`
-- `FpsLauncherProfileResource` (`addons/local_agents/configuration/parameters/simulation/FpsLauncherProfileResource.gd`)
-  - `launch_speed=60.0`
-  - `launch_mass=0.2`
-  - `projectile_radius=0.07`
-  - `projectile_ttl_seconds=4.0`
-  - `launch_energy_scale=1.0`
-- Wiring
-  - `WorldSimulation` (`addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd`) exposes `target_wall_profile_override` and `fps_launcher_profile_override`; in `_ready()` it applies the target-wall override via `simulation_controller.set_target_wall_profile(...)` and stamps via `stamp_default_voxel_target_wall(...)`.
-  - `WorldSimulation` configures `FpsLauncherController` with `configure(world_camera, self, fps_launcher_profile_override)`.
-  - `FpsLauncherController` (`addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd`) maps the profile into live launcher values in `_apply_profile_resource(...)`.
+- Scene: `addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn`
+- Controller: `addons/local_agents/scenes/simulation/voxel/VoxelWorld.gd`
+- Terrain: `.../voxel/terrain/VoxelTerrainService.gd`
+- Material substrate: `.../voxel/material/MaterialField.gd` (+ `MaterialField3D.gd`, `OceanPlane.gd`,
+  `Material{Heat,Liquid,Gravity,Combustion,Atmosphere,Render}.gd`, `MaterialGPU.gd`, `kernels/*.glsl`)
+- Ecology: `.../voxel/ecology/EcologyService.gd`
+- Cognition: `.../voxel/cognition/*.gd`
+- Actors + disasters: `.../voxel/actors/*.gd`
+- Species data: `.../voxel/data/species/**/*.json`
 
 ## Run
 
-```bash
-godot --path . --editor
-```
-
-Project is configured to launch `VoxelWorldDemo` as the main scene.
-
-Headless smoke boot:
+Launch the main scene (windowed):
 
 ```bash
-godot --headless --no-window --path . addons/local_agents/scenes/simulation/PlantRabbitField.tscn --quit
+godot --path .
 ```
 
-World generation demo:
+`project.godot` is configured to launch `VoxelWorld.tscn` as the main scene.
+
+The scene self-harnesses. Windowed screenshots and scripted events:
 
 ```bash
-godot --path . addons/local_agents/scenes/demos/VoxelWorldDemo.tscn
+# screenshot after N frames
+godot res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --shoot=/tmp/shot.png --shoot-frames=320
+# wide whole-island vista; time of day 0..1; disaster triggers
+godot res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --shoot=/tmp/shot.png --overview --time=0.5
+godot res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --shoot=/tmp/shot.png --auto-meteor    # also --auto-volcano, --auto-lightning
 ```
+
+Headless smoke boot (prints `SMOKE_SUMMARY={...}` then quits):
+
+```bash
+godot --headless res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --run-frames=300
+```
+
+> A NEW `.gd` `class_name` or `.gdextension` only registers after an editor scan — run
+> `godot --headless --editor --quit-after 400` once, else new classes report MISSING.
 
 ## Tests
 
-Core harness:
+The unified harness wraps the canonical runners, tees a log, and prints one
+`AGENT_HARNESS_RESULT={...}` line:
 
 ```bash
-godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd --skip-heavy
+scripts/agent_harness.sh fast       # fast test sweep (run_all_tests.gd --fast)
+scripts/agent_harness.sh all        # full suite (run_all_tests.gd --timeout=120)
+scripts/agent_harness.sh bounded    # bounded runtime-heavy suite (run_runtime_tests_bounded.gd)
+scripts/agent_harness.sh extension  # validate the GDExtension
+scripts/agent_harness.sh lint       # no-direct-refcounted gate + no-`:=` typing gate (+ advisory checks)
 ```
 
-Fast local harness (reduced core set, skips runtime-heavy by default):
+For a headless scene-smoke of the active sim, boot `VoxelWorld.tscn` directly and check the
+`SMOKE_SUMMARY` (the `agent_harness.sh smoke` command still targets the removed `WorldSimulation.tscn`
+and needs repointing):
 
 ```bash
-godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd --fast --skip-heavy
+godot --headless res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --run-frames=300
 ```
 
-Bounded runtime-heavy harness (each heavy test runs in its own process with per-test timeout):
+Run one `test_*.gd` module through the canonical helper (never launch a `test_*.gd` directly — that is
+banned by `scripts/check_no_direct_refcounted_invocation.sh`):
 
 ```bash
-godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd
+scripts/run_single_test.sh test_agent_integration.gd
+scripts/run_single_test.sh test_agent_integration.gd --timeout=180
 ```
 
-Canonical destruction-only sequence (non-headless FPS fire verification first, then headless suite):
+Equivalent direct harness invocation (always via a `run_*.gd` runner with `-s`):
 
 ```bash
-scripts/run_destruction_tests.sh
+godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_agent_integration.gd --timeout=120
 ```
-
-Run one `test_*.gd` module via the canonical helper (default timeout is `120` seconds):
-
-```bash
-scripts/run_single_test.sh test_native_voxel_op_contracts.gd
-scripts/run_single_test.sh test_native_voxel_op_contracts.gd --timeout=180
-```
-
-Equivalent direct harness invocation (when needed):
-
-```bash
-godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_op_contracts.gd --timeout=120
-```
-
-Banned direct invocation (do not run test modules as SceneTree scripts):
-
-```bash
-godot --headless --no-window -s addons/local_agents/tests/test_native_voxel_op_contracts.gd
-```
-
-This is enforced in automation via `scripts/check_no_direct_refcounted_invocation.sh` (invoked by `scripts/check_max_file_length.sh`).
-
-CI timeout policy for deterministic replay/runtime shards:
-- Default shard budget: `120` seconds.
-- GPU/mobile-oriented shard budget: `180` seconds.
-
-Optional explicit GPU/mobile run:
-
-```bash
-godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --use-gpu --timeout-sec=180
-```
-
-Run a subset with `--tests` (comma-separated, full path or filename):
-
-```bash
-godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout-sec=120 --tests=test_simulation_villager_cognition.gd,test_agent_runtime_heavy.gd
-```
-
-Run the destruction-only bounded suite directly:
-
-```bash
-godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --suite=destruction --timeout-sec=120
-```
-
-Useful runtime test flags:
-- `--workers=<N>`: run bounded runtime tests in parallel processes.
-- `--fast`: select a reduced runtime-heavy subset.
-- `--use-gpu --gpu-layers=<N>`: opt into GPU layer offload for runtime tests.
-- `--context-size=<N> --max-tokens=<N>`: override runtime model load context and token limits in heavy tests.
-
-CPU vs GPU voxel benchmark:
-
-```bash
-# CPU-only simulation pipeline timing
-godot --headless --no-window -s addons/local_agents/tests/benchmark_voxel_pipeline.gd -- --mode=cpu --iterations=3 --ticks=96 --width=64 --height=64 --world-height=40
-
-# GPU render-path timing (run with rendering, not headless)
-godot --path . -s addons/local_agents/tests/benchmark_voxel_pipeline.gd -- --mode=gpu --iterations=3 --gpu-frames=120 --width=64 --height=64 --world-height=40
-```
-
-Notes:
-- Current terrain noise generation is CPU-side; GPU benchmark covers shader/render upload/update loops.
-- Compare `cpu.mean_ms` vs `gpu.total.mean_ms` and `gpu.avg_frame.mean_ms` from JSON output.
-
-Targeted deterministic checks include:
-- `addons/local_agents/tests/test_smell_field_system.gd`
-- `addons/local_agents/tests/test_wind_field_system.gd`
 
 ## Notes
 
-- Runtime is intentionally scene-first and resource-driven.
-- Prefer voxel-native simulation/collision/destruction as the default implementation path.
-- Use `RigidBody3D` only as a minimal, exception-based choice.
-- Required systems should fail fast rather than silently fallback.
-- `ARCHITECTURE_PLAN.md` tracks breaking changes and migration status.
+- Runtime is scene-first and resource-driven; prefer voxel-native simulation/collision/destruction as
+  the default path and keep `RigidBody3D` minimal and exception-based.
+- Simulation-authoritative compute targets GPU/native; required GPU capability fails fast rather than
+  silently falling back (the one legitimate CPU form is a headless/no-GPU parity oracle).
+- Process and Godot rules are canonical in `CLAUDE.md` and `GODOT_BEST_PRACTICES.md`;
+  `ARCHITECTURE_PLAN.md` tracks breaking changes and migration status.
