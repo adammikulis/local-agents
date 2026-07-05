@@ -2,15 +2,26 @@ class_name LASpawnPaletteHud
 extends CanvasLayer
 
 ## In-code HUD for the voxel simulation: a bottom-center spawn palette, a right-side
-## inspector panel, and a top status bar. The entire Control tree and Theme are built
-## in _ready() -- no .tscn, no external fonts or image files.
+## inspector panel, and a top status bar. The Control tree and Theme are built in _ready().
+## The palette buttons are icon-only emoji glyphs rendered with a small bundled emoji font
+## (addons/local_agents/assets/fonts/emoji.ttf, a subset of Noto Color Emoji); everything
+## else uses the engine default font and procedurally-drawn styleboxes/icons.
 
 signal spawn_selected(kind: String)
 ## Re-exposed from the audio menu; VoxelWorld listens to gate its live mood feed.
 signal music_auto_adapt_changed(on: bool)
 
 const AudioMenuPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/AudioMenuPanel.gd")
+const EMOJI_FONT_PATH: String = "res://addons/local_agents/assets/fonts/emoji.ttf"
 
+# The palette is split into two visible clusters. Order within each drives the number hotkeys
+# (LIFE -> 1..7, DISASTER -> Shift+1..5); KINDS is kept as the flat union for lookups/back-compat.
+const LIFE_KINDS: PackedStringArray = [
+	"plant", "rabbit", "fox", "bird", "vulture", "villager", "fish",
+]
+const DISASTER_KINDS: PackedStringArray = [
+	"meteor", "volcano", "lightning", "earthquake", "flood",
+]
 const KINDS: PackedStringArray = [
 	"plant", "rabbit", "fox", "bird", "vulture", "villager", "fish",
 	"meteor", "volcano", "lightning", "earthquake", "flood",
@@ -31,19 +42,30 @@ const KIND_LABELS: Dictionary = {
 	"flood": "Flood",
 }
 
-const KIND_COLORS: Dictionary = {
-	"plant": Color(0.36, 0.72, 0.36),
-	"rabbit": Color(0.85, 0.82, 0.78),
-	"fox": Color(0.90, 0.49, 0.18),
-	"bird": Color(0.35, 0.68, 0.90),
-	"vulture": Color(0.55, 0.45, 0.40),
-	"villager": Color(0.62, 0.52, 0.85),
-	"fish": Color(0.55, 0.72, 0.86),
-	"meteor": Color(0.92, 0.32, 0.24),
-	"volcano": Color(0.95, 0.42, 0.12),
-	"lightning": Color(0.82, 0.88, 1.0),
-	"earthquake": Color(0.55, 0.40, 0.28),
-	"flood": Color(0.30, 0.55, 0.90),
+# Emoji glyph per kind (self-colored by the emoji font). Literal UTF-8 glyphs -- trivially
+# tunable: swap a glyph here and add its codepoint to the pyftsubset build in assets/fonts/.
+const KIND_SYMBOLS: Dictionary = {
+	"plant": "🌱",      # seedling
+	"rabbit": "🐇",     # rabbit
+	"fox": "🦊",        # fox
+	"bird": "🐦",       # bird
+	"vulture": "🦅",    # eagle (stands in for vulture)
+	"villager": "🧑",   # person
+	"fish": "🐟",       # fish
+	"meteor": "☄",      # comet
+	"volcano": "🌋",    # volcano
+	"lightning": "⚡",   # high voltage
+	"earthquake": "🏚", # derelict house (shaken ground)
+	"flood": "🌊",      # water wave
+}
+
+# Shown in tooltips so the keyboard shortcut is discoverable (see VoxelWorld._unhandled_input).
+# "⇧" is the shift glyph (U+21E7).
+const KIND_HOTKEYS: Dictionary = {
+	"plant": "1", "rabbit": "2", "fox": "3", "bird": "4",
+	"vulture": "5", "villager": "6", "fish": "7",
+	"meteor": "⇧1", "volcano": "⇧2", "lightning": "⇧3",
+	"earthquake": "⇧4", "flood": "⇧5",
 }
 
 # Palette / theme colors (cohesive dark theme).
@@ -59,6 +81,7 @@ const COL_TEXT_HEADING: Color = Color(0.98, 0.99, 1.0, 1.0)
 var _armed_kind: String = ""
 
 var _theme: Theme
+var _emoji_font: FontFile
 var _palette_group: ButtonGroup
 
 var _status_panel: PanelContainer
@@ -78,6 +101,7 @@ var _ui_panels: Array[Control] = []
 
 func _ready() -> void:
 	layer = 100
+	_emoji_font = _load_emoji_font()
 	_theme = _build_theme()
 
 	# Root fills the screen but ignores mouse so empty areas fall through to the 3D scene.
@@ -159,6 +183,25 @@ func is_pointer_over_ui(pos: Vector2) -> bool:
 ## The currently armed spawn kind ("" when in select/cursor mode).
 func armed_kind() -> String:
 	return _armed_kind
+
+
+## Programmatically arm a kind (used by VoxelWorld's keyboard hotkeys). Drives the palette
+## button group so the visual toggle state and _armed_kind stay in sync; "" returns to Select.
+func arm_kind(kind: String) -> void:
+	if _palette_group == null:
+		return
+	if kind == "":
+		var pressed: BaseButton = _palette_group.get_pressed_button()
+		if pressed != null:
+			pressed.button_pressed = false          # -> _on_palette_toggled emits ""
+		elif _armed_kind != "":
+			_armed_kind = ""
+			spawn_selected.emit("")
+		return
+	for btn in _palette_group.get_buttons():
+		if String(btn.get_meta("kind", "")) == kind:
+			btn.button_pressed = true               # -> _on_palette_toggled emits the kind
+			return
 
 
 ## Wire the audio menu to the live audio director.
@@ -273,33 +316,66 @@ func _build_palette(root: Control) -> void:
 	row.add_theme_constant_override("separation", 8)
 	margin.add_child(row)
 
-	# Cursor / select button (disarms the palette).
+	# Cursor / select button (disarms the palette). Icon-only crosshair; Esc also triggers it.
 	var select_btn: Button = Button.new()
-	select_btn.text = "Select"
-	select_btn.tooltip_text = "Cursor mode: click entities to inspect"
+	select_btn.tooltip_text = "Select  (Esc)\nCursor mode: click entities to inspect"
 	select_btn.icon = _make_cursor_icon()
-	select_btn.custom_minimum_size = Vector2(0.0, 56.0)
+	select_btn.custom_minimum_size = Vector2(52.0, 56.0)
 	select_btn.focus_mode = Control.FOCUS_NONE
 	select_btn.pressed.connect(_on_select_pressed)
 	row.add_child(select_btn)
 
-	var sep: VSeparator = VSeparator.new()
-	row.add_child(sep)
-
-	for kind in KINDS:
-		var btn: Button = Button.new()
-		btn.text = String(KIND_LABELS.get(kind, kind))
-		btn.tooltip_text = "Arm %s for placement" % String(KIND_LABELS.get(kind, kind))
-		btn.icon = _make_kind_icon(KIND_COLORS.get(kind, Color.WHITE))
-		btn.toggle_mode = true
-		btn.button_group = _palette_group
-		btn.focus_mode = Control.FOCUS_NONE
-		btn.custom_minimum_size = Vector2(0.0, 56.0)
-		btn.set_meta("kind", kind)
-		btn.toggled.connect(_on_palette_toggled)
-		row.add_child(btn)
+	# Two visible clusters, each captioned: Life | Disasters.
+	row.add_child(_make_cluster(_palette_group, "LIFE", LIFE_KINDS))
+	row.add_child(_make_cluster(_palette_group, "DISASTERS", DISASTER_KINDS))
 
 	_ui_panels.append(_palette_panel)
+
+
+## A captioned cluster: a leading VSeparator, a small dim caption label, then one icon-only
+## toggle button per kind (all sharing the palette's exclusive ButtonGroup).
+func _make_cluster(group: ButtonGroup, caption: String, kinds: PackedStringArray) -> HBoxContainer:
+	var cluster: HBoxContainer = HBoxContainer.new()
+	cluster.add_theme_constant_override("separation", 6)
+
+	cluster.add_child(VSeparator.new())
+
+	var cap: Label = Label.new()
+	cap.text = caption
+	cap.add_theme_color_override("font_color", COL_TEXT_DIM)
+	cap.add_theme_font_size_override("font_size", 11)
+	cap.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	cluster.add_child(cap)
+
+	for kind in kinds:
+		cluster.add_child(_make_kind_button(group, kind))
+	return cluster
+
+
+## An icon-only spawn button: the kind's emoji glyph (bundled emoji font), a name+hotkey
+## tooltip, joined to the shared exclusive group and tagged with its "kind" meta. Falls back
+## to the text label if the emoji font failed to load, so a button is never blank.
+func _make_kind_button(group: ButtonGroup, kind: String) -> Button:
+	var label: String = String(KIND_LABELS.get(kind, kind))
+	var hotkey: String = String(KIND_HOTKEYS.get(kind, ""))
+	var btn: Button = Button.new()
+	if _emoji_font != null:
+		btn.text = String(KIND_SYMBOLS.get(kind, ""))
+		btn.add_theme_font_override("font", _emoji_font)
+		btn.add_theme_font_size_override("font_size", 22)
+	else:
+		btn.text = label
+	if hotkey.is_empty():
+		btn.tooltip_text = "Arm %s for placement" % label
+	else:
+		btn.tooltip_text = "%s  (%s)\nRight-click terrain to place" % [label, hotkey]
+	btn.toggle_mode = true
+	btn.button_group = group
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.custom_minimum_size = Vector2(52.0, 56.0)
+	btn.set_meta("kind", kind)
+	btn.toggled.connect(_on_palette_toggled)
+	return btn
 
 
 func _build_audio_menu(root: Control) -> void:
@@ -373,6 +449,21 @@ func _on_select_pressed() -> void:
 # ---------------------------------------------------------------------------
 # Theme + widget helpers
 # ---------------------------------------------------------------------------
+
+## Load the bundled emoji subset for the palette symbols. Uses load_dynamic_font so it works
+## straight from the raw .ttf with no editor import step. Returns null on any failure, and the
+## palette then falls back to text labels so a button is never blank.
+func _load_emoji_font() -> FontFile:
+	if not FileAccess.file_exists(EMOJI_FONT_PATH):
+		push_warning("SpawnPaletteHud: emoji font missing at %s -- palette falls back to text." % EMOJI_FONT_PATH)
+		return null
+	var f: FontFile = FontFile.new()
+	var err: int = f.load_dynamic_font(EMOJI_FONT_PATH)
+	if err != OK:
+		push_warning("SpawnPaletteHud: failed to load emoji font (err %d)." % err)
+		return null
+	return f
+
 
 func _build_theme() -> Theme:
 	var t: Theme = Theme.new()
@@ -550,24 +641,6 @@ func _clear_children(node: Node) -> void:
 # ---------------------------------------------------------------------------
 # Icon generation (drawn to an Image -> ImageTexture, no external files)
 # ---------------------------------------------------------------------------
-
-func _make_kind_icon(base: Color) -> ImageTexture:
-	var s: int = 30
-	var img: Image = Image.create(s, s, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	var c: Vector2 = Vector2(s / 2.0, s / 2.0)
-	var r: float = s / 2.0 - 3.0
-	for y in s:
-		for x in s:
-			var d: float = Vector2(x + 0.5, y + 0.5).distance_to(c)
-			if d <= r:
-				# Radial shading for a little dimensionality.
-				var shade: float = clampf(1.0 - (d / r) * 0.4, 0.0, 1.0)
-				img.set_pixel(x, y, Color(base.r * shade, base.g * shade, base.b * shade, 1.0))
-			elif d <= r + 1.4:
-				img.set_pixel(x, y, Color(0.05, 0.06, 0.08, 0.65))
-	return ImageTexture.create_from_image(img)
-
 
 func _make_cursor_icon() -> ImageTexture:
 	var s: int = 30

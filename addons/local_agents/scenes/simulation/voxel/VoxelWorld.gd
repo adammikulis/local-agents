@@ -619,6 +619,20 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _hud != null and _hud.has_method("toggle_audio_menu"):
 			_hud.toggle_audio_menu()
 		return
+	# Palette / selection hotkeys: Esc -> Select, 1-7 arm Life, Shift+1-5 arm Disasters,
+	# Tab / Shift+Tab cycle the selection through on-screen entities.
+	if event is InputEventKey and event.pressed and not event.echo:
+		var key_ev: InputEventKey = event as InputEventKey
+		if key_ev.keycode == KEY_ESCAPE:
+			if _hud != null and _hud.has_method("arm_kind"):
+				_hud.arm_kind("")
+			return
+		if key_ev.keycode == KEY_TAB:
+			_cycle_selection(-1 if key_ev.shift_pressed else 1)
+			return
+		if key_ev.keycode >= KEY_1 and key_ev.keycode <= KEY_9:
+			_arm_hotkey(key_ev.keycode - KEY_1, key_ev.shift_pressed)
+			return
 	if event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
 		var mpos: Vector2 = mb.position
@@ -629,9 +643,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			if _armed_kind != "":
 				_place_armed(mpos)
 			return
-		# LMB: press begins a click-or-grab; release resolves it (select vs drop/throw).
+		# LMB: double-click frames the entity; single press begins a click-or-grab; release
+		# resolves it (select vs drop/throw).
 		if mb.button_index == MOUSE_BUTTON_LEFT:
 			if mb.pressed:
+				if mb.double_click:
+					_frame_focus_at(mpos)
+					return
 				_on_lmb_press(mpos)
 			else:
 				_on_lmb_release(mpos)
@@ -643,6 +661,53 @@ func _on_spawn_selected(kind: String) -> void:
 		_hud.set_status("Select mode — left-click a creature to inspect, hold to pick it up.")
 	else:
 		_hud.set_status("Cast %s — right-click the ground to place." % kind)
+
+
+# Number-key arming: `index` is the 0-based digit (1 key -> 0). Shift picks the Disasters
+# cluster, otherwise Life. Routes through the HUD so the palette buttons stay in sync.
+func _arm_hotkey(index: int, shifted: bool) -> void:
+	if _hud == null or not _hud.has_method("arm_kind"):
+		return
+	var kinds: PackedStringArray = LASpawnPaletteHud.DISASTER_KINDS if shifted else LASpawnPaletteHud.LIFE_KINDS
+	if index < 0 or index >= kinds.size():
+		return
+	_hud.arm_kind(kinds[index])
+
+
+# Tab / Shift+Tab: walk the selection through on-screen selectables (nearest camera-first) and
+# focus the camera on each, so a busy world can be inspected without hunting for click targets.
+func _cycle_selection(dir: int) -> void:
+	var nodes: Array = []
+	for n in get_tree().get_nodes_in_group("selectable"):
+		if n is Node3D and is_instance_valid(n) and (n as Node).has_method("get_inspector_payload"):
+			nodes.append(n)
+	if nodes.is_empty():
+		_set_selected(null)
+		return
+	var origin: Vector3 = _camera.global_position
+	nodes.sort_custom(func(a, b):
+		return origin.distance_squared_to((a as Node3D).global_position) \
+			< origin.distance_squared_to((b as Node3D).global_position))
+	var idx: int = nodes.find(_selected)
+	if idx < 0:
+		idx = 0 if dir >= 0 else nodes.size() - 1
+	else:
+		idx = (idx + dir) % nodes.size()
+		if idx < 0:
+			idx += nodes.size()
+	var target: Node = nodes[idx]
+	_set_selected(target)
+	if _camera.has_method("focus_on"):
+		_camera.focus_on((target as Node3D).global_position)
+
+
+# Double-click: select the entity under the cursor (if any) and frame the camera on it.
+func _frame_focus_at(screen_pos: Vector2) -> void:
+	if _hud != null and _hud.has_method("is_pointer_over_ui") and _hud.is_pointer_over_ui(screen_pos):
+		return
+	_select_at(screen_pos)
+	if _selected is Node3D and _camera.has_method("focus_on"):
+		_camera.focus_on((_selected as Node3D).global_position)
 
 
 # --- the player's hand -------------------------------------------------------
