@@ -3,8 +3,9 @@ extends Node3D
 
 ## An earthquake. It only SHAKES the ground over an area and opens a few fissures; the destruction
 ## emerges: steep terrain slumps downhill under gravity (the same disturb rule landslides use), trees
-## and rocks topple, and wildlife panics. Camera trauma + rumble sell it. Runs a couple of seconds of
-## pulses, then frees. (Explicit types only — no ':=' inferred typing.)
+## and rocks topple, and wildlife panics. Its ground disturbances emit seismic pulses, so the CAMERA
+## SHAKE EMERGES from the ecology's seismic field — the quake never touches the camera. Runs a couple
+## of seconds of pulses, then frees. (Explicit types only — no ':=' inferred typing.)
 
 const DURATION: float = 3.0
 const PULSE_INTERVAL: float = 0.35
@@ -14,16 +15,14 @@ const DISTURBS_PER_PULSE: int = 4
 
 var _terrain: Object = null
 var _ecology: Object = null
-var _camera: Object = null
 var _center: Vector3 = Vector3.ZERO
 var _age: float = 0.0
 var _pulse_cd: float = 0.0
 
 
-func setup(terrain: Object, ecology: Object, camera: Object) -> void:
+func setup(terrain: Object, ecology: Object) -> void:
 	_terrain = terrain
 	_ecology = ecology
-	_camera = camera
 
 
 func rupture(center: Vector3) -> void:
@@ -31,15 +30,14 @@ func rupture(center: Vector3) -> void:
 	global_position = center
 	_age = 0.0
 	_pulse_cd = 0.0
-	if _camera != null and _camera.has_method("add_shake"):
-		_camera.add_shake(1.0)
+	# An initial seismic jolt at the epicentre; the camera shakes emergently through the seismic field.
+	if _ecology != null and _ecology.has_method("broadcast_seismic"):
+		_ecology.broadcast_seismic(_center, 4.0)
 	LocalAgentsAudioDirector.emit(get_tree(), "meteor_impact", _center)
 
 
 func _process(delta: float) -> void:
 	_age += delta
-	if _camera != null and _camera.has_method("add_shake") and _age < DURATION:
-		_camera.add_shake(delta * 0.9)                 # sustained shaking while it ruptures
 	_pulse_cd -= delta
 	if _pulse_cd <= 0.0 and _age < DURATION:
 		_pulse_cd = PULSE_INTERVAL
