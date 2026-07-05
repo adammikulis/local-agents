@@ -26,6 +26,24 @@ rules. `AGENTS.md` simply points here. Keep process rules in this file (and Godo
   sole writer. **Never** run a bulk-edit sub-agent on files you (or another lane) are also
   live-editing; commit before any bulk delete so a mistake is one `git checkout` away.
 
+## 3D assets: convert FBX → glTF (DEFAULT)
+
+- **Godot renders glTF (`.glb`/`.gltf`) reliably; FBX is the fragile path.** Bring every 3D asset in as
+  **glTF**. All in-repo models are `.glb`, and the one place FBX slipped in (a Kenney accessory) should
+  be converted too. **Do not** rely on Godot's ufbx FBX importer for anything skinned/animated.
+- **Convert with Godot itself — it is the converter.** Two ways, both built in:
+  - *Editor:* import the `.fbx`, then it can be re-saved / used as a scene; or
+  - *Script (headless, reproducible):* load the imported FBX scene and export a `.glb` with
+    `GLTFDocument.append_from_scene(root, state)` + `GLTFDocument.write_to_filesystem(state, path)`.
+    A worked example is `convert_female.gd` (loads a Kenney character FBX + its separate idle-animation
+    FBX, embeds the clip, exports one `.glb`). No Blender / external `fbx2gltf` needed.
+- **Known caveat (learned the hard way):** a **skinned character** FBX may still not render even after
+  conversion — the Quaternius `villager.glb` shows fine in a SubViewport portrait, but the Kenney
+  `characterLargeFemale` skinned mesh would not (imports lying-down, T-posed, needs animation
+  retargeting, and stayed invisible skinned). Non-skinned Kenney meshes (caps, hair, props) convert and
+  render fine. When a skinned character fights you, prefer an already-clean rigged `.glb` (e.g. a
+  Quaternius character with embedded animations) over wrestling a Kenney/FBX rig.
+
 ## Destructive-command safety (bulk delete/find)
 
 Do **not** delete files with `find ... -name <dir> -exec rm -rf` or a bare recursive `rm` that walks
