@@ -23,6 +23,7 @@ var _scent = null                        # LAScentField (observer; creatures que
 var _tracks = null                       # LATrackSystem (observer; footprints)
 var _water = null                        # LAWaterFieldSystem (observer; creatures/fish query it)
 var _fire = null                         # LAFireSystem (wildfire spread over flammable actors)
+var _cognition_sched = null              # LACognitionScheduler (shared slow-brain budget/queue)
 
 # world spawn area (XZ half-extent) used for spawn_initial scatter
 var spawn_extent: float = 80.0
@@ -65,6 +66,8 @@ func _species_config(kind: String) -> Dictionary:
 				# breaks apart the instant a predator is near.
 				"flock_cohesion": 0.6, "flock_alignment": 0.55,
 				"flock_separation": 1.1, "flock_radius": 8.0, "flock_weight": 0.9,
+				# Side-set eyes: near-panoramic FOV (small rear blind spot), shallow reach; sharp ears.
+				"eye_fov": 320.0, "hearing_range": 16.0,
 			}
 		"fox":
 			return {
@@ -80,6 +83,8 @@ func _species_config(kind: String) -> Dictionary:
 				# healthy personal space.
 				"flock_cohesion": 0.25, "flock_alignment": 0.4,
 				"flock_separation": 0.85, "flock_radius": 12.0, "flock_weight": 0.5,
+				# Forward-set eyes: narrow binocular cone → depth perception → longer reach to spot prey.
+				"eye_fov": 100.0, "hearing_range": 18.0,
 			}
 		"bird":
 			return {
@@ -96,6 +101,8 @@ func _species_config(kind: String) -> Dictionary:
 				# cohesion dominate over a large perception radius.
 				"flock_cohesion": 0.9, "flock_alignment": 1.2,
 				"flock_separation": 0.7, "flock_radius": 18.0, "flock_weight": 1.4,
+				# Wide avian FOV, keen at distance; excellent hearing across the flock.
+				"eye_fov": 300.0, "hearing_range": 20.0,
 			}
 		"villager":
 			return {
@@ -114,6 +121,8 @@ func _species_config(kind: String) -> Dictionary:
 				# spacing — they gather but keep an arm's length.
 				"flock_cohesion": 0.7, "flock_alignment": 0.7,
 				"flock_separation": 0.7, "flock_radius": 10.0, "flock_weight": 0.9,
+				# Forward-facing hominin eyes: binocular hunter's reach, good all-round hearing.
+				"eye_fov": 120.0, "hearing_range": 16.0,
 			}
 		_:
 			return {}
@@ -152,6 +161,22 @@ func setup(_terrain, _actors_root: Node3D) -> void:
 	_fire.name = "FireSystem"
 	add_child(_fire)
 	_fire.setup(self)
+	# Shared System-2 slow brain (FunctionGemma) with a global call budget; creatures escalate to
+	# it rarely and asynchronously. Loaded by path + guarded so the sim still runs on pure fast
+	# heuristics + social learning if the scheduler script or model is unavailable.
+	var sched_script: GDScript = load("res://addons/local_agents/scenes/simulation/voxel/cognition/CognitionScheduler.gd")
+	if sched_script != null:
+		_cognition_sched = sched_script.new()
+		_cognition_sched.name = "CognitionScheduler"
+		add_child(_cognition_sched)
+		if _cognition_sched.has_method("setup"):
+			# Point the slow brain at a running FunctionGemma llama-server if one is configured
+			# (env FUNCTIONGEMMA_URL); otherwise it uses the built-in heuristic teacher fallback.
+			var opts: Dictionary = {}
+			var url: String = OS.get_environment("FUNCTIONGEMMA_URL")
+			if url != "":
+				opts["server_url"] = url
+			_cognition_sched.setup(opts)
 
 
 func scent_field():
@@ -168,6 +193,10 @@ func water_field():
 
 func fire_system():
 	return _fire
+
+
+func cognition_scheduler():
+	return _cognition_sched
 
 
 # Ignite flammable actors within radius of a point (meteor strike, etc.).
@@ -219,7 +248,7 @@ func _place_on_surface(world_pos: Vector3):
 	return Vector3(world_pos.x, y, world_pos.z)
 
 
-func _instance_actor(kind: String, placed: Vector3) -> Node:
+func _instance_actor(kind: String, placed: Vector3, genome = null) -> Node:
 	var node: Node = null
 	if kind == "plant":
 		var plant: PlantScript = PlantScript.new()
@@ -256,13 +285,15 @@ func _instance_actor(kind: String, placed: Vector3) -> Node:
 		var creature: CreatureScript = CreatureScript.new()
 		actors_root.add_child(creature)
 		creature.global_position = placed
-		creature.setup(terrain, cfg)
+		creature.setup(terrain, cfg, genome)          # genome (if bred) drives traits + instincts
 		if creature.has_method("set_scent"):
 			creature.set_scent(_scent)
 		if creature.has_method("set_ecology"):
 			creature.set_ecology(self)
 		if creature.has_method("set_water"):
 			creature.set_water(_water)
+		if creature.has_method("set_cognition_scheduler"):
+			creature.set_cognition_scheduler(_cognition_sched)
 		node = creature
 	return node
 
@@ -375,11 +406,51 @@ func _tick_breeding() -> void:
 			continue
 		if randf() > 0.5:
 			continue                            # not every tick
-		var parent: Node3D = adults[randi() % adults.size()] as Node3D
+		# TWO parents now: the offspring's genome is a crossover of theirs (traits + baked instincts),
+		# plus mutation — so populations actually evolve instead of cloning a template.
+		var pa: Node3D = adults[randi() % adults.size()] as Node3D
+		var pb: Node3D = adults[randi() % adults.size()] as Node3D
+		var guard: int = 0
+		while pb == pa and guard < 4:
+			pb = adults[randi() % adults.size()] as Node3D
+			guard += 1
 		var offset: Vector3 = Vector3(randf_range(-2.0, 2.0), 0.0, randf_range(-2.0, 2.0))
-		var placed = _place_on_surface(parent.global_position + offset)
+		var placed = _place_on_surface(pa.global_position + offset)
 		if placed != null:
-			_instance_actor(kind, placed)
+			_instance_actor(kind, placed, _breed_genome(pa, pb))
+
+
+# Build a child genome from two parents: rare Baldwin canalization of each parent's deepest lifelong
+# habits into the germline, then crossover + mutation. The child inherits one parent's family line so
+# kin preferentially learn from each other. Returns null (→ ancestral genome) if parents lack genomes.
+func _breed_genome(pa, pb):
+	var ga = pa.get_genome() if pa.has_method("get_genome") else null
+	var gb = pb.get_genome() if pb.has_method("get_genome") else null
+	if ga == null or gb == null:
+		return null
+	if pa.has_method("get_cognition") and pa.get_cognition() != null:
+		ga.maybe_canalize(pa.get_cognition().policy)
+	if pb.has_method("get_cognition") and pb.get_cognition() != null:
+		gb.maybe_canalize(pb.get_cognition().policy)
+	var child = LAGenome.crossover(ga, gb)
+	child.mutate()
+	var fam: int = int(pa.get_family_id()) if pa.has_method("get_family_id") else 0
+	child.base_config["family_id"] = fam
+	return child
+
+
+# Relay an animal call (alarm / distress / forage) to everything in earshot. Omnidirectional: each
+# listener decides by its OWN hearing_range, so no line of sight is needed — this is how a sentinel's
+# screech flushes a whole herd and how food calls teach kin past the vision cone.
+func broadcast_call(world_pos: Vector3, from_species: String, call_type: String, caller) -> void:
+	for actor in get_tree().get_nodes_in_group("creature"):
+		if actor == caller or not is_instance_valid(actor) or not (actor is Node3D):
+			continue
+		if not actor.has_method("hear_call"):
+			continue
+		var hr: float = float(actor.get("hearing_range"))
+		if (actor as Node3D).global_position.distance_to(world_pos) <= hr:
+			actor.call("hear_call", world_pos, from_species, call_type, caller)
 
 
 # A creature dropped this poop: connect its fertilize request so dung emergently

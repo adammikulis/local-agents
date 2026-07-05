@@ -11,16 +11,19 @@ extends RefCounted
 const PREDATOR_SIZE_RATIO: float = 1.2
 
 
-## Nearest live member of any species in `species_list` within (day/night-scaled) sense range.
+## Nearest live member of any species in `species_list` the creature can SEE (inside its FOV cone
+## and eye range, per LAVision — so a hunter must face prey, and binocular eyes reach farther).
 static func nearest_of(c, pos: Vector3, species_list) -> Node3D:
 	var best: Node3D = null
-	var best_d: float = c.sense_radius * c._sense_mult
+	var best_d: float = LAVision.effective_range(c)
 	for sp in species_list:
 		for cand in c.get_tree().get_nodes_in_group("species_" + String(sp)):
 			if not is_instance_valid(cand) or cand == c:
 				continue
 			var c3: Node3D = cand as Node3D
 			if c3 == null:
+				continue
+			if not LAVision.can_see(c, c3.global_position):
 				continue
 			var d: float = pos.distance_to(c3.global_position)
 			if d < best_d:
@@ -29,11 +32,11 @@ static func nearest_of(c, pos: Vector3, species_list) -> Node3D:
 	return best
 
 
-## Emergent threat detection: nearest creature that HUNTS and is meaningfully LARGER than me.
-## One rule makes rabbits flee foxes AND humans, foxes flee humans, apex hunters fear nothing.
+## Emergent threat detection: nearest VISIBLE creature that HUNTS and is meaningfully LARGER than me.
+## Panoramic prey spot threats from almost any angle; a predator can be ambushed from its blind spot.
 static func nearest_larger_predator(c, pos: Vector3) -> Node3D:
 	var best: Node3D = null
-	var best_d: float = c.sense_radius * c._sense_mult
+	var best_d: float = LAVision.effective_range(c)
 	for cand in c.get_tree().get_nodes_in_group("creature"):
 		if not is_instance_valid(cand) or cand == c:
 			continue
@@ -42,6 +45,8 @@ static func nearest_larger_predator(c, pos: Vector3) -> Node3D:
 		if float(cand.get("size")) < c.size * PREDATOR_SIZE_RATIO:
 			continue
 		var c3: Node3D = cand as Node3D
+		if not LAVision.can_see(c, c3.global_position):
+			continue
 		var d: float = pos.distance_to(c3.global_position)
 		if d < best_d:
 			best_d = d

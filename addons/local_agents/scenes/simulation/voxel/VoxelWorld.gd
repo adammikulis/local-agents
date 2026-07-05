@@ -71,6 +71,7 @@ var _mood_timer: int = 0
 var _shoot_path: String = ""
 var _shoot_frames: int = 150
 var _run_frames: int = 0
+var _cognition_stats: bool = false      # --cognition-stats: print fast/slow brain + genetics metrics
 var _auto_meteor: bool = false
 var _auto_meteor_fired: bool = false
 var _auto_select: bool = false
@@ -190,6 +191,8 @@ func _parse_cmdline() -> void:
 			_auto_meteor = true
 		elif arg == "--auto-select":
 			_auto_select = true
+		elif arg == "--cognition-stats":
+			_cognition_stats = true
 
 
 func _process(delta: float) -> void:
@@ -270,8 +273,35 @@ func _process(delta: float) -> void:
 				min_hyd = mini(min_hyd, h)
 				if String(c.get("state")) == "drink":
 					drinkers += 1
-		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"poop\":%d,\"fish\":%d,\"fires\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f}" % [
-			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, n_poop, n_fish, n_fire, min_hyd, drinkers, _time_of_day])
+		# Cognition/genetics aggregates: prove the fast/slow brain + evolution are actually running.
+		var habits: int = 0
+		var asked: int = 0
+		var learned_socially: int = 0
+		var max_gen: int = 0
+		var minds: int = 0
+		for c in creatures:
+			if not is_instance_valid(c) or not c.has_method("get_cognition"):
+				continue
+			var cog = c.get_cognition()
+			if cog == null:
+				continue
+			minds += 1
+			habits += cog.policy_size()
+			asked += cog.escalations
+			learned_socially += cog.lessons
+			if c.has_method("get_genome") and c.get_genome() != null:
+				max_gen = maxi(max_gen, int(c.get_genome().generation))
+		var sched_calls: int = 0
+		if _ecology != null and _ecology.has_method("cognition_scheduler"):
+			var sc = _ecology.cognition_scheduler()
+			if sc != null and sc.has_method("total_calls"):
+				sched_calls = sc.total_calls()
+		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"poop\":%d,\"fish\":%d,\"fires\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f,\"minds\":%d,\"habits\":%d,\"escalations\":%d,\"social_lessons\":%d,\"max_generation\":%d,\"slow_brain_calls\":%d}" % [
+			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, n_poop, n_fish, n_fire, min_hyd, drinkers, _time_of_day, minds, habits, asked, learned_socially, max_gen, sched_calls])
+		if _cognition_stats:
+			var avg_habits: float = (float(habits) / float(minds)) if minds > 0 else 0.0
+			print("COGNITION_SUMMARY minds=%d avg_habits=%.2f escalations=%d social_lessons=%d max_generation=%d slow_brain_calls=%d" % [
+				minds, avg_habits, asked, learned_socially, max_gen, sched_calls])
 		get_tree().quit(0)
 
 

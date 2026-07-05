@@ -75,6 +75,25 @@
           "recommended": false
         }
       ]
+    },
+    {
+      "id": "functiongemma",
+      "label": "FunctionGemma (function calling)",
+      "description": "Google's Gemma-3-270M tuned for on-device function calling and designed to be fine-tuned for custom tool-use workflows.",
+      "models": [
+        {
+          "id": "functiongemma-270m-it-q8_0",
+          "label": "FunctionGemma 270M IT (Q8_0)",
+          "repo_id": "unsloth/functiongemma-270m-it-GGUF",
+          "filename": "functiongemma-270m-it-Q8_0.gguf",
+          "folder": "functiongemma-270m-it",
+          "parameters": "0.27B",
+          "quantization": "Q8_0",
+          "size_bytes": 291558624,
+          "updated_at": "2026-01-15T03:33:41Z",
+          "recommended": true
+        }
+      ]
     }
   ]
 }
