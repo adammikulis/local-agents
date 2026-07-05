@@ -72,14 +72,14 @@ const CombustionScript: GDScript = preload("res://addons/local_agents/scenes/sim
 var _ecology = null                        # LAEcologyService (topple/seed_plant_at/broadcast_scare)
 var _combustion = null                     # LAMaterialCombustion (fire + boiling)
 
-# --- Liquid CA (ported verbatim from the retired LAWaterFieldSystem; WATER is now a material here).
-# The shallow-water redistribution is generic over liquids — WATER uses these constants; LAVA (later)
-# runs the same rule with a much smaller flow factor and no evaporation/sea-fill.
-const FLOW_FACTOR: float = 0.25
-const MAX_PAIR_FRACTION: float = 0.5
-const EVAP_PER_STEP: float = 0.0035
-const SEA_FILL_RATE: float = 0.6
+# --- Fluids CA (water + lava shallow-water automaton) lives in its own module now (MaterialLiquid.gd).
+# The field owns the module instance and the shared grid arrays it operates on; the module reaches back
+# through _f for grid state and sets the render dirty flags. WATER_THRESHOLD stays here (shared query).
+const LiquidScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialLiquid.gd")
+var _liquid = null                         # LAMaterialLiquid (water + lava CA)
 const WATER_THRESHOLD: float = 0.02
+# Shared with the render module (it thresholds the lava mesh at this depth via _f.LAVA_MIN).
+const LAVA_MIN: float = 0.04              # below this a lava cell is spent
 
 # --- Atmosphere: the emergent vapor -> cloud -> rain cycle. Evaporation off warm water/wet ground
 # feeds a per-cell water-VAPOR layer; vapor diffuses and drifts downwind; where the air is cool
@@ -108,23 +108,10 @@ const CLOUD_AIR_COOLING: float = 7.0
 const FOG_MAX_TEMP: float = 12.0         # only surfaces cooler than this (°C) pool ground fog
 const FOG_BASE_ABOVE_SEA: float = 6.0    # world-Y of the ground-hugging fog sheet, above sea level
 
-# --- Phase changes (temperature-driven). Water freezes to ice below 0°C (frozen cells hold solid).
-# LAVA is molten rock: a slow, hot liquid that pumps heat into the field, GLOWS, and SOLIDIFIES back
-# to rock (SDF fill) when it cools; surface rock MELTS to lava above 1200°C (a big meteor/volcano). ---
-const FREEZE_TEMP: float = 0.0            # water freezes below this (°C)
-const LAVA_FLOW: float = 0.05             # viscous slow creep (water is 0.25)
-const LAVA_MIN: float = 0.04              # below this a lava cell is spent
-const LAVA_EMPLACE_TEMP: float = 1150.0   # temperature fresh lava carries
-const LAVA_HEAT_PER_DEPTH: float = 650.0  # °C/s a lava cell sustains per unit depth (thick stays molten)
-const SOLIDIFY_TEMP: float = 800.0        # lava freezes to rock below this
-const MELT_TEMP: float = 1200.0           # surface rock melts to lava above this
-const MELT_MAX_EDITS: int = 40            # cap melt/solidify SDF edits per step
-const MELT_RADIUS: float = 2.0
-const MELT_CHECK_INTERVAL: float = 0.2
+# --- Phase changes (temperature-driven) live in the fluids module now (MaterialLiquid.gd): water
+# freezes/evaporates, LAVA sustains heat + solidifies to rock, and extreme heat MELTS rock to lava.
+# The field keeps only the lava render-dirty flag (read by _physics_process to rebuild the lava mesh).
 var _lava_dirty: bool = false
-var _melt_cd: float = 0.0
-var _lava_cells_last: int = 0             # diagnostic: current lava cells
-var _lava_peak: int = 0                   # diagnostic: most lava cells ever live at once
 
 # --- Grid state (flat arrays; index = j * _dim + i) --------------------------
 var _terrain = null
@@ -167,7 +154,6 @@ var _solar: float = 0.0                                  # cached incoming solar
 
 ## Sea level (world Y). WATER cells whose ground is below this fill toward it (oceans).
 var sea_level: float = 0.0
-var _rain_rate: float = 0.0                              # WATER depth-per-second input (add_rain)
 
 # A step changed WATER → rebuild the rendered surface (kept here; the render module owns the mesh).
 var _liquid_dirty: bool = false
@@ -221,6 +207,9 @@ func setup(terrain, half_extent: float, cell_size: float) -> void:
 
 	_combustion = CombustionScript.new()
 	_combustion.setup(self)
+
+	_liquid = LiquidScript.new()
+	_liquid.setup(self)
 
 
 ## Ecology ref so combustion can topple/reseed/scare the actors it consumes (set by set_material_field).
@@ -301,11 +290,9 @@ func _physics_process(delta: float) -> void:
 	# by the CA throttle.
 	if _combustion != null:
 		_combustion.step(delta)
-	# Rock melting to lava (extreme heat) — throttled + capped.
-	_melt_cd -= delta
-	if _melt_cd <= 0.0:
-		_melt_cd = MELT_CHECK_INTERVAL
-		_melt_step()
+	# Rock melting to lava (extreme heat) — throttled + capped, owned by the fluids module.
+	if _liquid != null:
+		_liquid.melt_tick(delta)
 
 
 ## The live temperature texture (R = °C per cell). Wire once into the terrain shader; it updates in
@@ -373,7 +360,7 @@ func _material_step() -> void:
 	if _cell_count <= 0:
 		return
 	_heat_exchange_step()
-	_liquid_step()
+	_liquid.step()
 	_atmosphere_step()
 	# Phase reactions, gas convection and combustion attach here as those materials/fuel come online
 	# (Phase 2+); they are no-ops until the relevant materials are injected.
@@ -430,143 +417,6 @@ func _heat_exchange_step() -> void:
 		if water[idx] > WATER_THRESHOLD:
 			t = move_toward(t, ambient, WATER_COOL * STEP_DT)
 		_temp[idx] = t
-
-
-# --- Liquid movement (WATER now; LAVA later reuses this with different params) ---------------
-
-## Shallow-water redistribution of the WATER material by SURFACE head difference (terrain_h + depth),
-## plus rain input, evaporation and sub-sea-level ocean fill. Ported verbatim from the retired water
-## field — rivers, lakes and oceans EMERGE from this alone. Net change accumulates in _mdelta so the
-## step is order-independent.
-## Generic shallow-water redistribution of a liquid array by SURFACE head (terrain_h + own depth).
-## Accumulates net change in _mdelta and applies it. `freeze_aware` skips frozen cells (temp < 0°C)
-## as sources so a frozen lake sits solid. Used by both WATER and (slow) LAVA.
-func _flow_liquid(arr: PackedFloat32Array, flow_factor: float, freeze_aware: bool) -> void:
-	var dim: int = _dim
-	for idx in range(_cell_count):
-		_mdelta[idx] = 0.0
-	for j in range(dim):
-		var row: int = j * dim
-		for i in range(dim):
-			var idx: int = row + i
-			if _sampled[idx] == 0:
-				continue
-			var d: float = arr[idx]
-			if d <= 0.0:
-				continue
-			if freeze_aware and _temp[idx] < FREEZE_TEMP:
-				continue                                    # frozen solid — does not flow
-			var head: float = _terrain_h[idx] + d
-			var n0: int = -1
-			var n1: int = -1
-			var n2: int = -1
-			var n3: int = -1
-			var dh0: float = 0.0
-			var dh1: float = 0.0
-			var dh2: float = 0.0
-			var dh3: float = 0.0
-			var total_diff: float = 0.0
-			if i > 0:
-				var li: int = idx - 1
-				if _sampled[li] != 0:
-					var lh: float = _terrain_h[li] + arr[li]
-					if lh < head:
-						n0 = li
-						dh0 = head - lh
-						total_diff += dh0
-			if i < dim - 1:
-				var ri: int = idx + 1
-				if _sampled[ri] != 0:
-					var rh: float = _terrain_h[ri] + arr[ri]
-					if rh < head:
-						n1 = ri
-						dh1 = head - rh
-						total_diff += dh1
-			if j > 0:
-				var di: int = idx - dim
-				if _sampled[di] != 0:
-					var dhh: float = _terrain_h[di] + arr[di]
-					if dhh < head:
-						n2 = di
-						dh2 = head - dhh
-						total_diff += dh2
-			if j < dim - 1:
-				var ui: int = idx + dim
-				if _sampled[ui] != 0:
-					var uh: float = _terrain_h[ui] + arr[ui]
-					if uh < head:
-						n3 = ui
-						dh3 = head - uh
-						total_diff += dh3
-			if total_diff <= 0.0:
-				continue
-			var move_total: float = minf(d, total_diff * flow_factor)
-			if move_total <= 0.0:
-				continue
-			var scale: float = move_total / total_diff
-			if n0 >= 0:
-				var f0: float = minf(dh0 * scale, dh0 * MAX_PAIR_FRACTION)
-				_mdelta[idx] -= f0
-				_mdelta[n0] += f0
-			if n1 >= 0:
-				var f1: float = minf(dh1 * scale, dh1 * MAX_PAIR_FRACTION)
-				_mdelta[idx] -= f1
-				_mdelta[n1] += f1
-			if n2 >= 0:
-				var f2: float = minf(dh2 * scale, dh2 * MAX_PAIR_FRACTION)
-				_mdelta[idx] -= f2
-				_mdelta[n2] += f2
-			if n3 >= 0:
-				var f3: float = minf(dh3 * scale, dh3 * MAX_PAIR_FRACTION)
-				_mdelta[idx] -= f3
-				_mdelta[n3] += f3
-	for idx in range(_cell_count):
-		if _sampled[idx] != 0:
-			arr[idx] = maxf(0.0, arr[idx] + _mdelta[idx])
-
-
-func _liquid_step() -> void:
-	var water: PackedFloat32Array = _mat_array(Mat.WATER)
-
-	# RAIN — uniform depth input driven by the current rate.
-	if _rain_rate > 0.0:
-		var add: float = _rain_rate * STEP_DT
-		if add > 0.0:
-			for idx in range(_cell_count):
-				if _sampled[idx] != 0:
-					water[idx] += add
-
-	# FLOW (frozen cells hold solid), then ocean fill + evaporation.
-	_flow_liquid(water, FLOW_FACTOR, true)
-	var any_wet: bool = false
-	for idx in range(_cell_count):
-		if _sampled[idx] == 0:
-			continue
-		var nd: float = water[idx]
-		var floor_h: float = _terrain_h[idx]
-		if floor_h < sea_level:
-			var target: float = sea_level - floor_h
-			if nd < target:
-				nd = move_toward(nd, target, SEA_FILL_RATE)
-		if nd > 0.0 and _temp[idx] >= FREEZE_TEMP:          # frozen water doesn't evaporate
-			# Evaporate faster from warm water; the lost depth becomes airborne VAPOR (not deleted),
-			# which is what later condenses into cloud/fog. Cold water barely steams.
-			var ef: float = clampf(1.0 + EVAP_TEMP_GAIN * (_temp[idx] - EVAP_TEMP_REF), 0.15, 3.0)
-			var evap: float = minf(nd, EVAP_PER_STEP * 1.3 * ef)
-			nd -= evap
-			_vapor[idx] += evap
-			if nd < 0.0:
-				nd = 0.0
-		water[idx] = nd
-		if nd >= RenderScript.RENDER_THRESHOLD:
-			any_wet = true
-
-	# Rebuild the surface while wet, plus one extra pass to clear it when it dries out.
-	_liquid_dirty = any_wet or (_render._surface_mesh != null and _render._surface_mesh.get_surface_count() > 0)
-
-	# LAVA (a slow, hot liquid) flows, heats, and freezes to rock — the same machinery as water.
-	if _mats.has(Mat.LAVA):
-		_lava_step()
 
 
 # --- Atmosphere: vapor -> cloud/fog -> rain (the emergent water cycle) --------
@@ -643,7 +493,7 @@ func _atmosphere_step() -> void:
 	if _cell_count <= 0:
 		return
 	# Wind carries everything AIRBORNE/AERATED — vapor (gas), cloud and fog (suspended droplets) all
-	# drift downwind; liquid WATER is not advected here (it flows by gravity in _liquid_step). Fog
+	# drift downwind; liquid WATER is not advected here (it flows by gravity in the fluids module). Fog
 	# hugging the ground drifts a little slower (ground drag) via a lower wind gain.
 	_transport_field(_vapor, VAPOR_DIFFUSE, 1.0)
 	_transport_field(_cloud, CLOUD_DIFFUSE, 1.0)
@@ -701,85 +551,16 @@ func _atmosphere_step() -> void:
 		_liquid_dirty = true
 
 
-# LAVA: flow (slow) + sustain heat + solidify to rock. Same machinery as water, different params.
-func _lava_step() -> void:
-	var lava: PackedFloat32Array = _mats[Mat.LAVA]
-	_flow_liquid(lava, LAVA_FLOW, false)
-	var any_lava: bool = false
-	var edits: int = 0
-	for idx in range(_cell_count):
-		if _sampled[idx] == 0:
-			continue
-		var d: float = lava[idx]
-		if d < LAVA_MIN:
-			if d > 0.0:
-				lava[idx] = 0.0
-			continue
-		# Molten lava sustains heat UP TO its molten temperature (never hotter — no runaway). Thick
-		# flows top back up to molten each step and stay liquid; thin edges can't keep up with cooling
-		# and crust over. The cap also means lava (<=1150°C) never re-melts rock (which needs 1200°C).
-		if _temp[idx] < LAVA_EMPLACE_TEMP:
-			_temp[idx] = minf(LAVA_EMPLACE_TEMP, _temp[idx] + LAVA_HEAT_PER_DEPTH * d * STEP_DT)
-		if _temp[idx] < SOLIDIFY_TEMP and edits < MELT_MAX_EDITS and _terrain != null and _terrain.has_method("fill_sphere"):
-			# Cooled: freeze to rock — the flow builds new terrain where it stops.
-			var i: int = idx % _dim
-			var j: int = idx / _dim
-			_terrain.fill_sphere(Vector3(_cell_x(i), _terrain_h[idx] + d, _cell_z(j)), clampf(d, 0.6, _cell_size))
-			_terrain_h[idx] = _terrain_h[idx] + d * 0.7
-			lava[idx] = 0.0
-			edits += 1
-		elif lava[idx] > 0.0:
-			any_lava = true
-	_lava_dirty = any_lava or (_render._lava_mesh != null and _render._lava_mesh.get_surface_count() > 0)
-	_lava_cells_last = _material_cell_count_arr(lava, LAVA_MIN)
-	if _lava_cells_last > _lava_peak:
-		_lava_peak = _lava_cells_last
-
-
-# Surface rock at extreme temperature (a big meteor, a volcano vent) MELTS to lava: carve the SDF and
-# emplace molten material, unless water is there to quench it. Deterministic (every cell over the melt
-# temperature gives way) but capped + cursor-rotated so a single step never edits the whole map.
-var _melt_cursor: int = 0
-func _melt_step() -> void:
-	if _terrain == null or not _terrain.has_method("carve_sphere"):
-		return
-	var lava: PackedFloat32Array = _mat_array(Mat.LAVA)
-	var has_water: bool = _mats.has(Mat.WATER)
-	var water: PackedFloat32Array = _mats[Mat.WATER] if has_water else PackedFloat32Array()
-	var edits: int = 0
-	var scanned: int = 0
-	while scanned < _cell_count and edits < MELT_MAX_EDITS:
-		var idx: int = _melt_cursor
-		_melt_cursor += 1
-		if _melt_cursor >= _cell_count:
-			_melt_cursor = 0
-		scanned += 1
-		if _sampled[idx] == 0 or _temp[idx] < MELT_TEMP:
-			continue
-		if has_water and water[idx] > WATER_THRESHOLD:
-			continue
-		var i: int = idx % _dim
-		var j: int = idx / _dim
-		_terrain.carve_sphere(Vector3(_cell_x(i), _terrain_h[idx], _cell_z(j)), MELT_RADIUS)
-		_terrain_h[idx] = _terrain_h[idx] - MELT_RADIUS * 0.7
-		lava[idx] = lava[idx] + MELT_RADIUS * 0.7
-		edits += 1
-
-
-func _material_cell_count_arr(arr: PackedFloat32Array, min_amount: float) -> int:
-	var n: int = 0
-	for idx in range(_cell_count):
-		if _sampled[idx] != 0 and arr[idx] >= min_amount:
-			n += 1
-	return n
-
+# --- Fluids delegators (water + lava CA live in MaterialLiquid.gd) -----------
+# The module owns the shallow-water automaton + lava diagnostics; the field exposes thin public
+# delegators for external callers (VoxelWorld/Meteor/Volcano read lava_peak / lava_cell_count).
 
 func lava_cell_count() -> int:
-	return _lava_cells_last
+	return _liquid.lava_cell_count() if _liquid != null else 0
 
 
 func lava_peak() -> int:
-	return _lava_peak
+	return _liquid.lava_peak() if _liquid != null else 0
 
 
 # --- External inputs (injection API — what disasters call) -------------------
@@ -829,7 +610,7 @@ func add_material(world_pos: Vector3, mat_id: int, amount: float, radius: float 
 		if idx >= 0 and _sampled[idx] != 0:
 			arr[idx] += amount
 			if molten:
-				_temp[idx] = maxf(_temp[idx], LAVA_EMPLACE_TEMP)
+				_temp[idx] = maxf(_temp[idx], LiquidScript.LAVA_EMPLACE_TEMP)
 		return
 	var cells: int = int(ceil(radius / _cell_size))
 	var ci: int = int(round((world_pos.x + _half_extent) / _cell_size))
@@ -852,21 +633,21 @@ func add_material(world_pos: Vector3, mat_id: int, amount: float, radius: float 
 				continue
 			arr[idx] += amount
 			if molten:
-				_temp[idx] = maxf(_temp[idx], LAVA_EMPLACE_TEMP)
+				_temp[idx] = maxf(_temp[idx], LiquidScript.LAVA_EMPLACE_TEMP)
 
 
 # --- Water convenience inputs (back-compat with the retired water field) -----
 
-## Set the uniform WATER rain rate (depth metres per SECOND), applied each step scaled by STEP_DT.
+## Set the uniform WATER rain rate (depth metres per SECOND). Delegated to the fluids module.
 func add_rain(amount_per_sec: float) -> void:
-	if is_nan(amount_per_sec) or is_inf(amount_per_sec):
-		return
-	_rain_rate = maxf(0.0, amount_per_sec)
+	if _liquid != null:
+		_liquid.add_rain(amount_per_sec)
 
 
-## Dump WATER depth at a world point (a spring / test source). No-op outside the grid / unsampled.
+## Dump WATER depth at a world point (a spring / test source). Delegated to the fluids module.
 func add_source(world_pos: Vector3, amount: float) -> void:
-	add_material(world_pos, Mat.WATER, amount, 0.0)
+	if _liquid != null:
+		_liquid.add_source(world_pos, amount)
 
 
 ## Set the current wind (world XZ) so vapor/cloud drift downwind. Fed from the weather each frame.
