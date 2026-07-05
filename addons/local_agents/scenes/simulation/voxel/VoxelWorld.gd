@@ -1337,7 +1337,13 @@ func _build_field3d() -> void:
 	for p in _springs:
 		_field3d.add_source(p, 0.8)          # modest headwaters — streams/ponds, not a flooded interior
 	_field3d.activate()
-	_hud.set_status("3D water field active — water pools in caves.")
+	# SWAP (part): drive the terrain incandescence from the 3D field's heat instead of the 2.5D field, so
+	# a 3D lava tube / buried hot cell lights the ground above it. (Clouds/fog/creatures follow later.)
+	if _terrain.has_method("set_shader_param") and _field3d.has_method("heat_texture"):
+		_terrain.set_shader_param("heat_tex", _field3d.heat_texture())
+		_terrain.set_shader_param("heat_world_min", _field3d.heat_world_min())
+		_terrain.set_shader_param("heat_world_size", _field3d.heat_world_size())
+	_hud.set_status("3D water field active — water pools in caves; terrain glow driven by 3D heat.")
 
 
 # Lock the sea level to the island's true ocean surface, sync the terrain shader's beach/snow bands to

@@ -87,6 +87,12 @@ var _ready_sim: bool = false
 var _surface_mi: MeshInstance3D = null
 var _surface_mesh: ArrayMesh = null
 var _water_mat: Material = null
+# Heat texture: the hottest temperature in each XZ column baked to an R-float texture (dim_x × dim_z)
+# the terrain shader samples for incandescent glow — so a lava tube or a buried hot cell still lights the
+# ground above it. Same interface as the 2.5D field (heat_texture/heat_world_min/heat_world_size).
+var _heat_img: Image = null
+var _heat_tex: ImageTexture = null
+var _heat_col: PackedFloat32Array = PackedFloat32Array()
 # Persistent water sources (springs) injected each step: [{pos, rate}].
 var _sources: Array = []
 
@@ -381,8 +387,51 @@ func activate() -> void:
 	_lava_sim = LavaScript.new()
 	_lava_sim.setup(self)
 	_build_render_node()
+	_build_heat_texture()
 	rebuild_surface()
+	_update_heat_texture()
 	_ready_sim = true
+
+
+# --- Heat texture (terrain-glow source) -------------------------------------
+
+func _build_heat_texture() -> void:
+	_heat_col = PackedFloat32Array()
+	_heat_col.resize(_dim_x * _dim_z)
+	_heat_col.fill(INITIAL_TEMP)
+	_heat_img = Image.create_from_data(_dim_x, _dim_z, false, Image.FORMAT_RF, _heat_col.to_byte_array())
+	_heat_tex = ImageTexture.create_from_image(_heat_img)
+
+
+# Project the hottest cell in each column into the R-float texture the terrain shader reads.
+func _update_heat_texture() -> void:
+	if _heat_tex == null:
+		return
+	var dx: int = _dim_x
+	var dz: int = _dim_z
+	var layer: int = dx * dz
+	for iz in range(dz):
+		for ix in range(dx):
+			var hottest: float = -1000.0
+			var base: int = iz * dx + ix
+			for iy in range(_dim_y):
+				var t: float = _temp[iy * layer + base]
+				if t > hottest:
+					hottest = t
+			_heat_col[base] = hottest
+	_heat_img.set_data(dx, dz, false, Image.FORMAT_RF, _heat_col.to_byte_array())
+	_heat_tex.update(_heat_img)
+
+
+## The live terrain-glow texture (R = hottest °C per column). Wire once into the terrain shader.
+func heat_texture() -> Texture2D:
+	return _heat_tex
+
+func heat_world_min() -> Vector2:
+	return Vector2(-_half_extent, -_half_extent)
+
+func heat_world_size() -> Vector2:
+	return Vector2(2.0 * _half_extent, 2.0 * _half_extent)
 
 
 func _physics_process(delta: float) -> void:
@@ -405,6 +454,7 @@ func _physics_process(delta: float) -> void:
 			_lava_sim.step()
 	if steps > 0:
 		rebuild_surface()
+		_update_heat_texture()
 
 
 ## Temperature °C at a world point (0 outside the grid). The consumer query the 2.5D field also exposes.
