@@ -608,6 +608,195 @@ func wet_cell_count() -> int:
 	return n
 
 
+# --- Injection API (disasters/flood/weather call these) ---------------------
+
+## Inject a mobile material at a world point (a water surge, a lava flow). Routes to the right buffer;
+## `radius`>0 spreads it over a sphere. Unknown materials are ignored (solids live in the SDF, not here).
+func add_material(world_pos: Vector3, mat_id: int, amount: float, radius: float = 0.0) -> void:
+	if amount <= 0.0:
+		return
+	if mat_id == Mat.LAVA:
+		add_lava(world_pos, amount)
+		return
+	if mat_id != Mat.WATER:
+		return
+	if radius <= 0.0:
+		add_water_world(world_pos, amount)
+		return
+	var cs: float = _cell_size
+	var cells: int = maxi(0, int(ceil(radius / cs)))
+	var ci: int = _col_i(world_pos.x, _origin.x)
+	var cj: int = _col_i(world_pos.y, _origin.y)
+	var ck: int = _col_i(world_pos.z, _origin.z)
+	var r2: float = radius * radius
+	for dj in range(-cells, cells + 1):
+		var iy: int = cj + dj
+		if iy < 0 or iy >= _dim_y:
+			continue
+		for dk in range(-cells, cells + 1):
+			var iz: int = ck + dk
+			if iz < 0 or iz >= _dim_z:
+				continue
+			for di in range(-cells, cells + 1):
+				var ix: int = ci + di
+				if ix < 0 or ix >= _dim_x:
+					continue
+				if cell_world_pos(ix, iy, iz).distance_squared_to(world_pos) <= r2:
+					add_water_cell(ix, iy, iz, amount)
+
+
+## Uniform rain input: add WATER at the top exposed cell of every column (depth per second, applied
+## per step). Precipitation normally EMERGES from the atmosphere; this is the back-compat spray input.
+func add_rain(amount_per_sec: float) -> void:
+	if amount_per_sec <= 0.0:
+		return
+	var add: float = amount_per_sec * STEP_DT
+	for iz in range(_dim_z):
+		for ix in range(_dim_x):
+			var iy: int = _surface_iy(ix, iz)
+			if iy >= 0:
+				add_water_cell(ix, iy, iz, add)
+
+
+## Flood pool-fill: add water only where the ground is at/below the centre column's ground, so a surge
+## fills the basin and runs downhill (never climbs a hillside). 3D analogue of the 2.5D add_water_pooled.
+func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
+	var ci: int = _col_i(center.x, _origin.x)
+	var ck: int = _col_i(center.z, _origin.z)
+	var center_ground: float = _column_ground_y(ci, ck)
+	var cs: float = _cell_size
+	var cells: int = maxi(1, int(ceil(radius / cs)))
+	var r2: float = radius * radius
+	for dk in range(-cells, cells + 1):
+		var iz: int = ck + dk
+		if iz < 0 or iz >= _dim_z:
+			continue
+		for di in range(-cells, cells + 1):
+			var ix: int = ci + di
+			if ix < 0 or ix >= _dim_x:
+				continue
+			var wx: float = _origin.x + float(ix) * cs
+			var wz: float = _origin.z + float(iz) * cs
+			var dx: float = wx - center.x
+			var dz: float = wz - center.z
+			if dx * dx + dz * dz > r2:
+				continue
+			if _column_ground_y(ix, iz) <= center_ground + 4.0:
+				var iy: int = _surface_iy(ix, iz)
+				if iy >= 0:
+					add_water_cell(ix, iy, iz, amount)
+
+
+# World Y of the top solid (ground) surface in a column, or the bottom if all void.
+func _column_ground_y(ix: int, iz: int) -> float:
+	for iy in range(_dim_y - 1, -1, -1):
+		if _solid[(iy * _dim_z + iz) * _dim_x + ix] != 0:
+			return _origin.y + float(iy) * _cell_size
+	return _origin.y
+
+
+## Re-sample rock/void from the terrain SDF in a region after an edit (a crater, a lava-built delta).
+func resample_terrain(world_pos: Vector3, radius: float) -> void:
+	if _terrain == null or not _terrain.has_method("is_solid"):
+		return
+	var cs: float = _cell_size
+	var cells: int = maxi(1, int(ceil(radius / cs)))
+	var ci: int = _col_i(world_pos.x, _origin.x)
+	var cj: int = _col_i(world_pos.y, _origin.y)
+	var ck: int = _col_i(world_pos.z, _origin.z)
+	for dj in range(-cells, cells + 1):
+		var iy: int = cj + dj
+		if iy < 0 or iy >= _dim_y:
+			continue
+		for dk in range(-cells, cells + 1):
+			var iz: int = ck + dk
+			if iz < 0 or iz >= _dim_z:
+				continue
+			for di in range(-cells, cells + 1):
+				var ix: int = ci + di
+				if ix < 0 or ix >= _dim_x:
+					continue
+				var i: int = (iy * _dim_z + iz) * _dim_x + ix
+				_solid[i] = 1 if _terrain.is_solid(cell_world_pos(ix, iy, iz)) else 0
+
+
+func cloud_cell_count(min_density: float = 0.05) -> int:
+	return _atmosphere.cloud_cell_count(min_density) if _atmosphere != null and _atmosphere.has_method("cloud_cell_count") else 0
+
+
+# --- Heat diagnostics -------------------------------------------------------
+
+func peak_heat() -> float:
+	var m: float = 0.0
+	for i in range(_cell_count):
+		if _solid[i] == 0 and _temp[i] > m:
+			m = _temp[i]
+	return m
+
+func hot_cell_count(threshold: float = 60.0) -> int:
+	var n: int = 0
+	for i in range(_cell_count):
+		if _solid[i] == 0 and _temp[i] >= threshold:
+			n += 1
+	return n
+
+func lava_peak() -> int:
+	return lava_cell_count()
+
+
+# --- Physical splash droplets (FX) ------------------------------------------
+## A few short-lived rigidbody droplets flung from a world point — the splash accent disasters call.
+func splash(world_pos: Vector3, strength: float) -> void:
+	if not is_inside_tree() or is_nan(world_pos.x):
+		return
+	var s: float = clampf(strength, 0.1, 4.0)
+	var mesh: SphereMesh = SphereMesh.new()
+	mesh.radius = 0.12
+	mesh.height = 0.24
+	mesh.radial_segments = 6
+	mesh.rings = 3
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.albedo_color = Color(0.3, 0.6, 0.9, 0.75)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mesh.material = mat
+	for n in range(5):
+		var body: RigidBody3D = RigidBody3D.new()
+		body.mass = 0.05
+		body.collision_mask = 1
+		body.collision_layer = 0
+		var mi: MeshInstance3D = MeshInstance3D.new()
+		mi.mesh = mesh
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		body.add_child(mi)
+		add_child(body)
+		body.global_position = world_pos + Vector3(randf_range(-0.15, 0.15), 0.1, randf_range(-0.15, 0.15))
+		var ang: float = randf() * TAU
+		body.linear_velocity = Vector3(cos(ang) * randf_range(1.0, 2.5) * s, randf_range(2.5, 4.5) * s, sin(ang) * randf_range(1.0, 2.5) * s)
+		var tm: SceneTreeTimer = get_tree().create_timer(2.0)
+		tm.timeout.connect(func(): if is_instance_valid(body): body.queue_free())
+
+
+# --- Concerns not yet ported to the 3D field (fire spread, granular landslides). Stubbed during the
+# 2.5D->3D strong break so consumers don't crash; they are OFFLINE until ported to GPU passes. ---
+func set_ecology(_e) -> void:
+	pass
+
+func disturb_terrain(_world_pos: Vector3, _radius: float, _strength: float) -> void:
+	pass
+
+func slump_count() -> int:
+	return 0
+
+func ignite(_node) -> void:
+	pass
+
+func is_burning(_node) -> bool:
+	return false
+
+func active_fire_count() -> int:
+	return 0
+
+
 const WATER_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/shaders/VoxelWater.gdshader"
 
 func _build_render_node() -> void:
