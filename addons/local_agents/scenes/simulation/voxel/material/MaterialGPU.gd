@@ -26,6 +26,8 @@ const AtmoScript: GDScript = preload("res://addons/local_agents/scenes/simulatio
 const HEAT_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels/heat.glsl"
 const TRANSPORT_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels/transport.glsl"
 const CONDENSE_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels/condense.glsl"
+const FLOW_OUT_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels/flow_out.glsl"
+const FLOW_IN_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels/flow_in.glsl"
 const LOCAL_SIZE_X: int = 64
 
 var _rd: RenderingDevice = null
@@ -46,6 +48,15 @@ var _condense_shader: RID = RID()
 var _condense_pipeline: RID = RID()
 var _condense_set: RID = RID()
 
+# Liquid flow (Phase 3): two-pass gather (flow_out -> per-edge sends -> flow_in -> apply). Water and
+# lava depth reuse the same pipelines with a scratch depth-in/out + the per-edge send buffer.
+var _flow_out_shader: RID = RID()
+var _flow_out_pipeline: RID = RID()
+var _flow_out_set: RID = RID()
+var _flow_in_shader: RID = RID()
+var _flow_in_pipeline: RID = RID()
+var _flow_in_set: RID = RID()
+
 # Persistent SSBOs. temp is double-buffered (in -> out) so the heat gather never reads a neighbour
 # another invocation is writing; each transported field (vapor/cloud/fog) has an _out scratch for the
 # same reason, and condense reads those _out buffers and writes the canonical ones.
@@ -61,6 +72,10 @@ var _buf_fog: RID = RID()
 var _buf_fog_out: RID = RID()
 var _buf_water: RID = RID()
 var _buf_stats: RID = RID()                 # one uint: "did it rain this step" flag
+# Liquid-flow scratch: a depth-in/out pair (reused for water and lava) + a 4-float-per-cell send buffer.
+var _buf_flow_in: RID = RID()
+var _buf_flow_out: RID = RID()
+var _buf_send: RID = RID()
 
 # _sampled is a PackedByteArray on the field; converting it to floats is the one non-native transform,
 # so cache the float mirror and rebuild it only when the sampled set actually grows.
@@ -92,6 +107,10 @@ func setup(field) -> void:
 	_transport_pipeline = _rd.compute_pipeline_create(_transport_shader)
 	_condense_shader = _compile(CONDENSE_SHADER_PATH)
 	_condense_pipeline = _rd.compute_pipeline_create(_condense_shader)
+	_flow_out_shader = _compile(FLOW_OUT_SHADER_PATH)
+	_flow_out_pipeline = _rd.compute_pipeline_create(_flow_out_shader)
+	_flow_in_shader = _compile(FLOW_IN_SHADER_PATH)
+	_flow_in_pipeline = _rd.compute_pipeline_create(_flow_in_shader)
 
 	var zero: PackedFloat32Array = PackedFloat32Array()
 	zero.resize(_cell_count)
@@ -110,6 +129,12 @@ func setup(field) -> void:
 	var stats_zero: PackedByteArray = PackedByteArray()
 	stats_zero.resize(4)
 	_buf_stats = _rd.storage_buffer_create(stats_zero.size(), stats_zero)
+	_buf_flow_in = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	_buf_flow_out = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	var send_zero: PackedFloat32Array = PackedFloat32Array()
+	send_zero.resize(_cell_count * 4)
+	var send_bytes: PackedByteArray = send_zero.to_byte_array()
+	_buf_send = _rd.storage_buffer_create(send_bytes.size(), send_bytes)
 
 	# Heat uniform set (binding order matches heat.glsl).
 	var hu: Array = []
@@ -140,6 +165,21 @@ func setup(field) -> void:
 	cu.append(_make_uniform(8, _buf_sampled))
 	cu.append(_make_uniform(9, _buf_stats))
 	_condense_set = _rd.uniform_set_create(cu, _condense_shader, 0)
+
+	# Flow uniform sets (binding order matches flow_out.glsl / flow_in.glsl).
+	var fo: Array = []
+	fo.append(_make_uniform(0, _buf_flow_in))
+	fo.append(_make_uniform(1, _buf_terrain))
+	fo.append(_make_uniform(2, _buf_sampled))
+	fo.append(_make_uniform(3, _buf_temp_in))
+	fo.append(_make_uniform(4, _buf_send))
+	_flow_out_set = _rd.uniform_set_create(fo, _flow_out_shader, 0)
+	var fi: Array = []
+	fi.append(_make_uniform(0, _buf_flow_in))
+	fi.append(_make_uniform(1, _buf_send))
+	fi.append(_make_uniform(2, _buf_sampled))
+	fi.append(_make_uniform(3, _buf_flow_out))
+	_flow_in_set = _rd.uniform_set_create(fi, _flow_in_shader, 0)
 
 
 func _compile(path: String) -> RID:
@@ -320,6 +360,57 @@ func _apply_cover_means() -> void:
 	if f._atmosphere != null:
 		f._atmosphere._cloud_cover = cloud_sum / denom
 		f._atmosphere._fog_cover = fog_sum / denom
+
+
+## Run one shallow-water flow step for a liquid depth grid on the GPU (Phase 3), returning the new
+## depth. Two-pass gather (flow_out computes per-edge sends, flow_in gathers net change), matching
+## MaterialLiquid._flow_liquid exactly. `freeze_aware` skips frozen (temp < FREEZE_TEMP) cells as
+## sources (water); lava passes false. terrain_h + (for water) temp are uploaded fresh so the head +
+## freeze checks match the CPU state at flow time. The CPU still does rain/sea-fill/evap + the lava
+## molten/solidify/melt SDF work around this.
+func flow_depth(arr: PackedFloat32Array, flow_factor: float, freeze_aware: bool) -> PackedFloat32Array:
+	if _rd == null:
+		return arr
+	var f = _field
+	_sync_sampled()
+	upload(_buf_flow_in, arr)
+	upload(_buf_terrain, f._terrain_h)
+	if freeze_aware:
+		upload(_buf_temp_in, f._temp)
+
+	var groups: int = _groups()
+	var cl: int = _rd.compute_list_begin()
+
+	# Pass A: per-edge outflow.
+	_rd.compute_list_bind_compute_pipeline(cl, _flow_out_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _flow_out_set, 0)
+	var pa: PackedByteArray = PackedByteArray()
+	pa.resize(16)
+	pa.encode_float(0, flow_factor)
+	pa.encode_u32(4, 1 if freeze_aware else 0)
+	pa.encode_u32(8, f._dim)
+	pa.encode_u32(12, _cell_count)
+	_rd.compute_list_set_push_constant(cl, pa, pa.size())
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
+
+	# Pass B reads the sends written by pass A — barrier so they are visible.
+	_rd.compute_list_add_barrier(cl)
+	_rd.compute_list_bind_compute_pipeline(cl, _flow_in_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _flow_in_set, 0)
+	var pb: PackedByteArray = PackedByteArray()
+	pb.resize(16)
+	pb.encode_u32(0, f._dim)
+	pb.encode_u32(4, _cell_count)
+	pb.encode_u32(8, 0)
+	pb.encode_u32(12, 0)
+	_rd.compute_list_set_push_constant(cl, pb, pb.size())
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
+
+	_rd.compute_list_end()
+	_rd.submit()
+	_rd.sync()
+
+	return download(_buf_flow_out)
 
 
 func _groups() -> int:
