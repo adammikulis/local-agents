@@ -92,10 +92,12 @@ committed). When removing files:
   be C++ by default; move practical runtime compute/render from CPU to GPU-backed execution; prefer
   shader stages where behavior fits them; minimize C++↔GDScript and CPU↔GPU hops on authoritative
   paths. Use GDScript for runtime behavior only where C++ isn't practical, kept to thin
-  orchestration/adapters. Any remaining non-native/non-GPU runtime path is a **transitional shim**, not
-  target architecture — note worthwhile shims in `ARCHITECTURE_PLAN.md` with enough context to retire
-  them (a CPU implementation kept only as the headless/no-GPU counterpart of a GPU kernel is such a
-  shim).
+  orchestration/adapters. **No "transitional shims."** We do not label non-native/non-GPU code as a
+  temporary shim and park it on a debt list to retire later — either it's built native/GPU-first now,
+  or it's ordinary code we improve directly. The one legitimate CPU form is a genuine **fallback /
+  reference oracle**: a CPU implementation kept as the headless/no-GPU counterpart of a GPU kernel (and
+  as the parity oracle that validates it). That is a permanent, first-class part of the design, not a
+  stopgap — build it as such, don't apologize for it, and don't track it as debt.
 - **Fail-fast over silent degradation:** on authoritative simulation/destruction/collision/dispatch
   paths, if the native/GPU path can't execute, fail with an explicit typed error
   (`GPU_REQUIRED`/`NATIVE_REQUIRED`) rather than routing to alternate *behavior*. GPU availability is a
@@ -113,7 +115,7 @@ committed). When removing files:
   then, but don't block solely on line count. It also runs `check_no_direct_refcounted_invocation.sh`
   (a real gate banning `godot -s addons/local_agents/tests/test_*.gd` in automation).
 - When refactoring for size, extract helpers/business logic into focused modules first; keep hot-path
-  files as call-site shims. Split large files by responsibility (orchestration/controller · domain
+  files as thin call-site forwarders. Split large files by responsibility (orchestration/controller · domain
   systems · render adapters · input/interaction · HUD/presentation). App/root scenes are composition
   roots only — move behavior into focused controllers. Prefer typed `Resource` classes over shared
   dictionaries for reusable runtime state. Migrate incrementally: add module + tests, move call sites,

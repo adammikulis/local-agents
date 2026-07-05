@@ -12,8 +12,10 @@ target model and migration intent are detailed in `NATIVE_SIM_UNIFICATION_PLAN.m
 - Use concern-based workstreams; keep diffs small and reviewable.
 - Signal up / call down (mediator orchestration) for cross-system flows.
 - Record breaking API/schema changes in this file before merge.
-- Every remaining non-native/non-GPU runtime path is a tracked transitional shim only, with an
-  explicit `owner`, `removal trigger`, and `target wave`. Do not grow net-new shims.
+- No "transitional shims": we do not label non-native/non-GPU code as a temporary stopgap and park it
+  on a debt list. Build native/GPU-first, or improve the code directly as ordinary code. A CPU
+  implementation kept as a genuine headless/no-GPU **fallback and parity oracle** for a GPU kernel is
+  legitimate and permanent — a first-class part of the design, not tracked as debt to retire.
 - File-size discipline: `scripts/check_max_file_length.sh` reports first-party files over a
   `MAX_FILE_LINES=1000` **soft limit** as advisory warnings (warn-only, does not fail CI).
   Treat 1000 lines as a smell — split by responsibility before then; do not block work on it.
@@ -50,7 +52,8 @@ records superseded wave-by-wave inventories):
 
 - Native/GPU + shader-first migration: move practical GDScript runtime logic to C++ GDExtension
   call surfaces and practical CPU work to GPU/shader paths; keep GDScript as thin
-  forwarding/HUD orchestration only. Remaining CPU/GDS pieces are tracked transitional shims.
+  forwarding/HUD orchestration only. Remaining CPU/GDS pieces are migration targets to build out
+  native/GPU-first — not tracked as debt.
 - Unified Shader-Max impact pipeline: one authoritative ingress schema + one native mutation path
   for initial projectile impact, debris impact, and re-impact. GPU owns contact reduction,
   durability/chip accumulation, and fracture spawn-entry generation; C++ is orchestration-only;
@@ -79,11 +82,12 @@ records superseded wave-by-wave inventories):
   cool cells pool ground FOG, cooler-aloft cells form CLOUD) -> thick cloud rains water back and shades
   the sun below it. Wind advects all AIRBORNE/aerated quantities (vapor, cloud, fog) via upwind
   transport; liquid water still flows by gravity. Rendered by `LACloudLayer` (two world-aligned density
-  sheets sampling the field's grids). Owner: sim/atmosphere. **Transitional shim**: this is CPU/GDScript
-  on the 2.5D `LAMaterialField`; removal trigger = MaterialField substrate migrates to the unified
-  GPU/3D compute field (the condensation/advection rules port directly to compute passes, and a true
-  3D volume makes cloud-base height emerge instead of being a modeled constant). Target wave: with the
-  MaterialField GPU/3D migration, not before (keeps headless smoke — which has no GPU — working now).
+  sheets sampling the field's grids). Owner: sim/atmosphere. The field CA currently runs on CPU/GDScript
+  over the 2.5D `LAMaterialField`; it is being migrated to a GPU compute field (`feature/gpu-material-field`)
+  where the condensation/advection rules port directly to compute passes and a true 3D volume makes
+  cloud-base height emerge instead of being a modeled constant. The CPU step remains as the GPU kernel's
+  headless/no-GPU fallback and parity oracle (the headless smoke harness has no GPU) — a permanent part
+  of the design, not a stopgap.
 
 Validation for player-facing destruction work is non-headless launch first, then headless sweeps
 (`run_all_tests.gd`, `run_runtime_tests_bounded.gd`, destruction/fps-fire harnesses).
@@ -183,13 +187,14 @@ single authoritative wave record; superseded per-wave inventories live in git hi
   - Make projectile voxel destruction authority shader-first plus native C++ mutation execution.
   - Remove GDScript outcome interpretation on the projectile impact path.
   - Preserve direct chain authority only: `impact contact -> C++ mutation -> apply result`.
-  - Keep remaining non-native/non-GPU path segments as transitional shims only.
+  - Any remaining non-native/non-GPU path segments are migration targets built out native/GPU-first, or
+    legitimate CPU fallbacks — never parked as tolerated "shims."
 - Acceptance criteria:
   - Every successful projectile impact records native mutation evidence and shader-backed metadata.
   - Missing GPU/native prerequisites hard-fail with typed reasons (`GPU_REQUIRED`/`gpu_unavailable`,
     `NATIVE_REQUIRED`/`native_unavailable`); no path reports success without native `changed=true`.
-  - The transitional shim inventory below stays complete with `owner`, `removal trigger`,
-    `target wave`, and `blocker` for each shim.
+  - The legacy-adapter migration list below stays complete with `owner`, `done when`,
+    `target wave`, and `blocker` for each entry.
 - Verification commands (run in order):
   1. `./scripts/run_fps_fire_destroy.sh --timeout=120 --test_mode_minimized=true`
   2. `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
@@ -198,20 +203,20 @@ single authoritative wave record; superseded per-wave inventories live in git hi
   5. `scripts/run_single_test.sh test_native_orchestration_dispatch_runtime_contract.gd --timeout=180`
 - Wave invariants: `INV-NATIVE-001`, `INV-GPU-001`, `INV-FALLBACK-001`, `INV-CONTRACT-001`,
   `INV-HANDSHAKE-001`, `INV-PROJECTILE-DIRECT-001`, `INV-NO-GDS-MULTIHOP-001`.
-- Transitional shim inventory (required fields):
-  - Shim: `addons/local_agents/scenes/simulation/controllers/world/WorldDispatchController.gd`
+- Legacy adapters being migrated to native/GPU-first (required fields):
+  - Adapter: `addons/local_agents/scenes/simulation/controllers/world/WorldDispatchController.gd`
     - owner: Runtime Bindings lane
-    - removal trigger: native dispatch bridge consumes normalized contact and mutation payloads end-to-end with no GDS mutation decisions.
+    - done when: native dispatch bridge consumes normalized contact and mutation payloads end-to-end with no GDS mutation decisions.
     - target wave: `Wave 0F`
     - blocker: runtime telemetry parity must remain stable for existing harness assertions.
-  - Shim: `addons/local_agents/scenes/simulation/controllers/world/WorldSimulation.gd` projectile dispatch adapter
+  - Adapter: `addons/local_agents/scenes/simulation/controllers/world/WorldSimulation.gd` projectile dispatch adapter
     - owner: Runtime Simulation lane
-    - removal trigger: per-frame projectile contact sampling and handoff fully delegated to the native contract payload builder.
+    - done when: per-frame projectile contact sampling and handoff fully delegated to the native contract payload builder.
     - target wave: `Wave 0E`
     - blocker: active launcher input hooks still attach through world controller glue.
-  - Shim: `addons/local_agents/native/LocalAgentsVoxelDispatchBridge.gd` pre-dispatch CPU contact reduction
+  - Adapter: `addons/local_agents/native/LocalAgentsVoxelDispatchBridge.gd` pre-dispatch CPU contact reduction
     - owner: Native Compute lane
-    - removal trigger: staged GPU contact reduction hook is enabled by default and the CPU pre-reduction path is deleted.
+    - done when: staged GPU contact reduction hook is enabled by default and the CPU pre-reduction path is deleted.
     - target wave: `Wave 0T`
     - blocker: GPU reduction diagnostics contract is not yet wired into all runtime verification harnesses.
 
