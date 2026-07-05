@@ -11,6 +11,7 @@ const CameraRigScript: GDScript = preload("res://addons/local_agents/scenes/simu
 const EcologyServiceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ecology/EcologyService.gd")
 const HudScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/SpawnPaletteHud.gd")
 const MeteorScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Meteor.gd")
+const VolcanoScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Volcano.gd")
 const AudioDirectorScript: GDScript = preload("res://addons/local_agents/audio/AudioDirector.gd")
 const WeatherScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/WeatherSystem.gd")
 const MaterialFieldScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField.gd")
@@ -74,6 +75,8 @@ var _peak_circling: int = 0
 var _peak_investigating: int = 0
 var _peak_sleeping: int = 0
 var _auto_meteor: bool = false
+var _auto_volcano: bool = false
+var _auto_volcano_fired: bool = false
 var _auto_meteor_fired: bool = false
 var _auto_select: bool = false
 var _auto_select_done: bool = false
@@ -196,6 +199,8 @@ func _parse_cmdline() -> void:
 			_time_of_day = clampf(float(arg.substr("--time=".length())), 0.0, 1.0)
 		elif arg == "--auto-meteor":
 			_auto_meteor = true
+		elif arg == "--auto-volcano":
+			_auto_volcano = true
 		elif arg == "--auto-select":
 			_auto_select = true
 		elif arg == "--cognition-stats":
@@ -233,6 +238,15 @@ func _process(delta: float) -> void:
 		var trigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 600, 60)
 		if _frame == trigger:
 			_fire_test_meteor()
+
+	# Auto-volcano demo/test: raise an erupting volcano near origin (lava + bombs).
+	if _auto_volcano and not _auto_volcano_fired and _spawned_initial:
+		var vtrigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 600, 60)
+		if _frame >= vtrigger:
+			var oh: float = _terrain.surface_height(20.0, 20.0)
+			if not is_nan(oh):
+				_spawn_volcano(Vector3(20.0, oh, 20.0))
+				_auto_volcano_fired = true
 
 	# Auto-select demo: aim at the nearest creature and run the real selection path.
 	if _auto_select and not _auto_select_done and _spawned_initial and _frame == _shoot_frames - 40:
@@ -466,12 +480,23 @@ func _place_armed(screen_pos: Vector2) -> void:
 		meteor.launch(point, _camera.global_position)
 		_music_destruction = 1.0
 		_hud.set_status("Meteor inbound!")
+	elif _armed_kind == "volcano":
+		_spawn_volcano(point)
+		_music_destruction = 1.0
+		_hud.set_status("A volcano rises — stand back!")
 	else:
 		_ecology.spawn(_armed_kind, point)
 		if _audio != null:
 			_audio.play_sfx("spawn", point)
 		_hud.set_status("Spawned %s." % _armed_kind)
 	_spawn_puff(point, _kind_color(_armed_kind))
+
+
+func _spawn_volcano(point: Vector3) -> void:
+	var v: Node = VolcanoScript.new()
+	_actors_root.add_child(v)
+	v.setup(_terrain, _ecology)
+	v.erupt_at(point)
 
 
 func _select_at(screen_pos: Vector2) -> void:
@@ -611,6 +636,7 @@ func _kind_color(kind: String) -> Color:
 		"villager": return Color(0.75, 0.5, 0.9)
 		"fish": return Color(0.55, 0.72, 0.86)
 		"meteor": return Color(1.0, 0.5, 0.2)
+		"volcano": return Color(0.95, 0.42, 0.12)
 		_: return Color(0.8, 0.9, 0.6)
 
 

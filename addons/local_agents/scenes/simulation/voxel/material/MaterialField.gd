@@ -863,10 +863,13 @@ func add_material(world_pos: Vector3, mat_id: int, amount: float, radius: float 
 	if amount <= 0.0 or is_nan(amount) or is_inf(amount):
 		return
 	var arr: PackedFloat32Array = _mat_array(mat_id)
+	var molten: bool = mat_id == Mat.LAVA          # fresh lava is molten by definition
 	if radius <= 0.0:
 		var idx: int = _index_at(world_pos.x, world_pos.z)
 		if idx >= 0 and _sampled[idx] != 0:
 			arr[idx] += amount
+			if molten:
+				_temp[idx] = maxf(_temp[idx], LAVA_EMPLACE_TEMP)
 		return
 	var cells: int = int(ceil(radius / _cell_size))
 	var ci: int = int(round((world_pos.x + _half_extent) / _cell_size))
@@ -888,6 +891,8 @@ func add_material(world_pos: Vector3, mat_id: int, amount: float, radius: float 
 			if dx * dx + dz * dz > r2:
 				continue
 			arr[idx] += amount
+			if molten:
+				_temp[idx] = maxf(_temp[idx], LAVA_EMPLACE_TEMP)
 
 
 # --- Water convenience inputs (back-compat with the retired water field) -----
