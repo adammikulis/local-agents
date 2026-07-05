@@ -9,9 +9,9 @@ extends RigidBody3D
 ## Built entirely in code, no external assets, no dependency on other project
 ## scripts. Robust against a null terrain and guards against double queue_free.
 
-const DECAY_LIFETIME := 70.0        # seconds until fully decayed
-const SHRINK_DURATION := 4.0        # final seconds spent shrinking away
-const NUTRITION_PER_SIZE := 40.0    # carrion food value per unit of body size
+const DECAY_LIFETIME: float = 70.0        # seconds until fully decayed
+const SHRINK_DURATION: float = 4.0        # final seconds spent shrinking away
+const NUTRITION_PER_SIZE: float = 40.0    # carrion food value per unit of body size
 
 var _species: String = "creature"
 var _terrain: Object = null
@@ -42,20 +42,20 @@ func setup(from_species: String, from_color: Color, from_size: float, terrain) -
 	add_to_group("selectable")
 	add_to_group("carrion")
 
-	var radius := _size * 0.6
-	var height := maxf(_size * 2.0, radius * 2.0)  # capsule height must span the caps
+	var radius: float = _size * 0.6
+	var height: float = maxf(_size * 2.0, radius * 2.0)  # capsule height must span the caps
 
 	# Darkened + desaturated material so it clearly reads as a dead body.
-	var dead_color := from_color.darkened(0.35)
-	var grey := Color(0.35, 0.34, 0.33, dead_color.a)
+	var dead_color: Color = from_color.darkened(0.35)
+	var grey: Color = Color(0.35, 0.34, 0.33, dead_color.a)
 	dead_color = dead_color.lerp(grey, 0.4)
 
-	var material := StandardMaterial3D.new()
+	var material: StandardMaterial3D = StandardMaterial3D.new()
 	material.albedo_color = dead_color
 	material.roughness = 1.0
 	material.metallic = 0.0
 
-	var mesh := CapsuleMesh.new()
+	var mesh: CapsuleMesh = CapsuleMesh.new()
 	mesh.radius = radius
 	mesh.height = height
 	mesh.material = material
@@ -71,7 +71,7 @@ func setup(from_species: String, from_color: Color, from_size: float, terrain) -
 	)
 	add_child(_mesh_instance)
 
-	var shape := CapsuleShape3D.new()
+	var shape: CapsuleShape3D = CapsuleShape3D.new()
 	shape.radius = radius
 	shape.height = height
 	_collision = CollisionShape3D.new()
@@ -88,7 +88,7 @@ func fling(impulse: Vector3) -> void:
 	if _dead:
 		return
 	apply_central_impulse(impulse)
-	var spin := Vector3(
+	var spin: Vector3 = Vector3(
 		randf_range(-1.0, 1.0),
 		randf_range(-1.0, 1.0),
 		randf_range(-1.0, 1.0)
@@ -101,7 +101,7 @@ func fling(impulse: Vector3) -> void:
 func feed(amount: float) -> float:
 	if _dead:
 		return 0.0
-	var taken := clampf(amount, 0.0, _nutrition)
+	var taken: float = clampf(amount, 0.0, _nutrition)
 	_nutrition -= taken
 	if _nutrition <= 0.0:
 		_nutrition = 0.0
@@ -134,10 +134,10 @@ func _physics_process(delta: float) -> void:
 
 	# During the final SHRINK_DURATION seconds, shrink the body away so it
 	# visibly wastes down to nothing before it is removed.
-	var shrink_start := DECAY_LIFETIME - SHRINK_DURATION
+	var shrink_start: float = DECAY_LIFETIME - SHRINK_DURATION
 	if _age >= shrink_start:
-		var t := clampf((_age - shrink_start) / SHRINK_DURATION, 0.0, 1.0)
-		var factor := clampf(1.0 - t, 0.05, 1.0)
+		var t: float = clampf((_age - shrink_start) / SHRINK_DURATION, 0.0, 1.0)
+		var factor: float = clampf(1.0 - t, 0.05, 1.0)
 		scale = _base_scale * factor
 
 func _free_once() -> void:

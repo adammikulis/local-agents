@@ -15,8 +15,8 @@ extends StaticBody3D
 #     "edible":      bool,     # can herbivores eat it
 #   }
 
-const GROUP_SELECTABLE := "selectable"
-const GROUP_PLANT := "plant"
+const GROUP_SELECTABLE: String = "selectable"
+const GROUP_PLANT: String = "plant"
 
 var terrain = null                       # LAVoxelTerrainService (injected)
 var config: Dictionary = {}
@@ -55,14 +55,14 @@ func setup(_terrain, _config: Dictionary) -> void:
 
 
 func _build_body() -> void:
-	var mesh := MeshInstance3D.new()
-	var cone := CylinderMesh.new()             # tapered stem
+	var mesh: MeshInstance3D = MeshInstance3D.new()
+	var cone: CylinderMesh = CylinderMesh.new()             # tapered stem
 	cone.top_radius = 0.06
 	cone.bottom_radius = 0.34
 	cone.height = _base_height
 	mesh.mesh = cone
 	mesh.position = Vector3(0.0, _base_height * 0.5, 0.0)
-	var mat := StandardMaterial3D.new()
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
 	mat.albedo_color = color
 	mat.roughness = 0.95
 	mesh.material_override = mat
@@ -70,20 +70,20 @@ func _build_body() -> void:
 	_mesh = mesh
 
 	# Leafy foliage blob on top so the plant reads clearly at distance.
-	var foliage := MeshInstance3D.new()
-	var ball := SphereMesh.new()
+	var foliage: MeshInstance3D = MeshInstance3D.new()
+	var ball: SphereMesh = SphereMesh.new()
 	ball.radius = 0.42
 	ball.height = 0.84
 	foliage.mesh = ball
 	foliage.position = Vector3(0.0, _base_height + 0.15, 0.0)
-	var fmat := StandardMaterial3D.new()
+	var fmat: StandardMaterial3D = StandardMaterial3D.new()
 	fmat.albedo_color = color.lightened(0.12)
 	fmat.roughness = 0.9
 	foliage.material_override = fmat
 	add_child(foliage)
 
-	var shape := CollisionShape3D.new()
-	var cyl := CylinderShape3D.new()
+	var shape: CollisionShape3D = CollisionShape3D.new()
+	var cyl: CylinderShape3D = CylinderShape3D.new()
 	cyl.radius = 0.25
 	cyl.height = _base_height
 	shape.shape = cyl
@@ -106,7 +106,7 @@ func _grown_fraction() -> float:
 
 
 func _apply_growth() -> void:
-	var f := _grown_fraction()
+	var f: float = _grown_fraction()
 	scale = Vector3.ONE * (f * max_scale)
 
 
@@ -130,7 +130,7 @@ func is_mature() -> bool:
 
 
 func get_inspector_payload() -> Dictionary:
-	var stage := "mature" if is_mature() else "growing"
+	var stage: String = "mature" if is_mature() else "growing"
 	return {
 		"title": species.capitalize(),
 		"lines": [

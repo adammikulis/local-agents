@@ -20,16 +20,16 @@ var _initial_distance: float = 0.0
 func setup(terrain) -> void:
 	_terrain = terrain
 
-	var material := StandardMaterial3D.new()
+	var material: StandardMaterial3D = StandardMaterial3D.new()
 	material.albedo_color = Color(0.4, 0.38, 0.35)
 	material.roughness = 1.0
 	material.metallic = 0.0
 
-	var mesh := BoxMesh.new()
+	var mesh: BoxMesh = BoxMesh.new()
 	mesh.size = Vector3(0.35, 0.35, 0.35)
 	mesh.material = material
 
-	var mesh_instance := MeshInstance3D.new()
+	var mesh_instance: MeshInstance3D = MeshInstance3D.new()
 	mesh_instance.name = "ThrownRockMesh"
 	mesh_instance.mesh = mesh
 	mesh_instance.rotation = Vector3(
@@ -106,11 +106,11 @@ func _strike() -> void:
 	queue_free()
 
 func _spawn_impact_puff() -> void:
-	var parent := get_parent()
+	var parent: Node = get_parent()
 	if parent == null:
 		return
 
-	var puff := GPUParticles3D.new()
+	var puff: GPUParticles3D = GPUParticles3D.new()
 	puff.name = "ImpactPuff"
 	puff.one_shot = true
 	puff.emitting = true
@@ -118,12 +118,12 @@ func _spawn_impact_puff() -> void:
 	puff.lifetime = 0.5
 	puff.explosiveness = 1.0
 
-	var particle_mesh := SphereMesh.new()
+	var particle_mesh: SphereMesh = SphereMesh.new()
 	particle_mesh.radius = 0.05
 	particle_mesh.height = 0.1
 	puff.draw_pass_1 = particle_mesh
 
-	var process_material := ParticleProcessMaterial.new()
+	var process_material: ParticleProcessMaterial = ParticleProcessMaterial.new()
 	process_material.direction = Vector3(0, 1, 0)
 	process_material.spread = 45.0
 	process_material.initial_velocity_min = 1.0
@@ -136,7 +136,7 @@ func _spawn_impact_puff() -> void:
 	puff.global_position = global_position
 
 	# Auto-free the puff shortly after it finishes.
-	var timer := Timer.new()
+	var timer: Timer = Timer.new()
 	timer.one_shot = true
 	timer.wait_time = 1.0
 	puff.add_child(timer)

@@ -38,14 +38,14 @@ func _ready() -> void:
 
 
 func _sync_angles_from_basis() -> void:
-	var e := global_transform.basis.get_euler()
+	var e: Vector3 = global_transform.basis.get_euler()
 	_pitch = clampf(e.x, -PITCH_LIMIT, PITCH_LIMIT)
 	_yaw = e.y
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
-		var mb := event as InputEventMouseButton
+		var mb: InputEventMouseButton = event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_RIGHT:
 			_set_looking(mb.pressed)
 			return
@@ -56,7 +56,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				_fly_speed = clampf(_fly_speed / SPEED_STEP, MIN_SPEED, MAX_SPEED)
 
 	elif event is InputEventMouseMotion and _looking:
-		var mm := event as InputEventMouseMotion
+		var mm: InputEventMouseMotion = event as InputEventMouseMotion
 		_yaw -= mm.relative.x * MOUSE_SENSITIVITY
 		_pitch = clampf(_pitch - mm.relative.y * MOUSE_SENSITIVITY, -PITCH_LIMIT, PITCH_LIMIT)
 		_apply_look()
@@ -71,7 +71,7 @@ func _set_looking(active: bool) -> void:
 
 
 func _apply_look() -> void:
-	var b := Basis.from_euler(Vector3(_pitch, _yaw, 0.0))
+	var b: Basis = Basis.from_euler(Vector3(_pitch, _yaw, 0.0))
 	global_transform.basis = b
 
 
@@ -80,7 +80,7 @@ func _process(delta: float) -> void:
 	if Engine.is_editor_hint():
 		return
 
-	var dir := Vector3.ZERO
+	var dir: Vector3 = Vector3.ZERO
 	if Input.is_key_pressed(KEY_W):
 		dir -= global_transform.basis.z
 	if Input.is_key_pressed(KEY_S):
@@ -96,7 +96,7 @@ func _process(delta: float) -> void:
 
 	if dir.length() > 0.001:
 		dir = dir.normalized()
-		var speed := _fly_speed
+		var speed: float = _fly_speed
 		if Input.is_key_pressed(KEY_SHIFT):
 			speed *= FAST_MULTIPLIER
 		global_position += dir * speed * delta
@@ -106,9 +106,9 @@ func _process(delta: float) -> void:
 ##   - screen_pos == Vector2(-1, -1): use the viewport center.
 ##   - otherwise: project the given screen position.
 func aim_ray(screen_pos: Vector2 = Vector2(-1.0, -1.0)) -> Dictionary:
-	var sp := screen_pos
+	var sp: Vector2 = screen_pos
 	if sp.x < 0.0 and sp.y < 0.0:
-		var vp := get_viewport()
+		var vp: Viewport = get_viewport()
 		if vp != null:
 			sp = vp.get_visible_rect().size * 0.5
 		else:

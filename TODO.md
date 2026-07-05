@@ -1,58 +1,85 @@
-# TODO / Next Steps
+# TODO / Session State — Voxel Ecosystem Sim
 
-Working notes for the creature-ecosystem + voxel-terrain work. Grouped by priority.
+Working notes for the **from-scratch godot_voxel ecosystem simulation**. This supersedes the old
+creature-ecosystem + homegrown-voxel-terrain work (that stack is now inert — see "Full break" below).
 
-## Done this session (verified)
-- **Creature framework** (taxonomy-aligned): `AnimalActor` (CharacterBody3D: nav, gravity,
-  jump/fly, smell emit+sense, diet, breeding) → `MammalActor` → `RabbitSphere` (lagomorph),
-  `FoxActor` (canid), `VillagerCapsule` (human); `BirdActor` (bird, 3D flock). Kingdom bases
-  `PlantActor` (EdiblePlantCapsule migrated) + `FungusActor` (stub).
-- **Predator–prey + breeding**: foxes hunt rabbits by scent; breeding keeps populations
-  stable (fox breeding gated on eating). Poop→seed dispersal works.
-- **3D bird flock** (`BirdFlockController`, Reynolds boids) — looks good.
-- **Nav**: `NavigationAgent3D` pathfinding for ground animals.
-- **Voxel-terrain port** (WorldSimulation): native double-sided trimesh collision per chunk
-  (replaces per-voxel boxes); per-chunk `NavigationRegion3D` that re-bakes only changed
-  chunks on destruction; ecology auto-centers on the island land centroid; smell/wind grid
-  center offset; creatures raycast-placed on the live surface. Finer voxels (map 56, noise
-  0.078). Fixed main-scene lighting (was stuck at dim dawn → now noon, sun energy 2.6).
-- **Repo cleanup**: ARCHITECTURE_PLAN 2171→~227 lines; two native-plan docs merged; dead
-  CPU-executor C++ removed; CI file-length check → warn-only 1000; AGENTS.md/CLAUDE.md updated;
-  cross-platform build workflow added.
+## Where everything lives
+- **New scene (built entirely in code):** `addons/local_agents/scenes/simulation/voxel/`
+  - Root: `VoxelWorld.gd` / `VoxelWorld.tscn` — **this is the project `main_scene`** (project.godot).
+  - Terrain: `terrain/VoxelTerrainService.gd` + `shaders/VoxelTerrainTriplanar.gdshader`
+  - Systems: `WeatherSystem.gd`, `ScentField.gd`, `TrackSystem.gd`, `WaterFieldSystem.gd` (see pending)
+  - Ecology: `ecology/EcologyService.gd`
+  - Actors: `actors/{Creature,Plant,Tree,Rock,ThrownRock,Corpse,Poop,Meteor}.gd`
+  - Mesh util: `mesh/RockMeshFactory.gd` (natural boulders)
+  - UI: `ui/SpawnPaletteHud.gd`
+  - Camera: `VoxelCameraRig.gd`
+  - Design doc: `EMERGENCE.md` (the emergent-everything principle — READ IT)
+- **godot_voxel GDExtension:** `addons/zylann.voxel/` (v1.6x precompiled, macOS arm64 universal).
+- **Audio subsystem (added in parallel):** `addons/local_agents/audio/` (AudioDirector) — VoxelWorld
+  and Meteor/Creature call into it for SFX + generative music.
 
-## Remaining — ecology behaviors (highest value)
-- [ ] **Fast spread / colonization** for plants + fungi (kudzu, vines, grass, mold, slimes) —
-      organisms seed adjacent surface cells fast enough to look like they move. `FungusActor`
-      needs a real colonization behavior; plants should be able to spread too (don't hard-code
-      sessile).
-- [ ] **Trees fall over** when cut/destabilized (tree actor + topple physics).
-- [ ] **Landslides disturb plants** — terrain destruction under/near a plant dislodges/uproots it.
+## Git / recovery
+- All of this is committed and pushed on branch **`feature/voxel-ecosystem-sim`**
+  (origin: github.com/adammikulis/local-agents). Commit `42a4d55`. That is the recovery point.
+- **LESSON (important):** the voxel dir was untracked and a bulk-rewrite subagent ran on the SAME
+  files I was live-editing → concurrent writes corrupted 4 files (interleaved lines, missing `func`
+  headers). Repaired by rewriting them. **Never run a bulk-edit subagent on files you're also
+  editing, and keep work committed so it's recoverable.**
 
-## Remaining — movement
-- [ ] **2D ground flocking** for mammals (herd cohesion). Currently individual smell-driven
-      forage/flee/hunt + nav; only birds truly flock.
-- [ ] **Delete the dead boids controller** — `scenes/simulation/controllers/ecology/BoidsBehaviorController.gd`
-      (1169 lines) is inert/unused; remove it and any references.
+## Done & verified (windowed screenshots + headless smoke)
+- godot_voxel `VoxelLodTerrain` + Transvoxel smooth terrain (natural, not cubes) + triplanar
+  height/slope shader. Large world (~600 view dist), 120–195 FPS, ~220 entities.
+- **Off-camera destruction:** `full_load_mode_enabled` + bounded `voxel_bounds` so meteor carves
+  apply anywhere (proven via SDF probe). Meteor = fiery fall → crater + dirt/rock debris colored to
+  the surface hit + terror shockwave + audio boom.
+- **Emergent ecology** (see EMERGENCE.md): energy/hunger → starvation + aging death; corpses persist
+  as carrion for scavengers; flee-any-larger-hunter (rabbits flee foxes+humans, foxes flee humans);
+  persistence hunting + thrown-rock hunting (humans grab ground rocks); species-tuned imitation
+  flocking; terror broadcast; scent trails (wind-advected, rain-washed); footprint decals.
+- Spawn palette (icon buttons → click-to-place), click-to-select + highlight ring + live inspector
+  (energy bar, activity, age…). Fly camera (no ctrl-to-orbit). Spawn puffs. Weather (rain + wind).
+- Natural boulder rocks (RockMeshFactory), forests (oak/pine clusters), plants visible on spawn.
+- Project rule: **no `:=` inferred typing** — `scripts/check_no_inferred_typing.sh` (wired into
+  `agent_harness.sh lint`), documented in GODOT_BEST_PRACTICES.md.
 
-## Remaining — loose ends
-- [ ] **Cross-platform binaries**: `.github/workflows/build-extension.yml` builds Linux/Windows
-      `.so`/`.dll` in CI, but they haven't been built/committed (can't cross-compile on macOS).
-- [ ] **Villager wiring**: `VillagerCapsule` is refactored but nothing spawns it — wire into a
-      scene if villagers are wanted.
-- [ ] **Contract dedup**: `WorldDispatchContracts.gd` still duplicates normalization the C++
-      `LocalAgentsVoxelDispatchBridge` already does.
+## Pending / in-progress
+- [ ] **Finish `:=` sweep** (IN PROGRESS via subagent when this was written). The interrupted sweep
+      left ~11 voxel files still using `:=` (VoxelCameraRig, TrackSystem, RockMeshFactory,
+      SpawnPaletteHud, Corpse, Rock, Tree, Plant, ThrownRock, VoxelTerrainService, EcologyService).
+      The lint gate FAILS until done. Verify: `bash scripts/check_no_inferred_typing.sh` == OK.
+- [ ] **Water: rivers & lakes (hybrid CA field + splashes)** — user chose this approach.
+      `WaterFieldSystem.gd` may exist (a subagent was building it when the session stopped — CHECK if
+      it's complete/parses; it is NOT wired into VoxelWorld yet). Needs: CA water flowing downhill →
+      lakes/rivers, smooth water surface mesh, `splash()` rigidbody droplets, fed by weather rain,
+      wired into VoxelWorld. Intended as a shared field substrate that scent could later ride on.
+- [ ] **Poop → scent + colonization.** `Poop.gd` exists (deposits strong species scent → predators
+      track prey by droppings) but is NOT wired: Creatures don't drop it yet, and its `wants_seed`
+      signal isn't connected. Wire: Creature drops Poop periodically (inject `_scent` + species);
+      EcologyService connects `wants_seed` → grow a plant (dung fertilizes = plant colonization).
+- [ ] **Plant/fungus colonization spread** and **trees fall when ground destroyed** (Tree has a
+      `topple(dir)` method ready — call it when terrain under a tree is carved). Landslides disturb plants.
+- [ ] **Full break cleanup (task #9):** the OLD homegrown voxel/terrain/destruction stack is inert
+      (main_scene switched) but still on disk. Delete per the plan: old `WorldSimulation.tscn` + its
+      controllers, `TerrainRenderer`, `SimulationVoxelTerrainMutator`, voxel-edit dispatch, and the
+      native `VoxelEditEngine/GpuExecutor/DispatchBridge/Orchestration/NativeVoxelTerrainMutator`
+      (rebuild `localagents`; repoint/retire the native voxel-op contract tests). KEEP the LLM/agent
+      (llama.cpp) parts of `localagents` — that's the repo's original purpose.
+- [ ] **Refactor `Creature.gd`** (~500 lines — energy/hunting/flocking/senses/inspector all in one)
+      into focused modules. User flagged the single-file size.
+- [ ] Camera default sometimes frames a hillside up close — tune default/spawn framing.
 
-## Remaining — polish / verify
-- [ ] **Verify voxel destruction on the new terrain** — the collision it rides on was replaced
-      with the trimesh; confirm projectile/fire destruction + navmesh rebake still work end to
-      end (FPS-destroy path; test-harness owned by another agent). Probes showed "mutation
-      dispatch runtime unavailable" (likely GPU/native handshake in headless).
-- [ ] **Camera framing** for the larger 56×56 map (default view is awkward).
-- [ ] **Perf**: finer voxels dropped FPS ~164→74; tune resolution or meshing if needed.
+## How to run / verify
+- Windowed (screenshots): the scene supports a self-harness —
+  `godot res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --shoot=<png> --shoot-frames=320`
+  Also `--auto-meteor` (drops+frames a crater) and `--auto-select` (tests click-select), `--run-frames=N`
+  (headless smoke: prints `SMOKE_SUMMARY={...}` then quits).
+- Headless smoke: `godot --headless res://.../voxel/VoxelWorld.tscn -- --run-frames=300`
+  (expect `spawned_initial":true, "ready":true`, ~220 selectable, no SCRIPT ERROR).
+- Lint: `bash scripts/check_no_inferred_typing.sh` (must be OK).
+- **Gotcha:** a NEW `.gd` `class_name` or a new `.gdextension` only registers after an editor scan —
+  run `godot --headless --editor --quit-after 400` once, else classes report MISSING.
 
-## Notes
-- Native rebuild: `make -C build_native localagents -j16` in
-  `addons/local_agents/gdextensions/localagents/`, then copy `build_native/liblocalagents.macos.dylib`
-  → `bin/localagents.macos.dylib` and `install_name_tool -add_rpath @loader_path`.
-- Ecology runs in WorldSimulation because the `voxel_destruction_only` runtime profile now sets
-  `ecology_system_enabled = true` (native `LocalAgentsWorldSimulationNativeUtils.cpp`).
+## Guiding principle
+**emergent-everything** — behavior from simple local rules interacting, never hardcoded per-case.
+Drive differences through config/properties (size, diet, traits), couple systems via stimuli
+(broadcast_scare, scent deposits). See `addons/local_agents/scenes/simulation/voxel/EMERGENCE.md`.

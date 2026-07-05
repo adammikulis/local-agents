@@ -30,14 +30,14 @@ const KIND_COLORS: Dictionary = {
 }
 
 # Palette / theme colors (cohesive dark theme).
-const COL_BG := Color(0.086, 0.098, 0.129, 0.94)
-const COL_BG_2 := Color(0.129, 0.145, 0.184, 0.96)
-const COL_BORDER := Color(0.24, 0.27, 0.33, 1.0)
-const COL_ACCENT := Color(0.33, 0.70, 0.98, 1.0)
-const COL_ACCENT_DIM := Color(0.33, 0.70, 0.98, 0.22)
-const COL_TEXT := Color(0.90, 0.92, 0.95, 1.0)
-const COL_TEXT_DIM := Color(0.62, 0.66, 0.72, 1.0)
-const COL_TEXT_HEADING := Color(0.98, 0.99, 1.0, 1.0)
+const COL_BG: Color = Color(0.086, 0.098, 0.129, 0.94)
+const COL_BG_2: Color = Color(0.129, 0.145, 0.184, 0.96)
+const COL_BORDER: Color = Color(0.24, 0.27, 0.33, 1.0)
+const COL_ACCENT: Color = Color(0.33, 0.70, 0.98, 1.0)
+const COL_ACCENT_DIM: Color = Color(0.33, 0.70, 0.98, 0.22)
+const COL_TEXT: Color = Color(0.90, 0.92, 0.95, 1.0)
+const COL_TEXT_DIM: Color = Color(0.62, 0.66, 0.72, 1.0)
+const COL_TEXT_HEADING: Color = Color(0.98, 0.99, 1.0, 1.0)
 
 var _armed_kind: String = ""
 
@@ -61,7 +61,7 @@ func _ready() -> void:
 	_theme = _build_theme()
 
 	# Root fills the screen but ignores mouse so empty areas fall through to the 3D scene.
-	var root := Control.new()
+	var root: Control = Control.new()
 	root.name = "HudRoot"
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -78,9 +78,9 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	var fps := int(round(Engine.get_frames_per_second()))
-	var entity_count := 0
-	var tree := get_tree()
+	var fps: int = int(round(Engine.get_frames_per_second()))
+	var entity_count: int = 0
+	var tree: SceneTree = get_tree()
 	if tree != null:
 		entity_count = tree.get_nodes_in_group("selectable").size()
 	_readout_label.text = "%d FPS   |   %d entities" % [fps, entity_count]
@@ -98,14 +98,14 @@ func set_status(text: String) -> void:
 func show_inspector(payload: Dictionary) -> void:
 	if _inspector_title == null:
 		return
-	var title := String(payload.get("title", "Entity"))
+	var title: String = String(payload.get("title", "Entity"))
 	_inspector_title.text = title
 	_inspector_title.add_theme_color_override("font_color", COL_TEXT_HEADING)
 
 	_clear_children(_inspector_lines)
 	var lines: Array = payload.get("lines", [])
 	if lines.is_empty():
-		var empty := _make_line_label("(no details)", COL_TEXT_DIM)
+		var empty: Label = _make_line_label("(no details)", COL_TEXT_DIM)
 		_inspector_lines.add_child(empty)
 	else:
 		for entry in lines:
@@ -118,7 +118,7 @@ func clear_inspector() -> void:
 	_inspector_title.text = "Inspector"
 	_inspector_title.add_theme_color_override("font_color", COL_TEXT_DIM)
 	_clear_children(_inspector_lines)
-	var hint := _make_line_label("Click an entity to inspect.", COL_TEXT_DIM)
+	var hint: Label = _make_line_label("Click an entity to inspect.", COL_TEXT_DIM)
 	_inspector_lines.add_child(hint)
 
 
@@ -154,14 +154,14 @@ func _build_status_bar(root: Control) -> void:
 	_status_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	root.add_child(_status_panel)
 
-	var margin := _make_margin(14, 8)
+	var margin: MarginContainer = _make_margin(14, 8)
 	_status_panel.add_child(margin)
 
-	var row := HBoxContainer.new()
+	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	margin.add_child(row)
 
-	var badge := Label.new()
+	var badge: Label = Label.new()
 	badge.text = "VOXEL SIM"
 	badge.add_theme_color_override("font_color", COL_ACCENT)
 	badge.add_theme_font_size_override("font_size", 14)
@@ -193,10 +193,10 @@ func _build_inspector(root: Control) -> void:
 	_inspector_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	root.add_child(_inspector_panel)
 
-	var margin := _make_margin(16, 14)
+	var margin: MarginContainer = _make_margin(16, 14)
 	_inspector_panel.add_child(margin)
 
-	var col := VBoxContainer.new()
+	var col: VBoxContainer = VBoxContainer.new()
 	col.add_theme_constant_override("separation", 8)
 	margin.add_child(col)
 
@@ -206,7 +206,7 @@ func _build_inspector(root: Control) -> void:
 	_inspector_title.add_theme_font_size_override("font_size", 17)
 	col.add_child(_inspector_title)
 
-	var rule := _make_rule()
+	var rule: Control = _make_rule()
 	col.add_child(rule)
 
 	_inspector_lines = VBoxContainer.new()
@@ -229,15 +229,15 @@ func _build_palette(root: Control) -> void:
 	_palette_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	root.add_child(_palette_panel)
 
-	var margin := _make_margin(12, 10)
+	var margin: MarginContainer = _make_margin(12, 10)
 	_palette_panel.add_child(margin)
 
-	var row := HBoxContainer.new()
+	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	margin.add_child(row)
 
 	# Cursor / select button (disarms the palette).
-	var select_btn := Button.new()
+	var select_btn: Button = Button.new()
 	select_btn.text = "Select"
 	select_btn.tooltip_text = "Cursor mode: click entities to inspect"
 	select_btn.icon = _make_cursor_icon()
@@ -246,11 +246,11 @@ func _build_palette(root: Control) -> void:
 	select_btn.pressed.connect(_on_select_pressed)
 	row.add_child(select_btn)
 
-	var sep := VSeparator.new()
+	var sep: VSeparator = VSeparator.new()
 	row.add_child(sep)
 
 	for kind in KINDS:
-		var btn := Button.new()
+		var btn: Button = Button.new()
 		btn.text = String(KIND_LABELS.get(kind, kind))
 		btn.tooltip_text = "Arm %s for placement" % String(KIND_LABELS.get(kind, kind))
 		btn.icon = _make_kind_icon(KIND_COLORS.get(kind, Color.WHITE))
@@ -270,8 +270,8 @@ func _build_palette(root: Control) -> void:
 # ---------------------------------------------------------------------------
 
 func _on_palette_toggled(_pressed_state: bool) -> void:
-	var pressed_btn := _palette_group.get_pressed_button()
-	var current := ""
+	var pressed_btn: BaseButton = _palette_group.get_pressed_button()
+	var current: String = ""
 	if pressed_btn != null:
 		current = String(pressed_btn.get_meta("kind", ""))
 	if current == _armed_kind:
@@ -285,7 +285,7 @@ func _on_palette_toggled(_pressed_state: bool) -> void:
 
 
 func _on_select_pressed() -> void:
-	var pressed_btn := _palette_group.get_pressed_button()
+	var pressed_btn: BaseButton = _palette_group.get_pressed_button()
 	if pressed_btn != null:
 		# Fires _on_palette_toggled(false), which emits "" and clears _armed_kind.
 		pressed_btn.button_pressed = false
@@ -299,21 +299,21 @@ func _on_select_pressed() -> void:
 # ---------------------------------------------------------------------------
 
 func _build_theme() -> Theme:
-	var t := Theme.new()
+	var t: Theme = Theme.new()
 	t.default_font_size = 15
 
-	var panel_sb := _panel_stylebox(COL_BG)
+	var panel_sb: StyleBoxFlat = _panel_stylebox(COL_BG)
 	t.set_stylebox("panel", "PanelContainer", panel_sb)
 
 	# Buttons.
-	var btn_normal := _button_stylebox(COL_BG_2, COL_BORDER)
-	var btn_hover := _button_stylebox(Color(0.18, 0.20, 0.25, 0.98), COL_ACCENT.lerp(COL_BORDER, 0.4))
-	var btn_pressed := _button_stylebox(COL_ACCENT_DIM, COL_ACCENT)
+	var btn_normal: StyleBoxFlat = _button_stylebox(COL_BG_2, COL_BORDER)
+	var btn_hover: StyleBoxFlat = _button_stylebox(Color(0.18, 0.20, 0.25, 0.98), COL_ACCENT.lerp(COL_BORDER, 0.4))
+	var btn_pressed: StyleBoxFlat = _button_stylebox(COL_ACCENT_DIM, COL_ACCENT)
 	btn_pressed.border_width_left = 2
 	btn_pressed.border_width_right = 2
 	btn_pressed.border_width_top = 2
 	btn_pressed.border_width_bottom = 2
-	var btn_focus := _button_stylebox(Color(0, 0, 0, 0), COL_ACCENT)
+	var btn_focus: StyleBoxFlat = _button_stylebox(Color(0, 0, 0, 0), COL_ACCENT)
 
 	t.set_stylebox("normal", "Button", btn_normal)
 	t.set_stylebox("hover", "Button", btn_hover)
@@ -330,7 +330,7 @@ func _build_theme() -> Theme:
 
 	t.set_color("font_color", "Label", COL_TEXT)
 
-	var sep_sb := StyleBoxLine.new()
+	var sep_sb: StyleBoxLine = StyleBoxLine.new()
 	sep_sb.color = COL_BORDER
 	sep_sb.vertical = true
 	t.set_stylebox("separator", "VSeparator", sep_sb)
@@ -339,7 +339,7 @@ func _build_theme() -> Theme:
 
 
 func _panel_stylebox(bg: Color) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
+	var sb: StyleBoxFlat = StyleBoxFlat.new()
 	sb.bg_color = bg
 	sb.set_corner_radius_all(10)
 	sb.set_border_width_all(1)
@@ -351,7 +351,7 @@ func _panel_stylebox(bg: Color) -> StyleBoxFlat:
 
 
 func _button_stylebox(bg: Color, border: Color) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
+	var sb: StyleBoxFlat = StyleBoxFlat.new()
 	sb.bg_color = bg
 	sb.set_corner_radius_all(8)
 	sb.set_border_width_all(1)
@@ -364,7 +364,7 @@ func _button_stylebox(bg: Color, border: Color) -> StyleBoxFlat:
 
 
 func _make_margin(h: int, v: int) -> MarginContainer:
-	var m := MarginContainer.new()
+	var m: MarginContainer = MarginContainer.new()
 	m.add_theme_constant_override("margin_left", h)
 	m.add_theme_constant_override("margin_right", h)
 	m.add_theme_constant_override("margin_top", v)
@@ -373,7 +373,7 @@ func _make_margin(h: int, v: int) -> MarginContainer:
 
 
 func _make_rule() -> Control:
-	var r := ColorRect.new()
+	var r: ColorRect = ColorRect.new()
 	r.color = COL_BORDER
 	r.custom_minimum_size = Vector2(0.0, 1.0)
 	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -381,7 +381,7 @@ func _make_rule() -> Control:
 
 
 func _make_line_label(text: String, color: Color) -> Label:
-	var l := Label.new()
+	var l: Label = Label.new()
 	l.text = text
 	l.add_theme_color_override("font_color", color)
 	l.add_theme_font_size_override("font_size", 14)
@@ -403,17 +403,17 @@ func _clear_children(node: Node) -> void:
 # ---------------------------------------------------------------------------
 
 func _make_kind_icon(base: Color) -> ImageTexture:
-	var s := 30
-	var img := Image.create(s, s, false, Image.FORMAT_RGBA8)
+	var s: int = 30
+	var img: Image = Image.create(s, s, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
-	var c := Vector2(s / 2.0, s / 2.0)
-	var r := s / 2.0 - 3.0
+	var c: Vector2 = Vector2(s / 2.0, s / 2.0)
+	var r: float = s / 2.0 - 3.0
 	for y in s:
 		for x in s:
-			var d := Vector2(x + 0.5, y + 0.5).distance_to(c)
+			var d: float = Vector2(x + 0.5, y + 0.5).distance_to(c)
 			if d <= r:
 				# Radial shading for a little dimensionality.
-				var shade := clampf(1.0 - (d / r) * 0.4, 0.0, 1.0)
+				var shade: float = clampf(1.0 - (d / r) * 0.4, 0.0, 1.0)
 				img.set_pixel(x, y, Color(base.r * shade, base.g * shade, base.b * shade, 1.0))
 			elif d <= r + 1.4:
 				img.set_pixel(x, y, Color(0.05, 0.06, 0.08, 0.65))
@@ -421,11 +421,11 @@ func _make_kind_icon(base: Color) -> ImageTexture:
 
 
 func _make_cursor_icon() -> ImageTexture:
-	var s := 30
-	var img := Image.create(s, s, false, Image.FORMAT_RGBA8)
+	var s: int = 30
+	var img: Image = Image.create(s, s, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
 	# A simple crosshair.
-	var mid := s / 2
+	var mid: int = s / 2
 	for i in s:
 		img.set_pixel(mid, i, COL_TEXT)
 		img.set_pixel(i, mid, COL_TEXT)

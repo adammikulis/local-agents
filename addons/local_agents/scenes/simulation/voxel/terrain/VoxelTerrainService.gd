@@ -28,7 +28,7 @@ func build(parent: Node3D, opts: Dictionary = {}) -> void:
 	# Fractal FBM noise: low frequency => broad rolling landmasses.
 	# VoxelGeneratorNoise2D.noise is typed as Godot's built-in `Noise`, so use FastNoiseLite
 	# (built-in), not godot_voxel's ZN_FastNoiseLite. `frequency` = 1/period.
-	var noise := FastNoiseLite.new()
+	var noise: FastNoiseLite = FastNoiseLite.new()
 	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	noise.seed = seed_val
 	noise.frequency = 1.0 / maxf(1.0, period)
@@ -38,7 +38,7 @@ func build(parent: Node3D, opts: Dictionary = {}) -> void:
 	noise.fractal_gain = 0.5
 
 	# Curve shapes normalized noise into gentle hills with occasional mountains.
-	var curve := Curve.new()
+	var curve: Curve = Curve.new()
 	curve.min_value = 0.0
 	curve.max_value = 1.0
 	curve.add_point(Vector2(0.0, 0.05))
@@ -46,17 +46,17 @@ func build(parent: Node3D, opts: Dictionary = {}) -> void:
 	curve.add_point(Vector2(0.75, 0.50))
 	curve.add_point(Vector2(1.0, 1.0))
 
-	var gen := VoxelGeneratorNoise2D.new()
+	var gen: VoxelGeneratorNoise2D = VoxelGeneratorNoise2D.new()
 	gen.noise = noise
 	gen.curve = curve
 	gen.channel = VoxelBuffer.CHANNEL_SDF
 	gen.height_start = height_start
 	gen.height_range = height_range
 
-	var mesher := VoxelMesherTransvoxel.new()
+	var mesher: VoxelMesherTransvoxel = VoxelMesherTransvoxel.new()
 	mesher.texturing_mode = 0 # TEXTURES_NONE; we color via the triplanar shader.
 
-	var terrain := VoxelLodTerrain.new()
+	var terrain: VoxelLodTerrain = VoxelLodTerrain.new()
 	terrain.name = "VoxelTerrain"
 	terrain.mesher = mesher
 	terrain.generator = gen
@@ -88,7 +88,7 @@ func terrain_node() -> Node:
 func attach_viewer(camera: Node3D) -> void:
 	if camera == null:
 		return
-	var viewer := VoxelViewer.new()
+	var viewer: VoxelViewer = VoxelViewer.new()
 	viewer.view_distance = _terrain.view_distance if _terrain != null else 512
 	viewer.requires_visuals = true
 	viewer.requires_collisions = true
@@ -106,7 +106,7 @@ func fill_sphere(world_pos: Vector3, radius: float) -> void:
 func _edit_sphere(world_pos: Vector3, radius: float, mode: int) -> void:
 	if _terrain == null:
 		return
-	var vt := _terrain.get_voxel_tool()
+	var vt: VoxelTool = _terrain.get_voxel_tool()
 	if vt == null:
 		return
 	vt.set_channel(VoxelBuffer.CHANNEL_SDF)
@@ -116,18 +116,18 @@ func _edit_sphere(world_pos: Vector3, radius: float, mode: int) -> void:
 ## Physics-space raycast against the terrain body (collision_mask=1).
 ## Returns {"hit": bool, "position": Vector3, "normal": Vector3}.
 func raycast_terrain(from: Vector3, dir: Vector3, max_distance: float) -> Dictionary:
-	var miss := {"hit": false, "position": Vector3.ZERO, "normal": Vector3.UP}
+	var miss: Dictionary = {"hit": false, "position": Vector3.ZERO, "normal": Vector3.UP}
 	if _terrain == null:
 		return miss
-	var world := _terrain.get_world_3d()
+	var world: World3D = _terrain.get_world_3d()
 	if world == null:
 		return miss
-	var space := world.direct_space_state
+	var space: PhysicsDirectSpaceState3D = world.direct_space_state
 	if space == null:
 		return miss
-	var to := from + dir.normalized() * max_distance
-	var query := PhysicsRayQueryParameters3D.create(from, to, 1)
-	var hit := space.intersect_ray(query)
+	var to: Vector3 = from + dir.normalized() * max_distance
+	var query: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(from, to, 1)
+	var hit: Dictionary = space.intersect_ray(query)
 	if hit.is_empty():
 		return miss
 	return {"hit": true, "position": hit.position, "normal": hit.normal}
@@ -135,7 +135,7 @@ func raycast_terrain(from: Vector3, dir: Vector3, max_distance: float) -> Dictio
 ## World Y of the terrain surface at (x, z) via a downward physics ray.
 ## Returns NAN when the area is unmeshed or the ray misses.
 func surface_height(x: float, z: float, top: float = 300.0) -> float:
-	var res := raycast_terrain(Vector3(x, top, z), Vector3.DOWN, top + 600.0)
+	var res: Dictionary = raycast_terrain(Vector3(x, top, z), Vector3.DOWN, top + 600.0)
 	if not res["hit"]:
 		return NAN
 	var pos: Vector3 = res["position"]
@@ -149,8 +149,8 @@ func is_ready_at(world_pos: Vector3) -> bool:
 	return not is_nan(surface_height(world_pos.x, world_pos.z))
 
 func _make_material() -> ShaderMaterial:
-	var mat := ShaderMaterial.new()
-	var sh := load(SHADER_PATH) as Shader
+	var mat: ShaderMaterial = ShaderMaterial.new()
+	var sh: Shader = load(SHADER_PATH) as Shader
 	if sh != null:
 		mat.shader = sh
 	return mat

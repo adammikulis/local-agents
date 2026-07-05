@@ -58,25 +58,25 @@ func setup(terrain) -> void:
 func _build_footprint_texture() -> ImageTexture:
 	# Generate a soft dark oval/paw shape with alpha. Most pixels are fully
 	# transparent; only an elongated oval near the center carries opacity.
-	var img := Image.create(TEX_SIZE, TEX_SIZE, false, Image.FORMAT_RGBA8)
+	var img: Image = Image.create(TEX_SIZE, TEX_SIZE, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0.0, 0.0, 0.0, 0.0))
 
-	var cx := float(TEX_SIZE) * 0.5
-	var cy := float(TEX_SIZE) * 0.5
+	var cx: float = float(TEX_SIZE) * 0.5
+	var cy: float = float(TEX_SIZE) * 0.5
 	# Radii of the oval (footprint is longer along Y than X).
-	var rx := float(TEX_SIZE) * 0.28
-	var ry := float(TEX_SIZE) * 0.42
+	var rx: float = float(TEX_SIZE) * 0.28
+	var ry: float = float(TEX_SIZE) * 0.42
 
 	for y in range(TEX_SIZE):
 		for x in range(TEX_SIZE):
 			# Normalized distance from center in oval space (1.0 == edge).
-			var dx := (float(x) - cx) / rx
-			var dy := (float(y) - cy) / ry
-			var d := sqrt(dx * dx + dy * dy)
+			var dx: float = (float(x) - cx) / rx
+			var dy: float = (float(y) - cy) / ry
+			var d: float = sqrt(dx * dx + dy * dy)
 			if d >= 1.0:
 				continue
 			# Soft falloff: opaque core, fading toward the oval edge.
-			var alpha := clamp(1.0 - d, 0.0, 1.0)
+			var alpha = clamp(1.0 - d, 0.0, 1.0)
 			alpha = alpha * alpha  # ease-in for a softer edge
 			alpha *= 0.8  # a footprint is a smudge, not pure black
 			# Dark, slightly warm scuff color.
@@ -91,10 +91,10 @@ func _physics_process(delta: float) -> void:
 
 
 func _update_creatures() -> void:
-	var tree := get_tree()
+	var tree: SceneTree = get_tree()
 	if tree == null:
 		return
-	var creatures := tree.get_nodes_in_group("creature")
+	var creatures: Array = tree.get_nodes_in_group("creature")
 
 	# Track which ids are still alive this frame so we can prune stale entries.
 	var seen: Dictionary = {}
@@ -110,7 +110,7 @@ func _update_creatures() -> void:
 		if can_fly == null or bool(can_fly):
 			continue
 
-		var id := node.get_instance_id()
+		var id: int = node.get_instance_id()
 		seen[id] = true
 
 		var pos: Vector3 = (node as Node3D).global_transform.origin
@@ -123,8 +123,8 @@ func _update_creatures() -> void:
 
 		var last: Vector3 = _last_print_pos[id]
 		# Compare planar (XZ) travel; vertical bob shouldn't trigger prints.
-		var dx := pos.x - last.x
-		var dz := pos.z - last.z
+		var dx: float = pos.x - last.x
+		var dz: float = pos.z - last.z
 		if (dx * dx + dz * dz) < (STEP_DISTANCE * STEP_DISTANCE):
 			continue
 
@@ -143,19 +143,19 @@ func _drop_footprint(creature_pos: Vector3) -> bool:
 	if _terrain == null or _footprint_texture == null:
 		return false
 
-	var ground_y := creature_pos.y
+	var ground_y: float = creature_pos.y
 	if _terrain.has_method("surface_height"):
 		var h = _terrain.surface_height(creature_pos.x, creature_pos.z)
 		# Guard NAN / non-finite surface heights: skip this print rather than
 		# placing a decal at an invalid Y.
 		if typeof(h) != TYPE_FLOAT and typeof(h) != TYPE_INT:
 			return false
-		var hf := float(h)
+		var hf: float = float(h)
 		if is_nan(hf) or is_inf(hf):
 			return false
 		ground_y = hf
 
-	var decal := Decal.new()
+	var decal: Decal = Decal.new()
 	decal.texture_albedo = _footprint_texture
 	decal.size = DECAL_SIZE
 	# Decals project along their local -Y (downward), so sitting the box a
@@ -195,7 +195,7 @@ func _update_decals(delta: float) -> void:
 		record["age"] = age
 		# Fade both the projection strength and the alpha so the print softens
 		# out over FADE_SECONDS.
-		var t := 1.0 - (age / FADE_SECONDS)
+		var t: float = 1.0 - (age / FADE_SECONDS)
 		decal.albedo_mix = t
 		var m: Color = decal.modulate
 		m.a = t

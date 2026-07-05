@@ -26,6 +26,20 @@ This file defines implementation rules for this repository. Higher sections are 
 - Do not mark player-facing work as `passing`/`ready`/`fixed` without that launched-window check. Automated/headless tests are necessary but not sufficient for player-facing pass claims.
 - For changed native or simulation contract areas, give any validation pass explicit acceptance criteria and test commands.
 
+## Guiding Design Principle — Emergent-Everything (north star)
+
+- **Behavior must emerge from simple local rules interacting — never from hardcoded, scripted, or
+  centrally-directed per-case logic.** When adding anything, prefer a general rule that many agents
+  evaluate locally over a special case for a specific pair, species, or scenario.
+- Drive differences through **config/properties** (size, diet, traits), not `if identity == "X"` branches.
+  If you're about to write `if species == "X"`, ask whether a property could express it generally.
+- Couple systems through **stimuli/broadcasts** (e.g. an impact `broadcast_scare`, scent deposits) so new
+  events compose with existing reactions instead of needing new per-event code.
+- The measure of success: behaviors we did not explicitly write (stampedes from a strike, predators
+  scattering when a bigger hunter wanders in, herds reforming after a scare) should *fall out* of the rules.
+- Canonical worked examples + the full rationale live in
+  `addons/local_agents/scenes/simulation/voxel/EMERGENCE.md` — read it before extending simulation behavior.
+
 ## Current Repo Policy
 
 - There are no downstream consumers to preserve in this repo right now.

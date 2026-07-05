@@ -136,9 +136,9 @@ func spawn(kind: String, world_pos: Vector3) -> Node:
 
 func spawn_initial(counts: Dictionary) -> void:
 	for kind in counts.keys():
-		var n := int(counts[kind])
+		var n: int = int(counts[kind])
 		for i in n:
-			var p := _random_spawn_point()
+			var p: Vector3 = _random_spawn_point()
 			var placed = _place_on_surface(p)
 			if placed == null:
 				_pending.append({"kind": String(kind), "pos": p, "tries": 0})
@@ -147,8 +147,8 @@ func spawn_initial(counts: Dictionary) -> void:
 
 
 func _random_spawn_point() -> Vector3:
-	var x := randf_range(-spawn_extent, spawn_extent)
-	var z := randf_range(-spawn_extent, spawn_extent)
+	var x: float = randf_range(-spawn_extent, spawn_extent)
+	var z: float = randf_range(-spawn_extent, spawn_extent)
 	return Vector3(x, 0.0, z)
 
 
@@ -157,7 +157,7 @@ func _random_spawn_point() -> Vector3:
 func _place_on_surface(world_pos: Vector3):
 	if terrain == null:
 		return null
-	var y := NAN
+	var y: float = NAN
 	if terrain.has_method("surface_height"):
 		y = float(terrain.surface_height(world_pos.x, world_pos.z))
 	if is_nan(y):
@@ -186,7 +186,7 @@ func _instance_actor(kind: String, placed: Vector3) -> Node:
 		tree.setup(terrain, _tree_config())
 		node = tree
 	else:
-		var cfg := _species_config(kind)
+		var cfg: Dictionary = _species_config(kind)
 		if cfg.is_empty():
 			push_warning("LAEcologyService: unknown kind '%s'" % kind)
 			return null
@@ -201,7 +201,7 @@ func _instance_actor(kind: String, placed: Vector3) -> Node:
 
 
 func _tree_config() -> Dictionary:
-	var pine := randf() < 0.4
+	var pine: bool = randf() < 0.4
 	return {"species": "pine" if pine else "oak"}
 
 
@@ -210,26 +210,26 @@ func populate_environment(rock_count: int, forest_clusters: int) -> void:
 	for i in rock_count:
 		spawn("rock", _random_spawn_point())
 	for c in forest_clusters:
-		var center := _random_spawn_point()
-		var trees := randi_range(7, 15)
+		var center: Vector3 = _random_spawn_point()
+		var trees: int = randi_range(7, 15)
 		for t in trees:
-			var off := Vector3(randf_range(-14, 14), 0, randf_range(-14, 14))
+			var off: Vector3 = Vector3(randf_range(-14, 14), 0, randf_range(-14, 14))
 			spawn("tree", center + off)
 
 
 func damage_sphere(world_pos: Vector3, radius: float) -> void:
 	# Meteor impact: creatures die into flung corpses; plants/rocks are cleared.
-	var r2 := radius * radius
+	var r2: float = radius * radius
 	for actor in get_tree().get_nodes_in_group("selectable"):
 		if not is_instance_valid(actor) or not (actor is Node3D):
 			continue
-		var a := actor as Node3D
+		var a: Node3D = actor as Node3D
 		if a.global_position.distance_squared_to(world_pos) > r2:
 			continue
 		if a.has_method("die"):
-			var away := a.global_position - world_pos
+			var away: Vector3 = a.global_position - world_pos
 			away.y = absf(away.y) + 2.0
-			var force := 1.0 - a.global_position.distance_to(world_pos) / maxf(1.0, radius)
+			var force: float = 1.0 - a.global_position.distance_to(world_pos) / maxf(1.0, radius)
 			a.die("meteor", away.normalized() * (14.0 + 34.0 * force))
 		elif not a.is_in_group("corpse"):
 			a.queue_free()
@@ -284,10 +284,10 @@ func _process_pending() -> void:
 
 func _tick_breeding() -> void:
 	for kind in ["rabbit", "fox", "bird", "villager"]:
-		var cfg := _species_config(kind)
-		var cap := int(cfg.get("pop_cap", 20))
-		var group := "species_%s" % kind
-		var members := get_tree().get_nodes_in_group(group)
+		var cfg: Dictionary = _species_config(kind)
+		var cap: int = int(cfg.get("pop_cap", 20))
+		var group: String = "species_%s" % kind
+		var members: Array = get_tree().get_nodes_in_group(group)
 		if members.size() < 2 or members.size() >= cap:
 			continue
 		# count mature adults
@@ -300,15 +300,15 @@ func _tick_breeding() -> void:
 		if randf() > 0.5:
 			continue                            # not every tick
 		var parent: Node3D = adults[randi() % adults.size()] as Node3D
-		var offset := Vector3(randf_range(-2.0, 2.0), 0.0, randf_range(-2.0, 2.0))
+		var offset: Vector3 = Vector3(randf_range(-2.0, 2.0), 0.0, randf_range(-2.0, 2.0))
 		var placed = _place_on_surface(parent.global_position + offset)
 		if placed != null:
 			_instance_actor(kind, placed)
 
 
 func _tick_plant_seeding() -> void:
-	var plants := get_tree().get_nodes_in_group("plant")
-	var cap := int(_plant_config().get("pop_cap", 120))
+	var plants: Array = get_tree().get_nodes_in_group("plant")
+	var cap: int = int(_plant_config().get("pop_cap", 120))
 	if plants.size() >= cap:
 		return
 	for p in plants:
@@ -317,7 +317,7 @@ func _tick_plant_seeding() -> void:
 		if p.has_method("has_seed") and p.has_seed():
 			if randf() > 0.4:
 				continue
-			var offset := Vector3(randf_range(-3.5, 3.5), 0.0, randf_range(-3.5, 3.5))
+			var offset: Vector3 = Vector3(randf_range(-3.5, 3.5), 0.0, randf_range(-3.5, 3.5))
 			var placed = _place_on_surface((p as Node3D).global_position + offset)
 			if placed != null:
 				_instance_actor("plant", placed)
