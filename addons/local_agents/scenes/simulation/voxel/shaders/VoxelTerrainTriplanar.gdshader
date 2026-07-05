@@ -101,6 +101,12 @@ void fragment() {
 	vec2 huv = (wp.xz - heat_world_min) / heat_world_size;
 	float temp = texture(heat_tex, huv).r;
 
+	// Scorched earth: ground that has been strongly heated — a volcano's flanks and crater, a wildfire
+	// burn, a meteor crater — chars toward dark basalt/ash BEFORE it starts to glow. Driven purely by
+	// the temperature field, so volcanic/burnt terrain reads correctly with no per-event code.
+	float scorch = smoothstep(70.0, 340.0, temp);
+	col = mix(col, vec3(0.055, 0.05, 0.045), scorch);
+
 	if (heat_debug > 0.5) {
 		// Debug view: paint the whole surface by temperature.
 		ALBEDO = heat_ramp(temp);

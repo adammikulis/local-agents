@@ -27,14 +27,18 @@ render_mode cull_disabled, depth_draw_opaque, diffuse_burley, specular_schlick_g
 uniform vec4 shallow_color : source_color = vec4(0.16, 0.46, 0.68, 0.55);
 uniform vec4 deep_color : source_color = vec4(0.03, 0.16, 0.36, 0.85);
 uniform float wave_speed = 0.7;
-uniform float wave_scale = 0.5;
-uniform float wave_height = 0.12;
+uniform float wave_height = 0.1;
 
 varying float v_wave;
 
 void vertex() {
-	float w = sin(VERTEX.x * wave_scale + TIME * wave_speed)
-			* cos(VERTEX.z * wave_scale + TIME * wave_speed * 0.8);
+	// Two crossed directional wavelets at different frequencies/angles instead of a separable
+	// sin(x)*cos(z) (which reads as a regular diagonal grid on the surface). Their sum breaks up the
+	// banding into a more natural ripple.
+	vec3 wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	float a = sin(wp.x * 0.33 + wp.z * 0.19 + TIME * wave_speed);
+	float b = sin(wp.x * 0.13 - wp.z * 0.41 + TIME * wave_speed * 0.75);
+	float w = a * 0.55 + b * 0.45;
 	v_wave = w;
 	VERTEX.y += w * wave_height;
 }
