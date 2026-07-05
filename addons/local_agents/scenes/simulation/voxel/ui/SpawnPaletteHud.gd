@@ -6,6 +6,10 @@ extends CanvasLayer
 ## in _ready() -- no .tscn, no external fonts or image files.
 
 signal spawn_selected(kind: String)
+## Re-exposed from the audio menu; VoxelWorld listens to gate its live mood feed.
+signal music_auto_adapt_changed(on: bool)
+
+const AudioMenuPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/AudioMenuPanel.gd")
 
 const KINDS: PackedStringArray = [
 	"plant", "rabbit", "fox", "bird", "villager", "fish", "meteor",
@@ -55,6 +59,9 @@ var _readout_label: Label
 var _inspector_title: Label
 var _inspector_lines: VBoxContainer
 
+var _audio_panel: LAAudioMenuPanel
+var _audio_button: Button
+
 var _ui_panels: Array[Control] = []
 
 
@@ -73,6 +80,7 @@ func _ready() -> void:
 	_build_status_bar(root)
 	_build_inspector(root)
 	_build_palette(root)
+	_build_audio_menu(root)
 
 	clear_inspector()
 	set_status("Ready")
@@ -140,6 +148,22 @@ func is_pointer_over_ui(pos: Vector2) -> bool:
 ## The currently armed spawn kind ("" when in select/cursor mode).
 func armed_kind() -> String:
 	return _armed_kind
+
+
+## Wire the audio menu to the live audio director.
+func set_audio_director(director: LocalAgentsAudioDirector) -> void:
+	if _audio_panel != null:
+		_audio_panel.bind(director)
+
+
+## Show/hide the audio menu (bound to the HUD button and the KEY_M hotkey).
+func toggle_audio_menu() -> void:
+	if _audio_panel == null:
+		return
+	var showing: bool = not _audio_panel.visible
+	_audio_panel.visible = showing
+	if _audio_button != null:
+		_audio_button.button_pressed = showing
 
 
 # ---------------------------------------------------------------------------
@@ -267,9 +291,48 @@ func _build_palette(root: Control) -> void:
 	_ui_panels.append(_palette_panel)
 
 
+func _build_audio_menu(root: Control) -> void:
+	# The menu panel itself (hidden until toggled).
+	_audio_panel = AudioMenuPanelScript.new()
+	_audio_panel.name = "AudioMenu"
+	root.add_child(_audio_panel)
+	_audio_panel.auto_adapt_changed.connect(_on_audio_auto_adapt_changed)
+	_ui_panels.append(_audio_panel)
+
+	# A small toggle button anchored top-left, below the status bar.
+	var holder: PanelContainer = PanelContainer.new()
+	holder.name = "AudioToggle"
+	holder.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	holder.offset_left = 12.0
+	holder.offset_top = 60.0
+	holder.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.add_child(holder)
+
+	var margin: MarginContainer = _make_margin(6, 4)
+	holder.add_child(margin)
+
+	_audio_button = Button.new()
+	_audio_button.text = "♪ Audio"
+	_audio_button.tooltip_text = "Audio & music menu (M)"
+	_audio_button.toggle_mode = true
+	_audio_button.focus_mode = Control.FOCUS_NONE
+	_audio_button.toggled.connect(_on_audio_button_toggled)
+	margin.add_child(_audio_button)
+
+	_ui_panels.append(holder)
+
+
 # ---------------------------------------------------------------------------
 # Interaction
 # ---------------------------------------------------------------------------
+
+func _on_audio_button_toggled(pressed_state: bool) -> void:
+	if _audio_panel != null:
+		_audio_panel.visible = pressed_state
+
+
+func _on_audio_auto_adapt_changed(on: bool) -> void:
+	music_auto_adapt_changed.emit(on)
 
 func _on_palette_toggled(_pressed_state: bool) -> void:
 	var pressed_btn: BaseButton = _palette_group.get_pressed_button()
@@ -337,7 +400,80 @@ func _build_theme() -> Theme:
 	sep_sb.vertical = true
 	t.set_stylebox("separator", "VSeparator", sep_sb)
 
+	# --- Controls used by the audio menu (OptionButton, HSlider, CheckButton, etc.) ---
+	# OptionButton reuses the Button styleboxes plus a styled dropdown popup.
+	t.set_stylebox("normal", "OptionButton", btn_normal)
+	t.set_stylebox("hover", "OptionButton", btn_hover)
+	t.set_stylebox("pressed", "OptionButton", btn_pressed)
+	t.set_stylebox("focus", "OptionButton", btn_focus)
+	t.set_stylebox("disabled", "OptionButton", btn_normal)
+	t.set_color("font_color", "OptionButton", COL_TEXT)
+	t.set_color("font_hover_color", "OptionButton", COL_TEXT_HEADING)
+	t.set_font_size("font_size", "OptionButton", 13)
+
+	var popup_sb: StyleBoxFlat = _panel_stylebox(COL_BG_2)
+	popup_sb.set_content_margin_all(4)
+	t.set_stylebox("panel", "PopupMenu", popup_sb)
+	t.set_color("font_color", "PopupMenu", COL_TEXT)
+	t.set_color("font_hover_color", "PopupMenu", COL_TEXT_HEADING)
+	var popup_hover: StyleBoxFlat = StyleBoxFlat.new()
+	popup_hover.bg_color = COL_ACCENT_DIM
+	popup_hover.set_corner_radius_all(4)
+	t.set_stylebox("hover", "PopupMenu", popup_hover)
+
+	# HSlider: a thin track with a bright round grabber.
+	var slider_track: StyleBoxFlat = StyleBoxFlat.new()
+	slider_track.bg_color = COL_BG_2
+	slider_track.set_corner_radius_all(3)
+	slider_track.content_margin_top = 3
+	slider_track.content_margin_bottom = 3
+	t.set_stylebox("slider", "HSlider", slider_track)
+	var slider_fill: StyleBoxFlat = StyleBoxFlat.new()
+	slider_fill.bg_color = COL_ACCENT_DIM
+	slider_fill.set_corner_radius_all(3)
+	t.set_stylebox("grabber_area", "HSlider", slider_fill)
+	t.set_stylebox("grabber_area_highlight", "HSlider", slider_fill)
+	var grabber: ImageTexture = _make_grabber_icon()
+	t.set_icon("grabber", "HSlider", grabber)
+	t.set_icon("grabber_highlight", "HSlider", grabber)
+	t.set_icon("grabber_disabled", "HSlider", grabber)
+
+	# CheckButton (toggle switch) — text color; keep default engine on/off icons.
+	t.set_color("font_color", "CheckButton", COL_TEXT)
+	t.set_color("font_hover_color", "CheckButton", COL_TEXT_HEADING)
+	t.set_font_size("font_size", "CheckButton", 13)
+	var transparent: StyleBoxEmpty = StyleBoxEmpty.new()
+	t.set_stylebox("normal", "CheckButton", transparent)
+	t.set_stylebox("hover", "CheckButton", transparent)
+	t.set_stylebox("pressed", "CheckButton", transparent)
+	t.set_stylebox("focus", "CheckButton", transparent)
+
+	# ScrollContainer / GridContainer inherit sensible defaults; give the scrollbar a subtle grabber.
+	var scroll_grabber: StyleBoxFlat = StyleBoxFlat.new()
+	scroll_grabber.bg_color = COL_BORDER
+	scroll_grabber.set_corner_radius_all(3)
+	t.set_stylebox("grabber", "VScrollBar", scroll_grabber)
+	t.set_stylebox("grabber_highlight", "VScrollBar", scroll_grabber)
+	t.set_stylebox("grabber_pressed", "VScrollBar", scroll_grabber)
+
 	return t
+
+
+## A small round grabber texture for the volume/parameter sliders (no external assets).
+func _make_grabber_icon() -> ImageTexture:
+	var s: int = 16
+	var img: Image = Image.create(s, s, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var c: Vector2 = Vector2(s / 2.0, s / 2.0)
+	var r: float = s / 2.0 - 1.0
+	for y in s:
+		for x in s:
+			var d: float = Vector2(x + 0.5, y + 0.5).distance_to(c)
+			if d <= r - 3.0:
+				img.set_pixel(x, y, COL_ACCENT)
+			elif d <= r:
+				img.set_pixel(x, y, COL_TEXT_HEADING)
+	return ImageTexture.create_from_image(img)
 
 
 func _panel_stylebox(bg: Color) -> StyleBoxFlat:
