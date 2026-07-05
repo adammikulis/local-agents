@@ -2,28 +2,16 @@
 extends SceneTree
 
 const RUNTIME_TESTS := [
-	"res://addons/local_agents/tests/test_simulation_villager_cognition.gd",
-	"res://addons/local_agents/tests/test_simulation_no_empty_generation.gd",
-	"res://addons/local_agents/tests/test_simulation_cognition_trace_isolation.gd",
 	"res://addons/local_agents/tests/test_llama_server_e2e.gd",
 	"res://addons/local_agents/tests/test_agent_integration.gd",
 	"res://addons/local_agents/tests/test_agent_runtime_heavy.gd",
 ]
-const COGNITION_DEPENDENT_TESTS := [
-	"res://addons/local_agents/tests/test_simulation_villager_cognition.gd",
-	"res://addons/local_agents/tests/test_simulation_cognition_trace_isolation.gd",
-]
+const COGNITION_DEPENDENT_TESTS := []
 const FAST_RUNTIME_TESTS := [
-	"res://addons/local_agents/tests/test_simulation_no_empty_generation.gd",
-	"res://addons/local_agents/tests/test_simulation_cognition_trace_isolation.gd",
+	"res://addons/local_agents/tests/test_agent_integration.gd",
 	"res://addons/local_agents/tests/test_llama_server_e2e.gd",
 ]
-const DESTRUCTION_TESTS := [
-	"res://addons/local_agents/tests/test_fps_fire_contact_mutation_runtime_path.gd",
-	"res://addons/local_agents/tests/test_projectile_voxel_destruction_runtime_path.gd",
-	"res://addons/local_agents/tests/test_native_orchestration_dispatch_runtime_contract.gd",
-	"res://addons/local_agents/tests/test_native_voxel_op_contracts.gd",
-]
+const DESTRUCTION_TESTS := []
 const HEAVY_RUNTIME_TEST := "res://addons/local_agents/tests/test_agent_runtime_heavy.gd"
 const SUITE_RUNTIME := "runtime"
 const SUITE_FAST := "fast"

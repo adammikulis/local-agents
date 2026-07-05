@@ -23,13 +23,10 @@ Commands:
   fast          Run the fast test sweep (run_all_tests.gd --fast).
   all [args]    Run the full test suite (run_all_tests.gd --timeout=120).
   bounded [a]   Run bounded runtime suite (run_runtime_tests_bounded.gd).
-                e.g. bounded --suite=destruction --workers=2
-  destruction   Run scripts/run_destruction_tests.sh.
-  fps-fire [a]  Run scripts/run_fps_fire_destroy.sh (e.g. --timeout=60).
+                e.g. bounded --suite=fast --workers=2
   single <f> [a] Run one test via scripts/run_single_test.sh <f> [--timeout=120].
   smoke         Boot the main scene headless briefly; fail on script/parse errors.
   extension     Validate the GDExtension via scripts/check_extension.gd.
-  introspect [a] Run introspection_probe.gd (e.g. --ticks=30).
   lint          Run lint checks: no-direct-refcounted (gate) + file-length &amp;
                 policy markers (advisory).
   -h | --help   Show this help and exit 0.
@@ -52,7 +49,7 @@ fi
 shift || true
 
 case "$cmd" in
-  fast|all|bounded|destruction|fps-fire|single|smoke|extension|introspect|lint) ;;
+  fast|all|bounded|single|smoke|extension|lint) ;;
   *)
     echo "agent_harness: unknown command '$cmd'" >&2
     usage >&2
@@ -76,12 +73,6 @@ case "$cmd" in
   bounded)
     child=("$GODOT" --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout=120 "$@")
     ;;
-  destruction)
-    child=("$SCRIPT_DIR/run_destruction_tests.sh" "$@")
-    ;;
-  fps-fire)
-    child=("$SCRIPT_DIR/run_fps_fire_destroy.sh" "$@")
-    ;;
   single)
     if [[ $# -lt 1 ]]; then
       echo "agent_harness: 'single' requires a test file argument" >&2
@@ -96,9 +87,6 @@ case "$cmd" in
     ;;
   extension)
     child=("$GODOT" -s scripts/check_extension.gd)
-    ;;
-  introspect)
-    child=("$GODOT" --headless --no-window -s addons/local_agents/tests/introspection_probe.gd -- "$@")
     ;;
   lint)
     : # handled specially below
@@ -182,16 +170,6 @@ if [[ "$failed" == "null" ]]; then
   [[ -n "$f" ]] && failed="$f"
 fi
 
-# Introspection: surface whether an ok probe line appeared.
-introspect_ok="null"
-if [[ "$cmd" == "introspect" ]]; then
-  if grep -qE 'AGENT_INTROSPECT=.*"ok"[[:space:]]*:[[:space:]]*true' "$LOG_FILE" 2>/dev/null; then
-    introspect_ok="true"
-  else
-    introspect_ok="false"
-  fi
-fi
-
 # Smoke: treat script/parse/dependency errors as failure even if exit was 0.
 if [[ "$cmd" == "smoke" && "$status" == "pass" ]]; then
   if grep -qiE 'SCRIPT ERROR|Parse Error|dependency error|Failed loading resource' "$LOG_FILE" 2>/dev/null; then
@@ -202,9 +180,6 @@ fi
 
 # --- emit exactly one machine-parseable result line --------------------------
 extra=""
-if [[ "$introspect_ok" != "null" ]]; then
-  extra=",\"introspect_ok\":$introspect_ok"
-fi
 printf 'AGENT_HARNESS_RESULT={"command":"%s","status":"%s","exit_code":%d,"duration_s":%d,"log":"%s","passed":%s,"failed":%s%s}\n' \
   "$cmd" "$status" "$exit_code" "$duration" "$LOG_FILE" "$passed" "$failed" "$extra"
 

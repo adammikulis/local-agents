@@ -13,8 +13,8 @@ Usage: scripts/run_single_test.sh <test_file> [--timeout=<seconds>] [extra harne
 Run exactly one addons/local_agents/tests/test_*.gd module through the canonical SceneTree harness.
 
 Examples:
-  scripts/run_single_test.sh test_native_voxel_op_contracts.gd
-  scripts/run_single_test.sh addons/local_agents/tests/test_native_voxel_op_contracts.gd --timeout=180 -- --verbose
+  scripts/run_single_test.sh test_smoke_agent.gd
+  scripts/run_single_test.sh addons/local_agents/tests/test_smoke_agent.gd --timeout=180 -- --verbose
 USAGE
 }
 
@@ -55,7 +55,7 @@ fi
 
 if [[ "$normalized_test" == */* ]]; then
   echo "Expected a test file under $TEST_DIR_REL, got '$test_input'." >&2
-  echo "Pass a file like test_native_voxel_op_contracts.gd or ${TEST_DIR_REL}/test_native_voxel_op_contracts.gd." >&2
+  echo "Pass a file like test_smoke_agent.gd or ${TEST_DIR_REL}/test_smoke_agent.gd." >&2
   exit 2
 fi
 
