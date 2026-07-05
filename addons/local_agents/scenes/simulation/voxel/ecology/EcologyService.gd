@@ -170,7 +170,13 @@ func setup(_terrain, _actors_root: Node3D) -> void:
 		_cognition_sched.name = "CognitionScheduler"
 		add_child(_cognition_sched)
 		if _cognition_sched.has_method("setup"):
-			_cognition_sched.setup({})
+			# Point the slow brain at a running FunctionGemma llama-server if one is configured
+			# (env FUNCTIONGEMMA_URL); otherwise it uses the built-in heuristic teacher fallback.
+			var opts: Dictionary = {}
+			var url: String = OS.get_environment("FUNCTIONGEMMA_URL")
+			if url != "":
+				opts["server_url"] = url
+			_cognition_sched.setup(opts)
 
 
 func scent_field():
