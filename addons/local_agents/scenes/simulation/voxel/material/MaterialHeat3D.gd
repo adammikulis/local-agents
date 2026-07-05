@@ -38,8 +38,10 @@ func _solar() -> float:
 
 
 ## One thermal step: 6-neighbour conduction, solar/ambient forcing at the sky-exposed surface, buoyant
-## upward convection of hot void, and evaporative cooling of wet cells.
-func step() -> void:
+## upward convection of hot void, and evaporative cooling of wet cells. `skip_conduction` = the GPU
+## already ran the conduction pass into _temp (see MaterialGPU3D.step_heat_conduction) — run only the
+## remaining CPU forcing passes.
+func step(skip_conduction: bool = false) -> void:
 	var dx: int = _f._dim_x
 	var dy: int = _f._dim_y
 	var dz: int = _f._dim_z
@@ -47,31 +49,33 @@ func step() -> void:
 	var temp: PackedFloat32Array = _f._temp
 	var solid: PackedByteArray = _f._solid
 
-	# 1) CONDUCTION — relax each cell toward the mean of its in-bounds 6 neighbours (into scratch).
-	for iy in range(dy):
-		for iz in range(dz):
-			for ix in range(dx):
-				var i: int = (iy * dz + iz) * dx + ix
-				var sum: float = 0.0
-				var n: int = 0
-				if ix > 0:
-					sum += temp[i - 1]; n += 1
-				if ix < dx - 1:
-					sum += temp[i + 1]; n += 1
-				if iz > 0:
-					sum += temp[i - dx]; n += 1
-				if iz < dz - 1:
-					sum += temp[i + dx]; n += 1
-				if iy > 0:
-					sum += temp[i - layer]; n += 1
-				if iy < dy - 1:
-					sum += temp[i + layer]; n += 1
-				if n == 0:
-					_scratch[i] = temp[i]
-				else:
-					_scratch[i] = temp[i] + CONDUCT_FRACTION * (sum / float(n) - temp[i])
-	for i in range(_f._cell_count):
-		temp[i] = _scratch[i]
+	# 1) CONDUCTION — relax each cell toward the mean of its in-bounds 6 neighbours (into scratch). When
+	# the GPU already ran this pass into _temp, skip it and go straight to the CPU-only forcing passes.
+	if not skip_conduction:
+		for iy in range(dy):
+			for iz in range(dz):
+				for ix in range(dx):
+					var i: int = (iy * dz + iz) * dx + ix
+					var sum: float = 0.0
+					var n: int = 0
+					if ix > 0:
+						sum += temp[i - 1]; n += 1
+					if ix < dx - 1:
+						sum += temp[i + 1]; n += 1
+					if iz > 0:
+						sum += temp[i - dx]; n += 1
+					if iz < dz - 1:
+						sum += temp[i + dx]; n += 1
+					if iy > 0:
+						sum += temp[i - layer]; n += 1
+					if iy < dy - 1:
+						sum += temp[i + layer]; n += 1
+					if n == 0:
+						_scratch[i] = temp[i]
+					else:
+						_scratch[i] = temp[i] + CONDUCT_FRACTION * (sum / float(n) - temp[i])
+		for ai in range(_f._cell_count):
+			temp[ai] = _scratch[ai]
 
 	# 2) SOLAR / AMBIENT at the sky-exposed surface (topmost non-solid cell of each column). Interior and
 	# underground cells only conduct — sunlight never reaches them, so caves stay cool.

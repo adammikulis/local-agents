@@ -183,12 +183,20 @@ func _build_heat_texture() -> void:
 	_heat_tex = ImageTexture.create_from_image(_heat_img)
 
 
+const WATER_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/shaders/VoxelWater.gdshader"
+
 func _build_surface_node() -> void:
 	if _water_material == null:
-		var shader: Shader = Shader.new()
-		shader.code = WATER_SHADER
+		# Prefer the upgraded freshwater shader file (waves/depth/foam/fresnel/sparkle); fall back to the
+		# inline WATER_SHADER string if it fails to load.
 		_water_material = ShaderMaterial.new()
-		_water_material.shader = shader
+		var sh: Shader = load(WATER_SHADER_PATH) as Shader
+		if sh != null:
+			_water_material.shader = sh
+		else:
+			var shader: Shader = Shader.new()
+			shader.code = WATER_SHADER
+			_water_material.shader = shader
 	if _surface_mesh == null:
 		_surface_mesh = ArrayMesh.new()
 	if _surface_mi == null:
@@ -412,13 +420,14 @@ func _corner_h(ch: PackedFloat32Array, cn: PackedInt32Array, nc: int, ok: bool, 
 # --- Steam puff FX ----------------------------------------------------------
 
 func steam_puff(pos: Vector3) -> void:
+	if not _f.is_inside_tree():
+		return
 	var p: GPUParticles3D = GPUParticles3D.new()
 	p.one_shot = true
 	p.emitting = true
 	p.amount = 10
 	p.lifetime = 1.4
 	p.explosiveness = 0.4
-	p.global_position = pos + Vector3(0.0, 0.2, 0.0)
 	var quad: QuadMesh = QuadMesh.new()
 	quad.size = Vector2(0.7, 0.7)
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
@@ -441,6 +450,7 @@ func steam_puff(pos: Vector3) -> void:
 	pm.color = Color(0.92, 0.94, 0.97, 0.4)
 	p.process_material = pm
 	_f.add_child(p)
+	p.global_position = pos + Vector3(0.0, 0.2, 0.0)   # set AFTER add_child so it's inside the tree
 	var t: SceneTreeTimer = _f.get_tree().create_timer(1.8)
 	t.timeout.connect(func(): if is_instance_valid(p): p.queue_free())
 

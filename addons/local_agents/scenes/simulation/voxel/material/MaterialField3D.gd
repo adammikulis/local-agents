@@ -66,6 +66,9 @@ var _lava_sim = null                                     # LAMaterialLava3D
 const HeatScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialHeat3D.gd")
 const AtmosphereScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialAtmosphere3D.gd")
 const LavaScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialLava3D.gd")
+const GPUScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGPU3D.gd")
+var _gpu = null                                          # LAMaterialGPU3D (local RenderingDevice) or null
+var _use_gpu: bool = false
 
 
 ## Wire the real scene sun (DirectionalLight3D); the heat module reads its energy + angle for solar input.
@@ -87,6 +90,12 @@ var _ready_sim: bool = false
 var _surface_mi: MeshInstance3D = null
 var _surface_mesh: ArrayMesh = null
 var _water_mat: Material = null
+# Heat texture: the hottest temperature in each XZ column baked to an R-float texture (dim_x × dim_z)
+# the terrain shader samples for incandescent glow — so a lava tube or a buried hot cell still lights the
+# ground above it. Same interface as the 2.5D field (heat_texture/heat_world_min/heat_world_size).
+var _heat_img: Image = null
+var _heat_tex: ImageTexture = null
+var _heat_col: PackedFloat32Array = PackedFloat32Array()
 # Persistent water sources (springs) injected each step: [{pos, rate}].
 var _sources: Array = []
 
@@ -380,9 +389,58 @@ func activate() -> void:
 	_atmosphere.setup(self)
 	_lava_sim = LavaScript.new()
 	_lava_sim.setup(self)
+	# GPU backend (parity-validated on Metal) is DISABLED: its per-step upload+dispatch+READBACK stalls
+	# the pipeline (GPU→CPU sync every step) and is far slower than the CPU oracle at this grid size
+	# (dropped to ~3 fps). It only pays off with GPU-RESIDENT buffers that persist across steps and read
+	# back only for rendering — a redesign tracked for later. For now the CPU oracle runs the field.
+	# if GPUScript.available():
+	# 	_gpu = GPUScript.new(); _gpu.setup(self); _use_gpu = true
 	_build_render_node()
+	_build_heat_texture()
 	rebuild_surface()
+	_update_heat_texture()
 	_ready_sim = true
+
+
+# --- Heat texture (terrain-glow source) -------------------------------------
+
+func _build_heat_texture() -> void:
+	_heat_col = PackedFloat32Array()
+	_heat_col.resize(_dim_x * _dim_z)
+	_heat_col.fill(INITIAL_TEMP)
+	_heat_img = Image.create_from_data(_dim_x, _dim_z, false, Image.FORMAT_RF, _heat_col.to_byte_array())
+	_heat_tex = ImageTexture.create_from_image(_heat_img)
+
+
+# Project the hottest cell in each column into the R-float texture the terrain shader reads.
+func _update_heat_texture() -> void:
+	if _heat_tex == null:
+		return
+	var dx: int = _dim_x
+	var dz: int = _dim_z
+	var layer: int = dx * dz
+	for iz in range(dz):
+		for ix in range(dx):
+			var hottest: float = -1000.0
+			var base: int = iz * dx + ix
+			for iy in range(_dim_y):
+				var t: float = _temp[iy * layer + base]
+				if t > hottest:
+					hottest = t
+			_heat_col[base] = hottest
+	_heat_img.set_data(dx, dz, false, Image.FORMAT_RF, _heat_col.to_byte_array())
+	_heat_tex.update(_heat_img)
+
+
+## The live terrain-glow texture (R = hottest °C per column). Wire once into the terrain shader.
+func heat_texture() -> Texture2D:
+	return _heat_tex
+
+func heat_world_min() -> Vector2:
+	return Vector2(-_half_extent, -_half_extent)
+
+func heat_world_size() -> Vector2:
+	return Vector2(2.0 * _half_extent, 2.0 * _half_extent)
 
 
 func _physics_process(delta: float) -> void:
@@ -396,15 +454,25 @@ func _physics_process(delta: float) -> void:
 		# Springs feed the surface (rivers emerge as this water flows downhill in 3D).
 		for src in _sources:
 			add_water_world(src["pos"], float(src["rate"]) * STEP_DT)
-		step_water()
+		# Hot loops on the GPU when available (parity-validated), else the CPU oracle.
+		var dims: Vector3i = Vector3i(_dim_x, _dim_y, _dim_z)
+		if _use_gpu:
+			_water = _gpu.flow_water(_water, _solid, _static, dims)
+		else:
+			step_water()
 		if _heat != null:
-			_heat.step()
+			if _use_gpu:
+				_temp = _gpu.step_heat_conduction(_temp, _solid, dims)
+				_heat.step(true)
+			else:
+				_heat.step()
 		if _atmosphere != null:
 			_atmosphere.step()
 		if _lava_sim != null:
 			_lava_sim.step()
 	if steps > 0:
 		rebuild_surface()
+		_update_heat_texture()
 
 
 ## Temperature °C at a world point (0 outside the grid). The consumer query the 2.5D field also exposes.
@@ -425,17 +493,127 @@ func _surface_iy(ix: int, iz: int) -> int:
 	return -1
 
 
+# --- Consumer-facing API (matches the 2.5D LAMaterialField so this is a drop-in on the swap) --------
+
+## True where the ground is below sea level (open ocean under the plane).
+func is_ocean_at(x: float, z: float) -> bool:
+	var ix: int = _col_i(x, _origin.x)
+	var iz: int = _col_i(z, _origin.z)
+	# Any static (seeded-sea) or below-sea void cell in the column means this is sea.
+	for iy in range(_dim_y):
+		if _origin.y + float(iy) * _cell_size >= _sea_level:
+			break
+		var i: int = (iy * _dim_z + iz) * _dim_x + ix
+		if _solid[i] == 0:
+			return true
+	return false
+
+
+## Salinity 0 (fresh inland water) .. ~0.35-0.65 (brackish shallows) .. 1 (deep salt ocean); NAN if dry.
+## Depth-of-sea proxy, matching the 2.5D field so the salinity-banded fish behave identically.
+const SALT_FULL_DEPTH: float = 22.0
+const BRACKISH_FLOOR: float = 0.35
+func salinity_at(x: float, z: float) -> float:
+	if is_ocean_at(x, z):
+		# Deepest open water is saltiest; the shallow shore band (incl. river mouths) stays brackish.
+		var ix: int = _col_i(x, _origin.x)
+		var iz: int = _col_i(z, _origin.z)
+		var floor_y: float = _sea_level
+		for iy in range(_dim_y):
+			var i: int = (iy * _dim_z + iz) * _dim_x + ix
+			if _solid[i] == 0:
+				floor_y = _origin.y + float(iy) * _cell_size
+				break
+		return clampf((_sea_level - floor_y) / SALT_FULL_DEPTH, BRACKISH_FLOOR, 1.0)
+	if is_water_at(x, z):
+		return 0.0                                       # inland CA pool (lake/river) = fresh
+	return NAN
+
+
+# Atmosphere delegators (the 3D atmosphere owns the water cycle + humidity/dewpoint).
+func cloud_at(x: float, z: float) -> float:
+	return _atmosphere.cloud_at(x, z) if _atmosphere != null else 0.0
+
+func fog_at(x: float, z: float) -> float:
+	return _atmosphere.fog_at(x, z) if _atmosphere != null else 0.0
+
+func avg_cloud_cover() -> float:
+	return _atmosphere.avg_cloud_cover() if _atmosphere != null else 0.0
+
+func avg_fog_cover() -> float:
+	return _atmosphere.avg_fog_cover() if _atmosphere != null else 0.0
+
+func cloud_grid() -> PackedFloat32Array:
+	return _atmosphere.cloud_grid() if _atmosphere != null else PackedFloat32Array()
+
+func fog_grid() -> PackedFloat32Array:
+	return _atmosphere.fog_grid() if _atmosphere != null else PackedFloat32Array()
+
+func cloud_base_y() -> float:
+	return _atmosphere.cloud_base_y() if _atmosphere != null else _sea_level + 62.0
+
+func fog_base_y() -> float:
+	return _atmosphere.fog_base_y() if _atmosphere != null else _sea_level + 6.0
+
+func relative_humidity_at(x: float, z: float) -> float:
+	return _atmosphere.relative_humidity_at(x, z) if _atmosphere != null else 0.0
+
+func dewpoint_at(x: float, z: float) -> float:
+	return _atmosphere.dewpoint_at(x, z) if _atmosphere != null else NAN
+
+func set_wind(w: Vector2) -> void:
+	if _atmosphere != null:
+		_atmosphere.set_wind(w)
+
+func wind() -> Vector2:
+	return _atmosphere.wind() if _atmosphere != null else Vector2.ZERO
+
+## The cloud/fog grids project to (dim_x × dim_z) so CloudLayer's texture maps 1:1 with the 2.5D field.
+func grid_dim() -> int:
+	return _dim_x
+
+func grid_half_extent() -> float:
+	return _half_extent
+
+
+# Heat + lava injection (disasters call these) + diagnostics.
+func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
+	if _heat != null:
+		_heat.add_heat(world_pos, amount, maxf(0.0, radius))
+
+func add_lava(world_pos: Vector3, amount: float) -> void:
+	if _lava_sim != null and _lava_sim.has_method("add_lava"):
+		_lava_sim.add_lava(world_pos, amount)
+
+func lava_cell_count() -> int:
+	return _lava_sim.lava_cell_count() if _lava_sim != null and _lava_sim.has_method("lava_cell_count") else 0
+
+func wet_cell_count() -> int:
+	var n: int = 0
+	for i in range(_cell_count):
+		if _solid[i] == 0 and _static[i] == 0 and _water[i] >= RENDER_MIN:
+			n += 1
+	return n
+
+
+const WATER_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/shaders/VoxelWater.gdshader"
+
 func _build_render_node() -> void:
 	if _surface_mi != null:
 		return
 	if _water_mat == null:
-		var m: StandardMaterial3D = StandardMaterial3D.new()
-		m.albedo_color = Color(0.12, 0.42, 0.62, 0.72)
-		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		m.roughness = 0.1
-		m.metallic = 0.0
-		m.cull_mode = BaseMaterial3D.CULL_DISABLED
-		_water_mat = m
+		# The proper freshwater surface shader (waves/depth/foam/fresnel) — not a flat plain-blue material.
+		var sh: Shader = load(WATER_SHADER_PATH) as Shader
+		if sh != null:
+			var sm: ShaderMaterial = ShaderMaterial.new()
+			sm.shader = sh
+			_water_mat = sm
+		else:
+			var m: StandardMaterial3D = StandardMaterial3D.new()
+			m.albedo_color = Color(0.12, 0.42, 0.62, 0.72)
+			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			m.cull_mode = BaseMaterial3D.CULL_DISABLED
+			_water_mat = m
 	_surface_mesh = ArrayMesh.new()
 	_surface_mi = MeshInstance3D.new()
 	_surface_mi.name = "Water3DSurface"
