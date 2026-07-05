@@ -18,6 +18,7 @@ var terrain = null                       # LAVoxelTerrainService
 var actors_root: Node3D = null
 var _scent = null                        # LAScentField (observer; creatures query it)
 var _tracks = null                       # LATrackSystem (observer; footprints)
+var _water = null                        # LAWaterFieldSystem (observer; creatures/fish query it)
 
 # world spawn area (XZ half-extent) used for spawn_initial scatter
 var spawn_extent: float = 80.0
@@ -120,6 +121,14 @@ func setup(_terrain, _actors_root: Node3D) -> void:
 
 func scent_field():
 	return _scent
+
+
+func set_water(w) -> void:
+	_water = w
+
+
+func water_field():
+	return _water
 
 
 func spawn(kind: String, world_pos: Vector3) -> Node:

@@ -147,6 +147,11 @@ func _on_impact() -> void:
 		_terrain.carve_sphere(_impact_point, IMPACT_RADIUS)
 	if _ecology != null and _ecology.has_method("damage_sphere"):
 		_ecology.damage_sphere(_impact_point, IMPACT_RADIUS * DAMAGE_SCALE)
+	# Big splash if it struck water.
+	if _ecology != null and _ecology.has_method("water_field"):
+		var water: Object = _ecology.water_field()
+		if water != null and water.has_method("is_water_at") and water.is_water_at(_impact_point.x, _impact_point.z):
+			water.splash(_impact_point, 3.5)
 	# Terror shockwave: everything that hears/feels the impact panics and flees.
 	if _ecology != null and _ecology.has_method("broadcast_scare"):
 		_ecology.broadcast_scare(_impact_point, IMPACT_RADIUS * 6.0, 1.0)

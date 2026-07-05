@@ -13,6 +13,7 @@ const HudScript: GDScript = preload("res://addons/local_agents/scenes/simulation
 const MeteorScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Meteor.gd")
 const AudioDirectorScript: GDScript = preload("res://addons/local_agents/audio/AudioDirector.gd")
 const WeatherScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/WeatherSystem.gd")
+const WaterScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/WaterFieldSystem.gd")
 
 const INITIAL_COUNTS: Dictionary = {"plant": 70, "rabbit": 16, "fox": 3, "bird": 14, "villager": 6}
 const ROCK_COUNT: int = 44
@@ -26,6 +27,15 @@ var _actors_root: Node3D
 var _selection_ring: MeshInstance3D
 var _selected: Node = null
 var _weather: Node = null   # LAWeatherSystem
+var _water: Node = null      # LAWaterFieldSystem — CA rivers/lakes/ocean
+
+# Rain depth-per-second added to the water field per unit of weather rain (0..1).
+const RAIN_TO_DEPTH: float = 0.35
+# Persistent springs (world XZ) seeded on high ground so rivers form downhill; fed
+# a little depth every frame so channels sustain instead of drying out.
+var _springs: Array = []
+var _springs_seeded: bool = false
+const SPRING_RATE: float = 0.9              # depth per second per spring
 
 var _armed_kind: String = ""
 var _spawned_initial: bool = false
@@ -126,6 +136,17 @@ func _ready() -> void:
 	add_child(_weather)
 	_weather.setup(_camera, sun, e)
 
+	# --- Water: CA rivers/lakes/ocean over the terrain. Rain (from weather) and a
+	# few springs feed it; it flows downhill and pools on its own. Creatures drink
+	# from it and fish live in it (both query the field). ---
+	_water = WaterScript.new()
+	_water.name = "Water"
+	add_child(_water)
+	# Cover the full bounded play area; 4m cells keep the CA cheap (~150^2 grid).
+	_water.setup(_terrain, 300.0, 4.0)
+	if _ecology.has_method("set_water"):
+		_ecology.set_water(_water)
+
 
 func _parse_cmdline() -> void:
 	for arg in OS.get_cmdline_user_args():
@@ -151,10 +172,12 @@ func _process(_delta: float) -> void:
 			if _ready_wait_ticks > 6:
 				_ecology.spawn_initial(INITIAL_COUNTS)
 				_ecology.populate_environment(ROCK_COUNT, FOREST_CLUSTERS)
+				_seed_water()
 				_spawned_initial = true
 				_hud.set_status("World ready — spawn things, click to inspect, press V for scent.")
 	_update_selection_ring()
-	_push_weather_to_scent()
+	_push_environment()
+	_feed_water()
 
 	# Auto-meteor demo: drop a meteor on the point under the camera's aim.
 	if _auto_meteor and not _auto_meteor_fired and _spawned_initial and _shoot_path != "" and _frame == _shoot_frames - 240:
@@ -319,7 +342,7 @@ func _update_selection_ring() -> void:
 			_hud.show_inspector(_selected.call("get_inspector_payload"))
 
 
-func _push_weather_to_scent() -> void:
+func _push_environment() -> void:
 	if _weather == null or _ecology == null or not _ecology.has_method("scent_field"):
 		return
 	var sf = _ecology.scent_field()
@@ -329,6 +352,46 @@ func _push_weather_to_scent() -> void:
 		sf.set_wind(_weather.wind_vector())
 	if sf.has_method("set_wash"):
 		sf.set_wash(_weather.rain())
+
+
+# Choose the water's sea level (from origin ground) and a few high-ground springs
+# so genuine basins fill as lakes and springs feed downhill rivers. One-shot.
+func _seed_water() -> void:
+	if _water == null or _terrain == null:
+		return
+	var origin_h: float = _terrain.surface_height(0.0, 0.0)
+	if not is_nan(origin_h):
+		# Only ground clearly below the origin becomes standing water — avoids a global flood.
+		_water.sea_level = origin_h - 10.0
+	# Sample a ring of candidate points; the highest few become persistent springs.
+	var candidates: Array = []
+	var ring: int = 8
+	for i in range(ring):
+		var ang: float = TAU * float(i) / float(ring)
+		var r: float = 130.0
+		var px: float = cos(ang) * r
+		var pz: float = sin(ang) * r
+		var h: float = _terrain.surface_height(px, pz)
+		if not is_nan(h):
+			candidates.append({"pos": Vector3(px, h, pz), "h": h})
+	candidates.sort_custom(func(a, b): return float(a["h"]) > float(b["h"]))
+	_springs.clear()
+	for i in range(mini(3, candidates.size())):
+		_springs.append(candidates[i]["pos"])
+	_springs_seeded = true
+
+
+# Drive the water field every frame: weather rain fills it uniformly; springs keep
+# feeding so rivers sustain. Cheap — the CA itself is throttled internally.
+func _feed_water() -> void:
+	if _water == null:
+		return
+	if _weather != null and _water.has_method("add_rain"):
+		_water.add_rain(_weather.rain() * RAIN_TO_DEPTH)
+	if _springs_seeded and _water.has_method("add_source"):
+		var dt: float = get_process_delta_time()
+		for p in _springs:
+			_water.add_source(p, SPRING_RATE * dt)
 
 
 func _kind_color(kind: String) -> Color:
