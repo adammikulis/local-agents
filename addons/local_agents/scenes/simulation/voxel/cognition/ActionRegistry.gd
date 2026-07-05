@@ -21,7 +21,7 @@ extends RefCounted
 # (A plain Array literal — a PackedStringArray(...) constructor is not a constant expression.)
 const ACTIONS: Array = [
 	"flee", "hunt", "throw_rock", "scavenge", "graze",
-	"drink", "seek_water", "flock", "wander", "rest", "migrate",
+	"drink", "seek_water", "flock", "wander", "rest", "migrate", "investigate",
 ]
 
 # Actions that are *safety reflexes*: when the innate cascade picks one of these, cognition
@@ -43,6 +43,7 @@ const DESCRIPTIONS: Dictionary = {
 	"wander": "Roam to explore when nothing else is pressing.",
 	"rest": "Stay nearly still to conserve energy when safe but tired.",
 	"migrate": "Travel steadily in one direction to reach new territory or resources.",
+	"investigate": "Move toward a food cue — circling scavengers, a carrion scent, or a carrion call.",
 }
 
 

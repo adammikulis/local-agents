@@ -43,3 +43,4 @@ logs/validation_lane/
 # generated FunctionGemma finetune artifacts
 addons/local_agents/models/functiongemma/train_examples.jsonl
 addons/local_agents/models/functiongemma/*.gguf
+addons/local_agents/gdextensions/localagents/bin

@@ -99,7 +99,8 @@ func _build_body() -> void:
 
 
 # A thrown rock / bite killed me, or I aged out.
-func die(_cause: String = "") -> void:
+func die(_cause: String = "", _impulse: Vector3 = Vector3.ZERO) -> void:
+	# `_impulse` is accepted (and ignored) so a meteor's die(cause, impulse) call doesn't crash on fish.
 	if _dying:
 		return
 	_dying = true

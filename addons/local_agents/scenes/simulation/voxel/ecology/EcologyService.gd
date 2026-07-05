@@ -13,6 +13,7 @@ const FishScript: GDScript = preload("res://addons/local_agents/scenes/simulatio
 const ScentFieldScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ScentField.gd")
 const TrackSystemScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/TrackSystem.gd")
 const FireSystemScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/FireSystem.gd")
+const NestScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Nest.gd")
 
 const KINDS: Array = ["plant", "rabbit", "fox", "bird", "villager", "fish", "rock", "tree"]
 const FISH_CAP: int = 26
@@ -50,82 +51,9 @@ var _fish_timer: float = 0.0
 
 # --- species / plant configs ------------------------------------------------
 func _species_config(kind: String) -> Dictionary:
-	match kind:
-		"rabbit":
-			return {
-				"species": "rabbit", "diet": "herbivore",
-				"speed": 3.6, "size": 0.55, "color": Color(0.72, 0.58, 0.44),
-				"can_fly": false, "sense_radius": 9.0, "maturity_age": 14.0,
-				"preys_on": PackedStringArray(),
-				"flees_from": PackedStringArray(["fox", "villager"]),
-				"herd": true, "pop_cap": 40,
-				# Low stamina: sprinting from a persistence hunter exhausts them.
-				"max_energy": 70.0, "metabolism": 2.6, "food_value": 50.0,
-				"thirst_rate": 1.4,
-				# Loose, skittish ground herd: modest cohesion, strong separation;
-				# breaks apart the instant a predator is near.
-				"flock_cohesion": 0.6, "flock_alignment": 0.55,
-				"flock_separation": 1.1, "flock_radius": 8.0, "flock_weight": 0.9,
-				# Side-set eyes: near-panoramic FOV (small rear blind spot), shallow reach; sharp ears.
-				"eye_fov": 320.0, "hearing_range": 16.0,
-			}
-		"fox":
-			return {
-				"species": "fox", "diet": "carnivore",
-				"speed": 4.6, "size": 0.8, "color": Color(0.82, 0.36, 0.12),
-				"can_fly": false, "sense_radius": 16.0, "maturity_age": 20.0,
-				"preys_on": PackedStringArray(["rabbit", "fish"]),
-				"flees_from": PackedStringArray(),
-				"herd": false, "pop_cap": 12, "nocturnal": true,
-				"max_energy": 130.0, "metabolism": 2.0, "food_value": 70.0,
-				"thirst_rate": 1.0,
-				# Semi-solitary: weak cohesion so they never clump, some alignment,
-				# healthy personal space.
-				"flock_cohesion": 0.25, "flock_alignment": 0.4,
-				"flock_separation": 0.85, "flock_radius": 12.0, "flock_weight": 0.5,
-				# Forward-set eyes: narrow binocular cone → depth perception → longer reach to spot prey.
-				"eye_fov": 100.0, "hearing_range": 18.0,
-			}
-		"bird":
-			return {
-				"species": "bird", "diet": "herbivore",
-				"speed": 6.5, "size": 0.4, "color": Color(0.30, 0.52, 0.85),
-				"can_fly": true, "cruise_height": 14.0,
-				"sense_radius": 13.0, "maturity_age": 11.0,
-				"preys_on": PackedStringArray(),
-				"flees_from": PackedStringArray(),
-				"herd": true, "pop_cap": 30,
-				"max_energy": 60.0, "metabolism": 2.0, "food_value": 30.0,
-				"thirst_rate": 0.6,
-				# Tight, fast, highly-aligned 3D aerial flock: alignment and
-				# cohesion dominate over a large perception radius.
-				"flock_cohesion": 0.9, "flock_alignment": 1.2,
-				"flock_separation": 0.7, "flock_radius": 18.0, "flock_weight": 1.4,
-				# Wide avian FOV, keen at distance; excellent hearing across the flock.
-				"eye_fov": 300.0, "hearing_range": 20.0,
-			}
-		"villager":
-			return {
-				"species": "villager", "diet": "omnivore",
-				"speed": 3.0, "size": 1.0, "color": Color(0.85, 0.72, 0.55),
-				"can_fly": false, "sense_radius": 14.0, "maturity_age": 26.0,
-				"preys_on": PackedStringArray(["rabbit", "fox", "fish"]),
-				"flees_from": PackedStringArray(),
-				"herd": true, "pop_cap": 16,
-				# Endurance apex: high stamina, hunts by persistence + thrown rocks,
-				# scavenges anything. Slower than prey, so it wears them down.
-				"max_energy": 160.0, "metabolism": 1.4, "food_value": 90.0,
-				"thirst_rate": 1.1,
-				"throws": true, "throw_range": 15.0,
-				# Loose social groups: balanced cohesion + alignment, moderate
-				# spacing — they gather but keep an arm's length.
-				"flock_cohesion": 0.7, "flock_alignment": 0.7,
-				"flock_separation": 0.7, "flock_radius": 10.0, "flock_weight": 0.9,
-				# Forward-facing hominin eyes: binocular hunter's reach, good all-round hearing.
-				"eye_fov": 120.0, "hearing_range": 16.0,
-			}
-		_:
-			return {}
+	# Species stats live in per-type DATA files under data/species/<class>/<kind>.json, kept OUT of
+	# this business logic so a creature can be retuned by editing one small file (see LASpeciesLibrary).
+	return LASpeciesLibrary.load_config(kind)
 
 
 func _fish_config() -> Dictionary:
@@ -395,7 +323,7 @@ func _process_pending() -> void:
 
 
 func _tick_breeding() -> void:
-	for kind in ["rabbit", "fox", "bird", "villager"]:
+	for kind in ["rabbit", "fox", "bird", "villager", "vulture"]:
 		var cfg: Dictionary = _species_config(kind)
 		var cap: int = int(cfg.get("pop_cap", 20))
 		var group: String = "species_%s" % kind
@@ -420,9 +348,44 @@ func _tick_breeding() -> void:
 			pb = adults[randi() % adults.size()] as Node3D
 			guard += 1
 		var offset: Vector3 = Vector3(randf_range(-2.0, 2.0), 0.0, randf_range(-2.0, 2.0))
-		var placed = _place_on_surface(pa.global_position + offset)
+		# Breed AT a parent's nest if it has one — young are born at home and inherit the site.
+		var base_pos: Vector3 = pa.global_position
+		if bool(pa.get("has_nest")) and not is_inf(float((pa.get("nest_pos") as Vector3).x)):
+			base_pos = pa.get("nest_pos")
+		var placed = _place_on_surface(base_pos + offset)
 		if placed != null:
-			_instance_actor(kind, placed, _breed_genome(pa, pb))
+			var child = _instance_actor(kind, placed, _breed_genome(pa, pb))
+			_inherit_nest(pa, child)
+
+
+# Natal philopatry: the offspring adopts a parent's home site, so kin CLUSTER in space over
+# generations — which makes vision/sound social learning spread fastest among relatives (culture).
+func _inherit_nest(parent, child) -> void:
+	if child == null or not is_instance_valid(child):
+		return
+	if not bool(parent.get("has_nest")):
+		return
+	var np: Vector3 = parent.get("nest_pos")
+	if is_inf(np.x):
+		return
+	child.set("nest_pos", np)
+	child.set("has_nest", true)
+	var nn = parent.get("_nest_node")
+	if nn != null and is_instance_valid(nn) and nn.has_method("register_young"):
+		nn.register_young()
+
+
+# Place a shelter (LANest) at `site` for a nesting creature. Terrain-snapped for ground/water
+# shelters; kept at the caller's Y for tree roosts (in_tree=true).
+func spawn_nest(site: Vector3, nest_species: String, owner_family: int, in_tree: bool):
+	if actors_root == null:
+		return null
+	var nest = NestScript.new()
+	actors_root.add_child(nest)
+	nest.global_position = site
+	if nest.has_method("setup"):
+		nest.setup(terrain, nest_species, owner_family, in_tree)
+	return nest
 
 
 # Build a child genome from two parents: rare Baldwin canalization of each parent's deepest lifelong

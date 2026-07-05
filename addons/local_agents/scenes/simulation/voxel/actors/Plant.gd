@@ -125,6 +125,11 @@ func is_edible() -> bool:
 	return edible
 
 
+# Unified food model: a plant is living CARBS. (See LAFood — diet decides who can eat it.)
+func food_profile() -> Dictionary:
+	return {"type": "carbs", "state": "living", "value": 32.0}
+
+
 func is_mature() -> bool:
 	return _grown_fraction() >= 1.0
 
