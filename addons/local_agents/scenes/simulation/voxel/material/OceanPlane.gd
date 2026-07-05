@@ -13,15 +13,20 @@ extends MeshInstance3D
 
 const SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/shaders/VoxelOcean.gdshader"
 
-# A big plane so it covers out to the horizon within the camera's zoom range; enough subdivisions that
-# the vertex swell reads as rolling water near the camera (fine ripple detail is added in the fragment
-# shader, so the tessellation only needs to carry the large swell).
-const PLANE_SIZE: float = 2600.0
-const SUBDIVISIONS: int = 200
+# The plane RESIZES with zoom (size ≈ zoom distance × SIZE_PER_DISTANCE, clamped) so it always reaches
+# the horizon when pulled way out, yet stays finely tessellated when zoomed in close. Subdivisions are
+# fixed, so cell size grows with the plane; fine ripple detail comes from the fragment shader normals,
+# and the large swell from the vertex displacement, so coarse far-cells still read as water.
+const SUBDIVISIONS: int = 240
+const SIZE_PER_DISTANCE: float = 9.0      # plane side = zoom distance × this
+const MIN_PLANE_SIZE: float = 2400.0
+const MAX_PLANE_SIZE: float = 24000.0
 
 var _camera: Node3D = null
 var _sea_y: float = 0.0
 var _material: ShaderMaterial = null
+var _plane: PlaneMesh = null
+var _plane_size: float = 0.0
 
 
 ## Build the ocean plane at world Y `sea_y`, following `camera` in XZ. Added as a child of the caller.
@@ -31,21 +36,27 @@ func setup(sea_y: float, camera: Node3D) -> void:
 	name = "OceanPlane"
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
-	var plane: PlaneMesh = PlaneMesh.new()
-	plane.size = Vector2(PLANE_SIZE, PLANE_SIZE)
-	plane.subdivide_width = SUBDIVISIONS
-	plane.subdivide_depth = SUBDIVISIONS
-	mesh = plane
+	_plane = PlaneMesh.new()
+	_plane.subdivide_width = SUBDIVISIONS
+	_plane.subdivide_depth = SUBDIVISIONS
+	_resize_plane(MIN_PLANE_SIZE)
+	mesh = _plane
 
 	_material = ShaderMaterial.new()
 	var sh: Shader = load(SHADER_PATH) as Shader
 	if sh != null:
 		_material.shader = sh
 	material_override = _material
-	# Big AABB so the plane never frustum-culls when the camera looks along it.
-	custom_aabb = AABB(Vector3(-PLANE_SIZE, -2.0, -PLANE_SIZE), Vector3(PLANE_SIZE * 2.0, 4.0, PLANE_SIZE * 2.0))
 
 	global_position = Vector3(0.0, _sea_y, 0.0)
+
+
+# Set the plane's side length + a matching oversized AABB (so it never frustum-culls when the camera
+# looks along the sea). Only rebuilds when the size actually changes meaningfully.
+func _resize_plane(size: float) -> void:
+	_plane_size = size
+	_plane.size = Vector2(size, size)
+	custom_aabb = AABB(Vector3(-size, -4.0, -size), Vector3(size * 2.0, 8.0, size * 2.0))
 
 
 ## Set a shader uniform (tuning from the debug panel / VoxelWorld, e.g. wave_amp).
@@ -56,8 +67,14 @@ func set_ocean_param(param: String, value) -> void:
 
 func _process(_delta: float) -> void:
 	# Follow the camera in XZ (snapped to whole units so the world-space wave phase doesn't shimmer),
-	# holding the sea surface at the fixed sea level.
+	# holding the sea surface at the fixed sea level, and size the plane to the current zoom so it always
+	# reaches the horizon when pulled out (the reported "ocean stops short of the land" at full zoom).
 	if _camera == null or not is_instance_valid(_camera):
 		return
+	if _camera.has_method("get_zoom_distance"):
+		var target: float = clampf(_camera.get_zoom_distance() * SIZE_PER_DISTANCE, MIN_PLANE_SIZE, MAX_PLANE_SIZE)
+		# Rebuild only on a meaningful change (avoid churning the mesh every frame while zooming).
+		if absf(target - _plane_size) > _plane_size * 0.12:
+			_resize_plane(target)
 	var cp: Vector3 = _camera.global_position
 	global_position = Vector3(round(cp.x), _sea_y, round(cp.z))

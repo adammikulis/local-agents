@@ -133,6 +133,7 @@ var _peak_investigating: int = 0
 var _peak_sleeping: int = 0
 var _auto_meteor: bool = false
 var _overview: bool = false             # --overview: frame a wide whole-island vista (screenshot aid)
+var _farview: bool = false              # --farview: pull the vista out to max zoom (ocean-coverage test)
 var _debug_demo: bool = false
 var _user_shot_counter: int = 0        # numbers the screenshots the DebugPanel's save button writes
 var _auto_volcano: bool = false
@@ -212,7 +213,11 @@ func _ready() -> void:
 	_terrain = TerrainServiceScript.new()
 	# Larger world: keep all voxel data resident over a big bounded area so edits work
 	# anywhere, with a long view distance for the vistas.
-	_terrain.build(self, {"bounds_half_xz": 300, "view_distance": 640})
+	# view_distance must exceed the camera's MAX_DISTANCE (1400) so the island stays meshed when the
+	# player zooms all the way out — otherwise the land unloads past ~640 units and only the ocean plane
+	# is left (the "ocean doesn't line up with the land at full zoom" report). The world is only 600
+	# wide, so this just keeps the whole island+seabed resident at LOD; distant terrain stays coarse.
+	_terrain.build(self, {"bounds_half_xz": 300, "view_distance": 1700})
 
 	# --- Camera + voxel viewer ---
 	_camera = CameraRigScript.new()
@@ -411,6 +416,9 @@ func _parse_cmdline() -> void:
 			_auto_select = true
 		elif arg == "--overview":
 			_overview = true
+		elif arg == "--farview":
+			_overview = true
+			_farview = true
 		elif arg == "--cognition-stats":
 			_cognition_stats = true
 
@@ -439,7 +447,7 @@ func _process(delta: float) -> void:
 				# Frame a vista at the real surface height (only when not driven by a harness cam).
 				if _overview and _camera.has_method("frame_overview"):
 					var ohv: float = _terrain.surface_height(0.0, 0.0)
-					_camera.frame_overview(Vector3(0.0, (ohv if not is_nan(ohv) else 20.0), 0.0))
+					_camera.frame_overview(Vector3(0.0, (ohv if not is_nan(ohv) else 20.0), 0.0), 1250.0 if _farview else 360.0)
 				elif not _auto_meteor and not _auto_select and _camera.has_method("frame_vista"):
 					var oh: float = _terrain.surface_height(0.0, 0.0)
 					if not is_nan(oh):
