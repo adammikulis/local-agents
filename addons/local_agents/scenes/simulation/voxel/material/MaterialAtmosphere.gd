@@ -201,6 +201,32 @@ func wind() -> Vector2:
 	return _wind
 
 
+## Saturation vapor the air at temperature `t` can hold before it condenses (the dewpoint curve).
+func _saturation(t: float) -> float:
+	return SAT_BASE * exp(SAT_TEMP_GAIN * (t - _f.EVAP_TEMP_REF))
+
+
+## Relative humidity 0..1+ at (x, z): current vapor / saturation. 1.0 = saturated (at the dewpoint) —
+## condensation (fog/cloud) begins above this. The real, working humidity the water cycle runs on.
+func relative_humidity_at(x: float, z: float) -> float:
+	var idx: int = _f._index_at(x, z)
+	if idx < 0 or _f._sampled[idx] == 0:
+		return 0.0
+	return _f._vapor[idx] / maxf(0.0001, _saturation(_f._temp[idx]))
+
+
+## Dewpoint (°C) at (x, z): the temperature this cell's air would have to cool to for its CURRENT vapor
+## to saturate — invert the saturation curve. Fog/clouds form as the air reaches this. NAN if dry/off-grid.
+func dewpoint_at(x: float, z: float) -> float:
+	var idx: int = _f._index_at(x, z)
+	if idx < 0 or _f._sampled[idx] == 0:
+		return NAN
+	var v: float = _f._vapor[idx]
+	if v <= 0.0:
+		return -273.15
+	return _f.EVAP_TEMP_REF + log(v / SAT_BASE) / SAT_TEMP_GAIN
+
+
 func cloud_at(x: float, z: float) -> float:
 	var idx: int = _f._index_at(x, z)
 	return _f._cloud[idx] if idx >= 0 else 0.0
