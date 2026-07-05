@@ -15,7 +15,12 @@ const TrackSystemScript: GDScript = preload("res://addons/local_agents/scenes/si
 const NestScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Nest.gd")
 
 const KINDS: Array = ["plant", "rabbit", "fox", "bird", "villager", "fish", "rock", "tree"]
-const FISH_CAP: int = 26
+
+# Aquatic life is stocked out over a wide radius (the ocean rings the island beyond ~180u; freshwater
+# lakes/rivers sit inland) — much wider than the land-creature spawn_extent. Kept a little inside the
+# 300u world/material half-extent so samples land on sampled cells.
+const AQUATIC_EXTENT: float = 285.0
+const AQUATIC_SAMPLE_TRIES: int = 60
 
 var terrain = null                       # LAVoxelTerrainService
 var actors_root: Node3D = null
@@ -45,6 +50,8 @@ var _pending: Array = []
 var _breed_timer: float = 0.0
 var _seed_timer: float = 0.0
 var _fish_timer: float = 0.0
+var _aquatic_kinds_cache: Array = []     # aquatic species ids (config aquatic:true), indexed once
+var _aquatic_indexed: bool = false
 
 # --- Seismic stimulus (emergent camera shake) --------------------------------
 # Every ground disturbance emits a short-lived seismic PULSE into this capped ring. The camera (and
@@ -64,13 +71,18 @@ func _species_config(kind: String) -> Dictionary:
 	return LASpeciesLibrary.load_config(kind)
 
 
-func _fish_config() -> Dictionary:
-	return {
-		"species": "fish", "speed": randf_range(2.2, 3.2), "size": randf_range(0.28, 0.42),
-		"color": Color(0.60, 0.70, 0.84).lerp(Color(0.75, 0.62, 0.5), randf() * 0.4),
-		"sense_radius": 9.0, "maturity_age": 12.0, "food_value": 26.0,
-		"max_age": randf_range(110.0, 160.0),
-	}
+# Every species whose data file is flagged `aquatic: true` (fish variants, turtle, crab, whale, …).
+# Indexed once from the species library; drives all aquatic stocking generically — no hardcoded list.
+func _aquatic_kinds() -> Array:
+	if _aquatic_indexed:
+		return _aquatic_kinds_cache
+	_aquatic_indexed = true
+	_aquatic_kinds_cache = []
+	for kind in LASpeciesLibrary.known_kinds():
+		var cfg: Dictionary = LASpeciesLibrary.load_config(String(kind))
+		if bool(cfg.get("aquatic", false)):
+			_aquatic_kinds_cache.append(String(kind))
+	return _aquatic_kinds_cache
 
 
 func _plant_config() -> Dictionary:
@@ -261,20 +273,21 @@ func _instance_actor(kind: String, placed: Vector3, genome = null) -> Node:
 		tree.global_position = placed
 		tree.setup(terrain, _tree_config())
 		node = tree
-	elif kind == "fish":
-		# Fish only exist in water: refuse to place one on dry ground.
-		if _material == null or not _material.has_method("is_water_at") or not _material.is_water_at(placed.x, placed.z):
-			return null
-		var fish: FishScript = FishScript.new()
-		actors_root.add_child(fish)
-		fish.global_position = placed
-		fish.setup(terrain, _material, _fish_config())
-		node = fish
 	else:
 		var cfg: Dictionary = _species_config(kind)
 		if cfg.is_empty():
 			push_warning("LAEcologyService: unknown kind '%s'" % kind)
 			return null
+		# Aquatic species (config aquatic:true) are all driven by the ONE LAFish script — a fish, turtle,
+		# crab or whale differ only by config (salinity/depth band, body, speed). They exist only in water.
+		if bool(cfg.get("aquatic", false)):
+			if _material == null or not _material.has_method("is_water_at") or not _material.is_water_at(placed.x, placed.z):
+				return null
+			var fish: FishScript = FishScript.new()
+			actors_root.add_child(fish)
+			fish.global_position = placed
+			fish.setup(terrain, _material, cfg)
+			return fish
 		var creature: CreatureScript = CreatureScript.new()
 		actors_root.add_child(creature)
 		creature.global_position = placed
@@ -390,7 +403,7 @@ func _physics_process(delta: float) -> void:
 	_fish_timer -= delta
 	if _fish_timer <= 0.0:
 		_fish_timer = 2.5
-		_tick_fish()
+		_tick_aquatic()
 
 
 func _process_pending() -> void:
@@ -525,31 +538,75 @@ func seed_plant_at(world_pos: Vector3) -> void:
 	spawn("plant", world_pos)
 
 
-# Keep lakes/rivers stocked with fish. Fish appear (and recover) only where water has
-# actually pooled, so they emerge wherever the water field decides to form water bodies —
-# no hand-placed spawn points. One fish added per tick until the cap is reached.
-func _tick_fish() -> void:
+# Seed a modest starting population of every aquatic species into water matching its band. Called once
+# after the sea level is locked. Ongoing recovery is handled by _tick_aquatic; this just makes the sea
+# and lakes feel alive from the first frame instead of trickling in.
+func stock_initial_aquatic() -> void:
 	if _material == null or not _material.has_method("is_water_at"):
 		return
-	if get_tree().get_nodes_in_group("species_fish").size() >= FISH_CAP:
-		return
-	var wet: Vector3 = _random_wet_point()
-	if is_nan(wet.x):
-		return
-	_instance_actor("fish", wet)
+	for kind in _aquatic_kinds():
+		var cfg: Dictionary = _species_config(String(kind))
+		var initial: int = int(cfg.get("initial", 0))
+		for i in range(initial):
+			var wet: Vector3 = _random_aquatic_point(cfg)
+			if not is_nan(wet.x):
+				_instance_actor(String(kind), wet)
 
 
-# Sample random points across the play area for one that sits over water; returns a
-# surface-projected point, or a NAN-x vector if no water was found this tick.
-func _random_wet_point() -> Vector3:
-	for i in range(24):
-		var x: float = randf_range(-spawn_extent, spawn_extent)
-		var z: float = randf_range(-spawn_extent, spawn_extent)
-		if _material.is_water_at(x, z):
-			var placed = _place_on_surface(Vector3(x, 0.0, z))
-			if placed != null:
-				return placed
+# Keep the water stocked with every aquatic species. Each appears (and recovers) only where water in
+# its OWN salinity/depth band exists, so species self-sort: freshwater fish into lakes, salt species out
+# in the deep sea, brackish species along the coast — no hand-placed spawn points, all emergent. One
+# individual of one under-cap species is added per tick.
+func _tick_aquatic() -> void:
+	if _material == null or not _material.has_method("is_water_at"):
+		return
+	for kind in _aquatic_kinds():
+		var cfg: Dictionary = _species_config(String(kind))
+		var cap: int = int(cfg.get("pop_cap", 12))
+		if get_tree().get_nodes_in_group("species_%s" % String(kind)).size() >= cap:
+			continue
+		var wet: Vector3 = _random_aquatic_point(cfg)
+		if is_nan(wet.x):
+			continue
+		_instance_actor(String(kind), wet)
+		return                                       # one spawn per tick keeps the stocking gentle
+
+
+# Sample the water for a point inside a species' salinity + depth band; returns a surface-projected
+# point, or a NAN-x vector if none was found this tick. This is what places each species into the right
+# water (fresh / brackish / salt, shallow / deep) without a single per-species branch.
+func _random_aquatic_point(cfg: Dictionary) -> Vector3:
+	var smin: float = float(cfg.get("salinity_min", 0.0))
+	var smax: float = float(cfg.get("salinity_max", 1.0))
+	var dmin: float = float(cfg.get("depth_min", 0.0))
+	var dmax: float = float(cfg.get("depth_max", 999.0))
+	for i in range(AQUATIC_SAMPLE_TRIES):
+		var x: float = randf_range(-AQUATIC_EXTENT, AQUATIC_EXTENT)
+		var z: float = randf_range(-AQUATIC_EXTENT, AQUATIC_EXTENT)
+		if not _material.is_water_at(x, z):
+			continue
+		var s: float = _material.salinity_at(x, z)
+		if is_nan(s) or s < smin or s > smax:
+			continue
+		var placed = _place_on_surface(Vector3(x, 0.0, z))
+		if placed == null:
+			continue
+		var depth: float = _aquatic_depth(x, z, placed)
+		if not is_nan(depth) and (depth < dmin or depth > dmax):
+			continue
+		return placed
 	return Vector3(NAN, 0.0, 0.0)
+
+
+# Water-column depth (surface Y minus seabed/lakebed) at a sampled point; NAN if unavailable. Mirrors
+# LAFish's own depth read so stocking places a species where its depth band will keep it.
+func _aquatic_depth(x: float, z: float, placed: Vector3) -> float:
+	if not _material.has_method("surface_y_at"):
+		return NAN
+	var surf: float = _material.surface_y_at(x, z)
+	if is_nan(surf):
+		return NAN
+	return surf - placed.y
 
 
 func _tick_plant_seeding() -> void:
