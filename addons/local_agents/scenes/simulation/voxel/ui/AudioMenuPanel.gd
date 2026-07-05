@@ -188,7 +188,7 @@ func _build() -> void:
 	enable_all.toggled.connect(func(on: bool) -> void:
 		if not _suppress_signals and _director != null:
 			_director.set_enabled(on))
-	var enable_music: CheckButton = _add_check(col, "Music enabled", true)
+	var enable_music: CheckButton = _add_check(col, "Music enabled", false)   # music muted by default
 	enable_music.toggled.connect(func(on: bool) -> void:
 		if not _suppress_signals and _director != null:
 			_director.set_music_enabled(on))

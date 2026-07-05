@@ -67,6 +67,9 @@ var _combustion = null                     # LAMaterialCombustion (fire + boilin
 const LiquidScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialLiquid.gd")
 var _liquid = null                         # LAMaterialLiquid (water + lava CA)
 const WATER_THRESHOLD: float = 0.02
+# A flood surge (add_water_pooled) fills cells up to the centre ground height + this small lip, so it
+# can crest a shallow rim and spill, but never climbs a real hillside.
+const POOL_LIP: float = 1.5
 # Shared with the render module (it thresholds the lava mesh at this depth via _f.LAVA_MIN).
 const LAVA_MIN: float = 0.04              # below this a lava cell is spent
 
@@ -490,6 +493,44 @@ func add_material(world_pos: Vector3, mat_id: int, amount: float, radius: float 
 
 # --- Water convenience inputs (back-compat with the retired water field) -----
 
+## Pool a WATER surge into the low ground under `center`: WATER depth is added ONLY to sampled cells
+## at or below the centre cell's ground height (plus a small lip so a surge can crest a low rim), so a
+## flood fills the basin and then spreads DOWNHILL through the normal fluid CA — it never paints water
+## onto higher ground, so it can't appear on a hillside or look like it flowed uphill. `radius` is the
+## surge footprint (driven by the spawn brush). Used by LAFlood; every other water input still goes
+## through add_material / add_source.
+func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
+	if amount <= 0.0 or radius <= 0.0 or is_nan(amount) or is_inf(amount):
+		return
+	var cidx: int = _index_at(center.x, center.z)
+	if cidx < 0 or _sampled[cidx] == 0:
+		return
+	var ceiling: float = _terrain_h[cidx] + POOL_LIP
+	var arr: PackedFloat32Array = _mat_array(Mat.WATER)
+	var cells: int = int(ceil(radius / _cell_size))
+	var ci: int = int(round((center.x + _half_extent) / _cell_size))
+	var cj: int = int(round((center.z + _half_extent) / _cell_size))
+	var r2: float = radius * radius
+	for dj in range(-cells, cells + 1):
+		var j: int = cj + dj
+		if j < 0 or j >= _dim:
+			continue
+		for di in range(-cells, cells + 1):
+			var i: int = ci + di
+			if i < 0 or i >= _dim:
+				continue
+			var idx: int = j * _dim + i
+			if _sampled[idx] == 0:
+				continue
+			if _terrain_h[idx] > ceiling:          # higher ground — the surge cannot climb onto it
+				continue
+			var dx: float = _cell_x(i) - center.x
+			var dz: float = _cell_z(j) - center.z
+			if dx * dx + dz * dz > r2:
+				continue
+			arr[idx] += amount
+
+
 ## Set the uniform WATER rain rate (depth metres per SECOND). Delegated to the fluids module.
 func add_rain(amount_per_sec: float) -> void:
 	if _liquid != null:
@@ -566,15 +607,55 @@ func depth_at(x: float, z: float) -> float:
 	return material_depth_at(x, z, Mat.WATER)
 
 
+## True where there is water to swim/drink in: either CA freshwater (a river/lake) OR the ocean (any
+## sampled cell whose ground sits below sea level). The ocean is a static plane, not CA-simulated, so
+## this is what lets fish and aquatic life populate the whole sea at zero CA cost.
 func is_water_at(x: float, z: float) -> bool:
-	return depth_at(x, z) >= WATER_THRESHOLD
+	if depth_at(x, z) >= WATER_THRESHOLD:
+		return true
+	return is_ocean_at(x, z)
 
 
-## World Y of the WATER surface (terrain_h + depth) at (x, z), or NAN when the cell is unsampled/dry.
+## True where the sampled ground is below sea level — i.e. this is open ocean (under the water plane).
+func is_ocean_at(x: float, z: float) -> bool:
+	var idx: int = _index_at(x, z)
+	if idx < 0 or _sampled[idx] == 0:
+		return false
+	return _terrain_h[idx] < sea_level
+
+
+# Depth (below sea) over which the ocean grades from brackish shallows to fully salt open water. The
+# shallow coastal band — which includes river mouths, since a river drains at the shore — reads as
+# brackish; deeper water is salt. Inland CA water (lakes/rivers) is fresh. Salinity self-sorts the
+# fish: a species' tolerated band (see LAFish) keeps it in fresh / brackish / salt water emergently.
+const SALT_FULL_DEPTH: float = 22.0        # world units below sea for salinity to reach ~1.0
+const BRACKISH_FLOOR: float = 0.35         # min salinity at the very shoreline (0 = fresh, 1 = salt)
+
+## Salinity at (x, z): 0.0 = fresh, ~0.35-0.65 = brackish shallows/estuary, 1.0 = salt open ocean.
+## NAN where there is no water (dry land above sea with no CA pool). Cheap geometric proxy — no field.
+func salinity_at(x: float, z: float) -> float:
+	var idx: int = _index_at(x, z)
+	if idx < 0 or _sampled[idx] == 0:
+		return NAN
+	var floor_h: float = _terrain_h[idx]
+	if floor_h < sea_level:
+		# Ocean: saltier the deeper it gets; the shallow shore band stays brackish.
+		var depth_below: float = sea_level - floor_h
+		return clampf(depth_below / SALT_FULL_DEPTH, BRACKISH_FLOOR, 1.0)
+	# Above sea level: only water here if a CA pool (lake/river) covers it, and that is fresh.
+	if material_depth_at(x, z, Mat.WATER) >= WATER_THRESHOLD:
+		return 0.0
+	return NAN
+
+
+## World Y of the water surface at (x, z): the ocean plane (sea_level) over the sea, else the CA
+## freshwater surface (terrain_h + depth). NAN when the cell is unsampled or dry land.
 func surface_y_at(x: float, z: float) -> float:
 	var idx: int = _index_at(x, z)
 	if idx < 0 or _sampled[idx] == 0:
 		return NAN
+	if _terrain_h[idx] < sea_level:
+		return sea_level
 	var d: float = material_depth_at(x, z, Mat.WATER)
 	if d < WATER_THRESHOLD:
 		return NAN

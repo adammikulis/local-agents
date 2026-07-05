@@ -1,0 +1,20 @@
+{
+	"species": "jellyfish",
+	"aquatic": true,
+	"model": "",
+	"body": "jellyfish",
+	"speed": 0.7,
+	"size": 0.5,
+	"color": [0.80, 0.72, 0.90],
+	"salinity_min": 0.50,
+	"salinity_max": 1.0,
+	"depth_min": 2.0,
+	"depth_max": 999.0,
+	"submerge": 0.9,
+	"sense_radius": 6.0,
+	"maturity_age": 10.0,
+	"food_value": 14.0,
+	"max_age": 90.0,
+	"pop_cap": 10,
+	"initial": 4
+}

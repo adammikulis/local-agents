@@ -18,6 +18,7 @@ const FloodScript: GDScript = preload("res://addons/local_agents/scenes/simulati
 const AudioDirectorScript: GDScript = preload("res://addons/local_agents/audio/AudioDirector.gd")
 const WeatherScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/WeatherSystem.gd")
 const MaterialFieldScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField.gd")
+const OceanPlaneScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/OceanPlane.gd")
 const CloudLayerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/CloudLayer.gd")
 const DebugPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugPanel.gd")
 const DebugOverlayScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugOverlay.gd")
@@ -37,6 +38,7 @@ var _selection_ring: MeshInstance3D
 var _selected: Node = null
 var _weather: Node = null   # LAWeatherSystem (visual rain/wind for now; being made emergent)
 var _material: Node = null   # LAMaterialField — the ONE substrate: terrain-coupled water + heat/air
+var _ocean: Node = null      # LAOceanPlane — the calm sea drawn as one GPU plane (CA meshes only waves)
 var _clouds: Node = null     # LACloudLayer rendering the field's cloud density (aloft)
 var _fog: Node = null        # LACloudLayer rendering the field's fog density (ground-hugging)
 
@@ -130,6 +132,7 @@ var _peak_circling: int = 0
 var _peak_investigating: int = 0
 var _peak_sleeping: int = 0
 var _auto_meteor: bool = false
+var _overview: bool = false             # --overview: frame a wide whole-island vista (screenshot aid)
 var _debug_demo: bool = false
 var _user_shot_counter: int = 0        # numbers the screenshots the DebugPanel's save button writes
 var _auto_volcano: bool = false
@@ -217,6 +220,10 @@ func _ready() -> void:
 	add_child(_camera)
 	_camera.current = true
 	_terrain.attach_viewer(_camera)
+	# Bound the pan to the island + its ocean ring (a little inside the 300-unit world edge) so the
+	# player can roam the coast and open water but never fly off past the horizon into empty void.
+	if _camera.has_method("set_pan_limit"):
+		_camera.set_pan_limit(275.0)
 
 	# --- Actors + ecology ---
 	_actors_root = Node3D.new()
@@ -249,7 +256,8 @@ func _ready() -> void:
 	_audio.name = "AudioDirector"
 	add_child(_audio)
 	_audio.configure()
-	_audio.set_music_enabled(true)
+	# Music is MUTED by default (the player can enable it from the audio menu); SFX stay on.
+	_audio.set_music_enabled(false)
 	_audio.set_music_mood({"population": 0, "time_of_day": 0.30, "destruction_intensity": 0.0})
 	# Wire the HUD audio menu to the live director + listen for the auto-adapt toggle.
 	if _hud != null and _hud.has_method("set_audio_director"):
@@ -281,6 +289,13 @@ func _ready() -> void:
 	_material.set_sun(_sun)
 	if _ecology.has_method("set_material_field"):
 		_ecology.set_material_field(_material)
+
+	# The calm sea: ONE GPU ocean plane at sea level, following the camera to the horizon. The water
+	# itself is still unified CA (it evaporates, quenches lava, a meteor splashes it); this plane just
+	# draws the flat bulk cheaply, while the CA surface mesh renders only waves/surges that deviate.
+	_ocean = OceanPlaneScript.new()
+	add_child(_ocean)
+	_ocean.setup(_terrain.sea_level() if _terrain.has_method("sea_level") else 0.0, _camera)
 
 	# Render the field's emergent condensate: a cloud sheet aloft + a ground-hugging fog sheet, both
 	# sampling the field's own density grids so they show exactly what the water cycle grew.
@@ -394,6 +409,8 @@ func _parse_cmdline() -> void:
 			_auto_lightning = true
 		elif arg == "--auto-select":
 			_auto_select = true
+		elif arg == "--overview":
+			_overview = true
 		elif arg == "--cognition-stats":
 			_cognition_stats = true
 
@@ -407,12 +424,23 @@ func _process(delta: float) -> void:
 		if _terrain.is_ready_at(Vector3(0, 0, 0)):
 			_ready_wait_ticks += 1
 			if _ready_wait_ticks > 6:
+				# Carve real 3D caves into the island BEFORE seeding water, so the terrain is genuinely 3D
+				# (tunnels/caverns fluids can pour into) and the sea/springs settle around the reshaped rock.
+				if _terrain.has_method("carve_caves"):
+					_terrain.carve_caves(1337)
 				_ecology.spawn_initial(INITIAL_COUNTS)
 				_ecology.populate_environment(ROCK_COUNT, FOREST_CLUSTERS)
 				_seed_water()
+				# After the sea level is locked (_seed_water), seed initial ocean + lake life so the
+				# water reads alive from the start; _tick_aquatic keeps every species topped up after.
+				if _ecology.has_method("stock_initial_aquatic"):
+					_ecology.stock_initial_aquatic()
 				_spawn_default_volcano()
 				# Frame a vista at the real surface height (only when not driven by a harness cam).
-				if not _auto_meteor and not _auto_select and _camera.has_method("frame_vista"):
+				if _overview and _camera.has_method("frame_overview"):
+					var ohv: float = _terrain.surface_height(0.0, 0.0)
+					_camera.frame_overview(Vector3(0.0, (ohv if not is_nan(ohv) else 20.0), 0.0))
+				elif not _auto_meteor and not _auto_select and _camera.has_method("frame_vista"):
 					var oh: float = _terrain.surface_height(0.0, 0.0)
 					if not is_nan(oh):
 						_camera.frame_vista(Vector3(0.0, oh, 0.0))
@@ -1029,7 +1057,8 @@ func _apply_at(point: Vector3) -> void:
 		var flood: Node = FloodScript.new()
 		_actors_root.add_child(flood)
 		flood.setup(_terrain, _ecology)
-		flood.surge(point)
+		# Tie the surge footprint to the spawn brush so a flood only covers where the player aimed.
+		flood.surge(point, _brush_radius)
 		_hud.set_status("Flood surge!")
 	else:
 		_ecology.spawn(_armed_kind, point)
@@ -1261,35 +1290,38 @@ func _push_environment() -> void:
 		sf.set_wash(_weather.rain())
 
 
-# Choose the water's sea level (from origin ground) and a few high-ground springs
-# so genuine basins fill as lakes and springs feed downhill rivers. One-shot.
+# Lock the sea level to the island's true ocean surface, sync the terrain shader's beach/snow bands to
+# it, and pick a few high interior peaks as persistent springs so rivers run downhill to the coast and
+# drain into the ocean (continuous water). One-shot.
 func _seed_water() -> void:
 	if _material == null or _terrain == null:
 		return
-	var origin_h: float = _terrain.surface_height(0.0, 0.0)
-	if not is_nan(origin_h):
-		# Only ground clearly below the origin becomes standing water — avoids a global flood.
-		_material.sea_level = origin_h - 10.0
-		# Match the terrain shader's beach/snow bands to the REAL ground: the sand line sits at the
-		# water surface and snow only caps genuine high peaks (well above local ground), so the world
-		# reads as a varied landscape instead of an all-white snowfield around the spawn.
-		if _terrain.has_method("set_shader_param"):
-			_terrain.set_shader_param("sea_level", origin_h - 10.0)
-			_terrain.set_shader_param("snow_height", origin_h + 78.0)
-	# Sample a ring of candidate points; the highest few become persistent springs.
+	# The terrain was shaped around a fixed sea level; use it directly (not origin ground, which is now
+	# the island's high centre) so the whole sub-sea seabed reads as ocean.
+	var sea: float = _terrain.sea_level() if _terrain.has_method("sea_level") else 0.0
+	_material.sea_level = sea
+	if _terrain.has_method("set_shader_param"):
+		_terrain.set_shader_param("sea_level", sea)
+		# Snow only lightly caps the very highest hilltops (the isle tops out ~78 above a sea of ~6), so
+		# the island reads green with rocky slopes rather than a snowfield.
+		_terrain.set_shader_param("snow_height", sea + 66.0)
+	# Sample interior rings and take the highest points as spring heads (headwaters up on the island so
+	# streams flow the full length down to the sea). Must be clearly above the sea to feed real rivers.
 	var candidates: Array = []
-	var ring: int = 8
-	for i in range(ring):
-		var ang: float = TAU * float(i) / float(ring)
-		var r: float = 130.0
-		var px: float = cos(ang) * r
-		var pz: float = sin(ang) * r
-		var h: float = _terrain.surface_height(px, pz)
-		if not is_nan(h):
-			candidates.append({"pos": Vector3(px, h, pz), "h": h})
+	var rings: Array = [50.0, 95.0, 140.0]
+	var per: int = 8
+	for ri in range(rings.size()):
+		var r: float = float(rings[ri])
+		for i in range(per):
+			var ang: float = TAU * float(i) / float(per) + float(ri) * 0.7   # stagger rings
+			var px: float = cos(ang) * r
+			var pz: float = sin(ang) * r
+			var h: float = _terrain.surface_height(px, pz)
+			if not is_nan(h) and h > sea + 25.0:
+				candidates.append({"pos": Vector3(px, h, pz), "h": h})
 	candidates.sort_custom(func(a, b): return float(a["h"]) > float(b["h"]))
 	_springs.clear()
-	for i in range(mini(3, candidates.size())):
+	for i in range(mini(4, candidates.size())):
 		_springs.append(candidates[i]["pos"])
 	_springs_seeded = true
 

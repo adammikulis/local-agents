@@ -1,0 +1,21 @@
+{
+	"species": "crab",
+	"aquatic": true,
+	"model": "",
+	"body": "crab",
+	"speed": 1.0,
+	"size": 0.4,
+	"color": [0.82, 0.32, 0.22],
+	"salinity_min": 0.30,
+	"salinity_max": 0.80,
+	"depth_min": 0.0,
+	"depth_max": 4.0,
+	"submerge": 0.8,
+	"basks": true,
+	"sense_radius": 7.0,
+	"maturity_age": 12.0,
+	"food_value": 30.0,
+	"max_age": 150.0,
+	"pop_cap": 12,
+	"initial": 6
+}

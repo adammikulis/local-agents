@@ -253,10 +253,17 @@ func heat_world_size() -> Vector2:
 
 # --- Liquid surfaces (smooth, welded heightfield) ---------------------------
 
+# Ocean cells whose water surface is within this of sea level are "calm sea": the static GPU ocean plane
+# draws them, so the CA mesh SKIPS them. Only water that deviates — a meteor splash crater/wave, a surge,
+# a river perched above the sea — gets a per-cell CA surface. A flat filled ocean therefore meshes ~zero
+# cells, keeping the every-step GDScript rebuild cheap while the sea stays fully CA-simulated.
+const SEA_WAVE_EPS: float = 0.45
+
 func rebuild_water() -> void:
 	if _surface_mesh == null or not _f._mats.has(Mat.WATER):
 		return
-	_build_liquid_surface(_f._mats[Mat.WATER], RENDER_THRESHOLD, _surface_mesh, _water_material)
+	# skip_flat_sea = true: the calm ocean is the plane's job; the CA only renders dynamic/perched water.
+	_build_liquid_surface(_f._mats[Mat.WATER], RENDER_THRESHOLD, _surface_mesh, _water_material, true)
 
 
 func rebuild_lava() -> void:
@@ -281,7 +288,7 @@ func rebuild_cooled() -> void:
 # (terrain + depth) of the wet cells touching it, and corners are SHARED between adjacent cells (welded)
 # — so the surface is a smooth heightfield that blends across cells and at the wet/dry shoreline.
 # Per-vertex normals come from the corner-height gradient, giving smooth shading instead of flat facets.
-func _build_liquid_surface(depth: PackedFloat32Array, threshold: float, mesh: ArrayMesh, material: ShaderMaterial) -> void:
+func _build_liquid_surface(depth: PackedFloat32Array, threshold: float, mesh: ArrayMesh, material: ShaderMaterial, skip_flat_sea: bool = false) -> void:
 	var dim: int = _f._dim
 	var cw: int = dim + 1                       # corner grid is (dim+1) x (dim+1)
 	var ccount: int = cw * cw
@@ -299,7 +306,7 @@ func _build_liquid_surface(depth: PackedFloat32Array, threshold: float, mesh: Ar
 		var row: int = j * dim
 		for i in range(dim):
 			var idx: int = row + i
-			if _f._sampled[idx] == 0 or depth[idx] < threshold:
+			if not _cell_meshes(idx, depth, threshold, skip_flat_sea):
 				continue
 			any = true
 			var surf: float = _f._terrain_h[idx] + depth[idx]
@@ -353,7 +360,7 @@ func _build_liquid_surface(depth: PackedFloat32Array, threshold: float, mesh: Ar
 		var row2: int = j2 * dim
 		for i2 in range(dim):
 			var idx2: int = row2 + i2
-			if _f._sampled[idx2] == 0 or depth[idx2] < threshold:
+			if not _cell_meshes(idx2, depth, threshold, skip_flat_sea):
 				continue
 			var b0: int = j2 * cw + i2
 			var v0: int = vmap[b0]
@@ -379,6 +386,19 @@ func _build_liquid_surface(depth: PackedFloat32Array, threshold: float, mesh: Ar
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	if material != null:
 		mesh.surface_set_material(0, material)
+
+
+# Whether a cell contributes to the CA liquid mesh: sampled, above the depth threshold, and — when
+# skip_flat_sea (water only) — NOT calm open ocean (a sub-sea cell whose surface sits within SEA_WAVE_EPS
+# of sea level, which the GPU ocean plane already draws). Kept in one place so both build passes agree.
+func _cell_meshes(idx: int, depth: PackedFloat32Array, threshold: float, skip_flat_sea: bool) -> bool:
+	if _f._sampled[idx] == 0 or depth[idx] < threshold:
+		return false
+	if skip_flat_sea and _f._terrain_h[idx] < _f.sea_level:
+		var surf: float = _f._terrain_h[idx] + depth[idx]
+		if absf(surf - _f.sea_level) < SEA_WAVE_EPS:
+			return false
+	return true
 
 
 # Height of neighbour corner `nc` if it is in-bounds (`ok`) and active, else the fallback `self_h`
