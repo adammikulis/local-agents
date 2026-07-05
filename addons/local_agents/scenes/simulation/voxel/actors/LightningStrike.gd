@@ -11,6 +11,8 @@ const STRIKE_HEIGHT: float = 130.0        # bolt drawn from this high down to th
 const STRIKE_HEAT: float = 1400.0         # °C deposited (well above wood's 300°C ignition)
 const HEAT_RADIUS: float = 3.0
 const SCORCH_RADIUS: float = 1.4          # small glassy crater at the point
+const LETHAL_RADIUS: float = 7.0          # direct blast: trees topple, creatures & fish die close in
+const WATER_FISH_RADIUS: float = 12.0     # water conducts — a bolt into a pool electrocutes fish wider
 const SCARE_RADIUS: float = 34.0
 const FLASH_ENERGY: float = 34.0
 const LINGER: float = 0.7                 # seconds of afterglow before free
@@ -39,20 +41,45 @@ func strike(point: Vector3) -> void:
 	add_child(_flash)
 
 	# INJECTION ONLY — fire/scorch/steam emerge from the heat.
+	var struck_water: bool = false
 	if _ecology != null and _ecology.has_method("material_field"):
 		var field: Object = _ecology.material_field()
 		if field != null:
 			if field.has_method("add_heat"):
 				field.add_heat(point, STRIKE_HEAT, HEAT_RADIUS)
 			if field.has_method("is_water_at") and field.is_water_at(point.x, point.z):
+				struck_water = true
 				if field.has_method("splash"):
 					field.splash(point, 2.5)
 				LocalAgentsAudioDirector.emit(get_tree(), "steam", point)
+	# LETHAL BLAST — close to the bolt, trees topple and creatures (and any fish in reach) die.
+	# Wider than this, broadcast_scare only panics the survivors: a bolt kills close, scares wide.
+	if _ecology != null and _ecology.has_method("damage_sphere"):
+		_ecology.damage_sphere(point, LETHAL_RADIUS)
+	# Water conducts: a strike into a pool electrocutes fish over a wider radius than the direct blast.
+	if struck_water:
+		_electrocute_fish(point, WATER_FISH_RADIUS)
 	if _terrain != null and _terrain.has_method("carve_sphere"):
 		_terrain.carve_sphere(point, SCORCH_RADIUS)
 	if _ecology != null and _ecology.has_method("broadcast_scare"):
 		_ecology.broadcast_scare(point, SCARE_RADIUS, 1.0)
 	LocalAgentsAudioDirector.emit(get_tree(), "thunder", point)
+
+
+# Electrocute every fish within `radius` of a strike that hit water. damage_sphere already kills fish
+# close in (they're in "selectable" and have die()); this reaches the wider pool the current spread to.
+func _electrocute_fish(point: Vector3, radius: float) -> void:
+	var r2: float = radius * radius
+	for fish in get_tree().get_nodes_in_group("species_fish"):
+		if not is_instance_valid(fish) or not (fish is Node3D):
+			continue
+		var f: Node3D = fish as Node3D
+		if f.global_position.distance_squared_to(point) > r2:
+			continue
+		if f.has_method("die"):
+			f.die("electrocuted")
+		elif f.has_method("queue_free"):
+			f.queue_free()
 
 
 func _process(delta: float) -> void:
