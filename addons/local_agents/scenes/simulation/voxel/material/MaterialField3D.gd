@@ -43,6 +43,61 @@ var _water: PackedFloat32Array = PackedFloat32Array()    # water mass per cell (
 var _wnext: PackedFloat32Array = PackedFloat32Array()    # double buffer for the water step
 
 
+var _sea_level: float = 0.0
+var _half_extent: float = 0.0
+
+
+# --- Setup ------------------------------------------------------------------
+
+## Build the 3D volume covering XZ in [-half_extent, half_extent] and Y in [y_min, y_max] at cell_size,
+## bound to `terrain` (for the is_solid rock/void query). Cells are sampled solid/void lazily.
+func setup(terrain, half_extent: float, cell_size: float, y_min: float, y_max: float, sea_level: float) -> void:
+	_terrain = terrain
+	_half_extent = maxf(1.0, half_extent)
+	_cell_size = maxf(0.5, cell_size)
+	_sea_level = sea_level
+	var dx: int = int(round((2.0 * _half_extent) / _cell_size)) + 1
+	var dy: int = int(round((y_max - y_min) / _cell_size)) + 1
+	setup_dims(dx, dy, dx, _cell_size, Vector3(-_half_extent, y_min, -_half_extent))
+
+
+## Sample rock/void for every cell from the terrain SDF (is_solid). Eager version — fine at setup for
+## the dense grid; a budgeted lazy variant can replace it once wired into the frame loop. Skips the
+## per-cell query for cells clearly in open air above the column's surface (cheap win).
+func sample_solidity() -> void:
+	if _terrain == null or not _terrain.has_method("is_solid"):
+		return
+	var has_surf: bool = _terrain.has_method("surface_height")
+	for iz in range(_dim_z):
+		for ix in range(_dim_x):
+			var wx: float = _origin.x + float(ix) * _cell_size
+			var wz: float = _origin.z + float(iz) * _cell_size
+			var surf: float = _terrain.surface_height(wx, wz) if has_surf else NAN
+			for iy in range(_dim_y):
+				var wy: float = _origin.y + float(iy) * _cell_size
+				var i: int = _idx(ix, iy, iz)
+				# Well above the surface => open air, no need to query (also handles NAN columns as air).
+				if not is_nan(surf) and wy > surf + _cell_size:
+					_solid[i] = 0
+					continue
+				_solid[i] = 1 if _terrain.is_solid(Vector3(wx, wy, wz)) else 0
+
+
+## Seed the ocean: every VOID cell whose centre is below sea level starts full of water. The sea is a
+## known level, so we set it directly (fast) instead of CA-filling the whole seabed from empty; the CA
+## then only has to handle dynamics (waves, splashes, rivers meeting the sea, water pouring into caves).
+func seed_sea() -> void:
+	for iy in range(_dim_y):
+		var wy: float = _origin.y + float(iy) * _cell_size
+		if wy >= _sea_level:
+			break                                       # layers above sea level: nothing to seed
+		for iz in range(_dim_z):
+			for ix in range(_dim_x):
+				var i: int = _idx(ix, iy, iz)
+				if _solid[i] == 0 and _water[i] < MAX_MASS:
+					_water[i] = MAX_MASS
+
+
 # --- Setup ------------------------------------------------------------------
 
 ## Explicit-dimension setup (used by tests / when the caller knows the volume directly).
@@ -206,3 +261,33 @@ func column_surface_y(ix: int, iz: int) -> float:
 			var fill: float = clampf(m, 0.0, MAX_MASS)
 			return _origin.y + (float(iy) + fill - 0.5) * _cell_size
 	return NAN
+
+
+# --- World-space queries (the 2.5D-compatible API the consumers call) --------
+
+func _col_i(w: float, o: float) -> int:
+	return clampi(int(round((w - o) / _cell_size)), 0, _dim_x - 1)
+
+
+## World Y of the water surface at (x, z) — sea, lake, river, or a cavern pool top. NAN if dry.
+func surface_y_at(x: float, z: float) -> float:
+	return column_surface_y(_col_i(x, _origin.x), _col_i(z, _origin.z))
+
+
+func is_water_at(x: float, z: float) -> bool:
+	return not is_nan(surface_y_at(x, z))
+
+
+## Total water column depth at (x, z) in world units (sum of cell fills × cell size). 0 if dry.
+func depth_at(x: float, z: float) -> float:
+	var ix: int = _col_i(x, _origin.x)
+	var iz: int = _col_i(z, _origin.z)
+	var d: float = 0.0
+	for iy in range(_dim_y):
+		d += minf(_water[_idx(ix, iy, iz)], MAX_MASS)
+	return d * _cell_size
+
+
+## Inject water at a world point (a spring, rain, a flood surge, a meteor splash).
+func add_water_world(pos: Vector3, amount: float) -> void:
+	add_water_cell(_col_i(pos.x, _origin.x), _col_i(pos.y, _origin.y), _col_i(pos.z, _origin.z), amount)

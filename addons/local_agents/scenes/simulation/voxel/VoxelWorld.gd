@@ -256,7 +256,8 @@ func _ready() -> void:
 	_audio.name = "AudioDirector"
 	add_child(_audio)
 	_audio.configure()
-	_audio.set_music_enabled(true)
+	# Music is MUTED by default (the player can enable it from the audio menu); SFX stay on.
+	_audio.set_music_enabled(false)
 	_audio.set_music_mood({"population": 0, "time_of_day": 0.30, "destruction_intensity": 0.0})
 	# Wire the HUD audio menu to the live director + listen for the auto-adapt toggle.
 	if _hud != null and _hud.has_method("set_audio_director"):
