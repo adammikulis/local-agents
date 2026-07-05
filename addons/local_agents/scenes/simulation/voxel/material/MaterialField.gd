@@ -34,6 +34,13 @@ const READY_FRACTION: float = 0.9
 # owns the module + the shared _temp array and reads the real scene sun (_sun_light) for solar input.
 const HeatScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialHeat.gd")
 var _heat = null                           # LAMaterialHeat (conduction + ambient/solar thermal step)
+
+# --- GPU compute backend (Phase 1: heat step only). Owns a LOCAL RenderingDevice + the heat pipeline;
+# built in setup() only when a local RenderingDevice is available (so --headless stays on the CPU
+# MaterialHeat oracle). When _use_gpu, _material_step runs the GPU heat kernel instead of _heat.step().
+const GPUScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGPU.gd")
+var _gpu = null                            # LAMaterialGPU (local RenderingDevice heat compute) or null
+var _use_gpu: bool = false
 ## New cells start at a mild temperature (not 0°C) so nothing freezes before the field settles.
 const INITIAL_TEMP: float = 15.0
 ## New cells start with a little ambient humidity (air is never bone-dry), so clouds/fog can form from
@@ -178,6 +185,15 @@ func setup(terrain, half_extent: float, cell_size: float) -> void:
 
 	_heat = HeatScript.new()
 	_heat.setup(self)
+
+	# Build the GPU backend when a local RenderingDevice exists (real play); headless has none, so it
+	# stays false and the CPU MaterialHeat step (the oracle + sanctioned no-compute fallback) runs.
+	_use_gpu = false
+	_gpu = null
+	if GPUScript.available():
+		_gpu = GPUScript.new()
+		_gpu.setup(self)
+		_use_gpu = true
 
 
 ## Ecology ref so combustion can topple/reseed/scare the actors it consumes (set by set_material_field).
@@ -356,7 +372,12 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 func _material_step() -> void:
 	if _cell_count <= 0:
 		return
-	_heat.step()
+	# Heat step: GPU kernel when available (real play), else the CPU MaterialHeat oracle (headless). The
+	# GPU path downloads temp back into _temp so the CPU liquid/combustion/render passes below see it.
+	if _use_gpu:
+		_gpu.step_heat(_heat._solar_input())
+	else:
+		_heat.step()
 	_liquid.step()
 	# The atmosphere (vapor->cloud/fog->rain + 3 wind-transport passes) is the heaviest module by far
 	# (~10 grid passes). Weather evolves slowly, so run it every OTHER CA step at double strength —
