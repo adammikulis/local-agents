@@ -42,6 +42,7 @@ func _species_config(kind: String) -> Dictionary:
 				"herd": true, "pop_cap": 40,
 				# Low stamina: sprinting from a persistence hunter exhausts them.
 				"max_energy": 70.0, "metabolism": 2.6, "food_value": 50.0,
+				"thirst_rate": 1.4,
 				# Loose, skittish ground herd: modest cohesion, strong separation;
 				# breaks apart the instant a predator is near.
 				"flock_cohesion": 0.6, "flock_alignment": 0.55,
@@ -56,6 +57,7 @@ func _species_config(kind: String) -> Dictionary:
 				"flees_from": PackedStringArray(),
 				"herd": false, "pop_cap": 12,
 				"max_energy": 130.0, "metabolism": 2.0, "food_value": 70.0,
+				"thirst_rate": 1.0,
 				# Semi-solitary: weak cohesion so they never clump, some alignment,
 				# healthy personal space.
 				"flock_cohesion": 0.25, "flock_alignment": 0.4,
@@ -71,6 +73,7 @@ func _species_config(kind: String) -> Dictionary:
 				"flees_from": PackedStringArray(),
 				"herd": true, "pop_cap": 30,
 				"max_energy": 60.0, "metabolism": 2.0, "food_value": 30.0,
+				"thirst_rate": 0.6,
 				# Tight, fast, highly-aligned 3D aerial flock: alignment and
 				# cohesion dominate over a large perception radius.
 				"flock_cohesion": 0.9, "flock_alignment": 1.2,
@@ -87,6 +90,7 @@ func _species_config(kind: String) -> Dictionary:
 				# Endurance apex: high stamina, hunts by persistence + thrown rocks,
 				# scavenges anything. Slower than prey, so it wears them down.
 				"max_energy": 160.0, "metabolism": 1.4, "food_value": 90.0,
+				"thirst_rate": 1.1,
 				"throws": true, "throw_range": 15.0,
 				# Loose social groups: balanced cohesion + alignment, moderate
 				# spacing — they gather but keep an arm's length.

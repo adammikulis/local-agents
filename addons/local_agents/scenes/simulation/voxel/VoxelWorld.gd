@@ -30,7 +30,10 @@ var _weather: Node = null   # LAWeatherSystem
 var _water: Node = null      # LAWaterFieldSystem — CA rivers/lakes/ocean
 
 # Rain depth-per-second added to the water field per unit of weather rain (0..1).
-const RAIN_TO_DEPTH: float = 0.35
+# Deliberately small: rain is a transient wetting that flows downhill to fill basins,
+# NOT the main water source (that's sea-level basins + springs). Too large floods the
+# whole map because uniform rain outpaces evaporation on flat ground.
+const RAIN_TO_DEPTH: float = 0.03
 # Persistent springs (world XZ) seeded on high ground so rivers form downhill; fed
 # a little depth every frame so channels sustain instead of drying out.
 var _springs: Array = []
@@ -222,8 +225,22 @@ func _process(_delta: float) -> void:
 	if _run_frames > 0 and _frame == _run_frames:
 		var n_sel: int = get_tree().get_nodes_in_group("selectable").size()
 		var n_act: int = _actors_root.get_child_count()
-		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d}" % [
-			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act])
+		# Live-world diagnostics: verify the wired subsystems are actually doing something.
+		var wet: int = 0
+		if _water != null and _water.has_method("wet_cell_count"):
+			wet = _water.wet_cell_count()
+		var n_poop: int = get_tree().get_nodes_in_group("poop").size()
+		var creatures: Array = get_tree().get_nodes_in_group("creature")
+		var min_hyd: int = 100
+		var drinkers: int = 0
+		for c in creatures:
+			if is_instance_valid(c) and "hydration" in c and "max_hydration" in c:
+				var h: int = int(round(100.0 * float(c.hydration) / maxf(1.0, float(c.max_hydration))))
+				min_hyd = mini(min_hyd, h)
+				if String(c.get("state")) == "drink":
+					drinkers += 1
+		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"poop\":%d,\"min_hydration\":%d,\"drinking\":%d}" % [
+			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, n_poop, min_hyd, drinkers])
 		get_tree().quit(0)
 
 

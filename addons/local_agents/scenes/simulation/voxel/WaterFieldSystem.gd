@@ -57,8 +57,9 @@ const FLOW_FACTOR: float = 0.25
 ## A single transfer is also capped at this fraction of the head difference so
 ## a cell can never overshoot a neighbour (the classic anti-oscillation guard).
 const MAX_PAIR_FRACTION: float = 0.5
-## Water removed from every wet cell each step so puddles dry to equilibrium.
-const EVAP_PER_STEP: float = 0.0015
+## Water removed from every wet cell each step so puddles dry to equilibrium. Tuned so
+## shallow rain on flat/high ground dries off (only basins & flow channels stay wet).
+const EVAP_PER_STEP: float = 0.0035
 ## How fast sub-sea-level cells fill toward sea_level per step (ocean fill).
 const SEA_FILL_RATE: float = 0.6
 

@@ -10,6 +10,7 @@ const MAX_LIFETIME: float = 4.0
 const ARC_HEIGHT: float = 1.5
 
 var _terrain: Object = null
+var _water: Object = null
 var _target: Node3D = null
 var _speed: float = 22.0
 var _flying: bool = false
@@ -17,8 +18,9 @@ var _elapsed: float = 0.0
 var _start_pos: Vector3 = Vector3.ZERO
 var _initial_distance: float = 0.0
 
-func setup(terrain) -> void:
+func setup(terrain, water = null) -> void:
 	_terrain = terrain
+	_water = water
 
 	var material: StandardMaterial3D = StandardMaterial3D.new()
 	material.albedo_color = Color(0.4, 0.38, 0.35)
@@ -92,6 +94,7 @@ func _physics_process(delta: float) -> void:
 		var surf = _terrain.surface_height(global_position.x, global_position.z)
 		if (typeof(surf) == TYPE_FLOAT or typeof(surf) == TYPE_INT) and not is_nan(float(surf)):
 			if global_position.y < float(surf):
+				_maybe_splash(global_position)
 				queue_free()
 				return
 
@@ -102,8 +105,16 @@ func _strike() -> void:
 			_target.on_struck()
 		else:
 			_target.queue_free()
+	_maybe_splash(global_position)
 	_spawn_impact_puff()
 	queue_free()
+
+
+# Splash accent if the rock came down in water.
+func _maybe_splash(at: Vector3) -> void:
+	if _water != null and _water.has_method("is_water_at") and _water.is_water_at(at.x, at.z):
+		if _water.has_method("splash"):
+			_water.splash(at, 1.0)
 
 func _spawn_impact_puff() -> void:
 	var parent: Node = get_parent()

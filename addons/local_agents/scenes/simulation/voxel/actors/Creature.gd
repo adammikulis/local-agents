@@ -26,6 +26,17 @@ var food_value: float = 55.0
 var max_age: float = 90.0
 var hungry_at: float = 0.7
 
+# --- thirst (emergent: drink from the water field or die of dehydration) ---
+# hydration mirrors energy: full at max, drains at thirst_rate, drinking refills, 0 = death.
+var hydration: float = 100.0
+var max_hydration: float = 100.0
+var thirst_rate: float = 1.0
+const DRINK_RATE: float = 45.0             # hydration/sec restored while drinking
+const THIRSTY_FRACTION: float = 0.5        # below this, seeking water interrupts other drives
+var _water = null                          # LAWaterFieldSystem (injected)
+var _water_dir_cache: Vector3 = Vector3.ZERO
+var _water_search_cd: float = 0.0
+
 # --- ranged hunting (throwers can't outrun fast prey, so they throw rocks) ---
 var throws: bool = false
 var throw_range: float = 14.0
@@ -94,6 +105,10 @@ func set_ecology(e) -> void:
 	_ecology = e
 
 
+func set_water(w) -> void:
+	_water = w
+
+
 # A thrown rock struck me — I die (drop a corpse).
 func on_struck() -> void:
 	die("struck")
@@ -157,6 +172,9 @@ func setup(_terrain, _config: Dictionary) -> void:
 	max_energy = float(config.get("max_energy", 100.0))
 	energy = max_energy
 	metabolism = float(config.get("metabolism", metabolism))
+	max_hydration = float(config.get("max_hydration", 100.0))
+	hydration = max_hydration
+	thirst_rate = float(config.get("thirst_rate", thirst_rate))
 	food_value = float(config.get("food_value", size * 90.0))
 	max_age = float(config.get("max_age", maxf(maturity_age * 5.0, 60.0)))
 	hungry_at = float(config.get("hungry_at", hungry_at))
@@ -225,6 +243,11 @@ func _physics_process(delta: float) -> void:
 	if energy <= 0.0:
 		die("starvation")
 		return
+	# Thirst drains steadily; dehydration kills like starvation. Drinking (below) refills it.
+	hydration -= thirst_rate * delta
+	if hydration <= 0.0:
+		die("thirst")
+		return
 	if age >= max_age:
 		die("old age")
 		return
@@ -267,13 +290,21 @@ func _physics_process(delta: float) -> void:
 			if away.length() > 0.001:
 				desired = away.normalized()
 			eff_speed = speed * 1.7
-		elif can_fly:
-			desired = _think_bird(pos, delta)
-			state = "cruise"
-		elif diet == "carnivore" or (diet == "omnivore" and preys_on.size() > 0):
-			desired = _think_predator(pos, desired)
 		else:
-			desired = _think_prey(pos, desired)
+			# Thirst competes with hunger: once parched, seeking/drinking water interrupts
+			# normal behavior (but never overrides fleeing a predator, handled above).
+			var thirst_action: String = _handle_thirst(pos, delta)
+			if thirst_action == "drink":
+				eff_speed = 0.0                      # stand at the water's edge and drink
+			elif thirst_action == "seek":
+				desired = _water_dir_cache
+			elif can_fly:
+				desired = _think_bird(pos, delta)
+				state = "cruise"
+			elif diet == "carnivore" or (diet == "omnivore" and preys_on.size() > 0):
+				desired = _think_predator(pos, desired)
+			else:
+				desired = _think_prey(pos, desired)
 
 		if big_pred == null and _wander_timer <= 0.0:
 			_wander_timer = randf_range(1.2, 3.0)
@@ -387,7 +418,7 @@ func _throw_rock_at(prey: Node3D) -> void:
 	var rock: ThrownRockScript = ThrownRockScript.new()
 	parent.add_child(rock)
 	if rock.has_method("setup"):
-		rock.setup(terrain)
+		rock.setup(terrain, _water)
 	rock.throw_at(global_position + Vector3(0, size, 0), prey, 26.0)
 
 
@@ -496,6 +527,46 @@ func _flock_steer(pos: Vector3, flatten: bool) -> Vector3:
 	return steer * flock_weight
 
 
+# Thirst drive. Returns "" (not thirsty enough / no water known), "drink" (standing at
+# water — refill in place) or "seek" (head toward the nearest water via _water_dir_cache).
+# Emergent watering holes: nothing scripts where animals gather — they simply walk to the
+# nearest wet cell of the shared water field, so they cluster wherever water actually pools.
+func _handle_thirst(pos: Vector3, delta: float) -> String:
+	if _water == null or not _water.has_method("is_water_at"):
+		return ""
+	if hydration >= max_hydration * THIRSTY_FRACTION:
+		return ""
+	if _water.is_water_at(pos.x, pos.z):
+		hydration = minf(max_hydration, hydration + DRINK_RATE * delta)
+		return "drink"
+	_water_search_cd -= delta
+	if _water_search_cd <= 0.0:
+		_water_search_cd = 0.5
+		_water_dir_cache = _find_water_dir(pos)
+	if _water_dir_cache != Vector3.ZERO:
+		return "seek"
+	return ""
+
+
+# Probe rings of increasing radius for the nearest wet cell and return a flat unit
+# heading toward it, or ZERO if no water is within reach. Cheap: index-math queries.
+func _find_water_dir(pos: Vector3) -> Vector3:
+	if _water == null or not _water.has_method("is_water_at"):
+		return Vector3.ZERO
+	var radii: Array = [sense_radius, sense_radius * 2.0, sense_radius * 3.5]
+	var dirs: int = 12
+	for r in radii:
+		for k in range(dirs):
+			var ang: float = TAU * float(k) / float(dirs)
+			var px: float = pos.x + cos(ang) * float(r)
+			var pz: float = pos.z + sin(ang) * float(r)
+			if _water.is_water_at(px, pz):
+				var d: Vector3 = Vector3(px - pos.x, 0.0, pz - pos.z)
+				if d.length() > 0.001:
+					return d.normalized()
+	return Vector3.ZERO
+
+
 func _try_eat_plant(pos: Vector3) -> bool:
 	if energy > max_energy * 0.92:
 		return false                          # sated: don't bother grazing
@@ -561,6 +632,7 @@ func get_inspector_payload() -> Dictionary:
 	var maturity: String = "adult" if is_mature() else "juvenile"
 	var activity: String = _describe_activity()
 	var energy_pct: int = int(round(100.0 * energy / maxf(1.0, max_energy)))
+	var hydration_pct: int = int(round(100.0 * hydration / maxf(1.0, max_hydration)))
 	var nearby: int = get_tree().get_nodes_in_group(_species_group(species)).size() - 1
 	var p: Vector3 = global_position
 	var lines: Array = [
@@ -568,6 +640,7 @@ func get_inspector_payload() -> Dictionary:
 		"Diet: %s" % diet,
 		"Doing: %s" % activity,
 		"Energy: %d%%  %s" % [energy_pct, _energy_bar(energy_pct)],
+		"Water:  %d%%  %s" % [hydration_pct, _energy_bar(hydration_pct)],
 		"Age: %.0fs / %.0fs" % [age, max_age],
 		"Speed: %.1f   Size: %.2f" % [speed, size],
 		"Herd nearby: %d" % maxi(0, nearby),
@@ -587,6 +660,8 @@ func _describe_activity() -> String:
 		"track": return "tracking scent"
 		"throw": return "throwing a rock"
 		"eat": return "eating"
+		"drink": return "drinking"
+		"thirsty": return "searching for water"
 		"cruise": return "flying with the flock"
 		"wander": return "wandering with its kind"
 		_: return state
