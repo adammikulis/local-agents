@@ -42,31 +42,31 @@ creature-ecosystem + homegrown-voxel-terrain work (that stack is now inert — s
 - Project rule: **no `:=` inferred typing** — `scripts/check_no_inferred_typing.sh` (wired into
   `agent_harness.sh lint`), documented in GODOT_BEST_PRACTICES.md.
 
-## Pending / in-progress
-- [ ] **Finish `:=` sweep** (IN PROGRESS via subagent when this was written). The interrupted sweep
-      left ~11 voxel files still using `:=` (VoxelCameraRig, TrackSystem, RockMeshFactory,
-      SpawnPaletteHud, Corpse, Rock, Tree, Plant, ThrownRock, VoxelTerrainService, EcologyService).
-      The lint gate FAILS until done. Verify: `bash scripts/check_no_inferred_typing.sh` == OK.
-- [ ] **Water: rivers & lakes (hybrid CA field + splashes)** — user chose this approach.
-      `WaterFieldSystem.gd` may exist (a subagent was building it when the session stopped — CHECK if
-      it's complete/parses; it is NOT wired into VoxelWorld yet). Needs: CA water flowing downhill →
-      lakes/rivers, smooth water surface mesh, `splash()` rigidbody droplets, fed by weather rain,
-      wired into VoxelWorld. Intended as a shared field substrate that scent could later ride on.
-- [ ] **Poop → scent + colonization.** `Poop.gd` exists (deposits strong species scent → predators
-      track prey by droppings) but is NOT wired: Creatures don't drop it yet, and its `wants_seed`
-      signal isn't connected. Wire: Creature drops Poop periodically (inject `_scent` + species);
-      EcologyService connects `wants_seed` → grow a plant (dung fertilizes = plant colonization).
-- [ ] **Plant/fungus colonization spread** and **trees fall when ground destroyed** (Tree has a
-      `topple(dir)` method ready — call it when terrain under a tree is carved). Landslides disturb plants.
-- [ ] **Full break cleanup (task #9):** the OLD homegrown voxel/terrain/destruction stack is inert
-      (main_scene switched) but still on disk. Delete per the plan: old `WorldSimulation.tscn` + its
-      controllers, `TerrainRenderer`, `SimulationVoxelTerrainMutator`, voxel-edit dispatch, and the
-      native `VoxelEditEngine/GpuExecutor/DispatchBridge/Orchestration/NativeVoxelTerrainMutator`
-      (rebuild `localagents`; repoint/retire the native voxel-op contract tests). KEEP the LLM/agent
-      (llama.cpp) parts of `localagents` — that's the repo's original purpose.
-- [ ] **Refactor `Creature.gd`** (~500 lines — energy/hunting/flocking/senses/inspector all in one)
-      into focused modules. User flagged the single-file size.
-- [ ] Camera default sometimes frames a hillside up close — tune default/spawn framing.
+## Done this session (all verified: headless smoke diagnostics + windowed screenshots)
+- [x] **`:=` sweep** — lint gate green (`bash scripts/check_no_inferred_typing.sh` == OK).
+- [x] **Water: rivers & lakes** — `WaterFieldSystem` wired into VoxelWorld; rain (tuned low so it
+      pools in basins instead of flooding) + persistent springs; meteor/thrown-rock splashes.
+- [x] **Poop → scent + colonization** — creatures drop `Poop` on a digestion timer; `wants_seed`
+      connects to `EcologyService.seed_plant_at` (dung fertilizes new plants).
+- [x] **Trees topple when ground destroyed** — `damage_sphere` calls `topple(away)` in a blast.
+- [x] **Thirst + drinking** (new) — `hydration` drains at per-species `thirst_rate`; creatures probe
+      for the nearest wet cell and drink or die of dehydration (emergent watering holes).
+- [x] **Day/night cycle** (new) — VoxelWorld owns all sky lighting (sun arc/energy, sky colors,
+      ambient) on a time-of-day clock; weather rain dims on top; nocturnal foxes.
+- [x] **Wildfire spread** (new) — `FireSystem`: meteors ignite forests, fire spreads to flammable
+      neighbours, burns to ash that reseeds a plant; rain suppresses; rivers are firebreaks.
+- [x] **Fish** (new) — `Fish.gd` water-bound schoolers spawn only where water pools; caught at shallows.
+- [x] **Refactor `Creature.gd`** — 684→538 lines; senses/flocking/inspector extracted to
+      `actors/creature/` static helpers (`LACreatureSenses/Flocking/Inspector`).
+- [x] **Camera framing** — `frame_vista()` opens on the world at the true surface height.
+- [x] **Full break cleanup (#9)** — old `WorldSimulation` stack deleted (scenes/simulation non-voxel,
+      `addons/local_agents/simulation/`, config-sim resources, old tests, native voxel/sim C++);
+      LLM editor plugin uncoupled from old sim (Flow tab removed); native `localagents` rebuilt
+      (AgentRuntime/AgentNode/NetworkGraph/ModelDownloadManager + llama.cpp kept). Editor scan clean,
+      voxel smoke passes, LLM native classes load.
+
+## Pending / ideas
+- Plant/fungus colonization spread beyond dung; landslides disturbing plants (stretch).
 
 ## How to run / verify
 - Windowed (screenshots): the scene supports a self-harness —

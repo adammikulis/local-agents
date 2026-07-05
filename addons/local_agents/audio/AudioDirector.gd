@@ -6,7 +6,7 @@ class_name LocalAgentsAudioDirector
 ##
 ## Owns the swappable synth voice, the SFX bank + voice pool, and the generative
 ## MusicDirector. Sim/actor code reaches it via the "local_agents_audio" group and
-## calls `play_sfx(...)`; WorldSimulation feeds `set_music_mood(...)` each frame.
+## calls `play_sfx(...)`; VoxelWorld feeds `set_music_mood(...)` each frame.
 ## It never reads or writes simulation-authoritative state — it only reacts.
 
 const GdScriptSynthVoice := preload("res://addons/local_agents/audio/synth/GdScriptSynthVoice.gd")
