@@ -108,11 +108,26 @@ float rnoise(vec2 p) {
 	float c = rhash(i + vec2(0.0, 1.0)); float d = rhash(i + vec2(1.0, 1.0));
 	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
-void vertex() { v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
+void vertex() {
+	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	// Ropey, lumpy basalt: displace the surface with multi-octave world-noise so a hardened flow reads
+	// as rough rock, not a glassy smooth dome.
+	float bump = (rnoise(v_world.xz * 0.6) - 0.5) * 0.9
+			+ (rnoise(v_world.xz * 1.8) - 0.5) * 0.45
+			+ (rnoise(v_world.xz * 5.0) - 0.5) * 0.18;
+	VERTEX.y += bump;
+}
 void fragment() {
 	float n = rnoise(v_world.xz * 0.5) * 0.6 + rnoise(v_world.xz * 1.9) * 0.4;
 	ALBEDO = mix(rock_dark, rock_light, n);
-	ROUGHNESS = 0.92;
+	// Rebuild a WORLD-space normal from the displacement noise gradient (converted to view space) so
+	// light catches the rough basalt instead of flat-shading the smooth base mesh.
+	float e = 0.6;
+	float gx = rnoise((v_world.xz + vec2(e, 0.0)) * 1.8) - rnoise((v_world.xz - vec2(e, 0.0)) * 1.8);
+	float gz = rnoise((v_world.xz + vec2(0.0, e)) * 1.8) - rnoise((v_world.xz - vec2(0.0, e)) * 1.8);
+	vec3 wn = normalize(vec3(-gx * 2.5, 1.0, -gz * 2.5));
+	NORMAL = normalize((VIEW_MATRIX * vec4(wn, 0.0)).xyz);
+	ROUGHNESS = 0.95;
 	METALLIC = 0.0;
 }
 """

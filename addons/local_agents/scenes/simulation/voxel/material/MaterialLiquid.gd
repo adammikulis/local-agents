@@ -40,6 +40,7 @@ const LAVA_FLOW: float = 0.16             # viscous, but flows visibly downhill 
 const LAVA_EMPLACE_TEMP: float = 1150.0   # temperature fresh lava carries
 const LAVA_HEAT_PER_DEPTH: float = 650.0  # °C/s a lava cell sustains per unit depth (thick stays molten)
 const MOLTEN_FLOOR: float = 950.0         # any pooled lava holds at least this temp so it keeps flowing/glowing
+const COOLED_MAX: float = 1.5             # max cooled-rock thickness per cell — a flow is a THIN crust, not a mound
 const SOLIDIFY_TEMP: float = 800.0        # lava freezes to rock below this
 const MELT_TEMP: float = 1200.0           # surface rock melts to lava above this
 const MELT_MAX_EDITS: int = 40            # cap melt/solidify SDF edits per step
@@ -252,11 +253,10 @@ func _lava_step() -> void:
 			# rock, so a lava flow BUILDS a delta/levee of fresh terrain where it passed (emergent
 			# volcanic landform) rather than just vanishing.
 			if d > 0.0:
-				# SOLIDIFY: accumulate the frozen depth into the COOLED-lava layer, which the render
-				# module draws as a SMOOTH welded heightfield of dark rock — not blocky per-cell SDF
-				# edits, which the voxel/LOD mesher turned into terraced steps. The flow builds a smooth
-				# hardened mound/delta of new rock where it froze.
-				_f._cooled[idx] += d
+				# SOLIDIFY into the COOLED-lava layer (rendered as a heightfield of dark rock). CAP the
+				# thickness so a hardened flow stays a THIN crust hugging the ground — a real lava flow is
+				# a thin lobate sheet, not a deep bulbous mound. Excess (deep pools) just doesn't pile up.
+				_f._cooled[idx] = minf(_f._cooled[idx] + d, COOLED_MAX)
 				_f._cooled_dirty = true
 				lava[idx] = 0.0
 			continue

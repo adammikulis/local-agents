@@ -94,23 +94,22 @@ func erupt_at(point: Vector3) -> void:
 	LocalAgentsAudioDirector.emit(get_tree(), "crumble", _vent)
 
 
-# Cut a lava CHUTE straight DOWN into the ground where the volcano is placed — no pre-built dome. A
-# flared mouth (crater lip) plus a narrowing vertical shaft. The cone/mass then BUILDS UP over time:
-# each eruption fills the chute and overflows, and that lava flows, cools and SOLIDIFIES into new rock
-# around the vent (emergent — the lava step raises terrain where a flow thins out), so the volcano
-# grows its own mountain from the material it erupts instead of appearing whole.
+# Blow out a CALDERA when the magma pierces through: carve a broad, deep BOWL into the summit (the
+# surrounding higher ground IS the rim — no pre-built dome), plus a narrow conduit shaft down the
+# centre. These are large, single, smooth SDF carves, so the caldera reads as smooth terrain — the bowl
+# is deep enough that the thin cooled-lava crust can't fill it in, so the crater stays a real caldera.
 func _carve_conduit() -> void:
 	if _terrain == null or not _terrain.has_method("carve_sphere"):
 		return
-	_terrain.carve_sphere(_vent + Vector3(0.0, 1.0, 0.0), CRATER_RADIUS)   # flared mouth / crater lip
+	# Wide bowl, centred a little above the vent so it bites a proper crater into the peak.
+	_terrain.carve_sphere(_vent + Vector3(0.0, CRATER_RADIUS * 0.5, 0.0), CRATER_RADIUS * 1.7)
 	for k in range(CONDUIT_STEPS):
 		var t: float = float(k) / float(maxi(1, CONDUIT_STEPS - 1))
-		var y: float = _vent.y + 1.0 - t * CONDUIT_DEPTH
-		var r: float = lerpf(CRATER_RADIUS * 0.75, CONDUIT_RADIUS, t)       # wide at the mouth, narrow deep
-		_terrain.carve_sphere(Vector3(_vent.x, y, _vent.z), r)
+		var y: float = _vent.y - t * CONDUIT_DEPTH
+		_terrain.carve_sphere(Vector3(_vent.x, y, _vent.z), CONDUIT_RADIUS)
 	# Sync the field's cached ground heights to the carved-down surface so lava pools in the chute.
 	if _field != null and _field.has_method("resample_terrain"):
-		_field.resample_terrain(_vent, CRATER_RADIUS + 4.0)
+		_field.resample_terrain(_vent, CRATER_RADIUS * 2.2)
 	# Snap the vent to the chute floor (the new, lower surface) so lava/heat inject at the bottom.
 	var gy = _terrain.surface_height(_vent.x, _vent.z)
 	if (typeof(gy) == TYPE_FLOAT or typeof(gy) == TYPE_INT) and not (is_nan(float(gy)) or is_inf(float(gy))):
