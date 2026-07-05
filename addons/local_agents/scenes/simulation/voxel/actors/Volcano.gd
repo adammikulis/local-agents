@@ -94,6 +94,13 @@ func erupt_at(point: Vector3) -> void:
 	LocalAgentsAudioDirector.emit(get_tree(), "crumble", _vent)
 
 
+## Skip the pressure build-up and breach RIGHT NOW (for demos/tests that need an active flow on demand).
+func force_erupt() -> void:
+	if not _breached:
+		_pressure = ERUPT_PRESSURE
+		_breach()
+
+
 # Blow out a CALDERA when the magma pierces through: carve a broad, deep BOWL into the summit (the
 # surrounding higher ground IS the rim — no pre-built dome), plus a narrow conduit shaft down the
 # centre. These are large, single, smooth SDF carves, so the caldera reads as smooth terrain — the bowl

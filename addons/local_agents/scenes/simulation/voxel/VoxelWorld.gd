@@ -417,13 +417,19 @@ func _process(delta: float) -> void:
 		if _frame == trigger:
 			_fire_test_meteor()
 
-	# Auto-volcano demo/test: raise an erupting volcano near origin (lava + bombs).
+	# Auto-volcano demo/test: raise a volcano near origin that ERUPTS IMMEDIATELY (force_erupt), frame
+	# the camera on it, and fire it ~560 frames (~5s) before the screenshot so the shot studies a flow
+	# that has been erupting for about five seconds (lava spread + some of it cooled).
 	if _auto_volcano and not _auto_volcano_fired and _spawned_initial:
-		var vtrigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 600, 60)
+		var vtrigger: int = (_shoot_frames - 560) if _shoot_path != "" else maxi(_run_frames - 600, 60)
 		if _frame >= vtrigger:
 			var oh: float = _terrain.surface_height(20.0, 20.0)
 			if not is_nan(oh):
-				_spawn_volcano(Vector3(20.0, oh, 20.0))
+				var vc: Node = _spawn_volcano(Vector3(20.0, oh, 20.0))
+				if vc != null and vc.has_method("force_erupt"):
+					vc.force_erupt()
+				if _camera != null and _camera.has_method("frame_vista"):
+					_camera.frame_vista(Vector3(20.0, oh, 20.0))
 				_auto_volcano_fired = true
 
 	# Thunderstorms produce lightning — emergent occurrence keyed off heavy rain.
@@ -1092,11 +1098,12 @@ func _spawn_default_volcano() -> void:
 		_spawn_volcano(best)
 
 
-func _spawn_volcano(point: Vector3) -> void:
+func _spawn_volcano(point: Vector3) -> Node:
 	var v: Node = VolcanoScript.new()
 	_actors_root.add_child(v)
 	v.setup(_terrain, _ecology)
 	v.erupt_at(point)
+	return v
 
 
 func _spawn_lightning(point: Vector3) -> void:
