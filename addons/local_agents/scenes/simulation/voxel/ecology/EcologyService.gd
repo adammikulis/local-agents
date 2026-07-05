@@ -187,6 +187,9 @@ func scent_field():
 # and every material. Disasters inject heat/material; everything else reads it.
 func set_material_field(m) -> void:
 	_material = m
+	# Fire reads the field for heat-driven ignition/spread (set after fire is created in setup()).
+	if _fire != null and _fire.has_method("set_material_field"):
+		_fire.set_material_field(_material)
 
 
 func material_field():

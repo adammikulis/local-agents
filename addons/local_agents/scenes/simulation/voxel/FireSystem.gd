@@ -29,8 +29,19 @@ const SCARE_RADIUS: float = 9.0
 const SUPPRESS_RAIN: float = 0.35
 const EXTINGUISH_RAIN: float = 0.7
 
+## HEAT-DRIVEN ignition (the emergent path). A flammable actor catches when the temperature at its
+## cell in the shared MaterialField reaches IGNITE_TEMP (== WOOD's ignite_temp). Burning actors pump
+## heat back into the field, so a hot cell heats its neighbours and SPREAD emerges from the physics —
+## no neighbour-roll. Lightning/lava/meteors "start fires" only because they deposit heat.
+const IGNITE_TEMP: float = 5.0
+const BURN_HEAT_PER_SEC: float = 34.0       # heat a burning actor injects into its cell each second
+const BURN_HEAT_RADIUS: float = 5.0         # ~SPREAD_RADIUS: a burning tree heats its immediate stand
+const IGNITE_SCAN_INTERVAL: float = 0.4     # cadence of the heat-threshold ignition sweep
+
 var _ecology = null                         # LAEcologyService (seed_plant_at, broadcast_scare)
 var _weather = null                         # LAWeatherSystem (rain)
+var _material = null                        # LAMaterialField (temp_at / add_heat / is_water_at)
+var _ignite_cd: float = 0.0
 
 # One entry per burning actor: {node, life, max_life, spread_cd, scare_cd, fx}
 var _fires: Array = []
@@ -42,6 +53,12 @@ func setup(ecology) -> void:
 
 func set_weather(w) -> void:
 	_weather = w
+
+
+## Wire the shared material field. Once set, ignition + spread are heat-driven; without it the
+## system falls back to the legacy neighbour-roll so fire still works if the field is ever absent.
+func set_material_field(m) -> void:
+	_material = m
 
 
 func active_fire_count() -> int:
@@ -74,8 +91,13 @@ func ignite(node) -> void:
 	})
 
 
-## Ignite every flammable actor within `radius` of a world point (a meteor strike, etc).
+## A hot event (lightning, meteor, lava) "starts a fire" only by DEPOSITING HEAT into the field —
+## flammable vegetation there then ignites on the next scan because its cell crossed IGNITE_TEMP.
+## Falls back to direct ignition when no field is wired.
 func ignite_area(world_pos: Vector3, radius: float) -> void:
+	if _material != null:
+		_material.add_heat(world_pos, IGNITE_TEMP * 3.0, radius)
+		return
 	var r2: float = radius * radius
 	for group in FLAMMABLE_GROUPS:
 		for a in get_tree().get_nodes_in_group(group):
@@ -92,11 +114,22 @@ func _is_flammable(node) -> bool:
 
 
 func _physics_process(delta: float) -> void:
-	if _fires.is_empty():
-		return
 	var rain: float = 0.0
 	if _weather != null and _weather.has_method("rain"):
 		rain = _weather.rain()
+
+	# HEAT-DRIVEN IGNITION (emergent): sweep flammable actors and light any whose cell has crossed
+	# the ignition temperature. Runs even with no active fires, so a lightning strike or drought
+	# spike ignites vegetation with nothing pre-burning. Legacy roll (below) only if no field.
+	if _material != null:
+		_ignite_cd -= delta
+		if _ignite_cd <= 0.0:
+			_ignite_cd = IGNITE_SCAN_INTERVAL
+			_scan_ignitions(rain)
+
+	if _fires.is_empty():
+		return
+
 	var extinguishing: bool = rain >= EXTINGUISH_RAIN
 	var can_spread: bool = rain < SUPPRESS_RAIN
 
@@ -105,6 +138,14 @@ func _physics_process(delta: float) -> void:
 		var node = f["node"]
 		if node == null or not is_instance_valid(node):
 			continue                                    # actor already gone (eaten, meteor'd)
+		var pos: Vector3 = (node as Node3D).global_position
+
+		# BURN heat into the shared field so neighbours cross IGNITE_TEMP → SPREAD emerges from the
+		# physics. Dense stands heat each other and go up; isolated plants don't; wet/rained cells
+		# stay cool (firebreaks). This replaces the neighbour-roll when the field is present.
+		if _material != null:
+			_material.add_heat(pos, BURN_HEAT_PER_SEC * delta, BURN_HEAT_RADIUS)
+
 		# Heavy rain drains life fast; a wet fire dies without leaving healthy regrowth.
 		var drain: float = delta * (4.0 if extinguishing else 1.0)
 		f["life"] = float(f["life"]) - drain
@@ -112,22 +153,40 @@ func _physics_process(delta: float) -> void:
 			_consume(node as Node3D, not extinguishing)
 			continue
 
-		# SPREAD to flammable neighbours (unless rain suppresses it).
-		f["spread_cd"] = float(f["spread_cd"]) - delta
-		if float(f["spread_cd"]) <= 0.0:
-			f["spread_cd"] = SPREAD_INTERVAL
-			if can_spread:
-				_spread_from((node as Node3D).global_position)
+		# Legacy neighbour-roll spread ONLY when there is no field to carry heat.
+		if _material == null:
+			f["spread_cd"] = float(f["spread_cd"]) - delta
+			if float(f["spread_cd"]) <= 0.0:
+				f["spread_cd"] = SPREAD_INTERVAL
+				if can_spread:
+					_spread_from(pos)
 
 		# SCARE nearby creatures — they flee the heat.
 		f["scare_cd"] = float(f["scare_cd"]) - delta
 		if float(f["scare_cd"]) <= 0.0:
 			f["scare_cd"] = SCARE_INTERVAL
 			if _ecology != null and _ecology.has_method("broadcast_scare"):
-				_ecology.broadcast_scare((node as Node3D).global_position, SCARE_RADIUS, 0.6)
+				_ecology.broadcast_scare(pos, SCARE_RADIUS, 0.6)
 
 		survivors.append(f)
 	_fires = survivors
+
+
+## Light every flammable actor whose MaterialField cell has reached the ignition temperature and
+## isn't wet/suppressed. This single local rule is the whole ignition + spread mechanism.
+func _scan_ignitions(rain: float) -> void:
+	if rain >= SUPPRESS_RAIN or _material == null:
+		return
+	for group in FLAMMABLE_GROUPS:
+		for a in get_tree().get_nodes_in_group(group):
+			if not is_instance_valid(a) or not (a is Node3D) or is_burning(a):
+				continue
+			var p: Vector3 = (a as Node3D).global_position
+			if _material.temp_at(p.x, p.z) < IGNITE_TEMP:
+				continue
+			if _material.has_method("is_water_at") and _material.is_water_at(p.x, p.z):
+				continue
+			ignite(a)
 
 
 func _spread_from(origin: Vector3) -> void:
