@@ -5,7 +5,6 @@ class_name LocalAgentsConfigurationPanel
 @onready var _tabs: TabContainer = %ConfigTabs
 @onready var _model_config: LocalAgentsModelConfig = %ModelConfig
 @onready var _inference_config: LocalAgentsInferenceConfig = %InferenceConfig
-@onready var _flow_config: LocalAgentsFlowTraversalConfig = %FlowTraversalConfig
 
 var _manager: LocalAgentsAgentManager
 
@@ -41,5 +40,3 @@ func refresh_configs() -> void:
         _model_config._load_from_manager()
     if _inference_config:
         _inference_config._apply_saved_config()
-    if _flow_config:
-        _flow_config.reload_profile()
