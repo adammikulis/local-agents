@@ -202,6 +202,11 @@ func _process(delta: float) -> void:
 				_ecology.spawn_initial(INITIAL_COUNTS)
 				_ecology.populate_environment(ROCK_COUNT, FOREST_CLUSTERS)
 				_seed_water()
+				# Frame a vista at the real surface height (only when not driven by a harness cam).
+				if not _auto_meteor and not _auto_select and _camera.has_method("frame_vista"):
+					var oh: float = _terrain.surface_height(0.0, 0.0)
+					if not is_nan(oh):
+						_camera.frame_vista(Vector3(0.0, oh, 0.0))
 				_spawned_initial = true
 				_hud.set_status("World ready — spawn things, click to inspect, press V for scent.")
 	_update_selection_ring()

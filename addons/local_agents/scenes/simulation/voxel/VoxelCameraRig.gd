@@ -31,9 +31,19 @@ var _looking: bool = false
 
 func _ready() -> void:
 	current = true
-	# Sensible default: close enough to see creatures and craters, looking down at ~30deg.
-	global_position = Vector3(0.0, 34.0, 52.0)
-	look_at(Vector3(0.0, 10.0, 0.0), Vector3.UP)
+	# Fallback framing used until VoxelWorld calls frame_vista() with the real surface height:
+	# high and pulled back so we open on a vista, not the inside of a hill.
+	global_position = Vector3(0.0, 70.0, 120.0)
+	look_at(Vector3(0.0, 20.0, 0.0), Vector3.UP)
+	_sync_angles_from_basis()
+
+
+## Frame a sweeping 3/4 vista over `center` (the spawn area, at the true surface height).
+## Called once by VoxelWorld after the terrain has streamed so we never start buried in a
+## hillside or staring at the ground. Angles are re-synced so mouse-look continues smoothly.
+func frame_vista(center: Vector3) -> void:
+	global_position = center + Vector3(46.0, 66.0, 116.0)
+	look_at(center + Vector3(0.0, 8.0, 0.0), Vector3.UP)
 	_sync_angles_from_basis()
 
 
