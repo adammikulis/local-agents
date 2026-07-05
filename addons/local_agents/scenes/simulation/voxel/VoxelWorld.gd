@@ -12,6 +12,7 @@ const EcologyServiceScript: GDScript = preload("res://addons/local_agents/scenes
 const HudScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/SpawnPaletteHud.gd")
 const MeteorScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Meteor.gd")
 const VolcanoScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Volcano.gd")
+const LightningScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/LightningStrike.gd")
 const AudioDirectorScript: GDScript = preload("res://addons/local_agents/audio/AudioDirector.gd")
 const WeatherScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/WeatherSystem.gd")
 const MaterialFieldScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField.gd")
@@ -77,6 +78,9 @@ var _peak_sleeping: int = 0
 var _auto_meteor: bool = false
 var _auto_volcano: bool = false
 var _auto_volcano_fired: bool = false
+var _auto_lightning: bool = false
+var _auto_lightning_fired: bool = false
+var _storm_bolt_cd: float = 0.0
 var _auto_meteor_fired: bool = false
 var _auto_select: bool = false
 var _auto_select_done: bool = false
@@ -201,6 +205,8 @@ func _parse_cmdline() -> void:
 			_auto_meteor = true
 		elif arg == "--auto-volcano":
 			_auto_volcano = true
+		elif arg == "--auto-lightning":
+			_auto_lightning = true
 		elif arg == "--auto-select":
 			_auto_select = true
 		elif arg == "--cognition-stats":
@@ -219,6 +225,7 @@ func _process(delta: float) -> void:
 				_ecology.spawn_initial(INITIAL_COUNTS)
 				_ecology.populate_environment(ROCK_COUNT, FOREST_CLUSTERS)
 				_seed_water()
+				_spawn_default_volcano()
 				# Frame a vista at the real surface height (only when not driven by a harness cam).
 				if not _auto_meteor and not _auto_select and _camera.has_method("frame_vista"):
 					var oh: float = _terrain.surface_height(0.0, 0.0)
@@ -247,6 +254,20 @@ func _process(delta: float) -> void:
 			if not is_nan(oh):
 				_spawn_volcano(Vector3(20.0, oh, 20.0))
 				_auto_volcano_fired = true
+
+	# Thunderstorms produce lightning — emergent occurrence keyed off heavy rain.
+	if _spawned_initial and _weather != null and _weather.has_method("rain"):
+		_storm_bolt_cd -= delta
+		if _weather.rain() > 0.6 and _storm_bolt_cd <= 0.0:
+			_storm_bolt_cd = randf_range(2.5, 7.0)
+			_strike_random_lightning()
+
+	# Auto-lightning demo/test: strike the nearest tree so a wildfire emerges from the bolt's heat.
+	if _auto_lightning and not _auto_lightning_fired and _spawned_initial:
+		var ltrigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 600, 60)
+		if _frame >= ltrigger:
+			_fire_test_lightning()
+			_auto_lightning_fired = true
 
 	# Auto-select demo: aim at the nearest creature and run the real selection path.
 	if _auto_select and not _auto_select_done and _spawned_initial and _frame == _shoot_frames - 40:
@@ -484,6 +505,10 @@ func _place_armed(screen_pos: Vector2) -> void:
 		_spawn_volcano(point)
 		_music_destruction = 1.0
 		_hud.set_status("A volcano rises — stand back!")
+	elif _armed_kind == "lightning":
+		_spawn_lightning(point)
+		_music_destruction = 0.7
+		_hud.set_status("A bolt strikes!")
 	else:
 		_ecology.spawn(_armed_kind, point)
 		if _audio != null:
@@ -492,11 +517,66 @@ func _place_armed(screen_pos: Vector2) -> void:
 	_spawn_puff(point, _kind_color(_armed_kind))
 
 
+# The world always has one active volcano — placed on the highest of several sampled points so it's a
+# proper mountain landmark, well away from the origin spawn.
+func _spawn_default_volcano() -> void:
+	var best_h: float = -INF
+	var best: Vector3 = Vector3(150.0, 0.0, 150.0)
+	var ring: int = 12
+	for i in range(ring):
+		var ang: float = TAU * float(i) / float(ring)
+		var r: float = 160.0
+		var px: float = cos(ang) * r
+		var pz: float = sin(ang) * r
+		var h: float = _terrain.surface_height(px, pz)
+		if not is_nan(h) and h > best_h:
+			best_h = h
+			best = Vector3(px, h, pz)
+	if best_h > -INF:
+		_spawn_volcano(best)
+
+
 func _spawn_volcano(point: Vector3) -> void:
 	var v: Node = VolcanoScript.new()
 	_actors_root.add_child(v)
 	v.setup(_terrain, _ecology)
 	v.erupt_at(point)
+
+
+func _spawn_lightning(point: Vector3) -> void:
+	var b: Node = LightningScript.new()
+	_actors_root.add_child(b)
+	b.setup(_terrain, _ecology)
+	b.strike(point)
+	if _audio != null:
+		_audio.play_sfx("thunder", point)
+
+
+# A bolt at a random point in the play area (thunderstorm occurrence).
+func _strike_random_lightning() -> void:
+	var ang: float = randf() * TAU
+	var r: float = randf() * 250.0
+	var px: float = cos(ang) * r
+	var pz: float = sin(ang) * r
+	var h: float = _terrain.surface_height(px, pz)
+	if not is_nan(h):
+		_spawn_lightning(Vector3(px, h, pz))
+
+
+# Strike the nearest tree (test: confirm fire emerges from the bolt's heat).
+func _fire_test_lightning() -> void:
+	var best: float = INF
+	var impact: Vector3 = Vector3.ZERO
+	var found: bool = false
+	for t in get_tree().get_nodes_in_group("tree"):
+		if t is Node3D:
+			var d: float = (_camera.global_position - (t as Node3D).global_position).length()
+			if d < best:
+				best = d
+				impact = (t as Node3D).global_position
+				found = true
+	if found:
+		_spawn_lightning(impact)
 
 
 func _select_at(screen_pos: Vector2) -> void:

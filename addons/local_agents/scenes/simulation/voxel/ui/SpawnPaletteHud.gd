@@ -8,7 +8,7 @@ extends CanvasLayer
 signal spawn_selected(kind: String)
 
 const KINDS: PackedStringArray = [
-	"plant", "rabbit", "fox", "bird", "villager", "fish", "meteor", "volcano",
+	"plant", "rabbit", "fox", "bird", "vulture", "villager", "fish", "meteor", "volcano", "lightning",
 ]
 
 const KIND_LABELS: Dictionary = {
@@ -16,10 +16,12 @@ const KIND_LABELS: Dictionary = {
 	"rabbit": "Rabbit",
 	"fox": "Fox",
 	"bird": "Bird",
+	"vulture": "Vulture",
 	"villager": "Villager",
 	"fish": "Fish",
 	"meteor": "Meteor",
 	"volcano": "Volcano",
+	"lightning": "Lightning",
 }
 
 const KIND_COLORS: Dictionary = {
@@ -27,10 +29,12 @@ const KIND_COLORS: Dictionary = {
 	"rabbit": Color(0.85, 0.82, 0.78),
 	"fox": Color(0.90, 0.49, 0.18),
 	"bird": Color(0.35, 0.68, 0.90),
+	"vulture": Color(0.55, 0.45, 0.40),
 	"villager": Color(0.62, 0.52, 0.85),
 	"fish": Color(0.55, 0.72, 0.86),
 	"meteor": Color(0.92, 0.32, 0.24),
 	"volcano": Color(0.95, 0.42, 0.12),
+	"lightning": Color(0.82, 0.88, 1.0),
 }
 
 # Palette / theme colors (cohesive dark theme).

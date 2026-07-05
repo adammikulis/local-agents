@@ -13,6 +13,9 @@ const GROUP_CREATURE: String = "creature"
 const GROUP_ROCK: String = "rock"
 const GROUP_CARRION: String = "carrion"
 const PREDATOR_SIZE_RATIO: float = 1.2     # flee anything this many times my size that hunts
+# Flyers turn GRADUALLY (max radians/sec) so flocks wheel and vultures circle wide instead of
+# snapping direction every frame — the fix for frantic, too-fast circling.
+const BIRD_TURN_RATE: float = 1.5
 
 const CorpseScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Corpse.gd")
 const ThrownRockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/ThrownRock.gd")
@@ -503,7 +506,12 @@ func _physics_process(delta: float) -> void:
 
 	desired.y = 0.0
 	if desired.length() > 0.001:
-		_heading = desired.normalized()
+		var want: Vector3 = desired.normalized()
+		if can_fly:
+			# Rotate the heading toward the target by a capped angle so flight banks smoothly.
+			_heading = _turn_toward(_heading, want, BIRD_TURN_RATE * delta)
+		else:
+			_heading = want
 
 	var step: Vector3 = _heading * eff_speed * delta
 	var new_x: float = pos.x + step.x
@@ -523,6 +531,23 @@ func _physics_process(delta: float) -> void:
 		look.y = global_position.y
 		if not look.is_equal_approx(global_position):
 			look_at(look, Vector3.UP)
+
+
+# Rotate `from` toward `to` about the up axis by at most `max_angle` radians (both flattened).
+func _turn_toward(from: Vector3, to: Vector3, max_angle: float) -> Vector3:
+	var a: Vector3 = from
+	a.y = 0.0
+	var b: Vector3 = to
+	b.y = 0.0
+	if a.length() < 0.001:
+		return to
+	a = a.normalized()
+	if b.length() < 0.001:
+		return a
+	b = b.normalized()
+	var ang: float = a.signed_angle_to(b, Vector3.UP)
+	var clamped: float = clampf(ang, -max_angle, max_angle)
+	return a.rotated(Vector3.UP, clamped)
 
 
 func _surface_at(x: float, z: float) -> float:
