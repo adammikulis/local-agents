@@ -91,6 +91,32 @@ void fragment() {
 }
 """
 
+# Cooled/solidified lava — a SMOOTH welded heightfield of mottled dark basalt (opaque, non-emissive),
+# rendered like the water/lava surface so a hardened flow reads as smooth rock, not the terraced
+# Machu-Picchu steps that blocky per-cell SDF terrain edits produced.
+const COOLED_MIN: float = 0.02
+const ROCK_SHADER: String = """
+shader_type spatial;
+render_mode cull_disabled;
+uniform vec3 rock_dark : source_color = vec3(0.10, 0.095, 0.10);
+uniform vec3 rock_light : source_color = vec3(0.27, 0.21, 0.18);
+varying vec3 v_world;
+float rhash(vec2 p) { p = fract(p * vec2(127.1, 311.7)); p += dot(p, p + 34.5); return fract(p.x * p.y); }
+float rnoise(vec2 p) {
+	vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+	float a = rhash(i); float b = rhash(i + vec2(1.0, 0.0));
+	float c = rhash(i + vec2(0.0, 1.0)); float d = rhash(i + vec2(1.0, 1.0));
+	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+void vertex() { v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
+void fragment() {
+	float n = rnoise(v_world.xz * 0.5) * 0.6 + rnoise(v_world.xz * 1.9) * 0.4;
+	ALBEDO = mix(rock_dark, rock_light, n);
+	ROUGHNESS = 0.92;
+	METALLIC = 0.0;
+}
+"""
+
 # Back-reference to the owning LAMaterialField (set in setup); the source of all grid state.
 var _f = null
 
@@ -103,6 +129,11 @@ var _water_material: ShaderMaterial = null
 var _lava_mi: MeshInstance3D = null
 var _lava_mesh: ArrayMesh = null
 var _lava_material: ShaderMaterial = null
+
+# Cooled lava (solidified rock) — its own smooth welded dark-basalt heightfield.
+var _cooled_mi: MeshInstance3D = null
+var _cooled_mesh: ArrayMesh = null
+var _cooled_material: ShaderMaterial = null
 
 # Temperature baked into an R-float texture (one texel per cell) so the terrain shader can sample it
 # by world position and glow incandescently where hot — and drive the temp debug view. Updated in
@@ -158,6 +189,19 @@ func _build_surface_node() -> void:
 		_lava_mi.mesh = _lava_mesh
 		_lava_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		_f.add_child(_lava_mi)
+	if _cooled_material == null:
+		var rsh: Shader = Shader.new()
+		rsh.code = ROCK_SHADER
+		_cooled_material = ShaderMaterial.new()
+		_cooled_material.shader = rsh
+	if _cooled_mesh == null:
+		_cooled_mesh = ArrayMesh.new()
+	if _cooled_mi == null:
+		_cooled_mi = MeshInstance3D.new()
+		_cooled_mi.name = "CooledLava"
+		_cooled_mi.mesh = _cooled_mesh
+		_cooled_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_f.add_child(_cooled_mi)
 
 
 # --- Heat texture -----------------------------------------------------------
@@ -201,6 +245,14 @@ func rebuild_lava() -> void:
 	# single cells don't each spawn a lone bright quad — the source of the "blocky squares" look. A
 	# continuous flow still meshes as one welded smooth surface.
 	_build_liquid_surface(_f._mats[Mat.LAVA], _f.LAVA_MIN * 2.5, _lava_mesh, _lava_material)
+
+
+## Rebuild the SMOOTH cooled-lava (solidified rock) surface from the field's _cooled thickness layer —
+## a welded dark-basalt heightfield, so a hardened flow reads as smooth rock instead of blocky terrain.
+func rebuild_cooled() -> void:
+	if _cooled_mesh == null:
+		return
+	_build_liquid_surface(_f._cooled, COOLED_MIN, _cooled_mesh, _cooled_material)
 
 
 # Build ONE continuous surface for a liquid depth field, instead of an independent flat quad per cell

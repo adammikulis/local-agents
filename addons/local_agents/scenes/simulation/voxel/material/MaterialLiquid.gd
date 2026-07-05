@@ -243,7 +243,6 @@ func _lava_step() -> void:
 	var lava: PackedFloat32Array = _f._mats[Mat.LAVA]
 	_do_flow(lava, LAVA_FLOW, false)
 	var any_lava: bool = false
-	var edits: int = 0
 	for idx in range(_f._cell_count):
 		if _f._sampled[idx] == 0:
 			continue
@@ -253,31 +252,12 @@ func _lava_step() -> void:
 			# rock, so a lava flow BUILDS a delta/levee of fresh terrain where it passed (emergent
 			# volcanic landform) rather than just vanishing.
 			if d > 0.0:
-				if edits < MELT_MAX_EDITS and _f._terrain != null:
-					var fi: int = idx % _f._dim
-					var fj: int = idx / _f._dim
-					var cx: float = _f._cell_x(fi)
-					var cz: float = _f._cell_z(fj)
-					# Sample the true sloped surface + its NORMAL here so the solidified rock hugs the
-					# hillside at the angle it cooled on, rather than pooling level or stepping.
-					var surf: float = _f._terrain_h[idx]
-					var nrm: Vector3 = Vector3.UP
-					if _f._terrain.has_method("raycast_terrain"):
-						var hit: Dictionary = _f._terrain.raycast_terrain(Vector3(cx, surf + 8.0, cz), Vector3.DOWN, 16.0)
-						if bool(hit.get("hit", false)):
-							nrm = hit.get("normal", Vector3.UP)
-							surf = float((hit.get("position", Vector3(cx, surf, cz)) as Vector3).y)
-					var jitter: float = randf_range(-0.1, 0.25) * _f._cell_size
-					if _f._terrain.has_method("fill_rock"):
-						# Stamp an oriented FACETED rock (polygon) aligned to the slope — angular cooled
-						# lava, not round blobs or aligned cubes. Size > cell spacing so rocks overlap.
-						var size: float = _f._cell_size * (0.7 + randf() * 0.2)
-						_f._terrain.fill_rock(Vector3(cx, surf + jitter, cz), size, nrm)
-					elif _f._terrain.has_method("fill_sphere"):
-						var r: float = _f._cell_size * (0.62 + randf() * 0.16)
-						_f._terrain.fill_sphere(Vector3(cx, surf - nrm.y * r * 0.5 + jitter, cz), r)
-					_f._terrain_h[idx] = _f._terrain_h[idx] + clampf(d, 0.3, _f._cell_size * 0.5)
-					edits += 1
+				# SOLIDIFY: accumulate the frozen depth into the COOLED-lava layer, which the render
+				# module draws as a SMOOTH welded heightfield of dark rock — not blocky per-cell SDF
+				# edits, which the voxel/LOD mesher turned into terraced steps. The flow builds a smooth
+				# hardened mound/delta of new rock where it froze.
+				_f._cooled[idx] += d
+				_f._cooled_dirty = true
 				lava[idx] = 0.0
 			continue
 		# Heat travels WITH the flow: any pooled lava is kept molten (glowing + still able to flow) so a

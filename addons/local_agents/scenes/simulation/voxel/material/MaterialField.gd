@@ -86,6 +86,12 @@ const EVAP_TEMP_GAIN: float = 0.055      # per-°C change in evaporation rate (w
 # The field keeps only the lava render-dirty flag (read by _physics_process to rebuild the lava mesh).
 var _lava_dirty: bool = false
 
+# Cumulative thickness of COOLED lava (solidified rock) per cell. Rendered as a SMOOTH welded
+# heightfield (dark basalt) rather than blocky per-cell SDF edits, so a hardened flow reads as smooth
+# rock, not terraced Machu-Picchu steps. Grows where a lava flow thins out and freezes.
+var _cooled: PackedFloat32Array = PackedFloat32Array()
+var _cooled_dirty: bool = false
+
 # --- Grid state (flat arrays; index = j * _dim + i) --------------------------
 var _terrain = null
 var _half_extent: float = 0.0
@@ -161,6 +167,8 @@ func setup(terrain, half_extent: float, cell_size: float) -> void:
 	_cloud.resize(_cell_count)
 	_fog = PackedFloat32Array()
 	_fog.resize(_cell_count)
+	_cooled = PackedFloat32Array()
+	_cooled.resize(_cell_count)
 	_mats = {}
 
 	_sample_cursor = 0
@@ -259,6 +267,9 @@ func _physics_process(delta: float) -> void:
 		if _lava_dirty:
 			_render.rebuild_lava()
 			_lava_dirty = false
+		if _cooled_dirty:
+			_render.rebuild_cooled()
+			_cooled_dirty = false
 		_render.update_heat_texture()
 	# Combustion (fire ignition/spread/burn + boiling) runs every frame in its own module, not gated
 	# by the CA throttle.
