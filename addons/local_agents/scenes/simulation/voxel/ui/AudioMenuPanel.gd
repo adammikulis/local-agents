@@ -8,7 +8,7 @@ extends PanelContainer
 ##
 ## Presentation only — it drives the audio engine and the AudioServer buses; it never
 ## reads or writes simulation-authoritative state. Built entirely in code, inheriting
-## the shared Theme from the parent HudRoot (see SpawnPaletteHud). No .tscn, no assets.
+## the shared Theme from the parent HudRoot (see SpawnPaletteHud). No .tscn.
 
 ## Emitted when the "Auto-adapt music (sim mood)" toggle changes. VoxelWorld listens
 ## and stops/starts feeding its live mood snapshot so manual picks can stick.
