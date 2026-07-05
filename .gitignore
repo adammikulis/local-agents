@@ -12,6 +12,9 @@ export_presets.cfg
 *.import
 *.uid
 
+# ...but DO track 3D-model import sidecars so glTF/GLB loads resolve on a fresh checkout.
+!addons/local_agents/assets/models/**/*.import
+
 # Imported translations (automatically generated from CSV files)
 *.translation
 

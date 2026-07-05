@@ -93,11 +93,14 @@ func setup(_terrain, _config: Dictionary = {}) -> void:
 	add_to_group(GROUP_SELECTABLE)
 	add_to_group(GROUP_TREE)
 
-	_build_trunk()
-	if species == "pine":
-		_build_pine_canopy()
-	else:
-		_build_broadleaf_canopy()
+	# Prefer a Kenney Nature Kit model (base-anchored to trunk height; the node's growth scale and
+	# topple rotation act on the whole tree, model included). Fall back to procedural trunk+canopy.
+	if not _build_model():
+		_build_trunk()
+		if species == "pine":
+			_build_pine_canopy()
+		else:
+			_build_broadleaf_canopy()
 	_build_collision()
 
 	_apply_resting_tilt()
@@ -118,6 +121,21 @@ func _make_material(col: Color) -> StandardMaterial3D:
 	mat.roughness = 0.95
 	mat.metallic = 0.0
 	return mat
+
+
+## Build the species model at trunk height. Returns true on success, false to trigger the
+## procedural fallback (unknown species model / load failure).
+func _build_model() -> bool:
+	var id: String = "tree_pine" if species == "pine" else "tree_oak"
+	var def: Dictionary = LAActorModels.get_def(id)
+	if String(def.get("path", "")).is_empty():
+		return false
+	var model: Node3D = LAModelVisual.build(def["path"], trunk_height, "base", float(def.get("yaw", 0.0)), Color(0, 0, 0, 0))
+	if model == null:
+		return false
+	model.name = "TreeModel"
+	add_child(model)
+	return true
 
 
 func _build_trunk() -> void:

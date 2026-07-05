@@ -96,6 +96,17 @@ const THROW_MIN_SPEED: float = 4.0           # below this a release is a gentle 
 const THROW_MAX_SPEED: float = 40.0          # clamp on horizontal throw speed
 const THROW_ARC: float = 0.4                 # upward velocity as a fraction of throw speed
 
+# --- radius brush: RMB (click or drag) applies the armed kind across a disk, so one gesture
+# paints a grove of trees, a herd of rabbits, or a spreading flood. Hold Ctrl + scroll to
+# resize. A ground ring shows the footprint. Works for any armed kind (no per-kind branch). ---
+var _brush_radius: float = 5.0
+var _painting: bool = false
+var _paint_last_world: Vector3 = Vector3(INF, INF, INF)
+var _brush_ring: MeshInstance3D = null
+const BRUSH_MIN: float = 1.0
+const BRUSH_MAX: float = 28.0
+const BRUSH_STEP: float = 1.5
+
 var _spawned_initial: bool = false
 var _ready_wait_ticks: int = 0
 var _scent_visible: bool = false
@@ -392,6 +403,7 @@ func _process(delta: float) -> void:
 				_hud.set_status("World ready — spawn things, click to inspect, press V for scent.")
 	_update_hand(delta)
 	_update_selection_ring()
+	_update_brush_ring()
 	_push_environment()
 	_feed_water()
 	if _cognition_stats and _spawned_initial and _frame % 15 == 0:
@@ -698,15 +710,32 @@ func _unhandled_input(event: InputEvent) -> void:
 		if key_ev.keycode >= KEY_1 and key_ev.keycode <= KEY_9:
 			_arm_hotkey(key_ev.keycode - KEY_1, key_ev.shift_pressed)
 			return
+	# While painting, drag the brush across the terrain to keep applying the armed kind.
+	if event is InputEventMouseMotion and _painting and _armed_kind != "":
+		_paint_drag((event as InputEventMouseMotion).position)
+		return
 	if event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
 		var mpos: Vector2 = mb.position
-		# RMB: spawn / cast the armed kind onto the terrain (Black & White right-hand miracle).
-		if mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
-			if _hud != null and _hud.has_method("is_pointer_over_ui") and _hud.is_pointer_over_ui(mpos):
-				return
-			if _armed_kind != "":
-				_place_armed(mpos)
+		# Ctrl + wheel resizes the brush (only when a kind is armed, so plain wheel still zooms).
+		if _armed_kind != "" and mb.pressed and mb.ctrl_pressed \
+				and (mb.button_index == MOUSE_BUTTON_WHEEL_UP or mb.button_index == MOUSE_BUTTON_WHEEL_DOWN):
+			var d: float = BRUSH_STEP if mb.button_index == MOUSE_BUTTON_WHEEL_UP else -BRUSH_STEP
+			_brush_radius = clampf(_brush_radius + d, BRUSH_MIN, BRUSH_MAX)
+			_hud.set_status("Brush radius: %.0f m" % _brush_radius)
+			return
+		# RMB: paint / cast the armed kind onto the terrain (Black & White right-hand miracle).
+		# Press starts a paint stroke (drag keeps painting); release ends it.
+		if mb.button_index == MOUSE_BUTTON_RIGHT:
+			if mb.pressed:
+				if _hud != null and _hud.has_method("is_pointer_over_ui") and _hud.is_pointer_over_ui(mpos):
+					return
+				if _armed_kind != "":
+					_painting = true
+					_paint_last_world = Vector3(INF, INF, INF)
+					_place_armed(mpos)
+			else:
+				_painting = false
 			return
 		# LMB: double-click frames the entity; single press begins a click-or-grab; release
 		# resolves it (select vs drop/throw).
@@ -900,13 +929,54 @@ func _on_music_auto_adapt_changed(on: bool) -> void:
 		_hud.set_status("Music auto-adapt: %s" % ("ON" if on else "off — manual control"))
 
 
+# RMB entry point: resolve the terrain point under the cursor and paint the armed kind there.
 func _place_armed(screen_pos: Vector2) -> void:
+	var point: Vector3 = _terrain_point(screen_pos)
+	if not is_finite(point.x):
+		_hud.set_status("No ground under cursor — aim at the terrain.")
+		return
+	_paint_brush(point)
+
+
+# The terrain surface point under a screen position, or an INF vector if the cursor misses terrain.
+func _terrain_point(screen_pos: Vector2) -> Vector3:
 	var ray: Dictionary = _camera.aim_ray(screen_pos)
 	var hit: Dictionary = _terrain.raycast_terrain(ray["origin"], ray["dir"], 2000.0)
 	if not bool(hit.get("hit", false)):
-		_hud.set_status("No ground under cursor — aim at the terrain.")
-		return
-	var point: Vector3 = hit["position"]
+		return Vector3(INF, INF, INF)
+	return hit["position"]
+
+
+# Apply the armed kind across the brush disk: one placement at the centre for a pinpoint brush,
+# else a size-scaled scatter of placements. General over all kinds — trees, herds, floods alike.
+func _paint_brush(center: Vector3) -> void:
+	if _brush_radius <= BRUSH_MIN + 0.01:
+		_apply_at(center)
+	else:
+		var n: int = clampi(int(round(_brush_radius * 0.6)), 1, 12)
+		for i in n:
+			_apply_at(_scatter_point(center))
+	if _audio != null:
+		_audio.play_sfx("spawn", center)
+	_spawn_puff(center, _kind_color(_armed_kind))
+	_paint_last_world = center
+
+
+# A random point in the brush disk around `center`, re-snapped to the terrain surface (falls back
+# to the centre height when the offset lands off the meshed area).
+func _scatter_point(center: Vector3) -> Vector3:
+	var ang: float = randf() * TAU
+	var rad: float = sqrt(randf()) * _brush_radius
+	var p: Vector3 = center + Vector3(cos(ang) * rad, 0.0, sin(ang) * rad)
+	if _terrain != null and _terrain.has_method("surface_height"):
+		var y: float = float(_terrain.surface_height(p.x, p.z))
+		if not is_nan(y):
+			p.y = y
+	return p
+
+
+# The single-point action for the armed kind (no puff/audio — the brush handles those once).
+func _apply_at(point: Vector3) -> void:
 	if _armed_kind == "meteor":
 		var meteor: MeteorScript = MeteorScript.new()
 		_actors_root.add_child(meteor)
@@ -938,10 +1008,68 @@ func _place_armed(screen_pos: Vector2) -> void:
 		_hud.set_status("Flood surge!")
 	else:
 		_ecology.spawn(_armed_kind, point)
-		if _audio != null:
-			_audio.play_sfx("spawn", point)
 		_hud.set_status("Spawned %s." % _armed_kind)
-	_spawn_puff(point, _kind_color(_armed_kind))
+
+
+# Continue a paint stroke as the cursor drags: re-paint once the brush has moved far enough that
+# strokes don't stack on the same spot (spacing scales with radius).
+func _paint_drag(screen_pos: Vector2) -> void:
+	var point: Vector3 = _terrain_point(screen_pos)
+	if not is_finite(point.x):
+		return
+	if is_finite(_paint_last_world.x):
+		var spacing: float = maxf(_brush_radius * 0.6, 1.5)
+		if _paint_last_world.distance_to(point) < spacing:
+			return
+	_paint_brush(point)
+
+
+# A flat ground ring showing the brush footprint, following the cursor whenever a kind is armed.
+func _update_brush_ring() -> void:
+	if _armed_kind == "" or _camera == null or _terrain == null:
+		if _brush_ring != null:
+			_brush_ring.visible = false
+		return
+	_ensure_brush_ring()
+	var vp: Viewport = get_viewport()
+	if vp == null:
+		return
+	var mpos: Vector2 = vp.get_mouse_position()
+	if _hud != null and _hud.has_method("is_pointer_over_ui") and _hud.is_pointer_over_ui(mpos):
+		_brush_ring.visible = false
+		return
+	var p: Vector3 = _terrain_point(mpos)
+	if not is_finite(p.x):
+		_brush_ring.visible = false
+		return
+	_brush_ring.visible = true
+	_brush_ring.global_position = p + Vector3(0.0, 0.15, 0.0)
+	_brush_ring.scale = Vector3(_brush_radius, 1.0, _brush_radius)
+	var mat: StandardMaterial3D = _brush_ring.material_override as StandardMaterial3D
+	if mat != null:
+		mat.albedo_color = _kind_color(_armed_kind)
+
+
+func _ensure_brush_ring() -> void:
+	if _brush_ring != null and is_instance_valid(_brush_ring):
+		return
+	var ring: MeshInstance3D = MeshInstance3D.new()
+	ring.name = "BrushRing"
+	var torus: TorusMesh = TorusMesh.new()   # lies flat in the XZ plane; scaled to the radius
+	torus.inner_radius = 0.95
+	torus.outer_radius = 1.0
+	torus.rings = 48
+	ring.mesh = torus
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(0.9, 0.9, 0.9, 0.75)
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	ring.material_override = mat
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	ring.visible = false
+	add_child(ring)
+	_brush_ring = ring
 
 
 # The world always has one active volcano — placed on the highest of several sampled points so it's a
@@ -1155,6 +1283,7 @@ func _feed_water() -> void:
 func _kind_color(kind: String) -> Color:
 	match kind:
 		"plant": return Color(0.35, 0.85, 0.3)
+		"tree": return Color(0.2, 0.6, 0.25)
 		"rabbit": return Color(0.92, 0.92, 0.95)
 		"fox": return Color(0.95, 0.5, 0.15)
 		"bird": return Color(0.3, 0.6, 0.95)

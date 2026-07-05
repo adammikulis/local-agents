@@ -55,32 +55,42 @@ func setup(_terrain, _config: Dictionary) -> void:
 
 
 func _build_body() -> void:
-	var mesh: MeshInstance3D = MeshInstance3D.new()
-	var cone: CylinderMesh = CylinderMesh.new()             # tapered stem
-	cone.top_radius = 0.06
-	cone.bottom_radius = 0.34
-	cone.height = _base_height
-	mesh.mesh = cone
-	mesh.position = Vector3(0.0, _base_height * 0.5, 0.0)
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.roughness = 0.95
-	mesh.material_override = mat
-	add_child(mesh)
-	_mesh = mesh
+	# Prefer the Kenney bush model (base-anchored so it grows up from the ground; the node's
+	# growth scale in _apply_growth scales the model with it). Fall back to the stem + foliage.
+	var built_model: bool = false
+	var def: Dictionary = LAActorModels.get_def("plant")
+	if not String(def.get("path", "")).is_empty():
+		var model: Node3D = LAModelVisual.build(def["path"], _base_height, "base", float(def.get("yaw", 0.0)), Color(0, 0, 0, 0))
+		if model != null:
+			add_child(model)
+			built_model = true
+	if not built_model:
+		var mesh: MeshInstance3D = MeshInstance3D.new()
+		var cone: CylinderMesh = CylinderMesh.new()             # tapered stem
+		cone.top_radius = 0.06
+		cone.bottom_radius = 0.34
+		cone.height = _base_height
+		mesh.mesh = cone
+		mesh.position = Vector3(0.0, _base_height * 0.5, 0.0)
+		var mat: StandardMaterial3D = StandardMaterial3D.new()
+		mat.albedo_color = color
+		mat.roughness = 0.95
+		mesh.material_override = mat
+		add_child(mesh)
+		_mesh = mesh
 
-	# Leafy foliage blob on top so the plant reads clearly at distance.
-	var foliage: MeshInstance3D = MeshInstance3D.new()
-	var ball: SphereMesh = SphereMesh.new()
-	ball.radius = 0.42
-	ball.height = 0.84
-	foliage.mesh = ball
-	foliage.position = Vector3(0.0, _base_height + 0.15, 0.0)
-	var fmat: StandardMaterial3D = StandardMaterial3D.new()
-	fmat.albedo_color = color.lightened(0.12)
-	fmat.roughness = 0.9
-	foliage.material_override = fmat
-	add_child(foliage)
+		# Leafy foliage blob on top so the plant reads clearly at distance.
+		var foliage: MeshInstance3D = MeshInstance3D.new()
+		var ball: SphereMesh = SphereMesh.new()
+		ball.radius = 0.42
+		ball.height = 0.84
+		foliage.mesh = ball
+		foliage.position = Vector3(0.0, _base_height + 0.15, 0.0)
+		var fmat: StandardMaterial3D = StandardMaterial3D.new()
+		fmat.albedo_color = color.lightened(0.12)
+		fmat.roughness = 0.9
+		foliage.material_override = fmat
+		add_child(foliage)
 
 	var shape: CollisionShape3D = CollisionShape3D.new()
 	var cyl: CylinderShape3D = CylinderShape3D.new()

@@ -14,21 +14,27 @@ signal music_auto_adapt_changed(on: bool)
 const AudioMenuPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/AudioMenuPanel.gd")
 const EMOJI_FONT_PATH: String = "res://addons/local_agents/assets/fonts/emoji.ttf"
 
+# Spawn-button thumbnails: each life/prop button shows a small isometric render of the actual
+# model it spawns (built once at startup into an off-screen SubViewport). Disaster buttons have
+# no representative model, so they keep their emoji glyph.
+const THUMB_PX: int = 64
+
 # The palette is split into two visible clusters. Order within each drives the number hotkeys
 # (LIFE -> 1..7, DISASTER -> Shift+1..5); KINDS is kept as the flat union for lookups/back-compat.
 const LIFE_KINDS: PackedStringArray = [
-	"plant", "rabbit", "fox", "bird", "vulture", "villager", "fish",
+	"plant", "tree", "rabbit", "fox", "bird", "vulture", "villager", "fish",
 ]
 const DISASTER_KINDS: PackedStringArray = [
 	"meteor", "volcano", "lightning", "earthquake", "flood",
 ]
 const KINDS: PackedStringArray = [
-	"plant", "rabbit", "fox", "bird", "vulture", "villager", "fish",
+	"plant", "tree", "rabbit", "fox", "bird", "vulture", "villager", "fish",
 	"meteor", "volcano", "lightning", "earthquake", "flood",
 ]
 
 const KIND_LABELS: Dictionary = {
 	"plant": "Plant",
+	"tree": "Tree",
 	"rabbit": "Rabbit",
 	"fox": "Fox",
 	"bird": "Bird",
@@ -46,6 +52,7 @@ const KIND_LABELS: Dictionary = {
 # tunable: swap a glyph here and add its codepoint to the pyftsubset build in assets/fonts/.
 const KIND_SYMBOLS: Dictionary = {
 	"plant": "🌱",      # seedling
+	"tree": "🌲",       # evergreen (forest brush)
 	"rabbit": "🐇",     # rabbit
 	"fox": "🦊",        # fox
 	"bird": "🐦",       # bird
@@ -62,8 +69,8 @@ const KIND_SYMBOLS: Dictionary = {
 # Shown in tooltips so the keyboard shortcut is discoverable (see VoxelWorld._unhandled_input).
 # "⇧" is the shift glyph (U+21E7).
 const KIND_HOTKEYS: Dictionary = {
-	"plant": "1", "rabbit": "2", "fox": "3", "bird": "4",
-	"vulture": "5", "villager": "6", "fish": "7",
+	"plant": "1", "tree": "2", "rabbit": "3", "fox": "4",
+	"bird": "5", "vulture": "6", "villager": "7", "fish": "8",
 	"meteor": "⇧1", "volcano": "⇧2", "lightning": "⇧3",
 	"earthquake": "⇧4", "flood": "⇧5",
 }
@@ -83,6 +90,7 @@ var _armed_kind: String = ""
 var _theme: Theme
 var _emoji_font: FontFile
 var _palette_group: ButtonGroup
+var _kind_buttons: Dictionary = {}       # kind -> Button, so thumbnails can be filled in async
 
 var _status_panel: PanelContainer
 var _inspector_panel: PanelContainer
@@ -331,6 +339,10 @@ func _build_palette(root: Control) -> void:
 
 	_ui_panels.append(_palette_panel)
 
+	# Swap the life/prop buttons' emoji glyphs for isometric renders of their actual models
+	# (async: renders into an off-screen SubViewport over the next few frames).
+	_generate_thumbnails()
+
 
 ## A captioned cluster: a leading VSeparator, a small dim caption label, then one icon-only
 ## toggle button per kind (all sharing the palette's exclusive ButtonGroup).
@@ -375,6 +387,7 @@ func _make_kind_button(group: ButtonGroup, kind: String) -> Button:
 	btn.custom_minimum_size = Vector2(52.0, 56.0)
 	btn.set_meta("kind", kind)
 	btn.toggled.connect(_on_palette_toggled)
+	_kind_buttons[kind] = btn
 	return btn
 
 
@@ -636,6 +649,84 @@ func _clear_children(node: Node) -> void:
 	for child in node.get_children():
 		child.queue_free()
 		node.remove_child(child)
+
+
+# ---------------------------------------------------------------------------
+# Model thumbnails (isometric off-screen render per spawnable model)
+# ---------------------------------------------------------------------------
+
+# The "tree" button spawns a mixed forest; show the oak as its representative render.
+func _thumb_model_id(kind: String) -> String:
+	return "tree_oak" if kind == "tree" else kind
+
+
+# Render each life/prop button's model to an isometric thumbnail and swap it in for the emoji.
+# Runs across frames (SubViewport needs a draw); no-ops gracefully in headless (blank readback).
+func _generate_thumbnails() -> void:
+	# Off-screen 3D rendering needs a real display server; headless keeps the emoji glyphs.
+	if DisplayServer.get_name() == "headless":
+		return
+	for kind in LIFE_KINDS:
+		var model_id: String = _thumb_model_id(kind)
+		if LAActorModels.path(model_id).is_empty():
+			continue
+		var btn: Button = _kind_buttons.get(kind, null)
+		if btn == null:
+			continue
+		var tex: ImageTexture = await _render_thumbnail(model_id)
+		if tex != null and is_instance_valid(btn):
+			btn.text = ""                    # drop the emoji glyph
+			btn.icon = tex
+			btn.expand_icon = true
+
+
+# Build the model in an isolated SubViewport under an orthographic isometric camera, let it draw,
+# and read the framebuffer back into an ImageTexture. Returns null if it couldn't render.
+func _render_thumbnail(model_id: String) -> ImageTexture:
+	var def: Dictionary = LAActorModels.get_def(model_id)
+	var model: Node3D = LAModelVisual.build(
+		String(def.get("path", "")), 1.0, "center",
+		float(def.get("yaw", 0.0)), LAActorModels.tint(model_id))
+	if model == null:
+		return null
+
+	var sv: SubViewport = SubViewport.new()
+	sv.size = Vector2i(THUMB_PX, THUMB_PX)
+	sv.transparent_bg = true
+	sv.own_world_3d = true
+	sv.msaa_3d = Viewport.MSAA_4X
+	sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+
+	var cam: Camera3D = Camera3D.new()
+	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
+	cam.size = 1.5
+	cam.position = Vector3(1.4, 1.15, 1.4)
+	var env: Environment = Environment.new()
+	env.background_mode = Environment.BG_CLEAR_COLOR
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.62, 0.64, 0.68)
+	env.ambient_light_energy = 1.0
+	cam.environment = env
+	sv.add_child(cam)
+
+	var light: DirectionalLight3D = DirectionalLight3D.new()
+	light.rotation_degrees = Vector3(-45.0, 40.0, 0.0)
+	light.light_energy = 1.3
+	sv.add_child(light)
+
+	sv.add_child(model)
+	add_child(sv)
+	cam.look_at(Vector3.ZERO, Vector3.UP)   # aim once the camera is inside the tree
+
+	# Two frames so the SubViewport actually draws before we read it back.
+	await get_tree().process_frame
+	await get_tree().process_frame
+
+	var img: Image = sv.get_texture().get_image()
+	sv.queue_free()
+	if img == null or img.is_empty():
+		return null
+	return ImageTexture.create_from_image(img)
 
 
 # ---------------------------------------------------------------------------

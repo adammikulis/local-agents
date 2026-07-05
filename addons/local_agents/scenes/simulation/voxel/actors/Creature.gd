@@ -115,6 +115,15 @@ var _wander_timer: float = 0.0
 var _repath_timer: float = 0.0
 var _mesh: MeshInstance3D = null
 
+# --- display model (glTF via LAModelVisual) when the species has one; else the capsule above.
+# Animation is driven visually in _process from actual per-frame displacement. ---
+var _model_root: Node3D = null
+var _model_anim: AnimationPlayer = null
+var _model_anims: Dictionary = {}
+var _model_run_speed: float = 999.0
+var _vis_prev_pos: Vector3 = Vector3.ZERO
+var _vis_t: float = 0.0
+
 # --- terror / fear system: sprint away from felt/heard violence, overriding all else ---
 var _panic_timer: float = 0.0
 var _panic_source: Vector3 = Vector3.ZERO
@@ -375,23 +384,26 @@ static func _species_group(sp: String) -> String:
 
 
 func _build_body() -> void:
-	var mesh: MeshInstance3D = MeshInstance3D.new()
-	if can_fly:
-		var cap: CapsuleMesh = CapsuleMesh.new()
-		cap.radius = size * 0.5
-		cap.height = maxf(size * 1.4, size)
-		mesh.mesh = cap
-	else:
-		var body: CapsuleMesh = CapsuleMesh.new()
-		body.radius = size * 0.6
-		body.height = maxf(size * 2.0, size * 1.2)
-		mesh.mesh = body
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.roughness = 0.85
-	mesh.material_override = mat
-	add_child(mesh)
-	_mesh = mesh
+	# Prefer a display model for this species (LAActorModels); fall back to the primitive capsule.
+	_build_model()
+	if _model_root == null:
+		var mesh: MeshInstance3D = MeshInstance3D.new()
+		if can_fly:
+			var cap: CapsuleMesh = CapsuleMesh.new()
+			cap.radius = size * 0.5
+			cap.height = maxf(size * 1.4, size)
+			mesh.mesh = cap
+		else:
+			var body: CapsuleMesh = CapsuleMesh.new()
+			body.radius = size * 0.6
+			body.height = maxf(size * 2.0, size * 1.2)
+			mesh.mesh = body
+		var mat: StandardMaterial3D = StandardMaterial3D.new()
+		mat.albedo_color = color
+		mat.roughness = 0.85
+		mesh.material_override = mat
+		add_child(mesh)
+		_mesh = mesh
 
 	var shape: CollisionShape3D = CollisionShape3D.new()
 	var cyl: CapsuleShape3D = CapsuleShape3D.new()
@@ -408,6 +420,40 @@ func _build_body() -> void:
 		_rock_visual.position = Vector3(size * 0.55, size * 0.7, size * 0.35)
 		_rock_visual.visible = false
 		add_child(_rock_visual)
+
+
+# Try to build a display model for this species. Sets _model_root/_model_anim on success,
+# leaves them null (caller builds the capsule) if the species has no model or it fails to load.
+func _build_model() -> void:
+	var def: Dictionary = LAActorModels.get_def(species)
+	var model_path: String = String(config.get("model", def.get("path", "")))
+	if model_path.is_empty():
+		return
+	var target_h: float = maxf(size * 2.0, size * 1.2) * float(config.get("model_scale", 1.0))
+	var yaw: float = float(config.get("model_yaw", def.get("yaw", 0.0)))
+	var model: Node3D = LAModelVisual.build(model_path, target_h, "center", yaw, LAActorModels.tint(species))
+	if model == null:
+		return
+	add_child(model)
+	_model_root = model
+	_model_anim = LAModelVisual.find_anim(model)
+	_model_anims = def.get("anims", {})
+	_model_run_speed = float(def.get("run", 999.0))
+	_vis_prev_pos = global_position
+
+
+# Visual-only animation: play idle/move/run (or bob a rigless model) from actual displacement.
+# Kept out of _physics_process so it never perturbs movement/AI, only presentation.
+func _process(delta: float) -> void:
+	if _model_root == null:
+		return
+	_vis_t += delta
+	var p: Vector3 = global_position
+	var sp: float = 0.0
+	if delta > 0.0001:
+		sp = (p - _vis_prev_pos).length() / delta
+	_vis_prev_pos = p
+	LAModelVisual.animate(_model_root, _model_anim, _model_anims, sp, _model_run_speed, _vis_t, delta)
 
 
 func _physics_process(delta: float) -> void:

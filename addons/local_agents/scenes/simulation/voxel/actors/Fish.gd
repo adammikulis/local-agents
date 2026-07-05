@@ -41,6 +41,7 @@ var _dying: bool = false
 var _heading: Vector3 = Vector3.FORWARD
 var _wander_timer: float = 0.0
 var _mesh: MeshInstance3D = null
+var _model_root: Node3D = null
 
 
 func setup(_terrain, _material, _config: Dictionary) -> void:
@@ -71,39 +72,61 @@ func setup(_terrain, _material, _config: Dictionary) -> void:
 
 
 func _build_body() -> void:
-	# A small flattened ellipsoid body (scaled sphere) plus a little tail fin.
-	_mesh = MeshInstance3D.new()
-	var body: SphereMesh = SphereMesh.new()
-	body.radius = size
-	body.height = size * 2.0
-	body.radial_segments = 8
-	body.rings = 4
-	_mesh.mesh = body
-	_mesh.scale = Vector3(0.7, 0.5, 1.5)      # slim, streamlined, longer front-to-back
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.roughness = 0.4
-	mat.metallic = 0.3                          # a little fishy sheen
-	_mesh.material_override = mat
-	add_child(_mesh)
+	# Prefer the rigged fish model (swims continuously); fall back to a primitive ellipsoid + fin.
+	_build_model()
+	if _model_root == null:
+		_mesh = MeshInstance3D.new()
+		var body: SphereMesh = SphereMesh.new()
+		body.radius = size
+		body.height = size * 2.0
+		body.radial_segments = 8
+		body.rings = 4
+		_mesh.mesh = body
+		_mesh.scale = Vector3(0.7, 0.5, 1.5)      # slim, streamlined, longer front-to-back
+		var mat: StandardMaterial3D = StandardMaterial3D.new()
+		mat.albedo_color = color
+		mat.roughness = 0.4
+		mat.metallic = 0.3                          # a little fishy sheen
+		_mesh.material_override = mat
+		add_child(_mesh)
 
-	var tail: MeshInstance3D = MeshInstance3D.new()
-	var fin: CylinderMesh = CylinderMesh.new()
-	fin.top_radius = size * 0.7
-	fin.bottom_radius = 0.0
-	fin.height = size * 0.9
-	fin.radial_segments = 3
-	tail.mesh = fin
-	tail.material_override = mat
-	tail.position = Vector3(0.0, 0.0, -size * 1.4)
-	tail.rotation_degrees = Vector3(90.0, 0.0, 0.0)
-	add_child(tail)
+		var tail: MeshInstance3D = MeshInstance3D.new()
+		var fin: CylinderMesh = CylinderMesh.new()
+		fin.top_radius = size * 0.7
+		fin.bottom_radius = 0.0
+		fin.height = size * 0.9
+		fin.radial_segments = 3
+		tail.mesh = fin
+		tail.material_override = mat
+		tail.position = Vector3(0.0, 0.0, -size * 1.4)
+		tail.rotation_degrees = Vector3(90.0, 0.0, 0.0)
+		add_child(tail)
 
 	var shape: CollisionShape3D = CollisionShape3D.new()
 	var sph: SphereShape3D = SphereShape3D.new()
 	sph.radius = maxf(size, 0.2)
 	shape.shape = sph
 	add_child(shape)
+
+
+# Build the fish display model and start its (looping) swim clip. A fish is always swimming,
+# so there is no per-frame animation logic — just play once at spawn.
+func _build_model() -> void:
+	var def: Dictionary = LAActorModels.get_def("fish")
+	if String(def.get("path", "")).is_empty():
+		return
+	var target_h: float = size * 2.4
+	var model: Node3D = LAModelVisual.build(def["path"], target_h, "center", float(def.get("yaw", 0.0)), Color(0, 0, 0, 0))
+	if model == null:
+		return
+	add_child(model)
+	_model_root = model
+	var anim: AnimationPlayer = LAModelVisual.find_anim(model)
+	var anims: Dictionary = def.get("anims", {})
+	if anim != null:
+		var clip: String = String(anims.get("move", ""))
+		if not clip.is_empty() and anim.has_animation(clip):
+			anim.play(clip)
 
 
 # A thrown rock / bite killed me, or I aged out.
