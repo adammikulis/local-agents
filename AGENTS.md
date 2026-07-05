@@ -18,6 +18,8 @@ This file defines implementation rules for this repository. Higher sections are 
 - Run/observe tooling: use `scripts/agent_harness.sh` (see `CLAUDE.md`) for tests, smoke, and live introspection.
 - For substantial or breaking work, keep `ARCHITECTURE_PLAN.md` current: record the intended change, and note breaking API/schema changes there before merge.
 - Close stale/finished sub-agents when they are no longer active to conserve slots.
+- **Work in an isolated git worktree by DEFAULT** for any non-trivial change. Create a dedicated branch + worktree (`git worktree add -b <feature> ../<dir> <base>`), build there, commit as you go, and merge back only when verified. This is the standard because another session/agent doing git operations (checkout/reset/merge) on the shared checkout has corrupted and wiped untracked in-progress work here before — an isolated worktree makes your files immune to another writer's branch switches. Note: the compiled GDExtension `bin/` is a gitignored build artifact absent from a fresh worktree — symlink it from the primary checkout (`ln -s <primary>/addons/local_agents/gdextensions/localagents/bin <worktree>/.../bin`) so the extension loads. Skip the worktree only for trivial single-file edits or when you have confirmed you are the sole writer.
+- Never run a bulk-edit sub-agent on files you (or another lane) are also live-editing; keep work committed so it is always recoverable.
 
 ### Validation Defaults
 
