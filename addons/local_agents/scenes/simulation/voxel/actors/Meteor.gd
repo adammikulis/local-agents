@@ -37,6 +37,10 @@ var _flash: OmniLight3D = null
 var _burst: GPUParticles3D = null
 var _picker: StaticBody3D = null
 
+# Per-meteor size (randomized on launch): scales the rock, crater, heat, blast and ground shake so
+# strikes vary from small bright pebbles to landscape-cratering giants.
+var _size: float = 1.0
+
 
 func _ready() -> void:
 	add_to_group("selectable")
@@ -48,13 +52,29 @@ func setup(terrain: Object, ecology: Object) -> void:
 	_ecology = ecology
 
 
-## Spawn above `target` and begin the fall, with a slight lateral offset so the
-## descent reads as an angled streak rather than a vertical drop.
-func launch(target: Vector3) -> void:
+## Effective impact radius for THIS meteor (base * its random size).
+func _radius() -> float:
+	return IMPACT_RADIUS * _size
+
+
+## Launch toward `target`. If `from_pos` is finite it starts high ABOVE THAT POINT (the user's head)
+## and streaks in from the player's direction; otherwise it falls from above the target. Size is
+## randomized each launch so strikes vary in scale.
+func launch(target: Vector3, from_pos: Vector3 = Vector3(INF, INF, INF)) -> void:
 	_target = target
-	var lateral: Vector3 = Vector3(randf_range(-24.0, 24.0), 0.0, randf_range(-24.0, 24.0))
-	_spawned_at = target + Vector3(0.0, SPAWN_HEIGHT, 0.0) + lateral
+	_size = randf_range(0.55, 2.3)
+	if is_finite(from_pos.x) and is_finite(from_pos.y) and is_finite(from_pos.z):
+		# Start well over the user's head so the fireball arcs in from their vantage toward the target.
+		_spawned_at = from_pos + Vector3(0.0, SPAWN_HEIGHT, 0.0)
+	else:
+		var lateral: Vector3 = Vector3(randf_range(-24.0, 24.0), 0.0, randf_range(-24.0, 24.0))
+		_spawned_at = target + Vector3(0.0, SPAWN_HEIGHT, 0.0) + lateral
 	global_position = _spawned_at
+	# Bigger rock = bigger visual body, glow and trail.
+	if _body != null:
+		_body.scale = Vector3.ONE * _size
+	if _glow != null:
+		_glow.omni_range = 30.0 * _size
 	var dir: Vector3 = _target - _spawned_at
 	if dir.length() < 0.001:
 		dir = Vector3.DOWN
@@ -143,21 +163,33 @@ func _on_impact() -> void:
 	_state = State.IMPACTED
 	_fx_time = 0.0
 
+	var r: float = _radius()                                   # size-scaled crater
 	if _terrain != null and _terrain.has_method("carve_sphere"):
-		_terrain.carve_sphere(_impact_point, IMPACT_RADIUS)
+		_terrain.carve_sphere(_impact_point, r)
 	if _ecology != null and _ecology.has_method("damage_sphere"):
-		_ecology.damage_sphere(_impact_point, IMPACT_RADIUS * DAMAGE_SCALE)
+		_ecology.damage_sphere(_impact_point, r * DAMAGE_SCALE)
 	# Big splash if it struck water.
 	if _ecology != null and _ecology.has_method("material_field"):
 		var water: Object = _ecology.material_field()
 		if water != null and water.has_method("is_water_at") and water.is_water_at(_impact_point.x, _impact_point.z):
-			water.splash(_impact_point, 3.5)
+			water.splash(_impact_point, 3.5 * _size)
+			# White-hot rock hitting water flashes to steam — sizzle + a steam hiss.
+			LocalAgentsAudioDirector.emit(get_tree(), "sizzle", _impact_point)
+			LocalAgentsAudioDirector.emit(get_tree(), "steam", _impact_point)
 	# Terror shockwave: everything that hears/feels the impact panics and flees.
 	if _ecology != null and _ecology.has_method("broadcast_scare"):
-		_ecology.broadcast_scare(_impact_point, IMPACT_RADIUS * 6.0, 1.0)
-	# The molten strike sets nearby vegetation alight — a wildfire may spread from here.
-	if _ecology != null and _ecology.has_method("ignite_area"):
-		_ecology.ignite_area(_impact_point, IMPACT_RADIUS * 2.2)
+		_ecology.broadcast_scare(_impact_point, r * 6.0, 1.0)
+	# The strike dumps its kinetic+thermal energy into the ground as a molten HEAT spike: the crater
+	# glows incandescently (terrain shader) and cools over time, and vegetation that crosses the
+	# ignition temperature catches fire — all emergent from the temperature field, nothing scripted.
+	if _ecology != null and _ecology.has_method("material_field"):
+		var field: Object = _ecology.material_field()
+		if field != null and field.has_method("add_heat"):
+			field.add_heat(_impact_point, 1600.0, r * 2.2)     # molten rock ~1600°C
+	# Shake the ground: steep terrain in the blast radius slumps downhill under gravity (a meteor into
+	# a mountainside triggers a slide — pure material physics, no landslide code).
+	if _ecology != null and _ecology.has_method("disturb_ground"):
+		_ecology.disturb_ground(_impact_point, r * 2.0, _size)
 
 	if _body != null:
 		_body.visible = false

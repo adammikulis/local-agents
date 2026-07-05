@@ -63,6 +63,30 @@ static func sfx_presets() -> Dictionary:
 			"filter_type": F.LOWPASS, "filter_cutoff": 480.0, "filter_q": 1.0,
 			"amplitude": 1.0, "seed": 105,
 		}),
+		# Thunder — a sharp crack over a long low rolling rumble.
+		"thunder": Params.make({
+			"noise_mix": 0.95, "noise_type": N.PINK,
+			"frequency": 160.0, "frequency_end": 55.0, "duration": 1.60,
+			"attack": 0.001, "decay": 0.55, "sustain": 0.18, "release": 0.70,
+			"filter_type": F.LOWPASS, "filter_cutoff": 900.0, "filter_q": 1.3,
+			"amplitude": 1.0, "seed": 123,
+		}),
+		# Sizzle — hot rock/lava meeting water: sharp high hiss that fades fast (flash-steam).
+		"sizzle": Params.make({
+			"noise_mix": 1.0, "noise_type": N.WHITE,
+			"frequency": 2000.0, "frequency_end": 1400.0, "duration": 0.55,
+			"attack": 0.003, "decay": 0.34, "sustain": 0.10, "release": 0.16,
+			"filter_type": F.HIGHPASS, "filter_cutoff": 2600.0, "filter_q": 0.7,
+			"amplitude": 0.6, "seed": 121,
+		}),
+		# Rolling boil / steam vent — sustained airy hiss with a little body.
+		"steam": Params.make({
+			"noise_mix": 1.0, "noise_type": N.WHITE,
+			"frequency": 900.0, "frequency_end": 700.0, "duration": 1.10,
+			"attack": 0.02, "decay": 0.35, "sustain": 0.4, "release": 0.35,
+			"filter_type": F.BANDPASS, "filter_cutoff": 1300.0, "filter_q": 1.2,
+			"amplitude": 0.5, "seed": 122,
+		}),
 		# Predator eats prey — quick downward chirp + bite.
 		"chomp": Params.make({
 			"waveform": W.SQUARE, "duty": 0.35, "noise_mix": 0.4, "noise_type": N.PINK,

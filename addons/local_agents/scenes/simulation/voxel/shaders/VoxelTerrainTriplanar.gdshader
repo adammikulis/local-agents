@@ -16,6 +16,36 @@ uniform vec3 grass_dark : source_color = vec3(0.22, 0.32, 0.15);
 uniform vec3 rock_color : source_color = vec3(0.42, 0.40, 0.38);
 uniform vec3 snow_color : source_color = vec3(0.92, 0.94, 0.97);
 
+// --- Temperature field (baked by LAMaterialField into an R-float texture over world XZ). ---
+// The ground reads the temperature at its position and GLOWS incandescently when hot (a meteor
+// strike, lava, a wildfire) — emergent blackbody radiation, no per-event code. heat_debug flips the
+// whole surface to a temperature heatmap for the debug view.
+uniform sampler2D heat_tex : hint_default_black;
+uniform vec2 heat_world_min = vec2(-300.0, -300.0);
+uniform vec2 heat_world_size = vec2(600.0, 600.0);
+uniform float heat_debug = 0.0;      // 0 = normal + incandescence, 1 = temperature heatmap
+
+// Incandescence: temperature (°C) -> emissive glow color. Dull red begins ~500, orange ~800,
+// yellow-white ~1200+ (rough blackbody ramp).
+vec3 incandescence(float t) {
+	if (t < 450.0) {
+		return vec3(0.0);
+	}
+	float g = smoothstep(450.0, 1300.0, t);                       // overall brightness ramp
+	vec3 c = mix(vec3(0.75, 0.06, 0.0), vec3(1.0, 0.5, 0.08), smoothstep(450.0, 850.0, t));
+	c = mix(c, vec3(1.0, 0.96, 0.82), smoothstep(850.0, 1300.0, t));
+	return c * g;
+}
+
+// Cold(blue) -> mild(green) -> hot(red) ramp for the debug heatmap, mapped over -20..1200 °C.
+vec3 heat_ramp(float t) {
+	float h = clamp((t + 20.0) / 1220.0, 0.0, 1.0);
+	vec3 c = mix(vec3(0.10, 0.25, 0.75), vec3(0.20, 0.80, 0.35), smoothstep(0.0, 0.45, h));
+	c = mix(c, vec3(0.95, 0.85, 0.15), smoothstep(0.35, 0.7, h));
+	c = mix(c, vec3(0.9, 0.15, 0.08), smoothstep(0.65, 1.0, h));
+	return c;
+}
+
 varying vec3 v_world_pos;
 varying vec3 v_world_normal;
 
@@ -67,7 +97,22 @@ void fragment() {
 		* (1.0 - smoothstep(0.5, 0.8, slope));
 	col = mix(col, snow_color, clamp(snowf, 0.0, 1.0));
 
+	// Sample the temperature field at this world XZ.
+	vec2 huv = (wp.xz - heat_world_min) / heat_world_size;
+	float temp = texture(heat_tex, huv).r;
+
+	if (heat_debug > 0.5) {
+		// Debug view: paint the whole surface by temperature.
+		ALBEDO = heat_ramp(temp);
+		ROUGHNESS = 0.9;
+		METALLIC = 0.0;
+		EMISSION = incandescence(temp) * 2.0;
+		return;
+	}
+
 	ALBEDO = col;
 	ROUGHNESS = mix(0.92, 0.6, rockf);
 	METALLIC = 0.0;
+	// Hot ground glows — a meteor crater, lava, or a wildfire front lights the terrain itself.
+	EMISSION = incandescence(temp) * 3.0;
 }

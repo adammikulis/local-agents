@@ -11,6 +11,10 @@ const CameraRigScript: GDScript = preload("res://addons/local_agents/scenes/simu
 const EcologyServiceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ecology/EcologyService.gd")
 const HudScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/SpawnPaletteHud.gd")
 const MeteorScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Meteor.gd")
+const VolcanoScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Volcano.gd")
+const LightningScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/LightningStrike.gd")
+const EarthquakeScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Earthquake.gd")
+const FloodScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Flood.gd")
 const AudioDirectorScript: GDScript = preload("res://addons/local_agents/audio/AudioDirector.gd")
 const WeatherScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/WeatherSystem.gd")
 const MaterialFieldScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField.gd")
@@ -91,6 +95,7 @@ const THROW_ARC: float = 0.4                 # upward velocity as a fraction of 
 var _spawned_initial: bool = false
 var _ready_wait_ticks: int = 0
 var _scent_visible: bool = false
+var _temp_debug_visible: bool = false      # T toggles the terrain temperature heatmap debug view
 
 # --- Procedural audio (presentation only; reacts to events, never drives the sim) ---
 var _audio: LocalAgentsAudioDirector = null
@@ -110,6 +115,11 @@ var _peak_circling: int = 0
 var _peak_investigating: int = 0
 var _peak_sleeping: int = 0
 var _auto_meteor: bool = false
+var _auto_volcano: bool = false
+var _auto_volcano_fired: bool = false
+var _auto_lightning: bool = false
+var _auto_lightning_fired: bool = false
+var _storm_bolt_cd: float = 0.0
 var _auto_meteor_fired: bool = false
 var _auto_select: bool = false
 var _auto_select_done: bool = false
@@ -229,11 +239,6 @@ func _ready() -> void:
 	_weather.name = "Weather"
 	add_child(_weather)
 	_weather.setup(_camera, sun, e)
-	# Let the wildfire system see the rain so weather can suppress/extinguish fires.
-	if _ecology.has_method("fire_system"):
-		var fs = _ecology.fire_system()
-		if fs != null and fs.has_method("set_weather"):
-			fs.set_weather(_weather)
 
 	# --- Unified material/heat field: the ONE substrate for all matter + energy. WATER is a material
 	# here (CA rivers/lakes/ocean — creatures drink, fish live in it), temperature drives fire/phase
@@ -261,6 +266,13 @@ func _ready() -> void:
 	add_child(_fog)
 	_fog.setup(_material, true)
 
+	# Feed the live temperature texture to the terrain shader so HOT GROUND GLOWS (meteor craters,
+	# lava, wildfire fronts) — emergent incandescence, updated in place each field step.
+	if _terrain.has_method("set_shader_param") and _material.has_method("heat_texture"):
+		_terrain.set_shader_param("heat_tex", _material.heat_texture())
+		_terrain.set_shader_param("heat_world_min", _material.heat_world_min())
+		_terrain.set_shader_param("heat_world_size", _material.heat_world_size())
+
 
 func _parse_cmdline() -> void:
 	for arg in OS.get_cmdline_user_args():
@@ -278,6 +290,10 @@ func _parse_cmdline() -> void:
 			_force_wind = float(arg.substr("--wind=".length()))
 		elif arg == "--auto-meteor":
 			_auto_meteor = true
+		elif arg == "--auto-volcano":
+			_auto_volcano = true
+		elif arg == "--auto-lightning":
+			_auto_lightning = true
 		elif arg == "--auto-select":
 			_auto_select = true
 		elif arg == "--cognition-stats":
@@ -296,6 +312,7 @@ func _process(delta: float) -> void:
 				_ecology.spawn_initial(INITIAL_COUNTS)
 				_ecology.populate_environment(ROCK_COUNT, FOREST_CLUSTERS)
 				_seed_water()
+				_spawn_default_volcano()
 				# Frame a vista at the real surface height (only when not driven by a harness cam).
 				if not _auto_meteor and not _auto_select and _camera.has_method("frame_vista"):
 					var oh: float = _terrain.surface_height(0.0, 0.0)
@@ -316,6 +333,29 @@ func _process(delta: float) -> void:
 		var trigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 600, 60)
 		if _frame == trigger:
 			_fire_test_meteor()
+
+	# Auto-volcano demo/test: raise an erupting volcano near origin (lava + bombs).
+	if _auto_volcano and not _auto_volcano_fired and _spawned_initial:
+		var vtrigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 600, 60)
+		if _frame >= vtrigger:
+			var oh: float = _terrain.surface_height(20.0, 20.0)
+			if not is_nan(oh):
+				_spawn_volcano(Vector3(20.0, oh, 20.0))
+				_auto_volcano_fired = true
+
+	# Thunderstorms produce lightning — emergent occurrence keyed off heavy rain.
+	if _spawned_initial and _weather != null and _weather.has_method("rain"):
+		_storm_bolt_cd -= delta
+		if _weather.rain() > 0.6 and _storm_bolt_cd <= 0.0:
+			_storm_bolt_cd = randf_range(2.5, 7.0)
+			_strike_random_lightning()
+
+	# Auto-lightning demo/test: strike the nearest tree so a wildfire emerges from the bolt's heat.
+	if _auto_lightning and not _auto_lightning_fired and _spawned_initial:
+		var ltrigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 600, 60)
+		if _frame >= ltrigger:
+			_fire_test_lightning()
+			_auto_lightning_fired = true
 
 	# Auto-select demo: aim at the nearest creature and run the real selection path.
 	if _auto_select and not _auto_select_done and _spawned_initial and _frame == _shoot_frames - 40:
@@ -354,9 +394,12 @@ func _process(delta: float) -> void:
 			wet = _material.wet_cell_count()
 		var heat_peak: float = 0.0
 		var heat_cells: int = 0
+		var lava_cells: int = 0
 		if _material != null and _material.has_method("peak_heat"):
 			heat_peak = _material.peak_heat()
 			heat_cells = _material.hot_cell_count()
+			if _material.has_method("lava_peak"):
+				lava_cells = _material.lava_peak()
 		var cloud_cells: int = 0
 		var cloud_cover: float = 0.0
 		var fog_cover: float = 0.0
@@ -421,8 +464,8 @@ func _process(delta: float) -> void:
 			var sc = _ecology.cognition_scheduler()
 			if sc != null and sc.has_method("total_calls"):
 				sched_calls = sc.total_calls()
-		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"heat_peak\":%.2f,\"heat_cells\":%d,\"cloud_cells\":%d,\"cloud_cover\":%.3f,\"fog_cover\":%.3f,\"wind\":%.2f,\"poop\":%d,\"fish\":%d,\"fires\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f,\"minds\":%d,\"habits\":%d,\"escalations\":%d,\"social_lessons\":%d,\"max_generation\":%d,\"slow_brain_calls\":%d,\"nests\":%d,\"circling\":%d,\"investigating\":%d,\"sleeping\":%d,\"cues_learned\":%d}" % [
-			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, heat_peak, heat_cells, cloud_cells, cloud_cover, fog_cover, wind_mag, n_poop, n_fish, n_fire, min_hyd, drinkers, _time_of_day, minds, habits, asked, learned_socially, max_gen, sched_calls, n_nest, circling, investigating, sleeping, cues_learned])
+		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"heat_peak\":%.2f,\"heat_cells\":%d,\"lava_cells\":%d,\"cloud_cells\":%d,\"cloud_cover\":%.3f,\"fog_cover\":%.3f,\"wind\":%.2f,\"poop\":%d,\"fish\":%d,\"fires\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f,\"minds\":%d,\"habits\":%d,\"escalations\":%d,\"social_lessons\":%d,\"max_generation\":%d,\"slow_brain_calls\":%d,\"nests\":%d,\"circling\":%d,\"investigating\":%d,\"sleeping\":%d,\"cues_learned\":%d}" % [
+			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, heat_peak, heat_cells, lava_cells, cloud_cells, cloud_cover, fog_cover, wind_mag, n_poop, n_fish, n_fire, min_hyd, drinkers, _time_of_day, minds, habits, asked, learned_socially, max_gen, sched_calls, n_nest, circling, investigating, sleeping, cues_learned])
 		if _cognition_stats:
 			var avg_habits: float = (float(habits) / float(minds)) if minds > 0 else 0.0
 			print("COGNITION_SUMMARY minds=%d avg_habits=%.2f escalations=%d social_lessons=%d max_generation=%d slow_brain_calls=%d nests=%d circling=%d investigating=%d sleeping=%d cues_learned=%d" % [
@@ -559,6 +602,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			sf.set_scent_visible(_scent_visible)
 		_hud.set_status("Scent view: %s" % ("ON" if _scent_visible else "off"))
 		return
+	# Debug view: T paints the terrain by temperature (heatmap). More field views (wind, pressure)
+	# hang off the same toggle set as those systems come online.
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_T:
+		_temp_debug_visible = not _temp_debug_visible
+		if _terrain != null and _terrain.has_method("set_shader_param"):
+			_terrain.set_shader_param("heat_debug", 1.0 if _temp_debug_visible else 0.0)
+		_hud.set_status("Temperature view: %s" % ("ON" if _temp_debug_visible else "off"))
+		return
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_M:
 		if _hud != null and _hud.has_method("toggle_audio_menu"):
 			_hud.toggle_audio_menu()
@@ -579,7 +630,6 @@ func _unhandled_input(event: InputEvent) -> void:
 				_on_lmb_press(mpos)
 			else:
 				_on_lmb_release(mpos)
-			return
 
 
 func _on_spawn_selected(kind: String) -> void:
@@ -726,15 +776,99 @@ func _place_armed(screen_pos: Vector2) -> void:
 		var meteor: MeteorScript = MeteorScript.new()
 		_actors_root.add_child(meteor)
 		meteor.setup(_terrain, _ecology)
-		meteor.launch(point)
+		# Launch from over the user's head, streaking toward the clicked point.
+		meteor.launch(point, _camera.global_position)
 		_music_destruction = 1.0
 		_hud.set_status("Meteor inbound!")
+	elif _armed_kind == "volcano":
+		_spawn_volcano(point)
+		_music_destruction = 1.0
+		_hud.set_status("A volcano rises — stand back!")
+	elif _armed_kind == "lightning":
+		_spawn_lightning(point)
+		_music_destruction = 0.7
+		_hud.set_status("A bolt strikes!")
+	elif _armed_kind == "earthquake":
+		var quake: Node = EarthquakeScript.new()
+		_actors_root.add_child(quake)
+		quake.setup(_terrain, _ecology, _camera)
+		quake.rupture(point)
+		_music_destruction = 1.0
+		_hud.set_status("The ground heaves!")
+	elif _armed_kind == "flood":
+		var flood: Node = FloodScript.new()
+		_actors_root.add_child(flood)
+		flood.setup(_terrain, _ecology)
+		flood.surge(point)
+		_hud.set_status("Flood surge!")
 	else:
 		_ecology.spawn(_armed_kind, point)
 		if _audio != null:
 			_audio.play_sfx("spawn", point)
 		_hud.set_status("Spawned %s." % _armed_kind)
 	_spawn_puff(point, _kind_color(_armed_kind))
+
+
+# The world always has one active volcano — placed on the highest of several sampled points so it's a
+# proper mountain landmark, well away from the origin spawn.
+func _spawn_default_volcano() -> void:
+	var best_h: float = -INF
+	var best: Vector3 = Vector3(150.0, 0.0, 150.0)
+	var ring: int = 12
+	for i in range(ring):
+		var ang: float = TAU * float(i) / float(ring)
+		var r: float = 160.0
+		var px: float = cos(ang) * r
+		var pz: float = sin(ang) * r
+		var h: float = _terrain.surface_height(px, pz)
+		if not is_nan(h) and h > best_h:
+			best_h = h
+			best = Vector3(px, h, pz)
+	if best_h > -INF:
+		_spawn_volcano(best)
+
+
+func _spawn_volcano(point: Vector3) -> void:
+	var v: Node = VolcanoScript.new()
+	_actors_root.add_child(v)
+	v.setup(_terrain, _ecology)
+	v.erupt_at(point)
+
+
+func _spawn_lightning(point: Vector3) -> void:
+	var b: Node = LightningScript.new()
+	_actors_root.add_child(b)
+	b.setup(_terrain, _ecology)
+	b.strike(point)
+	if _audio != null:
+		_audio.play_sfx("thunder", point)
+
+
+# A bolt at a random point in the play area (thunderstorm occurrence).
+func _strike_random_lightning() -> void:
+	var ang: float = randf() * TAU
+	var r: float = randf() * 250.0
+	var px: float = cos(ang) * r
+	var pz: float = sin(ang) * r
+	var h: float = _terrain.surface_height(px, pz)
+	if not is_nan(h):
+		_spawn_lightning(Vector3(px, h, pz))
+
+
+# Strike the nearest tree (test: confirm fire emerges from the bolt's heat).
+func _fire_test_lightning() -> void:
+	var best: float = INF
+	var impact: Vector3 = Vector3.ZERO
+	var found: bool = false
+	for t in get_tree().get_nodes_in_group("tree"):
+		if t is Node3D:
+			var d: float = (_camera.global_position - (t as Node3D).global_position).length()
+			if d < best:
+				best = d
+				impact = (t as Node3D).global_position
+				found = true
+	if found:
+		_spawn_lightning(impact)
 
 
 func _select_at(screen_pos: Vector2) -> void:
@@ -795,7 +929,7 @@ func _fire_test_meteor() -> void:
 	var m: MeteorScript = MeteorScript.new()
 	_actors_root.add_child(m)
 	m.setup(_terrain, _ecology)
-	m.launch(impact)
+	m.launch(impact, _camera.global_position)
 	_music_destruction = 1.0
 	_auto_meteor_fired = true
 	if _camera.has_method("focus_on"):
@@ -886,6 +1020,10 @@ func _kind_color(kind: String) -> Color:
 		"villager": return Color(0.75, 0.5, 0.9)
 		"fish": return Color(0.55, 0.72, 0.86)
 		"meteor": return Color(1.0, 0.5, 0.2)
+		"volcano": return Color(0.95, 0.42, 0.12)
+		"lightning": return Color(0.82, 0.88, 1.0)
+		"earthquake": return Color(0.55, 0.40, 0.28)
+		"flood": return Color(0.30, 0.55, 0.90)
 		_: return Color(0.8, 0.9, 0.6)
 
 

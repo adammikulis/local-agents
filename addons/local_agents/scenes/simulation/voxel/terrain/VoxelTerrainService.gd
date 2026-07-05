@@ -84,6 +84,13 @@ func build(parent: Node3D, opts: Dictionary = {}) -> void:
 func terrain_node() -> Node:
 	return _terrain
 
+
+## Set a uniform on the terrain's triplanar shader material (e.g. the temperature texture that makes
+## hot ground glow, or the heat-debug toggle). No-op before build().
+func set_shader_param(param: String, value) -> void:
+	if _terrain != null and _terrain.material is ShaderMaterial:
+		(_terrain.material as ShaderMaterial).set_shader_parameter(param, value)
+
 ## Add a VoxelViewer under `camera` so terrain streams/meshes/collides around it.
 func attach_viewer(camera: Node3D) -> void:
 	if camera == null:
