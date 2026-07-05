@@ -160,9 +160,9 @@ func _ready() -> void:
 	# light surround (the "inside a cloud" look). Re-tinted to the live horizon each frame.
 	e.fog_enabled = true
 	e.fog_light_color = SKY_HORIZON_DAY
-	e.fog_density = 0.0022
-	e.fog_aerial_perspective = 1.0
-	e.fog_sky_affect = 0.15
+	e.fog_density = 0.0007
+	e.fog_aerial_perspective = 0.45
+	e.fog_sky_affect = 0.1
 	env.environment = e
 	add_child(env)
 	_sky_shader_mat = sky_mat
@@ -248,7 +248,10 @@ func _ready() -> void:
 	_material = MaterialFieldScript.new()
 	_material.name = "MaterialField"
 	add_child(_material)
-	_material.setup(_terrain, 300.0, 4.0)
+	# Grid resolution is the dominant sim cost (the CA loops every cell each step): 6-unit cells keep
+	# ~10k cells across the 600-unit world — a big step up from 4-unit (22.8k cells) without visibly
+	# coarsening water/lava, which the surface interpolation smooths anyway.
+	_material.setup(_terrain, 300.0, 6.0)
 	# The field reads the REAL sun (DirectionalLight3D) live — its energy + angle drive all heating.
 	# Wind/pressure/rain are NOT injected; they emerge from the field's own physics.
 	_material.set_sun(_sun)
@@ -981,6 +984,12 @@ func _seed_water() -> void:
 	if not is_nan(origin_h):
 		# Only ground clearly below the origin becomes standing water — avoids a global flood.
 		_material.sea_level = origin_h - 10.0
+		# Match the terrain shader's beach/snow bands to the REAL ground: the sand line sits at the
+		# water surface and snow only caps genuine high peaks (well above local ground), so the world
+		# reads as a varied landscape instead of an all-white snowfield around the spawn.
+		if _terrain.has_method("set_shader_param"):
+			_terrain.set_shader_param("sea_level", origin_h - 10.0)
+			_terrain.set_shader_param("snow_height", origin_h + 78.0)
 	# Sample a ring of candidate points; the highest few become persistent springs.
 	var candidates: Array = []
 	var ring: int = 8

@@ -20,7 +20,7 @@ uniform vec3 snow_color : source_color = vec3(0.92, 0.94, 0.97);
 // The ground reads the temperature at its position and GLOWS incandescently when hot (a meteor
 // strike, lava, a wildfire) — emergent blackbody radiation, no per-event code. heat_debug flips the
 // whole surface to a temperature heatmap for the debug view.
-uniform sampler2D heat_tex : hint_default_black;
+uniform sampler2D heat_tex : hint_default_black, filter_linear;
 uniform vec2 heat_world_min = vec2(-300.0, -300.0);
 uniform vec2 heat_world_size = vec2(600.0, 600.0);
 uniform float heat_debug = 0.0;      // 0 = normal + incandescence, 1 = temperature heatmap
@@ -107,12 +107,11 @@ void fragment() {
 		ROUGHNESS = 0.9;
 		METALLIC = 0.0;
 		EMISSION = incandescence(temp) * 2.0;
-		return;
+	} else {
+		ALBEDO = col;
+		ROUGHNESS = mix(0.92, 0.6, rockf);
+		METALLIC = 0.0;
+		// Hot ground glows — a meteor crater, lava, or a wildfire front lights the terrain itself.
+		EMISSION = incandescence(temp) * 3.0;
 	}
-
-	ALBEDO = col;
-	ROUGHNESS = mix(0.92, 0.6, rockf);
-	METALLIC = 0.0;
-	// Hot ground glows — a meteor crater, lava, or a wildfire front lights the terrain itself.
-	EMISSION = incandescence(temp) * 3.0;
 }

@@ -25,11 +25,11 @@ const Mat: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel
 # --- Atmosphere tuning (the vapor -> cloud/fog -> rain cycle) ---
 const VAPOR_DIFFUSE: float = 0.14        # isotropic vapor spread per step
 const CLOUD_DIFFUSE: float = 0.06        # clouds spread a little too
-const SAT_BASE: float = 0.035            # saturation vapor at EVAP_TEMP_REF (lower -> clouds form sooner)
+const SAT_BASE: float = 0.06             # saturation vapor at EVAP_TEMP_REF (lower -> clouds form sooner)
 const SAT_TEMP_GAIN: float = 0.055       # warmer air holds exponentially more vapor before condensing
 const CONDENSE_RATE: float = 0.30        # fraction of super-saturated vapor -> cloud per step
-const CLOUD_REEVAP_RATE: float = 0.08    # fraction of cloud -> vapor per step when air is sub-saturated
-const CLOUD_DECAY: float = 0.002         # baseline cloud dissipation per step (keeps it from piling up)
+const CLOUD_REEVAP_RATE: float = 0.12    # fraction of cloud -> vapor per step when air is sub-saturated
+const CLOUD_DECAY: float = 0.006         # baseline cloud dissipation per step (keeps it from piling up)
 const RAIN_CLOUD_THRESHOLD: float = 0.45 # cloud density above which it precipitates
 const RAIN_RATE: float = 0.16            # fraction of above-threshold cloud -> ground water per step
 const CLOUD_BASE_ABOVE_SEA: float = 62.0 # world-Y of the rendered cloud sheet, above sea level

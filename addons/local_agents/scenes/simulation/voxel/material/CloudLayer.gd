@@ -45,10 +45,11 @@ func setup(field, is_fog: bool) -> void:
 	_mat.set_shader_parameter("world_extent", extent)
 	_mat.set_shader_parameter("tint", Color(1.0, 1.0, 1.0))
 	if is_fog:
-		# Fog: a softer, more transparent ground haze that appears at a lower density.
-		_mat.set_shader_parameter("edge_lo", 0.015)
-		_mat.set_shader_parameter("edge_hi", 0.22)
-		_mat.set_shader_parameter("max_alpha", 0.8)
+		# Fog: a softer, more transparent ground haze that appears at a lower density. Only genuinely
+		# dense fog reads as a sheet, so clear air stays clear (no whiteout).
+		_mat.set_shader_parameter("edge_lo", 0.06)
+		_mat.set_shader_parameter("edge_hi", 0.3)
+		_mat.set_shader_parameter("max_alpha", 0.5)
 		_mat.set_shader_parameter("detail_scale", 0.05)
 	material_override = _mat
 

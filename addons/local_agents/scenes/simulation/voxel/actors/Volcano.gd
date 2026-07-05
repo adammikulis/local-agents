@@ -10,7 +10,7 @@ extends Node3D
 const Mat: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/Materials.gd")
 
 const VENT_RADIUS: float = 3.5
-const LAVA_RATE: float = 3.0              # lava depth/sec emitted while erupting
+const LAVA_RATE: float = 0.6              # lava depth/sec emitted while erupting
 const VENT_HEAT_PER_SEC: float = 1500.0   # keeps the vent molten (ΔT/s injected)
 const ERUPT_MIN: float = 8.0
 const ERUPT_MAX: float = 16.0
@@ -158,7 +158,7 @@ func _bomb_impact(bomb: Node) -> void:
 		if _field.has_method("add_heat"):
 			_field.add_heat(pos, 900.0, 4.0)
 		if _field.has_method("add_material"):
-			_field.add_material(pos, Mat.LAVA, 0.5, 2.0)
+			_field.add_material(pos, Mat.LAVA, 0.18, 2.0)
 	if _ecology != null and _ecology.has_method("broadcast_scare"):
 		_ecology.broadcast_scare(pos, 12.0, 0.5)
 	bomb.queue_free()

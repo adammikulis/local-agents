@@ -38,7 +38,7 @@ var _heat = null                           # LAMaterialHeat (conduction + ambien
 const INITIAL_TEMP: float = 15.0
 ## New cells start with a little ambient humidity (air is never bone-dry), so clouds/fog can form from
 ## the first cool night instead of needing a full day of evaporation to charge the atmosphere first.
-const INITIAL_VAPOR: float = 0.035
+const INITIAL_VAPOR: float = 0.022
 ## Diagnostic default: a cell at/above this °C counts as "hot" (well above any natural ambient).
 const HOT_THRESHOLD: float = 60.0
 
@@ -108,6 +108,7 @@ var _sample_cursor: int = 0
 var _sampled_count: int = 0
 var _ready: bool = false
 var _step_accum: float = 0.0
+var _step_parity: bool = false             # toggles each CA step so the atmosphere runs at half rate
 
 ## The real scene sun (DirectionalLight3D). The field reads its live energy + orientation each step to
 ## derive incoming solar — the one genuinely external forcing. Rain/wind/pressure EMERGE, never
@@ -318,7 +319,12 @@ func _material_step() -> void:
 		return
 	_heat.step()
 	_liquid.step()
-	_atmosphere.step()
+	# The atmosphere (vapor->cloud/fog->rain + 3 wind-transport passes) is the heaviest module by far
+	# (~10 grid passes). Weather evolves slowly, so run it every OTHER CA step at double strength —
+	# half the cost, indistinguishable result.
+	_step_parity = not _step_parity
+	if _step_parity:
+		_atmosphere.step()
 	# Phase reactions and gas convection attach here as those materials come online (Phase 2+);
 	# they are no-ops until the relevant materials are injected.
 

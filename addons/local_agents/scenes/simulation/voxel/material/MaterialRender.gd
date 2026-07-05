@@ -53,18 +53,33 @@ void fragment() {
 const LAVA_SHADER: String = """
 shader_type spatial;
 render_mode cull_disabled, diffuse_burley;
-uniform vec3 hot_color : source_color = vec3(1.0, 0.75, 0.2);
-uniform vec3 cool_color : source_color = vec3(0.6, 0.09, 0.02);
+uniform vec3 hot_color : source_color = vec3(1.0, 0.62, 0.12);
+uniform vec3 cool_color : source_color = vec3(0.35, 0.045, 0.01);
 uniform float flow_speed = 0.25;
+varying vec3 v_world;
+// Cheap value noise on world XZ so the crust is CONTINUOUS across cell quads (no per-quad polka dots).
+float lhash(vec2 p) { p = fract(p * vec2(127.1, 311.7)); p += dot(p, p + 34.5); return fract(p.x * p.y); }
+float lnoise(vec2 p) {
+	vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+	float a = lhash(i); float b = lhash(i + vec2(1.0, 0.0));
+	float c = lhash(i + vec2(0.0, 1.0)); float d = lhash(i + vec2(1.0, 1.0));
+	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
 void vertex() {
-	VERTEX.y += sin(VERTEX.x * 0.6 + TIME * flow_speed) * cos(VERTEX.z * 0.6 + TIME * flow_speed) * 0.06;
+	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	VERTEX.y += sin(v_world.x * 0.5 + TIME * flow_speed) * cos(v_world.z * 0.5 + TIME * flow_speed) * 0.06;
 }
 void fragment() {
-	float crust = 0.5 + 0.5 * sin(VERTEX.x * 1.7 + TIME * flow_speed) * sin(VERTEX.z * 1.7 - TIME * flow_speed);
+	// Two octaves of world-space noise drifting slowly => cracked, glowing crust with dark cooled skin
+	// over bright molten veins, continuous across the whole flow rather than a grid of cells.
+	vec2 wp = v_world.xz;
+	float drift = TIME * flow_speed * 0.15;
+	float n = lnoise(wp * 0.35 + vec2(drift, -drift)) * 0.65 + lnoise(wp * 1.1 - vec2(drift, drift)) * 0.35;
+	float crust = smoothstep(0.35, 0.75, n);   // dark cooled crust (low) vs hot veins (high)
 	vec3 c = mix(cool_color, hot_color, crust);
 	ALBEDO = c;
-	EMISSION = c * (1.5 + crust * 2.5);
-	ROUGHNESS = 0.7;
+	EMISSION = c * (0.8 + crust * 3.0);
+	ROUGHNESS = 0.75;
 	METALLIC = 0.0;
 }
 """

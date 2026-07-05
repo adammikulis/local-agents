@@ -8,9 +8,11 @@ extends Node3D
 ## for destruction. (Explicit types only — project rule: no ':=' inferred typing.)
 
 # --- Tunables -----------------------------------------------------------------
-const SPAWN_HEIGHT: float = 140.0          # how far above the target it appears
-const START_SPEED: float = 70.0            # initial fall speed (units/s)
-const GRAVITY: float = 55.0                # downward acceleration (units/s^2)
+const SPAWN_HEIGHT: float = 140.0          # fallback drop height when launched with no camera origin
+const START_SPEED: float = 70.0            # initial fall speed (units/s) for the fallback drop
+const LAUNCH_SPEED: float = 150.0          # speed when fired from the camera like an FPS projectile
+const STEER_RATE: float = 3.4              # how fast the projectile homes its heading onto the target
+const GRAVITY: float = 55.0                # downward acceleration (units/s^2), fallback drop only
 const MAX_SPEED: float = 260.0
 const IMPACT_RADIUS: float = 10.0          # carve radius — large & dramatic
 const DAMAGE_SCALE: float = 1.6            # ecology damage radius = radius * this
@@ -29,6 +31,7 @@ var _fall_time: float = 0.0
 var _fx_time: float = 0.0
 var _impact_point: Vector3 = Vector3.ZERO
 var _spawned_at: Vector3 = Vector3.ZERO
+var _guided: bool = false                  # true = FPS-style homing projectile; false = ballistic drop
 
 var _body: MeshInstance3D = null
 var _glow: OmniLight3D = null
@@ -57,29 +60,37 @@ func _radius() -> float:
 	return IMPACT_RADIUS * _size
 
 
-## Launch toward `target`. If `from_pos` is finite it starts high ABOVE THAT POINT (the user's head)
-## and streaks in from the player's direction; otherwise it falls from above the target. Size is
+## Launch toward `target`. If `from_pos` is finite it fires FROM THAT POINT (the camera / screen
+## centre) like an FPS projectile, streaking straight out and homing onto the target so it always
+## lands on the click point; otherwise it falls ballistically from above the target. Size is
 ## randomized each launch so strikes vary in scale.
 func launch(target: Vector3, from_pos: Vector3 = Vector3(INF, INF, INF)) -> void:
 	_target = target
 	_size = randf_range(0.55, 2.3)
 	if is_finite(from_pos.x) and is_finite(from_pos.y) and is_finite(from_pos.z):
-		# Start well over the user's head so the fireball arcs in from their vantage toward the target.
-		_spawned_at = from_pos + Vector3(0.0, SPAWN_HEIGHT, 0.0)
+		# Fire from the camera itself so it reads as a projectile leaving screen centre toward the
+		# crosshair; a small forward nudge keeps it from spawning inside the near plane.
+		var aim: Vector3 = target - from_pos
+		if aim.length() < 0.001:
+			aim = Vector3.DOWN
+		aim = aim.normalized()
+		_spawned_at = from_pos + aim * 3.0
+		_guided = true
+		_velocity = aim * LAUNCH_SPEED
 	else:
 		var lateral: Vector3 = Vector3(randf_range(-24.0, 24.0), 0.0, randf_range(-24.0, 24.0))
 		_spawned_at = target + Vector3(0.0, SPAWN_HEIGHT, 0.0) + lateral
+		_guided = false
+		var dir: Vector3 = _target - _spawned_at
+		if dir.length() < 0.001:
+			dir = Vector3.DOWN
+		_velocity = dir.normalized() * START_SPEED
 	global_position = _spawned_at
 	# Bigger rock = bigger visual body, glow and trail.
 	if _body != null:
 		_body.scale = Vector3.ONE * _size
 	if _glow != null:
 		_glow.omni_range = 30.0 * _size
-	var dir: Vector3 = _target - _spawned_at
-	if dir.length() < 0.001:
-		dir = Vector3.DOWN
-	dir = dir.normalized()
-	_velocity = dir * START_SPEED
 	_fall_time = 0.0
 	_state = State.FALLING
 	if _trail != null:
@@ -114,9 +125,19 @@ func _physics_process(delta: float) -> void:
 
 func _step_fall(delta: float) -> void:
 	_fall_time += delta
-	_velocity.y -= GRAVITY * delta
-	if _velocity.length() > MAX_SPEED:
-		_velocity = _velocity.normalized() * MAX_SPEED
+	if _guided:
+		# FPS projectile: hold a constant speed and steer the heading onto the target so it lands
+		# exactly on the click point regardless of where it was fired from.
+		var to_target: Vector3 = _target - global_position
+		if to_target.length() > 0.001:
+			var want: Vector3 = to_target.normalized()
+			var cur: Vector3 = _velocity.normalized() if _velocity.length() > 0.001 else want
+			var steered: Vector3 = cur.lerp(want, clampf(STEER_RATE * delta, 0.0, 1.0)).normalized()
+			_velocity = steered * LAUNCH_SPEED
+	else:
+		_velocity.y -= GRAVITY * delta
+		if _velocity.length() > MAX_SPEED:
+			_velocity = _velocity.normalized() * MAX_SPEED
 
 	var next_pos: Vector3 = global_position + _velocity * delta
 	var impact: Dictionary = _detect_impact(global_position, next_pos)
@@ -326,20 +347,24 @@ func _build_visuals() -> void:
 
 	_trail = GPUParticles3D.new()
 	_trail.emitting = false
-	_trail.amount = 120
-	_trail.lifetime = 0.7
+	_trail.amount = 240
+	_trail.lifetime = 1.1
 	_trail.draw_pass_1 = _make_trail_mesh()
 	var tp: ParticleProcessMaterial = ParticleProcessMaterial.new()
 	tp.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	tp.emission_sphere_radius = BODY_RADIUS * 0.7
+	tp.emission_sphere_radius = BODY_RADIUS * 0.8
+	# Particles are emitted with almost no velocity so they hang in the air where the fireball WAS,
+	# leaving a burning trail behind the moving meteor. They shrink and darken over their life.
 	tp.direction = Vector3(0.0, 1.0, 0.0)
-	tp.spread = 25.0
-	tp.initial_velocity_min = 2.0
-	tp.initial_velocity_max = 8.0
-	tp.gravity = Vector3.ZERO
-	tp.scale_min = 0.5
-	tp.scale_max = 1.4
-	tp.color = Color(1.0, 0.65, 0.2)
+	tp.spread = 40.0
+	tp.initial_velocity_min = 0.5
+	tp.initial_velocity_max = 4.0
+	tp.gravity = Vector3(0.0, 4.0, 0.0)          # hot embers loft a little as they trail
+	tp.scale_min = 0.7
+	tp.scale_max = 1.8
+	tp.scale_curve = _trail_scale_curve()        # taper to nothing so it reads as a tapering tail
+	tp.color = Color(1.0, 0.6, 0.18)
+	tp.color_ramp = _fire_ramp()                 # white-hot -> orange -> smoke over the ember's life
 	_trail.process_material = tp
 	add_child(_trail)
 
@@ -353,6 +378,29 @@ func _build_visuals() -> void:
 	col.shape = cs
 	_picker.add_child(col)
 	add_child(_picker)
+
+
+# White-hot at birth (just off the fireball) fading through orange to dark smoke as each ember ages —
+# the classic burning-reentry tail.
+func _fire_ramp() -> GradientTexture1D:
+	var g: Gradient = Gradient.new()
+	g.set_color(0, Color(1.0, 0.95, 0.7))
+	g.add_point(0.35, Color(1.0, 0.55, 0.12))
+	g.add_point(0.7, Color(0.6, 0.16, 0.05))
+	g.set_color(1, Color(0.12, 0.11, 0.11))
+	var tex: GradientTexture1D = GradientTexture1D.new()
+	tex.gradient = g
+	return tex
+
+
+# Embers start full-size and shrink to nothing, so the trail tapers to a point behind the meteor.
+func _trail_scale_curve() -> CurveTexture:
+	var c: Curve = Curve.new()
+	c.add_point(Vector2(0.0, 1.0))
+	c.add_point(Vector2(1.0, 0.0))
+	var tex: CurveTexture = CurveTexture.new()
+	tex.curve = c
+	return tex
 
 
 func _make_trail_mesh() -> Mesh:

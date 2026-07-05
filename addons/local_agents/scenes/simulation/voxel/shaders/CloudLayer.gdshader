@@ -12,9 +12,9 @@ uniform float world_extent = 300.0;    // field half-extent; density uv = (world
 uniform vec3 tint : source_color = vec3(1.0, 1.0, 1.0);
 uniform vec2 wind = vec2(0.0, 0.0);
 uniform float detail_scale = 0.03;      // world-space frequency of the fbm detail
-uniform float edge_lo = 0.02;           // density where the sheet starts to appear
-uniform float edge_hi = 0.22;           // density where it reaches full opacity
-uniform float max_alpha = 0.95;
+uniform float edge_lo = 0.09;           // density where the sheet starts to appear
+uniform float edge_hi = 0.45;           // density where it reaches full opacity
+uniform float max_alpha = 0.7;
 
 varying vec3 v_world;
 
