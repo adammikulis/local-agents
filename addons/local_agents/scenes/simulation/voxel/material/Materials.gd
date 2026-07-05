@@ -8,9 +8,10 @@ extends RefCounted
 ## phase changes, combustion, buoyancy and settling all fall out of these properties, so the field's
 ## step loop never branches on "if water" / "if lava". Add a material by adding a row.
 ##
-## Temperature is an abstract relative scalar (not real °C): ambient hovers near 0, disasters inject
-## large positive spikes (lightning/lava) or negative ones (blizzard). Thresholds below are tuned in
-## that same relative scale. (Explicit types only — project rule: no ':=' inferred typing.)
+## Temperature is REAL degrees Celsius: 0°C freezes water, 100°C boils it, wood autoignites ~300°C,
+## lava solidifies ~800°C / rock melts ~1200°C. Ambient is a mild ~5–28°C driven by the sun; 0 is
+## cold, not neutral. Disasters inject real spikes (lightning/lava → hundreds/thousands of °C,
+## blizzard → below zero). (Explicit types only — project rule: no ':=' inferred typing.)
 
 ## Material ids. Kept as plain ints (array index) so per-material state can live in flat arrays.
 const AIR: int = 0
@@ -59,7 +60,7 @@ const DEFS: Array = [
 	{   # WATER
 		"name": "water", "phase": PHASE_LIQUID, "density": 1.0, "flow": 0.25,
 		"heat_capacity": 4.2, "buoyancy": 0.0, "repose": 0.0,
-		"cold_to": ICE, "cold_temp": -1.0, "hot_to": STEAM, "hot_temp": 10.0,
+		"cold_to": ICE, "cold_temp": 0.0, "hot_to": STEAM, "hot_temp": 100.0,
 		"flammable": false, "ignite_temp": 0.0, "burns_to": NONE,
 		"color": Color(0.16, 0.46, 0.68, 0.55),
 	},
@@ -73,14 +74,14 @@ const DEFS: Array = [
 	{   # STEAM
 		"name": "steam", "phase": PHASE_GAS, "density": 0.0006, "flow": 0.0,
 		"heat_capacity": 2.0, "buoyancy": 1.4, "repose": 0.0,
-		"cold_to": WATER, "cold_temp": 8.0, "hot_to": NONE, "hot_temp": 0.0,
+		"cold_to": WATER, "cold_temp": 99.0, "hot_to": NONE, "hot_temp": 0.0,
 		"flammable": false, "ignite_temp": 0.0, "burns_to": NONE,
 		"color": Color(0.85, 0.88, 0.92, 0.35),
 	},
 	{   # ROCK  (solid phase == voxel SDF; listed so lava can solidify back to it)
 		"name": "rock", "phase": PHASE_SOLID, "density": 2.6, "flow": 0.0,
 		"heat_capacity": 0.8, "buoyancy": 0.0, "repose": 0.0,
-		"cold_to": NONE, "cold_temp": 0.0, "hot_to": LAVA, "hot_temp": 60.0,
+		"cold_to": NONE, "cold_temp": 0.0, "hot_to": LAVA, "hot_temp": 1200.0,
 		"flammable": false, "ignite_temp": 0.0, "burns_to": NONE,
 		"color": Color(0.42, 0.4, 0.4, 1.0),
 	},
@@ -101,7 +102,7 @@ const DEFS: Array = [
 	{   # LAVA (hot, slow-creeping liquid; solidifies to rock when it cools)
 		"name": "lava", "phase": PHASE_LIQUID, "density": 2.4, "flow": 0.04,
 		"heat_capacity": 1.0, "buoyancy": 0.0, "repose": 0.0,
-		"cold_to": ROCK, "cold_temp": 45.0, "hot_to": NONE, "hot_temp": 0.0,
+		"cold_to": ROCK, "cold_temp": 800.0, "hot_to": NONE, "hot_temp": 0.0,
 		"flammable": false, "ignite_temp": 0.0, "burns_to": NONE,
 		"color": Color(1.0, 0.42, 0.08, 1.0),
 	},
@@ -123,7 +124,7 @@ const DEFS: Array = [
 		"name": "wood", "phase": PHASE_SOLID, "density": 0.7, "flow": 0.0,
 		"heat_capacity": 1.8, "buoyancy": 0.0, "repose": 0.0,
 		"cold_to": NONE, "cold_temp": 0.0, "hot_to": NONE, "hot_temp": 0.0,
-		"flammable": true, "ignite_temp": 5.0, "burns_to": ASH,
+		"flammable": true, "ignite_temp": 300.0, "burns_to": ASH,
 		"color": Color(0.36, 0.25, 0.14, 1.0),
 	},
 	{   # SNOW (frozen precipitation; melts to water)

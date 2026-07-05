@@ -34,18 +34,23 @@ const READY_FRACTION: float = 0.9
 const CONDUCT_FRACTION: float = 0.16
 ## How fast a cell relaxes toward its ambient temperature per step (radiative equilibrium).
 const AMBIENT_RELAX: float = 0.06
-## Radiative night floor (temperature ground relaxes toward with zero sun).
-const AMBIENT_NIGHT: float = -0.6
-## Ambient warming per unit of incoming solar (light_energy * elevation). Tuned so a clear noon
-## (sun light_energy ~1.45) lands ambient a little above 1.0; clouds/storms dimming the sun cool it.
-const SOLAR_WARMTH: float = 1.1
-## Altitude cooling: temperature drops by LAPSE_RATE per metre above LAPSE_REF (cold peaks emerge).
-const LAPSE_RATE: float = 0.03
-const LAPSE_REF: float = 12.0
-## Extra pull toward ambient where a cell is wet — rivers/lakes/flood become firebreaks emergently.
-const WATER_COOL: float = 2.0
-## Diagnostic default: a cell at/above this counts as "hot".
-const HOT_THRESHOLD: float = 4.0
+## Temperatures are real degrees CELSIUS. Radiative night floor (°C the ground relaxes toward with
+## zero sun) — a cool but non-freezing night.
+const AMBIENT_NIGHT: float = 6.0
+## Ambient warming (°C) per unit of incoming solar (light_energy * elevation). Tuned so a clear noon
+## (solar ~1.4) lands ambient near 28°C; clouds/storms dimming the sun genuinely cool the ground.
+const SOLAR_WARMTH: float = 16.0
+## Altitude cooling: temperature drops by LAPSE_RATE °C per world-unit above LAPSE_REF, so high peaks
+## fall below 0°C and grow snow/ice emergently.
+const LAPSE_RATE: float = 0.42
+const LAPSE_REF: float = 15.0
+## New cells start at a mild temperature (not 0°C) so nothing freezes before the field settles.
+const INITIAL_TEMP: float = 15.0
+## Pull (°C toward ambient per second) on WET cells — big water heat capacity keeps rivers/lakes near
+## ambient even beside a fire, so they act as firebreaks emergently.
+const WATER_COOL: float = 300.0
+## Diagnostic default: a cell at/above this °C counts as "hot" (well above any natural ambient).
+const HOT_THRESHOLD: float = 60.0
 
 # --- Liquid CA (ported verbatim from the retired LAWaterFieldSystem; WATER is now a material here).
 # The shallow-water redistribution is generic over liquids — WATER uses these constants; LAVA (later)
@@ -274,6 +279,7 @@ func _sample_step() -> void:
 		if is_nan(hf) or is_inf(hf):
 			continue
 		_terrain_h[idx] = hf
+		_temp[idx] = INITIAL_TEMP
 		_sampled[idx] = 1
 		_sampled_count += 1
 

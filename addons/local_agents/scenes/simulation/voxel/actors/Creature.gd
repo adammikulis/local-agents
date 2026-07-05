@@ -33,7 +33,24 @@ var max_hydration: float = 100.0
 var thirst_rate: float = 1.0
 const DRINK_RATE: float = 45.0             # hydration/sec restored while drinking
 const THIRSTY_FRACTION: float = 0.5        # below this, seeking water interrupts other drives
-var _material = null                          # LAWaterFieldSystem (injected)
+
+# --- temperature comfort (emergent: read the shared field's temp at my feet) ---
+# Between COOL_COMFORT and WARM_COMFORT costs nothing. Beyond, heat parches (raising effective
+# thirst → the existing seek-water drive relocates herds to water / away from fire) and cold drains
+# energy; past the lethal bounds it kills. A wildfire, lava, a hot day, or a cold snap all act
+# through this one rule — no per-disaster code.
+# Real Celsius: comfortable roughly 8–28°C.
+const WARM_COMFORT: float = 28.0
+const COOL_COMFORT: float = 8.0
+const HEAT_THIRST_FACTOR: float = 0.15     # extra thirst/sec per °C above WARM_COMFORT
+const HEAT_ENERGY_FACTOR: float = 0.08     # extra energy/sec burned per °C above WARM_COMFORT
+const COLD_ENERGY_FACTOR: float = 0.15     # energy/sec burned per °C below COOL_COMFORT
+const LETHAL_HEAT: float = 50.0           # °C at/above which a creature burns/overheats to death
+const LETHAL_COLD: float = -18.0          # °C at/below which it freezes
+const DROWN_DEPTH: float = 2.5             # water depth a non-flyer drowns in
+const DROWN_DRAIN: float = 40.0           # energy/sec lost while submerged
+
+var _material = null                          # LAMaterialField (temp_at / depth_at / is_water_at)
 var _water_dir_cache: Vector3 = Vector3.ZERO
 var _water_search_cd: float = 0.0
 
@@ -319,6 +336,28 @@ func _physics_process(delta: float) -> void:
 		return
 
 	var pos: Vector3 = global_position
+
+	# TEMPERATURE COMFORT + DROWNING (emergent, from the shared field at my feet).
+	if _material != null:
+		var t: float = _material.temp_at(pos.x, pos.z)
+		if t > WARM_COMFORT:
+			var over: float = t - WARM_COMFORT
+			hydration -= over * HEAT_THIRST_FACTOR * delta   # heat parches → seek water (existing drive)
+			energy -= over * HEAT_ENERGY_FACTOR * delta
+			if t >= LETHAL_HEAT:
+				die("burned", Vector3(0.0, 3.0, 0.0))
+				return
+		elif t < COOL_COMFORT:
+			energy -= (COOL_COMFORT - t) * COLD_ENERGY_FACTOR * delta
+			if t <= LETHAL_COLD:
+				die("frozen")
+				return
+		if not can_fly and _material.depth_at(pos.x, pos.z) >= DROWN_DEPTH:
+			energy -= DROWN_DRAIN * delta
+			if energy <= 0.0:
+				die("drowned")
+				return
+
 	var surf: float = _surface_at(pos.x, pos.z)
 	if is_nan(surf):
 		return                            # unmeshed / off-terrain: skip this frame

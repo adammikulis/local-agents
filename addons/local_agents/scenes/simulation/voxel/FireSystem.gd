@@ -33,8 +33,8 @@ const EXTINGUISH_RAIN: float = 0.7
 ## cell in the shared MaterialField reaches IGNITE_TEMP (== WOOD's ignite_temp). Burning actors pump
 ## heat back into the field, so a hot cell heats its neighbours and SPREAD emerges from the physics —
 ## no neighbour-roll. Lightning/lava/meteors "start fires" only because they deposit heat.
-const IGNITE_TEMP: float = 5.0
-const BURN_HEAT_PER_SEC: float = 34.0       # heat a burning actor injects into its cell each second
+const IGNITE_TEMP: float = 300.0            # °C — wood autoignition; == WOOD.ignite_temp in Materials
+const BURN_HEAT_PER_SEC: float = 1000.0     # °C/s a burning actor injects into its cell (flame heat)
 const BURN_HEAT_RADIUS: float = 5.0         # ~SPREAD_RADIUS: a burning tree heats its immediate stand
 const IGNITE_SCAN_INTERVAL: float = 0.4     # cadence of the heat-threshold ignition sweep
 
