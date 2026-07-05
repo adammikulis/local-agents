@@ -384,7 +384,10 @@ func _material_step() -> void:
 	# half the cost, indistinguishable result.
 	_step_parity = not _step_parity
 	if _step_parity:
-		_atmosphere.step()
+		if _use_gpu:
+			_gpu.step_atmosphere(_atmosphere.wind())
+		else:
+			_atmosphere.step()
 	# Phase reactions and gas convection attach here as those materials come online (Phase 2+);
 	# they are no-ops until the relevant materials are injected.
 
