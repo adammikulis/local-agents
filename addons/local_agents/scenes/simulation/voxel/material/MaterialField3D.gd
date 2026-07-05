@@ -41,10 +41,29 @@ var _cell_count: int = 0
 var _solid: PackedByteArray = PackedByteArray()          # 1 = rock (holds no fluid), 0 = void (air/water)
 var _water: PackedFloat32Array = PackedFloat32Array()    # water mass per cell (can exceed 1 under pressure)
 var _wnext: PackedFloat32Array = PackedFloat32Array()    # double buffer for the water step
+# 1 = calm STATIC sea: seeded once below sea level and left at rest — NOT stepped and NOT meshed (the
+# GPU ocean plane draws it). Only DYNAMIC water (springs, rivers, cave pools, splashes) is simulated and
+# rendered, so the cost tracks the active water, not the whole seabed. Dynamic water that flows into a
+# static cell is absorbed (drains into the sea). This is what keeps the dense 3D field cheap.
+var _static: PackedByteArray = PackedByteArray()
 
 
 var _sea_level: float = 0.0
 var _half_extent: float = 0.0
+
+# --- Frame loop + rendering -------------------------------------------------
+const STEP_HZ: float = 10.0
+const STEP_DT: float = 1.0 / STEP_HZ
+const MAX_STEPS_PER_FRAME: int = 2
+const RENDER_MIN: float = 0.08            # min water mass in a cell for its top face to render
+const SEA_WAVE_EPS: float = 0.6           # calm-sea top faces within this of sea_level are left to the ocean plane
+var _step_accum: float = 0.0
+var _ready_sim: bool = false
+var _surface_mi: MeshInstance3D = null
+var _surface_mesh: ArrayMesh = null
+var _water_mat: Material = null
+# Persistent water sources (springs) injected each step: [{pos, rate}].
+var _sources: Array = []
 
 
 # --- Setup ------------------------------------------------------------------
@@ -94,8 +113,9 @@ func seed_sea() -> void:
 		for iz in range(_dim_z):
 			for ix in range(_dim_x):
 				var i: int = _idx(ix, iy, iz)
-				if _solid[i] == 0 and _water[i] < MAX_MASS:
+				if _solid[i] == 0:
 					_water[i] = MAX_MASS
+					_static[i] = 1                       # calm sea: hold it, don't simulate/mesh it
 
 
 # --- Setup ------------------------------------------------------------------
@@ -114,6 +134,8 @@ func setup_dims(dim_x: int, dim_y: int, dim_z: int, cell_size: float, origin: Ve
 	_water.resize(_cell_count)
 	_wnext = PackedFloat32Array()
 	_wnext.resize(_cell_count)
+	_static = PackedByteArray()
+	_static.resize(_cell_count)
 
 
 # --- Index helpers ----------------------------------------------------------
@@ -186,27 +208,34 @@ func step_water() -> void:
 	for i in range(_cell_count):
 		_wnext[i] = _water[i]
 
+	var layer: int = _dim_x * _dim_z
 	for iy in range(_dim_y):
 		for iz in range(_dim_z):
 			for ix in range(_dim_x):
-				var i: int = _idx(ix, iy, iz)
-				if _solid[i] != 0:
+				var i: int = (iy * _dim_z + iz) * _dim_x + ix
+				# Skip rock and calm STATIC sea — the expensive flow math only runs on dynamic water.
+				if _solid[i] != 0 or _static[i] != 0:
 					continue
 				var remaining: float = _water[i]
 				if remaining < MIN_MASS:
 					continue
 				var flow: float = 0.0
 
-				# 1) DOWN — gravity. Move toward the stable split with the cell below.
+				# 1) DOWN — gravity. Move toward the stable split with the cell below (drain into sea).
 				if iy > 0:
-					var ib: int = i - _dim_x * _dim_z
+					var ib: int = i - layer
 					if _solid[ib] == 0:
-						flow = _stable_below(remaining + _water[ib]) - _water[ib]
-						flow = clampf(flow, 0.0, minf(MAX_FLOW, remaining))
-						if flow > MIN_FLOW:
-							_wnext[i] -= flow
-							_wnext[ib] += flow
-							remaining -= flow
+						if _static[ib] != 0:
+							# The sea below is an infinite sink: water pours in and is absorbed.
+							_wnext[i] -= remaining
+							remaining = 0.0
+						else:
+							flow = _stable_below(remaining + _water[ib]) - _water[ib]
+							flow = clampf(flow, 0.0, minf(MAX_FLOW, remaining))
+							if flow > MIN_FLOW:
+								_wnext[i] -= flow
+								_wnext[ib] += flow
+								remaining -= flow
 				if remaining < MIN_MASS:
 					continue
 
@@ -224,6 +253,12 @@ func step_water() -> void:
 					var inb: int = _idx(nx, iy, nz)
 					if _solid[inb] != 0:
 						continue
+					if _static[inb] != 0:
+						# Reached the sea sideways (a river mouth) — absorb a share and move on.
+						var drain: float = clampf(remaining * LATERAL_FRACTION, 0.0, remaining)
+						_wnext[i] -= drain
+						remaining -= drain
+						continue
 					var diff: float = remaining - _water[inb]
 					if diff > MIN_FLOW:
 						var lflow: float = clampf(diff * LATERAL_FRACTION, 0.0, minf(MAX_FLOW, remaining))
@@ -234,8 +269,8 @@ func step_water() -> void:
 
 				# 3) UP — only overflow (compressed above MAX_MASS) pushes into the cell above.
 				if remaining > MAX_MASS and iy < _dim_y - 1:
-					var iu: int = i + _dim_x * _dim_z
-					if _solid[iu] == 0:
+					var iu: int = i + layer
+					if _solid[iu] == 0 and _static[iu] == 0:
 						var uflow: float = remaining - _stable_below(remaining + _water[iu])
 						uflow = clampf(uflow, 0.0, minf(MAX_FLOW, remaining))
 						if uflow > MIN_FLOW:
@@ -291,3 +326,107 @@ func depth_at(x: float, z: float) -> float:
 ## Inject water at a world point (a spring, rain, a flood surge, a meteor splash).
 func add_water_world(pos: Vector3, amount: float) -> void:
 	add_water_cell(_col_i(pos.x, _origin.x), _col_i(pos.y, _origin.y), _col_i(pos.z, _origin.z), amount)
+
+
+## Register a persistent spring: `rate` water mass per second injected at `pos` each step.
+func add_source(pos: Vector3, rate: float) -> void:
+	_sources.append({"pos": pos, "rate": rate})
+
+
+# --- Live frame loop + fluid-surface rendering ------------------------------
+
+## Begin simulating + rendering (called after setup + sample_solidity + seed_sea). Builds the render
+## node and starts the throttled step in _physics_process.
+func activate() -> void:
+	_build_render_node()
+	rebuild_surface()
+	_ready_sim = true
+
+
+func _physics_process(delta: float) -> void:
+	if not _ready_sim:
+		return
+	_step_accum += delta
+	var steps: int = 0
+	while _step_accum >= STEP_DT and steps < MAX_STEPS_PER_FRAME:
+		_step_accum -= STEP_DT
+		steps += 1
+		# Springs feed the surface (rivers emerge as this water flows downhill in 3D).
+		for src in _sources:
+			add_water_world(src["pos"], float(src["rate"]) * STEP_DT)
+		step_water()
+	if steps > 0:
+		rebuild_surface()
+
+
+func _build_render_node() -> void:
+	if _surface_mi != null:
+		return
+	if _water_mat == null:
+		var m: StandardMaterial3D = StandardMaterial3D.new()
+		m.albedo_color = Color(0.12, 0.42, 0.62, 0.72)
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.roughness = 0.1
+		m.metallic = 0.0
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_water_mat = m
+	_surface_mesh = ArrayMesh.new()
+	_surface_mi = MeshInstance3D.new()
+	_surface_mi.name = "Water3DSurface"
+	_surface_mi.mesh = _surface_mesh
+	_surface_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_surface_mi)
+
+
+## Extract the water's exposed TOP surface as a quad per column-top wet cell — the sea/lake/river
+## surface AND cavern-pool tops. Calm open-sea tops (near sea level) are skipped: the GPU ocean plane
+## draws those, so the CA mesh only carries deviations + inland/underground water.
+func rebuild_surface() -> void:
+	if _surface_mesh == null:
+		return
+	var verts: PackedVector3Array = PackedVector3Array()
+	var normals: PackedVector3Array = PackedVector3Array()
+	var cs: float = _cell_size
+	var h: float = cs * 0.5
+	var layer: int = _dim_x * _dim_z
+	for iy in range(_dim_y):
+		var wy_base: float = _origin.y + float(iy) * cs
+		for iz in range(_dim_z):
+			for ix in range(_dim_x):
+				var i: int = (iy * _dim_z + iz) * _dim_x + ix
+				# Rock and calm static sea don't mesh (the ocean plane draws the sea).
+				if _solid[i] != 0 or _static[i] != 0:
+					continue
+				var m: float = _water[i]
+				if m < RENDER_MIN:
+					continue
+				# Only the LOCAL top of a water column gets a top face (cell above dry or solid).
+				if iy < _dim_y - 1:
+					var iu: int = i + layer
+					if _solid[iu] == 0 and _water[iu] >= RENDER_MIN:
+						continue
+				var wy: float = wy_base + (clampf(m, 0.0, MAX_MASS) - 0.5) * cs
+				# Calm open sea (a sub-sea cell whose surface is ~sea level) is the ocean plane's job.
+				if wy_base < _sea_level and absf(wy - _sea_level) < SEA_WAVE_EPS:
+					continue
+				var wx: float = _origin.x + float(ix) * cs
+				var wz: float = _origin.z + float(iz) * cs
+				verts.push_back(Vector3(wx - h, wy, wz - h))
+				verts.push_back(Vector3(wx + h, wy, wz - h))
+				verts.push_back(Vector3(wx + h, wy, wz + h))
+				verts.push_back(Vector3(wx - h, wy, wz - h))
+				verts.push_back(Vector3(wx + h, wy, wz + h))
+				verts.push_back(Vector3(wx - h, wy, wz + h))
+				for k in range(6):
+					normals.push_back(Vector3.UP)
+	if _surface_mesh.get_surface_count() > 0:
+		_surface_mesh.clear_surfaces()
+	if verts.is_empty():
+		return
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	_surface_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	if _water_mat != null:
+		_surface_mesh.surface_set_material(0, _water_mat)

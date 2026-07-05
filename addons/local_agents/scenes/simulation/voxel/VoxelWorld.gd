@@ -19,6 +19,7 @@ const AudioDirectorScript: GDScript = preload("res://addons/local_agents/audio/A
 const WeatherScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/WeatherSystem.gd")
 const MaterialFieldScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField.gd")
 const OceanPlaneScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/OceanPlane.gd")
+const MaterialField3DScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField3D.gd")
 const CloudLayerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/CloudLayer.gd")
 const DebugPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugPanel.gd")
 const DebugOverlayScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugOverlay.gd")
@@ -134,6 +135,8 @@ var _peak_sleeping: int = 0
 var _auto_meteor: bool = false
 var _overview: bool = false             # --overview: frame a wide whole-island vista (screenshot aid)
 var _farview: bool = false              # --farview: pull the vista out to max zoom (ocean-coverage test)
+var _field3d_enabled: bool = false      # --field3d: run the dense 3D MaterialField live (water pools in caves)
+var _field3d: Node = null
 var _debug_demo: bool = false
 var _user_shot_counter: int = 0        # numbers the screenshots the DebugPanel's save button writes
 var _auto_volcano: bool = false
@@ -419,6 +422,8 @@ func _parse_cmdline() -> void:
 		elif arg == "--farview":
 			_overview = true
 			_farview = true
+		elif arg == "--field3d":
+			_field3d_enabled = true
 		elif arg == "--cognition-stats":
 			_cognition_stats = true
 
@@ -443,6 +448,8 @@ func _process(delta: float) -> void:
 				# water reads alive from the start; _tick_aquatic keeps every species topped up after.
 				if _ecology.has_method("stock_initial_aquatic"):
 					_ecology.stock_initial_aquatic()
+				if _field3d_enabled:
+					_build_field3d()
 				_spawn_default_volcano()
 				# Frame a vista at the real surface height (only when not driven by a harness cam).
 				if _overview and _camera.has_method("frame_overview"):
@@ -1296,6 +1303,26 @@ func _push_environment() -> void:
 		sf.set_wind(_weather.wind_vector())
 	if sf.has_method("set_wash"):
 		sf.set_wash(_weather.rain())
+
+
+# Build the dense 3D MaterialField (behind --field3d): sample rock/void from the terrain SDF, seed the
+# sea, feed the same springs, and start it. It renders its own 3D water surface (sea + cavern pools) on
+# top of the 2.5D field — an A/B proving ground on the road to replacing the 2.5D substrate.
+func _build_field3d() -> void:
+	if _terrain == null or not _terrain.has_method("is_solid"):
+		return
+	_field3d = MaterialField3DScript.new()
+	_field3d.name = "MaterialField3D"
+	add_child(_field3d)
+	var sea: float = _terrain.sea_level() if _terrain.has_method("sea_level") else 0.0
+	# 8-unit cells over the island's Y span (seabed to above the spring heads) keeps it ~130k cells.
+	_field3d.setup(_terrain, 300.0, 8.0, -80.0, 90.0, sea)
+	_field3d.sample_solidity()
+	_field3d.seed_sea()
+	for p in _springs:
+		_field3d.add_source(p, 4.0)
+	_field3d.activate()
+	_hud.set_status("3D water field active — water pools in caves.")
 
 
 # Lock the sea level to the island's true ocean surface, sync the terrain shader's beach/snow bands to
