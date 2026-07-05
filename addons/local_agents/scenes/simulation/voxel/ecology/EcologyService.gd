@@ -239,7 +239,12 @@ func damage_sphere(world_pos: Vector3, radius: float) -> void:
 		var a: Node3D = actor as Node3D
 		if a.global_position.distance_squared_to(world_pos) > r2:
 			continue
-		if a.has_method("die"):
+		if a.has_method("topple"):
+			# Trees don't vanish — the blast knocks them over, falling away from impact.
+			var dir: Vector3 = a.global_position - world_pos
+			dir.y = 0.0
+			a.topple(dir)
+		elif a.has_method("die"):
 			var away: Vector3 = a.global_position - world_pos
 			away.y = absf(away.y) + 2.0
 			var force: float = 1.0 - a.global_position.distance_to(world_pos) / maxf(1.0, radius)
