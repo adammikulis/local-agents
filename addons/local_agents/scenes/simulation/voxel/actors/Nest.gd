@@ -56,6 +56,54 @@ func setup(from_terrain, from_species: String, from_owner_family: int, from_in_t
 				_build_earthen_mound()
 		_snap_to_terrain()
 
+	# A layer-2 pick collider so the player's selection raycast (VoxelWorld
+	# ._select_at, which collides with bodies) can hit the shelter. Added after
+	# the mesh is built so it is sized to match the shelter that was chosen.
+	_add_picker()
+
+
+## Add the pick-only physics body used for selection. It sits on collision
+## layer 2 (the pick layer) with mask 0 so it never participates in the
+## simulation's physics -- it exists purely for the click raycast. The sphere
+## is sized/centred to roughly cover the built shelter's visual extents.
+func _add_picker() -> void:
+	var pick_radius: float = 0.6
+	var pick_center_y: float = 0.12
+	if in_tree:
+		pick_radius = 0.35
+		pick_center_y = 0.10
+	else:
+		match species:
+			"bird":
+				pick_radius = 0.35
+				pick_center_y = 0.10
+			"rabbit":
+				pick_radius = 0.55
+				pick_center_y = 0.12
+			"fox":
+				pick_radius = 0.78
+				pick_center_y = 0.14
+			"villager":
+				pick_radius = 0.72
+				pick_center_y = 0.40
+			_:
+				pick_radius = 0.60
+				pick_center_y = 0.12
+
+	var body: StaticBody3D = StaticBody3D.new()
+	body.name = "NestPicker"
+	body.collision_layer = 2
+	body.collision_mask = 0
+
+	var shape: SphereShape3D = SphereShape3D.new()
+	shape.radius = pick_radius
+	var collision: CollisionShape3D = CollisionShape3D.new()
+	collision.name = "NestPickerShape"
+	collision.shape = shape
+	collision.position = Vector3(0.0, pick_center_y, 0.0)
+	body.add_child(collision)
+	add_child(body)
+
 
 ## Human-readable shelter name for the given species (used in the inspector).
 func _shelter_name() -> String:
@@ -271,6 +319,8 @@ func get_inspector_payload() -> Dictionary:
 		"title": "Nest",
 		"lines": [
 			_shelter_name(),
+			"Species: %s" % species,
+			"Habitat: %s" % ("tree" if in_tree else "ground"),
 			"Family: %d" % owner_family,
 			"Young: %d" % young_count(),
 			"Condition: %s" % condition(),

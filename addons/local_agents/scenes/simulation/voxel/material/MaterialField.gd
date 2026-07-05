@@ -29,41 +29,23 @@ const MAX_STEPS_PER_FRAME: int = 3
 const SAMPLE_BUDGET: int = 700
 const READY_FRACTION: float = 0.9
 
-# --- Heat model (temperature is a relative scalar; ambient ~0, disasters inject spikes) ------
-## Fraction of a cell's temperature gradient conducted to its 4 neighbours per step.
-const CONDUCT_FRACTION: float = 0.16
-## How fast a cell relaxes toward its ambient temperature per step (radiative equilibrium).
-const AMBIENT_RELAX: float = 0.06
-## Temperatures are real degrees CELSIUS. Radiative night floor (°C the ground relaxes toward with
-## zero sun) — a cool but non-freezing night.
-const AMBIENT_NIGHT: float = 6.0
-## Ambient warming (°C) per unit of incoming solar (light_energy * elevation). Tuned so a clear noon
-## (solar ~1.4) lands ambient near 28°C; clouds/storms dimming the sun genuinely cool the ground.
-const SOLAR_WARMTH: float = 16.0
-## Altitude cooling: temperature drops by LAPSE_RATE °C per world-unit above LAPSE_REF, so high peaks
-## fall below 0°C and grow snow/ice emergently.
-const LAPSE_RATE: float = 0.42
-const LAPSE_REF: float = 15.0
+# --- Heat model (temperature is real degrees Celsius). The thermal STEP (conduction + solar/ambient
+# relax + cloud shading + wet-cell cooling) lives in its own module now (MaterialHeat.gd); the field
+# owns the module + the shared _temp array and reads the real scene sun (_sun_light) for solar input.
+const HeatScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialHeat.gd")
+var _heat = null                           # LAMaterialHeat (conduction + ambient/solar thermal step)
 ## New cells start at a mild temperature (not 0°C) so nothing freezes before the field settles.
 const INITIAL_TEMP: float = 15.0
 ## New cells start with a little ambient humidity (air is never bone-dry), so clouds/fog can form from
 ## the first cool night instead of needing a full day of evaporation to charge the atmosphere first.
 const INITIAL_VAPOR: float = 0.035
-## Pull (°C toward ambient per second) on WET cells — big water heat capacity keeps rivers/lakes near
-## ambient even beside a fire, so they act as firebreaks emergently.
-const WATER_COOL: float = 300.0
 ## Diagnostic default: a cell at/above this °C counts as "hot" (well above any natural ambient).
 const HOT_THRESHOLD: float = 60.0
 
-# --- Granular gravity (angle of repose). When ground is DISTURBED, columns that overhang a lower
-# neighbour by more than a loose slope can hold slump downhill under gravity until stable — this is
-# how "landslides" happen: not a scripted system, just soil moving under gravity. Applied to the
-# terrain SDF (carve where a column drops, fill where it rises).
-const REPOSE_TAN: float = 0.7             # max stable rise/run for loose soil (~35°)
-const REPOSE_PASSES: int = 6              # relaxation iterations over the disturbed patch
-const REPOSE_MIN_MOVE: float = 0.4        # height change below this makes no SDF edit
-const REPOSE_MAX_EDITS: int = 140         # cap SDF edits per disturbance (keeps the hitch bounded)
-var _slumps: int = 0                       # diagnostic: SDF columns moved by slumping
+# --- Granular gravity (disturbed ground slumps to its angle of repose = landslides) lives in its own
+# module now (MaterialGravity.gd). The field owns the instance; the module edits the terrain SDF via _f.
+const GravityScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGravity.gd")
+var _gravity = null                        # LAMaterialGravity (granular slump / landslides)
 
 # --- Combustion (fire + boiling logic) lives in its own module now (MaterialCombustion.gd). The
 # field keeps _ecology (other code uses it) and owns the module instance; the module reaches back
@@ -81,32 +63,16 @@ const WATER_THRESHOLD: float = 0.02
 # Shared with the render module (it thresholds the lava mesh at this depth via _f.LAVA_MIN).
 const LAVA_MIN: float = 0.04              # below this a lava cell is spent
 
-# --- Atmosphere: the emergent vapor -> cloud -> rain cycle. Evaporation off warm water/wet ground
-# feeds a per-cell water-VAPOR layer; vapor diffuses and drifts downwind; where the air is cool
-# enough that vapor exceeds its (temperature-dependent) saturation it CONDENSES into CLOUD density;
-# thick cloud RAINS water back onto the ground and SHADES the sun below it, cooling that ground.
-# Clouds forming over cool peaks / at night, drifting off warm water, and rain feeding rivers all
-# fall out of these local rules — nothing is scripted per-case.
-const EVAP_TEMP_REF: float = 22.0        # °C at which evaporation runs at ~1x
+# --- Atmosphere: the emergent vapor -> cloud/fog -> rain cycle + wind transport lives in its own
+# module now (MaterialAtmosphere.gd). The field keeps the three atmosphere ARRAYS (below — the heat
+# step reads _cloud/_fog for sun-shading and the fluids module writes _vapor) plus the shared
+# evaporation refs (the fluids module uses them) and the cloud-shade tuning (the heat step uses it);
+# the module reaches back through _f for grid state and the field delegates its public API (see the
+# atmosphere delegators near the bottom).
+const AtmosphereScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialAtmosphere.gd")
+var _atmosphere = null                     # LAMaterialAtmosphere (vapor -> cloud/fog -> rain + wind)
+const EVAP_TEMP_REF: float = 22.0        # °C at which evaporation runs at ~1x (shared: liquid evap)
 const EVAP_TEMP_GAIN: float = 0.055      # per-°C change in evaporation rate (warm water steams more)
-const VAPOR_DIFFUSE: float = 0.14        # isotropic vapor spread per step
-const CLOUD_DIFFUSE: float = 0.06        # clouds spread a little too
-const SAT_BASE: float = 0.035            # saturation vapor at EVAP_TEMP_REF (lower -> clouds form sooner)
-const SAT_TEMP_GAIN: float = 0.055       # warmer air holds exponentially more vapor before condensing
-const CONDENSE_RATE: float = 0.30        # fraction of super-saturated vapor -> cloud per step
-const CLOUD_REEVAP_RATE: float = 0.08    # fraction of cloud -> vapor per step when air is sub-saturated
-const CLOUD_DECAY: float = 0.002         # baseline cloud dissipation per step (keeps it from piling up)
-const RAIN_CLOUD_THRESHOLD: float = 0.45 # cloud density above which it precipitates
-const RAIN_RATE: float = 0.16            # fraction of above-threshold cloud -> ground water per step
-const CLOUD_SHADE_GAIN: float = 3.0      # cloud density -> fraction of solar blocked below it
-const CLOUD_SHADE_MAX: float = 0.75      # a cell's cloud can block at most this much of its solar
-const CLOUD_BASE_ABOVE_SEA: float = 62.0 # world-Y of the rendered cloud sheet, above sea level
-## Air at cloud base is this many °C cooler than the surface — clouds condense from vapor that only
-## the cooler air aloft can't hold. When the SURFACE air itself is saturated (cool valleys/water at
-## dawn), that condensate pools at ground level as FOG instead. Same vapor, two outcomes.
-const CLOUD_AIR_COOLING: float = 7.0
-const FOG_MAX_TEMP: float = 12.0         # only surfaces cooler than this (°C) pool ground fog
-const FOG_BASE_ABOVE_SEA: float = 6.0    # world-Y of the ground-hugging fog sheet, above sea level
 
 # --- Phase changes (temperature-driven) live in the fluids module now (MaterialLiquid.gd): water
 # freezes/evaporates, LAVA sustains heat + solidifies to rock, and extreme heat MELTS rock to lava.
@@ -124,7 +90,6 @@ var _terrain_h: PackedFloat32Array = PackedFloat32Array()
 var _sampled: PackedByteArray = PackedByteArray()
 
 var _temp: PackedFloat32Array = PackedFloat32Array()      # temperature per cell
-var _tdelta: PackedFloat32Array = PackedFloat32Array()    # scratch for conduction
 
 ## Per-cell quantity of each MOBILE material, keyed by material id. Created lazily (a material's
 ## array is allocated the first time it is injected), so an all-water-and-heat world never pays for
@@ -132,14 +97,12 @@ var _tdelta: PackedFloat32Array = PackedFloat32Array()    # scratch for conducti
 var _mats: Dictionary = {}                                # id -> PackedFloat32Array
 var _mdelta: PackedFloat32Array = PackedFloat32Array()    # shared scratch for a material's movement
 
-# --- Atmosphere layers (the vapor -> cloud/fog -> rain cycle) ---
+# --- Atmosphere layers (the vapor -> cloud/fog -> rain cycle; owned/updated by MaterialAtmosphere.gd,
+# but stored here because the heat step reads _cloud/_fog for sun-shading and the fluids module writes
+# _vapor via _f). Their setup/resize stays on the field. ---
 var _vapor: PackedFloat32Array = PackedFloat32Array()     # airborne water vapor (humidity) per cell
 var _cloud: PackedFloat32Array = PackedFloat32Array()     # condensed cloud density (rendered aloft)
 var _fog: PackedFloat32Array = PackedFloat32Array()       # condensed fog density (ground-hugging)
-var _adelta: PackedFloat32Array = PackedFloat32Array()    # scratch for vapor/cloud transport
-var _wind: Vector2 = Vector2.ZERO                         # world XZ wind (from weather) drifting vapor
-var _cloud_cover: float = 0.0                             # cached mean cloud density (sun dimming/HUD)
-var _fog_cover: float = 0.0                               # cached mean fog density
 
 var _sample_cursor: int = 0
 var _sampled_count: int = 0
@@ -149,8 +112,7 @@ var _step_accum: float = 0.0
 ## The real scene sun (DirectionalLight3D). The field reads its live energy + orientation each step to
 ## derive incoming solar — the one genuinely external forcing. Rain/wind/pressure EMERGE, never
 ## injected; even cloud/storm dimming of the sun's energy cooling the ground is a real feedback.
-var _sun_light = null
-var _solar: float = 0.0                                  # cached incoming solar (energy * elevation)
+var _sun_light = null                                    # DirectionalLight3D — MaterialHeat reads it
 
 ## Sea level (world Y). WATER cells whose ground is below this fill toward it (oceans).
 var sea_level: float = 0.0
@@ -183,8 +145,6 @@ func setup(terrain, half_extent: float, cell_size: float) -> void:
 	_sampled.resize(_cell_count)
 	_temp = PackedFloat32Array()
 	_temp.resize(_cell_count)
-	_tdelta = PackedFloat32Array()
-	_tdelta.resize(_cell_count)
 	_mdelta = PackedFloat32Array()
 	_mdelta.resize(_cell_count)
 	_vapor = PackedFloat32Array()
@@ -193,8 +153,6 @@ func setup(terrain, half_extent: float, cell_size: float) -> void:
 	_cloud.resize(_cell_count)
 	_fog = PackedFloat32Array()
 	_fog.resize(_cell_count)
-	_adelta = PackedFloat32Array()
-	_adelta.resize(_cell_count)
 	_mats = {}
 
 	_sample_cursor = 0
@@ -211,6 +169,15 @@ func setup(terrain, half_extent: float, cell_size: float) -> void:
 	_liquid = LiquidScript.new()
 	_liquid.setup(self)
 
+	_atmosphere = AtmosphereScript.new()
+	_atmosphere.setup(self)
+
+	_gravity = GravityScript.new()
+	_gravity.setup(self)
+
+	_heat = HeatScript.new()
+	_heat.setup(self)
+
 
 ## Ecology ref so combustion can topple/reseed/scare the actors it consumes (set by set_material_field).
 func set_ecology(e) -> void:
@@ -222,16 +189,6 @@ func set_ecology(e) -> void:
 ## pressure, wind and rain all emerge from how its energy moves through the field.
 func set_sun(light) -> void:
 	_sun_light = light
-
-
-## Incoming solar at flat ground = the sun's real energy times its downward elevation (angle of
-## incidence). Zero at night (sun below horizon), weak at dawn/dusk, peak at noon; dimmed by clouds.
-func _solar_input() -> float:
-	if _sun_light == null:
-		return 0.0
-	var travel: Vector3 = -_sun_light.global_transform.basis.z   # direction photons move
-	var elevation: float = maxf(0.0, -travel.y)                  # how straight-down the light is
-	return elevation * maxf(0.0, _sun_light.light_energy)
 
 
 # --- Grid index helpers (identical layout to the water field) ----------------
@@ -359,196 +316,11 @@ func is_ready() -> bool:
 func _material_step() -> void:
 	if _cell_count <= 0:
 		return
-	_heat_exchange_step()
+	_heat.step()
 	_liquid.step()
-	_atmosphere_step()
-	# Phase reactions, gas convection and combustion attach here as those materials/fuel come online
-	# (Phase 2+); they are no-ops until the relevant materials are injected.
-
-
-## CONDUCTION + AMBIENT RELAX + water/rain cooling. (Convection — heat carried by rising hot gas —
-## is applied in the gas-movement rule once gases are injected; see _material_step.)
-func _heat_exchange_step() -> void:
-	var dim: int = _dim
-	var water: PackedFloat32Array = _mat_array(Mat.WATER)
-
-	# 1) CONDUCTION — share a fraction of each cell/neighbour difference into _tdelta (symmetric,
-	# order-independent). Only sampled cells participate.
-	for idx in range(_cell_count):
-		_tdelta[idx] = 0.0
-	for j in range(dim):
-		var row: int = j * dim
-		for i in range(dim):
-			var idx: int = row + i
-			if _sampled[idx] == 0:
-				continue
-			var t: float = _temp[idx]
-			# Right + up neighbours only, applying the flux to BOTH cells → every pair counted once.
-			if i < dim - 1:
-				var ri: int = idx + 1
-				if _sampled[ri] != 0:
-					var f: float = (t - _temp[ri]) * CONDUCT_FRACTION * 0.25
-					_tdelta[idx] -= f
-					_tdelta[ri] += f
-			if j < dim - 1:
-				var ui: int = idx + dim
-				if _sampled[ui] != 0:
-					var f2: float = (t - _temp[ui]) * CONDUCT_FRACTION * 0.25
-					_tdelta[idx] -= f2
-					_tdelta[ui] += f2
-
-	# 2) Apply conduction, then relax toward ambient (with altitude lapse), then extra cooling on
-	# wet cells so rivers keep fires in check emergently. Ambient is driven by the REAL sun energy.
-	_solar = _solar_input()
-	var solar_warmth: float = SOLAR_WARMTH * _solar
-	for idx in range(_cell_count):
-		if _sampled[idx] == 0:
-			continue
-		var t: float = _temp[idx] + _tdelta[idx]
-		var altitude: float = _terrain_h[idx]
-		# Cloud overhead shades this cell's sunlight, so cloudy/foggy ground warms less — the
-		# emergent "clouds cool the ground below them" feedback.
-		var shade: float = minf(CLOUD_SHADE_MAX, (_cloud[idx] + _fog[idx]) * CLOUD_SHADE_GAIN)
-		var day_base: float = AMBIENT_NIGHT + solar_warmth * (1.0 - shade)
-		var ambient: float = day_base - LAPSE_RATE * maxf(0.0, altitude - LAPSE_REF)
-		t = t + (ambient - t) * AMBIENT_RELAX
-		# Cooling where wet / raining: WATER cells + rain pull toward ambient faster than open
-		# ground, so rivers/lakes/flood become firebreaks and rain suppresses fire emergently.
-		if water[idx] > WATER_THRESHOLD:
-			t = move_toward(t, ambient, WATER_COOL * STEP_DT)
-		_temp[idx] = t
-
-
-# --- Atmosphere: vapor -> cloud/fog -> rain (the emergent water cycle) --------
-
-## Move vapor/cloud/fog: isotropic diffusion (symmetric, order-independent, right+up pairs) plus,
-## optionally, first-order upwind advection by the wind. Accumulates into _adelta then applies.
-func _transport_field(arr: PackedFloat32Array, diffuse_frac: float, wind_gain: float) -> void:
-	var dim: int = _dim
-	for idx in range(_cell_count):
-		_adelta[idx] = 0.0
-	for j in range(dim):
-		var row: int = j * dim
-		for i in range(dim):
-			var idx: int = row + i
-			if _sampled[idx] == 0:
-				continue
-			var q: float = arr[idx]
-			if i < dim - 1:
-				var ri: int = idx + 1
-				if _sampled[ri] != 0:
-					var f: float = (q - arr[ri]) * diffuse_frac * 0.25
-					_adelta[idx] -= f
-					_adelta[ri] += f
-			if j < dim - 1:
-				var ui: int = idx + dim
-				if _sampled[ui] != 0:
-					var f2: float = (q - arr[ui]) * diffuse_frac * 0.25
-					_adelta[idx] -= f2
-					_adelta[ui] += f2
-	if wind_gain > 0.0 and (_wind.x != 0.0 or _wind.y != 0.0):
-		var ax: float = clampf(absf(_wind.x) * wind_gain * STEP_DT / _cell_size, 0.0, 0.5)
-		var az: float = clampf(absf(_wind.y) * wind_gain * STEP_DT / _cell_size, 0.0, 0.5)
-		var sx: int = 1 if _wind.x > 0.0 else -1
-		var sz: int = 1 if _wind.y > 0.0 else -1
-		for j2 in range(dim):
-			var row2: int = j2 * dim
-			for i2 in range(dim):
-				var idx2: int = row2 + i2
-				if _sampled[idx2] == 0:
-					continue
-				var q2: float = arr[idx2]
-				if q2 <= 0.0:
-					continue
-				if ax > 0.0:
-					var ni: int = i2 + sx
-					if ni >= 0 and ni < dim:
-						var nidx: int = row2 + ni
-						if _sampled[nidx] != 0:
-							var mv: float = q2 * ax
-							_adelta[idx2] -= mv
-							_adelta[nidx] += mv
-				if az > 0.0:
-					var nj: int = j2 + sz
-					if nj >= 0 and nj < dim:
-						var nidx2: int = nj * dim + i2
-						if _sampled[nidx2] != 0:
-							var mv2: float = q2 * az
-							_adelta[idx2] -= mv2
-							_adelta[nidx2] += mv2
-	for idx3 in range(_cell_count):
-		if _sampled[idx3] == 0:
-			continue
-		var v: float = arr[idx3] + _adelta[idx3]
-		if v < 0.0:
-			v = 0.0
-		arr[idx3] = v
-
-
-## Vapor drifts/spreads, then per cell: vapor the cool air aloft can't hold CONDENSES into cloud
-## (the share the surface air also can't hold pools as ground FOG); sub-saturated air lets cloud/fog
-## re-evaporate; thick cloud RAINS water back to the ground. Clouds over cool peaks, fog in valleys
-## at dawn, and rain feeding rivers all fall out of this — no per-case scripting.
-func _atmosphere_step() -> void:
-	if _cell_count <= 0:
-		return
-	# Wind carries everything AIRBORNE/AERATED — vapor (gas), cloud and fog (suspended droplets) all
-	# drift downwind; liquid WATER is not advected here (it flows by gravity in the fluids module). Fog
-	# hugging the ground drifts a little slower (ground drag) via a lower wind gain.
-	_transport_field(_vapor, VAPOR_DIFFUSE, 1.0)
-	_transport_field(_cloud, CLOUD_DIFFUSE, 1.0)
-	_transport_field(_fog, CLOUD_DIFFUSE * 0.5, 0.5)
-
-	var water: PackedFloat32Array = _mat_array(Mat.WATER)
-	var cloud_sum: float = 0.0
-	var fog_sum: float = 0.0
-	var rained: bool = false
-	for idx in range(_cell_count):
-		if _sampled[idx] == 0:
-			continue
-		var t: float = _temp[idx]
-		var vap: float = _vapor[idx]
-		# Saturation the surface air holds, and the (colder) air at cloud base holds. When the SURFACE
-		# air itself saturates, condensation happens at ground level as FOG; when only the cooler air
-		# aloft saturates, it forms CLOUD at the base. Same vapor, height decided by where it saturates.
-		var sat_surface: float = SAT_BASE * exp(SAT_TEMP_GAIN * (t - EVAP_TEMP_REF))
-		var sat_aloft: float = SAT_BASE * exp(SAT_TEMP_GAIN * ((t - CLOUD_AIR_COOLING) - EVAP_TEMP_REF))
-		# Fog is a COOL-air phenomenon: warm saturated air over water is just humid (its vapor rises
-		# and clouds aloft instead), so only genuinely cool surfaces pool ground fog.
-		var cool: float = t < FOG_MAX_TEMP
-		if cool and vap > sat_surface:
-			var fcond: float = (vap - sat_surface) * CONDENSE_RATE
-			_vapor[idx] = vap - fcond
-			_fog[idx] += fcond
-		else:
-			# Surface sub-saturated: any ground fog re-evaporates back to vapor.
-			var fr: float = _fog[idx] * CLOUD_REEVAP_RATE
-			_fog[idx] -= fr
-			vap = vap + fr
-			if vap > sat_aloft:
-				var ccond: float = (vap - sat_aloft) * CONDENSE_RATE
-				_vapor[idx] = vap - ccond
-				_cloud[idx] += ccond
-			else:
-				var cr: float = _cloud[idx] * CLOUD_REEVAP_RATE
-				_cloud[idx] -= cr
-				_vapor[idx] = vap + cr
-		# Baseline dissipation so condensate never piles up forever.
-		_cloud[idx] *= (1.0 - CLOUD_DECAY)
-		_fog[idx] *= (1.0 - CLOUD_DECAY)
-		# Precipitation: thick cloud rains water back to the ground, closing the cycle.
-		if _cloud[idx] > RAIN_CLOUD_THRESHOLD:
-			var rain: float = (_cloud[idx] - RAIN_CLOUD_THRESHOLD) * RAIN_RATE
-			_cloud[idx] -= rain
-			water[idx] += rain
-			rained = true
-		cloud_sum += _cloud[idx]
-		fog_sum += _fog[idx]
-	var denom: float = maxf(1.0, float(_sampled_count))
-	_cloud_cover = cloud_sum / denom
-	_fog_cover = fog_sum / denom
-	if rained:
-		_liquid_dirty = true
+	_atmosphere.step()
+	# Phase reactions and gas convection attach here as those materials come online (Phase 2+);
+	# they are no-ops until the relevant materials are injected.
 
 
 # --- Fluids delegators (water + lava CA live in MaterialLiquid.gd) -----------
@@ -651,111 +423,22 @@ func add_source(world_pos: Vector3, amount: float) -> void:
 
 
 ## Set the current wind (world XZ) so vapor/cloud drift downwind. Fed from the weather each frame.
+## Delegated to the atmosphere module.
 func set_wind(w: Vector2) -> void:
-	if is_nan(w.x) or is_nan(w.y) or is_inf(w.x) or is_inf(w.y):
-		return
-	_wind = w
+	if _atmosphere != null:
+		_atmosphere.set_wind(w)
 
 
-# --- Granular gravity: disturbed ground slumps to its angle of repose -------
+# --- Granular gravity delegates to LAMaterialGravity (disturbed ground slumps to its repose angle) --
 
-## Shake the ground over a region: any column that overhangs a lower neighbour beyond the angle of
-## repose sheds material downhill under gravity until the local slope is stable, editing the terrain
-## SDF (carve high, fill low). Flat ground does nothing. `strength` (~0..3, e.g. meteor size) scales
-## how much of each overhang gives way. This is the ONLY landslide mechanism — pure material physics.
+## Shake the ground over a region — steep/loose columns slump downhill (the landslide mechanism).
 func disturb_terrain(world_pos: Vector3, radius: float, strength: float) -> void:
-	if _terrain == null or not _terrain.has_method("surface_height"):
-		return
-	if not _terrain.has_method("carve_sphere") or not _terrain.has_method("fill_sphere"):
-		return
-	var s: float = clampf(strength, 0.1, 3.0)
-	var cells: int = int(ceil(radius / _cell_size))
-	var ci: int = int(round((world_pos.x + _half_extent) / _cell_size))
-	var cj: int = int(round((world_pos.z + _half_extent) / _cell_size))
-	var r2: float = radius * radius
-
-	# Collect the disturbed columns and their CURRENT surface heights (sampled fresh from the SDF).
-	var region: Array = []                       # idx list
-	var h0: Dictionary = {}                       # idx -> original height
-	var h: Dictionary = {}                        # idx -> working height
-	for dj in range(-cells, cells + 1):
-		var j: int = cj + dj
-		if j < 0 or j >= _dim:
-			continue
-		for di in range(-cells, cells + 1):
-			var i: int = ci + di
-			if i < 0 or i >= _dim:
-				continue
-			var cx: float = _cell_x(i)
-			var cz: float = _cell_z(j)
-			var dx: float = cx - world_pos.x
-			var dz: float = cz - world_pos.z
-			if dx * dx + dz * dz > r2:
-				continue
-			var gy = _terrain.surface_height(cx, cz)
-			if typeof(gy) != TYPE_FLOAT and typeof(gy) != TYPE_INT:
-				continue
-			var gyf: float = float(gy)
-			if is_nan(gyf) or is_inf(gyf):
-				continue
-			var idx: int = j * _dim + i
-			region.append(idx)
-			h0[idx] = gyf
-			h[idx] = gyf
-
-	if region.size() < 2:
-		return
-
-	# Relax toward the angle of repose: repeatedly push a column's overhang down to its lowest
-	# in-region neighbour. Order-tolerant enough over several passes (gravity settles a pile).
-	var max_step: float = REPOSE_TAN * _cell_size
-	var move_frac: float = clampf(0.5 * s, 0.25, 0.9)
-	for pass_i in range(REPOSE_PASSES):
-		for idx in region:
-			var hi: float = h[idx]
-			var i2: int = idx % _dim
-			var j2: int = idx / _dim
-			var low_idx: int = -1
-			var low_h: float = hi
-			var neighbours: Array = [idx - 1 if i2 > 0 else -1, idx + 1 if i2 < _dim - 1 else -1,
-				idx - _dim if j2 > 0 else -1, idx + _dim if j2 < _dim - 1 else -1]
-			for nb in neighbours:
-				if nb >= 0 and h.has(nb) and float(h[nb]) < low_h:
-					low_h = float(h[nb])
-					low_idx = nb
-			if low_idx < 0:
-				continue
-			var excess: float = (hi - low_h) - max_step
-			if excess > 0.0:
-				var m: float = excess * 0.5 * move_frac
-				h[idx] = hi - m
-				h[low_idx] = float(h[low_idx]) + m
-
-	# Apply the net height change to the terrain SDF (carve where it dropped, fill where it rose).
-	var edits: int = 0
-	for idx in region:
-		if edits >= REPOSE_MAX_EDITS:
-			break
-		var dh: float = float(h[idx]) - float(h0[idx])
-		if absf(dh) < REPOSE_MIN_MOVE:
-			continue
-		var i3: int = idx % _dim
-		var j3: int = idx / _dim
-		var cx2: float = _cell_x(i3)
-		var cz2: float = _cell_z(j3)
-		var sphere_r: float = clampf(absf(dh) * 0.9, 0.6, _cell_size)
-		if dh < 0.0:
-			_terrain.carve_sphere(Vector3(cx2, float(h0[idx]), cz2), sphere_r)
-		else:
-			_terrain.fill_sphere(Vector3(cx2, float(h[idx]), cz2), sphere_r)
-		if _sampled[idx] != 0:
-			_terrain_h[idx] = float(h[idx])          # keep cached altitude consistent (lapse/temp)
-		edits += 1
-		_slumps += 1
+	if _gravity != null:
+		_gravity.disturb_terrain(world_pos, radius, strength)
 
 
 func slump_count() -> int:
-	return _slumps
+	return _gravity.slump_count() if _gravity != null else 0
 
 
 # --- Combustion delegators (fire + boiling logic live in MaterialCombustion.gd) ----
@@ -823,29 +506,29 @@ func wet_cell_count() -> int:
 	return material_cell_count(Mat.WATER, RenderScript.RENDER_THRESHOLD)
 
 
-# --- Atmosphere queries + render feeds (CloudLayer reads the grids to build density textures) ---
+# --- Atmosphere delegators (vapor -> cloud/fog -> rain + wind live in MaterialAtmosphere.gd) ------
+# The module owns the water cycle + wind; the field exposes thin public delegators for external callers
+# (VoxelWorld and CloudLayer read these on _material to build density textures / drive HUD + sun dimming).
 
 func cloud_at(x: float, z: float) -> float:
-	var idx: int = _index_at(x, z)
-	return _cloud[idx] if idx >= 0 else 0.0
+	return _atmosphere.cloud_at(x, z) if _atmosphere != null else 0.0
 
 
 func fog_at(x: float, z: float) -> float:
-	var idx: int = _index_at(x, z)
-	return _fog[idx] if idx >= 0 else 0.0
+	return _atmosphere.fog_at(x, z) if _atmosphere != null else 0.0
 
 
 ## Mean cloud / fog density over sampled cells — drives global sun dimming and HUD/diagnostics.
 func avg_cloud_cover() -> float:
-	return _cloud_cover
+	return _atmosphere.avg_cloud_cover() if _atmosphere != null else 0.0
 
 
 func avg_fog_cover() -> float:
-	return _fog_cover
+	return _atmosphere.avg_fog_cover() if _atmosphere != null else 0.0
 
 
 func wind() -> Vector2:
-	return _wind
+	return _atmosphere.wind() if _atmosphere != null else Vector2.ZERO
 
 
 ## Grid geometry so a renderer can map cell (i, j) <-> world XZ exactly like the field does.
@@ -859,30 +542,26 @@ func grid_half_extent() -> float:
 
 ## World Y of the two rendered condensate sheets.
 func cloud_base_y() -> float:
-	return sea_level + CLOUD_BASE_ABOVE_SEA
+	return _atmosphere.cloud_base_y() if _atmosphere != null else sea_level
 
 
 func fog_base_y() -> float:
-	return sea_level + FOG_BASE_ABOVE_SEA
+	return _atmosphere.fog_base_y() if _atmosphere != null else sea_level
 
 
 ## The raw density grids (flat, index = j*dim+i) for building render textures. Returned by reference;
 ## the renderer only reads them.
 func cloud_grid() -> PackedFloat32Array:
-	return _cloud
+	return _atmosphere.cloud_grid() if _atmosphere != null else _cloud
 
 
 func fog_grid() -> PackedFloat32Array:
-	return _fog
+	return _atmosphere.fog_grid() if _atmosphere != null else _fog
 
 
 ## Diagnostic: cells whose cloud density is at least min_density.
 func cloud_cell_count(min_density: float = 0.05) -> int:
-	var n: int = 0
-	for idx in range(_cell_count):
-		if _sampled[idx] != 0 and _cloud[idx] >= min_density:
-			n += 1
-	return n
+	return _atmosphere.cloud_cell_count(min_density) if _atmosphere != null else 0
 
 
 ## Spawn a few short-lived rigidbody droplets flung up/out from world_pos — the physical splash
