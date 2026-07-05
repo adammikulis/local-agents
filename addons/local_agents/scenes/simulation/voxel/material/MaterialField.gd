@@ -99,6 +99,24 @@ const SPLASH_DROPLETS: int = 6
 const SPLASH_LIFETIME: float = 2.0
 const SPLASH_RADIUS: float = 0.12
 
+# --- Phase changes (temperature-driven). Water freezes to ice below 0°C (frozen cells hold solid).
+# LAVA is molten rock: a slow, hot liquid that pumps heat into the field, GLOWS, and SOLIDIFIES back
+# to rock (SDF fill) when it cools; surface rock MELTS to lava above 1200°C (a big meteor/volcano). ---
+const FREEZE_TEMP: float = 0.0            # water freezes below this (°C)
+const LAVA_FLOW: float = 0.05             # viscous slow creep (water is 0.25)
+const LAVA_MIN: float = 0.04              # below this a lava cell is spent
+const LAVA_EMPLACE_TEMP: float = 1150.0   # temperature fresh lava carries
+const LAVA_HEAT_PER_DEPTH: float = 650.0  # °C/s a lava cell sustains per unit depth (thick stays molten)
+const SOLIDIFY_TEMP: float = 800.0        # lava freezes to rock below this
+const MELT_TEMP: float = 1200.0           # surface rock melts to lava above this
+const MELT_MAX_EDITS: int = 40            # cap melt/solidify SDF edits per step
+const MELT_RADIUS: float = 2.0
+const MELT_CHECK_INTERVAL: float = 0.2
+var _lava_dirty: bool = false
+var _melt_cd: float = 0.0
+var _lava_cells_last: int = 0             # diagnostic: current lava cells
+var _lava_peak: int = 0                   # diagnostic: most lava cells ever live at once
+
 const WATER_SHADER: String = """
 shader_type spatial;
 render_mode cull_disabled, depth_draw_opaque, diffuse_burley, specular_schlick_ggx;
@@ -169,6 +187,30 @@ var _surface_mesh: ArrayMesh = null
 var _water_material: ShaderMaterial = null
 var _liquid_dirty: bool = false                          # a step changed WATER → rebuild surface
 
+# Lava gets its own glowing emissive surface (same one-quad-per-cell build as water).
+var _lava_mi: MeshInstance3D = null
+var _lava_mesh: ArrayMesh = null
+var _lava_material: ShaderMaterial = null
+
+const LAVA_SHADER: String = """
+shader_type spatial;
+render_mode cull_disabled, diffuse_burley;
+uniform vec3 hot_color : source_color = vec3(1.0, 0.75, 0.2);
+uniform vec3 cool_color : source_color = vec3(0.6, 0.09, 0.02);
+uniform float flow_speed = 0.25;
+void vertex() {
+	VERTEX.y += sin(VERTEX.x * 0.6 + TIME * flow_speed) * cos(VERTEX.z * 0.6 + TIME * flow_speed) * 0.06;
+}
+void fragment() {
+	float crust = 0.5 + 0.5 * sin(VERTEX.x * 1.7 + TIME * flow_speed) * sin(VERTEX.z * 1.7 - TIME * flow_speed);
+	vec3 c = mix(cool_color, hot_color, crust);
+	ALBEDO = c;
+	EMISSION = c * (1.5 + crust * 2.5);
+	ROUGHNESS = 0.7;
+	METALLIC = 0.0;
+}
+"""
+
 # Temperature baked into an R-float texture (one texel per cell) so the terrain shader can sample
 # it by world position and glow incandescently where hot — and drive the temp debug view. Updated
 # in place each step (same texture object) so consumers wire it once.
@@ -234,6 +276,19 @@ func _build_surface_node() -> void:
 		_surface_mi.mesh = _surface_mesh
 		_surface_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(_surface_mi)
+	if _lava_material == null:
+		var lsh: Shader = Shader.new()
+		lsh.code = LAVA_SHADER
+		_lava_material = ShaderMaterial.new()
+		_lava_material.shader = lsh
+	if _lava_mesh == null:
+		_lava_mesh = ArrayMesh.new()
+	if _lava_mi == null:
+		_lava_mi = MeshInstance3D.new()
+		_lava_mi.name = "LavaSurface"
+		_lava_mi.mesh = _lava_mesh
+		_lava_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(_lava_mi)
 
 
 ## Ecology ref so combustion can topple/reseed/scare the actors it consumes (set by set_material_field).
@@ -306,6 +361,9 @@ func _physics_process(delta: float) -> void:
 		if _liquid_dirty:
 			_rebuild_water_surface()
 			_liquid_dirty = false
+		if _lava_dirty:
+			_rebuild_lava_surface()
+			_lava_dirty = false
 		_update_heat_texture()
 	# Combustion runs every frame (smooth burn/spread), not gated by the CA throttle.
 	_combustion_step(delta)
@@ -314,6 +372,11 @@ func _physics_process(delta: float) -> void:
 	if _boil_cd <= 0.0:
 		_boil_cd = BOIL_CHECK_INTERVAL
 		_boil_step()
+	# Rock melting to lava (extreme heat) — throttled + capped.
+	_melt_cd -= delta
+	if _melt_cd <= 0.0:
+		_melt_cd = MELT_CHECK_INTERVAL
+		_melt_step()
 
 
 # Re-upload the temperature grid into the heat texture (in place). The ground shader samples it for
@@ -448,21 +511,11 @@ func _heat_exchange_step() -> void:
 ## plus rain input, evaporation and sub-sea-level ocean fill. Ported verbatim from the retired water
 ## field — rivers, lakes and oceans EMERGE from this alone. Net change accumulates in _mdelta so the
 ## step is order-independent.
-func _liquid_step() -> void:
-	var water: PackedFloat32Array = _mat_array(Mat.WATER)
+## Generic shallow-water redistribution of a liquid array by SURFACE head (terrain_h + own depth).
+## Accumulates net change in _mdelta and applies it. `freeze_aware` skips frozen cells (temp < 0°C)
+## as sources so a frozen lake sits solid. Used by both WATER and (slow) LAVA.
+func _flow_liquid(arr: PackedFloat32Array, flow_factor: float, freeze_aware: bool) -> void:
 	var dim: int = _dim
-
-	# 1) RAIN — uniform depth input driven by the current rate.
-	if _rain_rate > 0.0:
-		var add: float = _rain_rate * STEP_DT
-		if add > 0.0:
-			for idx in range(_cell_count):
-				if _sampled[idx] != 0:
-					water[idx] += add
-
-	# 2) FLOW — gather the four orthogonal LOWER neighbours by surface head, move at most
-	# FLOW_FACTOR of the summed difference, split proportionally, each transfer capped at
-	# MAX_PAIR_FRACTION so a cell can never overshoot a neighbour (anti-oscillation).
 	for idx in range(_cell_count):
 		_mdelta[idx] = 0.0
 	for j in range(dim):
@@ -471,11 +524,12 @@ func _liquid_step() -> void:
 			var idx: int = row + i
 			if _sampled[idx] == 0:
 				continue
-			var d: float = water[idx]
+			var d: float = arr[idx]
 			if d <= 0.0:
 				continue
+			if freeze_aware and _temp[idx] < FREEZE_TEMP:
+				continue                                    # frozen solid — does not flow
 			var head: float = _terrain_h[idx] + d
-
 			var n0: int = -1
 			var n1: int = -1
 			var n2: int = -1
@@ -485,11 +539,10 @@ func _liquid_step() -> void:
 			var dh2: float = 0.0
 			var dh3: float = 0.0
 			var total_diff: float = 0.0
-
 			if i > 0:
 				var li: int = idx - 1
 				if _sampled[li] != 0:
-					var lh: float = _terrain_h[li] + water[li]
+					var lh: float = _terrain_h[li] + arr[li]
 					if lh < head:
 						n0 = li
 						dh0 = head - lh
@@ -497,7 +550,7 @@ func _liquid_step() -> void:
 			if i < dim - 1:
 				var ri: int = idx + 1
 				if _sampled[ri] != 0:
-					var rh: float = _terrain_h[ri] + water[ri]
+					var rh: float = _terrain_h[ri] + arr[ri]
 					if rh < head:
 						n1 = ri
 						dh1 = head - rh
@@ -505,7 +558,7 @@ func _liquid_step() -> void:
 			if j > 0:
 				var di: int = idx - dim
 				if _sampled[di] != 0:
-					var dhh: float = _terrain_h[di] + water[di]
+					var dhh: float = _terrain_h[di] + arr[di]
 					if dhh < head:
 						n2 = di
 						dh2 = head - dhh
@@ -513,15 +566,14 @@ func _liquid_step() -> void:
 			if j < dim - 1:
 				var ui: int = idx + dim
 				if _sampled[ui] != 0:
-					var uh: float = _terrain_h[ui] + water[ui]
+					var uh: float = _terrain_h[ui] + arr[ui]
 					if uh < head:
 						n3 = ui
 						dh3 = head - uh
 						total_diff += dh3
-
 			if total_diff <= 0.0:
 				continue
-			var move_total: float = minf(d, total_diff * FLOW_FACTOR)
+			var move_total: float = minf(d, total_diff * flow_factor)
 			if move_total <= 0.0:
 				continue
 			var scale: float = move_total / total_diff
@@ -541,21 +593,35 @@ func _liquid_step() -> void:
 				var f3: float = minf(dh3 * scale, dh3 * MAX_PAIR_FRACTION)
 				_mdelta[idx] -= f3
 				_mdelta[n3] += f3
+	for idx in range(_cell_count):
+		if _sampled[idx] != 0:
+			arr[idx] = maxf(0.0, arr[idx] + _mdelta[idx])
 
-	# 3) Apply flow, then ocean fill (ground below sea_level) and evaporation.
+
+func _liquid_step() -> void:
+	var water: PackedFloat32Array = _mat_array(Mat.WATER)
+
+	# RAIN — uniform depth input driven by the current rate.
+	if _rain_rate > 0.0:
+		var add: float = _rain_rate * STEP_DT
+		if add > 0.0:
+			for idx in range(_cell_count):
+				if _sampled[idx] != 0:
+					water[idx] += add
+
+	# FLOW (frozen cells hold solid), then ocean fill + evaporation.
+	_flow_liquid(water, FLOW_FACTOR, true)
 	var any_wet: bool = false
 	for idx in range(_cell_count):
 		if _sampled[idx] == 0:
 			continue
-		var nd: float = water[idx] + _mdelta[idx]
-		if nd < 0.0:
-			nd = 0.0
+		var nd: float = water[idx]
 		var floor_h: float = _terrain_h[idx]
 		if floor_h < sea_level:
 			var target: float = sea_level - floor_h
 			if nd < target:
 				nd = move_toward(nd, target, SEA_FILL_RATE)
-		if nd > 0.0:
+		if nd > 0.0 and _temp[idx] >= FREEZE_TEMP:          # frozen water doesn't evaporate
 			nd -= EVAP_PER_STEP
 			if nd < 0.0:
 				nd = 0.0
@@ -565,6 +631,10 @@ func _liquid_step() -> void:
 
 	# Rebuild the surface while wet, plus one extra pass to clear it when it dries out.
 	_liquid_dirty = any_wet or (_surface_mesh != null and _surface_mesh.get_surface_count() > 0)
+
+	# LAVA (a slow, hot liquid) flows, heats, and freezes to rock — the same machinery as water.
+	if _mats.has(Mat.LAVA):
+		_lava_step()
 
 
 func _rebuild_water_surface() -> void:
@@ -620,6 +690,136 @@ func _rebuild_water_surface() -> void:
 	_surface_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	if _water_material != null:
 		_surface_mesh.surface_set_material(0, _water_material)
+
+
+# LAVA: flow (slow) + sustain heat + solidify to rock. Same machinery as water, different params.
+func _lava_step() -> void:
+	var lava: PackedFloat32Array = _mats[Mat.LAVA]
+	_flow_liquid(lava, LAVA_FLOW, false)
+	var any_lava: bool = false
+	var edits: int = 0
+	for idx in range(_cell_count):
+		if _sampled[idx] == 0:
+			continue
+		var d: float = lava[idx]
+		if d < LAVA_MIN:
+			if d > 0.0:
+				lava[idx] = 0.0
+			continue
+		# Molten lava sustains heat UP TO its molten temperature (never hotter — no runaway). Thick
+		# flows top back up to molten each step and stay liquid; thin edges can't keep up with cooling
+		# and crust over. The cap also means lava (<=1150°C) never re-melts rock (which needs 1200°C).
+		if _temp[idx] < LAVA_EMPLACE_TEMP:
+			_temp[idx] = minf(LAVA_EMPLACE_TEMP, _temp[idx] + LAVA_HEAT_PER_DEPTH * d * STEP_DT)
+		if _temp[idx] < SOLIDIFY_TEMP and edits < MELT_MAX_EDITS and _terrain != null and _terrain.has_method("fill_sphere"):
+			# Cooled: freeze to rock — the flow builds new terrain where it stops.
+			var i: int = idx % _dim
+			var j: int = idx / _dim
+			_terrain.fill_sphere(Vector3(_cell_x(i), _terrain_h[idx] + d, _cell_z(j)), clampf(d, 0.6, _cell_size))
+			_terrain_h[idx] = _terrain_h[idx] + d * 0.7
+			lava[idx] = 0.0
+			edits += 1
+		elif lava[idx] > 0.0:
+			any_lava = true
+	_lava_dirty = any_lava or (_lava_mesh != null and _lava_mesh.get_surface_count() > 0)
+	_lava_cells_last = _material_cell_count_arr(lava, LAVA_MIN)
+	if _lava_cells_last > _lava_peak:
+		_lava_peak = _lava_cells_last
+
+
+# Surface rock at extreme temperature (a big meteor, a volcano vent) MELTS to lava: carve the SDF and
+# emplace molten material, unless water is there to quench it. Deterministic (every cell over the melt
+# temperature gives way) but capped + cursor-rotated so a single step never edits the whole map.
+var _melt_cursor: int = 0
+func _melt_step() -> void:
+	if _terrain == null or not _terrain.has_method("carve_sphere"):
+		return
+	var lava: PackedFloat32Array = _mat_array(Mat.LAVA)
+	var has_water: bool = _mats.has(Mat.WATER)
+	var water: PackedFloat32Array = _mats[Mat.WATER] if has_water else PackedFloat32Array()
+	var edits: int = 0
+	var scanned: int = 0
+	while scanned < _cell_count and edits < MELT_MAX_EDITS:
+		var idx: int = _melt_cursor
+		_melt_cursor += 1
+		if _melt_cursor >= _cell_count:
+			_melt_cursor = 0
+		scanned += 1
+		if _sampled[idx] == 0 or _temp[idx] < MELT_TEMP:
+			continue
+		if has_water and water[idx] > WATER_THRESHOLD:
+			continue
+		var i: int = idx % _dim
+		var j: int = idx / _dim
+		_terrain.carve_sphere(Vector3(_cell_x(i), _terrain_h[idx], _cell_z(j)), MELT_RADIUS)
+		_terrain_h[idx] = _terrain_h[idx] - MELT_RADIUS * 0.7
+		lava[idx] = lava[idx] + MELT_RADIUS * 0.7
+		edits += 1
+
+
+func _rebuild_lava_surface() -> void:
+	if _lava_mesh == null:
+		return
+	if _lava_mesh.get_surface_count() > 0:
+		_lava_mesh.clear_surfaces()
+	if not _mats.has(Mat.LAVA):
+		return
+	var lava: PackedFloat32Array = _mats[Mat.LAVA]
+	var verts: PackedVector3Array = PackedVector3Array()
+	var normals: PackedVector3Array = PackedVector3Array()
+	var indices: PackedInt32Array = PackedInt32Array()
+	var hc: float = _cell_size * 0.5
+	var up: Vector3 = Vector3.UP
+	var base: int = 0
+	for idx in range(_cell_count):
+		if _sampled[idx] == 0 or lava[idx] < LAVA_MIN:
+			continue
+		var i: int = idx % _dim
+		var j: int = idx / _dim
+		var cx: float = _cell_x(i)
+		var cz: float = _cell_z(j)
+		var y: float = _terrain_h[idx] + lava[idx]
+		verts.push_back(Vector3(cx - hc, y, cz - hc))
+		verts.push_back(Vector3(cx + hc, y, cz - hc))
+		verts.push_back(Vector3(cx + hc, y, cz + hc))
+		verts.push_back(Vector3(cx - hc, y, cz + hc))
+		normals.push_back(up)
+		normals.push_back(up)
+		normals.push_back(up)
+		normals.push_back(up)
+		indices.push_back(base + 0)
+		indices.push_back(base + 1)
+		indices.push_back(base + 2)
+		indices.push_back(base + 0)
+		indices.push_back(base + 2)
+		indices.push_back(base + 3)
+		base += 4
+	if verts.is_empty():
+		return
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_INDEX] = indices
+	_lava_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	if _lava_material != null:
+		_lava_mesh.surface_set_material(0, _lava_material)
+
+
+func _material_cell_count_arr(arr: PackedFloat32Array, min_amount: float) -> int:
+	var n: int = 0
+	for idx in range(_cell_count):
+		if _sampled[idx] != 0 and arr[idx] >= min_amount:
+			n += 1
+	return n
+
+
+func lava_cell_count() -> int:
+	return _lava_cells_last
+
+
+func lava_peak() -> int:
+	return _lava_peak
 
 
 # --- External inputs (injection API — what disasters call) -------------------
