@@ -431,6 +431,10 @@ func _process(delta: float) -> void:
 				_ecology.spawn_initial(INITIAL_COUNTS)
 				_ecology.populate_environment(ROCK_COUNT, FOREST_CLUSTERS)
 				_seed_water()
+				# After the sea level is locked (_seed_water), seed initial ocean + lake life so the
+				# water reads alive from the start; _tick_aquatic keeps every species topped up after.
+				if _ecology.has_method("stock_initial_aquatic"):
+					_ecology.stock_initial_aquatic()
 				_spawn_default_volcano()
 				# Frame a vista at the real surface height (only when not driven by a harness cam).
 				if _overview and _camera.has_method("frame_overview"):
@@ -1053,7 +1057,8 @@ func _apply_at(point: Vector3) -> void:
 		var flood: Node = FloodScript.new()
 		_actors_root.add_child(flood)
 		flood.setup(_terrain, _ecology)
-		flood.surge(point)
+		# Tie the surge footprint to the spawn brush so a flood only covers where the player aimed.
+		flood.surge(point, _brush_radius)
 		_hud.set_status("Flood surge!")
 	else:
 		_ecology.spawn(_armed_kind, point)
