@@ -76,9 +76,9 @@ func _ready() -> void:
 ## hillside or staring at the ground.
 func frame_vista(center: Vector3) -> void:
 	_focus = center + Vector3(0.0, 8.0, 0.0)
-	_distance = 140.0
+	_distance = 34.0
 	_yaw = 0.0
-	_pitch = deg_to_rad(55.0)
+	_pitch = deg_to_rad(38.0)
 	_update_transform()
 
 
