@@ -20,11 +20,17 @@ const HEIGHT_RANGE: float = 280.0         # world Y span of image value 0..1 (pe
 
 var _terrain: VoxelLodTerrain = null
 var _viewer: VoxelViewer = null
+var _query_tool: VoxelTool = null          # cached SDF sampler for is_solid / sdf_at (the 3D-field rock test)
 var _sea_level: float = SEA_LEVEL_Y
+var _island_radius: float = ISLAND_RADIUS
 
 ## World Y of the sea surface this terrain was shaped around (the ocean plane / MaterialField sea_level).
 func sea_level() -> float:
 	return _sea_level
+
+## Land-core radius (world units) the island was shaped with — used to place caves/springs on land.
+func island_radius() -> float:
+	return _island_radius
 
 ## Build a large natural terrain as a child of `parent`.
 ## opts (all optional): seed, lod_count, lod_distance, view_distance, period,
@@ -41,6 +47,7 @@ func build(parent: Node3D, opts: Dictionary = {}) -> void:
 	var island_radius: float = float(opts.get("island_radius", ISLAND_RADIUS))
 	var coast_width: float = float(opts.get("coast_width", COAST_WIDTH))
 	_sea_level = float(opts.get("sea_level", SEA_LEVEL_Y))
+	_island_radius = island_radius
 
 	var half_xz: int = int(opts.get("bounds_half_xz", 224))
 	var y_min: int = int(opts.get("bounds_y_min", -80))
@@ -170,6 +177,87 @@ func _edit_sphere(world_pos: Vector3, radius: float, mode: int) -> void:
 	vt.set_channel(VoxelBuffer.CHANNEL_SDF)
 	vt.set_mode(mode)
 	vt.do_sphere(world_pos, radius)
+
+
+# --- Solidity query (the 3D field's rock/void test) --------------------------
+
+# Cached SDF sampler bound to the terrain. get_voxel_f_interpolated reads the EDITED voxel data (so a
+# carved cave/tube reads as void), which is exactly what the 3D MaterialField needs to know where fluids
+# can occupy space vs where solid rock blocks them.
+func _query_voxel_tool() -> VoxelTool:
+	if _query_tool == null and _terrain != null:
+		_query_tool = _terrain.get_voxel_tool()
+		if _query_tool != null:
+			_query_tool.set_channel(VoxelBuffer.CHANNEL_SDF)
+	return _query_tool
+
+
+## Signed distance to the rock surface at a world point: negative INSIDE rock, positive in air/void.
+## 999 when the terrain is unavailable. Reads edited data (post-carve), so caves read as void.
+func sdf_at(pos: Vector3) -> float:
+	var vt: VoxelTool = _query_voxel_tool()
+	if vt == null:
+		return 999.0
+	return vt.get_voxel_f_interpolated(pos)
+
+
+## True where solid rock fills a world point — the primitive the 3D field uses to know rock vs void
+## (open air, an underground cavern, a lava tube). Solid = SDF < 0.
+func is_solid(pos: Vector3) -> bool:
+	return sdf_at(pos) < 0.0
+
+
+# --- 3D caves ---------------------------------------------------------------
+# Real 3D voids carved into the SDF (surface entrances winding down into tunnels + chambers), so the
+# world is genuinely 3D: fluids can pour into a tube, water can pool in a cavern, gas can rise a shaft.
+# Carved natively via do_sphere along noise-perturbed paths — a few sparse systems, cheap (~hundreds of
+# edits total). Called once after the terrain has streamed.
+const CAVE_SYSTEMS: int = 5
+const CAVE_STEPS: int = 110
+const CAVE_STEP_LEN: float = 2.3
+const CAVE_RADIUS: float = 2.8
+
+func carve_caves(seed_val: int) -> void:
+	if _terrain == null:
+		return
+	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
+	rng.seed = seed_val
+	var wander: FastNoiseLite = FastNoiseLite.new()
+	wander.seed = seed_val ^ 0x51ED
+	wander.frequency = 0.03
+	for sys in range(CAVE_SYSTEMS):
+		# Entrance: a point on the island's land (well inside the coast) — carve a mouth from just above
+		# the surface so the tunnel opens to daylight.
+		var ang: float = rng.randf() * TAU
+		var rr: float = rng.randf_range(28.0, _island_radius * 0.62)
+		var ex: float = cos(ang) * rr
+		var ez: float = sin(ang) * rr
+		var ey: float = surface_height(ex, ez)
+		if is_nan(ey) or ey <= _sea_level + 3.0:
+			continue                                    # skip mouths that would open underwater
+		var pos: Vector3 = Vector3(ex, ey + 1.5, ez)
+		# Head inward and down into the hillside.
+		var head: Vector3 = Vector3(-cos(ang) * 0.35, -0.72, -sin(ang) * 0.35).normalized()
+		for step in range(CAVE_STEPS):
+			carve_sphere(pos, CAVE_RADIUS + rng.randf_range(-0.5, 1.0))
+			if rng.randf() < 0.07:                       # occasional chamber
+				carve_sphere(pos, CAVE_RADIUS * 2.3)
+			# Wind the tunnel with 3D noise; bias gently downward so it descends into the isle.
+			var nx: float = wander.get_noise_3d(pos.x, pos.y, pos.z)
+			var ny: float = wander.get_noise_3d(pos.x + 137.0, pos.y - 71.0, pos.z)
+			var nz: float = wander.get_noise_3d(pos.x, pos.y + 91.0, pos.z + 137.0)
+			head = (head + Vector3(nx, ny * 0.5 - 0.12, nz) * 0.65).normalized()
+			pos += head * CAVE_STEP_LEN
+			# Keep tunnels inside the island body and out of the deep seabed; dive back under if the path
+			# would break the surface mid-run (so we don't gash open trenches across the hillside).
+			if Vector2(pos.x, pos.z).length() > _island_radius * 0.95:
+				break
+			if pos.y < _sea_level - 42.0:
+				break
+			var surf: float = surface_height(pos.x, pos.z)
+			if not is_nan(surf) and pos.y > surf - 1.5:
+				head.y = -absf(head.y) - 0.25
+				head = head.normalized()
 
 ## Add a FLAT SDF box (world-space AABB centred at world_pos, given half extents). Used to build
 ## flat-topped deposits — e.g. solidifying lava layers that tile into a continuous rocky surface,

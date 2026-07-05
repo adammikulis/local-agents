@@ -423,6 +423,10 @@ func _process(delta: float) -> void:
 		if _terrain.is_ready_at(Vector3(0, 0, 0)):
 			_ready_wait_ticks += 1
 			if _ready_wait_ticks > 6:
+				# Carve real 3D caves into the island BEFORE seeding water, so the terrain is genuinely 3D
+				# (tunnels/caverns fluids can pour into) and the sea/springs settle around the reshaped rock.
+				if _terrain.has_method("carve_caves"):
+					_terrain.carve_caves(1337)
 				_ecology.spawn_initial(INITIAL_COUNTS)
 				_ecology.populate_environment(ROCK_COUNT, FOREST_CLUSTERS)
 				_seed_water()
