@@ -425,6 +425,109 @@ func _surface_iy(ix: int, iz: int) -> int:
 	return -1
 
 
+# --- Consumer-facing API (matches the 2.5D LAMaterialField so this is a drop-in on the swap) --------
+
+## True where the ground is below sea level (open ocean under the plane).
+func is_ocean_at(x: float, z: float) -> bool:
+	var ix: int = _col_i(x, _origin.x)
+	var iz: int = _col_i(z, _origin.z)
+	# Any static (seeded-sea) or below-sea void cell in the column means this is sea.
+	for iy in range(_dim_y):
+		if _origin.y + float(iy) * _cell_size >= _sea_level:
+			break
+		var i: int = (iy * _dim_z + iz) * _dim_x + ix
+		if _solid[i] == 0:
+			return true
+	return false
+
+
+## Salinity 0 (fresh inland water) .. ~0.35-0.65 (brackish shallows) .. 1 (deep salt ocean); NAN if dry.
+## Depth-of-sea proxy, matching the 2.5D field so the salinity-banded fish behave identically.
+const SALT_FULL_DEPTH: float = 22.0
+const BRACKISH_FLOOR: float = 0.35
+func salinity_at(x: float, z: float) -> float:
+	if is_ocean_at(x, z):
+		# Deepest open water is saltiest; the shallow shore band (incl. river mouths) stays brackish.
+		var ix: int = _col_i(x, _origin.x)
+		var iz: int = _col_i(z, _origin.z)
+		var floor_y: float = _sea_level
+		for iy in range(_dim_y):
+			var i: int = (iy * _dim_z + iz) * _dim_x + ix
+			if _solid[i] == 0:
+				floor_y = _origin.y + float(iy) * _cell_size
+				break
+		return clampf((_sea_level - floor_y) / SALT_FULL_DEPTH, BRACKISH_FLOOR, 1.0)
+	if is_water_at(x, z):
+		return 0.0                                       # inland CA pool (lake/river) = fresh
+	return NAN
+
+
+# Atmosphere delegators (the 3D atmosphere owns the water cycle + humidity/dewpoint).
+func cloud_at(x: float, z: float) -> float:
+	return _atmosphere.cloud_at(x, z) if _atmosphere != null else 0.0
+
+func fog_at(x: float, z: float) -> float:
+	return _atmosphere.fog_at(x, z) if _atmosphere != null else 0.0
+
+func avg_cloud_cover() -> float:
+	return _atmosphere.avg_cloud_cover() if _atmosphere != null else 0.0
+
+func avg_fog_cover() -> float:
+	return _atmosphere.avg_fog_cover() if _atmosphere != null else 0.0
+
+func cloud_grid() -> PackedFloat32Array:
+	return _atmosphere.cloud_grid() if _atmosphere != null else PackedFloat32Array()
+
+func fog_grid() -> PackedFloat32Array:
+	return _atmosphere.fog_grid() if _atmosphere != null else PackedFloat32Array()
+
+func cloud_base_y() -> float:
+	return _atmosphere.cloud_base_y() if _atmosphere != null else _sea_level + 62.0
+
+func fog_base_y() -> float:
+	return _atmosphere.fog_base_y() if _atmosphere != null else _sea_level + 6.0
+
+func relative_humidity_at(x: float, z: float) -> float:
+	return _atmosphere.relative_humidity_at(x, z) if _atmosphere != null else 0.0
+
+func dewpoint_at(x: float, z: float) -> float:
+	return _atmosphere.dewpoint_at(x, z) if _atmosphere != null else NAN
+
+func set_wind(w: Vector2) -> void:
+	if _atmosphere != null:
+		_atmosphere.set_wind(w)
+
+func wind() -> Vector2:
+	return _atmosphere.wind() if _atmosphere != null else Vector2.ZERO
+
+## The cloud/fog grids project to (dim_x × dim_z) so CloudLayer's texture maps 1:1 with the 2.5D field.
+func grid_dim() -> int:
+	return _dim_x
+
+func grid_half_extent() -> float:
+	return _half_extent
+
+
+# Heat + lava injection (disasters call these) + diagnostics.
+func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
+	if _heat != null:
+		_heat.add_heat(world_pos, amount, maxf(0.0, radius))
+
+func add_lava(world_pos: Vector3, amount: float) -> void:
+	if _lava_sim != null and _lava_sim.has_method("add_lava"):
+		_lava_sim.add_lava(world_pos, amount)
+
+func lava_cell_count() -> int:
+	return _lava_sim.lava_cell_count() if _lava_sim != null and _lava_sim.has_method("lava_cell_count") else 0
+
+func wet_cell_count() -> int:
+	var n: int = 0
+	for i in range(_cell_count):
+		if _solid[i] == 0 and _static[i] == 0 and _water[i] >= RENDER_MIN:
+			n += 1
+	return n
+
+
 func _build_render_node() -> void:
 	if _surface_mi != null:
 		return
