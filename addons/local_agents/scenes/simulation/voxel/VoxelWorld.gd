@@ -158,6 +158,11 @@ func _ready() -> void:
 	_weather.name = "Weather"
 	add_child(_weather)
 	_weather.setup(_camera, sun, e)
+	# Let the wildfire system see the rain so weather can suppress/extinguish fires.
+	if _ecology.has_method("fire_system"):
+		var fs = _ecology.fire_system()
+		if fs != null and fs.has_method("set_weather"):
+			fs.set_weather(_weather)
 
 	# --- Water: CA rivers/lakes/ocean over the terrain. Rain (from weather) and a
 	# few springs feed it; it flows downhill and pools on its own. Creatures drink
@@ -203,20 +208,12 @@ func _process(delta: float) -> void:
 	_push_environment()
 	_feed_water()
 
-	# Auto-meteor demo: drop a meteor on the point under the camera's aim.
-	if _auto_meteor and not _auto_meteor_fired and _spawned_initial and _shoot_path != "" and _frame == _shoot_frames - 240:
-		var ray: Dictionary = _camera.aim_ray()
-		var hit: Dictionary = _terrain.raycast_terrain(ray["origin"], ray["dir"], 3000.0)
-		if bool(hit.get("hit", false)):
-			var impact: Vector3 = hit["position"]
-			var m: MeteorScript = MeteorScript.new()
-			_actors_root.add_child(m)
-			m.setup(_terrain, _ecology)
-			m.launch(impact)
-			_music_destruction = 1.0
-			_auto_meteor_fired = true
-			_camera.global_position = impact + Vector3(26.0, 30.0, 26.0)
-			_camera.look_at(impact, Vector3.UP)
+	# Auto-meteor demo/test: drop a meteor on a forest so it carves a crater, topples trees,
+	# and ignites a wildfire. Works in both screenshot mode and headless run-frames mode.
+	if _auto_meteor and not _auto_meteor_fired and _spawned_initial:
+		var trigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 600, 60)
+		if _frame == trigger:
+			_fire_test_meteor()
 
 	# Auto-select demo: aim at the nearest creature and run the real selection path.
 	if _auto_select and not _auto_select_done and _spawned_initial and _frame == _shoot_frames - 40:
@@ -252,6 +249,11 @@ func _process(delta: float) -> void:
 			wet = _water.wet_cell_count()
 		var n_poop: int = get_tree().get_nodes_in_group("poop").size()
 		var n_fish: int = get_tree().get_nodes_in_group("species_fish").size()
+		var n_fire: int = 0
+		if _ecology != null and _ecology.has_method("fire_system"):
+			var fsys = _ecology.fire_system()
+			if fsys != null and fsys.has_method("active_fire_count"):
+				n_fire = fsys.active_fire_count()
 		var creatures: Array = get_tree().get_nodes_in_group("creature")
 		var min_hyd: int = 100
 		var drinkers: int = 0
@@ -261,8 +263,8 @@ func _process(delta: float) -> void:
 				min_hyd = mini(min_hyd, h)
 				if String(c.get("state")) == "drink":
 					drinkers += 1
-		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"poop\":%d,\"fish\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f}" % [
-			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, n_poop, n_fish, min_hyd, drinkers, _time_of_day])
+		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"poop\":%d,\"fish\":%d,\"fires\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f}" % [
+			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, n_poop, n_fish, n_fire, min_hyd, drinkers, _time_of_day])
 		get_tree().quit(0)
 
 
@@ -404,6 +406,35 @@ func _set_selected(node: Node) -> void:
 	_selection_ring.visible = true
 	if _audio != null:
 		_audio.play_sfx("ui_click")
+
+
+# Launch a test meteor at the nearest tree (so it hits vegetation and can start a fire),
+# falling back to the point under the camera's aim if there are no trees.
+func _fire_test_meteor() -> void:
+	var impact: Vector3 = Vector3.ZERO
+	var found: bool = false
+	var best: float = INF
+	for t in get_tree().get_nodes_in_group("tree"):
+		if t is Node3D:
+			var d: float = (_camera.global_position - (t as Node3D).global_position).length()
+			if d < best:
+				best = d
+				impact = (t as Node3D).global_position
+				found = true
+	if not found:
+		var ray: Dictionary = _camera.aim_ray()
+		var hit: Dictionary = _terrain.raycast_terrain(ray["origin"], ray["dir"], 3000.0)
+		if not bool(hit.get("hit", false)):
+			return
+		impact = hit["position"]
+	var m: MeteorScript = MeteorScript.new()
+	_actors_root.add_child(m)
+	m.setup(_terrain, _ecology)
+	m.launch(impact)
+	_music_destruction = 1.0
+	_auto_meteor_fired = true
+	_camera.global_position = impact + Vector3(26.0, 30.0, 26.0)
+	_camera.look_at(impact, Vector3.UP)
 
 
 func _update_selection_ring() -> void:

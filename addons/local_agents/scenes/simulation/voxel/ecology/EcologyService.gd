@@ -12,6 +12,7 @@ const TreeScript: GDScript = preload("res://addons/local_agents/scenes/simulatio
 const FishScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Fish.gd")
 const ScentFieldScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ScentField.gd")
 const TrackSystemScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/TrackSystem.gd")
+const FireSystemScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/FireSystem.gd")
 
 const KINDS: Array = ["plant", "rabbit", "fox", "bird", "villager", "fish", "rock", "tree"]
 const FISH_CAP: int = 26
@@ -21,6 +22,7 @@ var actors_root: Node3D = null
 var _scent = null                        # LAScentField (observer; creatures query it)
 var _tracks = null                       # LATrackSystem (observer; footprints)
 var _water = null                        # LAWaterFieldSystem (observer; creatures/fish query it)
+var _fire = null                         # LAFireSystem (wildfire spread over flammable actors)
 
 # world spawn area (XZ half-extent) used for spawn_initial scatter
 var spawn_extent: float = 80.0
@@ -146,6 +148,10 @@ func setup(_terrain, _actors_root: Node3D) -> void:
 	_tracks.name = "TrackSystem"
 	add_child(_tracks)
 	_tracks.setup(terrain)
+	_fire = FireSystemScript.new()
+	_fire.name = "FireSystem"
+	add_child(_fire)
+	_fire.setup(self)
 
 
 func scent_field():
@@ -158,6 +164,16 @@ func set_water(w) -> void:
 
 func water_field():
 	return _water
+
+
+func fire_system():
+	return _fire
+
+
+# Ignite flammable actors within radius of a point (meteor strike, etc.).
+func ignite_area(world_pos: Vector3, radius: float) -> void:
+	if _fire != null and _fire.has_method("ignite_area"):
+		_fire.ignite_area(world_pos, radius)
 
 
 func spawn(kind: String, world_pos: Vector3) -> Node:

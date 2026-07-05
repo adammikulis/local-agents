@@ -155,6 +155,9 @@ func _on_impact() -> void:
 	# Terror shockwave: everything that hears/feels the impact panics and flees.
 	if _ecology != null and _ecology.has_method("broadcast_scare"):
 		_ecology.broadcast_scare(_impact_point, IMPACT_RADIUS * 6.0, 1.0)
+	# The molten strike sets nearby vegetation alight — a wildfire may spread from here.
+	if _ecology != null and _ecology.has_method("ignite_area"):
+		_ecology.ignite_area(_impact_point, IMPACT_RADIUS * 2.2)
 
 	if _body != null:
 		_body.visible = false
