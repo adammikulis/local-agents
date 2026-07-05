@@ -41,6 +41,7 @@ const LAVA_EMPLACE_TEMP: float = 1150.0   # temperature fresh lava carries
 const LAVA_HEAT_PER_DEPTH: float = 650.0  # °C/s a lava cell sustains per unit depth (thick stays molten)
 const MOLTEN_FLOOR: float = 950.0         # any pooled lava holds at least this temp so it keeps flowing/glowing
 const COOLED_MAX: float = 1.5             # max cooled-rock thickness per cell — a flow is a THIN crust, not a mound
+const BASAL_CRUST_RATE: float = 0.02      # thin crust laid per step under ACTIVE lava (continuous flow trail)
 const SOLIDIFY_TEMP: float = 800.0        # lava freezes to rock below this
 const MELT_TEMP: float = 1200.0           # surface rock melts to lava above this
 const MELT_MAX_EDITS: int = 40            # cap melt/solidify SDF edits per step
@@ -268,6 +269,13 @@ func _lava_step() -> void:
 		if _f._temp[idx] < molten:
 			_f._temp[idx] = molten
 		any_lava = true
+		# The flow's BASE chills against the cold ground even while the top stays molten, laying a thin
+		# CONTINUOUS crust along the whole path the lava covers (capped) — so a hardened flow reads as one
+		# connected tongue, not scattered patches only where it happened to thin out. Hidden under the
+		# molten surface until the lava drains and reveals it.
+		if _f._cooled[idx] < COOLED_MAX:
+			_f._cooled[idx] = minf(_f._cooled[idx] + BASAL_CRUST_RATE, COOLED_MAX)
+			_f._cooled_dirty = true
 	_f._lava_dirty = any_lava or (_f._render._lava_mesh != null and _f._render._lava_mesh.get_surface_count() > 0)
 	_lava_cells_last = _material_cell_count_arr(lava, _f.LAVA_MIN)
 	if _lava_cells_last > _lava_peak:

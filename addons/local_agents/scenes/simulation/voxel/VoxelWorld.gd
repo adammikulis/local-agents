@@ -421,7 +421,9 @@ func _process(delta: float) -> void:
 	# the camera on it, and fire it ~560 frames (~5s) before the screenshot so the shot studies a flow
 	# that has been erupting for about five seconds (lava spread + some of it cooled).
 	if _auto_volcano and not _auto_volcano_fired and _spawned_initial:
-		var vtrigger: int = (_shoot_frames - 560) if _shoot_path != "" else maxi(_run_frames - 600, 60)
+		# Erupt at a FIXED early frame so the eruption's age at the screenshot = _shoot_frames - 350;
+		# pick _shoot_frames to study the flow at any age (e.g. ~5s vs ~10s in).
+		var vtrigger: int = 350 if _shoot_path != "" else maxi(_run_frames - 600, 60)
 		if _frame >= vtrigger:
 			var oh: float = _terrain.surface_height(20.0, 20.0)
 			if not is_nan(oh):

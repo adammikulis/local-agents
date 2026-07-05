@@ -94,7 +94,7 @@ void fragment() {
 # Cooled/solidified lava — a SMOOTH welded heightfield of mottled dark basalt (opaque, non-emissive),
 # rendered like the water/lava surface so a hardened flow reads as smooth rock, not the terraced
 # Machu-Picchu steps that blocky per-cell SDF terrain edits produced.
-const COOLED_MIN: float = 0.02
+const COOLED_MIN: float = 0.008
 const ROCK_SHADER: String = """
 shader_type spatial;
 render_mode cull_disabled;
@@ -108,23 +108,29 @@ float rnoise(vec2 p) {
 	float c = rhash(i + vec2(0.0, 1.0)); float d = rhash(i + vec2(1.0, 1.0));
 	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
+// Domain-WARPED noise: displace the sample point by a low-frequency noise so the mottle is irregular
+// and organic, not aligned to the value-noise grid (which read as a regular checker).
+float rn(vec2 p) {
+	vec2 w = vec2(rnoise(p * 0.45 + vec2(3.1, 1.7)), rnoise(p * 0.45 + vec2(8.7, 5.3)));
+	return rnoise(p + (w - 0.5) * 3.0);
+}
 void vertex() {
 	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	// Ropey, lumpy basalt: displace the surface with multi-octave world-noise so a hardened flow reads
-	// as rough rock, not a glassy smooth dome.
-	float bump = (rnoise(v_world.xz * 0.6) - 0.5) * 0.9
-			+ (rnoise(v_world.xz * 1.8) - 0.5) * 0.45
-			+ (rnoise(v_world.xz * 5.0) - 0.5) * 0.18;
+	// Ropey, lumpy basalt: displace the surface with multi-octave warped noise so a hardened flow reads
+	// as rough irregular rock, not a glassy smooth dome or a gridded checker.
+	float bump = (rn(v_world.xz * 0.55) - 0.5) * 0.9
+			+ (rn(v_world.xz * 1.6) - 0.5) * 0.45
+			+ (rn(v_world.xz * 4.5) - 0.5) * 0.18;
 	VERTEX.y += bump;
 }
 void fragment() {
-	float n = rnoise(v_world.xz * 0.5) * 0.6 + rnoise(v_world.xz * 1.9) * 0.4;
+	float n = rn(v_world.xz * 0.5) * 0.6 + rn(v_world.xz * 1.7) * 0.4;
 	ALBEDO = mix(rock_dark, rock_light, n);
-	// Rebuild a WORLD-space normal from the displacement noise gradient (converted to view space) so
-	// light catches the rough basalt instead of flat-shading the smooth base mesh.
+	// Rebuild a WORLD-space normal from the warped-noise gradient (converted to view space) so light
+	// catches the rough basalt instead of flat-shading the smooth base mesh.
 	float e = 0.6;
-	float gx = rnoise((v_world.xz + vec2(e, 0.0)) * 1.8) - rnoise((v_world.xz - vec2(e, 0.0)) * 1.8);
-	float gz = rnoise((v_world.xz + vec2(0.0, e)) * 1.8) - rnoise((v_world.xz - vec2(0.0, e)) * 1.8);
+	float gx = rn((v_world.xz + vec2(e, 0.0)) * 1.6) - rn((v_world.xz - vec2(e, 0.0)) * 1.6);
+	float gz = rn((v_world.xz + vec2(0.0, e)) * 1.6) - rn((v_world.xz - vec2(0.0, e)) * 1.6);
 	vec3 wn = normalize(vec3(-gx * 2.5, 1.0, -gz * 2.5));
 	NORMAL = normalize((VIEW_MATRIX * vec4(wn, 0.0)).xyz);
 	ROUGHNESS = 0.95;
