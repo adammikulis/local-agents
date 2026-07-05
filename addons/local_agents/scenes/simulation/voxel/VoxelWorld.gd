@@ -40,9 +40,11 @@ const DAY_LENGTH: float = 200.0             # seconds per full day
 const SUN_ENERGY_NOON: float = 1.45
 const AMBIENT_DAY: float = 0.62
 const AMBIENT_NIGHT: float = 0.09           # moonlight floor so nights aren't pitch black
-const SKY_TOP_DAY: Color = Color(0.36, 0.56, 0.86)
+const SKY_TOP_DAY: Color = Color(0.42, 0.60, 0.86)
 const SKY_TOP_NIGHT: Color = Color(0.02, 0.03, 0.11)
-const SKY_HORIZON_DAY: Color = Color(0.72, 0.80, 0.88)
+# Pale, near-white horizon so the surround reads cloudlike; the ground band and haze are
+# matched to this every frame (see _update_day_night) so there is no false horizon line.
+const SKY_HORIZON_DAY: Color = Color(0.86, 0.90, 0.94)
 const SKY_HORIZON_NIGHT: Color = Color(0.05, 0.06, 0.15)
 const SKY_HORIZON_DUSK: Color = Color(0.92, 0.48, 0.24)
 
@@ -108,14 +110,23 @@ func _ready() -> void:
 	var sky_mat: ProceduralSkyMaterial = ProceduralSkyMaterial.new()
 	sky_mat.sky_top_color = SKY_TOP_DAY
 	sky_mat.sky_horizon_color = SKY_HORIZON_DAY
-	sky_mat.ground_horizon_color = Color(0.62, 0.66, 0.62)
-	sky_mat.ground_bottom_color = Color(0.30, 0.34, 0.30)
+	# Ground band == horizon so there is no artificial horizon line; kept matched every frame.
+	sky_mat.ground_horizon_color = SKY_HORIZON_DAY
+	sky_mat.ground_bottom_color = SKY_HORIZON_DAY
+	sky_mat.ground_curve = 0.02
 	sky.sky_material = sky_mat
 	e.sky = sky
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	e.ambient_light_energy = AMBIENT_DAY
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	e.ssao_enabled = true
+	# Subtle horizon-tinted aerial haze so distant terrain and the world's edge fade into the
+	# light surround (the "inside a cloud" look). Re-tinted to the live horizon each frame.
+	e.fog_enabled = true
+	e.fog_light_color = SKY_HORIZON_DAY
+	e.fog_density = 0.0022
+	e.fog_aerial_perspective = 1.0
+	e.fog_sky_affect = 0.15
 	env.environment = e
 	add_child(env)
 	_sky_mat = sky_mat
@@ -405,13 +416,18 @@ func _update_day_night(delta: float) -> void:
 
 	# Sky colors lerp day<->night; horizon warms to dusk-orange around the transitions.
 	var night: float = 1.0 - daylight
+	var horizon: Color = SKY_HORIZON_DAY.lerp(SKY_HORIZON_NIGHT, night)
+	horizon = horizon.lerp(SKY_HORIZON_DUSK, warm * 0.7)
 	if _sky_mat != null:
 		_sky_mat.sky_top_color = SKY_TOP_DAY.lerp(SKY_TOP_NIGHT, night)
-		var horizon: Color = SKY_HORIZON_DAY.lerp(SKY_HORIZON_NIGHT, night)
-		horizon = horizon.lerp(SKY_HORIZON_DUSK, warm * 0.7)
 		_sky_mat.sky_horizon_color = horizon
+		# Keep the ground band matched to the horizon so no false horizon appears at any time.
+		_sky_mat.ground_horizon_color = horizon
+		_sky_mat.ground_bottom_color = horizon
 	if _env != null:
 		_env.ambient_light_energy = lerpf(AMBIENT_NIGHT, AMBIENT_DAY, daylight) * storm
+		# Haze tracks the horizon so it warms at dusk and darkens at night with the sky.
+		_env.fog_light_color = horizon
 
 	# Share the clock with the ecology so nocturnal behavior can key off night.
 	if _ecology != null and _ecology.has_method("set_time_of_day"):
