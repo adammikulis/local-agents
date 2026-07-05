@@ -17,39 +17,42 @@ extends RefCounted
 
 const _BASE: String = "res://addons/local_agents/assets/models/"
 
-# id -> { path, yaw(deg), tint?[r,g,b], anims?{idle,move,run}, run?(m/s) }
+# id -> { path, tint?[r,g,b], anims?{idle,move,run}, run?(m/s) }
+#
+# All models are preprocessed to face -Z (Creature.look_at points -Z at the heading), so there is
+# NO per-model yaw here. Verified by side-view test: Quaternius rigs (fox/fish/villager) export
+# facing +Z and were rotated 180 deg via scripts/bake_model_forward.py; the Kenney Cube Pets already
+# face -Z. Baking the forward axis into the asset data — not a magic yaw in code — keeps this uniform.
 const TABLE: Dictionary = {
-	# --- fauna. Creature.look_at() points the model's -Z at its heading, so each model's NOSE
-	# must sit at local -Z. Quaternius rigs already face -Z (yaw 0); Kenney Cube Pets face +Z
-	# (yaw 180). Getting these opposite is what makes an animal walk backwards. ---
+	# --- fauna ---
 	"fox": {
-		"path": _BASE + "fauna/fox.glb", "yaw": 0.0,
+		"path": _BASE + "fauna/fox.glb",
 		"anims": {"idle": "Idle", "move": "Walk", "run": "Gallop"}, "run": 2.2,
 	},
 	"fish": {
-		"path": _BASE + "fauna/fish.glb", "yaw": 0.0,
+		"path": _BASE + "fauna/fish.glb",
 		"anims": {"idle": "Swim", "move": "Swim", "run": "Swim"}, "run": 999.0,
 	},
 	"villager": {
-		"path": _BASE + "people/villager.glb", "yaw": 0.0,
+		"path": _BASE + "people/villager.glb",
 		"anims": {"idle": "Idle", "move": "Walk", "run": "Run"}, "run": 3.0,
 	},
-	"rabbit": {"path": _BASE + "fauna/rabbit.glb", "yaw": 180.0},
-	"bird": {"path": _BASE + "fauna/bird.glb", "yaw": 180.0},
+	"rabbit": {"path": _BASE + "fauna/rabbit.glb"},
+	"bird": {"path": _BASE + "fauna/bird.glb"},
 	# Vulture reuses the parrot mesh, flattened to a dark scavenger tint (config, not a new asset).
-	"vulture": {"path": _BASE + "fauna/vulture.glb", "yaw": 180.0, "tint": [0.30, 0.26, 0.23]},
+	"vulture": {"path": _BASE + "fauna/vulture.glb", "tint": [0.30, 0.26, 0.23]},
 
 	# --- flora / props (Kenney Nature Kit, static). Their baked baseColorFactor greens gamma-shift
 	# to cyan in Godot, so foliage/wood surfaces are recoloured to sane values via "recolor"
 	# (a single-material bush is simply flat-tinted green). ---
-	"plant": {"path": _BASE + "nature/plant_bushDetailed.glb", "yaw": 0.0, "tint": [0.31, 0.55, 0.21]},
+	"plant": {"path": _BASE + "nature/plant_bushDetailed.glb", "tint": [0.31, 0.55, 0.21]},
 	"tree_oak": {
-		"path": _BASE + "nature/tree_oak.glb", "yaw": 0.0,
+		"path": _BASE + "nature/tree_oak.glb",
 		"recolor": {"leafs": [0.21, 0.46, 0.17], "grass": [0.21, 0.46, 0.17],
 			"wood": [0.34, 0.23, 0.14], "bark": [0.34, 0.23, 0.14]},
 	},
 	"tree_pine": {
-		"path": _BASE + "nature/tree_pineTallA.glb", "yaw": 0.0,
+		"path": _BASE + "nature/tree_pineTallA.glb",
 		"recolor": {"leafs": [0.13, 0.34, 0.16], "grass": [0.13, 0.34, 0.16],
 			"wood": [0.30, 0.21, 0.13], "bark": [0.30, 0.21, 0.13]},
 	},
