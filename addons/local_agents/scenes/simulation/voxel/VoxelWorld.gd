@@ -184,6 +184,8 @@ func _parse_cmdline() -> void:
 			_shoot_frames = int(arg.substr("--shoot-frames=".length()))
 		elif arg.begins_with("--run-frames="):
 			_run_frames = int(arg.substr("--run-frames=".length()))
+		elif arg.begins_with("--time="):
+			_time_of_day = clampf(float(arg.substr("--time=".length())), 0.0, 1.0)
 		elif arg == "--auto-meteor":
 			_auto_meteor = true
 		elif arg == "--auto-select":
