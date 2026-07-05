@@ -25,6 +25,11 @@ const PoopScript: GDScript = preload("res://addons/local_agents/scenes/simulatio
 var energy: float = 100.0
 var max_energy: float = 100.0
 var metabolism: float = 2.2
+
+# --- health / HP (emergent damage: blasts & lightning deal graded, deterministic damage;
+# 0 HP = death). Bigger creatures carry more HP; set from `size` at spawn. ---
+var health: float = 100.0
+var max_health: float = 100.0
 var food_value: float = 55.0
 var max_age: float = 90.0
 var hungry_at: float = 0.7
@@ -217,6 +222,16 @@ func on_struck() -> void:
 	die("struck")
 
 
+# Take deterministic HP damage from a blast/lightning/etc. Death happens only when HP hits 0,
+# and the killing blow's impulse flings the corpse. No randomness in the kill path.
+func take_damage(amount: float, cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
+	if _dying or amount <= 0.0:
+		return
+	health -= amount
+	if health <= 0.0:
+		die(cause, impulse)
+
+
 # Death leaves a physical corpse (carrion) — creatures never just vanish.
 # `impulse` (e.g. from a meteor) flings the body outward.
 func die(_cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
@@ -288,6 +303,9 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	flock_weight = float(config.get("flock_weight", flock_weight))
 	max_energy = float(config.get("max_energy", 100.0))
 	energy = max_energy
+	# HP scales with body size: a bigger animal endures more before a blast kills it.
+	max_health = float(config.get("max_health", 30.0 + size * 120.0))
+	health = max_health
 	metabolism = float(config.get("metabolism", metabolism))
 	max_hydration = float(config.get("max_hydration", 100.0))
 	hydration = max_hydration

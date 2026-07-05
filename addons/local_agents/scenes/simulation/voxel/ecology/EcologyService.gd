@@ -254,16 +254,41 @@ func populate_environment(rock_count: int, forest_clusters: int) -> void:
 			spawn("tree", center + off)
 
 
-func damage_sphere(world_pos: Vector3, radius: float) -> void:
-	# Meteor impact: creatures die into flung corpses; plants/rocks are cleared.
+# Deterministic point-source falloff: MAX (1.0) at the centre, 0.0 at/beyond the edge, squared
+# for a sharp peak so a blast/bolt kills hard near the impact and tapers quickly toward the rim.
+# No randomness — the same distance always yields the same fraction. Shared by every point blast
+# (damage_sphere here, lightning's fish electrocution).
+static func blast_falloff(d: float, radius: float) -> float:
+	if radius <= 0.0:
+		return 0.0
+	var f: float = clampf(1.0 - d / radius, 0.0, 1.0)
+	return f * f
+
+
+# A point blast (meteor, earthquake, lightning). Deals GRADED, deterministic damage: each actor in
+# range with take_damage() loses base_damage * falloff(distance) HP and dies only when its HP hits 0
+# — lethal at the centre, survivable at the rim. `base_damage` defaults large so the centre still
+# reproduces the old lethal-blast feel. Actors without take_damage (plants/rocks) fall back to the
+# old topple/die/clear behaviour.
+func damage_sphere(world_pos: Vector3, radius: float, base_damage: float = 1000.0) -> void:
 	var r2: float = radius * radius
 	for actor in get_tree().get_nodes_in_group("selectable"):
 		if not is_instance_valid(actor) or not (actor is Node3D):
 			continue
 		var a: Node3D = actor as Node3D
-		if a.global_position.distance_squared_to(world_pos) > r2:
+		var d2: float = a.global_position.distance_squared_to(world_pos)
+		if d2 > r2:
 			continue
-		if a.has_method("topple"):
+		if a.has_method("take_damage"):
+			var falloff: float = blast_falloff(sqrt(d2), radius)
+			if falloff <= 0.0:
+				continue
+			# Fling scales with proximity too, so the killing blow throws the corpse outward.
+			var away: Vector3 = a.global_position - world_pos
+			away.y = absf(away.y) + 2.0
+			var impulse: Vector3 = away.normalized() * (14.0 + 34.0 * falloff)
+			a.take_damage(base_damage * falloff, "blast", impulse)
+		elif a.has_method("topple"):
 			# Trees don't vanish — the blast knocks them over, falling away from impact.
 			var dir: Vector3 = a.global_position - world_pos
 			dir.y = 0.0

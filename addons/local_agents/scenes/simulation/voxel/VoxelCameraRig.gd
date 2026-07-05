@@ -4,10 +4,10 @@ extends Camera3D
 
 ## RTS-style orbit camera for the voxel simulation (Black & White feel).
 ##
-##   - Middle-mouse drag to grab & pan the terrain; WASD / arrow keys also pan;
-##     push the cursor to a screen edge to edge-scroll.
+##   - Middle-mouse drag to rotate the view (orbit): horizontal = heading/yaw, vertical =
+##     tilt/pitch. WASD / arrow keys pan; push the cursor to a screen edge to edge-scroll.
 ##   - Mouse wheel zooms in / out.
-##   - Shift + middle-mouse drag orbits the heading (yaw) and tilts (pitch); Q / E rotate
+##   - Shift + middle-mouse drag grabs & pans the terrain; Q / E rotate
 ##     yaw and R / F tilt pitch from the keyboard. (LMB = select/grab and RMB = spawn/cast
 ##     are handled by VoxelWorld, so the camera leaves both those buttons free.)
 ##   - The cursor stays visible (only captured while actively dragging) so HUD clicks,
@@ -25,9 +25,9 @@ extends Camera3D
 const MIN_DISTANCE: float = 12.0          # closest zoom (units from focus)
 const MAX_DISTANCE: float = 600.0         # farthest zoom
 const ZOOM_STEP: float = 1.15             # wheel multiplier per notch
-const PAN_SPEED: float = 1.4              # keys/edge pan, per second, scaled by distance
-const DRAG_PAN_SPEED: float = 1.6         # MMB drag pan, per pixel, scaled by distance
-const ORBIT_SENSITIVITY: float = 0.0075   # RMB drag, radians per pixel
+const PAN_SPEED: float = 2.8              # WASD/arrow-key pan, per second, scaled by distance
+const DRAG_PAN_SPEED: float = 1.6         # Shift+MMB drag pan, per pixel, scaled by distance
+const ORBIT_SENSITIVITY: float = 0.0075   # MMB drag orbit, radians per pixel
 const KEY_YAW_SPEED: float = 1.6          # Q/E yaw, radians per second
 const EDGE_MARGIN: float = 12.0           # px from a screen edge that triggers edge-scroll
 const EDGE_PAN_SPEED: float = 1.4         # edge-scroll pan, per second, scaled by distance
@@ -102,12 +102,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_MIDDLE:
-			# Shift + MMB orbits; plain MMB pans. RMB is left free for spawn/cast.
+			# Plain MMB held + drag orbits (horizontal = yaw, vertical = pitch);
+			# Shift + MMB pans. RMB is left free for spawn/cast.
 			if mb.pressed:
 				if Input.is_key_pressed(KEY_SHIFT):
-					_set_orbiting(true)
-				else:
 					_set_panning(true)
+				else:
+					_set_orbiting(true)
 			else:
 				_set_panning(false)
 				_set_orbiting(false)

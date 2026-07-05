@@ -37,6 +37,10 @@ var max_scale: float = 1.0
 var age: float = 0.0
 var toppled: bool = false
 
+# --- health / HP: a taller trunk takes more punishment before a blast fells it. 0 HP = topple. ---
+var health: float = 100.0
+var max_health: float = 100.0
+
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _tilt: float = 0.0               # small resting lean of the whole tree
 var _upright_basis: Basis = Basis.IDENTITY
@@ -79,6 +83,10 @@ func setup(_terrain, _config: Dictionary = {}) -> void:
 
 	# Slight resting lean so a stand of trees doesn't look regimented.
 	_tilt = _rng.randf_range(-0.06, 0.06)
+
+	# HP scales with trunk height: a big tree survives a blast that fells a sapling.
+	max_health = maxf(60.0 + trunk_height * 40.0, 40.0)
+	health = max_health
 
 	collision_layer = 2
 	collision_mask = 0
@@ -245,6 +253,16 @@ func get_inspector_payload() -> Dictionary:
 			"Growth: %d%%" % int(_grown_fraction() * 100.0),
 		],
 	}
+
+
+# Deterministic HP damage from a blast/lightning. When HP runs out the tree topples away from
+# the blow (impulse direction); a felled tree ignores further damage.
+func take_damage(amount: float, _cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
+	if toppled or amount <= 0.0:
+		return
+	health -= amount
+	if health <= 0.0:
+		topple(impulse)
 
 
 func topple(direction: Vector3) -> void:
