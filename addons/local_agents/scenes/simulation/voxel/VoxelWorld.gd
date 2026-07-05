@@ -266,10 +266,11 @@ func _ready() -> void:
 	_material = MaterialFieldScript.new()
 	_material.name = "MaterialField"
 	add_child(_material)
-	# Grid resolution is the dominant sim cost (the CA loops every cell each step): 6-unit cells keep
-	# ~10k cells across the 600-unit world — a big step up from 4-unit (22.8k cells) without visibly
-	# coarsening water/lava, which the surface interpolation smooths anyway.
-	_material.setup(_terrain, 300.0, 6.0)
+	# Grid resolution is the dominant sim cost (the CA loops every cell each step). With the field's hot
+	# loops now on the GPU (heat/atmosphere/liquid kernels) we can afford a finer grid: 5-unit cells give
+	# ~14.6k cells across the 600-unit world (finer water/lava than the old 6-unit / 10.2k) while windowed
+	# GPU stays > 60fps even under a volcano (4-unit / 22.8k dipped to ~54fps under lava-mesh load).
+	_material.setup(_terrain, 300.0, 5.0)
 	# The field reads the REAL sun (DirectionalLight3D) live — its energy + angle drive all heating.
 	# Wind/pressure/rain are NOT injected; they emerge from the field's own physics.
 	_material.set_sun(_sun)

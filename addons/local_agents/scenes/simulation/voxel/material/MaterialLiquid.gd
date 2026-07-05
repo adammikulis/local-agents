@@ -75,7 +75,7 @@ func step() -> void:
 					water[idx] += add
 
 	# FLOW (frozen cells hold solid), then ocean fill + evaporation.
-	_flow_liquid(water, FLOW_FACTOR, true)
+	_do_flow(water, FLOW_FACTOR, true)
 	var any_wet: bool = false
 	for idx in range(_f._cell_count):
 		if _f._sampled[idx] == 0:
@@ -138,6 +138,18 @@ func lava_peak() -> int:
 
 
 # --- Liquid movement (WATER + LAVA reuse this with different params) ----------
+
+## Flow a liquid depth grid one step: GPU two-pass gather kernel when available (real play), else the
+## CPU _flow_liquid oracle (headless). The GPU path returns the new depth; copy it back in place so the
+## caller's array reference (a _mats entry) sees the result, matching _flow_liquid's in-place mutation.
+func _do_flow(arr: PackedFloat32Array, flow_factor: float, freeze_aware: bool) -> void:
+	if _f._use_gpu and _f._gpu != null:
+		var res: PackedFloat32Array = _f._gpu.flow_depth(arr, flow_factor, freeze_aware)
+		for k in range(_f._cell_count):
+			arr[k] = res[k]
+	else:
+		_flow_liquid(arr, flow_factor, freeze_aware)
+
 
 ## Generic shallow-water redistribution of a liquid array by SURFACE head (terrain_h + own depth).
 ## Accumulates net change in the field's _mdelta and applies it. `freeze_aware` skips frozen cells
@@ -229,7 +241,7 @@ func _flow_liquid(arr: PackedFloat32Array, flow_factor: float, freeze_aware: boo
 # LAVA: flow (slow) + sustain heat + solidify to rock. Same machinery as water, different params.
 func _lava_step() -> void:
 	var lava: PackedFloat32Array = _f._mats[Mat.LAVA]
-	_flow_liquid(lava, LAVA_FLOW, false)
+	_do_flow(lava, LAVA_FLOW, false)
 	var any_lava: bool = false
 	var edits: int = 0
 	for idx in range(_f._cell_count):
@@ -241,11 +253,30 @@ func _lava_step() -> void:
 			# rock, so a lava flow BUILDS a delta/levee of fresh terrain where it passed (emergent
 			# volcanic landform) rather than just vanishing.
 			if d > 0.0:
-				if edits < MELT_MAX_EDITS and _f._terrain != null and _f._terrain.has_method("fill_sphere"):
+				if edits < MELT_MAX_EDITS and _f._terrain != null:
 					var fi: int = idx % _f._dim
 					var fj: int = idx / _f._dim
-					_f._terrain.fill_sphere(Vector3(_f._cell_x(fi), _f._terrain_h[idx] + d, _f._cell_z(fj)), clampf(d + 0.3, 0.6, _f._cell_size))
-					_f._terrain_h[idx] = _f._terrain_h[idx] + d * 0.6
+					var cx: float = _f._cell_x(fi)
+					var cz: float = _f._cell_z(fj)
+					# Sample the true sloped surface + its NORMAL here so the solidified rock hugs the
+					# hillside at the angle it cooled on, rather than pooling level or stepping.
+					var surf: float = _f._terrain_h[idx]
+					var nrm: Vector3 = Vector3.UP
+					if _f._terrain.has_method("raycast_terrain"):
+						var hit: Dictionary = _f._terrain.raycast_terrain(Vector3(cx, surf + 8.0, cz), Vector3.DOWN, 16.0)
+						if bool(hit.get("hit", false)):
+							nrm = hit.get("normal", Vector3.UP)
+							surf = float((hit.get("position", Vector3(cx, surf, cz)) as Vector3).y)
+					var jitter: float = randf_range(-0.1, 0.25) * _f._cell_size
+					if _f._terrain.has_method("fill_rock"):
+						# Stamp an oriented FACETED rock (polygon) aligned to the slope — angular cooled
+						# lava, not round blobs or aligned cubes. Size > cell spacing so rocks overlap.
+						var size: float = _f._cell_size * (0.7 + randf() * 0.2)
+						_f._terrain.fill_rock(Vector3(cx, surf + jitter, cz), size, nrm)
+					elif _f._terrain.has_method("fill_sphere"):
+						var r: float = _f._cell_size * (0.62 + randf() * 0.16)
+						_f._terrain.fill_sphere(Vector3(cx, surf - nrm.y * r * 0.5 + jitter, cz), r)
+					_f._terrain_h[idx] = _f._terrain_h[idx] + clampf(d, 0.3, _f._cell_size * 0.5)
 					edits += 1
 				lava[idx] = 0.0
 			continue

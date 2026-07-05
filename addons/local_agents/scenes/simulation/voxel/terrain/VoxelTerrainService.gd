@@ -120,6 +120,61 @@ func _edit_sphere(world_pos: Vector3, radius: float, mode: int) -> void:
 	vt.set_mode(mode)
 	vt.do_sphere(world_pos, radius)
 
+## Add a FLAT SDF box (world-space AABB centred at world_pos, given half extents). Used to build
+## flat-topped deposits — e.g. solidifying lava layers that tile into a continuous rocky surface,
+## instead of the rounded blobs a sphere leaves.
+func fill_box(world_pos: Vector3, half_extents: Vector3) -> void:
+	if _terrain == null:
+		return
+	var vt: VoxelTool = _terrain.get_voxel_tool()
+	if vt == null:
+		return
+	vt.set_channel(VoxelBuffer.CHANNEL_SDF)
+	vt.set_mode(VoxelTool.MODE_ADD)
+	vt.do_box(world_pos - half_extents, world_pos + half_extents)
+
+
+# A low-poly rock baked to a VoxelMeshSDF once, reused for every polygon stamp (do_mesh).
+var _rock_sdf: VoxelMeshSDF = null
+
+func _rock_mesh_sdf() -> VoxelMeshSDF:
+	if _rock_sdf != null:
+		return _rock_sdf
+	var m: BoxMesh = BoxMesh.new()               # an angular block → faceted rock once rotated
+	m.size = Vector3(2.0, 2.0, 2.0)
+	var sdf: VoxelMeshSDF = VoxelMeshSDF.new()
+	sdf.set_mesh(m)
+	sdf.set_cell_count(24)
+	sdf.bake()
+	_rock_sdf = sdf
+	return _rock_sdf
+
+
+## Stamp an oriented faceted ROCK (a POLYGON mesh, not a sphere) into the terrain: up-axis aligned to
+## `normal` with a random spin, scaled by `size` and flattened, so solidified lava reads as angular
+## rock conforming to the slope it cooled on — never round blobs or axis-aligned Minecraft steps.
+func fill_rock(world_pos: Vector3, size: float, normal: Vector3) -> void:
+	if _terrain == null:
+		return
+	var vt: VoxelTool = _terrain.get_voxel_tool()
+	if vt == null:
+		return
+	var sdf: VoxelMeshSDF = _rock_mesh_sdf()
+	if sdf == null:
+		return
+	var up: Vector3 = normal.normalized()
+	if up.length() < 0.5:
+		up = Vector3.UP
+	var ref: Vector3 = Vector3.FORWARD if absf(up.dot(Vector3.FORWARD)) < 0.9 else Vector3.RIGHT
+	var right: Vector3 = up.cross(ref).normalized()
+	var fwd: Vector3 = right.cross(up).normalized()
+	var b: Basis = Basis(right, up, fwd)
+	b = b.rotated(up, randf() * TAU)                    # random spin so no two rocks align (no grid look)
+	b = b.scaled(Vector3(size, size * 0.55, size))      # flatter than tall → a crust, not a boulder
+	vt.set_channel(VoxelBuffer.CHANNEL_SDF)
+	vt.set_mode(VoxelTool.MODE_ADD)
+	vt.do_mesh(sdf, Transform3D(b, world_pos), 0.0)
+
 ## Physics-space raycast against the terrain body (collision_mask=1).
 ## Returns {"hit": bool, "position": Vector3, "normal": Vector3}.
 func raycast_terrain(from: Vector3, dir: Vector3, max_distance: float) -> Dictionary:
