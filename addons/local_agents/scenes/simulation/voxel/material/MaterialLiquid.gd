@@ -241,11 +241,19 @@ func _lava_step() -> void:
 			# rock, so a lava flow BUILDS a delta/levee of fresh terrain where it passed (emergent
 			# volcanic landform) rather than just vanishing.
 			if d > 0.0:
-				if edits < MELT_MAX_EDITS and _f._terrain != null and _f._terrain.has_method("fill_sphere"):
+				if edits < MELT_MAX_EDITS and _f._terrain != null and _f._terrain.has_method("fill_box"):
 					var fi: int = idx % _f._dim
 					var fj: int = idx / _f._dim
-					_f._terrain.fill_sphere(Vector3(_f._cell_x(fi), _f._terrain_h[idx] + d, _f._cell_z(fj)), clampf(d + 0.3, 0.6, _f._cell_size))
-					_f._terrain_h[idx] = _f._terrain_h[idx] + d * 0.6
+					# Deposit a slab (a box spanning the cell horizontally, thin vertically) rather than a
+					# sphere: adjacent slabs tile into a continuous rocky crust instead of rounded blobs.
+					# A per-cell random ROUGHNESS varies each slab's height so the crust undulates like real
+					# cooled lava — never a perfectly flat, level table. Half-width over half a cell so
+					# neighbours overlap.
+					var rough: float = randf_range(0.0, _f._cell_size * 0.3)
+					var slab_h: float = clampf(d * 0.7, 0.35, _f._cell_size * 0.5) + rough
+					var hw: float = _f._cell_size * 0.6
+					_f._terrain.fill_box(Vector3(_f._cell_x(fi), _f._terrain_h[idx] + slab_h * 0.5, _f._cell_z(fj)), Vector3(hw, slab_h, hw))
+					_f._terrain_h[idx] = _f._terrain_h[idx] + slab_h
 					edits += 1
 				lava[idx] = 0.0
 			continue

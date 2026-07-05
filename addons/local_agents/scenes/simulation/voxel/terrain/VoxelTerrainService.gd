@@ -120,6 +120,19 @@ func _edit_sphere(world_pos: Vector3, radius: float, mode: int) -> void:
 	vt.set_mode(mode)
 	vt.do_sphere(world_pos, radius)
 
+## Add a FLAT SDF box (world-space AABB centred at world_pos, given half extents). Used to build
+## flat-topped deposits — e.g. solidifying lava layers that tile into a continuous rocky surface,
+## instead of the rounded blobs a sphere leaves.
+func fill_box(world_pos: Vector3, half_extents: Vector3) -> void:
+	if _terrain == null:
+		return
+	var vt: VoxelTool = _terrain.get_voxel_tool()
+	if vt == null:
+		return
+	vt.set_channel(VoxelBuffer.CHANNEL_SDF)
+	vt.set_mode(VoxelTool.MODE_ADD)
+	vt.do_box(world_pos - half_extents, world_pos + half_extents)
+
 ## Physics-space raycast against the terrain body (collision_mask=1).
 ## Returns {"hit": bool, "position": Vector3, "normal": Vector3}.
 func raycast_terrain(from: Vector3, dir: Vector3, max_distance: float) -> Dictionary:

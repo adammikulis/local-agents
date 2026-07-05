@@ -30,6 +30,12 @@ const OUTFLOW_PER_PRESSURE: float = 1.3   # lava depth/sec per unit over-pressur
 const BOMB_PRESSURE: float = 0.45         # only strongly over-pressured eruptions throw bombs
 var _pressure: float = 0.4                # current chamber over-pressure (starts part-charged)
 
+# --- Seismic camera shake (tremors felt more strongly the closer the camera is to the vent) ---
+const SHAKE_RANGE: float = 160.0          # camera within this distance feels the tremors (linear falloff to 0)
+const TREMOR_SHAKE: float = 2.4           # trauma/sec while forming, scaled by build fraction² + proximity
+const BREACH_SHAKE: float = 1.0           # one-shot camera jolt when the crust ruptures
+const ERUPT_SHAKE: float = 0.7            # ongoing rumble/sec while erupting, scaled by over-pressure + proximity
+
 # --- Lava chute cut into the ground (NO pre-built mountain — the cone accretes from eruptions) ---
 const CRATER_RADIUS: float = 4.5          # flared mouth / crater lip carved at the surface
 const CONDUIT_RADIUS: float = 2.2         # narrow vertical shaft bored down from the mouth
@@ -131,6 +137,20 @@ func _vent_temp() -> float:
 	return CHAMBER_TEMP
 
 
+# Shake the active camera from seismic tremors, felt MORE STRONGLY the closer it is to the vent (linear
+# falloff to nothing past SHAKE_RANGE). Reads the camera from the viewport so the volcano needs no
+# wiring. `amount` is the trauma to add (the camera rig decays trauma on its own).
+func _shake_camera(amount: float) -> void:
+	if amount <= 0.0 or not is_inside_tree():
+		return
+	var cam: Camera3D = get_viewport().get_camera_3d()
+	if cam == null or not cam.has_method("add_shake"):
+		return
+	var prox: float = clampf(1.0 - cam.global_position.distance_to(_vent) / SHAKE_RANGE, 0.0, 1.0)
+	if prox > 0.0:
+		cam.add_shake(amount * prox)
+
+
 func _physics_process(delta: float) -> void:
 	# Pressure/temperature dynamics drive everything. The hotter the vent runs, the faster gas pressure
 	# builds; when it crosses ERUPT_PRESSURE the vent cracks; venting then bleeds pressure until it seals.
@@ -151,6 +171,7 @@ func _physics_process(delta: float) -> void:
 		# Erupting: outflow + bomb force scale with OVER-pressure; venting bleeds it toward the seal.
 		var over: float = maxf(0.0, _pressure - SEAL_PRESSURE)
 		var outflow: float = OUTFLOW_PER_PRESSURE * over
+		_shake_camera(ERUPT_SHAKE * over * delta)           # ongoing rumble while it erupts
 		if _field.has_method("add_material"):
 			_field.add_material(_vent, Mat.LAVA, outflow * delta, VENT_RADIUS)
 		if _field.has_method("add_heat"):
@@ -185,10 +206,16 @@ func _pressurize_toward_breach(delta: float) -> void:
 	_pressure += BREACH_BUILD_RATE * delta
 	var frac: float = clampf(_pressure / ERUPT_PRESSURE, 0.0, 1.0)
 	if _field != null and _field.has_method("add_heat"):
-		# Heat bleeds up from the rising magma; the ground over it glows hotter as the breach nears.
-		_field.add_heat(_vent, VENT_HEAT_PER_SEC * frac * frac * delta, CRATER_RADIUS * 1.6)
+		# Rising magma warms the ground above toward a GLOW that brightens as the breach nears (dull red
+		# ~450°C early → orange ~1000°C at breach). Driven toward a target so it never runs away.
+		var target_glow: float = 250.0 + 750.0 * frac * frac
+		var vt: float = _vent_temp()
+		if vt < target_glow:
+			_field.add_heat(_vent, (target_glow - vt) * minf(1.0, 3.0 * delta), CRATER_RADIUS * 1.6)
 	if _ecology != null and _ecology.has_method("disturb_ground") and randf() < delta * frac:
 		_ecology.disturb_ground(_vent, CRATER_RADIUS * 2.0, frac)      # tremors crack the ground above
+	# Seismic tremors shake the camera, intensifying as the breach nears (frac²) — a warning it's coming.
+	_shake_camera(TREMOR_SHAKE * frac * frac * delta)
 	if frac > 0.5:
 		_scare_cd -= delta
 		if _scare_cd <= 0.0:
@@ -208,9 +235,9 @@ func _breach() -> void:
 	_pressure = 0.7                                     # the breach releases much of the built-up pressure
 	if _field != null:
 		if _field.has_method("add_material"):
-			_field.add_material(_vent, Mat.LAVA, 2.5, CRATER_RADIUS)   # the first lava floods out
+			_field.add_material(_vent, Mat.LAVA, 2.5, CRATER_RADIUS)   # first lava floods out (molten by definition)
 		if _field.has_method("add_heat"):
-			_field.add_heat(_vent, VENT_HEAT_PER_SEC * 4.0, CRATER_RADIUS * 2.0)
+			_field.add_heat(_vent, 700.0, CRATER_RADIUS * 2.2)         # a heat pulse to scorch/ignite around the new vent
 	_launch_bombs(1.4)                                  # violent opening blast of crust + lava bombs
 	if _ecology != null:
 		if _ecology.has_method("disturb_ground"):
@@ -218,6 +245,7 @@ func _breach() -> void:
 		if _ecology.has_method("broadcast_scare"):
 			_ecology.broadcast_scare(_vent, SCARE_RADIUS * 1.5, 1.0)
 	LocalAgentsAudioDirector.emit(get_tree(), "meteor_impact", _vent)
+	_shake_camera(BREACH_SHAKE)                          # a hard jolt as the crust ruptures
 	if _glow != null:
 		_glow.light_energy = 42.0
 
