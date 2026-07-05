@@ -566,15 +566,55 @@ func depth_at(x: float, z: float) -> float:
 	return material_depth_at(x, z, Mat.WATER)
 
 
+## True where there is water to swim/drink in: either CA freshwater (a river/lake) OR the ocean (any
+## sampled cell whose ground sits below sea level). The ocean is a static plane, not CA-simulated, so
+## this is what lets fish and aquatic life populate the whole sea at zero CA cost.
 func is_water_at(x: float, z: float) -> bool:
-	return depth_at(x, z) >= WATER_THRESHOLD
+	if depth_at(x, z) >= WATER_THRESHOLD:
+		return true
+	return is_ocean_at(x, z)
 
 
-## World Y of the WATER surface (terrain_h + depth) at (x, z), or NAN when the cell is unsampled/dry.
+## True where the sampled ground is below sea level — i.e. this is open ocean (under the water plane).
+func is_ocean_at(x: float, z: float) -> bool:
+	var idx: int = _index_at(x, z)
+	if idx < 0 or _sampled[idx] == 0:
+		return false
+	return _terrain_h[idx] < sea_level
+
+
+# Depth (below sea) over which the ocean grades from brackish shallows to fully salt open water. The
+# shallow coastal band — which includes river mouths, since a river drains at the shore — reads as
+# brackish; deeper water is salt. Inland CA water (lakes/rivers) is fresh. Salinity self-sorts the
+# fish: a species' tolerated band (see LAFish) keeps it in fresh / brackish / salt water emergently.
+const SALT_FULL_DEPTH: float = 22.0        # world units below sea for salinity to reach ~1.0
+const BRACKISH_FLOOR: float = 0.35         # min salinity at the very shoreline (0 = fresh, 1 = salt)
+
+## Salinity at (x, z): 0.0 = fresh, ~0.35-0.65 = brackish shallows/estuary, 1.0 = salt open ocean.
+## NAN where there is no water (dry land above sea with no CA pool). Cheap geometric proxy — no field.
+func salinity_at(x: float, z: float) -> float:
+	var idx: int = _index_at(x, z)
+	if idx < 0 or _sampled[idx] == 0:
+		return NAN
+	var floor_h: float = _terrain_h[idx]
+	if floor_h < sea_level:
+		# Ocean: saltier the deeper it gets; the shallow shore band stays brackish.
+		var depth_below: float = sea_level - floor_h
+		return clampf(depth_below / SALT_FULL_DEPTH, BRACKISH_FLOOR, 1.0)
+	# Above sea level: only water here if a CA pool (lake/river) covers it, and that is fresh.
+	if material_depth_at(x, z, Mat.WATER) >= WATER_THRESHOLD:
+		return 0.0
+	return NAN
+
+
+## World Y of the water surface at (x, z): the ocean plane (sea_level) over the sea, else the CA
+## freshwater surface (terrain_h + depth). NAN when the cell is unsampled or dry land.
 func surface_y_at(x: float, z: float) -> float:
 	var idx: int = _index_at(x, z)
 	if idx < 0 or _sampled[idx] == 0:
 		return NAN
+	if _terrain_h[idx] < sea_level:
+		return sea_level
 	var d: float = material_depth_at(x, z, Mat.WATER)
 	if d < WATER_THRESHOLD:
 		return NAN

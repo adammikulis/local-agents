@@ -29,7 +29,7 @@ const RenderScript: GDScript = preload("res://addons/local_agents/scenes/simulat
 const FLOW_FACTOR: float = 0.25
 const MAX_PAIR_FRACTION: float = 0.5
 const EVAP_PER_STEP: float = 0.0035
-const SEA_FILL_RATE: float = 0.6
+const SEA_FILL_RATE: float = 0.6          # how fast a sub-sea cell tops up toward sea level (ocean fill)
 
 # --- Phase changes (temperature-driven). Water freezes to ice below 0°C (frozen cells hold solid).
 # LAVA is molten rock: a slow, hot liquid that pumps heat into the field, GLOWS, and SOLIDIFIES back
@@ -84,6 +84,11 @@ func step() -> void:
 			continue
 		var nd: float = water[idx]
 		var floor_h: float = _f._terrain_h[idx]
+		# OCEAN: any cell whose ground is below sea level fills toward sea level — the sea is UNIFIED CA
+		# water (so it evaporates to feed the weather, quenches lava, drowns non-swimmers, and a meteor
+		# can splash/displace it), NOT a separate static body. Rendering stays cheap because the calm sea
+		# is drawn by the GPU ocean plane and only cells that DEVIATE from sea level get a CA surface mesh
+		# (see MaterialRender._build_liquid_surface) — a flat filled sea meshes ~nothing.
 		if floor_h < _f.sea_level:
 			var target: float = _f.sea_level - floor_h
 			if nd < target:

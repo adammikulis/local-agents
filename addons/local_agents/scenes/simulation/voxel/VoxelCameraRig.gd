@@ -47,6 +47,26 @@ var _pitch: float = deg_to_rad(55.0)
 var _panning: bool = false
 var _orbiting: bool = false
 
+# Pan bound: the focus point is clamped to a square of this half-extent (world XZ) so the player can
+# roam the island and its surrounding ocean ring but never pan off past the horizon into empty void.
+# 0 = unbounded (until VoxelWorld sets it once the world size is known).
+var _pan_limit: float = 0.0
+
+
+## Clamp how far the focus can pan from the origin (world half-extent). Set once by VoxelWorld.
+func set_pan_limit(limit: float) -> void:
+	_pan_limit = maxf(0.0, limit)
+	_clamp_focus()
+	_update_transform()
+
+
+## Keep the focus within the pan bound (no-op when unbounded).
+func _clamp_focus() -> void:
+	if _pan_limit <= 0.0:
+		return
+	_focus.x = clampf(_focus.x, -_pan_limit, _pan_limit)
+	_focus.z = clampf(_focus.z, -_pan_limit, _pan_limit)
+
 # Screen shake (earthquakes, big impacts). Trauma 0..1 decays; the applied offset is removed and
 # re-added each frame so it never accumulates into the fly position.
 const SHAKE_MAG: float = 1.8
@@ -79,6 +99,17 @@ func frame_vista(center: Vector3) -> void:
 	_distance = 34.0
 	_yaw = 0.0
 	_pitch = deg_to_rad(38.0)
+	_clamp_focus()
+	_update_transform()
+
+
+## Frame a wide, high vista over `center` — a whole-island overview (dev/screenshot aid).
+func frame_overview(center: Vector3) -> void:
+	_focus = center + Vector3(0.0, 10.0, 0.0)
+	_distance = 360.0
+	_yaw = deg_to_rad(35.0)
+	_pitch = deg_to_rad(48.0)
+	_clamp_focus()
 	_update_transform()
 
 
@@ -88,6 +119,7 @@ func frame_vista(center: Vector3) -> void:
 func focus_on(point: Vector3) -> void:
 	_focus = point
 	_distance = clampf(40.0, MIN_DISTANCE, MAX_DISTANCE)
+	_clamp_focus()
 	_update_transform()
 
 
@@ -170,6 +202,7 @@ func _pan_ground(right: float, forward: float) -> void:
 	var rgt: Vector3 = Vector3(cos(_yaw), 0.0, -sin(_yaw))
 	# Camera looks toward -forward (down its -Z), so "up on screen" pans the focus forward.
 	_focus += rgt * right - fwd * forward
+	_clamp_focus()
 
 
 func _process(delta: float) -> void:
