@@ -172,17 +172,19 @@ func _ready() -> void:
 	sun.rotation_degrees = Vector3(-52.0, -47.0, 0.0)
 	sun.light_energy = SUN_ENERGY_NOON
 	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 400.0
+	# Shadows are a per-frame render cost that scales with range; 250 covers the play area around the
+	# camera without shadow-mapping all the way to the horizon (a big saving over the whole voxel view).
+	sun.directional_shadow_max_distance = 250.0
 	add_child(sun)
 	_sun = sun
 
 	# Moon: added after the sun so it is LIGHT1 in the sky shader. Cool light, energy driven
-	# per-frame from the lunar phase (0 at new moon), so bright nights are navigable.
+	# per-frame from the lunar phase (0 at new moon), so bright nights are navigable. It does NOT cast
+	# shadows — a second full shadow pass is expensive and a soft fill light's shadows are imperceptible.
 	var moon: DirectionalLight3D = DirectionalLight3D.new()
 	moon.light_color = MOON_COLOR
 	moon.light_energy = 0.0
-	moon.shadow_enabled = true
-	moon.directional_shadow_max_distance = 200.0
+	moon.shadow_enabled = false
 	add_child(moon)
 	_moon = moon
 
