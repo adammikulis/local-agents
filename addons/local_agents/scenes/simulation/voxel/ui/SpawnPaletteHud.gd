@@ -8,7 +8,7 @@ extends CanvasLayer
 signal spawn_selected(kind: String)
 
 const KINDS: PackedStringArray = [
-	"plant", "rabbit", "fox", "bird", "villager", "meteor",
+	"plant", "rabbit", "fox", "bird", "villager", "fish", "meteor",
 ]
 
 const KIND_LABELS: Dictionary = {
@@ -17,6 +17,7 @@ const KIND_LABELS: Dictionary = {
 	"fox": "Fox",
 	"bird": "Bird",
 	"villager": "Villager",
+	"fish": "Fish",
 	"meteor": "Meteor",
 }
 
@@ -26,6 +27,7 @@ const KIND_COLORS: Dictionary = {
 	"fox": Color(0.90, 0.49, 0.18),
 	"bird": Color(0.35, 0.68, 0.90),
 	"villager": Color(0.62, 0.52, 0.85),
+	"fish": Color(0.55, 0.72, 0.86),
 	"meteor": Color(0.92, 0.32, 0.24),
 }
 

@@ -9,10 +9,12 @@ const CreatureScript: GDScript = preload("res://addons/local_agents/scenes/simul
 const PlantScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Plant.gd")
 const RockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Rock.gd")
 const TreeScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Tree.gd")
+const FishScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Fish.gd")
 const ScentFieldScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ScentField.gd")
 const TrackSystemScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/TrackSystem.gd")
 
-const KINDS: Array = ["plant", "rabbit", "fox", "bird", "villager", "rock", "tree"]
+const KINDS: Array = ["plant", "rabbit", "fox", "bird", "villager", "fish", "rock", "tree"]
+const FISH_CAP: int = 26
 
 var terrain = null                       # LAVoxelTerrainService
 var actors_root: Node3D = null
@@ -40,6 +42,7 @@ func is_night() -> bool:
 var _pending: Array = []
 var _breed_timer: float = 0.0
 var _seed_timer: float = 0.0
+var _fish_timer: float = 0.0
 
 
 # --- species / plant configs ------------------------------------------------
@@ -66,7 +69,7 @@ func _species_config(kind: String) -> Dictionary:
 				"species": "fox", "diet": "carnivore",
 				"speed": 4.6, "size": 0.8, "color": Color(0.82, 0.36, 0.12),
 				"can_fly": false, "sense_radius": 16.0, "maturity_age": 20.0,
-				"preys_on": PackedStringArray(["rabbit"]),
+				"preys_on": PackedStringArray(["rabbit", "fish"]),
 				"flees_from": PackedStringArray(),
 				"herd": false, "pop_cap": 12, "nocturnal": true,
 				"max_energy": 130.0, "metabolism": 2.0, "food_value": 70.0,
@@ -97,7 +100,7 @@ func _species_config(kind: String) -> Dictionary:
 				"species": "villager", "diet": "omnivore",
 				"speed": 3.0, "size": 1.0, "color": Color(0.85, 0.72, 0.55),
 				"can_fly": false, "sense_radius": 14.0, "maturity_age": 26.0,
-				"preys_on": PackedStringArray(["rabbit", "fox"]),
+				"preys_on": PackedStringArray(["rabbit", "fox", "fish"]),
 				"flees_from": PackedStringArray(),
 				"herd": true, "pop_cap": 16,
 				# Endurance apex: high stamina, hunts by persistence + thrown rocks,
@@ -112,6 +115,15 @@ func _species_config(kind: String) -> Dictionary:
 			}
 		_:
 			return {}
+
+
+func _fish_config() -> Dictionary:
+	return {
+		"species": "fish", "speed": randf_range(2.2, 3.2), "size": randf_range(0.28, 0.42),
+		"color": Color(0.60, 0.70, 0.84).lerp(Color(0.75, 0.62, 0.5), randf() * 0.4),
+		"sense_radius": 9.0, "maturity_age": 12.0, "food_value": 26.0,
+		"max_age": randf_range(110.0, 160.0),
+	}
 
 
 func _plant_config() -> Dictionary:
@@ -211,6 +223,15 @@ func _instance_actor(kind: String, placed: Vector3) -> Node:
 		tree.global_position = placed
 		tree.setup(terrain, _tree_config())
 		node = tree
+	elif kind == "fish":
+		# Fish only exist in water: refuse to place one on dry ground.
+		if _water == null or not _water.has_method("is_water_at") or not _water.is_water_at(placed.x, placed.z):
+			return null
+		var fish: FishScript = FishScript.new()
+		actors_root.add_child(fish)
+		fish.global_position = placed
+		fish.setup(terrain, _water, _fish_config())
+		node = fish
 	else:
 		var cfg: Dictionary = _species_config(kind)
 		if cfg.is_empty():
@@ -300,6 +321,10 @@ func _physics_process(delta: float) -> void:
 	if _seed_timer <= 0.0:
 		_seed_timer = 1.5
 		_tick_plant_seeding()
+	_fish_timer -= delta
+	if _fish_timer <= 0.0:
+		_fish_timer = 2.5
+		_tick_fish()
 
 
 func _process_pending() -> void:
@@ -357,6 +382,33 @@ func seed_plant_at(world_pos: Vector3) -> void:
 	if get_tree().get_nodes_in_group("plant").size() >= cap:
 		return
 	spawn("plant", world_pos)
+
+
+# Keep lakes/rivers stocked with fish. Fish appear (and recover) only where water has
+# actually pooled, so they emerge wherever the water field decides to form water bodies —
+# no hand-placed spawn points. One fish added per tick until the cap is reached.
+func _tick_fish() -> void:
+	if _water == null or not _water.has_method("is_water_at"):
+		return
+	if get_tree().get_nodes_in_group("species_fish").size() >= FISH_CAP:
+		return
+	var wet: Vector3 = _random_wet_point()
+	if is_nan(wet.x):
+		return
+	_instance_actor("fish", wet)
+
+
+# Sample random points across the play area for one that sits over water; returns a
+# surface-projected point, or a NAN-x vector if no water was found this tick.
+func _random_wet_point() -> Vector3:
+	for i in range(24):
+		var x: float = randf_range(-spawn_extent, spawn_extent)
+		var z: float = randf_range(-spawn_extent, spawn_extent)
+		if _water.is_water_at(x, z):
+			var placed = _place_on_surface(Vector3(x, 0.0, z))
+			if placed != null:
+				return placed
+	return Vector3(NAN, 0.0, 0.0)
 
 
 func _tick_plant_seeding() -> void:

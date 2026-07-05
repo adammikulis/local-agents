@@ -251,6 +251,7 @@ func _process(delta: float) -> void:
 		if _water != null and _water.has_method("wet_cell_count"):
 			wet = _water.wet_cell_count()
 		var n_poop: int = get_tree().get_nodes_in_group("poop").size()
+		var n_fish: int = get_tree().get_nodes_in_group("species_fish").size()
 		var creatures: Array = get_tree().get_nodes_in_group("creature")
 		var min_hyd: int = 100
 		var drinkers: int = 0
@@ -260,8 +261,8 @@ func _process(delta: float) -> void:
 				min_hyd = mini(min_hyd, h)
 				if String(c.get("state")) == "drink":
 					drinkers += 1
-		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"poop\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f}" % [
-			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, n_poop, min_hyd, drinkers, _time_of_day])
+		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"poop\":%d,\"fish\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f}" % [
+			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, n_poop, n_fish, min_hyd, drinkers, _time_of_day])
 		get_tree().quit(0)
 
 
@@ -476,6 +477,7 @@ func _kind_color(kind: String) -> Color:
 		"fox": return Color(0.95, 0.5, 0.15)
 		"bird": return Color(0.3, 0.6, 0.95)
 		"villager": return Color(0.75, 0.5, 0.9)
+		"fish": return Color(0.55, 0.72, 0.86)
 		"meteor": return Color(1.0, 0.5, 0.2)
 		_: return Color(0.8, 0.9, 0.6)
 
