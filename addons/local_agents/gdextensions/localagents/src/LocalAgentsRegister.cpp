@@ -5,19 +5,12 @@
 
 #include "AgentNode.hpp"
 #include "AgentRuntime.hpp"
-#include "LocalAgentsSimulationCore.hpp"
-#include "LocalAgentsBoidsNativeBridge.hpp"
-#include "LocalAgentsNativeVoxelTerrainMutator.hpp"
-#include "LocalAgentsVoxelDispatchBridge.hpp"
-#include "LocalAgentsWorldSimulationNativeUtils.hpp"
 #include "NetworkGraph.hpp"
-#include "sim/VoxelGpuResourceCache.hpp"
 
 using namespace godot;
 
 namespace {
 AgentRuntime *g_agent_runtime_singleton = nullptr;
-LocalAgentsSimulationCore *g_simulation_core_singleton = nullptr;
 
 void initialize_local_agents(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
@@ -27,20 +20,11 @@ void initialize_local_agents(ModuleInitializationLevel p_level) {
     ClassDB::register_class<AgentRuntime>();
     ClassDB::register_class<AgentNode>();
     ClassDB::register_class<NetworkGraph>();
-    ClassDB::register_class<LocalAgentsSimulationCore>();
-    ClassDB::register_class<LocalAgentsBoidsNativeBridge>();
-    ClassDB::register_class<LocalAgentsNativeVoxelTerrainMutator>();
-    ClassDB::register_class<LocalAgentsVoxelDispatchBridge>();
-    ClassDB::register_class<LocalAgentsWorldSimulationNativeUtils>();
 
     if (!g_agent_runtime_singleton) {
         g_agent_runtime_singleton = memnew(AgentRuntime);
         g_agent_runtime_singleton->set_name("AgentRuntime");
         Engine::get_singleton()->register_singleton(StringName("AgentRuntime"), g_agent_runtime_singleton);
-    }
-    if (!g_simulation_core_singleton) {
-        g_simulation_core_singleton = memnew(LocalAgentsSimulationCore);
-        Engine::get_singleton()->register_singleton(StringName("LocalAgentsSimulationCore"), g_simulation_core_singleton);
     }
 }
 
@@ -49,18 +33,10 @@ void terminate_local_agents(ModuleInitializationLevel p_level) {
         return;
     }
 
-    local_agents::simulation::VoxelGpuResourceCache::release_all_thread_caches();
-    local_agents::simulation::VoxelGpuResourceCache::mark_engine_terminating();
-
     if (g_agent_runtime_singleton) {
         Engine::get_singleton()->unregister_singleton(StringName("AgentRuntime"));
         memdelete(g_agent_runtime_singleton);
         g_agent_runtime_singleton = nullptr;
-    }
-    if (g_simulation_core_singleton) {
-        Engine::get_singleton()->unregister_singleton(StringName("LocalAgentsSimulationCore"));
-        memdelete(g_simulation_core_singleton);
-        g_simulation_core_singleton = nullptr;
     }
 }
 }
