@@ -12,6 +12,7 @@ extends CanvasLayer
 
 signal enabled_toggled(on: bool)
 signal persona_selected(id: String)
+signal avatar_selected(flavor: String)
 
 const CAPTION_HOLD: float = 8.0   # seconds a line stays bright before dimming
 
@@ -21,6 +22,7 @@ var _caption: Label = null
 var _status: Label = null
 var _check: CheckButton = null
 var _persona: OptionButton = null
+var _avatar_pick: OptionButton = null
 
 var _caption_ttl: float = 0.0
 
@@ -95,6 +97,17 @@ func _build_ui() -> void:
 	_persona.item_selected.connect(_on_persona_selected)
 	row.add_child(_persona)
 
+	# --- avatar (streamer) picker ---
+	_avatar_pick = OptionButton.new()
+	_avatar_pick.add_theme_font_size_override("font_size", 12)
+	_avatar_pick.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_avatar_pick.add_item("Ryan (M)")
+	_avatar_pick.set_item_metadata(0, "male")
+	_avatar_pick.add_item("Nova (F)")
+	_avatar_pick.set_item_metadata(1, "female")
+	_avatar_pick.item_selected.connect(_on_avatar_selected)
+	vbox.add_child(_avatar_pick)
+
 	_status = Label.new()
 	_status.add_theme_font_size_override("font_size", 10)
 	_status.add_theme_color_override("font_color", Color(0.6, 0.62, 0.68))
@@ -140,6 +153,19 @@ func _on_check_toggled(pressed: bool) -> void:
 
 func _on_persona_selected(index: int) -> void:
 	emit_signal("persona_selected", String(_persona.get_item_metadata(index)))
+
+
+func set_default_avatar(flavor: String) -> void:
+	if _avatar_pick == null:
+		return
+	for i in range(_avatar_pick.item_count):
+		if String(_avatar_pick.get_item_metadata(i)) == flavor:
+			_avatar_pick.select(i)
+			return
+
+
+func _on_avatar_selected(index: int) -> void:
+	emit_signal("avatar_selected", String(_avatar_pick.get_item_metadata(index)))
 
 
 func _process(delta: float) -> void:

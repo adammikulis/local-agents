@@ -44,6 +44,7 @@ var _streamer_director: Node        # LAStreamerDirector (LLM commentary brain)
 var _streamer_avatar: Node          # LAStreamerAvatar (live SubViewport portrait)
 var _streamer_voice: Node           # LAStreamerVoice (Piper TTS)
 var _streamer_persona: String = "hype"   # default personality; override with --streamer-persona=<id>
+var _streamer_avatar_flavor: String = "male"   # "male" | "female"; override with --streamer-avatar=
 var _actors_root: Node3D
 var _selection_ring: MeshInstance3D
 var _selected: Node = null
@@ -378,13 +379,13 @@ func _setup_streamer() -> void:
 	_streamer_avatar = StreamerAvatarScript.new()
 	_streamer_avatar.name = "StreamerAvatar"
 	_streamer_overlay.add_child(_streamer_avatar)
-	_streamer_avatar.setup("streamer")
+	_streamer_avatar.setup(_streamer_avatar_flavor)
 	_streamer_overlay.bind_avatar(_streamer_avatar)
 
 	_streamer_voice = StreamerVoiceScript.new()
 	_streamer_voice.name = "StreamerVoice"
 	add_child(_streamer_voice)
-	_streamer_voice.setup({})
+	_streamer_voice.setup({"gender": _streamer_avatar_flavor})
 
 	_streamer_director = StreamerDirectorScript.new()
 	_streamer_director.name = "StreamerDirector"
@@ -398,7 +399,17 @@ func _setup_streamer() -> void:
 	_streamer_overlay.persona_selected.connect(_streamer_director.set_persona)
 	_streamer_voice.speaking_started.connect(_on_streamer_speaking_started)
 	_streamer_voice.speaking_finished.connect(_on_streamer_speaking_finished)
+	_streamer_overlay.avatar_selected.connect(_on_streamer_avatar_selected)
 	_streamer_overlay.set_default_persona(_streamer_persona)
+	_streamer_overlay.set_default_avatar(_streamer_avatar_flavor)
+
+
+# Swap the streamer between male/female: rebuild the avatar body + switch the TTS voice live.
+func _on_streamer_avatar_selected(flavor: String) -> void:
+	if _streamer_avatar != null and _streamer_avatar.has_method("set_flavor"):
+		_streamer_avatar.set_flavor(flavor)
+	if _streamer_voice != null and _streamer_voice.has_method("set_gender"):
+		_streamer_voice.set_gender(flavor)
 
 
 func _on_streamer_line(text: String) -> void:
@@ -496,6 +507,8 @@ func _parse_cmdline() -> void:
 			_auto_volcano = true
 		elif arg.begins_with("--streamer-persona="):
 			_streamer_persona = arg.substr("--streamer-persona=".length())
+		elif arg.begins_with("--streamer-avatar="):
+			_streamer_avatar_flavor = arg.substr("--streamer-avatar=".length())
 		elif arg == "--auto-lightning":
 			_auto_lightning = true
 		elif arg == "--auto-select":

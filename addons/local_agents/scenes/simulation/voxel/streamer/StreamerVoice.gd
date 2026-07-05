@@ -18,11 +18,17 @@ signal speaking_started(text: String)
 signal speaking_finished()
 
 const VOICE_BUS: String = "Voice"
-const VOICE_ID: String = "en_US-ryan-medium"
 const VOICE_DIR: String = "user://local_agents/voices"
-const VOICE_URL_BASE: String = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/medium"
 const PYTHON_CANDIDATES: Array = ["python3", "python"]
 const MAX_QUEUE: int = 2   # drop the oldest pending line rather than let a backlog build
+
+# Per-gender Piper voices (auto-downloaded from rhasspy/piper-voices on first use).
+const VOICES: Dictionary = {
+	"male": {"id": "en_US-ryan-medium", "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/medium"},
+	"female": {"id": "en_US-hfc_female-medium", "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/hfc_female/medium"},
+}
+var _voice_id: String = "en_US-ryan-medium"
+var _voice_url_base: String = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/medium"
 
 var _enabled: bool = true
 var _headless: bool = false
@@ -48,6 +54,9 @@ var _dl_json_path: String = ""
 func setup(options: Dictionary = {}) -> void:
 	_enabled = bool(options.get("enabled", true))
 	_headless = DisplayServer.get_name() == "headless"
+	var preset: Dictionary = VOICES.get(String(options.get("gender", "male")), VOICES["male"])
+	_voice_id = String(preset["id"])
+	_voice_url_base = String(preset["url"])
 
 	_player = AudioStreamPlayer.new()
 	_player.name = "VoicePlayer"
@@ -68,6 +77,24 @@ func setup(options: Dictionary = {}) -> void:
 
 	# Fetch the voice model if we do not have one yet.
 	if _voice_onnx == "":
+		_begin_voice_download()
+
+
+## Switch the streamer's voice by gender ("male"/"female"); downloads that voice if not present.
+func set_gender(gender: String) -> void:
+	var preset: Dictionary = VOICES.get(gender, VOICES["male"])
+	if String(preset["id"]) == _voice_id:
+		return
+	_voice_id = String(preset["id"])
+	_voice_url_base = String(preset["url"])
+	_voice_onnx = ""
+	_voice_json = ""
+	if _dl_http != null and is_instance_valid(_dl_http):
+		_dl_http.queue_free()
+		_dl_http = null
+	_dl_stage = ""
+	_resolve_installed_voice()
+	if _voice_onnx == "" and not _headless:
 		_begin_voice_download()
 
 
@@ -253,7 +280,7 @@ func _resolve_installed_voice() -> void:
 	# Prefer a previously-downloaded copy under user://, then a checked-in copy under res://.
 	var roots: Array = [VOICE_DIR, LocalAgentsRuntimePaths.VOICES_RES_ROOT]
 	for root in roots:
-		var onnx: String = "%s/%s.onnx" % [root, VOICE_ID]
+		var onnx: String = "%s/%s.onnx" % [root, _voice_id]
 		if FileAccess.file_exists(ProjectSettings.globalize_path(onnx)):
 			_voice_onnx = onnx
 			var json: String = onnx + ".json"
@@ -264,15 +291,15 @@ func _resolve_installed_voice() -> void:
 
 func _begin_voice_download() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(VOICE_DIR))
-	_dl_onnx_path = "%s/%s.onnx" % [VOICE_DIR, VOICE_ID]
-	_dl_json_path = "%s/%s.onnx.json" % [VOICE_DIR, VOICE_ID]
+	_dl_onnx_path = "%s/%s.onnx" % [VOICE_DIR, _voice_id]
+	_dl_json_path = "%s/%s.onnx.json" % [VOICE_DIR, _voice_id]
 	_dl_http = HTTPRequest.new()
 	add_child(_dl_http)
 	_dl_http.request_completed.connect(_on_download_completed)
 	# Small config first, then the big model.
 	_dl_stage = "json"
 	_dl_http.download_file = ProjectSettings.globalize_path(_dl_json_path)
-	var err: int = _dl_http.request("%s/%s.onnx.json" % [VOICE_URL_BASE, VOICE_ID])
+	var err: int = _dl_http.request("%s/%s.onnx.json" % [_voice_url_base, _voice_id])
 	if err != OK:
 		_dl_stage = "failed"
 
@@ -285,7 +312,7 @@ func _on_download_completed(result: int, response_code: int, _headers: PackedStr
 	if _dl_stage == "json":
 		_dl_stage = "onnx"
 		_dl_http.download_file = ProjectSettings.globalize_path(_dl_onnx_path)
-		var err: int = _dl_http.request("%s/%s.onnx" % [VOICE_URL_BASE, VOICE_ID])
+		var err: int = _dl_http.request("%s/%s.onnx" % [_voice_url_base, _voice_id])
 		if err != OK:
 			_dl_stage = "failed"
 		return

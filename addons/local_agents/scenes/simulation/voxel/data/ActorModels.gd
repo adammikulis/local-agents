@@ -45,7 +45,9 @@ const TABLE: Dictionary = {
 		"anims": {"idle": "Idle", "move": "Walk", "run": "Run", "talk": "Idle"}, "run": 3.0,
 	},
 	"rabbit": {"path": _BASE + "fauna/rabbit.glb"},
-	"bird": {"path": _BASE + "fauna/bird.glb"},
+	# bird.glb exports facing +Z (unlike the other Cube Pets), so it flew tail-first; yaw 180 turns it
+	# to face its heading like everything else.
+	"bird": {"path": _BASE + "fauna/bird.glb", "yaw": 180.0},
 	# Vulture reuses the parrot mesh, flattened to a dark scavenger tint (config, not a new asset).
 	"vulture": {"path": _BASE + "fauna/vulture.glb", "tint": [0.30, 0.26, 0.23]},
 
