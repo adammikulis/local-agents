@@ -45,7 +45,8 @@ const COOL_COMFORT: float = 8.0
 const HEAT_THIRST_FACTOR: float = 0.15     # extra thirst/sec per °C above WARM_COMFORT
 const HEAT_ENERGY_FACTOR: float = 0.08     # extra energy/sec burned per °C above WARM_COMFORT
 const COLD_ENERGY_FACTOR: float = 0.15     # energy/sec burned per °C below COOL_COMFORT
-const LETHAL_HEAT: float = 50.0           # °C at/above which a creature burns/overheats to death
+const LETHAL_HEAT: float = 50.0           # °C at/above which it dies of heatstroke (no flame)
+const COMBUST_TEMP: float = 200.0         # °C — organic tissue catches FIRE (in a wildfire/lava)
 const LETHAL_COLD: float = -18.0          # °C at/below which it freezes
 const DROWN_DEPTH: float = 2.5             # water depth a non-flyer drowns in
 const DROWN_DRAIN: float = 40.0           # energy/sec lost while submerged
@@ -158,6 +159,21 @@ func set_ecology(e) -> void:
 
 func set_material_field(w) -> void:
 	_material = w
+
+
+# Organic matter combusts — bursts into flame (not incandescent glow) and dies burned. The flame is
+# detached at the spot so it lingers as the body drops, rather than freeing with the creature.
+func _combust() -> void:
+	if _dying:
+		return
+	var parent: Node = get_parent()
+	if parent != null:
+		var flame: Node3D = LAFlameFX.make()
+		parent.add_child(flame)
+		flame.global_position = global_position
+		var timer: SceneTreeTimer = get_tree().create_timer(2.5)
+		timer.timeout.connect(func(): if is_instance_valid(flame): flame.queue_free())
+	die("burned", Vector3(0.0, 2.0, 0.0))
 
 
 # A thrown rock struck me — I die (drop a corpse).
@@ -365,12 +381,17 @@ func _physics_process(delta: float) -> void:
 	# TEMPERATURE COMFORT + DROWNING (emergent, from the shared field at my feet).
 	if _material != null:
 		var t: float = _material.temp_at(pos.x, pos.z)
+		# Flesh doesn't glow like hot metal — it COMBUSTS. In fire/lava heat the creature bursts into
+		# flame and dies burned (organic matter ignites; inorganic ground glows via the shader instead).
+		if t >= COMBUST_TEMP:
+			_combust()
+			return
 		if t > WARM_COMFORT:
 			var over: float = t - WARM_COMFORT
 			hydration -= over * HEAT_THIRST_FACTOR * delta   # heat parches → seek water (existing drive)
 			energy -= over * HEAT_ENERGY_FACTOR * delta
 			if t >= LETHAL_HEAT:
-				die("burned", Vector3(0.0, 3.0, 0.0))
+				die("heatstroke")
 				return
 		elif t < COOL_COMFORT:
 			energy -= (COOL_COMFORT - t) * COLD_ENERGY_FACTOR * delta
