@@ -55,15 +55,10 @@ const WATER_COOL: float = 300.0
 ## Diagnostic default: a cell at/above this °C counts as "hot" (well above any natural ambient).
 const HOT_THRESHOLD: float = 60.0
 
-# --- Granular gravity (angle of repose). When ground is DISTURBED, columns that overhang a lower
-# neighbour by more than a loose slope can hold slump downhill under gravity until stable — this is
-# how "landslides" happen: not a scripted system, just soil moving under gravity. Applied to the
-# terrain SDF (carve where a column drops, fill where it rises).
-const REPOSE_TAN: float = 0.7             # max stable rise/run for loose soil (~35°)
-const REPOSE_PASSES: int = 6              # relaxation iterations over the disturbed patch
-const REPOSE_MIN_MOVE: float = 0.4        # height change below this makes no SDF edit
-const REPOSE_MAX_EDITS: int = 140         # cap SDF edits per disturbance (keeps the hitch bounded)
-var _slumps: int = 0                       # diagnostic: SDF columns moved by slumping
+# --- Granular gravity (disturbed ground slumps to its angle of repose = landslides) lives in its own
+# module now (MaterialGravity.gd). The field owns the instance; the module edits the terrain SDF via _f.
+const GravityScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGravity.gd")
+var _gravity = null                        # LAMaterialGravity (granular slump / landslides)
 
 # --- Combustion (fire + boiling logic) lives in its own module now (MaterialCombustion.gd). The
 # field keeps _ecology (other code uses it) and owns the module instance; the module reaches back
@@ -195,6 +190,9 @@ func setup(terrain, half_extent: float, cell_size: float) -> void:
 
 	_atmosphere = AtmosphereScript.new()
 	_atmosphere.setup(self)
+
+	_gravity = GravityScript.new()
+	_gravity.setup(self)
 
 
 ## Ecology ref so combustion can topple/reseed/scare the actors it consumes (set by set_material_field).
@@ -510,105 +508,16 @@ func set_wind(w: Vector2) -> void:
 		_atmosphere.set_wind(w)
 
 
-# --- Granular gravity: disturbed ground slumps to its angle of repose -------
+# --- Granular gravity delegates to LAMaterialGravity (disturbed ground slumps to its repose angle) --
 
-## Shake the ground over a region: any column that overhangs a lower neighbour beyond the angle of
-## repose sheds material downhill under gravity until the local slope is stable, editing the terrain
-## SDF (carve high, fill low). Flat ground does nothing. `strength` (~0..3, e.g. meteor size) scales
-## how much of each overhang gives way. This is the ONLY landslide mechanism — pure material physics.
+## Shake the ground over a region — steep/loose columns slump downhill (the landslide mechanism).
 func disturb_terrain(world_pos: Vector3, radius: float, strength: float) -> void:
-	if _terrain == null or not _terrain.has_method("surface_height"):
-		return
-	if not _terrain.has_method("carve_sphere") or not _terrain.has_method("fill_sphere"):
-		return
-	var s: float = clampf(strength, 0.1, 3.0)
-	var cells: int = int(ceil(radius / _cell_size))
-	var ci: int = int(round((world_pos.x + _half_extent) / _cell_size))
-	var cj: int = int(round((world_pos.z + _half_extent) / _cell_size))
-	var r2: float = radius * radius
-
-	# Collect the disturbed columns and their CURRENT surface heights (sampled fresh from the SDF).
-	var region: Array = []                       # idx list
-	var h0: Dictionary = {}                       # idx -> original height
-	var h: Dictionary = {}                        # idx -> working height
-	for dj in range(-cells, cells + 1):
-		var j: int = cj + dj
-		if j < 0 or j >= _dim:
-			continue
-		for di in range(-cells, cells + 1):
-			var i: int = ci + di
-			if i < 0 or i >= _dim:
-				continue
-			var cx: float = _cell_x(i)
-			var cz: float = _cell_z(j)
-			var dx: float = cx - world_pos.x
-			var dz: float = cz - world_pos.z
-			if dx * dx + dz * dz > r2:
-				continue
-			var gy = _terrain.surface_height(cx, cz)
-			if typeof(gy) != TYPE_FLOAT and typeof(gy) != TYPE_INT:
-				continue
-			var gyf: float = float(gy)
-			if is_nan(gyf) or is_inf(gyf):
-				continue
-			var idx: int = j * _dim + i
-			region.append(idx)
-			h0[idx] = gyf
-			h[idx] = gyf
-
-	if region.size() < 2:
-		return
-
-	# Relax toward the angle of repose: repeatedly push a column's overhang down to its lowest
-	# in-region neighbour. Order-tolerant enough over several passes (gravity settles a pile).
-	var max_step: float = REPOSE_TAN * _cell_size
-	var move_frac: float = clampf(0.5 * s, 0.25, 0.9)
-	for pass_i in range(REPOSE_PASSES):
-		for idx in region:
-			var hi: float = h[idx]
-			var i2: int = idx % _dim
-			var j2: int = idx / _dim
-			var low_idx: int = -1
-			var low_h: float = hi
-			var neighbours: Array = [idx - 1 if i2 > 0 else -1, idx + 1 if i2 < _dim - 1 else -1,
-				idx - _dim if j2 > 0 else -1, idx + _dim if j2 < _dim - 1 else -1]
-			for nb in neighbours:
-				if nb >= 0 and h.has(nb) and float(h[nb]) < low_h:
-					low_h = float(h[nb])
-					low_idx = nb
-			if low_idx < 0:
-				continue
-			var excess: float = (hi - low_h) - max_step
-			if excess > 0.0:
-				var m: float = excess * 0.5 * move_frac
-				h[idx] = hi - m
-				h[low_idx] = float(h[low_idx]) + m
-
-	# Apply the net height change to the terrain SDF (carve where it dropped, fill where it rose).
-	var edits: int = 0
-	for idx in region:
-		if edits >= REPOSE_MAX_EDITS:
-			break
-		var dh: float = float(h[idx]) - float(h0[idx])
-		if absf(dh) < REPOSE_MIN_MOVE:
-			continue
-		var i3: int = idx % _dim
-		var j3: int = idx / _dim
-		var cx2: float = _cell_x(i3)
-		var cz2: float = _cell_z(j3)
-		var sphere_r: float = clampf(absf(dh) * 0.9, 0.6, _cell_size)
-		if dh < 0.0:
-			_terrain.carve_sphere(Vector3(cx2, float(h0[idx]), cz2), sphere_r)
-		else:
-			_terrain.fill_sphere(Vector3(cx2, float(h[idx]), cz2), sphere_r)
-		if _sampled[idx] != 0:
-			_terrain_h[idx] = float(h[idx])          # keep cached altitude consistent (lapse/temp)
-		edits += 1
-		_slumps += 1
+	if _gravity != null:
+		_gravity.disturb_terrain(world_pos, radius, strength)
 
 
 func slump_count() -> int:
-	return _slumps
+	return _gravity.slump_count() if _gravity != null else 0
 
 
 # --- Combustion delegators (fire + boiling logic live in MaterialCombustion.gd) ----
