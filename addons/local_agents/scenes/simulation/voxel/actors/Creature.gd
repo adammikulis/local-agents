@@ -93,6 +93,14 @@ var flock_weight: float = 0.7
 var age: float = 0.0
 var state: String = "wander"
 
+# --- the player's "hand" (Black & White): picked up, carried, then dropped or thrown ---
+# While _held, _physics_process is suspended so VoxelWorld drives global_position directly.
+# While _thrown, the body flies ballistically (velocity + gravity) until it lands.
+var _held: bool = false
+var _thrown: bool = false
+var _thrown_velocity: Vector3 = Vector3.ZERO
+const THROW_GRAVITY: float = 26.0            # ballistic fall while thrown
+
 var _heading: Vector3 = Vector3.FORWARD
 var _wander_timer: float = 0.0
 var _repath_timer: float = 0.0
@@ -146,6 +154,31 @@ func add_fear(source_pos: Vector3, intensity: float) -> void:
 		return
 	_panic_source = source_pos
 	_panic_timer = maxf(_panic_timer, clampf(intensity, 0.6, 7.0))
+
+
+# --- the player's hand: pick up, carry, drop, or throw a creature ---
+# The picking-up: suspend the AI/terrain-snap so the hand (VoxelWorld) can position us freely.
+func hold_begin() -> void:
+	_held = true
+	_thrown = false
+	_thrown_velocity = Vector3.ZERO
+	_panic_timer = 0.0                        # in the hand it stops panicking
+
+
+# A gentle set-down: resume normal life wherever we were dropped.
+func hold_end() -> void:
+	_held = false
+
+
+# Released with a fling: fly ballistically (gravity) until we land on the surface.
+func throw(velocity: Vector3) -> void:
+	_held = false
+	_thrown = true
+	_thrown_velocity = velocity
+
+
+func is_held() -> bool:
+	return _held or _thrown
 
 
 func set_scent(s) -> void:
@@ -333,6 +366,13 @@ func _build_body() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	# In the player's hand: VoxelWorld sets our position each frame; skip AI + terrain-snap.
+	if _held:
+		return
+	# Mid-throw: fly ballistically until we hit the surface, then resume normal life.
+	if _thrown:
+		_integrate_thrown(delta)
+		return
 	age += delta
 	_throw_cd -= delta
 	# Night perception: nocturnal species gain range after dark, diurnal ones lose it.
@@ -508,6 +548,30 @@ func _surface_at(x: float, z: float) -> float:
 	if terrain == null or not terrain.has_method("surface_height"):
 		return NAN
 	return float(terrain.surface_height(x, z))
+
+
+# Ballistic flight while thrown: integrate velocity + gravity, land on the surface, then
+# resume normal life. A hard landing frightens the creature and rattles its neighbours —
+# a thrown body is just another impact stimulus (emergent, no throw-specific reaction code).
+func _integrate_thrown(delta: float) -> void:
+	_thrown_velocity.y -= THROW_GRAVITY * delta
+	var next: Vector3 = global_position + _thrown_velocity * delta
+	var surf: float = _surface_at(next.x, next.z)
+	if is_nan(surf):
+		surf = global_position.y - size
+	var floor_y: float = surf + size
+	if next.y <= floor_y:
+		next.y = floor_y
+		var impact_speed: float = _thrown_velocity.length()
+		_thrown = false
+		_thrown_velocity = Vector3.ZERO
+		global_position = next
+		if impact_speed > 8.0:
+			add_fear(global_position, clampf(impact_speed * 0.12, 0.6, 4.0))
+			if _ecology != null and _ecology.has_method("broadcast_scare"):
+				_ecology.broadcast_scare(global_position, 8.0, clampf(impact_speed * 0.05, 0.3, 1.5))
+		return
+	global_position = next
 
 
 # --- prey behavior: flee predators (dominates), else wander + flock, eat plants ---

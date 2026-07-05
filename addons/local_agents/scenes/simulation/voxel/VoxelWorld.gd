@@ -53,6 +53,23 @@ var _springs_seeded: bool = false
 const SPRING_RATE: float = 0.9              # depth per second per spring
 
 var _armed_kind: String = ""
+
+# --- the player's hand (LMB): click a creature to select, hold to pick it up, release to
+# drop or throw it. RMB spawns/casts the armed kind onto the terrain. ---
+var _grab_candidate: Node = null             # creature under the cursor at LMB-press
+var _held_creature: Node = null              # creature currently carried
+var _grabbing: bool = false                  # committed to a carry (moved / held past threshold)
+var _grab_press_pos: Vector2 = Vector2.ZERO
+var _grab_press_msec: int = 0
+var _hold_point: Vector3 = Vector3.ZERO      # world point the hand holds at
+var _hold_velocity: Vector3 = Vector3.ZERO   # smoothed hand velocity → throw impulse
+const GRAB_MOVE_THRESHOLD: float = 6.0       # px of motion that turns a click into a carry
+const GRAB_HOLD_MSEC: int = 220              # or this long held still commits to a carry
+const HOLD_LIFT: float = 3.0                 # height above the ground the hand carries at
+const THROW_MIN_SPEED: float = 4.0           # below this a release is a gentle drop, not a throw
+const THROW_MAX_SPEED: float = 40.0          # clamp on horizontal throw speed
+const THROW_ARC: float = 0.4                 # upward velocity as a fraction of throw speed
+
 var _spawned_initial: bool = false
 var _ready_wait_ticks: int = 0
 var _scent_visible: bool = false
@@ -224,6 +241,7 @@ func _process(delta: float) -> void:
 						_camera.frame_vista(Vector3(0.0, oh, 0.0))
 				_spawned_initial = true
 				_hud.set_status("World ready — spawn things, click to inspect, press V for scent.")
+	_update_hand(delta)
 	_update_selection_ring()
 	_push_environment()
 	_feed_water()
@@ -249,8 +267,11 @@ func _process(delta: float) -> void:
 					nearest = a
 		if nearest != null:
 			var p: Vector3 = nearest.global_position
-			_camera.global_position = p + Vector3(6.0, 5.0, 6.0)
-			_camera.look_at(p, Vector3.UP)
+			if _camera.has_method("focus_on"):
+				_camera.focus_on(p)
+			else:
+				_camera.global_position = p + Vector3(6.0, 5.0, 6.0)
+				_camera.look_at(p, Vector3.UP)
 			_select_at(get_viewport().get_visible_rect().size * 0.5)
 			var title: String = ""
 			if _selected != null:
@@ -432,22 +453,150 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _hud != null and _hud.has_method("toggle_audio_menu"):
 			_hud.toggle_audio_menu()
 		return
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		var pos: Vector2 = event.position
-		if _hud != null and _hud.has_method("is_pointer_over_ui") and _hud.is_pointer_over_ui(pos):
+	if event is InputEventMouseButton:
+		var mb: InputEventMouseButton = event as InputEventMouseButton
+		var mpos: Vector2 = mb.position
+		# RMB: spawn / cast the armed kind onto the terrain (Black & White right-hand miracle).
+		if mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
+			if _hud != null and _hud.has_method("is_pointer_over_ui") and _hud.is_pointer_over_ui(mpos):
+				return
+			if _armed_kind != "":
+				_place_armed(mpos)
 			return
-		if _armed_kind != "":
-			_place_armed(pos)
-		else:
-			_select_at(pos)
+		# LMB: press begins a click-or-grab; release resolves it (select vs drop/throw).
+		if mb.button_index == MOUSE_BUTTON_LEFT:
+			if mb.pressed:
+				_on_lmb_press(mpos)
+			else:
+				_on_lmb_release(mpos)
+			return
 
 
 func _on_spawn_selected(kind: String) -> void:
 	_armed_kind = kind
 	if kind == "":
-		_hud.set_status("Select mode — click an entity to inspect it.")
+		_hud.set_status("Select mode — left-click a creature to inspect, hold to pick it up.")
 	else:
-		_hud.set_status("Spawn %s — click the ground to place." % kind)
+		_hud.set_status("Cast %s — right-click the ground to place." % kind)
+
+
+# --- the player's hand -------------------------------------------------------
+# LMB press: remember what's under the cursor. A quick click selects; holding/dragging
+# commits to a carry (see _update_hand).
+func _on_lmb_press(pos: Vector2) -> void:
+	if _hud != null and _hud.has_method("is_pointer_over_ui") and _hud.is_pointer_over_ui(pos):
+		return
+	_grab_candidate = _creature_at(pos)
+	_grab_press_pos = pos
+	_grab_press_msec = Time.get_ticks_msec()
+	_grabbing = false
+
+
+# LMB release: a carry drops or throws (by hand speed); a plain click selects.
+func _on_lmb_release(pos: Vector2) -> void:
+	if _grabbing and _held_creature != null and is_instance_valid(_held_creature):
+		var flat: Vector3 = Vector3(_hold_velocity.x, 0.0, _hold_velocity.z)
+		var fspeed: float = flat.length()
+		if fspeed > THROW_MIN_SPEED:
+			fspeed = minf(fspeed, THROW_MAX_SPEED)
+			var throw_vel: Vector3 = flat.normalized() * fspeed
+			throw_vel.y = fspeed * THROW_ARC       # arc upward with throw strength
+			_held_creature.call("throw", throw_vel)
+			_hud.set_status("Threw the %s!" % _creature_species(_held_creature))
+		else:
+			_held_creature.call("hold_end")        # gentle set-down
+			_hud.set_status("Set the %s down." % _creature_species(_held_creature))
+	elif _grab_candidate != null and is_instance_valid(_grab_candidate):
+		_set_selected(_grab_candidate)             # a click — just inspect it
+	else:
+		_select_at(pos)                            # empty ground — select/deselect via ray
+	_grab_candidate = null
+	_held_creature = null
+	_grabbing = false
+
+
+# Called every frame from _process: commit a pending press to a carry, then keep the held
+# creature under the cursor and estimate hand velocity for throwing.
+func _update_hand(delta: float) -> void:
+	if _grab_candidate == null and _held_creature == null:
+		return
+	var vp: Viewport = get_viewport()
+	if vp == null:
+		return
+	var mpos: Vector2 = vp.get_mouse_position()
+
+	if not _grabbing and _grab_candidate != null:
+		if not is_instance_valid(_grab_candidate):
+			_grab_candidate = null
+			return
+		var moved: float = mpos.distance_to(_grab_press_pos)
+		var held_ms: int = Time.get_ticks_msec() - _grab_press_msec
+		if moved >= GRAB_MOVE_THRESHOLD or held_ms >= GRAB_HOLD_MSEC:
+			_begin_carry(_grab_candidate)
+
+	if _grabbing and _held_creature != null:
+		if not is_instance_valid(_held_creature):
+			_held_creature = null
+			_grabbing = false
+			return
+		var target: Vector3 = _hand_world_point(mpos)
+		if is_finite(target.x):
+			if delta > 0.0001:
+				var inst_vel: Vector3 = (target - _hold_point) / delta
+				_hold_velocity = _hold_velocity.lerp(inst_vel, 0.5)
+			_hold_point = target
+			(_held_creature as Node3D).global_position = target
+
+
+func _begin_carry(creature: Node) -> void:
+	_grabbing = true
+	_held_creature = creature
+	creature.call("hold_begin")
+	_hold_point = (creature as Node3D).global_position
+	_hold_velocity = Vector3.ZERO
+	_set_selected(creature)
+	if _audio != null:
+		_audio.play_sfx("ui_click")
+
+
+# World point the hand carries at: the terrain surface under the cursor, lifted a little so
+# the creature hovers above the ground where you point. Returns INF if the cursor misses terrain.
+func _hand_world_point(screen_pos: Vector2) -> Vector3:
+	var ray: Dictionary = _camera.aim_ray(screen_pos)
+	var hit: Dictionary = _terrain.raycast_terrain(ray["origin"], ray["dir"], 2000.0)
+	if not bool(hit.get("hit", false)):
+		return Vector3(INF, INF, INF)
+	return (hit["position"] as Vector3) + Vector3(0.0, HOLD_LIFT, 0.0)
+
+
+# Physics-ray pick that resolves to a living creature (group "creature" with the hand API),
+# or null if the cursor isn't over one.
+func _creature_at(screen_pos: Vector2) -> Node:
+	var ray: Dictionary = _camera.aim_ray(screen_pos)
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var q: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(ray["origin"], ray["origin"] + ray["dir"] * 2000.0)
+	q.collision_mask = 0xFFFFFFFF
+	q.collide_with_areas = true
+	q.collide_with_bodies = true
+	var r: Dictionary = space.intersect_ray(q)
+	if r.is_empty():
+		return null
+	return _resolve_creature(r.get("collider", null))
+
+
+func _resolve_creature(collider) -> Node:
+	var n = collider
+	while n != null and n is Node:
+		if (n as Node).is_in_group("creature") and (n as Node).has_method("hold_begin"):
+			return n
+		n = (n as Node).get_parent()
+	return null
+
+
+func _creature_species(creature: Node) -> String:
+	if creature != null and "species" in creature:
+		return String(creature.get("species"))
+	return "creature"
 
 
 func _on_music_auto_adapt_changed(on: bool) -> void:
@@ -539,8 +688,11 @@ func _fire_test_meteor() -> void:
 	m.launch(impact)
 	_music_destruction = 1.0
 	_auto_meteor_fired = true
-	_camera.global_position = impact + Vector3(26.0, 30.0, 26.0)
-	_camera.look_at(impact, Vector3.UP)
+	if _camera.has_method("focus_on"):
+		_camera.focus_on(impact)
+	else:
+		_camera.global_position = impact + Vector3(26.0, 30.0, 26.0)
+		_camera.look_at(impact, Vector3.UP)
 
 
 func _update_selection_ring() -> void:
