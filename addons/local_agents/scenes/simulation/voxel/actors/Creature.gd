@@ -16,6 +16,7 @@ const PREDATOR_SIZE_RATIO: float = 1.2     # flee anything this many times my si
 
 const CorpseScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Corpse.gd")
 const ThrownRockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/ThrownRock.gd")
+const PoopScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Poop.gd")
 
 # --- energy / hunger / mortality (emergent: eat to live, starve or age to die) ---
 var energy: float = 100.0
@@ -70,6 +71,12 @@ var _panic_source: Vector3 = Vector3.ZERO
 
 # Injected scent field (LAScentField) — predators follow prey scent when out of sight.
 var _scent = null
+# Injected ecology service — used to register droppings so dung can seed plants.
+var _ecology = null
+
+# Digestion: every so often a fed creature leaves droppings (a strong scent marker
+# that predators track prey by, and that occasionally fertilizes a new plant).
+var _poop_cd: float = 0.0
 
 
 func add_fear(source_pos: Vector3, intensity: float) -> void:
@@ -81,6 +88,10 @@ func add_fear(source_pos: Vector3, intensity: float) -> void:
 
 func set_scent(s) -> void:
 	_scent = s
+
+
+func set_ecology(e) -> void:
+	_ecology = e
 
 
 # A thrown rock struck me — I die (drop a corpse).
@@ -107,6 +118,20 @@ func die(_cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
 			get_tree().create_timer(0.06).timeout.connect(
 				func(): if is_instance_valid(c): c.fling(imp))
 	queue_free()
+
+
+# Leave a dropping at `ground_pos`: a strong species-scent marker that predators
+# emergently track prey by, and that (via the ecology) may fertilize a new plant.
+func _drop_poop(ground_pos: Vector3) -> void:
+	var parent: Node = get_parent()
+	if parent == null or not is_inside_tree():
+		return
+	var poop: LAPoop = PoopScript.new()
+	parent.add_child(poop)
+	poop.global_position = ground_pos
+	poop.setup(terrain, _scent, species)
+	if _ecology != null and _ecology.has_method("register_poop"):
+		_ecology.register_poop(poop)
 
 
 func setup(_terrain, _config: Dictionary) -> void:
@@ -138,6 +163,7 @@ func setup(_terrain, _config: Dictionary) -> void:
 	throws = bool(config.get("throws", throws))
 	throw_range = float(config.get("throw_range", throw_range))
 	state = "cruise" if can_fly else "wander"
+	_poop_cd = randf_range(20.0, 45.0)
 
 	collision_layer = 2
 	collision_mask = 0                    # movement is manual; picked via layer-2 query
@@ -209,6 +235,13 @@ func _physics_process(delta: float) -> void:
 	var surf: float = _surface_at(pos.x, pos.z)
 	if is_nan(surf):
 		return                            # unmeshed / off-terrain: skip this frame
+
+	# Digestion: a fed creature periodically leaves droppings on the ground below it.
+	_poop_cd -= delta
+	if _poop_cd <= 0.0:
+		_poop_cd = randf_range(24.0, 48.0)
+		if energy > max_energy * 0.35:
+			_drop_poop(Vector3(pos.x, surf, pos.z))
 
 	var desired: Vector3 = _heading
 	_wander_timer -= delta

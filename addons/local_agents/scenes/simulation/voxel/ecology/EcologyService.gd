@@ -205,6 +205,10 @@ func _instance_actor(kind: String, placed: Vector3) -> Node:
 		creature.setup(terrain, cfg)
 		if creature.has_method("set_scent"):
 			creature.set_scent(_scent)
+		if creature.has_method("set_ecology"):
+			creature.set_ecology(self)
+		if creature.has_method("set_water"):
+			creature.set_water(_water)
 		node = creature
 	return node
 
@@ -313,6 +317,24 @@ func _tick_breeding() -> void:
 		var placed = _place_on_surface(parent.global_position + offset)
 		if placed != null:
 			_instance_actor(kind, placed)
+
+
+# A creature dropped this poop: connect its fertilize request so dung emergently
+# grows a new plant on the enriched patch (respecting the plant population cap).
+func register_poop(poop) -> void:
+	if poop == null or not poop.has_signal("wants_seed"):
+		return
+	if not poop.wants_seed.is_connected(seed_plant_at):
+		poop.wants_seed.connect(seed_plant_at)
+
+
+# Grow a plant at world_pos if the plant population is under its cap. Shared by dung
+# fertilization (register_poop) and, later, wildfire ash regrowth.
+func seed_plant_at(world_pos: Vector3) -> void:
+	var cap: int = int(_plant_config().get("pop_cap", 120))
+	if get_tree().get_nodes_in_group("plant").size() >= cap:
+		return
+	spawn("plant", world_pos)
 
 
 func _tick_plant_seeding() -> void:
