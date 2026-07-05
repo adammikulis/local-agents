@@ -596,17 +596,24 @@ func wet_cell_count() -> int:
 	return n
 
 
+const WATER_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/shaders/VoxelWater.gdshader"
+
 func _build_render_node() -> void:
 	if _surface_mi != null:
 		return
 	if _water_mat == null:
-		var m: StandardMaterial3D = StandardMaterial3D.new()
-		m.albedo_color = Color(0.12, 0.42, 0.62, 0.72)
-		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		m.roughness = 0.1
-		m.metallic = 0.0
-		m.cull_mode = BaseMaterial3D.CULL_DISABLED
-		_water_mat = m
+		# The proper freshwater surface shader (waves/depth/foam/fresnel) — not a flat plain-blue material.
+		var sh: Shader = load(WATER_SHADER_PATH) as Shader
+		if sh != null:
+			var sm: ShaderMaterial = ShaderMaterial.new()
+			sm.shader = sh
+			_water_mat = sm
+		else:
+			var m: StandardMaterial3D = StandardMaterial3D.new()
+			m.albedo_color = Color(0.12, 0.42, 0.62, 0.72)
+			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			m.cull_mode = BaseMaterial3D.CULL_DISABLED
+			_water_mat = m
 	_surface_mesh = ArrayMesh.new()
 	_surface_mi = MeshInstance3D.new()
 	_surface_mi.name = "Water3DSurface"
