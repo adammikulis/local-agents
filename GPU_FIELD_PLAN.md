@@ -83,4 +83,6 @@ fog (r), water (r). dims: cell_count, dim.
 - Fail-fast intent (CLAUDE.md): GPU is the target path but the CPU step is the sanctioned headless
   fallback here, so `_use_gpu=false` on no-RD is correct (NOT a typed GPU_REQUIRED error) — real play
   gets GPU, headless gets CPU parity.
-- Commit incrementally in this worktree; keep hot-path files as call-site shims.
+- Commit incrementally in this worktree; keep hot-path files as thin call-site forwarders. The CPU
+  step is the GPU kernel's permanent headless/no-GPU fallback + parity oracle — a first-class part of
+  the design, NOT a "transitional shim" to retire.
