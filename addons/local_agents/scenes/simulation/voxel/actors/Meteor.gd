@@ -383,11 +383,13 @@ func _build_visuals() -> void:
 # White-hot at birth (just off the fireball) fading through orange to dark smoke as each ember ages —
 # the classic burning-reentry tail.
 func _fire_ramp() -> GradientTexture1D:
+	# Alpha fades from a hazy-hot core to fully transparent smoke, so the trail is translucent — you
+	# see terrain through it and it dissolves rather than reading as a solid ribbon.
 	var g: Gradient = Gradient.new()
-	g.set_color(0, Color(1.0, 0.95, 0.7))
-	g.add_point(0.35, Color(1.0, 0.55, 0.12))
-	g.add_point(0.7, Color(0.6, 0.16, 0.05))
-	g.set_color(1, Color(0.12, 0.11, 0.11))
+	g.set_color(0, Color(1.0, 0.95, 0.7, 0.75))
+	g.add_point(0.35, Color(1.0, 0.55, 0.12, 0.5))
+	g.add_point(0.7, Color(0.6, 0.16, 0.05, 0.22))
+	g.set_color(1, Color(0.12, 0.11, 0.11, 0.0))
 	var tex: GradientTexture1D = GradientTexture1D.new()
 	tex.gradient = g
 	return tex

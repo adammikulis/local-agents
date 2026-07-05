@@ -35,10 +35,11 @@ const SEA_FILL_RATE: float = 0.6
 # LAVA is molten rock: a slow, hot liquid that pumps heat into the field, GLOWS, and SOLIDIFIES back
 # to rock (SDF fill) when it cools; surface rock MELTS to lava above 1200°C (a big meteor/volcano). ---
 const FREEZE_TEMP: float = 0.0            # water freezes below this (°C)
-const LAVA_FLOW: float = 0.05             # viscous slow creep (water is 0.25)
+const LAVA_FLOW: float = 0.16             # viscous, but flows visibly downhill (water is 0.25)
 # LAVA_MIN lives on the field (shared with the render module, read as _f.LAVA_MIN).
 const LAVA_EMPLACE_TEMP: float = 1150.0   # temperature fresh lava carries
 const LAVA_HEAT_PER_DEPTH: float = 650.0  # °C/s a lava cell sustains per unit depth (thick stays molten)
+const MOLTEN_FLOOR: float = 950.0         # any pooled lava holds at least this temp so it keeps flowing/glowing
 const SOLIDIFY_TEMP: float = 800.0        # lava freezes to rock below this
 const MELT_TEMP: float = 1200.0           # surface rock melts to lava above this
 const MELT_MAX_EDITS: int = 40            # cap melt/solidify SDF edits per step
@@ -236,24 +237,26 @@ func _lava_step() -> void:
 			continue
 		var d: float = lava[idx]
 		if d < _f.LAVA_MIN:
+			# Drained to a thin film — the flowing tongue has moved on. It chills and SOLIDIFIES into new
+			# rock, so a lava flow BUILDS a delta/levee of fresh terrain where it passed (emergent
+			# volcanic landform) rather than just vanishing.
 			if d > 0.0:
+				if edits < MELT_MAX_EDITS and _f._terrain != null and _f._terrain.has_method("fill_sphere"):
+					var fi: int = idx % _f._dim
+					var fj: int = idx / _f._dim
+					_f._terrain.fill_sphere(Vector3(_f._cell_x(fi), _f._terrain_h[idx] + d, _f._cell_z(fj)), clampf(d + 0.3, 0.6, _f._cell_size))
+					_f._terrain_h[idx] = _f._terrain_h[idx] + d * 0.6
+					edits += 1
 				lava[idx] = 0.0
 			continue
-		# Molten lava sustains heat UP TO its molten temperature (never hotter — no runaway). Thick
-		# flows top back up to molten each step and stay liquid; thin edges can't keep up with cooling
-		# and crust over. The cap also means lava (<=1150°C) never re-melts rock (which needs 1200°C).
-		if _f._temp[idx] < LAVA_EMPLACE_TEMP:
-			_f._temp[idx] = minf(LAVA_EMPLACE_TEMP, _f._temp[idx] + LAVA_HEAT_PER_DEPTH * d * _f.STEP_DT)
-		if _f._temp[idx] < SOLIDIFY_TEMP and edits < MELT_MAX_EDITS and _f._terrain != null and _f._terrain.has_method("fill_sphere"):
-			# Cooled: freeze to rock — the flow builds new terrain where it stops.
-			var i: int = idx % _f._dim
-			var j: int = idx / _f._dim
-			_f._terrain.fill_sphere(Vector3(_f._cell_x(i), _f._terrain_h[idx] + d, _f._cell_z(j)), clampf(d, 0.6, _f._cell_size))
-			_f._terrain_h[idx] = _f._terrain_h[idx] + d * 0.7
-			lava[idx] = 0.0
-			edits += 1
-		elif lava[idx] > 0.0:
-			any_lava = true
+		# Heat travels WITH the flow: any pooled lava is kept molten (glowing + still able to flow) so a
+		# leading tongue does not freeze the instant it spreads onto cold ground. Thick lava tops right
+		# up to emplace temp; thin lava at least holds MOLTEN_FLOOR. The emplace cap (<=1150°C) means
+		# lava never re-melts rock (which needs 1200°C) — no runaway.
+		var molten: float = maxf(MOLTEN_FLOOR, minf(LAVA_EMPLACE_TEMP, _f._temp[idx] + LAVA_HEAT_PER_DEPTH * d * _f.STEP_DT))
+		if _f._temp[idx] < molten:
+			_f._temp[idx] = molten
+		any_lava = true
 	_f._lava_dirty = any_lava or (_f._render._lava_mesh != null and _f._render._lava_mesh.get_surface_count() > 0)
 	_lava_cells_last = _material_cell_count_arr(lava, _f.LAVA_MIN)
 	if _lava_cells_last > _lava_peak:

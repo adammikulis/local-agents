@@ -43,8 +43,8 @@ var _sun: DirectionalLight3D = null
 var _moon: DirectionalLight3D = null         # cool moonlight; energy tracks the lunar phase
 var _sky_shader_mat: ShaderMaterial = null   # VoxelSky.gdshader: stars + phase-shaded moon disc
 var _env: Environment = null
-var _time_of_day: float = 0.22              # start right before dawn (dawn = .25), so the
-                                            # moonlit night sky is on screen, then the sun rises
+var _time_of_day: float = 0.30              # start just after dawn (dawn = .25) so the sun is already
+                                            # up and climbing — the world reads as a lit morning
 # Lunar cycle: an independent clock (survives day wraps). Starts at a waxing crescent so the
 # very first night already has some moonlight rather than a black new moon.
 var _lunar_phase: float = 0.15              # 0=new, 0.25=first quarter, 0.5=full, 0.75=last quarter
@@ -160,9 +160,9 @@ func _ready() -> void:
 	# light surround (the "inside a cloud" look). Re-tinted to the live horizon each frame.
 	e.fog_enabled = true
 	e.fog_light_color = SKY_HORIZON_DAY
-	e.fog_density = 0.0007
-	e.fog_aerial_perspective = 0.45
-	e.fog_sky_affect = 0.1
+	e.fog_density = 0.00035
+	e.fog_aerial_perspective = 0.28
+	e.fog_sky_affect = 0.05
 	env.environment = e
 	add_child(env)
 	_sky_shader_mat = sky_mat

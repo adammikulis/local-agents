@@ -179,112 +179,131 @@ func heat_world_size() -> Vector2:
 	return Vector2(2.0 * _f._half_extent, 2.0 * _f._half_extent)
 
 
-# --- Water surface ----------------------------------------------------------
+# --- Liquid surfaces (smooth, welded heightfield) ---------------------------
 
 func rebuild_water() -> void:
-	if _surface_mesh == null:
+	if _surface_mesh == null or not _f._mats.has(Mat.WATER):
 		return
-	if _surface_mesh.get_surface_count() > 0:
-		_surface_mesh.clear_surfaces()
-	if not _f._mats.has(Mat.WATER):
-		return
-	var water: PackedFloat32Array = _f._mats[Mat.WATER]
+	_build_liquid_surface(_f._mats[Mat.WATER], RENDER_THRESHOLD, _surface_mesh, _water_material)
 
-	var verts: PackedVector3Array = PackedVector3Array()
-	var normals: PackedVector3Array = PackedVector3Array()
-	var indices: PackedInt32Array = PackedInt32Array()
-	var hc: float = _f._cell_size * 0.5
-	var up: Vector3 = Vector3.UP
-	var base: int = 0
-
-	for idx in range(_f._cell_count):
-		if _f._sampled[idx] == 0:
-			continue
-		var d: float = water[idx]
-		if d < RENDER_THRESHOLD:
-			continue
-		var i: int = idx % _f._dim
-		var j: int = idx / _f._dim
-		var cx: float = _f._cell_x(i)
-		var cz: float = _f._cell_z(j)
-		var y: float = _f._terrain_h[idx] + d
-		verts.push_back(Vector3(cx - hc, y, cz - hc))
-		verts.push_back(Vector3(cx + hc, y, cz - hc))
-		verts.push_back(Vector3(cx + hc, y, cz + hc))
-		verts.push_back(Vector3(cx - hc, y, cz + hc))
-		normals.push_back(up)
-		normals.push_back(up)
-		normals.push_back(up)
-		normals.push_back(up)
-		indices.push_back(base + 0)
-		indices.push_back(base + 1)
-		indices.push_back(base + 2)
-		indices.push_back(base + 0)
-		indices.push_back(base + 2)
-		indices.push_back(base + 3)
-		base += 4
-
-	if verts.is_empty():
-		return
-	var arrays: Array = []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_INDEX] = indices
-	_surface_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	if _water_material != null:
-		_surface_mesh.surface_set_material(0, _water_material)
-
-
-# --- Lava surface -----------------------------------------------------------
 
 func rebuild_lava() -> void:
-	if _lava_mesh == null:
+	if _lava_mesh == null or not _f._mats.has(Mat.LAVA):
 		return
-	if _lava_mesh.get_surface_count() > 0:
-		_lava_mesh.clear_surfaces()
-	if not _f._mats.has(Mat.LAVA):
+	_build_liquid_surface(_f._mats[Mat.LAVA], _f.LAVA_MIN, _lava_mesh, _lava_material)
+
+
+# Build ONE continuous surface for a liquid depth field, instead of an independent flat quad per cell
+# (which read as a hard grid of steps). Each grid CORNER's height is the AVERAGE of the surface heights
+# (terrain + depth) of the wet cells touching it, and corners are SHARED between adjacent cells (welded)
+# — so the surface is a smooth heightfield that blends across cells and at the wet/dry shoreline.
+# Per-vertex normals come from the corner-height gradient, giving smooth shading instead of flat facets.
+func _build_liquid_surface(depth: PackedFloat32Array, threshold: float, mesh: ArrayMesh, material: ShaderMaterial) -> void:
+	var dim: int = _f._dim
+	var cw: int = dim + 1                       # corner grid is (dim+1) x (dim+1)
+	var ccount: int = cw * cw
+	var cs: float = _f._cell_size
+	var hc: float = cs * 0.5
+	var origin: float = -_f._half_extent - hc   # world XZ of corner (0,0)
+
+	# 1) Accumulate each wet cell's surface height into its 4 shared corners.
+	var ch: PackedFloat32Array = PackedFloat32Array()
+	ch.resize(ccount)
+	var cn: PackedInt32Array = PackedInt32Array()
+	cn.resize(ccount)
+	var any: bool = false
+	for j in range(dim):
+		var row: int = j * dim
+		for i in range(dim):
+			var idx: int = row + i
+			if _f._sampled[idx] == 0 or depth[idx] < threshold:
+				continue
+			any = true
+			var surf: float = _f._terrain_h[idx] + depth[idx]
+			var c0: int = j * cw + i
+			var c1: int = c0 + 1
+			var c2: int = c0 + cw
+			var c3: int = c2 + 1
+			ch[c0] += surf
+			cn[c0] += 1
+			ch[c1] += surf
+			cn[c1] += 1
+			ch[c2] += surf
+			cn[c2] += 1
+			ch[c3] += surf
+			cn[c3] += 1
+	if not any:
+		if mesh.get_surface_count() > 0:
+			mesh.clear_surfaces()
 		return
-	var lava: PackedFloat32Array = _f._mats[Mat.LAVA]
+
+	# 2a) Average every active corner FIRST (so neighbour reads below see averaged heights, not sums).
+	for c in range(ccount):
+		if cn[c] != 0:
+			ch[c] = ch[c] / float(cn[c])
+
+	# 2b) Assign each active corner a vertex index and derive a smooth normal from the heights of its
+	# active neighbours (central differences; missing neighbours fall back to self).
+	var vmap: PackedInt32Array = PackedInt32Array()
+	vmap.resize(ccount)
 	var verts: PackedVector3Array = PackedVector3Array()
 	var normals: PackedVector3Array = PackedVector3Array()
+	for cj in range(cw):
+		var crow: int = cj * cw
+		for ci in range(cw):
+			var c: int = crow + ci
+			if cn[c] == 0:
+				vmap[c] = -1
+				continue
+			var h: float = ch[c]
+			vmap[c] = verts.size()
+			verts.push_back(Vector3(origin + float(ci) * cs, h, origin + float(cj) * cs))
+			var hl: float = _corner_h(ch, cn, crow + ci - 1, ci > 0, h)
+			var hr: float = _corner_h(ch, cn, crow + ci + 1, ci < cw - 1, h)
+			var hd: float = _corner_h(ch, cn, c - cw, cj > 0, h)
+			var hu: float = _corner_h(ch, cn, c + cw, cj < cw - 1, h)
+			normals.push_back(Vector3(hl - hr, 2.0 * cs, hd - hu).normalized())
+
+	# 3) Two triangles per wet cell, referencing its 4 shared corner vertices (same winding as before).
 	var indices: PackedInt32Array = PackedInt32Array()
-	var hc: float = _f._cell_size * 0.5
-	var up: Vector3 = Vector3.UP
-	var base: int = 0
-	for idx in range(_f._cell_count):
-		if _f._sampled[idx] == 0 or lava[idx] < _f.LAVA_MIN:
-			continue
-		var i: int = idx % _f._dim
-		var j: int = idx / _f._dim
-		var cx: float = _f._cell_x(i)
-		var cz: float = _f._cell_z(j)
-		var y: float = _f._terrain_h[idx] + lava[idx]
-		verts.push_back(Vector3(cx - hc, y, cz - hc))
-		verts.push_back(Vector3(cx + hc, y, cz - hc))
-		verts.push_back(Vector3(cx + hc, y, cz + hc))
-		verts.push_back(Vector3(cx - hc, y, cz + hc))
-		normals.push_back(up)
-		normals.push_back(up)
-		normals.push_back(up)
-		normals.push_back(up)
-		indices.push_back(base + 0)
-		indices.push_back(base + 1)
-		indices.push_back(base + 2)
-		indices.push_back(base + 0)
-		indices.push_back(base + 2)
-		indices.push_back(base + 3)
-		base += 4
-	if verts.is_empty():
+	for j2 in range(dim):
+		var row2: int = j2 * dim
+		for i2 in range(dim):
+			var idx2: int = row2 + i2
+			if _f._sampled[idx2] == 0 or depth[idx2] < threshold:
+				continue
+			var b0: int = j2 * cw + i2
+			var v0: int = vmap[b0]
+			var v1: int = vmap[b0 + 1]
+			var v2: int = vmap[b0 + cw + 1]
+			var v3: int = vmap[b0 + cw]
+			indices.push_back(v0)
+			indices.push_back(v1)
+			indices.push_back(v2)
+			indices.push_back(v0)
+			indices.push_back(v2)
+			indices.push_back(v3)
+
+	if mesh.get_surface_count() > 0:
+		mesh.clear_surfaces()
+	if verts.is_empty() or indices.is_empty():
 		return
 	var arrays: Array = []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_INDEX] = indices
-	_lava_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	if _lava_material != null:
-		_lava_mesh.surface_set_material(0, _lava_material)
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	if material != null:
+		mesh.surface_set_material(0, material)
+
+
+# Height of neighbour corner `nc` if it is in-bounds (`ok`) and active, else the fallback `self_h`
+# (so the normal at the wet/dry edge doesn't spike toward a phantom zero-height neighbour).
+func _corner_h(ch: PackedFloat32Array, cn: PackedInt32Array, nc: int, ok: bool, self_h: float) -> float:
+	if ok and cn[nc] != 0:
+		return ch[nc]
+	return self_h
 
 
 # --- Steam puff FX ----------------------------------------------------------

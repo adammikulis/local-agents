@@ -310,6 +310,45 @@ func is_ready() -> bool:
 	return _ready
 
 
+## Re-read the terrain surface height for every sampled cell within `radius` of a world XZ point. Call
+## after an SDF edit (a volcano crater/conduit, a meteor slump, a lava-built delta) so liquid heights
+## track the reshaped ground instead of pooling at the pre-edit level.
+func resample_terrain(world_pos: Vector3, radius: float) -> void:
+	if _terrain == null or not _terrain.has_method("surface_height"):
+		return
+	var cells: int = int(ceil(radius / _cell_size))
+	var ci: int = int(round((world_pos.x + _half_extent) / _cell_size))
+	var cj: int = int(round((world_pos.z + _half_extent) / _cell_size))
+	var r2: float = radius * radius
+	for dj in range(-cells, cells + 1):
+		var j: int = cj + dj
+		if j < 0 or j >= _dim:
+			continue
+		for di in range(-cells, cells + 1):
+			var i: int = ci + di
+			if i < 0 or i >= _dim:
+				continue
+			var cx: float = _cell_x(i)
+			var cz: float = _cell_z(j)
+			var dx: float = cx - world_pos.x
+			var dz: float = cz - world_pos.z
+			if dx * dx + dz * dz > r2:
+				continue
+			var h = _terrain.surface_height(cx, cz)
+			if typeof(h) != TYPE_FLOAT and typeof(h) != TYPE_INT:
+				continue
+			var hf: float = float(h)
+			if is_nan(hf) or is_inf(hf):
+				continue
+			var idx: int = j * _dim + i
+			_terrain_h[idx] = hf
+			if _sampled[idx] == 0:
+				_temp[idx] = INITIAL_TEMP
+				_vapor[idx] = INITIAL_VAPOR
+				_sampled[idx] = 1
+				_sampled_count += 1
+
+
 # --- The unified step -------------------------------------------------------
 
 ## One CA tick: heat exchange, then (once materials exist) phase reactions + movement + combustion.
