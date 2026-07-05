@@ -23,6 +23,19 @@ var _water = null                        # LAWaterFieldSystem (observer; creatur
 # world spawn area (XZ half-extent) used for spawn_initial scatter
 var spawn_extent: float = 80.0
 
+# Shared day/night clock (0=midnight .. 0.5=noon), set by VoxelWorld each frame. Creatures
+# read is_night() so nocturnal species behave differently after dark — emergent, not scripted.
+var time_of_day: float = 0.3
+
+
+func set_time_of_day(t: float) -> void:
+	time_of_day = t
+
+
+func is_night() -> bool:
+	# Sun is below the horizon between dusk (~0.78) and dawn (~0.22).
+	return time_of_day < 0.22 or time_of_day > 0.78
+
 # pending spawns whose surface wasn't ready yet: [{kind, pos, tries}]
 var _pending: Array = []
 var _breed_timer: float = 0.0
@@ -55,7 +68,7 @@ func _species_config(kind: String) -> Dictionary:
 				"can_fly": false, "sense_radius": 16.0, "maturity_age": 20.0,
 				"preys_on": PackedStringArray(["rabbit"]),
 				"flees_from": PackedStringArray(),
-				"herd": false, "pop_cap": 12,
+				"herd": false, "pop_cap": 12, "nocturnal": true,
 				"max_energy": 130.0, "metabolism": 2.0, "food_value": 70.0,
 				"thirst_rate": 1.0,
 				# Semi-solitary: weak cohesion so they never clump, some alignment,

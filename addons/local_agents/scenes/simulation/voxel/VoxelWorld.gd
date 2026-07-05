@@ -29,6 +29,23 @@ var _selected: Node = null
 var _weather: Node = null   # LAWeatherSystem
 var _water: Node = null      # LAWaterFieldSystem — CA rivers/lakes/ocean
 
+# --- Day/night cycle. VoxelWorld owns ALL sky lighting (sun arc + energy, sky colors,
+# ambient) so the cycle and weather never fight over the same properties; weather only
+# supplies a rain factor that dims on top. time_of_day: 0=midnight, .25=dawn, .5=noon, .75=dusk.
+var _sun: DirectionalLight3D = null
+var _sky_mat: ProceduralSkyMaterial = null
+var _env: Environment = null
+var _time_of_day: float = 0.32              # start mid-morning
+const DAY_LENGTH: float = 200.0             # seconds per full day
+const SUN_ENERGY_NOON: float = 1.45
+const AMBIENT_DAY: float = 0.62
+const AMBIENT_NIGHT: float = 0.09           # moonlight floor so nights aren't pitch black
+const SKY_TOP_DAY: Color = Color(0.36, 0.56, 0.86)
+const SKY_TOP_NIGHT: Color = Color(0.02, 0.03, 0.11)
+const SKY_HORIZON_DAY: Color = Color(0.72, 0.80, 0.88)
+const SKY_HORIZON_NIGHT: Color = Color(0.05, 0.06, 0.15)
+const SKY_HORIZON_DUSK: Color = Color(0.92, 0.48, 0.24)
+
 # Rain depth-per-second added to the water field per unit of weather rain (0..1).
 # Deliberately small: rain is a transient wetting that flows downhill to fill basins,
 # NOT the main water source (that's sea-level basins + springs). Too large floods the
@@ -70,25 +87,28 @@ func _ready() -> void:
 	e.background_mode = Environment.BG_SKY
 	var sky: Sky = Sky.new()
 	var sky_mat: ProceduralSkyMaterial = ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.36, 0.56, 0.86)
-	sky_mat.sky_horizon_color = Color(0.72, 0.80, 0.88)
+	sky_mat.sky_top_color = SKY_TOP_DAY
+	sky_mat.sky_horizon_color = SKY_HORIZON_DAY
 	sky_mat.ground_horizon_color = Color(0.62, 0.66, 0.62)
 	sky_mat.ground_bottom_color = Color(0.30, 0.34, 0.30)
 	sky.sky_material = sky_mat
 	e.sky = sky
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	e.ambient_light_energy = 0.6
+	e.ambient_light_energy = AMBIENT_DAY
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	e.ssao_enabled = true
 	env.environment = e
 	add_child(env)
+	_sky_mat = sky_mat
+	_env = e
 
 	var sun: DirectionalLight3D = DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-52.0, -47.0, 0.0)
-	sun.light_energy = 1.35
+	sun.light_energy = SUN_ENERGY_NOON
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 400.0
 	add_child(sun)
+	_sun = sun
 
 	# --- Terrain ---
 	_terrain = TerrainServiceScript.new()
@@ -165,8 +185,9 @@ func _parse_cmdline() -> void:
 			_auto_select = true
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	_frame += 1
+	_update_day_night(delta)
 	_update_music_mood()
 	# Spawn the starting ecology once terrain has streamed + collided near origin.
 	if not _spawned_initial and _terrain != null:
@@ -239,9 +260,47 @@ func _process(_delta: float) -> void:
 				min_hyd = mini(min_hyd, h)
 				if String(c.get("state")) == "drink":
 					drinkers += 1
-		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"poop\":%d,\"min_hydration\":%d,\"drinking\":%d}" % [
-			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, n_poop, min_hyd, drinkers])
+		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"poop\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f}" % [
+			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, n_poop, min_hyd, drinkers, _time_of_day])
 		get_tree().quit(0)
+
+
+# Advance the clock and drive all sky lighting from it, dimmed by weather rain.
+# Emergent day arc: sun elevation is a sine of the time of day; everything (light
+# energy, warm horizon at dawn/dusk, ambient floor at night) follows from that one value.
+func _update_day_night(delta: float) -> void:
+	if _sun == null:
+		return
+	_time_of_day = fposmod(_time_of_day + delta / DAY_LENGTH, 1.0)
+	# Sun elevation: -1 (midnight) .. +1 (noon), zero at dawn (.25) and dusk (.75).
+	var elev: float = sin((_time_of_day - 0.25) * TAU)
+	var daylight: float = clampf(elev, 0.0, 1.0)
+	# Storm factor from weather dims the sun/ambient on top of the day cycle.
+	var rain: float = 0.0
+	if _weather != null and _weather.has_method("rain"):
+		rain = _weather.rain()
+	var storm: float = 1.0 - rain * 0.68
+
+	# Sun arc: steep overhead at noon, shallow at the horizon near dawn/dusk; sweeps E->W.
+	_sun.rotation_degrees = Vector3(-(6.0 + daylight * 66.0), -47.0 + (_time_of_day - 0.5) * 90.0, 0.0)
+	_sun.light_energy = SUN_ENERGY_NOON * daylight * storm
+	# Warm the sunlight near the horizon (dawn/dusk glow).
+	var warm: float = clampf(1.0 - elev * 2.5, 0.0, 1.0) * clampf(daylight * 6.0, 0.0, 1.0)
+	_sun.light_color = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.6, 0.32), warm * 0.8)
+
+	# Sky colors lerp day<->night; horizon warms to dusk-orange around the transitions.
+	var night: float = 1.0 - daylight
+	if _sky_mat != null:
+		_sky_mat.sky_top_color = SKY_TOP_DAY.lerp(SKY_TOP_NIGHT, night)
+		var horizon: Color = SKY_HORIZON_DAY.lerp(SKY_HORIZON_NIGHT, night)
+		horizon = horizon.lerp(SKY_HORIZON_DUSK, warm * 0.7)
+		_sky_mat.sky_horizon_color = horizon
+	if _env != null:
+		_env.ambient_light_energy = lerpf(AMBIENT_NIGHT, AMBIENT_DAY, daylight) * storm
+
+	# Share the clock with the ecology so nocturnal behavior can key off night.
+	if _ecology != null and _ecology.has_method("set_time_of_day"):
+		_ecology.set_time_of_day(_time_of_day)
 
 
 # Feed the generative music a mood from live world state. Presentation only.
@@ -254,10 +313,9 @@ func _update_music_mood() -> void:
 	if _mood_timer % 20 != 0:
 		return
 	var population: int = get_tree().get_nodes_in_group("creature").size()
-	var tod: float = fmod(float(_frame) / 7200.0, 1.0)
 	_audio.set_music_mood({
 		"population": population,
-		"time_of_day": tod,
+		"time_of_day": _time_of_day,
 		"destruction_intensity": _music_destruction,
 		"threat": _music_destruction,
 	})

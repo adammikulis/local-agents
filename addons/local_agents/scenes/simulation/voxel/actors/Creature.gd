@@ -60,6 +60,11 @@ var maturity_age: float = 15.0
 var preys_on: PackedStringArray = PackedStringArray()
 var flees_from: PackedStringArray = PackedStringArray()
 var herd: bool = false
+var nocturnal: bool = false
+# Perception scale for the night: recomputed each frame from the shared day/night clock.
+# Nocturnal species see FARTHER after dark; diurnal species see LESS — so nights favour
+# night hunters. Emergent, driven by one config flag, not hardcoded predator/prey cases.
+var _sense_mult: float = 1.0
 
 # --- flocking weights (defaults; overridden per-species via config) ---
 var flock_cohesion: float = 0.5
@@ -164,6 +169,7 @@ func setup(_terrain, _config: Dictionary) -> void:
 	preys_on = PackedStringArray(config.get("preys_on", PackedStringArray()))
 	flees_from = PackedStringArray(config.get("flees_from", PackedStringArray()))
 	herd = bool(config.get("herd", herd))
+	nocturnal = bool(config.get("nocturnal", nocturnal))
 	flock_cohesion = float(config.get("flock_cohesion", flock_cohesion))
 	flock_alignment = float(config.get("flock_alignment", flock_alignment))
 	flock_separation = float(config.get("flock_separation", flock_separation))
@@ -237,6 +243,10 @@ func _build_body() -> void:
 func _physics_process(delta: float) -> void:
 	age += delta
 	_throw_cd -= delta
+	# Night perception: nocturnal species gain range after dark, diurnal ones lose it.
+	_sense_mult = 1.0
+	if _ecology != null and _ecology.has_method("is_night") and _ecology.is_night():
+		_sense_mult = 1.4 if nocturnal else 0.7
 	# Metabolism drains energy; exertion costs more; eating refills. Starve or age = death.
 	var exertion: float = 1.6 if (state == "flee" or state == "panic" or state == "chase") else 1.0
 	energy -= metabolism * exertion * delta
@@ -591,7 +601,7 @@ func is_hunter() -> bool:
 
 func _nearest_larger_predator(pos: Vector3) -> Node3D:
 	var best: Node3D = null
-	var best_d: float = sense_radius
+	var best_d: float = sense_radius * _sense_mult
 	for cand in get_tree().get_nodes_in_group(GROUP_CREATURE):
 		if not is_instance_valid(cand) or cand == self:
 			continue
@@ -609,7 +619,7 @@ func _nearest_larger_predator(pos: Vector3) -> Node3D:
 
 func _nearest_of(pos: Vector3, species_list: PackedStringArray) -> Node3D:
 	var best: Node3D = null
-	var best_d: float = sense_radius
+	var best_d: float = sense_radius * _sense_mult
 	for sp in species_list:
 		for cand in get_tree().get_nodes_in_group(_species_group(sp)):
 			if not is_instance_valid(cand) or cand == self:

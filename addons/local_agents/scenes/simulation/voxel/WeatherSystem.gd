@@ -99,10 +99,9 @@ func _apply_visuals() -> void:
 		if pm != null:
 			var lean: Vector3 = Vector3(wind.x * 0.06, -1.0, wind.z * 0.06).normalized()
 			pm.direction = lean
-	if _sun != null:
-		_sun.light_energy = lerpf(_sun_energy_clear, _sun_energy_clear * 0.32, clampf(rain_intensity, 0.0, 1.0))
-	if _env != null:
-		_env.ambient_light_energy = lerpf(0.6, 0.34, clampf(rain_intensity, 0.0, 1.0))
+	# NOTE: sun energy + ambient are owned by VoxelWorld's day/night cycle (which folds in
+	# a rain-dimming factor of its own), so weather no longer writes them — avoids two
+	# systems fighting over the same lighting each frame.
 
 
 func rain() -> float:
