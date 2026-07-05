@@ -389,12 +389,12 @@ func activate() -> void:
 	_atmosphere.setup(self)
 	_lava_sim = LavaScript.new()
 	_lava_sim.setup(self)
-	# GPU backend (parity-validated on Metal) is DISABLED: its per-step upload+dispatch+READBACK stalls
-	# the pipeline (GPU→CPU sync every step) and is far slower than the CPU oracle at this grid size
-	# (dropped to ~3 fps). It only pays off with GPU-RESIDENT buffers that persist across steps and read
-	# back only for rendering — a redesign tracked for later. For now the CPU oracle runs the field.
-	# if GPUScript.available():
-	# 	_gpu = GPUScript.new(); _gpu.setup(self); _use_gpu = true
+	# GPU-RESIDENT backend: persistent SSBOs, the whole heat+water step batched on-GPU, ONE readback per
+	# frame (see MaterialGPU3D's frame API). Headless has no local RenderingDevice → CPU oracle.
+	if GPUScript.available():
+		_gpu = GPUScript.new()
+		_gpu.setup(self)
+		_use_gpu = true
 	_build_render_node()
 	_build_heat_texture()
 	rebuild_surface()
@@ -451,28 +451,40 @@ func _physics_process(delta: float) -> void:
 	while _step_accum >= STEP_DT and steps < MAX_STEPS_PER_FRAME:
 		_step_accum -= STEP_DT
 		steps += 1
-		# Springs feed the surface (rivers emerge as this water flows downhill in 3D).
+	if steps <= 0:
+		return
+
+	if _use_gpu:
+		# GPU-RESIDENT: springs feed CPU water (this frame's worth), then the whole heat+water step runs
+		# `steps` times on the GPU with a single upload + single readback. Atmosphere + lava still run on
+		# the CPU once this frame (on the read-back state) until their kernels are added to the GPU seam.
 		for src in _sources:
-			add_water_world(src["pos"], float(src["rate"]) * STEP_DT)
-		# Hot loops on the GPU when available (parity-validated), else the CPU oracle.
-		var dims: Vector3i = Vector3i(_dim_x, _dim_y, _dim_z)
-		if _use_gpu:
-			_water = _gpu.flow_water(_water, _solid, _static, dims)
-		else:
-			step_water()
-		if _heat != null:
-			if _use_gpu:
-				_temp = _gpu.step_heat_conduction(_temp, _solid, dims)
-				_heat.step(true)
-			else:
-				_heat.step()
+			add_water_world(src["pos"], float(src["rate"]) * STEP_DT * float(steps))
+		var solar: float = _heat._solar() if _heat != null else 0.6
+		_gpu.begin_frame(_temp, _water, solar)
+		for i in range(steps):
+			_gpu.step()
+		var out: Dictionary = _gpu.end_frame()
+		_temp = out["temp"]
+		_water = out["water"]
 		if _atmosphere != null:
 			_atmosphere.step()
 		if _lava_sim != null:
 			_lava_sim.step()
-	if steps > 0:
-		rebuild_surface()
-		_update_heat_texture()
+	else:
+		for i in range(steps):
+			# Springs feed the surface (rivers emerge as this water flows downhill in 3D).
+			for src in _sources:
+				add_water_world(src["pos"], float(src["rate"]) * STEP_DT)
+			step_water()
+			if _heat != null:
+				_heat.step()
+			if _atmosphere != null:
+				_atmosphere.step()
+			if _lava_sim != null:
+				_lava_sim.step()
+	rebuild_surface()
+	_update_heat_texture()
 
 
 ## Temperature °C at a world point (0 outside the grid). The consumer query the 2.5D field also exposes.
