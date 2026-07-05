@@ -75,7 +75,7 @@ func step() -> void:
 					water[idx] += add
 
 	# FLOW (frozen cells hold solid), then ocean fill + evaporation.
-	_flow_liquid(water, FLOW_FACTOR, true)
+	_do_flow(water, FLOW_FACTOR, true)
 	var any_wet: bool = false
 	for idx in range(_f._cell_count):
 		if _f._sampled[idx] == 0:
@@ -138,6 +138,18 @@ func lava_peak() -> int:
 
 
 # --- Liquid movement (WATER + LAVA reuse this with different params) ----------
+
+## Flow a liquid depth grid one step: GPU two-pass gather kernel when available (real play), else the
+## CPU _flow_liquid oracle (headless). The GPU path returns the new depth; copy it back in place so the
+## caller's array reference (a _mats entry) sees the result, matching _flow_liquid's in-place mutation.
+func _do_flow(arr: PackedFloat32Array, flow_factor: float, freeze_aware: bool) -> void:
+	if _f._use_gpu and _f._gpu != null:
+		var res: PackedFloat32Array = _f._gpu.flow_depth(arr, flow_factor, freeze_aware)
+		for k in range(_f._cell_count):
+			arr[k] = res[k]
+	else:
+		_flow_liquid(arr, flow_factor, freeze_aware)
+
 
 ## Generic shallow-water redistribution of a liquid array by SURFACE head (terrain_h + own depth).
 ## Accumulates net change in the field's _mdelta and applies it. `freeze_aware` skips frozen cells
@@ -229,7 +241,7 @@ func _flow_liquid(arr: PackedFloat32Array, flow_factor: float, freeze_aware: boo
 # LAVA: flow (slow) + sustain heat + solidify to rock. Same machinery as water, different params.
 func _lava_step() -> void:
 	var lava: PackedFloat32Array = _f._mats[Mat.LAVA]
-	_flow_liquid(lava, LAVA_FLOW, false)
+	_do_flow(lava, LAVA_FLOW, false)
 	var any_lava: bool = false
 	var edits: int = 0
 	for idx in range(_f._cell_count):
