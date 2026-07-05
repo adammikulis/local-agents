@@ -37,6 +37,13 @@ const TABLE: Dictionary = {
 		"path": _BASE + "people/villager.glb",
 		"anims": {"idle": "Idle", "move": "Walk", "run": "Run"}, "run": 3.0,
 	},
+	# The corner streamer/commentator avatar. Rigged Quaternius humanoid; "talk" is the clip the
+	# portrait loops while speaking (Idle here, layered with a procedural bob in StreamerAvatar). Swap
+	# `path` for a dedicated character asset and this is the only line that changes.
+	"streamer": {
+		"path": _BASE + "people/villager.glb",
+		"anims": {"idle": "Idle", "move": "Walk", "run": "Run", "talk": "Idle"}, "run": 3.0,
+	},
 	"rabbit": {"path": _BASE + "fauna/rabbit.glb"},
 	"bird": {"path": _BASE + "fauna/bird.glb"},
 	# Vulture reuses the parrot mesh, flattened to a dark scavenger tint (config, not a new asset).

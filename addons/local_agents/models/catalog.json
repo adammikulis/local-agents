@@ -20,6 +20,18 @@
           "recommended": false
         },
         {
+          "id": "qwen3-1_7b-q4_k_m",
+          "label": "Qwen3 1.7B (Q4_K_M)",
+          "repo_id": "unsloth/Qwen3-1.7B-GGUF",
+          "filename": "Qwen3-1.7B-Q4_K_M.gguf",
+          "folder": "qwen3-1_7b",
+          "parameters": "1.7B",
+          "quantization": "Q4_K_M",
+          "size_bytes": 1107409472,
+          "updated_at": "2025-05-21T06:31:50Z",
+          "recommended": false
+        },
+        {
           "id": "qwen3-4b-instruct-q4_k_m",
           "label": "Qwen3 4B Instruct (Q4_K_M)",
           "repo_id": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
