@@ -19,6 +19,8 @@ const AudioDirectorScript: GDScript = preload("res://addons/local_agents/audio/A
 const WeatherScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/WeatherSystem.gd")
 const MaterialFieldScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField.gd")
 const CloudLayerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/CloudLayer.gd")
+const DebugPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugPanel.gd")
+const DebugOverlayScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugOverlay.gd")
 
 const INITIAL_COUNTS: Dictionary = {"plant": 70, "rabbit": 16, "fox": 3, "bird": 14, "villager": 6, "vulture": 5}
 const ROCK_COUNT: int = 44
@@ -28,6 +30,8 @@ var _terrain                # LAVoxelTerrainService
 var _camera: Camera3D
 var _ecology: Node          # LAEcologyService
 var _hud: CanvasLayer       # LASpawnPaletteHud
+var _debug_panel: CanvasLayer   # LADebugPanel (left-docked debug menu)
+var _debug_overlay: Node3D      # LADebugOverlay (world-space highlight/path/wind gizmos)
 var _actors_root: Node3D
 var _selection_ring: MeshInstance3D
 var _selected: Node = null
@@ -115,6 +119,7 @@ var _peak_circling: int = 0
 var _peak_investigating: int = 0
 var _peak_sleeping: int = 0
 var _auto_meteor: bool = false
+var _debug_demo: bool = false
 var _auto_volcano: bool = false
 var _auto_volcano_fired: bool = false
 var _auto_lightning: bool = false
@@ -278,6 +283,64 @@ func _ready() -> void:
 		_terrain.set_shader_param("heat_world_min", _material.heat_world_min())
 		_terrain.set_shader_param("heat_world_size", _material.heat_world_size())
 
+	# Debug menu (left) + its world-space gizmo overlay: field views, type highlights, intended paths.
+	_debug_overlay = DebugOverlayScript.new()
+	_debug_overlay.name = "DebugOverlay"
+	add_child(_debug_overlay)
+	_debug_overlay.setup(_material)
+	_debug_panel = DebugPanelScript.new()
+	_debug_panel.name = "DebugPanel"
+	add_child(_debug_panel)
+	_debug_panel.view_toggled.connect(_on_debug_view)
+	_debug_panel.highlight_toggled.connect(_on_debug_highlight)
+	_debug_panel.paths_toggled.connect(_on_debug_paths)
+	_debug_panel.perf_toggled.connect(_on_debug_perf)
+	if _debug_demo:
+		# Verification aid: pre-enable a spread of gizmos so a screenshot shows them working.
+		_debug_overlay.set_wind(true)
+		_debug_overlay.set_paths(true)
+		_debug_overlay.set_highlight("species_bird", true)
+		_debug_overlay.set_highlight("species_fox", true)
+		_debug_overlay.set_highlight("nest", true)
+
+
+# --- Debug menu handlers -----------------------------------------------------
+
+func _on_debug_view(view: String, on: bool) -> void:
+	match view:
+		"temp":
+			_temp_debug_visible = on
+			if _terrain != null and _terrain.has_method("set_shader_param"):
+				_terrain.set_shader_param("heat_debug", 1.0 if on else 0.0)
+		"wind":
+			if _debug_overlay != null:
+				_debug_overlay.set_wind(on)
+		"scent":
+			_scent_visible = on
+			var sf = _ecology.scent_field() if _ecology != null and _ecology.has_method("scent_field") else null
+			if sf != null and sf.has_method("set_scent_visible"):
+				sf.set_scent_visible(on)
+
+
+func _on_debug_highlight(group: String, on: bool) -> void:
+	if _debug_overlay != null:
+		_debug_overlay.set_highlight(group, on)
+
+
+func _on_debug_paths(on: bool) -> void:
+	if _debug_overlay != null:
+		_debug_overlay.set_paths(on)
+
+
+func _on_debug_perf(key: String, on: bool) -> void:
+	match key:
+		"shadows":
+			if _sun != null:
+				_sun.shadow_enabled = on
+		"ssao":
+			if _env != null:
+				_env.ssao_enabled = on
+
 
 func _parse_cmdline() -> void:
 	for arg in OS.get_cmdline_user_args():
@@ -293,6 +356,8 @@ func _parse_cmdline() -> void:
 			_lunar_phase = clampf(float(arg.substr("--lunar=".length())), 0.0, 1.0)
 		elif arg.begins_with("--wind="):
 			_force_wind = float(arg.substr("--wind=".length()))
+		elif arg == "--debug-demo":
+			_debug_demo = true
 		elif arg == "--auto-meteor":
 			_auto_meteor = true
 		elif arg == "--auto-volcano":

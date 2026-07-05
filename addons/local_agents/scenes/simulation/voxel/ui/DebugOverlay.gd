@@ -1,0 +1,141 @@
+class_name LADebugOverlay
+extends MeshInstance3D
+
+## World-space DEBUG GIZMOS drawn as a single ImmediateMesh, redrawn each frame from live scene state
+## and toggled by the DebugPanel (via VoxelWorld). It can HIGHLIGHT every instance of a type (a colored
+## beam + base cross over each member of a group, drawn through terrain so they're easy to find), draw
+## each creature's INTENDED PATH (a ray along its steering heading), and show the WIND as a grid of
+## arrows. Purely presentational — reads groups/positions, owns no sim state. (Explicit types only.)
+
+const BEAM_HEIGHT: float = 6.0
+const PATH_LEN: float = 5.0
+const WIND_GRID: int = 10
+
+# Highlightable groups -> marker colour (mirrors the spawn-palette identity colours).
+const MARKER_COLORS: Dictionary = {
+	"species_rabbit": Color(0.88, 0.88, 0.86),
+	"species_fox": Color(0.95, 0.5, 0.15),
+	"species_bird": Color(0.30, 0.62, 0.95),
+	"species_vulture": Color(0.55, 0.38, 0.26),
+	"species_villager": Color(0.72, 0.42, 0.92),
+	"species_fish": Color(0.35, 0.72, 0.86),
+	"species_plant": Color(0.35, 0.78, 0.32),
+	"nest": Color(0.92, 0.82, 0.32),
+}
+
+var _field = null
+var _im: ImmediateMesh = null
+var _mat: StandardMaterial3D = null
+var _highlight: Dictionary = {}            # group name -> true (which types are highlighted)
+var _paths: bool = false
+var _wind: bool = false
+
+
+func setup(field) -> void:
+	_field = field
+	_im = ImmediateMesh.new()
+	mesh = _im
+	_mat = StandardMaterial3D.new()
+	_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_mat.vertex_color_use_as_albedo = true
+	_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_mat.no_depth_test = true               # gizmos show THROUGH terrain so they're easy to spot
+	material_override = _mat
+	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	top_level = true                        # draw in world space regardless of parent transform
+	global_position = Vector3.ZERO
+
+
+func set_highlight(group: String, on: bool) -> void:
+	if on:
+		_highlight[group] = true
+	else:
+		_highlight.erase(group)
+
+
+func set_paths(on: bool) -> void:
+	_paths = on
+
+
+func set_wind(on: bool) -> void:
+	_wind = on
+
+
+func _process(_delta: float) -> void:
+	if _im == null:
+		return
+	_im.clear_surfaces()
+	if _highlight.is_empty() and not _paths and not _wind:
+		return                              # nothing to draw — leave the mesh empty (no cost)
+	_im.surface_begin(Mesh.PRIMITIVE_LINES)
+	if not _highlight.is_empty():
+		_draw_highlights()
+	if _paths:
+		_draw_paths()
+	if _wind:
+		_draw_wind()
+	_im.surface_end()
+
+
+func _line(a: Vector3, b: Vector3, c: Color) -> void:
+	_im.surface_set_color(c)
+	_im.surface_add_vertex(a)
+	_im.surface_set_color(c)
+	_im.surface_add_vertex(b)
+
+
+# A colored beam rising from each member of every highlighted group, plus a small base cross, so any
+# selected type is instantly findable across the whole map (even behind hills — no depth test).
+func _draw_highlights() -> void:
+	for group in _highlight.keys():
+		var col: Color = MARKER_COLORS.get(group, Color(1.0, 0.9, 0.2))
+		for node in get_tree().get_nodes_in_group(group):
+			if not (node is Node3D):
+				continue
+			var p: Vector3 = (node as Node3D).global_position
+			_line(p, p + Vector3.UP * BEAM_HEIGHT, col)
+			_line(p + Vector3(-0.7, 0.2, 0.0), p + Vector3(0.7, 0.2, 0.0), col)
+			_line(p + Vector3(0.0, 0.2, -0.7), p + Vector3(0.0, 0.2, 0.7), col)
+
+
+# A ray from each creature along its steering heading — where it currently intends to go.
+func _draw_paths() -> void:
+	var col: Color = Color(1.0, 1.0, 1.0, 0.8)
+	for node in get_tree().get_nodes_in_group("creature"):
+		if not (node is Node3D) or not node.has_method("debug_heading"):
+			continue
+		var h: Vector3 = node.debug_heading()
+		if h.length() < 0.01:
+			continue
+		var p: Vector3 = (node as Node3D).global_position + Vector3.UP * 0.3
+		var dir: Vector3 = h.normalized()
+		var tip: Vector3 = p + dir * PATH_LEN
+		_line(p, tip, col)
+		# Small arrowhead so direction reads at a glance.
+		var side: Vector3 = dir.cross(Vector3.UP).normalized() * 0.6
+		_line(tip, tip - dir * 1.0 + side, col)
+		_line(tip, tip - dir * 1.0 - side, col)
+
+
+# The emergent wind as a grid of arrows floating above the world, so its direction/strength is visible.
+func _draw_wind() -> void:
+	if _field == null or not _field.has_method("wind"):
+		return
+	var w: Vector2 = _field.wind()
+	if w.length() < 0.02:
+		return
+	var dir: Vector3 = Vector3(w.x, 0.0, w.y).normalized()
+	var mag: float = clampf(w.length() / 5.0, 0.25, 1.0)
+	var arrow: float = 3.0 + mag * 4.0
+	var y: float = _field.sea_level + 26.0
+	var ext: float = _field.grid_half_extent() if _field.has_method("grid_half_extent") else 300.0
+	var step: float = ext * 2.0 / float(WIND_GRID)
+	var col: Color = Color(0.5, 0.85, 1.0, 0.7)
+	var side: Vector3 = dir.cross(Vector3.UP).normalized()
+	for gx in range(WIND_GRID):
+		for gz in range(WIND_GRID):
+			var base: Vector3 = Vector3(-ext + (float(gx) + 0.5) * step, y, -ext + (float(gz) + 0.5) * step)
+			var tip: Vector3 = base + dir * arrow
+			_line(base, tip, col)
+			_line(tip, tip - dir * (arrow * 0.35) + side * (arrow * 0.2), col)
+			_line(tip, tip - dir * (arrow * 0.35) - side * (arrow * 0.2), col)

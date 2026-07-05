@@ -190,6 +190,14 @@ func is_held() -> bool:
 	return _held or _thrown
 
 
+## Current steering heading (unit-ish world vector the creature is moving along) — read by the debug
+## overlay to draw its intended path. Zero while held/thrown (no self-directed motion).
+func debug_heading() -> Vector3:
+	if _held or _thrown:
+		return Vector3.ZERO
+	return _heading
+
+
 func set_scent(s) -> void:
 	_scent = s
 
