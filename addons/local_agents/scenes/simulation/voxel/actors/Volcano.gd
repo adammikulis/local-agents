@@ -8,8 +8,9 @@ extends Node3D
 ## reseals and pressure rebuilds — so eruption timing AND intensity fall out of the pressure/temperature
 ## cycle. It only INJECTS lava + heat into the MaterialField at its vent; everything else emerges: lava
 ## flows downhill glowing, solidifies into new rock, ignites forests, boils water, scares wildlife.
-## On placement it carves a summit crater + conduit so lava pools in a real vent, not flat on the
-## ground. Built in code, no assets. (Explicit types only — no ':=' inferred typing.)
+## On placement it cuts a lava CHUTE down into the ground where it sits — no pre-built mountain; the
+## cone accretes over time as eruptions overflow the chute and solidify into new rock around the vent.
+## Built in code, no assets. (Explicit types only — no ':=' inferred typing.)
 
 const Mat: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/Materials.gd")
 
@@ -21,6 +22,7 @@ const SCARE_RADIUS: float = 60.0
 # --- Magma-chamber pressure (drives emergent eruptions) ----------------------
 const CHAMBER_TEMP: float = 1200.0        # reference magma temp; the live vent temp vs this sets recharge
 const RECHARGE_RATE: float = 0.05         # base pressure/sec the sealed chamber builds from magma influx
+const BREACH_BUILD_RATE: float = 0.11     # pressure/sec while forming (magma intruding toward the first breach)
 const ERUPT_PRESSURE: float = 1.0         # over-pressure that cracks the vent and begins an eruption
 const SEAL_PRESSURE: float = 0.2          # eruption ends (vent reseals) once pressure bleeds below this
 const VENT_RELEASE: float = 0.9           # how fast venting bleeds off over-pressure
@@ -28,12 +30,11 @@ const OUTFLOW_PER_PRESSURE: float = 1.3   # lava depth/sec per unit over-pressur
 const BOMB_PRESSURE: float = 0.45         # only strongly over-pressured eruptions throw bombs
 var _pressure: float = 0.4                # current chamber over-pressure (starts part-charged)
 
-# --- Conduit / crater the vent is carved into --------------------------------
-const CONE_RADIUS: float = 15.0           # broad base raised so the vent sits on a mountain
-const CRATER_RADIUS: float = 5.0          # summit bowl lava pools in
-const CONDUIT_RADIUS: float = 2.4         # vertical lava-tube shaft bored down from the crater
-const CONDUIT_DEPTH: float = 24.0
-const CONDUIT_STEPS: int = 6
+# --- Lava chute cut into the ground (NO pre-built mountain — the cone accretes from eruptions) ---
+const CRATER_RADIUS: float = 4.5          # flared mouth / crater lip carved at the surface
+const CONDUIT_RADIUS: float = 2.2         # narrow vertical shaft bored down from the mouth
+const CONDUIT_DEPTH: float = 8.0          # how deep the chute goes (shallow enough to fill + overflow)
+const CONDUIT_STEPS: int = 5
 
 # Explosive bursts: while erupting, the vent periodically LAUNCHES ballistic lava bombs (glowing hot
 # rock) that arc out and, on their fuse, dump heat + a little lava where they land — starting spot
@@ -54,6 +55,7 @@ var _field: Object = null
 var _vent: Vector3 = Vector3.ZERO
 
 var _erupting: bool = false
+var _breached: bool = false                # false = crust still intact; magma is building toward the first breach
 var _scare_cd: float = 0.0
 
 var _glow: OmniLight3D = null
@@ -72,49 +74,50 @@ func setup(terrain: Object, ecology: Object) -> void:
 		_field = _ecology.material_field()
 
 
-## Place the vent at `point`: raise a cone, carve a summit crater + conduit tube, seed a lava pool in
-## it, and start the pressure cycle charging (the first eruption emerges when it reaches ERUPT_PRESSURE).
+## Place the vent at `point` over INTACT ground: no vent is cut yet. A magma chamber begins building
+## pressure beneath the crust; rising heat glows and cracks the surface (precursors) until the pressure
+## gives way and the magma PIERCES through for the first time (_breach) — the volcano is born on screen.
+## From then the vent stays open and the cone accretes from the lava it erupts.
 func erupt_at(point: Vector3) -> void:
 	_vent = point
 	global_position = point
-	_carve_conduit()
-	_pressure = 0.6                                     # placed volcanoes are already pressurizing
+	_breached = false
+	_pressure = 0.3                                     # a new volcano starts low and builds until it breaks through
 	_build_fx()
 	LocalAgentsAudioDirector.emit(get_tree(), "crumble", _vent)
 
 
-# Reshape the ground into a real vent: raise a broad cone (so a volcano placed on flat ground still
-# becomes a mountain), carve a bowl crater at the summit and bore a vertical conduit tube down into it,
-# then re-read the terrain so lava pools in the crater instead of sitting flat, and seed a starter pool.
+# Cut a lava CHUTE straight DOWN into the ground where the volcano is placed — no pre-built dome. A
+# flared mouth (crater lip) plus a narrowing vertical shaft. The cone/mass then BUILDS UP over time:
+# each eruption fills the chute and overflows, and that lava flows, cools and SOLIDIFIES into new rock
+# around the vent (emergent — the lava step raises terrain where a flow thins out), so the volcano
+# grows its own mountain from the material it erupts instead of appearing whole.
 func _carve_conduit() -> void:
-	if _terrain == null or not _terrain.has_method("fill_sphere") or not _terrain.has_method("carve_sphere"):
+	if _terrain == null or not _terrain.has_method("carve_sphere"):
 		return
-	# Cone: a few stacked domes of decreasing radius build a peaked mountain around the vent.
-	_terrain.fill_sphere(_vent + Vector3(0.0, -3.0, 0.0), CONE_RADIUS)
-	_terrain.fill_sphere(_vent + Vector3(0.0, 1.0, 0.0), CONE_RADIUS * 0.7)
-	_terrain.fill_sphere(_vent + Vector3(0.0, 4.0, 0.0), CONE_RADIUS * 0.45)
-	# Crater bowl at the summit + a vertical lava-tube conduit bored straight down through the cone.
-	_terrain.carve_sphere(_vent + Vector3(0.0, 5.0, 0.0), CRATER_RADIUS)
+	_terrain.carve_sphere(_vent + Vector3(0.0, 1.0, 0.0), CRATER_RADIUS)   # flared mouth / crater lip
 	for k in range(CONDUIT_STEPS):
 		var t: float = float(k) / float(maxi(1, CONDUIT_STEPS - 1))
-		var y: float = _vent.y + 4.0 - t * CONDUIT_DEPTH
-		_terrain.carve_sphere(Vector3(_vent.x, y, _vent.z), CONDUIT_RADIUS)
-	# Sync the field's cached ground heights to the reshaped terrain so lava sits in the new crater.
+		var y: float = _vent.y + 1.0 - t * CONDUIT_DEPTH
+		var r: float = lerpf(CRATER_RADIUS * 0.75, CONDUIT_RADIUS, t)       # wide at the mouth, narrow deep
+		_terrain.carve_sphere(Vector3(_vent.x, y, _vent.z), r)
+	# Sync the field's cached ground heights to the carved-down surface so lava pools in the chute.
 	if _field != null and _field.has_method("resample_terrain"):
-		_field.resample_terrain(_vent, CONE_RADIUS + 3.0)
-	# Snap the vent to the crater floor (new surface) so lava/heat inject at the right spot.
+		_field.resample_terrain(_vent, CRATER_RADIUS + 4.0)
+	# Snap the vent to the chute floor (the new, lower surface) so lava/heat inject at the bottom.
 	var gy = _terrain.surface_height(_vent.x, _vent.z)
 	if (typeof(gy) == TYPE_FLOAT or typeof(gy) == TYPE_INT) and not (is_nan(float(gy)) or is_inf(float(gy))):
 		_vent.y = float(gy)
 		global_position = _vent
-	# Seed a glowing lava pool in the fresh crater so the vent reads as molten immediately.
+	# Seed a little glowing lava at the chute floor so even a dormant vent reads as molten.
 	if _field != null and _field.has_method("add_material"):
-		_field.add_material(_vent, Mat.LAVA, 0.9, CRATER_RADIUS * 0.8)
+		_field.add_material(_vent, Mat.LAVA, 0.5, CONDUIT_RADIUS * 1.2)
 
 
 func get_inspector_payload() -> Dictionary:
 	var lines: Array = []
-	lines.append("Status: %s" % ("ERUPTING" if _erupting else "pressurizing"))
+	var status: String = "forming — crust intact" if not _breached else ("ERUPTING" if _erupting else "pressurizing")
+	lines.append("Status: %s" % status)
 	lines.append("Chamber pressure: %.0f%%" % (_pressure / ERUPT_PRESSURE * 100.0))
 	lines.append("Vent temp: %.0f°C" % _vent_temp())
 	lines.append("Vent: (%.0f, %.0f, %.0f)" % [_vent.x, _vent.y, _vent.z])
@@ -133,8 +136,11 @@ func _physics_process(delta: float) -> void:
 	# builds; when it crosses ERUPT_PRESSURE the vent cracks; venting then bleeds pressure until it seals.
 	var heat_factor: float = clampf(_vent_temp() / CHAMBER_TEMP, 0.4, 1.3)
 
-	if not _erupting:
-		# Sealed: recharge. Cross the vent's strength → an eruption begins (emergent onset).
+	if not _breached:
+		# Crust still intact: magma builds pressure below and its heat bleeds up until it pierces through.
+		_pressurize_toward_breach(delta)
+	elif not _erupting:
+		# Sealed (already breached): recharge. Cross the vent's strength → an eruption begins.
 		_pressure += RECHARGE_RATE * heat_factor * delta
 		if _pressure >= ERUPT_PRESSURE:
 			_erupting = true
@@ -168,6 +174,52 @@ func _physics_process(delta: float) -> void:
 			_erupting = false
 
 	_update_fx()
+
+
+# BEFORE the volcano has opened: magma accumulates under intact crust. Pressure builds (heat-amplified),
+# and rising heat warms the ground above so a hot spot GLOWS and the surface trembles/cracks — emergent
+# precursors — until the pressure gives way and the magma pierces through.
+func _pressurize_toward_breach(delta: float) -> void:
+	# Magma intrudes from below at a steady rate (not gated by surface heat, which is still low) so a
+	# freshly-placed volcano visibly builds up and breaks through in a handful of seconds.
+	_pressure += BREACH_BUILD_RATE * delta
+	var frac: float = clampf(_pressure / ERUPT_PRESSURE, 0.0, 1.0)
+	if _field != null and _field.has_method("add_heat"):
+		# Heat bleeds up from the rising magma; the ground over it glows hotter as the breach nears.
+		_field.add_heat(_vent, VENT_HEAT_PER_SEC * frac * frac * delta, CRATER_RADIUS * 1.6)
+	if _ecology != null and _ecology.has_method("disturb_ground") and randf() < delta * frac:
+		_ecology.disturb_ground(_vent, CRATER_RADIUS * 2.0, frac)      # tremors crack the ground above
+	if frac > 0.5:
+		_scare_cd -= delta
+		if _scare_cd <= 0.0:
+			_scare_cd = SCARE_INTERVAL
+			if _ecology != null and _ecology.has_method("broadcast_scare"):
+				_ecology.broadcast_scare(_vent, SCARE_RADIUS * frac, frac * 0.5)
+	if _pressure >= ERUPT_PRESSURE:
+		_breach()
+
+
+# The magma PIERCES the crust for the first time: cut the vent open from below, throw shattered crust,
+# shock the world, and flood the first lava out. From here the vent stays open and the cone accretes.
+func _breach() -> void:
+	_carve_conduit()                                    # the ground finally gives way — the vent opens
+	_breached = true
+	_erupting = true
+	_pressure = 0.7                                     # the breach releases much of the built-up pressure
+	if _field != null:
+		if _field.has_method("add_material"):
+			_field.add_material(_vent, Mat.LAVA, 2.5, CRATER_RADIUS)   # the first lava floods out
+		if _field.has_method("add_heat"):
+			_field.add_heat(_vent, VENT_HEAT_PER_SEC * 4.0, CRATER_RADIUS * 2.0)
+	_launch_bombs(1.4)                                  # violent opening blast of crust + lava bombs
+	if _ecology != null:
+		if _ecology.has_method("disturb_ground"):
+			_ecology.disturb_ground(_vent, CRATER_RADIUS * 5.0, 3.0)  # the ground heaves as it ruptures
+		if _ecology.has_method("broadcast_scare"):
+			_ecology.broadcast_scare(_vent, SCARE_RADIUS * 1.5, 1.0)
+	LocalAgentsAudioDirector.emit(get_tree(), "meteor_impact", _vent)
+	if _glow != null:
+		_glow.light_energy = 42.0
 
 
 # Fling a burst of glowing lava bombs (RigidBody projectiles) up and out from the vent. The volley
@@ -279,8 +331,16 @@ func _build_fx() -> void:
 
 
 func _update_fx() -> void:
+	var frac: float = clampf(_pressure / ERUPT_PRESSURE, 0.0, 1.0)
 	if _glow != null:
-		var target: float = 18.0 if _erupting else 4.0
+		var target: float
+		if not _breached:
+			target = 1.0 + 9.0 * frac                    # faint precursor glow that grows as breach nears
+		else:
+			target = 18.0 if _erupting else 4.0
 		_glow.light_energy = lerpf(_glow.light_energy, target, 0.1)
 	if _smoke != null:
-		_smoke.amount_ratio = 1.0 if _erupting else 0.25
+		if not _breached:
+			_smoke.amount_ratio = 0.08 * frac            # only wisps of steam/ash escape intact crust
+		else:
+			_smoke.amount_ratio = 1.0 if _erupting else 0.25
