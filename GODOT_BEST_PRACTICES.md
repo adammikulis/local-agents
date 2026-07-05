@@ -135,24 +135,34 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 
 ## Headless Harness Invocation (Mandatory)
 
+- Preferred entrypoint: `scripts/agent_harness.sh <fast|all|bounded|single|smoke|extension|lint>`
+  wraps the canonical runners, tees a log, and prints one `AGENT_HARNESS_RESULT={...}` line.
 - Always run SceneTree harness scripts via `godot --headless --no-window -s <script>`.
 - Canonical harness scripts:
   - `addons/local_agents/tests/run_all_tests.gd`
   - `addons/local_agents/tests/run_runtime_tests_bounded.gd`
   - `addons/local_agents/tests/run_single_test.gd`
-  - `addons/local_agents/tests/benchmark_voxel_pipeline.gd`
 - `addons/local_agents/tests/test_*.gd` modules are usually `RefCounted` test definitions, not SceneTree entrypoints; never launch directly with `godot -s test_x.gd`.
-- Canonical helper for single-test execution: `scripts/run_single_test.sh test_native_voxel_op_contracts.gd` (defaults to `--timeout=120`).
-- Canonical helper for destruction-path validation sequence: `scripts/run_destruction_tests.sh` (runs non-headless FPS fire harness first, then `--suite=destruction` headless suite).
+- Canonical helper for single-test execution: `scripts/run_single_test.sh test_agent_integration.gd` (defaults to `--timeout=120`).
 - Execute `test_*.gd` modules through `addons/local_agents/tests/run_single_test.gd` and pass the test path with `-- --test=res://...` and explicit timeout.
 - Correct example: `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
 - Broken example: `godot --headless --no-window addons/local_agents/tests/run_all_tests.gd` (`doesn't inherit from SceneTree or MainLoop`)
-- Correct example: `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_op_contracts.gd --timeout=120`
-- Banned example: `godot --headless --no-window -s addons/local_agents/tests/test_native_voxel_op_contracts.gd`
+- Correct example: `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_agent_integration.gd --timeout=120`
+- Banned example: `godot --headless --no-window -s addons/local_agents/tests/test_agent_integration.gd`
+- **Voxel scene self-harness** (the active `VoxelWorld.tscn`): pass args after `--`. Headless smoke
+  `godot --headless res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --run-frames=300`
+  prints `SMOKE_SUMMARY={...}`; windowed `--shoot=<png> --shoot-frames=N` screenshots, `--overview`
+  frames a wide island vista, `--time=<0..1>` sets time of day, and `--auto-meteor`/`--auto-volcano`/
+  `--auto-lightning` trigger disasters. A NEW `class_name`/`.gdextension` needs one editor scan first
+  (`godot --headless --editor --quit-after 400`).
 - Never pass a harness `.gd` as a main scene path without `-s`.
 - When forwarding arguments to harnesses, keep the `--` separator.
 - Keep README command templates synchronized with this file.
 - For scene/playability validation, do not rely only on editor/manual launch; use harness-driven headless execution to surface parse/runtime failures.
+- Historical note: the native projectile-voxel-destruction path (and its `run_destruction_tests.sh` /
+  `benchmark_voxel_pipeline.gd` / `test_native_voxel_op_*` harnesses) was removed with the C++ voxel/sim
+  sources; the destruction-specific invariants and error-log entries below are retained as native/GPU
+  policy and history, not as current commands.
 
 ## Plugin UX and Documentation Process
 
