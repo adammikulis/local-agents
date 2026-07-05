@@ -22,6 +22,10 @@ const OceanPlaneScript: GDScript = preload("res://addons/local_agents/scenes/sim
 const CloudLayerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/CloudLayer.gd")
 const DebugPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugPanel.gd")
 const DebugOverlayScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugOverlay.gd")
+const StreamerOverlayScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/streamer/StreamerOverlay.gd")
+const StreamerAvatarScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/streamer/StreamerAvatar.gd")
+const StreamerVoiceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/streamer/StreamerVoice.gd")
+const StreamerDirectorScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/streamer/StreamerDirector.gd")
 
 const INITIAL_COUNTS: Dictionary = {"plant": 70, "rabbit": 16, "fox": 3, "bird": 14, "villager": 6, "vulture": 5}
 const ROCK_COUNT: int = 44
@@ -33,6 +37,10 @@ var _ecology: Node          # LAEcologyService
 var _hud: CanvasLayer       # LASpawnPaletteHud
 var _debug_panel: CanvasLayer   # LADebugPanel (left-docked debug menu)
 var _debug_overlay: Node3D      # LADebugOverlay (world-space highlight/path/wind gizmos)
+var _streamer_overlay: CanvasLayer  # LAStreamerOverlay (lower-right face-cam + caption + toggle)
+var _streamer_director: Node        # LAStreamerDirector (LLM commentary brain)
+var _streamer_avatar: Node          # LAStreamerAvatar (live SubViewport portrait)
+var _streamer_voice: Node           # LAStreamerVoice (Piper TTS)
 var _actors_root: Node3D
 var _selection_ring: MeshInstance3D
 var _selected: Node = null
@@ -340,6 +348,66 @@ func _ready() -> void:
 		_debug_overlay.set_highlight("species_bird", true)
 		_debug_overlay.set_highlight("species_fox", true)
 		_debug_overlay.set_highlight("nest", true)
+
+	_setup_streamer()
+
+
+# --- Streamer / commentator (lower-right face-cam driven by the local LLM) ----
+
+func _setup_streamer() -> void:
+	# Overlay first (a CanvasLayer), then the live avatar parented under it so its SubViewport draws.
+	_streamer_overlay = StreamerOverlayScript.new()
+	_streamer_overlay.name = "StreamerOverlay"
+	add_child(_streamer_overlay)
+
+	_streamer_avatar = StreamerAvatarScript.new()
+	_streamer_avatar.name = "StreamerAvatar"
+	_streamer_overlay.add_child(_streamer_avatar)
+	_streamer_avatar.setup("streamer")
+	_streamer_overlay.bind_avatar(_streamer_avatar)
+
+	_streamer_voice = StreamerVoiceScript.new()
+	_streamer_voice.name = "StreamerVoice"
+	add_child(_streamer_voice)
+	_streamer_voice.setup({})
+
+	_streamer_director = StreamerDirectorScript.new()
+	_streamer_director.name = "StreamerDirector"
+	add_child(_streamer_director)
+	_streamer_director.setup(self, {"voice": _streamer_voice, "persona": "hype"})
+
+	# Wire the loop: director -> caption + speech; UI toggle/persona -> director; speech -> avatar mouth.
+	_streamer_director.line_ready.connect(_on_streamer_line)
+	_streamer_director.status_changed.connect(_streamer_overlay.set_status)
+	_streamer_overlay.enabled_toggled.connect(_on_streamer_enabled)
+	_streamer_overlay.persona_selected.connect(_streamer_director.set_persona)
+	_streamer_voice.speaking_started.connect(_on_streamer_speaking_started)
+	_streamer_voice.speaking_finished.connect(_on_streamer_speaking_finished)
+
+
+func _on_streamer_line(text: String) -> void:
+	if _streamer_overlay != null:
+		_streamer_overlay.show_line(text)
+	if _streamer_voice != null:
+		_streamer_voice.speak(text)
+	print("STREAMER_LINE=%s" % text)
+
+
+func _on_streamer_enabled(on: bool) -> void:
+	if _streamer_director != null:
+		_streamer_director.set_enabled(on)
+	if _streamer_voice != null:
+		_streamer_voice.set_enabled(on)
+
+
+func _on_streamer_speaking_started(_text: String) -> void:
+	if _streamer_avatar != null and _streamer_avatar.has_method("set_talking"):
+		_streamer_avatar.set_talking(true)
+
+
+func _on_streamer_speaking_finished() -> void:
+	if _streamer_avatar != null and _streamer_avatar.has_method("set_talking"):
+		_streamer_avatar.set_talking(false)
 
 
 # --- Debug menu handlers -----------------------------------------------------
