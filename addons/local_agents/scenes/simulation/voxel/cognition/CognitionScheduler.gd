@@ -1,0 +1,336 @@
+class_name LACognitionScheduler
+extends Node
+
+## The shared "slow brain" throttle. Every creature's LACognition escalates rare/uncertain
+## situations here; this one node decides — for the WHOLE world at once — whether there is budget to
+## resolve another deliberation right now, resolves it OFF the physics frame, and writes a training
+## trace for the auto-finetune loop. It is deliberately the only place that talks to the model server
+## so the global concurrency/rate caps are honoured no matter how many creatures escalate at once.
+##
+## Two backends resolve an escalation into one LAActionRegistry action:
+##   1. Real FunctionGemma — an async HTTP POST to a running llama.cpp llama-server. Signal-based; it
+##      never blocks the frame. Used when a `server_url` is configured and we are inside the tree.
+##   2. Heuristic teacher — a synchronous rule-of-thumb resolved from the signature+context, but its
+##      callback is DEFERRED so it too never blocks. This is the offline fallback AND the "teacher"
+##      that keeps generating training traces when no model is loaded.
+##
+## Either way the result is fed back via `cognition.apply_llm_result(key, action)` (success) or
+## `cognition.on_llm_failed()` (failure/timeout), and — on success — appended as one JSONL trace line.
+##
+## (Explicit types only — project rule: no ':=' inferred typing.)
+
+const DEFAULT_MODEL: String = "google/functiongemma-270m-it"
+const DEFAULT_TRACE_PATH: String = "user://functiongemma_traces.jsonl"
+const SCAN_LIMIT: int = 40                 # per-group cap when gathering escalation context
+const PREDATOR_SIZE_RATIO: float = 1.2     # a "predator" must be at least this much bigger than me
+
+# --- configuration (set via setup) ---
+var _enabled: bool = true
+var _server_url: String = ""
+var _model: String = DEFAULT_MODEL
+var _trace_path: String = DEFAULT_TRACE_PATH
+var _timeout: float = 4.0
+var _max_in_flight: int = 2
+var _max_rps: float = 4.0
+
+# --- live budget / stats ---
+var _in_flight: int = 0
+var _total_calls: int = 0
+var _llm_calls: int = 0
+var _teacher_calls: int = 0
+var _dropped: int = 0
+var _recent_ms: Array = []                 # accept timestamps within the last second (rate limiting)
+
+
+## Configure the scheduler. Robust to a missing/empty server_url (falls back to the teacher).
+func setup(options: Dictionary = {}) -> void:
+	_enabled = bool(options.get("enabled", true))
+	_server_url = String(options.get("server_url", "")).strip_edges()
+	if _server_url.ends_with("/"):
+		_server_url = _server_url.substr(0, _server_url.length() - 1)
+	_model = String(options.get("model", DEFAULT_MODEL))
+	_trace_path = String(options.get("trace_path", DEFAULT_TRACE_PATH))
+	_timeout = float(options.get("timeout", 4.0))
+	_max_in_flight = maxi(1, int(options.get("max_in_flight", 2)))
+	_max_rps = maxf(0.1, float(options.get("max_rps", 4.0)))
+
+
+## The escalation entry point called by LACognition. Returns true if the request was accepted (a
+## result WILL come back asynchronously), false if the global budget is full (caller stays on the
+## fast path). Never blocks the physics frame.
+func request(creature, cognition, sig: Dictionary, innate_action: String) -> bool:
+	if cognition == null:
+		return false
+	if not _accept():
+		_dropped += 1
+		return false
+
+	_in_flight += 1
+	_total_calls += 1
+
+	var context: Dictionary = _gather_context(creature)
+	var job: Dictionary = {
+		"creature": creature,
+		"cognition": cognition,
+		"sig": sig,
+		"innate_action": String(innate_action),
+		"context": context,
+		"http": null,
+	}
+
+	if _enabled and _server_url != "" and is_inside_tree():
+		if _dispatch_llm(job):
+			return true
+		# Could not even dispatch the HTTP request — fall through to the teacher so we still resolve.
+	call_deferred("_resolve_teacher", job)
+	return true
+
+
+## Global budget gate: cap concurrent in-flight resolutions AND requests-per-second. Records the
+## accept timestamp when it lets one through.
+func _accept() -> bool:
+	if _in_flight >= _max_in_flight:
+		return false
+	var now: int = Time.get_ticks_msec()
+	var cutoff: int = now - 1000
+	while _recent_ms.size() > 0 and int(_recent_ms[0]) < cutoff:
+		_recent_ms.remove_at(0)
+	if float(_recent_ms.size()) >= _max_rps:
+		return false
+	_recent_ms.append(now)
+	return true
+
+
+# --- real FunctionGemma backend -------------------------------------------------------------------
+
+func _dispatch_llm(job: Dictionary) -> bool:
+	var http: HTTPRequest = HTTPRequest.new()
+	add_child(http)
+	http.timeout = _timeout
+	http.request_completed.connect(_on_llm_completed.bind(job))
+	job["http"] = http
+
+	var body_dict: Dictionary = LAFunctionGemmaClient.build_request(
+		_model, job["sig"], job["context"], LAActionRegistry.tool_specs()
+	)
+	var body: String = JSON.stringify(body_dict)
+	var headers: PackedStringArray = PackedStringArray(["Content-Type: application/json"])
+	var err: int = http.request(_server_url + "/v1/chat/completions", headers, HTTPClient.METHOD_POST, body)
+	if err != OK:
+		http.queue_free()
+		job["http"] = null
+		return false
+	_llm_calls += 1
+	return true
+
+
+func _on_llm_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray, job: Dictionary) -> void:
+	var http = job.get("http", null)
+	if http != null and is_instance_valid(http):
+		(http as Node).queue_free()
+	job["http"] = null
+
+	var action: String = ""
+	if result == HTTPRequest.RESULT_SUCCESS and response_code == 200:
+		var text: String = body.get_string_from_utf8()
+		var parsed = JSON.parse_string(text)
+		if parsed is Dictionary:
+			action = LAFunctionGemmaClient.parse_action(parsed as Dictionary)
+	_finish(job, action, "llm")
+
+
+# --- heuristic teacher backend --------------------------------------------------------------------
+
+func _resolve_teacher(job: Dictionary) -> void:
+	_teacher_calls += 1
+	var action: String = _teacher_action(job["sig"], job["context"])
+	_finish(job, action, "teacher")
+
+
+## Rule-of-thumb policy over the signature + gathered context. Always yields a valid action (worst
+## case "wander"), so the teacher path never reports failure.
+func _teacher_action(sig: Dictionary, context: Dictionary) -> String:
+	var h: int = int(sig.get("h", 2))
+	var e: int = int(sig.get("e", 3))
+	var at_water: bool = bool(context.get("at_water", false))
+	var diet: String = String(context.get("diet", "herbivore"))
+	var predator_visible: bool = bool(context.get("predator_visible", false))
+
+	if h == 0 and at_water:
+		return "drink"
+	if h == 0:
+		return "seek_water"
+	if e <= 1 and bool(context.get("plant_visible", false)):
+		return "graze"
+	if (diet == "carnivore" or diet == "omnivore") and bool(context.get("prey_visible", false)):
+		return "hunt"
+	if e <= 1 and not predator_visible:
+		return "rest"
+	return "wander"
+
+
+# --- shared resolution / feedback -----------------------------------------------------------------
+
+func _finish(job: Dictionary, action: String, source: String) -> void:
+	_in_flight = maxi(0, _in_flight - 1)
+	var cognition = job.get("cognition", null)
+	if action != "" and LAActionRegistry.is_valid(action):
+		_write_trace(job, action, source)
+		if cognition != null and is_instance_valid(cognition):
+			cognition.apply_llm_result(int(job["sig"].get("key", -1)), action)
+	else:
+		if cognition != null and is_instance_valid(cognition):
+			cognition.on_llm_failed()
+
+
+# --- rich context gathering (rare, escalation-time only) ------------------------------------------
+
+## Scan the world (bounded, vision-gated) for what matters to a survival decision. Only called when a
+## creature actually escalates, so the O(groups) scan cost is acceptable.
+func _gather_context(creature) -> Dictionary:
+	var e_frac: float = 0.0
+	if creature != null and float(creature.max_energy) > 0.0:
+		e_frac = clampf(float(creature.energy) / float(creature.max_energy), 0.0, 1.0)
+	var h_frac: float = 0.0
+	if creature != null and float(creature.max_hydration) > 0.0:
+		h_frac = clampf(float(creature.hydration) / float(creature.max_hydration), 0.0, 1.0)
+
+	var at_water: bool = false
+	if creature != null and creature._water != null and creature._water.has_method("is_water_at"):
+		at_water = creature._water.is_water_at(creature.global_position.x, creature.global_position.z)
+	var night: bool = false
+	if creature != null and creature._ecology != null and creature._ecology.has_method("is_night"):
+		night = creature._ecology.is_night()
+
+	var predator_visible: bool = false
+	var prey_visible: bool = false
+	var plant_visible: bool = false
+	var carrion_visible: bool = false
+
+	var tree: SceneTree = null
+	if creature != null and creature.is_inside_tree():
+		tree = creature.get_tree()
+	if tree != null:
+		predator_visible = _scan_predators(creature, tree)
+		prey_visible = _scan_prey(creature, tree)
+		plant_visible = _scan_group_visible(creature, tree, "plant")
+		carrion_visible = _scan_group_visible(creature, tree, "carrion")
+
+	return {
+		"energy_frac": e_frac,
+		"hydration_frac": h_frac,
+		"at_water": at_water,
+		"night": night,
+		"predator_visible": predator_visible,
+		"prey_visible": prey_visible,
+		"plant_visible": plant_visible,
+		"carrion_visible": carrion_visible,
+		"species": String(creature.species) if creature != null else "",
+		"diet": String(creature.diet) if creature != null else "",
+	}
+
+
+func _scan_predators(creature, tree: SceneTree) -> bool:
+	var my_size: float = float(creature.size)
+	var count: int = 0
+	for n in tree.get_nodes_in_group("creature"):
+		if count >= SCAN_LIMIT:
+			break
+		count += 1
+		if n == creature or not is_instance_valid(n):
+			continue
+		if not n.has_method("is_hunter") or not n.is_hunter():
+			continue
+		var other_size = n.get("size")
+		if other_size == null or float(other_size) < my_size * PREDATOR_SIZE_RATIO:
+			continue
+		if LAVision.sees_node(creature, n):
+			return true
+	return false
+
+
+func _scan_prey(creature, tree: SceneTree) -> bool:
+	for sp in creature.preys_on:
+		var count: int = 0
+		for n in tree.get_nodes_in_group("species_" + String(sp)):
+			if count >= SCAN_LIMIT:
+				break
+			count += 1
+			if n == creature or not is_instance_valid(n):
+				continue
+			if LAVision.sees_node(creature, n):
+				return true
+	return false
+
+
+func _scan_group_visible(creature, tree: SceneTree, group: String) -> bool:
+	var count: int = 0
+	for n in tree.get_nodes_in_group(group):
+		if count >= SCAN_LIMIT:
+			break
+		count += 1
+		if not is_instance_valid(n):
+			continue
+		if LAVision.sees_node(creature, n):
+			return true
+	return false
+
+
+# --- trace logging (fixed schema — the finetune exporter reads this) ------------------------------
+
+func _write_trace(job: Dictionary, action: String, source: String) -> void:
+	if _trace_path == "":
+		return
+	var ctx: Dictionary = job["context"]
+	var sig: Dictionary = job["sig"]
+	var line: Dictionary = {
+		"sig_key": int(sig.get("key", -1)),
+		"sig_text": String(sig.get("text", "")),
+		"species": String(ctx.get("species", "")),
+		"diet": String(ctx.get("diet", "")),
+		"context": {
+			"energy_frac": float(ctx.get("energy_frac", 0.0)),
+			"hydration_frac": float(ctx.get("hydration_frac", 0.0)),
+			"at_water": bool(ctx.get("at_water", false)),
+			"night": bool(ctx.get("night", false)),
+			"predator_visible": bool(ctx.get("predator_visible", false)),
+			"prey_visible": bool(ctx.get("prey_visible", false)),
+			"plant_visible": bool(ctx.get("plant_visible", false)),
+			"carrion_visible": bool(ctx.get("carrion_visible", false)),
+		},
+		"tools": _action_name_list(),
+		"innate_action": String(job.get("innate_action", "")),
+		"chosen_action": action,
+		"source": source,
+	}
+	var f: FileAccess = FileAccess.open(_trace_path, FileAccess.READ_WRITE)
+	if f == null:
+		f = FileAccess.open(_trace_path, FileAccess.WRITE)   # first write — create the file
+	if f == null:
+		return
+	f.seek_end()
+	f.store_line(JSON.stringify(line))
+	f.close()
+
+
+func _action_name_list() -> Array:
+	var names: Array = []
+	for a in LAActionRegistry.ACTIONS:
+		names.append(String(a))
+	return names
+
+
+# --- introspection --------------------------------------------------------------------------------
+
+func stats() -> Dictionary:
+	return {
+		"in_flight": _in_flight,
+		"total_calls": _total_calls,
+		"llm_calls": _llm_calls,
+		"teacher_calls": _teacher_calls,
+		"dropped": _dropped,
+	}
+
+
+func total_calls() -> int:
+	return _total_calls

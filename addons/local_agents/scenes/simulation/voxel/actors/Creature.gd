@@ -94,6 +94,21 @@ var _ecology = null
 # that predators track prey by, and that occasionally fertilizes a new plant).
 var _poop_cd: float = 0.0
 
+# --- perception genes: sight is a FOV cone (LAVision), hearing is omnidirectional ---
+# eye_fov = full cone width in degrees. Wide (prey, ~300) = panoramic but shallow; narrow
+# (predator, ~100) = must aim, but binocular depth buys longer range. Heritable + evolvable.
+var eye_fov: float = 220.0
+var hearing_range: float = 12.0            # calls carry this far, in every direction, even at night
+var _call_cd: float = 0.0
+
+# --- cognition (fast/slow) + genetics ---
+# family_id groups kin: offspring inherit a parent's id, so relatives learn from each other more
+# strongly than unrelated herd-mates (social/cultural transmission of behaviour).
+var family_id: int = 0
+var _genome = null                         # LAGenome (heritable traits + baked instinct priors)
+var _cognition = null                      # LACognition (per-creature learned policy + slow-brain hook)
+var _migrate_dir: Vector3 = Vector3.ZERO   # steady heading chosen when the 'migrate' action fires
+
 
 func add_fear(source_pos: Vector3, intensity: float) -> void:
 	if intensity <= 0.0:
@@ -125,6 +140,9 @@ func die(_cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
 	if _dying:
 		return
 	_dying = true
+	# A death cry: nearby animals hear it and startle (predators may later home in on it).
+	if _ecology != null and _ecology.has_method("broadcast_call"):
+		_ecology.broadcast_call(global_position, species, "distress", self)
 	var parent: Node = get_parent()
 	if parent != null and is_inside_tree():
 		var corpse: CorpseScript = CorpseScript.new()
@@ -154,9 +172,17 @@ func _drop_poop(ground_pos: Vector3) -> void:
 		_ecology.register_poop(poop)
 
 
-func setup(_terrain, _config: Dictionary) -> void:
+func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	terrain = _terrain
-	config = _config.duplicate(true)
+	# Genome drives the config: an offspring/evolved creature is passed a genome and we express it;
+	# otherwise we build an ancestral genome from the species template so EVERY creature has
+	# heritable genes (and per-individual variation once bred).
+	if _genome_arg != null:
+		_genome = _genome_arg
+		config = _genome.express()
+	else:
+		config = _config.duplicate(true)
+		_genome = LAGenome.from_config(config)
 	species = String(config.get("species", species))
 	diet = String(config.get("diet", diet))
 	speed = float(config.get("speed", speed))
@@ -186,8 +212,13 @@ func setup(_terrain, _config: Dictionary) -> void:
 	hungry_at = float(config.get("hungry_at", hungry_at))
 	throws = bool(config.get("throws", throws))
 	throw_range = float(config.get("throw_range", throw_range))
+	# Perception genes (with sensible per-body defaults) + kin id for social learning.
+	eye_fov = float(config.get("eye_fov", eye_fov))
+	hearing_range = float(config.get("hearing_range", sense_radius * 1.5))
+	family_id = int(config.get("family_id", get_instance_id()))
 	state = "cruise" if can_fly else "wander"
 	_poop_cd = randf_range(20.0, 45.0)
+	_call_cd = randf_range(0.0, 2.0)
 
 	collision_layer = 2
 	collision_mask = 0                    # movement is manual; picked via layer-2 query
@@ -198,6 +229,29 @@ func setup(_terrain, _config: Dictionary) -> void:
 	_heading = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0).normalized()
 	if _heading == Vector3.ZERO:
 		_heading = Vector3.FORWARD
+
+	# The fast/slow brain: born with the genome's baked instinct priors; learns the rest by living
+	# and by watching kin. The shared slow-brain scheduler is injected separately (set_cognition_scheduler).
+	_cognition = LACognition.new()
+	_cognition.seed_from_genome(_genome)
+
+
+# The shared System-2 scheduler (FunctionGemma budget/queue), injected by the ecology after setup.
+func set_cognition_scheduler(s) -> void:
+	if _cognition != null:
+		_cognition.set_scheduler(s)
+
+
+func get_cognition():
+	return _cognition
+
+
+func get_genome():
+	return _genome
+
+
+func get_family_id() -> int:
+	return family_id
 
 
 static func _species_group(sp: String) -> String:
@@ -280,6 +334,10 @@ func _physics_process(delta: float) -> void:
 	_wander_timer -= delta
 	_repath_timer -= delta
 	_panic_timer -= delta
+	_call_cd -= delta
+	# Social learning: copy confident habits from visible same-species kin/herd-mates (throttled).
+	if _cognition != null:
+		_cognition.observe(self, delta)
 
 	var eff_speed: float = speed
 	if _panic_timer > 0.0:
@@ -290,6 +348,7 @@ func _physics_process(delta: float) -> void:
 		if away.length() > 0.001:
 			desired = away.normalized()
 		eff_speed = speed * 2.1
+		_emit_call("alarm")                          # screech so unseeing herd-mates also bolt
 	else:
 		# Universal, emergent: flee any nearby larger hunter first (no hardcoded pairs).
 		var big_pred: Node3D = LACreatureSenses.nearest_larger_predator(self, pos)
@@ -300,14 +359,17 @@ func _physics_process(delta: float) -> void:
 			if away.length() > 0.001:
 				desired = away.normalized()
 			eff_speed = speed * 1.7
+			_emit_call("alarm")                      # sentinel call flushes the whole warren
 		else:
 			# Thirst competes with hunger: once parched, seeking/drinking water interrupts
 			# normal behavior (but never overrides fleeing a predator, handled above).
 			var thirst_action: String = _handle_thirst(pos, delta)
 			if thirst_action == "drink":
 				eff_speed = 0.0                      # stand at the water's edge and drink
+				state = "drink"
 			elif thirst_action == "seek":
 				desired = _water_dir_cache
+				state = "seek"
 			elif can_fly:
 				desired = _think_bird(pos, delta)
 				state = "cruise"
@@ -315,6 +377,21 @@ func _physics_process(delta: float) -> void:
 				desired = _think_predator(pos, desired)
 			else:
 				desired = _think_prey(pos, desired)
+
+		# COGNITION (fast/slow): the cascade above is the innate default policy. In a discretionary
+		# situation (no predator forcing a flee) let THIS individual's learned/observed/slow-brain
+		# policy substitute a better action. An empty policy changes nothing — so day-0 behaviour is
+		# identical to before (regression-safe); learning only ever adds overrides.
+		if big_pred == null and _cognition != null:
+			var sig: Dictionary = LASituationSignature.compute(self)
+			var innate_action: String = _state_to_action(state)
+			var chosen: String = _cognition.decide(self, innate_action, sig, delta)
+			if chosen != innate_action:
+				var mv: Dictionary = _execute_action(chosen, pos, delta)
+				if mv.has("heading"):
+					desired = mv["heading"]
+				state = String(mv.get("state", state))
+				eff_speed = float(mv.get("speed", eff_speed))
 
 		if big_pred == null and _wander_timer <= 0.0:
 			_wander_timer = randf_range(1.2, 3.0)
@@ -438,6 +515,7 @@ func _kill_and_eat(prey: Node3D) -> void:
 		gain = (prey as LACreature).food_value
 	energy = minf(max_energy, energy + gain * 0.7)
 	LocalAgentsAudioDirector.emit(get_tree(), "chomp", global_position)
+	_emit_call("forage")                     # a kill call: kin nearby learn to hunt this situation
 	if prey.has_method("die"):
 		prey.die("eaten")           # leaves a carcass (leftovers for scavengers)
 	elif prey.has_method("queue_free"):
@@ -454,6 +532,8 @@ func _try_scavenge(pos: Vector3) -> bool:
 			if c.has_method("feed"):
 				var got: float = float(c.call("feed", 30.0))
 				energy = minf(max_energy, energy + got)
+				if got > 0.0:
+					_emit_call("forage")
 				return got > 0.0
 	return false
 
@@ -518,8 +598,106 @@ func _try_eat_plant(pos: Vector3) -> bool:
 				continue
 			(p as Node3D).queue_free()
 			energy = minf(max_energy, energy + 32.0)
+			_emit_call("forage")             # a feeding call: kin nearby learn to graze this situation
 			return true
 	return false
+
+
+# --- cognition action vocabulary bridge -------------------------------------
+# Map the innate cascade's descriptive `state` to a canonical action name (LAActionRegistry) so the
+# fast policy, social learning, and the LLM all speak the same vocabulary.
+func _state_to_action(s: String) -> String:
+	match s:
+		"flee", "panic":
+			return "flee"
+		"chase", "stalk", "track":
+			return "hunt"
+		"throw":
+			return "throw_rock"
+		"drink":
+			return "drink"
+		"seek":
+			return "seek_water"
+		"cruise":
+			return "flock"
+		"eat":
+			return "graze" if diet == "herbivore" else "scavenge"
+		"rest":
+			return "rest"
+		"migrate":
+			return "migrate"
+		_:
+			return "wander"
+
+
+# Execute a chosen action name → {heading, state, speed}. This is the name→behaviour dispatch the
+# fast policy and slow brain drive; it reuses the same primitives as the innate cascade.
+func _execute_action(action: String, pos: Vector3, delta: float) -> Dictionary:
+	match action:
+		"graze":
+			_try_eat_plant(pos)
+			return {"heading": _heading + LACreatureFlocking.steer(self, pos, true), "state": "eat", "speed": speed}
+		"scavenge":
+			_try_scavenge(pos)
+			return {"heading": _heading + LACreatureFlocking.steer(self, pos, true), "state": "eat", "speed": speed}
+		"hunt", "throw_rock":
+			var h: Vector3 = _think_predator(pos, _heading)   # sets `state` (chase/stalk/throw/…)
+			return {"heading": h, "state": state, "speed": speed}
+		"flock":
+			return {"heading": _heading + LACreatureFlocking.steer(self, pos, not can_fly), "state": "flock", "speed": speed}
+		"drink":
+			if _water != null and _water.has_method("is_water_at") and _water.is_water_at(pos.x, pos.z):
+				hydration = minf(max_hydration, hydration + DRINK_RATE * delta)
+				return {"heading": _heading, "state": "drink", "speed": 0.0}
+			return _execute_action("seek_water", pos, delta)
+		"seek_water":
+			var wd: Vector3 = _find_water_dir(pos)
+			if wd != Vector3.ZERO:
+				return {"heading": wd, "state": "seek", "speed": speed}
+			return {"heading": _heading, "state": "wander", "speed": speed}
+		"rest":
+			return {"heading": _heading, "state": "rest", "speed": speed * 0.12}
+		"migrate":
+			if _migrate_dir == Vector3.ZERO:
+				var cards: Array = [Vector3.FORWARD, Vector3.BACK, Vector3.LEFT, Vector3.RIGHT]
+				_migrate_dir = cards[randi() % cards.size()]
+			return {"heading": _migrate_dir, "state": "migrate", "speed": speed}
+		"wander":
+			return {"heading": _heading, "state": "wander", "speed": speed}
+	return {"heading": _heading, "state": state, "speed": speed}
+
+
+func _forage_action() -> String:
+	if diet == "herbivore":
+		return "graze"
+	return "hunt" if preys_on.size() > 0 else "graze"
+
+
+# Emit an animal call others can hear (omnidirectional). The ecology relays it; each listener gates
+# on its own hearing_range. Throttled so a panicking animal doesn't scream every frame.
+func _emit_call(call_type: String) -> void:
+	if _ecology == null or not _ecology.has_method("broadcast_call"):
+		return
+	if _call_cd > 0.0:
+		return
+	_call_cd = 1.5 if call_type == "alarm" else 4.0
+	_ecology.broadcast_call(global_position, species, call_type, self)
+
+
+# Hear a call from `caller` (already range-checked by the broadcaster against my hearing_range).
+# Alarm/distress feed the fear reflex even with no line of sight; a same-species forage call teaches
+# me to forage in my current situation, kin weighted over strangers — sound-based social learning.
+func hear_call(source_pos: Vector3, from_species: String, call_type: String, caller) -> void:
+	match call_type:
+		"alarm":
+			add_fear(source_pos, 1.2)
+		"distress":
+			add_fear(source_pos, 0.8)
+		"forage":
+			if from_species == species and _cognition != null:
+				var kin: bool = caller != null and caller.has_method("get_family_id") and caller.get_family_id() == family_id
+				var rel: float = 1.0 if kin else 0.35
+				_cognition.learn_from_sound(self, _forage_action(), rel)
 
 
 # Emergent threat detection: no hardcoded predator pairs. Flee ANY nearby creature that
