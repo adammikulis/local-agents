@@ -21,6 +21,7 @@ const MaterialFieldScript: GDScript = preload("res://addons/local_agents/scenes/
 const OceanPlaneScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/OceanPlane.gd")
 const MaterialField3DScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField3D.gd")
 const CloudLayerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/CloudLayer.gd")
+const RainLayerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/RainLayer.gd")
 const DebugPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugPanel.gd")
 const DebugOverlayScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugOverlay.gd")
 
@@ -42,6 +43,7 @@ var _material: Node = null   # LAMaterialField — the ONE substrate: terrain-co
 var _ocean: Node = null      # LAOceanPlane — the calm sea drawn as one GPU plane (CA meshes only waves)
 var _clouds: Node = null     # LACloudLayer rendering the field's cloud density (aloft)
 var _fog: Node = null        # LACloudLayer rendering the field's fog density (ground-hugging)
+var _rain: Node = null       # LARainLayer — GPU rain particles where the field precipitates (emergent)
 
 # --- Day/night cycle. VoxelWorld owns ALL sky lighting (sun arc + energy, sky colors,
 # ambient) so the cycle and weather never fight over the same properties; weather only
@@ -137,6 +139,7 @@ var _overview: bool = false             # --overview: frame a wide whole-island 
 var _farview: bool = false              # --farview: pull the vista out to max zoom (ocean-coverage test)
 var _field3d_enabled: bool = false      # --field3d: run the dense 3D MaterialField live (water pools in caves)
 var _field3d: Node = null
+var _rain_force: bool = false           # --rain: force the rain visual on (verification aid)
 var _debug_demo: bool = false
 var _user_shot_counter: int = 0        # numbers the screenshots the DebugPanel's save button writes
 var _auto_volcano: bool = false
@@ -316,6 +319,14 @@ func _ready() -> void:
 	add_child(_fog)
 	_fog.setup(_material, true)
 
+	# Rain VISUAL — GPU streak particles that fall only where the field's clouds are dense enough to
+	# precipitate (emergent from the vapor→cloud→rain cycle, gated by cloud density at the camera).
+	_rain = RainLayerScript.new()
+	add_child(_rain)
+	_rain.setup(_material, _camera)
+	if _rain_force and _rain.has_method("set_force"):
+		_rain.set_force(true)
+
 	# Feed the live temperature texture to the terrain shader so HOT GROUND GLOWS (meteor craters,
 	# lava, wildfire fronts) — emergent incandescence, updated in place each field step.
 	if _terrain.has_method("set_shader_param") and _material.has_method("heat_texture"):
@@ -424,6 +435,8 @@ func _parse_cmdline() -> void:
 			_farview = true
 		elif arg == "--field3d":
 			_field3d_enabled = true
+		elif arg == "--rain":
+			_rain_force = true
 		elif arg == "--cognition-stats":
 			_cognition_stats = true
 
@@ -1317,6 +1330,8 @@ func _build_field3d() -> void:
 	var sea: float = _terrain.sea_level() if _terrain.has_method("sea_level") else 0.0
 	# 8-unit cells over the island's Y span (seabed to above the spring heads) keeps it ~130k cells.
 	_field3d.setup(_terrain, 300.0, 8.0, -80.0, 90.0, sea)
+	if _field3d.has_method("set_sun"):
+		_field3d.set_sun(_sun)
 	_field3d.sample_solidity()
 	_field3d.seed_sea()
 	for p in _springs:

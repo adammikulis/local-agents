@@ -679,6 +679,16 @@ func fog_at(x: float, z: float) -> float:
 	return _atmosphere.fog_at(x, z) if _atmosphere != null else 0.0
 
 
+## Relative humidity 0..1+ (1 = at the dewpoint; fog/cloud condense above it).
+func relative_humidity_at(x: float, z: float) -> float:
+	return _atmosphere.relative_humidity_at(x, z) if _atmosphere != null else 0.0
+
+
+## Dewpoint °C — the temperature the air here must cool to for its vapor to condense.
+func dewpoint_at(x: float, z: float) -> float:
+	return _atmosphere.dewpoint_at(x, z) if _atmosphere != null else NAN
+
+
 ## Mean cloud / fog density over sampled cells — drives global sun dimming and HUD/diagnostics.
 func avg_cloud_cover() -> float:
 	return _atmosphere.avg_cloud_cover() if _atmosphere != null else 0.0

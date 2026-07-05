@@ -47,6 +47,30 @@ var _wnext: PackedFloat32Array = PackedFloat32Array()    # double buffer for the
 # static cell is absorbed (drains into the sea). This is what keeps the dense 3D field cheap.
 var _static: PackedByteArray = PackedByteArray()
 
+# --- Shared 3D field state used by the concern modules (heat / atmosphere / lava). Every cell (rock OR
+# void) carries a temperature; the atmosphere layers + lava are per-cell amounts like water. The modules
+# reach into these arrays through the field (`_f`), 3D-generalising the 2.5D MaterialHeat/Atmosphere/
+# Liquid. INITIAL_TEMP seeds a mild ground so nothing freezes before the field settles.
+const INITIAL_TEMP: float = 15.0
+var _temp: PackedFloat32Array = PackedFloat32Array()     # temperature °C per cell (rock + void)
+var _vapor: PackedFloat32Array = PackedFloat32Array()    # airborne water vapor (humidity) per cell
+var _cloud: PackedFloat32Array = PackedFloat32Array()    # condensed cloud density per cell
+var _fog: PackedFloat32Array = PackedFloat32Array()      # condensed fog density per cell
+var _lava: PackedFloat32Array = PackedFloat32Array()     # lava mass per cell (a hot, viscous liquid)
+var _sun_light = null                                    # DirectionalLight3D — solar forcing (top cells)
+
+# Concern modules (3D generalisations of the 2.5D ones), set by activate().
+var _heat = null                                         # LAMaterialHeat3D
+var _atmosphere = null                                   # LAMaterialAtmosphere3D
+var _lava_sim = null                                     # LAMaterialLava3D
+const HeatScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialHeat3D.gd")
+const AtmosphereScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialAtmosphere3D.gd")
+
+
+## Wire the real scene sun (DirectionalLight3D); the heat module reads its energy + angle for solar input.
+func set_sun(light) -> void:
+	_sun_light = light
+
 
 var _sea_level: float = 0.0
 var _half_extent: float = 0.0
@@ -136,6 +160,17 @@ func setup_dims(dim_x: int, dim_y: int, dim_z: int, cell_size: float, origin: Ve
 	_wnext.resize(_cell_count)
 	_static = PackedByteArray()
 	_static.resize(_cell_count)
+	_temp = PackedFloat32Array()
+	_temp.resize(_cell_count)
+	_temp.fill(INITIAL_TEMP)
+	_vapor = PackedFloat32Array()
+	_vapor.resize(_cell_count)
+	_cloud = PackedFloat32Array()
+	_cloud.resize(_cell_count)
+	_fog = PackedFloat32Array()
+	_fog.resize(_cell_count)
+	_lava = PackedFloat32Array()
+	_lava.resize(_cell_count)
 
 
 # --- Index helpers ----------------------------------------------------------
@@ -338,6 +373,10 @@ func add_source(pos: Vector3, rate: float) -> void:
 ## Begin simulating + rendering (called after setup + sample_solidity + seed_sea). Builds the render
 ## node and starts the throttled step in _physics_process.
 func activate() -> void:
+	_heat = HeatScript.new()
+	_heat.setup(self)
+	_atmosphere = AtmosphereScript.new()
+	_atmosphere.setup(self)
 	_build_render_node()
 	rebuild_surface()
 	_ready_sim = true
@@ -355,8 +394,32 @@ func _physics_process(delta: float) -> void:
 		for src in _sources:
 			add_water_world(src["pos"], float(src["rate"]) * STEP_DT)
 		step_water()
+		if _heat != null:
+			_heat.step()
+		if _atmosphere != null:
+			_atmosphere.step()
+		if _lava_sim != null:
+			_lava_sim.step()
 	if steps > 0:
 		rebuild_surface()
+
+
+## Temperature °C at a world point (0 outside the grid). The consumer query the 2.5D field also exposes.
+func temp_at(x: float, z: float, y: float = NAN) -> float:
+	var ix: int = _col_i(x, _origin.x)
+	var iz: int = _col_i(z, _origin.z)
+	var iy: int = _col_i(y, _origin.y) if not is_nan(y) else _surface_iy(ix, iz)
+	if iy < 0:
+		return 0.0
+	return _temp[(iy * _dim_z + iz) * _dim_x + ix]
+
+
+# Topmost non-solid cell of a column (its sky-exposed surface), or -1 if the column is solid to the top.
+func _surface_iy(ix: int, iz: int) -> int:
+	for iy in range(_dim_y - 1, -1, -1):
+		if _solid[(iy * _dim_z + iz) * _dim_x + ix] == 0:
+			return iy
+	return -1
 
 
 func _build_render_node() -> void:
