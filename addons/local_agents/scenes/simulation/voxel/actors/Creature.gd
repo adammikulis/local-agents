@@ -292,7 +292,7 @@ func _physics_process(delta: float) -> void:
 		eff_speed = speed * 2.1
 	else:
 		# Universal, emergent: flee any nearby larger hunter first (no hardcoded pairs).
-		var big_pred: Node3D = _nearest_larger_predator(pos)
+		var big_pred: Node3D = LACreatureSenses.nearest_larger_predator(self, pos)
 		if big_pred != null:
 			state = "flee"
 			var away: Vector3 = pos - big_pred.global_position
@@ -353,7 +353,7 @@ func _surface_at(x: float, z: float) -> float:
 
 # --- prey behavior: flee predators (dominates), else wander + flock, eat plants ---
 func _think_prey(pos: Vector3, fallback: Vector3) -> Vector3:
-	var threat: Node3D = _nearest_of(pos, flees_from)
+	var threat: Node3D = LACreatureSenses.nearest_of(self, pos, flees_from)
 	if threat != null:
 		state = "flee"
 		var away: Vector3 = pos - threat.global_position
@@ -362,9 +362,9 @@ func _think_prey(pos: Vector3, fallback: Vector3) -> Vector3:
 			return away.normalized() * 1.5
 	if diet != "carnivore" and _try_eat_plant(pos):
 		state = "eat"
-		return fallback + _flock_steer(pos, true)
+		return fallback + LACreatureFlocking.steer(self, pos, true)
 	state = "wander"
-	return fallback + _flock_steer(pos, true)
+	return fallback + LACreatureFlocking.steer(self, pos, true)
 
 
 # --- predator behavior: scavenge, hunt prey (throw or bite), track scent, else flock ---
@@ -373,7 +373,7 @@ func _think_predator(pos: Vector3, fallback: Vector3) -> Vector3:
 	if energy < max_energy * 0.95 and _try_scavenge(pos):
 		state = "eat"
 		return fallback
-	var prey: Node3D = _nearest_of(pos, preys_on)
+	var prey: Node3D = LACreatureSenses.nearest_of(self, pos, preys_on)
 	if prey != null:
 		var to_prey: Vector3 = prey.global_position - pos
 		to_prey.y = 0.0
@@ -387,15 +387,15 @@ func _think_predator(pos: Vector3, fallback: Vector3) -> Vector3:
 		if to_prey.length() > 0.001:
 			return to_prey.normalized()
 	else:
-		var trail: Vector3 = _follow_prey_scent(pos)
+		var trail: Vector3 = LACreatureSenses.follow_prey_scent(self, pos)
 		if trail != Vector3.ZERO:
 			state = "track"
 			return trail
 	if diet == "omnivore" and _try_eat_plant(pos):
 		state = "eat"
-		return fallback + _flock_steer(pos, true)
+		return fallback + LACreatureFlocking.steer(self, pos, true)
 	state = "wander"
-	return fallback + _flock_steer(pos, true)
+	return fallback + LACreatureFlocking.steer(self, pos, true)
 
 
 # Persistence hunting: the hunter can't outrun fleeing prey, so it just keeps walking
@@ -404,7 +404,7 @@ func _think_predator(pos: Vector3, fallback: Vector3) -> Vector3:
 func _hunt_with_rock(pos: Vector3, prey: Node3D, to_prey: Vector3, fallback: Vector3) -> Vector3:
 	var dist: float = to_prey.length()
 	if not has_rock:
-		var rock: Node3D = _nearest_rock(pos)
+		var rock: Node3D = LACreatureSenses.nearest_rock(self, pos)
 		if rock != null and pos.distance_to((rock as Node3D).global_position) <= maxf(size + 1.3, 1.7):
 			if rock.has_method("take"):
 				rock.take()
@@ -458,83 +458,13 @@ func _try_scavenge(pos: Vector3) -> bool:
 	return false
 
 
-func _follow_prey_scent(pos: Vector3) -> Vector3:
-	if _scent == null or preys_on.is_empty():
-		return Vector3.ZERO
-	for sp in preys_on:
-		var dir: Vector3 = _scent.scent_direction(pos, String(sp), sense_radius * 2.5)
-		if dir != Vector3.ZERO:
-			dir.y = 0.0
-			return dir
-	return Vector3.ZERO
-
-
-func _nearest_rock(pos: Vector3) -> Node3D:
-	var best: Node3D = null
-	var best_d: float = sense_radius * 2.5
-	for r in get_tree().get_nodes_in_group(GROUP_ROCK):
-		if not is_instance_valid(r) or not (r is Node3D):
-			continue
-		var d: float = pos.distance_to((r as Node3D).global_position)
-		if d < best_d:
-			best_d = d
-			best = r
-	return best
-
-
 func _set_rock_visual(on: bool) -> void:
 	if _rock_visual != null and is_instance_valid(_rock_visual):
 		_rock_visual.visible = on
 
 
 func _think_bird(pos: Vector3, _delta: float) -> Vector3:
-	return _heading + _flock_steer(pos, false)
-
-
-# Unified same-kind flocking / imitation steering, shared by ALL species: cohesion
-# (toward local center), alignment (match average heading — "do what others like me do"),
-# and separation (avoid crowding). flatten zeroes Y for ground creatures.
-func _flock_steer(pos: Vector3, flatten: bool) -> Vector3:
-	if flock_weight <= 0.0:
-		return Vector3.ZERO
-	var mates: Array = get_tree().get_nodes_in_group(_species_group(species))
-	var center: Vector3 = Vector3.ZERO
-	var align: Vector3 = Vector3.ZERO
-	var separation: Vector3 = Vector3.ZERO
-	var n: int = 0
-	var sep_dist: float = maxf(size * 4.0, 1.5)
-	for m in mates:
-		if m == self or not is_instance_valid(m):
-			continue
-		var lm: LACreature = m as LACreature
-		if lm == null:
-			continue
-		var op: Vector3 = lm.global_position
-		var d: float = pos.distance_to(op)
-		if d > flock_radius or d < 0.0001:
-			continue
-		center += op
-		align += lm._heading
-		if d < sep_dist:
-			separation += (pos - op) / d          # stronger the closer they are
-		n += 1
-	if n == 0:
-		return Vector3.ZERO
-	center /= float(n)
-	align /= float(n)
-	var cohesion: Vector3 = center - pos
-	if flatten:
-		cohesion.y = 0.0
-		align.y = 0.0
-		separation.y = 0.0
-	var steer: Vector3 = Vector3.ZERO
-	if cohesion.length() > 0.001:
-		steer += cohesion.normalized() * flock_cohesion
-	if align.length() > 0.001:
-		steer += align.normalized() * flock_alignment
-	if separation.length() > 0.001:
-		steer += separation.normalized() * flock_separation
-	return steer * flock_weight
+	return _heading + LACreatureFlocking.steer(self, pos, false)
 
 
 # Thirst drive. Returns "" (not thirsty enough / no water known), "drink" (standing at
@@ -599,84 +529,10 @@ func is_hunter() -> bool:
 	return diet == "carnivore" or (diet == "omnivore" and preys_on.size() > 0)
 
 
-func _nearest_larger_predator(pos: Vector3) -> Node3D:
-	var best: Node3D = null
-	var best_d: float = sense_radius * _sense_mult
-	for cand in get_tree().get_nodes_in_group(GROUP_CREATURE):
-		if not is_instance_valid(cand) or cand == self:
-			continue
-		if not cand.has_method("is_hunter") or not cand.call("is_hunter"):
-			continue
-		if float(cand.get("size")) < size * PREDATOR_SIZE_RATIO:
-			continue
-		var c3: Node3D = cand as Node3D
-		var d: float = pos.distance_to(c3.global_position)
-		if d < best_d:
-			best_d = d
-			best = c3
-	return best
-
-
-func _nearest_of(pos: Vector3, species_list: PackedStringArray) -> Node3D:
-	var best: Node3D = null
-	var best_d: float = sense_radius * _sense_mult
-	for sp in species_list:
-		for cand in get_tree().get_nodes_in_group(_species_group(sp)):
-			if not is_instance_valid(cand) or cand == self:
-				continue
-			var c3: Node3D = cand as Node3D
-			if c3 == null:
-				continue
-			var d: float = pos.distance_to(c3.global_position)
-			if d < best_d:
-				best_d = d
-				best = c3
-	return best
-
-
 func is_mature() -> bool:
 	return age >= maturity_age
 
 
+# Inspector presentation lives in LACreatureInspector; this stays as the group-facing hook.
 func get_inspector_payload() -> Dictionary:
-	var maturity: String = "adult" if is_mature() else "juvenile"
-	var activity: String = _describe_activity()
-	var energy_pct: int = int(round(100.0 * energy / maxf(1.0, max_energy)))
-	var hydration_pct: int = int(round(100.0 * hydration / maxf(1.0, max_hydration)))
-	var nearby: int = get_tree().get_nodes_in_group(_species_group(species)).size() - 1
-	var p: Vector3 = global_position
-	var lines: Array = [
-		"Species: %s (%s)" % [species, maturity],
-		"Diet: %s" % diet,
-		"Doing: %s" % activity,
-		"Energy: %d%%  %s" % [energy_pct, _energy_bar(energy_pct)],
-		"Water:  %d%%  %s" % [hydration_pct, _energy_bar(hydration_pct)],
-		"Age: %.0fs / %.0fs" % [age, max_age],
-		"Speed: %.1f   Size: %.2f" % [speed, size],
-		"Herd nearby: %d" % maxi(0, nearby),
-		"Pos: (%.0f, %.0f, %.0f)" % [p.x, p.y, p.z],
-	]
-	if throws:
-		lines.append("Rock in hand: %s" % ("yes" if has_rock else "no"))
-	return {"title": species.capitalize(), "lines": lines}
-
-
-func _describe_activity() -> String:
-	match state:
-		"panic": return "terrified — fleeing!"
-		"flee": return "fleeing a predator"
-		"chase": return "chasing prey"
-		"stalk": return "stalking prey (persistence hunt)"
-		"track": return "tracking scent"
-		"throw": return "throwing a rock"
-		"eat": return "eating"
-		"drink": return "drinking"
-		"thirsty": return "searching for water"
-		"cruise": return "flying with the flock"
-		"wander": return "wandering with its kind"
-		_: return state
-
-
-func _energy_bar(pct: int) -> String:
-	var filled: int = clampi(pct / 10, 0, 10)
-	return "[%s%s]" % ["#".repeat(filled), "-".repeat(10 - filled)]
+	return LACreatureInspector.payload(self)
