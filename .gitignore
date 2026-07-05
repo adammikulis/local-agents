@@ -51,3 +51,4 @@ logs/validation_lane/
 addons/local_agents/models/functiongemma/train_examples.jsonl
 addons/local_agents/models/functiongemma/*.gguf
 addons/local_agents/gdextensions/localagents/bin
+volcano_shot_*.png

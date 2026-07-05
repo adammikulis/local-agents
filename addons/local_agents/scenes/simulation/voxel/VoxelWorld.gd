@@ -131,6 +131,7 @@ var _peak_investigating: int = 0
 var _peak_sleeping: int = 0
 var _auto_meteor: bool = false
 var _debug_demo: bool = false
+var _user_shot_counter: int = 0        # numbers the screenshots the DebugPanel's save button writes
 var _auto_volcano: bool = false
 var _auto_volcano_fired: bool = false
 var _auto_lightning: bool = false
@@ -307,6 +308,7 @@ func _ready() -> void:
 	_debug_panel.highlight_toggled.connect(_on_debug_highlight)
 	_debug_panel.paths_toggled.connect(_on_debug_paths)
 	_debug_panel.perf_toggled.connect(_on_debug_perf)
+	_debug_panel.screenshot_requested.connect(_on_debug_screenshot)
 	if _debug_demo:
 		# Verification aid: pre-enable a spread of gizmos so a screenshot shows them working.
 		_debug_overlay.set_wind(true)
@@ -352,6 +354,16 @@ func _on_debug_perf(key: String, on: bool) -> void:
 		"ssao":
 			if _env != null:
 				_env.ssao_enabled = on
+
+
+# Save-screenshot button (DebugPanel): capture the current viewport to a numbered PNG in the project
+# folder and report the absolute path so it's easy to find.
+func _on_debug_screenshot() -> void:
+	_user_shot_counter += 1
+	var path: String = ProjectSettings.globalize_path("res://volcano_shot_%d.png" % _user_shot_counter)
+	_capture_screenshot(path)
+	if _hud != null and _hud.has_method("set_status"):
+		_hud.set_status("Saved screenshot → %s" % path)
 
 
 func _parse_cmdline() -> void:
