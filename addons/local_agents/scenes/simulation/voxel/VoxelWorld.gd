@@ -41,6 +41,7 @@ var _streamer_overlay: CanvasLayer  # LAStreamerOverlay (lower-right face-cam + 
 var _streamer_director: Node        # LAStreamerDirector (LLM commentary brain)
 var _streamer_avatar: Node          # LAStreamerAvatar (live SubViewport portrait)
 var _streamer_voice: Node           # LAStreamerVoice (Piper TTS)
+var _streamer_persona: String = "hype"   # default personality; override with --streamer-persona=<id>
 var _actors_root: Node3D
 var _selection_ring: MeshInstance3D
 var _selected: Node = null
@@ -374,7 +375,7 @@ func _setup_streamer() -> void:
 	_streamer_director = StreamerDirectorScript.new()
 	_streamer_director.name = "StreamerDirector"
 	add_child(_streamer_director)
-	_streamer_director.setup(self, {"voice": _streamer_voice, "persona": "hype"})
+	_streamer_director.setup(self, {"voice": _streamer_voice, "persona": _streamer_persona})
 
 	# Wire the loop: director -> caption + speech; UI toggle/persona -> director; speech -> avatar mouth.
 	_streamer_director.line_ready.connect(_on_streamer_line)
@@ -383,6 +384,7 @@ func _setup_streamer() -> void:
 	_streamer_overlay.persona_selected.connect(_streamer_director.set_persona)
 	_streamer_voice.speaking_started.connect(_on_streamer_speaking_started)
 	_streamer_voice.speaking_finished.connect(_on_streamer_speaking_finished)
+	_streamer_overlay.set_default_persona(_streamer_persona)
 
 
 func _on_streamer_line(text: String) -> void:
@@ -478,6 +480,8 @@ func _parse_cmdline() -> void:
 			_auto_meteor = true
 		elif arg == "--auto-volcano":
 			_auto_volcano = true
+		elif arg.begins_with("--streamer-persona="):
+			_streamer_persona = arg.substr("--streamer-persona=".length())
 		elif arg == "--auto-lightning":
 			_auto_lightning = true
 		elif arg == "--auto-select":

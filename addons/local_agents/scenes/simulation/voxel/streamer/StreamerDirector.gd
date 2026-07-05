@@ -214,6 +214,7 @@ func _take_sample() -> void:
 	var sample: Dictionary = {
 		"pop": pop, "species": species_counts, "states": states,
 		"corpses": corpses, "destruction": destruction, "tod": tod, "fires": fires,
+		"cloud": _cloud_cover(),
 	}
 	if not _last_sample.is_empty():
 		_detect_events(_last_sample, sample)
@@ -303,26 +304,25 @@ func _fire(idle: bool) -> void:
 	var events_snapshot: Array = _events.duplicate()
 	_events.clear()
 
-	# Idle filler is intentionally cheap + rare: a canned hype line, no model call.
-	if idle:
-		_emit_line(_canned([]))
-		return
 	if not _server_ready:
-		# No brain yet: keep the energy up with a canned reaction.
+		# No brain yet: keep the energy up with a canned line.
 		_emit_line(_canned(events_snapshot))
 		return
-	_dispatch_llm(events_snapshot)
+	# Idle lull: let the caster comment on the general conditions (weather, calm, scenery) instead of
+	# reacting to an event. Otherwise react to what just happened.
+	_dispatch_llm(events_snapshot, idle)
 
 
-func _dispatch_llm(events_snapshot: Array) -> void:
+func _dispatch_llm(events_snapshot: Array, ambient: bool = false) -> void:
 	var http: HTTPRequest = HTTPRequest.new()
 	add_child(http)
 	http.timeout = 8.0
 	http.request_completed.connect(_on_llm_completed.bind(http, events_snapshot))
 
+	var user_content: String = _build_ambient_context() if ambient else _build_context(events_snapshot)
 	var messages: Array = [{"role": "system", "content": LAStreamerPersonas.system_prompt(_persona_id) + " /no_think"}]
 	messages.append_array(_window)
-	messages.append({"role": "user", "content": _build_context(events_snapshot)})
+	messages.append({"role": "user", "content": user_content})
 
 	var body: Dictionary = {
 		"model": _model_name,
@@ -333,6 +333,10 @@ func _dispatch_llm(events_snapshot: Array) -> void:
 		"presence_penalty": 0.5,
 		"max_tokens": 64,
 		"stream": false,
+		# ONE persistent server for the whole session. Persona swaps just change the system prompt on
+		# the next request; cache_prompt lets llama.cpp reuse the KV of the shared prefix instead of
+		# recomputing (and we never relaunch the server to change voice).
+		"cache_prompt": true,
 	}
 	var headers: PackedStringArray = PackedStringArray(["Content-Type: application/json"])
 	var err: int = http.request(_server_url + "/v1/chat/completions", headers, HTTPClient.METHOD_POST, JSON.stringify(body))
@@ -394,6 +398,37 @@ func _build_context(events_snapshot: Array) -> String:
 		+ "Give your ONE reaction line now — react, do not describe or recite, do not repeat yourself.") % [", ".join(mood), beats]
 
 
+## Idle-lull prompt: nothing dramatic is happening, so invite a chill line about the general conditions
+## — the weather, the light, the calm, the scenery — the kind of small talk a streamer fills dead air
+## with. Grounded in the actual sky/time so "quiet sunny day" or "peaceful night" lands right.
+func _build_ambient_context() -> String:
+	var snap: Dictionary = _last_sample
+	var tod: float = float(snap.get("tod", 0.5))
+	var night: bool = tod < 0.25 or tod >= 0.75
+	var cloud: float = float(snap.get("cloud", 0.0))
+	var sky: String = ""
+	if night:
+		sky = "a calm, dark night"
+	elif cloud > 0.35:
+		sky = "an overcast, grey day"
+	elif cloud > 0.12:
+		sky = "a mild day with a few clouds"
+	else:
+		sky = "a bright, sunny day"
+	var extra: String = ""
+	if int(snap.get("fires", 0)) > 0:
+		extra = " with a little smoke still drifting"
+	var pop: int = int(snap.get("pop", 0))
+	var life: String = "the animals are just quietly going about their day"
+	if pop <= 6:
+		life = "it's pretty sparse out here right now"
+
+	return ("Nothing dramatic is happening. It's %s%s, and %s.\n"
+		+ "Fill the dead air with ONE short, chill line about the general conditions or vibe — the "
+		+ "weather, the calm, the view. Keep it casual and streamer-friendly; do not recite facts or "
+		+ "repeat yourself.") % [sky, extra, life]
+
+
 # --- helpers ------------------------------------------------------------------------------------
 
 func _reset_window() -> void:
@@ -444,6 +479,14 @@ func _clean(raw: String) -> String:
 	text = text.strip_edges()
 	for ch in ["*", "\"", "`", "#", "_"]:
 		text = text.replace(ch, "")
+	# Strip emoji / pictographs (the small model sprinkles them in despite the rules). Keep normal
+	# punctuation and typographic dashes/ellipses (all below U+2500).
+	var filtered: String = ""
+	for i in range(text.length()):
+		var c: int = text.unicode_at(i)
+		if c < 0x2500:
+			filtered += char(c)
+	text = filtered.strip_edges()
 	if text.begins_with("- "):
 		text = text.substr(2)
 	if text.length() > 200:
@@ -458,6 +501,15 @@ func _canned(events_snapshot: Array) -> String:
 	if events_snapshot.size() > 0:
 		return String(CANNED_REACTIONS[idx % CANNED_REACTIONS.size()])
 	return String(CANNED_FILLERS[idx % CANNED_FILLERS.size()])
+
+
+func _cloud_cover() -> float:
+	if _world == null or _world.get("_material") == null:
+		return 0.0
+	var mat = _world.get("_material")
+	if mat != null and mat.has_method("avg_cloud_cover"):
+		return float(mat.avg_cloud_cover())
+	return 0.0
 
 
 func _fire_count() -> int:

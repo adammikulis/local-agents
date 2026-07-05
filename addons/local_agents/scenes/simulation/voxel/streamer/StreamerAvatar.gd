@@ -14,6 +14,7 @@ const RENDER_SIZE: Vector2i = Vector2i(240, 300)
 
 var _sv: SubViewport = null
 var _model: Node3D = null
+var _hat: Node3D = null          # rides above the head, synced to the model's glance/bob each frame
 var _anim: AnimationPlayer = null
 var _idle_clip: String = ""
 var _talk_clip: String = ""
@@ -80,9 +81,59 @@ func setup(model_id: String = "streamer") -> void:
 		_anim = LAModelVisual.find_anim(_model)
 		if _anim != null and _anim.has_animation(_idle_clip):
 			_anim.play(_idle_clip)
+		_build_hat()
 
 	add_child(_sv)
 	cam.look_at(Vector3(0.0, 1.34, 0.0), Vector3.UP)
+
+
+# Kenney "cap" accessory (CC0), imported from FBX by Godot's built-in converter. Sits on a pivot at the
+# model's feet holding the cap at head height, so the model's glance/bob rotation (applied to the pivot
+# each frame) swings the cap with the head. Auto-scaled by its own AABB so FBX unit scale doesn't matter.
+const HAT_SCENE_PATH: String = "res://addons/local_agents/assets/models/people/accessories/cap.fbx"
+const HAT_TARGET_WIDTH: float = 0.36   # world width the cap is normalized to (sits over the head)
+const HAT_Y: float = 1.63              # head-top height in the model's local space
+const HAT_FWD: float = 0.0
+const HAT_YAW_DEG: float = 0.0         # flip if the cap's brim faces backward
+const HAT_TINT: Color = Color(0.72, 0.18, 0.20)   # a bold streamer red
+
+func _build_hat() -> void:
+	var scene: Resource = load(HAT_SCENE_PATH)
+	if not (scene is PackedScene):
+		return
+	var cap: Node3D = (scene as PackedScene).instantiate() as Node3D
+	if cap == null:
+		return
+
+	_hat = Node3D.new()          # pivot at the feet, synced to the model each frame
+	_hat.name = "Hat"
+	var mount: Node3D = Node3D.new()   # positions/scales the cap onto the head
+	mount.add_child(cap)
+
+	# Normalize size from the cap's own bounds, then recenter it on the mount origin.
+	var ab: AABB = LAModelVisual._model_aabb(mount)
+	var span: float = maxf(ab.size.x, maxf(ab.size.y, ab.size.z))
+	if span > 0.0001:
+		var s: float = HAT_TARGET_WIDTH / span
+		mount.scale = Vector3(s, s, s)
+	cap.position -= ab.get_center()
+
+	_apply_hat_tint(mount)
+	mount.position = Vector3(0.0, HAT_Y, HAT_FWD)
+	mount.rotation.y = deg_to_rad(HAT_YAW_DEG)
+	_hat.add_child(mount)
+	_sv.add_child(_hat)
+
+
+func _apply_hat_tint(root: Node) -> void:
+	for child in root.get_children():
+		if child is MeshInstance3D:
+			var mat: StandardMaterial3D = StandardMaterial3D.new()
+			mat.albedo_color = HAT_TINT
+			mat.roughness = 0.8
+			(child as MeshInstance3D).material_override = mat
+		if child is Node:
+			_apply_hat_tint(child)
 
 
 ## The live portrait texture for a TextureRect. Null in headless.
@@ -125,3 +176,8 @@ func _process(delta: float) -> void:
 		GLANCE_PITCH_UP * _glance_blend,
 		GLANCE_YAW_LEFT * _glance_blend,
 		0.0)
+
+	# Keep the hat riding the head: same pivot (feet), same glance/bob transform as the model holder.
+	if _hat != null:
+		_hat.position = _model.position
+		_hat.rotation = _model.rotation
