@@ -12,7 +12,6 @@ const TreeScript: GDScript = preload("res://addons/local_agents/scenes/simulatio
 const FishScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Fish.gd")
 const ScentFieldScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ScentField.gd")
 const TrackSystemScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/TrackSystem.gd")
-const FireSystemScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/FireSystem.gd")
 const NestScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Nest.gd")
 
 const KINDS: Array = ["plant", "rabbit", "fox", "bird", "villager", "fish", "rock", "tree"]
@@ -23,7 +22,6 @@ var actors_root: Node3D = null
 var _scent = null                        # LAScentField (observer; creatures query it)
 var _tracks = null                       # LATrackSystem (observer; footprints)
 var _material = null                      # LAMaterialField — the ONE substrate (water/heat/materials)
-var _fire = null                         # LAFireSystem (wildfire spread over flammable actors)
 var _cognition_sched = null              # LACognitionScheduler (shared slow-brain budget/queue)
 
 # world spawn area (XZ half-extent) used for spawn_initial scatter
@@ -85,10 +83,6 @@ func setup(_terrain, _actors_root: Node3D) -> void:
 	_tracks.name = "TrackSystem"
 	add_child(_tracks)
 	_tracks.setup(terrain)
-	_fire = FireSystemScript.new()
-	_fire.name = "FireSystem"
-	add_child(_fire)
-	_fire.setup(self)
 	# Shared System-2 slow brain (FunctionGemma) with a global call budget; creatures escalate to
 	# it rarely and asynchronously. Loaded by path + guarded so the sim still runs on pure fast
 	# heuristics + social learning if the scheduler script or model is unavailable.
@@ -115,17 +109,19 @@ func scent_field():
 # and every material. Disasters inject heat/material; everything else reads it.
 func set_material_field(m) -> void:
 	_material = m
-	# Fire reads the field for heat-driven ignition/spread (set after fire is created in setup()).
-	if _fire != null and _fire.has_method("set_material_field"):
-		_fire.set_material_field(_material)
+	# The field owns combustion (no separate fire system) and needs to reach back for
+	# topple/reseed/scare when it consumes a burning actor.
+	if _material != null and _material.has_method("set_ecology"):
+		_material.set_ecology(self)
 
 
 func material_field():
 	return _material
 
 
+# Back-compat accessor: fire lives in the material field now (combustion folded in).
 func fire_system():
-	return _fire
+	return _material
 
 
 # Broadcast a GROUND-DISTURBANCE stimulus (meteor blast, earthquake, later saturated slope). It just
@@ -141,10 +137,11 @@ func cognition_scheduler():
 	return _cognition_sched
 
 
-# Ignite flammable actors within radius of a point (meteor strike, etc.).
+# A hot event "starts a fire" only by depositing heat — vegetation there ignites on the next
+# combustion scan because its cell crossed the ignition temperature. Pure emergence, no fire code.
 func ignite_area(world_pos: Vector3, radius: float) -> void:
-	if _fire != null and _fire.has_method("ignite_area"):
-		_fire.ignite_area(world_pos, radius)
+	if _material != null and _material.has_method("add_heat"):
+		_material.add_heat(world_pos, 900.0, radius)   # ~3x wood's 300°C ignition temp
 
 
 func spawn(kind: String, world_pos: Vector3) -> Node:

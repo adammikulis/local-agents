@@ -160,11 +160,6 @@ func _ready() -> void:
 	_weather.name = "Weather"
 	add_child(_weather)
 	_weather.setup(_camera, sun, e)
-	# Let the wildfire system see the rain so weather can suppress/extinguish fires.
-	if _ecology.has_method("fire_system"):
-		var fs = _ecology.fire_system()
-		if fs != null and fs.has_method("set_weather"):
-			fs.set_weather(_weather)
 
 	# --- Unified material/heat field: the ONE substrate for all matter + energy. WATER is a material
 	# here (CA rivers/lakes/ocean — creatures drink, fish live in it), temperature drives fire/phase

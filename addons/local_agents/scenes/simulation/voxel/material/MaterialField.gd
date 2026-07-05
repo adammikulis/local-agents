@@ -62,6 +62,22 @@ const REPOSE_MIN_MOVE: float = 0.4        # height change below this makes no SD
 const REPOSE_MAX_EDITS: int = 140         # cap SDF edits per disturbance (keeps the hitch bounded)
 var _slumps: int = 0                       # diagnostic: SDF columns moved by slumping
 
+# --- Combustion (folded in — there is NO separate fire system). A flammable actor (tree/plant =
+# WOOD) whose cell crosses WOOD's ignition temperature catches fire; it pumps heat back into the
+# field so fire SPREADS through the temperature grid, glows (flame FX), burns down, then is consumed
+# (topples + ash reseeds a plant). Rivers/wet cells stay cool → firebreaks emerge for free. ---
+const FLAMMABLE_GROUPS: Array = ["tree", "plant"]
+const BURN_TIME_MIN: float = 6.0
+const BURN_TIME_MAX: float = 11.0
+const BURN_HEAT_PER_SEC: float = 1000.0   # °C/s a burning actor injects into its cell (flame heat)
+const BURN_HEAT_RADIUS: float = 5.0
+const IGNITE_SCAN_INTERVAL: float = 0.4
+const FIRE_SCARE_INTERVAL: float = 1.3
+const FIRE_SCARE_RADIUS: float = 9.0
+var _ecology = null                        # LAEcologyService (topple/seed_plant_at/broadcast_scare)
+var _fires: Array = []                      # [{node, life, scare_cd, fx}]
+var _ignite_cd: float = 0.0
+
 # --- Liquid CA (ported verbatim from the retired LAWaterFieldSystem; WATER is now a material here).
 # The shallow-water redistribution is generic over liquids — WATER uses these constants; LAVA (later)
 # runs the same rule with a much smaller flow factor and no evaporation/sea-fill.
@@ -212,6 +228,11 @@ func _build_surface_node() -> void:
 		add_child(_surface_mi)
 
 
+## Ecology ref so combustion can topple/reseed/scare the actors it consumes (set by set_material_field).
+func set_ecology(e) -> void:
+	_ecology = e
+
+
 ## Wire the real scene sun (the DirectionalLight3D) once; the field reads its live transform +
 ## light_energy each step. The SUN is the one genuinely external driver — air heating, evaporation,
 ## pressure, wind and rain all emerge from how its energy moves through the field.
@@ -278,6 +299,8 @@ func _physics_process(delta: float) -> void:
 			_rebuild_water_surface()
 			_liquid_dirty = false
 		_update_heat_texture()
+	# Combustion runs every frame (smooth burn/spread), not gated by the CA throttle.
+	_combustion_step(delta)
 
 
 # Re-upload the temperature grid into the heat texture (in place). The ground shader samples it for
@@ -767,6 +790,144 @@ func disturb_terrain(world_pos: Vector3, radius: float, strength: float) -> void
 
 func slump_count() -> int:
 	return _slumps
+
+
+# --- Combustion (the fire mechanism lives here, not in a separate system) ----
+
+func active_fire_count() -> int:
+	return _fires.size()
+
+
+func is_burning(node) -> bool:
+	for f in _fires:
+		if f["node"] == node:
+			return true
+	return false
+
+
+func _is_flammable(node) -> bool:
+	for group in FLAMMABLE_GROUPS:
+		if node.is_in_group(group):
+			return true
+	return false
+
+
+## Set a flammable actor alight (flame FX + track it). No-op for non-flammable / already-burning.
+func ignite(node) -> void:
+	if node == null or not is_instance_valid(node) or not (node is Node3D):
+		return
+	if not _is_flammable(node) or is_burning(node):
+		return
+	var n3: Node3D = node as Node3D
+	var fx: Node3D = _make_fire_fx(n3)
+	n3.add_child(fx)
+	_fires.append({
+		"node": n3,
+		"life": randf_range(BURN_TIME_MIN, BURN_TIME_MAX),
+		"scare_cd": randf_range(0.2, FIRE_SCARE_INTERVAL),
+		"fx": fx,
+	})
+
+
+func _combustion_step(delta: float) -> void:
+	# IGNITION sweep (throttled): light any flammable actor whose cell crossed WOOD's ignition temp
+	# and isn't wet. Runs even with no active fire, so a meteor/lightning heat spike or a drought
+	# ignites vegetation with nothing pre-burning — emergent from the temperature field alone.
+	_ignite_cd -= delta
+	if _ignite_cd <= 0.0:
+		_ignite_cd = IGNITE_SCAN_INTERVAL
+		_scan_ignitions()
+
+	if _fires.is_empty():
+		return
+	var survivors: Array = []
+	for f in _fires:
+		var node = f["node"]
+		if node == null or not is_instance_valid(node):
+			continue
+		var pos: Vector3 = (node as Node3D).global_position
+		# Pump flame heat back into the field so neighbours cross the ignition temp → SPREAD emerges.
+		add_heat(pos, BURN_HEAT_PER_SEC * delta, BURN_HEAT_RADIUS)
+		f["life"] = float(f["life"]) - delta
+		if float(f["life"]) <= 0.0:
+			_consume(node as Node3D)
+			continue
+		f["scare_cd"] = float(f["scare_cd"]) - delta
+		if float(f["scare_cd"]) <= 0.0:
+			f["scare_cd"] = FIRE_SCARE_INTERVAL
+			if _ecology != null and _ecology.has_method("broadcast_scare"):
+				_ecology.broadcast_scare(pos, FIRE_SCARE_RADIUS, 0.6)
+		survivors.append(f)
+	_fires = survivors
+
+
+func _scan_ignitions() -> void:
+	var ignite_temp: float = Mat.ignite_temp(Mat.WOOD)
+	for group in FLAMMABLE_GROUPS:
+		for a in get_tree().get_nodes_in_group(group):
+			if not is_instance_valid(a) or not (a is Node3D) or is_burning(a):
+				continue
+			var p: Vector3 = (a as Node3D).global_position
+			if temp_at(p.x, p.z) < ignite_temp:
+				continue
+			if is_water_at(p.x, p.z):
+				continue
+			ignite(a)
+
+
+# Fully consumed: topple as it collapses, leave ash that seeds a new plant, then remove.
+func _consume(node: Node3D) -> void:
+	var pos: Vector3 = node.global_position
+	if node.has_method("topple"):
+		node.call("topple", Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0))
+	if _ecology != null and _ecology.has_method("seed_plant_at"):
+		_ecology.seed_plant_at(pos)
+	node.queue_free()
+
+
+# A flickering flame: upward orange particles + a warm point light, parented to the burning actor so
+# it frees with it. This is the "hot things glow" for fire, built in code.
+func _make_fire_fx(host: Node3D) -> Node3D:
+	var root: Node3D = Node3D.new()
+	root.name = "FireFX"
+	var particles: GPUParticles3D = GPUParticles3D.new()
+	particles.amount = 24
+	particles.lifetime = 0.9
+	particles.one_shot = false
+	particles.emitting = true
+	var flame: QuadMesh = QuadMesh.new()
+	flame.size = Vector2(0.5, 0.5)
+	var fmat: StandardMaterial3D = StandardMaterial3D.new()
+	fmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	fmat.emission_enabled = true
+	fmat.emission = Color(1.0, 0.5, 0.12)
+	fmat.emission_energy_multiplier = 3.0
+	fmat.albedo_color = Color(1.0, 0.55, 0.15, 0.9)
+	fmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	fmat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	flame.material = fmat
+	particles.draw_pass_1 = flame
+	var pm: ParticleProcessMaterial = ParticleProcessMaterial.new()
+	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	pm.emission_sphere_radius = 0.8
+	pm.direction = Vector3(0.0, 1.0, 0.0)
+	pm.spread = 20.0
+	pm.initial_velocity_min = 2.0
+	pm.initial_velocity_max = 4.5
+	pm.gravity = Vector3(0.0, 2.5, 0.0)
+	pm.scale_min = 0.5
+	pm.scale_max = 1.4
+	pm.color = Color(1.0, 0.6, 0.2)
+	particles.process_material = pm
+	particles.position = Vector3(0.0, 1.2, 0.0)
+	root.add_child(particles)
+	var light: OmniLight3D = OmniLight3D.new()
+	light.light_color = Color(1.0, 0.55, 0.2)
+	light.light_energy = 3.0
+	light.omni_range = 9.0
+	light.position = Vector3(0.0, 1.5, 0.0)
+	root.add_child(light)
+	return root
 
 
 # --- Query API for other systems --------------------------------------------
