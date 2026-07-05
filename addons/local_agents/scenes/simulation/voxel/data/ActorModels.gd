@@ -19,9 +19,11 @@ const _BASE: String = "res://addons/local_agents/assets/models/"
 
 # id -> { path, yaw(deg), tint?[r,g,b], anims?{idle,move,run}, run?(m/s) }
 const TABLE: Dictionary = {
-	# --- fauna (Quaternius rigs where animated, Kenney Cube Pets static otherwise) ---
+	# --- fauna. Creature.look_at() points the model's -Z at its heading, so each model's NOSE
+	# must sit at local -Z. Quaternius rigs already face -Z (yaw 0); Kenney Cube Pets face +Z
+	# (yaw 180). Getting these opposite is what makes an animal walk backwards. ---
 	"fox": {
-		"path": _BASE + "fauna/fox.glb", "yaw": 180.0,
+		"path": _BASE + "fauna/fox.glb", "yaw": 0.0,
 		"anims": {"idle": "Idle", "move": "Walk", "run": "Gallop"}, "run": 2.2,
 	},
 	"fish": {
@@ -29,13 +31,13 @@ const TABLE: Dictionary = {
 		"anims": {"idle": "Swim", "move": "Swim", "run": "Swim"}, "run": 999.0,
 	},
 	"villager": {
-		"path": _BASE + "people/villager.glb", "yaw": 180.0,
+		"path": _BASE + "people/villager.glb", "yaw": 0.0,
 		"anims": {"idle": "Idle", "move": "Walk", "run": "Run"}, "run": 3.0,
 	},
-	"rabbit": {"path": _BASE + "fauna/rabbit.glb", "yaw": 0.0},
-	"bird": {"path": _BASE + "fauna/bird.glb", "yaw": 0.0},
+	"rabbit": {"path": _BASE + "fauna/rabbit.glb", "yaw": 180.0},
+	"bird": {"path": _BASE + "fauna/bird.glb", "yaw": 180.0},
 	# Vulture reuses the parrot mesh, flattened to a dark scavenger tint (config, not a new asset).
-	"vulture": {"path": _BASE + "fauna/vulture.glb", "yaw": 0.0, "tint": [0.30, 0.26, 0.23]},
+	"vulture": {"path": _BASE + "fauna/vulture.glb", "yaw": 180.0, "tint": [0.30, 0.26, 0.23]},
 
 	# --- flora / props (Kenney Nature Kit, static). Their baked baseColorFactor greens gamma-shift
 	# to cyan in Godot, so foliage/wood surfaces are recoloured to sane values via "recolor"

@@ -701,7 +701,8 @@ func _render_thumbnail(model_id: String) -> ImageTexture:
 	var cam: Camera3D = Camera3D.new()
 	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
 	cam.size = 1.5
-	cam.position = Vector3(1.4, 1.15, 1.4)
+	# Models face -Z (their nose); view from the -Z side for a 3/4 front portrait.
+	cam.position = Vector3(1.4, 1.15, -1.7)
 	var env: Environment = Environment.new()
 	env.background_mode = Environment.BG_CLEAR_COLOR
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
