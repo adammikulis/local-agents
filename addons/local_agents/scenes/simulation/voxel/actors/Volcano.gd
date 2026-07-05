@@ -63,6 +63,7 @@ var _vent: Vector3 = Vector3.ZERO
 var _erupting: bool = false
 var _breached: bool = false                # false = crust still intact; magma is building toward the first breach
 var _scare_cd: float = 0.0
+var _rumble_cd: float = 0.0                 # cadence for the seismic rumble / eruption-roar SFX
 
 var _glow: OmniLight3D = null
 var _smoke: GPUParticles3D = null
@@ -164,7 +165,7 @@ func _physics_process(delta: float) -> void:
 		_pressure += RECHARGE_RATE * heat_factor * delta
 		if _pressure >= ERUPT_PRESSURE:
 			_erupting = true
-			LocalAgentsAudioDirector.emit(get_tree(), "meteor_impact", _vent)
+			LocalAgentsAudioDirector.emit(get_tree(), "volcano_erupt", _vent)
 			if _glow != null:
 				_glow.light_energy = 34.0                # onset flash
 	elif _field != null:
@@ -172,10 +173,19 @@ func _physics_process(delta: float) -> void:
 		var over: float = maxf(0.0, _pressure - SEAL_PRESSURE)
 		var outflow: float = OUTFLOW_PER_PRESSURE * over
 		_shake_camera(ERUPT_SHAKE * over * delta)           # ongoing rumble while it erupts
+		# Sustained eruption roar in overlapping bursts.
+		_rumble_cd -= delta
+		if _rumble_cd <= 0.0:
+			_rumble_cd = randf_range(1.1, 2.0)
+			LocalAgentsAudioDirector.emit(get_tree(), "volcano_roar", _vent)
 		if _field.has_method("add_material"):
 			_field.add_material(_vent, Mat.LAVA, outflow * delta, VENT_RADIUS)
+		# Keep the vent molten but DRIVE it toward a bounded target (~1300°C) instead of adding heat
+		# blindly — otherwise continuous injection at one cell runs away (worse on a finer grid).
 		if _field.has_method("add_heat"):
-			_field.add_heat(_vent, VENT_HEAT_PER_SEC * delta, VENT_RADIUS)
+			var vt: float = _vent_temp()
+			if vt < 1300.0:
+				_field.add_heat(_vent, minf(VENT_HEAT_PER_SEC * delta, (1300.0 - vt) * 0.5), VENT_RADIUS)
 		# Bleed pressure as it vents (plus a little continued recharge fighting it), then reseal when spent.
 		_pressure += (RECHARGE_RATE * heat_factor * 0.4 - VENT_RELEASE * over) * delta
 		if _ecology != null and _ecology.has_method("disturb_ground") and randf() < delta * 0.5:
@@ -216,6 +226,11 @@ func _pressurize_toward_breach(delta: float) -> void:
 		_ecology.disturb_ground(_vent, CRATER_RADIUS * 2.0, frac)      # tremors crack the ground above
 	# Seismic tremors shake the camera, intensifying as the breach nears (frac²) — a warning it's coming.
 	_shake_camera(TREMOR_SHAKE * frac * frac * delta)
+	# Deep ground rumble that comes faster (more menacing) the closer the breach is.
+	_rumble_cd -= delta
+	if _rumble_cd <= 0.0:
+		_rumble_cd = lerpf(3.5, 0.8, frac)
+		LocalAgentsAudioDirector.emit(get_tree(), "volcano_rumble", _vent)
 	if frac > 0.5:
 		_scare_cd -= delta
 		if _scare_cd <= 0.0:
@@ -244,7 +259,7 @@ func _breach() -> void:
 			_ecology.disturb_ground(_vent, CRATER_RADIUS * 5.0, 3.0)  # the ground heaves as it ruptures
 		if _ecology.has_method("broadcast_scare"):
 			_ecology.broadcast_scare(_vent, SCARE_RADIUS * 1.5, 1.0)
-	LocalAgentsAudioDirector.emit(get_tree(), "meteor_impact", _vent)
+	LocalAgentsAudioDirector.emit(get_tree(), "volcano_erupt", _vent)
 	_shake_camera(BREACH_SHAKE)                          # a hard jolt as the crust ruptures
 	if _glow != null:
 		_glow.light_energy = 42.0
