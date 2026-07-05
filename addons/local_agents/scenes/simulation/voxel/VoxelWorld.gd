@@ -1320,7 +1320,7 @@ func _build_field3d() -> void:
 	_field3d.sample_solidity()
 	_field3d.seed_sea()
 	for p in _springs:
-		_field3d.add_source(p, 4.0)
+		_field3d.add_source(p, 0.8)          # modest headwaters — streams/ponds, not a flooded interior
 	_field3d.activate()
 	_hud.set_status("3D water field active — water pools in caves.")
 

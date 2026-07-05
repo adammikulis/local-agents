@@ -22,9 +22,9 @@ extends Camera3D
 ## focus_on()/frame_vista() so the world can recenter the view without fighting the rebuild.
 
 # --- Tunables -----------------------------------------------------------------
-const MIN_DISTANCE: float = 1.5           # closest zoom (units from focus) — right down onto an animal
+const MIN_DISTANCE: float = 0.5           # closest zoom (units from focus) — right down onto an animal
 const MAX_DISTANCE: float = 1400.0        # farthest zoom — pull way out for a whole-world view
-const ZOOM_STEP: float = 1.15             # wheel multiplier per notch
+const ZOOM_STEP: float = 1.28             # wheel multiplier per notch (bigger = faster zoom)
 const PAN_SPEED: float = 140.0            # WASD/arrow-key pan, per second, scaled by distance
 const DRAG_PAN_SPEED: float = 6.0         # Shift+MMB drag pan, per pixel, scaled by distance
 const ORBIT_SENSITIVITY: float = 0.0075   # MMB drag orbit, radians per pixel

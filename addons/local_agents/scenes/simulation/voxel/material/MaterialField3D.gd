@@ -378,55 +378,121 @@ func _build_render_node() -> void:
 	add_child(_surface_mi)
 
 
-## Extract the water's exposed TOP surface as a quad per column-top wet cell — the sea/lake/river
-## surface AND cavern-pool tops. Calm open-sea tops (near sea level) are skipped: the GPU ocean plane
-## draws those, so the CA mesh only carries deviations + inland/underground water.
+## Rebuild the dynamic-water surface as ONE smooth WELDED heightfield (not a quad per cell, which reads
+## as a grid of blue squares). For each XZ column take the top DYNAMIC water cell's surface height, then
+## weld: each grid corner's height is the average of the surface heights of the wet cells touching it, so
+## adjacent cells share corners and the surface blends smoothly across them and fades at the shoreline —
+## exactly the 2.5D renderer's trick, now driven by the 3D column tops. Calm static sea is left to the
+## ocean plane. (Interior cavern-pool surfaces, hidden below the column top, are a later addition.)
 func rebuild_surface() -> void:
 	if _surface_mesh == null:
 		return
-	var verts: PackedVector3Array = PackedVector3Array()
-	var normals: PackedVector3Array = PackedVector3Array()
+	var dx: int = _dim_x
+	var dz: int = _dim_z
 	var cs: float = _cell_size
-	var h: float = cs * 0.5
-	var layer: int = _dim_x * _dim_z
-	for iy in range(_dim_y):
-		var wy_base: float = _origin.y + float(iy) * cs
-		for iz in range(_dim_z):
-			for ix in range(_dim_x):
-				var i: int = (iy * _dim_z + iz) * _dim_x + ix
-				# Rock and calm static sea don't mesh (the ocean plane draws the sea).
+	var layer: int = dx * dz
+
+	# 1) Per column, the world Y of the top dynamic-water surface (NAN = nothing to mesh here).
+	var col_surf: PackedFloat32Array = PackedFloat32Array()
+	col_surf.resize(layer)
+	var any: bool = false
+	for iz in range(dz):
+		for ix in range(dx):
+			var found: float = NAN
+			for iy in range(_dim_y - 1, -1, -1):
+				var i: int = (iy * dz + iz) * dx + ix
 				if _solid[i] != 0 or _static[i] != 0:
 					continue
 				var m: float = _water[i]
 				if m < RENDER_MIN:
 					continue
-				# Only the LOCAL top of a water column gets a top face (cell above dry or solid).
-				if iy < _dim_y - 1:
-					var iu: int = i + layer
-					if _solid[iu] == 0 and _water[iu] >= RENDER_MIN:
-						continue
-				var wy: float = wy_base + (clampf(m, 0.0, MAX_MASS) - 0.5) * cs
-				# Calm open sea (a sub-sea cell whose surface is ~sea level) is the ocean plane's job.
-				if wy_base < _sea_level and absf(wy - _sea_level) < SEA_WAVE_EPS:
+				var wy: float = _origin.y + float(iy) * cs + (clampf(m, 0.0, MAX_MASS) - 0.5) * cs
+				# A sub-sea cell sitting at ~sea level is calm sea → the plane draws it.
+				if _origin.y + float(iy) * cs < _sea_level and absf(wy - _sea_level) < SEA_WAVE_EPS:
 					continue
-				var wx: float = _origin.x + float(ix) * cs
-				var wz: float = _origin.z + float(iz) * cs
-				verts.push_back(Vector3(wx - h, wy, wz - h))
-				verts.push_back(Vector3(wx + h, wy, wz - h))
-				verts.push_back(Vector3(wx + h, wy, wz + h))
-				verts.push_back(Vector3(wx - h, wy, wz - h))
-				verts.push_back(Vector3(wx + h, wy, wz + h))
-				verts.push_back(Vector3(wx - h, wy, wz + h))
-				for k in range(6):
-					normals.push_back(Vector3.UP)
+				found = wy
+				break
+			col_surf[iz * dx + ix] = found
+			if not is_nan(found):
+				any = true
+
+	if not any:
+		if _surface_mesh.get_surface_count() > 0:
+			_surface_mesh.clear_surfaces()
+		return
+
+	# 2) Accumulate each wet column's surface into its 4 shared corners ((dx+1)×(dz+1) corner grid).
+	var cw: int = dx + 1
+	var ccount: int = cw * (dz + 1)
+	var ch: PackedFloat32Array = PackedFloat32Array()
+	ch.resize(ccount)
+	var cn: PackedInt32Array = PackedInt32Array()
+	cn.resize(ccount)
+	var half: float = cs * 0.5
+	var ox: float = _origin.x - half
+	var oz: float = _origin.z - half
+	for iz in range(dz):
+		for ix in range(dx):
+			var surf: float = col_surf[iz * dx + ix]
+			if is_nan(surf):
+				continue
+			var c0: int = iz * cw + ix
+			var c1: int = c0 + 1
+			var c2: int = c0 + cw
+			var c3: int = c2 + 1
+			ch[c0] += surf; cn[c0] += 1
+			ch[c1] += surf; cn[c1] += 1
+			ch[c2] += surf; cn[c2] += 1
+			ch[c3] += surf; cn[c3] += 1
+	for c in range(ccount):
+		if cn[c] != 0:
+			ch[c] = ch[c] / float(cn[c])
+
+	# 3) Vertex per active corner + a smooth normal from the corner-height gradient.
+	var vmap: PackedInt32Array = PackedInt32Array()
+	vmap.resize(ccount)
+	var verts: PackedVector3Array = PackedVector3Array()
+	var normals: PackedVector3Array = PackedVector3Array()
+	for cj in range(dz + 1):
+		for ci in range(cw):
+			var c: int = cj * cw + ci
+			if cn[c] == 0:
+				vmap[c] = -1
+				continue
+			var hh: float = ch[c]
+			vmap[c] = verts.size()
+			verts.push_back(Vector3(ox + float(ci) * cs, hh, oz + float(cj) * cs))
+			var hl: float = ch[c - 1] if (ci > 0 and cn[c - 1] != 0) else hh
+			var hr: float = ch[c + 1] if (ci < cw - 1 and cn[c + 1] != 0) else hh
+			var hd: float = ch[c - cw] if (cj > 0 and cn[c - cw] != 0) else hh
+			var hu: float = ch[c + cw] if (cj < dz and cn[c + cw] != 0) else hh
+			normals.push_back(Vector3(hl - hr, 2.0 * cs, hd - hu).normalized())
+
+	# 4) Two triangles per wet column referencing its 4 shared corners.
+	var indices: PackedInt32Array = PackedInt32Array()
+	for iz in range(dz):
+		for ix in range(dx):
+			if is_nan(col_surf[iz * dx + ix]):
+				continue
+			var b0: int = iz * cw + ix
+			var v0: int = vmap[b0]
+			var v1: int = vmap[b0 + 1]
+			var v2: int = vmap[b0 + cw + 1]
+			var v3: int = vmap[b0 + cw]
+			if v0 < 0 or v1 < 0 or v2 < 0 or v3 < 0:
+				continue
+			indices.push_back(v0); indices.push_back(v1); indices.push_back(v2)
+			indices.push_back(v0); indices.push_back(v2); indices.push_back(v3)
+
 	if _surface_mesh.get_surface_count() > 0:
 		_surface_mesh.clear_surfaces()
-	if verts.is_empty():
+	if verts.is_empty() or indices.is_empty():
 		return
 	var arrays: Array = []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_INDEX] = indices
 	_surface_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	if _water_mat != null:
 		_surface_mesh.surface_set_material(0, _water_mat)
