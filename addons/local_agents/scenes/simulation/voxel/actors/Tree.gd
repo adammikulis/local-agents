@@ -133,6 +133,7 @@ func _build_model() -> bool:
 	var model: Node3D = LAModelVisual.build(def["path"], trunk_height, "base", float(def.get("yaw", 0.0)), Color(0, 0, 0, 0))
 	if model == null:
 		return false
+	LAModelVisual.recolor(model, def.get("recolor", {}))   # fix Kenney's cyan-shifted foliage
 	model.name = "TreeModel"
 	add_child(model)
 	return true

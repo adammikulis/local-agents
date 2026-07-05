@@ -60,7 +60,7 @@ func _build_body() -> void:
 	var built_model: bool = false
 	var def: Dictionary = LAActorModels.get_def("plant")
 	if not String(def.get("path", "")).is_empty():
-		var model: Node3D = LAModelVisual.build(def["path"], _base_height, "base", float(def.get("yaw", 0.0)), Color(0, 0, 0, 0))
+		var model: Node3D = LAModelVisual.build(def["path"], _base_height, "base", float(def.get("yaw", 0.0)), LAActorModels.tint("plant"))
 		if model != null:
 			add_child(model)
 			built_model = true

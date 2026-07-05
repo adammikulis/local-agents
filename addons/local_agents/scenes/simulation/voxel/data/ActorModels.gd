@@ -37,11 +37,25 @@ const TABLE: Dictionary = {
 	# Vulture reuses the parrot mesh, flattened to a dark scavenger tint (config, not a new asset).
 	"vulture": {"path": _BASE + "fauna/vulture.glb", "yaw": 0.0, "tint": [0.30, 0.26, 0.23]},
 
-	# --- flora / props (Kenney Nature Kit, static) ---
-	"plant": {"path": _BASE + "nature/plant_bushDetailed.glb", "yaw": 0.0},
-	"tree_oak": {"path": _BASE + "nature/tree_oak.glb", "yaw": 0.0},
-	"tree_pine": {"path": _BASE + "nature/tree_pineTallA.glb", "yaw": 0.0},
+	# --- flora / props (Kenney Nature Kit, static). Their baked baseColorFactor greens gamma-shift
+	# to cyan in Godot, so foliage/wood surfaces are recoloured to sane values via "recolor"
+	# (a single-material bush is simply flat-tinted green). ---
+	"plant": {"path": _BASE + "nature/plant_bushDetailed.glb", "yaw": 0.0, "tint": [0.31, 0.55, 0.21]},
+	"tree_oak": {
+		"path": _BASE + "nature/tree_oak.glb", "yaw": 0.0,
+		"recolor": {"leafs": [0.21, 0.46, 0.17], "grass": [0.21, 0.46, 0.17],
+			"wood": [0.34, 0.23, 0.14], "bark": [0.34, 0.23, 0.14]},
+	},
+	"tree_pine": {
+		"path": _BASE + "nature/tree_pineTallA.glb", "yaw": 0.0,
+		"recolor": {"leafs": [0.13, 0.34, 0.16], "grass": [0.13, 0.34, 0.16],
+			"wood": [0.30, 0.21, 0.13], "bark": [0.30, 0.21, 0.13]},
+	},
 }
+
+
+static func recolor(id: String) -> Dictionary:
+	return get_def(id).get("recolor", {})
 
 
 static func get_def(id: String) -> Dictionary:

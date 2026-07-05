@@ -7,7 +7,10 @@ extends MeshInstance3D
 ## each creature's INTENDED PATH (a ray along its steering heading), and show the WIND as a grid of
 ## arrows. Purely presentational — reads groups/positions, owns no sim state. (Explicit types only.)
 
-const BEAM_HEIGHT: float = 6.0
+const BEAM_HEIGHT: float = 16.0            # tall beam so highlighted objects are visible far off
+const BEAM_THICK: float = 0.09             # offset used to fake line thickness (4 parallel beams)
+const RING_RADIUS: float = 1.4
+const RING_SEGS: int = 20
 const PATH_LEN: float = 5.0
 const WIND_GRID: int = 10
 
@@ -92,10 +95,34 @@ func _draw_highlights() -> void:
 		for node in get_tree().get_nodes_in_group(group):
 			if not (node is Node3D):
 				continue
-			var p: Vector3 = (node as Node3D).global_position
-			_line(p, p + Vector3.UP * BEAM_HEIGHT, col)
-			_line(p + Vector3(-0.7, 0.2, 0.0), p + Vector3(0.7, 0.2, 0.0), col)
-			_line(p + Vector3(0.0, 0.2, -0.7), p + Vector3(0.0, 0.2, 0.7), col)
+			_beam((node as Node3D).global_position, col)
+
+
+# A bold locator over one object: a tall thick beam, a downward chevron pointing at it, and a
+# ground ring — drawn through terrain (no_depth_test) so highlighted objects pop out anywhere.
+func _beam(base: Vector3, col: Color) -> void:
+	var top: Vector3 = base + Vector3.UP * BEAM_HEIGHT
+	# Fake line thickness with four parallel beams.
+	var offs: Array = [
+		Vector3(BEAM_THICK, 0.0, 0.0), Vector3(-BEAM_THICK, 0.0, 0.0),
+		Vector3(0.0, 0.0, BEAM_THICK), Vector3(0.0, 0.0, -BEAM_THICK)]
+	for o in offs:
+		_line(base + o, top + o, col)
+	# Downward chevron near the base so the eye is led right to the object.
+	var apex: Vector3 = base + Vector3.UP * 0.4
+	var wing: float = 0.9
+	_line(apex, apex + Vector3(-wing, wing, 0.0), col)
+	_line(apex, apex + Vector3(wing, wing, 0.0), col)
+	_line(apex, apex + Vector3(0.0, wing, -wing), col)
+	_line(apex, apex + Vector3(0.0, wing, wing), col)
+	# Ground ring footprint.
+	var center: Vector3 = base + Vector3.UP * 0.15
+	var prev: Vector3 = center + Vector3(RING_RADIUS, 0.0, 0.0)
+	for i in range(1, RING_SEGS + 1):
+		var a: float = TAU * float(i) / float(RING_SEGS)
+		var cur: Vector3 = center + Vector3(cos(a) * RING_RADIUS, 0.0, sin(a) * RING_RADIUS)
+		_line(prev, cur, col)
+		prev = cur
 
 
 # A ray from each creature along its steering heading — where it currently intends to go.

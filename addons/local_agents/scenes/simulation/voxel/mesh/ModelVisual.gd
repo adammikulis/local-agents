@@ -88,7 +88,33 @@ static func animate(model: Node3D, anim: AnimationPlayer, anims: Dictionary, spe
 		model.position.y = lerpf(model.position.y, base_y, clampf(delta * 8.0, 0.0, 1.0))
 
 
-## First AnimationPlayer anywhere under `root` (imported glTF nests it beside the Skeleton3D).
+### Override per-surface albedo by material-name substring. Kenney's Nature Kit bakes flat colors
+## into baseColorFactor that gamma-shift to cyan in Godot; this recolours the foliage/wood surfaces
+## to sane values while leaving the rest untouched. `overrides` maps a lowercase name substring
+## (e.g. "leafs", "grass", "wood", "bark") -> Color.
+static func recolor(root: Node, overrides: Dictionary) -> void:
+	if overrides.is_empty():
+		return
+	for mi in _mesh_instances(root):
+		var mesh: Mesh = (mi as MeshInstance3D).mesh
+		if mesh == null:
+			continue
+		for si in range(mesh.get_surface_count()):
+			var cur: Material = (mi as MeshInstance3D).get_active_material(si)
+			var nm: String = ""
+			if cur != null:
+				nm = cur.resource_name.to_lower()
+			for key in overrides:
+				if nm.find(String(key)) != -1:
+					var col = overrides[key]
+					var mat: StandardMaterial3D = StandardMaterial3D.new()
+					mat.albedo_color = col if col is Color else Color(col[0], col[1], col[2])
+					mat.roughness = 0.9
+					(mi as MeshInstance3D).set_surface_override_material(si, mat)
+					break
+
+
+# First AnimationPlayer anywhere under `root` (imported glTF nests it beside the Skeleton3D).
 static func find_anim(root: Node) -> AnimationPlayer:
 	if root == null:
 		return null

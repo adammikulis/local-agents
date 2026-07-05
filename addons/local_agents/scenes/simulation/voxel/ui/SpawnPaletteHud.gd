@@ -689,6 +689,7 @@ func _render_thumbnail(model_id: String) -> ImageTexture:
 		float(def.get("yaw", 0.0)), LAActorModels.tint(model_id))
 	if model == null:
 		return null
+	LAModelVisual.recolor(model, LAActorModels.recolor(model_id))   # match the in-world foliage fix
 
 	var sv: SubViewport = SubViewport.new()
 	sv.size = Vector2i(THUMB_PX, THUMB_PX)
