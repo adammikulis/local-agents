@@ -46,6 +46,9 @@ const LAPSE_RATE: float = 0.42
 const LAPSE_REF: float = 15.0
 ## New cells start at a mild temperature (not 0°C) so nothing freezes before the field settles.
 const INITIAL_TEMP: float = 15.0
+## New cells start with a little ambient humidity (air is never bone-dry), so clouds/fog can form from
+## the first cool night instead of needing a full day of evaporation to charge the atmosphere first.
+const INITIAL_VAPOR: float = 0.035
 ## Pull (°C toward ambient per second) on WET cells — big water heat capacity keeps rivers/lakes near
 ## ambient even beside a fire, so they act as firebreaks emergently.
 const WATER_COOL: float = 300.0
@@ -64,6 +67,33 @@ const WATER_THRESHOLD: float = 0.02
 const SPLASH_DROPLETS: int = 6
 const SPLASH_LIFETIME: float = 2.0
 const SPLASH_RADIUS: float = 0.12
+
+# --- Atmosphere: the emergent vapor -> cloud -> rain cycle. Evaporation off warm water/wet ground
+# feeds a per-cell water-VAPOR layer; vapor diffuses and drifts downwind; where the air is cool
+# enough that vapor exceeds its (temperature-dependent) saturation it CONDENSES into CLOUD density;
+# thick cloud RAINS water back onto the ground and SHADES the sun below it, cooling that ground.
+# Clouds forming over cool peaks / at night, drifting off warm water, and rain feeding rivers all
+# fall out of these local rules — nothing is scripted per-case.
+const EVAP_TEMP_REF: float = 22.0        # °C at which evaporation runs at ~1x
+const EVAP_TEMP_GAIN: float = 0.055      # per-°C change in evaporation rate (warm water steams more)
+const VAPOR_DIFFUSE: float = 0.14        # isotropic vapor spread per step
+const CLOUD_DIFFUSE: float = 0.06        # clouds spread a little too
+const SAT_BASE: float = 0.035            # saturation vapor at EVAP_TEMP_REF (lower -> clouds form sooner)
+const SAT_TEMP_GAIN: float = 0.055       # warmer air holds exponentially more vapor before condensing
+const CONDENSE_RATE: float = 0.30        # fraction of super-saturated vapor -> cloud per step
+const CLOUD_REEVAP_RATE: float = 0.08    # fraction of cloud -> vapor per step when air is sub-saturated
+const CLOUD_DECAY: float = 0.002         # baseline cloud dissipation per step (keeps it from piling up)
+const RAIN_CLOUD_THRESHOLD: float = 0.45 # cloud density above which it precipitates
+const RAIN_RATE: float = 0.16            # fraction of above-threshold cloud -> ground water per step
+const CLOUD_SHADE_GAIN: float = 3.0      # cloud density -> fraction of solar blocked below it
+const CLOUD_SHADE_MAX: float = 0.75      # a cell's cloud can block at most this much of its solar
+const CLOUD_BASE_ABOVE_SEA: float = 62.0 # world-Y of the rendered cloud sheet, above sea level
+## Air at cloud base is this many °C cooler than the surface — clouds condense from vapor that only
+## the cooler air aloft can't hold. When the SURFACE air itself is saturated (cool valleys/water at
+## dawn), that condensate pools at ground level as FOG instead. Same vapor, two outcomes.
+const CLOUD_AIR_COOLING: float = 7.0
+const FOG_MAX_TEMP: float = 12.0         # only surfaces cooler than this (°C) pool ground fog
+const FOG_BASE_ABOVE_SEA: float = 6.0    # world-Y of the ground-hugging fog sheet, above sea level
 
 const WATER_SHADER: String = """
 shader_type spatial;
@@ -114,6 +144,15 @@ var _tdelta: PackedFloat32Array = PackedFloat32Array()    # scratch for conducti
 var _mats: Dictionary = {}                                # id -> PackedFloat32Array
 var _mdelta: PackedFloat32Array = PackedFloat32Array()    # shared scratch for a material's movement
 
+# --- Atmosphere layers (the vapor -> cloud/fog -> rain cycle) ---
+var _vapor: PackedFloat32Array = PackedFloat32Array()     # airborne water vapor (humidity) per cell
+var _cloud: PackedFloat32Array = PackedFloat32Array()     # condensed cloud density (rendered aloft)
+var _fog: PackedFloat32Array = PackedFloat32Array()       # condensed fog density (ground-hugging)
+var _adelta: PackedFloat32Array = PackedFloat32Array()    # scratch for vapor/cloud transport
+var _wind: Vector2 = Vector2.ZERO                         # world XZ wind (from weather) drifting vapor
+var _cloud_cover: float = 0.0                             # cached mean cloud density (sun dimming/HUD)
+var _fog_cover: float = 0.0                               # cached mean fog density
+
 var _sample_cursor: int = 0
 var _sampled_count: int = 0
 var _ready: bool = false
@@ -159,6 +198,14 @@ func setup(terrain, half_extent: float, cell_size: float) -> void:
 	_tdelta.resize(_cell_count)
 	_mdelta = PackedFloat32Array()
 	_mdelta.resize(_cell_count)
+	_vapor = PackedFloat32Array()
+	_vapor.resize(_cell_count)
+	_cloud = PackedFloat32Array()
+	_cloud.resize(_cell_count)
+	_fog = PackedFloat32Array()
+	_fog.resize(_cell_count)
+	_adelta = PackedFloat32Array()
+	_adelta.resize(_cell_count)
 	_mats = {}
 
 	_sample_cursor = 0
@@ -280,6 +327,7 @@ func _sample_step() -> void:
 			continue
 		_terrain_h[idx] = hf
 		_temp[idx] = INITIAL_TEMP
+		_vapor[idx] = INITIAL_VAPOR
 		_sampled[idx] = 1
 		_sampled_count += 1
 
@@ -300,6 +348,7 @@ func _material_step() -> void:
 		return
 	_heat_exchange_step()
 	_liquid_step()
+	_atmosphere_step()
 	# Phase reactions, gas convection and combustion attach here as those materials/fuel come online
 	# (Phase 2+); they are no-ops until the relevant materials are injected.
 
@@ -338,12 +387,16 @@ func _heat_exchange_step() -> void:
 	# 2) Apply conduction, then relax toward ambient (with altitude lapse), then extra cooling on
 	# wet cells so rivers keep fires in check emergently. Ambient is driven by the REAL sun energy.
 	_solar = _solar_input()
-	var day_base: float = AMBIENT_NIGHT + SOLAR_WARMTH * _solar
+	var solar_warmth: float = SOLAR_WARMTH * _solar
 	for idx in range(_cell_count):
 		if _sampled[idx] == 0:
 			continue
 		var t: float = _temp[idx] + _tdelta[idx]
 		var altitude: float = _terrain_h[idx]
+		# Cloud overhead shades this cell's sunlight, so cloudy/foggy ground warms less — the
+		# emergent "clouds cool the ground below them" feedback.
+		var shade: float = minf(CLOUD_SHADE_MAX, (_cloud[idx] + _fog[idx]) * CLOUD_SHADE_GAIN)
+		var day_base: float = AMBIENT_NIGHT + solar_warmth * (1.0 - shade)
 		var ambient: float = day_base - LAPSE_RATE * maxf(0.0, altitude - LAPSE_REF)
 		t = t + (ambient - t) * AMBIENT_RELAX
 		# Cooling where wet / raining: WATER cells + rain pull toward ambient faster than open
@@ -467,7 +520,12 @@ func _liquid_step() -> void:
 			if nd < target:
 				nd = move_toward(nd, target, SEA_FILL_RATE)
 		if nd > 0.0:
-			nd -= EVAP_PER_STEP
+			# Evaporate faster from warm water; the lost depth becomes airborne VAPOR (not deleted),
+			# which is what later condenses into cloud/fog. Cold water barely steams.
+			var ef: float = clampf(1.0 + EVAP_TEMP_GAIN * (_temp[idx] - EVAP_TEMP_REF), 0.15, 3.0)
+			var evap: float = minf(nd, EVAP_PER_STEP * 1.3 * ef)
+			nd -= evap
+			_vapor[idx] += evap
 			if nd < 0.0:
 				nd = 0.0
 		water[idx] = nd
@@ -531,6 +589,138 @@ func _rebuild_water_surface() -> void:
 	_surface_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	if _water_material != null:
 		_surface_mesh.surface_set_material(0, _water_material)
+
+
+# --- Atmosphere: vapor -> cloud/fog -> rain (the emergent water cycle) --------
+
+## Move vapor/cloud/fog: isotropic diffusion (symmetric, order-independent, right+up pairs) plus,
+## optionally, first-order upwind advection by the wind. Accumulates into _adelta then applies.
+func _transport_field(arr: PackedFloat32Array, diffuse_frac: float, wind_gain: float) -> void:
+	var dim: int = _dim
+	for idx in range(_cell_count):
+		_adelta[idx] = 0.0
+	for j in range(dim):
+		var row: int = j * dim
+		for i in range(dim):
+			var idx: int = row + i
+			if _sampled[idx] == 0:
+				continue
+			var q: float = arr[idx]
+			if i < dim - 1:
+				var ri: int = idx + 1
+				if _sampled[ri] != 0:
+					var f: float = (q - arr[ri]) * diffuse_frac * 0.25
+					_adelta[idx] -= f
+					_adelta[ri] += f
+			if j < dim - 1:
+				var ui: int = idx + dim
+				if _sampled[ui] != 0:
+					var f2: float = (q - arr[ui]) * diffuse_frac * 0.25
+					_adelta[idx] -= f2
+					_adelta[ui] += f2
+	if wind_gain > 0.0 and (_wind.x != 0.0 or _wind.y != 0.0):
+		var ax: float = clampf(absf(_wind.x) * wind_gain * STEP_DT / _cell_size, 0.0, 0.5)
+		var az: float = clampf(absf(_wind.y) * wind_gain * STEP_DT / _cell_size, 0.0, 0.5)
+		var sx: int = 1 if _wind.x > 0.0 else -1
+		var sz: int = 1 if _wind.y > 0.0 else -1
+		for j2 in range(dim):
+			var row2: int = j2 * dim
+			for i2 in range(dim):
+				var idx2: int = row2 + i2
+				if _sampled[idx2] == 0:
+					continue
+				var q2: float = arr[idx2]
+				if q2 <= 0.0:
+					continue
+				if ax > 0.0:
+					var ni: int = i2 + sx
+					if ni >= 0 and ni < dim:
+						var nidx: int = row2 + ni
+						if _sampled[nidx] != 0:
+							var mv: float = q2 * ax
+							_adelta[idx2] -= mv
+							_adelta[nidx] += mv
+				if az > 0.0:
+					var nj: int = j2 + sz
+					if nj >= 0 and nj < dim:
+						var nidx2: int = nj * dim + i2
+						if _sampled[nidx2] != 0:
+							var mv2: float = q2 * az
+							_adelta[idx2] -= mv2
+							_adelta[nidx2] += mv2
+	for idx3 in range(_cell_count):
+		if _sampled[idx3] == 0:
+			continue
+		var v: float = arr[idx3] + _adelta[idx3]
+		if v < 0.0:
+			v = 0.0
+		arr[idx3] = v
+
+
+## Vapor drifts/spreads, then per cell: vapor the cool air aloft can't hold CONDENSES into cloud
+## (the share the surface air also can't hold pools as ground FOG); sub-saturated air lets cloud/fog
+## re-evaporate; thick cloud RAINS water back to the ground. Clouds over cool peaks, fog in valleys
+## at dawn, and rain feeding rivers all fall out of this — no per-case scripting.
+func _atmosphere_step() -> void:
+	if _cell_count <= 0:
+		return
+	# Wind carries everything AIRBORNE/AERATED — vapor (gas), cloud and fog (suspended droplets) all
+	# drift downwind; liquid WATER is not advected here (it flows by gravity in _liquid_step). Fog
+	# hugging the ground drifts a little slower (ground drag) via a lower wind gain.
+	_transport_field(_vapor, VAPOR_DIFFUSE, 1.0)
+	_transport_field(_cloud, CLOUD_DIFFUSE, 1.0)
+	_transport_field(_fog, CLOUD_DIFFUSE * 0.5, 0.5)
+
+	var water: PackedFloat32Array = _mat_array(Mat.WATER)
+	var cloud_sum: float = 0.0
+	var fog_sum: float = 0.0
+	var rained: bool = false
+	for idx in range(_cell_count):
+		if _sampled[idx] == 0:
+			continue
+		var t: float = _temp[idx]
+		var vap: float = _vapor[idx]
+		# Saturation the surface air holds, and the (colder) air at cloud base holds. When the SURFACE
+		# air itself saturates, condensation happens at ground level as FOG; when only the cooler air
+		# aloft saturates, it forms CLOUD at the base. Same vapor, height decided by where it saturates.
+		var sat_surface: float = SAT_BASE * exp(SAT_TEMP_GAIN * (t - EVAP_TEMP_REF))
+		var sat_aloft: float = SAT_BASE * exp(SAT_TEMP_GAIN * ((t - CLOUD_AIR_COOLING) - EVAP_TEMP_REF))
+		# Fog is a COOL-air phenomenon: warm saturated air over water is just humid (its vapor rises
+		# and clouds aloft instead), so only genuinely cool surfaces pool ground fog.
+		var cool: float = t < FOG_MAX_TEMP
+		if cool and vap > sat_surface:
+			var fcond: float = (vap - sat_surface) * CONDENSE_RATE
+			_vapor[idx] = vap - fcond
+			_fog[idx] += fcond
+		else:
+			# Surface sub-saturated: any ground fog re-evaporates back to vapor.
+			var fr: float = _fog[idx] * CLOUD_REEVAP_RATE
+			_fog[idx] -= fr
+			vap = vap + fr
+			if vap > sat_aloft:
+				var ccond: float = (vap - sat_aloft) * CONDENSE_RATE
+				_vapor[idx] = vap - ccond
+				_cloud[idx] += ccond
+			else:
+				var cr: float = _cloud[idx] * CLOUD_REEVAP_RATE
+				_cloud[idx] -= cr
+				_vapor[idx] = vap + cr
+		# Baseline dissipation so condensate never piles up forever.
+		_cloud[idx] *= (1.0 - CLOUD_DECAY)
+		_fog[idx] *= (1.0 - CLOUD_DECAY)
+		# Precipitation: thick cloud rains water back to the ground, closing the cycle.
+		if _cloud[idx] > RAIN_CLOUD_THRESHOLD:
+			var rain: float = (_cloud[idx] - RAIN_CLOUD_THRESHOLD) * RAIN_RATE
+			_cloud[idx] -= rain
+			water[idx] += rain
+			rained = true
+		cloud_sum += _cloud[idx]
+		fog_sum += _fog[idx]
+	var denom: float = maxf(1.0, float(_sampled_count))
+	_cloud_cover = cloud_sum / denom
+	_fog_cover = fog_sum / denom
+	if rained:
+		_liquid_dirty = true
 
 
 # --- External inputs (injection API — what disasters call) -------------------
@@ -615,6 +805,13 @@ func add_source(world_pos: Vector3, amount: float) -> void:
 	add_material(world_pos, Mat.WATER, amount, 0.0)
 
 
+## Set the current wind (world XZ) so vapor/cloud drift downwind. Fed from the weather each frame.
+func set_wind(w: Vector2) -> void:
+	if is_nan(w.x) or is_nan(w.y) or is_inf(w.x) or is_inf(w.y):
+		return
+	_wind = w
+
+
 # --- Query API for other systems --------------------------------------------
 
 ## Temperature at a world (x, z). 0.0 outside the grid.
@@ -660,6 +857,68 @@ func surface_y_at(x: float, z: float) -> float:
 ## Diagnostic: number of rendered WATER cells (depth >= RENDER_THRESHOLD).
 func wet_cell_count() -> int:
 	return material_cell_count(Mat.WATER, RENDER_THRESHOLD)
+
+
+# --- Atmosphere queries + render feeds (CloudLayer reads the grids to build density textures) ---
+
+func cloud_at(x: float, z: float) -> float:
+	var idx: int = _index_at(x, z)
+	return _cloud[idx] if idx >= 0 else 0.0
+
+
+func fog_at(x: float, z: float) -> float:
+	var idx: int = _index_at(x, z)
+	return _fog[idx] if idx >= 0 else 0.0
+
+
+## Mean cloud / fog density over sampled cells — drives global sun dimming and HUD/diagnostics.
+func avg_cloud_cover() -> float:
+	return _cloud_cover
+
+
+func avg_fog_cover() -> float:
+	return _fog_cover
+
+
+func wind() -> Vector2:
+	return _wind
+
+
+## Grid geometry so a renderer can map cell (i, j) <-> world XZ exactly like the field does.
+func grid_dim() -> int:
+	return _dim
+
+
+func grid_half_extent() -> float:
+	return _half_extent
+
+
+## World Y of the two rendered condensate sheets.
+func cloud_base_y() -> float:
+	return sea_level + CLOUD_BASE_ABOVE_SEA
+
+
+func fog_base_y() -> float:
+	return sea_level + FOG_BASE_ABOVE_SEA
+
+
+## The raw density grids (flat, index = j*dim+i) for building render textures. Returned by reference;
+## the renderer only reads them.
+func cloud_grid() -> PackedFloat32Array:
+	return _cloud
+
+
+func fog_grid() -> PackedFloat32Array:
+	return _fog
+
+
+## Diagnostic: cells whose cloud density is at least min_density.
+func cloud_cell_count(min_density: float = 0.05) -> int:
+	var n: int = 0
+	for idx in range(_cell_count):
+		if _sampled[idx] != 0 and _cloud[idx] >= min_density:
+			n += 1
+	return n
 
 
 ## Spawn a few short-lived rigidbody droplets flung up/out from world_pos — the physical splash

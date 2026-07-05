@@ -14,6 +14,7 @@ const MeteorScript: GDScript = preload("res://addons/local_agents/scenes/simulat
 const AudioDirectorScript: GDScript = preload("res://addons/local_agents/audio/AudioDirector.gd")
 const WeatherScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/WeatherSystem.gd")
 const MaterialFieldScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField.gd")
+const CloudLayerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/CloudLayer.gd")
 
 const INITIAL_COUNTS: Dictionary = {"plant": 70, "rabbit": 16, "fox": 3, "bird": 14, "villager": 6, "vulture": 5}
 const ROCK_COUNT: int = 44
@@ -28,25 +29,40 @@ var _selection_ring: MeshInstance3D
 var _selected: Node = null
 var _weather: Node = null   # LAWeatherSystem (visual rain/wind for now; being made emergent)
 var _material: Node = null   # LAMaterialField — the ONE substrate: terrain-coupled water + heat/air
+var _clouds: Node = null     # LACloudLayer rendering the field's cloud density (aloft)
+var _fog: Node = null        # LACloudLayer rendering the field's fog density (ground-hugging)
 
 # --- Day/night cycle. VoxelWorld owns ALL sky lighting (sun arc + energy, sky colors,
 # ambient) so the cycle and weather never fight over the same properties; weather only
 # supplies a rain factor that dims on top. time_of_day: 0=midnight, .25=dawn, .5=noon, .75=dusk.
 var _sun: DirectionalLight3D = null
-var _sky_mat: ProceduralSkyMaterial = null
+var _moon: DirectionalLight3D = null         # cool moonlight; energy tracks the lunar phase
+var _sky_shader_mat: ShaderMaterial = null   # VoxelSky.gdshader: stars + phase-shaded moon disc
 var _env: Environment = null
-var _time_of_day: float = 0.32              # start mid-morning
+var _time_of_day: float = 0.22              # start right before dawn (dawn = .25), so the
+                                            # moonlit night sky is on screen, then the sun rises
+# Lunar cycle: an independent clock (survives day wraps). Starts at a waxing crescent so the
+# very first night already has some moonlight rather than a black new moon.
+var _lunar_phase: float = 0.15              # 0=new, 0.25=first quarter, 0.5=full, 0.75=last quarter
 const DAY_LENGTH: float = 200.0             # seconds per full day
+const LUNAR_DAYS: float = 8.0               # in-game days per full new->full->new cycle
 const SUN_ENERGY_NOON: float = 1.45
 const AMBIENT_DAY: float = 0.62
-const AMBIENT_NIGHT: float = 0.09           # moonlight floor so nights aren't pitch black
-const SKY_TOP_DAY: Color = Color(0.42, 0.60, 0.86)
+const AMBIENT_NIGHT: float = 0.09           # dark floor; the moon lifts brightness on lit nights
+const MOON_ENERGY_FULL: float = 0.32        # directional moonlight at full moon (navigable)
+const MOON_AMBIENT: float = 0.14            # extra ambient fill at a full-moon night
+const MOON_COLOR: Color = Color(0.55, 0.66, 0.95)
+const SKY_TOP_DAY: Color = Color(0.36, 0.56, 0.86)
 const SKY_TOP_NIGHT: Color = Color(0.02, 0.03, 0.11)
 # Pale, near-white horizon so the surround reads cloudlike; the ground band and haze are
 # matched to this every frame (see _update_day_night) so there is no false horizon line.
 const SKY_HORIZON_DAY: Color = Color(0.86, 0.90, 0.94)
 const SKY_HORIZON_NIGHT: Color = Color(0.05, 0.06, 0.15)
 const SKY_HORIZON_DUSK: Color = Color(0.92, 0.48, 0.24)
+const GROUND_HORIZON_DAY: Color = Color(0.62, 0.66, 0.62)
+const GROUND_HORIZON_NIGHT: Color = Color(0.04, 0.05, 0.10)
+const GROUND_BOTTOM_DAY: Color = Color(0.30, 0.34, 0.30)
+const GROUND_BOTTOM_NIGHT: Color = Color(0.02, 0.02, 0.05)
 
 # Persistent springs (world XZ) seeded on high ground so rivers form downhill; fed
 # a little depth every frame so channels sustain instead of drying out.
@@ -86,6 +102,7 @@ var _music_auto_adapt: bool = true      # when false, stop feeding sim mood so m
 var _shoot_path: String = ""
 var _shoot_frames: int = 150
 var _run_frames: int = 0
+var _force_wind: float = 0.0            # --wind=<x>: force a constant eastward wind (verification)
 var _cognition_stats: bool = false      # --cognition-stats: print fast/slow brain + genetics metrics
 # Cumulative behaviour peaks over a --cognition-stats run (transient states are easy to miss in a
 # single end-of-run snapshot, so we track the max seen for the emergent behaviours we care about).
@@ -103,17 +120,26 @@ func _ready() -> void:
 	_parse_cmdline()
 
 	# --- Sun + sky ---
+	# Custom sky shader (stars + phase-shaded moon) replaces ProceduralSkyMaterial; the day
+	# gradient is driven from the same uniforms each frame so daytime looks unchanged. The sun
+	# and moon lights below become LIGHT0 / LIGHT1 in the shader, which draws their discs.
 	var env: WorldEnvironment = WorldEnvironment.new()
 	var e: Environment = Environment.new()
 	e.background_mode = Environment.BG_SKY
 	var sky: Sky = Sky.new()
-	var sky_mat: ProceduralSkyMaterial = ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = SKY_TOP_DAY
-	sky_mat.sky_horizon_color = SKY_HORIZON_DAY
-	# Ground band == horizon so there is no artificial horizon line; kept matched every frame.
-	sky_mat.ground_horizon_color = SKY_HORIZON_DAY
-	sky_mat.ground_bottom_color = SKY_HORIZON_DAY
-	sky_mat.ground_curve = 0.02
+	var sky_mat: ShaderMaterial = ShaderMaterial.new()
+	sky_mat.shader = load("res://addons/local_agents/scenes/simulation/voxel/shaders/VoxelSky.gdshader")
+	sky_mat.set_shader_parameter("sky_top_color", SKY_TOP_DAY)
+	sky_mat.set_shader_parameter("sky_horizon_color", SKY_HORIZON_DAY)
+	sky_mat.set_shader_parameter("ground_horizon_color", Color(0.62, 0.66, 0.62))
+	sky_mat.set_shader_parameter("ground_bottom_color", Color(0.30, 0.34, 0.30))
+	sky_mat.set_shader_parameter("night", 0.0)
+	sky_mat.set_shader_parameter("star_intensity", 1.0)
+	sky_mat.set_shader_parameter("moon_phase", _lunar_phase)
+	sky_mat.set_shader_parameter("moon_color", Color(0.85, 0.90, 1.0))
+	sky_mat.set_shader_parameter("moon_energy", 1.0)
+	sky_mat.set_shader_parameter("sun_color", Color(1.0, 1.0, 1.0))
+	sky_mat.set_shader_parameter("sun_energy", SUN_ENERGY_NOON)
 	sky.sky_material = sky_mat
 	e.sky = sky
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
@@ -129,7 +155,7 @@ func _ready() -> void:
 	e.fog_sky_affect = 0.15
 	env.environment = e
 	add_child(env)
-	_sky_mat = sky_mat
+	_sky_shader_mat = sky_mat
 	_env = e
 
 	var sun: DirectionalLight3D = DirectionalLight3D.new()
@@ -139,6 +165,16 @@ func _ready() -> void:
 	sun.directional_shadow_max_distance = 400.0
 	add_child(sun)
 	_sun = sun
+
+	# Moon: added after the sun so it is LIGHT1 in the sky shader. Cool light, energy driven
+	# per-frame from the lunar phase (0 at new moon), so bright nights are navigable.
+	var moon: DirectionalLight3D = DirectionalLight3D.new()
+	moon.light_color = MOON_COLOR
+	moon.light_energy = 0.0
+	moon.shadow_enabled = true
+	moon.directional_shadow_max_distance = 200.0
+	add_child(moon)
+	_moon = moon
 
 	# --- Terrain ---
 	_terrain = TerrainServiceScript.new()
@@ -214,6 +250,17 @@ func _ready() -> void:
 	if _ecology.has_method("set_material_field"):
 		_ecology.set_material_field(_material)
 
+	# Render the field's emergent condensate: a cloud sheet aloft + a ground-hugging fog sheet, both
+	# sampling the field's own density grids so they show exactly what the water cycle grew.
+	_clouds = CloudLayerScript.new()
+	_clouds.name = "CloudLayer"
+	add_child(_clouds)
+	_clouds.setup(_material, false)
+	_fog = CloudLayerScript.new()
+	_fog.name = "FogLayer"
+	add_child(_fog)
+	_fog.setup(_material, true)
+
 
 func _parse_cmdline() -> void:
 	for arg in OS.get_cmdline_user_args():
@@ -225,6 +272,10 @@ func _parse_cmdline() -> void:
 			_run_frames = int(arg.substr("--run-frames=".length()))
 		elif arg.begins_with("--time="):
 			_time_of_day = clampf(float(arg.substr("--time=".length())), 0.0, 1.0)
+		elif arg.begins_with("--lunar="):
+			_lunar_phase = clampf(float(arg.substr("--lunar=".length())), 0.0, 1.0)
+		elif arg.begins_with("--wind="):
+			_force_wind = float(arg.substr("--wind=".length()))
 		elif arg == "--auto-meteor":
 			_auto_meteor = true
 		elif arg == "--auto-select":
@@ -306,6 +357,16 @@ func _process(delta: float) -> void:
 		if _material != null and _material.has_method("peak_heat"):
 			heat_peak = _material.peak_heat()
 			heat_cells = _material.hot_cell_count()
+		var cloud_cells: int = 0
+		var cloud_cover: float = 0.0
+		var fog_cover: float = 0.0
+		if _material != null and _material.has_method("cloud_cell_count"):
+			cloud_cells = _material.cloud_cell_count()
+			cloud_cover = _material.avg_cloud_cover()
+			fog_cover = _material.avg_fog_cover()
+		var wind_mag: float = 0.0
+		if _material != null and _material.has_method("wind"):
+			wind_mag = _material.wind().length()
 		var n_poop: int = get_tree().get_nodes_in_group("poop").size()
 		var n_fish: int = get_tree().get_nodes_in_group("species_fish").size()
 		var n_fire: int = 0
@@ -360,8 +421,8 @@ func _process(delta: float) -> void:
 			var sc = _ecology.cognition_scheduler()
 			if sc != null and sc.has_method("total_calls"):
 				sched_calls = sc.total_calls()
-		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"heat_peak\":%.2f,\"heat_cells\":%d,\"poop\":%d,\"fish\":%d,\"fires\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f,\"minds\":%d,\"habits\":%d,\"escalations\":%d,\"social_lessons\":%d,\"max_generation\":%d,\"slow_brain_calls\":%d,\"nests\":%d,\"circling\":%d,\"investigating\":%d,\"sleeping\":%d,\"cues_learned\":%d}" % [
-			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, heat_peak, heat_cells, n_poop, n_fish, n_fire, min_hyd, drinkers, _time_of_day, minds, habits, asked, learned_socially, max_gen, sched_calls, n_nest, circling, investigating, sleeping, cues_learned])
+		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"heat_peak\":%.2f,\"heat_cells\":%d,\"cloud_cells\":%d,\"cloud_cover\":%.3f,\"fog_cover\":%.3f,\"wind\":%.2f,\"poop\":%d,\"fish\":%d,\"fires\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f,\"minds\":%d,\"habits\":%d,\"escalations\":%d,\"social_lessons\":%d,\"max_generation\":%d,\"slow_brain_calls\":%d,\"nests\":%d,\"circling\":%d,\"investigating\":%d,\"sleeping\":%d,\"cues_learned\":%d}" % [
+			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, heat_peak, heat_cells, cloud_cells, cloud_cover, fog_cover, wind_mag, n_poop, n_fish, n_fire, min_hyd, drinkers, _time_of_day, minds, habits, asked, learned_socially, max_gen, sched_calls, n_nest, circling, investigating, sleeping, cues_learned])
 		if _cognition_stats:
 			var avg_habits: float = (float(habits) / float(minds)) if minds > 0 else 0.0
 			print("COGNITION_SUMMARY minds=%d avg_habits=%.2f escalations=%d social_lessons=%d max_generation=%d slow_brain_calls=%d nests=%d circling=%d investigating=%d sleeping=%d cues_learned=%d" % [
@@ -406,6 +467,11 @@ func _update_day_night(delta: float) -> void:
 	if _weather != null and _weather.has_method("rain"):
 		rain = _weather.rain()
 	var storm: float = 1.0 - rain * 0.68
+	# Overcast skies (the field's own emergent cloud cover) dim the sun + ambient on top of rain.
+	var cloud_cover: float = 0.0
+	if _material != null and _material.has_method("avg_cloud_cover"):
+		cloud_cover = _material.avg_cloud_cover()
+	storm *= 1.0 - clampf(cloud_cover * 1.5, 0.0, 0.6)
 
 	# Sun arc: steep overhead at noon, shallow at the horizon near dawn/dusk; sweeps E->W.
 	_sun.rotation_degrees = Vector3(-(6.0 + daylight * 66.0), -47.0 + (_time_of_day - 0.5) * 90.0, 0.0)
@@ -414,20 +480,48 @@ func _update_day_night(delta: float) -> void:
 	var warm: float = clampf(1.0 - elev * 2.5, 0.0, 1.0) * clampf(daylight * 6.0, 0.0, 1.0)
 	_sun.light_color = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.6, 0.32), warm * 0.8)
 
+	# Lunar cycle: advance the phase on its own slow clock; illuminated fraction is a cosine
+	# of the phase (0 at new, 1 at full). The moon arcs opposite the sun (up through the night).
+	_lunar_phase = fposmod(_lunar_phase + delta / (DAY_LENGTH * LUNAR_DAYS), 1.0)
+	var moon_illum: float = (1.0 - cos(_lunar_phase * TAU)) * 0.5
+	var moonup: float = clampf(-elev, 0.0, 1.0)
+	if _moon != null:
+		_moon.rotation_degrees = Vector3(-(6.0 + moonup * 66.0), 133.0 + (_time_of_day - 0.5) * 90.0, 0.0)
+		_moon.light_energy = MOON_ENERGY_FULL * moon_illum * moonup * storm
+
 	# Sky colors lerp day<->night; horizon warms to dusk-orange around the transitions.
 	var night: float = 1.0 - daylight
-	var horizon: Color = SKY_HORIZON_DAY.lerp(SKY_HORIZON_NIGHT, night)
-	horizon = horizon.lerp(SKY_HORIZON_DUSK, warm * 0.7)
-	if _sky_mat != null:
-		_sky_mat.sky_top_color = SKY_TOP_DAY.lerp(SKY_TOP_NIGHT, night)
-		_sky_mat.sky_horizon_color = horizon
-		# Keep the ground band matched to the horizon so no false horizon appears at any time.
-		_sky_mat.ground_horizon_color = horizon
-		_sky_mat.ground_bottom_color = horizon
+	if _sky_shader_mat != null:
+		_sky_shader_mat.set_shader_parameter("sky_top_color", SKY_TOP_DAY.lerp(SKY_TOP_NIGHT, night))
+		var horizon: Color = SKY_HORIZON_DAY.lerp(SKY_HORIZON_NIGHT, night)
+		horizon = horizon.lerp(SKY_HORIZON_DUSK, warm * 0.7)
+		_sky_shader_mat.set_shader_parameter("sky_horizon_color", horizon)
+		# Darken the ground band at night too, else the static ground horizon reads as a bright
+		# pale strip against the dark night sky.
+		_sky_shader_mat.set_shader_parameter("ground_horizon_color", GROUND_HORIZON_DAY.lerp(GROUND_HORIZON_NIGHT, night))
+		_sky_shader_mat.set_shader_parameter("ground_bottom_color", GROUND_BOTTOM_DAY.lerp(GROUND_BOTTOM_NIGHT, night))
+		_sky_shader_mat.set_shader_parameter("night", night)
+		_sky_shader_mat.set_shader_parameter("moon_phase", _lunar_phase)
+		# Sun/moon directions drive the discs directly (basis.z of a DirectionalLight3D points
+		# back toward the light, i.e. where it sits in the sky).
+		_sky_shader_mat.set_shader_parameter("sun_dir", _sun.global_transform.basis.z)
+		_sky_shader_mat.set_shader_parameter("sun_energy", _sun.light_energy)
+		_sky_shader_mat.set_shader_parameter("sun_color", _sun.light_color)
+		if _moon != null:
+			_sky_shader_mat.set_shader_parameter("moon_dir", _moon.global_transform.basis.z)
 	if _env != null:
-		_env.ambient_light_energy = lerpf(AMBIENT_NIGHT, AMBIENT_DAY, daylight) * storm
-		# Haze tracks the horizon so it warms at dusk and darkens at night with the sky.
-		_env.fog_light_color = horizon
+		# Dark night floor, lifted softly on bright-moon nights so full moons are navigable.
+		_env.ambient_light_energy = lerpf(AMBIENT_NIGHT, AMBIENT_DAY, daylight) * storm \
+			+ moon_illum * night * MOON_AMBIENT * storm
+
+	# Tint the field's cloud/fog sheets with the sky: white by day, dusk-orange near sunset, dark at
+	# night (unshaded sheets, so the tint is what makes them read against the time of day).
+	var cloud_tint: Color = Color(1.0, 1.0, 1.0).lerp(Color(0.10, 0.12, 0.18), night)
+	cloud_tint = cloud_tint.lerp(Color(1.0, 0.55, 0.30), warm * 0.6)
+	if _clouds != null:
+		_clouds.set_tint(cloud_tint)
+	if _fog != null:
+		_fog.set_tint(cloud_tint)
 
 	# Share the clock with the ecology so nocturnal behavior can key off night.
 	if _ecology != null and _ecology.has_method("set_time_of_day"):
@@ -724,7 +818,16 @@ func _update_selection_ring() -> void:
 
 
 func _push_environment() -> void:
-	if _weather == null or _ecology == null or not _ecology.has_method("scent_field"):
+	if _weather == null:
+		return
+	# Drift the field's vapor/clouds downwind with the live weather wind (XZ).
+	if _material != null and _material.has_method("set_wind"):
+		if _force_wind != 0.0:
+			_material.set_wind(Vector2(_force_wind, 0.0))
+		else:
+			var w: Vector3 = _weather.wind_vector()
+			_material.set_wind(Vector2(w.x, w.z))
+	if _ecology == null or not _ecology.has_method("scent_field"):
 		return
 	var sf = _ecology.scent_field()
 	if sf == null:

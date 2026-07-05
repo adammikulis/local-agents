@@ -74,6 +74,16 @@ records superseded wave-by-wave inventories):
   under the soft size limit by extracting responsibilities before behavior growth.
 - Native shutdown RID teardown ordering: release GPU RIDs while rendering APIs are still available;
   no `free_rid` from late thread-local teardown; no RID-leak warnings on shutdown.
+- Emergent atmospheric water cycle (`LAMaterialField`): added a per-cell VAPOR layer plus CLOUD/FOG
+  condensate driven by temperature. Evaporation off warm water -> vapor -> condenses (surface-saturated
+  cool cells pool ground FOG, cooler-aloft cells form CLOUD) -> thick cloud rains water back and shades
+  the sun below it. Wind advects all AIRBORNE/aerated quantities (vapor, cloud, fog) via upwind
+  transport; liquid water still flows by gravity. Rendered by `LACloudLayer` (two world-aligned density
+  sheets sampling the field's grids). Owner: sim/atmosphere. **Transitional shim**: this is CPU/GDScript
+  on the 2.5D `LAMaterialField`; removal trigger = MaterialField substrate migrates to the unified
+  GPU/3D compute field (the condensation/advection rules port directly to compute passes, and a true
+  3D volume makes cloud-base height emerge instead of being a modeled constant). Target wave: with the
+  MaterialField GPU/3D migration, not before (keeps headless smoke — which has no GPU — working now).
 
 Validation for player-facing destruction work is non-headless launch first, then headless sweeps
 (`run_all_tests.gd`, `run_runtime_tests_bounded.gd`, destruction/fps-fire harnesses).
