@@ -65,6 +65,7 @@ var _atmosphere = null                                   # LAMaterialAtmosphere3
 var _lava_sim = null                                     # LAMaterialLava3D
 const HeatScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialHeat3D.gd")
 const AtmosphereScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialAtmosphere3D.gd")
+const LavaScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialLava3D.gd")
 
 
 ## Wire the real scene sun (DirectionalLight3D); the heat module reads its energy + angle for solar input.
@@ -377,6 +378,8 @@ func activate() -> void:
 	_heat.setup(self)
 	_atmosphere = AtmosphereScript.new()
 	_atmosphere.setup(self)
+	_lava_sim = LavaScript.new()
+	_lava_sim.setup(self)
 	_build_render_node()
 	rebuild_surface()
 	_ready_sim = true
