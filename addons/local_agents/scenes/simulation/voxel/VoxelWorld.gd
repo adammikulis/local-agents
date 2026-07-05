@@ -61,6 +61,7 @@ var _scent_visible: bool = false
 var _audio: LocalAgentsAudioDirector = null
 var _music_destruction: float = 0.0     # decays each frame; meteors spike it
 var _mood_timer: int = 0
+var _music_auto_adapt: bool = true      # when false, stop feeding sim mood so manual menu picks stick
 
 # Optional self-screenshot / smoke harness: pass `-- --shoot=<path> [--shoot-frames=N]`
 var _shoot_path: String = ""
@@ -153,6 +154,11 @@ func _ready() -> void:
 	_audio.configure()
 	_audio.set_music_enabled(true)
 	_audio.set_music_mood({"population": 0, "time_of_day": 0.30, "destruction_intensity": 0.0})
+	# Wire the HUD audio menu to the live director + listen for the auto-adapt toggle.
+	if _hud != null and _hud.has_method("set_audio_director"):
+		_hud.set_audio_director(_audio)
+	if _hud != null and _hud.has_signal("music_auto_adapt_changed"):
+		_hud.music_auto_adapt_changed.connect(_on_music_auto_adapt_changed)
 
 	# --- Weather: rain + wind. Wind advects scent; rain washes it away. ---
 	_weather = WeatherScript.new()
@@ -402,6 +408,9 @@ func _update_music_mood() -> void:
 	_mood_timer += 1
 	if _mood_timer % 20 != 0:
 		return
+	# Manual override: when auto-adapt is off, stop pushing mood so menu picks persist.
+	if not _music_auto_adapt:
+		return
 	var population: int = get_tree().get_nodes_in_group("creature").size()
 	_audio.set_music_mood({
 		"population": population,
@@ -419,6 +428,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			sf.set_scent_visible(_scent_visible)
 		_hud.set_status("Scent view: %s" % ("ON" if _scent_visible else "off"))
 		return
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_M:
+		if _hud != null and _hud.has_method("toggle_audio_menu"):
+			_hud.toggle_audio_menu()
+		return
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		var pos: Vector2 = event.position
 		if _hud != null and _hud.has_method("is_pointer_over_ui") and _hud.is_pointer_over_ui(pos):
@@ -435,6 +448,12 @@ func _on_spawn_selected(kind: String) -> void:
 		_hud.set_status("Select mode — click an entity to inspect it.")
 	else:
 		_hud.set_status("Spawn %s — click the ground to place." % kind)
+
+
+func _on_music_auto_adapt_changed(on: bool) -> void:
+	_music_auto_adapt = on
+	if _hud != null and _hud.has_method("set_status"):
+		_hud.set_status("Music auto-adapt: %s" % ("ON" if on else "off — manual control"))
 
 
 func _place_armed(screen_pos: Vector2) -> void:
