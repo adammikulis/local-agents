@@ -15,7 +15,7 @@ const AudioDirectorScript: GDScript = preload("res://addons/local_agents/audio/A
 const WeatherScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/WeatherSystem.gd")
 const WaterScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/WaterFieldSystem.gd")
 
-const INITIAL_COUNTS: Dictionary = {"plant": 70, "rabbit": 16, "fox": 3, "bird": 14, "villager": 6}
+const INITIAL_COUNTS: Dictionary = {"plant": 70, "rabbit": 16, "fox": 3, "bird": 14, "villager": 6, "vulture": 5}
 const ROCK_COUNT: int = 44
 const FOREST_CLUSTERS: int = 7
 
@@ -72,6 +72,11 @@ var _shoot_path: String = ""
 var _shoot_frames: int = 150
 var _run_frames: int = 0
 var _cognition_stats: bool = false      # --cognition-stats: print fast/slow brain + genetics metrics
+# Cumulative behaviour peaks over a --cognition-stats run (transient states are easy to miss in a
+# single end-of-run snapshot, so we track the max seen for the emergent behaviours we care about).
+var _peak_circling: int = 0
+var _peak_investigating: int = 0
+var _peak_sleeping: int = 0
 var _auto_meteor: bool = false
 var _auto_meteor_fired: bool = false
 var _auto_select: bool = false
@@ -217,6 +222,8 @@ func _process(delta: float) -> void:
 	_update_selection_ring()
 	_push_environment()
 	_feed_water()
+	if _cognition_stats and _spawned_initial and _frame % 15 == 0:
+		_sample_behaviour_peaks()
 
 	# Auto-meteor demo/test: drop a meteor on a forest so it carves a crater, topples trees,
 	# and ignites a wildfire. Works in both screenshot mode and headless run-frames mode.
@@ -267,18 +274,30 @@ func _process(delta: float) -> void:
 		var creatures: Array = get_tree().get_nodes_in_group("creature")
 		var min_hyd: int = 100
 		var drinkers: int = 0
+		var circling: int = 0        # vultures over a carcass (or soaring): the visible signal
+		var investigating: int = 0   # ground scavengers reading a carrion cue ("watch the vultures")
+		var sleeping: int = 0        # animals resting at their nest during their off-hours
 		for c in creatures:
 			if is_instance_valid(c) and "hydration" in c and "max_hydration" in c:
 				var h: int = int(round(100.0 * float(c.hydration) / maxf(1.0, float(c.max_hydration))))
 				min_hyd = mini(min_hyd, h)
-				if String(c.get("state")) == "drink":
+				var st: String = String(c.get("state"))
+				if st == "drink":
 					drinkers += 1
+				elif st == "circle" or st == "soar":
+					circling += 1
+				elif st == "investigate":
+					investigating += 1
+				elif st == "sleep" or st == "roost":
+					sleeping += 1
+		var n_nest: int = get_tree().get_nodes_in_group("nest").size()
 		# Cognition/genetics aggregates: prove the fast/slow brain + evolution are actually running.
 		var habits: int = 0
 		var asked: int = 0
 		var learned_socially: int = 0
 		var max_gen: int = 0
 		var minds: int = 0
+		var cues_learned: int = 0
 		for c in creatures:
 			if not is_instance_valid(c) or not c.has_method("get_cognition"):
 				continue
@@ -289,6 +308,9 @@ func _process(delta: float) -> void:
 			habits += cog.policy_size()
 			asked += cog.escalations
 			learned_socially += cog.lessons
+			for cv in cog.cue_values.values():
+				if float(cv) >= 0.6:
+					cues_learned += 1
 			if c.has_method("get_genome") and c.get_genome() != null:
 				max_gen = maxi(max_gen, int(c.get_genome().generation))
 		var sched_calls: int = 0
@@ -296,13 +318,35 @@ func _process(delta: float) -> void:
 			var sc = _ecology.cognition_scheduler()
 			if sc != null and sc.has_method("total_calls"):
 				sched_calls = sc.total_calls()
-		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"poop\":%d,\"fish\":%d,\"fires\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f,\"minds\":%d,\"habits\":%d,\"escalations\":%d,\"social_lessons\":%d,\"max_generation\":%d,\"slow_brain_calls\":%d}" % [
-			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, n_poop, n_fish, n_fire, min_hyd, drinkers, _time_of_day, minds, habits, asked, learned_socially, max_gen, sched_calls])
+		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"poop\":%d,\"fish\":%d,\"fires\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f,\"minds\":%d,\"habits\":%d,\"escalations\":%d,\"social_lessons\":%d,\"max_generation\":%d,\"slow_brain_calls\":%d,\"nests\":%d,\"circling\":%d,\"investigating\":%d,\"sleeping\":%d,\"cues_learned\":%d}" % [
+			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, n_poop, n_fish, n_fire, min_hyd, drinkers, _time_of_day, minds, habits, asked, learned_socially, max_gen, sched_calls, n_nest, circling, investigating, sleeping, cues_learned])
 		if _cognition_stats:
 			var avg_habits: float = (float(habits) / float(minds)) if minds > 0 else 0.0
-			print("COGNITION_SUMMARY minds=%d avg_habits=%.2f escalations=%d social_lessons=%d max_generation=%d slow_brain_calls=%d" % [
-				minds, avg_habits, asked, learned_socially, max_gen, sched_calls])
+			print("COGNITION_SUMMARY minds=%d avg_habits=%.2f escalations=%d social_lessons=%d max_generation=%d slow_brain_calls=%d nests=%d circling=%d investigating=%d sleeping=%d cues_learned=%d" % [
+				minds, avg_habits, asked, learned_socially, max_gen, sched_calls, n_nest, circling, investigating, sleeping, cues_learned])
+			print("BEHAVIOUR_PEAKS peak_circling=%d peak_investigating=%d peak_sleeping=%d cues_learned=%d" % [
+				_peak_circling, _peak_investigating, _peak_sleeping, cues_learned])
 		get_tree().quit(0)
+
+
+# Sample transient emergent behaviours so a run can prove they occurred (not just at the final frame).
+func _sample_behaviour_peaks() -> void:
+	var circ: int = 0
+	var invs: int = 0
+	var slp: int = 0
+	for c in get_tree().get_nodes_in_group("creature"):
+		if not is_instance_valid(c):
+			continue
+		var st: String = String(c.get("state"))
+		if st == "circle" or st == "soar":
+			circ += 1
+		elif st == "investigate":
+			invs += 1
+		elif st == "sleep" or st == "roost":
+			slp += 1
+	_peak_circling = maxi(_peak_circling, circ)
+	_peak_investigating = maxi(_peak_investigating, invs)
+	_peak_sleeping = maxi(_peak_sleeping, slp)
 
 
 # Advance the clock and drive all sky lighting from it, dimmed by weather rain.

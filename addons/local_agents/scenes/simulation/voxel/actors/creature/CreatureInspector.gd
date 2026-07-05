@@ -51,7 +51,13 @@ static func describe_activity(state: String) -> String:
 		"thirsty": return "searching for water"
 		"cruise": return "flying with the flock"
 		"flock": return "moving with the flock"
+		"soar": return "soaring, scanning for carrion"
+		"circle": return "circling a carcass"
+		"investigate": return "investigating a carrion cue"
 		"rest": return "resting to conserve energy"
+		"sleep": return "sleeping at its nest"
+		"roost": return "heading home to roost"
+		"nesting": return "tending its nest"
 		"migrate": return "migrating to new ground"
 		"wander": return "wandering with its kind"
 		_: return state

@@ -175,15 +175,34 @@ func observe(c, delta: float) -> void:
 		var rel: float = KIN_RELATEDNESS if kin else SPECIES_RELATEDNESS
 		for key in mc.policy.keys():
 			var e = mc.policy[key]
-			if float((e as Dictionary).get("weight", 0.0)) < CONFIDENCE_THRESHOLD:
+			var demo_w: float = float((e as Dictionary).get("weight", 0.0))
+			if demo_w < CONFIDENCE_THRESHOLD:
 				continue                              # only imitate behaviours they're confident in
-			_absorb_observation(int(key), String((e as Dictionary).get("action", "")), rel)
+			_absorb_observation(int(key), String((e as Dictionary).get("action", "")), rel, demo_w)
+		# Also inherit their confident CUE associations — this is how "watch the vultures" spreads
+		# culturally: a youngster copies which signs mean food from the elders it grows up watching.
+		for ck in mc.cue_values.keys():
+			var demo_cv: float = float(mc.cue_values[ck])
+			if demo_cv < CONFIDENCE_THRESHOLD:
+				continue
+			var cgain: float = rel * OBSERVE_TRANSFER * _confidence_mult(demo_cv)
+			cue_values[ck] = clampf(cue_value(String(ck)) + cgain, CUE_MIN, CUE_MAX)
 
 
-func _absorb_observation(key: int, action: String, rel: float) -> void:
+# Situational learning rate: you learn a thing FASTER the more sure the animal you're watching is —
+# a confident demonstrator is proof it's "correct", worth far more than fumbling it yourself. Scales
+# ~1x at the confidence threshold up to ~3x for a fully-ingrained expert.
+func _confidence_mult(demo_weight: float) -> float:
+	var t: float = clampf((demo_weight - CONFIDENCE_THRESHOLD) / maxf(0.001, MAX_WEIGHT - CONFIDENCE_THRESHOLD), 0.0, 1.0)
+	return 1.0 + t * 2.0
+
+
+func _absorb_observation(key: int, action: String, rel: float, demo_weight: float) -> void:
 	if not LAActionRegistry.is_valid(action):
 		return
-	var gain: float = rel * OBSERVE_TRANSFER
+	# Watching a confident demonstrator (they clearly know it's right) beats trial-and-error, so the
+	# uptake scales with how sure they are — situational learning rate.
+	var gain: float = rel * OBSERVE_TRANSFER * _confidence_mult(demo_weight)
 	var entry = policy.get(key, null)
 	if entry == null:
 		policy[key] = {"action": action, "weight": START_WEIGHT + gain}
@@ -204,7 +223,29 @@ func _absorb_observation(key: int, action: String, rel: float) -> void:
 # current situation toward `action`, weighted by relatedness — carries past the vision cone.
 func learn_from_sound(c, action: String, rel: float) -> void:
 	var sig: Dictionary = LASituationSignature.compute(c)
-	_absorb_observation(int(sig.get("key", -1)), action, rel)
+	# A deliberate call is a clear demonstration — treat it as a moderately confident teacher.
+	_absorb_observation(int(sig.get("key", -1)), action, rel, 2.0)
+
+
+# --- learned CUE associations (emergent "watch the vultures", nothing hardcoded) -------------------
+# A creature treats other animals as cues to resources. cue_values maps a generic cue key (e.g. the
+# observed animal's "species:state") to a learned worth. The creature is NEVER told which cue means
+# food — it discovers it: investigate a cue, and if food follows, the cue's value is reinforced; if
+# not, it decays. Useful associations (like circling scavengers → a carcass) emerge and, via observe(),
+# spread to kin. This is the same reward machinery as the rest of cognition, one level up (about the
+# world's signs rather than one's own actions).
+const CUE_LEARN_RATE: float = 0.5
+const CUE_MAX: float = 4.0
+const CUE_MIN: float = -2.0
+var cue_values: Dictionary = {}
+
+func cue_value(key: String) -> float:
+	return float(cue_values.get(key, 0.0))
+
+func reinforce_cue(key: String, reward: float) -> void:
+	if key == "":
+		return
+	cue_values[key] = clampf(float(cue_values.get(key, 0.0)) + reward * CUE_LEARN_RATE, CUE_MIN, CUE_MAX)
 
 
 func policy_size() -> int:

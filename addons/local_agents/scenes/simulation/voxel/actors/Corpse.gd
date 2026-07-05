@@ -19,6 +19,8 @@ var _nutrition: float = 0.0
 var _size: float = 0.6
 var _age: float = 0.0
 var _dead: bool = false
+var _scent = null                         # LAScentField (injected) — the carcass advertises itself
+var _scent_cd: float = 0.0
 
 # Cached so the shrink-out phase can scale relative to the built body.
 var _mesh_instance: MeshInstance3D = null
@@ -95,6 +97,12 @@ func fling(impulse: Vector3) -> void:
 	) * (impulse.length() * 0.25 + 1.0)
 	apply_torque_impulse(spin)
 
+## Inject the shared scent field so the carcass advertises itself: scavengers smell it from afar
+## and converge, which is the emergent basis for vultures gathering (and others "watching" them).
+func set_scent(s) -> void:
+	_scent = s
+
+
 ## A scavenger eats from the carcass. Reduces remaining nutrition by `amount`
 ## and returns the energy actually taken (clamped to what remained). When the
 ## carcass is used up it frees itself.
@@ -127,6 +135,14 @@ func _physics_process(delta: float) -> void:
 		return
 
 	_age += delta
+
+	# Advertise the carcass as a decaying "carrion" scent scavengers follow from afar. Strength
+	# tracks the meat left, so a fresh big kill smells strongest and fades as it is eaten/rots.
+	if _scent != null and _scent.has_method("deposit"):
+		_scent_cd -= delta
+		if _scent_cd <= 0.0 and _nutrition > 0.0:
+			_scent_cd = 1.2
+			_scent.deposit(global_position, "carrion", clampf(_nutrition * 0.05, 0.4, 4.0))
 
 	if _age >= DECAY_LIFETIME:
 		_free_once()

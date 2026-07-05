@@ -31,6 +31,8 @@ const SPECIES_COLORS: Dictionary = {
 	"fox": Color(1.0, 0.55, 0.2),
 	"bird": Color(0.3, 0.9, 1.0),
 	"villager": Color(0.7, 0.4, 1.0),
+	"vulture": Color(0.55, 0.5, 0.5),
+	"carrion": Color(0.55, 0.75, 0.2),
 }
 
 # --- State ------------------------------------------------------------------

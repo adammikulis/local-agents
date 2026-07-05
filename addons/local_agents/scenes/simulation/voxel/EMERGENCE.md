@@ -24,6 +24,31 @@ species, or scenario.
   same channel — no new per-event creature code.
 - **The world is data, edited live.** Terrain is a signed-distance field; destruction is just
   `carve_sphere`. Craters, debris, and exposed strata are consequences of the edit, not pre-authored.
+- **Animals are cues to resources, not just competitors ("watch the vultures").** A carcass
+  advertises itself: the corpse deposits a decaying `"carrion"` scent into the shared `LAScentField`.
+  Aerial scavengers (vultures) do one thing — *follow the strongest food cue* — so they home on that
+  scent and circle above it, descending from cruise altitude to feed. A circling/feeding animal is
+  itself a cue: it is visible (vision cone) and audible (an omnidirectional `"carrion"` call). Ground
+  scavengers (foxes, humans) run the *same* "investigate the strongest food cue" rule over three
+  channels — sight, smell, sound — and so converge on the kill by reading the flyers.
+  - No hardcoded `vulture→human` link: it is one general behaviour, and "more vultures = a stronger
+    signal" just falls out of counts (kettle intensity summing on each channel).
+  - The tendency is *both* faintly innate and learned: a scavenger that follows a cue and gets fed has
+    that heuristic reinforced (`LACognition` reward), so it fires more readily next time.
+  - Reinforced habits spread — socially to kin (vision/sound-gated imitation) and genetically to
+    offspring — so a population *culturally learns to read the vultures* over generations, with no
+    per-species scavenging script.
+- **Nesting & natal philopatry are an emergent clustering force.** A species with the config flag
+  `nests` establishes a home site the first time it settles (birds roost/nest in a tree, ground
+  species dig a burrow). Breeding happens at the nest and offspring inherit the site (fidelity), so
+  kin *cluster in space* over generations — colonies, rookeries, and warrens are all the same rule at
+  different tunings.
+  - Clustering feeds the cultural machinery: because social learning is vision/sound-gated and
+    kin-weighted, philopatric families become **cultural units** — habits (including "watch the
+    vultures") spread fastest among relatives who grew up in the same place.
+  - Roosting is the same home-drive on the day/night clock: return to the nest when `is_night()`.
+  - It is all config/properties + local rules (the `nests` flag, a stored home position, a return
+    force) — no scripted per-species colony code.
 
 ## How to add new behavior (the rule of thumb)
 
