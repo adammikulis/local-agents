@@ -194,8 +194,8 @@ func _physics_process(delta: float) -> void:
 				_field.add_heat(_vent, minf(VENT_HEAT_PER_SEC * delta, (1300.0 - vt) * 0.5), VENT_RADIUS)
 		# Bleed pressure as it vents (plus a little continued recharge fighting it), then reseal when spent.
 		_pressure += (RECHARGE_RATE * heat_factor * 0.4 - VENT_RELEASE * over) * delta
-		if _ecology != null and _ecology.has_method("disturb_ground") and randf() < delta * 0.5:
-			_ecology.disturb_ground(_vent, VENT_RADIUS * 4.0, 1.0)
+		# NOTE: no per-frame disturb_ground here — repeatedly slumping the vent churned the terrain into
+		# smooth fill_sphere "zit" domes. Physical ground disturbance is now a ONE-SHOT at the breach only.
 		_scare_cd -= delta
 		if _scare_cd <= 0.0:
 			_scare_cd = SCARE_INTERVAL
@@ -228,8 +228,8 @@ func _pressurize_toward_breach(delta: float) -> void:
 		var vt: float = _vent_temp()
 		if vt < target_glow:
 			_field.add_heat(_vent, (target_glow - vt) * minf(1.0, 3.0 * delta), CRATER_RADIUS * 1.6)
-	if _ecology != null and _ecology.has_method("disturb_ground") and randf() < delta * frac:
-		_ecology.disturb_ground(_vent, CRATER_RADIUS * 2.0, frac)      # tremors crack the ground above
+	# (No per-frame disturb_ground during build-up either — it slumped the ground into fill_sphere domes.
+	# The tremors are felt as camera shake, not by physically churning the terrain every frame.)
 	# Seismic tremors shake the camera, intensifying as the breach nears (frac²) — a warning it's coming.
 	_shake_camera(TREMOR_SHAKE * frac * frac * delta)
 	# Deep ground rumble that comes faster (more menacing) the closer the breach is.
