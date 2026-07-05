@@ -82,7 +82,10 @@ void fragment() {
 	float crust = smoothstep(0.35, 0.75, n);   // dark cooled crust (low) vs hot veins (high)
 	vec3 c = mix(cool_color, hot_color, crust);
 	ALBEDO = c;
-	EMISSION = c * (0.8 + crust * 3.0);
+	// Moderate emission: a dark molten crust with glowing veins. The bright ambient glow of the flow
+	// comes from the SMOOTH terrain incandescence (linear-filtered heat field) around/under it, so the
+	// per-cell lava mesh doesn't read as blazing blocks.
+	EMISSION = c * (0.35 + crust * 1.6);
 	ROUGHNESS = 0.75;
 	METALLIC = 0.0;
 }
@@ -194,7 +197,10 @@ func rebuild_water() -> void:
 func rebuild_lava() -> void:
 	if _lava_mesh == null or not _f._mats.has(Mat.LAVA):
 		return
-	_build_liquid_surface(_f._mats[Mat.LAVA], _f.LAVA_MIN, _lava_mesh, _lava_material)
+	# Render only cells with SUBSTANTIAL lava depth (well above the sim's LAVA_MIN) so thin, scattered
+	# single cells don't each spawn a lone bright quad — the source of the "blocky squares" look. A
+	# continuous flow still meshes as one welded smooth surface.
+	_build_liquid_surface(_f._mats[Mat.LAVA], _f.LAVA_MIN * 2.5, _lava_mesh, _lava_material)
 
 
 # Build ONE continuous surface for a liquid depth field, instead of an independent flat quad per cell

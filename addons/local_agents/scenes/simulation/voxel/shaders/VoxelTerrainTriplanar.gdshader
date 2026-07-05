@@ -117,7 +117,9 @@ void fragment() {
 		ALBEDO = col;
 		ROUGHNESS = mix(0.92, 0.6, rockf);
 		METALLIC = 0.0;
-		// Hot ground glows — a meteor crater, lava, or a wildfire front lights the terrain itself.
-		EMISSION = incandescence(temp) * 3.0;
+		// Hot ground glows — a meteor crater, lava, or a wildfire front lights the terrain itself. This
+		// SMOOTH (linear-filtered heat field) glow is the main visual of molten lava; the lava surface
+		// mesh on top is a subtler crust, so the flow reads smooth, not as blocky per-cell squares.
+		EMISSION = incandescence(temp) * 3.8;
 	}
 }
