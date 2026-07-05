@@ -30,11 +30,13 @@ const OUTFLOW_PER_PRESSURE: float = 1.3   # lava depth/sec per unit over-pressur
 const BOMB_PRESSURE: float = 0.45         # only strongly over-pressured eruptions throw bombs
 var _pressure: float = 0.4                # current chamber over-pressure (starts part-charged)
 
-# --- Seismic camera shake (tremors felt more strongly the closer the camera is to the vent) ---
-const SHAKE_RANGE: float = 160.0          # camera within this distance feels the tremors (linear falloff to 0)
-const TREMOR_SHAKE: float = 2.4           # trauma/sec while forming, scaled by build fraction² + proximity
-const BREACH_SHAKE: float = 1.0           # one-shot camera jolt when the crust ruptures
-const ERUPT_SHAKE: float = 0.7            # ongoing rumble/sec while erupting, scaled by over-pressure + proximity
+# --- Seismic emissions (camera shake EMERGES from these, felt via the ecology's seismic field) ---
+# The volcano never touches the camera. Its tremors/breach/eruption all disturb the ground (which emits
+# seismic pulses) and, for the moments the ground barely moves (early build-up, onset), it emits a
+# seismic pulse directly. The camera queries seismic_energy_at() and shakes — proximity is automatic.
+const TREMOR_SEISMIC: float = 2.6         # build-up seismic energy/sec, scaled by build fraction² (grows toward breach)
+const BREACH_SEISMIC: float = 6.0         # one-shot seismic jolt when the crust ruptures
+const ERUPT_SEISMIC: float = 3.0          # ongoing eruption seismic energy/sec, scaled by over-pressure
 
 # --- Lava chute cut into the ground (NO pre-built mountain — the cone accretes from eruptions) ---
 const CRATER_RADIUS: float = 4.5          # flared mouth / crater lip carved at the surface
@@ -64,6 +66,7 @@ var _erupting: bool = false
 var _breached: bool = false                # false = crust still intact; magma is building toward the first breach
 var _scare_cd: float = 0.0
 var _rumble_cd: float = 0.0                 # cadence for the seismic rumble / eruption-roar SFX
+var _tremor_cd: float = 0.0                 # throttle for continuous build-up/eruption seismic pulses
 
 var _glow: OmniLight3D = null
 var _smoke: GPUParticles3D = null
@@ -144,18 +147,16 @@ func _vent_temp() -> float:
 	return CHAMBER_TEMP
 
 
-# Shake the active camera from seismic tremors, felt MORE STRONGLY the closer it is to the vent (linear
-# falloff to nothing past SHAKE_RANGE). Reads the camera from the viewport so the volcano needs no
-# wiring. `amount` is the trauma to add (the camera rig decays trauma on its own).
-func _shake_camera(amount: float) -> void:
-	if amount <= 0.0 or not is_inside_tree():
+# Emit a seismic pulse at the vent (throttled) so a CONTINUOUS tremor reads as several overlapping
+# short pulses in the ecology's seismic field rather than one per frame. `magnitude` is the pulse
+# energy; the camera queries the field and shakes — proximity/decay are handled there, not here.
+func _emit_tremor(magnitude: float, delta: float) -> void:
+	_tremor_cd -= delta
+	if _tremor_cd > 0.0:
 		return
-	var cam: Camera3D = get_viewport().get_camera_3d()
-	if cam == null or not cam.has_method("add_shake"):
-		return
-	var prox: float = clampf(1.0 - cam.global_position.distance_to(_vent) / SHAKE_RANGE, 0.0, 1.0)
-	if prox > 0.0:
-		cam.add_shake(amount * prox)
+	_tremor_cd = 0.15
+	if magnitude > 0.0 and _ecology != null and _ecology.has_method("broadcast_seismic"):
+		_ecology.broadcast_seismic(_vent, magnitude)
 
 
 func _physics_process(delta: float) -> void:
@@ -178,7 +179,7 @@ func _physics_process(delta: float) -> void:
 		# Erupting: outflow + bomb force scale with OVER-pressure; venting bleeds it toward the seal.
 		var over: float = maxf(0.0, _pressure - SEAL_PRESSURE)
 		var outflow: float = OUTFLOW_PER_PRESSURE * over
-		_shake_camera(ERUPT_SHAKE * over * delta)           # ongoing rumble while it erupts
+		_emit_tremor(ERUPT_SEISMIC * over, delta)           # ongoing rumble emerges from felt seismic energy
 		# Sustained eruption roar in overlapping bursts.
 		_rumble_cd -= delta
 		if _rumble_cd <= 0.0:
@@ -230,8 +231,9 @@ func _pressurize_toward_breach(delta: float) -> void:
 			_field.add_heat(_vent, (target_glow - vt) * minf(1.0, 3.0 * delta), CRATER_RADIUS * 1.6)
 	if _ecology != null and _ecology.has_method("disturb_ground") and randf() < delta * frac:
 		_ecology.disturb_ground(_vent, CRATER_RADIUS * 2.0, frac)      # tremors crack the ground above
-	# Seismic tremors shake the camera, intensifying as the breach nears (frac²) — a warning it's coming.
-	_shake_camera(TREMOR_SHAKE * frac * frac * delta)
+	# Seismic tremors intensify as the breach nears (frac²) — a warning it's coming. Emitted into the
+	# seismic field so the camera shakes emergently; no direct camera call.
+	_emit_tremor(TREMOR_SEISMIC * frac * frac, delta)
 	# Deep ground rumble that comes faster (more menacing) the closer the breach is.
 	_rumble_cd -= delta
 	if _rumble_cd <= 0.0:
@@ -266,7 +268,9 @@ func _breach() -> void:
 		if _ecology.has_method("broadcast_scare"):
 			_ecology.broadcast_scare(_vent, SCARE_RADIUS * 1.5, 1.0)
 	LocalAgentsAudioDirector.emit(get_tree(), "volcano_erupt", _vent)
-	_shake_camera(BREACH_SHAKE)                          # a hard jolt as the crust ruptures
+	# A hard seismic jolt as the crust ruptures — the camera feels it through the seismic field.
+	if _ecology != null and _ecology.has_method("broadcast_seismic"):
+		_ecology.broadcast_seismic(_vent, BREACH_SEISMIC)
 	if _glow != null:
 		_glow.light_energy = 42.0
 
@@ -329,6 +333,9 @@ func _bomb_impact(bomb: Node) -> void:
 			_field.add_material(pos, Mat.LAVA, 0.18, 2.0)
 	if _ecology != null and _ecology.has_method("broadcast_scare"):
 		_ecology.broadcast_scare(pos, 12.0, 0.5)
+	# A landing bomb thumps the ground — a small seismic pulse (felt as a light shake if the camera is near).
+	if _ecology != null and _ecology.has_method("broadcast_seismic"):
+		_ecology.broadcast_seismic(pos, 0.5)
 	bomb.queue_free()
 
 

@@ -225,6 +225,10 @@ func _ready() -> void:
 	_ecology.name = "Ecology"
 	add_child(_ecology)
 	_ecology.setup(_terrain, _actors_root)
+	# Let the camera query the seismic field so ground disturbances shake it emergently (no event
+	# tells the camera to shake — see LAEcologyService.seismic_energy_at / VoxelCameraRig._process).
+	if _camera != null and _camera.has_method("set_ecology"):
+		_camera.set_ecology(_ecology)
 
 	# --- Selection highlight ring ---
 	_selection_ring = _make_selection_ring()
@@ -1005,7 +1009,7 @@ func _apply_at(point: Vector3) -> void:
 	elif _armed_kind == "earthquake":
 		var quake: Node = EarthquakeScript.new()
 		_actors_root.add_child(quake)
-		quake.setup(_terrain, _ecology, _camera)
+		quake.setup(_terrain, _ecology)
 		quake.rupture(point)
 		_music_destruction = 1.0
 		_hud.set_status("The ground heaves!")
