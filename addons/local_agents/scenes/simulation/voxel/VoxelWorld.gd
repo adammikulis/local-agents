@@ -1,0 +1,402 @@
+extends Node3D
+class_name LAVoxelWorld
+
+# From-scratch simulation root built entirely in code on the Zylann godot_voxel GDExtension.
+# Owns: terrain service, fly camera + voxel viewer, sun + sky, actors root, ecology service,
+# HUD, weather, and procedural audio. Wires the spawn palette -> click-to-place, and
+# left-click -> select/inspect. (Explicit types only — project rule: no ':=' inferred typing.)
+
+const TerrainServiceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/terrain/VoxelTerrainService.gd")
+const CameraRigScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/VoxelCameraRig.gd")
+const EcologyServiceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ecology/EcologyService.gd")
+const HudScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/SpawnPaletteHud.gd")
+const MeteorScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Meteor.gd")
+const AudioDirectorScript: GDScript = preload("res://addons/local_agents/audio/AudioDirector.gd")
+const WeatherScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/WeatherSystem.gd")
+
+const INITIAL_COUNTS: Dictionary = {"plant": 70, "rabbit": 16, "fox": 3, "bird": 14, "villager": 6}
+const ROCK_COUNT: int = 44
+const FOREST_CLUSTERS: int = 7
+
+var _terrain                # LAVoxelTerrainService
+var _camera: Camera3D
+var _ecology: Node          # LAEcologyService
+var _hud: CanvasLayer       # LASpawnPaletteHud
+var _actors_root: Node3D
+var _selection_ring: MeshInstance3D
+var _selected: Node = null
+var _weather: Node = null   # LAWeatherSystem
+
+var _armed_kind: String = ""
+var _spawned_initial: bool = false
+var _ready_wait_ticks: int = 0
+var _scent_visible: bool = false
+
+# --- Procedural audio (presentation only; reacts to events, never drives the sim) ---
+var _audio: LocalAgentsAudioDirector = null
+var _music_destruction: float = 0.0     # decays each frame; meteors spike it
+var _mood_timer: int = 0
+
+# Optional self-screenshot / smoke harness: pass `-- --shoot=<path> [--shoot-frames=N]`
+var _shoot_path: String = ""
+var _shoot_frames: int = 150
+var _run_frames: int = 0
+var _auto_meteor: bool = false
+var _auto_meteor_fired: bool = false
+var _auto_select: bool = false
+var _auto_select_done: bool = false
+var _frame: int = 0
+
+
+func _ready() -> void:
+	_parse_cmdline()
+
+	# --- Sun + sky ---
+	var env: WorldEnvironment = WorldEnvironment.new()
+	var e: Environment = Environment.new()
+	e.background_mode = Environment.BG_SKY
+	var sky: Sky = Sky.new()
+	var sky_mat: ProceduralSkyMaterial = ProceduralSkyMaterial.new()
+	sky_mat.sky_top_color = Color(0.36, 0.56, 0.86)
+	sky_mat.sky_horizon_color = Color(0.72, 0.80, 0.88)
+	sky_mat.ground_horizon_color = Color(0.62, 0.66, 0.62)
+	sky_mat.ground_bottom_color = Color(0.30, 0.34, 0.30)
+	sky.sky_material = sky_mat
+	e.sky = sky
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	e.ambient_light_energy = 0.6
+	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	e.ssao_enabled = true
+	env.environment = e
+	add_child(env)
+
+	var sun: DirectionalLight3D = DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-52.0, -47.0, 0.0)
+	sun.light_energy = 1.35
+	sun.shadow_enabled = true
+	sun.directional_shadow_max_distance = 400.0
+	add_child(sun)
+
+	# --- Terrain ---
+	_terrain = TerrainServiceScript.new()
+	# Larger world: keep all voxel data resident over a big bounded area so edits work
+	# anywhere, with a long view distance for the vistas.
+	_terrain.build(self, {"bounds_half_xz": 300, "view_distance": 640})
+
+	# --- Camera + voxel viewer ---
+	_camera = CameraRigScript.new()
+	_camera.name = "CameraRig"
+	add_child(_camera)
+	_camera.current = true
+	_terrain.attach_viewer(_camera)
+
+	# --- Actors + ecology ---
+	_actors_root = Node3D.new()
+	_actors_root.name = "Actors"
+	add_child(_actors_root)
+	_ecology = EcologyServiceScript.new()
+	_ecology.name = "Ecology"
+	add_child(_ecology)
+	_ecology.setup(_terrain, _actors_root)
+
+	# --- Selection highlight ring ---
+	_selection_ring = _make_selection_ring()
+	_selection_ring.visible = false
+	add_child(_selection_ring)
+
+	# --- HUD ---
+	_hud = HudScript.new()
+	_hud.name = "HUD"
+	add_child(_hud)
+	if _hud.has_signal("spawn_selected"):
+		_hud.spawn_selected.connect(_on_spawn_selected)
+	_hud.set_status("Streaming terrain...")
+
+	# --- Procedural audio ---
+	_audio = AudioDirectorScript.new()
+	_audio.name = "AudioDirector"
+	add_child(_audio)
+	_audio.configure()
+	_audio.set_music_enabled(true)
+	_audio.set_music_mood({"population": 0, "time_of_day": 0.30, "destruction_intensity": 0.0})
+
+	# --- Weather: rain + wind. Wind advects scent; rain washes it away. ---
+	_weather = WeatherScript.new()
+	_weather.name = "Weather"
+	add_child(_weather)
+	_weather.setup(_camera, sun, e)
+
+
+func _parse_cmdline() -> void:
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--shoot="):
+			_shoot_path = arg.substr("--shoot=".length())
+		elif arg.begins_with("--shoot-frames="):
+			_shoot_frames = int(arg.substr("--shoot-frames=".length()))
+		elif arg.begins_with("--run-frames="):
+			_run_frames = int(arg.substr("--run-frames=".length()))
+		elif arg == "--auto-meteor":
+			_auto_meteor = true
+		elif arg == "--auto-select":
+			_auto_select = true
+
+
+func _process(_delta: float) -> void:
+	_frame += 1
+	_update_music_mood()
+	# Spawn the starting ecology once terrain has streamed + collided near origin.
+	if not _spawned_initial and _terrain != null:
+		if _terrain.is_ready_at(Vector3(0, 0, 0)):
+			_ready_wait_ticks += 1
+			if _ready_wait_ticks > 6:
+				_ecology.spawn_initial(INITIAL_COUNTS)
+				_ecology.populate_environment(ROCK_COUNT, FOREST_CLUSTERS)
+				_spawned_initial = true
+				_hud.set_status("World ready — spawn things, click to inspect, press V for scent.")
+	_update_selection_ring()
+	_push_weather_to_scent()
+
+	# Auto-meteor demo: drop a meteor on the point under the camera's aim.
+	if _auto_meteor and not _auto_meteor_fired and _spawned_initial and _shoot_path != "" and _frame == _shoot_frames - 240:
+		var ray: Dictionary = _camera.aim_ray()
+		var hit: Dictionary = _terrain.raycast_terrain(ray["origin"], ray["dir"], 3000.0)
+		if bool(hit.get("hit", false)):
+			var impact: Vector3 = hit["position"]
+			var m: MeteorScript = MeteorScript.new()
+			_actors_root.add_child(m)
+			m.setup(_terrain, _ecology)
+			m.launch(impact)
+			_music_destruction = 1.0
+			_auto_meteor_fired = true
+			_camera.global_position = impact + Vector3(26.0, 30.0, 26.0)
+			_camera.look_at(impact, Vector3.UP)
+
+	# Auto-select demo: aim at the nearest creature and run the real selection path.
+	if _auto_select and not _auto_select_done and _spawned_initial and _frame == _shoot_frames - 40:
+		var nearest: Node3D = null
+		var best: float = INF
+		for a in get_tree().get_nodes_in_group("selectable"):
+			if a is Node3D:
+				var d: float = (_camera.global_position - (a as Node3D).global_position).length()
+				if d < best:
+					best = d
+					nearest = a
+		if nearest != null:
+			var p: Vector3 = nearest.global_position
+			_camera.global_position = p + Vector3(6.0, 5.0, 6.0)
+			_camera.look_at(p, Vector3.UP)
+			_select_at(get_viewport().get_visible_rect().size * 0.5)
+			var title: String = ""
+			if _selected != null:
+				title = String(_selected.call("get_inspector_payload").get("title", ""))
+			print("SELECT_RESULT selected=", _selected != null, " ring_visible=", _selection_ring.visible, " title=", title)
+		_auto_select_done = true
+
+	if _shoot_path != "" and _frame == _shoot_frames:
+		_capture_screenshot(_shoot_path)
+		get_tree().quit(0)
+
+	if _run_frames > 0 and _frame == _run_frames:
+		var n_sel: int = get_tree().get_nodes_in_group("selectable").size()
+		var n_act: int = _actors_root.get_child_count()
+		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d}" % [
+			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act])
+		get_tree().quit(0)
+
+
+# Feed the generative music a mood from live world state. Presentation only.
+func _update_music_mood() -> void:
+	if _audio == null:
+		return
+	var dt: float = get_process_delta_time()
+	_music_destruction = maxf(0.0, _music_destruction - dt * 0.4)
+	_mood_timer += 1
+	if _mood_timer % 20 != 0:
+		return
+	var population: int = get_tree().get_nodes_in_group("creature").size()
+	var tod: float = fmod(float(_frame) / 7200.0, 1.0)
+	_audio.set_music_mood({
+		"population": population,
+		"time_of_day": tod,
+		"destruction_intensity": _music_destruction,
+		"threat": _music_destruction,
+	})
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_V:
+		_scent_visible = not _scent_visible
+		var sf = _ecology.scent_field() if _ecology != null and _ecology.has_method("scent_field") else null
+		if sf != null and sf.has_method("set_scent_visible"):
+			sf.set_scent_visible(_scent_visible)
+		_hud.set_status("Scent view: %s" % ("ON" if _scent_visible else "off"))
+		return
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		var pos: Vector2 = event.position
+		if _hud != null and _hud.has_method("is_pointer_over_ui") and _hud.is_pointer_over_ui(pos):
+			return
+		if _armed_kind != "":
+			_place_armed(pos)
+		else:
+			_select_at(pos)
+
+
+func _on_spawn_selected(kind: String) -> void:
+	_armed_kind = kind
+	if kind == "":
+		_hud.set_status("Select mode — click an entity to inspect it.")
+	else:
+		_hud.set_status("Spawn %s — click the ground to place." % kind)
+
+
+func _place_armed(screen_pos: Vector2) -> void:
+	var ray: Dictionary = _camera.aim_ray(screen_pos)
+	var hit: Dictionary = _terrain.raycast_terrain(ray["origin"], ray["dir"], 2000.0)
+	if not bool(hit.get("hit", false)):
+		_hud.set_status("No ground under cursor — aim at the terrain.")
+		return
+	var point: Vector3 = hit["position"]
+	if _armed_kind == "meteor":
+		var meteor: MeteorScript = MeteorScript.new()
+		_actors_root.add_child(meteor)
+		meteor.setup(_terrain, _ecology)
+		meteor.launch(point)
+		_music_destruction = 1.0
+		_hud.set_status("Meteor inbound!")
+	else:
+		_ecology.spawn(_armed_kind, point)
+		if _audio != null:
+			_audio.play_sfx("spawn", point)
+		_hud.set_status("Spawned %s." % _armed_kind)
+	_spawn_puff(point, _kind_color(_armed_kind))
+
+
+func _select_at(screen_pos: Vector2) -> void:
+	var ray: Dictionary = _camera.aim_ray(screen_pos)
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var q: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(ray["origin"], ray["origin"] + ray["dir"] * 2000.0)
+	q.collision_mask = 0xFFFFFFFF
+	q.collide_with_areas = true
+	q.collide_with_bodies = true
+	var r: Dictionary = space.intersect_ray(q)
+	if r.is_empty():
+		_set_selected(null)
+		return
+	var node: Node = _resolve_selectable(r.get("collider", null))
+	_set_selected(node)
+
+
+func _resolve_selectable(collider) -> Node:
+	var n = collider
+	while n != null and n is Node:
+		if (n as Node).is_in_group("selectable") and (n as Node).has_method("get_inspector_payload"):
+			return n
+		n = (n as Node).get_parent()
+	return null
+
+
+func _set_selected(node: Node) -> void:
+	_selected = node
+	if node == null:
+		_hud.clear_inspector()
+		_selection_ring.visible = false
+		return
+	_hud.show_inspector(node.call("get_inspector_payload"))
+	_selection_ring.visible = true
+	if _audio != null:
+		_audio.play_sfx("ui_click")
+
+
+func _update_selection_ring() -> void:
+	if _selected == null or not is_instance_valid(_selected):
+		_selection_ring.visible = false
+		_selected = null
+		return
+	if _selected is Node3D:
+		var p: Vector3 = (_selected as Node3D).global_position
+		_selection_ring.global_position = p + Vector3(0, 0.1, 0)
+		if _selected.has_method("get_inspector_payload"):
+			_hud.show_inspector(_selected.call("get_inspector_payload"))
+
+
+func _push_weather_to_scent() -> void:
+	if _weather == null or _ecology == null or not _ecology.has_method("scent_field"):
+		return
+	var sf = _ecology.scent_field()
+	if sf == null:
+		return
+	if sf.has_method("set_wind"):
+		sf.set_wind(_weather.wind_vector())
+	if sf.has_method("set_wash"):
+		sf.set_wash(_weather.rain())
+
+
+func _kind_color(kind: String) -> Color:
+	match kind:
+		"plant": return Color(0.35, 0.85, 0.3)
+		"rabbit": return Color(0.92, 0.92, 0.95)
+		"fox": return Color(0.95, 0.5, 0.15)
+		"bird": return Color(0.3, 0.6, 0.95)
+		"villager": return Color(0.75, 0.5, 0.9)
+		"meteor": return Color(1.0, 0.5, 0.2)
+		_: return Color(0.8, 0.9, 0.6)
+
+
+# Brief upward sparkle at a spawn point — instant "it worked" feedback.
+func _spawn_puff(pos: Vector3, tint: Color) -> void:
+	var p: GPUParticles3D = GPUParticles3D.new()
+	p.one_shot = true
+	p.emitting = true
+	p.amount = 28
+	p.lifetime = 1.1
+	p.explosiveness = 0.85
+	p.global_position = pos + Vector3(0, 0.4, 0)
+	var quad: QuadMesh = QuadMesh.new()
+	quad.size = Vector2(0.22, 0.22)
+	var qmat: StandardMaterial3D = StandardMaterial3D.new()
+	qmat.albedo_color = tint
+	qmat.emission_enabled = true
+	qmat.emission = tint
+	qmat.emission_energy_multiplier = 3.0
+	qmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	qmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	qmat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	quad.material = qmat
+	p.draw_pass_1 = quad
+	var pm: ParticleProcessMaterial = ParticleProcessMaterial.new()
+	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	pm.emission_sphere_radius = 0.6
+	pm.direction = Vector3(0, 1, 0)
+	pm.spread = 25.0
+	pm.initial_velocity_min = 2.5
+	pm.initial_velocity_max = 5.0
+	pm.gravity = Vector3(0, 1.5, 0)
+	pm.scale_min = 0.5
+	pm.scale_max = 1.2
+	pm.color = tint
+	p.process_material = pm
+	add_child(p)
+	var t: SceneTreeTimer = get_tree().create_timer(1.6)
+	t.timeout.connect(func(): if is_instance_valid(p): p.queue_free())
+
+
+func _make_selection_ring() -> MeshInstance3D:
+	var mi: MeshInstance3D = MeshInstance3D.new()
+	var torus: TorusMesh = TorusMesh.new()
+	torus.inner_radius = 0.9
+	torus.outer_radius = 1.2
+	mi.mesh = torus
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.92, 0.2)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.85, 0.1)
+	mat.emission_energy_multiplier = 2.0
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mi.material_override = mat
+	return mi
+
+
+func _capture_screenshot(path: String) -> void:
+	var img: Image = get_viewport().get_texture().get_image()
+	img.save_png(path)
+	print("SHOT_SAVED=%s size=%dx%d" % [path, img.get_width(), img.get_height()])

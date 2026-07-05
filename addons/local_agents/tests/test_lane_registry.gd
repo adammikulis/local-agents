@@ -36,6 +36,8 @@ const DETERMINISTIC_TESTS: Array[String] = [
 	"res://addons/local_agents/tests/test_path_traversal_profile.gd",
 	"res://addons/local_agents/tests/test_wind_field_system.gd",
 	"res://addons/local_agents/tests/test_smell_field_system.gd",
+	"res://addons/local_agents/tests/test_synth_dsp.gd",
+	"res://addons/local_agents/tests/test_audio_music.gd",
 	"res://addons/local_agents/tests/test_ecology_shelter_capabilities.gd",
 	"res://addons/local_agents/tests/test_structure_lifecycle_depletion.gd",
 	"res://addons/local_agents/tests/test_simulation_dream_labeling.gd",

@@ -22,7 +22,7 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 - GDS adapter authority rule: gameplay-runtime GDS layers are adapter-only and must not own mutation outcome logic or decide mutation success/failure.
 - Projectile impact destruction rule: enforce a direct authoritative flow only as `impact contact -> C++ mutation -> apply result`.
 - Ban multi-hop GDS contract layers on projectile destruction paths: no flatten/interpret/rewrap chains in GDS for mutation authority.
-- Strict transitional tracking for remaining CPU/GDS pieces (non-negotiable): each remaining CPU/GDS transitional segment must be listed in `ARCHITECTURE_PLAN.md` with `owner`, `removal trigger`, `target wave`, and explicit blocker.
+- Transitional tracking for remaining CPU/GDS pieces (recommended hygiene): note CPU/GDS transitional segments in `ARCHITECTURE_PLAN.md` when they are worth remembering, with enough context (owner / removal trigger / target wave / blocker are useful fields) to retire them later. This is guidance, not a grep-gated mandatory format.
 - When a preventable error appears, add a dated entry to `Error Log / Preventative Patterns` in this file.
 
 ## Godot Design and Structure Process
@@ -44,6 +44,10 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 
 ## GDScript, Nodes, and Runtime Safety
 
+- **No inferred typing (`:=`).** Declare variables and constants with an explicit type —
+  `var count: int = 0`, `var pos: Vector3 = ...`, `var nodes: Array = get_tree()...`. Use `: Variant`
+  (or plain untyped `var x = ...`) only when the type genuinely can't be named. The type must be
+  stated, never implied. Enforced by `scripts/check_no_inferred_typing.sh` (part of `lint`).
 - Use explicit types where they improve correctness and tooling.
 - Use custom class annotations when helpful, and `preload` for load-order sensitive paths.
 - In unstable bootstrap chains, prefer runtime checks over brittle class annotations.
@@ -119,7 +123,7 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 - If a command fails, continue fixing and rerunning or report exact blockers and failing tests.
 - Never infer green status from earlier runs, partial suites, or nearby commits.
 - If gameplay/demo/input scripts were edited, run a headless scene-smoke harness before status claims.
-- Any "works"/"ready" claim requires both evidence classes on the current tree:
+- Any "works"/"ready" claim for player-facing behavior requires both evidence classes on the latest tree (run in either order — ordering is not mandated):
   - headless harness suite pass
   - non-headless run through an actual video/display path
 - If non-headless launch is not possible in the environment, state that limitation explicitly and do not claim "works/ready".

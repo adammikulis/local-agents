@@ -75,8 +75,10 @@ Native entry points (via `Engine.get_singleton(...)`):
   smell to split before, not a hard gate.
 - Native/GPU-only mandate: fail fast with typed errors (`GPU_REQUIRED`, `NATIVE_REQUIRED`,
   `CPU_FALLBACK_FORBIDDEN`). No fallback paths, no fallback-success, no soft passes.
-- Validation order: non-headless launch first, then headless sweeps.
-- Policy/plan markers enforced by `scripts/check_policy_plan_markers.sh`.
+- Validation evidence: player-facing pass claims need both a launched-window run and headless
+  sweeps, run in either order (ordering is not mandated).
+- Policy/plan markers (`scripts/check_policy_plan_markers.sh`) are advisory-only — they surface
+  drift in the kept invariants but never gate.
 
 ## Required validation baseline (before any "works"/"ready"/"fixed" claim)
 

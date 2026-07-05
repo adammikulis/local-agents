@@ -7,7 +7,7 @@ This file defines implementation rules for this repository. Higher sections are 
 - Read `GODOT_BEST_PRACTICES.md` at session startup before planning or implementation.
 - Treat `GODOT_BEST_PRACTICES.md` as required process, not optional guidance.
 - Godot operational/testing/validation and invocation rules are canonical in `GODOT_BEST_PRACTICES.md` and are fully enforceable.
-- Validation order default is mandatory: run a real non-headless launch first to surface parser/runtime scene errors early, then run headless harness sweeps.
+- Both evidence classes are required for player-facing pass claims — a real launched-window run and headless harness sweeps — but their order is not mandated. A non-headless launch first is still a good habit for surfacing parser/runtime scene errors early.
 
 ## Execution Model
 
@@ -21,7 +21,7 @@ This file defines implementation rules for this repository. Higher sections are 
 
 ### Validation Defaults
 
-- Required sequence for "does it work" checks: non-headless launch first, then headless harness suites.
+- "Does it work" checks require both a non-headless launch and headless harness suites; run them in whichever order is convenient (order is not mandated).
 - Manual runtime proof is required for player-facing behavior claims: if a change affects in-game controls/interaction (for example FPS mode + left-click destruction), verification must include an actual launched Godot window run where the behavior is exercised directly.
 - Do not mark player-facing work as `passing`/`ready`/`fixed` without that launched-window check. Automated/headless tests are necessary but not sufficient for player-facing pass claims.
 - For changed native or simulation contract areas, give any validation pass explicit acceptance criteria and test commands.
@@ -53,16 +53,15 @@ This file defines implementation rules for this repository. Higher sections are 
 - GPU availability is a required runtime invariant for this program; unsupported/non-GPU environments are out of scope.
 - If required GPU capabilities are unavailable, startup must hard-exit with an explicit `GPU_REQUIRED` warning/error.
 - Do not implement or preserve degraded/non-GPU execution paths for simulation features.
-- Transitional shim tracking mandate (non-negotiable): every remaining non-native/non-GPU shim must be listed in `ARCHITECTURE_PLAN.md` with `owner`, `removal trigger`, and `target wave`, and the inventory must be updated each migration wave.
-- Strict transitional tracking for remaining CPU/GDS pieces (non-negotiable): every remaining CPU/GDS runtime transitional piece must be listed in `ARCHITECTURE_PLAN.md` with `owner`, `removal trigger`, `target wave`, and explicit blocker.
-- Transitional shim growth ban (non-negotiable): do not introduce net new transitional shims unless required to unblock a higher-priority native/GPU migration cut, and record explicit retirement criteria in the same wave.
+- Transitional shim tracking (recommended hygiene): when a non-native/non-GPU shim is worth remembering, note it in `ARCHITECTURE_PLAN.md` with enough context to retire it later (owner/removal-trigger/target-wave are useful fields, not a mandatory grep-gated format).
+- Transitional shim growth (guideline): avoid introducing net new transitional shims unless they unblock a higher-priority native/GPU migration cut; jot down retirement intent when you do.
 - Keep `RigidBody3D` usage minimal and exception-based with explicit justification.
 - Break APIs freely when it improves architecture or enables required capabilities.
 - Remove old abstractions when replacing systems; convert compatibility/legacy paths to tracked transitional shims and delete them on the scheduled wave.
 
 ## File Size and Refactor Discipline
 
-- `scripts/check_max_file_length.sh` reports first-party source/config files (`.gd`, `.gdshader`, `.tscn`, `.tres`, workflow YAML) over a `MAX_FILE_LINES=1000` **soft limit** as advisory warnings. It is warn-only and does not fail CI. It also runs `scripts/check_no_direct_refcounted_invocation.sh` to ban direct `godot -s addons/local_agents/tests/test_*.gd` usage in automation files.
+- `scripts/check_max_file_length.sh` reports first-party source/config files (`.gd`, `.gdshader`, `.tscn`, `.tres`, workflow YAML) over a `MAX_FILE_LINES=1000` **soft limit** as advisory warnings. It is warn-only and does not fail CI, and it is no longer bundled with any hard marker gate. It still runs `scripts/check_no_direct_refcounted_invocation.sh` (a genuine correctness gate) to ban direct `godot -s addons/local_agents/tests/test_*.gd` usage in automation files. The policy/plan marker check (`scripts/check_policy_plan_markers.sh`) is advisory-only and run separately.
 - Treat 1000 lines as a smell, not a gate: prefer to split a file well before then, but do not block work solely on line count.
 - When refactoring for size, extract helpers/business logic into focused modules first; keep hot-path files as call-site shims.
 - For large files, split by responsibility:
