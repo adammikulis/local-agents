@@ -12,9 +12,9 @@ extends GPUParticles3D
 # ramps from this up to full over the next band.
 const RAIN_THRESHOLD: float = 0.28
 const RAIN_FULL: float = 0.6
-const AREA: float = 90.0                  # half-extent (world) of the rain box centred on the camera
-const FALL_SPEED: float = 34.0            # streak fall speed (fast = long motion-blur streaks)
-const MAX_PARTICLES: int = 5200
+const AREA: float = 85.0                  # half-extent (world) of the rain box centred on the camera
+const FALL_SPEED: float = 38.0            # streak fall speed (fast = long motion-blur streaks)
+const MAX_PARTICLES: int = 11000
 
 var _field = null                         # LAMaterialField (cloud_at / avg_cloud_cover / cloud_base_y)
 var _camera: Node3D = null
@@ -40,9 +40,9 @@ func setup(field, camera: Node3D) -> void:
 
 	# A thin, vertically-stretched translucent streak — a raindrop smeared by speed.
 	var streak: QuadMesh = QuadMesh.new()
-	streak.size = Vector2(0.045, 0.9)
+	streak.size = Vector2(0.06, 1.3)
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.62, 0.72, 0.86, 0.5)
+	mat.albedo_color = Color(0.72, 0.80, 0.92, 0.7)
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
