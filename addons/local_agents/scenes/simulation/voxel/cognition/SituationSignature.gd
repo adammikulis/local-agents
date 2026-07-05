@@ -49,8 +49,8 @@ static func compute(c) -> Dictionary:
 	var h: int = hydration_bucket(h_frac)
 
 	var at_water: int = 0
-	if c._water != null and c._water.has_method("is_water_at"):
-		if c._water.is_water_at(c.global_position.x, c.global_position.z):
+	if c._material != null and c._material.has_method("is_water_at"):
+		if c._material.is_water_at(c.global_position.x, c.global_position.z):
 			at_water = 1
 	var night: int = 0
 	if c._ecology != null and c._ecology.has_method("is_night") and c._ecology.is_night():

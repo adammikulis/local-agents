@@ -196,8 +196,8 @@ func _gather_context(creature) -> Dictionary:
 		h_frac = clampf(float(creature.hydration) / float(creature.max_hydration), 0.0, 1.0)
 
 	var at_water: bool = false
-	if creature != null and creature._water != null and creature._water.has_method("is_water_at"):
-		at_water = creature._water.is_water_at(creature.global_position.x, creature.global_position.z)
+	if creature != null and creature._material != null and creature._material.has_method("is_water_at"):
+		at_water = creature._material.is_water_at(creature.global_position.x, creature.global_position.z)
 	var night: bool = false
 	if creature != null and creature._ecology != null and creature._ecology.has_method("is_night"):
 		night = creature._ecology.is_night()

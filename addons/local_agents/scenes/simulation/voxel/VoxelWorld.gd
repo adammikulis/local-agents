@@ -13,7 +13,7 @@ const HudScript: GDScript = preload("res://addons/local_agents/scenes/simulation
 const MeteorScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Meteor.gd")
 const AudioDirectorScript: GDScript = preload("res://addons/local_agents/audio/AudioDirector.gd")
 const WeatherScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/WeatherSystem.gd")
-const WaterScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/WaterFieldSystem.gd")
+const MaterialFieldScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField.gd")
 
 const INITIAL_COUNTS: Dictionary = {"plant": 70, "rabbit": 16, "fox": 3, "bird": 14, "villager": 6}
 const ROCK_COUNT: int = 44
@@ -26,8 +26,8 @@ var _hud: CanvasLayer       # LASpawnPaletteHud
 var _actors_root: Node3D
 var _selection_ring: MeshInstance3D
 var _selected: Node = null
-var _weather: Node = null   # LAWeatherSystem
-var _water: Node = null      # LAWaterFieldSystem — CA rivers/lakes/ocean
+var _weather: Node = null   # LAWeatherSystem (visual rain/wind for now; being made emergent)
+var _material: Node = null   # LAMaterialField — the ONE substrate: terrain-coupled water + heat/air
 
 # --- Day/night cycle. VoxelWorld owns ALL sky lighting (sun arc + energy, sky colors,
 # ambient) so the cycle and weather never fight over the same properties; weather only
@@ -46,11 +46,6 @@ const SKY_HORIZON_DAY: Color = Color(0.72, 0.80, 0.88)
 const SKY_HORIZON_NIGHT: Color = Color(0.05, 0.06, 0.15)
 const SKY_HORIZON_DUSK: Color = Color(0.92, 0.48, 0.24)
 
-# Rain depth-per-second added to the water field per unit of weather rain (0..1).
-# Deliberately small: rain is a transient wetting that flows downhill to fill basins,
-# NOT the main water source (that's sea-level basins + springs). Too large floods the
-# whole map because uniform rain outpaces evaporation on flat ground.
-const RAIN_TO_DEPTH: float = 0.03
 # Persistent springs (world XZ) seeded on high ground so rivers form downhill; fed
 # a little depth every frame so channels sustain instead of drying out.
 var _springs: Array = []
@@ -165,16 +160,20 @@ func _ready() -> void:
 		if fs != null and fs.has_method("set_weather"):
 			fs.set_weather(_weather)
 
-	# --- Water: CA rivers/lakes/ocean over the terrain. Rain (from weather) and a
-	# few springs feed it; it flows downhill and pools on its own. Creatures drink
-	# from it and fish live in it (both query the field). ---
-	_water = WaterScript.new()
-	_water.name = "Water"
-	add_child(_water)
-	# Cover the full bounded play area; 4m cells keep the CA cheap (~150^2 grid).
-	_water.setup(_terrain, 300.0, 4.0)
-	if _ecology.has_method("set_water"):
-		_ecology.set_water(_water)
+	# --- Unified material/heat field: the ONE substrate for all matter + energy. WATER is a material
+	# here (CA rivers/lakes/ocean — creatures drink, fish live in it), temperature drives fire/phase
+	# changes, and disasters inject heat/material. Replaces the old standalone water field — every
+	# water query (depth_at/is_water_at/splash/...) resolves here now.
+	# 4m cells keep the CA cheap (~150^2 grid). ---
+	_material = MaterialFieldScript.new()
+	_material.name = "MaterialField"
+	add_child(_material)
+	_material.setup(_terrain, 300.0, 4.0)
+	# The field reads the REAL sun (DirectionalLight3D) live — its energy + angle drive all heating.
+	# Wind/pressure/rain are NOT injected; they emerge from the field's own physics.
+	_material.set_sun(_sun)
+	if _ecology.has_method("set_material_field"):
+		_ecology.set_material_field(_material)
 
 
 func _parse_cmdline() -> void:
@@ -255,8 +254,13 @@ func _process(delta: float) -> void:
 		var n_act: int = _actors_root.get_child_count()
 		# Live-world diagnostics: verify the wired subsystems are actually doing something.
 		var wet: int = 0
-		if _water != null and _water.has_method("wet_cell_count"):
-			wet = _water.wet_cell_count()
+		if _material != null and _material.has_method("wet_cell_count"):
+			wet = _material.wet_cell_count()
+		var heat_peak: float = 0.0
+		var heat_cells: int = 0
+		if _material != null and _material.has_method("peak_heat"):
+			heat_peak = _material.peak_heat()
+			heat_cells = _material.hot_cell_count()
 		var n_poop: int = get_tree().get_nodes_in_group("poop").size()
 		var n_fish: int = get_tree().get_nodes_in_group("species_fish").size()
 		var n_fire: int = 0
@@ -296,8 +300,8 @@ func _process(delta: float) -> void:
 			var sc = _ecology.cognition_scheduler()
 			if sc != null and sc.has_method("total_calls"):
 				sched_calls = sc.total_calls()
-		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"poop\":%d,\"fish\":%d,\"fires\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f,\"minds\":%d,\"habits\":%d,\"escalations\":%d,\"social_lessons\":%d,\"max_generation\":%d,\"slow_brain_calls\":%d}" % [
-			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, n_poop, n_fish, n_fire, min_hyd, drinkers, _time_of_day, minds, habits, asked, learned_socially, max_gen, sched_calls])
+		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"heat_peak\":%.2f,\"heat_cells\":%d,\"poop\":%d,\"fish\":%d,\"fires\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f,\"minds\":%d,\"habits\":%d,\"escalations\":%d,\"social_lessons\":%d,\"max_generation\":%d,\"slow_brain_calls\":%d}" % [
+			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, heat_peak, heat_cells, n_poop, n_fish, n_fire, min_hyd, drinkers, _time_of_day, minds, habits, asked, learned_socially, max_gen, sched_calls])
 		if _cognition_stats:
 			var avg_habits: float = (float(habits) / float(minds)) if minds > 0 else 0.0
 			print("COGNITION_SUMMARY minds=%d avg_habits=%.2f escalations=%d social_lessons=%d max_generation=%d slow_brain_calls=%d" % [
@@ -341,6 +345,8 @@ func _update_day_night(delta: float) -> void:
 	# Share the clock with the ecology so nocturnal behavior can key off night.
 	if _ecology != null and _ecology.has_method("set_time_of_day"):
 		_ecology.set_time_of_day(_time_of_day)
+	# NOTE: the material field is NOT fed rain/daylight here — it reads the sun node directly and
+	# derives its own heating/weather. This day/night code only owns the sky + sun transform/energy.
 
 
 # Feed the generative music a mood from live world state. Presentation only.
@@ -501,12 +507,12 @@ func _push_environment() -> void:
 # Choose the water's sea level (from origin ground) and a few high-ground springs
 # so genuine basins fill as lakes and springs feed downhill rivers. One-shot.
 func _seed_water() -> void:
-	if _water == null or _terrain == null:
+	if _material == null or _terrain == null:
 		return
 	var origin_h: float = _terrain.surface_height(0.0, 0.0)
 	if not is_nan(origin_h):
 		# Only ground clearly below the origin becomes standing water — avoids a global flood.
-		_water.sea_level = origin_h - 10.0
+		_material.sea_level = origin_h - 10.0
 	# Sample a ring of candidate points; the highest few become persistent springs.
 	var candidates: Array = []
 	var ring: int = 8
@@ -525,17 +531,16 @@ func _seed_water() -> void:
 	_springs_seeded = true
 
 
-# Drive the water field every frame: weather rain fills it uniformly; springs keep
-# feeding so rivers sustain. Cheap — the CA itself is throttled internally.
+# Feed the WATER material from persistent SPRINGS only (real groundwater sources on high ground so
+# rivers sustain downhill). Rain is NOT injected here anymore — precipitation emerges from the
+# field's own vapor/condensation cycle. Cheap — the CA is throttled internally.
 func _feed_water() -> void:
-	if _water == null:
+	if _material == null:
 		return
-	if _weather != null and _water.has_method("add_rain"):
-		_water.add_rain(_weather.rain() * RAIN_TO_DEPTH)
-	if _springs_seeded and _water.has_method("add_source"):
+	if _springs_seeded and _material.has_method("add_source"):
 		var dt: float = get_process_delta_time()
 		for p in _springs:
-			_water.add_source(p, SPRING_RATE * dt)
+			_material.add_source(p, SPRING_RATE * dt)
 
 
 func _kind_color(kind: String) -> Color:

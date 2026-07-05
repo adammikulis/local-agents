@@ -33,7 +33,7 @@ var max_hydration: float = 100.0
 var thirst_rate: float = 1.0
 const DRINK_RATE: float = 45.0             # hydration/sec restored while drinking
 const THIRSTY_FRACTION: float = 0.5        # below this, seeking water interrupts other drives
-var _water = null                          # LAWaterFieldSystem (injected)
+var _material = null                          # LAWaterFieldSystem (injected)
 var _water_dir_cache: Vector3 = Vector3.ZERO
 var _water_search_cd: float = 0.0
 
@@ -125,8 +125,8 @@ func set_ecology(e) -> void:
 	_ecology = e
 
 
-func set_water(w) -> void:
-	_water = w
+func set_material_field(w) -> void:
+	_material = w
 
 
 # A thrown rock struck me — I die (drop a corpse).
@@ -505,7 +505,7 @@ func _throw_rock_at(prey: Node3D) -> void:
 	var rock: ThrownRockScript = ThrownRockScript.new()
 	parent.add_child(rock)
 	if rock.has_method("setup"):
-		rock.setup(terrain, _water)
+		rock.setup(terrain, _material)
 	rock.throw_at(global_position + Vector3(0, size, 0), prey, 26.0)
 
 
@@ -552,11 +552,11 @@ func _think_bird(pos: Vector3, _delta: float) -> Vector3:
 # Emergent watering holes: nothing scripts where animals gather — they simply walk to the
 # nearest wet cell of the shared water field, so they cluster wherever water actually pools.
 func _handle_thirst(pos: Vector3, delta: float) -> String:
-	if _water == null or not _water.has_method("is_water_at"):
+	if _material == null or not _material.has_method("is_water_at"):
 		return ""
 	if hydration >= max_hydration * THIRSTY_FRACTION:
 		return ""
-	if _water.is_water_at(pos.x, pos.z):
+	if _material.is_water_at(pos.x, pos.z):
 		hydration = minf(max_hydration, hydration + DRINK_RATE * delta)
 		return "drink"
 	_water_search_cd -= delta
@@ -571,7 +571,7 @@ func _handle_thirst(pos: Vector3, delta: float) -> String:
 # Probe rings of increasing radius for the nearest wet cell and return a flat unit
 # heading toward it, or ZERO if no water is within reach. Cheap: index-math queries.
 func _find_water_dir(pos: Vector3) -> Vector3:
-	if _water == null or not _water.has_method("is_water_at"):
+	if _material == null or not _material.has_method("is_water_at"):
 		return Vector3.ZERO
 	var radii: Array = [sense_radius, sense_radius * 2.0, sense_radius * 3.5]
 	var dirs: int = 12
@@ -580,7 +580,7 @@ func _find_water_dir(pos: Vector3) -> Vector3:
 			var ang: float = TAU * float(k) / float(dirs)
 			var px: float = pos.x + cos(ang) * float(r)
 			var pz: float = pos.z + sin(ang) * float(r)
-			if _water.is_water_at(px, pz):
+			if _material.is_water_at(px, pz):
 				var d: Vector3 = Vector3(px - pos.x, 0.0, pz - pos.z)
 				if d.length() > 0.001:
 					return d.normalized()
@@ -646,7 +646,7 @@ func _execute_action(action: String, pos: Vector3, delta: float) -> Dictionary:
 		"flock":
 			return {"heading": _heading + LACreatureFlocking.steer(self, pos, not can_fly), "state": "flock", "speed": speed}
 		"drink":
-			if _water != null and _water.has_method("is_water_at") and _water.is_water_at(pos.x, pos.z):
+			if _material != null and _material.has_method("is_water_at") and _material.is_water_at(pos.x, pos.z):
 				hydration = minf(max_hydration, hydration + DRINK_RATE * delta)
 				return {"heading": _heading, "state": "drink", "speed": 0.0}
 			return _execute_action("seek_water", pos, delta)

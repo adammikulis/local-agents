@@ -1,10 +1,10 @@
 class_name LAFish
 extends CharacterBody3D
 
-## A water-bound fish. It lives entirely inside the shared water field (LAWaterFieldSystem):
+## A material-bound fish. It lives entirely inside the shared material field (LAWaterFieldSystem):
 ## it swims just under the surface, loosely schools with other fish, and turns back
-## whenever it would leave the water. Nothing scripts where fish go — they simply stay in
-## wet cells, so schools emergently form and follow wherever the water actually pools.
+## whenever it would leave the material. Nothing scripts where fish go — they simply stay in
+## wet cells, so schools emergently form and follow wherever the material actually pools.
 ## Land predators (villagers/foxes) can catch fish that stray to the shallows.
 ## Built entirely in code, no external assets. (Explicit types only — no ':=' inferred typing.)
 
@@ -12,12 +12,12 @@ const GROUP_SELECTABLE: String = "selectable"
 const GROUP_FISH: String = "fish"
 const SPECIES_GROUP: String = "species_fish"
 
-const SUBMERGE: float = 0.35          # how far below the water surface the fish swims
+const SUBMERGE: float = 0.35          # how far below the material surface the fish swims
 const SCHOOL_RADIUS: float = 6.0
 const SCHOOL_WEIGHT: float = 0.8
 
 var terrain = null                    # LAVoxelTerrainService (surface_height)
-var water = null                      # LAWaterFieldSystem (is_water_at / surface_y_at)
+var material = null                      # LAWaterFieldSystem (is_water_at / surface_y_at)
 var config: Dictionary = {}
 
 var species: String = "fish"
@@ -38,9 +38,9 @@ var _wander_timer: float = 0.0
 var _mesh: MeshInstance3D = null
 
 
-func setup(_terrain, _water, _config: Dictionary) -> void:
+func setup(_terrain, _material, _config: Dictionary) -> void:
 	terrain = _terrain
-	water = _water
+	material = _material
 	config = _config.duplicate(true)
 	species = String(config.get("species", species))
 	speed = float(config.get("speed", speed))
@@ -103,8 +103,8 @@ func die(_cause: String = "") -> void:
 	if _dying:
 		return
 	_dying = true
-	if water != null and water.has_method("splash"):
-		water.splash(global_position, 0.6)
+	if material != null and material.has_method("splash"):
+		material.splash(global_position, 0.6)
 	queue_free()
 
 
@@ -123,7 +123,7 @@ func _physics_process(delta: float) -> void:
 	if age >= max_age:
 		die("old age")
 		return
-	if water == null:
+	if material == null:
 		return
 
 	var pos: Vector3 = global_position
@@ -137,23 +137,23 @@ func _physics_process(delta: float) -> void:
 	desired += _school_steer(pos)
 	desired.y = 0.0
 
-	# Test the step: if it would leave the water, steer back toward the nearest wet cell.
+	# Test the step: if it would leave the material, steer back toward the nearest wet cell.
 	var candidate: Vector3 = desired.normalized() if desired.length() > 0.001 else _heading
 	var step_len: float = speed * delta
 	var next_x: float = pos.x + candidate.x * step_len
 	var next_z: float = pos.z + candidate.z * step_len
-	if not water.is_water_at(next_x, next_z):
+	if not material.is_water_at(next_x, next_z):
 		var back: Vector3 = _find_water_dir(pos)
 		if back != Vector3.ZERO:
 			candidate = back
 			state = "seek"
 		else:
-			candidate = -_heading         # no water found near: turn around
+			candidate = -_heading         # no material found near: turn around
 			state = "swim"
 		next_x = pos.x + candidate.x * step_len
 		next_z = pos.z + candidate.z * step_len
 		# If even the corrective step is dry, hold position this frame (edge of a shrinking pool).
-		if not water.is_water_at(next_x, next_z):
+		if not material.is_water_at(next_x, next_z):
 			next_x = pos.x
 			next_z = pos.z
 	else:
@@ -161,8 +161,8 @@ func _physics_process(delta: float) -> void:
 
 	_heading = candidate if candidate.length() > 0.001 else _heading
 
-	# Ride just under the water surface (fall back to terrain if the query is momentarily NAN).
-	var surf_y: float = water.surface_y_at(next_x, next_z)
+	# Ride just under the material surface (fall back to terrain if the query is momentarily NAN).
+	var surf_y: float = material.surface_y_at(next_x, next_z)
 	if is_nan(surf_y):
 		var ground: float = float(terrain.surface_height(next_x, next_z)) if terrain != null and terrain.has_method("surface_height") else NAN
 		if is_nan(ground):
@@ -212,7 +212,7 @@ func _school_steer(pos: Vector3) -> Vector3:
 
 # Probe rings for the nearest wet cell; return a flat unit heading toward it.
 func _find_water_dir(pos: Vector3) -> Vector3:
-	if water == null or not water.has_method("is_water_at"):
+	if material == null or not material.has_method("is_water_at"):
 		return Vector3.ZERO
 	var radii: Array = [size * 3.0, sense_radius, sense_radius * 2.0]
 	var dirs: int = 10
@@ -221,7 +221,7 @@ func _find_water_dir(pos: Vector3) -> Vector3:
 			var ang: float = TAU * float(k) / float(dirs)
 			var px: float = pos.x + cos(ang) * float(r)
 			var pz: float = pos.z + sin(ang) * float(r)
-			if water.is_water_at(px, pz):
+			if material.is_water_at(px, pz):
 				var d: Vector3 = Vector3(px - pos.x, 0.0, pz - pos.z)
 				if d.length() > 0.001:
 					return d.normalized()
@@ -234,8 +234,8 @@ func get_inspector_payload() -> Dictionary:
 		"title": "Fish",
 		"lines": [
 			"Species: %s (%s)" % [species, stage],
-			"Doing: %s" % ("swimming" if state == "swim" else "heading for water"),
+			"Doing: %s" % ("swimming" if state == "swim" else "heading for material"),
 			"Age: %.0fs / %.0fs" % [age, max_age],
-			"Lives in water; caught at the shallows.",
+			"Lives in material; caught at the shallows.",
 		],
 	}

@@ -21,7 +21,7 @@ var terrain = null                       # LAVoxelTerrainService
 var actors_root: Node3D = null
 var _scent = null                        # LAScentField (observer; creatures query it)
 var _tracks = null                       # LATrackSystem (observer; footprints)
-var _water = null                        # LAWaterFieldSystem (observer; creatures/fish query it)
+var _material = null                      # LAMaterialField — the ONE substrate (water/heat/materials)
 var _fire = null                         # LAFireSystem (wildfire spread over flammable actors)
 var _cognition_sched = null              # LACognitionScheduler (shared slow-brain budget/queue)
 
@@ -183,12 +183,14 @@ func scent_field():
 	return _scent
 
 
-func set_water(w) -> void:
-	_water = w
+# The ONE substrate: water (creatures drink, fish live in it), heat/temperature (fire + comfort),
+# and every material. Disasters inject heat/material; everything else reads it.
+func set_material_field(m) -> void:
+	_material = m
 
 
-func water_field():
-	return _water
+func material_field():
+	return _material
 
 
 func fire_system():
@@ -270,12 +272,12 @@ func _instance_actor(kind: String, placed: Vector3, genome = null) -> Node:
 		node = tree
 	elif kind == "fish":
 		# Fish only exist in water: refuse to place one on dry ground.
-		if _water == null or not _water.has_method("is_water_at") or not _water.is_water_at(placed.x, placed.z):
+		if _material == null or not _material.has_method("is_water_at") or not _material.is_water_at(placed.x, placed.z):
 			return null
 		var fish: FishScript = FishScript.new()
 		actors_root.add_child(fish)
 		fish.global_position = placed
-		fish.setup(terrain, _water, _fish_config())
+		fish.setup(terrain, _material, _fish_config())
 		node = fish
 	else:
 		var cfg: Dictionary = _species_config(kind)
@@ -290,8 +292,8 @@ func _instance_actor(kind: String, placed: Vector3, genome = null) -> Node:
 			creature.set_scent(_scent)
 		if creature.has_method("set_ecology"):
 			creature.set_ecology(self)
-		if creature.has_method("set_water"):
-			creature.set_water(_water)
+		if creature.has_method("set_material_field"):
+			creature.set_material_field(_material)
 		if creature.has_method("set_cognition_scheduler"):
 			creature.set_cognition_scheduler(_cognition_sched)
 		node = creature
@@ -475,7 +477,7 @@ func seed_plant_at(world_pos: Vector3) -> void:
 # actually pooled, so they emerge wherever the water field decides to form water bodies —
 # no hand-placed spawn points. One fish added per tick until the cap is reached.
 func _tick_fish() -> void:
-	if _water == null or not _water.has_method("is_water_at"):
+	if _material == null or not _material.has_method("is_water_at"):
 		return
 	if get_tree().get_nodes_in_group("species_fish").size() >= FISH_CAP:
 		return
@@ -491,7 +493,7 @@ func _random_wet_point() -> Vector3:
 	for i in range(24):
 		var x: float = randf_range(-spawn_extent, spawn_extent)
 		var z: float = randf_range(-spawn_extent, spawn_extent)
-		if _water.is_water_at(x, z):
+		if _material.is_water_at(x, z):
 			var placed = _place_on_surface(Vector3(x, 0.0, z))
 			if placed != null:
 				return placed
