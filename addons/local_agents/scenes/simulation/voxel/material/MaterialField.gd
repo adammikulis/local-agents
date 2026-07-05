@@ -67,6 +67,9 @@ var _combustion = null                     # LAMaterialCombustion (fire + boilin
 const LiquidScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialLiquid.gd")
 var _liquid = null                         # LAMaterialLiquid (water + lava CA)
 const WATER_THRESHOLD: float = 0.02
+# A flood surge (add_water_pooled) fills cells up to the centre ground height + this small lip, so it
+# can crest a shallow rim and spill, but never climbs a real hillside.
+const POOL_LIP: float = 1.5
 # Shared with the render module (it thresholds the lava mesh at this depth via _f.LAVA_MIN).
 const LAVA_MIN: float = 0.04              # below this a lava cell is spent
 
@@ -489,6 +492,44 @@ func add_material(world_pos: Vector3, mat_id: int, amount: float, radius: float 
 
 
 # --- Water convenience inputs (back-compat with the retired water field) -----
+
+## Pool a WATER surge into the low ground under `center`: WATER depth is added ONLY to sampled cells
+## at or below the centre cell's ground height (plus a small lip so a surge can crest a low rim), so a
+## flood fills the basin and then spreads DOWNHILL through the normal fluid CA — it never paints water
+## onto higher ground, so it can't appear on a hillside or look like it flowed uphill. `radius` is the
+## surge footprint (driven by the spawn brush). Used by LAFlood; every other water input still goes
+## through add_material / add_source.
+func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
+	if amount <= 0.0 or radius <= 0.0 or is_nan(amount) or is_inf(amount):
+		return
+	var cidx: int = _index_at(center.x, center.z)
+	if cidx < 0 or _sampled[cidx] == 0:
+		return
+	var ceiling: float = _terrain_h[cidx] + POOL_LIP
+	var arr: PackedFloat32Array = _mat_array(Mat.WATER)
+	var cells: int = int(ceil(radius / _cell_size))
+	var ci: int = int(round((center.x + _half_extent) / _cell_size))
+	var cj: int = int(round((center.z + _half_extent) / _cell_size))
+	var r2: float = radius * radius
+	for dj in range(-cells, cells + 1):
+		var j: int = cj + dj
+		if j < 0 or j >= _dim:
+			continue
+		for di in range(-cells, cells + 1):
+			var i: int = ci + di
+			if i < 0 or i >= _dim:
+				continue
+			var idx: int = j * _dim + i
+			if _sampled[idx] == 0:
+				continue
+			if _terrain_h[idx] > ceiling:          # higher ground — the surge cannot climb onto it
+				continue
+			var dx: float = _cell_x(i) - center.x
+			var dz: float = _cell_z(j) - center.z
+			if dx * dx + dz * dz > r2:
+				continue
+			arr[idx] += amount
+
 
 ## Set the uniform WATER rain rate (depth metres per SECOND). Delegated to the fluids module.
 func add_rain(amount_per_sec: float) -> void:
