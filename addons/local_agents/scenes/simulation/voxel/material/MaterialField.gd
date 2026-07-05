@@ -78,6 +78,14 @@ var _ecology = null                        # LAEcologyService (topple/seed_plant
 var _fires: Array = []                      # [{node, life, scare_cd, fx}]
 var _ignite_cd: float = 0.0
 
+# Boiling: where WATER sits on a cell above 100°C it flashes to steam (puff FX + sizzle sound), and
+# the water is rapidly cooled/evaporated. Emergent wherever hot meets water (crater rim, lava, fire).
+const BOIL_TEMP: float = 100.0
+const BOIL_CHECK_INTERVAL: float = 0.4
+const BOIL_SAMPLES: int = 220              # random cells probed per check (cheap)
+const BOIL_MAX_PUFFS: int = 4              # cap steam puffs spawned per check
+var _boil_cd: float = 0.0
+
 # --- Liquid CA (ported verbatim from the retired LAWaterFieldSystem; WATER is now a material here).
 # The shallow-water redistribution is generic over liquids — WATER uses these constants; LAVA (later)
 # runs the same rule with a much smaller flow factor and no evaporation/sea-fill.
@@ -301,6 +309,11 @@ func _physics_process(delta: float) -> void:
 		_update_heat_texture()
 	# Combustion runs every frame (smooth burn/spread), not gated by the CA throttle.
 	_combustion_step(delta)
+	# Boiling: wherever hot ground/lava/fire meets water, it steams — emergent, throttled.
+	_boil_cd -= delta
+	if _boil_cd <= 0.0:
+		_boil_cd = BOIL_CHECK_INTERVAL
+		_boil_step()
 
 
 # Re-upload the temperature grid into the heat texture (in place). The ground shader samples it for
@@ -928,6 +941,64 @@ func _make_fire_fx(host: Node3D) -> Node3D:
 	light.position = Vector3(0.0, 1.5, 0.0)
 	root.add_child(light)
 	return root
+
+
+# --- Boiling: hot water flashes to steam (emergent wherever hot meets water) -
+
+func _boil_step() -> void:
+	if not _mats.has(Mat.WATER) or not is_inside_tree():
+		return
+	var water: PackedFloat32Array = _mats[Mat.WATER]
+	var puffs: int = 0
+	for n in range(BOIL_SAMPLES):
+		if puffs >= BOIL_MAX_PUFFS:
+			break
+		var idx: int = randi() % _cell_count
+		if _sampled[idx] == 0 or water[idx] < WATER_THRESHOLD or _temp[idx] < BOIL_TEMP:
+			continue
+		var i: int = idx % _dim
+		var j: int = idx / _dim
+		var pos: Vector3 = Vector3(_cell_x(i), _terrain_h[idx] + water[idx], _cell_z(j))
+		_spawn_steam_puff(pos)
+		# Boiling carries heat away fast and evaporates a little water (latent heat sink).
+		_temp[idx] = maxf(BOIL_TEMP - 5.0, _temp[idx] - 40.0)
+		water[idx] = maxf(0.0, water[idx] - 0.05)
+		LocalAgentsAudioDirector.emit(get_tree(), "sizzle", pos)
+		puffs += 1
+
+
+func _spawn_steam_puff(pos: Vector3) -> void:
+	var p: GPUParticles3D = GPUParticles3D.new()
+	p.one_shot = true
+	p.emitting = true
+	p.amount = 10
+	p.lifetime = 1.4
+	p.explosiveness = 0.4
+	p.global_position = pos + Vector3(0.0, 0.2, 0.0)
+	var quad: QuadMesh = QuadMesh.new()
+	quad.size = Vector2(0.7, 0.7)
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.albedo_color = Color(0.9, 0.92, 0.95, 0.35)
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	quad.material = mat
+	p.draw_pass_1 = quad
+	var pm: ParticleProcessMaterial = ParticleProcessMaterial.new()
+	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	pm.emission_sphere_radius = 0.4
+	pm.direction = Vector3(0.0, 1.0, 0.0)
+	pm.spread = 25.0
+	pm.initial_velocity_min = 1.5
+	pm.initial_velocity_max = 3.5
+	pm.gravity = Vector3(0.0, 1.2, 0.0)              # steam rises
+	pm.scale_min = 0.6
+	pm.scale_max = 1.8
+	pm.color = Color(0.92, 0.94, 0.97, 0.4)
+	p.process_material = pm
+	add_child(p)
+	var t: SceneTreeTimer = get_tree().create_timer(1.8)
+	t.timeout.connect(func(): if is_instance_valid(p): p.queue_free())
 
 
 # --- Query API for other systems --------------------------------------------

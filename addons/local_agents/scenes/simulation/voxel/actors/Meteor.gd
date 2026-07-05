@@ -173,6 +173,9 @@ func _on_impact() -> void:
 		var water: Object = _ecology.material_field()
 		if water != null and water.has_method("is_water_at") and water.is_water_at(_impact_point.x, _impact_point.z):
 			water.splash(_impact_point, 3.5 * _size)
+			# White-hot rock hitting water flashes to steam — sizzle + a steam hiss.
+			LocalAgentsAudioDirector.emit(get_tree(), "sizzle", _impact_point)
+			LocalAgentsAudioDirector.emit(get_tree(), "steam", _impact_point)
 	# Terror shockwave: everything that hears/feels the impact panics and flees.
 	if _ecology != null and _ecology.has_method("broadcast_scare"):
 		_ecology.broadcast_scare(_impact_point, r * 6.0, 1.0)
