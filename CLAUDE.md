@@ -85,6 +85,13 @@ committed). When removing files:
 - No downstream consumers to preserve right now: prioritize rapid feature improvement and stronger
   simulation behavior over compatibility. Break APIs freely when it improves architecture; remove old
   abstractions when replacing systems rather than leaving parallel ones.
+- **Surface held-back-by-code moments — don't just proceed.** If, while doing a task, you realize the
+  current code/architecture is a *holdover* that's constraining a genuinely better approach (e.g. a
+  2.5D representation blocking a real 3D one, a scripted special-case where an emergent rule belongs, a
+  CPU path where GPU/native fits), STOP and SURFACE it to the user: name the relic, describe the better
+  approach and what it unlocks, and ask. Do **not** silently work around it (delivering a lesser result
+  the user didn't know was a compromise), and do **not** unilaterally rip it out either. The user will
+  usually say "yes, change it" — but it's their call, and flagging it is how big upgrades get found.
 - **Simplicity mandate:** implement the simplest behavior that works correctly for the target path.
 - **Anti-overengineering mandate:** no long, multi-stage, or speculative pipelines when a shorter direct
   path satisfies the requirement.

@@ -11,6 +11,7 @@ signal view_toggled(view: String, on: bool)          # "temp" | "wind" | "scent"
 signal highlight_toggled(group: String, on: bool)    # a "species_*" or "nest" group
 signal paths_toggled(on: bool)
 signal perf_toggled(key: String, on: bool)           # "shadows" | "ssao"
+signal screenshot_requested()                        # user clicked the save-screenshot button
 
 # Highlight rows: display label -> scene group to light up.
 const HIGHLIGHTS: Array = [
@@ -71,6 +72,13 @@ func _ready() -> void:
 	shadows.button_pressed = true                    # on by default (matches the scene)
 	var ssao: CheckButton = _add_check("SSAO", func(on: bool) -> void: perf_toggled.emit("ssao", on))
 	ssao.button_pressed = true
+
+	_add_section("CAPTURE")
+	var shot: Button = Button.new()
+	shot.text = "📷  Save screenshot"
+	shot.add_theme_font_size_override("font_size", 12)
+	shot.pressed.connect(func() -> void: screenshot_requested.emit())
+	_body.add_child(shot)
 
 
 func _toggle_collapsed() -> void:

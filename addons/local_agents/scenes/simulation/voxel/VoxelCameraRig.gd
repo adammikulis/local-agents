@@ -71,13 +71,24 @@ func _clamp_focus() -> void:
 # re-added each frame so it never accumulates into the fly position.
 const SHAKE_MAG: float = 1.8
 const TRAUMA_DECAY: float = 1.1
+# How strongly felt seismic energy (from the ecology's seismic field) converts to trauma per second.
+# The shake now EMERGES from ground motion: any disturbance emits a seismic pulse, the rig queries the
+# energy at its own position each frame and feeds it here — no event tells the camera to shake.
+const SEISMIC_TRAUMA_GAIN: float = 2.0
 var _trauma: float = 0.0
 var _shake_applied: Vector3 = Vector3.ZERO
+var _ecology: Object = null                # LAEcologyService — source of the seismic field (set by VoxelWorld)
 
 
-## Add camera trauma (0..1). Earthquakes/impacts call this; it decays on its own.
+## Add camera trauma (0..1). The low-level shake primitive; it decays on its own. Driven emergently
+## by felt seismic energy (see _process), not by disaster code calling it directly.
 func add_shake(amount: float) -> void:
 	_trauma = clampf(_trauma + amount, 0.0, 1.0)
+
+
+## Wire the ecology so the rig can query seismic_energy_at() and shake in response to ground motion.
+func set_ecology(ecology: Object) -> void:
+	_ecology = ecology
 
 
 func _ready() -> void:
@@ -258,6 +269,15 @@ func _process(delta: float) -> void:
 
 	if changed:
 		_update_transform()
+
+	# Respond to felt ground motion: query the seismic field at the camera's own position and top up
+	# trauma in proportion to nearby seismic energy. That energy already folds in proximity (worse the
+	# nearer the source) and time decay, so the shake is the camera REACTING to the ground — a meteor
+	# impact, a volcano breach, an earthquake pulse all shake it emergently just by disturbing the earth.
+	if _ecology != null and _ecology.has_method("seismic_energy_at"):
+		var seismic: float = _ecology.seismic_energy_at(global_position)
+		if seismic > 0.0:
+			add_shake(seismic * SEISMIC_TRAUMA_GAIN * delta)
 
 	# Apply decaying camera shake as a transient offset on top of the base position (set above).
 	_trauma = maxf(0.0, _trauma - TRAUMA_DECAY * delta)

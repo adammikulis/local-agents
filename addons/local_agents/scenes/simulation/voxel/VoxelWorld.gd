@@ -134,6 +134,7 @@ var _peak_sleeping: int = 0
 var _auto_meteor: bool = false
 var _overview: bool = false             # --overview: frame a wide whole-island vista (screenshot aid)
 var _debug_demo: bool = false
+var _user_shot_counter: int = 0        # numbers the screenshots the DebugPanel's save button writes
 var _auto_volcano: bool = false
 var _auto_volcano_fired: bool = false
 var _auto_lightning: bool = false
@@ -232,6 +233,10 @@ func _ready() -> void:
 	_ecology.name = "Ecology"
 	add_child(_ecology)
 	_ecology.setup(_terrain, _actors_root)
+	# Let the camera query the seismic field so ground disturbances shake it emergently (no event
+	# tells the camera to shake — see LAEcologyService.seismic_energy_at / VoxelCameraRig._process).
+	if _camera != null and _camera.has_method("set_ecology"):
+		_camera.set_ecology(_ecology)
 
 	# --- Selection highlight ring ---
 	_selection_ring = _make_selection_ring()
@@ -321,6 +326,7 @@ func _ready() -> void:
 	_debug_panel.highlight_toggled.connect(_on_debug_highlight)
 	_debug_panel.paths_toggled.connect(_on_debug_paths)
 	_debug_panel.perf_toggled.connect(_on_debug_perf)
+	_debug_panel.screenshot_requested.connect(_on_debug_screenshot)
 	if _debug_demo:
 		# Verification aid: pre-enable a spread of gizmos so a screenshot shows them working.
 		_debug_overlay.set_wind(true)
@@ -366,6 +372,16 @@ func _on_debug_perf(key: String, on: bool) -> void:
 		"ssao":
 			if _env != null:
 				_env.ssao_enabled = on
+
+
+# Save-screenshot button (DebugPanel): capture the current viewport to a numbered PNG in the project
+# folder and report the absolute path so it's easy to find.
+func _on_debug_screenshot() -> void:
+	_user_shot_counter += 1
+	var path: String = ProjectSettings.globalize_path("res://volcano_shot_%d.png" % _user_shot_counter)
+	_capture_screenshot(path)
+	if _hud != null and _hud.has_method("set_status"):
+		_hud.set_status("Saved screenshot → %s" % path)
 
 
 func _parse_cmdline() -> void:
@@ -1024,7 +1040,7 @@ func _apply_at(point: Vector3) -> void:
 	elif _armed_kind == "earthquake":
 		var quake: Node = EarthquakeScript.new()
 		_actors_root.add_child(quake)
-		quake.setup(_terrain, _ecology, _camera)
+		quake.setup(_terrain, _ecology)
 		quake.rupture(point)
 		_music_destruction = 1.0
 		_hud.set_status("The ground heaves!")
