@@ -57,6 +57,12 @@ var _vapor: PackedFloat32Array = PackedFloat32Array()    # airborne water vapor 
 var _cloud: PackedFloat32Array = PackedFloat32Array()    # condensed cloud density per cell
 var _fog: PackedFloat32Array = PackedFloat32Array()      # condensed fog density per cell
 var _lava: PackedFloat32Array = PackedFloat32Array()     # lava mass per cell (a hot, viscous liquid)
+# --- Emergent FIRE / COMBUSTION (LAMaterialCombustion3D): a FUEL channel (flammable vegetation mass seeded
+# on grassy surface cells + under plant/tree actors) and a FIRE channel (burning intensity, 0 = not burning).
+# Flammable fuel ignites when its cell reaches ignite temp (lava/lightning/meteor/spreading front), burns —
+# injecting heat + consuming fuel — spreads to neighbours on HEAT + the WIND field (downwind), and leaves ash.
+var _fuel: PackedFloat32Array = PackedFloat32Array()     # flammable fuel mass per cell (vegetation)
+var _fire: PackedFloat32Array = PackedFloat32Array()     # burning intensity per cell (0 = not burning)
 # --- Emergent 3D wind (LAMaterialWind3D): a per-cell air PRESSURE + 3D VELOCITY field replacing the old
 # single global scalar wind. Pressure falls out of temperature (warm=low), velocity accelerates down the
 # gradient and deflects off rock, so funneling/fronts/highs-lows EMERGE. Read via wind_at()/wind3_at().
@@ -71,10 +77,13 @@ var _heat = null                                         # LAMaterialHeat3D
 var _atmosphere = null                                   # LAMaterialAtmosphere3D
 var _lava_sim = null                                     # LAMaterialLava3D
 var _wind_sim = null                                     # LAMaterialWind3D (emergent pressure-driven wind)
+var _combustion = null                                   # LAMaterialCombustion3D (emergent fire/fuel over the field)
+var _ecology = null                                      # LAEcologyService back-ref (ash regrowth / actor coupling)
 const HeatScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialHeat3D.gd")
 const AtmosphereScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialAtmosphere3D.gd")
 const LavaScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialLava3D.gd")
 const WindScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialWind3D.gd")
+const CombustionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialCombustion3D.gd")
 const GPUScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGPU3D.gd")
 const QueriesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldQueries3D.gd")
 const RenderScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldRender3D.gd")
@@ -243,6 +252,10 @@ func setup_dims(dim_x: int, dim_y: int, dim_z: int, cell_size: float, origin: Ve
 	_fog.resize(_cell_count)
 	_lava = PackedFloat32Array()
 	_lava.resize(_cell_count)
+	_fuel = PackedFloat32Array()
+	_fuel.resize(_cell_count)
+	_fire = PackedFloat32Array()
+	_fire.resize(_cell_count)
 	_pressure = PackedFloat32Array()
 	_pressure.resize(_cell_count)
 	_vel_x = PackedFloat32Array()
@@ -442,6 +455,11 @@ func activate() -> void:
 	_lava_sim.setup(self)
 	_wind_sim = WindScript.new()
 	_wind_sim.setup(self)
+	# Emergent fire/combustion over the shared field: seeds the fuel channel from vegetation, then ignites/
+	# burns/spreads on heat + wind. CPU-oracle stepped on both paths (like wind); kernels3d/fire3d.glsl is the
+	# GPU parity port. Runs AFTER wind each step so ember spread reads the fresh downwind velocity.
+	_combustion = CombustionScript.new()
+	_combustion.setup(self)
 	# GPU-RESIDENT backend: persistent SSBOs, the whole heat+water step batched on-GPU, ONE readback per
 	# frame (see MaterialGPU3D's frame API). Headless has no local RenderingDevice → CPU oracle.
 	if GPUScript.available():
@@ -572,6 +590,9 @@ func _physics_process(delta: float) -> void:
 		# (pressure -> velocity -> deflection). GPU-kernel port is the remaining GPU-first work.
 		if _wind_sim != null:
 			_wind_sim.step()
+		# Emergent fire steps on the fresh temp + wind; the heat it injects rides to the GPU next frame.
+		if _combustion != null:
+			_combustion.step()
 	else:
 		for i in range(steps):
 			# Springs feed the surface (rivers emerge as this water flows downhill in 3D).
@@ -587,6 +608,9 @@ func _physics_process(delta: float) -> void:
 				_atmosphere.step()
 			if _lava_sim != null:
 				_lava_sim.step()
+			# Fire runs last: fuel ignites from lava/lightning/meteor heat, burns + spreads downwind, leaves ash.
+			if _combustion != null:
+				_combustion.step()
 	rebuild_surface()
 	# Heat-glow texture drives only the terrain incandescence shader and changes slowly (lava/fire
 	# heat diffuses over seconds), so refresh it on a cadence instead of every frame's full-grid scan.
@@ -887,10 +911,10 @@ func splash(world_pos: Vector3, strength: float) -> void:
 		tm.timeout.connect(func(): if is_instance_valid(body): body.queue_free())
 
 
-# --- Concerns not yet ported to the 3D field (fire spread, granular landslides). Stubbed during the
-# 2.5D->3D strong break so consumers don't crash; they are OFFLINE until ported to GPU passes. ---
-func set_ecology(_e) -> void:
-	pass
+# --- Ecology back-ref + concerns not yet ported (granular landslides remain stubbed). Fire/combustion is
+# now LIVE via LAMaterialCombustion3D (ignite/is_burning/active_fire_count below). ---
+func set_ecology(e) -> void:
+	_ecology = e
 
 func disturb_terrain(_world_pos: Vector3, _radius: float, _strength: float) -> void:
 	pass
@@ -898,14 +922,20 @@ func disturb_terrain(_world_pos: Vector3, _radius: float, _strength: float) -> v
 func slump_count() -> int:
 	return 0
 
-func ignite(_node) -> void:
-	pass
+# --- Fire / combustion (emergent, LAMaterialCombustion3D) — real values now. --------------------------
 
-func is_burning(_node) -> bool:
-	return false
+## Light the cell under a node on fire (disaster/scripted ignition; vegetation also self-ignites from heat).
+func ignite(node) -> void:
+	if _combustion != null:
+		_combustion.ignite_node(node)
 
+## Is the cell under this node currently burning?
+func is_burning(node) -> bool:
+	return _combustion.is_burning_node(node) if _combustion != null else false
+
+## Number of cells currently on fire (SMOKE_SUMMARY `fires`).
 func active_fire_count() -> int:
-	return 0
+	return _combustion.active_fire_count() if _combustion != null else 0
 
 
 # The dynamic-water surface mesh is rebuilt each frame by the render adapter (MaterialFieldRender3D).
