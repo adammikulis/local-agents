@@ -431,6 +431,14 @@ func activate() -> void:
 		_gpu = GPUScript.new()
 		_gpu.setup(self)
 		_use_gpu = true
+		# Seed the resident buffers with the initial CPU state (temp/water from setup+seed_sea; the gas +
+		# lava layers start empty). vapor/cloud/fog then live fully on the GPU; temp/water/lava re-upload.
+		_gpu.set_field("temp", _temp)
+		_gpu.set_field("water", _water)
+		_gpu.set_field("vapor", _vapor)
+		_gpu.set_field("cloud", _cloud)
+		_gpu.set_field("fog", _fog)
+		_gpu.set_field("lava", _lava)
 	_build_render_node()
 	_build_heat_texture()
 	rebuild_surface()
@@ -499,22 +507,24 @@ func _physics_process(delta: float) -> void:
 		return
 
 	if _use_gpu:
-		# GPU-RESIDENT: springs feed CPU water (this frame's worth), then the whole heat+water step runs
-		# `steps` times on the GPU with a single upload + single readback. Atmosphere + lava still run on
-		# the CPU once this frame (on the read-back state) until their kernels are added to the GPU seam.
+		# GPU-RESIDENT: the WHOLE step (water + heat + atmosphere + lava) runs `steps` times on the GPU
+		# with one upload + one readback per frame. temp/water/lava carry CPU injections (springs, disaster
+		# heat/lava) so they're re-uploaded each frame; vapor/cloud/fog live fully resident on the GPU.
 		for src in _sources:
 			add_water_world(src["pos"], float(src["rate"]) * STEP_DT * float(steps))
 		var solar: float = _heat._solar() if _heat != null else 0.6
-		_gpu.begin_frame(_temp, _water, solar)
+		var w: Vector2 = _atmosphere.wind() if _atmosphere != null and _atmosphere.has_method("wind") else Vector2.ZERO
+		_gpu.begin_frame(_temp, _water, solar, w)
+		_gpu.set_field("lava", _lava)
 		for i in range(steps):
 			_gpu.step()
 		var out: Dictionary = _gpu.end_frame()
 		_temp = out["temp"]
 		_water = out["water"]
-		if _atmosphere != null:
-			_atmosphere.step()
-		if _lava_sim != null:
-			_lava_sim.step()
+		_vapor = out["vapor"]
+		_cloud = out["cloud"]
+		_fog = out["fog"]
+		_lava = out["lava"]
 	else:
 		for i in range(steps):
 			# Springs feed the surface (rivers emerge as this water flows downhill in 3D).
