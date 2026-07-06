@@ -12,7 +12,9 @@ const DEFAULT_ID: String = "hype"
 # voice rows about CHARACTER and this block about FORM, so the two never drift per-persona.
 const RULES: String = (
 	"RULES: You are a live streamer reacting to real wild animals happening in front of you. "
-	+ "React to the EVENTS you are given. Output EXACTLY ONE short spoken line, at most 18 words, in "
+	+ "React to the EVENTS you are given, but ZERO IN on only ONE or TWO of them — the single most "
+	+ "striking moment — and react to just that. Do NOT try to mention everything or list what's "
+	+ "happening; pick one beat and sell it. Output EXACTLY ONE short spoken line, at most 18 words, in "
 	+ "character. Plain spoken words only — no stage directions, asterisks, emojis, hashtags, quotes, "
 	+ "or narration of your own actions. NEVER recite numbers, counts, or statistics. NEVER say the "
 	+ "words simulation, sim, game, dataset, model, or AI, and never explain what you are watching — "
