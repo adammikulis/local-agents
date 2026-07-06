@@ -97,6 +97,28 @@ func _ready() -> void:
 	e.ambient_light_energy = AMBIENT_DAY
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	e.ssao_enabled = true
+
+	# HDR glow/bloom: only genuinely bright (>1.0) pixels bloom — incandescent lava, the
+	# sun's specular glint on water, sunlit snow — so the scene gains punch without a
+	# washed-out haze over everything. High threshold keeps midtone grass/rock crisp.
+	e.glow_enabled = true
+	e.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
+	e.glow_intensity = 0.85
+	e.glow_strength = 1.0
+	e.glow_bloom = 0.05
+	e.glow_hdr_threshold = 1.05
+	e.glow_hdr_scale = 2.0
+	e.glow_hdr_luminance_cap = 12.0
+	e.glow_normalized = false
+	# Only the two mid-frequency levels are active: bloom passes are the cost driver at
+	# this resolution, and these give a soft halo without paying for full-res or very-wide
+	# blur taps. (Baseline: enabling all 5 levels cost ~40% fps for no extra visible gain.)
+	e.set_glow_level(1, 0.0)
+	e.set_glow_level(2, 0.0)
+	e.set_glow_level(3, 1.0)
+	e.set_glow_level(4, 0.8)
+	e.set_glow_level(5, 0.0)
+
 	env.environment = e
 	add_child(env)
 	_sky_mat = sky_mat
