@@ -129,6 +129,10 @@ var _buf_lava_a: RID = RID()
 var _buf_lava_b: RID = RID()
 var _buf_solid: RID = RID()                # byte->float mirror of _solid (1 = rock)
 var _buf_static: RID = RID()               # byte->float mirror of _static (1 = calm sea sink)
+# Emergent wind velocity (world XZ), uploaded each frame from the CPU-oracle MaterialWind3D field so the
+# atmosphere transport advects vapor/cloud/fog by the LOCAL per-cell wind. Single (non-ping-pong) inputs.
+var _buf_vel_x: RID = RID()
+var _buf_vel_z: RID = RID()
 var _buf_send: RID = RID()                 # cell_count * 6 floats: per-direction outflow (water AND lava reuse)
 var _buf_rain: RID = RID()                 # cell_count floats: per-cell rain mass scratch (condense -> rain gather)
 var _buf_boil: RID = RID()                 # cell_count floats: per-cell boiled-water scratch (condense -> rain drain)
@@ -275,6 +279,8 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 	_buf_lava_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_solid = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_static = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	_buf_vel_x = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	_buf_vel_z = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	var send_zero: PackedFloat32Array = PackedFloat32Array()
 	send_zero.resize(cell_count * 6)
 	var send_bytes: PackedByteArray = send_zero.to_byte_array()
@@ -337,13 +343,16 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 		# the (now-free) live buffer as scratch; CLOUD/FOG read their live and write back.
 		_transport_vapor_set[p] = _rd.uniform_set_create([
 			_make_uniform(0, vapor_back), _make_uniform(1, _buf_solid),
-			_make_uniform(2, vapor_live)], _shader_of(_transport_pipeline), 0)
+			_make_uniform(2, vapor_live), _make_uniform(3, _buf_vel_x),
+			_make_uniform(4, _buf_vel_z)], _shader_of(_transport_pipeline), 0)
 		_transport_cloud_set[p] = _rd.uniform_set_create([
 			_make_uniform(0, cloud_live), _make_uniform(1, _buf_solid),
-			_make_uniform(2, cloud_back)], _shader_of(_transport_pipeline), 0)
+			_make_uniform(2, cloud_back), _make_uniform(3, _buf_vel_x),
+			_make_uniform(4, _buf_vel_z)], _shader_of(_transport_pipeline), 0)
 		_transport_fog_set[p] = _rd.uniform_set_create([
 			_make_uniform(0, fog_live), _make_uniform(1, _buf_solid),
-			_make_uniform(2, fog_back)], _shader_of(_transport_pipeline), 0)
+			_make_uniform(2, fog_back), _make_uniform(3, _buf_vel_x),
+			_make_uniform(4, _buf_vel_z)], _shader_of(_transport_pipeline), 0)
 		# Condense: atmos_condense3d.glsl 0=vapor in(post-transport = live scratch), 1=cloud(back, in place),
 		# 2=fog(back, in place), 3=temp(back), 4=water(back), 5=solid, 6=static, 7=vapor out(back), 8=rain.
 		_condense_set[p] = _rd.uniform_set_create([
@@ -400,7 +409,7 @@ func _free_buffers() -> void:
 	for buf in [_buf_temp_a, _buf_temp_b, _buf_water_a, _buf_water_b,
 			_buf_vapor_a, _buf_vapor_b, _buf_cloud_a, _buf_cloud_b,
 			_buf_fog_a, _buf_fog_b, _buf_lava_a, _buf_lava_b,
-			_buf_solid, _buf_static, _buf_send, _buf_rain, _buf_boil]:
+			_buf_solid, _buf_static, _buf_vel_x, _buf_vel_z, _buf_send, _buf_rain, _buf_boil]:
 		if buf.is_valid():
 			_rd.free_rid(buf)
 	_buf_temp_a = RID(); _buf_temp_b = RID()
@@ -410,6 +419,7 @@ func _free_buffers() -> void:
 	_buf_fog_a = RID(); _buf_fog_b = RID()
 	_buf_lava_a = RID(); _buf_lava_b = RID()
 	_buf_solid = RID(); _buf_static = RID(); _buf_send = RID(); _buf_rain = RID(); _buf_boil = RID()
+	_buf_vel_x = RID(); _buf_vel_z = RID()
 	_fields = {}
 	_cell_count = 0
 	_static_uploaded = false
@@ -481,6 +491,15 @@ func upload_static_state(solid: PackedByteArray, static_cells: PackedByteArray) 
 	upload(_buf_solid, _bytes_to_floats(solid))
 	upload(_buf_static, _bytes_to_floats(static_cells))
 	_static_uploaded = true
+
+
+## Upload the LOCAL wind velocity (world XZ) into the resident vel SSBOs the transport kernel advects by.
+## Called each frame from the field's GPU path with the CPU-oracle MaterialWind3D output (cheap; no sync).
+func upload_wind(vel_x: PackedFloat32Array, vel_z: PackedFloat32Array) -> void:
+	if _rd == null:
+		return
+	upload(_buf_vel_x, vel_x)
+	upload(_buf_vel_z, vel_z)
 
 
 # --- RESIDENT FRAME API (begin_frame -> step x N -> end_frame) -------------------------------------
@@ -582,13 +601,13 @@ func step() -> void:
 	# buffer; the three are mutually independent so no barrier is needed BETWEEN them. ---
 	_rd.compute_list_bind_compute_pipeline(cl, _transport_pipeline)
 	_rd.compute_list_bind_uniform_set(cl, _transport_vapor_set[_parity], 0)
-	_rd.compute_list_set_push_constant(cl, _transport_pc(VAPOR_DIFFUSE, VAPOR_RISE, VAPOR_WIND_GAIN), 48)
+	_rd.compute_list_set_push_constant(cl, _transport_pc(VAPOR_DIFFUSE, VAPOR_RISE, VAPOR_WIND_GAIN), 32)
 	_rd.compute_list_dispatch(cl, groups, 1, 1)
 	_rd.compute_list_bind_uniform_set(cl, _transport_cloud_set[_parity], 0)
-	_rd.compute_list_set_push_constant(cl, _transport_pc(CLOUD_DIFFUSE, CLOUD_RISE, CLOUD_WIND_GAIN), 48)
+	_rd.compute_list_set_push_constant(cl, _transport_pc(CLOUD_DIFFUSE, CLOUD_RISE, CLOUD_WIND_GAIN), 32)
 	_rd.compute_list_dispatch(cl, groups, 1, 1)
 	_rd.compute_list_bind_uniform_set(cl, _transport_fog_set[_parity], 0)
-	_rd.compute_list_set_push_constant(cl, _transport_pc(FOG_DIFFUSE, 0.0, FOG_WIND_GAIN), 48)
+	_rd.compute_list_set_push_constant(cl, _transport_pc(FOG_DIFFUSE, 0.0, FOG_WIND_GAIN), 32)
 	_rd.compute_list_dispatch(cl, groups, 1, 1)
 	_rd.compute_list_add_barrier(cl)          # post-transport vapor/cloud/fog visible to condensation
 
@@ -739,29 +758,23 @@ func _lava_pc(pass_id: int) -> PackedByteArray:
 	return _water_pc(pass_id)
 
 
-# Atmosphere transport push-constant: dims + this field's diffuse/rise fractions + the precomputed
-# horizontal wind shares ax/az (clamped 0..0.5) and signs sx/sz. Mirrors MaterialAtmosphere3D._transport:
-# ax = clamp(|wind.x| * wind_gain * STEP_DT / cell_size, 0, 0.5); sx = sign(wind.x).
+# Atmosphere transport push-constant: dims + this field's diffuse/rise fractions + `wdt`, the folded
+# wind_gain*STEP_DT/cell_size that turns each cell's LOCAL velocity into a per-step advection share
+# (ax = clamp(|vel_x| * wdt, 0, 0.5)). Mirrors MaterialAtmosphere3D._transport's local-velocity advection;
+# the per-cell velocity itself comes from the vel_x/vel_z SSBOs, not this push constant.
 func _transport_pc(diffuse_frac: float, rise_frac: float, wind_gain: float) -> PackedByteArray:
 	var cs: float = _cell_size if _cell_size > 0.0 else 1.0
-	var ax: float = clampf(absf(_wind.x) * wind_gain * STEP_DT / cs, 0.0, 0.5)
-	var az: float = clampf(absf(_wind.y) * wind_gain * STEP_DT / cs, 0.0, 0.5)
-	var sx: int = 1 if _wind.x > 0.0 else -1
-	var sz: int = 1 if _wind.y > 0.0 else -1
+	var wdt: float = wind_gain * STEP_DT / cs
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(48)
+	pc.resize(32)
 	pc.encode_u32(0, _dim_x)
 	pc.encode_u32(4, _dim_y)
 	pc.encode_u32(8, _dim_z)
 	pc.encode_u32(12, _cell_count)
 	pc.encode_float(16, diffuse_frac)
 	pc.encode_float(20, rise_frac)
-	pc.encode_float(24, ax)
-	pc.encode_float(28, az)
-	pc.encode_s32(32, sx)
-	pc.encode_s32(36, sz)
-	pc.encode_u32(40, 0)
-	pc.encode_u32(44, 0)
+	pc.encode_float(24, wdt)
+	pc.encode_float(28, 0.0)
 	return pc
 
 

@@ -48,12 +48,18 @@ func _run() -> bool:
 	var cloud: PackedFloat32Array = PackedFloat32Array(); cloud.resize(cc)
 	var fog: PackedFloat32Array = PackedFloat32Array(); fog.resize(cc)
 	var lava: PackedFloat32Array = PackedFloat32Array(); lava.resize(cc)
+	# A spatially-VARYING wind velocity (both signs across the grid) so the atmosphere transport's local-wind
+	# advection is actually exercised — this is the parity check for the emergent-wind moisture advection.
+	var velx: PackedFloat32Array = PackedFloat32Array(); velx.resize(cc)
+	var velz: PackedFloat32Array = PackedFloat32Array(); velz.resize(cc)
 
 	for iy in range(dy):
 		for iz in range(dz):
 			for ix in range(dx):
 				var i: int = (iy * dz + iz) * dx + ix
 				temp[i] = 22.0 - 2.5 * float(iy)     # warm low, cool aloft (drives dewpoint condensation)
+				velx[i] = 1.2 * (float(ix) - float(dx) * 0.5) / float(dx)   # sign flips across X
+				velz[i] = -0.9 * (float(iz) - float(dz) * 0.5) / float(dz)  # sign flips across Z
 				if iy == 0:
 					solid[i] = 1                     # rock floor
 					continue
@@ -88,6 +94,8 @@ func _run() -> bool:
 	field._cloud = cloud.duplicate()
 	field._fog = fog.duplicate()
 	field._lava = lava.duplicate()
+	field._vel_x = velx.duplicate()
+	field._vel_z = velz.duplicate()
 
 	var heat = HeatScript.new(); heat.setup(field)
 	var atmo = AtmoScript.new(); atmo.setup(field); atmo.set_wind(WIND)
@@ -106,6 +114,7 @@ func _run() -> bool:
 	gpu.setup(field)                                   # uploads field's (CPU-mutated) solid/static — reseed them:
 	gpu.upload_static_state(solid, stat)               # push the ORIGINAL masks (field's were mutated by the CPU run)
 	gpu.begin_frame(temp, water, solar, WIND)
+	gpu.upload_wind(velx, velz)                        # same LOCAL wind the CPU transport advected by
 	gpu.set_field("vapor", vapor)
 	gpu.set_field("cloud", cloud)
 	gpu.set_field("fog", fog)

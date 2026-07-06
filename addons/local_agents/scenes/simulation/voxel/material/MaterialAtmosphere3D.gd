@@ -155,13 +155,16 @@ func _transport(arr: PackedFloat32Array, diffuse_frac: float, rise_frac: float, 
 					_adelta[i2] -= mv
 					_adelta[iu] += mv
 
-	# 3) HORIZONTAL WIND — first-order upwind advection in world XZ (drifts clouds/vapor downwind).
-	if wind_gain > 0.0 and (_wind.x != 0.0 or _wind.y != 0.0):
+	# 3) HORIZONTAL WIND — first-order upwind advection by the LOCAL per-cell wind velocity (from the
+	# emergent MaterialWind3D field), replacing the old single global scalar. Each cell reads its OWN
+	# _vel_x/_vel_z, so moisture funnels through valleys and piles up where the wind converges (fronts).
+	# Scatter (like the diffusion above) reading the arr snapshot, so it stays order-independent. The
+	# per-cell ax/az/sx/sz + non-solid-neighbour guards are mirrored EXACTLY in atmos_transport3d.glsl.
+	if wind_gain > 0.0:
 		var cs: float = _f._cell_size
-		var ax: float = clampf(absf(_wind.x) * wind_gain * _f.STEP_DT / cs, 0.0, 0.5)
-		var az: float = clampf(absf(_wind.y) * wind_gain * _f.STEP_DT / cs, 0.0, 0.5)
-		var sx: int = 1 if _wind.x > 0.0 else -1
-		var sz: int = 1 if _wind.y > 0.0 else -1
+		var vel_x: PackedFloat32Array = _f._vel_x
+		var vel_z: PackedFloat32Array = _f._vel_z
+		var wdt: float = wind_gain * _f.STEP_DT / cs
 		for iy in range(dy):
 			for iz in range(dz):
 				for ix in range(dx):
@@ -171,7 +174,12 @@ func _transport(arr: PackedFloat32Array, diffuse_frac: float, rise_frac: float, 
 					var q3: float = arr[i3]
 					if q3 <= 0.0:
 						continue
+					var vx: float = vel_x[i3]
+					var vz: float = vel_z[i3]
+					var ax: float = clampf(absf(vx) * wdt, 0.0, 0.5)
+					var az: float = clampf(absf(vz) * wdt, 0.0, 0.5)
 					if ax > 0.0:
+						var sx: int = 1 if vx > 0.0 else -1
 						var nx: int = ix + sx
 						if nx >= 0 and nx < dx:
 							var nix: int = i3 + sx
@@ -180,6 +188,7 @@ func _transport(arr: PackedFloat32Array, diffuse_frac: float, rise_frac: float, 
 								_adelta[i3] -= mvx
 								_adelta[nix] += mvx
 					if az > 0.0:
+						var sz: int = 1 if vz > 0.0 else -1
 						var nz: int = iz + sz
 						if nz >= 0 and nz < dz:
 							var niz: int = i3 + sz * dx

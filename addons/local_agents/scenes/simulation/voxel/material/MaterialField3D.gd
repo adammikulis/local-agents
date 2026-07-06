@@ -535,6 +535,9 @@ func _physics_process(delta: float) -> void:
 		var w: Vector2 = _atmosphere.wind() if _atmosphere != null and _atmosphere.has_method("wind") else Vector2.ZERO
 		_gpu.begin_frame(_temp, _water, solar, w)
 		_gpu.set_field("lava", _lava)
+		# Feed the resident wind SSBOs the emergent LOCAL velocity (last frame's, computed on the CPU
+		# oracle post-readback) so the atmosphere transport kernel advects moisture by the local wind.
+		_gpu.upload_wind(_vel_x, _vel_z)
 		# Vapor is re-uploaded ONLY when a CPU-side injection (a storm's add_vapor) dirtied it. With nothing
 		# injected it lives fully resident on the GPU (re-uploading the last readback would just clobber the
 		# GPU's own evolution), so we skip the upload AND the readback below — cloud/fog are never re-uploaded.
