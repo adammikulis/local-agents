@@ -20,11 +20,24 @@ layout(push_constant, std430) uniform Params {
 	uint dim_y;
 	uint dim_z;
 	uint cell_count;
+	float origin_y;    // world Y of iy=0 (for the depth-vs-sea-level thermocline)
+	float cell_size;
+	float sea_level;
+	float _pad;
 } params;
 
 // Constants — MUST match MaterialHeat3D.gd exactly.
 const float WATER_COOL_RATE = 0.12;
-const float WATER_TEMP = 12.0;
+const float SST_SURFACE = 26.0;
+const float WATER_TEMP_DEEP = 10.0;
+const float THERMOCLINE_SCALE = 24.0;
+
+// Sea thermal profile — MUST match MaterialHeat3D.sea_water_target(): warm skin near sea level decaying
+// with depth toward the cold deep floor (thermocline).
+float sea_water_target(float wy, float sea) {
+	float depth = max(0.0, sea - wy);
+	return WATER_TEMP_DEEP + (SST_SURFACE - WATER_TEMP_DEEP) * exp(-depth / THERMOCLINE_SCALE);
+}
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;
@@ -36,6 +49,10 @@ void main() {
 	// provably identical to the oracle's float64 `> 0.05` for EVERY float32 input — this restores parity
 	// at the knife-edge cell where post-flow water lands on exactly 0.05.
 	if (solid[idx] == 0.0 && water[idx] >= 0.05) {
-		temp[idx] += WATER_COOL_RATE * (WATER_TEMP - temp[idx]) * clamp(water[idx], 0.0, 1.0);
+		int layer = int(params.dim_x) * int(params.dim_z);
+		int iy = int(idx) / layer;
+		float wy = params.origin_y + float(iy) * params.cell_size;
+		float wt = sea_water_target(wy, params.sea_level);
+		temp[idx] += WATER_COOL_RATE * (wt - temp[idx]) * clamp(water[idx], 0.0, 1.0);
 	}
 }

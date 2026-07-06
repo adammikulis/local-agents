@@ -64,9 +64,13 @@ committed). When removing files:
 
 - Prefer planning before large changes: understand current state and risks before editing; for big or
   ambiguous work start with a short investigation pass.
-- The main thread MAY perform implementation edits directly when that makes sense — small, well-scoped
-  tooling/doc changes, or targeted fixes the user asked for. There is no rule that all implementation
-  must be delegated.
+- The main thread MAY perform implementation edits itself — it is **not** limited to orchestration, and
+  there is no rule that all implementation must be delegated. **But editing is permitted only inside its
+  OWN dedicated worktree off `0.3-dev`, NEVER directly on the shared `0.3-dev` primary checkout.** The
+  distinction is exact: the main thread may *edit*; it may not edit/commit on the shared main-branch
+  checkout. So before doing hands-on work, the main thread creates its own worktree (see Branch &
+  worktree workflow) and works there — the shared `0.3-dev` primary is treated as read-only, reserved for
+  another writer (the user's editor, another session). This is **always** the rule, main thread included.
 - Prefer sub-agents for substantial or parallel work — parallelizable scope, contract-heavy or
   native-path changes, larger refactors — with explicit acceptance criteria. Close stale/finished
   sub-agents to conserve slots.
@@ -102,6 +106,17 @@ committed). When removing files:
   a bigger hunter wanders in, herds reforming after a scare, fire spreading downwind) *fall out* of the
   rules. Canonical worked examples + rationale live in
   `addons/local_agents/scenes/simulation/voxel/EMERGENCE.md` — read it before extending sim behavior.
+- **One-substrate default — ALWAYS ask "can this be rolled into `MaterialField3D`?"** `MaterialField3D`
+  is the single simulation substrate (the ONE field: terrain-coupled water + heat + air/vapor/cloud/fog +
+  lava, and — as they land — pressure/wind, fire/fuel, granular slump, scent, waste/nutrient). Before
+  adding OR when reviewing any world/simulation behavior, the default question is whether it belongs as a
+  **field channel or stepped process** rather than a separate system or per-node actor loop. Anything that
+  **diffuses, advects, flows, deposits, or decays over space** (heat, fluids, wind/pressure, scent, smoke,
+  waste/fertility, fire) should be a field channel so it composes with everything else for free (e.g. scent
+  that rides the real wind and washes in the rain). Keep something OUT of the field only for a **deliberate,
+  stated reason** (e.g. the ocean is a cheap GPU wave plane for perf; actors own their own cognition/nodes).
+  Don't silently build a parallel system — ask the roll-in question first, and surface it if the answer is
+  "yes, but it's a big change."
 
 ## Repository policy
 

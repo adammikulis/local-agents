@@ -32,6 +32,8 @@ const float AMBIENT_NIGHT = 6.0;
 const float SOLAR_WARMTH = 18.0;
 const float AMBIENT_RELAX = 0.05;
 const float LAPSE = 0.06;
+const float MARINE_AMBIENT = 25.0;
+const float MARINE_LAPSE = 0.04;
 
 void main() {
 	uint c = gl_GlobalInvocationID.x;
@@ -49,7 +51,16 @@ void main() {
 		return;                                        // top cell is rock -> no sky cell for this column
 	}
 	float wy = params.origin_y + float(iy) * params.cell_size;
-	float target = AMBIENT_NIGHT + SOLAR_WARMTH * params.solar
-		- LAPSE * max(0.0, wy - params.sea_level);
+	// OCEAN columns (cell just below sea level is non-solid water, not rock) anchor to the warm marine air.
+	int iy_sea = int(round((params.sea_level - params.origin_y) / params.cell_size)) - 1;
+	iy_sea = clamp(iy_sea, 0, int(params.dim_y) - 1);
+	uint isea = (uint(iy_sea) * dim_z + iz) * dim_x + ix;
+	bool is_ocean = solid[isea] == 0.0;
+	float target;
+	if (is_ocean) {
+		target = MARINE_AMBIENT - MARINE_LAPSE * max(0.0, wy - params.sea_level);
+	} else {
+		target = AMBIENT_NIGHT + SOLAR_WARMTH * params.solar - LAPSE * max(0.0, wy - params.sea_level);
+	}
 	temp[i] += AMBIENT_RELAX * (target - temp[i]);
 }

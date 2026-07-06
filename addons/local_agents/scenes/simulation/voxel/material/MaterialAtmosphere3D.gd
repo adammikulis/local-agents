@@ -49,6 +49,15 @@ const FOG_WIND_GAIN: float = 0.5          # ...for fog (ground drag: drifts slow
 # --- Humidity source + phase placement ---
 const EVAP_RATE: float = 0.02             # vapor added per step at a warm exposed water surface (humidity source)
 const WATER_MIN: float = 0.05             # a cell counts as "wet" (an evaporating water surface) above this
+# BOILING (mass-conserving phase change). A wet cell hot enough to boil (temp above BOIL_TEMP — i.e. against
+# lava/fire) flashes its standing water to rising VAPOR and actually LOSES that water, so water can't pool on
+# 1300°C rock (it flashes to steam). Only DYNAMIC water drains; the static sea is an infinite reservoir that
+# STEAMS without draining. The rate scales with how far above boiling the cell is. Mirrored EXACTLY in
+# atmos_condense3d.glsl (vapor gain + boil scratch) and atmos_rain3d.glsl (the water drain).
+const BOIL_TEMP: float = 100.0            # °C above which standing water flashes to steam
+const BOIL_RATE: float = 0.02             # fraction of a cell's water flashed to vapor per °C above boiling
+const BOIL_MAX_FRAC: float = 0.5          # cap: at most this fraction of a dynamic cell's water flashes per step
+const STATIC_STEAM_MASS: float = 0.1      # nominal water mass the infinite static sea boils per step (no drain)
 const FOG_MAX_TEMP: float = 12.0          # only cells cooler than this (°C) pool condensate as ground FOG
 const FOG_GROUND_CELLS: int = 2           # a cell is "near the ground" if solid/water lies within this many cells below
 
@@ -287,6 +296,17 @@ func step() -> void:
 				# Baseline dissipation so condensate never accumulates without bound.
 				cloud[i] *= (1.0 - CLOUD_DECAY)
 				fog[i] *= (1.0 - CLOUD_DECAY)
+				# BOILING — a wet cell hot enough to boil flashes standing water to rising vapor and LOSES it
+				# (mass-conserving). Only DYNAMIC water drains; the static sea steams without draining. Water on
+				# lava-hot rock flashes to steam (crater stays dry) while the steam rises to rain on cooler flanks.
+				if t > BOIL_TEMP:
+					var bfrac: float = clampf((t - BOIL_TEMP) * BOIL_RATE, 0.0, BOIL_MAX_FRAC)
+					if stat[i] != 0:
+						vapor[i] += bfrac * STATIC_STEAM_MASS
+					elif water[i] > WATER_MIN:
+						var boil: float = water[i] * bfrac
+						water[i] -= boil
+						vapor[i] += boil
 				# PRECIPITATION — thick cloud rains its excess as water toward the ground (into the cell
 				# below when that is open, so the water CA's gravity carries the drop down and it joins the
 				# surface water / rivers / sea). Closes the cycle.
