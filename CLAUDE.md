@@ -117,10 +117,15 @@ committed). When removing files:
 
 ## File size & refactor discipline
 
-- `scripts/check_max_file_length.sh` warns on first-party source/config files over `MAX_FILE_LINES=1000`
-  (advisory, warn-only — not a CI gate). Treat 1000 lines as a smell, not a gate: split well before
-  then, but don't block solely on line count. It also runs `check_no_direct_refcounted_invocation.sh`
-  (a real gate banning `godot -s addons/local_agents/tests/test_*.gd` in automation).
+- `scripts/check_max_file_length.sh` enforces TWO thresholds on first-party source/config files:
+  a **soft smell limit of `SOFT_FILE_LINES=800` (WARNING)** and a **hard limit of `MAX_FILE_LINES=1000`
+  (FAILS — non-zero exit / CI gate)**. Over 800 = split it soon; over 1000 = the build fails until it's
+  split. It also runs `check_no_direct_refcounted_invocation.sh` (a real gate banning
+  `godot -s addons/local_agents/tests/test_*.gd` in automation).
+- **Do NOT add to a file that is already over the smell threshold.** If a change would grow an
+  ≥800-line file, first REFACTOR: extract the relevant responsibility into a NEW focused module (or add
+  your new code as a new file), then make the edit there. Never push a file past the 1000-line hard limit
+  — split it first. This applies to every agent (main thread and sub-agents).
 - When refactoring for size, extract helpers/business logic into focused modules first; keep hot-path
   files as thin call-site forwarders. Split large files by responsibility (orchestration/controller · domain
   systems · render adapters · input/interaction · HUD/presentation). App/root scenes are composition
