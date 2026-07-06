@@ -14,39 +14,51 @@ believable behavior *emerges* from simple local rules (see
   (`VoxelGeneratorImage`) rising out of an **ocean**, with radial **coast/beach** ramps and **3D
   caves** carved in. Rock-vs-void is queried via `is_solid(pos)` / `sdf_at(pos)`; destruction is
   `carve_sphere(pos, r)`.
-- **Unified material substrate (`LAMaterialField`):** a 2.5D cellular automaton that owns heat,
-  liquid water, lava, vapor→cloud/fog→rain, gravity, and combustion. Springs feed rivers/lakes that
-  drain to the ocean; evaporation off warm water forms clouds that rain back. The calm sea is a cheap
-  static GPU **ocean plane**; the CA mesh renders only deviations and freshwater. GPU compute kernels
-  (`material/kernels/*.glsl`) run the hot loops when a `RenderingDevice` is present, with the CPU step
-  as the headless/no-GPU parity oracle.
+- **THE ONE material substrate (`LAMaterialField3D`):** a single dense 3D cellular field that owns
+  every world force as a stepped module — heat, liquid water, lava, vapor→cloud/fog→rain, gravity,
+  combustion, granular slump, erosion, snow/ice, wind-lofted dust, scent + soil fertility, deep magma,
+  atmospheric charge, and shock waves. Springs feed rivers/lakes that drain to the ocean; evaporation
+  off warm water forms clouds that rain back; because every process shares the same cells they compose
+  for free (scent rides the real wind and washes out in the rain, a lightning bolt ignites real fuel).
+  Being dense-3D, fluids interact with caves (water pools in caverns, lava drains into tubes). The calm
+  sea is a cheap static GPU **ocean plane**; the CA mesh renders only deviations and freshwater. GPU
+  compute kernels (`material/kernels3d/*.glsl`, driven by `MaterialGPU3D.gd`) run the hot loops when a
+  `RenderingDevice` is present, with the CPU step as the headless/no-GPU parity oracle. (This dense 3D
+  field superseded and replaced the retired 2.5D `MaterialField`.)
 - **Emergent ecology:** creatures forage, flee any larger hunter, hunt their configured prey, flock by
   imitation, get thirsty and drink from the water field, age and starve, and leave corpses that become
   carrion. Scavengers converge on kills by reading sight/smell/sound cues ("watch the vultures").
   Nesting species establish inherited home sites, so colonies/warrens cluster over generations.
 - **Two-tier cognition:** fast local rules for the common case, with a sparingly-invoked LLM
   ("FunctionGemma", `cognition/`) for novel situations; useful habits are reinforced and inherited.
-- **Emergent disasters:** meteors, volcanic eruptions, lightning, earthquakes, and floods inject
-  stimuli into the shared field (craters, lava, seismic shake, wildfire that spreads to flammable
-  neighbours and is broken by rivers / suppressed by rain).
+- **Emergent disasters (features of the one field, not scripted actors):** volcanoes where a deep
+  magma source bores its own conduit and erupts; storms where a Coriolis term spins pressure lows up
+  into tornadoes/hurricanes; lightning where charge builds in convective updrafts and bolts to ground
+  (igniting real wildfire); earthquakes as a propagating shock wave; plus meteors, floods, erosion
+  (canyons/deltas), snow/ice, and dust storms. Wildfire spreads to flammable neighbours downwind and is
+  broken by rivers / suppressed by rain. The disaster actors have shrunk to visuals that seed a source
+  and read back the emergent feature.
 - **Interaction:** spawn palette (icon buttons → click-to-place), click-to-select + inspector, fly
   camera, debug overlays, day/night cycle, weather (wind/rain), procedural audio.
 
 ## In progress
 
-- **Dense 3D `MaterialField3D`** — the DENSE 3D successor to the 2.5D field (a temperature +
-  per-material amount for every (x,y,z) cell) so fluids interact with caves: water pools in caverns,
-  lava drains into tubes, gas rises shafts. Dense (a flat 3D array, not sparse bricks) because at the
-  sim's 5-unit resolution the volume is only ~20 MB. Design rationale lives in the file header; the
-  GPU migration plan is `GPU_FIELD_PLAN.md`.
+- **GPU residency for the emergent passes.** The dense `MaterialField3D` is live and authoritative on
+  the CPU (the headless parity oracle); heat/atmosphere/lava are ported to GPU compute, but the newer
+  passes (wind, fire, slump, erosion, snow/ice, dust, scent, magma, charge, shock) were built
+  CPU-oracle-first and still step on the CPU even in the GPU path. Porting those kernels — plus folding
+  the atmosphere's vapor rise into the wind's buoyant advection — is the remaining work. Plan and
+  gather-not-scatter recipe: `GPU_FIELD_PLAN.md`; substrate design: `MATERIALFIELD_3D_PLAN.md`.
 
 ## Key scenes and scripts
 
 - Scene: `addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn`
 - Controller: `addons/local_agents/scenes/simulation/voxel/VoxelWorld.gd`
 - Terrain: `.../voxel/terrain/VoxelTerrainService.gd`
-- Material substrate: `.../voxel/material/MaterialField.gd` (+ `MaterialField3D.gd`, `OceanPlane.gd`,
-  `Material{Heat,Liquid,Gravity,Combustion,Atmosphere,Render}.gd`, `MaterialGPU.gd`, `kernels/*.glsl`)
+- Material substrate: `.../voxel/material/MaterialField3D.gd` (+ per-force modules
+  `Material{Heat,Lava,Atmosphere,Wind,Combustion,Slump,Erosion,SnowIce,Dust,Scent,Magma,Charge,Shock}3D.gd`,
+  `MaterialFieldQueries3D.gd`, `MaterialFieldInject3D.gd`, `MaterialFieldRender3D.gd`, `OceanPlane.gd`,
+  `MaterialGPU3D.gd`, `kernels3d/*.glsl`)
 - Ecology: `.../voxel/ecology/EcologyService.gd`
 - Cognition: `.../voxel/cognition/*.gd`
 - Actors + disasters: `.../voxel/actors/*.gd`

@@ -12,26 +12,37 @@ native destruction engine (all deleted — see "Retired stacks" below).
     **ocean**, with radial **coast/beach** ramps and **3D caves** carved in. Query API: `sdf_at(pos)`,
     `is_solid(pos)` (rock-vs-void), `carve_sphere(pos, r)`, `carve_caves(seed)`, `sea_level()`,
     `island_radius()`. Shader: `shaders/VoxelTerrainTriplanar.gdshader`.
-  - **Unified material substrate:** `material/MaterialField.gd` (`LAMaterialField`) — a 2.5D
-    cellular-automaton field that owns heat, liquid water, lava, vapor→cloud/fog→rain, gravity, and
-    combustion over a per-XZ-column grid (surface height + per-material depths). Springs → rivers/lakes
-    → ocean; evaporation → clouds → rain. Query API: `is_water_at(x,z)`, `is_ocean_at(x,z)`,
-    `surface_y_at(x,z)`, `depth_at(x,z)`, `temp_at(x,z)`, `salinity_at(x,z)`. Helpers:
-    `MaterialHeat/Liquid/Gravity/Combustion/Atmosphere/Render.gd`, `Materials.gd`, `OceanPlane.gd`
-    (a static GPU **ocean plane** for the calm sea — the CA mesh only renders deviations/freshwater),
-    `CloudLayer.gd`. GPU compute kernels in `material/kernels/*.glsl` (heat/transport/flow/condense),
-    driven by `MaterialGPU.gd` when a `RenderingDevice` is available (CPU step is the headless oracle).
-  - **Dense 3D field (IN PROGRESS):** `material/MaterialField3D.gd` (`LAMaterialField3D`) — the DENSE
-    3D successor to the 2.5D field: a temperature + per-material amount for every (x,y,z) cell so
-    fluids interact with caves (water pools in caverns, lava drains into tubes, gas rises shafts).
-    "Dense" (flat 3D array, not sparse bricks) because at 5-unit resolution the volume is ~20 MB.
-    Design rationale is in the file header; GPU migration is planned in `GPU_FIELD_PLAN.md`.
-  - Weather/fields: `WeatherSystem.gd` (wind), `ScentField.gd` (wind-advected, rain-washed scent),
-    `TrackSystem.gd` (footprint decals).
-  - Ecology: `ecology/EcologyService.gd`.
-  - Actors: `actors/{Creature,Plant,Tree,Rock,ThrownRock,Corpse,Poop,Food,Fish,Nest}.gd` plus
-    disasters `actors/{Meteor,Volcano,Earthquake,LightningStrike,Flood}.gd` and FX
-    `actors/{FlameFX,HeatGlow}.gd`. Creature helpers under `actors/creature/`.
+  - **THE ONE material substrate:** `material/MaterialField3D.gd` (`LAMaterialField3D`) — the single
+    DENSE 3D simulation field: a temperature + per-material amount for every (x,y,z) cell so fluids
+    interact with caves (water pools in caverns, lava drains into tubes, gas rises shafts). "Dense"
+    (a flat 3D array, not the sparse bricks the old plan speculated) because at 5-unit resolution the
+    volume is only ~20 MB. The **2.5D `MaterialField.gd` is retired/deleted** — this is its wholesale
+    successor. Every world force is a **module stepped on this one field** (each a CPU-oracle
+    `RefCounted` on the `MaterialCombustion3D` pattern): `MaterialHeat3D`, `MaterialLava3D`,
+    `MaterialAtmosphere3D` (vapor→cloud/fog→rain), `MaterialWind3D` (pressure-driven wind + Coriolis
+    storm rotation), `MaterialCombustion3D` (fuel + fire), `MaterialSlump3D` (granular landslides),
+    `MaterialErosion3D` (sediment transport → canyons/deltas), `MaterialSnowIce3D` (snowpack / ice /
+    meltwater), `MaterialDust3D` (wind-lofted dust storms + dune migration), `MaterialScent3D`
+    (stigmergy: airborne prey/predator/blood/food/alarm + soil fertility), `MaterialMagma3D` (deep
+    magma source that bores its own conduit + erupts), `MaterialCharge3D` (convective charge → lightning
+    bolts), `MaterialShock3D` (propagating sound/shock pressure wave). Query/helper modules:
+    `MaterialFieldQueries3D`, `MaterialFieldInject3D` (splash/add_water_pooled/resample_terrain),
+    `MaterialFieldRender3D`, `MaterialHeatTexture3D`, `Materials.gd`, `OceanPlane.gd` (a static GPU
+    **ocean plane** for the calm sea — the CA mesh only renders deviations/freshwater), `CloudLayer.gd`,
+    `RainLayer.gd`. Query API: `is_water_at`/`is_ocean_at`/`surface_y_at`/`depth_at`/`temp_at`/
+    `salinity_at`, plus emergent-process reads `scent_gradient(pos, channel)`, `vorticity_at`/
+    `updraft_at`, `magma_erupting()`, `emit_shock`/`shock_at`, `bolts_fired()`. GPU compute kernels in
+    `material/kernels3d/*.glsl`, driven by `MaterialGPU3D.gd` when a `RenderingDevice` is available
+    (the CPU step is the headless parity oracle).
+  - Weather/fields: `WeatherSystem.gd` (wind), `TrackSystem.gd` (footprint decals). **`ScentField.gd`
+    is retired** — scent is now the `MaterialScent3D` field channel.
+  - Ecology: `ecology/EcologyService.gd` (`broadcast_seismic` now routes through the field's
+    `emit_shock`/`shock_at` shock wave; `broadcast_scare` kept for acute startle).
+  - Actors: `actors/{Creature,Plant,Tree,Rock,ThrownRock,Corpse,Food,Fish,Nest}.gd` plus
+    disasters `actors/{Meteor,Volcano,Earthquake,LightningStrike,Flood,Tornado,Thunderstorm,Hurricane}.gd`
+    and FX `actors/{FlameFX,HeatGlow}.gd`. Creature helpers under `actors/creature/`. **The `Poop.gd`
+    node is retired** — waste is now a deposit into the `MaterialScent3D` fertility/scent channels.
+    Disaster actors have shrunk to visuals that seed a source and READ the emergent field feature.
   - Cognition (fast rules + slow brain): `cognition/{Cognition,CognitionScheduler,ActionRegistry,
     Genome,SituationSignature,Vision,FunctionGemmaClient}.gd` — a two-tier mind where an LLM
     ("FunctionGemma") is called sparingly for novel situations and habits are reinforced/inherited.
@@ -54,9 +65,12 @@ native destruction engine (all deleted — see "Retired stacks" below).
   keep the llama.cpp/LLM runtime`). The `localagents` GDExtension now ships only the LLM/agent runtime
   (AgentRuntime/AgentNode/NetworkGraph/ModelDownloadManager + llama.cpp). The sim runs in GDScript with
   GPU compute for the material field.
-- Within the voxel scene, `WaterFieldSystem.gd` and `FireSystem.gd` were **folded into
-  `LAMaterialField`** (water is now unified CA; wildfire is the combustion pass). No standalone
-  water/fire systems remain.
+- Within the voxel scene, `WaterFieldSystem.gd` and `FireSystem.gd` were **folded into the material
+  field** (water is now the unified CA; wildfire is the combustion pass). The **2.5D
+  `MaterialField.gd`/`LAMaterialField`** was then superseded wholesale by the dense
+  `MaterialField3D`/`LAMaterialField3D` and deleted. `ScentField.gd` and the `Poop.gd` node were
+  folded into the `MaterialScent3D` field channel and deleted. No standalone water/fire/scent systems
+  and no 2.5D field remain.
 
 ## Emergent behavior currently in (see EMERGENCE.md)
 - Predator/prey, fear, flocking driven by **properties + proximity**, not per-pair tables
@@ -68,10 +82,14 @@ native destruction engine (all deleted — see "Retired stacks" below).
   inherit it → colonies/rookeries/warrens cluster over generations; roost at night.
 - Energy/hunger → starvation + aging death; corpses persist as carrion; thirst + drinking off the
   water field; day/night cycle (sun arc, sky/ambient shift, nocturnal foxes).
-- **Emergent disasters** inject stimuli into the shared field: meteor impacts (crater + shockwave +
-  ignite forests), volcano eruptions (lava into MaterialField + caldera), lightning strikes,
-  earthquakes (seismic stimulus → camera shake), floods. Wildfire spreads to flammable neighbours and
-  is suppressed by rain / broken by rivers.
+- **Emergent disasters are now field FEATURES**, not scripted actors puppeteering the field: meteor
+  impacts (crater + shock wave + ignite forests), volcanoes (a deep `MaterialMagma3D` source bores its
+  own conduit + erupts), storms (Coriolis rotation in the wind field spins up tornado/hurricane
+  vortices), lightning (`MaterialCharge3D` builds charge in updrafts → bolt → wildfire + thunder),
+  earthquakes (a propagating `MaterialShock3D` pressure wave → camera shake + scare), floods, plus
+  erosion, snow/ice, and dust storms. Actors have shrunk to visuals that seed a source and read the
+  emergent feature. Wildfire spreads to flammable neighbours downwind and is suppressed by rain /
+  broken by rivers.
 
 ## The one-substrate direction (north star)
 **`MaterialField3D` is the single simulation substrate, and every "disaster"/weather/ecological force is
@@ -85,34 +103,53 @@ visuals that track real field features. Always ask "can this roll into `Material
   wind down −∇p, terrain funneling, buoyant vertical, fronts) · **FIRE/combustion** (`MaterialCombustion3D`:
   fuel from vegetation, ignites from heat, spreads downwind on the wind field, ash regrowth) ·
   **granular LANDSLIDES** (`MaterialSlump3D`: disturbed terrain slumps to repose angle, re-solidifies).
+- **Scent + waste stigmergy** (#22, DONE) — `MaterialScent3D`: 5 airborne channels
+  (prey/predator/blood/food/alarm) + a soil FERTILITY channel. Creatures lay musk DERIVED from
+  size/diet/hunger/wounds/panic and drop feces/urine/blood; it diffuses, advects on the local wind,
+  decays, and washes in rain; plants regrow where fertility peaks. Predators/scavengers read
+  `scent_gradient(PREY/FOOD)`. Retired `ScentField.gd` + the `Poop.gd` node; V-key scent view is now a
+  DebugOverlay gizmo.
+- **Emergent volcano** (#23, DONE) — `MaterialMagma3D`: a deep hot magma SOURCE whose overpressure
+  BORES ITS OWN CONDUIT up and erupts episodically. `Volcano.gd` shrank to seeding one
+  `add_magma_source` + reading `magma_erupting()` for FX (deleted its scripted pressure state machine +
+  `_carve_conduit`).
+- **Emergent storms** (#24, DONE) — a CORIOLIS rotation term in `MaterialWind3D.step()` makes pressure
+  lows SPIN → tornado/mesocyclone/hurricane vortices emerge; `vorticity_at`/`updraft_at` queries added.
+  Tornado/Thunderstorm/Hurricane actors shrank to seed the low + READ the emergent vortex (no scripted
+  strength envelope).
+- **Emergent lightning** (#25, DONE) — `MaterialCharge3D`: charge builds in convective updrafts
+  (`vel_y`×cloud×cold), breaks down to a bolt to the tallest ground → heat pulse (wildfire emerges via
+  combustion) + scare + a visual-only bolt via callback. `LightningStrike.gd` shrank to visual/audio
+  only; the old `rain>0.6` trigger was removed.
+- **Extra emergent physics (DONE)** — `MaterialErosion3D` (water carries sediment → canyons/deltas,
+  reuses the slump channel) · `MaterialSnowIce3D` (snowpack accretes cold / melts warm → meltwater;
+  water freezes below 0 °C) · `MaterialDust3D` (wind lofts dry sediment → dust storms + dune migration) ·
+  `MaterialShock3D` (a propagating sound/shock pressure wave that **REPLACED the point-based seismic
+  ring** in `EcologyService` — camera shake + `broadcast_seismic` now route through `emit_shock`/
+  `shock_at`; `broadcast_scare` kept for acute startle).
 
-### Remaining emergent roadmap (each rolled into the field; CPU↔GPU parity)
-1. **Scent + waste as field channels** (#22) — retire `ScentField` (markers) + the `Poop` node. A small
-   fixed set of scent-type channels (prey/predator-musk/blood/alarm/food); emission DERIVED + DYNAMIC
-   from diet + recent meals + hunger + wounds + state; waste (feces + urine, diet-flavored) deposits a
-   fertility/nutrient channel + scent; all diffuse + advect on the LOCAL wind + wash with rain. Plants
-   grow from local field fertility. Make sure creatures produce waste (feces exists; add urine).
-2. **Emergent volcanoes from lava pressure** (#23) — eruptions/upwelling/conduit-clearing fall out of
-   lava having pressure that pushes up + melts rock; the `Volcano` actor just seeds a deep hot source.
-3. **Emergent storms** (#24) — add a rotation (Coriolis-like) term so pressure lows spin. TORNADO =
-   intense vortex, THUNDERSTORM = convective updraft cell (achievable). HURRICANE = a STRETCH goal to
-   design toward (a seeded deep rotating warm-ocean low that leans on emergence). Actors → visuals.
-4. **Emergent lightning** (#25) — a charge channel accumulates in convective updrafts (`vel_y`×cloud×cold);
-   breakdown fires a bolt to the tallest ground → heat pulse (ignites wildfire) + thunder (scare) + reset.
+### Field step order (CPU oracle)
+`water → erosion → heat → wind → atmosphere → snowice → lava → magma → slump → dust → combustion →
+scent → charge → shock`.
 
-### Field-residency + tuning follow-ups (from the wind/fire/slump landings)
-- GPU-PORT the wind/fire/slump STEP kernels: `fire3d.glsl`/`slump3d.glsl`/wind are written but still step
-  on the CPU oracle in the GPU path (mechanical port to the resident `MaterialGPU3D.step()` seam).
+### Field-residency + tuning follow-ups (GPU-porting the new passes)
+- Still **CPU-oracle-first**: no new GLSL kernels for the emergent passes yet. GPU-PORT the wind/fire
+  STEP kernels first (`fire3d.glsl`/wind are written but still step on the CPU oracle in the GPU path —
+  a mechanical port to the resident `MaterialGPU3D.step()` seam), then port the new modules (erosion /
+  snowice / dust / scent / magma / charge / shock).
 - Subsume the atmosphere's fixed `VAPOR_RISE`/`CLOUD_RISE` into the wind's `vel_y` advection (buoyancy
   retune vs the cloud-health gate); localize the orographic upwind test to per-cell velocity.
+- Phase-0 refactor already landed: extracted `MaterialFieldInject3D.gd` (splash/add_water_pooled/
+  resample_terrain) + `MaterialHeatTexture3D.gd`; deleted dead `add_material`/`add_rain`.
 
 ### Creatures + the field (design — can living creatures be part of `MaterialField3D`?)
 - Individual creatures STAY agents — cognition, identity, memory, pathfinding, ragdoll death, and
   click-inspection can't be a diffusing scalar field. That individuality is the point.
 - But COUPLE them to the field densely via STIGMERGY: creatures read field gradients (scent, food/
   fertility, heat, wind, fire, water) and write to it (scent, waste, trampling), so herd/predator-prey/
-  foraging behavior emerges from the shared field rather than per-pair code. (Largely the scent+waste
-  work #22, extended to more channels — fear, food, trampled-ground.)
+  foraging behavior emerges from the shared field rather than per-pair code. (The scent+waste work #22
+  landed this — `MaterialScent3D`'s prey/predator/blood/food/alarm + fertility channels; remaining
+  extension is more channels, e.g. trampled-ground.)
 - STRETCH — a background POPULATION-DENSITY / biomass field: off-screen / far fauna simulated as a
   reaction-diffusion ecology *layer* in the field (Lotka-Volterra-ish predator/prey densities), from
   which hero agents spawn at the edge of attention and into which they dissolve — a hybrid for scale,
@@ -127,7 +164,11 @@ visuals that track real field features. Always ask "can this roll into `Material
     click-select.
 - **Headless smoke:** `godot --headless res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --run-frames=300`
   — prints `SMOKE_SUMMARY={...}` then quits (expect `"spawned_initial":true, "ready":true`, no
-  SCRIPT ERROR; the summary reports actors, wet/heat/lava/cloud cells, fires, nests, cognition stats).
+  SCRIPT ERROR). Beyond actors/cognition/nest stats the summary now reports the field-process keys:
+  `wet_cells`, `heat_peak`/`heat_cells`, `lava_cells`, `slump_cells`/`peak_slump`, `cloud_cells`/
+  `cloud_cover`/`fog_cover`, `wind`, `scent_cells`, `fertility_peak`, `magma_cells`, `erosion_cells`,
+  `snow_cells`, `ice_cells`, `dust_cells`, `charge_peak`, `bolts`, `shock_cells`, `fires` (the old
+  `poop` key was removed).
 - **Test suites / lint:** `scripts/agent_harness.sh <all|fast|bounded|extension|lint>` wraps the
   canonical `run_*.gd` runners and prints one `AGENT_HARNESS_RESULT={...}` line. Typing gate:
   `bash scripts/check_no_inferred_typing.sh` (must be OK — no `:=` in the voxel dir). NOTE: the

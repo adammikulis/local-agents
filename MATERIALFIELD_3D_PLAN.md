@@ -1,5 +1,18 @@
 # MaterialField 3D Upgrade — design plan
 
+> **STATUS (largely realized).** The dense `MaterialField3D` (`LAMaterialField3D`) is live and is now
+> **THE ONE simulation substrate** — the 2.5D `MaterialField.gd` it supersedes has been deleted. One
+> decision below changed in practice: it was built **DENSE (a flat 3D array), not the SPARSE/active
+> brick pool this doc speculated** — at the sim's 5-unit resolution the whole volume is only ~20 MB, so
+> the brick machinery wasn't worth its complexity. Everything else held: heat/liquids/gases/gravity are
+> 3D rules over that array, the CPU step is the headless parity oracle, and GPU kernels live in
+> `material/kernels3d/*.glsl` driven by `MaterialGPU3D.gd`. On top of that base, every world force is a
+> **CPU-oracle `RefCounted` module stepped on the one field** (on the `MaterialCombustion3D` pattern):
+> heat, lava, atmosphere, wind (+ Coriolis storms), combustion, slump, erosion, snow/ice, dust, scent +
+> fertility, magma (emergent volcano), charge (emergent lightning), and shock (pressure wave). See
+> `TODO.md` and `EMERGENCE.md` for the emergent-process catalogue; `GPU_FIELD_PLAN.md` for the remaining
+> CPU→GPU kernel ports. The original design narrative below is kept for rationale.
+
 ## Why
 The MaterialField (heat, water, lava, vapor/cloud/fog, gravity) is **2.5D**: one column per XZ cell
 holding a surface height + a stack of material *depths*. That was fine over heightmap terrain, but
@@ -16,6 +29,11 @@ rock vs void — provided by the 3D-terrain (caves) work. So: **land caves first
 field on top of it.** Building it now against 2.5D terrain means re-integrating later (double work).
 
 ## Core decision: SPARSE/active 3D, not dense
+> **SUPERSEDED — the field shipped DENSE.** The reasoning below assumed a fine grid; at the actual
+> 5-unit cell size the whole `dim³` volume is only ~20 MB, so a flat 3D array won on simplicity and the
+> sparse-brick pool was not built. Keep this section as the record of the option we considered and
+> dropped.
+
 Dense `dim³` is memory-prohibitive (100³ = 1M cells × many float layers = GBs; finer is worse). Use a
 **sparse, active-set 3D field** — the direction `ARCHITECTURE_PLAN.md` already commits to
 (sparse-brick residency, sleep-by-default, active-set scheduling):

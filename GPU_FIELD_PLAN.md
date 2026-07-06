@@ -1,5 +1,25 @@
 # GPU Compute for the MaterialField — plan (feature/gpu-material-field)
 
+> **STATUS / where the frontier is now.** This original plan targeted the 2.5D field (`MaterialGPU.gd`,
+> `material/kernels/*.glsl`). That field is retired; the live substrate is the dense **`MaterialField3D`**
+> with its GPU seam in **`MaterialGPU3D.gd`** and kernels in **`material/kernels3d/*.glsl`**. The
+> heat/atmosphere/lava kernels are ported (see `parity_gpu3d_atmos_lava.gd`). Everything landed since —
+> wind (+ Coriolis storms), combustion/fire, slump, and the new emergent modules (erosion, snow/ice,
+> dust, scent + fertility, magma, charge/lightning, shock) — was built **CPU-oracle-first**: each is a
+> `RefCounted` module whose CPU `step()` is the authoritative headless/parity path, with **no GLSL
+> kernel yet**. So the field is correct on both paths but the emergent passes still run on the CPU oracle
+> even in the GPU path. The gather-not-scatter discipline below is the template for porting them.
+>
+> **Remaining CPU→GPU kernel ports (the residency follow-up), in order:**
+> 1. Wind step (`MaterialWind3D`) + fire step (`MaterialCombustion3D`, `fire3d.glsl` is written but still
+>    steps on the CPU oracle) — mechanical ports into the resident `MaterialGPU3D.step()` seam.
+> 2. Slump (`MaterialSlump3D`).
+> 3. The new emergent modules: erosion, snow/ice, dust, scent, magma, charge, shock — each a race-free
+>    gather kernel over the same SSBO pool, keeping the CPU `step()` as its permanent parity oracle.
+> A parallel design cleanup: subsume the atmosphere's fixed `VAPOR_RISE`/`CLOUD_RISE` into the wind's
+> `vel_y` buoyant advection so heat+wind+atmosphere share one round-trip. The Phase-1 notes below (heat
+> kernel, gather rewrite, parity harness, headless-CPU fallback) remain the canonical recipe.
+
 ## Goal
 Move the MaterialField cellular-automaton hot loops off the CPU onto the GPU via
 `RenderingDevice` compute shaders + SSBOs. The flat `PackedFloat32Array` layout (one buffer per
