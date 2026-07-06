@@ -24,6 +24,7 @@ layout(set = 0, binding = 5, std430) restrict readonly buffer Solid { float soli
 layout(set = 0, binding = 6, std430) restrict readonly buffer Static { float static_cells[]; };
 layout(set = 0, binding = 7, std430) restrict writeonly buffer VaporOut { float vapor_out[]; };
 layout(set = 0, binding = 8, std430) restrict writeonly buffer Rain { float rain_out[]; };
+layout(set = 0, binding = 9, std430) restrict writeonly buffer Boil { float boil_out[]; };  // dynamic water flashed to steam; drained by atmos_rain3d
 
 layout(push_constant, std430) uniform Params {
 	uint dim_x;
@@ -48,6 +49,10 @@ const float RAIN_RATE = 0.16;
 const float FOG_MAX_TEMP = 12.0;
 const float WATER_MIN = 0.05;
 const int FOG_GROUND_CELLS = 2;
+const float BOIL_TEMP = 100.0;
+const float BOIL_RATE = 0.02;
+const float BOIL_MAX_FRAC = 0.5;
+const float STATIC_STEAM_MASS = 0.1;
 
 // A cell is "near the ground" if solid rock, standing water, or the static sea lies within
 // FOG_GROUND_CELLS cells directly below it (the bottom of the world reads as ground).
@@ -81,6 +86,7 @@ void main() {
 	if (solid[g] != 0.0) {
 		vapor_out[g] = vapor_in[g];
 		rain_out[g] = 0.0;
+		boil_out[g] = 0.0;
 		return;
 	}
 
@@ -123,6 +129,20 @@ void main() {
 	c *= (1.0 - CLOUD_DECAY);
 	f *= (1.0 - CLOUD_DECAY);
 
+	// BOILING — a wet cell hot enough to boil flashes standing water to rising vapor (mass-conserving): the
+	// vapor is gained here, the DYNAMIC water is drained by the atmos_rain3d gather (which writes water). The
+	// static sea steams without draining (infinite reservoir). Mirrors MaterialAtmosphere3D.step() exactly.
+	float boil = 0.0;
+	if (t > BOIL_TEMP) {
+		float bfrac = clamp((t - BOIL_TEMP) * BOIL_RATE, 0.0, BOIL_MAX_FRAC);
+		if (static_cells[g] != 0.0) {
+			vap += bfrac * STATIC_STEAM_MASS;
+		} else if (water[g] > WATER_MIN) {
+			boil = water[g] * bfrac;
+			vap += boil;
+		}
+	}
+
 	float rain = 0.0;
 	if (c > RAIN_CLOUD_THRESHOLD) {
 		rain = (c - RAIN_CLOUD_THRESHOLD) * RAIN_RATE;
@@ -133,4 +153,5 @@ void main() {
 	cloud[g] = c;
 	fog[g] = f;
 	rain_out[g] = rain;
+	boil_out[g] = boil;
 }

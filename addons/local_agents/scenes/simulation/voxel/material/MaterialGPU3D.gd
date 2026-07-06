@@ -131,6 +131,7 @@ var _buf_solid: RID = RID()                # byte->float mirror of _solid (1 = r
 var _buf_static: RID = RID()               # byte->float mirror of _static (1 = calm sea sink)
 var _buf_send: RID = RID()                 # cell_count * 6 floats: per-direction outflow (water AND lava reuse)
 var _buf_rain: RID = RID()                 # cell_count floats: per-cell rain mass scratch (condense -> rain gather)
+var _buf_boil: RID = RID()                 # cell_count floats: per-cell boiled-water scratch (condense -> rain drain)
 
 # name -> [rid_a, rid_b] for every ping-pong field, so future passes fetch buffers by name.
 var _fields: Dictionary = {}
@@ -279,6 +280,7 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 	var send_bytes: PackedByteArray = send_zero.to_byte_array()
 	_buf_send = _rd.storage_buffer_create(send_bytes.size(), send_bytes)
 	_buf_rain = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	_buf_boil = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_static_uploaded = false
 
 	_fields = {
@@ -349,11 +351,11 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 			_make_uniform(2, fog_back), _make_uniform(3, temp_back),
 			_make_uniform(4, water_back), _make_uniform(5, _buf_solid),
 			_make_uniform(6, _buf_static), _make_uniform(7, vapor_back),
-			_make_uniform(8, _buf_rain)], _shader_of(_condense_pipeline), 0)
-		# Rain: atmos_rain3d.glsl 0=rain, 1=solid, 2=water(back, in place +=).
+			_make_uniform(8, _buf_rain), _make_uniform(9, _buf_boil)], _shader_of(_condense_pipeline), 0)
+		# Rain: atmos_rain3d.glsl 0=rain, 1=solid, 2=water(back, in place += rain − boil), 3=boil scratch.
 		_rain_set[p] = _rd.uniform_set_create([
 			_make_uniform(0, _buf_rain), _make_uniform(1, _buf_solid),
-			_make_uniform(2, water_back)], _shader_of(_rain_pipeline), 0)
+			_make_uniform(2, water_back), _make_uniform(3, _buf_boil)], _shader_of(_rain_pipeline), 0)
 
 		# --- Lava ---------------------------------------------------------------
 		# Flow: lava_flow3d.glsl 0=lava in(live), 1=solid, 2=send, 3=lava out(back), 4=temp(back, carry-heat).
@@ -398,7 +400,7 @@ func _free_buffers() -> void:
 	for buf in [_buf_temp_a, _buf_temp_b, _buf_water_a, _buf_water_b,
 			_buf_vapor_a, _buf_vapor_b, _buf_cloud_a, _buf_cloud_b,
 			_buf_fog_a, _buf_fog_b, _buf_lava_a, _buf_lava_b,
-			_buf_solid, _buf_static, _buf_send, _buf_rain]:
+			_buf_solid, _buf_static, _buf_send, _buf_rain, _buf_boil]:
 		if buf.is_valid():
 			_rd.free_rid(buf)
 	_buf_temp_a = RID(); _buf_temp_b = RID()
@@ -407,7 +409,7 @@ func _free_buffers() -> void:
 	_buf_cloud_a = RID(); _buf_cloud_b = RID()
 	_buf_fog_a = RID(); _buf_fog_b = RID()
 	_buf_lava_a = RID(); _buf_lava_b = RID()
-	_buf_solid = RID(); _buf_static = RID(); _buf_send = RID(); _buf_rain = RID()
+	_buf_solid = RID(); _buf_static = RID(); _buf_send = RID(); _buf_rain = RID(); _buf_boil = RID()
 	_fields = {}
 	_cell_count = 0
 	_static_uploaded = false
