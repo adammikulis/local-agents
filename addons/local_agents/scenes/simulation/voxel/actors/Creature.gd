@@ -17,7 +17,6 @@ const PREDATOR_SIZE_RATIO: float = 1.2     # flee anything this many times my si
 # snapping direction every frame — the fix for frantic, too-fast circling.
 const BIRD_TURN_RATE: float = 1.5
 
-const CorpseScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Corpse.gd")
 const ThrownRockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/ThrownRock.gd")
 const PoopScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Poop.gd")
 
@@ -104,11 +103,22 @@ var state: String = "wander"
 
 # --- the player's "hand" (Black & White): picked up, carried, then dropped or thrown ---
 # While _held, _physics_process is suspended so VoxelWorld drives global_position directly.
-# While _thrown, the body flies ballistically (velocity + gravity) until it lands.
+# A THROW is just a fling: it releases the same physics shadow (below), so a thrown creature tumbles
+# under real physics and stands back up on landing — one mechanism, no separate ballistic path.
 var _held: bool = false
-var _thrown: bool = false
-var _thrown_velocity: Vector3 = Vector3.ZERO
-const THROW_GRAVITY: float = 26.0            # ballistic fall while thrown
+
+# Physics shadow (HL2-style): while _ragdoll, a RigidBody3D SHADOW drives the body (fling/topple),
+# and the visible creature reads its transform each frame. On settle it either stands up (alive) or
+# becomes a _carcass — the SAME node, no separate corpse, no model swap — and rots green->black.
+var _ragdoll: bool = false
+var _carcass: bool = false
+var _dead: bool = false
+var _shadow: RigidBody3D = null
+var _settle_t: float = 0.0
+var _decay_age: float = 0.0
+var _carrion: float = 0.0                     # remaining meat value once a carcass
+var _rot_overlay: StandardMaterial3D = null   # shared green->black decay tint on the model
+var _scent_cd: float = 0.0                     # throttles carrion-scent deposits while decaying
 
 var _heading: Vector3 = Vector3.FORWARD
 var _wander_timer: float = 0.0
@@ -178,8 +188,6 @@ func add_fear(source_pos: Vector3, intensity: float) -> void:
 # The picking-up: suspend the AI/terrain-snap so the hand (VoxelWorld) can position us freely.
 func hold_begin() -> void:
 	_held = true
-	_thrown = false
-	_thrown_velocity = Vector3.ZERO
 	_panic_timer = 0.0                        # in the hand it stops panicking
 
 
@@ -188,21 +196,21 @@ func hold_end() -> void:
 	_held = false
 
 
-# Released with a fling: fly ballistically (gravity) until we land on the surface.
+# Released with a fling: hand the release velocity to the physics shadow as an impulse — the body
+# tumbles under real physics and (surviving) gets back up on landing. Same path as any other fling.
 func throw(velocity: Vector3) -> void:
 	_held = false
-	_thrown = true
-	_thrown_velocity = velocity
+	fling(velocity)
 
 
 func is_held() -> bool:
-	return _held or _thrown
+	return _held or _ragdoll
 
 
 ## Current steering heading (unit-ish world vector the creature is moving along) — read by the debug
-## overlay to draw its intended path. Zero while held/thrown (no self-directed motion).
+## overlay to draw its intended path. Zero while held/ragdolling (no self-directed motion).
 func debug_heading() -> Vector3:
-	if _held or _thrown:
+	if _held or _ragdoll or _carcass:
 		return Vector3.ZERO
 	return _heading
 
@@ -239,18 +247,31 @@ func on_struck() -> void:
 	die("struck")
 
 
-# Take deterministic HP damage from a blast/lightning/etc. Death happens only when HP hits 0,
-# and the killing blow's impulse flings the corpse. No randomness in the kill path.
+# Take deterministic HP damage from a blast/lightning/etc. Death happens only when HP hits 0.
+# A surviving creature hit by a real impulse is FLUNG (physics shadow) and gets back up; the
+# killing blow's impulse flings the body that then stays as a carcass. No randomness in the path.
 func take_damage(amount: float, cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
 	if _dying or amount <= 0.0:
 		return
 	health -= amount
 	if health <= 0.0:
 		die(cause, impulse)
+	elif impulse.length() > 3.0:
+		fling(impulse)
 
 
-# Death leaves a physical corpse (carrion) — creatures never just vanish.
-# `impulse` (e.g. from a meteor) flings the body outward.
+# Shove the LIVING creature with a physics impulse: the shadow takes over, it tumbles, then stands
+# back up. This is the same mechanism death uses — flinging is decoupled from dying.
+func fling(impulse: Vector3) -> void:
+	if _dying or _held:
+		return
+	LACreatureRagdoll.launch(self, impulse, false)
+
+
+# Death: the creature does NOT vanish or spawn a corpse — it becomes a carcass IN PLACE. Its physics
+# shadow is released so the body falls/tumbles (an `impulse`, e.g. a meteor, flings it), and once it
+# settles it stays where it fell and rots (green->black) before finally shrinking away. Same node,
+# same model, throughout.
 func die(_cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
 	if _dying:
 		return
@@ -258,30 +279,7 @@ func die(_cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
 	# A death cry: nearby animals hear it and startle (predators may later home in on it).
 	if _ecology != null and _ecology.has_method("broadcast_call"):
 		_ecology.broadcast_call(global_position, species, "distress", self)
-	var parent: Node = get_parent()
-	if parent != null and is_inside_tree():
-		# Hand the creature's own display model to the corpse so the dead body
-		# keeps its real appearance (no capsule) — it's left unchanged at death
-		# and only rots over time. Detach it here so queue_free() below won't
-		# take it down with the creature.
-		var display: Node3D = null
-		if _model_root != null and _model_root.get_parent() == self:
-			remove_child(_model_root)
-			display = _model_root
-			_model_root = null
-		var corpse: CorpseScript = CorpseScript.new()
-		parent.add_child(corpse)
-		corpse.setup(species, color, size, terrain, display)
-		if corpse.has_method("set_scent"):
-			corpse.set_scent(_scent)          # the carcass advertises itself as carrion scent
-		corpse.global_position = global_position
-		if impulse.length() > 0.01 and corpse.has_method("fling"):
-			# Fling after the body has a physics space (next physics tick).
-			var c = corpse
-			var imp: Vector3 = impulse
-			get_tree().create_timer(0.06).timeout.connect(
-				func(): if is_instance_valid(c): c.fling(imp))
-	queue_free()
+	LACreatureRagdoll.launch(self, impulse, true)
 
 
 # Leave a dropping at `ground_pos`: a strong species-scent marker that predators
@@ -397,6 +395,8 @@ static func _species_group(sp: String) -> String:
 func _process(delta: float) -> void:
 	if _model_root == null:
 		return
+	if _ragdoll or _carcass:
+		return                            # the shadow/decay owns the transform; don't drive idle/run anim
 	_vis_t += delta
 	var p: Vector3 = global_position
 	var sp: float = 0.0
@@ -410,9 +410,13 @@ func _physics_process(delta: float) -> void:
 	# In the player's hand: VoxelWorld sets our position each frame; skip AI + terrain-snap.
 	if _held:
 		return
-	# Mid-throw: fly ballistically until we hit the surface, then resume normal life.
-	if _thrown:
-		_integrate_thrown(delta)
+	# Physics shadow drives the body (fling/topple), alive or dead — overrides all AI this frame.
+	if _ragdoll:
+		LACreatureRagdoll.tick(self, delta)
+		return
+	# Dead and come to rest: rot in place where it fell (no AI, no movement).
+	if _carcass:
+		LACreatureRagdoll.decay_tick(self, delta)
 		return
 	age += delta
 	_throw_cd -= delta
@@ -618,30 +622,6 @@ func _surface_at(x: float, z: float) -> float:
 	return float(terrain.surface_height(x, z))
 
 
-# Ballistic flight while thrown: integrate velocity + gravity, land on the surface, then
-# resume normal life. A hard landing frightens the creature and rattles its neighbours —
-# a thrown body is just another impact stimulus (emergent, no throw-specific reaction code).
-func _integrate_thrown(delta: float) -> void:
-	_thrown_velocity.y -= THROW_GRAVITY * delta
-	var next: Vector3 = global_position + _thrown_velocity * delta
-	var surf: float = _surface_at(next.x, next.z)
-	if is_nan(surf):
-		surf = global_position.y - size
-	var floor_y: float = surf + size
-	if next.y <= floor_y:
-		next.y = floor_y
-		var impact_speed: float = _thrown_velocity.length()
-		_thrown = false
-		_thrown_velocity = Vector3.ZERO
-		global_position = next
-		if impact_speed > 8.0:
-			add_fear(global_position, clampf(impact_speed * 0.12, 0.6, 4.0))
-			if _ecology != null and _ecology.has_method("broadcast_scare"):
-				_ecology.broadcast_scare(global_position, 8.0, clampf(impact_speed * 0.05, 0.3, 1.5))
-		return
-	global_position = next
-
-
 # Off-hours: diurnal animals rest at night, nocturnal ones by day — from the one `nocturnal` flag +
 # the shared clock, no per-species sleep schedule.
 func _rest_period() -> bool:
@@ -738,4 +718,23 @@ func is_mature() -> bool:
 
 # Inspector presentation lives in LACreatureInspector; this stays as the group-facing hook.
 func get_inspector_payload() -> Dictionary:
+	if _carcass:
+		return LACreatureRagdoll.inspector_payload(self)
 	return LACreatureInspector.payload(self)
+
+
+# --- carcass food contract (only meaningful once dead; scavengers eat via these) ----------------
+
+# A scavenger takes a bite of the carcass; returns the energy actually removed.
+func feed(amount: float) -> float:
+	return LACreatureRagdoll.feed(self, amount)
+
+
+# What this body is worth as food. Meat once a carcass; live creatures are hunted, not foraged.
+func food_profile() -> Dictionary:
+	return LACreatureRagdoll.food_profile(self)
+
+
+# Remaining meat value in the carcass.
+func nutrition() -> float:
+	return _carrion

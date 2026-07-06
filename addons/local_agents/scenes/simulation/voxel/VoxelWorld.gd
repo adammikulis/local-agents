@@ -167,8 +167,16 @@ func _ready() -> void:
 	_audio.name = "AudioDirector"
 	add_child(_audio)
 	_audio.configure()
-	# Music is MUTED by default (the player can enable it from the audio menu); SFX stay on.
+	# ALL audio starts OFF: every aspect (Music/SFX/Voice/UI) is muted at its bus, and their director
+	# synthesis flags are off, so nothing plays or is generated. The player unmutes / sets levels per
+	# aspect in the audio-menu mixer. Master stays live as the global row (unmute one aspect to hear it).
+	_audio.set_enabled(true)
 	_audio.set_music_enabled(false)
+	_audio.set_sfx_enabled(false)
+	for muted_bus in ["Music", "Sfx", "Voice", "Ui"]:
+		var mbi: int = AudioServer.get_bus_index(muted_bus)
+		if mbi >= 0:
+			AudioServer.set_bus_mute(mbi, true)
 	_audio.set_music_mood({"population": 0, "time_of_day": 0.30, "destruction_intensity": 0.0})
 	# Wire the HUD audio menu to the live director + listen for the auto-adapt toggle.
 	if _hud != null and _hud.has_method("set_audio_director"):

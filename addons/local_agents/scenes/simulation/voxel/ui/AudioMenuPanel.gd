@@ -3,8 +3,15 @@ extends PanelContainer
 
 ## In-code audio control menu for the voxel simulation. Binds the whole procedural
 ## audio control surface (LocalAgentsAudioDirector) to the UI: music composition
-## (scale / progression / key / tempo / time signature / auto / arrangement), a bus
-## volume mixer, master/music/sfx enable toggles, and an SFX preview bench.
+## (scale / progression / key / tempo / time signature / auto / arrangement), a single
+## UNIFIED per-aspect mixer (Master / Music / SFX / Voice / UI — each a volume slider +
+## a mute), and an SFX preview bench.
+##
+## Every audio aspect is one row with the SAME two controls: drag the slider to set its
+## volume, click the mute to silence it. Each row acts on that aspect's AudioServer bus
+## (see audio/default_bus_layout.tres) and, where one exists, its director synthesis flag,
+## so muting also stops the work — one control surface, no separate enable checkboxes.
+## The streamer TTS plays on the "Voice" bus, so it's controlled here too.
 ##
 ## Presentation only — it drives the audio engine and the AudioServer buses; it never
 ## reads or writes simulation-authoritative state. Built entirely in code, inheriting
@@ -14,8 +21,15 @@ extends PanelContainer
 ## and stops/starts feeding its live mood snapshot so manual picks can stick.
 signal auto_adapt_changed(on: bool)
 
-# Named audio buses (see audio/default_bus_layout.tres).
-const BUSES: PackedStringArray = ["Master", "Music", "Sfx", "Ui"]
+# The audio aspects, one mixer row each. `bus` is the AudioServer bus it rides; `flag` names the
+# director synthesis toggle a mute should also flip ("" = bus-only, e.g. Voice/UI). Order = top→bottom.
+const ASPECTS: Array = [
+	{"label": "Master", "bus": "Master", "flag": "master"},
+	{"label": "Music", "bus": "Music", "flag": "music"},
+	{"label": "SFX", "bus": "Sfx", "flag": "sfx"},
+	{"label": "Voice", "bus": "Voice", "flag": ""},
+	{"label": "UI", "bus": "Ui", "flag": ""},
+]
 
 const KEY_MIN: int = 33   # A1
 const KEY_MAX: int = 57   # A3
@@ -123,8 +137,9 @@ func bind(director: LocalAgentsAudioDirector) -> void:
 	# the user drive it. (Arrangement can still modulate it live.)
 	_update_tempo_label(_tempo_slider.value)
 
-	# Initialize bus sliders from current AudioServer state.
-	for bus in BUSES:
+	# Initialize every mixer row's slider (volume) + mute from current AudioServer bus state.
+	for aspect in ASPECTS:
+		var bus: String = String(aspect["bus"])
 		var bus_idx: int = AudioServer.get_bus_index(bus)
 		if bus_idx < 0:
 			continue
@@ -182,20 +197,11 @@ func _build() -> void:
 
 	_add_heading(col, "AUDIO")
 
-	# --- Enable toggles ---
-	_add_section_title(col, "Output")
-	var enable_all: CheckButton = _add_check(col, "Audio enabled", true)
-	enable_all.toggled.connect(func(on: bool) -> void:
-		if not _suppress_signals and _director != null:
-			_director.set_enabled(on))
-	var enable_music: CheckButton = _add_check(col, "Music enabled", false)   # music muted by default
-	enable_music.toggled.connect(func(on: bool) -> void:
-		if not _suppress_signals and _director != null:
-			_director.set_music_enabled(on))
-	var enable_sfx: CheckButton = _add_check(col, "SFX enabled", true)
-	enable_sfx.toggled.connect(func(on: bool) -> void:
-		if not _suppress_signals and _director != null:
-			_director.set_sfx_enabled(on))
+	# --- Unified per-aspect mixer: one row (volume slider + mute) per aspect. This is the single
+	# on/off + level surface; muting an aspect also stops its synthesis where a director flag exists.
+	_add_section_title(col, "Mixer")
+	for aspect in ASPECTS:
+		_add_aspect_row(col, aspect)
 
 	# --- Music composition ---
 	_add_section_title(col, "Music")
@@ -246,11 +252,6 @@ func _build() -> void:
 	_status_label.text = "(no status)"
 	col.add_child(_status_label)
 
-	# --- Volume mixer ---
-	_add_section_title(col, "Mixer")
-	for bus in BUSES:
-		_add_bus_row(col, bus)
-
 	# --- SFX bench ---
 	_add_section_title(col, "SFX bench")
 	_build_sfx_bench(col)
@@ -284,13 +285,18 @@ func _build_sfx_bench(col: VBoxContainer) -> void:
 		grid.add_child(btn)
 
 
-func _add_bus_row(col: VBoxContainer, bus: String) -> void:
+# One unified mixer row for an audio aspect: [ label | volume slider | mute ]. The slider sets the
+# aspect's bus volume; the mute silences the bus AND flips its director synthesis flag (if any).
+func _add_aspect_row(col: VBoxContainer, aspect: Dictionary) -> void:
+	var bus: String = String(aspect["bus"])
+	var flag: String = String(aspect["flag"])
+
 	var row: HBoxContainer = HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	col.add_child(row)
 
 	var label: Label = Label.new()
-	label.text = bus
+	label.text = String(aspect["label"])
 	label.custom_minimum_size = Vector2(52.0, 0.0)
 	label.add_theme_color_override("font_color", COL_TEXT)
 	label.add_theme_font_size_override("font_size", 13)
@@ -304,6 +310,7 @@ func _add_bus_row(col: VBoxContainer, bus: String) -> void:
 	slider.custom_minimum_size = Vector2(150.0, 0.0)
 	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	slider.tooltip_text = "%s volume" % String(aspect["label"])
 	slider.value_changed.connect(func(v: float) -> void:
 		if _suppress_signals:
 			return
@@ -314,16 +321,27 @@ func _add_bus_row(col: VBoxContainer, bus: String) -> void:
 	_bus_sliders[bus] = slider
 
 	var mute: CheckButton = CheckButton.new()
-	mute.tooltip_text = "Mute %s" % bus
+	mute.tooltip_text = "Mute %s" % String(aspect["label"])
 	mute.focus_mode = Control.FOCUS_NONE
 	mute.toggled.connect(func(on: bool) -> void:
-		if _suppress_signals:
-			return
-		var idx: int = AudioServer.get_bus_index(bus)
-		if idx >= 0:
-			AudioServer.set_bus_mute(idx, on))
+		_on_aspect_mute(bus, flag, on))
 	row.add_child(mute)
 	_bus_mutes[bus] = mute
+
+
+# Mute/unmute an aspect: silence its bus and, if it has a director synthesis flag, stop/start that
+# work too — so a muted aspect is both inaudible and not being generated.
+func _on_aspect_mute(bus: String, flag: String, on: bool) -> void:
+	if _suppress_signals:
+		return
+	var idx: int = AudioServer.get_bus_index(bus)
+	if idx >= 0:
+		AudioServer.set_bus_mute(idx, on)
+	if _director != null:
+		match flag:
+			"master": _director.set_enabled(not on)
+			"music": _director.set_music_enabled(not on)
+			"sfx": _director.set_sfx_enabled(not on)
 
 
 # ---------------------------------------------------------------------------

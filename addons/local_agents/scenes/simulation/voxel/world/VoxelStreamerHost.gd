@@ -43,6 +43,8 @@ func setup(world: Node, ecology: Node, material: Node, persona: String, avatar_f
 	_streamer_voice = StreamerVoiceScript.new()
 	_streamer_voice.name = "StreamerVoice"
 	world.add_child(_streamer_voice)
+	# TTS is silenced by default via the muted "Voice" audio bus (see the mixer), not by disabling the
+	# voice — so unmuting Voice in the audio menu is all it takes to hear commentary. Text always shows.
 	_streamer_voice.setup({"gender": _streamer_avatar_flavor})
 
 	_streamer_director = StreamerDirectorScript.new()
