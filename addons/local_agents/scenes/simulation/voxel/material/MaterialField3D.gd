@@ -80,6 +80,7 @@ var _lava_sim = null                                     # LAMaterialLava3D
 var _wind_sim = null                                     # LAMaterialWind3D (emergent pressure-driven wind)
 var _slump_sim = null                                    # LAMaterialSlump3D (granular landslide slump)
 var _combustion = null                                   # LAMaterialCombustion3D (emergent fire/fuel over the field)
+var _scent_sim = null                                    # LAMaterialScent3D (emergent scent/waste/fertility stigmergy)
 var _ecology = null                                      # LAEcologyService back-ref (ash regrowth / actor coupling)
 const HeatScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialHeat3D.gd")
 const AtmosphereScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialAtmosphere3D.gd")
@@ -87,6 +88,7 @@ const LavaScript: GDScript = preload("res://addons/local_agents/scenes/simulatio
 const WindScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialWind3D.gd")
 const SlumpScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialSlump3D.gd")
 const CombustionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialCombustion3D.gd")
+const ScentScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialScent3D.gd")
 const GPUScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGPU3D.gd")
 const QueriesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldQueries3D.gd")
 const RenderScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldRender3D.gd")
@@ -469,6 +471,11 @@ func activate() -> void:
 	# GPU parity port. Runs AFTER wind each step so ember spread reads the fresh downwind velocity.
 	_combustion = CombustionScript.new()
 	_combustion.setup(self)
+	# Emergent SCENT + WASTE/FERTILITY stigmergy over the shared field (replaced LAScentField + LAPoop):
+	# creatures lay musk/blood/alarm derived from their state + drop feces/urine → fertility; it diffuses,
+	# advects on the LOCAL wind, decays, and washes in rain. CPU-oracle only. Runs after combustion.
+	_scent_sim = ScentScript.new()
+	_scent_sim.setup(self)
 	# GPU-RESIDENT backend: persistent SSBOs, the whole heat+water step batched on-GPU, ONE readback per
 	# frame (see MaterialGPU3D's frame API). Headless has no local RenderingDevice → CPU oracle.
 	if GPUScript.available():
@@ -578,6 +585,9 @@ func _physics_process(delta: float) -> void:
 		# Emergent fire steps on the fresh temp + wind; the heat it injects rides to the GPU next frame.
 		if _combustion != null:
 			_combustion.step()
+		# Scent/waste stigmergy advects on the fresh wind (CPU oracle, both paths).
+		if _scent_sim != null:
+			_scent_sim.step()
 	else:
 		for i in range(steps):
 			# Springs feed the surface (rivers emerge as this water flows downhill in 3D).
@@ -598,6 +608,9 @@ func _physics_process(delta: float) -> void:
 			# Fire runs last: fuel ignites from lava/lightning/meteor heat, burns + spreads downwind, leaves ash.
 			if _combustion != null:
 				_combustion.step()
+			# Scent/waste stigmergy: emit from creatures/carcasses, advect on wind, decay, seed plants.
+			if _scent_sim != null:
+				_scent_sim.step()
 	# Granular slump settles into permanent terrain on BOTH paths (a CPU-only SDF stamp, throttled).
 	if _slump_sim != null:
 		_slump_sim.settle()
@@ -811,6 +824,44 @@ func is_burning(node) -> bool:
 ## Number of cells currently on fire (SMOKE_SUMMARY `fires`).
 func active_fire_count() -> int:
 	return _combustion.active_fire_count() if _combustion != null else 0
+
+
+# --- Scent / waste / fertility (emergent stigmergy, LAMaterialScent3D) -------------------------------
+
+## Drop feces/urine at a world point: diet-flavored soil fertility + a FOOD dab + the depositor's musk.
+func deposit_waste(world_pos: Vector3, creature, kind: String) -> void:
+	if _scent_sim != null:
+		_scent_sim.deposit_waste(world_pos, creature, kind)
+
+## A fresh burst of BLOOD scent (a wound or a kill).
+func deposit_blood(world_pos: Vector3, amount: float) -> void:
+	if _scent_sim != null:
+		_scent_sim.deposit_blood(world_pos, amount)
+
+## A carcass advertising FOOD (the decaying-corpse cue scavengers follow).
+func deposit_food(world_pos: Vector3, amount: float) -> void:
+	if _scent_sim != null:
+		_scent_sim.deposit_food(world_pos, amount)
+
+## Scent density of a channel (LAMaterialScent3D.PREY/PREDATOR/BLOOD/FOOD/ALARM) at a world point.
+func scent_at(world_pos: Vector3, channel: int) -> float:
+	return _scent_sim.scent_at(world_pos, channel) if _scent_sim != null else 0.0
+
+## Normalized XZ direction UP a scent channel's gradient (predator tracking, prey avoidance).
+func scent_gradient(world_pos: Vector3, channel: int) -> Vector3:
+	return _scent_sim.scent_gradient(world_pos, channel) if _scent_sim != null else Vector3.ZERO
+
+## Soil nutrient at a world point (plants grow faster on rich ground).
+func fertility_at(world_pos: Vector3) -> float:
+	return _scent_sim.fertility_at(world_pos) if _scent_sim != null else 0.0
+
+## Columns carrying meaningful airborne scent (SMOKE_SUMMARY `scent_cells`).
+func scent_cell_count() -> int:
+	return _scent_sim.scent_cell_count() if _scent_sim != null else 0
+
+## Peak soil nutrient (SMOKE_SUMMARY `fertility_peak`).
+func fertility_peak() -> float:
+	return _scent_sim.fertility_peak() if _scent_sim != null else 0.0
 
 
 # The dynamic-water surface mesh is rebuilt each frame by the render adapter (MaterialFieldRender3D).

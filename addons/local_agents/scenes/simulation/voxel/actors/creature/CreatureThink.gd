@@ -206,8 +206,8 @@ static func think_scavenger(c, pos: Vector3, _delta: float) -> Vector3:
 	var to_flat: Vector3 = Vector3.ZERO
 	if carcass != null:
 		to_flat = Vector3(carcass.global_position.x - pos.x, 0.0, carcass.global_position.z - pos.z)
-	elif c._scent != null and c._scent.has_method("scent_direction"):
-		var d: Vector3 = c._scent.scent_direction(pos, "carrion", c.sense_radius * 4.0)
+	elif c._material != null and c._material.has_method("scent_gradient"):
+		var d: Vector3 = c._material.scent_gradient(pos, LAMaterialScent3D.FOOD)
 		if d != Vector3.ZERO:
 			to_flat = Vector3(d.x, 0.0, d.z)
 	if to_flat != Vector3.ZERO:
@@ -305,8 +305,8 @@ static func _carrion_cue(c, pos: Vector3) -> Vector3:
 		var d: Vector3 = Vector3(flyer.global_position.x - pos.x, 0.0, flyer.global_position.z - pos.z)
 		if d.length() > 0.001:
 			return d.normalized()
-	if c._scent != null and c._scent.has_method("scent_direction"):
-		var s: Vector3 = c._scent.scent_direction(pos, "carrion", c.sense_radius * 3.0)
+	if c._material != null and c._material.has_method("scent_gradient"):
+		var s: Vector3 = c._material.scent_gradient(pos, LAMaterialScent3D.FOOD)
 		if s != Vector3.ZERO:
 			return Vector3(s.x, 0.0, s.z).normalized()
 	if c._cue_cd > 0.0:

@@ -314,9 +314,8 @@ func _on_debug_view(view: String, on: bool) -> void:
 				_debug_overlay.set_wind(on)
 		"scent":
 			_scent_visible = on
-			var sf = _ecology.scent_field() if _ecology != null and _ecology.has_method("scent_field") else null
-			if sf != null and sf.has_method("set_scent_visible"):
-				sf.set_scent_visible(on)
+			if _debug_overlay != null:
+				_debug_overlay.set_scent(on)
 
 
 func _on_debug_highlight(group: String, on: bool) -> void:
@@ -607,12 +606,11 @@ func mark_auto_meteor_fired() -> void:
 	_auto_meteor_fired = true
 
 
-# V key (from the interaction controller): toggle the scent field's debug view.
+# V key (from the interaction controller): toggle the emergent scent-field debug gizmos (DebugOverlay).
 func toggle_scent_view() -> void:
 	_scent_visible = not _scent_visible
-	var sf = _ecology.scent_field() if _ecology != null and _ecology.has_method("scent_field") else null
-	if sf != null and sf.has_method("set_scent_visible"):
-		sf.set_scent_visible(_scent_visible)
+	if _debug_overlay != null:
+		_debug_overlay.set_scent(_scent_visible)
 	_hud.set_status("Scent view: %s" % ("ON" if _scent_visible else "off"))
 
 
@@ -627,26 +625,15 @@ func toggle_temp_view() -> void:
 func _push_environment() -> void:
 	if _weather == null:
 		return
-	# Drift the field's vapor/clouds downwind with the live weather wind (XZ).
+	# Feed the emergent wind field its prevailing (large-scale) input; local circulation emerges on top.
+	# Scent now rides this same wind INSIDE the field (LAMaterialScent3D advects on _vel_*) — no external
+	# scent wiring needed; it washes in rain via the field's precipitation() for free.
 	if _material != null and _material.has_method("set_wind"):
 		if _force_wind != 0.0:
 			_material.set_wind(Vector2(_force_wind, 0.0))
 		else:
 			var w: Vector3 = _weather.wind_vector()
 			_material.set_wind(Vector2(w.x, w.z))
-	if _ecology == null or not _ecology.has_method("scent_field"):
-		return
-	var sf = _ecology.scent_field()
-	if sf == null:
-		return
-	# Scent rides the emergent LOCAL wind field (per-marker wind_at); set_wind is only the fallback drift.
-	if sf.has_method("set_field") and _material != null:
-		sf.set_field(_material)
-	if sf.has_method("set_wind"):
-		var mw: Vector2 = _material.wind() if _material != null and _material.has_method("wind") else Vector2(_weather.wind_vector().x, _weather.wind_vector().z)
-		sf.set_wind(Vector3(mw.x, 0.0, mw.y))
-	if sf.has_method("set_wash"):
-		sf.set_wash(_weather.rain())
 
 
 # Sync the terrain shader's beach/snow bands to the island's sea level and register a few high interior

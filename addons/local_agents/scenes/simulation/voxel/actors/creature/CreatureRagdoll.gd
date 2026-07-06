@@ -134,16 +134,11 @@ static func _become_carcass(c) -> void:
 	_freeze_animations(c._model_root if c._model_root != null else c._mesh)
 
 
-# Decay in place: age the body, wash it green->black, advertise carrion scent, then shrink and vanish.
+# Decay in place: age the body, wash it green->black, then shrink and vanish. The carcass advertises FOOD
+# scent emergently — LAMaterialScent3D scans the "carrion" group each step and lays FOOD from `_carrion`,
+# so scavengers home in on it (no explicit deposit here, and it rides the wind + washes in rain for free).
 static func decay_tick(c, delta: float) -> void:
 	c._decay_age += delta
-
-	if c._scent != null and c._scent.has_method("deposit"):
-		c._scent_cd -= delta
-		if c._scent_cd <= 0.0 and c._carrion > 0.0:
-			c._scent_cd = 1.2
-			c._scent.deposit(c.global_position, "carrion", clampf(c._carrion * 0.05, 0.4, 4.0))
-
 	_update_rot(c)
 
 	if c._decay_age >= DECAY_LIFETIME:

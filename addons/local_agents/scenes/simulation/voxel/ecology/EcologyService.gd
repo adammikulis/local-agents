@@ -10,7 +10,6 @@ const PlantScript: GDScript = preload("res://addons/local_agents/scenes/simulati
 const RockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Rock.gd")
 const TreeScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Tree.gd")
 const FishScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Fish.gd")
-const ScentFieldScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ScentField.gd")
 const TrackSystemScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/TrackSystem.gd")
 const NestScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Nest.gd")
 
@@ -24,7 +23,6 @@ const AQUATIC_SAMPLE_TRIES: int = 60
 
 var terrain = null                       # LAVoxelTerrainService
 var actors_root: Node3D = null
-var _scent = null                        # LAScentField (observer; creatures query it)
 var _tracks = null                       # LATrackSystem (observer; footprints)
 var _material = null                      # LAMaterialField — the ONE substrate (water/heat/materials)
 var _cognition_sched = null              # LACognitionScheduler (shared slow-brain budget/queue)
@@ -96,11 +94,7 @@ func _plant_config() -> Dictionary:
 func setup(_terrain, _actors_root: Node3D) -> void:
 	terrain = _terrain
 	actors_root = _actors_root
-	# Decoupled observer systems: scent trails (predators track prey) + footprints.
-	_scent = ScentFieldScript.new()
-	_scent.name = "ScentField"
-	add_child(_scent)
-	_scent.setup(terrain)
+	# Scent/waste is now an emergent field channel (LAMaterialScent3D in MaterialField3D), not an observer.
 	_tracks = TrackSystemScript.new()
 	_tracks.name = "TrackSystem"
 	add_child(_tracks)
@@ -121,10 +115,6 @@ func setup(_terrain, _actors_root: Node3D) -> void:
 			if url != "":
 				opts["server_url"] = url
 			_cognition_sched.setup(opts)
-
-
-func scent_field():
-	return _scent
 
 
 # The ONE substrate: water (creatures drink, fish live in it), heat/temperature (fire + comfort),
@@ -302,8 +292,6 @@ func _instance_actor(kind: String, placed: Vector3, genome = null) -> Node:
 		actors_root.add_child(creature)
 		creature.global_position = placed
 		creature.setup(terrain, cfg, genome)          # genome (if bred) drives traits + instincts
-		if creature.has_method("set_scent"):
-			creature.set_scent(_scent)
 		if creature.has_method("set_ecology"):
 			creature.set_ecology(self)
 		if creature.has_method("set_material_field"):
@@ -530,17 +518,8 @@ func broadcast_call(world_pos: Vector3, from_species: String, call_type: String,
 			actor.call("hear_call", world_pos, from_species, call_type, caller)
 
 
-# A creature dropped this poop: connect its fertilize request so dung emergently
-# grows a new plant on the enriched patch (respecting the plant population cap).
-func register_poop(poop) -> void:
-	if poop == null or not poop.has_signal("wants_seed"):
-		return
-	if not poop.wants_seed.is_connected(seed_plant_at):
-		poop.wants_seed.connect(seed_plant_at)
-
-
-# Grow a plant at world_pos if the plant population is under its cap. Shared by dung
-# fertilization (register_poop) and, later, wildfire ash regrowth.
+# Grow a plant at world_pos if the plant population is under its cap. Called by LAMaterialScent3D where
+# soil FERTILITY is richest (dung fertilizes → grass sprouts) and by wildfire ash regrowth.
 func seed_plant_at(world_pos: Vector3) -> void:
 	var cap: int = int(_plant_config().get("pop_cap", 120))
 	if get_tree().get_nodes_in_group("plant").size() >= cap:

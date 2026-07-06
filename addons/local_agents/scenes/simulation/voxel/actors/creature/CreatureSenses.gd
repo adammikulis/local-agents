@@ -106,13 +106,14 @@ static func nearest_visible_in_state(c, pos: Vector3, group: String, states) -> 
 	return best
 
 
-## Direction along the strongest prey scent trail, or ZERO if none (predator tracking).
+## Direction UP the prey-scent gradient in the shared field, or ZERO if none (predator tracking). The old
+## per-species trail collapsed into one PREY channel: a carnivore follows prey musk toward prey-dense ground
+## (vision still picks the individual target). The scent rides the real wind, so this is "smell prey downwind".
 static func follow_prey_scent(c, pos: Vector3) -> Vector3:
-	if c._scent == null or c.preys_on.is_empty():
+	if c._material == null or not c._material.has_method("scent_gradient") or c.preys_on.is_empty():
 		return Vector3.ZERO
-	for sp in c.preys_on:
-		var dir: Vector3 = c._scent.scent_direction(pos, String(sp), c.sense_radius * 2.5)
-		if dir != Vector3.ZERO:
-			dir.y = 0.0
-			return dir
+	var dir: Vector3 = c._material.scent_gradient(pos, LAMaterialScent3D.PREY)
+	if dir != Vector3.ZERO:
+		dir.y = 0.0
+		return dir
 	return Vector3.ZERO

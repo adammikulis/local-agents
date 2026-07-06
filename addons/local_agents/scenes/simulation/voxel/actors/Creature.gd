@@ -18,7 +18,6 @@ const PREDATOR_SIZE_RATIO: float = 1.2     # flee anything this many times my si
 const BIRD_TURN_RATE: float = 1.5
 
 const ThrownRockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/ThrownRock.gd")
-const PoopScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Poop.gd")
 
 # --- energy / hunger / mortality (emergent: eat to live, starve or age to die) ---
 var energy: float = 100.0
@@ -118,7 +117,6 @@ var _settle_t: float = 0.0
 var _decay_age: float = 0.0
 var _carrion: float = 0.0                     # remaining meat value once a carcass
 var _rot_overlay: StandardMaterial3D = null   # shared green->black decay tint on the model
-var _scent_cd: float = 0.0                     # throttles carrion-scent deposits while decaying
 
 var _heading: Vector3 = Vector3.FORWARD
 var _wander_timer: float = 0.0
@@ -138,14 +136,14 @@ var _vis_t: float = 0.0
 var _panic_timer: float = 0.0
 var _panic_source: Vector3 = Vector3.ZERO
 
-# Injected scent field (LAScentField) — predators follow prey scent when out of sight.
-var _scent = null
-# Injected ecology service — used to register droppings so dung can seed plants.
+# Injected ecology service — broadcast calls, spawns.
 var _ecology = null
 
-# Digestion: every so often a fed creature leaves droppings (a strong scent marker
-# that predators track prey by, and that occasionally fertilizes a new plant).
+# Digestion + marking: a fed creature periodically drops FECES (soil fertility + a food/musk cue) and, more
+# often, URINE (territorial musk). Both deposit into the shared scent/fertility field (LAMaterialScent3D)
+# via _material — predators track prey by their dung, and dung fertilizes the soil so plants regrow.
 var _poop_cd: float = 0.0
+var _urine_cd: float = 0.0
 
 # --- perception genes: sight is a FOV cone (LAVision), hearing is omnidirectional ---
 # eye_fov = full cone width in degrees. Wide (prey, ~300) = panoramic but shallow; narrow
@@ -215,10 +213,6 @@ func debug_heading() -> Vector3:
 	return _heading
 
 
-func set_scent(s) -> void:
-	_scent = s
-
-
 func set_ecology(e) -> void:
 	_ecology = e
 
@@ -254,6 +248,9 @@ func take_damage(amount: float, cause: String = "", impulse: Vector3 = Vector3.Z
 	if _dying or amount <= 0.0:
 		return
 	health -= amount
+	# A wound bleeds: a burst of BLOOD scent into the field draws opportunists to hurt prey (emergent).
+	if _material != null and _material.has_method("deposit_blood"):
+		_material.deposit_blood(global_position, clampf(amount * 0.04, 0.2, 3.0))
 	if health <= 0.0:
 		die(cause, impulse)
 	elif impulse.length() > 3.0:
@@ -282,18 +279,12 @@ func die(_cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
 	LACreatureRagdoll.launch(self, impulse, true)
 
 
-# Leave a dropping at `ground_pos`: a strong species-scent marker that predators
-# emergently track prey by, and that (via the ecology) may fertilize a new plant.
-func _drop_poop(ground_pos: Vector3) -> void:
-	var parent: Node = get_parent()
-	if parent == null or not is_inside_tree():
-		return
-	var poop: LAPoop = PoopScript.new()
-	parent.add_child(poop)
-	poop.global_position = ground_pos
-	poop.setup(terrain, _scent, species)
-	if _ecology != null and _ecology.has_method("register_poop"):
-		_ecology.register_poop(poop)
+# Deposit waste at `ground_pos` into the shared scent/fertility field: feces enriches the soil (plants
+# regrow on dung — emergent) and carries a food + musk cue predators track prey by; urine is territorial
+# musk. No node is spawned — the deposit is a few cells in LAMaterialScent3D that diffuse + wash away.
+func _deposit_waste(ground_pos: Vector3, kind: String) -> void:
+	if _material != null and _material.has_method("deposit_waste"):
+		_material.deposit_waste(ground_pos, self, kind)
 
 
 func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
@@ -477,12 +468,17 @@ func _physics_process(delta: float) -> void:
 	if is_nan(surf):
 		return                            # unmeshed / off-terrain: skip this frame
 
-	# Digestion: a fed creature periodically leaves droppings on the ground below it.
+	# Digestion + marking: a fed creature periodically drops feces (soil fertility + food/musk cue), and
+	# more often urinates (territorial musk). Both write to the shared scent/fertility field below it.
 	_poop_cd -= delta
 	if _poop_cd <= 0.0:
 		_poop_cd = randf_range(24.0, 48.0)
 		if energy > max_energy * 0.35:
-			_drop_poop(Vector3(pos.x, surf, pos.z))
+			_deposit_waste(Vector3(pos.x, surf, pos.z), "feces")
+	_urine_cd -= delta
+	if _urine_cd <= 0.0:
+		_urine_cd = randf_range(10.0, 22.0)
+		_deposit_waste(Vector3(pos.x, surf, pos.z), "urine")
 
 	var desired: Vector3 = _heading
 	_wander_timer -= delta
