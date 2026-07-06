@@ -41,7 +41,9 @@ extends RefCounted
 
 # --- Erosion / transport tuning. (An erosion3d.glsl port would duplicate these EXACTLY, "must match".) ------
 const WATER_MIN: float = 0.05             # below this water mass a cell is effectively dry — no erosion/transport
-const SPEED_MIN: float = 0.02             # min surface-gradient "speed" for water to count as MOVING (below = slack)
+const SPEED_MIN: float = 0.12             # min surface-gradient "speed" for water to count as MOVING (below = slack).
+                                          # Raised so only genuinely fast flow erodes — calm rivers/lakes just carry/deposit,
+                                          # keeping erosion a SLOW geological process (not constant terrain churn = perf + realism).
 const SPEED_MAX: float = 1.5              # clamp on the surface-gradient speed estimate (stability)
 const K_CAP: float = 0.9                  # carrying capacity per unit (speed * water). Higher = hungrier water
 const EROSION_RATE: float = 0.05          # fraction of the capacity deficit converted to suspended rock per step (SMALL)
@@ -50,7 +52,7 @@ const SETTLE_RATE: float = 0.06           # extra gravity fallout of suspended s
 const SETTLE_WATER_MAX: float = 0.6       # water mass under which suspended silt also settles out by gravity
 const ADVECT_FRACTION: float = 0.25       # share of suspended load carried to each downhill neighbour per step
 const SUSP_MIN: float = 0.0005            # below this a cell holds no meaningful suspended sediment
-const EROSION_MAX_EDITS: int = 24         # HARD cap on terrain carve stamps per step (cursor-rotated) — perf gate
+const EROSION_MAX_EDITS: int = 8          # HARD cap on terrain carve stamps per step (cursor-rotated) — perf gate
 const EROSION_PER_EDIT: float = 0.14      # suspended-sediment mass freed per carve stamp (≈ rock the SDF removed)
 const SDF_CARVE_SCALE: float = 0.45       # carve radius as a fraction of cell size (small bite; must stay < a cell)
 
