@@ -89,21 +89,33 @@ func spawn_hurricane(point: Vector3) -> Node:
 
 # Harness helper: fire an auto-storm of `kind` at a fitting site and return the world point to frame.
 # A tornado over warm land near origin, a thunderstorm over origin, a hurricane over the nearest OPEN
-# OCEAN (so its warm-ocean genesis kicks in and it can make landfall as it tracks inward).
+# OCEAN (so its warm-ocean genesis kicks in and it can make landfall as it tracks inward). The camera
+# is set to FOLLOW the spawned storm (it wanders) at a framing distance sized to the storm, so it stays
+# in shot — see LAVoxelCameraRig.track_target / stop_tracking.
 func fire_auto_storm(kind: String) -> Vector3:
 	if kind == "hurricane":
 		var site: Vector3 = _find_ocean_point()
-		spawn_hurricane(site)
+		var h: Node = spawn_hurricane(site)
+		_track_storm(h, 360.0, 42.0)          # huge system — pull way back
 		return site
 	if kind == "thunderstorm":
 		var gy: float = _terrain.surface_height(0.0, 0.0)
 		var f: Vector3 = Vector3(0.0, (gy if not is_nan(gy) else 20.0), 0.0)
-		spawn_thunderstorm(f)
+		var s: Node = spawn_thunderstorm(f)
+		_track_storm(s, 155.0, 34.0)
 		return f
 	var oh: float = _terrain.surface_height(30.0, 30.0)
 	var t: Vector3 = Vector3(30.0, (oh if not is_nan(oh) else 20.0), 30.0)
-	spawn_tornado(t)
+	var tw: Node = spawn_tornado(t)
+	_track_storm(tw, 110.0, 30.0)             # frame the whole funnel column
 	return t
+
+
+# Point the camera at a live storm so it stays framed as the storm wanders (no-op if the rig lacks the
+# follow API). Distance/pitch are sized per storm; the rig eases in and follows every frame.
+func _track_storm(storm: Node, distance: float, pitch_deg: float) -> void:
+	if storm is Node3D and _camera != null and _camera.has_method("track_target"):
+		_camera.track_target(storm as Node3D, distance, pitch_deg)
 
 
 # Search rings outward for a point over open ocean (hurricane genesis). Falls back to a far offshore guess.

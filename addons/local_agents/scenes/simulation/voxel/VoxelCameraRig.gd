@@ -47,6 +47,16 @@ var _pitch: float = deg_to_rad(55.0)
 var _panning: bool = false
 var _orbiting: bool = false
 
+# --- Storm tracking -----------------------------------------------------------
+# Follow a live, moving Node3D (a wandering storm) so it stays framed. Each frame the focus eases
+# toward the target's world position; an optional framing distance/pitch eases in too so a big storm
+# is pulled back to fit. Any manual pan/orbit/zoom cancels the follow so the player keeps control.
+const TRACK_LERP: float = 3.0             # focus/zoom ease rate toward the target, per second
+const TRACK_FOCUS_LIFT: float = 8.0       # keep the focus a touch above the ground foot of the storm
+var _track_target: Node3D = null
+var _track_distance: float = -1.0         # <0 = keep the current zoom (per the default contract)
+var _track_pitch: float = -1.0            # <0 = keep the current pitch
+
 # Pan bound: the focus point is clamped to a square of this half-extent (world XZ) so the player can
 # roam the island and its surrounding ocean ring but never pan off past the horizon into empty void.
 # 0 = unbounded (until VoxelWorld sets it once the world size is known).
@@ -131,6 +141,46 @@ func frame_overview(center: Vector3, dist: float = 360.0) -> void:
 	_update_transform()
 
 
+## Follow a live, moving target (a wandering storm) so it stays framed. Each frame the focus eases
+## toward `target`'s world position. `distance` / `pitch_deg` (when > 0) also ease in so a large storm
+## is pulled back to fit; pass negatives to keep the current zoom/pitch. Manual input cancels the follow.
+func track_target(target: Node3D, distance: float = -1.0, pitch_deg: float = -1.0) -> void:
+	_track_target = target
+	_track_distance = distance
+	_track_pitch = (deg_to_rad(pitch_deg) if pitch_deg > 0.0 else -1.0)
+
+
+## Stop following (target dissipated, or the player took manual control).
+func stop_tracking() -> void:
+	_track_target = null
+	_track_distance = -1.0
+	_track_pitch = -1.0
+
+
+## True while actively following a storm.
+func is_tracking() -> bool:
+	return _track_target != null and is_instance_valid(_track_target)
+
+
+## Ease the focus (and optional framing distance/pitch) toward the tracked target. Returns true if it
+## moved the rig this frame (so _process rebuilds the transform).
+func _update_tracking(delta: float) -> bool:
+	if _track_target == null:
+		return false
+	if not is_instance_valid(_track_target):
+		stop_tracking()
+		return false
+	var tp: Vector3 = _track_target.global_position + Vector3(0.0, TRACK_FOCUS_LIFT, 0.0)
+	var a: float = clampf(TRACK_LERP * delta, 0.0, 1.0)
+	_focus = _focus.lerp(tp, a)
+	if _track_distance > 0.0:
+		_distance = lerpf(_distance, clampf(_track_distance, MIN_DISTANCE, MAX_DISTANCE), a)
+	if _track_pitch > 0.0:
+		_pitch = lerpf(_pitch, clampf(_track_pitch, PITCH_MIN, PITCH_MAX), a)
+	_clamp_focus()
+	return true
+
+
 ## Recenter the camera on `point` (auto-select focus, meteor impacts, etc.) at a closer
 ## inspection distance. Goes through the focus state so the per-frame rebuild doesn't
 ## immediately overwrite a directly-poked transform.
@@ -158,6 +208,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			# Plain MMB held + drag orbits (horizontal = yaw, vertical = pitch);
 			# Shift + MMB pans. RMB is left free for spawn/cast.
 			if mb.pressed:
+				stop_tracking()          # grabbing the view takes back control from a storm follow
 				if Input.is_key_pressed(KEY_SHIFT):
 					_set_panning(true)
 				else:
@@ -168,8 +219,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if mb.pressed:
 			if mb.button_index == MOUSE_BUTTON_WHEEL_UP:
+				stop_tracking()
 				_zoom(1.0 / ZOOM_STEP)
 			elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+				stop_tracking()
 				_zoom(ZOOM_STEP)
 
 	elif event is InputEventMouseMotion:
@@ -256,6 +309,8 @@ func _process(delta: float) -> void:
 	var changed: bool = false
 	if absf(right) > 0.001 or absf(forward) > 0.001:
 		var speed: float = PAN_SPEED * _distance_pan_factor() * delta
+		# A deliberate pan takes back manual control from a storm follow.
+		stop_tracking()
 		_pan_ground(right * speed, forward * speed)
 		changed = true
 
@@ -275,6 +330,11 @@ func _process(delta: float) -> void:
 		pitch_dir -= 1.0
 	if absf(pitch_dir) > 0.001:
 		_pitch = clampf(_pitch + pitch_dir * KEY_YAW_SPEED * delta, PITCH_MIN, PITCH_MAX)
+		changed = true
+
+	# Storm follow: ease the focus toward the tracked target after manual input is resolved, so a
+	# deliberate pan/orbit/zoom (which calls stop_tracking) always wins over the follow this frame.
+	if _update_tracking(delta):
 		changed = true
 
 	if changed:
