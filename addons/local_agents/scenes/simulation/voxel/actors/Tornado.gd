@@ -34,10 +34,17 @@ const LIFT_GAIN: float = 1.1              # upward component of the fling
 const SCARE_INTERVAL: float = 0.5
 
 # --- Funnel geometry ---------------------------------------------------------
-const FUNNEL_HEIGHT: float = 58.0         # wide top up near cloud base, narrow foot on the ground
-const FUNNEL_TOP_R: float = 11.0          # top radius at strength 1
-const FUNNEL_BASE_R: float = 1.6          # foot radius at strength 1
+# A real tornado is WIDE up in the cloud and tapers to a narrow foot, with a downwind LEAN and a slow
+# sway. We build it as an outer dusty sheath + a darker denser inner core (both tapered cones), pivoted
+# at the FOOT so it leans/sways from the ground the way a real funnel does.
+const FUNNEL_HEIGHT: float = 62.0         # wide top up near cloud base, narrow foot on the ground
+const FUNNEL_TOP_R: float = 20.0          # top radius at strength 1 (wide — up in the wall cloud)
+const FUNNEL_BASE_R: float = 1.4          # foot radius at strength 1 (narrow touchdown)
+const FUNNEL_CORE_FRAC: float = 0.52      # inner dark-core radius as a fraction of the sheath
 const SPIN_SPEED: float = 7.5             # visual funnel yaw spin (rad/s)
+const LEAN_MAX: float = deg_to_rad(16.0)  # how far the top leans downwind at full strength
+const SWAY_AMPL: float = deg_to_rad(4.5)  # gentle side-to-side sway of the funnel
+const SWAY_SPEED: float = 1.3             # sway oscillation rate
 
 # --- Waterspout moisture lift ------------------------------------------------
 const SPOUT_VAPOR_PER_SEC: float = 0.9    # vapor injected/s at the base over ocean (feeds cloud→rain)
@@ -54,9 +61,12 @@ var _phase: float = 0.0                    # per-index noise phase so twisters w
 var _scare_cd: float = 0.0
 var _splash_cd: float = 0.0
 var _spin: float = 0.0
+var _wind_dir: Vector2 = Vector2.ZERO      # last atmosphere wind (drives the funnel's downwind lean)
 
-var _funnel: MeshInstance3D = null
+var _funnel_pivot: Node3D = null          # sits at the foot; lean + sway rotate about here
+var _funnel: MeshInstance3D = null        # outer dusty sheath
 var _funnel_mesh: CylinderMesh = null
+var _core: MeshInstance3D = null          # inner darker, denser core column
 var _debris: GPUParticles3D = null
 var _picker: StaticBody3D = null
 
@@ -129,6 +139,7 @@ func _physics_process(delta: float) -> void:
 	var wind: Vector2 = Vector2.ZERO
 	if _field != null and _field.has_method("wind"):
 		wind = _field.wind()
+	_wind_dir = wind
 	var nx: float = sin(_age * 0.7 + _phase) + 0.5 * sin(_age * 1.9 + _phase * 2.0)
 	var nz: float = cos(_age * 0.6 + _phase * 1.3) + 0.5 * cos(_age * 1.7 + _phase)
 	_base.x += (wind.x * WIND_FOLLOW + nx * WANDER_SPEED) * delta
@@ -200,16 +211,37 @@ func _dissipate() -> void:
 
 # --- Visuals -----------------------------------------------------------------
 
+# Dust-colored fade for the debris motes: transparent → tan → transparent over each mote's life, so
+# they read as a soft dust cloud that swirls up and dissolves rather than hard flecks popping in/out.
+func _dust_ramp() -> GradientTexture1D:
+	var g: Gradient = Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.18, 0.65, 1.0])
+	g.colors = PackedColorArray([
+		Color(0.60, 0.53, 0.42, 0.0),
+		Color(0.58, 0.51, 0.40, 0.72),
+		Color(0.50, 0.45, 0.38, 0.45),
+		Color(0.46, 0.42, 0.36, 0.0),
+	])
+	var tex: GradientTexture1D = GradientTexture1D.new()
+	tex.gradient = g
+	return tex
+
+
 func _build_fx() -> void:
-	if _funnel == null:
+	if _funnel_pivot == null:
+		# Pivot at the FOOT (tornado origin sits on the ground), so lean/sway swing the top, not the base.
+		_funnel_pivot = Node3D.new()
+		add_child(_funnel_pivot)
+
+		# Outer dusty sheath — a strongly-tapered cone: WIDE at the top, narrow at the foot.
 		_funnel_mesh = CylinderMesh.new()
 		_funnel_mesh.top_radius = FUNNEL_TOP_R
 		_funnel_mesh.bottom_radius = FUNNEL_BASE_R
 		_funnel_mesh.height = FUNNEL_HEIGHT
-		_funnel_mesh.radial_segments = 18
-		_funnel_mesh.rings = 6
+		_funnel_mesh.radial_segments = 28
+		_funnel_mesh.rings = 12
 		var mat: StandardMaterial3D = StandardMaterial3D.new()
-		mat.albedo_color = Color(0.32, 0.30, 0.29, 0.5)
+		mat.albedo_color = Color(0.42, 0.40, 0.38, 0.34)
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -218,17 +250,37 @@ func _build_fx() -> void:
 		_funnel.mesh = _funnel_mesh
 		_funnel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		_funnel.position = Vector3(0.0, FUNNEL_HEIGHT * 0.5, 0.0)
-		add_child(_funnel)
+		_funnel_pivot.add_child(_funnel)
+
+		# Inner core — a narrower, darker, denser column that gives the funnel visible depth + a dark heart.
+		var cmesh: CylinderMesh = CylinderMesh.new()
+		cmesh.top_radius = FUNNEL_TOP_R * FUNNEL_CORE_FRAC
+		cmesh.bottom_radius = FUNNEL_BASE_R * 0.7
+		cmesh.height = FUNNEL_HEIGHT
+		cmesh.radial_segments = 20
+		cmesh.rings = 10
+		var cmat: StandardMaterial3D = StandardMaterial3D.new()
+		cmat.albedo_color = Color(0.18, 0.17, 0.16, 0.62)
+		cmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		cmat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		cmat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		cmesh.material = cmat
+		_core = MeshInstance3D.new()
+		_core.mesh = cmesh
+		_core.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_core.position = Vector3(0.0, FUNNEL_HEIGHT * 0.5, 0.0)
+		_funnel_pivot.add_child(_core)
 	if _debris == null:
 		_debris = GPUParticles3D.new()
-		_debris.amount = 260
-		_debris.lifetime = 2.2
+		_debris.amount = 520                           # many small motes read as a dust cloud, not scattered cubes
+		_debris.lifetime = 2.6
 		_debris.emitting = true
 		_debris.local_coords = false
 		var quad: QuadMesh = QuadMesh.new()
-		quad.size = Vector2(0.7, 0.7)
+		quad.size = Vector2(0.34, 0.34)                # small flecks (was 0.7 blocky quads)
 		var dmat: StandardMaterial3D = StandardMaterial3D.new()
-		dmat.albedo_color = Color(0.36, 0.32, 0.28, 0.75)
+		dmat.albedo_color = Color(1.0, 1.0, 1.0, 1.0)  # tint comes from the per-particle color ramp below
+		dmat.vertex_color_use_as_albedo = true
 		dmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		dmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		dmat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
@@ -237,18 +289,27 @@ func _build_fx() -> void:
 		var pm: ParticleProcessMaterial = ParticleProcessMaterial.new()
 		pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_RING
 		pm.emission_ring_axis = Vector3(0.0, 1.0, 0.0)
-		pm.emission_ring_radius = FUNNEL_BASE_R * 2.0
-		pm.emission_ring_inner_radius = 0.0
-		pm.emission_ring_height = 1.0
+		pm.emission_ring_radius = FUNNEL_TOP_R * 0.7    # picked up from a wide ring around the foot...
+		pm.emission_ring_inner_radius = FUNNEL_BASE_R * 2.0
+		pm.emission_ring_height = 2.0
 		pm.direction = Vector3(0.0, 1.0, 0.0)
-		pm.spread = 20.0
-		pm.initial_velocity_min = 10.0
-		pm.initial_velocity_max = 22.0
-		pm.gravity = Vector3(0.0, 4.0, 0.0)            # debris is sucked UP the funnel
-		pm.tangential_accel_min = 24.0                 # caught in the spin
-		pm.tangential_accel_max = 40.0
-		pm.scale_min = 0.5
-		pm.scale_max = 1.8
+		pm.spread = 26.0
+		pm.initial_velocity_min = 6.0
+		pm.initial_velocity_max = 16.0
+		pm.gravity = Vector3(0.0, 5.0, 0.0)             # ...sucked UP the funnel...
+		pm.radial_accel_min = -34.0                     # ...and DRAWN INWARD toward the core (spirals in)
+		pm.radial_accel_max = -18.0
+		pm.tangential_accel_min = 30.0                  # caught hard in the spin
+		pm.tangential_accel_max = 52.0
+		pm.damping_min = 1.0
+		pm.damping_max = 3.0
+		pm.scale_min = 0.25                             # mostly small, a few larger — varied sizes
+		pm.scale_max = 1.3
+		pm.angle_min = -180.0                           # random start rotation...
+		pm.angle_max = 180.0
+		pm.angular_velocity_min = -220.0                # ...and tumbling as they fly
+		pm.angular_velocity_max = 220.0
+		pm.color_ramp = _dust_ramp()                    # dust-tan, fades in then out over life
 		_debris.process_material = pm
 		_debris.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(_debris)
@@ -266,13 +327,32 @@ func _build_fx() -> void:
 
 
 func _update_fx() -> void:
+	# Radius scales with strength (a weak twister is a thin rope, a strong one a broad wedge); the FOOT
+	# pivot leans the funnel downwind + sways it, so it curves off the ground instead of standing rigid.
+	var s: float = clampf(_strength, 0.1, STRENGTH_MAX)
 	if _funnel != null:
 		_funnel.rotation.y = _spin
-		# Wide top → narrow foot, all scaled by strength (a weak twister is a thin rope, a strong one a wedge).
-		var s: float = clampf(_strength, 0.1, STRENGTH_MAX)
-		_funnel.scale = Vector3(s, 1.0, s)
+	if _core != null:
+		_core.rotation.y = -_spin * 1.3          # counter-spin the core so the two layers shear (visible churn)
+	if _funnel_pivot != null:
+		var strength_frac: float = clampf(_strength / STRENGTH_MAX, 0.0, 1.0)
+		# Downwind lean (grows with strength) + a gentle perpendicular sway, expressed as a tilt vector.
+		var wdir: Vector2 = _wind_dir
+		if wdir.length() < 0.001:
+			wdir = Vector2(sin(_age * 0.5 + _phase), cos(_age * 0.5 + _phase))
+		wdir = wdir.normalized()
+		var perp: Vector2 = Vector2(-wdir.y, wdir.x)
+		var sway: float = SWAY_AMPL * sin(_age * SWAY_SPEED + _phase)
+		var tilt: Vector2 = wdir * (LEAN_MAX * strength_frac) + perp * sway
+		var angle: float = tilt.length()
+		var lean_basis: Basis = Basis()
+		if angle > 0.0001:
+			var d: Vector2 = tilt / angle
+			var axis: Vector3 = Vector3(d.y, 0.0, -d.x)      # tilt +Y toward the lean direction (world XZ)
+			lean_basis = Basis(axis.normalized(), angle)
+		_funnel_pivot.transform.basis = lean_basis * Basis().scaled(Vector3(s, 1.0, s))
 	if _debris != null:
 		_debris.amount_ratio = clampf(0.25 + 0.75 * (_strength / STRENGTH_MAX), 0.1, 1.0)
 		var pm: ParticleProcessMaterial = _debris.process_material as ParticleProcessMaterial
 		if pm != null:
-			pm.emission_ring_radius = FUNNEL_BASE_R * 2.0 * _strength
+			pm.emission_ring_radius = FUNNEL_BASE_R * 2.4 * _strength
