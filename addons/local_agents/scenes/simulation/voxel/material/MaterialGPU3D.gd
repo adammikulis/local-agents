@@ -176,7 +176,7 @@ func setup(field) -> void:
 	_field = field
 	_origin_y = field._origin.y
 	_cell_size = field._cell_size
-	_sea_level = field._sea_level
+	_sea_level = field.sea_level
 	_init_rd()
 	if _rd == null:
 		return

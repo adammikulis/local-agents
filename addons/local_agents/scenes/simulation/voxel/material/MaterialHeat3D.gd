@@ -88,7 +88,7 @@ func step(skip_conduction: bool = false) -> void:
 					break                                   # hit rock from the top with no void above → no sky cell
 				# First non-solid cell scanning down from the top of a column IS the exposed surface.
 				var wy: float = _f._origin.y + float(iy) * _f._cell_size
-				var target: float = AMBIENT_NIGHT + SOLAR_WARMTH * solar - LAPSE * maxf(0.0, wy - _f._sea_level)
+				var target: float = AMBIENT_NIGHT + SOLAR_WARMTH * solar - LAPSE * maxf(0.0, wy - _f.sea_level)
 				temp[i] += AMBIENT_RELAX * (target - temp[i])
 				break
 

@@ -79,7 +79,7 @@ func _run() -> bool:
 	# --- CPU oracle: a real field seeded with copies, stepped through the concern modules in order. ---
 	var field = FieldScript.new()
 	field.setup_dims(dx, dy, dz, CELL_SIZE, Vector3(0.0, 0.0, 0.0))
-	field._sea_level = SEA_LEVEL
+	field.sea_level = SEA_LEVEL
 	field._solid = solid.duplicate()
 	field._static = stat.duplicate()
 	field._temp = temp.duplicate()

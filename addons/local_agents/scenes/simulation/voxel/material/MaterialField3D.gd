@@ -76,7 +76,7 @@ func set_sun(light) -> void:
 	_sun_light = light
 
 
-var _sea_level: float = 0.0
+var sea_level: float = 0.0
 var _half_extent: float = 0.0
 
 # --- Frame loop + rendering -------------------------------------------------
@@ -110,11 +110,11 @@ var _sources: Array = []
 
 ## Build the 3D volume covering XZ in [-half_extent, half_extent] and Y in [y_min, y_max] at cell_size,
 ## bound to `terrain` (for the is_solid rock/void query). Cells are sampled solid/void lazily.
-func setup(terrain, half_extent: float, cell_size: float, y_min: float, y_max: float, sea_level: float) -> void:
+func setup(terrain, half_extent: float, cell_size: float, y_min: float, y_max: float, sea: float) -> void:
 	_terrain = terrain
 	_half_extent = maxf(1.0, half_extent)
 	_cell_size = maxf(0.5, cell_size)
-	_sea_level = sea_level
+	sea_level = sea
 	var dx: int = int(round((2.0 * _half_extent) / _cell_size)) + 1
 	var dy: int = int(round((y_max - y_min) / _cell_size)) + 1
 	setup_dims(dx, dy, dx, _cell_size, Vector3(-_half_extent, y_min, -_half_extent))
@@ -178,7 +178,7 @@ func _sample_step() -> void:
 func seed_sea() -> void:
 	for iy in range(_dim_y):
 		var wy: float = _origin.y + float(iy) * _cell_size
-		if wy >= _sea_level:
+		if wy >= sea_level:
 			break                                       # layers above sea level: nothing to seed
 		for iz in range(_dim_z):
 			for ix in range(_dim_x):
@@ -567,7 +567,7 @@ func is_ocean_at(x: float, z: float) -> bool:
 	var iz: int = _col_i(z, _origin.z)
 	# Any static (seeded-sea) or below-sea void cell in the column means this is sea.
 	for iy in range(_dim_y):
-		if _origin.y + float(iy) * _cell_size >= _sea_level:
+		if _origin.y + float(iy) * _cell_size >= sea_level:
 			break
 		var i: int = (iy * _dim_z + iz) * _dim_x + ix
 		if _solid[i] == 0:
@@ -584,13 +584,13 @@ func salinity_at(x: float, z: float) -> float:
 		# Deepest open water is saltiest; the shallow shore band (incl. river mouths) stays brackish.
 		var ix: int = _col_i(x, _origin.x)
 		var iz: int = _col_i(z, _origin.z)
-		var floor_y: float = _sea_level
+		var floor_y: float = sea_level
 		for iy in range(_dim_y):
 			var i: int = (iy * _dim_z + iz) * _dim_x + ix
 			if _solid[i] == 0:
 				floor_y = _origin.y + float(iy) * _cell_size
 				break
-		return clampf((_sea_level - floor_y) / SALT_FULL_DEPTH, BRACKISH_FLOOR, 1.0)
+		return clampf((sea_level - floor_y) / SALT_FULL_DEPTH, BRACKISH_FLOOR, 1.0)
 	if is_water_at(x, z):
 		return 0.0                                       # inland CA pool (lake/river) = fresh
 	return NAN
@@ -616,10 +616,10 @@ func fog_grid() -> PackedFloat32Array:
 	return _atmosphere.fog_grid() if _atmosphere != null else PackedFloat32Array()
 
 func cloud_base_y() -> float:
-	return _atmosphere.cloud_base_y() if _atmosphere != null else _sea_level + 62.0
+	return _atmosphere.cloud_base_y() if _atmosphere != null else sea_level + 62.0
 
 func fog_base_y() -> float:
-	return _atmosphere.fog_base_y() if _atmosphere != null else _sea_level + 6.0
+	return _atmosphere.fog_base_y() if _atmosphere != null else sea_level + 6.0
 
 func relative_humidity_at(x: float, z: float) -> float:
 	return _atmosphere.relative_humidity_at(x, z) if _atmosphere != null else 0.0
@@ -907,7 +907,7 @@ func rebuild_surface() -> void:
 					continue
 				var wy: float = _origin.y + float(iy) * cs + (clampf(m, 0.0, MAX_MASS) - 0.5) * cs
 				# A sub-sea cell sitting at ~sea level is calm sea → the plane draws it.
-				if _origin.y + float(iy) * cs < _sea_level and absf(wy - _sea_level) < SEA_WAVE_EPS:
+				if _origin.y + float(iy) * cs < sea_level and absf(wy - sea_level) < SEA_WAVE_EPS:
 					continue
 				found = wy
 				break
