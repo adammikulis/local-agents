@@ -10,12 +10,10 @@ const TerrainServiceScript: GDScript = preload("res://addons/local_agents/scenes
 const CameraRigScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/VoxelCameraRig.gd")
 const EcologyServiceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ecology/EcologyService.gd")
 const HudScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/SpawnPaletteHud.gd")
-const MeteorScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Meteor.gd")
-const VolcanoScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Volcano.gd")
-const LightningScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/LightningStrike.gd")
-const EarthquakeScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Earthquake.gd")
-const FloodScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Flood.gd")
 const AudioDirectorScript: GDScript = preload("res://addons/local_agents/audio/AudioDirector.gd")
+const InteractionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelInteraction.gd")
+const SpawnBrushScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelSpawnBrush.gd")
+const DisastersScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelDisasters.gd")
 const WeatherScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/WeatherSystem.gd")
 const OceanPlaneScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/OceanPlane.gd")
 const MaterialField3DScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField3D.gd")
@@ -35,8 +33,9 @@ var _hud: CanvasLayer       # LASpawnPaletteHud
 var _debug_panel: CanvasLayer   # LADebugPanel (left-docked debug menu)
 var _debug_overlay: Node3D      # LADebugOverlay (world-space highlight/path/wind gizmos)
 var _actors_root: Node3D
-var _selection_ring: MeshInstance3D
-var _selected: Node = null
+var _interaction: Node3D = null   # LAVoxelInteraction — input, selection, the player's hand
+var _brush: Node3D = null         # LAVoxelSpawnBrush — radius spawn brush + placement
+var _disasters: Node = null       # LAVoxelDisasters — volcano/lightning/meteor casts
 var _weather: Node = null   # LAWeatherSystem (visual rain/wind for now; being made emergent)
 var _material: Node = null   # LAMaterialField — the ONE substrate: terrain-coupled water + heat/air
 var _ocean: Node = null      # LAOceanPlane — the calm sea drawn as one GPU plane (CA meshes only waves)
@@ -81,35 +80,6 @@ const GROUND_BOTTOM_NIGHT: Color = Color(0.02, 0.02, 0.05)
 var _springs: Array = []
 var _springs_seeded: bool = false
 const SPRING_RATE: float = 0.9              # depth per second per spring
-
-var _armed_kind: String = ""
-
-# --- the player's hand (LMB): click a creature to select, hold to pick it up, release to
-# drop or throw it. RMB spawns/casts the armed kind onto the terrain. ---
-var _grab_candidate: Node = null             # creature under the cursor at LMB-press
-var _held_creature: Node = null              # creature currently carried
-var _grabbing: bool = false                  # committed to a carry (moved / held past threshold)
-var _grab_press_pos: Vector2 = Vector2.ZERO
-var _grab_press_msec: int = 0
-var _hold_point: Vector3 = Vector3.ZERO      # world point the hand holds at
-var _hold_velocity: Vector3 = Vector3.ZERO   # smoothed hand velocity → throw impulse
-const GRAB_MOVE_THRESHOLD: float = 6.0       # px of motion that turns a click into a carry
-const GRAB_HOLD_MSEC: int = 220              # or this long held still commits to a carry
-const HOLD_LIFT: float = 3.0                 # height above the ground the hand carries at
-const THROW_MIN_SPEED: float = 4.0           # below this a release is a gentle drop, not a throw
-const THROW_MAX_SPEED: float = 40.0          # clamp on horizontal throw speed
-const THROW_ARC: float = 0.4                 # upward velocity as a fraction of throw speed
-
-# --- radius brush: RMB (click or drag) applies the armed kind across a disk, so one gesture
-# paints a grove of trees, a herd of rabbits, or a spreading flood. Hold Ctrl + scroll to
-# resize. A ground ring shows the footprint. Works for any armed kind (no per-kind branch). ---
-var _brush_radius: float = 5.0
-var _painting: bool = false
-var _paint_last_world: Vector3 = Vector3(INF, INF, INF)
-var _brush_ring: MeshInstance3D = null
-const BRUSH_MIN: float = 1.0
-const BRUSH_MAX: float = 28.0
-const BRUSH_STEP: float = 1.5
 
 var _spawned_initial: bool = false
 var _ready_wait_ticks: int = 0
@@ -246,17 +216,10 @@ func _ready() -> void:
 	if _camera != null and _camera.has_method("set_ecology"):
 		_camera.set_ecology(_ecology)
 
-	# --- Selection highlight ring ---
-	_selection_ring = _make_selection_ring()
-	_selection_ring.visible = false
-	add_child(_selection_ring)
-
 	# --- HUD ---
 	_hud = HudScript.new()
 	_hud.name = "HUD"
 	add_child(_hud)
-	if _hud.has_signal("spawn_selected"):
-		_hud.spawn_selected.connect(_on_spawn_selected)
 	_hud.set_status("Streaming terrain...")
 
 	# --- Procedural audio ---
@@ -350,6 +313,26 @@ func _ready() -> void:
 		_debug_overlay.set_highlight("species_bird", true)
 		_debug_overlay.set_highlight("species_fox", true)
 		_debug_overlay.set_highlight("nest", true)
+
+	# --- Interaction / spawn brush / disasters controllers ---
+	# The root stays a thin composition + harness root; these own input, placement, and disaster casts.
+	# Order: disasters first (the brush casts through it), then the brush, then interaction (routes input
+	# to the brush and holds the selection ring). Interaction defines _unhandled_input so Godot routes
+	# input straight to it.
+	_disasters = DisastersScript.new()
+	_disasters.name = "Disasters"
+	add_child(_disasters)
+	_disasters.setup(self, _terrain, _ecology, _actors_root, _camera, _audio)
+	_brush = SpawnBrushScript.new()
+	_brush.name = "SpawnBrush"
+	add_child(_brush)
+	_brush.setup(self, _terrain, _camera, _ecology, _hud, _audio, _actors_root, _disasters)
+	_interaction = InteractionScript.new()
+	_interaction.name = "Interaction"
+	add_child(_interaction)
+	_interaction.setup(self, _terrain, _camera, _ecology, _hud, _audio, _brush)
+	if _hud.has_signal("spawn_selected"):
+		_hud.spawn_selected.connect(_interaction.on_spawn_selected)
 
 
 # --- Debug menu handlers -----------------------------------------------------
@@ -455,7 +438,7 @@ func _process(delta: float) -> void:
 				# water reads alive from the start; _tick_aquatic keeps every species topped up after.
 				if _ecology.has_method("stock_initial_aquatic"):
 					_ecology.stock_initial_aquatic()
-				_spawn_default_volcano()
+				_disasters.spawn_default_volcano()
 				# Frame a vista at the real surface height (only when not driven by a harness cam).
 				if _overview and _camera.has_method("frame_overview"):
 					var ohv: float = _terrain.surface_height(0.0, 0.0)
@@ -466,9 +449,9 @@ func _process(delta: float) -> void:
 						_camera.frame_vista(Vector3(0.0, oh, 0.0))
 				_spawned_initial = true
 				_hud.set_status("World ready — spawn things, click to inspect, press V for scent.")
-	_update_hand(delta)
-	_update_selection_ring()
-	_update_brush_ring()
+	_interaction.update_hand(delta)
+	_interaction.update_selection_ring()
+	_brush.update_brush_ring()
 	_push_environment()
 	_feed_water()
 	if _cognition_stats and _spawned_initial and _frame % 15 == 0:
@@ -479,7 +462,7 @@ func _process(delta: float) -> void:
 	if _auto_meteor and not _auto_meteor_fired and _spawned_initial:
 		var trigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 600, 60)
 		if _frame == trigger:
-			_fire_test_meteor()
+			_disasters.fire_test_meteor()
 
 	# Auto-volcano demo/test: raise a volcano near origin that ERUPTS IMMEDIATELY (force_erupt), frame
 	# the camera on it, and fire it ~560 frames (~5s) before the screenshot so the shot studies a flow
@@ -491,7 +474,7 @@ func _process(delta: float) -> void:
 		if _frame >= vtrigger:
 			var oh: float = _terrain.surface_height(20.0, 20.0)
 			if not is_nan(oh):
-				var vc: Node = _spawn_volcano(Vector3(20.0, oh, 20.0))
+				var vc: Node = _disasters.spawn_volcano(Vector3(20.0, oh, 20.0))
 				if vc != null and vc.has_method("force_erupt"):
 					vc.force_erupt()
 				if _camera != null and _camera.has_method("frame_vista"):
@@ -503,13 +486,13 @@ func _process(delta: float) -> void:
 		_storm_bolt_cd -= delta
 		if _weather.rain() > 0.6 and _storm_bolt_cd <= 0.0:
 			_storm_bolt_cd = randf_range(2.5, 7.0)
-			_strike_random_lightning()
+			_disasters.strike_random_lightning()
 
 	# Auto-lightning demo/test: strike the nearest tree so a wildfire emerges from the bolt's heat.
 	if _auto_lightning and not _auto_lightning_fired and _spawned_initial:
 		var ltrigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 600, 60)
 		if _frame >= ltrigger:
-			_fire_test_lightning()
+			_disasters.fire_test_lightning()
 			_auto_lightning_fired = true
 
 	# Auto-select demo: aim at the nearest creature and run the real selection path.
@@ -529,11 +512,12 @@ func _process(delta: float) -> void:
 			else:
 				_camera.global_position = p + Vector3(6.0, 5.0, 6.0)
 				_camera.look_at(p, Vector3.UP)
-			_select_at(get_viewport().get_visible_rect().size * 0.5)
+			_interaction.select_at(get_viewport().get_visible_rect().size * 0.5)
+			var sel: Node = _interaction.selected()
 			var title: String = ""
-			if _selected != null:
-				title = String(_selected.call("get_inspector_payload").get("title", ""))
-			print("SELECT_RESULT selected=", _selected != null, " ring_visible=", _selection_ring.visible, " title=", title)
+			if sel != null:
+				title = String(sel.call("get_inspector_payload").get("title", ""))
+			print("SELECT_RESULT selected=", sel != null, " ring_visible=", _interaction.selection_ring_visible(), " title=", title)
 		_auto_select_done = true
 
 	if _shoot_path != "" and _frame == _shoot_frames:
@@ -541,93 +525,7 @@ func _process(delta: float) -> void:
 		get_tree().quit(0)
 
 	if _run_frames > 0 and _frame == _run_frames:
-		var n_sel: int = get_tree().get_nodes_in_group("selectable").size()
-		var n_act: int = _actors_root.get_child_count()
-		# Live-world diagnostics: verify the wired subsystems are actually doing something.
-		var wet: int = 0
-		if _material != null and _material.has_method("wet_cell_count"):
-			wet = _material.wet_cell_count()
-		var heat_peak: float = 0.0
-		var heat_cells: int = 0
-		var lava_cells: int = 0
-		if _material != null and _material.has_method("peak_heat"):
-			heat_peak = _material.peak_heat()
-			heat_cells = _material.hot_cell_count()
-			if _material.has_method("lava_peak"):
-				lava_cells = _material.lava_peak()
-		var cloud_cells: int = 0
-		var cloud_cover: float = 0.0
-		var fog_cover: float = 0.0
-		if _material != null and _material.has_method("cloud_cell_count"):
-			cloud_cells = _material.cloud_cell_count()
-			cloud_cover = _material.avg_cloud_cover()
-			fog_cover = _material.avg_fog_cover()
-		var wind_mag: float = 0.0
-		if _material != null and _material.has_method("wind"):
-			wind_mag = _material.wind().length()
-		var n_poop: int = get_tree().get_nodes_in_group("poop").size()
-		var n_fish: int = get_tree().get_nodes_in_group("species_fish").size()
-		var n_fire: int = 0
-		if _ecology != null and _ecology.has_method("fire_system"):
-			var fsys = _ecology.fire_system()
-			if fsys != null and fsys.has_method("active_fire_count"):
-				n_fire = fsys.active_fire_count()
-		var creatures: Array = get_tree().get_nodes_in_group("creature")
-		var min_hyd: int = 100
-		var drinkers: int = 0
-		var circling: int = 0        # vultures over a carcass (or soaring): the visible signal
-		var investigating: int = 0   # ground scavengers reading a carrion cue ("watch the vultures")
-		var sleeping: int = 0        # animals resting at their nest during their off-hours
-		for c in creatures:
-			if is_instance_valid(c) and "hydration" in c and "max_hydration" in c:
-				var h: int = int(round(100.0 * float(c.hydration) / maxf(1.0, float(c.max_hydration))))
-				min_hyd = mini(min_hyd, h)
-				var st: String = String(c.get("state"))
-				if st == "drink":
-					drinkers += 1
-				elif st == "circle" or st == "soar":
-					circling += 1
-				elif st == "investigate":
-					investigating += 1
-				elif st == "sleep" or st == "roost":
-					sleeping += 1
-		var n_nest: int = get_tree().get_nodes_in_group("nest").size()
-		# Cognition/genetics aggregates: prove the fast/slow brain + evolution are actually running.
-		var habits: int = 0
-		var asked: int = 0
-		var learned_socially: int = 0
-		var max_gen: int = 0
-		var minds: int = 0
-		var cues_learned: int = 0
-		for c in creatures:
-			if not is_instance_valid(c) or not c.has_method("get_cognition"):
-				continue
-			var cog = c.get_cognition()
-			if cog == null:
-				continue
-			minds += 1
-			habits += cog.policy_size()
-			asked += cog.escalations
-			learned_socially += cog.lessons
-			for cv in cog.cue_values.values():
-				if float(cv) >= 0.6:
-					cues_learned += 1
-			if c.has_method("get_genome") and c.get_genome() != null:
-				max_gen = maxi(max_gen, int(c.get_genome().generation))
-		var sched_calls: int = 0
-		if _ecology != null and _ecology.has_method("cognition_scheduler"):
-			var sc = _ecology.cognition_scheduler()
-			if sc != null and sc.has_method("total_calls"):
-				sched_calls = sc.total_calls()
-		print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"heat_peak\":%.2f,\"heat_cells\":%d,\"lava_cells\":%d,\"cloud_cells\":%d,\"cloud_cover\":%.3f,\"fog_cover\":%.3f,\"wind\":%.2f,\"poop\":%d,\"fish\":%d,\"fires\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f,\"minds\":%d,\"habits\":%d,\"escalations\":%d,\"social_lessons\":%d,\"max_generation\":%d,\"slow_brain_calls\":%d,\"nests\":%d,\"circling\":%d,\"investigating\":%d,\"sleeping\":%d,\"cues_learned\":%d}" % [
-			_frame, str(_spawned_initial).to_lower(), str(_terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, heat_peak, heat_cells, lava_cells, cloud_cells, cloud_cover, fog_cover, wind_mag, n_poop, n_fish, n_fire, min_hyd, drinkers, _time_of_day, minds, habits, asked, learned_socially, max_gen, sched_calls, n_nest, circling, investigating, sleeping, cues_learned])
-		if _cognition_stats:
-			var avg_habits: float = (float(habits) / float(minds)) if minds > 0 else 0.0
-			print("COGNITION_SUMMARY minds=%d avg_habits=%.2f escalations=%d social_lessons=%d max_generation=%d slow_brain_calls=%d nests=%d circling=%d investigating=%d sleeping=%d cues_learned=%d" % [
-				minds, avg_habits, asked, learned_socially, max_gen, sched_calls, n_nest, circling, investigating, sleeping, cues_learned])
-			print("BEHAVIOUR_PEAKS peak_circling=%d peak_investigating=%d peak_sleeping=%d cues_learned=%d" % [
-				_peak_circling, _peak_investigating, _peak_sleeping, cues_learned])
-		get_tree().quit(0)
+		LAVoxelHarness.emit_smoke_summary(self)
 
 
 # Sample transient emergent behaviours so a run can prove they occurred (not just at the final frame).
@@ -749,544 +647,40 @@ func _update_music_mood() -> void:
 	})
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_V:
-		_scent_visible = not _scent_visible
-		var sf = _ecology.scent_field() if _ecology != null and _ecology.has_method("scent_field") else null
-		if sf != null and sf.has_method("set_scent_visible"):
-			sf.set_scent_visible(_scent_visible)
-		_hud.set_status("Scent view: %s" % ("ON" if _scent_visible else "off"))
-		return
-	# Debug view: T paints the terrain by temperature (heatmap). More field views (wind, pressure)
-	# hang off the same toggle set as those systems come online.
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_T:
-		_temp_debug_visible = not _temp_debug_visible
-		if _terrain != null and _terrain.has_method("set_shader_param"):
-			_terrain.set_shader_param("heat_debug", 1.0 if _temp_debug_visible else 0.0)
-		_hud.set_status("Temperature view: %s" % ("ON" if _temp_debug_visible else "off"))
-		return
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_M:
-		if _hud != null and _hud.has_method("toggle_audio_menu"):
-			_hud.toggle_audio_menu()
-		return
-	# Palette / selection hotkeys: Esc -> Select, 1-7 arm Life, Shift+1-5 arm Disasters,
-	# Tab / Shift+Tab cycle the selection through on-screen entities.
-	if event is InputEventKey and event.pressed and not event.echo:
-		var key_ev: InputEventKey = event as InputEventKey
-		if key_ev.keycode == KEY_ESCAPE:
-			if _hud != null and _hud.has_method("arm_kind"):
-				_hud.arm_kind("")
-			return
-		if key_ev.keycode == KEY_TAB:
-			_cycle_selection(-1 if key_ev.shift_pressed else 1)
-			return
-		if key_ev.keycode >= KEY_1 and key_ev.keycode <= KEY_9:
-			_arm_hotkey(key_ev.keycode - KEY_1, key_ev.shift_pressed)
-			return
-	# While painting, drag the brush across the terrain to keep applying the armed kind.
-	if event is InputEventMouseMotion and _painting and _armed_kind != "":
-		_paint_drag((event as InputEventMouseMotion).position)
-		return
-	if event is InputEventMouseButton:
-		var mb: InputEventMouseButton = event as InputEventMouseButton
-		var mpos: Vector2 = mb.position
-		# Ctrl + wheel resizes the brush (only when a kind is armed, so plain wheel still zooms).
-		if _armed_kind != "" and mb.pressed and mb.ctrl_pressed \
-				and (mb.button_index == MOUSE_BUTTON_WHEEL_UP or mb.button_index == MOUSE_BUTTON_WHEEL_DOWN):
-			var d: float = BRUSH_STEP if mb.button_index == MOUSE_BUTTON_WHEEL_UP else -BRUSH_STEP
-			_brush_radius = clampf(_brush_radius + d, BRUSH_MIN, BRUSH_MAX)
-			_hud.set_status("Brush radius: %.0f m" % _brush_radius)
-			return
-		# RMB: paint / cast the armed kind onto the terrain (Black & White right-hand miracle).
-		# Press starts a paint stroke (drag keeps painting); release ends it.
-		if mb.button_index == MOUSE_BUTTON_RIGHT:
-			if mb.pressed:
-				if _hud != null and _hud.has_method("is_pointer_over_ui") and _hud.is_pointer_over_ui(mpos):
-					return
-				if _armed_kind != "":
-					_painting = true
-					_paint_last_world = Vector3(INF, INF, INF)
-					_place_armed(mpos)
-			else:
-				_painting = false
-			return
-		# LMB: double-click frames the entity; single press begins a click-or-grab; release
-		# resolves it (select vs drop/throw).
-		if mb.button_index == MOUSE_BUTTON_LEFT:
-			if mb.pressed:
-				if mb.double_click:
-					_frame_focus_at(mpos)
-					return
-				_on_lmb_press(mpos)
-			else:
-				_on_lmb_release(mpos)
-
-
-func _on_spawn_selected(kind: String) -> void:
-	_armed_kind = kind
-	if kind == "":
-		_hud.set_status("Select mode — left-click a creature to inspect, hold to pick it up.")
-	else:
-		_hud.set_status("Cast %s — right-click the ground to place." % kind)
-
-
-# Number-key arming: `index` is the 0-based digit (1 key -> 0). Shift picks the Disasters
-# cluster, otherwise Life. Routes through the HUD so the palette buttons stay in sync.
-func _arm_hotkey(index: int, shifted: bool) -> void:
-	if _hud == null or not _hud.has_method("arm_kind"):
-		return
-	var kinds: PackedStringArray = LASpawnPaletteHud.DISASTER_KINDS if shifted else LASpawnPaletteHud.LIFE_KINDS
-	if index < 0 or index >= kinds.size():
-		return
-	_hud.arm_kind(kinds[index])
-
-
-# Tab / Shift+Tab: walk the selection through on-screen selectables (nearest camera-first) and
-# focus the camera on each, so a busy world can be inspected without hunting for click targets.
-func _cycle_selection(dir: int) -> void:
-	var nodes: Array = []
-	for n in get_tree().get_nodes_in_group("selectable"):
-		if n is Node3D and is_instance_valid(n) and (n as Node).has_method("get_inspector_payload"):
-			nodes.append(n)
-	if nodes.is_empty():
-		_set_selected(null)
-		return
-	var origin: Vector3 = _camera.global_position
-	nodes.sort_custom(func(a, b):
-		return origin.distance_squared_to((a as Node3D).global_position) \
-			< origin.distance_squared_to((b as Node3D).global_position))
-	var idx: int = nodes.find(_selected)
-	if idx < 0:
-		idx = 0 if dir >= 0 else nodes.size() - 1
-	else:
-		idx = (idx + dir) % nodes.size()
-		if idx < 0:
-			idx += nodes.size()
-	var target: Node = nodes[idx]
-	_set_selected(target)
-	if _camera.has_method("focus_on"):
-		_camera.focus_on((target as Node3D).global_position)
-
-
-# Double-click: select the entity under the cursor (if any) and frame the camera on it.
-func _frame_focus_at(screen_pos: Vector2) -> void:
-	if _hud != null and _hud.has_method("is_pointer_over_ui") and _hud.is_pointer_over_ui(screen_pos):
-		return
-	_select_at(screen_pos)
-	if _selected is Node3D and _camera.has_method("focus_on"):
-		_camera.focus_on((_selected as Node3D).global_position)
-
-
-# --- the player's hand -------------------------------------------------------
-# LMB press: remember what's under the cursor. A quick click selects; holding/dragging
-# commits to a carry (see _update_hand).
-func _on_lmb_press(pos: Vector2) -> void:
-	if _hud != null and _hud.has_method("is_pointer_over_ui") and _hud.is_pointer_over_ui(pos):
-		return
-	_grab_candidate = _creature_at(pos)
-	_grab_press_pos = pos
-	_grab_press_msec = Time.get_ticks_msec()
-	_grabbing = false
-
-
-# LMB release: a carry drops or throws (by hand speed); a plain click selects.
-func _on_lmb_release(pos: Vector2) -> void:
-	if _grabbing and _held_creature != null and is_instance_valid(_held_creature):
-		var flat: Vector3 = Vector3(_hold_velocity.x, 0.0, _hold_velocity.z)
-		var fspeed: float = flat.length()
-		if fspeed > THROW_MIN_SPEED:
-			fspeed = minf(fspeed, THROW_MAX_SPEED)
-			var throw_vel: Vector3 = flat.normalized() * fspeed
-			throw_vel.y = fspeed * THROW_ARC       # arc upward with throw strength
-			_held_creature.call("throw", throw_vel)
-			_hud.set_status("Threw the %s!" % _creature_species(_held_creature))
-		else:
-			_held_creature.call("hold_end")        # gentle set-down
-			_hud.set_status("Set the %s down." % _creature_species(_held_creature))
-	elif _grab_candidate != null and is_instance_valid(_grab_candidate):
-		_set_selected(_grab_candidate)             # a click — just inspect it
-	else:
-		_select_at(pos)                            # empty ground — select/deselect via ray
-	_grab_candidate = null
-	_held_creature = null
-	_grabbing = false
-
-
-# Called every frame from _process: commit a pending press to a carry, then keep the held
-# creature under the cursor and estimate hand velocity for throwing.
-func _update_hand(delta: float) -> void:
-	if _grab_candidate == null and _held_creature == null:
-		return
-	var vp: Viewport = get_viewport()
-	if vp == null:
-		return
-	var mpos: Vector2 = vp.get_mouse_position()
-
-	if not _grabbing and _grab_candidate != null:
-		if not is_instance_valid(_grab_candidate):
-			_grab_candidate = null
-			return
-		var moved: float = mpos.distance_to(_grab_press_pos)
-		var held_ms: int = Time.get_ticks_msec() - _grab_press_msec
-		if moved >= GRAB_MOVE_THRESHOLD or held_ms >= GRAB_HOLD_MSEC:
-			_begin_carry(_grab_candidate)
-
-	if _grabbing and _held_creature != null:
-		if not is_instance_valid(_held_creature):
-			_held_creature = null
-			_grabbing = false
-			return
-		var target: Vector3 = _hand_world_point(mpos)
-		if is_finite(target.x):
-			if delta > 0.0001:
-				var inst_vel: Vector3 = (target - _hold_point) / delta
-				_hold_velocity = _hold_velocity.lerp(inst_vel, 0.5)
-			_hold_point = target
-			(_held_creature as Node3D).global_position = target
-
-
-func _begin_carry(creature: Node) -> void:
-	_grabbing = true
-	_held_creature = creature
-	creature.call("hold_begin")
-	_hold_point = (creature as Node3D).global_position
-	_hold_velocity = Vector3.ZERO
-	_set_selected(creature)
-	if _audio != null:
-		_audio.play_sfx("ui_click")
-
-
-# World point the hand carries at: the terrain surface under the cursor, lifted a little so
-# the creature hovers above the ground where you point. Returns INF if the cursor misses terrain.
-func _hand_world_point(screen_pos: Vector2) -> Vector3:
-	var ray: Dictionary = _camera.aim_ray(screen_pos)
-	var hit: Dictionary = _terrain.raycast_terrain(ray["origin"], ray["dir"], 2000.0)
-	if not bool(hit.get("hit", false)):
-		return Vector3(INF, INF, INF)
-	return (hit["position"] as Vector3) + Vector3(0.0, HOLD_LIFT, 0.0)
-
-
-# Physics-ray pick that resolves to a living creature (group "creature" with the hand API),
-# or null if the cursor isn't over one.
-func _creature_at(screen_pos: Vector2) -> Node:
-	var ray: Dictionary = _camera.aim_ray(screen_pos)
-	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
-	var q: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(ray["origin"], ray["origin"] + ray["dir"] * 2000.0)
-	q.collision_mask = 0xFFFFFFFF
-	q.collide_with_areas = true
-	q.collide_with_bodies = true
-	var r: Dictionary = space.intersect_ray(q)
-	if r.is_empty():
-		return null
-	return _resolve_creature(r.get("collider", null))
-
-
-func _resolve_creature(collider) -> Node:
-	var n = collider
-	while n != null and n is Node:
-		if (n as Node).is_in_group("creature") and (n as Node).has_method("hold_begin"):
-			return n
-		n = (n as Node).get_parent()
-	return null
-
-
-func _creature_species(creature: Node) -> String:
-	if creature != null and "species" in creature:
-		return String(creature.get("species"))
-	return "creature"
-
-
 func _on_music_auto_adapt_changed(on: bool) -> void:
 	_music_auto_adapt = on
 	if _hud != null and _hud.has_method("set_status"):
 		_hud.set_status("Music auto-adapt: %s" % ("ON" if on else "off — manual control"))
 
 
-# RMB entry point: resolve the terrain point under the cursor and paint the armed kind there.
-func _place_armed(screen_pos: Vector2) -> void:
-	var point: Vector3 = _terrain_point(screen_pos)
-	if not is_finite(point.x):
-		_hud.set_status("No ground under cursor — aim at the terrain.")
-		return
-	_paint_brush(point)
+# --- controller callbacks: the interaction/brush/disasters controllers forward the few bits of
+# root-owned state (music mood, harness flags, debug view toggles) back through these. ---
+
+# Spike the music's destruction mood (meteors/volcanoes/lightning). Decays each frame in _update_music_mood.
+func set_destruction(intensity: float) -> void:
+	_music_destruction = intensity
 
 
-# The terrain surface point under a screen position, or an INF vector if the cursor misses terrain.
-func _terrain_point(screen_pos: Vector2) -> Vector3:
-	var ray: Dictionary = _camera.aim_ray(screen_pos)
-	var hit: Dictionary = _terrain.raycast_terrain(ray["origin"], ray["dir"], 2000.0)
-	if not bool(hit.get("hit", false)):
-		return Vector3(INF, INF, INF)
-	return hit["position"]
-
-
-# Apply the armed kind across the brush disk: one placement at the centre for a pinpoint brush,
-# else a size-scaled scatter of placements. General over all kinds — trees, herds, floods alike.
-func _paint_brush(center: Vector3) -> void:
-	if _brush_radius <= BRUSH_MIN + 0.01:
-		_apply_at(center)
-	else:
-		var n: int = clampi(int(round(_brush_radius * 0.6)), 1, 12)
-		for i in n:
-			_apply_at(_scatter_point(center))
-	if _audio != null:
-		_audio.play_sfx("spawn", center)
-	_spawn_puff(center, _kind_color(_armed_kind))
-	_paint_last_world = center
-
-
-# A random point in the brush disk around `center`, re-snapped to the terrain surface (falls back
-# to the centre height when the offset lands off the meshed area).
-func _scatter_point(center: Vector3) -> Vector3:
-	var ang: float = randf() * TAU
-	var rad: float = sqrt(randf()) * _brush_radius
-	var p: Vector3 = center + Vector3(cos(ang) * rad, 0.0, sin(ang) * rad)
-	if _terrain != null and _terrain.has_method("surface_height"):
-		var y: float = float(_terrain.surface_height(p.x, p.z))
-		if not is_nan(y):
-			p.y = y
-	return p
-
-
-# The single-point action for the armed kind (no puff/audio — the brush handles those once).
-func _apply_at(point: Vector3) -> void:
-	if _armed_kind == "meteor":
-		var meteor: MeteorScript = MeteorScript.new()
-		_actors_root.add_child(meteor)
-		meteor.setup(_terrain, _ecology)
-		# Launch from over the user's head, streaking toward the clicked point.
-		meteor.launch(point, _camera.global_position)
-		_music_destruction = 1.0
-		_hud.set_status("Meteor inbound!")
-	elif _armed_kind == "volcano":
-		_spawn_volcano(point)
-		_music_destruction = 1.0
-		_hud.set_status("A volcano rises — stand back!")
-	elif _armed_kind == "lightning":
-		_spawn_lightning(point)
-		_music_destruction = 0.7
-		_hud.set_status("A bolt strikes!")
-	elif _armed_kind == "earthquake":
-		var quake: Node = EarthquakeScript.new()
-		_actors_root.add_child(quake)
-		quake.setup(_terrain, _ecology)
-		quake.rupture(point)
-		_music_destruction = 1.0
-		_hud.set_status("The ground heaves!")
-	elif _armed_kind == "flood":
-		var flood: Node = FloodScript.new()
-		_actors_root.add_child(flood)
-		flood.setup(_terrain, _ecology)
-		# Tie the surge footprint to the spawn brush so a flood only covers where the player aimed.
-		flood.surge(point, _brush_radius)
-		_hud.set_status("Flood surge!")
-	else:
-		_ecology.spawn(_armed_kind, point)
-		_hud.set_status("Spawned %s." % _armed_kind)
-
-
-# Continue a paint stroke as the cursor drags: re-paint once the brush has moved far enough that
-# strokes don't stack on the same spot (spacing scales with radius).
-func _paint_drag(screen_pos: Vector2) -> void:
-	var point: Vector3 = _terrain_point(screen_pos)
-	if not is_finite(point.x):
-		return
-	if is_finite(_paint_last_world.x):
-		var spacing: float = maxf(_brush_radius * 0.6, 1.5)
-		if _paint_last_world.distance_to(point) < spacing:
-			return
-	_paint_brush(point)
-
-
-# A flat ground ring showing the brush footprint, following the cursor whenever a kind is armed.
-func _update_brush_ring() -> void:
-	if _armed_kind == "" or _camera == null or _terrain == null:
-		if _brush_ring != null:
-			_brush_ring.visible = false
-		return
-	_ensure_brush_ring()
-	var vp: Viewport = get_viewport()
-	if vp == null:
-		return
-	var mpos: Vector2 = vp.get_mouse_position()
-	if _hud != null and _hud.has_method("is_pointer_over_ui") and _hud.is_pointer_over_ui(mpos):
-		_brush_ring.visible = false
-		return
-	var p: Vector3 = _terrain_point(mpos)
-	if not is_finite(p.x):
-		_brush_ring.visible = false
-		return
-	_brush_ring.visible = true
-	_brush_ring.global_position = p + Vector3(0.0, 0.15, 0.0)
-	_brush_ring.scale = Vector3(_brush_radius, 1.0, _brush_radius)
-	var mat: StandardMaterial3D = _brush_ring.material_override as StandardMaterial3D
-	if mat != null:
-		mat.albedo_color = _kind_color(_armed_kind)
-
-
-func _ensure_brush_ring() -> void:
-	if _brush_ring != null and is_instance_valid(_brush_ring):
-		return
-	var ring: MeshInstance3D = MeshInstance3D.new()
-	ring.name = "BrushRing"
-	var torus: TorusMesh = TorusMesh.new()   # lies flat in the XZ plane; scaled to the radius
-	torus.inner_radius = 0.95
-	torus.outer_radius = 1.0
-	torus.rings = 48
-	ring.mesh = torus
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = Color(0.9, 0.9, 0.9, 0.75)
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	ring.material_override = mat
-	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	ring.visible = false
-	add_child(ring)
-	_brush_ring = ring
-
-
-# The world always has one active volcano — placed on the highest of several sampled points so it's a
-# proper mountain landmark, well away from the origin spawn.
-func _spawn_default_volcano() -> void:
-	var best_h: float = -INF
-	var best: Vector3 = Vector3(150.0, 0.0, 150.0)
-	var ring: int = 12
-	for i in range(ring):
-		var ang: float = TAU * float(i) / float(ring)
-		var r: float = 160.0
-		var px: float = cos(ang) * r
-		var pz: float = sin(ang) * r
-		var h: float = _terrain.surface_height(px, pz)
-		if not is_nan(h) and h > best_h:
-			best_h = h
-			best = Vector3(px, h, pz)
-	if best_h > -INF:
-		_spawn_volcano(best)
-
-
-func _spawn_volcano(point: Vector3) -> Node:
-	var v: Node = VolcanoScript.new()
-	_actors_root.add_child(v)
-	v.setup(_terrain, _ecology)
-	v.erupt_at(point)
-	return v
-
-
-func _spawn_lightning(point: Vector3) -> void:
-	var b: Node = LightningScript.new()
-	_actors_root.add_child(b)
-	b.setup(_terrain, _ecology)
-	b.strike(point)
-	if _audio != null:
-		_audio.play_sfx("thunder", point)
-
-
-# A bolt at a random point in the play area (thunderstorm occurrence).
-func _strike_random_lightning() -> void:
-	var ang: float = randf() * TAU
-	var r: float = randf() * 250.0
-	var px: float = cos(ang) * r
-	var pz: float = sin(ang) * r
-	var h: float = _terrain.surface_height(px, pz)
-	if not is_nan(h):
-		_spawn_lightning(Vector3(px, h, pz))
-
-
-# Strike the nearest tree (test: confirm fire emerges from the bolt's heat).
-func _fire_test_lightning() -> void:
-	var best: float = INF
-	var impact: Vector3 = Vector3.ZERO
-	var found: bool = false
-	for t in get_tree().get_nodes_in_group("tree"):
-		if t is Node3D:
-			var d: float = (_camera.global_position - (t as Node3D).global_position).length()
-			if d < best:
-				best = d
-				impact = (t as Node3D).global_position
-				found = true
-	if found:
-		_spawn_lightning(impact)
-
-
-func _select_at(screen_pos: Vector2) -> void:
-	var ray: Dictionary = _camera.aim_ray(screen_pos)
-	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
-	var q: PhysicsRayQueryParameters3D = PhysicsRayQueryParameters3D.create(ray["origin"], ray["origin"] + ray["dir"] * 2000.0)
-	q.collision_mask = 0xFFFFFFFF
-	q.collide_with_areas = true
-	q.collide_with_bodies = true
-	var r: Dictionary = space.intersect_ray(q)
-	if r.is_empty():
-		_set_selected(null)
-		return
-	var node: Node = _resolve_selectable(r.get("collider", null))
-	_set_selected(node)
-
-
-func _resolve_selectable(collider) -> Node:
-	var n = collider
-	while n != null and n is Node:
-		if (n as Node).is_in_group("selectable") and (n as Node).has_method("get_inspector_payload"):
-			return n
-		n = (n as Node).get_parent()
-	return null
-
-
-func _set_selected(node: Node) -> void:
-	_selected = node
-	if node == null:
-		_hud.clear_inspector()
-		_selection_ring.visible = false
-		return
-	_hud.show_inspector(node.call("get_inspector_payload"))
-	_selection_ring.visible = true
-	if _audio != null:
-		_audio.play_sfx("ui_click")
-
-
-# Launch a test meteor at the nearest tree (so it hits vegetation and can start a fire),
-# falling back to the point under the camera's aim if there are no trees.
-func _fire_test_meteor() -> void:
-	var impact: Vector3 = Vector3.ZERO
-	var found: bool = false
-	var best: float = INF
-	for t in get_tree().get_nodes_in_group("tree"):
-		if t is Node3D:
-			var d: float = (_camera.global_position - (t as Node3D).global_position).length()
-			if d < best:
-				best = d
-				impact = (t as Node3D).global_position
-				found = true
-	if not found:
-		var ray: Dictionary = _camera.aim_ray()
-		var hit: Dictionary = _terrain.raycast_terrain(ray["origin"], ray["dir"], 3000.0)
-		if not bool(hit.get("hit", false)):
-			return
-		impact = hit["position"]
-	var m: MeteorScript = MeteorScript.new()
-	_actors_root.add_child(m)
-	m.setup(_terrain, _ecology)
-	m.launch(impact, _camera.global_position)
-	_music_destruction = 1.0
+# The disasters controller fired the one-shot auto-meteor test; latch it so _process won't refire.
+func mark_auto_meteor_fired() -> void:
 	_auto_meteor_fired = true
-	if _camera.has_method("focus_on"):
-		_camera.focus_on(impact)
-	else:
-		_camera.global_position = impact + Vector3(26.0, 30.0, 26.0)
-		_camera.look_at(impact, Vector3.UP)
 
 
-func _update_selection_ring() -> void:
-	if _selected == null or not is_instance_valid(_selected):
-		_selection_ring.visible = false
-		_selected = null
-		return
-	if _selected is Node3D:
-		var p: Vector3 = (_selected as Node3D).global_position
-		_selection_ring.global_position = p + Vector3(0, 0.1, 0)
-		if _selected.has_method("get_inspector_payload"):
-			_hud.show_inspector(_selected.call("get_inspector_payload"))
+# V key (from the interaction controller): toggle the scent field's debug view.
+func toggle_scent_view() -> void:
+	_scent_visible = not _scent_visible
+	var sf = _ecology.scent_field() if _ecology != null and _ecology.has_method("scent_field") else null
+	if sf != null and sf.has_method("set_scent_visible"):
+		sf.set_scent_visible(_scent_visible)
+	_hud.set_status("Scent view: %s" % ("ON" if _scent_visible else "off"))
+
+
+# T key (from the interaction controller): toggle the terrain temperature heatmap debug view.
+func toggle_temp_view() -> void:
+	_temp_debug_visible = not _temp_debug_visible
+	if _terrain != null and _terrain.has_method("set_shader_param"):
+		_terrain.set_shader_param("heat_debug", 1.0 if _temp_debug_visible else 0.0)
+	_hud.set_status("Temperature view: %s" % ("ON" if _temp_debug_visible else "off"))
 
 
 func _push_environment() -> void:
@@ -1353,77 +747,6 @@ func _seed_water() -> void:
 # there is nothing to feed per-frame. Kept as a no-op for the _process call site.
 func _feed_water() -> void:
 	pass
-
-
-func _kind_color(kind: String) -> Color:
-	match kind:
-		"plant": return Color(0.35, 0.85, 0.3)
-		"tree": return Color(0.2, 0.6, 0.25)
-		"rabbit": return Color(0.92, 0.92, 0.95)
-		"fox": return Color(0.95, 0.5, 0.15)
-		"bird": return Color(0.3, 0.6, 0.95)
-		"villager": return Color(0.75, 0.5, 0.9)
-		"fish": return Color(0.55, 0.72, 0.86)
-		"meteor": return Color(1.0, 0.5, 0.2)
-		"volcano": return Color(0.95, 0.42, 0.12)
-		"lightning": return Color(0.82, 0.88, 1.0)
-		"earthquake": return Color(0.55, 0.40, 0.28)
-		"flood": return Color(0.30, 0.55, 0.90)
-		_: return Color(0.8, 0.9, 0.6)
-
-
-# Brief upward sparkle at a spawn point — instant "it worked" feedback.
-func _spawn_puff(pos: Vector3, tint: Color) -> void:
-	var p: GPUParticles3D = GPUParticles3D.new()
-	p.one_shot = true
-	p.emitting = true
-	p.amount = 28
-	p.lifetime = 1.1
-	p.explosiveness = 0.85
-	p.global_position = pos + Vector3(0, 0.4, 0)
-	var quad: QuadMesh = QuadMesh.new()
-	quad.size = Vector2(0.22, 0.22)
-	var qmat: StandardMaterial3D = StandardMaterial3D.new()
-	qmat.albedo_color = tint
-	qmat.emission_enabled = true
-	qmat.emission = tint
-	qmat.emission_energy_multiplier = 3.0
-	qmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	qmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	qmat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
-	quad.material = qmat
-	p.draw_pass_1 = quad
-	var pm: ParticleProcessMaterial = ParticleProcessMaterial.new()
-	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	pm.emission_sphere_radius = 0.6
-	pm.direction = Vector3(0, 1, 0)
-	pm.spread = 25.0
-	pm.initial_velocity_min = 2.5
-	pm.initial_velocity_max = 5.0
-	pm.gravity = Vector3(0, 1.5, 0)
-	pm.scale_min = 0.5
-	pm.scale_max = 1.2
-	pm.color = tint
-	p.process_material = pm
-	add_child(p)
-	var t: SceneTreeTimer = get_tree().create_timer(1.6)
-	t.timeout.connect(func(): if is_instance_valid(p): p.queue_free())
-
-
-func _make_selection_ring() -> MeshInstance3D:
-	var mi: MeshInstance3D = MeshInstance3D.new()
-	var torus: TorusMesh = TorusMesh.new()
-	torus.inner_radius = 0.9
-	torus.outer_radius = 1.2
-	mi.mesh = torus
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = Color(1.0, 0.92, 0.2)
-	mat.emission_enabled = true
-	mat.emission = Color(1.0, 0.85, 0.1)
-	mat.emission_energy_multiplier = 2.0
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mi.material_override = mat
-	return mi
 
 
 func _capture_screenshot(path: String) -> void:

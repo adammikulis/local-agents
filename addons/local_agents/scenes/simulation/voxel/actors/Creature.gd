@@ -347,7 +347,7 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 
 	collision_layer = 2
 	collision_mask = 0                    # movement is manual; picked via layer-2 query
-	_build_body()
+	LACreatureBody.build_body(self)
 	add_to_group(GROUP_SELECTABLE)
 	add_to_group(_species_group(species))
 	add_to_group(GROUP_CREATURE)
@@ -381,65 +381,6 @@ func get_family_id() -> int:
 
 static func _species_group(sp: String) -> String:
 	return "species_%s" % sp
-
-
-func _build_body() -> void:
-	# Prefer a display model for this species (LAActorModels); fall back to the primitive capsule.
-	_build_model()
-	if _model_root == null:
-		var mesh: MeshInstance3D = MeshInstance3D.new()
-		if can_fly:
-			var cap: CapsuleMesh = CapsuleMesh.new()
-			cap.radius = size * 0.5
-			cap.height = maxf(size * 1.4, size)
-			mesh.mesh = cap
-		else:
-			var body: CapsuleMesh = CapsuleMesh.new()
-			body.radius = size * 0.6
-			body.height = maxf(size * 2.0, size * 1.2)
-			mesh.mesh = body
-		var mat: StandardMaterial3D = StandardMaterial3D.new()
-		mat.albedo_color = color
-		mat.roughness = 0.85
-		mesh.material_override = mat
-		add_child(mesh)
-		_mesh = mesh
-
-	var shape: CollisionShape3D = CollisionShape3D.new()
-	var cyl: CapsuleShape3D = CapsuleShape3D.new()
-	cyl.radius = maxf(size * 0.6, 0.1)
-	cyl.height = maxf(size * 2.0, 0.4)
-	shape.shape = cyl
-	add_child(shape)
-
-	# Throwers (humans) carry a visible rock when armed.
-	if throws:
-		_rock_visual = MeshInstance3D.new()
-		_rock_visual.mesh = LARockMesh.make(maxf(size * 0.32, 0.18), 4242, 0.45)
-		_rock_visual.material_override = LARockMesh.material()
-		_rock_visual.position = Vector3(size * 0.55, size * 0.7, size * 0.35)
-		_rock_visual.visible = false
-		add_child(_rock_visual)
-
-
-# Try to build a display model for this species. Sets _model_root/_model_anim on success,
-# leaves them null (caller builds the capsule) if the species has no model or it fails to load.
-func _build_model() -> void:
-	var def: Dictionary = LAActorModels.get_def(species)
-	var model_path: String = String(config.get("model", def.get("path", "")))
-	if model_path.is_empty():
-		return
-	var target_h: float = maxf(size * 2.0, size * 1.2) * float(config.get("model_scale", 1.0))
-	var yaw: float = float(config.get("model_yaw", def.get("yaw", 0.0)))
-	var model: Node3D = LAModelVisual.build(model_path, target_h, "center", yaw, LAActorModels.tint(species))
-	if model == null:
-		return
-	add_child(model)
-	_model_root = model
-	_model_anim = LAModelVisual.find_anim(model)
-	_model_anims = def.get("anims", {})
-	_model_run_speed = float(def.get("run", 999.0))
-	_vis_prev_pos = global_position
 
 
 # Visual-only animation: play idle/move/run (or bob a rigless model) from actual displacement.
@@ -573,7 +514,7 @@ func _physics_process(delta: float) -> void:
 		else:
 			# Thirst competes with hunger: once parched, seeking/drinking water interrupts
 			# normal behavior (but never overrides fleeing a predator, handled above).
-			var thirst_action: String = _handle_thirst(pos, delta)
+			var thirst_action: String = LACreatureThirst.handle_thirst(self, pos, delta)
 			if thirst_action == "drink":
 				eff_speed = 0.0                      # stand at the water's edge and drink
 				state = "drink"
@@ -581,13 +522,13 @@ func _physics_process(delta: float) -> void:
 				desired = _water_dir_cache
 				state = "seek"
 			elif diet == "scavenger":
-				desired = _think_scavenger(pos, delta)   # vultures: soar, follow carrion, circle, feed
+				desired = LACreatureThink.think_scavenger(self, pos, delta)   # vultures: soar, follow carrion, circle, feed
 			elif can_fly:
-				desired = _think_bird(pos, delta)         # sets its own state; may land to feed/drink
+				desired = LACreatureThink.think_bird(self, pos, delta)         # sets its own state; may land to feed/drink
 			elif diet == "carnivore" or (diet == "omnivore" and preys_on.size() > 0):
-				desired = _think_predator(pos, desired)
+				desired = LACreatureThink.think_predator(self, pos, desired)
 			else:
-				desired = _think_prey(pos, desired)
+				desired = LACreatureThink.think_prey(self, pos, desired)
 
 		# Nesting/roosting drive (ANY nesting species, config-driven): head home to roost at night
 		# or to breed, establishing the site the first time. Offspring inherit it (philopatry).
@@ -602,10 +543,10 @@ func _physics_process(delta: float) -> void:
 		# identical to before (regression-safe); learning only ever adds overrides.
 		if big_pred == null and _cognition != null and state != "roost" and state != "nesting":
 			var sig: Dictionary = LASituationSignature.compute(self)
-			var innate_action: String = _state_to_action(state)
+			var innate_action: String = LACreatureThink.state_to_action(self, state)
 			var chosen: String = _cognition.decide(self, innate_action, sig, delta)
 			if chosen != innate_action:
-				var mv: Dictionary = _execute_action(chosen, pos, delta)
+				var mv: Dictionary = LACreatureThink.execute_action(self, chosen, pos, delta)
 				if mv.has("heading"):
 					desired = mv["heading"]
 				state = String(mv.get("state", state))
@@ -692,310 +633,6 @@ func _integrate_thrown(delta: float) -> void:
 	global_position = next
 
 
-# --- prey behavior: flee predators (dominates), else wander + flock, eat plants ---
-func _think_prey(pos: Vector3, fallback: Vector3) -> Vector3:
-	var threat: Node3D = LACreatureSenses.nearest_of(self, pos, flees_from)
-	if threat != null:
-		state = "flee"
-		var away: Vector3 = pos - threat.global_position
-		away.y = 0.0
-		if away.length() > 0.001:
-			return away.normalized() * 1.5
-	if diet != "carnivore" and _try_eat_plant(pos):
-		state = "eat"
-		return fallback + LACreatureFlocking.steer(self, pos, true)
-	state = "wander"
-	return fallback + LACreatureFlocking.steer(self, pos, true)
-
-
-# --- predator behavior: scavenge, hunt prey (throw or bite), track scent, else flock ---
-func _think_predator(pos: Vector3, fallback: Vector3) -> Vector3:
-	# Scavenge carrion whenever not near-full (omnivores/humans eat anything they can).
-	if energy < max_energy * 0.95 and _try_scavenge(pos):
-		state = "eat"
-		return fallback
-	# Public information ("watch the vultures"), fully EMERGENT: other animals are cues to resources,
-	# and experience — not code — decides which cues are worth following. If a perceived cue has a
-	# high learned worth (or curiosity picks an unknown one), go investigate it.
-	if energy < max_energy * 0.85:
-		var cue: Dictionary = _best_learned_cue(pos)
-		if not cue.is_empty():
-			_pursued_cue = String(cue["key"])
-			_pursued_cd = 8.0
-			state = "investigate"
-			return cue["dir"]
-	var prey: Node3D = LACreatureSenses.nearest_of(self, pos, preys_on)
-	if prey != null:
-		var to_prey: Vector3 = prey.global_position - pos
-		to_prey.y = 0.0
-		if throws:
-			return _hunt_with_rock(pos, prey, to_prey, fallback)   # ranged: humans throw rocks
-		if to_prey.length() <= maxf(size + 0.8, 1.0):
-			_kill_and_eat(prey)
-			state = "eat"
-			return fallback
-		state = "chase"
-		if to_prey.length() > 0.001:
-			return to_prey.normalized()
-	else:
-		# Public information ("watch the vultures"): a hungry ground scavenger heads toward the
-		# strongest carrion cue — circling vultures (sight), carrion scent (smell), or a carrion call
-		# (sound). A weak innate pull; the cognition layer reinforces it into a learned, inherited habit.
-		if energy < max_energy * 0.7:
-			var cue: Vector3 = _carrion_cue(pos)
-			if cue != Vector3.ZERO:
-				state = "investigate"
-				return cue
-		var trail: Vector3 = LACreatureSenses.follow_prey_scent(self, pos)
-		if trail != Vector3.ZERO:
-			state = "track"
-			return trail
-	if diet == "omnivore" and _try_eat_plant(pos):
-		state = "eat"
-		return fallback + LACreatureFlocking.steer(self, pos, true)
-	state = "wander"
-	return fallback + LACreatureFlocking.steer(self, pos, true)
-
-
-# Persistence hunting: the hunter can't outrun fleeing prey, so it just keeps walking
-# after it. The prey sprints (burning energy fast) and eventually collapses from
-# exhaustion. A rock, if grabbed on the way, ends it sooner.
-func _hunt_with_rock(pos: Vector3, prey: Node3D, to_prey: Vector3, fallback: Vector3) -> Vector3:
-	var dist: float = to_prey.length()
-	if not has_rock:
-		var rock: Node3D = LACreatureSenses.nearest_rock(self, pos)
-		if rock != null and pos.distance_to((rock as Node3D).global_position) <= maxf(size + 1.3, 1.7):
-			if rock.has_method("take"):
-				rock.take()
-			has_rock = true
-			_set_rock_visual(true)
-	if has_rock and dist <= throw_range and _throw_cd <= 0.0:
-		_throw_rock_at(prey)
-		state = "throw"
-		return fallback
-	state = "stalk"
-	return to_prey.normalized() if dist > 0.001 else fallback
-
-
-func _throw_rock_at(prey: Node3D) -> void:
-	has_rock = false
-	_set_rock_visual(false)
-	_throw_cd = 2.5
-	var parent: Node = get_parent()
-	if parent == null:
-		return
-	var rock: ThrownRockScript = ThrownRockScript.new()
-	parent.add_child(rock)
-	if rock.has_method("setup"):
-		rock.setup(terrain, _material)
-	rock.throw_at(global_position + Vector3(0, size, 0), prey, 26.0)
-
-
-func _kill_and_eat(prey: Node3D) -> void:
-	var gain: float = food_value
-	if prey is LACreature:
-		gain = (prey as LACreature).food_value
-	energy = minf(max_energy, energy + gain * 0.7)
-	LocalAgentsAudioDirector.emit(get_tree(), "chomp", global_position)
-	_emit_call("forage")                     # a kill call: kin nearby learn to hunt this situation
-	_reinforce_cue_success()
-	if prey.has_method("die"):
-		prey.die("eaten")           # leaves a carcass (leftovers for scavengers)
-	elif prey.has_method("queue_free"):
-		prey.queue_free()
-
-
-# Scavenging is just eating meat-type food off the ground — same unified path as grazing.
-func _try_scavenge(pos: Vector3) -> bool:
-	return _try_eat_food(pos)
-
-
-# UNIFIED EATING: scan nearby food (anything exposing food_profile — plants, carcasses, …) and eat
-# the best item my diet will forage. Herbivores take carbs, carnivores/scavengers take meat,
-# omnivores both; energy gained scales with the food's STATE (a rotten carcass is worth half, cooked
-# more). One rule for every diet and every food source — living prey is the one thing not eaten here
-# (it must be hunted first, which turns it into a carcass = dead meat).
-func _try_eat_food(pos: Vector3) -> bool:
-	if energy > max_energy * 0.92:
-		return false                              # sated
-	var best: Node3D = null
-	var best_val: float = 0.0
-	var reach: float = maxf(size + 1.0, 1.4)
-	for grp in [GROUP_PLANT, GROUP_CARRION]:
-		for f in get_tree().get_nodes_in_group(grp):
-			if not is_instance_valid(f) or not (f is Node3D):
-				continue
-			if not f.has_method("food_profile"):
-				continue
-			if pos.distance_to((f as Node3D).global_position) > reach:
-				continue
-			if f.has_method("is_edible") and not f.is_edible():
-				continue
-			var prof: Dictionary = f.food_profile()
-			if not LAFood.can_forage(diet, prof):
-				continue
-			var v: float = LAFood.value(prof)
-			if v > best_val:
-				best_val = v
-				best = f
-	if best == null:
-		return false
-	var profile: Dictionary = best.food_profile()
-	var gained: float = 0.0
-	if best.has_method("feed"):
-		gained = float(best.call("feed", 30.0)) * LAFood.state_mult(profile)   # a bite of a carcass
-	else:
-		gained = LAFood.value(profile)                                          # a whole plant
-		(best as Node3D).queue_free()
-	if gained <= 0.0:
-		return false
-	energy = minf(max_energy, energy + gained)
-	_emit_call("forage")
-	_reinforce_cue_success()
-	return true
-
-
-func _set_rock_visual(on: bool) -> void:
-	if _rock_visual != null and is_instance_valid(_rock_visual):
-		_rock_visual.visible = on
-
-
-func _think_bird(pos: Vector3, delta: float) -> Vector3:
-	# A hungry/thirsty bird drops out of the flock, LANDS, and forages/drinks (flyers can now descend).
-	if LACreatureBird.wants_to_land(self):
-		_target_altitude = maxf(size, 1.0)
-		var thirst: String = _handle_thirst(pos, delta)
-		if thirst == "drink":
-			state = "drink"
-			return _heading
-		if thirst == "seek":
-			state = "seek"
-			return _water_dir_cache
-		state = "eat" if _try_eat_plant(pos) else "wander"
-		return _heading + LACreatureFlocking.steer(self, pos, true)
-	# Otherwise soar with the flock, wheeling and bobbing on thermals.
-	_target_altitude = maxf(cruise_height + sin(age * 0.4) * 3.0, 1.5)
-	state = "cruise"
-	return _heading + LACreatureBird.steer(self, pos)
-
-
-# Vulture behaviour: soar high scanning for death; follow the "carrion" scent (or a seen carcass);
-# spiral DOWN and circle over the kill (the visible signal others read); feed; call to advertise it.
-func _think_scavenger(pos: Vector3, _delta: float) -> Vector3:
-	var carcass: Node3D = LACreatureSenses.nearest_visible_carrion(self, pos)
-	var to_flat: Vector3 = Vector3.ZERO
-	if carcass != null:
-		to_flat = Vector3(carcass.global_position.x - pos.x, 0.0, carcass.global_position.z - pos.z)
-	elif _scent != null and _scent.has_method("scent_direction"):
-		var d: Vector3 = _scent.scent_direction(pos, "carrion", sense_radius * 4.0)
-		if d != Vector3.ZERO:
-			to_flat = Vector3(d.x, 0.0, d.z)
-	if to_flat != Vector3.ZERO:
-		var dist: float = to_flat.length()
-		if carcass != null and dist < 7.0:
-			# Over the carcass: spiral down and feed — the visible "vultures circling".
-			state = "circle"
-			_target_altitude = maxf(size + 1.0, 2.0)
-			_emit_call("carrion")                        # announce the kill (draws ground scavengers)
-			if dist < maxf(size + 1.4, 1.8):
-				_try_scavenge(pos)
-			var tangent: Vector3 = Vector3(-to_flat.z, 0.0, to_flat.x).normalized()
-			return to_flat.normalized() * 0.4 + tangent * 0.7
-		state = "soar"
-		_target_altitude = maxf(cruise_height * 0.5, 3.0)   # glide down toward the find
-		return to_flat.normalized() + LACreatureBird.steer(self, pos) * 0.3
-	# Nothing dead in sight or on the wind: soar high on thermals with the kettle.
-	state = "soar"
-	_target_altitude = maxf(cruise_height + sin(age * 0.4) * 3.0, 2.0)
-	return _heading + LACreatureBird.steer(self, pos)
-
-
-# EMERGENT public information. Look at the other animals I can perceive; each is a possible cue to a
-# resource, keyed generically by its "species:state" (nothing names vultures or circling). Head for
-# the cue my experience rates highest — and, when nothing is proven, occasionally investigate an
-# UNKNOWN cue out of curiosity so associations can be discovered in the first place. Flying animals
-# are perceptible far off against the open sky, which is exactly why a wheeling flock reads at range.
-func _best_learned_cue(pos: Vector3) -> Dictionary:
-	if _cognition == null:
-		return {}
-	var best_key: String = ""
-	var best_val: float = 0.3                    # only exploit a cue once it's proven worthwhile
-	var best_dir: Vector3 = Vector3.ZERO
-	var unknown_key: String = ""
-	var unknown_dir: Vector3 = Vector3.ZERO
-	for m in get_tree().get_nodes_in_group(GROUP_CREATURE):
-		if not is_instance_valid(m) or m == self or not (m is Node3D):
-			continue
-		var mpos: Vector3 = (m as Node3D).global_position
-		var flying: bool = bool(m.get("can_fly"))
-		var reach: float = (sense_radius * 4.0) if flying else LAVision.effective_range(self)
-		if pos.distance_to(mpos) > reach:
-			continue
-		if not flying and not LAVision.can_see(self, mpos):
-			continue
-		var dir: Vector3 = Vector3(mpos.x - pos.x, 0.0, mpos.z - pos.z)
-		if dir.length() < 0.001:
-			continue
-		var key: String = "%s:%s" % [String(m.get("species")), String(m.get("state"))]
-		var val: float = _cognition.cue_value(key)
-		if val > best_val:
-			best_val = val
-			best_key = key
-			best_dir = dir.normalized()
-		elif val <= 0.05 and unknown_key == "":
-			unknown_key = key
-			unknown_dir = dir.normalized()
-	if best_key != "":
-		return {"key": best_key, "dir": best_dir}
-	if unknown_key != "" and randf() < 0.03:     # curiosity: try an unproven cue to learn from it
-		return {"key": unknown_key, "dir": unknown_dir}
-	return {}
-
-
-# Learn from a meal in two ways: credit the cue I was deliberately chasing, AND — Pavlovian —
-# associate whatever signs happen to be present with the food. Signs that RELIABLY accompany food
-# (scavengers circling overhead, animals feeding) accrue value across many meals; incidental noise
-# washes out. This is how "circling vultures mean a carcass" is DISCOVERED, never coded.
-func _reinforce_cue_success() -> void:
-	if _cognition == null:
-		return
-	if _pursued_cue != "" and _pursued_cd > 0.0:
-		_cognition.reinforce_cue(_pursued_cue, 1.0)
-	_pursued_cue = ""
-	_pursued_cd = 0.0
-	var pos: Vector3 = global_position
-	for m in get_tree().get_nodes_in_group(GROUP_CREATURE):
-		if not is_instance_valid(m) or m == self or not (m is Node3D):
-			continue
-		var mpos: Vector3 = (m as Node3D).global_position
-		var flying: bool = bool(m.get("can_fly"))
-		var reach: float = (sense_radius * 4.0) if flying else LAVision.effective_range(self)
-		if pos.distance_to(mpos) > reach:
-			continue
-		if not flying and not LAVision.can_see(self, mpos):
-			continue
-		_cognition.reinforce_cue("%s:%s" % [String(m.get("species")), String(m.get("state"))], 0.6)
-
-
-# The strongest carrion CUE for a ground scavenger, over three channels — this is "watch the
-# vultures": circling flyers (sight), carrion scent (smell), or a heard carrion call (sound).
-func _carrion_cue(pos: Vector3) -> Vector3:
-	var flyer: Node3D = LACreatureSenses.nearest_visible_in_state(self, pos, GROUP_CREATURE, ["circle"])
-	if flyer != null:
-		var d: Vector3 = Vector3(flyer.global_position.x - pos.x, 0.0, flyer.global_position.z - pos.z)
-		if d.length() > 0.001:
-			return d.normalized()
-	if _scent != null and _scent.has_method("scent_direction"):
-		var s: Vector3 = _scent.scent_direction(pos, "carrion", sense_radius * 3.0)
-		if s != Vector3.ZERO:
-			return Vector3(s.x, 0.0, s.z).normalized()
-	if _cue_cd > 0.0:
-		var c: Vector3 = Vector3(_cue_pos.x - pos.x, 0.0, _cue_pos.z - pos.z)
-		if c.length() > 0.001:
-			return c.normalized()
-	return Vector3.ZERO
-
-
 # Off-hours: diurnal animals rest at night, nocturnal ones by day — from the one `nocturnal` flag +
 # the shared clock, no per-species sleep schedule.
 func _rest_period() -> bool:
@@ -1038,124 +675,6 @@ func _establish_nest(pos: Vector3) -> void:
 func _nest_touch() -> void:
 	if _nest_node != null and is_instance_valid(_nest_node) and _nest_node.has_method("touch"):
 		_nest_node.touch()
-
-
-# Thirst drive. Returns "" (not thirsty enough / no water known), "drink" (standing at
-# water — refill in place) or "seek" (head toward the nearest water via _water_dir_cache).
-# Emergent watering holes: nothing scripts where animals gather — they simply walk to the
-# nearest wet cell of the shared water field, so they cluster wherever water actually pools.
-func _handle_thirst(pos: Vector3, delta: float) -> String:
-	if _material == null or not _material.has_method("is_water_at"):
-		return ""
-	if hydration >= max_hydration * THIRSTY_FRACTION:
-		return ""
-	if _material.is_water_at(pos.x, pos.z):
-		hydration = minf(max_hydration, hydration + DRINK_RATE * delta)
-		return "drink"
-	_water_search_cd -= delta
-	if _water_search_cd <= 0.0:
-		_water_search_cd = 0.5
-		_water_dir_cache = _find_water_dir(pos)
-	if _water_dir_cache != Vector3.ZERO:
-		return "seek"
-	return ""
-
-
-# Probe rings of increasing radius for the nearest wet cell and return a flat unit
-# heading toward it, or ZERO if no water is within reach. Cheap: index-math queries.
-func _find_water_dir(pos: Vector3) -> Vector3:
-	if _material == null or not _material.has_method("is_water_at"):
-		return Vector3.ZERO
-	var radii: Array = [sense_radius, sense_radius * 2.0, sense_radius * 3.5]
-	var dirs: int = 12
-	for r in radii:
-		for k in range(dirs):
-			var ang: float = TAU * float(k) / float(dirs)
-			var px: float = pos.x + cos(ang) * float(r)
-			var pz: float = pos.z + sin(ang) * float(r)
-			if _material.is_water_at(px, pz):
-				var d: Vector3 = Vector3(px - pos.x, 0.0, pz - pos.z)
-				if d.length() > 0.001:
-					return d.normalized()
-	return Vector3.ZERO
-
-
-# Grazing is just eating carbs-type food off the ground — same unified path as scavenging.
-func _try_eat_plant(pos: Vector3) -> bool:
-	return _try_eat_food(pos)
-
-
-# --- cognition action vocabulary bridge -------------------------------------
-# Map the innate cascade's descriptive `state` to a canonical action name (LAActionRegistry) so the
-# fast policy, social learning, and the LLM all speak the same vocabulary.
-func _state_to_action(s: String) -> String:
-	match s:
-		"flee", "panic":
-			return "flee"
-		"chase", "stalk", "track":
-			return "hunt"
-		"throw":
-			return "throw_rock"
-		"drink":
-			return "drink"
-		"seek":
-			return "seek_water"
-		"cruise":
-			return "flock"
-		"circle", "soar":
-			return "scavenge"
-		"investigate":
-			return "investigate"
-		"eat":
-			return "graze" if diet == "herbivore" else "scavenge"
-		"rest", "sleep", "roost", "nesting":
-			return "rest"
-		"migrate":
-			return "migrate"
-		_:
-			return "wander"
-
-
-# Execute a chosen action name → {heading, state, speed}. This is the name→behaviour dispatch the
-# fast policy and slow brain drive; it reuses the same primitives as the innate cascade.
-func _execute_action(action: String, pos: Vector3, delta: float) -> Dictionary:
-	match action:
-		"graze":
-			_try_eat_plant(pos)
-			return {"heading": _heading + LACreatureFlocking.steer(self, pos, true), "state": "eat", "speed": speed}
-		"scavenge":
-			_try_scavenge(pos)
-			return {"heading": _heading + LACreatureFlocking.steer(self, pos, true), "state": "eat", "speed": speed}
-		"investigate":
-			var cue: Vector3 = _carrion_cue(pos)
-			if cue != Vector3.ZERO:
-				return {"heading": cue, "state": "investigate", "speed": speed}
-			return {"heading": _heading, "state": "wander", "speed": speed}
-		"hunt", "throw_rock":
-			var h: Vector3 = _think_predator(pos, _heading)   # sets `state` (chase/stalk/throw/…)
-			return {"heading": h, "state": state, "speed": speed}
-		"flock":
-			return {"heading": _heading + LACreatureFlocking.steer(self, pos, not can_fly), "state": "flock", "speed": speed}
-		"drink":
-			if _material != null and _material.has_method("is_water_at") and _material.is_water_at(pos.x, pos.z):
-				hydration = minf(max_hydration, hydration + DRINK_RATE * delta)
-				return {"heading": _heading, "state": "drink", "speed": 0.0}
-			return _execute_action("seek_water", pos, delta)
-		"seek_water":
-			var wd: Vector3 = _find_water_dir(pos)
-			if wd != Vector3.ZERO:
-				return {"heading": wd, "state": "seek", "speed": speed}
-			return {"heading": _heading, "state": "wander", "speed": speed}
-		"rest":
-			return {"heading": _heading, "state": "rest", "speed": speed * 0.12}
-		"migrate":
-			if _migrate_dir == Vector3.ZERO:
-				var cards: Array = [Vector3.FORWARD, Vector3.BACK, Vector3.LEFT, Vector3.RIGHT]
-				_migrate_dir = cards[randi() % cards.size()]
-			return {"heading": _migrate_dir, "state": "migrate", "speed": speed}
-		"wander":
-			return {"heading": _heading, "state": "wander", "speed": speed}
-	return {"heading": _heading, "state": state, "speed": speed}
 
 
 func _forage_action() -> String:
