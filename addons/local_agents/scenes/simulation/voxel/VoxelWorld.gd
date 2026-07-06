@@ -21,11 +21,8 @@ const CloudLayerScript: GDScript = preload("res://addons/local_agents/scenes/sim
 const RainLayerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/RainLayer.gd")
 const DebugPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugPanel.gd")
 const DebugOverlayScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugOverlay.gd")
-const StreamerOverlayScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/streamer/StreamerOverlay.gd")
-const StreamerAvatarScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/streamer/StreamerAvatar.gd")
-const StreamerVoiceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/streamer/StreamerVoice.gd")
-const StreamerDirectorScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/streamer/StreamerDirector.gd")
-const EnergyGraphScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/SceneEnergyGraph.gd")
+const SkyCycleScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelSkyCycle.gd")
+const StreamerHostScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelStreamerHost.gd")
 
 const INITIAL_COUNTS: Dictionary = {"plant": 70, "rabbit": 16, "fox": 3, "bird": 14, "villager": 6, "vulture": 5}
 const ROCK_COUNT: int = 44
@@ -37,13 +34,10 @@ var _ecology: Node          # LAEcologyService
 var _hud: CanvasLayer       # LASpawnPaletteHud
 var _debug_panel: CanvasLayer   # LADebugPanel (left-docked debug menu)
 var _debug_overlay: Node3D      # LADebugOverlay (world-space highlight/path/wind gizmos)
-var _streamer_overlay: CanvasLayer  # LAStreamerOverlay (lower-right face-cam + caption + toggle)
-var _streamer_director: Node        # LAStreamerDirector (LLM commentary brain)
-var _streamer_avatar: Node          # LAStreamerAvatar (live SubViewport portrait)
-var _streamer_voice: Node           # LAStreamerVoice (Piper TTS)
-var _energy_graph: Control          # LASceneEnergyGraph (live total-energy overlay + intensity source)
-var _streamer_persona: String = "hype"   # default personality; override with --streamer-persona=<id>
-var _streamer_avatar_flavor: String = "male"   # "male" | "female"; override with --streamer-avatar=
+var _sky: Node = null           # LAVoxelSkyCycle — owns ALL sky/sun/moon/environment + day/night clock
+var _streamer_host: Node = null # LAVoxelStreamerHost — owns the streamer overlay/avatar/voice/director
+var _streamer_persona: String = "hype"   # cmdline seed for the streamer; override with --streamer-persona=<id>
+var _streamer_avatar_flavor: String = "male"   # cmdline seed: "male" | "female"; override with --streamer-avatar=
 var _actors_root: Node3D
 var _interaction: Node3D = null   # LAVoxelInteraction — input, selection, the player's hand
 var _brush: Node3D = null         # LAVoxelSpawnBrush — radius spawn brush + placement
@@ -55,37 +49,11 @@ var _clouds: Node = null     # LACloudLayer rendering the field's cloud density 
 var _fog: Node = null        # LACloudLayer rendering the field's fog density (ground-hugging)
 var _rain: Node = null       # LARainLayer — GPU rain particles where the field precipitates (emergent)
 
-# --- Day/night cycle. VoxelWorld owns ALL sky lighting (sun arc + energy, sky colors,
-# ambient) so the cycle and weather never fight over the same properties; weather only
-# supplies a rain factor that dims on top. time_of_day: 0=midnight, .25=dawn, .5=noon, .75=dusk.
-var _sun: DirectionalLight3D = null
-var _moon: DirectionalLight3D = null         # cool moonlight; energy tracks the lunar phase
-var _sky_shader_mat: ShaderMaterial = null   # VoxelSky.gdshader: stars + phase-shaded moon disc
-var _env: Environment = null
-var _time_of_day: float = 0.30              # start just after dawn (dawn = .25) so the sun is already
-                                            # up and climbing — the world reads as a lit morning
-# Lunar cycle: an independent clock (survives day wraps). Starts at a waxing crescent so the
-# very first night already has some moonlight rather than a black new moon.
-var _lunar_phase: float = 0.15              # 0=new, 0.25=first quarter, 0.5=full, 0.75=last quarter
-const DAY_LENGTH: float = 200.0             # seconds per full day
-const LUNAR_DAYS: float = 8.0               # in-game days per full new->full->new cycle
-const SUN_ENERGY_NOON: float = 1.45
-const AMBIENT_DAY: float = 0.62
-const AMBIENT_NIGHT: float = 0.09           # dark floor; the moon lifts brightness on lit nights
-const MOON_ENERGY_FULL: float = 0.32        # directional moonlight at full moon (navigable)
-const MOON_AMBIENT: float = 0.14            # extra ambient fill at a full-moon night
-const MOON_COLOR: Color = Color(0.55, 0.66, 0.95)
-const SKY_TOP_DAY: Color = Color(0.36, 0.56, 0.86)
-const SKY_TOP_NIGHT: Color = Color(0.02, 0.03, 0.11)
-# Pale, near-white horizon so the surround reads cloudlike; the ground band and haze are
-# matched to this every frame (see _update_day_night) so there is no false horizon line.
-const SKY_HORIZON_DAY: Color = Color(0.86, 0.90, 0.94)
-const SKY_HORIZON_NIGHT: Color = Color(0.05, 0.06, 0.15)
-const SKY_HORIZON_DUSK: Color = Color(0.92, 0.48, 0.24)
-const GROUND_HORIZON_DAY: Color = Color(0.62, 0.66, 0.62)
-const GROUND_HORIZON_NIGHT: Color = Color(0.04, 0.05, 0.10)
-const GROUND_BOTTOM_DAY: Color = Color(0.30, 0.34, 0.30)
-const GROUND_BOTTOM_NIGHT: Color = Color(0.02, 0.02, 0.05)
+# --- Day/night cycle owned by LAVoxelSkyCycle (see _sky). VoxelWorld only seeds the clocks from the
+# command line; the sky controller owns ALL sky lighting so the cycle and weather never fight over the
+# same properties. time_of_day: 0=midnight, .25=dawn, .5=noon, .75=dusk.
+var _time_of_day: float = 0.30              # cmdline seed only (override with --time=); the live clock lives in _sky
+var _lunar_phase: float = 0.15              # cmdline seed only (override with --lunar=); 0=new .5=full
 
 # Persistent springs (world XZ) seeded on high ground so rivers form downhill; fed
 # a little depth every frame so channels sustain instead of drying out.
@@ -146,115 +114,13 @@ const FPS_PROBE_FRAMES: int = 150
 func _ready() -> void:
 	_parse_cmdline()
 
-	# --- Sun + sky ---
-	# Custom sky shader (stars + phase-shaded moon) replaces ProceduralSkyMaterial; the day
-	# gradient is driven from the same uniforms each frame so daytime looks unchanged. The sun
-	# and moon lights below become LIGHT0 / LIGHT1 in the shader, which draws their discs.
-	var env: WorldEnvironment = WorldEnvironment.new()
-	var e: Environment = Environment.new()
-	e.background_mode = Environment.BG_SKY
-	var sky: Sky = Sky.new()
-	var sky_mat: ShaderMaterial = ShaderMaterial.new()
-	sky_mat.shader = load("res://addons/local_agents/scenes/simulation/voxel/shaders/VoxelSky.gdshader")
-	sky_mat.set_shader_parameter("sky_top_color", SKY_TOP_DAY)
-	sky_mat.set_shader_parameter("sky_horizon_color", SKY_HORIZON_DAY)
-	sky_mat.set_shader_parameter("ground_horizon_color", Color(0.62, 0.66, 0.62))
-	sky_mat.set_shader_parameter("ground_bottom_color", Color(0.30, 0.34, 0.30))
-	sky_mat.set_shader_parameter("night", 0.0)
-	sky_mat.set_shader_parameter("star_intensity", 1.0)
-	sky_mat.set_shader_parameter("moon_phase", _lunar_phase)
-	sky_mat.set_shader_parameter("moon_color", Color(0.85, 0.90, 1.0))
-	sky_mat.set_shader_parameter("moon_energy", 1.0)
-	sky_mat.set_shader_parameter("sun_color", Color(1.0, 1.0, 1.0))
-	sky_mat.set_shader_parameter("sun_energy", SUN_ENERGY_NOON)
-	sky.sky_material = sky_mat
-	e.sky = sky
-	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	e.ambient_light_energy = AMBIENT_DAY
-	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	# SSAO tuned for terrain scale: the default 1m radius is invisible on kilometre-wide
-	# hills, so widen it to occlude at valley/gully scale for real depth in creases and
-	# under actors, with a gentle power curve so it reads as soft contact shadow, not grime.
-	e.ssao_enabled = true
-	e.ssao_radius = 3.5
-	e.ssao_intensity = 2.2
-	e.ssao_power = 1.6
-	e.ssao_detail = 0.4
-	e.ssao_horizon = 0.09
-	e.ssao_sharpness = 0.95
-
-	# HDR glow/bloom: only genuinely bright (>1.0) pixels bloom — incandescent lava, the
-	# sun's specular glint on water, sunlit snow — so the scene gains punch without a
-	# washed-out haze over everything. High threshold keeps midtone grass/rock crisp.
-	e.glow_enabled = not OS.has_environment("NOGLOW")
-	e.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
-	e.glow_intensity = 0.85
-	e.glow_strength = 1.0
-	e.glow_bloom = 0.05
-	e.glow_hdr_threshold = 1.05
-	e.glow_hdr_scale = 2.0
-	e.glow_hdr_luminance_cap = 12.0
-	e.glow_normalized = false
-	# Only the two mid-frequency levels are active: bloom passes are the cost driver at
-	# this resolution, and these give a soft halo without paying for full-res or very-wide
-	# blur taps. (Baseline: enabling all 5 levels cost ~40% fps for no extra visible gain.)
-	e.set_glow_level(1, 0.0)
-	e.set_glow_level(2, 0.0)
-	e.set_glow_level(3, 1.0)
-	e.set_glow_level(4, 0.8)
-	e.set_glow_level(5, 0.0)
-
-	# Subtle atmospheric fog: gives the vista depth, hides the terrain-LOD pop at the
-	# horizon, and dissolves the ocean's hard edge into the skyline instead of ending in a
-	# line. Cheap (non-volumetric). Aerial perspective tints distant geometry toward the
-	# sky so far mountains recede; sky_affect stays low so the sky itself isn't washed out.
-	# fog_light_color is re-tinted to the horizon color every frame in _update_day_night.
-	e.fog_enabled = not OS.has_environment("NOFOG")
-	e.fog_mode = Environment.FOG_MODE_EXPONENTIAL
-	e.fog_light_color = SKY_HORIZON_DAY
-	e.fog_light_energy = 1.0
-	e.fog_sun_scatter = 0.15
-	e.fog_density = 0.0016
-	e.fog_aerial_perspective = 0.55
-	e.fog_sky_affect = 0.05
-	e.fog_height = -40.0
-	e.fog_height_density = 0.012
-
-	env.environment = e
-	add_child(env)
-	_sky_shader_mat = sky_mat
-	_env = e
-
-	var sun: DirectionalLight3D = DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-52.0, -47.0, 0.0)
-	sun.light_energy = SUN_ENERGY_NOON
-	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 400.0
-	# Smoother, softer sun shadows: blend the PSSM cascades so their seams don't pop as the
-	# camera pans, soften the edges, and pull the split boundaries closer so near geometry
-	# gets the crisp cascade. Bias tuned to kill acne on the rolling terrain without peter-
-	# panning the low-poly actors. (GPU-side; free given the CPU-bound headroom.)
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-	sun.directional_shadow_blend_splits = true
-	sun.directional_shadow_split_1 = 0.08
-	sun.directional_shadow_split_2 = 0.2
-	sun.directional_shadow_split_3 = 0.5
-	sun.directional_shadow_fade_start = 0.85
-	sun.shadow_blur = 1.2
-	sun.shadow_normal_bias = 1.5
-	sun.shadow_bias = 0.04
-	add_child(sun)
-	_sun = sun
-
-	# Moon: added after the sun so it is LIGHT1 in the sky shader. Cool light, energy driven
-	# per-frame from the lunar phase (0 at new moon), so bright nights are navigable. It does NOT cast
-	# shadows — a second full shadow pass is expensive and a soft fill light's shadows are imperceptible.
-	var moon: DirectionalLight3D = DirectionalLight3D.new()
-	moon.light_color = MOON_COLOR
-	moon.light_energy = 0.0
-	moon.shadow_enabled = false
-	add_child(moon)
-	_moon = moon
+	# --- Sun + sky + day/night: owned by LAVoxelSkyCycle. It builds the sky shader material, the
+	# WorldEnvironment (tonemap/SSAO/glow/fog/ambient), the sun (PSSM cascade-blend shadows) and the
+	# moon, and runs the day/night clock each frame. The cmdline-seeded clocks are threaded in here. ---
+	_sky = SkyCycleScript.new()
+	_sky.name = "SkyCycle"
+	add_child(_sky)
+	_sky.setup(self, _time_of_day, _lunar_phase)
 
 	# --- Terrain ---
 	_terrain = TerrainServiceScript.new()
@@ -314,7 +180,7 @@ func _ready() -> void:
 	_weather = WeatherScript.new()
 	_weather.name = "Weather"
 	add_child(_weather)
-	_weather.setup(_camera, sun, e)
+	_weather.setup(_camera, _sky.sun(), _sky.env())
 
 	# --- The ONE material field: the dense 3D GPU substrate. A real volume — every material (temp, water,
 	# vapor/cloud/fog, lava) lives in the same GPU-resident buffers and every rule is a pass in one
@@ -330,7 +196,7 @@ func _ready() -> void:
 	_material.setup(_terrain, 300.0, 8.0, -80.0, 90.0, sea3d)
 	# The field reads the REAL sun (DirectionalLight3D) live — its energy + angle drive all heating.
 	# Wind/pressure/rain are NOT injected; they emerge from the field's own physics.
-	_material.set_sun(_sun)
+	_material.set_sun(_sky.sun())
 	if _ecology.has_method("set_material_field"):
 		_ecology.set_material_field(_material)
 	# Weather relays the field's EMERGENT rain (no invented rain of its own) — wire the field to it.
@@ -354,6 +220,10 @@ func _ready() -> void:
 	_fog.name = "FogLayer"
 	add_child(_fog)
 	_fog.setup(_material, true)
+
+	# The sky cycle reads these each frame (rain/cloud dimming + cloud/fog sheet tinting); bind them now
+	# that they exist. Order-independent — the cycle only touches them from its per-frame update().
+	_sky.bind_scene(_weather, _material, _clouds, _fog)
 
 	# Rain VISUAL — GPU streak particles that fall only where the field's clouds are dense enough to
 	# precipitate (emergent from the vapor→cloud→rain cycle, gated by cloud density at the camera).
@@ -391,7 +261,11 @@ func _ready() -> void:
 		_debug_overlay.set_highlight("species_fox", true)
 		_debug_overlay.set_highlight("nest", true)
 
-	_setup_streamer()
+	# --- Streamer / commentator (lower-right face-cam driven by the local LLM) ---
+	_streamer_host = StreamerHostScript.new()
+	_streamer_host.name = "StreamerHost"
+	add_child(_streamer_host)
+	_streamer_host.setup(self, _ecology, _material, _streamer_persona, _streamer_avatar_flavor)
 
 	# --- Interaction / spawn brush / disasters controllers ---
 	# The root stays a thin composition + harness root; these own input, placement, and disaster casts.
@@ -412,83 +286,6 @@ func _ready() -> void:
 	_interaction.setup(self, _terrain, _camera, _ecology, _hud, _audio, _brush)
 	if _hud.has_signal("spawn_selected"):
 		_hud.spawn_selected.connect(_interaction.on_spawn_selected)
-
-
-# --- Streamer / commentator (lower-right face-cam driven by the local LLM) ----
-
-func _setup_streamer() -> void:
-	# Overlay first (a CanvasLayer), then the live avatar parented under it so its SubViewport draws.
-	_streamer_overlay = StreamerOverlayScript.new()
-	_streamer_overlay.name = "StreamerOverlay"
-	add_child(_streamer_overlay)
-
-	_streamer_avatar = StreamerAvatarScript.new()
-	_streamer_avatar.name = "StreamerAvatar"
-	_streamer_overlay.add_child(_streamer_avatar)
-	_streamer_avatar.setup(_streamer_avatar_flavor)
-	_streamer_overlay.bind_avatar(_streamer_avatar)
-
-	_streamer_voice = StreamerVoiceScript.new()
-	_streamer_voice.name = "StreamerVoice"
-	add_child(_streamer_voice)
-	_streamer_voice.setup({"gender": _streamer_avatar_flavor})
-
-	_streamer_director = StreamerDirectorScript.new()
-	_streamer_director.name = "StreamerDirector"
-	add_child(_streamer_director)
-	_streamer_director.setup(self, {"voice": _streamer_voice, "persona": _streamer_persona})
-
-	# Live scene-energy graph (kinetic + seismic + thermal) shown top-right — the intensity signal the
-	# director reacts to, made visible. The director reads its current total so quips fire on real energy.
-	_energy_graph = EnergyGraphScript.new()
-	_streamer_overlay.add_child(_energy_graph)
-	_energy_graph.setup(self, _ecology, _material)
-	if _streamer_director.has_method("set_energy_source"):
-		_streamer_director.set_energy_source(_energy_graph)
-
-	# Wire the loop: director -> caption + speech; UI toggle/persona -> director; speech -> avatar mouth.
-	_streamer_director.line_ready.connect(_on_streamer_line)
-	_streamer_director.status_changed.connect(_streamer_overlay.set_status)
-	_streamer_overlay.enabled_toggled.connect(_on_streamer_enabled)
-	_streamer_overlay.persona_selected.connect(_streamer_director.set_persona)
-	_streamer_voice.speaking_started.connect(_on_streamer_speaking_started)
-	_streamer_voice.speaking_finished.connect(_on_streamer_speaking_finished)
-	_streamer_overlay.avatar_selected.connect(_on_streamer_avatar_selected)
-	_streamer_overlay.set_default_persona(_streamer_persona)
-	_streamer_overlay.set_default_avatar(_streamer_avatar_flavor)
-
-
-# Swap the streamer between male/female: rebuild the avatar body + switch the TTS voice live.
-func _on_streamer_avatar_selected(flavor: String) -> void:
-	if _streamer_avatar != null and _streamer_avatar.has_method("set_flavor"):
-		_streamer_avatar.set_flavor(flavor)
-	if _streamer_voice != null and _streamer_voice.has_method("set_gender"):
-		_streamer_voice.set_gender(flavor)
-
-
-func _on_streamer_line(text: String) -> void:
-	if _streamer_overlay != null:
-		_streamer_overlay.show_line(text)
-	if _streamer_voice != null:
-		_streamer_voice.speak(text)
-	print("STREAMER_LINE=%s" % text)
-
-
-func _on_streamer_enabled(on: bool) -> void:
-	if _streamer_director != null:
-		_streamer_director.set_enabled(on)
-	if _streamer_voice != null:
-		_streamer_voice.set_enabled(on)
-
-
-func _on_streamer_speaking_started(_text: String) -> void:
-	if _streamer_avatar != null and _streamer_avatar.has_method("set_talking"):
-		_streamer_avatar.set_talking(true)
-
-
-func _on_streamer_speaking_finished() -> void:
-	if _streamer_avatar != null and _streamer_avatar.has_method("set_talking"):
-		_streamer_avatar.set_talking(false)
 
 
 # --- Debug menu handlers -----------------------------------------------------
@@ -522,11 +319,11 @@ func _on_debug_paths(on: bool) -> void:
 func _on_debug_perf(key: String, on: bool) -> void:
 	match key:
 		"shadows":
-			if _sun != null:
-				_sun.shadow_enabled = on
+			if _sky != null:
+				_sky.set_shadows(on)
 		"ssao":
-			if _env != null:
-				_env.ssao_enabled = on
+			if _sky != null:
+				_sky.set_ssao(on)
 
 
 # Save-screenshot button (DebugPanel): capture the current viewport to a numbered PNG in the project
@@ -599,7 +396,11 @@ func _parse_cmdline() -> void:
 
 func _process(delta: float) -> void:
 	_frame += 1
-	_update_day_night(delta)
+	_sky.update(delta)
+	# Share the sky clock with the ecology so nocturnal behavior can key off night (kept out of the
+	# sky controller so the cycle stays decoupled from ecology).
+	if _ecology != null and _ecology.has_method("set_time_of_day"):
+		_ecology.set_time_of_day(_sky.time_of_day())
 	_update_music_mood()
 	# Spawn the starting ecology once terrain has streamed + collided near origin.
 	if not _spawned_initial and _terrain != null:
@@ -747,89 +548,6 @@ func _sample_behaviour_peaks() -> void:
 	_peak_sleeping = maxi(_peak_sleeping, slp)
 
 
-# Advance the clock and drive all sky lighting from it, dimmed by weather rain.
-# Emergent day arc: sun elevation is a sine of the time of day; everything (light
-# energy, warm horizon at dawn/dusk, ambient floor at night) follows from that one value.
-func _update_day_night(delta: float) -> void:
-	if _sun == null:
-		return
-	_time_of_day = fposmod(_time_of_day + delta / DAY_LENGTH, 1.0)
-	# Sun elevation: -1 (midnight) .. +1 (noon), zero at dawn (.25) and dusk (.75).
-	var elev: float = sin((_time_of_day - 0.25) * TAU)
-	var daylight: float = clampf(elev, 0.0, 1.0)
-	# Storm factor from weather dims the sun/ambient on top of the day cycle.
-	var rain: float = 0.0
-	if _weather != null and _weather.has_method("rain"):
-		rain = _weather.rain()
-	var storm: float = 1.0 - rain * 0.68
-	# Overcast skies (the field's own emergent cloud cover) dim the sun + ambient on top of rain.
-	var cloud_cover: float = 0.0
-	if _material != null and _material.has_method("avg_cloud_cover"):
-		cloud_cover = _material.avg_cloud_cover()
-	storm *= 1.0 - clampf(cloud_cover * 1.5, 0.0, 0.6)
-
-	# Sun arc: steep overhead at noon, shallow at the horizon near dawn/dusk; sweeps E->W.
-	_sun.rotation_degrees = Vector3(-(6.0 + daylight * 66.0), -47.0 + (_time_of_day - 0.5) * 90.0, 0.0)
-	_sun.light_energy = SUN_ENERGY_NOON * daylight * storm
-	# Warm the sunlight near the horizon (dawn/dusk glow).
-	var warm: float = clampf(1.0 - elev * 2.5, 0.0, 1.0) * clampf(daylight * 6.0, 0.0, 1.0)
-	_sun.light_color = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.6, 0.32), warm * 0.8)
-
-	# Lunar cycle: advance the phase on its own slow clock; illuminated fraction is a cosine
-	# of the phase (0 at new, 1 at full). The moon arcs opposite the sun (up through the night).
-	_lunar_phase = fposmod(_lunar_phase + delta / (DAY_LENGTH * LUNAR_DAYS), 1.0)
-	var moon_illum: float = (1.0 - cos(_lunar_phase * TAU)) * 0.5
-	var moonup: float = clampf(-elev, 0.0, 1.0)
-	if _moon != null:
-		_moon.rotation_degrees = Vector3(-(6.0 + moonup * 66.0), 133.0 + (_time_of_day - 0.5) * 90.0, 0.0)
-		_moon.light_energy = MOON_ENERGY_FULL * moon_illum * moonup * storm
-
-	# Sky colors lerp day<->night; horizon warms to dusk-orange around the transitions.
-	var night: float = 1.0 - daylight
-	if _sky_shader_mat != null:
-		_sky_shader_mat.set_shader_parameter("sky_top_color", SKY_TOP_DAY.lerp(SKY_TOP_NIGHT, night))
-		var horizon: Color = SKY_HORIZON_DAY.lerp(SKY_HORIZON_NIGHT, night)
-		horizon = horizon.lerp(SKY_HORIZON_DUSK, warm * 0.7)
-		_sky_shader_mat.set_shader_parameter("sky_horizon_color", horizon)
-		# Darken the ground band at night too, else the static ground horizon reads as a bright
-		# pale strip against the dark night sky.
-		_sky_shader_mat.set_shader_parameter("ground_horizon_color", GROUND_HORIZON_DAY.lerp(GROUND_HORIZON_NIGHT, night))
-		_sky_shader_mat.set_shader_parameter("ground_bottom_color", GROUND_BOTTOM_DAY.lerp(GROUND_BOTTOM_NIGHT, night))
-		_sky_shader_mat.set_shader_parameter("night", night)
-		_sky_shader_mat.set_shader_parameter("moon_phase", _lunar_phase)
-		# Sun/moon directions drive the discs directly (basis.z of a DirectionalLight3D points
-		# back toward the light, i.e. where it sits in the sky).
-		_sky_shader_mat.set_shader_parameter("sun_dir", _sun.global_transform.basis.z)
-		_sky_shader_mat.set_shader_parameter("sun_energy", _sun.light_energy)
-		_sky_shader_mat.set_shader_parameter("sun_color", _sun.light_color)
-		if _moon != null:
-			_sky_shader_mat.set_shader_parameter("moon_dir", _moon.global_transform.basis.z)
-	if _env != null:
-		# Dark night floor, lifted softly on bright-moon nights so full moons are navigable.
-		_env.ambient_light_energy = lerpf(AMBIENT_NIGHT, AMBIENT_DAY, daylight) * storm \
-			+ moon_illum * night * MOON_AMBIENT * storm
-		# Keep the distance fog matched to the current horizon so far terrain and the
-		# ocean melt into the same color the sky shows there (warm at dusk, dark at night).
-		var fog_col: Color = SKY_HORIZON_DAY.lerp(SKY_HORIZON_NIGHT, night)
-		fog_col = fog_col.lerp(SKY_HORIZON_DUSK, warm * 0.7)
-		_env.fog_light_color = fog_col
-
-	# Tint the field's cloud/fog sheets with the sky: white by day, dusk-orange near sunset, dark at
-	# night (unshaded sheets, so the tint is what makes them read against the time of day).
-	var cloud_tint: Color = Color(1.0, 1.0, 1.0).lerp(Color(0.10, 0.12, 0.18), night)
-	cloud_tint = cloud_tint.lerp(Color(1.0, 0.55, 0.30), warm * 0.6)
-	if _clouds != null:
-		_clouds.set_tint(cloud_tint)
-	if _fog != null:
-		_fog.set_tint(cloud_tint)
-
-	# Share the clock with the ecology so nocturnal behavior can key off night.
-	if _ecology != null and _ecology.has_method("set_time_of_day"):
-		_ecology.set_time_of_day(_time_of_day)
-	# NOTE: the material field is NOT fed rain/daylight here — it reads the sun node directly and
-	# derives its own heating/weather. This day/night code only owns the sky + sun transform/energy.
-
-
 # Feed the generative music a mood from live world state. Presentation only.
 func _update_music_mood() -> void:
 	if _audio == null:
@@ -845,7 +563,7 @@ func _update_music_mood() -> void:
 	var population: int = get_tree().get_nodes_in_group("creature").size()
 	_audio.set_music_mood({
 		"population": population,
-		"time_of_day": _time_of_day,
+		"time_of_day": _sky.time_of_day() if _sky != null else _time_of_day,
 		"destruction_intensity": _music_destruction,
 		"threat": _music_destruction,
 	})
