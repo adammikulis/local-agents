@@ -81,6 +81,12 @@ var _wind_sim = null                                     # LAMaterialWind3D (eme
 var _slump_sim = null                                    # LAMaterialSlump3D (granular landslide slump)
 var _combustion = null                                   # LAMaterialCombustion3D (emergent fire/fuel over the field)
 var _scent_sim = null                                    # LAMaterialScent3D (emergent scent/waste/fertility stigmergy)
+var _magma_sim = null                                    # LAMaterialMagma3D (emergent volcano/eruption from lava pressure)
+var _erosion_sim = null                                  # LAMaterialErosion3D (hydraulic erosion → sediment/canyons/deltas)
+var _snowice_sim = null                                  # LAMaterialSnowIce3D (emergent snowpack/melt + frozen ponds)
+var _dust_sim = null                                     # LAMaterialDust3D (airborne dust / sand storms + dune migration)
+var _charge_sim = null                                   # LAMaterialCharge3D (emergent electrification/lightning)
+var _shock_sim = null                                    # LAMaterialShock3D (propagating sound/shock pressure-wave field)
 var _ecology = null                                      # LAEcologyService back-ref (ash regrowth / actor coupling)
 const HeatScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialHeat3D.gd")
 const AtmosphereScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialAtmosphere3D.gd")
@@ -89,6 +95,12 @@ const WindScript: GDScript = preload("res://addons/local_agents/scenes/simulatio
 const SlumpScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialSlump3D.gd")
 const CombustionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialCombustion3D.gd")
 const ScentScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialScent3D.gd")
+const MagmaScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialMagma3D.gd")
+const ErosionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialErosion3D.gd")
+const SnowIceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialSnowIce3D.gd")
+const DustScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialDust3D.gd")
+const ChargeScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialCharge3D.gd")
+const ShockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialShock3D.gd")
 const GPUScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGPU3D.gd")
 const QueriesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldQueries3D.gd")
 const RenderScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldRender3D.gd")
@@ -476,6 +488,21 @@ func activate() -> void:
 	# advects on the LOCAL wind, decays, and washes in rain. CPU-oracle only. Runs after combustion.
 	_scent_sim = ScentScript.new()
 	_scent_sim.setup(self)
+	# More emergent field processes (all CPU-oracle, own their channels in-module). Magma = lava-pressure
+	# volcanoes; erosion = water carving sediment; snow/ice = phase; dust = wind-lofted sand storms;
+	# charge = electrification→lightning; shock = a propagating sound/pressure wave (replaces the seismic ring).
+	_magma_sim = MagmaScript.new()
+	_magma_sim.setup(self)
+	_erosion_sim = ErosionScript.new()
+	_erosion_sim.setup(self)
+	_snowice_sim = SnowIceScript.new()
+	_snowice_sim.setup(self)
+	_dust_sim = DustScript.new()
+	_dust_sim.setup(self)
+	_charge_sim = ChargeScript.new()
+	_charge_sim.setup(self)
+	_shock_sim = ShockScript.new()
+	_shock_sim.setup(self)
 	# GPU-RESIDENT backend: persistent SSBOs, the whole heat+water step batched on-GPU, ONE readback per
 	# frame (see MaterialGPU3D's frame API). Headless has no local RenderingDevice → CPU oracle.
 	if GPUScript.available():
@@ -582,18 +609,36 @@ func _physics_process(delta: float) -> void:
 		# (pressure -> velocity -> deflection). GPU-kernel port is the remaining GPU-first work.
 		if _wind_sim != null:
 			_wind_sim.step()
+		# CPU-oracle field processes on the fresh GPU readback (their edits round-trip to the GPU next frame):
+		# erosion carves water-borne sediment, snow/ice phase-change, magma bores conduits, dust lofts on wind.
+		if _erosion_sim != null:
+			_erosion_sim.step()
+		if _snowice_sim != null:
+			_snowice_sim.step()
+		if _magma_sim != null:
+			_magma_sim.step()
+		if _dust_sim != null:
+			_dust_sim.step()
 		# Emergent fire steps on the fresh temp + wind; the heat it injects rides to the GPU next frame.
 		if _combustion != null:
 			_combustion.step()
-		# Scent/waste stigmergy advects on the fresh wind (CPU oracle, both paths).
+		# Scent/waste stigmergy advects on the fresh wind; charge electrifies updrafts (→ lightning); shock
+		# radiates the latest stimuli. All CPU oracle on both paths.
 		if _scent_sim != null:
 			_scent_sim.step()
+		if _charge_sim != null:
+			_charge_sim.step()
+		if _shock_sim != null:
+			_shock_sim.step()
 	else:
 		for i in range(steps):
 			# Springs feed the surface (rivers emerge as this water flows downhill in 3D).
 			for src in _sources:
 				add_water_world(src["pos"], float(src["rate"]) * STEP_DT)
 			step_water()
+			# Hydraulic erosion reads the fresh water flow, carving rock into sediment (slump then piles it).
+			if _erosion_sim != null:
+				_erosion_sim.step()
 			if _heat != null:
 				_heat.step()
 			# Wind steps after heat (reads post-heat temp for pressure), before the atmosphere.
@@ -601,16 +646,31 @@ func _physics_process(delta: float) -> void:
 				_wind_sim.step()
 			if _atmosphere != null:
 				_atmosphere.step()
+			# Snow/ice phase reads fresh temp + precipitation: snowpack accretes cold, melts warm (→ meltwater),
+			# standing water freezes below 0°C. Before lava/slump so fire reads the freshly wet/frozen cells.
+			if _snowice_sim != null:
+				_snowice_sim.step()
 			if _lava_sim != null:
 				_lava_sim.step()
+			# Magma pressure bores conduits + drives eruptions from the deep hot source (after the lava CA).
+			if _magma_sim != null:
+				_magma_sim.step()
 			if _slump_sim != null:
 				_slump_sim.step()
-			# Fire runs last: fuel ignites from lava/lightning/meteor heat, burns + spreads downwind, leaves ash.
+			# Dust lofts dry loose sediment on strong wind (after wind + slump); dunes migrate downwind.
+			if _dust_sim != null:
+				_dust_sim.step()
+			# Fire runs after: fuel ignites from lava/lightning/meteor heat, burns + spreads downwind, leaves ash.
 			if _combustion != null:
 				_combustion.step()
 			# Scent/waste stigmergy: emit from creatures/carcasses, advect on wind, decay, seed plants.
 			if _scent_sim != null:
 				_scent_sim.step()
+			# Charge accumulates in convective updrafts → lightning; shock radiates the latest violent stimuli.
+			if _charge_sim != null:
+				_charge_sim.step()
+			if _shock_sim != null:
+				_shock_sim.step()
 	# Granular slump settles into permanent terrain on BOTH paths (a CPU-only SDF stamp, throttled).
 	if _slump_sim != null:
 		_slump_sim.settle()
@@ -862,6 +922,45 @@ func scent_cell_count() -> int:
 ## Peak soil nutrient (SMOKE_SUMMARY `fertility_peak`).
 func fertility_peak() -> float:
 	return _scent_sim.fertility_peak() if _scent_sim != null else 0.0
+
+
+# --- Emergent-process forwarders (magma volcano / erosion / snow-ice / dust / charge lightning / shock).
+# Each module owns its channel; the field just exposes the write (emitter) + read (diagnostic) entry points.
+func add_magma_source(world_pos: Vector3, temp: float, rate: float) -> void:
+	if _magma_sim != null: _magma_sim.add_source(world_pos, temp, rate)
+func magma_cell_count() -> int:
+	return _magma_sim.magma_cells() if _magma_sim != null else 0
+func magma_erupting() -> bool:
+	return _magma_sim.erupting() if _magma_sim != null else false
+func erosion_cell_count() -> int:
+	return _erosion_sim.eroding_cells() if _erosion_sim != null else 0
+func snow_depth_at(x: float, z: float) -> float:
+	return _snowice_sim.snow_depth_at(x, z) if _snowice_sim != null else 0.0
+func snow_cell_count() -> int:
+	return _snowice_sim.snow_cells() if _snowice_sim != null else 0
+func ice_cell_count() -> int:
+	return _snowice_sim.ice_cells() if _snowice_sim != null else 0
+func dust_at(x: float, y: float, z: float) -> float:
+	return _dust_sim.dust_at(x, y, z) if _dust_sim != null else 0.0
+func dust_cell_count() -> int:
+	return _dust_sim.dust_cells() if _dust_sim != null else 0
+## Wire the visual-only lightning bolt (VoxelDisasters.spawn_lightning); the field's charge fires it.
+func set_lightning_visual(cb: Callable) -> void:
+	if _charge_sim != null: _charge_sim.on_bolt = cb
+func charge_peak() -> float:
+	return _charge_sim.charge_peak() if _charge_sim != null else 0.0
+func bolts_fired() -> int:
+	return _charge_sim.bolts_fired() if _charge_sim != null else 0
+## Inject a shock/sound wave (explosion, thunder, impact, stampede) — the ONE stimulus violent events feed;
+## shock_at/shock_gradient are what the camera tremor + creature panic read (replaced the seismic ring).
+func emit_shock(world_pos: Vector3, magnitude: float) -> void:
+	if _shock_sim != null: _shock_sim.emit(world_pos, magnitude)
+func shock_at(world_pos: Vector3) -> float:
+	return _shock_sim.shock_at(world_pos) if _shock_sim != null else 0.0
+func shock_gradient(world_pos: Vector3) -> Vector3:
+	return _shock_sim.shock_gradient(world_pos) if _shock_sim != null else Vector3.ZERO
+func shock_cell_count() -> int:
+	return _shock_sim.shock_cells() if _shock_sim != null else 0
 
 
 # The dynamic-water surface mesh is rebuilt each frame by the render adapter (MaterialFieldRender3D).
