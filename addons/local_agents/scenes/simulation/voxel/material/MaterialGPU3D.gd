@@ -57,7 +57,27 @@ const SOLAR_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/v
 const BUOY_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/heat3d_buoyancy.glsl"
 const COOL_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/heat3d_cool.glsl"
 const WATER_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/water3d.glsl"
+const EVAP_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/atmos_evap3d.glsl"
+const TRANSPORT_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/atmos_transport3d.glsl"
+const CONDENSE_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/atmos_condense3d.glsl"
+const RAIN_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/atmos_rain3d.glsl"
+const LAVA_FLOW_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/lava_flow3d.glsl"
+const LAVA_PHASE_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/lava_phase3d.glsl"
 const LOCAL_SIZE_X: int = 64
+
+# Field timestep (MaterialField3D.STEP_DT = 1/STEP_HZ) — the atmosphere wind advection needs it to turn a
+# world wind velocity into a per-step cell-fraction. Kept in sync with MaterialField3D.
+const STEP_DT: float = 0.1
+# Per-field atmosphere transport gains (copies of MaterialAtmosphere3D's constants), applied via the ONE
+# shared atmos_transport3d kernel dispatched three times.
+const VAPOR_DIFFUSE: float = 0.14
+const CLOUD_DIFFUSE: float = 0.06
+const FOG_DIFFUSE: float = 0.03
+const VAPOR_RISE: float = 0.10
+const CLOUD_RISE: float = 0.04
+const VAPOR_WIND_GAIN: float = 1.0
+const CLOUD_WIND_GAIN: float = 1.0
+const FOG_WIND_GAIN: float = 0.5
 
 var _rd: RenderingDevice = null
 var _field = null                          # LAMaterialField3D (shared grid back-reference)
@@ -72,13 +92,21 @@ var _origin_y: float = 0.0
 var _cell_size: float = 5.0
 var _sea_level: float = 0.0
 var _solar: float = 0.6
+var _wind: Vector2 = Vector2.ZERO          # world XZ wind, refreshed each begin_frame (drives atmosphere advection)
 
 var _heat_pipeline: RID = RID()
 var _solar_pipeline: RID = RID()
 var _buoy_pipeline: RID = RID()
 var _cool_pipeline: RID = RID()
 var _water_pipeline: RID = RID()
+var _evap_pipeline: RID = RID()
+var _transport_pipeline: RID = RID()
+var _condense_pipeline: RID = RID()
+var _rain_pipeline: RID = RID()
+var _lava_flow_pipeline: RID = RID()
+var _lava_phase_pipeline: RID = RID()
 var _shaders: Array[RID] = []              # every compiled shader RID (freed in dispose)
+var _pipeline_shader: Dictionary = {}      # pipeline RID -> its shader RID (for uniform_set_create)
 
 # --- Persistent SSBOs (sized to _cell_count), created ONCE, kept resident across the whole run. -----
 # EVERY dynamic field is a PING-PONG PAIR (a <-> b). ONE global `_parity` selects the live buffer for ALL
@@ -100,7 +128,8 @@ var _buf_lava_a: RID = RID()
 var _buf_lava_b: RID = RID()
 var _buf_solid: RID = RID()                # byte->float mirror of _solid (1 = rock)
 var _buf_static: RID = RID()               # byte->float mirror of _static (1 = calm sea sink)
-var _buf_send: RID = RID()                 # cell_count * 6 floats: per-direction outflow
+var _buf_send: RID = RID()                 # cell_count * 6 floats: per-direction outflow (water AND lava reuse)
+var _buf_rain: RID = RID()                 # cell_count floats: per-cell rain mass scratch (condense -> rain gather)
 
 # name -> [rid_a, rid_b] for every ping-pong field, so future passes fetch buffers by name.
 var _fields: Dictionary = {}
@@ -113,6 +142,20 @@ var _solar_set: Array[RID] = [RID(), RID()]    # in-place on back temp (+ solid)
 var _buoy_set: Array[RID] = [RID(), RID()]     # in-place on back temp (+ solid)
 var _cool_set: Array[RID] = [RID(), RID()]     # in-place on back temp (+ back water + solid)
 var _water_set: Array[RID] = [RID(), RID()]    # in=live water, out=back water (+ solid/static/send)
+# Atmosphere sets. evap: in=vapor live, out=vapor back. transport: dispatched 3x — vapor reads its post-evap
+# back and writes the (now-free) live buffer as scratch; cloud/fog read their live and write back. condense:
+# reads post-transport vapor(live)/cloud(back)/fog(back), writes final vapor(back) + rain scratch. rain: adds
+# the gathered rain into back water.
+var _evap_set: Array[RID] = [RID(), RID()]
+var _transport_vapor_set: Array[RID] = [RID(), RID()]
+var _transport_cloud_set: Array[RID] = [RID(), RID()]
+var _transport_fog_set: Array[RID] = [RID(), RID()]
+var _condense_set: Array[RID] = [RID(), RID()]
+var _rain_set: Array[RID] = [RID(), RID()]
+# Lava sets. flow: in=lava live, out=lava back (+ solid/send/back temp for carry-heat). phase: in-place on
+# back lava + back temp + solid (solidify/sustain).
+var _lava_flow_set: Array[RID] = [RID(), RID()]
+var _lava_phase_set: Array[RID] = [RID(), RID()]
 var _parity: int = 0                        # 0 -> live in *_a, 1 -> live in *_b
 var _static_uploaded: bool = false
 
@@ -152,6 +195,12 @@ func _init_rd() -> void:
 	_buoy_pipeline = _pipeline(BUOY_SHADER_PATH)
 	_cool_pipeline = _pipeline(COOL_SHADER_PATH)
 	_water_pipeline = _pipeline(WATER_SHADER_PATH)
+	_evap_pipeline = _pipeline(EVAP_SHADER_PATH)
+	_transport_pipeline = _pipeline(TRANSPORT_SHADER_PATH)
+	_condense_pipeline = _pipeline(CONDENSE_SHADER_PATH)
+	_rain_pipeline = _pipeline(RAIN_SHADER_PATH)
+	_lava_flow_pipeline = _pipeline(LAVA_FLOW_SHADER_PATH)
+	_lava_phase_pipeline = _pipeline(LAVA_PHASE_SHADER_PATH)
 
 
 func _pipeline(path: String) -> RID:
@@ -159,7 +208,9 @@ func _pipeline(path: String) -> RID:
 	var spirv: RDShaderSPIRV = shader_file.get_spirv()
 	var shader: RID = _rd.shader_create_from_spirv(spirv)
 	_shaders.append(shader)
-	return _rd.compute_pipeline_create(shader)
+	var pipeline: RID = _rd.compute_pipeline_create(shader)
+	_pipeline_shader[pipeline] = shader
+	return pipeline
 
 
 func _make_uniform(binding: int, buf: RID) -> RDUniform:
@@ -226,6 +277,7 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 	send_zero.resize(cell_count * 6)
 	var send_bytes: PackedByteArray = send_zero.to_byte_array()
 	_buf_send = _rd.storage_buffer_create(send_bytes.size(), send_bytes)
+	_buf_rain = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_static_uploaded = false
 
 	_fields = {
@@ -243,6 +295,14 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 		var temp_back: RID = back_buffer("temp", p)
 		var water_live: RID = live_buffer("water", p)
 		var water_back: RID = back_buffer("water", p)
+		var vapor_live: RID = live_buffer("vapor", p)
+		var vapor_back: RID = back_buffer("vapor", p)
+		var cloud_live: RID = live_buffer("cloud", p)
+		var cloud_back: RID = back_buffer("cloud", p)
+		var fog_live: RID = live_buffer("fog", p)
+		var fog_back: RID = back_buffer("fog", p)
+		var lava_live: RID = live_buffer("lava", p)
+		var lava_back: RID = back_buffer("lava", p)
 
 		# Conduction: heat3d.glsl bindings 0 = in (live), 1 = out (back).
 		_heat_set[p] = _rd.uniform_set_create(
@@ -263,25 +323,61 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 			_make_uniform(2, _buf_static), _make_uniform(3, _buf_send),
 			_make_uniform(4, water_back)], _shader_of(_water_pipeline), 0)
 
+		# --- Atmosphere ---------------------------------------------------------
+		# Evap: atmos_evap3d.glsl 0=vapor in(live), 1=temp(back post-heat), 2=water(back post-flow),
+		# 3=solid, 4=static, 5=vapor out(back).
+		_evap_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, vapor_live), _make_uniform(1, temp_back),
+			_make_uniform(2, water_back), _make_uniform(3, _buf_solid),
+			_make_uniform(4, _buf_static), _make_uniform(5, vapor_back)], _shader_of(_evap_pipeline), 0)
+		# Transport: atmos_transport3d.glsl 0=in, 1=solid, 2=out. VAPOR reads its post-evap back and writes
+		# the (now-free) live buffer as scratch; CLOUD/FOG read their live and write back.
+		_transport_vapor_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, vapor_back), _make_uniform(1, _buf_solid),
+			_make_uniform(2, vapor_live)], _shader_of(_transport_pipeline), 0)
+		_transport_cloud_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, cloud_live), _make_uniform(1, _buf_solid),
+			_make_uniform(2, cloud_back)], _shader_of(_transport_pipeline), 0)
+		_transport_fog_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, fog_live), _make_uniform(1, _buf_solid),
+			_make_uniform(2, fog_back)], _shader_of(_transport_pipeline), 0)
+		# Condense: atmos_condense3d.glsl 0=vapor in(post-transport = live scratch), 1=cloud(back, in place),
+		# 2=fog(back, in place), 3=temp(back), 4=water(back), 5=solid, 6=static, 7=vapor out(back), 8=rain.
+		_condense_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, vapor_live), _make_uniform(1, cloud_back),
+			_make_uniform(2, fog_back), _make_uniform(3, temp_back),
+			_make_uniform(4, water_back), _make_uniform(5, _buf_solid),
+			_make_uniform(6, _buf_static), _make_uniform(7, vapor_back),
+			_make_uniform(8, _buf_rain)], _shader_of(_condense_pipeline), 0)
+		# Rain: atmos_rain3d.glsl 0=rain, 1=solid, 2=water(back, in place +=).
+		_rain_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, _buf_rain), _make_uniform(1, _buf_solid),
+			_make_uniform(2, water_back)], _shader_of(_rain_pipeline), 0)
 
-# uniform_set_create needs the SHADER RID, not the pipeline. Shaders were appended in _pipeline() in the
-# SAME order the pipelines were created (heat, solar, buoy, cool, water), so map pipeline -> shader by it.
+		# --- Lava ---------------------------------------------------------------
+		# Flow: lava_flow3d.glsl 0=lava in(live), 1=solid, 2=send, 3=lava out(back), 4=temp(back, carry-heat).
+		_lava_flow_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, lava_live), _make_uniform(1, _buf_solid),
+			_make_uniform(2, _buf_send), _make_uniform(3, lava_back),
+			_make_uniform(4, temp_back)], _shader_of(_lava_flow_pipeline), 0)
+		# Phase (solidify + sustain): lava_phase3d.glsl 0=lava(back, in place), 1=temp(back, in place),
+		# 2=solid(in place).
+		_lava_phase_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, lava_back), _make_uniform(1, temp_back),
+			_make_uniform(2, _buf_solid)], _shader_of(_lava_phase_pipeline), 0)
+
+
+# uniform_set_create needs the SHADER RID, not the pipeline. _pipeline() records the pairing.
 func _shader_of(pipeline: RID) -> RID:
-	if pipeline == _heat_pipeline:
-		return _shaders[0]
-	if pipeline == _solar_pipeline:
-		return _shaders[1]
-	if pipeline == _buoy_pipeline:
-		return _shaders[2]
-	if pipeline == _cool_pipeline:
-		return _shaders[3]
-	return _shaders[4]
+	return _pipeline_shader.get(pipeline, RID())
 
 
 func _free_buffers() -> void:
 	if _rd == null:
 		return
-	for arr in [_heat_set, _solar_set, _buoy_set, _cool_set, _water_set]:
+	for arr in [_heat_set, _solar_set, _buoy_set, _cool_set, _water_set,
+			_evap_set, _transport_vapor_set, _transport_cloud_set, _transport_fog_set,
+			_condense_set, _rain_set, _lava_flow_set, _lava_phase_set]:
 		for s in arr:
 			if s.is_valid():
 				_rd.free_rid(s)
@@ -290,10 +386,18 @@ func _free_buffers() -> void:
 	_buoy_set = [RID(), RID()]
 	_cool_set = [RID(), RID()]
 	_water_set = [RID(), RID()]
+	_evap_set = [RID(), RID()]
+	_transport_vapor_set = [RID(), RID()]
+	_transport_cloud_set = [RID(), RID()]
+	_transport_fog_set = [RID(), RID()]
+	_condense_set = [RID(), RID()]
+	_rain_set = [RID(), RID()]
+	_lava_flow_set = [RID(), RID()]
+	_lava_phase_set = [RID(), RID()]
 	for buf in [_buf_temp_a, _buf_temp_b, _buf_water_a, _buf_water_b,
 			_buf_vapor_a, _buf_vapor_b, _buf_cloud_a, _buf_cloud_b,
 			_buf_fog_a, _buf_fog_b, _buf_lava_a, _buf_lava_b,
-			_buf_solid, _buf_static, _buf_send]:
+			_buf_solid, _buf_static, _buf_send, _buf_rain]:
 		if buf.is_valid():
 			_rd.free_rid(buf)
 	_buf_temp_a = RID(); _buf_temp_b = RID()
@@ -302,7 +406,7 @@ func _free_buffers() -> void:
 	_buf_cloud_a = RID(); _buf_cloud_b = RID()
 	_buf_fog_a = RID(); _buf_fog_b = RID()
 	_buf_lava_a = RID(); _buf_lava_b = RID()
-	_buf_solid = RID(); _buf_static = RID(); _buf_send = RID()
+	_buf_solid = RID(); _buf_static = RID(); _buf_send = RID(); _buf_rain = RID()
 	_fields = {}
 	_cell_count = 0
 	_static_uploaded = false
@@ -313,15 +417,20 @@ func dispose() -> void:
 	if _rd == null:
 		return
 	_free_buffers()
-	for pipe in [_heat_pipeline, _solar_pipeline, _buoy_pipeline, _cool_pipeline, _water_pipeline]:
+	for pipe in [_heat_pipeline, _solar_pipeline, _buoy_pipeline, _cool_pipeline, _water_pipeline,
+			_evap_pipeline, _transport_pipeline, _condense_pipeline, _rain_pipeline,
+			_lava_flow_pipeline, _lava_phase_pipeline]:
 		if pipe.is_valid():
 			_rd.free_rid(pipe)
 	for s in _shaders:
 		if s.is_valid():
 			_rd.free_rid(s)
 	_shaders = []
+	_pipeline_shader = {}
 	_heat_pipeline = RID(); _solar_pipeline = RID(); _buoy_pipeline = RID()
 	_cool_pipeline = RID(); _water_pipeline = RID()
+	_evap_pipeline = RID(); _transport_pipeline = RID(); _condense_pipeline = RID()
+	_rain_pipeline = RID(); _lava_flow_pipeline = RID(); _lava_phase_pipeline = RID()
 	_rd.free()
 	_rd = null
 
@@ -374,19 +483,31 @@ func upload_static_state(solid: PackedByteArray, static_cells: PackedByteArray) 
 # --- RESIDENT FRAME API (begin_frame -> step x N -> end_frame) -------------------------------------
 
 ## Frame start: upload the CPU-authoritative temp + water (which carry this frame's injections — springs,
-## add_heat, meteor splashes) into the live resident buffers, refresh the solar factor, and reset
-## ping-pong parity. Cheap: two buffer_update copies, no dispatch, no sync.
-func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: float = 0.6) -> void:
+## add_heat, meteor splashes) into the CURRENT live resident buffers, and refresh the solar + wind scalars.
+## Cheap: two buffer_update copies, no dispatch, no sync. Parity is NOT reset — vapor / cloud / fog / lava
+## are fully resident (they persist on the GPU across frames, ping-ponging in lockstep), so uploading temp
+## and water into whichever buffer is currently live keeps every field consistent with the last end_frame.
+## Seed the resident fields (and push per-frame injections into them) with set_field(); `wind` (world XZ)
+## drives the atmosphere advection.
+func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: float = 0.6, wind: Vector2 = Vector2.ZERO) -> void:
 	_init_rd()
 	if _rd == null:
 		return
 	if _field != null:
 		_ensure_buffers(_field._dim_x, _field._dim_y, _field._dim_z)
 	_solar = solar
-	# Parity 0 => live data is in the *_a buffers; upload the fresh CPU state there.
-	_parity = 0
-	upload(_buf_temp_a, temp)
-	upload(_buf_water_a, water)
+	_wind = wind
+	upload(live_buffer("temp", _parity), temp)
+	upload(live_buffer("water", _parity), water)
+
+
+## Seed / inject a resident field (temp / water / vapor / cloud / fog / lava) into its CURRENT live buffer.
+## Use it to upload the initial vapor/cloud/fog/lava state once, or to fold a CPU-side injection (an
+## add_lava vent, a spring) into the resident buffer before the step loop. No dispatch, no sync.
+func set_field(name: String, arr: PackedFloat32Array) -> void:
+	if _rd == null:
+		return
+	upload(live_buffer(name, _parity), arr)
 
 
 ## One resident sim step, queued into a compute list (no submit/sync/readback). Order mirrors the field's
@@ -441,11 +562,65 @@ func step() -> void:
 	_rd.compute_list_dispatch(cl, groups, 1, 1)
 
 	# ================= ADD-A-PASS SEAM ==============================================================
-	# Atmosphere (vapor/cloud/fog transport + condensation) and lava-flow passes plug in HERE. Bind
-	# their pipeline + <name>_set[_parity] (built from live_buffer/back_buffer over the resident
-	# vapor/cloud/fog/lava pairs), add a barrier if a later pass reads an earlier pass's writes, and
-	# dispatch. Do NOT submit/sync here — end_frame() owns the single readback. The parity flip below
-	# keeps every field consistent.
+	# ATMOSPHERE then LAVA (matching MaterialField3D._physics_process order: water -> heat -> atmosphere
+	# -> lava). A barrier already separated the heat forcing passes above; a fresh one guards the temp
+	# writes (post-heat temp is what evap/condense read).
+	_rd.compute_list_add_barrier(cl)
+
+	# --- ATMOSPHERE STAGE 1: EVAPORATION. vapor[live] + evap -> vapor[back]. ---
+	_rd.compute_list_bind_compute_pipeline(cl, _evap_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _evap_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, _dims_pc(), 16)
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
+	_rd.compute_list_add_barrier(cl)          # post-evap vapor visible to its transport read
+
+	# --- ATMOSPHERE STAGE 2: TRANSPORT (vapor / cloud / fog). Each reads a snapshot, writes a disjoint
+	# buffer; the three are mutually independent so no barrier is needed BETWEEN them. ---
+	_rd.compute_list_bind_compute_pipeline(cl, _transport_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _transport_vapor_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, _transport_pc(VAPOR_DIFFUSE, VAPOR_RISE, VAPOR_WIND_GAIN), 48)
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
+	_rd.compute_list_bind_uniform_set(cl, _transport_cloud_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, _transport_pc(CLOUD_DIFFUSE, CLOUD_RISE, CLOUD_WIND_GAIN), 48)
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
+	_rd.compute_list_bind_uniform_set(cl, _transport_fog_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, _transport_pc(FOG_DIFFUSE, 0.0, FOG_WIND_GAIN), 48)
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
+	_rd.compute_list_add_barrier(cl)          # post-transport vapor/cloud/fog visible to condensation
+
+	# --- ATMOSPHERE STAGE 3: CONDENSATION + rain accounting. Per void cell: dewpoint condense/re-evap/
+	# decay + compute rain (stored to the rain scratch). vapor[live] -> vapor[back]; cloud/fog[back] in place. ---
+	_rd.compute_list_bind_compute_pipeline(cl, _condense_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _condense_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, _dims_pc(), 16)
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
+	_rd.compute_list_add_barrier(cl)          # rain scratch visible to the rain gather
+
+	# --- ATMOSPHERE STAGE 4: RAIN GATHER. Route each cell's rain to the ground cell: water[back] += rain. ---
+	_rd.compute_list_bind_compute_pipeline(cl, _rain_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _rain_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, _dims_pc(), 16)
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
+	_rd.compute_list_add_barrier(cl)          # temp[back] carry-heat / water[back] settle before lava reads
+
+	# --- LAVA FLOW: viscous 3D CA, two-pass gather (reuses the water send buffer). lava[live] ->
+	# lava[back]; a receiving cell's temp[back] is floored to MOLTEN_FLOOR (carry-heat). ---
+	_rd.compute_list_bind_compute_pipeline(cl, _lava_flow_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _lava_flow_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, _lava_pc(0), 32)
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
+	_rd.compute_list_add_barrier(cl)
+	_rd.compute_list_bind_compute_pipeline(cl, _lava_flow_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _lava_flow_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, _lava_pc(1), 32)
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
+	_rd.compute_list_add_barrier(cl)          # post-flow lava/temp visible to solidify+sustain
+
+	# --- LAVA PHASE: solidify (cooled lava -> rock) + sustain (keep remaining lava molten), in place. ---
+	_rd.compute_list_bind_compute_pipeline(cl, _lava_phase_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _lava_phase_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, _dims_pc(), 16)
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
 	# ===============================================================================================
 
 	_rd.compute_list_end()
@@ -454,15 +629,25 @@ func step() -> void:
 
 
 ## Frame end: the ONLY submit + sync of the frame. Flushes every queued step, waits once, then reads the
-## final temp + water off whichever ping-pong buffer is live. Returns {"temp": ..., "water": ...}.
+## final resident state off whichever ping-pong buffer is live. Returns the full per-cell sim output:
+## {"temp", "water", "vapor", "cloud", "fog", "lava"} (temp+water round-trip via begin_frame; the airborne
+## fields + lava are resident and returned so the renderer / rain layer / lava visuals can consume them).
 func end_frame() -> Dictionary:
 	if _rd == null or _cell_count == 0:
-		return {"temp": PackedFloat32Array(), "water": PackedFloat32Array()}
+		return {
+			"temp": PackedFloat32Array(), "water": PackedFloat32Array(),
+			"vapor": PackedFloat32Array(), "cloud": PackedFloat32Array(),
+			"fog": PackedFloat32Array(), "lava": PackedFloat32Array(),
+		}
 	_rd.submit()
 	_rd.sync()
 	return {
 		"temp": download(live_buffer("temp", _parity)),
 		"water": download(live_buffer("water", _parity)),
+		"vapor": download(live_buffer("vapor", _parity)),
+		"cloud": download(live_buffer("cloud", _parity)),
+		"fog": download(live_buffer("fog", _parity)),
+		"lava": download(live_buffer("lava", _parity)),
 	}
 
 
@@ -505,6 +690,37 @@ func _water_pc(pass_id: int) -> PackedByteArray:
 	pc.encode_u32(20, 0)
 	pc.encode_u32(24, 0)
 	pc.encode_u32(28, 0)
+	return pc
+
+
+# Lava flow shares the water push-constant shape (dims + pass_id).
+func _lava_pc(pass_id: int) -> PackedByteArray:
+	return _water_pc(pass_id)
+
+
+# Atmosphere transport push-constant: dims + this field's diffuse/rise fractions + the precomputed
+# horizontal wind shares ax/az (clamped 0..0.5) and signs sx/sz. Mirrors MaterialAtmosphere3D._transport:
+# ax = clamp(|wind.x| * wind_gain * STEP_DT / cell_size, 0, 0.5); sx = sign(wind.x).
+func _transport_pc(diffuse_frac: float, rise_frac: float, wind_gain: float) -> PackedByteArray:
+	var cs: float = _cell_size if _cell_size > 0.0 else 1.0
+	var ax: float = clampf(absf(_wind.x) * wind_gain * STEP_DT / cs, 0.0, 0.5)
+	var az: float = clampf(absf(_wind.y) * wind_gain * STEP_DT / cs, 0.0, 0.5)
+	var sx: int = 1 if _wind.x > 0.0 else -1
+	var sz: int = 1 if _wind.y > 0.0 else -1
+	var pc: PackedByteArray = PackedByteArray()
+	pc.resize(48)
+	pc.encode_u32(0, _dim_x)
+	pc.encode_u32(4, _dim_y)
+	pc.encode_u32(8, _dim_z)
+	pc.encode_u32(12, _cell_count)
+	pc.encode_float(16, diffuse_frac)
+	pc.encode_float(20, rise_frac)
+	pc.encode_float(24, ax)
+	pc.encode_float(28, az)
+	pc.encode_s32(32, sx)
+	pc.encode_s32(36, sz)
+	pc.encode_u32(40, 0)
+	pc.encode_u32(44, 0)
 	return pc
 
 
