@@ -59,6 +59,7 @@ const REGROW_PER_SCAN: int = 3          # ash cells asked to regrow per scan (bu
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 var _fire_scratch: PackedFloat32Array = PackedFloat32Array()  # fire double buffer (reads neighbours, writes out)
 var _ash: PackedByteArray = PackedByteArray()            # 1 = a cell that burned out (fuel spent) — regrowth site
+var _had_fuel: PackedByteArray = PackedByteArray()       # 1 = a cell that was ever given fuel — GPU-path burned-out detector
 var _seeded: bool = false
 var _scan_tick: int = 0
 var _active_last: int = 0                                # diagnostic: burning cells after the last step
@@ -71,6 +72,8 @@ func setup(field) -> void:
 	_fire_scratch.resize(_f._cell_count)
 	_ash = PackedByteArray()
 	_ash.resize(_f._cell_count)
+	_had_fuel = PackedByteArray()
+	_had_fuel.resize(_f._cell_count)
 	_seeded = false
 
 
@@ -175,6 +178,45 @@ func step() -> void:
 		_regrow_ash()
 
 
+## GPU-path TAIL — runs ONLY the scene/ecology concerns (fuel seeding, plant/tree fuel-feed + consume, ash
+## marking, ash->plant regrowth) WITHOUT the ember/phase grid loop, because on the GPU-resident path
+## kernels3d/fire3d.glsl already ran that per-cell core (ember gather + ignite/burn/ash) on the device and
+## _f._fire/_f._fuel came back from the readback. Called ONCE per frame on the fresh GPU readback (the CPU
+## path keeps calling the full step()). Mirrors how lava's SDF stamps stay a CPU tail off the GPU flow.
+func step_scene_only() -> void:
+	if _f == null or _f._cell_count <= 0:
+		return
+	if not _seeded:
+		seed_fuel()
+	if _ash.size() != _f._cell_count:
+		_ash.resize(_f._cell_count)
+	if _had_fuel.size() != _f._cell_count:
+		_had_fuel.resize(_f._cell_count)
+	_active_last = active_fire_count()
+	_scan_tick += 1
+	if _scan_tick >= SCAN_EVERY:
+		_scan_tick = 0
+		_scan_actors()
+		_mark_ash()
+		_regrow_ash()
+
+
+## GPU-path ash detection: the fire kernel doesn't write the CPU _ash array (a scene concern), so on the GPU
+## path we derive ash from the fuel channel — a cell that WAS given fuel (_had_fuel) but has burned down to
+## nothing (fuel spent) and is no longer alight is ash, a regrowth site. Fuel only ever decreases by burning,
+## so fuel<=FUEL_MIN on a once-fuelled cell means it burned out. Cheap on the SCAN_EVERY cadence.
+func _mark_ash() -> void:
+	var fuel: PackedFloat32Array = _f._fuel
+	var fire: PackedFloat32Array = _f._fire
+	var solid: PackedByteArray = _f._solid
+	for i in range(_f._cell_count):
+		if _had_fuel[i] == 0 or solid[i] != 0:
+			continue
+		if fuel[i] <= FUEL_MIN and fire[i] <= FIRE_MIN:
+			_ash[i] = 1
+			_had_fuel[i] = 0
+
+
 ## Ember heat one burning neighbour contributes to this cell: a base creep plus a downwind boost scaled by
 ## the wind component the neighbour blows TOWARD us (`toward` = +vel along the neighbour→cell axis), all ×
 ## the emitter's fire intensity. Capped for stability. Duplicated EXACTLY in kernels3d/fire3d.glsl.
@@ -227,6 +269,8 @@ func seed_fuel() -> void:
 				continue
 			if fuel[si] < GRASS_FUEL:
 				fuel[si] = GRASS_FUEL
+			if _had_fuel.size() == _f._cell_count:
+				_had_fuel[si] = 1
 	_seeded = true
 
 
@@ -280,6 +324,8 @@ func _scan_actors() -> void:
 			p.queue_free()                                   # a plant on a burning cell is consumed by the fire
 		elif fuel[i] < PLANT_FUEL:
 			fuel[i] = PLANT_FUEL
+			if _had_fuel.size() == _f._cell_count:
+				_had_fuel[i] = 1
 	for t in tree.get_nodes_in_group("tree"):
 		if not is_instance_valid(t):
 			continue
@@ -291,6 +337,8 @@ func _scan_actors() -> void:
 				t.take_damage(1000.0, "burned", _f.wind3_at(t.global_position.x, t.global_position.y, t.global_position.z))
 		elif fuel[ti] < TREE_FUEL:
 			fuel[ti] = TREE_FUEL
+			if _had_fuel.size() == _f._cell_count:
+				_had_fuel[ti] = 1
 
 
 ## Wildfire ash regrows: once an ash cell has COOLED (fire passed, temp back near ambient) and is dry, ask

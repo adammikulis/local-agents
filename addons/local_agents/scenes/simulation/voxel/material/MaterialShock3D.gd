@@ -48,6 +48,7 @@ var _shock: PackedFloat32Array = PackedFloat32Array()    # OWNED channel: shock/
 var _scratch: PackedFloat32Array = PackedFloat32Array()  # double buffer (gather reads _shock, writes _scratch)
 var _peak_last: float = 0.0                              # diagnostic: peak shock after the last step
 var _cells_last: int = 0                                 # diagnostic: audible cells after the last step
+var _dirty: bool = false                                 # a fresh emit() this frame → force a step even if quiescent
 
 
 func setup(field) -> void:
@@ -68,6 +69,7 @@ func emit(world_pos: Vector3, magnitude: float) -> void:
 	if i < 0 or _f._solid[i] != 0:
 		return
 	_shock[i] += magnitude
+	_dirty = true
 
 
 ## PROPAGATE one step (gather form; deterministic + order-independent, so it mirrors a GPU kernel bit-for-
@@ -81,6 +83,16 @@ func step() -> void:
 		_shock.resize(_f._cell_count)
 	if _scratch.size() != _f._cell_count:
 		_scratch.resize(_f._cell_count)
+
+	# IDLE SKIP: the shock field is quiescent (all cells decayed below audible) and nothing new was injected
+	# this frame — a violent event is rare, so most frames there is nothing to propagate. Skip the full-grid
+	# gather entirely (a big CPU saving) until the next emit() re-arms it. Correctness: a skipped step leaves
+	# the (already-negligible) field untouched, and shock_at reads ~0 either way.
+	if not _dirty and _peak_last <= SHOCK_MIN:
+		_peak_last = 0.0
+		_cells_last = 0
+		return
+	_dirty = false
 
 	var dx: int = _f._dim_x
 	var dy: int = _f._dim_y

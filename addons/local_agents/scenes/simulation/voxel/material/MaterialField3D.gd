@@ -573,6 +573,12 @@ func _physics_process(delta: float) -> void:
 		# oracle post-readback) so the atmosphere transport kernel advects moisture by the local wind.
 		_gpu.upload_wind(_vel_x, _vel_z)
 		_gpu.set_field("sediment", _sediment)
+		# Fire/fuel round-trip like lava: the fire3d.glsl kernel runs the ember/phase core on-device; the CPU
+		# keeps only the scene tail (seed/scan/ash/regrow via step_scene_only). Upload the authoritative CPU
+		# fuel/fire (carrying disaster ignitions + the tail's fuel seeding/top-ups) into the resident buffers,
+		# run the GPU passes, then read the consumed fuel + evolved fire back below.
+		_gpu.set_field("fuel", _fuel)
+		_gpu.set_field("fire", _fire)
 		# Vapor is re-uploaded ONLY when a CPU-side injection (a storm's add_vapor) dirtied it. With nothing
 		# injected it lives fully resident on the GPU (re-uploading the last readback would just clobber the
 		# GPU's own evolution), so we skip the upload AND the readback below — cloud/fog are never re-uploaded.
@@ -589,6 +595,10 @@ func _physics_process(delta: float) -> void:
 		_temp = out["temp"]
 		_water = out["water"]
 		_lava = out["lava"]
+		if out.has("fire"):
+			_fire = out["fire"]
+		if out.has("fuel"):
+			_fuel = out["fuel"]
 		if out.has("sediment"):
 			_sediment = out["sediment"]
 		if out.has("vapor"):
@@ -619,9 +629,10 @@ func _physics_process(delta: float) -> void:
 			_magma_sim.step()
 		if _dust_sim != null:
 			_dust_sim.step()
-		# Emergent fire steps on the fresh temp + wind; the heat it injects rides to the GPU next frame.
+		# Emergent fire: the ember/phase CORE ran on-GPU (fire3d.glsl) and fuel/fire came back in the readback
+		# above — so here we run ONLY the CPU scene tail (fuel seed/scan, ash marking, ash->plant regrowth).
 		if _combustion != null:
-			_combustion.step()
+			_combustion.step_scene_only()
 		# Scent/waste stigmergy advects on the fresh wind; charge electrifies updrafts (→ lightning); shock
 		# radiates the latest stimuli. All CPU oracle on both paths.
 		if _scent_sim != null:
