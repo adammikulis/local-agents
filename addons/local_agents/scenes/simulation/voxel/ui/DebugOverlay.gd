@@ -12,7 +12,7 @@ const BEAM_THICK: float = 0.09             # offset used to fake line thickness 
 const RING_RADIUS: float = 1.4
 const RING_SEGS: int = 20
 const PATH_LEN: float = 5.0
-const WIND_GRID: int = 10
+const WIND_GRID: int = 18            # denser sampling so local funneling/fronts read clearly in the arrows
 
 # Highlightable groups -> marker colour (mirrors the spawn-palette identity colours).
 const MARKER_COLORS: Dictionary = {
@@ -144,25 +144,39 @@ func _draw_paths() -> void:
 		_line(tip, tip - dir * 1.0 - side, col)
 
 
-# The emergent wind as a grid of arrows floating above the world, so its direction/strength is visible.
+# The emergent LOCAL wind field as a grid of arrows floating above the world: each arrow is sampled from
+# wind_at(x,z) at its own XZ position, so its direction AND length (= local speed) vary across the map —
+# this is the primary way to SEE funneling through valley gaps and fronts pulling air into a heated low.
 func _draw_wind() -> void:
-	if _field == null or not _field.has_method("wind"):
+	if _field == null or not _field.has_method("wind_at"):
 		return
-	var w: Vector2 = _field.wind()
-	if w.length() < 0.02:
-		return
-	var dir: Vector3 = Vector3(w.x, 0.0, w.y).normalized()
-	var mag: float = clampf(w.length() / 5.0, 0.25, 1.0)
-	var arrow: float = 3.0 + mag * 4.0
-	var y: float = _field.sea_level + 26.0
+	var y: float = _field.sea_level + 48.0     # a plane above most terrain so the arrows read clearly
 	var ext: float = _field.grid_half_extent() if _field.has_method("grid_half_extent") else 300.0
 	var step: float = ext * 2.0 / float(WIND_GRID)
-	var col: Color = Color(0.5, 0.85, 1.0, 0.7)
-	var side: Vector3 = dir.cross(Vector3.UP).normalized()
+	# Map local speed (m/s-ish) to arrow length so slow air draws short stubs and jets draw long arrows.
+	const SPEED_REF: float = 5.0
+	const LEN_MIN: float = 4.0
+	const LEN_MAX: float = 24.0
+	const THICK: float = 0.7                   # parallel-line offset faking arrow thickness (visible far off)
 	for gx in range(WIND_GRID):
 		for gz in range(WIND_GRID):
-			var base: Vector3 = Vector3(-ext + (float(gx) + 0.5) * step, y, -ext + (float(gz) + 0.5) * step)
+			var wx: float = -ext + (float(gx) + 0.5) * step
+			var wz: float = -ext + (float(gz) + 0.5) * step
+			var w: Vector2 = _field.wind_at(wx, wz)
+			var speed: float = w.length()
+			if speed < 0.02:
+				continue
+			var dir: Vector3 = Vector3(w.x, 0.0, w.y) / speed
+			var arrow: float = clampf(LEN_MIN + speed / SPEED_REF * (LEN_MAX - LEN_MIN), LEN_MIN, LEN_MAX)
+			# Colour ramps calm(blue) -> fast(cyan/white) so speed reads at a glance too.
+			var t: float = clampf(speed / (SPEED_REF * 1.5), 0.0, 1.0)
+			var col: Color = Color(0.35 + 0.55 * t, 0.7 + 0.3 * t, 1.0, 0.85)
+			var side: Vector3 = dir.cross(Vector3.UP).normalized()
+			var base: Vector3 = Vector3(wx, y, wz)
 			var tip: Vector3 = base + dir * arrow
-			_line(base, tip, col)
-			_line(tip, tip - dir * (arrow * 0.35) + side * (arrow * 0.2), col)
-			_line(tip, tip - dir * (arrow * 0.35) - side * (arrow * 0.2), col)
+			var hoff: Vector3 = side * THICK
+			# Shaft (doubled for thickness) + arrowhead.
+			_line(base + hoff, tip + hoff, col)
+			_line(base - hoff, tip - hoff, col)
+			_line(tip, tip - dir * (arrow * 0.32) + side * (arrow * 0.18), col)
+			_line(tip, tip - dir * (arrow * 0.32) - side * (arrow * 0.18), col)
