@@ -61,29 +61,37 @@ func rebuild_surface() -> void:
 	var sea_level: float = _f.sea_level
 	var origin: Vector3 = _f._origin
 
-	# 1) Per column, the world Y of the top dynamic-water surface (NAN = nothing to mesh here).
+	# 1) Per column, the world Y of the top DYNAMIC-water surface (NAN = nothing to mesh here).
+	# ONE flat pass over the water buffer instead of a per-column top-down scan of the WHOLE volume: dynamic
+	# water is rare (a handful of cells when calm, at most a few thousand in a flood), so for the ~all-dry
+	# majority this is a single local-array read + compare per cell. The field arrays are hoisted to locals
+	# (property access through `_f` per cell was the real cost). Cells of a column appear in ASCENDING iy
+	# order (idx grows by one layer per level), so the LAST qualifying cell seen for a column is its TOPMOST
+	# surface — bit-identical to the old top-down "first from the top" result. render_min/wave-eps rules kept.
 	var col_surf: PackedFloat32Array = PackedFloat32Array()
 	col_surf.resize(dx * dz)
+	col_surf.fill(NAN)
 	var any: bool = false
-	for iz in range(dz):
-		for ix in range(dx):
-			var found: float = NAN
-			for iy in range(_f._dim_y - 1, -1, -1):
-				var i: int = (iy * dz + iz) * dx + ix
-				if _f._solid[i] != 0 or _f._static[i] != 0:
-					continue
-				var m: float = _f._water[i]
-				if m < render_min:
-					continue
-				var wy: float = origin.y + float(iy) * cs + (clampf(m, 0.0, max_mass) - 0.5) * cs
-				# A sub-sea cell sitting at ~sea level is calm sea → the plane draws it.
-				if origin.y + float(iy) * cs < sea_level and absf(wy - sea_level) < sea_wave_eps:
-					continue
-				found = wy
-				break
-			col_surf[iz * dx + ix] = found
-			if not is_nan(found):
-				any = true
+	var layer: int = dx * dz
+	var cc: int = _f._cell_count
+	var water: PackedFloat32Array = _f._water
+	var solid: PackedByteArray = _f._solid
+	var stat: PackedByteArray = _f._static
+	var oy: float = origin.y
+	for i in range(cc):
+		var m: float = water[i]
+		if m < render_min:
+			continue
+		if solid[i] != 0 or stat[i] != 0:
+			continue
+		var iy: int = i / layer
+		var cell_y: float = oy + float(iy) * cs
+		var wy: float = cell_y + (clampf(m, 0.0, max_mass) - 0.5) * cs
+		# A sub-sea cell sitting at ~sea level is calm sea → the plane draws it.
+		if cell_y < sea_level and absf(wy - sea_level) < sea_wave_eps:
+			continue
+		col_surf[i - iy * layer] = wy                       # column index iz*dx+ix = i mod layer
+		any = true
 
 	if not any:
 		if _surface_mesh.get_surface_count() > 0:
