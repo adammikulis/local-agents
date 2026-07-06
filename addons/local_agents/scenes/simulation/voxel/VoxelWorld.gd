@@ -161,6 +161,19 @@ func _ready() -> void:
 	sun.light_energy = SUN_ENERGY_NOON
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 400.0
+	# Smoother, softer sun shadows: blend the PSSM cascades so their seams don't pop as the
+	# camera pans, soften the edges, and pull the split boundaries closer so near geometry
+	# gets the crisp cascade. Bias tuned to kill acne on the rolling terrain without peter-
+	# panning the low-poly actors. (GPU-side; free given the CPU-bound headroom.)
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+	sun.directional_shadow_blend_splits = true
+	sun.directional_shadow_split_1 = 0.08
+	sun.directional_shadow_split_2 = 0.2
+	sun.directional_shadow_split_3 = 0.5
+	sun.directional_shadow_fade_start = 0.85
+	sun.shadow_blur = 1.2
+	sun.shadow_normal_bias = 1.5
+	sun.shadow_bias = 0.04
 	add_child(sun)
 	_sun = sun
 
