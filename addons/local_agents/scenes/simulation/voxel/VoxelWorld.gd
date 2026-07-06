@@ -28,6 +28,7 @@ const StreamerOverlayScript: GDScript = preload("res://addons/local_agents/scene
 const StreamerAvatarScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/streamer/StreamerAvatar.gd")
 const StreamerVoiceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/streamer/StreamerVoice.gd")
 const StreamerDirectorScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/streamer/StreamerDirector.gd")
+const EnergyGraphScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/SceneEnergyGraph.gd")
 
 const INITIAL_COUNTS: Dictionary = {"plant": 70, "rabbit": 16, "fox": 3, "bird": 14, "villager": 6, "vulture": 5}
 const ROCK_COUNT: int = 44
@@ -43,6 +44,7 @@ var _streamer_overlay: CanvasLayer  # LAStreamerOverlay (lower-right face-cam + 
 var _streamer_director: Node        # LAStreamerDirector (LLM commentary brain)
 var _streamer_avatar: Node          # LAStreamerAvatar (live SubViewport portrait)
 var _streamer_voice: Node           # LAStreamerVoice (Piper TTS)
+var _energy_graph: Control          # LASceneEnergyGraph (live total-energy overlay + intensity source)
 var _streamer_persona: String = "hype"   # default personality; override with --streamer-persona=<id>
 var _streamer_avatar_flavor: String = "male"   # "male" | "female"; override with --streamer-avatar=
 var _actors_root: Node3D
@@ -391,6 +393,14 @@ func _setup_streamer() -> void:
 	_streamer_director.name = "StreamerDirector"
 	add_child(_streamer_director)
 	_streamer_director.setup(self, {"voice": _streamer_voice, "persona": _streamer_persona})
+
+	# Live scene-energy graph (kinetic + seismic + thermal) shown top-right — the intensity signal the
+	# director reacts to, made visible. The director reads its current total so quips fire on real energy.
+	_energy_graph = EnergyGraphScript.new()
+	_streamer_overlay.add_child(_energy_graph)
+	_energy_graph.setup(self, _ecology, _material)
+	if _streamer_director.has_method("set_energy_source"):
+		_streamer_director.set_energy_source(_energy_graph)
 
 	# Wire the loop: director -> caption + speech; UI toggle/persona -> director; speech -> avatar mouth.
 	_streamer_director.line_ready.connect(_on_streamer_line)

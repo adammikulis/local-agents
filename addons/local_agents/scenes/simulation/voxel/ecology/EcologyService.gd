@@ -187,6 +187,16 @@ func seismic_energy_at(world_pos: Vector3) -> float:
 	return energy
 
 
+# Scene-wide seismic energy: the sum of every live pulse's magnitude × its time decay, ignoring
+# position (a whole-scene "how much is the ground shaking" total, for the energy graph / streamer).
+func total_seismic_energy() -> float:
+	var energy: float = 0.0
+	for pulse in _seismic_pulses:
+		var life: float = clampf(1.0 - float(pulse["age"]) / SEISMIC_LIFETIME, 0.0, 1.0)
+		energy += float(pulse["mag"]) * life
+	return energy
+
+
 # Age the seismic ring each physics step and drop pulses that have fully decayed.
 func _age_seismic(delta: float) -> void:
 	if _seismic_pulses.is_empty():

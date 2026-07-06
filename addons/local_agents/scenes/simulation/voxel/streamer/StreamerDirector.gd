@@ -67,6 +67,13 @@ var _sample_accum: float = 0.0
 var _intensity: float = 0.0
 var _time_since_line: float = 0.0
 var _pending_request: bool = false
+# The scene's total physical energy (kinetic + seismic + thermal) feeds the scanner directly: a RISE in
+# energy — a herd breaking into a run, a meteor's impact, a wildfire flaring — pushes intensity, so how
+# hard the caster reacts scales with how much actually just happened, not a per-event constant.
+const ENERGY_TO_INTENSITY: float = 0.02   # intensity points per unit of energy RISE between samples
+const ENERGY_URGENT_RISE: float = 400.0   # an energy jump this big is a landmark — queue a must-say beat
+var _energy_source: Node = null           # LASceneEnergyGraph, exposes current_total()
+var _last_energy: float = 0.0
 
 # --- scene sampling ---
 var _last_sample: Dictionary = {}
@@ -107,6 +114,11 @@ func set_enabled(on: bool) -> void:
 func set_persona(id: String) -> void:
 	_persona_id = id
 	_reset_window()   # switching voice: drop stale continuity so the new persona starts clean
+
+
+## Wire the scene-energy source (LASceneEnergyGraph) so intensity tracks real physical energy.
+func set_energy_source(node: Node) -> void:
+	_energy_source = node
 
 
 func latest_line() -> String:
@@ -221,6 +233,17 @@ func _take_sample() -> void:
 	if not _last_sample.is_empty():
 		_detect_events(_last_sample, sample)
 	_last_sample = sample
+
+	# Physical energy → intensity. A RISE in total scene energy since the last sample feeds the scanner in
+	# proportion to how big it is; a large jump is a landmark event and joins the must-say queue too.
+	if _energy_source != null and _energy_source.has_method("current_total"):
+		var e: float = float(_energy_source.current_total())
+		var rise: float = maxf(0.0, e - _last_energy)
+		if rise > 0.0:
+			_intensity += rise * ENERGY_TO_INTENSITY
+			if rise >= ENERGY_URGENT_RISE:
+				_push_event("a massive surge of energy just tore through the scene", URGENT_BAR + rise * 0.01)
+		_last_energy = e
 
 
 # Intensity weights: the scanner's "how big a deal is this" score. THRESHOLD is 6, so anything >=6
