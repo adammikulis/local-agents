@@ -30,6 +30,10 @@ layout(push_constant, std430) uniform Params {
 	uint dim_y;
 	uint dim_z;
 	uint cell_count;
+	float wind_x;      // world XZ wind (drives the orographic upwind test)
+	float wind_z;
+	float oro_gain;    // extra condensation fraction at a windward slope face
+	float _pad;
 } params;
 
 // Constants — MUST match MaterialAtmosphere3D.gd exactly.
@@ -71,6 +75,8 @@ void main() {
 	int layer = dim_x * dim_z;
 	int idx = int(g);
 	int iy = idx / layer;
+	int iz = (idx / dim_x) % dim_z;
+	int ix = idx % dim_x;
 
 	if (solid[g] != 0.0) {
 		vapor_out[g] = vapor_in[g];
@@ -85,7 +91,22 @@ void main() {
 
 	float sat = SAT_BASE * exp(SAT_TEMP_GAIN * (t - EVAP_TEMP_REF));
 	if (vap > sat) {
-		float cond = (vap - sat) * CONDENSE_RATE;
+		// OROGRAPHIC boost: humid air pressed against a windward rock face (upwind neighbour, same level or
+		// one lower, is solid) is forced up and condenses harder — clouds/rain gather on windward slopes.
+		int wsx = params.wind_x > 0.0 ? 1 : (params.wind_x < 0.0 ? -1 : 0);
+		int wsz = params.wind_z > 0.0 ? 1 : (params.wind_z < 0.0 ? -1 : 0);
+		float oro = 0.0;
+		if (wsx != 0 || wsz != 0) {
+			int nx = ix - wsx;
+			int nz = iz - wsz;
+			if (nx >= 0 && nx < dim_x && nz >= 0 && nz < dim_z) {
+				int up = (iy * dim_z + nz) * dim_x + nx;
+				if (solid[up] != 0.0 || (iy > 0 && solid[up - layer] != 0.0)) {
+					oro = params.oro_gain;
+				}
+			}
+		}
+		float cond = (vap - sat) * CONDENSE_RATE * (1.0 + oro);
 		vap = vap - cond;
 		if (t < FOG_MAX_TEMP && near_ground(idx, iy, layer)) {
 			f += cond;

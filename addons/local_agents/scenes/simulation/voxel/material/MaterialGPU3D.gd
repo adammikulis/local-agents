@@ -78,6 +78,7 @@ const CLOUD_RISE: float = 0.04
 const VAPOR_WIND_GAIN: float = 1.0
 const CLOUD_WIND_GAIN: float = 1.0
 const FOG_WIND_GAIN: float = 0.5
+const ORO_CONDENSE_GAIN: float = 1.3       # windward-slope condensation boost (mirrors MaterialAtmosphere3D)
 
 var _rd: RenderingDevice = null
 var _field = null                          # LAMaterialField3D (shared grid back-reference)
@@ -592,7 +593,7 @@ func step() -> void:
 	# decay + compute rain (stored to the rain scratch). vapor[live] -> vapor[back]; cloud/fog[back] in place. ---
 	_rd.compute_list_bind_compute_pipeline(cl, _condense_pipeline)
 	_rd.compute_list_bind_uniform_set(cl, _condense_set[_parity], 0)
-	_rd.compute_list_set_push_constant(cl, _dims_pc(), 16)
+	_rd.compute_list_set_push_constant(cl, _condense_pc(), 32)
 	_rd.compute_list_dispatch(cl, groups, 1, 1)
 	_rd.compute_list_add_barrier(cl)          # rain scratch visible to the rain gather
 
@@ -662,6 +663,21 @@ func _dims_pc() -> PackedByteArray:
 	pc.encode_u32(4, _dim_y)
 	pc.encode_u32(8, _dim_z)
 	pc.encode_u32(12, _cell_count)
+	return pc
+
+
+# Condensation push-constant: dims + the world XZ wind + orographic gain (windward-slope uplift test).
+func _condense_pc() -> PackedByteArray:
+	var pc: PackedByteArray = PackedByteArray()
+	pc.resize(32)
+	pc.encode_u32(0, _dim_x)
+	pc.encode_u32(4, _dim_y)
+	pc.encode_u32(8, _dim_z)
+	pc.encode_u32(12, _cell_count)
+	pc.encode_float(16, _wind.x)
+	pc.encode_float(20, _wind.y)
+	pc.encode_float(24, ORO_CONDENSE_GAIN)
+	pc.encode_float(28, 0.0)
 	return pc
 
 

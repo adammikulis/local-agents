@@ -29,6 +29,11 @@ const CLOUD_REEVAP_RATE: float = 0.12     # fraction of cloud/fog -> vapor/step 
 const CLOUD_DECAY: float = 0.006          # baseline condensate dissipation/step (keeps it from piling up forever)
 const RAIN_CLOUD_THRESHOLD: float = 0.45  # cloud density above which a cell precipitates
 const RAIN_RATE: float = 0.16             # fraction of above-threshold cloud -> ground water/step
+# OROGRAPHIC uplift: a humid void cell whose immediate UPWIND neighbour (same level, or one lower) is
+# SOLID sits against a windward rock face — the wind forces that air UP, so it condenses harder. Purely
+# local (one neighbour read using the wind sign), general (no per-mountain code): clouds + rain
+# concentrate on windward slopes. Kept identical in atmos_condense3d.glsl (parity).
+const ORO_CONDENSE_GAIN: float = 1.3      # extra condensation fraction at a windward slope face
 
 # --- Transport tuning (3D generalisation of the 2.5D diffusion + wind, plus buoyant rise) ---
 const VAPOR_DIFFUSE: float = 0.14         # isotropic vapor spread per step
@@ -238,6 +243,10 @@ func step() -> void:
 		_fog_col[c] = 0.0
 
 	# 3) + 4) CONDENSATION + PRECIPITATION per void cell.
+	# Wind sign (which way the air blows) picks the UPWIND neighbour for the orographic-uplift test.
+	var wsx: int = 1 if _wind.x > 0.0 else (-1 if _wind.x < 0.0 else 0)
+	var wsz: int = 1 if _wind.y > 0.0 else (-1 if _wind.y < 0.0 else 0)
+	var has_wind: bool = wsx != 0 or wsz != 0
 	var cloud_sum: float = 0.0
 	var fog_sum: float = 0.0
 	var void_cells: int = 0
@@ -255,9 +264,14 @@ func step() -> void:
 				# its dewpoint up there and condenses. No hardcoded "cloud base" offset — real altitude.
 				var sat: float = SAT_BASE * exp(SAT_TEMP_GAIN * (t - EVAP_TEMP_REF))
 				if vap > sat:
-					# Past the dewpoint: condense a fraction of the excess. It pools as FOG when this cell
-					# is cool AND resting near the terrain/sea; otherwise it forms CLOUD (mid-air aloft).
-					var cond: float = (vap - sat) * CONDENSE_RATE
+					# Past the dewpoint: condense a fraction of the excess. OROGRAPHIC boost: if the humid
+					# air here is pressed against a windward rock face (its upwind neighbour, same level or one
+					# lower, is solid) the wind forces it UP, so it condenses harder — clouds/rain gather on
+					# windward slopes. It pools as FOG when this cell is cool AND near the terrain/sea; else CLOUD.
+					var oro: float = 0.0
+					if has_wind and _upwind_slope(ix2, iy2, iz2, wsx, wsz, dx, dy, dz, layer, solid):
+						oro = ORO_CONDENSE_GAIN
+					var cond: float = (vap - sat) * CONDENSE_RATE * (1.0 + oro)
 					vapor[i] = vap - cond
 					if t < FOG_MAX_TEMP and _near_ground(i, iy2, dy, layer, solid, water, stat):
 						fog[i] += cond
@@ -358,6 +372,24 @@ func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 					continue
 				if _f.cell_world_pos(ix, iy, iz).distance_squared_to(world_pos) <= r2:
 					_f._vapor[i] += amount
+
+
+# A void cell sits against a WINDWARD slope if the cell immediately UPWIND (same level) is solid, or the
+# cell upwind AND one level down is solid (terrain rising into the wind). One-neighbour local read — no
+# column scan; mirrored exactly in atmos_condense3d.glsl.
+func _upwind_slope(ix: int, iy: int, iz: int, wsx: int, wsz: int, dx: int, dy: int, dz: int, layer: int, solid: PackedByteArray) -> bool:
+	var nx: int = ix - wsx
+	var nz: int = iz - wsz
+	if nx < 0 or nx >= dx or nz < 0 or nz >= dz:
+		return false
+	var up: int = (iy * dz + nz) * dx + nx
+	if solid[up] != 0:
+		return true
+	if iy > 0:
+		var upd: int = up - layer
+		if solid[upd] != 0:
+			return true
+	return false
 
 
 # --- Wind --------------------------------------------------------------------
