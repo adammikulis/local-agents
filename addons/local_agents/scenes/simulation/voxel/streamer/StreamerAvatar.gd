@@ -18,7 +18,9 @@ const HAT_SCENE_PATH: String = "res://addons/local_agents/assets/models/people/a
 
 var _sv: SubViewport = null
 var _model: Node3D = null
-var _accessory: Node3D = null    # head-mounted extras (cap or headphones+hair), synced to the model
+var _accessory: Node3D = null    # head-mounted extras (cap / headphones); parented to the head bone
+var _head_attach: BoneAttachment3D = null   # Godot node that tracks the skeleton's head bone
+var _skel: Skeleton3D = null
 var _anim: AnimationPlayer = null
 var _idle_clip: String = ""
 var _flavor: String = ""
@@ -77,50 +79,101 @@ func setup(flavor: String = "male") -> void:
 func set_flavor(flavor: String) -> void:
 	if flavor == _flavor or _sv == null:
 		return
+	# Accessories hang under the head bone (inside _model) — freeing _model frees them; the fallback
+	# world-space accessory is the only one that needs a separate free.
+	if _accessory != null and is_instance_valid(_accessory) and _accessory.get_parent() == _sv:
+		_accessory.queue_free()
 	if _model != null:
 		_model.queue_free()
-		_model = null
-	if _accessory != null:
-		_accessory.queue_free()
-		_accessory = null
+	_model = null
+	_accessory = null
+	_head_attach = null
+	_skel = null
 	_anim = null
 	_build_flavor(flavor)
 
 
-const FEMALE_HAIR: String = "res://addons/local_agents/assets/models/people/female_src/hairPonytail.fbx"
+const FEMALE_GLB: String = "res://addons/local_agents/assets/models/people/character_female.glb"
 
 func _build_flavor(flavor: String) -> void:
 	_flavor = flavor
 	_idle_clip = "Idle"
-	# Both flavors ride the Quaternius villager rig (clean glb, renders skinned in the SubViewport,
-	# embedded Idle). NOTE: the Kenney characterLargeFemale skinned MESH would not render here even
-	# after FBX→glTF conversion (Godot shows the villager fine but not that skinned Kenney mesh), so
-	# the female is the same rig differentiated by a ponytail + headphones + (via the world) her voice.
-	var def: Dictionary = LAActorModels.get_def("streamer")
-	_model = LAModelVisual.build(String(def.get("path", "")), 1.7, "base", 0.0, LAActorModels.tint("streamer"))
+	# Female = the real Kenney characterLargeFemale, converted to glTF by Blender (mesh + idle + skin,
+	# upright). Blender's exporter yields a clean glb Godot renders (unlike Godot's own ufbx path, which
+	# left the skinned Kenney mesh invisible). Male = Quaternius villager + red cap.
+	if flavor == "female":
+		# Blender export faces +Z; yaw 180 turns her to face the camera like the other models.
+		_model = LAModelVisual.build(FEMALE_GLB, 1.7, "base", 180.0, Color(0, 0, 0, 0))
+	else:
+		var def: Dictionary = LAActorModels.get_def("streamer")
+		_model = LAModelVisual.build(String(def.get("path", "")), 1.7, "base", 0.0, LAActorModels.tint("streamer"))
 	if _model == null:
 		return
-	LAModelVisual.recolor(_model, LAActorModels.recolor("streamer"))
+	if flavor != "female":
+		LAModelVisual.recolor(_model, LAActorModels.recolor("streamer"))
 	_anim = LAModelVisual.find_anim(_model)
+	_idle_clip = _resolve_idle_clip(_anim)   # Blender names the clip "Root_001|Root|Idle", not "Idle"
 
 	_sv.add_child(_model)
 	_base_pos = _model.position
 	_base_rot = _model.rotation
-	if _anim != null and _anim.has_animation(_idle_clip):
+	if _anim != null and _idle_clip != "" and _anim.has_animation(_idle_clip):
+		var clip: Animation = _anim.get_animation(_idle_clip)
+		if clip != null:
+			clip.loop_mode = Animation.LOOP_LINEAR   # keep the idle looping, not one-shot to T-pose
 		_anim.play(_idle_clip)
 
+	# Head accessories are PARENTED to the head bone via BoneAttachment3D (Godot's node for exactly this),
+	# so they track the skeletal idle + glance automatically through the scene tree — no per-frame sync.
+	# Offsets below are head-local (origin ≈ the head bone).
 	_accessory = Node3D.new()
 	_accessory.name = "HeadAccessories"
 	if flavor == "female":
-		# Ponytail (non-skinned Kenney mesh — renders fine, unlike the skinned character) + headphones.
-		_mount_asset(FEMALE_HAIR, 0.34, Vector3(0.0, 1.60, 0.07), Color(0.86, 0.66, 0.32))
-		_build_headphones()
+		_build_headphones()             # head-local offsets
+		_attach_to_head()               # parent under the head bone (auto-follows idle + glance)
 	else:
 		_mount_asset(HAT_SCENE_PATH, 0.36, Vector3(0.0, 1.63, 0.0), Color(0.72, 0.18, 0.20))
-	_sv.add_child(_accessory)
+		_sv.add_child(_accessory)       # world-space; synced to the model in _process
 
 
-# --- head accessories (world-space, AABB-normalized; ride the model's glance/bob) ----------------
+# Parent the accessory holder under a BoneAttachment3D bound to the skeleton's head bone. A scale-cancel
+# holder keeps the accessory meshes world-sized despite the bone's (model-scaled) local units.
+func _attach_to_head() -> void:
+	_skel = _find_skeleton(_model)
+	var head_name: String = _find_head_bone(_skel)
+	if _skel == null or head_name == "":
+		_sv.add_child(_accessory)   # fallback: world-space (kept static)
+		return
+	_head_attach = BoneAttachment3D.new()
+	_head_attach.bone_name = head_name
+	_skel.add_child(_head_attach)
+	var holder: Node3D = Node3D.new()
+	var inv: float = 1.0 / maxf(0.0001, _model.scale.x)
+	holder.scale = Vector3(inv, inv, inv)
+	_head_attach.add_child(holder)
+	holder.add_child(_accessory)
+
+
+static func _find_skeleton(node: Node) -> Skeleton3D:
+	if node is Skeleton3D:
+		return node as Skeleton3D
+	for c in node.get_children():
+		var f: Skeleton3D = _find_skeleton(c)
+		if f != null:
+			return f
+	return null
+
+
+static func _find_head_bone(skel: Skeleton3D) -> String:
+	if skel == null:
+		return ""
+	for i in range(skel.get_bone_count()):
+		if skel.get_bone_name(i).to_lower().find("head") != -1:
+			return skel.get_bone_name(i)
+	return ""
+
+
+# --- head accessories (positions are head-local; the BoneAttachment carries them onto the head) -----
 
 func _mount_asset(scene_path: String, target_width: float, pos: Vector3, tint: Color) -> void:
 	var scene: Resource = load(scene_path)
@@ -164,7 +217,7 @@ func _build_headphones() -> void:
 	band.mesh = torus
 	band.material_override = shell
 	band.rotation.x = deg_to_rad(90.0)
-	band.position = Vector3(0.0, 1.60, 0.0)
+	band.position = Vector3(0.0, 0.09, 0.0)   # head-local (BoneAttachment carries it onto the head)
 	_accessory.add_child(band)
 
 	# Ear cups on both sides (cylinders laid along X).
@@ -177,7 +230,7 @@ func _build_headphones() -> void:
 		cup.mesh = cyl
 		cup.material_override = accent
 		cup.rotation.z = deg_to_rad(90.0)
-		cup.position = Vector3(0.145 * sign, 1.52, 0.0)
+		cup.position = Vector3(0.135 * sign, 0.01, 0.0)
 		_accessory.add_child(cup)
 
 
@@ -190,6 +243,18 @@ static func _mesh_instances(node: Node) -> Array:
 	for child in node.get_children():
 		out.append_array(_mesh_instances(child))
 	return out
+
+
+# Pick the idle clip by name (Blender exports compound names like "Root_001|Root|Idle"); prefer one
+# containing "idle", else the first available clip.
+func _resolve_idle_clip(anim: AnimationPlayer) -> String:
+	if anim == null:
+		return ""
+	var list: PackedStringArray = anim.get_animation_list()
+	for a in list:
+		if String(a).to_lower().find("idle") != -1:
+			return String(a)
+	return String(list[0]) if list.size() > 0 else ""
 
 
 func get_texture() -> Texture2D:
@@ -227,6 +292,8 @@ func _process(delta: float) -> void:
 	_model.position = _base_pos + Vector3(0.0, bob, 0.0)
 	_model.rotation = _base_rot + Vector3(GLANCE_PITCH_UP * _glance_blend, GLANCE_YAW_LEFT * _glance_blend, 0.0)
 
-	if _accessory != null:
+	# Bone-attached accessories (female headphones) follow the head bone automatically. World-space
+	# accessories (male cap) are synced to the model here.
+	if _accessory != null and _head_attach == null:
 		_accessory.position = _model.position
 		_accessory.rotation = _model.rotation
