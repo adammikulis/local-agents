@@ -271,6 +271,9 @@ func _ready() -> void:
 	_material.set_sun(_sun)
 	if _ecology.has_method("set_material_field"):
 		_ecology.set_material_field(_material)
+	# Weather relays the field's EMERGENT rain (no invented rain of its own) — wire the field to it.
+	if _weather != null and _weather.has_method("set_field"):
+		_weather.set_field(_material)
 
 	# The calm sea: ONE GPU ocean plane at sea level, following the camera to the horizon. The water
 	# itself is still unified CA (it evaporates, quenches lava, a meteor splashes it); this plane just

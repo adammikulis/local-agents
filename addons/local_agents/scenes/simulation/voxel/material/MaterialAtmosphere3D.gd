@@ -61,6 +61,11 @@ var _fog_col: PackedFloat32Array = PackedFloat32Array()  # per-XZ column max fog
 var _wind: Vector2 = Vector2.ZERO                        # world XZ wind (x=+X, y=+Z) drifting airborne matter
 var _cloud_cover: float = 0.0                            # cached mean cloud density (sun dimming / HUD)
 var _fog_cover: float = 0.0                              # cached mean fog density
+var _precip_cover: float = 0.0                           # 0..1 fraction of the map under active rain (emergent)
+
+# Gain mapping raining-column fraction -> a 0..1 rain intensity: even a modest storm footprint should
+# read as real rain to the sun-dimming + scent-wash consumers, so partial coverage saturates.
+const PRECIP_COVER_GAIN: float = 6.0
 
 
 func setup(field) -> void:
@@ -291,6 +296,13 @@ func step() -> void:
 	var denom: float = maxf(1.0, float(void_cells))
 	_cloud_cover = cloud_sum / denom
 	_fog_cover = fog_sum / denom
+	# Emergent rain intensity: what fraction of the map's columns have cloud thick enough to precipitate.
+	# This is the ONE rain scalar the sun-dimming + scent-wash read (retiring the old random weather rain).
+	var precip_cols: int = 0
+	for c2 in range(layer):
+		if _cloud_col[c2] > RAIN_CLOUD_THRESHOLD:
+			precip_cols += 1
+	_precip_cover = clampf(float(precip_cols) / float(maxi(1, layer)) * PRECIP_COVER_GAIN, 0.0, 1.0)
 
 
 # A cell is "near the ground" (so its condensate pools as fog) if solid rock, standing water, or the
@@ -447,6 +459,12 @@ func avg_cloud_cover() -> float:
 
 func avg_fog_cover() -> float:
 	return _fog_cover
+
+
+## Emergent global rain intensity (0 clear .. 1 downpour): the fraction of the map under cloud thick
+## enough to rain. Replaces the old random weather rain — drives sun-dimming, lightning, scent wash.
+func precipitation() -> float:
+	return _precip_cover
 
 
 ## Flat 2D (XZ) density projections for the CloudLayer render textures — index = iz * dim_x + ix, each

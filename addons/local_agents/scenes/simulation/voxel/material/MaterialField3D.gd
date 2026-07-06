@@ -566,6 +566,9 @@ func avg_cloud_cover() -> float:
 func avg_fog_cover() -> float:
 	return _atmosphere.avg_fog_cover() if _atmosphere != null else 0.0
 
+func precipitation() -> float:
+	return _atmosphere.precipitation() if _atmosphere != null else 0.0
+
 func cloud_grid() -> PackedFloat32Array:
 	return _atmosphere.cloud_grid() if _atmosphere != null else PackedFloat32Array()
 

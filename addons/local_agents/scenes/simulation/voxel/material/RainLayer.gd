@@ -13,13 +13,16 @@ extends GPUParticles3D
 const RAIN_THRESHOLD: float = 0.28
 const RAIN_FULL: float = 0.6
 const AREA: float = 85.0                  # half-extent (world) of the rain box centred on the camera
-const FALL_SPEED: float = 38.0            # streak fall speed (fast = long motion-blur streaks)
-const MAX_PARTICLES: int = 11000
+const FALL_SPEED: float = 44.0            # streak fall speed (fast = long motion-blur streaks)
+const MAX_PARTICLES: int = 16000
+const SPLASH_INTERVAL: float = 0.12       # min seconds between splash-ripple emissions under heavy rain
+const SPLASH_RAIN_MIN: float = 0.45       # only splash the ground once the downpour is at least this hard
 
 var _field = null                         # LAMaterialField (cloud_at / avg_cloud_cover / cloud_base_y)
 var _camera: Node3D = null
 var _pm: ParticleProcessMaterial = null
 var _force: bool = false                   # --rain test override: rain regardless of cloud cover
+var _splash_cd: float = 0.0                # throttle for splash-ripple feedback on wet ground/water
 
 
 ## Test override: force a full downpour regardless of the sim's cloud density (verification aid).
@@ -40,7 +43,7 @@ func setup(field, camera: Node3D) -> void:
 
 	# A thin, vertically-stretched translucent streak — a raindrop smeared by speed.
 	var streak: QuadMesh = QuadMesh.new()
-	streak.size = Vector2(0.06, 1.3)
+	streak.size = Vector2(0.07, 1.7)
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
 	mat.albedo_color = Color(0.72, 0.80, 0.92, 0.7)
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -64,19 +67,24 @@ func setup(field, camera: Node3D) -> void:
 	process_material = _pm
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if _field == null or _camera == null or not is_instance_valid(_camera):
 		return
 	var cp: Vector3 = _camera.global_position
-	# How hard is it raining right here? Take the cloud density around the camera (max of a small cross so
-	# the rain leads/lags a moving cloud a touch), and the world Y the clouds sit at.
+	# How hard is it raining right HERE? Sample the LOCAL cloud density right around the camera (max of a
+	# tight cross so the rain leads/lags a moving storm cell a touch) rather than the global average — so a
+	# passing storm drives a passing downpour that visibly intensifies under it and stops when it clears.
 	var cover: float = 0.0
 	if _field.has_method("cloud_at"):
 		cover = maxf(cover, float(_field.cloud_at(cp.x, cp.z)))
-		cover = maxf(cover, float(_field.cloud_at(cp.x + 40.0, cp.z)))
-		cover = maxf(cover, float(_field.cloud_at(cp.x - 40.0, cp.z)))
-		cover = maxf(cover, float(_field.cloud_at(cp.x, cp.z + 40.0)))
-		cover = maxf(cover, float(_field.cloud_at(cp.x, cp.z - 40.0)))
+		cover = maxf(cover, float(_field.cloud_at(cp.x + 30.0, cp.z)))
+		cover = maxf(cover, float(_field.cloud_at(cp.x - 30.0, cp.z)))
+		cover = maxf(cover, float(_field.cloud_at(cp.x, cp.z + 30.0)))
+		cover = maxf(cover, float(_field.cloud_at(cp.x, cp.z - 30.0)))
+		cover = maxf(cover, float(_field.cloud_at(cp.x + 60.0, cp.z)))
+		cover = maxf(cover, float(_field.cloud_at(cp.x - 60.0, cp.z)))
+		cover = maxf(cover, float(_field.cloud_at(cp.x, cp.z + 60.0)))
+		cover = maxf(cover, float(_field.cloud_at(cp.x, cp.z - 60.0)))
 	elif _field.has_method("avg_cloud_cover"):
 		cover = float(_field.avg_cloud_cover())
 
@@ -91,6 +99,22 @@ func _process(_delta: float) -> void:
 	# Rain falls from the cloud sheet down; centre the emitter slab over the camera at cloud base.
 	var base_y: float = float(_field.cloud_base_y()) if _field.has_method("cloud_base_y") else cp.y + 60.0
 	global_position = Vector3(cp.x, base_y, cp.z)
-	amount_ratio = 0.25 + 0.75 * intensity     # heavier downpour under denser cloud
+	amount_ratio = 0.3 + 0.7 * intensity     # heavier downpour under denser cloud
 	if not emitting:
 		emitting = true
+
+	# SPLASH FEEDBACK: under a real downpour, spatter the wet ground/water near the camera so puddles and
+	# ripples EMERGE where the rain is falling. Throttled; only on water surfaces (dry ground has no pool
+	# to ripple yet). The rain feeds the water CA too (the atmosphere rains into the field), so puddles
+	# form and then these splashes ripple them — closing the visible loop.
+	if intensity >= SPLASH_RAIN_MIN and _field.has_method("splash") and _field.has_method("surface_y_at"):
+		_splash_cd -= delta
+		if _splash_cd <= 0.0:
+			_splash_cd = SPLASH_INTERVAL
+			var ang: float = randf() * TAU
+			var rad: float = sqrt(randf()) * 40.0
+			var sx: float = cp.x + cos(ang) * rad
+			var sz: float = cp.z + sin(ang) * rad
+			var sy: float = float(_field.surface_y_at(sx, sz))
+			if not is_nan(sy):
+				_field.splash(Vector3(sx, sy, sz), 0.5 + intensity)
