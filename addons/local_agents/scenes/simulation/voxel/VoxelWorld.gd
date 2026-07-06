@@ -17,7 +17,6 @@ const EarthquakeScript: GDScript = preload("res://addons/local_agents/scenes/sim
 const FloodScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Flood.gd")
 const AudioDirectorScript: GDScript = preload("res://addons/local_agents/audio/AudioDirector.gd")
 const WeatherScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/WeatherSystem.gd")
-const MaterialFieldScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField.gd")
 const OceanPlaneScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/OceanPlane.gd")
 const MaterialField3DScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField3D.gd")
 const CloudLayerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/CloudLayer.gd")
@@ -137,8 +136,6 @@ var _peak_sleeping: int = 0
 var _auto_meteor: bool = false
 var _overview: bool = false             # --overview: frame a wide whole-island vista (screenshot aid)
 var _farview: bool = false              # --farview: pull the vista out to max zoom (ocean-coverage test)
-var _field3d_enabled: bool = false      # --field3d: run the dense 3D MaterialField live (water pools in caves)
-var _field3d: Node = null
 var _rain_force: bool = false           # --rain: force the rain visual on (verification aid)
 var _debug_demo: bool = false
 var _user_shot_counter: int = 0        # numbers the screenshots the DebugPanel's save button writes
@@ -282,19 +279,18 @@ func _ready() -> void:
 	add_child(_weather)
 	_weather.setup(_camera, sun, e)
 
-	# --- Unified material/heat field: the ONE substrate for all matter + energy. WATER is a material
-	# here (CA rivers/lakes/ocean — creatures drink, fish live in it), temperature drives fire/phase
-	# changes, and disasters inject heat/material. Replaces the old standalone water field — every
-	# water query (depth_at/is_water_at/splash/...) resolves here now.
-	# 4m cells keep the CA cheap (~150^2 grid). ---
-	_material = MaterialFieldScript.new()
+	# --- The ONE material field: the dense 3D GPU substrate. A real volume — every material (temp, water,
+	# vapor/cloud/fog, lava) lives in the same GPU-resident buffers and every rule is a pass in one
+	# pipeline, so fluids interact with the 3D caves (water pools in caverns, lava drains into tubes,
+	# plumes rise shafts). It lazily samples rock/void as the terrain streams and self-activates. This
+	# REPLACES the retired 2.5D field wholesale. ---
+	_material = MaterialField3DScript.new()
 	_material.name = "MaterialField"
 	add_child(_material)
-	# Grid resolution is the dominant sim cost (the CA loops every cell each step). With the field's hot
-	# loops now on the GPU (heat/atmosphere/liquid kernels) we can afford a finer grid: 5-unit cells give
-	# ~14.6k cells across the 600-unit world (finer water/lava than the old 6-unit / 10.2k) while windowed
-	# GPU stays > 60fps even under a volcano (4-unit / 22.8k dipped to ~54fps under lava-mesh load).
-	_material.setup(_terrain, 300.0, 5.0)
+	# 8-unit cells over the island's Y span (~130k cells); the whole heat+water+atmosphere+lava step runs
+	# on the GPU (resident SSBOs, one readback/frame). Headless falls back to the CPU oracle.
+	var sea3d: float = _terrain.sea_level() if _terrain.has_method("sea_level") else 0.0
+	_material.setup(_terrain, 300.0, 8.0, -80.0, 90.0, sea3d)
 	# The field reads the REAL sun (DirectionalLight3D) live — its energy + angle drive all heating.
 	# Wind/pressure/rain are NOT injected; they emerge from the field's own physics.
 	_material.set_sun(_sun)
@@ -433,8 +429,6 @@ func _parse_cmdline() -> void:
 		elif arg == "--farview":
 			_overview = true
 			_farview = true
-		elif arg == "--field3d":
-			_field3d_enabled = true
 		elif arg == "--rain":
 			_rain_force = true
 		elif arg == "--cognition-stats":
@@ -461,8 +455,6 @@ func _process(delta: float) -> void:
 				# water reads alive from the start; _tick_aquatic keeps every species topped up after.
 				if _ecology.has_method("stock_initial_aquatic"):
 					_ecology.stock_initial_aquatic()
-				if _field3d_enabled:
-					_build_field3d()
 				_spawn_default_volcano()
 				# Frame a vista at the real surface height (only when not driven by a harness cam).
 				if _overview and _camera.has_method("frame_overview"):
@@ -1318,44 +1310,14 @@ func _push_environment() -> void:
 		sf.set_wash(_weather.rain())
 
 
-# Build the dense 3D MaterialField (behind --field3d): sample rock/void from the terrain SDF, seed the
-# sea, feed the same springs, and start it. It renders its own 3D water surface (sea + cavern pools) on
-# top of the 2.5D field — an A/B proving ground on the road to replacing the 2.5D substrate.
-func _build_field3d() -> void:
-	if _terrain == null or not _terrain.has_method("is_solid"):
-		return
-	_field3d = MaterialField3DScript.new()
-	_field3d.name = "MaterialField3D"
-	add_child(_field3d)
-	var sea: float = _terrain.sea_level() if _terrain.has_method("sea_level") else 0.0
-	# 8-unit cells over the island's Y span (seabed to above the spring heads) keeps it ~130k cells.
-	_field3d.setup(_terrain, 300.0, 8.0, -80.0, 90.0, sea)
-	if _field3d.has_method("set_sun"):
-		_field3d.set_sun(_sun)
-	_field3d.sample_solidity()
-	_field3d.seed_sea()
-	for p in _springs:
-		_field3d.add_source(p, 0.8)          # modest headwaters — streams/ponds, not a flooded interior
-	_field3d.activate()
-	# SWAP (part): drive the terrain incandescence from the 3D field's heat instead of the 2.5D field, so
-	# a 3D lava tube / buried hot cell lights the ground above it. (Clouds/fog/creatures follow later.)
-	if _terrain.has_method("set_shader_param") and _field3d.has_method("heat_texture"):
-		_terrain.set_shader_param("heat_tex", _field3d.heat_texture())
-		_terrain.set_shader_param("heat_world_min", _field3d.heat_world_min())
-		_terrain.set_shader_param("heat_world_size", _field3d.heat_world_size())
-	_hud.set_status("3D water field active — water pools in caves; terrain glow driven by 3D heat.")
-
-
-# Lock the sea level to the island's true ocean surface, sync the terrain shader's beach/snow bands to
-# it, and pick a few high interior peaks as persistent springs so rivers run downhill to the coast and
-# drain into the ocean (continuous water). One-shot.
+# Sync the terrain shader's beach/snow bands to the island's sea level and register a few high interior
+# peaks as PERSISTENT springs on the field (the 3D field injects them itself each step) so rivers run
+# downhill to the coast and drain into the ocean (continuous water). One-shot.
 func _seed_water() -> void:
 	if _material == null or _terrain == null:
 		return
-	# The terrain was shaped around a fixed sea level; use it directly (not origin ground, which is now
-	# the island's high centre) so the whole sub-sea seabed reads as ocean.
+	# The terrain was shaped around a fixed sea level (the field already has it from setup); sync the shader.
 	var sea: float = _terrain.sea_level() if _terrain.has_method("sea_level") else 0.0
-	_material.sea_level = sea
 	if _terrain.has_method("set_shader_param"):
 		_terrain.set_shader_param("sea_level", sea)
 		# Snow only lightly caps the very highest hilltops (the isle tops out ~78 above a sea of ~6), so
@@ -1379,19 +1341,18 @@ func _seed_water() -> void:
 	_springs.clear()
 	for i in range(mini(4, candidates.size())):
 		_springs.append(candidates[i]["pos"])
+	# Register each spring ONCE as a persistent source; the 3D field injects it internally every step
+	# (modest headwaters — streams/ponds, not a flooded interior).
+	if _material.has_method("add_source"):
+		for p in _springs:
+			_material.add_source(p, 0.8)
 	_springs_seeded = true
 
 
-# Feed the WATER material from persistent SPRINGS only (real groundwater sources on high ground so
-# rivers sustain downhill). Rain is NOT injected here anymore — precipitation emerges from the
-# field's own vapor/condensation cycle. Cheap — the CA is throttled internally.
+# Springs are registered ONCE with the 3D field (see _seed_water) and injected internally each step, so
+# there is nothing to feed per-frame. Kept as a no-op for the _process call site.
 func _feed_water() -> void:
-	if _material == null:
-		return
-	if _springs_seeded and _material.has_method("add_source"):
-		var dt: float = get_process_delta_time()
-		for p in _springs:
-			_material.add_source(p, SPRING_RATE * dt)
+	pass
 
 
 func _kind_color(kind: String) -> Color:

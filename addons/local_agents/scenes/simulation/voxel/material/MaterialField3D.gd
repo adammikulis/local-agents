@@ -87,6 +87,12 @@ const RENDER_MIN: float = 0.08            # min water mass in a cell for its top
 const SEA_WAVE_EPS: float = 0.6           # calm-sea top faces within this of sea_level are left to the ocean plane
 var _step_accum: float = 0.0
 var _ready_sim: bool = false
+# Lazy solidity sampling: the field is created before the terrain has finished streaming, so it samples
+# rock/void a budget of columns per frame and self-activates (seed sea + build modules) once complete —
+# exactly how the old field lazily sampled heights. No blocking, no external init calls.
+const SAMPLE_COLS_PER_FRAME: int = 700
+var _sampling_done: bool = false
+var _sample_cursor: int = 0
 var _surface_mi: MeshInstance3D = null
 var _surface_mesh: ArrayMesh = null
 var _water_mat: Material = null
@@ -112,6 +118,9 @@ func setup(terrain, half_extent: float, cell_size: float, y_min: float, y_max: f
 	var dx: int = int(round((2.0 * _half_extent) / _cell_size)) + 1
 	var dy: int = int(round((y_max - y_min) / _cell_size)) + 1
 	setup_dims(dx, dy, dx, _cell_size, Vector3(-_half_extent, y_min, -_half_extent))
+	# Build the heat texture now (not at activate) so consumers can wire heat_texture() immediately, even
+	# while the field is still lazily sampling solidity.
+	_build_heat_texture()
 
 
 ## Sample rock/void for every cell from the terrain SDF (is_solid). Eager version — fine at setup for
@@ -134,6 +143,33 @@ func sample_solidity() -> void:
 					_solid[i] = 0
 					continue
 				_solid[i] = 1 if _terrain.is_solid(Vector3(wx, wy, wz)) else 0
+
+
+## Budgeted lazy version of sample_solidity: sample SAMPLE_COLS_PER_FRAME columns per call from the
+## terrain SDF, advancing a cursor; sets _sampling_done when the whole volume is covered.
+func _sample_step() -> void:
+	if _terrain == null or not _terrain.has_method("is_solid"):
+		return
+	var has_surf: bool = _terrain.has_method("surface_height")
+	var cols: int = _dim_x * _dim_z
+	var processed: int = 0
+	while processed < SAMPLE_COLS_PER_FRAME and _sample_cursor < cols:
+		var ix: int = _sample_cursor % _dim_x
+		var iz: int = _sample_cursor / _dim_x
+		var wx: float = _origin.x + float(ix) * _cell_size
+		var wz: float = _origin.z + float(iz) * _cell_size
+		var surf: float = _terrain.surface_height(wx, wz) if has_surf else NAN
+		for iy in range(_dim_y):
+			var wy: float = _origin.y + float(iy) * _cell_size
+			var i: int = _idx(ix, iy, iz)
+			if not is_nan(surf) and wy > surf + _cell_size:
+				_solid[i] = 0
+			else:
+				_solid[i] = 1 if _terrain.is_solid(Vector3(wx, wy, wz)) else 0
+		_sample_cursor += 1
+		processed += 1
+	if _sample_cursor >= cols:
+		_sampling_done = true
 
 
 ## Seed the ocean: every VOID cell whose centre is below sea level starts full of water. The sea is a
@@ -405,6 +441,8 @@ func activate() -> void:
 # --- Heat texture (terrain-glow source) -------------------------------------
 
 func _build_heat_texture() -> void:
+	if _heat_tex != null:
+		return
 	_heat_col = PackedFloat32Array()
 	_heat_col.resize(_dim_x * _dim_z)
 	_heat_col.fill(INITIAL_TEMP)
@@ -445,6 +483,12 @@ func heat_world_size() -> Vector2:
 
 func _physics_process(delta: float) -> void:
 	if not _ready_sim:
+		# Still sampling rock/void as the terrain streams; self-activate when the volume is fully sampled.
+		if _terrain != null and _terrain.has_method("is_solid"):
+			_sample_step()
+			if _sampling_done:
+				seed_sea()
+				activate()
 		return
 	_step_accum += delta
 	var steps: int = 0
