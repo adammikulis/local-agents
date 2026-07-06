@@ -221,6 +221,13 @@ func _ready() -> void:
 		_ecology.set_water(_water)
 
 
+	# Anti-aliasing: the low-poly terrain/actors have hard silhouettes that crawl and
+	# alias badly. MSAA 2x cleans the geometry edges. The scene is CPU-bound (see the
+	# perf-probe notes) so this GPU-side smoothing is effectively free here.
+	var vp: Viewport = get_viewport()
+	if vp != null:
+		vp.msaa_3d = Viewport.MSAA_2X
+
 	# Enable per-viewport GPU render-time measurement so the perf probe can report the
 	# rendering cost isolated from the (highly variable) CPU sim load.
 	if _shoot_path != "":
