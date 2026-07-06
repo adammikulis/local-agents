@@ -83,6 +83,7 @@ var _cognition_stats: bool = false      # --cognition-stats: print fast/slow bra
 var _peak_circling: int = 0
 var _peak_investigating: int = 0
 var _peak_sleeping: int = 0
+var _peak_slump: int = 0                    # most loose-sediment cells slumping at once (landslide diagnostic)
 var _auto_meteor: bool = false
 var _overview: bool = false             # --overview: frame a wide whole-island vista (screenshot aid)
 var _farview: bool = false              # --farview: pull the vista out to max zoom (ocean-coverage test)
@@ -450,6 +451,10 @@ func _process(delta: float) -> void:
 	_feed_water()
 	if _cognition_stats and _spawned_initial and _frame % 15 == 0:
 		_sample_behaviour_peaks()
+	# Landslide diagnostic: track the most sediment cells slumping at once (throttled — the count is a full
+	# grid scan). Always sampled so a meteor/volcano/earthquake slump is visible without --cognition-stats.
+	if _spawned_initial and _frame % 10 == 0 and _material != null and _material.has_method("slump_count"):
+		_peak_slump = maxi(_peak_slump, _material.slump_count())
 
 	# Auto-meteor demo/test: drop a meteor on a forest so it carves a crater, topples trees,
 	# and ignites a wildfire. Works in both screenshot mode and headless run-frames mode.

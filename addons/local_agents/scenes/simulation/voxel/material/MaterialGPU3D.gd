@@ -63,6 +63,7 @@ const CONDENSE_SHADER_PATH: String = "res://addons/local_agents/scenes/simulatio
 const RAIN_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/atmos_rain3d.glsl"
 const LAVA_FLOW_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/lava_flow3d.glsl"
 const LAVA_PHASE_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/lava_phase3d.glsl"
+const SLUMP_FLOW_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/slump3d.glsl"
 const LOCAL_SIZE_X: int = 64
 
 # Field timestep (MaterialField3D.STEP_DT = 1/STEP_HZ) — the atmosphere wind advection needs it to turn a
@@ -106,6 +107,7 @@ var _condense_pipeline: RID = RID()
 var _rain_pipeline: RID = RID()
 var _lava_flow_pipeline: RID = RID()
 var _lava_phase_pipeline: RID = RID()
+var _slump_flow_pipeline: RID = RID()      # granular slump flow (sediment CA)
 var _shaders: Array[RID] = []              # every compiled shader RID (freed in dispose)
 var _pipeline_shader: Dictionary = {}      # pipeline RID -> its shader RID (for uniform_set_create)
 
@@ -127,6 +129,8 @@ var _buf_fog_a: RID = RID()
 var _buf_fog_b: RID = RID()
 var _buf_lava_a: RID = RID()
 var _buf_lava_b: RID = RID()
+var _buf_sediment_a: RID = RID()           # loose granular sediment (landslide slump), ping-pong pair
+var _buf_sediment_b: RID = RID()
 var _buf_solid: RID = RID()                # byte->float mirror of _solid (1 = rock)
 var _buf_static: RID = RID()               # byte->float mirror of _static (1 = calm sea sink)
 # Emergent wind velocity (world XZ), uploaded each frame from the CPU-oracle MaterialWind3D field so the
@@ -162,6 +166,8 @@ var _rain_set: Array[RID] = [RID(), RID()]
 # back lava + back temp + solid (solidify/sustain).
 var _lava_flow_set: Array[RID] = [RID(), RID()]
 var _lava_phase_set: Array[RID] = [RID(), RID()]
+# Slump flow: in=sediment live, out=sediment back (+ solid/send). No temp (sediment is cold, no carry-heat).
+var _slump_flow_set: Array[RID] = [RID(), RID()]
 var _parity: int = 0                        # 0 -> live in *_a, 1 -> live in *_b
 var _static_uploaded: bool = false
 
@@ -207,6 +213,7 @@ func _init_rd() -> void:
 	_rain_pipeline = _pipeline(RAIN_SHADER_PATH)
 	_lava_flow_pipeline = _pipeline(LAVA_FLOW_SHADER_PATH)
 	_lava_phase_pipeline = _pipeline(LAVA_PHASE_SHADER_PATH)
+	_slump_flow_pipeline = _pipeline(SLUMP_FLOW_SHADER_PATH)
 
 
 func _pipeline(path: String) -> RID:
@@ -277,6 +284,8 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 	_buf_fog_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_lava_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_lava_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	_buf_sediment_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	_buf_sediment_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_solid = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_static = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_vel_x = _rd.storage_buffer_create(zbytes.size(), zbytes)
@@ -296,6 +305,7 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 		"cloud": [_buf_cloud_a, _buf_cloud_b],
 		"fog": [_buf_fog_a, _buf_fog_b],
 		"lava": [_buf_lava_a, _buf_lava_b],
+		"sediment": [_buf_sediment_a, _buf_sediment_b],
 	}
 
 	# Build the per-parity uniform sets. p=0: live=*_a, back=*_b. p=1: live=*_b, back=*_a.
@@ -312,6 +322,8 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 		var fog_back: RID = back_buffer("fog", p)
 		var lava_live: RID = live_buffer("lava", p)
 		var lava_back: RID = back_buffer("lava", p)
+		var sediment_live: RID = live_buffer("sediment", p)
+		var sediment_back: RID = back_buffer("sediment", p)
 
 		# Conduction: heat3d.glsl bindings 0 = in (live), 1 = out (back).
 		_heat_set[p] = _rd.uniform_set_create(
@@ -378,6 +390,12 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 			_make_uniform(0, lava_back), _make_uniform(1, temp_back),
 			_make_uniform(2, _buf_solid)], _shader_of(_lava_phase_pipeline), 0)
 
+		# --- Slump (granular landslide) ----------------------------------------
+		# Flow: slump3d.glsl 0=sediment in(live), 1=solid, 2=send, 3=sediment out(back). No temp/carry-heat.
+		_slump_flow_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, sediment_live), _make_uniform(1, _buf_solid),
+			_make_uniform(2, _buf_send), _make_uniform(3, sediment_back)], _shader_of(_slump_flow_pipeline), 0)
+
 
 # uniform_set_create needs the SHADER RID, not the pipeline. _pipeline() records the pairing.
 func _shader_of(pipeline: RID) -> RID:
@@ -389,7 +407,7 @@ func _free_buffers() -> void:
 		return
 	for arr in [_heat_set, _solar_set, _buoy_set, _cool_set, _water_set,
 			_evap_set, _transport_vapor_set, _transport_cloud_set, _transport_fog_set,
-			_condense_set, _rain_set, _lava_flow_set, _lava_phase_set]:
+			_condense_set, _rain_set, _lava_flow_set, _lava_phase_set, _slump_flow_set]:
 		for s in arr:
 			if s.is_valid():
 				_rd.free_rid(s)
@@ -406,10 +424,12 @@ func _free_buffers() -> void:
 	_rain_set = [RID(), RID()]
 	_lava_flow_set = [RID(), RID()]
 	_lava_phase_set = [RID(), RID()]
+	_slump_flow_set = [RID(), RID()]
 	for buf in [_buf_temp_a, _buf_temp_b, _buf_water_a, _buf_water_b,
 			_buf_vapor_a, _buf_vapor_b, _buf_cloud_a, _buf_cloud_b,
 			_buf_fog_a, _buf_fog_b, _buf_lava_a, _buf_lava_b,
-			_buf_solid, _buf_static, _buf_vel_x, _buf_vel_z, _buf_send, _buf_rain, _buf_boil]:
+			_buf_vel_x, _buf_vel_z, _buf_sediment_a, _buf_sediment_b,
+			_buf_solid, _buf_static, _buf_send, _buf_rain, _buf_boil]:
 		if buf.is_valid():
 			_rd.free_rid(buf)
 	_buf_temp_a = RID(); _buf_temp_b = RID()
@@ -418,6 +438,7 @@ func _free_buffers() -> void:
 	_buf_cloud_a = RID(); _buf_cloud_b = RID()
 	_buf_fog_a = RID(); _buf_fog_b = RID()
 	_buf_lava_a = RID(); _buf_lava_b = RID()
+	_buf_sediment_a = RID(); _buf_sediment_b = RID()
 	_buf_solid = RID(); _buf_static = RID(); _buf_send = RID(); _buf_rain = RID(); _buf_boil = RID()
 	_buf_vel_x = RID(); _buf_vel_z = RID()
 	_fields = {}
@@ -432,7 +453,7 @@ func dispose() -> void:
 	_free_buffers()
 	for pipe in [_heat_pipeline, _solar_pipeline, _buoy_pipeline, _cool_pipeline, _water_pipeline,
 			_evap_pipeline, _transport_pipeline, _condense_pipeline, _rain_pipeline,
-			_lava_flow_pipeline, _lava_phase_pipeline]:
+			_lava_flow_pipeline, _lava_phase_pipeline, _slump_flow_pipeline]:
 		if pipe.is_valid():
 			_rd.free_rid(pipe)
 	for s in _shaders:
@@ -444,6 +465,7 @@ func dispose() -> void:
 	_cool_pipeline = RID(); _water_pipeline = RID()
 	_evap_pipeline = RID(); _transport_pipeline = RID(); _condense_pipeline = RID()
 	_rain_pipeline = RID(); _lava_flow_pipeline = RID(); _lava_phase_pipeline = RID()
+	_slump_flow_pipeline = RID()
 	_rd.free()
 	_rd = null
 
@@ -644,6 +666,20 @@ func step() -> void:
 	_rd.compute_list_bind_uniform_set(cl, _lava_phase_set[_parity], 0)
 	_rd.compute_list_set_push_constant(cl, _dims_pc(), 16)
 	_rd.compute_list_dispatch(cl, groups, 1, 1)
+	_rd.compute_list_add_barrier(cl)          # send scratch (shared with lava) clear before slump reuses it
+
+	# --- GRANULAR SLUMP: cold sediment CA, two-pass gather (reuses the send buffer). Gravity down, a
+	# LATERAL level-out gated by the angle of repose, then up under pressure. sediment[live] -> sediment[back].
+	# Re-solidifying at-rest sediment into terrain is a CPU-only SDF stamp (MaterialSlump3D.settle). ---
+	_rd.compute_list_bind_compute_pipeline(cl, _slump_flow_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _slump_flow_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, _slump_pc(0), 32)
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
+	_rd.compute_list_add_barrier(cl)
+	_rd.compute_list_bind_compute_pipeline(cl, _slump_flow_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _slump_flow_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, _slump_pc(1), 32)
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
 	# ===============================================================================================
 
 	_rd.compute_list_end()
@@ -671,6 +707,7 @@ func end_frame(read_vapor: bool = true, read_cloud: bool = true, read_fog: bool 
 		"temp": download(live_buffer("temp", _parity)),
 		"water": download(live_buffer("water", _parity)),
 		"lava": download(live_buffer("lava", _parity)),
+		"sediment": download(live_buffer("sediment", _parity)),
 	}
 	if read_vapor:
 		out["vapor"] = download(live_buffer("vapor", _parity))
@@ -755,6 +792,11 @@ func _water_pc(pass_id: int) -> PackedByteArray:
 
 # Lava flow shares the water push-constant shape (dims + pass_id).
 func _lava_pc(pass_id: int) -> PackedByteArray:
+	return _water_pc(pass_id)
+
+
+# Slump flow shares the water/lava push-constant shape (dims + pass_id).
+func _slump_pc(pass_id: int) -> PackedByteArray:
 	return _water_pc(pass_id)
 
 
