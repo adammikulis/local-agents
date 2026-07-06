@@ -429,8 +429,8 @@ func cloud_cell_count(min_density: float = 0.05) -> int:
 
 ## World Y of the two rendered condensate sheets (above the field's sea level).
 func cloud_base_y() -> float:
-	return _f._sea_level + CLOUD_BASE_ABOVE_SEA
+	return _f.sea_level + CLOUD_BASE_ABOVE_SEA
 
 
 func fog_base_y() -> float:
-	return _f._sea_level + FOG_BASE_ABOVE_SEA
+	return _f.sea_level + FOG_BASE_ABOVE_SEA

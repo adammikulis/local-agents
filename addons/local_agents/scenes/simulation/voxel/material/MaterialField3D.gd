@@ -76,7 +76,7 @@ func set_sun(light) -> void:
 	_sun_light = light
 
 
-var _sea_level: float = 0.0
+var sea_level: float = 0.0
 var _half_extent: float = 0.0
 
 # --- Frame loop + rendering -------------------------------------------------
@@ -87,6 +87,12 @@ const RENDER_MIN: float = 0.08            # min water mass in a cell for its top
 const SEA_WAVE_EPS: float = 0.6           # calm-sea top faces within this of sea_level are left to the ocean plane
 var _step_accum: float = 0.0
 var _ready_sim: bool = false
+# Lazy solidity sampling: the field is created before the terrain has finished streaming, so it samples
+# rock/void a budget of columns per frame and self-activates (seed sea + build modules) once complete —
+# exactly how the old field lazily sampled heights. No blocking, no external init calls.
+const SAMPLE_COLS_PER_FRAME: int = 700
+var _sampling_done: bool = false
+var _sample_cursor: int = 0
 var _surface_mi: MeshInstance3D = null
 var _surface_mesh: ArrayMesh = null
 var _water_mat: Material = null
@@ -104,14 +110,17 @@ var _sources: Array = []
 
 ## Build the 3D volume covering XZ in [-half_extent, half_extent] and Y in [y_min, y_max] at cell_size,
 ## bound to `terrain` (for the is_solid rock/void query). Cells are sampled solid/void lazily.
-func setup(terrain, half_extent: float, cell_size: float, y_min: float, y_max: float, sea_level: float) -> void:
+func setup(terrain, half_extent: float, cell_size: float, y_min: float, y_max: float, sea: float) -> void:
 	_terrain = terrain
 	_half_extent = maxf(1.0, half_extent)
 	_cell_size = maxf(0.5, cell_size)
-	_sea_level = sea_level
+	sea_level = sea
 	var dx: int = int(round((2.0 * _half_extent) / _cell_size)) + 1
 	var dy: int = int(round((y_max - y_min) / _cell_size)) + 1
 	setup_dims(dx, dy, dx, _cell_size, Vector3(-_half_extent, y_min, -_half_extent))
+	# Build the heat texture now (not at activate) so consumers can wire heat_texture() immediately, even
+	# while the field is still lazily sampling solidity.
+	_build_heat_texture()
 
 
 ## Sample rock/void for every cell from the terrain SDF (is_solid). Eager version — fine at setup for
@@ -136,13 +145,40 @@ func sample_solidity() -> void:
 				_solid[i] = 1 if _terrain.is_solid(Vector3(wx, wy, wz)) else 0
 
 
+## Budgeted lazy version of sample_solidity: sample SAMPLE_COLS_PER_FRAME columns per call from the
+## terrain SDF, advancing a cursor; sets _sampling_done when the whole volume is covered.
+func _sample_step() -> void:
+	if _terrain == null or not _terrain.has_method("is_solid"):
+		return
+	var has_surf: bool = _terrain.has_method("surface_height")
+	var cols: int = _dim_x * _dim_z
+	var processed: int = 0
+	while processed < SAMPLE_COLS_PER_FRAME and _sample_cursor < cols:
+		var ix: int = _sample_cursor % _dim_x
+		var iz: int = _sample_cursor / _dim_x
+		var wx: float = _origin.x + float(ix) * _cell_size
+		var wz: float = _origin.z + float(iz) * _cell_size
+		var surf: float = _terrain.surface_height(wx, wz) if has_surf else NAN
+		for iy in range(_dim_y):
+			var wy: float = _origin.y + float(iy) * _cell_size
+			var i: int = _idx(ix, iy, iz)
+			if not is_nan(surf) and wy > surf + _cell_size:
+				_solid[i] = 0
+			else:
+				_solid[i] = 1 if _terrain.is_solid(Vector3(wx, wy, wz)) else 0
+		_sample_cursor += 1
+		processed += 1
+	if _sample_cursor >= cols:
+		_sampling_done = true
+
+
 ## Seed the ocean: every VOID cell whose centre is below sea level starts full of water. The sea is a
 ## known level, so we set it directly (fast) instead of CA-filling the whole seabed from empty; the CA
 ## then only has to handle dynamics (waves, splashes, rivers meeting the sea, water pouring into caves).
 func seed_sea() -> void:
 	for iy in range(_dim_y):
 		var wy: float = _origin.y + float(iy) * _cell_size
-		if wy >= _sea_level:
+		if wy >= sea_level:
 			break                                       # layers above sea level: nothing to seed
 		for iz in range(_dim_z):
 			for ix in range(_dim_x):
@@ -389,12 +425,20 @@ func activate() -> void:
 	_atmosphere.setup(self)
 	_lava_sim = LavaScript.new()
 	_lava_sim.setup(self)
-	# GPU backend (parity-validated on Metal) is DISABLED: its per-step upload+dispatch+READBACK stalls
-	# the pipeline (GPU→CPU sync every step) and is far slower than the CPU oracle at this grid size
-	# (dropped to ~3 fps). It only pays off with GPU-RESIDENT buffers that persist across steps and read
-	# back only for rendering — a redesign tracked for later. For now the CPU oracle runs the field.
-	# if GPUScript.available():
-	# 	_gpu = GPUScript.new(); _gpu.setup(self); _use_gpu = true
+	# GPU-RESIDENT backend: persistent SSBOs, the whole heat+water step batched on-GPU, ONE readback per
+	# frame (see MaterialGPU3D's frame API). Headless has no local RenderingDevice → CPU oracle.
+	if GPUScript.available():
+		_gpu = GPUScript.new()
+		_gpu.setup(self)
+		_use_gpu = true
+		# Seed the resident buffers with the initial CPU state (temp/water from setup+seed_sea; the gas +
+		# lava layers start empty). vapor/cloud/fog then live fully on the GPU; temp/water/lava re-upload.
+		_gpu.set_field("temp", _temp)
+		_gpu.set_field("water", _water)
+		_gpu.set_field("vapor", _vapor)
+		_gpu.set_field("cloud", _cloud)
+		_gpu.set_field("fog", _fog)
+		_gpu.set_field("lava", _lava)
 	_build_render_node()
 	_build_heat_texture()
 	rebuild_surface()
@@ -405,6 +449,8 @@ func activate() -> void:
 # --- Heat texture (terrain-glow source) -------------------------------------
 
 func _build_heat_texture() -> void:
+	if _heat_tex != null:
+		return
 	_heat_col = PackedFloat32Array()
 	_heat_col.resize(_dim_x * _dim_z)
 	_heat_col.fill(INITIAL_TEMP)
@@ -445,34 +491,54 @@ func heat_world_size() -> Vector2:
 
 func _physics_process(delta: float) -> void:
 	if not _ready_sim:
+		# Still sampling rock/void as the terrain streams; self-activate when the volume is fully sampled.
+		if _terrain != null and _terrain.has_method("is_solid"):
+			_sample_step()
+			if _sampling_done:
+				seed_sea()
+				activate()
 		return
 	_step_accum += delta
 	var steps: int = 0
 	while _step_accum >= STEP_DT and steps < MAX_STEPS_PER_FRAME:
 		_step_accum -= STEP_DT
 		steps += 1
-		# Springs feed the surface (rivers emerge as this water flows downhill in 3D).
+	if steps <= 0:
+		return
+
+	if _use_gpu:
+		# GPU-RESIDENT: the WHOLE step (water + heat + atmosphere + lava) runs `steps` times on the GPU
+		# with one upload + one readback per frame. temp/water/lava carry CPU injections (springs, disaster
+		# heat/lava) so they're re-uploaded each frame; vapor/cloud/fog live fully resident on the GPU.
 		for src in _sources:
-			add_water_world(src["pos"], float(src["rate"]) * STEP_DT)
-		# Hot loops on the GPU when available (parity-validated), else the CPU oracle.
-		var dims: Vector3i = Vector3i(_dim_x, _dim_y, _dim_z)
-		if _use_gpu:
-			_water = _gpu.flow_water(_water, _solid, _static, dims)
-		else:
+			add_water_world(src["pos"], float(src["rate"]) * STEP_DT * float(steps))
+		var solar: float = _heat._solar() if _heat != null else 0.6
+		var w: Vector2 = _atmosphere.wind() if _atmosphere != null and _atmosphere.has_method("wind") else Vector2.ZERO
+		_gpu.begin_frame(_temp, _water, solar, w)
+		_gpu.set_field("lava", _lava)
+		for i in range(steps):
+			_gpu.step()
+		var out: Dictionary = _gpu.end_frame()
+		_temp = out["temp"]
+		_water = out["water"]
+		_vapor = out["vapor"]
+		_cloud = out["cloud"]
+		_fog = out["fog"]
+		_lava = out["lava"]
+	else:
+		for i in range(steps):
+			# Springs feed the surface (rivers emerge as this water flows downhill in 3D).
+			for src in _sources:
+				add_water_world(src["pos"], float(src["rate"]) * STEP_DT)
 			step_water()
-		if _heat != null:
-			if _use_gpu:
-				_temp = _gpu.step_heat_conduction(_temp, _solid, dims)
-				_heat.step(true)
-			else:
+			if _heat != null:
 				_heat.step()
-		if _atmosphere != null:
-			_atmosphere.step()
-		if _lava_sim != null:
-			_lava_sim.step()
-	if steps > 0:
-		rebuild_surface()
-		_update_heat_texture()
+			if _atmosphere != null:
+				_atmosphere.step()
+			if _lava_sim != null:
+				_lava_sim.step()
+	rebuild_surface()
+	_update_heat_texture()
 
 
 ## Temperature °C at a world point (0 outside the grid). The consumer query the 2.5D field also exposes.
@@ -501,7 +567,7 @@ func is_ocean_at(x: float, z: float) -> bool:
 	var iz: int = _col_i(z, _origin.z)
 	# Any static (seeded-sea) or below-sea void cell in the column means this is sea.
 	for iy in range(_dim_y):
-		if _origin.y + float(iy) * _cell_size >= _sea_level:
+		if _origin.y + float(iy) * _cell_size >= sea_level:
 			break
 		var i: int = (iy * _dim_z + iz) * _dim_x + ix
 		if _solid[i] == 0:
@@ -518,13 +584,13 @@ func salinity_at(x: float, z: float) -> float:
 		# Deepest open water is saltiest; the shallow shore band (incl. river mouths) stays brackish.
 		var ix: int = _col_i(x, _origin.x)
 		var iz: int = _col_i(z, _origin.z)
-		var floor_y: float = _sea_level
+		var floor_y: float = sea_level
 		for iy in range(_dim_y):
 			var i: int = (iy * _dim_z + iz) * _dim_x + ix
 			if _solid[i] == 0:
 				floor_y = _origin.y + float(iy) * _cell_size
 				break
-		return clampf((_sea_level - floor_y) / SALT_FULL_DEPTH, BRACKISH_FLOOR, 1.0)
+		return clampf((sea_level - floor_y) / SALT_FULL_DEPTH, BRACKISH_FLOOR, 1.0)
 	if is_water_at(x, z):
 		return 0.0                                       # inland CA pool (lake/river) = fresh
 	return NAN
@@ -550,10 +616,10 @@ func fog_grid() -> PackedFloat32Array:
 	return _atmosphere.fog_grid() if _atmosphere != null else PackedFloat32Array()
 
 func cloud_base_y() -> float:
-	return _atmosphere.cloud_base_y() if _atmosphere != null else _sea_level + 62.0
+	return _atmosphere.cloud_base_y() if _atmosphere != null else sea_level + 62.0
 
 func fog_base_y() -> float:
-	return _atmosphere.fog_base_y() if _atmosphere != null else _sea_level + 6.0
+	return _atmosphere.fog_base_y() if _atmosphere != null else sea_level + 6.0
 
 func relative_humidity_at(x: float, z: float) -> float:
 	return _atmosphere.relative_humidity_at(x, z) if _atmosphere != null else 0.0
@@ -594,6 +660,195 @@ func wet_cell_count() -> int:
 		if _solid[i] == 0 and _static[i] == 0 and _water[i] >= RENDER_MIN:
 			n += 1
 	return n
+
+
+# --- Injection API (disasters/flood/weather call these) ---------------------
+
+## Inject a mobile material at a world point (a water surge, a lava flow). Routes to the right buffer;
+## `radius`>0 spreads it over a sphere. Unknown materials are ignored (solids live in the SDF, not here).
+func add_material(world_pos: Vector3, mat_id: int, amount: float, radius: float = 0.0) -> void:
+	if amount <= 0.0:
+		return
+	if mat_id == Mat.LAVA:
+		add_lava(world_pos, amount)
+		return
+	if mat_id != Mat.WATER:
+		return
+	if radius <= 0.0:
+		add_water_world(world_pos, amount)
+		return
+	var cs: float = _cell_size
+	var cells: int = maxi(0, int(ceil(radius / cs)))
+	var ci: int = _col_i(world_pos.x, _origin.x)
+	var cj: int = _col_i(world_pos.y, _origin.y)
+	var ck: int = _col_i(world_pos.z, _origin.z)
+	var r2: float = radius * radius
+	for dj in range(-cells, cells + 1):
+		var iy: int = cj + dj
+		if iy < 0 or iy >= _dim_y:
+			continue
+		for dk in range(-cells, cells + 1):
+			var iz: int = ck + dk
+			if iz < 0 or iz >= _dim_z:
+				continue
+			for di in range(-cells, cells + 1):
+				var ix: int = ci + di
+				if ix < 0 or ix >= _dim_x:
+					continue
+				if cell_world_pos(ix, iy, iz).distance_squared_to(world_pos) <= r2:
+					add_water_cell(ix, iy, iz, amount)
+
+
+## Uniform rain input: add WATER at the top exposed cell of every column (depth per second, applied
+## per step). Precipitation normally EMERGES from the atmosphere; this is the back-compat spray input.
+func add_rain(amount_per_sec: float) -> void:
+	if amount_per_sec <= 0.0:
+		return
+	var add: float = amount_per_sec * STEP_DT
+	for iz in range(_dim_z):
+		for ix in range(_dim_x):
+			var iy: int = _surface_iy(ix, iz)
+			if iy >= 0:
+				add_water_cell(ix, iy, iz, add)
+
+
+## Flood pool-fill: add water only where the ground is at/below the centre column's ground, so a surge
+## fills the basin and runs downhill (never climbs a hillside). 3D analogue of the 2.5D add_water_pooled.
+func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
+	var ci: int = _col_i(center.x, _origin.x)
+	var ck: int = _col_i(center.z, _origin.z)
+	var center_ground: float = _column_ground_y(ci, ck)
+	var cs: float = _cell_size
+	var cells: int = maxi(1, int(ceil(radius / cs)))
+	var r2: float = radius * radius
+	for dk in range(-cells, cells + 1):
+		var iz: int = ck + dk
+		if iz < 0 or iz >= _dim_z:
+			continue
+		for di in range(-cells, cells + 1):
+			var ix: int = ci + di
+			if ix < 0 or ix >= _dim_x:
+				continue
+			var wx: float = _origin.x + float(ix) * cs
+			var wz: float = _origin.z + float(iz) * cs
+			var dx: float = wx - center.x
+			var dz: float = wz - center.z
+			if dx * dx + dz * dz > r2:
+				continue
+			if _column_ground_y(ix, iz) <= center_ground + 4.0:
+				var iy: int = _surface_iy(ix, iz)
+				if iy >= 0:
+					add_water_cell(ix, iy, iz, amount)
+
+
+# World Y of the top solid (ground) surface in a column, or the bottom if all void.
+func _column_ground_y(ix: int, iz: int) -> float:
+	for iy in range(_dim_y - 1, -1, -1):
+		if _solid[(iy * _dim_z + iz) * _dim_x + ix] != 0:
+			return _origin.y + float(iy) * _cell_size
+	return _origin.y
+
+
+## Re-sample rock/void from the terrain SDF in a region after an edit (a crater, a lava-built delta).
+func resample_terrain(world_pos: Vector3, radius: float) -> void:
+	if _terrain == null or not _terrain.has_method("is_solid"):
+		return
+	var cs: float = _cell_size
+	var cells: int = maxi(1, int(ceil(radius / cs)))
+	var ci: int = _col_i(world_pos.x, _origin.x)
+	var cj: int = _col_i(world_pos.y, _origin.y)
+	var ck: int = _col_i(world_pos.z, _origin.z)
+	for dj in range(-cells, cells + 1):
+		var iy: int = cj + dj
+		if iy < 0 or iy >= _dim_y:
+			continue
+		for dk in range(-cells, cells + 1):
+			var iz: int = ck + dk
+			if iz < 0 or iz >= _dim_z:
+				continue
+			for di in range(-cells, cells + 1):
+				var ix: int = ci + di
+				if ix < 0 or ix >= _dim_x:
+					continue
+				var i: int = (iy * _dim_z + iz) * _dim_x + ix
+				_solid[i] = 1 if _terrain.is_solid(cell_world_pos(ix, iy, iz)) else 0
+
+
+func cloud_cell_count(min_density: float = 0.05) -> int:
+	return _atmosphere.cloud_cell_count(min_density) if _atmosphere != null and _atmosphere.has_method("cloud_cell_count") else 0
+
+
+# --- Heat diagnostics -------------------------------------------------------
+
+func peak_heat() -> float:
+	var m: float = 0.0
+	for i in range(_cell_count):
+		if _solid[i] == 0 and _temp[i] > m:
+			m = _temp[i]
+	return m
+
+func hot_cell_count(threshold: float = 60.0) -> int:
+	var n: int = 0
+	for i in range(_cell_count):
+		if _solid[i] == 0 and _temp[i] >= threshold:
+			n += 1
+	return n
+
+func lava_peak() -> int:
+	return lava_cell_count()
+
+
+# --- Physical splash droplets (FX) ------------------------------------------
+## A few short-lived rigidbody droplets flung from a world point — the splash accent disasters call.
+func splash(world_pos: Vector3, strength: float) -> void:
+	if not is_inside_tree() or is_nan(world_pos.x):
+		return
+	var s: float = clampf(strength, 0.1, 4.0)
+	var mesh: SphereMesh = SphereMesh.new()
+	mesh.radius = 0.12
+	mesh.height = 0.24
+	mesh.radial_segments = 6
+	mesh.rings = 3
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.albedo_color = Color(0.3, 0.6, 0.9, 0.75)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mesh.material = mat
+	for n in range(5):
+		var body: RigidBody3D = RigidBody3D.new()
+		body.mass = 0.05
+		body.collision_mask = 1
+		body.collision_layer = 0
+		var mi: MeshInstance3D = MeshInstance3D.new()
+		mi.mesh = mesh
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		body.add_child(mi)
+		add_child(body)
+		body.global_position = world_pos + Vector3(randf_range(-0.15, 0.15), 0.1, randf_range(-0.15, 0.15))
+		var ang: float = randf() * TAU
+		body.linear_velocity = Vector3(cos(ang) * randf_range(1.0, 2.5) * s, randf_range(2.5, 4.5) * s, sin(ang) * randf_range(1.0, 2.5) * s)
+		var tm: SceneTreeTimer = get_tree().create_timer(2.0)
+		tm.timeout.connect(func(): if is_instance_valid(body): body.queue_free())
+
+
+# --- Concerns not yet ported to the 3D field (fire spread, granular landslides). Stubbed during the
+# 2.5D->3D strong break so consumers don't crash; they are OFFLINE until ported to GPU passes. ---
+func set_ecology(_e) -> void:
+	pass
+
+func disturb_terrain(_world_pos: Vector3, _radius: float, _strength: float) -> void:
+	pass
+
+func slump_count() -> int:
+	return 0
+
+func ignite(_node) -> void:
+	pass
+
+func is_burning(_node) -> bool:
+	return false
+
+func active_fire_count() -> int:
+	return 0
 
 
 const WATER_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/shaders/VoxelWater.gdshader"
@@ -652,7 +907,7 @@ func rebuild_surface() -> void:
 					continue
 				var wy: float = _origin.y + float(iy) * cs + (clampf(m, 0.0, MAX_MASS) - 0.5) * cs
 				# A sub-sea cell sitting at ~sea level is calm sea → the plane draws it.
-				if _origin.y + float(iy) * cs < _sea_level and absf(wy - _sea_level) < SEA_WAVE_EPS:
+				if _origin.y + float(iy) * cs < sea_level and absf(wy - sea_level) < SEA_WAVE_EPS:
 					continue
 				found = wy
 				break

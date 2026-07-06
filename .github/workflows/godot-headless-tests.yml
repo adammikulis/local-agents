@@ -22,7 +22,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential cmake curl git pkg-config unzip
 
-      - name: Report files over soft line limit (advisory)
+      - name: Enforce file size limits (800 soft warn, 1000 hard gate)
         env:
           MAX_FILE_LINES: "1000"
         run: |
@@ -88,7 +88,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential cmake curl git pkg-config unzip
 
-      - name: Report files over soft line limit (advisory)
+      - name: Enforce file size limits (800 soft warn, 1000 hard gate)
         env:
           MAX_FILE_LINES: "1000"
         run: |
@@ -129,7 +129,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential cmake curl git pkg-config unzip
 
-      - name: Report files over soft line limit (advisory)
+      - name: Enforce file size limits (800 soft warn, 1000 hard gate)
         env:
           MAX_FILE_LINES: "1000"
         run: |
