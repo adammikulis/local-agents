@@ -29,20 +29,25 @@ rules. `AGENTS.md` simply points here. Keep process rules in this file (and Godo
 ## 3D assets: convert FBX → glTF (DEFAULT)
 
 - **Godot renders glTF (`.glb`/`.gltf`) reliably; FBX is the fragile path.** Bring every 3D asset in as
-  **glTF**. All in-repo models are `.glb`, and the one place FBX slipped in (a Kenney accessory) should
-  be converted too. **Do not** rely on Godot's ufbx FBX importer for anything skinned/animated.
-- **Convert with Godot itself — it is the converter.** Two ways, both built in:
-  - *Editor:* import the `.fbx`, then it can be re-saved / used as a scene; or
-  - *Script (headless, reproducible):* load the imported FBX scene and export a `.glb` with
-    `GLTFDocument.append_from_scene(root, state)` + `GLTFDocument.write_to_filesystem(state, path)`.
-    A worked example is `convert_female.gd` (loads a Kenney character FBX + its separate idle-animation
-    FBX, embeds the clip, exports one `.glb`). No Blender / external `fbx2gltf` needed.
-- **Known caveat (learned the hard way):** a **skinned character** FBX may still not render even after
-  conversion — the Quaternius `villager.glb` shows fine in a SubViewport portrait, but the Kenney
-  `characterLargeFemale` skinned mesh would not (imports lying-down, T-posed, needs animation
-  retargeting, and stayed invisible skinned). Non-skinned Kenney meshes (caps, hair, props) convert and
-  render fine. When a skinned character fights you, prefer an already-clean rigged `.glb` (e.g. a
-  Quaternius character with embedded animations) over wrestling a Kenney/FBX rig.
+  **glTF**. **Do not** rely on Godot's ufbx FBX importer for skinned/animated meshes at runtime.
+- **Non-skinned FBX (caps, hair, props):** Godot itself is the converter — `GLTFDocument.append_from_scene`
+  + `write_to_filesystem`, headless. Fine for static/rigid meshes.
+- **Skinned/animated characters: convert with headless Blender** — Godot's own FBX→glTF path left the
+  skinned Kenney character **invisible** (a ufbx/skin quirk), so use Blender's exporter, which produces a
+  clean, upright, Godot-friendly `.glb`. Worked example: **`blender_convert_female.py`**
+  (`/Applications/Blender.app/Contents/MacOS/Blender --background --python <script>`). It:
+  - imports the character mesh FBX + the separate idle-animation FBX (Kenney ships animations as their
+    own files);
+  - picks the real **Idle** action (idle.fbx also carries a "0_Targeting Pose" that raises the arms —
+    grab the one whose name has `idle` and not `target`);
+  - **re-binds the mesh to the idle armature** (re-point the Armature modifier + reparent) instead of
+    cross-assigning the action — cross-assigning across two armatures breaks when their rest poses
+    differ (symptom: body **bobs but arms stay in a T-pose**);
+  - paints the skin as a Principled BSDF base-color texture and exports one `.glb` (`export_yup=True`).
+- **Runtime gotchas seen:** the Blender clip imports as a compound name like `Root_001|Root|Idle` (match
+  by substring, don't hardcode `"Idle"`); set the clip `loop_mode = LOOP_LINEAR` or it one-shots; the
+  character may face +Z (add a 180° yaw). **Attach head accessories with `BoneAttachment3D`** bound to
+  the `Head` bone so they track the skeletal idle + gaze through the node tree — no per-frame sync.
 
 ## Destructive-command safety (bulk delete/find)
 
