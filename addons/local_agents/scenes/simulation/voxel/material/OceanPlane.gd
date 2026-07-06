@@ -234,8 +234,13 @@ func _process(delta: float) -> void:
 func _update_waves(delta: float) -> void:
 	if _material == null:
 		return
-	if _field != null and _field.has_method("wind"):
+	if _field != null and (_field.has_method("wind_at") or _field.has_method("wind")):
+		# Sample the LOCAL wind where the camera is looking (the sea the player sees), so the swell reflects
+		# the wind actually at the coast rather than one global average; fall back to the domain mean.
 		var w: Vector2 = _field.wind()
+		if _field.has_method("wind_at") and _camera != null and is_instance_valid(_camera):
+			var cp: Vector3 = _camera.global_position
+			w = _field.wind_at(cp.x, cp.z)
 		var mag: float = w.length()
 		var strength: float = clampf((mag - WIND_CALM) * WIND_SCALE, WIND_MIN, WIND_MAX)
 		_material.set_shader_parameter("wind_strength", strength)

@@ -634,8 +634,12 @@ func _push_environment() -> void:
 	var sf = _ecology.scent_field()
 	if sf == null:
 		return
+	# Scent rides the emergent LOCAL wind field (per-marker wind_at); set_wind is only the fallback drift.
+	if sf.has_method("set_field") and _material != null:
+		sf.set_field(_material)
 	if sf.has_method("set_wind"):
-		sf.set_wind(_weather.wind_vector())
+		var mw: Vector2 = _material.wind() if _material != null and _material.has_method("wind") else Vector2(_weather.wind_vector().x, _weather.wind_vector().z)
+		sf.set_wind(Vector3(mw.x, 0.0, mw.y))
 	if sf.has_method("set_wash"):
 		sf.set_wash(_weather.rain())
 
