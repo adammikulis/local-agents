@@ -16,6 +16,7 @@ const FieldScript: GDScript = preload("res://addons/local_agents/scenes/simulati
 const HeatScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialHeat3D.gd")
 const AtmoScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialAtmosphere3D.gd")
 const CombustScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialCombustion3D.gd")
+const WindScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialWind3D.gd")
 const GPUScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGPU3D.gd")
 
 const DIM: int = 8
@@ -110,6 +111,10 @@ func _run() -> bool:
 	field._vel_z = velz.duplicate()
 
 	var heat = HeatScript.new(); heat.setup(field)
+	# Wind now runs ON-GPU inside step() (between heat + atmosphere), evolving vel each step — so the CPU
+	# oracle must run it too or the seeded vel diverges (GPU ember/transport read evolved vel). Default
+	# prevailing = ZERO on both sides (the harness never sets it), so both evolve identically.
+	var wind = WindScript.new(); wind.setup(field)
 	var atmo = AtmoScript.new(); atmo.setup(field); atmo.set_wind(WIND)
 	var combust = CombustScript.new(); combust.setup(field)
 	combust._seeded = true                 # keep OUR manual fuel seed (skip terrain grass-band seeding)
@@ -119,6 +124,7 @@ func _run() -> bool:
 	for k in range(STEPS):
 		field.step_water()
 		heat.step()
+		wind.step()                        # PASS A pressure + PASS B velocity (matches GPU order)
 		atmo.step()
 		combust.step()                     # ember gather + phase core (scene tail is a no-op on a bare field)
 

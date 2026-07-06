@@ -569,9 +569,10 @@ func _physics_process(delta: float) -> void:
 		var w: Vector2 = _atmosphere.wind() if _atmosphere != null and _atmosphere.has_method("wind") else Vector2.ZERO
 		_gpu.begin_frame(_temp, _water, solar, w)
 		_gpu.set_field("lava", _lava)
-		# Feed the resident wind SSBOs the emergent LOCAL velocity (last frame's, computed on the CPU
-		# oracle post-readback) so the atmosphere transport kernel advects moisture by the local wind.
-		_gpu.upload_wind(_vel_x, _vel_z)
+		# Emergent wind now runs ON-GPU (wind_pressure3d + wind_step3d between the heat and atmosphere passes),
+		# so vel_x/vel_y/vel_z are GPU-resident + GPU-written — no per-frame upload_wind. Just push the
+		# large-scale PREVAILING input the wind_step kernel relaxes toward (the old --wind= / WeatherSystem base).
+		_gpu.set_prevailing(_wind_sim.prevailing() if _wind_sim != null else Vector2.ZERO)
 		_gpu.set_field("sediment", _sediment)
 		# Fire/fuel round-trip like lava: the fire3d.glsl kernel runs the ember/phase core on-device; the CPU
 		# keeps only the scene tail (seed/scan/ash/regrow via step_scene_only). Upload the authoritative CPU
@@ -601,6 +602,14 @@ func _physics_process(delta: float) -> void:
 			_fuel = out["fuel"]
 		if out.has("sediment"):
 			_sediment = out["sediment"]
+		# Emergent wind is GPU-resident now — pull the fresh per-cell velocity back for CPU consumers
+		# (wind_at / wind3_at / scent advection / debug arrows).
+		if out.has("vel_x"):
+			_vel_x = out["vel_x"]
+		if out.has("vel_y"):
+			_vel_y = out["vel_y"]
+		if out.has("vel_z"):
+			_vel_z = out["vel_z"]
 		if out.has("vapor"):
 			_vapor = out["vapor"]
 		if out.has("cloud"):
@@ -615,10 +624,10 @@ func _physics_process(delta: float) -> void:
 			_atmosphere.recompute_projections()
 		_vapor_dirty = false
 		_slow_read_tick = (_slow_read_tick + 1) % SLOW_READ_EVERY
-		# Emergent 3D wind: the CPU-oracle wind step runs here on the FRESH post-heat temperature readback
-		# (pressure -> velocity -> deflection). GPU-kernel port is the remaining GPU-first work.
+		# Emergent 3D wind ran ON-GPU inside _gpu.step() (pressure -> velocity) and came back above — so here
+		# we only refresh the cached domain-average wind (ocean swell / HUD) from it; no CPU wind scan.
 		if _wind_sim != null:
-			_wind_sim.step()
+			_wind_sim.recompute_avg_from_field()
 		# CPU-oracle field processes on the fresh GPU readback (their edits round-trip to the GPU next frame):
 		# erosion carves water-borne sediment, snow/ice phase-change, magma bores conduits, dust lofts on wind.
 		if _erosion_sim != null:
@@ -758,6 +767,8 @@ func dewpoint_at(x: float, z: float) -> float:
 func set_wind(w: Vector2) -> void:
 	if _wind_sim != null:
 		_wind_sim.set_prevailing(w)
+	if _gpu != null:
+		_gpu.set_prevailing(w)
 	if _atmosphere != null:
 		_atmosphere.set_wind(w)
 

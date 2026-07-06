@@ -65,6 +65,8 @@ const LAVA_FLOW_SHADER_PATH: String = "res://addons/local_agents/scenes/simulati
 const LAVA_PHASE_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/lava_phase3d.glsl"
 const SLUMP_FLOW_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/slump3d.glsl"
 const FIRE_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/fire3d.glsl"
+const WIND_PRESSURE_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/wind_pressure3d.glsl"
+const WIND_STEP_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/wind_step3d.glsl"
 const LOCAL_SIZE_X: int = 64
 
 # Field timestep (MaterialField3D.STEP_DT = 1/STEP_HZ) — the atmosphere wind advection needs it to turn a
@@ -110,6 +112,8 @@ var _lava_flow_pipeline: RID = RID()
 var _lava_phase_pipeline: RID = RID()
 var _slump_flow_pipeline: RID = RID()      # granular slump flow (sediment CA)
 var _fire_pipeline: RID = RID()            # emergent fire/combustion (ember-gather + phase, gather-form)
+var _wind_pressure_pipeline: RID = RID()   # emergent wind PASS A: pressure from temperature (per-cell)
+var _wind_step_pipeline: RID = RID()       # emergent wind PASS B: velocity update (in-place, per-cell)
 var _shaders: Array[RID] = []              # every compiled shader RID (freed in dispose)
 var _pipeline_shader: Dictionary = {}      # pipeline RID -> its shader RID (for uniform_set_create)
 
@@ -138,10 +142,13 @@ var _buf_fire_b: RID = RID()
 var _buf_fuel: RID = RID()                 # flammable fuel mass per cell — resident SINGLE buffer, read+write IN PLACE
 var _buf_solid: RID = RID()                # byte->float mirror of _solid (1 = rock)
 var _buf_static: RID = RID()               # byte->float mirror of _static (1 = calm sea sink)
-# Emergent wind velocity (world XZ), uploaded each frame from the CPU-oracle MaterialWind3D field so the
-# atmosphere transport advects vapor/cloud/fog by the LOCAL per-cell wind. Single (non-ping-pong) inputs.
+# Emergent wind velocity (world X/Y/Z). GPU-COMPUTED + RESIDENT: wind_pressure3d + wind_step3d write these
+# in place each step (PASS B is per-cell, no neighbour-vel reads); the atmosphere transport reads the fresh
+# resident vel_x/vel_z. Single (non-ping-pong) buffers, evolve across frames; upload_wind() only SEEDS them.
 var _buf_vel_x: RID = RID()
+var _buf_vel_y: RID = RID()
 var _buf_vel_z: RID = RID()
+var _buf_pressure: RID = RID()             # per-cell air pressure (PASS A writes, PASS B reads); resident single buffer
 var _buf_send: RID = RID()                 # cell_count * 6 floats: per-direction outflow (water AND lava reuse)
 var _buf_rain: RID = RID()                 # cell_count floats: per-cell rain mass scratch (condense -> rain gather)
 var _buf_boil: RID = RID()                 # cell_count floats: per-cell boiled-water scratch (condense -> rain drain)
@@ -175,6 +182,11 @@ var _lava_phase_set: Array[RID] = [RID(), RID()]
 var _slump_flow_set: Array[RID] = [RID(), RID()]
 # Fire: in=fire live, out=fire back (+ fuel in-place, temp[back] in-place, water[back], solid, vel_x, vel_z).
 var _fire_set: Array[RID] = [RID(), RID()]
+# Wind PASS A (pressure): in=temp[back post-heat], solid; out=pressure. PASS B (velocity): in=pressure, temp[back],
+# solid; in-place on vel_x/vel_y/vel_z. Both read temp[back] so the sets are per-parity (temp buffer differs).
+var _wind_pressure_set: Array[RID] = [RID(), RID()]
+var _wind_step_set: Array[RID] = [RID(), RID()]
+var _prevailing: Vector2 = Vector2.ZERO     # large-scale base wind forced by the wind_step3d kernel (set_prevailing)
 var _parity: int = 0                        # 0 -> live in *_a, 1 -> live in *_b
 var _static_uploaded: bool = false
 
@@ -222,6 +234,8 @@ func _init_rd() -> void:
 	_lava_phase_pipeline = _pipeline(LAVA_PHASE_SHADER_PATH)
 	_slump_flow_pipeline = _pipeline(SLUMP_FLOW_SHADER_PATH)
 	_fire_pipeline = _pipeline(FIRE_SHADER_PATH)
+	_wind_pressure_pipeline = _pipeline(WIND_PRESSURE_SHADER_PATH)
+	_wind_step_pipeline = _pipeline(WIND_STEP_SHADER_PATH)
 
 
 func _pipeline(path: String) -> RID:
@@ -300,7 +314,9 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 	_buf_solid = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_static = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_vel_x = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	_buf_vel_y = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_vel_z = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	_buf_pressure = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	var send_zero: PackedFloat32Array = PackedFloat32Array()
 	send_zero.resize(cell_count * 6)
 	var send_bytes: PackedByteArray = send_zero.to_byte_array()
@@ -419,6 +435,17 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 			_make_uniform(4, water_back), _make_uniform(5, _buf_solid),
 			_make_uniform(6, _buf_vel_x), _make_uniform(7, _buf_vel_z)], _shader_of(_fire_pipeline), 0)
 
+		# --- Wind (emergent pressure-driven 3D velocity) — PASS A pressure: wind_pressure3d.glsl
+		# 0=temp(back post-heat), 1=solid, 2=pressure(out). PASS B velocity: wind_step3d.glsl 0=pressure,
+		# 1=temp(back), 2=solid, 3=vel_x, 4=vel_y, 5=vel_z (vel_* IN PLACE). Runs between HEAT and ATMOSPHERE.
+		_wind_pressure_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, temp_back), _make_uniform(1, _buf_solid),
+			_make_uniform(2, _buf_pressure)], _shader_of(_wind_pressure_pipeline), 0)
+		_wind_step_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, _buf_pressure), _make_uniform(1, temp_back),
+			_make_uniform(2, _buf_solid), _make_uniform(3, _buf_vel_x),
+			_make_uniform(4, _buf_vel_y), _make_uniform(5, _buf_vel_z)], _shader_of(_wind_step_pipeline), 0)
+
 
 # uniform_set_create needs the SHADER RID, not the pipeline. _pipeline() records the pairing.
 func _shader_of(pipeline: RID) -> RID:
@@ -430,7 +457,8 @@ func _free_buffers() -> void:
 		return
 	for arr in [_heat_set, _solar_set, _buoy_set, _cool_set, _water_set,
 			_evap_set, _transport_vapor_set, _transport_cloud_set, _transport_fog_set,
-			_condense_set, _rain_set, _lava_flow_set, _lava_phase_set, _slump_flow_set, _fire_set]:
+			_condense_set, _rain_set, _lava_flow_set, _lava_phase_set, _slump_flow_set, _fire_set,
+			_wind_pressure_set, _wind_step_set]:
 		for s in arr:
 			if s.is_valid():
 				_rd.free_rid(s)
@@ -449,10 +477,12 @@ func _free_buffers() -> void:
 	_lava_phase_set = [RID(), RID()]
 	_slump_flow_set = [RID(), RID()]
 	_fire_set = [RID(), RID()]
+	_wind_pressure_set = [RID(), RID()]
+	_wind_step_set = [RID(), RID()]
 	for buf in [_buf_temp_a, _buf_temp_b, _buf_water_a, _buf_water_b,
 			_buf_vapor_a, _buf_vapor_b, _buf_cloud_a, _buf_cloud_b,
 			_buf_fog_a, _buf_fog_b, _buf_lava_a, _buf_lava_b,
-			_buf_vel_x, _buf_vel_z, _buf_sediment_a, _buf_sediment_b,
+			_buf_vel_x, _buf_vel_y, _buf_vel_z, _buf_pressure, _buf_sediment_a, _buf_sediment_b,
 			_buf_fire_a, _buf_fire_b, _buf_fuel,
 			_buf_solid, _buf_static, _buf_send, _buf_rain, _buf_boil]:
 		if buf.is_valid():
@@ -466,7 +496,7 @@ func _free_buffers() -> void:
 	_buf_sediment_a = RID(); _buf_sediment_b = RID()
 	_buf_fire_a = RID(); _buf_fire_b = RID(); _buf_fuel = RID()
 	_buf_solid = RID(); _buf_static = RID(); _buf_send = RID(); _buf_rain = RID(); _buf_boil = RID()
-	_buf_vel_x = RID(); _buf_vel_z = RID()
+	_buf_vel_x = RID(); _buf_vel_y = RID(); _buf_vel_z = RID(); _buf_pressure = RID()
 	_fields = {}
 	_cell_count = 0
 	_static_uploaded = false
@@ -479,7 +509,8 @@ func dispose() -> void:
 	_free_buffers()
 	for pipe in [_heat_pipeline, _solar_pipeline, _buoy_pipeline, _cool_pipeline, _water_pipeline,
 			_evap_pipeline, _transport_pipeline, _condense_pipeline, _rain_pipeline,
-			_lava_flow_pipeline, _lava_phase_pipeline, _slump_flow_pipeline, _fire_pipeline]:
+			_lava_flow_pipeline, _lava_phase_pipeline, _slump_flow_pipeline, _fire_pipeline,
+			_wind_pressure_pipeline, _wind_step_pipeline]:
 		if pipe.is_valid():
 			_rd.free_rid(pipe)
 	for s in _shaders:
@@ -492,6 +523,7 @@ func dispose() -> void:
 	_evap_pipeline = RID(); _transport_pipeline = RID(); _condense_pipeline = RID()
 	_rain_pipeline = RID(); _lava_flow_pipeline = RID(); _lava_phase_pipeline = RID()
 	_slump_flow_pipeline = RID(); _fire_pipeline = RID()
+	_wind_pressure_pipeline = RID(); _wind_step_pipeline = RID()
 	_rd.free()
 	_rd = null
 
@@ -541,13 +573,20 @@ func upload_static_state(solid: PackedByteArray, static_cells: PackedByteArray) 
 	_static_uploaded = true
 
 
-## Upload the LOCAL wind velocity (world XZ) into the resident vel SSBOs the transport kernel advects by.
-## Called each frame from the field's GPU path with the CPU-oracle MaterialWind3D output (cheap; no sync).
+## SEED the resident wind velocity (world XZ) SSBOs. Wind is now GPU-computed + resident (wind_step3d evolves
+## vel in place each step), so the field NO LONGER calls this per frame — only to seed an initial velocity
+## (e.g. the parity harnesses' fixed test wind, matching the CPU oracle's start).
 func upload_wind(vel_x: PackedFloat32Array, vel_z: PackedFloat32Array) -> void:
 	if _rd == null:
 		return
 	upload(_buf_vel_x, vel_x)
 	upload(_buf_vel_z, vel_z)
+
+
+## Set the large-scale PREVAILING wind the wind_step3d kernel relaxes every cell toward (mirrors
+## MaterialWind3D.set_prevailing — fed each frame from the field).
+func set_prevailing(w: Vector2) -> void:
+	_prevailing = w
 
 
 # --- RESIDENT FRAME API (begin_frame -> step x N -> end_frame) -------------------------------------
@@ -636,10 +675,24 @@ func step() -> void:
 	_rd.compute_list_dispatch(cl, groups, 1, 1)
 
 	# ================= ADD-A-PASS SEAM ==============================================================
-	# ATMOSPHERE then LAVA (matching MaterialField3D._physics_process order: water -> heat -> atmosphere
-	# -> lava). A barrier already separated the heat forcing passes above; a fresh one guards the temp
-	# writes (post-heat temp is what evap/condense read).
+	# WIND -> ATMOSPHERE -> LAVA (matching MaterialField3D._physics_process: water -> heat -> WIND ->
+	# atmosphere -> lava). This barrier guards the post-heat temp writes (pressure/evap/condense read them).
 	_rd.compute_list_add_barrier(cl)
+
+	# --- WIND PASS A: air PRESSURE from the post-heat temperature. temp[back] + solid -> pressure. ---
+	_rd.compute_list_bind_compute_pipeline(cl, _wind_pressure_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _wind_pressure_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, _dims_pc(), 16)
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
+	_rd.compute_list_add_barrier(cl)          # pressure visible to the velocity update
+
+	# --- WIND PASS B: velocity update (gradient + buoyancy + Coriolis + prevailing + drag + deflection +
+	# clamp) IN PLACE on vel_x/vel_y/vel_z. Reads pressure + temp[back] + solid. ---
+	_rd.compute_list_bind_compute_pipeline(cl, _wind_step_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _wind_step_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, _wind_pc(), 32)
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
+	_rd.compute_list_add_barrier(cl)          # fresh resident vel visible to the atmosphere transport advection
 
 	# --- ATMOSPHERE STAGE 1: EVAPORATION. vapor[live] + evap -> vapor[back]. ---
 	_rd.compute_list_bind_compute_pipeline(cl, _evap_pipeline)
@@ -751,6 +804,11 @@ func end_frame(read_vapor: bool = true, read_cloud: bool = true, read_fog: bool 
 		"sediment": download(live_buffer("sediment", _parity)),
 		"fire": download(live_buffer("fire", _parity)),
 		"fuel": download(_buf_fuel),
+		# Emergent wind velocity — GPU-computed + resident. Read back so CPU consumers (wind_at / wind3_at /
+		# scent advection / debug arrows / avg_wind) see the fresh per-cell wind.
+		"vel_x": download(_buf_vel_x),
+		"vel_y": download(_buf_vel_y),
+		"vel_z": download(_buf_vel_z),
 	}
 	if read_vapor:
 		out["vapor"] = download(live_buffer("vapor", _parity))
@@ -761,8 +819,31 @@ func end_frame(read_vapor: bool = true, read_cloud: bool = true, read_fog: bool 
 	return out
 
 
+## Read back the resident per-cell air pressure (PASS A output). Off the field's hot path — used by the wind
+## parity harness to assert PASS A parity. Call after end_frame.
+func read_pressure() -> PackedFloat32Array:
+	if _rd == null:
+		return PackedFloat32Array()
+	return download(_buf_pressure)
+
+
 func _heat_pc() -> PackedByteArray:
 	return _dims_pc()
+
+
+# Wind PASS B push-constant: dims + prevailing wind (pvx,pvz) + STEP_DT + buoyancy flag (1 = enabled).
+func _wind_pc() -> PackedByteArray:
+	var pc: PackedByteArray = PackedByteArray()
+	pc.resize(32)
+	pc.encode_u32(0, _dim_x)
+	pc.encode_u32(4, _dim_y)
+	pc.encode_u32(8, _dim_z)
+	pc.encode_u32(12, _cell_count)
+	pc.encode_float(16, _prevailing.x)
+	pc.encode_float(20, _prevailing.y)
+	pc.encode_float(24, STEP_DT)
+	pc.encode_u32(28, 1)
+	return pc
 
 
 func _dims_pc() -> PackedByteArray:

@@ -12,6 +12,7 @@ const FieldScript: GDScript = preload("res://addons/local_agents/scenes/simulati
 const HeatScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialHeat3D.gd")
 const AtmoScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialAtmosphere3D.gd")
 const LavaScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialLava3D.gd")
+const WindScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialWind3D.gd")
 const GPUScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGPU3D.gd")
 
 const DIM: int = 8
@@ -98,6 +99,10 @@ func _run() -> bool:
 	field._vel_z = velz.duplicate()
 
 	var heat = HeatScript.new(); heat.setup(field)
+	# Wind now runs ON-GPU inside step() (between heat + atmosphere), evolving the seeded vel each step — so
+	# the CPU oracle must run it too, or the atmosphere transport advects by a diverging velocity. Default
+	# prevailing = ZERO on both sides (never set here), so both evolve the seeded wind identically.
+	var wind = WindScript.new(); wind.setup(field)
 	var atmo = AtmoScript.new(); atmo.setup(field); atmo.set_wind(WIND)
 	var lava_sim = LavaScript.new(); lava_sim.setup(field)
 
@@ -106,6 +111,7 @@ func _run() -> bool:
 	for k in range(STEPS):
 		field.step_water()
 		heat.step()
+		wind.step()                    # PASS A pressure + PASS B velocity (matches GPU order)
 		atmo.step()
 		lava_sim.step()
 

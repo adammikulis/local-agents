@@ -73,6 +73,28 @@ func avg_wind() -> Vector2:
 	return _avg_wind
 
 
+## Recompute the cached domain-average horizontal wind from the field's CURRENT velocity arrays. Used on
+## the GPU path, where step() runs on-device and this module no longer scans the grid: after the GPU vel
+## readback the field calls this ONE cheap flat reduction (over non-solid cells, matching step()'s mean)
+## to refresh avg_wind() for the ocean/HUD. On the CPU path step() sets _avg_wind directly instead.
+func recompute_avg_from_field() -> void:
+	if _f == null or _f._cell_count <= 0:
+		return
+	var vx: PackedFloat32Array = _f._vel_x
+	var vz: PackedFloat32Array = _f._vel_z
+	var solid: PackedByteArray = _f._solid
+	var sum_x: float = 0.0
+	var sum_z: float = 0.0
+	var void_cells: int = 0
+	for i in range(_f._cell_count):
+		if solid[i] == 0:
+			sum_x += vx[i]
+			sum_z += vz[i]
+			void_cells += 1
+	var denom: float = maxf(1.0, float(void_cells))
+	_avg_wind = Vector2(sum_x / denom, sum_z / denom)
+
+
 ## One wind step: (A) recompute pressure from the current temperature, then (B) accelerate the velocity
 ## field down the pressure gradient, add buoyant lift, force it toward the prevailing base flow, deflect
 ## it off rock faces, and damp it. Pressure is fully computed before any gradient is read (neighbour
