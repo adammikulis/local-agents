@@ -166,11 +166,12 @@ func _physics_process(delta: float) -> void:
 			_ecology.broadcast_scare(_base, SCARE_BASE * (0.6 + _strength), minf(1.0, 0.4 + _strength))
 	_fling_wildlife()
 
-	# WATERSPOUT — over open water it sucks moisture into the sky (feeding the cloud→rain cycle) and
-	# kicks up spray. Emergent: the same reads that feed its strength also decide it's a spout.
+	# WATERSPOUT spray — over open water the funnel kicks up a ring of spray (a cheap ripple). It no longer
+	# SCRIPT-INJECTS vapor (that low, base-level add_vapor condensed and rained puddles on the ground,
+	# especially near the coast). A real waterspout lifting moisture should EMERGE from the wind field's
+	# vortex once the tornado is rebuilt as an emergent low-pressure feature of MaterialField3D — not be
+	# faked by an actor pumping vapor into the air.
 	if _field != null and _field.has_method("is_ocean_at") and _field.is_ocean_at(_base.x, _base.z):
-		if _field.has_method("add_vapor"):
-			_field.add_vapor(_base + Vector3(0.0, 4.0, 0.0), SPOUT_VAPOR_PER_SEC * delta * _strength, 6.0 * _strength)
 		_splash_cd -= delta
 		if _splash_cd <= 0.0:
 			_splash_cd = SPOUT_SPLASH_INTERVAL
