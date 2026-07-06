@@ -76,6 +76,13 @@ var _auto_meteor_fired: bool = false
 var _auto_select: bool = false
 var _auto_select_done: bool = false
 var _frame: int = 0
+# Rolling FPS probe: averages the last N frames so a windowed --shoot run reports a
+# stable perf number instead of the noisy single-frame counter (which swings with sim
+# growth). Printed as FPS_AVG= alongside SHOT_SAVED.
+var _fps_accum: float = 0.0
+var _fps_count: int = 0
+var _gpu_ms_accum: float = 0.0    # isolated GPU render time — independent of CPU sim load
+const FPS_PROBE_FRAMES: int = 150
 
 
 func _ready() -> void:
@@ -101,7 +108,7 @@ func _ready() -> void:
 	# HDR glow/bloom: only genuinely bright (>1.0) pixels bloom — incandescent lava, the
 	# sun's specular glint on water, sunlit snow — so the scene gains punch without a
 	# washed-out haze over everything. High threshold keeps midtone grass/rock crisp.
-	e.glow_enabled = true
+	e.glow_enabled = not OS.has_environment("NOGLOW")
 	e.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
 	e.glow_intensity = 0.85
 	e.glow_strength = 1.0
@@ -118,6 +125,22 @@ func _ready() -> void:
 	e.set_glow_level(3, 1.0)
 	e.set_glow_level(4, 0.8)
 	e.set_glow_level(5, 0.0)
+
+	# Subtle atmospheric fog: gives the vista depth, hides the terrain-LOD pop at the
+	# horizon, and dissolves the ocean's hard edge into the skyline instead of ending in a
+	# line. Cheap (non-volumetric). Aerial perspective tints distant geometry toward the
+	# sky so far mountains recede; sky_affect stays low so the sky itself isn't washed out.
+	# fog_light_color is re-tinted to the horizon color every frame in _update_day_night.
+	e.fog_enabled = not OS.has_environment("NOFOG")
+	e.fog_mode = Environment.FOG_MODE_EXPONENTIAL
+	e.fog_light_color = SKY_HORIZON_DAY
+	e.fog_light_energy = 1.0
+	e.fog_sun_scatter = 0.15
+	e.fog_density = 0.0016
+	e.fog_aerial_perspective = 0.55
+	e.fog_sky_affect = 0.05
+	e.fog_height = -40.0
+	e.fog_height_density = 0.012
 
 	env.environment = e
 	add_child(env)
@@ -198,6 +221,12 @@ func _ready() -> void:
 		_ecology.set_water(_water)
 
 
+	# Enable per-viewport GPU render-time measurement so the perf probe can report the
+	# rendering cost isolated from the (highly variable) CPU sim load.
+	if _shoot_path != "":
+		RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
+
+
 func _parse_cmdline() -> void:
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--shoot="):
@@ -265,7 +294,16 @@ func _process(delta: float) -> void:
 			print("SELECT_RESULT selected=", _selected != null, " ring_visible=", _selection_ring.visible, " title=", title)
 		_auto_select_done = true
 
+	# Accumulate FPS over the final window before the screenshot for a stable perf reading.
+	if _shoot_path != "" and _frame > _shoot_frames - FPS_PROBE_FRAMES and _frame <= _shoot_frames:
+		_fps_accum += Engine.get_frames_per_second()
+		_gpu_ms_accum += RenderingServer.viewport_get_measured_render_time_gpu(get_viewport().get_viewport_rid())
+		_fps_count += 1
+
 	if _shoot_path != "" and _frame == _shoot_frames:
+		var avg_fps: float = _fps_accum / maxf(1.0, float(_fps_count))
+		var avg_gpu: float = _gpu_ms_accum / maxf(1.0, float(_fps_count))
+		print("FPS_AVG=%.1f GPU_MS=%.3f frames=%d entities=%d" % [avg_fps, avg_gpu, _fps_count, _actors_root.get_child_count()])
 		_capture_screenshot(_shoot_path)
 		get_tree().quit(0)
 
@@ -329,6 +367,11 @@ func _update_day_night(delta: float) -> void:
 		_sky_mat.sky_horizon_color = horizon
 	if _env != null:
 		_env.ambient_light_energy = lerpf(AMBIENT_NIGHT, AMBIENT_DAY, daylight) * storm
+		# Keep the distance fog matched to the current horizon so far terrain and the
+		# ocean melt into the same color the sky shows there (warm at dusk, dark at night).
+		var fog_col: Color = SKY_HORIZON_DAY.lerp(SKY_HORIZON_NIGHT, night)
+		fog_col = fog_col.lerp(SKY_HORIZON_DUSK, warm * 0.7)
+		_env.fog_light_color = fog_col
 
 	# Share the clock with the ecology so nocturnal behavior can key off night.
 	if _ecology != null and _ecology.has_method("set_time_of_day"):
