@@ -12,8 +12,6 @@ extends Node3D
 ## cone accretes over time as eruptions overflow the chute and solidify into new rock around the vent.
 ## Built in code, no assets. (Explicit types only — no ':=' inferred typing.)
 
-const Mat: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/Materials.gd")
-
 const VENT_RADIUS: float = 3.5
 const VENT_HEAT_PER_SEC: float = 1500.0   # keeps the vent molten (ΔT/s injected) while venting
 const SCARE_INTERVAL: float = 2.0
@@ -126,8 +124,8 @@ func _carve_conduit() -> void:
 		_vent.y = float(gy)
 		global_position = _vent
 	# Seed a little glowing lava at the chute floor so even a dormant vent reads as molten.
-	if _field != null and _field.has_method("add_material"):
-		_field.add_material(_vent, Mat.LAVA, 0.5, CONDUIT_RADIUS * 1.2)
+	if _field != null and _field.has_method("add_lava"):
+		_field.add_lava(_vent, 0.5)
 
 
 func get_inspector_payload() -> Dictionary:
@@ -185,8 +183,8 @@ func _physics_process(delta: float) -> void:
 		if _rumble_cd <= 0.0:
 			_rumble_cd = randf_range(1.1, 2.0)
 			LocalAgentsAudioDirector.emit(get_tree(), "volcano_roar", _vent)
-		if _field.has_method("add_material"):
-			_field.add_material(_vent, Mat.LAVA, outflow * delta, VENT_RADIUS)
+		if _field.has_method("add_lava"):
+			_field.add_lava(_vent, outflow * delta)
 		# Keep the vent molten but DRIVE it toward a bounded target (~1300°C) instead of adding heat
 		# blindly — otherwise continuous injection at one cell runs away (worse on a finer grid).
 		if _field.has_method("add_heat"):
@@ -256,8 +254,8 @@ func _breach() -> void:
 	_erupting = true
 	_pressure = 0.7                                     # the breach releases much of the built-up pressure
 	if _field != null:
-		if _field.has_method("add_material"):
-			_field.add_material(_vent, Mat.LAVA, 2.5, CRATER_RADIUS)   # first lava floods out (molten by definition)
+		if _field.has_method("add_lava"):
+			_field.add_lava(_vent, 2.5)   # first lava floods out (molten by definition)
 		if _field.has_method("add_heat"):
 			_field.add_heat(_vent, 700.0, CRATER_RADIUS * 2.2)         # a heat pulse to scorch/ignite around the new vent
 	_launch_bombs(1.4)                                  # violent opening blast of crust + lava bombs
@@ -328,8 +326,8 @@ func _bomb_impact(bomb: Node) -> void:
 	if _field != null:
 		if _field.has_method("add_heat"):
 			_field.add_heat(pos, 900.0, 4.0)
-		if _field.has_method("add_material"):
-			_field.add_material(pos, Mat.LAVA, 0.18, 2.0)
+		if _field.has_method("add_lava"):
+			_field.add_lava(pos, 0.18)
 	if _ecology != null and _ecology.has_method("broadcast_scare"):
 		_ecology.broadcast_scare(pos, 12.0, 0.5)
 	# A landing bomb thumps the ground — a small seismic pulse (felt as a light shake if the camera is near).
