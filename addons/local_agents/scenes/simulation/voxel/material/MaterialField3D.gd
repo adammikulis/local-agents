@@ -767,6 +767,14 @@ func wind_at(x: float, z: float) -> Vector2:
 	var i: int = _idx(ix, iy, iz)
 	return Vector2(_vel_x[i], _vel_z[i])
 
+## Vertical vorticity (air SPIN) at a world point — storm actors track/scale off the emergent vortex.
+func vorticity_at(x: float, z: float) -> float:
+	return _queries.vorticity_at(x, z)
+
+## Vertical updraft (+Y wind) at a column — the convective lift a thunderstorm/tornado feeds on.
+func updraft_at(x: float, z: float) -> float:
+	return _queries.updraft_at(x, z)
+
 ## Full LOCAL 3D wind velocity at a world point — the authoritative per-cell wind fire/scent ride.
 func wind3_at(x: float, y: float, z: float) -> Vector3:
 	if _wind_sim == null or _cell_count <= 0:

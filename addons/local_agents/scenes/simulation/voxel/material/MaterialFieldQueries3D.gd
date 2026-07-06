@@ -146,3 +146,37 @@ func hot_cell_count(threshold: float = 60.0) -> int:
 		if _f._solid[i] == 0 and _f._temp[i] >= threshold:
 			n += 1
 	return n
+
+
+# --- Storm queries (read the emergent wind field; storm actors track the vortex they seed) -----------
+
+# Sample cell a couple of cells above a column's surface (the free-stream, clear of the ground layer).
+func _aloft_i(ix: int, iz: int) -> int:
+	var siy: int = clampi(_surface_iy(ix, iz) + 2, 0, _f._dim_y - 1)
+	return (siy * _f._dim_z + iz) * _f._dim_x + ix
+
+
+## Vertical vorticity (curl_y of the horizontal wind) at a world point — the SPIN of the air. A tornado /
+## mesocyclone reads as a strong |vorticity|; storm actors scale their funnel + track toward the peak.
+func vorticity_at(x: float, z: float) -> float:
+	if _f._cell_count <= 0:
+		return 0.0
+	var ix: int = _col_i(x, _f._origin.x)
+	var iz: int = _col_i(z, _f._origin.z)
+	var dx: int = _f._dim_x
+	var dz: int = _f._dim_z
+	# curl_y = d(vel_z)/dx - d(vel_x)/dz, central differences at the aloft sample plane.
+	var vz_hi: float = _f._vel_z[_aloft_i(mini(ix + 1, dx - 1), iz)]
+	var vz_lo: float = _f._vel_z[_aloft_i(maxi(ix - 1, 0), iz)]
+	var vx_hi: float = _f._vel_x[_aloft_i(ix, mini(iz + 1, dz - 1))]
+	var vx_lo: float = _f._vel_x[_aloft_i(ix, maxi(iz - 1, 0))]
+	return 0.5 * (vz_hi - vz_lo) - 0.5 * (vx_hi - vx_lo)
+
+
+## Vertical wind (updraft, +Y) at a column's surface — the convective lift feeding a thunderstorm cell.
+func updraft_at(x: float, z: float) -> float:
+	if _f._cell_count <= 0:
+		return 0.0
+	var ix: int = _col_i(x, _f._origin.x)
+	var iz: int = _col_i(z, _f._origin.z)
+	return _f._vel_y[_aloft_i(ix, iz)]

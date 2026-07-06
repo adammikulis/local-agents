@@ -17,12 +17,19 @@ const LIFETIME_MAX: float = 55.0          # hard cap: even a well-fed twister ev
 const STRENGTH_START: float = 0.45
 const STRENGTH_MAX: float = 1.6
 const DISSIPATE_STRENGTH: float = 0.12    # below this it has lost its funnel and dies
-const FUEL_STARVE: float = 0.46           # fuel below this starves the twister; above it, it intensifies
-const GROWTH_RATE: float = 0.28           # how fast strength chases the fuel gradient
+const SPINUP_TIME: float = 9.0            # grace while Coriolis spins the seeded low into a vortex (no strength-death yet)
+const VORT_TO_STRENGTH: float = 0.5       # K: |vorticity| → strength; tuned so a well-fed vortex saturates STRENGTH_MAX
+const STRENGTH_RATE: float = 0.1          # smoothing of strength toward the field-read target
 
-# --- Wander (driven by wind + per-index noise so many twisters don't move in lockstep) ---
+# --- Seeding (the actor's job: inject a tight warm updraft/low so a vortex EMERGES and Coriolis spins it) ---
+const SEED_HEAT_PER_SEC: float = 26.0     # warm buoyant core → localized low → inflow → Coriolis spin
+const SEED_HEAT_R: float = 12.0           # tight radius keeps the low deep + local (a sharp low spins tight)
+
+# --- Track the vortex the field grew (+ wind + per-index noise so many twisters don't move in lockstep) ---
+const VORTEX_FOLLOW: float = 8.0          # base drifts toward the strongest nearby vorticity (the real mesocyclone)
+const VORTEX_PROBE: float = 26.0          # radius at which vorticity is sampled to find the vortex-core direction
 const WIND_FOLLOW: float = 0.9            # fraction of the atmosphere wind the base drifts with
-const WANDER_SPEED: float = 6.0           # amplitude of the noise wander (world u/s)
+const WANDER_SPEED: float = 3.0           # amplitude of the residual noise wander (world u/s)
 const PLAY_HALF_EXTENT: float = 285.0     # keep the base inside the island play area
 
 # --- Effect radii / forces (all scale with strength) -------------------------
@@ -99,6 +106,10 @@ func get_inspector_payload() -> Dictionary:
 	var over_ocean: bool = _field != null and _field.has_method("is_ocean_at") and _field.is_ocean_at(_base.x, _base.z)
 	lines.append("Status: %s" % ("waterspout" if over_ocean else "tornado"))
 	lines.append("Strength: %.0f%%" % (_strength / STRENGTH_MAX * 100.0))
+	var spin: float = 0.0
+	if _field != null and _field.has_method("vorticity_at"):
+		spin = _field.vorticity_at(_base.x, _base.z)
+	lines.append("Spin (vorticity): %.2f" % spin)
 	lines.append("Fuel (warm+humid): %.0f%%" % (_fuel() * 100.0))
 	lines.append("Age: %.0fs / %.0fs" % [_age, LIFETIME_MAX])
 	return {"title": "Tornado", "lines": lines}
@@ -123,30 +134,72 @@ func _fuel() -> float:
 	return clampf(0.5 * warm + 0.55 * humid + 0.22 * ocean, 0.0, 1.0)
 
 
+# SEED: inject a tight warm updraft at the foot. Warm air is buoyant → a localized low → inflow that the
+# field's Coriolis rule curls into a spinning vortex. Without this the field has nothing to spin; with it,
+# the twister's own mesocyclone EMERGES and then feeds its strength. (No effect off the field.)
+func _seed_low(delta: float) -> void:
+	if _field == null or not _field.has_method("add_heat"):
+		return
+	_field.add_heat(Vector3(_base.x, _base.y + 3.0, _base.z), SEED_HEAT_PER_SEC * delta, SEED_HEAT_R)
+
+
+# Direction (world XZ) toward the strongest nearby vertical vorticity — the actual vortex core the field
+# grew. Sampled at a ring of probe offsets around the foot; the funnel drifts that way so it tracks the
+# real mesocyclone instead of wandering on pure noise. Zero if there is no stronger spin nearby to follow.
+func _vortex_gradient() -> Vector2:
+	if _field == null or not _field.has_method("vorticity_at"):
+		return Vector2.ZERO
+	var best_dir: Vector2 = Vector2.ZERO
+	var best_val: float = absf(_field.vorticity_at(_base.x, _base.z))
+	for i in range(6):
+		var a: float = TAU * float(i) / 6.0
+		var ox: float = cos(a) * VORTEX_PROBE
+		var oz: float = sin(a) * VORTEX_PROBE
+		var v: float = absf(_field.vorticity_at(_base.x + ox, _base.z + oz))
+		if v > best_val:
+			best_val = v
+			best_dir = Vector2(ox, oz)
+	if best_dir.length() > 0.001:
+		return best_dir.normalized()
+	return Vector2.ZERO
+
+
 func _physics_process(delta: float) -> void:
 	_age += delta
 	_spin += SPIN_SPEED * delta
 
-	# STRENGTH — emerges from the fuel gradient: warm+humid feeds it (intensifies), cool/dry starves it.
-	var fuel: float = _fuel()
-	_strength += (fuel - FUEL_STARVE) * GROWTH_RATE * delta * 2.0
+	# SEED the low — inject a tight warm updraft at the foot so a pressure low forms and Coriolis spins it
+	# into a vortex. This is the actor's job now; the twister's strength then EMERGES from that spin.
+	_seed_low(delta)
+
+	# STRENGTH — no scripted fuel envelope: it READS the emergent vertical vorticity (air SPIN) the seeded
+	# low grew at the foot. A tight, well-fed vortex reads high |vorticity| → full strength; a twister that
+	# drifts off its fuel loses its spin → |vorticity| falls → it withers below DISSIPATE and dies.
+	var spin_vort: float = 0.0
+	if _field != null and _field.has_method("vorticity_at"):
+		spin_vort = absf(_field.vorticity_at(_base.x, _base.z))
+	_strength = lerpf(_strength, VORT_TO_STRENGTH * spin_vort, STRENGTH_RATE)
+	if _age < SPINUP_TIME:
+		_strength = maxf(_strength, STRENGTH_START)   # stay visible while the seed spins up into a vortex
 	_strength = clampf(_strength, 0.0, STRENGTH_MAX)
-	if _strength <= DISSIPATE_STRENGTH or _age >= LIFETIME_MAX:
+	if _age >= LIFETIME_MAX or (_age >= SPINUP_TIME and _strength <= DISSIPATE_STRENGTH):
 		_dissipate()
 		return
 
-	# WANDER — drift with the LOCAL wind at the twister's own position (so it funnels down valleys / gets
-	# pulled toward heated lows) plus independent noise so each tracks its own path.
+	# WANDER — TRACK THE VORTEX the field grew: bias motion toward the strongest nearby vertical vorticity
+	# (the real mesocyclone core), still riding the LOCAL wind for the downwind lean + a little noise so
+	# each twister tracks its own path instead of moving in lockstep.
 	var wind: Vector2 = Vector2.ZERO
 	if _field != null and _field.has_method("wind_at"):
 		wind = _field.wind_at(_base.x, _base.z)
 	elif _field != null and _field.has_method("wind"):
 		wind = _field.wind()
 	_wind_dir = wind
+	var vortex_dir: Vector2 = _vortex_gradient()
 	var nx: float = sin(_age * 0.7 + _phase) + 0.5 * sin(_age * 1.9 + _phase * 2.0)
 	var nz: float = cos(_age * 0.6 + _phase * 1.3) + 0.5 * cos(_age * 1.7 + _phase)
-	_base.x += (wind.x * WIND_FOLLOW + nx * WANDER_SPEED) * delta
-	_base.z += (wind.y * WIND_FOLLOW + nz * WANDER_SPEED) * delta
+	_base.x += (vortex_dir.x * VORTEX_FOLLOW + wind.x * WIND_FOLLOW + nx * WANDER_SPEED) * delta
+	_base.z += (vortex_dir.y * VORTEX_FOLLOW + wind.y * WIND_FOLLOW + nz * WANDER_SPEED) * delta
 	_base.x = clampf(_base.x, -PLAY_HALF_EXTENT, PLAY_HALF_EXTENT)
 	_base.z = clampf(_base.z, -PLAY_HALF_EXTENT, PLAY_HALF_EXTENT)
 	# Keep the foot on the ground (or sea surface); hold the last height off the meshed area.

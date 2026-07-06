@@ -16,9 +16,14 @@ const LIFETIME_MAX: float = 150.0         # a hurricane is long-lived; ocean fue
 const STRENGTH_START: float = 0.5
 const STRENGTH_MAX: float = 1.8
 const DISSIPATE_STRENGTH: float = 0.14
-const INTENSIFY_RATE: float = 0.09        # strength/s gained over warm ocean (scaled by ocean fraction)
-const DECAY_RATE: float = 0.22            # strength/s lost over land / cool water (landfall kills it)
-const WARM_OCEAN_TEMP: float = 16.0       # sea at least this warm counts as fuel
+const SPINUP_TIME: float = 22.0           # slow genesis: grace while Coriolis spins the warm-ocean low up
+const VORT_TO_STRENGTH: float = 0.55      # K: |vorticity| → strength; tuned so a well-fed vortex saturates STRENGTH_MAX
+const STRENGTH_RATE: float = 0.1          # smoothing of strength toward the field-read target
+const WARM_OCEAN_TEMP: float = 16.0       # sea at least this warm counts as fuel (gates the SEEDING)
+
+# --- Vortex tracking (steer the eye toward the strongest nearby vorticity — the low the seeding grew) ---
+const VORTEX_STEER: float = 0.4
+const VORTEX_PROBE: float = 60.0
 
 # --- Structure (all in world units; the rain/cloud fills the annulus, the eye stays calm) ---
 const EYE_RADIUS: float = 26.0
@@ -90,6 +95,7 @@ func get_inspector_payload() -> Dictionary:
 	var frac: float = _warm_ocean_fraction()
 	lines.append("Status: %s" % ("intensifying (warm sea)" if frac > 0.5 else "weakening (landfall)"))
 	lines.append("Strength: %.0f%%" % (_strength / STRENGTH_MAX * 100.0))
+	lines.append("Spin (vorticity): %.2f" % _core_vorticity())
 	lines.append("Warm-ocean fuel: %.0f%%" % (frac * 100.0))
 	lines.append("Age: %.0fs / %.0fs" % [_age, LIFETIME_MAX])
 	return {"title": "Hurricane", "lines": lines}
@@ -118,24 +124,75 @@ func _warm_ocean_fraction() -> float:
 	return float(warm_ocean) / float(maxi(1, total))
 
 
+# The peak vertical vorticity (air SPIN) of the mesocyclone — sampled at the centre + around the eyewall
+# ring so a broad rotating low reads high even though the eye itself is calm. This is what the seeded
+# warm-ocean low grows via Coriolis, and what the storm's strength now READS.
+func _core_vorticity() -> float:
+	if _field == null or not _field.has_method("vorticity_at"):
+		return 0.0
+	var peak: float = absf(_field.vorticity_at(_center.x, _center.z))
+	var ring_r: float = (EYE_RADIUS + OUTER_RADIUS) * 0.5
+	for i in range(EYEWALL_POINTS):
+		var a: float = TAU * float(i) / float(EYEWALL_POINTS)
+		var px: float = _center.x + cos(a) * ring_r
+		var pz: float = _center.z + sin(a) * ring_r
+		var v: float = absf(_field.vorticity_at(px, pz))
+		if v > peak:
+			peak = v
+	return peak
+
+
+# Direction (world XZ) toward the strongest nearby vorticity — used to re-centre the eye onto the low the
+# field grew if it advects off. Zero when the eye is already sitting on the vortex core (nothing stronger).
+func _vortex_gradient() -> Vector2:
+	if _field == null or not _field.has_method("vorticity_at"):
+		return Vector2.ZERO
+	var best_dir: Vector2 = Vector2.ZERO
+	var best_val: float = absf(_field.vorticity_at(_center.x, _center.z))
+	for i in range(6):
+		var a: float = TAU * float(i) / 6.0
+		var ox: float = cos(a) * VORTEX_PROBE
+		var oz: float = sin(a) * VORTEX_PROBE
+		var v: float = absf(_field.vorticity_at(_center.x + ox, _center.z + oz))
+		if v > best_val:
+			best_val = v
+			best_dir = Vector2(ox, oz)
+	if best_dir.length() > 0.001:
+		return best_dir.normalized()
+	return Vector2.ZERO
+
+
 func _physics_process(delta: float) -> void:
 	_age += delta
 	_spin += SPIN_SPEED * delta
-
-	# STRENGTH — intensify over warm ocean, decay over land/cool water. Genesis + landfall both emerge.
-	var frac: float = _warm_ocean_fraction()
-	_strength += (INTENSIFY_RATE * frac - DECAY_RATE * (1.0 - frac)) * delta
-	_strength = clampf(_strength, 0.0, STRENGTH_MAX)
-	if _strength <= DISSIPATE_STRENGTH or _age >= LIFETIME_MAX or _field == null:
-		if _strength <= DISSIPATE_STRENGTH or _age >= LIFETIME_MAX:
-			_dissipate()
+	if _field == null:
 		return
 
-	# TRACK — a slow forward crawl, gently steered by the LOCAL wind at the eye's own position.
+	# GENESIS FUEL still emerges from a field read — the fraction of the eyewall over WARM OCEAN — but it
+	# now GATES the SEEDING (below) rather than scripting strength: over warm sea the actor pumps the low
+	# that grows the vortex; over land it stops feeding, so the vortex spins down and the storm falls apart.
+	var frac: float = _warm_ocean_fraction()
+
+	# STRENGTH — no scripted intensify/decay: it READS the emergent vertical vorticity of the mesocyclone the
+	# seeded low grew (peak over the core + eyewall). A well-fed warm-ocean vortex reads high |vorticity| →
+	# full strength; after landfall the seeding stops, the spin decays, |vorticity| falls, and it dies.
+	_strength = lerpf(_strength, VORT_TO_STRENGTH * _core_vorticity(), STRENGTH_RATE)
+	if _age < SPINUP_TIME:
+		_strength = maxf(_strength, STRENGTH_START)   # hold visible while the warm-ocean low spins up
+	_strength = clampf(_strength, 0.0, STRENGTH_MAX)
+	if _age >= LIFETIME_MAX or (_age >= SPINUP_TIME and _strength <= DISSIPATE_STRENGTH):
+		_dissipate()
+		return
+
+	# TRACK — a slow forward crawl, gently steered by the LOCAL wind at the eye's own position AND biased
+	# toward the strongest nearby vorticity so the eye tracks the low the field grew (re-centres if it drifts).
 	if _field.has_method("wind_at") or _field.has_method("wind"):
 		var wind: Vector2 = _field.wind_at(_center.x, _center.z) if _field.has_method("wind_at") else _field.wind()
 		if wind.length() > 0.01:
 			_heading = _heading.lerp(wind.normalized(), clampf(WIND_STEER * delta, 0.0, 1.0)).normalized()
+	var vdir: Vector2 = _vortex_gradient()
+	if vdir.length() > 0.001:
+		_heading = _heading.lerp(vdir, clampf(VORTEX_STEER * delta, 0.0, 1.0)).normalized()
 	_center.x += _heading.x * TRACK_SPEED * delta
 	_center.z += _heading.y * TRACK_SPEED * delta
 	_center.x = clampf(_center.x, -PLAY_HALF_EXTENT, PLAY_HALF_EXTENT)
@@ -146,20 +203,25 @@ func _physics_process(delta: float) -> void:
 			_center.y = gy
 	global_position = _center
 
-	_pump_eyewall(delta)
+	_pump_eyewall(frac, delta)
 	_stir_wildlife(delta)
 	_maybe_breed(delta)
 	_update_fx()
 
 
-# Pump moisture + cool air aloft around the EYEWALL (never the calm eye) so a dense rain-bearing spiral
-# builds around a rain-free centre — the eye emerges because nothing is injected there.
-func _pump_eyewall(delta: float) -> void:
+# SEED the low: pump moisture + cool air aloft around the EYEWALL (never the calm eye) so a dense
+# rain-bearing spiral builds around a rain-free centre — the eye emerges because nothing is injected there.
+# Gated by the warm-ocean fuel `fuel`: over the sea it feeds the low that Coriolis spins into the hurricane
+# vortex; over land `fuel`→0, the seeding stops, and the vortex (hence strength) decays — landfall EMERGES.
+func _pump_eyewall(fuel: float, delta: float) -> void:
+	if fuel <= 0.0:
+		return
 	var cloud_base: float = _center.y + 60.0
 	if _field.has_method("cloud_base_y"):
 		cloud_base = float(_field.cloud_base_y())
 	var ring_r: float = (EYE_RADIUS + OUTER_RADIUS) * 0.5
-	var per_point: float = VAPOR_PER_SEC * _strength * delta / float(EYEWALL_POINTS)
+	var drive: float = maxf(_strength, STRENGTH_START) * fuel   # keep a seeding floor during spin-up
+	var per_point: float = VAPOR_PER_SEC * drive * delta / float(EYEWALL_POINTS)
 	for i in range(EYEWALL_POINTS):
 		var a: float = TAU * float(i) / float(EYEWALL_POINTS) + _spin
 		var px: float = _center.x + cos(a) * ring_r
@@ -172,7 +234,7 @@ func _pump_eyewall(delta: float) -> void:
 		if _field.has_method("add_vapor"):
 			_field.add_vapor(Vector3(px, gy + 3.0, pz), per_point, VAPOR_INJECT_R)
 		if _field.has_method("add_cooling"):
-			_field.add_cooling(Vector3(px, cloud_base, pz), COOL_PER_SEC * _strength * delta, COOL_INJECT_R)
+			_field.add_cooling(Vector3(px, cloud_base, pz), COOL_PER_SEC * drive * delta, COOL_INJECT_R)
 
 
 # The rotating wind: fling wildlife in the annulus tangentially (caught in the spin) + panic them. Weaker

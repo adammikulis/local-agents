@@ -41,6 +41,7 @@ const DAMP: float = 0.08                  # linear drag fraction removed from ve
 const MAX_WIND: float = 24.0              # velocity magnitude clamp (stability)
 const BUOY_ACCEL: float = 0.5             # upward accel per °C of (this cell − cell above) temperature inversion
 const BUOY_ACCEL_MAX: float = 6.0         # cap the buoyant accel before the dt scale (stability)
+const CORIOLIS: float = 0.6               # sideways deflection of horizontal wind → pressure lows SPIN (vortices emerge)
 const EDGE_FORCE: float = 0.30            # boundary cells relax this fraction toward the prevailing wind (inflow)
 const BODY_FORCE: float = 0.02            # interior cells relax this gentle fraction toward the prevailing wind
 
@@ -137,6 +138,16 @@ func step() -> void:
 						var inv: float = temp[i] - temp[iu]
 						if inv > 0.0:
 							nvy += minf(inv * BUOY_ACCEL, BUOY_ACCEL_MAX) * dt
+
+				# CORIOLIS-like deflection: air rushing INTO a pressure low is curled sideways, so instead of
+				# collapsing straight to the centre it spins AROUND it — a rotating low (vortex) EMERGES. A
+				# deeper low (stronger inflow) spins tighter, so a sharp local low (a convective updraft, a
+				# seeded warm-ocean low) becomes a TORNADO / mesocyclone / hurricane with no scripted rotation.
+				# Semi-implicit rotation by the pre-rotation components (stable). Must match wind_step3d.glsl.
+				var rvx: float = nvx - CORIOLIS * nvz * dt
+				var rvz: float = nvz + CORIOLIS * nvx * dt
+				nvx = rvx
+				nvz = rvz
 
 				# PREVAILING base flow: stronger at the domain boundary (inflow), gentle in the interior.
 				var on_edge: bool = ix == 0 or ix == dx - 1 or iz == 0 or iz == dz - 1

@@ -95,7 +95,6 @@ var _auto_volcano: bool = false
 var _auto_volcano_fired: bool = false
 var _auto_lightning: bool = false
 var _auto_lightning_fired: bool = false
-var _storm_bolt_cd: float = 0.0
 var _auto_meteor_fired: bool = false
 var _auto_select: bool = false
 var _auto_select_done: bool = false
@@ -289,6 +288,10 @@ func _ready() -> void:
 	_disasters.name = "Disasters"
 	add_child(_disasters)
 	_disasters.setup(self, _terrain, _ecology, _actors_root, _camera, _audio)
+	# Lightning is now EMERGENT: the field's charge process fires a bolt where a convective updraft breaks
+	# down, injecting the heat pulse + scare itself, and calls back here for the VISUAL/audio bolt only.
+	if _material != null and _material.has_method("set_lightning_visual"):
+		_material.set_lightning_visual(Callable(_disasters, "spawn_lightning"))
 	_brush = SpawnBrushScript.new()
 	_brush.name = "SpawnBrush"
 	add_child(_brush)
@@ -479,12 +482,8 @@ func _process(delta: float) -> void:
 					_camera.frame_vista(Vector3(20.0, oh, 20.0))
 				_auto_volcano_fired = true
 
-	# Thunderstorms produce lightning — emergent occurrence keyed off heavy rain.
-	if _spawned_initial and _weather != null and _weather.has_method("rain"):
-		_storm_bolt_cd -= delta
-		if _weather.rain() > 0.6 and _storm_bolt_cd <= 0.0:
-			_storm_bolt_cd = randf_range(2.5, 7.0)
-			_disasters.strike_random_lightning()
+	# Lightning is no longer keyed off a rain probe — it EMERGES from the field's charge process (charge
+	# builds in convective updrafts and breaks down to a bolt), which fires the visual via set_lightning_visual().
 
 	# Auto-lightning demo/test: strike the nearest tree so a wildfire emerges from the bolt's heat.
 	if _auto_lightning and not _auto_lightning_fired and _spawned_initial:

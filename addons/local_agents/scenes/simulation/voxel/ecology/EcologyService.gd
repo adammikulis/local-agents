@@ -51,15 +51,9 @@ var _fish_timer: float = 0.0
 var _aquatic_kinds_cache: Array = []     # aquatic species ids (config aquatic:true), indexed once
 var _aquatic_indexed: bool = false
 
-# --- Seismic stimulus (emergent camera shake) --------------------------------
-# Every ground disturbance emits a short-lived seismic PULSE into this capped ring. The camera (and
-# any other listener) queries seismic_energy_at() and shakes in proportion to nearby energy × proximity
-# — so shake FALLS OUT of ground motion; no event tells the camera to shake. Pulses age out fast.
-const SEISMIC_LIFETIME: float = 0.8          # seconds a pulse stays "felt" before it fully decays
-const SEISMIC_BASE_RANGE: float = 70.0       # felt radius of a unit-magnitude pulse (grows with magnitude)
-const SEISMIC_RANGE_PER_MAG: float = 25.0    # extra felt radius per unit of magnitude
-const SEISMIC_MAX_PULSES: int = 64           # cap the ring so a storm of disturbances stays cheap
-var _seismic_pulses: Array = []              # [{pos: Vector3, mag: float, age: float}]
+# --- Seismic / shock stimulus (emergent camera shake) ------------------------
+# Ground disturbances now inject into the field's PROPAGATING shock wave (LAMaterialShock3D); the camera
+# reads seismic_energy_at() (→ field.shock_at) and shakes. No local ring — the wave carries it (see below).
 
 
 # --- species / plant configs ------------------------------------------------
@@ -148,55 +142,26 @@ func disturb_ground(world_pos: Vector3, radius: float, strength: float) -> void:
 	broadcast_seismic(world_pos, strength * clampf(radius / 12.0, 0.3, 4.0))
 
 
-# Emit a seismic PULSE at world_pos with the given magnitude (energy). Recorded in a small capped ring
-# that ages out; seismic_energy_at() sums live pulses with distance + time falloff. This is the ONE
-# stimulus every ground-disturbing event feeds, so shake is emergent and never per-event scripted.
-# Impacts that don't route through disturb_ground (lava-bomb landings, etc.) call this directly.
+# The seismic/shock stimulus is now a REAL PROPAGATING FIELD (LAMaterialShock3D in MaterialField3D), not
+# a point ring: every ground-disturbing event injects a shock wave that radiates outward + is muffled by
+# terrain, so a blast behind a ridge is felt less for free. The ecology just mediates the actor→field call
+# (this is the ONE stimulus every impact/tremor feeds); the camera + energy graph read it back below.
 func broadcast_seismic(world_pos: Vector3, magnitude: float) -> void:
 	if magnitude <= 0.0:
 		return
-	_seismic_pulses.append({"pos": world_pos, "mag": magnitude, "age": 0.0})
-	if _seismic_pulses.size() > SEISMIC_MAX_PULSES:
-		_seismic_pulses.pop_front()
+	if _material != null and _material.has_method("emit_shock"):
+		_material.emit_shock(world_pos, magnitude)
 
 
-# Sum the seismic energy felt at world_pos from all live pulses. Each contributes its magnitude scaled
-# by a squared distance falloff (worse the nearer the source — proximity is automatic) and a linear time
-# decay as the pulse ages out. Cheap: the ring is capped and expired pulses are dropped each step.
+# Shock energy felt at world_pos — the propagated field value (proximity + terrain muffling emerge from
+# the wave). The camera rig queries this and shakes in proportion.
 func seismic_energy_at(world_pos: Vector3) -> float:
-	var energy: float = 0.0
-	for pulse in _seismic_pulses:
-		var mag: float = float(pulse["mag"])
-		var reach: float = SEISMIC_BASE_RANGE + mag * SEISMIC_RANGE_PER_MAG
-		var d: float = (pulse["pos"] as Vector3).distance_to(world_pos)
-		var near: float = clampf(1.0 - d / reach, 0.0, 1.0)
-		if near <= 0.0:
-			continue
-		var life: float = clampf(1.0 - float(pulse["age"]) / SEISMIC_LIFETIME, 0.0, 1.0)
-		energy += mag * near * near * life
-	return energy
+	return _material.shock_at(world_pos) if _material != null and _material.has_method("shock_at") else 0.0
 
 
-# Scene-wide seismic energy: the sum of every live pulse's magnitude × its time decay, ignoring
-# position (a whole-scene "how much is the ground shaking" total, for the energy graph / streamer).
+# Scene-wide shock intensity (peak) for the energy graph / streamer.
 func total_seismic_energy() -> float:
-	var energy: float = 0.0
-	for pulse in _seismic_pulses:
-		var life: float = clampf(1.0 - float(pulse["age"]) / SEISMIC_LIFETIME, 0.0, 1.0)
-		energy += float(pulse["mag"]) * life
-	return energy
-
-
-# Age the seismic ring each physics step and drop pulses that have fully decayed.
-func _age_seismic(delta: float) -> void:
-	if _seismic_pulses.is_empty():
-		return
-	var live: Array = []
-	for pulse in _seismic_pulses:
-		pulse["age"] = float(pulse["age"]) + delta
-		if float(pulse["age"]) < SEISMIC_LIFETIME:
-			live.append(pulse)
-	_seismic_pulses = live
+	return _material.shock_peak() if _material != null and _material.has_method("shock_peak") else 0.0
 
 
 func cognition_scheduler():
@@ -388,7 +353,6 @@ func broadcast_scare(world_pos: Vector3, radius: float, base_intensity: float = 
 func _physics_process(delta: float) -> void:
 	if terrain == null or actors_root == null:
 		return
-	_age_seismic(delta)
 	_process_pending()
 	_breed_timer -= delta
 	if _breed_timer <= 0.0:

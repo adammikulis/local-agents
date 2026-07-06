@@ -29,15 +29,16 @@ extends RefCounted
 ## The math here is the CPU-oracle REFERENCE (no GLSL kernel yet); it is the headless/no-GPU path.
 
 # --- Charge separation tunables --------------------------------------------------------------------
-const FREEZE_T: float = 0.0               # °C — top of the mixed-phase (supercooled) charging band
-const COLD_SPAN: float = 30.0             # °C below freezing over which `cold` fades 1 -> 0 (mixed-phase depth)
-const CHARGE_GAIN: float = 1.0            # charge separated per (updraft × cloud × cold) per second
+const FREEZE_T: float = 12.0              # °C — top of the charging band (this island's cloud tops rarely go
+                                          # sub-zero, so charge builds in COOL cloud, not strictly supercooled)
+const COLD_SPAN: float = 30.0             # °C below FREEZE_T over which `cold` fades 1 -> 0 (mixed-phase depth)
+const CHARGE_GAIN: float = 8.0            # charge separated per (updraft × cloud × cold) per second
 const CHARGE_LEAK: float = 0.004          # fraction of a cell's charge that bleeds away each step (slow relax)
 const CHARGE_MIN: float = 0.02            # below this a cell holds no meaningful charge (diagnostic floor)
 const UPDRAFT_MIN: float = 0.0            # only POSITIVE vertical wind (rising air) separates charge
 
 # --- Dielectric breakdown (bolt trigger) -----------------------------------------------------------
-const BREAKDOWN_Q: float = 9.0            # summed column charge at which the air ionises and a bolt fires
+const BREAKDOWN_Q: float = 2.5            # summed column charge at which the air ionises and a bolt fires
 const MAX_BOLTS_PER_STEP: int = 2         # cap discrete strikes per step (a storm flickers, not a flood)
 const RESET_FRACTION: float = 0.02        # residual charge left in a column after it discharges (~0)
 

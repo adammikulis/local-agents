@@ -11,15 +11,26 @@ extends Node3D
 ## and rains itself out over its lifetime. Built in code, no assets. (Explicit types only — no ':=' .)
 
 const LIFETIME: float = 46.0              # seconds from first charge to spent
-const BUILD_TIME: float = 6.0             # ramps up over this at the start
-const FADE_TIME: float = 10.0             # eases out over this at the end
+const BUILD_TIME: float = 6.0             # ramps the SEEDING up over this at the start (grace before starve-death)
+const FADE_TIME: float = 10.0             # eases the SEEDING out over this at the end (the cell rains itself out)
 const RADIUS: float = 62.0                # footprint half-width (vapor pumping + lightning + drift box)
 
-# Moisture pump + aloft cooling — the two ingredients; the cloud/rain EMERGE from them via the field.
-const VAPOR_PER_SEC: float = 5.0          # total vapor injected per second at full strength (split over points)
+# Moisture pump + surface heating + aloft cooling — the ingredients the actor SEEDS; the cloud/rain and the
+# convective updraft the cell then feeds on EMERGE from them via the field.
+const VAPOR_PER_SEC: float = 5.0          # total vapor injected per second at full seeding (split over points)
 const VAPOR_INJECT_R: float = 14.0        # radius of each vapor blob at the ground
+const SEED_HEAT_PER_SEC: float = 10.0     # surface warming that makes the air rise → the convective updraft
+const SEED_HEAT_R: float = 16.0
 const COOL_PER_SEC: float = 14.0          # °C/s pulled out of the air aloft to force condensation
 const COOL_INJECT_R: float = 30.0
+
+# Intensity now EMERGES from the convective updraft (+Y lift) the seeding grows — not a scripted envelope.
+const STRENGTH_MAX: float = 1.0           # intensity is normalized 0..1
+const UPDRAFT_TO_STRENGTH: float = 0.3    # K: |updraft| → strength; tuned so a strong convective lift saturates
+const STRENGTH_RATE: float = 0.1          # smoothing of strength toward the field-read target
+const DISSIPATE_STRENGTH: float = 0.12    # past BUILD_TIME, a collapsed updraft (no lift) kills the cell
+const LIFT_FOLLOW: float = 5.0            # drift toward stronger local convective lift (track its own updraft)
+const LIFT_PROBE: float = 40.0            # radius at which updraft is sampled to find the lift-core direction
 
 const WIND_DRIFT: float = 0.7             # fraction of the atmosphere wind the cell drifts with
 const BOLT_MIN_CD: float = 1.4            # fastest lightning cadence (at peak cloud), seconds
@@ -33,6 +44,7 @@ var _field: Object = null
 
 var _center: Vector3 = Vector3.ZERO
 var _age: float = 0.0
+var _strength: float = 0.0                # EMERGENT storm intensity, read from the convective updraft each step
 var _bolt_cd: float = 1.0
 
 var _cloud_fx: GPUParticles3D = null
@@ -61,7 +73,11 @@ func begin(point: Vector3) -> void:
 func get_inspector_payload() -> Dictionary:
 	var lines: Array = []
 	lines.append("Status: %s" % _phase_name())
-	lines.append("Intensity: %.0f%%" % (_intensity() * 100.0))
+	lines.append("Intensity: %.0f%%" % (_strength / STRENGTH_MAX * 100.0))
+	var lift: float = 0.0
+	if _field != null and _field.has_method("updraft_at"):
+		lift = _field.updraft_at(_center.x, _center.z)
+	lines.append("Updraft (lift): %.2f" % lift)
 	var cover: float = 0.0
 	if _field != null and _field.has_method("cloud_at"):
 		cover = float(_field.cloud_at(_center.x, _center.z))
@@ -78,8 +94,10 @@ func _phase_name() -> String:
 	return "mature"
 
 
-# A build-up → sustain → fade envelope over the lifetime, so the cell charges, storms, then rains out.
-func _intensity() -> float:
+# The SEEDING envelope — a build-up → sustain → fade over the lifetime that scales how hard the cell PUMPS
+# its ingredients (vapor/heat/cooling) into the field, so it charges, storms, then rains itself out. This
+# governs SEEDING only; the storm's intensity now emerges separately from the updraft the seeding grows.
+func _seed_scale() -> float:
 	if _age >= LIFETIME:
 		return 0.0
 	var up: float = clampf(_age / BUILD_TIME, 0.0, 1.0)
@@ -87,28 +105,63 @@ func _intensity() -> float:
 	return minf(up, down)
 
 
+# Direction (world XZ) toward the strongest nearby convective lift — the cell's own updraft core — so it
+# drifts to stay over the convection it grew instead of only sliding with the wind. Zero if none is stronger.
+func _lift_gradient() -> Vector2:
+	if _field == null or not _field.has_method("updraft_at"):
+		return Vector2.ZERO
+	var best_dir: Vector2 = Vector2.ZERO
+	var best_val: float = absf(_field.updraft_at(_center.x, _center.z))
+	for i in range(6):
+		var a: float = TAU * float(i) / 6.0
+		var ox: float = cos(a) * LIFT_PROBE
+		var oz: float = sin(a) * LIFT_PROBE
+		var v: float = absf(_field.updraft_at(_center.x + ox, _center.z + oz))
+		if v > best_val:
+			best_val = v
+			best_dir = Vector2(ox, oz)
+	if best_dir.length() > 0.001:
+		return best_dir.normalized()
+	return Vector2.ZERO
+
+
 func _physics_process(delta: float) -> void:
 	_age += delta
-	var intensity: float = _intensity()
 	if _age >= LIFETIME or _field == null:
 		if _age >= LIFETIME:
 			queue_free()
 		return
 
-	# DRIFT downwind — a storm cell rides the LOCAL wind at its own position (not one global vector).
+	# STRENGTH — EMERGES from the convective updraft (+Y lift) the seeding grows, read fresh each step; no
+	# scripted intensity envelope. A cell whose lift collapses (drifted off its convection) withers and dies.
+	var lift: float = 0.0
+	if _field.has_method("updraft_at"):
+		lift = absf(_field.updraft_at(_center.x, _center.z))
+	_strength = clampf(lerpf(_strength, UPDRAFT_TO_STRENGTH * lift, STRENGTH_RATE), 0.0, STRENGTH_MAX)
+	if _age > BUILD_TIME and _strength <= DISSIPATE_STRENGTH:
+		queue_free()
+		return
+
+	var seed: float = _seed_scale()
+
+	# DRIFT — a storm cell rides the LOCAL wind at its own position AND biases toward its strongest nearby
+	# convective lift, so it tracks the updraft the field grew rather than only sliding downwind.
 	if _field.has_method("wind_at") or _field.has_method("wind"):
 		var wind: Vector2 = _field.wind_at(_center.x, _center.z) if _field.has_method("wind_at") else _field.wind()
 		_center.x += wind.x * WIND_DRIFT * delta
 		_center.z += wind.y * WIND_DRIFT * delta
+	var lift_dir: Vector2 = _lift_gradient()
+	_center.x += lift_dir.x * LIFT_FOLLOW * delta
+	_center.z += lift_dir.y * LIFT_FOLLOW * delta
 	if _terrain != null and _terrain.has_method("surface_height"):
 		var gy: float = _terrain.surface_height(_center.x, _center.z)
 		if not is_nan(gy):
 			_center.y = gy
 	global_position = _center
 
-	_pump_moisture(intensity, delta)
-	_maybe_strike(intensity, delta)
-	_update_fx(intensity)
+	_pump_moisture(seed, delta)
+	_maybe_strike(_strength, delta)
+	_update_fx(_strength)
 
 
 # Pump humid air up from the ground across the footprint + cool the air aloft, so the field's condensation
@@ -134,6 +187,10 @@ func _pump_moisture(intensity: float, delta: float) -> void:
 				gy = h
 		if _field.has_method("add_vapor"):
 			_field.add_vapor(Vector3(px, gy + 3.0, pz), per_point, VAPOR_INJECT_R)
+		# Warm the surface air so it becomes buoyant and RISES — this is what grows the convective updraft
+		# the cell's emergent strength then feeds on (the field's buoyancy rule lifts the warmed humid air).
+		if _field.has_method("add_heat"):
+			_field.add_heat(Vector3(px, gy + 2.0, pz), SEED_HEAT_PER_SEC * intensity * delta / 5.0, SEED_HEAT_R)
 	# Cold aloft: pull heat out of the mid-air over the cell so the rising humid air condenses hard.
 	if _field.has_method("add_cooling"):
 		_field.add_cooling(Vector3(_center.x, cloud_base, _center.z), COOL_PER_SEC * intensity * delta, COOL_INJECT_R)

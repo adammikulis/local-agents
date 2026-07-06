@@ -1,36 +1,28 @@
 class_name LALightningStrike
 extends Node3D
 
-## A lightning bolt. It only DEPOSITS a burst of intense heat at the strike point (plus a blinding
-## flash and thunder); everything else emerges from the MaterialField — vegetation that crosses the
-## ignition temperature catches fire, the ground scorches and glows then cools, water flashes to
-## steam, and wildlife panics. No hardcoded "lightning → fire". Built in code, self-frees after the
-## flash. (Explicit types only — no ':=' inferred typing.)
+## A lightning bolt — VISUAL/AUDIO ONLY. The physics (charge buildup, breakdown, the heat pulse that
+## ignites wildfire via combustion, and the scare broadcast) now live in the field's emergent CHARGE
+## process (LAMaterialCharge3D); the field injects the heat + broadcasts the scare itself, then fires
+## this bolt via a callback. So this node just draws the jagged flash and plays the thunder, then
+## self-frees. (Explicit types only — no ':=' inferred typing.)
 
 const STRIKE_HEIGHT: float = 130.0        # bolt drawn from this high down to the point
-const STRIKE_HEAT: float = 1400.0         # °C deposited (well above wood's 300°C ignition)
-const HEAT_RADIUS: float = 3.0
-const SCORCH_RADIUS: float = 1.4          # small glassy crater at the point
-const LETHAL_RADIUS: float = 7.0          # direct blast: trees topple, creatures & fish die close in
-const WATER_FISH_RADIUS: float = 12.0     # water conducts — a bolt into a pool electrocutes fish wider
-const STRIKE_DAMAGE: float = 1000.0       # HP dealt at the bolt itself; falls off to 0 at the radius
-const SCARE_RADIUS: float = 34.0
 const FLASH_ENERGY: float = 34.0
 const LINGER: float = 0.7                 # seconds of afterglow before free
 const SEGMENTS: int = 14
 
-var _terrain: Object = null
-var _ecology: Object = null
 var _flash: OmniLight3D = null
 var _age: float = 0.0
 
 
-func setup(terrain: Object, ecology: Object) -> void:
-	_terrain = terrain
-	_ecology = ecology
+## Kept for call-shape compatibility — VoxelDisasters still calls setup(terrain, ecology). The physics
+## those args fed now lives in the field's CHARGE process, so they are accepted and ignored here.
+func setup(_terrain: Object, _ecology: Object) -> void:
+	pass
 
 
-## Strike the ground at `point`: draw the bolt, flash, thunder, and inject heat (fire emerges).
+## Strike the ground at `point`: draw the bolt, flash, and thunder. No physics — that emerges in the field.
 func strike(point: Vector3) -> void:
 	global_position = Vector3.ZERO
 	_build_bolt(point)
@@ -40,55 +32,7 @@ func strike(point: Vector3) -> void:
 	_flash.omni_range = 60.0
 	_flash.position = point + Vector3(0.0, 6.0, 0.0)
 	add_child(_flash)
-
-	# INJECTION ONLY — fire/scorch/steam emerge from the heat.
-	var struck_water: bool = false
-	if _ecology != null and _ecology.has_method("material_field"):
-		var field: Object = _ecology.material_field()
-		if field != null:
-			if field.has_method("add_heat"):
-				field.add_heat(point, STRIKE_HEAT, HEAT_RADIUS)
-			if field.has_method("is_water_at") and field.is_water_at(point.x, point.z):
-				struck_water = true
-				if field.has_method("splash"):
-					field.splash(point, 2.5)
-				LocalAgentsAudioDirector.emit(get_tree(), "steam", point)
-	# LETHAL BLAST — deterministic GRADED HP damage: heaviest at the bolt (fatal), falling off to
-	# nothing at LETHAL_RADIUS. Trees/creatures at the centre die; those at the rim survive hurt.
-	# Wider than this, broadcast_scare only panics the survivors: a bolt kills close, scares wide.
-	if _ecology != null and _ecology.has_method("damage_sphere"):
-		_ecology.damage_sphere(point, LETHAL_RADIUS, STRIKE_DAMAGE)
-	# Water conducts: a strike into a pool electrocutes fish over a wider radius than the direct blast.
-	if struck_water:
-		_electrocute_fish(point, WATER_FISH_RADIUS)
-	if _terrain != null and _terrain.has_method("carve_sphere"):
-		_terrain.carve_sphere(point, SCORCH_RADIUS)
-	if _ecology != null and _ecology.has_method("broadcast_scare"):
-		_ecology.broadcast_scare(point, SCARE_RADIUS, 1.0)
 	LocalAgentsAudioDirector.emit(get_tree(), "thunder", point)
-
-
-# Electrocute fish within `radius` of a strike that hit water — deterministic HP damage with a
-# distance FALLOFF: the current weakens as it spreads through the pool, so a fish at the bolt takes
-# the full STRIKE_DAMAGE (fatal) while fish near the edge take little and often survive. No random
-# chance — the same distance always deals the same damage.
-func _electrocute_fish(point: Vector3, radius: float) -> void:
-	for fish in get_tree().get_nodes_in_group("species_fish"):
-		if not is_instance_valid(fish) or not (fish is Node3D):
-			continue
-		var f: Node3D = fish as Node3D
-		var d: float = f.global_position.distance_to(point)
-		if d > radius:
-			continue
-		var falloff: float = LAEcologyService.blast_falloff(d, radius)
-		if falloff <= 0.0:
-			continue
-		if f.has_method("take_damage"):
-			f.take_damage(STRIKE_DAMAGE * falloff, "electrocuted")
-		elif f.has_method("die"):
-			f.die("electrocuted")
-		elif f.has_method("queue_free"):
-			f.queue_free()
 
 
 func _process(delta: float) -> void:
