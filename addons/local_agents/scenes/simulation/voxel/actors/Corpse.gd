@@ -26,8 +26,16 @@ var _scent_cd: float = 0.0
 var _mesh_instance: MeshInstance3D = null
 var _collision: CollisionShape3D = null
 var _base_scale: Vector3 = Vector3.ONE
+var _rot_overlay: StandardMaterial3D = null   # shared green->black decay tint
+var _toppled: bool = false                    # gives the standing body a one-time nudge to fall over
 
-func setup(from_species: String, from_color: Color, from_size: float, terrain) -> void:
+## `display_model` is the dead creature's own visual node (its glTF model),
+## handed off by Creature.die() so the corpse keeps the creature's real
+## appearance instead of turning into a generic capsule. At the moment of
+## death the model is left EXACTLY as it looked alive; it only visibly rots
+## (tinting green, then black) over the decay lifetime. When display_model is
+## null (creature had no model) we build the fallback capsule instead.
+func setup(from_species: String, from_color: Color, from_size: float, terrain, display_model: Node3D = null) -> void:
 	_species = from_species if from_species != "" else "creature"
 	_terrain = terrain
 	_size = maxf(from_size, 0.05)
@@ -47,13 +55,42 @@ func setup(from_species: String, from_color: Color, from_size: float, terrain) -
 	var radius: float = _size * 0.6
 	var height: float = maxf(_size * 2.0, radius * 2.0)  # capsule height must span the caps
 
-	# Darkened + desaturated material so it clearly reads as a dead body.
-	var dead_color: Color = from_color.darkened(0.35)
-	var grey: Color = Color(0.35, 0.34, 0.33, dead_color.a)
-	dead_color = dead_color.lerp(grey, 0.4)
+	# One shared rot overlay drives the green->black decay across every mesh of
+	# the body; it starts fully transparent so a fresh corpse looks untouched.
+	_rot_overlay = _make_rot_overlay()
 
+	if display_model != null:
+		_adopt_model(display_model)
+	else:
+		_build_capsule_mesh(from_color, radius, height)
+
+	# The physical body is always a simple capsule (robust, cheap) regardless of
+	# whether the visual is the real model or a fallback capsule.
+	var shape: CapsuleShape3D = CapsuleShape3D.new()
+	shape.radius = radius
+	shape.height = height
+	_collision = CollisionShape3D.new()
+	_collision.name = "CorpseCollision"
+	_collision.shape = shape
+	add_child(_collision)
+
+	_base_scale = scale
+
+
+# Reuse the dead creature's own model as the carcass, UNCHANGED at death: just
+# stop its idle animation so it stays limp, and route the rot overlay onto its
+# meshes so it can decay green->black over time.
+func _adopt_model(model: Node3D) -> void:
+	add_child(model)
+	_freeze_animations(model)
+	_apply_overlay(model, _rot_overlay)
+
+
+# Fallback carcass for creatures that had no display model: a plain capsule
+# using the creature's own colour, which then rots via the shared overlay.
+func _build_capsule_mesh(from_color: Color, radius: float, height: float) -> void:
 	var material: StandardMaterial3D = StandardMaterial3D.new()
-	material.albedo_color = dead_color
+	material.albedo_color = from_color
 	material.roughness = 1.0
 	material.metallic = 0.0
 
@@ -65,24 +102,50 @@ func setup(from_species: String, from_color: Color, from_size: float, terrain) -
 	_mesh_instance = MeshInstance3D.new()
 	_mesh_instance.name = "CorpseMesh"
 	_mesh_instance.mesh = mesh
-	# Tip it onto its side (~90deg) so it lies down, plus a little yaw jitter.
-	_mesh_instance.rotation = Vector3(
-		PI * 0.5,
-		randf_range(0.0, TAU),
-		randf_range(-0.15, 0.15)
-	)
+	_mesh_instance.material_overlay = _rot_overlay
 	add_child(_mesh_instance)
 
-	var shape: CapsuleShape3D = CapsuleShape3D.new()
-	shape.radius = radius
-	shape.height = height
-	_collision = CollisionShape3D.new()
-	_collision.name = "CorpseCollision"
-	_collision.shape = shape
-	_collision.rotation = _mesh_instance.rotation
-	add_child(_collision)
 
-	_base_scale = scale
+# A translucent overlay pass shared by every mesh of the body. Starts fully
+# transparent (alpha 0) so death changes nothing; _update_rot() ramps its
+# colour/alpha over the decay lifetime.
+func _make_rot_overlay() -> StandardMaterial3D:
+	var overlay: StandardMaterial3D = StandardMaterial3D.new()
+	overlay.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	overlay.albedo_color = Color(0.13, 0.32, 0.05, 0.0)
+	overlay.roughness = 1.0
+	overlay.metallic = 0.0
+	return overlay
+
+
+# Route the shared rot overlay onto every mesh under `node`.
+func _apply_overlay(node: Node, mat: StandardMaterial3D) -> void:
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).material_overlay = mat
+	for child in node.get_children():
+		_apply_overlay(child, mat)
+
+
+# Halt any AnimationPlayers on the adopted model so the corpse stays limp
+# rather than continuing to idle/breathe after death.
+func _freeze_animations(node: Node) -> void:
+	if node is AnimationPlayer:
+		(node as AnimationPlayer).stop()
+	for child in node.get_children():
+		_freeze_animations(child)
+
+
+# Drive the rot: fade a green tint in over the first stretch of decay, then
+# lerp that green toward black as the body rots down to nothing.
+func _update_rot() -> void:
+	if _rot_overlay == null:
+		return
+	var t: float = clampf(_age / DECAY_LIFETIME, 0.0, 1.0)
+	var green: Color = Color(0.13, 0.32, 0.05)
+	var black: Color = Color(0.02, 0.02, 0.02)
+	var col: Color = green.lerp(black, clampf((t - 0.35) / 0.65, 0.0, 1.0))
+	col.a = clampf(t / 0.3, 0.0, 0.92)  # rot fades in over the first ~third
+	_rot_overlay.albedo_color = col
 
 ## Launch the corpse outward (e.g. thrown by a meteor impact). Adds a random
 ## spin so it tumbles as it flies.
@@ -141,7 +204,17 @@ func _physics_process(delta: float) -> void:
 	if _dead:
 		return
 
+	# The body is spawned in the creature's upright pose, then topples on its
+	# first physics tick: a sideways nudge lets gravity lay it down naturally.
+	if not _toppled:
+		_toppled = true
+		var axis: Vector3 = Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0))
+		if axis.length() < 0.01:
+			axis = Vector3.RIGHT
+		angular_velocity = axis.normalized() * 3.0
+
 	_age += delta
+	_update_rot()
 
 	# Advertise the carcass as a decaying "carrion" scent scavengers follow from afar. Strength
 	# tracks the meat left, so a fresh big kill smells strongest and fades as it is eaten/rots.

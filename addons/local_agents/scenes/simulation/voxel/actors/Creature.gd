@@ -260,9 +260,18 @@ func die(_cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
 		_ecology.broadcast_call(global_position, species, "distress", self)
 	var parent: Node = get_parent()
 	if parent != null and is_inside_tree():
+		# Hand the creature's own display model to the corpse so the dead body
+		# keeps its real appearance (no capsule) — it's left unchanged at death
+		# and only rots over time. Detach it here so queue_free() below won't
+		# take it down with the creature.
+		var display: Node3D = null
+		if _model_root != null and _model_root.get_parent() == self:
+			remove_child(_model_root)
+			display = _model_root
+			_model_root = null
 		var corpse: CorpseScript = CorpseScript.new()
 		parent.add_child(corpse)
-		corpse.setup(species, color, size, terrain)
+		corpse.setup(species, color, size, terrain, display)
 		if corpse.has_method("set_scent"):
 			corpse.set_scent(_scent)          # the carcass advertises itself as carrion scent
 		corpse.global_position = global_position
