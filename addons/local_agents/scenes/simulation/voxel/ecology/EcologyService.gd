@@ -175,6 +175,27 @@ func ignite_area(world_pos: Vector3, radius: float) -> void:
 		_material.add_heat(world_pos, 900.0, radius)   # ~3x wood's 300°C ignition temp
 
 
+# Emergent growth CONDITION (not a hardcoded elevation): a seed only takes where the ground is warm enough
+# and not under snow. Because the temperature field cools with altitude (LAPSE) and snow forms on the cold
+# summits, this makes the treeline + the bare snow cap EMERGE from the climate — a warm coast forests over,
+# frozen peaks stay bare, and the line MOVES if the climate warms/cools. GROW_MIN_TEMP is the germination
+# threshold (a property of vegetation, tunable), read against the field — never an elevation number.
+const GROW_MIN_TEMP: float = 7.5          # °C below which the ground is too cold for a seed to germinate
+const GROW_SNOW_MAX: float = 0.02         # snowpack depth above which the ground is snow-covered (no germination)
+
+
+# Can vegetation take root at `placed`? Reads the field CONDITIONS (temperature + snow cover), so the
+# treeline is emergent. True when there is no material field wired yet (spawns during boot aren't blocked).
+func _can_grow_here(placed: Vector3) -> bool:
+	if _material == null:
+		return true
+	if _material.has_method("temp_at") and _material.temp_at(placed.x, placed.z) < GROW_MIN_TEMP:
+		return false   # too cold — above the emergent treeline
+	if _material.has_method("snow_depth_at") and _material.snow_depth_at(placed.x, placed.z) > GROW_SNOW_MAX:
+		return false   # snow-covered ground
+	return true
+
+
 func spawn(kind: String, world_pos: Vector3) -> Node:
 	if actors_root == null:
 		push_warning("LAEcologyService.spawn before setup()")
@@ -184,6 +205,8 @@ func spawn(kind: String, world_pos: Vector3) -> Node:
 		# surface not ready: queue for retry, return null (caller may ignore)
 		_pending.append({"kind": kind, "pos": world_pos, "tries": 0})
 		return null
+	if (kind == "tree" or kind == "plant") and not _can_grow_here(placed):
+		return null   # too cold / snow-covered — vegetation doesn't take here (emergent treeline; no retry)
 	return _instance_actor(kind, placed)
 
 
@@ -195,6 +218,8 @@ func spawn_initial(counts: Dictionary) -> void:
 			var placed = _place_on_surface(p)
 			if placed == null:
 				_pending.append({"kind": String(kind), "pos": p, "tries": 0})
+			elif (String(kind) == "tree" or String(kind) == "plant") and not _can_grow_here(placed):
+				pass   # too cold / snow-covered — skip this vegetation placement (emergent treeline)
 			else:
 				_instance_actor(String(kind), placed)
 
@@ -375,7 +400,10 @@ func _process_pending() -> void:
 	for entry in _pending:
 		var placed = _place_on_surface(entry["pos"])
 		if placed != null:
-			_instance_actor(String(entry["kind"]), placed)
+			var k: String = String(entry["kind"])
+			if (k == "tree" or k == "plant") and not _can_grow_here(placed):
+				continue   # surface resolved somewhere too cold / snowy for vegetation — drop it
+			_instance_actor(k, placed)
 		else:
 			entry["tries"] = int(entry["tries"]) + 1
 			if int(entry["tries"]) < 300:      # keep retrying ~ a few seconds
@@ -575,8 +603,8 @@ func _tick_plant_seeding() -> void:
 				continue
 			var offset: Vector3 = Vector3(randf_range(-3.5, 3.5), 0.0, randf_range(-3.5, 3.5))
 			var placed = _place_on_surface((p as Node3D).global_position + offset)
-			if placed != null:
-				_instance_actor("plant", placed)
+			if placed != null and _can_grow_here(placed):
+				_instance_actor("plant", placed)   # seed only takes on warm, snow-free ground (emergent treeline)
 			if p.has_method("consume"):
 				p.consume()
 			if get_tree().get_nodes_in_group("plant").size() >= cap:
