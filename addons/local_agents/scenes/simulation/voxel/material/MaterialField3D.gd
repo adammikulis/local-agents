@@ -57,15 +57,24 @@ var _vapor: PackedFloat32Array = PackedFloat32Array()    # airborne water vapor 
 var _cloud: PackedFloat32Array = PackedFloat32Array()    # condensed cloud density per cell
 var _fog: PackedFloat32Array = PackedFloat32Array()      # condensed fog density per cell
 var _lava: PackedFloat32Array = PackedFloat32Array()     # lava mass per cell (a hot, viscous liquid)
+# --- Emergent 3D wind (LAMaterialWind3D): a per-cell air PRESSURE + 3D VELOCITY field replacing the old
+# single global scalar wind. Pressure falls out of temperature (warm=low), velocity accelerates down the
+# gradient and deflects off rock, so funneling/fronts/highs-lows EMERGE. Read via wind_at()/wind3_at().
+var _pressure: PackedFloat32Array = PackedFloat32Array() # air pressure per cell (derived from temperature)
+var _vel_x: PackedFloat32Array = PackedFloat32Array()    # wind velocity X per cell (world +X)
+var _vel_y: PackedFloat32Array = PackedFloat32Array()    # wind velocity Y per cell (world +Y, up)
+var _vel_z: PackedFloat32Array = PackedFloat32Array()    # wind velocity Z per cell (world +Z)
 var _sun_light = null                                    # DirectionalLight3D — solar forcing (top cells)
 
 # Concern modules (3D generalisations of the 2.5D ones), set by activate().
 var _heat = null                                         # LAMaterialHeat3D
 var _atmosphere = null                                   # LAMaterialAtmosphere3D
 var _lava_sim = null                                     # LAMaterialLava3D
+var _wind_sim = null                                     # LAMaterialWind3D (emergent pressure-driven wind)
 const HeatScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialHeat3D.gd")
 const AtmosphereScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialAtmosphere3D.gd")
 const LavaScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialLava3D.gd")
+const WindScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialWind3D.gd")
 const GPUScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGPU3D.gd")
 const QueriesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldQueries3D.gd")
 const RenderScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldRender3D.gd")
@@ -234,6 +243,14 @@ func setup_dims(dim_x: int, dim_y: int, dim_z: int, cell_size: float, origin: Ve
 	_fog.resize(_cell_count)
 	_lava = PackedFloat32Array()
 	_lava.resize(_cell_count)
+	_pressure = PackedFloat32Array()
+	_pressure.resize(_cell_count)
+	_vel_x = PackedFloat32Array()
+	_vel_x.resize(_cell_count)
+	_vel_y = PackedFloat32Array()
+	_vel_y.resize(_cell_count)
+	_vel_z = PackedFloat32Array()
+	_vel_z.resize(_cell_count)
 	# Read-only query accessors bind to this field now; the arrays they read exist from here on.
 	_queries = QueriesScript.new()
 	_queries.setup(self)
@@ -423,6 +440,8 @@ func activate() -> void:
 	_atmosphere.setup(self)
 	_lava_sim = LavaScript.new()
 	_lava_sim.setup(self)
+	_wind_sim = WindScript.new()
+	_wind_sim.setup(self)
 	# GPU-RESIDENT backend: persistent SSBOs, the whole heat+water step batched on-GPU, ONE readback per
 	# frame (see MaterialGPU3D's frame API). Headless has no local RenderingDevice → CPU oracle.
 	if GPUScript.available():
@@ -516,6 +535,9 @@ func _physics_process(delta: float) -> void:
 		var w: Vector2 = _atmosphere.wind() if _atmosphere != null and _atmosphere.has_method("wind") else Vector2.ZERO
 		_gpu.begin_frame(_temp, _water, solar, w)
 		_gpu.set_field("lava", _lava)
+		# Feed the resident wind SSBOs the emergent LOCAL velocity (last frame's, computed on the CPU
+		# oracle post-readback) so the atmosphere transport kernel advects moisture by the local wind.
+		_gpu.upload_wind(_vel_x, _vel_z)
 		# Vapor is re-uploaded ONLY when a CPU-side injection (a storm's add_vapor) dirtied it. With nothing
 		# injected it lives fully resident on the GPU (re-uploading the last readback would just clobber the
 		# GPU's own evolution), so we skip the upload AND the readback below — cloud/fog are never re-uploaded.
@@ -546,6 +568,10 @@ func _physics_process(delta: float) -> void:
 			_atmosphere.recompute_projections()
 		_vapor_dirty = false
 		_slow_read_tick = (_slow_read_tick + 1) % SLOW_READ_EVERY
+		# Emergent 3D wind: the CPU-oracle wind step runs here on the FRESH post-heat temperature readback
+		# (pressure -> velocity -> deflection). GPU-kernel port is the remaining GPU-first work.
+		if _wind_sim != null:
+			_wind_sim.step()
 	else:
 		for i in range(steps):
 			# Springs feed the surface (rivers emerge as this water flows downhill in 3D).
@@ -554,6 +580,9 @@ func _physics_process(delta: float) -> void:
 			step_water()
 			if _heat != null:
 				_heat.step()
+			# Wind steps after heat (reads post-heat temp for pressure), before the atmosphere.
+			if _wind_sim != null:
+				_wind_sim.step()
 			if _atmosphere != null:
 				_atmosphere.step()
 			if _lava_sim != null:
@@ -625,12 +654,41 @@ func relative_humidity_at(x: float, z: float) -> float:
 func dewpoint_at(x: float, z: float) -> float:
 	return _atmosphere.dewpoint_at(x, z) if _atmosphere != null else NAN
 
+## The old global scalar wind is now only the PREVAILING (large-scale) input the emergent wind field forces
+## at its edges — local circulation emerges on top from pressure + terrain. Still fed to the atmosphere as
+## its legacy advection wind until stage 2 repoints that to the local field.
 func set_wind(w: Vector2) -> void:
+	if _wind_sim != null:
+		_wind_sim.set_prevailing(w)
 	if _atmosphere != null:
 		_atmosphere.set_wind(w)
 
+## Domain-average horizontal wind (ocean swell / HUD) — the mean of the emergent velocity field.
 func wind() -> Vector2:
+	if _wind_sim != null:
+		return _wind_sim.avg_wind()
 	return _atmosphere.wind() if _atmosphere != null else Vector2.ZERO
+
+## LOCAL horizontal wind (world XZ) at a point — sampled a couple of cells above the column surface (the
+## free-stream, clear of the ground layer). What wind-drifting consumers + the debug arrows read.
+func wind_at(x: float, z: float) -> Vector2:
+	if _wind_sim == null or _cell_count <= 0:
+		return Vector2.ZERO
+	var ix: int = _col_i(x, _origin.x)
+	var iz: int = _col_i(z, _origin.z)
+	var iy: int = clampi(_surface_iy(ix, iz) + 2, 0, _dim_y - 1)
+	var i: int = _idx(ix, iy, iz)
+	return Vector2(_vel_x[i], _vel_z[i])
+
+## Full LOCAL 3D wind velocity at a world point — the authoritative per-cell wind fire/scent ride.
+func wind3_at(x: float, y: float, z: float) -> Vector3:
+	if _wind_sim == null or _cell_count <= 0:
+		return Vector3.ZERO
+	var ix: int = _col_i(x, _origin.x)
+	var iy: int = clampi(int(round((y - _origin.y) / _cell_size)), 0, _dim_y - 1)
+	var iz: int = _col_i(z, _origin.z)
+	var i: int = _idx(ix, iy, iz)
+	return Vector3(_vel_x[i], _vel_y[i], _vel_z[i])
 
 ## The cloud/fog grids project to (dim_x × dim_z) so CloudLayer's texture maps 1:1 with the 2.5D field.
 func grid_dim() -> int:

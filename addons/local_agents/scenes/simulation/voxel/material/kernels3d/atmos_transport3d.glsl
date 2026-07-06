@@ -8,12 +8,17 @@
 //      flux, so it is symmetric & order-independent), weight = diffuse_frac * DIFF6 (DIFF6 = 1/6).
 //   2) buoyant RISE — a share `rise_frac` of a cell's matter is convected straight UP into the open cell
 //      above (humid air rises to the cool heights where it condenses).
-//   3) horizontal WIND — first-order upwind advection: a cell sends a share `ax`/`az` of its matter to
-//      the single downwind neighbour (sign sx / sz).
+//   3) horizontal WIND — first-order upwind advection by the LOCAL PER-CELL wind velocity (from the
+//      emergent MaterialWind3D field): a cell sends a share `ax`/`az` of its matter to its single downwind
+//      neighbour, where ax = clamp(|vel_x| * wdt, 0, 0.5) and wdt = wind_gain * step_dt / cell_size (and
+//      similarly az from vel_z). This REPLACES the old single global scalar wind, so moisture funnels
+//      through valleys and piles up where the local wind converges (fronts). Each cell reads its OWN
+//      vel_x/vel_z (and neighbours read theirs), so the gather sums: LOSE my downwind share + GAIN each
+//      neighbour's share aimed at me.
 // Matter only ever moves between NON-SOLID cells (rock is a wall to air, exactly like water). The gather
 // form computes, for each cell, the NET of these three reading only the old snapshot, so it reproduces
 // the scatter's Jacobi result exactly. The caller runs this kernel three times (vapor / cloud / fog) with
-// per-field diffuse_frac, rise_frac and the precomputed ax/az/sx/sz. Constants + math copied EXACTLY from
+// per-field diffuse_frac, rise_frac and wind_gain (folded into wdt). Constants + math copied EXACTLY from
 // MaterialAtmosphere3D.gd — do not diverge.
 //
 // Index layout: idx = (iy*dim_z + iz)*dim_x + ix.
@@ -23,6 +28,8 @@ layout(local_size_x = 64) in;
 layout(set = 0, binding = 0, std430) restrict readonly buffer QIn { float q_in[]; };
 layout(set = 0, binding = 1, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 2, std430) restrict writeonly buffer QOut { float q_out[]; };
+layout(set = 0, binding = 3, std430) restrict readonly buffer VelX { float vel_x[]; };
+layout(set = 0, binding = 4, std430) restrict readonly buffer VelZ { float vel_z[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint dim_x;
@@ -31,12 +38,8 @@ layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	float diffuse_frac;   // isotropic spread per step
 	float rise_frac;      // buoyant upward share (0 for fog)
-	float ax;             // precomputed horizontal wind share along X (clamped 0..0.5)
-	float az;             // precomputed horizontal wind share along Z
-	int sx;               // wind sign along X (+1 / -1)
-	int sz;               // wind sign along Z
-	uint pad0;
-	uint pad1;
+	float wdt;            // wind_gain * step_dt / cell_size (per-cell ax = clamp(|vel_x|*wdt, 0, 0.5))
+	float pad0;
 } params;
 
 const float DIFF6 = 1.0 / 6.0;
@@ -89,19 +92,47 @@ void main() {
 		}
 	}
 
-	// 3) HORIZONTAL WIND — lose a share downwind (to idx+sx / idx+sz), gain the share the single upwind
-	// neighbour (idx-sx / idx-sz) sent to me.
-	if (params.ax > 0.0 && params.sx != 0) {
-		int nxi = ix + params.sx;
-		if (nxi >= 0 && nxi < dim_x) { int n = idx + params.sx; if (solid[n] == 0.0 && q > 0.0) { delta -= q * params.ax; } }
-		int mxi = ix - params.sx;
-		if (mxi >= 0 && mxi < dim_x) { int m = idx - params.sx; if (solid[m] == 0.0) { float qm = q_in[m]; if (qm > 0.0) { delta += qm * params.ax; } } }
-	}
-	if (params.az > 0.0 && params.sz != 0) {
-		int nzi = iz + params.sz;
-		if (nzi >= 0 && nzi < dim_z) { int n = idx + params.sz * dim_x; if (solid[n] == 0.0 && q > 0.0) { delta -= q * params.az; } }
-		int mzi = iz - params.sz;
-		if (mzi >= 0 && mzi < dim_z) { int m = idx - params.sz * dim_x; if (solid[m] == 0.0) { float qm = q_in[m]; if (qm > 0.0) { delta += qm * params.az; } } }
+	// 3) HORIZONTAL WIND — first-order upwind advection by the LOCAL per-cell velocity. wdt folds in
+	// wind_gain*step_dt/cell_size; the CPU scatter skips q3<=0 (a cell with no matter sends nothing) — in
+	// this gather that falls out because q_in[neighbour] == 0 contributes 0.
+	float wdt = params.wdt;
+	if (wdt > 0.0) {
+		// --- X axis: LOSE my downwind share ---
+		float vx = vel_x[g];
+		float axi = clamp(abs(vx) * wdt, 0.0, 0.5);
+		if (axi > 0.0 && q > 0.0) {
+			int sx = vx > 0.0 ? 1 : -1;
+			int nxi = ix + sx;
+			if (nxi >= 0 && nxi < dim_x) { int n = idx + sx; if (solid[n] == 0.0) { delta -= q * axi; } }
+		}
+		// GAIN from the left neighbour if IT blows +x toward me.
+		if (ix > 0) {
+			int m = idx - 1;
+			if (solid[m] == 0.0) { float vm = vel_x[m]; if (vm > 0.0) { delta += q_in[m] * clamp(vm * wdt, 0.0, 0.5); } }
+		}
+		// GAIN from the right neighbour if IT blows -x toward me.
+		if (ix < dim_x - 1) {
+			int m = idx + 1;
+			if (solid[m] == 0.0) { float vm = vel_x[m]; if (vm < 0.0) { delta += q_in[m] * clamp(-vm * wdt, 0.0, 0.5); } }
+		}
+		// --- Z axis: LOSE my downwind share ---
+		float vz = vel_z[g];
+		float azi = clamp(abs(vz) * wdt, 0.0, 0.5);
+		if (azi > 0.0 && q > 0.0) {
+			int sz = vz > 0.0 ? 1 : -1;
+			int nzi = iz + sz;
+			if (nzi >= 0 && nzi < dim_z) { int n = idx + sz * dim_x; if (solid[n] == 0.0) { delta -= q * azi; } }
+		}
+		// GAIN from the -z neighbour if IT blows +z toward me.
+		if (iz > 0) {
+			int m = idx - dim_x;
+			if (solid[m] == 0.0) { float vm = vel_z[m]; if (vm > 0.0) { delta += q_in[m] * clamp(vm * wdt, 0.0, 0.5); } }
+		}
+		// GAIN from the +z neighbour if IT blows -z toward me.
+		if (iz < dim_z - 1) {
+			int m = idx + dim_x;
+			if (solid[m] == 0.0) { float vm = vel_z[m]; if (vm < 0.0) { delta += q_in[m] * clamp(-vm * wdt, 0.0, 0.5); } }
+		}
 	}
 
 	float v = q + delta;

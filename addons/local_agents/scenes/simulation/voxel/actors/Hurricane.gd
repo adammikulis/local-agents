@@ -131,9 +131,9 @@ func _physics_process(delta: float) -> void:
 			_dissipate()
 		return
 
-	# TRACK — a slow forward crawl, gently steered by the prevailing wind.
-	if _field.has_method("wind"):
-		var wind: Vector2 = _field.wind()
+	# TRACK — a slow forward crawl, gently steered by the LOCAL wind at the eye's own position.
+	if _field.has_method("wind_at") or _field.has_method("wind"):
+		var wind: Vector2 = _field.wind_at(_center.x, _center.z) if _field.has_method("wind_at") else _field.wind()
 		if wind.length() > 0.01:
 			_heading = _heading.lerp(wind.normalized(), clampf(WIND_STEER * delta, 0.0, 1.0)).normalized()
 	_center.x += _heading.x * TRACK_SPEED * delta

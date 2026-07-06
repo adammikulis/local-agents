@@ -135,9 +135,12 @@ func _physics_process(delta: float) -> void:
 		_dissipate()
 		return
 
-	# WANDER — drift with the atmosphere wind plus an independent noise so each twister tracks its own path.
+	# WANDER — drift with the LOCAL wind at the twister's own position (so it funnels down valleys / gets
+	# pulled toward heated lows) plus independent noise so each tracks its own path.
 	var wind: Vector2 = Vector2.ZERO
-	if _field != null and _field.has_method("wind"):
+	if _field != null and _field.has_method("wind_at"):
+		wind = _field.wind_at(_base.x, _base.z)
+	elif _field != null and _field.has_method("wind"):
 		wind = _field.wind()
 	_wind_dir = wind
 	var nx: float = sin(_age * 0.7 + _phase) + 0.5 * sin(_age * 1.9 + _phase * 2.0)

@@ -95,9 +95,9 @@ func _physics_process(delta: float) -> void:
 			queue_free()
 		return
 
-	# DRIFT downwind (a storm cell rides the prevailing wind).
-	if _field.has_method("wind"):
-		var wind: Vector2 = _field.wind()
+	# DRIFT downwind — a storm cell rides the LOCAL wind at its own position (not one global vector).
+	if _field.has_method("wind_at") or _field.has_method("wind"):
+		var wind: Vector2 = _field.wind_at(_center.x, _center.z) if _field.has_method("wind_at") else _field.wind()
 		_center.x += wind.x * WIND_DRIFT * delta
 		_center.z += wind.y * WIND_DRIFT * delta
 	if _terrain != null and _terrain.has_method("surface_height"):

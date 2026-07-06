@@ -88,6 +88,7 @@ var _overview: bool = false             # --overview: frame a wide whole-island 
 var _farview: bool = false              # --farview: pull the vista out to max zoom (ocean-coverage test)
 var _rain_force: bool = false           # --rain: force the rain visual on (verification aid)
 var _debug_demo: bool = false
+var _wind_view: bool = false            # --wind-view: enable ONLY the emergent wind-arrow overlay (funneling/fronts)
 var _user_shot_counter: int = 0        # numbers the screenshots the DebugPanel's save button writes
 var _auto_volcano: bool = false
 var _auto_volcano_fired: bool = false
@@ -268,6 +269,9 @@ func _ready() -> void:
 		_debug_overlay.set_highlight("species_bird", true)
 		_debug_overlay.set_highlight("species_fox", true)
 		_debug_overlay.set_highlight("nest", true)
+	elif _wind_view:
+		# Wind-field verification: ONLY the emergent wind-arrow overlay (clean shot of funneling/fronts).
+		_debug_overlay.set_wind(true)
 
 	# --- Streamer / commentator (lower-right face-cam driven by the local LLM) ---
 	_streamer_host = StreamerHostScript.new()
@@ -373,6 +377,8 @@ func _parse_cmdline() -> void:
 			_force_wind = float(arg.substr("--wind=".length()))
 		elif arg == "--debug-demo":
 			_debug_demo = true
+		elif arg == "--wind-view":
+			_wind_view = true
 		elif arg == "--auto-meteor":
 			_auto_meteor = true
 		elif arg == "--auto-volcano":
@@ -628,8 +634,12 @@ func _push_environment() -> void:
 	var sf = _ecology.scent_field()
 	if sf == null:
 		return
+	# Scent rides the emergent LOCAL wind field (per-marker wind_at); set_wind is only the fallback drift.
+	if sf.has_method("set_field") and _material != null:
+		sf.set_field(_material)
 	if sf.has_method("set_wind"):
-		sf.set_wind(_weather.wind_vector())
+		var mw: Vector2 = _material.wind() if _material != null and _material.has_method("wind") else Vector2(_weather.wind_vector().x, _weather.wind_vector().z)
+		sf.set_wind(Vector3(mw.x, 0.0, mw.y))
 	if sf.has_method("set_wash"):
 		sf.set_wash(_weather.rain())
 

@@ -38,6 +38,7 @@ const SPECIES_COLORS: Dictionary = {
 # --- State ------------------------------------------------------------------
 var _terrain = null
 var _wind: Vector3 = Vector3.ZERO
+var _field = null                           # LAMaterialField3D — per-cell wind source (wind_at), optional
 var _wash: float = 1.0
 var _last_deposit_pos: Dictionary = {}
 # Each marker: { "pos": Vector3, "species": String, "strength": float, "age": float }
@@ -124,16 +125,25 @@ func _deposit(world_pos: Vector3, species: String) -> void:
 func _decay_markers(delta: float) -> void:
 	if _markers.is_empty():
 		return
-	# Rain accelerates decay (washes scent away); wind drifts each marker.
+	# Rain accelerates decay (washes scent away); the LOCAL wind drifts each marker — so scent funnels down
+	# the same valleys and gets pulled toward the same heated lows as the air (predators downwind of prey
+	# smell it along the real airflow, not one global vector). Falls back to the global _wind if the field's
+	# per-cell wind isn't available.
 	var rate: float = delta / LIFETIME * maxf(0.1, _wash)
-	var drift: Vector3 = _wind * (WIND_DRIFT * delta)
-	var has_wind: bool = _wind.length_squared() > 0.0001
+	var local_wind: bool = _field != null and _field.has_method("wind_at")
+	var global_drift: Vector3 = _wind * (WIND_DRIFT * delta)
+	var has_global: bool = _wind.length_squared() > 0.0001
+	var wd: float = WIND_DRIFT * delta
 	for i in range(_markers.size() - 1, -1, -1):
 		var m: Dictionary = _markers[i]
 		m["strength"] -= rate
 		m["age"] += delta
-		if has_wind:
-			m["pos"] = (m["pos"] as Vector3) + drift
+		var p: Vector3 = m["pos"]
+		if local_wind:
+			var lw: Vector2 = _field.wind_at(p.x, p.z)
+			m["pos"] = p + Vector3(lw.x * wd, 0.0, lw.y * wd)
+		elif has_global:
+			m["pos"] = p + global_drift
 		if m["strength"] <= 0.0:
 			_markers.remove_at(i)
 
@@ -141,6 +151,12 @@ func _decay_markers(delta: float) -> void:
 # Weather hooks (called each frame by the world).
 func set_wind(w: Vector3) -> void:
 	_wind = Vector3(w.x, 0.0, w.z)
+
+
+## Wire the MaterialField3D so scent markers drift by the LOCAL per-cell wind (wind_at) at their position
+## instead of one global vector. Optional: without it, scent falls back to the set_wind() global drift.
+func set_field(field) -> void:
+	_field = field
 
 
 func set_wash(rain_intensity: float) -> void:
