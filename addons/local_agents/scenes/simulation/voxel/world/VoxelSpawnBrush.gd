@@ -11,6 +11,9 @@ const MeteorScript: GDScript = preload("res://addons/local_agents/scenes/simulat
 const EarthquakeScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Earthquake.gd")
 const FloodScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Flood.gd")
 
+# Big self-directed storm systems place ONCE at the cursor (not scattered across the brush disk).
+const SINGLETON_STORMS: PackedStringArray = ["tornado", "thunderstorm", "hurricane"]
+
 const BRUSH_MIN: float = 1.0
 const BRUSH_MAX: float = 28.0
 const BRUSH_STEP: float = 1.5
@@ -97,7 +100,7 @@ func _terrain_point(screen_pos: Vector2) -> Vector3:
 # Apply the armed kind across the brush disk: one placement at the centre for a pinpoint brush,
 # else a size-scaled scatter of placements. General over all kinds — trees, herds, floods alike.
 func _paint_brush(center: Vector3) -> void:
-	if _brush_radius <= BRUSH_MIN + 0.01:
+	if _brush_radius <= BRUSH_MIN + 0.01 or SINGLETON_STORMS.has(_armed_kind):
 		_apply_at(center)
 	else:
 		var n: int = clampi(int(round(_brush_radius * 0.6)), 1, 12)
@@ -154,6 +157,17 @@ func _apply_at(point: Vector3) -> void:
 		# Tie the surge footprint to the spawn brush so a flood only covers where the player aimed.
 		flood.surge(point, _brush_radius)
 		_hud.set_status("Flood surge!")
+	elif _armed_kind == "tornado":
+		_disasters.spawn_tornado(point)
+		_world.set_destruction(0.8)
+		_hud.set_status("A tornado touches down!")
+	elif _armed_kind == "thunderstorm":
+		_disasters.spawn_thunderstorm(point)
+		_hud.set_status("A thunderstorm gathers!")
+	elif _armed_kind == "hurricane":
+		_disasters.spawn_hurricane(point)
+		_world.set_destruction(1.0)
+		_hud.set_status("A hurricane spins up!")
 	else:
 		_ecology.spawn(_armed_kind, point)
 		_hud.set_status("Spawned %s." % _armed_kind)
@@ -234,6 +248,9 @@ func _kind_color(kind: String) -> Color:
 		"lightning": return Color(0.82, 0.88, 1.0)
 		"earthquake": return Color(0.55, 0.40, 0.28)
 		"flood": return Color(0.30, 0.55, 0.90)
+		"tornado": return Color(0.55, 0.52, 0.5)
+		"thunderstorm": return Color(0.4, 0.45, 0.6)
+		"hurricane": return Color(0.35, 0.55, 0.75)
 		_: return Color(0.8, 0.9, 0.6)
 
 

@@ -129,6 +129,10 @@ var _storm_bolt_cd: float = 0.0
 var _auto_meteor_fired: bool = false
 var _auto_select: bool = false
 var _auto_select_done: bool = false
+var _auto_tornado: bool = false
+var _auto_thunderstorm: bool = false
+var _auto_hurricane: bool = false
+var _auto_storm_fired: bool = false
 var _frame: int = 0
 
 
@@ -505,6 +509,12 @@ func _parse_cmdline() -> void:
 			_auto_lightning = true
 		elif arg == "--auto-select":
 			_auto_select = true
+		elif arg == "--auto-tornado":
+			_auto_tornado = true
+		elif arg == "--auto-thunderstorm":
+			_auto_thunderstorm = true
+		elif arg == "--auto-hurricane":
+			_auto_hurricane = true
 		elif arg == "--overview":
 			_overview = true
 		elif arg == "--farview":
@@ -592,6 +602,17 @@ func _process(delta: float) -> void:
 		if _frame >= ltrigger:
 			_disasters.fire_test_lightning()
 			_auto_lightning_fired = true
+
+	# Auto-storm demos/tests: touch down a tornado / seed a thunderstorm / spin up a hurricane so the
+	# harness can confirm each storm's emergent behaviour. Fired once, a bit before the summary/shot.
+	if (_auto_tornado or _auto_thunderstorm or _auto_hurricane) and not _auto_storm_fired and _spawned_initial:
+		var strigger: int = (_shoot_frames - 200) if _shoot_path != "" else maxi(_run_frames - 400, 40)
+		if _frame >= strigger:
+			_auto_storm_fired = true
+			var kind: String = "hurricane" if _auto_hurricane else ("thunderstorm" if _auto_thunderstorm else "tornado")
+			var focus: Vector3 = _disasters.fire_auto_storm(kind)
+			if _camera != null and _camera.has_method("frame_vista"):
+				_camera.frame_vista(focus)
 
 	# Auto-select demo: aim at the nearest creature and run the real selection path.
 	if _auto_select and not _auto_select_done and _spawned_initial and _frame == _shoot_frames - 40:

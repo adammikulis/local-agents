@@ -25,11 +25,11 @@ const LIFE_KINDS: PackedStringArray = [
 	"plant", "tree", "rabbit", "fox", "bird", "vulture", "villager", "fish",
 ]
 const DISASTER_KINDS: PackedStringArray = [
-	"meteor", "volcano", "lightning", "earthquake", "flood",
+	"meteor", "volcano", "lightning", "earthquake", "flood", "tornado", "thunderstorm", "hurricane",
 ]
 const KINDS: PackedStringArray = [
 	"plant", "tree", "rabbit", "fox", "bird", "vulture", "villager", "fish",
-	"meteor", "volcano", "lightning", "earthquake", "flood",
+	"meteor", "volcano", "lightning", "earthquake", "flood", "tornado", "thunderstorm", "hurricane",
 ]
 
 const KIND_LABELS: Dictionary = {
@@ -46,6 +46,9 @@ const KIND_LABELS: Dictionary = {
 	"lightning": "Lightning",
 	"earthquake": "Quake",
 	"flood": "Flood",
+	"tornado": "Tornado",
+	"thunderstorm": "Storm",
+	"hurricane": "Hurricane",
 }
 
 # Emoji glyph per kind (self-colored by the emoji font). Literal UTF-8 glyphs -- trivially
@@ -64,6 +67,9 @@ const KIND_SYMBOLS: Dictionary = {
 	"lightning": "⚡",   # high voltage
 	"earthquake": "🏚", # derelict house (shaken ground)
 	"flood": "🌊",      # water wave
+	"tornado": "🌪",    # tornado
+	"thunderstorm": "⛈", # cloud with lightning + rain
+	"hurricane": "🌀",  # cyclone
 }
 
 # Shown in tooltips so the keyboard shortcut is discoverable (see VoxelWorld._unhandled_input).
@@ -72,7 +78,8 @@ const KIND_HOTKEYS: Dictionary = {
 	"plant": "1", "tree": "2", "rabbit": "3", "fox": "4",
 	"bird": "5", "vulture": "6", "villager": "7", "fish": "8",
 	"meteor": "⇧1", "volcano": "⇧2", "lightning": "⇧3",
-	"earthquake": "⇧4", "flood": "⇧5",
+	"earthquake": "⇧4", "flood": "⇧5", "tornado": "⇧6",
+	"thunderstorm": "⇧7", "hurricane": "⇧8",
 }
 
 # Palette / theme colors (cohesive dark theme).

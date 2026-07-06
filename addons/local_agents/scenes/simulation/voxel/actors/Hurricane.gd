@@ -1,0 +1,290 @@
+class_name LAHurricane
+extends Node3D
+
+## A HURRICANE — a big, slow, rotating storm system with a calm EYE. It is essentially a large,
+## structured, self-sustaining storm built from the SAME field reads as the thunderstorm and tornado; it
+## differs only by CONFIG (huge scale, rotation, a calm eye, ocean genesis), not by copy-pasted logic. Its
+## GENESIS is emergent: it only sustains + intensifies over WARM OCEAN (high temp AND is_ocean_at across
+## its eyewall) and WEAKENS over land or cool water — so it strengthens at sea and falls apart on
+## landfall, read fresh each step. Structure: it pumps moisture + cool air aloft in an ANNULUS around the
+## eye (never at the centre), so the field's condense→rain rules raise a dense spiral of cloud + torrential
+## rain around a rain-free eye. It rotates: nearby wildlife is flung tangentially (caught in the wind) and
+## panicked. At high strength it BREEDS embedded tornadoes and fires lightning around the eyewall. Built
+## in code, no assets. (Explicit types only — no ':=' inferred typing.)
+
+const LIFETIME_MAX: float = 150.0         # a hurricane is long-lived; ocean fuel keeps it going within this
+const STRENGTH_START: float = 0.5
+const STRENGTH_MAX: float = 1.8
+const DISSIPATE_STRENGTH: float = 0.14
+const INTENSIFY_RATE: float = 0.09        # strength/s gained over warm ocean (scaled by ocean fraction)
+const DECAY_RATE: float = 0.22            # strength/s lost over land / cool water (landfall kills it)
+const WARM_OCEAN_TEMP: float = 16.0       # sea at least this warm counts as fuel
+
+# --- Structure (all in world units; the rain/cloud fills the annulus, the eye stays calm) ---
+const EYE_RADIUS: float = 26.0
+const OUTER_RADIUS: float = 150.0
+const EYEWALL_POINTS: int = 12            # moisture-pump points around the eyewall ring
+const VAPOR_PER_SEC: float = 9.0          # total vapor/s at full strength (spread over the eyewall points)
+const VAPOR_INJECT_R: float = 20.0
+const COOL_PER_SEC: float = 10.0          # aloft cooling at each eyewall point (°C/s)
+const COOL_INJECT_R: float = 26.0
+
+# --- Motion (slow, wind-steered track) ---
+const TRACK_SPEED: float = 7.0            # base forward crawl (world u/s)
+const WIND_STEER: float = 0.5
+const PLAY_HALF_EXTENT: float = 290.0
+
+# --- Rotation + fling (the rotating wind, felt by wildlife in the annulus) ---
+const SPIN_SPEED: float = 1.4             # visual + swirl rotation (rad/s)
+const SWIRL_THROW: float = 12.0           # tangential fling scale at strength 1
+const SCARE_INTERVAL: float = 0.8
+
+# --- Embedded severe weather (only when strongly organised) ---
+const BREED_STRENGTH: float = 1.05        # above this the eyewall breeds tornadoes + crackles lightning
+const TORNADO_CD_MIN: float = 7.0
+const TORNADO_CD_MAX: float = 15.0
+const BOLT_CD_MIN: float = 1.6
+const BOLT_CD_MAX: float = 5.0
+
+var _terrain: Object = null
+var _ecology: Object = null
+var _disasters: Object = null             # LAVoxelDisasters — reused for embedded tornadoes + lightning
+var _field: Object = null
+
+var _center: Vector3 = Vector3.ZERO
+var _heading: Vector2 = Vector2(1.0, 0.0)
+var _strength: float = STRENGTH_START
+var _age: float = 0.0
+var _spin: float = 0.0
+var _scare_cd: float = 0.0
+var _tornado_cd: float = 6.0
+var _bolt_cd: float = 3.0
+
+var _spiral: GPUParticles3D = null
+var _picker: StaticBody3D = null
+
+
+func _ready() -> void:
+	add_to_group("selectable")
+
+
+func setup(terrain: Object, ecology: Object, disasters: Object) -> void:
+	_terrain = terrain
+	_ecology = ecology
+	_disasters = disasters
+	if _ecology != null and _ecology.has_method("material_field"):
+		_field = _ecology.material_field()
+
+
+func begin(point: Vector3) -> void:
+	_center = point
+	global_position = _center
+	var ang: float = randf() * TAU
+	_heading = Vector2(cos(ang), sin(ang))
+	_build_fx()
+	LocalAgentsAudioDirector.emit(get_tree(), "crumble", _center)
+
+
+func get_inspector_payload() -> Dictionary:
+	var lines: Array = []
+	var frac: float = _warm_ocean_fraction()
+	lines.append("Status: %s" % ("intensifying (warm sea)" if frac > 0.5 else "weakening (landfall)"))
+	lines.append("Strength: %.0f%%" % (_strength / STRENGTH_MAX * 100.0))
+	lines.append("Warm-ocean fuel: %.0f%%" % (frac * 100.0))
+	lines.append("Age: %.0fs / %.0fs" % [_age, LIFETIME_MAX])
+	return {"title": "Hurricane", "lines": lines}
+
+
+# GENESIS FUEL: sample the eyewall ring — the fraction of it sitting over WARM OCEAN. Pure field reads;
+# high over the sea (intensifies), low over land/cool water (decays). This is the whole life arc.
+func _warm_ocean_fraction() -> float:
+	if _field == null:
+		return 0.0
+	var warm_ocean: int = 0
+	var total: int = 0
+	for i in range(EYEWALL_POINTS):
+		var a: float = TAU * float(i) / float(EYEWALL_POINTS)
+		var px: float = _center.x + cos(a) * (EYE_RADIUS + OUTER_RADIUS) * 0.5
+		var pz: float = _center.z + sin(a) * (EYE_RADIUS + OUTER_RADIUS) * 0.5
+		total += 1
+		var is_ocean: bool = _field.has_method("is_ocean_at") and _field.is_ocean_at(px, pz)
+		if not is_ocean:
+			continue
+		var t: float = 20.0
+		if _field.has_method("temp_at"):
+			t = float(_field.temp_at(px, pz))
+		if t >= WARM_OCEAN_TEMP:
+			warm_ocean += 1
+	return float(warm_ocean) / float(maxi(1, total))
+
+
+func _physics_process(delta: float) -> void:
+	_age += delta
+	_spin += SPIN_SPEED * delta
+
+	# STRENGTH — intensify over warm ocean, decay over land/cool water. Genesis + landfall both emerge.
+	var frac: float = _warm_ocean_fraction()
+	_strength += (INTENSIFY_RATE * frac - DECAY_RATE * (1.0 - frac)) * delta
+	_strength = clampf(_strength, 0.0, STRENGTH_MAX)
+	if _strength <= DISSIPATE_STRENGTH or _age >= LIFETIME_MAX or _field == null:
+		if _strength <= DISSIPATE_STRENGTH or _age >= LIFETIME_MAX:
+			_dissipate()
+		return
+
+	# TRACK — a slow forward crawl, gently steered by the prevailing wind.
+	if _field.has_method("wind"):
+		var wind: Vector2 = _field.wind()
+		if wind.length() > 0.01:
+			_heading = _heading.lerp(wind.normalized(), clampf(WIND_STEER * delta, 0.0, 1.0)).normalized()
+	_center.x += _heading.x * TRACK_SPEED * delta
+	_center.z += _heading.y * TRACK_SPEED * delta
+	_center.x = clampf(_center.x, -PLAY_HALF_EXTENT, PLAY_HALF_EXTENT)
+	_center.z = clampf(_center.z, -PLAY_HALF_EXTENT, PLAY_HALF_EXTENT)
+	if _terrain != null and _terrain.has_method("surface_height"):
+		var gy: float = _terrain.surface_height(_center.x, _center.z)
+		if not is_nan(gy):
+			_center.y = gy
+	global_position = _center
+
+	_pump_eyewall(delta)
+	_stir_wildlife(delta)
+	_maybe_breed(delta)
+	_update_fx()
+
+
+# Pump moisture + cool air aloft around the EYEWALL (never the calm eye) so a dense rain-bearing spiral
+# builds around a rain-free centre — the eye emerges because nothing is injected there.
+func _pump_eyewall(delta: float) -> void:
+	var cloud_base: float = _center.y + 60.0
+	if _field.has_method("cloud_base_y"):
+		cloud_base = float(_field.cloud_base_y())
+	var ring_r: float = (EYE_RADIUS + OUTER_RADIUS) * 0.5
+	var per_point: float = VAPOR_PER_SEC * _strength * delta / float(EYEWALL_POINTS)
+	for i in range(EYEWALL_POINTS):
+		var a: float = TAU * float(i) / float(EYEWALL_POINTS) + _spin
+		var px: float = _center.x + cos(a) * ring_r
+		var pz: float = _center.z + sin(a) * ring_r
+		var gy: float = _center.y
+		if _terrain != null and _terrain.has_method("surface_height"):
+			var h: float = _terrain.surface_height(px, pz)
+			if not is_nan(h):
+				gy = h
+		if _field.has_method("add_vapor"):
+			_field.add_vapor(Vector3(px, gy + 3.0, pz), per_point, VAPOR_INJECT_R)
+		if _field.has_method("add_cooling"):
+			_field.add_cooling(Vector3(px, cloud_base, pz), COOL_PER_SEC * _strength * delta, COOL_INJECT_R)
+
+
+# The rotating wind: fling wildlife in the annulus tangentially (caught in the spin) + panic them. Weaker
+# per-creature than a tornado (spread over a huge area) but it makes the whole system feel alive.
+func _stir_wildlife(delta: float) -> void:
+	_scare_cd -= delta
+	if _scare_cd <= 0.0:
+		_scare_cd = SCARE_INTERVAL
+		if _ecology != null and _ecology.has_method("broadcast_scare"):
+			_ecology.broadcast_scare(_center, OUTER_RADIUS, minf(1.0, 0.3 + _strength * 0.5))
+	for actor in get_tree().get_nodes_in_group("creature"):
+		if not is_instance_valid(actor) or not (actor is Node3D):
+			continue
+		var a: Node3D = actor as Node3D
+		if not a.has_method("throw"):
+			continue
+		var to: Vector3 = a.global_position - _center
+		to.y = 0.0
+		var d: float = to.length()
+		if d < EYE_RADIUS or d > OUTER_RADIUS or d < 0.001:
+			continue                                          # the eye is calm; outside the wall, nothing
+		var out_dir: Vector3 = to / d
+		var tangent: Vector3 = Vector3(-out_dir.z, 0.0, out_dir.x)
+		var mag: float = SWIRL_THROW * _strength * clampf(1.0 - d / OUTER_RADIUS, 0.2, 1.0)
+		a.throw(tangent * mag + out_dir * (mag * 0.3) + Vector3.UP * (mag * 0.4))
+
+
+# When strongly organised, the eyewall spawns embedded tornadoes + fires lightning (reusing those actors).
+func _maybe_breed(delta: float) -> void:
+	if _strength < BREED_STRENGTH or _disasters == null:
+		return
+	var over: float = clampf((_strength - BREED_STRENGTH) / (STRENGTH_MAX - BREED_STRENGTH), 0.0, 1.0)
+	_tornado_cd -= delta
+	if _tornado_cd <= 0.0 and _disasters.has_method("spawn_tornado"):
+		_tornado_cd = lerpf(TORNADO_CD_MAX, TORNADO_CD_MIN, over)
+		_disasters.spawn_tornado(_eyewall_point())
+	_bolt_cd -= delta
+	if _bolt_cd <= 0.0 and _disasters.has_method("spawn_lightning"):
+		_bolt_cd = lerpf(BOLT_CD_MAX, BOLT_CD_MIN, over)
+		_disasters.spawn_lightning(_eyewall_point())
+
+
+# A random ground point on the eyewall ring.
+func _eyewall_point() -> Vector3:
+	var a: float = randf() * TAU
+	var r: float = randf_range(EYE_RADIUS, OUTER_RADIUS * 0.8)
+	var px: float = _center.x + cos(a) * r
+	var pz: float = _center.z + sin(a) * r
+	var py: float = _center.y
+	if _terrain != null and _terrain.has_method("surface_height"):
+		var h: float = _terrain.surface_height(px, pz)
+		if not is_nan(h):
+			py = h
+	return Vector3(px, py, pz)
+
+
+func _dissipate() -> void:
+	if _ecology != null and _ecology.has_method("broadcast_scare"):
+		_ecology.broadcast_scare(_center, OUTER_RADIUS * 0.5, 0.3)
+	queue_free()
+
+
+# --- Visuals: a large slowly-rotating cloud spiral with a clear eye at the centre ---
+
+func _build_fx() -> void:
+	if _spiral == null:
+		_spiral = GPUParticles3D.new()
+		_spiral.amount = 500
+		_spiral.lifetime = 8.0
+		_spiral.emitting = true
+		_spiral.local_coords = false
+		_spiral.position = Vector3(0.0, 66.0, 0.0)
+		var quad: QuadMesh = QuadMesh.new()
+		quad.size = Vector2(34.0, 34.0)
+		var mat: StandardMaterial3D = StandardMaterial3D.new()
+		mat.albedo_color = Color(0.16, 0.17, 0.2, 0.42)
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+		quad.material = mat
+		_spiral.draw_pass_1 = quad
+		var pm: ParticleProcessMaterial = ParticleProcessMaterial.new()
+		pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_RING
+		pm.emission_ring_axis = Vector3(0.0, 1.0, 0.0)
+		pm.emission_ring_radius = OUTER_RADIUS
+		pm.emission_ring_inner_radius = EYE_RADIUS       # clears a calm eye at the centre
+		pm.emission_ring_height = 8.0
+		pm.direction = Vector3(0.0, 0.0, 0.0)
+		pm.spread = 10.0
+		pm.initial_velocity_min = 0.0
+		pm.initial_velocity_max = 2.0
+		pm.gravity = Vector3(0.0, 0.0, 0.0)
+		pm.tangential_accel_min = 8.0                    # the whole disc rotates
+		pm.tangential_accel_max = 16.0
+		pm.scale_min = 0.9
+		pm.scale_max = 2.6
+		_spiral.process_material = pm
+		_spiral.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(_spiral)
+	if _picker == null:
+		_picker = StaticBody3D.new()
+		_picker.collision_layer = 2
+		_picker.collision_mask = 0
+		var col: CollisionShape3D = CollisionShape3D.new()
+		var cs: SphereShape3D = SphereShape3D.new()
+		cs.radius = 20.0
+		col.shape = cs
+		_picker.position = Vector3(0.0, 30.0, 0.0)
+		_picker.add_child(col)
+		add_child(_picker)
+
+
+func _update_fx() -> void:
+	if _spiral != null:
+		_spiral.amount_ratio = clampf(0.25 + 0.75 * (_strength / STRENGTH_MAX), 0.1, 1.0)

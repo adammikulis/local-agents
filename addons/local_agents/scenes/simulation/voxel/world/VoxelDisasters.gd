@@ -9,6 +9,9 @@ extends Node
 const MeteorScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Meteor.gd")
 const VolcanoScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Volcano.gd")
 const LightningScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/LightningStrike.gd")
+const TornadoScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Tornado.gd")
+const ThunderstormScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Thunderstorm.gd")
+const HurricaneScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Hurricane.gd")
 
 var _world = null            # LAVoxelWorld (dynamic; method calls only)
 var _terrain = null
@@ -52,6 +55,71 @@ func spawn_volcano(point: Vector3) -> Node:
 	v.setup(_terrain, _ecology)
 	v.erupt_at(point)
 	return v
+
+
+## A persistent tornado touches down at `point`. Its strength then lives or dies on the local warm/humid
+## air it finds (see Tornado.gd) — this only births it.
+func spawn_tornado(point: Vector3) -> Node:
+	var t: Node = TornadoScript.new()
+	_actors_root.add_child(t)
+	t.setup(_terrain, _ecology)
+	t.touch_down(point)
+	return t
+
+
+## A thunderstorm cell seeds vapor + aloft cooling at `point` so the emergent cycle builds a dense cloud
+## → heavy rain, and fires lightning within its footprint while active.
+func spawn_thunderstorm(point: Vector3) -> Node:
+	var s: Node = ThunderstormScript.new()
+	_actors_root.add_child(s)
+	s.setup(_terrain, _ecology, self)
+	s.begin(point)
+	return s
+
+
+## A hurricane spins up at `point`. It only sustains/intensifies over warm ocean and falls apart on land
+## (genesis emerges from the reads); at strength it breeds embedded tornadoes + lightning.
+func spawn_hurricane(point: Vector3) -> Node:
+	var h: Node = HurricaneScript.new()
+	_actors_root.add_child(h)
+	h.setup(_terrain, _ecology, self)
+	h.begin(point)
+	return h
+
+
+# Harness helper: fire an auto-storm of `kind` at a fitting site and return the world point to frame.
+# A tornado over warm land near origin, a thunderstorm over origin, a hurricane over the nearest OPEN
+# OCEAN (so its warm-ocean genesis kicks in and it can make landfall as it tracks inward).
+func fire_auto_storm(kind: String) -> Vector3:
+	if kind == "hurricane":
+		var site: Vector3 = _find_ocean_point()
+		spawn_hurricane(site)
+		return site
+	if kind == "thunderstorm":
+		var gy: float = _terrain.surface_height(0.0, 0.0)
+		var f: Vector3 = Vector3(0.0, (gy if not is_nan(gy) else 20.0), 0.0)
+		spawn_thunderstorm(f)
+		return f
+	var oh: float = _terrain.surface_height(30.0, 30.0)
+	var t: Vector3 = Vector3(30.0, (oh if not is_nan(oh) else 20.0), 30.0)
+	spawn_tornado(t)
+	return t
+
+
+# Search rings outward for a point over open ocean (hurricane genesis). Falls back to a far offshore guess.
+func _find_ocean_point() -> Vector3:
+	var field = _ecology.material_field() if _ecology != null and _ecology.has_method("material_field") else null
+	if field != null and field.has_method("is_ocean_at"):
+		var rings: Array = [200.0, 240.0, 280.0]
+		for r in rings:
+			for i in range(16):
+				var ang: float = TAU * float(i) / 16.0
+				var px: float = cos(ang) * float(r)
+				var pz: float = sin(ang) * float(r)
+				if field.is_ocean_at(px, pz):
+					var sea: float = field.sea_level if "sea_level" in field else 0.0
+					return Vector3(px, sea, pz)
+	return Vector3(0.0, 0.0, 260.0)
 
 
 func spawn_lightning(point: Vector3) -> void:
