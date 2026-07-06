@@ -503,26 +503,39 @@ func _physics_process(delta: float) -> void:
 		return
 
 	if _use_gpu:
-		# GPU-RESIDENT: the WHOLE step (water + heat + atmosphere + lava) runs `steps` times on the GPU
-		# with one upload + one readback per frame. temp/water/lava carry CPU injections (springs, disaster
-		# heat/lava) so they're re-uploaded each frame; vapor/cloud/fog live fully resident on the GPU.
+		# GPU-RESIDENT: the WHOLE step (water + heat + atmosphere + lava) runs `steps` times on the GPU.
+		# temp/water/lava carry CPU injections (springs, disaster heat/lava) so they round-trip every frame;
+		# vapor/cloud/fog live fully resident on the GPU and are read back only on a cadence (render-only).
 		for src in _sources:
 			add_water_world(src["pos"], float(src["rate"]) * STEP_DT * float(steps))
 		var solar: float = _heat._solar() if _heat != null else 0.6
 		var w: Vector2 = _atmosphere.wind() if _atmosphere != null and _atmosphere.has_method("wind") else Vector2.ZERO
 		_gpu.begin_frame(_temp, _water, solar, w)
 		_gpu.set_field("lava", _lava)
-		# Fold CPU-side vapor injections (storms' add_vapor) into the resident vapor buffer, same as lava.
-		_gpu.set_field("vapor", _vapor)
+		# Vapor is re-uploaded ONLY when a CPU-side injection (a storm's add_vapor) dirtied it. With nothing
+		# injected it lives fully resident on the GPU (re-uploading the last readback would just clobber the
+		# GPU's own evolution), so we skip the upload AND the readback below — cloud/fog are never re-uploaded.
+		if _vapor_dirty:
+			_gpu.set_field("vapor", _vapor)
 		for i in range(steps):
 			_gpu.step()
-		var out: Dictionary = _gpu.end_frame()
+		# Render-only fields (vapor/cloud/fog) feed ONLY visuals + slow humidity queries and are NOT read by
+		# the next GPU step, so read them back on a cadence (they keep evolving resident between reads). temp/
+		# water/lava are queried continuously by consumers, so read them every frame.
+		var read_slow: bool = _slow_read_tick == 0
+		var read_vapor: bool = read_slow or _vapor_dirty
+		var out: Dictionary = _gpu.end_frame(read_vapor, read_slow, read_slow)
 		_temp = out["temp"]
 		_water = out["water"]
-		_vapor = out["vapor"]
-		_cloud = out["cloud"]
-		_fog = out["fog"]
 		_lava = out["lava"]
+		if out.has("vapor"):
+			_vapor = out["vapor"]
+		if out.has("cloud"):
+			_cloud = out["cloud"]
+		if out.has("fog"):
+			_fog = out["fog"]
+		_vapor_dirty = false
+		_slow_read_tick = (_slow_read_tick + 1) % SLOW_READ_EVERY
 	else:
 		for i in range(steps):
 			# Springs feed the surface (rivers emerge as this water flows downhill in 3D).
@@ -632,6 +645,7 @@ func add_lava(world_pos: Vector3, amount: float) -> void:
 func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	if _atmosphere != null and _atmosphere.has_method("add_vapor"):
 		_atmosphere.add_vapor(world_pos, amount, radius)
+		_vapor_dirty = true                                 # GPU path re-uploads vapor only when injected
 
 ## Cool a volume (negative heat) — a storm's cold aloft that pushes rising humid air past its dewpoint so
 ## it condenses. Thin helper over add_heat so storms read as "cool the air here" rather than negative heat.
