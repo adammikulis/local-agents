@@ -319,6 +319,53 @@ func step() -> void:
 	_precip_cover = clampf(float(precip_cols) / float(maxi(1, layer)) * PRECIP_COVER_GAIN, 0.0, 1.0)
 
 
+## Recompute ONLY the renderer's 2D projections (per-column max cloud/fog) + the cover/precip aggregates
+## from the CURRENT cloud/fog arrays, WITHOUT running a full atmosphere step. On the GPU-resident path the
+## kernels do the sim on-device and step() is skipped, so cloud_grid()/fog_grid()/avg_cloud_cover()/
+## precipitation() (the CloudLayer sheet, storm sun-dimming, and scent rain-wash) would otherwise stay
+## frozen at their seed values in windowed play. MaterialField3D calls this after each cloud/fog readback.
+func recompute_projections() -> void:
+	if _f._cell_count <= 0:
+		return
+	var dx: int = _f._dim_x
+	var dy: int = _f._dim_y
+	var dz: int = _f._dim_z
+	var layer: int = dx * dz
+	var solid: PackedByteArray = _f._solid
+	var cloud: PackedFloat32Array = _f._cloud
+	var fog: PackedFloat32Array = _f._fog
+	for c in range(layer):
+		_cloud_col[c] = 0.0
+		_fog_col[c] = 0.0
+	var cloud_sum: float = 0.0
+	var fog_sum: float = 0.0
+	var void_cells: int = 0
+	for iy in range(dy):
+		for iz in range(dz):
+			for ix in range(dx):
+				var i: int = (iy * dz + iz) * dx + ix
+				if solid[i] != 0:
+					continue
+				void_cells += 1
+				var cl: float = cloud[i]
+				var fg: float = fog[i]
+				cloud_sum += cl
+				fog_sum += fg
+				var col: int = iz * dx + ix
+				if cl > _cloud_col[col]:
+					_cloud_col[col] = cl
+				if fg > _fog_col[col]:
+					_fog_col[col] = fg
+	var denom: float = maxf(1.0, float(void_cells))
+	_cloud_cover = cloud_sum / denom
+	_fog_cover = fog_sum / denom
+	var precip_cols: int = 0
+	for c2 in range(layer):
+		if _cloud_col[c2] > RAIN_CLOUD_THRESHOLD:
+			precip_cols += 1
+	_precip_cover = clampf(float(precip_cols) / float(maxi(1, layer)) * PRECIP_COVER_GAIN, 0.0, 1.0)
+
+
 # A cell is "near the ground" (so its condensate pools as fog) if solid rock, standing water, or the
 # static sea lies within FOG_GROUND_CELLS cells directly below it — i.e. it rests on the terrain/sea.
 func _near_ground(i: int, iy: int, dy: int, layer: int, solid: PackedByteArray, water: PackedFloat32Array, stat: PackedByteArray) -> bool:

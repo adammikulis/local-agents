@@ -534,6 +534,12 @@ func _physics_process(delta: float) -> void:
 			_cloud = out["cloud"]
 		if out.has("fog"):
 			_fog = out["fog"]
+		if read_slow and _atmosphere != null:
+			# The GPU kernels evolve cloud/fog on-device, but step() (which builds the renderer's column
+			# projections + cover aggregates) is skipped on this path — so refresh them from the fresh
+			# readback. Without this, cloud_grid()/avg_cloud_cover()/precipitation() (the CloudLayer sheet,
+			# storm sun-dimming, scent rain-wash) stay frozen at zero in windowed GPU play.
+			_atmosphere.recompute_projections()
 		_vapor_dirty = false
 		_slow_read_tick = (_slow_read_tick + 1) % SLOW_READ_EVERY
 	else:
