@@ -103,7 +103,16 @@ func _ready() -> void:
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	e.ambient_light_energy = AMBIENT_DAY
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	# SSAO tuned for terrain scale: the default 1m radius is invisible on kilometre-wide
+	# hills, so widen it to occlude at valley/gully scale for real depth in creases and
+	# under actors, with a gentle power curve so it reads as soft contact shadow, not grime.
 	e.ssao_enabled = true
+	e.ssao_radius = 3.5
+	e.ssao_intensity = 2.2
+	e.ssao_power = 1.6
+	e.ssao_detail = 0.4
+	e.ssao_horizon = 0.09
+	e.ssao_sharpness = 0.95
 
 	# HDR glow/bloom: only genuinely bright (>1.0) pixels bloom — incandescent lava, the
 	# sun's specular glint on water, sunlit snow — so the scene gains punch without a
