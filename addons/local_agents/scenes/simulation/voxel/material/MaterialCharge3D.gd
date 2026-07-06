@@ -48,7 +48,9 @@ const STRIKE_HEAT_RADIUS: float = 3.0     # world-radius of the heat burst (matc
 const SCARE_RADIUS: float = 34.0          # world-radius wildlife panics over (matches the old bolt's SCARE_RADIUS)
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
-var _charge: PackedFloat32Array = PackedFloat32Array()   # OWNED electrification channel per cell (in-module)
+# The electrification channel is FIELD-RESIDENT (`_f._charge`) so the GPU backend can own the ACCUMULATE core
+# (charge_accum3d.glsl) and round-trip it each frame; this module reads/writes `_f._charge` on the CPU path
+# and runs only the BREAKDOWN tail (step_scene_only) on the GPU path.
 var _bolts_total: int = 0                                # running total of bolts fired (diagnostic)
 var _col_cursor: int = 0                                 # rotating column start so strikes aren't corner-biased
 
@@ -59,8 +61,8 @@ var on_bolt: Callable = Callable()
 
 func setup(field) -> void:
 	_f = field
-	_charge = PackedFloat32Array()
-	_charge.resize(_f._cell_count)
+	if _f._charge.size() != _f._cell_count:
+		_f._charge.resize(_f._cell_count)
 	_bolts_total = 0
 	_col_cursor = 0
 
@@ -72,9 +74,31 @@ func setup(field) -> void:
 func step() -> void:
 	if _f == null or _f._cell_count <= 0:
 		return
-	if _charge.size() != _f._cell_count:
-		_charge.resize(_f._cell_count)
+	if _f._charge.size() != _f._cell_count:
+		_f._charge.resize(_f._cell_count)
+	_accumulate()                                        # per-cell charge separation (the GPU port's core)
+	# --- BREAKDOWN (per-column reduction → capped strikes) -----------------------------------------
+	_discharge_columns(_f._dim_x, _f._dim_y, _f._dim_z, _f._solid)
 
+
+## GPU-path TAIL — runs ONLY the per-column BREAKDOWN (dielectric strike) WITHOUT the per-cell ACCUMULATE
+## loop, because on the GPU-resident path charge_accum3d.glsl already ran that core (updraft × supercooled
+## cloud separation + slow leak) on the device and `_f._charge` came back from the readback. Called ONCE per
+## frame on the fresh readback (the CPU path keeps calling the full step()). The bolt spawns heat + scare +
+## the visual callback, then resets the discharged column — the reset round-trips to the GPU next frame.
+func step_scene_only() -> void:
+	if _f == null or _f._cell_count <= 0:
+		return
+	if _f._charge.size() != _f._cell_count:
+		return
+	_discharge_columns(_f._dim_x, _f._dim_y, _f._dim_z, _f._solid)
+
+
+## Per-cell ACCUMULATE (gather form; each cell touches only itself, so it is order-independent and the GPU
+## port charge_accum3d.glsl is bit-for-bit). Charge separates where a convective UPDRAFT lofts SUPERCOOLED
+## CLOUD; a slow LEAK bleeds it away. This is the ONLY part that runs on the GPU — kept split out so the
+## CPU path (step) and the GPU port share the same math spec.
+func _accumulate() -> void:
 	var dx: int = _f._dim_x
 	var dy: int = _f._dim_y
 	var dz: int = _f._dim_z
@@ -82,25 +106,23 @@ func step() -> void:
 	var temp: PackedFloat32Array = _f._temp
 	var cloud: PackedFloat32Array = _f._cloud
 	var vy: PackedFloat32Array = _f._vel_y
+	var charge: PackedFloat32Array = _f._charge
 	var dt: float = _f.STEP_DT
 	var keep: float = 1.0 - CHARGE_LEAK
 
-	# --- ACCUMULATE (gather, per-cell) -------------------------------------------------------------
 	for iy in range(dy):
 		for iz in range(dz):
 			for ix in range(dx):
 				var i: int = (iy * dz + iz) * dx + ix
 				if solid[i] != 0:
-					_charge[i] = 0.0
+					charge[i] = 0.0
 					continue
 				var up: float = vy[i]
 				if up > UPDRAFT_MIN and cloud[i] > 0.0:
 					var cold: float = clampf((FREEZE_T - temp[i]) / COLD_SPAN, 0.0, 1.0)
-					_charge[i] += CHARGE_GAIN * maxf(0.0, up) * cloud[i] * cold * dt
-				_charge[i] *= keep                       # slow leak toward neutral
-
-	# --- BREAKDOWN (per-column reduction → capped strikes) -----------------------------------------
-	_discharge_columns(dx, dy, dz, solid)
+					charge[i] += CHARGE_GAIN * maxf(0.0, up) * cloud[i] * cold * dt
+				charge[i] *= keep                        # slow leak toward neutral
+	_f._charge = charge
 
 
 ## Scan every column (from a rotating cursor so strikes aren't biased to one corner); where a column's summed
@@ -127,7 +149,7 @@ func _discharge_columns(dx: int, dy: int, dz: int, solid: PackedByteArray) -> vo
 			var i: int = (iy * dz + iz) * dx + ix
 			if solid[i] != 0:
 				continue
-			var q: float = _charge[i]
+			var q: float = _f._charge[i]
 			col_q += q
 			if q > top_q:
 				top_q = q
@@ -164,7 +186,7 @@ func _reset_column(ix: int, iz: int, dx: int, dy: int, dz: int, solid: PackedByt
 		var i: int = (iy * dz + iz) * dx + ix
 		if solid[i] != 0:
 			continue
-		_charge[i] *= RESET_FRACTION
+		_f._charge[i] *= RESET_FRACTION
 
 
 # Topmost SOLID (ground) cell index-y of a column scanning down from the top, or -1 if the column is all void.
@@ -185,9 +207,9 @@ func charge_peak() -> float:
 	if _f == null:
 		return 0.0
 	var m: float = 0.0
-	for i in range(_charge.size()):
-		if _charge[i] > m:
-			m = _charge[i]
+	for i in range(_f._charge.size()):
+		if _f._charge[i] > m:
+			m = _f._charge[i]
 	return m
 
 
@@ -201,7 +223,7 @@ func charged_cells() -> int:
 	if _f == null:
 		return 0
 	var n: int = 0
-	for i in range(_charge.size()):
-		if _charge[i] > CHARGE_MIN:
+	for i in range(_f._charge.size()):
+		if _f._charge[i] > CHARGE_MIN:
 			n += 1
 	return n

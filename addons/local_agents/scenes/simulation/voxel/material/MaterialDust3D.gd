@@ -5,7 +5,7 @@ extends RefCounted
 ## engine of emergent DUNE MIGRATION. It mirrors the shape of LAMaterialCombustion3D / LAMaterialSlump3D:
 ## it holds NO authoritative FIELD state (the loose granular mass it lofts from / deposits back to is the
 ## shared `_f._sediment` channel that LAMaterialSlump3D flows to its angle of repose and re-solidifies) —
-## the ONE thing it owns is the AIRBORNE dust density `_dust`, an in-module PackedFloat32Array (plus its
+## the ONE thing it owns is the AIRBORNE dust density `_f._dust`, an in-module PackedFloat32Array (plus its
 ## advection double-buffer + a per-cell out-scale scratch), so the field file stays tiny. It reaches into
 ## `_f` for the shared arrays (`_sediment`, `_water`, `_solid`, `_vel_x/_vel_y/_vel_z`), the geometry
 ## (`_dim_*`, `_cell_size`, `_origin`, `_cell_count`, `STEP_DT`) and `precipitation()`.
@@ -13,11 +13,11 @@ extends RefCounted
 ## EMERGENT-EVERYTHING (see EMERGENCE.md): there are NO scripted dust storms and NO scripted dunes. Both
 ## fall out of three LOCAL rules coupling the loose-sediment channel to the emergent wind:
 ##   1) LOFT — a surface sediment cell (loose `_sediment` present, an OPEN air cell directly above) whose
-##      HORIZONTAL wind speed exceeds LOFT_WIND lifts a little sediment into the airborne `_dust` of the
+##      HORIZONTAL wind speed exceeds LOFT_WIND lifts a little sediment into the airborne `_f._dust` of the
 ##      cell above, scaled by how far the wind exceeds the threshold. The lift is gated DRY: a WET cell
 ##      (standing water) or ANY rain (`precipitation()`) suppresses it — so rain kills a dust storm and
-##      wet sand never blows, for free. Mass is REMOVED from `_sediment` as it enters `_dust`.
-##   2) ADVECT + DIFFUSE + SETTLE — `_dust` is transported by the real per-cell wind (`_vel_x/_y/_z`) with
+##      wet sand never blows, for free. Mass is REMOVED from `_sediment` as it enters `_f._dust`.
+##   2) ADVECT + DIFFUSE + SETTLE — `_f._dust` is transported by the real per-cell wind (`_vel_x/_y/_z`) with
 ##      a mass-conserving donor-cell flux (GATHER form: every cell reads its neighbours and writes only
 ##      itself, so it is order-independent and a future GPU port is bit-for-bit), spreads a little by
 ##      diffusion, and always feels a gentle GRAVITY settling that is STRONG in calm air and suppressed in
@@ -29,7 +29,7 @@ extends RefCounted
 ##      airborne cloud falls out of the air over a few steps and returns to the ground as sediment.
 ##
 ## Mass is conserved end to end: every gram lofted leaves `_sediment`; advection/diffusion only shuffle
-## `_dust` between air cells; every gram that settles is added back to `_sediment`. No SDF edits happen
+## `_f._dust` between air cells; every gram that settles is added back to `_sediment`. No SDF edits happen
 ## here — this module only moves the LOOSE `_sediment` channel around; LAMaterialSlump3D owns flowing it to
 ## repose and re-solidifying rested piles into permanent terrain. This is the CPU-oracle REFERENCE (there
 ## is no GLSL kernel yet); it is the headless/no-GPU path and the parity oracle for a future dust3d.glsl.
@@ -45,14 +45,17 @@ const RAIN_MAX: float = 0.05             # precipitation() above which rain supp
 
 # --- Airborne transport: mass-conserving donor-cell advection + diffusion + gravity settling. ----------
 const OUT_MAX: float = 0.55              # cap on the TOTAL fraction of a cell's dust that leaves per step (CFL stability)
-const DIFFUSE_RATE: float = 0.02         # symmetric Laplacian smoothing of `_dust` per open neighbour per step
+const DIFFUSE_RATE: float = 0.02         # symmetric Laplacian smoothing of `_f._dust` per open neighbour per step
 const SETTLE_BASE: float = 0.25          # gravity settling fraction per step in DEAD-CALM air (dust falls out fast)
 const SETTLE_MIN_FRAC: float = 0.02      # floor settling fraction even in the strongest wind (some always falls)
 const SETTLE_WIND_REF: float = 6.0       # wind speed at which settling is fully suppressed (== LOFT_WIND: aloft while blowing)
 const DUST_MIN: float = 0.0002           # below this airborne density counts as clear air (diagnostics threshold)
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
-var _dust: PackedFloat32Array = PackedFloat32Array()     # airborne dust DENSITY per cell (the ONE channel we own)
+# The airborne dust DENSITY channel is FIELD-RESIDENT (`_f._dust`) so the GPU backend can own the advect/
+# diffuse/settle core (dust_loft3d + dust_outscale3d + dust_transport3d kernels) and round-trip it each frame;
+# this module reads/writes `_f._dust` on the CPU path and runs only a diagnostics tail (step_scene_only) on
+# the GPU path. `_scratch` + `_outscale` stay module-owned (CPU-only advection scratch).
 var _scratch: PackedFloat32Array = PackedFloat32Array()  # advection double buffer (gather writes here, then swap)
 var _outscale: PackedFloat32Array = PackedFloat32Array() # per-cell uniform out-flux scale (min(1, OUT_MAX/raw_total))
 var _active_last: int = 0                                # diagnostic: airborne cells after the last step
@@ -61,8 +64,8 @@ var _peak_last: float = 0.0                              # diagnostic: peak airb
 
 func setup(field) -> void:
 	_f = field
-	_dust = PackedFloat32Array()
-	_dust.resize(_f._cell_count)
+	if _f._dust.size() != _f._cell_count:
+		_f._dust.resize(_f._cell_count)
 	_scratch = PackedFloat32Array()
 	_scratch.resize(_f._cell_count)
 	_outscale = PackedFloat32Array()
@@ -70,16 +73,16 @@ func setup(field) -> void:
 
 
 ## One dust step. Runs AFTER the wind step (it needs the fresh per-cell velocity) and alongside slump:
-##   1) LOFT dry surface sediment into `_dust` where the wind is strong enough (in place; each cell touches
+##   1) LOFT dry surface sediment into `_f._dust` where the wind is strong enough (in place; each cell touches
 ##      only its own `_sediment` and the unique air cell above it, so it stays order-independent),
 ##   2) precompute the per-cell out-flux scale so the gather can read a neighbour's scaled flux directly,
-##   3) GATHER-advect + diffuse + gravity-settle `_dust` into `_scratch`, DEPOSITING settled dust back into
+##   3) GATHER-advect + diffuse + gravity-settle `_f._dust` into `_scratch`, DEPOSITING settled dust back into
 ##      `_f._sediment` where it reaches solid ground, then swap the buffer in.
 func step() -> void:
 	if _f == null or _f._cell_count <= 0:
 		return
-	if _dust.size() != _f._cell_count:
-		_dust.resize(_f._cell_count)
+	if _f._dust.size() != _f._cell_count:
+		_f._dust.resize(_f._cell_count)
 	if _scratch.size() != _f._cell_count:
 		_scratch.resize(_f._cell_count)
 	if _outscale.size() != _f._cell_count:
@@ -89,9 +92,30 @@ func step() -> void:
 	_transport()
 
 
+## GPU-path TAIL — the loft/advect/diffuse/settle CORE (and the sediment loft/deposit coupling) all ran on
+## the device (dust_loft3d + dust_outscale3d + dust_transport3d) and `_f._dust` + `_f._sediment` came back
+## from the readback, so this only REFRESHES the airborne-cell / peak-density diagnostics from the fresh
+## `_f._dust` (the dust_cells()/dust_peak() HUD + SMOKE_SUMMARY readouts). Called ONCE per frame on the GPU
+## path (the CPU path keeps calling the full step(), which sets these during _transport).
+func step_scene_only() -> void:
+	if _f == null or _f._cell_count <= 0:
+		return
+	var dust: PackedFloat32Array = _f._dust
+	var active: int = 0
+	var peak: float = 0.0
+	for i in range(dust.size()):
+		var v: float = dust[i]
+		if v >= DUST_MIN:
+			active += 1
+			if v > peak:
+				peak = v
+	_active_last = active
+	_peak_last = peak
+
+
 # --- Rule 1: LOFT — wind lifts DRY loose sediment into the air ------------------------------------------
 
-## Scour dry, wind-exposed loose sediment into `_dust`. A cell lofts when it holds loose `_sediment`, has an
+## Scour dry, wind-exposed loose sediment into `_f._dust`. A cell lofts when it holds loose `_sediment`, has an
 ## OPEN air cell directly above (so wind can carry it away), is DRY (little standing water AND no rain), and
 ## its horizontal wind speed exceeds LOFT_WIND. The lofted mass is REMOVED from `_sediment` and injected
 ## into the air cell above — erosion of the windward face. In-place + per-cell-local (each cell edits only
@@ -131,7 +155,7 @@ func _loft() -> void:
 				if amt <= 0.0:
 					continue
 				sed[i] = m - amt
-				_dust[iu] += amt
+				_f._dust[iu] += amt
 
 
 # --- Rule 2 setup: per-cell out-flux scale ------------------------------------------------------------
@@ -202,7 +226,7 @@ func _fall_frac(i: int, vy: PackedFloat32Array, k: float) -> float:
 
 # --- Rule 2/3: ADVECT + DIFFUSE + gravity SETTLE (mass-conserving gather) ------------------------------
 
-## Transport `_dust` one step in GATHER form: each non-solid cell keeps its un-emitted fraction, then sums
+## Transport `_f._dust` one step in GATHER form: each non-solid cell keeps its un-emitted fraction, then sums
 ## the scaled donations flowing in from its six neighbours (each neighbour's wind/settling flux toward this
 ## cell), plus a small symmetric diffusion. The cell's OWN downward settling flux, when the cell below is
 ## SOLID, is DEPOSITED into `_f._sediment[i]` (dust returning to the ground as loose sand) instead of
@@ -218,7 +242,7 @@ func _transport() -> void:
 	var vy: PackedFloat32Array = _f._vel_y
 	var vz: PackedFloat32Array = _f._vel_z
 	var sed: PackedFloat32Array = _f._sediment
-	var dust: PackedFloat32Array = _dust
+	var dust: PackedFloat32Array = _f._dust
 	var k: float = _f.STEP_DT / _f._cell_size
 	var active: int = 0
 	var peak: float = 0.0
@@ -291,8 +315,8 @@ func _transport() -> void:
 						peak = value
 
 	# Commit: swap so queries read the fresh airborne state (old buffer becomes next step's scratch).
-	var tmp: PackedFloat32Array = _dust
-	_dust = _scratch
+	var tmp: PackedFloat32Array = _f._dust
+	_f._dust = _scratch
 	_scratch = tmp
 	_active_last = active
 	_peak_last = peak
@@ -313,7 +337,7 @@ func dust_at(x: float, y: float, z: float) -> float:
 	var i: int = _f._idx(ix, iy, iz)
 	if _f._solid[i] != 0:
 		return 0.0
-	return _dust[i]
+	return _f._dust[i]
 
 
 ## Cells currently holding airborne dust (a dust storm is live while this is > 0; it decays to 0 as the
@@ -333,5 +357,5 @@ func total_dust() -> float:
 		return 0.0
 	var s: float = 0.0
 	for i in range(_f._cell_count):
-		s += _dust[i]
+		s += _f._dust[i]
 	return s

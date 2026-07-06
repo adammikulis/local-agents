@@ -71,9 +71,15 @@ var _vel_x: PackedFloat32Array = PackedFloat32Array()    # wind velocity X per c
 var _vel_y: PackedFloat32Array = PackedFloat32Array()    # wind velocity Y per cell (world +Y, up)
 var _vel_z: PackedFloat32Array = PackedFloat32Array()    # wind velocity Z per cell (world +Z)
 var _sediment: PackedFloat32Array = PackedFloat32Array() # loose granular mass per cell (landslide slump)
+# --- Emergent ELECTRIFICATION (LAMaterialCharge3D) + airborne DUST (LAMaterialDust3D). Field-resident so the
+# GPU backend can own their per-cell compute (charge_accum3d / dust_*3d kernels) and round-trip them each
+# frame like fire/fuel/sediment; the CPU modules reach into `_f._charge` / `_f._dust` (the CPU-oracle path).
+var _charge: PackedFloat32Array = PackedFloat32Array()   # electrification charge per cell (updraft × supercooled cloud)
+var _dust: PackedFloat32Array = PackedFloat32Array()     # airborne dust density per cell (wind-lofted sand storm)
 var _sun_light = null                                    # DirectionalLight3D — solar forcing (top cells)
 
 # Concern modules (3D generalisations of the 2.5D ones), set by activate().
+var _water_sim = null                                    # LAMaterialWater3D (the water CA loop; step_water() forwards here)
 var _heat = null                                         # LAMaterialHeat3D
 var _atmosphere = null                                   # LAMaterialAtmosphere3D
 var _lava_sim = null                                     # LAMaterialLava3D
@@ -101,6 +107,7 @@ const SnowIceScript: GDScript = preload("res://addons/local_agents/scenes/simula
 const DustScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialDust3D.gd")
 const ChargeScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialCharge3D.gd")
 const ShockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialShock3D.gd")
+const WaterScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialWater3D.gd")
 const GPUScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGPU3D.gd")
 const QueriesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldQueries3D.gd")
 const RenderScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldRender3D.gd")
@@ -285,9 +292,17 @@ func setup_dims(dim_x: int, dim_y: int, dim_z: int, cell_size: float, origin: Ve
 	_vel_z.resize(_cell_count)
 	_sediment = PackedFloat32Array()
 	_sediment.resize(_cell_count)
+	_charge = PackedFloat32Array()
+	_charge.resize(_cell_count)
+	_dust = PackedFloat32Array()
+	_dust.resize(_cell_count)
 	# Read-only query accessors bind to this field now; the arrays they read exist from here on.
 	_queries = QueriesScript.new()
 	_queries.setup(self)
+	# Water CA module (the field's step_water() forwards here). Instantiated at dims-setup — not activate() —
+	# because the parity harnesses call field.step_water() on a bare setup_dims field (no activate()).
+	_water_sim = WaterScript.new()
+	_water_sim.setup(self)
 
 
 # --- Index helpers ----------------------------------------------------------
@@ -347,88 +362,13 @@ func _stable_below(total_mass: float) -> float:
 	return (total_mass + MAX_COMPRESS) * 0.5
 
 
-## One water step: gravity fall, upward pressure relief, then lateral levelling — mass-conserving via a
-## double buffer. Fills caverns bottom-up and lets connected water find its level (rivers, lakes, sea,
-## and now underground pools + water pouring into a cave through a shaft).
+## One water step (gravity fall, upward pressure relief, lateral levelling — mass-conserving via a double
+## buffer). The CA loop lives in LAMaterialWater3D; this forwarder preserves the field's public entry point
+## (the parity harnesses + the internal step loop call field.step_water()). `_stable_below` stays on the
+## field because MaterialSlump3D + MaterialLava3D also call `_f._stable_below`.
 func step_water() -> void:
-	# Start next = current; every transfer edits _wnext so reads stay on the stable _water snapshot.
-	for i in range(_cell_count):
-		_wnext[i] = _water[i]
-
-	var layer: int = _dim_x * _dim_z
-	for iy in range(_dim_y):
-		for iz in range(_dim_z):
-			for ix in range(_dim_x):
-				var i: int = (iy * _dim_z + iz) * _dim_x + ix
-				# Skip rock and calm STATIC sea — the expensive flow math only runs on dynamic water.
-				if _solid[i] != 0 or _static[i] != 0:
-					continue
-				var remaining: float = _water[i]
-				if remaining < MIN_MASS:
-					continue
-				var flow: float = 0.0
-
-				# 1) DOWN — gravity. Move toward the stable split with the cell below (drain into sea).
-				if iy > 0:
-					var ib: int = i - layer
-					if _solid[ib] == 0:
-						if _static[ib] != 0:
-							# The sea below is an infinite sink: water pours in and is absorbed.
-							_wnext[i] -= remaining
-							remaining = 0.0
-						else:
-							flow = _stable_below(remaining + _water[ib]) - _water[ib]
-							flow = clampf(flow, 0.0, minf(MAX_FLOW, remaining))
-							if flow > MIN_FLOW:
-								_wnext[i] -= flow
-								_wnext[ib] += flow
-								remaining -= flow
-				if remaining < MIN_MASS:
-					continue
-
-				# 2) LATERAL — level out with the 4 side neighbours (only push to lower ones).
-				var lat: Array = [
-					[ix - 1, iz], [ix + 1, iz], [ix, iz - 1], [ix, iz + 1]
-				]
-				for pr in lat:
-					if remaining < MIN_MASS:
-						break
-					var nx: int = pr[0]
-					var nz: int = pr[1]
-					if nx < 0 or nx >= _dim_x or nz < 0 or nz >= _dim_z:
-						continue
-					var inb: int = _idx(nx, iy, nz)
-					if _solid[inb] != 0:
-						continue
-					if _static[inb] != 0:
-						# Reached the sea sideways (a river mouth) — absorb a share and move on.
-						var drain: float = clampf(remaining * LATERAL_FRACTION, 0.0, remaining)
-						_wnext[i] -= drain
-						remaining -= drain
-						continue
-					var diff: float = remaining - _water[inb]
-					if diff > MIN_FLOW:
-						var lflow: float = clampf(diff * LATERAL_FRACTION, 0.0, minf(MAX_FLOW, remaining))
-						if lflow > MIN_FLOW:
-							_wnext[i] -= lflow
-							_wnext[inb] += lflow
-							remaining -= lflow
-
-				# 3) UP — only overflow (compressed above MAX_MASS) pushes into the cell above.
-				if remaining > MAX_MASS and iy < _dim_y - 1:
-					var iu: int = i + layer
-					if _solid[iu] == 0 and _static[iu] == 0:
-						var uflow: float = remaining - _stable_below(remaining + _water[iu])
-						uflow = clampf(uflow, 0.0, minf(MAX_FLOW, remaining))
-						if uflow > MIN_FLOW:
-							_wnext[i] -= uflow
-							_wnext[iu] += uflow
-							remaining -= uflow
-
-	# Commit the buffer.
-	var tmp: PackedFloat32Array = _water
-	_water = _wnext
-	_wnext = tmp
+	if _water_sim != null:
+		_water_sim.step()
 
 
 # --- World-space queries (delegated to _queries; the 2.5D-compatible API consumers call) --------
@@ -580,6 +520,14 @@ func _physics_process(delta: float) -> void:
 		# run the GPU passes, then read the consumed fuel + evolved fire back below.
 		_gpu.set_field("fuel", _fuel)
 		_gpu.set_field("fire", _fire)
+		# Charge + dust round-trip like fire/sediment: the charge_accum3d + dust_*3d kernels run the per-cell
+		# CORE on-device; the CPU keeps only the tails (charge BREAKDOWN+bolt, dust diagnostics) via
+		# step_scene_only(). Upload the authoritative CPU state (carrying the last breakdown's column reset for
+		# charge, and the erosion/snowice/magma edits to the shared sediment for dust), then read them back below.
+		_gpu.set_field("charge", _charge)
+		_gpu.set_field("dust", _dust)
+		# Rain suppresses all dust lofting (wet sand never blows) — hand the dust LOFT kernel the raining flag.
+		_gpu.set_raining(precipitation() > DustScript.RAIN_MAX)
 		# Vapor is re-uploaded ONLY when a CPU-side injection (a storm's add_vapor) dirtied it. With nothing
 		# injected it lives fully resident on the GPU (re-uploading the last readback would just clobber the
 		# GPU's own evolution), so we skip the upload AND the readback below — cloud/fog are never re-uploaded.
@@ -602,6 +550,10 @@ func _physics_process(delta: float) -> void:
 			_fuel = out["fuel"]
 		if out.has("sediment"):
 			_sediment = out["sediment"]
+		if out.has("charge"):
+			_charge = out["charge"]
+		if out.has("dust"):
+			_dust = out["dust"]
 		# Emergent wind is GPU-resident now — pull the fresh per-cell velocity back for CPU consumers
 		# (wind_at / wind3_at / scent advection / debug arrows).
 		if out.has("vel_x"):
@@ -629,25 +581,28 @@ func _physics_process(delta: float) -> void:
 		if _wind_sim != null:
 			_wind_sim.recompute_avg_from_field()
 		# CPU-oracle field processes on the fresh GPU readback (their edits round-trip to the GPU next frame):
-		# erosion carves water-borne sediment, snow/ice phase-change, magma bores conduits, dust lofts on wind.
+		# erosion carves water-borne sediment, snow/ice phase-change, magma bores conduits.
 		if _erosion_sim != null:
 			_erosion_sim.step()
 		if _snowice_sim != null:
 			_snowice_sim.step()
 		if _magma_sim != null:
 			_magma_sim.step()
+		# Emergent dust: the loft/advect/settle CORE ran on-GPU (dust_*3d kernels) and dust/sediment came back in
+		# the readback — so here we run ONLY the CPU tail (refresh the dust_cells/dust_peak diagnostics).
 		if _dust_sim != null:
-			_dust_sim.step()
+			_dust_sim.step_scene_only()
 		# Emergent fire: the ember/phase CORE ran on-GPU (fire3d.glsl) and fuel/fire came back in the readback
 		# above — so here we run ONLY the CPU scene tail (fuel seed/scan, ash marking, ash->plant regrowth).
 		if _combustion != null:
 			_combustion.step_scene_only()
-		# Scent/waste stigmergy advects on the fresh wind; charge electrifies updrafts (→ lightning); shock
-		# radiates the latest stimuli. All CPU oracle on both paths.
+		# Scent/waste stigmergy advects on the fresh wind; shock radiates the latest stimuli. Charge's ACCUMULATE
+		# ran on-GPU (charge_accum3d) and _charge came back above — so charge runs ONLY its CPU tail here (the
+		# per-column BREAKDOWN reduction + bolt spawn + column reset). All CPU oracle otherwise.
 		if _scent_sim != null:
 			_scent_sim.step()
 		if _charge_sim != null:
-			_charge_sim.step()
+			_charge_sim.step_scene_only()
 		if _shock_sim != null:
 			_shock_sim.step()
 	else:
