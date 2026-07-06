@@ -306,6 +306,48 @@ func _near_ground(i: int, iy: int, dy: int, layer: int, solid: PackedByteArray, 
 	return false
 
 
+# --- Humidity injection (LOCAL storm moisture source) ------------------------
+
+## Raise the airborne vapor (humidity) over a disc/column at a world point — a storm's LOCAL moisture
+## source (a waterspout lifting sea spray, a thunderstorm cell pumping humid air). With a little aloft
+## cooling the EXISTING condense→rain rules spin up a dense cloud → heavy local rain right there; nothing
+## is scripted. `radius`<=0 injects a single cell (NAN y resolves to the column's exposed surface cell).
+func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
+	if amount <= 0.0 or _f._cell_count <= 0:
+		return
+	var dx: int = _f._dim_x
+	var dy: int = _f._dim_y
+	var dz: int = _f._dim_z
+	var ci: int = _cix(world_pos.x)
+	var ck: int = _ciz(world_pos.z)
+	var cj: int = _ciy(world_pos.y) if not is_nan(world_pos.y) else _surface_iy(ci, ck)
+	if radius <= 0.0:
+		var i0: int = (cj * dz + ck) * dx + ci
+		if _f._solid[i0] == 0:
+			_f._vapor[i0] += amount
+		return
+	var cs: float = _f._cell_size
+	var cells: int = maxi(0, int(ceil(radius / cs)))
+	var r2: float = radius * radius
+	for dj in range(-cells, cells + 1):
+		var iy: int = cj + dj
+		if iy < 0 or iy >= dy:
+			continue
+		for dk in range(-cells, cells + 1):
+			var iz: int = ck + dk
+			if iz < 0 or iz >= dz:
+				continue
+			for di in range(-cells, cells + 1):
+				var ix: int = ci + di
+				if ix < 0 or ix >= dx:
+					continue
+				var i: int = (iy * dz + iz) * dx + ix
+				if _f._solid[i] != 0:
+					continue
+				if _f.cell_world_pos(ix, iy, iz).distance_squared_to(world_pos) <= r2:
+					_f._vapor[i] += amount
+
+
 # --- Wind --------------------------------------------------------------------
 
 ## Set the current wind (world XZ; x=+X, y=+Z) so airborne matter drifts downwind. Fed from the weather.

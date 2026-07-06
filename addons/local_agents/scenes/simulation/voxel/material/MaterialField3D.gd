@@ -67,8 +67,13 @@ const HeatScript: GDScript = preload("res://addons/local_agents/scenes/simulatio
 const AtmosphereScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialAtmosphere3D.gd")
 const LavaScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialLava3D.gd")
 const GPUScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGPU3D.gd")
+const QueriesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldQueries3D.gd")
+const RenderScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldRender3D.gd")
 var _gpu = null                                          # LAMaterialGPU3D (local RenderingDevice) or null
 var _use_gpu: bool = false
+# Read-only query accessors + the dynamic-water surface render adapter (factored out; see those files).
+var _queries = null                                      # LAMaterialFieldQueries3D
+var _render = null                                       # LAMaterialFieldRender3D
 
 
 ## Wire the real scene sun (DirectionalLight3D); the heat module reads its energy + angle for solar input.
@@ -93,9 +98,6 @@ var _ready_sim: bool = false
 const SAMPLE_COLS_PER_FRAME: int = 700
 var _sampling_done: bool = false
 var _sample_cursor: int = 0
-var _surface_mi: MeshInstance3D = null
-var _surface_mesh: ArrayMesh = null
-var _water_mat: Material = null
 # Heat texture: the hottest temperature in each XZ column baked to an R-float texture (dim_x × dim_z)
 # the terrain shader samples for incandescent glow — so a lava tube or a buried hot cell still lights the
 # ground above it. Same interface as the 2.5D field (heat_texture/heat_world_min/heat_world_size).
@@ -217,6 +219,9 @@ func setup_dims(dim_x: int, dim_y: int, dim_z: int, cell_size: float, origin: Ve
 	_fog.resize(_cell_count)
 	_lava = PackedFloat32Array()
 	_lava.resize(_cell_count)
+	# Read-only query accessors bind to this field now; the arrays they read exist from here on.
+	_queries = QueriesScript.new()
+	_queries.setup(self)
 
 
 # --- Index helpers ----------------------------------------------------------
@@ -256,16 +261,11 @@ func add_water_cell(ix: int, iy: int, iz: int, amount: float) -> void:
 
 
 func water_at_cell(ix: int, iy: int, iz: int) -> float:
-	if not _in_bounds(ix, iy, iz):
-		return 0.0
-	return _water[_idx(ix, iy, iz)]
+	return _queries.water_at_cell(ix, iy, iz)
 
 
 func total_water() -> float:
-	var s: float = 0.0
-	for i in range(_cell_count):
-		s += _water[i]
-	return s
+	return _queries.total_water()
 
 
 # --- The 3D water CA --------------------------------------------------------
@@ -365,43 +365,26 @@ func step_water() -> void:
 	_wnext = tmp
 
 
-## Highest world Y that has water in the XZ column at grid (ix, iz), or NAN if the column is dry. Used
-## by the surface queries + renderer to find the water surface (open sea/lake OR a cavern pool top).
-func column_surface_y(ix: int, iz: int) -> float:
-	if ix < 0 or ix >= _dim_x or iz < 0 or iz >= _dim_z:
-		return NAN
-	for iy in range(_dim_y - 1, -1, -1):
-		var m: float = _water[_idx(ix, iy, iz)]
-		if m >= MIN_MASS:
-			# Surface sits within the top wet cell proportional to its fill.
-			var fill: float = clampf(m, 0.0, MAX_MASS)
-			return _origin.y + (float(iy) + fill - 0.5) * _cell_size
-	return NAN
-
-
-# --- World-space queries (the 2.5D-compatible API the consumers call) --------
+# --- World-space queries (delegated to _queries; the 2.5D-compatible API consumers call) --------
 
 func _col_i(w: float, o: float) -> int:
 	return clampi(int(round((w - o) / _cell_size)), 0, _dim_x - 1)
 
 
-## World Y of the water surface at (x, z) — sea, lake, river, or a cavern pool top. NAN if dry.
+func column_surface_y(ix: int, iz: int) -> float:
+	return _queries.column_surface_y(ix, iz)
+
+
 func surface_y_at(x: float, z: float) -> float:
-	return column_surface_y(_col_i(x, _origin.x), _col_i(z, _origin.z))
+	return _queries.surface_y_at(x, z)
 
 
 func is_water_at(x: float, z: float) -> bool:
-	return not is_nan(surface_y_at(x, z))
+	return _queries.is_water_at(x, z)
 
 
-## Total water column depth at (x, z) in world units (sum of cell fills × cell size). 0 if dry.
 func depth_at(x: float, z: float) -> float:
-	var ix: int = _col_i(x, _origin.x)
-	var iz: int = _col_i(z, _origin.z)
-	var d: float = 0.0
-	for iy in range(_dim_y):
-		d += minf(_water[_idx(ix, iy, iz)], MAX_MASS)
-	return d * _cell_size
+	return _queries.depth_at(x, z)
 
 
 ## Inject water at a world point (a spring, rain, a flood surge, a meteor splash).
@@ -439,7 +422,9 @@ func activate() -> void:
 		_gpu.set_field("cloud", _cloud)
 		_gpu.set_field("fog", _fog)
 		_gpu.set_field("lava", _lava)
-	_build_render_node()
+	_render = RenderScript.new()
+	_render.setup(self)
+	_render.build()
 	_build_heat_texture()
 	rebuild_surface()
 	_update_heat_texture()
@@ -516,6 +501,8 @@ func _physics_process(delta: float) -> void:
 		var w: Vector2 = _atmosphere.wind() if _atmosphere != null and _atmosphere.has_method("wind") else Vector2.ZERO
 		_gpu.begin_frame(_temp, _water, solar, w)
 		_gpu.set_field("lava", _lava)
+		# Fold CPU-side vapor injections (storms' add_vapor) into the resident vapor buffer, same as lava.
+		_gpu.set_field("vapor", _vapor)
 		for i in range(steps):
 			_gpu.step()
 		var out: Dictionary = _gpu.end_frame()
@@ -543,12 +530,7 @@ func _physics_process(delta: float) -> void:
 
 ## Temperature °C at a world point (0 outside the grid). The consumer query the 2.5D field also exposes.
 func temp_at(x: float, z: float, y: float = NAN) -> float:
-	var ix: int = _col_i(x, _origin.x)
-	var iz: int = _col_i(z, _origin.z)
-	var iy: int = _col_i(y, _origin.y) if not is_nan(y) else _surface_iy(ix, iz)
-	if iy < 0:
-		return 0.0
-	return _temp[(iy * _dim_z + iz) * _dim_x + ix]
+	return _queries.temp_at(x, z, y)
 
 
 # Topmost non-solid cell of a column (its sky-exposed surface), or -1 if the column is solid to the top.
@@ -563,37 +545,12 @@ func _surface_iy(ix: int, iz: int) -> int:
 
 ## True where the ground is below sea level (open ocean under the plane).
 func is_ocean_at(x: float, z: float) -> bool:
-	var ix: int = _col_i(x, _origin.x)
-	var iz: int = _col_i(z, _origin.z)
-	# Any static (seeded-sea) or below-sea void cell in the column means this is sea.
-	for iy in range(_dim_y):
-		if _origin.y + float(iy) * _cell_size >= sea_level:
-			break
-		var i: int = (iy * _dim_z + iz) * _dim_x + ix
-		if _solid[i] == 0:
-			return true
-	return false
+	return _queries.is_ocean_at(x, z)
 
 
-## Salinity 0 (fresh inland water) .. ~0.35-0.65 (brackish shallows) .. 1 (deep salt ocean); NAN if dry.
-## Depth-of-sea proxy, matching the 2.5D field so the salinity-banded fish behave identically.
-const SALT_FULL_DEPTH: float = 22.0
-const BRACKISH_FLOOR: float = 0.35
+## Salinity 0 (fresh inland water) .. brackish shallows .. 1 (deep salt ocean); NAN if dry.
 func salinity_at(x: float, z: float) -> float:
-	if is_ocean_at(x, z):
-		# Deepest open water is saltiest; the shallow shore band (incl. river mouths) stays brackish.
-		var ix: int = _col_i(x, _origin.x)
-		var iz: int = _col_i(z, _origin.z)
-		var floor_y: float = sea_level
-		for iy in range(_dim_y):
-			var i: int = (iy * _dim_z + iz) * _dim_x + ix
-			if _solid[i] == 0:
-				floor_y = _origin.y + float(iy) * _cell_size
-				break
-		return clampf((sea_level - floor_y) / SALT_FULL_DEPTH, BRACKISH_FLOOR, 1.0)
-	if is_water_at(x, z):
-		return 0.0                                       # inland CA pool (lake/river) = fresh
-	return NAN
+	return _queries.salinity_at(x, z)
 
 
 # Atmosphere delegators (the 3D atmosphere owns the water cycle + humidity/dewpoint).
@@ -651,15 +608,23 @@ func add_lava(world_pos: Vector3, amount: float) -> void:
 	if _lava_sim != null and _lava_sim.has_method("add_lava"):
 		_lava_sim.add_lava(world_pos, amount)
 
+## Inject airborne water vapor (humidity) over a disc/column at a world point — a storm's LOCAL moisture
+## source. With a little aloft cooling the existing condense→rain rules build a dense cloud → heavy local
+## rain there. Folded into the resident GPU vapor buffer each frame (like lava). Emergent, not scripted.
+func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
+	if _atmosphere != null and _atmosphere.has_method("add_vapor"):
+		_atmosphere.add_vapor(world_pos, amount, radius)
+
+## Cool a volume (negative heat) — a storm's cold aloft that pushes rising humid air past its dewpoint so
+## it condenses. Thin helper over add_heat so storms read as "cool the air here" rather than negative heat.
+func add_cooling(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
+	add_heat(world_pos, -absf(amount), maxf(0.0, radius))
+
 func lava_cell_count() -> int:
 	return _lava_sim.lava_cell_count() if _lava_sim != null and _lava_sim.has_method("lava_cell_count") else 0
 
 func wet_cell_count() -> int:
-	var n: int = 0
-	for i in range(_cell_count):
-		if _solid[i] == 0 and _static[i] == 0 and _water[i] >= RENDER_MIN:
-			n += 1
-	return n
+	return _queries.wet_cell_count()
 
 
 # --- Injection API (disasters/flood/weather call these) ---------------------
@@ -781,18 +746,10 @@ func cloud_cell_count(min_density: float = 0.05) -> int:
 # --- Heat diagnostics -------------------------------------------------------
 
 func peak_heat() -> float:
-	var m: float = 0.0
-	for i in range(_cell_count):
-		if _solid[i] == 0 and _temp[i] > m:
-			m = _temp[i]
-	return m
+	return _queries.peak_heat()
 
 func hot_cell_count(threshold: float = 60.0) -> int:
-	var n: int = 0
-	for i in range(_cell_count):
-		if _solid[i] == 0 and _temp[i] >= threshold:
-			n += 1
-	return n
+	return _queries.hot_cell_count(threshold)
 
 func lava_peak() -> int:
 	return lava_cell_count()
@@ -851,147 +808,7 @@ func active_fire_count() -> int:
 	return 0
 
 
-const WATER_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/shaders/VoxelWater.gdshader"
-
-func _build_render_node() -> void:
-	if _surface_mi != null:
-		return
-	if _water_mat == null:
-		# The proper freshwater surface shader (waves/depth/foam/fresnel) — not a flat plain-blue material.
-		var sh: Shader = load(WATER_SHADER_PATH) as Shader
-		if sh != null:
-			var sm: ShaderMaterial = ShaderMaterial.new()
-			sm.shader = sh
-			_water_mat = sm
-		else:
-			var m: StandardMaterial3D = StandardMaterial3D.new()
-			m.albedo_color = Color(0.12, 0.42, 0.62, 0.72)
-			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			m.cull_mode = BaseMaterial3D.CULL_DISABLED
-			_water_mat = m
-	_surface_mesh = ArrayMesh.new()
-	_surface_mi = MeshInstance3D.new()
-	_surface_mi.name = "Water3DSurface"
-	_surface_mi.mesh = _surface_mesh
-	_surface_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(_surface_mi)
-
-
-## Rebuild the dynamic-water surface as ONE smooth WELDED heightfield (not a quad per cell, which reads
-## as a grid of blue squares). For each XZ column take the top DYNAMIC water cell's surface height, then
-## weld: each grid corner's height is the average of the surface heights of the wet cells touching it, so
-## adjacent cells share corners and the surface blends smoothly across them and fades at the shoreline —
-## exactly the 2.5D renderer's trick, now driven by the 3D column tops. Calm static sea is left to the
-## ocean plane. (Interior cavern-pool surfaces, hidden below the column top, are a later addition.)
+# The dynamic-water surface mesh is rebuilt each frame by the render adapter (MaterialFieldRender3D).
 func rebuild_surface() -> void:
-	if _surface_mesh == null:
-		return
-	var dx: int = _dim_x
-	var dz: int = _dim_z
-	var cs: float = _cell_size
-	var layer: int = dx * dz
-
-	# 1) Per column, the world Y of the top dynamic-water surface (NAN = nothing to mesh here).
-	var col_surf: PackedFloat32Array = PackedFloat32Array()
-	col_surf.resize(layer)
-	var any: bool = false
-	for iz in range(dz):
-		for ix in range(dx):
-			var found: float = NAN
-			for iy in range(_dim_y - 1, -1, -1):
-				var i: int = (iy * dz + iz) * dx + ix
-				if _solid[i] != 0 or _static[i] != 0:
-					continue
-				var m: float = _water[i]
-				if m < RENDER_MIN:
-					continue
-				var wy: float = _origin.y + float(iy) * cs + (clampf(m, 0.0, MAX_MASS) - 0.5) * cs
-				# A sub-sea cell sitting at ~sea level is calm sea → the plane draws it.
-				if _origin.y + float(iy) * cs < sea_level and absf(wy - sea_level) < SEA_WAVE_EPS:
-					continue
-				found = wy
-				break
-			col_surf[iz * dx + ix] = found
-			if not is_nan(found):
-				any = true
-
-	if not any:
-		if _surface_mesh.get_surface_count() > 0:
-			_surface_mesh.clear_surfaces()
-		return
-
-	# 2) Accumulate each wet column's surface into its 4 shared corners ((dx+1)×(dz+1) corner grid).
-	var cw: int = dx + 1
-	var ccount: int = cw * (dz + 1)
-	var ch: PackedFloat32Array = PackedFloat32Array()
-	ch.resize(ccount)
-	var cn: PackedInt32Array = PackedInt32Array()
-	cn.resize(ccount)
-	var half: float = cs * 0.5
-	var ox: float = _origin.x - half
-	var oz: float = _origin.z - half
-	for iz in range(dz):
-		for ix in range(dx):
-			var surf: float = col_surf[iz * dx + ix]
-			if is_nan(surf):
-				continue
-			var c0: int = iz * cw + ix
-			var c1: int = c0 + 1
-			var c2: int = c0 + cw
-			var c3: int = c2 + 1
-			ch[c0] += surf; cn[c0] += 1
-			ch[c1] += surf; cn[c1] += 1
-			ch[c2] += surf; cn[c2] += 1
-			ch[c3] += surf; cn[c3] += 1
-	for c in range(ccount):
-		if cn[c] != 0:
-			ch[c] = ch[c] / float(cn[c])
-
-	# 3) Vertex per active corner + a smooth normal from the corner-height gradient.
-	var vmap: PackedInt32Array = PackedInt32Array()
-	vmap.resize(ccount)
-	var verts: PackedVector3Array = PackedVector3Array()
-	var normals: PackedVector3Array = PackedVector3Array()
-	for cj in range(dz + 1):
-		for ci in range(cw):
-			var c: int = cj * cw + ci
-			if cn[c] == 0:
-				vmap[c] = -1
-				continue
-			var hh: float = ch[c]
-			vmap[c] = verts.size()
-			verts.push_back(Vector3(ox + float(ci) * cs, hh, oz + float(cj) * cs))
-			var hl: float = ch[c - 1] if (ci > 0 and cn[c - 1] != 0) else hh
-			var hr: float = ch[c + 1] if (ci < cw - 1 and cn[c + 1] != 0) else hh
-			var hd: float = ch[c - cw] if (cj > 0 and cn[c - cw] != 0) else hh
-			var hu: float = ch[c + cw] if (cj < dz and cn[c + cw] != 0) else hh
-			normals.push_back(Vector3(hl - hr, 2.0 * cs, hd - hu).normalized())
-
-	# 4) Two triangles per wet column referencing its 4 shared corners.
-	var indices: PackedInt32Array = PackedInt32Array()
-	for iz in range(dz):
-		for ix in range(dx):
-			if is_nan(col_surf[iz * dx + ix]):
-				continue
-			var b0: int = iz * cw + ix
-			var v0: int = vmap[b0]
-			var v1: int = vmap[b0 + 1]
-			var v2: int = vmap[b0 + cw + 1]
-			var v3: int = vmap[b0 + cw]
-			if v0 < 0 or v1 < 0 or v2 < 0 or v3 < 0:
-				continue
-			indices.push_back(v0); indices.push_back(v1); indices.push_back(v2)
-			indices.push_back(v0); indices.push_back(v2); indices.push_back(v3)
-
-	if _surface_mesh.get_surface_count() > 0:
-		_surface_mesh.clear_surfaces()
-	if verts.is_empty() or indices.is_empty():
-		return
-	var arrays: Array = []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_INDEX] = indices
-	_surface_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	if _water_mat != null:
-		_surface_mesh.surface_set_material(0, _water_mat)
+	if _render != null:
+		_render.rebuild_surface()
