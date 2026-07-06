@@ -25,11 +25,19 @@ func build() -> void:
 	if _surface_mi != null:
 		return
 	if _water_mat == null:
-		# The proper freshwater surface shader (waves/depth/foam/fresnel) — not a flat plain-blue material.
+		# The ONE unified water shader, shared with the ocean plane — the CA freshwater just sets its
+		# look via uniforms: salinity 0 (clear fresh green-teal), a THIN sheet (depth_influence low, so
+		# scene-depth thickness doesn't turn a shallow pool opaque-white), and CA flow ON so streams
+		# scroll their detail downhill + waterfalls read as whitewater (per-vertex flow in COLOR).
 		var sh: Shader = load(WATER_SHADER_PATH) as Shader
 		if sh != null:
 			var sm: ShaderMaterial = ShaderMaterial.new()
 			sm.shader = sh
+			sm.set_shader_parameter("salinity", 0.0)
+			sm.set_shader_parameter("depth_influence", 0.15)
+			sm.set_shader_parameter("flow_scale", 1.0)
+			sm.set_shader_parameter("wind_strength", 0.06)
+			sm.set_shader_parameter("base_alpha", 0.82)
 			_water_mat = sm
 		else:
 			var m: StandardMaterial3D = StandardMaterial3D.new()
@@ -130,6 +138,10 @@ func rebuild_surface() -> void:
 	vmap.resize(ccount)
 	var verts: PackedVector3Array = PackedVector3Array()
 	var normals: PackedVector3Array = PackedVector3Array()
+	# Vertex COLOR carries the shader's per-vertex FLOW: rg = downhill flow direction (world XZ, encoded
+	# 0..1), b = slope steepness (whitewater on falls). Derived from the SAME smoothed corner-height field
+	# that gives the normals, so a stream/waterfall is one continuous sheet that flows along the terrain.
+	var colors: PackedColorArray = PackedColorArray()
 	for cj in range(dz + 1):
 		for ci in range(cw):
 			var c: int = cj * cw + ci
@@ -144,6 +156,12 @@ func rebuild_surface() -> void:
 			var hd: float = ch[c - cw] if (cj > 0 and cn[c - cw] != 0) else hh
 			var hu: float = ch[c + cw] if (cj < dz and cn[c + cw] != 0) else hh
 			normals.push_back(Vector3(hl - hr, 2.0 * cs, hd - hu).normalized())
+			# Water runs DOWNHILL = the descending gradient of the height field.
+			var flow: Vector2 = Vector2(hl - hr, hd - hu)
+			var steep: float = clampf(flow.length() / cs, 0.0, 1.0)
+			if flow.length() > 1e-4:
+				flow = flow.normalized()
+			colors.push_back(Color(flow.x * 0.5 + 0.5, flow.y * 0.5 + 0.5, steep, 1.0))
 
 	# 4) Two triangles per wet column referencing its 4 shared corners.
 	var indices: PackedInt32Array = PackedInt32Array()
@@ -169,6 +187,7 @@ func rebuild_surface() -> void:
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_COLOR] = colors
 	arrays[Mesh.ARRAY_INDEX] = indices
 	_surface_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	if _water_mat != null:
