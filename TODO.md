@@ -73,13 +73,51 @@ native destruction engine (all deleted — see "Retired stacks" below).
   earthquakes (seismic stimulus → camera shake), floods. Wildfire spreads to flammable neighbours and
   is suppressed by rain / broken by rivers.
 
-## In progress / pending
-- **Dense 3D `MaterialField3D`** (major direction): finish porting the 2.5D field's rules onto the 3D
-  volume so fluids interact with caves; then wire it into `VoxelWorld` in place of the 2.5D field.
-  3D water CA is validated in isolation; heat/atmosphere/lava passes and scene integration remain.
-- **GPU material field** (`GPU_FIELD_PLAN.md`): the CA hot loops migrate to `RenderingDevice` compute;
-  the CPU step stays as the permanent headless/no-GPU fallback + parity oracle.
-- Plant/fungus colonization spread beyond dung; landslides disturbing plants (stretch).
+## The one-substrate direction (north star)
+**`MaterialField3D` is the single simulation substrate, and every "disaster"/weather/ecological force is
+becoming an EMERGENT feature of it — not a scripted actor puppeteering the field.** Actors shrink to
+visuals that track real field features. Always ask "can this roll into `MaterialField3D`?" first
+(see CLAUDE.md → One-substrate default).
+
+### Done — live field processes (CPU oracle ↔ GPU kernel parity)
+- Water CA · heat/conduction/buoyancy · atmosphere (vapor→cloud/fog→rain, dewpoint, orographic) ·
+  lava (flow + solidify) · **emergent 3D pressure-driven WIND** (`MaterialWind3D`: pressure from temp,
+  wind down −∇p, terrain funneling, buoyant vertical, fronts) · **FIRE/combustion** (`MaterialCombustion3D`:
+  fuel from vegetation, ignites from heat, spreads downwind on the wind field, ash regrowth) ·
+  **granular LANDSLIDES** (`MaterialSlump3D`: disturbed terrain slumps to repose angle, re-solidifies).
+
+### Remaining emergent roadmap (each rolled into the field; CPU↔GPU parity)
+1. **Scent + waste as field channels** (#22) — retire `ScentField` (markers) + the `Poop` node. A small
+   fixed set of scent-type channels (prey/predator-musk/blood/alarm/food); emission DERIVED + DYNAMIC
+   from diet + recent meals + hunger + wounds + state; waste (feces + urine, diet-flavored) deposits a
+   fertility/nutrient channel + scent; all diffuse + advect on the LOCAL wind + wash with rain. Plants
+   grow from local field fertility. Make sure creatures produce waste (feces exists; add urine).
+2. **Emergent volcanoes from lava pressure** (#23) — eruptions/upwelling/conduit-clearing fall out of
+   lava having pressure that pushes up + melts rock; the `Volcano` actor just seeds a deep hot source.
+3. **Emergent storms** (#24) — add a rotation (Coriolis-like) term so pressure lows spin. TORNADO =
+   intense vortex, THUNDERSTORM = convective updraft cell (achievable). HURRICANE = a STRETCH goal to
+   design toward (a seeded deep rotating warm-ocean low that leans on emergence). Actors → visuals.
+4. **Emergent lightning** (#25) — a charge channel accumulates in convective updrafts (`vel_y`×cloud×cold);
+   breakdown fires a bolt to the tallest ground → heat pulse (ignites wildfire) + thunder (scare) + reset.
+
+### Field-residency + tuning follow-ups (from the wind/fire/slump landings)
+- GPU-PORT the wind/fire/slump STEP kernels: `fire3d.glsl`/`slump3d.glsl`/wind are written but still step
+  on the CPU oracle in the GPU path (mechanical port to the resident `MaterialGPU3D.step()` seam).
+- Subsume the atmosphere's fixed `VAPOR_RISE`/`CLOUD_RISE` into the wind's `vel_y` advection (buoyancy
+  retune vs the cloud-health gate); localize the orographic upwind test to per-cell velocity.
+
+### Creatures + the field (design — can living creatures be part of `MaterialField3D`?)
+- Individual creatures STAY agents — cognition, identity, memory, pathfinding, ragdoll death, and
+  click-inspection can't be a diffusing scalar field. That individuality is the point.
+- But COUPLE them to the field densely via STIGMERGY: creatures read field gradients (scent, food/
+  fertility, heat, wind, fire, water) and write to it (scent, waste, trampling), so herd/predator-prey/
+  foraging behavior emerges from the shared field rather than per-pair code. (Largely the scent+waste
+  work #22, extended to more channels — fear, food, trampled-ground.)
+- STRETCH — a background POPULATION-DENSITY / biomass field: off-screen / far fauna simulated as a
+  reaction-diffusion ecology *layer* in the field (Lotka-Volterra-ish predator/prey densities), from
+  which hero agents spawn at the edge of attention and into which they dissolve — a hybrid for scale,
+  exactly like the cheap static ocean plane vs the CA. Individual cognition stays agent-side; the field
+  carries the "sea of life" at population scale.
 
 ## How to run / verify
 - **Windowed (screenshots):** the scene self-harnesses —
