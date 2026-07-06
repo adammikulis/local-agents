@@ -57,15 +57,18 @@ var _vapor: PackedFloat32Array = PackedFloat32Array()    # airborne water vapor 
 var _cloud: PackedFloat32Array = PackedFloat32Array()    # condensed cloud density per cell
 var _fog: PackedFloat32Array = PackedFloat32Array()      # condensed fog density per cell
 var _lava: PackedFloat32Array = PackedFloat32Array()     # lava mass per cell (a hot, viscous liquid)
+var _sediment: PackedFloat32Array = PackedFloat32Array() # loose granular mass per cell (landslide slump)
 var _sun_light = null                                    # DirectionalLight3D — solar forcing (top cells)
 
 # Concern modules (3D generalisations of the 2.5D ones), set by activate().
 var _heat = null                                         # LAMaterialHeat3D
 var _atmosphere = null                                   # LAMaterialAtmosphere3D
 var _lava_sim = null                                     # LAMaterialLava3D
+var _slump_sim = null                                    # LAMaterialSlump3D (granular landslide slump)
 const HeatScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialHeat3D.gd")
 const AtmosphereScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialAtmosphere3D.gd")
 const LavaScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialLava3D.gd")
+const SlumpScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialSlump3D.gd")
 const GPUScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGPU3D.gd")
 const QueriesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldQueries3D.gd")
 const RenderScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldRender3D.gd")
@@ -234,6 +237,8 @@ func setup_dims(dim_x: int, dim_y: int, dim_z: int, cell_size: float, origin: Ve
 	_fog.resize(_cell_count)
 	_lava = PackedFloat32Array()
 	_lava.resize(_cell_count)
+	_sediment = PackedFloat32Array()
+	_sediment.resize(_cell_count)
 	# Read-only query accessors bind to this field now; the arrays they read exist from here on.
 	_queries = QueriesScript.new()
 	_queries.setup(self)
@@ -423,6 +428,8 @@ func activate() -> void:
 	_atmosphere.setup(self)
 	_lava_sim = LavaScript.new()
 	_lava_sim.setup(self)
+	_slump_sim = SlumpScript.new()
+	_slump_sim.setup(self)
 	# GPU-RESIDENT backend: persistent SSBOs, the whole heat+water step batched on-GPU, ONE readback per
 	# frame (see MaterialGPU3D's frame API). Headless has no local RenderingDevice → CPU oracle.
 	if GPUScript.available():
@@ -437,6 +444,7 @@ func activate() -> void:
 		_gpu.set_field("cloud", _cloud)
 		_gpu.set_field("fog", _fog)
 		_gpu.set_field("lava", _lava)
+		_gpu.set_field("sediment", _sediment)
 	_render = RenderScript.new()
 	_render.setup(self)
 	_render.build()
@@ -516,6 +524,7 @@ func _physics_process(delta: float) -> void:
 		var w: Vector2 = _atmosphere.wind() if _atmosphere != null and _atmosphere.has_method("wind") else Vector2.ZERO
 		_gpu.begin_frame(_temp, _water, solar, w)
 		_gpu.set_field("lava", _lava)
+		_gpu.set_field("sediment", _sediment)
 		# Vapor is re-uploaded ONLY when a CPU-side injection (a storm's add_vapor) dirtied it. With nothing
 		# injected it lives fully resident on the GPU (re-uploading the last readback would just clobber the
 		# GPU's own evolution), so we skip the upload AND the readback below — cloud/fog are never re-uploaded.
@@ -532,6 +541,8 @@ func _physics_process(delta: float) -> void:
 		_temp = out["temp"]
 		_water = out["water"]
 		_lava = out["lava"]
+		if out.has("sediment"):
+			_sediment = out["sediment"]
 		if out.has("vapor"):
 			_vapor = out["vapor"]
 		if out.has("cloud"):
@@ -558,6 +569,11 @@ func _physics_process(delta: float) -> void:
 				_atmosphere.step()
 			if _lava_sim != null:
 				_lava_sim.step()
+				if _slump_sim != null:
+					_slump_sim.step()
+	# Granular slump settles into permanent terrain on BOTH paths (a CPU-only SDF stamp, throttled).
+	if _slump_sim != null:
+		_slump_sim.settle()
 	rebuild_surface()
 	# Heat-glow texture drives only the terrain incandescence shader and changes slowly (lava/fire
 	# heat diffuses over seconds), so refresh it on a cadence instead of every frame's full-grid scan.
@@ -829,16 +845,22 @@ func splash(world_pos: Vector3, strength: float) -> void:
 		tm.timeout.connect(func(): if is_instance_valid(body): body.queue_free())
 
 
-# --- Concerns not yet ported to the 3D field (fire spread, granular landslides). Stubbed during the
-# 2.5D->3D strong break so consumers don't crash; they are OFFLINE until ported to GPU passes. ---
+# --- Concerns not yet ported to the 3D field (fire spread). Stubbed during the 2.5D->3D strong break so
+# consumers don't crash; they are OFFLINE until ported to GPU passes. ---
 func set_ecology(_e) -> void:
 	pass
 
-func disturb_terrain(_world_pos: Vector3, _radius: float, _strength: float) -> void:
-	pass
+## Shake a chunk of ground loose into LANDSLIDE sediment: carve the terrain SDF here into loose granular
+## mass that then flows downhill to its angle of repose (crater rims slump inward, debris piles at the base)
+## and re-solidifies where it settles. Emergent — one channel every disaster (meteor, volcano breach,
+## earthquake) reuses via EcologyService.disturb_ground. Delegates all the granular math to LAMaterialSlump3D.
+func disturb_terrain(world_pos: Vector3, radius: float, strength: float) -> void:
+	if _slump_sim != null:
+		_slump_sim.disturb(world_pos, radius, strength)
 
+## Cells of loose sediment actively slumping (> 0 while a landslide is live; decays to 0 as it comes to rest).
 func slump_count() -> int:
-	return 0
+	return _slump_sim.active_count() if _slump_sim != null else 0
 
 func ignite(_node) -> void:
 	pass
