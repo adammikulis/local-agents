@@ -193,12 +193,16 @@ func seed_sea() -> void:
 		var wy: float = _origin.y + float(iy) * _cell_size
 		if wy >= sea_level:
 			break                                       # layers above sea level: nothing to seed
+		# Seed each sea cell already at its warm-skin/thermocline temperature so hurricane genesis + lively
+		# sea evaporation have fuel from frame 0 (the heat cooling stage relaxes toward this same profile).
+		var wt: float = HeatScript.sea_water_target(wy, sea_level)
 		for iz in range(_dim_z):
 			for ix in range(_dim_x):
 				var i: int = _idx(ix, iy, iz)
 				if _solid[i] == 0:
 					_water[i] = MAX_MASS
 					_static[i] = 1                       # calm sea: hold it, don't simulate/mesh it
+					_temp[i] = wt
 
 
 # --- Setup ------------------------------------------------------------------

@@ -558,10 +558,11 @@ func step() -> void:
 	_rd.compute_list_dispatch(cl, col_groups, 1, 1)
 	_rd.compute_list_add_barrier(cl)
 
-	# --- HEAT PART 4: evaporative cooling of wet cells. In-place on temp[back], reads water[back]. ---
+	# --- HEAT PART 4: evaporative cooling of wet cells toward the sea thermocline. In-place on temp[back],
+	# reads water[back]. The push-constant carries origin_y/cell_size/sea_level for the depth profile. ---
 	_rd.compute_list_bind_compute_pipeline(cl, _cool_pipeline)
 	_rd.compute_list_bind_uniform_set(cl, _cool_set[_parity], 0)
-	_rd.compute_list_set_push_constant(cl, _dims_pc(), 16)
+	_rd.compute_list_set_push_constant(cl, _cool_pc(), 32)
 	_rd.compute_list_dispatch(cl, groups, 1, 1)
 
 	# ================= ADD-A-PASS SEAM ==============================================================
@@ -686,6 +687,21 @@ func _condense_pc() -> PackedByteArray:
 	pc.encode_float(16, _wind.x)
 	pc.encode_float(20, _wind.y)
 	pc.encode_float(24, ORO_CONDENSE_GAIN)
+	pc.encode_float(28, 0.0)
+	return pc
+
+
+# Cooling push-constant: dims + the geometry the sea thermocline profile needs (origin_y/cell_size/sea).
+func _cool_pc() -> PackedByteArray:
+	var pc: PackedByteArray = PackedByteArray()
+	pc.resize(32)
+	pc.encode_u32(0, _dim_x)
+	pc.encode_u32(4, _dim_y)
+	pc.encode_u32(8, _dim_z)
+	pc.encode_u32(12, _cell_count)
+	pc.encode_float(16, _origin_y)
+	pc.encode_float(20, _cell_size)
+	pc.encode_float(24, _sea_level)
 	pc.encode_float(28, 0.0)
 	return pc
 
