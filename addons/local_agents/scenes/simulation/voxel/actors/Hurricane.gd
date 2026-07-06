@@ -237,18 +237,35 @@ func _dissipate() -> void:
 
 # --- Visuals: a large slowly-rotating cloud spiral with a clear eye at the centre ---
 
+# Soft storm-cloud fade for the spiral: transparent → bright storm-grey → transparent, so the disc
+# has soft edges and reads as a dense cloud mass against the dark ocean instead of flat dark quads.
+func _spiral_ramp() -> GradientTexture1D:
+	var g: Gradient = Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.2, 0.7, 1.0])
+	g.colors = PackedColorArray([
+		Color(0.66, 0.69, 0.74, 0.0),
+		Color(0.70, 0.73, 0.78, 0.62),
+		Color(0.40, 0.43, 0.50, 0.46),
+		Color(0.30, 0.33, 0.40, 0.0),
+	])
+	var tex: GradientTexture1D = GradientTexture1D.new()
+	tex.gradient = g
+	return tex
+
+
 func _build_fx() -> void:
 	if _spiral == null:
 		_spiral = GPUParticles3D.new()
-		_spiral.amount = 500
-		_spiral.lifetime = 8.0
+		_spiral.amount = 660                             # denser disc so the spiral reads from far/high
+		_spiral.lifetime = 9.0
 		_spiral.emitting = true
 		_spiral.local_coords = false
 		_spiral.position = Vector3(0.0, 66.0, 0.0)
 		var quad: QuadMesh = QuadMesh.new()
-		quad.size = Vector2(34.0, 34.0)
+		quad.size = Vector2(40.0, 40.0)
 		var mat: StandardMaterial3D = StandardMaterial3D.new()
-		mat.albedo_color = Color(0.16, 0.17, 0.2, 0.42)
+		mat.albedo_color = Color(1.0, 1.0, 1.0, 1.0)     # tint from the per-particle ramp below
+		mat.vertex_color_use_as_albedo = true
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
@@ -259,16 +276,19 @@ func _build_fx() -> void:
 		pm.emission_ring_axis = Vector3(0.0, 1.0, 0.0)
 		pm.emission_ring_radius = OUTER_RADIUS
 		pm.emission_ring_inner_radius = EYE_RADIUS       # clears a calm eye at the centre
-		pm.emission_ring_height = 8.0
+		pm.emission_ring_height = 16.0                   # thicker band = more cloud volume
 		pm.direction = Vector3(0.0, 0.0, 0.0)
 		pm.spread = 10.0
 		pm.initial_velocity_min = 0.0
 		pm.initial_velocity_max = 2.0
 		pm.gravity = Vector3(0.0, 0.0, 0.0)
-		pm.tangential_accel_min = 8.0                    # the whole disc rotates
-		pm.tangential_accel_max = 16.0
-		pm.scale_min = 0.9
-		pm.scale_max = 2.6
+		pm.tangential_accel_min = 10.0                   # the whole disc rotates
+		pm.tangential_accel_max = 20.0
+		pm.radial_accel_min = -3.0                       # gentle inward curl → a spiral toward the eye
+		pm.radial_accel_max = -1.0
+		pm.scale_min = 1.0
+		pm.scale_max = 3.0
+		pm.color_ramp = _spiral_ramp()
 		_spiral.process_material = pm
 		_spiral.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(_spiral)
