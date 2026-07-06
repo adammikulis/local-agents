@@ -168,18 +168,35 @@ func _maybe_strike(intensity: float, delta: float) -> void:
 
 # --- Visuals: a dark churning cloud slab drifting over the cell (the rain itself is the RainLayer's) ---
 
+# Soft fade for the storm slab: transparent → dark thundercloud → transparent, so the cell reads as a
+# dense DARK anvil overhead with soft edges rather than a flat grey sheet of hard quads.
+func _cloud_ramp() -> GradientTexture1D:
+	var g: Gradient = Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.22, 0.7, 1.0])
+	g.colors = PackedColorArray([
+		Color(0.09, 0.10, 0.13, 0.0),
+		Color(0.08, 0.09, 0.12, 0.72),
+		Color(0.06, 0.07, 0.10, 0.55),
+		Color(0.05, 0.06, 0.09, 0.0),
+	])
+	var tex: GradientTexture1D = GradientTexture1D.new()
+	tex.gradient = g
+	return tex
+
+
 func _build_fx() -> void:
 	if _cloud_fx == null:
 		_cloud_fx = GPUParticles3D.new()
-		_cloud_fx.amount = 120
-		_cloud_fx.lifetime = 6.0
+		_cloud_fx.amount = 190                           # denser slab so the storm darkens the sky
+		_cloud_fx.lifetime = 6.5
 		_cloud_fx.emitting = true
 		_cloud_fx.local_coords = false
 		_cloud_fx.position = Vector3(0.0, 62.0, 0.0)
 		var quad: QuadMesh = QuadMesh.new()
-		quad.size = Vector2(26.0, 26.0)
+		quad.size = Vector2(30.0, 30.0)
 		var mat: StandardMaterial3D = StandardMaterial3D.new()
-		mat.albedo_color = Color(0.14, 0.15, 0.18, 0.5)
+		mat.albedo_color = Color(1.0, 1.0, 1.0, 1.0)     # tint from the per-particle ramp below
+		mat.vertex_color_use_as_albedo = true
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
@@ -187,14 +204,15 @@ func _build_fx() -> void:
 		_cloud_fx.draw_pass_1 = quad
 		var pm: ParticleProcessMaterial = ParticleProcessMaterial.new()
 		pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
-		pm.emission_box_extents = Vector3(RADIUS, 4.0, RADIUS)
+		pm.emission_box_extents = Vector3(RADIUS, 5.0, RADIUS)
 		pm.direction = Vector3(1.0, 0.0, 0.0)
 		pm.spread = 40.0
 		pm.initial_velocity_min = 1.0
 		pm.initial_velocity_max = 4.0
 		pm.gravity = Vector3(0.0, 0.0, 0.0)
-		pm.scale_min = 0.8
-		pm.scale_max = 2.4
+		pm.scale_min = 0.9
+		pm.scale_max = 2.8
+		pm.color_ramp = _cloud_ramp()
 		_cloud_fx.process_material = pm
 		_cloud_fx.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(_cloud_fx)
