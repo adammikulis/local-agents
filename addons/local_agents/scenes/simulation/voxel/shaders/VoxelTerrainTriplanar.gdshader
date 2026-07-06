@@ -78,19 +78,30 @@ void fragment() {
 	vec3 wn = normalize(v_world_normal);
 	float slope = 1.0 - clamp(wn.y, 0.0, 1.0); // 0 flat, 1 vertical
 
-	// Triplanar-style procedural mottle sampled from world position.
-	float n = vnoise(wp * 0.08) * 0.6 + vnoise(wp * 0.4) * 0.4;
+	// Distance fade: micro detail (mottle + normal bump) only reads up close, so far
+	// terrain stays clean and doesn't shimmer/alias as LODs stream. Cheap perf win too.
+	float cam_dist = length(wp - CAMERA_POSITION_WORLD);
+	float detail = 1.0 - smoothstep(70.0, 260.0, cam_dist);
 
-	// Grass with tonal variation.
+	// Triplanar-style procedural mottle sampled from world position, plus a slow macro
+	// tint so the grass isn't a single flat green over the whole map.
+	float n = vnoise(wp * 0.08) * 0.6 + vnoise(wp * 0.4) * 0.4;
+	float macro = vnoise(wp * 0.012);
+
+	// Grass with tonal + macro-patch variation (some cool, some warmer/drier patches).
 	vec3 grass = mix(grass_dark, grass_color, n);
+	grass = mix(grass, grass * vec3(1.10, 1.06, 0.86), smoothstep(0.55, 0.85, macro) * 0.6);
+	grass = mix(grass, grass_dark * 0.9, smoothstep(0.45, 0.15, macro) * 0.4);
 
 	// Beach/sand near sea level, then grass above.
 	float beach = smoothstep(sea_level - 2.0, sea_level + 3.5, wp.y);
 	vec3 low = mix(sand_color, grass, beach);
 
-	// Rock takes over on steep faces.
+	// Rock takes over on steep faces, with cooler/warmer strata from the macro noise.
 	float rockf = smoothstep(0.35, 0.62, slope);
-	vec3 col = mix(low, rock_color * (0.8 + 0.4 * n), rockf);
+	vec3 rock = rock_color * (0.78 + 0.44 * n);
+	rock = mix(rock, rock * vec3(1.06, 1.02, 0.96), macro);
+	vec3 col = mix(low, rock, rockf);
 
 	// Snow high up, but only on flatter ground.
 	float snowf = smoothstep(snow_height - 18.0, snow_height + 12.0, wp.y)
@@ -107,6 +118,16 @@ void fragment() {
 	float scorch = smoothstep(70.0, 340.0, temp);
 	col = mix(col, vec3(0.055, 0.05, 0.045), scorch);
 
+	// Procedural normal detail: perturb the smooth surface normal with the gradient of a
+	// high-frequency noise so near terrain gains gentle micro relief instead of reading as
+	// a flat painted surface. Faded with distance and softened on rock/snow.
+	float e = 0.75;
+	float gx = vnoise((wp + vec3(e, 0.0, 0.0)) * 0.55) - vnoise((wp - vec3(e, 0.0, 0.0)) * 0.55);
+	float gz = vnoise((wp + vec3(0.0, 0.0, e)) * 0.55) - vnoise((wp - vec3(0.0, 0.0, e)) * 0.55);
+	float bump_amt = detail * 0.35 * (1.0 - 0.5 * snowf);
+	vec3 wn_detail = normalize(wn - vec3(gx, 0.0, gz) * bump_amt);
+	NORMAL = normalize((VIEW_MATRIX * vec4(wn_detail, 0.0)).xyz);
+
 	if (heat_debug > 0.5) {
 		// Debug view: paint the whole surface by temperature.
 		ALBEDO = heat_ramp(temp);
@@ -115,7 +136,9 @@ void fragment() {
 		EMISSION = incandescence(temp) * 2.0;
 	} else {
 		ALBEDO = col;
-		ROUGHNESS = mix(0.92, 0.6, rockf);
+		// Snow is smoother/brighter-specular; grass matte; rock in between.
+		ROUGHNESS = mix(mix(0.92, 0.6, rockf), 0.5, snowf);
+		SPECULAR = 0.5 - 0.3 * (1.0 - rockf) * (1.0 - snowf);
 		METALLIC = 0.0;
 		// Hot ground glows — a meteor crater, lava, or a wildfire front lights the terrain itself. This
 		// SMOOTH (linear-filtered heat field) glow is the main visual of molten lava; the lava surface

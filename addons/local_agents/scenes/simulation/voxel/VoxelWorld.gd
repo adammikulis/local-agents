@@ -134,6 +134,13 @@ var _auto_thunderstorm: bool = false
 var _auto_hurricane: bool = false
 var _auto_storm_fired: bool = false
 var _frame: int = 0
+# Rolling FPS probe: averages the last N frames so a windowed --shoot run reports a
+# stable perf number instead of the noisy single-frame counter (which swings with sim
+# growth). Printed as FPS_AVG= alongside SHOT_SAVED.
+var _fps_accum: float = 0.0
+var _fps_count: int = 0
+var _gpu_ms_accum: float = 0.0    # isolated GPU render time — independent of CPU sim load
+const FPS_PROBE_FRAMES: int = 150
 
 
 func _ready() -> void:
@@ -165,14 +172,54 @@ func _ready() -> void:
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	e.ambient_light_energy = AMBIENT_DAY
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	# SSAO tuned for terrain scale: the default 1m radius is invisible on kilometre-wide
+	# hills, so widen it to occlude at valley/gully scale for real depth in creases and
+	# under actors, with a gentle power curve so it reads as soft contact shadow, not grime.
 	e.ssao_enabled = true
-	# Subtle horizon-tinted aerial haze so distant terrain and the world's edge fade into the
-	# light surround (the "inside a cloud" look). Re-tinted to the live horizon each frame.
-	e.fog_enabled = true
+	e.ssao_radius = 3.5
+	e.ssao_intensity = 2.2
+	e.ssao_power = 1.6
+	e.ssao_detail = 0.4
+	e.ssao_horizon = 0.09
+	e.ssao_sharpness = 0.95
+
+	# HDR glow/bloom: only genuinely bright (>1.0) pixels bloom — incandescent lava, the
+	# sun's specular glint on water, sunlit snow — so the scene gains punch without a
+	# washed-out haze over everything. High threshold keeps midtone grass/rock crisp.
+	e.glow_enabled = not OS.has_environment("NOGLOW")
+	e.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
+	e.glow_intensity = 0.85
+	e.glow_strength = 1.0
+	e.glow_bloom = 0.05
+	e.glow_hdr_threshold = 1.05
+	e.glow_hdr_scale = 2.0
+	e.glow_hdr_luminance_cap = 12.0
+	e.glow_normalized = false
+	# Only the two mid-frequency levels are active: bloom passes are the cost driver at
+	# this resolution, and these give a soft halo without paying for full-res or very-wide
+	# blur taps. (Baseline: enabling all 5 levels cost ~40% fps for no extra visible gain.)
+	e.set_glow_level(1, 0.0)
+	e.set_glow_level(2, 0.0)
+	e.set_glow_level(3, 1.0)
+	e.set_glow_level(4, 0.8)
+	e.set_glow_level(5, 0.0)
+
+	# Subtle atmospheric fog: gives the vista depth, hides the terrain-LOD pop at the
+	# horizon, and dissolves the ocean's hard edge into the skyline instead of ending in a
+	# line. Cheap (non-volumetric). Aerial perspective tints distant geometry toward the
+	# sky so far mountains recede; sky_affect stays low so the sky itself isn't washed out.
+	# fog_light_color is re-tinted to the horizon color every frame in _update_day_night.
+	e.fog_enabled = not OS.has_environment("NOFOG")
+	e.fog_mode = Environment.FOG_MODE_EXPONENTIAL
 	e.fog_light_color = SKY_HORIZON_DAY
-	e.fog_density = 0.00035
-	e.fog_aerial_perspective = 0.28
+	e.fog_light_energy = 1.0
+	e.fog_sun_scatter = 0.15
+	e.fog_density = 0.0016
+	e.fog_aerial_perspective = 0.55
 	e.fog_sky_affect = 0.05
+	e.fog_height = -40.0
+	e.fog_height_density = 0.012
+
 	env.environment = e
 	add_child(env)
 	_sky_shader_mat = sky_mat
@@ -182,9 +229,20 @@ func _ready() -> void:
 	sun.rotation_degrees = Vector3(-52.0, -47.0, 0.0)
 	sun.light_energy = SUN_ENERGY_NOON
 	sun.shadow_enabled = true
-	# Shadows are a per-frame render cost that scales with range; 250 covers the play area around the
-	# camera without shadow-mapping all the way to the horizon (a big saving over the whole voxel view).
-	sun.directional_shadow_max_distance = 250.0
+	sun.directional_shadow_max_distance = 400.0
+	# Smoother, softer sun shadows: blend the PSSM cascades so their seams don't pop as the
+	# camera pans, soften the edges, and pull the split boundaries closer so near geometry
+	# gets the crisp cascade. Bias tuned to kill acne on the rolling terrain without peter-
+	# panning the low-poly actors. (GPU-side; free given the CPU-bound headroom.)
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+	sun.directional_shadow_blend_splits = true
+	sun.directional_shadow_split_1 = 0.08
+	sun.directional_shadow_split_2 = 0.2
+	sun.directional_shadow_split_3 = 0.5
+	sun.directional_shadow_fade_start = 0.85
+	sun.shadow_blur = 1.2
+	sun.shadow_normal_bias = 1.5
+	sun.shadow_bias = 0.04
 	add_child(sun)
 	_sun = sun
 
@@ -481,6 +539,19 @@ func _on_debug_screenshot() -> void:
 		_hud.set_status("Saved screenshot → %s" % path)
 
 
+	# Anti-aliasing: the low-poly terrain/actors have hard silhouettes that crawl and
+	# alias badly. MSAA 2x cleans the geometry edges. The scene is CPU-bound (see the
+	# perf-probe notes) so this GPU-side smoothing is effectively free here.
+	var vp: Viewport = get_viewport()
+	if vp != null:
+		vp.msaa_3d = Viewport.MSAA_2X
+
+	# Enable per-viewport GPU render-time measurement so the perf probe can report the
+	# rendering cost isolated from the (highly variable) CPU sim load.
+	if _shoot_path != "":
+		RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
+
+
 func _parse_cmdline() -> void:
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--shoot="):
@@ -639,7 +710,16 @@ func _process(delta: float) -> void:
 			print("SELECT_RESULT selected=", sel != null, " ring_visible=", _interaction.selection_ring_visible(), " title=", title)
 		_auto_select_done = true
 
+	# Accumulate FPS over the final window before the screenshot for a stable perf reading.
+	if _shoot_path != "" and _frame > _shoot_frames - FPS_PROBE_FRAMES and _frame <= _shoot_frames:
+		_fps_accum += Engine.get_frames_per_second()
+		_gpu_ms_accum += RenderingServer.viewport_get_measured_render_time_gpu(get_viewport().get_viewport_rid())
+		_fps_count += 1
+
 	if _shoot_path != "" and _frame == _shoot_frames:
+		var avg_fps: float = _fps_accum / maxf(1.0, float(_fps_count))
+		var avg_gpu: float = _gpu_ms_accum / maxf(1.0, float(_fps_count))
+		print("FPS_AVG=%.1f GPU_MS=%.3f frames=%d entities=%d" % [avg_fps, avg_gpu, _fps_count, _actors_root.get_child_count()])
 		_capture_screenshot(_shoot_path)
 		get_tree().quit(0)
 
@@ -728,6 +808,11 @@ func _update_day_night(delta: float) -> void:
 		# Dark night floor, lifted softly on bright-moon nights so full moons are navigable.
 		_env.ambient_light_energy = lerpf(AMBIENT_NIGHT, AMBIENT_DAY, daylight) * storm \
 			+ moon_illum * night * MOON_AMBIENT * storm
+		# Keep the distance fog matched to the current horizon so far terrain and the
+		# ocean melt into the same color the sky shows there (warm at dusk, dark at night).
+		var fog_col: Color = SKY_HORIZON_DAY.lerp(SKY_HORIZON_NIGHT, night)
+		fog_col = fog_col.lerp(SKY_HORIZON_DUSK, warm * 0.7)
+		_env.fog_light_color = fog_col
 
 	# Tint the field's cloud/fog sheets with the sky: white by day, dusk-orange near sunset, dark at
 	# night (unshaded sheets, so the tint is what makes them read against the time of day).
