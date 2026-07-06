@@ -633,7 +633,7 @@ func step() -> void:
 ## final resident state off whichever ping-pong buffer is live. Returns the full per-cell sim output:
 ## {"temp", "water", "vapor", "cloud", "fog", "lava"} (temp+water round-trip via begin_frame; the airborne
 ## fields + lava are resident and returned so the renderer / rain layer / lava visuals can consume them).
-func end_frame() -> Dictionary:
+func end_frame(read_vapor: bool = true, read_cloud: bool = true, read_fog: bool = true) -> Dictionary:
 	if _rd == null or _cell_count == 0:
 		return {
 			"temp": PackedFloat32Array(), "water": PackedFloat32Array(),
@@ -642,14 +642,21 @@ func end_frame() -> Dictionary:
 		}
 	_rd.submit()
 	_rd.sync()
-	return {
+	# temp / water / lava are consumer-queried continuously -> always read. vapor / cloud / fog are render-
+	# only + GPU-resident (they don't feed the next step), so the caller throttles their readback; unread
+	# fields are simply omitted and the caller keeps its previous (slightly stale) CPU copy.
+	var out: Dictionary = {
 		"temp": download(live_buffer("temp", _parity)),
 		"water": download(live_buffer("water", _parity)),
-		"vapor": download(live_buffer("vapor", _parity)),
-		"cloud": download(live_buffer("cloud", _parity)),
-		"fog": download(live_buffer("fog", _parity)),
 		"lava": download(live_buffer("lava", _parity)),
 	}
+	if read_vapor:
+		out["vapor"] = download(live_buffer("vapor", _parity))
+	if read_cloud:
+		out["cloud"] = download(live_buffer("cloud", _parity))
+	if read_fog:
+		out["fog"] = download(live_buffer("fog", _parity))
+	return out
 
 
 func _heat_pc() -> PackedByteArray:
