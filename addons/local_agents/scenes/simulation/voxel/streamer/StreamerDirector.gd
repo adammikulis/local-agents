@@ -26,22 +26,6 @@ const SPECIES_LABELS: Dictionary = {
 	"villager": "villagers", "fish": "fish", "plant": "plants",
 }
 
-const CANNED_FILLERS: Array = [
-	"Chat, if you're vibing with the ecosystem, smash that like button!",
-	"Don't forget to hit follow so you never miss a meteor, chat!",
-	"We are SO back. Look at this beautiful little food web go.",
-	"Shoutout to everyone in chat keeping the wildlife company tonight.",
-	"Quiet moment on the savanna... perfect time to subscribe, honestly.",
-	"Nature's just built different, chat. Absolutely cracked biome.",
-	"Stay hydrated like these little guys are trying to, chat.",
-]
-const CANNED_REACTIONS: Array = [
-	"Ohhh it's going DOWN out there!",
-	"Chat did you SEE that?!",
-	"No shot, no shot, NO SHOT!",
-	"The circle of life is not messing around today.",
-]
-
 var _world: Node = null
 var _voice: Node = null                # optional; checked for is_speaking()
 var _enabled: bool = true
@@ -71,6 +55,14 @@ const INTENSITY_THRESHOLD: float = 6.0
 const INTENSITY_DECAY: float = 0.8      # points bled off per second, so stale minor events fade out
 const MIN_COOLDOWN: float = 6.0         # never two lines closer than this
 const IDLE_FILLER: float = 45.0         # if nothing trips for this long, drop one hype filler
+# URGENT queue: big events (disasters, extinctions, fires, deaths, stampedes) must NEVER slip through
+# just because the caster was mid-line or waiting on the LLM when they happened. They are queued here and
+# survive the intensity decay — the moment the caster is free (not speaking, not awaiting a reply) it
+# pops the queue and reacts, even if the decaying ambient intensity has bled below THRESHOLD. This is the
+# "accumulate and pop" fix: ambient chatter uses the decaying score; landmark events use the queue.
+const URGENT_BAR: float = 6.0           # an event at/above this intensity is queued as must-say
+const URGENT_COOLDOWN: float = 2.5      # urgent events may interrupt the idle gap (but never a live line)
+const URGENT_MAX: int = 6               # cap the backlog; keep the most recent landmark beats
 var _sample_accum: float = 0.0
 var _intensity: float = 0.0
 var _time_since_line: float = 0.0
@@ -78,7 +70,8 @@ var _pending_request: bool = false
 
 # --- scene sampling ---
 var _last_sample: Dictionary = {}
-var _events: Array = []                # accumulated {text, urgent} since the last line
+var _events: Array = []                # accumulated {text, intensity} since the last line (ambient colour)
+var _urgent: Array = []                # queued must-say landmark events, immune to decay (see above)
 var _last_tod_phase: String = ""
 var _last_line: String = ""            # exposed for smoke output
 
@@ -177,10 +170,19 @@ func _process(delta: float) -> void:
 	_intensity = maxf(0.0, _intensity - INTENSITY_DECAY * delta)
 	_time_since_line += delta
 
-	if _pending_request or _voice_busy() or _time_since_line < MIN_COOLDOWN:
+	# Never talk over a live line or a request in flight.
+	if _pending_request or _voice_busy():
+		return
+	# A queued landmark event (volcano, extinction, wildfire...) is spoken the instant the caster frees up
+	# — it survived the decay, so it fires even if the ambient intensity has faded. Only a short cooldown
+	# gates it (not the full one) so a big moment isn't stale by the time it's mentioned.
+	if not _urgent.is_empty() and _time_since_line >= URGENT_COOLDOWN:
+		_fire(false)
+		return
+	if _time_since_line < MIN_COOLDOWN:
 		return
 	if _intensity >= INTENSITY_THRESHOLD:
-		_fire(false)   # something worth reacting to just happened
+		_fire(false)   # ambient chatter tripped the scanner
 	elif _time_since_line >= IDLE_FILLER:
 		_fire(true)    # long quiet stretch — one filler to keep the stream alive
 
@@ -283,9 +285,14 @@ func _behaviour_delta(prev_states: Dictionary, cur_states: Dictionary, key: Stri
 
 func _push_event(text: String, intensity: float) -> void:
 	_events.append({"text": text, "intensity": intensity})
-	_intensity += intensity   # feed the scanner
+	_intensity += intensity   # feed the ambient scanner
 	while _events.size() > 8:
 		_events.pop_front()
+	# Landmark events also join the must-say queue so decay + a busy caster can never lose them.
+	if intensity >= URGENT_BAR:
+		_urgent.append({"text": text, "intensity": intensity})
+		while _urgent.size() > URGENT_MAX:
+			_urgent.pop_front()   # if the backlog overflows, drop the oldest, keep the freshest beats
 
 
 func _tod_phase(tod: float) -> String:
@@ -299,18 +306,31 @@ func _tod_phase(tod: float) -> String:
 # --- firing a line ------------------------------------------------------------------------------
 
 func _fire(idle: bool) -> void:
+	# No brain yet: stay SILENT (there is no canned pool) and leave the events queued — the moment the
+	# model server is up, the backlog (volcano and all) gets its reaction.
+	if not _server_ready:
+		return
 	_intensity = 0.0
 	_time_since_line = 0.0
-	var events_snapshot: Array = _events.duplicate()
+	# Lead with the queued landmark events, then the ambient colour; biggest beat first so the caster
+	# reacts to the volcano, not the birdsong. Both stores are cleared — everything pending is handed off.
+	var events_snapshot: Array = _urgent.duplicate()
+	events_snapshot.append_array(_events)
+	events_snapshot.sort_custom(func(a, b): return float(a.get("intensity", 0.0)) > float(b.get("intensity", 0.0)))
+	_urgent.clear()
 	_events.clear()
-
-	if not _server_ready:
-		# No brain yet: keep the energy up with a canned line.
-		_emit_line(_canned(events_snapshot))
-		return
-	# Idle lull: let the caster comment on the general conditions (weather, calm, scenery) instead of
-	# reacting to an event. Otherwise react to what just happened.
+	# Idle lull: comment on the general conditions; otherwise react to what just happened.
 	_dispatch_llm(events_snapshot, idle)
+
+
+# Put the landmark (must-say) events from a failed request back on the queue so a transient model hiccup
+# never loses a volcano — it just reacts a beat later. Ambient colour is allowed to lapse.
+func _requeue_urgent(events_snapshot: Array) -> void:
+	for e in events_snapshot:
+		if float((e as Dictionary).get("intensity", 0.0)) >= URGENT_BAR:
+			_urgent.append(e)
+	while _urgent.size() > URGENT_MAX:
+		_urgent.pop_front()
 
 
 func _dispatch_llm(events_snapshot: Array, ambient: bool = false) -> void:
@@ -342,7 +362,7 @@ func _dispatch_llm(events_snapshot: Array, ambient: bool = false) -> void:
 	var err: int = http.request(_server_url + "/v1/chat/completions", headers, HTTPClient.METHOD_POST, JSON.stringify(body))
 	if err != OK:
 		http.queue_free()
-		_emit_line(_canned(events_snapshot))
+		_requeue_urgent(events_snapshot)   # couldn't reach the model — retry the landmark beats, no canned line
 		return
 	_pending_request = true
 
@@ -356,20 +376,21 @@ func _on_llm_completed(result: int, code: int, _headers: PackedStringArray, body
 		var parsed = JSON.parse_string(body.get_string_from_utf8())
 		if parsed is Dictionary:
 			line = _clean(_extract_content(parsed as Dictionary))
-	# Reject a repeat of anything said recently (the small model latches onto a phrase) — fall back to a
-	# varied canned reaction rather than saying the same thing twice.
+	# Reject a repeat of anything said recently (the small model latches onto a phrase).
 	if line != "" and _said_recently(line):
 		line = ""
 	if line == "":
-		line = _canned(events_snapshot)
-	else:
-		# Only real model lines feed the rolling window (keeps continuity, bounded).
-		_window.append({"role": "assistant", "content": line})
-		while _window.size() > WINDOW_MAX:
-			_window.pop_front()
-		_lines_since_reset += 1
-		if _lines_since_reset >= RESET_EVERY:
-			_reset_window()
+		# Nothing usable — say NOTHING (no canned pool), but re-queue the landmark events so the caster
+		# retries the important ones next beat instead of dropping them.
+		_requeue_urgent(events_snapshot)
+		return
+	# Only real model lines feed the rolling window (keeps continuity, bounded).
+	_window.append({"role": "assistant", "content": line})
+	while _window.size() > WINDOW_MAX:
+		_window.pop_front()
+	_lines_since_reset += 1
+	if _lines_since_reset >= RESET_EVERY:
+		_reset_window()
 	_emit_line(line)
 
 
@@ -492,15 +513,6 @@ func _clean(raw: String) -> String:
 	if text.length() > 200:
 		text = text.substr(0, 200).strip_edges() + "…"
 	return text
-
-
-func _canned(events_snapshot: Array) -> String:
-	# Reaction line when something happened, otherwise a hype filler. Index varies with frame count so
-	# it doesn't repeat identically (Math.random is unavailable in some contexts; frame is fine here).
-	var idx: int = Engine.get_process_frames()
-	if events_snapshot.size() > 0:
-		return String(CANNED_REACTIONS[idx % CANNED_REACTIONS.size()])
-	return String(CANNED_FILLERS[idx % CANNED_FILLERS.size()])
 
 
 func _cloud_cover() -> float:
