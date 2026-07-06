@@ -92,6 +92,17 @@ const RENDER_MIN: float = 0.08            # min water mass in a cell for its top
 const SEA_WAVE_EPS: float = 0.6           # calm-sea top faces within this of sea_level are left to the ocean plane
 var _step_accum: float = 0.0
 var _ready_sim: bool = false
+# --- Per-frame CPU-cost throttles (the field is CPU-bound; these cut redundant full-grid work while
+# preserving behavior). Each is a "cadence" counter advanced once per ACTIVE physics frame (a frame that
+# ran >=1 sim step, i.e. ~STEP_HZ). The throttled work touches only slow-changing / render-only state, so
+# staling it a couple of frames is imperceptible; the authoritative sim state is untouched.
+const HEAT_TEX_EVERY: int = 3            # terrain-glow heat texture refresh cadence (full-grid column scan)
+const SLOW_READ_EVERY: int = 3           # render-only GPU readback cadence for vapor/cloud/fog
+var _heat_tex_tick: int = 0
+var _slow_read_tick: int = 0
+# Vapor is re-uploaded each frame ONLY to fold CPU-side injections (storm add_vapor); when nothing injected
+# it lives fully resident on the GPU (like cloud/fog), so we skip both its upload AND its readback.
+var _vapor_dirty: bool = false
 # Lazy solidity sampling: the field is created before the terrain has finished streaming, so it samples
 # rock/void a budget of columns per frame and self-activates (seed sea + build modules) once complete —
 # exactly how the old field lazily sampled heights. No blocking, no external init calls.
@@ -525,7 +536,11 @@ func _physics_process(delta: float) -> void:
 			if _lava_sim != null:
 				_lava_sim.step()
 	rebuild_surface()
-	_update_heat_texture()
+	# Heat-glow texture drives only the terrain incandescence shader and changes slowly (lava/fire
+	# heat diffuses over seconds), so refresh it on a cadence instead of every frame's full-grid scan.
+	if _heat_tex_tick == 0:
+		_update_heat_texture()
+	_heat_tex_tick = (_heat_tex_tick + 1) % HEAT_TEX_EVERY
 
 
 ## Temperature °C at a world point (0 outside the grid). The consumer query the 2.5D field also exposes.
