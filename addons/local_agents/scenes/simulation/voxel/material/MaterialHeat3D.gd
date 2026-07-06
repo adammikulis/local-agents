@@ -14,9 +14,21 @@ const AMBIENT_NIGHT: float = 6.0          # °C the sunless surface relaxes towa
 const SOLAR_WARMTH: float = 18.0          # extra °C at the surface under full midday sun
 const AMBIENT_RELAX: float = 0.05         # how fast an exposed surface cell tracks its solar/ambient target
 const LAPSE: float = 0.06                 # °C drop per world unit of altitude (cooler up high)
+# Warm maritime air: over an OCEAN column the sky cell relaxes toward this warm anchor (the tropical sea
+# heats the air above it) with only a gentle lapse, day and night, so the marine boundary layer the storm
+# systems sense stays warm. Mirrored EXACTLY in heat3d_solar.glsl.
+const MARINE_AMBIENT: float = 25.0        # warm marine-air anchor at sea level over open ocean (°C)
+const MARINE_LAPSE: float = 0.04          # gentle °C drop per world unit of altitude in the marine column
 const BUOYANCY: float = 0.18              # share of an upward temperature inversion convected each step
-const WATER_COOL_RATE: float = 0.12       # evaporative cooling pull on a wet cell (toward WATER_TEMP)
-const WATER_TEMP: float = 12.0            # temperature wet cells are pulled toward
+const WATER_COOL_RATE: float = 0.12       # evaporative cooling pull on a wet cell (toward its depth target)
+# Sea thermal profile (a THERMOCLINE): a wet cell relaxes toward a warm SURFACE temperature near sea level
+# that cools with DEPTH toward WATER_TEMP_DEEP. This gives the ocean a tropical-warm skin (so hurricane
+# genesis + lively sea evaporation have fuel) while the abyss stays cold and physical — one depth profile,
+# not a per-cell special case. Cells at/above sea level clamp to the surface value. Mirrored EXACTLY in
+# heat3d_cool.glsl (target = WATER_TEMP_DEEP + (SST_SURFACE - WATER_TEMP_DEEP) * exp(-depth/THERMOCLINE_SCALE)).
+const SST_SURFACE: float = 26.0           # tropical warm sea-surface temperature at/near sea level (°C)
+const WATER_TEMP_DEEP: float = 10.0       # cold deep-water floor the profile decays to with depth (°C)
+const THERMOCLINE_SCALE: float = 24.0     # world-units of depth over which the warm skin decays to deep
 
 var _f = null
 var _scratch: PackedFloat32Array = PackedFloat32Array()
@@ -78,8 +90,13 @@ func step(skip_conduction: bool = false) -> void:
 			temp[ai] = _scratch[ai]
 
 	# 2) SOLAR / AMBIENT at the sky-exposed surface (topmost non-solid cell of each column). Interior and
-	# underground cells only conduct — sunlight never reaches them, so caves stay cool.
+	# underground cells only conduct — sunlight never reaches them, so caves stay cool. OCEAN columns anchor
+	# their sky cell to a WARM MARINE ambient (the tropical sea warms the maritime air above it) instead of
+	# the cold land ambient — so the warm-sea skin actually reaches the air the storm systems read. A column
+	# is ocean when the cell just below sea level is non-solid (water, not rock): a pure `solid`-mask test.
 	var solar: float = _solar()
+	var sea2: float = _f.sea_level
+	var iy_sea: int = clampi(int(round((sea2 - _f._origin.y) / _f._cell_size)) - 1, 0, dy - 1)
 	for iz in range(dz):
 		for ix in range(dx):
 			for iy in range(dy - 1, -1, -1):
@@ -88,7 +105,12 @@ func step(skip_conduction: bool = false) -> void:
 					break                                   # hit rock from the top with no void above → no sky cell
 				# First non-solid cell scanning down from the top of a column IS the exposed surface.
 				var wy: float = _f._origin.y + float(iy) * _f._cell_size
-				var target: float = AMBIENT_NIGHT + SOLAR_WARMTH * solar - LAPSE * maxf(0.0, wy - _f.sea_level)
+				var is_ocean: bool = solid[(iy_sea * dz + iz) * dx + ix] == 0
+				var target: float
+				if is_ocean:
+					target = MARINE_AMBIENT - MARINE_LAPSE * maxf(0.0, wy - sea2)
+				else:
+					target = AMBIENT_NIGHT + SOLAR_WARMTH * solar - LAPSE * maxf(0.0, wy - sea2)
 				temp[i] += AMBIENT_RELAX * (target - temp[i])
 				break
 
@@ -110,12 +132,27 @@ func step(skip_conduction: bool = false) -> void:
 					temp[i] -= move
 					temp[iu] += move
 
-	# 4) EVAPORATIVE COOLING — wet cells (water or the sea) shed heat toward WATER_TEMP (rivers/sea are a
-	# heat sink and a firebreak). Lava is NOT cooled here — it sustains its own heat in the lava module.
+	# 4) EVAPORATIVE COOLING — wet cells shed heat toward their DEPTH-PROFILE target: a warm sea skin near
+	# sea level cooling to WATER_TEMP_DEEP with depth (thermocline). Warm surface sea => hurricane fuel +
+	# lively evaporation; cold abyss => physical. Lava is NOT cooled here (the lava module sustains it).
 	var water: PackedFloat32Array = _f._water
+	var origin_y: float = _f._origin.y
+	var cell_size: float = _f._cell_size
+	var sea: float = _f.sea_level
 	for i in range(_f._cell_count):
 		if solid[i] == 0 and water[i] > 0.05:
-			temp[i] += WATER_COOL_RATE * (WATER_TEMP - temp[i]) * clampf(water[i], 0.0, 1.0)
+			var iy: int = i / layer
+			var wy: float = origin_y + float(iy) * cell_size
+			var wt: float = sea_water_target(wy, sea)
+			temp[i] += WATER_COOL_RATE * (wt - temp[i]) * clampf(water[i], 0.0, 1.0)
+
+
+## The sea thermal profile: temperature (°C) a wet cell at world height `wy` relaxes toward. A warm skin
+## at/above sea level (SST_SURFACE) decaying exponentially with DEPTH toward WATER_TEMP_DEEP (thermocline).
+## Static (`static`) so seed_sea can seed the ocean warm without an instance. Mirrored in heat3d_cool.glsl.
+static func sea_water_target(wy: float, sea: float) -> float:
+	var depth: float = maxf(0.0, sea - wy)
+	return WATER_TEMP_DEEP + (SST_SURFACE - WATER_TEMP_DEEP) * exp(-depth / THERMOCLINE_SCALE)
 
 
 ## Inject a temperature change at a world point (lightning/lava/meteor = +, blizzard = −), spread over a
