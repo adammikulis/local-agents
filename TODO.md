@@ -191,15 +191,24 @@ off-screen so it never pops in front of you).
   still GPU-port with the SDF stamp kept on CPU like lava), and trimming the per-frame full readback to
   only render-needed channels on a cadence.
 
-### TODO — make the streamer cheap-when-on
-Right now the local-LLM commentator (`streamer/` + `world/VoxelStreamerHost.gd`) costs ~90ms/frame even
-idle because `llama-server` runs the model on the SAME Metal GPU the game renders on, so inference/model
-residency contends with rendering. Options (pick/measure): run the LLM **CPU-only** (`-ngl 0`) or a much
-smaller/quantized model so it doesn't touch the render GPU; throttle commentary cadence hard + ensure the
-generation path is fully async/off-thread (the director already uses a worker thread + async HTTPRequest —
-verify nothing blocks the main/render thread); cap/lower the avatar SubViewport update rate
-(`StreamerAvatar` renders a rigged character at `UPDATE_ALWAYS`, 240×300 — throttle to ~20 FPS). Goal:
-streamer ON with a playable frame-rate, so it's not an all-or-nothing toggle.
+### Done — streamer 9 → ~30 FPS (the cost was NOT what we assumed)
+Headless bisection found the streamer's ~90ms/frame was **mostly `SceneEnergyGraph`**, not the LLM: its
+`_sample_energy()` calls `hot_cell_count()`/`lava_cell_count()` (full 127K-cell field scans) on a 10Hz
+**wall-clock** gate — below 10 FPS that fires every frame (~75ms). Fixed with a hard `MIN_FRAME_GAP=30`
+(the readout doesn't need 10Hz). Also throttled the `StreamerAvatar` SubViewport from `UPDATE_ALWAYS` to
+UPDATE_ONCE re-armed every 3 frames (~20fps portrait), and defaulted the commentary LLM to CPU inference
+(`n_gpu_layers=0`, env `LA_STREAMER_GPU_LAYERS`) so it can't starve the render GPU during generation.
+Result: streamer ON with live commentary + avatar at ~28-30 FPS (was ~9); `--no-streamer` still gives the
+full ~45 FPS core path.
+- **Remaining ~30→45 gap** (streamer on vs off) is the overlay/voice/director + the avatar SubViewport's
+  mere existence (own-World3D). Smaller, harder to isolate headlessly — needs Godot's live per-node
+  profiler if worth chasing.
+
+### Note — render instancing is LOW-value here (measured, deprioritized)
+Draw calls are NOT the core-sim bottleneck: turning shadows off cut draw calls 2678→569 with **no FPS
+gain**. The ~45 FPS core frame is GPU-fill/shader + variance bound, and the actors are only ~520 mesh
+surfaces. MultiMesh-ing would be real work for ~no gain until entity counts grow a lot. Revisit only if
+actor counts increase substantially.
 
 ### Creatures + the field (design — can living creatures be part of `MaterialField3D`?)
 - Individual creatures STAY agents — cognition, identity, memory, pathfinding, ragdoll death, and
