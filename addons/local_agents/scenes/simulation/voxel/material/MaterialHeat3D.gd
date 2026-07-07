@@ -13,7 +13,32 @@ const CONDUCT_FRACTION: float = 0.14      # per-step relaxation of a cell toward
 const AMBIENT_NIGHT: float = 6.0          # °C the sunless surface relaxes toward
 const SOLAR_WARMTH: float = 18.0          # extra °C at the surface under full midday sun
 const AMBIENT_RELAX: float = 0.05         # how fast an exposed surface cell tracks its solar/ambient target
-const LAPSE: float = 0.06                 # °C drop per world unit of altitude (cooler up high)
+# STEEPENED environmental lapse — the emergent treeline + snow cap. A cell's ambient target drops this many
+# °C per world unit of altitude, so high ground goes below freezing and the snow line + treeline fall out of
+# the temperature field (no elevation number in the ecology). Steep enough (was 0.06) that peaks reach below
+# 0°C. Steepening this ALONE used to run the dry fire plumes away to 3000-4000°C (no heat sink on the way up);
+# the RADIATIVE SINK below now gives every hot cell a floor-referenced sink, so a steep lapse is energy-stable.
+# Mirrored EXACTLY in heat3d_solar.glsl.
+const LAPSE: float = 0.30                 # °C drop per world unit of altitude (cooler up high)
+# --- ENERGY-STABLE heat: a radiative sink + a global clamp, both FOLDED into the conduction output (PART 1)
+# so no extra pass/barrier is needed. Applied to EVERY cell's post-conduction temperature. Mirrored EXACTLY
+# in heat3d.glsl (same BRANCHLESS arithmetic — maxf/clampf here, max/clamp there). -----------------------
+# RADIATIVE SINK: a hot cell above RAD_FLOOR sheds RAD_RATE of its excess each step (Newtonian radiative loss
+# toward a floor). This is the sink dry convective plumes were missing — an unsustained hot void cell that
+# buoyancy piled heat into bleeds back down instead of running away to 3000-4000°C under a steep lapse. The
+# FLOOR sits at 950 = the lava MOLTEN_FLOOR: the magma/lava melt-chain lives at 950-1300°C and is re-pinned
+# each step by the lava/magma modules, so a lower floor (e.g. 120) bleeds the pinned chamber/conduit faster
+# than they re-pin and STOPS eruptions (verified: magma_cells/lava_cells → 0). Flooring at the sustained-lava
+# band leaves that chain untouched while still bounding any plume that climbs above it. A temperature floor
+# (not a lava mask) keeps this parity-safe — lava is only ~1e-3 parity CPU-vs-GPU, so a `lava==0` mask would
+# flip and break temp parity. CRITICAL: the BRANCHLESS max(0, t-floor) form (NOT a `t > floor` conditional) —
+# a threshold flips on float32/64 differences and BREAKS GPU parity.
+const RAD_FLOOR: float = 950.0            # °C below which a cell radiates nothing (== lava MOLTEN_FLOOR; magma-safe)
+const RAD_RATE: float = 0.30              # fraction of the above-floor excess a hot cell sheds each step
+# GLOBAL CLAMP: an idempotent safety net bounding any residual runaway just above magma temperature (nothing
+# physical exceeds the ~1300°C chamber). Idempotent → parity-safe; re-applying it changes nothing in range.
+const T_MIN: float = -80.0                # coldest temperature any cell may hold (°C)
+const T_MAX: float = 1400.0               # hottest temperature any cell may hold (°C; just above magma ~1300)
 # Warm maritime air: over an OCEAN column the sky cell relaxes toward this warm anchor (the tropical sea
 # heats the air above it) with only a gentle lapse, day and night, so the marine boundary layer the storm
 # systems sense stays warm. Mirrored EXACTLY in heat3d_solar.glsl.
@@ -82,10 +107,16 @@ func step(skip_conduction: bool = false) -> void:
 						sum += temp[i - layer]; n += 1
 					if iy < dy - 1:
 						sum += temp[i + layer]; n += 1
+					var out_t: float
 					if n == 0:
-						_scratch[i] = temp[i]
+						out_t = temp[i]
 					else:
-						_scratch[i] = temp[i] + CONDUCT_FRACTION * (sum / float(n) - temp[i])
+						out_t = temp[i] + CONDUCT_FRACTION * (sum / float(n) - temp[i])
+					# ENERGY-STABLE FOLD (branchless — mirror of heat3d.glsl): radiative sink above the floor,
+					# then the idempotent global clamp. Gives fire/lava plumes the missing heat sink so a steep
+					# lapse can't run them away, while normal climate (< RAD_FLOOR) is left untouched.
+					out_t = out_t - RAD_RATE * maxf(0.0, out_t - RAD_FLOOR)
+					_scratch[i] = clampf(out_t, T_MIN, T_MAX)
 		for ai in range(_f._cell_count):
 			temp[ai] = _scratch[ai]
 

@@ -31,7 +31,7 @@ layout(push_constant, std430) uniform Params {
 const float AMBIENT_NIGHT = 6.0;
 const float SOLAR_WARMTH = 18.0;
 const float AMBIENT_RELAX = 0.05;
-const float LAPSE = 0.06;
+const float LAPSE = 0.30;               // STEEPENED — emergent treeline + snow cap (safe under the radiative sink)
 const float MARINE_AMBIENT = 25.0;
 const float MARINE_LAPSE = 0.04;
 

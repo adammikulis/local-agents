@@ -23,8 +23,16 @@ layout(push_constant, std430) uniform Params {
 	uint cell_count;
 } params;
 
-// Constant — MUST match MaterialHeat3D.gd exactly.
+// Constants — MUST match MaterialHeat3D.gd exactly.
 const float CONDUCT_FRACTION = 0.14;
+// ENERGY-STABLE FOLD: a radiative sink above a floor + an idempotent global clamp, applied to the
+// post-conduction temperature of EVERY cell (mirror of MaterialHeat3D.gd PART 1). BRANCHLESS max(0, t-floor)
+// — a `t > floor` conditional would flip on float32/64 differences and break parity. Gives dry fire/lava
+// plumes the heat sink a steep lapse needs; sustained sources re-pin in the later passes.
+const float RAD_FLOOR = 950.0;
+const float RAD_RATE = 0.30;
+const float T_MIN = -80.0;
+const float T_MAX = 1400.0;
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;
@@ -51,9 +59,13 @@ void main() {
 	if (iy > 0u)         { sum += temp_in[idx - layer]; n += 1; }
 	if (iy < dim_y - 1u) { sum += temp_in[idx + layer]; n += 1; }
 
+	float out_t;
 	if (n == 0) {
-		temp_out[idx] = t0;
+		out_t = t0;
 	} else {
-		temp_out[idx] = t0 + CONDUCT_FRACTION * (sum / float(n) - t0);
+		out_t = t0 + CONDUCT_FRACTION * (sum / float(n) - t0);
 	}
+	// ENERGY-STABLE FOLD (branchless — mirror of MaterialHeat3D.gd): radiative sink then idempotent clamp.
+	out_t = out_t - RAD_RATE * max(0.0, out_t - RAD_FLOOR);
+	temp_out[idx] = clamp(out_t, T_MIN, T_MAX);
 }
