@@ -86,9 +86,29 @@ to visuals that seed a source and *read back* the feature the field produces.
   (`MaterialDust3D`); a propagating pressure wave carries an earthquake's shake and startle outward
   (`MaterialShock3D`, which replaced a point-based seismic ring). Each is a local rule over a channel,
   so each rides the wind, water, and heat that are already there.
+- **Temperature is conserved energy, so the treeline draws itself (`MaterialHeat3D`).** Heat is not a
+  free-floating number that can be manufactured: conduction/buoyancy move bounded energy, a radiative
+  sink bleeds hot dry plumes toward space, and a steep adiabatic lapse cools rising air — so summits get
+  genuinely cold, snow accretes, and the *germination gate* (a cell too cold or snow-covered can't sprout)
+  stops trees below the snow. Nobody paints a treeline altitude; it's wherever energy says it's too cold.
+- **Air is a real gas mix — fire has to breathe (`MaterialGas3D` + `MaterialCombustion3D`).** Oxygen (`_o2`)
+  is a transported channel: combustion CONSUMES it, so a fire in a sealed cave draws down its trapped O₂
+  and suffocates, while the same fire in open wind roars because the wind keeps replenishing it — no
+  "is-this-enclosed" special case, just a gas that flows. Burning emits CO₂ (`_co2`), a denser gas that
+  advects on the wind but SETTLES downward and pools in hollows (a suffocation cue creatures read), and
+  vents where it reaches open sky.
+- **Photosynthesis + decay close one carbon loop (`Plant.gd`, `MaterialFungus3D`).** In daylight a living
+  plant FIXES local CO₂ back into O₂ + growth, so a plant downwind of a fire scrubs the drifted CO₂ and
+  shoots up. When an animal dies its carcass (and burnt-out fuel → ash) sheds DETRITUS into the ground;
+  wherever detritus meets damp shade, **fungus** blooms, rots it — freeing CO₂ to the air, depositing soil
+  FERTILITY, and drawing down O₂ (aerobic decay) — and spreads by spores, dying back in drought/fire/frost.
+  The fertility it makes feeds the same plant-seeding that grazing waste feeds, so **rot becomes regrowth**:
+  animal → carcass → detritus → fungus → CO₂ + fertility → new plants → O₂ → animals. A closed
+  carbon/oxygen/nutrient cycle nobody scripted — every leg is a local rule over the one field.
 
-The test is the same as for creatures: canyons, dune fields, tornado-spawned fires, and manure-fed
-meadows are things we did not script — they *fall out* of local rules sharing one field.
+The test is the same as for creatures: canyons, dune fields, tornado-spawned fires, manure-fed meadows,
+snow-capped peaks that stop the forest, cave fires that smother themselves, and mushrooms fruiting on the
+dead to feed the living are things we did not script — they *fall out* of local rules sharing one field.
 
 ## How to add new behavior (the rule of thumb)
 

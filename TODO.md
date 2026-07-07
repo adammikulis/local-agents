@@ -127,10 +127,27 @@ visuals that track real field features. Always ask "can this roll into `Material
   `MaterialShock3D` (a propagating sound/shock pressure wave that **REPLACED the point-based seismic
   ring** in `EcologyService` — camera shake + `broadcast_seismic` now route through `emit_shock`/
   `shock_at`; `broadcast_scare` kept for acute startle).
+- **Energy-conserving heat + emergent treeline (DONE)** — `MaterialHeat3D` now treats temperature as
+  bounded conserved energy: conduction/buoyancy move energy, a RADIATIVE sink bleeds hot dry plumes, a
+  global clamp caps runaway, and a steep adiabatic LAPSE cools rising air. Summits get genuinely cold →
+  snow accretes → the germination gate (`EcologyService._can_grow_here`, reads temp/snow) stops trees
+  below the snow. The treeline DRAWS ITSELF; no scripted altitude. GPU parity `parity_gpu3d_energy.gd`.
+- **Biosphere carbon/oxygen/nutrient loop (DONE, #3a/#3b/#3c)** — a real gas mix + closed carbon cycle:
+  - **O₂ (`MaterialGas3D` + `MaterialCombustion3D`, #3a)** — oxygen is a transported channel combustion
+    CONSUMES: fire suffocates in a sealed cave (draws down trapped O₂) and roars in open wind (replenished).
+    fire3d.glsl binding 8 = `_o2`; GPU-resident `_buf_o2`.
+  - **CO₂ + photosynthesis (`MaterialGas3D`, `Plant.gd`, #3b)** — burning emits CO₂ (`_co2`), a denser gas
+    that advects but SETTLES into hollows + vents to open sky; plants in daylight FIX local CO₂ → O₂ +
+    growth (a plant downwind of a fire scrubs the drift). fire3d.glsl binding 9 = `_co2`; GPU `_buf_co2`.
+  - **Fungus decomposer (`MaterialFungus3D`, #3c)** — carcasses (`CreatureRagdoll`) + ash shed DETRITUS
+    into the ground; fungus blooms where detritus meets damp shade, rots it → CO₂ + soil FERTILITY + O₂
+    draw, spreads by spores, dies in drought/fire/frost. Fertility feeds plant-seeding, so **rot becomes
+    regrowth**: animal → detritus → fungus → CO₂ + fertility → plants → O₂ → animals. CPU oracle
+    authoritative (slow sparse process; `fungus3d.glsl` is a noted follow-on, not debt).
 
 ### Field step order (CPU oracle)
-`water → erosion → heat → wind → atmosphere → snowice → lava → magma → slump → dust → combustion →
-scent → charge → shock`.
+`water → erosion → heat → wind → atmosphere → snowice → lava → magma → slump → dust →
+gas (O₂/CO₂ transport) → combustion → scent → fungus → charge → shock`.
 
 ### Field-residency + tuning follow-ups (GPU-porting the new passes)
 - Still **CPU-oracle-first**: no new GLSL kernels for the emergent passes yet. GPU-PORT the wind/fire
