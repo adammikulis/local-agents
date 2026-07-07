@@ -236,6 +236,16 @@ func _sky_exchange() -> void:
 
 # --- Diagnostics (SMOKE_SUMMARY) -----------------------------------------------------------------------
 
+## GPU-RESIDENT path entry point: the O₂/CO₂ TRANSPORT now runs on-GPU (o2_transport3d/co2_transport3d +
+## gas_sky3d inside LAMaterialGPU3D.step()), so on that path we DON'T run step() — we only refresh the
+## min-open / average / peak diagnostics off the fresh readback arrays (_f._o2/_f._co2) for SMOKE_SUMMARY +
+## HUD. This is the ONLY CPU cost of the gas channel on the GPU path (a single cheap scan; no transport loop).
+func refresh_diagnostics_from_field() -> void:
+	if _f == null or _f._cell_count <= 0:
+		return
+	_refresh_diagnostics()
+
+
 func _refresh_diagnostics() -> void:
 	var o2: PackedFloat32Array = _f._o2
 	var co2: PackedFloat32Array = _f._co2

@@ -71,6 +71,9 @@ const CHARGE_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/
 const DUST_LOFT_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/dust_loft3d.glsl"
 const DUST_OUTSCALE_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/dust_outscale3d.glsl"
 const DUST_TRANSPORT_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/dust_transport3d.glsl"
+const O2_TRANSPORT_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/o2_transport3d.glsl"
+const CO2_TRANSPORT_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/co2_transport3d.glsl"
+const GAS_SKY_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/gas_sky3d.glsl"
 const LOCAL_SIZE_X: int = 64
 
 # Push-constant encoders (byte-packers matching each kernel's Params block) live in a sibling module so
@@ -127,6 +130,9 @@ var _charge_pipeline: RID = RID()          # emergent electrification: per-cell 
 var _dust_loft_pipeline: RID = RID()       # emergent dust: scour dry loose sediment into airborne dust
 var _dust_outscale_pipeline: RID = RID()   # emergent dust: per-cell out-flux CFL scale precompute
 var _dust_transport_pipeline: RID = RID()  # emergent dust: gather advect/diffuse/settle + deposit to sediment
+var _o2_transport_pipeline: RID = RID()    # emergent O₂: gather diffusion + wind advection (seals caves)
+var _co2_transport_pipeline: RID = RID()   # emergent CO₂: same + a downward settle share (pools in hollows)
+var _gas_sky_pipeline: RID = RID()         # emergent O₂/CO₂ sky exchange/vent at each column's surface cell
 var _shaders: Array[RID] = []              # every compiled shader RID (freed in dispose)
 var _pipeline_shader: Dictionary = {}      # pipeline RID -> its shader RID (for uniform_set_create)
 
@@ -153,8 +159,13 @@ var _buf_sediment_b: RID = RID()
 var _buf_fire_a: RID = RID()               # burning intensity (0..1), ping-pong pair (reads fire_in, writes fire_out)
 var _buf_fire_b: RID = RID()
 var _buf_fuel: RID = RID()                 # flammable fuel mass per cell — resident SINGLE buffer, read+write IN PLACE
-var _buf_o2: RID = RID()                    # atmospheric oxygen per cell — resident SINGLE buffer (fire consumes IN PLACE)
-var _buf_co2: RID = RID()                   # atmospheric CO₂ per cell — resident SINGLE buffer (fire EMITS IN PLACE)
+# O₂/CO₂ are PING-PONG PAIRS: the fire kernel consumes/emits them IN PLACE on the LIVE buffer, then the gas
+# transport gather (o2_transport3d/co2_transport3d) reads LIVE and writes BACK, ping-ponging in lockstep with
+# every other resident field (set_field uploads / end_frame downloads the live buffer).
+var _buf_o2_a: RID = RID()                  # atmospheric oxygen per cell — ping-pong pair (fire consumes, gas transports)
+var _buf_o2_b: RID = RID()
+var _buf_co2_a: RID = RID()                 # atmospheric CO₂ per cell — ping-pong pair (fire EMITS, gas transports)
+var _buf_co2_b: RID = RID()
 var _buf_charge: RID = RID()               # electrification charge per cell — resident SINGLE buffer (accumulate reads/writes IN PLACE)
 var _buf_dust_a: RID = RID()               # airborne dust density (sand storm), ping-pong pair
 var _buf_dust_b: RID = RID()
@@ -201,6 +212,11 @@ var _lava_phase_set: Array[RID] = [RID(), RID()]
 var _slump_flow_set: Array[RID] = [RID(), RID()]
 # Fire: in=fire live, out=fire back (+ fuel in-place, temp[back] in-place, water[back], solid, vel_x, vel_z).
 var _fire_set: Array[RID] = [RID(), RID()]
+# Gas transport (runs AFTER fire): o2/co2 gather in=live, out=back (+ solid + vel_x/y/z). Sky = per-column
+# in-place on the transport OUTPUT (back) o2/co2 + solid.
+var _o2_transport_set: Array[RID] = [RID(), RID()]
+var _co2_transport_set: Array[RID] = [RID(), RID()]
+var _gas_sky_set: Array[RID] = [RID(), RID()]
 # Wind PASS A (pressure): in=temp[back post-heat], solid; out=pressure. PASS B (velocity): in=pressure, temp[back],
 # solid; in-place on vel_x/vel_y/vel_z. Both read temp[back] so the sets are per-parity (temp buffer differs).
 var _wind_pressure_set: Array[RID] = [RID(), RID()]
@@ -266,6 +282,9 @@ func _init_rd() -> void:
 	_dust_loft_pipeline = _pipeline(DUST_LOFT_SHADER_PATH)
 	_dust_outscale_pipeline = _pipeline(DUST_OUTSCALE_SHADER_PATH)
 	_dust_transport_pipeline = _pipeline(DUST_TRANSPORT_SHADER_PATH)
+	_o2_transport_pipeline = _pipeline(O2_TRANSPORT_SHADER_PATH)
+	_co2_transport_pipeline = _pipeline(CO2_TRANSPORT_SHADER_PATH)
+	_gas_sky_pipeline = _pipeline(GAS_SKY_SHADER_PATH)
 
 
 func _pipeline(path: String) -> RID:
@@ -341,8 +360,10 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 	_buf_fire_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_fire_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_fuel = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_o2 = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_co2 = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	_buf_o2_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	_buf_o2_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	_buf_co2_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	_buf_co2_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_charge = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_dust_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_dust_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
@@ -371,6 +392,8 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 		"sediment": [_buf_sediment_a, _buf_sediment_b],
 		"fire": [_buf_fire_a, _buf_fire_b],
 		"dust": [_buf_dust_a, _buf_dust_b],
+		"o2": [_buf_o2_a, _buf_o2_b],
+		"co2": [_buf_co2_a, _buf_co2_b],
 	}
 
 	# Build the per-parity uniform sets. p=0: live=*_a, back=*_b. p=1: live=*_b, back=*_a.
@@ -391,6 +414,10 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 		var sediment_back: RID = back_buffer("sediment", p)
 		var fire_live: RID = live_buffer("fire", p)
 		var fire_back: RID = back_buffer("fire", p)
+		var o2_live: RID = live_buffer("o2", p)
+		var o2_back: RID = back_buffer("o2", p)
+		var co2_live: RID = live_buffer("co2", p)
+		var co2_back: RID = back_buffer("co2", p)
 
 		# Conduction: heat3d.glsl bindings 0 = in (live), 1 = out (back).
 		_heat_set[p] = _rd.uniform_set_create(
@@ -471,7 +498,22 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 			_make_uniform(2, _buf_fuel), _make_uniform(3, temp_back),
 			_make_uniform(4, water_back), _make_uniform(5, _buf_solid),
 			_make_uniform(6, _buf_vel_x), _make_uniform(7, _buf_vel_z),
-			_make_uniform(8, _buf_o2), _make_uniform(9, _buf_co2)], _shader_of(_fire_pipeline), 0)
+			_make_uniform(8, o2_live), _make_uniform(9, co2_live)], _shader_of(_fire_pipeline), 0)
+
+		# --- Gas transport (emergent O₂/CO₂) — runs AFTER fire. o2_transport3d/co2_transport3d gather
+		# 0=in(live, post-fire), 1=out(back), 2=solid, 3=vel_x, 4=vel_y, 5=vel_z. gas_sky3d then relaxes each
+		# column's surface cell IN PLACE on the transport OUTPUT (back) o2/co2: 0=o2(back), 1=co2(back), 2=solid.
+		_o2_transport_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, o2_live), _make_uniform(1, o2_back),
+			_make_uniform(2, _buf_solid), _make_uniform(3, _buf_vel_x),
+			_make_uniform(4, _buf_vel_y), _make_uniform(5, _buf_vel_z)], _shader_of(_o2_transport_pipeline), 0)
+		_co2_transport_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, co2_live), _make_uniform(1, co2_back),
+			_make_uniform(2, _buf_solid), _make_uniform(3, _buf_vel_x),
+			_make_uniform(4, _buf_vel_y), _make_uniform(5, _buf_vel_z)], _shader_of(_co2_transport_pipeline), 0)
+		_gas_sky_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, o2_back), _make_uniform(1, co2_back),
+			_make_uniform(2, _buf_solid)], _shader_of(_gas_sky_pipeline), 0)
 
 		# --- Wind (emergent pressure-driven 3D velocity) — PASS A pressure: wind_pressure3d.glsl
 		# 0=temp(back post-heat), 1=solid, 2=pressure(out). PASS B velocity: wind_step3d.glsl 0=pressure,
@@ -525,7 +567,7 @@ func _free_buffers() -> void:
 			_evap_set, _transport_vapor_set, _transport_cloud_set, _transport_fog_set,
 			_condense_set, _rain_set, _lava_flow_set, _lava_phase_set, _slump_flow_set, _fire_set,
 			_wind_pressure_set, _wind_step_set, _charge_set, _dust_loft_set, _dust_outscale_set,
-			_dust_transport_set]:
+			_dust_transport_set, _o2_transport_set, _co2_transport_set, _gas_sky_set]:
 		for s in arr:
 			if s.is_valid():
 				_rd.free_rid(s)
@@ -550,11 +592,14 @@ func _free_buffers() -> void:
 	_dust_loft_set = [RID(), RID()]
 	_dust_outscale_set = [RID(), RID()]
 	_dust_transport_set = [RID(), RID()]
+	_o2_transport_set = [RID(), RID()]
+	_co2_transport_set = [RID(), RID()]
+	_gas_sky_set = [RID(), RID()]
 	for buf in [_buf_temp_a, _buf_temp_b, _buf_water_a, _buf_water_b,
 			_buf_vapor_a, _buf_vapor_b, _buf_cloud_a, _buf_cloud_b,
 			_buf_fog_a, _buf_fog_b, _buf_lava_a, _buf_lava_b,
 			_buf_vel_x, _buf_vel_y, _buf_vel_z, _buf_pressure, _buf_sediment_a, _buf_sediment_b,
-			_buf_fire_a, _buf_fire_b, _buf_fuel, _buf_o2, _buf_co2,
+			_buf_fire_a, _buf_fire_b, _buf_fuel, _buf_o2_a, _buf_o2_b, _buf_co2_a, _buf_co2_b,
 			_buf_charge, _buf_dust_a, _buf_dust_b, _buf_dust_outscale,
 			_buf_solid, _buf_static, _buf_send, _buf_rain, _buf_boil]:
 		if buf.is_valid():
@@ -566,7 +611,8 @@ func _free_buffers() -> void:
 	_buf_fog_a = RID(); _buf_fog_b = RID()
 	_buf_lava_a = RID(); _buf_lava_b = RID()
 	_buf_sediment_a = RID(); _buf_sediment_b = RID()
-	_buf_fire_a = RID(); _buf_fire_b = RID(); _buf_fuel = RID(); _buf_o2 = RID(); _buf_co2 = RID()
+	_buf_fire_a = RID(); _buf_fire_b = RID(); _buf_fuel = RID()
+	_buf_o2_a = RID(); _buf_o2_b = RID(); _buf_co2_a = RID(); _buf_co2_b = RID()
 	_buf_charge = RID(); _buf_dust_a = RID(); _buf_dust_b = RID(); _buf_dust_outscale = RID()
 	_buf_solid = RID(); _buf_static = RID(); _buf_send = RID(); _buf_rain = RID(); _buf_boil = RID()
 	_buf_vel_x = RID(); _buf_vel_y = RID(); _buf_vel_z = RID(); _buf_pressure = RID()
@@ -584,7 +630,8 @@ func dispose() -> void:
 			_evap_pipeline, _transport_pipeline, _condense_pipeline, _rain_pipeline,
 			_lava_flow_pipeline, _lava_phase_pipeline, _slump_flow_pipeline, _fire_pipeline,
 			_wind_pressure_pipeline, _wind_step_pipeline, _charge_pipeline, _dust_loft_pipeline,
-			_dust_outscale_pipeline, _dust_transport_pipeline]:
+			_dust_outscale_pipeline, _dust_transport_pipeline,
+				_o2_transport_pipeline, _co2_transport_pipeline, _gas_sky_pipeline]:
 		if pipe.is_valid():
 			_rd.free_rid(pipe)
 	for s in _shaders:
@@ -600,6 +647,7 @@ func dispose() -> void:
 	_wind_pressure_pipeline = RID(); _wind_step_pipeline = RID()
 	_charge_pipeline = RID(); _dust_loft_pipeline = RID()
 	_dust_outscale_pipeline = RID(); _dust_transport_pipeline = RID()
+	_o2_transport_pipeline = RID(); _co2_transport_pipeline = RID(); _gas_sky_pipeline = RID()
 	_rd.free()
 	_rd = null
 
@@ -694,12 +742,6 @@ func set_field(name: String, arr: PackedFloat32Array) -> void:
 		return
 	if name == "fuel":
 		upload(_buf_fuel, arr)             # single resident buffer (read+write in place; not ping-pong)
-		return
-	if name == "o2":
-		upload(_buf_o2, arr)               # single resident buffer (fire consumes O₂ in place)
-		return
-	if name == "co2":
-		upload(_buf_co2, arr)              # single resident buffer (fire EMITS CO₂ in place)
 		return
 	if name == "charge":
 		upload(_buf_charge, arr)           # single resident buffer (accumulate reads/writes in place)
@@ -894,6 +936,26 @@ func step() -> void:
 	_rd.compute_list_bind_uniform_set(cl, _charge_set[_parity], 0)
 	_rd.compute_list_set_push_constant(cl, Push.charge_pc(self), 32)
 	_rd.compute_list_dispatch(cl, groups, 1, 1)
+
+	# --- GAS TRANSPORT: emergent O₂ + CO₂ diffuse/advect on the fresh per-cell wind, then a per-column SKY
+	# exchange/vent. Runs AFTER fire consumed O₂ / emitted CO₂ IN PLACE on the live buffers (the fire barrier
+	# above made those writes visible; charge touches only _buf_charge, disjoint). o2/co2 transport are a
+	# GATHER (in=live, out=back) — independent, disjoint buffers, so no barrier BETWEEN them — then gas_sky3d
+	# relaxes each surface cell IN PLACE on the transport output (back). Ping-pongs in lockstep; after the flip
+	# the back buffer becomes live (what end_frame reads + fire consumes next step). SEALS caves emergently. ---
+	_rd.compute_list_bind_compute_pipeline(cl, _o2_transport_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _o2_transport_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, Push.dims_pc(self), 16)
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
+	_rd.compute_list_bind_compute_pipeline(cl, _co2_transport_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _co2_transport_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, Push.dims_pc(self), 16)
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
+	_rd.compute_list_add_barrier(cl)          # post-transport o2/co2 visible to the per-column sky exchange/vent
+	_rd.compute_list_bind_compute_pipeline(cl, _gas_sky_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _gas_sky_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, Push.dims_pc(self), 16)
+	_rd.compute_list_dispatch(cl, col_groups, 1, 1)
 	# ===============================================================================================
 
 	_rd.compute_list_end()
@@ -926,8 +988,9 @@ func end_frame(read_vapor: bool = true, read_cloud: bool = true, read_fog: bool 
 		"sediment": download(live_buffer("sediment", _parity)),
 		"fire": download(live_buffer("fire", _parity)),
 		"fuel": download(_buf_fuel),
-		"o2": download(_buf_o2),
-		"co2": download(_buf_co2),
+		# O₂/CO₂ ping-pong: their LIVE buffer holds the post-transport (diffuse/advect/sky) state this frame.
+		"o2": download(live_buffer("o2", _parity)),
+		"co2": download(live_buffer("co2", _parity)),
 		# Emergent electrification + airborne dust — GPU-computed. charge is a single in-place buffer; dust
 		# ping-pongs so its live buffer holds the post-transport airborne density.
 		"charge": download(_buf_charge),

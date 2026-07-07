@@ -690,10 +690,14 @@ func _physics_process(delta: float) -> void:
 		if _combustion != null:
 			_combustion.step_scene_only()
 			_prof_mark("fire_tail", _prof_on)
-		# Emergent oxygen: the fire kernel CONSUMED O₂ on-GPU (read back above); here the CPU gas tail runs the
-		# CONTINUOUS transport (diffuse + advect on the fresh wind + sky replenishment) on the drawn-down field.
-		if _gas_sim != null:
-			_gas_sim.step()
+		# Emergent oxygen/CO₂: the fire kernel consumed O₂ / emitted CO₂ on-GPU AND the CONTINUOUS transport
+		# (diffuse + advect on the fresh wind + sky exchange/vent) now runs on-GPU too (o2_transport3d /
+		# co2_transport3d / gas_sky3d inside _gpu.step()) — the drawn-down + transported fields came back in the
+		# readback above. So here the gas channel runs ONLY the diagnostics scan (SMOKE_SUMMARY/HUD), and even
+		# that is STAGGERED on the 4-cycle — o2/co2 min/avg/peak change slowly, so the cached values (≤3 frames
+		# fresh) are plenty for a HUD/smoke readout and the full-grid scan no longer costs every frame.
+		if _gas_sim != null and _slow_tick == 0:
+			_gas_sim.refresh_diagnostics_from_field()
 			_prof_mark("gas", _prof_on)
 		# Scent/waste stigmergy advects on the fresh wind; shock radiates the latest stimuli. Charge's ACCUMULATE
 		# ran on-GPU (charge_accum3d) and _charge came back above — so charge runs ONLY its CPU tail here (the
