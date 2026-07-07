@@ -16,6 +16,9 @@ const PREDATOR_SIZE_RATIO: float = 1.2     # flee anything this many times my si
 # Flyers turn GRADUALLY (max radians/sec) so flocks wheel and vultures circle wide instead of
 # snapping direction every frame — the fix for frantic, too-fast circling.
 const BIRD_TURN_RATE: float = 1.5
+const GROUND_TURN_RATE: float = 6.0        # ground creatures turn briskly-but-smoothly toward their decided
+                                           # heading each frame, so throttled decisions don't read as jerky pops
+const THINK_STRIDE: int = 3                 # decide every N physics frames (movement stays every-frame)
 
 const ThrownRockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/ThrownRock.gd")
 
@@ -119,6 +122,7 @@ var _carrion: float = 0.0                     # remaining meat value once a carc
 var _rot_overlay: StandardMaterial3D = null   # shared green->black decay tint on the model
 
 var _heading: Vector3 = Vector3.FORWARD
+var _target_heading: Vector3 = Vector3.FORWARD   # decided heading; _heading eases toward it each frame
 var _wander_timer: float = 0.0
 var _repath_timer: float = 0.0
 var _mesh: MeshInstance3D = null
@@ -135,6 +139,11 @@ var _vis_t: float = 0.0
 # --- terror / fear system: sprint away from felt/heard violence, overriding all else ---
 var _panic_timer: float = 0.0
 var _panic_source: Vector3 = Vector3.ZERO
+
+# --- decision throttling: think every THINK_STRIDE frames (instance-staggered), move every frame ---
+var _eff_speed: float = 0.0                 # decided speed, carried between think-frames
+var _think_phase: int = -1                  # per-instance stagger offset (lazily set on first tick)
+var _force_think: bool = false              # acute event (scare/damage) → re-decide next frame
 
 # Injected ecology service — broadcast calls, spawns.
 var _ecology = null
@@ -180,6 +189,7 @@ func add_fear(source_pos: Vector3, intensity: float) -> void:
 		return
 	_panic_source = source_pos
 	_panic_timer = maxf(_panic_timer, clampf(intensity, 0.6, 7.0))
+	_force_think = true                       # acute terror: bolt NEXT frame, don't wait for the stride
 
 
 # --- the player's hand: pick up, carry, drop, or throw a creature ---
@@ -247,6 +257,7 @@ func on_struck() -> void:
 func take_damage(amount: float, cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
 	if _dying or amount <= 0.0:
 		return
+	_force_think = true                       # being hurt forces an immediate re-decision (flee/react)
 	health -= amount
 	# A wound bleeds: a burst of BLOOD scent into the field draws opportunists to hurt prey (emergent).
 	if _material != null and _material.has_method("deposit_blood"):
@@ -410,6 +421,8 @@ func _physics_process(delta: float) -> void:
 		LACreatureRagdoll.decay_tick(self, delta)
 		return
 	age += delta
+	if _think_phase < 0:
+		_think_phase = int(get_instance_id()) % THINK_STRIDE   # stagger think-frames across the population
 	_throw_cd -= delta
 	# Night perception: nocturnal species gain range after dark, diurnal ones lose it.
 	_sense_mult = 1.0
@@ -480,102 +493,116 @@ func _physics_process(delta: float) -> void:
 		_urine_cd = randf_range(10.0, 22.0)
 		_deposit_waste(Vector3(pos.x, surf, pos.z), "urine")
 
-	var desired: Vector3 = _heading
-	_wander_timer -= delta
-	_repath_timer -= delta
-	_panic_timer -= delta
-	_call_cd -= delta
-	_cue_cd -= delta
-	# A cue I chased that led to no food weakens that association (so only reliable signs stick).
-	if _pursued_cd > 0.0:
-		_pursued_cd -= delta
-		if _pursued_cd <= 0.0 and _pursued_cue != "":
-			if _cognition != null:
-				_cognition.reinforce_cue(_pursued_cue, -0.3)
-			_pursued_cue = ""
-	# Flyers default to cruise altitude each frame; foraging/circling/roosting lowers it.
-	_target_altitude = cruise_height
-	# Social learning: copy confident habits from visible same-species kin/herd-mates (throttled).
-	if _cognition != null:
-		_cognition.observe(self, delta)
+	# DECISION THROTTLE: run the full cognition cascade only every THINK_STRIDE frames (instance-
+	# staggered so the population spreads its think-frames), or immediately on an acute event
+	# (_force_think, set by scare/damage). Between think-frames the creature keeps gliding along its
+	# last _heading at _eff_speed — movement + metabolism below stay every-frame for smoothness.
+	var do_think: bool = _force_think or ((int(Engine.get_physics_frames()) + _think_phase) % THINK_STRIDE == 0)
+	if do_think:
+		var desired: Vector3 = _heading
+		_wander_timer -= delta
+		_repath_timer -= delta
+		_panic_timer -= delta
+		_call_cd -= delta
+		_cue_cd -= delta
+		# A cue I chased that led to no food weakens that association (so only reliable signs stick).
+		if _pursued_cd > 0.0:
+			_pursued_cd -= delta
+			if _pursued_cd <= 0.0 and _pursued_cue != "":
+				if _cognition != null:
+					_cognition.reinforce_cue(_pursued_cue, -0.3)
+				_pursued_cue = ""
+		# Flyers default to cruise altitude each frame; foraging/circling/roosting lowers it.
+		_target_altitude = cruise_height
+		# Social learning: copy confident habits from visible same-species kin/herd-mates (throttled).
+		if _cognition != null:
+			_cognition.observe(self, delta)
 
-	var eff_speed: float = speed
-	if _panic_timer > 0.0:
-		# TERROR: sprint straight away from what was heard/felt. Overrides everything.
-		state = "panic"
-		var away: Vector3 = pos - _panic_source
-		away.y = 0.0
-		if away.length() > 0.001:
-			desired = away.normalized()
-		eff_speed = speed * 2.1
-		_emit_call("alarm")                          # screech so unseeing herd-mates also bolt
-	else:
-		# Universal, emergent: flee any nearby larger hunter first (no hardcoded pairs).
-		var big_pred: Node3D = LACreatureSenses.nearest_larger_predator(self, pos)
-		if big_pred != null:
-			state = "flee"
-			var away: Vector3 = pos - big_pred.global_position
+		var eff_speed: float = speed
+		if _panic_timer > 0.0:
+			# TERROR: sprint straight away from what was heard/felt. Overrides everything.
+			state = "panic"
+			var away: Vector3 = pos - _panic_source
 			away.y = 0.0
 			if away.length() > 0.001:
 				desired = away.normalized()
-			eff_speed = speed * 1.7
-			_emit_call("alarm")                      # sentinel call flushes the whole warren
+			eff_speed = speed * 2.1
+			_emit_call("alarm")                          # screech so unseeing herd-mates also bolt
 		else:
-			# Thirst competes with hunger: once parched, seeking/drinking water interrupts
-			# normal behavior (but never overrides fleeing a predator, handled above).
-			var thirst_action: String = LACreatureThirst.handle_thirst(self, pos, delta)
-			if thirst_action == "drink":
-				eff_speed = 0.0                      # stand at the water's edge and drink
-				state = "drink"
-			elif thirst_action == "seek":
-				desired = _water_dir_cache
-				state = "seek"
-			elif diet == "scavenger":
-				desired = LACreatureThink.think_scavenger(self, pos, delta)   # vultures: soar, follow carrion, circle, feed
-			elif can_fly:
-				desired = LACreatureThink.think_bird(self, pos, delta)         # sets its own state; may land to feed/drink
-			elif diet == "carnivore" or (diet == "omnivore" and preys_on.size() > 0):
-				desired = LACreatureThink.think_predator(self, pos, desired)
+			# Universal, emergent: flee any nearby larger hunter first (no hardcoded pairs).
+			var big_pred: Node3D = LACreatureSenses.nearest_larger_predator(self, pos)
+			if big_pred != null:
+				state = "flee"
+				var away: Vector3 = pos - big_pred.global_position
+				away.y = 0.0
+				if away.length() > 0.001:
+					desired = away.normalized()
+				eff_speed = speed * 1.7
+				_emit_call("alarm")                      # sentinel call flushes the whole warren
 			else:
-				desired = LACreatureThink.think_prey(self, pos, desired)
+				# Thirst competes with hunger: once parched, seeking/drinking water interrupts
+				# normal behavior (but never overrides fleeing a predator, handled above).
+				var thirst_action: String = LACreatureThirst.handle_thirst(self, pos, delta)
+				if thirst_action == "drink":
+					eff_speed = 0.0                      # stand at the water's edge and drink
+					state = "drink"
+				elif thirst_action == "seek":
+					desired = _water_dir_cache
+					state = "seek"
+				elif diet == "scavenger":
+					desired = LACreatureThink.think_scavenger(self, pos, delta)   # vultures: soar, follow carrion, circle, feed
+				elif can_fly:
+					desired = LACreatureThink.think_bird(self, pos, delta)         # sets its own state; may land to feed/drink
+				elif diet == "carnivore" or (diet == "omnivore" and preys_on.size() > 0):
+					desired = LACreatureThink.think_predator(self, pos, desired)
+				else:
+					desired = LACreatureThink.think_prey(self, pos, desired)
 
-		# Nesting/roosting drive (ANY nesting species, config-driven): head home to roost at night
-		# or to breed, establishing the site the first time. Offspring inherit it (philopatry).
-		if nests and LACreatureNesting.should_seek_nest(self):
-			desired = _handle_nesting(pos, desired)
-			if state == "sleep":
-				eff_speed = speed * 0.05          # barely stir while sleeping at the nest
+			# Nesting/roosting drive (ANY nesting species, config-driven): head home to roost at night
+			# or to breed, establishing the site the first time. Offspring inherit it (philopatry).
+			if nests and LACreatureNesting.should_seek_nest(self):
+				desired = _handle_nesting(pos, desired)
+				if state == "sleep":
+					eff_speed = speed * 0.05          # barely stir while sleeping at the nest
 
-		# COGNITION (fast/slow): the cascade above is the innate default policy. In a discretionary
-		# situation (no predator forcing a flee) let THIS individual's learned/observed/slow-brain
-		# policy substitute a better action. An empty policy changes nothing — so day-0 behaviour is
-		# identical to before (regression-safe); learning only ever adds overrides.
-		if big_pred == null and _cognition != null and state != "roost" and state != "nesting":
-			var sig: Dictionary = LASituationSignature.compute(self)
-			var innate_action: String = LACreatureThink.state_to_action(self, state)
-			var chosen: String = _cognition.decide(self, innate_action, sig, delta)
-			if chosen != innate_action:
-				var mv: Dictionary = LACreatureThink.execute_action(self, chosen, pos, delta)
-				if mv.has("heading"):
-					desired = mv["heading"]
-				state = String(mv.get("state", state))
-				eff_speed = float(mv.get("speed", eff_speed))
+			# COGNITION (fast/slow): the cascade above is the innate default policy. In a discretionary
+			# situation (no predator forcing a flee) let THIS individual's learned/observed/slow-brain
+			# policy substitute a better action. An empty policy changes nothing — so day-0 behaviour is
+			# identical to before (regression-safe); learning only ever adds overrides.
+			if big_pred == null and _cognition != null and state != "roost" and state != "nesting":
+				var sig: Dictionary = LASituationSignature.compute(self)
+				var innate_action: String = LACreatureThink.state_to_action(self, state)
+				var chosen: String = _cognition.decide(self, innate_action, sig, delta)
+				if chosen != innate_action:
+					var mv: Dictionary = LACreatureThink.execute_action(self, chosen, pos, delta)
+					if mv.has("heading"):
+						desired = mv["heading"]
+					state = String(mv.get("state", state))
+					eff_speed = float(mv.get("speed", eff_speed))
 
-		if big_pred == null and _wander_timer <= 0.0:
-			_wander_timer = randf_range(1.2, 3.0)
-			var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0) * 0.6
-			desired = (desired + jitter)
+			if big_pred == null and _wander_timer <= 0.0:
+				_wander_timer = randf_range(1.2, 3.0)
+				var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0) * 0.6
+				desired = (desired + jitter)
 
-	desired.y = 0.0
-	if desired.length() > 0.001:
-		var want: Vector3 = desired.normalized()
-		if can_fly:
-			# Rotate the heading toward the target by a capped angle so flight banks smoothly.
-			_heading = _turn_toward(_heading, want, BIRD_TURN_RATE * delta)
-		else:
-			_heading = want
+		desired.y = 0.0
+		if desired.length() > 0.001:
+			# Record the decided direction as a TARGET; the movement block turns _heading toward it
+			# smoothly every frame (see below). On an acute flee (_force_think) snap instantly so a
+			# startled animal bolts NOW rather than banking into the turn.
+			_target_heading = desired.normalized()
+			if _force_think:
+				_heading = _target_heading
+		_eff_speed = eff_speed          # carry this decision to the movement of the next few frames
+		_force_think = false
 
-	var step: Vector3 = _heading * eff_speed * delta
+	# MOVEMENT — every frame. The DECIDED heading is a TARGET the creature turns toward smoothly each
+	# frame (not snapped), so throttled decisions (every THINK_STRIDE frames) still read as fluid motion
+	# instead of 20Hz direction pops. Acute flees snap instantly (see the think block).
+	if _target_heading.length() > 0.01:
+		var turn_rate: float = BIRD_TURN_RATE if can_fly else GROUND_TURN_RATE
+		_heading = _turn_toward(_heading, _target_heading, turn_rate * delta)
+	var step: Vector3 = _heading * _eff_speed * delta
 	var new_x: float = pos.x + step.x
 	var new_z: float = pos.z + step.z
 

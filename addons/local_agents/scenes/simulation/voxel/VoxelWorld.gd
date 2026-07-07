@@ -36,6 +36,7 @@ var _debug_panel: CanvasLayer   # LADebugPanel (left-docked debug menu)
 var _debug_overlay: Node3D      # LADebugOverlay (world-space highlight/path/wind gizmos)
 var _sky: Node = null           # LAVoxelSkyCycle — owns ALL sky/sun/moon/environment + day/night clock
 var _streamer_host: Node = null # LAVoxelStreamerHost — owns the streamer overlay/avatar/voice/director
+var _streamer_enabled: bool = true        # --no-streamer (or env LA_NO_STREAMER) skips the local-LLM overlay
 var _streamer_persona: String = "hype"   # cmdline seed for the streamer; override with --streamer-persona=<id>
 var _streamer_avatar_flavor: String = "male"   # cmdline seed: "male" | "female"; override with --streamer-avatar=
 var _actors_root: Node3D
@@ -274,10 +275,13 @@ func _ready() -> void:
 		_debug_overlay.set_wind(true)
 
 	# --- Streamer / commentator (lower-right face-cam driven by the local LLM) ---
-	_streamer_host = StreamerHostScript.new()
-	_streamer_host.name = "StreamerHost"
-	add_child(_streamer_host)
-	_streamer_host.setup(self, _ecology, _material, _streamer_persona, _streamer_avatar_flavor)
+	# Skipped with --no-streamer (or env LA_NO_STREAMER) so a run doesn't spin up the local LLM /
+	# TTS — faster startup + lighter frame for perf testing and headless/CI.
+	if _streamer_enabled and not OS.has_environment("LA_NO_STREAMER"):
+		_streamer_host = StreamerHostScript.new()
+		_streamer_host.name = "StreamerHost"
+		add_child(_streamer_host)
+		_streamer_host.setup(self, _ecology, _material, _streamer_persona, _streamer_avatar_flavor)
 
 	# --- Interaction / spawn brush / disasters controllers ---
 	# The root stays a thin composition + harness root; these own input, placement, and disaster casts.
@@ -386,6 +390,8 @@ func _parse_cmdline() -> void:
 			_auto_meteor = true
 		elif arg == "--auto-volcano":
 			_auto_volcano = true
+		elif arg == "--no-streamer":
+			_streamer_enabled = false
 		elif arg.begins_with("--streamer-persona="):
 			_streamer_persona = arg.substr("--streamer-persona=".length())
 		elif arg.begins_with("--streamer-avatar="):

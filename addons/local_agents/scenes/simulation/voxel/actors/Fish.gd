@@ -21,6 +21,7 @@ const SCHOOL_WEIGHT: float = 0.8
 const BASK_DURATION: float = 6.0      # seconds a basking species rests hauled out on the beach
 const BASK_COOLDOWN: float = 14.0     # min seconds between bask outings
 const BASK_CHANCE: float = 0.05       # per-eligible-frame chance to haul out when at the water's edge
+const THINK_STRIDE: int = 3            # recompute the swim intention (wander + schooling) every N frames
 
 var terrain = null                    # LAVoxelTerrainService (surface_height)
 var material = null                      # LAMaterialField (is_water_at / surface_y_at / salinity_at)
@@ -59,6 +60,7 @@ var _dying: bool = false
 
 var _heading: Vector3 = Vector3.FORWARD
 var _wander_timer: float = 0.0
+var _think_phase: int = -1             # per-instance stagger for the throttled swim-intention update
 var _mesh: MeshInstance3D = null
 var _model_root: Node3D = null
 
@@ -339,6 +341,8 @@ func _physics_process(delta: float) -> void:
 	if _dying:
 		return
 	age += delta
+	if _think_phase < 0:
+		_think_phase = int(get_instance_id()) % THINK_STRIDE   # stagger think-frames across the school
 	if age >= max_age:
 		die("old age")
 		return
@@ -353,14 +357,19 @@ func _physics_process(delta: float) -> void:
 		return
 
 	var pos: Vector3 = global_position
-	_wander_timer -= delta
 
+	# DECISION THROTTLE: recompute the swim intention (wander jitter + the O(n) schooling steer) only
+	# every THINK_STRIDE frames, instance-staggered. Between updates the fish keeps its last _heading —
+	# the habitability correction + movement below still run EVERY frame, so it never glides onto land.
 	var desired: Vector3 = _heading
-	if _wander_timer <= 0.0:
-		_wander_timer = randf_range(1.0, 2.5)
-		var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0) * 0.7
-		desired = _heading + jitter
-	desired += _school_steer(pos)
+	var do_think: bool = (int(Engine.get_physics_frames()) + _think_phase) % THINK_STRIDE == 0
+	if do_think:
+		_wander_timer -= delta
+		if _wander_timer <= 0.0:
+			_wander_timer = randf_range(1.0, 2.5)
+			var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0) * 0.7
+			desired = _heading + jitter
+		desired += _school_steer(pos)
 	desired.y = 0.0
 
 	# Test the step: if it would leave habitable water (dry, OR water outside this species' salinity /
