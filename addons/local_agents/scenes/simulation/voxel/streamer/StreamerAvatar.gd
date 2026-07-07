@@ -25,6 +25,8 @@ var _anim: AnimationPlayer = null
 var _idle_clip: String = ""
 var _flavor: String = ""
 
+const AVATAR_RENDER_EVERY: int = 3     # re-render the face-cam every N frames (portrait ~20fps, not 60)
+var _render_ctr: int = 0
 var _talking: bool = false
 var _t: float = 0.0
 var _base_pos: Vector3 = Vector3.ZERO
@@ -50,7 +52,9 @@ func setup(flavor: String = "male") -> void:
 	_sv.transparent_bg = true
 	_sv.own_world_3d = true
 	_sv.msaa_3d = Viewport.MSAA_4X
-	_sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	# Render the face-cam every AVATAR_RENDER_EVERY frames (a portrait doesn't need a full own-World3D
+	# scene re-rendered at 60fps) — re-armed to UPDATE_ONCE in _process.
+	_sv.render_target_update_mode = SubViewport.UPDATE_ONCE
 
 	var cam: Camera3D = Camera3D.new()
 	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
@@ -270,6 +274,10 @@ func set_talking(on: bool) -> void:
 func _process(delta: float) -> void:
 	if _model == null:
 		return
+	# Re-arm the face-cam render on a cadence (portrait ~20fps at 60fps game) instead of every frame.
+	_render_ctr += 1
+	if _sv != null and _render_ctr % AVATAR_RENDER_EVERY == 0:
+		_sv.render_target_update_mode = SubViewport.UPDATE_ONCE
 	_t += delta
 
 	var talk_target: float = 1.0 if _talking else 0.0
