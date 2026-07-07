@@ -153,6 +153,7 @@ var _buf_sediment_b: RID = RID()
 var _buf_fire_a: RID = RID()               # burning intensity (0..1), ping-pong pair (reads fire_in, writes fire_out)
 var _buf_fire_b: RID = RID()
 var _buf_fuel: RID = RID()                 # flammable fuel mass per cell — resident SINGLE buffer, read+write IN PLACE
+var _buf_o2: RID = RID()                    # atmospheric oxygen per cell — resident SINGLE buffer (fire consumes IN PLACE)
 var _buf_charge: RID = RID()               # electrification charge per cell — resident SINGLE buffer (accumulate reads/writes IN PLACE)
 var _buf_dust_a: RID = RID()               # airborne dust density (sand storm), ping-pong pair
 var _buf_dust_b: RID = RID()
@@ -339,6 +340,7 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 	_buf_fire_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_fire_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_fuel = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	_buf_o2 = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_charge = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_dust_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_dust_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
@@ -466,7 +468,8 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 			_make_uniform(0, fire_live), _make_uniform(1, fire_back),
 			_make_uniform(2, _buf_fuel), _make_uniform(3, temp_back),
 			_make_uniform(4, water_back), _make_uniform(5, _buf_solid),
-			_make_uniform(6, _buf_vel_x), _make_uniform(7, _buf_vel_z)], _shader_of(_fire_pipeline), 0)
+			_make_uniform(6, _buf_vel_x), _make_uniform(7, _buf_vel_z),
+			_make_uniform(8, _buf_o2)], _shader_of(_fire_pipeline), 0)
 
 		# --- Wind (emergent pressure-driven 3D velocity) — PASS A pressure: wind_pressure3d.glsl
 		# 0=temp(back post-heat), 1=solid, 2=pressure(out). PASS B velocity: wind_step3d.glsl 0=pressure,
@@ -549,7 +552,7 @@ func _free_buffers() -> void:
 			_buf_vapor_a, _buf_vapor_b, _buf_cloud_a, _buf_cloud_b,
 			_buf_fog_a, _buf_fog_b, _buf_lava_a, _buf_lava_b,
 			_buf_vel_x, _buf_vel_y, _buf_vel_z, _buf_pressure, _buf_sediment_a, _buf_sediment_b,
-			_buf_fire_a, _buf_fire_b, _buf_fuel,
+			_buf_fire_a, _buf_fire_b, _buf_fuel, _buf_o2,
 			_buf_charge, _buf_dust_a, _buf_dust_b, _buf_dust_outscale,
 			_buf_solid, _buf_static, _buf_send, _buf_rain, _buf_boil]:
 		if buf.is_valid():
@@ -561,7 +564,7 @@ func _free_buffers() -> void:
 	_buf_fog_a = RID(); _buf_fog_b = RID()
 	_buf_lava_a = RID(); _buf_lava_b = RID()
 	_buf_sediment_a = RID(); _buf_sediment_b = RID()
-	_buf_fire_a = RID(); _buf_fire_b = RID(); _buf_fuel = RID()
+	_buf_fire_a = RID(); _buf_fire_b = RID(); _buf_fuel = RID(); _buf_o2 = RID()
 	_buf_charge = RID(); _buf_dust_a = RID(); _buf_dust_b = RID(); _buf_dust_outscale = RID()
 	_buf_solid = RID(); _buf_static = RID(); _buf_send = RID(); _buf_rain = RID(); _buf_boil = RID()
 	_buf_vel_x = RID(); _buf_vel_y = RID(); _buf_vel_z = RID(); _buf_pressure = RID()
@@ -689,6 +692,9 @@ func set_field(name: String, arr: PackedFloat32Array) -> void:
 		return
 	if name == "fuel":
 		upload(_buf_fuel, arr)             # single resident buffer (read+write in place; not ping-pong)
+		return
+	if name == "o2":
+		upload(_buf_o2, arr)               # single resident buffer (fire consumes O₂ in place)
 		return
 	if name == "charge":
 		upload(_buf_charge, arr)           # single resident buffer (accumulate reads/writes in place)
@@ -901,6 +907,7 @@ func end_frame(read_vapor: bool = true, read_cloud: bool = true, read_fog: bool 
 			"vapor": PackedFloat32Array(), "cloud": PackedFloat32Array(),
 			"fog": PackedFloat32Array(), "lava": PackedFloat32Array(),
 			"fire": PackedFloat32Array(), "fuel": PackedFloat32Array(),
+			"o2": PackedFloat32Array(),
 		}
 	_rd.submit()
 	_rd.sync()
@@ -914,6 +921,7 @@ func end_frame(read_vapor: bool = true, read_cloud: bool = true, read_fog: bool 
 		"sediment": download(live_buffer("sediment", _parity)),
 		"fire": download(live_buffer("fire", _parity)),
 		"fuel": download(_buf_fuel),
+		"o2": download(_buf_o2),
 		# Emergent electrification + airborne dust — GPU-computed. charge is a single in-place buffer; dust
 		# ping-pongs so its live buffer holds the post-transport airborne density.
 		"charge": download(_buf_charge),

@@ -58,6 +58,9 @@ func _run() -> bool:
 	var lava: PackedFloat32Array = PackedFloat32Array(); lava.resize(cc)
 	var fuel: PackedFloat32Array = PackedFloat32Array(); fuel.resize(cc)
 	var fire: PackedFloat32Array = PackedFloat32Array(); fire.resize(cc)
+	# Seed O₂ FULL (== O2_AMBIENT) everywhere so the combustion O₂-gate never fires here — fire behaves
+	# exactly as before O₂ existed (the gate is a threshold; behavioural parity, tested by keeping it inactive).
+	var o2: PackedFloat32Array = PackedFloat32Array(); o2.resize(cc); o2.fill(1.0)
 	# Uniform wind so the ember gather's downwind bias is exercised (each neighbour throws +X / -Z biased heat).
 	var velx: PackedFloat32Array = PackedFloat32Array(); velx.resize(cc)
 	var velz: PackedFloat32Array = PackedFloat32Array(); velz.resize(cc)
@@ -107,6 +110,7 @@ func _run() -> bool:
 	field._lava = lava.duplicate()
 	field._fuel = fuel.duplicate()
 	field._fire = fire.duplicate()
+	field._o2 = o2.duplicate()
 	field._vel_x = velx.duplicate()
 	field._vel_z = velz.duplicate()
 
@@ -140,6 +144,7 @@ func _run() -> bool:
 	gpu.set_field("lava", lava)
 	gpu.set_field("fuel", fuel)
 	gpu.set_field("fire", fire)
+	gpu.set_field("o2", o2)
 	for k2 in range(STEPS):
 		gpu.step()
 	var out: Dictionary = gpu.end_frame()

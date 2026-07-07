@@ -30,6 +30,7 @@ layout(set = 0, binding = 4, std430) restrict buffer Water   { float water[]; };
 layout(set = 0, binding = 5, std430) restrict buffer Solid   { float solid[]; };
 layout(set = 0, binding = 6, std430) restrict buffer VelX    { float vel_x[]; };
 layout(set = 0, binding = 7, std430) restrict buffer VelZ    { float vel_z[]; };
+layout(set = 0, binding = 8, std430) restrict buffer O2      { float o2[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint dim_x;
@@ -51,6 +52,10 @@ const float EMBER_HEAT = 22.0;
 const float EMBER_WIND_GAIN = 5.0;
 const float EMBER_MAX = 70.0;
 const float EMBER_UP = 16.0;
+// Oxygen coupling — MUST match MaterialCombustion3D.gd. Burning consumes O₂; below O2_MIN a cell can't
+// ignite / a burning cell suffocates (so a sealed cave's fire draws down trapped O₂ and dies).
+const float O2_MIN = 0.35;
+const float BURN_O2_RATE = 0.06;
 
 // Ember one burning neighbour contributes (base creep + downwind boost, × emitter intensity, capped).
 float ember(float neighbour_fire, float toward) {
@@ -105,11 +110,12 @@ void main() {
 	float f = fire_in[g];
 	float fuel_i = fuel[g];
 	float fnew = 0.0;
-	if (water[g] > WET_MAX) {
-		fnew = 0.0;                                   // wet → firebreak
+	if (water[g] > WET_MAX || o2[g] < O2_MIN) {
+		fnew = 0.0;                                   // wet firebreak OR suffocated (O₂ < O2_MIN)
 	} else if (f > FIRE_MIN) {
 		if (fuel_i > 0.0) {
 			fuel[g] = max(0.0, fuel_i - BURN_RATE * clamp(f, 0.0, 1.0));
+			o2[g] = max(0.0, o2[g] - BURN_O2_RATE * clamp(f, 0.0, 1.0));  // burning draws down local O₂
 			if (temp[g] < BURN_TEMP) { temp[g] = BURN_TEMP; }
 			fnew = (fuel[g] <= 0.0) ? 0.0 : min(1.0, f + FIRE_GROW);
 		} else {

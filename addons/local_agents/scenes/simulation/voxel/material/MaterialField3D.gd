@@ -52,6 +52,9 @@ var _static: PackedByteArray = PackedByteArray()
 # reach into these arrays through the field (`_f`), 3D-generalising the 2.5D MaterialHeat/Atmosphere/
 # Liquid. INITIAL_TEMP seeds a mild ground so nothing freezes before the field settles.
 const INITIAL_TEMP: float = 15.0
+# Ambient atmospheric oxygen every OPEN cell is seeded to (LAMaterialGas3D relaxes surface cells back toward
+# it; combustion draws it down). MUST match LAMaterialGas3D.O2_AMBIENT.
+const O2_AMBIENT: float = 1.0
 var _temp: PackedFloat32Array = PackedFloat32Array()     # temperature °C per cell (rock + void)
 var _vapor: PackedFloat32Array = PackedFloat32Array()    # airborne water vapor (humidity) per cell
 var _cloud: PackedFloat32Array = PackedFloat32Array()    # condensed cloud density per cell
@@ -63,6 +66,11 @@ var _lava: PackedFloat32Array = PackedFloat32Array()     # lava mass per cell (a
 # injecting heat + consuming fuel — spreads to neighbours on HEAT + the WIND field (downwind), and leaves ash.
 var _fuel: PackedFloat32Array = PackedFloat32Array()     # flammable fuel mass per cell (vegetation)
 var _fire: PackedFloat32Array = PackedFloat32Array()     # burning intensity per cell (0 = not burning)
+# --- Emergent ATMOSPHERIC OXYGEN (LAMaterialGas3D): a per-cell O₂ level, seeded to O2_AMBIENT in every OPEN
+# cell and replenished from the sky only at each column's exposed surface. It diffuses/advects on the wind;
+# combustion CONSUMES it and can't burn below O2_MIN, so fire suffocates in sealed caves + roars where wind
+# replenishes O₂ — emergent, no per-case code. Field-resident so the fire kernel can read/consume it on-GPU.
+var _o2: PackedFloat32Array = PackedFloat32Array()       # atmospheric oxygen level per cell (1.0 = ambient)
 # --- Emergent 3D wind (LAMaterialWind3D): a per-cell air PRESSURE + 3D VELOCITY field replacing the old
 # single global scalar wind. Pressure falls out of temperature (warm=low), velocity accelerates down the
 # gradient and deflects off rock, so funneling/fronts/highs-lows EMERGE. Read via wind_at()/wind3_at().
@@ -87,6 +95,7 @@ var _wind_sim = null                                     # LAMaterialWind3D (eme
 var _slump_sim = null                                    # LAMaterialSlump3D (granular landslide slump)
 var _combustion = null                                   # LAMaterialCombustion3D (emergent fire/fuel over the field)
 var _scent_sim = null                                    # LAMaterialScent3D (emergent scent/waste/fertility stigmergy)
+var _gas_sim = null                                      # LAMaterialGas3D (emergent atmospheric O₂ → cave-fire suffocation)
 var _magma_sim = null                                    # LAMaterialMagma3D (emergent volcano/eruption from lava pressure)
 var _erosion_sim = null                                  # LAMaterialErosion3D (hydraulic erosion → sediment/canyons/deltas)
 var _snowice_sim = null                                  # LAMaterialSnowIce3D (emergent snowpack/melt + frozen ponds)
@@ -101,6 +110,7 @@ const WindScript: GDScript = preload("res://addons/local_agents/scenes/simulatio
 const SlumpScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialSlump3D.gd")
 const CombustionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialCombustion3D.gd")
 const ScentScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialScent3D.gd")
+const GasScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGas3D.gd")
 const MagmaScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialMagma3D.gd")
 const ErosionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialErosion3D.gd")
 const SnowIceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialSnowIce3D.gd")
@@ -282,6 +292,11 @@ func setup_dims(dim_x: int, dim_y: int, dim_z: int, cell_size: float, origin: Ve
 	_fuel.resize(_cell_count)
 	_fire = PackedFloat32Array()
 	_fire.resize(_cell_count)
+	# Oxygen starts at ambient in every cell (solid cells are ignored by the gas/fire loops); the sky
+	# exchange keeps open surface cells topped up, combustion draws burning cells down.
+	_o2 = PackedFloat32Array()
+	_o2.resize(_cell_count)
+	_o2.fill(O2_AMBIENT)
 	_pressure = PackedFloat32Array()
 	_pressure.resize(_cell_count)
 	_vel_x = PackedFloat32Array()
@@ -428,6 +443,11 @@ func activate() -> void:
 	# advects on the LOCAL wind, decays, and washes in rain. CPU-oracle only. Runs after combustion.
 	_scent_sim = ScentScript.new()
 	_scent_sim.setup(self)
+	# Emergent atmospheric OXYGEN over the shared field: O₂ diffuses/advects on the wind + is replenished at
+	# each column's sky surface; combustion consumes it + can't burn below O2_MIN. CPU-oracle stepped on both
+	# paths (like scent). Runs after wind (needs velocity) so cave fires draw down trapped O₂ and suffocate.
+	_gas_sim = GasScript.new()
+	_gas_sim.setup(self)
 	# More emergent field processes (all CPU-oracle, own their channels in-module). Magma = lava-pressure
 	# volcanoes; erosion = water carving sediment; snow/ice = phase; dust = wind-lofted sand storms;
 	# charge = electrification→lightning; shock = a propagating sound/pressure wave (replaces the seismic ring).
@@ -520,6 +540,10 @@ func _physics_process(delta: float) -> void:
 		# run the GPU passes, then read the consumed fuel + evolved fire back below.
 		_gpu.set_field("fuel", _fuel)
 		_gpu.set_field("fire", _fire)
+		# Oxygen rides along like fuel: upload the CPU-authoritative O₂ (carrying the last frame's diffuse/
+		# advect/sky-exchange) so the fire3d.glsl kernel CONSUMES it + gates ignition/burn on it on-device,
+		# then read the drawn-down O₂ back below for the CPU gas transport tail.
+		_gpu.set_field("o2", _o2)
 		# Charge + dust round-trip like fire/sediment: the charge_accum3d + dust_*3d kernels run the per-cell
 		# CORE on-device; the CPU keeps only the tails (charge BREAKDOWN+bolt, dust diagnostics) via
 		# step_scene_only(). Upload the authoritative CPU state (carrying the last breakdown's column reset for
@@ -548,6 +572,8 @@ func _physics_process(delta: float) -> void:
 			_fire = out["fire"]
 		if out.has("fuel"):
 			_fuel = out["fuel"]
+		if out.has("o2"):
+			_o2 = out["o2"]                               # O₂ the fire kernel drew down; the gas tail transports it
 		if out.has("sediment"):
 			_sediment = out["sediment"]
 		if out.has("charge"):
@@ -596,6 +622,10 @@ func _physics_process(delta: float) -> void:
 		# above — so here we run ONLY the CPU scene tail (fuel seed/scan, ash marking, ash->plant regrowth).
 		if _combustion != null:
 			_combustion.step_scene_only()
+		# Emergent oxygen: the fire kernel CONSUMED O₂ on-GPU (read back above); here the CPU gas tail runs the
+		# CONTINUOUS transport (diffuse + advect on the fresh wind + sky replenishment) on the drawn-down field.
+		if _gas_sim != null:
+			_gas_sim.step()
 		# Scent/waste stigmergy advects on the fresh wind; shock radiates the latest stimuli. Charge's ACCUMULATE
 		# ran on-GPU (charge_accum3d) and _charge came back above — so charge runs ONLY its CPU tail here (the
 		# per-column BREAKDOWN reduction + bolt spawn + column reset). All CPU oracle otherwise.
@@ -635,6 +665,10 @@ func _physics_process(delta: float) -> void:
 			# Dust lofts dry loose sediment on strong wind (after wind + slump); dunes migrate downwind.
 			if _dust_sim != null:
 				_dust_sim.step()
+			# Oxygen transports (diffuse + advect on the fresh wind) + replenishes at the sky surface BEFORE
+			# combustion reads it, so a sealed cave's trapped O₂ draws down and its fire suffocates.
+			if _gas_sim != null:
+				_gas_sim.step()
 			# Fire runs after: fuel ignites from lava/lightning/meteor heat, burns + spreads downwind, leaves ash.
 			if _combustion != null:
 				_combustion.step()
@@ -929,6 +963,13 @@ func dust_at(x: float, y: float, z: float) -> float:
 	return _dust_sim.dust_at(x, y, z) if _dust_sim != null else 0.0
 func dust_cell_count() -> int:
 	return _dust_sim.dust_cells() if _dust_sim != null else 0
+# Emergent atmospheric OXYGEN (LAMaterialGas3D): O₂ level at a point + depletion diagnostics.
+func o2_at(x: float, y: float, z: float) -> float:
+	return _gas_sim.o2_at(x, y, z) if _gas_sim != null else 0.0
+func o2_min_open() -> float:
+	return _gas_sim.o2_min_open() if _gas_sim != null else O2_AMBIENT
+func o2_avg() -> float:
+	return _gas_sim.o2_avg() if _gas_sim != null else O2_AMBIENT
 ## Wire the visual-only lightning bolt (VoxelDisasters.spawn_lightning); the field's charge fires it.
 func set_lightning_visual(cb: Callable) -> void:
 	if _charge_sim != null: _charge_sim.on_bolt = cb

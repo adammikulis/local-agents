@@ -51,6 +51,8 @@ static func emit_smoke_summary(w) -> void:
 	var charge_peak: float = 0.0
 	var bolts: int = 0
 	var shock_cells: int = 0
+	var o2_min: float = 1.0
+	var o2_avg: float = 1.0
 	if w._material != null and w._material.has_method("magma_cell_count"):
 		magma_cells = w._material.magma_cell_count()
 		erosion_cells = w._material.erosion_cell_count()
@@ -60,6 +62,9 @@ static func emit_smoke_summary(w) -> void:
 		charge_peak = w._material.charge_peak()
 		bolts = w._material.bolts_fired()
 		shock_cells = w._material.shock_cell_count()
+		if w._material.has_method("o2_min_open"):
+			o2_min = w._material.o2_min_open()
+			o2_avg = w._material.o2_avg()
 	var n_fish: int = w.get_tree().get_nodes_in_group("species_fish").size()
 	var n_fire: int = 0
 	if w._ecology != null and w._ecology.has_method("fire_system"):
@@ -113,8 +118,8 @@ static func emit_smoke_summary(w) -> void:
 		var sc = w._ecology.cognition_scheduler()
 		if sc != null and sc.has_method("total_calls"):
 			sched_calls = sc.total_calls()
-	print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"heat_peak\":%.2f,\"heat_cells\":%d,\"lava_cells\":%d,\"slump_cells\":%d,\"peak_slump\":%d,\"cloud_cells\":%d,\"cloud_cover\":%.3f,\"fog_cover\":%.3f,\"wind\":%.2f,\"scent_cells\":%d,\"fertility_peak\":%.2f,\"magma_cells\":%d,\"erosion_cells\":%d,\"snow_cells\":%d,\"ice_cells\":%d,\"dust_cells\":%d,\"charge_peak\":%.2f,\"bolts\":%d,\"shock_cells\":%d,\"fish\":%d,\"fires\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f,\"minds\":%d,\"habits\":%d,\"escalations\":%d,\"social_lessons\":%d,\"max_generation\":%d,\"slow_brain_calls\":%d,\"nests\":%d,\"circling\":%d,\"investigating\":%d,\"sleeping\":%d,\"cues_learned\":%d}" % [
-		w._frame, str(w._spawned_initial).to_lower(), str(w._terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, heat_peak, heat_cells, lava_cells, slump_cells, w._peak_slump, cloud_cells, cloud_cover, fog_cover, wind_mag, scent_cells, fertility_peak, magma_cells, erosion_cells, snow_cells, ice_cells, dust_cells, charge_peak, bolts, shock_cells, n_fish, n_fire, min_hyd, drinkers, (w._sky.time_of_day() if w._sky != null else w._time_of_day), minds, habits, asked, learned_socially, max_gen, sched_calls, n_nest, circling, investigating, sleeping, cues_learned])
+	print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"heat_peak\":%.2f,\"heat_cells\":%d,\"lava_cells\":%d,\"slump_cells\":%d,\"peak_slump\":%d,\"cloud_cells\":%d,\"cloud_cover\":%.3f,\"fog_cover\":%.3f,\"wind\":%.2f,\"scent_cells\":%d,\"fertility_peak\":%.2f,\"magma_cells\":%d,\"erosion_cells\":%d,\"snow_cells\":%d,\"ice_cells\":%d,\"dust_cells\":%d,\"charge_peak\":%.2f,\"bolts\":%d,\"shock_cells\":%d,\"o2_min\":%.3f,\"o2_avg\":%.3f,\"fish\":%d,\"fires\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f,\"minds\":%d,\"habits\":%d,\"escalations\":%d,\"social_lessons\":%d,\"max_generation\":%d,\"slow_brain_calls\":%d,\"nests\":%d,\"circling\":%d,\"investigating\":%d,\"sleeping\":%d,\"cues_learned\":%d}" % [
+		w._frame, str(w._spawned_initial).to_lower(), str(w._terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, heat_peak, heat_cells, lava_cells, slump_cells, w._peak_slump, cloud_cells, cloud_cover, fog_cover, wind_mag, scent_cells, fertility_peak, magma_cells, erosion_cells, snow_cells, ice_cells, dust_cells, charge_peak, bolts, shock_cells, o2_min, o2_avg, n_fish, n_fire, min_hyd, drinkers, (w._sky.time_of_day() if w._sky != null else w._time_of_day), minds, habits, asked, learned_socially, max_gen, sched_calls, n_nest, circling, investigating, sleeping, cues_learned])
 	if w._cognition_stats:
 		var avg_habits: float = (float(habits) / float(minds)) if minds > 0 else 0.0
 		print("COGNITION_SUMMARY minds=%d avg_habits=%.2f escalations=%d social_lessons=%d max_generation=%d slow_brain_calls=%d nests=%d circling=%d investigating=%d sleeping=%d cues_learned=%d" % [
