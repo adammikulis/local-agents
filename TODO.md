@@ -159,6 +159,48 @@ gas (O₂/CO₂ transport) → combustion → scent → fungus → charge → sh
 - Phase-0 refactor already landed: extracted `MaterialFieldInject3D.gd` (splash/add_water_pooled/
   resample_terrain) + `MaterialHeatTexture3D.gd`; deleted dead `add_material`/`add_rain`.
 
+## Performance (the frame budget)
+
+Ground truth via Godot Performance monitors + the `PERF_MONITORS={...}` harness line (the per-module
+field profiler mis-attributes GPU stalls — trust the monitors). World grid is 76×22×76 ≈ 127K cells,
+~280 creature actors. Run perf with `LA_NO_STREAMER=1 godot --rendering-driver metal … -- --run-frames=N`
+(windowed metal is the only path that exercises the GPU; `--run-frames`/`--shoot` auto-move the window
+off-screen so it never pops in front of you).
+
+### Done — 1 → 52 FPS (core sim, streamer off)
+- gas `_share` inline + stagger the slow geological/bio CPU passes (erosion/snowice/magma/fungus at ¼
+  cadence) → 1 → ~5 FPS.
+- **GPU-ported** the dense per-cell CAs the same way fire/wind/charge/dust already were: gas O₂/CO₂
+  transport, scent (5 airborne channels + fertility), shock wave — each a `kernels3d/*3d.glsl` compute
+  pass, CPU keeps only the emit/scene tail + headless oracle. (Repo rule now: **per-cell field CAs go to
+  GPU compute, not C++; break parity for perf** — see CLAUDE.md.)
+- Creature **decision throttling** (`THINK_STRIDE`, instance-staggered; move every frame, decide every 3)
+  + smooth-heading (ease toward the decided direction so throttled decisions aren't jerky). Small win
+  (cognition was never the hotspot) but keeps 60Hz re-deciding off + fixes motion feel.
+- `--no-streamer` / `LA_NO_STREAMER` toggle — **the single biggest cost was the streamer's local LLM**
+  (Qwen3-1.7B on `llama-server`) sharing the Metal GPU: ~90ms/frame of contention. Off → 52 FPS; on → ~9.
+
+### TODO — push core 52 → 100+ FPS
+- **Render instancing (biggest remaining lever).** The sim issues ~2580 draw calls — every creature,
+  plant, and rock is its own mesh node. Batch identical meshes into `MultiMeshInstance3D` (per species /
+  per prop type), driven from the actor transforms, so the GPU draws them in a handful of calls. Keep
+  per-actor nodes for logic/selection; only the *rendering* goes through the MultiMesh. Also LOD/cull
+  distant + off-screen actors. This is the path from 52 to 100+ with the streamer off.
+- Remaining CPU field tail after the GPU ports: `fire_tail` (fuel-seed/ash/regrowth — actor-coupled,
+  stays CPU; optimize/sparse-scan it), the geological SDF-tail modules (erosion/snowice/magma cores can
+  still GPU-port with the SDF stamp kept on CPU like lava), and trimming the per-frame full readback to
+  only render-needed channels on a cadence.
+
+### TODO — make the streamer cheap-when-on
+Right now the local-LLM commentator (`streamer/` + `world/VoxelStreamerHost.gd`) costs ~90ms/frame even
+idle because `llama-server` runs the model on the SAME Metal GPU the game renders on, so inference/model
+residency contends with rendering. Options (pick/measure): run the LLM **CPU-only** (`-ngl 0`) or a much
+smaller/quantized model so it doesn't touch the render GPU; throttle commentary cadence hard + ensure the
+generation path is fully async/off-thread (the director already uses a worker thread + async HTTPRequest —
+verify nothing blocks the main/render thread); cap/lower the avatar SubViewport update rate
+(`StreamerAvatar` renders a rigged character at `UPDATE_ALWAYS`, 240×300 — throttle to ~20 FPS). Goal:
+streamer ON with a playable frame-rate, so it's not an all-or-nothing toggle.
+
 ### Creatures + the field (design — can living creatures be part of `MaterialField3D`?)
 - Individual creatures STAY agents — cognition, identity, memory, pathfinding, ragdoll death, and
   click-inspection can't be a diffusing scalar field. That individuality is the point.
