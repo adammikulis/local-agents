@@ -74,7 +74,14 @@ const DUST_TRANSPORT_SHADER_PATH: String = "res://addons/local_agents/scenes/sim
 const O2_TRANSPORT_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/o2_transport3d.glsl"
 const CO2_TRANSPORT_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/co2_transport3d.glsl"
 const GAS_SKY_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/gas_sky3d.glsl"
+const SHOCK_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/shock3d.glsl"
+const SCENT_WIND_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/scent_wind3d.glsl"
+const SCENT_TRANSPORT_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/scent_transport3d.glsl"
+const SCENT_FERT_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/scent_fert3d.glsl"
+const FUNGUS_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/fungus3d.glsl"
+const FUNGUS_FERT_SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/fungus_fert3d.glsl"
 const LOCAL_SIZE_X: int = 64
+const SCENT_CHANNELS: int = 5              # airborne scent channels packed as c*area+col (MaterialScent3D.CHANNELS)
 
 # Push-constant encoders (byte-packers matching each kernel's Params block) live in a sibling module so
 # this hot backend file stays under the size gate; call as Push.<name>(self, ...).
@@ -110,6 +117,7 @@ var _sea_level: float = 0.0
 var _solar: float = 0.6
 var _wind: Vector2 = Vector2.ZERO          # world XZ wind, refreshed each begin_frame (drives atmosphere advection)
 var _raining: bool = false                 # precipitation()>RAIN_MAX — suppresses dust lofting (wet-sand rule); set per frame
+var _precip: float = 0.0                    # precipitation() — scent rain-wash / fertility leach / fungus moisture; set per frame
 
 var _heat_pipeline: RID = RID()
 var _solar_pipeline: RID = RID()
@@ -133,6 +141,12 @@ var _dust_transport_pipeline: RID = RID()  # emergent dust: gather advect/diffus
 var _o2_transport_pipeline: RID = RID()    # emergent O₂: gather diffusion + wind advection (seals caves)
 var _co2_transport_pipeline: RID = RID()   # emergent CO₂: same + a downward settle share (pools in hollows)
 var _gas_sky_pipeline: RID = RID()         # emergent O₂/CO₂ sky exchange/vent at each column's surface cell
+var _shock_pipeline: RID = RID()           # emergent shock/sound pressure-wave (per-cell diffuse+decay, reflects off rock)
+var _scent_wind_pipeline: RID = RID()      # scent surface-wind precompute (per-column: topmost-open vel → surf scratch)
+var _scent_transport_pipeline: RID = RID() # scent airborne transport (per-column 5-channel diffuse+advect+decay+rain-wash)
+var _scent_fert_pipeline: RID = RID()      # scent soil fertility blur+leach (per-column)
+var _fungus_pipeline: RID = RID()          # emergent decomposer CA (per-cell grow/decompose/spread over fungus/detritus)
+var _fungus_fert_pipeline: RID = RID()     # fungus fertility per-column reduce (folds decomposition fert into the scent field)
 var _shaders: Array[RID] = []              # every compiled shader RID (freed in dispose)
 var _pipeline_shader: Dictionary = {}      # pipeline RID -> its shader RID (for uniform_set_create)
 
@@ -170,6 +184,26 @@ var _buf_charge: RID = RID()               # electrification charge per cell —
 var _buf_dust_a: RID = RID()               # airborne dust density (sand storm), ping-pong pair
 var _buf_dust_b: RID = RID()
 var _buf_dust_outscale: RID = RID()        # per-cell dust out-flux CFL scale (single scratch, recomputed each step)
+# Emergent shock/sound (per-cell, ping-pong): the CPU folds emit() impulses into the live buffer, the GPU
+# radiates + decays it (reflecting off rock), we read it back for camera-shake / creature-panic consumers.
+var _buf_shock_a: RID = RID()
+var _buf_shock_b: RID = RID()
+# Emergent scent stigmergy (per-COLUMN, dim_x*dim_z). scent = 5 packed airborne channels (ping-pong); fert =
+# soil fertility (ping-pong); surf_vx/vz = the per-column surface wind scratch the transport reads (single,
+# recomputed each step by scent_wind3d). The CPU tail folds actor emits + waste deposits into the live buffers.
+var _buf_scent_a: RID = RID()              # SCENT_CHANNELS * area
+var _buf_scent_b: RID = RID()
+var _buf_fert_a: RID = RID()               # area
+var _buf_fert_b: RID = RID()
+var _buf_surf_vx: RID = RID()              # area — per-column surface wind X (scratch)
+var _buf_surf_vz: RID = RID()              # area — per-column surface wind Z (scratch)
+# Emergent decomposer (per-cell). detritus = dead organic matter (single, mutated in place + CPU deposits);
+# fungus = fungal biomass (ping-pong); fungus_fert = per-cell fertility produced this step (scratch → reduced
+# per-column into the scent fert field by fungus_fert3d).
+var _buf_detritus: RID = RID()
+var _buf_fungus_a: RID = RID()
+var _buf_fungus_b: RID = RID()
+var _buf_fungus_fert: RID = RID()
 var _buf_solid: RID = RID()                # byte->float mirror of _solid (1 = rock)
 var _buf_static: RID = RID()               # byte->float mirror of _static (1 = calm sea sink)
 # Emergent wind velocity (world X/Y/Z). GPU-COMPUTED + RESIDENT: wind_pressure3d + wind_step3d write these
@@ -228,6 +262,16 @@ var _charge_set: Array[RID] = [RID(), RID()]
 var _dust_loft_set: Array[RID] = [RID(), RID()]
 var _dust_outscale_set: Array[RID] = [RID(), RID()]
 var _dust_transport_set: Array[RID] = [RID(), RID()]
+# Shock: in=shock live, out=shock back (+ solid). Scent: wind precompute reads vel_x/vel_z/solid, writes surf;
+# transport in=scent live, out=scent back (+ surf); fert in=fert live, out=fert back. Fungus: in=fungus live,
+# out=fungus back (+ detritus/co2[back]/o2[back] in place, temp/vapor/fire/solid read, fert_out scratch); the
+# fert reduce reads fert_out, adds into fert back in place.
+var _shock_set: Array[RID] = [RID(), RID()]
+var _scent_wind_set: Array[RID] = [RID(), RID()]
+var _scent_transport_set: Array[RID] = [RID(), RID()]
+var _scent_fert_set: Array[RID] = [RID(), RID()]
+var _fungus_set: Array[RID] = [RID(), RID()]
+var _fungus_fert_set: Array[RID] = [RID(), RID()]
 var _prevailing: Vector2 = Vector2.ZERO     # large-scale base wind forced by the wind_step3d kernel (set_prevailing)
 var _parity: int = 0                        # 0 -> live in *_a, 1 -> live in *_b
 var _static_uploaded: bool = false
@@ -285,6 +329,12 @@ func _init_rd() -> void:
 	_o2_transport_pipeline = _pipeline(O2_TRANSPORT_SHADER_PATH)
 	_co2_transport_pipeline = _pipeline(CO2_TRANSPORT_SHADER_PATH)
 	_gas_sky_pipeline = _pipeline(GAS_SKY_SHADER_PATH)
+	_shock_pipeline = _pipeline(SHOCK_SHADER_PATH)
+	_scent_wind_pipeline = _pipeline(SCENT_WIND_SHADER_PATH)
+	_scent_transport_pipeline = _pipeline(SCENT_TRANSPORT_SHADER_PATH)
+	_scent_fert_pipeline = _pipeline(SCENT_FERT_SHADER_PATH)
+	_fungus_pipeline = _pipeline(FUNGUS_SHADER_PATH)
+	_fungus_fert_pipeline = _pipeline(FUNGUS_FERT_SHADER_PATH)
 
 
 func _pipeline(path: String) -> RID:
@@ -368,6 +418,27 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 	_buf_dust_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_dust_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_dust_outscale = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	# Emergent shock + fungus/detritus — per-cell (cell_count) resident buffers.
+	_buf_shock_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	_buf_shock_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	_buf_detritus = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	_buf_fungus_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	_buf_fungus_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	_buf_fungus_fert = _rd.storage_buffer_create(zbytes.size(), zbytes)
+	# Emergent scent — per-COLUMN (area = dim_x*dim_z). scent packs SCENT_CHANNELS planes; fert + surf are one plane.
+	var area: int = dim_x * dim_z
+	var col_zero: PackedFloat32Array = PackedFloat32Array()
+	col_zero.resize(area)
+	var col_bytes: PackedByteArray = col_zero.to_byte_array()
+	var scent_zero: PackedFloat32Array = PackedFloat32Array()
+	scent_zero.resize(SCENT_CHANNELS * area)
+	var scent_bytes: PackedByteArray = scent_zero.to_byte_array()
+	_buf_scent_a = _rd.storage_buffer_create(scent_bytes.size(), scent_bytes)
+	_buf_scent_b = _rd.storage_buffer_create(scent_bytes.size(), scent_bytes)
+	_buf_fert_a = _rd.storage_buffer_create(col_bytes.size(), col_bytes)
+	_buf_fert_b = _rd.storage_buffer_create(col_bytes.size(), col_bytes)
+	_buf_surf_vx = _rd.storage_buffer_create(col_bytes.size(), col_bytes)
+	_buf_surf_vz = _rd.storage_buffer_create(col_bytes.size(), col_bytes)
 	_buf_solid = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_static = _rd.storage_buffer_create(zbytes.size(), zbytes)
 	_buf_vel_x = _rd.storage_buffer_create(zbytes.size(), zbytes)
@@ -394,6 +465,10 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 		"dust": [_buf_dust_a, _buf_dust_b],
 		"o2": [_buf_o2_a, _buf_o2_b],
 		"co2": [_buf_co2_a, _buf_co2_b],
+		"shock": [_buf_shock_a, _buf_shock_b],
+		"scent": [_buf_scent_a, _buf_scent_b],
+		"fert": [_buf_fert_a, _buf_fert_b],
+		"fungus": [_buf_fungus_a, _buf_fungus_b],
 	}
 
 	# Build the per-parity uniform sets. p=0: live=*_a, back=*_b. p=1: live=*_b, back=*_a.
@@ -554,6 +629,38 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 			_make_uniform(4, _buf_vel_x), _make_uniform(5, _buf_vel_y),
 			_make_uniform(6, _buf_vel_z), _make_uniform(7, _buf_solid)], _shader_of(_dust_transport_pipeline), 0)
 
+		# --- Shock (emergent sound/pressure wave) — shock3d.glsl 0=in(live), 1=out(back), 2=solid. ---
+		_shock_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, live_buffer("shock", p)), _make_uniform(1, back_buffer("shock", p)),
+			_make_uniform(2, _buf_solid)], _shader_of(_shock_pipeline), 0)
+
+		# --- Scent (emergent stigmergy, per-column) — WIND precompute scent_wind3d.glsl 0=vel_x, 1=vel_z,
+		# 2=solid, 3=surf_vx(out), 4=surf_vz(out). TRANSPORT scent_transport3d.glsl 0=in(live), 1=out(back),
+		# 2=surf_vx, 3=surf_vz. FERT scent_fert3d.glsl 0=in(live), 1=out(back). ---
+		_scent_wind_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, _buf_vel_x), _make_uniform(1, _buf_vel_z),
+			_make_uniform(2, _buf_solid), _make_uniform(3, _buf_surf_vx),
+			_make_uniform(4, _buf_surf_vz)], _shader_of(_scent_wind_pipeline), 0)
+		_scent_transport_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, live_buffer("scent", p)), _make_uniform(1, back_buffer("scent", p)),
+			_make_uniform(2, _buf_surf_vx), _make_uniform(3, _buf_surf_vz)], _shader_of(_scent_transport_pipeline), 0)
+		_scent_fert_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, live_buffer("fert", p)), _make_uniform(1, back_buffer("fert", p))],
+			_shader_of(_scent_fert_pipeline), 0)
+
+		# --- Fungus (emergent decomposer) — fungus3d.glsl 0=fungus in(live), 1=fungus out(back), 2=detritus
+		# (in place), 3=co2(back, in place +=), 4=o2(back, in place -=), 5=temp(back), 6=vapor(back), 7=fire
+		# (back), 8=solid, 9=fert_out(per-cell). fungus_fert3d.glsl 0=fert_out, 1=fert(back, in place +=). ---
+		_fungus_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, live_buffer("fungus", p)), _make_uniform(1, back_buffer("fungus", p)),
+			_make_uniform(2, _buf_detritus), _make_uniform(3, co2_back),
+			_make_uniform(4, o2_back), _make_uniform(5, temp_back),
+			_make_uniform(6, vapor_back), _make_uniform(7, fire_back),
+			_make_uniform(8, _buf_solid), _make_uniform(9, _buf_fungus_fert)], _shader_of(_fungus_pipeline), 0)
+		_fungus_fert_set[p] = _rd.uniform_set_create([
+			_make_uniform(0, _buf_fungus_fert), _make_uniform(1, back_buffer("fert", p))],
+			_shader_of(_fungus_fert_pipeline), 0)
+
 
 # uniform_set_create needs the SHADER RID, not the pipeline. _pipeline() records the pairing.
 func _shader_of(pipeline: RID) -> RID:
@@ -567,7 +674,9 @@ func _free_buffers() -> void:
 			_evap_set, _transport_vapor_set, _transport_cloud_set, _transport_fog_set,
 			_condense_set, _rain_set, _lava_flow_set, _lava_phase_set, _slump_flow_set, _fire_set,
 			_wind_pressure_set, _wind_step_set, _charge_set, _dust_loft_set, _dust_outscale_set,
-			_dust_transport_set, _o2_transport_set, _co2_transport_set, _gas_sky_set]:
+			_dust_transport_set, _o2_transport_set, _co2_transport_set, _gas_sky_set,
+			_shock_set, _scent_wind_set, _scent_transport_set, _scent_fert_set,
+			_fungus_set, _fungus_fert_set]:
 		for s in arr:
 			if s.is_valid():
 				_rd.free_rid(s)
@@ -595,12 +704,20 @@ func _free_buffers() -> void:
 	_o2_transport_set = [RID(), RID()]
 	_co2_transport_set = [RID(), RID()]
 	_gas_sky_set = [RID(), RID()]
+	_shock_set = [RID(), RID()]
+	_scent_wind_set = [RID(), RID()]
+	_scent_transport_set = [RID(), RID()]
+	_scent_fert_set = [RID(), RID()]
+	_fungus_set = [RID(), RID()]
+	_fungus_fert_set = [RID(), RID()]
 	for buf in [_buf_temp_a, _buf_temp_b, _buf_water_a, _buf_water_b,
 			_buf_vapor_a, _buf_vapor_b, _buf_cloud_a, _buf_cloud_b,
 			_buf_fog_a, _buf_fog_b, _buf_lava_a, _buf_lava_b,
 			_buf_vel_x, _buf_vel_y, _buf_vel_z, _buf_pressure, _buf_sediment_a, _buf_sediment_b,
 			_buf_fire_a, _buf_fire_b, _buf_fuel, _buf_o2_a, _buf_o2_b, _buf_co2_a, _buf_co2_b,
 			_buf_charge, _buf_dust_a, _buf_dust_b, _buf_dust_outscale,
+			_buf_shock_a, _buf_shock_b, _buf_detritus, _buf_fungus_a, _buf_fungus_b, _buf_fungus_fert,
+			_buf_scent_a, _buf_scent_b, _buf_fert_a, _buf_fert_b, _buf_surf_vx, _buf_surf_vz,
 			_buf_solid, _buf_static, _buf_send, _buf_rain, _buf_boil]:
 		if buf.is_valid():
 			_rd.free_rid(buf)
@@ -616,6 +733,10 @@ func _free_buffers() -> void:
 	_buf_charge = RID(); _buf_dust_a = RID(); _buf_dust_b = RID(); _buf_dust_outscale = RID()
 	_buf_solid = RID(); _buf_static = RID(); _buf_send = RID(); _buf_rain = RID(); _buf_boil = RID()
 	_buf_vel_x = RID(); _buf_vel_y = RID(); _buf_vel_z = RID(); _buf_pressure = RID()
+	_buf_shock_a = RID(); _buf_shock_b = RID()
+	_buf_detritus = RID(); _buf_fungus_a = RID(); _buf_fungus_b = RID(); _buf_fungus_fert = RID()
+	_buf_scent_a = RID(); _buf_scent_b = RID(); _buf_fert_a = RID(); _buf_fert_b = RID()
+	_buf_surf_vx = RID(); _buf_surf_vz = RID()
 	_fields = {}
 	_cell_count = 0
 	_static_uploaded = false
@@ -631,7 +752,9 @@ func dispose() -> void:
 			_lava_flow_pipeline, _lava_phase_pipeline, _slump_flow_pipeline, _fire_pipeline,
 			_wind_pressure_pipeline, _wind_step_pipeline, _charge_pipeline, _dust_loft_pipeline,
 			_dust_outscale_pipeline, _dust_transport_pipeline,
-				_o2_transport_pipeline, _co2_transport_pipeline, _gas_sky_pipeline]:
+				_o2_transport_pipeline, _co2_transport_pipeline, _gas_sky_pipeline,
+				_shock_pipeline, _scent_wind_pipeline, _scent_transport_pipeline,
+				_scent_fert_pipeline, _fungus_pipeline, _fungus_fert_pipeline]:
 		if pipe.is_valid():
 			_rd.free_rid(pipe)
 	for s in _shaders:
@@ -648,6 +771,8 @@ func dispose() -> void:
 	_charge_pipeline = RID(); _dust_loft_pipeline = RID()
 	_dust_outscale_pipeline = RID(); _dust_transport_pipeline = RID()
 	_o2_transport_pipeline = RID(); _co2_transport_pipeline = RID(); _gas_sky_pipeline = RID()
+	_shock_pipeline = RID(); _scent_wind_pipeline = RID(); _scent_transport_pipeline = RID()
+	_scent_fert_pipeline = RID(); _fungus_pipeline = RID(); _fungus_fert_pipeline = RID()
 	_rd.free()
 	_rd = null
 
@@ -746,6 +871,9 @@ func set_field(name: String, arr: PackedFloat32Array) -> void:
 	if name == "charge":
 		upload(_buf_charge, arr)           # single resident buffer (accumulate reads/writes in place)
 		return
+	if name == "detritus":
+		upload(_buf_detritus, arr)         # single resident buffer (fungus decomposes in place; CPU deposits carcass/ash detritus)
+		return
 	upload(live_buffer(name, _parity), arr)
 
 
@@ -753,6 +881,12 @@ func set_field(name: String, arr: PackedFloat32Array) -> void:
 ## sand never blows). Fed each frame from the field; the parity harness sets it directly.
 func set_raining(raining: bool) -> void:
 	_raining = raining
+
+
+## Set the per-frame precipitation() the scent rain-wash / fertility leach and fungus moisture kernels read.
+## Fed each frame from the field before the step loop.
+func set_precip(precip: float) -> void:
+	_precip = precip
 
 
 ## One resident sim step, queued into a compute list (no submit/sync/readback). Order mirrors the field's
@@ -956,6 +1090,46 @@ func step() -> void:
 	_rd.compute_list_bind_uniform_set(cl, _gas_sky_set[_parity], 0)
 	_rd.compute_list_set_push_constant(cl, Push.dims_pc(self), 16)
 	_rd.compute_list_dispatch(cl, col_groups, 1, 1)
+	_rd.compute_list_add_barrier(cl)          # post-gas o2/co2[back] visible to fungus (which draws/emits them)
+
+	# --- SCENT (emergent stigmergy, per-column) — PRECOMPUTE the surface wind (topmost-open vel per column),
+	# then TRANSPORT the 5 airborne channels (diffuse+advect on that wind + decay + rain-wash) and blur/leach
+	# the soil FERTILITY. Emits/waste deposits were folded into the live buffers on the CPU (step_scene_only).
+	# All per-column dispatches. scent_wind writes surf; transport reads it, so a barrier separates them. ---
+	_rd.compute_list_bind_compute_pipeline(cl, _scent_wind_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _scent_wind_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, Push.scent_wind_pc(self), 16)
+	_rd.compute_list_dispatch(cl, col_groups, 1, 1)
+	_rd.compute_list_add_barrier(cl)          # surf_vx/vz visible to the transport gather
+	# TRANSPORT (scent, per-column), FERT (per-column) and SHOCK (per-cell) are mutually disjoint — no barrier
+	# between them. SHOCK: the CPU folded emit() impulses into shock[live]; the wave radiates + decays here.
+	_rd.compute_list_bind_compute_pipeline(cl, _scent_transport_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _scent_transport_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, Push.scent_pc(self), 16)
+	_rd.compute_list_dispatch(cl, col_groups, 1, 1)
+	_rd.compute_list_bind_compute_pipeline(cl, _scent_fert_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _scent_fert_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, Push.scent_pc(self), 16)
+	_rd.compute_list_dispatch(cl, col_groups, 1, 1)
+	_rd.compute_list_bind_compute_pipeline(cl, _shock_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _shock_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, Push.dims_pc(self), 16)
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
+	_rd.compute_list_add_barrier(cl)          # fert[back] + fungus reads visible before the decomposer
+
+	# --- FUNGUS (emergent decomposer, per-cell) — grow/decompose/spread over fungus/detritus, drawing O₂[back]
+	# + emitting CO₂[back] (post-gas), depositing per-cell fertility to fungus_fert. Detritus was uploaded from
+	# the CPU (carcass/ash deposits). fungus[live] -> fungus[back]; detritus/o2/co2 mutated in place. ---
+	_rd.compute_list_bind_compute_pipeline(cl, _fungus_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _fungus_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, Push.fungus_pc(self), 32)
+	_rd.compute_list_dispatch(cl, groups, 1, 1)
+	_rd.compute_list_add_barrier(cl)          # per-cell fungus_fert visible to the per-column reduce
+	# --- FUNGUS FERTILITY reduce (per-column): sum the column's fungus_fert into fert[back] — closes the loop. ---
+	_rd.compute_list_bind_compute_pipeline(cl, _fungus_fert_pipeline)
+	_rd.compute_list_bind_uniform_set(cl, _fungus_fert_set[_parity], 0)
+	_rd.compute_list_set_push_constant(cl, Push.dims_pc(self), 16)
+	_rd.compute_list_dispatch(cl, col_groups, 1, 1)
 	# ===============================================================================================
 
 	_rd.compute_list_end()
@@ -1000,6 +1174,14 @@ func end_frame(read_vapor: bool = true, read_cloud: bool = true, read_fog: bool 
 		"vel_x": download(_buf_vel_x),
 		"vel_y": download(_buf_vel_y),
 		"vel_z": download(_buf_vel_z),
+		# Emergent shock (sound wave), scent stigmergy (5-channel airborne + soil fertility) + fungus decomposer —
+		# GPU-computed. shock/fungus ping-pong (live = post-step); detritus is a single in-place buffer; scent/fert
+		# are per-column. Read back for the CPU consumers (camera shake / creature panic, scent gradients, mushrooms).
+		"shock": download(live_buffer("shock", _parity)),
+		"scent": download(live_buffer("scent", _parity)),
+		"fert": download(live_buffer("fert", _parity)),
+		"fungus": download(live_buffer("fungus", _parity)),
+		"detritus": download(_buf_detritus),
 	}
 	if read_vapor:
 		out["vapor"] = download(live_buffer("vapor", _parity))

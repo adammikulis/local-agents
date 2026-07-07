@@ -185,6 +185,35 @@ func step() -> void:
 	_detritus_peak_last = peak_d
 
 
+## GPU-PATH TAIL: the grow/decompose/spread/decay CA now runs on the GPU (fungus3d.glsl + the per-column
+## fertility reduce fungus_fert3d.glsl inside LAMaterialGPU3D.step()); the field uploads _fungus/_detritus into
+## the resident buffers and reads them back (co2/o2 round-trip too). So on the GPU path step() is replaced by
+## this diagnostics-only refresh over the fresh post-readback _fungus/_detritus (SMOKE_SUMMARY/HUD). Staggered
+## by the field (fungus is a slow biological process), so it need not scan every frame.
+func refresh_diagnostics_from_field() -> void:
+	if _f == null or _f._cell_count <= 0:
+		return
+	if _f._fungus.size() != _f._cell_count or _f._detritus.size() != _f._cell_count:
+		return
+	var fungus: PackedFloat32Array = _f._fungus
+	var detritus: PackedFloat32Array = _f._detritus
+	var peak_g: float = 0.0
+	var n_g: int = 0
+	var peak_d: float = 0.0
+	for i in range(_f._cell_count):
+		var g: float = fungus[i]
+		if g > peak_g:
+			peak_g = g
+		if g > FUNGUS_MIN:
+			n_g += 1
+		var d: float = detritus[i]
+		if d > peak_d:
+			peak_d = d
+	_fungus_peak_last = peak_g
+	_fungus_cells_last = n_g
+	_detritus_peak_last = peak_d
+
+
 # --- Read API + diagnostics ------------------------------------------------------------------------------
 
 ## Fungal biomass at a world point (0 off-grid or inside rock) — the ecology reads this to fruit mushrooms.

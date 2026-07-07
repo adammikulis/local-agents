@@ -605,6 +605,18 @@ func _physics_process(delta: float) -> void:
 		_gpu.set_field("dust", _dust)
 		# Rain suppresses all dust lofting (wet sand never blows) — hand the dust LOFT kernel the raining flag.
 		_gpu.set_raining(precipitation() > DustScript.RAIN_MAX)
+		# Scent/shock/fungus round-trip like fire/dust: the GPU runs the transport/CA cores, the CPU keeps only
+		# the scene tails (emit/seed for scent, emit for shock, detritus deposits for fungus). Push the per-frame
+		# precipitation (scent rain-wash / fertility leach / fungus moisture) + the authoritative CPU state
+		# (carrying this frame's emits/deposits) into the resident buffers, then read the evolved fields back below.
+		_gpu.set_precip(precipitation())
+		if _scent_sim != null:
+			_gpu.set_field("scent", _scent_sim._scent)
+			_gpu.set_field("fert", _scent_sim._fert)
+		if _shock_sim != null:
+			_gpu.set_field("shock", _shock_sim._shock)
+		_gpu.set_field("fungus", _fungus)
+		_gpu.set_field("detritus", _detritus)
 		# Vapor is re-uploaded ONLY when a CPU-side injection (a storm's add_vapor) dirtied it. With nothing
 		# injected it lives fully resident on the GPU (re-uploading the last readback would just clobber the
 		# GPU's own evolution), so we skip the upload AND the readback below — cloud/fog are never re-uploaded.
@@ -643,6 +655,18 @@ func _physics_process(delta: float) -> void:
 			_vel_y = out["vel_y"]
 		if out.has("vel_z"):
 			_vel_z = out["vel_z"]
+		# Scent stigmergy (airborne + soil fertility), shock wave, fungus/detritus — GPU-evolved this frame;
+		# pull them back for the CPU consumers (creature scent gradients, camera shake / panic, mushrooms).
+		if out.has("scent") and _scent_sim != null:
+			_scent_sim._scent = out["scent"]
+		if out.has("fert") and _scent_sim != null:
+			_scent_sim._fert = out["fert"]
+		if out.has("shock") and _shock_sim != null:
+			_shock_sim._shock = out["shock"]
+		if out.has("fungus"):
+			_fungus = out["fungus"]
+		if out.has("detritus"):
+			_detritus = out["detritus"]
 		if out.has("vapor"):
 			_vapor = out["vapor"]
 		if out.has("cloud"):
@@ -702,19 +726,24 @@ func _physics_process(delta: float) -> void:
 		# Scent/waste stigmergy advects on the fresh wind; shock radiates the latest stimuli. Charge's ACCUMULATE
 		# ran on-GPU (charge_accum3d) and _charge came back above — so charge runs ONLY its CPU tail here (the
 		# per-column BREAKDOWN reduction + bolt spawn + column reset). All CPU oracle otherwise.
+		# Scent airborne transport + fertility blur/leach ran ON-GPU (scent_wind3d/scent_transport3d/
+		# scent_fert3d) and came back above — so scent runs ONLY its CPU tail here (emit from creatures/
+		# carcasses into the fresh _scent/_fert, then budgeted plant-seeding from the richest soil).
 		if _scent_sim != null:
-			_scent_sim.step()
+			_scent_sim.step_scene_only()
 			_prof_mark("scent", _prof_on)
-		# Emergent decomposer: fungus rots the detritus carcasses/ash deposited (-> CO2/O2/fertility) on the
-		# fresh post-readback CO2/O2. CPU-oracle; its edits round-trip to the GPU next frame. Throttled (slow
-		# biological process) on the same 4-cycle stagger as the geological passes.
+		# Emergent decomposer: the grow/decompose/spread CA + the rot->fertility reduce ran ON-GPU (fungus3d/
+		# fungus_fert3d) and fungus/detritus (and drawn-down O2 / emitted CO2 / soil fertility) came back above.
+		# So fungus runs ONLY its diagnostics refresh here, staggered on the 4-cycle (slow biological process).
 		if _fungus_sim != null and _slow_tick == 3:
-			_fungus_sim.step()
+			_fungus_sim.refresh_diagnostics_from_field()
 			_prof_mark("fungus", _prof_on)
 		if _charge_sim != null:
 			_charge_sim.step_scene_only()
-		if _shock_sim != null:
-			_shock_sim.step()
+		# Shock radiated + decayed ON-GPU (shock3d) and _shock came back above — refresh its diagnostics only,
+		# staggered on the 4-cycle (peak/audible-cell count change slowly).
+		if _shock_sim != null and _slow_tick == 1:
+			_shock_sim.refresh_diagnostics_from_field()
 			_prof_mark("shock", _prof_on)
 		if _prof_on:
 			_prof_cpu += Time.get_ticks_usec() - _pc0

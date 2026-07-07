@@ -152,6 +152,21 @@ func step() -> void:
 	_seed_from_fertility()
 
 
+## GPU-PATH TAIL: the airborne transport + fertility blur/leach now run on the GPU (scent_wind3d /
+## scent_transport3d / scent_fert3d inside LAMaterialGPU3D.step()); the field uploads _scent/_fert into the
+## resident buffers and reads them back. So on the GPU path this replaces step() and keeps ONLY the scene-
+## coupled work the GPU can't do: emit from actors/carcasses (derived from their live state) into the fresh
+## post-readback _scent/_fert, and the budgeted plant-seeding from the richest soil. No diffusion/decay here —
+## those happened on-device. (Diagnostics are computed on-demand by scent_cell_count()/fertility_peak().)
+func step_scene_only() -> void:
+	if _f == null or _area <= 0:
+		return
+	if _scent.size() != CHANNELS * _area:
+		setup(_f)
+	_emit_from_actors()
+	_seed_from_fertility()
+
+
 # Outflow share toward a neighbour the wind blows toward at speed `away` (>=0).
 func _share(away: float) -> float:
 	return DIFFUSE + ADVECT * clampf(away / WIND_REF, 0.0, 1.0)

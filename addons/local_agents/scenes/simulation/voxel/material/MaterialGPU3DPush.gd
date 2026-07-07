@@ -157,6 +157,44 @@ static func dust_loft_pc(g) -> PackedByteArray:
 	return pc
 
 
+# Scent surface-wind PRECOMPUTE push-constant: dims + area (dim_x*dim_z). Matches scent_wind3d Params.
+static func scent_wind_pc(g) -> PackedByteArray:
+	var pc: PackedByteArray = PackedByteArray()
+	pc.resize(16)
+	pc.encode_u32(0, g._dim_x)
+	pc.encode_u32(4, g._dim_y)
+	pc.encode_u32(8, g._dim_z)
+	pc.encode_u32(12, g._dim_x * g._dim_z)
+	return pc
+
+
+# Scent TRANSPORT / FERTILITY push-constant: {dim_x, dim_z, area, precip}. Matches scent_transport3d +
+# scent_fert3d Params (both read the per-frame precipitation for the rain-wash / rain-leach term).
+static func scent_pc(g) -> PackedByteArray:
+	var pc: PackedByteArray = PackedByteArray()
+	pc.resize(16)
+	pc.encode_u32(0, g._dim_x)
+	pc.encode_u32(4, g._dim_z)
+	pc.encode_u32(8, g._dim_x * g._dim_z)
+	pc.encode_float(12, g._precip)
+	return pc
+
+
+# Fungus push-constant: dims + the per-frame precipitation (the RAIN_MOIST moisture term). 32 bytes.
+static func fungus_pc(g) -> PackedByteArray:
+	var pc: PackedByteArray = PackedByteArray()
+	pc.resize(32)
+	pc.encode_u32(0, g._dim_x)
+	pc.encode_u32(4, g._dim_y)
+	pc.encode_u32(8, g._dim_z)
+	pc.encode_u32(12, g._cell_count)
+	pc.encode_float(16, g._precip)
+	pc.encode_float(20, 0.0)
+	pc.encode_float(24, 0.0)
+	pc.encode_float(28, 0.0)
+	return pc
+
+
 # Dust OUTSCALE / TRANSPORT push-constant: dims + k (STEP_DT/cell_size — the Courant factor turning a cell
 # velocity into a per-step advection fraction, matching MaterialDust3D `k`).
 static func dust_pc(g) -> PackedByteArray:

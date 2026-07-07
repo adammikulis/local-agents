@@ -137,6 +137,25 @@ func step() -> void:
 	_cells_last = audible
 
 
+## GPU-PATH TAIL: the propagation/decay now runs on the GPU (shock3d.glsl inside LAMaterialGPU3D.step()); the
+## field folds emit() impulses into _shock, uploads it, and reads the radiated field back. This refreshes the
+## SMOKE_SUMMARY/HUD diagnostics (peak + audible-cell count) from that fresh readback instead of step()'s own
+## accounting. Staggered by the field (the values change slowly), so it need not scan every frame.
+func refresh_diagnostics_from_field() -> void:
+	if _f == null or _shock.size() != _f._cell_count:
+		return
+	var peak: float = 0.0
+	var audible: int = 0
+	for i in range(_shock.size()):
+		var v: float = _shock[i]
+		if v > peak:
+			peak = v
+		if v > SHOCK_MIN:
+			audible += 1
+	_peak_last = peak
+	_cells_last = audible
+
+
 ## READ: shock loudness/energy felt at a world point (0 outside the grid). The camera reads this for tremor
 ## and creatures read it for panic — proximity + muffling are already baked into the propagated value.
 func shock_at(world_pos: Vector3) -> float:
