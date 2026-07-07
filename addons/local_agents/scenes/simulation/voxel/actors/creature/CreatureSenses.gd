@@ -10,14 +10,31 @@ extends RefCounted
 # Mirrors LACreature.PREDATOR_SIZE_RATIO — flee hunters at least this many times my size.
 const PREDATOR_SIZE_RATIO: float = 1.2
 
+# One spatial hash shared by every creature's sense queries; lazily built and rebuilt at most once per
+# physics frame per group (see LASpatialIndex). The first sense call of a frame that needs a group pays
+# the rebuild; the other 276 creatures reuse it. This is what turns the old O(n²) group scans into O(n).
+static var _index: LASpatialIndex = null
+
+
+## The shared frame-stamped spatial index, ensured fresh for the current physics frame for `groups`.
+static func _fresh_index(c, groups: Array) -> LASpatialIndex:
+	if _index == null:
+		_index = LASpatialIndex.new()
+	_index.rebuild_if_stale(c.get_tree(), Engine.get_physics_frames(), groups)
+	return _index
+
 
 ## Nearest live member of any species in `species_list` the creature can SEE (inside its FOV cone
 ## and eye range, per LAVision — so a hunter must face prey, and binocular eyes reach farther).
 static func nearest_of(c, pos: Vector3, species_list) -> Node3D:
+	var groups: Array = []
+	for sp in species_list:
+		groups.append("species_" + String(sp))
+	var idx: LASpatialIndex = _fresh_index(c, groups)
 	var best: Node3D = null
 	var best_d: float = LAVision.effective_range(c)
 	for sp in species_list:
-		for cand in c.get_tree().get_nodes_in_group("species_" + String(sp)):
+		for cand in idx.query("species_" + String(sp), pos, best_d):
 			if not is_instance_valid(cand) or cand == c:
 				continue
 			var c3: Node3D = cand as Node3D
@@ -37,7 +54,7 @@ static func nearest_of(c, pos: Vector3, species_list) -> Node3D:
 static func nearest_larger_predator(c, pos: Vector3) -> Node3D:
 	var best: Node3D = null
 	var best_d: float = LAVision.effective_range(c)
-	for cand in c.get_tree().get_nodes_in_group("creature"):
+	for cand in _fresh_index(c, ["creature"]).query("creature", pos, best_d):
 		if not is_instance_valid(cand) or cand == c:
 			continue
 		if not cand.has_method("is_hunter") or not cand.call("is_hunter"):
@@ -58,7 +75,7 @@ static func nearest_larger_predator(c, pos: Vector3) -> Node3D:
 static func nearest_rock(c, pos: Vector3) -> Node3D:
 	var best: Node3D = null
 	var best_d: float = c.sense_radius * 2.5
-	for r in c.get_tree().get_nodes_in_group("rock"):
+	for r in _fresh_index(c, ["rock"]).query("rock", pos, best_d):
 		if not is_instance_valid(r) or not (r is Node3D):
 			continue
 		var d: float = pos.distance_to((r as Node3D).global_position)
@@ -73,7 +90,7 @@ static func nearest_rock(c, pos: Vector3) -> Node3D:
 static func nearest_visible_carrion(c, pos: Vector3) -> Node3D:
 	var best: Node3D = null
 	var best_d: float = LAVision.effective_range(c) * 1.5   # carcasses are large, spotted a bit farther
-	for cand in c.get_tree().get_nodes_in_group("carrion"):
+	for cand in _fresh_index(c, ["carrion"]).query("carrion", pos, best_d):
 		if not is_instance_valid(cand) or not (cand is Node3D):
 			continue
 		var c3: Node3D = cand as Node3D
@@ -91,7 +108,7 @@ static func nearest_visible_carrion(c, pos: Vector3) -> Node3D:
 static func nearest_visible_in_state(c, pos: Vector3, group: String, states) -> Node3D:
 	var best: Node3D = null
 	var best_d: float = LAVision.effective_range(c) * 1.5
-	for cand in c.get_tree().get_nodes_in_group(group):
+	for cand in _fresh_index(c, [group]).query(group, pos, best_d):
 		if not is_instance_valid(cand) or cand == c or not (cand is Node3D):
 			continue
 		if not states.has(String(cand.get("state"))):

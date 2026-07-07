@@ -132,6 +132,15 @@ static func emit_smoke_summary(w) -> void:
 			sched_calls = sc.total_calls()
 	print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"heat_peak\":%.2f,\"heat_cells\":%d,\"lava_cells\":%d,\"slump_cells\":%d,\"peak_slump\":%d,\"cloud_cells\":%d,\"cloud_cover\":%.3f,\"fog_cover\":%.3f,\"wind\":%.2f,\"scent_cells\":%d,\"fertility_peak\":%.2f,\"magma_cells\":%d,\"erosion_cells\":%d,\"snow_cells\":%d,\"ice_cells\":%d,\"dust_cells\":%d,\"charge_peak\":%.2f,\"bolts\":%d,\"shock_cells\":%d,\"o2_min\":%.3f,\"o2_avg\":%.3f,\"co2_peak\":%.3f,\"co2_avg\":%.3f,\"fungus_cells\":%d,\"fungus_peak\":%.3f,\"detritus_peak\":%.3f,\"fish\":%d,\"fires\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f,\"minds\":%d,\"habits\":%d,\"escalations\":%d,\"social_lessons\":%d,\"max_generation\":%d,\"slow_brain_calls\":%d,\"nests\":%d,\"circling\":%d,\"investigating\":%d,\"sleeping\":%d,\"cues_learned\":%d}" % [
 		w._frame, str(w._spawned_initial).to_lower(), str(w._terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, heat_peak, heat_cells, lava_cells, slump_cells, w._peak_slump, cloud_cells, cloud_cover, fog_cover, wind_mag, scent_cells, fertility_peak, magma_cells, erosion_cells, snow_cells, ice_cells, dust_cells, charge_peak, bolts, shock_cells, o2_min, o2_avg, co2_peak, co2_avg, fungus_cells, fungus_peak, detritus_peak, n_fish, n_fire, min_hyd, drinkers, (w._sky.time_of_day() if w._sky != null else w._time_of_day), minds, habits, asked, learned_socially, max_gen, sched_calls, n_nest, circling, investigating, sleeping, cues_learned])
+	# Ground-truth frame breakdown (the per-module field profiler mis-attributes GPU stalls, so trust these).
+	print("PERF_MONITORS={\"fps\":%.1f,\"process_ms\":%.2f,\"physics_ms\":%.2f,\"nodes\":%d,\"draw_calls\":%d,\"prims_M\":%.2f,\"video_mem_MB\":%.1f}" % [
+		Performance.get_monitor(Performance.TIME_FPS),
+		Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
+		Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
+		int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
+		int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
+		Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1.0e6,
+		Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1.048576e6])
 	if w._cognition_stats:
 		var avg_habits: float = (float(habits) / float(minds)) if minds > 0 else 0.0
 		print("COGNITION_SUMMARY minds=%d avg_habits=%.2f escalations=%d social_lessons=%d max_generation=%d slow_brain_calls=%d nests=%d circling=%d investigating=%d sleeping=%d cues_learned=%d" % [
