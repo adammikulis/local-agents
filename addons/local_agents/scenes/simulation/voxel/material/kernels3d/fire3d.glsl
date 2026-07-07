@@ -31,6 +31,7 @@ layout(set = 0, binding = 5, std430) restrict buffer Solid   { float solid[]; };
 layout(set = 0, binding = 6, std430) restrict buffer VelX    { float vel_x[]; };
 layout(set = 0, binding = 7, std430) restrict buffer VelZ    { float vel_z[]; };
 layout(set = 0, binding = 8, std430) restrict buffer O2      { float o2[]; };
+layout(set = 0, binding = 9, std430) restrict buffer CO2     { float co2[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint dim_x;
@@ -56,6 +57,9 @@ const float EMBER_UP = 16.0;
 // ignite / a burning cell suffocates (so a sealed cave's fire draws down trapped O₂ and dies).
 const float O2_MIN = 0.35;
 const float BURN_O2_RATE = 0.06;
+// CO₂ emission — MUST match MaterialCombustion3D.gd. A burning cell emits CO₂ (fuel + O₂ → CO₂) deterministic
+// ∝ fire, so it stays bit-exact CPU vs GPU. LAMaterialGas3D transports/settles it; plants fix it back to O₂.
+const float CO2_PER_BURN = 0.06;
 
 // Ember one burning neighbour contributes (base creep + downwind boost, × emitter intensity, capped).
 float ember(float neighbour_fire, float toward) {
@@ -116,6 +120,7 @@ void main() {
 		if (fuel_i > 0.0) {
 			fuel[g] = max(0.0, fuel_i - BURN_RATE * clamp(f, 0.0, 1.0));
 			o2[g] = max(0.0, o2[g] - BURN_O2_RATE * clamp(f, 0.0, 1.0));  // burning draws down local O₂
+			co2[g] += CO2_PER_BURN * clamp(f, 0.0, 1.0);                 // and emits CO₂ (fuel + O₂ → CO₂)
 			if (temp[g] < BURN_TEMP) { temp[g] = BURN_TEMP; }
 			fnew = (fuel[g] <= 0.0) ? 0.0 : min(1.0, f + FIRE_GROW);
 		} else {

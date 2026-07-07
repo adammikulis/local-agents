@@ -71,6 +71,12 @@ var _fire: PackedFloat32Array = PackedFloat32Array()     # burning intensity per
 # combustion CONSUMES it and can't burn below O2_MIN, so fire suffocates in sealed caves + roars where wind
 # replenishes O₂ — emergent, no per-case code. Field-resident so the fire kernel can read/consume it on-GPU.
 var _o2: PackedFloat32Array = PackedFloat32Array()       # atmospheric oxygen level per cell (1.0 = ambient)
+# --- Emergent CARBON DIOXIDE (LAMaterialGas3D, second channel): a per-cell CO₂ level seeded to a trace ~0.
+# Combustion (fuel + O₂ → CO₂ + ash + heat) and decay EMIT it; plants FIX it in daylight (photosynthesis →
+# O₂ + biomass), closing the carbon/oxygen loop. It diffuses/advects on the wind like O₂ but is DENSER than
+# air, so a gentle downward buoyancy makes it settle into hollows/valleys (emergent suffocation pockets); the
+# sky surface vents it to the atmosphere. Field-resident so the fire kernel can EMIT it on-GPU (like O₂).
+var _co2: PackedFloat32Array = PackedFloat32Array()      # atmospheric CO₂ level per cell (0 = clean air)
 # --- Emergent 3D wind (LAMaterialWind3D): a per-cell air PRESSURE + 3D VELOCITY field replacing the old
 # single global scalar wind. Pressure falls out of temperature (warm=low), velocity accelerates down the
 # gradient and deflects off rock, so funneling/fronts/highs-lows EMERGE. Read via wind_at()/wind3_at().
@@ -297,6 +303,9 @@ func setup_dims(dim_x: int, dim_y: int, dim_z: int, cell_size: float, origin: Ve
 	_o2 = PackedFloat32Array()
 	_o2.resize(_cell_count)
 	_o2.fill(O2_AMBIENT)
+	# CO₂ starts at a clean-air trace of 0; combustion/decay raise it, plants + the sky vent draw it back down.
+	_co2 = PackedFloat32Array()
+	_co2.resize(_cell_count)
 	_pressure = PackedFloat32Array()
 	_pressure.resize(_cell_count)
 	_vel_x = PackedFloat32Array()
@@ -544,6 +553,9 @@ func _physics_process(delta: float) -> void:
 		# advect/sky-exchange) so the fire3d.glsl kernel CONSUMES it + gates ignition/burn on it on-device,
 		# then read the drawn-down O₂ back below for the CPU gas transport tail.
 		_gpu.set_field("o2", _o2)
+		# CO2 rides along like O2: upload the CPU-authoritative CO2 (last frame's diffuse/advect/settle/sky-vent)
+		# so the fire3d.glsl kernel EMITS it (fuel + O2 -> CO2) on-device where a cell burns, then read it back.
+		_gpu.set_field("co2", _co2)
 		# Charge + dust round-trip like fire/sediment: the charge_accum3d + dust_*3d kernels run the per-cell
 		# CORE on-device; the CPU keeps only the tails (charge BREAKDOWN+bolt, dust diagnostics) via
 		# step_scene_only(). Upload the authoritative CPU state (carrying the last breakdown's column reset for
@@ -574,6 +586,8 @@ func _physics_process(delta: float) -> void:
 			_fuel = out["fuel"]
 		if out.has("o2"):
 			_o2 = out["o2"]                               # O₂ the fire kernel drew down; the gas tail transports it
+		if out.has("co2"):
+			_co2 = out["co2"]  # CO2 the fire kernel emitted; the gas tail transports it
 		if out.has("sediment"):
 			_sediment = out["sediment"]
 		if out.has("charge"):
@@ -970,6 +984,35 @@ func o2_min_open() -> float:
 	return _gas_sim.o2_min_open() if _gas_sim != null else O2_AMBIENT
 func o2_avg() -> float:
 	return _gas_sim.o2_avg() if _gas_sim != null else O2_AMBIENT
+# Emergent CARBON DIOXIDE (LAMaterialGas3D second channel): CO₂ level at a point + build-up diagnostics.
+func co2_at(x: float, y: float, z: float) -> float:
+	return _gas_sim.co2_at(x, y, z) if _gas_sim != null else 0.0
+func co2_peak() -> float:
+	return _gas_sim.co2_peak() if _gas_sim != null else 0.0
+func co2_avg() -> float:
+	return _gas_sim.co2_avg() if _gas_sim != null else 0.0
+## Daylight factor 0..1 (the heat module's solar term) — plants read it to gate PHOTOSYNTHESIS (day only).
+func solar_factor() -> float:
+	return _heat._solar() if _heat != null else 0.0
+## Plant PHOTOSYNTHESIS write: at the sky-surface cell of `world_pos`, FIX `amount` of carbon — subtract CO₂
+## and release the same mass of O₂ (stoichiometric). The return leg of the carbon loop: fire/decay make CO₂,
+## plants turn it back into O₂ + biomass. `amount` is clamped to the CO₂ actually present (no free carbon).
+func photosynthesize(world_pos: Vector3, amount: float) -> void:
+	if _cell_count <= 0 or amount <= 0.0:
+		return
+	var ix: int = _col_i(world_pos.x, _origin.x)
+	var iz: int = _col_i(world_pos.z, _origin.z)
+	var iy: int = _surface_iy(ix, iz)
+	if iy < 0:
+		return
+	var i: int = _idx(ix, iy, iz)
+	if _solid[i] != 0:
+		return
+	var fixed: float = minf(amount, _co2[i])
+	if fixed <= 0.0:
+		return
+	_co2[i] = maxf(0.0, _co2[i] - fixed)
+	_o2[i] = _o2[i] + fixed
 ## Wire the visual-only lightning bolt (VoxelDisasters.spawn_lightning); the field's charge fires it.
 func set_lightning_visual(cb: Callable) -> void:
 	if _charge_sim != null: _charge_sim.on_bolt = cb

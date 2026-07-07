@@ -61,6 +61,10 @@ func _run() -> bool:
 	# Seed O₂ FULL (== O2_AMBIENT) everywhere so the combustion O₂-gate never fires here — fire behaves
 	# exactly as before O₂ existed (the gate is a threshold; behavioural parity, tested by keeping it inactive).
 	var o2: PackedFloat32Array = PackedFloat32Array(); o2.resize(cc); o2.fill(1.0)
+	# Seed CO₂ ZERO everywhere. Combustion EMITS CO₂ deterministically ∝ fire (co2[i] += CO2_PER_BURN·fire),
+	# so it stays bit-exact CPU vs GPU; fire logic never READS co2, so it can't perturb fire/fuel/temp/water
+	# parity. We seed 0 on both paths so the GPU single-buffer starts where the CPU field does.
+	var co2: PackedFloat32Array = PackedFloat32Array(); co2.resize(cc)
 	# Uniform wind so the ember gather's downwind bias is exercised (each neighbour throws +X / -Z biased heat).
 	var velx: PackedFloat32Array = PackedFloat32Array(); velx.resize(cc)
 	var velz: PackedFloat32Array = PackedFloat32Array(); velz.resize(cc)
@@ -111,6 +115,7 @@ func _run() -> bool:
 	field._fuel = fuel.duplicate()
 	field._fire = fire.duplicate()
 	field._o2 = o2.duplicate()
+	field._co2 = co2.duplicate()
 	field._vel_x = velx.duplicate()
 	field._vel_z = velz.duplicate()
 
@@ -145,6 +150,7 @@ func _run() -> bool:
 	gpu.set_field("fuel", fuel)
 	gpu.set_field("fire", fire)
 	gpu.set_field("o2", o2)
+	gpu.set_field("co2", co2)
 	for k2 in range(STEPS):
 		gpu.step()
 	var out: Dictionary = gpu.end_frame()

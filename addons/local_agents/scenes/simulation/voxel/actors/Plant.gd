@@ -19,7 +19,17 @@ const GROUP_SELECTABLE: String = "selectable"
 const GROUP_PLANT: String = "plant"
 
 var terrain = null                       # LAVoxelTerrainService (injected)
+var _material = null                      # LAMaterialField3D — the shared field (photosynthesis coupling)
 var config: Dictionary = {}
+
+# --- Photosynthesis (the return leg of the carbon/oxygen loop). In DAYLIGHT a live plant FIXES local CO₂
+# into O₂ + biomass: it pulls CO₂ from its cell, releases the same mass of O₂, and grows FASTER where light
+# and CO₂ are both available. So a plant downwind of a fire (where combustion CO₂ has drifted/settled) scrubs
+# the CO₂ back to O₂ and shoots up — emergent, no per-case code. Rates are per-second (scaled by delta).
+const PHOTO_CO2_RATE: float = 0.4        # max CO₂ mass a mature plant fixes per second at full light
+const PHOTO_LIGHT_MIN: float = 0.05      # solar factor below which it's night → photosynthesis halts
+const PHOTO_GROWTH_GAIN: float = 2.0     # extra growth-speed multiplier at full light + rich CO₂
+const CO2_REF: float = 0.4               # CO₂ level treated as "rich" for the growth-rate coupling
 
 var species: String = "plant"
 var color: Color = Color(0.30, 0.65, 0.22)
@@ -101,13 +111,38 @@ func _build_body() -> void:
 	add_child(shape)
 
 
+## Wire the shared material field so this plant can photosynthesize (fix CO₂ → O₂) into it. Injected by
+## LAEcologyService at spawn, exactly like creatures get set_material_field.
+func set_material_field(m) -> void:
+	_material = m
+
+
 func _physics_process(delta: float) -> void:
-	age += delta
+	var growth_boost: float = _photosynthesize(delta)
+	age += delta * (1.0 + growth_boost)
 	_apply_growth()
 	if _grown_fraction() >= 1.0:
 		_seed_timer -= delta
 		if _seed_timer <= 0.0:
 			_seed_ready = true
+
+
+# Fix local CO₂ into O₂ during daylight and return the growth-speed BOOST (0 at night / no CO₂ / no field).
+# The plant reads the field's solar factor (day gate) + local CO₂, pulls that carbon (photosynthesize subtracts
+# CO₂ and adds the same O₂ at the cell), and grows faster where both light and CO₂ are plentiful.
+func _photosynthesize(delta: float) -> float:
+	if _material == null or not _material.has_method("photosynthesize"):
+		return 0.0
+	var light: float = _material.solar_factor() if _material.has_method("solar_factor") else 1.0
+	if light < PHOTO_LIGHT_MIN:
+		return 0.0                                       # night: photosynthesis halts
+	var pos: Vector3 = global_position
+	var co2_here: float = _material.co2_at(pos.x, pos.y, pos.z) if _material.has_method("co2_at") else 0.0
+	# Fix carbon: pull up to the light-scaled rate, but never more than is present (photosynthesize clamps too).
+	var fixed: float = minf(co2_here, PHOTO_CO2_RATE * light * delta)
+	if fixed > 0.0:
+		_material.photosynthesize(pos, fixed)            # CO₂ ↓, O₂ ↑ at this cell (return leg of the loop)
+	return PHOTO_GROWTH_GAIN * light * clampf(co2_here / CO2_REF, 0.0, 1.0)
 
 
 func _grown_fraction() -> float:

@@ -250,6 +250,8 @@ func _instance_actor(kind: String, placed: Vector3, genome = null) -> Node:
 		actors_root.add_child(plant)
 		plant.global_position = placed
 		plant.setup(terrain, _plant_config())
+		if plant.has_method("set_material_field"):
+			plant.set_material_field(_material)          # so it can photosynthesize (fix CO₂ → O₂) into the field
 		node = plant
 	elif kind == "rock":
 		var rock: RockScript = RockScript.new()

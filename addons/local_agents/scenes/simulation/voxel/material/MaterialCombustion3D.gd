@@ -42,6 +42,10 @@ const WET_MAX: float = 0.05              # water mass above which a cell can't i
 # O₂ and suffocates while an open/windy fire gets O₂ diffused/advected back in + roars. Duplicated in fire3d.glsl.
 const O2_MIN: float = 0.35               # O₂ below which a cell can't ignite / a burning cell is extinguished (suffocation)
 const BURN_O2_RATE: float = 0.06         # O₂ consumed per step by a fully-lit cell (× fire), floored at 0
+# --- CO₂ emission (the carbon-loop source). A burning cell EMITS CO₂ as it draws down O₂ (fuel + O₂ → CO₂ +
+# ash + heat). Deterministic ∝ fire intensity, so it stays bit-exact CPU vs GPU. LAMaterialGas3D transports +
+# settles it; plants fix it back to O₂. Duplicated EXACTLY in fire3d.glsl ("must match").
+const CO2_PER_BURN: float = 0.06         # CO₂ emitted per step by a fully-lit cell (× fire)
 # Ember spread: a burning neighbour preheats this cell each step. GATHER form (each cell sums embers from its
 # burning neighbours) so the CPU oracle + the single-dispatch GPU kernel are race-free AND bit-for-bit alike.
 const EMBER_HEAT: float = 22.0           # base °C a burning lateral neighbour throws at this cell per step
@@ -106,6 +110,7 @@ func step() -> void:
 	var temp: PackedFloat32Array = _f._temp
 	var water: PackedFloat32Array = _f._water
 	var o2: PackedFloat32Array = _f._o2
+	var co2: PackedFloat32Array = _f._co2
 	var solid: PackedByteArray = _f._solid
 	var vx: PackedFloat32Array = _f._vel_x
 	var vz: PackedFloat32Array = _f._vel_z
@@ -155,6 +160,7 @@ func step() -> void:
 					if fuel_i > 0.0:
 						fuel[i] = maxf(0.0, fuel_i - BURN_RATE * clampf(f, 0.0, 1.0))
 						o2[i] = maxf(0.0, o2[i] - BURN_O2_RATE * clampf(f, 0.0, 1.0))
+						co2[i] += CO2_PER_BURN * clampf(f, 0.0, 1.0)  # emit CO₂ as it burns (fuel + O₂ → CO₂)
 						if temp[i] < BURN_TEMP:
 							temp[i] = BURN_TEMP              # self-sustain (conducts to neighbours via the heat module)
 						if fuel[i] <= 0.0:
