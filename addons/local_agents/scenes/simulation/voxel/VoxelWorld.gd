@@ -116,6 +116,13 @@ const FPS_PROBE_FRAMES: int = 150
 func _ready() -> void:
 	_parse_cmdline()
 
+	# Non-interactive verification/screenshot runs (--run-frames / --shoot) shove the OS window WAY
+	# off-screen the instant we start, so agent/CI runs that render on a real display path never pop a
+	# visible window in front of the user (rendering + --shoot capture still work off-screen on macOS).
+	# Real interactive play (neither flag) is untouched. Env LA_OFFSCREEN forces it too.
+	if (_run_frames > 0 or _shoot_path != "" or OS.has_environment("LA_OFFSCREEN")) and DisplayServer.get_name() != "headless":
+		DisplayServer.window_set_position(Vector2i(-8000, -8000))
+
 	# --- Sun + sky + day/night: owned by LAVoxelSkyCycle. It builds the sky shader material, the
 	# WorldEnvironment (tonemap/SSAO/glow/fog/ambient), the sun (PSSM cascade-blend shadows) and the
 	# moon, and runs the day/night clock each frame. The cmdline-seeded clocks are threaded in here. ---
