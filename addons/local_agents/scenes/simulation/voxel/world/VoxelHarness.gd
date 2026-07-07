@@ -9,7 +9,26 @@ extends RefCounted
 
 # Emit the end-of-run diagnostics for the given world `w` and quit the tree. Called once, at
 # _frame == _run_frames, from LAVoxelWorld._process.
+static func _count_meshes(n: Node) -> int:
+	var c: int = 0
+	if n is MeshInstance3D and (n as MeshInstance3D).visible and (n as MeshInstance3D).mesh != null:
+		c += maxi(1, (n as MeshInstance3D).mesh.get_surface_count())
+	for ch in n.get_children():
+		c += _count_meshes(ch)
+	return c
+
+
 static func emit_smoke_summary(w) -> void:
+	# Draw-call source breakdown (mesh surfaces per actor group) — instancing target.
+	if OS.has_environment("LA_PROFILE"):
+		var parts: PackedStringArray = PackedStringArray()
+		for g in ["creature", "fish", "plant", "tree", "rock", "nest", "villager"]:
+			var nodes: Array = w.get_tree().get_nodes_in_group(g)
+			var m: int = 0
+			for nd in nodes:
+				m += _count_meshes(nd)
+			parts.append("%s:n=%d,surf=%d" % [g, nodes.size(), m])
+		print("DRAW_SOURCES={%s}" % ", ".join(parts))
 	var n_sel: int = w.get_tree().get_nodes_in_group("selectable").size()
 	var n_act: int = w._actors_root.get_child_count()
 	# Live-world diagnostics: verify the wired subsystems are actually doing something.

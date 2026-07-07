@@ -130,10 +130,18 @@ func latest_line() -> String:
 func _boot_server() -> void:
 	var mgr = LlamaServerManager.new()
 	var runtime_dir: String = RuntimePaths.runtime_dir()
+	# GPU layers: the commentator LLM shares the machine's Metal GPU with the game's RENDERER, so offloading
+	# all layers (99) means each generation STARVES rendering — measured ~90ms/frame, dropping the sim from
+	# ~45 to ~9 FPS. Commentary is occasional, short, and fully async (worker thread + HTTPRequest), so it
+	# does NOT need GPU speed: default to CPU inference (0 layers) to keep the render GPU free. Override with
+	# env LA_STREAMER_GPU_LAYERS=<n> if you have GPU headroom and want faster commentary.
+	var gpu_layers: int = 0
+	if OS.has_environment("LA_STREAMER_GPU_LAYERS"):
+		gpu_layers = maxi(0, int(OS.get_environment("LA_STREAMER_GPU_LAYERS")))
 	var opts: Dictionary = {
 		"server_base_url": _server_url,
 		"context_size": 4096,
-		"n_gpu_layers": 99,
+		"n_gpu_layers": gpu_layers,
 		"server_slots": 1,
 		"server_start_timeout_ms": 40000,
 	}
