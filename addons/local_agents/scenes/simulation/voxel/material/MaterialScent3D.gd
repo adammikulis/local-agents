@@ -298,6 +298,14 @@ func deposit_food(world_pos: Vector3, amount: float) -> void:
 		_add(FOOD, col, amount)
 
 
+## Enrich the soil directly (no diet/musk flavour): the DEATH→SOIL leg — LAMaterialFungus3D calls this as
+## it decomposes detritus, so rot feeds the same fertility channel dung does and plants regrow on it.
+func deposit_fertility(world_pos: Vector3, amount: float) -> void:
+	var col: int = _col_of(world_pos)
+	if col >= 0 and amount > 0.0:
+		_fert[col] += amount
+
+
 func _add(channel: int, col: int, amount: float) -> void:
 	_scent[channel * _area + col] += amount
 

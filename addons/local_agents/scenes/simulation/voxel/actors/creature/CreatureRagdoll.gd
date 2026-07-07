@@ -18,6 +18,7 @@ extends RefCounted
 const DECAY_LIFETIME: float = 70.0        # seconds a carcass lasts before it is gone
 const SHRINK_DURATION: float = 4.0        # final seconds spent shrinking away to nothing
 const NUTRITION_PER_SIZE: float = 40.0    # carrion food value per unit of body size
+const DETRITUS_PER_SEC: float = 0.35      # dead matter a rotting carcass sheds into the field's decomposer channel
 const SETTLE_SPEED: float = 0.35          # below this lin+ang speed the shadow counts as resting
 const SETTLE_HOLD: float = 0.4            # seconds it must stay slow before we call it settled
 const SHADOW_MASK: int = 1                # collide with the terrain (static body on layer 1) only
@@ -140,6 +141,11 @@ static func _become_carcass(c) -> void:
 static func decay_tick(c, delta: float) -> void:
 	c._decay_age += delta
 	_update_rot(c)
+	# DEATH→SOIL: a rotting carcass literally becomes soil — it sheds dead matter into the field's decomposer
+	# channel, where fungus grows on it and rots it back into CO₂ + soil fertility (LAMaterialFungus3D). Scaled
+	# by remaining meat so a fresh, meaty carcass feeds the ground more than a picked-clean one. Emergent, general.
+	if c._material != null and c._material.has_method("deposit_detritus") and c._carrion > 0.0:
+		c._material.deposit_detritus(c.global_position, DETRITUS_PER_SEC * delta)
 
 	if c._decay_age >= DECAY_LIFETIME:
 		c.queue_free()

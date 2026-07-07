@@ -61,6 +61,9 @@ const TREE_FUEL: float = 2.4            # fuel a tree actor adds at its cell (bi
 const BEACH_TOP: float = 3.5            # world units above sea level where sand gives way to grass (shader beach)
 const SNOW_LINE: float = 66.0           # world units above sea level the snow cap starts (shader snow_height = sea+66)
 const REGROW_TEMP: float = 40.0         # °C an ash cell must have cooled below before a plant can regrow there
+# Burnt organic matter is DETRITUS too: a cell that burns out drops a little charred matter into the field's
+# decomposer channel (LAMaterialFungus3D), so ash also feeds fungus → CO₂/fertility. A small general coupling.
+const ASH_DETRITUS: float = 0.4         # detritus deposited at a cell the moment its fuel burns out (→ ash)
 
 const SCAN_EVERY: int = 4               # cadence (steps) for the actor fuel/consume + ash-regrowth scan
 const REGROW_PER_SCAN: int = 3          # ash cells asked to regrow per scan (budgeted; regrowth is slow)
@@ -166,11 +169,13 @@ func step() -> void:
 						if fuel[i] <= 0.0:
 							fnew = 0.0                       # fuel spent → burned out
 							_ash[i] = 1
+							_drop_ash_detritus(i)            # charred matter → detritus (feeds fungus)
 						else:
 							fnew = minf(1.0, f + FIRE_GROW)
 					else:
 						fnew = 0.0                           # nothing left to burn
 						_ash[i] = 1
+						_drop_ash_detritus(i)
 				elif fuel_i > FUEL_MIN and temp[i] >= IGNITE_TEMP:
 					fnew = FIRE_START                        # IGNITION from any heat source
 				_fire_scratch[i] = fnew
@@ -228,6 +233,15 @@ func _mark_ash() -> void:
 		if fuel[i] <= FUEL_MIN and fire[i] <= FIRE_MIN:
 			_ash[i] = 1
 			_had_fuel[i] = 0
+			_drop_ash_detritus(i)                        # charred matter -> detritus (feeds fungus)
+
+
+## Drop a little charred organic matter into the field's DETRITUS channel when a cell burns out, so wildfire
+## ash also feeds the emergent decomposer (LAMaterialFungus3D) → CO₂ + soil fertility. A small general coupling
+## (not a per-case branch): every burned-out cell contributes, on both the CPU and GPU-tail ash paths.
+func _drop_ash_detritus(i: int) -> void:
+	if _f._detritus.size() == _f._cell_count:
+		_f._detritus[i] += ASH_DETRITUS
 
 
 ## Ember heat one burning neighbour contributes to this cell: a base creep plus a downwind boost scaled by

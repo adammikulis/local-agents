@@ -77,6 +77,11 @@ var _o2: PackedFloat32Array = PackedFloat32Array()       # atmospheric oxygen le
 # air, so a gentle downward buoyancy makes it settle into hollows/valleys (emergent suffocation pockets); the
 # sky surface vents it to the atmosphere. Field-resident so the fire kernel can EMIT it on-GPU (like O₂).
 var _co2: PackedFloat32Array = PackedFloat32Array()      # atmospheric CO₂ level per cell (0 = clean air)
+# --- Emergent DECOMPOSER loop (LAMaterialFungus3D): dead organic matter (DETRITUS) deposited by rotting
+# carcasses + wildfire ash is colonised by FUNGUS, which rots it back into CO₂ + soil fertility while drawing
+# O₂ (aerobic). Closes the carbon/nutrient loop (death→soil→plant). Seeded ~0; only exists where a source made it.
+var _detritus: PackedFloat32Array = PackedFloat32Array() # dead decomposable organic matter per cell (0 = none)
+var _fungus: PackedFloat32Array = PackedFloat32Array()   # fungal biomass density per cell (0 = none; high = mushrooms)
 # --- Emergent 3D wind (LAMaterialWind3D): a per-cell air PRESSURE + 3D VELOCITY field replacing the old
 # single global scalar wind. Pressure falls out of temperature (warm=low), velocity accelerates down the
 # gradient and deflects off rock, so funneling/fronts/highs-lows EMERGE. Read via wind_at()/wind3_at().
@@ -102,6 +107,7 @@ var _slump_sim = null                                    # LAMaterialSlump3D (gr
 var _combustion = null                                   # LAMaterialCombustion3D (emergent fire/fuel over the field)
 var _scent_sim = null                                    # LAMaterialScent3D (emergent scent/waste/fertility stigmergy)
 var _gas_sim = null                                      # LAMaterialGas3D (emergent atmospheric O₂ → cave-fire suffocation)
+var _fungus_sim = null                                   # LAMaterialFungus3D (emergent decomposer: detritus → fungus → CO₂/fertility)
 var _magma_sim = null                                    # LAMaterialMagma3D (emergent volcano/eruption from lava pressure)
 var _erosion_sim = null                                  # LAMaterialErosion3D (hydraulic erosion → sediment/canyons/deltas)
 var _snowice_sim = null                                  # LAMaterialSnowIce3D (emergent snowpack/melt + frozen ponds)
@@ -117,6 +123,7 @@ const SlumpScript: GDScript = preload("res://addons/local_agents/scenes/simulati
 const CombustionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialCombustion3D.gd")
 const ScentScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialScent3D.gd")
 const GasScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGas3D.gd")
+const FungusScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFungus3D.gd")
 const MagmaScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialMagma3D.gd")
 const ErosionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialErosion3D.gd")
 const SnowIceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialSnowIce3D.gd")
@@ -306,6 +313,11 @@ func setup_dims(dim_x: int, dim_y: int, dim_z: int, cell_size: float, origin: Ve
 	# CO₂ starts at a clean-air trace of 0; combustion/decay raise it, plants + the sky vent draw it back down.
 	_co2 = PackedFloat32Array()
 	_co2.resize(_cell_count)
+	# Detritus + fungus start empty; carcasses/ash deposit detritus, fungus grows on it (decomposer loop).
+	_detritus = PackedFloat32Array()
+	_detritus.resize(_cell_count)
+	_fungus = PackedFloat32Array()
+	_fungus.resize(_cell_count)
 	_pressure = PackedFloat32Array()
 	_pressure.resize(_cell_count)
 	_vel_x = PackedFloat32Array()
@@ -457,6 +469,12 @@ func activate() -> void:
 	# paths (like scent). Runs after wind (needs velocity) so cave fires draw down trapped O₂ and suffocate.
 	_gas_sim = GasScript.new()
 	_gas_sim.setup(self)
+	# Emergent DECOMPOSER over the shared field: dead matter (detritus, deposited by rotting carcasses +
+	# wildfire ash) is colonised by fungus, which rots it back into CO2 + soil fertility while drawing O2 —
+	# closing the carbon/nutrient loop (death->soil->plant). CPU-oracle. Runs AFTER combustion/gas (reads fresh
+	# CO2/O2) and near scent (its fertility composes with the soil channel).
+	_fungus_sim = FungusScript.new()
+	_fungus_sim.setup(self)
 	# More emergent field processes (all CPU-oracle, own their channels in-module). Magma = lava-pressure
 	# volcanoes; erosion = water carving sediment; snow/ice = phase; dust = wind-lofted sand storms;
 	# charge = electrification→lightning; shock = a propagating sound/pressure wave (replaces the seismic ring).
@@ -645,6 +663,10 @@ func _physics_process(delta: float) -> void:
 		# per-column BREAKDOWN reduction + bolt spawn + column reset). All CPU oracle otherwise.
 		if _scent_sim != null:
 			_scent_sim.step()
+		# Emergent decomposer: fungus rots the detritus carcasses/ash deposited (-> CO2/O2/fertility) on the
+		# fresh post-readback CO2/O2. CPU-oracle; its edits round-trip to the GPU next frame.
+		if _fungus_sim != null:
+			_fungus_sim.step()
 		if _charge_sim != null:
 			_charge_sim.step_scene_only()
 		if _shock_sim != null:
@@ -689,6 +711,10 @@ func _physics_process(delta: float) -> void:
 			# Scent/waste stigmergy: emit from creatures/carcasses, advect on wind, decay, seed plants.
 			if _scent_sim != null:
 				_scent_sim.step()
+			# Emergent decomposer: fungus rots the detritus carcasses/ash deposited (→ CO2/O2/fertility) on
+			# the fresh post-readback CO2/O2. CPU-oracle; its edits round-trip to the GPU next frame.
+			if _fungus_sim != null:
+				_fungus_sim.step()
 			# Charge accumulates in convective updrafts → lightning; shock radiates the latest violent stimuli.
 			if _charge_sim != null:
 				_charge_sim.step()
@@ -991,6 +1017,31 @@ func co2_peak() -> float:
 	return _gas_sim.co2_peak() if _gas_sim != null else 0.0
 func co2_avg() -> float:
 	return _gas_sim.co2_avg() if _gas_sim != null else 0.0
+# Emergent DECOMPOSER loop (LAMaterialFungus3D): dead matter (detritus) → fungus → CO₂ + soil fertility.
+## Deposit dead decomposable matter at the surface cell under a world point (a rotting carcass, wildfire
+## ash). Fungus grows on it + rots it back into the carbon/nutrient loop. Mirrors photosynthesize()'s lookup.
+func deposit_detritus(world_pos: Vector3, amount: float) -> void:
+	if _cell_count <= 0 or amount <= 0.0:
+		return
+	var ix: int = _col_i(world_pos.x, _origin.x)
+	var iz: int = _col_i(world_pos.z, _origin.z)
+	var iy: int = _surface_iy(ix, iz)
+	if iy < 0:
+		return
+	var i: int = _idx(ix, iy, iz)
+	if _solid[i] != 0:
+		return
+	if _detritus.size() != _cell_count:
+		_detritus.resize(_cell_count)
+	_detritus[i] += amount
+func fungus_at(x: float, y: float, z: float) -> float:
+	return _fungus_sim.fungus_at(x, y, z) if _fungus_sim != null else 0.0
+func fungus_peak() -> float:
+	return _fungus_sim.fungus_peak() if _fungus_sim != null else 0.0
+func fungus_cells() -> int:
+	return _fungus_sim.fungus_cells() if _fungus_sim != null else 0
+func detritus_peak() -> float:
+	return _fungus_sim.detritus_peak() if _fungus_sim != null else 0.0
 ## Daylight factor 0..1 (the heat module's solar term) — plants read it to gate PHOTOSYNTHESIS (day only).
 func solar_factor() -> float:
 	return _heat._solar() if _heat != null else 0.0
