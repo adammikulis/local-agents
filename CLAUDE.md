@@ -143,6 +143,21 @@ committed). When removing files:
   reference oracle**: a CPU implementation kept as the headless/no-GPU counterpart of a GPU kernel (and
   as the parity oracle that validates it). That is a permanent, first-class part of the design, not a
   stopgap — build it as such, don't apologize for it, and don't track it as debt.
+- **Per-cell field CAs belong on the GPU, NOT in C++.** Any field process that evaluates a rule per cell
+  over the grid (diffusion/advection/phase-change/decay: heat, water, wind, gas, scent, fungus, erosion,
+  snow, magma, shock, …) is embarrassingly parallel → its authoritative runtime form is a **GPU compute
+  kernel** (`kernels3d/*.glsl`), with the GDScript module kept only as the headless CPU-oracle. C++ is for
+  *serial* work (actor cognition, tree/graph ops, orchestration), not grid math. A per-cell CA left
+  looping in GDScript on the per-frame path is a **performance bug to fix**, not an acceptable state — a
+  127K-cell grid makes a single such module cost tens-to-hundreds of ms/frame.
+- **PERFORMANCE OVER PARITY (repo rule).** Playable frame-rate is a first-class requirement, and it wins
+  over CPU↔GPU numeric parity whenever they conflict. Bit-exact parity is only worth holding for
+  continuous field math that stays cheap; for everything else, **break parity to gain performance** —
+  target GPU-only kernels with *behavioral* verification (assert emergent aggregates: mass conserved,
+  counts sane, no runaway), drop or loosen the parity harness, and move the CPU oracle to a coarser
+  headless reference (or GPU-only + `GPU_REQUIRED` fail-fast) rather than pay a per-frame CPU tax to keep
+  the two identical. Do not add or keep an every-frame full-grid CPU pass solely to preserve parity. When
+  in doubt, ship the faster path and note what parity was traded.
 - **Fail-fast over silent degradation:** on authoritative simulation/destruction/collision/dispatch
   paths, if the native/GPU path can't execute, fail with an explicit typed error
   (`GPU_REQUIRED`/`NATIVE_REQUIRED`) rather than routing to alternate *behavior*. GPU availability is a

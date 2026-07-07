@@ -138,6 +138,28 @@ const InjectScript: GDScript = preload("res://addons/local_agents/scenes/simulat
 const HeatTextureScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialHeatTexture3D.gd")
 var _gpu = null                                          # LAMaterialGPU3D (local RenderingDevice) or null
 var _use_gpu: bool = false
+# TEMP PROFILING (LA_PROFILE): coarse GPU-section vs CPU-tail-modules usec split, printed every 120 steps.
+var _prof_gpu: int = 0
+var _prof_cpu: int = 0
+var _prof_mod: Dictionary = {}
+var _prof_n: int = 0
+var _prof_last: int = 0
+var _slow_tick: int = 0                                  # 4-cycle stagger for the slow geological/bio CPU passes
+
+
+func _prof_mark(name: String, on: bool) -> void:
+	if not on:
+		return
+	var now: int = Time.get_ticks_usec()
+	_prof_mod[name] = int(_prof_mod.get(name, 0)) + (now - _prof_last)
+	_prof_last = now
+
+
+func _prof_mod_avg(n: int) -> Dictionary:
+	var out: Dictionary = {}
+	for k in _prof_mod.keys():
+		out[k] = int(_prof_mod[k]) / n
+	return out
 # Read-only query accessors + the dynamic-water surface render adapter (factored out; see those files).
 var _queries = null                                      # LAMaterialFieldQueries3D
 var _render = null                                       # LAMaterialFieldRender3D
@@ -492,7 +514,7 @@ func activate() -> void:
 	_shock_sim.setup(self)
 	# GPU-RESIDENT backend: persistent SSBOs, the whole heat+water step batched on-GPU, ONE readback per
 	# frame (see MaterialGPU3D's frame API). Headless has no local RenderingDevice → CPU oracle.
-	if GPUScript.available():
+	if GPUScript.available() and not OS.has_environment("LA_FORCE_CPU"):
 		_gpu = GPUScript.new()
 		_gpu.setup(self)
 		_use_gpu = true
@@ -547,6 +569,7 @@ func _physics_process(delta: float) -> void:
 		return
 
 	if _use_gpu:
+		var _pg0: int = Time.get_ticks_usec() if OS.has_environment("LA_PROFILE") else 0
 		# GPU-RESIDENT: the WHOLE step (water + heat + atmosphere + lava) runs `steps` times on the GPU.
 		# temp/water/lava carry CPU injections (springs, disaster heat/lava) so they round-trip every frame;
 		# vapor/cloud/fog live fully resident on the GPU and are read back only on a cadence (render-only).
@@ -636,16 +659,28 @@ func _physics_process(delta: float) -> void:
 		_slow_read_tick = (_slow_read_tick + 1) % SLOW_READ_EVERY
 		# Emergent 3D wind ran ON-GPU inside _gpu.step() (pressure -> velocity) and came back above — so here
 		# we only refresh the cached domain-average wind (ocean swell / HUD) from it; no CPU wind scan.
+		var _prof_on: bool = OS.has_environment("LA_PROFILE")
+		var _pc0: int = Time.get_ticks_usec() if _prof_on else 0
+		if _prof_on:
+			_prof_gpu += _pc0 - _pg0
+			_prof_last = _pc0
 		if _wind_sim != null:
 			_wind_sim.recompute_avg_from_field()
-		# CPU-oracle field processes on the fresh GPU readback (their edits round-trip to the GPU next frame):
-		# erosion carves water-borne sediment, snow/ice phase-change, magma bores conduits.
-		if _erosion_sim != null:
+		# GEOLOGICAL/biological CPU processes are SLOW by nature (erosion carving rock, snowpack, magma boring
+		# conduits, fungus rotting matter) — running each dense full-grid pass EVERY frame was ~80ms/frame for
+		# no visible gain. Stagger them one-per-frame on a 4-cycle (perf > parity, per CLAUDE.md): each still
+		# advances, just at a cadence matched to how slowly it actually changes. (Until they are GPU-ported.)
+		_slow_tick = (_slow_tick + 1) % 4
+		# CPU-oracle field processes on the fresh GPU readback (their edits round-trip to the GPU next frame).
+		if _erosion_sim != null and _slow_tick == 0:
 			_erosion_sim.step()
-		if _snowice_sim != null:
+			_prof_mark("erosion", _prof_on)
+		if _snowice_sim != null and _slow_tick == 1:
 			_snowice_sim.step()
-		if _magma_sim != null:
+			_prof_mark("snowice", _prof_on)
+		if _magma_sim != null and _slow_tick == 2:
 			_magma_sim.step()
+			_prof_mark("magma", _prof_on)
 		# Emergent dust: the loft/advect/settle CORE ran on-GPU (dust_*3d kernels) and dust/sediment came back in
 		# the readback — so here we run ONLY the CPU tail (refresh the dust_cells/dust_peak diagnostics).
 		if _dust_sim != null:
@@ -654,23 +689,37 @@ func _physics_process(delta: float) -> void:
 		# above — so here we run ONLY the CPU scene tail (fuel seed/scan, ash marking, ash->plant regrowth).
 		if _combustion != null:
 			_combustion.step_scene_only()
+			_prof_mark("fire_tail", _prof_on)
 		# Emergent oxygen: the fire kernel CONSUMED O₂ on-GPU (read back above); here the CPU gas tail runs the
 		# CONTINUOUS transport (diffuse + advect on the fresh wind + sky replenishment) on the drawn-down field.
 		if _gas_sim != null:
 			_gas_sim.step()
+			_prof_mark("gas", _prof_on)
 		# Scent/waste stigmergy advects on the fresh wind; shock radiates the latest stimuli. Charge's ACCUMULATE
 		# ran on-GPU (charge_accum3d) and _charge came back above — so charge runs ONLY its CPU tail here (the
 		# per-column BREAKDOWN reduction + bolt spawn + column reset). All CPU oracle otherwise.
 		if _scent_sim != null:
 			_scent_sim.step()
+			_prof_mark("scent", _prof_on)
 		# Emergent decomposer: fungus rots the detritus carcasses/ash deposited (-> CO2/O2/fertility) on the
-		# fresh post-readback CO2/O2. CPU-oracle; its edits round-trip to the GPU next frame.
-		if _fungus_sim != null:
+		# fresh post-readback CO2/O2. CPU-oracle; its edits round-trip to the GPU next frame. Throttled (slow
+		# biological process) on the same 4-cycle stagger as the geological passes.
+		if _fungus_sim != null and _slow_tick == 3:
 			_fungus_sim.step()
+			_prof_mark("fungus", _prof_on)
 		if _charge_sim != null:
 			_charge_sim.step_scene_only()
 		if _shock_sim != null:
 			_shock_sim.step()
+			_prof_mark("shock", _prof_on)
+		if _prof_on:
+			_prof_cpu += Time.get_ticks_usec() - _pc0
+			_prof_n += 1
+			if _prof_n % 120 == 0:
+				print("PROF gpu=%dus cpu=%dus mods=%s" % [_prof_gpu / 120, _prof_cpu / 120, str(_prof_mod_avg(120))])
+				_prof_gpu = 0
+				_prof_cpu = 0
+				_prof_mod = {}
 	else:
 		for i in range(steps):
 			# Springs feed the surface (rivers emerge as this water flows downhill in 3D).

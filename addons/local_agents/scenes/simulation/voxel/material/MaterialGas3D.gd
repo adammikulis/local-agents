@@ -33,6 +33,7 @@ const O2_AMBIENT: float = 1.0             # sky/open-air oxygen level (MUST matc
 const DIFFUSE: float = 0.12               # symmetric share sent to each OPEN 6-neighbour per step (Laplacian)
 const ADVECT: float = 0.08                # extra downwind share (× clamped wind toward the neighbour)
 const WIND_REF: float = 6.0               # wind speed at which the advective share saturates (== dust/scent)
+const INV_WIND_REF: float = 1.0 / 6.0     # precomputed 1/WIND_REF (inlined _share avoids a per-share divide)
 const SKY_EXCHANGE: float = 0.5           # fraction the sky-exposed surface cell relaxes toward O2_AMBIENT/step
 const O2_MIN_DIAG: float = 0.001          # below this an open cell reads as effectively empty (diagnostics floor)
 
@@ -115,22 +116,27 @@ func _transport() -> void:
 				var has_n: bool = iz > 0 and solid[i - dx] == 0
 				var has_u: bool = iy < dy - 1 and solid[i + layer] == 0
 				var has_d: bool = iy > 0 and solid[i - layer] == 0
-				# Outflow shares to each OPEN neighbour (diffusion + wind blowing that way).
-				var out_e: float = _share(maxf(0.0, vx[i])) if has_e else 0.0
-				var out_w: float = _share(maxf(0.0, -vx[i])) if has_w else 0.0
-				var out_s: float = _share(maxf(0.0, vz[i])) if has_s else 0.0
-				var out_n: float = _share(maxf(0.0, -vz[i])) if has_n else 0.0
-				var out_u: float = _share(maxf(0.0, vy[i])) if has_u else 0.0
-				var out_d: float = _share(maxf(0.0, -vy[i])) if has_d else 0.0
+				# Outflow shares to each OPEN neighbour (diffusion + wind blowing that way). _share() is
+				# INLINED here — at 127K cells × 12 shares × 2 channels it was ~3M GDScript function calls
+				# per frame (the module's dominant cost); the arithmetic is identical.
+				var vxi: float = vx[i]
+				var vyi: float = vy[i]
+				var vzi: float = vz[i]
+				var out_e: float = (DIFFUSE + ADVECT * clampf(maxf(0.0, vxi) * INV_WIND_REF, 0.0, 1.0)) if has_e else 0.0
+				var out_w: float = (DIFFUSE + ADVECT * clampf(maxf(0.0, -vxi) * INV_WIND_REF, 0.0, 1.0)) if has_w else 0.0
+				var out_s: float = (DIFFUSE + ADVECT * clampf(maxf(0.0, vzi) * INV_WIND_REF, 0.0, 1.0)) if has_s else 0.0
+				var out_n: float = (DIFFUSE + ADVECT * clampf(maxf(0.0, -vzi) * INV_WIND_REF, 0.0, 1.0)) if has_n else 0.0
+				var out_u: float = (DIFFUSE + ADVECT * clampf(maxf(0.0, vyi) * INV_WIND_REF, 0.0, 1.0)) if has_u else 0.0
+				var out_d: float = (DIFFUSE + ADVECT * clampf(maxf(0.0, -vyi) * INV_WIND_REF, 0.0, 1.0)) if has_d else 0.0
 				var keep: float = 1.0 - (out_e + out_w + out_s + out_n + out_u + out_d)
 				var acc: float = o2[i] * keep
 				# Inflow: each neighbour's share flowing TOWARD this cell (its wind toward us + diffusion).
-				if has_e: acc += o2[i + 1] * _share(maxf(0.0, -vx[i + 1]))
-				if has_w: acc += o2[i - 1] * _share(maxf(0.0, vx[i - 1]))
-				if has_s: acc += o2[i + dx] * _share(maxf(0.0, -vz[i + dx]))
-				if has_n: acc += o2[i - dx] * _share(maxf(0.0, vz[i - dx]))
-				if has_u: acc += o2[i + layer] * _share(maxf(0.0, -vy[i + layer]))
-				if has_d: acc += o2[i - layer] * _share(maxf(0.0, vy[i - layer]))
+				if has_e: acc += o2[i + 1] * (DIFFUSE + ADVECT * clampf(maxf(0.0, -vx[i + 1]) * INV_WIND_REF, 0.0, 1.0))
+				if has_w: acc += o2[i - 1] * (DIFFUSE + ADVECT * clampf(maxf(0.0, vx[i - 1]) * INV_WIND_REF, 0.0, 1.0))
+				if has_s: acc += o2[i + dx] * (DIFFUSE + ADVECT * clampf(maxf(0.0, -vz[i + dx]) * INV_WIND_REF, 0.0, 1.0))
+				if has_n: acc += o2[i - dx] * (DIFFUSE + ADVECT * clampf(maxf(0.0, vz[i - dx]) * INV_WIND_REF, 0.0, 1.0))
+				if has_u: acc += o2[i + layer] * (DIFFUSE + ADVECT * clampf(maxf(0.0, -vy[i + layer]) * INV_WIND_REF, 0.0, 1.0))
+				if has_d: acc += o2[i - layer] * (DIFFUSE + ADVECT * clampf(maxf(0.0, vy[i - layer]) * INV_WIND_REF, 0.0, 1.0))
 				_scratch[i] = maxf(0.0, acc)
 	var tmp: PackedFloat32Array = _f._o2
 	_f._o2 = _scratch
@@ -171,21 +177,25 @@ func _transport_co2() -> void:
 				var has_u: bool = iy < dy - 1 and solid[i + layer] == 0
 				var has_d: bool = iy > 0 and solid[i - layer] == 0
 				# Outflow shares. Down (out_d) carries an extra CO2_SETTLE (buoyant sink); up carries none.
-				var out_e: float = _share(maxf(0.0, vx[i])) if has_e else 0.0
-				var out_w: float = _share(maxf(0.0, -vx[i])) if has_w else 0.0
-				var out_s: float = _share(maxf(0.0, vz[i])) if has_s else 0.0
-				var out_n: float = _share(maxf(0.0, -vz[i])) if has_n else 0.0
-				var out_u: float = _share(maxf(0.0, vy[i])) if has_u else 0.0
-				var out_d: float = (_share(maxf(0.0, -vy[i])) + CO2_SETTLE) if has_d else 0.0
+				# _share() inlined (see _transport) — same arithmetic, no per-share call/divide.
+				var vxi: float = vx[i]
+				var vyi: float = vy[i]
+				var vzi: float = vz[i]
+				var out_e: float = (DIFFUSE + ADVECT * clampf(maxf(0.0, vxi) * INV_WIND_REF, 0.0, 1.0)) if has_e else 0.0
+				var out_w: float = (DIFFUSE + ADVECT * clampf(maxf(0.0, -vxi) * INV_WIND_REF, 0.0, 1.0)) if has_w else 0.0
+				var out_s: float = (DIFFUSE + ADVECT * clampf(maxf(0.0, vzi) * INV_WIND_REF, 0.0, 1.0)) if has_s else 0.0
+				var out_n: float = (DIFFUSE + ADVECT * clampf(maxf(0.0, -vzi) * INV_WIND_REF, 0.0, 1.0)) if has_n else 0.0
+				var out_u: float = (DIFFUSE + ADVECT * clampf(maxf(0.0, vyi) * INV_WIND_REF, 0.0, 1.0)) if has_u else 0.0
+				var out_d: float = (DIFFUSE + ADVECT * clampf(maxf(0.0, -vyi) * INV_WIND_REF, 0.0, 1.0) + CO2_SETTLE) if has_d else 0.0
 				var keep: float = 1.0 - (out_e + out_w + out_s + out_n + out_u + out_d)
 				var acc: float = co2[i] * maxf(0.0, keep)
 				# Inflow: each neighbour's share TOWARD this cell. The cell ABOVE also settles CO2_SETTLE down into us.
-				if has_e: acc += co2[i + 1] * _share(maxf(0.0, -vx[i + 1]))
-				if has_w: acc += co2[i - 1] * _share(maxf(0.0, vx[i - 1]))
-				if has_s: acc += co2[i + dx] * _share(maxf(0.0, -vz[i + dx]))
-				if has_n: acc += co2[i - dx] * _share(maxf(0.0, vz[i - dx]))
-				if has_u: acc += co2[i + layer] * (_share(maxf(0.0, -vy[i + layer])) + CO2_SETTLE)
-				if has_d: acc += co2[i - layer] * _share(maxf(0.0, vy[i - layer]))
+				if has_e: acc += co2[i + 1] * (DIFFUSE + ADVECT * clampf(maxf(0.0, -vx[i + 1]) * INV_WIND_REF, 0.0, 1.0))
+				if has_w: acc += co2[i - 1] * (DIFFUSE + ADVECT * clampf(maxf(0.0, vx[i - 1]) * INV_WIND_REF, 0.0, 1.0))
+				if has_s: acc += co2[i + dx] * (DIFFUSE + ADVECT * clampf(maxf(0.0, -vz[i + dx]) * INV_WIND_REF, 0.0, 1.0))
+				if has_n: acc += co2[i - dx] * (DIFFUSE + ADVECT * clampf(maxf(0.0, vz[i - dx]) * INV_WIND_REF, 0.0, 1.0))
+				if has_u: acc += co2[i + layer] * (DIFFUSE + ADVECT * clampf(maxf(0.0, -vy[i + layer]) * INV_WIND_REF, 0.0, 1.0) + CO2_SETTLE)
+				if has_d: acc += co2[i - layer] * (DIFFUSE + ADVECT * clampf(maxf(0.0, vy[i - layer]) * INV_WIND_REF, 0.0, 1.0))
 				_co2_scratch[i] = maxf(0.0, acc)
 	var tmp: PackedFloat32Array = _f._co2
 	_f._co2 = _co2_scratch
