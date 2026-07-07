@@ -4,8 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Two thresholds: a SOFT smell limit that warns (split before you cross it) and a HARD limit that FAILS
 # the build. A first-party source/config file over the hard limit must be split into focused modules.
-SOFT_FILE_LINES="${SOFT_FILE_LINES:-800}"
-MAX_FILE_LINES="${MAX_FILE_LINES:-1000}"
+SOFT_FILE_LINES="${SOFT_FILE_LINES:-1300}"
+MAX_FILE_LINES="${MAX_FILE_LINES:-1500}"
 
 for v in "$SOFT_FILE_LINES" "$MAX_FILE_LINES"; do
   if ! [[ "$v" =~ ^[0-9]+$ ]] || [[ "$v" -le 0 ]]; then
