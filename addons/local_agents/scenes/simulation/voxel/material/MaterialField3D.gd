@@ -139,6 +139,7 @@ const InjectScript: GDScript = preload("res://addons/local_agents/scenes/simulat
 const HeatTextureScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialHeatTexture3D.gd")
 var _gpu = null                                          # LAMaterialGPU3D (local RenderingDevice) or null
 var _use_gpu: bool = false
+var _dbg_sphere_frames: int = 0
 # TEMP PROFILING (LA_PROFILE): coarse GPU-section vs CPU-tail-modules usec split, printed every 120 steps.
 var _prof_gpu: int = 0
 var _prof_cpu: int = 0
@@ -324,8 +325,10 @@ func sphere_grid() -> RefCounted:
 ## CUBED-SPHERE setup (Phase B): lay the field over a LASphereGrid instead of a box. Allocates every channel
 ## as a flat array of length `grid.cell_count` (cell = surf*depth + r). Geometry (world↔cell, cell_world_pos,
 ## radial, neighbours) routes through the grid; the box path is unaffected.
-func setup_sphere(grid: RefCounted) -> void:
+func setup_sphere(grid: RefCounted, terrain = null) -> void:
 	_sphere = grid
+	if terrain != null:
+		_terrain = terrain      # sphere path's terrain wiring (box uses setup()); needed to activate + sample solidity
 	_cell_size = maxf(0.5, grid.cell_size)
 	_origin = grid.center
 	_cell_count = grid.cell_count
@@ -658,10 +661,12 @@ func _exit_tree() -> void:
 func _sphere_process(delta: float) -> void:
 	if not _ready_sim:
 		if _terrain == null or not _terrain.has_method("is_solid"):
+			if OS.has_environment("LA_SPHERE_DBG"): print("SPHEREDBG: waiting for terrain (terrain=%s)" % str(_terrain))
 			return
 		_sample_solidity_sphere()
 		activate()                 # is_sphere() → picks SphereGPUScript + sets _use_gpu
 		_ready_sim = true
+		if OS.has_environment("LA_SPHERE_DBG"): print("SPHEREDBG: activated use_gpu=%s avail=%s gpu=%s" % [str(_use_gpu), str(SphereGPUScript.available()), str(_gpu)])
 		return
 	if not _use_gpu:
 		return
@@ -686,6 +691,18 @@ func _sphere_process(delta: float) -> void:
 	var res: Dictionary = _gpu.end_frame()
 	_apply_sphere_readback(res)
 	LASimReport.gauge("field_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
+	if OS.has_environment("LA_SPHERE_DBG"):
+		_dbg_sphere_frames += 1
+		if _dbg_sphere_frames <= 3 or _dbg_sphere_frames % 60 == 0:
+			var tt: PackedFloat32Array = res.get("temp", PackedFloat32Array())
+			var mx: float = -1.0e20
+			var mn: float = 1.0e20
+			for v in tt:
+				if v > mx: mx = v
+				if v < mn: mn = v
+			var sd: Vector3 = _sun_light.global_transform.basis.z if _sun_light != null else Vector3.ZERO
+			print("SPHEREDBG f=%d steps=%d use_gpu=%s cc=%d ret=%d sun=%s tmin=%.2f tmax=%.2f" % [
+				_dbg_sphere_frames, steps, str(_use_gpu), _cell_count, tt.size(), str(sd), mn, mx])
 
 
 ## Scatter every channel the sphere driver read back into its CPU array, so actor world-space queries
@@ -1457,9 +1474,31 @@ func rebuild_surface() -> void:
 
 ## Central-telemetry provider (registered once with LASimReport): this field's channel aggregates, in ONE
 ## dict, so they flow into SIM_REPORT from their owner instead of being hand-threaded into a format string.
+## Open-cell (void) temperature spread — the direct read of whether the solar terminator + heat diffusion
+## actually move the temp field (a flat min==max means solar is not depositing). Snapshot-time only.
+func _open_temp_stats() -> Dictionary:
+	var mn: float = 1.0e20
+	var mx: float = -1.0e20
+	var sum: float = 0.0
+	var n: int = 0
+	for c in _cell_count:
+		if _solid[c] != 0:
+			continue
+		var t: float = _temp[c]
+		if t < mn:
+			mn = t
+		if t > mx:
+			mx = t
+		sum += t
+		n += 1
+	if n == 0:
+		return {"temp_min": 0.0, "temp_mean": 0.0, "temp_max": 0.0, "temp_open": 0}
+	return {"temp_min": mn, "temp_mean": sum / float(n), "temp_max": mx, "temp_open": n}
+
+
 ## Polled only at snapshot time, so these (cheap forwarder) reads don't run per frame.
 func report() -> Dictionary:
-	return {
+	var r: Dictionary = {
 		"wet_cells": wet_cell_count(), "heat_peak": peak_heat(), "heat_cells": hot_cell_count(),
 		"lava_cells": lava_peak(), "cloud_cells": cloud_cell_count(), "cloud_cover": avg_cloud_cover(),
 		"fog_cover": avg_fog_cover(), "wind": wind().length(), "scent_cells": scent_cell_count(),
@@ -1470,3 +1509,5 @@ func report() -> Dictionary:
 		"co2_peak": co2_peak(), "co2_avg": co2_avg(), "fungus_cells": fungus_cells(),
 		"fungus_peak": fungus_peak(), "detritus_peak": detritus_peak(),
 	}
+	r.merge(_open_temp_stats())
+	return r

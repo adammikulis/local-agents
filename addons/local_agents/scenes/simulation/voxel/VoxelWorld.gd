@@ -243,7 +243,7 @@ func _ready() -> void:
 	var sea3d: float = _body.sea_radius()
 	var field_grid: RefCounted = SphereGridScript.new()
 	field_grid.build(32, 20, 170.0, 8.0, _body.center())   # core_radius 170, cell 8 → shell 170..330
-	_material.setup_sphere(field_grid)
+	_material.setup_sphere(field_grid, _terrain)
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()                        # fill the solid mask from the terrain SDF
 	LASimReport.register(Callable(_material, "report"))   # field channel aggregates flow into SIM_REPORT
