@@ -554,52 +554,11 @@ func add_source(pos: Vector3, rate: float) -> void:
 ## Begin simulating + rendering (called after setup + sample_solidity + seed_sea). Builds the render
 ## node and starts the throttled step in _physics_process.
 func activate() -> void:
-	_heat = HeatScript.new()
-	_heat.setup(self)
-	_atmosphere = AtmosphereScript.new()
-	_atmosphere.setup(self)
-	_lava_sim = LavaScript.new()
-	_lava_sim.setup(self)
-	_wind_sim = WindScript.new()
-	_wind_sim.setup(self)
-	_slump_sim = SlumpScript.new()
-	_slump_sim.setup(self)
-	# Emergent fire/combustion over the shared field: seeds the fuel channel from vegetation, then ignites/
-	# burns/spreads on heat + wind. CPU-oracle stepped on both paths (like wind); kernels3d/fire3d.glsl is the
-	# GPU parity port. Runs AFTER wind each step so ember spread reads the fresh downwind velocity.
-	_combustion = CombustionScript.new()
-	_combustion.setup(self)
-	# Emergent SCENT + WASTE/FERTILITY stigmergy over the shared field (replaced LAScentField + LAPoop):
-	# creatures lay musk/blood/alarm derived from their state + drop feces/urine → fertility; it diffuses,
-	# advects on the LOCAL wind, decays, and washes in rain. CPU-oracle only. Runs after combustion.
-	_scent_sim = ScentScript.new()
-	_scent_sim.setup(self)
-	# Emergent atmospheric OXYGEN over the shared field: O₂ diffuses/advects on the wind + is replenished at
-	# each column's sky surface; combustion consumes it + can't burn below O2_MIN. CPU-oracle stepped on both
-	# paths (like scent). Runs after wind (needs velocity) so cave fires draw down trapped O₂ and suffocate.
-	_gas_sim = GasScript.new()
-	_gas_sim.setup(self)
-	# Emergent DECOMPOSER over the shared field: dead matter (detritus, deposited by rotting carcasses +
-	# wildfire ash) is colonised by fungus, which rots it back into CO2 + soil fertility while drawing O2 —
-	# closing the carbon/nutrient loop (death->soil->plant). CPU-oracle. Runs AFTER combustion/gas (reads fresh
-	# CO2/O2) and near scent (its fertility composes with the soil channel).
-	_fungus_sim = FungusScript.new()
-	_fungus_sim.setup(self)
-	# More emergent field processes (all CPU-oracle, own their channels in-module). Magma = lava-pressure
-	# volcanoes; erosion = water carving sediment; snow/ice = phase; dust = wind-lofted sand storms;
-	# charge = electrification→lightning; shock = a propagating sound/pressure wave (replaces the seismic ring).
-	_magma_sim = MagmaScript.new()
-	_magma_sim.setup(self)
-	_erosion_sim = ErosionScript.new()
-	_erosion_sim.setup(self)
-	_snowice_sim = SnowIceScript.new()
-	_snowice_sim.setup(self)
-	_dust_sim = DustScript.new()
-	_dust_sim.setup(self)
-	_charge_sim = ChargeScript.new()
-	_charge_sim.setup(self)
-	_shock_sim = ShockScript.new()
-	_shock_sim.setup(self)
+	# CPU-ORACLE MODULES RETIRED. The *_sphere3d GLSL kernels (run by MaterialSphereGPU3D + its sphere_passes)
+	# ARE the implementation now — no CPU heat/atmosphere/lava/wind/slump/combustion/scent/gas/fungus/magma/
+	# erosion/snowice/dust/charge/shock sims are instantiated or stepped. The field's query/inject facades
+	# null-guard every one of these (`_x.foo() if _x != null else <default>`), so leaving them null makes the
+	# not-yet-sphere-wired channels return safe defaults until their readback lands (fuller-readback step).
 	# GPU-RESIDENT backend: persistent SSBOs, the whole heat+water step batched on-GPU, ONE readback per
 	# frame (see MaterialGPU3D's frame API). Headless has no local RenderingDevice → CPU oracle.
 	if is_sphere() and SphereGPUScript.available() and not OS.has_environment("LA_FORCE_CPU"):
