@@ -24,16 +24,48 @@ the flat world into a cubed-sphere planet, then genericize reactions + dissolve 
 # ROADMAP
 
 ## Phase A — SPHERE FOUNDATION (visible planet). Grid-independent; land first.
-- [ ] **A0 — spike the cubed-sphere seam table** (throwaway): geometry + precomputed 6-neighbour+radial index
-  table (faces/edges/8 corners); port ONLY water+heat to gather via it, tiny planet, no creatures. Prove
-  water pools on the surface with no box-axis pattern, radial convection, a scalar crosses cube edges/corners
-  smoothly, terminator sweeps. **The risk lives here.**
+- **TARGET = an OUTER-WILDS-SCALE solar system (~tens of km total; a body is 1-of-N moving, spinning worlds).**
+  This scale is the SWEET SPOT and makes the design SIMPLER: fp32 covers the WHOLE system in one coordinate
+  space (~cm precision at 100 km) → **NO fp64 build, NO floating-origin rebase, NO double-precision rebuild of
+  `godot_voxel`/our GDExtension.** Everything lives in one world; bodies are just nodes at their positions.
+  **Space between bodies is NOT a field** (thin bounded atmosphere shells; don't voxelize vacuum). The
+  cubed-sphere is unchanged. Disciplines baked in from A1:
+  - **(1) Field is body-LOCAL because bodies MOVE + ROTATE (the #1 rule).** Each body's `SphereGrid`+
+    `MaterialField` is simulated in body-local space; the body's `Transform3D` (position + orientation, stepped
+    each frame by the orbital/spin integrator) places it in the shared world. Creatures/water/clouds simulate
+    locally — oblivious to the planet's motion — and render THROUGH the transform. This is exactly what lets you
+    stand on a spinning planet with its ocean and air rotating with you (Outer Wilds' whole identity). Not a
+    precision hack here — it's the moving-rigid-frame model.
+  - **(2) Sun is a POSITIONED body** — per-cell solar = `dot(cell_radial, normalize(sun_pos-body_center))` ×
+    `1/dist²`, not a baked global `sun_dir` (and you literally watch it move).
+  - **(3) Two gravity scales, separate:** per-cell radial gravity INSIDE each field (on-planet) vs. a
+    world-space point-mass integrator for the bodies + free actors (player, ejecta). With ~5–10 bodies,
+    **real-time emergent gravity is trivially feasible and on-theme** — orbits EMERGE from the same
+    momentum+gravity substrate (dissolve-don't-patch applied to celestial mechanics) rather than scripted
+    rails. (Fork to decide at A1: emergent n-body vs. stable Kepler rails — see below.)
+  - **Reference-frame handoff = the ejecta primitive at scale.** An actor is bound to a body's local frame
+    (on/near surface, moving with it) or free in world space (in transit); handoff at the atmosphere-shell
+    radius. A lava bomb with enough momentum leaves local frame → world-space projectile under multi-body
+    gravity → lands on ANOTHER planet. Outer Wilds' comet-debris / sand-pillar behaviour falls out of Phase C
+    (pressure→momentum) for free.
+  - Additive later (no sphere change): only-active/near-planet full-rate field (distant ones coarse/frozen),
+    system-scale camera/LOD.
+  - **OPEN FORK (decide at A1): emergent real-time n-body gravity** (orbits emerge, can perturb/be unstable —
+    thematically perfect, matches Outer Wilds' real physics) **vs. Kepler rails** (fixed predictable orbits,
+    stable + cheap, gravity is a lookup). Leaning emergent per the north-star; rails are the safe fallback.
+- [x] **A0 — spike the cubed-sphere seam table** (DONE, `feature/sphere-spike` 6f19512): `LASphereGrid` builds
+  6 gnomonic faces × res² × depth radial layers + the per-cell 6-neighbour+radial index table; seams stitched
+  geometrically (nearest surface dir past the edge — no hand-coded 24 edge/8 corner cases). `spike_sphere.gd`
+  proved it BEHAVIOURALLY: `SPIKE_REPORT ok=true`, closed+symmetric, `min_adj_dot=0.986` (no seam teleport),
+  seam diffusion smooth (`max_grad=0.068`, `mass_err=0.0`), radial convection monotone. `SphereGrid.gd` is the
+  keeper (Phase B's neighbour SSBO); the harness is throwaway.
 - [ ] **A1 — visible planet:** heightmap→**SDF voxel sphere** (`VoxelTerrainService`: radial coast falloff,
   `sea_level`→`sea_radius`, `surface_height`→inward radial cast, `carve_caves` `-Y`→radial). Radial "up" for
   `Creature`/`Fish`/`Plant`/`Tree`/`Nest` snap+heading+`look_at` (tangent-plane locomotion). `VoxelCameraRig`→
   orbit-the-planet. `VoxelSkyCycle`→spin under the sun + **per-cell solar** (`heat3d_solar.glsl`:
-  `max(0,dot(cell_radial,sun_dir))`) → terminator + latitude bands feed treeline/snow/comfort. **Magma core** =
-  innermost radial layers pinned hot → radial geothermal gradient. `OceanPlane`→spherical sea shell.
+  `max(0,dot(cell_radial,sun_dir))` with `sun_dir=normalize(sun_pos-body_center)`, `1/dist²` intensity — sun is
+  a positioned body, NOT a baked vector) → terminator + latitude bands feed treeline/snow/comfort. **Magma
+  core** = innermost radial layers pinned hot → radial geothermal gradient. `OceanPlane`→spherical sea shell.
 - Field's gravity-dependent processes parked until Phase B. Deliverable: walkable rotating lit planet, day/
   night terminator, latitude climate, hot core, breathing life.
 
