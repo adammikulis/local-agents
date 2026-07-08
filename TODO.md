@@ -200,7 +200,21 @@ ruled OUT by measurement, so don't repeat them:
   drops vsync for benchmarking; default keeps it — an uncapped Metal spin reports LOWER than paced.)
 - **Render instancing is LOW-value** (shadows off cut draw calls 2678→569 with no fps gain).
 
-FINAL verdict after profiling all the suspected levers (all measured, most DEBUNKED):
+**RESOLVED (1 → ~82 FPS, hits 100 in light moments).** The bottleneck was the geological SDF tails —
+`erosion`/`snowice`/`magma` `step_scene_only` (magma ~13ms) ran their carve/fill/melt stamps EVERY 10 Hz
+step frame, un-staggered, and each stamp forced godot_voxel to re-mesh the touched chunks (that was the
+"~34ms other physics" — terrain remesh triggered by the tails). Staggering the three across the `_slow_tick`
+4-cycle (one per step frame, each 4× less often; glacial geology tolerates a 0.4 s stamp interval) roughly
+DOUBLED fps (~50→82-101) with behavior intact + fire parity PASS. The user's live profiler ("physics
+dominates ~16.66ms") is what finally pointed here after 4 wrong guesses.
+
+Residual to reach a HARD, consistent 100+ (diminishing + behavior-risky): the fire `step_scene_only` tail
+(~6.6ms EVERY step frame — could stagger the fuel-seed/ash/regrowth half, fire spread is already on GPU),
+the remaining one-geo-tail-per-step-frame + its remesh, terrain streaming, and physics/render decoupling
+(interpolation). Not worth chasing unless needed — ~82 FPS with the full biosphere + streamer is very
+playable.
+
+Earlier verdict / debunked levers (kept for the record):
 - **GPU compute is ~1.1ms** — the field's ~30 kernels over 118K cells on Metal are tiny. The per-step
   `sync()` is NOT the stall. **Async "GPU-one-step-behind" was implemented + verified working, gave +0
   FPS, and was REVERTED** (it also introduced 1-step-latency behavior drift in the erosion→dust and
