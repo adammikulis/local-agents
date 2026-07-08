@@ -200,16 +200,26 @@ ruled OUT by measurement, so don't repeat them:
   drops vsync for benchmarking; default keeps it — an uncapped Metal spin reports LOWER than paced.)
 - **Render instancing is LOW-value** (shadows off cut draw calls 2678→569 with no fps gain).
 
-The real cost at ~45 FPS: each 10 Hz field step does `_gpu.step()` (all ~20 compute passes ×
-MAX_STEPS_PER_FRAME) + `submit()+sync()` (CPU blocks on ALL GPU passes) + the CPU scene tails — ~50-80ms
-on step frames. Levers to 100+ (all with tradeoffs — get sign-off):
-- **Async readback / sim-render decoupling** — don't `sync()` in the render loop; consume last frame's
-  result, let render interpolate. Removes the per-step GPU stall (this is what the crude hack did, but
-  correctly). Biggest, most architectural.
-- **Cheaper GPU step** — fewer/fused passes, lower `MAX_STEPS_PER_FRAME`, or a coarser field grid.
-- **o2/co2 (and more) fully resident** — they're GPU-authoritative on the GPU path but still round-tripped
-  every frame; needs a careful one-time seed (or fire suffocates). Another small readback %.
-- **Creature AI → C++/LOD** (~300 actors) — profile live; C++ territory per the rules, not GPU.
+FINAL verdict after profiling all the suspected levers (all measured, most DEBUNKED):
+- **GPU compute is ~1.1ms** — the field's ~30 kernels over 118K cells on Metal are tiny. The per-step
+  `sync()` is NOT the stall. **Async "GPU-one-step-behind" was implemented + verified working, gave +0
+  FPS, and was REVERTED** (it also introduced 1-step-latency behavior drift in the erosion→dust and
+  lava-cooling feedback loops). Ruled out.
+- **Readback ruled out** (~+7%, unified memory is cheap). **Creature AI ruled out** (~0.2% — only ~48
+  creatures, not 300). **Render instancing ruled out** (draw calls aren't it).
+- **What the ~50 FPS step frame ACTUALLY is** (measured): the 10 Hz field step's CPU `step_scene_only`
+  TAILS — **magma 13ms** (SDF conduit carve + deep-source feed), **fire 6.6ms**, snowice 3.7ms, shock
+  2.7ms — PLUS ~34ms of other per-step-frame physics that wasn't isolated. Even zeroing ALL field tails
+  (~46ms) leaves ~34ms, so the tails alone don't reach 60.
+Remaining levers, honestly (diminishing + risky — the sim is already very playable at ~50 FPS / pegs a
+165 Hz display in lighter moments):
+- **Stagger/optimize the heavy CPU tails harder** — magma's SDF carve is glacial; running it every ~8-16
+  frames instead of every step-frame (extend the existing 4-cycle stagger) is imperceptible and reclaims
+  most of its 13ms. Same for snowice. Low-risk, small win. The clearest remaining lever.
+- **Isolate the ~34ms "other physics"** — not creatures, not the field tails; unidentified (terrain
+  stream? water CA? actor bodies?). Needs a live per-node profiler; could be the real wall.
+- **Render/physics decoupling** — interpolate the render off the 10 Hz sim so a step-frame hitch doesn't
+  drag the average. Bigger architectural change; the honest path to a hard 100+ if the ~34ms is real.
 
 ### Done — streamer 9 → ~30 FPS (the cost was NOT what we assumed)
 Headless bisection found the streamer's ~90ms/frame was **mostly `SceneEnergyGraph`**, not the LLM: its
