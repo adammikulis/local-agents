@@ -167,6 +167,10 @@ func _ready() -> void:
 	_body.setup({"radius": PLANET_RADIUS, "relief": PLANET_RELIEF, "feature_size": PLANET_FEATURE,
 		"sea_radius": PLANET_SEA_RADIUS, "view_distance": 2000, "seed": 1337})
 	_terrain = _body.terrain()
+	# NOTE: fixing the sky's sun to the star direction is deferred — it needs a PLANETARY SKY (dark space
+	# background + low ambient) so the night side actually darkens into a stark star-lit terminator. The flat
+	# day-dome sky over-lights it (washed out). Tracked as the planetary-sky unit; the star still drives
+	# gravity/solar and the spinning planet + current sky give a serviceable day/night meanwhile.
 
 	# --- Camera + voxel viewer ---
 	_camera = CameraRigScript.new()
@@ -492,6 +496,10 @@ func _process(delta: float) -> void:
 						_ecology.stock_initial_aquatic()
 					if _camera.has_method("set_orbit_target"):
 						_camera.set_orbit_target(_body.center(), _body.radius())
+					# Magma CORE: pin the planet's centre hot → radial geothermal gradient. Interim seed on the
+					# box grid; Phase B's cubed-sphere field makes this the innermost radial layers natively.
+					if _material.has_method("add_magma_source"):
+						_material.add_magma_source(_body.center(), 1300.0, 0.6)
 				else:
 					if _terrain.has_method("carve_caves"):
 						_terrain.carve_caves(1337)
