@@ -167,10 +167,10 @@ func _ready() -> void:
 	_body.setup({"radius": PLANET_RADIUS, "relief": PLANET_RELIEF, "feature_size": PLANET_FEATURE,
 		"sea_radius": PLANET_SEA_RADIUS, "view_distance": 2000, "seed": 1337})
 	_terrain = _body.terrain()
-	# NOTE: fixing the sky's sun to the star direction is deferred — it needs a PLANETARY SKY (dark space
-	# background + low ambient) so the night side actually darkens into a stark star-lit terminator. The flat
-	# day-dome sky over-lights it (washed out). Tracked as the planetary-sky unit; the star still drives
-	# gravity/solar and the spinning planet + current sky give a serviceable day/night meanwhile.
+	# PLANETARY SKY: view from space (dark starfield + low ambient) with the sun FIXED shining star->planet;
+	# the spinning planet turns under it → a stark star-lit day/night terminator sweeps the surface.
+	if _sky.has_method("set_space_mode"):
+		_sky.set_space_mode((_body.center() - _star.global_position).normalized())
 
 	# --- Camera + voxel viewer ---
 	_camera = CameraRigScript.new()
