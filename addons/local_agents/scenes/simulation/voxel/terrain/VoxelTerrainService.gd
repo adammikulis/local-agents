@@ -6,6 +6,7 @@ extends RefCounted
 ## build/query/destruction API defined in the build contract. Everyone else CALLS this.
 
 const SHADER_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/shaders/VoxelTerrainTriplanar.gdshader"
+const PlanetGenScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/sphere/SpherePlanetGenerator.gd")
 
 # --- Island shaping (world units). The terrain is a single landmass rising out of an ocean: a broad
 # FBM landmass in the interior, radially faded down to a seabed well below sea level past the coast, so
@@ -23,6 +24,38 @@ var _viewer: VoxelViewer = null
 var _query_tool: VoxelTool = null          # cached SDF sampler for is_solid / sdf_at (the 3D-field rock test)
 var _sea_level: float = SEA_LEVEL_Y
 var _island_radius: float = ISLAND_RADIUS
+
+# --- Planet shape (spherical world). Additive: island mode is unchanged when _shape=="island".
+# When _shape=="planet", "up" is radial (pos-_center).normalized(), the surface is a sphere of radius
+# ~_planet_radius, and the sea is a shell at _sea_radius. sdf_at/is_solid/carve_sphere/fill_* stay world-space.
+var _shape: String = "island"
+var _center: Vector3 = Vector3.ZERO
+var _planet_radius: float = 0.0
+var _planet_relief: float = 0.0
+var _sea_radius: float = 0.0
+
+## True when this terrain is a spherical planet (radial up) rather than the flat island (+Y up).
+func is_planet() -> bool:
+	return _shape == "planet"
+
+## Planet centre in world space (origin by default). Only meaningful in planet mode.
+func planet_center() -> Vector3:
+	return _center
+
+## Mean solid radius of the planet (world units from centre). 0 in island mode.
+func planet_radius() -> float:
+	return _planet_radius
+
+## Radius of the spherical sea shell (world units from centre). 0 in island mode.
+func sea_radius() -> float:
+	return _sea_radius
+
+## Local "up" at a world point: radial on a planet, +Y on the island.
+func up_at(pos: Vector3) -> Vector3:
+	if _shape == "planet":
+		var r: Vector3 = pos - _center
+		return r.normalized() if r.length() > 0.001 else Vector3.UP
+	return Vector3.UP
 
 ## World Y of the sea surface this terrain was shaped around (the ocean plane / MaterialField sea_level).
 func sea_level() -> float:
@@ -85,6 +118,51 @@ func build(parent: Node3D, opts: Dictionary = {}) -> void:
 	terrain.voxel_bounds = AABB(
 		Vector3(-half_xz, y_min, -half_xz),
 		Vector3(half_xz * 2, y_max - y_min, half_xz * 2))
+	terrain.full_load_mode_enabled = true
+	parent.add_child(terrain)
+	_terrain = terrain
+
+
+## Build a SPHERICAL PLANET as a child of `parent` (radial up, magma-core-ready).
+## opts: radius, sea_radius, relief, feature_size, octaves, seed, center, lod_count, lod_distance,
+## view_distance. The terrain SDF comes from the native LASpherePlanetGenerator; sphere-enclosing bounds
+## keep the whole body resident so off-camera edits (impacts, eruptions) apply anywhere.
+func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
+	if _terrain != null:
+		return
+	_shape = "planet"
+	_center = opts.get("center", Vector3.ZERO)
+	_planet_relief = float(opts.get("relief", 16.0))
+
+	var pg: RefCounted = PlanetGenScript.new()
+	var gen: VoxelGeneratorGraph = pg.build({
+		"radius": float(opts.get("radius", 250.0)),
+		"sea_radius": opts.get("sea_radius", float(opts.get("radius", 250.0)) * 0.93),
+		"relief": _planet_relief,
+		"feature_size": float(opts.get("feature_size", 78.0)),
+		"octaves": int(opts.get("octaves", 4)),
+		"seed": int(opts.get("seed", 1337)),
+	})
+	_planet_radius = pg.radius()
+	_sea_radius = pg.sea_radius()
+
+	var mesher: VoxelMesherTransvoxel = VoxelMesherTransvoxel.new()
+	mesher.texturing_mode = 0
+
+	var terrain: VoxelLodTerrain = VoxelLodTerrain.new()
+	terrain.name = "VoxelTerrain"
+	terrain.mesher = mesher
+	terrain.generator = gen
+	terrain.material = _make_material()
+	terrain.lod_count = int(opts.get("lod_count", 5))
+	terrain.lod_distance = float(opts.get("lod_distance", 56.0))
+	terrain.view_distance = int(opts.get("view_distance", 2000))
+	terrain.generate_collisions = true
+	terrain.collision_layer = 1
+	terrain.collision_mask = 0
+	var rr: float = _planet_radius + _planet_relief + 80.0     # sphere-enclosing box (+ atmosphere headroom)
+	terrain.voxel_bounds = AABB(
+		_center - Vector3(rr, rr, rr), Vector3(rr * 2.0, rr * 2.0, rr * 2.0))
 	terrain.full_load_mode_enabled = true
 	parent.add_child(terrain)
 	_terrain = terrain
@@ -342,10 +420,38 @@ func surface_height(x: float, z: float, top: float = 300.0) -> float:
 	var pos: Vector3 = res["position"]
 	return pos.y
 
+## PLANET: world radius (distance from centre) of the solid surface along direction `dir`, via an inward
+## radial physics ray from above the surface toward the core. NAN if that patch is unmeshed / the ray misses.
+func surface_radius(dir: Vector3) -> float:
+	var d: Vector3 = dir.normalized()
+	var top: float = _planet_radius + _planet_relief + 60.0
+	var from: Vector3 = _center + d * top
+	var res: Dictionary = raycast_terrain(from, -d, top)      # cast inward toward the core
+	if not res["hit"]:
+		return NAN
+	return (res["position"] - _center).length()
+
+## PLANET: the world-space surface point along `dir` (centre + dir * surface_radius). NAN-vector if unmeshed.
+func surface_point(dir: Vector3) -> Vector3:
+	var r: float = surface_radius(dir)
+	if is_nan(r):
+		return Vector3(NAN, NAN, NAN)
+	return _center + dir.normalized() * r
+
+## PLANET: height of a world point ABOVE the local ground (>0 in the air, <0 underground). NAN if unmeshed.
+func altitude_at(pos: Vector3) -> float:
+	var d: Vector3 = pos - _center
+	var sr: float = surface_radius(d)
+	if is_nan(sr):
+		return NAN
+	return d.length() - sr
+
 ## True if terrain is meshed + collidable near world_pos.
 func is_ready_at(world_pos: Vector3) -> bool:
 	if _terrain == null:
 		return false
+	if _shape == "planet":
+		return not is_nan(surface_radius(world_pos - _center))
 	# Collision presence (a successful downward ray) is what actually gates spawning.
 	return not is_nan(surface_height(world_pos.x, world_pos.z))
 
