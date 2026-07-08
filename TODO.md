@@ -78,13 +78,26 @@ the flat world into a cubed-sphere planet, then genericize reactions + dissolve 
   proved it BEHAVIOURALLY: `SPIKE_REPORT ok=true`, closed+symmetric, `min_adj_dot=0.986` (no seam teleport),
   seam diffusion smooth (`max_grad=0.068`, `mass_err=0.0`), radial convection monotone. `SphereGrid.gd` is the
   keeper (Phase B's neighbour SSBO); the harness is throwaway.
-- [ ] **A1 — visible planet:** heightmap→**SDF voxel sphere** (`VoxelTerrainService`: radial coast falloff,
-  `sea_level`→`sea_radius`, `surface_height`→inward radial cast, `carve_caves` `-Y`→radial). Radial "up" for
-  `Creature`/`Fish`/`Plant`/`Tree`/`Nest` snap+heading+`look_at` (tangent-plane locomotion). `VoxelCameraRig`→
-  orbit-the-planet. `VoxelSkyCycle`→spin under the sun + **per-cell solar** (`heat3d_solar.glsl`:
-  `max(0,dot(cell_radial,sun_dir))` with `sun_dir=normalize(sun_pos-body_center)`, `1/dist²` intensity — sun is
-  a positioned body, NOT a baked vector) → terminator + latitude bands feed treeline/snow/comfort. **Magma
-  core** = innermost radial layers pinned hot → radial geothermal gradient. `OceanPlane`→spherical sea shell.
+- [~] **A1 — visible planet** (IN PROGRESS on `feature/sphere-spike`):
+  - [x] **Terrain crux PROVEN** (`c76dd9e`): `LASpherePlanetGenerator` = NATIVE `VoxelGeneratorGraph`
+    `sdf=(length(p)-radius)-amp·fbm3d` (no heightmap, no box axes; solid-inside matches `is_solid<0`).
+    `spike_planet.gd` → `PLANET_REPORT ok=true` (compiled, is_sphere 20-dir/0-miss, center_solid via
+    generate_block, space_empty). `PlanetPreview.tscn` renders it: Transvoxel mesh + distance-LOD + lit planet
+    with a natural directional-light terminator (`planet_preview.png`). Flat relic is small + isolated: ONLY
+    `VoxelGeneratorImage`, `surface_height(x,z)` (down-ray), `carve_caves` (world-Y) assume `(x,z)→Y`;
+    `sdf_at`/`is_solid`/`carve_sphere`/`fill_*`/`raycast_terrain` are world-space and SURVIVE.
+  - [ ] **Integrate into the live scene** (`VoxelTerrainService`): swap `VoxelGeneratorImage`→the sphere graph;
+    `sea_level`→`sea_radius`; `surface_height`→inward radial cast (ray from `dir·(R+margin)` toward core);
+    `carve_caves` `-Y`→radial-down + angular-extent bounds; `voxel_bounds`→`[-R,R]³` sphere box.
+  - [ ] **Radial "up" for actors** (`Creature`/`Fish`/`Plant`/`Tree`/`Nest`): `up = (pos-center).normalized()`
+    for snap/heading/`look_at` (tangent-plane locomotion); spawn on the sphere surface.
+  - [ ] **`VoxelCameraRig`** → orbit-the-planet (radial up, rotate-around-core).
+  - [ ] **`VoxelSkyCycle`** → sun is a POSITIONED body; **per-cell solar** (`heat3d_solar.glsl`:
+    `max(0,dot(cell_radial,sun_dir))`, `sun_dir=normalize(sun_pos-body_center)`, `1/dist²`) → terminator +
+    latitude bands feed treeline/snow/comfort. **Magma core** = innermost radial layers pinned hot → radial
+    geothermal gradient. **`OceanPlane`** → spherical sea shell at `sea_radius`.
+  - Build in the disciplines: body-LOCAL field (moving/rotating frame), sun-as-body. These units fan out to
+    subagents once the terrain integration lands (they depend on the sphere existing in the scene).
 - Field's gravity-dependent processes parked until Phase B. Deliverable: walkable rotating lit planet, day/
   night terminator, latitude climate, hot core, breathing life.
 
