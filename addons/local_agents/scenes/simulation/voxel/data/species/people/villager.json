@@ -10,6 +10,7 @@
   "preys_on": ["rabbit", "fox", "fish"],
   "flees_from": [],
   "herd": true,
+  "leader_loyalty": 0.3,
   "pop_cap": 16,
   "max_energy": 160.0,
   "metabolism": 1.4,

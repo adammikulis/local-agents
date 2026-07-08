@@ -10,6 +10,7 @@
   "preys_on": [],
   "flees_from": ["fox", "villager"],
   "herd": true,
+  "leader_loyalty": 0.0,
   "pop_cap": 40,
   "max_energy": 70.0,
   "metabolism": 2.6,

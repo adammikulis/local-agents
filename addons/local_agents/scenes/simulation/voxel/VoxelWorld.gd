@@ -84,6 +84,8 @@ var _cognition_stats: bool = false      # --cognition-stats: print fast/slow bra
 var _peak_circling: int = 0
 var _peak_investigating: int = 0
 var _peak_sleeping: int = 0
+var _peak_leaders: int = 0                   # most simultaneous emergent local leaders (herd cognition load)
+var _peak_followers: int = 0                 # most creatures delegating their decision to a leader at once
 var _peak_slump: int = 0                    # most loose-sediment cells slumping at once (landslide diagnostic)
 var _auto_meteor: bool = false
 var _overview: bool = false             # --overview: frame a wide whole-island vista (screenshot aid)
@@ -569,6 +571,8 @@ func _sample_behaviour_peaks() -> void:
 	var circ: int = 0
 	var invs: int = 0
 	var slp: int = 0
+	var lead: int = 0
+	var foll: int = 0
 	for c in get_tree().get_nodes_in_group("creature"):
 		if not is_instance_valid(c):
 			continue
@@ -579,9 +583,16 @@ func _sample_behaviour_peaks() -> void:
 			invs += 1
 		elif st == "sleep" or st == "roost":
 			slp += 1
+		if bool(c.get("herd")):
+			if bool(c.get("_is_leader")):
+				lead += 1
+			else:
+				foll += 1
 	_peak_circling = maxi(_peak_circling, circ)
 	_peak_investigating = maxi(_peak_investigating, invs)
 	_peak_sleeping = maxi(_peak_sleeping, slp)
+	_peak_leaders = maxi(_peak_leaders, lead)
+	_peak_followers = maxi(_peak_followers, foll)
 
 
 # Feed the generative music a mood from live world state. Presentation only.

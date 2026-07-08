@@ -7,6 +7,10 @@ extends RefCounted
 ## per-species flock_* config. `flatten` zeroes Y for ground creatures. Static + dependency-free
 ## of the LACreature type. (Explicit types only — project rule: no ':=' inferred typing.)
 
+# Extra pull a follower feels toward its emergent local leader (see LACreatureLeadership), on top of the
+# ordinary flock average — makes the herd wheel visibly BEHIND its elder rather than just centring itself.
+const LEADER_BIAS: float = 0.6
+
 static func steer(c, pos: Vector3, flatten: bool) -> Vector3:
 	if c.flock_weight <= 0.0:
 		return Vector3.ZERO
@@ -44,4 +48,20 @@ static func steer(c, pos: Vector3, flatten: bool) -> Vector3:
 		out += align.normalized() * c.flock_alignment
 	if separation.length() > 0.001:
 		out += separation.normalized() * c.flock_separation
+	# Leader-biased cohesion/alignment: a follower drifts toward + orients behind its emergent local leader
+	# (LACreatureLeadership). Non-followers (_leader == null) are unaffected, so non-herd behaviour is intact.
+	var leader = c._leader
+	if leader != null and is_instance_valid(leader):
+		var lp: Vector3 = leader.global_position
+		var ld: float = pos.distance_to(lp)
+		if ld < c.flock_radius and ld > 0.0001:
+			var to_leader: Vector3 = lp - pos
+			var lead_head: Vector3 = leader._heading
+			if flatten:
+				to_leader.y = 0.0
+				lead_head.y = 0.0
+			if to_leader.length() > 0.001:
+				out += to_leader.normalized() * c.flock_cohesion * LEADER_BIAS
+			if lead_head.length() > 0.001:
+				out += lead_head.normalized() * c.flock_alignment * LEADER_BIAS
 	return out * c.flock_weight

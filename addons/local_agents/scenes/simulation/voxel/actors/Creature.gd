@@ -87,6 +87,10 @@ var maturity_age: float = 15.0
 var preys_on: PackedStringArray = PackedStringArray()
 var flees_from: PackedStringArray = PackedStringArray()
 var herd: bool = false
+# How strongly this species clings to an incumbent local leader (emergent hysteresis). A challenger must
+# out-rank the current leader by MORE than this margin to take over. 0 = pure meritocracy (always follow the
+# local top — animals); high = sticky dynasties that survive a slump (humans). One number, no per-species code.
+var leader_loyalty: float = 0.0
 var nocturnal: bool = false
 # Perception scale for the night: recomputed each frame from the shared day/night clock.
 # Nocturnal species see FARTHER after dark; diurnal species see LESS — so nights favour
@@ -144,6 +148,14 @@ var _panic_source: Vector3 = Vector3.ZERO
 var _eff_speed: float = 0.0                 # decided speed, carried between think-frames
 var _think_phase: int = -1                  # per-instance stagger offset (lazily set on first tick)
 var _force_think: bool = false              # acute event (scare/damage) → re-decide next frame
+
+# --- emergent local leadership (LACreatureLeadership) ---
+# A `herd` creature is either the local top-ranked same-species individual (a LEADER: _leader==null,
+# _is_leader==true, runs the full think cascade) or a FOLLOWER (_leader set → adopts the leader's decision
+# and coasts). Election is throttled by _leader_elect_cd. Non-herd creatures are always their own leader.
+var _leader: Node3D = null
+var _is_leader: bool = true
+var _leader_elect_cd: int = 0
 
 # Injected ecology service — broadcast calls, spawns.
 var _ecology = null
@@ -321,6 +333,7 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	preys_on = PackedStringArray(config.get("preys_on", PackedStringArray()))
 	flees_from = PackedStringArray(config.get("flees_from", PackedStringArray()))
 	herd = bool(config.get("herd", herd))
+	leader_loyalty = float(config.get("leader_loyalty", leader_loyalty))
 	nocturnal = bool(config.get("nocturnal", nocturnal))
 	flock_cohesion = float(config.get("flock_cohesion", flock_cohesion))
 	flock_alignment = float(config.get("flock_alignment", flock_alignment))
@@ -420,6 +433,21 @@ const SLEEP_THINK_STRIDE: int = 30         # asleep/resting: no decisions to mak
 const NEAR_LOD_D2: float = 900.0           # <30 m from camera → full THINK_STRIDE rate
 const MID_LOD_D2: float = 4900.0           # <70 m → MID rate; beyond → FAR rate
 
+# --- Emergent local leadership (LACreatureLeadership). A `herd` creature that is NOT the local top-ranked
+# same-species individual becomes a FOLLOWER: it ADOPTS its leader's decision (the canonical action) and
+# coasts on it, so it skips the whole expensive think_* + cognition assessment and ticks slowly. Only the
+# few local leaders pay the heavy "what to do" cost. Reflexes (flee/thirst) + all pathing stay per-individual.
+const FOLLOWER_THINK_STRIDE: int = 18      # a follower re-decides rarely (~3 Hz) — it coasts on the adopted action
+const LEADER_ELECT_STRIDE: int = 45        # re-run the (cheap, throttled) local-leader election ~every 0.75 s
+const LEADER_RADIUS_MULT: float = 1.5      # leadership neighbourhood = flock_radius × this
+# A/B / verification kill-switch: LA_NO_LEADERSHIP=1 makes every creature its own leader (no delegation),
+# i.e. the pre-leadership behaviour, for on/off population + perf comparison. Read once (env is process-wide).
+static var _leadership_off: int = -1
+static func _leadership_disabled() -> bool:
+	if _leadership_off < 0:
+		_leadership_off = 1 if OS.get_environment("LA_NO_LEADERSHIP") == "1" else 0
+	return _leadership_off == 1
+
 # Camera position, fetched once per physics frame and shared by every creature (a single
 # get_camera_3d() lookup, not one per creature). INF when there is no active camera.
 static var _cam_frame: int = -1
@@ -445,6 +473,10 @@ func _think_stride() -> int:
 	if state == "flee" or state == "panic" or state == "chase" or state == "stalk" \
 			or state == "throw" or state == "seek" or state == "drink":
 		return THINK_STRIDE
+	# A follower (herd creature with a valid local leader) coasts on its adopted action and re-decides
+	# rarely — the leader pays the heavy "what to do" cost. Time-critical states above already opted out.
+	if herd and _leader != null and is_instance_valid(_leader):
+		return FOLLOWER_THINK_STRIDE
 	var cam: Vector3 = _camera_pos()
 	if is_inf(cam.x):
 		return THINK_STRIDE
@@ -454,6 +486,40 @@ func _think_stride() -> int:
 	if d2 < MID_LOD_D2:
 		return MID_THINK_STRIDE
 	return FAR_THINK_STRIDE
+
+
+# Throttled emergent election (LACreatureLeadership): decide whether I lead my local same-species cluster
+# or follow its top-ranked member, with species hysteresis (leader_loyalty) + self-healing. No registry,
+# no appointment — every creature runs the same local argmax and the roles fall out.
+func _elect_leader(pos: Vector3) -> void:
+	_leader_elect_cd = LEADER_ELECT_STRIDE
+	var radius: float = flock_radius * LEADER_RADIUS_MULT
+	var cand: Node3D = LACreatureLeadership.local_leader(self, pos, radius)
+	var top: Node3D = self if cand == null else cand      # the pure local argmax (self if I rank highest)
+	# The incumbent leader over me: myself while I lead, else the creature I currently follow.
+	if not _is_leader:
+		var inc_ok: bool = _leader != null and is_instance_valid(_leader) \
+				and pos.distance_squared_to(_leader.global_position) <= radius * radius
+		if not inc_ok:
+			# Self-healing: my leader died or left → adopt the new local top immediately, NO loyalty margin.
+			_leader = null if top == self else top
+			_is_leader = (top == self)
+			return
+	var incumbent: Node3D = self if _is_leader else _leader
+	if top == incumbent:
+		return                                            # incumbent is still the local top — no change
+	# `top` is the local (score, instance_id) argmax above my incumbent. Switch (takeover) if the challenger
+	# clears the species loyalty margin. For pure-meritocracy species (leader_loyalty <= 0) ANY higher top
+	# wins — local_leader already broke exact-score ties deterministically by instance_id, so we must NOT
+	# re-require a strict score margin here (that left equal-stat herds all-leaders, the whole point missed).
+	# Humans (high loyalty) cling: a decisive SCORE margin is needed → dynasties, and takeover by force is
+	# rare/dramatic. A leader and its followers run the SAME test against the SAME top, so a cluster hands
+	# off coherently on one election — no adopt-chains.
+	var justified: bool = leader_loyalty <= 0.0 \
+			or LACreatureLeadership.leader_score(top) > LACreatureLeadership.leader_score(incumbent) + leader_loyalty
+	if justified:
+		_leader = null if top == self else top
+		_is_leader = (top == self)
 
 
 func _physics_process(delta: float) -> void:
@@ -541,6 +607,18 @@ func _physics_process(delta: float) -> void:
 		_urine_cd = randf_range(10.0, 22.0)
 		_deposit_waste(Vector3(pos.x, surf, pos.z), "urine")
 
+	# EMERGENT LEADERSHIP: decide (throttled) whether I lead my local same-species cluster or follow its
+	# top — done BEFORE the stride is computed so a fresh follower immediately gets the slow follower rate,
+	# and a leaderless creature (dead/departed leader) re-elects or self-decides this frame. Non-herd
+	# creatures are always their own leader (they never delegate their decision).
+	if herd and not _leadership_disabled():
+		_leader_elect_cd -= 1
+		if _leader_elect_cd <= 0 or (not _is_leader and not is_instance_valid(_leader)):
+			_elect_leader(pos)
+	else:
+		_leader = null
+		_is_leader = true
+
 	# DECISION THROTTLE (LOD): run the full cognition cascade only every `stride` frames, where the
 	# stride grows with distance to the camera and is heaviest while asleep/resting — see _think_stride.
 	# Instance-staggered (id % stride) so the population spreads its think-frames evenly at every rate.
@@ -600,6 +678,18 @@ func _physics_process(delta: float) -> void:
 				elif thirst_action == "seek":
 					desired = _water_dir_cache
 					state = "seek"
+				elif herd and _leader != null and is_instance_valid(_leader):
+					# FOLLOWER: adopt the local leader's DECISION (its canonical action) and act on it
+					# locally — this skips the whole expensive think_* + cognition assessment, which the
+					# leader already paid once for the cluster. execute_action still finds THIS follower's
+					# own food/water/heading, so only the leader's intent is copied, not its targets.
+					var la: String = LACreatureThink._adoptable_action(
+							LACreatureThink.state_to_action(_leader, _leader.state), self)
+					var mv_f: Dictionary = LACreatureThink.execute_action(self, la, pos, delta)
+					if mv_f.has("heading"):
+						desired = mv_f["heading"]
+					state = String(mv_f.get("state", state))
+					eff_speed = float(mv_f.get("speed", eff_speed))
 				elif diet == "scavenger":
 					desired = LACreatureThink.think_scavenger(self, pos, delta)   # vultures: soar, follow carrion, circle, feed
 				elif can_fly:
@@ -620,7 +710,9 @@ func _physics_process(delta: float) -> void:
 			# situation (no predator forcing a flee) let THIS individual's learned/observed/slow-brain
 			# policy substitute a better action. An empty policy changes nothing — so day-0 behaviour is
 			# identical to before (regression-safe); learning only ever adds overrides.
-			if big_pred == null and _cognition != null and state != "roost" and state != "nesting":
+			# FOLLOWERS skip this entirely (_is_leader false) — they already adopted the leader's decision
+			# above; only leaders (and non-herd creatures) pay the expensive slow-brain escalation.
+			if big_pred == null and _is_leader and _cognition != null and state != "roost" and state != "nesting":
 				var sig: Dictionary = LASituationSignature.compute(self)
 				var innate_action: String = LACreatureThink.state_to_action(self, state)
 				var chosen: String = _cognition.decide(self, innate_action, sig, delta)

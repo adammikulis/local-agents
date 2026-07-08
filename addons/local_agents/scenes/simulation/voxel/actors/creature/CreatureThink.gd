@@ -352,6 +352,22 @@ static func state_to_action(c, s: String) -> String:
 			return "wander"
 
 
+# Clamp a leader's action to one a FOLLOWER `f` can meaningfully perform before it adopts it. Followers are
+# same-species as their leader (so diets normally match), but this guards mixed/edge configs: a non-hunter
+# handed "hunt"/"throw_rock" forages instead, and a herbivore handed "scavenge" grazes. execute_action also
+# degrades gracefully (a herbivore sent to hunt finds no prey → wanders), so this is belt-and-suspenders.
+static func _adoptable_action(action: String, f) -> String:
+	match action:
+		"hunt", "throw_rock":
+			if f.diet == "carnivore" or (f.diet == "omnivore" and f.preys_on.size() > 0):
+				return action
+			return "graze" if f.diet == "herbivore" else "scavenge"
+		"scavenge":
+			return "graze" if f.diet == "herbivore" else action
+		_:
+			return action
+
+
 # Execute a chosen action name → {heading, state, speed}. This is the name→behaviour dispatch the fast
 # policy and slow brain drive; it reuses the same primitives as the innate cascade.
 static func execute_action(c, action: String, pos: Vector3, delta: float) -> Dictionary:

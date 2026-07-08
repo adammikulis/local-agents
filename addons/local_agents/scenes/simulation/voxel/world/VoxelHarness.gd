@@ -108,6 +108,8 @@ static func emit_smoke_summary(w) -> void:
 	var circling: int = 0        # vultures over a carcass (or soaring): the visible signal
 	var investigating: int = 0   # ground scavengers reading a carrion cue ("watch the vultures")
 	var sleeping: int = 0        # animals resting at their nest during their off-hours
+	var leaders: int = 0         # emergent local leaders (herd creatures running full cognition)
+	var followers: int = 0       # herd creatures adopting a leader's decision (the delegated/cheap majority)
 	for c in creatures:
 		if is_instance_valid(c) and "hydration" in c and "max_hydration" in c:
 			var h: int = int(round(100.0 * float(c.hydration) / maxf(1.0, float(c.max_hydration))))
@@ -121,6 +123,11 @@ static func emit_smoke_summary(w) -> void:
 				investigating += 1
 			elif st == "sleep" or st == "roost":
 				sleeping += 1
+			if bool(c.get("herd")):
+				if bool(c.get("_is_leader")):
+					leaders += 1
+				else:
+					followers += 1
 	var n_nest: int = w.get_tree().get_nodes_in_group("nest").size()
 	# Cognition/genetics aggregates: prove the fast/slow brain + evolution are actually running.
 	var habits: int = 0
@@ -149,8 +156,8 @@ static func emit_smoke_summary(w) -> void:
 		var sc = w._ecology.cognition_scheduler()
 		if sc != null and sc.has_method("total_calls"):
 			sched_calls = sc.total_calls()
-	print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"heat_peak\":%.2f,\"heat_cells\":%d,\"lava_cells\":%d,\"slump_cells\":%d,\"peak_slump\":%d,\"cloud_cells\":%d,\"cloud_cover\":%.3f,\"fog_cover\":%.3f,\"wind\":%.2f,\"scent_cells\":%d,\"fertility_peak\":%.2f,\"magma_cells\":%d,\"erosion_cells\":%d,\"snow_cells\":%d,\"ice_cells\":%d,\"dust_cells\":%d,\"charge_peak\":%.2f,\"bolts\":%d,\"shock_cells\":%d,\"o2_min\":%.3f,\"o2_avg\":%.3f,\"co2_peak\":%.3f,\"co2_avg\":%.3f,\"fungus_cells\":%d,\"fungus_peak\":%.3f,\"detritus_peak\":%.3f,\"fish\":%d,\"fires\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f,\"minds\":%d,\"habits\":%d,\"escalations\":%d,\"social_lessons\":%d,\"max_generation\":%d,\"slow_brain_calls\":%d,\"nests\":%d,\"circling\":%d,\"investigating\":%d,\"sleeping\":%d,\"cues_learned\":%d}" % [
-		w._frame, str(w._spawned_initial).to_lower(), str(w._terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, heat_peak, heat_cells, lava_cells, slump_cells, w._peak_slump, cloud_cells, cloud_cover, fog_cover, wind_mag, scent_cells, fertility_peak, magma_cells, erosion_cells, snow_cells, ice_cells, dust_cells, charge_peak, bolts, shock_cells, o2_min, o2_avg, co2_peak, co2_avg, fungus_cells, fungus_peak, detritus_peak, n_fish, n_fire, min_hyd, drinkers, (w._sky.time_of_day() if w._sky != null else w._time_of_day), minds, habits, asked, learned_socially, max_gen, sched_calls, n_nest, circling, investigating, sleeping, cues_learned])
+	print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"heat_peak\":%.2f,\"heat_cells\":%d,\"lava_cells\":%d,\"slump_cells\":%d,\"peak_slump\":%d,\"cloud_cells\":%d,\"cloud_cover\":%.3f,\"fog_cover\":%.3f,\"wind\":%.2f,\"scent_cells\":%d,\"fertility_peak\":%.2f,\"magma_cells\":%d,\"erosion_cells\":%d,\"snow_cells\":%d,\"ice_cells\":%d,\"dust_cells\":%d,\"charge_peak\":%.2f,\"bolts\":%d,\"shock_cells\":%d,\"o2_min\":%.3f,\"o2_avg\":%.3f,\"co2_peak\":%.3f,\"co2_avg\":%.3f,\"fungus_cells\":%d,\"fungus_peak\":%.3f,\"detritus_peak\":%.3f,\"fish\":%d,\"fires\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f,\"minds\":%d,\"habits\":%d,\"escalations\":%d,\"social_lessons\":%d,\"max_generation\":%d,\"slow_brain_calls\":%d,\"nests\":%d,\"circling\":%d,\"investigating\":%d,\"sleeping\":%d,\"leaders\":%d,\"followers\":%d,\"cues_learned\":%d}" % [
+		w._frame, str(w._spawned_initial).to_lower(), str(w._terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, heat_peak, heat_cells, lava_cells, slump_cells, w._peak_slump, cloud_cells, cloud_cover, fog_cover, wind_mag, scent_cells, fertility_peak, magma_cells, erosion_cells, snow_cells, ice_cells, dust_cells, charge_peak, bolts, shock_cells, o2_min, o2_avg, co2_peak, co2_avg, fungus_cells, fungus_peak, detritus_peak, n_fish, n_fire, min_hyd, drinkers, (w._sky.time_of_day() if w._sky != null else w._time_of_day), minds, habits, asked, learned_socially, max_gen, sched_calls, n_nest, circling, investigating, sleeping, leaders, followers, cues_learned])
 	# Ground-truth frame breakdown (the per-module field profiler mis-attributes GPU stalls, so trust these).
 	print("PERF_MONITORS={\"fps\":%.1f,\"process_ms\":%.2f,\"physics_ms\":%.2f,\"nodes\":%d,\"draw_calls\":%d,\"prims_M\":%.2f,\"video_mem_MB\":%.1f}" % [
 		Performance.get_monitor(Performance.TIME_FPS),
@@ -164,6 +171,6 @@ static func emit_smoke_summary(w) -> void:
 		var avg_habits: float = (float(habits) / float(minds)) if minds > 0 else 0.0
 		print("COGNITION_SUMMARY minds=%d avg_habits=%.2f escalations=%d social_lessons=%d max_generation=%d slow_brain_calls=%d nests=%d circling=%d investigating=%d sleeping=%d cues_learned=%d" % [
 			minds, avg_habits, asked, learned_socially, max_gen, sched_calls, n_nest, circling, investigating, sleeping, cues_learned])
-		print("BEHAVIOUR_PEAKS peak_circling=%d peak_investigating=%d peak_sleeping=%d cues_learned=%d" % [
-			w._peak_circling, w._peak_investigating, w._peak_sleeping, cues_learned])
+		print("BEHAVIOUR_PEAKS peak_circling=%d peak_investigating=%d peak_sleeping=%d peak_leaders=%d peak_followers=%d cues_learned=%d" % [
+			w._peak_circling, w._peak_investigating, w._peak_sleeping, w._peak_leaders, w._peak_followers, cues_learned])
 	w.get_tree().quit(0)

@@ -11,6 +11,7 @@
   "preys_on": [],
   "flees_from": [],
   "herd": true,
+  "leader_loyalty": 0.0,
   "pop_cap": 30,
   "max_energy": 60.0,
   "metabolism": 2.0,
