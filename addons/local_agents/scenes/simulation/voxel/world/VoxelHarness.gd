@@ -177,6 +177,19 @@ static func emit_smoke_summary(w) -> void:
 		var sc = w._ecology.cognition_scheduler()
 		if sc != null and sc.has_method("total_calls"):
 			sched_calls = sc.total_calls()
+		# Central report: feed the headline gauges, then emit the ONE structured snapshot (events + gauges
+		# + any registered providers). SMOKE_SUMMARY below is retained for now; migrating onto SimReport.
+		LASimReport.gauge("selectable", n_sel)
+		LASimReport.gauge("minds", minds)
+		LASimReport.gauge("leaders", leaders)
+		LASimReport.gauge("followers", followers)
+		LASimReport.gauge("hierarchy_depth", hierarchy_depth)
+		LASimReport.gauge("min_hydration", min_hyd)
+		LASimReport.gauge("fish", n_fish)
+		LASimReport.gauge("fires", n_fire)
+		LASimReport.gauge("heat_peak", heat_peak)
+		LASimReport.gauge("wet_cells", wet)
+		LASimReport.emit()
 	print("SMOKE_SUMMARY={\"frames\":%d,\"spawned_initial\":%s,\"ready\":%s,\"selectable\":%d,\"actors\":%d,\"wet_cells\":%d,\"heat_peak\":%.2f,\"heat_cells\":%d,\"lava_cells\":%d,\"slump_cells\":%d,\"peak_slump\":%d,\"cloud_cells\":%d,\"cloud_cover\":%.3f,\"fog_cover\":%.3f,\"wind\":%.2f,\"scent_cells\":%d,\"fertility_peak\":%.2f,\"magma_cells\":%d,\"erosion_cells\":%d,\"snow_cells\":%d,\"ice_cells\":%d,\"dust_cells\":%d,\"charge_peak\":%.2f,\"bolts\":%d,\"shock_cells\":%d,\"o2_min\":%.3f,\"o2_avg\":%.3f,\"co2_peak\":%.3f,\"co2_avg\":%.3f,\"fungus_cells\":%d,\"fungus_peak\":%.3f,\"detritus_peak\":%.3f,\"fish\":%d,\"fires\":%d,\"min_hydration\":%d,\"drinking\":%d,\"time_of_day\":%.2f,\"minds\":%d,\"habits\":%d,\"escalations\":%d,\"social_lessons\":%d,\"max_generation\":%d,\"slow_brain_calls\":%d,\"nests\":%d,\"circling\":%d,\"investigating\":%d,\"sleeping\":%d,\"leaders\":%d,\"followers\":%d,\"hierarchy_depth\":%d,\"managers\":%d,\"cues_learned\":%d}" % [
 		w._frame, str(w._spawned_initial).to_lower(), str(w._terrain.is_ready_at(Vector3.ZERO)).to_lower(), n_sel, n_act, wet, heat_peak, heat_cells, lava_cells, slump_cells, w._peak_slump, cloud_cells, cloud_cover, fog_cover, wind_mag, scent_cells, fertility_peak, magma_cells, erosion_cells, snow_cells, ice_cells, dust_cells, charge_peak, bolts, shock_cells, o2_min, o2_avg, co2_peak, co2_avg, fungus_cells, fungus_peak, detritus_peak, n_fish, n_fire, min_hyd, drinkers, (w._sky.time_of_day() if w._sky != null else w._time_of_day), minds, habits, asked, learned_socially, max_gen, sched_calls, n_nest, circling, investigating, sleeping, leaders, followers, hierarchy_depth, managers, cues_learned])
 	# Ground-truth frame breakdown (the per-module field profiler mis-attributes GPU stalls, so trust these).

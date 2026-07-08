@@ -450,6 +450,7 @@ func _process(delta: float) -> void:
 				# (tunnels/caverns fluids can pour into) and the sea/springs settle around the reshaped rock.
 				if _terrain.has_method("carve_caves"):
 					_terrain.carve_caves(1337)
+				LASimReport.reset()
 				_ecology.spawn_initial(INITIAL_COUNTS)
 				_ecology.populate_environment(ROCK_COUNT, FOREST_CLUSTERS)
 				_seed_water()
