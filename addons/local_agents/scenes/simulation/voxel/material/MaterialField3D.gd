@@ -684,11 +684,26 @@ func _sphere_process(delta: float) -> void:
 	for i in steps:
 		_gpu.step()
 	var res: Dictionary = _gpu.end_frame()
-	if res.has("temp") and res["temp"].size() == _cell_count:
-		_temp = res["temp"]
-	if res.has("water") and res["water"].size() == _cell_count:
-		_water = res["water"]
+	_apply_sphere_readback(res)
 	LASimReport.gauge("field_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
+
+
+## Scatter every channel the sphere driver read back into its CPU array, so actor world-space queries
+## (temp_at/o2_at/co2_at/is_submerged_at, routed through world_to_cell) and the SIM_REPORT field metrics
+## see LIVE field state instead of the stale seed values. The readback cost is already paid inside
+## end_frame(); assigning a PackedFloat32Array is a cheap COW reference. Guarded per channel by size.
+func _apply_sphere_readback(res: Dictionary) -> void:
+	if res.has("temp") and res["temp"].size() == _cell_count: _temp = res["temp"]
+	if res.has("water") and res["water"].size() == _cell_count: _water = res["water"]
+	if res.has("vapor") and res["vapor"].size() == _cell_count: _vapor = res["vapor"]
+	if res.has("cloud") and res["cloud"].size() == _cell_count: _cloud = res["cloud"]
+	if res.has("fog") and res["fog"].size() == _cell_count: _fog = res["fog"]
+	if res.has("lava") and res["lava"].size() == _cell_count: _lava = res["lava"]
+	if res.has("fire") and res["fire"].size() == _cell_count: _fire = res["fire"]
+	if res.has("o2") and res["o2"].size() == _cell_count: _o2 = res["o2"]
+	if res.has("co2") and res["co2"].size() == _cell_count: _co2 = res["co2"]
+	if res.has("dust") and res["dust"].size() == _cell_count: _dust = res["dust"]
+	if res.has("shock") and _shock_sim != null and res["shock"].size() == _cell_count: _shock_sim._shock = res["shock"]
 
 
 func _physics_process(delta: float) -> void:
