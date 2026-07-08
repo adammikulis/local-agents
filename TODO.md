@@ -132,10 +132,13 @@ genericize reactions + dissolve every scripted disaster (Phase C).
     system frame → day/night sweeps. Validated godot_voxel honors a rotated `VoxelLodTerrain`; `VoxelTool`
     queries (sdf_at/carve/fill) made world↔local rotation-safe. **Magma-core seed** (`a70c793`):
     `add_magma_source` at the centre (interim; Phase B makes it the innermost radial layers).
+  - [x] **Planetary SKY + star-lit terminator** (`da9156f`): `set_space_mode` → dark space background + dark
+    COLOR ambient (the flat atmosphere dome sourced ambient from itself, washing out the night side) + sun
+    FIXED shining star→planet, clock frozen. Spinning planet turns under it → stark day/night terminator.
+    155fps (no atmosphere dome). Star drives the light end-to-end now.
   - [ ] **Remaining A1:**
-    - **Planetary SKY** (its own unit — the flat day-dome sky + high ambient wash out a planet viewed from
-      space): dark space background, low ambient, so a star-fixed sun gives a STARK terminator. Then wire the
-      sky's sun to `LAStar` (spin = sole day/night driver). Deferred after this washed the planet out.
+    - **Cloud/fog SHELLS** — the cloud + fog SHEETS still render flat (grey wisps against space); make them
+      spherical shells like the ocean (same pattern as `OceanPlane.setup_sphere`).
     - **Surface-level playtest** of radial locomotion (verified structurally + parse-clean; needs eyes-on
       ground-level walk-around — orbit distance hides individual creatures).
     - **Orbit → orbit-a-star** (staging: body orbits `LAStar` via the emergent n-body integrator; 2nd body).
