@@ -754,15 +754,20 @@ func _physics_process(delta: float) -> void:
 		# CPU-oracle field processes on the fresh GPU readback (their edits round-trip to the GPU next frame).
 		# Geological CORES ran on-GPU (erosion deposit/advect, snow accrete/melt, magma buoyant up-flow) inside
 		# _gpu.step() and susp/snow/sediment/lava came back in the readback — so each runs ONLY its CPU tail
-		# here: the SDF/solid-mask stamps (erosion CARVE, snow FREEZE/THAW, magma PRESSURE-MELT + source feed)
-		# + diagnostics, exactly like combustion/lava keep their SDF stamps a CPU tail off the GPU flow.
-		if _erosion_sim != null:
+		# here: the SDF/solid-mask stamps (erosion CARVE, snow FREEZE/THAW, magma PRESSURE-MELT + source feed).
+		# These SDF stamps are the frame's HEAVIEST CPU cost (magma ~13ms) AND each edit forces godot_voxel to
+		# re-mesh the touched chunks — so running all three EVERY 10 Hz step frame was ~130ms/s of carving for
+		# a GLACIAL process. Stagger them across the 4-cycle (one per step frame, each 4× less often): rock
+		# melts/freezes/erodes over seconds, so a 0.4 s stamp interval is imperceptible, and the worst-case
+		# step frame now carries at most ONE geological tail instead of all three. (The GPU cores still evolve
+		# every step; only the SDF stamp + its remesh is throttled.)
+		if _erosion_sim != null and _slow_tick == 0:
 			_erosion_sim.step_scene_only()
 			_prof_mark("erosion", _prof_on)
-		if _snowice_sim != null:
+		if _snowice_sim != null and _slow_tick == 1:
 			_snowice_sim.step_scene_only()
 			_prof_mark("snowice", _prof_on)
-		if _magma_sim != null:
+		if _magma_sim != null and _slow_tick == 2:
 			_magma_sim.step_scene_only()
 			_prof_mark("magma", _prof_on)
 		# Emergent dust: the loft/advect/settle CORE ran on-GPU (dust_*3d kernels) and dust/sediment came back in
