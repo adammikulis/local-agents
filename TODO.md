@@ -191,15 +191,25 @@ with-streamer (live LLM commentary + avatar) ~54-57 FPS — from 1 FPS. Every wa
 active (not orphaned), fire parity PASS, behavior intact.
 
 ### TODO — push core ~63 → 100+ FPS (the field-CA-off ceiling was ~104)
-The field CAs are now all on GPU, so the remaining ~63→104 gap is NOT the field — candidates:
-- **Per-frame full readback** (task below): `end_frame` pulls ~20 channels × 127K cells back every frame
-  for CPU consumers/render. Read only what's needed, on a cadence — likely the biggest remaining lever.
-- **Creature AI / per-actor `_physics_process`** (~300 actors): profile it live (Godot per-node profiler).
-  Per the rules this is C++/algorithm territory (not GPU) — the spatial-hash landed; cognition itself may
-  want C++ or coarser LOD if it profiles hot.
-- `fire_tail` (fuel-seed/ash/regrowth) + the SDF stamp tails stay CPU by nature; sparse-scan if hot.
-- Render instancing was measured LOW-value (shadows-off cut draw calls 2678→569 with no fps gain) — skip
-  unless entity counts balloon.
+HONEST STATE: on a clean system the sim is ~45 FPS no-streamer (vsync-paced), from ~1. Two dead ends were
+ruled OUT by measurement, so don't repeat them:
+- **Readback is NOT the bottleneck (~+7% only).** Cadencing/making channels resident (dust/fungus/vel
+  resident; lava/shock dirty-gated — done) barely moves it: Apple-Silicon unified-memory downloads are
+  cheap. The infamous "165 FPS" was the MONITOR VSYNC CAP hit by a BROKEN crude version (it clobbered
+  scent/charge/detritus → far less active content → faster), not a real readback win. (`LA_UNCAP` env
+  drops vsync for benchmarking; default keeps it — an uncapped Metal spin reports LOWER than paced.)
+- **Render instancing is LOW-value** (shadows off cut draw calls 2678→569 with no fps gain).
+
+The real cost at ~45 FPS: each 10 Hz field step does `_gpu.step()` (all ~20 compute passes ×
+MAX_STEPS_PER_FRAME) + `submit()+sync()` (CPU blocks on ALL GPU passes) + the CPU scene tails — ~50-80ms
+on step frames. Levers to 100+ (all with tradeoffs — get sign-off):
+- **Async readback / sim-render decoupling** — don't `sync()` in the render loop; consume last frame's
+  result, let render interpolate. Removes the per-step GPU stall (this is what the crude hack did, but
+  correctly). Biggest, most architectural.
+- **Cheaper GPU step** — fewer/fused passes, lower `MAX_STEPS_PER_FRAME`, or a coarser field grid.
+- **o2/co2 (and more) fully resident** — they're GPU-authoritative on the GPU path but still round-tripped
+  every frame; needs a careful one-time seed (or fire suffocates). Another small readback %.
+- **Creature AI → C++/LOD** (~300 actors) — profile live; C++ territory per the rules, not GPU.
 
 ### Done — streamer 9 → ~30 FPS (the cost was NOT what we assumed)
 Headless bisection found the streamer's ~90ms/frame was **mostly `SceneEnergyGraph`**, not the LLM: its
