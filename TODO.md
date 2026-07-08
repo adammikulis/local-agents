@@ -184,7 +184,13 @@ GPU-CPU split / `_slow_tick` stagger / dirty-gating / cadenced readback), the ch
     wakes its neighbour tiles (bubble grows); stimuli (inject_*/carve/impact) wake a region. GPU: active-tile
     list + indirect dispatch (O(active)), or v1 = per-tile sleep flag + kernel early-out. Compose with
     distance-relevance. This is what makes ~300K–4M planet cells affordable.
-- [ ] **B2 — convert every kernel's gather to the table + radial gravity.** Replace `idx±{1,dim_x,layer}` +
+- [x] **B2 KERNELS CONVERTED** (`043ff36`): all 30 `*_sphere3d.glsl` written + SPIR-V-valid at import (box
+  originals untouched, nothing loads them yet → non-breaking). heat/water/slump/lava/atmos×4/o2/co2/shock/
+  fungus/scent×2/dust×3/buoyancy×2/wind×2/charge/fire/erosion×2/gas_sky/snowice/fungus_fert/heat_cool/lava_phase
+  + solar (per-cell terminator). Slot 0=down,1-4 lateral,5=up; nbr binding 15, cell_radial 14. Flags for
+  integration: gas/scent wind-advection dropped to pure diffusion; scent/fert want the 4-slot surf_nbr table;
+  heat3d_buoyancy now needs a ping-pong (added TempOut); cross-seam wind reciprocity approximate.
+- [ ] **B2-WIRE / INTEGRATION (the remaining block — flips the live field to cubed-sphere):** Replace `idx±{1,dim_x,layer}` +
   `if(ix>0)` with `int n = nbr[idx*6+dir]; if(n>=0)…`. Order: water CA first (down=slot0 inward), then
   slump/lava (same 6-slot send), dust/rain/buoyancy/wind (radial down/up), atmosphere transport, o2/co2/heat/
   shock/scent/fungus (mechanical swap). Column kernels (`heat3d_solar`, `gas_sky`, `scent_wind`, `snowice`,
