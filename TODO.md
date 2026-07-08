@@ -158,7 +158,17 @@ genericize reactions + dissolve every scripted disaster (Phase C).
 query facade (`temp_at`/`breathable_o2_at`/`is_submerged_at`/… world-space sigs), the step scheduler (order /
 GPU-CPU split / `_slow_tick` stagger / dirty-gating / cadenced readback), the channel set, ping-pong / dispatch
 / barriers / frame API (topology-agnostic), same-cell reactions, and the world-space SDF `carve/fill` calls.
-- [ ] **B1 — grid layer + world↔cell + neighbour SSBO + ACTIVITY BUBBLES.**
+- **PROVEN + COMMITTED (the risky parts of B, de-risked in isolation):** cubed-sphere seam table (A0);
+  `SphereGrid.world_to_cell` exact inverse of `cell_world_pos` (`MAP_REPORT`, `8149579`); `MaterialField3D.
+  setup_sphere` lays every channel on the sphere, box path intact (`FIELD_SPHERE_REPORT`, `4b95019`);
+  **neighbour-SSBO gather on the REAL GPU** — `heat_sphere3d.glsl` diffuses across cube seams on-device
+  (`GPU_SPHERE_REPORT ok=true`, `b16ee2c`) = the template EVERY kernel follows. The rest of B is now mechanical
+  volume against proven templates.
+- [ ] **B1 — grid layer + world↔cell + neighbour SSBO + ACTIVITY BUBBLES.** [CPU layer DONE `4b95019`; world↔
+  cell DONE `8149579`.] REMAINING: `MaterialGPU3D._ensure_buffers` size classes → `surf_count*depth`/
+  `surf_count`; resident int32 `_buf_neighbours` (`neighbours_kernel_order`) + `_buf_cell_radial`, uploaded once
+  + bound into every gather set; push-constants swap dims→surf_count/depth (keep cell_count); activity-bubble
+  dispatch (active-tile list + indirect, or sleep-flag + early-out).
   - CPU seam = 5 primitives in `MaterialField3D.gd` + `setup`: `_idx :379`, `_col_i :445`, `cell_world_pos :387`,
     `_in_bounds :383`, `_surface_iy :907` → reimplement over `LASphereGrid` (world_pos → gnomonic face+surf+
     radial layer; `_surface_iy` → outermost open radial layer along a surf column). `setup_sphere(sphere_grid)`
