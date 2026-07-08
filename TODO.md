@@ -102,7 +102,7 @@ genericize reactions + dissolve every scripted disaster (Phase C).
   proved it BEHAVIOURALLY: `SPIKE_REPORT ok=true`, closed+symmetric, `min_adj_dot=0.986` (no seam teleport),
   seam diffusion smooth (`max_grad=0.068`, `mass_err=0.0`), radial convection monotone. `SphereGrid.gd` is the
   keeper (Phase B's neighbour SSBO); the harness is throwaway.
-- [~] **A1 — visible planet** (IN PROGRESS on `feature/sphere-spike`):
+- [x] **A1 — visible planet** (COMPLETE on `feature/sphere-spike`):
   - [x] **Terrain crux PROVEN** (`c76dd9e`): `LASpherePlanetGenerator` = NATIVE `VoxelGeneratorGraph`
     `sdf=(length(p)-radius)-amp·fbm3d` (no heightmap, no box axes; solid-inside matches `is_solid<0`).
     `spike_planet.gd` → `PLANET_REPORT ok=true` (compiled, is_sphere 20-dir/0-miss, center_solid via
@@ -136,12 +136,16 @@ genericize reactions + dissolve every scripted disaster (Phase C).
     COLOR ambient (the flat atmosphere dome sourced ambient from itself, washing out the night side) + sun
     FIXED shining star→planet, clock frozen. Spinning planet turns under it → stark day/night terminator.
     155fps (no atmosphere dome). Star drives the light end-to-end now.
-  - [ ] **Remaining A1:**
-    - **Cloud/fog SHELLS** — the cloud + fog SHEETS still render flat (grey wisps against space); make them
-      spherical shells like the ocean (same pattern as `OceanPlane.setup_sphere`).
-    - **Surface-level playtest** of radial locomotion (verified structurally + parse-clean; needs eyes-on
-      ground-level walk-around — orbit distance hides individual creatures).
-    - **Orbit → orbit-a-star** (staging: body orbits `LAStar` via the emergent n-body integrator; 2nd body).
+  - [x] **Cloud/fog/rain hidden in planet mode** (`c9a127a`): flat +Y-atmosphere sheets read as grey wisps
+    against space → hidden until Phase B grows radial cloud/fog SHELLS. Clean planet in space, 97fps.
+  - [x] **Surface-level playtest** (`c9a127a`, temporary close orbit): life sits on the ground with correct
+    radial climate bands (grass / beach / lake) + curved coastline; camera reverted to whole-planet framing.
+  - **A1 COMPLETE.** Deliverable met: walkable, lit, SPINNING planet in space — SDF sphere terrain, radial life
+    (creatures/fish/plants/trees/nests), radial climate (oceans/coasts/snow), ocean shell, orbit camera,
+    star-lit day/night terminator, magma-core seed. ~290 entities, ~100–155fps, flat world retired.
+  - **Orbit-a-star is BLOCKED on Phase B** (deferred there, not A1): the interim field is an ORIGIN-centered
+    box (not a child of the body), so spin (rotation about the centre) is fine but ORBIT (translating the body)
+    would desync terrain from the field box. Needs the body-local field → do it in/after Phase B.
   - Deferred to **Phase B** (cubed-sphere body-local field — NOT worth throwaway box-grid work): per-cell solar
     field TERMINATOR (`heat3d_solar.glsl` reads `LAStar` sun_dir), real radial magma core / geothermal, radial
     water/rivers. Radial caves + scripted volcano → Phase C.
