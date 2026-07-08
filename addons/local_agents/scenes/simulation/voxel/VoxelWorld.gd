@@ -25,6 +25,7 @@ const SkyCycleScript: GDScript = preload("res://addons/local_agents/scenes/simul
 const StreamerHostScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelStreamerHost.gd")
 const StarScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/system/Star.gd")
 const PlanetBodyScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/system/PlanetBody.gd")
+const SphereGridScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/sphere/SphereGrid.gd")
 
 # --- SOLAR-SYSTEM-FIRST: the world is a star + planet body (see TODO). Radial is the default; flat retired. ---
 const PLANET_RADIUS: float = 250.0
@@ -237,11 +238,14 @@ func _ready() -> void:
 	add_child(_material)
 	# 8-unit cells over the island's Y span (~130k cells); the whole heat+water+atmosphere+lava step runs
 	# on the GPU (resident SSBOs, one readback/frame). Headless falls back to the CPU oracle.
-	# Body-local box grid enclosing the whole planet ([-fhalf,fhalf]³). Interim substrate until Phase B's
-	# cubed-sphere port; its gravity-dependent processes are parked (radial gravity lands in B).
+	# CUBED-SPHERE field (Phase B): a SphereGrid shell enclosing the planet (crust + atmosphere), gathered via
+	# the neighbour table with radial gravity. ~123K cells (res 32/face × depth 20 × 6). Down = inward-radial.
 	var sea3d: float = _body.sea_radius()
-	var fhalf: float = PLANET_RADIUS + PLANET_RELIEF + 40.0
-	_material.setup(_terrain, fhalf, 12.0, -fhalf, fhalf, sea3d)
+	var field_grid: RefCounted = SphereGridScript.new()
+	field_grid.build(32, 20, 170.0, 8.0, _body.center())   # core_radius 170, cell 8 → shell 170..330
+	_material.setup_sphere(field_grid)
+	if _material.has_method("sample_solidity"):
+		_material.sample_solidity()                        # fill the solid mask from the terrain SDF
 	LASimReport.register(Callable(_material, "report"))   # field channel aggregates flow into SIM_REPORT
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.population(self))
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.cognition(self))

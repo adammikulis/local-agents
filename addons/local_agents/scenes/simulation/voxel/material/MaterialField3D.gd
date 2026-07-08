@@ -132,6 +132,7 @@ const ChargeScript: GDScript = preload("res://addons/local_agents/scenes/simulat
 const ShockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialShock3D.gd")
 const WaterScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialWater3D.gd")
 const GPUScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGPU3D.gd")
+const SphereGPUScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialSphereGPU3D.gd")
 const QueriesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldQueries3D.gd")
 const RenderScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldRender3D.gd")
 const InjectScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldInject3D.gd")
@@ -588,7 +589,12 @@ func activate() -> void:
 	_shock_sim.setup(self)
 	# GPU-RESIDENT backend: persistent SSBOs, the whole heat+water step batched on-GPU, ONE readback per
 	# frame (see MaterialGPU3D's frame API). Headless has no local RenderingDevice → CPU oracle.
-	if GPUScript.available() and not OS.has_environment("LA_FORCE_CPU"):
+	if is_sphere() and SphereGPUScript.available() and not OS.has_environment("LA_FORCE_CPU"):
+		# Cubed-sphere planet: the sphere GPU driver runs the *_sphere3d kernels over the neighbour SSBO.
+		_gpu = SphereGPUScript.new()
+		_gpu.setup(self)
+		_use_gpu = true
+	elif GPUScript.available() and not OS.has_environment("LA_FORCE_CPU"):
 		_gpu = GPUScript.new()
 		_gpu.setup(self)
 		_use_gpu = true
@@ -625,7 +631,49 @@ func heat_world_size() -> Vector2:
 	return _heat_texture.world_size() if _heat_texture != null else Vector2.ZERO
 
 
+## Sphere solid mask: sample the terrain SDF per cell (world pos from the grid). One-time at activation.
+func _sample_solidity_sphere() -> void:
+	for c in _cell_count:
+		_solid[c] = 1 if _terrain.is_solid(cell_world_pos_linear(c)) else 0
+
+## Cubed-sphere per-frame step (Phase B MVP): activate the sphere GPU driver once, then run the fixed-step
+## begin_frame/step/end_frame loop over the *_sphere3d kernels and scatter temp/water back. No box CPU tails.
+func _sphere_process(delta: float) -> void:
+	if not _ready_sim:
+		if _terrain == null or not _terrain.has_method("is_solid"):
+			return
+		_sample_solidity_sphere()
+		activate()                 # is_sphere() → picks SphereGPUScript + sets _use_gpu
+		_ready_sim = true
+		return
+	if not _use_gpu:
+		return
+	_step_accum += delta
+	var steps: int = 0
+	while _step_accum >= STEP_DT and steps < MAX_STEPS_PER_FRAME:
+		_step_accum -= STEP_DT
+		steps += 1
+	if steps <= 0:
+		return
+	var t0: int = Time.get_ticks_usec()
+	var solar: float = _heat._solar() if _heat != null and _heat.has_method("_solar") else 0.6
+	_gpu.begin_frame(_temp, _water, solar, Vector2.ZERO)
+	for i in steps:
+		_gpu.step()
+	var res: Dictionary = _gpu.end_frame()
+	if res.has("temp") and res["temp"].size() == _cell_count:
+		_temp = res["temp"]
+	if res.has("water") and res["water"].size() == _cell_count:
+		_water = res["water"]
+	LASimReport.gauge("field_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
+
+
 func _physics_process(delta: float) -> void:
+	# CUBED-SPHERE fast path (Phase B): self-contained GPU step over the sphere driver, bypassing the
+	# box-coupled sampling/seed_sea/CPU tails (those are being ported kernel-by-kernel). MVP: heat + water.
+	if is_sphere():
+		_sphere_process(delta)
+		return
 	if not _ready_sim:
 		# Still sampling rock/void as the terrain streams; self-activate when the volume is fully sampled.
 		if _terrain != null and _terrain.has_method("is_solid"):
