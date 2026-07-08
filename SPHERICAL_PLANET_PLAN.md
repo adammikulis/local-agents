@@ -44,6 +44,23 @@ reimplementations, and are largely grid-agnostic.
 
 ---
 
+## The planet has a MAGMA CORE (emergent, generalizes the existing volcano source)
+
+The innermost radial layers are a molten **core** — pinned hot (~1300 °C+), the deep hot boundary at the
+centre. This is not a new system: it's today's `MaterialMagma3D` "deep hot-source chamber" generalized from a
+single placed cell to **the whole centre of the sphere**. Everything falls out of the existing rules:
+- **Radial geothermal gradient for free:** heat conduction (already a kernel, grid-agnostic) diffuses the
+  core's heat outward → hot core → warm mantle → cool crust → cold space. A real temperature profile with
+  radius, no scripting.
+- **Volcanism EMERGES, not placed:** the existing magma pressure-melt / conduit-bore mechanism (bore rock
+  upward where overpressure + heat exceed the roof) now runs radially from the core → volcanoes appear where
+  the crust is thin/weak and vent lava to the surface. No hand-placed volcanoes.
+- **Also drives:** geothermal warmth near vents (life clusters, less ice), the deep source that feeds all
+  eruptions, and (later) hot-spot/rift erosion.
+- **Where it lands:** the core as a hot centre feeding the radial temperature gradient can come in **Phase 1**
+  (heat conduction is grid-agnostic); full volcanism from the core needs the radial magma system in
+  **Phase 2**. Config: `core_radius`, `core_temp`.
+
 ## Phase 0 — Spike (de-risk the SEAM machinery first, throwaway, ~2–3 days)
 
 The seam neighbour table is the crux, so prove IT before porting anything.

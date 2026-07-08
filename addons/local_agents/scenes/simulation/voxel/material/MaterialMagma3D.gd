@@ -40,7 +40,9 @@ const MELT_TEMP: float = 1200.0           # rock this hot melts back to lava (mu
 const MOLTEN_FLOOR: float = 950.0         # a lava cell is kept at least this hot (must match MaterialLava3D)
 const LAVA_EMPLACE_TEMP: float = 1150.0   # cap on lava's own carried heat, < MELT_TEMP → no melt runaway (must match MaterialLava3D)
 const LAVA_MIN: float = 0.0001            # below this a cell holds no lava (must match MaterialLava3D LAVA_MIN_MASS)
-const SDF_STAMP_SCALE: float = 0.62       # carve radius as a fraction of cell size (must match MaterialLava3D)
+const SDF_STAMP_SCALE: float = 0.9        # carve radius vs cell size (must match MaterialLava3D) — ≥ half the
+                                          # cell's 3D diagonal (0.87) so per-cell sphere stamps UNION smoothly
+                                          # instead of a lumpy "string of spheres" (was 0.62 → diagonal gaps).
 
 # --- Rule 2: buoyant overpressure up-flow -----------------------------------
 const BUOY_FRAC: float = 0.55             # base fraction of overpressure buoyed upward per step

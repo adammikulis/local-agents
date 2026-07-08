@@ -36,7 +36,9 @@ const LAVA_LATERAL_FRACTION: float = 0.25 # share of the level-out flow to each 
 const EMPLACE_DEPTH: float = 1.0          # lava mass at which a cell reaches LAVA_EMPLACE_TEMP
 const SOLIDIFY_MAX_EDITS: int = 48        # cap solidify SDF stamps per step (cursor-rotated)
 const MELT_MAX_EDITS: int = 24            # cap melt SDF carves per step (cursor-rotated)
-const SDF_STAMP_SCALE: float = 0.62       # stamp/carve radius as a fraction of cell size
+const SDF_STAMP_SCALE: float = 0.9        # stamp/carve radius vs cell size — ≥ half the cell's 3D diagonal
+                                          # (0.87) so adjacent per-cell sphere stamps fully UNION into a smooth
+                                          # flow/dome instead of a lumpy "string of spheres" (was 0.62 → gaps).
 const MELT_LAVA_YIELD: float = 0.7        # lava mass produced when a rock cell melts
 
 var _f = null                             # back-reference to the owning LAMaterialField3D
