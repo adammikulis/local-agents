@@ -34,6 +34,8 @@ const PLANET_FEATURE: float = 78.0
 # ground stays dry — a real coastline. Just below the mean radius → a bit more land than sea.
 const PLANET_SEA_RADIUS: float = 248.0
 const STAR_POSITION: Vector3 = Vector3(900.0, 320.0, 620.0)
+const PLANET_SPIN_RATE: float = 0.10        # rad/s axial spin (~1 rotation / 63s) — day/night sweep
+const PLANET_SPIN_AXIS: Vector3 = Vector3(0.15, 1.0, 0.0)   # slightly tilted (obliquity); normalized at use
 
 const INITIAL_COUNTS: Dictionary = {"plant": 70, "rabbit": 16, "fox": 3, "bird": 14, "villager": 6, "vulture": 5}
 const ROCK_COUNT: int = 44
@@ -467,6 +469,11 @@ func _process(delta: float) -> void:
 	if _ecology != null and _ecology.has_method("set_time_of_day"):
 		_ecology.set_time_of_day(_sky.time_of_day())
 	_update_music_mood()
+	# Planet axial SPIN — the body (its terrain + actors are children) turns as ONE moving frame while the
+	# camera stays in the system frame, so day/night sweeps across the surface. Starts after life is placed so
+	# spawn stays deterministic. THE moving-frame validation: everything on the body must ride it.
+	if _body != null and _spawned_initial and _terrain.is_planet():
+		_body.rotate(PLANET_SPIN_AXIS.normalized(), PLANET_SPIN_RATE * delta)
 	# Spawn the starting ecology once terrain has streamed + collided at the surface.
 	if not _spawned_initial and _body != null:
 		# Gate on the surface being meshed. On a planet, "ready" = the top-of-planet patch has collided.

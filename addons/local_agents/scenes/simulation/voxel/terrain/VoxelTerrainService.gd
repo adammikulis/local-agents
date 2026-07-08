@@ -261,7 +261,9 @@ func _edit_sphere(world_pos: Vector3, radius: float, mode: int) -> void:
 		return
 	vt.set_channel(VoxelBuffer.CHANNEL_SDF)
 	vt.set_mode(mode)
-	vt.do_sphere(world_pos, radius)
+	# VoxelTool operates in the terrain's LOCAL/voxel space; convert so edits land correctly when the body
+	# is rotated/translated (a spinning planet). At identity this is a no-op.
+	vt.do_sphere(_terrain.to_local(world_pos), radius)
 
 
 # --- Solidity query (the 3D field's rock/void test) --------------------------
@@ -283,7 +285,9 @@ func sdf_at(pos: Vector3) -> float:
 	var vt: VoxelTool = _query_voxel_tool()
 	if vt == null:
 		return 999.0
-	return vt.get_voxel_f_interpolated(pos)
+	# VoxelTool samples in the terrain's LOCAL/voxel space; convert the world query so is_solid is correct
+	# when the body is rotated (a spinning planet). No-op at identity (island / unrotated planet).
+	return vt.get_voxel_f_interpolated(_terrain.to_local(pos))
 
 
 ## True where solid rock fills a world point — the primitive the 3D field uses to know rock vs void
@@ -355,7 +359,9 @@ func fill_box(world_pos: Vector3, half_extents: Vector3) -> void:
 		return
 	vt.set_channel(VoxelBuffer.CHANNEL_SDF)
 	vt.set_mode(VoxelTool.MODE_ADD)
-	vt.do_box(world_pos - half_extents, world_pos + half_extents)
+	# Local/voxel-space AABB (correct under a rotated/spinning body; no-op at identity).
+	var lp: Vector3 = _terrain.to_local(world_pos)
+	vt.do_box(lp - half_extents, lp + half_extents)
 
 
 # A low-poly rock baked to a VoxelMeshSDF once, reused for every polygon stamp (do_mesh).
@@ -397,7 +403,9 @@ func fill_rock(world_pos: Vector3, size: float, normal: Vector3) -> void:
 	b = b.scaled(Vector3(size, size * 0.55, size))      # flatter than tall → a crust, not a boulder
 	vt.set_channel(VoxelBuffer.CHANNEL_SDF)
 	vt.set_mode(VoxelTool.MODE_ADD)
-	vt.do_mesh(sdf, Transform3D(b, world_pos), 0.0)
+	# do_mesh takes a LOCAL/voxel-space transform; compose with the terrain's inverse world transform so the
+	# rock lands correctly on a rotated/spinning body (no-op at identity).
+	vt.do_mesh(sdf, _terrain.global_transform.affine_inverse() * Transform3D(b, world_pos), 0.0)
 
 ## Physics-space raycast against the terrain body (collision_mask=1).
 ## Returns {"hit": bool, "position": Vector3, "normal": Vector3}.
