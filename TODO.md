@@ -20,10 +20,34 @@ Master tracker for the from-scratch **godot_voxel ecosystem simulation** (projec
   skipped timesteps, frozen sim, culled draws, lower-LOD meshes, sleeping actors). Budget compute where the
   player looks. Composes with GPU-first + emergent; when in tension, cutting asymptotic/relevance cost wins.
 
+## SOLAR-SYSTEM-FIRST (canonical architecture — decided 2026-07)
+The world is **a solar system of bodies**, not one flat world. Structure everything around this spine now;
+grow the content in stages. **Radial is the default everywhere; flat retires to git history (no flag, no
+parallel mode).** Node spine:
+- **`LASolarSystem`** (system root — repurpose `VoxelWorld`): owns the star, the bodies, and shared services
+  (camera rig that can target any body, HUD, audio, the world-space gravity + free-particle buffer = orbits +
+  ejecta). Runs the n-body integrator; wires the ACTIVE body's terrain/field/ecology to the shared controllers.
+- **`LAStar`**: positioned light + gravity source; drives per-cell solar (`dot(cell_radial,sun_dir)`, `1/dist²`)
+  → terminator. **`LAPlanetBody`**: ONE body in a LOCAL frame (transform = orbit position + spin) that OWNS its
+  terrain (`build_planet`) · field (body-local) · ocean shell · actors · ecology; exposes `center/radius/
+  sea_radius/up_at/altitude_at/surface_point/is_solid/carve` + `mass` + atmosphere-shell radius (frame-handoff
+  boundary). Bodies move/rotate → their field/terrain/actors ride the transform.
+- **Interim substrate (migration, NOT a parallel system):** each body keeps a `MaterialField3D` box grid as the
+  working field until Phase B swaps it for the cubed-sphere `SphereGrid` substrate, then the box grid is
+  DELETED. Not ripped out first: actors couple only to the field's **world-space 3D queries** (`temp_at`,
+  `breathable_o2_at`, `is_submerged_at`, `is_solid`) which are substrate-agnostic and survive the swap — the
+  only box-specific coupling is one instantiation line. Ripping it out first would pull the hardest work (the
+  kernel port) before any visible planet and kill all field behaviour meanwhile.
+- **Staging (visible result fast):** 1 static lit walkable body → body spins → orbits `LAStar` → 2nd body →
+  camera travel between bodies. Multi-body ORCHESTRATION detail deferred until its bodies exist (not
+  speculative — it's the committed end goal, built minimally + grown).
+
 ## Current state (1-liner)
-Flat island, dense-3D GPU field (`MaterialField3D`) with ~19 emergent per-cell processes; centralized
-telemetry (`SIM_REPORT`); the field CPU step tails were crushed (magma 660×, fire 12×, charge 55%). Next: turn
-the flat world into a cubed-sphere planet, then genericize reactions + dissolve every scripted disaster.
+Transitioning flat→SOLAR-SYSTEM: seam table (A0) + native sphere generator + `VoxelTerrainService.build_planet`
+all PROVEN (`feature/sphere-spike`); next is the `LASolarSystem`/`LAStar`/`LAPlanetBody` node spine (retire
+flat). Dense-3D GPU field (`MaterialField3D`, ~19 emergent processes) kept as the interim body-local substrate
+until the Phase B cubed-sphere port. Centralized telemetry (`SIM_REPORT`); field CPU tails crushed. Then
+genericize reactions + dissolve every scripted disaster (Phase C).
 
 ---
 
@@ -86,20 +110,25 @@ the flat world into a cubed-sphere planet, then genericize reactions + dissolve 
     with a natural directional-light terminator (`planet_preview.png`). Flat relic is small + isolated: ONLY
     `VoxelGeneratorImage`, `surface_height(x,z)` (down-ray), `carve_caves` (world-Y) assume `(x,z)→Y`;
     `sdf_at`/`is_solid`/`carve_sphere`/`fill_*`/`raycast_terrain` are world-space and SURVIVE.
-  - [ ] **Integrate into the live scene** (`VoxelTerrainService`): swap `VoxelGeneratorImage`→the sphere graph;
-    `sea_level`→`sea_radius`; `surface_height`→inward radial cast (ray from `dir·(R+margin)` toward core);
-    `carve_caves` `-Y`→radial-down + angular-extent bounds; `voxel_bounds`→`[-R,R]³` sphere box.
-  - [ ] **Radial "up" for actors** (`Creature`/`Fish`/`Plant`/`Tree`/`Nest`): `up = (pos-center).normalized()`
-    for snap/heading/`look_at` (tangent-plane locomotion); spawn on the sphere surface.
-  - [ ] **`VoxelCameraRig`** → orbit-the-planet (radial up, rotate-around-core).
-  - [ ] **`VoxelSkyCycle`** → sun is a POSITIONED body; **per-cell solar** (`heat3d_solar.glsl`:
-    `max(0,dot(cell_radial,sun_dir))`, `sun_dir=normalize(sun_pos-body_center)`, `1/dist²`) → terminator +
-    latitude bands feed treeline/snow/comfort. **Magma core** = innermost radial layers pinned hot → radial
-    geothermal gradient. **`OceanPlane`** → spherical sea shell at `sea_radius`.
-  - Build in the disciplines: body-LOCAL field (moving/rotating frame), sun-as-body. These units fan out to
-    subagents once the terrain integration lands (they depend on the sphere existing in the scene).
-- Field's gravity-dependent processes parked until Phase B. Deliverable: walkable rotating lit planet, day/
-  night terminator, latitude climate, hot core, breathing life.
+  - [x] **`VoxelTerrainService` planet-capable** (`9cf2d63`): `build_planet` + radial queries (`up_at`,
+    `surface_radius`, `surface_point`, `altitude_at`, shape-aware `is_ready_at`); `SERVICE_REPORT ok=true`,
+    markers rest on the ground; island path structurally untouched (107fps windowed, no regression).
+  - [ ] **Build the SOLAR-SYSTEM node spine** (the in-place refactor of `VoxelWorld`):
+    - **`LAPlanetBody`** — extract terrain + field(body-local) + ocean + actors + ecology ownership out of
+      `VoxelWorld` into a body node in a local frame; expose `center/radius/up_at/altitude_at/surface_point/
+      is_solid/carve/mass`. Uses `build_planet`. Field = the interim box grid (unchanged internals).
+    - **`LAStar`** — positioned light + gravity source + solar driver.
+    - **`LASolarSystem`** — repurpose `VoxelWorld` into the system root: create `LAStar` + ONE `LAPlanetBody`;
+      wire shared controllers (camera/HUD/audio/weather/disasters/brush/interaction) to the active body's
+      services. Retire flat island + flat `OceanPlane` + flat fly-cam. (main_scene stays `VoxelWorld.tscn`.)
+  - [ ] **FAN-OUT once the spine boots a planet** (shared contract = `up_at`/`altitude_at`/`surface_point`):
+    - Radial locomotion per actor — `Creature`/`Fish`/`Plant`/`Tree`/`Nest`: `Vector3.UP`→`up_at`, `vec.y=0`→
+      tangent-plane projection, `pos.y`→`altitude_at`; spawn on the surface (one subagent per file).
+    - `VoxelCameraRig` → orbit-the-body (radial up, rotate-around-core; system camera can retarget bodies).
+    - `OceanPlane` → spherical sea shell at `sea_radius`. `VoxelSkyCycle` → planet spins under `LAStar`;
+      per-cell solar terminator + latitude bands. **Magma core** = innermost radial layers pinned hot.
+- Field's gravity-dependent processes parked until Phase B (box grid enclosing the body meanwhile). Deliverable:
+  walkable, lit, spinning planet under a star — terminator sweeps, latitude climate, hot core, breathing life.
 
 ## Phase B — CUBED-SPHERE FIELD PORT + reaction engine + water-cycle unify (one converged kernel rewrite).
 - [ ] **B1 — grid layer:** neighbour-index SSBO + per-face/radial buffer layout (rework `MaterialGPU3D`
