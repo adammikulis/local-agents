@@ -27,6 +27,16 @@ var energy: float = 100.0
 var max_energy: float = 100.0
 var metabolism: float = 2.2
 
+# --- breathing (emergent: breathe your medium; suffocate out of it). Land animals breathe AIR — submerged
+# past the head, or in O2-depleted smoke, they can't breathe and burn through a per-animal BREATH reserve;
+# at zero they suffocate (drown). breath_capacity is the seconds of held breath — big lungs (diving birds,
+# aquatic mammals) can stay under longer to hunt, then must resurface. See LACreatureMetabolism.tick_breath.
+var breath_capacity: float = 6.0
+var _breath: float = 6.0
+# Breathing organ: "air" = LUNGS (land animals — suffocate underwater / in smoke), "water" = GILLS (suffocate
+# in air). Every creature is equipped with one; land LACreature default to lungs, aquatic LAFish to gills.
+var breathes: String = "air"
+
 # --- health / HP (emergent damage: blasts & lightning deal graded, deterministic damage;
 # 0 HP = death). Bigger creatures carry more HP; set from `size` at spawn. ---
 var health: float = 100.0
@@ -285,10 +295,11 @@ func fling(impulse: Vector3) -> void:
 # shadow is released so the body falls/tumbles (an `impulse`, e.g. a meteor, flings it), and once it
 # settles it stays where it fell and rots (green->black) before finally shrinking away. Same node,
 # same model, throughout.
-func die(_cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
+func die(cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
 	if _dying:
 		return
 	_dying = true
+	LASimReport.event("death", {"cause": cause, "species": species})
 	# A death cry: nearby animals hear it and startle (predators may later home in on it).
 	if _ecology != null and _ecology.has_method("broadcast_call"):
 		_ecology.broadcast_call(global_position, species, "distress", self)
@@ -340,6 +351,9 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	max_health = float(config.get("max_health", 30.0 + size * 120.0))
 	health = max_health
 	metabolism = float(config.get("metabolism", metabolism))
+	breath_capacity = float(config.get("breath_capacity", breath_capacity))
+	_breath = breath_capacity
+	breathes = String(config.get("breathes", breathes))
 	max_hydration = float(config.get("max_hydration", 100.0))
 	hydration = max_hydration
 	thirst_rate = float(config.get("thirst_rate", thirst_rate))
@@ -504,8 +518,11 @@ func _physics_process(delta: float) -> void:
 
 	var pos: Vector3 = global_position
 
-	# Temperature comfort + combustion + drowning, emergent from the shared field at my feet.
+	# Temperature comfort + combustion, emergent from the shared field at my feet.
 	if LACreatureMetabolism.tick_environment(self, pos, delta):
+		return
+	# Breathing: drown when submerged past my breath reserve, or suffocate in O2-depleted smoke.
+	if LACreatureMetabolism.tick_breath(self, pos, delta):
 		return
 
 	var surf: float = _surface_at(pos.x, pos.z)

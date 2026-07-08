@@ -15,6 +15,7 @@
   "pop_cap": 40,
   "max_energy": 70.0,
   "metabolism": 2.6,
+  "breath_capacity": 5.0,
   "food_value": 50.0,
   "thirst_rate": 1.4,
   "flock_cohesion": 0.6,

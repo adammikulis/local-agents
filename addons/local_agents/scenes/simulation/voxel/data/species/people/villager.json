@@ -15,6 +15,7 @@
   "pop_cap": 16,
   "max_energy": 160.0,
   "metabolism": 1.4,
+  "breath_capacity": 14.0,
   "food_value": 90.0,
   "thirst_rate": 1.1,
   "throws": true,

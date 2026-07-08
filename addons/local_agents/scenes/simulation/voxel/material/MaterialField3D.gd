@@ -1157,6 +1157,34 @@ func dust_cell_count() -> int:
 # Emergent atmospheric OXYGEN (LAMaterialGas3D): O₂ level at a point + depletion diagnostics.
 func o2_at(x: float, y: float, z: float) -> float:
 	return _gas_sim.o2_at(x, y, z) if _gas_sim != null else 0.0
+
+## BREATHABLE oxygen at a TRUE-3D world point — the cell's O₂, but ZERO once WATER fills the cell (water
+## displaces air) or the cell is rock. One 3D read that lets a lung suffocate underwater OR in O₂-depleted
+## smoke, with altitude respected for free (a flying bird's head cell holds no water; a diver's does) — no
+## 2.5D depth column, no can_fly special-case. Gills invert it (see is_submerged_at). Above the volume = open sky.
+func breathable_o2_at(x: float, y: float, z: float) -> float:
+	var ix: int = _col_i(x, _origin.x)
+	var iy: int = clampi(int(round((y - _origin.y) / _cell_size)), 0, _dim_y - 1)
+	var iz: int = _col_i(z, _origin.z)
+	if not _in_bounds(ix, iy, iz):
+		return O2_AMBIENT
+	var i: int = _idx(ix, iy, iz)
+	if _solid[i] != 0:
+		return 0.0
+	if _water[i] >= MAX_MASS * 0.5:      # cell over half-full of water → air is displaced
+		return 0.0
+	return _o2[i]
+
+## Is the TRUE-3D cell at this world point underwater (over half-full of water)? What a gill-breather needs
+## (and what tells a lung it is submerged). Solid rock reads not-submerged (no water there).
+func is_submerged_at(x: float, y: float, z: float) -> bool:
+	var ix: int = _col_i(x, _origin.x)
+	var iy: int = clampi(int(round((y - _origin.y) / _cell_size)), 0, _dim_y - 1)
+	var iz: int = _col_i(z, _origin.z)
+	if not _in_bounds(ix, iy, iz):
+		return false
+	var i: int = _idx(ix, iy, iz)
+	return _solid[i] == 0 and _water[i] >= MAX_MASS * 0.5
 func o2_min_open() -> float:
 	return _gas_sim.o2_min_open() if _gas_sim != null else O2_AMBIENT
 func o2_avg() -> float:
