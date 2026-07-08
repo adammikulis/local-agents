@@ -275,6 +275,11 @@ func _ready() -> void:
 	_fog.name = "FogLayer"
 	add_child(_fog)
 	_fog.setup(_material, true)
+	# On a planet these are flat horizontal SHEETS driven by the interim +Y atmosphere — they read as grey
+	# wisps against space. Hidden until Phase B's radial atmosphere grows real cloud/fog SHELLS.
+	if _terrain.is_planet():
+		_clouds.visible = false
+		_fog.visible = false
 
 	# The sky cycle reads these each frame (rain/cloud dimming + cloud/fog sheet tinting); bind them now
 	# that they exist. Order-independent — the cycle only touches them from its per-frame update().
@@ -285,7 +290,9 @@ func _ready() -> void:
 	_rain = RainLayerScript.new()
 	add_child(_rain)
 	_rain.setup(_material, _camera)
-	if _rain_force and _rain.has_method("set_force"):
+	if _terrain.is_planet():
+		_rain.visible = false                       # flat rain streaks at the camera; radial rain = Phase B
+	elif _rain_force and _rain.has_method("set_force"):
 		_rain.set_force(true)
 
 	# Feed the live temperature texture to the terrain shader so HOT GROUND GLOWS (meteor craters,
