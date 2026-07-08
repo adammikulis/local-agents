@@ -54,11 +54,15 @@ var _bask_cd: float = 0.0             # cooldown before the next haul-out
 var health: float = 12.0
 var max_health: float = 12.0
 
-# --- GILLS: the inverse of a land animal's lungs. A fish breathes water; out of it (stranded/thrown, not
-# basking) it burns a breath reserve and suffocates in air. Same emergent rule + 3D submersion read as
-# LACreatureMetabolism, mirrored for the water-breather. breath_capacity = seconds survivable out of water. ---
-var breath_capacity: float = 12.0
+# --- Breathing (config-driven, same 3D submersion read as land animals): "water" = GILLS (breathe underwater,
+# suffocate in air — a beached fish); "air" = LUNGS (an aquatic air-breather like a whale/turtle: lives in the
+# water but must SURFACE to breathe, diving down while it holds its reserve and drowning if it runs out). No
+# hardcoded per-species behavior — the dive/surface cycle emerges from `breathes` + the breath reserve. ---
+var breathes: String = "water"
+var breath_capacity: float = 12.0     # seconds of held breath (out of medium); big lungs (whale) = long dives
+var dive_depth: float = 0.0           # air-breathers forage this far down, then rise to breathe (0 = use submerge)
 var _breath: float = 12.0
+const BREATH_REFILL: float = 25.0     # breath reserve refilled per sec while in the breathing medium
 
 var age: float = 0.0
 var state: String = "swim"
@@ -89,7 +93,9 @@ func setup(_terrain, _material, _config: Dictionary) -> void:
 	depth_min = float(config.get("depth_min", depth_min))
 	depth_max = float(config.get("depth_max", depth_max))
 	submerge = float(config.get("submerge", submerge))
+	breathes = String(config.get("breathes", breathes))
 	breath_capacity = float(config.get("breath_capacity", breath_capacity))
+	dive_depth = float(config.get("dive_depth", dive_depth))
 	_breath = breath_capacity
 	model_id = String(config.get("model", species))
 	body_shape = String(config.get("body", "fish"))
@@ -403,16 +409,18 @@ func _physics_process(delta: float) -> void:
 
 	var pos: Vector3 = global_position
 
-	# GILLS: suffocate out of water (the inverse of a lung drowning) — same 3D submersion read. Basking
-	# species are exempt (handled above, they haul out deliberately). The breath reserve buffers a brief flop.
-	if material.has_method("is_submerged_at"):
-		if material.is_submerged_at(pos.x, pos.y, pos.z):
-			_breath = minf(_breath + 25.0 * delta, breath_capacity)
-		else:
-			_breath -= delta
-			if _breath <= 0.0:
-				die("suffocated")
-				return
+	# BREATHE YOUR MEDIUM (same 3D head-cell read as land animals). GILLS ("water") breathe underwater and
+	# suffocate in air; LUNGS ("air") breathe at the surface and drown if their reserve runs out underwater.
+	# Basking species (handled above) are exempt while hauled out.
+	var submerged: bool = material.has_method("is_submerged_at") and material.is_submerged_at(pos.x, pos.y + size, pos.z)
+	var in_medium: bool = submerged if breathes == "water" else not submerged
+	if in_medium:
+		_breath = minf(_breath + BREATH_REFILL * delta, breath_capacity)
+	else:
+		_breath -= delta
+		if _breath <= 0.0:
+			die("drowned" if breathes == "air" else "suffocated")
+			return
 
 	# DECISION THROTTLE: recompute the swim intention (wander jitter + the O(n) schooling steer) only
 	# every THINK_STRIDE frames, instance-staggered. Between updates the fish keeps its last _heading —
@@ -464,7 +472,16 @@ func _physics_process(delta: float) -> void:
 		if is_nan(ground):
 			return
 		surf_y = ground
-	global_position = Vector3(next_x, surf_y - submerge, next_z)
+	# Swim depth. Gill-breathers ride at the species' fixed submerge. An air-breather cycles emergently: dive
+	# to forage while it has breath, then rise so its head breaks the surface once the reserve runs low — the
+	# "dive down for a while, come up to breathe" behavior falls out of the breath reserve, no scripted timer.
+	var eff_submerge: float = submerge
+	if breathes == "air":
+		if _breath < breath_capacity * 0.35:
+			eff_submerge = -size * 0.6                       # low on air → surface (head above water) to breathe
+		elif dive_depth > 0.0:
+			eff_submerge = dive_depth                        # plenty of air → dive deep to forage
+	global_position = Vector3(next_x, surf_y - eff_submerge, next_z)
 
 	if _heading.length() > 0.01:
 		var look: Vector3 = global_position + _heading
