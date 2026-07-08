@@ -128,11 +128,20 @@ genericize reactions + dissolve every scripted disaster (Phase C).
     steering + radial ground-snap/submersion; `Plant`/`Tree`/`Nest` radial up + surface snap; `VoxelCameraRig`
     orbit mode; `OceanPlane.setup_sphere` translucent sea shell; terrain shader climate keyed off radial
     altitude/up (coastlines ring the globe, no +Y-pole snow). Flat path preserved in every file.
-  - [ ] **Remaining A1 (surface later / next):** per-cell solar TERMINATOR in the field (`heat3d_solar.glsl`
-    reads `LAStar` sun_dir) + wire the sky's visual sun to the star; **magma core** (innermost radial layers
-    pinned hot → geothermal gradient); planet **SPIN** (rotate the body) then orbit; surface-level playtest of
-    radial locomotion (verified structurally + parse-clean; needs an eyes-on walk-around). Radial caves + flat
-    sea seeding + scripted volcano still guarded off (Phase B field / Phase C).
+  - [x] **Planet SPIN** (`726efcb`): body spins as one moving frame (terrain+actors ride it), camera in the
+    system frame → day/night sweeps. Validated godot_voxel honors a rotated `VoxelLodTerrain`; `VoxelTool`
+    queries (sdf_at/carve/fill) made world↔local rotation-safe. **Magma-core seed** (`a70c793`):
+    `add_magma_source` at the centre (interim; Phase B makes it the innermost radial layers).
+  - [ ] **Remaining A1:**
+    - **Planetary SKY** (its own unit — the flat day-dome sky + high ambient wash out a planet viewed from
+      space): dark space background, low ambient, so a star-fixed sun gives a STARK terminator. Then wire the
+      sky's sun to `LAStar` (spin = sole day/night driver). Deferred after this washed the planet out.
+    - **Surface-level playtest** of radial locomotion (verified structurally + parse-clean; needs eyes-on
+      ground-level walk-around — orbit distance hides individual creatures).
+    - **Orbit → orbit-a-star** (staging: body orbits `LAStar` via the emergent n-body integrator; 2nd body).
+  - Deferred to **Phase B** (cubed-sphere body-local field — NOT worth throwaway box-grid work): per-cell solar
+    field TERMINATOR (`heat3d_solar.glsl` reads `LAStar` sun_dir), real radial magma core / geothermal, radial
+    water/rivers. Radial caves + scripted volcano → Phase C.
 - Field's gravity-dependent processes parked until Phase B (box grid enclosing the body meanwhile). Deliverable
   SO FAR: walkable, lit planet with oceans/coasts/climate + life. Left: terminator, hot core, spin.
 
