@@ -152,20 +152,45 @@ genericize reactions + dissolve every scripted disaster (Phase C).
 - Field's gravity-dependent processes parked until Phase B (box grid enclosing the body meanwhile). Deliverable
   SO FAR: walkable, lit planet with oceans/coasts/climate + life. Left: terminator, hot core, spin.
 
-## Phase B — CUBED-SPHERE FIELD PORT + reaction engine + water-cycle unify (one converged kernel rewrite).
-- [ ] **B1 — grid layer:** neighbour-index SSBO + per-face/radial buffer layout (rework `MaterialGPU3D`
-  `_PAIR_FIELDS`/`_SINGLE_BUFS`: `col`→per-face radial ray, `area`→`6·face_res²`; `send` 6-slots→6 face-
-  neighbours with seam wrap replacing the `if(ix>0)` boundary flux-drops).
-- [ ] **B2 — convert every kernel's gather to the table + radial gravity** (water CA first — down = radially-
-  lower neighbour; then buoyancy+Coriolis [retire the fake term], lava, slump/dust, atmosphere, gas). Fan out
-  one subagent per kernel/module.
-- [ ] **B3 — during the rewrite:** replace bespoke reactions with a generic **DEFS reaction engine**
-  (`{reactants[(chan,coeff)], products[…], driver+threshold, rate(const-frac|bilinear|excess-over-thr),
-  reactant-cap, product-target}`; ~11 reactions — combustion/fungus/photosynthesis/condense/snow/sky are clean,
-  SDF-editing lava/ice/magma + cross-cell rain/fungus-fert stay special), and **unify the water cycle** into
-  one conserved `_airwater` channel (cloud/fog/vapor derived from local T vs `sat(T)`; evap a true transfer
-  `water-=e`; rise folds into buoyant wind `vel_y`, drop `VAPOR_RISE`). Deliverable: complete weather +
-  volcanism emerge on the planet.
+## Phase B — CUBED-SPHERE FIELD PORT + activity-bubbles + reaction engine + water-cycle unify.
+**Investigation done (3 agents, 2026-07).** The field is a flat `PackedFloat32Array` per channel of length
+`_cell_count`; the SphereGrid keeps that flat-array contract (`cell = surf*depth + r`). SURVIVES unchanged: the
+query facade (`temp_at`/`breathable_o2_at`/`is_submerged_at`/… world-space sigs), the step scheduler (order /
+GPU-CPU split / `_slow_tick` stagger / dirty-gating / cadenced readback), the channel set, ping-pong / dispatch
+/ barriers / frame API (topology-agnostic), same-cell reactions, and the world-space SDF `carve/fill` calls.
+- [ ] **B1 — grid layer + world↔cell + neighbour SSBO + ACTIVITY BUBBLES.**
+  - CPU seam = 5 primitives in `MaterialField3D.gd` + `setup`: `_idx :379`, `_col_i :445`, `cell_world_pos :387`,
+    `_in_bounds :383`, `_surface_iy :907` → reimplement over `LASphereGrid` (world_pos → gnomonic face+surf+
+    radial layer; `_surface_iy` → outermost open radial layer along a surf column). `setup_sphere(sphere_grid)`
+    allocs channels of length `cell_count = surf_count*depth`. Resolution target ~300K cells (res≈45/face,
+    depth≈24) — tune vs perf.
+  - GPU seam = `MaterialGPU3D._ensure_buffers` size classes (`"cell"`→`surf_count*depth`, `"col"`→`surf_count`,
+    `"send"`→`cell_count*6`) + a NEW resident int32 `_buf_neighbours` (`cell_count*6`, slot order matching the
+    water/lava/slump send convention: **0=inward/down, 1-4 lateral, 5=outward/up**) uploaded once, bound into
+    every gather set; push-constants swap `dim_x/y/z`→`surf_count/depth` but KEEP `cell_count` + all physical
+    scalars. Also upload per-cell `cell_radial` (for solar + gravity). Ping-pong/dispatch/barriers untouched.
+  - **ACTIVITY BUBBLES (bake into the dispatch NOW — the planet's scaling lever, see CLAUDE.md):** per-tile (or
+    per-cell) activity + sleep; step active tiles every frame, quiescent tiles rarely/never; a changed cell
+    wakes its neighbour tiles (bubble grows); stimuli (inject_*/carve/impact) wake a region. GPU: active-tile
+    list + indirect dispatch (O(active)), or v1 = per-tile sleep flag + kernel early-out. Compose with
+    distance-relevance. This is what makes ~300K–4M planet cells affordable.
+- [ ] **B2 — convert every kernel's gather to the table + radial gravity.** Replace `idx±{1,dim_x,layer}` +
+  `if(ix>0)` with `int n = nbr[idx*6+dir]; if(n>=0)…`. Order: water CA first (down=slot0 inward), then
+  slump/lava (same 6-slot send), dust/rain/buoyancy/wind (radial down/up), atmosphere transport, o2/co2/heat/
+  shock/scent/fungus (mechanical swap). Column kernels (`heat3d_solar`, `gas_sky`, `scent_wind`, `snowice`,
+  `fungus_fert`) `iy`-walk → follow slot5 (outward) to the boundary (`nbr==-1` = sky cell). **`heat3d_solar`:
+  global `params.solar` scalar → per-cell `max(0,dot(cell_radial,sun_dir))` on every outward-boundary cell =
+  the real terminator.** Retire the fake Coriolis. FAN OUT one subagent per kernel/group (shared neighbour-SSBO
+  contract + a behavioural `SIM_REPORT` gate).
+- [ ] **B3 — during the rewrite:** generic **DEFS reaction engine** for the ~9-11 clean same-cell reactions
+  (evap/condense/boil/re-evap `MaterialAtmosphere3D`, combustion, fungus-decompose, photosynthesis, gas
+  sky-exchange, lava sustain-heat) — `{reactants[(chan,coeff)], products[…], driver+threshold, rate, cap,
+  target}`; KEEP special (cross-cell / SDF-editing): rain (cloud→ground column), meltwater, magma buoy, erosion
+  advect, lava solidify/melt, magma pressure-melt, ice freeze/thaw, slump. **Unify the water cycle** into one
+  conserved `_airwater` channel (fuse `_vapor`/`_cloud`/`_fog`, all owned by `MaterialAtmosphere3D`; cloud/fog/
+  vapor derived from local T vs `sat(T)`; evap a true transfer `water-=e`; rise folds into buoyant wind `vel_y`,
+  drop `VAPOR_RISE`). Deliverable: complete weather + volcanism + real radial magma/geothermal emerge on the
+  planet; the interim box grid is DELETED; the planet can ORBIT (field is body-local).
 
 ## Phase C — DISSOLVE named phenomena + emergent rendering (volcano first, then fan out).
 - [ ] **C0 — keystone primitive: pressure/vorticity/kinetic → MOMENTUM on matter** in the substrate: ejecta

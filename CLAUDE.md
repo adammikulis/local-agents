@@ -157,6 +157,17 @@ committed). When removing files:
     frozen or reduced simulation, culled draws, lower-LOD meshes, sleeping actors. The "only the active/near
     planet steps at full rate; distant ones coarse/frozen," the dominant-attractor test-particle gravity, and
     field update cadence are all instances of this ONE rule. Budget compute where the player is looking.
+  - **BUBBLES OF COMPUTE — activity-driven dynamic tick rate (the field's primary scaling lever).** A cell/
+    region's tick rate scales with how much is HAPPENING there, not just distance. Quiescent regions sleep;
+    active regions (fluid flowing, heat/fire spreading, a reaction, an actor or disaster nearby) tick every
+    frame. Activity **propagates as a bubble**: a cell that changes beyond a threshold wakes its neighbours next
+    step (so a front/flow/fire grows its own compute bubble at the speed of the phenomenon), and a stimulus (a
+    meteor, an actor drinking, an eruption) injects activity to wake a region. Settled regions demote to a
+    longer period, then sleep (skipping is EXACT when nothing changes; for constant-forced processes like solar,
+    a woken cell catches up with the elapsed dt). On the GPU this is an active-cell/tile list + indirect
+    dispatch (O(active), not O(all-cells)) or, minimally, a per-tile sleep flag with early-out. This is what
+    makes a whole-planet / multi-body field affordable — most of a planet is quiescent at any instant; compute
+    only the bubbles. Compose with distance-relevance (a region is stepped if active OR near the viewer).
   This mandate composes with (does not override) the GPU-first + emergent rules: push the parallel work to the
   GPU **and** give it a better Big-O **and** only run it where it matters. When these tension, cutting the
   asymptotic/relevance cost wins over a marginally simpler constant-factor path.
