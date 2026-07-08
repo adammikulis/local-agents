@@ -230,6 +230,50 @@ gain**. The ~45 FPS core frame is GPU-fill/shader + variance bound, and the acto
 surfaces. MultiMesh-ing would be real work for ~no gain until entity counts grow a lot. Revisit only if
 actor counts increase substantially.
 
+## World dynamism & emergent presentation (FUTURE — after the perf pass; touches the field/render lanes)
+
+Three connected directions the user wants, all in the emergent-everything spirit (behavior + visuals should
+REFLECT the real field state, not be scripted/faked):
+
+### 1. Off-camera / extended-range weather — storm fronts that blow in
+Today `WeatherSystem` only drifts ONE uniform prevailing-wind vector; there are no travelling pressure
+systems or air masses, so weather feels static except for actor-seeded disasters. The field domain already
+extends to ±300u (a ring of simulated ocean/sky around the ~80-180u island), so weather ALREADY exists past
+the island edge — we just don't generate dynamic synoptic features out there. Make it dynamic:
+- Add **synoptic-scale forcing**: a few slowly-DRIFTING pressure highs/lows + warm-moist / cool-dry AIR
+  MASSES that move across the domain with the large-scale flow, entering from the upwind edge (off-camera).
+  Where a cool-dry mass meets a warm-moist one, the field's OWN wind/atmosphere physics forms the
+  convergence line → cloud band → rain FRONT that then sweeps onto the island (orographic lift on the
+  windward slopes for free). The front is emergent (where advecting masses meet), driven by a cheap
+  large-scale input — NOT a scripted animation.
+- **Extend the reach** without paying 4× GPU cost: prefer a MOVING INFLOW BOUNDARY on the upwind edge
+  (inject the incoming air mass at the domain horizon so it "blows in from beyond") over enlarging the
+  grid; OR run a larger-but-COARSER outer atmosphere that feeds the fine field's boundary (nested grid).
+  Keep the island/terrain small. Home: extend `WeatherSystem` (pressure-center drift + air-mass advection)
+  + an atmosphere boundary-injection path in `MaterialField3D`/`MaterialWind3D`.
+
+### 2. Emergent visuals / particle design — fake less, render the real field
+Make what's DRAWN reflect what the field is actually doing, replacing cosmetic stand-ins:
+- **Field-driven GPU particles** (the core idea): a GPUParticles/MultiMesh system whose particles are
+  SPAWNED + ADVECTED by the real field channels — rain spawned where cloud precipitates and falling with
+  it; dust/sand/leaf/pollen/seed motes lofted + carried by the actual `_vel` wind; embers/sparks off fire
+  riding wind + buoyancy; sea spray/foam off wave crests; snow where it's freezing. Particles READ the
+  field (velocity/rain/dust/fire), so they move WITH the simulation instead of scripted emitters — "a
+  particle is a tracer of the field." Ideally the advection runs on GPU reading the resident wind buffer.
+- **Volumetric-ish clouds from the 3D `_cloud`/`_fog` field** instead of the flat `CloudLayer` sheet, so a
+  cloud is dense where the field says so + a storm's cloud actually ROTATES with the field vorticity.
+- **Retire cosmetic fakes** as each is replaced: the fixed cloud sheet, the hurricane's fixed `SPIN_SPEED`
+  mesh rotation (→ cloud/particles spinning with real vorticity), scripted disaster FX (→ particles driven
+  by the real injected heat/vapor/dust). Audit `CloudLayer`/`RainLayer`/disaster actors for stand-ins.
+
+### 3. Hurricane fling → emergent (flagged earlier)
+`Hurricane._stir_wildlife` applies a GEOMETRIC tangential swirl `throw()` to creatures (scaled by the
+emergent `_strength`, but not the field wind literally carrying them). Make it emergent: let a vortex's
+wind actually reach fling velocity + have creatures read/ride the field `_vel` (advected by the wind), so
+"strong wind flings wildlife" falls out for FREE for any vortex (tornado/hurricane/downdraft) with no
+per-storm swirl code. Needs the wind field tuned so a vortex can reach fling strength. (Same pattern would
+make dust/particles/spray in #2 ride the same wind — one wind, everything moves with it.)
+
 ### Creatures + the field (design — can living creatures be part of `MaterialField3D`?)
 - Individual creatures STAY agents — cognition, identity, memory, pathfinding, ragdoll death, and
   click-inspection can't be a diffusing scalar field. That individuality is the point.
