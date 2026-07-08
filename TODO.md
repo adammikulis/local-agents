@@ -180,16 +180,26 @@ off-screen so it never pops in front of you).
 - `--no-streamer` / `LA_NO_STREAMER` toggle — **the single biggest cost was the streamer's local LLM**
   (Qwen3-1.7B on `llama-server`) sharing the Metal GPU: ~90ms/frame of contention. Off → 52 FPS; on → ~9.
 
-### TODO — push core 52 → 100+ FPS
-- **Render instancing (biggest remaining lever).** The sim issues ~2580 draw calls — every creature,
-  plant, and rock is its own mesh node. Batch identical meshes into `MultiMeshInstance3D` (per species /
-  per prop type), driven from the actor transforms, so the GPU draws them in a handful of calls. Keep
-  per-actor nodes for logic/selection; only the *rendering* goes through the MultiMesh. Also LOD/cull
-  distant + off-screen actors. This is the path from 52 to 100+ with the streamer off.
-- Remaining CPU field tail after the GPU ports: `fire_tail` (fuel-seed/ash/regrowth — actor-coupled,
-  stays CPU; optimize/sparse-scan it), the geological SDF-tail modules (erosion/snowice/magma cores can
-  still GPU-port with the SDF stamp kept on CPU like lava), and trimming the per-frame full readback to
-  only render-needed channels on a cadence.
+### Done — ALL dense field CAs now GPU-resident (1 → ~63 FPS core / ~55 with streamer)
+Every per-cell field process now runs as a `kernels3d/*3d.glsl` compute pass; the CPU keeps only the
+headless oracle + genuine scene tails (SDF stamps, actor emit). Ported in waves: gas O₂/CO₂ · scent (5
+airborne + fertility) · shock wave · fungus (grow/decompose/spread + fertility reduce) · erosion
+(deposit + advect) · snowice (accrete/melt) · magma (buoyant overpressure). SDF/geometry stamps
+(lava/ice/rock carve+fill) + combustion's ash/regrowth stay CPU by nature. New `MaterialGPU3DGeo.gd`
+holds the geo dispatch to keep `MaterialGPU3D.gd` under the size limit. Final: no-streamer ~59-67 FPS,
+with-streamer (live LLM commentary + avatar) ~54-57 FPS — from 1 FPS. Every wave verified: dispatch
+active (not orphaned), fire parity PASS, behavior intact.
+
+### TODO — push core ~63 → 100+ FPS (the field-CA-off ceiling was ~104)
+The field CAs are now all on GPU, so the remaining ~63→104 gap is NOT the field — candidates:
+- **Per-frame full readback** (task below): `end_frame` pulls ~20 channels × 127K cells back every frame
+  for CPU consumers/render. Read only what's needed, on a cadence — likely the biggest remaining lever.
+- **Creature AI / per-actor `_physics_process`** (~300 actors): profile it live (Godot per-node profiler).
+  Per the rules this is C++/algorithm territory (not GPU) — the spatial-hash landed; cognition itself may
+  want C++ or coarser LOD if it profiles hot.
+- `fire_tail` (fuel-seed/ash/regrowth) + the SDF stamp tails stay CPU by nature; sparse-scan if hot.
+- Render instancing was measured LOW-value (shadows-off cut draw calls 2678→569 with no fps gain) — skip
+  unless entity counts balloon.
 
 ### Done — streamer 9 → ~30 FPS (the cost was NOT what we assumed)
 Headless bisection found the streamer's ~90ms/frame was **mostly `SceneEnergyGraph`**, not the LLM: its
