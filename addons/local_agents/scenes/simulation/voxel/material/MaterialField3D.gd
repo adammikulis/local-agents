@@ -579,6 +579,7 @@ func _physics_process(delta: float) -> void:
 	if steps <= 0:
 		return
 
+	var _fstep_t0: int = Time.get_ticks_usec()   # coarse field-step timer → SimReport (isolate field vs "other")
 	if _use_gpu:
 		var _pg0: int = Time.get_ticks_usec() if OS.has_environment("LA_PROFILE") else 0
 		# GPU-RESIDENT: the WHOLE step (water + heat + atmosphere + lava) runs `steps` times on the GPU.
@@ -744,6 +745,9 @@ func _physics_process(delta: float) -> void:
 		if _prof_on:
 			_prof_gpu += _pc0 - _pg0
 			_prof_last = _pc0
+		# GPU section done (begin_frame + N×step + end_frame READBACK). Gauge it → field_ms − field_gpu_ms is
+		# the CPU-tail cost. Splits the ~69ms field step into GPU/readback vs the scene tails.
+		LASimReport.gauge("field_gpu_ms", float(Time.get_ticks_usec() - _fstep_t0) / 1000.0)
 		if _wind_sim != null:
 			_wind_sim.recompute_avg_from_field()
 		# GEOLOGICAL/biological CPU processes are SLOW by nature (erosion carving rock, snowpack, magma boring
@@ -768,7 +772,9 @@ func _physics_process(delta: float) -> void:
 			_snowice_sim.step_scene_only()
 			_prof_mark("snowice", _prof_on)
 		if _magma_sim != null and _slow_tick == 2:
+			var _mt0: int = Time.get_ticks_usec()
 			_magma_sim.step_scene_only()
+			LASimReport.gauge("tail_magma_ms", float(Time.get_ticks_usec() - _mt0) / 1000.0)
 			_prof_mark("magma", _prof_on)
 		# Emergent dust: the loft/advect/settle CORE ran on-GPU (dust_*3d kernels) and dust/sediment came back in
 		# the readback — so here we run ONLY the CPU tail (refresh the dust_cells/dust_peak diagnostics).
@@ -777,7 +783,9 @@ func _physics_process(delta: float) -> void:
 		# Emergent fire: the ember/phase CORE ran on-GPU (fire3d.glsl) and fuel/fire came back in the readback
 		# above — so here we run ONLY the CPU scene tail (fuel seed/scan, ash marking, ash->plant regrowth).
 		if _combustion != null:
+			var _ft0: int = Time.get_ticks_usec()
 			_combustion.step_scene_only()
+			LASimReport.gauge("tail_fire_ms", float(Time.get_ticks_usec() - _ft0) / 1000.0)
 			_prof_mark("fire_tail", _prof_on)
 		# Emergent oxygen/CO₂: the fire kernel consumed O₂ / emitted CO₂ on-GPU AND the CONTINUOUS transport
 		# (diffuse + advect on the fresh wind + sky exchange/vent) now runs on-GPU too (o2_transport3d /
@@ -795,7 +803,9 @@ func _physics_process(delta: float) -> void:
 		# scent_fert3d) and came back above — so scent runs ONLY its CPU tail here (emit from creatures/
 		# carcasses into the fresh _scent/_fert, then budgeted plant-seeding from the richest soil).
 		if _scent_sim != null:
+			var _st0: int = Time.get_ticks_usec()
 			_scent_sim.step_scene_only()
+			LASimReport.gauge("tail_scent_ms", float(Time.get_ticks_usec() - _st0) / 1000.0)
 			_prof_mark("scent", _prof_on)
 		# Emergent decomposer: the grow/decompose/spread CA + the rot->fertility reduce ran ON-GPU (fungus3d/
 		# fungus_fert3d) and fungus/detritus (and drawn-down O2 / emitted CO2 / soil fertility) came back above.
@@ -807,7 +817,9 @@ func _physics_process(delta: float) -> void:
 		# fresh every-frame _charge readback, so a column that crosses the breakdown threshold fires its bolt
 		# without a cadence delay (cadencing this halved charge_peak and staggered strikes).
 		if _charge_sim != null:
+			var _ct0: int = Time.get_ticks_usec()
 			_charge_sim.step_scene_only()
+			LASimReport.gauge("tail_charge_ms", float(Time.get_ticks_usec() - _ct0) / 1000.0)
 		# Shock radiated + decayed ON-GPU (shock3d) and _shock came back above — refresh its diagnostics only,
 		# staggered on the 4-cycle (peak/audible-cell count change slowly).
 		if _shock_sim != null and _slow_tick == 1:
@@ -873,12 +885,17 @@ func _physics_process(delta: float) -> void:
 	# Granular slump settles into permanent terrain on BOTH paths (a CPU-only SDF stamp, throttled).
 	if _slump_sim != null:
 		_slump_sim.settle()
+	var _rb_t0: int = Time.get_ticks_usec()
 	rebuild_surface()
+	LASimReport.gauge("field_rebuild_ms", float(Time.get_ticks_usec() - _rb_t0) / 1000.0)
 	# Heat-glow texture drives only the terrain incandescence shader and changes slowly (lava/fire
 	# heat diffuses over seconds), so refresh it on a cadence instead of every frame's full-grid scan.
 	if _heat_tex_tick == 0:
 		_heat_texture.update()
 	_heat_tex_tick = (_heat_tex_tick + 1) % HEAT_TEX_EVERY
+	# Coarse per-step-frame field cost → SimReport (max = the step-frame spike). Compare to the physics_ms
+	# gauge: physics_ms − field_ms is the NON-field "other" (terrain remesh / actor bodies / godot_voxel).
+	LASimReport.gauge("field_ms", float(Time.get_ticks_usec() - _fstep_t0) / 1000.0)
 
 
 ## Temperature °C at a world point (0 outside the grid). The consumer query the 2.5D field also exposes.

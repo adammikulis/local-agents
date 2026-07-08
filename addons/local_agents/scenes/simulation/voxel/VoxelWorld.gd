@@ -432,6 +432,9 @@ func _parse_cmdline() -> void:
 
 func _process(delta: float) -> void:
 	_frame += 1
+	# Track the physics-tick cost every frame so SimReport's max = the heavy STEP-FRAME spike (compare to
+	# field_ms: physics_ms − field_ms is the non-field "other" we're hunting).
+	LASimReport.gauge("physics_ms", Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
 	_sky.update(delta)
 	# Share the sky clock with the ecology so nocturnal behavior can key off night (kept out of the
 	# sky controller so the cycle stays decoupled from ecology).
