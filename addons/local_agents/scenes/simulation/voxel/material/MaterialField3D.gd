@@ -1266,3 +1266,20 @@ func shock_cell_count() -> int:
 func rebuild_surface() -> void:
 	if _render != null:
 		_render.rebuild_surface()
+
+
+## Central-telemetry provider (registered once with LASimReport): this field's channel aggregates, in ONE
+## dict, so they flow into SIM_REPORT from their owner instead of being hand-threaded into a format string.
+## Polled only at snapshot time, so these (cheap forwarder) reads don't run per frame.
+func report() -> Dictionary:
+	return {
+		"wet_cells": wet_cell_count(), "heat_peak": peak_heat(), "heat_cells": hot_cell_count(),
+		"lava_cells": lava_peak(), "cloud_cells": cloud_cell_count(), "cloud_cover": avg_cloud_cover(),
+		"fog_cover": avg_fog_cover(), "wind": wind().length(), "scent_cells": scent_cell_count(),
+		"fertility_peak": fertility_peak(), "magma_cells": magma_cell_count(),
+		"erosion_cells": erosion_cell_count(), "snow_cells": snow_cell_count(), "ice_cells": ice_cell_count(),
+		"dust_cells": dust_cell_count(), "charge_peak": charge_peak(), "bolts": bolts_fired(),
+		"shock_cells": shock_cell_count(), "o2_min": o2_min_open(), "o2_avg": o2_avg(),
+		"co2_peak": co2_peak(), "co2_avg": co2_avg(), "fungus_cells": fungus_cells(),
+		"fungus_peak": fungus_peak(), "detritus_peak": detritus_peak(),
+	}

@@ -220,6 +220,7 @@ func _ready() -> void:
 	# on the GPU (resident SSBOs, one readback/frame). Headless falls back to the CPU oracle.
 	var sea3d: float = _terrain.sea_level() if _terrain.has_method("sea_level") else 0.0
 	_material.setup(_terrain, 300.0, 8.0, -80.0, 90.0, sea3d)
+	LASimReport.register(Callable(_material, "report"))   # field channel aggregates flow into SIM_REPORT
 	# The field reads the REAL sun (DirectionalLight3D) live — its energy + angle drive all heating.
 	# Wind/pressure/rain are NOT injected; they emerge from the field's own physics.
 	_material.set_sun(_sky.sun())
