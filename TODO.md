@@ -39,10 +39,12 @@ the flat world into a cubed-sphere planet, then genericize reactions + dissolve 
   - **(2) Sun is a POSITIONED body** — per-cell solar = `dot(cell_radial, normalize(sun_pos-body_center))` ×
     `1/dist²`, not a baked global `sun_dir` (and you literally watch it move).
   - **(3) Two gravity scales, separate:** per-cell radial gravity INSIDE each field (on-planet) vs. a
-    world-space point-mass integrator for the bodies + free actors (player, ejecta). With ~5–10 bodies,
-    **real-time emergent gravity is trivially feasible and on-theme** — orbits EMERGE from the same
-    momentum+gravity substrate (dissolve-don't-patch applied to celestial mechanics) rather than scripted
-    rails. (Fork to decide at A1: emergent n-body vs. stable Kepler rails — see below.)
+    world-space point-mass integrator for the bodies + free actors (player, ejecta). **DECIDED: emergent
+    real-time n-body gravity** — orbits EMERGE from the same momentum+gravity substrate (dissolve-don't-patch
+    applied to celestial mechanics), no scripted paths. With ~5–10 bodies it's trivially cheap. Use a
+    symplectic/velocity-Verlet integrator so orbits don't decay from integration error; seed initial velocities
+    near-circular so the system is stable without rails. **Kepler rails are the FALLBACK ONLY if perf is
+    unacceptable** — not the default.
   - **Reference-frame handoff = the ejecta primitive at scale.** An actor is bound to a body's local frame
     (on/near surface, moving with it) or free in world space (in transit); handoff at the atmosphere-shell
     radius. A lava bomb with enough momentum leaves local frame → world-space projectile under multi-body
@@ -50,9 +52,8 @@ the flat world into a cubed-sphere planet, then genericize reactions + dissolve 
     (pressure→momentum) for free.
   - Additive later (no sphere change): only-active/near-planet full-rate field (distant ones coarse/frozen),
     system-scale camera/LOD.
-  - **OPEN FORK (decide at A1): emergent real-time n-body gravity** (orbits emerge, can perturb/be unstable —
-    thematically perfect, matches Outer Wilds' real physics) **vs. Kepler rails** (fixed predictable orbits,
-    stable + cheap, gravity is a lookup). Leaning emergent per the north-star; rails are the safe fallback.
+  - **RESOLVED: emergent n-body is the default; Kepler rails only as a perf escape hatch** (if the integrator
+    ever costs too much — unlikely at ~5–10 bodies). Orbits are not scripted; they emerge and can be perturbed.
 - [x] **A0 — spike the cubed-sphere seam table** (DONE, `feature/sphere-spike` 6f19512): `LASphereGrid` builds
   6 gnomonic faces × res² × depth radial layers + the per-cell 6-neighbour+radial index table; seams stitched
   geometrically (nearest surface dir past the edge — no hand-coded 24 edge/8 corner cases). `spike_sphere.gd`
