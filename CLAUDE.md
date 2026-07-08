@@ -133,6 +133,15 @@ committed). When removing files:
 - No downstream consumers to preserve right now: prioritize rapid feature improvement and stronger
   simulation behavior over compatibility. Break APIs freely when it improves architecture; remove old
   abstractions when replacing systems rather than leaving parallel ones.
+- **Temporary breakage is ALLOWED on a non-`main` / non-`0.3-dev` branch when it's the cleaner path.** When
+  adding a feature, porting a substrate, or fixing perf, do NOT contort into a non-breaking parallel path
+  (duplicate systems + `if mode` branches + a keep-the-old-working tax) if converting IN PLACE / ripping out
+  the old and fixing FORWARD is simpler — that better matches "retire the old, no parallel systems." On a
+  feature branch the sim need not boot mid-refactor: commit clearly-tagged WIP checkpoints so progress
+  persists, and drive it back to a verified working state (windowed + `SIM_REPORT`) BEFORE merging to
+  `0.3-dev`/`main`. The non-breaking discipline is only mandatory on the shared integration branches and when
+  another writer depends on the code right now. Weigh it each time: pick temporary-break-then-fix-forward when
+  it yields materially cleaner code or less throwaway; keep non-breaking when the churn is small either way.
 - **Surface held-back-by-code moments — don't just proceed.** If, while doing a task, you realize the
   current code/architecture is a *holdover* that's constraining a genuinely better approach (e.g. a
   2.5D representation blocking a real 3D one, a scripted special-case where an emergent rule belongs, a
