@@ -121,14 +121,20 @@ genericize reactions + dissolve every scripted disaster (Phase C).
     - **`LASolarSystem`** — repurpose `VoxelWorld` into the system root: create `LAStar` + ONE `LAPlanetBody`;
       wire shared controllers (camera/HUD/audio/weather/disasters/brush/interaction) to the active body's
       services. Retire flat island + flat `OceanPlane` + flat fly-cam. (main_scene stays `VoxelWorld.tscn`.)
-  - [ ] **FAN-OUT once the spine boots a planet** (shared contract = `up_at`/`altitude_at`/`surface_point`):
-    - Radial locomotion per actor — `Creature`/`Fish`/`Plant`/`Tree`/`Nest`: `Vector3.UP`→`up_at`, `vec.y=0`→
-      tangent-plane projection, `pos.y`→`altitude_at`; spawn on the surface (one subagent per file).
-    - `VoxelCameraRig` → orbit-the-body (radial up, rotate-around-core; system camera can retarget bodies).
-    - `OceanPlane` → spherical sea shell at `sea_radius`. `VoxelSkyCycle` → planet spins under `LAStar`;
-      per-cell solar terminator + latitude bands. **Magma core** = innermost radial layers pinned hot.
-- Field's gravity-dependent processes parked until Phase B (box grid enclosing the body meanwhile). Deliverable:
-  walkable, lit, spinning planet under a star — terminator sweeps, latitude climate, hot core, breathing life.
+  - [x] **Spine boots the planet + FAN-OUT integrated** (`c6bbe65`): real `VoxelWorld` boots a LIVING planet —
+    275 entities on the sphere, blue oceans / green continents / sandy radial coastlines, orbit camera, 96fps,
+    zero errors. 7-agent parallel fan-out done, all via the terrain radial contract (gated by `is_planet`):
+    Ecology radial spawn (surface_point + tangent clusters + underwater shell); `Creature`/`Fish` tangent-plane
+    steering + radial ground-snap/submersion; `Plant`/`Tree`/`Nest` radial up + surface snap; `VoxelCameraRig`
+    orbit mode; `OceanPlane.setup_sphere` translucent sea shell; terrain shader climate keyed off radial
+    altitude/up (coastlines ring the globe, no +Y-pole snow). Flat path preserved in every file.
+  - [ ] **Remaining A1 (surface later / next):** per-cell solar TERMINATOR in the field (`heat3d_solar.glsl`
+    reads `LAStar` sun_dir) + wire the sky's visual sun to the star; **magma core** (innermost radial layers
+    pinned hot → geothermal gradient); planet **SPIN** (rotate the body) then orbit; surface-level playtest of
+    radial locomotion (verified structurally + parse-clean; needs an eyes-on walk-around). Radial caves + flat
+    sea seeding + scripted volcano still guarded off (Phase B field / Phase C).
+- Field's gravity-dependent processes parked until Phase B (box grid enclosing the body meanwhile). Deliverable
+  SO FAR: walkable, lit planet with oceans/coasts/climate + life. Left: terminator, hot core, spin.
 
 ## Phase B — CUBED-SPHERE FIELD PORT + reaction engine + water-cycle unify (one converged kernel rewrite).
 - [ ] **B1 — grid layer:** neighbour-index SSBO + per-face/radial buffer layout (rework `MaterialGPU3D`
