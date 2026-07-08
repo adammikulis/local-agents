@@ -408,6 +408,54 @@ func _process(delta: float) -> void:
 	LAModelVisual.animate(_model_root, _model_anim, _model_anims, sp, _model_run_speed, _vis_t, delta)
 
 
+# --- decision LOD (distance + sleep) ------------------------------------------------------------
+# The full cognition cascade is the creature's only non-trivial per-frame cost. Every-frame work
+# (metabolism, thirst, temperature, ageing, death, movement) stays every-frame so distant creatures
+# still live/die/glide correctly; only the DISCRETIONARY think cascade is throttled by how visible
+# and how idle the creature is. This spreads the cost automatically: a fraction of the population is
+# always asleep (diurnal by night / nocturnal by day, staggered), and most animals are off-screen.
+const MID_THINK_STRIDE: int = 10           # mid-distance discretionary thinking (~6 Hz)
+const FAR_THINK_STRIDE: int = 30           # far/off-screen discretionary thinking (~2 Hz)
+const SLEEP_THINK_STRIDE: int = 30         # asleep/resting: no decisions to make — heaviest throttle
+const NEAR_LOD_D2: float = 900.0           # <30 m from camera → full THINK_STRIDE rate
+const MID_LOD_D2: float = 4900.0           # <70 m → MID rate; beyond → FAR rate
+
+# Camera position, fetched once per physics frame and shared by every creature (a single
+# get_camera_3d() lookup, not one per creature). INF when there is no active camera.
+static var _cam_frame: int = -1
+static var _cam_pos: Vector3 = Vector3(INF, INF, INF)
+
+
+func _camera_pos() -> Vector3:
+	var f: int = int(Engine.get_physics_frames())
+	if f != _cam_frame:
+		_cam_frame = f
+		var vp: Viewport = get_viewport()
+		var cam: Camera3D = vp.get_camera_3d() if vp != null else null
+		_cam_pos = cam.global_position if cam != null else Vector3(INF, INF, INF)
+	return _cam_pos
+
+
+# How often THIS creature runs the discretionary think cascade, in physics frames. Sleep is cheapest,
+# then distance-graded for idle/discretionary states; time-critical states (fleeing, hunting, drinking)
+# stay at the full near rate at any distance so an off-screen chase or a drink never stalls.
+func _think_stride() -> int:
+	if state == "sleep" or state == "roost" or state == "nesting" or state == "rest":
+		return SLEEP_THINK_STRIDE
+	if state == "flee" or state == "panic" or state == "chase" or state == "stalk" \
+			or state == "throw" or state == "seek" or state == "drink":
+		return THINK_STRIDE
+	var cam: Vector3 = _camera_pos()
+	if is_inf(cam.x):
+		return THINK_STRIDE
+	var d2: float = global_position.distance_squared_to(cam)
+	if d2 < NEAR_LOD_D2:
+		return THINK_STRIDE
+	if d2 < MID_LOD_D2:
+		return MID_THINK_STRIDE
+	return FAR_THINK_STRIDE
+
+
 func _physics_process(delta: float) -> void:
 	# In the player's hand: VoxelWorld sets our position each frame; skip AI + terrain-snap.
 	if _held:
@@ -422,7 +470,7 @@ func _physics_process(delta: float) -> void:
 		return
 	age += delta
 	if _think_phase < 0:
-		_think_phase = int(get_instance_id()) % THINK_STRIDE   # stagger think-frames across the population
+		_think_phase = int(get_instance_id())                  # raw id; the think stagger is (id % stride)
 	_throw_cd -= delta
 	# Night perception: nocturnal species gain range after dark, diurnal ones lose it.
 	_sense_mult = 1.0
@@ -493,11 +541,14 @@ func _physics_process(delta: float) -> void:
 		_urine_cd = randf_range(10.0, 22.0)
 		_deposit_waste(Vector3(pos.x, surf, pos.z), "urine")
 
-	# DECISION THROTTLE: run the full cognition cascade only every THINK_STRIDE frames (instance-
-	# staggered so the population spreads its think-frames), or immediately on an acute event
-	# (_force_think, set by scare/damage). Between think-frames the creature keeps gliding along its
+	# DECISION THROTTLE (LOD): run the full cognition cascade only every `stride` frames, where the
+	# stride grows with distance to the camera and is heaviest while asleep/resting — see _think_stride.
+	# Instance-staggered (id % stride) so the population spreads its think-frames evenly at every rate.
+	# An acute event (_force_think, set by scare/damage) re-decides NEXT frame regardless — so a sleeping
+	# or distant creature still wakes and reacts. Between think-frames the creature keeps gliding along its
 	# last _heading at _eff_speed — movement + metabolism below stay every-frame for smoothness.
-	var do_think: bool = _force_think or ((int(Engine.get_physics_frames()) + _think_phase) % THINK_STRIDE == 0)
+	var stride: int = _think_stride()
+	var do_think: bool = _force_think or ((int(Engine.get_physics_frames()) + _think_phase) % stride == 0)
 	if do_think:
 		var desired: Vector3 = _heading
 		_wander_timer -= delta

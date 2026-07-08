@@ -337,12 +337,48 @@ func is_mature() -> bool:
 	return age >= maturity_age
 
 
+# Camera position, fetched once per physics frame and shared across all fish (one get_camera_3d()
+# lookup per frame, not one per fish). INF when there is no active camera. Mirrors LACreature's cache.
+static var _cam_frame: int = -1
+static var _cam_pos: Vector3 = Vector3(INF, INF, INF)
+
+const MID_THINK_STRIDE: int = 10           # mid-distance schooling/wander recompute (~6 Hz)
+const FAR_THINK_STRIDE: int = 30           # far/off-screen recompute (~2 Hz)
+const NEAR_LOD_D2: float = 900.0           # <30 m from camera → full THINK_STRIDE rate
+const MID_LOD_D2: float = 4900.0           # <70 m → MID rate; beyond → FAR rate
+
+
+func _camera_pos() -> Vector3:
+	var f: int = int(Engine.get_physics_frames())
+	if f != _cam_frame:
+		_cam_frame = f
+		var vp: Viewport = get_viewport()
+		var cam: Camera3D = vp.get_camera_3d() if vp != null else null
+		_cam_pos = cam.global_position if cam != null else Vector3(INF, INF, INF)
+	return _cam_pos
+
+
+# Distance LOD for the O(n) schooling recompute: near fish re-plan every THINK_STRIDE frames, distant
+# ones far less often. The per-frame habitability correction + movement below are UNAFFECTED, so a fish
+# never glides onto land regardless of distance — only the discretionary steer is throttled.
+func _think_stride() -> int:
+	var cam: Vector3 = _camera_pos()
+	if is_inf(cam.x):
+		return THINK_STRIDE
+	var d2: float = global_position.distance_squared_to(cam)
+	if d2 < NEAR_LOD_D2:
+		return THINK_STRIDE
+	if d2 < MID_LOD_D2:
+		return MID_THINK_STRIDE
+	return FAR_THINK_STRIDE
+
+
 func _physics_process(delta: float) -> void:
 	if _dying:
 		return
 	age += delta
 	if _think_phase < 0:
-		_think_phase = int(get_instance_id()) % THINK_STRIDE   # stagger think-frames across the school
+		_think_phase = int(get_instance_id())                  # raw id; the think stagger is (id % stride)
 	if age >= max_age:
 		die("old age")
 		return
@@ -362,7 +398,8 @@ func _physics_process(delta: float) -> void:
 	# every THINK_STRIDE frames, instance-staggered. Between updates the fish keeps its last _heading —
 	# the habitability correction + movement below still run EVERY frame, so it never glides onto land.
 	var desired: Vector3 = _heading
-	var do_think: bool = (int(Engine.get_physics_frames()) + _think_phase) % THINK_STRIDE == 0
+	var stride: int = _think_stride()
+	var do_think: bool = (int(Engine.get_physics_frames()) + _think_phase) % stride == 0
 	if do_think:
 		_wander_timer -= delta
 		if _wander_timer <= 0.0:
