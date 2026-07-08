@@ -110,6 +110,10 @@ func step_scene_only() -> void:
 		return
 	_feed_sources()
 	_pressure_melt()
+	# The feed/bore just wrote _f._lava on the CPU (deep-source injection + conduit emplacement), so the GPU
+	# path must re-upload it next frame — otherwise its dirty-gated upload would skip and the eruption's lava
+	# would never reach the resident buffer. (A live volcano dirties this every frame, so lava round-trips.)
+	_f._lava_dirty = true
 	_magma_cells_last = _count_magma()
 	_erupting_last = _compute_erupting()
 

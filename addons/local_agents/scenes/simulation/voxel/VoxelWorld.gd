@@ -122,6 +122,12 @@ func _ready() -> void:
 	# Real interactive play (neither flag) is untouched. Env LA_OFFSCREEN forces it too.
 	if (_run_frames > 0 or _shoot_path != "" or OS.has_environment("LA_OFFSCREEN")) and DisplayServer.get_name() != "headless":
 		DisplayServer.window_set_position(Vector2i(-8000, -8000))
+		# Opt-in uncap (LA_UNCAP): drop vsync + the fps limit to see headroom above the monitor refresh.
+		# NOT on by default — on macOS Metal an uncapped spin actually contends and reports LOWER than the
+		# normal vsync-paced rate, so the vsync-paced number (below the refresh) is the honest playable figure.
+		if _run_frames > 0 and OS.has_environment("LA_UNCAP"):
+			DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+			Engine.max_fps = 0
 
 	# --- Sun + sky + day/night: owned by LAVoxelSkyCycle. It builds the sky shader material, the
 	# WorldEnvironment (tonemap/SSAO/glow/fog/ambient), the sun (PSSM cascade-blend shadows) and the

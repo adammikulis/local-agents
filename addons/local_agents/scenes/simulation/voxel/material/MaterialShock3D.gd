@@ -70,6 +70,9 @@ func emit(world_pos: Vector3, magnitude: float) -> void:
 		return
 	_shock[i] += magnitude
 	_dirty = true
+	# GPU path uploads _shock only when a fresh emit dirtied it (else the GPU radiates it resident); flag the
+	# field so this pulse round-trips into the resident buffer next frame.
+	_f._shock_dirty = true
 
 
 ## PROPAGATE one step (gather form; deterministic + order-independent, so it mirrors a GPU kernel bit-for-

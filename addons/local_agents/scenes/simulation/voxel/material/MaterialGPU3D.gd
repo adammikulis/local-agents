@@ -1179,7 +1179,7 @@ func step() -> void:
 ## final resident state off whichever ping-pong buffer is live. Returns the full per-cell sim output:
 ## {"temp", "water", "vapor", "cloud", "fog", "lava"} (temp+water round-trip via begin_frame; the airborne
 ## fields + lava are resident and returned so the renderer / rain layer / lava visuals can consume them).
-func end_frame(read_vapor: bool = true, read_cloud: bool = true, read_fog: bool = true) -> Dictionary:
+func end_frame(read_vapor: bool = true, read_cloud: bool = true, read_fog: bool = true, read_render: bool = true, read_lava: bool = true, read_shock: bool = true) -> Dictionary:
 	if _rd == null or _cell_count == 0:
 		return {
 			"temp": PackedFloat32Array(), "water": PackedFloat32Array(),
@@ -1196,31 +1196,33 @@ func end_frame(read_vapor: bool = true, read_cloud: bool = true, read_fog: bool 
 	var out: Dictionary = {
 		"temp": download(live_buffer("temp", _parity)),
 		"water": download(live_buffer("water", _parity)),
-		"lava": download(live_buffer("lava", _parity)),
 		"sediment": download(live_buffer("sediment", _parity)),
 		"fire": download(live_buffer("fire", _parity)),
 		"fuel": download(_buf_fuel),
 		# O₂/CO₂ ping-pong: their LIVE buffer holds the post-transport (diffuse/advect/sky) state this frame.
 		"o2": download(live_buffer("o2", _parity)),
 		"co2": download(live_buffer("co2", _parity)),
-		# Emergent electrification + airborne dust — GPU-computed. charge is a single in-place buffer; dust
-		# ping-pongs so its live buffer holds the post-transport airborne density.
+		# charge (BREAKDOWN tail needs it fresh for bolts) + detritus (deposited + decomposed) round-trip every frame.
 		"charge": download(_buf_charge),
-		"dust": download(live_buffer("dust", _parity)),
-		# Emergent wind velocity — GPU-computed + resident. Read back so CPU consumers (wind_at / wind3_at /
-		# scent advection / debug arrows / avg_wind) see the fresh per-cell wind.
-		"vel_x": download(_buf_vel_x),
-		"vel_y": download(_buf_vel_y),
-		"vel_z": download(_buf_vel_z),
-		# Emergent shock (sound wave), scent stigmergy (5-channel airborne + soil fertility) + fungus decomposer —
-		# GPU-computed. shock/fungus ping-pong (live = post-step); detritus is a single in-place buffer; scent/fert
-		# are per-column. Read back for the CPU consumers (camera shake / creature panic, scent gradients, mushrooms).
-		"shock": download(live_buffer("shock", _parity)),
 		"scent": download(live_buffer("scent", _parity)),
 		"fert": download(live_buffer("fert", _parity)),
-		"fungus": download(live_buffer("fungus", _parity)),
 		"detritus": download(_buf_detritus),
 	}
+	# shock + lava are GPU-resident; the CPU writes them only on a rare emit / disaster, so the caller dirty-gates
+	# their readback (a skipped frame keeps the stale CPU copy — no full-grid download; lava round-trips while venting).
+	if read_shock:
+		out["shock"] = download(live_buffer("shock", _parity))
+	if read_lava:
+		out["lava"] = download(live_buffer("lava", _parity))
+	# READ-ONLY / render-only channels (CPU never writes them; GPU is authoritative): airborne dust, per-cell wind
+	# velocity, fungus density. Read on the render cadence (they evolve resident between reads) — cuts ~5 downloads
+	# on 2 of every 3 frames; the caller keeps its previous (slightly stale) CPU copy on the skipped frames.
+	if read_render:
+		out["dust"] = download(live_buffer("dust", _parity))
+		out["vel_x"] = download(_buf_vel_x)
+		out["vel_y"] = download(_buf_vel_y)
+		out["vel_z"] = download(_buf_vel_z)
+		out["fungus"] = download(live_buffer("fungus", _parity))
 	# Geological-tail channels (erosion suspended sediment + snowpack depth) — GPU-evolved this frame; read
 	# back for the CPU tails (SDF carve/freeze/thaw) + diagnostics. Sediment/lava/temp/water round-trip above.
 	if _geo != null:

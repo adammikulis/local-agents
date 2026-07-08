@@ -194,6 +194,17 @@ var _slow_read_tick: int = 0
 # Vapor is re-uploaded each frame ONLY to fold CPU-side injections (storm add_vapor); when nothing injected
 # it lives fully resident on the GPU (like cloud/fog), so we skip both its upload AND its readback.
 var _vapor_dirty: bool = false
+# LAVA is GPU-owned + GPU-evolved (the flow CA runs on-device); the CPU edits it only on a disaster/volcano
+# (add_lava, or the magma tail's deep-source feed/bore). Its upload+readback are DIRTY-GATED TOGETHER: uploaded
+# only when a CPU edit dirtied it (else it stays resident — re-uploading a stale copy would clobber the GPU's
+# flow), and read back only on the slow cadence OR the frame the edit round-trips. With no active volcano it
+# neither uploads nor downloads on clean frames (a full-grid GPU->CPU download saved); while a volcano vents the
+# magma tail dirties it every frame so it round-trips correctly. SHOCK is GPU-authoritative too (only impact
+# emits write it on the CPU), so its UPLOAD is dirty-gated; its readback is cadenced (camera shake tolerates a
+# 1-in-3-stale amplitude). Charge/detritus were tried here too but reverted to every-frame: charge's bolt tail
+# needs fresh charge each frame, and detritus is continuous-evolution + continuous-deposit (see the upload block).
+var _lava_dirty: bool = false
+var _shock_dirty: bool = false
 # Lazy solidity sampling: the field is created before the terrain has finished streaming, so it samples
 # rock/void a budget of columns per frame and self-activates (seed sea + build modules) once complete —
 # exactly how the old field lazily sampled heights. No blocking, no external init calls.
@@ -578,7 +589,15 @@ func _physics_process(delta: float) -> void:
 		var solar: float = _heat._solar() if _heat != null else 0.6
 		var w: Vector2 = _atmosphere.wind() if _atmosphere != null and _atmosphere.has_method("wind") else Vector2.ZERO
 		_gpu.begin_frame(_temp, _water, solar, w)
-		_gpu.set_field("lava", _lava)
+		# Lava is GPU-resident + GPU-evolved (the flow CA runs on-device). The CPU only injects into it on a
+		# disaster/volcano (add_lava) or the magma tail's deep-source feed/bore — so re-upload ONLY when such an
+		# edit dirtied it; otherwise the GPU keeps flowing it resident and re-uploading a stale snapshot would
+		# clobber that flow. While a volcano vents, the magma tail dirties it every frame, so it round-trips
+		# every frame (correct); with no active volcano it stays resident and its readback drops to the cadence.
+		var lava_was_dirty: bool = _lava_dirty
+		if lava_was_dirty:
+			_gpu.set_field("lava", _lava)
+		_lava_dirty = false
 		# Emergent wind now runs ON-GPU (wind_pressure3d + wind_step3d between the heat and atmosphere passes),
 		# so vel_x/vel_y/vel_z are GPU-resident + GPU-written — no per-frame upload_wind. Just push the
 		# large-scale PREVAILING input the wind_step kernel relaxes toward (the old --wind= / WeatherSystem base).
@@ -601,8 +620,13 @@ func _physics_process(delta: float) -> void:
 		# CORE on-device; the CPU keeps only the tails (charge BREAKDOWN+bolt, dust diagnostics) via
 		# step_scene_only(). Upload the authoritative CPU state (carrying the last breakdown's column reset for
 		# charge, and the erosion/snowice/magma edits to the shared sediment for dust), then read them back below.
+		# Charge is LEFT EVERY-FRAME: the accumulate CA separates charge on-device every step, but the per-column
+		# BREAKDOWN tail (bolt spawn + column reset) must scan FRESH charge every frame to trigger bolts on time —
+		# cadencing its readback halved charge_peak and delayed strikes. Its round-trip is one cheap channel; keep it.
 		_gpu.set_field("charge", _charge)
-		_gpu.set_field("dust", _dust)
+		# dust is GPU-authoritative (CPU never writes it) — NOT re-uploaded, so it lives fully resident and
+		# its readback can be cadenced (render-only). Re-uploading the last readback would clobber the GPU's
+		# own evolution on the skipped-readback frames.
 		# Rain suppresses all dust lofting (wet sand never blows) — hand the dust LOFT kernel the raining flag.
 		_gpu.set_raining(precipitation() > DustScript.RAIN_MAX)
 		# Scent/shock/fungus round-trip like fire/dust: the GPU runs the transport/CA cores, the CPU keeps only
@@ -613,9 +637,18 @@ func _physics_process(delta: float) -> void:
 		if _scent_sim != null:
 			_gpu.set_field("scent", _scent_sim._scent)
 			_gpu.set_field("fert", _scent_sim._fert)
-		if _shock_sim != null:
+		# Shock is GPU-resident + GPU-evolved (the shock3d CA radiates + decays it on-device). The CPU only writes
+		# it when an impact EMITS a pulse (rare, discrete) — so re-upload ONLY when an emit dirtied it; the GPU
+		# keeps radiating it resident otherwise. Its READBACK stays every-frame (the camera shake samples it each
+		# frame), so the emit always adds onto a fresh CPU copy — no clobber, and we still cut the per-frame upload.
+		var shock_was_dirty: bool = _shock_dirty
+		if _shock_sim != null and shock_was_dirty:
 			_gpu.set_field("shock", _shock_sim._shock)
-		_gpu.set_field("fungus", _fungus)
+		_shock_dirty = false
+		# fungus is GPU-authoritative (CPU only reads it for diagnostics) — NOT re-uploaded (resident); its
+		# readback is cadenced with dust/vel below. detritus is LEFT EVERY-FRAME (round-trips like sediment): the
+		# GPU DECOMPOSES it every step (fungus kernel) AND a rotting carcass deposits into it EVERY frame, so it is
+		# continuous-evolution + continuous-CPU-edit — dirty-gating clobbered the accumulation (detritus_peak → 0).
 		_gpu.set_field("detritus", _detritus)
 		# Geological tails round-trip like fire/scent: the GPU runs the per-cell CORES (erosion deposit/advect,
 		# snowpack accrete/melt, magma buoyant up-flow); the CPU keeps only the SDF/solid-mask stamps via
@@ -637,10 +670,20 @@ func _physics_process(delta: float) -> void:
 		# water/lava are queried continuously by consumers, so read them every frame.
 		var read_slow: bool = _slow_read_tick == 0
 		var read_vapor: bool = read_slow or _vapor_dirty
-		var out: Dictionary = _gpu.end_frame(read_vapor, read_slow, read_slow)
+		# LAVA readback is DIRTY-GATED together with its upload: read only on the slow cadence, OR the frame a CPU
+		# edit (magma feed / add_lava) is round-tripping (lava_was_dirty), so the edit lands on a freshly-read copy
+		# — never a cadenced readback over a stale every-frame upload (what broke the crude version). With no active
+		# volcano lava is fully resident + cadenced; while a volcano vents it dirties every frame and round-trips.
+		var read_lava: bool = read_slow or lava_was_dirty
+		# Shock: the camera shake integrates trauma (add_shake) from seismic_energy_at each frame and applies a
+		# per-frame RANDOM offset scaled by the decaying trauma — so a 1-in-3-stale shock amplitude is invisible
+		# (verified). Read it on the cadence, or the frame a fresh impact emit is round-tripping into the buffer.
+		var read_shock: bool = read_slow or shock_was_dirty
+		var out: Dictionary = _gpu.end_frame(read_vapor, read_slow, read_slow, read_slow, read_lava, read_shock)
 		_temp = out["temp"]
 		_water = out["water"]
-		_lava = out["lava"]
+		if out.has("lava"):
+			_lava = out["lava"]
 		if out.has("fire"):
 			_fire = out["fire"]
 		if out.has("fuel"):
@@ -755,6 +798,9 @@ func _physics_process(delta: float) -> void:
 		if _fungus_sim != null and _slow_tick == 3:
 			_fungus_sim.refresh_diagnostics_from_field()
 			_prof_mark("fungus", _prof_on)
+		# The charge tail (per-column dielectric BREAKDOWN + bolt spawn + column reset) runs EVERY frame on the
+		# fresh every-frame _charge readback, so a column that crosses the breakdown threshold fires its bolt
+		# without a cadence delay (cadencing this halved charge_peak and staggered strikes).
 		if _charge_sim != null:
 			_charge_sim.step_scene_only()
 		# Shock radiated + decayed ON-GPU (shock3d) and _shock came back above — refresh its diagnostics only,
@@ -951,6 +997,7 @@ func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 func add_lava(world_pos: Vector3, amount: float) -> void:
 	if _lava_sim != null and _lava_sim.has_method("add_lava"):
 		_lava_sim.add_lava(world_pos, amount)
+		_lava_dirty = true                                  # CPU edited _lava → GPU path re-uploads it next frame
 
 ## Inject airborne water vapor (humidity) over a disc/column at a world point — a storm's LOCAL moisture
 ## source. With a little aloft cooling the existing condense→rain rules build a dense cloud → heavy local
