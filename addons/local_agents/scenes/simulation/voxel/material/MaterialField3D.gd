@@ -620,14 +620,17 @@ func activate() -> void:
 		_gpu.set_field("fog", _fog)
 		_gpu.set_field("lava", _lava)
 		_gpu.set_field("sediment", _sediment)
-	_render = RenderScript.new()
-	_render.setup(self)
-	_render.build()
 	_inject = InjectScript.new()
 	_inject.setup(self)
-	_heat_texture.build()
-	rebuild_surface()
-	_heat_texture.update()
+	# Box-only presentation facades (surface-mesh render + XZ-column terrain-glow texture) assume the box
+	# grid + _idx; the cubed-sphere renders terrain via godot_voxel + the ocean shell, so skip them here.
+	if not is_sphere():
+		_render = RenderScript.new()
+		_render.setup(self)
+		_render.build()
+		_heat_texture.build()
+		rebuild_surface()
+		_heat_texture.update()
 	_ready_sim = true
 
 
@@ -1288,6 +1291,8 @@ func active_fire_count() -> int:
 
 ## Drop feces/urine at a world point: diet-flavored soil fertility + a FOOD dab + the depositor's musk.
 func deposit_waste(world_pos: Vector3, creature, kind: String) -> void:
+	if is_sphere():
+		return                # scent CPU-oracle is box-indexed; sphere scent deposit not yet wired
 	if _scent_sim != null:
 		_scent_sim.deposit_waste(world_pos, creature, kind)
 
@@ -1307,6 +1312,8 @@ func scent_at(world_pos: Vector3, channel: int) -> float:
 
 ## Normalized XZ direction UP a scent channel's gradient (predator tracking, prey avoidance).
 func scent_gradient(world_pos: Vector3, channel: int) -> Vector3:
+	if is_sphere():
+		return Vector3.ZERO   # scent CPU-oracle is box-indexed; sphere scent not yet wired (channel unread)
 	return _scent_sim.scent_gradient(world_pos, channel) if _scent_sim != null else Vector3.ZERO
 
 ## Soil nutrient at a world point (plants grow faster on rich ground).
@@ -1333,6 +1340,8 @@ func magma_erupting() -> bool:
 func erosion_cell_count() -> int:
 	return _erosion_sim.eroding_cells() if _erosion_sim != null else 0
 func snow_depth_at(x: float, z: float) -> float:
+	if is_sphere():
+		return 0.0            # snow CPU-oracle is box/2.5D-indexed; sphere snow not yet wired
 	return _snowice_sim.snow_depth_at(x, z) if _snowice_sim != null else 0.0
 func snow_cell_count() -> int:
 	return _snowice_sim.snow_cells() if _snowice_sim != null else 0
