@@ -307,14 +307,47 @@ func seed_sea() -> void:
 
 # --- Setup ------------------------------------------------------------------
 
+# Cubed-sphere substrate (Phase B). When _sphere != null the field is a spherical planet: cells are a flat
+# array of length surf_count*depth gathered via the SphereGrid's 6-neighbour+radial table (down = inward-radial
+# neighbour). The box (_dim_*) path is untouched when _sphere == null. See sphere/SphereGrid.gd.
+var _sphere: RefCounted = null
+
+## True when the field is laid out on a cubed-sphere planet rather than an origin box.
+func is_sphere() -> bool:
+	return _sphere != null
+
+## The SphereGrid backing this field (null in box mode).
+func sphere_grid() -> RefCounted:
+	return _sphere
+
+## CUBED-SPHERE setup (Phase B): lay the field over a LASphereGrid instead of a box. Allocates every channel
+## as a flat array of length `grid.cell_count` (cell = surf*depth + r). Geometry (world↔cell, cell_world_pos,
+## radial, neighbours) routes through the grid; the box path is unaffected.
+func setup_sphere(grid: RefCounted) -> void:
+	_sphere = grid
+	_cell_size = maxf(0.5, grid.cell_size)
+	_origin = grid.center
+	_cell_count = grid.cell_count
+	# Keep _dim_* nominally sane (some diagnostics read them); real indexing goes through the grid.
+	_dim_x = grid.surf_count
+	_dim_y = grid.depth
+	_dim_z = 1
+	_alloc_channels()
+
 ## Explicit-dimension setup (used by tests / when the caller knows the volume directly).
 func setup_dims(dim_x: int, dim_y: int, dim_z: int, cell_size: float, origin: Vector3) -> void:
+	_sphere = null
 	_dim_x = maxi(1, dim_x)
 	_dim_y = maxi(1, dim_y)
 	_dim_z = maxi(1, dim_z)
 	_cell_size = maxf(0.5, cell_size)
 	_origin = origin
 	_cell_count = _dim_x * _dim_y * _dim_z
+	_alloc_channels()
+
+## Allocate + seed every per-cell channel for the current `_cell_count`. Shared by setup_dims (box) and
+## setup_sphere (cubed-sphere) — both set _cell_count first, then call this.
+func _alloc_channels() -> void:
 	_solid = PackedByteArray()
 	_solid.resize(_cell_count)
 	_water = PackedFloat32Array()
@@ -386,6 +419,36 @@ func _in_bounds(ix: int, iy: int, iz: int) -> bool:
 
 func cell_world_pos(ix: int, iy: int, iz: int) -> Vector3:
 	return _origin + Vector3(float(ix), float(iy), float(iz)) * _cell_size
+
+
+# --- Cubed-sphere linear accessors (Phase B; the world↔cell seam that replaces box _idx/_col_i) ----------
+
+## World centre of a LINEAR cell index (cubed-sphere mode). Box mode: decode ix,iy,iz then cell_world_pos.
+func cell_world_pos_linear(c: int) -> Vector3:
+	if _sphere != null:
+		return _sphere.cell_world_pos(c)
+	var layer: int = _dim_x * _dim_z
+	var iy: int = c / layer
+	var rem: int = c - iy * layer
+	var iz: int = rem / _dim_x
+	var ix: int = rem - iz * _dim_x
+	return cell_world_pos(ix, iy, iz)
+
+## World position → linear cell index (cubed-sphere: nearest gnomonic face+surf+radial layer; -1 if outside
+## the shell). Box mode: clamp each axis and combine. This is the substrate-agnostic world→cell used by queries.
+func world_to_cell(world_pos: Vector3) -> int:
+	if _sphere != null:
+		return _sphere.world_to_cell(world_pos)
+	var ix: int = clampi(int(round((world_pos.x - _origin.x) / _cell_size)), 0, _dim_x - 1)
+	var iy: int = clampi(int(round((world_pos.y - _origin.y) / _cell_size)), 0, _dim_y - 1)
+	var iz: int = clampi(int(round((world_pos.z - _origin.z) / _cell_size)), 0, _dim_z - 1)
+	return _idx(ix, iy, iz)
+
+## Outward radial unit at a linear cell (cubed-sphere). Box mode: +Y (the flat world's "up").
+func cell_radial(c: int) -> Vector3:
+	if _sphere != null:
+		return _sphere.cell_radial(c)
+	return Vector3.UP
 
 
 # --- Authoring (tests + terrain sampling) -----------------------------------
