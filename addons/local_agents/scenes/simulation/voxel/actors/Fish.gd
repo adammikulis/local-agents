@@ -54,6 +54,12 @@ var _bask_cd: float = 0.0             # cooldown before the next haul-out
 var health: float = 12.0
 var max_health: float = 12.0
 
+# --- GILLS: the inverse of a land animal's lungs. A fish breathes water; out of it (stranded/thrown, not
+# basking) it burns a breath reserve and suffocates in air. Same emergent rule + 3D submersion read as
+# LACreatureMetabolism, mirrored for the water-breather. breath_capacity = seconds survivable out of water. ---
+var breath_capacity: float = 12.0
+var _breath: float = 12.0
+
 var age: float = 0.0
 var state: String = "swim"
 var _dying: bool = false
@@ -83,6 +89,8 @@ func setup(_terrain, _material, _config: Dictionary) -> void:
 	depth_min = float(config.get("depth_min", depth_min))
 	depth_max = float(config.get("depth_max", depth_max))
 	submerge = float(config.get("submerge", submerge))
+	breath_capacity = float(config.get("breath_capacity", breath_capacity))
+	_breath = breath_capacity
 	model_id = String(config.get("model", species))
 	body_shape = String(config.get("body", "fish"))
 	basks = bool(config.get("basks", false))
@@ -315,6 +323,7 @@ func die(_cause: String = "", _impulse: Vector3 = Vector3.ZERO) -> void:
 	if _dying:
 		return
 	_dying = true
+	LASimReport.event("death", {"cause": _cause, "species": species})
 	if material != null and material.has_method("splash"):
 		material.splash(global_position, 0.6)
 	queue_free()
@@ -393,6 +402,17 @@ func _physics_process(delta: float) -> void:
 		return
 
 	var pos: Vector3 = global_position
+
+	# GILLS: suffocate out of water (the inverse of a lung drowning) — same 3D submersion read. Basking
+	# species are exempt (handled above, they haul out deliberately). The breath reserve buffers a brief flop.
+	if material.has_method("is_submerged_at"):
+		if material.is_submerged_at(pos.x, pos.y, pos.z):
+			_breath = minf(_breath + 25.0 * delta, breath_capacity)
+		else:
+			_breath -= delta
+			if _breath <= 0.0:
+				die("suffocated")
+				return
 
 	# DECISION THROTTLE: recompute the swim intention (wander jitter + the O(n) schooling steer) only
 	# every THINK_STRIDE frames, instance-staggered. Between updates the fish keeps its last _heading —
