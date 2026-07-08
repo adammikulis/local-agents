@@ -668,6 +668,12 @@ func _sphere_process(delta: float) -> void:
 	var t0: int = Time.get_ticks_usec()
 	var solar: float = _heat._solar() if _heat != null and _heat.has_method("_solar") else 0.6
 	_gpu.begin_frame(_temp, _water, solar, Vector2.ZERO)
+	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
+	# sun_dir points from the planet toward the star; ThermalPass' solar kernel does max(0, dot(cell_radial, sun_dir)).
+	if _sun_light != null and _gpu.has_method("set_sun_dir"):
+		_gpu.set_sun_dir(_sun_light.global_transform.basis.z)
+	if _terrain != null and _terrain.has_method("sea_radius") and _gpu.has_method("set_sea_radius"):
+		_gpu.set_sea_radius(_terrain.sea_radius())
 	for i in steps:
 		_gpu.step()
 	var res: Dictionary = _gpu.end_frame()

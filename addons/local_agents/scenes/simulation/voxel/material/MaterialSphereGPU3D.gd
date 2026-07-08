@@ -8,9 +8,16 @@ extends RefCounted
 ## (sphere_passes/*.gd) that each wire their kernels via that dict. Passes are authored independently; the
 ## driver owns buffer allocation, parity, ctx, dispatch ordering, and readback.
 ##
-## MVP coupling model: one parity flip per step; each pass reads the frame's live buffers and writes back
-## (per-pass submit, single flip) — intra-step cross-pass coupling is looser than the box driver (perf-over-
-## parity). Correctness-first; tighten ordering later if a behaviour needs it.
+## PING-PONG PHASE (NOT CPU parity — there is no CPU oracle). `_phase` ∈ {0,1} selects which half of each
+## double-buffered PAIR channel is the read/"live" half (`bufs[k][_phase]`) vs the write/"back" half
+## (`bufs[k][1-_phase]`) within a step. One flip per step. Passes are dispatched in DATA-FLOW ORDER so a
+## channel written to "back" by an earlier pass is read from "back" by a later one (per-pass submit+sync makes
+## each pass see prior passes' GPU writes). Order below encodes the hard dependencies:
+##   WaterSlumpLava (water/lava/sediment→back; carry-heat into live temp) → Thermal (reads water/lava/temp,
+##   writes final temp/lava→back) → GasWind (o2/co2→back, velocities) → Atmosphere (reads temp/water back +
+##   velocities; vapor/cloud/fog→back, rain into water back) → FireDust (reads temp/water back) → EcoSurface.
+## Remaining cross-pass clashes (o2/co2/fire/fungus in-place-on-live reads, snow meltwater into live water) are
+## one-step coupling-fidelity lags, NOT crashes — acceptable under perf-over-parity; tighten later if needed.
 
 # Ping-pong (double-buffered) channels — one _a/_b pair each.
 const PAIR_CHANNELS: PackedStringArray = [
@@ -22,9 +29,12 @@ const SINGLE_CHANNELS: PackedStringArray = [
 	"solid", "static", "fuel", "charge", "detritus", "pressure",
 	"vel_x", "vel_y", "vel_z", "dust_outscale", "fungus_fert", "surf_vx", "surf_vz", "snow"]
 
+# Data-flow dispatch order (see the PING-PONG PHASE note above). WaterSlumpLava MUST precede Thermal
+# (Thermal reads water/lava from "back" + consumes the lava carry-heat left in "live" temp); Atmosphere/
+# FireDust MUST follow Thermal (they read the finished temp/water from "back").
 const PASS_SCRIPTS: PackedStringArray = [
-	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/ThermalPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/WaterSlumpLavaPass.gd",
+	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/ThermalPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/GasWindPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/AtmospherePass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/FireDustPass.gd",
@@ -43,7 +53,7 @@ var _rd: RenderingDevice = null
 var _field = null
 var _grid: RefCounted = null
 var _cc: int = 0
-var _parity: int = 0
+var _phase: int = 0                 # ping-pong phase ∈ {0,1}; flips once per step (NOT CPU parity)
 var _groups: int = 0
 var _send_size: int = 0
 var _bufs: Dictionary = {}          # key → RID (single) or [rid_a, rid_b] (pair)
@@ -117,11 +127,11 @@ func step() -> void:
 	for p in _passes:
 		_rd.buffer_clear(_bufs["send"], 0, _send_size)   # clean scratch for any 2-pass CA
 		var cl: int = _rd.compute_list_begin()
-		p.dispatch(_rd, cl, _parity, _ctx, _cc, _groups)
+		p.dispatch(_rd, cl, _phase, _ctx, _cc, _groups)
 		_rd.compute_list_end()
 		_rd.submit()
 		_rd.sync()
-	_parity = 1 - _parity
+	_phase = 1 - _phase
 
 func end_frame(_rv: bool = true, _rc: bool = true, _rf: bool = true, _rr: bool = true, _rl: bool = true, _rs: bool = true) -> Dictionary:
 	var out: Dictionary = _empty_result()
@@ -136,7 +146,7 @@ func set_field(name: String, arr) -> void:
 		return
 	var b = _bufs[name]
 	if b is Array:
-		_upload_f(b[_parity], arr)
+		_upload_f(b[_phase], arr)
 	else:
 		_upload_f(b, arr)
 
@@ -153,7 +163,7 @@ func set_raining(v: bool) -> void:
 # --- helpers ------------------------------------------------------------------
 
 func _live(name: String) -> RID:
-	return _bufs[name][_parity]
+	return _bufs[name][_phase]
 
 func _new_f(n: int) -> RID:
 	var z: PackedByteArray = _zeros(n)
