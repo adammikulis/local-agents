@@ -85,6 +85,7 @@ var _peak_circling: int = 0
 var _peak_investigating: int = 0
 var _peak_sleeping: int = 0
 var _peak_leaders: int = 0                   # most simultaneous emergent local leaders (herd cognition load)
+var _peak_hierarchy_depth: int = 0           # deepest multi-level leader chain seen (0-1 flat, 2-3 command tree)
 var _peak_followers: int = 0                 # most creatures delegating their decision to a leader at once
 var _peak_slump: int = 0                    # most loose-sediment cells slumping at once (landslide diagnostic)
 var _auto_meteor: bool = false
@@ -573,6 +574,7 @@ func _sample_behaviour_peaks() -> void:
 	var slp: int = 0
 	var lead: int = 0
 	var foll: int = 0
+	var max_depth: int = 0   # deepest leader chain this sample (walk _leader pointers, cap 8 hops)
 	for c in get_tree().get_nodes_in_group("creature"):
 		if not is_instance_valid(c):
 			continue
@@ -588,10 +590,22 @@ func _sample_behaviour_peaks() -> void:
 				lead += 1
 			else:
 				foll += 1
+		var ldr: Variant = c.get("_leader")
+		if is_instance_valid(ldr) or bool(c.get("_is_leader")):
+			var depth: int = 0
+			var node: Variant = c
+			while depth < 8:
+				var up: Variant = node.get("_leader")
+				if not is_instance_valid(up):
+					break
+				depth += 1
+				node = up
+			max_depth = maxi(max_depth, depth)
 	_peak_circling = maxi(_peak_circling, circ)
 	_peak_investigating = maxi(_peak_investigating, invs)
 	_peak_sleeping = maxi(_peak_sleeping, slp)
 	_peak_leaders = maxi(_peak_leaders, lead)
+	_peak_hierarchy_depth = maxi(_peak_hierarchy_depth, max_depth)
 	_peak_followers = maxi(_peak_followers, foll)
 
 

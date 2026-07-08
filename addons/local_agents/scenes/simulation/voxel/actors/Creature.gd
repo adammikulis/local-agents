@@ -91,6 +91,12 @@ var herd: bool = false
 # out-rank the current leader by MORE than this margin to take over. 0 = pure meritocracy (always follow the
 # local top — animals); high = sticky dynasties that survive a slump (humans). One number, no per-species code.
 var leader_loyalty: float = 0.0
+# Emergent leadership SHAPE for this species (one knob, increasing structure):
+#   "flat"    — one local leader per cluster; everyone else follows it directly (the base model).
+#   "family"  — juveniles follow their nearest family adult (parent/elder); adults flat-follow the pack leader.
+#   "command" — family-following PLUS a multi-level rank tree among adults (grunt→lieutenant→huntmaster).
+# "family"/"command" both parent-follow, so parent-following is just a mode of hierarchy, not a separate flag.
+var hierarchy: String = "flat"
 var nocturnal: bool = false
 # Perception scale for the night: recomputed each frame from the shared day/night clock.
 # Nocturnal species see FARTHER after dark; diurnal species see LESS — so nights favour
@@ -334,6 +340,7 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	flees_from = PackedStringArray(config.get("flees_from", PackedStringArray()))
 	herd = bool(config.get("herd", herd))
 	leader_loyalty = float(config.get("leader_loyalty", leader_loyalty))
+	hierarchy = String(config.get("hierarchy", hierarchy))
 	nocturnal = bool(config.get("nocturnal", nocturnal))
 	flock_cohesion = float(config.get("flock_cohesion", flock_cohesion))
 	flock_alignment = float(config.get("flock_alignment", flock_alignment))
@@ -473,9 +480,10 @@ func _think_stride() -> int:
 	if state == "flee" or state == "panic" or state == "chase" or state == "stalk" \
 			or state == "throw" or state == "seek" or state == "drink":
 		return THINK_STRIDE
-	# A follower (herd creature with a valid local leader) coasts on its adopted action and re-decides
-	# rarely — the leader pays the heavy "what to do" cost. Time-critical states above already opted out.
-	if herd and _leader != null and is_instance_valid(_leader):
+	# A follower (anyone with a valid leader — herd member, squad grunt, or a parent-following juvenile)
+	# coasts on its adopted action and re-decides rarely; its leader pays the heavy "what to do" cost.
+	# Time-critical states above already opted out, so a fleeing/drinking follower is never throttled.
+	if _leader != null and is_instance_valid(_leader):
 		return FOLLOWER_THINK_STRIDE
 	var cam: Vector3 = _camera_pos()
 	if is_inf(cam.x):
@@ -488,14 +496,41 @@ func _think_stride() -> int:
 	return FAR_THINK_STRIDE
 
 
-# Throttled emergent election (LACreatureLeadership): decide whether I lead my local same-species cluster
-# or follow its top-ranked member, with species hysteresis (leader_loyalty) + self-healing. No registry,
-# no appointment — every creature runs the same local argmax and the roles fall out.
+# Throttled emergent election (LACreatureLeadership) — dispatches by species `hierarchy` mode. No registry,
+# no appointment: every creature runs the same local rules and the whole tree (juvenile→parent→…→pack leader)
+# falls out. "flat"/base = one local leader; "family" adds parent-following for the young; "command" adds a
+# multi-level rank tree among adults. Reflexes + pathing stay per-individual regardless.
 func _elect_leader(pos: Vector3) -> void:
 	_leader_elect_cd = LEADER_ELECT_STRIDE
 	var radius: float = flock_radius * LEADER_RADIUS_MULT
+	# 1. Parent-following (family/command): a juvenile attaches to its nearest family adult (parent/elder),
+	#    who in turn follows the pack leader — so the family→pack tree self-assembles. Orphans (no adult kin
+	#    nearby) fall through to the rank rules below; a matured creature stops following its parent.
+	if (hierarchy == "family" or hierarchy == "command") and not is_mature():
+		var guardian: Node3D = LACreatureLeadership.nearest_family_adult(self, pos, radius)
+		if guardian != null and not LACreatureLeadership.would_cycle(self, guardian, 8):
+			_leader = guardian
+			_is_leader = false
+			return
+	# 2. Solitary adults (non-herd, e.g. a grown fox) lead only themselves — no adult pack forms.
+	if not herd:
+		_leader = null
+		_is_leader = true
+		return
+	# 3. Herd adults: a "command" species builds a multi-level rank tree; everyone else a flat pack leader.
+	if hierarchy == "command":
+		_elect_superior(pos, radius)
+	else:
+		_elect_flat(pos, radius)
+
+
+# Flat election (base model / "family" adults): follow the local score-max, or lead if I am it, with
+# leader_loyalty hysteresis + self-healing. This is the original single-leader-per-cluster behaviour.
+func _elect_flat(pos: Vector3, radius: float) -> void:
 	var cand: Node3D = LACreatureLeadership.local_leader(self, pos, radius)
 	var top: Node3D = self if cand == null else cand      # the pure local argmax (self if I rank highest)
+	if top != self and LACreatureLeadership.would_cycle(self, top, 8):
+		top = self                                        # attaching would close a loop → treat myself as root
 	# The incumbent leader over me: myself while I lead, else the creature I currently follow.
 	if not _is_leader:
 		var inc_ok: bool = _leader != null and is_instance_valid(_leader) \
@@ -520,6 +555,29 @@ func _elect_leader(pos: Vector3) -> void:
 	if justified:
 		_leader = null if top == self else top
 		_is_leader = (top == self)
+
+
+# Multi-level ("command") election: attach to my immediate SUPERIOR (nearest higher-rank neighbour), so the
+# tree gains depth — grunt→lieutenant→huntmaster. I CLING to my current manager while they stay a valid
+# superior (in reach + still out-rank me past my loyalty); I only re-pick when my boss falls below me, dies,
+# or leaves — then I attach to the nearest remaining superior, or become a root if none. A mid-node is both a
+# follower (of its boss, _is_leader false → it adopts the boss's action) AND a manager (its own subordinates
+# attach to it by rank), so the huntmaster's strategy flows down while each lieutenant leads its own sub-hunt.
+func _elect_superior(pos: Vector3, radius: float) -> void:
+	if _leader != null and is_instance_valid(_leader):
+		# Still a valid boss if it out-ranks me past my loyalty and is within the max span (radius×2).
+		var max_reach: float = radius * 2.0
+		var still_valid: bool = pos.distance_squared_to(_leader.global_position) <= max_reach * max_reach \
+				and LACreatureLeadership.leader_score(_leader) \
+					> LACreatureLeadership.leader_score(self) + leader_loyalty
+		if still_valid:
+			_is_leader = false
+			return                                            # cling to my current boss (hierarchy stickiness)
+	var sup: Node3D = LACreatureLeadership.local_superior(self, pos, radius, leader_loyalty)
+	if sup != null and LACreatureLeadership.would_cycle(self, sup, 8):
+		sup = null                                            # attaching would close a loop → become a root
+	_leader = sup
+	_is_leader = (sup == null)
 
 
 func _physics_process(delta: float) -> void:
@@ -611,7 +669,9 @@ func _physics_process(delta: float) -> void:
 	# top — done BEFORE the stride is computed so a fresh follower immediately gets the slow follower rate,
 	# and a leaderless creature (dead/departed leader) re-elects or self-decides this frame. Non-herd
 	# creatures are always their own leader (they never delegate their decision).
-	if herd and not _leadership_disabled():
+	# Participate in leadership if I herd, OR my species is parent-following (family/command) — the latter
+	# lets even a solitary species' juveniles follow a parent while its adults stay independent.
+	if (herd or hierarchy == "family" or hierarchy == "command") and not _leadership_disabled():
 		_leader_elect_cd -= 1
 		if _leader_elect_cd <= 0 or (not _is_leader and not is_instance_valid(_leader)):
 			_elect_leader(pos)
@@ -678,11 +738,12 @@ func _physics_process(delta: float) -> void:
 				elif thirst_action == "seek":
 					desired = _water_dir_cache
 					state = "seek"
-				elif herd and _leader != null and is_instance_valid(_leader):
-					# FOLLOWER: adopt the local leader's DECISION (its canonical action) and act on it
-					# locally — this skips the whole expensive think_* + cognition assessment, which the
-					# leader already paid once for the cluster. execute_action still finds THIS follower's
-					# own food/water/heading, so only the leader's intent is copied, not its targets.
+				elif _leader != null and is_instance_valid(_leader):
+					# FOLLOWER (herd member, squad grunt, OR a parent-following juvenile): adopt my leader's
+					# DECISION (its canonical action) and act on it locally — skipping the whole expensive
+					# think_* + cognition assessment, which my leader (or the huntmaster above it) already
+					# paid. execute_action still finds MY own food/water/heading, so a lieutenant leading a
+					# sub-hunt and its grunts each chase their own nearest prey → coordinated, divergent hunts.
 					var la: String = LACreatureThink._adoptable_action(
 							LACreatureThink.state_to_action(_leader, _leader.state), self)
 					var mv_f: Dictionary = LACreatureThink.execute_action(self, la, pos, delta)

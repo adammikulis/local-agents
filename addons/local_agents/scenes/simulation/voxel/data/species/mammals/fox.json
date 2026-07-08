@@ -10,6 +10,7 @@
   "preys_on": ["rabbit", "fish"],
   "flees_from": [],
   "herd": false,
+  "hierarchy": "family",
   "pop_cap": 12,
   "nocturnal": true,
   "max_energy": 130.0,
