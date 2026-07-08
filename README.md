@@ -23,7 +23,7 @@ believable behavior *emerges* from simple local rules (see
   Being dense-3D, fluids interact with caves (water pools in caverns, lava drains into tubes). The calm
   sea is a cheap static GPU **ocean plane**; the CA mesh renders only deviations and freshwater. GPU
   compute kernels (`material/kernels3d/*.glsl`, driven by `MaterialGPU3D.gd`) run the hot loops when a
-  `RenderingDevice` is present, with the CPU step as the headless/no-GPU parity oracle. (This dense 3D
+  `RenderingDevice` is present, with the CPU step as the headless/no-GPU fallback. (This dense 3D
   field superseded and replaced the retired 2.5D `MaterialField`.)
 - **Emergent ecology:** creatures forage, flee any larger hunter, hunt their configured prey, flock by
   imitation, get thirsty and drink from the water field, age and starve, and leave corpses that become
@@ -43,12 +43,11 @@ believable behavior *emerges* from simple local rules (see
 
 ## In progress
 
-- **GPU residency for the emergent passes.** The dense `MaterialField3D` is live and authoritative on
-  the CPU (the headless parity oracle); heat/atmosphere/lava are ported to GPU compute, but the newer
-  passes (wind, fire, slump, erosion, snow/ice, dust, scent, magma, charge, shock) were built
-  CPU-oracle-first and still step on the CPU even in the GPU path. Porting those kernels — plus folding
-  the atmosphere's vapor rise into the wind's buoyant advection — is the remaining work. Plan and
-  gather-not-scatter recipe: `GPU_FIELD_PLAN.md`; substrate design: `MATERIALFIELD_3D_PLAN.md`.
+- **Water-cycle unification.** The dense `MaterialField3D` is authoritative, and its per-cell processes
+  (heat, water, wind, atmosphere, lava, fire, slump, erosion, snow/ice, dust, scent, magma, charge,
+  shock) run as GPU compute kernels (`material/kernels3d/*.glsl` via `MaterialGPU3D.gd`), with the CPU
+  step as the headless/no-GPU fallback. Still open: folding the atmosphere's vapor rise into the wind's
+  buoyant advection so the whole water cycle is one conserved flow (see `TODO.md`).
 
 ## Key scenes and scripts
 
@@ -133,6 +132,6 @@ godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- 
 - Runtime is scene-first and resource-driven; prefer voxel-native simulation/collision/destruction as
   the default path and keep `RigidBody3D` minimal and exception-based.
 - Simulation-authoritative compute targets GPU/native; required GPU capability fails fast rather than
-  silently falling back (the one legitimate CPU form is a headless/no-GPU parity oracle).
+  silently falling back (the one legitimate CPU form is a headless/no-GPU fallback, not a bit-exact contract).
 - Process and Godot rules are canonical in `CLAUDE.md` and `GODOT_BEST_PRACTICES.md`;
   `ARCHITECTURE_PLAN.md` tracks breaking changes and migration status.

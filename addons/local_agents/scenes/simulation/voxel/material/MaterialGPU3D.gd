@@ -1,11 +1,16 @@
 class_name LAMaterialGPU3D
 extends RefCounted
 
+## ██ PERF OVER PARITY (repo rule) ██ This is the AUTHORITATIVE runtime path. The CPU GDScript modules are
+## the HEADLESS/no-compute FALLBACK — NOT a parity contract. Do NOT preserve, restore, or gate on bit-exact
+## CPU↔GPU agreement; break it freely for performance. Verify changes BEHAVIOURALLY (`--run-frames=N` smoke:
+## field aggregates sane, no NaN/runaway, fps good).
+##
 ## GPU-RESIDENT compute backend for the DENSE 3D MaterialField3D. Owns a LOCAL RenderingDevice
 ## (RenderingServer.create_local_rendering_device()), persistent SSBOs that live across the WHOLE run,
-## the compiled compute pipelines, and pre-built ping-pong uniform sets. Every per-cell simulation loop
-## the CPU oracle runs each step is ported to a GPU pass here; a frame batches N steps on-GPU and reads
-## back ONCE. The kernels are race-free ports of MaterialField3D.gd + MaterialHeat3D.gd:
+## the compiled compute pipelines, and pre-built ping-pong uniform sets. Every per-cell simulation loop runs
+## as a GPU pass here; a frame batches N steps on-GPU and reads back ONCE. The passes (race-free double-
+## buffered kernels) mirror MaterialField3D.gd + MaterialHeat3D.gd:
 ##   HEAT (full MaterialHeat3D.step(), in order):
 ##     kernels3d/heat3d.glsl          <- PART 1 conduction  (6-neighbour relax, double-buffered gather)
 ##     kernels3d/heat3d_solar.glsl    <- PART 2 solar/ambient at the column-top sky cell (per-column)
@@ -33,9 +38,8 @@ extends RefCounted
 ## uploaded ONCE in setup() (re-push with upload_static_state() if the terrain is carved). Only temp +
 ## water round-trip, once each way per frame.
 ##
-## PARITY: the batched path reproduces N iterations of {MaterialField3D.step_water() then the FULL
-## MaterialHeat3D.step()} to ~1e-3 vs the CPU oracle (water runs before heat each step, matching the
-## field's _physics_process order, so heat's wet-cooling reads the post-flow water).
+## STEP ORDER: each on-GPU step runs water CA before the full heat step (conduction→solar→buoyancy→cooling),
+## matching the field's _physics_process order, so heat's wet-cooling reads the post-flow water.
 ##
 ## ADD-A-PASS SEAM (for the atmosphere + lava kernels bolted on next): vapor/cloud/fog/lava already have
 ## resident ping-pong buffers (see `_fields`). To add a pass: (1) compile the kernel + pipeline in
@@ -43,7 +47,7 @@ extends RefCounted
 ## back_buffer(), (3) record its dispatch(es) in step() at the marked seam. ONE global `_parity` flips
 ## once per step(), so every field ping-pongs in lockstep and stays mutually consistent.
 ##
-## The CPU GDScript loops stay the correctness ORACLE + headless fallback: available() is false when no
+## The CPU GDScript loops are the headless fallback (NOT a parity oracle): available() is false when no
 ## local RenderingDevice can be made (--headless / no-compute), so those environments keep the CPU rules.
 ##
 ## Index layout (matches MaterialField3D): idx = (iy*dim_z + iz)*dim_x + ix (X contiguous, then Z, then Y).

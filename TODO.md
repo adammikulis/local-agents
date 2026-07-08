@@ -33,7 +33,7 @@ native destruction engine (all deleted — see "Retired stacks" below).
     `salinity_at`, plus emergent-process reads `scent_gradient(pos, channel)`, `vorticity_at`/
     `updraft_at`, `magma_erupting()`, `emit_shock`/`shock_at`, `bolts_fired()`. GPU compute kernels in
     `material/kernels3d/*.glsl`, driven by `MaterialGPU3D.gd` when a `RenderingDevice` is available
-    (the CPU step is the headless parity oracle).
+    (the CPU step is the headless fallback).
   - Weather/fields: `WeatherSystem.gd` (wind), `TrackSystem.gd` (footprint decals). **`ScentField.gd`
     is retired** — scent is now the `MaterialScent3D` field channel.
   - Ecology: `ecology/EcologyService.gd` (`broadcast_seismic` now routes through the field's
@@ -97,7 +97,7 @@ becoming an EMERGENT feature of it — not a scripted actor puppeteering the fie
 visuals that track real field features. Always ask "can this roll into `MaterialField3D`?" first
 (see CLAUDE.md → One-substrate default).
 
-### Done — live field processes (CPU oracle ↔ GPU kernel parity)
+### Done — live field processes (GPU kernels are authoritative; CPU module = headless fallback, NOT a parity contract)
 - Water CA · heat/conduction/buoyancy · atmosphere (vapor→cloud/fog→rain, dewpoint, orographic) ·
   lava (flow + solidify) · **emergent 3D pressure-driven WIND** (`MaterialWind3D`: pressure from temp,
   wind down −∇p, terrain funneling, buoyant vertical, fronts) · **FIRE/combustion** (`MaterialCombustion3D`:
@@ -131,7 +131,7 @@ visuals that track real field features. Always ask "can this roll into `Material
   bounded conserved energy: conduction/buoyancy move energy, a RADIATIVE sink bleeds hot dry plumes, a
   global clamp caps runaway, and a steep adiabatic LAPSE cools rising air. Summits get genuinely cold →
   snow accretes → the germination gate (`EcologyService._can_grow_here`, reads temp/snow) stops trees
-  below the snow. The treeline DRAWS ITSELF; no scripted altitude. GPU parity `parity_gpu3d_energy.gd`.
+  below the snow. The treeline DRAWS ITSELF; no scripted altitude. Runs on the GPU heat kernel.
 - **Biosphere carbon/oxygen/nutrient loop (DONE, #3a/#3b/#3c)** — a real gas mix + closed carbon cycle:
   - **O₂ (`MaterialGas3D` + `MaterialCombustion3D`, #3a)** — oxygen is a transported channel combustion
     CONSUMES: fire suffocates in a sealed cave (draws down trapped O₂) and roars in open wind (replenished).
@@ -188,7 +188,7 @@ airborne + fertility) · shock wave · fungus (grow/decompose/spread + fertility
 (lava/ice/rock carve+fill) + combustion's ash/regrowth stay CPU by nature. New `MaterialGPU3DGeo.gd`
 holds the geo dispatch to keep `MaterialGPU3D.gd` under the size limit. Final: no-streamer ~59-67 FPS,
 with-streamer (live LLM commentary + avatar) ~54-57 FPS — from 1 FPS. Every wave verified: dispatch
-active (not orphaned), fire parity PASS, behavior intact.
+active (not orphaned), behaviour intact (verified behaviourally).
 
 ### TODO — push core ~63 → 100+ FPS (the field-CA-off ceiling was ~104)
 HONEST STATE: on a clean system the sim is ~45 FPS no-streamer (vsync-paced), from ~1. Two dead ends were
@@ -205,7 +205,7 @@ ruled OUT by measurement, so don't repeat them:
 step frame, un-staggered, and each stamp forced godot_voxel to re-mesh the touched chunks (that was the
 "~34ms other physics" — terrain remesh triggered by the tails). Staggering the three across the `_slow_tick`
 4-cycle (one per step frame, each 4× less often; glacial geology tolerates a 0.4 s stamp interval) roughly
-DOUBLED fps (~50→82-101) with behavior intact + fire parity PASS. The user's live profiler ("physics
+DOUBLED fps (~50→82-101) with behavior intact. The user's live profiler ("physics
 dominates ~16.66ms") is what finally pointed here after 4 wrong guesses.
 
 Residual to reach a HARD, consistent 100+ (diminishing + behavior-risky): the fire `step_scene_only` tail

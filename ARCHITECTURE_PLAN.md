@@ -14,8 +14,9 @@ target model and migration intent are detailed in `NATIVE_SIM_UNIFICATION_PLAN.m
 - Record breaking API/schema changes in this file before merge.
 - No "transitional shims": we do not label non-native/non-GPU code as a temporary stopgap and park it
   on a debt list. Build native/GPU-first, or improve the code directly as ordinary code. A CPU
-  implementation kept as a genuine headless/no-GPU **fallback and parity oracle** for a GPU kernel is
-  legitimate and permanent — a first-class part of the design, not tracked as debt to retire.
+  implementation kept as a genuine headless/no-GPU **fallback** for a GPU kernel is legitimate and
+  permanent — a first-class part of the design, not tracked as debt to retire. (Perf over parity: it is a
+  fallback, not a bit-exact contract; verify GPU behaviourally.)
 - File-size discipline: `scripts/check_max_file_length.sh` reports first-party files over a
   `MAX_FILE_LINES=1000` **soft limit** as advisory warnings (warn-only, does not fail CI).
   Treat 1000 lines as a smell — split by responsibility before then; do not block work on it.
@@ -52,7 +53,8 @@ The live scene is the from-scratch **godot_voxel ecosystem showcase** at
 state, layout, and run/verify commands are in `TODO.md`. Terrain is a native **island** heightmap
 ringed by an **ocean** with **3D caves** and an `is_solid(pos)`/`sdf_at(pos)` query. Fluids/heat/lava/
 weather are unified in `material/MaterialField.gd` (`LAMaterialField`), being upgraded to a dense 3D
-`material/MaterialField3D.gd`; the GPU-compute migration is planned in `GPU_FIELD_PLAN.md`.
+`material/MaterialField3D.gd`; the field's per-cell processes run as GPU compute kernels
+(`material/kernels3d/*.glsl`, driven by `MaterialGPU3D.gd`).
 
 **Retired:** the old `WorldSimulation`/`PlantRabbitField`/`VoxelWorldDemo` gameplay stack was deleted,
 and the **native C++ voxel/sim sources were dropped** — the `localagents` GDExtension now ships only
@@ -99,8 +101,8 @@ records superseded wave-by-wave inventories):
   `depth_at`/`temp_at`/`salinity_at`. Evaporation off warm water → vapor → condenses (cool surface cells
   pool ground FOG, cooler-aloft cells form CLOUD) → thick cloud rains back and shades the sun; wind
   advects the airborne quantities while liquid flows by gravity (rendered by `LACloudLayer`). The hot
-  loops move to `RenderingDevice` compute (`material/MaterialGPU.gd` + `material/kernels/*.glsl`; plan
-  in `GPU_FIELD_PLAN.md`); the CPU step is the permanent headless/no-GPU fallback and parity oracle.
+  loops run on `RenderingDevice` compute (`material/MaterialGPU3D.gd` + `material/kernels3d/*.glsl`); the
+  CPU step is the permanent headless/no-GPU fallback (not a parity contract).
 - Dense 3D material field (`LAMaterialField3D`, in progress): the DENSE 3D successor to the 2.5D field
   — a temperature + per-material amount for every (x,y,z) cell — so fluids interact with the terrain
   caves (water pools in caverns, lava drains into tubes, gas rises shafts) instead of being clamped to
@@ -186,7 +188,7 @@ rigid-body server unless a documented `PhysicsServer3D` blocker is recorded here
   stages with resident GPU fields, ping-pong/barriers, active-set sleep/wake + sparse-brick
   residency + stream compaction, multi-rate/fusion scheduling, shader/pipeline resource caching;
   native query surface (pressure gradients, heat fronts, failure/ignition risk, flow, top-k
-  hazards) with one migrated gameplay/AI consumer; GPU-vs-CPU parity/perf CI gates.
+  hazards) with one migrated gameplay/AI consumer; perf + behavioural-aggregate CI gates.
 - `VoxelEditEngine` stays orchestration-only (no inline shader/pipeline selection, no CPU-success
   path); pass resolution/dispatch lives in `VoxelEditGpuExecutor`. Split oversized source by
   responsibility per the soft size limit.
@@ -227,7 +229,7 @@ single authoritative wave record; superseded per-wave inventories live in git hi
     - owner: Runtime Bindings lane
     - done when: native dispatch bridge consumes normalized contact and mutation payloads end-to-end with no GDS mutation decisions.
     - target wave: `Wave 0F`
-    - blocker: runtime telemetry parity must remain stable for existing harness assertions.
+    - blocker: runtime telemetry aggregates must stay behaviourally sane for existing harness assertions.
   - Adapter: `addons/local_agents/scenes/simulation/controllers/world/WorldSimulation.gd` projectile dispatch adapter
     - owner: Runtime Simulation lane
     - done when: per-frame projectile contact sampling and handoff fully delegated to the native contract payload builder.
