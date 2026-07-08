@@ -203,17 +203,24 @@ GPU-CPU split / `_slow_tick` stagger / dirty-gating / cadenced readback), the ch
   (`WaterSlumpLava`, `GasWind`, `FireDust`, `Atmosphere`, `EcoSurface`, `Thermal`) wiring every `*_sphere3d`
   kernel via `bufs` (`2a2191d`).
   **REMAINING (serial finish — needs a booted verify loop):**
-  1. **Reconcile the live/back PARITY convention across the 6 passes with the driver's dispatch order** (THE
-     crux). Convention the passes assume: within a step, earlier passes write channel `back=[1-p]`; later
-     passes read `back` for already-updated channels (temp/water) and `live=[p]` for frame-start; ONE writer
-     per back-channel; driver flips once at end. Fix driver `PASS_SCRIPTS` order (heat→water→wind→atmos→
-     fire/dust→gas→eco) + resolve conflicts where two passes write the same back buffer (see each pass's
-     "parity-role assumption" note in its file header / the agent reports). Wire `Thermal` when present + call
-     `_gpu.set_sun_dir(sun_dir)` / `set_sea_radius` from `_sphere_process` (compute sun_dir from `_sun`).
-  2. **Windowed verify**: field steps clean on the sphere — temp diffuses, terminator sweeps the temp field,
-     water settles, atmosphere/weather emerge, no NaN, fps good. (`--shoot`, debug Temperature view.)
-  3. **Gaps**: port the 2 missing `erosion_*_sphere3d.glsl` (only box exist); the driver's `end_frame` only
-     reads back temp/water/vapor/cloud/fog/lava/fire/o2/co2/dust/shock — add any others actors need.
+  1. [x] **DONE (`a427bcc`) — reconcile ping-pong PHASE across the 6 passes + fix the driver dispatch order.**
+     (Renamed the misleading "parity" → **ping-pong phase**: it is on-GPU double-buffering, NOT CPU-oracle
+     parity — there is none.) Data-flow order is now WaterSlumpLava → Thermal → GasWind → Atmosphere →
+     FireDust → EcoSurface so every "back"-written channel is read from "back" downstream (per-pass
+     submit+sync makes each pass see prior GPU writes; one phase flip/step). Wired `set_sun_dir`
+     (toward-star, from `_sun_light.basis.z`) + `set_sea_radius` (`_terrain.sea_radius()`) in
+     `_sphere_process`. **Verified BEHAVIOURALLY: 240 frames @ ~227fps, 290 actors, temp field live
+     (heat_peak 15), physics 2.9ms, ZERO per-frame errors / shader fails / OOB.** Known one-step
+     coupling-fidelity lags (o2/co2/fire/fungus in-place-on-live, snow meltwater→live water) accepted under
+     perf-over-parity; tighten later. dispose()/`_exit_tree` added (`chore` commit) — teardown
+     recursive_mutex crash is PRE-EXISTING + environmental (0.3-dev box path crashes identically after a
+     clean SIM_REPORT; Godot 4.7 + MoltenVK windowed local-RD shutdown quirk), NOT ours.
+  2. **Fuller readback + terminator sweep**: `_sphere_process` only applies `temp`/`water` back to CPU (so
+     SIM_REPORT's field metrics read 0 — wet_cells/cloud_cells/etc). Expand it to consume the channels
+     `end_frame` already returns (vapor/cloud/fog/lava/fire/o2/co2/dust/shock) + route them into the report;
+     and rotate `sun_dir` with the body spin (or make the field body-local) so the temp terminator SWEEPS,
+     not just a static day/night gradient. (Windowed Temperature debug view to confirm.)
+  3. **Gaps**: port the 2 missing `erosion_*_sphere3d.glsl` (only box exist; EcoSurfacePass already skips them).
   4. **Activity BUBBLES** dispatch (per-tile sleep/wake — the scaling lever; shape is free-choice, see CLAUDE).
   5. **Delete the box grid + box `*3d.glsl` kernels + `MaterialGPU3D` box path** once the sphere field is
      verified (retire the old — no parallel systems). Then merge `feature/sphere-spike` → `0.3-dev`.
