@@ -43,11 +43,13 @@ parallel mode).** Node spine:
   speculative — it's the committed end goal, built minimally + grown).
 
 ## Current state (1-liner)
-Transitioning flat→SOLAR-SYSTEM: seam table (A0) + native sphere generator + `VoxelTerrainService.build_planet`
-all PROVEN (`feature/sphere-spike`); next is the `LASolarSystem`/`LAStar`/`LAPlanetBody` node spine (retire
-flat). Dense-3D GPU field (`MaterialField3D`, ~19 emergent processes) kept as the interim body-local substrate
-until the Phase B cubed-sphere port. Centralized telemetry (`SIM_REPORT`); field CPU tails crushed. Then
-genericize reactions + dissolve every scripted disaster (Phase C).
+`feature/sphere-spike` is a LIVING SPHERICAL PLANET: A1 done (SDF voxel-sphere terrain, radial life/climate/
+ocean/orbit-camera/spin/terminator, ~290 entities). Phase B (cubed-sphere field port) is WIP-but-LIVE: all 30
+`*_sphere3d.glsl` kernels converted + GPU-proven; `MaterialSphereGPU3D` plugin driver + 6 `sphere_passes/*`
+modules authored; field runs CLEAN on the heat+water MVP (274 ent, 156fps, 0 errors). RESUME at TODO
+"B2-WIRE" step 1: reconcile the 6 passes' live/back parity with the driver order, wire Thermal, windowed-
+verify, then delete the box grid + merge to `0.3-dev`. Then Phase C dissolves the scripted disasters. NOTE:
+the branch does not yet reach verified-clean with ALL passes on — box path still intact as fallback.
 
 ---
 
@@ -190,14 +192,31 @@ GPU-CPU split / `_slow_tick` stagger / dirty-gating / cadenced readback), the ch
   + solar (per-cell terminator). Slot 0=down,1-4 lateral,5=up; nbr binding 15, cell_radial 14. Flags for
   integration: gas/scent wind-advection dropped to pure diffusion; scent/fert want the 4-slot surf_nbr table;
   heat3d_buoyancy now needs a ping-pong (added TempOut); cross-seam wind reciprocity approximate.
-- [ ] **B2-WIRE / INTEGRATION (the remaining block — flips the live field to cubed-sphere):** Replace `idx±{1,dim_x,layer}` +
-  `if(ix>0)` with `int n = nbr[idx*6+dir]; if(n>=0)…`. Order: water CA first (down=slot0 inward), then
-  slump/lava (same 6-slot send), dust/rain/buoyancy/wind (radial down/up), atmosphere transport, o2/co2/heat/
-  shock/scent/fungus (mechanical swap). Column kernels (`heat3d_solar`, `gas_sky`, `scent_wind`, `snowice`,
-  `fungus_fert`) `iy`-walk → follow slot5 (outward) to the boundary (`nbr==-1` = sky cell). **`heat3d_solar`:
-  global `params.solar` scalar → per-cell `max(0,dot(cell_radial,sun_dir))` on every outward-boundary cell =
-  the real terminator.** Retire the fake Coriolis. FAN OUT one subagent per kernel/group (shared neighbour-SSBO
-  contract + a behavioural `SIM_REPORT` gate).
+- [~] **B2-WIRE / INTEGRATION — the live field IS cubed-sphere now (WIP; resume here).**
+  DONE + committed: `MaterialField3D.setup_sphere` lays channels on the `LASphereGrid` (`4b95019`); a
+  `_sphere_process` fast-path in `_physics_process` runs the GPU driver + scatters temp/water, bypassing box
+  CPU tails (`fc10ca5`); query facade (`breathable_o2_at`/`is_submerged_at`/`temp_at`/`o2_at`/`co2_at` +
+  guarded 2.5D) routed through `world_to_cell` → **field runs CLEAN in the live sim: 274 entities, 156fps,
+  ZERO errors** on the heat+water MVP (`9a2a945`). `MaterialSphereGPU3D` is a PLUGIN HOST (`03f0cbf`):
+  allocates all channel buffers (ping-pong pairs + singles) + neighbour/radial/pos SSBOs, exposes a `bufs`
+  dict, loads+dispatches `material/sphere_passes/*.gd`. All 6 pass modules authored + parse-clean
+  (`WaterSlumpLava`, `GasWind`, `FireDust`, `Atmosphere`, `EcoSurface`, `Thermal`) wiring every `*_sphere3d`
+  kernel via `bufs` (`2a2191d`).
+  **REMAINING (serial finish — needs a booted verify loop):**
+  1. **Reconcile the live/back PARITY convention across the 6 passes with the driver's dispatch order** (THE
+     crux). Convention the passes assume: within a step, earlier passes write channel `back=[1-p]`; later
+     passes read `back` for already-updated channels (temp/water) and `live=[p]` for frame-start; ONE writer
+     per back-channel; driver flips once at end. Fix driver `PASS_SCRIPTS` order (heat→water→wind→atmos→
+     fire/dust→gas→eco) + resolve conflicts where two passes write the same back buffer (see each pass's
+     "parity-role assumption" note in its file header / the agent reports). Wire `Thermal` when present + call
+     `_gpu.set_sun_dir(sun_dir)` / `set_sea_radius` from `_sphere_process` (compute sun_dir from `_sun`).
+  2. **Windowed verify**: field steps clean on the sphere — temp diffuses, terminator sweeps the temp field,
+     water settles, atmosphere/weather emerge, no NaN, fps good. (`--shoot`, debug Temperature view.)
+  3. **Gaps**: port the 2 missing `erosion_*_sphere3d.glsl` (only box exist); the driver's `end_frame` only
+     reads back temp/water/vapor/cloud/fog/lava/fire/o2/co2/dust/shock — add any others actors need.
+  4. **Activity BUBBLES** dispatch (per-tile sleep/wake — the scaling lever; shape is free-choice, see CLAUDE).
+  5. **Delete the box grid + box `*3d.glsl` kernels + `MaterialGPU3D` box path** once the sphere field is
+     verified (retire the old — no parallel systems). Then merge `feature/sphere-spike` → `0.3-dev`.
 - [ ] **B3 — during the rewrite:** generic **DEFS reaction engine** for the ~9-11 clean same-cell reactions
   (evap/condense/boil/re-evap `MaterialAtmosphere3D`, combustion, fungus-decompose, photosynthesis, gas
   sky-exchange, lava sustain-heat) — `{reactants[(chan,coeff)], products[…], driver+threshold, rate, cap,
