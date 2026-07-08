@@ -126,6 +126,63 @@ func cell_world_pos(c: int) -> Vector3:
 	var r: int = c % depth
 	return center + _dir[s] * (core_radius + (float(r) + 0.5) * cell_size)
 
+## Outward radial unit at a cell (its surface direction) — used by the GPU for per-cell solar + gravity.
+func cell_radial(c: int) -> Vector3:
+	return _dir[c / depth]
+
+
+## WORLD → nearest cell (the cubed-sphere replacement for the box grid's `_col_i`/`_idx`). O(1): inverse
+## gnomonic picks the face by the dominant axis, projects to face-local (a,b) → (i,j); the radius picks the
+## radial layer. Returns -1 if the point is outside the shell [core_radius, core_radius+depth*cell_size].
+func world_to_cell(world_pos: Vector3) -> int:
+	var rel: Vector3 = world_pos - center
+	var radius: float = rel.length()
+	if radius < 0.0001:
+		return -1
+	var rr: int = int(floor((radius - core_radius) / cell_size))
+	if rr < 0 or rr >= depth:
+		return -1
+	var dir: Vector3 = rel / radius
+	var f: int = _face_of(dir)
+	# Point on the face plane (dir·n = 1): p = dir / (dir·n); a = p·right, b = p·up ∈ [-1,1].
+	var denom: float = dir.dot(_FACE_N[f])
+	if denom < 0.0001:
+		return -1
+	var p: Vector3 = dir / denom
+	var a: float = p.dot(_FACE_R[f])
+	var b: float = p.dot(_FACE_U[f])
+	var i: int = clampi(int((a + 1.0) * 0.5 * float(res)), 0, res - 1)
+	var j: int = clampi(int((b + 1.0) * 0.5 * float(res)), 0, res - 1)
+	return _surf_idx(f, i, j) * depth + rr
+
+## The cube face whose normal is most aligned with `dir` (dominant axis + sign). Matches _FACE_N order
+## [+X,-X,+Y,-Y,+Z,-Z].
+func _face_of(dir: Vector3) -> int:
+	var ax: float = absf(dir.x)
+	var ay: float = absf(dir.y)
+	var az: float = absf(dir.z)
+	if ax >= ay and ax >= az:
+		return 0 if dir.x >= 0.0 else 1
+	if ay >= az:
+		return 2 if dir.y >= 0.0 else 3
+	return 4 if dir.z >= 0.0 else 5
+
+
+## Neighbour table packed in the GPU KERNEL slot order (matches the water/lava/slump send convention):
+## slot 0=inward/down, 1-4=lateral, 5=outward/up. (Internal table order is [IN,OUT,A0,A1,B0,B1].)
+func neighbours_kernel_order() -> PackedInt32Array:
+	var out: PackedInt32Array = PackedInt32Array()
+	out.resize(cell_count * 6)
+	for c in cell_count:
+		var b: int = c * 6
+		out[b + 0] = neighbours[b + N_IN]
+		out[b + 1] = neighbours[b + N_A0]
+		out[b + 2] = neighbours[b + N_A1]
+		out[b + 3] = neighbours[b + N_B0]
+		out[b + 4] = neighbours[b + N_B1]
+		out[b + 5] = neighbours[b + N_OUT]
+	return out
+
 
 ## SPIKE self-validation of the seam table. Returns {ok, symmetric, closed, min_dot, max_dot, errors}.
 ## symmetric = every neighbour relation is mutual (A lists B ⟹ B lists A); closed = every neighbour valid.
