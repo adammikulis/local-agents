@@ -79,14 +79,8 @@ var _shoot_frames: int = 150
 var _run_frames: int = 0
 var _force_wind: float = 0.0            # --wind=<x>: force a constant eastward wind (verification)
 var _cognition_stats: bool = false      # --cognition-stats: print fast/slow brain + genetics metrics
-# Cumulative behaviour peaks over a --cognition-stats run (transient states are easy to miss in a
-# single end-of-run snapshot, so we track the max seen for the emergent behaviours we care about).
-var _peak_circling: int = 0
-var _peak_investigating: int = 0
-var _peak_sleeping: int = 0
-var _peak_leaders: int = 0                   # most simultaneous emergent local leaders (herd cognition load)
-var _peak_hierarchy_depth: int = 0           # deepest multi-level leader chain seen (0-1 flat, 2-3 command tree)
-var _peak_followers: int = 0                 # most creatures delegating their decision to a leader at once
+# Transient emergent behaviours (circling/leaders/followers/…) are sampled into SimReport gauges, which track
+# their running max, so the report shows the PEAK each reached — not just the final-frame value.
 var _peak_slump: int = 0                    # most loose-sediment cells slumping at once (landslide diagnostic)
 var _auto_meteor: bool = false
 var _overview: bool = false             # --overview: frame a wide whole-island vista (screenshot aid)
@@ -221,6 +215,8 @@ func _ready() -> void:
 	var sea3d: float = _terrain.sea_level() if _terrain.has_method("sea_level") else 0.0
 	_material.setup(_terrain, 300.0, 8.0, -80.0, 90.0, sea3d)
 	LASimReport.register(Callable(_material, "report"))   # field channel aggregates flow into SIM_REPORT
+	LASimReport.register(func() -> Dictionary: return LASimReportSources.population(self))
+	LASimReport.register(func() -> Dictionary: return LASimReportSources.cognition(self))
 	# The field reads the REAL sun (DirectionalLight3D) live — its energy + angle drive all heating.
 	# Wind/pressure/rain are NOT injected; they emerge from the field's own physics.
 	_material.set_sun(_sky.sun())
@@ -475,7 +471,7 @@ func _process(delta: float) -> void:
 	_brush.update_brush_ring()
 	_push_environment()
 	_feed_water()
-	if _cognition_stats and _spawned_initial and _frame % 15 == 0:
+	if _spawned_initial and _frame % 15 == 0:
 		_sample_behaviour_peaks()
 	# Landslide diagnostic: track the most sediment cells slumping at once (throttled — the count is a full
 	# grid scan). Always sampled so a meteor/volcano/earthquake slump is visible without --cognition-stats.
@@ -603,12 +599,14 @@ func _sample_behaviour_peaks() -> void:
 				depth += 1
 				node = up
 			max_depth = maxi(max_depth, depth)
-	_peak_circling = maxi(_peak_circling, circ)
-	_peak_investigating = maxi(_peak_investigating, invs)
-	_peak_sleeping = maxi(_peak_sleeping, slp)
-	_peak_leaders = maxi(_peak_leaders, lead)
-	_peak_hierarchy_depth = maxi(_peak_hierarchy_depth, max_depth)
-	_peak_followers = maxi(_peak_followers, foll)
+	# Feed these transient emergent behaviours into SimReport as gauges — it tracks their running max, so the
+	# report shows the PEAK each occurred at over the run (not just the final frame). Replaces the _peak_* vars.
+	LASimReport.gauge("circling", circ)
+	LASimReport.gauge("investigating", invs)
+	LASimReport.gauge("sleeping", slp)
+	LASimReport.gauge("leaders", lead)
+	LASimReport.gauge("followers", foll)
+	LASimReport.gauge("hierarchy_depth", max_depth)
 
 
 # Feed the generative music a mood from live world state. Presentation only.

@@ -151,7 +151,7 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 - Banned example: `godot --headless --no-window -s addons/local_agents/tests/test_agent_integration.gd`
 - **Voxel scene self-harness** (the active `VoxelWorld.tscn`): pass args after `--`. Headless smoke
   `godot --headless res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --run-frames=300`
-  prints `SMOKE_SUMMARY={...}`; windowed `--shoot=<png> --shoot-frames=N` screenshots, `--overview`
+  prints `SIM_REPORT={...}`; windowed `--shoot=<png> --shoot-frames=N` screenshots, `--overview`
   frames a wide island vista, `--time=<0..1>` sets time of day, and `--auto-meteor`/`--auto-volcano`/
   `--auto-lightning` trigger disasters. A NEW `class_name`/`.gdextension` needs one editor scan first
   (`godot --headless --editor --quit-after 400`).

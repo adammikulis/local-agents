@@ -83,7 +83,7 @@ godot res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --sho
 godot res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --shoot=/tmp/shot.png --auto-meteor    # also --auto-volcano, --auto-lightning
 ```
 
-Headless smoke boot (prints `SMOKE_SUMMARY={...}` then quits):
+Headless smoke boot (prints `SIM_REPORT={...}` then quits):
 
 ```bash
 godot --headless res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --run-frames=300
@@ -105,9 +105,11 @@ scripts/agent_harness.sh extension  # validate the GDExtension
 scripts/agent_harness.sh lint       # no-direct-refcounted gate + no-`:=` typing gate (+ advisory checks)
 ```
 
-For a headless scene-smoke of the active sim, boot `VoxelWorld.tscn` directly and check the
-`SMOKE_SUMMARY` (the `agent_harness.sh smoke` command still targets the removed `WorldSimulation.tscn`
-and needs repointing):
+For a headless scene-smoke of the active sim, boot `VoxelWorld.tscn` directly and check the one
+`SIM_REPORT={...}` line (the central telemetry snapshot: field + population + cognition + death events +
+peak-tracked behaviour gauges + perf — emitted by `LASimReport`; it replaced the old `SMOKE_SUMMARY`
+/`PERF_MONITORS`/`BEHAVIOUR_PEAKS` lines). The `agent_harness.sh smoke` command still targets the removed
+`WorldSimulation.tscn` and needs repointing:
 
 ```bash
 godot --headless res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --run-frames=300

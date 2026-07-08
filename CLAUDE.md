@@ -203,7 +203,7 @@ committed). When removing files:
   `feature/emergent-disasters` worktree. The guiding principle is **emergent-everything** (see
   `.../voxel/EMERGENCE.md`).
 - **Godot 4.7**, `godot` on PATH. Test/observe via `scripts/agent_harness.sh <command>`; the voxel
-  scene also self-harnesses (`-- --run-frames=N` prints `SMOKE_SUMMARY={...}`; `--shoot=<png>` for
+  scene also self-harnesses (`-- --run-frames=N` prints `SIM_REPORT={...}`; `--shoot=<png>` for
   windowed screenshots; `--auto-meteor` drops a test impact). A NEW `.gd` `class_name` or
   `.gdextension` only registers after an editor scan — run `godot --headless --editor --quit-after 400`
   once, else classes report MISSING.

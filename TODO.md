@@ -161,8 +161,9 @@ gas (O₂/CO₂ transport) → combustion → scent → fungus → charge → sh
 
 ## Performance (the frame budget)
 
-Ground truth via Godot Performance monitors + the `PERF_MONITORS={...}` harness line (the per-module
-field profiler mis-attributes GPU stalls — trust the monitors). World grid is 76×22×76 ≈ 127K cells,
+Ground truth via Godot Performance monitors, now in the `SIM_REPORT={...}` gauges (`fps`/`physics_ms`/
+`process_ms`/`draw_calls`/… — the per-module field profiler mis-attributes GPU stalls; trust the monitors).
+World grid is 76×22×76 ≈ 127K cells,
 ~280 creature actors. Run perf with `LA_NO_STREAMER=1 godot --rendering-driver metal … -- --run-frames=N`
 (windowed metal is the only path that exercises the GPU; `--run-frames`/`--shoot` auto-move the window
 off-screen so it never pops in front of you).
@@ -319,7 +320,7 @@ make dust/particles/spray in #2 ride the same wind — one wind, everything move
   - Disaster triggers: `--auto-meteor`, `--auto-volcano`, `--auto-lightning`; `--auto-select` tests
     click-select.
 - **Headless smoke:** `godot --headless res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --run-frames=300`
-  — prints `SMOKE_SUMMARY={...}` then quits (expect `"spawned_initial":true, "ready":true`, no
+  — prints `SIM_REPORT={...}` then quits (expect `"spawned_initial":true, "ready":true`, no
   SCRIPT ERROR). Beyond actors/cognition/nest stats the summary now reports the field-process keys:
   `wet_cells`, `heat_peak`/`heat_cells`, `lava_cells`, `slump_cells`/`peak_slump`, `cloud_cells`/
   `cloud_cover`/`fog_cover`, `wind`, `scent_cells`, `fertility_peak`, `magma_cells`, `erosion_cells`,
