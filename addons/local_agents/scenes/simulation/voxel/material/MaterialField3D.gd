@@ -510,19 +510,29 @@ func _col_i(w: float, o: float) -> int:
 	return clampi(int(round((w - o) / _cell_size)), 0, _dim_x - 1)
 
 
+# 2.5D COLUMN queries — meaningless on a cubed-sphere (no vertical XZ column). Return safe defaults in sphere
+# mode; radial callers use terrain.surface_radius / sea_radius / is_submerged_at instead.
 func column_surface_y(ix: int, iz: int) -> float:
+	if _sphere != null:
+		return NAN
 	return _queries.column_surface_y(ix, iz)
 
 
 func surface_y_at(x: float, z: float) -> float:
+	if _sphere != null:
+		return NAN
 	return _queries.surface_y_at(x, z)
 
 
 func is_water_at(x: float, z: float) -> bool:
+	if _sphere != null:
+		return false
 	return _queries.is_water_at(x, z)
 
 
 func depth_at(x: float, z: float) -> float:
+	if _sphere != null:
+		return 0.0
 	return _queries.depth_at(x, z)
 
 
@@ -1011,6 +1021,11 @@ func _physics_process(delta: float) -> void:
 
 ## Temperature °C at a world point (0 outside the grid). The consumer query the 2.5D field also exposes.
 func temp_at(x: float, z: float, y: float = NAN) -> float:
+	if _sphere != null:
+		if is_nan(y):
+			return INITIAL_TEMP           # 2.5D-style call has no radial point; safe default
+		var c: int = world_to_cell(Vector3(x, y, z))
+		return _temp[c] if c >= 0 else INITIAL_TEMP
 	return _queries.temp_at(x, z, y)
 
 
@@ -1284,6 +1299,9 @@ func dust_cell_count() -> int:
 	return _dust_sim.dust_cells() if _dust_sim != null else 0
 # Emergent atmospheric OXYGEN (LAMaterialGas3D): O₂ level at a point + depletion diagnostics.
 func o2_at(x: float, y: float, z: float) -> float:
+	if _sphere != null:
+		var c: int = world_to_cell(Vector3(x, y, z))
+		return _o2[c] if c >= 0 else O2_AMBIENT
 	return _gas_sim.o2_at(x, y, z) if _gas_sim != null else 0.0
 
 ## BREATHABLE oxygen at a TRUE-3D world point — the cell's O₂, but ZERO once WATER fills the cell (water
@@ -1291,6 +1309,13 @@ func o2_at(x: float, y: float, z: float) -> float:
 ## smoke, with altitude respected for free (a flying bird's head cell holds no water; a diver's does) — no
 ## 2.5D depth column, no can_fly special-case. Gills invert it (see is_submerged_at). Above the volume = open sky.
 func breathable_o2_at(x: float, y: float, z: float) -> float:
+	if _sphere != null:
+		var c: int = world_to_cell(Vector3(x, y, z))
+		if c < 0:
+			return O2_AMBIENT                 # above the atmosphere shell = open sky
+		if _solid[c] != 0 or _water[c] >= MAX_MASS * 0.5:
+			return 0.0
+		return _o2[c]
 	var ix: int = _col_i(x, _origin.x)
 	var iy: int = clampi(int(round((y - _origin.y) / _cell_size)), 0, _dim_y - 1)
 	var iz: int = _col_i(z, _origin.z)
@@ -1306,6 +1331,9 @@ func breathable_o2_at(x: float, y: float, z: float) -> float:
 ## Is the TRUE-3D cell at this world point underwater (over half-full of water)? What a gill-breather needs
 ## (and what tells a lung it is submerged). Solid rock reads not-submerged (no water there).
 func is_submerged_at(x: float, y: float, z: float) -> bool:
+	if _sphere != null:
+		var c: int = world_to_cell(Vector3(x, y, z))
+		return c >= 0 and _solid[c] == 0 and _water[c] >= MAX_MASS * 0.5
 	var ix: int = _col_i(x, _origin.x)
 	var iy: int = clampi(int(round((y - _origin.y) / _cell_size)), 0, _dim_y - 1)
 	var iz: int = _col_i(z, _origin.z)
@@ -1319,6 +1347,9 @@ func o2_avg() -> float:
 	return _gas_sim.o2_avg() if _gas_sim != null else O2_AMBIENT
 # Emergent CARBON DIOXIDE (LAMaterialGas3D second channel): CO₂ level at a point + build-up diagnostics.
 func co2_at(x: float, y: float, z: float) -> float:
+	if _sphere != null:
+		var c: int = world_to_cell(Vector3(x, y, z))
+		return _co2[c] if c >= 0 else 0.0
 	return _gas_sim.co2_at(x, y, z) if _gas_sim != null else 0.0
 func co2_peak() -> float:
 	return _gas_sim.co2_peak() if _gas_sim != null else 0.0
