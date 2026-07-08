@@ -143,6 +143,23 @@ committed). When removing files:
 - **Simplicity mandate:** implement the simplest behavior that works correctly for the target path.
 - **Anti-overengineering mandate:** no long, multi-stage, or speculative pipelines when a shorter direct
   path satisfies the requirement.
+- **Computational-scalability mandate — Big-O IS a first-class design goal (CORE PRINCIPLE).** Always drive
+  the *asymptotic* cost down, then let constant factors follow. Two levers, applied everywhere:
+  - **Lower the algorithm's Big-O.** Prefer the better-scaling structure/algorithm over the naive one:
+    spatial hash / grid / octree / neighbour-table lookup instead of pairwise or full-scan; O(K) test-particle
+    passes instead of O(n²) mutual; event/dirty-set updates instead of re-sweeping the whole grid; precomputed
+    tables (the sphere seam table is the model) instead of recomputed indices. When you write a loop-in-a-loop
+    over entities/cells, STOP and ask "what makes this sub-quadratic?" A per-frame O(n²) (or an O(N) full-grid
+    sweep that ignores what changed) is a **perf bug to design out**, not an acceptable baseline.
+  - **Do less work by RELEVANCE — adaptive level-of-detail is mandatory, not optional.** Work must scale with
+    what is observable / important right now, never with the whole world. Offscreen, distant, un-zoomed,
+    dormant, or empty regions do **less**: coarser grid, longer/skipped timesteps (staggered/block updates),
+    frozen or reduced simulation, culled draws, lower-LOD meshes, sleeping actors. The "only the active/near
+    planet steps at full rate; distant ones coarse/frozen," the dominant-attractor test-particle gravity, and
+    field update cadence are all instances of this ONE rule. Budget compute where the player is looking.
+  This mandate composes with (does not override) the GPU-first + emergent rules: push the parallel work to the
+  GPU **and** give it a better Big-O **and** only run it where it matters. When these tension, cutting the
+  asymptotic/relevance cost wins over a marginally simpler constant-factor path.
 - **Native / GPU / shader-first (target architecture):** runtime gameplay/simulation/destruction should
   be C++ by default; move practical runtime compute/render from CPU to GPU-backed execution; prefer
   shader stages where behavior fits them; minimize C++↔GDScript and CPU↔GPU hops on authoritative

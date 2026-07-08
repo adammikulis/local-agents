@@ -13,6 +13,12 @@ Master tracker for the from-scratch **godot_voxel ecosystem simulation** (projec
 - **3D always** (no 2.5D column holdovers) · **perf-first** (playable frame-rate is first-class) ·
   **GPU-GLSL-only: there are NO CPU oracles** (the GLSL kernels are the sole implementation; the CPU branches
   are an unmaintained headless fallback, never a parity contract) · **bias to action** (spike, don't pad).
+- **Big-O is a first-class goal (CORE):** drive down *asymptotic* cost, then constants. (1) Prefer the
+  better-scaling structure — spatial hash/tree/neighbour-table, O(K) test-particle passes, event/dirty-set
+  updates — never a per-frame O(n²) or a blind full-grid sweep. (2) **Do less by RELEVANCE (adaptive LOD is
+  mandatory):** offscreen / distant / un-zoomed / dormant / empty regions do less (coarser grid, staggered or
+  skipped timesteps, frozen sim, culled draws, lower-LOD meshes, sleeping actors). Budget compute where the
+  player looks. Composes with GPU-first + emergent; when in tension, cutting asymptotic/relevance cost wins.
 
 ## Current state (1-liner)
 Flat island, dense-3D GPU field (`MaterialField3D`) with ~19 emergent per-cell processes; centralized
