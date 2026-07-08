@@ -149,6 +149,15 @@ committed). When removing files:
   approach and what it unlocks, and ask. Do **not** silently work around it (delivering a lesser result
   the user didn't know was a compromise), and do **not** unilaterally rip it out either. The user will
   usually say "yes, change it" — but it's their call, and flagging it is how big upgrades get found.
+- **Composable-plugins mandate — host + registry over monolith (the architectural form of emergent-everything).**
+  For anything that is a SET of composable things over shared state — field processes, reactions, disasters/FX,
+  telemetry sources, spawnable content, solar-system bodies — prefer a thin HOST that owns the shared substrate
+  + an ordered list/registry of small modules conforming to a tiny interface, over one monolith with `if type
+  == X` branches. Adding a phenomenon = drop in a plugin (or a data record), not patch a monolith. This is
+  "config over `if identity == X`" one level up, and the same instinct as dissolve-don't-patch: a new rule
+  COMPOSES IN. Working examples already in-tree: the cubed-sphere field driver's pass modules
+  (`material/sphere_passes/*`), `LASimReport.register(Callable)` telemetry sources, species JSON, `LAPlanetBody`
+  under the system root. When you catch yourself adding a type-branch to a big file, make it a plugin instead.
 - **Simplicity mandate:** implement the simplest behavior that works correctly for the target path.
 - **Anti-overengineering mandate:** no long, multi-stage, or speculative pipelines when a shorter direct
   path satisfies the requirement.
