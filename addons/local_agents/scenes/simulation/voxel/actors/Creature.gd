@@ -43,22 +43,9 @@ var thirst_rate: float = 1.0
 const DRINK_RATE: float = 45.0             # hydration/sec restored while drinking
 const THIRSTY_FRACTION: float = 0.5        # below this, seeking water interrupts other drives
 
-# --- temperature comfort (emergent: read the shared field's temp at my feet) ---
-# Between COOL_COMFORT and WARM_COMFORT costs nothing. Beyond, heat parches (raising effective
-# thirst → the existing seek-water drive relocates herds to water / away from fire) and cold drains
-# energy; past the lethal bounds it kills. A wildfire, lava, a hot day, or a cold snap all act
-# through this one rule — no per-disaster code.
-# Real Celsius: comfortable roughly 8–28°C.
-const WARM_COMFORT: float = 28.0
-const COOL_COMFORT: float = 8.0
-const HEAT_THIRST_FACTOR: float = 0.15     # extra thirst/sec per °C above WARM_COMFORT
-const HEAT_ENERGY_FACTOR: float = 0.08     # extra energy/sec burned per °C above WARM_COMFORT
-const COLD_ENERGY_FACTOR: float = 0.15     # energy/sec burned per °C below COOL_COMFORT
-const LETHAL_HEAT: float = 50.0           # °C at/above which it dies of heatstroke (no flame)
-const COMBUST_TEMP: float = 200.0         # °C — organic tissue catches FIRE (in a wildfire/lava)
-const LETHAL_COLD: float = -18.0          # °C at/below which it freezes
-const DROWN_DEPTH: float = 2.5             # water depth a non-flyer drowns in
-const DROWN_DRAIN: float = 40.0           # energy/sec lost while submerged
+# Temperature-comfort + drowning constants moved to LACreatureMetabolism (which owns that survival tick):
+# heat/cold/combust/lethal bounds + drown depth. A wildfire, lava, a hot day, or a cold snap all act through
+# that one temperature rule — no per-disaster code.
 
 var _material = null                          # LAMaterialField (temp_at / depth_at / is_water_at)
 var _water_dir_cache: Vector3 = Vector3.ZERO
@@ -445,15 +432,8 @@ const MID_LOD_D2: float = 4900.0           # <70 m → MID rate; beyond → FAR 
 # coasts on it, so it skips the whole expensive think_* + cognition assessment and ticks slowly. Only the
 # few local leaders pay the heavy "what to do" cost. Reflexes (flee/thirst) + all pathing stay per-individual.
 const FOLLOWER_THINK_STRIDE: int = 18      # a follower re-decides rarely (~3 Hz) — it coasts on the adopted action
-const LEADER_ELECT_STRIDE: int = 45        # re-run the (cheap, throttled) local-leader election ~every 0.75 s
-const LEADER_RADIUS_MULT: float = 1.5      # leadership neighbourhood = flock_radius × this
-# A/B / verification kill-switch: LA_NO_LEADERSHIP=1 makes every creature its own leader (no delegation),
-# i.e. the pre-leadership behaviour, for on/off population + perf comparison. Read once (env is process-wide).
-static var _leadership_off: int = -1
-static func _leadership_disabled() -> bool:
-	if _leadership_off < 0:
-		_leadership_off = 1 if OS.get_environment("LA_NO_LEADERSHIP") == "1" else 0
-	return _leadership_off == 1
+# Election cadence + the LA_NO_LEADERSHIP kill-switch now live in LACreatureLeadership (all leadership logic in
+# one module); the election state-machine moved there too — _physics_process just calls maybe_elect(self, pos).
 
 # Camera position, fetched once per physics frame and shared by every creature (a single
 # get_camera_3d() lookup, not one per creature). INF when there is no active camera.
@@ -496,90 +476,6 @@ func _think_stride() -> int:
 	return FAR_THINK_STRIDE
 
 
-# Throttled emergent election (LACreatureLeadership) — dispatches by species `hierarchy` mode. No registry,
-# no appointment: every creature runs the same local rules and the whole tree (juvenile→parent→…→pack leader)
-# falls out. "flat"/base = one local leader; "family" adds parent-following for the young; "command" adds a
-# multi-level rank tree among adults. Reflexes + pathing stay per-individual regardless.
-func _elect_leader(pos: Vector3) -> void:
-	_leader_elect_cd = LEADER_ELECT_STRIDE
-	var radius: float = flock_radius * LEADER_RADIUS_MULT
-	# 1. Parent-following (family/command): a juvenile attaches to its nearest family adult (parent/elder),
-	#    who in turn follows the pack leader — so the family→pack tree self-assembles. Orphans (no adult kin
-	#    nearby) fall through to the rank rules below; a matured creature stops following its parent.
-	if (hierarchy == "family" or hierarchy == "command") and not is_mature():
-		var guardian: Node3D = LACreatureLeadership.nearest_family_adult(self, pos, radius)
-		if guardian != null and not LACreatureLeadership.would_cycle(self, guardian, 8):
-			_leader = guardian
-			_is_leader = false
-			return
-	# 2. Solitary adults (non-herd, e.g. a grown fox) lead only themselves — no adult pack forms.
-	if not herd:
-		_leader = null
-		_is_leader = true
-		return
-	# 3. Herd adults: a "command" species builds a multi-level rank tree; everyone else a flat pack leader.
-	if hierarchy == "command":
-		_elect_superior(pos, radius)
-	else:
-		_elect_flat(pos, radius)
-
-
-# Flat election (base model / "family" adults): follow the local score-max, or lead if I am it, with
-# leader_loyalty hysteresis + self-healing. This is the original single-leader-per-cluster behaviour.
-func _elect_flat(pos: Vector3, radius: float) -> void:
-	var cand: Node3D = LACreatureLeadership.local_leader(self, pos, radius)
-	var top: Node3D = self if cand == null else cand      # the pure local argmax (self if I rank highest)
-	if top != self and LACreatureLeadership.would_cycle(self, top, 8):
-		top = self                                        # attaching would close a loop → treat myself as root
-	# The incumbent leader over me: myself while I lead, else the creature I currently follow.
-	if not _is_leader:
-		var inc_ok: bool = _leader != null and is_instance_valid(_leader) \
-				and pos.distance_squared_to(_leader.global_position) <= radius * radius
-		if not inc_ok:
-			# Self-healing: my leader died or left → adopt the new local top immediately, NO loyalty margin.
-			_leader = null if top == self else top
-			_is_leader = (top == self)
-			return
-	var incumbent: Node3D = self if _is_leader else _leader
-	if top == incumbent:
-		return                                            # incumbent is still the local top — no change
-	# `top` is the local (score, instance_id) argmax above my incumbent. Switch (takeover) if the challenger
-	# clears the species loyalty margin. For pure-meritocracy species (leader_loyalty <= 0) ANY higher top
-	# wins — local_leader already broke exact-score ties deterministically by instance_id, so we must NOT
-	# re-require a strict score margin here (that left equal-stat herds all-leaders, the whole point missed).
-	# Humans (high loyalty) cling: a decisive SCORE margin is needed → dynasties, and takeover by force is
-	# rare/dramatic. A leader and its followers run the SAME test against the SAME top, so a cluster hands
-	# off coherently on one election — no adopt-chains.
-	var justified: bool = leader_loyalty <= 0.0 \
-			or LACreatureLeadership.leader_score(top) > LACreatureLeadership.leader_score(incumbent) + leader_loyalty
-	if justified:
-		_leader = null if top == self else top
-		_is_leader = (top == self)
-
-
-# Multi-level ("command") election: attach to my immediate SUPERIOR (nearest higher-rank neighbour), so the
-# tree gains depth — grunt→lieutenant→huntmaster. I CLING to my current manager while they stay a valid
-# superior (in reach + still out-rank me past my loyalty); I only re-pick when my boss falls below me, dies,
-# or leaves — then I attach to the nearest remaining superior, or become a root if none. A mid-node is both a
-# follower (of its boss, _is_leader false → it adopts the boss's action) AND a manager (its own subordinates
-# attach to it by rank), so the huntmaster's strategy flows down while each lieutenant leads its own sub-hunt.
-func _elect_superior(pos: Vector3, radius: float) -> void:
-	if _leader != null and is_instance_valid(_leader):
-		# Still a valid boss if it out-ranks me past my loyalty and is within the max span (radius×2).
-		var max_reach: float = radius * 2.0
-		var still_valid: bool = pos.distance_squared_to(_leader.global_position) <= max_reach * max_reach \
-				and LACreatureLeadership.leader_score(_leader) \
-					> LACreatureLeadership.leader_score(self) + leader_loyalty
-		if still_valid:
-			_is_leader = false
-			return                                            # cling to my current boss (hierarchy stickiness)
-	var sup: Node3D = LACreatureLeadership.local_superior(self, pos, radius, leader_loyalty)
-	if sup != null and LACreatureLeadership.would_cycle(self, sup, 8):
-		sup = null                                            # attaching would close a loop → become a root
-	_leader = sup
-	_is_leader = (sup == null)
-
-
 func _physics_process(delta: float) -> void:
 	# In the player's hand: VoxelWorld sets our position each frame; skip AI + terrain-snap.
 	if _held:
@@ -600,54 +496,17 @@ func _physics_process(delta: float) -> void:
 	_sense_mult = 1.0
 	if _ecology != null and _ecology.has_method("is_night") and _ecology.is_night():
 		_sense_mult = 1.4 if nocturnal else 0.7
-	# Metabolism drains energy; exertion costs more, sleeping costs less; eating refills.
-	var exertion: float = 1.0
-	if state == "flee" or state == "panic" or state == "chase":
-		exertion = 1.6
-	elif state == "sleep" or state == "rest" or state == "roost":
-		exertion = 0.5                        # sleeping/resting conserves energy — why animals do it
-	energy -= metabolism * exertion * delta
-	if energy <= 0.0:
-		die("starvation")
-		return
-	# Thirst drains steadily; dehydration kills like starvation. Drinking (below) refills it.
-	hydration -= thirst_rate * delta
-	if hydration <= 0.0:
-		die("thirst")
-		return
-	if age >= max_age:
-		die("old age")
+	# Metabolism (exertion-scaled energy burn) + thirst + ageing — see LACreatureMetabolism. Death stops us.
+	if LACreatureMetabolism.tick(self, delta):
 		return
 	if terrain == null:
 		return
 
 	var pos: Vector3 = global_position
 
-	# TEMPERATURE COMFORT + DROWNING (emergent, from the shared field at my feet).
-	if _material != null:
-		var t: float = _material.temp_at(pos.x, pos.z)
-		# Flesh doesn't glow like hot metal — it COMBUSTS. In fire/lava heat the creature bursts into
-		# flame and dies burned (organic matter ignites; inorganic ground glows via the shader instead).
-		if t >= COMBUST_TEMP:
-			_combust()
-			return
-		if t > WARM_COMFORT:
-			var over: float = t - WARM_COMFORT
-			hydration -= over * HEAT_THIRST_FACTOR * delta   # heat parches → seek water (existing drive)
-			energy -= over * HEAT_ENERGY_FACTOR * delta
-			if t >= LETHAL_HEAT:
-				die("heatstroke")
-				return
-		elif t < COOL_COMFORT:
-			energy -= (COOL_COMFORT - t) * COLD_ENERGY_FACTOR * delta
-			if t <= LETHAL_COLD:
-				die("frozen")
-				return
-		if not can_fly and _material.depth_at(pos.x, pos.z) >= DROWN_DEPTH:
-			energy -= DROWN_DRAIN * delta
-			if energy <= 0.0:
-				die("drowned")
-				return
+	# Temperature comfort + combustion + drowning, emergent from the shared field at my feet.
+	if LACreatureMetabolism.tick_environment(self, pos, delta):
+		return
 
 	var surf: float = _surface_at(pos.x, pos.z)
 	if is_nan(surf):
@@ -669,15 +528,10 @@ func _physics_process(delta: float) -> void:
 	# top — done BEFORE the stride is computed so a fresh follower immediately gets the slow follower rate,
 	# and a leaderless creature (dead/departed leader) re-elects or self-decides this frame. Non-herd
 	# creatures are always their own leader (they never delegate their decision).
-	# Participate in leadership if I herd, OR my species is parent-following (family/command) — the latter
-	# lets even a solitary species' juveniles follow a parent while its adults stay independent.
-	if (herd or hierarchy == "family" or hierarchy == "command") and not _leadership_disabled():
-		_leader_elect_cd -= 1
-		if _leader_elect_cd <= 0 or (not _is_leader and not is_instance_valid(_leader)):
-			_elect_leader(pos)
-	else:
-		_leader = null
-		_is_leader = true
+	# Emergent leadership (all logic in LACreatureLeadership): decide (throttled) whether I lead my local
+	# cluster or follow a leader/parent — done BEFORE the stride so a fresh follower gets the slow rate and a
+	# leaderless creature (dead/departed leader) re-elects this frame.
+	LACreatureLeadership.maybe_elect(self, pos)
 
 	# DECISION THROTTLE (LOD): run the full cognition cascade only every `stride` frames, where the
 	# stride grows with distance to the camera and is heaviest while asleep/resting — see _think_stride.

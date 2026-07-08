@@ -158,3 +158,109 @@ static func nearest_family_adult(c, pos: Vector3, radius: float):
 			best_id = mid
 			best = m
 	return best   # null ⇒ no adult kin nearby (orphan / founder) ⇒ fall back to rank/self
+
+
+# ============================================================================================================
+# ELECTION STATE-MACHINE — moved here from Creature.gd so ALL leadership logic lives in this one module (the
+# creature just calls maybe_elect each physics frame). Functions take the creature `c` by dynamic access, like
+# the queries above. Roles set on c: `_leader` (immediate manager, or null if root) + `_is_leader` (true at a
+# tree root). Throttled by c._leader_elect_cd.
+# ============================================================================================================
+const LEADER_ELECT_STRIDE: int = 45        # re-run the (cheap, throttled) local election ~every 0.75 s
+const LEADER_RADIUS_MULT: float = 1.5      # leadership neighbourhood = flock_radius × this
+
+# A/B / verification kill-switch: LA_NO_LEADERSHIP=1 makes every creature its own leader (no delegation),
+# i.e. the pre-leadership behaviour, for on/off population + perf comparison. Read once (env is process-wide).
+static var _off: int = -1
+static func disabled() -> bool:
+	if _off < 0:
+		_off = 1 if OS.get_environment("LA_NO_LEADERSHIP") == "1" else 0
+	return _off == 1
+
+
+## Per-frame leadership gate for creature `c`: (throttled) decide whether c leads or follows. c participates if
+## it herds OR its species is parent-following (family/command) — the latter lets a solitary species' juveniles
+## follow a parent while its adults stay independent. Non-participants (and the A/B kill-switch) are always
+## their own leader. Called every physics frame from Creature._physics_process.
+static func maybe_elect(c, pos: Vector3) -> void:
+	if disabled() or not (c.herd or c.hierarchy == "family" or c.hierarchy == "command"):
+		c._leader = null
+		c._is_leader = true
+		return
+	c._leader_elect_cd -= 1
+	if c._leader_elect_cd <= 0 or (not c._is_leader and not is_instance_valid(c._leader)):
+		elect(c, pos)
+
+
+## Throttled emergent election — dispatches by species `hierarchy` mode. No registry, no appointment: every
+## creature runs the same local rules and the whole tree (juvenile→parent→…→pack leader) falls out.
+static func elect(c, pos: Vector3) -> void:
+	c._leader_elect_cd = LEADER_ELECT_STRIDE
+	var radius: float = c.flock_radius * LEADER_RADIUS_MULT
+	# 1. Parent-following (family/command): a juvenile attaches to its nearest family adult (parent/elder),
+	#    who in turn follows the pack leader → the family→pack tree self-assembles. Orphans (no adult kin
+	#    nearby) fall through to the rank rules; a matured creature stops following its parent.
+	if (c.hierarchy == "family" or c.hierarchy == "command") and not c.is_mature():
+		var guardian = nearest_family_adult(c, pos, radius)
+		if guardian != null and not would_cycle(c, guardian, 8):
+			c._leader = guardian
+			c._is_leader = false
+			return
+	# 2. Solitary adults (non-herd, e.g. a grown fox) lead only themselves — no adult pack forms.
+	if not c.herd:
+		c._leader = null
+		c._is_leader = true
+		return
+	# 3. Herd adults: a "command" species builds a multi-level rank tree; everyone else a flat pack leader.
+	if c.hierarchy == "command":
+		elect_superior(c, pos, radius)
+	else:
+		elect_flat(c, pos, radius)
+
+
+## Flat election (base model / "family" adults): follow the local score-max, or lead if I am it, with
+## leader_loyalty hysteresis + self-healing. The original single-leader-per-cluster behaviour.
+static func elect_flat(c, pos: Vector3, radius: float) -> void:
+	var cand = local_leader(c, pos, radius)
+	var top = c if cand == null else cand                 # the pure local argmax (self if c ranks highest)
+	if top != c and would_cycle(c, top, 8):
+		top = c                                           # attaching would close a loop → treat c as root
+	# The incumbent leader over c: itself while it leads, else the creature it currently follows.
+	if not c._is_leader:
+		var inc_ok: bool = c._leader != null and is_instance_valid(c._leader) \
+				and pos.distance_squared_to(c._leader.global_position) <= radius * radius
+		if not inc_ok:
+			# Self-healing: leader died or left → adopt the new local top immediately, NO loyalty margin.
+			c._leader = null if top == c else top
+			c._is_leader = (top == c)
+			return
+	var incumbent = c if c._is_leader else c._leader
+	if top == incumbent:
+		return                                            # incumbent is still the local top — no change
+	# Switch (takeover) if the challenger clears the loyalty margin. loyalty<=0 → any higher top wins (the
+	# id-tiebreak in local_leader already ordered them); high loyalty → a decisive score margin (dynasties).
+	var justified: bool = c.leader_loyalty <= 0.0 \
+			or leader_score(top) > leader_score(incumbent) + c.leader_loyalty
+	if justified:
+		c._leader = null if top == c else top
+		c._is_leader = (top == c)
+
+
+## Multi-level ("command") election: attach to c's immediate SUPERIOR (nearest higher-rank in span), so the
+## tree gains depth — grunt→lieutenant→huntmaster. c CLINGS to its current boss while they stay a valid
+## superior (in reach + still out-rank c past its loyalty); it re-picks only when the boss falls below it,
+## dies, or leaves — then attaches to the nearest remaining superior, or becomes a root if none.
+static func elect_superior(c, pos: Vector3, radius: float) -> void:
+	if c._leader != null and is_instance_valid(c._leader):
+		# Still a valid boss if it out-ranks c past c's loyalty and is within the max span (radius×2).
+		var max_reach: float = radius * 2.0
+		var still_valid: bool = pos.distance_squared_to(c._leader.global_position) <= max_reach * max_reach \
+				and leader_score(c._leader) > leader_score(c) + c.leader_loyalty
+		if still_valid:
+			c._is_leader = false
+			return                                        # cling to the current boss (hierarchy stickiness)
+	var sup = local_superior(c, pos, radius, c.leader_loyalty)
+	if sup != null and would_cycle(c, sup, 8):
+		sup = null                                        # attaching would close a loop → become a root
+	c._leader = sup
+	c._is_leader = (sup == null)
