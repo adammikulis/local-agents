@@ -1,19 +1,21 @@
 extends Node3D
 
-## Phase A1 windowed integration test — builds the planet THROUGH LAVoxelTerrainService.build_planet (not the
-## raw generator), proves it meshes + renders, and validates the radial surface queries (surface_radius /
-## surface_point / altitude_at) by dropping markers on computed surface points — they must sit ON the ground.
+## Phase A1 windowed integration test for the SOLAR-SYSTEM node spine: assembles LAStar + LAPlanetBody (no
+## VoxelWorld), proves the body builds+meshes+renders a planet lit by the positioned star, and validates the
+## body's radial contract (up_at/altitude_at/surface_point) by dropping markers that must rest ON the ground.
 ## Run:
 ##   LA_NO_STREAMER=1 godot --rendering-driver metal --path . \
 ##     addons/local_agents/scenes/simulation/voxel/sphere/PlanetPreview.tscn -- --shoot=/tmp/planet.png --frames=180
 
-const TerrainServiceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/terrain/VoxelTerrainService.gd")
+const StarScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/system/Star.gd")
+const PlanetBodyScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/system/PlanetBody.gd")
 
 var _frames_target: int = 180
 var _shoot_path: String = ""
 var _frame: int = 0
 var _radius: float = 250.0
-var _terrain: RefCounted = null
+var _star: Node3D = null
+var _body: Node3D = null
 var _cam: Camera3D = null
 var _checked: bool = false
 
@@ -25,20 +27,25 @@ func _ready() -> void:
 		elif arg.begins_with("--frames="):
 			_frames_target = int(arg.substr(9))
 
-	_terrain = TerrainServiceScript.new()
-	_terrain.build_planet(self, {"radius": _radius, "relief": 16.0, "feature_size": 78.0, "seed": 7})
+	# The star: positioned light + gravity + solar driver.
+	_star = StarScript.new()
+	_star.name = "Star"
+	add_child(_star)
+	_star.setup({"position": Vector3(900.0, 320.0, 620.0), "energy": 1.4})
+
+	# One planet body at the origin (identity transform).
+	_body = PlanetBodyScript.new()
+	_body.name = "PlanetBody"
+	add_child(_body)
+	_body.setup({"radius": _radius, "relief": 16.0, "feature_size": 78.0, "seed": 7})
 
 	_cam = Camera3D.new()
 	var cam_pos: Vector3 = Vector3(1.0, 0.55, 1.6).normalized() * (_radius * 2.4)
 	_cam.far = 6000.0
 	add_child(_cam)
 	_cam.look_at_from_position(cam_pos, Vector3.ZERO, Vector3.UP)
-	_terrain.attach_viewer(_cam)
+	_body.attach_viewer(_cam)
 
-	var sun: DirectionalLight3D = DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-35, -50, 0)
-	sun.light_energy = 1.3
-	add_child(sun)
 	var env: WorldEnvironment = WorldEnvironment.new()
 	var e: Environment = Environment.new()
 	e.background_mode = Environment.BG_COLOR
@@ -52,12 +59,9 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	_frame += 1
-
-	# Once terrain has streamed + collided, validate radial queries + drop surface markers (visual proof).
 	if not _checked and _frame == _frames_target - 30:
 		_checked = true
 		_validate_radial()
-
 	if _shoot_path != "" and _frame == _frames_target:
 		var img: Image = get_viewport().get_texture().get_image()
 		img.save_png(_shoot_path)
@@ -73,35 +77,27 @@ func _validate_radial() -> void:
 		Vector3(0.2, 1.0, 0.1).normalized(), Vector3(0.9, -0.3, -0.4).normalized(),
 		Vector3(-0.6, -0.6, 0.5).normalized(),
 	]
-	var radii: PackedFloat32Array = PackedFloat32Array()
-	var alt_err: float = 0.0
 	var hits: int = 0
+	var alt_err: float = 0.0
 	for d: Vector3 in dirs:
-		var sr: float = _terrain.surface_radius(d)
+		var sr: float = _body.surface_radius(d)
 		if is_nan(sr):
 			continue
 		hits += 1
-		radii.append(sr)
-		# a point 5 units above the computed surface must read altitude ~5 (query self-consistency)
-		var probe: Vector3 = _terrain.planet_center() + d * (sr + 5.0)
-		var alt: float = _terrain.altitude_at(probe)
+		var probe: Vector3 = _body.center() + d * (sr + 5.0)
+		var alt: float = _body.altitude_at(probe)
 		if not is_nan(alt):
 			alt_err = maxf(alt_err, absf(alt - 5.0))
-		# drop a bright marker exactly on the surface point — should rest ON the ground, not float/sink
-		var mp: Vector3 = _terrain.surface_point(d)
+		var mp: Vector3 = _body.surface_point(d)
 		if not is_nan(mp.x):
 			_drop_marker(mp)
-	var rmin: float = 1e9
-	var rmax: float = -1e9
-	for r: float in radii:
-		rmin = minf(rmin, r)
-		rmax = maxf(rmax, r)
-	print("SERVICE_REPORT=", JSON.stringify({
-		"is_planet": _terrain.is_planet(),
-		"planet_radius": snappedf(_terrain.planet_radius(), 0.01),
-		"sea_radius": snappedf(_terrain.sea_radius(), 0.01),
+	print("SYSTEM_REPORT=", JSON.stringify({
+		"body_radius": snappedf(_body.radius(), 0.01),
+		"sea_radius": snappedf(_body.sea_radius(), 0.01),
+		"atmosphere_radius": snappedf(_body.atmosphere_radius(), 0.01),
+		"star_sun_dir": str(_star.sun_dir_for(_body.center()).snappedf(0.001)),
+		"star_insolation": snappedf(_star.insolation_at(_body.center()), 0.01),
 		"surface_hits": hits, "of": dirs.size(),
-		"r_min": snappedf(rmin, 0.01), "r_max": snappedf(rmax, 0.01),
 		"altitude_err": snappedf(alt_err, 0.01),
 		"ok": hits == dirs.size() and alt_err < 2.0,
 	}))
