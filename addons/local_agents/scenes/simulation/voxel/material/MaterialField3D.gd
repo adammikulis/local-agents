@@ -617,6 +617,14 @@ func _physics_process(delta: float) -> void:
 			_gpu.set_field("shock", _shock_sim._shock)
 		_gpu.set_field("fungus", _fungus)
 		_gpu.set_field("detritus", _detritus)
+		# Geological tails round-trip like fire/scent: the GPU runs the per-cell CORES (erosion deposit/advect,
+		# snowpack accrete/melt, magma buoyant up-flow); the CPU keeps only the SDF/solid-mask stamps via
+		# step_scene_only(). Upload the authoritative CPU channels (this frame's CPU carve/freeze/thaw edits)
+		# into the resident buffers, then read the evolved fields back below.
+		if _erosion_sim != null:
+			_gpu.set_field("susp", _erosion_sim._susp)
+		if _snowice_sim != null:
+			_gpu.set_field("snow", _snowice_sim._snow)
 		# Vapor is re-uploaded ONLY when a CPU-side injection (a storm's add_vapor) dirtied it. With nothing
 		# injected it lives fully resident on the GPU (re-uploading the last readback would just clobber the
 		# GPU's own evolution), so we skip the upload AND the readback below — cloud/fog are never re-uploaded.
@@ -667,6 +675,11 @@ func _physics_process(delta: float) -> void:
 			_fungus = out["fungus"]
 		if out.has("detritus"):
 			_detritus = out["detritus"]
+		# Geological-tail channels evolved on-GPU this frame — pull them back for the CPU tails + diagnostics.
+		if out.has("susp") and _erosion_sim != null:
+			_erosion_sim._susp = out["susp"]
+		if out.has("snow") and _snowice_sim != null:
+			_snowice_sim._snow = out["snow"]
 		if out.has("vapor"):
 			_vapor = out["vapor"]
 		if out.has("cloud"):
@@ -696,14 +709,18 @@ func _physics_process(delta: float) -> void:
 		# advances, just at a cadence matched to how slowly it actually changes. (Until they are GPU-ported.)
 		_slow_tick = (_slow_tick + 1) % 4
 		# CPU-oracle field processes on the fresh GPU readback (their edits round-trip to the GPU next frame).
-		if _erosion_sim != null and _slow_tick == 0:
-			_erosion_sim.step()
+		# Geological CORES ran on-GPU (erosion deposit/advect, snow accrete/melt, magma buoyant up-flow) inside
+		# _gpu.step() and susp/snow/sediment/lava came back in the readback — so each runs ONLY its CPU tail
+		# here: the SDF/solid-mask stamps (erosion CARVE, snow FREEZE/THAW, magma PRESSURE-MELT + source feed)
+		# + diagnostics, exactly like combustion/lava keep their SDF stamps a CPU tail off the GPU flow.
+		if _erosion_sim != null:
+			_erosion_sim.step_scene_only()
 			_prof_mark("erosion", _prof_on)
-		if _snowice_sim != null and _slow_tick == 1:
-			_snowice_sim.step()
+		if _snowice_sim != null:
+			_snowice_sim.step_scene_only()
 			_prof_mark("snowice", _prof_on)
-		if _magma_sim != null and _slow_tick == 2:
-			_magma_sim.step()
+		if _magma_sim != null:
+			_magma_sim.step_scene_only()
 			_prof_mark("magma", _prof_on)
 		# Emergent dust: the loft/advect/settle CORE ran on-GPU (dust_*3d kernels) and dust/sediment came back in
 		# the readback — so here we run ONLY the CPU tail (refresh the dust_cells/dust_peak diagnostics).

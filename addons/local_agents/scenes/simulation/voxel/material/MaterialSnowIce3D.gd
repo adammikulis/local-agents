@@ -49,6 +49,7 @@ const SNOW_WATER_YIELD: float = 0.3       # water mass produced per unit of melt
 const ICE_WATER_MIN: float = 0.2          # a cell needs at least this much water to freeze into ice (a real pool, not a film)
 const FREEZE_MAX_EDITS: int = 32          # cap freeze conversions per step (cursor-rotated)
 const THAW_MAX_EDITS: int = 32            # cap thaw conversions per step (cursor-rotated)
+const FREEZE_SCAN_BUDGET: int = 20000     # max cells scanned per GPU-tail freeze/thaw call (perf bound; edits still capped)
 const SDF_STAMP_SCALE: float = 0.62       # stamp/carve radius as a fraction of cell size (must match MaterialLava3D / MaterialSlump3D)
 
 var _f = null                             # back-reference to the owning LAMaterialField3D
@@ -97,6 +98,30 @@ func step() -> void:
 		_f._gpu.upload_static_state(_f._solid, _f._static)
 	_snow_cells_last = snow_cells()
 	_ice_cells_last = ice_cells()
+
+
+## GPU-path TAIL — runs ONLY the water FREEZE/THAW phase (water <-> ice: SDF fill/carve + the solid-mask edit +
+## its re-upload) + diagnostics, because on the GPU-resident path snowice3d already ran the per-column snowpack
+## accrete/melt core on-device (snow depth + meltwater into _f._water came back from the readback). Mirrors how
+## lava keeps its solidify/melt SDF stamps a CPU tail off the GPU flow. Freeze/thaw are scan-bounded (perf).
+## Ice count is tracked incrementally (freeze +1 / thaw -1) so the tail skips the full-grid ice_cells() scan.
+func step_scene_only() -> void:
+	if _f == null or _f._cell_count <= 0:
+		return
+	if _snow.size() != _f._dim_x * _f._dim_z:
+		_snow.resize(_f._dim_x * _f._dim_z)
+	if _ice.size() != _f._cell_count:
+		_ice.resize(_f._cell_count)
+	if _ice_mass.size() != _f._cell_count:
+		_ice_mass.resize(_f._cell_count)
+	var solid_changed: bool = false
+	if _freeze():
+		solid_changed = true
+	if _thaw():
+		solid_changed = true
+	if solid_changed and _f._use_gpu and _f._gpu != null and _f._gpu.has_method("upload_static_state"):
+		_f._gpu.upload_static_state(_f._solid, _f._static)
+	_snow_cells_last = snow_cells()
 
 
 # --- 1) Snowfall / pack / melt (per COLUMN) ---------------------------------
@@ -156,7 +181,7 @@ func _freeze() -> bool:
 	var edits: int = 0
 	var scanned: int = 0
 	var froze: bool = false
-	while scanned < _f._cell_count and edits < FREEZE_MAX_EDITS:
+	while scanned < mini(FREEZE_SCAN_BUDGET, _f._cell_count) and edits < FREEZE_MAX_EDITS:
 		var i: int = _freeze_cursor
 		_freeze_cursor += 1
 		if _freeze_cursor >= _f._cell_count:
@@ -188,6 +213,7 @@ func _freeze() -> bool:
 			_f._terrain.fill_sphere(_f.cell_world_pos(ix, iy, iz), _f._cell_size * SDF_STAMP_SCALE)
 		edits += 1
 		froze = true
+		_ice_cells_last += 1
 	return froze
 
 
@@ -208,7 +234,7 @@ func _thaw() -> bool:
 	var edits: int = 0
 	var scanned: int = 0
 	var thawed: bool = false
-	while scanned < _f._cell_count and edits < THAW_MAX_EDITS:
+	while scanned < mini(FREEZE_SCAN_BUDGET, _f._cell_count) and edits < THAW_MAX_EDITS:
 		var i: int = _thaw_cursor
 		_thaw_cursor += 1
 		if _thaw_cursor >= _f._cell_count:
@@ -231,6 +257,7 @@ func _thaw() -> bool:
 			_f._terrain.carve_sphere(_f.cell_world_pos(ix, iy, iz), _f._cell_size * SDF_STAMP_SCALE)
 		edits += 1
 		thawed = true
+		_ice_cells_last -= 1
 	return thawed
 
 

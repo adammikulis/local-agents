@@ -86,6 +86,9 @@ const SCENT_CHANNELS: int = 5              # airborne scent channels packed as c
 # Push-constant encoders (byte-packers matching each kernel's Params block) live in a sibling module so
 # this hot backend file stays under the size gate; call as Push.<name>(self, ...).
 const Push: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGPU3DPush.gd")
+# Geological-tail passes (erosion / snowice / magma per-cell cores) live in a sibling module so this hot
+# backend file stays under the size gate; the backend only records their dispatches at the step() seams.
+const Geo: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGPU3DGeo.gd")
 
 # Field timestep (MaterialField3D.STEP_DT = 1/STEP_HZ) — the atmosphere wind advection needs it to turn a
 # world wind velocity into a per-step cell-fraction. Kept in sync with MaterialField3D.
@@ -275,6 +278,7 @@ var _fungus_fert_set: Array[RID] = [RID(), RID()]
 var _prevailing: Vector2 = Vector2.ZERO     # large-scale base wind forced by the wind_step3d kernel (set_prevailing)
 var _parity: int = 0                        # 0 -> live in *_a, 1 -> live in *_b
 var _static_uploaded: bool = false
+var _geo = null                             # LAMaterialGPU3DGeo (erosion/snowice/magma geological-tail passes)
 
 
 ## True only when a local RenderingDevice can be created (false in --headless / no-compute → the caller
@@ -299,6 +303,9 @@ func setup(field) -> void:
 		return
 	_ensure_buffers(field._dim_x, field._dim_y, field._dim_z)
 	upload_static_state(field._solid, field._static)
+	# Geological-tail passes (erosion/snowice/magma). Built AFTER the buffers/masks so its sets can bind them.
+	_geo = Geo.new()
+	_geo.setup(self)
 
 
 func _init_rd() -> void:
@@ -746,6 +753,9 @@ func _free_buffers() -> void:
 func dispose() -> void:
 	if _rd == null:
 		return
+	if _geo != null:
+		_geo.dispose(self)                     # free the geological-tail pipelines/buffers/sets before the RD
+		_geo = null
 	_free_buffers()
 	for pipe in [_heat_pipeline, _solar_pipeline, _buoy_pipeline, _cool_pipeline, _water_pipeline,
 			_evap_pipeline, _transport_pipeline, _condense_pipeline, _rain_pipeline,
@@ -874,6 +884,14 @@ func set_field(name: String, arr: PackedFloat32Array) -> void:
 	if name == "detritus":
 		upload(_buf_detritus, arr)         # single resident buffer (fungus decomposes in place; CPU deposits carcass/ash detritus)
 		return
+	if name == "snow":
+		if _geo != null:
+			_geo.upload_snow(self, arr)    # per-column snowpack depth (single buffer, owned by the Geo module)
+		return
+	if name == "susp":
+		if _geo != null:
+			_geo.upload_susp(self, arr)    # erosion suspended sediment (ping-pong, owned by the Geo module)
+		return
 	upload(live_buffer(name, _parity), arr)
 
 
@@ -912,6 +930,13 @@ func step() -> void:
 	_rd.compute_list_set_push_constant(cl, Push.water_pc(self, 1), 32)
 	_rd.compute_list_dispatch(cl, groups, 1, 1)
 
+	# --- EROSION (geological tail): on the fresh post-flow water[back] — deposit/settle suspended sediment
+	# into the shared channel (before slump piles it) + gather-advect it downhill. Rock CARVE stays CPU. ---
+	if _geo != null:
+		_rd.compute_list_add_barrier(cl)          # water[back] visible to erosion's reads
+		_geo.record_erosion(self, cl)
+		_rd.compute_list_add_barrier(cl)          # susp[back] + sediment deposits committed
+
 	# --- HEAT PART 1: conduction. temp[live] -> temp[back]. (Disjoint from water; no barrier needed
 	# between the water writes and the conduction reads — they touch different buffers.) ---
 	_rd.compute_list_bind_compute_pipeline(cl, _heat_pipeline)
@@ -945,6 +970,13 @@ func step() -> void:
 	# WIND -> ATMOSPHERE -> LAVA (matching MaterialField3D._physics_process: water -> heat -> WIND ->
 	# atmosphere -> lava). This barrier guards the post-heat temp writes (pressure/evap/condense read them).
 	_rd.compute_list_add_barrier(cl)
+
+	# --- SNOWICE (geological tail): after the heat chain, on the post-heat temp[back] — per-column snowpack
+	# accrete (cold precip) / melt (-> meltwater into water[back], swelling the rivers). The water FREEZE/THAW
+	# (SDF + solid mask) stays MaterialSnowIce3D's CPU tail. ---
+	if _geo != null:
+		_geo.record_snowice(self, cl)
+		_rd.compute_list_add_barrier(cl)          # snow depth + meltwater in water[back] visible downstream
 
 	# --- WIND PASS A: air PRESSURE from the post-heat temperature. temp[back] + solid -> pressure. ---
 	_rd.compute_list_bind_compute_pipeline(cl, _wind_pressure_pipeline)
@@ -1016,6 +1048,12 @@ func step() -> void:
 	_rd.compute_list_set_push_constant(cl, Push.dims_pc(self), 16)
 	_rd.compute_list_dispatch(cl, groups, 1, 1)
 	_rd.compute_list_add_barrier(cl)          # send scratch (shared with lava) clear before slump reuses it
+
+	# --- MAGMA (geological tail): on the post-phase lava[back]/temp[back] — the two-pass buoyant overpressure
+	# up-flow that climbs the conduit. Conduit PRESSURE-MELT (SDF) + deep-source feed stay CPU. ---
+	if _geo != null:
+		_geo.record_magma(self, cl)
+		_rd.compute_list_add_barrier(cl)      # post-magma lava/temp committed before dust/fire read them
 
 	# --- GRANULAR SLUMP: cold sediment CA, two-pass gather (reuses the send buffer). Gravity down, a
 	# LATERAL level-out gated by the angle of repose, then up under pressure. sediment[live] -> sediment[back].
@@ -1183,6 +1221,11 @@ func end_frame(read_vapor: bool = true, read_cloud: bool = true, read_fog: bool 
 		"fungus": download(live_buffer("fungus", _parity)),
 		"detritus": download(_buf_detritus),
 	}
+	# Geological-tail channels (erosion suspended sediment + snowpack depth) — GPU-evolved this frame; read
+	# back for the CPU tails (SDF carve/freeze/thaw) + diagnostics. Sediment/lava/temp/water round-trip above.
+	if _geo != null:
+		out["susp"] = _geo.download_susp(self)
+		out["snow"] = _geo.download_snow(self)
 	if read_vapor:
 		out["vapor"] = download(live_buffer("vapor", _parity))
 	if read_cloud:

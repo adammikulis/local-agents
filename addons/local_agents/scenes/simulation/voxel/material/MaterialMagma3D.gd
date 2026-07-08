@@ -96,6 +96,24 @@ func step() -> void:
 	_erupting_last = _compute_erupting()
 
 
+## GPU-path TAIL — runs ONLY the SDF/solid-mask concerns (deep-source FEED + conduit PRESSURE-MELT) + diagnostics,
+## because on the GPU-resident path magma_buoy3d already ran the buoyant overpressure up-flow core on-device and
+## _f._lava/_f._temp came back from the readback. Mirrors how lava keeps its melt SDF carve a CPU tail. Order:
+## feed (inject into the readback lava, pin chamber hot) -> pressure-melt (bore the rock roof upward: SDF carve +
+## solid-mask edit + lava emplace). Both round-trip to the GPU next frame. Called ONCE per frame on the readback.
+func step_scene_only() -> void:
+	if _f == null or _f._cell_count <= 0:
+		return
+	if _sources.is_empty():
+		_magma_cells_last = 0
+		_erupting_last = false
+		return
+	_feed_sources()
+	_pressure_melt()
+	_magma_cells_last = _count_magma()
+	_erupting_last = _compute_erupting()
+
+
 # --- Rule 1: deep hot-source registry ---------------------------------------
 
 ## Register a persistent deep magma chamber at a world point (the Volcano actor's ONE drive). Opens the

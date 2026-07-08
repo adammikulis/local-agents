@@ -55,6 +55,7 @@ const SUSP_MIN: float = 0.0005            # below this a cell holds no meaningfu
 const EROSION_MAX_EDITS: int = 8          # HARD cap on terrain carve stamps per step (cursor-rotated) — perf gate
 const EROSION_PER_EDIT: float = 0.14      # suspended-sediment mass freed per carve stamp (≈ rock the SDF removed)
 const SDF_CARVE_SCALE: float = 0.45       # carve radius as a fraction of cell size (small bite; must stay < a cell)
+const CARVE_SCAN_BUDGET: int = 8192       # max cells scanned per GPU-tail carve call (perf bound; edits still capped at EROSION_MAX_EDITS)
 
 var _f = null                             # back-reference to the owning LAMaterialField3D
 var _susp: PackedFloat32Array = PackedFloat32Array()      # SUSPENDED sediment carried by the water (owned here)
@@ -86,6 +87,69 @@ func step() -> void:
 		_scratch.resize(_f._cell_count)
 	_erode_and_deposit()
 	_advect()
+
+
+## GPU-path TAIL — runs ONLY the rock CARVE (the budgeted SDF carve_sphere edits that free rock into suspended
+## sediment) + diagnostics, because on the GPU-resident path erosion_deposit3d/erosion_advect3d already ran the
+## per-cell deposit/settle/advect core on-device and _susp/_f._sediment came back from the readback. Mirrors how
+## lava's melt/solidify SDF stamps stay a CPU tail off the GPU flow. Called ONCE per frame on the fresh readback.
+func step_scene_only() -> void:
+	if _f == null or _f._cell_count <= 0:
+		return
+	if _susp.size() != _f._cell_count:
+		_susp.resize(_f._cell_count)
+	_carve_scene()
+
+
+## Budgeted rock CARVE (cursor-rotated + scan-bounded): where fast water sits against rock UNDER carrying
+## capacity, carve a small SDF bite and turn the freed rock into suspended sediment (mass in ≈ out; the GPU then
+## transports/deposits it next frames). Scan-bounded (CARVE_SCAN_BUDGET) + edit-capped (EROSION_MAX_EDITS) so the
+## tail stays cheap. Reads the fresh readback water/susp; the added suspended load uploads to the GPU next frame.
+func _carve_scene() -> void:
+	var can_carve: bool = _f._terrain != null and _f._terrain.has_method("carve_sphere")
+	if not can_carve:
+		_eroding_last = 0
+		return
+	var water: PackedFloat32Array = _f._water
+	var solid: PackedByteArray = _f._solid
+	var dx: int = _f._dim_x
+	var dy: int = _f._dim_y
+	var dz: int = _f._dim_z
+	var layer: int = dx * dz
+	var edits: int = 0
+	var scanned: int = 0
+	var eroding: int = 0
+	while scanned < CARVE_SCAN_BUDGET and edits < EROSION_MAX_EDITS:
+		var i: int = _erode_cursor
+		_erode_cursor += 1
+		if _erode_cursor >= _f._cell_count:
+			_erode_cursor = 0
+		scanned += 1
+		if solid[i] != 0:
+			continue
+		var w: float = water[i]
+		if w < WATER_MIN:
+			continue
+		var iy: int = i / layer
+		var rem: int = i - iy * layer
+		var iz: int = rem / dx
+		var ix: int = rem % dx
+		var speed: float = _surface_speed(i, ix, iz, dx, dz, solid, water)
+		if speed < SPEED_MIN:
+			continue
+		var cap: float = K_CAP * speed * w
+		if cap <= _susp[i]:
+			continue                                     # not under capacity — GPU already handled deposit/settle
+		if not _touches_solid(i, ix, iy, iz, dx, dy, dz, layer, solid):
+			continue
+		var bite: float = minf(EROSION_PER_EDIT, (cap - _susp[i]) * EROSION_RATE + EROSION_PER_EDIT * EROSION_RATE)
+		var cpos: Vector3 = _f.cell_world_pos(ix, iy, iz)
+		_f._terrain.carve_sphere(cpos, _f._cell_size * SDF_CARVE_SCALE)
+		_f.resample_terrain(cpos, _f._cell_size * SDF_CARVE_SCALE)
+		_susp[i] += bite
+		edits += 1
+		eroding += 1
+	_eroding_last = eroding
 
 
 # --- A) Erosion + deposition ------------------------------------------------
