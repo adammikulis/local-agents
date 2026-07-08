@@ -94,6 +94,16 @@ committed). When removing files:
 
 ## Guiding design principle — Emergent-Everything (north star)
 
+- **THE CORE — named phenomena have ZERO dedicated code. DISSOLVE, don't patch.** There is ONE physical
+  substrate (matter with pressure, temperature, phase, gravity, momentum + chemistry). "Volcano",
+  "eruption", "lava bomb", "geyser", "avalanche", "weather", "storm", "ecosystem" are just *words humans put
+  on what the physics does* — they are NOT systems anyone writes. A lava bomb is not "bomb code": it's a chunk
+  of matter given momentum because pressure exceeded the rock confining it (the SAME rule that throws debris
+  from any pressure release → geysers/steam blasts for free). When you meet a named-phenomenon system (a
+  `*Volcano.gd`, an `_is_erupting()`, a burst timer, a `BOMBS_PER_BURST`), the move is NOT to make its
+  constants scale — it is to ask *"what universal rule (pressure/temp/phase/momentum/gravity/reaction) makes
+  this HAPPEN?"*, push that rule into the substrate, and **delete the special-case system.** Disaster actors
+  are SEEDS / markers / visuals only. **Success is measured in special-case code DELETED, not features added.**
 - **Behavior must emerge from simple local rules interacting — never from hardcoded, scripted, or
   centrally-directed per-case logic.** Prefer a general rule that many agents evaluate locally over a
   special case for a specific pair, species, or scenario.

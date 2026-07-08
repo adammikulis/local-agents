@@ -5,6 +5,23 @@ interacting** — not from scripted, hardcoded, or centrally-directed cases. Whe
 prefer a general rule that many agents evaluate locally over a special case for a specific pair,
 species, or scenario.
 
+## THE CORE — named phenomena have zero dedicated code (dissolve, don't patch)
+
+There is ONE physical substrate: matter with pressure, temperature, phase, gravity, momentum (+ chemistry).
+**"Volcano", "eruption", "lava bomb", "geyser", "avalanche", "weather", "storm" are just words for what the
+physics does — none of them is a system anyone writes.** The test of every feature is: *would this happen on
+its own from the universal rules?* If it needs its own `*Volcano.gd`, `_is_erupting()`, burst timer, or a
+`BOMBS_PER_BURST` constant, that's a scripted special-case to **dissolve into the substrate**, not to patch.
+
+- **Worked example — ballistic ejecta.** A lava bomb is not "bomb code." It's a chunk of matter given
+  momentum because **pressure exceeded the rock confining it.** That one primitive (pressure → momentum on
+  matter, where hot pressurized fluid meets a weak/thin cap) lives in the substrate and produces volcanic
+  bombs, geysers, and steam blasts alike. A "volcano" is simply the name for what happens when the planet's
+  hot core pressurizes lava under weak crust. The right change is to **delete** the eruption/bomb logic and
+  let it emerge — never to make its magic numbers scale.
+- **The measure of success is special-case code DELETED, not features added.** Disaster "actors" are seeds /
+  markers / visuals only — they inject a source or read back an emergent result; they own no behavior.
+
 ## What this means in practice
 
 - **No hardcoded relationships.** Predator/prey, fear, and flocking are driven by *properties*

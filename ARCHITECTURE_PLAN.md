@@ -7,6 +7,12 @@ API/schema changes here before merge.
 Canonical process rules live in `AGENTS.md` and `GODOT_BEST_PRACTICES.md`. The native voxel
 target model and migration intent are detailed in `NATIVE_SIM_UNIFICATION_PLAN.md`.
 
+**North-star (see CLAUDE.md + EMERGENCE.md): named phenomena have ZERO dedicated code.** One physical
+substrate (matter + pressure/temp/phase/gravity/momentum + chemistry); "volcano/eruption/storm/lava-bomb/
+geyser" are outcomes of the universal rules, not systems. Architecture direction: **dissolve** any
+named-phenomenon system (a `*Volcano.gd`, an `_is_erupting()`, a burst timer) into the substrate and DELETE
+it — disaster actors are seeds/markers/visuals only. Success = special-case code removed, not added.
+
 ## Operating Rules
 
 - Use concern-based workstreams; keep diffs small and reviewable.

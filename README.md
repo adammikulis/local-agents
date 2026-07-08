@@ -36,8 +36,11 @@ believable behavior *emerges* from simple local rules (see
   into tornadoes/hurricanes; lightning where charge builds in convective updrafts and bolts to ground
   (igniting real wildfire); earthquakes as a propagating shock wave; plus meteors, floods, erosion
   (canyons/deltas), snow/ice, and dust storms. Wildfire spreads to flammable neighbours downwind and is
-  broken by rivers / suppressed by rain. The disaster actors have shrunk to visuals that seed a source
-  and read back the emergent feature.
+  broken by rivers / suppressed by rain. **Named phenomena have no dedicated code** — "volcano", "eruption",
+  "storm", "lava bomb" are just words for what the one substrate's physics (pressure, temperature, phase,
+  gravity, momentum) does; a volcano is what happens when the planet's hot core pressurizes lava under weak
+  crust, and a lava bomb is matter given momentum by a pressure release. Disaster "actors" are seeds / markers
+  / visuals only — they own no behavior; the direction is to dissolve them into the substrate entirely.
 - **Interaction:** spawn palette (icon buttons → click-to-place), click-to-select + inspector, fly
   camera, debug overlays, day/night cycle, weather (wind/rain), procedural audio.
 
