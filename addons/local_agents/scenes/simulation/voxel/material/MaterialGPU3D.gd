@@ -384,6 +384,49 @@ func back_buffer(name: String, parity: int) -> RID:
 	return pair[1] if parity == 0 else pair[0]
 
 
+# ── Data tables that drive buffer alloc/free (the repetitive part). Ping-pong FIELDS get an _a + _b pair and
+# an entry in _fields (for live/back lookup); SINGLE buffers get one. Each is tagged with its size class:
+# "cell" = per-cell volume, "col" = per-column area, "scent" = SCENT_CHANNELS planes, "send" = 6-way per-cell.
+# Adding a resident channel = ONE row here (+ its `var _buf_…: RID` decl + kernel/uniform-set wiring below).
+const _PAIR_FIELDS: Dictionary = {
+	"temp": "cell", "water": "cell", "vapor": "cell", "cloud": "cell", "fog": "cell",
+	"lava": "cell", "sediment": "cell", "fire": "cell", "dust": "cell", "o2": "cell",
+	"co2": "cell", "shock": "cell", "scent": "scent", "fert": "col", "fungus": "cell",
+}
+const _SINGLE_BUFS: Dictionary = {
+	"_buf_fuel": "cell", "_buf_charge": "cell", "_buf_dust_outscale": "cell", "_buf_detritus": "cell",
+	"_buf_fungus_fert": "cell", "_buf_solid": "cell", "_buf_static": "cell", "_buf_vel_x": "cell",
+	"_buf_vel_y": "cell", "_buf_vel_z": "cell", "_buf_pressure": "cell", "_buf_send": "send",
+	"_buf_rain": "cell", "_buf_boil": "cell", "_buf_surf_vx": "col", "_buf_surf_vz": "col",
+}
+# Every per-parity uniform set, for the free/reset loop in _free_buffers (built explicitly below — the
+# bindings are genuinely per-kernel, so only the tear-down is table-driven).
+const _SET_MEMBERS: Array = [
+	"_heat_set", "_solar_set", "_buoy_set", "_cool_set", "_water_set",
+	"_evap_set", "_transport_vapor_set", "_transport_cloud_set", "_transport_fog_set",
+	"_condense_set", "_rain_set", "_lava_flow_set", "_lava_phase_set", "_slump_flow_set", "_fire_set",
+	"_wind_pressure_set", "_wind_step_set", "_charge_set", "_dust_loft_set", "_dust_outscale_set",
+	"_dust_transport_set", "_o2_transport_set", "_co2_transport_set", "_gas_sky_set",
+	"_shock_set", "_scent_wind_set", "_scent_transport_set", "_scent_fert_set",
+	"_fungus_set", "_fungus_fert_set",
+]
+
+
+# Zero-filled byte buffer for `n` float32s (PackedFloat32Array.resize zero-fills).
+func _zero_bytes(n: int) -> PackedByteArray:
+	var f: PackedFloat32Array = PackedFloat32Array()
+	f.resize(n)
+	return f.to_byte_array()
+
+
+# Free (if valid) + null out one resident SSBO by member name.
+func _free_buf(mname: String) -> void:
+	var b: RID = get(mname)
+	if b.is_valid():
+		_rd.free_rid(b)
+	set(mname, RID())
+
+
 ## (Re)allocate the persistent SSBOs + the two ping-pong uniform sets per kernel when the volume size
 ## changes. Idempotent for a fixed size (does NOT recreate buffers on repeat calls — the whole point).
 func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
@@ -401,86 +444,25 @@ func _ensure_buffers(dim_x: int, dim_y: int, dim_z: int) -> void:
 	_dim_y = dim_y
 	_dim_z = dim_z
 
-	var zero: PackedFloat32Array = PackedFloat32Array()
-	zero.resize(cell_count)
-	var zbytes: PackedByteArray = zero.to_byte_array()
-	_buf_temp_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_temp_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_water_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_water_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_vapor_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_vapor_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_cloud_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_cloud_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_fog_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_fog_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_lava_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_lava_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_sediment_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_sediment_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_fire_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_fire_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_fuel = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_o2_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_o2_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_co2_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_co2_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_charge = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_dust_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_dust_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_dust_outscale = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	# Emergent shock + fungus/detritus — per-cell (cell_count) resident buffers.
-	_buf_shock_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_shock_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_detritus = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_fungus_a = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_fungus_b = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_fungus_fert = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	# Emergent scent — per-COLUMN (area = dim_x*dim_z). scent packs SCENT_CHANNELS planes; fert + surf are one plane.
+	# Allocate every resident SSBO from the data tables (_PAIR_FIELDS / _SINGLE_BUFS). Ping-pong fields get an
+	# _a + _b pair (also recorded in _fields for live/back lookup); singles get one buffer. Sized per class.
 	var area: int = dim_x * dim_z
-	var col_zero: PackedFloat32Array = PackedFloat32Array()
-	col_zero.resize(area)
-	var col_bytes: PackedByteArray = col_zero.to_byte_array()
-	var scent_zero: PackedFloat32Array = PackedFloat32Array()
-	scent_zero.resize(SCENT_CHANNELS * area)
-	var scent_bytes: PackedByteArray = scent_zero.to_byte_array()
-	_buf_scent_a = _rd.storage_buffer_create(scent_bytes.size(), scent_bytes)
-	_buf_scent_b = _rd.storage_buffer_create(scent_bytes.size(), scent_bytes)
-	_buf_fert_a = _rd.storage_buffer_create(col_bytes.size(), col_bytes)
-	_buf_fert_b = _rd.storage_buffer_create(col_bytes.size(), col_bytes)
-	_buf_surf_vx = _rd.storage_buffer_create(col_bytes.size(), col_bytes)
-	_buf_surf_vz = _rd.storage_buffer_create(col_bytes.size(), col_bytes)
-	_buf_solid = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_static = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_vel_x = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_vel_y = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_vel_z = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_pressure = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	var send_zero: PackedFloat32Array = PackedFloat32Array()
-	send_zero.resize(cell_count * 6)
-	var send_bytes: PackedByteArray = send_zero.to_byte_array()
-	_buf_send = _rd.storage_buffer_create(send_bytes.size(), send_bytes)
-	_buf_rain = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_buf_boil = _rd.storage_buffer_create(zbytes.size(), zbytes)
-	_static_uploaded = false
-
-	_fields = {
-		"temp": [_buf_temp_a, _buf_temp_b],
-		"water": [_buf_water_a, _buf_water_b],
-		"vapor": [_buf_vapor_a, _buf_vapor_b],
-		"cloud": [_buf_cloud_a, _buf_cloud_b],
-		"fog": [_buf_fog_a, _buf_fog_b],
-		"lava": [_buf_lava_a, _buf_lava_b],
-		"sediment": [_buf_sediment_a, _buf_sediment_b],
-		"fire": [_buf_fire_a, _buf_fire_b],
-		"dust": [_buf_dust_a, _buf_dust_b],
-		"o2": [_buf_o2_a, _buf_o2_b],
-		"co2": [_buf_co2_a, _buf_co2_b],
-		"shock": [_buf_shock_a, _buf_shock_b],
-		"scent": [_buf_scent_a, _buf_scent_b],
-		"fert": [_buf_fert_a, _buf_fert_b],
-		"fungus": [_buf_fungus_a, _buf_fungus_b],
+	var sizes: Dictionary = {
+		"cell": _zero_bytes(cell_count), "col": _zero_bytes(area),
+		"scent": _zero_bytes(SCENT_CHANNELS * area), "send": _zero_bytes(cell_count * 6),
 	}
+	_fields = {}
+	for fname in _PAIR_FIELDS:
+		var kb: PackedByteArray = sizes[_PAIR_FIELDS[fname]]
+		var a: RID = _rd.storage_buffer_create(kb.size(), kb)
+		var b: RID = _rd.storage_buffer_create(kb.size(), kb)
+		set("_buf_" + fname + "_a", a)
+		set("_buf_" + fname + "_b", b)
+		_fields[fname] = [a, b]
+	for bname in _SINGLE_BUFS:
+		var sb: PackedByteArray = sizes[_SINGLE_BUFS[bname]]
+		set(bname, _rd.storage_buffer_create(sb.size(), sb))
+	_static_uploaded = false
 
 	# Build the per-parity uniform sets. p=0: live=*_a, back=*_b. p=1: live=*_b, back=*_a.
 	for p in [0, 1]:
@@ -681,73 +663,19 @@ func _shader_of(pipeline: RID) -> RID:
 func _free_buffers() -> void:
 	if _rd == null:
 		return
-	for arr in [_heat_set, _solar_set, _buoy_set, _cool_set, _water_set,
-			_evap_set, _transport_vapor_set, _transport_cloud_set, _transport_fog_set,
-			_condense_set, _rain_set, _lava_flow_set, _lava_phase_set, _slump_flow_set, _fire_set,
-			_wind_pressure_set, _wind_step_set, _charge_set, _dust_loft_set, _dust_outscale_set,
-			_dust_transport_set, _o2_transport_set, _co2_transport_set, _gas_sky_set,
-			_shock_set, _scent_wind_set, _scent_transport_set, _scent_fert_set,
-			_fungus_set, _fungus_fert_set]:
-		for s in arr:
+	# Free + reset every per-parity uniform set (see _SET_MEMBERS).
+	for sname in _SET_MEMBERS:
+		for s in get(sname):
 			if s.is_valid():
 				_rd.free_rid(s)
-	_heat_set = [RID(), RID()]
-	_solar_set = [RID(), RID()]
-	_buoy_set = [RID(), RID()]
-	_cool_set = [RID(), RID()]
-	_water_set = [RID(), RID()]
-	_evap_set = [RID(), RID()]
-	_transport_vapor_set = [RID(), RID()]
-	_transport_cloud_set = [RID(), RID()]
-	_transport_fog_set = [RID(), RID()]
-	_condense_set = [RID(), RID()]
-	_rain_set = [RID(), RID()]
-	_lava_flow_set = [RID(), RID()]
-	_lava_phase_set = [RID(), RID()]
-	_slump_flow_set = [RID(), RID()]
-	_fire_set = [RID(), RID()]
-	_wind_pressure_set = [RID(), RID()]
-	_wind_step_set = [RID(), RID()]
-	_charge_set = [RID(), RID()]
-	_dust_loft_set = [RID(), RID()]
-	_dust_outscale_set = [RID(), RID()]
-	_dust_transport_set = [RID(), RID()]
-	_o2_transport_set = [RID(), RID()]
-	_co2_transport_set = [RID(), RID()]
-	_gas_sky_set = [RID(), RID()]
-	_shock_set = [RID(), RID()]
-	_scent_wind_set = [RID(), RID()]
-	_scent_transport_set = [RID(), RID()]
-	_scent_fert_set = [RID(), RID()]
-	_fungus_set = [RID(), RID()]
-	_fungus_fert_set = [RID(), RID()]
-	for buf in [_buf_temp_a, _buf_temp_b, _buf_water_a, _buf_water_b,
-			_buf_vapor_a, _buf_vapor_b, _buf_cloud_a, _buf_cloud_b,
-			_buf_fog_a, _buf_fog_b, _buf_lava_a, _buf_lava_b,
-			_buf_vel_x, _buf_vel_y, _buf_vel_z, _buf_pressure, _buf_sediment_a, _buf_sediment_b,
-			_buf_fire_a, _buf_fire_b, _buf_fuel, _buf_o2_a, _buf_o2_b, _buf_co2_a, _buf_co2_b,
-			_buf_charge, _buf_dust_a, _buf_dust_b, _buf_dust_outscale,
-			_buf_shock_a, _buf_shock_b, _buf_detritus, _buf_fungus_a, _buf_fungus_b, _buf_fungus_fert,
-			_buf_scent_a, _buf_scent_b, _buf_fert_a, _buf_fert_b, _buf_surf_vx, _buf_surf_vz,
-			_buf_solid, _buf_static, _buf_send, _buf_rain, _buf_boil]:
-		if buf.is_valid():
-			_rd.free_rid(buf)
-	_buf_temp_a = RID(); _buf_temp_b = RID()
-	_buf_water_a = RID(); _buf_water_b = RID()
-	_buf_vapor_a = RID(); _buf_vapor_b = RID()
-	_buf_cloud_a = RID(); _buf_cloud_b = RID()
-	_buf_fog_a = RID(); _buf_fog_b = RID()
-	_buf_lava_a = RID(); _buf_lava_b = RID()
-	_buf_sediment_a = RID(); _buf_sediment_b = RID()
-	_buf_fire_a = RID(); _buf_fire_b = RID(); _buf_fuel = RID()
-	_buf_o2_a = RID(); _buf_o2_b = RID(); _buf_co2_a = RID(); _buf_co2_b = RID()
-	_buf_charge = RID(); _buf_dust_a = RID(); _buf_dust_b = RID(); _buf_dust_outscale = RID()
-	_buf_solid = RID(); _buf_static = RID(); _buf_send = RID(); _buf_rain = RID(); _buf_boil = RID()
-	_buf_vel_x = RID(); _buf_vel_y = RID(); _buf_vel_z = RID(); _buf_pressure = RID()
-	_buf_shock_a = RID(); _buf_shock_b = RID()
-	_buf_detritus = RID(); _buf_fungus_a = RID(); _buf_fungus_b = RID(); _buf_fungus_fert = RID()
-	_buf_scent_a = RID(); _buf_scent_b = RID(); _buf_fert_a = RID(); _buf_fert_b = RID()
-	_buf_surf_vx = RID(); _buf_surf_vz = RID()
+		var blank: Array[RID] = [RID(), RID()]
+		set(sname, blank)
+	# Free + reset every resident SSBO — both ping-pong pairs and singles (_PAIR_FIELDS / _SINGLE_BUFS).
+	for fname in _PAIR_FIELDS:
+		_free_buf("_buf_" + fname + "_a")
+		_free_buf("_buf_" + fname + "_b")
+	for bname in _SINGLE_BUFS:
+		_free_buf(bname)
 	_fields = {}
 	_cell_count = 0
 	_static_uploaded = false
