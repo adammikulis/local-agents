@@ -67,6 +67,14 @@ const ASH_DETRITUS: float = 0.4         # detritus deposited at a cell the momen
 
 const SCAN_EVERY: int = 4               # cadence (steps) for the actor fuel/consume + ash-regrowth scan
 const REGROW_PER_SCAN: int = 3          # ash cells asked to regrow per scan (budgeted; regrowth is slow)
+# Both scene-tail sweeps are ROTATING-CURSOR budgeted so the tail cost stays FLAT regardless of fire size.
+# Without a cap, _mark_ash swept the whole 127K grid every cadence, and _regrow_ash churned the whole grid
+# whenever it couldn't find REGROW_PER_SCAN cool ash cells (i.e. all through a wildfire, when every ash cell
+# is still hot) — that full-grid churn was the wildfire tail SPIKE. A bounded slice per call visits the grid
+# gradually instead; ash marking + regrowth are glacial, so a slower sweep is imperceptible and behaviour is
+# unchanged (every burned-out cell is still eventually marked, every cooled ash cell still eventually regrows).
+const MARK_SCAN_BUDGET: int = 8192      # cells the ash-detector visits per _mark_ash call (rotating cursor)
+const REGROW_SCAN_BUDGET: int = 8192    # cells the regrowth cursor visits per _regrow_ash call (bounded sweep)
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 var _fire_scratch: PackedFloat32Array = PackedFloat32Array()  # fire double buffer (reads neighbours, writes out)
@@ -76,6 +84,7 @@ var _seeded: bool = false
 var _scan_tick: int = 0
 var _active_last: int = 0                                # diagnostic: burning cells after the last step
 var _ash_cursor: int = 0                                 # rotating cursor for budgeted ash regrowth
+var _mark_cursor: int = 0                                # rotating cursor for budgeted GPU-path ash marking
 
 
 func setup(field) -> void:
@@ -210,7 +219,9 @@ func step_scene_only() -> void:
 		_ash.resize(_f._cell_count)
 	if _had_fuel.size() != _f._cell_count:
 		_had_fuel.resize(_f._cell_count)
-	_active_last = active_fire_count()
+	# NB: we deliberately DON'T run active_fire_count() (a full-grid burning-cell scan) here every frame — it
+	# dominated the calm-frame tail cost while nothing in this tail reads _active_last. The SMOKE_SUMMARY/HUD
+	# 'fires' diagnostic calls active_fire_count() directly (SimReportSources / StreamerDirector) when it needs it.
 	_scan_tick += 1
 	if _scan_tick >= SCAN_EVERY:
 		_scan_tick = 0
@@ -227,7 +238,15 @@ func _mark_ash() -> void:
 	var fuel: PackedFloat32Array = _f._fuel
 	var fire: PackedFloat32Array = _f._fire
 	var solid: PackedByteArray = _f._solid
-	for i in range(_f._cell_count):
+	var n: int = _f._cell_count
+	var budget: int = mini(MARK_SCAN_BUDGET, n)     # bounded slice per call (rotating cursor) → flat tail cost
+	var visited: int = 0
+	while visited < budget:
+		var i: int = _mark_cursor
+		_mark_cursor += 1
+		if _mark_cursor >= n:
+			_mark_cursor = 0
+		visited += 1
 		if _had_fuel[i] == 0 or solid[i] != 0:
 			continue
 		if fuel[i] <= FUEL_MIN and fire[i] <= FIRE_MIN:
@@ -383,7 +402,11 @@ func _regrow_ash() -> void:
 	var layer: int = dx * dz
 	var regrown: int = 0
 	var scanned: int = 0
-	while scanned < _f._cell_count and regrown < REGROW_PER_SCAN:
+	# Bound the visit count: during a wildfire almost every ash cell is still hot/wet and rejected, so the old
+	# scan-until-REGROW_PER_SCAN-found loop swept the WHOLE grid each cadence (the wildfire tail spike). Cap it —
+	# the cursor just sweeps more gradually across calls; regrowth is glacial so the pacing is imperceptible.
+	var budget: int = mini(REGROW_SCAN_BUDGET, _f._cell_count)
+	while scanned < budget and regrown < REGROW_PER_SCAN:
 		var i: int = _ash_cursor
 		_ash_cursor += 1
 		if _ash_cursor >= _f._cell_count:

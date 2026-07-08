@@ -241,7 +241,15 @@ func _buoy_up(mass: float) -> float:
 ## UN-pressurized hot lava cell can never melt its roof (op≈0 → full MELT_TEMP needed) — only a genuinely
 ## PRESSURIZED column does, so there is no runaway; a chamber cell pinned above MELT_TEMP bootstraps the first
 ## bore. On melt the roof cell opens, gains a lava yield, and inherits the carried heat, advancing the conduit
-## one cell toward the surface. Capped + cursor-rotated (like MaterialLava3D._melt); SDF carve is CPU-only.
+## one cell toward the surface. SDF carve is CPU-only.
+##
+## PERF: overpressure buoys STRICTLY UP (Rule 2 only ever pushes into the cell ABOVE, and lava is injected only
+## at the registered chamber cell), so the ONLY cells that can ever satisfy the melt condition are the SOLID
+## roof cells directly above each source's vertical conduit tip. So instead of scanning the whole ~127K-cell
+## grid every call (the old full-sweep cursor cost ~13.7 ms even at rest), we walk each source column to its
+## growing frontier — O(sources × conduit-height), a handful of cells — and bore only there. This visits the
+## exact same cells the full scan would have found (no off-column cell is ever overpressured), so the emergent
+## bore/eruption is unchanged; it is just found directly instead of searched for.
 func _pressure_melt() -> void:
 	var lava: PackedFloat32Array = _f._lava
 	var temp: PackedFloat32Array = _f._temp
@@ -249,26 +257,36 @@ func _pressure_melt() -> void:
 	var solid: PackedByteArray = _f._solid
 	var dx: int = _f._dim_x
 	var dz: int = _f._dim_z
+	var dy: int = _f._dim_y
 	var layer: int = dx * dz
 	var can_carve: bool = _f._terrain != null and _f._terrain.has_method("carve_sphere")
-	var edits: int = 0
-	var scanned: int = 0
 	var opened_any: bool = false
-	while scanned < _f._cell_count and edits < MELT_MAX_EDITS:
-		var i: int = _melt_cursor
-		_melt_cursor += 1
-		if _melt_cursor >= _f._cell_count:
-			_melt_cursor = 0
-		scanned += 1
+	var edits: int = 0
+	for s in _sources:
+		if edits >= MELT_MAX_EDITS:
+			break
+		var base: int = int(s["cell"])
+		if solid[base] != 0:
+			continue                                     # chamber not open yet (lava CA _melt will reopen it)
+		# Climb the OPEN conduit from the chamber to its tip (topmost open cell in this column).
+		var tip: int = base
+		while true:
+			if tip / layer >= dy - 1:
+				break                                    # tip is at the ceiling — no roof cell above
+			var up: int = tip + layer
+			if solid[up] != 0:
+				break                                    # hit the solid roof / re-solidified cap
+			tip = up
+		if tip / layer >= dy - 1:
+			continue                                     # conduit already reached the top layer
+		var ib: int = tip                                # the OPEN, lava-bearing cell directly BELOW the roof
+		var i: int = tip + layer                         # the SOLID roof cell to bore
 		if solid[i] == 0:
-			continue                                     # only SOLID rock is bored
+			continue                                     # already open (broken through / venting)
 		if water[i] > WET_MAX:
 			continue                                     # steam-quenched — no melting where it's wet
-		if i < layer:
-			continue                                     # no cell below (bottom layer)
-		var ib: int = i - layer                          # the cell directly BELOW
-		if solid[ib] != 0 or lava[ib] < LAVA_MIN:
-			continue                                     # below must be OPEN and hold lava
+		if lava[ib] < LAVA_MIN:
+			continue                                     # tip holds no lava to push up
 		var op_below: float = maxf(0.0, lava[ib] - MAX_MASS)
 		var threshold: float = maxf(MELT_THRESHOLD_FLOOR, MELT_TEMP - K_MELT_P * op_below)
 		if temp[ib] < threshold:
@@ -309,14 +327,28 @@ func magma_cells() -> int:
 	return _magma_cells_last
 
 
+## Overpressured lava (mass > MAX_MASS) lives ONLY in the fed chamber + its buoyed vertical conduit (Rule 2
+## pushes strictly up, lava is injected only at the chamber), so count along each source's OPEN column instead
+## of scanning the whole grid — the same cheap frontier walk _pressure_melt uses. O(sources × conduit-height).
 func _count_magma() -> int:
 	if _f == null:
 		return 0
 	var lava: PackedFloat32Array = _f._lava
+	var solid: PackedByteArray = _f._solid
+	var layer: int = _f._dim_x * _f._dim_z
+	var dy: int = _f._dim_y
 	var n: int = 0
-	for i in range(_f._cell_count):
-		if lava[i] > MAX_MASS + MIN_OP:
-			n += 1
+	for s in _sources:
+		var c: int = int(s["cell"])
+		while true:
+			if solid[c] == 0 and lava[c] > MAX_MASS + MIN_OP:
+				n += 1
+			if c / layer >= dy - 1:
+				break
+			var up: int = c + layer
+			if solid[up] != 0:
+				break                                    # top of the OPEN column (solid cap / roof)
+			c = up
 	return n
 
 

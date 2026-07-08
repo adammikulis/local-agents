@@ -54,6 +54,13 @@ var _f = null                                            # back-reference to the
 var _bolts_total: int = 0                                # running total of bolts fired (diagnostic)
 var _col_cursor: int = 0                                 # rotating column start so strikes aren't corner-biased
 
+# Per-column dielectric load (summed charge). Filled by ONE cache-friendly linear pass over `_charge` each
+# frame, then the firing loop just reads it — no per-column re-scan of the strided grid. Persistent so it's
+# allocated once, not per frame (resized only if the grid dims change). We don't track a per-column peak cell:
+# the old `top_iy >= 0` guard was redundant (a column can only reach BREAKDOWN_Q, which is > 0, if it holds a
+# charged open cell), and the strike lands on the ground below the column, not on the aerial peak cell.
+var _col_sum: PackedFloat32Array = PackedFloat32Array()   # summed charge per column (dielectric load)
+
 ## The field sets this so the main thread can wire the VISUAL/audio bolt (VoxelDisasters.spawn_lightning).
 ## Called with the strike world-position on each breakdown; all PHYSICS already happened here in the field.
 var on_bolt: Callable = Callable()
@@ -128,8 +135,36 @@ func _accumulate() -> void:
 ## Scan every column (from a rotating cursor so strikes aren't biased to one corner); where a column's summed
 ## charge exceeds BREAKDOWN_Q, fire a bolt from its most-charged cell to the tallest ground below it, inject
 ## the heat burst + scare, request the visual bolt, then reset that column's charge. Caps bolts per step.
+##
+## PERF: the reduction is done as ONE forward linear pass over `_charge` (cache-friendly, local packed-array
+## reads instead of ~cell_count dynamic `_f._charge[i]` property lookups) that skips solid + zero-charge cells
+## — the common no-breakdown frame only touches the handful of cells the storm has actually charged, not the
+## whole strided grid. The firing loop then reads the per-column reduction; behavior is unchanged (same order
+## from the rotating cursor, same threshold, same tie-break origin, same cap).
 func _discharge_columns(dx: int, dy: int, dz: int, solid: PackedByteArray) -> void:
 	var cols: int = dx * dz
+	if cols <= 0:
+		return
+
+	# --- Pass 1: per-column reduction in a single sequential sweep -------------------------------------
+	# Index layout is i = (iy*dz+iz)*dx+ix, so for the natural i-order the column index is (i % cols) and the
+	# layer is (i / cols) — tracked with running counters (no modulo/division per cell). Zero-charge cells are
+	# skipped, so a calm grid costs one cheap read+branch per cell and nothing more (near-free).
+	if _col_sum.size() != cols:
+		_col_sum.resize(cols)
+	_col_sum.fill(0.0)
+	var charge: PackedFloat32Array = _f._charge
+	var base: int = 0                                        # i of the first cell in layer iy (== iy * cols)
+	for iy in range(dy):
+		for c in range(cols):
+			var i: int = base + c
+			if solid[i] == 0:
+				var qc: float = charge[i]
+				if qc > 0.0:
+					_col_sum[c] += qc
+		base += cols
+
+	# --- Pass 2: fire from the rotating cursor over the reduced columns --------------------------------
 	var fired: int = 0
 	var scanned: int = 0
 	while scanned < cols and fired < MAX_BOLTS_PER_STEP:
@@ -138,24 +173,12 @@ func _discharge_columns(dx: int, dy: int, dz: int, solid: PackedByteArray) -> vo
 		if _col_cursor >= cols:
 			_col_cursor = 0
 		scanned += 1
+
+		# Early-out: most columns never break down — one branch on the precomputed load skips them.
+		if _col_sum[c] < BREAKDOWN_Q:
+			continue
 		var ix: int = c % dx
 		var iz: int = c / dx
-
-		# Column reduction: total charge + the most-charged open cell (the bolt's aerial origin).
-		var col_q: float = 0.0
-		var top_iy: int = -1
-		var top_q: float = 0.0
-		for iy in range(dy):
-			var i: int = (iy * dz + iz) * dx + ix
-			if solid[i] != 0:
-				continue
-			var q: float = _f._charge[i]
-			col_q += q
-			if q > top_q:
-				top_q = q
-				top_iy = iy
-		if col_q < BREAKDOWN_Q or top_iy < 0:
-			continue
 
 		# Bolt lands on the tallest ground below this column; strike the surface AIR cell just above it (where
 		# combustion seeds vegetation fuel) so the heat burst lights it the same emergent way lava/meteor heat does.
