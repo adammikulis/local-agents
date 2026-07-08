@@ -160,6 +160,29 @@ func set_raining(v: bool) -> void:
 	_ctx["raining"] = 1 if v else 0
 
 
+## Free every RID this driver owns, THEN the local RenderingDevice — must run BEFORE engine shutdown
+## (freeing a local RD during NSApplication terminate trips a recursive_mutex crash under windowed metal).
+## Each pass releases its own pipelines/shaders/sets/scratch first so the device frees with no leaked RIDs.
+func dispose() -> void:
+	if _rd == null:
+		return
+	for p in _passes:
+		if p != null and p.has_method("dispose"):
+			p.dispose(_rd)
+	_passes = []
+	for k in _bufs:
+		var b = _bufs[k]
+		if b is Array:
+			for r in b:
+				if r is RID and r.is_valid():
+					_rd.free_rid(r)
+		elif b is RID and b.is_valid():
+			_rd.free_rid(b)
+	_bufs = {}
+	_rd.free()
+	_rd = null
+
+
 # --- helpers ------------------------------------------------------------------
 
 func _live(name: String) -> RID:

@@ -646,6 +646,13 @@ func _sample_solidity_sphere() -> void:
 	for c in _cell_count:
 		_solid[c] = 1 if _terrain.is_solid(cell_world_pos_linear(c)) else 0
 
+## Release the GPU driver's local RenderingDevice while the tree is still up — deferring it to engine
+## shutdown crashes (recursive_mutex under windowed metal). Covers both the box and sphere drivers.
+func _exit_tree() -> void:
+	if _gpu != null and _gpu.has_method("dispose"):
+		_gpu.dispose()
+
+
 ## Cubed-sphere per-frame step (Phase B MVP): activate the sphere GPU driver once, then run the fixed-step
 ## begin_frame/step/end_frame loop over the *_sphere3d kernels and scatter temp/water back. No box CPU tails.
 func _sphere_process(delta: float) -> void:
