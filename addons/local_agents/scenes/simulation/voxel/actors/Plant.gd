@@ -61,7 +61,26 @@ func setup(_terrain, _config: Dictionary) -> void:
 	_build_body()
 	add_to_group(GROUP_SELECTABLE)
 	add_to_group(GROUP_PLANT)
+	_orient_to_ground()
 	_apply_growth()
+
+
+## Stand radially and sit on the solid surface. On the flat island the ecology service already places
+## the plant on the ground with +Y up, so this is a planet-only step: snap onto the surface along our
+## radial ray and align local +Y to the radial "up" (the flat surface_height path returns NAN on a planet).
+func _orient_to_ground() -> void:
+	if terrain == null or not (terrain.has_method("is_planet") and terrain.is_planet()):
+		return
+	var center: Vector3 = terrain.planet_center()
+	var up: Vector3 = (global_position - center).normalized()
+	var surf: Vector3 = terrain.surface_point(up)         # world point on the solid surface along our ray
+	if not is_nan(surf.x):
+		global_position = surf
+	# Build a radial basis: local +Y = up, with an arbitrary (stable) tangent frame.
+	var ref: Vector3 = Vector3.FORWARD if absf(up.dot(Vector3.FORWARD)) < 0.9 else Vector3.RIGHT
+	var right: Vector3 = up.cross(ref).normalized()
+	var fwd: Vector3 = right.cross(up).normalized()
+	global_transform.basis = Basis(right, up, fwd)
 
 
 func _build_body() -> void:

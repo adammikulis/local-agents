@@ -154,6 +154,13 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 	terrain.mesher = mesher
 	terrain.generator = gen
 	terrain.material = _make_material()
+	# Tell the triplanar shader to band climate RADIALLY (snow/beach/slope keyed off height above the sea
+	# shell + radial up) instead of by world-Y — else all the "snow" piles at the +Y pole.
+	if terrain.material is ShaderMaterial:
+		var tm: ShaderMaterial = terrain.material
+		tm.set_shader_parameter("planet_enabled", 1.0)
+		tm.set_shader_parameter("planet_center", _center)
+		tm.set_shader_parameter("planet_sea_radius", _sea_radius)
 	terrain.lod_count = int(opts.get("lod_count", 5))
 	terrain.lod_distance = float(opts.get("lod_distance", 56.0))
 	terrain.view_distance = int(opts.get("view_distance", 2000))

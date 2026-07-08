@@ -10,6 +10,15 @@ render_mode cull_back, diffuse_burley, specular_schlick_ggx;
 uniform float sea_level = 0.0;
 uniform float snow_height = 90.0;
 
+// --- Spherical planet mode -------------------------------------------------------------------
+// On a sphere, climate must band by RADIAL height-above-sea, not world-Y (else all "snow" piles
+// at the +Y pole). When planet_enabled > 0.5, altitude = length(world_pos - planet_center) -
+// planet_sea_radius, and "up" is the radial direction normalize(world_pos - planet_center).
+// When planet_enabled <= 0.5, behavior is EXACTLY the old flat (world-Y) banding.
+uniform vec3 planet_center = vec3(0.0);
+uniform float planet_sea_radius = 0.0;
+uniform float planet_enabled = 0.0;
+
 uniform vec3 sand_color : source_color = vec3(0.76, 0.70, 0.50);
 uniform vec3 grass_color : source_color = vec3(0.33, 0.44, 0.22);
 uniform vec3 grass_dark : source_color = vec3(0.22, 0.32, 0.15);
@@ -76,7 +85,23 @@ float vnoise(vec3 x) {
 void fragment() {
 	vec3 wp = v_world_pos;
 	vec3 wn = normalize(v_world_normal);
-	float slope = 1.0 - clamp(wn.y, 0.0, 1.0); // 0 flat, 1 vertical
+
+	// Climate basis. Flat world: "up" is +Y and "altitude" is world-Y. Planet: "up" is the radial
+	// outward direction and "altitude" is radial height above the sea-level sphere. Everything that
+	// used to key off world-Y-vs-sea for climate banding keys off `altitude` instead, and slope tests
+	// key off `up_dir`, so bands are correct all over a sphere (beaches at the coast everywhere, snow
+	// on high peaks everywhere) rather than dumped at the pole.
+	vec3 up_dir = vec3(0.0, 1.0, 0.0);
+	float altitude = wp.y;
+	float lat_cold = 0.0; // 0 at equator, 1 at poles (planet mode only)
+	if (planet_enabled > 0.5) {
+		vec3 radial = wp - planet_center;
+		up_dir = normalize(radial);
+		altitude = length(radial) - planet_sea_radius;
+		lat_cold = abs(up_dir.y); // radial up aligns with +Y at the poles
+	}
+
+	float slope = 1.0 - clamp(dot(wn, up_dir), 0.0, 1.0); // 0 flat, 1 vertical
 
 	// Distance fade: micro detail (mottle + normal bump) only reads up close, so far
 	// terrain stays clean and doesn't shimmer/alias as LODs stream. Cheap perf win too.
@@ -93,8 +118,9 @@ void fragment() {
 	grass = mix(grass, grass * vec3(1.10, 1.06, 0.86), smoothstep(0.55, 0.85, macro) * 0.6);
 	grass = mix(grass, grass_dark * 0.9, smoothstep(0.45, 0.15, macro) * 0.4);
 
-	// Beach/sand near sea level, then grass above.
-	float beach = smoothstep(sea_level - 2.0, sea_level + 3.5, wp.y);
+	// Beach/sand near sea level, then grass above. `altitude` is world-Y (flat) or radial
+	// height-above-sea (planet), so the coastline sits at the right band all around a sphere.
+	float beach = smoothstep(sea_level - 2.0, sea_level + 3.5, altitude);
 	vec3 low = mix(sand_color, grass, beach);
 
 	// Rock takes over on steep faces, with cooler/warmer strata from the macro noise.
@@ -103,8 +129,11 @@ void fragment() {
 	rock = mix(rock, rock * vec3(1.06, 1.02, 0.96), macro);
 	vec3 col = mix(low, rock, rockf);
 
-	// Snow high up, but only on flatter ground.
-	float snowf = smoothstep(snow_height - 18.0, snow_height + 12.0, wp.y)
+	// Snow high up, but only on flatter ground. Uses radial `altitude` on a planet so peaks
+	// everywhere get snow (not just the pole). A mild latitude bias lowers the snow line toward
+	// the poles (colder) — subtle, planet-mode only (lat_cold is 0 in flat mode, so no change).
+	float snow_line = snow_height - 30.0 * lat_cold;
+	float snowf = smoothstep(snow_line - 18.0, snow_line + 12.0, altitude)
 		* (1.0 - smoothstep(0.5, 0.8, slope));
 	col = mix(col, snow_color, clamp(snowf, 0.0, 1.0));
 

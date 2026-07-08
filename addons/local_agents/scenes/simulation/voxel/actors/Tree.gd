@@ -215,14 +215,41 @@ func _build_collision() -> void:
 	add_child(shape)
 
 
+# Local "up" the tree stands along: radial on a planet, +Y on the flat island (safe both modes).
+func _up_axis() -> Vector3:
+	if terrain != null and terrain.has_method("up_at"):
+		var u: Vector3 = terrain.up_at(global_position)
+		if u.length() > 0.0001:
+			return u.normalized()
+	return Vector3.UP
+
+
 func _apply_resting_tilt() -> void:
 	# Store the upright orientation (with lean) so topple can rotate from it.
-	_upright_basis = Basis(Vector3.FORWARD, _tilt)
+	if terrain != null and terrain.has_method("is_planet") and terrain.is_planet():
+		# Stand radially: local +Y = radial up, then apply the small resting lean about a tangent axis.
+		var up: Vector3 = _up_axis()
+		var ref: Vector3 = Vector3.FORWARD if absf(up.dot(Vector3.FORWARD)) < 0.9 else Vector3.RIGHT
+		var right: Vector3 = up.cross(ref).normalized()
+		var fwd: Vector3 = right.cross(up).normalized()
+		_upright_basis = Basis(right, up, fwd).rotated(right, _tilt)
+	else:
+		_upright_basis = Basis(Vector3.FORWARD, _tilt)
 	transform.basis = _upright_basis
 
 
 func _snap_to_surface() -> void:
-	if terrain == null or not terrain.has_method("surface_height"):
+	if terrain == null:
+		return
+	# PLANET: snap onto the solid surface along our radial ray (the flat surface_height path is NAN here).
+	if terrain.has_method("is_planet") and terrain.is_planet():
+		var center: Vector3 = terrain.planet_center()
+		var dir: Vector3 = (global_position - center).normalized()
+		var surf: Vector3 = terrain.surface_point(dir)
+		if not is_nan(surf.x):
+			global_position = surf
+		return
+	if not terrain.has_method("surface_height"):
 		return
 	var y = terrain.surface_height(global_position.x, global_position.z)
 	if typeof(y) != TYPE_FLOAT and typeof(y) != TYPE_INT:
@@ -288,16 +315,19 @@ func topple(direction: Vector3) -> void:
 	if toppled:
 		return
 	toppled = true
-	# Rotate about the horizontal axis perpendicular to the fall direction.
-	var dir: Vector3 = Vector3(direction.x, 0.0, direction.z)
+	# Rotate about the tangent axis perpendicular to the fall direction. "Down" is along local up
+	# (radial on a planet, +Y on the flat island), so project the fall direction into the tangent plane.
+	var up: Vector3 = _up_axis()
+	var dir: Vector3 = direction - up * direction.dot(up)
 	if dir.length() < 0.001:
-		dir = Vector3(_rng.randf_range(-1.0, 1.0), 0.0, _rng.randf_range(-1.0, 1.0))
+		var r: Vector3 = Vector3(_rng.randf_range(-1.0, 1.0), _rng.randf_range(-1.0, 1.0), _rng.randf_range(-1.0, 1.0))
+		dir = r - up * r.dot(up)
 		if dir.length() < 0.001:
-			dir = Vector3.RIGHT
+			dir = up.cross(Vector3.RIGHT if absf(up.dot(Vector3.RIGHT)) < 0.9 else Vector3.FORWARD)
 	dir = dir.normalized()
 	# Axis is perpendicular to fall direction and to up, so the crown swings
 	# toward `direction`.
-	_topple_axis = Vector3.UP.cross(dir).normalized()
+	_topple_axis = up.cross(dir).normalized()
 	if _topple_axis.length() < 0.001:
 		_topple_axis = Vector3.RIGHT
 	_topple_t = 0.0

@@ -35,6 +35,16 @@ const PITCH_MIN: float = deg_to_rad(15.0) # shallowest downward tilt
 const PITCH_MAX: float = deg_to_rad(85.0) # steepest (near top-down) tilt
 const RAY_LENGTH: float = 4000.0
 
+# --- Orbit (planet) mode tunables --------------------------------------------
+# Parallel mode used when the world is a spherical planet: the rig sits on a sphere around the
+# planet centre (spherical coords: azimuth + elevation), looks at the centre, and scroll zooms the
+# orbit radius. Enabled by set_orbit_target(); the flat fly path below is left untouched.
+const ORBIT_DEFAULT_DISTANCE_MULT: float = 2.4   # start distance = planet_radius * this
+const ORBIT_MIN_DISTANCE_MULT: float = 1.05      # closest zoom — just above the surface
+const ORBIT_MAX_DISTANCE_MULT: float = 6.0       # farthest zoom — a few planet radii out
+# Clamp elevation shy of the poles so "up" stays world-up without a gimbal flip through the pole.
+const ORBIT_ELEVATION_LIMIT: float = deg_to_rad(85.0)
+
 # Reference distance the pan speeds are tuned against; panning scales with distance so the
 # world moves a consistent fraction of the screen at every zoom level.
 const PAN_REFERENCE_DISTANCE: float = 100.0
@@ -46,6 +56,18 @@ var _yaw: float = 0.0
 var _pitch: float = deg_to_rad(55.0)
 var _panning: bool = false
 var _orbiting: bool = false
+
+# --- Orbit (planet) mode state ------------------------------------------------
+# When _orbit_mode is true the rig ignores _focus/_yaw/_pitch and instead sits on a sphere of radius
+# `_distance` around `_orbit_center` (the planet centre), oriented by azimuth/elevation, looking in.
+# The flat fly state above is preserved untouched so toggling back is lossless.
+var _orbit_mode: bool = false
+var _orbit_center: Vector3 = Vector3.ZERO
+var _orbit_radius: float = 0.0            # planet radius (for zoom clamps)
+var _orbit_azimuth: float = 0.0           # rotation around the polar axis, radians
+var _orbit_elevation: float = deg_to_rad(20.0)  # latitude of the camera, radians (clamped off the poles)
+var _orbit_min_distance: float = 0.0
+var _orbit_max_distance: float = 0.0
 
 # --- Storm tracking -----------------------------------------------------------
 # Follow a live, moving Node3D (a wandering storm) so it stays framed. Each frame the focus eases
@@ -133,6 +155,13 @@ func frame_vista(center: Vector3) -> void:
 ## Frame a wide, high vista over `center` — a whole-island overview (dev/screenshot aid). `dist` lets a
 ## test pull all the way out to check horizon/ocean coverage at max zoom.
 func frame_overview(center: Vector3, dist: float = 360.0) -> void:
+	if _orbit_mode:
+		# In orbit mode this is a whole-planet framing request: recenter on the planet and set the
+		# orbit distance (clamped to the zoom range), keeping the current azimuth/elevation.
+		_orbit_center = center
+		_distance = clampf(dist, _orbit_min_distance, _orbit_max_distance)
+		_update_transform()
+		return
 	_focus = center + Vector3(0.0, 10.0, 0.0)
 	_distance = clampf(dist, MIN_DISTANCE, MAX_DISTANCE)
 	_yaw = deg_to_rad(35.0)
@@ -191,14 +220,62 @@ func focus_on(point: Vector3) -> void:
 	_update_transform()
 
 
+## Switch the rig into orbit (planet) mode around `center` at radius `radius`. Starts at a
+## whole-planet framing distance (radius * ORBIT_DEFAULT_DISTANCE_MULT) and clamps zoom from just
+## above the surface out to a few planet radii. Called by VoxelWorld once the planet is known.
+## The flat fly state is left intact, so this is a mode switch, not a teardown.
+func set_orbit_target(center: Vector3, radius: float) -> void:
+	_orbit_mode = true
+	_orbit_center = center
+	_orbit_radius = maxf(1.0, radius)
+	_orbit_min_distance = _orbit_radius * ORBIT_MIN_DISTANCE_MULT
+	_orbit_max_distance = _orbit_radius * ORBIT_MAX_DISTANCE_MULT
+	_distance = clampf(_orbit_radius * ORBIT_DEFAULT_DISTANCE_MULT, _orbit_min_distance, _orbit_max_distance)
+	_orbit_azimuth = 0.0
+	_orbit_elevation = deg_to_rad(20.0)
+	stop_tracking()          # storm-follow is a flat-world concept; drop it on entering orbit
+	_update_transform()
+
+
+## Leave orbit mode and return to the flat fly camera (kept for completeness / mode toggles).
+func clear_orbit_target() -> void:
+	_orbit_mode = false
+	_update_transform()
+
+
+## True while orbiting a planet centre.
+func is_orbit_mode() -> bool:
+	return _orbit_mode
+
+
 ## Rebuild the camera transform from the focus/distance/yaw/pitch state.
 func _update_transform() -> void:
+	if _orbit_mode:
+		_update_orbit_transform()
+		return
 	var b: Basis = Basis.from_euler(Vector3(-_pitch, _yaw, 0.0))
 	global_position = _focus + b * Vector3(0.0, 0.0, _distance)
 	look_at(_focus, Vector3.UP)
 	# Push the far plane out with zoom so the (now horizon-spanning) ocean isn't clipped when pulled
 	# way out; keep it modest when zoomed in to preserve depth precision up close.
 	far = clampf(_distance * 12.0, 4000.0, 20000.0)
+
+
+## Rebuild the transform for orbit (planet) mode: place the camera on a sphere of radius `_distance`
+## around `_orbit_center` at (azimuth, elevation) and look straight in. Elevation is clamped shy of
+## the poles so world-up never flips (no gimbal roll at the poles).
+func _update_orbit_transform() -> void:
+	_orbit_elevation = clampf(_orbit_elevation, -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
+	var ce: float = cos(_orbit_elevation)
+	var se: float = sin(_orbit_elevation)
+	var ca: float = cos(_orbit_azimuth)
+	var sa: float = sin(_orbit_azimuth)
+	# Unit direction from the planet centre out to the camera (radial "up").
+	var radial: Vector3 = Vector3(ce * sa, se, ce * ca)
+	global_position = _orbit_center + radial * _distance
+	look_at(_orbit_center, Vector3.UP)
+	# Far plane scaled to the orbit distance so the whole planet stays inside the frustum when pulled out.
+	far = clampf(_distance * 4.0, 4000.0, 40000.0)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -234,8 +311,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			_pan_ground(-mm.relative.x * scale, mm.relative.y * scale)
 			_update_transform()
 		elif _orbiting:
-			_yaw -= mm.relative.x * ORBIT_SENSITIVITY
-			_pitch = clampf(_pitch + mm.relative.y * ORBIT_SENSITIVITY, PITCH_MIN, PITCH_MAX)
+			if _orbit_mode:
+				# Planet orbit: horizontal drag sweeps azimuth around the pole, vertical drag changes
+				# elevation (clamped off the poles in _update_orbit_transform).
+				_orbit_azimuth -= mm.relative.x * ORBIT_SENSITIVITY
+				_orbit_elevation = clampf(_orbit_elevation - mm.relative.y * ORBIT_SENSITIVITY, -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
+			else:
+				_yaw -= mm.relative.x * ORBIT_SENSITIVITY
+				_pitch = clampf(_pitch + mm.relative.y * ORBIT_SENSITIVITY, PITCH_MIN, PITCH_MAX)
 			_update_transform()
 
 
@@ -259,7 +342,10 @@ func _update_mouse_capture() -> void:
 
 
 func _zoom(factor: float) -> void:
-	_distance = clampf(_distance * factor, MIN_DISTANCE, MAX_DISTANCE)
+	if _orbit_mode:
+		_distance = clampf(_distance * factor, _orbit_min_distance, _orbit_max_distance)
+	else:
+		_distance = clampf(_distance * factor, MIN_DISTANCE, MAX_DISTANCE)
 	_update_transform()
 
 
@@ -287,6 +373,12 @@ func _process(delta: float) -> void:
 	# Undo last frame's shake so movement acts on the true base position.
 	global_position -= _shake_applied
 	_shake_applied = Vector3.ZERO
+
+	# Orbit (planet) mode: no ground pan / keyboard fly / storm-follow — the view is driven by
+	# MMB-drag orbit and scroll zoom only. Still react emergently to felt ground motion below.
+	if _orbit_mode:
+		_apply_seismic_shake(delta)
+		return
 
 	var right: float = 0.0
 	var forward: float = 0.0
@@ -340,16 +432,19 @@ func _process(delta: float) -> void:
 	if changed:
 		_update_transform()
 
-	# Respond to felt ground motion: query the seismic field at the camera's own position and top up
-	# trauma in proportion to nearby seismic energy. That energy already folds in proximity (worse the
-	# nearer the source) and time decay, so the shake is the camera REACTING to the ground — a meteor
-	# impact, a volcano breach, an earthquake pulse all shake it emergently just by disturbing the earth.
+	_apply_seismic_shake(delta)
+
+
+## Emergent camera shake, shared by flat and orbit modes: query the seismic field at the camera's own
+## position and top up trauma in proportion to nearby seismic energy (that energy already folds in
+## proximity and time decay), then apply the decaying trauma as a transient offset on top of the base
+## position. A meteor impact, a volcano breach, an earthquake pulse all shake it just by disturbing the earth.
+func _apply_seismic_shake(delta: float) -> void:
 	if _ecology != null and _ecology.has_method("seismic_energy_at"):
 		var seismic: float = _ecology.seismic_energy_at(global_position)
 		if seismic > 0.0:
 			add_shake(seismic * SEISMIC_TRAUMA_GAIN * delta)
 
-	# Apply decaying camera shake as a transient offset on top of the base position (set above).
 	_trauma = maxf(0.0, _trauma - TRAUMA_DECAY * delta)
 	if _trauma > 0.0:
 		var s: float = _trauma * _trauma * SHAKE_MAG

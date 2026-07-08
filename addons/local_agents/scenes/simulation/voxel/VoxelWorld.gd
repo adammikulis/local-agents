@@ -30,6 +30,9 @@ const PlanetBodyScript: GDScript = preload("res://addons/local_agents/scenes/sim
 const PLANET_RADIUS: float = 250.0
 const PLANET_RELIEF: float = 16.0
 const PLANET_FEATURE: float = 78.0
+# Sea sits INSIDE the relief band (surface radius spans ~radius±relief) so low ground floods and high
+# ground stays dry — a real coastline. Just below the mean radius → a bit more land than sea.
+const PLANET_SEA_RADIUS: float = 248.0
 const STAR_POSITION: Vector3 = Vector3(900.0, 320.0, 620.0)
 
 const INITIAL_COUNTS: Dictionary = {"plant": 70, "rabbit": 16, "fox": 3, "bird": 14, "villager": 6, "vulture": 5}
@@ -160,7 +163,7 @@ func _ready() -> void:
 	_body.name = "PlanetBody"
 	add_child(_body)
 	_body.setup({"radius": PLANET_RADIUS, "relief": PLANET_RELIEF, "feature_size": PLANET_FEATURE,
-		"view_distance": 2000, "seed": 1337})
+		"sea_radius": PLANET_SEA_RADIUS, "view_distance": 2000, "seed": 1337})
 	_terrain = _body.terrain()
 
 	# --- Camera + voxel viewer ---
@@ -169,9 +172,9 @@ func _ready() -> void:
 	add_child(_camera)
 	_camera.current = true
 	_body.attach_viewer(_camera)
-	# Frame the whole planet from space (orbit-the-body camera = a fan-out unit; this just gets it in view).
-	if _camera.has_method("frame_overview"):
-		_camera.frame_overview(_body.center(), PLANET_RADIUS * 2.6)
+	# Orbit-the-planet camera (radial up, MMB-drag orbit, scroll zoom) framing the body from space.
+	if _camera.has_method("set_orbit_target"):
+		_camera.set_orbit_target(_body.center(), _body.radius())
 
 	# --- Actors + ecology (actors live UNDER the body so they ride its frame) ---
 	_actors_root = _body.actors_root
@@ -250,10 +253,9 @@ func _ready() -> void:
 	# draws the flat bulk cheaply, while the CA surface mesh renders only waves/surges that deviate.
 	_ocean = OceanPlaneScript.new()
 	add_child(_ocean)
-	# Flat horizontal plane — it would slice straight through a sphere. Skipped on a planet until the
-	# spherical sea SHELL lands (fan-out unit). Hidden meanwhile so no plane cuts the world.
+	# Planet: a finite spherical sea SHELL at sea_radius. Flat: the camera-following horizontal plane.
 	if _terrain.is_planet():
-		_ocean.visible = false
+		_ocean.setup_sphere(_body.center(), _body.sea_radius())
 	else:
 		_ocean.setup(_terrain.sea_level(), _camera)
 
@@ -473,10 +475,17 @@ func _process(delta: float) -> void:
 			_ready_wait_ticks += 1
 			if _ready_wait_ticks > 6:
 				LASimReport.reset()
-				# TODO(planet fan-out): every step below uses flat (x,z)->Y placement / world-Y sea and is
-				# SKIPPED on a planet until radialized — ecology surface_point spawn, radial caves, sea shell,
-				# radial volcano, camera framing. Re-enable per-system as each fan-out unit lands.
-				if not _terrain.is_planet():
+				if _terrain.is_planet():
+					# Radial world: ecology places life ON the sphere (surface_point spawn), fish in the sea
+					# shell; the orbit camera frames the body. Still-flat steps (caves, flat sea seeding,
+					# scripted volcano) are skipped pending their radial versions (Phase B field / Phase C).
+					_ecology.spawn_initial(INITIAL_COUNTS)
+					_ecology.populate_environment(ROCK_COUNT, FOREST_CLUSTERS)
+					if _ecology.has_method("stock_initial_aquatic"):
+						_ecology.stock_initial_aquatic()
+					if _camera.has_method("set_orbit_target"):
+						_camera.set_orbit_target(_body.center(), _body.radius())
+				else:
 					if _terrain.has_method("carve_caves"):
 						_terrain.carve_caves(1337)
 					_ecology.spawn_initial(INITIAL_COUNTS)
@@ -493,7 +502,7 @@ func _process(delta: float) -> void:
 						if not is_nan(oh):
 							_camera.frame_vista(Vector3(0.0, oh, 0.0))
 				_spawned_initial = true
-				_hud.set_status("World ready — planet mode (life pending radial fan-out).")
+				_hud.set_status("World ready — spawn things, click to inspect, press V for scent.")
 	_interaction.update_hand(delta)
 	_interaction.update_selection_ring()
 	_brush.update_brush_ring()

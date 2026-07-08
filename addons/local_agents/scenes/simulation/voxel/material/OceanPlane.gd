@@ -47,6 +47,14 @@ var _sea_y: float = 0.0
 var _material: ShaderMaterial = null
 var _plane: PlaneMesh = null
 var _plane_size: float = 0.0
+# Sphere (planet) mode: a fixed finite sea shell of radius `sea_radius` centred on the planet, instead of
+# the flat camera-following plane. When true, the per-frame wave/ripple/follow paths are skipped — the
+# shell is static and rendered with a simple correct translucent material (the flat shader's world-Y wave
+# displacement + Y-up normal would light a sphere's sides/bottom as if facing up).
+var _sphere_mode: bool = false
+# Sphere mode: SphereMesh radial/ring resolution — high enough to read smooth at planet scale.
+const SPHERE_RADIAL_SEGMENTS: int = 96
+const SPHERE_RINGS: int = 64
 # Ring buffer of active impact ripples, each a Vector4(centre.x, centre.z, age_seconds, strength).
 var _ripples: Array[Vector4] = []
 # Self-harness: `-- --sea-ripple` fires a demonstrative impact ring on the sea in front of the camera
@@ -89,6 +97,44 @@ func setup(sea_y: float, camera: Node3D) -> void:
 	var cli: PackedStringArray = OS.get_cmdline_user_args()
 	_ripple_test = cli.has("--sea-ripple")
 	_storm_test = cli.has("--sea-storm")
+
+
+## Build the sea as a FIXED spherical shell of radius `sea_radius` centred on `center` (the planet
+## centre = world origin). Land above `sea_radius` pokes out; sea floor below is submerged. Unlike the
+## flat plane, a finite planet sea does NOT follow the camera — it is a static sphere. Added as a child
+## of the caller. Use this instead of setup() on a spherical planet.
+func setup_sphere(center: Vector3, sea_radius: float) -> void:
+	_sphere_mode = true
+	name = "OceanPlane"
+	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+	# A smooth SphereMesh at planet scale (radius = sea_radius, full height = diameter).
+	var sphere: SphereMesh = SphereMesh.new()
+	sphere.radius = sea_radius
+	sphere.height = sea_radius * 2.0
+	sphere.radial_segments = SPHERE_RADIAL_SEGMENTS
+	sphere.rings = SPHERE_RINGS
+	mesh = sphere
+
+	# The flat water shader displaces VERTEX.y from world-XZ waves and forces a Y-up normal — both wrong on
+	# a sphere (its sides/bottom would light as if facing up). So sphere mode uses a simple, correct
+	# translucent water material that keeps the mesh's real (radial) normals: a deep semi-transparent blue
+	# with a low roughness for reflection and a rim sheen for a fresnel-like edge. Reads as calm water while
+	# letting land poke through the shell and the sea floor sit submerged.
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(0.02, 0.16, 0.34, 0.72)          # deep sea blue, semi-transparent shell
+	mat.roughness = 0.08
+	mat.metallic = 0.0
+	mat.metallic_specular = 0.85
+	mat.rim_enabled = true                                    # fresnel-like sky sheen at grazing angles
+	mat.rim = 0.5
+	mat.rim_tint = 0.4
+	mat.cull_mode = BaseMaterial3D.CULL_BACK
+	material_override = mat
+
+	# Static shell: fixed at the planet centre, no camera follow, no per-frame wave/ripple upload.
+	global_position = center
 
 
 # Find the sibling MaterialField3D (for wind + is_ocean_at) and subscribe to its splash droplets so the
@@ -205,11 +251,13 @@ func _resize_plane(size: float) -> void:
 
 ## Set a shader uniform (tuning from the debug panel / VoxelWorld, e.g. wave_amp).
 func set_ocean_param(param: String, value) -> void:
-	if _material != null:
+	if _material != null and not _sphere_mode:
 		_material.set_shader_parameter(param, value)
 
 
 func _process(delta: float) -> void:
+	if _sphere_mode:
+		return                                            # static planet shell — no follow, no wave upload
 	if _field == null:
 		_discover_field()
 	_frame += 1
