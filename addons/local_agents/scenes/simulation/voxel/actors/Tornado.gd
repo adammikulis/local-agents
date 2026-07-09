@@ -7,9 +7,10 @@ extends Node3D
 ## intensify), COOL / DRY air starves it (strength falls → it DISSIPATES). Nothing about its life is
 ## scripted on a timeline — a tornado that drifts off warm humid ground onto a cold dry ridge withers on
 ## its own; one that tracks along a warm coast keeps spinning. Strength drives the funnel size, the
-## scatter/suction radius, and the throw impulse. Over ocean it becomes a WATERSPOUT: it lifts moisture
-## into the sky (add_vapor at its base) and kicks up spray (splash). It only READS the field + throws
-## stimuli (scare + physical impulse) at wildlife; everything else emerges. Built in code, no assets.
+## swept footprint, and the vortex wind force. Over ocean it becomes a WATERSPOUT: it lifts moisture
+## into the sky (add_vapor at its base) and kicks up spray (splash). It only READS the field + broadcasts
+## stimuli (scare + a continuous vortex WIND that advects wildlife through the shared field force, never a
+## teleport-fling); everything else emerges. Built in code, no assets.
 ## (Explicit types only — no ':=' inferred typing.)
 
 # --- Lifecycle ---------------------------------------------------------------
@@ -33,12 +34,21 @@ const WANDER_SPEED: float = 3.0           # amplitude of the residual noise wand
 const PLAY_HALF_EXTENT: float = 285.0     # keep the base inside the island play area
 
 # --- Effect radii / forces (all scale with strength) -------------------------
-const SCATTER_BASE: float = 16.0          # suction/scatter radius at strength 1
 const SCARE_BASE: float = 40.0            # continuous panic radius at strength 1
-const THROW_BASE: float = 26.0            # outward+up impulse scale at strength 1
-const SWIRL_GAIN: float = 1.4             # tangential (spin) component of the fling
-const LIFT_GAIN: float = 1.1              # upward component of the fling
 const SCARE_INTERVAL: float = 0.5
+
+# --- Vortex wind (the twister's field force on wildlife) ---------------------
+# The funnel does NOT teleport-fling animals; it broadcasts a CONTINUOUS wind force over its footprint
+# (EcologyStimulus.apply_wind_force → CreatureFieldForces advects each creature every frame). The force
+# at a point is the classic vortex shape: mostly TANGENTIAL (swirl caught in the spin), some INWARD
+# (suction toward the core), a little LIFT (sucked up the funnel — the surface re-seat undoes most of it
+# so animals stay grounded and RECOVER once the twister passes). Speed rises toward the centre and with
+# strength; strength already emerges from the field's vorticity, so this whole force tracks the real vortex.
+const VORTEX_RADIUS_BASE: float = 20.0    # swept footprint radius at strength 1
+const VORTEX_WIND: float = 16.0           # peak wind speed (world u/s) at strength 1
+const VORTEX_TANGENT_GAIN: float = 1.0    # swirl (dominant → animals ORBIT the funnel rather than collapse in)
+const VORTEX_INWARD_GAIN: float = 0.6     # suction toward the core
+const VORTEX_LIFT_GAIN: float = 0.5       # updraft component
 
 # --- Funnel geometry ---------------------------------------------------------
 # A real tornado is WIDE up in the cloud and tapers to a narrow foot, with a downwind LEAN and a slow
@@ -211,13 +221,14 @@ func _physics_process(delta: float) -> void:
 
 	_update_fx()
 
-	# STIMULI — continuous panic + physical fling of nearby wildlife (impulse outward+up ∝ strength/dist).
+	# STIMULI — continuous panic + a continuous VORTEX WIND that sweeps nearby wildlife (swirl+suck+lift ∝
+	# strength/closeness), broadcast over the footprint so creatures advect through the shared field force.
 	_scare_cd -= delta
 	if _scare_cd <= 0.0:
 		_scare_cd = SCARE_INTERVAL
 		if _ecology != null and _ecology.has_method("broadcast_scare"):
 			_ecology.broadcast_scare(_base, SCARE_BASE * (0.6 + _strength), minf(1.0, 0.4 + _strength))
-	_fling_wildlife()
+	_sweep_wildlife(delta)
 
 	# WATERSPOUT spray — over open water the funnel kicks up a ring of spray (a cheap ripple). It no longer
 	# SCRIPT-INJECTS vapor (that low, base-level add_vapor condensed and rained puddles on the ground,
@@ -232,32 +243,39 @@ func _physics_process(delta: float) -> void:
 				_field.splash(_base, 1.0 + _strength)
 
 
-# Fling + LIFT nearby animals: for each creature inside the strength-scaled scatter radius, impart an
-# impulse that is outward (thrown clear), upward (sucked up the funnel) and tangential (caught in the
-# spin), stronger the CLOSER it is and the STRONGER the twister. Uses the creature's ballistic throw()
-# so it arcs through the air and lands — no damage, just the toss.
-func _fling_wildlife() -> void:
-	var radius: float = SCATTER_BASE * _strength
-	if radius <= 0.5:
+# SWEEP nearby animals: broadcast a CONTINUOUS vortex wind over the strength-scaled footprint. Each frame
+# EcologyStimulus.apply_wind_force asks _vortex_force_at() for the wind at every creature in range and advects
+# it through the shared field force — so animals are caught in the swirl and drawn toward the funnel over time
+# (emergent, recoverable) instead of being teleport-flung. No creature.throw(), no per-species branch.
+func _sweep_wildlife(delta: float) -> void:
+	if _ecology == null or not _ecology.has_method("apply_wind_force"):
 		return
-	var r2: float = radius * radius
-	for actor in get_tree().get_nodes_in_group("creature"):
-		if not is_instance_valid(actor) or not (actor is Node3D):
-			continue
-		var a: Node3D = actor as Node3D
-		if not a.has_method("throw"):
-			continue
-		var to: Vector3 = a.global_position - _base
-		to.y = 0.0
-		var d: float = to.length()
-		if d > radius or d < 0.001:
-			continue
-		var closeness: float = 1.0 - d / radius
-		var out_dir: Vector3 = to / d
-		var tangent: Vector3 = Vector3(-out_dir.z, 0.0, out_dir.x)      # perpendicular = swirl direction
-		var mag: float = THROW_BASE * _strength * (0.35 + 0.65 * closeness)
-		var vel: Vector3 = out_dir * mag + tangent * (mag * SWIRL_GAIN) + Vector3.UP * (mag * LIFT_GAIN)
-		a.throw(vel)
+	var radius: float = VORTEX_RADIUS_BASE * _strength
+	if radius <= 0.5 or delta <= 0.0:
+		return
+	var centre: Vector3 = _base
+	var strength: float = _strength
+	var force_fn: Callable = func(point: Vector3) -> Vector3:
+		return _vortex_force_at(point, centre, strength, radius)
+	_ecology.apply_wind_force(centre, radius, force_fn, delta)
+
+
+# The vortex wind (world u/s) at `point`: tangential swirl + inward suction + a little lift, rising toward
+# the core and with strength. Horizontal components sweep animals into an orbiting inspiral; the lift is
+# mostly undone by the creature's per-frame surface re-seat, so they stay grounded and recover after.
+func _vortex_force_at(point: Vector3, centre: Vector3, strength: float, radius: float) -> Vector3:
+	var to: Vector3 = point - centre
+	to.y = 0.0
+	var d: float = to.length()
+	if d < 0.001 or d > radius:
+		return Vector3.ZERO
+	var closeness: float = 1.0 - d / radius
+	var inward_dir: Vector3 = -to / d                              # toward the core (suction)
+	var tangent: Vector3 = Vector3(-inward_dir.z, 0.0, inward_dir.x)  # perpendicular = swirl direction
+	var speed: float = VORTEX_WIND * strength * (0.3 + 0.7 * closeness)
+	return inward_dir * (speed * VORTEX_INWARD_GAIN) \
+		+ tangent * (speed * VORTEX_TANGENT_GAIN) \
+		+ Vector3.UP * (speed * VORTEX_LIFT_GAIN)
 
 
 func _dissipate() -> void:
