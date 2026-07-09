@@ -99,12 +99,14 @@ committed). When removing files:
   time-scale** (run N sim steps per render frame) so geological time compresses to seconds — never wait
   real-time for something you can accelerate. Parallelize (fan out subagents), pick the cheapest run that
   proves the point, and cut anything that makes the loop slower than it needs to be.
-- **NON-INTERACTIVE RUNS MUST LAUNCH THE WINDOW OFF-SCREEN — never pop it in front of the user.** Metal/GPU
-  runs need a real window (headless has no compute device), but a window appearing in the centre of the
-  user's screen mid-work is a hard interruption. ALWAYS pass Godot's `--position 6000,3000 --resolution
-  640x400` (before `--path`) on every `--run-frames`/`--shoot` invocation — `--position` is applied BEFORE
-  the window paints, so it launches off-screen with no centre flash (moving it after `_ready` is too late —
-  it flashes first). This applies to the main thread and EVERY sub-agent's run commands.
+- **NON-INTERACTIVE RUNS MUST NOT INTERRUPT THE USER — use `scripts/run_sim_offscreen.sh`.** Metal/GPU runs
+  need a real window (headless has no compute device), and a Godot window both APPEARS on-screen AND STEALS
+  KEYBOARD FOCUS at launch — a hard interruption. The wrapper `scripts/run_sim_offscreen.sh` fixes both:
+  launches with `--position 30000,30000 --resolution 640x400` (off-screen, applied before first paint) AND
+  hands focus back to whatever app was frontmost (macOS `osascript`, retried as Godot grabs focus during
+  startup). ALWAYS run non-interactive sims through it — `scripts/run_sim_offscreen.sh --path . <scene> --
+  --run-frames=N` (env like `LA_NO_STREAMER=1` still works). This applies to the main thread AND every
+  sub-agent's run commands. (Moving the window after `_ready` is too late — it flashes + steals focus first.)
 
 - "Does it work" checks require **both** a non-headless launched-window run **and** headless harness
   suites; run them in whichever order is convenient (a non-headless launch first is a good habit for
