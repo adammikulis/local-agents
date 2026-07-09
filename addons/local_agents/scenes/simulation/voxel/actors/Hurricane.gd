@@ -8,9 +8,11 @@ extends Node3D
 ## its eyewall) and WEAKENS over land or cool water — so it strengthens at sea and falls apart on
 ## landfall, read fresh each step. Structure: it pumps moisture + cool air aloft in an ANNULUS around the
 ## eye (never at the centre), so the field's condense→rain rules raise a dense spiral of cloud + torrential
-## rain around a rain-free eye. It rotates: nearby wildlife is flung tangentially (caught in the wind) and
-## panicked. At high strength it BREEDS embedded tornadoes and fires lightning around the eyewall. Built
-## in code, no assets. (Explicit types only — no ':=' inferred typing.)
+## rain around a rain-free eye. It rotates: nearby wildlife is swept tangentially + slightly inward (advected
+## by the cyclonic wind force via EcologyStimulus.apply_wind_force — no direct throw()) and panicked. Embedded
+## severe weather is EMERGENT, not scripted: the eyewall pumps moisture + cold aloft, so the field's own charge
+## physics builds charge under the convective annulus and fires lightning where it breaks down (via
+## LAMaterialCharge3D). Built in code, no assets. (Explicit types only — no ':=' inferred typing.)
 
 const LIFETIME_MAX: float = 150.0         # a hurricane is long-lived; ocean fuel keeps it going within this
 const STRENGTH_START: float = 0.5
@@ -39,21 +41,15 @@ const TRACK_SPEED: float = 7.0            # base forward crawl (world u/s)
 const WIND_STEER: float = 0.5
 const PLAY_HALF_EXTENT: float = 290.0
 
-# --- Rotation + fling (the rotating wind, felt by wildlife in the annulus) ---
+# --- Rotation + wind (the rotating cyclonic wind, felt by wildlife in the annulus) ---
 const SPIN_SPEED: float = 1.4             # visual + swirl rotation (rad/s)
-const SWIRL_THROW: float = 12.0           # tangential fling scale at strength 1
+const WIND_FORCE: float = 14.0            # tangential wind speed (world u/s) at strength 1, advecting creatures
+const WIND_INWARD_FRAC: float = 0.15      # slight inward spiral (fraction of the tangential wind)
+const WIND_LIFT_FRAC: float = 0.25        # updraft lift (fraction of the tangential wind)
 const SCARE_INTERVAL: float = 0.8
-
-# --- Embedded severe weather (only when strongly organised) ---
-const BREED_STRENGTH: float = 1.05        # above this the eyewall breeds tornadoes + crackles lightning
-const TORNADO_CD_MIN: float = 7.0
-const TORNADO_CD_MAX: float = 15.0
-const BOLT_CD_MIN: float = 1.6
-const BOLT_CD_MAX: float = 5.0
 
 var _terrain: Object = null
 var _ecology: Object = null
-var _disasters: Object = null             # LAVoxelDisasters — reused for embedded tornadoes + lightning
 var _field: Object = null
 
 var _center: Vector3 = Vector3.ZERO
@@ -62,8 +58,6 @@ var _strength: float = STRENGTH_START
 var _age: float = 0.0
 var _spin: float = 0.0
 var _scare_cd: float = 0.0
-var _tornado_cd: float = 6.0
-var _bolt_cd: float = 3.0
 
 var _spiral: GPUParticles3D = null
 var _picker: StaticBody3D = null
@@ -73,10 +67,9 @@ func _ready() -> void:
 	add_to_group("selectable")
 
 
-func setup(terrain: Object, ecology: Object, disasters: Object) -> void:
+func setup(terrain: Object, ecology: Object) -> void:
 	_terrain = terrain
 	_ecology = ecology
-	_disasters = disasters
 	if _ecology != null and _ecology.has_method("material_field"):
 		_field = _ecology.material_field()
 
@@ -205,7 +198,6 @@ func _physics_process(delta: float) -> void:
 
 	_pump_eyewall(frac, delta)
 	_stir_wildlife(delta)
-	_maybe_breed(delta)
 	_update_fx()
 
 
@@ -237,58 +229,35 @@ func _pump_eyewall(fuel: float, delta: float) -> void:
 			_field.add_cooling(Vector3(px, cloud_base, pz), COOL_PER_SEC * drive * delta, COOL_INJECT_R)
 
 
-# The rotating wind: fling wildlife in the annulus tangentially (caught in the spin) + panic them. Weaker
-# per-creature than a tornado (spread over a huge area) but it makes the whole system feel alive.
+# The rotating wind: sweep wildlife in the annulus through the substrate's field-force seam (the same
+# advection every gust/gale drives) instead of directly throwing them — the cyclonic wind carries each
+# creature tangentially + slightly inward + lofts it, emergently, and panics them. Weaker per-creature than
+# a tornado (spread over a huge area) but it makes the whole system feel alive.
 func _stir_wildlife(delta: float) -> void:
 	_scare_cd -= delta
 	if _scare_cd <= 0.0:
 		_scare_cd = SCARE_INTERVAL
 		if _ecology != null and _ecology.has_method("broadcast_scare"):
 			_ecology.broadcast_scare(_center, OUTER_RADIUS, minf(1.0, 0.3 + _strength * 0.5))
-	for actor in get_tree().get_nodes_in_group("creature"):
-		if not is_instance_valid(actor) or not (actor is Node3D):
-			continue
-		var a: Node3D = actor as Node3D
-		if not a.has_method("throw"):
-			continue
-		var to: Vector3 = a.global_position - _center
-		to.y = 0.0
-		var d: float = to.length()
-		if d < EYE_RADIUS or d > OUTER_RADIUS or d < 0.001:
-			continue                                          # the eye is calm; outside the wall, nothing
-		var out_dir: Vector3 = to / d
-		var tangent: Vector3 = Vector3(-out_dir.z, 0.0, out_dir.x)
-		var mag: float = SWIRL_THROW * _strength * clampf(1.0 - d / OUTER_RADIUS, 0.2, 1.0)
-		a.throw(tangent * mag + out_dir * (mag * 0.3) + Vector3.UP * (mag * 0.4))
-
-
-# When strongly organised, the eyewall spawns embedded tornadoes + fires lightning (reusing those actors).
-func _maybe_breed(delta: float) -> void:
-	if _strength < BREED_STRENGTH or _disasters == null:
+	if _strength <= DISSIPATE_STRENGTH:
 		return
-	var over: float = clampf((_strength - BREED_STRENGTH) / (STRENGTH_MAX - BREED_STRENGTH), 0.0, 1.0)
-	_tornado_cd -= delta
-	if _tornado_cd <= 0.0 and _disasters.has_method("spawn_tornado"):
-		_tornado_cd = lerpf(TORNADO_CD_MAX, TORNADO_CD_MIN, over)
-		_disasters.spawn_tornado(_eyewall_point())
-	_bolt_cd -= delta
-	if _bolt_cd <= 0.0 and _disasters.has_method("spawn_lightning"):
-		_bolt_cd = lerpf(BOLT_CD_MAX, BOLT_CD_MIN, over)
-		_disasters.spawn_lightning(_eyewall_point())
+	if _ecology != null and _ecology.has_method("apply_wind_force"):
+		_ecology.apply_wind_force(_center, OUTER_RADIUS, _wind_force_at, delta)
 
 
-# A random ground point on the eyewall ring.
-func _eyewall_point() -> Vector3:
-	var a: float = randf() * TAU
-	var r: float = randf_range(EYE_RADIUS, OUTER_RADIUS * 0.8)
-	var px: float = _center.x + cos(a) * r
-	var pz: float = _center.z + sin(a) * r
-	var py: float = _center.y
-	if _terrain != null and _terrain.has_method("surface_height"):
-		var h: float = _terrain.surface_height(px, pz)
-		if not is_nan(h):
-			py = h
-	return Vector3(px, py, pz)
+# The cyclonic wind velocity (world u/s) at a world point — the force `apply_wind_force` samples per
+# creature. Calm eye (zero inside EYE_RADIUS); a tangential swirl that curls slightly inward and lifts,
+# falling off toward the outer edge, scaled by the storm's emergent strength.
+func _wind_force_at(pos: Vector3) -> Vector3:
+	var to: Vector3 = pos - _center
+	to.y = 0.0
+	var d: float = to.length()
+	if d < EYE_RADIUS or d < 0.001:
+		return Vector3.ZERO                                   # the eye is calm
+	var out_dir: Vector3 = to / d
+	var tangent: Vector3 = Vector3(-out_dir.z, 0.0, out_dir.x)
+	var mag: float = WIND_FORCE * _strength * clampf(1.0 - d / OUTER_RADIUS, 0.2, 1.0)
+	return tangent * mag - out_dir * (mag * WIND_INWARD_FRAC) + Vector3.UP * (mag * WIND_LIFT_FRAC)
 
 
 func _dissipate() -> void:

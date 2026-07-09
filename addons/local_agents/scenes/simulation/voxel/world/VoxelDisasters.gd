@@ -122,11 +122,12 @@ func spawn_thunderstorm(point: Vector3) -> Node:
 
 
 ## A hurricane spins up at `point`. It only sustains/intensifies over warm ocean and falls apart on land
-## (genesis emerges from the reads); at strength it breeds embedded tornadoes + lightning.
+## (genesis emerges from the reads); its eyewall pump builds charge so embedded lightning emerges from the
+## field's own charge physics (no scripted breeding).
 func spawn_hurricane(point: Vector3) -> Node:
 	var h: Node = HurricaneScript.new()
 	_actors_root.add_child(h)
-	h.setup(_terrain, _ecology, self)
+	h.setup(_terrain, _ecology)
 	h.begin(point)
 	return h
 
