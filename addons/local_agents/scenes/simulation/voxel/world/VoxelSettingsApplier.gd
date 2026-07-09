@@ -64,6 +64,7 @@ func read_settings() -> void:
 		_settings = gm.get("settings")
 	if _settings == null:
 		_settings = LAGameSettings.load_or_default()
+	publish_globals()
 
 
 func settings() -> LAGameSettings:
@@ -100,20 +101,64 @@ func particle_scale() -> float:
 			return 0.65
 
 
-## Resolved RENDER-QUALITY flags for the heavy full-screen / fill-rate effects, keyed off the effects level.
+## Resolved RENDER-QUALITY flags for the heavy full-screen / fill-rate effects, now read from the INDIVIDUAL
+## graphics knobs (each is its own control in the Graphics settings section) rather than one bundled level.
 ## Profiling showed these — NOT the actor count — dominate the default frame time: an alpha-blended
 ## planet-filling ocean shell (~40 ms of transparent overdraw at 720p), SSAO + HDR glow (full-screen post
 ## passes that scale with resolution), and PSSM sun shadows (a second scene pass). So the DEFAULT (Medium)
-## preset turns them OFF/cheap for a playable frame-rate, LOW is barely-anything, and only HIGH (strong GPUs)
-## pays for the lot. Consumed by LAVoxelSkyCycle (env/sun) + LAOceanPlane at build time.
+## preset leaves them OFF for a playable frame-rate and only High/Ultra turn them on. Consumed by
+## LAVoxelSkyCycle (env/sun) + LAOceanPlane at build time.
 func render_opts() -> Dictionary:
-	match settings().effects_level:
-		LAGameSettings.EffectsLevel.HIGH:
-			return {"ssao": true, "glow": true, "sun_shadows": true, "ocean_transparent": true, "fog": true}
-		LAGameSettings.EffectsLevel.LOW:
-			return {"ssao": false, "glow": false, "sun_shadows": false, "ocean_transparent": false, "fog": false}
-		_:  # MEDIUM — the default: keep atmospheric fog (cheap) but drop the fill-rate killers.
-			return {"ssao": false, "glow": false, "sun_shadows": false, "ocean_transparent": false, "fog": true}
+	var s: LAGameSettings = settings()
+	return {
+		"ssao": s.ssao_enabled,
+		"glow": s.glow_enabled,
+		"sun_shadows": s.shadow_quality != LAGameSettings.ShadowQuality.OFF,
+		"ocean_transparent": s.ocean_quality == LAGameSettings.OceanQuality.TRANSLUCENT,
+		"fog": s.fog_enabled,
+	}
+
+
+## Plant / foliage density scale (Graphics). Default 1.0 leaves the ecosystem balance untouched; the spawn
+## controller multiplies its base plant count by this. GPU-side detail, not creature population.
+func vegetation_scale() -> float:
+	return clampf(settings().vegetation_density, 0.1, 2.0)
+
+
+## Camera far-plane budget in metres (Graphics). Published for the camera rig; also returned here so a
+## consumer can query it directly.
+func draw_distance() -> float:
+	return maxf(1000.0, settings().draw_distance)
+
+
+# --- Simulation / AI (CPU) resolved knobs. These are consumed by systems owned elsewhere (creature
+# cognition, the LLM director, the field step), so the applier PUBLISHES them as Engine metadata globals the
+# owning systems read, keeping this module free of their code. The queries below also expose them directly. ---
+
+## Creatures re-decide every N frames (larger = cheaper CPU).
+func ai_tick_frames() -> int:
+	return clampi(settings().ai_tick_frames, 1, 60)
+
+
+## Seconds between local-LLM cognition / narration calls (shorter = heavier CPU).
+func llm_cadence() -> float:
+	return clampf(settings().llm_cadence, 1.0, 120.0)
+
+
+## Field substrate steps every N frames (larger = cheaper CPU).
+func field_cadence() -> int:
+	return clampi(settings().field_cadence, 1, 60)
+
+
+## Publish the graphics + simulation knobs that are consumed by systems this module does not own, as Engine
+## metadata globals (a single well-known seam) so those systems read the player's choice without this module
+## reaching into their code. Called on boot and re-called when settings are re-applied mid-game.
+func publish_globals() -> void:
+	Engine.set_meta("la_vegetation_scale", vegetation_scale())
+	Engine.set_meta("la_draw_distance", draw_distance())
+	Engine.set_meta("la_ai_tick_frames", ai_tick_frames())
+	Engine.set_meta("la_llm_cadence", llm_cadence())
+	Engine.set_meta("la_field_cadence", field_cadence())
 
 
 # --- Live binding (cadence + effects + re-apply) ---
@@ -134,14 +179,19 @@ func bind(world: Node, disasters: Node, terrain, water: Node) -> void:
 		if not gm.is_connected("settings_applied", cb):
 			gm.settings_applied.connect(cb)
 	_bound = true
-	print("SETTINGS_APPLIED={grid_face:%d, grid_depth:%d, spawn_scale:%.2f, particle:%.2f, disaster_freq:%.2f, disaster_interval:%.1f, climate:%.2f, ambient:%s}" % [
-		grid_res_per_face(), grid_depth(), spawn_scale(), particle_scale(),
+	var ro: Dictionary = render_opts()
+	print("SETTINGS_APPLIED={grid_res:%d, grid_face:%d, grid_depth:%d, effects:%d, actor_budget:%d, spawn_scale:%.2f, particle:%.2f, ssao:%s, glow:%s, shadows:%s, ocean_transparent:%s, fog:%s, veg:%.2f, draw:%.0f, ai_tick:%d, llm_cadence:%.1f, field_cadence:%d, disaster_freq:%.2f, disaster_interval:%.1f, climate:%.2f, ambient:%s}" % [
+		settings().grid_resolution, grid_res_per_face(), grid_depth(), int(settings().effects_level),
+		settings().actor_budget, spawn_scale(), particle_scale(),
+		str(ro["ssao"]), str(ro["glow"]), str(ro["sun_shadows"]), str(ro["ocean_transparent"]), str(ro["fog"]),
+		vegetation_scale(), draw_distance(), ai_tick_frames(), llm_cadence(), field_cadence(),
 		settings().disaster_frequency, _disaster_interval, settings().climate_harshness, str(_ambient_enabled)])
 
 
 func _on_settings_applied(new_settings: LAGameSettings) -> void:
 	if new_settings != null:
 		_settings = new_settings
+	publish_globals()
 	_recompute_disaster_cadence()
 
 
