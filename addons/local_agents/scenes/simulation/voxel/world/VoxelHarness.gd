@@ -18,6 +18,45 @@ static func _count_meshes(n: Node) -> int:
 	return c
 
 
+# Compact population + mortality trajectory sample, printed periodically through a long run-frames run so the
+# population arc (and WHY it moves — which death causes dominate) is visible over time, not just at the end.
+# One line the balance harness scrapes: POP_TRACE={frame, per-species counts, plants/trees, temp, deaths-so-far}.
+static func emit_population_trace(w, frame: int) -> void:
+	var tree: SceneTree = w.get_tree()
+	var counts: Dictionary = {}
+	for sp in ["rabbit", "fox", "bird", "villager", "vulture", "fish"]:
+		counts[sp] = tree.get_nodes_in_group("species_%s" % sp).size()
+	counts["creatures"] = tree.get_nodes_in_group("creature").size()
+	counts["plants"] = tree.get_nodes_in_group("plant").size()
+	counts["trees"] = tree.get_nodes_in_group("tree").size()
+	var deaths: Dictionary = {}
+	var snap: Dictionary = LASimReport.snapshot()
+	var ev = snap.get("events", {})
+	if ev is Dictionary:
+		for k in ev:
+			if String(k).begins_with("death/"):
+				deaths[String(k).substr(6)] = ev[k]
+	var temp_mean: float = float(snap.get("temp_mean", 0.0))
+	# Sample the temperature creatures ACTUALLY stand in: read the field at living surface actors (trees/plants).
+	var surf_sum: float = 0.0
+	var surf_max: float = -1.0e9
+	var surf_n: int = 0
+	var mat = w._material if "_material" in w else null
+	if mat != null and mat.has_method("temp_at"):
+		var probes: Array = tree.get_nodes_in_group("tree")
+		if probes.size() < 8:
+			probes = tree.get_nodes_in_group("plant")
+		for i in range(mini(probes.size(), 40)):
+			var p = probes[i]
+			if is_instance_valid(p) and p is Node3D:
+				var t: float = float(mat.temp_at((p as Node3D).global_position + Vector3(0.0, 2.0, 0.0)))
+				surf_sum += t
+				surf_max = maxf(surf_max, t)
+				surf_n += 1
+	var surf_mean: float = surf_sum / float(surf_n) if surf_n > 0 else 0.0
+	print("POP_TRACE={\"frame\":%d,\"counts\":%s,\"temp_mean\":%.1f,\"surf_mean\":%.1f,\"surf_max\":%.1f,\"deaths\":%s}" % [frame, JSON.stringify(counts), temp_mean, surf_mean, surf_max, JSON.stringify(deaths)])
+
+
 static func emit_smoke_summary(w) -> void:
 	# Draw-call source breakdown (mesh surfaces per actor group) — instancing target, only under LA_PROFILE.
 	if OS.has_environment("LA_PROFILE"):

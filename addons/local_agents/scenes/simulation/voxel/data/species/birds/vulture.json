@@ -3,7 +3,11 @@
   "diet": "scavenger",
   "speed": 5.5,
   "size": 0.7,
-  "color": [0.28, 0.24, 0.22],
+  "color": [
+    0.28,
+    0.24,
+    0.22
+  ],
   "can_fly": true,
   "cruise_height": 22.0,
   "sense_radius": 20.0,
@@ -12,9 +16,9 @@
   "flees_from": [],
   "herd": true,
   "leader_loyalty": 0.0,
-  "pop_cap": 14,
+  "pop_cap": 12,
   "max_energy": 110.0,
-  "metabolism": 1.4,
+  "metabolism": 1.1,
   "food_value": 40.0,
   "thirst_rate": 0.7,
   "flock_cohesion": 0.4,
@@ -25,5 +29,6 @@
   "eye_fov": 300.0,
   "hearing_range": 22.0,
   "nests": true,
-  "nest_habitat": "tree"
+  "nest_habitat": "tree",
+  "max_age": 220.0
 }

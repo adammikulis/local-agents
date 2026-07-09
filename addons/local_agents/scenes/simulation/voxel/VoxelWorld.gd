@@ -368,6 +368,8 @@ func _process(delta: float) -> void:
 		capture_screenshot(_input.shoot_path())
 		get_tree().quit(0)
 
+	if _input.run_frames() > 0 and _frame % 180 == 0 and _frame < _input.run_frames():
+		LAVoxelHarness.emit_population_trace(self, _frame)   # trajectory samples through a long run
 	if _input.run_frames() > 0 and _frame == _input.run_frames():
 		LAVoxelHarness.emit_smoke_summary(self)
 
