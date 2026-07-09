@@ -172,21 +172,66 @@ func decide(c, innate_action: String, sig: Dictionary, delta: float) -> String:
 	elif _should_escalate(c, null):
 		_escalate(c, sig, innate_action)
 
-	# LEARNED-LETHAL VETO (Half C): if the action about to be taken is the innate one AND this creature has
-	# learned it is reliably lethal in this situation (weight at/below the lethal floor), refuse it and redirect
-	# to a safe alternative. Only the innate action can reach here already sub-floor: a learned override had to
-	# clear CONFIDENCE_THRESHOLD (positive) to be chosen, and the risk-revive guard above never adds risk to a
+	# LEARNED-LETHAL VETO (Half C): see _apply_veto — refuse the innate action if it is learned reliably lethal
+	# here. Only the innate action can reach _apply_veto already sub-floor: a learned override had to clear
+	# CONFIDENCE_THRESHOLD (positive) to be chosen, and the risk-revive guard above never adds risk to a
 	# sub-floor weight — so an overridden (rewarding) action and a vetoed (lethal) one are mutually exclusive,
-	# and a safe/positive action is NEVER vetoed. The redirect always yields a valid, benign action (never a
-	# freeze/no-op); Creature.gd additionally steers the body AWAY from the hazard on a veto.
+	# and a safe/positive action is NEVER vetoed.
+	chosen = _apply_veto(chosen, innate_action, learned)
+
+	_record_choice(chosen, "habit" if chosen != innate_action else "instinct", sig)
+	_snapshot(c, key, chosen, senses)
+	return chosen
+
+
+## CHEAP per-creature learning + self-veto — run by EVERY creature each think tick, LEADERS AND FOLLOWERS.
+## A follower ADOPTS its leader's chosen action symbol (the expensive senses scan + slow-brain LLM assessment
+## that decides WHAT to do stays leader-only in decide()); this method makes the follower still LEARN from its
+## own life: it reinforces THIS creature's own policy from how ITS own welfare changed since last tick, and
+## refuses the adopted action if THIS creature's own experience proves it reliably lethal here (the veto),
+## redirecting to a safe fallback. O(1): one cheap sense snapshot + dict lookups — no neighbour scan, no LLM
+## escalation. Reflex actions are returned unchanged and never vetoed (survival stays non-negotiable). Returns
+## the action to actually take (the adopted action, or the safe fallback when vetoed).
+func learn_and_veto(c, action: String, sig: Dictionary, delta: float) -> String:
+	_last_veto = false
+	if LAActionRegistry.is_reflex(action):
+		_record_choice(action, "reflex", sig)
+		return action
+
+	var key: int = int(sig.get("key", -1))
+
+	# Sample the full sense state ONCE and reinforce the PREVIOUS action from how the whole welfare changed
+	# since — identical machinery to decide(), just without the expensive assessment that follows it there.
+	var senses: Dictionary = _sample_senses(c)
+	_reinforce(c, senses)
+
+	decisions += 1
+	var learned = policy.get(key, null)
+	var chosen: String = _apply_veto(action, action, learned)
+	_record_choice(chosen, "habit" if chosen != action else "instinct", sig)
+	_snapshot(c, key, chosen, senses)
+	return chosen
+
+
+## Learned-lethal VETO (Half C), shared by decide() and learn_and_veto(). If the action about to be taken is
+## the innate/adopted one AND this creature has learned it is reliably lethal in this situation (weight at/
+## below the lethal floor), refuse it and redirect to a safe alternative; sets _last_veto and counts the veto.
+## The redirect always yields a valid, benign action (never a freeze/no-op). Reflexes never reach here (they
+## return before either caller reaches the veto). Creature.gd additionally steers the body AWAY on a veto.
+func _apply_veto(chosen: String, innate_action: String, learned) -> String:
 	if chosen == innate_action and learned != null \
 			and String((learned as Dictionary).get("action", "")) == innate_action \
 			and float((learned as Dictionary).get("weight", 0.0)) <= VETO_WEIGHT:
-		chosen = _safe_fallback(innate_action)
 		_last_veto = true
 		vetoes += 1
+		return _safe_fallback(innate_action)
+	return chosen
 
-	_record_choice(chosen, "habit" if chosen != innate_action else "instinct", sig)
+
+## Snapshot this decision's key/action + the full welfare senses, so the NEXT tick's _reinforce can measure
+## how the whole welfare changed since. Shared by decide() and learn_and_veto() so leaders and followers keep
+## a consistent last-decision record even as a creature flips between leading and following.
+func _snapshot(c, key: int, chosen: String, senses: Dictionary) -> void:
 	_last_key = key
 	_last_action = chosen
 	_last_energy = c.energy
@@ -195,7 +240,6 @@ func decide(c, innate_action: String, sig: Dictionary, delta: float) -> String:
 	_last_fear = float(senses.get("fear", 0.0))
 	_last_o2 = float(senses.get("o2", 1.0))
 	_last_temp = float(senses.get("temp", _last_temp))
-	return chosen
 
 
 # Snapshot the current fast-path pick so the thought inspector can phrase it. Cheap; no allocation churn.
