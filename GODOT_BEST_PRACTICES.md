@@ -223,3 +223,12 @@ var value: Variant = payload_dict.get("key", fallback)
   - Success requires explicit native mutation evidence (`mutation_applied == true` or equivalent typed contract field); missing evidence must hard-fail with a typed code.
   - Deadline misses must emit explicit typed failure (`PROJECTILE_MUTATION_DEADLINE_EXCEEDED`) and must never be downgraded to no-op/success in wrappers.
   - Validation must include launched-window FPS fire verification plus headless contract tests asserting no success state is reachable when native mutation evidence is absent.
+
+### 2026-07-08: new `.glsl` compute kernels break at a MERGE boundary (gitignored `.import`)
+
+- Failure: `feature/sphere-spike` merged into `0.3-dev` cleanly and the *worktree* booted with 0 errors, but the *primary* checkout then threw ~23 `ERROR: No loader found for resource: …/kernels3d/*_sphere3d.glsl` + `Cannot call method 'get_spirv' on a null value`. The compute `.glsl` files are committed, but their generated `.glsl.import` resources are **gitignored** — so `load(<kernel>.glsl)` returns null (no `RDShaderFile`) in any checkout/worktree that has not run an editor import scan since the kernels arrived.
+- Root cause: the "a NEW `.glsl`/`class_name` only registers after an editor scan" rule is not just a first-author gotcha — it recurs at EVERY boundary where the `.glsl` lands without its `.import`: a fresh clone, a **new worktree checkout**, and a **merge into another checkout**.
+- Preventative pattern:
+  - After merging (or checking out) a branch that ADDS or CHANGES `kernels3d/*.glsl`, run `godot --headless --editor --quit-after 600 --path .` ONCE in that checkout before any run/validation, then re-verify boot.
+  - When a GPU kernel load returns null / `get_spirv on null`, suspect a missing `.import` (unscanned checkout) BEFORE suspecting the shader — check for the `.glsl.import` file first.
+  - A green boot in the authoring worktree does NOT certify other checkouts; the merge target must be booted + scanned independently before claiming the merge is clean (done here — primary re-verified 0 errors post-scan).
