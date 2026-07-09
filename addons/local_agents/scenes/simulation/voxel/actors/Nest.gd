@@ -282,26 +282,17 @@ func _build_hut() -> void:
 func _snap_to_terrain() -> void:
 	if terrain == null:
 		return
-	# PLANET: snap onto the solid surface along our radial ray (the flat surface_height path is NAN here).
-	if terrain.has_method("is_planet") and terrain.is_planet():
-		var center: Vector3 = terrain.planet_center()
-		var dir: Vector3 = (global_position - center).normalized()
-		var surf: Vector3 = terrain.surface_point(dir)
-		if not is_nan(surf.x):
-			global_position = surf
-		return
-	if not terrain.has_method("surface_height"):
-		return
-	var height: float = terrain.surface_height(global_position.x, global_position.z)
-	if is_nan(height):
-		return
-	global_position.y = height
+	# Snap onto the solid surface along our radial ray.
+	var center: Vector3 = terrain.planet_center()
+	var dir: Vector3 = (global_position - center).normalized()
+	var surf: Vector3 = terrain.surface_point(dir)
+	if not is_nan(surf.x):
+		global_position = surf
 
 
-## Align local +Y to the radial "up" so a ground shelter sits flat on a spherical planet. No-op on the
-## flat island (default +Y orientation is preserved), keeping flat behaviour unchanged.
+## Align local +Y to the radial "up" so a ground shelter sits flat on a spherical planet.
 func _orient_radial() -> void:
-	if terrain == null or not (terrain.has_method("is_planet") and terrain.is_planet()):
+	if terrain == null:
 		return
 	var up: Vector3 = terrain.up_at(global_position)
 	if up.length() < 0.0001:
