@@ -193,6 +193,8 @@ var family_id: int = 0
 var _genome = null                         # LAGenome (heritable traits + baked instinct priors)
 var _cognition = null                      # LACognition (per-creature learned policy + slow-brain hook)
 var _migrate_dir: Vector3 = Vector3.ZERO   # steady heading chosen when the 'migrate' action fires
+var _veto_dir: Vector3 = Vector3.ZERO      # committed retreat heading when cognition VETOES a learned-lethal action
+var _veto_timer: float = 0.0               # seconds left on the current retreat commitment (latched, anti-oscillation)
 
 # --- flight / scavenging / public information ("watch the vultures") ---
 var _target_altitude: float = 12.0         # per-frame desired flight height above ground (flyers descend to feed/circle)
@@ -682,6 +684,7 @@ func _physics_process(delta: float) -> void:
 	if do_think:
 		var desired: Vector3 = _heading
 		_wander_timer -= delta
+		_veto_timer -= delta
 		_repath_timer -= delta
 		_panic_timer -= delta
 		_call_cd -= delta
@@ -775,6 +778,20 @@ func _physics_process(delta: float) -> void:
 						desired = mv["heading"]
 					state = String(mv.get("state", state))
 					eff_speed = float(mv.get("speed", eff_speed))
+				if _cognition.was_vetoed():
+					# Cognition REFUSED an action it learned is reliably lethal HERE. Don't just coast on the safe
+					# fallback's heading — actively RETREAT away from the harm, at normal pace, so it clears the hazard
+					# instead of re-deciding into it. The retreat is LATCHED for a short interval (like wander/migrate)
+					# so throttled re-decisions don't flip it each frame (which would oscillate on the threshold).
+					if _veto_timer <= 0.0:
+						# Dominant learned-lethal case is water (drowning): retreat to DRY LAND (opposite the nearest
+						# water). No water sensed -> back out the way it came (reverse heading). Latched, anti-oscillation.
+						var wdir: Vector3 = LACreatureThirst.find_water_dir(self, pos)
+						_veto_dir = (-wdir) if wdir.length() > 0.001 else (-_heading)
+						_veto_timer = randf_range(1.5, 2.5)
+					if _veto_dir.length() > 0.001:
+						desired = _veto_dir
+						eff_speed = speed
 
 			if big_pred == null and _wander_timer <= 0.0:
 				_wander_timer = randf_range(1.2, 3.0)

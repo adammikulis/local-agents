@@ -59,6 +59,26 @@ const RISK_TOLERANCE: float = 1.3          # how strongly hunger/thirst buys bac
 # "walk into what drowns/suffocates me" is not. This keeps lethal aversions as non-negotiable as a reflex.
 const RISK_REVIVE_FLOOR: float = -1.0
 
+# --- learned-lethal veto (Half C) ---------------------------------------------------------------
+# Drive-discount (Half B) lets a creature knowingly attempt a merely-UNCOMFORTABLE action. Half C is the
+# harder line: an action whose learned weight for THIS situation has been driven to/below the lethal floor
+# is RELIABLY lethal (repeated harm — self-experienced or socially absorbed — pushed it there, and drive can
+# never revive it). Such an action is not merely discounted, it is VETOED: even when the innate cascade picks
+# it, the creature refuses and redirects to a safe alternative, so learning actively pulls avoidable deaths
+# below the innate baseline. The weight itself IS the accumulated experience — from START_WEIGHT it takes
+# several bad outcomes to cross this floor — so no separate experience counter is needed. VETO_WEIGHT reuses
+# the lethal floor exactly (an action drive can't revive is the same action the mind won't execute). Reflexes
+# (flee) return before decide() reaches the veto and are NEVER vetoed — survival stays non-negotiable.
+const VETO_WEIGHT: float = RISK_REVIVE_FLOOR
+const SAFE_FALLBACK_ACTION: String = "wander"   # the always-available benign roam a veto redirects to
+# A confident AVERSION is shared socially once its weight has gone clearly net-negative — past the positive
+# START_WEIGHT prior and beyond a single fluke (~two harmful outcomes). Fear spreads EARLIER than a positive
+# habit does (which needs the full +CONFIDENCE_THRESHOLD): an alarmed kin warns the group after a couple of
+# near-deaths rather than only once utterly certain, so the herd banks collective dread and reaches the veto
+# floor together — "the group avoids it without each dying first." One-trial-ish fear contagion is realistic
+# and is what makes learning actually cut deaths; the VETO itself still demands the full lethal floor.
+const AVERSION_SHARE: float = -0.6
+
 # Social learning: how much one sighting of a confident neighbour shifts my confidence, by relatedness.
 const KIN_RELATEDNESS: float = 1.0
 const SPECIES_RELATEDNESS: float = 0.35
@@ -83,11 +103,13 @@ var _last_health: float = -1.0            # HP at the last decision — a drop s
 var _last_fear: float = 0.0               # panic/fear level at the last decision — a rise since = dread (aversive)
 var _last_o2: float = 1.0                 # breath fraction (0..1) at the last decision — low = suffocating
 var _last_temp: float = 15.0             # ambient °C at the last decision — outside comfort band = discomfort
+var _last_veto: bool = false             # did the last decide() REFUSE a learned-lethal action? (Creature reads this to retreat)
 
 # lifetime stats (surfaced to the inspector + harness)
 var escalations: int = 0
 var decisions: int = 0
 var lessons: int = 0                       # heuristics acquired socially
+var vetoes: int = 0                        # times this brain REFUSED a learned-lethal action (Half C, surfaced to harness)
 
 # Introspection for the thought inspector. These SURFACE the real decision — they do NOT run any model.
 #   _last_choice : the most recent fast-path pick (every decide) + how it was reached.
@@ -114,6 +136,7 @@ func seed_from_genome(genome) -> void:
 ## Decide the action to actually take, given the innate cascade's pick and the current signature.
 ## Returns an action name from LAActionRegistry. Reflex actions (flee) are never second-guessed.
 func decide(c, innate_action: String, sig: Dictionary, delta: float) -> String:
+	_last_veto = false
 	if LAActionRegistry.is_reflex(innate_action):
 		_record_choice(innate_action, "reflex", sig)
 		return innate_action
@@ -148,6 +171,20 @@ func decide(c, innate_action: String, sig: Dictionary, delta: float) -> String:
 			_escalate(c, sig, innate_action)
 	elif _should_escalate(c, null):
 		_escalate(c, sig, innate_action)
+
+	# LEARNED-LETHAL VETO (Half C): if the action about to be taken is the innate one AND this creature has
+	# learned it is reliably lethal in this situation (weight at/below the lethal floor), refuse it and redirect
+	# to a safe alternative. Only the innate action can reach here already sub-floor: a learned override had to
+	# clear CONFIDENCE_THRESHOLD (positive) to be chosen, and the risk-revive guard above never adds risk to a
+	# sub-floor weight — so an overridden (rewarding) action and a vetoed (lethal) one are mutually exclusive,
+	# and a safe/positive action is NEVER vetoed. The redirect always yields a valid, benign action (never a
+	# freeze/no-op); Creature.gd additionally steers the body AWAY from the hazard on a veto.
+	if chosen == innate_action and learned != null \
+			and String((learned as Dictionary).get("action", "")) == innate_action \
+			and float((learned as Dictionary).get("weight", 0.0)) <= VETO_WEIGHT:
+		chosen = _safe_fallback(innate_action)
+		_last_veto = true
+		vetoes += 1
 
 	_record_choice(chosen, "habit" if chosen != innate_action else "instinct", sig)
 	_last_key = key
@@ -303,6 +340,26 @@ func is_thinking() -> bool:
 	return _pending
 
 
+## Did the most recent decide() REFUSE a learned-lethal action (Half C)? Creature.gd reads this to steer the
+## body AWAY from the hazard (a committed retreat) rather than merely coasting on the safe fallback's heading.
+func was_vetoed() -> bool:
+	return _last_veto
+
+
+## Pick a safe action to take instead of one learned to be reliably lethal in this situation. It NEVER returns
+## the lethal action and NEVER returns a null/no-op — there is always the benign roam so a vetoed creature
+## keeps moving (no freeze/refuse-to-act). The policy stores one action per situation-key (the lethal one
+## here), so there is no rival learned action to promote; the roam is the safe default, and once the creature
+## survives on it the ordinary reward loop reinforces the roam INTO a positive learned override for next time.
+func _safe_fallback(lethal_action: String) -> String:
+	if lethal_action != SAFE_FALLBACK_ACTION:
+		return SAFE_FALLBACK_ACTION
+	# The benign roam itself is what was learned lethal here (rare): fall to a different valid, non-lethal action.
+	if lethal_action != "rest":
+		return "rest"
+	return "flock"
+
+
 ## SOCIAL LEARNING: copy confident heuristics from same-species creatures this one can SEE, weighted
 ## by relatedness. Throttled and neighbour-capped so it stays cheap. Called by the creature each tick.
 func observe(c, delta: float) -> void:
@@ -330,17 +387,26 @@ func observe(c, delta: float) -> void:
 		for key in mc.policy.keys():
 			var e = mc.policy[key]
 			var demo_w: float = float((e as Dictionary).get("weight", 0.0))
-			if demo_w < CONFIDENCE_THRESHOLD:
-				continue                              # only imitate behaviours they're confident in
-			_absorb_observation(int(key), String((e as Dictionary).get("action", "")), rel, demo_w)
+			if demo_w >= CONFIDENCE_THRESHOLD:
+				_absorb_observation(int(key), String((e as Dictionary).get("action", "")), rel, demo_w)
+			elif demo_w <= AVERSION_SHARE:
+				# SOCIAL AVERSION SPREAD (Half D): a kin that learned "this situation = death" (a reliably-lethal,
+				# confident negative) transmits that FEAR through the SAME vision-gated imitation path that spreads
+				# positive habits, so the group avoids the hazard without each member dying to discover it. Mirror
+				# of _absorb_observation: it deepens the observer's aversion toward the SAME feared action/key.
+				_absorb_aversion(int(key), String((e as Dictionary).get("action", "")), rel, demo_w)
 		# Also inherit their confident CUE associations — this is how "watch the vultures" spreads
 		# culturally: a youngster copies which signs mean food from the elders it grows up watching.
 		for ck in mc.cue_values.keys():
 			var demo_cv: float = float(mc.cue_values[ck])
-			if demo_cv < CONFIDENCE_THRESHOLD:
-				continue
-			var cgain: float = rel * OBSERVE_TRANSFER * _confidence_mult(demo_cv)
-			cue_values[ck] = clampf(cue_value(String(ck)) + cgain, CUE_MIN, CUE_MAX)
+			if demo_cv >= CONFIDENCE_THRESHOLD:
+				var cgain: float = rel * OBSERVE_TRANSFER * _confidence_mult(demo_cv)
+				cue_values[ck] = clampf(cue_value(String(ck)) + cgain, CUE_MIN, CUE_MAX)
+			elif demo_cv <= AVERSION_SHARE:
+				# The same aversion spread for CUE associations: a confidently-negative cue (a sign kin learned
+				# reliably precedes danger) transmits its dread to nearby kin — fear of a warning sign is cultural too.
+				var closs: float = rel * OBSERVE_TRANSFER * _confidence_mult(absf(demo_cv))
+				cue_values[ck] = clampf(cue_value(String(ck)) - closs, CUE_MIN, CUE_MAX)
 
 
 # Situational learning rate: you learn a thing FASTER the more sure the animal you're watching is —
@@ -371,6 +437,27 @@ func _absorb_observation(key: int, action: String, rel: float, demo_weight: floa
 			lessons += 1
 		else:
 			(entry as Dictionary)["weight"] = w
+
+
+# SOCIAL AVERSION SPREAD (Half D): the negative twin of _absorb_observation. Watching a kin that is CONFIDENT
+# an action is lethal (a strong negative weight) deepens my OWN aversion to that same action in that same
+# situation, weighted by relatedness and their certainty — so a learned fear diffuses through a herd exactly
+# as a learned habit does, and kin avoid the hazard without each dying first. If I already favour a DIFFERENT
+# action for this situation I keep it (I already avoid their feared move); otherwise I plant/deepen the fear so
+# my veto fires next time the innate cascade would walk me into it. Never touches reflexes (they never reach here).
+func _absorb_aversion(key: int, action: String, rel: float, demo_weight: float) -> void:
+	if not LAActionRegistry.is_valid(action):
+		return
+	var fear: float = rel * OBSERVE_TRANSFER * _confidence_mult(absf(demo_weight))
+	var entry = policy.get(key, null)
+	if entry == null:
+		# Never faced this: plant the fear as a fresh negative entry so repeated sightings drive it to the veto floor.
+		policy[key] = {"action": action, "weight": clampf(-fear, MIN_WEIGHT, MAX_WEIGHT), "risk": 0.0}
+		lessons += 1
+	elif String((entry as Dictionary)["action"]) == action:
+		# My entry is about the SAME action they fear: deepen my aversion toward their proven-lethal knowledge.
+		(entry as Dictionary)["weight"] = clampf(float((entry as Dictionary)["weight"]) - fear, MIN_WEIGHT, MAX_WEIGHT)
+	# else: I already favour a different action here (I don't take their feared move) — leave my safer habit intact.
 
 
 # Sound-based social learning: a heard call (e.g. a kin's forage cry) nudges my policy for MY
