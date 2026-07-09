@@ -31,6 +31,34 @@ const MAX_WEIGHT: float = 6.0
 const MIN_WEIGHT: float = -2.0
 const LEARN_RATE: float = 0.6
 
+# --- multi-sense reward valence (Half A) --------------------------------------------------------
+# The reinforcement reward is a general valence SUM, not just "did I eat/drink". Energy + hydration
+# gains stay primary (the appetitive drive); on top of that we SUBTRACT the discomfort/pain the last
+# action brought — HP lost, a spike of fear (predator proximity), running low on breath in my medium
+# (drowning/suffocation), or sitting outside my temperature comfort band. So a creature learns to
+# avoid predators, cold, and water the SAME way it already learned to seek food: whatever action
+# preceded pain earns a negative weight and stops being chosen. Weights are tunable; no per-species code.
+const W_DAMAGE: float = 6.0                # aversion per unit of fractional HP lost since the last decision
+const W_FEAR: float = 0.25                 # aversion per unit rise in the panic/fear level (predator dread)
+const W_O2: float = 1.0                    # aversion for being fully out of breath in my medium (suffocating)
+const W_TEMP: float = 0.03                 # aversion per °C outside the comfort band (cold snap / heat)
+const TERM_CAP: float = 1.0                # clamp on each individual aversive term so one sense can't dominate
+
+# --- drive-modulated risk tolerance (Half B) ----------------------------------------------------
+# Each learned entry also remembers how much that action HURT (its aversive magnitude) separate from its
+# net worth, so a driven creature can knowingly discount that pain. RISK_RETAIN fades the memory when the
+# action stops hurting; RISK_TOLERANCE is how much of the (drive-scaled) remembered pain is added back to
+# the entry's effective weight at decision time — a starving/parched creature discounts discomfort and
+# attempts the risky-but-rewarding action; a sated one applies the full aversion and refuses it.
+const RISK_RETAIN: float = 0.7             # how much remembered pain carries frame-to-frame (rest decays)
+const RISK_MAX: float = 2.0               # ceiling on remembered pain per entry
+const RISK_TOLERANCE: float = 1.3          # how strongly hunger/thirst buys back an aversive action
+# Drive can revive an action learned as merely UNCOMFORTABLE-but-survivable (weight above this floor), never
+# one learned as reliably LETHAL: an action that keeps killing the creature drives its weight down to
+# MIN_WEIGHT and stays refused even while starving, so "wade into cold water for food" is discountable but
+# "walk into what drowns/suffocates me" is not. This keeps lethal aversions as non-negotiable as a reflex.
+const RISK_REVIVE_FLOOR: float = -1.0
+
 # Social learning: how much one sighting of a confident neighbour shifts my confidence, by relatedness.
 const KIN_RELATEDNESS: float = 1.0
 const SPECIES_RELATEDNESS: float = 0.35
@@ -44,11 +72,17 @@ var _pending: bool = false                 # an LLM request is in flight for thi
 var _cooldown: float = 0.0                 # seconds until this creature may escalate again
 var _observe_cd: float = 0.0               # throttles the social-learning scan
 
-# previous discretionary decision, kept so we can reinforce it once its outcome is visible
+# previous discretionary decision, kept so we can reinforce it once its outcome is visible. The extra
+# senses (health/fear/breath/temp) are snapshotted alongside energy/hydration so the next reinforce can
+# measure how the FULL welfare of the creature changed since the action — not just whether it fed.
 var _last_key: int = -1
 var _last_action: String = ""
 var _last_energy: float = -1.0
 var _last_hydration: float = -1.0
+var _last_health: float = -1.0            # HP at the last decision — a drop since = damage taken (aversive)
+var _last_fear: float = 0.0               # panic/fear level at the last decision — a rise since = dread (aversive)
+var _last_o2: float = 1.0                 # breath fraction (0..1) at the last decision — low = suffocating
+var _last_temp: float = 15.0             # ambient °C at the last decision — outside comfort band = discomfort
 
 # lifetime stats (surfaced to the inspector + harness)
 var escalations: int = 0
@@ -87,25 +121,43 @@ func decide(c, innate_action: String, sig: Dictionary, delta: float) -> String:
 	_cooldown = maxf(0.0, _cooldown - delta)
 	var key: int = int(sig.get("key", -1))
 
-	# Reinforce the *previous* discretionary decision from how energy/hydration changed since.
-	_reinforce(c)
+	# Sample the full sense state ONCE this decision (health/fear/breath/temp) and reinforce the PREVIOUS
+	# decision from how that whole welfare changed since — not just energy/hydration.
+	var senses: Dictionary = _sample_senses(c)
+	_reinforce(c, senses)
 
 	decisions += 1
 	var learned = policy.get(key, null)
 	var chosen: String = innate_action
-	if learned != null and float((learned as Dictionary).get("weight", 0.0)) >= CONFIDENCE_THRESHOLD:
-		var la: String = String((learned as Dictionary).get("action", ""))
-		if LAActionRegistry.is_valid(la):
-			chosen = la
-	else:
-		if _should_escalate(c, learned):
+	if learned != null:
+		# RISK TOLERANCE (Half B): the entry's remembered pain (`risk`) is discounted by how urgently this
+		# creature is driven (hunger/thirst), then added back to its net weight. A well-fed animal sees the
+		# full aversion (weight stays sub-threshold → it refuses the risky action); a starving/parched one
+		# discounts the pain, tipping the same action over the threshold → it attempts the risky-but-rewarding
+		# move (wade into cold water to reach food). Reflexes never reach here — they returned above.
+		var w: float = float((learned as Dictionary).get("weight", 0.0))
+		var risk: float = float((learned as Dictionary).get("risk", 0.0))
+		var eff: float = w
+		if w > RISK_REVIVE_FLOOR:                       # never revive an action learned as reliably lethal
+			eff += risk * _drive_urgency(c) * RISK_TOLERANCE
+		if eff >= CONFIDENCE_THRESHOLD:
+			var la: String = String((learned as Dictionary).get("action", ""))
+			if LAActionRegistry.is_valid(la):
+				chosen = la
+		elif _should_escalate(c, learned):
 			_escalate(c, sig, innate_action)
+	elif _should_escalate(c, null):
+		_escalate(c, sig, innate_action)
 
 	_record_choice(chosen, "habit" if chosen != innate_action else "instinct", sig)
 	_last_key = key
 	_last_action = chosen
 	_last_energy = c.energy
 	_last_hydration = c.hydration
+	_last_health = float(senses.get("health", c.health))
+	_last_fear = float(senses.get("fear", 0.0))
+	_last_o2 = float(senses.get("o2", 1.0))
+	_last_temp = float(senses.get("temp", _last_temp))
 	return chosen
 
 
@@ -118,8 +170,25 @@ func _record_choice(action: String, how: String, sig: Dictionary) -> void:
 	}
 
 
-## Reward the last action by whether the creature is better off (ate / drank / stayed healthy).
-func _reinforce(c) -> void:
+## Sample the creature's full welfare senses right now. Cheap O(1) scalar reads (+ one field temp probe);
+## called once per decision, which is already throttled — no per-frame or neighbour scan. Returns
+## {health, fear, o2, temp}: HP, the panic/fear level, the breath fraction in-medium, and ambient °C.
+func _sample_senses(c) -> Dictionary:
+	var o2: float = 1.0
+	if c.breath_capacity > 0.0:
+		o2 = clampf(c._breath / c.breath_capacity, 0.0, 1.0)
+	var temp: float = _last_temp
+	if c._material != null and c._material.has_method("temp_at"):
+		temp = c._material.temp_at(c.global_position)
+	return {"health": c.health, "fear": c._panic_timer, "o2": o2, "temp": temp}
+
+
+## Reward the last action by how the creature's WHOLE welfare changed since (Half A). Energy + hydration
+## gains are the primary appetitive drive; on top we subtract the discomfort it brought — HP lost, a rise
+## in fear, running out of breath, or sitting outside the comfort band — so the animal learns to avoid
+## predators/cold/drowning exactly as it learns to eat. The aversive magnitude is ALSO stored per entry
+## (`risk`) so Half B's decision can discount it by drive. `senses` is the fresh snapshot from decide().
+func _reinforce(c, senses: Dictionary) -> void:
 	if _last_key < 0 or _last_action == "":
 		return
 	var de: float = 0.0
@@ -128,13 +197,56 @@ func _reinforce(c) -> void:
 	var dh: float = 0.0
 	if c.max_hydration > 0.0:
 		dh = (c.hydration - _last_hydration) / c.max_hydration
-	var reward: float = clampf((de + dh) * 8.0, -1.0, 1.0)
+	var appetitive: float = (de + dh) * 8.0
+
+	# Aversive senses (each >= 0, individually capped so one can't swamp the sum).
+	var aversive: float = 0.0
+	# Damage: fraction of HP lost since the last decision.
+	if c.max_health > 0.0:
+		var dhp: float = (_last_health - float(senses.get("health", c.health))) / c.max_health
+		aversive += clampf(maxf(0.0, dhp) * W_DAMAGE, 0.0, TERM_CAP)
+	# Fear: a rise in the panic/dread level (predator proximity, felt violence).
+	var dfear: float = float(senses.get("fear", 0.0)) - _last_fear
+	aversive += clampf(maxf(0.0, dfear) * W_FEAR, 0.0, TERM_CAP)
+	# Suffocation: low breath in my medium over the interval (drowning / smoke / beached gills).
+	var breath_frac: float = minf(_last_o2, float(senses.get("o2", 1.0)))
+	aversive += clampf((1.0 - breath_frac) * W_O2, 0.0, TERM_CAP)
+	# Temperature: the worst deviation outside the comfort band across the interval (cold snap / heat).
+	var dev: float = maxf(_comfort_deviation(_last_temp), _comfort_deviation(float(senses.get("temp", _last_temp))))
+	aversive += clampf(dev * W_TEMP, 0.0, TERM_CAP)
+
+	var reward: float = clampf(appetitive - aversive, -1.0, 1.0)
 	var entry = policy.get(_last_key, null)
 	if entry == null or String((entry as Dictionary).get("action", "")) != _last_action:
-		policy[_last_key] = {"action": _last_action, "weight": START_WEIGHT}
+		policy[_last_key] = {"action": _last_action, "weight": START_WEIGHT, "risk": 0.0}
 		entry = policy[_last_key]
 	var w: float = float((entry as Dictionary)["weight"]) + reward * LEARN_RATE
 	(entry as Dictionary)["weight"] = clampf(w, MIN_WEIGHT, MAX_WEIGHT)
+	# Remember the pain alone (Half B): fades when the action stops hurting, so stale aversion doesn't stick.
+	var prev_risk: float = float((entry as Dictionary).get("risk", 0.0))
+	(entry as Dictionary)["risk"] = clampf(prev_risk * RISK_RETAIN + aversive, 0.0, RISK_MAX)
+
+
+# How far `t` (°C) lies outside the comfort band [COOL, WARM]; 0 inside. Reuses the metabolism band so the
+# discomfort the body actually suffers and the aversion the mind learns are the SAME threshold (no drift).
+func _comfort_deviation(t: float) -> float:
+	if t > LACreatureMetabolism.WARM_COMFORT:
+		return t - LACreatureMetabolism.WARM_COMFORT
+	if t < LACreatureMetabolism.COOL_COMFORT:
+		return LACreatureMetabolism.COOL_COMFORT - t
+	return 0.0
+
+
+# Drive urgency in [0,1]: how hard hunger OR thirst is pushing this creature right now (fractional deficit).
+# This is what discounts remembered pain in decide() — the hungrier/thirstier, the more risk it will accept.
+func _drive_urgency(c) -> float:
+	var hunger: float = 0.0
+	if c.max_energy > 0.0:
+		hunger = clampf(1.0 - c.energy / c.max_energy, 0.0, 1.0)
+	var thirst: float = 0.0
+	if c.max_hydration > 0.0:
+		thirst = clampf(1.0 - c.hydration / c.max_hydration, 0.0, 1.0)
+	return maxf(hunger, thirst)
 
 
 func _should_escalate(c, learned) -> bool:
