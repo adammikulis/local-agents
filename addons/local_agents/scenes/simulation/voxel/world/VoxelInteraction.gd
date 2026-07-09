@@ -79,8 +79,19 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _world != null and _world.has_method("toggle_streamer"):
 			_world.toggle_streamer()
 		return
-	# Palette / selection hotkeys: Esc -> Select, 1-7 arm Life, Shift+1-5 arm Disasters,
-	# Tab / Shift+Tab cycle the selection through on-screen entities.
+	# H: show/hide the whole HUD (spawn palette + inspector + status). Routed to the HUD's own toggle.
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_H:
+		if _hud != null and _hud.has_method("toggle_visible"):
+			_hud.toggle_visible()
+		return
+	# [ / ]: shrink / grow the spawn brush from the keyboard (same action as Ctrl + wheel).
+	if event is InputEventKey and event.pressed and not event.echo \
+			and (event.keycode == KEY_BRACKETLEFT or event.keycode == KEY_BRACKETRIGHT):
+		_brush.adjust_radius(event.keycode == KEY_BRACKETRIGHT)
+		return
+	# Palette / selection hotkeys: Esc -> Select, digit keys arm a palette entry (Shift for the disasters
+	# cluster), Tab / Shift+Tab cycle the selection through on-screen entities. The key->kind mapping and
+	# the progression lock both live in the shared hotkey registry / HUD, so nothing is duplicated here.
 	if event is InputEventKey and event.pressed and not event.echo:
 		var key_ev: InputEventKey = event as InputEventKey
 		if key_ev.keycode == KEY_ESCAPE:
@@ -90,8 +101,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		if key_ev.keycode == KEY_TAB:
 			_cycle_selection(-1 if key_ev.shift_pressed else 1)
 			return
-		if key_ev.keycode >= KEY_1 and key_ev.keycode <= KEY_9:
-			_arm_hotkey(key_ev.keycode - KEY_1, key_ev.shift_pressed)
+		var kind: String = LAHotkeyRegistry.spawn_kind_for_key(key_ev.keycode, key_ev.shift_pressed)
+		if kind != "":
+			_arm_hotkey(kind)
 			return
 	# While painting, drag the brush across the terrain to keep applying the armed kind.
 	if event is InputEventMouseMotion and _brush.is_painting() and _brush.armed_kind() != "":
@@ -136,15 +148,13 @@ func on_spawn_selected(kind: String) -> void:
 		_hud.set_status("Cast %s — right-click the ground to place." % kind)
 
 
-# Number-key arming: `index` is the 0-based digit (1 key -> 0). Shift picks the Disasters
-# cluster, otherwise Life. Routes through the HUD so the palette buttons stay in sync.
-func _arm_hotkey(index: int, shifted: bool) -> void:
+# Digit-select: arm `kind` through the HUD so the palette button, the armed state, and the progression
+# lock all stay in sync (arm_kind refuses a not-yet-unlocked entry). The key->kind mapping is resolved by
+# the shared hotkey registry, so this stays a thin router.
+func _arm_hotkey(kind: String) -> void:
 	if _hud == null or not _hud.has_method("arm_kind"):
 		return
-	var kinds: PackedStringArray = LASpawnPaletteHud.DISASTER_KINDS if shifted else LASpawnPaletteHud.LIFE_KINDS
-	if index < 0 or index >= kinds.size():
-		return
-	_hud.arm_kind(kinds[index])
+	_hud.arm_kind(kind)
 
 
 # Tab / Shift+Tab: walk the selection through on-screen selectables (nearest camera-first) and
