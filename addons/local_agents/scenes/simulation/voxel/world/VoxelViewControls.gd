@@ -28,6 +28,11 @@ func _init() -> void:
 func setup(host) -> void:
 	_host = host
 	_build_ui()
+	_apply_locks()
+	# Re-enable a button the instant its capability is earned (campaign). No-op when no progression exists.
+	var prog: LAGameProgression = LAGameProgression.active()
+	if prog != null:
+		prog.capability_unlocked.connect(func(_id: String) -> void: _apply_locks())
 
 
 func _build_ui() -> void:
@@ -97,6 +102,17 @@ func _add_divider(parent: Control) -> void:
 	sep.text = "·"
 	sep.add_theme_color_override("font_color", Color(0.6, 0.65, 0.75))
 	parent.add_child(sep)
+
+
+## Grey out the view-mode buttons whose capability is not yet earned (campaign). Geosync and the solar-system
+## overview are gated unlocks; orbit stays available from the start. Sandbox / no progression = all enabled.
+func _apply_locks() -> void:
+	if _geo_btn == null:
+		return
+	_geo_btn.disabled = not LAGameProgression.cap_unlocked("view_geosync")
+	_solar_btn.disabled = not LAGameProgression.cap_unlocked("view_solar")
+	_geo_btn.tooltip_text = "Geosync" if not _geo_btn.disabled else "Geosync — locked (earn it in the campaign)"
+	_solar_btn.tooltip_text = "Solar System" if not _solar_btn.disabled else "Solar System — locked (campaign capstone)"
 
 
 ## Mirror the host's camera-mode state onto the buttons (no-signal so it doesn't re-fire the callbacks).

@@ -171,6 +171,10 @@ func parse_cmdline() -> void:
 			_start_solar = true
 		elif arg == "--fly":
 			_start_fly = true
+		elif arg == "--campaign":
+			GameMode.start_campaign()      # force campaign gating for a verification run (menu sets this normally)
+		elif arg == "--sandbox":
+			GameMode.start_sandbox()       # force sandbox (everything unlocked) for a verification run
 	# Apply the fast-forward multiplier through the pause menu's single setter (shared with the in-menu speed
 	# buttons). Clamped there; N=1 leaves the engine clock untouched.
 	if _pause_menu != null:
@@ -231,6 +235,10 @@ func set_orbit_mode() -> void:
 ## GEOSYNC: attach the camera to the planet's rotating frame (locked over one region). Enabling also turns the
 ## planet spin on (via manual_rotate()) so the lock is visible, and coming back to solar/orbit is lossless.
 func set_geosync(on: bool) -> void:
+	# Gated capability: geosync is earned mid-campaign (sandbox / no progression = always available).
+	if on and not LAGameProgression.cap_unlocked("view_geosync"):
+		_refresh_view_controls()
+		return
 	_geosync = on
 	if on:
 		_fly = false
@@ -266,6 +274,10 @@ func toggle_fly() -> void:
 ## PLANET ↔ SOLAR-SYSTEM view. Solar = a pulled-back manual framing that shows the planet AND the sun in one
 ## shot; planet = the default close orbit. Needs the star + body refs (wired in bind()).
 func set_solar_view(on: bool) -> void:
+	# Gated capability: the solar-system overview is the campaign CAPSTONE (sandbox / no progression = available).
+	if on and not LAGameProgression.cap_unlocked("view_solar"):
+		_refresh_view_controls()
+		return
 	_solar_view = on
 	if _camera == null:
 		return

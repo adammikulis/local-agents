@@ -237,12 +237,20 @@ func set_orbit_target(center: Vector3, radius: float) -> void:
 	_orbit_center = center
 	_orbit_radius = maxf(1.0, radius)
 	_orbit_min_distance = _orbit_radius * ORBIT_MIN_DISTANCE_MULT
-	_orbit_max_distance = _orbit_radius * ORBIT_MAX_DISTANCE_MULT
+	_orbit_max_distance = _effective_orbit_max()
 	_distance = clampf(_orbit_radius * ORBIT_DEFAULT_DISTANCE_MULT, _orbit_min_distance, _orbit_max_distance)
 	_orbit_azimuth = 0.0
 	_orbit_elevation = deg_to_rad(20.0)
 	stop_tracking()          # storm-follow is a flat-world concept; drop it on entering orbit
 	_update_transform()
+
+
+## The orbit max-distance ceiling in world units, capped by the campaign progression: the player starts
+## constrained near the surface and each earned stage raises the ceiling (sandbox / no progression = the full
+## ORBIT_MAX_DISTANCE_MULT). Recomputed on every zoom so a live unlock takes effect immediately.
+func _effective_orbit_max() -> float:
+	var cap_mult: float = minf(ORBIT_MAX_DISTANCE_MULT, LAGameProgression.zoom_ceiling_mult())
+	return _orbit_radius * maxf(ORBIT_MIN_DISTANCE_MULT, cap_mult)
 
 
 ## Leave orbit mode and return to the flat fly camera (kept for completeness / mode toggles).
@@ -342,7 +350,7 @@ func set_solar_view(pos: Vector3, look_target: Vector3, orbit_dist: float) -> vo
 ## Leave the solar overview and reframe the planet at the default orbit distance.
 func set_planet_view() -> void:
 	_solar_view = false
-	_orbit_max_distance = _orbit_radius * ORBIT_MAX_DISTANCE_MULT
+	_orbit_max_distance = _effective_orbit_max()
 	_distance = clampf(_orbit_radius * ORBIT_DEFAULT_DISTANCE_MULT, _orbit_min_distance, _orbit_max_distance)
 	_update_transform()
 
@@ -564,6 +572,8 @@ func _update_mouse_capture() -> void:
 
 func _zoom(factor: float) -> void:
 	if _orbit_mode:
+		# Re-read the progression-capped ceiling each zoom so a freshly-earned stage lets the player pull out further.
+		_orbit_max_distance = _effective_orbit_max()
 		_distance = clampf(_distance * factor, _orbit_min_distance, _orbit_max_distance)
 	else:
 		_distance = clampf(_distance * factor, MIN_DISTANCE, MAX_DISTANCE)
