@@ -62,6 +62,12 @@ const O2_AMBIENT: float = 1.0
 # Ambient atmospheric humidity every OPEN cell is seeded to — the starting moisture the terminator condenses
 # into cloud/fog on the cold (night) side. Evaporation from the static field sea replenishes it.
 const VAPOR_AMBIENT: float = 0.3
+# Frozen H₂O (snowpack/ice) — the third phase of the ONE conserved water substance (liquid `_water`, airborne
+# `_airwater`, frozen `_snow`). GPU-owned: the snowice deposition kernel + freeze/melt reaction records (R21/R22)
+# grow and thaw it; read back for queries/telemetry only. SNOW_PRESENT = depth that counts a cell snow-covered;
+# ICE_DEPTH = a thick pack that reads as glacial ice (the deep end of the same channel — no separate ice buffer).
+const SNOW_PRESENT: float = 0.01
+const ICE_DEPTH: float = 0.5
 # Saturation curve sat(T) = SAT_BASE * exp(SAT_TEMP_GAIN * (T - EVAP_TEMP_REF)) — the dewpoint the unified
 # `airwater` channel is read against. cloud/fog/vapor are DERIVED from airwater vs sat(T), never stored;
 # these MUST match the kernel constants (atmos_evap/atmos_precip _sphere3d.glsl). FOG_MAX_TEMP splits the
@@ -85,6 +91,9 @@ var _temp: PackedFloat32Array = PackedFloat32Array()     # temperature °C per c
 # old vapor/cloud/fog trio). vapor = min(airwater, sat(T)); condensed = max(0, airwater − sat(T)); the
 # condensed part reads as fog (cool + near ground) or cloud (else) — all DERIVED, nothing else stores it.
 var _airwater: PackedFloat32Array = PackedFloat32Array()
+# Frozen H₂O per cell (snowpack depth) — the SAME conserved substance as _water/_airwater, just the cold phase.
+# GPU-owned (never re-uploaded); read back each frame for snow_cell_count/ice_cell_count/snow_depth_at + h2o_total.
+var _snow: PackedFloat32Array = PackedFloat32Array()
 var _lava: PackedFloat32Array = PackedFloat32Array()     # lava mass per cell (a hot, viscous liquid)
 # --- Emergent FIRE / COMBUSTION (LAMaterialCombustion3D): a FUEL channel (flammable vegetation mass seeded
 # on grassy surface cells + under plant/tree actors) and a FIRE channel (burning intensity, 0 = not burning).
@@ -561,6 +570,7 @@ func _apply_sphere_readback(res: Dictionary) -> void:
 	if res.has("o2") and res["o2"].size() == _cell_count: _o2 = res["o2"]
 	if res.has("co2") and res["co2"].size() == _cell_count: _co2 = res["co2"]
 	if res.has("biomass") and res["biomass"].size() == _cell_count: _biomass = res["biomass"]
+	if res.has("snow") and res["snow"].size() == _cell_count: _snow = res["snow"]
 	if res.has("dust") and res["dust"].size() == _cell_count: _dust = res["dust"]
 
 
@@ -921,12 +931,67 @@ func magma_erupting() -> bool:
 	return false
 func erosion_cell_count() -> int:
 	return 0
-func snow_depth_at(x: float, z: float) -> float:
-	return 0.0
+## Snow depth at a world point (frozen H₂O in the cell). 2.5D-style (x,z) calls have no radial point, so they
+## return the safe default 0 (matching temp_at); a full 3D call (x,z,y) reads the real cell — three-d-always.
+func snow_depth_at(x: float, z: float, y: float = NAN) -> float:
+	if _snow.size() != _cell_count:
+		return 0.0
+	if is_nan(y):
+		return 0.0
+	var c: int = world_to_cell(Vector3(x, y, z))
+	return _snow[c] if c >= 0 else 0.0
+## Open cells carrying a snowpack (frozen H₂O over SNOW_PRESENT) — the emergent snow-line count for SIM_REPORT.
 func snow_cell_count() -> int:
-	return 0
+	if _snow.size() != _cell_count:
+		return 0
+	var n: int = 0
+	for c in _cell_count:
+		if _solid[c] == 0 and _snow[c] > SNOW_PRESENT:
+			n += 1
+	return n
+## Cells whose pack is thick enough to read as glacial ICE (deep end of the SAME _snow channel, no separate buffer).
 func ice_cell_count() -> int:
-	return 0
+	if _snow.size() != _cell_count:
+		return 0
+	var n: int = 0
+	for c in _cell_count:
+		if _solid[c] == 0 and _snow[c] >= ICE_DEPTH:
+			n += 1
+	return n
+## Total frozen H₂O over the field (one leg of the conserved h2o_total).
+func snow_total() -> float:
+	if _snow.size() != _cell_count:
+		return 0.0
+	var sum: float = 0.0
+	for c in _cell_count:
+		if _solid[c] == 0:
+			sum += _snow[c]
+	return sum
+## Total dynamic liquid water over the field (excludes the static sea reservoir; one leg of h2o_total).
+func water_total() -> float:
+	if _water.size() != _cell_count:
+		return 0.0
+	var sum: float = 0.0
+	for c in _cell_count:
+		if _solid[c] == 0:
+			sum += _water[c]
+	return sum
+## Conserved H₂O budget of the DYNAMIC system: liquid water + airborne airwater + frozen snow. Freeze/melt/
+## deposition/evap/rain are all pure transfers between these three, so this must stay BOUNDED (a slow static-sea
+## source + rain-to-sea sink hold it at a steady level) — the mass-conservation spot check fed into SIM_REPORT.
+func h2o_total() -> float:
+	return water_total() + airwater_total() + snow_total()
+## Mean temperature over the snow-covered cells — proves snow sits on the COLD side (should read below FREEZE_TEMP).
+func snow_line_temp() -> float:
+	if _snow.size() != _cell_count:
+		return 0.0
+	var sum: float = 0.0
+	var n: int = 0
+	for c in _cell_count:
+		if _solid[c] == 0 and _snow[c] > SNOW_PRESENT:
+			sum += _temp[c]
+			n += 1
+	return sum / float(n) if n > 0 else 0.0
 func dust_at(x: float, y: float, z: float) -> float:
 	return 0.0
 func dust_cell_count() -> int:
@@ -1136,6 +1201,8 @@ func report() -> Dictionary:
 		"co2_peak": co2_peak(), "co2_avg": co2_avg(), "fungus_cells": fungus_cells(),
 		"fungus_peak": fungus_peak(), "detritus_peak": detritus_peak(),
 		"biomass_total": biomass_total(),
+		"h2o_total": h2o_total(), "water_total": water_total(), "snow_total": snow_total(),
+		"snow_line_temp": snow_line_temp(),
 	}
 	r.merge(_open_temp_stats())
 	return r

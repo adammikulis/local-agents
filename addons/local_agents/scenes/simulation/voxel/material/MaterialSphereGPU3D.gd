@@ -142,9 +142,11 @@ func end_frame(_rv: bool = true, _rc: bool = true, _rf: bool = true, _rr: bool =
 		return out
 	for k in ["temp", "water", "airwater", "lava", "fire", "o2", "co2", "dust", "shock"]:
 		out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
-	# biomass is a SINGLE (non-ping-pong) GPU-resident channel — read its one buffer directly, not _live().
+	# biomass + snow are SINGLE (non-ping-pong) GPU-resident channels — read their one buffer directly, not _live().
 	if _bufs.has("biomass"):
 		out["biomass"] = _rd.buffer_get_data(_bufs["biomass"]).to_float32_array()
+	if _bufs.has("snow"):
+		out["snow"] = _rd.buffer_get_data(_bufs["snow"]).to_float32_array()
 	return out
 
 func set_field(name: String, arr) -> void:

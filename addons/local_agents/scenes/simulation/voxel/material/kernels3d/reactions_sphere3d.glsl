@@ -25,6 +25,7 @@ layout(set = 0, binding = 4, std430) restrict buffer CO2      { float co2[]; };
 layout(set = 0, binding = 7, std430) restrict buffer Detritus { float detritus[]; };
 layout(set = 0, binding = 8, std430) restrict readonly buffer Fungus { float fungus[]; };
 layout(set = 0, binding = 11, std430) restrict buffer Biomass { float biomass[]; };    // living plant matter (photosynthesis grows it, respiration/decay oxidizes it)
+layout(set = 0, binding = 12, std430) restrict buffer Snow { float snow[]; };          // frozen H₂O (freeze credits it, melt debits it) — SAME substance as water/airwater
 // --- Gate inputs + scratch product target + the record table ----------------------------------------------
 layout(set = 0, binding = 10, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };        // idx*6 + slot
@@ -43,11 +44,13 @@ layout(set = 0, binding = 20, std430) restrict buffer Scratch { float scratch[];
 #define FERT     9
 #define LAVA     10
 #define BIOMASS  11
+#define SNOW     12
 
-#define CONST_FRAC            0
-#define BILINEAR              1
-#define EXCESS_OVER_THRESHOLD 2
-#define RELAX_TARGET          3
+#define CONST_FRAC             0
+#define BILINEAR               1
+#define EXCESS_OVER_THRESHOLD  2
+#define RELAX_TARGET           3
+#define DEFICIT_BELOW_THRESHOLD 4   // mirror of EXCESS: fires when driver is BELOW threshold (freeze at T<FREEZE_TEMP)
 
 #define GATE_OPEN_ABOVE  1
 #define GATE_SURFACE     2
@@ -96,6 +99,7 @@ float read_ch(int slot, uint i) {
 	if (slot == DETRITUS) return detritus[i];
 	if (slot == FUNGUS)   return fungus[i];
 	if (slot == BIOMASS)  return biomass[i];
+	if (slot == SNOW)     return snow[i];
 	return 0.0;
 }
 
@@ -109,6 +113,7 @@ void add_ch(int slot, uint i, float v) {
 	else if (slot == CO2)      { co2[i]       = max(0.0, co2[i] + v); }
 	else if (slot == DETRITUS) { detritus[i]  = max(0.0, detritus[i] + v); }
 	else if (slot == BIOMASS)  { biomass[i]   = max(0.0, biomass[i]  + v); }
+	else if (slot == SNOW)     { snow[i]      = max(0.0, snow[i]     + v); }
 }
 
 // Gate helpers reuse the exact neighbour tests proven in the dissolved kernels.
@@ -158,6 +163,8 @@ void main() {
 			x = rc.rate_k * drv * read_ch(rc.driver2_slot, i);
 		} else if (rc.rate_model == EXCESS_OVER_THRESHOLD) {
 			x = max(0.0, drv - rc.threshold) * rc.rate_k;
+		} else if (rc.rate_model == DEFICIT_BELOW_THRESHOLD) {
+			x = max(0.0, rc.threshold - drv) * rc.rate_k;   // mirror of EXCESS: fires when driver < threshold
 		} else {                            // RELAX_TARGET — signed, no reactant, product = driver channel
 			x = rc.rate_k * (rc.threshold - drv);
 		}

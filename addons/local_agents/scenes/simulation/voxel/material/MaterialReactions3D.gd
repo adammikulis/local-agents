@@ -25,12 +25,20 @@ const FUNGUS: int = 8
 const FERT: int = 9
 const LAVA: int = 10
 const BIOMASS: int = 11
+const SNOW: int = 12                  # frozen H₂O (snowpack/ice) — the same conserved substance as WATER + AIRWATER
 
 # --- Rate models (extent x per cell) ---------------------------------------------------------------------
 const CONST_FRAC: int = 0             # x = k * driver
 const BILINEAR: int = 1               # x = k * driver * driver2
-const EXCESS_OVER_THRESHOLD: int = 2  # x = max(0, driver - threshold) * k
+const EXCESS_OVER_THRESHOLD: int = 2  # x = max(0, driver - threshold) * k   (fires when driver is ABOVE threshold)
 const RELAX_TARGET: int = 3           # x = k * (threshold - driver)  (signed; no reactant; product = driver)
+# DEFICIT_BELOW_THRESHOLD is the mirror of EXCESS_OVER_THRESHOLD: it fires when the driver is BELOW the
+# threshold instead of above it, so a single scalar driver (temperature) can drive a reaction in BOTH
+# directions. EXCESS handles "when hot/wet/high" (melt at T>MELT_TEMP); DEFICIT handles "when cold/dry/low"
+# (freeze at T<FREEZE_TEMP). Both still cap the extent by their reactants, so they stay mass-conserving
+# transfers — the ONLY difference is the sign of (driver − threshold). Any future "when cold/dry/low"
+# reaction (frost, dew, condensation onto a cold surface) reuses this without a new kernel.
+const DEFICIT_BELOW_THRESHOLD: int = 4  # x = max(0, threshold - driver) * k  (fires when driver is BELOW threshold)
 
 # --- Gate bitflags (0 = ungated) -------------------------------------------------------------------------
 const GATE_OPEN_ABOVE: int = 1
@@ -74,6 +82,21 @@ const RESP_RATE: float = 0.01            # per-step k on x = RESP_RATE * biomass
 const RESP_O2_COST: float = 0.5          # O₂ consumed per unit biomass respired (aerobic)
 const RESP_CO2_YIELD: float = 0.6        # CO₂ returned to air per unit biomass respired
 const RESP_DET_YIELD: float = 0.4        # detritus (litter) shed per unit biomass respired
+
+# --- H₂O PHASE CHANGE (freeze / melt) — one conserved substance, phase from temperature (Phase 2c) --------
+# Liquid WATER, atmospheric AIRWATER and frozen SNOW are the SAME H₂O; only the PHASE differs, and the phase
+# is emergent from a cell's TEMPERATURE. Freeze/melt are pure mass-conserving TRANSFERS: debit one phase by x,
+# credit the other by x (coeff 1:1), so H₂O total = water + airwater + snow is conserved by every transition.
+# FREEZE_TEMP / MELT_TEMP MUST match snowice_sphere3d.glsl (the sat(T)-aware snowfall/deposition kernel that
+# freezes the CONDENSED atmospheric water directly — the primary snow source). Hysteresis (FREEZE_TEMP <
+# MELT_TEMP) leaves a stable band where snow neither grows nor melts → a clean, non-flickering snow line.
+# TUNED to the sim's ACTUAL open-cell temperature range (~11–21 °C: this world's static terminator never drops
+# the night/pole floor near 0 °C), so freezing happens in the coldest ~1–2 °C cap instead of NEVER. A literal
+# 0 °C freeze can never fire here — see the task temp-range note; raise these with the real climate range.
+const FREEZE_TEMP: float = 12.5          # WATER (and, in the kernel, condensed AIRWATER) at T below this freezes → SNOW
+const MELT_TEMP: float = 14.0            # SNOW at T above this melts → liquid WATER
+const FREEZE_RATE: float = 0.05          # per-step k on the below-threshold liquid-freeze extent
+const MELT_RATE: float = 0.05            # per-step k on the above-threshold snow-melt extent
 
 
 ## Author one record as a Dictionary (unspecified fields default to the ungated/no-op values). Reactant and
@@ -125,6 +148,20 @@ static func records() -> Array:
 		_rec(BILINEAR, RESP_RATE, BIOMASS, [[BIOMASS, 1.0], [O2, RESP_O2_COST]],
 			[[CO2, RESP_CO2_YIELD, TGT_SELF], [DETRITUS, RESP_DET_YIELD, TGT_SELF]],
 			0, 0.0, O2),
+
+		# R21 — FREEZE (liquid → snow): standing/melt WATER at a cell colder than FREEZE_TEMP crystallizes to
+		# SNOW. DEFICIT_BELOW_THRESHOLD: x = max(0, FREEZE_TEMP - temp) * FREEZE_RATE, capped by the WATER present
+		# → a pure conserving transfer (water -= x; snow += x). The PRIMARY snowfall path (freezing the CONDENSED
+		# atmospheric water at cold ground, which needs sat(T)) is the snowice deposition kernel; this record is
+		# the liquid leg — it refreezes meltwater/puddles/rivers so the H₂O phase tracks temperature everywhere,
+		# not only in the air. It is also the exemplar of the new below-threshold rate model.
+		_rec(DEFICIT_BELOW_THRESHOLD, FREEZE_RATE, TEMP, [[WATER, 1.0]], [[SNOW, 1.0, TGT_SELF]], 0, FREEZE_TEMP),
+
+		# R22 — MELT (snow → water): SNOW at a cell warmer than MELT_TEMP thaws to liquid WATER (meltwater the
+		# water CA then routes downhill on the next step). EXCESS_OVER_THRESHOLD: x = max(0, temp - MELT_TEMP) *
+		# MELT_RATE, capped by the SNOW present → conserving transfer (snow -= x; water += x). REPLACES the melt
+		# branch of snowice_sphere3d.glsl (which is now deposition-only).
+		_rec(EXCESS_OVER_THRESHOLD, MELT_RATE, TEMP, [[SNOW, 1.0]], [[WATER, 1.0, TGT_SELF]], 0, MELT_TEMP),
 	]
 
 

@@ -15,7 +15,8 @@ extends RefCounted
 ## Kernel binding -> bufs-key map (authoritative layout is reactions_sphere3d.glsl):
 ##   0 Temp=temp[back] · 1 Water=water[back] · 2 AirWater=airwater[back] · 3 O2=o2[back] · 4 CO2=co2[back] ·
 ##   7 Detritus=detritus(single) · 8 Fungus=fungus[live] · 10 Solid=solid · 11 Biomass=biomass(single) ·
-##   15 Neigh=nbr · 20 Scratch=fungus_fert(single, SCRATCH product) · 21 Defs=<record SSBO>.
+##   12 Snow=snow(single, freeze/melt phase transfer) · 15 Neigh=nbr · 20 Scratch=fungus_fert(single, SCRATCH
+##   product) · 21 Defs=<record SSBO>.
 ## Push { uint cell_count; uint n_records; float dt; float pad; } — 16 bytes.
 
 const KERNEL_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/reactions_sphere3d.glsl"
@@ -58,6 +59,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var fungus: Array = _pair(bufs, "fungus")
 	var detritus: RID = _single(bufs, "detritus")
 	var biomass: RID = _single(bufs, "biomass")
+	var snow: RID = _single(bufs, "snow")
 	var solid: RID = _single(bufs, "solid")
 	var nbr: RID = _single(bufs, "nbr")
 	var scratch: RID = _single(bufs, "fungus_fert")
@@ -73,6 +75,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[7, detritus],          # SINGLE — decompose debits in place / respiration credits in place
 			[8, fungus[p]],         # LIVE — decompose driver (read-only; producer runs later)
 			[11, biomass],          # SINGLE — photosynthesis grows it, respiration/decay oxidizes it (persistent, GPU-owned)
+			[12, snow],             # SINGLE — freeze (R21) credits it, melt (R22) debits it; SAME H₂O as water/airwater (persistent, GPU-owned)
 			[10, solid],
 			[15, nbr],
 			[20, scratch],          # fungus-fert SCRATCH product target
