@@ -32,14 +32,13 @@ static func steer(c, pos: Vector3) -> Vector3:
 		var bank: float = sin(c.age * 0.3) * BANK_STRENGTH
 		var perp: Vector3 = Vector3(-fwd.z, 0.0, fwd.x).normalized()
 		out += perp * bank
-	# Soft separation from the ground: push up harder the lower the bird is skimming.
-	if c.terrain != null and c.terrain.has_method("surface_height"):
-		var surf: float = c.terrain.surface_height(pos.x, pos.z)
-		if not is_nan(surf):
-			var above: float = pos.y - surf
-			if above < GROUND_AVOID_BAND:
-				var t: float = clampf(1.0 - above / GROUND_AVOID_BAND, 0.0, 1.0)
-				out.y += GROUND_AVOID_STRENGTH * t
+	# Soft separation from the ground: push up (radially) harder the lower the bird is skimming.
+	if c.terrain != null and c.terrain.has_method("altitude_at"):
+		var above: float = c.terrain.altitude_at(pos)         # height above local ground (radial)
+		if not is_nan(above) and above < GROUND_AVOID_BAND:
+			var t: float = clampf(1.0 - above / GROUND_AVOID_BAND, 0.0, 1.0)
+			var up: Vector3 = c.terrain.up_at(pos) if c.terrain.has_method("up_at") else Vector3.UP
+			out += up * (GROUND_AVOID_STRENGTH * t)
 	return out
 
 

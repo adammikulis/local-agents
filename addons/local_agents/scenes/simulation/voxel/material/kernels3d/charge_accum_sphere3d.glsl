@@ -29,9 +29,14 @@ layout(push_constant, std430) uniform Params {
 	float pad1;
 } params;
 
-// Charge separation tunables — MUST match MaterialCharge3D.gd exactly.
-const float FREEZE_T = 12.0;       // top of the charging band
-const float COLD_SPAN = 30.0;      // °C below FREEZE_T over which `cold` fades 1 -> 0
+// Charge separation tunables. CALIBRATED TO THIS PLANET'S CLIMATE: the old COLD_SPAN=30 wanted cells down to
+// -18 °C (a cold box atmosphere), but this warm world's coldest cell is ~10 °C, so `cold` capped near 0.07 and
+// storm bolts never reached BREAKDOWN. Here the band saturates within a few degrees of supercooling BELOW the
+// snow line (FREEZE_T ~13 °C, COLD_SPAN 6 °C → cold=1 by ~7 °C, ~0.5 at 10 °C), which the thunderstorm's own
+// aloft cooling (add_cooling) reaches under its updraft — so a mature cell charges to breakdown and fires
+// naturally. Snow/freeze is unaffected (that lives in snowice_sphere3d / MaterialReactions3D, FREEZE_TEMP=12.5).
+const float FREEZE_T = 13.0;       // top of the charging band (just above the snow line)
+const float COLD_SPAN = 6.0;       // °C below FREEZE_T over which `cold` fades 1 -> 0 (a few degrees of supercooling)
 const float CHARGE_GAIN = 8.0;     // charge separated per (updraft × cloud × cold) per second
 const float CHARGE_LEAK = 0.004;   // fraction of a cell's charge that bleeds away each step
 const float UPDRAFT_MIN = 0.0;     // only POSITIVE vertical wind (rising air) separates charge

@@ -118,10 +118,10 @@ func _scatter_point(center: Vector3) -> Vector3:
 	var ang: float = randf() * TAU
 	var rad: float = sqrt(randf()) * _brush_radius
 	var p: Vector3 = center + Vector3(cos(ang) * rad, 0.0, sin(ang) * rad)
-	if _terrain != null and _terrain.has_method("surface_height"):
-		var y: float = float(_terrain.surface_height(p.x, p.z))
-		if not is_nan(y):
-			p.y = y
+	if _terrain != null and _terrain.has_method("ground_point"):
+		var gp: Vector3 = _terrain.ground_point(p)          # radial re-seat onto the surface
+		if not is_nan(gp.x):
+			p = gp
 	return p
 
 

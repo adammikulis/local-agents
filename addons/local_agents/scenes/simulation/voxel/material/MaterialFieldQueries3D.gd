@@ -21,50 +21,52 @@ func setup(field) -> void:
 	_f = field
 
 
-# --- Index helpers (world -> grid cell), matching the field's original _col_i clamp behaviour ---
-func _col_i(w: float, o: float) -> int:
-	return clampi(int(round((w - o) / _f._cell_size)), 0, _f._dim_x - 1)
+# --- Cell resolver (world -> linear cell) ------------------------------------
+# Sphere-native: the ONE world→cell seam is the field's world_to_cell (cubed-sphere gnomonic lookup; box mode
+# clamps). Every query below indexes the linear cell it returns and null-guards c < 0 (outside the shell), so
+# a read anywhere off the +Y pole is a safe default, never an out-of-bounds PackedByteArray access.
+func _cell_at(pos: Vector3) -> int:
+	return _f.world_to_cell(pos)
 
 
-# Topmost non-solid cell of a column (its sky-exposed surface), or -1 if solid to the top.
-func _surface_iy(ix: int, iz: int) -> int:
-	for iy in range(_f._dim_y - 1, -1, -1):
-		if _f._solid[(iy * _f._dim_z + iz) * _f._dim_x + ix] == 0:
-			return iy
-	return -1
+# True where the seeded SEA/lake shell sits over the ground beneath `pos` — the sphere replacement for the box
+# "column has sea water" test, using the field's own water buffer (cheap, no terrain raycast). Samples the top
+# sea layer along pos's radial (just under the sea surface, then one cell deeper to straddle it): over an ocean
+# basin those cells are open seeded water (mass ≥ MIN_MASS); over land they are inside solid rock (dry). The
+# shallow (near-surface) sample is what catches the topmost seeded layer — sampling a full cell down misses
+# shallow basins whose floor sits between the two depths. O(1): a couple of world_to_cell lookups, no scan.
+func _sea_under(pos: Vector3) -> bool:
+	if _f._terrain == null or not _f._terrain.has_method("sea_radius") or _f._water.size() != _f._cell_count:
+		return false
+	var sea_r: float = _f._terrain.sea_radius()
+	if sea_r <= 0.0:
+		return false
+	var radial: Vector3 = pos - _f._origin
+	if radial.length_squared() < 1.0e-6:
+		return false
+	var dir: Vector3 = radial.normalized()
+	var depths: PackedFloat32Array = PackedFloat32Array([sea_r - 0.5, sea_r - _f._cell_size])
+	for rr in depths:
+		if rr <= 0.0:
+			continue
+		var sc: int = _f.world_to_cell(_f._origin + dir * rr)
+		if sc >= 0 and _f._water[sc] >= _f.MIN_MASS:
+			return true
+	return false
 
 
-# --- Water-surface queries ---------------------------------------------------
+# --- Water queries -----------------------------------------------------------
 
-## Highest world Y that has water in the XZ column at grid (ix, iz), or NAN if the column is dry.
-func column_surface_y(ix: int, iz: int) -> float:
-	if ix < 0 or ix >= _f._dim_x or iz < 0 or iz >= _f._dim_z:
-		return NAN
-	for iy in range(_f._dim_y - 1, -1, -1):
-		var m: float = _f._water[(iy * _f._dim_z + iz) * _f._dim_x + ix]
-		if m >= _f.MIN_MASS:
-			var fill: float = clampf(m, 0.0, _f.MAX_MASS)
-			return _f._origin.y + (float(iy) + fill - 0.5) * _f._cell_size
-	return NAN
-
-
-## World Y of the water surface at (x, z) — sea, lake, river, or a cavern pool top. NAN if dry.
-func surface_y_at(x: float, z: float) -> float:
-	return column_surface_y(_col_i(x, _f._origin.x), _col_i(z, _f._origin.z))
-
-
-func is_water_at(x: float, z: float) -> bool:
-	return not is_nan(surface_y_at(x, z))
-
-
-## Total water column depth at (x, z) in world units (sum of cell fills × cell size). 0 if dry.
-func depth_at(x: float, z: float) -> float:
-	var ix: int = _col_i(x, _f._origin.x)
-	var iz: int = _col_i(z, _f._origin.z)
-	var d: float = 0.0
-	for iy in range(_f._dim_y):
-		d += minf(_f._water[(iy * _f._dim_z + iz) * _f._dim_x + ix], _f.MAX_MASS)
-	return d * _f._cell_size
+## True where there is drinkable water at a world point: water in the cell the point sits in (a river, a
+## rain puddle, a pool it stands in) OR the sea/lake shell over the ground beneath it (a creature at the
+## shoreline above the water film). Sphere-native — no XZ column. False outside the shell / before readback.
+func is_water_at(pos: Vector3) -> bool:
+	if _f._water.size() != _f._cell_count:
+		return false
+	var c: int = _f.world_to_cell(pos)
+	if c >= 0 and _f._water[c] >= _f.MIN_MASS:
+		return true
+	return _sea_under(pos)
 
 
 func water_at_cell(ix: int, iy: int, iz: int) -> float:
@@ -82,43 +84,45 @@ func total_water() -> float:
 
 # --- Temperature query -------------------------------------------------------
 
-## Temperature °C at a world point (0 outside the grid). NAN y resolves to the column's exposed surface.
-func temp_at(x: float, z: float, y: float = NAN) -> float:
-	var ix: int = _col_i(x, _f._origin.x)
-	var iz: int = _col_i(z, _f._origin.z)
-	var iy: int = _col_i(y, _f._origin.y) if not is_nan(y) else _surface_iy(ix, iz)
-	if iy < 0:
-		return 0.0
-	return _f._temp[(iy * _f._dim_z + iz) * _f._dim_x + ix]
+## Temperature °C at a world point (a mild default outside the shell). Sphere-native single 3D read.
+func temp_at(pos: Vector3) -> float:
+	if _f._temp.size() != _f._cell_count:
+		return _f.INITIAL_TEMP
+	var c: int = _f.world_to_cell(pos)
+	return _f._temp[c] if c >= 0 else _f.INITIAL_TEMP
 
 
 # --- Ocean / salinity --------------------------------------------------------
 
-## True where the ground is below sea level (open ocean under the plane).
-func is_ocean_at(x: float, z: float) -> bool:
-	var ix: int = _col_i(x, _f._origin.x)
-	var iz: int = _col_i(z, _f._origin.z)
-	for iy in range(_f._dim_y):
-		if _f._origin.y + float(iy) * _f._cell_size >= _f.sea_level:
-			break
-		if _f._solid[(iy * _f._dim_z + iz) * _f._dim_x + ix] == 0:
-			return true
-	return false
+## True where the ground beneath a world point is below the sea shell (open salt ocean / a sea basin). Uses the
+## terrain surface radius directly (ground below sea level ⇒ ocean), which is exact for any basin depth — storms
+## call this a bounded number of times, so the raycast cost is fine (vs. is_water_at's cheap per-cell sampling).
+func is_ocean_at(pos: Vector3) -> bool:
+	if _f._terrain != null and _f._terrain.has_method("sea_radius") and _f._terrain.has_method("surface_radius"):
+		var sea_r: float = _f._terrain.sea_radius()
+		if sea_r <= 0.0:
+			return false
+		var radial: Vector3 = pos - _f._origin
+		if radial.length_squared() < 1.0e-6:
+			return false
+		var sr: float = _f._terrain.surface_radius(radial.normalized())
+		return not is_nan(sr) and sr < sea_r
+	return _sea_under(pos)
 
 
-## Salinity 0 (fresh inland water) .. brackish shallows .. 1 (deep salt ocean); NAN if dry.
-func salinity_at(x: float, z: float) -> float:
-	if is_ocean_at(x, z):
-		var ix: int = _col_i(x, _f._origin.x)
-		var iz: int = _col_i(z, _f._origin.z)
-		var floor_y: float = _f.sea_level
-		for iy in range(_f._dim_y):
-			if _f._solid[(iy * _f._dim_z + iz) * _f._dim_x + ix] == 0:
-				floor_y = _f._origin.y + float(iy) * _f._cell_size
-				break
-		return clampf((_f.sea_level - floor_y) / SALT_FULL_DEPTH, BRACKISH_FLOOR, 1.0)
-	if is_water_at(x, z):
-		return 0.0                                       # inland CA pool (lake/river) = fresh
+## Salinity 0 (fresh inland water) .. brackish shallows .. 1 (deep salt ocean); NAN if dry. On the sphere
+## the basin depth is (sea_radius − solid_surface_radius) along the point's radial.
+func salinity_at(pos: Vector3) -> float:
+	if _f._terrain != null and _f._terrain.has_method("sea_radius") and is_ocean_at(pos):
+		var sea_r: float = _f._terrain.sea_radius()
+		var floor_r: float = sea_r
+		if _f._terrain.has_method("surface_radius"):
+			var sr: float = _f._terrain.surface_radius(pos - _f._origin)
+			if not is_nan(sr):
+				floor_r = sr
+		return clampf((sea_r - floor_r) / SALT_FULL_DEPTH, BRACKISH_FLOOR, 1.0)
+	if is_water_at(pos):
+		return 0.0                                       # inland pool (lake/river) = fresh
 	return NAN
 
 
@@ -150,39 +154,45 @@ func hot_cell_count(threshold: float = 60.0) -> int:
 
 # --- Storm queries (read the emergent wind field; storm actors track the vortex they seed) -----------
 
-# Sample cell a couple of cells above a column's surface (the free-stream, clear of the ground layer).
-func _aloft_i(ix: int, iz: int) -> int:
-	var siy: int = clampi(_surface_iy(ix, iz) + 2, 0, _f._dim_y - 1)
-	return (siy * _f._dim_z + iz) * _f._dim_x + ix
-
-
-## Vertical vorticity (curl_y of the horizontal wind) at a world point — the SPIN of the air. A tornado /
-## mesocyclone reads as a strong |vorticity|; storm actors scale their funnel + track toward the peak.
-func vorticity_at(x: float, z: float) -> float:
-	if _f._cell_count <= 0:
+## Radial vorticity (the SPIN of the air about the local "up") at a world point. On the cubed sphere the
+## kernel stores velocity in a per-cell TANGENT basis (vel_x along tangent-a, vel_z along tangent-b, vel_y
+## radial), so the vertical-axis curl is d(vel_z)/d(tangent_a) − d(vel_x)/d(tangent_b) across the cell's two
+## tangent neighbour-slot pairs — the same neighbour walk wind3_at uses. Sampled a couple of cells aloft
+## (the free-stream over the seeded low). Reads the cell + its 4 tangent neighbours only — O(1), no grid sweep.
+func vorticity_at(pos: Vector3) -> float:
+	if _f._sphere == null or _f._vel_x.size() != _f._cell_count or _f._vel_z.size() != _f._cell_count:
 		return 0.0
-	var ix: int = _col_i(x, _f._origin.x)
-	var iz: int = _col_i(z, _f._origin.z)
-	var dx: int = _f._dim_x
-	var dz: int = _f._dim_z
-	# curl_y = d(vel_z)/dx - d(vel_x)/dz, central differences at the aloft sample plane.
-	var vz_hi: float = _f._vel_z[_aloft_i(mini(ix + 1, dx - 1), iz)]
-	var vz_lo: float = _f._vel_z[_aloft_i(maxi(ix - 1, 0), iz)]
-	var vx_hi: float = _f._vel_x[_aloft_i(ix, mini(iz + 1, dz - 1))]
-	var vx_lo: float = _f._vel_x[_aloft_i(ix, maxi(iz - 1, 0))]
+	var radial: Vector3 = pos - _f._origin
+	var aloft: Vector3 = pos
+	if radial.length_squared() > 1.0e-6:
+		aloft = pos + radial.normalized() * (2.0 * _f._cell_size)
+	var c: int = _f.world_to_cell(aloft)
+	if c < 0 or c >= _f._cell_count:
+		return 0.0
+	var nbr: PackedInt32Array = _f._sphere.neighbours
+	var a_lo: int = nbr[c * 6 + 1]
+	var a_hi: int = nbr[c * 6 + 2]
+	var b_lo: int = nbr[c * 6 + 3]
+	var b_hi: int = nbr[c * 6 + 4]
+	var vz_hi: float = _f._vel_z[a_hi] if a_hi >= 0 else _f._vel_z[c]
+	var vz_lo: float = _f._vel_z[a_lo] if a_lo >= 0 else _f._vel_z[c]
+	var vx_hi: float = _f._vel_x[b_hi] if b_hi >= 0 else _f._vel_x[c]
+	var vx_lo: float = _f._vel_x[b_lo] if b_lo >= 0 else _f._vel_x[c]
 	return 0.5 * (vz_hi - vz_lo) - 0.5 * (vx_hi - vx_lo)
 
 
-## Vertical wind (updraft, +Y) at a column's surface — the convective lift feeding a thunderstorm cell.
-func updraft_at(x: float, z: float) -> float:
-	if _f._cell_count <= 0:
+## Vertical wind (updraft = outward radial velocity, vel_y) a little above a world point — the convective
+## lift feeding a thunderstorm cell. Sampled ~40 units aloft along the radial so it reads the cloud-base
+## lift, not the ground layer. Sphere-native single 3D read; 0 outside the shell / before readback.
+func updraft_at(pos: Vector3) -> float:
+	if _f._sphere == null or _f._vel_y.size() != _f._cell_count:
 		return 0.0
-	if _f._sphere != null:
-		var c: int = _f.world_to_cell(Vector3(x, _f.sea_level + 40.0, z))
-		return _f._vel_y[c] if (c >= 0 and _f._vel_y.size() == _f._cell_count) else 0.0
-	var ix: int = _col_i(x, _f._origin.x)
-	var iz: int = _col_i(z, _f._origin.z)
-	return _f._vel_y[_aloft_i(ix, iz)]
+	var radial: Vector3 = pos - _f._origin
+	var aloft: Vector3 = pos
+	if radial.length_squared() > 1.0e-6:
+		aloft = pos + radial.normalized() * 40.0
+	var c: int = _f.world_to_cell(aloft)
+	return _f._vel_y[c] if c >= 0 else 0.0
 
 
 # --- Emergent WIND as a real momentum/force (read back from the GPU velocity field) ------------------

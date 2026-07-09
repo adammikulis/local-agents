@@ -113,12 +113,12 @@ func touch_down(point: Vector3) -> void:
 
 func get_inspector_payload() -> Dictionary:
 	var lines: Array = []
-	var over_ocean: bool = _field != null and _field.has_method("is_ocean_at") and _field.is_ocean_at(_base.x, _base.z)
+	var over_ocean: bool = _field != null and _field.has_method("is_ocean_at") and _field.is_ocean_at(_base)
 	lines.append("Status: %s" % ("waterspout" if over_ocean else "tornado"))
 	lines.append("Strength: %.0f%%" % (_strength / STRENGTH_MAX * 100.0))
 	var spin: float = 0.0
 	if _field != null and _field.has_method("vorticity_at"):
-		spin = _field.vorticity_at(_base.x, _base.z)
+		spin = _field.vorticity_at(_base)
 	lines.append("Spin (vorticity): %.2f" % spin)
 	lines.append("Fuel (warm+humid): %.0f%%" % (_fuel() * 100.0))
 	lines.append("Age: %.0fs / %.0fs" % [_age, LIFETIME_MAX])
@@ -132,14 +132,14 @@ func _fuel() -> float:
 		return 0.5
 	var t: float = 15.0
 	if _field.has_method("temp_at"):
-		t = float(_field.temp_at(_base.x, _base.z))
+		t = float(_field.temp_at(_base))
 	var rh: float = 0.5
 	if _field.has_method("relative_humidity_at"):
 		rh = float(_field.relative_humidity_at(_base.x, _base.z))
 	var warm: float = clampf((t - 8.0) / 24.0, 0.0, 1.0)          # 8°C → starved, 32°C → full
 	var humid: float = clampf(rh, 0.0, 1.2)
 	var ocean: float = 0.0
-	if _field.has_method("is_ocean_at") and _field.is_ocean_at(_base.x, _base.z):
+	if _field.has_method("is_ocean_at") and _field.is_ocean_at(_base):
 		ocean = 1.0                                              # endless moisture over warm water
 	return clampf(0.5 * warm + 0.55 * humid + 0.22 * ocean, 0.0, 1.0)
 
@@ -160,12 +160,12 @@ func _vortex_gradient() -> Vector2:
 	if _field == null or not _field.has_method("vorticity_at"):
 		return Vector2.ZERO
 	var best_dir: Vector2 = Vector2.ZERO
-	var best_val: float = absf(_field.vorticity_at(_base.x, _base.z))
+	var best_val: float = absf(_field.vorticity_at(_base))
 	for i in range(6):
 		var a: float = TAU * float(i) / 6.0
 		var ox: float = cos(a) * VORTEX_PROBE
 		var oz: float = sin(a) * VORTEX_PROBE
-		var v: float = absf(_field.vorticity_at(_base.x + ox, _base.z + oz))
+		var v: float = absf(_field.vorticity_at(_base + Vector3(ox, 0.0, oz)))
 		if v > best_val:
 			best_val = v
 			best_dir = Vector2(ox, oz)
@@ -187,7 +187,7 @@ func _physics_process(delta: float) -> void:
 	# drifts off its fuel loses its spin → |vorticity| falls → it withers below DISSIPATE and dies.
 	var spin_vort: float = 0.0
 	if _field != null and _field.has_method("vorticity_at"):
-		spin_vort = absf(_field.vorticity_at(_base.x, _base.z))
+		spin_vort = absf(_field.vorticity_at(_base))
 	_strength = lerpf(_strength, VORT_TO_STRENGTH * spin_vort, STRENGTH_RATE)
 	if _age < SPINUP_TIME:
 		_strength = maxf(_strength, STRENGTH_START)   # stay visible while the seed spins up into a vortex
@@ -210,13 +210,12 @@ func _physics_process(delta: float) -> void:
 	var nz: float = cos(_age * 0.6 + _phase * 1.3) + 0.5 * cos(_age * 1.7 + _phase)
 	_base.x += (vortex_dir.x * VORTEX_FOLLOW + wind.x * WIND_FOLLOW + nx * WANDER_SPEED) * delta
 	_base.z += (vortex_dir.y * VORTEX_FOLLOW + wind.y * WIND_FOLLOW + nz * WANDER_SPEED) * delta
-	_base.x = clampf(_base.x, -PLAY_HALF_EXTENT, PLAY_HALF_EXTENT)
-	_base.z = clampf(_base.z, -PLAY_HALF_EXTENT, PLAY_HALF_EXTENT)
-	# Keep the foot on the ground (or sea surface); hold the last height off the meshed area.
-	if _terrain != null and _terrain.has_method("surface_height"):
-		var gy: float = _terrain.surface_height(_base.x, _base.z)
-		if not is_nan(gy):
-			_base.y = gy
+	# Re-seat the foot radially onto the ground/sea surface (no XZ box clamp — the planet is a sphere; the
+	# radial re-seat keeps the funnel on the surface wherever it wanders). Hold the last height off the meshed area.
+	if _terrain != null and _terrain.has_method("ground_point"):
+		var sp: Vector3 = _terrain.ground_point(_base)
+		if not is_nan(sp.x):
+			_base = sp
 	global_position = _base
 
 	_update_fx()
@@ -235,7 +234,7 @@ func _physics_process(delta: float) -> void:
 	# especially near the coast). A real waterspout lifting moisture should EMERGE from the wind field's
 	# vortex once the tornado is rebuilt as an emergent low-pressure feature of MaterialField3D — not be
 	# faked by an actor pumping vapor into the air.
-	if _field != null and _field.has_method("is_ocean_at") and _field.is_ocean_at(_base.x, _base.z):
+	if _field != null and _field.has_method("is_ocean_at") and _field.is_ocean_at(_base):
 		_splash_cd -= delta
 		if _splash_cd <= 0.0:
 			_splash_cd = SPOUT_SPLASH_INTERVAL

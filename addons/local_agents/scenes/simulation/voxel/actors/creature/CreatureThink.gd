@@ -389,7 +389,7 @@ static func execute_action(c, action: String, pos: Vector3, delta: float) -> Dic
 		"flock":
 			return {"heading": c._heading + LACreatureFlocking.steer(c, pos, not c.can_fly), "state": "flock", "speed": c.speed}
 		"drink":
-			if c._material != null and c._material.has_method("is_water_at") and c._material.is_water_at(pos.x, pos.z):
+			if c._material != null and c._material.has_method("is_water_at") and c._material.is_water_at(pos):
 				c.hydration = minf(c.max_hydration, c.hydration + DRINK_RATE * delta)
 				return {"heading": c._heading, "state": "drink", "speed": 0.0}
 			return execute_action(c, "seek_water", pos, delta)

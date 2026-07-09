@@ -171,10 +171,11 @@ func _step_fall(delta: float) -> void:
 func _detect_impact(from: Vector3, to: Vector3) -> Dictionary:
 	var no_hit: Dictionary = {"hit": false, "point": Vector3.ZERO}
 
-	if _terrain != null and _terrain.has_method("surface_height"):
-		var gy: float = _terrain.surface_height(to.x, to.z)
-		if not is_nan(gy) and to.y <= gy:
-			return {"hit": true, "point": Vector3(to.x, gy, to.z)}
+	if _terrain != null and _terrain.has_method("altitude_at"):
+		var alt: float = _terrain.altitude_at(to)             # height above the local ground (radial); <0 = below
+		if not is_nan(alt) and alt <= 0.0:
+			var sp: Vector3 = _terrain.ground_point(to) if _terrain.has_method("ground_point") else to
+			return {"hit": true, "point": (to if is_nan(sp.x) else sp)}
 
 	if _terrain != null and _terrain.has_method("raycast_terrain"):
 		var seg: Vector3 = to - from
@@ -202,7 +203,7 @@ func _on_impact() -> void:
 	# Big splash if it struck water.
 	if _ecology != null and _ecology.has_method("material_field"):
 		var water: Object = _ecology.material_field()
-		if water != null and water.has_method("is_water_at") and water.is_water_at(_impact_point.x, _impact_point.z):
+		if water != null and water.has_method("is_water_at") and water.is_water_at(_impact_point):
 			water.splash(_impact_point, 3.5 * _size)
 			# White-hot rock hitting water flashes to steam — sizzle + a steam hiss.
 			LocalAgentsAudioDirector.emit(get_tree(), "sizzle", _impact_point)

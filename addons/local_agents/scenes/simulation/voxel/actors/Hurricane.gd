@@ -106,12 +106,12 @@ func _warm_ocean_fraction() -> float:
 		var px: float = _center.x + cos(a) * (EYE_RADIUS + OUTER_RADIUS) * 0.5
 		var pz: float = _center.z + sin(a) * (EYE_RADIUS + OUTER_RADIUS) * 0.5
 		total += 1
-		var is_ocean: bool = _field.has_method("is_ocean_at") and _field.is_ocean_at(px, pz)
+		var is_ocean: bool = _field.has_method("is_ocean_at") and _field.is_ocean_at(Vector3(px, _center.y, pz))
 		if not is_ocean:
 			continue
 		var t: float = 20.0
 		if _field.has_method("temp_at"):
-			t = float(_field.temp_at(px, pz))
+			t = float(_field.temp_at(Vector3(px, _center.y, pz)))
 		if t >= WARM_OCEAN_TEMP:
 			warm_ocean += 1
 	return float(warm_ocean) / float(maxi(1, total))
@@ -123,13 +123,13 @@ func _warm_ocean_fraction() -> float:
 func _core_vorticity() -> float:
 	if _field == null or not _field.has_method("vorticity_at"):
 		return 0.0
-	var peak: float = absf(_field.vorticity_at(_center.x, _center.z))
+	var peak: float = absf(_field.vorticity_at(_center))
 	var ring_r: float = (EYE_RADIUS + OUTER_RADIUS) * 0.5
 	for i in range(EYEWALL_POINTS):
 		var a: float = TAU * float(i) / float(EYEWALL_POINTS)
 		var px: float = _center.x + cos(a) * ring_r
 		var pz: float = _center.z + sin(a) * ring_r
-		var v: float = absf(_field.vorticity_at(px, pz))
+		var v: float = absf(_field.vorticity_at(Vector3(px, _center.y, pz)))
 		if v > peak:
 			peak = v
 	return peak
@@ -141,12 +141,12 @@ func _vortex_gradient() -> Vector2:
 	if _field == null or not _field.has_method("vorticity_at"):
 		return Vector2.ZERO
 	var best_dir: Vector2 = Vector2.ZERO
-	var best_val: float = absf(_field.vorticity_at(_center.x, _center.z))
+	var best_val: float = absf(_field.vorticity_at(_center))
 	for i in range(6):
 		var a: float = TAU * float(i) / 6.0
 		var ox: float = cos(a) * VORTEX_PROBE
 		var oz: float = sin(a) * VORTEX_PROBE
-		var v: float = absf(_field.vorticity_at(_center.x + ox, _center.z + oz))
+		var v: float = absf(_field.vorticity_at(_center + Vector3(ox, 0.0, oz)))
 		if v > best_val:
 			best_val = v
 			best_dir = Vector2(ox, oz)
@@ -188,12 +188,11 @@ func _physics_process(delta: float) -> void:
 		_heading = _heading.lerp(vdir, clampf(VORTEX_STEER * delta, 0.0, 1.0)).normalized()
 	_center.x += _heading.x * TRACK_SPEED * delta
 	_center.z += _heading.y * TRACK_SPEED * delta
-	_center.x = clampf(_center.x, -PLAY_HALF_EXTENT, PLAY_HALF_EXTENT)
-	_center.z = clampf(_center.z, -PLAY_HALF_EXTENT, PLAY_HALF_EXTENT)
-	if _terrain != null and _terrain.has_method("surface_height"):
-		var gy: float = _terrain.surface_height(_center.x, _center.z)
-		if not is_nan(gy):
-			_center.y = gy
+	# Re-seat the eye radially onto the surface (no XZ box clamp — sphere planet; the radial re-seat holds it).
+	if _terrain != null and _terrain.has_method("ground_point"):
+		var sp: Vector3 = _terrain.ground_point(_center)
+		if not is_nan(sp.x):
+			_center = sp
 	global_position = _center
 
 	_pump_eyewall(frac, delta)
@@ -219,10 +218,10 @@ func _pump_eyewall(fuel: float, delta: float) -> void:
 		var px: float = _center.x + cos(a) * ring_r
 		var pz: float = _center.z + sin(a) * ring_r
 		var gy: float = _center.y
-		if _terrain != null and _terrain.has_method("surface_height"):
-			var h: float = _terrain.surface_height(px, pz)
-			if not is_nan(h):
-				gy = h
+		if _terrain != null and _terrain.has_method("ground_point"):
+			var g: Vector3 = _terrain.ground_point(Vector3(px, _center.y, pz))
+			if not is_nan(g.x):
+				gy = g.y
 		if _field.has_method("add_vapor"):
 			_field.add_vapor(Vector3(px, gy + 3.0, pz), per_point, VAPOR_INJECT_R)
 		if _field.has_method("add_cooling"):

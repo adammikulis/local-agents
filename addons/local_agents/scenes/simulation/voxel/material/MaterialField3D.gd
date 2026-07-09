@@ -234,6 +234,10 @@ var _sources: Array = []
 func sample_solidity() -> void:
 	if _terrain == null or not _terrain.has_method("is_solid"):
 		return
+	if _sphere != null:
+		# Cubed-sphere: the authoritative solid mask is filled radially per linear cell (_sample_solidity_sphere,
+		# run on the first sphere step). The box XZ-column sweep below is meaningless here — skip it.
+		return
 	var has_surf: bool = _terrain.has_method("surface_height")
 	for iz in range(_dim_z):
 		for ix in range(_dim_x):
@@ -447,34 +451,11 @@ func _stable_below(total_mass: float) -> float:
 
 # --- World-space queries (delegated to _queries; the 2.5D-compatible API consumers call) --------
 
-func _col_i(w: float, o: float) -> int:
-	return clampi(int(round((w - o) / _cell_size)), 0, _dim_x - 1)
-
-
-# 2.5D COLUMN queries — meaningless on a cubed-sphere (no vertical XZ column). Return safe defaults in sphere
-# mode; radial callers use terrain.surface_radius / sea_radius / is_submerged_at instead.
-func column_surface_y(ix: int, iz: int) -> float:
-	if _sphere != null:
-		return NAN
-	return _queries.column_surface_y(ix, iz)
-
-
-func surface_y_at(x: float, z: float) -> float:
-	if _sphere != null:
-		return NAN
-	return _queries.surface_y_at(x, z)
-
-
-func is_water_at(x: float, z: float) -> bool:
-	if _sphere != null:
-		return false
-	return _queries.is_water_at(x, z)
-
-
-func depth_at(x: float, z: float) -> float:
-	if _sphere != null:
-		return 0.0
-	return _queries.depth_at(x, z)
+# Water presence at a true-3D world point (sphere-native): water in the point's own cell, or the sea/lake
+# shell over the ground beneath it. The dead 2.5D column queries (column_surface_y / surface_y_at / depth_at)
+# were removed with the box path — radial callers read terrain.surface_radius / sea_radius / is_submerged_at.
+func is_water_at(pos: Vector3) -> bool:
+	return _queries.is_water_at(pos)
 
 
 ## Register a persistent spring: `rate` water mass per second injected at `pos` each step.
@@ -574,34 +555,21 @@ func _physics_process(delta: float) -> void:
 		_sphere_step.process(delta)
 
 
-## Temperature °C at a world point (0 outside the grid). The consumer query the 2.5D field also exposes.
-func temp_at(x: float, z: float, y: float = NAN) -> float:
-	if _sphere != null:
-		if is_nan(y):
-			return INITIAL_TEMP           # 2.5D-style call has no radial point; safe default
-		var c: int = world_to_cell(Vector3(x, y, z))
-		return _temp[c] if c >= 0 else INITIAL_TEMP
-	return _queries.temp_at(x, z, y)
+## Temperature °C at a true-3D world point (a mild default outside the shell). Sphere-native single read.
+func temp_at(pos: Vector3) -> float:
+	return _queries.temp_at(pos)
 
 
-# Topmost non-solid cell of a column (its sky-exposed surface), or -1 if the column is solid to the top.
-func _surface_iy(ix: int, iz: int) -> int:
-	for iy in range(_dim_y - 1, -1, -1):
-		if _solid[(iy * _dim_z + iz) * _dim_x + ix] == 0:
-			return iy
-	return -1
+# --- Consumer-facing API (true-3D world-point reads) --------------------------
 
-
-# --- Consumer-facing API (matches the 2.5D LAMaterialField so this is a drop-in on the swap) --------
-
-## True where the ground is below sea level (open ocean under the plane).
-func is_ocean_at(x: float, z: float) -> bool:
-	return _queries.is_ocean_at(x, z)
+## True where the ground beneath a world point is below the sea shell (open salt ocean / a sea basin).
+func is_ocean_at(pos: Vector3) -> bool:
+	return _queries.is_ocean_at(pos)
 
 
 ## Salinity 0 (fresh inland water) .. brackish shallows .. 1 (deep salt ocean); NAN if dry.
-func salinity_at(x: float, z: float) -> float:
-	return _queries.salinity_at(x, z)
+func salinity_at(pos: Vector3) -> float:
+	return _queries.salinity_at(pos)
 
 
 # --- Atmosphere queries — all DERIVED from the one conserved `moisture` channel vs sat(T) (Phase 2a).
@@ -777,13 +745,13 @@ func wind() -> Vector2:
 func wind_at(x: float, z: float) -> Vector2:
 	return _queries.wind_at(x, z)
 
-## Vertical vorticity (air SPIN) at a world point — storm actors track/scale off the emergent vortex.
-func vorticity_at(x: float, z: float) -> float:
-	return _queries.vorticity_at(x, z)
+## Radial vorticity (air SPIN about local up) at a world point — storm actors track/scale off the emergent vortex.
+func vorticity_at(pos: Vector3) -> float:
+	return _queries.vorticity_at(pos)
 
-## Vertical updraft (+Y wind) at a column — the convective lift a thunderstorm/tornado feeds on.
-func updraft_at(x: float, z: float) -> float:
-	return _queries.updraft_at(x, z)
+## Vertical updraft (outward radial wind) at a world point — the convective lift a thunderstorm/tornado feeds on.
+func updraft_at(pos: Vector3) -> float:
+	return _queries.updraft_at(pos)
 
 ## Full LOCAL 3D wind velocity (a real force) — the emergent GPU velocity read back into `_vel_*`; loose mass
 ## (creatures/debris/sediment) reads this to be advected/flung by storms.
@@ -999,12 +967,10 @@ func erosion_cell_count() -> int:
 	return 0
 ## Snow depth at a world point (frozen H₂O in the cell). 2.5D-style (x,z) calls have no radial point, so they
 ## return the safe default 0 (matching temp_at); a full 3D call (x,z,y) reads the real cell — three-d-always.
-func snow_depth_at(x: float, z: float, y: float = NAN) -> float:
+func snow_depth_at(pos: Vector3) -> float:
 	if _snow.size() != _cell_count:
 		return 0.0
-	if is_nan(y):
-		return 0.0
-	var c: int = world_to_cell(Vector3(x, y, z))
+	var c: int = world_to_cell(pos)
 	return _snow[c] if c >= 0 else 0.0
 ## Open cells carrying a snowpack (frozen H₂O over SNOW_PRESENT) — the emergent snow-line count for SIM_REPORT.
 func snow_cell_count() -> int:
@@ -1077,38 +1043,18 @@ func o2_at(x: float, y: float, z: float) -> float:
 ## smoke, with altitude respected for free (a flying bird's head cell holds no water; a diver's does) — no
 ## 2.5D depth column, no can_fly special-case. Gills invert it (see is_submerged_at). Above the volume = open sky.
 func breathable_o2_at(x: float, y: float, z: float) -> float:
-	if _sphere != null:
-		var c: int = world_to_cell(Vector3(x, y, z))
-		if c < 0:
-			return O2_AMBIENT                 # above the atmosphere shell = open sky
-		if _solid[c] != 0 or _water[c] >= MAX_MASS * 0.5:
-			return 0.0
-		return _o2[c]
-	var ix: int = _col_i(x, _origin.x)
-	var iy: int = clampi(int(round((y - _origin.y) / _cell_size)), 0, _dim_y - 1)
-	var iz: int = _col_i(z, _origin.z)
-	if not _in_bounds(ix, iy, iz):
-		return O2_AMBIENT
-	var i: int = _idx(ix, iy, iz)
-	if _solid[i] != 0:
+	var c: int = world_to_cell(Vector3(x, y, z))
+	if c < 0:
+		return O2_AMBIENT                 # above the atmosphere shell = open sky
+	if _solid[c] != 0 or _water[c] >= MAX_MASS * 0.5:
 		return 0.0
-	if _water[i] >= MAX_MASS * 0.5:      # cell over half-full of water → air is displaced
-		return 0.0
-	return _o2[i]
+	return _o2[c]
 
 ## Is the TRUE-3D cell at this world point underwater (over half-full of water)? What a gill-breather needs
 ## (and what tells a lung it is submerged). Solid rock reads not-submerged (no water there).
 func is_submerged_at(x: float, y: float, z: float) -> bool:
-	if _sphere != null:
-		var c: int = world_to_cell(Vector3(x, y, z))
-		return c >= 0 and _solid[c] == 0 and _water[c] >= MAX_MASS * 0.5
-	var ix: int = _col_i(x, _origin.x)
-	var iy: int = clampi(int(round((y - _origin.y) / _cell_size)), 0, _dim_y - 1)
-	var iz: int = _col_i(z, _origin.z)
-	if not _in_bounds(ix, iy, iz):
-		return false
-	var i: int = _idx(ix, iy, iz)
-	return _solid[i] == 0 and _water[i] >= MAX_MASS * 0.5
+	var c: int = world_to_cell(Vector3(x, y, z))
+	return c >= 0 and _solid[c] == 0 and _water[c] >= MAX_MASS * 0.5
 # Open-cell O₂ min / mean over the GPU readback (_o2). Proves the sky-refill + transport keep the open air
 # oxygenated and expose sealed-cavity draw-down. Falls back to ambient when no field is resident.
 func o2_min_open() -> float:
@@ -1180,17 +1126,12 @@ func biomass_total() -> float:
 func deposit_detritus(world_pos: Vector3, amount: float) -> void:
 	if _cell_count <= 0 or amount <= 0.0:
 		return
-	var ix: int = _col_i(world_pos.x, _origin.x)
-	var iz: int = _col_i(world_pos.z, _origin.z)
-	var iy: int = _surface_iy(ix, iz)
-	if iy < 0:
-		return
-	var i: int = _idx(ix, iy, iz)
-	if _solid[i] != 0:
+	var c: int = world_to_cell(world_pos)          # the carcass's own 3D cell on the ground
+	if c < 0 or _solid[c] != 0:
 		return
 	if _detritus.size() != _cell_count:
 		_detritus.resize(_cell_count)
-	_detritus[i] += amount
+	_detritus[c] += amount
 # Per-cell debug readers for the phase channels (mirror biomass_at/co2_at): molten mineral, bedrock
 # fraction, and pre-lightning electrification. Pure reads for the DebugPanel field-view heatmaps.
 func lava_at(x: float, y: float, z: float) -> float:

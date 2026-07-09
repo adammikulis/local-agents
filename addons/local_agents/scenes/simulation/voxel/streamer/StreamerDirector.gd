@@ -246,7 +246,7 @@ func _take_sample() -> void:
 		var hkey: String = sp + "|" + st
 		if HOT_STATES.has(st) and not hot.has(hkey):
 			var pos: Vector3 = (n as Node3D).global_position if n is Node3D else Vector3.ZERO
-			var near_water: bool = mat != null and mat.has_method("is_water_at") and bool(mat.is_water_at(pos.x, pos.z))
+			var near_water: bool = mat != null and mat.has_method("is_water_at") and bool(mat.is_water_at(pos))
 			var prey: String = ""
 			var po = n.get("preys_on")
 			if po is PackedStringArray and (po as PackedStringArray).size() > 0:
