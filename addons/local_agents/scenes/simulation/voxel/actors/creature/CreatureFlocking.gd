@@ -40,27 +40,40 @@ static func _influence(m) -> float:
 		w += RANK_INFLUENCE
 	return w
 
-# How hard an isolated creature pulls home toward its family anchor (relative to flock_cohesion). >1 so
-# regrouping dominates idle wander and a strayed animal actually closes the gap back to its band.
+# How hard a strayed creature pulls home toward its herd anchor (relative to flock_cohesion). >1 so
+# regrouping dominates idle wander and a strayed animal (or a drifting sub-group) closes the gap back.
 const REGROUP_GAIN: float = 2.2
 
-## Regroup pull for an ISOLATED creature (no same-species mate within flock_radius). Homes toward the durable
-## FAMILY anchor, recognised by an OMNIDIRECTIONAL smell/sound RANGE sense — a bounded spatial-hash query,
-## never a vision cone: prefer the nearest kin/elder sharing family_id within reach, else fall back to the
-## tracked _leader (kept alive by the sticky leash). Flattened by the caller's convention; Big-O stays flat
-## (one neighbour-table query, the same class of lookup the flock already does).
-static func _regroup(c, pos: Vector3, flatten: bool) -> Vector3:
-	var anchor = null
-	# Range sense (hearing/scent) reach: at least the leadership leash, or this creature's hearing range.
+## O(1) tether pulling a FOLLOWER back toward its leader whenever the leader has drifted beyond flock_radius.
+## Tethers not just a lone wanderer but a COHESIVE SUB-GROUP that has drifted away together (it has local
+## mates, so it is not "isolated", yet without this it would keep drifting until it passed the leadership
+## leash and splintered off its own leader). Zero while the leader is within flock_radius (ordinary cohesion
+## covers that); grows with the overshoot so the farther a member strays the harder it is reeled in. The
+## leader pointer is a cached result of the range-based election (never sight), so this needs no query.
+static func _leader_tether(c, pos: Vector3, flatten: bool) -> Vector3:
+	if c._leader == null or not is_instance_valid(c._leader):
+		return Vector3.ZERO
+	var to_home: Vector3 = c._leader.global_position - pos
+	if flatten:
+		to_home.y = 0.0
+	var d: float = to_home.length()
+	var overshoot: float = d - c.flock_radius
+	if d < 0.001 or overshoot <= 0.0:
+		return Vector3.ZERO                        # already within the flock radius — ordinary cohesion covers it
+	var gain: float = c.flock_cohesion * REGROUP_GAIN * clampf(overshoot / maxf(c.flock_radius, 0.001), 0.0, 3.0)
+	return to_home.normalized() * gain
+
+
+## Regroup pull for a truly LOST herd creature — alone (no mate in flock_radius) AND with no valid leader.
+## Homes toward the nearest kin/elder sharing its family_id, recognised by an OMNIDIRECTIONAL smell/sound
+## RANGE sense (a bounded spatial-hash query, never a vision cone). Runs only in this rare case, so the query
+## stays off the common path — Big-O flat.
+static func _kin_regroup(c, pos: Vector3, flatten: bool) -> Vector3:
 	var reach: float = maxf(c.flock_radius * LACreatureLeadership.LEASH_MULT, c.hearing_range)
 	var kin = LACreatureLeadership.nearest_family_adult(c, pos, reach)
-	if kin != null:
-		anchor = kin
-	elif c._leader != null and is_instance_valid(c._leader):
-		anchor = c._leader
-	if anchor == null:
+	if kin == null:
 		return Vector3.ZERO
-	var to_home: Vector3 = anchor.global_position - pos
+	var to_home: Vector3 = kin.global_position - pos
 	if flatten:
 		to_home.y = 0.0
 	if to_home.length() < 0.001:
@@ -108,11 +121,13 @@ static func steer(c, pos: Vector3, flatten: bool) -> Vector3:
 			out += align.normalized() * c.flock_alignment
 		if separation.length() > 0.001:
 			out += separation.normalized() * c.flock_separation
-	else:
-		# ISOLATED: no same-species herd-mate within flock_radius. Rather than drift off alone (and let the
-		# election make it a leader-of-one), home back toward the durable FAMILY anchor. Composes with the
-		# sticky-leadership leash so a strayed follower navigates back to its band instead of splintering.
-		out += _regroup(c, pos, flatten)
+	# Reel a strayed FOLLOWER back to its leader (O(1)) whenever it has drifted beyond flock_radius — applies
+	# whether or not local mates are near, so a drifting sub-group is caught before it passes the leadership
+	# leash and splinters into a new leader-of-few. Composes with the sticky-leadership leash.
+	out += _leader_tether(c, pos, flatten)
+	# A truly lost herd creature (alone AND leaderless) homes toward its nearest kin by range sense.
+	if c.herd and wsum <= 0.0 and (c._leader == null or not is_instance_valid(c._leader)):
+		out += _kin_regroup(c, pos, flatten)
 	# CROSS-SPECIES panic: align with any nearby fleeing creature of ANY species (not just my kind),
 	# so a mixed grazing group scatters as one. Reuses the shared frame-stamped spatial index (cheap).
 	var panic_align: Vector3 = Vector3.ZERO
