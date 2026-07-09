@@ -76,6 +76,11 @@ var _energy_source: Node = null           # LASceneEnergyGraph, exposes current_
 var _last_energy: float = 0.0
 
 # --- scene sampling ---
+# Behaviour states worth naming in the commentary; each carries a representative animal (species,
+# location, its prey) so the caster can react to "a fox stalking the rabbits down by the water" rather
+# than the old generic "a predator has started stalking prey".
+const HOT_STATES: Array = ["stalk", "chase", "circle", "panic"]
+var _pop_baseline: float = 0.0         # slow EMA of total population, for the "numbers rising/thinning" narrative
 var _last_sample: Dictionary = {}
 var _events: Array = []                # accumulated {text, intensity} since the last line (ambient colour)
 var _urgent: Array = []                # queued must-say landmark events, immune to decay (see above)
@@ -217,8 +222,12 @@ func _take_sample() -> void:
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return
+	var mat = _world.get("_material") if _world != null else null
+	var sea: float = float(mat.sea_level) if mat != null and mat.get("sea_level") != null else 0.0
 	var species_counts: Dictionary = {}
 	var states: Dictionary = {}
+	var species_states: Dictionary = {}   # species -> {state -> count}
+	var hot: Dictionary = {}              # "species|state" -> {loc, prey}: one representative per hot beat
 	var pop: int = 0
 	for n in tree.get_nodes_in_group("creature"):
 		if not is_instance_valid(n):
@@ -228,13 +237,31 @@ func _take_sample() -> void:
 		species_counts[sp] = int(species_counts.get(sp, 0)) + 1
 		var st: String = String(n.get("state"))
 		states[st] = int(states.get(st, 0)) + 1
+		var ss: Dictionary = species_states.get(sp, {})
+		ss[st] = int(ss.get(st, 0)) + 1
+		species_states[sp] = ss
+		# Snapshot the FIRST animal we see in each hot beat: where it is and (for hunters) what it hunts,
+		# so the caster gets concrete, namable detail instead of an anonymous role label.
+		var hkey: String = sp + "|" + st
+		if HOT_STATES.has(st) and not hot.has(hkey):
+			var pos: Vector3 = (n as Node3D).global_position if n is Node3D else Vector3.ZERO
+			var near_water: bool = mat != null and mat.has_method("is_water_at") and bool(mat.is_water_at(pos.x, pos.z))
+			var prey: String = ""
+			var po = n.get("preys_on")
+			if po is PackedStringArray and (po as PackedStringArray).size() > 0:
+				prey = String((po as PackedStringArray)[0])
+			hot[hkey] = {"loc": _loc_phrase(near_water, pos.y, sea), "prey": prey}
 	var corpses: int = tree.get_nodes_in_group("carrion").size()
 	var destruction: float = float(_world.get("_music_destruction")) if _world.get("_music_destruction") != null else 0.0
 	var tod: float = float(_world.get("_time_of_day")) if _world.get("_time_of_day") != null else 0.5
 	var fires: int = _fire_count()
 
+	# Slow population EMA drives the "their numbers are climbing / thinning out" running-narrative clause.
+	_pop_baseline = float(pop) if _pop_baseline <= 0.0 else _pop_baseline * 0.95 + float(pop) * 0.05
+
 	var sample: Dictionary = {
 		"pop": pop, "species": species_counts, "states": states,
+		"species_states": species_states, "hot": hot,
 		"corpses": corpses, "destruction": destruction, "tod": tod, "fires": fires,
 		"cloud": _cloud_cover(),
 	}
@@ -278,29 +305,52 @@ func _detect_events(prev: Dictionary, cur: Dictionary) -> void:
 	if int(cur.get("fires", 0)) > int(prev.get("fires", 0)) and int(prev.get("fires", 0)) == 0:
 		_push_event("a fire has broken out and is spreading", I_FIRE)
 
-	# Deaths (population down and/or fresh corpses).
+	var prev_sp: Dictionary = prev.get("species", {})
+	var cur_sp: Dictionary = cur.get("species", {})
+
+	# Deaths (population down and/or fresh corpses) — named by the species that actually lost members.
 	var dpop: int = int(prev.get("pop", 0)) - int(cur.get("pop", 0))
 	var dcorpse: int = int(cur.get("corpses", 0)) - int(prev.get("corpses", 0))
 	if dcorpse > 0 or dpop > 0:
 		var n_dead: int = maxi(dcorpse, dpop)
-		_push_event("%d animal%s just died" % [n_dead, "s" if n_dead != 1 else ""], I_DEATH + float(n_dead - 1) * 2.0)
-	# Births.
-	var births: int = int(cur.get("pop", 0)) - int(prev.get("pop", 0))
-	if births > 0:
-		_push_event("%d new animal%s just born" % [births, "s" if births != 1 else ""], I_BIRTH)
+		var worst_sp: String = ""
+		var worst_drop: int = 0
+		for sp in prev_sp:
+			var drop: int = int(prev_sp[sp]) - int(cur_sp.get(String(sp), 0))
+			if drop > worst_drop:
+				worst_drop = drop
+				worst_sp = String(sp)
+		var verb: String = "was just killed" if dcorpse > 0 else "just died"
+		var who: String = _animal_phrase(worst_sp, worst_drop) if worst_sp != "" else "an animal"
+		_push_event("%s %s" % [who, verb], I_DEATH + float(n_dead - 1) * 2.0)
+
+	# Births — named by the species that gained the most.
+	var best_sp: String = ""
+	var best_gain: int = 0
+	for sp in cur_sp:
+		var gain: int = int(cur_sp[sp]) - int(prev_sp.get(String(sp), 0))
+		if gain > best_gain:
+			best_gain = gain
+			best_sp = String(sp)
+	if best_gain > 0:
+		_push_event("a newborn %s just appeared" % best_sp, I_BIRTH)
 
 	# Per-species extinction.
-	var prev_sp: Dictionary = prev.get("species", {})
-	var cur_sp: Dictionary = cur.get("species", {})
 	for sp in prev_sp:
-		if int(prev_sp[sp]) > 0 and int(cur_sp.get(sp, 0)) == 0:
-			_push_event("the last %s has died out" % _species_label(String(sp)), I_EXTINCT)
+		if int(prev_sp[sp]) > 0 and int(cur_sp.get(String(sp), 0)) == 0:
+			_push_event("the very last %s has just died out" % String(sp), I_EXTINCT)
 
-	# Behaviour spikes (predation, scavenging, fear).
-	_behaviour_delta(prev.get("states", {}), cur.get("states", {}), "stalk", "a predator has started stalking prey", I_STALK)
-	_behaviour_delta(prev.get("states", {}), cur.get("states", {}), "chase", "a chase is on — predator closing on prey", I_CHASE)
-	_behaviour_delta(prev.get("states", {}), cur.get("states", {}), "circle", "vultures are circling a carcass", I_CIRCLE)
-	_behaviour_delta(prev.get("states", {}), cur.get("states", {}), "panic", "the herd has broken into a terrified stampede", I_STAMPEDE)
+	# Behaviour spikes (predation, scavenging, fear) — named per species, with location + prey.
+	var prev_ss: Dictionary = prev.get("species_states", {})
+	var cur_ss: Dictionary = cur.get("species_states", {})
+	var hot: Dictionary = cur.get("hot", {})
+	for sp in cur_ss:
+		var cs: Dictionary = cur_ss[sp]
+		var ps: Dictionary = prev_ss.get(String(sp), {})
+		_named_behaviour(String(sp), ps, cs, hot, "stalk", I_STALK)
+		_named_behaviour(String(sp), ps, cs, hot, "chase", I_CHASE)
+		_named_behaviour(String(sp), ps, cs, hot, "circle", I_CIRCLE)
+		_named_behaviour(String(sp), ps, cs, hot, "panic", I_STAMPEDE)
 
 	# Day/night transition.
 	var phase: String = _tod_phase(float(cur.get("tod", 0.5)))
@@ -309,9 +359,66 @@ func _detect_events(prev: Dictionary, cur: Dictionary) -> void:
 	_last_tod_phase = phase
 
 
-func _behaviour_delta(prev_states: Dictionary, cur_states: Dictionary, key: String, text: String, intensity: float) -> void:
-	if int(cur_states.get(key, 0)) > int(prev_states.get(key, 0)) and int(prev_states.get(key, 0)) == 0:
+## A named-species behaviour beat: fires when this species FIRST enters a hot state this tick, and builds
+## a concrete, reactable sentence with the real animal, its prey, and where it is — not a generic role.
+func _named_behaviour(sp: String, prev_states: Dictionary, cur_states: Dictionary, hot: Dictionary, key: String, intensity: float) -> void:
+	var count: int = int(cur_states.get(key, 0))
+	if not (count > 0 and int(prev_states.get(key, 0)) == 0):
+		return
+	var info: Dictionary = hot.get(sp + "|" + key, {})
+	var loc: String = String(info.get("loc", ""))
+	var prey: String = String(info.get("prey", ""))
+	var subject: String = _animal_phrase(sp, count)
+	var text: String = ""
+	match key:
+		"stalk":
+			if prey != "":
+				text = "%s is creeping low through the cover, closing in on %s%s" % [subject, _species_label(prey), loc]
+			else:
+				text = "%s has dropped into a slow, careful stalk%s" % [subject, loc]
+		"chase":
+			if prey != "":
+				text = "%s has burst into a flat-out sprint after %s%s" % [subject, _species_label(prey), loc]
+			else:
+				text = "%s is tearing after prey at a dead run%s" % [subject, loc]
+		"circle":
+			text = "%s are wheeling in slow circles over a fresh carcass%s" % [subject, loc]
+		"panic":
+			text = "%s have scattered in a wild, bolting panic%s" % [subject, loc]
+	if text != "":
 		_push_event(text, intensity)
+
+
+## Natural-language subject for a species: singular "a fox" when one animal drove the beat, the whole
+## group "the rabbits" when several did — no bare numbers to parrot.
+func _animal_phrase(sp: String, count: int) -> String:
+	if count <= 1:
+		return "a " + sp
+	return "the " + _species_label(sp)
+
+
+## Where the beat is unfolding, cheap to read from the shared field: at the shore, up high, or (blank)
+## just out in the open. Blank stays out of the sentence so the caster isn't forced to name a place.
+func _loc_phrase(near_water: bool, y: float, sea: float) -> String:
+	if near_water:
+		return " right down at the water's edge"
+	if y > sea + 24.0:
+		return " up on the high ground"
+	return ""
+
+
+## A running-narrative aside: only the INTERESTING part — whether the overall population is swinging up or
+## down — as a lowercase fragment, so the model has stakes/continuity but nothing clean to echo as a line.
+## Returns "" when nothing notable is trending, so a static scene adds no filler.
+func _narrative_clause(snap: Dictionary) -> String:
+	if _pop_baseline <= 0.5:
+		return ""
+	var pop: int = int(snap.get("pop", 0))
+	if float(pop) > _pop_baseline * 1.15:
+		return "life out here has been really booming lately"
+	if float(pop) < _pop_baseline * 0.85:
+		return "the land has been steadily emptying out"
+	return ""
 
 
 func _push_event(text: String, intensity: float) -> void:
@@ -381,8 +488,8 @@ func _dispatch_llm(events_snapshot: Array, ambient: bool = false) -> void:
 		"temperature": 0.9,
 		"top_p": 0.9,
 		"frequency_penalty": 0.7,
-		"presence_penalty": 0.5,
-		"max_tokens": 64,
+		"presence_penalty": 0.6,   # nudged up: push the small model off stock phrasing it keeps reaching for
+		"max_tokens": 96,          # room for ONE real flowing sentence, not a clipped fragment
 		"stream": false,
 		# ONE persistent server for the whole session. Persona swaps just change the system prompt on
 		# the next request; cache_prompt lets llama.cpp reuse the KV of the shared prefix instead of
@@ -439,15 +546,27 @@ func _build_context(events_snapshot: Array) -> String:
 	var mood: PackedStringArray = PackedStringArray()
 	mood.append(_tod_phase(float(snap.get("tod", 0.5))))
 	if int(snap.get("fires", 0)) > 0:
-		mood.append("wildfire in the air")
+		mood.append("wildfire smoke drifting through the air")
 
-	var ev: PackedStringArray = PackedStringArray()
+	# Hand the model ONE beat — the biggest (events_snapshot is sorted biggest-first). Feeding several
+	# short declarative beats makes the small model concatenate them verbatim into exactly the staccato
+	# "X was killed. Y was killed." fragments we are trying to kill, so we deliberately give it just one.
+	var lead: String = "things have gone still for a beat"
 	for e in events_snapshot:
-		ev.append(String((e as Dictionary).get("text", "")))
-	var beats: String = "; ".join(ev) if ev.size() > 0 else "a brief lull"
+		var t: String = String((e as Dictionary).get("text", "")).strip_edges()
+		if t != "":
+			lead = t
+			break
+	# Running narrative folds into the opening scene-set (only on a real population swing, so it stays rare
+	# and never becomes a fixed tail the small model parrots every line).
+	var bg: String = _narrative_clause(snap)
+	if bg != "":
+		mood.append(bg)
 
-	return ("Mood: %s. What just happened out there: %s.\n"
-		+ "Give your ONE reaction line now — react, do not describe or recite, do not repeat yourself.") % [", ".join(mood), beats]
+	return ("Right now it's %s. The one thing to react to: %s.\n"
+		+ "Put that into your OWN words as ONE fresh, natural, flowing spoken sentence — name the actual "
+		+ "animals, never repeat this note back word for word, and never stack clipped fragments.") % [
+		", ".join(mood), lead]
 
 
 ## Idle-lull prompt: nothing dramatic is happening, so invite a chill line about the general conditions
