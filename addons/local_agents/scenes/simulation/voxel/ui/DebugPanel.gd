@@ -15,6 +15,7 @@ signal paths_toggled(on: bool)
 signal perf_toggled(key: String, on: bool)           # "shadows" | "ssao"
 signal family_tree_toggled(on: bool)                 # show the kinship family-tree inspector for the selection
 signal screenshot_requested()                        # user clicked the save-screenshot button
+signal select_llm_requested(kind: String)            # select every creature thinking/queued via the local model
 
 # Field-channel heatmap rows: display label -> view_toggled key (the DebugOverlay samples that channel).
 const FIELD_VIEWS: Array = [
@@ -35,6 +36,13 @@ const HIGHLIGHTS: Array = [
 const BEHAVIORS: Array = [
 	["Foraging", "foraging"], ["Hunting", "hunting"], ["Fleeing", "fleeing"],
 	["Drinking", "drinking"], ["Sleeping", "sleeping"], ["Nesting / Mating", "nesting"],
+]
+
+# Local-LLM slow-brain highlight rows: display label -> tint category (LALLMControl.HL_*). A creature dyes
+# itself while it is consulting (thinking) or waiting on (queued) the shared cognition scheduler — the
+# player watches who is talking to the on-device model live. Routed through behavior_toggled (same registry).
+const LLM_HIGHLIGHTS: Array = [
+	["Thinking (local model)", "llm_thinking"], ["Queued", "llm_queued"],
 ]
 
 var _body: VBoxContainer = null
@@ -98,6 +106,16 @@ func _ready() -> void:
 	for brow in BEHAVIORS:
 		var bkey: String = brow[1]
 		_add_check(brow[0], func(on: bool) -> void: behavior_toggled.emit(bkey, on))
+
+	_add_section("HIGHLIGHT · LOCAL MODEL")
+	for lrow in LLM_HIGHLIGHTS:
+		var lkey: String = lrow[1]
+		_add_check(lrow[0], func(on: bool) -> void: behavior_toggled.emit(lkey, on))
+	var pick_llm: Button = Button.new()
+	pick_llm.text = "◎  Select thinking / queued"
+	pick_llm.add_theme_font_size_override("font_size", 12)
+	pick_llm.pressed.connect(func() -> void: select_llm_requested.emit("any"))
+	_body.add_child(pick_llm)
 
 	_add_section("INSPECT")
 	_add_check("Family tree", func(on: bool) -> void: family_tree_toggled.emit(on))

@@ -43,6 +43,14 @@ var _debug_demo: bool = false
 var _wind_view: bool = false            # --wind-view: enable ONLY the emergent wind-arrow overlay
 var _debug_field: String = ""           # --debug-field=<channel>: pre-enable a substrate heatmap (biomass/lava/…)
 var _debug_behaviors: String = ""       # --debug-behaviors[=a,b]: pre-enable behavior-state highlights (default foraging+hunting)
+# --- local-LLM slow-brain control/verification flags ---
+var _llm_highlight: bool = false        # --llm-highlight: pre-enable the thinking/queued tints + report live counts
+var _llm_off: String = ""               # --llm-off[=all|species]: mid-run, disable the slow brain for a group (fallback proof)
+var _llm_off_applied: bool = false
+var _llm_off_calls_before: int = 0
+var _llm_select: bool = false           # --llm-select: late in the run, select all thinking/queued creatures (predicate proof)
+var _llm_select_done: bool = false
+var _llm_report_frame: int = 0          # throttles the periodic LLM_HIGHLIGHT count print
 var _auto_volcano: bool = false
 var _auto_volcano_fired: bool = false
 var _auto_seavolcano: bool = false
@@ -126,6 +134,17 @@ func parse_cmdline() -> void:
 			_debug_behaviors = "foraging,hunting"
 		elif arg.begins_with("--debug-behaviors="):
 			_debug_behaviors = arg.substr("--debug-behaviors=".length())
+		elif arg == "--llm-highlight":
+			# Pre-enable the thinking/queued tints via the shared behavior-highlight path (VoxelDebugWiring
+			# reads _debug_behaviors on setup), and report live consult counts each ~150 frames.
+			_llm_highlight = true
+			_debug_behaviors = "llm_thinking,llm_queued"
+		elif arg == "--llm-off":
+			_llm_off = "all"
+		elif arg.begins_with("--llm-off="):
+			_llm_off = arg.substr("--llm-off=".length())
+		elif arg == "--llm-select":
+			_llm_select = true
 		elif arg == "--auto-meteor":
 			_auto_meteor = true
 		elif arg == "--auto-volcano":
@@ -585,6 +604,58 @@ func update(frame: int, spawned: bool) -> void:
 					if _camera != null and _camera.has_method("focus_on"):
 						_camera.focus_on((_debug_family_root as Node3D).global_position)
 
+	# Local-LLM slow-brain control/verification hooks (--llm-highlight / --llm-off / --llm-select).
+	_tick_llm(frame, spawned)
+
+
+# Local-LLM slow-brain harness hooks. Non-interactive proofs of the player controls, all through the real
+# paths (no fabricated state): report who is consulting the model live, disable a group mid-run and show the
+# slow-brain calls plateau (clean fallback), and select the whole thinking/queued set via the predicate.
+func _tick_llm(frame: int, spawned: bool) -> void:
+	if not spawned:
+		return
+	var sched = _ecology.cognition_scheduler() if (_ecology != null and _ecology.has_method("cognition_scheduler")) else null
+
+	# --llm-highlight: periodic live count of who is thinking/queued (the tints are enabled via _debug_behaviors).
+	if _llm_highlight and sched != null and frame - _llm_report_frame >= 150:
+		_llm_report_frame = frame
+		var think_n: int = LALLMControl.count(get_tree(), "thinking", sched)
+		var queue_n: int = LALLMControl.count(get_tree(), "queued", sched)
+		print("LLM_HIGHLIGHT={frame:%d, thinking:%d, queued:%d, slow_brain_calls:%d}" % [
+			frame, think_n, queue_n, (sched.total_calls() if sched.has_method("total_calls") else 0)])
+
+	# --llm-off: let escalations run, snapshot the slow-brain call count, disable the group, then print the
+	# after count near the end — a disabled group makes ZERO new slow-brain calls (clean fast-path fallback).
+	if _llm_off != "" and sched != null:
+		var off_trigger: int = (_shoot_frames - 200) if _shoot_path != "" else maxi(_run_frames / 2, 100)
+		var species: String = "" if _llm_off == "all" else _llm_off
+		if not _llm_off_applied and frame >= off_trigger:
+			_llm_off_applied = true
+			_llm_off_calls_before = sched.total_calls() if sched.has_method("total_calls") else 0
+			var changed: int = LALLMControl.set_group(get_tree(), species, false)
+			print("LLM_OFF_APPLIED={scope:%s, disabled:%d, slow_brain_calls_before:%d, frame:%d}" % [
+				_llm_off, changed, _llm_off_calls_before, frame])
+		elif _llm_off_applied:
+			# Keep the group disabled: creatures BORN after the disable spawn with the config default (on), so
+			# re-apply periodically to prove a sustained "group off" truly halts new slow-brain calls.
+			if frame % 30 == 0:
+				LALLMControl.set_group(get_tree(), species, false)
+			var end_frame: int = (_shoot_frames - 4) if _shoot_path != "" else maxi(_run_frames - 2, off_trigger + 2)
+			if frame == end_frame:
+				var after: int = sched.total_calls() if sched.has_method("total_calls") else 0
+				print("LLM_OFF_AFTER={slow_brain_calls_after:%d, delta_after_disable:%d, frame:%d}" % [
+					after, after - _llm_off_calls_before, frame])
+
+	# --llm-select: late in the run, select every creature thinking/queued through the real predicate path.
+	if _llm_select and not _llm_select_done and _interaction != null and sched != null:
+		var sel_trigger: int = (_shoot_frames - 30) if _shoot_path != "" else maxi(_run_frames - 30, 60)
+		if frame >= sel_trigger:
+			_llm_select_done = true
+			var pred: Callable = func(c) -> bool: return LALLMControl.matches(c, "any", sched)
+			if _interaction.has_method("select_by_predicate"):
+				var n: int = _interaction.select_by_predicate(pred)
+				print("LLM_SELECT_TEST={count:%d, selected:%s}" % [n, str(_interaction.selected() != null)])
+
 
 # Position the camera close to a behavior-tinted creature (prefer one whose state maps to an enabled
 # category — foraging/hunting — else the nearest creature) and look down at it from just above the surface.
@@ -601,6 +672,14 @@ func _frame_tinted_creature() -> void:
 # fleeing, drinking…) so a live decision is on screen, else the first creature there is.
 func _pick_showcase_creature() -> Node3D:
 	const ACTIVE_STATES: Array = ["eat", "chase", "stalk", "track", "throw", "flee", "panic", "drink", "seek"]
+	# When the LLM highlight is active, prefer a creature actually consulting/queued on the slow brain so the
+	# thinking/queued tint fills the frame (else fall through to the ordinary active-behavior showcase).
+	if _llm_highlight and _ecology != null and _ecology.has_method("cognition_scheduler"):
+		var sched = _ecology.cognition_scheduler()
+		if sched != null:
+			for a in get_tree().get_nodes_in_group("creature"):
+				if a is Node3D and LALLMControl.matches(a, "any", sched):
+					return a
 	var pick: Node3D = null            # first foraging (green) creature, preferred for the demo shot
 	var pick2: Node3D = null           # any other actively-tinted creature (hunting/fleeing/…)
 	var fallback: Node3D = null

@@ -307,6 +307,7 @@ func _ready() -> void:
 	# controllers are built in different phases of composition).
 	if _debug != null:
 		_interaction.selection_changed.connect(_debug.on_selection_changed)
+		_debug.set_interaction(_interaction)   # enables the debug menu's "select all thinking/queued" action
 	# Click-a-creature "what it's thinking" panel — surfaces the existing per-creature cognition (its last
 	# decision + the local model's rationale). Pure UI reader; subscribes to the same selection signal.
 	_thought_panel = ThoughtPanelScript.new()

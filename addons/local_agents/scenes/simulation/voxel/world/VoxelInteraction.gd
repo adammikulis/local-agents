@@ -351,6 +351,29 @@ func select_node(node: Node) -> void:
 	_set_selected(node)
 
 
+## Select-by-predicate: over every creature, gather those matching `predicate` (Callable(Node) -> bool),
+## select the NEAREST match through the normal single-selection path (ring + inspector + thought panel
+## light up on it), focus the camera on it, and return the total match count. The whole matching SET is
+## what a companion highlight (e.g. the LLM thinking/queued tint) is already dyeing; this hands the player
+## a concrete entry point into it. Returns 0 (and clears nothing) when nothing matches.
+func select_by_predicate(predicate: Callable) -> int:
+	var found: Array = []
+	for n in get_tree().get_nodes_in_group("creature"):
+		if n is Node3D and is_instance_valid(n) and bool(predicate.call(n)):
+			found.append(n)
+	if found.is_empty():
+		return 0
+	var origin: Vector3 = _camera.global_position if _camera != null else Vector3.ZERO
+	found.sort_custom(func(a, b):
+		return origin.distance_squared_to((a as Node3D).global_position) \
+			< origin.distance_squared_to((b as Node3D).global_position))
+	var target: Node = found[0]
+	_set_selected(target)
+	if _camera != null and _camera.has_method("focus_on"):
+		_camera.focus_on((target as Node3D).global_position)
+	return found.size()
+
+
 func _set_selected(node: Node) -> void:
 	_selected = node
 	selection_changed.emit(node)

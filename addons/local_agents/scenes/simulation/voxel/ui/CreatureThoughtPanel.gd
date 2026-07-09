@@ -24,6 +24,9 @@ var _thought: Label = null
 var _badge: Label = null
 var _hint: Label = null
 var _lines: VBoxContainer = null
+var _llm_toggle: CheckButton = null   # per-creature local-LLM "slow brain" on/off for the selection
+var _llm_species_btn: Button = null   # apply the toggle's value to this creature's whole species
+var _llm_all_btn: Button = null       # apply the toggle's value to every creature
 
 var _interaction: Node = null
 var _selected: Node = null
@@ -94,6 +97,31 @@ func _build_ui() -> void:
 	var sep: HSeparator = HSeparator.new()
 	vbox.add_child(sep)
 
+	# Per-creature local-LLM control: turn the slow brain on/off for this creature, and apply that choice to
+	# its whole species or every creature. Off => it never consults the on-device model (fast policy only).
+	_llm_toggle = CheckButton.new()
+	_llm_toggle.text = "Local model reasoning"
+	_llm_toggle.add_theme_font_size_override("font_size", 12)
+	_llm_toggle.toggled.connect(_on_llm_toggled)
+	vbox.add_child(_llm_toggle)
+
+	var group_row: HBoxContainer = HBoxContainer.new()
+	group_row.add_theme_constant_override("separation", 4)
+	_llm_species_btn = Button.new()
+	_llm_species_btn.text = "Apply to species"
+	_llm_species_btn.add_theme_font_size_override("font_size", 11)
+	_llm_species_btn.pressed.connect(_on_apply_species)
+	group_row.add_child(_llm_species_btn)
+	_llm_all_btn = Button.new()
+	_llm_all_btn.text = "Apply to all"
+	_llm_all_btn.add_theme_font_size_override("font_size", 11)
+	_llm_all_btn.pressed.connect(_on_apply_all)
+	group_row.add_child(_llm_all_btn)
+	vbox.add_child(group_row)
+
+	var sep2: HSeparator = HSeparator.new()
+	vbox.add_child(sep2)
+
 	_lines = VBoxContainer.new()
 	_lines.add_theme_constant_override("separation", 3)
 	vbox.add_child(_lines)
@@ -131,6 +159,10 @@ func _refresh() -> void:
 
 	_title.text = LACreatureThought.title(c)
 
+	# Reflect this creature's live slow-brain flag on the toggle without re-emitting (no feedback loop).
+	if _llm_toggle != null and "llm_enabled" in c:
+		_llm_toggle.set_pressed_no_signal(bool(c.llm_enabled))
+
 	var t: Dictionary = LACreatureThought.thought(c)
 	_thought.text = "“%s”" % String(t.get("text", ""))
 	var is_llm: bool = bool(t.get("is_llm", false))
@@ -154,6 +186,30 @@ func _refresh() -> void:
 		lbl.add_theme_font_size_override("font_size", 12)
 		lbl.add_theme_color_override("font_color", COL_TEXT)
 		_lines.add_child(lbl)
+
+
+# Per-creature toggle: turn this creature's slow brain on/off. Config-driven flag on the creature; gating
+# happens in LACognition._should_escalate, so this takes effect on its next decision.
+func _on_llm_toggled(on: bool) -> void:
+	if _selected != null and is_instance_valid(_selected) and "llm_enabled" in _selected:
+		_selected.llm_enabled = on
+
+
+# Apply the current toggle value to the selected creature's whole species.
+func _on_apply_species() -> void:
+	if _selected == null or not is_instance_valid(_selected) or _llm_toggle == null:
+		return
+	var sp: String = String(_selected.get("species"))
+	var n: int = LALLMControl.set_group(get_tree(), sp, _llm_toggle.button_pressed)
+	print("LLM_GROUP_SET={scope:species, species:%s, on:%s, count:%d}" % [sp, str(_llm_toggle.button_pressed), n])
+
+
+# Apply the current toggle value to every creature in the world.
+func _on_apply_all() -> void:
+	if _llm_toggle == null:
+		return
+	var n: int = LALLMControl.set_group(get_tree(), "", _llm_toggle.button_pressed)
+	print("LLM_GROUP_SET={scope:all, on:%s, count:%d}" % [str(_llm_toggle.button_pressed), n])
 
 
 func _show() -> void:

@@ -23,6 +23,11 @@ const DEFAULT_MODEL: String = "google/functiongemma-270m-it"
 const DEFAULT_TRACE_PATH: String = "user://functiongemma_traces.jsonl"
 const SCAN_LIMIT: int = 40                 # per-group cap when gathering escalation context
 const PREDATOR_SIZE_RATIO: float = 1.2     # a "predator" must be at least this much bigger than me
+# How long the "thinking"/"queued" highlight lingers after the event so the player (and a screenshot) can
+# actually SEE a consult that resolved in a single frame (the teacher path resolves next idle). Purely a
+# display window — the authoritative in-flight state (is_thinking) is exact via _in_flight_ids.
+const HIGHLIGHT_LINGER_MS: int = 1200
+const ACTIVITY_PRUNE_AT: int = 256         # prune expired activity entries once the map grows past this
 
 # --- configuration (set via setup) ---
 var _enabled: bool = true
@@ -40,6 +45,13 @@ var _llm_calls: int = 0
 var _teacher_calls: int = 0
 var _dropped: int = 0
 var _recent_ms: Array = []                 # accept timestamps within the last second (rate limiting)
+
+# --- live "who is consulting the slow brain" set (drives the player's thinking/queued highlight + select) ---
+# _in_flight_ids: exact set of creatures whose escalation is being resolved RIGHT NOW (added on accept,
+# removed on finish). _activity: instance_id -> {kind:"thinking"|"queued", until:msec} — the lingered
+# display window so a one-frame teacher consult still shows. is_thinking/is_queued read both.
+var _in_flight_ids: Dictionary = {}
+var _activity: Dictionary = {}
 
 
 ## Configure the scheduler. Robust to a missing/empty server_url (falls back to the teacher).
@@ -61,17 +73,27 @@ func setup(options: Dictionary = {}) -> void:
 func request(creature, cognition, sig: Dictionary, innate_action: String) -> bool:
 	if cognition == null:
 		return false
+	var cid: int = creature.get_instance_id() if creature != null else 0
 	if not _accept():
 		_dropped += 1
+		# Wanted to consult the slow brain but the shared budget was full → mark QUEUED (waiting its turn).
+		if cid != 0:
+			_activity[cid] = {"kind": "queued", "until": Time.get_ticks_msec() + HIGHLIGHT_LINGER_MS}
+			_maybe_prune()
 		return false
 
 	_in_flight += 1
 	_total_calls += 1
+	# Accepted → this creature is now consulting the slow brain (THINKING), exact until _finish clears it.
+	if cid != 0:
+		_in_flight_ids[cid] = true
+		_activity[cid] = {"kind": "thinking", "until": Time.get_ticks_msec() + HIGHLIGHT_LINGER_MS}
 
 	var context: Dictionary = _gather_context(creature)
 	var job: Dictionary = {
 		"creature": creature,
 		"cognition": cognition,
+		"cid": cid,
 		"sig": sig,
 		"innate_action": String(innate_action),
 		"context": context,
@@ -173,6 +195,12 @@ func _teacher_action(sig: Dictionary, context: Dictionary) -> String:
 
 func _finish(job: Dictionary, action: String, source: String) -> void:
 	_in_flight = maxi(0, _in_flight - 1)
+	# Resolved: drop the exact in-flight mark but keep a lingering "thinking" glow so a fast (single-frame)
+	# consult is still visible for a moment after it lands.
+	var cid: int = int(job.get("cid", 0))
+	if cid != 0:
+		_in_flight_ids.erase(cid)
+		_activity[cid] = {"kind": "thinking", "until": Time.get_ticks_msec() + HIGHLIGHT_LINGER_MS}
 	var cognition = job.get("cognition", null)
 	if action != "" and LAActionRegistry.is_valid(action):
 		_write_trace(job, action, source)
@@ -320,6 +348,52 @@ func _action_name_list() -> Array:
 	for a in LAActionRegistry.ACTIONS:
 		names.append(String(a))
 	return names
+
+
+# --- live consult set (player highlight + select-by-predicate) ------------------------------------
+
+## Is this creature consulting the slow brain right now (or within the brief display linger)? Exact while
+## the escalation is in flight (_in_flight_ids), then lingers HIGHLIGHT_LINGER_MS so a one-frame teacher
+## consult is still visible. O(1).
+func is_thinking(c) -> bool:
+	if c == null:
+		return false
+	var cid: int = c.get_instance_id()
+	if _in_flight_ids.has(cid):
+		return true
+	return _activity_kind(cid) == "thinking"
+
+
+## Did this creature want to escalate but get held back by the shared budget (waiting its turn)? Cleared
+## the moment it is actually accepted (it becomes thinking then). O(1).
+func is_queued(c) -> bool:
+	if c == null:
+		return false
+	var cid: int = c.get_instance_id()
+	if _in_flight_ids.has(cid):
+		return false
+	return _activity_kind(cid) == "queued"
+
+
+# The current lingered activity kind for `cid` ("thinking"|"queued"|""), self-pruning expired entries.
+func _activity_kind(cid: int) -> String:
+	var e = _activity.get(cid, null)
+	if e == null:
+		return ""
+	if Time.get_ticks_msec() >= int((e as Dictionary).get("until", 0)):
+		_activity.erase(cid)
+		return ""
+	return String((e as Dictionary).get("kind", ""))
+
+
+# Drop expired activity entries when the map grows (bounds memory for creatures that never query again).
+func _maybe_prune() -> void:
+	if _activity.size() < ACTIVITY_PRUNE_AT:
+		return
+	var now: int = Time.get_ticks_msec()
+	for k in _activity.keys():
+		if now >= int((_activity[k] as Dictionary).get("until", 0)):
+			_activity.erase(k)
 
 
 # --- introspection --------------------------------------------------------------------------------

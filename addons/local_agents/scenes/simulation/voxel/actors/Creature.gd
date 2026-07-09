@@ -192,6 +192,10 @@ var _call_cd: float = 0.0
 var family_id: int = 0
 var _genome = null                         # LAGenome (heritable traits + baked instinct priors)
 var _cognition = null                      # LACognition (per-creature learned policy + slow-brain hook)
+# PLAYER CONTROL over the local-LLM "slow brain": opt-out per creature (config-driven, default on). When
+# off, cognition never escalates to the shared scheduler (see LACognition._should_escalate) — the creature
+# runs on its fast reinforced policy + innate cascade only. Toggled per-creature / per-group from the UI.
+var llm_enabled: bool = true
 var _migrate_dir: Vector3 = Vector3.ZERO   # steady heading chosen when the 'migrate' action fires
 var _veto_dir: Vector3 = Vector3.ZERO      # committed retreat heading when cognition VETOES a learned-lethal action
 var _veto_timer: float = 0.0               # seconds left on the current retreat commitment (latched, anti-oscillation)
@@ -289,7 +293,11 @@ func _update_state_tint() -> void:
 			_tint_category = ""
 			_apply_tint_overlay(Color.WHITE, false)
 		return
-	var cat: String = _state_category(state)
+	# The LLM slow-brain highlight (thinking/queued) takes priority over the behavior-state tint so a live
+	# model consult is always the visible dye; falls back to the behavior-state category otherwise.
+	var cat: String = _cognition_highlight_category()
+	if cat == "":
+		cat = _state_category(state)
 	var want: String = cat if _behavior_tints.has(cat) else ""
 	if want == _tint_category:
 		return
@@ -298,6 +306,26 @@ func _update_state_tint() -> void:
 		_apply_tint_overlay(Color.WHITE, false)
 	else:
 		_apply_tint_overlay(_behavior_tints[want], true)
+
+
+## The LLM slow-brain highlight category for this creature ("llm_thinking"/"llm_queued"/""), asked only
+## when that highlight is enabled. Reads the shared scheduler through this creature's cognition — O(1)
+## scheduler lookups, no per-frame scan (and a no-op early-out when neither highlight is registered).
+func _cognition_highlight_category() -> String:
+	if _cognition == null:
+		return ""
+	var want_thinking: bool = _behavior_tints.has(LALLMControl.HL_THINKING)
+	var want_queued: bool = _behavior_tints.has(LALLMControl.HL_QUEUED)
+	if not (want_thinking or want_queued):
+		return ""
+	var sched = _cognition.scheduler()
+	if sched == null:
+		return ""
+	if want_thinking and sched.is_thinking(self):
+		return LALLMControl.HL_THINKING
+	if want_queued and sched.is_queued(self):
+		return LALLMControl.HL_QUEUED
+	return ""
 
 
 ## Force a fresh tint evaluation (VoxelDebugWiring calls this on a checkbox toggle so live creatures
@@ -483,6 +511,7 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	# (birds roost in trees, mammals/snakes burrow or den) — no per-species branch here.
 	nests = bool(config.get("nests", nests))
 	nest_habitat = String(config.get("nest_habitat", "tree" if can_fly else "ground"))
+	llm_enabled = bool(config.get("llm_enabled", true))   # per-creature slow-brain opt-out (default on)
 	_target_altitude = cruise_height
 	state = "cruise" if can_fly else "wander"
 	_poop_cd = randf_range(20.0, 45.0)

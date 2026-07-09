@@ -124,6 +124,12 @@ func set_scheduler(s) -> void:
 	_sched = s
 
 
+## The shared slow-brain scheduler (LACognitionScheduler), or null. Surfaced so the creature's highlight can
+## ask the scheduler whether it is currently thinking/queued (read-only; starts no model path).
+func scheduler():
+	return _sched
+
+
 ## Pre-load the policy with the genetic instinct priors this individual was born with.
 func seed_from_genome(genome) -> void:
 	if genome == null:
@@ -331,6 +337,10 @@ func _drive_urgency(c) -> float:
 
 
 func _should_escalate(c, learned) -> bool:
+	# PLAYER CONTROL: the slow brain is opt-out per creature (config-driven `llm_enabled`, default on). When
+	# off, this creature never escalates — it runs purely on its fast reinforced policy + innate cascade.
+	if c != null and not c.llm_enabled:
+		return false
 	if _sched == null or _pending or _cooldown > 0.0:
 		return false
 	if learned == null:
