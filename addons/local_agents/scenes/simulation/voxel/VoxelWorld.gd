@@ -29,6 +29,7 @@ const SpawnControllerScript: GDScript = preload("res://addons/local_agents/scene
 const InputControllerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelInputController.gd")
 const DebugWiringScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelDebugWiring.gd")
 const AudioControllerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelAudioController.gd")
+const GameProgressionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/game/GameProgression.gd")
 
 # --- SOLAR-SYSTEM-FIRST: the world is a star + planet body (see TODO). Radial is the default; flat retired. ---
 const PLANET_RADIUS: float = 250.0
@@ -61,6 +62,7 @@ var _sky_ctrl: LAVoxelSkyController = null      # star/sun + sky-mode wiring + d
 var _spawn: LAVoxelSpawnController = null       # initial ecology/actor spawning + counts + river springs
 var _input: LAVoxelInputController = null       # CLI-arg parsing + auto-demo firing + pause-menu host
 var _debug: LAVoxelDebugWiring = null           # DebugPanel/DebugOverlay wiring + debug-view dispatch
+var _progression: LAGameProgression = null      # campaign stage ladder gating camera zoom / view modes / spawns
 
 # --- Procedural audio (presentation only; reacts to events, never drives the sim) ---
 var _audio: LocalAgentsAudioDirector = null
@@ -85,6 +87,13 @@ func _ready() -> void:
 	_input.name = "InputController"
 	add_child(_input)
 	_input.parse_cmdline()
+
+	# --- Campaign progression: data-driven stage ladder that GATES existing capabilities (camera zoom
+	# ceiling, view modes, spawn palette) on earned objectives. Created early so the camera's set_orbit_target
+	# sees the constrained ceiling; the camera / view-controls / palette QUERY it via LAGameProgression.active().
+	_progression = GameProgressionScript.new()
+	_progression.name = "GameProgression"
+	add_child(_progression)
 
 	# Non-interactive verification/screenshot runs (--run-frames / --shoot) shove the OS window WAY
 	# off-screen the instant we start, so agent/CI runs that render on a real display path never pop a

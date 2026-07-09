@@ -136,6 +136,11 @@ func _ready() -> void:
 	set_status("Ready")
 	set_process(true)
 
+	# Reveal palette entries as their spawn capabilities are earned (campaign). No-op when no progression exists.
+	var prog: LAGameProgression = LAGameProgression.active()
+	if prog != null:
+		prog.capability_unlocked.connect(func(_id: String) -> void: _refresh_palette_locks())
+
 
 func _process(_delta: float) -> void:
 	var fps: int = int(round(Engine.get_frames_per_second()))
@@ -212,6 +217,10 @@ func arm_kind(kind: String) -> void:
 		elif _armed_kind != "":
 			_armed_kind = ""
 			spawn_selected.emit("")
+		return
+	# Campaign gating: refuse to arm a spawn the player has not earned (also blocks the number hotkeys).
+	if not LAGameProgression.spawn_unlocked(kind):
+		set_status("%s is locked — earn it in the campaign." % String(KIND_LABELS.get(kind, kind)))
 		return
 	for btn in _palette_group.get_buttons():
 		if String(btn.get_meta("kind", "")) == kind:
@@ -394,8 +403,19 @@ func _make_kind_button(group: ButtonGroup, kind: String) -> Button:
 	btn.custom_minimum_size = Vector2(52.0, 56.0)
 	btn.set_meta("kind", kind)
 	btn.toggled.connect(_on_palette_toggled)
+	# Campaign gating: hide-by-disable the entries the player has not earned yet (sandbox / no progression = all on).
+	btn.disabled = not LAGameProgression.spawn_unlocked(kind)
 	_kind_buttons[kind] = btn
 	return btn
+
+
+## Re-enable each palette entry whose spawn capability is now unlocked (campaign). Wired to the progression's
+## capability_unlocked signal; a no-op when no progression instance exists.
+func _refresh_palette_locks() -> void:
+	for kind in _kind_buttons:
+		var btn: Button = _kind_buttons[kind]
+		if btn != null and is_instance_valid(btn):
+			btn.disabled = not LAGameProgression.spawn_unlocked(String(kind))
 
 
 func _build_audio_menu(root: Control) -> void:
@@ -509,6 +529,7 @@ func _build_theme() -> Theme:
 	t.set_stylebox("focus", "Button", btn_focus)
 	t.set_stylebox("disabled", "Button", btn_normal)
 	t.set_color("font_color", "Button", COL_TEXT)
+	t.set_color("font_disabled_color", "Button", Color(COL_TEXT_DIM.r, COL_TEXT_DIM.g, COL_TEXT_DIM.b, 0.35))
 	t.set_color("font_hover_color", "Button", COL_TEXT_HEADING)
 	t.set_color("font_pressed_color", "Button", COL_ACCENT)
 	t.set_color("font_hover_pressed_color", "Button", COL_ACCENT)
