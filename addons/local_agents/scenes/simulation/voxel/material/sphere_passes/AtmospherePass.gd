@@ -32,20 +32,25 @@ extends RefCounted
 ##   4) RAIN:      gather rain scratch --> water[back] (fall down the column)
 ## airwater therefore ENDS in back[1-parity]; the parity flip makes it live next step.
 ##
-## REFINEMENT DEFERRED (Phase 2a §"Vertical rise folds into buoyant wind"): the design's swap of the
-## transport `rise_frac` term for a full vel_y radial advection is left as a follow-up — this pass keeps the
-## proven buoyant-rise term and runs ONE conservative transport of airwater. A working conserved airwater is
-## the priority; the vel_y refinement can land later without touching the channel collapse.
+## VERTICAL RISE = REAL WIND (Phase 2a §"Vertical rise folds into buoyant wind", now landed): the transport's
+## old constant `rise_frac` buoyant term is REPLACED by upwind advection along the actual radial wind vel_y.
+## This is what turns cloud from a uniform thin veil into DISTINCT MASSES: a constant rise lifts humidity at
+## the same rate everywhere (so, with diffusion, airwater stays flat), whereas riding vel_y concentrates it
+## where warm updrafts converge (cloud banks) and clears it where air subsides (gaps of clear sky).
+## Diffusion is also kept WEAK so it can't smear the masses back flat. Still ONE conservative transport pass.
 
 const TRANSPORT_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/atmos_transport_sphere3d.glsl"
 const EVAP_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/atmos_evap_sphere3d.glsl"
 const PRECIP_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/atmos_precip_sphere3d.glsl"
 const RAIN_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/atmos_rain_sphere3d.glsl"
 
-# Single-channel transport gains for `airwater`. Airwater is the whole suspended-water column, so it spreads
-# a touch faster than the old cloud/fog and rises buoyantly like the old vapor (warm humid air convects up).
-const AIRWATER_DIFFUSE: float = 0.12
-const AIRWATER_RISE: float = 0.08
+# Single-channel transport gains for `airwater`. To make cloud form DISTINCT MASSES (not a uniform veil),
+# airwater must CLUMP: diffusion is kept WEAK (strong diffusion smears the field flat), and the old constant
+# buoyant rise is replaced by advection along the REAL radial wind vel_y (AIRWATER_VWIND_GAIN) — warm
+# updrafts concentrate humidity into cloud banks where the vertical flow converges, subsidence clears the
+# gaps. Horizontal wind (AIRWATER_WIND_GAIN) still drifts the masses with the prevailing flow.
+const AIRWATER_DIFFUSE: float = 0.035
+const AIRWATER_VWIND_GAIN: float = 4.5
 const AIRWATER_WIND_GAIN: float = 1.0
 
 # Default field cell size (MaterialField3D._cell_size = 5.0) + step dt (STEP_DT = 1/10). Used only to fold
@@ -103,6 +108,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var solid: RID = bufs["solid"]
 	var stat: RID = bufs["static"]
 	var vel_x: RID = bufs["vel_x"]
+	var vel_y: RID = bufs["vel_y"]
 	var vel_z: RID = bufs["vel_z"]
 	var nbr: RID = bufs["nbr"]
 
@@ -116,9 +122,9 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[4, stat], [5, airwater[back]], [15, nbr]])
 
 		# TRANSPORT — atmos_transport_sphere3d.glsl: 0=q in(post-evap back), 1=solid, 2=q out(live scratch),
-		# 3=vel_x, 4=vel_z, 15=nbr.
+		# 3=vel_x, 4=vel_z, 5=vel_y (radial-up wind), 15=nbr.
 		_transport_set[p] = _mkset(rd, _transport_shader, [
-			[0, airwater[back]], [1, solid], [2, airwater[p]], [3, vel_x], [4, vel_z], [15, nbr]])
+			[0, airwater[back]], [1, solid], [2, airwater[p]], [3, vel_x], [4, vel_z], [5, vel_y], [15, nbr]])
 
 		# PRECIP — atmos_precip_sphere3d.glsl: 0=airwater in(live, post-transport), 1=temp(back), 2=solid,
 		# 3=airwater out(back), 4=rain scratch.
@@ -143,10 +149,11 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # post-evap airwater[back] visible to transport
 
-	# STAGE 2 — TRANSPORT: airwater[back] --(diffuse/rise/wind)--> airwater[live] (one conservative pass).
+	# STAGE 2 — TRANSPORT: airwater[back] --(weak diffuse / vel_y updraft advection / horizontal wind)-->
+	# airwater[live] (one conservative pass). vel_y advection is what CLUMPS the field into cloud masses.
 	rd.compute_list_bind_compute_pipeline(cl, _transport_pipe)
 	rd.compute_list_bind_uniform_set(cl, _transport_set[parity], 0)
-	rd.compute_list_set_push_constant(cl, _pc_transport(cc, AIRWATER_DIFFUSE, AIRWATER_RISE, _wdt(AIRWATER_WIND_GAIN, dt, cell_size)), 16)
+	rd.compute_list_set_push_constant(cl, _pc_transport(cc, AIRWATER_DIFFUSE, _wdt(AIRWATER_VWIND_GAIN, dt, cell_size), _wdt(AIRWATER_WIND_GAIN, dt, cell_size)), 16)
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # post-transport airwater[live] visible to precip
 
@@ -210,13 +217,13 @@ func _pc_plain(cc: int) -> PackedByteArray:
 	return pc
 
 
-# transport Params: {uint cell_count, float diffuse_frac, float rise_frac, float wdt} (16 bytes).
-func _pc_transport(cc: int, diffuse_frac: float, rise_frac: float, wdt: float) -> PackedByteArray:
+# transport Params: {uint cell_count, float diffuse_frac, float wdt_y, float wdt} (16 bytes).
+func _pc_transport(cc: int, diffuse_frac: float, wdt_y: float, wdt: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(16)
 	pc.encode_u32(0, cc)
 	pc.encode_float(4, diffuse_frac)
-	pc.encode_float(8, rise_frac)
+	pc.encode_float(8, wdt_y)
 	pc.encode_float(12, wdt)
 	return pc
 
