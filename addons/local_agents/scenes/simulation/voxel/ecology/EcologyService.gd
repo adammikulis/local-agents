@@ -49,6 +49,17 @@ var _fish_timer: float = 0.0
 var _tree_timer: float = 0.0             # forest succession: groves densify on biomass-rich ground
 var _aquatic_kinds_cache: Array = []     # aquatic species ids (config aquatic:true), indexed once
 var _aquatic_indexed: bool = false
+# Monotonic label handed to each founder CLUSTER as its shared family_id (permanent kin bond; see
+# _spawn_herd_founders). A small counter never collides with the get_instance_id() default a solitary
+# creature falls back to (those are large object ids), so lineages stay distinct.
+var _next_fam: int = 1
+
+
+# A fresh, never-reused family/lineage label (the id of a new founder cluster or breeding pair).
+func _new_family_id() -> int:
+	var id: int = _next_fam
+	_next_fam += 1
+	return id
 
 # --- Seismic / shock stimulus (emergent camera shake) ------------------------
 # Ground disturbances now inject into the field's PROPAGATING shock wave (LAMaterialShock3D); the camera
@@ -256,18 +267,65 @@ func spawn(kind: String, world_pos: Vector3) -> Node:
 	return _instance_actor(kind, placed)
 
 
+# Founder clustering — a HERDING species starts as a few tight bands, not a planet-wide smear, so local
+# same-species density is high enough that leadership finds followers and durable kin herds form. One founder
+# cluster per ~this many members (at least one); members scatter around the founder within a tangent-plane
+# spread and share ONE family_id (the permanent kin bond). Solitary species keep the independent scatter.
+const HERD_CLUSTER_SIZE: int = 18        # target members per founder cluster (fewer, bigger bands → fewer leaders)
+const HERD_CLUSTER_SPREAD: float = 8.0   # tangent-plane radius (metres) members scatter around a founder —
+                                         # kept inside a ground species' leadership radius (flock_radius×1.5)
+                                         # so cluster-mates fall within one leader's neighbourhood from frame 0
+
+
 func spawn_initial(counts: Dictionary) -> void:
 	for kind in counts.keys():
+		var kind_s: String = String(kind)
 		var n: int = int(counts[kind])
-		for i in n:
-			var p: Vector3 = _random_spawn_point()
-			var placed = _place_on_surface(p)
+		if n <= 0:
+			continue
+		var cfg: Dictionary = _species_config(kind_s)
+		if bool(cfg.get("herd", false)):
+			_spawn_herd_founders(kind_s, n)
+		else:
+			for i in n:
+				_spawn_scattered_one(kind_s)
+
+
+# Place ONE individual at an independent random surface point (queue if the patch isn't meshed yet, skip
+# vegetation that can't germinate here). The pre-clustering behaviour, kept for solitary / non-herd kinds.
+func _spawn_scattered_one(kind: String) -> void:
+	var p: Vector3 = _random_spawn_point()
+	var placed = _place_on_surface(p)
+	if placed == null:
+		_pending.append({"kind": kind, "pos": p, "tries": 0, "family_id": -1})
+	elif (kind == "tree" or kind == "plant") and not _can_grow_here(placed):
+		pass   # too cold / snow-covered — skip this vegetation placement (emergent treeline)
+	else:
+		_instance_actor(kind, placed)
+
+
+# Seed a herding species as K founder clusters (K scales with the count). Each cluster gets a fresh family_id
+# and scatters its members around one founder site in the founder's tangent plane, so kin are spatially local
+# from frame 0 — leadership then elects one leader per band with real followers. Total count is preserved.
+func _spawn_herd_founders(kind: String, n: int) -> void:
+	var clusters: int = maxi(1, int(round(float(n) / float(HERD_CLUSTER_SIZE))))
+	var base: int = n / clusters
+	var extra: int = n % clusters               # spread the remainder one-per-cluster so totals match exactly
+	for ci in range(clusters):
+		var members: int = base + (1 if ci < extra else 0)
+		if members <= 0:
+			continue
+		var founder_raw: Vector3 = _random_spawn_point()   # cluster centre (raw sphere point; projected below)
+		var fam: int = _new_family_id()
+		for mi in range(members):
+			var raw: Vector3 = founder_raw
+			if mi > 0:
+				raw = _tangent_offset_raw(founder_raw, randf_range(-HERD_CLUSTER_SPREAD, HERD_CLUSTER_SPREAD), randf_range(-HERD_CLUSTER_SPREAD, HERD_CLUSTER_SPREAD))
+			var placed = _place_on_surface(raw)
 			if placed == null:
-				_pending.append({"kind": String(kind), "pos": p, "tries": 0})
-			elif (String(kind) == "tree" or String(kind) == "plant") and not _can_grow_here(placed):
-				pass   # too cold / snow-covered — skip this vegetation placement (emergent treeline)
+				_pending.append({"kind": kind, "pos": raw, "tries": 0, "family_id": fam})
 			else:
-				_instance_actor(String(kind), placed)
+				_instance_actor(kind, placed, null, fam)
 
 
 func _random_spawn_point() -> Vector3:
@@ -291,6 +349,14 @@ func _random_sphere_dir() -> Vector3:
 # "sides" of the globe. Returns a surface point (NAN-x if that patch isn't meshed).
 func _tangent_offset_point(anchor: Vector3, u: float, v: float) -> Vector3:
 	var pc: Vector3 = terrain.planet_center()
+	return terrain.surface_point((_tangent_offset_raw(anchor, u, v) - pc).normalized())
+
+
+# The RAW (un-projected) tangent-plane displacement of `anchor` by (u, v) metres. Kept separate from
+# _tangent_offset_point so callers that project themselves (or queue an unmeshed point for retry) can reuse
+# the offset math without forcing a surface lookup that fails on not-yet-meshed ground.
+func _tangent_offset_raw(anchor: Vector3, u: float, v: float) -> Vector3:
+	var pc: Vector3 = terrain.planet_center()
 	var up: Vector3 = terrain.up_at(anchor)
 	if up.length() < 0.001:
 		up = (anchor - pc).normalized()
@@ -300,8 +366,7 @@ func _tangent_offset_point(anchor: Vector3, u: float, v: float) -> Vector3:
 		ref = Vector3.FORWARD
 	var t1: Vector3 = ref.cross(up).normalized()
 	var t2: Vector3 = up.cross(t1).normalized()
-	var displaced: Vector3 = anchor + t1 * u + t2 * v
-	return terrain.surface_point((displaced - pc).normalized())
+	return anchor + t1 * u + t2 * v
 
 
 # Orient a spawned static actor (tree/plant/rock) so its local +Y points along the radial up at its
@@ -347,7 +412,7 @@ func _place_on_surface(world_pos: Vector3):
 	return p
 
 
-func _instance_actor(kind: String, placed: Vector3, genome = null) -> Node:
+func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: int = -1) -> Node:
 	var node: Node = null
 	if kind == "plant":
 		var plant: PlantScript = PlantScript.new()
@@ -384,6 +449,10 @@ func _instance_actor(kind: String, placed: Vector3, genome = null) -> Node:
 			fish.global_position = placed
 			fish.setup(terrain, _material, cfg)
 			return fish
+		# Founder clusters share a family_id (permanent kin bond). Only applies to the ancestral (null-genome)
+		# path — a bred offspring carries its inherited family_id in the genome's base_config instead.
+		if family_id >= 0 and genome == null:
+			cfg["family_id"] = family_id
 		var creature: CreatureScript = CreatureScript.new()
 		actors_root.add_child(creature)
 		creature.global_position = placed
@@ -551,7 +620,7 @@ func _process_pending() -> void:
 			var k: String = String(entry["kind"])
 			if (k == "tree" or k == "plant") and not _can_grow_here(placed):
 				continue   # surface resolved somewhere too cold / snowy for vegetation — drop it
-			_instance_actor(k, placed)
+			_instance_actor(k, placed, null, int(entry.get("family_id", -1)))
 		else:
 			entry["tries"] = int(entry["tries"]) + 1
 			if int(entry["tries"]) < 300:      # keep retrying ~ a few seconds

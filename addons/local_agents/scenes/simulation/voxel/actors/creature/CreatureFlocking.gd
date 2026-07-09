@@ -40,6 +40,34 @@ static func _influence(m) -> float:
 		w += RANK_INFLUENCE
 	return w
 
+# How hard an isolated creature pulls home toward its family anchor (relative to flock_cohesion). >1 so
+# regrouping dominates idle wander and a strayed animal actually closes the gap back to its band.
+const REGROUP_GAIN: float = 2.2
+
+## Regroup pull for an ISOLATED creature (no same-species mate within flock_radius). Homes toward the durable
+## FAMILY anchor, recognised by an OMNIDIRECTIONAL smell/sound RANGE sense — a bounded spatial-hash query,
+## never a vision cone: prefer the nearest kin/elder sharing family_id within reach, else fall back to the
+## tracked _leader (kept alive by the sticky leash). Flattened by the caller's convention; Big-O stays flat
+## (one neighbour-table query, the same class of lookup the flock already does).
+static func _regroup(c, pos: Vector3, flatten: bool) -> Vector3:
+	var anchor = null
+	# Range sense (hearing/scent) reach: at least the leadership leash, or this creature's hearing range.
+	var reach: float = maxf(c.flock_radius * LACreatureLeadership.LEASH_MULT, c.hearing_range)
+	var kin = LACreatureLeadership.nearest_family_adult(c, pos, reach)
+	if kin != null:
+		anchor = kin
+	elif c._leader != null and is_instance_valid(c._leader):
+		anchor = c._leader
+	if anchor == null:
+		return Vector3.ZERO
+	var to_home: Vector3 = anchor.global_position - pos
+	if flatten:
+		to_home.y = 0.0
+	if to_home.length() < 0.001:
+		return Vector3.ZERO
+	return to_home.normalized() * c.flock_cohesion * REGROUP_GAIN
+
+
 static func steer(c, pos: Vector3, flatten: bool) -> Vector3:
 	if c.flock_weight <= 0.0:
 		return Vector3.ZERO
@@ -65,22 +93,26 @@ static func steer(c, pos: Vector3, flatten: bool) -> Vector3:
 		# Separation is UNWEIGHTED: crowding avoidance is about proximity, not influence.
 		if d < sep_dist:
 			separation += (pos - op) / d          # stronger the closer they are
-	if wsum <= 0.0:
-		return Vector3.ZERO
-	center /= wsum
-	# align: weighted sum, direction is what matters (normalised below), so no divide needed.
-	var cohesion: Vector3 = center - pos
-	if flatten:
-		cohesion.y = 0.0
-		align.y = 0.0
-		separation.y = 0.0
 	var out: Vector3 = Vector3.ZERO
-	if cohesion.length() > 0.001:
-		out += cohesion.normalized() * c.flock_cohesion
-	if align.length() > 0.001:
-		out += align.normalized() * c.flock_alignment
-	if separation.length() > 0.001:
-		out += separation.normalized() * c.flock_separation
+	if wsum > 0.0:
+		center /= wsum
+		# align: weighted sum, direction is what matters (normalised below), so no divide needed.
+		var cohesion: Vector3 = center - pos
+		if flatten:
+			cohesion.y = 0.0
+			align.y = 0.0
+			separation.y = 0.0
+		if cohesion.length() > 0.001:
+			out += cohesion.normalized() * c.flock_cohesion
+		if align.length() > 0.001:
+			out += align.normalized() * c.flock_alignment
+		if separation.length() > 0.001:
+			out += separation.normalized() * c.flock_separation
+	else:
+		# ISOLATED: no same-species herd-mate within flock_radius. Rather than drift off alone (and let the
+		# election make it a leader-of-one), home back toward the durable FAMILY anchor. Composes with the
+		# sticky-leadership leash so a strayed follower navigates back to its band instead of splintering.
+		out += _regroup(c, pos, flatten)
 	# CROSS-SPECIES panic: align with any nearby fleeing creature of ANY species (not just my kind),
 	# so a mixed grazing group scatters as one. Reuses the shared frame-stamped spatial index (cheap).
 	var panic_align: Vector3 = Vector3.ZERO

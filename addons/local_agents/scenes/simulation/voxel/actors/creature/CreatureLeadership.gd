@@ -167,7 +167,23 @@ static func nearest_family_adult(c, pos: Vector3, radius: float):
 # tree root). Throttled by c._leader_elect_cd.
 # ============================================================================================================
 const LEADER_ELECT_STRIDE: int = 45        # re-run the (cheap, throttled) local election ~every 0.75 s
-const LEADER_RADIUS_MULT: float = 1.5      # leadership neighbourhood = flock_radius × this
+const LEADER_RADIUS_MULT: float = 3.0      # leadership neighbourhood = flock_radius × this. Wider than the
+                                           # flocking/vision radius on purpose: an alpha's SOCIAL pull reaches
+                                           # farther than one body-length of steering, so a band holds one
+                                           # leader as it spreads to graze instead of fissioning into many.
+# LEASH: a follower keeps its (still-valid) leader while within this × the leadership radius, even after it
+# has drifted past `radius` — it regroups back (CreatureFlocking regroup pull) instead of self-promoting to a
+# leader-of-one. Only a truly gone leader (dead/carried/beyond-leash) or a genuinely higher-ranked local
+# challenger triggers re-election. This is what stops the "everyone is a leader of one" churn on the sphere.
+const LEASH_MULT: float = 4.0
+
+
+# A leader is only followable while it is a live, free creature — not dead/carrying/dying/carried. Mirrors the
+# skip used in the local_* queries so "is my current leader still valid?" and "who could lead?" agree.
+static func _leader_valid(ldr) -> bool:
+	return ldr != null and is_instance_valid(ldr) \
+			and not ldr.get("_carcass") and not ldr.get("_dead") \
+			and not ldr.get("_held") and not ldr.get("_dying")
 
 # A/B / verification kill-switch: LA_NO_LEADERSHIP=1 makes every creature its own leader (no delegation),
 # i.e. the pre-leadership behaviour, for on/off population + perf comparison. Read once (env is process-wide).
@@ -227,10 +243,15 @@ static func elect_flat(c, pos: Vector3, radius: float) -> void:
 		top = c                                           # attaching would close a loop → treat c as root
 	# The incumbent leader over c: itself while it leads, else the creature it currently follows.
 	if not c._is_leader:
-		var inc_ok: bool = c._leader != null and is_instance_valid(c._leader) \
-				and pos.distance_squared_to(c._leader.global_position) <= radius * radius
-		if not inc_ok:
-			# Self-healing: leader died or left → adopt the new local top immediately, NO loyalty margin.
+		# Sticky: keep the current leader while it is still a live, free creature AND within the LEASH (a
+		# generous multiple of `radius`). A mere drift past `radius` no longer demotes — the follower regroups
+		# back toward its leader/kin (CreatureFlocking) rather than becoming a leader-of-one. Only a truly gone
+		# leader (dead/carried/beyond-leash) forces the immediate self-heal below.
+		var leash: float = radius * LEASH_MULT
+		var leader_ok: bool = _leader_valid(c._leader) \
+				and pos.distance_squared_to(c._leader.global_position) <= leash * leash
+		if not leader_ok:
+			# Self-healing: leader died or is truly out of reach → adopt the new local top, NO loyalty margin.
 			c._leader = null if top == c else top
 			c._is_leader = (top == c)
 			return
@@ -251,10 +272,12 @@ static func elect_flat(c, pos: Vector3, radius: float) -> void:
 ## superior (in reach + still out-rank c past its loyalty); it re-picks only when the boss falls below it,
 ## dies, or leaves — then attaches to the nearest remaining superior, or becomes a root if none.
 static func elect_superior(c, pos: Vector3, radius: float) -> void:
-	if c._leader != null and is_instance_valid(c._leader):
-		# Still a valid boss if it out-ranks c past c's loyalty and is within the max span (radius×2).
-		var max_reach: float = radius * 2.0
-		var still_valid: bool = pos.distance_squared_to(c._leader.global_position) <= max_reach * max_reach \
+	if _leader_valid(c._leader):
+		# Still a valid boss if it out-ranks c past c's loyalty and is within the LEASH (same generous reach
+		# as the flat election): a subordinate clings to its boss across a drift rather than defecting the
+		# instant it strays past the tight span — it regroups back toward the boss (CreatureFlocking).
+		var leash: float = radius * LEASH_MULT
+		var still_valid: bool = pos.distance_squared_to(c._leader.global_position) <= leash * leash \
 				and leader_score(c._leader) > leader_score(c) + c.leader_loyalty
 		if still_valid:
 			c._is_leader = false
