@@ -55,6 +55,14 @@ const INITIAL_TEMP: float = 15.0
 # Ambient atmospheric oxygen every OPEN cell is seeded to (LAMaterialGas3D relaxes surface cells back toward
 # it; combustion draws it down). MUST match LAMaterialGas3D.O2_AMBIENT.
 const O2_AMBIENT: float = 1.0
+# Scent channel indices (formerly LAMaterialScent3D.PREY/… — re-homed here after the CPU-oracle module was
+# retired). External senses/cognition sites reference these via LAMaterialField3D.SCENT_*.
+const SCENT_PREY: int = 0
+const SCENT_PREDATOR: int = 1
+const SCENT_BLOOD: int = 2
+const SCENT_FOOD: int = 3
+const SCENT_ALARM: int = 4
+const SCENT_CHANNELS: int = 5
 var _temp: PackedFloat32Array = PackedFloat32Array()     # temperature °C per cell (rock + void)
 var _vapor: PackedFloat32Array = PackedFloat32Array()    # airborne water vapor (humidity) per cell
 var _cloud: PackedFloat32Array = PackedFloat32Array()    # condensed cloud density per cell
@@ -97,76 +105,21 @@ var _charge: PackedFloat32Array = PackedFloat32Array()   # electrification charg
 var _dust: PackedFloat32Array = PackedFloat32Array()     # airborne dust density per cell (wind-lofted sand storm)
 var _sun_light = null                                    # DirectionalLight3D — solar forcing (top cells)
 
-# Concern modules (3D generalisations of the 2.5D ones), set by activate().
-var _water_sim = null                                    # LAMaterialWater3D (the water CA loop; step_water() forwards here)
-var _heat = null                                         # LAMaterialHeat3D
-var _atmosphere = null                                   # LAMaterialAtmosphere3D
-var _lava_sim = null                                     # LAMaterialLava3D
-var _wind_sim = null                                     # LAMaterialWind3D (emergent pressure-driven wind)
-var _slump_sim = null                                    # LAMaterialSlump3D (granular landslide slump)
-var _combustion = null                                   # LAMaterialCombustion3D (emergent fire/fuel over the field)
-var _scent_sim = null                                    # LAMaterialScent3D (emergent scent/waste/fertility stigmergy)
-var _gas_sim = null                                      # LAMaterialGas3D (emergent atmospheric O₂ → cave-fire suffocation)
-var _fungus_sim = null                                   # LAMaterialFungus3D (emergent decomposer: detritus → fungus → CO₂/fertility)
-var _magma_sim = null                                    # LAMaterialMagma3D (emergent volcano/eruption from lava pressure)
-var _erosion_sim = null                                  # LAMaterialErosion3D (hydraulic erosion → sediment/canyons/deltas)
-var _snowice_sim = null                                  # LAMaterialSnowIce3D (emergent snowpack/melt + frozen ponds)
-var _dust_sim = null                                     # LAMaterialDust3D (airborne dust / sand storms + dune migration)
-var _charge_sim = null                                   # LAMaterialCharge3D (emergent electrification/lightning)
-var _shock_sim = null                                    # LAMaterialShock3D (propagating sound/shock pressure-wave field)
+# CPU-ORACLE CONCERN MODULES RETIRED. The cubed-sphere *_sphere3d GLSL kernels (MaterialSphereGPU3D + its
+# sphere_passes) are the sole implementation now; the old per-cell CPU sims (heat/atmosphere/lava/wind/slump/
+# combustion/scent/gas/fungus/magma/erosion/snowice/dust/charge/shock/water) and the box GPU driver / box
+# render + heat-texture adapters were deleted. The write/read facades below return safe defaults for any
+# channel not yet wired through the sphere readback.
 var _ecology = null                                      # LAEcologyService back-ref (ash regrowth / actor coupling)
-const HeatScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialHeat3D.gd")
-const AtmosphereScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialAtmosphere3D.gd")
-const LavaScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialLava3D.gd")
-const WindScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialWind3D.gd")
-const SlumpScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialSlump3D.gd")
-const CombustionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialCombustion3D.gd")
-const ScentScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialScent3D.gd")
-const GasScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGas3D.gd")
-const FungusScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFungus3D.gd")
-const MagmaScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialMagma3D.gd")
-const ErosionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialErosion3D.gd")
-const SnowIceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialSnowIce3D.gd")
-const DustScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialDust3D.gd")
-const ChargeScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialCharge3D.gd")
-const ShockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialShock3D.gd")
-const WaterScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialWater3D.gd")
-const GPUScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialGPU3D.gd")
 const SphereGPUScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialSphereGPU3D.gd")
 const QueriesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldQueries3D.gd")
-const RenderScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldRender3D.gd")
 const InjectScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldInject3D.gd")
-const HeatTextureScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialHeatTexture3D.gd")
-var _gpu = null                                          # LAMaterialGPU3D (local RenderingDevice) or null
+var _gpu = null                                          # LAMaterialSphereGPU3D (local RenderingDevice) or null
 var _use_gpu: bool = false
 var _dbg_sphere_frames: int = 0
-# TEMP PROFILING (LA_PROFILE): coarse GPU-section vs CPU-tail-modules usec split, printed every 120 steps.
-var _prof_gpu: int = 0
-var _prof_cpu: int = 0
-var _prof_mod: Dictionary = {}
-var _prof_n: int = 0
-var _prof_last: int = 0
-var _slow_tick: int = 0                                  # 4-cycle stagger for the slow geological/bio CPU passes
-
-
-func _prof_mark(name: String, on: bool) -> void:
-	if not on:
-		return
-	var now: int = Time.get_ticks_usec()
-	_prof_mod[name] = int(_prof_mod.get(name, 0)) + (now - _prof_last)
-	_prof_last = now
-
-
-func _prof_mod_avg(n: int) -> Dictionary:
-	var out: Dictionary = {}
-	for k in _prof_mod.keys():
-		out[k] = int(_prof_mod[k]) / n
-	return out
-# Read-only query accessors + the dynamic-water surface render adapter (factored out; see those files).
+# Read-only query accessors + the write-side injection facade (factored out; see those files).
 var _queries = null                                      # LAMaterialFieldQueries3D
-var _render = null                                       # LAMaterialFieldRender3D
 var _inject = null                                       # LAMaterialFieldInject3D (write-side injection + FX)
-var _heat_texture = null                                 # LAMaterialHeatTexture3D (terrain-glow texture)
 
 
 ## Wire the real scene sun (DirectionalLight3D); the heat module reads its energy + angle for solar input.
@@ -213,30 +166,11 @@ var _shock_dirty: bool = false
 const SAMPLE_COLS_PER_FRAME: int = 700
 var _sampling_done: bool = false
 var _sample_cursor: int = 0
-# Heat texture (terrain-glow source): the hottest temperature in each XZ column baked to an R-float
-# texture the terrain shader samples for incandescent glow — owned by LAMaterialHeatTexture3D (`_heat_texture`).
 # Persistent water sources (springs) injected each step: [{pos, rate}].
 var _sources: Array = []
 
 
 # --- Setup ------------------------------------------------------------------
-
-## Build the 3D volume covering XZ in [-half_extent, half_extent] and Y in [y_min, y_max] at cell_size,
-## bound to `terrain` (for the is_solid rock/void query). Cells are sampled solid/void lazily.
-func setup(terrain, half_extent: float, cell_size: float, y_min: float, y_max: float, sea: float) -> void:
-	_terrain = terrain
-	_half_extent = maxf(1.0, half_extent)
-	_cell_size = maxf(0.5, cell_size)
-	sea_level = sea
-	var dx: int = int(round((2.0 * _half_extent) / _cell_size)) + 1
-	var dy: int = int(round((y_max - y_min) / _cell_size)) + 1
-	setup_dims(dx, dy, dx, _cell_size, Vector3(-_half_extent, y_min, -_half_extent))
-	# Build the heat texture now (not at activate) so consumers can wire heat_texture() immediately, even
-	# while the field is still lazily sampling solidity.
-	_heat_texture = HeatTextureScript.new()
-	_heat_texture.setup(self)
-	_heat_texture.build()
-
 
 ## Sample rock/void for every cell from the terrain SDF (is_solid). Eager version — fine at setup for
 ## the dense grid; a budgeted lazy variant can replace it once wired into the frame loop. Skips the
@@ -258,53 +192,6 @@ func sample_solidity() -> void:
 					_solid[i] = 0
 					continue
 				_solid[i] = 1 if _terrain.is_solid(Vector3(wx, wy, wz)) else 0
-
-
-## Budgeted lazy version of sample_solidity: sample SAMPLE_COLS_PER_FRAME columns per call from the
-## terrain SDF, advancing a cursor; sets _sampling_done when the whole volume is covered.
-func _sample_step() -> void:
-	if _terrain == null or not _terrain.has_method("is_solid"):
-		return
-	var has_surf: bool = _terrain.has_method("surface_height")
-	var cols: int = _dim_x * _dim_z
-	var processed: int = 0
-	while processed < SAMPLE_COLS_PER_FRAME and _sample_cursor < cols:
-		var ix: int = _sample_cursor % _dim_x
-		var iz: int = _sample_cursor / _dim_x
-		var wx: float = _origin.x + float(ix) * _cell_size
-		var wz: float = _origin.z + float(iz) * _cell_size
-		var surf: float = _terrain.surface_height(wx, wz) if has_surf else NAN
-		for iy in range(_dim_y):
-			var wy: float = _origin.y + float(iy) * _cell_size
-			var i: int = _idx(ix, iy, iz)
-			if not is_nan(surf) and wy > surf + _cell_size:
-				_solid[i] = 0
-			else:
-				_solid[i] = 1 if _terrain.is_solid(Vector3(wx, wy, wz)) else 0
-		_sample_cursor += 1
-		processed += 1
-	if _sample_cursor >= cols:
-		_sampling_done = true
-
-
-## Seed the ocean: every VOID cell whose centre is below sea level starts full of water. The sea is a
-## known level, so we set it directly (fast) instead of CA-filling the whole seabed from empty; the CA
-## then only has to handle dynamics (waves, splashes, rivers meeting the sea, water pouring into caves).
-func seed_sea() -> void:
-	for iy in range(_dim_y):
-		var wy: float = _origin.y + float(iy) * _cell_size
-		if wy >= sea_level:
-			break                                       # layers above sea level: nothing to seed
-		# Seed each sea cell already at its warm-skin/thermocline temperature so hurricane genesis + lively
-		# sea evaporation have fuel from frame 0 (the heat cooling stage relaxes toward this same profile).
-		var wt: float = HeatScript.sea_water_target(wy, sea_level)
-		for iz in range(_dim_z):
-			for ix in range(_dim_x):
-				var i: int = _idx(ix, iy, iz)
-				if _solid[i] == 0:
-					_water[i] = MAX_MASS
-					_static[i] = 1                       # calm sea: hold it, don't simulate/mesh it
-					_temp[i] = wt
 
 
 # --- Setup ------------------------------------------------------------------
@@ -405,10 +292,6 @@ func _alloc_channels() -> void:
 	# Read-only query accessors bind to this field now; the arrays they read exist from here on.
 	_queries = QueriesScript.new()
 	_queries.setup(self)
-	# Water CA module (the field's step_water() forwards here). Instantiated at dims-setup — not activate() —
-	# because the parity harnesses call field.step_water() on a bare setup_dims field (no activate()).
-	_water_sim = WaterScript.new()
-	_water_sim.setup(self)
 
 
 # --- Index helpers ----------------------------------------------------------
@@ -498,15 +381,6 @@ func _stable_below(total_mass: float) -> float:
 	return (total_mass + MAX_COMPRESS) * 0.5
 
 
-## One water step (gravity fall, upward pressure relief, lateral levelling — mass-conserving via a double
-## buffer). The CA loop lives in LAMaterialWater3D; this forwarder preserves the field's public entry point
-## (the parity harnesses + the internal step loop call field.step_water()). `_stable_below` stays on the
-## field because MaterialSlump3D + MaterialLava3D also call `_f._stable_below`.
-func step_water() -> void:
-	if _water_sim != null:
-		_water_sim.step()
-
-
 # --- World-space queries (delegated to _queries; the 2.5D-compatible API consumers call) --------
 
 func _col_i(w: float, o: float) -> int:
@@ -539,11 +413,6 @@ func depth_at(x: float, z: float) -> float:
 	return _queries.depth_at(x, z)
 
 
-## Inject water at a world point (a spring, rain, a flood surge, a meteor splash).
-func add_water_world(pos: Vector3, amount: float) -> void:
-	add_water_cell(_col_i(pos.x, _origin.x), _col_i(pos.y, _origin.y), _col_i(pos.z, _origin.z), amount)
-
-
 ## Register a persistent spring: `rate` water mass per second injected at `pos` each step.
 func add_source(pos: Vector3, rate: float) -> void:
 	_sources.append({"pos": pos, "rate": rate})
@@ -566,44 +435,23 @@ func activate() -> void:
 		_gpu = SphereGPUScript.new()
 		_gpu.setup(self)
 		_use_gpu = true
-	elif GPUScript.available() and not OS.has_environment("LA_FORCE_CPU"):
-		_gpu = GPUScript.new()
-		_gpu.setup(self)
-		_use_gpu = true
-		# Seed the resident buffers with the initial CPU state (temp/water from setup+seed_sea; the gas +
-		# lava layers start empty). vapor/cloud/fog then live fully on the GPU; temp/water/lava re-upload.
-		_gpu.set_field("temp", _temp)
-		_gpu.set_field("water", _water)
-		_gpu.set_field("vapor", _vapor)
-		_gpu.set_field("cloud", _cloud)
-		_gpu.set_field("fog", _fog)
-		_gpu.set_field("lava", _lava)
-		_gpu.set_field("sediment", _sediment)
 	_inject = InjectScript.new()
 	_inject.setup(self)
-	# Box-only presentation facades (surface-mesh render + XZ-column terrain-glow texture) assume the box
-	# grid + _idx; the cubed-sphere renders terrain via godot_voxel + the ocean shell, so skip them here.
-	if not is_sphere():
-		_render = RenderScript.new()
-		_render.setup(self)
-		_render.build()
-		_heat_texture.build()
-		rebuild_surface()
-		_heat_texture.update()
 	_ready_sim = true
 
 
-# --- Heat texture (terrain-glow source; owned by LAMaterialHeatTexture3D) ----
+# --- Heat texture (terrain-glow source) — RETIRED with the box path; the cubed-sphere glows via the
+# godot_voxel terrain shader + ocean shell, so these return null/zero (no XZ-column heat texture). ----
 
-## The live terrain-glow texture (R = hottest °C per column). Wire once into the terrain shader.
+## The live terrain-glow texture (R = hottest °C per column). Null on the cubed-sphere.
 func heat_texture() -> Texture2D:
-	return _heat_texture.texture() if _heat_texture != null else null
+	return null
 
 func heat_world_min() -> Vector2:
-	return _heat_texture.world_min() if _heat_texture != null else Vector2.ZERO
+	return Vector2.ZERO
 
 func heat_world_size() -> Vector2:
-	return _heat_texture.world_size() if _heat_texture != null else Vector2.ZERO
+	return Vector2.ZERO
 
 
 ## Sphere solid mask: sample the terrain SDF per cell (world pos from the grid). One-time at activation.
@@ -640,7 +488,9 @@ func _sphere_process(delta: float) -> void:
 	if steps <= 0:
 		return
 	var t0: int = Time.get_ticks_usec()
-	var solar: float = _heat._solar() if _heat != null and _heat.has_method("_solar") else 0.6
+	# Global scalar solar term is a constant fallback; the per-cell solar terminator comes from the sphere
+	# ThermalPass' set_sun_dir kernel (max(0, dot(cell_radial, sun_dir))), not this scalar.
+	var solar: float = 0.6
 	_gpu.begin_frame(_temp, _water, solar, Vector2.ZERO)
 	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
 	# sun_dir points from the planet toward the star; ThermalPass' solar kernel does max(0, dot(cell_radial, sun_dir)).
@@ -682,7 +532,6 @@ func _apply_sphere_readback(res: Dictionary) -> void:
 	if res.has("o2") and res["o2"].size() == _cell_count: _o2 = res["o2"]
 	if res.has("co2") and res["co2"].size() == _cell_count: _co2 = res["co2"]
 	if res.has("dust") and res["dust"].size() == _cell_count: _dust = res["dust"]
-	if res.has("shock") and _shock_sim != null and res["shock"].size() == _cell_count: _shock_sim._shock = res["shock"]
 
 
 func _physics_process(delta: float) -> void:
@@ -722,67 +571,53 @@ func salinity_at(x: float, z: float) -> float:
 	return _queries.salinity_at(x, z)
 
 
-# Atmosphere delegators (the 3D atmosphere owns the water cycle + humidity/dewpoint).
+# Atmosphere delegators — the CPU atmosphere oracle is retired; cloud/fog/humidity channels are not yet
+# read back from the sphere GPU driver, so these return safe defaults until that readback lands.
 func cloud_at(x: float, z: float) -> float:
-	return _atmosphere.cloud_at(x, z) if _atmosphere != null else 0.0
+	return 0.0
 
 func fog_at(x: float, z: float) -> float:
-	return _atmosphere.fog_at(x, z) if _atmosphere != null else 0.0
+	return 0.0
 
 func avg_cloud_cover() -> float:
-	return _atmosphere.avg_cloud_cover() if _atmosphere != null else 0.0
+	return 0.0
 
 func avg_fog_cover() -> float:
-	return _atmosphere.avg_fog_cover() if _atmosphere != null else 0.0
+	return 0.0
 
 func precipitation() -> float:
-	return _atmosphere.precipitation() if _atmosphere != null else 0.0
+	return 0.0
 
 func cloud_grid() -> PackedFloat32Array:
-	return _atmosphere.cloud_grid() if _atmosphere != null else PackedFloat32Array()
+	return PackedFloat32Array()
 
 func fog_grid() -> PackedFloat32Array:
-	return _atmosphere.fog_grid() if _atmosphere != null else PackedFloat32Array()
+	return PackedFloat32Array()
 
 func cloud_base_y() -> float:
-	return _atmosphere.cloud_base_y() if _atmosphere != null else sea_level + 62.0
+	return sea_level + 62.0
 
 func fog_base_y() -> float:
-	return _atmosphere.fog_base_y() if _atmosphere != null else sea_level + 6.0
+	return sea_level + 6.0
 
 func relative_humidity_at(x: float, z: float) -> float:
-	return _atmosphere.relative_humidity_at(x, z) if _atmosphere != null else 0.0
+	return 0.0
 
 func dewpoint_at(x: float, z: float) -> float:
-	return _atmosphere.dewpoint_at(x, z) if _atmosphere != null else NAN
+	return NAN
 
-## The old global scalar wind is now only the PREVAILING (large-scale) input the emergent wind field forces
-## at its edges — local circulation emerges on top from pressure + terrain. Still fed to the atmosphere as
-## its legacy advection wind until stage 2 repoints that to the local field.
+## Prevailing (large-scale) wind input. The emergent wind now lives on the GPU; forward it to the driver.
 func set_wind(w: Vector2) -> void:
-	if _wind_sim != null:
-		_wind_sim.set_prevailing(w)
-	if _gpu != null:
+	if _gpu != null and _gpu.has_method("set_prevailing"):
 		_gpu.set_prevailing(w)
-	if _atmosphere != null:
-		_atmosphere.set_wind(w)
 
-## Domain-average horizontal wind (ocean swell / HUD) — the mean of the emergent velocity field.
+## Domain-average horizontal wind (ocean swell / HUD) — CPU wind oracle retired; safe default.
 func wind() -> Vector2:
-	if _wind_sim != null:
-		return _wind_sim.avg_wind()
-	return _atmosphere.wind() if _atmosphere != null else Vector2.ZERO
+	return Vector2.ZERO
 
-## LOCAL horizontal wind (world XZ) at a point — sampled a couple of cells above the column surface (the
-## free-stream, clear of the ground layer). What wind-drifting consumers + the debug arrows read.
+## LOCAL horizontal wind (world XZ) at a point — CPU wind oracle retired; safe default.
 func wind_at(x: float, z: float) -> Vector2:
-	if _wind_sim == null or _cell_count <= 0:
-		return Vector2.ZERO
-	var ix: int = _col_i(x, _origin.x)
-	var iz: int = _col_i(z, _origin.z)
-	var iy: int = clampi(_surface_iy(ix, iz) + 2, 0, _dim_y - 1)
-	var i: int = _idx(ix, iy, iz)
-	return Vector2(_vel_x[i], _vel_z[i])
+	return Vector2.ZERO
 
 ## Vertical vorticity (air SPIN) at a world point — storm actors track/scale off the emergent vortex.
 func vorticity_at(x: float, z: float) -> float:
@@ -792,15 +627,9 @@ func vorticity_at(x: float, z: float) -> float:
 func updraft_at(x: float, z: float) -> float:
 	return _queries.updraft_at(x, z)
 
-## Full LOCAL 3D wind velocity at a world point — the authoritative per-cell wind fire/scent ride.
+## Full LOCAL 3D wind velocity at a world point — CPU wind oracle retired; safe default.
 func wind3_at(x: float, y: float, z: float) -> Vector3:
-	if _wind_sim == null or _cell_count <= 0:
-		return Vector3.ZERO
-	var ix: int = _col_i(x, _origin.x)
-	var iy: int = clampi(int(round((y - _origin.y) / _cell_size)), 0, _dim_y - 1)
-	var iz: int = _col_i(z, _origin.z)
-	var i: int = _idx(ix, iy, iz)
-	return Vector3(_vel_x[i], _vel_y[i], _vel_z[i])
+	return Vector3.ZERO
 
 ## The cloud/fog grids project to (dim_x × dim_z) so CloudLayer's texture maps 1:1 with the 2.5D field.
 func grid_dim() -> int:
@@ -810,31 +639,26 @@ func grid_half_extent() -> float:
 	return _half_extent
 
 
-# Heat + lava injection (disasters call these) + diagnostics.
+# Heat + lava injection (disasters call these) + diagnostics. The CPU heat/lava/atmosphere oracles are
+# retired and these channels are not yet wired to the sphere GPU driver's inject path, so the writes are
+# no-ops (safe default) until that lands; the read diagnostic returns 0.
 func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
-	if _heat != null:
-		_heat.add_heat(world_pos, amount, maxf(0.0, radius))
+	pass
 
 func add_lava(world_pos: Vector3, amount: float) -> void:
-	if _lava_sim != null and _lava_sim.has_method("add_lava"):
-		_lava_sim.add_lava(world_pos, amount)
-		_lava_dirty = true                                  # CPU edited _lava → GPU path re-uploads it next frame
+	pass
 
-## Inject airborne water vapor (humidity) over a disc/column at a world point — a storm's LOCAL moisture
-## source. With a little aloft cooling the existing condense→rain rules build a dense cloud → heavy local
-## rain there. Folded into the resident GPU vapor buffer each frame (like lava). Emergent, not scripted.
+## Inject airborne water vapor (humidity) at a world point — a storm's LOCAL moisture source. No-op until
+## the sphere GPU vapor inject path is wired.
 func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
-	if _atmosphere != null and _atmosphere.has_method("add_vapor"):
-		_atmosphere.add_vapor(world_pos, amount, radius)
-		_vapor_dirty = true                                 # GPU path re-uploads vapor only when injected
+	pass
 
-## Cool a volume (negative heat) — a storm's cold aloft that pushes rising humid air past its dewpoint so
-## it condenses. Thin helper over add_heat so storms read as "cool the air here" rather than negative heat.
+## Cool a volume (negative heat) — a storm's cold aloft. Thin helper over add_heat.
 func add_cooling(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	add_heat(world_pos, -absf(amount), maxf(0.0, radius))
 
 func lava_cell_count() -> int:
-	return _lava_sim.lava_cell_count() if _lava_sim != null and _lava_sim.has_method("lava_cell_count") else 0
+	return 0
 
 func wet_cell_count() -> int:
 	return _queries.wet_cell_count()
@@ -856,7 +680,7 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 
 
 func cloud_cell_count(min_density: float = 0.05) -> int:
-	return _atmosphere.cloud_cell_count(min_density) if _atmosphere != null and _atmosphere.has_method("cloud_cell_count") else 0
+	return 0
 
 
 # --- Heat diagnostics -------------------------------------------------------
@@ -889,99 +713,90 @@ func set_ecology(e) -> void:
 ## and re-solidifies where it settles. Emergent — one channel every disaster (meteor, volcano breach,
 ## earthquake) reuses via EcologyService.disturb_ground. Delegates all the granular math to LAMaterialSlump3D.
 func disturb_terrain(world_pos: Vector3, radius: float, strength: float) -> void:
-	if _slump_sim != null:
-		_slump_sim.disturb(world_pos, radius, strength)
+	pass
 
-## Cells of loose sediment actively slumping (> 0 while a landslide is live; decays to 0 as it comes to rest).
+## Cells of loose sediment actively slumping — CPU slump oracle retired; safe default.
 func slump_count() -> int:
-	return _slump_sim.active_count() if _slump_sim != null else 0
+	return 0
 
-# --- Fire / combustion (emergent, LAMaterialCombustion3D) — real values now. --------------------------
+# --- Fire / combustion — CPU combustion oracle retired; safe defaults until the sphere fire readback lands. --
 
-## Light the cell under a node on fire (disaster/scripted ignition; vegetation also self-ignites from heat).
+## Light the cell under a node on fire (disaster/scripted ignition). No-op until wired to the sphere driver.
 func ignite(node) -> void:
-	if _combustion != null:
-		_combustion.ignite_node(node)
+	pass
 
 ## Is the cell under this node currently burning?
 func is_burning(node) -> bool:
-	return _combustion.is_burning_node(node) if _combustion != null else false
+	return false
 
 ## Number of cells currently on fire (SMOKE_SUMMARY `fires`).
 func active_fire_count() -> int:
-	return _combustion.active_fire_count() if _combustion != null else 0
+	return 0
 
 
-# --- Scent / waste / fertility (emergent stigmergy, LAMaterialScent3D) -------------------------------
+# --- Scent / waste / fertility — CPU scent oracle retired; the sphere scent readback is not yet wired, so
+# deposits are no-ops and reads return safe defaults (SCENT_PREY/… channel indices live at the top). ------
 
-## Drop feces/urine at a world point: diet-flavored soil fertility + a FOOD dab + the depositor's musk.
+## Drop feces/urine at a world point. No-op until the sphere scent path is wired.
 func deposit_waste(world_pos: Vector3, creature, kind: String) -> void:
-	if is_sphere():
-		return                # scent CPU-oracle is box-indexed; sphere scent deposit not yet wired
-	if _scent_sim != null:
-		_scent_sim.deposit_waste(world_pos, creature, kind)
+	pass
 
 ## A fresh burst of BLOOD scent (a wound or a kill).
 func deposit_blood(world_pos: Vector3, amount: float) -> void:
-	if _scent_sim != null:
-		_scent_sim.deposit_blood(world_pos, amount)
+	pass
 
 ## A carcass advertising FOOD (the decaying-corpse cue scavengers follow).
 func deposit_food(world_pos: Vector3, amount: float) -> void:
-	if _scent_sim != null:
-		_scent_sim.deposit_food(world_pos, amount)
+	pass
 
-## Scent density of a channel (LAMaterialScent3D.PREY/PREDATOR/BLOOD/FOOD/ALARM) at a world point.
+## Scent density of a channel (SCENT_PREY/PREDATOR/BLOOD/FOOD/ALARM) at a world point.
 func scent_at(world_pos: Vector3, channel: int) -> float:
-	return _scent_sim.scent_at(world_pos, channel) if _scent_sim != null else 0.0
+	return 0.0
 
 ## Normalized XZ direction UP a scent channel's gradient (predator tracking, prey avoidance).
 func scent_gradient(world_pos: Vector3, channel: int) -> Vector3:
-	if is_sphere():
-		return Vector3.ZERO   # scent CPU-oracle is box-indexed; sphere scent not yet wired (channel unread)
-	return _scent_sim.scent_gradient(world_pos, channel) if _scent_sim != null else Vector3.ZERO
+	return Vector3.ZERO
 
 ## Soil nutrient at a world point (plants grow faster on rich ground).
 func fertility_at(world_pos: Vector3) -> float:
-	return _scent_sim.fertility_at(world_pos) if _scent_sim != null else 0.0
+	return 0.0
 
 ## Columns carrying meaningful airborne scent (SMOKE_SUMMARY `scent_cells`).
 func scent_cell_count() -> int:
-	return _scent_sim.scent_cell_count() if _scent_sim != null else 0
+	return 0
 
 ## Peak soil nutrient (SMOKE_SUMMARY `fertility_peak`).
 func fertility_peak() -> float:
-	return _scent_sim.fertility_peak() if _scent_sim != null else 0.0
+	return 0.0
 
 
 # --- Emergent-process forwarders (magma volcano / erosion / snow-ice / dust / charge lightning / shock).
-# Each module owns its channel; the field just exposes the write (emitter) + read (diagnostic) entry points.
+# CPU oracles retired; these channels are not yet read back from the sphere GPU driver, so the emitters are
+# no-ops and the diagnostics return safe defaults until their sphere readback lands.
 func add_magma_source(world_pos: Vector3, temp: float, rate: float) -> void:
-	if _magma_sim != null: _magma_sim.add_source(world_pos, temp, rate)
+	pass
 func magma_cell_count() -> int:
-	return _magma_sim.magma_cells() if _magma_sim != null else 0
+	return 0
 func magma_erupting() -> bool:
-	return _magma_sim.erupting() if _magma_sim != null else false
+	return false
 func erosion_cell_count() -> int:
-	return _erosion_sim.eroding_cells() if _erosion_sim != null else 0
+	return 0
 func snow_depth_at(x: float, z: float) -> float:
-	if is_sphere():
-		return 0.0            # snow CPU-oracle is box/2.5D-indexed; sphere snow not yet wired
-	return _snowice_sim.snow_depth_at(x, z) if _snowice_sim != null else 0.0
+	return 0.0
 func snow_cell_count() -> int:
-	return _snowice_sim.snow_cells() if _snowice_sim != null else 0
+	return 0
 func ice_cell_count() -> int:
-	return _snowice_sim.ice_cells() if _snowice_sim != null else 0
+	return 0
 func dust_at(x: float, y: float, z: float) -> float:
-	return _dust_sim.dust_at(x, y, z) if _dust_sim != null else 0.0
+	return 0.0
 func dust_cell_count() -> int:
-	return _dust_sim.dust_cells() if _dust_sim != null else 0
+	return 0
 # Emergent atmospheric OXYGEN (LAMaterialGas3D): O₂ level at a point + depletion diagnostics.
 func o2_at(x: float, y: float, z: float) -> float:
 	if _sphere != null:
 		var c: int = world_to_cell(Vector3(x, y, z))
 		return _o2[c] if c >= 0 else O2_AMBIENT
-	return _gas_sim.o2_at(x, y, z) if _gas_sim != null else 0.0
+	return O2_AMBIENT
 
 ## BREATHABLE oxygen at a TRUE-3D world point — the cell's O₂, but ZERO once WATER fills the cell (water
 ## displaces air) or the cell is rock. One 3D read that lets a lung suffocate underwater OR in O₂-depleted
@@ -1021,19 +836,19 @@ func is_submerged_at(x: float, y: float, z: float) -> bool:
 	var i: int = _idx(ix, iy, iz)
 	return _solid[i] == 0 and _water[i] >= MAX_MASS * 0.5
 func o2_min_open() -> float:
-	return _gas_sim.o2_min_open() if _gas_sim != null else O2_AMBIENT
+	return O2_AMBIENT
 func o2_avg() -> float:
-	return _gas_sim.o2_avg() if _gas_sim != null else O2_AMBIENT
-# Emergent CARBON DIOXIDE (LAMaterialGas3D second channel): CO₂ level at a point + build-up diagnostics.
+	return O2_AMBIENT
+# Emergent CARBON DIOXIDE (second gas channel): CO₂ level at a point + build-up diagnostics.
 func co2_at(x: float, y: float, z: float) -> float:
 	if _sphere != null:
 		var c: int = world_to_cell(Vector3(x, y, z))
 		return _co2[c] if c >= 0 else 0.0
-	return _gas_sim.co2_at(x, y, z) if _gas_sim != null else 0.0
+	return 0.0
 func co2_peak() -> float:
-	return _gas_sim.co2_peak() if _gas_sim != null else 0.0
+	return 0.0
 func co2_avg() -> float:
-	return _gas_sim.co2_avg() if _gas_sim != null else 0.0
+	return 0.0
 # Emergent DECOMPOSER loop (LAMaterialFungus3D): dead matter (detritus) → fungus → CO₂ + soil fertility.
 ## Deposit dead decomposable matter at the surface cell under a world point (a rotting carcass, wildfire
 ## ash). Fungus grows on it + rots it back into the carbon/nutrient loop. Mirrors photosynthesize()'s lookup.
@@ -1052,16 +867,16 @@ func deposit_detritus(world_pos: Vector3, amount: float) -> void:
 		_detritus.resize(_cell_count)
 	_detritus[i] += amount
 func fungus_at(x: float, y: float, z: float) -> float:
-	return _fungus_sim.fungus_at(x, y, z) if _fungus_sim != null else 0.0
+	return 0.0
 func fungus_peak() -> float:
-	return _fungus_sim.fungus_peak() if _fungus_sim != null else 0.0
+	return 0.0
 func fungus_cells() -> int:
-	return _fungus_sim.fungus_cells() if _fungus_sim != null else 0
+	return 0
 func detritus_peak() -> float:
-	return _fungus_sim.detritus_peak() if _fungus_sim != null else 0.0
-## Daylight factor 0..1 (the heat module's solar term) — plants read it to gate PHOTOSYNTHESIS (day only).
+	return 0.0
+## Daylight factor 0..1 — CPU heat oracle retired; safe default (the sphere solar terminator is on the GPU).
 func solar_factor() -> float:
-	return _heat._solar() if _heat != null else 0.0
+	return 0.0
 ## Plant PHOTOSYNTHESIS write: at the sky-surface cell of `world_pos`, FIX `amount` of carbon — subtract CO₂
 ## and release the same mass of O₂ (stoichiometric). The return leg of the carbon loop: fire/decay make CO₂,
 ## plants turn it back into O₂ + biomass. `amount` is clamped to the CO₂ actually present (no free carbon).
@@ -1081,29 +896,28 @@ func photosynthesize(world_pos: Vector3, amount: float) -> void:
 		return
 	_co2[i] = maxf(0.0, _co2[i] - fixed)
 	_o2[i] = _o2[i] + fixed
-## Wire the visual-only lightning bolt (VoxelDisasters.spawn_lightning); the field's charge fires it.
+## Wire the visual-only lightning bolt (VoxelDisasters.spawn_lightning). No-op until sphere charge is wired.
 func set_lightning_visual(cb: Callable) -> void:
-	if _charge_sim != null: _charge_sim.on_bolt = cb
+	pass
 func charge_peak() -> float:
-	return _charge_sim.charge_peak() if _charge_sim != null else 0.0
+	return 0.0
 func bolts_fired() -> int:
-	return _charge_sim.bolts_fired() if _charge_sim != null else 0
-## Inject a shock/sound wave (explosion, thunder, impact, stampede) — the ONE stimulus violent events feed;
-## shock_at/shock_gradient are what the camera tremor + creature panic read (replaced the seismic ring).
+	return 0
+## Inject a shock/sound wave (explosion, thunder, impact, stampede). CPU shock oracle retired; no-op emitter
+## + safe-default reads (camera tremor + creature panic) until the sphere shock channel is wired.
 func emit_shock(world_pos: Vector3, magnitude: float) -> void:
-	if _shock_sim != null: _shock_sim.emit(world_pos, magnitude)
+	pass
 func shock_at(world_pos: Vector3) -> float:
-	return _shock_sim.shock_at(world_pos) if _shock_sim != null else 0.0
+	return 0.0
 func shock_gradient(world_pos: Vector3) -> Vector3:
-	return _shock_sim.shock_gradient(world_pos) if _shock_sim != null else Vector3.ZERO
+	return Vector3.ZERO
 func shock_cell_count() -> int:
-	return _shock_sim.shock_cells() if _shock_sim != null else 0
+	return 0
 
 
-# The dynamic-water surface mesh is rebuilt each frame by the render adapter (MaterialFieldRender3D).
+# Box dynamic-water surface mesh render adapter retired; the cubed-sphere renders water via the ocean shell.
 func rebuild_surface() -> void:
-	if _render != null:
-		_render.rebuild_surface()
+	pass
 
 
 ## Central-telemetry provider (registered once with LASimReport): this field's channel aggregates, in ONE
