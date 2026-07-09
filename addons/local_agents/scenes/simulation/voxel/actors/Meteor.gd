@@ -2,10 +2,22 @@
 class_name LAMeteor
 extends Node3D
 
-## A spawnable fireball that plummets toward a target world position, carves the
-## voxel terrain and damages nearby life on impact, then cleans itself up after
-## the FX. Built entirely in code (no external assets). Primary live-test tool
-## for destruction. (Explicit types only — project rule: no ':=' inferred typing.)
+## A meteor is NOT a scripted explosion — it is a falling hot fast rock (a seed/marker + visual) whose
+## impact seeds the shared substrate ONCE. Everything downstream emerges with zero meteor code:
+##   • emit_shock radiates a seismic wave (tremor + felt panic);
+##   • eject throws molten mass as ballistic ejecta parcels that arc under radial gravity and re-deposit
+##     — the debris fling and the ejecta blanket both fall out of the field, no per-actor chunk code;
+##   • add_charge ionises the air above the crater → the field's breakdown discharges a bolt (the same
+##     charge→bolt primitive a storm feeds);
+##   • add_heat dumps the kinetic+thermal energy as a molten spike (crater glows, vegetation ignites);
+##   • broadcast_scare / damage_sphere / disturb_ground panic, kill and slump via the shared stimuli;
+##   • the crater itself emerges from the existing carve + ejecta redeposit.
+##
+## Deleted vs the old scripted meteor: `_spawn_debris_chunks` (22 RigidBody3D debris chunks with random
+## velocities), `_impact_material_palette`, `_spawn_impact_fx` (one-shot burst particles + flash light) and
+## `_make_debris_mesh`. A "debris chunk", a "crater", a "shockwave" — all just words for what the one
+## substrate does. The actor is now seed + falling visual + one impact→substrate call.
+## (Explicit types only — project rule: no ':=' inferred typing.)
 
 # --- Tunables -----------------------------------------------------------------
 const SPAWN_HEIGHT: float = 140.0          # fallback drop height when launched with no camera origin
@@ -36,8 +48,6 @@ var _guided: bool = false                  # true = FPS-style homing projectile;
 var _body: MeshInstance3D = null
 var _glow: OmniLight3D = null
 var _trail: GPUParticles3D = null
-var _flash: OmniLight3D = null
-var _burst: GPUParticles3D = null
 var _picker: StaticBody3D = null
 
 # Per-meteor size (randomized on launch): scales the rock, crater, heat, blast and ground shake so
@@ -234,106 +244,10 @@ func _on_impact() -> void:
 		_picker.queue_free()
 		_picker = null
 
-	_spawn_impact_fx()
-	_spawn_debris_chunks(_impact_point)
-
-	# Procedural impact boom (presentation only; resolves the AudioDirector by group).
+	# Procedural impact boom (presentation only; resolves the AudioDirector by group). The flash, debris
+	# fling and ejecta blanket are no longer scripted here — they emerge from the eject/add_heat/add_charge
+	# seeds above (glowing ejecta parcels + molten crater glow + a discharge bolt).
 	LocalAgentsAudioDirector.emit(get_tree(), "meteor_impact", _impact_point)
-
-
-# Fling physical debris outward from the impact — a MIX of whatever was hit:
-# topsoil, dirt clods and rock, colored to match the surface. Parented to the
-# meteor's parent so debris persists after the meteor frees itself.
-func _spawn_debris_chunks(world_point: Vector3) -> void:
-	var parent: Node = get_parent()
-	if parent == null:
-		return
-	var palette: Array = _impact_material_palette(world_point)
-	var n: int = 22
-	for i in n:
-		var chunk: RigidBody3D = RigidBody3D.new()
-		chunk.collision_layer = 4          # debris layer (not pickable, not creatures)
-		chunk.collision_mask = 1           # collide with terrain only
-		chunk.gravity_scale = 1.4
-		var is_dirt: bool = randf() < 0.6
-		var sz: float = randf_range(0.22, 0.5) if is_dirt else randf_range(0.5, 1.2)
-		var tint: Color = palette[randi() % palette.size()]
-		if is_dirt:
-			tint = tint.darkened(randf_range(0.0, 0.15))
-		var mi: MeshInstance3D = MeshInstance3D.new()
-		mi.mesh = LARockMesh.make(sz, randi(), 0.55 if is_dirt else 0.5)
-		mi.material_override = LARockMesh.material(tint)
-		chunk.add_child(mi)
-		var col: CollisionShape3D = CollisionShape3D.new()
-		var bs: SphereShape3D = SphereShape3D.new()
-		bs.radius = sz * 0.85
-		col.shape = bs
-		chunk.add_child(col)
-		parent.add_child(chunk)
-		chunk.global_position = world_point + Vector3(randf_range(-2.5, 2.5), randf_range(1.0, 3.5), randf_range(-2.5, 2.5))
-		var dir: Vector3 = Vector3(randf_range(-1.0, 1.0), randf_range(1.1, 2.2), randf_range(-1.0, 1.0)).normalized()
-		chunk.linear_velocity = dir * randf_range(11.0, 30.0)
-		chunk.angular_velocity = Vector3(randf_range(-7, 7), randf_range(-7, 7), randf_range(-7, 7))
-		var timer: SceneTreeTimer = get_tree().create_timer(16.0)
-		timer.timeout.connect(func(): if is_instance_valid(chunk): chunk.queue_free())
-
-
-# Approximate the surface materials at the impact (matching the triplanar terrain
-# shader's height/slope rule) so debris is dirt/sand/grass/rock/snow as appropriate.
-func _impact_material_palette(point: Vector3) -> Array:
-	var normal: Vector3 = Vector3.UP
-	if _terrain != null and _terrain.has_method("raycast_terrain"):
-		var hit: Dictionary = _terrain.raycast_terrain(point + Vector3(0, 6, 0), Vector3.DOWN, 14.0)
-		if bool(hit.get("hit", false)):
-			normal = hit.get("normal", Vector3.UP)
-	var y: float = point.y
-	var steep: bool = normal.y < 0.62
-	var dirt: Color = Color(0.40, 0.28, 0.18)
-	var out: Array = [dirt, dirt]              # subsurface dirt is always thrown
-	if steep:
-		out.append(Color(0.45, 0.45, 0.47))
-		out.append(Color(0.38, 0.37, 0.38))
-	elif y < 2.5:
-		out.append(Color(0.80, 0.74, 0.55))
-	elif y > 55.0:
-		out.append(Color(0.90, 0.93, 0.97))
-		out.append(Color(0.62, 0.6, 0.6))
-	else:
-		out.append(Color(0.30, 0.55, 0.24))
-		out.append(Color(0.34, 0.24, 0.15))
-	return out
-
-
-func _spawn_impact_fx() -> void:
-	_flash = OmniLight3D.new()
-	_flash.light_color = Color(1.0, 0.75, 0.35)
-	_flash.light_energy = 24.0
-	_flash.omni_range = IMPACT_RADIUS * 8.0
-	_flash.position = Vector3.ZERO
-	add_child(_flash)
-	var tw: Tween = create_tween()
-	tw.tween_property(_flash, "light_energy", 0.0, FX_LINGER)
-
-	_burst = GPUParticles3D.new()
-	_burst.one_shot = true
-	_burst.emitting = true
-	_burst.amount = 96
-	_burst.lifetime = FX_LINGER
-	_burst.explosiveness = 1.0
-	_burst.draw_pass_1 = _make_debris_mesh()
-	var pm: ParticleProcessMaterial = ParticleProcessMaterial.new()
-	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	pm.emission_sphere_radius = IMPACT_RADIUS * 0.6
-	pm.direction = Vector3(0.0, 1.0, 0.0)
-	pm.spread = 75.0
-	pm.initial_velocity_min = 12.0
-	pm.initial_velocity_max = 42.0
-	pm.gravity = Vector3(0.0, -30.0, 0.0)
-	pm.scale_min = 0.4
-	pm.scale_max = 1.6
-	pm.color = Color(1.0, 0.55, 0.2)
-	_burst.process_material = pm
-	add_child(_burst)
 
 
 func _build_visuals() -> void:
@@ -431,17 +345,5 @@ func _make_trail_mesh() -> Mesh:
 	mat.albedo_color = Color(1.0, 0.5, 0.1)
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
-	m.material = mat
-	return m
-
-
-func _make_debris_mesh() -> Mesh:
-	var m: BoxMesh = BoxMesh.new()
-	m.size = Vector3(0.6, 0.6, 0.6)
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.25, 0.18, 0.14)
-	mat.emission_enabled = true
-	mat.emission = Color(0.9, 0.35, 0.1)
-	mat.emission_energy_multiplier = 2.0
 	m.material = mat
 	return m
