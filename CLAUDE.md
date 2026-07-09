@@ -92,6 +92,14 @@ committed). When removing files:
 
 ## Validation defaults
 
+- **ITERATE AS FAST AS POSSIBLE — always.** The dev loop's speed is a first-class concern. Prefer SHORT
+  verification runs while iterating (`--run-frames=60–120`) and reserve long runs + `--shoot` screenshots
+  for the final gate (screenshots + long demos are the slow path). For any SLOW-EMERGENT phenomenon
+  (geology/island-building, forest succession, climate drift, erosion, evolution) add/use a **fast-forward
+  time-scale** (run N sim steps per render frame) so geological time compresses to seconds — never wait
+  real-time for something you can accelerate. Parallelize (fan out subagents), pick the cheapest run that
+  proves the point, and cut anything that makes the loop slower than it needs to be.
+
 - "Does it work" checks require **both** a non-headless launched-window run **and** headless harness
   suites; run them in whichever order is convenient (a non-headless launch first is a good habit for
   surfacing parser/runtime scene errors early).
