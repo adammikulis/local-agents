@@ -236,6 +236,16 @@ committed). When removing files:
 
 ## File size & refactor discipline
 
+- **PARALLELIZABILITY is a first-class refactor driver — not just line count.** Line limits are a floor;
+  the deeper question is *"can this area be owned by a separate agent without colliding?"* A file that
+  multiple concurrent workstreams must all edit is a **serialization bottleneck** — split it into
+  independently-ownable units **even when it is comfortably under the line limit**. Always think this way:
+  before fanning out work, look at which files each unit touches; if several units route through ONE file
+  (classically the composition root / a god-object controller / a shared registry), split that file FIRST
+  so the fan-out doesn't collapse to sequential. Organize the codebase so distinct concerns live in
+  distinct files (one owner each) — that is what turns a batch of work into parallel subagents instead of a
+  queue. This composes with the pre-write-contracts rule (Execution model) and the "independently-ownable
+  file" guidance below: structure for concurrency, then stage a contract per file.
 - `scripts/check_max_file_length.sh` enforces TWO thresholds on first-party source/config files:
   a **soft smell limit of `SOFT_FILE_LINES=1300` (WARNING)** and a **hard limit of `MAX_FILE_LINES=1500`
   (FAILS — non-zero exit / CI gate)**. Over 1300 = split it soon; over 1500 = the build fails until it's
