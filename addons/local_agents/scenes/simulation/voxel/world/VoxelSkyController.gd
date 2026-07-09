@@ -11,7 +11,16 @@ const StarScript: GDScript = preload("res://addons/local_agents/scenes/simulatio
 
 const STAR_POSITION: Vector3 = Vector3(900.0, 320.0, 620.0)
 
+# Visible-sun body: a bright unshaded emissive sphere sitting AT the star so you actually SEE the sun in the
+# sky (the DirectionalLight alone is invisible). Its emission energy sits above the environment's glow HDR
+# threshold, so the WorldEnvironment bloom wraps it in a natural corona. Radius is chosen so the disc reads
+# from planet-orbit distance (~5-6° across); no texture needed — the glow does the halo.
+const SUN_BODY_RADIUS: float = 60.0
+const SUN_EMISSION_ENERGY: float = 6.0
+const SUN_CORE_COLOR: Color = Color(1.0, 0.94, 0.72)
+
 var _star: Node3D = null    # LAStar — positioned light + gravity + solar driver
+var _sun_body: MeshInstance3D = null  # the glowing disc you see in the sky, parented to the star
 var _sky: Node = null       # LAVoxelSkyCycle — owns ALL sky/sun/moon/environment + day/night clock
 
 
@@ -33,6 +42,31 @@ func setup(world: Node, time_of_day: float, lunar_phase: float) -> void:
 	# light so they don't double up (wiring the sky's sun to follow the star = the sky/solar fan-out unit).
 	if _star.light() != null:
 		_star.light().visible = false
+	_build_sun_body(_star)
+
+
+## Attach the glowing sun disc as a child of the star node so it always sits at the star's world position.
+func _build_sun_body(star: Node3D) -> void:
+	_sun_body = MeshInstance3D.new()
+	_sun_body.name = "SunBody"
+	var sphere: SphereMesh = SphereMesh.new()
+	sphere.radius = SUN_BODY_RADIUS
+	sphere.height = SUN_BODY_RADIUS * 2.0
+	sphere.radial_segments = 24
+	sphere.rings = 12
+	_sun_body.mesh = sphere
+	var mat: StandardMaterial3D = StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = SUN_CORE_COLOR
+	mat.emission_enabled = true
+	mat.emission = SUN_CORE_COLOR
+	mat.emission_energy_multiplier = SUN_EMISSION_ENERGY
+	mat.disable_receive_shadows = true
+	_sun_body.material_override = mat
+	_sun_body.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Never fade/cull the sun — it should stay lit at whatever orbit distance the camera pulls to.
+	_sun_body.extra_cull_margin = 16384.0
+	star.add_child(_sun_body)
 
 
 ## PLANETARY SKY: view from space (dark starfield + low ambient) with the sun FIXED shining star->planet;

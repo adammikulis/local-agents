@@ -1,6 +1,9 @@
 class_name LAVoxelInputController
 extends Node
 
+const PauseMenuScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelPauseMenu.gd")
+const ViewControlsScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelViewControls.gd")
+
 ## LAVoxelInputController — owns the CLI-arg parsing + all the harness/demo flag state, the per-frame
 ## auto-demo firing (meteor/volcano/seavolcano/stamp-test/lightning/storm/select), and is the host point
 ## for an in-game pause (Esc) menu. Factored out of LAVoxelWorld so the "input / Esc menu" concern is one
@@ -61,8 +64,34 @@ var _stamp_test_reported: bool = false
 var _stamp_test_target: Vector3 = Vector3.ZERO
 var _stamp_test_deposit_frame: int = 0
 
+# --- Esc pause menu (this controller is its documented host point) ---
+var _pause_menu: LAVoxelPauseMenu = null
+
+# --- Camera / view control state (this controller owns the camera-mode system) ---
+# Default = drag-to-rotate only: auto-spin OFF and geosync OFF, so the world only turns when the player drags
+# (playtest feedback #3). VoxelWorld gates its spin line on manual_rotate(); the planet spins when EITHER the
+# auto-spin option is on OR geosync is active (geosync needs the spin to be meaningful).
+var _auto_spin: bool = false     # ORBIT-mode "planet rotates in front of you" option
+var _geosync: bool = false       # GEOSYNC: camera rides the planet's rotating frame, locked over one region
+var _fly: bool = false           # FLY: planet-aware free-flight drone (WASD + hold-drag look + radial up/down)
+var _solar_view: bool = false    # PLANET orbit ↔ SOLAR-SYSTEM overview (planet + visible sun)
+var _view_controls = null                # the on-screen [Planet|Solar] · [Free|Geosync] · [Auto-spin] cluster (LAVoxelViewControls)
+var _fast: int = 1                       # --fast=N: sim steps per render frame (1 = realtime)
+var _face_sun: bool = false              # --face-sun: aim the camera at the star before the screenshot (sun-visibility proof)
+var _face_sun_done: bool = false
+var _menu_shot: bool = false             # --menu-shot: show the pause menu overlay before the screenshot (menu proof)
+var _menu_shot_done: bool = false
+var _start_geosync: bool = false         # --geosync: start in geosync rotation mode (verification aid)
+var _start_solar: bool = false           # --solar-view: start in the solar-system overview (verification aid)
+var _start_fly: bool = false             # --fly: start in fly mode down near the surface (verification aid)
+var _start_mode_applied: bool = false
+
 
 func parse_cmdline() -> void:
+	# Build the Esc pause menu up front so it exists before any input arrives.
+	_pause_menu = PauseMenuScript.new()
+	_pause_menu.name = "PauseMenu"
+	add_child(_pause_menu)
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--shoot="):
 			_shoot_path = arg.substr("--shoot=".length())
@@ -119,6 +148,176 @@ func parse_cmdline() -> void:
 			_cognition_stats = true
 		elif arg == "--stamp-test":
 			_stamp_test = true
+		elif arg.begins_with("--fast="):
+			_fast = int(arg.substr("--fast=".length()))
+		elif arg == "--face-sun":
+			_face_sun = true
+		elif arg == "--menu-shot":
+			_menu_shot = true
+		elif arg == "--geosync":
+			_start_geosync = true
+		elif arg == "--solar-view":
+			_start_solar = true
+		elif arg == "--fly":
+			_start_fly = true
+	# Apply the fast-forward multiplier through the pause menu's single setter (shared with the in-menu speed
+	# buttons). Clamped there; N=1 leaves the engine clock untouched.
+	if _pause_menu != null:
+		_pause_menu.set_time_scale(_fast)
+
+
+## Esc opens the pause menu (pausing the sim); G toggles geosync, F toggles fly, P toggles the solar-system
+## view, K toggles the orbit-mode auto-spin. While the menu is OPEN the tree is paused so this controller stops
+## receiving input and the menu itself owns Esc-to-close.
+func _unhandled_input(event: InputEvent) -> void:
+	if not (event is InputEventKey) or not event.pressed or event.echo:
+		return
+	var kc: int = (event as InputEventKey).keycode
+	if kc == KEY_ESCAPE and _pause_menu != null and not _pause_menu.is_open():
+		_pause_menu.open()
+		get_viewport().set_input_as_handled()
+	elif kc == KEY_G:
+		toggle_geosync()
+		get_viewport().set_input_as_handled()
+	elif kc == KEY_F:
+		toggle_fly()
+		get_viewport().set_input_as_handled()
+	elif kc == KEY_P:
+		toggle_solar_view()
+		get_viewport().set_input_as_handled()
+	elif kc == KEY_K:
+		toggle_auto_spin()
+		get_viewport().set_input_as_handled()
+
+
+# --- Camera-mode system (rotation modes [Orbit | Geosync | Fly] + planet/solar view) -------------------------
+# Spin runs (VoxelWorld gate) when EITHER the auto-spin option OR geosync is on; default = neither = manual drag.
+func manual_rotate() -> bool: return not (_auto_spin or _geosync)
+func auto_spin_on() -> bool: return _auto_spin
+func geosync_on() -> bool: return _geosync
+func fly_on() -> bool: return _fly
+func solar_view_on() -> bool: return _solar_view
+
+
+func set_auto_spin(on: bool) -> void:
+	_auto_spin = on
+	_refresh_view_controls()
+
+
+func toggle_auto_spin() -> void:
+	set_auto_spin(not _auto_spin)
+
+
+## Plain ORBIT rotation mode: clear geosync + fly and let the camera resume its default orbit.
+func set_orbit_mode() -> void:
+	if _fly:
+		set_fly(false)
+	if _geosync:
+		set_geosync(false)
+	_refresh_view_controls()
+
+
+## GEOSYNC: attach the camera to the planet's rotating frame (locked over one region). Enabling also turns the
+## planet spin on (via manual_rotate()) so the lock is visible, and coming back to solar/orbit is lossless.
+func set_geosync(on: bool) -> void:
+	_geosync = on
+	if on:
+		_fly = false
+		_auto_spin = true            # a geosynchronous lock only reads as such against a spinning planet
+		if _solar_view:
+			set_solar_view(false)    # geosync is a close-region mode; leave the pulled-back overview
+	if _camera != null and _camera.has_method("set_geosync"):
+		_camera.set_geosync(on)
+	_refresh_view_controls()
+
+
+func toggle_geosync() -> void:
+	set_geosync(not _geosync)
+
+
+## FLY / DRONE free-flight: WASD + hold-drag look + radial lift/descend + Shift boost. Mutually exclusive with
+## geosync and the solar overview.
+func set_fly(on: bool) -> void:
+	_fly = on
+	if on:
+		_geosync = false
+		if _solar_view:
+			set_solar_view(false)
+	if _camera != null and _camera.has_method("set_fly"):
+		_camera.set_fly(on)
+	_refresh_view_controls()
+
+
+func toggle_fly() -> void:
+	set_fly(not _fly)
+
+
+## PLANET ↔ SOLAR-SYSTEM view. Solar = a pulled-back manual framing that shows the planet AND the sun in one
+## shot; planet = the default close orbit. Needs the star + body refs (wired in bind()).
+func set_solar_view(on: bool) -> void:
+	_solar_view = on
+	if _camera == null:
+		return
+	if on:
+		if _geosync:
+			set_geosync(false)       # the overview is a fixed-frame shot, not a region ride
+		if _fly:
+			set_fly(false)
+		_apply_solar_view()
+	elif _camera.has_method("set_planet_view"):
+		_camera.set_planet_view()
+	_refresh_view_controls()
+
+
+func toggle_solar_view() -> void:
+	set_solar_view(not _solar_view)
+
+
+## Compute a pulled-back pose that frames the planet and the star together, then hand it to the camera.
+func _apply_solar_view() -> void:
+	if _star == null or _body == null or not _camera.has_method("set_solar_view"):
+		return
+	var center: Vector3 = _body.center()
+	var star_pos: Vector3 = _star.global_position
+	var sun_dir: Vector3 = (star_pos - center).normalized()
+	var perp: Vector3 = sun_dir.cross(Vector3.UP)
+	if perp.length() < 0.01:
+		perp = Vector3.RIGHT
+	perp = perp.normalized()
+	var span: float = center.distance_to(star_pos)
+	# Sit back off to one side of the planet↔sun axis (+ slightly up) far enough that BOTH the planet and the
+	# sun fall inside the frustum, looking at the midpoint between them.
+	var midpoint: Vector3 = center.lerp(star_pos, 0.5)
+	var pos: Vector3 = midpoint + perp * (span * 1.0) + Vector3.UP * (span * 0.2)
+	_camera.set_solar_view(pos, midpoint, pos.distance_to(center))
+
+
+## Position the drone low over the surface, looking across the terrain (creatures/trees in view). Verification
+## framing for --fly; also a sensible default place to drop into flight.
+func _apply_fly_view() -> void:
+	if _camera == null or not _camera.has_method("place_fly") or _body == null or _terrain == null:
+		set_fly(true)
+		return
+	set_fly(true)
+	var center: Vector3 = _body.center()
+	var sp: Vector3 = _terrain.surface_point(Vector3.UP) if _terrain.has_method("surface_point") else (center + Vector3.UP * 200.0)
+	if is_nan(sp.x):
+		return
+	var radial: Vector3 = (sp - center).normalized()
+	var radius: float = _body.radius() if _body.has_method("radius") else sp.distance_to(center)
+	var tangent: Vector3 = radial.cross(Vector3.UP)
+	if tangent.length() < 0.01:
+		tangent = radial.cross(Vector3.RIGHT)
+	tangent = tangent.normalized()
+	# Sit a little above the surface and back along the tangent, looking forward + slightly down at the ground.
+	var pos: Vector3 = sp + radial * (radius * 0.05) - tangent * (radius * 0.10)
+	var look_target: Vector3 = sp + tangent * (radius * 0.12) - radial * (radius * 0.02)
+	_camera.place_fly(pos, look_target)
+
+
+func _refresh_view_controls() -> void:
+	if _view_controls != null:
+		_view_controls.call("refresh", _solar_view, _geosync, _fly, _auto_spin)
 
 
 ## Wire the scene refs the auto-demo hooks act on (called from the world once the scene is composed).
@@ -130,6 +329,15 @@ func bind(terrain, camera: Camera3D, body: Node3D, star: Node3D, material: Node,
 	_material = material
 	_disasters = disasters
 	_interaction = interaction
+	# Wire the planet body so the camera's GEOSYNC mode can read its rotating frame (keeps VoxelWorld untouched).
+	if _camera != null and _camera.has_method("set_geosync_body"):
+		_camera.set_geosync_body(_body)
+	# Build the on-screen view-controls cluster: [Planet | Solar System] · [Free | Geosync] · [Auto-spin].
+	_view_controls = ViewControlsScript.new()
+	_view_controls.name = "ViewControls"
+	add_child(_view_controls)
+	_view_controls.call("setup", self)
+	_refresh_view_controls()
 
 
 # The disasters controller fired the one-shot auto-meteor test; latch it so update() won't refire.
@@ -229,6 +437,47 @@ func update(frame: int, spawned: bool) -> void:
 			if _camera != null and _camera.has_method("frame_vista"):
 				_camera.frame_vista(focus)
 
+	# Verification-aid CLI (--geosync / --solar-view): apply the start camera mode AFTER the ecology spawn has
+	# framed the camera, so the mode framing holds (otherwise spawn's vista overrides it).
+	if (_start_geosync or _start_solar or _start_fly) and not _start_mode_applied and spawned:
+		var mtrigger: int = (_shoot_frames - 50) if _shoot_path != "" else 100
+		if frame >= mtrigger:
+			if _start_geosync:
+				set_geosync(true)
+			if _start_solar:
+				set_solar_view(true)
+			if _start_fly:
+				_apply_fly_view()
+			_start_mode_applied = true
+
+	# --face-sun: just before the screenshot, place the camera at the planet's limb looking straight at the
+	# star so the glowing sun body is in frame (visible-sun verification). Orbit-mode _process holds a manual
+	# transform, so this framing sticks.
+	if _face_sun and not _face_sun_done and _shoot_path != "" and _camera != null and _star != null and _body != null:
+		if frame >= _shoot_frames - 60:
+			var center: Vector3 = _body.center()
+			var star_pos: Vector3 = _star.global_position
+			var sun_dir: Vector3 = (star_pos - center).normalized()
+			var perp: Vector3 = sun_dir.cross(Vector3.UP)
+			if perp.length() < 0.01:
+				perp = Vector3.RIGHT
+			perp = perp.normalized()
+			var radius: float = _body.radius() if _body.has_method("radius") else 150.0
+			_camera.global_position = center + perp * (radius * 1.4) + Vector3.UP * (radius * 0.4) + sun_dir * (radius * 0.6)
+			_camera.look_at(star_pos, Vector3.UP)
+			_face_sun_done = true
+
+	# --menu-shot: show the pause menu OVERLAY (without pausing, so the capture loop keeps ticking) just before
+	# the screenshot, and self-test that open() would pause the tree — the menu proof.
+	if _menu_shot and not _menu_shot_done and _shoot_path != "" and _pause_menu != null:
+		if frame >= _shoot_frames - 6:
+			get_tree().paused = true
+			var pause_ok: bool = get_tree().paused
+			get_tree().paused = false
+			print("MENU_PAUSE_SELFTEST paused_toggles=", pause_ok)
+			_pause_menu.open(false)
+			_menu_shot_done = true
+
 	# Auto-select demo: aim at the nearest creature and run the real selection path.
 	if _auto_select and not _auto_select_done and spawned and frame == _shoot_frames - 40:
 		var nearest: Node3D = null
@@ -320,3 +569,4 @@ func debug_demo() -> bool: return _debug_demo
 func wind_view() -> bool: return _wind_view
 func debug_field() -> String: return _debug_field
 func debug_behaviors() -> String: return _debug_behaviors
+func fast_multiplier() -> int: return _fast

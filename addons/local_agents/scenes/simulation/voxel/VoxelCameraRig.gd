@@ -24,7 +24,11 @@ extends Camera3D
 # --- Tunables -----------------------------------------------------------------
 const MIN_DISTANCE: float = 0.5           # closest zoom (units from focus) — right down onto an animal
 const MAX_DISTANCE: float = 1400.0        # farthest zoom — pull way out for a whole-world view
-const ZOOM_STEP: float = 1.28             # wheel multiplier per notch (bigger = faster zoom)
+const ZOOM_STEP: float = 1.12             # wheel multiplier per notch (bigger = faster zoom) — gentle, slow zoom
+# LMB/RMB "grab the planet" drag-orbit only engages once the cursor has moved past this many pixels, so a
+# plain click still selects / casts (near-zero drag) while a real drag rotates the view. No mouse capture on
+# these buttons (they double as click actions) — we read relative motion with the cursor left visible.
+const DRAG_ORBIT_THRESHOLD: float = 3.0
 const PAN_SPEED: float = 140.0            # WASD/arrow-key pan, per second, scaled by distance
 const DRAG_PAN_SPEED: float = 6.0         # Shift+MMB drag pan, per pixel, scaled by distance
 const ORBIT_SENSITIVITY: float = 0.0075   # MMB drag orbit, radians per pixel
@@ -56,6 +60,11 @@ var _yaw: float = 0.0
 var _pitch: float = deg_to_rad(55.0)
 var _panning: bool = false
 var _orbiting: bool = false
+# LMB/RMB "hold to rotate the planet" drag-orbit. Armed on press, becomes active once the drag passes
+# DRAG_ORBIT_THRESHOLD so a click still falls through to select/cast. Released → stops (as the player expects).
+var _drag_orbiting: bool = false
+var _drag_orbit_armed: bool = false
+var _drag_orbit_travel: float = 0.0
 
 # --- Orbit (planet) mode state ------------------------------------------------
 # When _orbit_mode is true the rig ignores _focus/_yaw/_pitch and instead sits on a sphere of radius
@@ -68,6 +77,29 @@ var _orbit_azimuth: float = 0.0           # rotation around the polar axis, radi
 var _orbit_elevation: float = deg_to_rad(20.0)  # latitude of the camera, radians (clamped off the poles)
 var _orbit_min_distance: float = 0.0
 var _orbit_max_distance: float = 0.0
+
+# --- Rotation mode: FREE (camera fixed in the world frame, planet spins under it) vs GEOSYNC (camera rides
+# the planet's rotating frame, locked over one surface region so it stays centred as the planet spins).
+# In geosync the source-of-truth is a body-LOCAL direction; each frame the world radial = body_basis * that,
+# so the same spot faces the camera. VoxelWorld's `_body` is wired in via set_geosync_body().
+var _geosync: bool = false
+var _geosync_body: Node3D = null
+var _geosync_local_dir: Vector3 = Vector3.UP
+# --- Solar-system overview: a pulled-back framing that shows the planet + the (visible) sun together. It
+# uses a MANUAL transform, so the per-frame geosync ride is suppressed while it is active.
+var _solar_view: bool = false
+
+# --- FLY / DRONE free-flight: a planet-aware first-person cam. WASD moves relative to the look direction,
+# hold-drag mouse-looks to aim, Space/E lift + Ctrl/Q descend along the local RADIAL (away-from/toward the
+# core), Shift boosts. "Up" is the radial (normalize(pos - centre)) so it feels right over the curved surface:
+# skim low over the terrain or pull up into the atmosphere. Driftless — the look dir is stored, not integrated.
+const FLY_SPEED_FRAC: float = 0.30    # base move speed as a fraction of the planet radius, per second
+const FLY_BOOST: float = 4.0          # Shift multiplier
+const FLY_LOOK_SENS: float = 0.005    # radians per pixel for the hold-drag mouse-look
+const FLY_PITCH_LIMIT_DOT: float = 0.96   # keep the look off the local up/down poles so the up-vector stays stable
+var _fly: bool = false
+var _fly_pos: Vector3 = Vector3.ZERO
+var _fly_look: Vector3 = Vector3.FORWARD  # world-space unit forward (aim)
 
 # --- Storm tracking -----------------------------------------------------------
 # Follow a live, moving Node3D (a wandering storm) so it stays framed. Each frame the focus eases
@@ -186,30 +218,6 @@ func stop_tracking() -> void:
 	_track_pitch = -1.0
 
 
-## True while actively following a storm.
-func is_tracking() -> bool:
-	return _track_target != null and is_instance_valid(_track_target)
-
-
-## Ease the focus (and optional framing distance/pitch) toward the tracked target. Returns true if it
-## moved the rig this frame (so _process rebuilds the transform).
-func _update_tracking(delta: float) -> bool:
-	if _track_target == null:
-		return false
-	if not is_instance_valid(_track_target):
-		stop_tracking()
-		return false
-	var tp: Vector3 = _track_target.global_position + Vector3(0.0, TRACK_FOCUS_LIFT, 0.0)
-	var a: float = clampf(TRACK_LERP * delta, 0.0, 1.0)
-	_focus = _focus.lerp(tp, a)
-	if _track_distance > 0.0:
-		_distance = lerpf(_distance, clampf(_track_distance, MIN_DISTANCE, MAX_DISTANCE), a)
-	if _track_pitch > 0.0:
-		_pitch = lerpf(_pitch, clampf(_track_pitch, PITCH_MIN, PITCH_MAX), a)
-	_clamp_focus()
-	return true
-
-
 ## Recenter the camera on `point` (auto-select focus, meteor impacts, etc.) at a closer
 ## inspection distance. Goes through the focus state so the per-frame rebuild doesn't
 ## immediately overwrite a directly-poked transform.
@@ -250,6 +258,9 @@ func is_orbit_mode() -> bool:
 
 ## Rebuild the camera transform from the focus/distance/yaw/pitch state.
 func _update_transform() -> void:
+	if _fly:
+		_update_fly_transform()
+		return
 	if _orbit_mode:
 		_update_orbit_transform()
 		return
@@ -261,21 +272,182 @@ func _update_transform() -> void:
 	far = clampf(_distance * 12.0, 4000.0, 20000.0)
 
 
+## Unit world radial (planet centre → camera) from the azimuth/elevation pair. This is the FREE-mode pose.
+func _radial_from_azel() -> Vector3:
+	var e: float = clampf(_orbit_elevation, -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
+	return Vector3(cos(e) * sin(_orbit_azimuth), sin(e), cos(e) * cos(_orbit_azimuth))
+
+
 ## Rebuild the transform for orbit (planet) mode: place the camera on a sphere of radius `_distance`
-## around `_orbit_center` at (azimuth, elevation) and look straight in. Elevation is clamped shy of
-## the poles so world-up never flips (no gimbal roll at the poles).
+## around `_orbit_center` and look straight in. FREE mode uses azimuth/elevation (a world-fixed pose the
+## spinning planet turns under); GEOSYNC derives the radial from a body-LOCAL direction so the camera rides
+## the planet's spin and one region stays centred. Up flips to RIGHT near the poles so world-up never gimbals.
 func _update_orbit_transform() -> void:
-	_orbit_elevation = clampf(_orbit_elevation, -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
-	var ce: float = cos(_orbit_elevation)
-	var se: float = sin(_orbit_elevation)
-	var ca: float = cos(_orbit_azimuth)
-	var sa: float = sin(_orbit_azimuth)
-	# Unit direction from the planet centre out to the camera (radial "up").
-	var radial: Vector3 = Vector3(ce * sa, se, ce * ca)
+	var radial: Vector3
+	if _geosync and _geosync_body != null and is_instance_valid(_geosync_body):
+		radial = (_geosync_body.global_transform.basis * _geosync_local_dir).normalized()
+	else:
+		_orbit_elevation = clampf(_orbit_elevation, -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
+		radial = _radial_from_azel()
 	global_position = _orbit_center + radial * _distance
-	look_at(_orbit_center, Vector3.UP)
+	var up: Vector3 = Vector3.UP if absf(radial.dot(Vector3.UP)) < 0.985 else Vector3.RIGHT
+	look_at(_orbit_center, up)
 	# Far plane scaled to the orbit distance so the whole planet stays inside the frustum when pulled out.
 	far = clampf(_distance * 4.0, 4000.0, 40000.0)
+
+
+## Wire the planet body (VoxelWorld's `_body`) so GEOSYNC can read its rotating frame. Passed via the input
+## controller's bind() so VoxelWorld stays untouched.
+func set_geosync_body(body: Node3D) -> void:
+	_geosync_body = body
+
+
+## Toggle GEOSYNC. Enabling captures the current view direction into the body-local frame (so it locks on the
+## spot you're looking at); disabling syncs azimuth/elevation back from the ridden radial so FREE mode resumes
+## from the same view with no jump.
+func set_geosync(on: bool) -> void:
+	if on == _geosync:
+		return
+	if on and _geosync_body != null and is_instance_valid(_geosync_body):
+		_fly = false
+		var world_radial: Vector3 = _radial_from_azel()
+		_geosync_local_dir = (_geosync_body.global_transform.basis.inverse() * world_radial).normalized()
+		_geosync = true
+	else:
+		if _geosync_body != null and is_instance_valid(_geosync_body):
+			var wr: Vector3 = (_geosync_body.global_transform.basis * _geosync_local_dir).normalized()
+			_orbit_elevation = asin(clampf(wr.y, -1.0, 1.0))
+			_orbit_azimuth = atan2(wr.x, wr.z)
+		_geosync = false
+	_update_transform()
+
+
+func is_geosync() -> bool:
+	return _geosync
+
+
+## Solar-system overview: drop into a MANUAL pulled-back framing (planet + sun in one shot). Geosync ride is
+## suppressed while active. `orbit_dist` seeds the zoom so the wheel keeps working from the solar distance.
+func set_solar_view(pos: Vector3, look_target: Vector3, orbit_dist: float) -> void:
+	_solar_view = true
+	_geosync = false
+	_fly = false
+	global_position = pos
+	look_at(look_target, Vector3.UP)
+	_distance = orbit_dist
+	_orbit_max_distance = maxf(_orbit_max_distance, orbit_dist * 2.0)
+	far = clampf(orbit_dist * 4.0, 4000.0, 80000.0)
+
+
+## Leave the solar overview and reframe the planet at the default orbit distance.
+func set_planet_view() -> void:
+	_solar_view = false
+	_orbit_max_distance = _orbit_radius * ORBIT_MAX_DISTANCE_MULT
+	_distance = clampf(_orbit_radius * ORBIT_DEFAULT_DISTANCE_MULT, _orbit_min_distance, _orbit_max_distance)
+	_update_transform()
+
+
+func is_solar_view() -> bool:
+	return _solar_view
+
+
+## Enter/leave FLY mode. Entering seeds the drone at the current camera pose (position + forward). Leaving
+## resumes the orbit rig from wherever the drone ended up (azimuth/elevation/distance derived from the fly
+## position) so the view doesn't jump.
+func set_fly(on: bool) -> void:
+	if on == _fly:
+		return
+	if on:
+		_fly = true
+		_geosync = false
+		_solar_view = false
+		_fly_pos = global_position
+		var fwd: Vector3 = -global_transform.basis.z
+		_fly_look = fwd.normalized() if fwd.length() > 0.001 else Vector3.FORWARD
+		_update_fly_transform()
+	else:
+		_fly = false
+		var radial: Vector3 = _fly_pos - _orbit_center
+		if radial.length() > 0.001:
+			var rn: Vector3 = radial.normalized()
+			_orbit_elevation = clampf(asin(clampf(rn.y, -1.0, 1.0)), -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
+			_orbit_azimuth = atan2(rn.x, rn.z)
+			_distance = clampf(radial.length(), _orbit_min_distance, _orbit_max_distance)
+		_update_transform()
+
+
+func is_fly() -> bool:
+	return _fly
+
+
+## Directly place the drone (verification aid / scripted framing): position + a look target, then rebuild.
+func place_fly(pos: Vector3, look_target: Vector3) -> void:
+	_fly = true
+	_geosync = false
+	_solar_view = false
+	_fly_pos = pos
+	var d: Vector3 = look_target - pos
+	if d.length() > 0.001:
+		_fly_look = d.normalized()
+	_update_fly_transform()
+
+
+## Local radial "up" at the drone's position (away from the planet core) — the reference for lift/descend and
+## the roll-free camera up.
+func _fly_radial_up() -> Vector3:
+	var r: Vector3 = _fly_pos - _orbit_center
+	return r.normalized() if r.length() > 0.001 else Vector3.UP
+
+
+func _update_fly_transform() -> void:
+	global_position = _fly_pos
+	var up: Vector3 = _fly_radial_up()
+	if absf(_fly_look.dot(up)) > 0.999:
+		up = Vector3.UP if absf(_fly_look.dot(Vector3.UP)) < 0.98 else Vector3.RIGHT
+	look_at(_fly_pos + _fly_look, up)
+	far = clampf(_fly_pos.distance_to(_orbit_center) * 4.0 + _orbit_radius * 2.0, 4000.0, 60000.0)
+
+
+## Hold-drag mouse-look: yaw about the local radial up, pitch about the camera right, clamped off the poles.
+func _fly_look_drag(rel: Vector2) -> void:
+	var up: Vector3 = _fly_radial_up()
+	_fly_look = _fly_look.rotated(up, -rel.x * FLY_LOOK_SENS).normalized()
+	var right: Vector3 = _fly_look.cross(up)
+	if right.length() > 0.001:
+		right = right.normalized()
+		var pitched: Vector3 = _fly_look.rotated(right, -rel.y * FLY_LOOK_SENS).normalized()
+		if absf(pitched.dot(up)) < FLY_PITCH_LIMIT_DOT:
+			_fly_look = pitched
+	_update_fly_transform()
+
+
+## Per-frame drone movement: WASD tangential (relative to the look), Space/E lift + Ctrl/Q descend along the
+## radial, Shift boost. Speed scales gently with altitude so high flight covers ground faster than a low skim.
+func _fly_step(delta: float) -> void:
+	var up: Vector3 = _fly_radial_up()
+	var fwd: Vector3 = _fly_look
+	var right: Vector3 = fwd.cross(up)
+	right = right.normalized() if right.length() > 0.001 else Vector3.RIGHT
+	var move: Vector3 = Vector3.ZERO
+	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
+		move += fwd
+	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
+		move -= fwd
+	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
+		move += right
+	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
+		move -= right
+	if Input.is_key_pressed(KEY_SPACE) or Input.is_key_pressed(KEY_E):
+		move += up
+	if Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_Q):
+		move -= up
+	if move.length() > 0.001:
+		var alt: float = maxf(0.0, _fly_pos.distance_to(_orbit_center) - _orbit_radius)
+		var speed: float = _orbit_radius * FLY_SPEED_FRAC * (1.0 + alt / maxf(1.0, _orbit_radius))
+		if Input.is_key_pressed(KEY_SHIFT):
+			speed *= FLY_BOOST
+		_fly_pos += move.normalized() * speed * delta
+	_update_fly_transform()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -294,16 +466,47 @@ func _unhandled_input(event: InputEvent) -> void:
 				_set_panning(false)
 				_set_orbiting(false)
 			return
+		# Plain LMB / RMB held: arm a "grab the planet" drag-orbit. It only starts rotating once the
+		# cursor moves past DRAG_ORBIT_THRESHOLD, so a click still selects (LMB) / casts (RMB) — those
+		# resolve on the same (non-consumed) event over in VoxelWorld's interaction/brush.
+		if mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT:
+			if mb.pressed:
+				_drag_orbit_armed = true
+				_drag_orbiting = false
+				_drag_orbit_travel = 0.0
+			else:
+				_drag_orbit_armed = false
+				_drag_orbiting = false
+			return
 		if mb.pressed:
 			if mb.button_index == MOUSE_BUTTON_WHEEL_UP:
 				stop_tracking()
-				_zoom(1.0 / ZOOM_STEP)
+				if _fly:
+					_fly_dolly(1.0)
+				else:
+					_zoom(1.0 / ZOOM_STEP)
 			elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 				stop_tracking()
-				_zoom(ZOOM_STEP)
+				if _fly:
+					_fly_dolly(-1.0)
+				else:
+					_zoom(ZOOM_STEP)
 
 	elif event is InputEventMouseMotion:
 		var mm: InputEventMouseMotion = event as InputEventMouseMotion
+		if _drag_orbit_armed:
+			# Accumulate travel; once past the click threshold the hold becomes a planet-rotate drag.
+			_drag_orbit_travel += mm.relative.length()
+			if not _drag_orbiting and _drag_orbit_travel >= DRAG_ORBIT_THRESHOLD:
+				_drag_orbiting = true
+				stop_tracking()
+			if _drag_orbiting:
+				if _fly:
+					_fly_look_drag(mm.relative)
+				else:
+					_orbit_drag(mm.relative)
+					_update_transform()
+				return
 		if _panning:
 			# Drag the land under the cursor: moving the mouse right slides the world right,
 			# so the focus moves opposite. Scale by distance for a consistent feel.
@@ -311,15 +514,33 @@ func _unhandled_input(event: InputEvent) -> void:
 			_pan_ground(-mm.relative.x * scale, mm.relative.y * scale)
 			_update_transform()
 		elif _orbiting:
-			if _orbit_mode:
-				# Planet orbit: horizontal drag sweeps azimuth around the pole, vertical drag changes
-				# elevation (clamped off the poles in _update_orbit_transform).
-				_orbit_azimuth -= mm.relative.x * ORBIT_SENSITIVITY
-				_orbit_elevation = clampf(_orbit_elevation - mm.relative.y * ORBIT_SENSITIVITY, -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
+			if _fly:
+				_fly_look_drag(mm.relative)
 			else:
-				_yaw -= mm.relative.x * ORBIT_SENSITIVITY
-				_pitch = clampf(_pitch + mm.relative.y * ORBIT_SENSITIVITY, PITCH_MIN, PITCH_MAX)
-			_update_transform()
+				_orbit_drag(mm.relative)
+				_update_transform()
+
+
+## Dolly the drone forward (+1) / back (-1) along its look direction — the fly-mode use of the scroll wheel.
+func _fly_dolly(dir: float) -> void:
+	_fly_pos += _fly_look * dir * _orbit_radius * 0.06
+	_update_fly_transform()
+
+
+## Apply a mouse-drag to the view (horizontal = sweep around the pole, vertical = latitude). Shared by MMB
+## orbit and the LMB/RMB "grab the planet" drag. In FREE mode it moves azimuth/elevation; in GEOSYNC it
+## re-aims the locked body-local spot (rotating it in world space, then folding back into the body frame) so
+## dragging re-chooses which region stays centred with no jump.
+func _orbit_drag(rel: Vector2) -> void:
+	if _geosync and _geosync_body != null and is_instance_valid(_geosync_body):
+		var cur: Vector3 = (_geosync_body.global_transform.basis * _geosync_local_dir).normalized()
+		var right: Vector3 = cur.cross(Vector3.UP)
+		right = right.normalized() if right.length() > 0.001 else Vector3.RIGHT
+		var moved: Vector3 = cur.rotated(Vector3.UP, -rel.x * ORBIT_SENSITIVITY).rotated(right, -rel.y * ORBIT_SENSITIVITY).normalized()
+		_geosync_local_dir = (_geosync_body.global_transform.basis.inverse() * moved).normalized()
+		return
+	_orbit_azimuth -= rel.x * ORBIT_SENSITIVITY
+	_orbit_elevation = clampf(_orbit_elevation - rel.y * ORBIT_SENSITIVITY, -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
 
 
 func _set_panning(active: bool) -> void:
@@ -369,69 +590,19 @@ func _process(delta: float) -> void:
 	# Don't drive movement in the editor (@tool) preview.
 	if Engine.is_editor_hint():
 		return
-
-	# Undo last frame's shake so movement acts on the true base position.
+	# Undo last frame's shake so the seismic offset never accumulates into the base position.
 	global_position -= _shake_applied
 	_shake_applied = Vector3.ZERO
-
-	# Orbit (planet) mode: no ground pan / keyboard fly / storm-follow — the view is driven by
-	# MMB-drag orbit and scroll zoom only. Still react emergently to felt ground motion below.
-	if _orbit_mode:
-		_apply_seismic_shake(delta)
-		return
-
-	var right: float = 0.0
-	var forward: float = 0.0
-
-	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
-		forward += 1.0
-	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
-		forward -= 1.0
-	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
-		right += 1.0
-	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
-		right -= 1.0
-
-	# Edge-scroll (only when not mid-drag, so a drag off-screen doesn't also edge-pan).
-	if not _panning and not _orbiting:
-		var edge: Vector2 = _edge_scroll_dir()
-		right += edge.x
-		forward += edge.y
-
-	var changed: bool = false
-	if absf(right) > 0.001 or absf(forward) > 0.001:
-		var speed: float = PAN_SPEED * _distance_pan_factor() * delta
-		# A deliberate pan takes back manual control from a storm follow.
-		stop_tracking()
-		_pan_ground(right * speed, forward * speed)
-		changed = true
-
-	var yaw_dir: float = 0.0
-	if Input.is_key_pressed(KEY_Q):
-		yaw_dir += 1.0
-	if Input.is_key_pressed(KEY_E):
-		yaw_dir -= 1.0
-	if absf(yaw_dir) > 0.001:
-		_yaw += yaw_dir * KEY_YAW_SPEED * delta
-		changed = true
-
-	var pitch_dir: float = 0.0
-	if Input.is_key_pressed(KEY_R):
-		pitch_dir += 1.0
-	if Input.is_key_pressed(KEY_F):
-		pitch_dir -= 1.0
-	if absf(pitch_dir) > 0.001:
-		_pitch = clampf(_pitch + pitch_dir * KEY_YAW_SPEED * delta, PITCH_MIN, PITCH_MAX)
-		changed = true
-
-	# Storm follow: ease the focus toward the tracked target after manual input is resolved, so a
-	# deliberate pan/orbit/zoom (which calls stop_tracking) always wins over the follow this frame.
-	if _update_tracking(delta):
-		changed = true
-
-	if changed:
-		_update_transform()
-
+	# FLY: drive the drone from the keyboard every frame (WASD/lift/descend/boost).
+	if _fly:
+		_fly_step(delta)
+	# GEOSYNC: rebuild the transform every frame so the camera rides the planet's spin and the locked region
+	# stays centred. (Suppressed in the solar overview, which holds a manual pose.)
+	elif _geosync and not _solar_view and _geosync_body != null and is_instance_valid(_geosync_body):
+		_update_orbit_transform()
+	# Otherwise the planet-orbit rig is driven entirely by input (drag-orbit + scroll zoom); the only per-frame
+	# work is the emergent seismic camera shake. (The old flat WASD/edge-scroll/keyboard-fly path was dead
+	# once the planet became the sole world — deleted.)
 	_apply_seismic_shake(delta)
 
 
@@ -450,31 +621,6 @@ func _apply_seismic_shake(delta: float) -> void:
 		var s: float = _trauma * _trauma * SHAKE_MAG
 		_shake_applied = Vector3(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * s
 		global_position += _shake_applied
-
-
-## Returns a ground-plane pan direction (right, forward) per axis when the cursor is within
-## EDGE_MARGIN of a screen edge; Vector2.ZERO otherwise. Magnitude folds in the edge/key
-## speed ratio so edge-scroll speed is independent of the key-pan tuning.
-func _edge_scroll_dir() -> Vector2:
-	var vp: Viewport = get_viewport()
-	if vp == null:
-		return Vector2.ZERO
-	var size: Vector2 = vp.get_visible_rect().size
-	var m: Vector2 = vp.get_mouse_position()
-	# Ignore a cursor that has left the window (negative or past the far edge).
-	if m.x < 0.0 or m.y < 0.0 or m.x > size.x or m.y > size.y:
-		return Vector2.ZERO
-	var dir: Vector2 = Vector2.ZERO
-	if m.x <= EDGE_MARGIN:
-		dir.x -= 1.0
-	elif m.x >= size.x - EDGE_MARGIN:
-		dir.x += 1.0
-	# Screen-top edge pans forward (into the scene); screen-bottom pans back toward the camera.
-	if m.y <= EDGE_MARGIN:
-		dir.y += 1.0
-	elif m.y >= size.y - EDGE_MARGIN:
-		dir.y -= 1.0
-	return dir * (EDGE_PAN_SPEED / PAN_SPEED)
 
 
 ## Returns a world-space ray {"origin": Vector3, "dir": Vector3}.
@@ -501,9 +647,3 @@ func aim_ray(screen_pos: Vector2 = Vector2(-1.0, -1.0)) -> Dictionary:
 		"origin": project_ray_origin(sp),
 		"dir": project_ray_normal(sp),
 	}
-
-
-## Representative movement speed for consumers (WeatherSystem scales rain/wind by it).
-## Reports the effective distance-scaled pan speed so weather still gets a sensible number.
-func get_fly_speed() -> float:
-	return PAN_SPEED * _distance_pan_factor() * 60.0
