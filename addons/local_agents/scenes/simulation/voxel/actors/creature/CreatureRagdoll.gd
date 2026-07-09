@@ -97,17 +97,23 @@ static func _on_settled(c) -> void:
 	c._settle_t = 0.0
 
 	if c._dead:
-		# Lie where it fell: keep the tumbled orientation, just seat it on the surface.
-		var surf: float = c._surface_at(pos.x, pos.z)
-		if not is_nan(surf):
-			c.global_position = Vector3(pos.x, surf + c.size * 0.35, pos.z)
+		# Lie where it fell: keep the tumbled orientation, just seat it on the surface. Radial planet
+		# geometry: the ground point is along the body's own centre→pos radial, and we lift it out along
+		# that same radial by a fraction of its size so the carcass rests on (not through) the ground.
+		if c.terrain != null:
+			var surf: Vector3 = c.terrain.ground_point(pos)
+			if not is_nan(surf.x):
+				var up_out: Vector3 = (pos - c.terrain.planet_center()).normalized()
+				c.global_position = surf + up_out * (c.size * 0.35)
 		c._carcass = true
 		return
 
 	# Survived the fling: snap upright (keep only yaw), reseat on the ground, resume normal life.
-	var surf2: float = c._surface_at(pos.x, pos.z)
-	if not is_nan(surf2):
-		c.global_position = Vector3(pos.x, surf2 + c.size, pos.z)
+	if c.terrain != null:
+		var surf2: Vector3 = c.terrain.ground_point(pos)
+		if not is_nan(surf2.x):
+			var up_out2: Vector3 = (pos - c.terrain.planet_center()).normalized()
+			c.global_position = surf2 + up_out2 * c.size
 	var yaw: float = c.global_rotation.y
 	c.global_rotation = Vector3(0.0, yaw, 0.0)
 	# A hard landing frightens the creature and rattles neighbours (same stimulus a thrown body makes).
