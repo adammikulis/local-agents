@@ -32,6 +32,7 @@ const DebugWiringScript: GDScript = preload("res://addons/local_agents/scenes/si
 const AudioControllerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelAudioController.gd")
 const GameProgressionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/game/GameProgression.gd")
 const GameHudScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/GameHud.gd")
+const SettingsApplierScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelSettingsApplier.gd")
 
 # --- SOLAR-SYSTEM-FIRST: the world is a star + planet body (see TODO). Radial is the default; flat retired. ---
 const PLANET_RADIUS: float = 250.0
@@ -48,6 +49,7 @@ var _terrain                # LAVoxelTerrainService (from _body.terrain())
 var _camera: Camera3D
 var _ecology: Node          # LAEcologyService
 var _hud: CanvasLayer       # LASpawnPaletteHud
+var _game_hud: CanvasLayer = null  # LAGameHud — gamified objective/summary overlay (H toggles it)
 var _actors_root: Node3D
 var _interaction: Node3D = null   # LAVoxelInteraction — input, selection, the player's hand
 var _brush: Node3D = null         # LAVoxelSpawnBrush — radius spawn brush + placement
@@ -66,6 +68,7 @@ var _spawn: LAVoxelSpawnController = null       # initial ecology/actor spawning
 var _input: LAVoxelInputController = null       # CLI-arg parsing + auto-demo firing + pause-menu host
 var _debug: LAVoxelDebugWiring = null           # DebugPanel/DebugOverlay wiring + debug-view dispatch
 var _progression: LAGameProgression = null      # campaign stage ladder gating camera zoom / view modes / spawns
+var _settings_applier: LAVoxelSettingsApplier = null  # applies GameMode.settings → grid res / spawn counts / effects / disaster cadence
 
 # --- Procedural audio (presentation only; reacts to events, never drives the sim) ---
 var _audio: LocalAgentsAudioDirector = null
@@ -97,6 +100,15 @@ func _ready() -> void:
 	_progression = GameProgressionScript.new()
 	_progression.name = "GameProgression"
 	add_child(_progression)
+
+	# --- Front-end settings bridge: resolves GameMode.settings (difficulty/quality/audio) into concrete sim
+	# knobs. Created early + settings read NOW so the field build + initial spawn can query the grid resolution
+	# and actor budget below; its live concerns (effects density + ambient-disaster cadence) are bound at the
+	# end of _ready once those systems exist. All application logic lives here — the root only wires.
+	_settings_applier = SettingsApplierScript.new()
+	_settings_applier.name = "SettingsApplier"
+	add_child(_settings_applier)
+	_settings_applier.read_settings()
 
 	# Non-interactive verification/screenshot runs (--run-frames / --shoot) shove the OS window WAY
 	# off-screen the instant we start, so agent/CI runs that render on a real display path never pop a
@@ -151,23 +163,18 @@ func _ready() -> void:
 	add_child(_hud)
 	_hud.set_status("Streaming terrain...")
 	# Gamified overlay (objective/progress/stage + unlock toasts + planet summary); reads progression + telemetry.
-	add_child(GameHudScript.new())
+	# Kept as a ref so the interaction controller's H key can toggle it alongside the spawn palette.
+	_game_hud = GameHudScript.new()
+	add_child(_game_hud)
 
 	# --- Procedural audio ---
 	_audio = AudioDirectorScript.new()
 	_audio.name = "AudioDirector"
 	add_child(_audio)
 	_audio.configure()
-	# ALL audio starts OFF: every aspect (Music/SFX/Voice/UI) is muted at its bus, and their director
-	# synthesis flags are off, so nothing plays or is generated. The player unmutes / sets levels per
-	# aspect in the audio-menu mixer. Master stays live as the global row (unmute one aspect to hear it).
-	_audio.set_enabled(true)
-	_audio.set_music_enabled(false)
-	_audio.set_sfx_enabled(false)
-	for muted_bus in ["Music", "Sfx", "Voice", "Ui"]:
-		var mbi: int = AudioServer.get_bus_index(muted_bus)
-		if mbi >= 0:
-			AudioServer.set_bus_mute(mbi, true)
+	# On/off + per-bus volumes are applied from the player's settings by LAVoxelAudioController.setup()
+	# (created below) — audio ships ON by default, silenced only by LA_NO_AUDIO / --no-audio. The root just
+	# builds the director and seeds a neutral mood.
 	_audio.set_music_mood({"population": 0, "time_of_day": 0.30, "destruction_intensity": 0.0})
 	# Wire the HUD audio menu to the live director + listen for the auto-adapt toggle.
 	if _hud != null and _hud.has_method("set_audio_director"):
@@ -190,7 +197,9 @@ func _ready() -> void:
 	# CUBED-SPHERE field (Phase B): a SphereGrid shell enclosing the planet (crust + atmosphere), gathered via
 	# the neighbour table with radial gravity. ~123K cells (res 32/face × depth 20 × 6). Down = inward-radial.
 	var field_grid: RefCounted = SphereGridScript.new()
-	field_grid.build(32, 20, 170.0, 8.0, _body.center())   # core_radius 170, cell 8 → shell 170..330
+	# Per-face cell resolution + shell depth come from the quality setting (Low runs a smaller grid on weak
+	# GPUs). Medium keeps the historical 32/face; core_radius 170, cell 8 → shell 170..330.
+	field_grid.build(_settings_applier.grid_res_per_face(), _settings_applier.grid_depth(), 170.0, 8.0, _body.center())
 	_material.setup_sphere(field_grid, _terrain)
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()                        # fill the solid mask from the terrain SDF
@@ -278,6 +287,7 @@ func _ready() -> void:
 	_interaction.name = "Interaction"
 	add_child(_interaction)
 	_interaction.setup(self, _terrain, _camera, _ecology, _hud, _audio, _brush)
+	_interaction.set_game_hud(_game_hud)   # H toggles the gamified overlay alongside the spawn palette
 	if _hud.has_signal("spawn_selected"):
 		_hud.spawn_selected.connect(_interaction.on_spawn_selected)
 	# Re-root the family-tree inspector whenever the selection changes (debug reader; wired here as the two
@@ -296,9 +306,14 @@ func _ready() -> void:
 	_spawn.name = "SpawnController"
 	add_child(_spawn)
 	_spawn.setup(self, _body, _terrain, _ecology, _camera, _material, _hud, _disasters)
+	_spawn.set_spawn_scale(_settings_applier.spawn_scale())   # quality actor_budget → fewer/more actors
 
 	# Wire the input controller's auto-demo hooks now that every scene ref exists.
 	_input.bind(_terrain, _camera, _body, _sky_ctrl.star(), _material, _disasters, _interaction, _ecology)
+
+	# Bind the settings applier's live concerns now that disasters/terrain/particles exist: pushes the effects
+	# density onto the atmosphere particles and arms the difficulty-scaled ambient-disaster cadence.
+	_settings_applier.bind(self, _disasters, _terrain, _water)
 
 
 func _process(delta: float) -> void:

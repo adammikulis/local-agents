@@ -58,6 +58,7 @@ func setup(world: Node) -> void:
 		return
 	_ready_ok = true
 
+	_apply_audio_settings()
 	_salt_music_seed()
 
 	# Event stings: the ONE emergent phenomenon source drives the accents. Field-derived, so they fire
@@ -69,6 +70,68 @@ func setup(world: Node) -> void:
 		print("AUDIO_CONTROLLER={ready:true, stings:%d, event_tracker:true}" % PHENOMENON_STINGS.size())
 	else:
 		print("AUDIO_CONTROLLER={ready:true, stings:%d, event_tracker:false}" % PHENOMENON_STINGS.size())
+
+
+# --- Audio settings (bus volumes + on/off) --------------------------------------------------------
+
+## Aspect bus -> the LAGameSettings volume field driving it. Master/Music/Sfx come straight from the
+## player's sliders; Voice + Ui ride the master level (no separate slider). Config over a branch.
+const BUS_VOLUME_FIELDS: Dictionary = {
+	"Master": "master_volume",
+	"Music": "music_volume",
+	"Sfx": "sfx_volume",
+	"Voice": "master_volume",
+	"Ui": "master_volume",
+}
+
+## Apply the player's audio settings to the mixer and flip audio ON by default for the shipped game.
+## Reconciles the old /root/GameSettings expectation with the real source (GameMode.settings — the typed
+## LAGameSettings the front-end configures). A dev can silence everything with env LA_NO_AUDIO or the
+## `--no-audio` launch arg (kept for headless/perf A-B runs); otherwise each bus takes its slider level.
+func _apply_audio_settings() -> void:
+	var settings: LAGameSettings = _game_settings()
+	var audio_off: bool = _audio_disabled()
+	if _audio != null:
+		if _audio.has_method("set_enabled"):
+			_audio.set_enabled(not audio_off)
+		if _audio.has_method("set_music_enabled"):
+			_audio.set_music_enabled(not audio_off)
+		if _audio.has_method("set_sfx_enabled"):
+			_audio.set_sfx_enabled(not audio_off)
+	for bus_name in BUS_VOLUME_FIELDS:
+		var bus_index: int = AudioServer.get_bus_index(bus_name)
+		if bus_index < 0:
+			continue
+		var linear: float = 1.0
+		if settings != null:
+			linear = float(settings.get(String(BUS_VOLUME_FIELDS[bus_name])))
+		var silent: bool = audio_off or linear <= 0.001
+		AudioServer.set_bus_mute(bus_index, silent)
+		if not silent:
+			AudioServer.set_bus_volume_db(bus_index, linear_to_db(clampf(linear, 0.0, 1.0)))
+	print("AUDIO_SETTINGS={off:%s, master:%.2f, music:%.2f, sfx:%.2f}" % [
+		str(audio_off),
+		(settings.master_volume if settings != null else 1.0),
+		(settings.music_volume if settings != null else 1.0),
+		(settings.sfx_volume if settings != null else 1.0)])
+
+
+## The active LAGameSettings from the GameMode autoload (null in a direct-scene/test launch → defaults used).
+func _game_settings() -> LAGameSettings:
+	var gm: Node = get_node_or_null("/root/GameMode")
+	if gm != null and gm.get("settings") != null:
+		return gm.get("settings")
+	return null
+
+
+## True when a dev has opted out of audio (env LA_NO_AUDIO, or a `--no-audio` user arg).
+func _audio_disabled() -> bool:
+	if OS.has_environment("LA_NO_AUDIO"):
+		return true
+	for arg in OS.get_cmdline_user_args():
+		if arg == "--no-audio":
+			return true
+	return false
 
 
 # --- Music bed ------------------------------------------------------------------------------------
