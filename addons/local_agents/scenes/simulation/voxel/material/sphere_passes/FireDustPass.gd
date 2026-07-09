@@ -1,11 +1,14 @@
 extends RefCounted
 
-## Cubed-sphere FIRE + DUST pass plugin. Wires four GPU-proven sphere kernels behind the sphere GPU
+## Cubed-sphere FIRE + DUST pass plugin. Wires three GPU-proven sphere kernels behind the sphere GPU
 ## driver's pass contract (setup(rd, bufs, cc) / dispatch(rd, cl, parity, ctx, cc, groups)):
 ##   * fire_sphere3d.glsl          — combustion GATHER (ember spread + plume; consumes fuel/O₂, emits CO₂)
 ##   * dust_outscale_sphere3d.glsl — per-cell CFL out-flux scale precompute (→ dust_outscale SINGLE buffer)
 ##   * dust_transport_sphere3d.glsl— airborne dust advect/diffuse/settle gather + leeward deposit to sediment
-##   * dust_loft_sphere3d.glsl     — scour dry loose sediment into the airborne dust of the cell above
+## The old dust_loft_sphere3d.glsl (scour dry sediment into the cell-above's dust) is DISSOLVED into the DEFS
+## reaction engine as record M4 (sediment→own-cell dust, MaterialReactions3D.gd) — a clean own-cell transfer;
+## the kernel is deleted (dissolve-don't-patch). ReactionsPass runs the loft before this pass so transport
+## advects the freshly lofted dust the same step.
 ##
 ## The driver owns the ping-pong `bufs` dictionary and the compute list. This plugin only builds pipelines +
 ## per-parity uniform sets in setup(), then records bind/push/dispatch/barrier into the driver's `cl` in
@@ -18,26 +21,21 @@ extends RefCounted
 const FIRE_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/fire_sphere3d.glsl"
 const OUTSCALE_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/dust_outscale_sphere3d.glsl"
 const TRANSPORT_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/dust_transport_sphere3d.glsl"
-const LOFT_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/dust_loft_sphere3d.glsl"
 
 # Defaults for the ctx fields (documented in the report). k (Courant factor) = dt / cell_size.
 const DEFAULT_DT: float = 0.1
 const DEFAULT_CELL_SIZE: float = 8.0
-const DEFAULT_RAINING: int = 0
 
 var _fire_pipe: RID = RID()
 var _outscale_pipe: RID = RID()
 var _transport_pipe: RID = RID()
-var _loft_pipe: RID = RID()
 
 var _fire_shader: RID = RID()
 var _outscale_shader: RID = RID()
 var _transport_shader: RID = RID()
-var _loft_shader: RID = RID()
 
 var _fire_set: Array = [RID(), RID()]       # per parity p
 var _transport_set: Array = [RID(), RID()]  # per parity p
-var _loft_set: Array = [RID(), RID()]       # per parity p
 var _outscale_set: RID = RID()              # parity-independent (only SINGLE buffers) → one set
 
 
@@ -54,10 +52,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var transport_sf: RDShaderFile = load(TRANSPORT_PATH)
 	_transport_shader = rd.shader_create_from_spirv(transport_sf.get_spirv())
 	_transport_pipe = rd.compute_pipeline_create(_transport_shader)
-
-	var loft_sf: RDShaderFile = load(LOFT_PATH)
-	_loft_shader = rd.shader_create_from_spirv(loft_sf.get_spirv())
-	_loft_pipe = rd.compute_pipeline_create(_loft_shader)
 
 	# --- Shared buffers ---------------------------------------------------------------------------
 	var nbr: RID = bufs["nbr"]
@@ -93,13 +87,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			[0, dust[p]], [1, dust[back]], [2, sediment[back]], [3, outscale],
 			[4, vel_x], [5, vel_y], [6, vel_z], [7, solid], [15, nbr]])
 
-		# dust_loft_sphere3d.glsl — 0 sediment(back, in place -=), 1 dust(back, scatter += to cell above),
-		# 2 water(back), 3 vel_x, 4 vel_z, 5 solid, 15 nbr. Loft runs AFTER transport (see dispatch order),
-		# so it edits the POST-transport BACK buffers → the final dust/sediment state lives in [back].
-		_loft_set[p] = _build_set(rd, _loft_shader, [
-			[0, sediment[back]], [1, dust[back]], [2, water[back]],
-			[3, vel_x], [4, vel_z], [5, solid], [15, nbr]])
-
 	# dust_outscale_sphere3d.glsl — 0 outscale(out, single), 1 vel_x, 2 vel_y, 3 vel_z, 4 solid, 15 nbr.
 	# No PAIR buffers → parity-independent, one set reused for both parities.
 	_outscale_set = _build_set(rd, _outscale_shader, [
@@ -109,12 +96,10 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	var dt: float = float(ctx.get("dt", DEFAULT_DT))
 	var cell_size: float = float(ctx.get("cell_size", DEFAULT_CELL_SIZE))
-	var raining: int = int(ctx.get("raining", DEFAULT_RAINING))
 	var k: float = dt / cell_size if cell_size != 0.0 else 0.0
 
 	var pc_fire: PackedByteArray = _pc_count(cc)
 	var pc_k: PackedByteArray = _pc_count_k(cc, k)
-	var pc_loft: PackedByteArray = _pc_count_flag(cc, raining)
 
 	# 1) FIRE — combustion gather: fire[live] -> fire[back]; temp/fuel/o2/co2 mutated in place.
 	rd.compute_list_bind_compute_pipeline(cl, _fire_pipe)
@@ -135,14 +120,8 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	rd.compute_list_bind_uniform_set(cl, _transport_set[parity], 0)
 	rd.compute_list_set_push_constant(cl, pc_k, pc_k.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
-	rd.compute_list_add_barrier(cl)          # dust[back] + sediment deposits visible to loft
-
-	# 4) DUST LOFT — scour dry sediment[back] into the airborne dust[back] of the cell above (race-free scatter).
-	rd.compute_list_bind_compute_pipeline(cl, _loft_pipe)
-	rd.compute_list_bind_uniform_set(cl, _loft_set[parity], 0)
-	rd.compute_list_set_push_constant(cl, pc_loft, pc_loft.size())
-	rd.compute_list_dispatch(cl, groups, 1, 1)
-	rd.compute_list_add_barrier(cl)          # final dust[back] + reduced sediment[back] committed
+	rd.compute_list_add_barrier(cl)          # final dust[back] + sediment deposits committed
+	# (dust LOFT is now DEFS record M4, run in ReactionsPass before this pass — kernel deleted.)
 
 
 # --- helpers --------------------------------------------------------------------------------------
@@ -163,10 +142,6 @@ func _u(binding: int, buf: RID) -> RDUniform:
 # fire push: { uint cell_count; uint pad0,pad1,pad2; }
 func _pc_count(cc: int) -> PackedByteArray:
 	return PackedInt32Array([cc, 0, 0, 0]).to_byte_array()
-
-# dust_loft push: { uint cell_count; uint raining; uint pad0,pad1; }
-func _pc_count_flag(cc: int, flag: int) -> PackedByteArray:
-	return PackedInt32Array([cc, flag, 0, 0]).to_byte_array()
 
 # dust_outscale / dust_transport push: { uint cell_count; float k; float pad0,pad1; }
 func _pc_count_k(cc: int, k: float) -> PackedByteArray:
