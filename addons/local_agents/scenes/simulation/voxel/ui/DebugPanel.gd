@@ -1,17 +1,26 @@
 class_name LADebugPanel
 extends CanvasLayer
 
-## The left-docked DEBUG MENU. A collapsible column of toggles grouped into: field VIEWS (temperature
-## heatmap, wind arrows, scent), type HIGHLIGHTS (light up every rabbit/fox/bird/…/nest so you can find
-## them at a glance), overlay PATHS (each creature's intended heading), and PERF toggles (shadows, SSAO).
-## It owns no state — each toggle just emits a signal VoxelWorld wires to the terrain shader, the debug
-## overlay, or the environment. (Explicit types only — no ':=' inferred typing.)
+## The left-docked DEBUG MENU. A collapsible, scrollable column of toggles grouped into: field VIEWS
+## (temperature/wind/scent PLUS the substrate channel heatmaps — biomass, water-phase, snow, lava,
+## rock_fill, CO2/O2, charge, fertility), species HIGHLIGHTs, BEHAVIOR-state highlights (tint creatures
+## by what they're doing), overlay PATHS, and PERF toggles. It owns no state — each toggle just emits a
+## signal VoxelWorld wires to the terrain shader, the debug overlay, the creatures, or the environment.
+## (Explicit types only — no ':=' inferred typing.)
 
-signal view_toggled(view: String, on: bool)          # "temp" | "wind" | "scent"
+signal view_toggled(view: String, on: bool)          # "temp"|"wind"|"scent"|a field-channel key
 signal highlight_toggled(group: String, on: bool)    # a "species_*" or "nest" group
+signal behavior_toggled(behavior: String, on: bool)  # a creature behavior-state category
 signal paths_toggled(on: bool)
 signal perf_toggled(key: String, on: bool)           # "shadows" | "ssao"
 signal screenshot_requested()                        # user clicked the save-screenshot button
+
+# Field-channel heatmap rows: display label -> view_toggled key (the DebugOverlay samples that channel).
+const FIELD_VIEWS: Array = [
+	["Biomass", "biomass"], ["Water phase", "water_phase"], ["Snow / ice", "snow"],
+	["Lava", "lava"], ["Rock fill", "rock_fill"], ["CO₂", "co2"], ["O₂", "o2"],
+	["Charge", "charge"], ["Fertility", "fertility"],
+]
 
 # Highlight rows: display label -> scene group to light up.
 const HIGHLIGHTS: Array = [
@@ -20,8 +29,16 @@ const HIGHLIGHTS: Array = [
 	["Plants", "species_plant"], ["Nests", "nest"],
 ]
 
+# Behavior-state highlight rows: display label -> behavior category (Creature tints itself when its
+# current state maps to an enabled category). Idle/Wander has no tint, so it is intentionally omitted.
+const BEHAVIORS: Array = [
+	["Foraging", "foraging"], ["Hunting", "hunting"], ["Fleeing", "fleeing"],
+	["Drinking", "drinking"], ["Sleeping", "sleeping"], ["Nesting / Mating", "nesting"],
+]
+
 var _body: VBoxContainer = null
 var _collapsed: bool = false
+var _scroll: ScrollContainer = null
 
 
 func _ready() -> void:
@@ -50,19 +67,36 @@ func _ready() -> void:
 	header.pressed.connect(_toggle_collapsed)
 	col.add_child(header)
 
+	# A scroll container caps the panel height so the (now long) toggle list scrolls instead of running off
+	# the screen. It sizes to its content up to the cap, then shows a scrollbar.
+	_scroll = ScrollContainer.new()
+	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_scroll.custom_minimum_size = Vector2(0.0, 460.0)
+	col.add_child(_scroll)
+
 	_body = VBoxContainer.new()
 	_body.add_theme_constant_override("separation", 2)
-	col.add_child(_body)
+	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_scroll.add_child(_body)
 
 	_add_section("VIEWS")
 	_add_check("Temperature", func(on: bool) -> void: view_toggled.emit("temp", on))
 	_add_check("Wind", func(on: bool) -> void: view_toggled.emit("wind", on))
 	_add_check("Scent", func(on: bool) -> void: view_toggled.emit("scent", on))
+	# Substrate channel heatmaps (one at a time in the overlay; enabling a new one replaces the last).
+	for frow in FIELD_VIEWS:
+		var vkey: String = frow[1]
+		_add_check(frow[0], func(on: bool) -> void: view_toggled.emit(vkey, on))
 
-	_add_section("HIGHLIGHT")
+	_add_section("HIGHLIGHT · SPECIES")
 	for row in HIGHLIGHTS:
 		var group: String = row[1]
 		_add_check(row[0], func(on: bool) -> void: highlight_toggled.emit(group, on))
+
+	_add_section("HIGHLIGHT · BEHAVIOR")
+	for brow in BEHAVIORS:
+		var bkey: String = brow[1]
+		_add_check(brow[0], func(on: bool) -> void: behavior_toggled.emit(bkey, on))
 
 	_add_section("OVERLAY")
 	_add_check("Intended paths", func(on: bool) -> void: paths_toggled.emit(on))

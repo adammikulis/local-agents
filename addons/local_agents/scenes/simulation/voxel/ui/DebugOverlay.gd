@@ -27,12 +27,22 @@ const MARKER_COLORS: Dictionary = {
 }
 
 var _field = null
+var _terrain = null                        # LAVoxelTerrainService — planet surface points for field heatmaps
 var _im: ImmediateMesh = null
 var _mat: StandardMaterial3D = null
 var _highlight: Dictionary = {}            # group name -> true (which types are highlighted)
 var _paths: bool = false
 var _wind: bool = false
 var _scent: bool = false
+var _field_channel: String = ""           # active field-channel heatmap ("" = none). One at a time.
+
+# Field-channel heatmap: a grid of directions over the planet, each drawn as a colored radial spike
+# rising from the surface, height + colour = the sampled channel value (a channel swap on the wind/scent
+# grid mechanism). Toggle-gated — nothing is sampled unless a channel view is active.
+const FIELD_LAT: int = 22               # latitude rings of sample directions over the sphere
+const FIELD_LON: int = 44               # longitude steps per ring
+const FIELD_SPIKE_MIN: float = 1.5      # shortest visible spike (so any non-zero cell still reads)
+const FIELD_SPIKE_MAX: float = 14.0     # tallest spike (channel value saturated)
 # Scent-channel colours for the debug view (dominant channel tints each grid cell's arrow).
 const SCENT_COLORS: Array = [
 	Color(0.45, 0.65, 1.0, 0.8),           # PREY   — blue
@@ -43,8 +53,9 @@ const SCENT_COLORS: Array = [
 ]
 
 
-func setup(field) -> void:
+func setup(field, terrain = null) -> void:
 	_field = field
+	_terrain = terrain
 	_im = ImmediateMesh.new()
 	mesh = _im
 	_mat = StandardMaterial3D.new()
@@ -77,11 +88,18 @@ func set_scent(on: bool) -> void:
 	_scent = on
 
 
+## Select the active field-channel heatmap ("" = off). One channel at a time — enabling a new channel
+## replaces the previous. Keys match LADebugPanel VIEWS (biomass/water_phase/snow/lava/rock_fill/co2/o2/
+## charge/fertility).
+func set_field_channel(channel: String) -> void:
+	_field_channel = channel
+
+
 func _process(_delta: float) -> void:
 	if _im == null:
 		return
 	_im.clear_surfaces()
-	if _highlight.is_empty() and not _paths and not _wind and not _scent:
+	if _highlight.is_empty() and not _paths and not _wind and not _scent and _field_channel == "":
 		return                              # nothing to draw — leave the mesh empty (no cost)
 	_im.surface_begin(Mesh.PRIMITIVE_LINES)
 	if not _highlight.is_empty():
@@ -92,6 +110,8 @@ func _process(_delta: float) -> void:
 		_draw_wind()
 	if _scent:
 		_draw_scent()
+	if _field_channel != "":
+		_draw_field_channel()
 	_im.surface_end()
 
 
@@ -228,3 +248,115 @@ func _draw_scent() -> void:
 			var g: Vector3 = _field.scent_gradient(probe, best_ch)
 			if g.length() > 0.001:
 				_line(base, base + g.normalized() * (step * 0.35), col)
+
+
+# The active FIELD CHANNEL as a heatmap over the planet surface: a lat/long grid of directions, each
+# projected to the real ground (terrain.surface_point) and drawn as a colored radial spike whose height
+# and colour encode the sampled channel (biomass, gas, snow, lava, charge, …). Camera-facing hemisphere
+# only (back-side dirs are culled) so it stays cheap. This is the temperature-heatmap idea (sample a
+# channel → colour ramp) generalized to every substrate channel, off the field's public per-cell queries.
+func _draw_field_channel() -> void:
+	if _field == null or _terrain == null or not _terrain.has_method("surface_point"):
+		return
+	var center: Vector3 = _terrain.planet_center() if _terrain.has_method("planet_center") else Vector3.ZERO
+	# Cull the far hemisphere: keep directions whose outward normal faces the camera.
+	var cam_dir: Vector3 = Vector3.ZERO
+	var vp: Viewport = get_viewport()
+	var cam: Camera3D = vp.get_camera_3d() if vp != null else null
+	if cam != null:
+		var to_cam: Vector3 = cam.global_position - center
+		if to_cam.length() > 0.001:
+			cam_dir = to_cam.normalized()
+	for iy in range(1, FIELD_LAT):
+		var theta: float = PI * float(iy) / float(FIELD_LAT)     # polar angle 0..PI
+		var st: float = sin(theta)
+		var ct: float = cos(theta)
+		for ix in range(FIELD_LON):
+			var phi: float = TAU * float(ix) / float(FIELD_LON)
+			var dir: Vector3 = Vector3(st * cos(phi), ct, st * sin(phi))
+			if cam_dir != Vector3.ZERO and dir.dot(cam_dir) < -0.15:
+				continue                                          # back side — skip
+			var p: Vector3 = _terrain.surface_point(dir)
+			if is_nan(p.x):
+				continue
+			var sample: Array = _field_sample(p)
+			if not bool(sample[0]):
+				continue
+			var col: Color = sample[1]
+			var t: float = float(sample[2])
+			var h: float = FIELD_SPIKE_MIN + t * (FIELD_SPIKE_MAX - FIELD_SPIKE_MIN)
+			_line(p, p + dir * h, col)
+
+
+# Sample the active channel at world point `p`; returns [visible, colour, t] where t in 0..1 drives the
+# spike height and colour intensity. Uses only the field's public per-cell queries + a per-channel ramp.
+func _field_sample(p: Vector3) -> Array:
+	var val: float = 0.0
+	var ref: float = 1.0
+	var base: Color = Color(1, 1, 1)
+	match _field_channel:
+		"biomass":
+			val = _field.biomass_at(p.x, p.y, p.z)
+			ref = 0.4
+			base = Color(0.25, 0.9, 0.3)
+		"co2":
+			val = _field.co2_at(p.x, p.y, p.z)
+			ref = 0.6
+			base = Color(0.85, 0.5, 0.35)
+		"o2":
+			val = _field.o2_at(p.x, p.y, p.z)
+			ref = 1.4
+			base = Color(0.35, 0.7, 1.0)
+		"lava":
+			val = _field.lava_at(p.x, p.y, p.z)
+			ref = 0.5
+			base = Color(1.0, 0.45, 0.1)
+		"rock_fill":
+			val = _field.rock_fill_at(p.x, p.y, p.z)
+			ref = 1.0
+			base = Color(0.55, 0.45, 0.38)
+		"charge":
+			val = _field.charge_at(p.x, p.y, p.z)
+			ref = 1.0
+			base = Color(0.7, 0.35, 0.95)
+		"fertility":
+			val = _field.fertility_at(p)
+			ref = 1.0
+			base = Color(0.6, 0.75, 0.25)
+		"snow":
+			val = _field.snow_depth_at(p.x, p.z)
+			ref = 1.0
+			base = Color(0.92, 0.95, 1.0)
+		"water_phase":
+			return _sample_water_phase(p)
+		_:
+			return [false, base, 0.0]
+	if val <= 0.0001:
+		return [false, base, 0.0]
+	var t: float = clampf(val / ref, 0.06, 1.0)
+	# Darken low values toward black so structure reads (dim = little, bright = a lot).
+	var col: Color = Color(base.r * (0.35 + 0.65 * t), base.g * (0.35 + 0.65 * t), base.b * (0.35 + 0.65 * t), 0.9)
+	return [true, col, t]
+
+
+# Water-phase composite: whichever of snow (white), cloud (light blue), fog (grey) dominates the column
+# tints the spike, so the frozen/aloft/near-ground H2O phases read at a glance in one view.
+func _sample_water_phase(p: Vector3) -> Array:
+	var snow: float = _field.snow_depth_at(p.x, p.z) if _field.has_method("snow_depth_at") else 0.0
+	var cloud: float = _field.cloud_at(p.x, p.z) if _field.has_method("cloud_at") else 0.0
+	var fog: float = _field.fog_at(p.x, p.z) if _field.has_method("fog_at") else 0.0
+	var best: float = snow
+	var col: Color = Color(0.92, 0.95, 1.0, 0.9)                # snow/ice = white
+	var ref: float = 1.0
+	if cloud > best:
+		best = cloud
+		col = Color(0.7, 0.82, 1.0, 0.9)                        # cloud = light blue
+		ref = 0.8
+	if fog > best:
+		best = fog
+		col = Color(0.6, 0.62, 0.66, 0.9)                       # fog = grey
+		ref = 0.8
+	if best <= 0.0001:
+		return [false, col, 0.0]
+	var t: float = clampf(best / ref, 0.06, 1.0)
+	return [true, col, t]

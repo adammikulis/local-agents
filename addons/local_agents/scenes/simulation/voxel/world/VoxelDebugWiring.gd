@@ -9,6 +9,22 @@ extends Node
 
 const DebugPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugPanel.gd")
 const DebugOverlayScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugOverlay.gd")
+const CreatureScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Creature.gd")
+
+# The active field-channel keys (a heatmap in the DebugOverlay), distinct from temp (terrain shader),
+# wind, and scent (own overlays). One is drawn at a time; enabling a new one replaces the last.
+const FIELD_CHANNELS: Array = ["biomass", "water_phase", "snow", "lava", "rock_fill", "co2", "o2", "charge", "fertility"]
+
+# Behavior-state highlight tints: category -> colour a matching creature is dyed. Foraging green +
+# Hunting red are user-specified; the rest round out the state machine (flee/drink/sleep/nest).
+const BEHAVIOR_COLORS: Dictionary = {
+	"foraging": Color(0.30, 0.85, 0.30),
+	"hunting": Color(0.95, 0.20, 0.15),
+	"fleeing": Color(1.00, 0.60, 0.10),
+	"drinking": Color(0.25, 0.55, 1.00),
+	"sleeping": Color(0.55, 0.58, 0.62),
+	"nesting": Color(0.72, 0.35, 0.92),
+}
 
 var _world: Node = null
 var _material: Node = null
@@ -21,6 +37,7 @@ var _debug_overlay: Node3D = null       # LADebugOverlay (world-space highlight/
 
 var _scent_visible: bool = false
 var _temp_debug_visible: bool = false   # T toggles the terrain temperature heatmap debug view
+var _active_field_view: String = ""     # the single field-channel heatmap currently shown ("" = none)
 var _user_shot_counter: int = 0         # numbers the screenshots the DebugPanel's save button writes
 
 
@@ -36,12 +53,13 @@ func setup(world: Node, material: Node, terrain, sky: LAVoxelSkyController, hud:
 	_debug_overlay = DebugOverlayScript.new()
 	_debug_overlay.name = "DebugOverlay"
 	world.add_child(_debug_overlay)
-	_debug_overlay.setup(_material)
+	_debug_overlay.setup(_material, _terrain)
 	_debug_panel = DebugPanelScript.new()
 	_debug_panel.name = "DebugPanel"
 	world.add_child(_debug_panel)
 	_debug_panel.view_toggled.connect(_on_debug_view)
 	_debug_panel.highlight_toggled.connect(_on_debug_highlight)
+	_debug_panel.behavior_toggled.connect(_on_debug_behavior)
 	_debug_panel.paths_toggled.connect(_on_debug_paths)
 	_debug_panel.perf_toggled.connect(_on_debug_perf)
 	_debug_panel.screenshot_requested.connect(_on_debug_screenshot)
@@ -55,6 +73,13 @@ func setup(world: Node, material: Node, terrain, sky: LAVoxelSkyController, hud:
 	elif _input != null and _input.wind_view():
 		# Wind-field verification: ONLY the emergent wind-arrow overlay (clean shot of funneling/fronts).
 		_debug_overlay.set_wind(true)
+	# Screenshot verification aids for the new debug tooling (mirrors --wind-view): pre-enable a field
+	# heatmap and/or behavior-state highlights so a windowed --shoot captures them with no manual clicks.
+	if _input != null and _input.debug_field() != "":
+		_on_debug_view(_input.debug_field(), true)
+	if _input != null and _input.debug_behaviors() != "":
+		for beh in _input.debug_behaviors().split(",", false):
+			_on_debug_behavior(beh.strip_edges(), true)
 
 
 # --- Debug menu handlers -----------------------------------------------------
@@ -72,11 +97,34 @@ func _on_debug_view(view: String, on: bool) -> void:
 			_scent_visible = on
 			if _debug_overlay != null:
 				_debug_overlay.set_scent(on)
+		_:
+			# A substrate field-channel heatmap (biomass/lava/snow/…). Only one at a time: enabling a
+			# channel shows it; disabling it clears the overlay only if it was the active one.
+			if FIELD_CHANNELS.has(view):
+				if on:
+					_active_field_view = view
+				elif _active_field_view == view:
+					_active_field_view = ""
+				if _debug_overlay != null:
+					_debug_overlay.set_field_channel(_active_field_view)
 
 
 func _on_debug_highlight(group: String, on: bool) -> void:
 	if _debug_overlay != null:
 		_debug_overlay.set_highlight(group, on)
+
+
+# Behavior-state highlight: register/clear the category tint on every creature, then refresh the live
+# population once (a one-time pass on the click — NOT a per-frame scan) so already-alive creatures pick
+# up or drop the tint immediately. New creatures apply it themselves on their next state change.
+func _on_debug_behavior(behavior: String, on: bool) -> void:
+	var col: Color = BEHAVIOR_COLORS.get(behavior, Color(1, 1, 1))
+	CreatureScript.set_behavior_highlight(behavior, col, on)
+	if _world == null:
+		return
+	for node in _world.get_tree().get_nodes_in_group("creature"):
+		if is_instance_valid(node) and node.has_method("refresh_state_tint"):
+			node.refresh_state_tint()
 
 
 func _on_debug_paths(on: bool) -> void:
