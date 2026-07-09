@@ -48,6 +48,7 @@ static func cognition(w) -> Dictionary:
 	var max_gen: int = 0
 	var cues: int = 0
 	var vetoed: int = 0
+	var learners: int = 0     # creatures with >=1 learned policy OR cue entry (learning-spread numerator)
 	for c in creatures:
 		if not is_instance_valid(c) or not c.has_method("get_cognition"):
 			continue
@@ -59,6 +60,8 @@ static func cognition(w) -> Dictionary:
 		asked += cog.escalations
 		learned += cog.lessons
 		vetoed += cog.vetoes
+		if cog.policy_size() > 0 or cog.cue_values.size() > 0:
+			learners += 1
 		for cv in cog.cue_values.values():
 			if float(cv) >= 0.6:
 				cues += 1
@@ -72,4 +75,5 @@ static func cognition(w) -> Dictionary:
 	return {
 		"minds": minds, "habits": habits, "escalations": asked, "social_lessons": learned,
 		"max_generation": max_gen, "slow_brain_calls": sched, "cues_learned": cues, "vetoes": vetoed,
+		"learners": learners,
 	}

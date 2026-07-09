@@ -713,6 +713,9 @@ func _physics_process(delta: float) -> void:
 			eff_speed = speed * 2.1
 			_emit_call("alarm")                          # screech so unseeing herd-mates also bolt
 		else:
+			# Did a cognition decision run THIS tick (leader decide() OR follower learn_and_veto)? Gates the
+			# shared veto-retreat below so a stale veto from a past tick never hijacks a flee/drink frame.
+			var cognized: bool = false
 			# Universal, emergent: flee any nearby larger hunter first (no hardcoded pairs).
 			var big_pred: Node3D = LACreatureSenses.nearest_larger_predator(self, pos)
 			if big_pred != null:
@@ -741,6 +744,13 @@ func _physics_process(delta: float) -> void:
 					# sub-hunt and its grunts each chase their own nearest prey → coordinated, divergent hunts.
 					var la: String = LACreatureThink._adoptable_action(
 							LACreatureThink.state_to_action(_leader, _leader.state), self)
+					# CHEAP per-creature learning (followers too, O(1)): reinforce MY policy from MY own outcome
+					# and VETO the adopted action if MY own experience proves it lethal for me. No senses scan and
+					# no LLM here — that expensive "what to do" assessment stays leader-only (the decide() block).
+					if _cognition != null and state != "roost" and state != "nesting":
+						var sig_f: Dictionary = LASituationSignature.compute(self)
+						la = _cognition.learn_and_veto(self, la, sig_f, delta)
+						cognized = true
 					var mv_f: Dictionary = LACreatureThink.execute_action(self, la, pos, delta)
 					if mv_f.has("heading"):
 						desired = mv_f["heading"]
@@ -762,12 +772,11 @@ func _physics_process(delta: float) -> void:
 				if state == "sleep":
 					eff_speed = speed * 0.05          # barely stir while sleeping at the nest
 
-			# COGNITION (fast/slow): the cascade above is the innate default policy. In a discretionary
-			# situation (no predator forcing a flee) let THIS individual's learned/observed/slow-brain
-			# policy substitute a better action. An empty policy changes nothing — so day-0 behaviour is
-			# identical to before (regression-safe); learning only ever adds overrides.
-			# FOLLOWERS skip this entirely (_is_leader false) — they already adopted the leader's decision
-			# above; only leaders (and non-herd creatures) pay the expensive slow-brain escalation.
+			# COGNITION (fast/slow) — the EXPENSIVE, LEADER-ONLY assessment of WHAT to do. Only local leaders
+			# (and non-herd creatures, which are their own leader) pay the senses scan + slow-brain LLM
+			# escalation; a confident learned habit may substitute a better action here. FOLLOWERS never reach
+			# this — they already adopted their leader's action above and ran the CHEAP learn_and_veto there.
+			# An empty policy changes nothing, so day-0 behaviour is unchanged (regression-safe).
 			if big_pred == null and _is_leader and _cognition != null and state != "roost" and state != "nesting":
 				var sig: Dictionary = LASituationSignature.compute(self)
 				var innate_action: String = LACreatureThink.state_to_action(self, state)
@@ -778,20 +787,23 @@ func _physics_process(delta: float) -> void:
 						desired = mv["heading"]
 					state = String(mv.get("state", state))
 					eff_speed = float(mv.get("speed", eff_speed))
-				if _cognition.was_vetoed():
-					# Cognition REFUSED an action it learned is reliably lethal HERE. Don't just coast on the safe
-					# fallback's heading — actively RETREAT away from the harm, at normal pace, so it clears the hazard
-					# instead of re-deciding into it. The retreat is LATCHED for a short interval (like wander/migrate)
-					# so throttled re-decisions don't flip it each frame (which would oscillate on the threshold).
-					if _veto_timer <= 0.0:
-						# Dominant learned-lethal case is water (drowning): retreat to DRY LAND (opposite the nearest
-						# water). No water sensed -> back out the way it came (reverse heading). Latched, anti-oscillation.
-						var wdir: Vector3 = LACreatureThirst.find_water_dir(self, pos)
-						_veto_dir = (-wdir) if wdir.length() > 0.001 else (-_heading)
-						_veto_timer = randf_range(1.5, 2.5)
-					if _veto_dir.length() > 0.001:
-						desired = _veto_dir
-						eff_speed = speed
+				cognized = true
+
+			# LEARNED-LETHAL VETO retreat — shared by leaders (decide) and followers (learn_and_veto). If a
+			# decision THIS tick REFUSED an action learned reliably lethal HERE, don't merely coast on the safe
+			# fallback's heading — actively RETREAT away from the harm, at normal pace, so the creature clears
+			# the hazard instead of re-deciding into it. `cognized` gates freshness (a decision ran this tick)
+			# so a stale veto never hijacks a flee/drink frame. Latched for a short interval (anti-oscillation).
+			if cognized and _cognition.was_vetoed():
+				if _veto_timer <= 0.0:
+					# Dominant learned-lethal case is water (drowning): retreat to DRY LAND (opposite the nearest
+					# water). No water sensed -> back out the way it came (reverse heading). Latched, anti-oscillation.
+					var wdir: Vector3 = LACreatureThirst.find_water_dir(self, pos)
+					_veto_dir = (-wdir) if wdir.length() > 0.001 else (-_heading)
+					_veto_timer = randf_range(1.5, 2.5)
+				if _veto_dir.length() > 0.001:
+					desired = _veto_dir
+					eff_speed = speed
 
 			if big_pred == null and _wander_timer <= 0.0:
 				_wander_timer = randf_range(1.2, 3.0)
