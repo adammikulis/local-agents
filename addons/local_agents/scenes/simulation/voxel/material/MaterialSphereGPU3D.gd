@@ -157,6 +157,11 @@ func end_frame(_rv: bool = true, _rc: bool = true, _rf: bool = true, _rr: bool =
 	# ledger (mineral_total) counts the authoritative bedrock phase and add_lava sees the current rock mass.
 	if _bufs.has("rock_fill"):
 		out["rock_fill"] = _rd.buffer_get_data(_bufs["rock_fill"]).to_float32_array()
+	# Emergent WIND velocity (SINGLE, in-place channels) — read back so wind3_at/wind_at expose a real force
+	# field (was ZERO). CHARGE (SINGLE, in-place) too, so the breakdown→bolt firing sees the accumulated charge.
+	for k in ["vel_x", "vel_y", "vel_z", "charge"]:
+		if _bufs.has(k):
+			out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
 	return out
 
 func set_field(name: String, arr) -> void:

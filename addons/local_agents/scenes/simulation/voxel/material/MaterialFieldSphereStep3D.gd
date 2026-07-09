@@ -61,10 +61,24 @@ func process(delta: float) -> void:
 	if _f._rock_fill_dirty and _f._gpu.has_method("set_field"):
 		_f._gpu.set_field("rock_fill", _f._rock_fill)
 		_f._rock_fill_dirty = false
+	# Substrate-foundation local injections (dirty-gated, mirror lava): emit_shock/add_charge/add_vapor
+	# edited the CPU channel this frame → push it into the GPU before the step so the kernel evolves it.
+	if _f._shock_dirty and _f._gpu.has_method("set_field"):
+		_f._gpu.set_field("shock", _f._shock)
+		_f._shock_dirty = false
+	if _f._charge_dirty and _f._gpu.has_method("set_field"):
+		_f._gpu.set_field("charge", _f._charge)
+		_f._charge_dirty = false
+	if _f._vapor_dirty and _f._gpu.has_method("set_field"):
+		_f._gpu.set_field("moisture", _f._moisture)
+		_f._vapor_dirty = false
 	for i in steps:
 		_f._gpu.step()
 	var res: Dictionary = _f._gpu.end_frame()
 	_apply_readback(res)
+	# Charge module scans the fresh charge readback for breakdown → fires bolts (heat inject + visual callback).
+	if _f._charge_mod != null:
+		_f._charge_mod.post_step()
 	if _f._stamp != null:
 		_f._stamp.maybe_scan()                       # Stage C: stamp rock_fill 0.5-crossings into the SDF (gated)
 	LASimReport.gauge("field_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
@@ -89,3 +103,10 @@ func _apply_readback(res: Dictionary) -> void:
 	if res.has("dust") and res["dust"].size() == n: _f._dust = res["dust"]
 	if res.has("sediment") and res["sediment"].size() == n: _f._sediment = res["sediment"]
 	if res.has("rock_fill") and res["rock_fill"].size() == n: _f._rock_fill = res["rock_fill"]
+	# Substrate-foundation channels: shock (tremor/impact), charge (bolt breakdown), and the emergent WIND
+	# velocity field (wind3_at/wind_at read a real force instead of ZERO).
+	if res.has("shock") and res["shock"].size() == n: _f._shock = res["shock"]
+	if res.has("charge") and res["charge"].size() == n: _f._charge = res["charge"]
+	if res.has("vel_x") and res["vel_x"].size() == n: _f._vel_x = res["vel_x"]
+	if res.has("vel_y") and res["vel_y"].size() == n: _f._vel_y = res["vel_y"]
+	if res.has("vel_z") and res["vel_z"].size() == n: _f._vel_z = res["vel_z"]

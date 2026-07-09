@@ -177,9 +177,84 @@ func vorticity_at(x: float, z: float) -> float:
 func updraft_at(x: float, z: float) -> float:
 	if _f._cell_count <= 0:
 		return 0.0
+	if _f._sphere != null:
+		var c: int = _f.world_to_cell(Vector3(x, _f.sea_level + 40.0, z))
+		return _f._vel_y[c] if (c >= 0 and _f._vel_y.size() == _f._cell_count) else 0.0
 	var ix: int = _col_i(x, _f._origin.x)
 	var iz: int = _col_i(z, _f._origin.z)
 	return _f._vel_y[_aloft_i(ix, iz)]
+
+
+# --- Emergent WIND as a real momentum/force (read back from the GPU velocity field) ------------------
+# On the cubed sphere the kernel stores velocity in a per-cell TANGENT basis: vel_x/vel_z along the two
+# tangent slot-pairs (from the neighbour positions), vel_y along the OUTWARD RADIAL. wind3_at reconstructs a
+# true WORLD-space velocity from that basis so loose mass (creatures/debris/sediment) can be advected/flung
+# by it. Reads only the cell + its 6 neighbours' positions — O(1) per query, no grid sweep.
+
+## Full LOCAL 3D wind velocity (world-space) at a world point. Vector3.ZERO outside the shell / before readback.
+func wind3_at(x: float, y: float, z: float) -> Vector3:
+	if _f._sphere == null or _f._vel_x.size() != _f._cell_count:
+		return Vector3.ZERO
+	var c: int = _f.world_to_cell(Vector3(x, y, z))
+	if c < 0 or c >= _f._cell_count:
+		return Vector3.ZERO
+	var radial: Vector3 = _f.cell_radial(c)
+	var pos_c: Vector3 = _f.cell_world_pos_linear(c)
+	var nbr: PackedInt32Array = _f._sphere.neighbours
+	var tan_a: Vector3 = _tangent_axis(c, pos_c, nbr[c * 6 + 2], nbr[c * 6 + 1], radial)
+	var tan_b: Vector3 = _tangent_axis(c, pos_c, nbr[c * 6 + 4], nbr[c * 6 + 3], radial)
+	return radial * _f._vel_y[c] + tan_a * _f._vel_x[c] + tan_b * _f._vel_z[c]
+
+
+# Unit tangent axis from the cell toward its +slot neighbour (falling back to −slot, then to any vector
+# orthogonal to `radial`), matching the kernel's slot-pair pressure-gradient direction.
+func _tangent_axis(c: int, pos_c: Vector3, hi: int, lo: int, radial: Vector3) -> Vector3:
+	var d: Vector3 = Vector3.ZERO
+	if hi >= 0:
+		d = _f.cell_world_pos_linear(hi) - pos_c
+	elif lo >= 0:
+		d = pos_c - _f.cell_world_pos_linear(lo)
+	# Project onto the tangent plane + normalise; degenerate → an arbitrary orthonormal tangent.
+	d = d - radial * d.dot(radial)
+	if d.length_squared() < 1.0e-8:
+		d = radial.cross(Vector3.UP)
+		if d.length_squared() < 1.0e-8:
+			d = radial.cross(Vector3.RIGHT)
+	return d.normalized()
+
+
+## LOCAL horizontal wind (world XZ) at a world column — the tangential drift a storm cell rides. Sampled a
+## little above the sea shell so it reads the free-stream, not the ground layer.
+func wind_at(x: float, z: float) -> Vector2:
+	var v: Vector3 = wind3_at(x, _f.sea_level + 40.0, z)
+	return Vector2(v.x, v.z)
+
+
+## Domain-average horizontal wind magnitude/direction (ocean swell / HUD). Strided sample (every STRIDE-th
+## cell) so it stays O(cells/STRIDE), never a full per-call grid sweep.
+func wind() -> Vector2:
+	if _f._sphere == null or _f._vel_x.size() != _f._cell_count:
+		return Vector2.ZERO
+	const STRIDE: int = 97
+	var sx: float = 0.0
+	var sz: float = 0.0
+	var n: int = 0
+	var c: int = 0
+	while c < _f._cell_count:
+		if _f._solid[c] == 0:
+			var radial: Vector3 = _f.cell_radial(c)
+			var pos_c: Vector3 = _f.cell_world_pos_linear(c)
+			var nbr: PackedInt32Array = _f._sphere.neighbours
+			var tan_a: Vector3 = _tangent_axis(c, pos_c, nbr[c * 6 + 2], nbr[c * 6 + 1], radial)
+			var tan_b: Vector3 = _tangent_axis(c, pos_c, nbr[c * 6 + 4], nbr[c * 6 + 3], radial)
+			var v: Vector3 = tan_a * _f._vel_x[c] + tan_b * _f._vel_z[c]
+			sx += v.x
+			sz += v.z
+			n += 1
+		c += STRIDE
+	if n == 0:
+		return Vector2.ZERO
+	return Vector2(sx / float(n), sz / float(n))
 
 
 # --- MINERAL conservation ledger (rock unification) — ONE conserved mineral, phases summed in one mass unit ----

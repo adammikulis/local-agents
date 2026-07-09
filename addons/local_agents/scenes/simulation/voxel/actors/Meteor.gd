@@ -207,6 +207,18 @@ func _on_impact() -> void:
 		var field: Object = _ecology.material_field()
 		if field != null and field.has_method("add_heat"):
 			field.add_heat(_impact_point, 1600.0, r * 2.2)     # molten rock ~1600°C
+		# The impact IS a shock source + an ejecta source — both are the substrate's own primitives now (no
+		# per-actor wave/debris code). emit_shock radiates a seismic wave (tremor + panic); eject throws molten
+		# debris parcels that arc under radial gravity and re-deposit on landing (a glowing ejecta blanket).
+		if field != null and field.has_method("emit_shock"):
+			field.emit_shock(_impact_point, 2.0 + _size * 2.0)
+		if field != null and field.has_method("eject"):
+			var up: Vector3 = (_impact_point - field._origin).normalized() if "_origin" in field else Vector3.UP
+			field.eject(_impact_point, 0.4 * _size, 900.0 * _size, up * 0.6)
+			# Hypervelocity impact IONISES the air above the crater — a charge seed the field's breakdown then
+			# discharges as a bolt (the same charge→bolt primitive a storm feeds; here from impact plasma).
+			if field.has_method("add_charge"):
+				field.add_charge(_impact_point + up * 20.0, 12.0, r)
 	# Shake the ground: steep terrain in the blast radius slumps downhill under gravity (a meteor into
 	# a mountainside triggers a slide — pure material physics, no landslide code).
 	if _ecology != null and _ecology.has_method("disturb_ground"):

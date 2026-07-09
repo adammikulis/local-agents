@@ -139,6 +139,8 @@ var _sediment: PackedFloat32Array = PackedFloat32Array() # loose granular mass p
 # frame like fire/fuel/sediment; the CPU modules reach into `_f._charge` / `_f._dust` (the CPU-oracle path).
 var _charge: PackedFloat32Array = PackedFloat32Array()   # electrification charge per cell (updraft × supercooled cloud)
 var _dust: PackedFloat32Array = PackedFloat32Array()     # airborne dust density per cell (wind-lofted sand storm)
+# Seismic / sound SHOCK amplitude per cell — a propagating pressure wave (GPU shock_sphere3d radiates it).
+var _shock: PackedFloat32Array = PackedFloat32Array()
 var _sun_light = null                                    # DirectionalLight3D — solar forcing (top cells)
 
 # CPU-ORACLE CONCERN MODULES RETIRED. The cubed-sphere *_sphere3d GLSL kernels (MaterialSphereGPU3D + its
@@ -162,6 +164,15 @@ var _queries = null                                      # LAMaterialFieldQuerie
 var _inject = null                                       # LAMaterialFieldInject3D (write-side injection + FX)
 var _stamp = null                                        # LAMineralStamp3D — Stage C rock_fill->SDF growth stamp
 var _sphere_step = null                                  # LAMaterialFieldSphereStep3D — cubed-sphere per-frame step loop
+# Substrate-foundation primitive modules (the field only delegates; all logic lives in these). Seams the
+# per-actor dissolution agents fill: shock (Earthquake/Meteor), charge→bolt (Thunderstorm), ejecta (bombs/debris).
+var _shock_mod = null                                    # LAMaterialShock3D — shock channel + emit/readback
+var _charge_mod = null                                   # LAMaterialCharge3D — charge readback + breakdown→bolt
+var _ejecta = null                                       # LAMaterialEjecta3D — momentum/ejecta parcels (Node3D child)
+var _pending_lightning_cb: Callable = Callable()         # lightning visual callback (registered pre-activate)
+const ShockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialShock3D.gd")
+const ChargeScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialCharge3D.gd")
+const EjectaScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialEjecta3D.gd")
 
 
 ## Wire the real scene sun (DirectionalLight3D); the heat module reads its energy + angle for solar input.
@@ -202,7 +213,9 @@ var _vapor_dirty: bool = false
 # needs fresh charge each frame, and detritus is continuous-evolution + continuous-deposit (see the upload block).
 var _lava_dirty: bool = false
 var _rock_fill_dirty: bool = false       # add_lava debited bedrock on the CPU → re-upload rock_fill this step
-var _shock_dirty: bool = false
+var _shock_dirty: bool = false           # emit_shock seeded shock on the CPU → re-upload shock this step
+var _charge_dirty: bool = false          # add_charge seeded charge on the CPU → re-upload charge this step
+var _charge_woke: bool = false           # a charge injection woke the breakdown scan (stimulus = compute bubble)
 # Lazy solidity sampling: the field is created before the terrain has finished streaming, so it samples
 # rock/void a budget of columns per frame and self-activates (seed sea + build modules) once complete —
 # exactly how the old field lazily sampled heights. No blocking, no external init calls.
@@ -338,6 +351,8 @@ func _alloc_channels() -> void:
 	_charge.resize(_cell_count)
 	_dust = PackedFloat32Array()
 	_dust.resize(_cell_count)
+	_shock = PackedFloat32Array()
+	_shock.resize(_cell_count)
 	# Read-only query accessors bind to this field now; the arrays they read exist from here on.
 	_queries = QueriesScript.new()
 	_queries.setup(self)
@@ -494,6 +509,16 @@ func activate() -> void:
 	# Stage C: the sparse, event-driven rock_fill 0.5-crossing -> SDF terrain-growth stamp (idle until armed).
 	_stamp = MineralStampScript.new()
 	_stamp.setup(self)
+	# Substrate-foundation primitives (thin delegates; the field only forwards to them).
+	_shock_mod = ShockScript.new()
+	_shock_mod.setup(self)
+	_charge_mod = ChargeScript.new()
+	_charge_mod.setup(self)
+	if _pending_lightning_cb.is_valid():
+		_charge_mod.set_visual(_pending_lightning_cb)
+	_ejecta = EjectaScript.new()
+	_ejecta.setup(self)
+	add_child(_ejecta)                            # Node3D: integrates ballistic parcels + owns the GPU ejecta particles
 	_ready_sim = true
 
 
@@ -744,13 +769,13 @@ func set_wind(w: Vector2) -> void:
 	if _gpu != null and _gpu.has_method("set_prevailing"):
 		_gpu.set_prevailing(w)
 
-## Domain-average horizontal wind (ocean swell / HUD) — CPU wind oracle retired; safe default.
+## Domain-average horizontal wind (ocean swell / HUD) — a coarse mean of the read-back GPU velocity field.
 func wind() -> Vector2:
-	return Vector2.ZERO
+	return _queries.wind()
 
-## LOCAL horizontal wind (world XZ) at a point — CPU wind oracle retired; safe default.
+## LOCAL horizontal wind (world XZ) at a point — the emergent GPU velocity read back into `_vel_*`.
 func wind_at(x: float, z: float) -> Vector2:
-	return Vector2.ZERO
+	return _queries.wind_at(x, z)
 
 ## Vertical vorticity (air SPIN) at a world point — storm actors track/scale off the emergent vortex.
 func vorticity_at(x: float, z: float) -> float:
@@ -760,9 +785,10 @@ func vorticity_at(x: float, z: float) -> float:
 func updraft_at(x: float, z: float) -> float:
 	return _queries.updraft_at(x, z)
 
-## Full LOCAL 3D wind velocity at a world point — CPU wind oracle retired; safe default.
+## Full LOCAL 3D wind velocity (a real force) — the emergent GPU velocity read back into `_vel_*`; loose mass
+## (creatures/debris/sediment) reads this to be advected/flung by storms.
 func wind3_at(x: float, y: float, z: float) -> Vector3:
-	return Vector3.ZERO
+	return _queries.wind3_at(x, y, z)
 
 ## The cloud/fog grids project to (dim_x × dim_z) so CloudLayer's texture maps 1:1 with the 2.5D field.
 func grid_dim() -> int:
@@ -772,11 +798,12 @@ func grid_half_extent() -> float:
 	return _half_extent
 
 
-# Heat + lava injection (disasters call these) + diagnostics. The CPU heat/lava/atmosphere oracles are
-# retired and these channels are not yet wired to the sphere GPU driver's inject path, so the writes are
-# no-ops (safe default) until that lands; the read diagnostic returns 0.
+# Heat + lava injection + diagnostics. Local injection (add_heat/add_vapor/add_charge) is REAL — it writes the
+# sphere GPU field buffers via the injection module; the field only forwards. add_lava (a conserving move) stays.
+## Raise the temperature at a world point (and within `radius`) — a meteor's molten spike, a fire's heat.
 func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
-	pass
+	if _inject != null:
+		_inject.add_heat(world_pos, amount, radius)
 
 ## Real CONSERVING lava source (rock unification Stage B). A volcano/vent erupts by converting bedrock into molten
 ## lava (`rock_fill -= a; lava += a`), so mineral_total() stays FLAT (phase move, not creation). GPU-authoritative
@@ -807,14 +834,25 @@ func add_lava(world_pos: Vector3, amount: float) -> void:
 	if _stamp != null:
 		_stamp.arm()                              # wake the SDF stamp — the erupted lava will cool + cross 0.5
 
-## Inject airborne water vapor (humidity) at a world point — a storm's LOCAL moisture source. No-op until
-## the sphere GPU vapor inject path is wired.
+## Inject airborne water vapor (humidity) at a world point (+`radius`) — a storm's moisture source. Real (module).
 func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
-	pass
+	if _inject != null:
+		_inject.add_vapor(world_pos, amount, radius)
 
 ## Cool a volume (negative heat) — a storm's cold aloft. Thin helper over add_heat.
 func add_cooling(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	add_heat(world_pos, -absf(amount), maxf(0.0, radius))
+
+## Inject electrification charge at a world point (+`radius`) — an explicit charge seed. Real (module, dirty-gated).
+func add_charge(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
+	if _inject != null:
+		_inject.add_charge(world_pos, amount, radius)
+
+## Launch ejected matter (mass + heat) from a world point — the shared momentum/ejecta primitive (volcano
+## bombs, meteor debris, geyser blasts). Arcs under radial gravity + re-deposits on landing. See the module.
+func eject(world_pos: Vector3, mass: float, energy: float, dir_bias: Vector3 = Vector3.ZERO) -> void:
+	if _ejecta != null:
+		_ejecta.eject(world_pos, mass, energy, dir_bias)
 
 func lava_cell_count() -> int:
 	return 0
@@ -1181,23 +1219,25 @@ func detritus_peak() -> float:
 # Photosynthesis (CO₂ → O₂ + biomass) + its daylight gate are DISSOLVED into MaterialReactions3D records R19/R20
 # and run entirely on the GPU (see biomass_at/biomass_total). The old CPU `solar_factor()` + `photosynthesize()`
 # writes were invisible to the GPU (begin_frame only re-uploads temp/water) and are deleted.
-## Wire the visual-only lightning bolt (VoxelDisasters.spawn_lightning). No-op until sphere charge is wired.
+## Wire the lightning bolt visual callback (spawn_lightning); the charge module fires it on breakdown.
 func set_lightning_visual(cb: Callable) -> void:
-	pass
+	_pending_lightning_cb = cb
+	if _charge_mod != null:
+		_charge_mod.set_visual(cb)
 func charge_peak() -> float:
-	return 0.0
+	return _charge_mod.charge_peak() if _charge_mod != null else 0.0
 func bolts_fired() -> int:
-	return 0
-## Inject a shock/sound wave (explosion, thunder, impact, stampede). CPU shock oracle retired; no-op emitter
-## + safe-default reads (camera tremor + creature panic) until the sphere shock channel is wired.
+	return _charge_mod.bolts_fired() if _charge_mod != null else 0
+## Inject a shock/sound wave (explosion, thunder, impact, stampede) — the real emergent shock channel (module).
 func emit_shock(world_pos: Vector3, magnitude: float) -> void:
-	pass
+	if _shock_mod != null:
+		_shock_mod.emit_shock(world_pos, magnitude)
 func shock_at(world_pos: Vector3) -> float:
-	return 0.0
+	return _shock_mod.shock_at(world_pos) if _shock_mod != null else 0.0
 func shock_gradient(world_pos: Vector3) -> Vector3:
-	return Vector3.ZERO
+	return _shock_mod.shock_gradient(world_pos) if _shock_mod != null else Vector3.ZERO
 func shock_cell_count() -> int:
-	return 0
+	return _shock_mod.shock_cell_count() if _shock_mod != null else 0
 
 
 # Box dynamic-water surface mesh render adapter retired; the cubed-sphere renders water via the ocean shell.
