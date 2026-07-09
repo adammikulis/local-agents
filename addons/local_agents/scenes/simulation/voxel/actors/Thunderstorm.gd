@@ -3,12 +3,19 @@ extends Node3D
 
 ## A thunderstorm CELL. It doesn't paint rain or schedule thunder on a timeline — it seeds the physical
 ## ingredients of a storm into the MaterialField and lets the emergent water cycle do the rest: each step
-## it PUMPS humid air (add_vapor) up from the ground across its footprint and COOLS the air aloft
-## (add_cooling), so rising moist air passes its dewpoint and the field's own condense→rain rules build a
-## DENSE cloud → HEAVY rain right here. While the cell is charged it fires LIGHTNING bolts within its
-## footprint (reusing the real LightningStrike actor, so fires/scorch/panic all emerge from the bolt's
-## heat as usual) — and the more cloud has built overhead, the more it crackles. The cell DRIFTS downwind
-## and rains itself out over its lifetime. Built in code, no assets. (Explicit types only — no ':=' .)
+## it PUMPS humid air (add_vapor) up from the ground across its footprint, WARMS the surface (add_heat) to
+## grow the convective updraft, and COOLS the air aloft (add_cooling), so rising moist air passes its
+## dewpoint and the field's own condense→rain rules build a DENSE cloud → HEAVY rain right here.
+##
+## LIGHTNING IS NOT SPAWNED HERE. There is no bolt cadence, no strike timer, no random footprint pick — the
+## cell only seeds moisture + heat. Charge ACCUMULATES on the built-up cloud/water in MaterialCharge3D and
+## fires bolts NATURALLY when a cell reaches dielectric breakdown (which injects the strike heat, discharges
+## the cell, and calls the bolt visual). So fires/scorch/panic still emerge from the bolt's heat as usual —
+## but the bolt itself falls out of the field's own charge physics, not out of this actor. The cell DRIFTS
+## downwind and rains itself out over its lifetime. Built in code, no assets. (Explicit types only — no ':=' .)
+##
+## Deleted vs the old scripted storm: `_maybe_strike`, `_bolt_cd`, BOLT_MIN_CD/MAX_CD/CLOUD_REF and the
+## random-footprint spawn_lightning call — a bolt is just what charge does at breakdown, not "bolt code".
 
 const LIFETIME: float = 46.0              # seconds from first charge to spent
 const BUILD_TIME: float = 6.0             # ramps the SEEDING up over this at the start (grace before starve-death)
@@ -16,7 +23,9 @@ const FADE_TIME: float = 10.0             # eases the SEEDING out over this at t
 const RADIUS: float = 62.0                # footprint half-width (vapor pumping + lightning + drift box)
 
 # Moisture pump + surface heating + aloft cooling — the ingredients the actor SEEDS; the cloud/rain and the
-# convective updraft the cell then feeds on EMERGE from them via the field.
+# convective updraft the cell then feeds on EMERGE from them via the field. Charge separation
+# (charge_accum_sphere3d) then feeds on updraft × cloud × how supercooled the cloud is, and climbs to
+# dielectric breakdown → a bolt, entirely in the field. (The storm seeds; MaterialCharge3D fires.)
 const VAPOR_PER_SEC: float = 5.0          # total vapor injected per second at full seeding (split over points)
 const VAPOR_INJECT_R: float = 14.0        # radius of each vapor blob at the ground
 const SEED_HEAT_PER_SEC: float = 10.0     # surface warming that makes the air rise → the convective updraft
@@ -33,19 +42,14 @@ const LIFT_FOLLOW: float = 5.0            # drift toward stronger local convecti
 const LIFT_PROBE: float = 40.0            # radius at which updraft is sampled to find the lift-core direction
 
 const WIND_DRIFT: float = 0.7             # fraction of the atmosphere wind the cell drifts with
-const BOLT_MIN_CD: float = 1.4            # fastest lightning cadence (at peak cloud), seconds
-const BOLT_MAX_CD: float = 6.0            # slowest cadence (barely charged)
-const BOLT_CLOUD_REF: float = 0.6         # cloud density that counts as "fully charged" for bolt cadence
 
 var _terrain: Object = null
 var _ecology: Object = null
-var _disasters: Object = null             # LAVoxelDisasters — reused to spawn the real lightning bolts
 var _field: Object = null
 
 var _center: Vector3 = Vector3.ZERO
 var _age: float = 0.0
 var _strength: float = 0.0                # EMERGENT storm intensity, read from the convective updraft each step
-var _bolt_cd: float = 1.0
 
 var _cloud_fx: GPUParticles3D = null
 var _picker: StaticBody3D = null
@@ -55,10 +59,9 @@ func _ready() -> void:
 	add_to_group("selectable")
 
 
-func setup(terrain: Object, ecology: Object, disasters: Object) -> void:
+func setup(terrain: Object, ecology: Object) -> void:
 	_terrain = terrain
 	_ecology = ecology
-	_disasters = disasters
 	if _ecology != null and _ecology.has_method("material_field"):
 		_field = _ecology.material_field()
 
@@ -160,7 +163,6 @@ func _physics_process(delta: float) -> void:
 	global_position = _center
 
 	_pump_moisture(seed, delta)
-	_maybe_strike(_strength, delta)
 	_update_fx(_strength)
 
 
@@ -194,33 +196,6 @@ func _pump_moisture(intensity: float, delta: float) -> void:
 	# Cold aloft: pull heat out of the mid-air over the cell so the rising humid air condenses hard.
 	if _field.has_method("add_cooling"):
 		_field.add_cooling(Vector3(_center.x, cloud_base, _center.z), COOL_PER_SEC * intensity * delta, COOL_INJECT_R)
-
-
-# Fire lightning within the footprint; cadence scales with how much cloud has actually built overhead
-# (emergent — a barely-charged cell rarely crackles, a mature one hammers). Reuses the real bolt actor.
-func _maybe_strike(intensity: float, delta: float) -> void:
-	if intensity < 0.2 or _disasters == null or not _disasters.has_method("spawn_lightning"):
-		return
-	_bolt_cd -= delta
-	if _bolt_cd > 0.0:
-		return
-	var cover: float = 0.0
-	if _field.has_method("cloud_at"):
-		cover = float(_field.cloud_at(_center.x, _center.z))
-	var charge: float = clampf(cover / BOLT_CLOUD_REF, 0.0, 1.0) * intensity
-	_bolt_cd = lerpf(BOLT_MAX_CD, BOLT_MIN_CD, charge)
-	# Strike a random point inside the footprint, on the ground.
-	var ang: float = randf() * TAU
-	var rad: float = sqrt(randf()) * RADIUS
-	var sx: float = _center.x + cos(ang) * rad
-	var sz: float = _center.z + sin(ang) * rad
-	var sy: float = _center.y
-	if _terrain != null and _terrain.has_method("surface_height"):
-		var h: float = _terrain.surface_height(sx, sz)
-		if is_nan(h):
-			return
-		sy = h
-	_disasters.spawn_lightning(Vector3(sx, sy, sz))
 
 
 # --- Visuals: a dark churning cloud slab drifting over the cell (the rain itself is the RainLayer's) ---
