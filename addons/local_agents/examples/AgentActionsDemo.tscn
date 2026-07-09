@@ -1,0 +1,92 @@
+[gd_scene load_steps=3 format=3 uid="uid://c2actn0demo01"]
+
+[ext_resource type="Script" path="res://addons/local_agents/examples/AgentActionsDemo.gd" id="1_actions"]
+[ext_resource type="Script" path="res://addons/local_agents/agents/Agent.gd" id="2_agentn"]
+
+[node name="AgentActionsDemo" type="Node"]
+script = ExtResource("1_actions")
+
+[node name="Agent" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("2_agentn")
+
+[node name="Margin" type="MarginContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 16
+
+[node name="VBox" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="Margin/VBox"]
+layout_mode = 2
+text = "Agent drives actions"
+
+[node name="Subtitle" type="Label" parent="Margin/VBox"]
+layout_mode = 2
+autowrap_mode = 3
+text = "The model's reply becomes game actions (set_color, pulse). The manual buttons fire the exact same actions, so the loop is visible with no model."
+
+[node name="StatusLabel" type="Label" parent="Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 3
+text = "Checking runtime..."
+
+[node name="Orb" type="ColorRect" parent="Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(120, 120)
+layout_mode = 2
+size_flags_horizontal = 4
+color = Color(0.3, 0.32, 0.4, 1)
+
+[node name="CaptionLabel" type="Label" parent="Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+horizontal_alignment = 1
+text = "Orb color: neutral"
+
+[node name="ManualButtons" type="HBoxContainer" parent="Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Red" type="Button" parent="Margin/VBox/ManualButtons"]
+layout_mode = 2
+text = "Red"
+
+[node name="Green" type="Button" parent="Margin/VBox/ManualButtons"]
+layout_mode = 2
+text = "Green"
+
+[node name="Blue" type="Button" parent="Margin/VBox/ManualButtons"]
+layout_mode = 2
+text = "Blue"
+
+[node name="Pulse" type="Button" parent="Margin/VBox/ManualButtons"]
+layout_mode = 2
+text = "Pulse"
+
+[node name="Reset" type="Button" parent="Margin/VBox/ManualButtons"]
+layout_mode = 2
+text = "Reset"
+
+[node name="PromptInput" type="LineEdit" parent="Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+placeholder_text = "Ask the agent to change the orb (for example: make it red and pulse)"
+
+[node name="LogLabel" type="RichTextLabel" parent="Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+bbcode_enabled = true
+fit_content = true
+text = "Actions will be logged here."
