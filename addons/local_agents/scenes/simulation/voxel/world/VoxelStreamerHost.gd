@@ -52,6 +52,13 @@ func setup(world: Node, ecology: Node, material: Node, persona: String, avatar_f
 	world.add_child(_streamer_director)
 	_streamer_director.setup(world, {"voice": _streamer_voice, "persona": _streamer_persona})
 
+	# Consume the ONE emergent phenomenon-event source instead of scanning the world for events itself: the
+	# tracker detects eruptions/wildfires/floods/deaths/… from the shared field + ecology and the director
+	# just reacts to each event (dissolve-don't-patch / no parallel detection scans).
+	var tracker: Node = world.get_node_or_null("EventTracker")
+	if tracker != null and _streamer_director.has_method("on_tracked_event"):
+		tracker.event_emitted.connect(_streamer_director.on_tracked_event)
+
 	# Live scene-energy graph (kinetic + seismic + thermal) shown top-right — the intensity signal the
 	# director reacts to, made visible. The director reads its current total so quips fire on real energy.
 	_energy_graph = EnergyGraphScript.new()

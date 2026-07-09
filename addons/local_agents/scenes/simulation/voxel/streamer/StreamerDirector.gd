@@ -45,11 +45,12 @@ const WINDOW_MAX: int = 4
 var _lines_since_reset: int = 0
 const RESET_EVERY: int = 12
 
-# --- pacing: event-intensity scanner ---
-# The caster does NOT talk on a timer. Every detected event carries an intensity weight; those weights
-# accumulate and DECAY over time. A line only fires when the running intensity trips THRESHOLD (so a
-# volcano or a death sets it off, but a calm biome stays quiet), gated by a minimum cooldown so even a
-# chaotic stretch doesn't machine-gun lines. A long idle filler keeps the stream from going fully dead.
+# --- pacing: event-intensity accumulator ---
+# The caster does NOT talk on a timer, and it no longer SCANS the world for events itself — the shared
+# LAEventTracker is the ONE emergent source, and on_tracked_event() feeds each typed event's intensity in
+# here. Those weights accumulate and DECAY over time. A line only fires when the running intensity trips
+# THRESHOLD (so a volcano or a death sets it off, but a calm biome stays quiet), gated by a minimum cooldown
+# so even a chaotic stretch doesn't machine-gun lines. A long idle filler keeps the stream from going dead.
 const SAMPLE_INTERVAL: float = 0.5
 const INTENSITY_THRESHOLD: float = 6.0
 const INTENSITY_DECAY: float = 0.8      # points bled off per second, so stale minor events fade out
@@ -295,16 +296,11 @@ const I_BIRTH: float = 1.0
 const I_DAYNIGHT: float = 1.0
 
 
+## Creature-NARRATION detection (deaths/births/extinction/behaviour spikes) — the streamer's own rich,
+## per-species, located beats. FIELD phenomena (eruption/wildfire/flood/storm/lightning/impact) are NOT
+## detected here anymore: they arrive from the shared LAEventTracker via on_tracked_event(), so the crude
+## destruction-spike + raw fire-count scans that used to live here are dissolved (no parallel field scans).
 func _detect_events(prev: Dictionary, cur: Dictionary) -> void:
-	# Disaster: a fresh destruction spike (edge-triggered). Every disaster in VoxelWorld._apply_at
-	# (meteor, volcano, lightning, earthquake, flood) spikes _music_destruction, so this catches them all.
-	if float(cur.get("destruction", 0.0)) > 0.75 and float(prev.get("destruction", 0.0)) <= 0.75:
-		_push_event("a violent natural disaster just struck — the ground is in chaos and animals are scattering", I_DISASTER)
-		_reset_window()   # mood pivot: forget the calm chatter that came before
-	# Fires starting.
-	if int(cur.get("fires", 0)) > int(prev.get("fires", 0)) and int(prev.get("fires", 0)) == 0:
-		_push_event("a fire has broken out and is spreading", I_FIRE)
-
 	var prev_sp: Dictionary = prev.get("species", {})
 	var cur_sp: Dictionary = cur.get("species", {})
 
@@ -431,6 +427,24 @@ func _push_event(text: String, intensity: float) -> void:
 		_urgent.append({"text": text, "intensity": intensity})
 		while _urgent.size() > URGENT_MAX:
 			_urgent.pop_front()   # if the backlog overflows, drop the oldest, keep the freshest beats
+
+
+## Consume one FIELD-phenomenon event from the shared LAEventTracker (the ONE emergent source, wired in
+## VoxelStreamerHost). The tracker already decided WHAT happened and how big it is; the caster just reacts —
+## feeding the event's own intensity + narratable description into the same pacing queue its creature beats
+## use. This replaces the crude destruction-spike / fire-count scan the director used to run itself.
+func on_tracked_event(ev) -> void:
+	if ev == null:
+		return
+	var text: String = String(ev.description)
+	if text == "":
+		return
+	var intensity: float = float(ev.intensity)
+	# A big field phenomenon (eruption/impact/flood/storm/lightning) is a mood pivot — forget the calm
+	# chatter that came before so the next line reacts to the disaster, not the birdsong.
+	if intensity >= URGENT_BAR:
+		_reset_window()
+	_push_event(text, intensity)
 
 
 func _tod_phase(tod: float) -> String:

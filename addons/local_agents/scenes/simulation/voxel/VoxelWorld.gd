@@ -20,6 +20,7 @@ const OceanPlaneScript: GDScript = preload("res://addons/local_agents/scenes/sim
 const MaterialField3DScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField3D.gd")
 const WaterParticlesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/WaterParticles.gd")
 const StreamerHostScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelStreamerHost.gd")
+const EventTrackerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/events/LAEventTracker.gd")
 const PlanetBodyScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/system/PlanetBody.gd")
 const SphereGridScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/sphere/SphereGrid.gd")
 # Focused cross-cutting controllers (each owns one concern; see the class docs).
@@ -52,6 +53,7 @@ var _material: Node = null   # LAMaterialField — the ONE substrate: terrain-co
 var _ocean: Node = null      # LAOceanPlane — the calm sea drawn as one GPU plane (CA meshes only waves)
 var _water: Node = null      # LAWaterParticles — the ONE field-driven atmosphere visual (cloud/fog/rain/snow)
 var _streamer_host: Node = null # LAVoxelStreamerHost — owns the streamer overlay/avatar/voice/director
+var _events: Node = null     # LAEventTracker — the ONE emergent phenomenon-event source (streamer + telemetry consume it)
 
 # --- Focused controllers (each owns one cross-cutting concern) ---
 var _sky_ctrl: LAVoxelSkyController = null      # star/sun + sky-mode wiring + day/night clock
@@ -183,6 +185,14 @@ func _ready() -> void:
 	_material.set_sun(_sky_ctrl.sun())
 	if _ecology.has_method("set_material_field"):
 		_ecology.set_material_field(_material)
+	# The ONE emergent phenomenon-event source: watches the field aggregates and emits typed events
+	# (eruption/wildfire/flood/storm/lightning/impact) that the streamer + SIM_REPORT consume. Gate mirrors
+	# LA_NO_STREAMER (perf A/B + headless opt-out).
+	if not OS.has_environment("LA_NO_EVENT_TRACKER"):
+		_events = EventTrackerScript.new()
+		_events.name = "EventTracker"
+		add_child(_events)
+		_events.setup(self)
 	# Weather relays the field's EMERGENT rain (no invented rain of its own) — wire the field to it.
 	if _weather != null and _weather.has_method("set_field"):
 		_weather.set_field(_material)
