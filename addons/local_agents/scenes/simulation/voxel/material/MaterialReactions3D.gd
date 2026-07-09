@@ -32,6 +32,9 @@ const SEDIMENT: int = 13
 const DUST: int = 14
 const SUSP: int = 15
 const WINDSPEED: int = 16             # DERIVED driver only (sqrt(vel_x²+vel_z²)); never a product/reactant
+# BEDROCK (rock unification Stage B): fractional bedrock mineral mass. `solid` is DERIVED (rock_fill >= 0.5). Molten
+# LAVA and bedrock ROCK_FILL are the SAME mineral substance — M5 solidify + M6 melt are conserving own-cell transfers.
+const ROCK_FILL: int = 17
 
 # --- Rate models (extent x per cell) ---------------------------------------------------------------------
 const CONST_FRAC: int = 0             # x = k * driver
@@ -120,6 +123,25 @@ const LOFT_RATE: float = 0.003           # sediment lofted per step per unit win
 # exists by construction; when Stage D erosion feeds susp, it settles without a new kernel. CONST_FRAC.
 const SUSP_SETTLE_RATE: float = 0.05     # per-step fraction of suspended sediment that settles out when calm
 
+# --- BEDROCK phase transfers (rock unification Stage B) — molten LAVA <-> fractional bedrock ROCK_FILL ------------
+# ONE conserved mineral: solidify and melt are own-cell, mass-conserving transfers between the molten and bedrock
+# phases (reactant-capped debit + equal credit → conserving by construction). `solid` is DERIVED (rock_fill>=0.5),
+# so as lava solidifies the accreted rock_fill crosses 0.5 and the cell becomes bedrock (terrain grows); as rock
+# melts it crosses back and the cell opens. The 0.5 crossing is what Stage C will stamp into the SDF mesh.
+# M5 SOLIDIFY (molten -> bedrock): lava colder than SOLIDIFY_TEMP freezes to rock. REPLACES the direct
+# `solid=1; lava=0` write dissolved out of lava_phase_sphere3d.glsl (which fabricated an invisible GPU-only solid
+# cell and LOST the lava mass — non-conserving); now it is a conserving lava->rock_fill transfer. lava_phase keeps
+# only its SUSTAIN leg and no longer re-heats a sub-solidus cell, so this record sees the genuine post-thermal cold.
+const SOLIDIFY_TEMP: float = 800.0       # lava below this (°C) has cooled through the solidus → freezes to bedrock
+const SOLIDIFY_RATE: float = 0.02        # per-step k on x = max(0, SOLIDIFY_TEMP - temp) * k (capped by lava)
+# M6 MELT (bedrock -> molten): rock hotter than ROCK_MELT_TEMP melts to lava. Reactions run in OPEN cells only
+# (the engine skips solid cells for race-freedom), so this record melts the BOUNDARY rock — a hot open cell that
+# still carries partial rock_fill (0 < rock_fill < 0.5), e.g. at a lava/bedrock interface. FULL bedrock melt of a
+# deep magma-core cell (which is solid, hence skipped) stays a special case: it is driven instead by the real
+# add_lava injection (converting bedrock->lava at the vent) and, later, the Stage-C hot-bore. Conserving either way.
+const ROCK_MELT_TEMP: float = 1200.0     # open-cell rock hotter than this (°C, above the lava emplace temp) melts
+const ROCK_MELT_RATE: float = 0.02       # per-step k on x = max(0, temp - ROCK_MELT_TEMP) * k (capped by rock_fill)
+
 
 ## Author one record as a Dictionary (unspecified fields default to the ungated/no-op values). Reactant and
 ## product entries are Arrays of [slot, coeff] (products carry an optional 3rd element = target, default SELF).
@@ -198,6 +220,21 @@ static func records() -> Array:
 		# an inert forward-looking record today (fires on all-zero susp → no-op); it makes the clean transition
 		# exist by construction so erosion needs no new settle kernel.
 		_rec(CONST_FRAC, SUSP_SETTLE_RATE, SUSP, [[SUSP, 1.0]], [[SEDIMENT, 1.0, TGT_SELF]], 0),
+
+		# M5 — LAVA SOLIDIFY (molten → bedrock): lava colder than SOLIDIFY_TEMP freezes to rock. Runs in the open
+		# cells lava occupies. DEFICIT_BELOW_THRESHOLD on the post-thermal TEMP: x = max(0, SOLIDIFY_TEMP - temp) *
+		# SOLIDIFY_RATE, capped by the LAVA present → a conserving lava→rock_fill transfer. DISSOLVES the direct
+		# `solid=1; lava=0` write formerly in lava_phase_sphere3d.glsl (which lost the lava mass); the accreted
+		# rock_fill crossing 0.5 is what turns the cell to derived bedrock (and, in Stage C, stamps the SDF).
+		_rec(DEFICIT_BELOW_THRESHOLD, SOLIDIFY_RATE, TEMP, [[LAVA, 1.0]], [[ROCK_FILL, 1.0, TGT_SELF]],
+			0, SOLIDIFY_TEMP),
+
+		# M6 — ROCK MELT (bedrock → molten): open-cell rock hotter than ROCK_MELT_TEMP melts to lava.
+		# EXCESS_OVER_THRESHOLD on TEMP: x = max(0, temp - ROCK_MELT_TEMP) * ROCK_MELT_RATE, capped by ROCK_FILL →
+		# conserving rock_fill→lava transfer. Only fires in OPEN cells (engine skips solid), so it melts partial
+		# boundary rock; deep full-bedrock melt is driven by add_lava / the Stage-C bore (see the const note).
+		_rec(EXCESS_OVER_THRESHOLD, ROCK_MELT_RATE, TEMP, [[ROCK_FILL, 1.0]], [[LAVA, 1.0, TGT_SELF]],
+			0, ROCK_MELT_TEMP),
 	]
 
 

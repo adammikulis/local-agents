@@ -33,6 +33,10 @@ layout(set = 0, binding = 14, std430) restrict buffer Dust { float dust[]; };   
 layout(set = 0, binding = 16, std430) restrict buffer Susp { float susp[]; };           // waterborne suspended sediment
 layout(set = 0, binding = 17, std430) restrict readonly buffer VelX { float vel_x[]; }; // horizontal wind (WINDSPEED driver)
 layout(set = 0, binding = 18, std430) restrict readonly buffer VelZ { float vel_z[]; };
+// --- BEDROCK phase (rock unification Stage B): molten LAVA <-> fractional bedrock ROCK_FILL are the SAME mineral.
+// M5 solidify (cold lava -> rock_fill) and M6 melt (hot rock_fill -> lava) are own-cell conserving transfers. -----
+layout(set = 0, binding = 22, std430) restrict buffer Lava { float lava[]; };            // molten rock (mass/cell)
+layout(set = 0, binding = 23, std430) restrict buffer RockFill { float rock_fill[]; };   // fractional bedrock mass (solid iff >= 0.5)
 // --- Gate inputs + scratch product target + the record table ----------------------------------------------
 layout(set = 0, binding = 10, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };        // idx*6 + slot
@@ -56,6 +60,7 @@ layout(set = 0, binding = 20, std430) restrict buffer Scratch { float scratch[];
 #define DUST      14
 #define SUSP      15
 #define WINDSPEED 16   // derived driver: sqrt(vel_x^2 + vel_z^2) — not a stored channel, read-only
+#define ROCK_FILL 17   // fractional bedrock mineral mass (solid iff >= 0.5); M5/M6 transfer it with LAVA
 
 #define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust (dust_loft parity)
 
@@ -119,6 +124,8 @@ float read_ch(int slot, uint i) {
 	if (slot == DUST)     return dust[i];
 	if (slot == SUSP)     return susp[i];
 	if (slot == WINDSPEED) return sqrt(vel_x[i] * vel_x[i] + vel_z[i] * vel_z[i]);
+	if (slot == LAVA)     return lava[i];
+	if (slot == ROCK_FILL) return rock_fill[i];
 	return 0.0;
 }
 
@@ -136,6 +143,8 @@ void add_ch(int slot, uint i, float v) {
 	else if (slot == SEDIMENT) { sediment[i]  = max(0.0, sediment[i] + v); }
 	else if (slot == DUST)     { dust[i]      = max(0.0, dust[i]     + v); }
 	else if (slot == SUSP)     { susp[i]      = max(0.0, susp[i]     + v); }
+	else if (slot == LAVA)     { lava[i]      = max(0.0, lava[i]     + v); }
+	else if (slot == ROCK_FILL) { rock_fill[i] = max(0.0, rock_fill[i] + v); }  // may exceed 1.0 (accreted rock); clamp only at 0
 }
 
 // Gate helpers reuse the exact neighbour tests proven in the dissolved kernels.

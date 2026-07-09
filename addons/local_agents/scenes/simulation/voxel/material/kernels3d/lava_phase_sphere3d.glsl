@@ -1,16 +1,16 @@
 #[compute]
 #version 450
 
-// CUBED-SPHERE lava PHASE — sphere port of lava_phase3d.glsl (box). Fuses MaterialLava3D._solidify() +
-// _sustain_heat() into one PER-CELL pass (both are independent per-cell rules). Runs AFTER lava_flow_sphere3d,
-// in place on the post-flow lava + temp buffers:
-//   SOLIDIFY: a cell still holding lava but sitting BELOW SOLIDIFY_TEMP freezes to rock (mark solid, zero lava).
+// CUBED-SPHERE lava PHASE — SUSTAIN only. Runs AFTER lava_flow_sphere3d, in place on the post-flow lava + temp
+// buffers. Rock unification Stage B DISSOLVED the SOLIDIFY leg into the M5 DEFS reaction record (cold lava ->
+// rock_fill, a conserving own-cell transfer), so this kernel no longer writes `solid` (which is now DERIVED from
+// rock_fill by solid_derive_sphere3d.glsl) and no longer zeroes lava. It keeps ONLY:
 //   SUSTAIN: lava that remains is kept molten, scaled by DEPTH (mass), floored at MOLTEN_FLOOR and capped at
-//     LAVA_EMPLACE_TEMP via max() so it only ever RAISES temperature.
-// This pass has NO neighbour reads (it reads/writes only its own cell), so the sphere port is a structural
-// copy: the box grid dims were used ONLY for the cell_count guard, so nothing geometric remaps and no
-// neighbour INDEX TABLE is needed. Only change vs the box: the unused dim_x/dim_y/dim_z push fields are
-// dropped. Constants copied EXACTLY from MaterialLava3D.gd.
+//     LAVA_EMPLACE_TEMP via max() so it only ever RAISES temperature — EXCEPT it now LEAVES a sub-solidus cell
+//     (temp < SOLIDIFY_TEMP) cold instead of re-heating it, so the M5 record (which reads the post-thermal temp
+//     downstream in ReactionsPass) sees the genuine cold and can freeze the lava to rock. Without this guard the
+//     sustain floor (>= MOLTEN_FLOOR) would keep every lava cell hot and M5 could never fire.
+// This pass has NO neighbour reads (own cell only). Constants copied EXACTLY from MaterialLava3D.gd.
 
 layout(local_size_x = 64) in;
 
@@ -45,9 +45,8 @@ void main() {
 		return;
 	}
 	if (temp[g] < SOLIDIFY_TEMP) {
-		// Cooled below the solidus while still holding lava -> it has frozen to rock.
-		solid[g] = 1.0;
-		lava[g] = 0.0;
+		// Cooled below the solidus: leave it cold (do NOT sustain) so the M5 solidify record freezes the
+		// lava to rock_fill downstream. (Was: solid=1; lava=0 — dissolved into the conserving M5 record.)
 		return;
 	}
 	// SUSTAIN — keep the remaining lava molten, depth-scaled.

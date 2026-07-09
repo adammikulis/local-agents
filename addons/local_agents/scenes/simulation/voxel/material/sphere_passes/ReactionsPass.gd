@@ -16,7 +16,8 @@ extends RefCounted
 ##   0 Temp=temp[back] · 1 Water=water[back] · 2 AirWater=airwater[back] · 3 O2=o2[back] · 4 CO2=co2[back] ·
 ##   7 Detritus=detritus(single) · 8 Fungus=fungus[live] · 10 Solid=solid · 11 Biomass=biomass(single) ·
 ##   12 Snow=snow(single, freeze/melt phase transfer) · 15 Neigh=nbr · 20 Scratch=fungus_fert(single, SCRATCH
-##   product) · 21 Defs=<record SSBO>.
+##   product) · 21 Defs=<record SSBO> · 22 Lava=lava[back] · 23 RockFill=rock_fill(single) — M5 solidify /
+##   M6 melt transfer mineral mass between LAVA and ROCK_FILL (own-cell, conserving).
 ## Push { uint cell_count; uint n_records; float dt; float pad; } — 16 bytes.
 
 const KERNEL_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/reactions_sphere3d.glsl"
@@ -68,6 +69,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var susp: Array = _pair(bufs, "susp")
 	var vel_x: RID = _single(bufs, "vel_x")
 	var vel_z: RID = _single(bufs, "vel_z")
+	var lava: Array = _pair(bufs, "lava")
+	var rock_fill: RID = _single(bufs, "rock_fill")
 
 	for p in 2:
 		var back: int = 1 - p
@@ -86,6 +89,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[16, susp[back]],       # waterborne suspended sediment — settle (M3) debits it (dead phase today → inert)
 			[17, vel_x],            # SINGLE — WINDSPEED driver leg (sqrt(vel_x²+vel_z²))
 			[18, vel_z],            # SINGLE — WINDSPEED driver leg
+			[22, lava[back]],       # molten rock (settled by Thermal into BACK) — M5 debits it, M6 credits it
+			[23, rock_fill],        # SINGLE fractional bedrock — M5 credits it (lava→rock), M6 debits it (rock→lava)
 			[10, solid],
 			[15, nbr],
 			[20, scratch],          # fungus-fert SCRATCH product target

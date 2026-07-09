@@ -180,3 +180,67 @@ func updraft_at(x: float, z: float) -> float:
 	var ix: int = _col_i(x, _f._origin.x)
 	var iz: int = _col_i(z, _f._origin.z)
 	return _f._vel_y[_aloft_i(ix, iz)]
+
+
+# --- MINERAL conservation ledger (rock unification) — ONE conserved mineral, phases summed in one mass unit ----
+# ROCK is ONE substance whose PHASE (bedrock / molten / loose / suspended / airborne) is a state; every transition
+# is a mass transfer between the legs (a full cell of any phase = MAX_MASS = 1.0). mineral_total() must stay BOUNDED
+# across frames to within genuine sources/vents — the unification's proof object. Stage B made bedrock FRACTIONAL
+# (rock_fill), so the ledger conserves CONTINUOUSLY across the solid boundary (a partial solidify credits fractional
+# rock, not a whole fabricated cell). sediment/dust are surface phases (open cells); lava/rock_fill sum ALL cells.
+
+## Loose granular regolith (talus/dune sediment) over open cells — the "loose" mineral phase.
+func sediment_total() -> float:
+	if _f._sediment.size() != _f._cell_count:
+		return 0.0
+	var sum: float = 0.0
+	for c in _f._cell_count:
+		if _f._solid[c] == 0:
+			sum += _f._sediment[c]
+	return sum
+
+## Airborne wind-lofted dust over open cells — the "airborne" mineral phase.
+func dust_total() -> float:
+	if _f._dust.size() != _f._cell_count:
+		return 0.0
+	var sum: float = 0.0
+	for c in _f._cell_count:
+		if _f._solid[c] == 0:
+			sum += _f._dust[c]
+	return sum
+
+## Molten rock (lava) over ALL cells — the "molten" phase. Summed everywhere (not just open cells) because add_lava
+## can inject lava into a still-solid vent and lava lingers the instant a cell crosses to derived-solid; excluding
+## those would leak the ledger. Lava physically exists wherever its mass is, regardless of the derived `solid` flag.
+func lava_total() -> float:
+	if _f._lava.size() != _f._cell_count:
+		return 0.0
+	var sum: float = 0.0
+	for c in _f._cell_count:
+		sum += _f._lava[c]
+	return sum
+
+## Derived-solid (bedrock) cell count — a display/diagnostic (cells whose derived solid flag is set). NOT the mineral
+## mass baseline anymore: Stage B made bedrock a FRACTIONAL channel (rock_fill), so the mass baseline is rock_fill_total().
+func rock_cells() -> int:
+	var n: int = 0
+	for c in _f._cell_count:
+		if _f._solid[c] != 0:
+			n += 1
+	return n
+
+## Fractional BEDROCK mineral mass over ALL cells — the authoritative "bedrock" phase. Seeded 1.0 per solid cell (so
+## the initial value == the old rock_cells() baseline), then conservingly traded with lava by M5 solidify (lava→rock),
+## M6 melt and add_lava (rock→lava). Replaces the binary quantum so the solid boundary conserves continuously.
+func rock_fill_total() -> float:
+	if _f._rock_fill.size() != _f._cell_count:
+		return 0.0
+	var sum: float = 0.0
+	for c in _f._cell_count:
+		sum += _f._rock_fill[c]
+	return sum
+
+## The ONE mineral total: Σ bedrock(rock_fill) + molten(lava) + loose(sediment) + suspended(susp, dead until Stage D)
+## + airborne(dust). Must stay BOUNDED — this is the unification's proof object.
+func mineral_total() -> float:
+	return rock_fill_total() + lava_total() + sediment_total() + dust_total()

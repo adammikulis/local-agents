@@ -94,6 +94,9 @@ var _airwater: PackedFloat32Array = PackedFloat32Array()
 # Frozen H₂O per cell (snowpack depth) — the SAME conserved substance as _water/_airwater, just the cold phase.
 # GPU-owned (never re-uploaded); read back each frame for snow_cell_count/ice_cell_count/snow_depth_at + h2o_total.
 var _snow: PackedFloat32Array = PackedFloat32Array()
+# Fractional BEDROCK mineral mass per cell (Stage B). `solid` is DERIVED from it on the GPU (solid iff >= 0.5).
+# GPU-owned + GPU-evolved (M5/M6 records); the CPU edits it only on add_lava (dirty-gated upload).
+var _rock_fill: PackedFloat32Array = PackedFloat32Array()
 var _lava: PackedFloat32Array = PackedFloat32Array()     # lava mass per cell (a hot, viscous liquid)
 # --- Emergent FIRE / COMBUSTION (LAMaterialCombustion3D): a FUEL channel (flammable vegetation mass seeded
 # on grassy surface cells + under plant/tree actors) and a FIRE channel (burning intensity, 0 = not burning).
@@ -194,6 +197,7 @@ var _vapor_dirty: bool = false
 # 1-in-3-stale amplitude). Charge/detritus were tried here too but reverted to every-frame: charge's bolt tail
 # needs fresh charge each frame, and detritus is continuous-evolution + continuous-deposit (see the upload block).
 var _lava_dirty: bool = false
+var _rock_fill_dirty: bool = false       # add_lava debited bedrock on the CPU → re-upload rock_fill this step
 var _shock_dirty: bool = false
 # Lazy solidity sampling: the field is created before the terrain has finished streaming, so it samples
 # rock/void a budget of columns per frame and self-activates (seed sea + build modules) once complete —
@@ -290,6 +294,9 @@ func _alloc_channels() -> void:
 	_airwater.fill(VAPOR_AMBIENT)
 	_lava = PackedFloat32Array()
 	_lava.resize(_cell_count)
+	# Bedrock mineral fraction: seeded from the solid mask on activate (mirrors _solid), GPU-owned thereafter.
+	_rock_fill = PackedFloat32Array()
+	_rock_fill.resize(_cell_count)
 	_fuel = PackedFloat32Array()
 	_fuel.resize(_cell_count)
 	_fire = PackedFloat32Array()
@@ -465,6 +472,11 @@ func activate() -> void:
 	# not-yet-sphere-wired channels return safe defaults until their readback lands (fuller-readback step).
 	# GPU-RESIDENT backend: persistent SSBOs, the whole heat+water step batched on-GPU, ONE readback per
 	# frame (see MaterialGPU3D's frame API). Headless has no local RenderingDevice → CPU oracle.
+	# Seed CPU bedrock fraction from the solid mask (GPU seeds its buffer identically): solid=1.0, void=0.0 —
+	# keeps the CPU ledger valid before the first readback and matches the derived solid exactly (nothing melted).
+	if _rock_fill.size() == _cell_count and _solid.size() == _cell_count:
+		for c in _cell_count:
+			_rock_fill[c] = 1.0 if _solid[c] != 0 else 0.0
 	if is_sphere() and SphereGPUScript.available() and not OS.has_environment("LA_FORCE_CPU"):
 		# Cubed-sphere planet: the sphere GPU driver runs the *_sphere3d kernels over the neighbour SSBO.
 		_gpu = SphereGPUScript.new()
@@ -551,6 +563,14 @@ func _sphere_process(delta: float) -> void:
 		_gpu.set_sun_dir(_sun_light.global_transform.basis.z)
 	if _terrain != null and _terrain.has_method("sea_radius") and _gpu.has_method("set_sea_radius"):
 		_gpu.set_sea_radius(_terrain.sea_radius())
+	# add_lava injected on the CPU this frame → push the edited lava + bedrock into the GPU before stepping
+	# (dirty-gated: on clean frames both stay GPU-resident, so we never clobber the on-device evolution).
+	if _lava_dirty and _gpu.has_method("set_field"):
+		_gpu.set_field("lava", _lava)
+		_lava_dirty = false
+	if _rock_fill_dirty and _gpu.has_method("set_field"):
+		_gpu.set_field("rock_fill", _rock_fill)
+		_rock_fill_dirty = false
 	for i in steps:
 		_gpu.step()
 	var res: Dictionary = _gpu.end_frame()
@@ -575,6 +595,7 @@ func _apply_sphere_readback(res: Dictionary) -> void:
 	if res.has("snow") and res["snow"].size() == _cell_count: _snow = res["snow"]
 	if res.has("dust") and res["dust"].size() == _cell_count: _dust = res["dust"]
 	if res.has("sediment") and res["sediment"].size() == _cell_count: _sediment = res["sediment"]
+	if res.has("rock_fill") and res["rock_fill"].size() == _cell_count: _rock_fill = res["rock_fill"]
 
 
 func _physics_process(delta: float) -> void:
@@ -813,14 +834,32 @@ func grid_half_extent() -> float:
 func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	pass
 
+## Real CONSERVING lava source (rock unification Stage B). A volcano/vent erupts by converting bedrock into molten
+## lava (`rock_fill -= a; lava += a`), so mineral_total() stays FLAT (phase move, not creation). GPU-authoritative
+## → the edited CPU arrays re-upload next step (dirty-gated); the lava then flows/cools on-GPU (M5 re-accretes it).
 func add_lava(world_pos: Vector3, amount: float) -> void:
-	# ROCK-UNIFICATION HOOK (Stage B, deferred — needs supervision). A real conserving lava source lands HERE:
-	# inject `amount` into the GPU `lava` channel (dirty-gated upload, cf. :186-197), debiting equal mineral
-	# mass from bedrock so mineral_total() stays flat. Stage B also adds fractional `rock_fill` (solid DERIVED
-	# rock_fill>=0.5) + folds M5 solidify/M6 melt into records; Stage C stamps the SDF on 0.5-crossings; Stage D
-	# adds erosion (rock_fill->susp carve + susp advect feeding the M3 settle record already authored). Volcano.gd
-	# calls this — inert on the sphere path until Stage B wires the injection.
-	pass
+	if amount <= 0.0 or _rock_fill.size() != _cell_count or _lava.size() != _cell_count:
+		return
+	var c: int = world_to_cell(world_pos)
+	if c < 0 or c >= _cell_count:
+		return
+	# A vent sits on OPEN ground, so the erupting lava is bedrock melted from just BENEATH it: walk radially
+	# inward (lower index = toward core within the same column) to the first bedrock cell and melt THAT to lava
+	# (it rises via magma buoyancy). Conserving: rock_fill -= a; lava += a, capped by the bedrock present.
+	var depth: int = _sphere.depth if _sphere != null else 1
+	var base: int = c - (c % depth)               # radial index 0 of this surface column (the core-side cell)
+	var cell: int = c
+	while cell >= base and _rock_fill[cell] <= 0.0:
+		cell -= 1
+	if cell < base:
+		return                                    # whole column void (no bedrock to erupt) — nothing to do
+	var a: float = minf(amount, _rock_fill[cell])
+	if a <= 0.0:
+		return
+	_rock_fill[cell] -= a
+	_lava[cell] += a
+	_lava_dirty = true
+	_rock_fill_dirty = true
 
 ## Inject airborne water vapor (humidity) at a world point — a storm's LOCAL moisture source. No-op until
 ## the sphere GPU vapor inject path is wired.
@@ -1040,52 +1079,8 @@ func dust_at(x: float, y: float, z: float) -> float:
 func dust_cell_count() -> int:
 	return 0
 
-# --- MINERAL conservation ledger (rock unification Stage 0) -----------------------------------------------
-# ROCK is ONE conserved mineral substance whose PHASE (bedrock/molten/loose/suspended/airborne) is a state, and
-# every phase transition is a mass transfer between these legs. mineral_total sums all phases in one mass unit (a
-# full cell of any phase = MAX_MASS = 1.0). It turns "one conserved mineral" into a testable claim: it must stay
-# BOUNDED across frames to within genuine sources/vents. Bedrock uses the BINARY QUANTUM (each solid cell = 1.0)
-# until Stage B derives a fractional rock_fill — solidify/melt are whole-cell events today so the quantum is exact.
-## Loose granular regolith (talus/dune sediment) summed over open cells — the "loose" mineral phase.
-func sediment_total() -> float:
-	if _sediment.size() != _cell_count:
-		return 0.0
-	var sum: float = 0.0
-	for c in _cell_count:
-		if _solid[c] == 0:
-			sum += _sediment[c]
-	return sum
-## Airborne wind-lofted dust summed over open cells — the "airborne" mineral phase.
-func dust_total() -> float:
-	if _dust.size() != _cell_count:
-		return 0.0
-	var sum: float = 0.0
-	for c in _cell_count:
-		if _solid[c] == 0:
-			sum += _dust[c]
-	return sum
-## Molten rock (lava) mass summed over open cells — the "molten" mineral phase.
-func lava_total() -> float:
-	if _lava.size() != _cell_count:
-		return 0.0
-	var sum: float = 0.0
-	for c in _cell_count:
-		if _solid[c] == 0:
-			sum += _lava[c]
-	return sum
-## Solid (bedrock) cell count — each counts as 1.0 mineral mass under the binary quantum. This is the massive
-## constant baseline of the ledger; drift in it (solidify fabricating rock, melt destroying it) is the signal.
-func rock_cells() -> int:
-	var n: int = 0
-	for c in _cell_count:
-		if _solid[c] != 0:
-			n += 1
-	return n
-## The ONE mineral total: Σ over bedrock + molten + loose + suspended + airborne. susp is a dead phase today
-## (no erosion source on the sphere), so its leg is 0 until Stage D populates it; it is named here so the ledger
-## is complete by construction. Must stay BOUNDED — this is the unification's proof object.
-func mineral_total() -> float:
-	return float(rock_cells()) + lava_total() + sediment_total() + dust_total()
+# MINERAL conservation ledger (rock unification) lives in LAMaterialFieldQueries3D (`_queries.*_total()` etc.);
+# report() reads it directly. ONE conserved mineral; mineral_total must stay BOUNDED (the unification's proof).
 # Emergent atmospheric OXYGEN (LAMaterialGas3D): O₂ level at a point + depletion diagnostics.
 func o2_at(x: float, y: float, z: float) -> float:
 	if _sphere != null:
@@ -1293,8 +1288,9 @@ func report() -> Dictionary:
 		"biomass_total": biomass_total(),
 		"h2o_total": h2o_total(), "water_total": water_total(), "snow_total": snow_total(),
 		"snow_line_temp": snow_line_temp(),
-		"mineral_total": mineral_total(), "rock_cells": rock_cells(),
-		"lava_total": lava_total(), "sediment_total": sediment_total(), "dust_total": dust_total(),
+		"mineral_total": _queries.mineral_total(), "rock_cells": _queries.rock_cells(),
+		"rock_fill_total": _queries.rock_fill_total(), "lava_total": _queries.lava_total(),
+		"sediment_total": _queries.sediment_total(), "dust_total": _queries.dust_total(),
 	}
 	r.merge(_open_temp_stats())
 	return r

@@ -26,15 +26,18 @@ const PAIR_CHANNELS: PackedStringArray = [
 	"temp", "water", "airwater", "lava", "sediment", "fire", "dust",
 	"o2", "co2", "shock", "fungus", "susp", "fert"]
 # scent is a 5-plane packed pair (5*cell_count); handled specially.
-# Single (non-ping-pong) float buffers.
+# Single (non-ping-pong) float buffers. `rock_fill` is the fractional bedrock-mineral channel (rock unification
+# Stage B): `solid` is DERIVED from it each step (solid iff rock_fill >= 0.5, see SolidDerivePass). It is GPU-owned
+# and GPU-evolved (M5 solidify / M6 melt records write it), re-uploaded from the CPU only on an add_lava injection.
 const SINGLE_CHANNELS: PackedStringArray = [
 	"solid", "static", "fuel", "charge", "detritus", "biomass", "pressure",
-	"vel_x", "vel_y", "vel_z", "dust_outscale", "fungus_fert", "surf_vx", "surf_vz", "snow"]
+	"vel_x", "vel_y", "vel_z", "dust_outscale", "fungus_fert", "surf_vx", "surf_vz", "snow", "rock_fill"]
 
 # Data-flow dispatch order (see the PING-PONG PHASE note above). WaterSlumpLava MUST precede Thermal
 # (Thermal reads water/lava from "back" + consumes the lava carry-heat left in "live" temp); Atmosphere/
 # FireDust MUST follow Thermal (they read the finished temp/water from "back").
 const PASS_SCRIPTS: PackedStringArray = [
+	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/SolidDerivePass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/WaterSlumpLavaPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/ThermalPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/GasWindPass.gd",
@@ -91,6 +94,7 @@ func setup(field) -> void:
 	_seed("temp", field._temp)
 	_seed("o2", field._o2)
 	_seed_solid()
+	_seed_rock_fill()
 
 	# Load + set up the pass modules (skip any that fail to load — WIP-tolerant).
 	for path in PASS_SCRIPTS:
@@ -149,6 +153,10 @@ func end_frame(_rv: bool = true, _rc: bool = true, _rf: bool = true, _rr: bool =
 		out["biomass"] = _rd.buffer_get_data(_bufs["biomass"]).to_float32_array()
 	if _bufs.has("snow"):
 		out["snow"] = _rd.buffer_get_data(_bufs["snow"]).to_float32_array()
+	# rock_fill is a SINGLE GPU-owned channel (the fractional bedrock mass); read it back so the CPU mineral
+	# ledger (mineral_total) counts the authoritative bedrock phase and add_lava sees the current rock mass.
+	if _bufs.has("rock_fill"):
+		out["rock_fill"] = _rd.buffer_get_data(_bufs["rock_fill"]).to_float32_array()
 	return out
 
 func set_field(name: String, arr) -> void:
@@ -232,6 +240,18 @@ func _seed_solid() -> void:
 	var b2: PackedByteArray = f.to_byte_array()
 	_rd.buffer_update(_bufs["static"], 0, b2.size(), b2)
 
+## Seed the fractional bedrock channel `rock_fill` from the CPU solid mask: a solid cell holds a full cell of
+## mineral (1.0), a void cell none (0.0). Only run at setup — rock_fill is GPU-authoritative thereafter (the
+## derive pass recomputes `solid` from it, and M5/M6 records + add_lava evolve it). Because 1.0 >= 0.5 and
+## 0.0 < 0.5, the derived `solid` reproduces `_solid` EXACTLY when nothing has melted/solidified (stability).
+func _seed_rock_fill() -> void:
+	var f: PackedFloat32Array = PackedFloat32Array()
+	f.resize(_cc)
+	for i in _cc:
+		f[i] = 1.0 if _field._solid[i] != 0 else 0.0
+	var b: PackedByteArray = f.to_byte_array()
+	_rd.buffer_update(_bufs["rock_fill"], 0, b.size(), b)
+
 func _upload_f(buf: RID, arr: PackedFloat32Array) -> void:
 	if arr.size() == _cc:
 		var b: PackedByteArray = arr.to_byte_array()
@@ -253,4 +273,5 @@ func _empty_result() -> Dictionary:
 		"detritus": PackedFloat32Array(), "shock": PackedFloat32Array(),
 		"dust": PackedFloat32Array(), "snow": PackedFloat32Array(),
 		"susp": PackedFloat32Array(), "biomass": PackedFloat32Array(),
+		"rock_fill": PackedFloat32Array(),
 	}
