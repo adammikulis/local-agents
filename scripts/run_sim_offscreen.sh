@@ -5,7 +5,7 @@
 #   scripts/run_sim_offscreen.sh --path . addons/.../VoxelWorld.tscn -- --run-frames=200
 # Env passthrough (LA_NO_STREAMER etc.) works as usual. Requires macOS (osascript); elsewhere it just runs.
 FRONT_BID="$(osascript -e 'tell application "System Events" to get bundle identifier of first application process whose frontmost is true' 2>/dev/null)"
-godot --rendering-driver metal --position 30000,30000 --resolution 640x400 "$@" &
+godot --rendering-driver metal --position 30000,30000 --resolution "${LA_RES:-640x400}" "$@" &
 GODOT_PID=$!
 if [ -n "$FRONT_BID" ]; then
   # Godot grabs focus during startup; reclaim it for the user's app a few times as it comes up.
