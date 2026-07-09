@@ -56,6 +56,8 @@ var _auto_earthquake_fired: bool = false
 var _auto_meteor_fired: bool = false
 var _auto_select: bool = false
 var _auto_select_done: bool = false
+var _frame_hut: bool = false             # --frame-hut: close 3/4 shot of a villager hut with a villager beside it (scale-check aid)
+var _frame_hut_done: bool = false
 var _debug_family: bool = false          # --debug-family: force a real birth + select a kin, open the family-tree inspector
 var _debug_family_seeded: bool = false
 var _debug_family_selected: bool = false
@@ -140,6 +142,8 @@ func parse_cmdline() -> void:
 			_auto_earthquake = true
 		elif arg == "--auto-select":
 			_auto_select = true
+		elif arg == "--frame-hut":
+			_frame_hut = true
 		elif arg == "--debug-family" or arg == "--debug-family=1":
 			_debug_family = true
 		elif arg == "--auto-tornado":
@@ -543,6 +547,12 @@ func update(frame: int, spawned: bool) -> void:
 		_cam_creature_done = true
 		_frame_tinted_creature()
 
+	# --frame-hut: swing the camera onto a villager hut with a villager stood beside it, so a
+	# reviewer can read the dwelling's scale against a ~1.8 m human. Set just before the capture.
+	if _frame_hut and _shoot_path != "" and not _frame_hut_done and spawned and frame == _shoot_frames - 6:
+		_frame_hut_done = true
+		_frame_villager_hut()
+
 	# --debug-family: force a REAL family through the ecology (two founders breed; one child dies) so the
 	# kinship graph holds >=2 generations + a mate bond + a dead kin, then select a parent so the family-tree
 	# inspector (opened by VoxelDebugWiring) draws a deterministic tree for the screenshot. All reads/edits go
@@ -613,6 +623,44 @@ func _frame_camera_on(p: Vector3) -> void:
 	tangent = tangent.normalized()
 	_camera.global_position = p + up * 6.0 + tangent * 6.0
 	_camera.look_at(p, up)
+
+
+# Frame a close 3/4 view of a ground villager hut, with the nearest villager stood right beside it,
+# so the dwelling's scale is legible against a ~1.8 m human. A screenshot-only verification aid.
+func _frame_villager_hut() -> void:
+	if _camera == null or _terrain == null:
+		return
+	var hut: Node3D = null
+	for n in get_tree().get_nodes_in_group("nest"):
+		if n is Node3D and String(n.get("species")) == "villager" and not bool(n.get("in_tree")):
+			hut = n
+			break
+	if hut == null:
+		return
+	var p: Vector3 = hut.global_position
+	var center: Vector3 = _terrain.planet_center() if _terrain.has_method("planet_center") else Vector3.ZERO
+	var up: Vector3 = (p - center).normalized()
+	if up.length() < 0.001:
+		up = Vector3.UP
+	var tangent: Vector3 = up.cross(Vector3.RIGHT)
+	if tangent.length() < 0.001:
+		tangent = up.cross(Vector3.FORWARD)
+	tangent = tangent.normalized()
+	var side: Vector3 = up.cross(tangent).normalized()
+	# Stand the nearest villager right beside the hut so a human is guaranteed in frame at true scale.
+	var vill: Node3D = null
+	var best: float = INF
+	for a in get_tree().get_nodes_in_group("creature"):
+		if a is Node3D and String(a.get("species")) == "villager":
+			var d: float = (p - (a as Node3D).global_position).length()
+			if d < best:
+				best = d
+				vill = a
+	if vill != null:
+		vill.global_position = p + tangent * 1.9
+	var focus: Vector3 = p + up * 1.2 + tangent * 0.9
+	_camera.global_position = p + up * 2.2 + tangent * 3.2 + side * 3.6
+	_camera.look_at(focus, up)
 
 
 # --- Flag accessors (read by the world composition root) ---------------------

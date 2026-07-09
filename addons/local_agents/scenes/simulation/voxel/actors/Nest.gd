@@ -14,6 +14,20 @@ extends Node3D
 const IDLE_TIMEOUT: float = 120.0        # seconds of neglect before the nest rots away
 const DISREPAIR_START: float = 60.0      # idle seconds after which condition visibly degrades
 
+## Declarative dimensions/colours for the human (villager) dwelling, in metres. Kept as data — a
+## per-species dwelling "config entry" — so the hut form is config rather than magic numbers buried
+## in the builder, and another humanoid species can be given its own dwelling by adding a spec here.
+## Sized against a ~1.8 m villager: cylinder walls a standing person fits inside, under an
+## overhanging conical thatch roof. Wall diameter ~2.7 m, eaves ~3.2 m, peak ~2.85 m tall.
+const HUT_SPEC: Dictionary = {
+	"wall_radius": 1.35,                          # walls ~2.7 m across
+	"wall_height": 1.7,                           # taller than a standing villager's shoulders
+	"roof_radius": 1.62,                          # cone overhangs the walls (~3.2 m eaves)
+	"roof_height": 1.15,                          # peak at 1.7 + 1.15 = 2.85 m
+	"wall_color": Color(0.56, 0.42, 0.28),        # sun-dried mud / clay
+	"roof_color": Color(0.34, 0.25, 0.14),        # dry thatch
+}
+
 var terrain: Object = null               # LAVoxelTerrainService (injected), may be null
 var species: String = "creature"
 var owner_family: int = -1
@@ -85,8 +99,8 @@ func _add_picker() -> void:
 				pick_radius = 0.78
 				pick_center_y = 0.14
 			"villager":
-				pick_radius = 0.72
-				pick_center_y = 0.40
+				pick_radius = 1.7          # covers the full-size hut (walls + lower roof)
+				pick_center_y = 1.3
 			_:
 				pick_radius = 0.60
 				pick_center_y = 0.12
@@ -241,42 +255,68 @@ func _build_mound(radius: float, flatten: float, earth_color: Color, with_entran
 	_mesh_root.add_child(hole)
 
 
-## A villager hut: a small square earth/wood floor with a simple cone "roof"
-## raised above it, reading as a lean-to shelter on the ground.
+## A human dwelling: a round mud/clay hut — a wide cylinder body under a conical
+## thatch roof — sized (from HUT_SPEC) so a ~1.8 m villager stands comfortably
+## beside and could step through it, rather than the old ankle-high stub. Earthy
+## matte materials (no metal) and a dark doorway hollow so it reads as a home.
 func _build_hut() -> void:
 	_mesh_root = MeshInstance3D.new()
 	_mesh_root.name = "NestMesh"
 	add_child(_mesh_root)
 
-	# Low wooden floor / walls stub.
+	var wall_radius: float = HUT_SPEC["wall_radius"]
+	var wall_height: float = HUT_SPEC["wall_height"]
+	var roof_radius: float = HUT_SPEC["roof_radius"]
+	var roof_height: float = HUT_SPEC["roof_height"]
+
+	# Sun-dried mud/clay walls: matte (high roughness), no metal.
 	var wall_mat: StandardMaterial3D = StandardMaterial3D.new()
-	wall_mat.albedo_color = Color(0.45, 0.33, 0.20)      # light timber
-	wall_mat.roughness = 1.0
+	wall_mat.albedo_color = HUT_SPEC["wall_color"]
+	wall_mat.roughness = 0.92
 	wall_mat.metallic = 0.0
-	var wall_mesh: BoxMesh = BoxMesh.new()
-	wall_mesh.size = Vector3(0.7, 0.35, 0.7)
+	var wall_mesh: CylinderMesh = CylinderMesh.new()
+	wall_mesh.top_radius = wall_radius
+	wall_mesh.bottom_radius = wall_radius
+	wall_mesh.height = wall_height
+	wall_mesh.radial_segments = 20
 	wall_mesh.material = wall_mat
 	var walls: MeshInstance3D = MeshInstance3D.new()
 	walls.name = "HutWalls"
 	walls.mesh = wall_mesh
-	walls.position = Vector3(0.0, 0.175, 0.0)
+	walls.position = Vector3(0.0, wall_height * 0.5, 0.0)
 	_mesh_root.add_child(walls)
 
-	# A conical thatch/earth roof raised above the walls.
+	# Conical thatch roof overhanging the walls, its base resting on the wall top.
 	var roof_mat: StandardMaterial3D = StandardMaterial3D.new()
-	roof_mat.albedo_color = Color(0.30, 0.21, 0.12)      # darker thatch
-	roof_mat.roughness = 1.0
+	roof_mat.albedo_color = HUT_SPEC["roof_color"]
+	roof_mat.roughness = 0.88
 	roof_mat.metallic = 0.0
 	var roof_mesh: CylinderMesh = CylinderMesh.new()     # cone: zero top radius
 	roof_mesh.top_radius = 0.0
-	roof_mesh.bottom_radius = 0.6
-	roof_mesh.height = 0.5
+	roof_mesh.bottom_radius = roof_radius
+	roof_mesh.height = roof_height
+	roof_mesh.radial_segments = 20
 	roof_mesh.material = roof_mat
 	var roof: MeshInstance3D = MeshInstance3D.new()
 	roof.name = "HutRoof"
 	roof.mesh = roof_mesh
-	roof.position = Vector3(0.0, 0.35 + 0.25, 0.0)
+	roof.position = Vector3(0.0, wall_height + roof_height * 0.5, 0.0)
 	_mesh_root.add_child(roof)
+
+	# A dark doorway hollow set into the front wall so the hut reads as enterable.
+	var door_mat: StandardMaterial3D = StandardMaterial3D.new()
+	door_mat.albedo_color = Color(0.06, 0.05, 0.03)      # shadowed opening
+	door_mat.roughness = 1.0
+	door_mat.metallic = 0.0
+	var door_h: float = wall_height * 0.72
+	var door_mesh: BoxMesh = BoxMesh.new()
+	door_mesh.size = Vector3(wall_radius * 0.72, door_h, 0.3)
+	door_mesh.material = door_mat
+	var door: MeshInstance3D = MeshInstance3D.new()
+	door.name = "HutDoor"
+	door.mesh = door_mesh
+	door.position = Vector3(0.0, door_h * 0.5, wall_radius - 0.06)
+	_mesh_root.add_child(door)
 
 
 func _snap_to_terrain() -> void:
