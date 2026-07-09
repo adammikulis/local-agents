@@ -13,8 +13,9 @@ extends RefCounted
 ##   2. heat3d_buoyancy_sphere3d — hot void rises radially outward. RACE-FREE double-buffered GATHER
 ##                                (TempIn -> TempOut) + solid + nbr(15).
 ##   3. heat3d_cool_sphere3d     — evaporative/marine cooling of wet cells toward the sea thermocline; IN-PLACE
-##                                on temp, reads post-flow water + solid + per-cell world Pos(3, vec4) and a
-##                                sea_radius push param.
+##                                on temp, reads post-flow water + solid + per-cell world Pos(3, vec4) + lava(4)
+##                                and a sea_radius push param. A wet cell carrying lava QUENCHES hard (the
+##                                submerged-lava heat sink that lets a seabed vent build an island).
 ##   4. lava_phase_sphere3d      — solidify (freeze cold lava to rock) + sustain (keep remaining lava molten);
 ##                                IN-PLACE on lava + temp + solid, no neighbour reads.
 ##   5. magma_buoy_sphere3d      — buoyant overpressure up-flow, TWO passes (0 = copy snapshot, 1 =
@@ -128,9 +129,10 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# buoyancy: 0 = TempIn (LIVE), 1 = TempOut (BACK), 2 = solid, 15 = nbr.
 		_buoy_set[p] = _make_set(rd, _buoy_shader, [
 			[0, temp_live], [1, temp_back], [2, solid], [15, nbr]])
-		# cool: 0 = temp (BACK, in-place), 1 = water (BACK, post-flow), 2 = solid, 3 = pos (vec4).
+		# cool: 0 = temp (BACK, in-place), 1 = water (BACK, post-flow), 2 = solid, 3 = pos (vec4), 4 = lava (BACK,
+		# post-flow) — a wet cell carrying lava quenches HARD (submerged-lava sink; builds the seabed island).
 		_cool_set[p] = _make_set(rd, _cool_shader, [
-			[0, temp_back], [1, water_back], [2, solid], [3, pos]])
+			[0, temp_back], [1, water_back], [2, solid], [3, pos], [4, lava_back]])
 		# lava_phase: 0 = lava (BACK, in-place), 1 = temp (BACK, in-place), 2 = solid.
 		_lava_phase_set[p] = _make_set(rd, _lava_phase_shader, [
 			[0, lava_back], [1, temp_back], [2, solid]])

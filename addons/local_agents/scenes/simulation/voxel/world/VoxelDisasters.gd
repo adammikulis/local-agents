@@ -57,6 +57,50 @@ func spawn_volcano(point: Vector3) -> Node:
 	return v
 
 
+## Seed a volcano on the SEABED — a vent whose surface sits BELOW the sea shell (an ocean basin). Its sustained
+## lava supply then quenches underwater, solidifies, accretes and (given a long run) BREACHES the surface as a new
+## island — the capstone. Searches radial directions for the DEEPEST sea floor well below sea level, PREFERRING the
+## sunlit hemisphere (`sun_dir`, planet->sun) so the emerging island is well lit for the demo; falls back to the
+## deepest sampled point. Returns [volcano_node, world_vent_point] so the harness can frame + prove it.
+func spawn_sea_volcano(sun_dir: Vector3 = Vector3.ZERO) -> Array:
+	if _terrain == null or not _terrain.has_method("planet_center") or not _terrain.has_method("sea_radius"):
+		return [null, Vector3.ZERO]
+	var center: Vector3 = _terrain.planet_center()
+	var sea_r: float = _terrain.sea_radius()
+	var lit: bool = sun_dir.length() > 0.01
+	var best_dir: Vector3 = Vector3.ZERO
+	var best_score: float = -1.0                 # depth below sea, biased toward the lit side
+	var best_depth: float = 0.0
+	# Sample a fibonacci-ish spread of directions on the sphere; keep the deepest submerged floor, favouring daylight.
+	for i in range(160):
+		var u: float = (float(i) + 0.5) / 160.0
+		var phi: float = acos(1.0 - 2.0 * u)
+		var theta: float = float(i) * 2.399963              # golden angle
+		var dir: Vector3 = Vector3(sin(phi) * cos(theta), cos(phi), sin(phi) * sin(theta)).normalized()
+		var sr: float = _terrain.surface_radius(dir)
+		if is_nan(sr):
+			continue
+		var depth: float = sea_r - sr                       # >0 means the floor is under the sea (a basin)
+		if depth <= 2.0:
+			continue                                        # not a genuine basin
+		var facing: float = dir.dot(sun_dir) if lit else 0.0
+		if lit and facing <= 0.15:
+			continue                                        # skip the night side so the island renders lit
+		var score: float = depth + facing * 8.0             # deep AND sunward preferred
+		if score > best_score:
+			best_score = score
+			best_dir = dir
+			best_depth = depth
+	if best_dir == Vector3.ZERO and lit:
+		return spawn_sea_volcano(Vector3.ZERO)               # no lit basin — retry without the daylight constraint
+	if best_dir == Vector3.ZERO:
+		return [null, Vector3.ZERO]                          # no genuine seabed basin found at all
+	var floor_r: float = sea_r - best_depth
+	var vent: Vector3 = center + best_dir * floor_r
+	var v: Node = spawn_volcano(vent)
+	return [v, vent]
+
+
 ## A persistent tornado touches down at `point`. Its strength then lives or dies on the local warm/humid
 ## air it finds (see Tornado.gd) — this only births it.
 func spawn_tornado(point: Vector3) -> Node:

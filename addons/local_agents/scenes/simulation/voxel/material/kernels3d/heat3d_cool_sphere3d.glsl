@@ -20,6 +20,7 @@ layout(set = 0, binding = 0, std430) restrict buffer Temp { float temp[]; };
 layout(set = 0, binding = 1, std430) restrict readonly buffer Water { float water[]; };
 layout(set = 0, binding = 2, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 3, std430) restrict readonly buffer Pos { vec4 cell_pos[]; };   // world position per cell (xyz)
+layout(set = 0, binding = 4, std430) restrict readonly buffer Lava { float lava[]; };      // molten mineral per cell
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -33,6 +34,17 @@ const float WATER_COOL_RATE = 0.12;
 const float SST_SURFACE = 26.0;
 const float WATER_TEMP_DEEP = 10.0;
 const float THERMOCLINE_SCALE = 24.0;
+
+// SUBMERGED-LAVA QUENCH (seabed-volcano capstone). Molten rock (lava) meeting seawater is a VIOLENT heat sink —
+// the water flashes to steam and the lava rinds over in an instant (pillow lava). The gentle WATER_COOL_RATE that
+// suffices for a wet firebreak cannot beat lava_phase's 950°C sustain floor (it relaxes a 950°C cell only to
+// ~838°C, above the 800°C solidus, so it oscillates and NEVER freezes). So a wet cell carrying lava relaxes toward
+// the cold sea target at a MUCH stronger fraction, dropping it under the solidus in ONE step so the M5 record
+// downstream freezes it to rock_fill. This is the universal "water quenches molten rock" property — it makes EVERY
+// underwater lava flow quench fast (pillow basalt, seamounts, and the island the seabed vent builds), not a
+// volcano special case. Above water there is no such term, so subaerial flows stay hot and creep (unchanged).
+const float LAVA_QUENCH_MIN = 0.02;     // a wet cell with at least this much molten mineral quenches hard
+const float LAVA_QUENCH_FRAC = 0.7;     // fraction of the gap to the cold sea target closed per step (950->~296)
 
 // Sea thermal profile — MUST match MaterialHeat3D.sea_water_target(): warm skin near the surface decaying
 // with depth toward the cold deep floor (thermocline). On the sphere `wy` is the cell RADIUS and `sea` the
@@ -55,6 +67,12 @@ void main() {
 	if (solid[idx] == 0.0 && water[idx] >= 0.05) {
 		float radius = length(cell_pos[idx].xyz);
 		float wt = sea_water_target(radius, params.sea_radius);
-		temp[idx] += WATER_COOL_RATE * (wt - temp[idx]) * clamp(water[idx], 0.0, 1.0);
+		if (lava[idx] > LAVA_QUENCH_MIN) {
+			// Molten mineral in seawater: quench HARD toward the cold sea target so it drops under the 800°C
+			// solidus this step and the M5 record freezes it to rock — the seabed volcano's island-builder.
+			temp[idx] = mix(temp[idx], wt, LAVA_QUENCH_FRAC);
+		} else {
+			temp[idx] += WATER_COOL_RATE * (wt - temp[idx]) * clamp(water[idx], 0.0, 1.0);
+		}
 	}
 }

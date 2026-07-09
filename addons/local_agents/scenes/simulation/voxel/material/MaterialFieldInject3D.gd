@@ -19,6 +19,38 @@ func setup(field) -> void:
 
 # --- Injection API (disasters/flood call these) -----------------------------
 
+## SEABED MAGMA SOURCE — the volcano's ONLY authored action (the seabed-island capstone). Extrude `amount` of molten
+## lava from the deep mantle into the OPEN cell at the growing surface front along the vent column: the first
+## non-bedrock cell (rock_fill < 0.5) walking OUTWARD from `world_pos`. Underwater that cell holds seeded seawater, so
+## the erupted lava QUENCHES on the GPU next step (the marine-lava heat sink), the M5 record freezes it to rock_fill,
+## and Stage C stamps the terrain UP a cell. Repeat and the cone climbs until it BREACHES the sea surface = a new
+## ISLAND — nothing here says "island"; it is eruption + water-quench + accretion + SDF growth composing. Unlike
+## add_lava (a CONSERVING bedrock->lava phase move that leaves the lava trapped in dry rock), this is a genuine mantle
+## SOURCE: the deep reservoir is effectively infinite, so mineral_total rises by exactly the mass injected. Returns
+## the mass actually erupted (0 if the column is solid to the grid's outer edge). All emergence is downstream on GPU.
+func erupt_source(world_pos: Vector3, amount: float) -> float:
+	if amount <= 0.0 or _f._lava.size() != _f._cell_count or _f._rock_fill.size() != _f._cell_count:
+		return 0.0
+	var c: int = _f.world_to_cell(world_pos)
+	if c < 0 or c >= _f._cell_count:
+		return 0.0
+	var depth: int = _f._sphere.depth if _f._sphere != null else 1
+	var col_base: int = c - (c % depth)               # radial layer 0 (core side) of this surface column
+	var col_top: int = col_base + depth - 1           # outermost radial layer (sky side)
+	# Walk OUTWARD to the first OPEN cell (bedrock rock_fill < 0.5) — the water cell just above the current surface,
+	# the growing front. Erupt the mantle lava THERE so it emerges INTO the sea (or air, once breached) and quenches.
+	var cell: int = c
+	while cell <= col_top and _f._rock_fill[cell] >= 0.5:
+		cell += 1
+	if cell > col_top:
+		return 0.0                                    # column solid to the grid's outer edge — nowhere to erupt
+	_f._lava[cell] += amount
+	_f._lava_dirty = true
+	if _f._stamp != null:
+		_f._stamp.arm()                               # wake the SDF stamp — the quenched lava will cross rock_fill 0.5
+	return amount
+
+
 ## Flood pool-fill: add water only where the ground is at/below the centre column's ground, so a surge
 ## fills the basin and runs downhill (never climbs a hillside). 3D analogue of the 2.5D add_water_pooled.
 func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:

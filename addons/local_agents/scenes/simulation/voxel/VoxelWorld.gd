@@ -104,6 +104,13 @@ var _wind_view: bool = false            # --wind-view: enable ONLY the emergent 
 var _user_shot_counter: int = 0        # numbers the screenshots the DebugPanel's save button writes
 var _auto_volcano: bool = false
 var _auto_volcano_fired: bool = false
+# --auto-seavolcano: the CAPSTONE. Seed a volcano on the SEABED and let its sustained lava supply build a new
+# ISLAND emergently (eruption -> underwater quench -> solidify -> SDF growth -> breach). Prints SEAVOLCANO={...}
+# proof (vent surface radius vs sea radius, rock_cells, mineral_total) periodically so a long run shows the rise.
+var _auto_seavolcano: bool = false
+var _auto_seavolcano_fired: bool = false
+var _seavolcano: Node = null
+var _seavolcano_vent: Vector3 = Vector3.ZERO
 var _auto_lightning: bool = false
 var _auto_lightning_fired: bool = false
 var _auto_meteor_fired: bool = false
@@ -433,6 +440,8 @@ func _parse_cmdline() -> void:
 			_auto_meteor = true
 		elif arg == "--auto-volcano":
 			_auto_volcano = true
+		elif arg == "--auto-seavolcano":
+			_auto_seavolcano = true
 		elif arg == "--no-streamer":
 			_streamer_enabled = false
 		elif arg.begins_with("--streamer-persona="):
@@ -476,7 +485,11 @@ func _process(delta: float) -> void:
 	# Planet axial SPIN — the body (its terrain + actors are children) turns as ONE moving frame while the
 	# camera stays in the system frame, so day/night sweeps across the surface. Starts after life is placed so
 	# spawn stays deterministic. THE moving-frame validation: everything on the body must ride it.
-	if _body != null and _spawned_initial and _terrain.is_planet():
+	# FROZEN during the seabed-volcano capstone: the MaterialField grid is world-fixed, so a long accretion under
+	# a spinning terrain would SMEAR the growing cone into an arc (the field's rock_fill and the terrain SDF drift
+	# apart as the body turns). Freezing the spin for the --auto-seavolcano demo keeps the field and terrain aligned
+	# so the island piles at exactly ONE spot. (Contract-sanctioned option; costs only the day/night sweep.)
+	if _body != null and _spawned_initial and _terrain.is_planet() and not _auto_seavolcano:
 		_body.rotate(PLANET_SPIN_AXIS.normalized(), PLANET_SPIN_RATE * delta)
 	# Spawn the starting ecology once terrain has streamed + collided at the surface.
 	if not _spawned_initial and _body != null:
@@ -553,6 +566,35 @@ func _process(delta: float) -> void:
 				if _camera != null and _camera.has_method("frame_vista"):
 					_camera.frame_vista(Vector3(20.0, oh, 20.0))
 				_auto_volcano_fired = true
+
+	# CAPSTONE — auto-seavolcano: seed a SEABED vent EARLY so the sustained supply has a long window to build a
+	# new island underwater and breach the surface. Frame the camera on the SEA SURFACE above the vent so the
+	# before/after shots show open sea becoming land. The island is 100% emergent (quench+solidify+SDF growth).
+	if _auto_seavolcano and not _auto_seavolcano_fired and _spawned_initial and _frame >= 120:
+		var sun_dir: Vector3 = (_star.global_position - _body.center()).normalized() if _star != null else Vector3.UP
+		var sv: Array = _disasters.spawn_sea_volcano(sun_dir)
+		_seavolcano = sv[0]
+		_seavolcano_vent = sv[1]
+		if _seavolcano != null and _camera != null:
+			# A lit close-up: sit on the sunward side, above the sea surface over the vent, looking down at where the
+			# island emerges. Orbit-mode _process won't override a manual transform, so this framing holds.
+			var vdir: Vector3 = (_seavolcano_vent - _body.center()).normalized()
+			var sea_pt: Vector3 = _body.center() + vdir * (_terrain.sea_radius() + 2.0)
+			var cam_pos: Vector3 = sea_pt + sun_dir * 46.0 + vdir * 30.0
+			_camera.global_position = cam_pos
+			_camera.look_at(sea_pt, vdir)
+		_auto_seavolcano_fired = true
+		var floor_r: float = (_seavolcano_vent - _body.center()).length() if _seavolcano != null else 0.0
+		print("SEAVOLCANO_SEED={vent:%v, floor_r:%.1f, sea_r:%.1f}" % [_seavolcano_vent, floor_r, _terrain.sea_radius()])
+	# Periodic island-growth proof: the vent column's surface radius rising toward/above sea_radius IS the
+	# emergent island. Cheap (one raycast + the running supply ledger).
+	if _auto_seavolcano and _seavolcano != null and _frame % 150 == 0:
+		var vd: Vector3 = (_seavolcano.global_position - _body.center()).normalized()
+		var vr: float = _terrain.surface_radius(vd)
+		var sea_r2: float = _terrain.sea_radius()
+		print("SEAVOLCANO={frame:%d, vent_r:%.2f, sea_r:%.2f, above_sea:%s, supplied:%.0f}" % [
+			_frame, (vr if not is_nan(vr) else -1.0), sea_r2,
+			str((not is_nan(vr)) and vr > sea_r2), _seavolcano.total_supplied])
 
 	# Rock Stage C proof: deposit rock into a VOID cell ~3 units above the top surface, then confirm the
 	# rock_fill 0.5-crossing GROWS terrain (is_solid flips false->true at the stamp point, captured
