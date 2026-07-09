@@ -271,7 +271,7 @@ func _process(delta: float) -> void:
 	# camera stays in the system frame, so day/night sweeps across the surface. Starts after life is placed so
 	# spawn stays deterministic. FROZEN during the seabed-volcano capstone so the world-fixed field and the
 	# spinning terrain SDF stay aligned (else a long accretion would smear the cone into an arc).
-	if _body != null and _spawn.is_spawned() and _terrain.is_planet() and not _input.auto_seavolcano():
+	if _body != null and _spawn.is_spawned() and _terrain.is_planet() and not _input.auto_seavolcano() and not _input.manual_rotate():
 		_body.rotate(PLANET_SPIN_AXIS.normalized(), PLANET_SPIN_RATE * delta)
 	# Spawn the starting ecology once terrain has streamed + collided at the surface.
 	_spawn.try_spawn(_input.overview(), _input.farview(), _input.auto_meteor(), _input.auto_select())
