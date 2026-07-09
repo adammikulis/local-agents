@@ -129,7 +129,7 @@ static func nearest_visible_in_state(c, pos: Vector3, group: String, states) -> 
 static func follow_prey_scent(c, pos: Vector3) -> Vector3:
 	if c._material == null or not c._material.has_method("scent_gradient") or c.preys_on.is_empty():
 		return Vector3.ZERO
-	var dir: Vector3 = c._material.scent_gradient(pos, LAMaterialScent3D.PREY)
+	var dir: Vector3 = c._material.scent_gradient(pos, LAMaterialField3D.SCENT_PREY)
 	if dir != Vector3.ZERO:
 		dir.y = 0.0
 		return dir

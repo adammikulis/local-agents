@@ -55,6 +55,7 @@ func setup(from_terrain, from_species: String, from_owner_family: int, from_in_t
 			_:
 				_build_earthen_mound()
 		_snap_to_terrain()
+		_orient_radial()
 
 	# A layer-2 pick collider so the player's selection raycast (VoxelWorld
 	# ._select_at, which collides with bodies) can hit the shelter. Added after
@@ -279,12 +280,37 @@ func _build_hut() -> void:
 
 
 func _snap_to_terrain() -> void:
-	if terrain == null or not terrain.has_method("surface_height"):
+	if terrain == null:
+		return
+	# PLANET: snap onto the solid surface along our radial ray (the flat surface_height path is NAN here).
+	if terrain.has_method("is_planet") and terrain.is_planet():
+		var center: Vector3 = terrain.planet_center()
+		var dir: Vector3 = (global_position - center).normalized()
+		var surf: Vector3 = terrain.surface_point(dir)
+		if not is_nan(surf.x):
+			global_position = surf
+		return
+	if not terrain.has_method("surface_height"):
 		return
 	var height: float = terrain.surface_height(global_position.x, global_position.z)
 	if is_nan(height):
 		return
 	global_position.y = height
+
+
+## Align local +Y to the radial "up" so a ground shelter sits flat on a spherical planet. No-op on the
+## flat island (default +Y orientation is preserved), keeping flat behaviour unchanged.
+func _orient_radial() -> void:
+	if terrain == null or not (terrain.has_method("is_planet") and terrain.is_planet()):
+		return
+	var up: Vector3 = terrain.up_at(global_position)
+	if up.length() < 0.0001:
+		return
+	up = up.normalized()
+	var ref: Vector3 = Vector3.FORWARD if absf(up.dot(Vector3.FORWARD)) < 0.9 else Vector3.RIGHT
+	var right: Vector3 = up.cross(ref).normalized()
+	var fwd: Vector3 = right.cross(up).normalized()
+	global_transform.basis = Basis(right, up, fwd)
 
 
 ## Reset the idle timer -- called when an owner visits/tends the nest.

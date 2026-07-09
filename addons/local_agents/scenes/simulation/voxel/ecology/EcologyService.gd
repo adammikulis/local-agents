@@ -225,16 +225,95 @@ func spawn_initial(counts: Dictionary) -> void:
 
 
 func _random_spawn_point() -> Vector3:
+	# On a sphere the whole surface is fair game: pick a random unit direction from the planet
+	# centre and hand back a point along it (above the surface); _place_on_surface() re-projects
+	# it down to the meshed ground radially. Flat mode keeps the square XZ scatter.
+	if _is_planet():
+		return terrain.planet_center() + _random_sphere_dir() * (terrain.planet_radius() + 1.0)
 	var x: float = randf_range(-spawn_extent, spawn_extent)
 	var z: float = randf_range(-spawn_extent, spawn_extent)
 	return Vector3(x, 0.0, z)
 
 
-# Resolve a surface Y for a horizontal position. Returns a positioned Vector3, or
-# null if the terrain isn't meshed there yet.
+# True when the terrain body is a sphere (radial contract) rather than a flat heightmap.
+func _is_planet() -> bool:
+	return terrain != null and terrain.has_method("is_planet") and terrain.is_planet()
+
+
+# A uniform-ish random unit direction on the sphere (reject the degenerate near-zero vector).
+func _random_sphere_dir() -> Vector3:
+	var v: Vector3 = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0)
+	while v.length() < 0.05:
+		v = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0)
+	return v.normalized()
+
+
+# Offset a surface anchor by (u, v) metres within its LOCAL TANGENT PLANE, then re-project the
+# displaced point back onto the sphere surface. This keeps clustered spawns (forests, nests, seeds)
+# hugging the ground instead of drifting radially in/out as a world-axis XZ offset would near the
+# "sides" of the globe. Returns a surface point (NAN-x if that patch isn't meshed).
+func _tangent_offset_point(anchor: Vector3, u: float, v: float) -> Vector3:
+	var pc: Vector3 = terrain.planet_center()
+	var up: Vector3 = terrain.up_at(anchor)
+	if up.length() < 0.001:
+		up = (anchor - pc).normalized()
+	up = up.normalized()
+	var ref: Vector3 = Vector3.RIGHT
+	if absf(up.dot(ref)) > 0.99:
+		ref = Vector3.FORWARD
+	var t1: Vector3 = ref.cross(up).normalized()
+	var t2: Vector3 = up.cross(t1).normalized()
+	var displaced: Vector3 = anchor + t1 * u + t2 * v
+	return terrain.surface_point((displaced - pc).normalized())
+
+
+# Orient a spawned static actor (tree/plant/rock) so its local +Y points along the radial up at its
+# position — otherwise everything would stand parallel to world +Y and lean over as you round the
+# globe. No-op in flat mode (flat behaviour preserved exactly). Preserves the node's current scale.
+func _orient_to_surface(node: Node3D, pos: Vector3) -> void:
+	if node == null or not _is_planet():
+		return
+	var up: Vector3 = terrain.up_at(pos)
+	if up.length() < 0.001:
+		return
+	up = up.normalized()
+	if node.has_method("set_up"):
+		node.set_up(up)
+		return
+	var ref: Vector3 = Vector3.RIGHT
+	if absf(up.dot(ref)) > 0.99:
+		ref = Vector3.FORWARD
+	var right: Vector3 = ref.cross(up).normalized()
+	var fwd: Vector3 = up.cross(right).normalized()
+	var scl: Vector3 = node.scale
+	node.global_transform = Transform3D(Basis(right, up, fwd), pos)
+	node.scale = scl
+
+
+# True when `placed` sits in water. On a planet that means inside the sea shell (below sea level);
+# on flat terrain it defers to the field's XZ water-column test.
+func _is_water_pos(placed: Vector3) -> bool:
+	if _is_planet():
+		return (placed - terrain.planet_center()).length() <= terrain.sea_radius()
+	if _material == null or not _material.has_method("is_water_at"):
+		return false
+	return _material.is_water_at(placed.x, placed.z)
+
+
+# Resolve a surface position for a world point. On a planet this projects the point radially onto the
+# meshed sphere surface (via its direction from the centre); on flat terrain it resolves the heightmap
+# Y under the XZ. Returns a positioned Vector3, or null if the terrain isn't meshed there yet.
 func _place_on_surface(world_pos: Vector3):
 	if terrain == null:
 		return null
+	if _is_planet():
+		var d: Vector3 = world_pos - terrain.planet_center()
+		if is_nan(d.x) or d.length() < 0.001:
+			return null
+		var p: Vector3 = terrain.surface_point(d.normalized())
+		if is_nan(p.x):
+			return null
+		return p
 	var y: float = NAN
 	if terrain.has_method("surface_height"):
 		y = float(terrain.surface_height(world_pos.x, world_pos.z))
@@ -273,7 +352,7 @@ func _instance_actor(kind: String, placed: Vector3, genome = null) -> Node:
 		# Aquatic species (config aquatic:true) are all driven by the ONE LAFish script — a fish, turtle,
 		# crab or whale differ only by config (salinity/depth band, body, speed). They exist only in water.
 		if bool(cfg.get("aquatic", false)):
-			if _material == null or not _material.has_method("is_water_at") or not _material.is_water_at(placed.x, placed.z):
+			if not _is_water_pos(placed):
 				return null
 			var fish: FishScript = FishScript.new()
 			actors_root.add_child(fish)
@@ -291,6 +370,9 @@ func _instance_actor(kind: String, placed: Vector3, genome = null) -> Node:
 		if creature.has_method("set_cognition_scheduler"):
 			creature.set_cognition_scheduler(_cognition_sched)
 		node = creature
+	# Stand static vegetation/rocks up along the radial on a planet (no-op on flat terrain).
+	if node != null and (kind == "plant" or kind == "tree" or kind == "rock"):
+		_orient_to_surface(node as Node3D, placed)
 	return node
 
 
@@ -303,12 +385,17 @@ func _tree_config() -> Dictionary:
 func populate_environment(rock_count: int, forest_clusters: int) -> void:
 	for i in rock_count:
 		spawn("rock", _random_spawn_point())
+	var planet: bool = _is_planet()
 	for c in forest_clusters:
 		var center: Vector3 = _random_spawn_point()
 		var trees: int = randi_range(7, 15)
 		for t in trees:
-			var off: Vector3 = Vector3(randf_range(-14, 14), 0, randf_range(-14, 14))
-			spawn("tree", center + off)
+			if planet:
+				# Scatter the cluster in the centre's tangent plane, then re-project to the sphere.
+				spawn("tree", _tangent_offset_point(center, randf_range(-14, 14), randf_range(-14, 14)))
+			else:
+				var off: Vector3 = Vector3(randf_range(-14, 14), 0, randf_range(-14, 14))
+				spawn("tree", center + off)
 
 
 # Deterministic point-source falloff: MAX (1.0) at the centre, 0.0 at/beyond the edge, squared
@@ -438,12 +525,15 @@ func _tick_breeding() -> void:
 		while pb == pa and guard < 4:
 			pb = adults[randi() % adults.size()] as Node3D
 			guard += 1
-		var offset: Vector3 = Vector3(randf_range(-2.0, 2.0), 0.0, randf_range(-2.0, 2.0))
 		# Breed AT a parent's nest if it has one — young are born at home and inherit the site.
 		var base_pos: Vector3 = pa.global_position
 		if bool(pa.get("has_nest")) and not is_inf(float((pa.get("nest_pos") as Vector3).x)):
 			base_pos = pa.get("nest_pos")
-		var placed = _place_on_surface(base_pos + offset)
+		var placed
+		if _is_planet():
+			placed = _place_on_surface(_tangent_offset_point(base_pos, randf_range(-2.0, 2.0), randf_range(-2.0, 2.0)))
+		else:
+			placed = _place_on_surface(base_pos + Vector3(randf_range(-2.0, 2.0), 0.0, randf_range(-2.0, 2.0)))
 		if placed != null:
 			var child = _instance_actor(kind, placed, _breed_genome(pa, pb))
 			_inherit_nest(pa, child)
@@ -525,7 +615,8 @@ func seed_plant_at(world_pos: Vector3) -> void:
 # after the sea level is locked. Ongoing recovery is handled by _tick_aquatic; this just makes the sea
 # and lakes feel alive from the first frame instead of trickling in.
 func stock_initial_aquatic() -> void:
-	if _material == null or not _material.has_method("is_water_at"):
+	# On a planet the sea shell is defined radially, so XZ is_water_at isn't the gate — only require it flat.
+	if not _is_planet() and (_material == null or not _material.has_method("is_water_at")):
 		return
 	for kind in _aquatic_kinds():
 		var cfg: Dictionary = _species_config(String(kind))
@@ -541,7 +632,7 @@ func stock_initial_aquatic() -> void:
 # in the deep sea, brackish species along the coast — no hand-placed spawn points, all emergent. One
 # individual of one under-cap species is added per tick.
 func _tick_aquatic() -> void:
-	if _material == null or not _material.has_method("is_water_at"):
+	if not _is_planet() and (_material == null or not _material.has_method("is_water_at")):
 		return
 	for kind in _aquatic_kinds():
 		var cfg: Dictionary = _species_config(String(kind))
@@ -559,6 +650,8 @@ func _tick_aquatic() -> void:
 # point, or a NAN-x vector if none was found this tick. This is what places each species into the right
 # water (fresh / brackish / salt, shallow / deep) without a single per-species branch.
 func _random_aquatic_point(cfg: Dictionary) -> Vector3:
+	if _is_planet():
+		return _random_aquatic_point_planet(cfg)
 	var smin: float = float(cfg.get("salinity_min", 0.0))
 	var smax: float = float(cfg.get("salinity_max", 1.0))
 	var dmin: float = float(cfg.get("depth_min", 0.0))
@@ -578,6 +671,27 @@ func _random_aquatic_point(cfg: Dictionary) -> Vector3:
 		if not is_nan(depth) and (depth < dmin or depth > dmax):
 			continue
 		return placed
+	return Vector3(NAN, 0.0, 0.0)
+
+
+# Planet aquatic sampling: pick a random direction where the GROUND surface sits below sea level, then
+# place the individual somewhere in the underwater shell between the seabed and the sea radius, inside
+# the species' depth band. No XZ column reads — everything is radial. NAN-x vector if none found.
+func _random_aquatic_point_planet(cfg: Dictionary) -> Vector3:
+	var dmin: float = float(cfg.get("depth_min", 0.0))
+	var dmax: float = float(cfg.get("depth_max", 999.0))
+	var pc: Vector3 = terrain.planet_center()
+	var sea_r: float = terrain.sea_radius()
+	for i in range(AQUATIC_SAMPLE_TRIES):
+		var dir: Vector3 = _random_sphere_dir()
+		var ground_r: float = terrain.surface_radius(dir)
+		if is_nan(ground_r) or ground_r >= sea_r:
+			continue                                  # unmeshed, or dry land poking above sea level
+		var lo: float = maxf(ground_r, sea_r - dmax)  # deepest allowed (clamped to just above the seabed)
+		var hi: float = sea_r - dmin                  # shallowest allowed (just below the surface)
+		if hi <= lo:
+			continue
+		return pc + dir * randf_range(lo, hi)
 	return Vector3(NAN, 0.0, 0.0)
 
 
@@ -603,8 +717,11 @@ func _tick_plant_seeding() -> void:
 		if p.has_method("has_seed") and p.has_seed():
 			if randf() > 0.4:
 				continue
-			var offset: Vector3 = Vector3(randf_range(-3.5, 3.5), 0.0, randf_range(-3.5, 3.5))
-			var placed = _place_on_surface((p as Node3D).global_position + offset)
+			var placed
+			if _is_planet():
+				placed = _place_on_surface(_tangent_offset_point((p as Node3D).global_position, randf_range(-3.5, 3.5), randf_range(-3.5, 3.5)))
+			else:
+				placed = _place_on_surface((p as Node3D).global_position + Vector3(randf_range(-3.5, 3.5), 0.0, randf_range(-3.5, 3.5)))
 			if placed != null and _can_grow_here(placed):
 				_instance_actor("plant", placed)   # seed only takes on warm, snow-free ground (emergent treeline)
 			if p.has_method("consume"):

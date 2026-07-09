@@ -23,12 +23,28 @@ const DebugPanelScript: GDScript = preload("res://addons/local_agents/scenes/sim
 const DebugOverlayScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugOverlay.gd")
 const SkyCycleScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelSkyCycle.gd")
 const StreamerHostScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelStreamerHost.gd")
+const StarScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/system/Star.gd")
+const PlanetBodyScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/system/PlanetBody.gd")
+const SphereGridScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/sphere/SphereGrid.gd")
+
+# --- SOLAR-SYSTEM-FIRST: the world is a star + planet body (see TODO). Radial is the default; flat retired. ---
+const PLANET_RADIUS: float = 250.0
+const PLANET_RELIEF: float = 16.0
+const PLANET_FEATURE: float = 78.0
+# Sea sits INSIDE the relief band (surface radius spans ~radius±relief) so low ground floods and high
+# ground stays dry — a real coastline. Just below the mean radius → a bit more land than sea.
+const PLANET_SEA_RADIUS: float = 248.0
+const STAR_POSITION: Vector3 = Vector3(900.0, 320.0, 620.0)
+const PLANET_SPIN_RATE: float = 0.10        # rad/s axial spin (~1 rotation / 63s) — day/night sweep
+const PLANET_SPIN_AXIS: Vector3 = Vector3(0.15, 1.0, 0.0)   # slightly tilted (obliquity); normalized at use
 
 const INITIAL_COUNTS: Dictionary = {"plant": 70, "rabbit": 16, "fox": 3, "bird": 14, "villager": 6, "vulture": 5}
 const ROCK_COUNT: int = 44
 const FOREST_CLUSTERS: int = 7
 
-var _terrain                # LAVoxelTerrainService
+var _star: Node3D = null    # LAStar — positioned light + gravity + solar driver
+var _body: Node3D = null    # LAPlanetBody — the one planet (owns terrain + actors in its local frame)
+var _terrain                # LAVoxelTerrainService (from _body.terrain())
 var _camera: Camera3D
 var _ecology: Node          # LAEcologyService
 var _hud: CanvasLayer       # LASpawnPaletteHud
@@ -134,31 +150,41 @@ func _ready() -> void:
 	add_child(_sky)
 	_sky.setup(self, _time_of_day, _lunar_phase)
 
-	# --- Terrain ---
-	_terrain = TerrainServiceScript.new()
-	# Larger world: keep all voxel data resident over a big bounded area so edits work
-	# anywhere, with a long view distance for the vistas.
-	# view_distance must exceed the camera's MAX_DISTANCE (1400) so the island stays meshed when the
-	# player zooms all the way out — otherwise the land unloads past ~640 units and only the ocean plane
-	# is left (the "ocean doesn't line up with the land at full zoom" report). The world is only 600
-	# wide, so this just keeps the whole island+seabed resident at LOD; distant terrain stays coarse.
-	_terrain.build(self, {"bounds_half_xz": 300, "view_distance": 1700})
+	# --- The star (positioned light + gravity + solar driver) ---
+	_star = StarScript.new()
+	_star.name = "Star"
+	add_child(_star)
+	_star.setup({"position": STAR_POSITION, "energy": 1.4})
+	# The sky cycle owns the visual sun for now; the star supplies position/gravity/solar math. Hide its own
+	# light so they don't double up (wiring the sky's sun to follow the star = the sky/solar fan-out unit).
+	if _star.light() != null:
+		_star.light().visible = false
+
+	# --- The planet body: one world in a LOCAL frame; owns terrain + actors so they ride its transform.
+	# (Native SDF sphere via build_planet. Whole body resident so off-camera edits apply anywhere.) ---
+	_body = PlanetBodyScript.new()
+	_body.name = "PlanetBody"
+	add_child(_body)
+	_body.setup({"radius": PLANET_RADIUS, "relief": PLANET_RELIEF, "feature_size": PLANET_FEATURE,
+		"sea_radius": PLANET_SEA_RADIUS, "view_distance": 2000, "seed": 1337})
+	_terrain = _body.terrain()
+	# PLANETARY SKY: view from space (dark starfield + low ambient) with the sun FIXED shining star->planet;
+	# the spinning planet turns under it → a stark star-lit day/night terminator sweeps the surface.
+	if _sky.has_method("set_space_mode"):
+		_sky.set_space_mode((_body.center() - _star.global_position).normalized())
 
 	# --- Camera + voxel viewer ---
 	_camera = CameraRigScript.new()
 	_camera.name = "CameraRig"
 	add_child(_camera)
 	_camera.current = true
-	_terrain.attach_viewer(_camera)
-	# Bound the pan to the island + its ocean ring (a little inside the 300-unit world edge) so the
-	# player can roam the coast and open water but never fly off past the horizon into empty void.
-	if _camera.has_method("set_pan_limit"):
-		_camera.set_pan_limit(275.0)
+	_body.attach_viewer(_camera)
+	# Orbit-the-planet camera (radial up, MMB-drag orbit, scroll zoom) framing the body from space.
+	if _camera.has_method("set_orbit_target"):
+		_camera.set_orbit_target(_body.center(), _body.radius())
 
-	# --- Actors + ecology ---
-	_actors_root = Node3D.new()
-	_actors_root.name = "Actors"
-	add_child(_actors_root)
+	# --- Actors + ecology (actors live UNDER the body so they ride its frame) ---
+	_actors_root = _body.actors_root
 	_ecology = EcologyServiceScript.new()
 	_ecology.name = "Ecology"
 	add_child(_ecology)
@@ -212,8 +238,14 @@ func _ready() -> void:
 	add_child(_material)
 	# 8-unit cells over the island's Y span (~130k cells); the whole heat+water+atmosphere+lava step runs
 	# on the GPU (resident SSBOs, one readback/frame). Headless falls back to the CPU oracle.
-	var sea3d: float = _terrain.sea_level() if _terrain.has_method("sea_level") else 0.0
-	_material.setup(_terrain, 300.0, 8.0, -80.0, 90.0, sea3d)
+	# CUBED-SPHERE field (Phase B): a SphereGrid shell enclosing the planet (crust + atmosphere), gathered via
+	# the neighbour table with radial gravity. ~123K cells (res 32/face × depth 20 × 6). Down = inward-radial.
+	var sea3d: float = _body.sea_radius()
+	var field_grid: RefCounted = SphereGridScript.new()
+	field_grid.build(32, 20, 170.0, 8.0, _body.center())   # core_radius 170, cell 8 → shell 170..330
+	_material.setup_sphere(field_grid, _terrain)
+	if _material.has_method("sample_solidity"):
+		_material.sample_solidity()                        # fill the solid mask from the terrain SDF
 	LASimReport.register(Callable(_material, "report"))   # field channel aggregates flow into SIM_REPORT
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.population(self))
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.cognition(self))
@@ -231,7 +263,11 @@ func _ready() -> void:
 	# draws the flat bulk cheaply, while the CA surface mesh renders only waves/surges that deviate.
 	_ocean = OceanPlaneScript.new()
 	add_child(_ocean)
-	_ocean.setup(_terrain.sea_level() if _terrain.has_method("sea_level") else 0.0, _camera)
+	# Planet: a finite spherical sea SHELL at sea_radius. Flat: the camera-following horizontal plane.
+	if _terrain.is_planet():
+		_ocean.setup_sphere(_body.center(), _body.sea_radius())
+	else:
+		_ocean.setup(_terrain.sea_level(), _camera)
 
 	# Render the field's emergent condensate: a cloud sheet aloft + a ground-hugging fog sheet, both
 	# sampling the field's own density grids so they show exactly what the water cycle grew.
@@ -243,6 +279,11 @@ func _ready() -> void:
 	_fog.name = "FogLayer"
 	add_child(_fog)
 	_fog.setup(_material, true)
+	# On a planet these are flat horizontal SHEETS driven by the interim +Y atmosphere — they read as grey
+	# wisps against space. Hidden until Phase B's radial atmosphere grows real cloud/fog SHELLS.
+	if _terrain.is_planet():
+		_clouds.visible = false
+		_fog.visible = false
 
 	# The sky cycle reads these each frame (rain/cloud dimming + cloud/fog sheet tinting); bind them now
 	# that they exist. Order-independent — the cycle only touches them from its per-frame update().
@@ -253,7 +294,9 @@ func _ready() -> void:
 	_rain = RainLayerScript.new()
 	add_child(_rain)
 	_rain.setup(_material, _camera)
-	if _rain_force and _rain.has_method("set_force"):
+	if _terrain.is_planet():
+		_rain.visible = false                       # flat rain streaks at the camera; radial rain = Phase B
+	elif _rain_force and _rain.has_method("set_force"):
 		_rain.set_force(true)
 
 	# Feed the live temperature texture to the terrain shader so HOT GROUND GLOWS (meteor craters,
@@ -441,32 +484,49 @@ func _process(delta: float) -> void:
 	if _ecology != null and _ecology.has_method("set_time_of_day"):
 		_ecology.set_time_of_day(_sky.time_of_day())
 	_update_music_mood()
-	# Spawn the starting ecology once terrain has streamed + collided near origin.
-	if not _spawned_initial and _terrain != null:
-		if _terrain.is_ready_at(Vector3(0, 0, 0)):
+	# Planet axial SPIN — the body (its terrain + actors are children) turns as ONE moving frame while the
+	# camera stays in the system frame, so day/night sweeps across the surface. Starts after life is placed so
+	# spawn stays deterministic. THE moving-frame validation: everything on the body must ride it.
+	if _body != null and _spawned_initial and _terrain.is_planet():
+		_body.rotate(PLANET_SPIN_AXIS.normalized(), PLANET_SPIN_RATE * delta)
+	# Spawn the starting ecology once terrain has streamed + collided at the surface.
+	if not _spawned_initial and _body != null:
+		# Gate on the surface being meshed. On a planet, "ready" = the top-of-planet patch has collided.
+		var ready_probe: Vector3 = _body.center() + Vector3.UP * (_body.radius() + 30.0)
+		if _body.is_ready_at(ready_probe):
 			_ready_wait_ticks += 1
 			if _ready_wait_ticks > 6:
-				# Carve real 3D caves into the island BEFORE seeding water, so the terrain is genuinely 3D
-				# (tunnels/caverns fluids can pour into) and the sea/springs settle around the reshaped rock.
-				if _terrain.has_method("carve_caves"):
-					_terrain.carve_caves(1337)
 				LASimReport.reset()
-				_ecology.spawn_initial(INITIAL_COUNTS)
-				_ecology.populate_environment(ROCK_COUNT, FOREST_CLUSTERS)
-				_seed_water()
-				# After the sea level is locked (_seed_water), seed initial ocean + lake life so the
-				# water reads alive from the start; _tick_aquatic keeps every species topped up after.
-				if _ecology.has_method("stock_initial_aquatic"):
-					_ecology.stock_initial_aquatic()
-				_disasters.spawn_default_volcano()
-				# Frame a vista at the real surface height (only when not driven by a harness cam).
-				if _overview and _camera.has_method("frame_overview"):
-					var ohv: float = _terrain.surface_height(0.0, 0.0)
-					_camera.frame_overview(Vector3(0.0, (ohv if not is_nan(ohv) else 20.0), 0.0), 1250.0 if _farview else 360.0)
-				elif not _auto_meteor and not _auto_select and _camera.has_method("frame_vista"):
-					var oh: float = _terrain.surface_height(0.0, 0.0)
-					if not is_nan(oh):
-						_camera.frame_vista(Vector3(0.0, oh, 0.0))
+				if _terrain.is_planet():
+					# Radial world: ecology places life ON the sphere (surface_point spawn), fish in the sea
+					# shell; the orbit camera frames the body. Still-flat steps (caves, flat sea seeding,
+					# scripted volcano) are skipped pending their radial versions (Phase B field / Phase C).
+					_ecology.spawn_initial(INITIAL_COUNTS)
+					_ecology.populate_environment(ROCK_COUNT, FOREST_CLUSTERS)
+					if _ecology.has_method("stock_initial_aquatic"):
+						_ecology.stock_initial_aquatic()
+					if _camera.has_method("set_orbit_target"):
+						_camera.set_orbit_target(_body.center(), _body.radius())
+					# Magma CORE: pin the planet's centre hot → radial geothermal gradient. Interim seed on the
+					# box grid; Phase B's cubed-sphere field makes this the innermost radial layers natively.
+					if _material.has_method("add_magma_source"):
+						_material.add_magma_source(_body.center(), 1300.0, 0.6)
+				else:
+					if _terrain.has_method("carve_caves"):
+						_terrain.carve_caves(1337)
+					_ecology.spawn_initial(INITIAL_COUNTS)
+					_ecology.populate_environment(ROCK_COUNT, FOREST_CLUSTERS)
+					_seed_water()
+					if _ecology.has_method("stock_initial_aquatic"):
+						_ecology.stock_initial_aquatic()
+					_disasters.spawn_default_volcano()
+					if _overview and _camera.has_method("frame_overview"):
+						var ohv: float = _terrain.surface_height(0.0, 0.0)
+						_camera.frame_overview(Vector3(0.0, (ohv if not is_nan(ohv) else 20.0), 0.0), 1250.0 if _farview else 360.0)
+					elif not _auto_meteor and not _auto_select and _camera.has_method("frame_vista"):
+						var oh: float = _terrain.surface_height(0.0, 0.0)
+						if not is_nan(oh):
+							_camera.frame_vista(Vector3(0.0, oh, 0.0))
 				_spawned_initial = true
 				_hud.set_status("World ready — spawn things, click to inspect, press V for scent.")
 	_interaction.update_hand(delta)

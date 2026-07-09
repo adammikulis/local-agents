@@ -408,11 +408,20 @@ func _physics_process(delta: float) -> void:
 		return
 
 	var pos: Vector3 = global_position
+	# Local "up": radial on a planet, +Y on the flat island. Used for every up-reference below.
+	var up: Vector3 = terrain.up_at(pos) if terrain != null else Vector3.UP
 
 	# BREATHE YOUR MEDIUM (same 3D head-cell read as land animals). GILLS ("water") breathe underwater and
 	# suffocate in air; LUNGS ("air") breathe at the surface and drown if their reserve runs out underwater.
-	# Basking species (handled above) are exempt while hauled out.
-	var submerged: bool = material.has_method("is_submerged_at") and material.is_submerged_at(pos.x, pos.y + size, pos.z)
+	# Basking species (handled above) are exempt while hauled out. The "head" is one body-radius up.
+	var submerged: bool
+	if terrain != null and terrain.is_planet():
+		# On a planet, submerged = the top of the body stays below the spherical sea shell.
+		var body_r: float = pos.distance_to(terrain.planet_center())
+		submerged = (terrain.sea_radius() - (body_r + size)) > 0.0
+	else:
+		var head: Vector3 = pos + up * size
+		submerged = material.has_method("is_submerged_at") and material.is_submerged_at(head.x, head.y, head.z)
 	var in_medium: bool = submerged if breathes == "water" else not submerged
 	if in_medium:
 		_breath = minf(_breath + BREATH_REFILL * delta, breath_capacity)
@@ -432,61 +441,66 @@ func _physics_process(delta: float) -> void:
 		_wander_timer -= delta
 		if _wander_timer <= 0.0:
 			_wander_timer = randf_range(1.0, 2.5)
-			var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0) * 0.7
+			# Isotropic 3D jitter; the tangent-plane projection below keeps it in the swim plane
+			# (identical to the old flat (x,0,z) jitter when up == +Y).
+			var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0) * 0.7
 			desired = _heading + jitter
-		desired += _school_steer(pos)
-	desired.y = 0.0
+		desired += _school_steer(pos, up)
+	# Flatten the intention into the local tangent plane (was desired.y = 0.0 for the flat +Y world).
+	desired = desired - up * desired.dot(up)
 
 	# Test the step: if it would leave habitable water (dry, OR water outside this species' salinity /
 	# depth band), steer back toward the nearest habitable cell. This ONE rule self-sorts every species.
 	var candidate: Vector3 = desired.normalized() if desired.length() > 0.001 else _heading
 	var step_len: float = speed * delta
-	var next_x: float = pos.x + candidate.x * step_len
-	var next_z: float = pos.z + candidate.z * step_len
-	if not _habitable(next_x, next_z):
-		# A basking species at the water's edge may instead haul out onto the beach to rest.
-		if basks and _bask_cd <= 0.0 and randf() < BASK_CHANCE and _try_bask(next_x, next_z):
-			return
-		var back: Vector3 = _find_habitable_dir(pos)
-		if back != Vector3.ZERO:
-			candidate = back
-			state = "seek"
-		else:
-			candidate = -_heading         # no habitable water found near: turn around
-			state = "swim"
-		next_x = pos.x + candidate.x * step_len
-		next_z = pos.z + candidate.z * step_len
-		# If even the corrective step is unhabitable, hold position this frame (edge of a shrinking pool).
-		if not _habitable(next_x, next_z):
-			next_x = pos.x
-			next_z = pos.z
+
+	if terrain != null and terrain.is_planet():
+		# Radial mode: swim tangentially inside the spherical water shell; the helper sets global_position.
+		if _swim_planet(pos, candidate, step_len, up):
+			return                     # hauled out to bask this frame
 	else:
-		state = "swim"
+		var next_x: float = pos.x + candidate.x * step_len
+		var next_z: float = pos.z + candidate.z * step_len
+		if not _habitable(next_x, next_z):
+			# A basking species at the water's edge may instead haul out onto the beach to rest.
+			if basks and _bask_cd <= 0.0 and randf() < BASK_CHANCE and _try_bask(next_x, next_z):
+				return
+			var back: Vector3 = _find_habitable_dir(pos)
+			if back != Vector3.ZERO:
+				candidate = back
+				state = "seek"
+			else:
+				candidate = -_heading         # no habitable water found near: turn around
+				state = "swim"
+			next_x = pos.x + candidate.x * step_len
+			next_z = pos.z + candidate.z * step_len
+			# If even the corrective step is unhabitable, hold position this frame (edge of a shrinking pool).
+			if not _habitable(next_x, next_z):
+				next_x = pos.x
+				next_z = pos.z
+		else:
+			state = "swim"
 
-	_heading = candidate if candidate.length() > 0.001 else _heading
+		_heading = candidate if candidate.length() > 0.001 else _heading
 
-	# Ride below the surface at the species' submerge depth (fall back to terrain if the query is NAN).
-	var surf_y: float = material.surface_y_at(next_x, next_z)
-	if is_nan(surf_y):
-		var ground: float = float(terrain.surface_height(next_x, next_z)) if terrain != null and terrain.has_method("surface_height") else NAN
-		if is_nan(ground):
-			return
-		surf_y = ground
-	# Swim depth. Gill-breathers ride at the species' fixed submerge. An air-breather cycles emergently: dive
-	# to forage while it has breath, then rise so its head breaks the surface once the reserve runs low — the
-	# "dive down for a while, come up to breathe" behavior falls out of the breath reserve, no scripted timer.
-	var eff_submerge: float = submerge
-	if breathes == "air":
-		if _breath < breath_capacity * 0.35:
-			eff_submerge = -size * 0.6                       # low on air → surface (head above water) to breathe
-		elif dive_depth > 0.0:
-			eff_submerge = dive_depth                        # plenty of air → dive deep to forage
-	global_position = Vector3(next_x, surf_y - eff_submerge, next_z)
+		# Ride below the surface at the species' submerge depth (fall back to terrain if the query is NAN).
+		var surf_y: float = material.surface_y_at(next_x, next_z)
+		if is_nan(surf_y):
+			var ground: float = float(terrain.surface_height(next_x, next_z)) if terrain != null and terrain.has_method("surface_height") else NAN
+			if is_nan(ground):
+				return
+			surf_y = ground
+		# Swim depth. Gill-breathers ride at the species' fixed submerge. An air-breather cycles emergently: dive
+		# to forage while it has breath, then rise so its head breaks the surface once the reserve runs low — the
+		# "dive down for a while, come up to breathe" behavior falls out of the breath reserve, no scripted timer.
+		var eff_submerge: float = _eff_submerge()
+		global_position = Vector3(next_x, surf_y - eff_submerge, next_z)
 
+	# Face the swim heading; "up" is radial on a planet, +Y on the flat island.
 	if _heading.length() > 0.01:
 		var look: Vector3 = global_position + _heading
 		if not look.is_equal_approx(global_position):
-			look_at(look, Vector3.UP)
+			look_at(look, up)
 
 
 # True where this species can live: water present AND its salinity within [salinity_min, salinity_max]
@@ -538,7 +552,7 @@ func _try_bask(bx: float, bz: float) -> bool:
 
 # Loose schooling with nearby SAME-SPECIES swimmers: cohesion + alignment (same shared idea as creature
 # flocking). Filtering by species keeps a whale from schooling with minnows — schools stay per-species.
-func _school_steer(pos: Vector3) -> Vector3:
+func _school_steer(pos: Vector3, up: Vector3) -> Vector3:
 	var mates: Array = get_tree().get_nodes_in_group(SPECIES_GROUP)
 	var center: Vector3 = Vector3.ZERO
 	var align: Vector3 = Vector3.ZERO
@@ -560,8 +574,9 @@ func _school_steer(pos: Vector3) -> Vector3:
 	center /= float(n)
 	align /= float(n)
 	var cohesion: Vector3 = center - pos
-	cohesion.y = 0.0
-	align.y = 0.0
+	# Keep cohesion + alignment in the local tangent plane (was .y = 0.0 for the flat +Y world).
+	cohesion = cohesion - up * cohesion.dot(up)
+	align = align - up * align.dot(up)
 	var steer: Vector3 = Vector3.ZERO
 	if cohesion.length() > 0.001:
 		steer += cohesion.normalized() * 0.5
@@ -588,6 +603,109 @@ func _find_habitable_dir(pos: Vector3) -> Vector3:
 				if d.length() > 0.001:
 					return d.normalized()
 	return Vector3.ZERO
+
+
+# Species submerge depth for this frame. Gill-breathers ride at the fixed submerge. An air-breather cycles
+# emergently: dive to forage while it has breath, then rise so its head breaks the surface once the reserve
+# runs low — the "dive down, come up to breathe" behavior falls out of the breath reserve, no scripted timer.
+func _eff_submerge() -> float:
+	var eff_submerge: float = submerge
+	if breathes == "air":
+		if _breath < breath_capacity * 0.35:
+			eff_submerge = -size * 0.6                       # low on air → surface (head above water) to breathe
+		elif dive_depth > 0.0:
+			eff_submerge = dive_depth                        # plenty of air → dive deep to forage
+	return eff_submerge
+
+
+# --- PLANET (radial) swimming --------------------------------------------------
+# The spherical analogue of the flat step logic above: the fish swims tangentially inside the WATER SHELL
+# (between the solid surface_radius floor and the sea_radius surface), riding `submerge` below the sea
+# shell exactly as the flat fish rides `submerge` below the sea plane. Sets global_position; returns true
+# only when a basking species hauled out (so the caller returns for this frame). Same steer/correct/hold
+# structure as flat — only the coordinate frame differs.
+func _swim_planet(pos: Vector3, candidate: Vector3, step_len: float, up: Vector3) -> bool:
+	var center: Vector3 = terrain.planet_center()
+	var sea: float = terrain.sea_radius()
+	var next_pos: Vector3 = pos + candidate * step_len
+	var next_dir: Vector3 = (next_pos - center).normalized()
+	if not _habitable_dir(next_dir):
+		if basks and _bask_cd <= 0.0 and randf() < BASK_CHANCE and _try_bask_planet(next_dir):
+			return true
+		var back: Vector3 = _find_habitable_dir_planet(pos, up)
+		if back != Vector3.ZERO:
+			candidate = back
+			state = "seek"
+		else:
+			candidate = -_heading         # no habitable water found near: turn around
+			state = "swim"
+		next_pos = pos + candidate * step_len
+		next_dir = (next_pos - center).normalized()
+		# If even the corrective step is unhabitable, hold position this frame (edge of a shrinking sea).
+		if not _habitable_dir(next_dir):
+			next_pos = pos
+			next_dir = (next_pos - center).normalized()
+	else:
+		state = "swim"
+
+	_heading = candidate if candidate.length() > 0.001 else _heading
+
+	# Ride `eff_submerge` below the spherical sea shell; never sink below the solid sea floor (Rule 5).
+	var eff_submerge: float = _eff_submerge()
+	var target_r: float = sea - eff_submerge
+	var sr: float = terrain.surface_radius(next_dir)
+	if not is_nan(sr):
+		target_r = maxf(target_r, sr + size)
+	global_position = center + next_dir * target_r
+	return false
+
+
+# PLANET: true where a WATER SHELL exists along `dir` — the solid surface radius sits below the sea shell.
+# (The planet substrate has no 2.5D salinity/depth band, so shell presence is the habitability rule here.)
+func _habitable_dir(dir: Vector3) -> bool:
+	var sr: float = terrain.surface_radius(dir)
+	if is_nan(sr):
+		return false                     # unmeshed patch: treat as non-habitable so the fish turns back
+	return sr < terrain.sea_radius()
+
+
+# PLANET: probe tangent directions (rings, like the flat version) for the nearest column that still has a
+# water shell; return a tangent unit heading toward it. Pulls a strayed fish back over open sea.
+func _find_habitable_dir_planet(pos: Vector3, up: Vector3) -> Vector3:
+	var center: Vector3 = terrain.planet_center()
+	var fwd: Vector3 = _heading - up * _heading.dot(up)
+	if fwd.length() < 0.001:
+		fwd = up.cross(Vector3.RIGHT)
+		if fwd.length() < 0.001:
+			fwd = up.cross(Vector3.FORWARD)
+	fwd = fwd.normalized()
+	var right: Vector3 = fwd.cross(up).normalized()
+	var radii: Array = [size * 3.0, sense_radius, sense_radius * 2.0]
+	var dirs: int = 10
+	for r in radii:
+		for k in range(dirs):
+			var ang: float = TAU * float(k) / float(dirs)
+			var tdir: Vector3 = (fwd * cos(ang) + right * sin(ang)).normalized()
+			var probe: Vector3 = pos + tdir * float(r)
+			if _habitable_dir((probe - center).normalized()):
+				return tdir
+	return Vector3.ZERO
+
+
+# PLANET: haul out onto the narrow dry beach band just above the waterline (surface_radius within 2 m of
+# sea_radius). Mirrors the flat _try_bask, in radii instead of world-Y. Returns true if basking started.
+func _try_bask_planet(dir: Vector3) -> bool:
+	var sr: float = terrain.surface_radius(dir)
+	if is_nan(sr):
+		return false
+	var sea: float = terrain.sea_radius()
+	if sr < sea or sr > sea + 2.0:
+		return false
+	global_position = terrain.planet_center() + dir.normalized() * sr
+	_bask_timer = BASK_DURATION
+	_bask_cd = BASK_COOLDOWN + BASK_DURATION
+	state = "bask"
+	return true
 
 
 func get_inspector_payload() -> Dictionary:

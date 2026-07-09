@@ -525,9 +525,24 @@ func _physics_process(delta: float) -> void:
 	if LACreatureMetabolism.tick_breath(self, pos, delta):
 		return
 
-	var surf: float = _surface_at(pos.x, pos.z)
-	if is_nan(surf):
-		return                            # unmeshed / off-terrain: skip this frame
+	# Radial locomotion: `up` points away from the planet centre (Vector3.UP on a flat island — safe in
+	# both modes). All heading/heading-flatten math projects onto the local tangent plane using `up`, and
+	# ground reads/snaps go radial on a planet. `ground_pos` is the world point on the ground below us.
+	var planet: bool = terrain.is_planet()
+	var up: Vector3 = terrain.up_at(pos)
+	var ground_pos: Vector3 = Vector3.ZERO
+	var surf: float = NAN
+	if planet:
+		var up_dir0: Vector3 = (pos - terrain.planet_center()).normalized()
+		var gpt0: Vector3 = terrain.surface_point(up_dir0)
+		if is_nan(gpt0.x):
+			return                        # unmeshed / off-terrain: skip this frame
+		ground_pos = gpt0
+	else:
+		surf = _surface_at(pos.x, pos.z)
+		if is_nan(surf):
+			return                        # unmeshed / off-terrain: skip this frame
+		ground_pos = Vector3(pos.x, surf, pos.z)
 
 	# Digestion + marking: a fed creature periodically drops feces (soil fertility + food/musk cue), and
 	# more often urinates (territorial musk). Both write to the shared scent/fertility field below it.
@@ -535,11 +550,11 @@ func _physics_process(delta: float) -> void:
 	if _poop_cd <= 0.0:
 		_poop_cd = randf_range(24.0, 48.0)
 		if energy > max_energy * 0.35:
-			_deposit_waste(Vector3(pos.x, surf, pos.z), "feces")
+			_deposit_waste(ground_pos, "feces")
 	_urine_cd -= delta
 	if _urine_cd <= 0.0:
 		_urine_cd = randf_range(10.0, 22.0)
-		_deposit_waste(Vector3(pos.x, surf, pos.z), "urine")
+		_deposit_waste(ground_pos, "urine")
 
 	# EMERGENT LEADERSHIP: decide (throttled) whether I lead my local same-species cluster or follow its
 	# top — done BEFORE the stride is computed so a fresh follower immediately gets the slow follower rate,
@@ -583,7 +598,7 @@ func _physics_process(delta: float) -> void:
 			# TERROR: sprint straight away from what was heard/felt. Overrides everything.
 			state = "panic"
 			var away: Vector3 = pos - _panic_source
-			away.y = 0.0
+			away = away - up * away.dot(up)      # keep the flee in the local tangent plane
 			if away.length() > 0.001:
 				desired = away.normalized()
 			eff_speed = speed * 2.1
@@ -594,7 +609,7 @@ func _physics_process(delta: float) -> void:
 			if big_pred != null:
 				state = "flee"
 				var away: Vector3 = pos - big_pred.global_position
-				away.y = 0.0
+				away = away - up * away.dot(up)  # keep the flee in the local tangent plane
 				if away.length() > 0.001:
 					desired = away.normalized()
 				eff_speed = speed * 1.7
@@ -660,7 +675,7 @@ func _physics_process(delta: float) -> void:
 				var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0) * 0.6
 				desired = (desired + jitter)
 
-		desired.y = 0.0
+		desired = desired - up * desired.dot(up)   # decided heading lives in the local tangent plane
 		if desired.length() > 0.001:
 			# Record the decided direction as a TARGET; the movement block turns _heading toward it
 			# smoothly every frame (see below). On an acute flee (_force_think) snap instantly so a
@@ -678,40 +693,51 @@ func _physics_process(delta: float) -> void:
 		var turn_rate: float = BIRD_TURN_RATE if can_fly else GROUND_TURN_RATE
 		_heading = _turn_toward(_heading, _target_heading, turn_rate * delta)
 	var step: Vector3 = _heading * _eff_speed * delta
-	var new_x: float = pos.x + step.x
-	var new_z: float = pos.z + step.z
-
-	var target_surf: float = _surface_at(new_x, new_z)
-	if is_nan(target_surf):
-		target_surf = surf
-	var target_y: float = target_surf + size
-	if can_fly:
-		target_y = target_surf + cruise_height
-
-	global_position = Vector3(new_x, target_y, new_z)
+	# Height held above the local ground (flyers cruise; walkers ride at body radius).
+	var offset: float = cruise_height if can_fly else size
+	if planet:
+		# Step in the tangent plane, then snap radially: the new ground point is along the NEW radial
+		# direction from the planet centre, and we sit `offset` above it (up == that same radial dir).
+		var new_pos: Vector3 = pos + step
+		var nud: Vector3 = (new_pos - terrain.planet_center()).normalized()
+		var gpt: Vector3 = terrain.surface_point(nud)
+		if is_nan(gpt.x):
+			gpt = ground_pos                  # unmeshed ahead: hold last known ground
+		global_position = gpt + nud * offset
+	else:
+		var new_x: float = pos.x + step.x
+		var new_z: float = pos.z + step.z
+		var target_surf: float = _surface_at(new_x, new_z)
+		if is_nan(target_surf):
+			target_surf = surf
+		global_position = Vector3(new_x, target_surf + offset, new_z)
 
 	if _heading.length() > 0.01:
-		var look: Vector3 = global_position + _heading
-		look.y = global_position.y
-		if not look.is_equal_approx(global_position):
-			look_at(look, Vector3.UP)
+		# Gaze along the heading projected into the local tangent plane, with the local up as roll axis.
+		var look_up: Vector3 = terrain.up_at(global_position)
+		var fwd: Vector3 = _heading - look_up * _heading.dot(look_up)
+		if fwd.length() > 0.001:
+			var look: Vector3 = global_position + fwd
+			if not look.is_equal_approx(global_position):
+				look_at(look, look_up)
 
 
-# Rotate `from` toward `to` about the up axis by at most `max_angle` radians (both flattened).
+# Rotate `from` toward `to` about the LOCAL up axis by at most `max_angle` radians. Both vectors are
+# projected onto the local tangent plane (radial up on a planet, Vector3.UP on a flat island) so the turn
+# always happens in the plane the creature actually walks on.
 func _turn_toward(from: Vector3, to: Vector3, max_angle: float) -> Vector3:
-	var a: Vector3 = from
-	a.y = 0.0
-	var b: Vector3 = to
-	b.y = 0.0
+	var up: Vector3 = terrain.up_at(global_position) if terrain != null else Vector3.UP
+	var a: Vector3 = from - up * from.dot(up)
+	var b: Vector3 = to - up * to.dot(up)
 	if a.length() < 0.001:
 		return to
 	a = a.normalized()
 	if b.length() < 0.001:
 		return a
 	b = b.normalized()
-	var ang: float = a.signed_angle_to(b, Vector3.UP)
+	var ang: float = a.signed_angle_to(b, up)
 	var clamped: float = clampf(ang, -max_angle, max_angle)
-	return a.rotated(Vector3.UP, clamped)
+	return a.rotated(up, clamped)
 
 
 func _surface_at(x: float, z: float) -> float:

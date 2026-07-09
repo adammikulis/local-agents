@@ -1,0 +1,177 @@
+extends RefCounted
+
+## Cubed-sphere FIRE + DUST pass plugin. Wires four GPU-proven sphere kernels behind the sphere GPU
+## driver's pass contract (setup(rd, bufs, cc) / dispatch(rd, cl, parity, ctx, cc, groups)):
+##   * fire_sphere3d.glsl          — combustion GATHER (ember spread + plume; consumes fuel/O₂, emits CO₂)
+##   * dust_outscale_sphere3d.glsl — per-cell CFL out-flux scale precompute (→ dust_outscale SINGLE buffer)
+##   * dust_transport_sphere3d.glsl— airborne dust advect/diffuse/settle gather + leeward deposit to sediment
+##   * dust_loft_sphere3d.glsl     — scour dry loose sediment into the airborne dust of the cell above
+##
+## The driver owns the ping-pong `bufs` dictionary and the compute list. This plugin only builds pipelines +
+## per-parity uniform sets in setup(), then records bind/push/dispatch/barrier into the driver's `cl` in
+## dispatch(). Parity roles mirror the verified box orchestrator (MaterialGPU3D.gd) so behaviour matches:
+## a PAIR channel's "live" role binds bufs[key][parity] and its "back" role binds bufs[key][1-parity].
+##
+## bufs contract (from the driver): PAIR key → [rid_a, rid_b]; SINGLE key → rid. `nbr` is a SINGLE int32
+## index table (cell*6 + slot; slot 0=down, 1-4=lateral, 5=up), bound at binding 15 on every kernel.
+
+const FIRE_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/fire_sphere3d.glsl"
+const OUTSCALE_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/dust_outscale_sphere3d.glsl"
+const TRANSPORT_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/dust_transport_sphere3d.glsl"
+const LOFT_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/dust_loft_sphere3d.glsl"
+
+# Defaults for the ctx fields (documented in the report). k (Courant factor) = dt / cell_size.
+const DEFAULT_DT: float = 0.1
+const DEFAULT_CELL_SIZE: float = 8.0
+const DEFAULT_RAINING: int = 0
+
+var _fire_pipe: RID = RID()
+var _outscale_pipe: RID = RID()
+var _transport_pipe: RID = RID()
+var _loft_pipe: RID = RID()
+
+var _fire_shader: RID = RID()
+var _outscale_shader: RID = RID()
+var _transport_shader: RID = RID()
+var _loft_shader: RID = RID()
+
+var _fire_set: Array = [RID(), RID()]       # per parity p
+var _transport_set: Array = [RID(), RID()]  # per parity p
+var _loft_set: Array = [RID(), RID()]       # per parity p
+var _outscale_set: RID = RID()              # parity-independent (only SINGLE buffers) → one set
+
+
+func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
+	# --- Pipelines --------------------------------------------------------------------------------
+	var fire_sf: RDShaderFile = load(FIRE_PATH)
+	_fire_shader = rd.shader_create_from_spirv(fire_sf.get_spirv())
+	_fire_pipe = rd.compute_pipeline_create(_fire_shader)
+
+	var outscale_sf: RDShaderFile = load(OUTSCALE_PATH)
+	_outscale_shader = rd.shader_create_from_spirv(outscale_sf.get_spirv())
+	_outscale_pipe = rd.compute_pipeline_create(_outscale_shader)
+
+	var transport_sf: RDShaderFile = load(TRANSPORT_PATH)
+	_transport_shader = rd.shader_create_from_spirv(transport_sf.get_spirv())
+	_transport_pipe = rd.compute_pipeline_create(_transport_shader)
+
+	var loft_sf: RDShaderFile = load(LOFT_PATH)
+	_loft_shader = rd.shader_create_from_spirv(loft_sf.get_spirv())
+	_loft_pipe = rd.compute_pipeline_create(_loft_shader)
+
+	# --- Shared buffers ---------------------------------------------------------------------------
+	var nbr: RID = bufs["nbr"]
+	var fuel: RID = bufs["fuel"]
+	var solid: RID = bufs["solid"]
+	var vel_x: RID = bufs["vel_x"]
+	var vel_y: RID = bufs["vel_y"]
+	var vel_z: RID = bufs["vel_z"]
+	var outscale: RID = bufs["dust_outscale"]
+
+	var fire: Array = bufs["fire"]
+	var temp: Array = bufs["temp"]
+	var water: Array = bufs["water"]
+	var o2: Array = bufs["o2"]
+	var co2: Array = bufs["co2"]
+	var sediment: Array = bufs["sediment"]
+	var dust: Array = bufs["dust"]
+
+	# --- Per-parity uniform sets ------------------------------------------------------------------
+	for p in 2:
+		var back: int = 1 - p
+
+		# fire_sphere3d.glsl — 0 fire_in(live), 1 fire_out(back), 2 fuel(single), 3 temp(back, in place),
+		# 4 water(back), 5 solid(single), 6 o2(live, in place), 7 co2(live, in place), 15 nbr.
+		# (temp/water read the post-everything BACK state, o2/co2 mutate the LIVE pair — mirrors the box.)
+		_fire_set[p] = _build_set(rd, _fire_shader, [
+			[0, fire[p]], [1, fire[back]], [2, fuel], [3, temp[back]],
+			[4, water[back]], [5, solid], [6, o2[p]], [7, co2[p]], [15, nbr]])
+
+		# dust_transport_sphere3d.glsl — 0 dust_in(live), 1 dust_out(back), 2 sediment(back, in place +=
+		# deposit), 3 outscale(single), 4 vel_x, 5 vel_y, 6 vel_z, 7 solid, 15 nbr.
+		_transport_set[p] = _build_set(rd, _transport_shader, [
+			[0, dust[p]], [1, dust[back]], [2, sediment[back]], [3, outscale],
+			[4, vel_x], [5, vel_y], [6, vel_z], [7, solid], [15, nbr]])
+
+		# dust_loft_sphere3d.glsl — 0 sediment(back, in place -=), 1 dust(back, scatter += to cell above),
+		# 2 water(back), 3 vel_x, 4 vel_z, 5 solid, 15 nbr. Loft runs AFTER transport (see dispatch order),
+		# so it edits the POST-transport BACK buffers → the final dust/sediment state lives in [back].
+		_loft_set[p] = _build_set(rd, _loft_shader, [
+			[0, sediment[back]], [1, dust[back]], [2, water[back]],
+			[3, vel_x], [4, vel_z], [5, solid], [15, nbr]])
+
+	# dust_outscale_sphere3d.glsl — 0 outscale(out, single), 1 vel_x, 2 vel_y, 3 vel_z, 4 solid, 15 nbr.
+	# No PAIR buffers → parity-independent, one set reused for both parities.
+	_outscale_set = _build_set(rd, _outscale_shader, [
+		[0, outscale], [1, vel_x], [2, vel_y], [3, vel_z], [4, solid], [15, nbr]])
+
+
+func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
+	var dt: float = float(ctx.get("dt", DEFAULT_DT))
+	var cell_size: float = float(ctx.get("cell_size", DEFAULT_CELL_SIZE))
+	var raining: int = int(ctx.get("raining", DEFAULT_RAINING))
+	var k: float = dt / cell_size if cell_size != 0.0 else 0.0
+
+	var pc_fire: PackedByteArray = _pc_count(cc)
+	var pc_k: PackedByteArray = _pc_count_k(cc, k)
+	var pc_loft: PackedByteArray = _pc_count_flag(cc, raining)
+
+	# 1) FIRE — combustion gather: fire[live] -> fire[back]; temp/fuel/o2/co2 mutated in place.
+	rd.compute_list_bind_compute_pipeline(cl, _fire_pipe)
+	rd.compute_list_bind_uniform_set(cl, _fire_set[parity], 0)
+	rd.compute_list_set_push_constant(cl, pc_fire, pc_fire.size())
+	rd.compute_list_dispatch(cl, groups, 1, 1)
+	rd.compute_list_add_barrier(cl)
+
+	# 2) DUST OUTSCALE — precompute per-cell CFL out-flux scale into the dust_outscale SINGLE buffer.
+	rd.compute_list_bind_compute_pipeline(cl, _outscale_pipe)
+	rd.compute_list_bind_uniform_set(cl, _outscale_set, 0)
+	rd.compute_list_set_push_constant(cl, pc_k, pc_k.size())
+	rd.compute_list_dispatch(cl, groups, 1, 1)
+	rd.compute_list_add_barrier(cl)          # out-flux scale visible to the transport gather
+
+	# 3) DUST TRANSPORT — gather advect/diffuse/settle: dust[live] -> dust[back], deposit into sediment[back].
+	rd.compute_list_bind_compute_pipeline(cl, _transport_pipe)
+	rd.compute_list_bind_uniform_set(cl, _transport_set[parity], 0)
+	rd.compute_list_set_push_constant(cl, pc_k, pc_k.size())
+	rd.compute_list_dispatch(cl, groups, 1, 1)
+	rd.compute_list_add_barrier(cl)          # dust[back] + sediment deposits visible to loft
+
+	# 4) DUST LOFT — scour dry sediment[back] into the airborne dust[back] of the cell above (race-free scatter).
+	rd.compute_list_bind_compute_pipeline(cl, _loft_pipe)
+	rd.compute_list_bind_uniform_set(cl, _loft_set[parity], 0)
+	rd.compute_list_set_push_constant(cl, pc_loft, pc_loft.size())
+	rd.compute_list_dispatch(cl, groups, 1, 1)
+	rd.compute_list_add_barrier(cl)          # final dust[back] + reduced sediment[back] committed
+
+
+# --- helpers --------------------------------------------------------------------------------------
+
+func _build_set(rd: RenderingDevice, shader: RID, entries: Array) -> RID:
+	var uniforms: Array = []
+	for e in entries:
+		uniforms.append(_u(int(e[0]), e[1]))
+	return rd.uniform_set_create(uniforms, shader, 0)
+
+func _u(binding: int, buf: RID) -> RDUniform:
+	var u: RDUniform = RDUniform.new()
+	u.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	u.binding = binding
+	u.add_id(buf)
+	return u
+
+# fire push: { uint cell_count; uint pad0,pad1,pad2; }
+func _pc_count(cc: int) -> PackedByteArray:
+	return PackedInt32Array([cc, 0, 0, 0]).to_byte_array()
+
+# dust_loft push: { uint cell_count; uint raining; uint pad0,pad1; }
+func _pc_count_flag(cc: int, flag: int) -> PackedByteArray:
+	return PackedInt32Array([cc, flag, 0, 0]).to_byte_array()
+
+# dust_outscale / dust_transport push: { uint cell_count; float k; float pad0,pad1; }
+func _pc_count_k(cc: int, k: float) -> PackedByteArray:
+	var pc: PackedByteArray = PackedByteArray()
+	pc.resize(16)
+	pc.encode_u32(0, cc)
+	pc.encode_float(4, k)
+	return pc

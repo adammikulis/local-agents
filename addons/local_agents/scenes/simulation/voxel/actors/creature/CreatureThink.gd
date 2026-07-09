@@ -207,7 +207,7 @@ static func think_scavenger(c, pos: Vector3, _delta: float) -> Vector3:
 	if carcass != null:
 		to_flat = Vector3(carcass.global_position.x - pos.x, 0.0, carcass.global_position.z - pos.z)
 	elif c._material != null and c._material.has_method("scent_gradient"):
-		var d: Vector3 = c._material.scent_gradient(pos, LAMaterialScent3D.FOOD)
+		var d: Vector3 = c._material.scent_gradient(pos, LAMaterialField3D.SCENT_FOOD)
 		if d != Vector3.ZERO:
 			to_flat = Vector3(d.x, 0.0, d.z)
 	if to_flat != Vector3.ZERO:
@@ -306,7 +306,7 @@ static func _carrion_cue(c, pos: Vector3) -> Vector3:
 		if d.length() > 0.001:
 			return d.normalized()
 	if c._material != null and c._material.has_method("scent_gradient"):
-		var s: Vector3 = c._material.scent_gradient(pos, LAMaterialScent3D.FOOD)
+		var s: Vector3 = c._material.scent_gradient(pos, LAMaterialField3D.SCENT_FOOD)
 		if s != Vector3.ZERO:
 			return Vector3(s.x, 0.0, s.z).normalized()
 	if c._cue_cd > 0.0:

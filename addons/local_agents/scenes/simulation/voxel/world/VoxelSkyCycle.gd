@@ -9,6 +9,28 @@ extends Node
 # reference). (Explicit types only — project rule: no ':=' inferred typing.)
 
 var _sun: DirectionalLight3D = null
+var _planet_mode: bool = false              # true = viewed from space: dark starfield, low ambient, fixed sun
+var _sun_shine: Vector3 = Vector3(0, -1, 0) # world direction the sunlight travels (star -> planet)
+const SPACE_AMBIENT: float = 0.14           # low ambient so the planet's night side darkens (stark terminator)
+const SPACE_BG: Color = Color(0.01, 0.015, 0.03)      # near-black space
+const SPACE_AMBIENT_COLOR: Color = Color(0.10, 0.13, 0.22)  # faint cool fill on the night side
+
+## PLANETARY SKY: view the world as a planet from space. The flat sky is an ATMOSPHERE DOME that sources
+## ambient from itself (washes out the night side), so switch to a dark space background + a dark COLOR ambient
+## and fix the sun shining from the star (light travels along `shine_dir`). Day/night is then the planet's SPIN
+## turning under this fixed sun — the clock is frozen.
+func set_space_mode(shine_dir: Vector3) -> void:
+	if shine_dir.length() < 0.001:
+		return
+	_sun_shine = shine_dir.normalized()
+	_planet_mode = true
+	if _env != null:
+		_env.background_mode = Environment.BG_COLOR
+		_env.background_color = SPACE_BG
+		_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+		_env.ambient_light_color = SPACE_AMBIENT_COLOR
+		_env.ambient_light_energy = SPACE_AMBIENT
+		_env.fog_enabled = false                                   # atmospheric fog reads wrong from orbit
 var _moon: DirectionalLight3D = null         # cool moonlight; energy tracks the lunar phase
 var _sky_shader_mat: ShaderMaterial = null   # VoxelSky.gdshader: stars + phase-shaded moon disc
 var _env: Environment = null
@@ -203,6 +225,18 @@ func update(delta: float) -> void:
 # energy, warm horizon at dawn/dusk, ambient floor at night) follows from that one value.
 func _update_day_night(delta: float) -> void:
 	if _sun == null:
+		return
+	# PLANET-FROM-SPACE: fixed star sun + low ambient + dark sky; day/night is the planet's SPIN (it turns
+	# under the fixed sun). No clock advance / sun arc. Weather + cloud still dim the light.
+	if _planet_mode:
+		var pstorm: float = 1.0
+		if _weather != null and _weather.has_method("rain"):
+			pstorm = 1.0 - _weather.rain() * 0.68
+		if _material != null and _material.has_method("avg_cloud_cover"):
+			pstorm *= 1.0 - clampf(_material.avg_cloud_cover() * 1.5, 0.0, 0.6)
+		var pup: Vector3 = Vector3.UP if absf(_sun_shine.dot(Vector3.UP)) < 0.98 else Vector3.RIGHT
+		_sun.look_at_from_position(Vector3.ZERO, _sun_shine, pup)   # light travels along _sun_shine
+		_sun.light_energy = SUN_ENERGY_NOON * pstorm
 		return
 	_time_of_day = fposmod(_time_of_day + delta / DAY_LENGTH, 1.0)
 	# Sun elevation: -1 (midnight) .. +1 (noon), zero at dawn (.25) and dusk (.75).

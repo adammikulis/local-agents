@@ -133,6 +133,15 @@ committed). When removing files:
 - No downstream consumers to preserve right now: prioritize rapid feature improvement and stronger
   simulation behavior over compatibility. Break APIs freely when it improves architecture; remove old
   abstractions when replacing systems rather than leaving parallel ones.
+- **Temporary breakage is ALLOWED on a non-`main` / non-`0.3-dev` branch when it's the cleaner path.** When
+  adding a feature, porting a substrate, or fixing perf, do NOT contort into a non-breaking parallel path
+  (duplicate systems + `if mode` branches + a keep-the-old-working tax) if converting IN PLACE / ripping out
+  the old and fixing FORWARD is simpler — that better matches "retire the old, no parallel systems." On a
+  feature branch the sim need not boot mid-refactor: commit clearly-tagged WIP checkpoints so progress
+  persists, and drive it back to a verified working state (windowed + `SIM_REPORT`) BEFORE merging to
+  `0.3-dev`/`main`. The non-breaking discipline is only mandatory on the shared integration branches and when
+  another writer depends on the code right now. Weigh it each time: pick temporary-break-then-fix-forward when
+  it yields materially cleaner code or less throwaway; keep non-breaking when the churn is small either way.
 - **Surface held-back-by-code moments — don't just proceed.** If, while doing a task, you realize the
   current code/architecture is a *holdover* that's constraining a genuinely better approach (e.g. a
   2.5D representation blocking a real 3D one, a scripted special-case where an emergent rule belongs, a
@@ -140,9 +149,46 @@ committed). When removing files:
   approach and what it unlocks, and ask. Do **not** silently work around it (delivering a lesser result
   the user didn't know was a compromise), and do **not** unilaterally rip it out either. The user will
   usually say "yes, change it" — but it's their call, and flagging it is how big upgrades get found.
+- **Composable-plugins mandate — host + registry over monolith (the architectural form of emergent-everything).**
+  For anything that is a SET of composable things over shared state — field processes, reactions, disasters/FX,
+  telemetry sources, spawnable content, solar-system bodies — prefer a thin HOST that owns the shared substrate
+  + an ordered list/registry of small modules conforming to a tiny interface, over one monolith with `if type
+  == X` branches. Adding a phenomenon = drop in a plugin (or a data record), not patch a monolith. This is
+  "config over `if identity == X`" one level up, and the same instinct as dissolve-don't-patch: a new rule
+  COMPOSES IN. Working examples already in-tree: the cubed-sphere field driver's pass modules
+  (`material/sphere_passes/*`), `LASimReport.register(Callable)` telemetry sources, species JSON, `LAPlanetBody`
+  under the system root. When you catch yourself adding a type-branch to a big file, make it a plugin instead.
 - **Simplicity mandate:** implement the simplest behavior that works correctly for the target path.
 - **Anti-overengineering mandate:** no long, multi-stage, or speculative pipelines when a shorter direct
   path satisfies the requirement.
+- **Computational-scalability mandate — Big-O IS a first-class design goal (CORE PRINCIPLE).** Always drive
+  the *asymptotic* cost down, then let constant factors follow. Two levers, applied everywhere:
+  - **Lower the algorithm's Big-O.** Prefer the better-scaling structure/algorithm over the naive one:
+    spatial hash / grid / octree / neighbour-table lookup instead of pairwise or full-scan; O(K) test-particle
+    passes instead of O(n²) mutual; event/dirty-set updates instead of re-sweeping the whole grid; precomputed
+    tables (the sphere seam table is the model) instead of recomputed indices. When you write a loop-in-a-loop
+    over entities/cells, STOP and ask "what makes this sub-quadratic?" A per-frame O(n²) (or an O(N) full-grid
+    sweep that ignores what changed) is a **perf bug to design out**, not an acceptable baseline.
+  - **Do less work by RELEVANCE — adaptive level-of-detail is mandatory, not optional.** Work must scale with
+    what is observable / important right now, never with the whole world. Offscreen, distant, un-zoomed,
+    dormant, or empty regions do **less**: coarser grid, longer/skipped timesteps (staggered/block updates),
+    frozen or reduced simulation, culled draws, lower-LOD meshes, sleeping actors. The "only the active/near
+    planet steps at full rate; distant ones coarse/frozen," the dominant-attractor test-particle gravity, and
+    field update cadence are all instances of this ONE rule. Budget compute where the player is looking.
+  - **BUBBLES OF COMPUTE — activity-driven dynamic tick rate (the field's primary scaling lever).** A cell/
+    region's tick rate scales with how much is HAPPENING there, not just distance. Quiescent regions sleep;
+    active regions (fluid flowing, heat/fire spreading, a reaction, an actor or disaster nearby) tick every
+    frame. Activity **propagates as a bubble**: a cell that changes beyond a threshold wakes its neighbours next
+    step (so a front/flow/fire grows its own compute bubble at the speed of the phenomenon), and a stimulus (a
+    meteor, an actor drinking, an eruption) injects activity to wake a region. Settled regions demote to a
+    longer period, then sleep (skipping is EXACT when nothing changes; for constant-forced processes like solar,
+    a woken cell catches up with the elapsed dt). On the GPU this is an active-cell/tile list + indirect
+    dispatch (O(active), not O(all-cells)) or, minimally, a per-tile sleep flag with early-out. This is what
+    makes a whole-planet / multi-body field affordable — most of a planet is quiescent at any instant; compute
+    only the bubbles. Compose with distance-relevance (a region is stepped if active OR near the viewer).
+  This mandate composes with (does not override) the GPU-first + emergent rules: push the parallel work to the
+  GPU **and** give it a better Big-O **and** only run it where it matters. When these tension, cutting the
+  asymptotic/relevance cost wins over a marginally simpler constant-factor path.
 - **Native / GPU / shader-first (target architecture):** runtime gameplay/simulation/destruction should
   be C++ by default; move practical runtime compute/render from CPU to GPU-backed execution; prefer
   shader stages where behavior fits them; minimize C++↔GDScript and CPU↔GPU hops on authoritative
