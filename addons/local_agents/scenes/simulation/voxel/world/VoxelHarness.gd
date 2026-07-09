@@ -33,7 +33,7 @@ static func emit_smoke_summary(w) -> void:
 	# behaviour peaks are gauges (VoxelWorld._sample_behaviour_peaks). Feed the last few run-scalars + the
 	# ground-truth perf monitors, then emit the ONE SIM_REPORT snapshot and quit. (SMOKE_SUMMARY retired.)
 	LASimReport.gauge("frames", float(w._frame))
-	LASimReport.gauge("time_of_day", w._sky.time_of_day() if w._sky != null else w._time_of_day)
+	LASimReport.gauge("time_of_day", w._sky_ctrl.time_of_day() if w._sky_ctrl != null else 0.30)
 	LASimReport.gauge("peak_slump", float(w._peak_slump))
 	LASimReport.gauge("fps", Performance.get_monitor(Performance.TIME_FPS))
 	LASimReport.gauge("process_ms", Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0)

@@ -1,0 +1,78 @@
+class_name LAVoxelSkyController
+extends Node
+
+## LAVoxelSkyController — owns the STAR (positioned light + gravity + solar driver) and the sky-cycle
+## (LAVoxelSkyCycle: sky shader, WorldEnvironment, sun/moon, day/night clock) plus the space-mode wiring.
+## Factored out of LAVoxelWorld so the "visible sun / sky" concern is one file. The world composition root
+## instantiates it, then reads sun()/env()/star() to wire the rest of the scene. (Explicit types only.)
+
+const SkyCycleScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelSkyCycle.gd")
+const StarScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/system/Star.gd")
+
+const STAR_POSITION: Vector3 = Vector3(900.0, 320.0, 620.0)
+
+var _star: Node3D = null    # LAStar — positioned light + gravity + solar driver
+var _sky: Node = null       # LAVoxelSkyCycle — owns ALL sky/sun/moon/environment + day/night clock
+
+
+## Build the sky cycle + the star as children of `world` (so the star's light/gravity live in world space,
+## exactly as the inline composition did). The cmdline-seeded clocks are threaded into the sky here.
+func setup(world: Node, time_of_day: float, lunar_phase: float) -> void:
+	# --- Sun + sky + day/night: owned by LAVoxelSkyCycle. It builds the sky shader material, the
+	# WorldEnvironment (tonemap/SSAO/glow/fog/ambient), the sun (PSSM cascade-blend shadows) and the moon.
+	_sky = SkyCycleScript.new()
+	_sky.name = "SkyCycle"
+	world.add_child(_sky)
+	_sky.setup(world, time_of_day, lunar_phase)
+	# --- The star (positioned light + gravity + solar driver) ---
+	_star = StarScript.new()
+	_star.name = "Star"
+	world.add_child(_star)
+	_star.setup({"position": STAR_POSITION, "energy": 1.4})
+	# The sky cycle owns the visual sun for now; the star supplies position/gravity/solar math. Hide its own
+	# light so they don't double up (wiring the sky's sun to follow the star = the sky/solar fan-out unit).
+	if _star.light() != null:
+		_star.light().visible = false
+
+
+## PLANETARY SKY: view from space (dark starfield + low ambient) with the sun FIXED shining star->planet;
+## the spinning planet turns under it → a stark star-lit day/night terminator sweeps the surface.
+func enter_space_mode(body_center: Vector3) -> void:
+	if _sky != null and _sky.has_method("set_space_mode") and _star != null:
+		_sky.set_space_mode((body_center - _star.global_position).normalized())
+
+
+## The sky cycle reads the field each frame (cloud-cover dimming) + pushes the day/night colour tint to
+## the water-particle renderer.
+func bind_scene(weather, material, water) -> void:
+	if _sky != null and _sky.has_method("bind_scene"):
+		_sky.bind_scene(weather, material, water)
+
+
+func update(delta: float) -> void:
+	if _sky != null:
+		_sky.update(delta)
+
+
+func sky() -> Node:
+	return _sky
+
+func star() -> Node3D:
+	return _star
+
+func sun():
+	return _sky.sun() if _sky != null else null
+
+func env():
+	return _sky.env() if _sky != null else null
+
+func time_of_day() -> float:
+	return _sky.time_of_day() if _sky != null else 0.0
+
+func set_shadows(on: bool) -> void:
+	if _sky != null:
+		_sky.set_shadows(on)
+
+func set_ssao(on: bool) -> void:
+	if _sky != null:
+		_sky.set_ssao(on)

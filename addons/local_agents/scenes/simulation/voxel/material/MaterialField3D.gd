@@ -150,6 +150,7 @@ var _ecology = null                                      # LAEcologyService back
 const SphereGPUScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialSphereGPU3D.gd")
 const QueriesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldQueries3D.gd")
 const InjectScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldInject3D.gd")
+const SphereStepScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldSphereStep3D.gd")
 const CoverBakerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/CoverTextureBaker.gd")
 var _cover_baker = null                                  # LACoverTextureBaker — bakes the render cover texture
 var _gpu = null                                          # LAMaterialSphereGPU3D (local RenderingDevice) or null
@@ -160,6 +161,7 @@ var _core_cells: PackedInt32Array = PackedInt32Array()  # static innermost-shell
 var _queries = null                                      # LAMaterialFieldQueries3D
 var _inject = null                                       # LAMaterialFieldInject3D (write-side injection + FX)
 var _stamp = null                                        # LAMineralStamp3D — Stage C rock_fill->SDF growth stamp
+var _sphere_step = null                                  # LAMaterialFieldSphereStep3D — cubed-sphere per-frame step loop
 
 
 ## Wire the real scene sun (DirectionalLight3D); the heat module reads its energy + angle for solar input.
@@ -265,6 +267,9 @@ func setup_sphere(grid: RefCounted, terrain = null) -> void:
 	_dim_y = grid.depth
 	_dim_z = 1
 	_alloc_channels()
+	# Cubed-sphere per-frame step orchestration (begin/step/end + readback) lives in a focused module.
+	_sphere_step = SphereStepScript.new()
+	_sphere_step.setup(self)
 
 ## Explicit-dimension setup (used by tests / when the caller knows the volume directly).
 func setup_dims(dim_x: int, dim_y: int, dim_z: int, cell_size: float, origin: Vector3) -> void:
@@ -536,80 +541,12 @@ func _exit_tree() -> void:
 		_gpu.dispose()
 
 
-## Cubed-sphere per-frame step (Phase B MVP): activate the sphere GPU driver once, then run the fixed-step
-## begin_frame/step/end_frame loop over the *_sphere3d kernels and scatter temp/water back. No box CPU tails.
-func _sphere_process(delta: float) -> void:
-	if not _ready_sim:
-		if _terrain == null or not _terrain.has_method("is_solid"):
-			return
-		_sample_solidity_sphere()
-		_seed_sphere_sea()         # static field sea = the evaporation source that drives the water cycle
-		activate()                 # is_sphere() → picks SphereGPUScript + sets _use_gpu
-		_ready_sim = true
-		return
-	if not _use_gpu:
-		return
-	_step_accum += delta
-	var steps: int = 0
-	while _step_accum >= STEP_DT and steps < MAX_STEPS_PER_FRAME:
-		_step_accum -= STEP_DT
-		steps += 1
-	if steps <= 0:
-		return
-	var t0: int = Time.get_ticks_usec()
-	# Global scalar solar term is a constant fallback; the per-cell solar terminator comes from the sphere
-	# ThermalPass' set_sun_dir kernel (max(0, dot(cell_radial, sun_dir))), not this scalar.
-	var solar: float = 0.6
-	_pin_core_heat()                 # geothermal boundary: re-pin the hot inner shells before the upload
-	_gpu.begin_frame(_temp, _water, solar, Vector2.ZERO)
-	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
-	# sun_dir points from the planet toward the star; ThermalPass' solar kernel does max(0, dot(cell_radial, sun_dir)).
-	if _sun_light != null and _gpu.has_method("set_sun_dir"):
-		_gpu.set_sun_dir(_sun_light.global_transform.basis.z)
-	if _terrain != null and _terrain.has_method("sea_radius") and _gpu.has_method("set_sea_radius"):
-		_gpu.set_sea_radius(_terrain.sea_radius())
-	# add_lava injected on the CPU this frame → push the edited lava + bedrock into the GPU before stepping
-	# (dirty-gated: on clean frames both stay GPU-resident, so we never clobber the on-device evolution).
-	if _lava_dirty and _gpu.has_method("set_field"):
-		_gpu.set_field("lava", _lava)
-		_lava_dirty = false
-	if _rock_fill_dirty and _gpu.has_method("set_field"):
-		_gpu.set_field("rock_fill", _rock_fill)
-		_rock_fill_dirty = false
-	for i in steps:
-		_gpu.step()
-	var res: Dictionary = _gpu.end_frame()
-	_apply_sphere_readback(res)
-	if _stamp != null:
-		_stamp.maybe_scan()                       # Stage C: stamp rock_fill 0.5-crossings into the SDF (gated)
-	LASimReport.gauge("field_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
-
-
-## Scatter every channel the sphere driver read back into its CPU array, so actor world-space queries
-## (temp_at/o2_at/co2_at/is_submerged_at, routed through world_to_cell) and the SIM_REPORT field metrics
-## see LIVE field state instead of the stale seed values. The readback cost is already paid inside
-## end_frame(); assigning a PackedFloat32Array is a cheap COW reference. Guarded per channel by size.
-func _apply_sphere_readback(res: Dictionary) -> void:
-	if res.has("temp") and res["temp"].size() == _cell_count: _temp = res["temp"]
-	if res.has("water") and res["water"].size() == _cell_count: _water = res["water"]
-	if res.has("airwater") and res["airwater"].size() == _cell_count: _airwater = res["airwater"]
-	_atmos_dirty = true          # new airwater/temp → invalidate the cached condensate aggregates
-	if res.has("lava") and res["lava"].size() == _cell_count: _lava = res["lava"]
-	if res.has("fire") and res["fire"].size() == _cell_count: _fire = res["fire"]
-	if res.has("o2") and res["o2"].size() == _cell_count: _o2 = res["o2"]
-	if res.has("co2") and res["co2"].size() == _cell_count: _co2 = res["co2"]
-	if res.has("biomass") and res["biomass"].size() == _cell_count: _biomass = res["biomass"]
-	if res.has("snow") and res["snow"].size() == _cell_count: _snow = res["snow"]
-	if res.has("dust") and res["dust"].size() == _cell_count: _dust = res["dust"]
-	if res.has("sediment") and res["sediment"].size() == _cell_count: _sediment = res["sediment"]
-	if res.has("rock_fill") and res["rock_fill"].size() == _cell_count: _rock_fill = res["rock_fill"]
-
-
 func _physics_process(delta: float) -> void:
 	# The cubed-sphere is the SOLE substrate: one self-contained GPU step over the *_sphere3d kernels.
+	# The fixed-step begin/step/end loop + readback scatter live in LAMaterialFieldSphereStep3D.
 	# (The retired box grid + its CPU-oracle tails lived here; deleted with the sphere-only cleanup.)
-	if is_sphere():
-		_sphere_process(delta)
+	if is_sphere() and _sphere_step != null:
+		_sphere_step.process(delta)
 
 
 ## Temperature °C at a world point (0 outside the grid). The consumer query the 2.5D field also exposes.
