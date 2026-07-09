@@ -122,7 +122,9 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var co2_pair: Array = _pair(bufs, "co2")
 	var o2_pair: Array = _pair(bufs, "o2")
 	var temp_pair: Array = _pair(bufs, "temp")
-	var vapor_pair: Array = _pair(bufs, "vapor")
+	# Fungus reads local moisture. vapor is no longer a stored channel (Phase 2a → unified `airwater`); the
+	# total suspended water is the moisture input now (behavioural proxy, perf-over-parity).
+	var vapor_pair: Array = _pair(bufs, "airwater")
 	var fire_pair: Array = _pair(bufs, "fire")
 	var water_pair: Array = _pair(bufs, "water")
 	var shock_pair: Array = _pair(bufs, "shock")

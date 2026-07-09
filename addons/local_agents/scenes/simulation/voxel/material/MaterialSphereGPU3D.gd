@@ -21,7 +21,7 @@ extends RefCounted
 
 # Ping-pong (double-buffered) channels — one _a/_b pair each.
 const PAIR_CHANNELS: PackedStringArray = [
-	"temp", "water", "vapor", "cloud", "fog", "lava", "sediment", "fire", "dust",
+	"temp", "water", "airwater", "lava", "sediment", "fire", "dust",
 	"o2", "co2", "shock", "fungus", "susp", "fert"]
 # scent is a 5-plane packed pair (5*cell_count); handled specially.
 # Single (non-ping-pong) float buffers.
@@ -137,7 +137,7 @@ func end_frame(_rv: bool = true, _rc: bool = true, _rf: bool = true, _rr: bool =
 	var out: Dictionary = _empty_result()
 	if _rd == null:
 		return out
-	for k in ["temp", "water", "vapor", "cloud", "fog", "lava", "fire", "o2", "co2", "dust", "shock"]:
+	for k in ["temp", "water", "airwater", "lava", "fire", "o2", "co2", "dust", "shock"]:
 		out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
 	return out
 
@@ -235,8 +235,7 @@ func _zeros(n: int) -> PackedByteArray:
 func _empty_result() -> Dictionary:
 	return {
 		"temp": PackedFloat32Array(), "water": PackedFloat32Array(),
-		"vapor": PackedFloat32Array(), "cloud": PackedFloat32Array(),
-		"fog": PackedFloat32Array(), "lava": PackedFloat32Array(),
+		"airwater": PackedFloat32Array(), "lava": PackedFloat32Array(),
 		"fire": PackedFloat32Array(), "fuel": PackedFloat32Array(),
 		"sediment": PackedFloat32Array(), "o2": PackedFloat32Array(),
 		"co2": PackedFloat32Array(), "charge": PackedFloat32Array(),
