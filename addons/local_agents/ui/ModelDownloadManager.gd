@@ -188,6 +188,54 @@ func start_download(model_id: String) -> bool:
 	download_started.emit(model_id, _active_total)
 	return true
 
+# Bring-your-own: download an arbitrary GGUF straight from a Hugging Face repo (no catalog entry
+# needed). Saves under user://local_agents/models/custom/<filename>. The model_id reported through the
+# signals is a synthetic "custom:<repo>/<filename>" so a listening panel can track it like any row.
+# Returns false if busy / inputs invalid / the request cannot start.
+func start_download_custom(repo_id: String, filename: String, revision: String = "main") -> bool:
+	if is_downloading():
+		return false
+	var repo: String = repo_id.strip_edges()
+	var file: String = filename.strip_edges()
+	if repo == "" or file == "":
+		_emit_finished("custom:%s/%s" % [repo, file], false, "", "missing_repo_or_filename")
+		return false
+	var rev: String = revision.strip_edges()
+	if rev == "":
+		rev = "main"
+	var url: String = "https://huggingface.co/%s/resolve/%s/%s" % [repo, rev, file]
+	var model_id: String = "custom:%s/%s" % [repo, file]
+
+	_active_id = model_id
+	_active_final_path = "%s/custom/%s" % [RuntimePaths.MODELS_USER_ROOT, file]
+	_active_part_path = "%s.part" % _active_final_path
+	_active_total = 0
+
+	var dir_abs: String = ProjectSettings.globalize_path(_active_final_path).get_base_dir()
+	DirAccess.make_dir_recursive_absolute(dir_abs)
+	if FileAccess.file_exists(_active_part_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(_active_part_path))
+
+	_ensure_http()
+	_http.download_file = _active_part_path
+	_http.download_chunk_size = 1 << 20
+	_http.use_threads = true
+
+	_smoothed_speed = 0.0
+	_last_sample_ms = Time.get_ticks_msec()
+	_last_sample_bytes = 0
+	_last_received = 0
+
+	var err: int = _http.request(url)
+	if err != OK:
+		_reset_active()
+		_emit_finished(model_id, false, "", "request_error_%d" % err)
+		return false
+
+	set_process(true)
+	download_started.emit(model_id, _active_total)
+	return true
+
 # Cancels the in-flight download and discards its partial file (the real model is untouched).
 func cancel() -> void:
 	if not is_downloading():
