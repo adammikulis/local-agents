@@ -59,6 +59,9 @@ const CORE_LAYERS: int = 2
 # Ambient atmospheric oxygen every OPEN cell is seeded to (LAMaterialGas3D relaxes surface cells back toward
 # it; combustion draws it down). MUST match LAMaterialGas3D.O2_AMBIENT.
 const O2_AMBIENT: float = 1.0
+# Ambient atmospheric humidity every OPEN cell is seeded to — the starting moisture the terminator condenses
+# into cloud/fog on the cold (night) side. Evaporation from the static field sea replenishes it.
+const VAPOR_AMBIENT: float = 0.3
 # Scent channel indices (formerly LAMaterialScent3D.PREY/… — re-homed here after the CPU-oracle module was
 # retired). External senses/cognition sites reference these via LAMaterialField3D.SCENT_*.
 const SCENT_PREY: int = 0
@@ -257,6 +260,7 @@ func _alloc_channels() -> void:
 	_temp.fill(INITIAL_TEMP)
 	_vapor = PackedFloat32Array()
 	_vapor.resize(_cell_count)
+	_vapor.fill(VAPOR_AMBIENT)
 	_cloud = PackedFloat32Array()
 	_cloud.resize(_cell_count)
 	_fog = PackedFloat32Array()
@@ -464,6 +468,24 @@ func _sample_solidity_sphere() -> void:
 	for c in _cell_count:
 		_solid[c] = 1 if _terrain.is_solid(cell_world_pos_linear(c)) else 0
 
+## Seed the calm ocean into the FIELD water channel: every open cell at/below sea_radius becomes static water
+## (mass 1, not simulated → no per-frame cost + it can't fall to the core under radial gravity). This is the
+## evaporation SOURCE the water cycle was missing on the sphere — warm day-side sea evaporates → vapor →
+## clouds → rain. (The visual sea is still the GPU ocean plane; this is the physics source, mirroring the box.)
+func _seed_sphere_sea() -> void:
+	if _sphere == null or _terrain == null or not _terrain.has_method("sea_radius"):
+		return
+	var sea_r: float = _terrain.sea_radius()
+	if sea_r <= 0.0:
+		return
+	var sea_sq: float = sea_r * sea_r
+	for c in _cell_count:
+		if _solid[c] != 0:
+			continue
+		if (cell_world_pos_linear(c) - _origin).length_squared() <= sea_sq:
+			_water[c] = 1.0
+			_static[c] = 1
+
 ## Release the GPU driver's local RenderingDevice while the tree is still up — deferring it to engine
 ## shutdown crashes (recursive_mutex under windowed metal). Covers both the box and sphere drivers.
 func _exit_tree() -> void:
@@ -478,6 +500,7 @@ func _sphere_process(delta: float) -> void:
 		if _terrain == null or not _terrain.has_method("is_solid"):
 			return
 		_sample_solidity_sphere()
+		_seed_sphere_sea()         # static field sea = the evaporation source that drives the water cycle
 		activate()                 # is_sphere() → picks SphereGPUScript + sets _use_gpu
 		_ready_sim = true
 		return
@@ -572,10 +595,20 @@ func fog_at(x: float, z: float) -> float:
 	return 0.0
 
 func avg_cloud_cover() -> float:
-	return 0.0
+	return _channel_cover(_cloud, 0.05)
+
+## Fraction of cells whose channel density is at/above `thr` — a simple cover/occupancy proxy for the report.
+func _channel_cover(arr: PackedFloat32Array, thr: float) -> float:
+	if _cell_count == 0:
+		return 0.0
+	var n: int = 0
+	for v in arr:
+		if v >= thr:
+			n += 1
+	return float(n) / float(_cell_count)
 
 func avg_fog_cover() -> float:
-	return 0.0
+	return _channel_cover(_fog, 0.05)
 
 func precipitation() -> float:
 	return 0.0
@@ -672,7 +705,11 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 
 
 func cloud_cell_count(min_density: float = 0.05) -> int:
-	return 0
+	var n: int = 0
+	for v in _cloud:
+		if v >= min_density:
+			n += 1
+	return n
 
 
 # --- Heat diagnostics -------------------------------------------------------
