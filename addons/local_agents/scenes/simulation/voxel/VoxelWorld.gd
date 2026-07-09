@@ -28,6 +28,7 @@ const SkyControllerScript: GDScript = preload("res://addons/local_agents/scenes/
 const SpawnControllerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelSpawnController.gd")
 const InputControllerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelInputController.gd")
 const DebugWiringScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelDebugWiring.gd")
+const AudioControllerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelAudioController.gd")
 
 # --- SOLAR-SYSTEM-FIRST: the world is a star + planet body (see TODO). Radial is the default; flat retired. ---
 const PLANET_RADIUS: float = 250.0
@@ -66,6 +67,7 @@ var _audio: LocalAgentsAudioDirector = null
 var _music_destruction: float = 0.0     # decays each frame; meteors spike it
 var _mood_timer: int = 0
 var _music_auto_adapt: bool = true      # when false, stop feeding sim mood so manual menu picks stick
+var _audio_ctrl: Node = null            # LAVoxelAudioController — event stings + music-seed salt + UI/milestone helpers
 
 var _frame: int = 0
 # Transient landslide diagnostic (read by LAVoxelHarness.emit_smoke_summary at run end).
@@ -196,6 +198,13 @@ func _ready() -> void:
 	# Weather relays the field's EMERGENT rain (no invented rain of its own) — wire the field to it.
 	if _weather != null and _weather.has_method("set_field"):
 		_weather.set_field(_material)
+
+	# Game-feel audio: salt the music seed + fire an SFX sting per emergent phenomenon event. Thin
+	# wiring over the audio director; all behavior lives in the controller (composition root = one line).
+	_audio_ctrl = AudioControllerScript.new()
+	_audio_ctrl.name = "AudioController"
+	add_child(_audio_ctrl)
+	_audio_ctrl.setup(self)
 
 	# The calm sea: ONE GPU ocean plane at sea level. Planet: a finite spherical sea SHELL at sea_radius.
 	_ocean = OceanPlaneScript.new()
