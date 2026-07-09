@@ -124,14 +124,19 @@ func _game_settings() -> LAGameSettings:
 	return null
 
 
-## True when a dev has opted out of audio (env LA_NO_AUDIO, or a `--no-audio` user arg).
+## True when audio should start silent. Default: SILENT in the editor + any debug run (i.e. all testing —
+## no audio during the dev loop), audio ON only in the exported RELEASE build. Explicit override either way:
+## `LA_NO_AUDIO=1` / `--no-audio` force silent; `LA_NO_AUDIO=0` / `--audio` force audio on (e.g. to test audio
+## from the editor). The player's in-game volume/mute settings still apply on top of this default.
 func _audio_disabled() -> bool:
 	if OS.has_environment("LA_NO_AUDIO"):
-		return true
+		return OS.get_environment("LA_NO_AUDIO") != "0"
 	for arg in OS.get_cmdline_user_args():
 		if arg == "--no-audio":
 			return true
-	return false
+		if arg == "--audio":
+			return false
+	return OS.has_feature("editor") or OS.is_debug_build()
 
 
 # --- Music bed ------------------------------------------------------------------------------------
