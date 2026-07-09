@@ -52,6 +52,10 @@ var _static: PackedByteArray = PackedByteArray()
 # reach into these arrays through the field (`_f`), 3D-generalising the 2.5D MaterialHeat/Atmosphere/
 # Liquid. INITIAL_TEMP seeds a mild ground so nothing freezes before the field settles.
 const INITIAL_TEMP: float = 15.0
+# Geothermal core: the innermost CORE_LAYERS radial shells are pinned hot each step (a boundary condition,
+# NOT an actor injection). Conduction (ThermalPass) carries that heat outward → a radial geothermal gradient
+# emerges. add_magma_source arms it (records the pin temperature). Sphere-only.
+const CORE_LAYERS: int = 2
 # Ambient atmospheric oxygen every OPEN cell is seeded to (LAMaterialGas3D relaxes surface cells back toward
 # it; combustion draws it down). MUST match LAMaterialGas3D.O2_AMBIENT.
 const O2_AMBIENT: float = 1.0
@@ -117,6 +121,8 @@ const InjectScript: GDScript = preload("res://addons/local_agents/scenes/simulat
 var _gpu = null                                          # LAMaterialSphereGPU3D (local RenderingDevice) or null
 var _use_gpu: bool = false
 var _dbg_sphere_frames: int = 0
+var _core_temp: float = 0.0                              # geothermal core pin temperature (0 = disarmed)
+var _core_cells: PackedInt32Array = PackedInt32Array()  # static innermost-shell cell indices (built once)
 # Read-only query accessors + the write-side injection facade (factored out; see those files).
 var _queries = null                                      # LAMaterialFieldQueries3D
 var _inject = null                                       # LAMaterialFieldInject3D (write-side injection + FX)
@@ -491,6 +497,7 @@ func _sphere_process(delta: float) -> void:
 	# Global scalar solar term is a constant fallback; the per-cell solar terminator comes from the sphere
 	# ThermalPass' set_sun_dir kernel (max(0, dot(cell_radial, sun_dir))), not this scalar.
 	var solar: float = 0.6
+	_pin_core_heat()                 # geothermal boundary: re-pin the hot inner shells before the upload
 	_gpu.begin_frame(_temp, _water, solar, Vector2.ZERO)
 	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
 	# sun_dir points from the planet toward the star; ThermalPass' solar kernel does max(0, dot(cell_radial, sun_dir)).
@@ -774,7 +781,22 @@ func fertility_peak() -> float:
 # CPU oracles retired; these channels are not yet read back from the sphere GPU driver, so the emitters are
 # no-ops and the diagnostics return safe defaults until their sphere readback lands.
 func add_magma_source(world_pos: Vector3, temp: float, rate: float) -> void:
-	pass
+	# Sphere geothermal core: arm the innermost-radial-shell heat pin (world_pos/rate unused — the core is
+	# the whole innermost shell, not a point). Conduction spreads it outward into a geothermal gradient.
+	_core_temp = maxf(_core_temp, temp)
+
+## Pin the innermost CORE_LAYERS radial shells to the geothermal temperature (cell layout: cell = surf*depth + r,
+## so r = c % _dim_y; r < CORE_LAYERS is the core). Precomputes the static core-cell list once. Called each step
+## before begin_frame so the upload carries it; conduction then propagates it up through the rock to the surface.
+func _pin_core_heat() -> void:
+	if _core_temp <= 0.0 or not is_sphere() or _dim_y <= 0:
+		return
+	if _core_cells.is_empty():
+		for c in _cell_count:
+			if c % _dim_y < CORE_LAYERS:
+				_core_cells.append(c)
+	for c in _core_cells:
+		_temp[c] = _core_temp
 func magma_cell_count() -> int:
 	return 0
 func magma_erupting() -> bool:
@@ -939,9 +961,15 @@ func _open_temp_stats() -> Dictionary:
 			mx = t
 		sum += t
 		n += 1
+	# All-cell max (incl. solid) exposes the pinned geothermal core + the conduction gradient, which the
+	# open-cell stats above hide (the hot core cells are rock).
+	var all_mx: float = -1.0e20
+	for v in _temp:
+		if v > all_mx:
+			all_mx = v
 	if n == 0:
-		return {"temp_min": 0.0, "temp_mean": 0.0, "temp_max": 0.0, "temp_open": 0}
-	return {"temp_min": mn, "temp_mean": sum / float(n), "temp_max": mx, "temp_open": n}
+		return {"temp_min": 0.0, "temp_mean": 0.0, "temp_max": 0.0, "temp_open": 0, "temp_all_max": all_mx}
+	return {"temp_min": mn, "temp_mean": sum / float(n), "temp_max": mx, "temp_open": n, "temp_all_max": all_mx}
 
 
 ## Polled only at snapshot time, so these (cheap forwarder) reads don't run per frame.

@@ -35,6 +35,8 @@ extends RefCounted
 ##   earlier this frame). EXIT state: fresh temp AND lava both in BACK[1-p] — consistent with the box's
 ##   post-heat convention (downstream wind/atmosphere read temp_back) and a single end-of-step parity flip.
 
+const CONDUCT_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/heat_sphere3d.glsl"
+const COPY_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/copy_sphere3d.glsl"
 const SOLAR_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/heat3d_solar_sphere3d.glsl"
 const BUOY_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/heat3d_buoyancy_sphere3d.glsl"
 const COOL_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/heat3d_cool_sphere3d.glsl"
@@ -42,6 +44,14 @@ const LAVA_PHASE_PATH: String = "res://addons/local_agents/scenes/simulation/vox
 const MAGMA_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/magma_buoy_sphere3d.glsl"
 
 var _cc: int = 0
+
+var _conduct_shader: RID = RID()
+var _copy_shader: RID = RID()
+var _conduct_pipe: RID = RID()
+var _copy_pipe: RID = RID()
+var _conduct_set: Array = [RID(), RID()]   # per phase: temp[p] -> _cond_scratch
+var _copy_set: Array = [RID(), RID()]      # per phase: _cond_scratch -> temp[p]
+var _cond_scratch: RID = RID()             # private conduction gather target (net-zero-flip copy-back)
 
 var _solar_shader: RID = RID()
 var _buoy_shader: RID = RID()
@@ -80,12 +90,17 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	_lava_phase_pipe = rd.compute_pipeline_create(_lava_phase_shader)
 	_magma_shader = _load_shader(rd, MAGMA_PATH)
 	_magma_pipe = rd.compute_pipeline_create(_magma_shader)
+	_conduct_shader = _load_shader(rd, CONDUCT_PATH)
+	_conduct_pipe = rd.compute_pipeline_create(_conduct_shader)
+	_copy_shader = _load_shader(rd, COPY_PATH)
+	_copy_pipe = rd.compute_pipeline_create(_copy_shader)
 
-	# Private magma snapshot scratch (cc float32, zero-initialised).
+	# Private magma snapshot scratch + conduction gather scratch (cc float32, zero-initialised).
 	var zf: PackedFloat32Array = PackedFloat32Array()
 	zf.resize(cc)
 	var zb: PackedByteArray = zf.to_byte_array()
 	_scratch = rd.storage_buffer_create(zb.size(), zb)
+	_cond_scratch = rd.storage_buffer_create(zb.size(), zb)
 
 	var solid: RID = bufs["solid"]
 	var nbr: RID = bufs["nbr"]
@@ -102,6 +117,11 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		var water_back: RID = water[back]
 		var lava_back: RID = lava[back]
 
+		# conduct (heat_sphere3d): 0 = TempIn (LIVE), 1 = TempOut (scratch), 2 = nbr. copy: 0 = scratch, 1 = temp LIVE.
+		_conduct_set[p] = _make_set(rd, _conduct_shader, [
+			[0, temp_live], [1, _cond_scratch], [2, nbr]])
+		_copy_set[p] = _make_set(rd, _copy_shader, [
+			[0, _cond_scratch], [1, temp_live]])
 		# solar: 0 = temp (LIVE, in-place), 1 = solid, 14 = radial, 15 = nbr.
 		_solar_set[p] = _make_set(rd, _solar_shader, [
 			[0, temp_live], [1, solid], [14, radial], [15, nbr]])
@@ -122,6 +142,21 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	var sun_dir: Vector3 = ctx.get("sun_dir", Vector3(0.0, 1.0, 0.0))
 	var sea_radius: float = ctx.get("sea_radius", 248.0)
+
+	# 0. CONDUCTION — relax temp toward its 6-neighbour mean (net-zero-flip: gather LIVE->scratch, copy back).
+	# This is the ONLY lateral/radial heat conduction in the field; it carries the pinned magma core outward to
+	# the surface (geothermal gradient) and smooths solar/buoyancy forcing. Runs through rock AND void.
+	var cond_pc: PackedByteArray = _count_pc(cc)
+	rd.compute_list_bind_compute_pipeline(cl, _conduct_pipe)
+	rd.compute_list_bind_uniform_set(cl, _conduct_set[parity], 0)
+	rd.compute_list_set_push_constant(cl, cond_pc, cond_pc.size())
+	rd.compute_list_dispatch(cl, groups, 1, 1)
+	rd.compute_list_add_barrier(cl)          # conducted temp (scratch) visible to the copy-back
+	rd.compute_list_bind_compute_pipeline(cl, _copy_pipe)
+	rd.compute_list_bind_uniform_set(cl, _copy_set[parity], 0)
+	rd.compute_list_set_push_constant(cl, cond_pc, cond_pc.size())
+	rd.compute_list_dispatch(cl, groups, 1, 1)
+	rd.compute_list_add_barrier(cl)          # temp LIVE now carries conduction, feeds solar
 
 	# 1. SOLAR — the terminator, in-place on temp LIVE.
 	rd.compute_list_bind_compute_pipeline(cl, _solar_pipe)
