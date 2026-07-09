@@ -13,6 +13,8 @@ const PANEL_BG: Color = Color(0.06, 0.08, 0.12, 0.96)
 const ACCENT: Color = Color(0.55, 0.72, 1.0)
 const SPEEDS: Array[int] = [1, 2, 4, 8, 16]
 
+const HelpOverlayScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/PauseHelpOverlay.gd")
+
 var _panel: Control = null
 var _speed_buttons: Array[Button] = []
 
@@ -91,6 +93,12 @@ func _build_ui() -> void:
 		speed_row.add_child(b)
 		_speed_buttons.append(b)
 
+	var help: Button = Button.new()
+	help.text = "Controls & help"
+	help.custom_minimum_size = Vector2(0.0, 44.0)
+	help.pressed.connect(open_controls_help)
+	vbox.add_child(help)
+
 	var quit: Button = Button.new()
 	quit.text = "Quit game"
 	quit.custom_minimum_size = Vector2(0.0, 44.0)
@@ -120,6 +128,16 @@ func toggle() -> void:
 
 func is_open() -> bool:
 	return visible
+
+
+## Open the in-sim Controls & help overlay (the shared help hub) on top of the pause menu. Reused by the
+## pause button and the --help-shot verification path; a Close button on the overlay frees it. Returns the
+## overlay node so a caller can screenshot / drive it.
+func open_controls_help() -> Control:
+	var overlay: Control = HelpOverlayScript.new()
+	overlay.name = "ControlsHelpOverlay"
+	add_child(overlay)
+	return overlay
 
 
 # Esc while the menu is open closes it (and unpauses). Consumed so nothing else reacts to the same key.

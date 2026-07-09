@@ -356,6 +356,11 @@ func _build_palette(root: Control) -> void:
 
 	_ui_panels.append(_palette_panel)
 
+	# Diagnostic: confirm a palette button carries its registry-keyed name+hotkey tooltip (one-time log).
+	var sample: Button = _kind_buttons.get("rabbit", null)
+	if sample != null:
+		print("PALETTE_TOOLTIP={kind:\"rabbit\", tooltip:\"%s\"}" % sample.tooltip_text.replace("\n", " / "))
+
 	# Swap the life/prop buttons' emoji glyphs for isometric renders of their actual models
 	# (async: renders into an off-screen SubViewport over the next few frames).
 	_generate_thumbnails()

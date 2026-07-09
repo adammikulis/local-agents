@@ -86,6 +86,16 @@ static func spawn_kind_for_key(keycode: int, shifted: bool) -> String:
 	return kinds[index]
 
 
+## The bound key string for an action id ("" when the action is not in the catalog). Lets a tooltip or
+## hint reuse the SAME key label the controls-reference screen shows, so an on-screen control and the
+## reference never disagree about which key drives it.
+static func key_for_action(action: String) -> String:
+	for row in hotkey_map():
+		if String(row.get("action", "")) == action:
+			return String(row.get("key", ""))
+	return ""
+
+
 ## The compact key hint for a palette button ("1".."9"/"0", or "⇧1".. for a disaster). "" when the kind is
 ## not on the palette. Drives the small number badge drawn on each button and its tooltip.
 static func spawn_label(kind: String) -> String:

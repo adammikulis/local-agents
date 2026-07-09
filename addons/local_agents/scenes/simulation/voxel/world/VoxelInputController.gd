@@ -90,6 +90,8 @@ var _face_sun: bool = false              # --face-sun: aim the camera at the sta
 var _face_sun_done: bool = false
 var _menu_shot: bool = false             # --menu-shot: show the pause menu overlay before the screenshot (menu proof)
 var _menu_shot_done: bool = false
+var _help_shot: bool = false             # --help-shot: open the pause "Controls & help" overlay before the screenshot
+var _help_shot_done: bool = false
 var _start_geosync: bool = false         # --geosync: start in geosync rotation mode (verification aid)
 var _start_solar: bool = false           # --solar-view: start in the solar-system overview (verification aid)
 var _start_fly: bool = false             # --fly: start in fly mode down near the surface (verification aid)
@@ -169,6 +171,8 @@ func parse_cmdline() -> void:
 			_face_sun = true
 		elif arg == "--menu-shot":
 			_menu_shot = true
+		elif arg == "--help-shot":
+			_help_shot = true
 		elif arg == "--geosync":
 			_start_geosync = true
 		elif arg == "--solar-view":
@@ -522,6 +526,15 @@ func update(frame: int, spawned: bool) -> void:
 			print("MENU_PAUSE_SELFTEST paused_toggles=", pause_ok)
 			_pause_menu.open(false)
 			_menu_shot_done = true
+
+	# --help-shot: open the pause menu's "Controls & help" overlay (without pausing, so the capture loop keeps
+	# ticking) just before the screenshot, and confirm the entry resolves — the in-sim controls-reference proof.
+	if _help_shot and not _help_shot_done and _shoot_path != "" and _pause_menu != null:
+		if frame >= _shoot_frames - 6:
+			_pause_menu.open(false)
+			var overlay: Control = _pause_menu.open_controls_help()
+			print("PAUSE_HELP_OK resolved=", overlay != null and is_instance_valid(overlay))
+			_help_shot_done = true
 
 	# Auto-select demo: frame a real creature close-up and run the REAL selection path so the
 	# thought-inspector panel populates. We select the node DIRECTLY (select_node) rather than a

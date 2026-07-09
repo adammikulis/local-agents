@@ -19,6 +19,8 @@ var _orbit_btn: Button = null
 var _geo_btn: Button = null
 var _fly_btn: Button = null
 var _spin_btn: Button = null
+var _geo_hotkey: String = ""      # cached registry key labels folded into the gated tooltips
+var _solar_hotkey: String = ""
 
 
 func _init() -> void:
@@ -63,8 +65,16 @@ func _build_ui() -> void:
 	box.add_theme_constant_override("separation", 4)
 	panel.add_child(box)
 
+	# Hotkey hint per view action, read from the shared registry so a tooltip and the controls-reference
+	# screen never disagree about which key drives a mode.
+	var solar_key: String = LAHotkeyRegistry.key_for_action("view_solar")
+	var geo_key: String = LAHotkeyRegistry.key_for_action("view_geosync")
+	var fly_key: String = LAHotkeyRegistry.key_for_action("view_fly")
+	var spin_key: String = LAHotkeyRegistry.key_for_action("view_auto_spin")
+
 	var view_group: ButtonGroup = ButtonGroup.new()
 	_planet_btn = _make_button("Planet", view_group, box)
+	_planet_btn.tooltip_text = "Close planet view  (%s toggles the overview)" % solar_key
 	_planet_btn.pressed.connect(func() -> void: _host.set_solar_view(false))
 	_solar_btn = _make_button("Solar System", view_group, box)
 	_solar_btn.pressed.connect(func() -> void: _host.set_solar_view(true))
@@ -73,16 +83,22 @@ func _build_ui() -> void:
 
 	var rot_group: ButtonGroup = ButtonGroup.new()
 	_orbit_btn = _make_button("Orbit", rot_group, box)
+	_orbit_btn.tooltip_text = "Orbit — camera stays fixed in world; drag to rotate"
 	_orbit_btn.pressed.connect(func() -> void: _host.set_orbit_mode())
 	_geo_btn = _make_button("Geosync", rot_group, box)
 	_geo_btn.pressed.connect(func() -> void: _host.set_geosync(true))
 	_fly_btn = _make_button("Fly", rot_group, box)
+	_fly_btn.tooltip_text = "Fly — free-flight drone  (%s)" % fly_key
 	_fly_btn.pressed.connect(func() -> void: _host.set_fly(true))
 
 	_add_divider(box)
 
 	_spin_btn = _make_button("Auto-spin", null, box)
+	_spin_btn.tooltip_text = "Turn the planet in front of you  (%s)" % spin_key
 	_spin_btn.toggled.connect(func(on: bool) -> void: _host.set_auto_spin(on))
+	# Geosync / Solar tooltips (which fold in the campaign-lock state) are set by _apply_locks() below.
+	_geo_hotkey = geo_key
+	_solar_hotkey = solar_key
 
 
 func _make_button(text: String, group: ButtonGroup, parent: Control) -> Button:
@@ -111,8 +127,8 @@ func _apply_locks() -> void:
 		return
 	_geo_btn.disabled = not LAGameProgression.cap_unlocked("view_geosync")
 	_solar_btn.disabled = not LAGameProgression.cap_unlocked("view_solar")
-	_geo_btn.tooltip_text = "Geosync" if not _geo_btn.disabled else "Geosync — locked (earn it in the campaign)"
-	_solar_btn.tooltip_text = "Solar System" if not _solar_btn.disabled else "Solar System — locked (campaign capstone)"
+	_geo_btn.tooltip_text = ("Geosync — ride the planet's spin over one region  (%s)" % _geo_hotkey) if not _geo_btn.disabled else "Geosync — locked (earn it in the campaign)"
+	_solar_btn.tooltip_text = ("Solar-system overview — planet + sun  (%s)" % _solar_hotkey) if not _solar_btn.disabled else "Solar System — locked (campaign capstone)"
 
 
 ## Mirror the host's camera-mode state onto the buttons (no-signal so it doesn't re-fire the callbacks).
