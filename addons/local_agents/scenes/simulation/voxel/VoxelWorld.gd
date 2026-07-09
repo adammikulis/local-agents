@@ -20,6 +20,7 @@ const OceanPlaneScript: GDScript = preload("res://addons/local_agents/scenes/sim
 const MaterialField3DScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField3D.gd")
 const WaterParticlesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/WaterParticles.gd")
 const StreamerHostScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelStreamerHost.gd")
+const ThoughtPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/CreatureThoughtPanel.gd")
 const EventTrackerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/events/LAEventTracker.gd")
 const PlanetBodyScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/system/PlanetBody.gd")
 const SphereGridScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/sphere/SphereGrid.gd")
@@ -54,6 +55,7 @@ var _material: Node = null   # LAMaterialField — the ONE substrate: terrain-co
 var _ocean: Node = null      # LAOceanPlane — the calm sea drawn as one GPU plane (CA meshes only waves)
 var _water: Node = null      # LAWaterParticles — the ONE field-driven atmosphere visual (cloud/fog/rain/snow)
 var _streamer_host: Node = null # LAVoxelStreamerHost — owns the streamer overlay/avatar/voice/director
+var _thought_panel: CanvasLayer = null # LACreatureThoughtPanel — click-a-creature "what it's thinking" hook
 var _events: Node = null     # LAEventTracker — the ONE emergent phenomenon-event source (streamer + telemetry consume it)
 
 # --- Focused controllers (each owns one cross-cutting concern) ---
@@ -270,6 +272,12 @@ func _ready() -> void:
 	# controllers are built in different phases of composition).
 	if _debug != null:
 		_interaction.selection_changed.connect(_debug.on_selection_changed)
+	# Click-a-creature "what it's thinking" panel — surfaces the existing per-creature cognition (its last
+	# decision + the local model's rationale). Pure UI reader; subscribes to the same selection signal.
+	_thought_panel = ThoughtPanelScript.new()
+	_thought_panel.name = "CreatureThoughtPanel"
+	add_child(_thought_panel)
+	_thought_panel.setup(_interaction)
 
 	# --- Initial spawning controller (ticked each frame until the surface has meshed). ---
 	_spawn = SpawnControllerScript.new()
@@ -424,6 +432,12 @@ func toggle_scent_view() -> void:
 func toggle_temp_view() -> void:
 	if _debug != null:
 		_debug.toggle_temp_view()
+
+
+# C key (from the interaction controller): hide/show the streamer, gating its LLM + TTS compute off/on.
+func toggle_streamer() -> void:
+	if _streamer_host != null and _streamer_host.has_method("toggle_streamer"):
+		_streamer_host.toggle_streamer()
 
 
 func _push_environment() -> void:

@@ -55,6 +55,14 @@ var escalations: int = 0
 var decisions: int = 0
 var lessons: int = 0                       # heuristics acquired socially
 
+# Introspection for the thought inspector. These SURFACE the real decision — they do NOT run any model.
+#   _last_choice : the most recent fast-path pick (every decide) + how it was reached.
+#   _last_ask    : the most recent slow-brain resolution written back by the shared scheduler, tagged
+#                  with its source ("llm" = the local FunctionGemma model chose it; "teacher" = the
+#                  offline heuristic teacher). This is the natural-language "thought" the panel stars.
+var _last_choice: Dictionary = {}          # {action, how, e, h, w, n}   how: reflex|habit|instinct
+var _last_ask: Dictionary = {}             # {action, source, e, h, w, n}   source: llm|teacher
+
 
 func set_scheduler(s) -> void:
 	_sched = s
@@ -73,6 +81,7 @@ func seed_from_genome(genome) -> void:
 ## Returns an action name from LAActionRegistry. Reflex actions (flee) are never second-guessed.
 func decide(c, innate_action: String, sig: Dictionary, delta: float) -> String:
 	if LAActionRegistry.is_reflex(innate_action):
+		_record_choice(innate_action, "reflex", sig)
 		return innate_action
 
 	_cooldown = maxf(0.0, _cooldown - delta)
@@ -92,11 +101,21 @@ func decide(c, innate_action: String, sig: Dictionary, delta: float) -> String:
 		if _should_escalate(c, learned):
 			_escalate(c, sig, innate_action)
 
+	_record_choice(chosen, "habit" if chosen != innate_action else "instinct", sig)
 	_last_key = key
 	_last_action = chosen
 	_last_energy = c.energy
 	_last_hydration = c.hydration
 	return chosen
+
+
+# Snapshot the current fast-path pick so the thought inspector can phrase it. Cheap; no allocation churn.
+func _record_choice(action: String, how: String, sig: Dictionary) -> void:
+	_last_choice = {
+		"action": action, "how": how,
+		"e": int(sig.get("e", 2)), "h": int(sig.get("h", 3)),
+		"w": int(sig.get("w", 0)), "n": int(sig.get("n", 0)),
+	}
 
 
 ## Reward the last action by whether the creature is better off (ate / drank / stayed healthy).
@@ -136,17 +155,40 @@ func _escalate(c, sig: Dictionary, innate_action: String) -> void:
 	escalations += 1
 
 
-## Called back by the scheduler when FunctionGemma returns an action for `key`. Trusted enough to
-## override immediately (seeded above the confidence threshold), then tuned by reinforcement.
-func apply_llm_result(key: int, action: String) -> void:
+## Called back by the scheduler when the slow brain resolves an escalation for `key`. Trusted enough to
+## override immediately (seeded above the confidence threshold), then tuned by reinforcement. `source`
+## records WHO decided ("llm" = the local FunctionGemma model; "teacher" = the offline heuristic) and
+## `sig` carries the situation so the thought inspector can phrase the decision — pure surfacing, no
+## second model path.
+func apply_llm_result(key: int, action: String, source: String = "llm", sig: Dictionary = {}) -> void:
 	_pending = false
 	if not LAActionRegistry.is_valid(action):
 		return
 	policy[key] = {"action": action, "weight": LLM_SEED_WEIGHT}
+	_last_ask = {
+		"action": action, "source": source,
+		"e": int(sig.get("e", 2)), "h": int(sig.get("h", 3)),
+		"w": int(sig.get("w", 0)), "n": int(sig.get("n", 0)),
+	}
 
 
 func on_llm_failed() -> void:
 	_pending = false
+
+
+# --- thought-inspector introspection (read-only; surfaces the real decision, never calls a model) ---
+
+func last_choice() -> Dictionary:
+	return _last_choice
+
+
+func last_ask() -> Dictionary:
+	return _last_ask
+
+
+## True while this creature has a slow-brain escalation in flight — the panel shows "asking the model…".
+func is_thinking() -> bool:
+	return _pending
 
 
 ## SOCIAL LEARNING: copy confident heuristics from same-species creatures this one can SEE, weighted

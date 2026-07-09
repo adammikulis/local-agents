@@ -177,7 +177,9 @@ func _finish(job: Dictionary, action: String, source: String) -> void:
 	if action != "" and LAActionRegistry.is_valid(action):
 		_write_trace(job, action, source)
 		if cognition != null and is_instance_valid(cognition):
-			cognition.apply_llm_result(int(job["sig"].get("key", -1)), action)
+			# Pass the source + full signature so the creature can surface WHO decided (local model vs
+			# offline teacher) and phrase it as a natural-language thought in the inspector.
+			cognition.apply_llm_result(int(job["sig"].get("key", -1)), action, source, job["sig"])
 	else:
 		if cognition != null and is_instance_valid(cognition):
 			cognition.on_llm_failed()
