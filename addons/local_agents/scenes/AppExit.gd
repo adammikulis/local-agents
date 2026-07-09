@@ -60,9 +60,13 @@ func quit(code: int = 0) -> void:
 	# SIM_REPORT has already printed; give one idle frame so any in-flight disk writes settle.
 	if tree != null:
 		await tree.process_frame
-	# Hard, clean exit that skips the MoltenVK NSApplication-terminate abort (rc 0). When the
-	# native extension is unavailable (headless without it), fall back to a normal quit.
+	# Hard, clean exit that skips the MoltenVK NSApplication-terminate abort (rc 0). Referenced
+	# ONLY by string (ClassDB) so this script still PARSES when the native extension has not been
+	# rebuilt yet — then we fall back to a normal quit. `exit_now` is a static method dispatched
+	# via a throwaway instance; `_Exit` does not return, so if it fires we never reach the fallback.
 	if ClassDB.class_exists("LAProcess"):
-		LAProcess.exit_now(code)
-	elif tree != null:
+		var proc: Object = ClassDB.instantiate("LAProcess")
+		if proc != null and proc.has_method("exit_now"):
+			proc.call("exit_now", code)
+	if tree != null:
 		tree.quit(code)
