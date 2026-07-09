@@ -13,6 +13,7 @@ signal highlight_toggled(group: String, on: bool)    # a "species_*" or "nest" g
 signal behavior_toggled(behavior: String, on: bool)  # a creature behavior-state category
 signal paths_toggled(on: bool)
 signal perf_toggled(key: String, on: bool)           # "shadows" | "ssao"
+signal family_tree_toggled(on: bool)                 # show the kinship family-tree inspector for the selection
 signal screenshot_requested()                        # user clicked the save-screenshot button
 
 # Field-channel heatmap rows: display label -> view_toggled key (the DebugOverlay samples that channel).
@@ -97,6 +98,9 @@ func _ready() -> void:
 	for brow in BEHAVIORS:
 		var bkey: String = brow[1]
 		_add_check(brow[0], func(on: bool) -> void: behavior_toggled.emit(bkey, on))
+
+	_add_section("INSPECT")
+	_add_check("Family tree", func(on: bool) -> void: family_tree_toggled.emit(on))
 
 	_add_section("OVERLAY")
 	_add_check("Intended paths", func(on: bool) -> void: paths_toggled.emit(on))

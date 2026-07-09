@@ -18,6 +18,15 @@ var _adj: Dictionary = {}         # relationship record: node id → Array[int] 
 var _anchor: Dictionary = {}      # family label → its first-registered member (siblings link to this anchor)
 var _seq: int = 0                 # family-label sequence — small positive ids (creature instance ids are large)
 
+# DIRECTED / TYPED lineage records, kept alongside the undirected _adj so a reader (the family-tree inspector)
+# can tell a parent from a child from a mate — _adj alone loses that. Populated from the SAME founding / birth /
+# bond events as _adj (no change to when edges are recorded, or to the union-find family labels). These are the
+# permanent SKELETON of the lineage: forget() (death cleanup) intentionally does NOT prune them, so a family tree
+# still shows a dead/removed ancestor's place in the line — the reader resolves each id to decide alive vs dead.
+var _children: Dictionary = {}    # parent cid → Array[int] child cids (directed, from add_offspring)
+var _parents: Dictionary = {}     # child cid → Array[int] parent cids (directed, from add_offspring)
+var _mates: Dictionary = {}       # cid → Array[int] mate cids (undirected pair bond, from add_bond)
+
 
 ## Allocate a fresh family label: a new connected component with no members yet. Founder clusters call this
 ## once; the returned label becomes the shared family_id of that cluster's members (and of their descendants).
@@ -69,6 +78,8 @@ func add_offspring(parent_cid: int, child_cid: int) -> int:
 		_parent[label] = label
 	_parent[child_cid] = label
 	_link(parent_cid, child_cid)
+	_append_unique(_children, parent_cid, child_cid)
+	_append_unique(_parents, child_cid, parent_cid)
 	return label
 
 
@@ -76,6 +87,17 @@ func add_offspring(parent_cid: int, child_cid: int) -> int:
 ## a cross-family pairing is kept in the edge record while each partner keeps its birth family label.
 func add_bond(a_cid: int, b_cid: int) -> void:
 	_link(a_cid, b_cid)
+	if a_cid != b_cid:
+		_append_unique(_mates, a_cid, b_cid)
+		_append_unique(_mates, b_cid, a_cid)
+
+
+func _append_unique(store: Dictionary, key: int, value: int) -> void:
+	if not store.has(key):
+		store[key] = []
+	var arr: Array = store[key]
+	if not arr.has(value):
+		arr.append(value)
 
 
 func _link(a: int, b: int) -> void:
@@ -112,3 +134,36 @@ func family_count() -> int:
 		if int(k) > _seq:
 			seen[find(int(k))] = true
 	return seen.size()
+
+
+# --- Read-only lineage accessors (for the family-tree inspector) --------------------------------------------
+# Pure reads over the stored typed edges — they never mutate the graph. Each returns a fresh copy so a caller
+# can't alias the internal arrays. O(degree), safe to call on selection (never per frame).
+
+## Direct parents of `cid` (usually 1-2). Empty for a founder (no recorded parent).
+func parents_of(cid: int) -> Array:
+	return (_parents[cid] as Array).duplicate() if _parents.has(cid) else []
+
+
+## Direct offspring of `cid`. Empty for a creature that never bred.
+func children_of(cid: int) -> Array:
+	return (_children[cid] as Array).duplicate() if _children.has(cid) else []
+
+
+## Mate / pair-bond partners of `cid` (the other parent(s) of its offspring). Empty if unpaired.
+func mates_of(cid: int) -> Array:
+	return (_mates[cid] as Array).duplicate() if _mates.has(cid) else []
+
+
+## Every LIVING id currently sharing `cid`'s family label (its connected component). Founder siblings included.
+## Union-find scan over the registered nodes — O(registered), only called on selection. Dead/forgotten ids drop
+## out here (their _parent entry is gone), but they persist in the directed edges above so the tree still draws
+## their place in the line.
+func members_of_component(cid: int) -> Array:
+	var root: int = find(cid)
+	var out: Array = []
+	for k in _parent.keys():
+		var ki: int = int(k)
+		if ki > _seq and find(ki) == root:
+			out.append(ki)
+	return out

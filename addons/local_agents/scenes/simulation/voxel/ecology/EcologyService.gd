@@ -469,6 +469,38 @@ func _tick_breeding() -> void:
 				_kinship.add_bond(int(pa.get_instance_id()), int(pb.get_instance_id()))
 
 
+# HARNESS AID (--debug-family): deterministically produce a small family through the REAL reproduction path so
+# the family-tree inspector has something to draw. Finds the first species with >=2 mature adults, breeds that
+# pair twice (recording parent->child + the mate bond exactly as _tick_breeding does), then kills one child so a
+# dead/greyed kin appears in the lineage. Returns a parent to root the tree on (null if no mature pair exists).
+func debug_seed_family() -> Node:
+	for kind in ["rabbit", "fox", "bird", "villager", "vulture"]:
+		var adults: Array = []
+		for m in get_tree().get_nodes_in_group("species_%s" % kind):
+			if is_instance_valid(m) and m.has_method("is_mature") and m.is_mature():
+				adults.append(m)
+		if adults.size() < 2:
+			continue
+		var pa: Node3D = adults[0] as Node3D
+		var pb: Node3D = adults[1] as Node3D
+		var kids: Array = []
+		for i in range(2):
+			var placed = _place_on_surface(_tangent_offset_point(pa.global_position, randf_range(-2.0, 2.0), randf_range(-2.0, 2.0)))
+			if placed == null:
+				continue
+			var child = _instance_actor(kind, placed, _breed_genome(pa, pb))
+			if child != null and is_instance_valid(child):
+				_inherit_nest(pa, child)
+				_kinship.add_offspring(int(pa.get_instance_id()), int(child.get_instance_id()))
+				_kinship.add_bond(int(pa.get_instance_id()), int(pb.get_instance_id()))
+				kids.append(child)
+		# Grey one branch: kill a child so the tree shows a dead kin while the lineage persists.
+		if kids.size() >= 2 and kids[1].has_method("die"):
+			kids[1].die("debug_family")
+		return pa
+	return null
+
+
 # Natal philopatry: the offspring adopts a parent's home site, so kin CLUSTER in space over
 # generations — which makes vision/sound social learning spread fastest among relatives (culture).
 func _inherit_nest(parent, child) -> void:
