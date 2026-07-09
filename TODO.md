@@ -43,13 +43,15 @@ parallel mode).** Node spine:
   speculative — it's the committed end goal, built minimally + grown).
 
 ## Current state (1-liner)
-`feature/sphere-spike` is a LIVING SPHERICAL PLANET: A1 done (SDF voxel-sphere terrain, radial life/climate/
-ocean/orbit-camera/spin/terminator, ~290 entities). Phase B (cubed-sphere field port) is WIP-but-LIVE: all 30
-`*_sphere3d.glsl` kernels converted + GPU-proven; `MaterialSphereGPU3D` plugin driver + 6 `sphere_passes/*`
-modules authored; field runs CLEAN on the heat+water MVP (274 ent, 156fps, 0 errors). RESUME at TODO
-"B2-WIRE" step 1: reconcile the 6 passes' live/back parity with the driver order, wire Thermal, windowed-
-verify, then delete the box grid + merge to `0.3-dev`. Then Phase C dissolves the scripted disasters. NOTE:
-the branch does not yet reach verified-clean with ALL passes on — box path still intact as fallback.
+`feature/sphere-spike`: the cubed-sphere is now the **SOLE field substrate** — the box grid + box GPU driver
++ all 16 CPU-oracle modules are DELETED (21 files, `780e9bd`), MaterialField3D 1496→961 lines. The field is
+ALIVE + CLEAN: all 6 `sphere_passes/*` dispatch in data-flow order over the `*_sphere3d.glsl` kernels, solar
+terminator drives temp (min ~10.6 night / max ~22 day across 122880 cells), ~285 entities, ~105–200fps, ZERO
+script errors. THE bug that had it dead-flat was a bolt-on gap (terrain never wired into `setup_sphere`) —
+fixed. RESUME: re-home magma-core injection to a direct sphere `_temp/_lava` write (add_magma_source went
+through a now-null module → planet lost internal heat, temp_max 675→22); then fuller readback +
+box-`*3d.glsl` kernel rm + strip `LA_SPHERE_DBG` + merge to `0.3-dev`. Then Phase C dissolves the disasters.
+B3 (2a water-cycle unify + 2b DEFS reaction engine) design is DONE in `material/PHASE_B3_DESIGN.md`.
 
 ---
 
@@ -222,8 +224,13 @@ GPU-CPU split / `_slow_tick` stagger / dirty-gating / cadenced readback), the ch
      not just a static day/night gradient. (Windowed Temperature debug view to confirm.)
   3. **Gaps**: port the 2 missing `erosion_*_sphere3d.glsl` (only box exist; EcoSurfacePass already skips them).
   4. **Activity BUBBLES** dispatch (per-tile sleep/wake — the scaling lever; shape is free-choice, see CLAUDE).
-  5. **Delete the box grid + box `*3d.glsl` kernels + `MaterialGPU3D` box path** once the sphere field is
-     verified (retire the old — no parallel systems). Then merge `feature/sphere-spike` → `0.3-dev`.
+  5. [x] **DONE — box grid + box GPU driver + 16 CPU-oracle modules DELETED** (`4956dc1`/`5238d90`/`780e9bd`):
+     killed the dead box `_physics_process` branch, retired every CPU-oracle module from `activate()`, re-homed
+     the scent channel consts (`LAMaterialField3D.SCENT_*`), and `git rm`'d 21 files. Cubed-sphere is the sole
+     substrate; scene boots with 0 errors. REMAINING before merge: (a) re-home magma injection to a direct
+     sphere `_temp/_lava` write (restore the planet's internal heat), (b) `git rm` the now-dead box `*3d.glsl`
+     kernels (inert on disk), (c) strip the `LA_SPHERE_DBG` probe, (d) fuller readback for the still-defaulting
+     channels (scent/fungus/erosion/snow), then merge `feature/sphere-spike` → `0.3-dev`.
 - [ ] **B3 — during the rewrite:** generic **DEFS reaction engine** for the ~9-11 clean same-cell reactions
   (evap/condense/boil/re-evap `MaterialAtmosphere3D`, combustion, fungus-decompose, photosynthesis, gas
   sky-exchange, lava sustain-heat) — `{reactants[(chan,coeff)], products[…], driver+threshold, rate, cap,
