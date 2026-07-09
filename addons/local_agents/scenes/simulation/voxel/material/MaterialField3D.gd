@@ -108,6 +108,11 @@ var _co2: PackedFloat32Array = PackedFloat32Array()      # atmospheric CO₂ lev
 # O₂ (aerobic). Closes the carbon/nutrient loop (death→soil→plant). Seeded ~0; only exists where a source made it.
 var _detritus: PackedFloat32Array = PackedFloat32Array() # dead decomposable organic matter per cell (0 = none)
 var _fungus: PackedFloat32Array = PackedFloat32Array()   # fungal biomass density per cell (0 = none; high = mushrooms)
+# --- Emergent LIVING BIOMASS (MaterialReactions3D R19/R20 — the plant carbon-fix leg dissolved into the field).
+# GPU-produced/consumed ONLY: photosynthesis grows it at sky-exposed surface cells (CO₂ + warmth/light → biomass
+# + O₂), respiration/decay oxidizes it back (biomass + O₂ → CO₂ + detritus). Seeded 0; a pure GPU channel that
+# reads back for queries/telemetry. Vegetation now EMERGES from the chemistry, not just from plant actor nodes.
+var _biomass: PackedFloat32Array = PackedFloat32Array()  # living plant matter density per cell (0 = none)
 # --- Emergent 3D wind (LAMaterialWind3D): a per-cell air PRESSURE + 3D VELOCITY field replacing the old
 # single global scalar wind. Pressure falls out of temperature (warm=low), velocity accelerates down the
 # gradient and deflects off rock, so funneling/fronts/highs-lows EMERGE. Read via wind_at()/wind3_at().
@@ -291,6 +296,9 @@ func _alloc_channels() -> void:
 	_detritus.resize(_cell_count)
 	_fungus = PackedFloat32Array()
 	_fungus.resize(_cell_count)
+	# Biomass starts empty; photosynthesis grows it on the GPU where CO₂ + warmth + sky-exposed surface meet.
+	_biomass = PackedFloat32Array()
+	_biomass.resize(_cell_count)
 	_pressure = PackedFloat32Array()
 	_pressure.resize(_cell_count)
 	_vel_x = PackedFloat32Array()
@@ -552,6 +560,7 @@ func _apply_sphere_readback(res: Dictionary) -> void:
 	if res.has("fire") and res["fire"].size() == _cell_count: _fire = res["fire"]
 	if res.has("o2") and res["o2"].size() == _cell_count: _o2 = res["o2"]
 	if res.has("co2") and res["co2"].size() == _cell_count: _co2 = res["co2"]
+	if res.has("biomass") and res["biomass"].size() == _cell_count: _biomass = res["biomass"]
 	if res.has("dust") and res["dust"].size() == _cell_count: _dust = res["dust"]
 
 
@@ -1015,6 +1024,22 @@ func co2_avg() -> float:
 		sum += _co2[c]
 		n += 1
 	return sum / float(n) if n > 0 else 0.0
+# Emergent LIVING BIOMASS (MaterialReactions3D R19/R20): CO₂ fixed into plant matter on the GPU + queried here.
+func biomass_at(x: float, y: float, z: float) -> float:
+	if _sphere != null:
+		var c: int = world_to_cell(Vector3(x, y, z))
+		return _biomass[c] if (c >= 0 and _biomass.size() == _cell_count) else 0.0
+	return 0.0
+## Total living biomass over every open cell — the emergent-growth spot check (should rise then plateau, not
+## explode; bounded by the CO₂ budget + respiration). Fed into SIM_REPORT.
+func biomass_total() -> float:
+	if _biomass.size() != _cell_count or _cell_count <= 0:
+		return 0.0
+	var sum: float = 0.0
+	for c in _cell_count:
+		if _solid[c] == 0:
+			sum += _biomass[c]
+	return sum
 # Emergent DECOMPOSER loop (LAMaterialFungus3D): dead matter (detritus) → fungus → CO₂ + soil fertility.
 ## Deposit dead decomposable matter at the surface cell under a world point (a rotting carcass, wildfire
 ## ash). Fungus grows on it + rots it back into the carbon/nutrient loop. Mirrors photosynthesize()'s lookup.
@@ -1040,28 +1065,9 @@ func fungus_cells() -> int:
 	return 0
 func detritus_peak() -> float:
 	return 0.0
-## Daylight factor 0..1 — CPU heat oracle retired; safe default (the sphere solar terminator is on the GPU).
-func solar_factor() -> float:
-	return 0.0
-## Plant PHOTOSYNTHESIS write: at the sky-surface cell of `world_pos`, FIX `amount` of carbon — subtract CO₂
-## and release the same mass of O₂ (stoichiometric). The return leg of the carbon loop: fire/decay make CO₂,
-## plants turn it back into O₂ + biomass. `amount` is clamped to the CO₂ actually present (no free carbon).
-func photosynthesize(world_pos: Vector3, amount: float) -> void:
-	if _cell_count <= 0 or amount <= 0.0:
-		return
-	var ix: int = _col_i(world_pos.x, _origin.x)
-	var iz: int = _col_i(world_pos.z, _origin.z)
-	var iy: int = _surface_iy(ix, iz)
-	if iy < 0:
-		return
-	var i: int = _idx(ix, iy, iz)
-	if _solid[i] != 0:
-		return
-	var fixed: float = minf(amount, _co2[i])
-	if fixed <= 0.0:
-		return
-	_co2[i] = maxf(0.0, _co2[i] - fixed)
-	_o2[i] = _o2[i] + fixed
+# Photosynthesis (CO₂ → O₂ + biomass) + its daylight gate are DISSOLVED into MaterialReactions3D records R19/R20
+# and run entirely on the GPU (see biomass_at/biomass_total). The old CPU `solar_factor()` + `photosynthesize()`
+# writes were invisible to the GPU (begin_frame only re-uploads temp/water) and are deleted.
 ## Wire the visual-only lightning bolt (VoxelDisasters.spawn_lightning). No-op until sphere charge is wired.
 func set_lightning_visual(cb: Callable) -> void:
 	pass
@@ -1129,6 +1135,7 @@ func report() -> Dictionary:
 		"shock_cells": shock_cell_count(), "o2_min": o2_min_open(), "o2_avg": o2_avg(),
 		"co2_peak": co2_peak(), "co2_avg": co2_avg(), "fungus_cells": fungus_cells(),
 		"fungus_peak": fungus_peak(), "detritus_peak": detritus_peak(),
+		"biomass_total": biomass_total(),
 	}
 	r.merge(_open_temp_stats())
 	return r

@@ -24,6 +24,7 @@ layout(set = 0, binding = 3, std430) restrict buffer O2       { float o2[]; };
 layout(set = 0, binding = 4, std430) restrict buffer CO2      { float co2[]; };
 layout(set = 0, binding = 7, std430) restrict buffer Detritus { float detritus[]; };
 layout(set = 0, binding = 8, std430) restrict readonly buffer Fungus { float fungus[]; };
+layout(set = 0, binding = 11, std430) restrict buffer Biomass { float biomass[]; };    // living plant matter (photosynthesis grows it, respiration/decay oxidizes it)
 // --- Gate inputs + scratch product target + the record table ----------------------------------------------
 layout(set = 0, binding = 10, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };        // idx*6 + slot
@@ -41,6 +42,7 @@ layout(set = 0, binding = 20, std430) restrict buffer Scratch { float scratch[];
 #define FUNGUS   8
 #define FERT     9
 #define LAVA     10
+#define BIOMASS  11
 
 #define CONST_FRAC            0
 #define BILINEAR              1
@@ -93,6 +95,7 @@ float read_ch(int slot, uint i) {
 	if (slot == CO2)      return co2[i];
 	if (slot == DETRITUS) return detritus[i];
 	if (slot == FUNGUS)   return fungus[i];
+	if (slot == BIOMASS)  return biomass[i];
 	return 0.0;
 }
 
@@ -105,6 +108,7 @@ void add_ch(int slot, uint i, float v) {
 	else if (slot == O2)       { o2[i]        = max(0.0, o2[i] + v); }
 	else if (slot == CO2)      { co2[i]       = max(0.0, co2[i] + v); }
 	else if (slot == DETRITUS) { detritus[i]  = max(0.0, detritus[i] + v); }
+	else if (slot == BIOMASS)  { biomass[i]   = max(0.0, biomass[i]  + v); }
 }
 
 // Gate helpers reuse the exact neighbour tests proven in the dissolved kernels.

@@ -28,7 +28,7 @@ const PAIR_CHANNELS: PackedStringArray = [
 # scent is a 5-plane packed pair (5*cell_count); handled specially.
 # Single (non-ping-pong) float buffers.
 const SINGLE_CHANNELS: PackedStringArray = [
-	"solid", "static", "fuel", "charge", "detritus", "pressure",
+	"solid", "static", "fuel", "charge", "detritus", "biomass", "pressure",
 	"vel_x", "vel_y", "vel_z", "dust_outscale", "fungus_fert", "surf_vx", "surf_vz", "snow"]
 
 # Data-flow dispatch order (see the PING-PONG PHASE note above). WaterSlumpLava MUST precede Thermal
@@ -142,6 +142,9 @@ func end_frame(_rv: bool = true, _rc: bool = true, _rf: bool = true, _rr: bool =
 		return out
 	for k in ["temp", "water", "airwater", "lava", "fire", "o2", "co2", "dust", "shock"]:
 		out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
+	# biomass is a SINGLE (non-ping-pong) GPU-resident channel — read its one buffer directly, not _live().
+	if _bufs.has("biomass"):
+		out["biomass"] = _rd.buffer_get_data(_bufs["biomass"]).to_float32_array()
 	return out
 
 func set_field(name: String, arr) -> void:
@@ -245,5 +248,5 @@ func _empty_result() -> Dictionary:
 		"scent": PackedFloat32Array(), "fert": PackedFloat32Array(),
 		"detritus": PackedFloat32Array(), "shock": PackedFloat32Array(),
 		"dust": PackedFloat32Array(), "snow": PackedFloat32Array(),
-		"susp": PackedFloat32Array(),
+		"susp": PackedFloat32Array(), "biomass": PackedFloat32Array(),
 	}
