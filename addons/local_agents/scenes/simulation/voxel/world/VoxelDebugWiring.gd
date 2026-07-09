@@ -9,6 +9,7 @@ extends Node
 
 const DebugPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugPanel.gd")
 const DebugOverlayScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugOverlay.gd")
+const FamilyTreePanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/FamilyTreePanel.gd")
 const CreatureScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Creature.gd")
 
 # The active field-channel keys (a heatmap in the DebugOverlay), distinct from temp (terrain shader),
@@ -32,8 +33,10 @@ var _terrain = null
 var _sky: LAVoxelSkyController = null
 var _hud: CanvasLayer = null
 var _input: LAVoxelInputController = null
+var _ecology: Node = null               # LAEcologyService — owns the kinship graph the family tree reads
 var _debug_panel: CanvasLayer = null    # LADebugPanel (left-docked debug menu)
 var _debug_overlay: Node3D = null       # LADebugOverlay (world-space highlight/path/wind gizmos)
+var _family_tree: LAFamilyTreePanel = null  # right-docked kinship family-tree inspector (on-select reader)
 
 var _scent_visible: bool = false
 var _temp_debug_visible: bool = false   # T toggles the terrain temperature heatmap debug view
@@ -42,13 +45,14 @@ var _user_shot_counter: int = 0         # numbers the screenshots the DebugPanel
 
 
 ## Build the overlay + panel (as children of `world`) and wire the panel signals to the handlers here.
-func setup(world: Node, material: Node, terrain, sky: LAVoxelSkyController, hud: CanvasLayer, input: LAVoxelInputController) -> void:
+func setup(world: Node, material: Node, terrain, sky: LAVoxelSkyController, hud: CanvasLayer, input: LAVoxelInputController, ecology: Node) -> void:
 	_world = world
 	_material = material
 	_terrain = terrain
 	_sky = sky
 	_hud = hud
 	_input = input
+	_ecology = ecology
 	# Debug menu (left) + its world-space gizmo overlay: field views, type highlights, intended paths.
 	_debug_overlay = DebugOverlayScript.new()
 	_debug_overlay.name = "DebugOverlay"
@@ -62,7 +66,14 @@ func setup(world: Node, material: Node, terrain, sky: LAVoxelSkyController, hud:
 	_debug_panel.behavior_toggled.connect(_on_debug_behavior)
 	_debug_panel.paths_toggled.connect(_on_debug_paths)
 	_debug_panel.perf_toggled.connect(_on_debug_perf)
+	_debug_panel.family_tree_toggled.connect(_on_debug_family_tree)
 	_debug_panel.screenshot_requested.connect(_on_debug_screenshot)
+	# Family-tree inspector (right dock): a pure reader over the kinship graph, re-rooted on each selection.
+	_family_tree = FamilyTreePanelScript.new()
+	_family_tree.name = "FamilyTreePanel"
+	world.add_child(_family_tree)
+	if _ecology != null and _ecology.has_method("kinship"):
+		_family_tree.set_kinship(_ecology.kinship())
 	if _input != null and _input.debug_demo():
 		# Verification aid: pre-enable a spread of gizmos so a screenshot shows them working.
 		_debug_overlay.set_wind(true)
@@ -80,6 +91,22 @@ func setup(world: Node, material: Node, terrain, sky: LAVoxelSkyController, hud:
 	if _input != null and _input.debug_behaviors() != "":
 		for beh in _input.debug_behaviors().split(",", false):
 			_on_debug_behavior(beh.strip_edges(), true)
+	# Screenshot verification aid: --debug-family pre-opens the family-tree inspector (the input controller
+	# forces a real birth + selects a kin so the tree is populated for the shot).
+	if _input != null and _input.debug_family() and _family_tree != null:
+		_family_tree.set_enabled(true)
+
+
+# Debug menu checkbox: show/hide the kinship family-tree inspector for the current selection.
+func _on_debug_family_tree(on: bool) -> void:
+	if _family_tree != null:
+		_family_tree.set_enabled(on)
+
+
+# Forwarded from the interaction controller's selection_changed signal: re-root the tree on the new selection.
+func on_selection_changed(node: Node) -> void:
+	if _family_tree != null:
+		_family_tree.set_root(node)
 
 
 # --- Debug menu handlers -----------------------------------------------------

@@ -226,7 +226,7 @@ func _ready() -> void:
 	_debug = DebugWiringScript.new()
 	_debug.name = "DebugWiring"
 	add_child(_debug)
-	_debug.setup(self, _material, _terrain, _sky_ctrl, _hud, _input)
+	_debug.setup(self, _material, _terrain, _sky_ctrl, _hud, _input, _ecology)
 
 	# --- Streamer / commentator (lower-right face-cam driven by the local LLM). Skipped with --no-streamer
 	# (or env LA_NO_STREAMER) so a run doesn't spin up the local LLM / TTS. ---
@@ -257,6 +257,10 @@ func _ready() -> void:
 	_interaction.setup(self, _terrain, _camera, _ecology, _hud, _audio, _brush)
 	if _hud.has_signal("spawn_selected"):
 		_hud.spawn_selected.connect(_interaction.on_spawn_selected)
+	# Re-root the family-tree inspector whenever the selection changes (debug reader; wired here as the two
+	# controllers are built in different phases of composition).
+	if _debug != null:
+		_interaction.selection_changed.connect(_debug.on_selection_changed)
 
 	# --- Initial spawning controller (ticked each frame until the surface has meshed). ---
 	_spawn = SpawnControllerScript.new()
@@ -265,7 +269,7 @@ func _ready() -> void:
 	_spawn.setup(self, _body, _terrain, _ecology, _camera, _material, _hud, _disasters)
 
 	# Wire the input controller's auto-demo hooks now that every scene ref exists.
-	_input.bind(_terrain, _camera, _body, _sky_ctrl.star(), _material, _disasters, _interaction)
+	_input.bind(_terrain, _camera, _body, _sky_ctrl.star(), _material, _disasters, _interaction, _ecology)
 
 
 func _process(delta: float) -> void:

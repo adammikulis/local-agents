@@ -18,6 +18,7 @@ var _star: Node3D = null
 var _material: Node = null
 var _disasters: Node = null
 var _interaction: Node3D = null
+var _ecology: Node = null
 
 # --- Streamer seeds (read by the world when it builds the streamer host) ---
 var _streamer_enabled: bool = true        # --no-streamer (or env LA_NO_STREAMER) skips the local-LLM overlay
@@ -53,6 +54,10 @@ var _auto_lightning_fired: bool = false
 var _auto_meteor_fired: bool = false
 var _auto_select: bool = false
 var _auto_select_done: bool = false
+var _debug_family: bool = false          # --debug-family: force a real birth + select a kin, open the family-tree inspector
+var _debug_family_seeded: bool = false
+var _debug_family_selected: bool = false
+var _debug_family_root: Node = null
 var _cam_creature_done: bool = false    # latch: framed a behavior-tinted creature for the debug screenshot
 var _auto_tornado: bool = false
 var _auto_thunderstorm: bool = false
@@ -131,6 +136,8 @@ func parse_cmdline() -> void:
 			_auto_lightning = true
 		elif arg == "--auto-select":
 			_auto_select = true
+		elif arg == "--debug-family" or arg == "--debug-family=1":
+			_debug_family = true
 		elif arg == "--auto-tornado":
 			_auto_tornado = true
 		elif arg == "--auto-thunderstorm":
@@ -321,7 +328,7 @@ func _refresh_view_controls() -> void:
 
 
 ## Wire the scene refs the auto-demo hooks act on (called from the world once the scene is composed).
-func bind(terrain, camera: Camera3D, body: Node3D, star: Node3D, material: Node, disasters: Node, interaction: Node3D) -> void:
+func bind(terrain, camera: Camera3D, body: Node3D, star: Node3D, material: Node, disasters: Node, interaction: Node3D, ecology: Node) -> void:
 	_terrain = terrain
 	_camera = camera
 	_body = body
@@ -329,6 +336,7 @@ func bind(terrain, camera: Camera3D, body: Node3D, star: Node3D, material: Node,
 	_material = material
 	_disasters = disasters
 	_interaction = interaction
+	_ecology = ecology
 	# Wire the planet body so the camera's GEOSYNC mode can read its rotating frame (keeps VoxelWorld untouched).
 	if _camera != null and _camera.has_method("set_geosync_body"):
 		_camera.set_geosync_body(_body)
@@ -511,6 +519,25 @@ func update(frame: int, spawned: bool) -> void:
 		_cam_creature_done = true
 		_frame_tinted_creature()
 
+	# --debug-family: force a REAL family through the ecology (two founders breed; one child dies) so the
+	# kinship graph holds >=2 generations + a mate bond + a dead kin, then select a parent so the family-tree
+	# inspector (opened by VoxelDebugWiring) draws a deterministic tree for the screenshot. All reads/edits go
+	# through the real reproduction + death paths — the panel itself only reads the graph.
+	if _debug_family and spawned and _ecology != null:
+		if not _debug_family_seeded and frame >= 40:
+			if _ecology.has_method("debug_seed_family"):
+				_debug_family_root = _ecology.debug_seed_family()
+			_debug_family_seeded = true
+		if _debug_family_seeded and not _debug_family_selected:
+			var ftrigger: int = (_shoot_frames - 40) if _shoot_path != "" else maxi(_run_frames - 40, 60)
+			if frame >= ftrigger:
+				_debug_family_selected = true
+				if _debug_family_root != null and is_instance_valid(_debug_family_root) and _interaction != null:
+					if _interaction.has_method("select_node"):
+						_interaction.select_node(_debug_family_root)
+					if _camera != null and _camera.has_method("focus_on"):
+						_camera.focus_on((_debug_family_root as Node3D).global_position)
+
 
 # Position the camera close to a behavior-tinted creature (prefer one whose state maps to an enabled
 # category — foraging/hunting — else the nearest creature) and look down at it from just above the surface.
@@ -564,6 +591,7 @@ func overview() -> bool: return _overview
 func farview() -> bool: return _farview
 func auto_meteor() -> bool: return _auto_meteor
 func auto_select() -> bool: return _auto_select
+func debug_family() -> bool: return _debug_family
 func auto_seavolcano() -> bool: return _auto_seavolcano
 func debug_demo() -> bool: return _debug_demo
 func wind_view() -> bool: return _wind_view

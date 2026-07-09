@@ -15,6 +15,8 @@ const THROW_MIN_SPEED: float = 4.0           # below this a release is a gentle 
 const THROW_MAX_SPEED: float = 40.0          # clamp on horizontal throw speed
 const THROW_ARC: float = 0.4                 # upward velocity as a fraction of throw speed
 
+signal selection_changed(node: Node)         # the selected entity changed (or null on deselect)
+
 var _world = null            # LAVoxelWorld (dynamic; method calls only)
 var _terrain = null
 var _camera: Camera3D = null
@@ -318,8 +320,14 @@ func _resolve_selectable(collider) -> Node:
 	return null
 
 
+## Programmatic selection (harness / debug driver): select `node` through the same path a click would take.
+func select_node(node: Node) -> void:
+	_set_selected(node)
+
+
 func _set_selected(node: Node) -> void:
 	_selected = node
+	selection_changed.emit(node)
 	if node == null:
 		_hud.clear_inspector()
 		_selection_ring.visible = false
