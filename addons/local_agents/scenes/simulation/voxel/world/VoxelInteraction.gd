@@ -22,6 +22,7 @@ var _terrain = null
 var _camera: Camera3D = null
 var _ecology: Node = null
 var _hud: CanvasLayer = null
+var _game_hud: CanvasLayer = null   # LAGameHud — the objective/summary overlay (H toggles it alongside the palette)
 var _audio = null
 var _brush = null            # LAVoxelSpawnBrush
 
@@ -52,6 +53,12 @@ func setup(world, terrain, camera: Camera3D, ecology: Node, hud: CanvasLayer, au
 	add_child(_selection_ring)
 
 
+## Wire the gamified objective/summary overlay so the H key can show/hide it (the composition root passes
+## the instance it created — this node holds no cyclic type reference).
+func set_game_hud(game_hud: CanvasLayer) -> void:
+	_game_hud = game_hud
+
+
 func selected() -> Node:
 	return _selected
 
@@ -79,10 +86,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _world != null and _world.has_method("toggle_streamer"):
 			_world.toggle_streamer()
 		return
-	# H: show/hide the whole HUD (spawn palette + inspector + status). Routed to the HUD's own toggle.
+	# H: show/hide the whole HUD — the spawn palette (+ inspector + status) AND the gamified objective/
+	# summary overlay, so one key clears the screen for an unobstructed look at the world.
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_H:
 		if _hud != null and _hud.has_method("toggle_visible"):
 			_hud.toggle_visible()
+		if _game_hud != null and _game_hud.has_method("toggle_visible"):
+			_game_hud.toggle_visible()
 		return
 	# [ / ]: shrink / grow the spawn brush from the keyboard (same action as Ctrl + wheel).
 	if event is InputEventKey and event.pressed and not event.echo \

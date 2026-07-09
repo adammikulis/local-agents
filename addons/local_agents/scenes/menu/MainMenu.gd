@@ -18,6 +18,7 @@ extends Control
 
 const WORLD_SCENE: String = "res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn"
 const SETTINGS_SCENE: String = "res://addons/local_agents/scenes/menu/SettingsMenu.tscn"
+const ModelManagerPanelScript: GDScript = preload("res://addons/local_agents/ui/ModelManagerPanel.gd")
 const HELP_SCENE: String = "res://addons/local_agents/scenes/menu/HelpMenu.tscn"
 const CREDITS_SCENE: String = "res://addons/local_agents/scenes/menu/CreditsMenu.tscn"
 
@@ -95,6 +96,11 @@ func _build_ui() -> void:
 	settings_button.pressed.connect(func() -> void: _change_scene(SETTINGS_SCENE))
 	vbox.add_child(settings_button)
 
+	var models_button: Button = LAMenuStyle.make_button("Models")
+	models_button.tooltip_text = "Download / pick the local LLMs that drive creatures + the streamer"
+	models_button.pressed.connect(_on_models)
+	vbox.add_child(models_button)
+
 	var help_button: Button = LAMenuStyle.make_button("Help")
 	help_button.pressed.connect(func() -> void: _change_scene(HELP_SCENE))
 	vbox.add_child(help_button)
@@ -129,6 +135,30 @@ func _on_sandbox() -> void:
 	GameMode.start_sandbox()
 	GameMode.apply(GameMode.settings)
 	_change_scene(WORLD_SCENE)
+
+
+## Open the in-game model manager as a full-screen overlay on top of the menu (no scene switch, so Back
+## just frees it). Reuses LocalAgentsModelManagerPanel.open(); a Close button dismisses the overlay.
+func _on_models() -> void:
+	var overlay: Control = Control.new()
+	overlay.name = "ModelManagerOverlay"
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(overlay)
+
+	var panel: Control = ModelManagerPanelScript.new()
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(panel)
+	panel.open()
+
+	var close_button: Button = LAMenuStyle.make_button("Close")
+	close_button.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	close_button.offset_left = -140.0
+	close_button.offset_top = 12.0
+	close_button.offset_right = -16.0
+	close_button.custom_minimum_size = Vector2(120.0, 40.0)
+	close_button.pressed.connect(overlay.queue_free)
+	overlay.add_child(close_button)
+	close_button.grab_focus()
 
 
 func _on_quit() -> void:

@@ -17,6 +17,7 @@ extends Control
 ## (LAMenuStyle); keyboard-navigable. (Explicit types only — no ':=' inferred typing.)
 
 const MAIN_MENU_SCENE: String = "res://addons/local_agents/scenes/menu/MainMenu.tscn"
+const ModelManagerPanelScript: GDScript = preload("res://addons/local_agents/ui/ModelManagerPanel.gd")
 
 var _settings: LAGameSettings = null
 
@@ -113,6 +114,13 @@ func _build_ui() -> void:
 	save_button.pressed.connect(_on_save)
 	actions.add_child(save_button)
 
+	var models_button: Button = LAMenuStyle.make_button("Models")
+	models_button.custom_minimum_size = Vector2(0.0, 44.0)
+	models_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	models_button.tooltip_text = "Download / pick the local LLMs that drive creatures + the streamer"
+	models_button.pressed.connect(_on_models)
+	actions.add_child(models_button)
+
 	var back_button: Button = LAMenuStyle.make_button("Back")
 	back_button.custom_minimum_size = Vector2(0.0, 44.0)
 	back_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -187,6 +195,29 @@ func _on_back() -> void:
 	var err: int = get_tree().change_scene_to_file(MAIN_MENU_SCENE)
 	if err != OK:
 		push_error("SettingsMenu: failed to return to main menu (err=%d)" % err)
+
+
+## Open the in-game model manager as a full-screen overlay (no scene switch — Close frees it).
+func _on_models() -> void:
+	var overlay: Control = Control.new()
+	overlay.name = "ModelManagerOverlay"
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(overlay)
+
+	var panel: Control = ModelManagerPanelScript.new()
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(panel)
+	panel.open()
+
+	var close_button: Button = LAMenuStyle.make_button("Close")
+	close_button.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	close_button.offset_left = -140.0
+	close_button.offset_top = 12.0
+	close_button.offset_right = -16.0
+	close_button.custom_minimum_size = Vector2(120.0, 40.0)
+	close_button.pressed.connect(overlay.queue_free)
+	overlay.add_child(close_button)
+	close_button.grab_focus()
 
 
 # ---------------------------------------------------------------------------

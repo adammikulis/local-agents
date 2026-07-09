@@ -94,6 +94,12 @@ func toggle() -> void:
 	visible = not visible
 
 
+## Alias of toggle() — matches the toggle_visible() shape the spawn-palette HUD exposes so the H-key
+## handler can flip both HUDs through one call name.
+func toggle_visible() -> void:
+	toggle()
+
+
 # ---------------------------------------------------------------------------
 # Progression wiring
 # ---------------------------------------------------------------------------

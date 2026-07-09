@@ -28,6 +28,9 @@ var _disasters: Node = null
 
 var _spawned_initial: bool = false
 var _ready_wait_ticks: int = 0
+# Multiplier on the base counts below, set from the quality actor_budget (VoxelSettingsApplier.spawn_scale).
+# 1.0 == the Medium preset; Low shrinks the world, High grows it. Weak GPUs run fewer actors.
+var _spawn_scale: float = 1.0
 
 
 func setup(world: Node, body: Node3D, terrain, ecology: Node, camera: Camera3D, material: Node, hud: CanvasLayer, disasters: Node) -> void:
@@ -43,6 +46,12 @@ func setup(world: Node, body: Node3D, terrain, ecology: Node, camera: Camera3D, 
 
 func is_spawned() -> bool:
 	return _spawned_initial
+
+
+## Scale factor applied to the base spawn counts (from the quality actor_budget). Set before the surface
+## meshes so the first (and only) spawn uses it.
+func set_spawn_scale(scale: float) -> void:
+	_spawn_scale = maxf(0.05, scale)
 
 
 ## Spawn the starting ecology once terrain has streamed + collided at the surface. Idempotent — returns
@@ -62,8 +71,8 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 	LASimReport.reset()
 	# Radial world: ecology places life ON the sphere (surface_point spawn), fish in the sea shell; the
 	# orbit camera frames the body; the planet centre is pinned hot for the radial geothermal gradient.
-	_ecology.spawn_initial(INITIAL_COUNTS)
-	_ecology.populate_environment(ROCK_COUNT, FOREST_CLUSTERS)
+	_ecology.spawn_initial(_scaled_counts())
+	_ecology.populate_environment(ROCK_COUNT, maxi(1, int(round(float(FOREST_CLUSTERS) * _spawn_scale))))
 	if _ecology.has_method("stock_initial_aquatic"):
 		_ecology.stock_initial_aquatic()
 	if _camera.has_method("set_orbit_target"):
@@ -72,3 +81,17 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 		_material.add_magma_source(_body.center(), 1300.0, 0.6)
 	_spawned_initial = true
 	_hud.set_status("World ready — spawn things, click to inspect, press V for scent.")
+
+
+## The base counts scaled by the quality actor_budget factor (at least one of each).
+func _scaled_counts() -> Dictionary:
+	if is_equal_approx(_spawn_scale, 1.0):
+		return INITIAL_COUNTS
+	var counts: Dictionary = {}
+	var total: int = 0
+	for kind in INITIAL_COUNTS:
+		var n: int = maxi(1, int(round(float(INITIAL_COUNTS[kind]) * _spawn_scale)))
+		counts[kind] = n
+		total += n
+	print("SPAWN_SCALE={factor:%.2f, total:%d}" % [_spawn_scale, total])
+	return counts

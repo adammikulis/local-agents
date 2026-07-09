@@ -72,6 +72,12 @@ func setup(field, camera: Node3D, sun: DirectionalLight3D, center: Vector3, sea_
 	emitting = true
 
 
+## Effects-level density scale (0..1) from the quality settings — Low runs far fewer particles on weak
+## GPUs. Sets the live particle count off the MAX_PARTICLES budget; applied once at startup after setup().
+func set_density_scale(scale: float) -> void:
+	amount = maxi(1, int(round(float(MAX_PARTICLES) * clampf(scale, 0.02, 1.0))))
+
+
 ## Day/night colour tint pushed by VoxelSkyCycle (warm at dusk, cool at night). Per-particle terminator
 ## brightness is handled in-shader from the sun direction; this is an overall colour wash on top.
 func set_sky_tint(c: Color) -> void:
