@@ -53,6 +53,11 @@ const TERM_CAP: float = 1.0                # clamp on each individual aversive t
 const RISK_RETAIN: float = 0.7             # how much remembered pain carries frame-to-frame (rest decays)
 const RISK_MAX: float = 2.0               # ceiling on remembered pain per entry
 const RISK_TOLERANCE: float = 1.3          # how strongly hunger/thirst buys back an aversive action
+# Drive can revive an action learned as merely UNCOMFORTABLE-but-survivable (weight above this floor), never
+# one learned as reliably LETHAL: an action that keeps killing the creature drives its weight down to
+# MIN_WEIGHT and stays refused even while starving, so "wade into cold water for food" is discountable but
+# "walk into what drowns/suffocates me" is not. This keeps lethal aversions as non-negotiable as a reflex.
+const RISK_REVIVE_FLOOR: float = -1.0
 
 # Social learning: how much one sighting of a confident neighbour shifts my confidence, by relatedness.
 const KIN_RELATEDNESS: float = 1.0
@@ -132,7 +137,9 @@ func decide(c, innate_action: String, sig: Dictionary, delta: float) -> String:
 		# move (wade into cold water to reach food). Reflexes never reach here — they returned above.
 		var w: float = float((learned as Dictionary).get("weight", 0.0))
 		var risk: float = float((learned as Dictionary).get("risk", 0.0))
-		var eff: float = w + risk * _drive_urgency(c) * RISK_TOLERANCE
+		var eff: float = w
+		if w > RISK_REVIVE_FLOOR:                       # never revive an action learned as reliably lethal
+			eff += risk * _drive_urgency(c) * RISK_TOLERANCE
 		if eff >= CONFIDENCE_THRESHOLD:
 			var la: String = String((learned as Dictionary).get("action", ""))
 			if LAActionRegistry.is_valid(la):
