@@ -49,6 +49,16 @@ var _fish_timer: float = 0.0
 var _tree_timer: float = 0.0             # forest succession: groves densify on biomass-rich ground
 var _aquatic_kinds_cache: Array = []     # aquatic species ids (config aquatic:true), indexed once
 var _aquatic_indexed: bool = false
+# Permanent kinship graph backing every creature's family_id. A family is a connected component; family_id is
+# its stable label. Founder clusters allocate a fresh label (LAKinshipGraph.new_family) and offspring inherit
+# their parent's component at birth — bonds are recorded once, never rewritten. Updated only on the
+# founding/birth/death events (never per frame); kin recognition reads the cheap family_id, not the graph.
+var _kinship: LAKinshipGraph = LAKinshipGraph.new()
+
+
+# The permanent kinship graph (owned here; the field/world hubs stay extract-only).
+func kinship() -> LAKinshipGraph:
+	return _kinship
 
 # --- Seismic / shock stimulus (emergent camera shake) ------------------------
 # Ground disturbances now inject into the field's PROPAGATING shock wave (LAMaterialShock3D); the camera
@@ -256,18 +266,80 @@ func spawn(kind: String, world_pos: Vector3) -> Node:
 	return _instance_actor(kind, placed)
 
 
+# Founder clustering — a HERDING species starts as a few tight bands, not a planet-wide smear, so local
+# same-species density is high enough that leadership finds followers and durable kin herds form. One founder
+# cluster per ~this many members (at least one); members scatter around the founder within a tangent-plane
+# spread and share ONE family_id (the permanent kin bond). Solitary species keep the independent scatter.
+const HERD_CLUSTER_SIZE: int = 18        # target members per founder cluster (fewer, bigger bands → fewer leaders)
+const HERD_CLUSTER_SPREAD: float = 8.0   # tangent-plane radius (metres) members scatter around a founder —
+                                         # kept inside a ground species' leadership radius (flock_radius×1.5)
+                                         # so cluster-mates fall within one leader's neighbourhood from frame 0
+
+
 func spawn_initial(counts: Dictionary) -> void:
 	for kind in counts.keys():
+		var kind_s: String = String(kind)
 		var n: int = int(counts[kind])
-		for i in n:
-			var p: Vector3 = _random_spawn_point()
-			var placed = _place_on_surface(p)
+		if n <= 0:
+			continue
+		var cfg: Dictionary = _species_config(kind_s)
+		if bool(cfg.get("herd", false)):
+			_spawn_herd_founders(kind_s, n)
+		else:
+			for i in n:
+				_spawn_scattered_one(kind_s)
+
+
+# Place ONE individual at an independent random surface point (queue if the patch isn't meshed yet, skip
+# vegetation that can't germinate here). The pre-clustering behaviour, kept for solitary / non-herd kinds.
+func _spawn_scattered_one(kind: String) -> void:
+	var p: Vector3 = _random_spawn_point()
+	var placed = _place_on_surface(p)
+	if placed == null:
+		_pending.append({"kind": kind, "pos": p, "tries": 0, "family_id": -1})
+	elif (kind == "tree" or kind == "plant") and not _can_grow_here(placed):
+		pass   # too cold / snow-covered — skip this vegetation placement (emergent treeline)
+	else:
+		_instance_actor(kind, placed)
+
+
+# Seed a herding species as K founder clusters (K scales with the count). Each cluster gets a fresh family_id
+# and scatters its members around one founder site in the founder's tangent plane, so kin are spatially local
+# from frame 0 — leadership then elects one leader per band with real followers. Total count is preserved.
+# The founding elder of a cluster: a head-start age so it is unambiguously the highest-ranked member of its
+# family and its cohort follows IT from the very first election — one stable leader per band instead of a
+# tie-break lottery among age-0 equals (which was the main run-to-run variance in the follower count). The
+# elder sits at the cluster centre, within every cohort member's leadership radius. Emergent, not identity:
+# the founder is simply the lineage's eldest; nothing is hard-coded per species.
+const FOUNDER_ELDER_AGE_MULT: float = 1.6   # founder age = maturity_age × this (mature; clearly out-ranks the age-0 cohort)
+
+
+func _seed_elder(node) -> void:
+	if node != null and is_instance_valid(node) and node is Node3D:
+		node.age = float(node.maturity_age) * FOUNDER_ELDER_AGE_MULT
+
+
+func _spawn_herd_founders(kind: String, n: int) -> void:
+	var clusters: int = maxi(1, int(round(float(n) / float(HERD_CLUSTER_SIZE))))
+	var base: int = n / clusters
+	var extra: int = n % clusters               # spread the remainder one-per-cluster so totals match exactly
+	for ci in range(clusters):
+		var members: int = base + (1 if ci < extra else 0)
+		if members <= 0:
+			continue
+		var founder_raw: Vector3 = _random_spawn_point()   # cluster centre (raw sphere point; projected below)
+		var fam: int = _kinship.new_family()
+		for mi in range(members):
+			var raw: Vector3 = founder_raw
+			if mi > 0:
+				raw = _tangent_offset_raw(founder_raw, randf_range(-HERD_CLUSTER_SPREAD, HERD_CLUSTER_SPREAD), randf_range(-HERD_CLUSTER_SPREAD, HERD_CLUSTER_SPREAD))
+			var placed = _place_on_surface(raw)
 			if placed == null:
-				_pending.append({"kind": String(kind), "pos": p, "tries": 0})
-			elif (String(kind) == "tree" or String(kind) == "plant") and not _can_grow_here(placed):
-				pass   # too cold / snow-covered — skip this vegetation placement (emergent treeline)
+				_pending.append({"kind": kind, "pos": raw, "tries": 0, "family_id": fam, "elder": mi == 0})
 			else:
-				_instance_actor(String(kind), placed)
+				var node = _instance_actor(kind, placed, null, fam)
+				if mi == 0:
+					_seed_elder(node)   # the founder at the cluster centre is the family elder → its band's stable leader
 
 
 func _random_spawn_point() -> Vector3:
@@ -291,6 +363,14 @@ func _random_sphere_dir() -> Vector3:
 # "sides" of the globe. Returns a surface point (NAN-x if that patch isn't meshed).
 func _tangent_offset_point(anchor: Vector3, u: float, v: float) -> Vector3:
 	var pc: Vector3 = terrain.planet_center()
+	return terrain.surface_point((_tangent_offset_raw(anchor, u, v) - pc).normalized())
+
+
+# The RAW (un-projected) tangent-plane displacement of `anchor` by (u, v) metres. Kept separate from
+# _tangent_offset_point so callers that project themselves (or queue an unmeshed point for retry) can reuse
+# the offset math without forcing a surface lookup that fails on not-yet-meshed ground.
+func _tangent_offset_raw(anchor: Vector3, u: float, v: float) -> Vector3:
+	var pc: Vector3 = terrain.planet_center()
 	var up: Vector3 = terrain.up_at(anchor)
 	if up.length() < 0.001:
 		up = (anchor - pc).normalized()
@@ -300,8 +380,7 @@ func _tangent_offset_point(anchor: Vector3, u: float, v: float) -> Vector3:
 		ref = Vector3.FORWARD
 	var t1: Vector3 = ref.cross(up).normalized()
 	var t2: Vector3 = up.cross(t1).normalized()
-	var displaced: Vector3 = anchor + t1 * u + t2 * v
-	return terrain.surface_point((displaced - pc).normalized())
+	return anchor + t1 * u + t2 * v
 
 
 # Orient a spawned static actor (tree/plant/rock) so its local +Y points along the radial up at its
@@ -347,7 +426,7 @@ func _place_on_surface(world_pos: Vector3):
 	return p
 
 
-func _instance_actor(kind: String, placed: Vector3, genome = null) -> Node:
+func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: int = -1) -> Node:
 	var node: Node = null
 	if kind == "plant":
 		var plant: PlantScript = PlantScript.new()
@@ -384,6 +463,10 @@ func _instance_actor(kind: String, placed: Vector3, genome = null) -> Node:
 			fish.global_position = placed
 			fish.setup(terrain, _material, cfg)
 			return fish
+		# Founder clusters share a family_id (permanent kin bond). Only applies to the ancestral (null-genome)
+		# path — a bred offspring carries its inherited family_id in the genome's base_config instead.
+		if family_id >= 0 and genome == null:
+			cfg["family_id"] = family_id
 		var creature: CreatureScript = CreatureScript.new()
 		actors_root.add_child(creature)
 		creature.global_position = placed
@@ -394,6 +477,13 @@ func _instance_actor(kind: String, placed: Vector3, genome = null) -> Node:
 			creature.set_material_field(_material)
 		if creature.has_method("set_cognition_scheduler"):
 			creature.set_cognition_scheduler(_cognition_sched)
+		# Back family_id with the kinship graph. Founder-cluster members (family_id >= 0) join their shared
+		# family component; an offspring already carries its inherited label (registered at the breeding site).
+		# On removal (death), the creature forgets itself so the graph stays bounded (event-driven, O(degree)).
+		var cid: int = int(creature.get_instance_id())
+		if family_id >= 0:
+			_kinship.add_member(family_id, cid)
+		creature.tree_exited.connect(func() -> void: _kinship.forget(cid))
 		node = creature
 	# Stand static vegetation/rocks up along the radial on a planet (no-op on flat terrain).
 	if node != null and (kind == "plant" or kind == "tree" or kind == "rock"):
@@ -551,7 +641,9 @@ func _process_pending() -> void:
 			var k: String = String(entry["kind"])
 			if (k == "tree" or k == "plant") and not _can_grow_here(placed):
 				continue   # surface resolved somewhere too cold / snowy for vegetation — drop it
-			_instance_actor(k, placed)
+			var node = _instance_actor(k, placed, null, int(entry.get("family_id", -1)))
+			if bool(entry.get("elder", false)):
+				_seed_elder(node)   # a founder whose centre wasn't meshed at boot still becomes its band's elder
 		else:
 			entry["tries"] = int(entry["tries"]) + 1
 			if int(entry["tries"]) < 300:      # keep retrying ~ a few seconds
@@ -592,6 +684,12 @@ func _tick_breeding() -> void:
 		if placed != null:
 			var child = _instance_actor(kind, placed, _breed_genome(pa, pb))
 			_inherit_nest(pa, child)
+			# Record the permanent lineage in the kinship graph: the child joins its parent's family component
+			# (its family_id, inherited via the genome, is that same component's label) and the mate pair bond
+			# is stored. Bonds are added once here and never rewritten.
+			if child != null and is_instance_valid(child):
+				_kinship.add_offspring(int(pa.get_instance_id()), int(child.get_instance_id()))
+				_kinship.add_bond(int(pa.get_instance_id()), int(pb.get_instance_id()))
 
 
 # Natal philopatry: the offspring adopts a parent's home site, so kin CLUSTER in space over
@@ -638,8 +736,10 @@ func _breed_genome(pa, pb):
 		gb.maybe_canalize(pb.get_cognition().policy)
 	var child = LAGenome.crossover(ga, gb)
 	child.mutate()
-	var fam: int = int(pa.get_family_id()) if pa.has_method("get_family_id") else 0
-	child.base_config["family_id"] = fam
+	# The child's family_id is its parent's connected-component label, sourced from the kinship graph (which
+	# equals pa's stable family_id, since components never merge). The parent→child edge itself is recorded at
+	# the breeding call site once the child node exists.
+	child.base_config["family_id"] = _kinship.family_of(int(pa.get_instance_id()))
 	return child
 
 

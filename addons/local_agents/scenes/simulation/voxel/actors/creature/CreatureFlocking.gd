@@ -40,6 +40,47 @@ static func _influence(m) -> float:
 		w += RANK_INFLUENCE
 	return w
 
+# How hard a strayed creature pulls home toward its herd anchor (relative to flock_cohesion). >1 so
+# regrouping dominates idle wander and a strayed animal (or a drifting sub-group) closes the gap back.
+const REGROUP_GAIN: float = 2.2
+
+## O(1) tether pulling a FOLLOWER back toward its leader whenever the leader has drifted beyond flock_radius.
+## Tethers not just a lone wanderer but a COHESIVE SUB-GROUP that has drifted away together (it has local
+## mates, so it is not "isolated", yet without this it would keep drifting until it passed the leadership
+## leash and splintered off its own leader). Zero while the leader is within flock_radius (ordinary cohesion
+## covers that); grows with the overshoot so the farther a member strays the harder it is reeled in. The
+## leader pointer is a cached result of the range-based election (never sight), so this needs no query.
+static func _leader_tether(c, pos: Vector3, flatten: bool) -> Vector3:
+	if c._leader == null or not is_instance_valid(c._leader):
+		return Vector3.ZERO
+	var to_home: Vector3 = c._leader.global_position - pos
+	if flatten:
+		to_home.y = 0.0
+	var d: float = to_home.length()
+	var overshoot: float = d - c.flock_radius
+	if d < 0.001 or overshoot <= 0.0:
+		return Vector3.ZERO                        # already within the flock radius — ordinary cohesion covers it
+	var gain: float = c.flock_cohesion * REGROUP_GAIN * clampf(overshoot / maxf(c.flock_radius, 0.001), 0.0, 3.0)
+	return to_home.normalized() * gain
+
+
+## Regroup pull for a truly LOST herd creature — alone (no mate in flock_radius) AND with no valid leader.
+## Homes toward the nearest kin/elder sharing its family_id, recognised by an OMNIDIRECTIONAL smell/sound
+## RANGE sense (a bounded spatial-hash query, never a vision cone). Runs only in this rare case, so the query
+## stays off the common path — Big-O flat.
+static func _kin_regroup(c, pos: Vector3, flatten: bool) -> Vector3:
+	var reach: float = maxf(c.flock_radius * LACreatureLeadership.LEASH_MULT, c.hearing_range)
+	var kin = LACreatureLeadership.nearest_family_adult(c, pos, reach)
+	if kin == null:
+		return Vector3.ZERO
+	var to_home: Vector3 = kin.global_position - pos
+	if flatten:
+		to_home.y = 0.0
+	if to_home.length() < 0.001:
+		return Vector3.ZERO
+	return to_home.normalized() * c.flock_cohesion * REGROUP_GAIN
+
+
 static func steer(c, pos: Vector3, flatten: bool) -> Vector3:
 	if c.flock_weight <= 0.0:
 		return Vector3.ZERO
@@ -65,22 +106,28 @@ static func steer(c, pos: Vector3, flatten: bool) -> Vector3:
 		# Separation is UNWEIGHTED: crowding avoidance is about proximity, not influence.
 		if d < sep_dist:
 			separation += (pos - op) / d          # stronger the closer they are
-	if wsum <= 0.0:
-		return Vector3.ZERO
-	center /= wsum
-	# align: weighted sum, direction is what matters (normalised below), so no divide needed.
-	var cohesion: Vector3 = center - pos
-	if flatten:
-		cohesion.y = 0.0
-		align.y = 0.0
-		separation.y = 0.0
 	var out: Vector3 = Vector3.ZERO
-	if cohesion.length() > 0.001:
-		out += cohesion.normalized() * c.flock_cohesion
-	if align.length() > 0.001:
-		out += align.normalized() * c.flock_alignment
-	if separation.length() > 0.001:
-		out += separation.normalized() * c.flock_separation
+	if wsum > 0.0:
+		center /= wsum
+		# align: weighted sum, direction is what matters (normalised below), so no divide needed.
+		var cohesion: Vector3 = center - pos
+		if flatten:
+			cohesion.y = 0.0
+			align.y = 0.0
+			separation.y = 0.0
+		if cohesion.length() > 0.001:
+			out += cohesion.normalized() * c.flock_cohesion
+		if align.length() > 0.001:
+			out += align.normalized() * c.flock_alignment
+		if separation.length() > 0.001:
+			out += separation.normalized() * c.flock_separation
+	# Reel a strayed FOLLOWER back to its leader (O(1)) whenever it has drifted beyond flock_radius — applies
+	# whether or not local mates are near, so a drifting sub-group is caught before it passes the leadership
+	# leash and splinters into a new leader-of-few. Composes with the sticky-leadership leash.
+	out += _leader_tether(c, pos, flatten)
+	# A truly lost herd creature (alone AND leaderless) homes toward its nearest kin by range sense.
+	if c.herd and wsum <= 0.0 and (c._leader == null or not is_instance_valid(c._leader)):
+		out += _kin_regroup(c, pos, flatten)
 	# CROSS-SPECIES panic: align with any nearby fleeing creature of ANY species (not just my kind),
 	# so a mixed grazing group scatters as one. Reuses the shared frame-stamped spatial index (cheap).
 	var panic_align: Vector3 = Vector3.ZERO
