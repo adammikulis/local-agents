@@ -73,6 +73,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _hud != null and _hud.has_method("toggle_audio_menu"):
 			_hud.toggle_audio_menu()
 		return
+	# C: hide/show the streamer entirely. Hiding gates its local-LLM commentary + TTS compute off (and the
+	# choice persists). Forwarded through the world so this node stays free of the streamer host reference.
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_C:
+		if _world != null and _world.has_method("toggle_streamer"):
+			_world.toggle_streamer()
+		return
 	# Palette / selection hotkeys: Esc -> Select, 1-7 arm Life, Shift+1-5 arm Disasters,
 	# Tab / Shift+Tab cycle the selection through on-screen entities.
 	if event is InputEventKey and event.pressed and not event.echo:

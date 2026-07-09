@@ -519,24 +519,15 @@ func update(frame: int, spawned: bool) -> void:
 			_pause_menu.open(false)
 			_menu_shot_done = true
 
-	# Auto-select demo: aim at the nearest creature and run the real selection path.
+	# Auto-select demo: frame a real creature close-up and run the REAL selection path so the
+	# thought-inspector panel populates. We select the node DIRECTLY (select_node) rather than a
+	# center-screen raycast, so it's deterministic at any camera scale (orbit framing can't make the
+	# ray miss). Prefers an actively-behaving creature so the shot shows a live decision.
 	if _auto_select and not _auto_select_done and spawned and frame == _shoot_frames - 40:
-		var nearest: Node3D = null
-		var best: float = INF
-		for a in get_tree().get_nodes_in_group("selectable"):
-			if a is Node3D:
-				var d: float = (_camera.global_position - (a as Node3D).global_position).length()
-				if d < best:
-					best = d
-					nearest = a
-		if nearest != null:
-			var p: Vector3 = nearest.global_position
-			if _camera.has_method("focus_on"):
-				_camera.focus_on(p)
-			else:
-				_camera.global_position = p + Vector3(6.0, 5.0, 6.0)
-				_camera.look_at(p, Vector3.UP)
-			_interaction.select_at(get_viewport().get_visible_rect().size * 0.5)
+		var pick: Node3D = _pick_showcase_creature()
+		if pick != null:
+			_frame_camera_on(pick.global_position)
+			_interaction.select_node(pick)
 			var sel: Node = _interaction.selected()
 			var title: String = ""
 			if sel != null:
@@ -577,9 +568,18 @@ func update(frame: int, spawned: bool) -> void:
 func _frame_tinted_creature() -> void:
 	if _camera == null or _terrain == null:
 		return
-	const TINTED_STATES: Array = ["eat", "chase", "stalk", "track", "throw", "flee", "panic", "drink", "seek"]
+	var pick: Node3D = _pick_showcase_creature()
+	if pick == null:
+		return
+	_frame_camera_on(pick.global_position)
+
+
+# Pick a creature worth showcasing in a demo/screenshot: prefer one actively behaving (eating, hunting,
+# fleeing, drinking…) so a live decision is on screen, else the first creature there is.
+func _pick_showcase_creature() -> Node3D:
+	const ACTIVE_STATES: Array = ["eat", "chase", "stalk", "track", "throw", "flee", "panic", "drink", "seek"]
 	var pick: Node3D = null            # first foraging (green) creature, preferred for the demo shot
-	var pick2: Node3D = null           # any other tinted creature (hunting/fleeing/…)
+	var pick2: Node3D = null           # any other actively-tinted creature (hunting/fleeing/…)
 	var fallback: Node3D = null
 	for a in get_tree().get_nodes_in_group("creature"):
 		if not (a is Node3D):
@@ -589,16 +589,21 @@ func _frame_tinted_creature() -> void:
 		var st: String = String(a.get("state"))
 		if st == "eat" and pick == null:
 			pick = a
-		elif TINTED_STATES.has(st) and pick2 == null:
+		elif ACTIVE_STATES.has(st) and pick2 == null:
 			pick2 = a
 	if pick == null:
 		pick = pick2
 	if pick == null:
 		pick = fallback
-	if pick == null:
+	return pick
+
+
+# Place the camera a few metres off the surface above `p`, looking at it (surface-relative up so the
+# framing holds on any face of the planet).
+func _frame_camera_on(p: Vector3) -> void:
+	if _camera == null:
 		return
-	var p: Vector3 = pick.global_position
-	var center: Vector3 = _terrain.planet_center() if _terrain.has_method("planet_center") else Vector3.ZERO
+	var center: Vector3 = _terrain.planet_center() if _terrain != null and _terrain.has_method("planet_center") else Vector3.ZERO
 	var up: Vector3 = (p - center).normalized()
 	if up.length() < 0.001:
 		up = Vector3.UP

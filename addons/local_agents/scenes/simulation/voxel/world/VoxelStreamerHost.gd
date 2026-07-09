@@ -75,8 +75,14 @@ func setup(world: Node, ecology: Node, material: Node, persona: String, avatar_f
 	_streamer_voice.speaking_started.connect(_on_streamer_speaking_started)
 	_streamer_voice.speaking_finished.connect(_on_streamer_speaking_finished)
 	_streamer_overlay.avatar_selected.connect(_on_streamer_avatar_selected)
+	_streamer_overlay.visibility_toggled.connect(_on_streamer_visibility)
 	_streamer_overlay.set_default_persona(_streamer_persona)
 	_streamer_overlay.set_default_avatar(_streamer_avatar_flavor)
+
+	# Apply the player's remembered show/hide choice. Default is visible (it's the identity showcase),
+	# but if they hid it last session it stays hidden — and hidden means the compute is gated off.
+	if _load_hidden():
+		_set_streamer_active(false)
 
 
 # Swap the streamer between male/female: rebuild the avatar body + switch the TTS voice live.
@@ -85,6 +91,52 @@ func _on_streamer_avatar_selected(flavor: String) -> void:
 		_streamer_avatar.set_flavor(flavor)
 	if _streamer_voice != null and _streamer_voice.has_method("set_gender"):
 		_streamer_voice.set_gender(flavor)
+
+
+const SETTINGS_PATH: String = "user://local_agents/streamer.cfg"
+
+var _streamer_active: bool = true   # master runtime state: false = hidden AND compute gated off
+
+
+## Master runtime hide/show toggle (bound to the in-game hotkey via LAVoxelWorld.toggle_streamer). Hiding
+## halts commentary generation (director) + TTS (voice) so a hidden streamer burns zero LLM/speech compute;
+## showing resumes. The launch-time --no-streamer / LA_NO_STREAMER path (never even built) is separate.
+func toggle_streamer() -> void:
+	_set_streamer_active(not _streamer_active)
+	_save_hidden(not _streamer_active)
+
+
+# The overlay's own Hide/Show buttons already flipped their visuals; here we gate compute + persist.
+func _on_streamer_visibility(on: bool) -> void:
+	_set_streamer_active(on, false)
+	_save_hidden(not on)
+
+
+# Apply the active state everywhere: collapse/expand the face-cam, and gate the director + voice compute.
+# `drive_overlay` is false when the overlay already collapsed itself (its button path) to avoid redundancy.
+func _set_streamer_active(on: bool, drive_overlay: bool = true) -> void:
+	_streamer_active = on
+	if drive_overlay and _streamer_overlay != null and _streamer_overlay.has_method("set_collapsed"):
+		_streamer_overlay.set_collapsed(not on)
+	if _streamer_director != null and _streamer_director.has_method("set_enabled"):
+		_streamer_director.set_enabled(on)
+	if _streamer_voice != null and _streamer_voice.has_method("set_enabled"):
+		_streamer_voice.set_enabled(on)
+
+
+func _load_hidden() -> bool:
+	var cfg: ConfigFile = ConfigFile.new()
+	if cfg.load(SETTINGS_PATH) != OK:
+		return false
+	return bool(cfg.get_value("streamer", "hidden", false))
+
+
+func _save_hidden(hidden: bool) -> void:
+	DirAccess.make_dir_recursive_absolute("user://local_agents")
+	var cfg: ConfigFile = ConfigFile.new()
+	cfg.load(SETTINGS_PATH)   # keep any other keys
+	cfg.set_value("streamer", "hidden", hidden)
+	cfg.save(SETTINGS_PATH)
 
 
 func _on_streamer_line(text: String) -> void:
