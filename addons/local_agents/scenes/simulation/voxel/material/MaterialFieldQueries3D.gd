@@ -128,6 +128,45 @@ func salinity_at(pos: Vector3) -> float:
 
 # --- Diagnostics -------------------------------------------------------------
 
+## Radial rock-temperature profile — mean temp of SOLID cells binned by radial shell r = c % _dim_y
+## (r = 0 is the innermost core shell, r = _dim_y - 1 the outermost/surface). Reports the geothermal
+## gradient the crust actually carries (core → mid-crust → near-surface rock) so we can see whether the
+## crust insulates the hot core from a temperate surface. Sphere-only; snapshot-time, single O(cells) pass.
+func rock_radial_profile() -> Dictionary:
+	if not _f.is_sphere() or _f._dim_y <= 0 or _f._temp.size() != _f._cell_count:
+		return {}
+	var depth: int = _f._dim_y
+	var shell_sum: PackedFloat32Array = PackedFloat32Array()
+	var shell_n: PackedInt32Array = PackedInt32Array()
+	shell_sum.resize(depth)
+	shell_n.resize(depth)
+	for c in range(_f._cell_count):
+		if _f._solid[c] == 0:
+			continue
+		var r: int = c % depth
+		shell_sum[r] += _f._temp[c]
+		shell_n[r] += 1
+	var core: float = _shell_mean(shell_sum, shell_n, 0)
+	var q25: float = _shell_mean(shell_sum, shell_n, int(round(float(depth) * 0.25)))
+	var mid: float = _shell_mean(shell_sum, shell_n, depth / 2)
+	var q75: float = _shell_mean(shell_sum, shell_n, int(round(float(depth) * 0.75)))
+	# Near-surface rock = outermost shell that still holds solid cells (walk inward from the rim).
+	var top: int = depth - 1
+	while top > 0 and shell_n[top] == 0:
+		top -= 1
+	var surf_rock: float = _shell_mean(shell_sum, shell_n, top)
+	return {
+		"rock_core_c": core, "rock_q25_c": q25, "rock_mid_c": mid,
+		"rock_q75_c": q75, "rock_surf_c": surf_rock,
+	}
+
+
+func _shell_mean(shell_sum: PackedFloat32Array, shell_n: PackedInt32Array, r: int) -> float:
+	if r < 0 or r >= shell_n.size() or shell_n[r] == 0:
+		return 0.0
+	return shell_sum[r] / float(shell_n[r])
+
+
 func wet_cell_count() -> int:
 	var n: int = 0
 	for i in range(_f._cell_count):

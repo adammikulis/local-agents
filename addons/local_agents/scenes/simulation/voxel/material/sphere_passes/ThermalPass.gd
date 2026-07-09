@@ -118,9 +118,10 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		var water_back: RID = water[back]
 		var lava_back: RID = lava[back]
 
-		# conduct (heat_sphere3d): 0 = TempIn (LIVE), 1 = TempOut (scratch), 2 = nbr. copy: 0 = scratch, 1 = temp LIVE.
+		# conduct (heat_sphere3d): 0 = TempIn (LIVE), 1 = TempOut (scratch), 2 = nbr, 3 = solid (per-bond rock vs
+		# void conductivity — the crust insulates the hot core). copy: 0 = scratch, 1 = temp LIVE.
 		_conduct_set[p] = _make_set(rd, _conduct_shader, [
-			[0, temp_live], [1, _cond_scratch], [2, nbr]])
+			[0, temp_live], [1, _cond_scratch], [2, nbr], [3, solid]])
 		_copy_set[p] = _make_set(rd, _copy_shader, [
 			[0, _cond_scratch], [1, temp_live]])
 		# solar: 0 = temp (LIVE, in-place), 1 = solid, 14 = radial, 15 = nbr.
