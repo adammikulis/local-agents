@@ -11,7 +11,10 @@ extends RefCounted
 ## All three kernels are the sphere ports of the box finite-volume CAs and follow the SAME two-pass GATHER
 ## structure: pass 0 records per-direction OUTFLOW into the shared `send` scratch (idx*6 + dir), a barrier,
 ## then pass 1 = old - own_out + received INFLOW into the ping-pong BACK buffer. They all share the single
-## `send` scratch, so it is cleared before each kernel's pass 0. Order: water, then slump, then lava.
+## `send` scratch — no external clear is needed: every kernel's pass 0 unconditionally zeroes all 6 of its
+## own send slots (idx*6+0..5) before any early-return, so the buffer is fully re-initialised each pass. That
+## lets the three CAs run back-to-back in ONE open compute list without a buffer_clear (which is illegal while
+## a compute list is open). Order: water, then slump, then lava.
 ##
 ## Per-kernel binding -> bufs-key map (see the .glsl headers for the authoritative layout):
 ##   water_sphere3d:      0 WaterIn=water[live] · 1 Solid=solid · 2 Static=static · 3 Send=send ·
@@ -44,9 +47,8 @@ var _water_set: Array = [RID(), RID()]
 var _slump_set: Array = [RID(), RID()]
 var _lava_set: Array = [RID(), RID()]
 
-# Shared outflow scratch (idx*6 + dir), cleared before each kernel's pass 0.
+# Shared outflow scratch (idx*6 + dir). Self-cleared by each kernel's pass 0 — no external buffer_clear.
 var _send: RID = RID()
-var _send_bytes: int = 0
 
 
 func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
@@ -56,7 +58,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		return
 
 	_send = bufs.get("send", RID())  # the SINGLE shared outflow scratch (float32, cc*6)
-	_send_bytes = cc * 6 * 4
 
 	# --- Compile the three kernels -------------------------------------------------
 	var water_sf: RDShaderFile = load(WATER_PATH)
@@ -114,7 +115,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 func dispatch(rd: RenderingDevice, cl: int, parity: int, _ctx: Dictionary, cc: int, groups: int) -> void:
 	if _rd == null:
 		return
-	# Each CA is a 2-pass gather sharing the single `send` scratch. Order: water, slump, lava.
+	# Each CA is a 2-pass gather sharing the single `send` scratch (each pass 0 self-zeroes it). Order: water, slump, lava.
 	_two_pass(rd, cl, _water_pipe, _water_set[parity], cc, groups)
 	_two_pass(rd, cl, _slump_pipe, _slump_set[parity], cc, groups)
 	_two_pass(rd, cl, _lava_pipe, _lava_set[parity], cc, groups)
@@ -122,14 +123,12 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, _ctx: Dictionary, cc: i
 
 # --- helpers ------------------------------------------------------------------
 
-## Records one 2-pass finite-volume CA into the open compute list: clear the shared send scratch, run
-## pass 0 (outflow -> send), barrier, run pass 1 (inflow -> back buffer), barrier. Bindings are re-bound
-## each pass so a push-constant change is unambiguous; the barrier after pass 0 makes the outflow writes
-## visible to pass 1's neighbour reads, and the barrier after pass 1 orders the back-buffer + shared-send
-## writes ahead of the next kernel.
+## Records one 2-pass finite-volume CA into the open compute list: run pass 0 (outflow -> send), barrier, run
+## pass 1 (inflow -> back buffer), barrier. Pass 0 self-zeroes all 6 send slots per cell before writing, so no
+## buffer_clear is needed (and none is legal while a compute list is open). Bindings are re-bound each pass so
+## a push-constant change is unambiguous; the barrier after pass 0 makes the outflow writes visible to pass 1's
+## neighbour reads, and the barrier after pass 1 orders the back-buffer + shared-send writes ahead of the next kernel.
 func _two_pass(rd: RenderingDevice, cl: int, pipe: RID, uset: RID, cc: int, groups: int) -> void:
-	rd.buffer_clear(_send, 0, _send_bytes)
-
 	# PASS 0 — outflow
 	rd.compute_list_bind_compute_pipeline(cl, pipe)
 	rd.compute_list_bind_uniform_set(cl, uset, 0)
