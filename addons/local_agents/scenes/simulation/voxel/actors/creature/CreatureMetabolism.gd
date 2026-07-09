@@ -55,7 +55,7 @@ static func tick(c, delta: float) -> bool:
 static func tick_environment(c, pos: Vector3, delta: float) -> bool:
 	if c._material == null:
 		return false
-	var t: float = c._material.temp_at(pos.x, pos.z)
+	var t: float = c._material.temp_at(pos)
 	# Flesh doesn't glow like hot metal — it COMBUSTS. In fire/lava heat the creature bursts into flame and
 	# dies burned (organic matter ignites; inorganic ground glows via the shader instead).
 	if t >= COMBUST_TEMP:

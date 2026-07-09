@@ -79,7 +79,7 @@ func get_inspector_payload() -> Dictionary:
 	lines.append("Intensity: %.0f%%" % (_strength / STRENGTH_MAX * 100.0))
 	var lift: float = 0.0
 	if _field != null and _field.has_method("updraft_at"):
-		lift = _field.updraft_at(_center.x, _center.z)
+		lift = _field.updraft_at(_center)
 	lines.append("Updraft (lift): %.2f" % lift)
 	var cover: float = 0.0
 	if _field != null and _field.has_method("cloud_at"):
@@ -114,12 +114,12 @@ func _lift_gradient() -> Vector2:
 	if _field == null or not _field.has_method("updraft_at"):
 		return Vector2.ZERO
 	var best_dir: Vector2 = Vector2.ZERO
-	var best_val: float = absf(_field.updraft_at(_center.x, _center.z))
+	var best_val: float = absf(_field.updraft_at(_center))
 	for i in range(6):
 		var a: float = TAU * float(i) / 6.0
 		var ox: float = cos(a) * LIFT_PROBE
 		var oz: float = sin(a) * LIFT_PROBE
-		var v: float = absf(_field.updraft_at(_center.x + ox, _center.z + oz))
+		var v: float = absf(_field.updraft_at(_center + Vector3(ox, 0.0, oz)))
 		if v > best_val:
 			best_val = v
 			best_dir = Vector2(ox, oz)
@@ -139,7 +139,7 @@ func _physics_process(delta: float) -> void:
 	# scripted intensity envelope. A cell whose lift collapses (drifted off its convection) withers and dies.
 	var lift: float = 0.0
 	if _field.has_method("updraft_at"):
-		lift = absf(_field.updraft_at(_center.x, _center.z))
+		lift = absf(_field.updraft_at(_center))
 	_strength = clampf(lerpf(_strength, UPDRAFT_TO_STRENGTH * lift, STRENGTH_RATE), 0.0, STRENGTH_MAX)
 	if _age > BUILD_TIME and _strength <= DISSIPATE_STRENGTH:
 		queue_free()
@@ -156,10 +156,10 @@ func _physics_process(delta: float) -> void:
 	var lift_dir: Vector2 = _lift_gradient()
 	_center.x += lift_dir.x * LIFT_FOLLOW * delta
 	_center.z += lift_dir.y * LIFT_FOLLOW * delta
-	if _terrain != null and _terrain.has_method("surface_height"):
-		var gy: float = _terrain.surface_height(_center.x, _center.z)
-		if not is_nan(gy):
-			_center.y = gy
+	if _terrain != null and _terrain.has_method("ground_point"):
+		var sp: Vector3 = _terrain.ground_point(_center)
+		if not is_nan(sp.x):
+			_center = sp
 	global_position = _center
 
 	_pump_moisture(seed, delta)
@@ -183,10 +183,10 @@ func _pump_moisture(intensity: float, delta: float) -> void:
 		var px: float = _center.x + off.x
 		var pz: float = _center.z + off.y
 		var gy: float = _center.y
-		if _terrain != null and _terrain.has_method("surface_height"):
-			var h: float = _terrain.surface_height(px, pz)
-			if not is_nan(h):
-				gy = h
+		if _terrain != null and _terrain.has_method("ground_point"):
+			var g: Vector3 = _terrain.ground_point(Vector3(px, _center.y, pz))
+			if not is_nan(g.x):
+				gy = g.y
 		if _field.has_method("add_vapor"):
 			_field.add_vapor(Vector3(px, gy + 3.0, pz), per_point, VAPOR_INJECT_R)
 		# Warm the surface air so it becomes buoyant and RISES — this is what grows the convective updraft

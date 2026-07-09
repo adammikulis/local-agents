@@ -33,20 +33,34 @@ func setup(world, terrain, ecology, actors_root: Node3D, camera: Camera3D, audio
 # The world always has one active volcano — placed on the highest of several sampled points so it's a
 # proper mountain landmark, well away from the origin spawn.
 func spawn_default_volcano() -> void:
-	var best_h: float = -INF
-	var best: Vector3 = Vector3(150.0, 0.0, 150.0)
+	if _terrain == null or not _terrain.has_method("surface_point"):
+		return
+	# Pick the HIGHEST (largest surface radius) of a ring of directions tilted off the pole — a mountain landmark.
+	var best_r: float = -INF
+	var best: Vector3 = Vector3(NAN, NAN, NAN)
 	var ring: int = 12
 	for i in range(ring):
 		var ang: float = TAU * float(i) / float(ring)
-		var r: float = 160.0
-		var px: float = cos(ang) * r
-		var pz: float = sin(ang) * r
-		var h: float = _terrain.surface_height(px, pz)
-		if not is_nan(h) and h > best_h:
-			best_h = h
-			best = Vector3(px, h, pz)
-	if best_h > -INF:
+		var dir: Vector3 = Vector3(cos(ang) * 0.5, 1.0, sin(ang) * 0.5).normalized()
+		var sr: float = _terrain.surface_radius(dir)
+		if is_nan(sr) or sr <= best_r:
+			continue
+		best_r = sr
+		best = _terrain.surface_point(dir)
+	if not is_nan(best.x):
 		spawn_volcano(best)
+
+
+# A world-space surface spawn point along a direction from the planet centre (falls back to the sea shell
+# along that direction if that patch is unmeshed). The radial replacement for the old fixed-XZ surface_height picks.
+func _surface_spawn(dir: Vector3) -> Vector3:
+	if _terrain != null and _terrain.has_method("surface_point"):
+		var sp: Vector3 = _terrain.surface_point(dir)
+		if not is_nan(sp.x):
+			return sp
+	var c: Vector3 = _terrain.planet_center() if _terrain != null and _terrain.has_method("planet_center") else Vector3.ZERO
+	var sea_r: float = _terrain.sea_radius() if _terrain != null and _terrain.has_method("sea_radius") else 100.0
+	return c + dir.normalized() * sea_r
 
 
 func spawn_volcano(point: Vector3) -> Node:
@@ -145,13 +159,11 @@ func fire_auto_storm(kind: String) -> Vector3:
 		_track_storm(h, 360.0, 42.0)          # huge system — pull way back
 		return site
 	if kind == "thunderstorm":
-		var gy: float = _terrain.surface_height(0.0, 0.0)
-		var f: Vector3 = Vector3(0.0, (gy if not is_nan(gy) else 20.0), 0.0)
+		var f: Vector3 = _surface_spawn(Vector3.UP)
 		var s: Node = spawn_thunderstorm(f)
 		_track_storm(s, 155.0, 34.0)
 		return f
-	var oh: float = _terrain.surface_height(30.0, 30.0)
-	var t: Vector3 = Vector3(30.0, (oh if not is_nan(oh) else 20.0), 30.0)
+	var t: Vector3 = _surface_spawn(Vector3(0.3, 1.0, 0.3).normalized())
 	var tw: Node = spawn_tornado(t)
 	_track_storm(tw, 110.0, 30.0)             # frame the whole funnel column
 	return t
@@ -167,17 +179,19 @@ func _track_storm(storm: Node, distance: float, pitch_deg: float) -> void:
 # Search rings outward for a point over open ocean (hurricane genesis). Falls back to a far offshore guess.
 func _find_ocean_point() -> Vector3:
 	var field = _ecology.material_field() if _ecology != null and _ecology.has_method("material_field") else null
-	if field != null and field.has_method("is_ocean_at"):
-		var rings: Array = [200.0, 240.0, 280.0]
-		for r in rings:
-			for i in range(16):
-				var ang: float = TAU * float(i) / 16.0
-				var px: float = cos(ang) * float(r)
-				var pz: float = sin(ang) * float(r)
-				if field.is_ocean_at(px, pz):
-					var sea: float = field.sea_level if "sea_level" in field else 0.0
-					return Vector3(px, sea, pz)
-	return Vector3(0.0, 0.0, 260.0)
+	var center: Vector3 = _terrain.planet_center() if _terrain != null and _terrain.has_method("planet_center") else Vector3.ZERO
+	var sea_r: float = _terrain.sea_radius() if _terrain != null and _terrain.has_method("sea_radius") else 0.0
+	if field != null and field.has_method("is_ocean_at") and sea_r > 0.0:
+		# Scan a spread of radial directions for a sea-surface point over an ocean basin (a golden-angle spiral).
+		for i in range(200):
+			var u: float = (float(i) + 0.5) / 200.0
+			var phi: float = acos(1.0 - 2.0 * u)
+			var theta: float = float(i) * 2.399963
+			var dir: Vector3 = Vector3(sin(phi) * cos(theta), cos(phi), sin(phi) * sin(theta)).normalized()
+			var pt: Vector3 = center + dir * sea_r
+			if field.is_ocean_at(pt):
+				return pt
+	return center + Vector3.UP * (sea_r if sea_r > 0.0 else 260.0)
 
 
 func spawn_lightning(point: Vector3) -> void:
@@ -191,13 +205,14 @@ func spawn_lightning(point: Vector3) -> void:
 
 # A bolt at a random point in the play area (thunderstorm occurrence).
 func strike_random_lightning() -> void:
-	var ang: float = randf() * TAU
-	var r: float = randf() * 250.0
-	var px: float = cos(ang) * r
-	var pz: float = sin(ang) * r
-	var h: float = _terrain.surface_height(px, pz)
-	if not is_nan(h):
-		spawn_lightning(Vector3(px, h, pz))
+	if _terrain == null or not _terrain.has_method("surface_point"):
+		return
+	var dir: Vector3 = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0)
+	if dir.length_squared() < 1.0e-4:
+		dir = Vector3.UP
+	var sp: Vector3 = _terrain.surface_point(dir.normalized())
+	if not is_nan(sp.x):
+		spawn_lightning(sp)
 
 
 # Strike the nearest tree (test: confirm fire emerges from the bolt's heat).

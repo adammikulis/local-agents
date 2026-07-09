@@ -89,14 +89,13 @@ func _physics_process(delta: float) -> void:
 		queue_free()
 		return
 
-	# Safety: dropped below terrain surface at current x,z.
-	if _terrain != null and _terrain.has_method("surface_height"):
-		var surf = _terrain.surface_height(global_position.x, global_position.z)
-		if (typeof(surf) == TYPE_FLOAT or typeof(surf) == TYPE_INT) and not is_nan(float(surf)):
-			if global_position.y < float(surf):
-				_maybe_splash(global_position)
-				queue_free()
-				return
+	# Safety: dropped below the terrain surface (radial altitude < 0 = underground).
+	if _terrain != null and _terrain.has_method("altitude_at"):
+		var alt: float = _terrain.altitude_at(global_position)
+		if not is_nan(alt) and alt < 0.0:
+			_maybe_splash(global_position)
+			queue_free()
+			return
 
 func _strike() -> void:
 	_flying = false
@@ -112,7 +111,7 @@ func _strike() -> void:
 
 # Splash accent if the rock came down in water.
 func _maybe_splash(at: Vector3) -> void:
-	if _water != null and _water.has_method("is_water_at") and _water.is_water_at(at.x, at.z):
+	if _water != null and _water.has_method("is_water_at") and _water.is_water_at(at):
 		if _water.has_method("splash"):
 			_water.splash(at, 1.0)
 

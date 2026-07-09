@@ -47,22 +47,19 @@ static func choose_site(c, pos: Vector3) -> Vector3:
 	if habitat == "tree":
 		var tree: Node3D = _nearest_tree(c, pos)
 		if tree != null:
-			var tp: Vector3 = tree.global_position
-			var surf: float = c.terrain.surface_height(tp.x, tp.z)
-			var base_y: float = tp.y
-			if not is_nan(surf):
-				base_y = maxf(tp.y, surf)
-			return Vector3(tp.x, base_y + TREETOP_RISE, tp.z)
+			var tp: Vector3 = tree.global_position          # trees sit on the ground; roost above the treetop
+			var up: Vector3 = c.terrain.up_at(tp) if c.terrain.has_method("up_at") else Vector3.UP
+			return tp + up * TREETOP_RISE
 		return pos
-	# Ground/burrow species: a small sheltered offset from where it stands, pinned to the surface.
+	# Ground/burrow species: a small sheltered offset from where it stands, pinned radially to the surface.
 	var ox: float = (randf() * 2.0 - 1.0) * GROUND_SCATTER
 	var oz: float = (randf() * 2.0 - 1.0) * GROUND_SCATTER
 	var site: Vector3 = Vector3(pos.x + ox, pos.y, pos.z + oz)
-	var gs: float = c.terrain.surface_height(site.x, site.z)
-	if is_nan(gs):
+	var gp: Vector3 = c.terrain.ground_point(site) if c.terrain.has_method("ground_point") else Vector3(NAN, NAN, NAN)
+	if is_nan(gp.x):
 		return pos
-	site.y = gs + GROUND_RISE
-	return site
+	var up: Vector3 = c.terrain.up_at(gp) if c.terrain.has_method("up_at") else Vector3.UP
+	return gp + up * GROUND_RISE
 
 
 ## Nearest pooled-water site (for aquatic nesters), probed in rings via the shared material field.
@@ -70,20 +67,17 @@ static func _nearest_water_site(c, pos: Vector3) -> Vector3:
 	var water = c._material
 	if water == null or not water.has_method("is_water_at"):
 		return Vector3(INF, INF, INF)
-	if water.is_water_at(pos.x, pos.z):
+	if water.is_water_at(pos):
 		return pos
 	var radii: Array = [c.sense_radius, c.sense_radius * 2.0, c.sense_radius * 3.5]
 	var dirs: int = 12
 	for r in radii:
 		for k in range(dirs):
 			var ang: float = TAU * float(k) / float(dirs)
-			var px: float = pos.x + cos(ang) * float(r)
-			var pz: float = pos.z + sin(ang) * float(r)
-			if water.is_water_at(px, pz):
-				var y: float = c.terrain.surface_height(px, pz)
-				if is_nan(y):
-					y = pos.y
-				return Vector3(px, y, pz)
+			var probe: Vector3 = Vector3(pos.x + cos(ang) * float(r), pos.y, pos.z + sin(ang) * float(r))
+			if water.is_water_at(probe):
+				var gp: Vector3 = c.terrain.ground_point(probe) if c.terrain.has_method("ground_point") else Vector3(NAN, NAN, NAN)
+				return gp if not is_nan(gp.x) else probe
 	return Vector3(INF, INF, INF)
 
 

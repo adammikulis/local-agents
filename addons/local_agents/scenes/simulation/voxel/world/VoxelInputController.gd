@@ -371,13 +371,13 @@ func update(frame: int, spawned: bool) -> void:
 	if _auto_volcano and not _auto_volcano_fired and spawned:
 		var vtrigger: int = 350 if _shoot_path != "" else maxi(_run_frames - 600, 60)
 		if frame >= vtrigger:
-			var oh: float = _terrain.surface_height(20.0, 20.0)
-			if not is_nan(oh):
-				var vc: Node = _disasters.spawn_volcano(Vector3(20.0, oh, 20.0))
+			var vsite: Vector3 = _terrain.surface_point(Vector3(0.2, 1.0, 0.2).normalized()) if _terrain.has_method("surface_point") else Vector3(NAN, NAN, NAN)
+			if not is_nan(vsite.x):
+				var vc: Node = _disasters.spawn_volcano(vsite)
 				if vc != null and vc.has_method("force_erupt"):
 					vc.force_erupt()
 				if _camera != null and _camera.has_method("frame_vista"):
-					_camera.frame_vista(Vector3(20.0, oh, 20.0))
+					_camera.frame_vista(vsite)
 				_auto_volcano_fired = true
 
 	# CAPSTONE — auto-seavolcano: seed a SEABED vent EARLY so the sustained supply has a long window to build a
@@ -446,8 +446,8 @@ func update(frame: int, spawned: bool) -> void:
 		var qtrigger: int = (_shoot_frames - 120) if _shoot_path != "" else maxi(_run_frames - 45, 45)
 		if frame >= qtrigger:
 			_auto_earthquake_fired = true
-			var qh: float = _terrain.surface_height(0.0, 0.0)
-			var epicentre: Vector3 = Vector3(0.0, (qh if not is_nan(qh) else 20.0), 0.0)
+			var qsite: Vector3 = _terrain.surface_point(Vector3.UP) if _terrain.has_method("surface_point") else Vector3(NAN, NAN, NAN)
+			var epicentre: Vector3 = qsite if not is_nan(qsite.x) else (_body.center() + Vector3.UP * (_body.radius() if _body.has_method("radius") else 200.0))
 			var quake_script: GDScript = load("res://addons/local_agents/scenes/simulation/voxel/actors/Earthquake.gd")
 			var quake: Node3D = quake_script.new()
 			_body.add_child(quake)

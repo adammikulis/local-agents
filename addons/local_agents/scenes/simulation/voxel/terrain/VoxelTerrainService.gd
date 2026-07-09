@@ -183,58 +183,6 @@ func is_solid(pos: Vector3) -> bool:
 	return sdf_at(pos) < 0.0
 
 
-# --- 3D caves ---------------------------------------------------------------
-# Real 3D voids carved into the SDF (surface entrances winding down into tunnels + chambers), so the
-# world is genuinely 3D: fluids can pour into a tube, water can pool in a cavern, gas can rise a shaft.
-# Carved natively via do_sphere along noise-perturbed paths — a few sparse systems, cheap (~hundreds of
-# edits total). Called once after the terrain has streamed.
-const CAVE_SYSTEMS: int = 5
-const CAVE_STEPS: int = 110
-const CAVE_STEP_LEN: float = 2.3
-const CAVE_RADIUS: float = 2.8
-
-func carve_caves(seed_val: int) -> void:
-	if _terrain == null:
-		return
-	var rng: RandomNumberGenerator = RandomNumberGenerator.new()
-	rng.seed = seed_val
-	var wander: FastNoiseLite = FastNoiseLite.new()
-	wander.seed = seed_val ^ 0x51ED
-	wander.frequency = 0.03
-	for sys in range(CAVE_SYSTEMS):
-		# Entrance: a point on the island's land (well inside the coast) — carve a mouth from just above
-		# the surface so the tunnel opens to daylight.
-		var ang: float = rng.randf() * TAU
-		var rr: float = rng.randf_range(28.0, _island_radius * 0.62)
-		var ex: float = cos(ang) * rr
-		var ez: float = sin(ang) * rr
-		var ey: float = surface_height(ex, ez)
-		if is_nan(ey) or ey <= _sea_level + 3.0:
-			continue                                    # skip mouths that would open underwater
-		var pos: Vector3 = Vector3(ex, ey + 1.5, ez)
-		# Head inward and down into the hillside.
-		var head: Vector3 = Vector3(-cos(ang) * 0.35, -0.72, -sin(ang) * 0.35).normalized()
-		for step in range(CAVE_STEPS):
-			carve_sphere(pos, CAVE_RADIUS + rng.randf_range(-0.5, 1.0))
-			if rng.randf() < 0.07:                       # occasional chamber
-				carve_sphere(pos, CAVE_RADIUS * 2.3)
-			# Wind the tunnel with 3D noise; bias gently downward so it descends into the isle.
-			var nx: float = wander.get_noise_3d(pos.x, pos.y, pos.z)
-			var ny: float = wander.get_noise_3d(pos.x + 137.0, pos.y - 71.0, pos.z)
-			var nz: float = wander.get_noise_3d(pos.x, pos.y + 91.0, pos.z + 137.0)
-			head = (head + Vector3(nx, ny * 0.5 - 0.12, nz) * 0.65).normalized()
-			pos += head * CAVE_STEP_LEN
-			# Keep tunnels inside the island body and out of the deep seabed; dive back under if the path
-			# would break the surface mid-run (so we don't gash open trenches across the hillside).
-			if Vector2(pos.x, pos.z).length() > _island_radius * 0.95:
-				break
-			if pos.y < _sea_level - 42.0:
-				break
-			var surf: float = surface_height(pos.x, pos.z)
-			if not is_nan(surf) and pos.y > surf - 1.5:
-				head.y = -absf(head.y) - 0.25
-				head = head.normalized()
-
 ## Add a FLAT SDF box (world-space AABB centred at world_pos, given half extents). Used to build
 ## flat-topped deposits — e.g. solidifying lava layers that tile into a continuous rocky surface,
 ## instead of the rounded blobs a sphere leaves.
@@ -313,14 +261,12 @@ func raycast_terrain(from: Vector3, dir: Vector3, max_distance: float) -> Dictio
 		return miss
 	return {"hit": true, "position": hit.position, "normal": hit.normal}
 
-## World Y of the terrain surface at (x, z) via a downward physics ray.
-## Returns NAN when the area is unmeshed or the ray misses.
-func surface_height(x: float, z: float, top: float = 300.0) -> float:
-	var res: Dictionary = raycast_terrain(Vector3(x, top, z), Vector3.DOWN, top + 600.0)
-	if not res["hit"]:
-		return NAN
-	var pos: Vector3 = res["position"]
-	return pos.y
+## The solid surface point directly beneath/above a WORLD point — re-seat it onto the ground along its own
+## radial (centre→pos). NAN-vector if that patch is unmeshed. Replaces the old downward surface_height cast,
+## which only hit at the +Y pole (a straight-down ray misses everywhere else on a sphere). Callers that want
+## the local ground altitude use altitude_at(pos); those re-seating onto the surface use this.
+func ground_point(pos: Vector3) -> Vector3:
+	return surface_point(pos - _center)
 
 ## PLANET: world radius (distance from centre) of the solid surface along direction `dir`, via an inward
 ## radial physics ray from above the surface toward the core. NAN if that patch is unmeshed / the ray misses.

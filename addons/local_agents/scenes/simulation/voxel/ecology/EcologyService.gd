@@ -212,9 +212,9 @@ func _can_grow_here(placed: Vector3) -> bool:
 	if _material == null:
 		return true
 	var air: Vector3 = _air_point(placed)
-	if _material.has_method("temp_at") and _material.temp_at(air.x, air.z, air.y) < GROW_MIN_TEMP:
+	if _material.has_method("temp_at") and _material.temp_at(air) < GROW_MIN_TEMP:
 		return false   # too cold — above the emergent treeline
-	if _material.has_method("snow_depth_at") and _material.snow_depth_at(air.x, air.z, air.y) > GROW_SNOW_MAX:
+	if _material.has_method("snow_depth_at") and _material.snow_depth_at(air) > GROW_SNOW_MAX:
 		return false   # snow-covered ground
 	return true
 

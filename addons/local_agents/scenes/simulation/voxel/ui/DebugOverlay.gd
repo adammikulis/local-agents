@@ -324,7 +324,7 @@ func _field_sample(p: Vector3) -> Array:
 			ref = 1.0
 			base = Color(0.6, 0.75, 0.25)
 		"snow":
-			val = _field.snow_depth_at(p.x, p.z)
+			val = _field.snow_depth_at(p)
 			ref = 1.0
 			base = Color(0.92, 0.95, 1.0)
 		"water_phase":
@@ -342,7 +342,7 @@ func _field_sample(p: Vector3) -> Array:
 # Water-phase composite: whichever of snow (white), cloud (light blue), fog (grey) dominates the column
 # tints the spike, so the frozen/aloft/near-ground H2O phases read at a glance in one view.
 func _sample_water_phase(p: Vector3) -> Array:
-	var snow: float = _field.snow_depth_at(p.x, p.z) if _field.has_method("snow_depth_at") else 0.0
+	var snow: float = _field.snow_depth_at(p) if _field.has_method("snow_depth_at") else 0.0
 	var cloud: float = _field.cloud_at(p.x, p.z) if _field.has_method("cloud_at") else 0.0
 	var fog: float = _field.fog_at(p.x, p.z) if _field.has_method("fog_at") else 0.0
 	var best: float = snow

@@ -215,7 +215,7 @@ func _best_forest_center(tries: int) -> Vector3:
 func _forest_suitability(pos: Vector3) -> float:
 	var warmth: float = 0.0
 	if _eco._material != null and _eco._material.has_method("temp_at"):
-		warmth = _eco._material.temp_at(pos.x, pos.z, pos.y) - LAEcologyService.GROW_MIN_TEMP
+		warmth = _eco._material.temp_at(pos) - LAEcologyService.GROW_MIN_TEMP
 	return _eco._biomass_at(pos) * FOREST_BIOMASS_WEIGHT + warmth
 
 

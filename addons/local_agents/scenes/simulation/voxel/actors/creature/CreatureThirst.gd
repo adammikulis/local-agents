@@ -17,7 +17,7 @@ static func handle_thirst(c, pos: Vector3, delta: float) -> String:
 		return ""
 	if c.hydration >= c.max_hydration * THIRSTY_FRACTION:
 		return ""
-	if c._material.is_water_at(pos.x, pos.z):
+	if c._material.is_water_at(pos):
 		c.hydration = minf(c.max_hydration, c.hydration + DRINK_RATE * delta)
 		return "drink"
 	c._water_search_cd -= delta
@@ -39,10 +39,10 @@ static func find_water_dir(c, pos: Vector3) -> Vector3:
 	for r in radii:
 		for k in range(dirs):
 			var ang: float = TAU * float(k) / float(dirs)
-			var px: float = pos.x + cos(ang) * float(r)
-			var pz: float = pos.z + sin(ang) * float(r)
-			if c._material.is_water_at(px, pz):
-				var d: Vector3 = Vector3(px - pos.x, 0.0, pz - pos.z)
+			var probe: Vector3 = Vector3(pos.x + cos(ang) * float(r), pos.y, pos.z + sin(ang) * float(r))
+			if c._material.is_water_at(probe):
+				var d: Vector3 = probe - pos
+				d.y = 0.0
 				if d.length() > 0.001:
 					return d.normalized()
 	return Vector3.ZERO
