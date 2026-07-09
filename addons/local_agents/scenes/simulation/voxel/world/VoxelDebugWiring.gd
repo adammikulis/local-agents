@@ -25,6 +25,10 @@ const BEHAVIOR_COLORS: Dictionary = {
 	"drinking": Color(0.25, 0.55, 1.00),
 	"sleeping": Color(0.55, 0.58, 0.62),
 	"nesting": Color(0.72, 0.35, 0.92),
+	# Local-LLM slow-brain highlight: cyan = consulting the on-device model now (thinking), amber = waiting
+	# on the shared budget (queued). Distinct from the behavior tints so a live consult reads unambiguously.
+	"llm_thinking": Color(0.15, 0.90, 0.95),
+	"llm_queued": Color(0.98, 0.78, 0.20),
 }
 
 var _world: Node = null
@@ -37,6 +41,7 @@ var _ecology: Node = null               # LAEcologyService — owns the kinship 
 var _debug_panel: CanvasLayer = null    # LADebugPanel (left-docked debug menu)
 var _debug_overlay: Node3D = null       # LADebugOverlay (world-space highlight/path/wind gizmos)
 var _family_tree: LAFamilyTreePanel = null  # right-docked kinship family-tree inspector (on-select reader)
+var _interaction: Node = null               # LAVoxelInteraction — for "select all thinking/queued" (late-bound)
 
 var _scent_visible: bool = false
 var _temp_debug_visible: bool = false   # T toggles the terrain temperature heatmap debug view
@@ -68,6 +73,7 @@ func setup(world: Node, material: Node, terrain, sky: LAVoxelSkyController, hud:
 	_debug_panel.perf_toggled.connect(_on_debug_perf)
 	_debug_panel.family_tree_toggled.connect(_on_debug_family_tree)
 	_debug_panel.screenshot_requested.connect(_on_debug_screenshot)
+	_debug_panel.select_llm_requested.connect(_on_select_llm)
 	# Family-tree inspector (right dock): a pure reader over the kinship graph, re-rooted on each selection.
 	_family_tree = FamilyTreePanelScript.new()
 	_family_tree.name = "FamilyTreePanel"
@@ -95,6 +101,28 @@ func setup(world: Node, material: Node, terrain, sky: LAVoxelSkyController, hud:
 	# forces a real birth + selects a kin so the tree is populated for the shot).
 	if _input != null and _input.debug_family() and _family_tree != null:
 		_family_tree.set_enabled(true)
+
+
+## Late-bind the interaction controller (built after this wiring in the composition order) so the "select
+## all thinking/queued" button can drive the shared single-selection path via a predicate.
+func set_interaction(interaction: Node) -> void:
+	_interaction = interaction
+
+
+# "Select thinking / queued" button: pick out every creature currently consulting/waiting on the shared
+# cognition scheduler and select the nearest through the normal selection path (the whole set is already
+# tinted by the LLM highlight). Reuses LAVoxelInteraction.select_by_predicate; logs the match count.
+func _on_select_llm(kind: String) -> void:
+	if _interaction == null or not _interaction.has_method("select_by_predicate"):
+		return
+	var sched = null
+	if _ecology != null and _ecology.has_method("cognition_scheduler"):
+		sched = _ecology.cognition_scheduler()
+	var pred: Callable = func(c) -> bool: return LALLMControl.matches(c, kind, sched)
+	var count: int = _interaction.select_by_predicate(pred)
+	if _hud != null and _hud.has_method("set_status"):
+		_hud.set_status("Selected %d creature(s) using the local model." % count)
+	print("LLM_SELECT={kind:%s, count:%d}" % [kind, count])
 
 
 # Debug menu checkbox: show/hide the kinship family-tree inspector for the current selection.
