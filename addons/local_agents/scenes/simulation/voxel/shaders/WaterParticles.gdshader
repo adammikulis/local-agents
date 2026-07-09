@@ -21,7 +21,7 @@ uniform float fog_top_r;
 uniform float fog_lo_r;
 uniform float outer_r;
 
-const float CLOUD_MIN = 0.12;
+const float CLOUD_MIN = 0.12;   // cloud phase threshold (distinct FORMATIONS need sim-side condensation clumping)
 const float FOG_MIN = 0.08;
 const float PRECIP_MIN = 0.02;
 const float AMBIENT = 0.16;

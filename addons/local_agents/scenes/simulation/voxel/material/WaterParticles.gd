@@ -54,6 +54,7 @@ func setup(field, camera: Node3D, sun: DirectionalLight3D, center: Vector3, sea_
 	_dm = ShaderMaterial.new()
 	_dm.shader = load(DRAW_SHADER)
 	_dm.set_shader_parameter("sky_tint", _sky_tint)
+	_dm.set_shader_parameter("planet_center", _center)   # rain streaks orient toward the core
 	quad.material = _dm
 	draw_pass_1 = quad
 
