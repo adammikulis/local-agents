@@ -1240,4 +1240,5 @@ func report() -> Dictionary:
 		"rock_grows": (_stamp.grows if _stamp != null else 0), "rock_shrinks": (_stamp.shrinks if _stamp != null else 0),
 	}
 	r.merge(_open_temp_stats())
+	r.merge(_queries.rock_radial_profile())
 	return r

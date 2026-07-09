@@ -78,14 +78,15 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 	if _camera.has_method("set_orbit_target"):
 		_camera.set_orbit_target(_body.center(), _body.radius())
 	if _material.has_method("add_magma_source"):
-		# Geothermal core pin. NOTE: the field's thermal conduction carries this to the SURFACE far too
-		# efficiently (the crust barely insulates) — at the old 1300°C pin the habitable surface baked to
-		# ~110°C mean, well past creatures' 50°C lethal-heat limit, so every land animal died of heatstroke
-		# within seconds of spawning (the real cause of the "ecosystem collapse", not starvation). Pinned to
-		# 150°C so the ambient surface equilibrates ~28-35°C (habitable) while the radial gradient + pressure-
-		# driven emergent volcanoes still function. Proper fix belongs in the field ThermalPass (crust
-		# insulation / stronger surface radiative cooling so a hot core can coexist with a temperate surface).
-		_material.add_magma_source(_body.center(), 150.0, 0.6)
+		# Geothermal core pin — a genuinely HOT magma core (deep mantle temperature) so deep melt + emergent
+		# volcanoes are dramatic. This coexists with a temperate habitable surface because the field ThermalPass
+		# now insulates: heat_sphere3d.glsl conducts through SOLID rock ~6× slower than through open air/water
+		# (per-bond ROCK_CONDUCT vs VOID_CONDUCT), so the core heat rises through the crust SLOWLY (a steep
+		# geothermal gradient near the core, gentle near the surface) while the outermost open cells shed their
+		# heat to space via the solar/radiative pass — the surface equilibrates to the ~15-30°C ambient band,
+		# well under creatures' 50°C lethal-heat limit. (Was pinned to 150°C as an interim fix when the crust
+		# conducted uniformly and a hot core baked the surface to ~110°C, killing the ecosystem.)
+		_material.add_magma_source(_body.center(), 1300.0, 0.6)
 	_spawned_initial = true
 	_hud.set_status("World ready — spawn things, click to inspect, press V for scent.")
 
