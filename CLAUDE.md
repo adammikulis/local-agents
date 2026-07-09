@@ -74,6 +74,16 @@ committed). When removing files:
 - Prefer sub-agents for substantial or parallel work — parallelizable scope, contract-heavy or
   native-path changes, larger refactors — with explicit acceptance criteria. Close stale/finished
   sub-agents to conserve slots.
+- **PRE-WRITE CONTRACTS to keep the pipeline full.** A sub-agent contract is: the goal, the exact
+  files/records to add/change/DELETE, the shared interface it must honor, and a **hard behavioural
+  acceptance gate** (exact run command + pass thresholds; "commit only if it passes, else report the
+  errors"). Whenever you can see the next 1-3 units of work while an agent is mid-flight, DRAFT their
+  contracts *ahead of time* so each launches the instant its predecessor verifies — the queue never
+  stalls waiting on you to think. Write these drafts to the **scratchpad**, NOT the repo, while another
+  agent is running (its `git add -A` commit would otherwise sweep up your untracked draft). Distinguish
+  what can run **concurrently** (different files / a separate worktree → launch in parallel now) from
+  what is **sequential** (shares the same files/interface → stage the contract, launch after). When in
+  doubt about file overlap, stage rather than parallel-launch: two agents editing one file collide.
 - Run/observe with `scripts/agent_harness.sh <command>` for tests, smoke, and live introspection (see
   `GODOT_BEST_PRACTICES.md` → "Headless Harness Invocation" for the canonical command list + markers).
 - For substantial or breaking work, keep `ARCHITECTURE_PLAN.md` current: record the intended change and
