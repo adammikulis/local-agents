@@ -1,5 +1,9 @@
 # Asset Attribution
 
+> This file covers the bundled art + voice assets only. The full third-party attribution (engine, native
+> libraries, AI models) lives in the top-level [`CREDITS.md`](/CREDITS.md); required license texts are in
+> [`THIRD_PARTY_LICENSES.md`](/THIRD_PARTY_LICENSES.md); the project's own authors are in [`AUTHORS`](/AUTHORS).
+
 All bundled 3D models and the streamer voice are CC0 / public-domain-equivalent. Attribution is not
 legally required for CC0, but is provided here as good practice.
 
