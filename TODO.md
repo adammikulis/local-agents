@@ -43,16 +43,15 @@ parallel mode).** Node spine:
   speculative — it's the committed end goal, built minimally + grown).
 
 ## Current state (1-liner)
-`feature/sphere-spike` is MERGE-READY: the cubed-sphere is the **SOLE field substrate** — box grid + box GPU
-driver + all 16 CPU-oracle modules + 32 box `*3d.glsl` kernels DELETED (~53 files, ~7700 lines gone),
-MaterialField3D 1496→~1000 lines. The field is ALIVE + CLEAN: all 6 `sphere_passes/*` dispatch in data-flow
-order over the `*_sphere3d.glsl` kernels; solar terminator + marine cooling + a pinned geothermal core with
-real heat CONDUCTION (temp: min ~10.5 night / max ~21 day open cells, core pinned 1300, all stable no-NaN);
-~285 entities, planet renders (continents/seas/coasts/star-lit), file-size gate passes, ZERO script errors.
-THE original dead-flat bug was a bolt-on gap (terrain never wired into `setup_sphere`) — fixed. LEFT before/
-after merge: fuller readback for the still-defaulting channels (scent/fungus/erosion/snow — actors get safe
-defaults meanwhile); then merge `feature/sphere-spike` → `0.3-dev`. Then Phase C dissolves the disasters.
-B3 (2a water-cycle unify + 2b DEFS reaction engine) design is DONE in `material/PHASE_B3_DESIGN.md`.
+The cubed-sphere is the **SOLE field substrate**, MERGED into `0.3-dev` (`48d2e0b`): box grid + box GPU
+driver + 16 CPU-oracle modules + 32 box kernels DELETED (~53 files, ~7700 lines gone). Field is ALIVE: 6
+`sphere_passes/*` over the `*_sphere3d.glsl` kernels; solar terminator + marine cooling + pinned geothermal
+core with real heat CONDUCTION; **emergent WEATHER now works** — a static field sea (1082 cells) + ambient
+humidity feed the terminator → ~1500 sustained cloud cells (`feature/sphere-followups`, not yet merged).
+~265 entities, ~155fps, planet renders, ZERO errors. Follow-up work now on `feature/sphere-followups`.
+LEFT: (a) RENDER the cloud/fog field as radial SHELLS (data exists, not drawn — clouds hidden in planet mode);
+(b) scent/snow round-trip re-home (creatures get default scent/snow meanwhile); (c) B3 = 2a water-cycle unify
++ 2b DEFS reaction engine (design DONE in `material/PHASE_B3_DESIGN.md`); (d) Phase C dissolve the disasters.
 
 ---
 
