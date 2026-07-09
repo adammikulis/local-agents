@@ -72,15 +72,9 @@ const KIND_SYMBOLS: Dictionary = {
 	"hurricane": "🌀",  # cyclone
 }
 
-# Shown in tooltips so the keyboard shortcut is discoverable (see VoxelWorld._unhandled_input).
-# "⇧" is the shift glyph (U+21E7).
-const KIND_HOTKEYS: Dictionary = {
-	"plant": "1", "tree": "2", "rabbit": "3", "fox": "4",
-	"bird": "5", "vulture": "6", "villager": "7", "fish": "8",
-	"meteor": "⇧1", "volcano": "⇧2", "lightning": "⇧3",
-	"earthquake": "⇧4", "flood": "⇧5", "tornado": "⇧6",
-	"thunderstorm": "⇧7", "hurricane": "⇧8",
-}
+# The per-kind keyboard hint ("1".."8" / "⇧1"..) is derived from the shared LAHotkeyRegistry so the
+# on-screen badge, the tooltip, and the input router never drift — the registry reads THIS file's kind
+# lists, so the palette ordering is the single source that drives the digit assignments.
 
 # Palette / theme colors (cohesive dark theme).
 const COL_BG: Color = Color(0.086, 0.098, 0.129, 0.94)
@@ -98,6 +92,7 @@ var _theme: Theme
 var _emoji_font: FontFile
 var _palette_group: ButtonGroup
 var _kind_buttons: Dictionary = {}       # kind -> Button, so thumbnails can be filled in async
+var _kind_badges: Dictionary = {}        # kind -> Label, the small hotkey-number badge (dimmed when locked)
 
 var _status_panel: PanelContainer
 var _inspector_panel: PanelContainer
@@ -232,6 +227,12 @@ func arm_kind(kind: String) -> void:
 func set_audio_director(director: LocalAgentsAudioDirector) -> void:
 	if _audio_panel != null:
 		_audio_panel.bind(director)
+
+
+## Show/hide the entire HUD overlay (spawn palette + inspector + status bar). Bound to the H hotkey via the
+## shared registry; the 3D world keeps rendering underneath.
+func toggle_visible() -> void:
+	visible = not visible
 
 
 ## Show/hide the audio menu (bound to the HUD button and the KEY_M hotkey).
@@ -385,7 +386,7 @@ func _make_cluster(group: ButtonGroup, caption: String, kinds: PackedStringArray
 ## to the text label if the emoji font failed to load, so a button is never blank.
 func _make_kind_button(group: ButtonGroup, kind: String) -> Button:
 	var label: String = String(KIND_LABELS.get(kind, kind))
-	var hotkey: String = String(KIND_HOTKEYS.get(kind, ""))
+	var hotkey: String = LAHotkeyRegistry.spawn_label(kind)
 	var btn: Button = Button.new()
 	if _emoji_font != null:
 		btn.text = String(KIND_SYMBOLS.get(kind, ""))
@@ -406,7 +407,37 @@ func _make_kind_button(group: ButtonGroup, kind: String) -> Button:
 	# Campaign gating: hide-by-disable the entries the player has not earned yet (sandbox / no progression = all on).
 	btn.disabled = not LAGameProgression.spawn_unlocked(kind)
 	_kind_buttons[kind] = btn
+	_attach_hotkey_badge(btn, kind)
 	return btn
+
+
+## Draw the small hotkey number ("1".."8" / "⇧1"..) in the top-left corner of a palette button so the
+## digit-select shortcut is discoverable at a glance. The badge is a child Label (unaffected by the later
+## emoji->thumbnail icon swap) and is dimmed when the entry is locked. No key -> no badge.
+func _attach_hotkey_badge(btn: Button, kind: String) -> void:
+	var hotkey: String = LAHotkeyRegistry.spawn_label(kind)
+	if hotkey.is_empty():
+		return
+	var badge: Label = Label.new()
+	badge.name = "HotkeyBadge"
+	badge.text = hotkey
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.add_theme_font_size_override("font_size", 10)
+	badge.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	badge.offset_left = 4.0
+	badge.offset_top = 1.0
+	btn.add_child(badge)
+	_kind_badges[kind] = badge
+	_style_hotkey_badge(kind)
+
+
+## Colour a badge for the entry's lock state: bright accent when unlocked, dimmed/greyed when locked.
+func _style_hotkey_badge(kind: String) -> void:
+	var badge: Label = _kind_badges.get(kind, null)
+	if badge == null or not is_instance_valid(badge):
+		return
+	var unlocked: bool = LAGameProgression.spawn_unlocked(kind)
+	badge.add_theme_color_override("font_color", COL_ACCENT if unlocked else Color(COL_TEXT_DIM.r, COL_TEXT_DIM.g, COL_TEXT_DIM.b, 0.35))
 
 
 ## Re-enable each palette entry whose spawn capability is now unlocked (campaign). Wired to the progression's
@@ -416,6 +447,7 @@ func _refresh_palette_locks() -> void:
 		var btn: Button = _kind_buttons[kind]
 		if btn != null and is_instance_valid(btn):
 			btn.disabled = not LAGameProgression.spawn_unlocked(String(kind))
+		_style_hotkey_badge(String(kind))
 
 
 func _build_audio_menu(root: Control) -> void:
