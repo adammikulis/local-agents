@@ -68,10 +68,16 @@ const GROUND_BOTTOM_NIGHT: Color = Color(0.02, 0.02, 0.05)
 
 
 # Build the sky material, WorldEnvironment, sun (with PSSM cascade-blend shadows) and moon, parenting
-# them onto the world. `time_of_day` / `lunar_phase` seed the clocks (command-line overrides).
-func setup(world: Node3D, time_of_day: float, lunar_phase: float) -> void:
+# them onto the world. `time_of_day` / `lunar_phase` seed the clocks (command-line overrides). `render_opts`
+# (from LAVoxelSettingsApplier.render_opts) gates the fill-rate-heavy effects by the quality preset — the
+# DEFAULT drops SSAO/glow/sun-shadows so the frame-rate is playable; HIGH pays for the full look.
+func setup(world: Node3D, time_of_day: float, lunar_phase: float, render_opts: Dictionary = {}) -> void:
 	_time_of_day = time_of_day
 	_lunar_phase = lunar_phase
+	var want_ssao: bool = bool(render_opts.get("ssao", true))
+	var want_glow: bool = bool(render_opts.get("glow", true))
+	var want_shadows: bool = bool(render_opts.get("sun_shadows", true))
+	var want_fog: bool = bool(render_opts.get("fog", true))
 
 	# --- Sun + sky ---
 	# Custom sky shader (stars + phase-shaded moon) replaces ProceduralSkyMaterial; the day
@@ -102,7 +108,7 @@ func setup(world: Node3D, time_of_day: float, lunar_phase: float) -> void:
 	# SSAO tuned for terrain scale: the default 1m radius is invisible on kilometre-wide
 	# hills, so widen it to occlude at valley/gully scale for real depth in creases and
 	# under actors, with a gentle power curve so it reads as soft contact shadow, not grime.
-	e.ssao_enabled = true
+	e.ssao_enabled = want_ssao
 	e.ssao_radius = 3.5
 	e.ssao_intensity = 2.2
 	e.ssao_power = 1.6
@@ -113,7 +119,7 @@ func setup(world: Node3D, time_of_day: float, lunar_phase: float) -> void:
 	# HDR glow/bloom: only genuinely bright (>1.0) pixels bloom — incandescent lava, the
 	# sun's specular glint on water, sunlit snow — so the scene gains punch without a
 	# washed-out haze over everything. High threshold keeps midtone grass/rock crisp.
-	e.glow_enabled = not OS.has_environment("NOGLOW")
+	e.glow_enabled = want_glow and not OS.has_environment("NOGLOW")
 	e.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
 	e.glow_intensity = 0.85
 	e.glow_strength = 1.0
@@ -136,7 +142,7 @@ func setup(world: Node3D, time_of_day: float, lunar_phase: float) -> void:
 	# line. Cheap (non-volumetric). Aerial perspective tints distant geometry toward the
 	# sky so far mountains recede; sky_affect stays low so the sky itself isn't washed out.
 	# fog_light_color is re-tinted to the horizon color every frame in _update_day_night.
-	e.fog_enabled = not OS.has_environment("NOFOG")
+	e.fog_enabled = want_fog and not OS.has_environment("NOFOG")
 	e.fog_mode = Environment.FOG_MODE_EXPONENTIAL
 	e.fog_light_color = SKY_HORIZON_DAY
 	e.fog_light_energy = 1.0
@@ -155,7 +161,7 @@ func setup(world: Node3D, time_of_day: float, lunar_phase: float) -> void:
 	var sun: DirectionalLight3D = DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-52.0, -47.0, 0.0)
 	sun.light_energy = SUN_ENERGY_NOON
-	sun.shadow_enabled = true
+	sun.shadow_enabled = want_shadows
 	sun.directional_shadow_max_distance = 400.0
 	# Smoother, softer sun shadows: blend the PSSM cascades so their seams don't pop as the
 	# camera pans, soften the edges, and pull the split boundaries closer so near geometry

@@ -26,13 +26,14 @@ var _sky: Node = null       # LAVoxelSkyCycle — owns ALL sky/sun/moon/environm
 
 ## Build the sky cycle + the star as children of `world` (so the star's light/gravity live in world space,
 ## exactly as the inline composition did). The cmdline-seeded clocks are threaded into the sky here.
-func setup(world: Node, time_of_day: float, lunar_phase: float) -> void:
+func setup(world: Node, time_of_day: float, lunar_phase: float, render_opts: Dictionary = {}) -> void:
 	# --- Sun + sky + day/night: owned by LAVoxelSkyCycle. It builds the sky shader material, the
 	# WorldEnvironment (tonemap/SSAO/glow/fog/ambient), the sun (PSSM cascade-blend shadows) and the moon.
+	# render_opts (quality preset) gates the heavy fill-rate effects — see LAVoxelSettingsApplier.render_opts.
 	_sky = SkyCycleScript.new()
 	_sky.name = "SkyCycle"
 	world.add_child(_sky)
-	_sky.setup(world, time_of_day, lunar_phase)
+	_sky.setup(world, time_of_day, lunar_phase, render_opts)
 	# --- The star (positioned light + gravity + solar driver) ---
 	_star = StarScript.new()
 	_star.name = "Star"

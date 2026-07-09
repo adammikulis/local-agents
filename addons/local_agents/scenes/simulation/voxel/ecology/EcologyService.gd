@@ -26,6 +26,7 @@ var actors_root: Node3D = null
 var _tracks = null                       # LATrackSystem (observer; footprints)
 var _material = null                      # LAMaterialField — the ONE substrate (water/heat/materials)
 var _cognition_sched = null              # LACognitionScheduler (shared slow-brain budget/queue)
+var _veg_renderer = null                 # LAVegetationRenderer — plants/trees render through its batched MultiMesh
 # Extracted single-owner modules this thin hub delegates to (it stays a facade + step-orchestration):
 var _stimulus: LAEcologyStimulus = null  # stimulus/broadcast bus (disturb/seismic/blast/scare/call/wind)
 var _spawner: LAEcologySpawner = null    # spawn/population placement (spawn, initial seeding, forests, nests)
@@ -140,6 +141,12 @@ func set_material_field(m) -> void:
 	# topple/reseed/scare when it consumes a burning actor.
 	if _material != null and _material.has_method("set_ecology"):
 		_material.set_ecology(self)
+
+
+## Wire the shared GPU-instanced vegetation renderer (set by VoxelWorld). Plants/trees register with it at
+## spawn instead of owning a MeshInstance, so all vegetation of a type draws in one batched MultiMesh.
+func set_vegetation_renderer(r) -> void:
+	_veg_renderer = r
 
 
 func material_field():
@@ -304,6 +311,8 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 		var plant: PlantScript = PlantScript.new()
 		actors_root.add_child(plant)
 		plant.global_position = placed
+		if _veg_renderer != null and plant.has_method("set_vegetation_renderer"):
+			plant.set_vegetation_renderer(_veg_renderer)   # render through the batched MultiMesh, not a model child
 		plant.setup(terrain, _plant_config())
 		if plant.has_method("set_material_field"):
 			plant.set_material_field(_material)          # so it can photosynthesize (fix CO₂ → O₂) into the field
@@ -318,6 +327,8 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 		var tree: TreeScript = TreeScript.new()
 		actors_root.add_child(tree)
 		tree.global_position = placed
+		if _veg_renderer != null and tree.has_method("set_vegetation_renderer"):
+			tree.set_vegetation_renderer(_veg_renderer)    # render through the batched MultiMesh, not a model child
 		tree.setup(terrain, _tree_config())
 		node = tree
 	else:

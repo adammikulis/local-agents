@@ -10,6 +10,7 @@ class_name LAVoxelWorld
 
 const CameraRigScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/VoxelCameraRig.gd")
 const EcologyServiceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ecology/EcologyService.gd")
+const VegetationRendererScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/mesh/VegetationRenderer.gd")
 const HudScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/SpawnPaletteHud.gd")
 const AudioDirectorScript: GDScript = preload("res://addons/local_agents/audio/AudioDirector.gd")
 const InteractionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelInteraction.gd")
@@ -49,6 +50,8 @@ var _body: Node3D = null    # LAPlanetBody — the one planet (owns terrain + ac
 var _terrain                # LAVoxelTerrainService (from _body.terrain())
 var _camera: Camera3D
 var _ecology: Node          # LAEcologyService
+var _veg_renderer: Node3D    # LAVegetationRenderer (batched vegetation draws)
+var _render_opts: Dictionary = {}   # quality-preset render flags (ssao/glow/sun_shadows/fog/ocean_transparent)
 var _hud: CanvasLayer       # LASpawnPaletteHud
 var _game_hud: CanvasLayer = null  # LAGameHud — gamified objective/summary overlay (H toggles it)
 var _actors_root: Node3D
@@ -125,7 +128,10 @@ func _ready() -> void:
 	_sky_ctrl = SkyControllerScript.new()
 	_sky_ctrl.name = "SkyController"
 	add_child(_sky_ctrl)
-	_sky_ctrl.setup(self, _input.time_of_day_seed(), _input.lunar_seed())
+	# Quality-preset render flags gate the fill-rate-heavy effects (SSAO/glow/sun-shadows/fog + ocean opacity)
+	# so the DEFAULT preset is playable and only HIGH pays for the full look — see LAVoxelSettingsApplier.
+	_render_opts = _settings_applier.render_opts()
+	_sky_ctrl.setup(self, _input.time_of_day_seed(), _input.lunar_seed(), _render_opts)
 
 	# --- The planet body: one world in a LOCAL frame; owns terrain + actors so they ride its transform. ---
 	_body = PlanetBodyScript.new()
@@ -154,6 +160,12 @@ func _ready() -> void:
 	_ecology.name = "Ecology"
 	add_child(_ecology)
 	_ecology.setup(_terrain, _actors_root)
+	# Shared GPU-instanced vegetation renderer: plants/trees draw through its batched MultiMesh (one draw per
+	# type) instead of hundreds of per-node MeshInstances. Lives under actors_root so it rides the planet frame.
+	_veg_renderer = VegetationRendererScript.new()
+	_veg_renderer.name = "VegetationRenderer"
+	_actors_root.add_child(_veg_renderer)
+	_ecology.set_vegetation_renderer(_veg_renderer)
 	# Let the camera query the seismic field so ground disturbances shake it emergently.
 	if _camera != null and _camera.has_method("set_ecology"):
 		_camera.set_ecology(_ecology)
@@ -234,7 +246,7 @@ func _ready() -> void:
 	_ocean = OceanPlaneScript.new()
 	add_child(_ocean)
 	if _terrain.is_planet():
-		_ocean.setup_sphere(_body.center(), _body.sea_radius())
+		_ocean.setup_sphere(_body.center(), _body.sea_radius(), bool(_render_opts.get("ocean_transparent", true)))
 	else:
 		_ocean.setup(_terrain.sea_level(), _camera)
 

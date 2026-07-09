@@ -53,6 +53,14 @@ var _seed_ready: bool = false
 var _mesh: MeshInstance3D = null
 var _base_height: float = 1.2
 
+# GPU-instanced rendering: instead of owning a MeshInstance/model child, the plant registers with the shared
+# LAVegetationRenderer and pushes its transform WHILE it is growing. Once mature it stops (settled → zero
+# per-frame render cost). Falls back to a procedural mesh child if no renderer is wired (headless tests).
+const RENDER_TYPE: String = "plant"
+var _veg = null                          # LAVegetationRenderer (injected before setup)
+var _veg_slot: int = -1
+var _render_settled: bool = false
+
 
 func setup(_terrain, _config: Dictionary) -> void:
 	terrain = _terrain
@@ -72,6 +80,7 @@ func setup(_terrain, _config: Dictionary) -> void:
 	add_to_group(GROUP_PLANT)
 	_orient_to_ground()
 	_apply_growth()
+	_sync_render()   # push the initial (freshly-grown) pose into the instanced batch
 
 
 ## Stand radially and sit on the solid surface: snap onto the surface along our radial ray and align
@@ -91,16 +100,27 @@ func _orient_to_ground() -> void:
 	global_transform.basis = Basis(right, up, fwd)
 
 
+# Injected by LAEcologyService before setup(): the shared GPU-instanced vegetation renderer. When present
+# the plant renders through a batched MultiMesh (one draw for all plants) instead of owning a model child.
+func set_vegetation_renderer(r) -> void:
+	_veg = r
+
+
 func _build_body() -> void:
+	# Prefer the shared instanced renderer (one batched draw for every plant). Register a slot; the model is
+	# drawn by the MultiMesh, so no per-plant MeshInstance/model child is built.
+	if _veg != null:
+		_veg_slot = _veg.register(RENDER_TYPE)
 	# Prefer the Kenney bush model (base-anchored so it grows up from the ground; the node's
 	# growth scale in _apply_growth scales the model with it). Fall back to the stem + foliage.
-	var built_model: bool = false
-	var def: Dictionary = LAActorModels.get_def("plant")
-	if not String(def.get("path", "")).is_empty():
-		var model: Node3D = LAModelVisual.build(def["path"], _base_height, "base", float(def.get("yaw", 0.0)), LAActorModels.tint("plant"))
-		if model != null:
-			add_child(model)
-			built_model = true
+	var built_model: bool = _veg_slot >= 0
+	if not built_model:
+		var def: Dictionary = LAActorModels.get_def("plant")
+		if not String(def.get("path", "")).is_empty():
+			var model: Node3D = LAModelVisual.build(def["path"], _base_height, "base", float(def.get("yaw", 0.0)), LAActorModels.tint("plant"))
+			if model != null:
+				add_child(model)
+				built_model = true
 	if not built_model:
 		var mesh: MeshInstance3D = MeshInstance3D.new()
 		var cone: CylinderMesh = CylinderMesh.new()             # tapered stem
@@ -148,6 +168,11 @@ func _physics_process(delta: float) -> void:
 	var growth_boost: float = _biomass_boost()
 	age += delta * (1.0 + growth_boost)
 	_apply_growth()
+	# Push the growing pose into the instanced batch; stop once mature (settled → no per-frame render cost).
+	if not _render_settled:
+		_sync_render()
+		if _grown_fraction() >= 1.0:
+			_render_settled = true
 	# Regrow the edible reserve (photosynthesis) toward this plant's size-scaled capacity, faster on
 	# fertile (biomass-rich) ground — the renewable-pasture recovery that makes grazing sustainable.
 	var cap: float = FOOD_CAPACITY * _grown_fraction()
@@ -178,6 +203,21 @@ func _grown_fraction() -> float:
 func _apply_growth() -> void:
 	var f: float = _grown_fraction()
 	scale = Vector3.ONE * (f * max_scale)
+
+
+# Write our current pose into the shared instanced batch. The prototype mesh is height-normalized to 1, so
+# we scale by the plant's base height; our node transform already carries orientation + growth scale.
+func _sync_render() -> void:
+	if _veg_slot < 0 or _veg == null:
+		return
+	var b: Basis = transform.basis.scaled(Vector3.ONE * _base_height)
+	_veg.set_xform(RENDER_TYPE, _veg_slot, Transform3D(b, transform.origin))
+
+
+func _exit_tree() -> void:
+	if _veg_slot >= 0 and _veg != null:
+		_veg.release(RENDER_TYPE, _veg_slot)
+		_veg_slot = -1
 
 
 # --- seeding API used by LAEcologyService ---
