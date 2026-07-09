@@ -188,8 +188,9 @@ func set_raining(v: bool) -> void:
 ## pipelines / shaders / owned scratch first (borrowed `bufs` entries are freed HERE, not by the pass), so the
 ## device frees with 0 leaked RIDs. NOTE: this clean teardown does NOT prevent the separate `rc=134`
 ## SIGABRT that MoltenVK throws in the `NSApplication terminate:` → `recursive_mutex` observer at process exit
-## — that fires after dispose() returns, with no GDScript frames, and is engine-internal (see
-## GODOT_BEST_PRACTICES.md → Error Log, 2026-07-09). Do not add a teardown hack to mask it.
+## — that fires after dispose() returns, with no GDScript frames. That crash is now avoided at the QUIT
+## path (not here): `LAAppExit` hard-exits via `LAProcess.exit_now` before AppKit terminate runs (see
+## GODOT_BEST_PRACTICES.md → Error Log, 2026-07-09). This dispose() stays the correct RID hygiene.
 func dispose() -> void:
 	if _rd == null:
 		return

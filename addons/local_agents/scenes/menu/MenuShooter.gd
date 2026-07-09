@@ -34,4 +34,4 @@ func _process(_delta: float) -> void:
 		var img: Image = viewport.get_texture().get_image()
 		var err: int = img.save_png(_shoot_path)
 		print("MENU_SHOT_SAVED=%s ok=%s" % [_shoot_path, str(err == OK)])
-	get_tree().quit(0)
+	LAAppExit.request(self, 0)

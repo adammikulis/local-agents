@@ -166,4 +166,4 @@ func set_time_scale(n: int) -> void:
 
 
 func _on_quit() -> void:
-	get_tree().quit(0)
+	LAAppExit.request(self, 0)

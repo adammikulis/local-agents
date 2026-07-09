@@ -541,8 +541,8 @@ func _seed_sphere_sea() -> void:
 			_static[c] = 1
 
 ## Release the GPU driver's local RenderingDevice while the tree is still up — freeing every RID cleanly so
-## the device reports 0 leaked RIDs. (This does NOT prevent the engine-internal `rc=134` MoltenVK
-## `recursive_mutex` abort at NSApplication-terminate — see GODOT_BEST_PRACTICES.md → Error Log, 2026-07-09.)
+## the device reports 0 leaked RIDs. (The `rc=134` MoltenVK `recursive_mutex` abort at NSApplication-terminate
+## is separately avoided by the clean-quit path — `LAAppExit`/`LAProcess.exit_now`; see GODOT_BEST_PRACTICES.md → Error Log, 2026-07-09.)
 ## Covers both the box and sphere drivers.
 func _exit_tree() -> void:
 	if _gpu != null and _gpu.has_method("dispose"):

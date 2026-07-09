@@ -82,4 +82,4 @@ static func emit_smoke_summary(w) -> void:
 	LASimReport.gauge("prims_M", Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1.0e6)
 	LASimReport.gauge("video_mem_MB", Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1.048576e6)
 	LASimReport.emit()
-	w.get_tree().quit(0)
+	LAAppExit.request(w, 0)

@@ -162,7 +162,7 @@ func _on_models() -> void:
 
 
 func _on_quit() -> void:
-	get_tree().quit(0)
+	LAAppExit.request(self, 0)
 
 
 func _change_scene(path: String) -> void:

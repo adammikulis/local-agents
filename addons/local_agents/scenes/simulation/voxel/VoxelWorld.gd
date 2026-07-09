@@ -366,7 +366,7 @@ func _process(delta: float) -> void:
 		var avg_gpu: float = _gpu_ms_accum / maxf(1.0, float(_fps_count))
 		print("FPS_AVG=%.1f GPU_MS=%.3f frames=%d entities=%d" % [avg_fps, avg_gpu, _fps_count, _actors_root.get_child_count()])
 		capture_screenshot(_input.shoot_path())
-		get_tree().quit(0)
+		LAAppExit.request(self, 0)
 
 	if _input.run_frames() > 0 and _frame % 180 == 0 and _frame < _input.run_frames():
 		LAVoxelHarness.emit_population_trace(self, _frame)   # trajectory samples through a long run
