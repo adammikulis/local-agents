@@ -92,6 +92,14 @@ committed). When removing files:
 
 ## Validation defaults
 
+- **ITERATE AS FAST AS POSSIBLE — always.** The dev loop's speed is a first-class concern. Prefer SHORT
+  verification runs while iterating (`--run-frames=60–120`) and reserve long runs + `--shoot` screenshots
+  for the final gate (screenshots + long demos are the slow path). For any SLOW-EMERGENT phenomenon
+  (geology/island-building, forest succession, climate drift, erosion, evolution) add/use a **fast-forward
+  time-scale** (run N sim steps per render frame) so geological time compresses to seconds — never wait
+  real-time for something you can accelerate. Parallelize (fan out subagents), pick the cheapest run that
+  proves the point, and cut anything that makes the loop slower than it needs to be.
+
 - "Does it work" checks require **both** a non-headless launched-window run **and** headless harness
   suites; run them in whichever order is convenient (a non-headless launch first is a good habit for
   surfacing parser/runtime scene errors early).
@@ -236,6 +244,16 @@ committed). When removing files:
 
 ## File size & refactor discipline
 
+- **PARALLELIZABILITY is a first-class refactor driver — not just line count.** Line limits are a floor;
+  the deeper question is *"can this area be owned by a separate agent without colliding?"* A file that
+  multiple concurrent workstreams must all edit is a **serialization bottleneck** — split it into
+  independently-ownable units **even when it is comfortably under the line limit**. Always think this way:
+  before fanning out work, look at which files each unit touches; if several units route through ONE file
+  (classically the composition root / a god-object controller / a shared registry), split that file FIRST
+  so the fan-out doesn't collapse to sequential. Organize the codebase so distinct concerns live in
+  distinct files (one owner each) — that is what turns a batch of work into parallel subagents instead of a
+  queue. This composes with the pre-write-contracts rule (Execution model) and the "independently-ownable
+  file" guidance below: structure for concurrency, then stage a contract per file.
 - `scripts/check_max_file_length.sh` enforces TWO thresholds on first-party source/config files:
   a **soft smell limit of `SOFT_FILE_LINES=1300` (WARNING)** and a **hard limit of `MAX_FILE_LINES=1500`
   (FAILS — non-zero exit / CI gate)**. Over 1300 = split it soon; over 1500 = the build fails until it's
