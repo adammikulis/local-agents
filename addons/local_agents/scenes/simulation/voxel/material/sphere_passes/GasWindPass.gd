@@ -11,20 +11,21 @@ extends RefCounted
 ##   wind_step_sphere3d      — PASS B: per-cell velocity update down the pressure gradient (+buoy/Coriolis/drag).
 ##   o2_transport_sphere3d   — symmetric O2 diffusion over the neighbour table (advection dropped on the sphere).
 ##   co2_transport_sphere3d  — CO2 diffusion + wind advection + downward settle over the neighbour table.
-##   gas_sky_sphere3d        — sky exchange/vent, in place on the O2/CO2 TRANSPORT OUTPUT (back buffers).
 ##   charge_accum_sphere3d   — per-cell charge separation from updraft x supercooled cloud, in place on charge.
+## (The O₂ sky-refill + CO₂ sky-vent that gas_sky_sphere3d did here dissolved into the generic ReactionsPass —
+##  they are now two Reaction records, applied one pass later on the same o2/co2 transport-output buffers.)
 ##
 ## PLUGIN CONTRACT (bufs dictionary):
 ##   PAIR channels (ping-pong [rid_live, rid_back]) used here: temp, o2, co2, cloud.
 ##   SINGLE channels (rid) used here: solid, pressure, vel_x, vel_y, vel_z, charge, nbr.
 ## For a dispatch at ping-pong parity p: PAIR reads live = pair[p], PAIR transport writes back = pair[1 - p].
-## gas_sky then edits the SAME back buffers (the transport output) in place; charge edits the single charge rid.
+## ReactionsPass (one pass later) edits those same o2/co2 back buffers for the sky exchange/vent; charge edits
+## the single charge rid here.
 
 const WIND_PRESSURE_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/wind_pressure_sphere3d.glsl"
 const WIND_STEP_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/wind_step_sphere3d.glsl"
 const O2_TRANSPORT_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/o2_transport_sphere3d.glsl"
 const CO2_TRANSPORT_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/co2_transport_sphere3d.glsl"
-const GAS_SKY_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/gas_sky_sphere3d.glsl"
 const CHARGE_ACCUM_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/charge_accum_sphere3d.glsl"
 
 # --- default constants used when a scalar is not supplied in ctx (NOTE any default picked) -------------------
@@ -44,8 +45,6 @@ var _o2_shader: RID = RID()
 var _o2_pipe: RID = RID()
 var _co2_shader: RID = RID()
 var _co2_pipe: RID = RID()
-var _sky_shader: RID = RID()
-var _sky_pipe: RID = RID()
 var _ch_shader: RID = RID()
 var _ch_pipe: RID = RID()
 
@@ -54,7 +53,6 @@ var _wp_set: Array = [RID(), RID()]
 var _ws_set: Array = [RID(), RID()]
 var _o2_set: Array = [RID(), RID()]
 var _co2_set: Array = [RID(), RID()]
-var _sky_set: Array = [RID(), RID()]
 var _ch_set: Array = [RID(), RID()]
 
 
@@ -73,8 +71,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	_o2_pipe = _rd.compute_pipeline_create(_o2_shader)
 	_co2_shader = _compile(CO2_TRANSPORT_PATH)
 	_co2_pipe = _rd.compute_pipeline_create(_co2_shader)
-	_sky_shader = _compile(GAS_SKY_PATH)
-	_sky_pipe = _rd.compute_pipeline_create(_sky_shader)
 	_ch_shader = _compile(CHARGE_ACCUM_PATH)
 	_ch_pipe = _rd.compute_pipeline_create(_ch_shader)
 
@@ -103,8 +99,6 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		_o2_set[p] = _uset(_o2_shader, [[0, o2[p]], [1, o2[back]], [2, solid], [15, nbr]])
 		# co2_transport: 0=CO2In(live), 1=CO2Out(back), 2=Solid, 3=VelX, 4=VelY, 5=VelZ, 15=Neigh
 		_co2_set[p] = _uset(_co2_shader, [[0, co2[p]], [1, co2[back]], [2, solid], [3, vx], [4, vy], [5, vz], [15, nbr]])
-		# gas_sky: 0=O2(back, in place), 1=CO2(back, in place), 2=Solid, 15=Neigh
-		_sky_set[p] = _uset(_sky_shader, [[0, o2[back]], [1, co2[back]], [2, solid], [15, nbr]])
 		# charge_accum: 0=Charge(single, in place), 1=TempIn(live), 2=CloudIn(live), 3=VelY, 4=Solid
 		_ch_set[p] = _uset(_ch_shader, [[0, charge], [1, temp[p]], [2, cloud[p]], [3, vy], [4, solid]])
 
@@ -142,20 +136,15 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 
 	# 4) co2_transport: co2[p] -> co2[1-p] (diffusion + wind advection + settle). Independent of o2 above.
+	# (The sky exchange/vent that used to edit the o2/co2 transport output in place here now runs as Reaction
+	#  records in ReactionsPass, one pass later on those same back buffers — see the header note.)
 	rd.compute_list_bind_compute_pipeline(cl, _co2_pipe)
 	rd.compute_list_bind_uniform_set(cl, _co2_set[p], 0)
 	rd.compute_list_set_push_constant(cl, pc_cc, pc_cc.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
-	rd.compute_list_add_barrier(cl)   # gas_sky reads the o2/co2 transport OUTPUT (back buffers)
 
-	# 5) gas_sky: sky exchange/vent in place on the transport output (o2[1-p], co2[1-p]).
-	rd.compute_list_bind_compute_pipeline(cl, _sky_pipe)
-	rd.compute_list_bind_uniform_set(cl, _sky_set[p], 0)
-	rd.compute_list_set_push_constant(cl, pc_cc, pc_cc.size())
-	rd.compute_list_dispatch(cl, groups, 1, 1)
-
-	# 6) charge_accum: per-cell charge separation in place (reads fresh vel_y + live cloud/temp). Touches only
-	# the charge buffer, so it does NOT conflict with gas_sky above — no barrier needed between them.
+	# 5) charge_accum: per-cell charge separation in place (reads fresh vel_y + live cloud/temp). Touches only
+	# the charge buffer, so it does NOT conflict with the o2/co2 transport above — no barrier needed between them.
 	rd.compute_list_bind_compute_pipeline(cl, _ch_pipe)
 	rd.compute_list_bind_uniform_set(cl, _ch_set[p], 0)
 	rd.compute_list_set_push_constant(cl, pc_ch, pc_ch.size())
@@ -179,7 +168,7 @@ func _uset(shader: RID, entries: Array) -> RID:
 		uniforms.append(u)
 	return _rd.uniform_set_create(uniforms, shader, 0)
 
-# Params { uint cell_count; uint pad0; uint pad1; uint pad2; } — o2/co2/gas_sky/wind_pressure.
+# Params { uint cell_count; uint pad0; uint pad1; uint pad2; } — o2/co2 transport + wind_pressure.
 func _pc_cellcount(cc: int) -> PackedByteArray:
 	return PackedInt32Array([cc, 0, 0, 0]).to_byte_array()
 

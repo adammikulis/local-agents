@@ -966,10 +966,30 @@ func is_submerged_at(x: float, y: float, z: float) -> bool:
 		return false
 	var i: int = _idx(ix, iy, iz)
 	return _solid[i] == 0 and _water[i] >= MAX_MASS * 0.5
+# Open-cell O₂ min / mean over the GPU readback (_o2). Proves the sky-refill + transport keep the open air
+# oxygenated and expose sealed-cavity draw-down. Falls back to ambient when no field is resident.
 func o2_min_open() -> float:
-	return O2_AMBIENT
+	if _o2.size() != _cell_count or _cell_count <= 0:
+		return O2_AMBIENT
+	var mn: float = 1.0e20
+	var n: int = 0
+	for c in _cell_count:
+		if _solid[c] != 0 or _water[c] >= MAX_MASS * 0.5:
+			continue
+		mn = minf(mn, _o2[c])
+		n += 1
+	return mn if n > 0 else O2_AMBIENT
 func o2_avg() -> float:
-	return O2_AMBIENT
+	if _o2.size() != _cell_count or _cell_count <= 0:
+		return O2_AMBIENT
+	var sum: float = 0.0
+	var n: int = 0
+	for c in _cell_count:
+		if _solid[c] != 0 or _water[c] >= MAX_MASS * 0.5:
+			continue
+		sum += _o2[c]
+		n += 1
+	return sum / float(n) if n > 0 else O2_AMBIENT
 # Emergent CARBON DIOXIDE (second gas channel): CO₂ level at a point + build-up diagnostics.
 func co2_at(x: float, y: float, z: float) -> float:
 	if _sphere != null:
@@ -977,9 +997,24 @@ func co2_at(x: float, y: float, z: float) -> float:
 		return _co2[c] if c >= 0 else 0.0
 	return 0.0
 func co2_peak() -> float:
-	return 0.0
+	if _co2.size() != _cell_count or _cell_count <= 0:
+		return 0.0
+	var mx: float = 0.0
+	for c in _cell_count:
+		if _solid[c] == 0:
+			mx = maxf(mx, _co2[c])
+	return mx
 func co2_avg() -> float:
-	return 0.0
+	if _co2.size() != _cell_count or _cell_count <= 0:
+		return 0.0
+	var sum: float = 0.0
+	var n: int = 0
+	for c in _cell_count:
+		if _solid[c] != 0:
+			continue
+		sum += _co2[c]
+		n += 1
+	return sum / float(n) if n > 0 else 0.0
 # Emergent DECOMPOSER loop (LAMaterialFungus3D): dead matter (detritus) → fungus → CO₂ + soil fertility.
 ## Deposit dead decomposable matter at the surface cell under a world point (a rotting carcass, wildfire
 ## ash). Fungus grows on it + rots it back into the carbon/nutrient loop. Mirrors photosynthesize()'s lookup.

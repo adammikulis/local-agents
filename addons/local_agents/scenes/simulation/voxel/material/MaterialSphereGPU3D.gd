@@ -15,7 +15,9 @@ extends RefCounted
 ## each pass see prior passes' GPU writes). Order below encodes the hard dependencies:
 ##   WaterSlumpLava (water/lava/sediment→back; carry-heat into live temp) → Thermal (reads water/lava/temp,
 ##   writes final temp/lava→back) → GasWind (o2/co2→back, velocities) → Atmosphere (reads temp/water back +
-##   velocities; vapor/cloud/fog→back, rain into water back) → FireDust (reads temp/water back) → EcoSurface.
+##   velocities; airwater→back, rain into water back) → Reactions (generic DEFS reaction engine: reads settled
+##   temp/water/o2/co2/airwater back + fungus live; folds gas sky-exchange/vent + fungus decompose as records)
+##   → FireDust (reads temp/water back) → EcoSurface.
 ## Remaining cross-pass clashes (o2/co2/fire/fungus in-place-on-live reads, snow meltwater into live water) are
 ## one-step coupling-fidelity lags, NOT crashes — acceptable under perf-over-parity; tighten later if needed.
 
@@ -37,6 +39,7 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/ThermalPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/GasWindPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/AtmospherePass.gd",
+	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/ReactionsPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/FireDustPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/EcoSurfacePass.gd"]
 
