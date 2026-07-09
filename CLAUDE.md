@@ -254,6 +254,16 @@ committed). When removing files:
   distinct files (one owner each) — that is what turns a batch of work into parallel subagents instead of a
   queue. This composes with the pre-write-contracts rule (Execution model) and the "independently-ownable
   file" guidance below: structure for concurrency, then stage a contract per file.
+  - **The pre-fan-out split is a serialized Phase 0, and it must be seam-directed — not a speculative
+    god-object teardown.** You cannot parallelize a refactor of the file everything shares, so do it FIRST,
+    by one owner. Start with a cheap **map pass** (a read-only Explore agent) that produces a *collision
+    map*: for each planned unit, which shared files it must edit. Then extract **only the coupling seams the
+    imminent fan-out actually needs** into new owner-files — the stimulus/broadcast bus, the field-force
+    response, the per-phenomenon module — and leave the rest of the god-object alone until something needs
+    it (churning code no fan-out will touch is over-engineering; see the Simplicity/Anti-overengineering
+    mandates). Worked example: before dissolving the disaster actors, extract `EcologyService`'s broadcast
+    seam and `Creature`'s field-force seam into their own modules so each disaster agent owns a new module
+    and never re-touches the hub.
 - `scripts/check_max_file_length.sh` enforces TWO thresholds on first-party source/config files:
   a **soft smell limit of `SOFT_FILE_LINES=1300` (WARNING)** and a **hard limit of `MAX_FILE_LINES=1500`
   (FAILS — non-zero exit / CI gate)**. Over 1300 = split it soon; over 1500 = the build fails until it's
