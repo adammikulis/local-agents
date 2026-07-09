@@ -6,3 +6,41 @@ compatibility_minimum="4.3"
 macos.universal="res://addons/local_agents/gdextensions/localagents/bin/localagents.macos.dylib"
 linux.x86_64="res://addons/local_agents/gdextensions/localagents/bin/localagents.linux.so"
 windows.x86_64="res://addons/local_agents/gdextensions/localagents/bin/localagents.windows.dll"
+
+; Runtime dependency libraries copied next to the extension binary on export.
+; The extension links these via @loader_path/$ORIGIN so they must sit in the same
+; directory as the library at runtime (Frameworks/ in a macOS .app, next to the
+; executable on Windows/Linux). Godot copies each listed file there when exporting;
+; it is only read for the platform being exported, and it warns if a listed file is
+; missing (harmless at dev time — the files already live in bin/).
+;
+; macOS list is verified against the produced bin/. Windows/Linux names follow the
+; llama.cpp/ggml build outputs collected by scripts/build_extension.sh; reconcile
+; them with the actual CI artifact contents (localagents-<platform>-bin) if a name
+; differs — Godot names the missing file in its export error. See docs/EXPORT.md.
+[dependencies]
+macos.universal={
+"res://addons/local_agents/gdextensions/localagents/bin/libllama.0.dylib": "",
+"res://addons/local_agents/gdextensions/localagents/bin/libmtmd.0.dylib": "",
+"res://addons/local_agents/gdextensions/localagents/bin/libggml.0.dylib": "",
+"res://addons/local_agents/gdextensions/localagents/bin/libggml-base.0.dylib": "",
+"res://addons/local_agents/gdextensions/localagents/bin/libggml-cpu.0.dylib": "",
+"res://addons/local_agents/gdextensions/localagents/bin/libggml-blas.0.dylib": "",
+"res://addons/local_agents/gdextensions/localagents/bin/libggml-metal.0.dylib": ""
+}
+linux.x86_64={
+"res://addons/local_agents/gdextensions/localagents/bin/libllama.so": "",
+"res://addons/local_agents/gdextensions/localagents/bin/libmtmd.so": "",
+"res://addons/local_agents/gdextensions/localagents/bin/libggml.so": "",
+"res://addons/local_agents/gdextensions/localagents/bin/libggml-base.so": "",
+"res://addons/local_agents/gdextensions/localagents/bin/libggml-cpu.so": "",
+"res://addons/local_agents/gdextensions/localagents/bin/libggml-blas.so": ""
+}
+windows.x86_64={
+"res://addons/local_agents/gdextensions/localagents/bin/llama.dll": "",
+"res://addons/local_agents/gdextensions/localagents/bin/mtmd.dll": "",
+"res://addons/local_agents/gdextensions/localagents/bin/ggml.dll": "",
+"res://addons/local_agents/gdextensions/localagents/bin/ggml-base.dll": "",
+"res://addons/local_agents/gdextensions/localagents/bin/ggml-cpu.dll": "",
+"res://addons/local_agents/gdextensions/localagents/bin/ggml-blas.dll": ""
+}
