@@ -9,10 +9,10 @@ func _ready() -> void:
         _output_label.text = "GraphExample: assign a LocalAgentsGraph resource."
         return
     var graph: LocalAgentsGraph = GraphResource
-    var food_node: Dictionary = _ensure_node(graph, "Food", {"nutrition": 5})
-    var poison_node: Dictionary = _ensure_node(graph, "Poison", {"toxicity": 10})
-    var apple_node: Dictionary = _ensure_node(graph, "Apple", {"type": "fruit"})
-    var berry_node: Dictionary = _ensure_node(graph, "Oozing Berry", {"type": "berry"})
+    var food_node: LocalAgentsGraphNode = _ensure_node(graph, "Food", {"nutrition": 5})
+    var poison_node: LocalAgentsGraphNode = _ensure_node(graph, "Poison", {"toxicity": 10})
+    var apple_node: LocalAgentsGraphNode = _ensure_node(graph, "Apple", {"type": "fruit"})
+    var berry_node: LocalAgentsGraphNode = _ensure_node(graph, "Oozing Berry", {"type": "berry"})
     _ensure_edge(graph, apple_node.id, food_node.id, "heals")
     _ensure_edge(graph, berry_node.id, poison_node.id, "hurts")
     _render_summary(graph)
@@ -33,7 +33,7 @@ func _render_summary(graph: LocalAgentsGraph) -> void:
         lines.append("- %s: %s -> %s (%s)" % [edge.id, edge.source_id, edge.target_id, edge.name])
     _output_label.text = "\n".join(lines)
 
-func _ensure_node(graph: LocalAgentsGraph, name: String, data: Dictionary):
+func _ensure_node(graph: LocalAgentsGraph, name: String, data: Dictionary) -> LocalAgentsGraphNode:
     for existing in graph.nodes:
         if existing.name == name:
             return existing

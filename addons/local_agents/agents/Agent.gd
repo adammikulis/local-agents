@@ -83,6 +83,16 @@ func configure(model_params = null, inference_params = null) -> void:
 func submit_user_message(text: String) -> void:
     history.append({"role": "user", "content": text})
 
+# Re-emit the native AgentNode signals on this wrapper so scenes can listen to
+# LocalAgentsAgent directly (message_emitted / action_requested). These are the
+# handlers connected in _ready(); without them enqueue_action would raise a
+# "nonexistent function" error and the wrapper signals would never fire.
+func _on_agent_message(role, content) -> void:
+    emit_signal("message_emitted", role, content)
+
+func _on_agent_action(action, params) -> void:
+    emit_signal("action_requested", action, params)
+
 func think(prompt: String, extra_opts: Dictionary = {}) -> Dictionary:
     if not _ensure_agent_node():
         return {"ok": false, "error": "agent_unavailable"}
