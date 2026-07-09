@@ -43,15 +43,29 @@ parallel mode).** Node spine:
   speculative — it's the committed end goal, built minimally + grown).
 
 ## Current state (1-liner)
-The cubed-sphere is the **SOLE field substrate**, MERGED into `0.3-dev` (`48d2e0b`): box grid + box GPU
-driver + 16 CPU-oracle modules + 32 box kernels DELETED (~53 files, ~7700 lines gone). Field is ALIVE: 6
-`sphere_passes/*` over the `*_sphere3d.glsl` kernels; solar terminator + marine cooling + pinned geothermal
-core with real heat CONDUCTION; **emergent WEATHER now works** — a static field sea (1082 cells) + ambient
-humidity feed the terminator → ~1500 sustained cloud cells (`feature/sphere-followups`, not yet merged).
-~265 entities, ~155fps, planet renders, ZERO errors. Follow-up work now on `feature/sphere-followups`.
-LEFT: (a) RENDER the cloud/fog field as radial SHELLS (data exists, not drawn — clouds hidden in planet mode);
-(b) scent/snow round-trip re-home (creatures get default scent/snow meanwhile); (c) B3 = 2a water-cycle unify
-+ 2b DEFS reaction engine (design DONE in `material/PHASE_B3_DESIGN.md`); (d) Phase C dissolve the disasters.
+The sim is a **CHEMISTRY-BASED cubed-sphere substrate**, all MERGED + verified on `0.3-dev`. Water is ONE
+conserved H₂O substance (liquid/vapor/cloud/fog/snow/ice — phase EMERGENT from temperature, 2a+H₂O-unify);
+a generic **DEFS reaction engine** (2b) drives gas sky-exchange, fungus decompose, photosynthesis/respiration,
+freeze/melt as DATA RECORDS (adding a reaction = a record, not a kernel); **biomass** makes vegetation emerge
+from photosynthesis (Plant CPU code dissolved); a single **GPU water-particle renderer** draws cloud/fog/rain/
+snow by phase (RainLayer + CloudLayer DISSOLVED — clouds are VISIBLE on the planet now); rock/mineral is
+unified through Stage 0+A (conservation ledger `mineral_total` + dust-loft/susp-settle → records, `dust_loft`
+kernel deleted). Emergent + verified: solar terminator, geothermal core + conduction, sea→evaporation→cloud→
+rain water cycle, snow line (~280 snow / 40+ ice cells), carbon loop, ~280 entities, ~80fps, ZERO errors.
+Throwaway A0/A1 spikes removed. North-star framing: substances conserved · phases are states · transitions are
+reactions (see memories chemistry-based-substrate, unified-water-particles).
+
+### DEFERRED for a SUPERVISED run (staged contracts in scratchpad `POST_2B_CONTRACTS.md`, designs in
+`ROCK_UNIFY_DESIGN.md`/`WATER_RENDER_DESIGN.md`/`COMPOSITION_DESIGN.md`):
+- **Rock Stage B/C/D** — fractional `rock_fill` + DERIVED `solid` (rewires ~10 kernels — high blast radius) →
+  SDF terrain-growth stamp → erosion. The gateway to real geology; hook documented at `MaterialField3D.add_lava()`.
+- **Volcano / disasters (Phase C)** — dissolve to a CONDUIT CARVE; eruption/plug-cycle/ejecta emerge from
+  pressure→momentum + magma buoyancy. CAPSTONE SUCCESS = a SEABED volcano builds an ISLAND (water-quench
+  solidify → rock_fill → SDF growth → breach). Needs Rock Stage B/C + the ejecta primitive. Big emergent payoff
+  to watch — not fired blind.
+- **Composition-per-cell (metals/ores)** — spike verdict: the DEFS engine is already ~80% there (slot registry);
+  build the thin slice ONLY when a metal/ore/salt feature is wanted, else defer.
+- **Fuller readback** for scent/fungus/erosion (need CPU→GPU injection round-trips).
 
 ---
 
