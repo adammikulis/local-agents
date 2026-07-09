@@ -68,6 +68,29 @@ its own from the universal rules?* If it needs its own `*Volcano.gd`, `_is_erupt
   - It is all config/properties + local rules (the `nests` flag, a stored home position, a return
     force) — no scripted per-species colony code.
 
+## The substrate is chemistry — substances, phases, reactions (the 0.3 framing)
+
+The one shared field (`LAMaterialField3D`, laid over the cubed-sphere `LASphereGrid`) is not a bag of
+named channels; it is a set of **conserved chemical substances**, and the same three ideas describe all
+of it:
+
+- **Substances are conserved.** Water is ONE quantity (H₂O). Rock/mineral is ONE fractional amount
+  (`rock_fill`, with a `mineral_total` ledger). Biomass, O₂, CO₂ likewise. Nothing is manufactured or
+  destroyed — it only moves and transforms, and the ledger is checked.
+- **Phases are states of a substance, derived — never stored as separate things.** Liquid, vapor, cloud,
+  fog, snow, and ice are the SAME conserved water in different states; which state a cell is in falls out
+  of local temperature vs saturation. "Cloud" and "snow" are not channels you fill — they are what H₂O
+  looks like where it's cold or humid. Solid ground is likewise the DERIVED state of `rock_fill` past a
+  threshold.
+- **Transitions are reactions, and reactions are data.** Evaporation, condensation, freeze/melt, gas
+  sky-exchange, fungus decomposition, photosynthesis/respiration are **records** in a generic reaction
+  engine (`MaterialReactions3D.gd`): `{reactants, products, driver + threshold, rate, cap, target}`.
+  Adding chemistry is adding a record, not writing a kernel. This is dissolve-don't-patch one level down:
+  a new transformation COMPOSES IN as data instead of a new special case.
+
+Everything below is what happens when these conserved substances flow, change phase, and react over the
+one shared field — the "weather", "geology", and "ecology" are just the words we put on it.
+
 ## Emergent field processes (the same principle, over ONE shared substrate)
 
 The physical world runs the same way: there is a single simulation field, `LAMaterialField3D`, and
@@ -84,10 +107,23 @@ to visuals that seed a source and *read back* the feature the field produces.
   where fertility peaks — so grazing pressure and vegetation recovery couple through the ground with no
   bookkeeping. It all diffuses, advects on the local wind, decays, and washes in rain, like a real
   smell would.
-- **Volcanoes bore their own conduit (`MaterialMagma3D`).** No scripted eruption timeline: a deep hot
-  magma source has overpressure that melts the rock above it, so a conduit *carves itself* upward and
-  the mountain erupts episodically when pressure wins. `Volcano.gd` just seeds the source and reads
-  `magma_erupting()` for FX.
+- **Canonical worked example (0.3) — a seabed vent builds an island, with zero eruption code.** This is
+  the flagship dissolve-don't-patch result: "volcano" is a word for what the physics does, so the
+  scripted `Volcano.gd` eruption logic (`_is_erupting`, burst timers, `BOMBS_PER_BURST`, `_launch_bombs`)
+  was **deleted**. What remains is a seed and universal substrate rules that chain on their own:
+  1. the actor seeds a deep, hot, pressurized magma source at a seabed vent — that's the *only* dedicated
+     input;
+  2. overpressure melts/carves a conduit upward and drives hot lava out (the same pressure → momentum on
+     matter that throws any ejecta);
+  3. the surrounding cold seawater **quenches** the lava — a phase transition (a reaction record) that
+     solidifies it into conserved `rock_fill`;
+  4. `rock_fill` **accumulates** at the vent (conserving mass through the `mineral_total` ledger), and
+  5. where it crosses the solid threshold, the `MineralStamp3D` SDF-growth turns the pile into real
+     walkable terrain — so an open-ocean basin becomes a glowing volcanic island breaching sea level.
+  No step is "volcano code": each is a universal rule (pressure, phase-change, conservation, SDF growth)
+  that the same substrate applies everywhere. The actor is a seed + FX reader (`--auto-seavolcano` prints
+  `SEAVOLCANO={...}` proof that the vent rises from below sea level to above it). *Steam blasts, geysers,
+  and lava bombs are the same pressure-release rule at other thresholds — free, once the rule exists.*
 - **Storms are a rotation term, not a strength envelope (`MaterialWind3D`).** Adding a single
   Coriolis-like rotation to the pressure-driven wind makes any pressure low *spin*; tornadoes,
   mesocyclones, and hurricanes are the same emergent vortex at different seed strengths. The storm
@@ -114,9 +150,12 @@ to visuals that seed a source and *read back* the feature the field produces.
   "is-this-enclosed" special case, just a gas that flows. Burning emits CO₂ (`_co2`), a denser gas that
   advects on the wind but SETTLES downward and pools in hollows (a suffocation cue creatures read), and
   vents where it reaches open sky.
-- **Photosynthesis + decay close one carbon loop (`Plant.gd`, `MaterialFungus3D`).** In daylight a living
-  plant FIXES local CO₂ back into O₂ + growth, so a plant downwind of a fire scrubs the drifted CO₂ and
-  shoots up. When an animal dies its carcass (and burnt-out fuel → ash) sheds DETRITUS into the ground;
+- **Photosynthesis + decay close one carbon loop (reaction records + the `biomass` substance).** In
+  daylight photosynthesis FIXES local CO₂ back into O₂ and deposits `biomass` (a reaction record, not a
+  scripted plant), so a cell downwind of a fire scrubs the drifted CO₂ and greens up — and because
+  vegetation and forests GATE on that biomass field, tree cover tracks real per-column productivity
+  instead of a placement table. When an animal dies its carcass (and burnt-out fuel → ash) sheds DETRITUS
+  into the ground;
   wherever detritus meets damp shade, **fungus** blooms, rots it — freeing CO₂ to the air, depositing soil
   FERTILITY, and drawing down O₂ (aerobic decay) — and spreads by spores, dying back in drought/fire/frost.
   The fertility it makes feeds the same plant-seeding that grazing waste feeds, so **rot becomes regrowth**:

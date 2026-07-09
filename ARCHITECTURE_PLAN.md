@@ -52,15 +52,25 @@ locked invariants (full model in `NATIVE_SIM_UNIFICATION_PLAN.md`):
 Migration sequencing (P0 lock architecture -> P1 unify op schema/pass descriptors -> P2 enforce
 and CI-gate) is tracked below and in `NATIVE_SIM_UNIFICATION_PLAN.md`.
 
-## Active project: godot_voxel ecosystem sim
+## Active project: godot_voxel ecosystem sim (0.3 — chemistry planet)
 
 The live scene is the from-scratch **godot_voxel ecosystem showcase** at
 `addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn` (the project `main_scene`); current
-state, layout, and run/verify commands are in `TODO.md`. Terrain is a native **island** heightmap
-ringed by an **ocean** with **3D caves** and an `is_solid(pos)`/`sdf_at(pos)` query. Fluids/heat/lava/
-weather are unified in `material/MaterialField.gd` (`LAMaterialField`), being upgraded to a dense 3D
-`material/MaterialField3D.gd`; the field's per-cell processes run as GPU compute kernels
-(`material/kernels3d/*.glsl`, driven by `MaterialGPU3D.gd`).
+state, layout, and run/verify commands are in `TODO.md`.
+
+As of **0.3** the world is a **chemistry-based cubed-sphere planet**, not a flat island. Terrain is an
+SDF sphere (`length(p)-radius - amp·fbm`) with radial `is_solid(pos)`/`sdf_at(pos)`/`up_at`/`altitude_at`
+queries. The single simulation substrate is `material/MaterialField3D.gd`, laid over the gnomonic
+cubed-sphere grid `LASphereGrid` (a precomputed seam/neighbour table stitches the six cube faces).
+Every per-cell process runs as a GPU compute kernel (`material/kernels3d/*_sphere3d.glsl`, driven by
+`MaterialSphereGPU3D.gd` and its ordered `material/sphere_passes/*` plugin modules) — there are **no
+CPU oracles**; the GLSL kernels are the sole implementation, verified behaviourally.
+
+The substrate is founded on **conserved chemical substances**, not per-phenomenon channels: one
+conserved H₂O substance (liquid/vapor/cloud/fog/snow/ice are phases derived from temperature vs
+saturation), a `biomass` substance, and a unified fractional `rock_fill` with a derived solid + a
+`mineral_total` conservation ledger. Transitions between substances are **data records** in a generic
+reaction engine (`material/MaterialReactions3D.gd`) rather than bespoke code.
 
 **Retired:** the old `WorldSimulation`/`PlantRabbitField`/`VoxelWorldDemo` gameplay stack was deleted,
 and the **native C++ voxel/sim sources were dropped** — the `localagents` GDExtension now ships only
@@ -118,6 +128,33 @@ records superseded wave-by-wave inventories):
 
 Validation for player-facing destruction work is non-headless launch first, then headless sweeps
 (`run_all_tests.gd`, `run_runtime_tests_bounded.gd`, destruction/fps-fire harnesses).
+
+## 0.4 roadmap (deferred — forward-looking)
+
+These are the next architecture moves, all deferred out of 0.3. Full context + acceptance notes live in
+`TODO.md` (Phase C) and the design docs in-tree. Marked clearly as **not yet done**.
+
+- **Event tracker + lightning-as-event.** A discrete-event layer (`on_ejecta`/`on_impact`/`on_bolt`
+  style callbacks) so named moments surface for FX/telemetry/commentary without per-phenomenon code;
+  lightning becomes the reference event (charge already fires bolts — the tracker just observes it).
+- **Remaining disaster dissolutions.** Continue dissolve-don't-patch through Tornado (vorticity → force
+  replaces `_fling_wildlife`), Hurricane, Thunderstorm, Earthquake, Meteor — measuring success in
+  special-case code deleted. Volcano (0.3) is the pattern to follow.
+- **Ejecta / meteor as a momentum primitive.** The keystone `C0` move: pressure/vorticity/kinetic →
+  momentum on matter (ejecta parcels that arc under radial gravity and re-deposit heat + rock/sediment),
+  plus the reference-frame handoff so a lava bomb can leave one body and land on another.
+- **Composition-per-cell (metals / ores / salts).** A thin composition slice on top of the DEFS slot
+  registry — build only when a metal/ore feature is wanted.
+- **Mantle convection.** Real radial magma/geothermal circulation in the innermost layers (the current
+  core is a seeded heat source).
+- **Time-bubble tool.** A localized fast-forward / time-scale control for slow-emergent phenomena
+  (island-building, forest succession, erosion) so geological time compresses to seconds.
+- **Activity bubbles (scaling lever).** Per-tile activity/sleep + indirect dispatch so quiescent regions
+  skip work — the primary lever for affording whole-planet (and eventually multi-body) fields.
+
+The committed longer arc remains a **solar system of bodies** (Outer-Wilds scale): orbiting/spinning
+bodies with body-local fields, an n-body attractor integrator + a GPU test-particle buffer for
+ejecta/debris. See `TODO.md` (SOLAR-SYSTEM-FIRST) for the full plan.
 
 ## Mature Subsystem Status (Concerns A–I)
 
@@ -249,6 +286,25 @@ single authoritative wave record; superseded per-wave inventories live in git hi
 
 ## Breaking Changes
 
+- **2026-07 (0.3): flat/box world removed — the cubed-sphere planet is the sole world.** The
+  origin-centered box `MaterialField3D` grid, its box GPU driver, the dead box `_physics_process` step
+  branch, and the 21 CPU-oracle + box-GPU field modules were deleted, along with 32 dead box
+  `*3d.glsl` kernels and the flat/2.5D code paths across terrain/ocean/camera/actors (~11,000+ lines
+  removed). The field now lives on `LASphereGrid`; kernels are `*_sphere3d.glsl` only. There is no CPU
+  parity oracle — verification is behavioural (`SIM_REPORT` aggregates), per the perf-over-parity rule.
+- **2026-07 (0.3): substrate re-founded on conserved substances + data-driven reactions.** Separate
+  vapor/cloud/fog channels were fused into one conserved `_airwater` channel and snow/ice folded into
+  the same H₂O substance; a `biomass` substance and a unified fractional `rock_fill` (derived solid +
+  `mineral_total` ledger) were added. Same-cell chemistry (gas sky-exchange, fungus decompose,
+  photosynthesis/respiration, freeze/melt, dust-loft) moved into reaction **records** in
+  `MaterialReactions3D.gd` — adding a reaction is a data record, not a kernel.
+- **2026-07 (0.3): scripted `Volcano.gd` eruption logic dissolved.** A seabed vent builds an island
+  emergently (magma → water-quench solidify → `rock_fill` accumulation → `MineralStamp3D` SDF growth);
+  the actor is now seed + FX only.
+- **2026-07 (0.3): render/actor consolidation.** `RainLayer`/`CloudLayer` dissolved into one
+  `WaterParticles.gd` GPU renderer (phase-selected cloud/fog/rain/snow); `VoxelWorld` and
+  `MaterialField3D` split into focused controllers; the throwaway A0/A1 spike harnesses and
+  `PlanetPreview` removed.
 - 2026-07: Active scene is the from-scratch godot_voxel ecosystem sim
   (`scenes/simulation/voxel/VoxelWorld.tscn`). The old `WorldSimulation`/`PlantRabbitField`/
   `VoxelWorldDemo` gameplay stack and the homegrown voxel-grid runtime were deleted; the LLM editor
