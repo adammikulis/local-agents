@@ -1,8 +1,8 @@
 class_name LAMainMenu
 extends Control
 
-## LAMainMenu — the game's title screen and front door. Six actions, top to bottom:
-##   New campaign · Continue · Sandbox · Settings · Help · Quit.
+## LAMainMenu — the game's title screen and front door. Seven actions, top to bottom:
+##   New campaign · Continue · Sandbox · Settings · Help · Credits · Quit.
 ##
 ## "New campaign" and "Sandbox" both launch the SAME sim scene (VoxelWorld.tscn) via
 ## change_scene_to_file, differing only in the mode flag they set on the GameMode autoload before
@@ -19,6 +19,7 @@ extends Control
 const WORLD_SCENE: String = "res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn"
 const SETTINGS_SCENE: String = "res://addons/local_agents/scenes/menu/SettingsMenu.tscn"
 const HELP_SCENE: String = "res://addons/local_agents/scenes/menu/HelpMenu.tscn"
+const CREDITS_SCENE: String = "res://addons/local_agents/scenes/menu/CreditsMenu.tscn"
 
 var _continue_button: Button = null
 
@@ -97,6 +98,10 @@ func _build_ui() -> void:
 	var help_button: Button = LAMenuStyle.make_button("Help")
 	help_button.pressed.connect(func() -> void: _change_scene(HELP_SCENE))
 	vbox.add_child(help_button)
+
+	var credits_button: Button = LAMenuStyle.make_button("Credits")
+	credits_button.pressed.connect(func() -> void: _change_scene(CREDITS_SCENE))
+	vbox.add_child(credits_button)
 
 	var quit_button: Button = LAMenuStyle.make_button("Quit")
 	quit_button.pressed.connect(_on_quit)
