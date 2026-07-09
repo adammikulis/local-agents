@@ -1153,6 +1153,23 @@ func deposit_detritus(world_pos: Vector3, amount: float) -> void:
 	if _detritus.size() != _cell_count:
 		_detritus.resize(_cell_count)
 	_detritus[i] += amount
+# Per-cell debug readers for the phase channels (mirror biomass_at/co2_at): molten mineral, bedrock
+# fraction, and pre-lightning electrification. Pure reads for the DebugPanel field-view heatmaps.
+func lava_at(x: float, y: float, z: float) -> float:
+	if _sphere != null:
+		var c: int = world_to_cell(Vector3(x, y, z))
+		return _lava[c] if (c >= 0 and _lava.size() == _cell_count) else 0.0
+	return 0.0
+func rock_fill_at(x: float, y: float, z: float) -> float:
+	if _sphere != null:
+		var c: int = world_to_cell(Vector3(x, y, z))
+		return _rock_fill[c] if (c >= 0 and _rock_fill.size() == _cell_count) else 0.0
+	return 0.0
+func charge_at(x: float, y: float, z: float) -> float:
+	if _sphere != null:
+		var c: int = world_to_cell(Vector3(x, y, z))
+		return _charge[c] if (c >= 0 and _charge.size() == _cell_count) else 0.0
+	return 0.0
 func fungus_at(x: float, y: float, z: float) -> float:
 	return 0.0
 func fungus_peak() -> float:

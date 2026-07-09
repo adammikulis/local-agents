@@ -143,6 +143,16 @@ var _model_run_speed: float = 999.0
 var _vis_prev_pos: Vector3 = Vector3.ZERO
 var _vis_t: float = 0.0
 
+# --- behavior-state debug tint (DebugPanel HIGHLIGHT · BEHAVIOR) -----------------------------------
+# When a behavior category is enabled in the debug panel, a creature whose current `state` maps to that
+# category is dyed with an emissive overlay (Foraging=green, Hunting=red, …). The enabled set is shared
+# (static) across all creatures; each creature applies/clears its own overlay only when its category
+# changes — cheap, no central per-frame scan. Empty set => zero cost (early-out below).
+static var _behavior_tints: Dictionary = {}       # category -> Color (the currently-enabled highlights)
+var _tint_category: String = ""                   # the category currently painted on this creature ("" = none)
+var _tint_mat: StandardMaterial3D = null          # per-creature emissive overlay (reused across colours)
+var _tint_targets: Array = []                      # cached MeshInstance3D nodes to overlay (lazy)
+
 # --- terror / fear system: sprint away from felt/heard violence, overriding all else ---
 var _panic_timer: float = 0.0
 var _panic_source: Vector3 = Vector3.ZERO
@@ -236,6 +246,98 @@ func debug_heading() -> Vector3:
 	if _held or _ragdoll or _carcass:
 		return Vector3.ZERO
 	return _heading
+
+
+# --- behavior-state debug tint -------------------------------------------------------------------
+
+## Enable/disable a behavior-state highlight globally (called by VoxelDebugWiring from the DebugPanel).
+## The tint applies to whichever creatures are in a matching state; multiple categories can be on at once.
+static func set_behavior_highlight(category: String, col: Color, on: bool) -> void:
+	if on:
+		_behavior_tints[category] = col
+	else:
+		_behavior_tints.erase(category)
+
+
+## Map a raw think/state string (LACreatureThink) to a debug highlight CATEGORY. Idle/wander/cruise/soar/
+## circle/migrate/investigate have no category ("") — they are the un-tinted default.
+static func _state_category(s: String) -> String:
+	match s:
+		"eat":
+			return "foraging"
+		"chase", "stalk", "track", "throw":
+			return "hunting"
+		"flee", "panic":
+			return "fleeing"
+		"drink", "seek":
+			return "drinking"
+		"rest", "sleep", "roost":
+			return "sleeping"
+		"nesting":
+			return "nesting"
+		_:
+			return ""
+
+
+## Re-evaluate this creature's tint against the current enabled set (paint/clear only if the category
+## changed). Cheap: an O(1) category lookup, does real material work solely on a change.
+func _update_state_tint() -> void:
+	if _behavior_tints.is_empty():
+		if _tint_category != "":
+			_tint_category = ""
+			_apply_tint_overlay(Color.WHITE, false)
+		return
+	var cat: String = _state_category(state)
+	var want: String = cat if _behavior_tints.has(cat) else ""
+	if want == _tint_category:
+		return
+	_tint_category = want
+	if want == "":
+		_apply_tint_overlay(Color.WHITE, false)
+	else:
+		_apply_tint_overlay(_behavior_tints[want], true)
+
+
+## Force a fresh tint evaluation (VoxelDebugWiring calls this on a checkbox toggle so live creatures
+## update at once rather than waiting for their next state change).
+func refresh_state_tint() -> void:
+	_tint_category = "__force__"                 # impossible category → forces _update_state_tint to reapply
+	_update_state_tint()
+
+
+# Paint (or clear) the emissive tint overlay on every visual mesh of this creature. Uses material_overlay
+# so it layers over the model/capsule material without mutating the (species-shared) base materials.
+func _apply_tint_overlay(col: Color, on: bool) -> void:
+	if _tint_targets.is_empty():
+		_collect_tint_targets()
+	var mat: Material = null
+	if on:
+		if _tint_mat == null:
+			_tint_mat = StandardMaterial3D.new()
+			_tint_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			_tint_mat.emission_enabled = true
+		_tint_mat.albedo_color = Color(col.r, col.g, col.b, 0.5)
+		_tint_mat.emission = col
+		_tint_mat.emission_energy_multiplier = 0.9
+		mat = _tint_mat
+	for mi in _tint_targets:
+		if is_instance_valid(mi):
+			mi.material_overlay = mat
+
+
+func _collect_tint_targets() -> void:
+	_tint_targets = []
+	if _mesh != null:
+		_tint_targets.append(_mesh)
+	elif _model_root != null:
+		_gather_mesh_instances(_model_root, _tint_targets)
+
+
+func _gather_mesh_instances(node: Node, out: Array) -> void:
+	if node is MeshInstance3D:
+		out.append(node)
+	for child in node.get_children():
+		_gather_mesh_instances(child, out)
 
 
 func set_ecology(e) -> void:
@@ -525,24 +627,14 @@ func _physics_process(delta: float) -> void:
 	if LACreatureMetabolism.tick_breath(self, pos, delta):
 		return
 
-	# Radial locomotion: `up` points away from the planet centre (Vector3.UP on a flat island — safe in
-	# both modes). All heading/heading-flatten math projects onto the local tangent plane using `up`, and
-	# ground reads/snaps go radial on a planet. `ground_pos` is the world point on the ground below us.
-	var planet: bool = terrain.is_planet()
+	# Radial locomotion: `up` points away from the planet centre. All heading/heading-flatten math projects
+	# onto the local tangent plane using `up`, and ground reads/snaps go radial. `ground_pos` is the world
+	# point on the ground below us.
 	var up: Vector3 = terrain.up_at(pos)
-	var ground_pos: Vector3 = Vector3.ZERO
-	var surf: float = NAN
-	if planet:
-		var up_dir0: Vector3 = (pos - terrain.planet_center()).normalized()
-		var gpt0: Vector3 = terrain.surface_point(up_dir0)
-		if is_nan(gpt0.x):
-			return                        # unmeshed / off-terrain: skip this frame
-		ground_pos = gpt0
-	else:
-		surf = _surface_at(pos.x, pos.z)
-		if is_nan(surf):
-			return                        # unmeshed / off-terrain: skip this frame
-		ground_pos = Vector3(pos.x, surf, pos.z)
+	var up_dir0: Vector3 = (pos - terrain.planet_center()).normalized()
+	var ground_pos: Vector3 = terrain.surface_point(up_dir0)
+	if is_nan(ground_pos.x):
+		return                            # unmeshed / off-terrain: skip this frame
 
 	# Digestion + marking: a fed creature periodically drops feces (soil fertility + food/musk cue), and
 	# more often urinates (territorial musk). Both write to the shared scent/fertility field below it.
@@ -695,22 +787,14 @@ func _physics_process(delta: float) -> void:
 	var step: Vector3 = _heading * _eff_speed * delta
 	# Height held above the local ground (flyers cruise; walkers ride at body radius).
 	var offset: float = cruise_height if can_fly else size
-	if planet:
-		# Step in the tangent plane, then snap radially: the new ground point is along the NEW radial
-		# direction from the planet centre, and we sit `offset` above it (up == that same radial dir).
-		var new_pos: Vector3 = pos + step
-		var nud: Vector3 = (new_pos - terrain.planet_center()).normalized()
-		var gpt: Vector3 = terrain.surface_point(nud)
-		if is_nan(gpt.x):
-			gpt = ground_pos                  # unmeshed ahead: hold last known ground
-		global_position = gpt + nud * offset
-	else:
-		var new_x: float = pos.x + step.x
-		var new_z: float = pos.z + step.z
-		var target_surf: float = _surface_at(new_x, new_z)
-		if is_nan(target_surf):
-			target_surf = surf
-		global_position = Vector3(new_x, target_surf + offset, new_z)
+	# Step in the tangent plane, then snap radially: the new ground point is along the NEW radial direction
+	# from the planet centre, and we sit `offset` above it (up == that same radial dir).
+	var new_pos: Vector3 = pos + step
+	var nud: Vector3 = (new_pos - terrain.planet_center()).normalized()
+	var gpt: Vector3 = terrain.surface_point(nud)
+	if is_nan(gpt.x):
+		gpt = ground_pos                      # unmeshed ahead: hold last known ground
+	global_position = gpt + nud * offset
 
 	if _heading.length() > 0.01:
 		# Gaze along the heading projected into the local tangent plane, with the local up as roll axis.
@@ -721,10 +805,13 @@ func _physics_process(delta: float) -> void:
 			if not look.is_equal_approx(global_position):
 				look_at(look, look_up)
 
+	# Behavior-state debug tint: repaint iff my category changed (free early-out when no highlights on).
+	_update_state_tint()
+
 
 # Rotate `from` toward `to` about the LOCAL up axis by at most `max_angle` radians. Both vectors are
-# projected onto the local tangent plane (radial up on a planet, Vector3.UP on a flat island) so the turn
-# always happens in the plane the creature actually walks on.
+# projected onto the local tangent plane using the local radial up, so the turn always happens in the
+# plane the creature actually walks on.
 func _turn_toward(from: Vector3, to: Vector3, max_angle: float) -> Vector3:
 	var up: Vector3 = terrain.up_at(global_position) if terrain != null else Vector3.UP
 	var a: Vector3 = from - up * from.dot(up)
@@ -738,12 +825,6 @@ func _turn_toward(from: Vector3, to: Vector3, max_angle: float) -> Vector3:
 	var ang: float = a.signed_angle_to(b, up)
 	var clamped: float = clampf(ang, -max_angle, max_angle)
 	return a.rotated(up, clamped)
-
-
-func _surface_at(x: float, z: float) -> float:
-	if terrain == null or not terrain.has_method("surface_height"):
-		return NAN
-	return float(terrain.surface_height(x, z))
 
 
 # Off-hours: diurnal animals rest at night, nocturnal ones by day — from the one `nocturnal` flag +

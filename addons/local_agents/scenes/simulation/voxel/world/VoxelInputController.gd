@@ -37,6 +37,8 @@ var _farview: bool = false              # --farview: pull the vista out to max z
 var _rain_force: bool = false           # --rain: force the rain visual on (verification aid)
 var _debug_demo: bool = false
 var _wind_view: bool = false            # --wind-view: enable ONLY the emergent wind-arrow overlay
+var _debug_field: String = ""           # --debug-field=<channel>: pre-enable a substrate heatmap (biomass/lava/…)
+var _debug_behaviors: String = ""       # --debug-behaviors[=a,b]: pre-enable behavior-state highlights (default foraging+hunting)
 var _auto_volcano: bool = false
 var _auto_volcano_fired: bool = false
 var _auto_seavolcano: bool = false
@@ -48,6 +50,7 @@ var _auto_lightning_fired: bool = false
 var _auto_meteor_fired: bool = false
 var _auto_select: bool = false
 var _auto_select_done: bool = false
+var _cam_creature_done: bool = false    # latch: framed a behavior-tinted creature for the debug screenshot
 var _auto_tornado: bool = false
 var _auto_thunderstorm: bool = false
 var _auto_hurricane: bool = false
@@ -77,6 +80,12 @@ func parse_cmdline() -> void:
 			_debug_demo = true
 		elif arg == "--wind-view":
 			_wind_view = true
+		elif arg.begins_with("--debug-field="):
+			_debug_field = arg.substr("--debug-field=".length())
+		elif arg == "--debug-behaviors":
+			_debug_behaviors = "foraging,hunting"
+		elif arg.begins_with("--debug-behaviors="):
+			_debug_behaviors = arg.substr("--debug-behaviors=".length())
 		elif arg == "--auto-meteor":
 			_auto_meteor = true
 		elif arg == "--auto-volcano":
@@ -245,6 +254,52 @@ func update(frame: int, spawned: bool) -> void:
 			print("SELECT_RESULT selected=", sel != null, " ring_visible=", _interaction.selection_ring_visible(), " title=", title)
 		_auto_select_done = true
 
+	# Behavior-tint debug screenshot: swoop the camera down onto a creature that is actually in a tinted
+	# state (foraging/hunting/…), so the green/red highlight fills the frame instead of being a sub-pixel
+	# speck at whole-planet framing. In orbit mode _process leaves a manual transform in place (no per-frame
+	# rebuild), so this framing holds for the capture.
+	if _debug_behaviors != "" and _shoot_path != "" and not _cam_creature_done and spawned and frame == _shoot_frames - 6:
+		_cam_creature_done = true
+		_frame_tinted_creature()
+
+
+# Position the camera close to a behavior-tinted creature (prefer one whose state maps to an enabled
+# category — foraging/hunting — else the nearest creature) and look down at it from just above the surface.
+func _frame_tinted_creature() -> void:
+	if _camera == null or _terrain == null:
+		return
+	const TINTED_STATES: Array = ["eat", "chase", "stalk", "track", "throw", "flee", "panic", "drink", "seek"]
+	var pick: Node3D = null            # first foraging (green) creature, preferred for the demo shot
+	var pick2: Node3D = null           # any other tinted creature (hunting/fleeing/…)
+	var fallback: Node3D = null
+	for a in get_tree().get_nodes_in_group("creature"):
+		if not (a is Node3D):
+			continue
+		if fallback == null:
+			fallback = a
+		var st: String = String(a.get("state"))
+		if st == "eat" and pick == null:
+			pick = a
+		elif TINTED_STATES.has(st) and pick2 == null:
+			pick2 = a
+	if pick == null:
+		pick = pick2
+	if pick == null:
+		pick = fallback
+	if pick == null:
+		return
+	var p: Vector3 = pick.global_position
+	var center: Vector3 = _terrain.planet_center() if _terrain.has_method("planet_center") else Vector3.ZERO
+	var up: Vector3 = (p - center).normalized()
+	if up.length() < 0.001:
+		up = Vector3.UP
+	var tangent: Vector3 = up.cross(Vector3.RIGHT)
+	if tangent.length() < 0.001:
+		tangent = up.cross(Vector3.FORWARD)
+	tangent = tangent.normalized()
+	_camera.global_position = p + up * 6.0 + tangent * 6.0
+	_camera.look_at(p, up)
+
 
 # --- Flag accessors (read by the world composition root) ---------------------
 func streamer_enabled() -> bool: return _streamer_enabled
@@ -263,3 +318,5 @@ func auto_select() -> bool: return _auto_select
 func auto_seavolcano() -> bool: return _auto_seavolcano
 func debug_demo() -> bool: return _debug_demo
 func wind_view() -> bool: return _wind_view
+func debug_field() -> String: return _debug_field
+func debug_behaviors() -> String: return _debug_behaviors
