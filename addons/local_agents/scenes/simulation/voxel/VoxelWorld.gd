@@ -32,6 +32,7 @@ const DebugWiringScript: GDScript = preload("res://addons/local_agents/scenes/si
 const AudioControllerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelAudioController.gd")
 const GameProgressionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/game/GameProgression.gd")
 const GameHudScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/GameHud.gd")
+const CampaignTutorialScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/CampaignTutorial.gd")
 const SettingsApplierScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelSettingsApplier.gd")
 
 # --- SOLAR-SYSTEM-FIRST: the world is a star + planet body (see TODO). Radial is the default; flat retired. ---
@@ -314,6 +315,13 @@ func _ready() -> void:
 	# Bind the settings applier's live concerns now that disasters/terrain/particles exist: pushes the effects
 	# density onto the atmosphere particles and arms the difficulty-scaled ambient-disaster cadence.
 	_settings_applier.bind(self, _disasters, _terrain, _water)
+
+	# First-run campaign intro: a data-defined guided tour (reusable LATutorial system) that teaches the core
+	# loop. Campaign-only + first-run + skippable + persisted — all owned by the controller; the root just wires.
+	var tutorial: LACampaignTutorial = CampaignTutorialScript.new()
+	tutorial.name = "CampaignTutorial"
+	add_child(tutorial)
+	tutorial.setup(_interaction, _hud, _game_hud, _input, _progression)
 
 
 func _process(delta: float) -> void:
