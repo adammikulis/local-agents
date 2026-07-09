@@ -574,6 +574,7 @@ func _apply_sphere_readback(res: Dictionary) -> void:
 	if res.has("biomass") and res["biomass"].size() == _cell_count: _biomass = res["biomass"]
 	if res.has("snow") and res["snow"].size() == _cell_count: _snow = res["snow"]
 	if res.has("dust") and res["dust"].size() == _cell_count: _dust = res["dust"]
+	if res.has("sediment") and res["sediment"].size() == _cell_count: _sediment = res["sediment"]
 
 
 func _physics_process(delta: float) -> void:
@@ -813,6 +814,12 @@ func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	pass
 
 func add_lava(world_pos: Vector3, amount: float) -> void:
+	# ROCK-UNIFICATION HOOK (Stage B, deferred — needs supervision). A real conserving lava source lands HERE:
+	# inject `amount` into the GPU `lava` channel (dirty-gated upload, cf. :186-197), debiting equal mineral
+	# mass from bedrock so mineral_total() stays flat. Stage B also adds fractional `rock_fill` (solid DERIVED
+	# rock_fill>=0.5) + folds M5 solidify/M6 melt into records; Stage C stamps the SDF on 0.5-crossings; Stage D
+	# adds erosion (rock_fill->susp carve + susp advect feeding the M3 settle record already authored). Volcano.gd
+	# calls this — inert on the sphere path until Stage B wires the injection.
 	pass
 
 ## Inject airborne water vapor (humidity) at a world point — a storm's LOCAL moisture source. No-op until
@@ -1032,6 +1039,53 @@ func dust_at(x: float, y: float, z: float) -> float:
 	return 0.0
 func dust_cell_count() -> int:
 	return 0
+
+# --- MINERAL conservation ledger (rock unification Stage 0) -----------------------------------------------
+# ROCK is ONE conserved mineral substance whose PHASE (bedrock/molten/loose/suspended/airborne) is a state, and
+# every phase transition is a mass transfer between these legs. mineral_total sums all phases in one mass unit (a
+# full cell of any phase = MAX_MASS = 1.0). It turns "one conserved mineral" into a testable claim: it must stay
+# BOUNDED across frames to within genuine sources/vents. Bedrock uses the BINARY QUANTUM (each solid cell = 1.0)
+# until Stage B derives a fractional rock_fill — solidify/melt are whole-cell events today so the quantum is exact.
+## Loose granular regolith (talus/dune sediment) summed over open cells — the "loose" mineral phase.
+func sediment_total() -> float:
+	if _sediment.size() != _cell_count:
+		return 0.0
+	var sum: float = 0.0
+	for c in _cell_count:
+		if _solid[c] == 0:
+			sum += _sediment[c]
+	return sum
+## Airborne wind-lofted dust summed over open cells — the "airborne" mineral phase.
+func dust_total() -> float:
+	if _dust.size() != _cell_count:
+		return 0.0
+	var sum: float = 0.0
+	for c in _cell_count:
+		if _solid[c] == 0:
+			sum += _dust[c]
+	return sum
+## Molten rock (lava) mass summed over open cells — the "molten" mineral phase.
+func lava_total() -> float:
+	if _lava.size() != _cell_count:
+		return 0.0
+	var sum: float = 0.0
+	for c in _cell_count:
+		if _solid[c] == 0:
+			sum += _lava[c]
+	return sum
+## Solid (bedrock) cell count — each counts as 1.0 mineral mass under the binary quantum. This is the massive
+## constant baseline of the ledger; drift in it (solidify fabricating rock, melt destroying it) is the signal.
+func rock_cells() -> int:
+	var n: int = 0
+	for c in _cell_count:
+		if _solid[c] != 0:
+			n += 1
+	return n
+## The ONE mineral total: Σ over bedrock + molten + loose + suspended + airborne. susp is a dead phase today
+## (no erosion source on the sphere), so its leg is 0 until Stage D populates it; it is named here so the ledger
+## is complete by construction. Must stay BOUNDED — this is the unification's proof object.
+func mineral_total() -> float:
+	return float(rock_cells()) + lava_total() + sediment_total() + dust_total()
 # Emergent atmospheric OXYGEN (LAMaterialGas3D): O₂ level at a point + depletion diagnostics.
 func o2_at(x: float, y: float, z: float) -> float:
 	if _sphere != null:
@@ -1239,6 +1293,8 @@ func report() -> Dictionary:
 		"biomass_total": biomass_total(),
 		"h2o_total": h2o_total(), "water_total": water_total(), "snow_total": snow_total(),
 		"snow_line_temp": snow_line_temp(),
+		"mineral_total": mineral_total(), "rock_cells": rock_cells(),
+		"lava_total": lava_total(), "sediment_total": sediment_total(), "dust_total": dust_total(),
 	}
 	r.merge(_open_temp_stats())
 	return r

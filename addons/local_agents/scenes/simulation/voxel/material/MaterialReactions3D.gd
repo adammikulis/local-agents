@@ -26,6 +26,12 @@ const FERT: int = 9
 const LAVA: int = 10
 const BIOMASS: int = 11
 const SNOW: int = 12                  # frozen H₂O (snowpack/ice) — the same conserved substance as WATER + AIRWATER
+# MINERAL phases (rock unification): ONE conserved mineral substance, phase = state. loose SEDIMENT, airborne
+# DUST, waterborne SUSP are channels; loft/settle are same-cell mass TRANSFERS between them (records below).
+const SEDIMENT: int = 13
+const DUST: int = 14
+const SUSP: int = 15
+const WINDSPEED: int = 16             # DERIVED driver only (sqrt(vel_x²+vel_z²)); never a product/reactant
 
 # --- Rate models (extent x per cell) ---------------------------------------------------------------------
 const CONST_FRAC: int = 0             # x = k * driver
@@ -45,6 +51,8 @@ const GATE_OPEN_ABOVE: int = 1
 const GATE_SURFACE: int = 2
 const GATE_NEAR_GROUND: int = 4
 const GATE_DAYLIGHT: int = 8
+const GATE_DRY: int = 16              # cell water <= WET_MAX_LOFT (dry surface) — sand only lofts when not wet
+const GATE_NOT_RAINING: int = 32      # global precipitation off — rain pins all dust down (loft parity)
 
 # --- Product targets -------------------------------------------------------------------------------------
 const TGT_SELF: int = 0               # add into the live/back cell channel
@@ -97,6 +105,20 @@ const FREEZE_TEMP: float = 12.5          # WATER (and, in the kernel, condensed 
 const MELT_TEMP: float = 14.0            # SNOW at T above this melts → liquid WATER
 const FREEZE_RATE: float = 0.05          # per-step k on the below-threshold liquid-freeze extent
 const MELT_RATE: float = 0.05            # per-step k on the above-threshold snow-melt extent
+
+# --- MINERAL phase transfers (rock unification Stage A) — same-cell, conserving, own-cell writes only -------
+# LOFT (M4, replaces dust_loft_sphere3d.glsl): wind over LOFT_WIND scours dry loose SEDIMENT into the SAME
+# cell's airborne DUST (the box/sphere loft kernel scattered into the cell ABOVE — a cross-cell write that
+# forbade a DEFS record; re-aiming to own-cell makes it a clean record and dust_transport lofts it up next
+# step, design-blessed as near-identical). Constants copied from dust_loft_sphere3d.glsl. The reactant cap on
+# SEDIMENT enforces "can't loft more than present"; the LOFT_MAX per-step cap is dropped (perf-over-parity —
+# it only bit at hspeed>~22, and sediment-capped extent stays bounded regardless).
+const LOFT_WIND: float = 6.0             # horizontal wind speed a dry surface must exceed to loft sand
+const LOFT_RATE: float = 0.003           # sediment lofted per step per unit wind OVER the threshold
+# SETTLE (M3, susp→sediment): turbid water drops its load when calm. susp is a DEAD phase today (no erosion
+# source on the sphere populates it), so this record is a NO-OP that is authored now so the clean transition
+# exists by construction; when Stage D erosion feeds susp, it settles without a new kernel. CONST_FRAC.
+const SUSP_SETTLE_RATE: float = 0.05     # per-step fraction of suspended sediment that settles out when calm
 
 
 ## Author one record as a Dictionary (unspecified fields default to the ungated/no-op values). Reactant and
@@ -162,6 +184,20 @@ static func records() -> Array:
 		# MELT_RATE, capped by the SNOW present → conserving transfer (snow -= x; water += x). REPLACES the melt
 		# branch of snowice_sphere3d.glsl (which is now deposition-only).
 		_rec(EXCESS_OVER_THRESHOLD, MELT_RATE, TEMP, [[SNOW, 1.0]], [[WATER, 1.0, TGT_SELF]], 0, MELT_TEMP),
+
+		# M4 — DUST LOFT (loose → airborne): wind over LOFT_WIND scours dry loose SEDIMENT into the OWN cell's
+		# airborne DUST. EXCESS_OVER_THRESHOLD on WINDSPEED (sqrt(vel_x²+vel_z²), the derived driver), gated
+		# GATE_DRY (water<=WET_MAX_LOFT) + GATE_NOT_RAINING. Reactant cap on SEDIMENT. REPLACES + DELETES
+		# dust_loft_sphere3d.glsl (the cross-cell scatter into the cell above → re-aimed own-cell; transport
+		# lofts it up next step). A conserving sediment→dust transfer of the ONE mineral substance.
+		_rec(EXCESS_OVER_THRESHOLD, LOFT_RATE, WINDSPEED, [[SEDIMENT, 1.0]], [[DUST, 1.0, TGT_SELF]],
+			GATE_DRY | GATE_NOT_RAINING, LOFT_WIND),
+
+		# M3 — SUSP SETTLE (suspended → loose): calm turbid water drops its load. CONST_FRAC on SUSP →
+		# SEDIMENT (own-cell, conserving). susp is a DEAD phase until Stage D erosion populates it, so this is
+		# an inert forward-looking record today (fires on all-zero susp → no-op); it makes the clean transition
+		# exist by construction so erosion needs no new settle kernel.
+		_rec(CONST_FRAC, SUSP_SETTLE_RATE, SUSP, [[SUSP, 1.0]], [[SEDIMENT, 1.0, TGT_SELF]], 0),
 	]
 
 

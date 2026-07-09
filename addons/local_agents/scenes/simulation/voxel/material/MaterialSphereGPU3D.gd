@@ -140,7 +140,9 @@ func end_frame(_rv: bool = true, _rc: bool = true, _rf: bool = true, _rr: bool =
 	var out: Dictionary = _empty_result()
 	if _rd == null:
 		return out
-	for k in ["temp", "water", "airwater", "lava", "fire", "o2", "co2", "dust", "shock"]:
+	# `sediment` joins the readback so the mineral conservation ledger (mineral_total) sees the loose-regolith
+	# phase — without it, dust→sediment deposits/settles stayed GPU-only and the ledger under-counted.
+	for k in ["temp", "water", "airwater", "lava", "fire", "o2", "co2", "dust", "shock", "sediment"]:
 		out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
 	# biomass + snow are SINGLE (non-ping-pong) GPU-resident channels — read their one buffer directly, not _live().
 	if _bufs.has("biomass"):

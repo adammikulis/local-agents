@@ -63,6 +63,11 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var solid: RID = _single(bufs, "solid")
 	var nbr: RID = _single(bufs, "nbr")
 	var scratch: RID = _single(bufs, "fungus_fert")
+	var sediment: Array = _pair(bufs, "sediment")
+	var dust: Array = _pair(bufs, "dust")
+	var susp: Array = _pair(bufs, "susp")
+	var vel_x: RID = _single(bufs, "vel_x")
+	var vel_z: RID = _single(bufs, "vel_z")
 
 	for p in 2:
 		var back: int = 1 - p
@@ -76,6 +81,11 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[8, fungus[p]],         # LIVE — decompose driver (read-only; producer runs later)
 			[11, biomass],          # SINGLE — photosynthesis grows it, respiration/decay oxidizes it (persistent, GPU-owned)
 			[12, snow],             # SINGLE — freeze (R21) credits it, melt (R22) debits it; SAME H₂O as water/airwater (persistent, GPU-owned)
+			[13, sediment[back]],   # loose regolith — loft (M4) debits it; SAME buffer FireDust transport deposits into + reads back
+			[14, dust[p]],          # airborne dust (LIVE) — loft (M4) credits it here so FireDust transport advects it THIS step
+			[16, susp[back]],       # waterborne suspended sediment — settle (M3) debits it (dead phase today → inert)
+			[17, vel_x],            # SINGLE — WINDSPEED driver leg (sqrt(vel_x²+vel_z²))
+			[18, vel_z],            # SINGLE — WINDSPEED driver leg
 			[10, solid],
 			[15, nbr],
 			[20, scratch],          # fungus-fert SCRATCH product target
@@ -87,12 +97,13 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	if _rd == null or not _pipe.is_valid() or _n_records <= 0:
 		return
 	var dt: float = float(ctx.get("dt", 0.1))
+	var raining: int = int(ctx.get("raining", 0))   # GATE_NOT_RAINING (dust loft M4) reads this
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(16)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, _n_records)
 	pc.encode_float(8, dt)
-	pc.encode_float(12, 0.0)
+	pc.encode_u32(12, raining)
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, _set[parity], 0)
 	rd.compute_list_set_push_constant(cl, pc, pc.size())

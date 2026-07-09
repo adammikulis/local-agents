@@ -26,6 +26,13 @@ layout(set = 0, binding = 7, std430) restrict buffer Detritus { float detritus[]
 layout(set = 0, binding = 8, std430) restrict readonly buffer Fungus { float fungus[]; };
 layout(set = 0, binding = 11, std430) restrict buffer Biomass { float biomass[]; };    // living plant matter (photosynthesis grows it, respiration/decay oxidizes it)
 layout(set = 0, binding = 12, std430) restrict buffer Snow { float snow[]; };          // frozen H₂O (freeze credits it, melt debits it) — SAME substance as water/airwater
+// --- MINERAL phases (rock unification): loose sediment, airborne dust, waterborne suspension. Loft (M4) moves
+// SEDIMENT→DUST own-cell; settle (M3) moves SUSP→SEDIMENT own-cell — same conserved mineral substance. ---------
+layout(set = 0, binding = 13, std430) restrict buffer Sediment { float sediment[]; };  // loose granular regolith
+layout(set = 0, binding = 14, std430) restrict buffer Dust { float dust[]; };           // airborne wind-lofted dust
+layout(set = 0, binding = 16, std430) restrict buffer Susp { float susp[]; };           // waterborne suspended sediment
+layout(set = 0, binding = 17, std430) restrict readonly buffer VelX { float vel_x[]; }; // horizontal wind (WINDSPEED driver)
+layout(set = 0, binding = 18, std430) restrict readonly buffer VelZ { float vel_z[]; };
 // --- Gate inputs + scratch product target + the record table ----------------------------------------------
 layout(set = 0, binding = 10, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };        // idx*6 + slot
@@ -45,6 +52,12 @@ layout(set = 0, binding = 20, std430) restrict buffer Scratch { float scratch[];
 #define LAVA     10
 #define BIOMASS  11
 #define SNOW     12
+#define SEDIMENT  13
+#define DUST      14
+#define SUSP      15
+#define WINDSPEED 16   // derived driver: sqrt(vel_x^2 + vel_z^2) — not a stored channel, read-only
+
+#define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust (dust_loft parity)
 
 #define CONST_FRAC             0
 #define BILINEAR               1
@@ -56,6 +69,8 @@ layout(set = 0, binding = 20, std430) restrict buffer Scratch { float scratch[];
 #define GATE_SURFACE     2
 #define GATE_NEAR_GROUND 4
 #define GATE_DAYLIGHT    8
+#define GATE_DRY         16   // cell is DRY (water <= WET_MAX_LOFT) — sand only lofts when not wet
+#define GATE_NOT_RAINING 32   // global precipitation is off (params.raining == 0) — rain pins ALL dust down
 
 #define TGT_SELF    0
 #define TGT_SCRATCH 3
@@ -86,7 +101,7 @@ layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	uint n_records;
 	float dt;
-	float pad;
+	uint raining;   // 1 = precipitation on → GATE_NOT_RAINING records (dust loft) are suppressed globally
 } params;
 
 // Resolve a channel slot to its per-cell value. Unbound slots read 0 (a record must not reference them).
@@ -100,6 +115,10 @@ float read_ch(int slot, uint i) {
 	if (slot == FUNGUS)   return fungus[i];
 	if (slot == BIOMASS)  return biomass[i];
 	if (slot == SNOW)     return snow[i];
+	if (slot == SEDIMENT) return sediment[i];
+	if (slot == DUST)     return dust[i];
+	if (slot == SUSP)     return susp[i];
+	if (slot == WINDSPEED) return sqrt(vel_x[i] * vel_x[i] + vel_z[i] * vel_z[i]);
 	return 0.0;
 }
 
@@ -114,6 +133,9 @@ void add_ch(int slot, uint i, float v) {
 	else if (slot == DETRITUS) { detritus[i]  = max(0.0, detritus[i] + v); }
 	else if (slot == BIOMASS)  { biomass[i]   = max(0.0, biomass[i]  + v); }
 	else if (slot == SNOW)     { snow[i]      = max(0.0, snow[i]     + v); }
+	else if (slot == SEDIMENT) { sediment[i]  = max(0.0, sediment[i] + v); }
+	else if (slot == DUST)     { dust[i]      = max(0.0, dust[i]     + v); }
+	else if (slot == SUSP)     { susp[i]      = max(0.0, susp[i]     + v); }
 }
 
 // Gate helpers reuse the exact neighbour tests proven in the dissolved kernels.
@@ -134,6 +156,16 @@ bool gate_ok(int mask, uint i) {
 		bool open_above = (au < 0) || (solid[au] == 0.0);
 		if (!open_above) {
 			return false;
+		}
+	}
+	if ((mask & GATE_DRY) != 0) {
+		if (water[i] > WET_MAX_LOFT) {
+			return false;                   // wet sand / puddle never lofts (dust_loft:53 parity)
+		}
+	}
+	if ((mask & GATE_NOT_RAINING) != 0) {
+		if (params.raining != 0u) {
+			return false;                   // rain pins ALL dust down globally (dust_loft raining flag parity)
 		}
 	}
 	// NEAR_GROUND / DAYLIGHT: no live record needs them yet (would require radial+sun_dir bindings).
