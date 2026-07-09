@@ -393,6 +393,15 @@ func fling(impulse: Vector3) -> void:
 	LACreatureRagdoll.launch(self, impulse, false)
 
 
+# Instance hook for the EcologyStimulus.apply_wind_force area broadcast: apply a CONTINUOUS field
+# force (world units/sec) to this creature over `delta`. Distinct from fling()'s discrete impulse —
+# this is the wind/momentum advection path (delegates to LACreatureFieldForces; inert while zero).
+func apply_field_force(force: Vector3, delta: float) -> void:
+	if _held or _ragdoll or _carcass:
+		return
+	LACreatureFieldForces.apply(self, force, delta)
+
+
 # Death: the creature does NOT vanish or spawn a corpse — it becomes a carcass IN PLACE. Its physics
 # shadow is released so the body falls/tumbles (an `impulse`, e.g. a meteor, flings it), and once it
 # settles it stays where it fell and rots (green->black) before finally shrinking away. Same node,
@@ -619,6 +628,11 @@ func _physics_process(delta: float) -> void:
 		return
 
 	var pos: Vector3 = global_position
+
+	# Continuous field-force advection: the substrate's local wind/momentum drags the body (storm
+	# gale, updraft, shock front). Sampled every frame; distinct from the discrete fling() impulse.
+	# The field's wind3_at is zero today, so this is inert until the substrate lights it up.
+	LACreatureFieldForces.tick(self, delta)
 
 	# Temperature comfort + combustion, emergent from the shared field at my feet.
 	if LACreatureMetabolism.tick_environment(self, pos, delta):

@@ -11,7 +11,6 @@ const RockScript: GDScript = preload("res://addons/local_agents/scenes/simulatio
 const TreeScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Tree.gd")
 const FishScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Fish.gd")
 const TrackSystemScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/TrackSystem.gd")
-const NestScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Nest.gd")
 
 const KINDS: Array = ["plant", "rabbit", "fox", "bird", "villager", "fish", "rock", "tree"]
 
@@ -27,6 +26,9 @@ var actors_root: Node3D = null
 var _tracks = null                       # LATrackSystem (observer; footprints)
 var _material = null                      # LAMaterialField — the ONE substrate (water/heat/materials)
 var _cognition_sched = null              # LACognitionScheduler (shared slow-brain budget/queue)
+# Extracted single-owner modules this thin hub delegates to (it stays a facade + step-orchestration):
+var _stimulus: LAEcologyStimulus = null  # stimulus/broadcast bus (disturb/seismic/blast/scare/call/wind)
+var _spawner: LAEcologySpawner = null    # spawn/population placement (spawn, initial seeding, forests, nests)
 
 # Shared day/night clock (0=midnight .. 0.5=noon), set by VoxelWorld each frame. Creatures
 # read is_night() so nocturnal species behave differently after dark — emergent, not scripted.
@@ -97,6 +99,14 @@ func _plant_config() -> Dictionary:
 func setup(_terrain, _actors_root: Node3D) -> void:
 	terrain = _terrain
 	actors_root = _actors_root
+	# Stimulus/broadcast bus (a Node child so it can scan scene groups) + spawn/population placement
+	# module (a plain helper reaching back for shared state). Both single-owner; this hub forwards to them.
+	_stimulus = LAEcologyStimulus.new()
+	_stimulus.name = "EcologyStimulus"
+	add_child(_stimulus)
+	_stimulus.set_material_field(_material)
+	_spawner = LAEcologySpawner.new()
+	_spawner.setup(self)
 	# Scent/waste is now an emergent field channel (LAMaterialScent3D in MaterialField3D), not an observer.
 	_tracks = TrackSystemScript.new()
 	_tracks.name = "TrackSystem"
@@ -124,6 +134,8 @@ func setup(_terrain, _actors_root: Node3D) -> void:
 # and every material. Disasters inject heat/material; everything else reads it.
 func set_material_field(m) -> void:
 	_material = m
+	if _stimulus != null:
+		_stimulus.set_material_field(m)          # the stimulus bus injects ground disturbance / shock into the field
 	# The field owns combustion (no separate fire system) and needs to reach back for
 	# topple/reseed/scare when it consumes a burning actor.
 	if _material != null and _material.has_method("set_ecology"):
@@ -139,27 +151,14 @@ func fire_system():
 	return _material
 
 
-# Broadcast a GROUND-DISTURBANCE stimulus (meteor blast, earthquake, later saturated slope). It just
-# tells the material field the earth was shaken here — loose/steep ground then slumps toward its angle
-# of repose under GRAVITY, in the field's own granular step. No landslide "system"; it's material
-# physics. One channel every disaster reuses.
+# Ground-disturbance + seismic-pulse stimuli live in LAEcologyStimulus (the broadcast bus); these stay
+# as thin forwarders for the disaster actors that call them on the service.
 func disturb_ground(world_pos: Vector3, radius: float, strength: float) -> void:
-	if _material != null and _material.has_method("disturb_terrain"):
-		_material.disturb_terrain(world_pos, radius, strength)
-	# EVERY ground disturbance is also FELT as a seismic pulse — the camera shake emerges from this, so
-	# no caller needs its own shake call. A wider disturbance moves more ground, so it hits harder.
-	broadcast_seismic(world_pos, strength * clampf(radius / 12.0, 0.3, 4.0))
+	_stimulus.disturb_ground(world_pos, radius, strength)
 
 
-# The seismic/shock stimulus is now a REAL PROPAGATING FIELD (LAMaterialShock3D in MaterialField3D), not
-# a point ring: every ground-disturbing event injects a shock wave that radiates outward + is muffled by
-# terrain, so a blast behind a ridge is felt less for free. The ecology just mediates the actor→field call
-# (this is the ONE stimulus every impact/tremor feeds); the camera + energy graph read it back below.
 func broadcast_seismic(world_pos: Vector3, magnitude: float) -> void:
-	if magnitude <= 0.0:
-		return
-	if _material != null and _material.has_method("emit_shock"):
-		_material.emit_shock(world_pos, magnitude)
+	_stimulus.broadcast_seismic(world_pos, magnitude)
 
 
 # Shock energy felt at world_pos — the propagated field value (proximity + terrain muffling emerge from
@@ -252,135 +251,23 @@ func _biomass_at(pos: Vector3) -> float:
 	return _material.biomass_at(s.x, s.y, s.z)
 
 
+# Spawning + population placement live in LAEcologyStimulus's sibling, LAEcologySpawner. These stay as
+# thin forwarders: the public spawn API for external callers, plus the surface/tangent helpers the
+# per-tick breeding/seeding below still reuse.
 func spawn(kind: String, world_pos: Vector3) -> Node:
-	if actors_root == null:
-		push_warning("LAEcologyService.spawn before setup()")
-		return null
-	var placed = _place_on_surface(world_pos)
-	if placed == null:
-		# surface not ready: queue for retry, return null (caller may ignore)
-		_pending.append({"kind": kind, "pos": world_pos, "tries": 0})
-		return null
-	if (kind == "tree" or kind == "plant") and not _can_grow_here(placed):
-		return null   # too cold / snow-covered — vegetation doesn't take here (emergent treeline; no retry)
-	return _instance_actor(kind, placed)
-
-
-# Founder clustering — a HERDING species starts as a few tight bands, not a planet-wide smear, so local
-# same-species density is high enough that leadership finds followers and durable kin herds form. One founder
-# cluster per ~this many members (at least one); members scatter around the founder within a tangent-plane
-# spread and share ONE family_id (the permanent kin bond). Solitary species keep the independent scatter.
-const HERD_CLUSTER_SIZE: int = 18        # target members per founder cluster (fewer, bigger bands → fewer leaders)
-const HERD_CLUSTER_SPREAD: float = 8.0   # tangent-plane radius (metres) members scatter around a founder —
-                                         # kept inside a ground species' leadership radius (flock_radius×1.5)
-                                         # so cluster-mates fall within one leader's neighbourhood from frame 0
+	return _spawner.spawn(kind, world_pos)
 
 
 func spawn_initial(counts: Dictionary) -> void:
-	for kind in counts.keys():
-		var kind_s: String = String(kind)
-		var n: int = int(counts[kind])
-		if n <= 0:
-			continue
-		var cfg: Dictionary = _species_config(kind_s)
-		if bool(cfg.get("herd", false)):
-			_spawn_herd_founders(kind_s, n)
-		else:
-			for i in n:
-				_spawn_scattered_one(kind_s)
+	_spawner.spawn_initial(counts)
 
 
-# Place ONE individual at an independent random surface point (queue if the patch isn't meshed yet, skip
-# vegetation that can't germinate here). The pre-clustering behaviour, kept for solitary / non-herd kinds.
-func _spawn_scattered_one(kind: String) -> void:
-	var p: Vector3 = _random_spawn_point()
-	var placed = _place_on_surface(p)
-	if placed == null:
-		_pending.append({"kind": kind, "pos": p, "tries": 0, "family_id": -1})
-	elif (kind == "tree" or kind == "plant") and not _can_grow_here(placed):
-		pass   # too cold / snow-covered — skip this vegetation placement (emergent treeline)
-	else:
-		_instance_actor(kind, placed)
+func _place_on_surface(world_pos):
+	return _spawner._place_on_surface(world_pos)
 
 
-# Seed a herding species as K founder clusters (K scales with the count). Each cluster gets a fresh family_id
-# and scatters its members around one founder site in the founder's tangent plane, so kin are spatially local
-# from frame 0 — leadership then elects one leader per band with real followers. Total count is preserved.
-# The founding elder of a cluster: a head-start age so it is unambiguously the highest-ranked member of its
-# family and its cohort follows IT from the very first election — one stable leader per band instead of a
-# tie-break lottery among age-0 equals (which was the main run-to-run variance in the follower count). The
-# elder sits at the cluster centre, within every cohort member's leadership radius. Emergent, not identity:
-# the founder is simply the lineage's eldest; nothing is hard-coded per species.
-const FOUNDER_ELDER_AGE_MULT: float = 1.6   # founder age = maturity_age × this (mature; clearly out-ranks the age-0 cohort)
-
-
-func _seed_elder(node) -> void:
-	if node != null and is_instance_valid(node) and node is Node3D:
-		node.age = float(node.maturity_age) * FOUNDER_ELDER_AGE_MULT
-
-
-func _spawn_herd_founders(kind: String, n: int) -> void:
-	var clusters: int = maxi(1, int(round(float(n) / float(HERD_CLUSTER_SIZE))))
-	var base: int = n / clusters
-	var extra: int = n % clusters               # spread the remainder one-per-cluster so totals match exactly
-	for ci in range(clusters):
-		var members: int = base + (1 if ci < extra else 0)
-		if members <= 0:
-			continue
-		var founder_raw: Vector3 = _random_spawn_point()   # cluster centre (raw sphere point; projected below)
-		var fam: int = _kinship.new_family()
-		for mi in range(members):
-			var raw: Vector3 = founder_raw
-			if mi > 0:
-				raw = _tangent_offset_raw(founder_raw, randf_range(-HERD_CLUSTER_SPREAD, HERD_CLUSTER_SPREAD), randf_range(-HERD_CLUSTER_SPREAD, HERD_CLUSTER_SPREAD))
-			var placed = _place_on_surface(raw)
-			if placed == null:
-				_pending.append({"kind": kind, "pos": raw, "tries": 0, "family_id": fam, "elder": mi == 0})
-			else:
-				var node = _instance_actor(kind, placed, null, fam)
-				if mi == 0:
-					_seed_elder(node)   # the founder at the cluster centre is the family elder → its band's stable leader
-
-
-func _random_spawn_point() -> Vector3:
-	# On a sphere the whole surface is fair game: pick a random unit direction from the planet centre and
-	# hand back a point along it (above the surface); _place_on_surface() re-projects it down to the meshed
-	# ground radially. (The planet is the sole world — the old flat XZ scatter is gone.)
-	return terrain.planet_center() + _random_sphere_dir() * (terrain.planet_radius() + 1.0)
-
-
-# A uniform-ish random unit direction on the sphere (reject the degenerate near-zero vector).
-func _random_sphere_dir() -> Vector3:
-	var v: Vector3 = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0)
-	while v.length() < 0.05:
-		v = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0)
-	return v.normalized()
-
-
-# Offset a surface anchor by (u, v) metres within its LOCAL TANGENT PLANE, then re-project the
-# displaced point back onto the sphere surface. This keeps clustered spawns (forests, nests, seeds)
-# hugging the ground instead of drifting radially in/out as a world-axis XZ offset would near the
-# "sides" of the globe. Returns a surface point (NAN-x if that patch isn't meshed).
 func _tangent_offset_point(anchor: Vector3, u: float, v: float) -> Vector3:
-	var pc: Vector3 = terrain.planet_center()
-	return terrain.surface_point((_tangent_offset_raw(anchor, u, v) - pc).normalized())
-
-
-# The RAW (un-projected) tangent-plane displacement of `anchor` by (u, v) metres. Kept separate from
-# _tangent_offset_point so callers that project themselves (or queue an unmeshed point for retry) can reuse
-# the offset math without forcing a surface lookup that fails on not-yet-meshed ground.
-func _tangent_offset_raw(anchor: Vector3, u: float, v: float) -> Vector3:
-	var pc: Vector3 = terrain.planet_center()
-	var up: Vector3 = terrain.up_at(anchor)
-	if up.length() < 0.001:
-		up = (anchor - pc).normalized()
-	up = up.normalized()
-	var ref: Vector3 = Vector3.RIGHT
-	if absf(up.dot(ref)) > 0.99:
-		ref = Vector3.FORWARD
-	var t1: Vector3 = ref.cross(up).normalized()
-	var t2: Vector3 = up.cross(t1).normalized()
-	return anchor + t1 * u + t2 * v
+	return _spawner._tangent_offset_point(anchor, u, v)
 
 
 # Orient a spawned static actor (tree/plant/rock) so its local +Y points along the radial up at its
@@ -409,21 +296,6 @@ func _orient_to_surface(node: Node3D, pos: Vector3) -> void:
 # True when `placed` sits in water — inside the planet's sea shell (at or below the sea radius).
 func _is_water_pos(placed: Vector3) -> bool:
 	return (placed - terrain.planet_center()).length() <= terrain.sea_radius()
-
-
-# Resolve a surface position for a world point by projecting it radially onto the meshed sphere surface
-# (via its direction from the planet centre). Returns a positioned Vector3, or null if the terrain isn't
-# meshed there yet.
-func _place_on_surface(world_pos: Vector3):
-	if terrain == null:
-		return null
-	var d: Vector3 = world_pos - terrain.planet_center()
-	if is_nan(d.x) or d.length() < 0.001:
-		return null
-	var p: Vector3 = terrain.surface_point(d.normalized())
-	if is_nan(p.x):
-		return null
-	return p
 
 
 func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: int = -1) -> Node:
@@ -496,117 +368,22 @@ func _tree_config() -> Dictionary:
 	return {"species": "pine" if pine else "oak"}
 
 
-# Scatter ambient rocks and SEED clustered forests across the world (independent of meteors). Each forest
-# cluster's centre is chosen as the WARMEST / most-fertile of several candidate sites (the same climate the
-# treeline reads), so groves start on the good continents rather than the frozen poles. From these seeds the
-# groves DENSIFY over the run wherever photosynthesis has built biomass (see _tick_tree_seeding).
-const FOREST_CLUSTER_TRIES: int = 5      # candidate sites weighed per cluster (pick the warmest/most fertile)
-const FOREST_CLUSTER_SPREAD: float = 15.0 # tangent-plane radius the initial cluster scatters over (metres)
+# Ambient rock + forest scatter lives in LAEcologySpawner; thin forwarder for the world spawn controller.
 func populate_environment(rock_count: int, forest_clusters: int) -> void:
-	for i in rock_count:
-		spawn("rock", _random_spawn_point())
-	for c in forest_clusters:
-		var center: Vector3 = _best_forest_center(FOREST_CLUSTER_TRIES)
-		if is_nan(center.x):
-			continue
-		var trees: int = randi_range(11, 20)
-		for t in trees:
-			# Scatter the cluster in the centre's tangent plane, then re-project to the sphere.
-			spawn("tree", _tangent_offset_point(center, randf_range(-FOREST_CLUSTER_SPREAD, FOREST_CLUSTER_SPREAD), randf_range(-FOREST_CLUSTER_SPREAD, FOREST_CLUSTER_SPREAD)))
+	_spawner.populate_environment(rock_count, forest_clusters)
 
 
-# Pick the most forest-suitable of `tries` random surface points: highest biomass, warmest, snow-free. At
-# spawn biomass is ~0 everywhere so warmth (the photosynthesis driver) decides — clusters land on the warm
-# continents; later succession then reads the biomass those forests build. NAN-x if no meshed site found.
-func _best_forest_center(tries: int) -> Vector3:
-	var best: Vector3 = Vector3(NAN, 0.0, 0.0)
-	var best_score: float = -INF
-	for i in range(tries):
-		var placed = _place_on_surface(_random_spawn_point())
-		if placed == null or not _can_grow_here(placed):
-			continue
-		var score: float = _forest_suitability(placed)
-		if score > best_score:
-			best_score = score
-			best = placed
-	return best
-
-
-# Forest suitability of a surface point: biomass the photosynthesis chemistry has fixed there (weighted
-# high) plus the local warmth above the germination threshold (the biomass driver, so it ranks sites before
-# any biomass exists). Higher = better forest ground; drives both initial siting and grove succession.
-const FOREST_BIOMASS_WEIGHT: float = 12.0
-func _forest_suitability(pos: Vector3) -> float:
-	var warmth: float = 0.0
-	if _material != null and _material.has_method("temp_at"):
-		warmth = _material.temp_at(pos.x, pos.z, pos.y) - GROW_MIN_TEMP
-	return _biomass_at(pos) * FOREST_BIOMASS_WEIGHT + warmth
-
-
-# Deterministic point-source falloff: MAX (1.0) at the centre, 0.0 at/beyond the edge, squared
-# for a sharp peak so a blast/bolt kills hard near the impact and tapers quickly toward the rim.
-# No randomness — the same distance always yields the same fraction. Shared by every point blast
-# (damage_sphere here, lightning's fish electrocution).
-static func blast_falloff(d: float, radius: float) -> float:
-	if radius <= 0.0:
-		return 0.0
-	var f: float = clampf(1.0 - d / radius, 0.0, 1.0)
-	return f * f
-
-
-# A point blast (meteor, earthquake, lightning). Deals GRADED, deterministic damage: each actor in
-# range with take_damage() loses base_damage * falloff(distance) HP and dies only when its HP hits 0
-# — lethal at the centre, survivable at the rim. `base_damage` defaults large so the centre still
-# reproduces the old lethal-blast feel. Actors without take_damage (plants/rocks) fall back to the
-# old topple/die/clear behaviour.
+# Point-blast + area terror/wind stimuli live in LAEcologyStimulus; thin forwarders for the disasters.
 func damage_sphere(world_pos: Vector3, radius: float, base_damage: float = 1000.0) -> void:
-	var r2: float = radius * radius
-	for actor in get_tree().get_nodes_in_group("selectable"):
-		if not is_instance_valid(actor) or not (actor is Node3D):
-			continue
-		var a: Node3D = actor as Node3D
-		var d2: float = a.global_position.distance_squared_to(world_pos)
-		if d2 > r2:
-			continue
-		if a.has_method("take_damage"):
-			var falloff: float = blast_falloff(sqrt(d2), radius)
-			if falloff <= 0.0:
-				continue
-			# Fling scales with proximity too, so the killing blow throws the corpse outward.
-			var away: Vector3 = a.global_position - world_pos
-			away.y = absf(away.y) + 2.0
-			var impulse: Vector3 = away.normalized() * (14.0 + 34.0 * falloff)
-			a.take_damage(base_damage * falloff, "blast", impulse)
-		elif a.has_method("topple"):
-			# Trees don't vanish — the blast knocks them over, falling away from impact.
-			var dir: Vector3 = a.global_position - world_pos
-			dir.y = 0.0
-			a.topple(dir)
-		elif a.has_method("die"):
-			var away: Vector3 = a.global_position - world_pos
-			away.y = absf(away.y) + 2.0
-			var force: float = 1.0 - a.global_position.distance_to(world_pos) / maxf(1.0, radius)
-			a.die("meteor", away.normalized() * (14.0 + 34.0 * force))
-		elif not a.is_in_group("corpse"):
-			a.queue_free()
+	_stimulus.damage_sphere(world_pos, radius, base_damage)
 
 
-# Broadcast a felt/heard terror event (meteor impact, etc). Every creature within
-# `radius` panics and sprints away, more intensely the closer it is.
 func broadcast_scare(world_pos: Vector3, radius: float, base_intensity: float = 1.0) -> void:
-	if radius <= 0.0:
-		return
-	for actor in get_tree().get_nodes_in_group("selectable"):
-		if not is_instance_valid(actor) or not (actor is Node3D):
-			continue
-		if not actor.has_method("add_fear"):
-			continue
-		var d: float = (actor as Node3D).global_position.distance_to(world_pos)
-		if d > radius:
-			continue
-		var closeness: float = 1.0 - (d / radius)          # 1 at impact, 0 at edge
-		var panic_seconds: float = lerpf(2.0, 7.0, closeness) * base_intensity
-		actor.call("add_fear", world_pos, panic_seconds)
+	_stimulus.broadcast_scare(world_pos, radius, base_intensity)
+
+
+func apply_wind_force(world_pos: Vector3, radius: float, force_fn: Callable, delta: float = 0.0) -> void:
+	_stimulus.apply_wind_force(world_pos, radius, force_fn, delta)
 
 
 func _physics_process(delta: float) -> void:
@@ -643,7 +420,7 @@ func _process_pending() -> void:
 				continue   # surface resolved somewhere too cold / snowy for vegetation — drop it
 			var node = _instance_actor(k, placed, null, int(entry.get("family_id", -1)))
 			if bool(entry.get("elder", false)):
-				_seed_elder(node)   # a founder whose centre wasn't meshed at boot still becomes its band's elder
+				_spawner._seed_elder(node)   # a founder whose centre wasn't meshed at boot still becomes its band's elder
 		else:
 			entry["tries"] = int(entry["tries"]) + 1
 			if int(entry["tries"]) < 300:      # keep retrying ~ a few seconds
@@ -709,17 +486,9 @@ func _inherit_nest(parent, child) -> void:
 		nn.register_young()
 
 
-# Place a shelter (LANest) at `site` for a nesting creature. Terrain-snapped for ground/water
-# shelters; kept at the caller's Y for tree roosts (in_tree=true).
+# Nest placement lives in LAEcologySpawner; thin forwarder for the nesting creature that establishes a home.
 func spawn_nest(site: Vector3, nest_species: String, owner_family: int, in_tree: bool):
-	if actors_root == null:
-		return null
-	var nest = NestScript.new()
-	actors_root.add_child(nest)
-	nest.global_position = site
-	if nest.has_method("setup"):
-		nest.setup(terrain, nest_species, owner_family, in_tree)
-	return nest
+	return _spawner.spawn_nest(site, nest_species, owner_family, in_tree)
 
 
 # Build a child genome from two parents: rare Baldwin canalization of each parent's deepest lifelong
@@ -743,18 +512,9 @@ func _breed_genome(pa, pb):
 	return child
 
 
-# Relay an animal call (alarm / distress / forage) to everything in earshot. Omnidirectional: each
-# listener decides by its OWN hearing_range, so no line of sight is needed — this is how a sentinel's
-# screech flushes a whole herd and how food calls teach kin past the vision cone.
+# Animal-call relay lives in LAEcologyStimulus (the broadcast bus); thin forwarder for the caller creature.
 func broadcast_call(world_pos: Vector3, from_species: String, call_type: String, caller) -> void:
-	for actor in get_tree().get_nodes_in_group("creature"):
-		if actor == caller or not is_instance_valid(actor) or not (actor is Node3D):
-			continue
-		if not actor.has_method("hear_call"):
-			continue
-		var hr: float = float(actor.get("hearing_range"))
-		if (actor as Node3D).global_position.distance_to(world_pos) <= hr:
-			actor.call("hear_call", world_pos, from_species, call_type, caller)
+	_stimulus.broadcast_call(world_pos, from_species, call_type, caller)
 
 
 # Grow a plant at world_pos if the plant population is under its cap. Called by LAMaterialScent3D where
@@ -806,7 +566,7 @@ func _random_aquatic_point(cfg: Dictionary) -> Vector3:
 	var pc: Vector3 = terrain.planet_center()
 	var sea_r: float = terrain.sea_radius()
 	for i in range(AQUATIC_SAMPLE_TRIES):
-		var dir: Vector3 = _random_sphere_dir()
+		var dir: Vector3 = LAEcologySpawner._random_sphere_dir()
 		var ground_r: float = terrain.surface_radius(dir)
 		if is_nan(ground_r) or ground_r >= sea_r:
 			continue                                  # unmeshed, or dry land poking above sea level
