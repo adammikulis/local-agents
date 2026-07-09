@@ -61,7 +61,6 @@ var _grid: RefCounted = null
 var _cc: int = 0
 var _phase: int = 0                 # ping-pong phase ∈ {0,1}; flips once per step (NOT CPU parity)
 var _groups: int = 0
-var _send_size: int = 0
 var _bufs: Dictionary = {}          # key → RID (single) or [rid_a, rid_b] (pair)
 var _passes: Array = []
 var _ctx: Dictionary = {}
@@ -82,7 +81,6 @@ func setup(field) -> void:
 	_bufs["scent"] = [_new_f(_cc * SCENT_PLANES), _new_f(_cc * SCENT_PLANES)]
 	for name in SINGLE_CHANNELS:
 		_bufs[name] = _new_f(_cc)
-	_send_size = _cc * 6 * 4
 	_bufs["send"] = _new_f(_cc * 6)
 	# Sphere geometry SSBOs: neighbour table (int32, kernel slot order), radial + position (flat float3).
 	var nbr_bytes: PackedByteArray = _grid.neighbours_kernel_order().to_byte_array()
@@ -131,8 +129,10 @@ func set_sea_radius(r: float) -> void:
 func step() -> void:
 	if _rd == null:
 		return
+	# The `send` outflow scratch needs no external clear: the 2-pass finite-volume kernels (WaterSlumpLava)
+	# self-zero all 6 of each cell's send slots at the top of pass 0, before any read. Clearing here (or inside
+	# the pass) is both redundant and — inside an open compute list — illegal, so it is omitted.
 	for p in _passes:
-		_rd.buffer_clear(_bufs["send"], 0, _send_size)   # clean scratch for any 2-pass CA
 		var cl: int = _rd.compute_list_begin()
 		p.dispatch(_rd, cl, _phase, _ctx, _cc, _groups)
 		_rd.compute_list_end()
