@@ -194,6 +194,30 @@ func current_objective() -> String:
 	return (_stages[_current] as LAProgressionStage).title
 
 
+## True when gating is off (sandbox) — the HUD hides objectives and shows a Sandbox tag instead.
+func is_sandbox() -> bool:
+	return _sandbox
+
+
+## Read-only snapshot of the active objective for a HUD: title, 1-based stage index + total, and progress
+## toward the threshold (value + ratio, read from the SAME live telemetry the evaluator uses — no duplicated
+## metric logic). `done` is true once the ladder is complete (or in sandbox). Cheap: one telemetry snapshot.
+func current_progress() -> Dictionary:
+	var total: int = _stages.size()
+	if _sandbox or _current >= total:
+		return {
+			"sandbox": _sandbox, "title": "", "stage": total, "stages_total": total,
+			"value": 0.0, "threshold": 0.0, "ratio": 1.0, "done": true,
+		}
+	var stage: LAProgressionStage = _stages[_current]
+	var value: float = _read_metric(LASimReport.snapshot(), stage.metric)
+	var denom: float = maxf(stage.threshold, 0.0001)
+	return {
+		"sandbox": false, "title": stage.title, "stage": _current + 1, "stages_total": total,
+		"value": value, "threshold": stage.threshold, "ratio": clampf(value / denom, 0.0, 1.0), "done": false,
+	}
+
+
 # --- Objective evaluation (cadence, not per-frame) --------------------------------------------------------
 
 func _process(delta: float) -> void:
