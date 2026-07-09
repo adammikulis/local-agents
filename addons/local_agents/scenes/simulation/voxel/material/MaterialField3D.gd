@@ -120,7 +120,6 @@ const QueriesScript: GDScript = preload("res://addons/local_agents/scenes/simula
 const InjectScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldInject3D.gd")
 var _gpu = null                                          # LAMaterialSphereGPU3D (local RenderingDevice) or null
 var _use_gpu: bool = false
-var _dbg_sphere_frames: int = 0
 var _core_temp: float = 0.0                              # geothermal core pin temperature (0 = disarmed)
 var _core_cells: PackedInt32Array = PackedInt32Array()  # static innermost-shell cell indices (built once)
 # Read-only query accessors + the write-side injection facade (factored out; see those files).
@@ -477,12 +476,10 @@ func _exit_tree() -> void:
 func _sphere_process(delta: float) -> void:
 	if not _ready_sim:
 		if _terrain == null or not _terrain.has_method("is_solid"):
-			if OS.has_environment("LA_SPHERE_DBG"): print("SPHEREDBG: waiting for terrain (terrain=%s)" % str(_terrain))
 			return
 		_sample_solidity_sphere()
 		activate()                 # is_sphere() → picks SphereGPUScript + sets _use_gpu
 		_ready_sim = true
-		if OS.has_environment("LA_SPHERE_DBG"): print("SPHEREDBG: activated use_gpu=%s avail=%s gpu=%s" % [str(_use_gpu), str(SphereGPUScript.available()), str(_gpu)])
 		return
 	if not _use_gpu:
 		return
@@ -510,18 +507,6 @@ func _sphere_process(delta: float) -> void:
 	var res: Dictionary = _gpu.end_frame()
 	_apply_sphere_readback(res)
 	LASimReport.gauge("field_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
-	if OS.has_environment("LA_SPHERE_DBG"):
-		_dbg_sphere_frames += 1
-		if _dbg_sphere_frames <= 3 or _dbg_sphere_frames % 60 == 0:
-			var tt: PackedFloat32Array = res.get("temp", PackedFloat32Array())
-			var mx: float = -1.0e20
-			var mn: float = 1.0e20
-			for v in tt:
-				if v > mx: mx = v
-				if v < mn: mn = v
-			var sd: Vector3 = _sun_light.global_transform.basis.z if _sun_light != null else Vector3.ZERO
-			print("SPHEREDBG f=%d steps=%d use_gpu=%s cc=%d ret=%d sun=%s tmin=%.2f tmax=%.2f" % [
-				_dbg_sphere_frames, steps, str(_use_gpu), _cell_count, tt.size(), str(sd), mn, mx])
 
 
 ## Scatter every channel the sphere driver read back into its CPU array, so actor world-space queries
