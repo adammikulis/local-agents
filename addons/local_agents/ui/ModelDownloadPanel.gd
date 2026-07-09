@@ -36,10 +36,14 @@ var _shoot_counter: int = 0
 var _demo_installed_id: String = ""
 
 func _ready() -> void:
-	_parse_cmdline()
-
-	if _run_selftest_if_requested():
-		return
+	# Self-harness (cmdline parsing, selftest, screenshot) only fires when this panel is launched as
+	# its own scene root. Embedded inside the model manager's Download tab it stays a plain panel and
+	# the host owns the harness, so the two do not both try to screenshot + quit.
+	var is_scene_root: bool = get_tree() != null and get_tree().current_scene == self
+	if is_scene_root:
+		_parse_cmdline()
+		if _run_selftest_if_requested():
+			return
 
 	_manager = ModelDownloadManager.new()
 	_manager.name = "ModelDownloadManager"
