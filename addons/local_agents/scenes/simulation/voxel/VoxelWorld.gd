@@ -31,6 +31,7 @@ const InputControllerScript: GDScript = preload("res://addons/local_agents/scene
 const DebugWiringScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelDebugWiring.gd")
 const AudioControllerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelAudioController.gd")
 const GameProgressionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/game/GameProgression.gd")
+const GameHudScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/GameHud.gd")
 
 # --- SOLAR-SYSTEM-FIRST: the world is a star + planet body (see TODO). Radial is the default; flat retired. ---
 const PLANET_RADIUS: float = 250.0
@@ -149,6 +150,8 @@ func _ready() -> void:
 	_hud.name = "HUD"
 	add_child(_hud)
 	_hud.set_status("Streaming terrain...")
+	# Gamified overlay (objective/progress/stage + unlock toasts + planet summary); reads progression + telemetry.
+	add_child(GameHudScript.new())
 
 	# --- Procedural audio ---
 	_audio = AudioDirectorScript.new()
