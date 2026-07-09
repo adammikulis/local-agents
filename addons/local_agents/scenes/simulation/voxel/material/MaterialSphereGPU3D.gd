@@ -183,9 +183,13 @@ func set_raining(v: bool) -> void:
 	_ctx["raining"] = 1 if v else 0
 
 
-## Free every RID this driver owns, THEN the local RenderingDevice — must run BEFORE engine shutdown
-## (freeing a local RD during NSApplication terminate trips a recursive_mutex crash under windowed metal).
-## Each pass releases its own pipelines/shaders/sets/scratch first so the device frees with no leaked RIDs.
+## Free every RID this driver owns, THEN the local RenderingDevice — run while the tree is still up (via
+## MaterialField3D._exit_tree), never deferred to engine shutdown. Each pass releases its own uniform sets /
+## pipelines / shaders / owned scratch first (borrowed `bufs` entries are freed HERE, not by the pass), so the
+## device frees with 0 leaked RIDs. NOTE: this clean teardown does NOT prevent the separate `rc=134`
+## SIGABRT that MoltenVK throws in the `NSApplication terminate:` → `recursive_mutex` observer at process exit
+## — that fires after dispose() returns, with no GDScript frames, and is engine-internal (see
+## GODOT_BEST_PRACTICES.md → Error Log, 2026-07-09). Do not add a teardown hack to mask it.
 func dispose() -> void:
 	if _rd == null:
 		return

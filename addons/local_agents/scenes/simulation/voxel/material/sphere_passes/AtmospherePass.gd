@@ -174,6 +174,17 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 
 
 func dispose(rd: RenderingDevice) -> void:
+	if rd == null:
+		return
+	# Uniform sets first (dependent-first), then pipelines/shaders, then the private scratch buffers.
+	for s: Array in [_evap_set, _transport_set, _precip_set, _rain_set]:
+		for r in s:
+			if r is RID and r.is_valid():
+				rd.free_rid(r)
+	_evap_set = [RID(), RID()]
+	_transport_set = [RID(), RID()]
+	_precip_set = [RID(), RID()]
+	_rain_set = [RID(), RID()]
 	for r in [_transport_pipe, _evap_pipe, _precip_pipe, _rain_pipe,
 			_transport_shader, _evap_shader, _precip_shader, _rain_shader,
 			_rain_buf, _boil_buf]:

@@ -211,6 +211,47 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	_run(rd, cl, _shock_pipe, _shock_set[parity], _pc_u4(cc), groups)
 
 
+## Free every RID this pass owns (uniform sets, then pipelines, then shaders), dependent-first, before the
+## driver drops the local RenderingDevice. All buffer bindings are borrowed from the driver's bufs (none owned here).
+func dispose(rd: RenderingDevice) -> void:
+	if rd == null:
+		return
+	if _scent_wind_set.is_valid():
+		rd.free_rid(_scent_wind_set)
+		_scent_wind_set = RID()
+	for s: Array in [_scent_transport_set, _scent_fert_set, _fungus_set,
+			_fungus_fert_set, _snowice_set, _shock_set]:
+		for r in s:
+			if r is RID and r.is_valid():
+				rd.free_rid(r)
+	_scent_transport_set = [RID(), RID()]
+	_scent_fert_set = [RID(), RID()]
+	_fungus_set = [RID(), RID()]
+	_fungus_fert_set = [RID(), RID()]
+	_snowice_set = [RID(), RID()]
+	_shock_set = [RID(), RID()]
+	for r: RID in [_scent_wind_pipe, _scent_transport_pipe, _scent_fert_pipe, _fungus_pipe,
+			_fungus_fert_pipe, _snowice_pipe, _shock_pipe,
+			_scent_wind_shader, _scent_transport_shader, _scent_fert_shader, _fungus_shader,
+			_fungus_fert_shader, _snowice_shader, _shock_shader]:
+		if r.is_valid():
+			rd.free_rid(r)
+	_scent_wind_pipe = RID()
+	_scent_transport_pipe = RID()
+	_scent_fert_pipe = RID()
+	_fungus_pipe = RID()
+	_fungus_fert_pipe = RID()
+	_snowice_pipe = RID()
+	_shock_pipe = RID()
+	_scent_wind_shader = RID()
+	_scent_transport_shader = RID()
+	_scent_fert_shader = RID()
+	_fungus_shader = RID()
+	_fungus_fert_shader = RID()
+	_snowice_shader = RID()
+	_shock_shader = RID()
+
+
 # --- helpers ------------------------------------------------------------------
 
 ## Records one single-pass CA into the open compute list, then a barrier so its writes are ordered ahead

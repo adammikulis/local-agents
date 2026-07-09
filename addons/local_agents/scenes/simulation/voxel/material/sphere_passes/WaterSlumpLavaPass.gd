@@ -121,6 +121,31 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, _ctx: Dictionary, cc: i
 	_two_pass(rd, cl, _lava_pipe, _lava_set[parity], cc, groups)
 
 
+## Free every RID this pass owns (uniform sets, then pipelines, then shaders), in dependent-first order,
+## before the driver drops the local RenderingDevice. The `send` scratch is BORROWED from the driver's
+## `bufs` (not created here) so it is NOT freed here — the driver frees it.
+func dispose(rd: RenderingDevice) -> void:
+	if rd == null:
+		return
+	for s: Array in [_water_set, _slump_set, _lava_set]:
+		for r in s:
+			if r is RID and r.is_valid():
+				rd.free_rid(r)
+	_water_set = [RID(), RID()]
+	_slump_set = [RID(), RID()]
+	_lava_set = [RID(), RID()]
+	for r: RID in [_water_pipe, _slump_pipe, _lava_pipe,
+			_water_shader, _slump_shader, _lava_shader]:
+		if r.is_valid():
+			rd.free_rid(r)
+	_water_pipe = RID()
+	_slump_pipe = RID()
+	_lava_pipe = RID()
+	_water_shader = RID()
+	_slump_shader = RID()
+	_lava_shader = RID()
+
+
 # --- helpers ------------------------------------------------------------------
 
 ## Records one 2-pass finite-volume CA into the open compute list: run pass 0 (outflow -> send), barrier, run

@@ -540,8 +540,10 @@ func _seed_sphere_sea() -> void:
 			_water[c] = 1.0
 			_static[c] = 1
 
-## Release the GPU driver's local RenderingDevice while the tree is still up — deferring it to engine
-## shutdown crashes (recursive_mutex under windowed metal). Covers both the box and sphere drivers.
+## Release the GPU driver's local RenderingDevice while the tree is still up — freeing every RID cleanly so
+## the device reports 0 leaked RIDs. (This does NOT prevent the engine-internal `rc=134` MoltenVK
+## `recursive_mutex` abort at NSApplication-terminate — see GODOT_BEST_PRACTICES.md → Error Log, 2026-07-09.)
+## Covers both the box and sphere drivers.
 func _exit_tree() -> void:
 	if _gpu != null and _gpu.has_method("dispose"):
 		_gpu.dispose()

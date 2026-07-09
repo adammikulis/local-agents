@@ -207,6 +207,48 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	rd.compute_list_add_barrier(cl)          # committed lava/temp visible to downstream passes
 
 
+## Free every RID this pass owns, dependent-first: uniform sets, then pipelines, then the private scratch
+## buffers, then the shaders — before the driver drops the local RenderingDevice. `_scratch` and
+## `_cond_scratch` are created by this pass (not borrowed), so they ARE freed here.
+func dispose(rd: RenderingDevice) -> void:
+	if rd == null:
+		return
+	for s: Array in [_conduct_set, _copy_set, _solar_set, _buoy_set,
+			_cool_set, _lava_phase_set, _magma_set]:
+		for r in s:
+			if r is RID and r.is_valid():
+				rd.free_rid(r)
+	_conduct_set = [RID(), RID()]
+	_copy_set = [RID(), RID()]
+	_solar_set = [RID(), RID()]
+	_buoy_set = [RID(), RID()]
+	_cool_set = [RID(), RID()]
+	_lava_phase_set = [RID(), RID()]
+	_magma_set = [RID(), RID()]
+	for r: RID in [_conduct_pipe, _copy_pipe, _solar_pipe, _buoy_pipe, _cool_pipe,
+			_lava_phase_pipe, _magma_pipe, _scratch, _cond_scratch,
+			_conduct_shader, _copy_shader, _solar_shader, _buoy_shader, _cool_shader,
+			_lava_phase_shader, _magma_shader]:
+		if r.is_valid():
+			rd.free_rid(r)
+	_conduct_pipe = RID()
+	_copy_pipe = RID()
+	_solar_pipe = RID()
+	_buoy_pipe = RID()
+	_cool_pipe = RID()
+	_lava_phase_pipe = RID()
+	_magma_pipe = RID()
+	_scratch = RID()
+	_cond_scratch = RID()
+	_conduct_shader = RID()
+	_copy_shader = RID()
+	_solar_shader = RID()
+	_buoy_shader = RID()
+	_cool_shader = RID()
+	_lava_phase_shader = RID()
+	_magma_shader = RID()
+
+
 # --- helpers ---------------------------------------------------------------------------------------------
 
 func _load_shader(rd: RenderingDevice, path: String) -> RID:

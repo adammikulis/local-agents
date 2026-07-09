@@ -124,6 +124,32 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	# (dust LOFT is now DEFS record M4, run in ReactionsPass before this pass — kernel deleted.)
 
 
+## Free every RID this pass owns (uniform sets, then pipelines, then shaders), dependent-first, before the
+## driver drops the local RenderingDevice. This pass owns no scratch buffers (all bindings are borrowed bufs).
+func dispose(rd: RenderingDevice) -> void:
+	if rd == null:
+		return
+	for s: Array in [_fire_set, _transport_set]:
+		for r in s:
+			if r is RID and r.is_valid():
+				rd.free_rid(r)
+	_fire_set = [RID(), RID()]
+	_transport_set = [RID(), RID()]
+	if _outscale_set.is_valid():
+		rd.free_rid(_outscale_set)
+		_outscale_set = RID()
+	for r: RID in [_fire_pipe, _outscale_pipe, _transport_pipe,
+			_fire_shader, _outscale_shader, _transport_shader]:
+		if r.is_valid():
+			rd.free_rid(r)
+	_fire_pipe = RID()
+	_outscale_pipe = RID()
+	_transport_pipe = RID()
+	_fire_shader = RID()
+	_outscale_shader = RID()
+	_transport_shader = RID()
+
+
 # --- helpers --------------------------------------------------------------------------------------
 
 func _build_set(rd: RenderingDevice, shader: RID, entries: Array) -> RID:

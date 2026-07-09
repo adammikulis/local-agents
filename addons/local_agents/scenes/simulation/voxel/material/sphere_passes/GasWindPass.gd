@@ -151,6 +151,36 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 
 
+## Free every RID this pass owns (uniform sets, then pipelines, then shaders), dependent-first, before the
+## driver drops the local RenderingDevice. All buffer bindings are borrowed from the driver's bufs (none owned here).
+func dispose(rd: RenderingDevice) -> void:
+	if rd == null:
+		return
+	for s: Array in [_wp_set, _ws_set, _o2_set, _co2_set, _ch_set]:
+		for r in s:
+			if r is RID and r.is_valid():
+				rd.free_rid(r)
+	_wp_set = [RID(), RID()]
+	_ws_set = [RID(), RID()]
+	_o2_set = [RID(), RID()]
+	_co2_set = [RID(), RID()]
+	_ch_set = [RID(), RID()]
+	for r: RID in [_wp_pipe, _ws_pipe, _o2_pipe, _co2_pipe, _ch_pipe,
+			_wp_shader, _ws_shader, _o2_shader, _co2_shader, _ch_shader]:
+		if r.is_valid():
+			rd.free_rid(r)
+	_wp_pipe = RID()
+	_ws_pipe = RID()
+	_o2_pipe = RID()
+	_co2_pipe = RID()
+	_ch_pipe = RID()
+	_wp_shader = RID()
+	_ws_shader = RID()
+	_o2_shader = RID()
+	_co2_shader = RID()
+	_ch_shader = RID()
+
+
 # --- helpers ------------------------------------------------------------------
 
 func _compile(path: String) -> RID:
