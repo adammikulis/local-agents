@@ -51,6 +51,8 @@ var _seavolcano: Node = null
 var _seavolcano_vent: Vector3 = Vector3.ZERO
 var _auto_lightning: bool = false
 var _auto_lightning_fired: bool = false
+var _auto_earthquake: bool = false
+var _auto_earthquake_fired: bool = false
 var _auto_meteor_fired: bool = false
 var _auto_select: bool = false
 var _auto_select_done: bool = false
@@ -134,6 +136,8 @@ func parse_cmdline() -> void:
 			_streamer_avatar_flavor = arg.substr("--streamer-avatar=".length())
 		elif arg == "--auto-lightning":
 			_auto_lightning = true
+		elif arg == "--auto-earthquake":
+			_auto_earthquake = true
 		elif arg == "--auto-select":
 			_auto_select = true
 		elif arg == "--debug-family" or arg == "--debug-family=1":
@@ -434,6 +438,23 @@ func update(frame: int, spawned: bool) -> void:
 		if frame >= ltrigger:
 			_disasters.fire_test_lightning()
 			_auto_lightning_fired = true
+
+	# Auto-earthquake demo/test: release ONE stress wave near origin, LATE in the run so the propagating
+	# seismic wave is still crossing at the final SIM_REPORT snapshot (shock_cells > 0). The wave itself
+	# shakes the camera and panics wildlife — no per-pulse scatter. Spawn kept method-local here.
+	if _auto_earthquake and not _auto_earthquake_fired and spawned and _terrain != null and _body != null:
+		var qtrigger: int = (_shoot_frames - 120) if _shoot_path != "" else maxi(_run_frames - 45, 45)
+		if frame >= qtrigger:
+			_auto_earthquake_fired = true
+			var qh: float = _terrain.surface_height(0.0, 0.0)
+			var epicentre: Vector3 = Vector3(0.0, (qh if not is_nan(qh) else 20.0), 0.0)
+			var quake_script: GDScript = load("res://addons/local_agents/scenes/simulation/voxel/actors/Earthquake.gd")
+			var quake: Node3D = quake_script.new()
+			_body.add_child(quake)
+			quake.global_position = epicentre
+			quake.setup(_terrain, _ecology)
+			quake.rupture(epicentre)
+			print("AUTO_EARTHQUAKE={frame:%d, epicentre:%v}" % [frame, epicentre])
 
 	# Auto-storm demos/tests: touch down a tornado / seed a thunderstorm / spin up a hurricane.
 	if (_auto_tornado or _auto_thunderstorm or _auto_hurricane) and not _auto_storm_fired and spawned:
