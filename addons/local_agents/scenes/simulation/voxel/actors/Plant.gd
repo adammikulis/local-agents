@@ -29,6 +29,17 @@ var config: Dictionary = {}
 const BIOMASS_GROWTH_GAIN: float = 4.0   # growth-speed multiplier per unit local field biomass
 const BIOMASS_GROWTH_MAX: float = 2.0    # cap on the biomass growth boost
 
+# RENEWABLE PASTURE — a plant is a living food source, not a single-use item. A herbivore takes a BITE
+# (feed(), like a scavenger biting a carcass) which draws down the plant's edible reserve; the plant
+# survives and REGROWS that reserve via photosynthesis. This dissolves overgrazing extinction: a grazed
+# patch shrinks then recovers instead of the plant node vanishing, so a herd can sustain on a pasture the
+# way real grazing does. The reserve regrows toward FOOD_CAPACITY × grown-fraction (bigger plants feed
+# more), faster where the emergent biomass field is rich (the same fertile ground that speeds growth).
+const FOOD_CAPACITY: float = 46.0        # max edible reserve of a full-grown plant (energy)
+const FOOD_REGROW: float = 5.0           # reserve regrown per second (photosynthesis; boosted by field biomass)
+const FOOD_MIN_EDIBLE: float = 5.0       # below this the plant is grazed-down and not worth targeting (recovers)
+var _food: float = FOOD_CAPACITY * 0.6   # current edible reserve (starts partway; regrows in)
+
 var species: String = "plant"
 var color: Color = Color(0.30, 0.65, 0.22)
 var grow_time: float = 12.0
@@ -137,6 +148,11 @@ func _physics_process(delta: float) -> void:
 	var growth_boost: float = _biomass_boost()
 	age += delta * (1.0 + growth_boost)
 	_apply_growth()
+	# Regrow the edible reserve (photosynthesis) toward this plant's size-scaled capacity, faster on
+	# fertile (biomass-rich) ground — the renewable-pasture recovery that makes grazing sustainable.
+	var cap: float = FOOD_CAPACITY * _grown_fraction()
+	if _food < cap:
+		_food = minf(cap, _food + FOOD_REGROW * (1.0 + growth_boost) * delta)
 	if _grown_fraction() >= 1.0:
 		_seed_timer -= delta
 		if _seed_timer <= 0.0:
@@ -176,12 +192,22 @@ func consume() -> void:
 
 
 func is_edible() -> bool:
-	return edible
+	return edible and _food >= FOOD_MIN_EDIBLE   # grazed-down plants recover before they're worth eating again
 
 
-# Unified food model: a plant is living CARBS. (See LAFood — diet decides who can eat it.)
+# A herbivore takes a BITE (the same renewable-food contract a scavenger uses on a carcass): draw the bite
+# from the edible reserve, shrink the plant a touch, and return the energy actually removed. The plant is
+# NOT consumed — it regrows the reserve over time, so a pasture sustains a herd instead of vanishing.
+func feed(amount: float) -> float:
+	var take: float = clampf(amount, 0.0, _food)
+	_food -= take
+	return take
+
+
+# Unified food model: a plant is living CARBS whose worth is its current edible reserve, so a herbivore
+# prefers a lush plant over a grazed-down one. (See LAFood — diet decides who can eat it.)
 func food_profile() -> Dictionary:
-	return {"type": "carbs", "state": "living", "value": 32.0}
+	return {"type": "carbs", "state": "living", "value": maxf(_food, 0.0)}
 
 
 func is_mature() -> bool:

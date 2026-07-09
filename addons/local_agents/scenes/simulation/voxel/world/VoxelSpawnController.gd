@@ -10,7 +10,7 @@ extends Node
 # prey/carrion base, birds fill the sky. Far actors self-throttle via the creatures' distance-graded think
 # LOD (Creature._think_stride), so a populous world stays playable — raise counts, don't cap the world small.
 # Predator↔prey ratio: foxes ≈ rabbits/5, vultures track the bird/carrion base.
-const INITIAL_COUNTS: Dictionary = {"plant": 150, "rabbit": 70, "fox": 14, "bird": 45, "villager": 14, "vulture": 16}
+const INITIAL_COUNTS: Dictionary = {"plant": 260, "rabbit": 90, "fox": 10, "bird": 55, "villager": 12, "vulture": 12}
 const ROCK_COUNT: int = 60
 # Many forest SEEDS scattered onto the best (warm/fertile) ground; groves then DENSIFY emergently over the
 # run wherever photosynthesis has built biomass (see LAEcologyService._tick_tree_seeding), thinning at the
@@ -78,7 +78,14 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 	if _camera.has_method("set_orbit_target"):
 		_camera.set_orbit_target(_body.center(), _body.radius())
 	if _material.has_method("add_magma_source"):
-		_material.add_magma_source(_body.center(), 1300.0, 0.6)
+		# Geothermal core pin. NOTE: the field's thermal conduction carries this to the SURFACE far too
+		# efficiently (the crust barely insulates) — at the old 1300°C pin the habitable surface baked to
+		# ~110°C mean, well past creatures' 50°C lethal-heat limit, so every land animal died of heatstroke
+		# within seconds of spawning (the real cause of the "ecosystem collapse", not starvation). Pinned to
+		# 150°C so the ambient surface equilibrates ~28-35°C (habitable) while the radial gradient + pressure-
+		# driven emergent volcanoes still function. Proper fix belongs in the field ThermalPass (crust
+		# insulation / stronger surface radiative cooling so a hot core can coexist with a temperate surface).
+		_material.add_magma_source(_body.center(), 150.0, 0.6)
 	_spawned_initial = true
 	_hud.set_status("World ready — spawn things, click to inspect, press V for scent.")
 

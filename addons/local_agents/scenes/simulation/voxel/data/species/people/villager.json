@@ -3,18 +3,26 @@
   "diet": "omnivore",
   "speed": 3.0,
   "size": 1.0,
-  "color": [0.85, 0.72, 0.55],
+  "color": [
+    0.85,
+    0.72,
+    0.55
+  ],
   "can_fly": false,
   "sense_radius": 14.0,
-  "maturity_age": 26.0,
-  "preys_on": ["rabbit", "fox", "fish"],
+  "maturity_age": 18.0,
+  "preys_on": [
+    "rabbit",
+    "fox",
+    "fish"
+  ],
   "flees_from": [],
   "herd": true,
   "leader_loyalty": 0.3,
   "hierarchy": "command",
-  "pop_cap": 16,
+  "pop_cap": 14,
   "max_energy": 160.0,
-  "metabolism": 1.4,
+  "metabolism": 1.1,
   "breath_capacity": 14.0,
   "food_value": 90.0,
   "thirst_rate": 1.1,
@@ -28,5 +36,6 @@
   "eye_fov": 120.0,
   "hearing_range": 16.0,
   "nests": true,
-  "nest_habitat": "ground"
+  "nest_habitat": "ground",
+  "max_age": 360.0
 }

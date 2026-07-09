@@ -91,8 +91,8 @@ func _aquatic_kinds() -> Array:
 func _plant_config() -> Dictionary:
 	return {
 		"species": "plant", "color": Color(0.30, 0.66, 0.24),
-		"grow_time": 8.0, "max_scale": 2.0, "seed_period": 9.0,
-		"edible": true, "pop_cap": 120,
+		"grow_time": 6.0, "max_scale": 2.0, "seed_period": 6.0,
+		"edible": true, "pop_cap": 220,
 	}
 
 
@@ -428,13 +428,21 @@ func _process_pending() -> void:
 	_pending = still
 
 
+# A herd that has lost members REBUILDS — births each tick scale with the number of mature breeders, so a
+# thinned population recovers toward its carrying capacity (the pop_cap) instead of the old flat one-birth-
+# per-species-per-tick that could never replace predation + starvation + old-age losses. Vigorous breeding
+# is safe because the cap is the hard ceiling: births stop at cap, so this refills toward equilibrium but
+# never explodes past it. Rates are config/const (BREED_* + per-species pop_cap), never scripted counts.
+const BREED_FRACTION_PER_TICK: float = 0.16   # fraction of mature adults that may produce young each breed tick
+const BREED_MAX_PER_TICK: int = 8             # bound per species per tick (keeps the work + the surge bounded)
 func _tick_breeding() -> void:
 	for kind in ["rabbit", "fox", "bird", "villager", "vulture"]:
 		var cfg: Dictionary = _species_config(kind)
 		var cap: int = int(cfg.get("pop_cap", 20))
 		var group: String = "species_%s" % kind
 		var members: Array = get_tree().get_nodes_in_group(group)
-		if members.size() < 2 or members.size() >= cap:
+		var deficit: int = cap - members.size()
+		if members.size() < 2 or deficit <= 0:
 			continue
 		# count mature adults
 		var adults: Array = []
@@ -443,30 +451,38 @@ func _tick_breeding() -> void:
 				adults.append(m)
 		if adults.size() < 2:
 			continue
-		if randf() > 0.5:
-			continue                            # not every tick
-		# TWO parents now: the offspring's genome is a crossover of theirs (traits + baked instincts),
-		# plus mutation — so populations actually evolve instead of cloning a template.
-		var pa: Node3D = adults[randi() % adults.size()] as Node3D
-		var pb: Node3D = adults[randi() % adults.size()] as Node3D
-		var guard: int = 0
-		while pb == pa and guard < 4:
-			pb = adults[randi() % adults.size()] as Node3D
-			guard += 1
-		# Breed AT a parent's nest if it has one — young are born at home and inherit the site.
-		var base_pos: Vector3 = pa.global_position
-		if bool(pa.get("has_nest")) and not is_inf(float((pa.get("nest_pos") as Vector3).x)):
-			base_pos = pa.get("nest_pos")
-		var placed = _place_on_surface(_tangent_offset_point(base_pos, randf_range(-2.0, 2.0), randf_range(-2.0, 2.0)))
-		if placed != null:
-			var child = _instance_actor(kind, placed, _breed_genome(pa, pb))
-			_inherit_nest(pa, child)
-			# Record the permanent lineage in the kinship graph: the child joins its parent's family component
-			# (its family_id, inherited via the genome, is that same component's label) and the mate pair bond
-			# is stored. Bonds are added once here and never rewritten.
-			if child != null and is_instance_valid(child):
-				_kinship.add_offspring(int(pa.get_instance_id()), int(child.get_instance_id()))
-				_kinship.add_bond(int(pa.get_instance_id()), int(pb.get_instance_id()))
+		# Births this tick scale with the breeder pool, bounded by the room left under the cap and a hard
+		# per-tick ceiling — so a depleted herd rebuilds quickly while a full one stops breeding entirely.
+		var births: int = clampi(int(ceil(float(adults.size()) * BREED_FRACTION_PER_TICK)), 1, mini(deficit, BREED_MAX_PER_TICK))
+		for i in range(births):
+			_birth_one(kind, adults)
+
+
+# Produce ONE offspring for `kind` from two random mature parents in `adults`: crossover genome + mutation,
+# born at a parent's nest (natal philopatry) and recorded in the kinship graph. Factored out of the breed
+# loop so a recovering herd can birth several young per tick through the same evolution + lineage path.
+func _birth_one(kind: String, adults: Array) -> void:
+	var pa: Node3D = adults[randi() % adults.size()] as Node3D
+	var pb: Node3D = adults[randi() % adults.size()] as Node3D
+	var guard: int = 0
+	while pb == pa and guard < 4:
+		pb = adults[randi() % adults.size()] as Node3D
+		guard += 1
+	# Breed AT a parent's nest if it has one — young are born at home and inherit the site.
+	var base_pos: Vector3 = pa.global_position
+	if bool(pa.get("has_nest")) and not is_inf(float((pa.get("nest_pos") as Vector3).x)):
+		base_pos = pa.get("nest_pos")
+	var placed = _place_on_surface(_tangent_offset_point(base_pos, randf_range(-2.0, 2.0), randf_range(-2.0, 2.0)))
+	if placed == null:
+		return
+	var child = _instance_actor(kind, placed, _breed_genome(pa, pb))
+	_inherit_nest(pa, child)
+	# Record the permanent lineage in the kinship graph: the child joins its parent's family component
+	# (its family_id, inherited via the genome, is that same component's label) and the mate pair bond
+	# is stored. Bonds are added once here and never rewritten.
+	if child != null and is_instance_valid(child):
+		_kinship.add_offspring(int(pa.get_instance_id()), int(child.get_instance_id()))
+		_kinship.add_bond(int(pa.get_instance_id()), int(pb.get_instance_id()))
 
 
 # HARNESS AID (--debug-family): deterministically produce a small family through the REAL reproduction path so
@@ -619,8 +635,8 @@ func _tick_plant_seeding() -> void:
 		if not is_instance_valid(p):
 			continue
 		if p.has_method("has_seed") and p.has_seed():
-			if randf() > 0.4:
-				continue
+			if randf() > 0.7:
+				continue                            # most seed-ready plants spread each tick → pasture densifies
 			var placed = _place_on_surface(_tangent_offset_point((p as Node3D).global_position, randf_range(-3.5, 3.5), randf_range(-3.5, 3.5)))
 			if placed != null and _can_grow_here(placed):
 				_instance_actor("plant", placed)   # seed only takes on warm, snow-free ground (emergent treeline)

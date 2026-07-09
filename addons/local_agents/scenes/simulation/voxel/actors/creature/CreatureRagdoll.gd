@@ -89,6 +89,16 @@ static func tick(c, delta: float) -> void:
 		_on_settled(c)
 
 
+# Radial surface point below where the ragdoll settled (sphere world). Replaces the retired flat 2.5D
+# `_surface_at(x, z)` column read that no longer exists on LACreature — reseating a flung/dead body on a
+# planet must project along the radial, not a world-Y column. Returns a NAN-x vector if unmeshed there.
+static func _surface_seat(c, pos: Vector3) -> Vector3:
+	if c.terrain == null or not c.terrain.has_method("surface_point"):
+		return Vector3(NAN, 0.0, 0.0)
+	var up_dir: Vector3 = (pos - c.terrain.planet_center()).normalized()
+	return c.terrain.surface_point(up_dir)
+
+
 # The shadow has come to rest — dismiss it and either recover (alive) or ground the carcass (dead).
 static func _on_settled(c) -> void:
 	var pos: Vector3 = c.global_position
@@ -97,17 +107,19 @@ static func _on_settled(c) -> void:
 	c._settle_t = 0.0
 
 	if c._dead:
-		# Lie where it fell: keep the tumbled orientation, just seat it on the surface.
-		var surf: float = c._surface_at(pos.x, pos.z)
-		if not is_nan(surf):
-			c.global_position = Vector3(pos.x, surf + c.size * 0.35, pos.z)
+		# Lie where it fell: keep the tumbled orientation, just seat it on the surface (radial — sphere world).
+		var surf: Vector3 = _surface_seat(c, pos)
+		if not is_nan(surf.x):
+			var up_d: Vector3 = (surf - c.terrain.planet_center()).normalized()
+			c.global_position = surf + up_d * (c.size * 0.35)
 		c._carcass = true
 		return
 
 	# Survived the fling: snap upright (keep only yaw), reseat on the ground, resume normal life.
-	var surf2: float = c._surface_at(pos.x, pos.z)
-	if not is_nan(surf2):
-		c.global_position = Vector3(pos.x, surf2 + c.size, pos.z)
+	var surf2: Vector3 = _surface_seat(c, pos)
+	if not is_nan(surf2.x):
+		var up_d2: Vector3 = (surf2 - c.terrain.planet_center()).normalized()
+		c.global_position = surf2 + up_d2 * c.size
 	var yaw: float = c.global_rotation.y
 	c.global_rotation = Vector3(0.0, yaw, 0.0)
 	# A hard landing frightens the creature and rattles neighbours (same stimulus a thrown body makes).
