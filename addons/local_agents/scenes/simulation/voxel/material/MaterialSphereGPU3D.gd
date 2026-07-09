@@ -15,18 +15,20 @@ extends RefCounted
 ## each pass see prior passes' GPU writes). Order below encodes the hard dependencies:
 ##   WaterSlumpLava (water/lava/sediment→back; carry-heat into live temp) → Thermal (reads water/lava/temp,
 ##   writes final temp/lava→back) → GasWind (o2/co2→back, velocities) → Atmosphere (reads temp/water back +
-##   velocities; vapor/cloud/fog→back, rain into water back) → FireDust (reads temp/water back) → EcoSurface.
+##   velocities; airwater→back, rain into water back) → Reactions (generic DEFS reaction engine: reads settled
+##   temp/water/o2/co2/airwater back + fungus live; folds gas sky-exchange/vent + fungus decompose as records)
+##   → FireDust (reads temp/water back) → EcoSurface.
 ## Remaining cross-pass clashes (o2/co2/fire/fungus in-place-on-live reads, snow meltwater into live water) are
 ## one-step coupling-fidelity lags, NOT crashes — acceptable under perf-over-parity; tighten later if needed.
 
 # Ping-pong (double-buffered) channels — one _a/_b pair each.
 const PAIR_CHANNELS: PackedStringArray = [
-	"temp", "water", "vapor", "cloud", "fog", "lava", "sediment", "fire", "dust",
+	"temp", "water", "airwater", "lava", "sediment", "fire", "dust",
 	"o2", "co2", "shock", "fungus", "susp", "fert"]
 # scent is a 5-plane packed pair (5*cell_count); handled specially.
 # Single (non-ping-pong) float buffers.
 const SINGLE_CHANNELS: PackedStringArray = [
-	"solid", "static", "fuel", "charge", "detritus", "pressure",
+	"solid", "static", "fuel", "charge", "detritus", "biomass", "pressure",
 	"vel_x", "vel_y", "vel_z", "dust_outscale", "fungus_fert", "surf_vx", "surf_vz", "snow"]
 
 # Data-flow dispatch order (see the PING-PONG PHASE note above). WaterSlumpLava MUST precede Thermal
@@ -37,6 +39,7 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/ThermalPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/GasWindPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/AtmospherePass.gd",
+	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/ReactionsPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/FireDustPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/EcoSurfacePass.gd"]
 
@@ -137,8 +140,13 @@ func end_frame(_rv: bool = true, _rc: bool = true, _rf: bool = true, _rr: bool =
 	var out: Dictionary = _empty_result()
 	if _rd == null:
 		return out
-	for k in ["temp", "water", "vapor", "cloud", "fog", "lava", "fire", "o2", "co2", "dust", "shock"]:
+	for k in ["temp", "water", "airwater", "lava", "fire", "o2", "co2", "dust", "shock"]:
 		out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
+	# biomass + snow are SINGLE (non-ping-pong) GPU-resident channels — read their one buffer directly, not _live().
+	if _bufs.has("biomass"):
+		out["biomass"] = _rd.buffer_get_data(_bufs["biomass"]).to_float32_array()
+	if _bufs.has("snow"):
+		out["snow"] = _rd.buffer_get_data(_bufs["snow"]).to_float32_array()
 	return out
 
 func set_field(name: String, arr) -> void:
@@ -235,13 +243,12 @@ func _zeros(n: int) -> PackedByteArray:
 func _empty_result() -> Dictionary:
 	return {
 		"temp": PackedFloat32Array(), "water": PackedFloat32Array(),
-		"vapor": PackedFloat32Array(), "cloud": PackedFloat32Array(),
-		"fog": PackedFloat32Array(), "lava": PackedFloat32Array(),
+		"airwater": PackedFloat32Array(), "lava": PackedFloat32Array(),
 		"fire": PackedFloat32Array(), "fuel": PackedFloat32Array(),
 		"sediment": PackedFloat32Array(), "o2": PackedFloat32Array(),
 		"co2": PackedFloat32Array(), "charge": PackedFloat32Array(),
 		"scent": PackedFloat32Array(), "fert": PackedFloat32Array(),
 		"detritus": PackedFloat32Array(), "shock": PackedFloat32Array(),
 		"dust": PackedFloat32Array(), "snow": PackedFloat32Array(),
-		"susp": PackedFloat32Array(),
+		"susp": PackedFloat32Array(), "biomass": PackedFloat32Array(),
 	}

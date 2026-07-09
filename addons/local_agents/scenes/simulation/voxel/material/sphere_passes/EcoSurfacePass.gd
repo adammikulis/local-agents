@@ -21,19 +21,21 @@ extends RefCounted
 ##                            3 SurfVx=surf_vx · 4 SurfVz=surf_vz · 15 Neigh=nbr           (SINGLE-only, 1 set)
 ##   scent_transport_sphere3d 0 ScentIn=scent[live] · 1 ScentOut=scent[back] · 15 Neigh=nbr
 ##   scent_fert_sphere3d      0 FertIn=fert[live] · 1 FertOut=fert[back] · 15 Neigh=nbr
-##   fungus_sphere3d          0 FungIn=fungus[live] · 1 FungOut=fungus[back] · 2 Detritus=detritus ·
-##                            3 CO2=co2[live] · 4 O2=o2[live] · 5 Temp=temp[live] · 6 Vapor=vapor[live] ·
-##                            7 Fire=fire[live] · 8 Solid=solid · 9 FertOut=fungus_fert · 15 Neigh=nbr
+##   fungus_sphere3d          0 FungIn=fungus[live] · 1 FungOut=fungus[back] · 2 Detritus=detritus(readonly) ·
+##                            5 Temp=temp[live] · 6 Vapor=vapor[live] · 7 Fire=fire[live] · 8 Solid=solid ·
+##                            15 Neigh=nbr   (the same-cell decompose chemistry + its CO2/O2/fert-scratch writes
+##                            moved to ReactionsPass; this kernel is now the cross-cell growth/spread/death half)
 ##   fungus_fert_sphere3d     0 FertCell=fungus_fert · 1 Fert=fert[back] (add in place on scent_fert output) ·
 ##                            2 Solid=solid · 15 Neigh=nbr
-##   snowice_sphere3d         0 Snow=<snow> · 1 Temp=temp[live] · 2 Water=water[live] (+=meltwater) ·
-##                            3 Solid=solid · 15 Neigh=nbr
+##   snowice_sphere3d         0 Snow=<snow> · 1 Temp=temp[back] · 2 AirWater=airwater[back] (-=frozen condensate) ·
+##                            3 Solid=solid · 15 Neigh=nbr   (deposition-only: freezes CONDENSED airwater → snow on
+##                            cold ground, mass-conserving; freeze-liquid + melt are now records R21/R22)
 ##   shock_sphere3d           0 ShockIn=shock[live] · 1 ShockOut=shock[back] · 2 Solid=solid · 15 Neigh=nbr
 ##
 ## Push-constant layouts (see each .glsl Params):
-##   scent_wind, fungus_fert, shock : {uint cell_count, pad, pad, pad}                         -> 16 bytes
+##   scent_wind, fungus_fert, shock, snowice : {uint cell_count, pad, pad, pad}                -> 16 bytes
 ##   scent_transport, scent_fert    : {uint cell_count, pad, pad, float precip}                -> 16 bytes
-##   fungus, snowice                : {uint cell_count, pad,pad,pad, float precip, pad,pad,pad} -> 32 bytes
+##   fungus                         : {uint cell_count, pad,pad,pad, float precip, pad,pad,pad} -> 32 bytes
 ## precip comes from ctx.get("precip", 0.0). (dt is unused: every rate here is a per-step constant.)
 ##
 ## SKIPPED: erosion_advect_sphere3d.glsl / erosion_deposit_sphere3d.glsl do NOT exist in kernels3d/ (only the
@@ -113,18 +115,17 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var surf_vx_rid: RID = _single(bufs, "surf_vx")
 	var surf_vz_rid: RID = _single(bufs, "surf_vz")
 	var detritus_rid: RID = _single(bufs, "detritus")
-	var fungus_fert_rid: RID = _single(bufs, "fungus_fert")  # per-cell fertility scratch fungus writes, fungus_fert reduces
+	var fungus_fert_rid: RID = _single(bufs, "fungus_fert")  # per-cell fertility scratch (written by ReactionsPass' decompose record, reduced by fungus_fert)
 
 	# --- PAIR channels: [live, back] indexed by parity -----------------------------
 	var scent_pair: Array = _pair(bufs, "scent")      # 5*cc packed
 	var fert_pair: Array = _pair(bufs, "fert")
 	var fungus_pair: Array = _pair(bufs, "fungus")
-	var co2_pair: Array = _pair(bufs, "co2")
-	var o2_pair: Array = _pair(bufs, "o2")
 	var temp_pair: Array = _pair(bufs, "temp")
-	var vapor_pair: Array = _pair(bufs, "vapor")
+	# The ONE unified atmospheric-water channel (Phase 2a). Fungus reads it as local moisture (the suspended
+	# total is the behavioural proxy, perf-over-parity); snow deposition freezes its condensed part out to snow.
+	var airwater_pair: Array = _pair(bufs, "airwater")
 	var fire_pair: Array = _pair(bufs, "fire")
-	var water_pair: Array = _pair(bufs, "water")
 	var shock_pair: Array = _pair(bufs, "shock")
 
 	# --- scent_wind: parity-free (SINGLE buffers only) -> one set ------------------
@@ -153,17 +154,15 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[15, nbr_rid],
 		])
 
+		# Decompose chemistry moved to ReactionsPass → this kernel no longer binds CO2/O2 or writes fert scratch.
 		_fungus_set[p] = _build_set(_fungus_shader, [
 			[0, fungus_pair[p]],     # FungIn  = live fungus
 			[1, fungus_pair[back]],  # FungOut = back fungus
-			[2, detritus_rid],       # Detritus (SINGLE, in-place read/modify)
-			[3, co2_pair[p]],        # CO2 (live, in-place read/modify)
-			[4, o2_pair[p]],         # O2  (live, in-place read/modify)
+			[2, detritus_rid],       # Detritus (SINGLE, read-only — decompose record owns the debit)
 			[5, temp_pair[p]],       # Temp  (live, read)
-			[6, vapor_pair[p]],      # Vapor (live, read)
+			[6, airwater_pair[p]],   # Moisture = unified airwater (live, read)
 			[7, fire_pair[p]],       # Fire  (live, read)
 			[8, solid_rid],          # Solid
-			[9, fungus_fert_rid],    # FertOut = per-cell fertility scratch (consumed by fungus_fert)
 			[15, nbr_rid],
 		])
 
@@ -174,10 +173,13 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[15, nbr_rid],
 		])
 
+		# Snow DEPOSITION (snowfall): freeze the CONDENSED airwater on cold ground → snow, mass-conserving. Reads
+		# the SETTLED temp + airwater (BACK halves — Thermal/Atmosphere wrote them this step) and debits airwater
+		# in that same BACK half so the loss carries forward as next frame's live (no later pass writes airwater).
 		_snowice_set[p] = _build_set(_snowice_shader, [
-			[0, _snow_rid(bufs, p)], # Snow depth (in place) — improvised key, see header
-			[1, temp_pair[p]],       # Temp (live, read)
-			[2, water_pair[p]],      # Water (live, += meltwater)
+			[0, _snow_rid(bufs, p)], # Snow depth (SINGLE, in place)
+			[1, temp_pair[back]],    # Temp (settled, read)
+			[2, airwater_pair[back]],# AirWater (settled, debited in place — the frozen-out condensate)
 			[3, solid_rid],          # Solid
 			[15, nbr_rid],
 		])
@@ -205,7 +207,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	_run(rd, cl, _scent_fert_pipe, _scent_fert_set[parity], _pc_precip16(cc, precip), groups)
 	_run(rd, cl, _fungus_pipe, _fungus_set[parity], _pc_precip32(cc, precip), groups)
 	_run(rd, cl, _fungus_fert_pipe, _fungus_fert_set[parity], _pc_u4(cc), groups)
-	_run(rd, cl, _snowice_pipe, _snowice_set[parity], _pc_precip32(cc, precip), groups)
+	_run(rd, cl, _snowice_pipe, _snowice_set[parity], _pc_u4(cc), groups)
 	_run(rd, cl, _shock_pipe, _shock_set[parity], _pc_u4(cc), groups)
 
 

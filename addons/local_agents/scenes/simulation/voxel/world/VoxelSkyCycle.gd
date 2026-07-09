@@ -44,8 +44,7 @@ var _lunar_phase: float = 0.15              # 0=new, 0.25=first quarter, 0.5=ful
 # overcasts; the cloud/fog sheets are tinted with the sky). Bound after those systems are created.
 var _weather: Node = null
 var _material: Node = null
-var _clouds: Node = null
-var _fog: Node = null
+var _water: Node = null      # LAWaterParticles — the day/night colour tint is pushed to it each frame
 
 const DAY_LENGTH: float = 200.0             # seconds per full day
 const LUNAR_DAYS: float = 8.0               # in-game days per full new->full->new cycle
@@ -185,12 +184,11 @@ func setup(world: Node3D, time_of_day: float, lunar_phase: float) -> void:
 	_moon = moon
 
 
-# Bind the scene systems the cycle reads each frame. Called after weather/material/clouds/fog exist.
-func bind_scene(weather: Node, material: Node, clouds: Node, fog: Node) -> void:
+# Bind the scene systems the cycle reads each frame. Called after weather/material/water-particles exist.
+func bind_scene(weather: Node, material: Node, water: Node) -> void:
 	_weather = weather
 	_material = material
-	_clouds = clouds
-	_fog = fog
+	_water = water
 
 
 func sun() -> DirectionalLight3D:
@@ -237,6 +235,10 @@ func _update_day_night(delta: float) -> void:
 		var pup: Vector3 = Vector3.UP if absf(_sun_shine.dot(Vector3.UP)) < 0.98 else Vector3.RIGHT
 		_sun.look_at_from_position(Vector3.ZERO, _sun_shine, pup)   # light travels along _sun_shine
 		_sun.light_energy = SUN_ENERGY_NOON * pstorm
+		# The water-particle renderer's day/night comes from per-particle sun shading; keep its colour wash
+		# neutral-white, only dimmed by storm/overcast so a heavy sky greys the clouds.
+		if _water != null and _water.has_method("set_sky_tint"):
+			_water.set_sky_tint(Color(1.0, 1.0, 1.0) * (0.55 + 0.45 * pstorm))
 		return
 	_time_of_day = fposmod(_time_of_day + delta / DAY_LENGTH, 1.0)
 	# Sun elevation: -1 (midnight) .. +1 (noon), zero at dawn (.25) and dusk (.75).
@@ -299,14 +301,12 @@ func _update_day_night(delta: float) -> void:
 		fog_col = fog_col.lerp(SKY_HORIZON_DUSK, warm * 0.7)
 		_env.fog_light_color = fog_col
 
-	# Tint the field's cloud/fog sheets with the sky: white by day, dusk-orange near sunset, dark at
-	# night (unshaded sheets, so the tint is what makes them read against the time of day).
+	# Tint the water-particle renderer with the sky: white by day, dusk-orange near sunset, dark at night.
+	# (Per-particle sun-terminator brightness is handled in-shader; this is the overall colour wash.)
 	var cloud_tint: Color = Color(1.0, 1.0, 1.0).lerp(Color(0.10, 0.12, 0.18), night)
 	cloud_tint = cloud_tint.lerp(Color(1.0, 0.55, 0.30), warm * 0.6)
-	if _clouds != null:
-		_clouds.set_tint(cloud_tint)
-	if _fog != null:
-		_fog.set_tint(cloud_tint)
+	if _water != null and _water.has_method("set_sky_tint"):
+		_water.set_sky_tint(cloud_tint)
 	# NOTE: the material field is NOT fed rain/daylight here — it reads the sun node directly and
 	# derives its own heating/weather. This day/night code only owns the sky + sun transform/energy.
 	# The ecology clock is fed from VoxelWorld._process via time_of_day() (kept decoupled here).
