@@ -1,15 +1,15 @@
 #[compute]
 #version 450
 
-// CUBED-SPHERE atmosphere EVAPORATION + BOILING — the CONSERVING water→airwater transfer of the unified
-// water cycle. There is now ONE atmospheric water channel `airwater` (total water suspended in a cell's
-// air); vapor/cloud/fog are DERIVED at read time from airwater vs sat(T), so this kernel only moves the
-// true mass. A warm exposed water surface (a wet cell with open air above) releases airwater into its OWN
+// CUBED-SPHERE atmosphere EVAPORATION + BOILING — the CONSERVING water→moisture transfer of the unified
+// water cycle. There is now ONE atmospheric water channel `moisture` (total water suspended in a cell's
+// air); vapor/cloud/fog are DERIVED at read time from moisture vs sat(T), so this kernel only moves the
+// true mass. A warm exposed water surface (a wet cell with open air above) releases moisture into its OWN
 // cell — more when warm — and DEBITS the same mass from DYNAMIC water (mass-conserving; fixes the old
 // non-conserving evap that created vapor from nothing). The calm STATIC field sea is an INFINITE
-// evaporation reservoir: it ADDS airwater without debiting (its cells hold no simulated water to drain).
+// evaporation reservoir: it ADDS moisture without debiting (its cells hold no simulated water to drain).
 // BOILING is folded in here (was a separate condense-kernel step): a cell hotter than BOIL_TEMP flashes
-// extra water→airwater, debiting dynamic water (static cells steam a tiny fixed amount, no debit).
+// extra water→moisture, debiting dynamic water (static cells steam a tiny fixed amount, no debit).
 // The only cross-cell read is the "open air ABOVE" test — the OUTWARD radial neighbour (slot 5).
 //
 // NEIGHBOUR TABLE: nbr[idx*6 + d], slot 0=inward/down … 5=outward/up; -1 = boundary.
@@ -70,7 +70,7 @@ void main() {
 		open_above = (solid[au] == 0.0 && water[au] < MAX_MASS * 0.5);
 	}
 
-	float added = 0.0;   // airwater gained this step
+	float added = 0.0;   // moisture gained this step
 	float debit = 0.0;   // DYNAMIC water drained this step (0 for the infinite static sea)
 
 	// EVAPORATION — from an exposed surface, more when warm.

@@ -81,8 +81,8 @@ func outer_r() -> float:
 
 
 ## Reduce the field's per-cell condensate over each surface column, then pack the 6-layer texture.
-func bake(airwater: PackedFloat32Array, temp: PackedFloat32Array, snow: PackedFloat32Array, solid: PackedByteArray, cell_count: int) -> void:
-	if _surf <= 0 or airwater.size() != cell_count or temp.size() != cell_count:
+func bake(moisture: PackedFloat32Array, temp: PackedFloat32Array, snow: PackedFloat32Array, solid: PackedByteArray, cell_count: int) -> void:
+	if _surf <= 0 or moisture.size() != cell_count or temp.size() != cell_count:
 		return
 	_sc.fill(0.0)
 	_sf.fill(0.0)
@@ -102,7 +102,7 @@ func bake(airwater: PackedFloat32Array, temp: PackedFloat32Array, snow: PackedFl
 			_smin[s] = t
 		if has_snow and snow[i] > _ssnow[s]:
 			_ssnow[s] = snow[i]
-		var cond: float = airwater[i] - _sat_base * exp(_sat_gain * (t - _sat_ref))
+		var cond: float = moisture[i] - _sat_base * exp(_sat_gain * (t - _sat_ref))
 		if cond <= 0.0:
 			continue
 		# Cloud = the column's condensate ALOFT (altitude split, not temperature — on a planet the

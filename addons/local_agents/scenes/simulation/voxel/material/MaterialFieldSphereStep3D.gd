@@ -78,8 +78,8 @@ func _apply_readback(res: Dictionary) -> void:
 	var n: int = _f._cell_count
 	if res.has("temp") and res["temp"].size() == n: _f._temp = res["temp"]
 	if res.has("water") and res["water"].size() == n: _f._water = res["water"]
-	if res.has("airwater") and res["airwater"].size() == n: _f._airwater = res["airwater"]
-	_f._atmos_dirty = true          # new airwater/temp → invalidate the cached condensate aggregates
+	if res.has("moisture") and res["moisture"].size() == n: _f._moisture = res["moisture"]
+	_f._atmos_dirty = true          # new moisture/temp → invalidate the cached condensate aggregates
 	if res.has("lava") and res["lava"].size() == n: _f._lava = res["lava"]
 	if res.has("fire") and res["fire"].size() == n: _f._fire = res["fire"]
 	if res.has("o2") and res["o2"].size() == n: _f._o2 = res["o2"]

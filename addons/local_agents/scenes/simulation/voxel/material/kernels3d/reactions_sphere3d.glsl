@@ -9,9 +9,9 @@
 // debits reactants + credits products — all on the OWN cell (own-cell writes only → order-independent across
 // cells, race-free). Adding a reaction = adding a record, not a kernel.
 //
-// The reactions run AFTER Atmosphere in the sphere pipeline, so temp/water/o2/co2/airwater are all in their
+// The reactions run AFTER Atmosphere in the sphere pipeline, so temp/water/o2/co2/moisture are all in their
 // settled post-step buffers (one-step coupling lag is the accepted norm — MaterialSphereGPU3D.gd:19-20).
-// ReactionsPass binds o2/co2/temp/water/airwater to their BACK (producer-output) halves and fungus to its
+// ReactionsPass binds o2/co2/temp/water/moisture to their BACK (producer-output) halves and fungus to its
 // LIVE half (its producer runs later), so each read is the freshest value available at this slot.
 
 layout(local_size_x = 64) in;
@@ -19,13 +19,13 @@ layout(local_size_x = 64) in;
 // --- Reactable channels (binding == slot for the resolved ones; see read_ch/add_ch) -----------------------
 layout(set = 0, binding = 0, std430) restrict buffer Temp     { float temp[]; };
 layout(set = 0, binding = 1, std430) restrict buffer Water    { float water[]; };
-layout(set = 0, binding = 2, std430) restrict buffer AirWater { float airwater[]; };
+layout(set = 0, binding = 2, std430) restrict buffer Moisture { float moisture[]; };
 layout(set = 0, binding = 3, std430) restrict buffer O2       { float o2[]; };
 layout(set = 0, binding = 4, std430) restrict buffer CO2      { float co2[]; };
 layout(set = 0, binding = 7, std430) restrict buffer Detritus { float detritus[]; };
 layout(set = 0, binding = 8, std430) restrict readonly buffer Fungus { float fungus[]; };
 layout(set = 0, binding = 11, std430) restrict buffer Biomass { float biomass[]; };    // living plant matter (photosynthesis grows it, respiration/decay oxidizes it)
-layout(set = 0, binding = 12, std430) restrict buffer Snow { float snow[]; };          // frozen H₂O (freeze credits it, melt debits it) — SAME substance as water/airwater
+layout(set = 0, binding = 12, std430) restrict buffer Snow { float snow[]; };          // frozen H₂O (freeze credits it, melt debits it) — SAME substance as water/moisture
 // --- MINERAL phases (rock unification): loose sediment, airborne dust, waterborne suspension. Loft (M4) moves
 // SEDIMENT→DUST own-cell; settle (M3) moves SUSP→SEDIMENT own-cell — same conserved mineral substance. ---------
 layout(set = 0, binding = 13, std430) restrict buffer Sediment { float sediment[]; };  // loose granular regolith
@@ -45,7 +45,7 @@ layout(set = 0, binding = 20, std430) restrict buffer Scratch { float scratch[];
 // Slot enum — MUST match MaterialReactions3D.gd.
 #define TEMP     0
 #define WATER    1
-#define AIRWATER 2
+#define MOISTURE 2
 #define O2       3
 #define CO2      4
 #define FUEL     5
@@ -113,7 +113,7 @@ layout(push_constant, std430) uniform Params {
 float read_ch(int slot, uint i) {
 	if (slot == TEMP)     return temp[i];
 	if (slot == WATER)    return water[i];
-	if (slot == AIRWATER) return airwater[i];
+	if (slot == MOISTURE) return moisture[i];
 	if (slot == O2)       return o2[i];
 	if (slot == CO2)      return co2[i];
 	if (slot == DETRITUS) return detritus[i];
@@ -134,7 +134,7 @@ float read_ch(int slot, uint i) {
 void add_ch(int slot, uint i, float v) {
 	if      (slot == TEMP)     { temp[i]     += v; }
 	else if (slot == WATER)    { water[i]     = max(0.0, water[i] + v); }
-	else if (slot == AIRWATER) { airwater[i] += v; }
+	else if (slot == MOISTURE) { moisture[i] += v; }
 	else if (slot == O2)       { o2[i]        = max(0.0, o2[i] + v); }
 	else if (slot == CO2)      { co2[i]       = max(0.0, co2[i] + v); }
 	else if (slot == DETRITUS) { detritus[i]  = max(0.0, detritus[i] + v); }

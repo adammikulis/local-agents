@@ -2,11 +2,11 @@
 #version 450
 
 // CUBED-SPHERE atmosphere PRECIPITATION — the condensate SHED of the unified water cycle. With the three
-// old atmospheric water channels collapsed into ONE conserved `airwater`, condensation/re-evaporation/
-// cloud-decay stop existing as stored steps: cloud/fog are just the suspended-liquid part of airwater,
-// `condensed = max(0, airwater - sat(T))`, read instantaneously. This kernel is the ONLY water-cycle sink
+// old atmospheric water channels collapsed into ONE conserved `moisture`, condensation/re-evaporation/
+// cloud-decay stop existing as stored steps: cloud/fog are just the suspended-liquid part of moisture,
+// `condensed = max(0, moisture - sat(T))`, read instantaneously. This kernel is the ONLY water-cycle sink
 // aloft — when the condensed part gets heavy it sheds rain: `rain = max(0, condensed - RAIN_MASS_THRESHOLD)
-// * RAIN_RATE`; airwater loses that mass here and the existing atmos_rain_sphere3d gather routes it down
+// * RAIN_RATE`; moisture loses that mass here and the existing atmos_rain_sphere3d gather routes it down
 // the radial column to the ground water. Purely per-cell (no neighbour reads); the fall is the gather's job.
 //
 // sat() curve + constants copied from the (now-deleted) atmos_condense math so behaviour matches.

@@ -22,7 +22,7 @@ bespoke.
 | R2 | **Condensation** vapor→cloud/fog | `atmos_condense_sphere3d.glsl:107-126` | `AtmospherePass.gd:182-186` | `cond=(vap-sat)*CONDENSE_RATE*(1+oro)`; vapor→cloud (aloft) or fog (cold+near-ground) | **CLEAN** (but **deleted** by 2a) | excess-over-threshold `vap>sat(T)`, product self. 2a makes cloud/fog *derived*, so this stops being a stored step at all (the `oro` neighbour test is a rate modifier only). |
 | R3 | **Re-evaporation** cloud/fog→vapor | `atmos_condense_sphere3d.glsl:127-133` | same | `fr=f*CLOUD_REEVAP_RATE` when `vap<sat` | **CLEAN** (**deleted** by 2a) | const-frac; becomes free/instant under derivation. |
 | R4 | **Condensate decay** | `atmos_condense_sphere3d.glsl:134-135` | same | `c*=(1-CLOUD_DECAY)` | **CLEAN** (**deleted** by 2a) | const-frac decay to null; a fudge only needed because cloud/fog were stored. |
-| R5 | **Boiling** water→steam | `atmos_condense_sphere3d.glsl:140-149` + drain `atmos_rain_sphere3d.glsl:70` | `AtmospherePass.gd:182-194` | `boil=water*bfrac`, `vap+=boil` at `T>BOIL_TEMP` | **CLEAN** | excess-over-threshold in temp; same-cell water→airwater. The two-kernel split (gain in condense, debit in rain) is only a ping-pong artifact — semantically one same-cell transfer. |
+| R5 | **Boiling** water→steam | `atmos_condense_sphere3d.glsl:140-149` + drain `atmos_rain_sphere3d.glsl:70` | `AtmospherePass.gd:182-194` | `boil=water*bfrac`, `vap+=boil` at `T>BOIL_TEMP` | **CLEAN** | excess-over-threshold in temp; same-cell water→moisture. The two-kernel split (gain in condense, debit in rain) is only a ping-pong artifact — semantically one same-cell transfer. |
 | R6 | **Rain shed** cloud→rain | `atmos_condense_sphere3d.glsl:151-155` | same | `rain=(c-RAIN_CLOUD_THRESHOLD)*RAIN_RATE` into scratch | **SPECIAL** | the cloud debit is same-cell, but the rain mass then **falls to the ground column** (R7) — a cross-cell transport. |
 | R7 | **Rain deposit** (gather) | `atmos_rain_sphere3d.glsl:45-73` | `AtmospherePass.gd:191-194` | rain from self+above → `water` at first grounded cell | **SPECIAL** | cross-cell: routes rain inward (slot 0) to ground. |
 | R8 | **Lava solidify** lava→rock | `lava_phase_sphere3d.glsl:47-52` | `ThermalPass.gd:150-155` | `solid=1; lava=0` when `T<SOLIDIFY_TEMP` | **SPECIAL** | **edits geometry** (`solid` mask → SDF stamp + CPU mesh tail). Not a mass reaction. |
@@ -128,10 +128,10 @@ rate_model=RELAX_TARGET  rate_k=0.5 (SKY_EXCHANGE)  threshold=1.0 (O2_AMBIENT)  
 driver_slot=O2  n_react=0  n_prod=1:[O2×1.0 → SELF]   (x signed; add_ch(O2,x))
 ```
 
-**Boiling (R5) — excess-over-threshold, water→airwater:**
+**Boiling (R5) — excess-over-threshold, water→moisture:**
 ```
 rate_model=EXCESS_OVER_THRESHOLD  rate_k=0.02 (BOIL_RATE)  threshold=100.0 (BOIL_TEMP)
-driver_slot=TEMP  n_react=1:[WATER×1.0]  n_prod=1:[AIRWATER×1.0 → SELF]  gate_mask=0
+driver_slot=TEMP  n_react=1:[WATER×1.0]  n_prod=1:[MOISTURE×1.0 → SELF]  gate_mask=0
 ```
 (BOIL_MAX_FRAC cap is naturally covered by the reactant cap on WATER; the static-sea steam branch
 `atmos_condense_sphere3d.glsl:143-144` becomes a second record gated `static`, or stays a tiny bespoke line.)
@@ -161,7 +161,7 @@ push_constant   : { uint cell_count; uint n_records; float dt; float pad; } (+ s
 ```
 
 **Channel slot enum** (compile-time `#define`s; `read_ch/add_ch` are switch-ladders over these):
-`TEMP=0 WATER=1 AIRWATER=2 O2=3 CO2=4 FUEL=5 FIRE=6 DETRITUS=7 FUNGUS=8 FERT=9 LAVA=10`.
+`TEMP=0 WATER=1 MOISTURE=2 O2=3 CO2=4 FUEL=5 FIRE=6 DETRITUS=7 FUNGUS=8 FERT=9 LAVA=10`.
 Add slots only as records need them — keep the ladder small (perf: it is a branch per access).
 
 **Gate helpers** reuse the exact tests already proven in the kernels:
@@ -186,7 +186,7 @@ identical shape to `EcoSurfacePass.gd`. It:
 ### Dispatch-order placement
 
 The generic reactions read **settled** temp/water (after `ThermalPass`, pass 2) and **settled** o2/co2
-(after `GasWindPass`, pass 3) and airwater (after `AtmospherePass`, pass 4). Because the whole sphere
+(after `GasWindPass`, pass 3) and moisture (after `AtmospherePass`, pass 4). Because the whole sphere
 pipeline already tolerates one-step coupling lags (`MaterialSphereGPU3D.gd:19-20`), the simplest correct
 placement is a **single ReactionsPass inserted after Atmosphere**, i.e. new order in
 `MaterialSphereGPU3D.gd:35-41`:
@@ -195,7 +195,7 @@ placement is a **single ReactionsPass inserted after Atmosphere**, i.e. new orde
 WaterSlumpLava → Thermal → GasWind → Atmosphere → REACTIONS → FireDust → EcoSurface
 ```
 
-Rationale: at that slot temp/water/o2/co2/airwater are all in their post-step (`back`) state, so evap,
+Rationale: at that slot temp/water/o2/co2/moisture are all in their post-step (`back`) state, so evap,
 boil, sky-exchange and (when moved) fungus-decompose all read fresh inputs. Fungus-decompose (R15) can
 either move here (reading fresh detritus) or stay in `fungus_sphere3d.glsl` for now — moving it lets us
 **delete** the decompose block from `fungus_sphere3d.glsl:100-118`, shrinking that kernel to pure
@@ -208,39 +208,39 @@ EcoSurface (it is cross-cell). One extra pass = one extra submit+sync; negligibl
 
 ---
 
-## 4. Water-cycle unification (2a) — one conserved `airwater` channel
+## 4. Water-cycle unification (2a) — one conserved `moisture` channel
 
 ### Conserved formulation
 
-Replace the three PAIR channels `vapor`/`cloud`/`fog` with **one** PAIR channel `airwater` = total water
+Replace the three PAIR channels `vapor`/`cloud`/`fog` with **one** PAIR channel `moisture` = total water
 mass suspended in the air of a cell. **Nothing else stores condensate.** Given the existing saturation
 curve (already the query anchor, `MaterialAtmosphere3D.gd:522`, `:527`):
 
 ```
 sat(T)      = SAT_BASE * exp(SAT_TEMP_GAIN * (T - EVAP_TEMP_REF))     // SAT_BASE=0.06, gain=0.055, ref=22
-vapor(i)    = min(airwater[i], sat(T))                    // gaseous part
-condensed(i)= max(0.0, airwater[i] - sat(T))              // suspended liquid/ice
+vapor(i)    = min(moisture[i], sat(T))                    // gaseous part
+condensed(i)= max(0.0, moisture[i] - sat(T))              // suspended liquid/ice
 fog(i)      = condensed  if (T < FOG_MAX_TEMP && near_ground(i))  else 0
 cloud(i)    = condensed  if not the fog condition                 else 0
 ```
 
 This is **derived, instantaneous, mass-neutral** — the cloud/fog split is exactly the label test at
-`atmos_condense_sphere3d.glsl:122-126`, now applied at read time. `airwater` changes **only** through real
+`atmos_condense_sphere3d.glsl:122-126`, now applied at read time. `moisture` changes **only** through real
 mass transfers:
 
-- **Evaporation (R1, now conserving):** `water -= e; airwater += e` — fixes today's bug where
+- **Evaporation (R1, now conserving):** `water -= e; moisture += e` — fixes today's bug where
   `atmos_evap_sphere3d.glsl:65` adds vapor without debiting water (mass created). Reaction record.
-- **Boiling (R5):** `water -= b; airwater += b` at `T>BOIL_TEMP`. Reaction record.
+- **Boiling (R5):** `water -= b; moisture += b` at `T>BOIL_TEMP`. Reaction record.
 - **Rain (R6/R7, stays SPECIAL):** a small `atmos_precip_sphere3d.glsl` computes `condensed`, sheds
-  `rain = max(0, condensed - RAIN_MASS_THRESHOLD) * RAIN_RATE`, does `airwater -= rain` and writes the rain
+  `rain = max(0, condensed - RAIN_MASS_THRESHOLD) * RAIN_RATE`, does `moisture -= rain` and writes the rain
   scratch; the existing `atmos_rain_sphere3d.glsl` gather deposits it to the ground column (unchanged).
-- **Transport:** `airwater` advects/diffuses **conservatively** through the existing
+- **Transport:** `moisture` advects/diffuses **conservatively** through the existing
   `atmos_transport_sphere3d.glsl`, run **once** (not 3×).
 
 ### Vertical rise folds into buoyant wind
 
 **Drop `VAPOR_RISE`/`CLOUD_RISE`** (`AtmospherePass.gd:52-53`) and the transport `rise_frac` term
-(`atmos_transport_sphere3d.glsl:68-79`). Instead advect `airwater` by the **full velocity field**
+(`atmos_transport_sphere3d.glsl:68-79`). Instead advect `moisture` by the **full velocity field**
 (`vel_x, vel_y, vel_z`) the same way `co2_transport_sphere3d.glsl` already advects CO₂. Humid/warm air
 rises because it is buoyant in the wind field (`wind_step` buoyancy term), not because of a per-channel
 constant — strictly more emergent, and it deletes two constants + a kernel branch.
@@ -251,7 +251,7 @@ constant — strictly more emergent, and it deletes two constants + a kernel bra
 
 ### Condensation is NOT a reaction record — it disappears
 
-Because cloud/fog are derived from `airwater` vs `sat(T)`, **condensation, re-evaporation, and cloud
+Because cloud/fog are derived from `moisture` vs `sat(T)`, **condensation, re-evaporation, and cloud
 decay (R2/R3/R4) stop existing as discrete steps** — they are an instantaneous equilibrium read. This is
 the elegant composition with 2b: the only water-cycle *reactions* left in the engine are the true
 transfers **evap + boil**; rain stays the one cross-cell special. Net: 3 PAIR channels → 1, and the
@@ -259,28 +259,28 @@ condense kernel's entire dewpoint/re-evap/decay block is deleted.
 
 ### What changes / is deleted
 
-- **`MaterialSphereGPU3D.gd:24-25`** — `PAIR_CHANNELS`: remove `"vapor","cloud","fog"`, add `"airwater"`.
-  `end_frame:140` returns list + `_empty_result:238-247`: swap vapor/cloud/fog → airwater.
+- **`MaterialSphereGPU3D.gd:24-25`** — `PAIR_CHANNELS`: remove `"vapor","cloud","fog"`, add `"moisture"`.
+  `end_frame:140` returns list + `_empty_result:238-247`: swap vapor/cloud/fog → moisture.
 - **`AtmospherePass.gd`** — shrinks drastically:
   - **DELETE** the CONDENSE stage + `atmos_condense_sphere3d.glsl` (R2/R3/R4 gone; boil moves to a
     record; rain-shed moves to `atmos_precip`).
   - **DELETE** the three separate TRANSPORT dispatches (`AtmospherePass.gd:169-178`); keep **one**
-    transport dispatch on `airwater` with full-wind advection.
+    transport dispatch on `moisture` with full-wind advection.
   - **DELETE** the EVAP stage (`:160-165`) — becomes a reaction record.
   - **KEEP** rain gather (`atmos_rain_sphere3d.glsl`), fed by the new tiny `atmos_precip_sphere3d.glsl`.
   - Constants `VAPOR_DIFFUSE`/`CLOUD_DIFFUSE`/`FOG_DIFFUSE`/`*_RISE`/`*_WIND_GAIN`/`ORO_CONDENSE_GAIN`
-    (`:49-58`) collapse to a single `AIRWATER_DIFFUSE` + `AIRWATER_WIND_GAIN` (oro boost optionally kept
+    (`:49-58`) collapse to a single `MOISTURE_DIFFUSE` + `MOISTURE_WIND_GAIN` (oro boost optionally kept
     as a rain-shed modifier, or dropped).
 - **Kernels deleted:** `atmos_condense_sphere3d.glsl`. **Renamed/edited:** `atmos_transport_sphere3d.glsl`
   (one channel, +vel_y). **New:** `atmos_precip_sphere3d.glsl` (derive condensed → rain scratch).
   `atmos_evap_sphere3d.glsl` deleted (folded into reaction record).
 - **Queries (derive, keep signatures):** `MaterialAtmosphere3D.gd:540 cloud_at`, `:552 fog_at`,
   `:581 cloud_grid`, `:585 fog_grid`, `avg_cloud_cover`, `precipitation` — recompute from
-  `airwater + temp` via the derivation above. `MaterialFieldQueries3D.gd:520 relative_humidity_at`,
-  `:529 dewpoint_at` already use `sat()`; swap `_vapor[idx]` → `min(_airwater[idx], sat)`. Readers
+  `moisture + temp` via the derivation above. `MaterialFieldQueries3D.gd:520 relative_humidity_at`,
+  `:529 dewpoint_at` already use `sat()`; swap `_vapor[idx]` → `min(_moisture[idx], sat)`. Readers
   `RainLayer.gd:78-87`, `Thunderstorm.gd:82,208` are unchanged (facade intact).
-- **CPU field arrays** (`_vapor/_cloud/_fog`) collapse to `_airwater`; the sphere readback
-  (`_sphere_process`, TODO.md step 2) applies `airwater`+`temp`; queries derive.
+- **CPU field arrays** (`_vapor/_cloud/_fog`) collapse to `_moisture`; the sphere readback
+  (`_sphere_process`, TODO.md step 2) applies `moisture`+`temp`; queries derive.
 
 ---
 
@@ -288,18 +288,18 @@ condense kernel's entire dewpoint/re-evap/decay block is deleted.
 
 Do all of this in the `feature/sphere-spike` worktree; verify booted + headless before merge.
 
-**Stage A — airwater unification (2a) first (it reshapes the atmosphere pass the engine slots into):**
-1. `MaterialSphereGPU3D.gd`: `PAIR_CHANNELS` vapor/cloud/fog → `airwater`; fix `end_frame` +
+**Stage A — moisture unification (2a) first (it reshapes the atmosphere pass the engine slots into):**
+1. `MaterialSphereGPU3D.gd`: `PAIR_CHANNELS` vapor/cloud/fog → `moisture`; fix `end_frame` +
    `_empty_result`. (1 file)
 2. New `kernels3d/atmos_transport_sphere3d.glsl` edit: single channel, add `vel_y` binding + radial
    (slot 0/5) advection, delete `rise_frac`. Model on `co2_transport_sphere3d.glsl`. (1 kernel)
-3. New `kernels3d/atmos_precip_sphere3d.glsl`: per-cell derive `condensed = max(0, airwater - sat(T))`,
-   shed rain to scratch, `airwater -= rain`. (1 kernel)
+3. New `kernels3d/atmos_precip_sphere3d.glsl`: per-cell derive `condensed = max(0, moisture - sat(T))`,
+   shed rain to scratch, `moisture -= rain`. (1 kernel)
 4. Delete `kernels3d/atmos_condense_sphere3d.glsl`, `kernels3d/atmos_evap_sphere3d.glsl` (+ `.import`).
-5. Rewrite `AtmospherePass.gd`: transport(×1 airwater) → precip → rain-gather. Delete evap/condense/×3
+5. Rewrite `AtmospherePass.gd`: transport(×1 moisture) → precip → rain-gather. Delete evap/condense/×3
    transport wiring + dead constants. (1 file)
 6. Rewrite query derivations: `MaterialAtmosphere3D.gd` cloud_at/fog_at/grids/covers,
-   `MaterialFieldQueries3D.gd` relative_humidity_at/dewpoint_at. Collapse `_vapor/_cloud/_fog` → `_airwater`.
+   `MaterialFieldQueries3D.gd` relative_humidity_at/dewpoint_at. Collapse `_vapor/_cloud/_fog` → `_moisture`.
 7. Verify: booted window + `--run-frames=N` SIM_REPORT; confirm clouds/rain still emerge, no NaN, fps.
 
 **Stage B — generic reaction engine (2b):**
@@ -326,7 +326,7 @@ channel — flag to user: today plants are actor nodes, so this is a *held-back-
 ## 6. Risks + behavioural SIM_REPORT proofs (perf-over-parity)
 
 **Risks**
-- **airwater mass conservation:** evap/boil are now debit+credit pairs and transport is a conservative
+- **moisture mass conservation:** evap/boil are now debit+credit pairs and transport is a conservative
   gather, but a coeff/sign slip creates or destroys water. Guard with a conservation assert (below).
 - **Derivation cost:** `cloud_at` column loops (`MaterialAtmosphere3D.gd:544`) now call `exp()` per cell —
   cache `sat(T)` or accept it (column loops are small). Watch fps.
@@ -339,9 +339,9 @@ channel — flag to user: today plants are actor nodes, so this is a *held-back-
 - **Ordering of deletes:** never grow a kernel past limits; these are net deletions, low size risk.
 
 **Behavioural checks (assert emergent aggregates, not CPU parity):**
-- **Water cycle conserved:** track `sum(water) + sum(airwater) + rain_to_ground` across N frames — total
-  moved is bounded and non-negative; no runaway (airwater not exploding, not draining to 0 under stable T).
-  Add `airwater_total`, `wet_cells`, `cloud_cells`, `rain_intensity` to SIM_REPORT (TODO.md step 2 already
+- **Water cycle conserved:** track `sum(water) + sum(moisture) + rain_to_ground` across N frames — total
+  moved is bounded and non-negative; no runaway (moisture not exploding, not draining to 0 under stable T).
+  Add `moisture_total`, `wet_cells`, `cloud_cells`, `rain_intensity` to SIM_REPORT (TODO.md step 2 already
   wants fuller readback).
 - **Clouds/fog still emerge:** `cloud_cells > 0` over humid regions; fog appears cold + near ground;
   raising solar (evaporation) then cooling produces condensed mass and rain — same qualitative cycle as
@@ -352,7 +352,7 @@ channel — flag to user: today plants are actor nodes, so this is a *held-back-
     `fungus_sphere3d.glsl:106-116`.
   - Gas: a sealed cave cell's `o2` draws down and stays low (no SURFACE gate) while a sky-exposed cell
     relaxes to `O2_AMBIENT`; surface `co2` vents toward 0. Confirms the SURFACE gate.
-  - Boil: a cell held `>100°C` over water shows `water` falling and `airwater` rising by the same amount.
+  - Boil: a cell held `>100°C` over water shows `water` falling and `moisture` rising by the same amount.
 - **No NaN / no negative mass** in any channel readback; counts sane; **fps ≥ pre-B3** (fewer kernels: 3
   atmosphere transports → 1, condense deleted; one added reactions pass).
 - Manual: booted window, Temperature + cloud debug views, confirm weather still visibly runs and a wildfire
@@ -364,6 +364,6 @@ channel — flag to user: today plants are actor nodes, so this is a *held-back-
 **Deleted:** `atmos_condense_sphere3d.glsl`, `atmos_evap_sphere3d.glsl`, 2 of 3 atmosphere transport
 dispatches, `VAPOR_RISE`/`CLOUD_RISE`/`FOG_*`/`ORO_CONDENSE_GAIN` constants + `rise_frac` term, the
 gas_sky kernel body, the fungus decompose block, 2 PAIR channels (`cloud`,`fog`).
-**Added:** one conserved `airwater` channel, `atmos_precip_sphere3d.glsl`, `reactions_sphere3d.glsl`,
+**Added:** one conserved `moisture` channel, `atmos_precip_sphere3d.glsl`, `reactions_sphere3d.glsl`,
 `ReactionsPass.gd`, `LAReactionDefs.gd`. Named phenomena (condensation, fog, decomposition, breathing)
 now fall out of one substrate + one generic rule.

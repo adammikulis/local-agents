@@ -27,8 +27,8 @@ extends RefCounted
 ##                            moved to ReactionsPass; this kernel is now the cross-cell growth/spread/death half)
 ##   fungus_fert_sphere3d     0 FertCell=fungus_fert · 1 Fert=fert[back] (add in place on scent_fert output) ·
 ##                            2 Solid=solid · 15 Neigh=nbr
-##   snowice_sphere3d         0 Snow=<snow> · 1 Temp=temp[back] · 2 AirWater=airwater[back] (-=frozen condensate) ·
-##                            3 Solid=solid · 15 Neigh=nbr   (deposition-only: freezes CONDENSED airwater → snow on
+##   snowice_sphere3d         0 Snow=<snow> · 1 Temp=temp[back] · 2 Moisture=moisture[back] (-=frozen condensate) ·
+##                            3 Solid=solid · 15 Neigh=nbr   (deposition-only: freezes CONDENSED moisture → snow on
 ##                            cold ground, mass-conserving; freeze-liquid + melt are now records R21/R22)
 ##   shock_sphere3d           0 ShockIn=shock[live] · 1 ShockOut=shock[back] · 2 Solid=solid · 15 Neigh=nbr
 ##
@@ -124,7 +124,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var temp_pair: Array = _pair(bufs, "temp")
 	# The ONE unified atmospheric-water channel (Phase 2a). Fungus reads it as local moisture (the suspended
 	# total is the behavioural proxy, perf-over-parity); snow deposition freezes its condensed part out to snow.
-	var airwater_pair: Array = _pair(bufs, "airwater")
+	var moisture_pair: Array = _pair(bufs, "moisture")
 	var fire_pair: Array = _pair(bufs, "fire")
 	var shock_pair: Array = _pair(bufs, "shock")
 
@@ -160,7 +160,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[1, fungus_pair[back]],  # FungOut = back fungus
 			[2, detritus_rid],       # Detritus (SINGLE, read-only — decompose record owns the debit)
 			[5, temp_pair[p]],       # Temp  (live, read)
-			[6, airwater_pair[p]],   # Moisture = unified airwater (live, read)
+			[6, moisture_pair[p]],   # Moisture = the unified airborne-H₂O channel (live, read)
 			[7, fire_pair[p]],       # Fire  (live, read)
 			[8, solid_rid],          # Solid
 			[15, nbr_rid],
@@ -173,13 +173,13 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[15, nbr_rid],
 		])
 
-		# Snow DEPOSITION (snowfall): freeze the CONDENSED airwater on cold ground → snow, mass-conserving. Reads
-		# the SETTLED temp + airwater (BACK halves — Thermal/Atmosphere wrote them this step) and debits airwater
-		# in that same BACK half so the loss carries forward as next frame's live (no later pass writes airwater).
+		# Snow DEPOSITION (snowfall): freeze the CONDENSED moisture on cold ground → snow, mass-conserving. Reads
+		# the SETTLED temp + moisture (BACK halves — Thermal/Atmosphere wrote them this step) and debits moisture
+		# in that same BACK half so the loss carries forward as next frame's live (no later pass writes moisture).
 		_snowice_set[p] = _build_set(_snowice_shader, [
 			[0, _snow_rid(bufs, p)], # Snow depth (SINGLE, in place)
 			[1, temp_pair[back]],    # Temp (settled, read)
-			[2, airwater_pair[back]],# AirWater (settled, debited in place — the frozen-out condensate)
+			[2, moisture_pair[back]],# Moisture (settled, debited in place — the frozen-out condensate)
 			[3, solid_rid],          # Solid
 			[15, nbr_rid],
 		])

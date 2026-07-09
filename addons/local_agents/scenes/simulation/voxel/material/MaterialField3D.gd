@@ -64,13 +64,13 @@ const O2_AMBIENT: float = 1.0
 # into cloud/fog on the cold (night) side. Evaporation from the static field sea replenishes it.
 const VAPOR_AMBIENT: float = 0.3
 # Frozen H₂O (snowpack/ice) — the third phase of the ONE conserved water substance (liquid `_water`, airborne
-# `_airwater`, frozen `_snow`). GPU-owned: the snowice deposition kernel + freeze/melt reaction records (R21/R22)
+# `_moisture`, frozen `_snow`). GPU-owned: the snowice deposition kernel + freeze/melt reaction records (R21/R22)
 # grow and thaw it; read back for queries/telemetry only. SNOW_PRESENT = depth that counts a cell snow-covered;
 # ICE_DEPTH = a thick pack that reads as glacial ice (the deep end of the same channel — no separate ice buffer).
 const SNOW_PRESENT: float = 0.01
 const ICE_DEPTH: float = 0.5
 # Saturation curve sat(T) = SAT_BASE * exp(SAT_TEMP_GAIN * (T - EVAP_TEMP_REF)) — the dewpoint the unified
-# `airwater` channel is read against. cloud/fog/vapor are DERIVED from airwater vs sat(T), never stored;
+# `moisture` channel is read against. cloud/fog/vapor are DERIVED from moisture vs sat(T), never stored;
 # these MUST match the kernel constants (atmos_evap/atmos_precip _sphere3d.glsl). FOG_MAX_TEMP splits the
 # cool near-ground condensate (fog) from cloud aloft; CONDENSE_COVER_MIN is the density counted as cover.
 const SAT_BASE: float = 0.06
@@ -89,10 +89,10 @@ const SCENT_ALARM: int = 4
 const SCENT_CHANNELS: int = 5
 var _temp: PackedFloat32Array = PackedFloat32Array()     # temperature °C per cell (rock + void)
 # ONE conserved atmospheric-water channel: total water suspended in a cell's air (Phase 2a — collapses the
-# old vapor/cloud/fog trio). vapor = min(airwater, sat(T)); condensed = max(0, airwater − sat(T)); the
+# old vapor/cloud/fog trio). vapor = min(moisture, sat(T)); condensed = max(0, moisture − sat(T)); the
 # condensed part reads as fog (cool + near ground) or cloud (else) — all DERIVED, nothing else stores it.
-var _airwater: PackedFloat32Array = PackedFloat32Array()
-# Frozen H₂O per cell (snowpack depth) — the SAME conserved substance as _water/_airwater, just the cold phase.
+var _moisture: PackedFloat32Array = PackedFloat32Array()
+# Frozen H₂O per cell (snowpack depth) — the SAME conserved substance as _water/_moisture, just the cold phase.
 # GPU-owned (never re-uploaded); read back each frame for snow_cell_count/ice_cell_count/snow_depth_at + h2o_total.
 var _snow: PackedFloat32Array = PackedFloat32Array()
 # Fractional BEDROCK mineral mass per cell (Stage B). `solid` is DERIVED from it on the GPU (solid iff >= 0.5).
@@ -296,9 +296,9 @@ func _alloc_channels() -> void:
 	_temp = PackedFloat32Array()
 	_temp.resize(_cell_count)
 	_temp.fill(INITIAL_TEMP)
-	_airwater = PackedFloat32Array()
-	_airwater.resize(_cell_count)
-	_airwater.fill(VAPOR_AMBIENT)
+	_moisture = PackedFloat32Array()
+	_moisture.resize(_cell_count)
+	_moisture.fill(VAPOR_AMBIENT)
 	_lava = PackedFloat32Array()
 	_lava.resize(_cell_count)
 	# Bedrock mineral fraction: seeded from the solid mask on activate (mirrors _solid), GPU-owned thereafter.
@@ -579,20 +579,20 @@ func salinity_at(x: float, z: float) -> float:
 	return _queries.salinity_at(x, z)
 
 
-# --- Atmosphere queries — all DERIVED from the one conserved `airwater` channel vs sat(T) (Phase 2a).
-# cloud/fog/vapor are no longer stored; every reader below recomputes them instantaneously from _airwater +
+# --- Atmosphere queries — all DERIVED from the one conserved `moisture` channel vs sat(T) (Phase 2a).
+# cloud/fog/vapor are no longer stored; every reader below recomputes them instantaneously from _moisture +
 # _temp. Signatures are unchanged so WeatherSystem/Thunderstorm/CloudLayer/RainLayer keep working.
 
-## Saturation humidity at temperature `t` — the dewpoint airwater is read against. MUST match the kernel
+## Saturation humidity at temperature `t` — the dewpoint moisture is read against. MUST match the kernel
 ## constants in atmos_evap/atmos_precip_sphere3d.glsl.
 func _sat(t: float) -> float:
 	return SAT_BASE * exp(SAT_TEMP_GAIN * (t - EVAP_TEMP_REF))
 
-## Suspended condensate (liquid/ice) at a linear cell = the airwater over saturation. 0 for solid/oob cells.
+## Suspended condensate (liquid/ice) at a linear cell = the moisture over saturation. 0 for solid/oob cells.
 func _condensed_at(cell: int) -> float:
 	if cell < 0 or cell >= _cell_count or _solid[cell] != 0:
 		return 0.0
-	return maxf(0.0, _airwater[cell] - _sat(_temp[cell]))
+	return maxf(0.0, _moisture[cell] - _sat(_temp[cell]))
 
 ## Cloud density at a world XZ column (0 if unresolved). Cloud = the condensate that is NOT ground fog.
 func cloud_at(x: float, z: float) -> float:
@@ -610,14 +610,14 @@ func fog_at(x: float, z: float) -> float:
 
 # Cached domain aggregates over the derived condensate. A full-grid scan (with an exp() per cell) would be
 # far too costly to run per RENDER frame (VoxelSkyCycle/RainLayer poll cover every frame at ~150Hz); instead
-# ONE pass recomputes all of them together and caches, invalidated only when a new airwater/temp field is
+# ONE pass recomputes all of them together and caches, invalidated only when a new moisture/temp field is
 # read back (~10Hz). Big-O: one O(cells) pass per SIM step, not per query × per frame.
 var _atmos_dirty: bool = true
 var _cloud_cover_c: float = 0.0
 var _fog_cover_c: float = 0.0
 var _cloud_cells_c: int = 0
 var _precip_c: float = 0.0
-var _airwater_total_c: float = 0.0
+var _moisture_total_c: float = 0.0
 
 ## Recompute all condensate aggregates in a single grid pass. The fog/cloud split is a temperature proxy
 ## (cool, T<FOG_MAX_TEMP = fog; warmer = cloud) for the kernel's slot-0 near-ground test, which is not
@@ -631,7 +631,7 @@ func _refresh_atmos_aggregates() -> void:
 	for i in range(_cell_count):
 		if _solid[i] != 0:
 			continue
-		var aw: float = _airwater[i]
+		var aw: float = _moisture[i]
 		total += aw
 		var cond: float = aw - _sat(_temp[i])
 		if cond <= 0.0:
@@ -648,13 +648,13 @@ func _refresh_atmos_aggregates() -> void:
 	_cloud_cover_c = float(cloud_n) * inv
 	_fog_cover_c = float(fog_n) * inv
 	_precip_c = clampf(float(precip_n) * inv * 40.0, 0.0, 1.0)
-	_airwater_total_c = total
+	_moisture_total_c = total
 	# Fold the render cover-texture bake into this same ~10Hz condensate pass (the water-particle renderer
 	# samples it per particle). Cheap: one extra O(cell_count) reduction over the CPU readback we already have.
 	if _sphere != null:
 		_ensure_cover_baker()
 		if _cover_baker != null:
-			_cover_baker.bake(_airwater, _temp, _snow, _solid, _cell_count)
+			_cover_baker.bake(_moisture, _temp, _snow, _solid, _cell_count)
 
 
 ## Lazily build the cover-texture baker (sphere only). Callable before the first bake so the renderer can
@@ -707,10 +707,10 @@ func precipitation() -> float:
 	return _precip_c
 
 ## Total suspended atmospheric water mass (mass-conservation spot check; used by the SIM_REPORT).
-func airwater_total() -> float:
+func moisture_total() -> float:
 	if _atmos_dirty:
 		_refresh_atmos_aggregates()
-	return _airwater_total_c
+	return _moisture_total_c
 
 # The flat cloud/fog sheet projection (cloud_grid/fog_grid) was a box-era concept, dissolved with the
 # CloudLayer sheets — the water-particle renderer samples the baked cover texture instead. cloud_base_y/
@@ -721,7 +721,7 @@ func cloud_base_y() -> float:
 func fog_base_y() -> float:
 	return sea_level + 6.0
 
-## Relative humidity 0..1 near the ground at a world XZ column = vapor / sat(T) = min(airwater, sat)/sat.
+## Relative humidity 0..1 near the ground at a world XZ column = vapor / sat(T) = min(moisture, sat)/sat.
 func relative_humidity_at(x: float, z: float) -> float:
 	var c: int = world_to_cell(Vector3(x, fog_base_y(), z))
 	if c < 0 or _solid[c] != 0:
@@ -729,15 +729,15 @@ func relative_humidity_at(x: float, z: float) -> float:
 	var s: float = _sat(_temp[c])
 	if s <= 0.0:
 		return 0.0
-	return clampf(_airwater[c] / s, 0.0, 1.0)
+	return clampf(_moisture[c] / s, 0.0, 1.0)
 
-## Dewpoint °C near the ground at a world XZ column — the temperature at which the cell's airwater would
+## Dewpoint °C near the ground at a world XZ column — the temperature at which the cell's moisture would
 ## saturate (invert sat(T)). NAN if unresolved or bone dry.
 func dewpoint_at(x: float, z: float) -> float:
 	var c: int = world_to_cell(Vector3(x, fog_base_y(), z))
-	if c < 0 or _solid[c] != 0 or _airwater[c] <= 0.0:
+	if c < 0 or _solid[c] != 0 or _moisture[c] <= 0.0:
 		return NAN
-	return EVAP_TEMP_REF + log(_airwater[c] / SAT_BASE) / SAT_TEMP_GAIN
+	return EVAP_TEMP_REF + log(_moisture[c] / SAT_BASE) / SAT_TEMP_GAIN
 
 ## Prevailing (large-scale) wind input. The emergent wind now lives on the GPU; forward it to the driver.
 func set_wind(w: Vector2) -> void:
@@ -838,7 +838,7 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 		_inject.resample_terrain(world_pos, radius)
 
 
-## Count of OPEN cells carrying derived condensate (airwater over saturation) at/above CONDENSE_COVER_MIN.
+## Count of OPEN cells carrying derived condensate (moisture over saturation) at/above CONDENSE_COVER_MIN.
 ## Cached with the other atmosphere aggregates (recomputed once per field readback, not per call).
 func cloud_cell_count(min_density: float = 0.05) -> int:
 	if _atmos_dirty:
@@ -1004,11 +1004,11 @@ func water_total() -> float:
 		if _solid[c] == 0:
 			sum += _water[c]
 	return sum
-## Conserved H₂O budget of the DYNAMIC system: liquid water + airborne airwater + frozen snow. Freeze/melt/
+## Conserved H₂O budget of the DYNAMIC system: liquid water + airborne moisture + frozen snow. Freeze/melt/
 ## deposition/evap/rain are all pure transfers between these three, so this must stay BOUNDED (a slow static-sea
 ## source + rain-to-sea sink hold it at a steady level) — the mass-conservation spot check fed into SIM_REPORT.
 func h2o_total() -> float:
-	return water_total() + airwater_total() + snow_total()
+	return water_total() + moisture_total() + snow_total()
 ## Mean temperature over the snow-covered cells — proves snow sits on the COLD side (should read below FREEZE_TEMP).
 func snow_line_temp() -> float:
 	if _snow.size() != _cell_count:
@@ -1240,7 +1240,7 @@ func report() -> Dictionary:
 	var r: Dictionary = {
 		"wet_cells": wet_cell_count(), "heat_peak": peak_heat(), "heat_cells": hot_cell_count(),
 		"lava_cells": lava_peak(), "cloud_cells": cloud_cell_count(), "cloud_cover": avg_cloud_cover(),
-		"fog_cover": avg_fog_cover(), "airwater_total": airwater_total(),
+		"fog_cover": avg_fog_cover(), "moisture_total": moisture_total(),
 		"wind": wind().length(), "scent_cells": scent_cell_count(),
 		"fertility_peak": fertility_peak(), "magma_cells": magma_cell_count(),
 		"erosion_cells": erosion_cell_count(), "snow_cells": snow_cell_count(), "ice_cells": ice_cell_count(),

@@ -78,9 +78,9 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var o2: Array = bufs["o2"]         # PAIR
 	var co2: Array = bufs["co2"]       # PAIR
 	# Charge separation feeds on supercooled condensate aloft. cloud/fog are no longer stored (Phase 2a
-	# collapsed them into `airwater`); the total suspended water is a fine moisture proxy for the updraft ×
+	# collapsed them into `moisture`); the total suspended water is a fine moisture proxy for the updraft ×
 	# cloud charge term (behavioural, perf-over-parity).
-	var cloud: Array = bufs["airwater"]   # PAIR (was "cloud"; now the unified airwater channel)
+	var cloud: Array = bufs["moisture"]   # PAIR (was "cloud"; now the unified moisture channel)
 	var solid: RID = bufs["solid"]     # SINGLE
 	var pressure: RID = bufs["pressure"]
 	var vx: RID = bufs["vel_x"]

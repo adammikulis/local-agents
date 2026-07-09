@@ -10,7 +10,7 @@
 //      (all six slots), d = diffuse_frac * DIFF6 (DIFF6 = 1/6). Kept WEAK so it doesn't smear cloud masses
 //      back into a flat veil — the wind advection below is what builds structure.
 //   2) VERTICAL WIND ADVECTION — upwind advect by the LOCAL radial wind vel_y (slot 5 up, slot 0 down),
-//      replacing the old constant buoyant `rise_frac`. Updrafts concentrate airwater into cloud masses at
+//      replacing the old constant buoyant `rise_frac`. Updrafts concentrate moisture into cloud masses at
 //      convergence; subsidence clears the gaps. Same conservative gather form as the horizontal wind.
 //   3) horizontal WIND — first-order upwind advection by the LOCAL per-cell wind velocity. The box's two
 //      cartesian axes map onto the sphere's two lateral tangent axes: wind X → the a-axis (slot 1=-a,
@@ -18,7 +18,7 @@
 //      lateral slot picked by the sign of its own wind component, and GAINS each lateral neighbour's share
 //      that is aimed back at it (neighbour blows toward me). ax = clamp(|vel_x|*wdt, 0, 0.5), likewise az.
 // Matter only ever moves between NON-SOLID cells (rock is a wall to air). Race-free GATHER (read q_in,
-// write q_out), run once on the unified `airwater` channel with diffuse_frac, wdt_y (vertical), wdt.
+// write q_out), run once on the unified `moisture` channel with diffuse_frac, wdt_y (vertical), wdt.
 
 layout(local_size_x = 64) in;
 
@@ -69,11 +69,11 @@ void main() {
 	}
 
 	// 2) VERTICAL WIND ADVECTION (vel_y = the buoyancy-driven radial-UP wind) — this is what makes cloud
-	// CLUMP instead of forming a uniform veil. The old constant `rise_frac` lofted airwater everywhere at
-	// the same rate, which (with diffusion) smears the field flat. Instead airwater rides the REAL vertical
+	// CLUMP instead of forming a uniform veil. The old constant `rise_frac` lofted moisture everywhere at
+	// the same rate, which (with diffusion) smears the field flat. Instead moisture rides the REAL vertical
 	// wind: a warm updraft column (vel_y > 0) lifts humidity and, where the vertical flow CONVERGES (air
 	// rising into me from below faster than it leaves above), CONCENTRATES it into a dense cloud mass;
-	// subsidence (vel_y < 0) carries airwater back down toward warmer, higher-saturation air, which re-
+	// subsidence (vel_y < 0) carries moisture back down toward warmer, higher-saturation air, which re-
 	// evaporates it and opens CLEAR SKY between the masses. First-order upwind GATHER, mass-conserving
 	// (every share a cell loses to a radial neighbour is exactly the share that neighbour gains), mirroring
 	// the horizontal wind block below. Slot 5 = outward/up, slot 0 = inward/down.

@@ -6,14 +6,14 @@ extends RefCounted
 ## that loops an array of Reaction RECORDS (authored in MaterialReactions3D.gd, uploaded once as a read-only
 ## SSBO). Adding a reaction is adding a record there — not a kernel here.
 ##
-## Slotted AFTER AtmospherePass so temp/water/o2/co2/airwater are all settled (one-step coupling lag is the
+## Slotted AFTER AtmospherePass so temp/water/o2/co2/moisture are all settled (one-step coupling lag is the
 ## accepted norm — MaterialSphereGPU3D.gd:19-20). Buffer HALVES per channel (why each differs): o2/co2 were
-## produced by GasWind's transport into BACK (1-p); temp by Thermal into BACK; water/airwater by Atmosphere
+## produced by GasWind's transport into BACK (1-p); temp by Thermal into BACK; water/moisture by Atmosphere
 ## into BACK — so those read/edit BACK. FUNGUS's producer (EcoSurface's fungus kernel) runs LATER, so the
 ## current fungus is still LIVE (p) at this slot → bound to LIVE, read-only.
 ##
 ## Kernel binding -> bufs-key map (authoritative layout is reactions_sphere3d.glsl):
-##   0 Temp=temp[back] · 1 Water=water[back] · 2 AirWater=airwater[back] · 3 O2=o2[back] · 4 CO2=co2[back] ·
+##   0 Temp=temp[back] · 1 Water=water[back] · 2 Moisture=moisture[back] · 3 O2=o2[back] · 4 CO2=co2[back] ·
 ##   7 Detritus=detritus(single) · 8 Fungus=fungus[live] · 10 Solid=solid · 11 Biomass=biomass(single) ·
 ##   12 Snow=snow(single, freeze/melt phase transfer) · 15 Neigh=nbr · 20 Scratch=fungus_fert(single, SCRATCH
 ##   product) · 21 Defs=<record SSBO> · 22 Lava=lava[back] · 23 RockFill=rock_fill(single) — M5 solidify /
@@ -54,7 +54,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 
 	var temp: Array = _pair(bufs, "temp")
 	var water: Array = _pair(bufs, "water")
-	var airwater: Array = _pair(bufs, "airwater")
+	var moisture: Array = _pair(bufs, "moisture")
 	var o2: Array = _pair(bufs, "o2")
 	var co2: Array = _pair(bufs, "co2")
 	var fungus: Array = _pair(bufs, "fungus")
@@ -77,13 +77,13 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		_set[p] = _uset(_shader, [
 			[0, temp[back]],        # settled temp (Thermal output)
 			[1, water[back]],       # settled water (Atmosphere/WaterSlump output)
-			[2, airwater[back]],    # settled airwater (Atmosphere output)
+			[2, moisture[back]],    # settled moisture (Atmosphere output)
 			[3, o2[back]],          # o2 transport output — edited in place (sky refill / decompose draw)
 			[4, co2[back]],         # co2 transport output — edited in place (sky vent / decompose emit)
 			[7, detritus],          # SINGLE — decompose debits in place / respiration credits in place
 			[8, fungus[p]],         # LIVE — decompose driver (read-only; producer runs later)
 			[11, biomass],          # SINGLE — photosynthesis grows it, respiration/decay oxidizes it (persistent, GPU-owned)
-			[12, snow],             # SINGLE — freeze (R21) credits it, melt (R22) debits it; SAME H₂O as water/airwater (persistent, GPU-owned)
+			[12, snow],             # SINGLE — freeze (R21) credits it, melt (R22) debits it; SAME H₂O as water/moisture (persistent, GPU-owned)
 			[13, sediment[back]],   # loose regolith — loft (M4) debits it; SAME buffer FireDust transport deposits into + reads back
 			[14, dust[p]],          # airborne dust (LIVE) — loft (M4) credits it here so FireDust transport advects it THIS step
 			[16, susp[back]],       # waterborne suspended sediment — settle (M3) debits it (dead phase today → inert)

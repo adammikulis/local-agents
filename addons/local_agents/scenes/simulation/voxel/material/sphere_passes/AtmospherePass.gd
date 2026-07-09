@@ -1,15 +1,15 @@
 extends RefCounted
 
-## CUBED-SPHERE ATMOSPHERE PASS — the emergent water cycle on ONE conserved `airwater` channel.
+## CUBED-SPHERE ATMOSPHERE PASS — the emergent water cycle on ONE conserved `moisture` channel.
 ##
 ## Phase 2a collapsed the three separate atmospheric water channels vapor/cloud/fog into a SINGLE conserved
-## `airwater` (total water suspended in a cell's air). cloud/fog/vapor are no longer stored — they are
-## DERIVED at read time from `airwater` vs `sat(T)` (see MaterialField3D._condensed_at). So condensation,
+## `moisture` (total water suspended in a cell's air). cloud/fog/vapor are no longer stored — they are
+## DERIVED at read time from `moisture` vs `sat(T)` (see MaterialField3D._condensed_at). So condensation,
 ## re-evaporation and cloud-decay disappear as discrete steps; the only real mass transfers left are:
-##   EVAP(+BOIL): water -> airwater (conserving; debits DYNAMIC water, static sea is an infinite reservoir)
-##   PRECIP:      the heavy condensed part of airwater sheds rain into a scratch (airwater -= rain)
+##   EVAP(+BOIL): water -> moisture (conserving; debits DYNAMIC water, static sea is an infinite reservoir)
+##   PRECIP:      the heavy condensed part of moisture sheds rain into a scratch (moisture -= rain)
 ##   RAIN gather: routes that rain down the radial column into the ground water
-## plus one conservative TRANSPORT of airwater (diffuse / buoyant rise / wind).
+## plus one conservative TRANSPORT of moisture (diffuse / buoyant rise / wind).
 ##
 ## PLUGIN CONTRACT
 ##   setup(rd, bufs, cc)  — load 4 shaders/pipelines, allocate the rain scratch (+ a zeroed boil scratch the
@@ -20,22 +20,22 @@ extends RefCounted
 ##                          ctx["cell_size"] (default 5.0, folded with dt+wind_gain into the transport wdt).
 ##
 ## bufs channels used (PAIR → [rid_a, rid_b] ping-pong; SINGLE → rid):
-##   PAIR:  temp water airwater        SINGLE: solid static vel_x vel_z nbr
+##   PAIR:  temp water moisture        SINGLE: solid static vel_x vel_z nbr
 ##
-## BUFFER CHAINING (ping-pong; everything the pass touches for `airwater` ends in the `back` = [1-parity]
+## BUFFER CHAINING (ping-pong; everything the pass touches for `moisture` ends in the `back` = [1-parity]
 ## slot so the driver's end-of-frame parity flip promotes it to live). temp/water are read from `back`
 ## (Thermal + water passes already wrote this frame's post-step values there); evap DEBITS water[back] in
 ## place and the rain gather DEPOSITS into water[back] in place:
-##   1) EVAP:      airwater[live] --(+evap/+boil; debit water[back])--> airwater[back]
-##   2) TRANSPORT: airwater[back]  --(diffuse/rise/wind)--> airwater[live]  (reuses now-free live as scratch)
-##   3) PRECIP:    airwater[live] (post-transport) --(-rain)--> airwater[back]; rain -> scratch
+##   1) EVAP:      moisture[live] --(+evap/+boil; debit water[back])--> moisture[back]
+##   2) TRANSPORT: moisture[back]  --(diffuse/rise/wind)--> moisture[live]  (reuses now-free live as scratch)
+##   3) PRECIP:    moisture[live] (post-transport) --(-rain)--> moisture[back]; rain -> scratch
 ##   4) RAIN:      gather rain scratch --> water[back] (fall down the column)
-## airwater therefore ENDS in back[1-parity]; the parity flip makes it live next step.
+## moisture therefore ENDS in back[1-parity]; the parity flip makes it live next step.
 ##
 ## VERTICAL RISE = REAL WIND (Phase 2a §"Vertical rise folds into buoyant wind", now landed): the transport's
 ## old constant `rise_frac` buoyant term is REPLACED by upwind advection along the actual radial wind vel_y.
 ## This is what turns cloud from a uniform thin veil into DISTINCT MASSES: a constant rise lifts humidity at
-## the same rate everywhere (so, with diffusion, airwater stays flat), whereas riding vel_y concentrates it
+## the same rate everywhere (so, with diffusion, moisture stays flat), whereas riding vel_y concentrates it
 ## where warm updrafts converge (cloud banks) and clears it where air subsides (gaps of clear sky).
 ## Diffusion is also kept WEAK so it can't smear the masses back flat. Still ONE conservative transport pass.
 
@@ -44,14 +44,14 @@ const EVAP_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/mat
 const PRECIP_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/atmos_precip_sphere3d.glsl"
 const RAIN_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/atmos_rain_sphere3d.glsl"
 
-# Single-channel transport gains for `airwater`. To make cloud form DISTINCT MASSES (not a uniform veil),
-# airwater must CLUMP: diffusion is kept WEAK (strong diffusion smears the field flat), and the old constant
-# buoyant rise is replaced by advection along the REAL radial wind vel_y (AIRWATER_VWIND_GAIN) — warm
+# Single-channel transport gains for `moisture`. To make cloud form DISTINCT MASSES (not a uniform veil),
+# moisture must CLUMP: diffusion is kept WEAK (strong diffusion smears the field flat), and the old constant
+# buoyant rise is replaced by advection along the REAL radial wind vel_y (MOISTURE_VWIND_GAIN) — warm
 # updrafts concentrate humidity into cloud banks where the vertical flow converges, subsidence clears the
-# gaps. Horizontal wind (AIRWATER_WIND_GAIN) still drifts the masses with the prevailing flow.
-const AIRWATER_DIFFUSE: float = 0.035
-const AIRWATER_VWIND_GAIN: float = 4.5
-const AIRWATER_WIND_GAIN: float = 1.0
+# gaps. Horizontal wind (MOISTURE_WIND_GAIN) still drifts the masses with the prevailing flow.
+const MOISTURE_DIFFUSE: float = 0.035
+const MOISTURE_VWIND_GAIN: float = 4.5
+const MOISTURE_WIND_GAIN: float = 1.0
 
 # Default field cell size (MaterialField3D._cell_size = 5.0) + step dt (STEP_DT = 1/10). Used only to fold
 # the transport `wdt = wind_gain * dt / cell_size` when ctx omits them.
@@ -102,7 +102,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	_rain_buf = rd.storage_buffer_create(_zeros(cc).size(), _zeros(cc))
 	_boil_buf = rd.storage_buffer_create(_zeros(cc).size(), _zeros(cc))
 
-	var airwater: Array = bufs["airwater"]
+	var moisture: Array = bufs["moisture"]
 	var temp: Array = bufs["temp"]
 	var water: Array = bufs["water"]
 	var solid: RID = bufs["solid"]
@@ -115,21 +115,21 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	for p in 2:
 		var back: int = 1 - p
 
-		# EVAP — atmos_evap_sphere3d.glsl: 0=airwater in(live), 1=temp(back), 2=water(back, debited in
-		# place), 3=solid, 4=static, 5=airwater out(back), 15=nbr.
+		# EVAP — atmos_evap_sphere3d.glsl: 0=moisture in(live), 1=temp(back), 2=water(back, debited in
+		# place), 3=solid, 4=static, 5=moisture out(back), 15=nbr.
 		_evap_set[p] = _mkset(rd, _evap_shader, [
-			[0, airwater[p]], [1, temp[back]], [2, water[back]], [3, solid],
-			[4, stat], [5, airwater[back]], [15, nbr]])
+			[0, moisture[p]], [1, temp[back]], [2, water[back]], [3, solid],
+			[4, stat], [5, moisture[back]], [15, nbr]])
 
 		# TRANSPORT — atmos_transport_sphere3d.glsl: 0=q in(post-evap back), 1=solid, 2=q out(live scratch),
 		# 3=vel_x, 4=vel_z, 5=vel_y (radial-up wind), 15=nbr.
 		_transport_set[p] = _mkset(rd, _transport_shader, [
-			[0, airwater[back]], [1, solid], [2, airwater[p]], [3, vel_x], [4, vel_z], [5, vel_y], [15, nbr]])
+			[0, moisture[back]], [1, solid], [2, moisture[p]], [3, vel_x], [4, vel_z], [5, vel_y], [15, nbr]])
 
-		# PRECIP — atmos_precip_sphere3d.glsl: 0=airwater in(live, post-transport), 1=temp(back), 2=solid,
-		# 3=airwater out(back), 4=rain scratch.
+		# PRECIP — atmos_precip_sphere3d.glsl: 0=moisture in(live, post-transport), 1=temp(back), 2=solid,
+		# 3=moisture out(back), 4=rain scratch.
 		_precip_set[p] = _mkset(rd, _precip_shader, [
-			[0, airwater[p]], [1, temp[back]], [2, solid], [3, airwater[back]], [4, _rain_buf]])
+			[0, moisture[p]], [1, temp[back]], [2, solid], [3, moisture[back]], [4, _rain_buf]])
 
 		# RAIN — atmos_rain_sphere3d.glsl (unchanged): 0=rain scratch, 1=solid, 2=water(back, in place +=
 		# rain − boil), 3=boil scratch (all zeros now), 15=nbr.
@@ -141,24 +141,24 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	var dt: float = float(ctx.get("dt", DEFAULT_DT))
 	var cell_size: float = float(ctx.get("cell_size", DEFAULT_CELL_SIZE))
 
-	# STAGE 1 — EVAPORATION + BOILING: airwater[live] + evap/boil -> airwater[back]; DYNAMIC water[back]
+	# STAGE 1 — EVAPORATION + BOILING: moisture[live] + evap/boil -> moisture[back]; DYNAMIC water[back]
 	# debited in place (conserving).
 	rd.compute_list_bind_compute_pipeline(cl, _evap_pipe)
 	rd.compute_list_bind_uniform_set(cl, _evap_set[parity], 0)
 	rd.compute_list_set_push_constant(cl, _pc_plain(cc), 16)
 	rd.compute_list_dispatch(cl, groups, 1, 1)
-	rd.compute_list_add_barrier(cl)          # post-evap airwater[back] visible to transport
+	rd.compute_list_add_barrier(cl)          # post-evap moisture[back] visible to transport
 
-	# STAGE 2 — TRANSPORT: airwater[back] --(weak diffuse / vel_y updraft advection / horizontal wind)-->
-	# airwater[live] (one conservative pass). vel_y advection is what CLUMPS the field into cloud masses.
+	# STAGE 2 — TRANSPORT: moisture[back] --(weak diffuse / vel_y updraft advection / horizontal wind)-->
+	# moisture[live] (one conservative pass). vel_y advection is what CLUMPS the field into cloud masses.
 	rd.compute_list_bind_compute_pipeline(cl, _transport_pipe)
 	rd.compute_list_bind_uniform_set(cl, _transport_set[parity], 0)
-	rd.compute_list_set_push_constant(cl, _pc_transport(cc, AIRWATER_DIFFUSE, _wdt(AIRWATER_VWIND_GAIN, dt, cell_size), _wdt(AIRWATER_WIND_GAIN, dt, cell_size)), 16)
+	rd.compute_list_set_push_constant(cl, _pc_transport(cc, MOISTURE_DIFFUSE, _wdt(MOISTURE_VWIND_GAIN, dt, cell_size), _wdt(MOISTURE_WIND_GAIN, dt, cell_size)), 16)
 	rd.compute_list_dispatch(cl, groups, 1, 1)
-	rd.compute_list_add_barrier(cl)          # post-transport airwater[live] visible to precip
+	rd.compute_list_add_barrier(cl)          # post-transport moisture[live] visible to precip
 
-	# STAGE 3 — PRECIPITATION: derive condensed = max(0, airwater − sat(T)); shed rain to the scratch;
-	# airwater[live] -> airwater[back].
+	# STAGE 3 — PRECIPITATION: derive condensed = max(0, moisture − sat(T)); shed rain to the scratch;
+	# moisture[live] -> moisture[back].
 	rd.compute_list_bind_compute_pipeline(cl, _precip_pipe)
 	rd.compute_list_bind_uniform_set(cl, _precip_set[parity], 0)
 	rd.compute_list_set_push_constant(cl, _pc_plain(cc), 16)

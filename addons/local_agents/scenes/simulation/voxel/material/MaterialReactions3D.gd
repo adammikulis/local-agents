@@ -15,7 +15,7 @@ extends RefCounted
 # --- Channel slot enum (MUST match the #defines in reactions_sphere3d.glsl) --------------------------------
 const TEMP: int = 0
 const WATER: int = 1
-const AIRWATER: int = 2
+const MOISTURE: int = 2
 const O2: int = 3
 const CO2: int = 4
 const FUEL: int = 5
@@ -25,7 +25,7 @@ const FUNGUS: int = 8
 const FERT: int = 9
 const LAVA: int = 10
 const BIOMASS: int = 11
-const SNOW: int = 12                  # frozen H₂O (snowpack/ice) — the same conserved substance as WATER + AIRWATER
+const SNOW: int = 12                  # frozen H₂O (snowpack/ice) — the same conserved substance as WATER + MOISTURE
 # MINERAL phases (rock unification): ONE conserved mineral substance, phase = state. loose SEDIMENT, airborne
 # DUST, waterborne SUSP are channels; loft/settle are same-cell mass TRANSFERS between them (records below).
 const SEDIMENT: int = 13
@@ -95,16 +95,16 @@ const RESP_CO2_YIELD: float = 0.6        # CO₂ returned to air per unit biomas
 const RESP_DET_YIELD: float = 0.4        # detritus (litter) shed per unit biomass respired
 
 # --- H₂O PHASE CHANGE (freeze / melt) — one conserved substance, phase from temperature (Phase 2c) --------
-# Liquid WATER, atmospheric AIRWATER and frozen SNOW are the SAME H₂O; only the PHASE differs, and the phase
+# Liquid WATER, atmospheric MOISTURE and frozen SNOW are the SAME H₂O; only the PHASE differs, and the phase
 # is emergent from a cell's TEMPERATURE. Freeze/melt are pure mass-conserving TRANSFERS: debit one phase by x,
-# credit the other by x (coeff 1:1), so H₂O total = water + airwater + snow is conserved by every transition.
+# credit the other by x (coeff 1:1), so H₂O total = water + moisture + snow is conserved by every transition.
 # FREEZE_TEMP / MELT_TEMP MUST match snowice_sphere3d.glsl (the sat(T)-aware snowfall/deposition kernel that
 # freezes the CONDENSED atmospheric water directly — the primary snow source). Hysteresis (FREEZE_TEMP <
 # MELT_TEMP) leaves a stable band where snow neither grows nor melts → a clean, non-flickering snow line.
 # TUNED to the sim's ACTUAL open-cell temperature range (~11–21 °C: this world's static terminator never drops
 # the night/pole floor near 0 °C), so freezing happens in the coldest ~1–2 °C cap instead of NEVER. A literal
 # 0 °C freeze can never fire here — see the task temp-range note; raise these with the real climate range.
-const FREEZE_TEMP: float = 12.5          # WATER (and, in the kernel, condensed AIRWATER) at T below this freezes → SNOW
+const FREEZE_TEMP: float = 12.5          # WATER (and, in the kernel, condensed MOISTURE) at T below this freezes → SNOW
 const MELT_TEMP: float = 14.0            # SNOW at T above this melts → liquid WATER
 const FREEZE_RATE: float = 0.05          # per-step k on the below-threshold liquid-freeze extent
 const MELT_RATE: float = 0.05            # per-step k on the above-threshold snow-melt extent
