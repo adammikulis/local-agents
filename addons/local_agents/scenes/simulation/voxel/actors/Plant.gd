@@ -63,11 +63,10 @@ func setup(_terrain, _config: Dictionary) -> void:
 	_apply_growth()
 
 
-## Stand radially and sit on the solid surface. On the flat island the ecology service already places
-## the plant on the ground with +Y up, so this is a planet-only step: snap onto the surface along our
-## radial ray and align local +Y to the radial "up" (the flat surface_height path returns NAN on a planet).
+## Stand radially and sit on the solid surface: snap onto the surface along our radial ray and align
+## local +Y to the radial "up".
 func _orient_to_ground() -> void:
-	if terrain == null or not (terrain.has_method("is_planet") and terrain.is_planet()):
+	if terrain == null:
 		return
 	var center: Vector3 = terrain.planet_center()
 	var up: Vector3 = (global_position - center).normalized()
