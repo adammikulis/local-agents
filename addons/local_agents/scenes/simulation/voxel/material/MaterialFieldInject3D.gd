@@ -17,6 +17,85 @@ func setup(field) -> void:
 	_f = field
 
 
+# --- Local field injection (add_heat / add_vapor / add_charge) --------------------------------------
+# The real, unstubbed local-injection primitives. Each writes a channel amount into the sphere GPU field at
+# a world cell (and a small radius of its neighbours), following the round-trip discipline the GPU driver
+# already uses for temp/lava:
+#   • TEMPERATURE is re-uploaded from the CPU `_temp` array EVERY begin_frame, so add_heat simply edits `_temp`
+#     — no dirty flag needed; it round-trips into the GPU next step and back on readback.
+#   • MOISTURE and CHARGE are GPU-resident (uploaded only when the CPU dirties them, like lava). add_vapor /
+#     add_charge edit the read-back CPU array + raise a dirty flag; the sphere-step loop pushes them via
+#     set_field before the next step (mirroring the lava/rock_fill dirty-gated upload).
+# Big-O: injection touches only the O(k) cells inside `radius` gathered by a bounded neighbour-BFS from the
+# centre cell (grid.neighbours), never the whole grid — a stimulus wakes a small bubble, not a full-grid sweep.
+
+## Raise the temperature of the cell at `world_pos` (and cells within `radius`) by `amount` °C. A meteor's
+## molten spike, a fire's heat, a storm's surface warming. Edits `_temp` directly — re-uploaded every step.
+func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
+	if amount == 0.0 or _f._temp.size() != _f._cell_count:
+		return
+	var cells: PackedInt32Array = _cells_within(world_pos, radius)
+	for c in cells:
+		_f._temp[c] = _f._temp[c] + amount
+
+## Inject airborne water vapor (humidity) into the air cell at `world_pos` (and within `radius`) — a storm's
+## LOCAL moisture source. Moisture is GPU-resident, so mark it dirty for the sphere-step re-upload.
+func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
+	if amount <= 0.0 or _f._moisture.size() != _f._cell_count:
+		return
+	var cells: PackedInt32Array = _cells_within(world_pos, radius)
+	for c in cells:
+		if _f._solid[c] == 0:
+			_f._moisture[c] = maxf(0.0, _f._moisture[c] + amount)
+	_f._vapor_dirty = true
+
+## Inject electrification charge into the air cell at `world_pos` (and within `radius`) — an explicit charge
+## seed (a storm's charge source, or an ionising impact). The charge channel is GPU-resident + evolves in
+## place, so mark it dirty for the sphere-step re-upload; the charge module then reads it back + may break down.
+func add_charge(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
+	if amount <= 0.0 or _f._charge.size() != _f._cell_count:
+		return
+	var cells: PackedInt32Array = _cells_within(world_pos, radius)
+	for c in cells:
+		if _f._solid[c] == 0:
+			_f._charge[c] = maxf(0.0, _f._charge[c] + amount)
+	_f._charge_dirty = true
+	_f._charge_woke = true                                # wake the breakdown scan — a small injected blob can
+	                                                      # slip between the strided probe's samples otherwise
+
+
+## Gather the linear cell indices within `radius` world-units of `world_pos` (the centre cell always included).
+## Bounded neighbour-BFS over the sphere grid's precomputed 6-neighbour table — O(k) in the bubble, never the
+## whole grid. radius <= 0 (or no sphere grid) collapses to the single centre cell.
+func _cells_within(world_pos: Vector3, radius: float) -> PackedInt32Array:
+	var out: PackedInt32Array = PackedInt32Array()
+	var c0: int = _f.world_to_cell(world_pos)
+	if c0 < 0 or c0 >= _f._cell_count:
+		return out
+	out.append(c0)
+	if radius <= 0.0 or _f._sphere == null:
+		return out
+	var r2: float = radius * radius
+	var nbr: PackedInt32Array = _f._sphere.neighbours
+	var seen: Dictionary = {c0: true}
+	var frontier: PackedInt32Array = PackedInt32Array([c0])
+	# Cap the walk so a huge radius can't run away; the bubble is small by design.
+	var max_cells: int = 512
+	while frontier.size() > 0 and out.size() < max_cells:
+		var next: PackedInt32Array = PackedInt32Array()
+		for c in frontier:
+			for d in range(6):
+				var nb: int = nbr[c * 6 + d]
+				if nb < 0 or seen.has(nb):
+					continue
+				seen[nb] = true
+				if (_f.cell_world_pos_linear(nb) - world_pos).length_squared() <= r2:
+					out.append(nb)
+					next.append(nb)
+		frontier = next
+	return out
+
+
 # --- Injection API (disasters/flood call these) -----------------------------
 
 ## SEABED MAGMA SOURCE — the volcano's ONLY authored action (the seabed-island capstone). Extrude `amount` of molten
