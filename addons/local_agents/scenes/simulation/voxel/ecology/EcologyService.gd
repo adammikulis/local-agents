@@ -15,20 +15,18 @@ const NestScript: GDScript = preload("res://addons/local_agents/scenes/simulatio
 
 const KINDS: Array = ["plant", "rabbit", "fox", "bird", "villager", "fish", "rock", "tree"]
 
-# Aquatic life is stocked out over a wide radius (the ocean rings the island beyond ~180u; freshwater
-# lakes/rivers sit inland) — much wider than the land-creature spawn_extent. Kept a little inside the
-# 300u world/material half-extent so samples land on sampled cells.
-const AQUATIC_EXTENT: float = 285.0
+# Aquatic sampling budget: tries per placement to land inside a species' salinity/depth band (radial).
 const AQUATIC_SAMPLE_TRIES: int = 60
+# A LIVING sea: scale every aquatic species' starting count AND its population cap by this factor so the
+# ocean/lakes teem instead of trickling. Data files stay the single source of the per-species ratios; this
+# is the one owned dial that makes the water busy without editing eight species files.
+const AQUATIC_STOCK_MULT: float = 2.6
 
 var terrain = null                       # LAVoxelTerrainService
 var actors_root: Node3D = null
 var _tracks = null                       # LATrackSystem (observer; footprints)
 var _material = null                      # LAMaterialField — the ONE substrate (water/heat/materials)
 var _cognition_sched = null              # LACognitionScheduler (shared slow-brain budget/queue)
-
-# world spawn area (XZ half-extent) used for spawn_initial scatter
-var spawn_extent: float = 80.0
 
 # Shared day/night clock (0=midnight .. 0.5=noon), set by VoxelWorld each frame. Creatures
 # read is_night() so nocturnal species behave differently after dark — emergent, not scripted.
@@ -48,6 +46,7 @@ var _pending: Array = []
 var _breed_timer: float = 0.0
 var _seed_timer: float = 0.0
 var _fish_timer: float = 0.0
+var _tree_timer: float = 0.0             # forest succession: groves densify on biomass-rich ground
 var _aquatic_kinds_cache: Array = []     # aquatic species ids (config aquatic:true), indexed once
 var _aquatic_indexed: bool = false
 
@@ -184,16 +183,63 @@ const GROW_MIN_TEMP: float = 7.5          # °C below which the ground is too co
 const GROW_SNOW_MAX: float = 0.02         # snowpack depth above which the ground is snow-covered (no germination)
 
 
-# Can vegetation take root at `placed`? Reads the field CONDITIONS (temperature + snow cover), so the
-# treeline is emergent. True when there is no material field wired yet (spawns during boot aren't blocked).
+# The SKY-EXPOSED open cell one voxel ABOVE a ground point (offset outward along the radial). Biomass,
+# snow and near-surface temperature live in that open surface cell, NOT in the solid cell a base-anchored
+# actor's exact position maps to — so every climate read below samples here to get the real values.
+const SURFACE_PROBE_UP: float = 6.0     # a little over one 5-unit field cell, into the open surface layer
+func _air_point(pos: Vector3) -> Vector3:
+	if terrain != null and terrain.has_method("up_at"):
+		var u: Vector3 = terrain.up_at(pos)
+		if u.length() > 0.0001:
+			return pos + u.normalized() * SURFACE_PROBE_UP
+	return pos + Vector3.UP * SURFACE_PROBE_UP
+
+
+# Can vegetation take root at `placed`? Reads the field CONDITIONS (temperature + snow cover) in the TRUE
+# 3D sky-exposed surface cell (three-d-always — the 2.5D x,z form returns safe defaults on a sphere and never
+# gates), so the treeline is emergent: warm snow-free ground greens over, frozen/snow-capped poles stay bare
+# and the line MOVES with the climate. True when there is no material field wired yet (boot spawns aren't blocked).
 func _can_grow_here(placed: Vector3) -> bool:
 	if _material == null:
 		return true
-	if _material.has_method("temp_at") and _material.temp_at(placed.x, placed.z) < GROW_MIN_TEMP:
+	var air: Vector3 = _air_point(placed)
+	if _material.has_method("temp_at") and _material.temp_at(air.x, air.z, air.y) < GROW_MIN_TEMP:
 		return false   # too cold — above the emergent treeline
-	if _material.has_method("snow_depth_at") and _material.snow_depth_at(placed.x, placed.z) > GROW_SNOW_MAX:
+	if _material.has_method("snow_depth_at") and _material.snow_depth_at(air.x, air.z, air.y) > GROW_SNOW_MAX:
 		return false   # snow-covered ground
 	return true
+
+
+# Radius of the SKY-EXPOSED top shell cell (r = depth-1), where photosynthesis (MaterialReactions3D R19, gated
+# to the outermost open cell that faces space) deposits the biomass for a whole column. Cached from the sphere
+# grid; -1 until the field is wired. Biomass is read there, per column, not at the ground.
+var _shell_sample_radius: float = -1.0
+func _shell_top_radius() -> float:
+	if _shell_sample_radius > 0.0:
+		return _shell_sample_radius
+	if _material != null and _material.has_method("sphere_grid"):
+		var g: RefCounted = _material.sphere_grid()
+		if g != null:
+			_shell_sample_radius = float(g.core_radius) + (float(g.depth) - 0.5) * float(g.cell_size)
+	return _shell_sample_radius
+
+
+# Living BIOMASS above a surface point — the emergent photosynthesis product for that column (warm, sunlit,
+# CO₂-rich columns fix the most). Read at the sky-exposed top shell cell along the point's radial, since that
+# is where R19 deposits it. Forests gate on this so groves densify under the columns the chemistry made most
+# productive (sunlit continents) and stay sparse under cold/polar/night columns. 0 when no field wired yet.
+func _biomass_at(pos: Vector3) -> float:
+	if _material == null or not _material.has_method("biomass_at"):
+		return 0.0
+	var r: float = _shell_top_radius()
+	if r <= 0.0:
+		return _material.biomass_at(pos.x, pos.y, pos.z)
+	var pc: Vector3 = terrain.planet_center()
+	var dir: Vector3 = pos - pc
+	if dir.length() < 0.001:
+		return 0.0
+	var s: Vector3 = pc + dir.normalized() * r
+	return _material.biomass_at(s.x, s.y, s.z)
 
 
 func spawn(kind: String, world_pos: Vector3) -> Node:
@@ -225,19 +271,10 @@ func spawn_initial(counts: Dictionary) -> void:
 
 
 func _random_spawn_point() -> Vector3:
-	# On a sphere the whole surface is fair game: pick a random unit direction from the planet
-	# centre and hand back a point along it (above the surface); _place_on_surface() re-projects
-	# it down to the meshed ground radially. Flat mode keeps the square XZ scatter.
-	if _is_planet():
-		return terrain.planet_center() + _random_sphere_dir() * (terrain.planet_radius() + 1.0)
-	var x: float = randf_range(-spawn_extent, spawn_extent)
-	var z: float = randf_range(-spawn_extent, spawn_extent)
-	return Vector3(x, 0.0, z)
-
-
-# True when the terrain body is a sphere (radial contract) rather than a flat heightmap.
-func _is_planet() -> bool:
-	return terrain != null and terrain.has_method("is_planet") and terrain.is_planet()
+	# On a sphere the whole surface is fair game: pick a random unit direction from the planet centre and
+	# hand back a point along it (above the surface); _place_on_surface() re-projects it down to the meshed
+	# ground radially. (The planet is the sole world — the old flat XZ scatter is gone.)
+	return terrain.planet_center() + _random_sphere_dir() * (terrain.planet_radius() + 1.0)
 
 
 # A uniform-ish random unit direction on the sphere (reject the degenerate near-zero vector).
@@ -269,9 +306,9 @@ func _tangent_offset_point(anchor: Vector3, u: float, v: float) -> Vector3:
 
 # Orient a spawned static actor (tree/plant/rock) so its local +Y points along the radial up at its
 # position — otherwise everything would stand parallel to world +Y and lean over as you round the
-# globe. No-op in flat mode (flat behaviour preserved exactly). Preserves the node's current scale.
+# globe. Preserves the node's current scale.
 func _orient_to_surface(node: Node3D, pos: Vector3) -> void:
-	if node == null or not _is_planet():
+	if node == null:
 		return
 	var up: Vector3 = terrain.up_at(pos)
 	if up.length() < 0.001:
@@ -290,36 +327,24 @@ func _orient_to_surface(node: Node3D, pos: Vector3) -> void:
 	node.scale = scl
 
 
-# True when `placed` sits in water. On a planet that means inside the sea shell (below sea level);
-# on flat terrain it defers to the field's XZ water-column test.
+# True when `placed` sits in water — inside the planet's sea shell (at or below the sea radius).
 func _is_water_pos(placed: Vector3) -> bool:
-	if _is_planet():
-		return (placed - terrain.planet_center()).length() <= terrain.sea_radius()
-	if _material == null or not _material.has_method("is_water_at"):
-		return false
-	return _material.is_water_at(placed.x, placed.z)
+	return (placed - terrain.planet_center()).length() <= terrain.sea_radius()
 
 
-# Resolve a surface position for a world point. On a planet this projects the point radially onto the
-# meshed sphere surface (via its direction from the centre); on flat terrain it resolves the heightmap
-# Y under the XZ. Returns a positioned Vector3, or null if the terrain isn't meshed there yet.
+# Resolve a surface position for a world point by projecting it radially onto the meshed sphere surface
+# (via its direction from the planet centre). Returns a positioned Vector3, or null if the terrain isn't
+# meshed there yet.
 func _place_on_surface(world_pos: Vector3):
 	if terrain == null:
 		return null
-	if _is_planet():
-		var d: Vector3 = world_pos - terrain.planet_center()
-		if is_nan(d.x) or d.length() < 0.001:
-			return null
-		var p: Vector3 = terrain.surface_point(d.normalized())
-		if is_nan(p.x):
-			return null
-		return p
-	var y: float = NAN
-	if terrain.has_method("surface_height"):
-		y = float(terrain.surface_height(world_pos.x, world_pos.z))
-	if is_nan(y):
+	var d: Vector3 = world_pos - terrain.planet_center()
+	if is_nan(d.x) or d.length() < 0.001:
 		return null
-	return Vector3(world_pos.x, y, world_pos.z)
+	var p: Vector3 = terrain.surface_point(d.normalized())
+	if is_nan(p.x):
+		return null
+	return p
 
 
 func _instance_actor(kind: String, placed: Vector3, genome = null) -> Node:
@@ -381,21 +406,51 @@ func _tree_config() -> Dictionary:
 	return {"species": "pine" if pine else "oak"}
 
 
-# Scatter ambient rocks and clustered forests across the world (independent of meteors).
+# Scatter ambient rocks and SEED clustered forests across the world (independent of meteors). Each forest
+# cluster's centre is chosen as the WARMEST / most-fertile of several candidate sites (the same climate the
+# treeline reads), so groves start on the good continents rather than the frozen poles. From these seeds the
+# groves DENSIFY over the run wherever photosynthesis has built biomass (see _tick_tree_seeding).
+const FOREST_CLUSTER_TRIES: int = 5      # candidate sites weighed per cluster (pick the warmest/most fertile)
+const FOREST_CLUSTER_SPREAD: float = 15.0 # tangent-plane radius the initial cluster scatters over (metres)
 func populate_environment(rock_count: int, forest_clusters: int) -> void:
 	for i in rock_count:
 		spawn("rock", _random_spawn_point())
-	var planet: bool = _is_planet()
 	for c in forest_clusters:
-		var center: Vector3 = _random_spawn_point()
-		var trees: int = randi_range(7, 15)
+		var center: Vector3 = _best_forest_center(FOREST_CLUSTER_TRIES)
+		if is_nan(center.x):
+			continue
+		var trees: int = randi_range(11, 20)
 		for t in trees:
-			if planet:
-				# Scatter the cluster in the centre's tangent plane, then re-project to the sphere.
-				spawn("tree", _tangent_offset_point(center, randf_range(-14, 14), randf_range(-14, 14)))
-			else:
-				var off: Vector3 = Vector3(randf_range(-14, 14), 0, randf_range(-14, 14))
-				spawn("tree", center + off)
+			# Scatter the cluster in the centre's tangent plane, then re-project to the sphere.
+			spawn("tree", _tangent_offset_point(center, randf_range(-FOREST_CLUSTER_SPREAD, FOREST_CLUSTER_SPREAD), randf_range(-FOREST_CLUSTER_SPREAD, FOREST_CLUSTER_SPREAD)))
+
+
+# Pick the most forest-suitable of `tries` random surface points: highest biomass, warmest, snow-free. At
+# spawn biomass is ~0 everywhere so warmth (the photosynthesis driver) decides — clusters land on the warm
+# continents; later succession then reads the biomass those forests build. NAN-x if no meshed site found.
+func _best_forest_center(tries: int) -> Vector3:
+	var best: Vector3 = Vector3(NAN, 0.0, 0.0)
+	var best_score: float = -INF
+	for i in range(tries):
+		var placed = _place_on_surface(_random_spawn_point())
+		if placed == null or not _can_grow_here(placed):
+			continue
+		var score: float = _forest_suitability(placed)
+		if score > best_score:
+			best_score = score
+			best = placed
+	return best
+
+
+# Forest suitability of a surface point: biomass the photosynthesis chemistry has fixed there (weighted
+# high) plus the local warmth above the germination threshold (the biomass driver, so it ranks sites before
+# any biomass exists). Higher = better forest ground; drives both initial siting and grove succession.
+const FOREST_BIOMASS_WEIGHT: float = 12.0
+func _forest_suitability(pos: Vector3) -> float:
+	var warmth: float = 0.0
+	if _material != null and _material.has_method("temp_at"):
+		warmth = _material.temp_at(pos.x, pos.z, pos.y) - GROW_MIN_TEMP
+	return _biomass_at(pos) * FOREST_BIOMASS_WEIGHT + warmth
 
 
 # Deterministic point-source falloff: MAX (1.0) at the centre, 0.0 at/beyond the edge, squared
@@ -480,6 +535,10 @@ func _physics_process(delta: float) -> void:
 	if _fish_timer <= 0.0:
 		_fish_timer = 2.5
 		_tick_aquatic()
+	_tree_timer -= delta
+	if _tree_timer <= 0.0:
+		_tree_timer = 1.4
+		_tick_tree_seeding()
 
 
 func _process_pending() -> void:
@@ -529,11 +588,7 @@ func _tick_breeding() -> void:
 		var base_pos: Vector3 = pa.global_position
 		if bool(pa.get("has_nest")) and not is_inf(float((pa.get("nest_pos") as Vector3).x)):
 			base_pos = pa.get("nest_pos")
-		var placed
-		if _is_planet():
-			placed = _place_on_surface(_tangent_offset_point(base_pos, randf_range(-2.0, 2.0), randf_range(-2.0, 2.0)))
-		else:
-			placed = _place_on_surface(base_pos + Vector3(randf_range(-2.0, 2.0), 0.0, randf_range(-2.0, 2.0)))
+		var placed = _place_on_surface(_tangent_offset_point(base_pos, randf_range(-2.0, 2.0), randf_range(-2.0, 2.0)))
 		if placed != null:
 			var child = _instance_actor(kind, placed, _breed_genome(pa, pb))
 			_inherit_nest(pa, child)
@@ -615,12 +670,9 @@ func seed_plant_at(world_pos: Vector3) -> void:
 # after the sea level is locked. Ongoing recovery is handled by _tick_aquatic; this just makes the sea
 # and lakes feel alive from the first frame instead of trickling in.
 func stock_initial_aquatic() -> void:
-	# On a planet the sea shell is defined radially, so XZ is_water_at isn't the gate — only require it flat.
-	if not _is_planet() and (_material == null or not _material.has_method("is_water_at")):
-		return
 	for kind in _aquatic_kinds():
 		var cfg: Dictionary = _species_config(String(kind))
-		var initial: int = int(cfg.get("initial", 0))
+		var initial: int = int(round(float(cfg.get("initial", 0)) * AQUATIC_STOCK_MULT))
 		for i in range(initial):
 			var wet: Vector3 = _random_aquatic_point(cfg)
 			if not is_nan(wet.x):
@@ -632,11 +684,9 @@ func stock_initial_aquatic() -> void:
 # in the deep sea, brackish species along the coast — no hand-placed spawn points, all emergent. One
 # individual of one under-cap species is added per tick.
 func _tick_aquatic() -> void:
-	if not _is_planet() and (_material == null or not _material.has_method("is_water_at")):
-		return
 	for kind in _aquatic_kinds():
 		var cfg: Dictionary = _species_config(String(kind))
-		var cap: int = int(cfg.get("pop_cap", 12))
+		var cap: int = int(round(float(cfg.get("pop_cap", 12)) * AQUATIC_STOCK_MULT))
 		if get_tree().get_nodes_in_group("species_%s" % String(kind)).size() >= cap:
 			continue
 		var wet: Vector3 = _random_aquatic_point(cfg)
@@ -646,38 +696,11 @@ func _tick_aquatic() -> void:
 		return                                       # one spawn per tick keeps the stocking gentle
 
 
-# Sample the water for a point inside a species' salinity + depth band; returns a surface-projected
-# point, or a NAN-x vector if none was found this tick. This is what places each species into the right
-# water (fresh / brackish / salt, shallow / deep) without a single per-species branch.
+# Sample the sea for a point inside a species' depth band: pick a random direction where the GROUND surface
+# sits below sea level, then place the individual somewhere in the underwater shell between the seabed and the
+# sea radius, inside the species' depth band. Everything is radial (no XZ column reads — three-d-always), so
+# species self-sort into the right water with no hand-placed spawn points. NAN-x vector if none found.
 func _random_aquatic_point(cfg: Dictionary) -> Vector3:
-	if _is_planet():
-		return _random_aquatic_point_planet(cfg)
-	var smin: float = float(cfg.get("salinity_min", 0.0))
-	var smax: float = float(cfg.get("salinity_max", 1.0))
-	var dmin: float = float(cfg.get("depth_min", 0.0))
-	var dmax: float = float(cfg.get("depth_max", 999.0))
-	for i in range(AQUATIC_SAMPLE_TRIES):
-		var x: float = randf_range(-AQUATIC_EXTENT, AQUATIC_EXTENT)
-		var z: float = randf_range(-AQUATIC_EXTENT, AQUATIC_EXTENT)
-		if not _material.is_water_at(x, z):
-			continue
-		var s: float = _material.salinity_at(x, z)
-		if is_nan(s) or s < smin or s > smax:
-			continue
-		var placed = _place_on_surface(Vector3(x, 0.0, z))
-		if placed == null:
-			continue
-		var depth: float = _aquatic_depth(x, z, placed)
-		if not is_nan(depth) and (depth < dmin or depth > dmax):
-			continue
-		return placed
-	return Vector3(NAN, 0.0, 0.0)
-
-
-# Planet aquatic sampling: pick a random direction where the GROUND surface sits below sea level, then
-# place the individual somewhere in the underwater shell between the seabed and the sea radius, inside
-# the species' depth band. No XZ column reads — everything is radial. NAN-x vector if none found.
-func _random_aquatic_point_planet(cfg: Dictionary) -> Vector3:
 	var dmin: float = float(cfg.get("depth_min", 0.0))
 	var dmax: float = float(cfg.get("depth_max", 999.0))
 	var pc: Vector3 = terrain.planet_center()
@@ -695,17 +718,6 @@ func _random_aquatic_point_planet(cfg: Dictionary) -> Vector3:
 	return Vector3(NAN, 0.0, 0.0)
 
 
-# Water-column depth (surface Y minus seabed/lakebed) at a sampled point; NAN if unavailable. Mirrors
-# LAFish's own depth read so stocking places a species where its depth band will keep it.
-func _aquatic_depth(x: float, z: float, placed: Vector3) -> float:
-	if not _material.has_method("surface_y_at"):
-		return NAN
-	var surf: float = _material.surface_y_at(x, z)
-	if is_nan(surf):
-		return NAN
-	return surf - placed.y
-
-
 func _tick_plant_seeding() -> void:
 	var plants: Array = get_tree().get_nodes_in_group("plant")
 	var cap: int = int(_plant_config().get("pop_cap", 120))
@@ -717,14 +729,50 @@ func _tick_plant_seeding() -> void:
 		if p.has_method("has_seed") and p.has_seed():
 			if randf() > 0.4:
 				continue
-			var placed
-			if _is_planet():
-				placed = _place_on_surface(_tangent_offset_point((p as Node3D).global_position, randf_range(-3.5, 3.5), randf_range(-3.5, 3.5)))
-			else:
-				placed = _place_on_surface((p as Node3D).global_position + Vector3(randf_range(-3.5, 3.5), 0.0, randf_range(-3.5, 3.5)))
+			var placed = _place_on_surface(_tangent_offset_point((p as Node3D).global_position, randf_range(-3.5, 3.5), randf_range(-3.5, 3.5)))
 			if placed != null and _can_grow_here(placed):
 				_instance_actor("plant", placed)   # seed only takes on warm, snow-free ground (emergent treeline)
 			if p.has_method("consume"):
 				p.consume()
 			if get_tree().get_nodes_in_group("plant").size() >= cap:
 				return
+
+
+# FOREST SUCCESSION — the emergent grove-builder. Each tick a few existing trees standing on biomass-rich
+# ground drop a seedling into their tangent neighbourhood, but ONLY where the local biomass the photosynthesis
+# chemistry has fixed clears an adaptive threshold (a fraction of the richest grove's biomass). So forests
+# THICKEN on the warm fertile continents that grew the most biomass, spread out from existing trees (groves,
+# not scatter), and stall at cold/snowy/coastal margins where biomass never crosses the bar or the treeline
+# gate blocks germination. Forests are a consequence of the chemistry, not a placement table.
+const TREE_POP_CAP: int = 400               # forest carrying capacity (well above the initial seed count)
+const TREE_SEED_BIOMASS_FRAC: float = 0.35  # seed only onto ground with >= this fraction of the richest grove's biomass
+const TREE_SEED_FLOOR: float = 0.04         # absolute biomass floor so bare/cold ground never seeds
+const TREE_SEED_SPREAD: float = 8.0         # how far a seedling lands from its parent (grove tightness, metres)
+const TREE_SEEDS_PER_TICK: int = 10         # parents that attempt to seed per tick (bounded work — big-O by tick, not grid)
+func _tick_tree_seeding() -> void:
+	var trees: Array = get_tree().get_nodes_in_group("tree")
+	if trees.is_empty() or trees.size() >= TREE_POP_CAP:
+		return
+	# The richest grove's biomass sets an ADAPTIVE bar (self-scales to whatever the chemistry produces), so
+	# the forest advances onto ground within TREE_SEED_BIOMASS_FRAC of the best fertility.
+	var peak: float = 0.0
+	for t in trees:
+		if is_instance_valid(t):
+			peak = maxf(peak, _biomass_at((t as Node3D).global_position))
+	var thresh: float = maxf(TREE_SEED_FLOOR, peak * TREE_SEED_BIOMASS_FRAC)
+	var seeded: int = 0
+	var guard: int = 0
+	while seeded < TREE_SEEDS_PER_TICK and guard < TREE_SEEDS_PER_TICK * 4:
+		guard += 1
+		var parent: Node3D = trees[randi() % trees.size()] as Node3D
+		if not is_instance_valid(parent) or _biomass_at(parent.global_position) < thresh:
+			continue                                # parent isn't on rich enough ground to spread a grove
+		seeded += 1
+		var placed = _place_on_surface(_tangent_offset_point(parent.global_position, randf_range(-TREE_SEED_SPREAD, TREE_SEED_SPREAD), randf_range(-TREE_SEED_SPREAD, TREE_SEED_SPREAD)))
+		if placed == null or _is_water_pos(placed) or not _can_grow_here(placed):
+			continue                                # off the treeline / into the sea — the grove's edge
+		if _biomass_at(placed) < thresh:
+			continue                                # seedling site not fertile enough — keeps groves dense, not scattered
+		_instance_actor("tree", placed)
+		if get_tree().get_nodes_in_group("tree").size() >= TREE_POP_CAP:
+			return
