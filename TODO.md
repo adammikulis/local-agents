@@ -43,14 +43,15 @@ parallel mode).** Node spine:
   speculative — it's the committed end goal, built minimally + grown).
 
 ## Current state (1-liner)
-`feature/sphere-spike`: the cubed-sphere is now the **SOLE field substrate** — the box grid + box GPU driver
-+ all 16 CPU-oracle modules are DELETED (21 files, `780e9bd`), MaterialField3D 1496→961 lines. The field is
-ALIVE + CLEAN: all 6 `sphere_passes/*` dispatch in data-flow order over the `*_sphere3d.glsl` kernels, solar
-terminator drives temp (min ~10.6 night / max ~22 day across 122880 cells), ~285 entities, ~105–200fps, ZERO
-script errors. THE bug that had it dead-flat was a bolt-on gap (terrain never wired into `setup_sphere`) —
-fixed. RESUME: re-home magma-core injection to a direct sphere `_temp/_lava` write (add_magma_source went
-through a now-null module → planet lost internal heat, temp_max 675→22); then fuller readback +
-box-`*3d.glsl` kernel rm + strip `LA_SPHERE_DBG` + merge to `0.3-dev`. Then Phase C dissolves the disasters.
+`feature/sphere-spike` is MERGE-READY: the cubed-sphere is the **SOLE field substrate** — box grid + box GPU
+driver + all 16 CPU-oracle modules + 32 box `*3d.glsl` kernels DELETED (~53 files, ~7700 lines gone),
+MaterialField3D 1496→~1000 lines. The field is ALIVE + CLEAN: all 6 `sphere_passes/*` dispatch in data-flow
+order over the `*_sphere3d.glsl` kernels; solar terminator + marine cooling + a pinned geothermal core with
+real heat CONDUCTION (temp: min ~10.5 night / max ~21 day open cells, core pinned 1300, all stable no-NaN);
+~285 entities, planet renders (continents/seas/coasts/star-lit), file-size gate passes, ZERO script errors.
+THE original dead-flat bug was a bolt-on gap (terrain never wired into `setup_sphere`) — fixed. LEFT before/
+after merge: fuller readback for the still-defaulting channels (scent/fungus/erosion/snow — actors get safe
+defaults meanwhile); then merge `feature/sphere-spike` → `0.3-dev`. Then Phase C dissolves the disasters.
 B3 (2a water-cycle unify + 2b DEFS reaction engine) design is DONE in `material/PHASE_B3_DESIGN.md`.
 
 ---
