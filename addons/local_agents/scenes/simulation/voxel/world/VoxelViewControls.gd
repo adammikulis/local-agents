@@ -1,12 +1,12 @@
 extends CanvasLayer
 
 ## LAVoxelViewControls — the small on-screen view-controls cluster the input controller hosts:
-##   [Planet | Solar System]   ·   [Free | Geosync]   ·   [Auto-spin]
+##   [Planet | Solar System]   ·   [Orbit | Geosync | Fly]   ·   [Auto-spin]
 ## Planet/Solar switches the camera between the close planet orbit and the pulled-back solar-system overview
-## (planet + visible sun); Free/Geosync switches the rotation mode (camera fixed in world vs riding the
-## planet's spin, locked over one region); Auto-spin is the free-mode "planet turns in front of you" option.
-## Buttons call straight back into the host (LAVoxelInputController); refresh() mirrors the host state.
-## Anchored top-centre, below the status bar, clear of the left DEBUG panel and the right Inspector.
+## (planet + visible sun); Orbit/Geosync/Fly switches the camera mode (camera fixed in world · riding the
+## planet's spin locked over one region · free-flight drone); Auto-spin is the orbit-mode "planet turns in
+## front of you" option. Buttons call straight back into the host (LAVoxelInputController); refresh() mirrors
+## the host state. Anchored top-centre, below the status bar, clear of the left DEBUG panel and right Inspector.
 ## (Explicit types only — no ':=' inferred typing.)
 
 const PANEL_BG: Color = Color(0.05, 0.07, 0.11, 0.9)
@@ -15,8 +15,9 @@ const ACCENT: Color = Color(0.55, 0.72, 1.0)
 var _host = null
 var _planet_btn: Button = null
 var _solar_btn: Button = null
-var _free_btn: Button = null
+var _orbit_btn: Button = null
 var _geo_btn: Button = null
+var _fly_btn: Button = null
 var _spin_btn: Button = null
 
 
@@ -66,10 +67,12 @@ func _build_ui() -> void:
 	_add_divider(box)
 
 	var rot_group: ButtonGroup = ButtonGroup.new()
-	_free_btn = _make_button("Free", rot_group, box)
-	_free_btn.pressed.connect(func() -> void: _host.set_geosync(false))
+	_orbit_btn = _make_button("Orbit", rot_group, box)
+	_orbit_btn.pressed.connect(func() -> void: _host.set_orbit_mode())
 	_geo_btn = _make_button("Geosync", rot_group, box)
 	_geo_btn.pressed.connect(func() -> void: _host.set_geosync(true))
+	_fly_btn = _make_button("Fly", rot_group, box)
+	_fly_btn.pressed.connect(func() -> void: _host.set_fly(true))
 
 	_add_divider(box)
 
@@ -97,11 +100,12 @@ func _add_divider(parent: Control) -> void:
 
 
 ## Mirror the host's camera-mode state onto the buttons (no-signal so it doesn't re-fire the callbacks).
-func refresh(solar_view: bool, geosync: bool, auto_spin: bool) -> void:
+func refresh(solar_view: bool, geosync: bool, fly: bool, auto_spin: bool) -> void:
 	if _planet_btn == null:
 		return
 	_planet_btn.set_pressed_no_signal(not solar_view)
 	_solar_btn.set_pressed_no_signal(solar_view)
-	_free_btn.set_pressed_no_signal(not geosync)
+	_orbit_btn.set_pressed_no_signal(not geosync and not fly)
 	_geo_btn.set_pressed_no_signal(geosync)
+	_fly_btn.set_pressed_no_signal(fly)
 	_spin_btn.set_pressed_no_signal(auto_spin)
