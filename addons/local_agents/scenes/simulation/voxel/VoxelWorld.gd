@@ -17,8 +17,7 @@ const DisastersScript: GDScript = preload("res://addons/local_agents/scenes/simu
 const WeatherScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/WeatherSystem.gd")
 const OceanPlaneScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/OceanPlane.gd")
 const MaterialField3DScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField3D.gd")
-const CloudLayerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/CloudLayer.gd")
-const RainLayerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/RainLayer.gd")
+const WaterParticlesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/WaterParticles.gd")
 const DebugPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugPanel.gd")
 const DebugOverlayScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugOverlay.gd")
 const SkyCycleScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelSkyCycle.gd")
@@ -62,9 +61,7 @@ var _disasters: Node = null       # LAVoxelDisasters — volcano/lightning/meteo
 var _weather: Node = null   # LAWeatherSystem (visual rain/wind for now; being made emergent)
 var _material: Node = null   # LAMaterialField — the ONE substrate: terrain-coupled water + heat/air
 var _ocean: Node = null      # LAOceanPlane — the calm sea drawn as one GPU plane (CA meshes only waves)
-var _clouds: Node = null     # LACloudLayer rendering the field's cloud density (aloft)
-var _fog: Node = null        # LACloudLayer rendering the field's fog density (ground-hugging)
-var _rain: Node = null       # LARainLayer — GPU rain particles where the field precipitates (emergent)
+var _water: Node = null      # LAWaterParticles — the ONE field-driven atmosphere visual (cloud/fog/rain/snow)
 
 # --- Day/night cycle owned by LAVoxelSkyCycle (see _sky). VoxelWorld only seeds the clocks from the
 # command line; the sky controller owns ALL sky lighting so the cycle and weather never fight over the
@@ -269,35 +266,17 @@ func _ready() -> void:
 	else:
 		_ocean.setup(_terrain.sea_level(), _camera)
 
-	# Render the field's emergent condensate: a cloud sheet aloft + a ground-hugging fog sheet, both
-	# sampling the field's own density grids so they show exactly what the water cycle grew.
-	_clouds = CloudLayerScript.new()
-	_clouds.name = "CloudLayer"
-	add_child(_clouds)
-	_clouds.setup(_material, false)
-	_fog = CloudLayerScript.new()
-	_fog.name = "FogLayer"
-	add_child(_fog)
-	_fog.setup(_material, true)
-	# On a planet these are flat horizontal SHEETS driven by the interim +Y atmosphere — they read as grey
-	# wisps against space. Hidden until Phase B's radial atmosphere grows real cloud/fog SHELLS.
-	if _terrain.is_planet():
-		_clouds.visible = false
-		_fog.visible = false
+	# The field's emergent condensate, rendered as ONE GPU particle system: cloud / fog / rain / snow, the
+	# phase a per-particle property classified from the field's baked cover texture (sampled per particle by
+	# normalize(pos - center)). This is the FIRST real planet atmosphere visual — it dissolves the dead flat
+	# CloudLayer sheets + the RainLayer box, emits through the atmosphere shell, and drifts slowly on the sky.
+	_water = WaterParticlesScript.new()
+	add_child(_water)
+	_water.setup(_material, _camera, _sky.sun(), _body.center(), _body.sea_radius())
 
-	# The sky cycle reads these each frame (rain/cloud dimming + cloud/fog sheet tinting); bind them now
-	# that they exist. Order-independent — the cycle only touches them from its per-frame update().
-	_sky.bind_scene(_weather, _material, _clouds, _fog)
-
-	# Rain VISUAL — GPU streak particles that fall only where the field's clouds are dense enough to
-	# precipitate (emergent from the vapor→cloud→rain cycle, gated by cloud density at the camera).
-	_rain = RainLayerScript.new()
-	add_child(_rain)
-	_rain.setup(_material, _camera)
-	if _terrain.is_planet():
-		_rain.visible = false                       # flat rain streaks at the camera; radial rain = Phase B
-	elif _rain_force and _rain.has_method("set_force"):
-		_rain.set_force(true)
+	# The sky cycle reads the field each frame (cloud-cover dimming) + pushes the day/night colour tint to
+	# the water-particle renderer. Order-independent — the cycle only touches them from its per-frame update().
+	_sky.bind_scene(_weather, _material, _water)
 
 	# Feed the live temperature texture to the terrain shader so HOT GROUND GLOWS (meteor craters,
 	# lava, wildfire fronts) — emergent incandescence, updated in place each field step.

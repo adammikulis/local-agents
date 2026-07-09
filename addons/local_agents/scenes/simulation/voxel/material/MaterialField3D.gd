@@ -146,6 +146,8 @@ var _ecology = null                                      # LAEcologyService back
 const SphereGPUScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialSphereGPU3D.gd")
 const QueriesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldQueries3D.gd")
 const InjectScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldInject3D.gd")
+const CoverBakerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/CoverTextureBaker.gd")
+var _cover_baker = null                                  # LACoverTextureBaker — bakes the render cover texture
 var _gpu = null                                          # LAMaterialSphereGPU3D (local RenderingDevice) or null
 var _use_gpu: bool = false
 var _core_temp: float = 0.0                              # geothermal core pin temperature (0 = disarmed)
@@ -681,6 +683,46 @@ func _refresh_atmos_aggregates() -> void:
 	_fog_cover_c = float(fog_n) * inv
 	_precip_c = clampf(float(precip_n) * inv * 40.0, 0.0, 1.0)
 	_airwater_total_c = total
+	# Fold the render cover-texture bake into this same ~10Hz condensate pass (the water-particle renderer
+	# samples it per particle). Cheap: one extra O(cell_count) reduction over the CPU readback we already have.
+	if _sphere != null:
+		_ensure_cover_baker()
+		if _cover_baker != null:
+			_cover_baker.bake(_airwater, _temp, _snow, _solid, _cell_count)
+
+
+## Lazily build the cover-texture baker (sphere only). Callable before the first bake so the renderer can
+## read the atmosphere band radii at setup.
+func _ensure_cover_baker() -> void:
+	if _cover_baker != null or _sphere == null:
+		return
+	var sea_r: float = 248.0
+	if _terrain != null and _terrain.has_method("sea_radius"):
+		sea_r = _terrain.sea_radius()
+	_cover_baker = CoverBakerScript.new()
+	_cover_baker.setup(_sphere, sea_r, FOG_MAX_TEMP, RAIN_MASS_THRESHOLD, SAT_BASE, SAT_TEMP_GAIN, EVAP_TEMP_REF)
+
+
+## The baked 6-layer RGBA cover texture (null until the first atmosphere refresh) — the water-particle
+## renderer's field bridge. Plus the atmosphere shell radii it needs to place + classify particles.
+func field_cover_texture() -> Texture2DArray:
+	return _cover_baker.texture() if _cover_baker != null else null
+
+func atmos_cloud_base_r() -> float:
+	_ensure_cover_baker()
+	return _cover_baker.cloud_base_r() if _cover_baker != null else sea_level + 62.0
+
+func atmos_fog_top_r() -> float:
+	_ensure_cover_baker()
+	return _cover_baker.fog_top_r() if _cover_baker != null else sea_level + 16.0
+
+func atmos_fog_lo_r() -> float:
+	_ensure_cover_baker()
+	return _cover_baker.fog_lo_r() if _cover_baker != null else sea_level
+
+func atmos_outer_r() -> float:
+	_ensure_cover_baker()
+	return _cover_baker.outer_r() if _cover_baker != null else 330.0
 
 func avg_cloud_cover() -> float:
 	if _atmos_dirty:
@@ -704,15 +746,9 @@ func airwater_total() -> float:
 		_refresh_atmos_aggregates()
 	return _airwater_total_c
 
-# The flat cloud/fog texture projection was a box-era concept (a dim_x×dim_z sheet). On the cubed-sphere
-# there is no such planar column, so these stay empty and the flat CloudLayer sheets simply skip (they are
-# hidden on planets anyway) — the derived per-cell condensate feeds the cover/point queries instead.
-func cloud_grid() -> PackedFloat32Array:
-	return PackedFloat32Array()
-
-func fog_grid() -> PackedFloat32Array:
-	return PackedFloat32Array()
-
+# The flat cloud/fog sheet projection (cloud_grid/fog_grid) was a box-era concept, dissolved with the
+# CloudLayer sheets — the water-particle renderer samples the baked cover texture instead. cloud_base_y/
+# fog_base_y survive as the near-ground radii the derived point queries (cloud_at/fog_at) sample at.
 func cloud_base_y() -> float:
 	return sea_level + 62.0
 
