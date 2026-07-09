@@ -113,6 +113,14 @@ var _auto_tornado: bool = false
 var _auto_thunderstorm: bool = false
 var _auto_hurricane: bool = false
 var _auto_storm_fired: bool = false
+# --stamp-test: Rock Stage C proof. Deposit rock into a VOID cell just above the surface and confirm the
+# rock_fill 0.5-crossing physically GROWS terrain (is_solid flips false->true at the stamp point). Prints
+# STAMP_TEST={...} once the grow fires. Temporary verification hook, not gameplay.
+var _stamp_test: bool = false
+var _stamp_test_deposited: bool = false
+var _stamp_test_reported: bool = false
+var _stamp_test_target: Vector3 = Vector3.ZERO
+var _stamp_test_deposit_frame: int = 0
 var _frame: int = 0
 # Rolling FPS probe: averages the last N frames so a windowed --shoot run reports a
 # stable perf number instead of the noisy single-frame counter (which swings with sim
@@ -450,6 +458,8 @@ func _parse_cmdline() -> void:
 			_rain_force = true
 		elif arg == "--cognition-stats":
 			_cognition_stats = true
+		elif arg == "--stamp-test":
+			_stamp_test = true
 
 
 func _process(delta: float) -> void:
@@ -543,6 +553,32 @@ func _process(delta: float) -> void:
 				if _camera != null and _camera.has_method("frame_vista"):
 					_camera.frame_vista(Vector3(20.0, oh, 20.0))
 				_auto_volcano_fired = true
+
+	# Rock Stage C proof: deposit rock into a VOID cell ~3 units above the top surface, then confirm the
+	# rock_fill 0.5-crossing GROWS terrain (is_solid flips false->true at the stamp point, captured
+	# same-frame inside the stamp so the planet's spin can't move the rock away from the query).
+	if _stamp_test and _spawned_initial and _material != null:
+		if not _stamp_test_deposited and _frame >= 90:
+			var sp: Vector3 = _terrain.surface_point(Vector3.UP)
+			if not is_nan(sp.x) and _material.get("_stamp") != null:
+				_stamp_test_target = sp + (sp - _body.center()).normalized() * 3.0
+				_material._stamp.debug_deposit(_stamp_test_target, 1.0)
+				_stamp_test_deposited = true
+				_stamp_test_deposit_frame = _frame
+				print("STAMP_TEST_DEPOSIT={pos:%v, before_solid:%s}" % [_stamp_test_target, str(_terrain.is_solid(_stamp_test_target))])
+		elif _stamp_test_deposited and not _stamp_test_reported:
+			var st = _material._stamp
+			var grew: bool = st != null and st.grows > 0
+			# Report the MOMENT the grow fires (captures the same-frame is_solid before/after proof), or a
+			# failure marker if none fired within ~250 frames of the deposit.
+			if grew or _frame > _stamp_test_deposit_frame + 250:
+				print("STAMP_TEST={grew:%s, at_frame:%d, grows:%d, shrinks:%d, before_solid:%s, after_solid:%s, live_is_solid:%s, scan_ms:%.3f}" % [
+					str(grew), _frame, (st.grows if st != null else 0), (st.shrinks if st != null else 0),
+					str(st.last_grow_before_solid if st != null else false),
+					str(st.last_grow_after_solid if st != null else false),
+					str(_terrain.is_solid(st.last_grow_pos) if (st != null and grew) else false),
+					(st.last_scan_ms if st != null else 0.0)])
+				_stamp_test_reported = true
 
 	# Lightning is no longer keyed off a rain probe — it EMERGES from the field's charge process (charge
 	# builds in convective updrafts and breaks down to a bolt), which fires the visual via set_lightning_visual().

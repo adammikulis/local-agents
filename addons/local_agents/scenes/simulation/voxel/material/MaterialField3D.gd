@@ -18,6 +18,7 @@ extends Node3D
 ## (Explicit types only — no ':=' inferred typing.)
 
 const Mat: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/Materials.gd")
+const MineralStampScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MineralStamp3D.gd")
 
 # --- Water CA tuning (finite-volume cellular water: fall, pressurise, spread — mass-conserving and
 # stable, and it fills sealed caverns bottom-up + supports pressure so water finds its level). Adapted
@@ -158,6 +159,7 @@ var _core_cells: PackedInt32Array = PackedInt32Array()  # static innermost-shell
 # Read-only query accessors + the write-side injection facade (factored out; see those files).
 var _queries = null                                      # LAMaterialFieldQueries3D
 var _inject = null                                       # LAMaterialFieldInject3D (write-side injection + FX)
+var _stamp = null                                        # LAMineralStamp3D — Stage C rock_fill->SDF growth stamp
 
 
 ## Wire the real scene sun (DirectionalLight3D); the heat module reads its energy + angle for solar input.
@@ -484,6 +486,9 @@ func activate() -> void:
 		_use_gpu = true
 	_inject = InjectScript.new()
 	_inject.setup(self)
+	# Stage C: the sparse, event-driven rock_fill 0.5-crossing -> SDF terrain-growth stamp (idle until armed).
+	_stamp = MineralStampScript.new()
+	_stamp.setup(self)
 	_ready_sim = true
 
 
@@ -575,6 +580,8 @@ func _sphere_process(delta: float) -> void:
 		_gpu.step()
 	var res: Dictionary = _gpu.end_frame()
 	_apply_sphere_readback(res)
+	if _stamp != null:
+		_stamp.maybe_scan()                       # Stage C: stamp rock_fill 0.5-crossings into the SDF (gated)
 	LASimReport.gauge("field_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
 
 
@@ -860,6 +867,8 @@ func add_lava(world_pos: Vector3, amount: float) -> void:
 	_lava[cell] += a
 	_lava_dirty = true
 	_rock_fill_dirty = true
+	if _stamp != null:
+		_stamp.arm()                              # wake the SDF stamp — the erupted lava will cool + cross 0.5
 
 ## Inject airborne water vapor (humidity) at a world point — a storm's LOCAL moisture source. No-op until
 ## the sphere GPU vapor inject path is wired.
@@ -1291,6 +1300,7 @@ func report() -> Dictionary:
 		"mineral_total": _queries.mineral_total(), "rock_cells": _queries.rock_cells(),
 		"rock_fill_total": _queries.rock_fill_total(), "lava_total": _queries.lava_total(),
 		"sediment_total": _queries.sediment_total(), "dust_total": _queries.dust_total(),
+		"rock_grows": (_stamp.grows if _stamp != null else 0), "rock_shrinks": (_stamp.shrinks if _stamp != null else 0),
 	}
 	r.merge(_open_temp_stats())
 	return r
