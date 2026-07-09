@@ -27,8 +27,11 @@ one thing nobody else has — **every creature thinks on your machine, offline**
 5. **0:14–0:22 (8s)** — **CATACLYSM (the payoff).** **Volcano erupts** — lava **ejecta arcing** on real
    momentum, **lightning** in the ash, creatures fleeing, then a **new island rises** from the sea.
    **Fly-cam** pulling back through the chaos. Peak music + stings. *All emergent from one substrate.*
-6. **0:22–0:27 (5s)** — **Reveal.** Pull **way back** to the whole **planet turning** (eruption still
-   glowing), then the **solar-system view** snaps out — the planet among others, lit by its sun. *Scale.*
+6. **0:22–0:27 (5s)** — **Reveal + the threat.** Pull **way back** to the whole **planet turning**
+   (eruption still glowing), then the **solar-system view** snaps out — the planet lit by its sun. As it
+   does, a **large asteroid sweeps into frame on a collision course with the planet** — the "it's not
+   over" cliffhanger. *Scale, and a looming threat.* (Capture: a big rock/meteor placed on an approach
+   trajectory, framed against the planet in the solar view.)
 7. **0:27–0:30 (3s)** — **Title.** **LOCAL AGENTS** · *"A living world driven by local AI. Fully
    offline."* · **Created by Adam Mikulis** · *Play it on itch.io*.
 
