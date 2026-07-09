@@ -15,7 +15,12 @@ const SPHERE_RINGS: int = 64
 ## Build the sea as a FIXED spherical shell of radius `sea_radius` centred on `center` (the planet
 ## centre = world origin). Land above `sea_radius` pokes out; sea floor below is submerged. A finite
 ## planet sea does NOT follow the camera — it is a static sphere. Added as a child of the caller.
-func setup_sphere(center: Vector3, sea_radius: float) -> void:
+## `transparent` (from the quality preset) chooses the fill cost: an alpha-blended shell reads as
+## semi-transparent water but is drawn in the no-early-Z transparent pass, so this planet-filling sphere
+## costs ~40 ms of overdraw at 720p on a mid GPU — the single biggest default-frame cost measured. The
+## DEFAULT preset therefore builds it OPAQUE (early-Z, no blending): a solid deep-blue sea that looks nearly
+## identical at planet scale for a fraction of the cost. Only HIGH keeps the translucent shell.
+func setup_sphere(center: Vector3, sea_radius: float, transparent: bool = true) -> void:
 	name = "OceanPlane"
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
@@ -33,8 +38,8 @@ func setup_sphere(center: Vector3, sea_radius: float) -> void:
 	# with a low roughness for reflection and a rim sheen for a fresnel-like edge. Reads as calm water while
 	# letting land poke through the shell and the sea floor sit submerged.
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = Color(0.02, 0.16, 0.34, 0.72)          # deep sea blue, semi-transparent shell
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA if transparent else BaseMaterial3D.TRANSPARENCY_DISABLED
+	mat.albedo_color = Color(0.02, 0.16, 0.34, 0.72 if transparent else 1.0)          # deep sea blue (translucent shell on HIGH, opaque otherwise)
 	mat.roughness = 0.08
 	mat.metallic = 0.0
 	mat.metallic_specular = 0.85

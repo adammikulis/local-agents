@@ -48,6 +48,13 @@ var _topple_axis: Vector3 = Vector3.RIGHT
 var _topple_t: float = 0.0
 var _topple_tween_active: bool = false
 
+# GPU-instanced rendering: the tree registers with the shared LAVegetationRenderer and pushes its transform
+# WHILE growing or toppling, then settles (zero per-frame render cost). Falls back to procedural trunk+canopy
+# meshes if no renderer is wired (headless tests). Its visual type ("tree_oak"/"tree_pine") is its species.
+var _veg = null                      # LAVegetationRenderer (injected before setup)
+var _veg_slot: int = -1
+var _render_settled: bool = false
+
 
 func setup(_terrain, _config: Dictionary = {}) -> void:
 	terrain = _terrain
@@ -93,9 +100,14 @@ func setup(_terrain, _config: Dictionary = {}) -> void:
 	add_to_group(GROUP_SELECTABLE)
 	add_to_group(GROUP_TREE)
 
-	# Prefer a Kenney Nature Kit model (base-anchored to trunk height; the node's growth scale and
-	# topple rotation act on the whole tree, model included). Fall back to procedural trunk+canopy.
-	if not _build_model():
+	# Prefer the shared GPU-instanced renderer (one batched draw for every tree of this species). If wired,
+	# register a slot and skip the per-tree model — the MultiMesh draws it. Otherwise build a Kenney Nature
+	# Kit model (base-anchored), falling back to procedural trunk+canopy.
+	var instanced: bool = false
+	if _veg != null:
+		_veg_slot = _veg.register(_render_type())
+		instanced = _veg_slot >= 0
+	if not instanced and not _build_model():
 		_build_trunk()
 		if species == "pine":
 			_build_pine_canopy()
@@ -106,6 +118,7 @@ func setup(_terrain, _config: Dictionary = {}) -> void:
 	_apply_resting_tilt()
 	_snap_to_surface()
 	_apply_growth()
+	_sync_render()   # push the initial sapling pose into the instanced batch
 
 
 func _jitter_hue(base: Color, amount: float = 0.05) -> Color:
@@ -251,9 +264,19 @@ func _physics_process(delta: float) -> void:
 		# The Tween (if any) drives the fall; otherwise lerp it here.
 		if not _topple_tween_active:
 			_advance_topple(delta)
+		# Follow the fall in the instanced batch until it settles flat.
+		if not _render_settled:
+			_sync_render()
+			if _topple_t >= 1.0:
+				_render_settled = true
 		return
 	age += delta
 	_apply_growth()
+	# Push the growing pose until mature; then settle (no per-frame render cost) until a topple wakes it.
+	if not _render_settled:
+		_sync_render()
+		if _grown_fraction() >= 1.0:
+			_render_settled = true
 
 
 func _grown_fraction() -> float:
@@ -299,6 +322,7 @@ func topple(direction: Vector3) -> void:
 	if toppled:
 		return
 	toppled = true
+	_render_settled = false   # wake the instanced pose so the fall animates in the batch
 	# Rotate about the tangent axis perpendicular to the fall direction. "Down" is along local up
 	# (radial on a planet, +Y on the flat island), so project the fall direction into the tangent plane.
 	var up: Vector3 = _up_axis()
@@ -329,3 +353,29 @@ func _set_topple_progress(t: float) -> void:
 	var eased: float = ease(_topple_t, 2.2)
 	var fall: Basis = Basis(_topple_axis, eased * TOPPLE_ANGLE)
 	transform.basis = fall * _upright_basis
+
+
+# Injected by LAEcologyService before setup(): the shared GPU-instanced vegetation renderer.
+func set_vegetation_renderer(r) -> void:
+	_veg = r
+
+
+# The instanced visual type is the tree's species — a separate MultiMesh per species keeps oak/pine coloured
+# correctly (each has its own recolored prototype). Config-driven, no per-species branch in the render path.
+func _render_type() -> String:
+	return "tree_pine" if species == "pine" else "tree_oak"
+
+
+# Write our current pose into the shared instanced batch. The prototype mesh is height-normalized to 1, so we
+# scale by trunk_height; our node transform already carries orientation + growth scale + any topple rotation.
+func _sync_render() -> void:
+	if _veg_slot < 0 or _veg == null:
+		return
+	var b: Basis = transform.basis.scaled(Vector3.ONE * trunk_height)
+	_veg.set_xform(_render_type(), _veg_slot, Transform3D(b, transform.origin))
+
+
+func _exit_tree() -> void:
+	if _veg_slot >= 0 and _veg != null:
+		_veg.release(_render_type(), _veg_slot)
+		_veg_slot = -1

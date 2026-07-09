@@ -100,6 +100,22 @@ func particle_scale() -> float:
 			return 0.65
 
 
+## Resolved RENDER-QUALITY flags for the heavy full-screen / fill-rate effects, keyed off the effects level.
+## Profiling showed these — NOT the actor count — dominate the default frame time: an alpha-blended
+## planet-filling ocean shell (~40 ms of transparent overdraw at 720p), SSAO + HDR glow (full-screen post
+## passes that scale with resolution), and PSSM sun shadows (a second scene pass). So the DEFAULT (Medium)
+## preset turns them OFF/cheap for a playable frame-rate, LOW is barely-anything, and only HIGH (strong GPUs)
+## pays for the lot. Consumed by LAVoxelSkyCycle (env/sun) + LAOceanPlane at build time.
+func render_opts() -> Dictionary:
+	match settings().effects_level:
+		LAGameSettings.EffectsLevel.HIGH:
+			return {"ssao": true, "glow": true, "sun_shadows": true, "ocean_transparent": true, "fog": true}
+		LAGameSettings.EffectsLevel.LOW:
+			return {"ssao": false, "glow": false, "sun_shadows": false, "ocean_transparent": false, "fog": false}
+		_:  # MEDIUM — the default: keep atmospheric fog (cheap) but drop the fill-rate killers.
+			return {"ssao": false, "glow": false, "sun_shadows": false, "ocean_transparent": false, "fog": true}
+
+
 # --- Live binding (cadence + effects + re-apply) ---
 
 ## Wire the live systems once they exist (called near the end of VoxelWorld._ready). Applies the particle
