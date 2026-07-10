@@ -97,9 +97,9 @@ static func steer(c, pos: Vector3, desired: Vector3) -> Vector3:
 		return desired
 	if STEER_SUPPRESS_STATES.has(String(c.state)):
 		return desired
-	var hunger: float = 0.0
-	if c.max_energy > 0.0:
-		hunger = clampf(1.0 - float(c.energy) / float(c.max_energy), 0.0, 1.0)
+	# The single hunger signal (energy deficit AND an empty gut): a creature buffering a meal in its gut is not
+	# hungry and ignores food smells, so digestion and this smell-steering agree on when the animal forages.
+	var hunger: float = LACreatureDigestion.hunger(c)
 	if hunger <= 0.0:
 		return desired
 	var bias: Vector3 = Vector3.ZERO

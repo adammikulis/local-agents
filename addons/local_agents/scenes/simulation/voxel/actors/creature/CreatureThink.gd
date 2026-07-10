@@ -115,13 +115,16 @@ static func _kill_and_eat(c, prey: Node3D) -> void:
 	var gain: float = c.food_value
 	if prey != null and "food_value" in prey:
 		gain = float(prey.food_value)
-	c.energy = minf(c.max_energy, c.energy + gain * 0.7)
+	# The kill fills the GUT (biomass), not energy directly — energy now rises only as it digests (over seconds).
+	var meat: float = gain * 0.7
+	var prey_profile: Dictionary = prey.food_profile() if prey != null and prey.has_method("food_profile") else {}
+	LACreatureDigestion.ingest(c, meat, prey_profile)
 	LocalAgentsAudioDirector.emit(c.get_tree(), "chomp", c.global_position)
 	c._emit_call("forage")                     # a kill call: kin nearby learn to hunt this situation
 	_reinforce_cue_success(c)
-	# TASTE learning: a fresh kill's taste cue, reinforced by how much the meal fed me (chemical affinity).
-	if prey != null and prey.has_method("food_profile"):
-		LACreatureChemSense.on_eat(c, prey.food_profile(), gain * 0.7)
+	# TASTE learning: a fresh kill's taste cue, reinforced by how much the meal is worth (chemical affinity).
+	if not prey_profile.is_empty():
+		LACreatureChemSense.on_eat(c, prey_profile, meat)
 	if prey.has_method("die"):
 		prey.die("eaten")           # leaves a carcass (leftovers for scavengers)
 	elif prey.has_method("queue_free"):
@@ -139,8 +142,10 @@ static func _try_scavenge(c, pos: Vector3) -> bool:
 # every diet and every food source — living prey is the one thing not eaten here (it must be hunted first,
 # which turns it into a carcass = dead meat).
 static func _try_eat_food(c, pos: Vector3) -> bool:
-	if c.energy > c.max_energy * 0.92:
-		return false                              # sated
+	# Sated when energy is high OR the gut is already packed with a meal being digested — a starving-but-full
+	# creature stops foraging and lets its gut work (energy climbs as it digests) instead of over-eating.
+	if c.energy > c.max_energy * 0.92 or LACreatureDigestion.gut_fill(c) > 0.9:
+		return false
 	var best: Node3D = null
 	var best_val: float = 0.0
 	var reach: float = maxf(c.size + 1.0, 1.4)
@@ -172,7 +177,8 @@ static func _try_eat_food(c, pos: Vector3) -> bool:
 		(best as Node3D).queue_free()
 	if gained <= 0.0:
 		return false
-	c.energy = minf(c.max_energy, c.energy + gained)
+	# The bite fills the GUT (biomass) instead of crediting energy directly — energy rises only as it digests.
+	LACreatureDigestion.ingest(c, gained, profile)
 	c._emit_call("forage")
 	_reinforce_cue_success(c)
 	# TASTE learning: reinforce the food's taste cue by how much this bite fed me (chemical affinity).
