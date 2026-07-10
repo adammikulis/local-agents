@@ -225,6 +225,20 @@ already close it):
 - **Fish (Phase 2 W-FISH):** brainless config-band swim logic in `Fish.gd` → generalized cognition via a fish
   adapter. **Any `if species==X`** → genome/config (the new personality/diet genes).
 
+### Confirmed field/GPU bugs to fix in the 0.4 field pass (from the 0.3 bug-hunt — deferred as substrate-risky)
+- [ ] **Combustion O₂/CO₂ written to the wrong ping-pong half** (`sphere_passes/FireDustPass.gd:82`) — bind o2/co2
+  to the BACK half in the fire uniform set so the in-place consume/emit lands on the buffer transport wrote.
+- [ ] **`deposit_detritus` mutates a CPU array never uploaded to the GPU** (`MaterialField3D.gd:1139`) — add a
+  `_detritus_dirty` flag + dirty-gated `set_field("detritus", …)` upload (mirror charge/shock) so carcass/waste
+  detritus actually reaches the R15/R20 carbon-loop reactions → fertility. (This is the flagged detritus→fertility gap.)
+- [ ] **Fuel channel allocated to zeros, never populated** (`MaterialField3D.gd:325`) — seed fuel from biomass on
+  surface cells + upload, so the fire kernel has something to burn (combustion currently has no fuel substrate).
+- [ ] **Organically-grown storm charge can cross breakdown but never fire a bolt** (`MaterialCharge3D.gd:63`) —
+  give grown charge the same wake safety-net as injected charge (set a wake flag when accumulated charge exceeds
+  threshold) so natural-storm lightning isn't lost to the strided-probe blind spot.
+- [ ] **Energy chemistry 0.4 deepening:** the 0.3 muscle-lactate/conserve-drive is the first step — deepen into full
+  ATP / glycogen / O₂-gated aerobic-vs-anaerobic chemistry (ties into the nutrient cycle + DNA-driven metabolism).
+
 ### Orchestration + verification
 Phase 0 = serialized (splits + generalize + wiring). Phases 1→2 = **Workflow fan-out** (`pipeline()`
 implement→verify per workstream; worktree isolation; per-agent pre-write contract + behavioural SIM_REPORT gate;

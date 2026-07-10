@@ -25,6 +25,10 @@ const ThrownRockScript: GDScript = preload("res://addons/local_agents/scenes/sim
 # --- energy / hunger / mortality (emergent: eat to live, starve or age to die) ---
 var energy: float = 100.0
 var max_energy: float = 100.0
+var lactate: float = 0.0                     # muscle LACTATE (0..1): the anaerobic-exertion fatigue byproduct.
+                                             # Builds when sprinting past the aerobic threshold, clears aerobically
+                                             # at rest; caps top speed + makes conserving energy a top drive so
+                                             # animals aren't perpetually running. (0.4: full ATP/glycogen/O₂ chem.)
 var metabolism: float = 2.2
 
 # --- breathing (emergent: breathe your medium; suffocate out of it). Land animals breathe AIR — submerged
@@ -695,6 +699,8 @@ func _physics_process(delta: float) -> void:
 	# Breathing: drown when submerged past my breath reserve, or suffocate in O2-depleted smoke.
 	if LACreatureMetabolism.tick_breath(self, pos, delta):
 		return
+	# Short-term exertion chemistry: sprinting builds muscle lactate, resting clears it (see the speed cap below).
+	LACreatureMetabolism.tick_exertion(self, delta)
 
 	# Radial locomotion: `up` points away from the planet centre. All heading/heading-flatten math projects
 	# onto the local tangent plane using `up`, and ground reads/snaps go radial. `ground_pos` is the world
@@ -864,6 +870,14 @@ func _physics_process(delta: float) -> void:
 				var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0) * 0.6
 				desired = (desired + jitter)
 
+			# CONSERVE ENERGY (a top drive): winded (high muscle lactate) with nothing pressing — safe and fed —
+			# so REST instead of roaming; lactate then clears aerobically. This is why animals aren't perpetually
+			# running around. Pressing needs (hunger/thirst/predator/flee/hunt) are NOT overridden — life still gets done.
+			if big_pred == null and _panic_timer <= 0.0 and lactate > 0.45 and energy > max_energy * 0.35 \
+					and (state == "wander" or state == "flock" or state == "migrate"):
+				state = "rest"
+				eff_speed = speed * 0.08
+
 		desired = desired - up * desired.dot(up)   # decided heading lives in the local tangent plane
 		if desired.length() > 0.001:
 			# Record the decided direction as a TARGET; the movement block turns _heading toward it
@@ -872,7 +886,9 @@ func _physics_process(delta: float) -> void:
 			_target_heading = desired.normalized()
 			if _force_think:
 				_heading = _target_heading
-		_eff_speed = eff_speed          # carry this decision to the movement of the next few frames
+		# Muscle lactate caps top speed — a winded animal can't keep sprinting, so it must recover. Biological, not
+		# a game meter: exertion earlier this frame built the lactate that now throttles it.
+		_eff_speed = eff_speed * (1.0 - 0.5 * lactate)   # carry this decision to the movement of the next few frames
 		_force_think = false
 
 	# MOVEMENT — every frame. The DECIDED heading is a TARGET the creature turns toward smoothly each
@@ -882,8 +898,9 @@ func _physics_process(delta: float) -> void:
 		var turn_rate: float = BIRD_TURN_RATE if can_fly else GROUND_TURN_RATE
 		_heading = _turn_toward(_heading, _target_heading, turn_rate * delta)
 	var step: Vector3 = _heading * _eff_speed * delta
-	# Height held above the local ground (flyers cruise; walkers ride at body radius).
-	var offset: float = cruise_height if can_fly else size
+	# Height held above the local ground: flyers use their DECIDED altitude (they descend to feed/drink/roost —
+	# _target_altitude, default cruise_height); walkers ride at body radius.
+	var offset: float = _target_altitude if can_fly else size
 	# Step in the tangent plane, then snap radially: the new ground point is along the NEW radial direction
 	# from the planet centre, and we sit `offset` above it (up == that same radial dir).
 	var new_pos: Vector3 = pos + step

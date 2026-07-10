@@ -13,7 +13,9 @@ extends CharacterBody3D
 
 const GROUP_SELECTABLE: String = "selectable"
 const GROUP_FISH: String = "fish"
-const SPECIES_GROUP: String = "species_fish"    # shared "aquatic life" group (debug overlay + schooling base)
+const SPECIES_GROUP: String = "aquatic"    # shared "all aquatic life" group (schooling base). NOT "species_fish":
+# that collides with the per-species group of the species literally named "fish", which made _tick_aquatic count
+# ALL aquatic actors against fish's pop_cap so fish never bred + SimReport mislabelled the whole pop as fish.
 
 const DEFAULT_SUBMERGE: float = 0.35  # how far below the surface a swimmer rides (config: "submerge")
 const GILL_SUBMERGE_MARGIN: float = 0.15  # keep a gill-breather's top this far under the sea shell so it stays submerged

@@ -122,10 +122,11 @@ func get_inspector_payload() -> Dictionary:
 		State.FALLING:
 			lines.append("Status: falling")
 			lines.append("Speed: %.0f u/s" % _velocity.length())
-			lines.append("Altitude: %.0f" % global_position.y)
+			var alt: float = _terrain.altitude_at(global_position) if _terrain != null and _terrain.has_method("altitude_at") else global_position.y
+			lines.append("Altitude: %.0f" % alt)
 		State.IMPACTED:
 			lines.append("Status: impacted")
-			lines.append("Crater radius: %.0f" % IMPACT_RADIUS)
+			lines.append("Crater radius: %.0f" % _radius())
 		_:
 			lines.append("Status: idle")
 	lines.append("Target: (%.0f, %.0f, %.0f)" % [_target.x, _target.y, _target.z])

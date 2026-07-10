@@ -304,6 +304,14 @@ func _reinforce(c, senses: Dictionary) -> void:
 
 	var reward: float = clampf(appetitive - aversive, -1.0, 1.0)
 	var entry = policy.get(_last_key, null)
+	# DURABILITY of the learned-lethal veto: after a veto, _last_action is the SAFE FALLBACK we were redirected to
+	# (not a freely-chosen action). If the stored entry is a lethal-floor aversion (weight <= VETO_WEIGHT) for a
+	# DIFFERENT action, do NOT overwrite it with a fresh "fallback is fine here" record — that erased the aversion
+	# after a single veto and let the creature walk straight back into the lethal action next tick. Keep the floor.
+	if entry != null and String((entry as Dictionary).get("action", "")) != _last_action \
+			and _last_action == SAFE_FALLBACK_ACTION \
+			and float((entry as Dictionary).get("weight", 0.0)) <= VETO_WEIGHT:
+		return
 	if entry == null or String((entry as Dictionary).get("action", "")) != _last_action:
 		policy[_last_key] = {"action": _last_action, "weight": START_WEIGHT, "risk": 0.0}
 		entry = policy[_last_key]

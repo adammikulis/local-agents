@@ -79,17 +79,35 @@ static func tick_environment(c, pos: Vector3, delta: float) -> bool:
 ## Breathing (emergent, TRUE 3D): a creature breathes its medium at its actual head cell — a LUNG needs
 ## breathable air (water OR smoke displacing O2 → can't breathe), a GILL needs to be submerged. It burns a
 ## per-animal breath reserve out of medium and suffocates when it runs out; a big breath_capacity = long dives.
+const AEROBIC_SPEED: float = 1.0           # exertion up to cruise speed is aerobic (sustainable); above → anaerobic
+const LACTATE_BUILD: float = 0.60          # /sec lactate produced per unit of over-aerobic exertion (anaerobic)
+const LACTATE_CLEAR: float = 0.30          # /sec lactate cleared at rest (aerobic recovery)
+
+## Short-term exertion CHEMISTRY: exertion past the aerobic threshold (a sprint/flee) is powered anaerobically and
+## produces muscle LACTATE, which accumulates and — via the speed cap + conserve drive in Creature — forces rest;
+## walking/resting clears it aerobically. This is why animals don't sprint everywhere: they conserve energy.
+## Uses last frame's decided speed (carried in _eff_speed). (0.4 deepens this into full ATP/glycogen/O₂ chemistry.)
+static func tick_exertion(c, delta: float) -> void:
+	var exert: float = c._eff_speed / maxf(c.speed, 0.01)      # 0 still · 1 cruise · >1 sprint/flee
+	if exert > AEROBIC_SPEED:
+		c.lactate = minf(1.0, c.lactate + LACTATE_BUILD * (exert - AEROBIC_SPEED) * delta)
+	else:
+		c.lactate = maxf(0.0, c.lactate - LACTATE_CLEAR * (1.0 - exert * 0.6) * delta)
+
+
 ## Altitude falls out of the 3D read (a bird high above water reads air; a diver's head cell reads water) — no
 ## depth column, no can_fly. Returns true if the creature died. One rule = drowning + smoke + beached gills.
 static func tick_breath(c, pos: Vector3, delta: float) -> bool:
 	if c._material == null:
 		return false
-	var head_y: float = pos.y + c.size          # read at the head, in true 3D
+	# Head cell is RADIALLY "up" from the body on the spherical planet — world +Y is wrong away from the poles.
+	var up: Vector3 = c.terrain.up_at(pos) if c.terrain != null and c.terrain.has_method("up_at") else Vector3.UP
+	var head: Vector3 = pos + up * c.size
 	var can_breathe: bool
 	if c.breathes == "water":
-		can_breathe = c._material.is_submerged_at(pos.x, head_y, pos.z)              # gills: must be in water
+		can_breathe = c._material.is_submerged_at(head.x, head.y, head.z)              # gills: must be in water
 	else:
-		can_breathe = c._material.breathable_o2_at(pos.x, head_y, pos.z) >= BREATHE_MIN_O2   # lungs: need air
+		can_breathe = c._material.breathable_o2_at(head.x, head.y, head.z) >= BREATHE_MIN_O2   # lungs: need air
 	if can_breathe:
 		c._breath = minf(c._breath + BREATH_REFILL * delta, c.breath_capacity)
 		return false
@@ -98,7 +116,7 @@ static func tick_breath(c, pos: Vector3, delta: float) -> bool:
 	if c._breath <= 0.0:
 		c.energy -= SUFFOCATE_DRAIN * delta
 		if c.energy <= 0.0:
-			var drowned: bool = c.breathes != "water" and c._material.is_submerged_at(pos.x, head_y, pos.z)
+			var drowned: bool = c.breathes != "water" and c._material.is_submerged_at(head.x, head.y, head.z)
 			c.die("drowned" if drowned else "suffocated")
 			return true
 	return false

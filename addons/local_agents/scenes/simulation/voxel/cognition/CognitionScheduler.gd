@@ -88,6 +88,7 @@ func request(creature, cognition, sig: Dictionary, innate_action: String) -> boo
 	if cid != 0:
 		_in_flight_ids[cid] = true
 		_activity[cid] = {"kind": "thinking", "until": Time.get_ticks_msec() + HIGHLIGHT_LINGER_MS}
+		_maybe_prune()          # bound the map on this add path too (not just the drop path) — else it leaks
 
 	var context: Dictionary = _gather_context(creature)
 	var job: Dictionary = {
@@ -201,6 +202,7 @@ func _finish(job: Dictionary, action: String, source: String) -> void:
 	if cid != 0:
 		_in_flight_ids.erase(cid)
 		_activity[cid] = {"kind": "thinking", "until": Time.get_ticks_msec() + HIGHLIGHT_LINGER_MS}
+		_maybe_prune()          # bound the map on the finish path too — else it leaks for always-accepted creatures
 	var cognition = job.get("cognition", null)
 	if action != "" and LAActionRegistry.is_valid(action):
 		_write_trace(job, action, source)

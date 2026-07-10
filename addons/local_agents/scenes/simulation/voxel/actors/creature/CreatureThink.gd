@@ -405,6 +405,17 @@ static func execute_action(c, action: String, pos: Vector3, delta: float) -> Dic
 				var cards: Array = [Vector3.FORWARD, Vector3.BACK, Vector3.LEFT, Vector3.RIGHT]
 				c._migrate_dir = cards[randi() % cards.size()]
 			return {"heading": c._migrate_dir, "state": "migrate", "speed": c.speed}
+		"flee":
+			# A follower that ADOPTED its leader's flee (Creature._physics_process) must actually move — this
+			# used to fall through to the no-op default and keep wandering toward the danger. Sprint away from
+			# the nearest larger predator if one is sensed, else reverse the current heading.
+			var away: Vector3 = -c._heading
+			var pred = LACreatureSenses.nearest_larger_predator(c, pos)
+			if pred != null and is_instance_valid(pred) and (pos - pred.global_position).length() > 0.001:
+				away = pos - pred.global_position
+			if away.length() < 0.001:
+				away = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0)
+			return {"heading": away.normalized(), "state": "flee", "speed": c.speed * 1.5}
 		"wander":
 			return {"heading": c._heading, "state": "wander", "speed": c.speed}
 	return {"heading": c._heading, "state": c.state, "speed": c.speed}
