@@ -47,7 +47,6 @@ func is_night() -> bool:
 
 # pending spawns whose surface wasn't ready yet: [{kind, pos, tries}]
 var _pending: Array = []
-var _breed_timer: float = 0.0
 var _seed_timer: float = 0.0
 var _fish_timer: float = 0.0
 var _tree_timer: float = 0.0             # forest succession: groves densify on biomass-rich ground
@@ -469,10 +468,9 @@ func _physics_process(delta: float) -> void:
 	if terrain == null or actors_root == null:
 		return
 	_process_pending()
-	_breed_timer -= delta
-	if _breed_timer <= 0.0:
-		_breed_timer = 2.0
-		_breeding._tick_breeding()
+	# Land reproduction is no longer a god-tick: each creature decides to breed for itself
+	# (LACreatureReproduction, courtship + energy-costed gestation) and calls birth_offspring() at term.
+	# Only the aquatic school still runs a population tick below.
 	_seed_timer -= delta
 	if _seed_timer <= 0.0:
 		_seed_timer = 1.5
@@ -512,7 +510,7 @@ func _process_pending() -> void:
 
 # HARNESS AID (--debug-family): deterministically produce a small family through the REAL reproduction path so
 # the family-tree inspector has something to draw. Finds the first species with >=2 mature adults, breeds that
-# pair twice (recording parent->child + the mate bond exactly as _tick_breeding does), then kills one child so a
+# pair twice (recording parent->child + the mate bond through the shared breeding helpers), then kills one child so a
 # dead/greyed kin appears in the lineage. Returns a parent to root the tree on (null if no mature pair exists).
 func debug_seed_family() -> Node:
 	for kind in ["rabbit", "fox", "bird", "villager", "vulture"]:
@@ -540,6 +538,18 @@ func debug_seed_family() -> Node:
 			kids[1].die("debug_family")
 		return pa
 	return null
+
+
+# Per-creature reproduction (LACreatureReproduction) forwarders — the DECISION to breed lives on the
+# individual, but the pop_cap ceiling check and the offspring heredity/lineage machinery stay in
+# LAEcologyBreeding (one owner). A gestating creature calls birth_offspring() at term; a courting one gates
+# conception on can_species_breed() so a species never conceives past its cap.
+func can_species_breed(kind: String) -> bool:
+	return _breeding.species_below_cap(kind)
+
+
+func birth_offspring(kind: String, bearer: Node3D, mate: Node3D) -> Node:
+	return _breeding.birth_child(kind, bearer, mate)
 
 
 # Nest placement lives in LAEcologySpawner; thin forwarder for the nesting creature that establishes a home.

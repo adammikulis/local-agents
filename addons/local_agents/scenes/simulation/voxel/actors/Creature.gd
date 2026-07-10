@@ -228,6 +228,18 @@ var has_nest: bool = false
 var nest_pos: Vector3 = Vector3(INF, INF, INF)   # sentinel = no nest yet
 var _nest_node = null                            # LANest (the placed home site)
 
+# --- per-creature reproduction (LACreatureReproduction: courtship + energy-costed gestation) ---
+# A mature, well-fed adult seeks a nearby same-species mate; on pairing the bearer gestates (draining energy)
+# and BIRTHS one offspring at term, then cools down. Replaces the old top-down breeding god-tick. State only —
+# all logic lives in the module. `pregnant` gates re-conception; `_mate` is the captured partner used at birth.
+var pregnant: bool = false
+var _gestation_t: float = 0.0                    # seconds of gestation remaining while pregnant
+var _mate = null                                 # LACreature partner captured at conception (for the birth genome/bond)
+var _repro_cd: float = 0.0                       # seconds until this creature may conceive again (post-birth / pair refractory)
+
+# --- life stage (LACreatureLifeStage): a newborn is born small and grows to adult size along the age axis ---
+var _growth: float = 1.0                          # cached visual growth scale (1.0 = full adult); updated by the life-stage tick
+
 
 func add_fear(source_pos: Vector3, intensity: float) -> void:
 	if intensity <= 0.0:
@@ -751,6 +763,11 @@ func _physics_process(delta: float) -> void:
 	# metabolism burn/starvation check so a creature that just ate is credited its digested energy and won't
 	# starve with a full gut. Empty gut = no energy (must eat). See LACreatureDigestion.
 	LACreatureDigestion.tick(self, delta)
+	# Reproduction: run the breeding cooldown down, and if pregnant advance gestation + pay the per-frame
+	# gestation energy cost, giving birth at term (LACreatureReproduction). Placed BEFORE the metabolism burn
+	# so the gestation drain is folded into this frame's energy accounting. Courtship/mate-seeking (the steering)
+	# happens later in the decision cascade via courtship_heading. See LACreatureReproduction.
+	LACreatureReproduction.tick(self, delta)
 	# Metabolism (exertion-scaled energy burn) + thirst + ageing — see LACreatureMetabolism. Death stops us.
 	if LACreatureMetabolism.tick(self, delta):
 		return
@@ -902,6 +919,14 @@ func _physics_process(delta: float) -> void:
 			# from ones it learned mean danger — scaled by hunger so a fed animal ignores it. Emergent: no scent
 			# channel is hardcoded good or bad; the sign is learned. Suppressed while fleeing/drinking (see module).
 			desired = LACreatureChemSense.steer(self, pos, desired)
+
+			# COURTSHIP drive (LACreatureReproduction): a mature, well-fed, off-cooldown adult (species below its
+			# pop_cap) steers toward the nearest fertile same-species mate; on reaching it, it CONCEIVES (gestation
+			# begins in the reproduction tick). Below survival drives (predator/thirst/forage set `desired` above)
+			# and gated on being well-fed, so a hungry or fleeing animal never courts. Nesting can still override
+			# to send a home-nesting species back to breed at its nest.
+			if LACreatureReproduction.should_seek_mate(self):
+				desired = LACreatureReproduction.courtship_heading(self, pos, desired)
 
 			# Nesting/roosting drive (ANY nesting species, config-driven): head home to roost at night
 			# or to breed, establishing the site the first time. Offspring inherit it (philopatry).

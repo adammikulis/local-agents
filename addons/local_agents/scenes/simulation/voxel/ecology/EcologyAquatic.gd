@@ -6,8 +6,8 @@ extends RefCounted
 ## finds a valid underwater point for a species. Everything is radial (no XZ column reads — three-d-always),
 ## so species self-sort into the right water with no hand-placed spawn points.
 ##
-## Aquatic REPRODUCTION (the parent-based _tick_aquatic recovery) is inseparable from the land breeding
-## machinery, so it lives in LAEcologyBreeding alongside _tick_breeding; this module owns only the non-repro
+## Aquatic REPRODUCTION (the parent-based _tick_aquatic recovery) reuses the shared birth/genome/kinship
+## machinery, so it lives in LAEcologyBreeding; this module owns only the non-repro
 ## spawn/placement helpers. Owned by LAEcologyService, which keeps a thin forwarder for the public
 ## stock_initial_aquatic() and for _random_aquatic_point() (which the breeding module reaches through the
 ## hub). This module reaches back into the service for the shared state that stays on the hub — the aquatic
