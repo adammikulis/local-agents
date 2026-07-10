@@ -37,6 +37,8 @@ var _smoke: bool = false                # --smoke: boot the MINIMAL (Potato/Low)
 var _force_wind: float = 0.0            # --wind=<x>: force a constant eastward wind (verification)
 var _cognition_stats: bool = false      # --cognition-stats: print fast/slow brain + genetics metrics
 var _auto_meteor: bool = false
+var _auto_barrage: bool = false          # --auto-barrage: rain a volley of large meteors (deep carve / fracture test)
+var _auto_barrage_fired: bool = false
 var _overview: bool = false             # --overview: frame a wide whole-island vista (screenshot aid)
 var _farview: bool = false              # --farview: pull the vista out to max zoom (ocean-coverage test)
 var _rain_force: bool = false           # --rain: force the rain visual on (verification aid)
@@ -159,6 +161,8 @@ func parse_cmdline() -> void:
 			_llm_select = true
 		elif arg == "--auto-meteor":
 			_auto_meteor = true
+		elif arg == "--auto-barrage":
+			_auto_barrage = true
 		elif arg == "--auto-volcano":
 			_auto_volcano = true
 		elif arg == "--auto-seavolcano":
@@ -416,6 +420,13 @@ func update(frame: int, spawned: bool) -> void:
 		var trigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 600, 60)
 		if frame == trigger:
 			_disasters.fire_test_meteor()
+
+	# Auto-barrage demo/test: rain a volley of large meteors to dig deep (expose crust->mantle->magma) + fracture.
+	if _auto_barrage and not _auto_barrage_fired and spawned:
+		var btrigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 600, 60)
+		if frame >= btrigger and _disasters != null and _disasters.has_method("fire_barrage"):
+			_disasters.fire_barrage()
+			_auto_barrage_fired = true
 
 	# Auto-volcano demo/test: raise a volcano near origin that ERUPTS IMMEDIATELY (force_erupt), frame
 	# the camera on it, and fire it ~560 frames (~5s) before the screenshot.
