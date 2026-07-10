@@ -20,7 +20,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake curl git pkg-config unzip
+          sudo apt-get install -y build-essential cmake curl libcurl4-openssl-dev git pkg-config unzip
 
       - name: Enforce file size limits (800 soft warn, 1000 hard gate)
         env:
@@ -86,7 +86,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake curl git pkg-config unzip
+          sudo apt-get install -y build-essential cmake curl libcurl4-openssl-dev git pkg-config unzip
 
       - name: Enforce file size limits (800 soft warn, 1000 hard gate)
         env:
@@ -127,7 +127,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake curl git pkg-config unzip
+          sudo apt-get install -y build-essential cmake curl libcurl4-openssl-dev git pkg-config unzip
 
       - name: Enforce file size limits (800 soft warn, 1000 hard gate)
         env:
@@ -159,6 +159,12 @@ jobs:
           cd addons/local_agents/gdextensions/localagents
           ./scripts/fetch_dependencies.sh --skip-models --skip-voices
           ./scripts/build_extension.sh 2>&1 | tee "${GITHUB_WORKSPACE}/logs/runtime-heavy-build.log"
+
+      - name: Register class_names (editor scan builds the global class cache)
+        run: |
+          # Headless runs don't resolve `class_name` types (e.g. LAGameSettings) without the global script
+          # class cache — one editor scan builds it so autoloads/scripts parse. Best-effort; ignore its exit.
+          godot4 --headless --editor --path . --quit-after 600 >/dev/null 2>&1 || true
 
       - name: Run bounded runtime-heavy harness (policy shard budget)
         run: |
