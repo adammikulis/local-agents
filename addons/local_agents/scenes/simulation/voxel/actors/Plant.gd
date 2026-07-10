@@ -50,6 +50,13 @@ var max_scale: float = 1.0
 var seed_period: float = 8.0
 var edible: bool = true
 
+# TOXICITY — a data-driven [0,1] property, NOT a plant subtype. A toxic plant feeds like any other (it is still
+# edible carbs), but a bite of it POISONS the grazer (HP loss in the eating path) and the bite carries its
+# toxicity in food_profile() so the chemical-affinity system mints an AVERSIVE taste cue. So creatures LEARN
+# which vegetation is poison and steer off it — no "if species == nightshade" anywhere; the value does it.
+# 0 == wholesome (the vast majority of vegetation); >0 == toxic strength.
+var toxic: float = 0.0
+
 # --- Flowers + pollination mutualism. A plant flagged `flower` carries a richer NECTAR reserve (so foraging
 # pollinators prefer it via the shared food-value ranking) and is POLLINATED by visits: every bite (feed(),
 # whose dominant flower visitor is the bee) deposits decaying pollen, and the more recent pollen a flower
@@ -100,6 +107,7 @@ func setup(_terrain, _config: Dictionary) -> void:
 	max_scale = float(config.get("max_scale", max_scale))
 	seed_period = maxf(float(config.get("seed_period", seed_period)), 0.5)
 	edible = bool(config.get("edible", edible))
+	toxic = clampf(float(config.get("toxic", 0.0)), 0.0, 1.0)
 	flower = bool(config.get("flower", flower))
 	nectar = float(config.get("nectar", FOOD_CAPACITY))
 	_food = _food_capacity() * 0.6           # start partway; regrows toward the (nectar-scaled) capacity
@@ -401,7 +409,9 @@ func feed(amount: float) -> float:
 # Unified food model: a plant is living CARBS whose worth is its current edible reserve, so a herbivore
 # prefers a lush plant over a grazed-down one. (See LAFood — diet decides who can eat it.)
 func food_profile() -> Dictionary:
-	return {"type": "carbs", "state": "living", "value": maxf(_food, 0.0)}
+	# `toxicity` rides along on the profile so a bite carries its poison signature into the eating path and the
+	# taste-learning: a toxic plant is still living carbs (any herbivore can forage it), it just tastes of poison.
+	return {"type": "carbs", "state": "living", "value": maxf(_food, 0.0), "toxicity": toxic}
 
 
 func is_mature() -> bool:
@@ -418,6 +428,7 @@ func get_inspector_payload() -> Dictionary:
 			"Age: %.1fs (%s)" % [age, stage],
 			"Growth: %d%%" % int(_grown_fraction() * 100.0),
 			"Edible: %s" % ("yes" if edible else "no"),
+			"Toxic: %s" % ("%d%%" % int(toxic * 100.0) if toxic > 0.0 else "no"),
 			"Seed ready: %s" % ("yes" if _seed_ready else "no"),
 		],
 	}

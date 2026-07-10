@@ -17,11 +17,15 @@ extends Node
 # the nectar bees pollinate. All are ordinary config species (diet/plant data files); no special spawn code.
 const INITIAL_COUNTS: Dictionary = {
 	"plant": 260, "shrub": 28, "flower_daisy": 36, "flower_clover": 26,
+	# TOXIC vegetation is a deliberate MINORITY (nightshade/deathcap) among the wholesome majority above — enough
+	# for a grazer to meet, learn from, and avoid, without denting a herd that thrives on the wholesome plants.
+	"nightshade": 14, "deathcap": 10,
 	"rabbit": 90, "mouse": 12, "fox": 10, "bird": 55, "swallow": 10, "villager": 12, "vulture": 12,
 	"beetle": 10, "ant": 12, "grasshopper": 10, "butterfly": 10, "fly": 12, "bee": 14,
 }
-# Vegetation kinds (density-scaled by the graphics foliage knob, like the base plant) — flowers + shrub ride it too.
-const VEG_KINDS: Array = ["plant", "shrub", "flower_daisy", "flower_clover"]
+# Vegetation kinds (density-scaled by the graphics foliage knob, like the base plant) — flowers + shrub + the
+# toxic plants all ride it too (they are ordinary config vegetation; only their `toxic` data value differs).
+const VEG_KINDS: Array = ["plant", "shrub", "flower_daisy", "flower_clover", "nightshade", "deathcap"]
 const ROCK_COUNT: int = 60
 # Many forest SEEDS scattered onto the best (warm/fertile) ground; groves then DENSIFY emergently over the
 # run wherever photosynthesis has built biomass (see LAEcologyService._tick_tree_seeding), thinning at the
