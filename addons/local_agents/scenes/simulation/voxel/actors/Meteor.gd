@@ -74,9 +74,12 @@ func _radius() -> float:
 ## centre) like an FPS projectile, streaking straight out and homing onto the target so it always
 ## lands on the click point; otherwise it falls ballistically from above the target. Size is
 ## randomized each launch so strikes vary in scale.
-func launch(target: Vector3, from_pos: Vector3 = Vector3(INF, INF, INF)) -> void:
+func launch(target: Vector3, from_pos: Vector3 = Vector3(INF, INF, INF), size_scale: float = 1.0) -> void:
 	_target = target
-	_size = randf_range(0.55, 2.3)
+	# Base random variation scaled by the caller's size hint: the spawn brush passes a factor derived
+	# from its radius, so growing the brush (Ctrl + wheel) flings a bigger, more cratering rock. Clamped
+	# so a maxed brush can't produce a runaway crater.
+	_size = clampf(randf_range(0.55, 2.3) * size_scale, 0.2, 8.0)
 	if is_finite(from_pos.x) and is_finite(from_pos.y) and is_finite(from_pos.z):
 		# Player-fired: leave the camera along the aim ray and then COAST under real N-body gravity — aim
 		# tangential to a body and it settles into ORBIT, aim inward and it strikes, aim fast/outward and it

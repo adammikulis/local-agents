@@ -487,6 +487,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				_drag_orbiting = false
 			return
 		if mb.pressed:
+			# Ctrl + wheel is reserved for resizing the spawn brush (VoxelInteraction handles it) — never
+			# zoom while Ctrl is held, so the two gestures don't both fire on the same wheel event.
+			if mb.ctrl_pressed and (mb.button_index == MOUSE_BUTTON_WHEEL_UP or mb.button_index == MOUSE_BUTTON_WHEEL_DOWN):
+				return
 			if mb.button_index == MOUSE_BUTTON_WHEEL_UP:
 				stop_tracking()
 				if _fly:

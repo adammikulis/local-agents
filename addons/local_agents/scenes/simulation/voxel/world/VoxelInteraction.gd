@@ -122,10 +122,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
 		var mpos: Vector2 = mb.position
-		# Ctrl + wheel resizes the brush (only when a kind is armed, so plain wheel still zooms).
-		if _brush.armed_kind() != "" and mb.pressed and mb.ctrl_pressed \
+		# Ctrl + wheel resizes the spawn brush instead of zooming (the camera rig skips zoom whenever
+		# Ctrl is held, and we consume the event so it can never also zoom). Plain wheel still zooms.
+		if mb.pressed and mb.ctrl_pressed \
 				and (mb.button_index == MOUSE_BUTTON_WHEEL_UP or mb.button_index == MOUSE_BUTTON_WHEEL_DOWN):
 			_brush.adjust_radius(mb.button_index == MOUSE_BUTTON_WHEEL_UP)
+			get_viewport().set_input_as_handled()
 			return
 		# RMB: paint / cast the armed kind onto the terrain (Black & White right-hand miracle).
 		# Press starts a paint stroke (drag keeps painting); release ends it.

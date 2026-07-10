@@ -79,6 +79,12 @@ func adjust_radius(grow: bool) -> void:
 	_hud.set_status("Brush radius: %.0f m" % _brush_radius)
 
 
+# Map the brush radius to a meteor size multiplier: the default radius (5) leaves the rock at its
+# natural size (1.0) and growing the brush scales the meteor up, so Ctrl + wheel makes a bigger meteor.
+func _meteor_size_scale() -> float:
+	return 0.5 + _brush_radius / 10.0
+
+
 # RMB entry point: resolve the terrain point under the cursor and paint the armed kind there.
 func place_armed(screen_pos: Vector2) -> void:
 	var point: Vector3 = _terrain_point(screen_pos)
@@ -137,8 +143,9 @@ func _apply_at(point: Vector3) -> void:
 		var meteor: MeteorScript = MeteorScript.new()
 		_actors_root.add_child(meteor)
 		meteor.setup(_terrain, _ecology)
-		# Launch from over the user's head, streaking toward the clicked point.
-		meteor.launch(point, _camera.global_position)
+		# Launch from over the user's head, streaking toward the clicked point. The brush radius sizes the
+		# rock (Ctrl + wheel grows it), so a bigger brush lands a bigger, more cratering meteor.
+		meteor.launch(point, _camera.global_position, _meteor_size_scale())
 		_world.set_destruction(1.0)
 		_hud.set_status("Meteor inbound!")
 	elif _armed_kind == "volcano":
