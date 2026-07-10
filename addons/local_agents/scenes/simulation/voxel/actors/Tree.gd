@@ -259,6 +259,10 @@ func _snap_to_surface() -> void:
 		global_position = surf
 
 
+const TREE_SETTLE_STRIDE: int = 30   # a mature tree advances age ~every 30 frames (catch-up dt) — Big-O by relevance
+var _settle_accum: float = 0.0
+var _settle_phase: int = -1
+
 func _physics_process(delta: float) -> void:
 	if toppled:
 		# The Tween (if any) drives the fall; otherwise lerp it here.
@@ -270,13 +274,24 @@ func _physics_process(delta: float) -> void:
 			if _topple_t >= 1.0:
 				_render_settled = true
 		return
+	# A mature tree (settled, not toppled) has no per-frame work — its scale is final and the render batch is
+	# already synced — so advance its age on a coarse staggered cadence (catch-up dt) and skip the redundant
+	# _apply_growth() scale write. Hundreds of grown trees stop each dirtying a transform every frame; a
+	# topple (handled above, every frame) still wakes it live.
+	if _render_settled:
+		if _settle_phase < 0:
+			_settle_phase = int(get_instance_id())
+		_settle_accum += delta
+		if (int(Engine.get_physics_frames()) + _settle_phase) % TREE_SETTLE_STRIDE == 0:
+			age += _settle_accum
+			_settle_accum = 0.0
+		return
 	age += delta
 	_apply_growth()
 	# Push the growing pose until mature; then settle (no per-frame render cost) until a topple wakes it.
-	if not _render_settled:
-		_sync_render()
-		if _grown_fraction() >= 1.0:
-			_render_settled = true
+	_sync_render()
+	if _grown_fraction() >= 1.0:
+		_render_settled = true
 
 
 func _grown_fraction() -> float:
