@@ -10,9 +10,9 @@
 set -euo pipefail
 SHOT="${1:-eruption}"
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
-# Default output: a `trailer/` folder at the repo root (gitignored) — easy to find. Override with arg 2.
-mkdir -p "$DIR/trailer"
-OUT="${2:-$DIR/trailer/${SHOT}.avi}"
+# Default output: a `trailers/` folder at the repo root (gitignored) — easy to find. Override with arg 2.
+mkdir -p "$DIR/trailers"
+OUT="${2:-$DIR/trailers/${SHOT}.avi}"
 export LA_MUSIC_SEED="${LA_MUSIC_SEED:-1234}"
 export LA_NO_STREAMER=1
 export LA_RES="${LA_RES:-1280x720}"

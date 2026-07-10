@@ -261,3 +261,12 @@ func fire_test_meteor() -> void:
 	else:
 		_camera.global_position = impact + Vector3(26.0, 30.0, 26.0)
 		_camera.look_at(impact, Vector3.UP)
+
+
+## Fling a meteor toward `target` FROM an explicit world position (the trailer director aims one in from the
+## frame edge). It then coasts under real N-body gravity like any launched meteor.
+func fire_meteor_at(target: Vector3, from_pos: Vector3) -> void:
+	var m: MeteorScript = MeteorScript.new()
+	_actors_root.add_child(m)
+	m.setup(_terrain, _ecology)
+	m.launch(target, from_pos)
