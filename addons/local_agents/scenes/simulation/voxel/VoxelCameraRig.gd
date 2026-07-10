@@ -43,7 +43,10 @@ const RAY_LENGTH: float = 4000.0
 # Parallel mode used when the world is a spherical planet: the rig sits on a sphere around the
 # planet centre (spherical coords: azimuth + elevation), looks at the centre, and scroll zooms the
 # orbit radius. Enabled by set_orbit_target(); the flat fly path below is left untouched.
-const ORBIT_DEFAULT_DISTANCE_MULT: float = 2.4   # start distance = planet_radius * this
+const ORBIT_DEFAULT_DISTANCE_MULT: float = 2.4   # sandbox start distance = planet_radius * this (whole-planet framing)
+# Campaign opens CLOSE — right down on a curated patch of the surface — so the new player shapes what is in
+# front of them by spawning before ever pulling out. Just above the min zoom, well under the baseline ceiling.
+const CAMPAIGN_START_DISTANCE_MULT: float = 1.2
 const ORBIT_MIN_DISTANCE_MULT: float = 1.05      # closest zoom — just above the surface
 const ORBIT_MAX_DISTANCE_MULT: float = 6.0       # farthest zoom — a few planet radii out
 # Clamp elevation shy of the poles so "up" stays world-up without a gimbal flip through the pole.
@@ -238,7 +241,7 @@ func set_orbit_target(center: Vector3, radius: float) -> void:
 	_orbit_radius = maxf(1.0, radius)
 	_orbit_min_distance = _orbit_radius * ORBIT_MIN_DISTANCE_MULT
 	_orbit_max_distance = _effective_orbit_max()
-	_distance = clampf(_orbit_radius * ORBIT_DEFAULT_DISTANCE_MULT, _orbit_min_distance, _orbit_max_distance)
+	_distance = clampf(_orbit_radius * _start_distance_mult(), _orbit_min_distance, _orbit_max_distance)
 	_orbit_azimuth = 0.0
 	_orbit_elevation = deg_to_rad(20.0)
 	stop_tracking()          # storm-follow is a flat-world concept; drop it on entering orbit
@@ -251,6 +254,15 @@ func set_orbit_target(center: Vector3, radius: float) -> void:
 func _effective_orbit_max() -> float:
 	var cap_mult: float = minf(ORBIT_MAX_DISTANCE_MULT, LAGameProgression.zoom_ceiling_mult())
 	return _orbit_radius * maxf(ORBIT_MIN_DISTANCE_MULT, cap_mult)
+
+
+## Where the orbit view opens: campaign starts CLOSE (near the surface, CAMPAIGN_START_DISTANCE_MULT) so the
+## player begins working a curated patch; sandbox / no progression opens at the whole-planet framing distance.
+func _start_distance_mult() -> float:
+	var prog: LAGameProgression = LAGameProgression.active()
+	if prog != null and not prog.is_sandbox():
+		return CAMPAIGN_START_DISTANCE_MULT
+	return ORBIT_DEFAULT_DISTANCE_MULT
 
 
 ## Leave orbit mode and return to the flat fly camera (kept for completeness / mode toggles).

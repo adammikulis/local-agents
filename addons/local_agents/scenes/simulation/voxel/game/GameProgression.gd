@@ -48,6 +48,10 @@ const ALL_SPAWN_KINDS: PackedStringArray = [
 const ALL_VIEWS: PackedStringArray = [
 	"view_orbit", "view_fly", "view_geosync", "view_solar",
 ]
+# Non-spawn, non-view player abilities that are gated the same way. "grab" is the Black & White hand
+# (click-to-carry / throw). Deliberately withheld at the start so the player first learns to shape the world
+# by SPAWNING; it is earned once they've grown a living world (granted by the 'thriving' stage below).
+const ALL_ABILITIES: PackedStringArray = ["grab"]
 
 static var _active: LAGameProgression = null
 
@@ -123,7 +127,7 @@ func _build_ladder() -> void:
 			PackedStringArray(["spawn_rabbit", "spawn_fox", "spawn_fish"]), 2.4),
 		# A thriving world: total living creatures grow past the founding stock (needs births beyond the initial spawn).
 		_stage("thriving", "Grow the world to 170 creatures", "creatures", 170.0, 0.0,
-			PackedStringArray(["spawn_bird", "spawn_vulture", "view_geosync"]), 3.4),
+			PackedStringArray(["spawn_bird", "spawn_vulture", "view_geosync", "grab"]), 3.4),
 		# An enduring bloodline: a founding lineage breeds through to a third generation (generation index reaches 2).
 		_stage("lineage", "Raise a bloodline to the third generation", "max_generation", 2.0, 0.0,
 			PackedStringArray(["spawn_villager", "spawn_meteor", "spawn_volcano", "spawn_lightning",
@@ -161,6 +165,8 @@ func _unlock_everything() -> void:
 		_unlocked["spawn_" + k] = true
 	for v in ALL_VIEWS:
 		_unlocked[v] = true
+	for a in ALL_ABILITIES:
+		_unlocked[a] = true
 	_zoom_mult = ZOOM_MULT_UNBOUNDED
 	_current = _stages.size()
 
