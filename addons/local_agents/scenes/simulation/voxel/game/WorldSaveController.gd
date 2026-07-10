@@ -30,6 +30,9 @@ var _auto_save_slot: String = ""
 var _auto_save_frame: int = 0
 var _frame: int = 0
 var _auto_saved: bool = false
+# Deterministic fixture-load path (CLI): --load-fixture=<dir> restores a COMMITTED save directory (a repo
+# test fixture) instead of a user:// slot — no file shuffling, so the round-trip check is reproducible.
+var _load_fixture_dir: String = ""
 
 
 static func active() -> LAWorldSaveController:
@@ -50,6 +53,10 @@ func _exit_tree() -> void:
 func setup(world) -> void:
 	_world = world
 	_parse_cli()
+	# A committed fixture (--load-fixture=<dir>) takes precedence: it's the deterministic verification path.
+	if _load_fixture_dir != "":
+		_begin_load_dir(_load_fixture_dir)
+		return
 	var gm: Object = _game_mode()
 	var slot: String = ""
 	if gm != null and gm.has_method("take_pending_load_slot"):
@@ -69,6 +76,8 @@ func _parse_cli() -> void:
 			_auto_save_slot = arg.substr("--save-slot=".length())
 		elif arg.begins_with("--save-frame="):
 			_auto_save_frame = int(arg.substr("--save-frame=".length()))
+		elif arg.begins_with("--load-fixture="):
+			_load_fixture_dir = arg.substr("--load-fixture=".length())
 	if _auto_save_slot != "" and _auto_save_frame <= 0:
 		_auto_save_frame = 400
 
@@ -99,6 +108,26 @@ func _begin_load(slot: String) -> void:
 		_world._spawn.suppress_initial_spawn()
 	print("SAVE_LOAD_BEGIN={slot:%s, creatures:%d, fish:%d}" % [
 		slot, (data.get("creatures", []) as Array).size(), (data.get("fish", []) as Array).size()])
+
+
+# Load a COMMITTED fixture directory (--load-fixture=<dir>): identical restore path to _begin_load, but the
+# blob is read from an explicit repo dir via LAGameSave.read_world_dir (no user:// slot). The saved grid must
+# match the live one — the fixture is authored + loaded under --smoke so the Potato cell_count lines up.
+func _begin_load_dir(dir: String) -> void:
+	var data: Dictionary = LAGameSave.read_world_dir(dir)
+	if data.is_empty():
+		push_warning("LAWorldSaveController: fixture '%s' missing or corrupt — starting a fresh world" % dir)
+		return
+	_slot = LAGameSave.DEFAULT_SLOT
+	_pending = data
+	_restore_pending = true
+	_restore_deadline = 3600
+	if _world._progression != null and _world._progression.has_method("restore"):
+		_world._progression.restore(data.get("progression", {}))
+	if _world._spawn != null and _world._spawn.has_method("suppress_initial_spawn"):
+		_world._spawn.suppress_initial_spawn()
+	print("SAVE_LOAD_BEGIN={fixture:%s, creatures:%d, fish:%d}" % [
+		dir, (data.get("creatures", []) as Array).size(), (data.get("fish", []) as Array).size()])
 
 
 func _process(_delta: float) -> void:

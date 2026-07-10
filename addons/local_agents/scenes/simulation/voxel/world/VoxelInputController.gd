@@ -33,6 +33,7 @@ var _lunar_phase: float = 0.15
 var _shoot_path: String = ""
 var _shoot_frames: int = 150
 var _run_frames: int = 0
+var _smoke: bool = false                # --smoke: boot the MINIMAL (Potato/Low) config for fast parse+run checks
 var _force_wind: float = 0.0            # --wind=<x>: force a constant eastward wind (verification)
 var _cognition_stats: bool = false      # --cognition-stats: print fast/slow brain + genetics metrics
 var _auto_meteor: bool = false
@@ -118,6 +119,12 @@ func parse_cmdline() -> void:
 			_shoot_frames = int(arg.substr("--shoot-frames=".length()))
 		elif arg.begins_with("--run-frames="):
 			_run_frames = int(arg.substr("--run-frames=".length()))
+		elif arg == "--smoke":
+			# Fast minimal-config boot: streamer off here + an Engine meta the settings applier reads to force the
+			# Potato/Low presets (smallest grid, fewest actors, effects/FX off). One flag, two readers, no wiring.
+			_smoke = true
+			_streamer_enabled = false
+			Engine.set_meta("la_smoke", true)
 		elif arg.begins_with("--time="):
 			_time_of_day = clampf(float(arg.substr("--time=".length())), 0.0, 1.0)
 		elif arg.begins_with("--lunar="):
@@ -764,6 +771,7 @@ func lunar_seed() -> float: return _lunar_phase
 func shoot_path() -> String: return _shoot_path
 func shoot_frames() -> int: return _shoot_frames
 func run_frames() -> int: return _run_frames
+func smoke() -> bool: return _smoke
 func force_wind() -> float: return _force_wind
 func overview() -> bool: return _overview
 func farview() -> bool: return _farview

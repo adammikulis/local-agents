@@ -1,0 +1,18 @@
+{
+  "_comment": "Reference state captured at save time (SAVE_STATE_SAVED) for the stable_world fixture, generated with `--smoke --save-slot=stable_world --save-frame=300`. scripts/fixture_check.sh loads world.sav via `--smoke --load-fixture=<this dir>` and asserts the restored SAVE_STATE_LOADED line is within tolerance of these values (the round-trip proof), then confirms a short delta ran. Regenerate with scripts/fixture_check.sh --regen.",
+  "creatures": 81,
+  "fish": 159,
+  "habits": 67,
+  "families": 7,
+  "stage": 4,
+  "h2o": 65.72,
+  "mineral": 3841.0,
+  "biomass": 31.64,
+  "tolerance": {
+    "creatures_abs": 6,
+    "fish_abs": 10,
+    "h2o_pct": 0.10,
+    "mineral_pct": 0.02,
+    "biomass_pct": 0.12
+  }
+}
