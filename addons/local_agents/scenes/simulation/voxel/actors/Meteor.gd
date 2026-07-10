@@ -264,7 +264,12 @@ func _on_impact() -> void:
 			# Hypervelocity impact IONISES the air above the crater — a charge seed the field's breakdown then
 			# discharges as a bolt (the same charge→bolt primitive a storm feeds; here from impact plasma).
 			if field.has_method("add_charge"):
-				field.add_charge(_impact_point + up * 20.0, 12.0, r)
+				# Scale the seed with meteor size (same idiom as emit_shock above) so a small strike stays at or
+				# below the field's dielectric breakdown (~6.0) and barely sparks, while a large one seeds a real
+				# storm — and cap it just above breakdown so even the biggest impact never dumps the 4-bolts/step
+				# barrage. _size in [0.55, 2.3]: small ~ 5.4 (sub-breakdown, 0 bolts), mid ~ 7.5 (one or two bolts),
+				# large capped at 9.0.
+				field.add_charge(_impact_point + up * 20.0, minf(4.0 + _size * 2.5, 9.0), r)
 	# Shake the ground: steep terrain in the blast radius slumps downhill under gravity (a meteor into
 	# a mountainside triggers a slide — pure material physics, no landslide code).
 	if _ecology != null and _ecology.has_method("disturb_ground"):
