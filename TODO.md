@@ -100,49 +100,95 @@ build that boots.** Everything below is MERGED on `feature/sphere-followups` unl
 ## 0.4 — THE LIVING CREATURES (next release — their entire life cycle)
 
 Where 0.3 went broad (the game + emergent world), **0.4 goes deep on the creatures themselves — the whole arc
-of a life**, all emergent (one substrate, reaction engine, config over `if species==X`), realistic within our
-confines. The creatures are the star (local LLMs driving the minds).
+of a life**, all emergent (one substrate, reaction engine, config over `if species==X`). The creatures are the
+star (local LLMs driving the minds). **This section is the approved, sequenced plan** (idea bank:
+`docs/0.4_CREATURE_FEATURES.md`; split plan: `docs/0.4_PARALLELIZATION_GUIDE.md`).
 
-- [ ] **FLAGSHIP — the living nutrient cycle** (#75): rework digestion (food → gut → energy **over time**,
-  efficiency set by the microbiome; herbivores need gut flora to digest plants) + **gut-microbiome benefits**
-  (a per-creature microbe scalar aids digestion/health while alive) + **excretion / pooping** (waste → soil
-  detritus/fertility + spreads gut bacteria) + **soil bacteria / nitrogen-fixers** (enrich fertility → plants
-  grow) + **death decomposition** (the same microbiome overgrows on death; 0.3 ships the field-side taste). A
-  handful of bacterial ROLES as substrate reactions; conserved matter (food → energy + waste → soil → plants →
-  food). Big systemic feature — re-balance the ecosystem after.
-- [ ] **Plant life cycle** — blooming as a real reproductive STAGE: grow → **bloom** → pollinated (bees/wind) →
-  seed → sprout → age → die → decompose. Config `reproduction mode`: `flower` (bloom, most angiosperms —
-  grasses/broadleaf trees/crops/flowers), `cone` (conifers — wind pollen, no bloom), `spore` (ferns/mosses/
-  fungus). Bees boost the flowering ones; wind is the fallback.
-- [ ] **Diverse flowers + LEARNING bees + pollinator-driven selection** — each flower species: a distinct
-  **scent** (deposited into the scent field), look, and **bloom-time** window (dawn/dusk stagger). Bees LEARN
-  which flowers pay off via the existing reinforcement cognition (scent cue → nectar reward → preference) and
-  forage by **smell, not sight**. Emergent payoff nobody scripts: bees favor certain traits → pollinate those
-  more → those flowers spread → **pollinator-driven selection of flower traits emerges.** (Needs bees to carry
-  cognition — same extension as fish minds.)
-- [ ] **Trainable Creature companion** (#48) — a large animal that sees the player as its permanent **Leader**
-  (reuse the leadership/follower-adoption); shaped by **operant conditioning** — player reward/punish feeds the
-  existing `reinforce_cue` learning. Black & White-style. Minimal bespoke code.
-- [ ] **Fish cognition** — fish are currently brainless config-band swimmers; give them the same value-based
-  cognition the land animals have, so the aquatic life learns too.
-- [ ] **Rest of the animal life arc** — growth/juvenile→adult stages + visuals, courtship/mating, aging/
-  senescence effects, disease (pathogen-bacteria overgrowth).
-- [ ] **Reusable creature NODE (dual-purpose gap)** — only `LocalAgentsAgent` (the LLM node) is drop-in today;
-  the sim actors are coupled to the voxel sim (injected terrain/field/ecology/cognition, no `.tscn`). Decouple
-  Creature behind small INTERFACES + a lightweight default adapter so a bare "AgentCreature" node works
-  standalone (rules-based) and lights up with a sim + a model — a thinking creature a dev can drop into any
-  Godot game. Makes the dual-purpose promise fully real.
+**Scope decisions (locked):** full living-creatures release, **sequenced** (no single centerpiece) · build ONE
+**general signal system first**, then every call/scent/display composes in (deception/dialects fall out) ·
+**heritable, not yet evolving** (offspring inherit/blend; no mutation/selection loop pushed) · the **pet
+companion is later/stretch** (ecosystem + communication richness first).
 
-### 0.4 perf / platform (deferred, not blocking)
-- [ ] **Async/partial GPU field readback** (#72) — the per-step full-grid GPU→CPU readback is the dominant field
-  cost; async/partial readback cuts it without reducing grid resolution (recover full climate fidelity at high
-  fps). Core field-architecture change.
-- [ ] **HTML5 web export spike** (#44) — the repo's open issue. Native GDExtension + subprocess llama-server
-  can't web-export; but browser-local LLMs are now feasible (wllama/WebLLM/transformers.js via WASM/WebGPU). A
-  web-target LLM backend via `JavaScriptBridge`, starting with the chat/agent quickstart (not the full GPU
-  planet). Ship 0.3 as native download; this is the follow-on.
-- [ ] **Composition-per-cell (metals/ores)** (#30) — the DEFS engine is ~80% there (slot registry); build the
-  thin slice only when a metal/ore/salt feature is wanted.
+**Standing rule (user directive):** whenever a phase gives the chance, **add chemistry to the substrate** (new
+conserved substances / DEFS reaction records) and **rip out hand-coded systems** that should be emergent —
+don't route around them. This is the definition of done, not scope creep. Concrete 0.4 targets the exploration
+already found: Phase 1 deletes the ad-hoc `match call_type` comms branches (`Creature.gd:992-1003`) + per-type
+`EcologyStimulus` methods → one emergent signal+learned-meaning path; Phase 3 adds digestion/microbiome/soil
+**as DEFS reactions** (chemistry), not hand-coded metabolism; personality/diet become heritable genome config,
+not `if species==X`. See [[dissolve-dont-patch]].
+
+### Reuse-vs-build ground truth (from code exploration — anchors)
+| Concern | Verdict | Anchor |
+|---|---|---|
+| Learning core (`reinforce_cue`, `decide`, `learn_and_veto`, reward/valence, veto, social `observe`) | reuse, **generalize off `LACreature`** | `cognition/Cognition.gd` (545/144/201/278/227/424) |
+| Slow brain (LLM + teacher, budget, perception scans) | reuse, generalize | `cognition/CognitionScheduler.gd:73,220` |
+| Kinship graph + `family_id` · Leadership/leader-pin (= pet's "player as Leader") | reuse as-is | `ecology/KinshipGraph.gd` · `actors/creature/CreatureLeadership.gd` |
+| Genome (crossover+mutate exist; `eye_fov`/`sense_radius` acuity already heritable) | reuse, **extend** (add personality + diet genes) | `cognition/Genome.gd` (22/92/113) |
+| Scent field (5 GPU channels evolve on-device: prey/predator/blood/food/alarm) | **partial — finish CPU wiring** (~4 sites) | GPU live `EcoSurfacePass.gd:205`; stubbed `MaterialField3D.gd:908-937`, `MaterialFieldSphereStep3D.gd:124-145` |
+| Sound calls / scare bus (ad-hoc per-type today) | reuse, **generalize** | `ecology/EcologyStimulus.gd:96-144`, `Creature.gd:979-1003` |
+| Perception spatial index · Shock/charge read+emit (charge lacks `gradient()`) | reuse as-is | `actors/creature/SpatialIndex.gd` · `MaterialShock3D.gd`, `MaterialField3D.gd:817,1149` |
+| Generic signal/stimulus + learned-meaning layer | **must build** (the Phase-1 spine) | only ad-hoc `EcologyStimulus.gd` |
+| `Creature.gd` god-file (1042; every workstream routes through it) | reuse, **split #1** | `actors/Creature.gd` |
+| Graded life stages / body growth (binary `is_mature()` only) · courtship/gestation | **must build** | `Creature.gd:1017`, `EcologyService.gd:485` |
+
+### Phase 0 — FOUNDATIONS (serialized, one-owner; FIRST, so the fan-out stays parallel)
+- [ ] Split `Creature.gd` → modules under `actors/creature/` (hand/carry/throw · damage/death/fling · think-LOD ·
+  movement · social/calls · life-stage · nesting-glue · state-tint); split `EcologyService.gd` → Spawner/
+  Breeding/Plants/Aquatic (guide Wave 0a).
+- [ ] **Generalize cognition off `LACreature`** — a small duck-typed cognizer interface + `cognition/adapters/`
+  per actor kind (unblocks bee/fish/pet minds). Keep `reinforce_cue` verbatim.
+- [ ] **Finish the scent-field wiring** — scatter `_f._scent` in `_apply_readback` (+ `"scent"` in driver
+  `read()`), implement `scent_at`/`scent_gradient` (5-packed `base=ch*cell_count`), `deposit_*` → seed +
+  `_scent_dirty`, dirty-gated `set_field("scent", …)` upload. Same pattern shock/charge already use.
+- [ ] **Extend `Genome`** — add personality/temperament gene(s) + heritable diet/appearance; mutation modest.
+
+### Phase 1 — THE SIGNAL SPINE (build once; communication emerges)
+- [ ] One general **Signal** system: emit (a typed record: medium + payload + intensity) into a medium
+  (scent/sound/shock/charge/posture/touch) → perceive (via `LASpatialIndex` + field reads) → **meaning is the
+  learned response** (`reinforce_cue`). Refactor the ad-hoc `EcologyStimulus` methods + `Creature.hear_call`
+  `match` branches into this path; each concrete signal (alarm scent, mating call, threat display) becomes a
+  **data record**, not code. Honest-vs-deceptive signalling, dialects, skepticism fall out.
+
+### Phase 2 — FAN OUT over the spine (Workflow — each workstream = "config a signal + a learned response")
+- [ ] **W-COMMS:** scent trails, alarm/mating/contact/food calls, visual displays/postures, touch/grooming,
+  seismic (shock), electric (charge + `charge_gradient()`), bioluminescence.
+- [ ] **W-SOCIAL:** dominance hierarchy (extend leadership), cooperation (pack hunt/mobbing/sentinel/
+  alloparenting), bonding/alliances/reciprocity, play, territory (scent boundaries), migration, culture-spread.
+- [ ] **W-FISH minds** (generalized cognition via a fish adapter). **W-BEES** learning + pollinator-driven
+  flower selection (needs bee cognition + scent — both unblocked by Phase 0; coordinate with 0.3 #76).
+- [ ] **W-TRAITS:** circadian/dormancy (hibernation/torpor/estivation — compose with compute-bubble LOD),
+  thermoregulation, crypsis/mimicry, predator/prey tactics, foraging/caching, parental care/teaching, disease/
+  parasites, personality-driven behavior, emotional states, habituation.
+- [ ] **W-LIFECYCLE:** graded life stages + body-growth curves, courtship/mating (→ kinship mate edge), aging/
+  senescence.
+
+### Phase 3 — THE NUTRIENT / METABOLIC CYCLE (#75 flagship)
+- [ ] Digestion over time (efficiency set by the microbiome; herbivores need gut flora) + gut-microbiome benefit +
+  excretion/pooping (→ soil detritus/fertility + spreads gut bacteria) + soil bacteria/nitrogen-fixers (→ plants
+  grow) + death decomposition (0.3 shipped the field-side taste). Bacterial **roles as DEFS reactions**;
+  conserved matter food→energy+waste→soil→plants→food. **Prereq:** finish the detritus→fertility uptake wiring on
+  the sphere (`fertility_at` stubbed, detritus not GPU-round-tripped) — same pattern as the Phase-0 scent finish.
+  Re-balance the ecosystem after.
+
+### Phase 4 — THE PET COMPANION (stretch — end of 0.4 or 0.5)
+- [ ] Large animal + player pinned as permanent **Leader** + **operant conditioning** (`reinforce_cue`) +
+  non-verbal need/emotion readout UX. "Not a special system" — the shared richness focused on one bonded
+  individual. Only if the ecosystem lands with room.
+
+### Phase 5 — REUSABLE CREATURE NODE + perf/platform (deferred)
+- [ ] **Reusable creature NODE (#dual-purpose gap)** — decouple `Creature` behind small interfaces + a default
+  adapter so a bare "AgentCreature" works standalone (rules-based) and lights up with a sim + a model.
+- [ ] **Async/partial GPU field readback** (#72 — dominant field cost; speeds every verify). **HTML5 web-export
+  spike** (#44 — browser-local LLM via WASM/WebGPU + `JavaScriptBridge`, chat/agent first). **Composition-per-
+  cell** (#30 — DEFS ~80% there; thin slice when a metal/ore/salt feature is wanted).
+
+### Orchestration + verification
+Phase 0 = serialized (splits + generalize + wiring). Phases 1→2 = **Workflow fan-out** (`pipeline()`
+implement→verify per workstream; worktree isolation; per-agent pre-write contract + behavioural SIM_REPORT gate;
+adversarial verify for correctness-sensitive bits). Main thread integrates/merges/gates. Verify behaviourally:
+`scripts/smoke_check.sh` while iterating; a long `--run-frames=1500`/`--fast` run + `--shoot` at each phase gate
+(population stable, herds/kinship intact, no NaN/runaway, fps good; scent round-trips, a signal's meaning is
+learned-not-branched, fish/bees learn, the nutrient loop conserves matter). Windowed launch for the pet.
 
 ---
 
