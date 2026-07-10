@@ -254,6 +254,11 @@ func update_hand(delta: float) -> void:
 		if not is_instance_valid(_grab_candidate):
 			_grab_candidate = null
 			return
+		# The hand (click-to-carry / throw) is a campaign-gated ability: until "grab" is unlocked the player
+		# shapes the world by SPAWNING, not grabbing. When locked, never commit to a carry — the press stays a
+		# plain selection (resolved on release in _on_lmb_release). Sandbox / no progression = always unlocked.
+		if not LAGameProgression.cap_unlocked("grab"):
+			return
 		var moved: float = mpos.distance_to(_grab_press_pos)
 		var held_ms: int = Time.get_ticks_msec() - _grab_press_msec
 		if moved >= GRAB_MOVE_THRESHOLD or held_ms >= GRAB_HOLD_MSEC:
