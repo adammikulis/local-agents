@@ -25,6 +25,15 @@ static func payload(c) -> Dictionary:
 	]
 	if c.throws:
 		lines.append("Rock in hand: %s" % ("yes" if c.has_rock else "no"))
+	# Cognition/genetics readout: how much this individual has learned and which generation it is.
+	if c.has_method("get_cognition") and c.get_cognition() != null:
+		var cog = c.get_cognition()
+		var gen: int = 0
+		if c.has_method("get_genome") and c.get_genome() != null:
+			gen = int(c.get_genome().generation)
+		lines.append("Mind: %d habits · %d asked · %d learned · gen %d" % [
+			cog.policy_size(), cog.escalations, cog.lessons, gen])
+		lines.append("Eyes: %d° FOV   Hearing: %.0fm" % [int(round(c.eye_fov)), c.hearing_range])
 	return {"title": String(c.species).capitalize(), "lines": lines}
 
 
@@ -38,8 +47,18 @@ static func describe_activity(state: String) -> String:
 		"throw": return "throwing a rock"
 		"eat": return "eating"
 		"drink": return "drinking"
+		"seek": return "searching for water"
 		"thirsty": return "searching for water"
 		"cruise": return "flying with the flock"
+		"flock": return "moving with the flock"
+		"soar": return "soaring, scanning for carrion"
+		"circle": return "circling a carcass"
+		"investigate": return "investigating a carrion cue"
+		"rest": return "resting to conserve energy"
+		"sleep": return "sleeping at its nest"
+		"roost": return "heading home to roost"
+		"nesting": return "tending its nest"
+		"migrate": return "migrating to new ground"
 		"wander": return "wandering with its kind"
 		_: return state
 

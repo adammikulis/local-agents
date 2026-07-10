@@ -11,17 +11,21 @@ config_version=5
 [application]
 
 config/name="LocalAgents"
-run/main_scene="res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn"
+config/version="0.3.0"
+run/main_scene="res://addons/local_agents/scenes/menu/MainMenu.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 config/icon="res://icon.svg"
 
 [audio]
 
 buses/default_bus_layout="res://addons/local_agents/audio/default_bus_layout.tres"
+general/text_to_speech=true
 
 [autoload]
 
 AgentManager="*res://addons/local_agents/agent_manager/AgentManager.gd"
+GameMode="*res://addons/local_agents/scenes/menu/GameMode.gd"
+AppExit="*res://addons/local_agents/scenes/AppExit.gd"
 
 [display]
 
@@ -40,3 +44,7 @@ editor/enabled=false
 [physics]
 
 3d/physics_engine="Jolt Physics"
+
+[rendering]
+
+textures/vram_compression/import_etc2_astc=true

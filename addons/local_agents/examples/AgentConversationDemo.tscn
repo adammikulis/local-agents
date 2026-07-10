@@ -1,0 +1,73 @@
+[gd_scene load_steps=3 format=3 uid="uid://d3convo0demo01"]
+
+[ext_resource type="Script" path="res://addons/local_agents/examples/AgentConversationDemo.gd" id="1_convo"]
+[ext_resource type="Script" path="res://addons/local_agents/agents/Agent.gd" id="2_agentn"]
+
+[node name="AgentConversationDemo" type="Node"]
+script = ExtResource("1_convo")
+
+[node name="AgentA" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("2_agentn")
+
+[node name="AgentB" type="Node" parent="."]
+unique_name_in_owner = true
+script = ExtResource("2_agentn")
+
+[node name="Margin" type="MarginContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 16
+
+[node name="VBox" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="Margin/VBox"]
+layout_mode = 2
+text = "Two agents converse (cognition + memory)"
+
+[node name="Subtitle" type="Label" parent="Margin/VBox"]
+layout_mode = 2
+autowrap_mode = 3
+text = "Ada and Ben take turns. Each line is recorded as a node in a shared LocalAgentsGraph, chained by 'then' edges: that graph is the conversation's memory."
+
+[node name="StatusLabel" type="Label" parent="Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 3
+text = "Checking runtime..."
+
+[node name="Buttons" type="HBoxContainer" parent="Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="NextButton" type="Button" parent="Margin/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Next turn"
+
+[node name="ResetButton" type="Button" parent="Margin/VBox/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Reset"
+
+[node name="MemoryLabel" type="Label" parent="Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 3
+text = "Memory graph: 0 nodes, 0 edges"
+
+[node name="TranscriptLabel" type="RichTextLabel" parent="Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+bbcode_enabled = true
+fit_content = true
+text = "The conversation will appear here."

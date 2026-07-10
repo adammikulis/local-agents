@@ -2,6 +2,13 @@
 
 ## Status Note
 
+**RETIRED / historical (2026-07):** the native C++ voxel/sim sources this plan targeted were dropped
+from the `localagents` GDExtension (it now ships only the llama.cpp/LLM agent runtime), and the old
+`WorldSimulation` voxel stack was deleted. The active simulation is the from-scratch godot_voxel
+ecosystem sim (`scenes/simulation/voxel/VoxelWorld.tscn`, see `TODO.md`), which runs in GDScript with
+GPU compute for the material field (`material/MaterialGPU3D.gd` + `material/kernels3d/*.glsl`). This document is kept as the native/GPU-first
+target model and design intent, not as a description of current code.
+
 Active execution tracking is in `ARCHITECTURE_PLAN.md`. This document defines the native target model and migration intent.
 
 ## Objective

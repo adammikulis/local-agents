@@ -20,9 +20,9 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake curl git pkg-config unzip
+          sudo apt-get install -y build-essential cmake curl libcurl4-openssl-dev git pkg-config unzip
 
-      - name: Report files over soft line limit (advisory)
+      - name: Enforce file size limits (800 soft warn, 1000 hard gate)
         env:
           MAX_FILE_LINES: "1000"
         run: |
@@ -45,7 +45,7 @@ jobs:
 
       - name: Enforce no fallback paths in simulation LLM services
         run: |
-          if rg -n "_fallback_|synthetic\\s*:\\s*true" addons/local_agents/simulation/NarratorDirector.gd addons/local_agents/simulation/VillagerDreamService.gd addons/local_agents/simulation/VillagerMindService.gd; then
+          if grep -nE "_fallback_|synthetic[[:space:]]*:[[:space:]]*true" addons/local_agents/simulation/NarratorDirector.gd addons/local_agents/simulation/VillagerDreamService.gd addons/local_agents/simulation/VillagerMindService.gd 2>/dev/null; then
             echo "Fallback/synthetic generation paths are disallowed for required local LLM services."
             exit 1
           fi
@@ -86,9 +86,9 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake curl git pkg-config unzip
+          sudo apt-get install -y build-essential cmake curl libcurl4-openssl-dev git pkg-config unzip
 
-      - name: Report files over soft line limit (advisory)
+      - name: Enforce file size limits (800 soft warn, 1000 hard gate)
         env:
           MAX_FILE_LINES: "1000"
         run: |
@@ -127,9 +127,9 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake curl git pkg-config unzip
+          sudo apt-get install -y build-essential cmake curl libcurl4-openssl-dev git pkg-config unzip
 
-      - name: Report files over soft line limit (advisory)
+      - name: Enforce file size limits (800 soft warn, 1000 hard gate)
         env:
           MAX_FILE_LINES: "1000"
         run: |
@@ -160,6 +160,12 @@ jobs:
           ./scripts/fetch_dependencies.sh --skip-models --skip-voices
           ./scripts/build_extension.sh 2>&1 | tee "${GITHUB_WORKSPACE}/logs/runtime-heavy-build.log"
 
+      - name: Register class_names (editor scan builds the global class cache)
+        run: |
+          # Headless runs don't resolve `class_name` types (e.g. LAGameSettings) without the global script
+          # class cache — one editor scan builds it so autoloads/scripts parse. Best-effort; ignore its exit.
+          godot4 --headless --editor --path . --quit-after 600 >/dev/null 2>&1 || true
+
       - name: Run bounded runtime-heavy harness (policy shard budget)
         run: |
           mkdir -p logs
@@ -169,15 +175,15 @@ jobs:
 
       - name: Enforce runtime log health
         run: |
-          if rg -n "Simulation dependency error|empty_generation" logs/runtime-heavy-tests.log; then
+          if grep -nE "Simulation dependency error|empty_generation" logs/runtime-heavy-tests.log; then
             echo "Runtime-heavy log contains dependency/empty-generation errors."
             exit 1
           fi
-          if rg -n "Skipping cognition trace isolation test" logs/runtime-heavy-tests.log; then
+          if grep -nE "Skipping cognition trace isolation test" logs/runtime-heavy-tests.log; then
             echo "Cognition trace isolation test was skipped."
             exit 1
           fi
-          if ! rg -n "Cognition trace isolation test passed" logs/runtime-heavy-tests.log; then
+          if ! grep -nE "Cognition trace isolation test passed" logs/runtime-heavy-tests.log; then
             echo "Cognition trace isolation test did not pass."
             exit 1
           fi

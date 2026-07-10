@@ -4,7 +4,11 @@ class_name LocalAgentsAgentManager
 signal agent_ready(agent)
 signal configs_updated()
 
-const CONFIG_LIST_PATH := "res://addons/local_agents/configuration/parameters/ConfigList.tres"
+# res:// is READ-ONLY in an exported build (errno 19), so the shipped .tres is a read-only SEED only.
+# Runtime edits persist to a writable user:// copy (copy-on-first-write): read user:// if present, else
+# fall back to the res:// seed; always SAVE to user://.
+const CONFIG_LIST_SEED_PATH := "res://addons/local_agents/configuration/parameters/ConfigList.tres"
+const USER_CONFIG_LIST_PATH := "user://local_agents/config/ConfigList.tres"
 const DEFAULT_INFERENCE_PARAMS_PATH := "res://addons/local_agents/configuration/parameters/InferenceParams.tres"
 const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
 const AgentScript := preload("res://addons/local_agents/agents/Agent.gd")
@@ -44,10 +48,17 @@ func register_agent(agent_instance: Node) -> void:
     emit_signal("agent_ready", agent_instance)
 
 func _ensure_config_list() -> void:
-    if FileAccess.file_exists(CONFIG_LIST_PATH):
-        config_list = ResourceLoader.load(CONFIG_LIST_PATH)
+    var seeded_from_default: bool = false
+    if FileAccess.file_exists(USER_CONFIG_LIST_PATH):
+        config_list = ResourceLoader.load(USER_CONFIG_LIST_PATH)
+    elif FileAccess.file_exists(CONFIG_LIST_SEED_PATH):
+        # First run in this user profile: seed from the read-only shipped default, then persist to user://.
+        config_list = ResourceLoader.load(CONFIG_LIST_SEED_PATH)
+        seeded_from_default = true
     if config_list == null:
         config_list = ConfigListScript.new()
+        _save_config_list()
+    elif seeded_from_default:
         _save_config_list()
     if config_list.inference_configurations.is_empty():
         var default_inference = ResourceLoader.load(DEFAULT_INFERENCE_PARAMS_PATH)
@@ -64,7 +75,10 @@ func _ensure_config_list() -> void:
         _save_config_list()
 
 func _save_config_list() -> void:
-    var err := ResourceSaver.save(config_list, CONFIG_LIST_PATH)
+    var save_dir: String = USER_CONFIG_LIST_PATH.get_base_dir()
+    if not DirAccess.dir_exists_absolute(save_dir):
+        DirAccess.make_dir_recursive_absolute(save_dir)
+    var err: int = ResourceSaver.save(config_list, USER_CONFIG_LIST_PATH)
     if err != OK:
         push_error("Failed to save config list: %s" % err)
 

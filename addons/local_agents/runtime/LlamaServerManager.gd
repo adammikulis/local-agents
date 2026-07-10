@@ -89,6 +89,7 @@ func ensure_running(options: Dictionary, model_path: String, runtime_dir: String
         "--host", String(host_port.get("host", "127.0.0.1")),
         "--port", str(int(host_port.get("port", 8080))),
         "-m", resolved_model_path,
+        "--jinja",
     ])
 
     var context_size := int(options.get("context_size", 0))

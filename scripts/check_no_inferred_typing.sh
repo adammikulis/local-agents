@@ -11,10 +11,14 @@ ENFORCED_DIR="addons/local_agents/scenes/simulation/voxel"
 # Match ' := ' assignments (avoids matching '==', '<=', '>=', ':=' only as the walrus infer op).
 PATTERN=':='
 
-# Strip trailing comments before matching so ':=' in doc-comments doesn't trip the gate.
+# Strip trailing comments before matching so ':=' in doc-comments (e.g. the "no ':='" rule note itself)
+# doesn't trip the gate. Both the enforced check AND the advisory repo count strip comments the same way,
+# so a file whose ONLY ':=' is inside a comment is treated as clean, not a false-positive "legacy" hit.
 enforced_hits=$(grep -rnE "[^:]${PATTERN}[^=]" "$ENFORCED_DIR" --include='*.gd' 2>/dev/null \
   | awk -F: '{ code=$0; sub(/^[^:]*:[0-9]+:/,"",code); sub(/#.*/,"",code); if (code ~ /[^:]:=[^=]/) print }' || true)
-repo_hits=$(grep -rlnE "[^:]${PATTERN}[^=]" addons --include='*.gd' 2>/dev/null | wc -l | tr -d ' ')
+repo_hits=$(grep -rnE "[^:]${PATTERN}[^=]" addons --include='*.gd' 2>/dev/null \
+  | awk -F: '{ file=$1; code=$0; sub(/^[^:]*:[0-9]+:/,"",code); sub(/#.*/,"",code); if (code ~ /[^:]:=[^=]/) print file }' \
+  | sort -u | wc -l | tr -d ' ')
 
 if [ -n "$enforced_hits" ]; then
   echo "FAIL: inferred typing ':=' found in $ENFORCED_DIR (use explicit types):"

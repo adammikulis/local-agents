@@ -7,13 +7,22 @@ API/schema changes here before merge.
 Canonical process rules live in `AGENTS.md` and `GODOT_BEST_PRACTICES.md`. The native voxel
 target model and migration intent are detailed in `NATIVE_SIM_UNIFICATION_PLAN.md`.
 
+**North-star (see CLAUDE.md + EMERGENCE.md): named phenomena have ZERO dedicated code.** One physical
+substrate (matter + pressure/temp/phase/gravity/momentum + chemistry); "volcano/eruption/storm/lava-bomb/
+geyser" are outcomes of the universal rules, not systems. Architecture direction: **dissolve** any
+named-phenomenon system (a `*Volcano.gd`, an `_is_erupting()`, a burst timer) into the substrate and DELETE
+it — disaster actors are seeds/markers/visuals only. Success = special-case code removed, not added.
+
 ## Operating Rules
 
 - Use concern-based workstreams; keep diffs small and reviewable.
 - Signal up / call down (mediator orchestration) for cross-system flows.
 - Record breaking API/schema changes in this file before merge.
-- Every remaining non-native/non-GPU runtime path is a tracked transitional shim only, with an
-  explicit `owner`, `removal trigger`, and `target wave`. Do not grow net-new shims.
+- No "transitional shims": we do not label non-native/non-GPU code as a temporary stopgap and park it
+  on a debt list. Build native/GPU-first, or improve the code directly as ordinary code. A CPU
+  implementation kept as a genuine headless/no-GPU **fallback** for a GPU kernel is legitimate and
+  permanent — a first-class part of the design, not tracked as debt to retire. (Perf over parity: it is a
+  fallback, not a bit-exact contract; verify GPU behaviourally.)
 - File-size discipline: `scripts/check_max_file_length.sh` reports first-party files over a
   `MAX_FILE_LINES=1000` **soft limit** as advisory warnings (warn-only, does not fail CI).
   Treat 1000 lines as a smell — split by responsibility before then; do not block work on it.
@@ -43,6 +52,32 @@ locked invariants (full model in `NATIVE_SIM_UNIFICATION_PLAN.md`):
 Migration sequencing (P0 lock architecture -> P1 unify op schema/pass descriptors -> P2 enforce
 and CI-gate) is tracked below and in `NATIVE_SIM_UNIFICATION_PLAN.md`.
 
+## Active project: godot_voxel ecosystem sim (0.3 — chemistry planet)
+
+The live scene is the from-scratch **godot_voxel ecosystem showcase** at
+`addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn` (the project `main_scene`); current
+state, layout, and run/verify commands are in `TODO.md`.
+
+As of **0.3** the world is a **chemistry-based cubed-sphere planet**, not a flat island. Terrain is an
+SDF sphere (`length(p)-radius - amp·fbm`) with radial `is_solid(pos)`/`sdf_at(pos)`/`up_at`/`altitude_at`
+queries. The single simulation substrate is `material/MaterialField3D.gd`, laid over the gnomonic
+cubed-sphere grid `LASphereGrid` (a precomputed seam/neighbour table stitches the six cube faces).
+Every per-cell process runs as a GPU compute kernel (`material/kernels3d/*_sphere3d.glsl`, driven by
+`MaterialSphereGPU3D.gd` and its ordered `material/sphere_passes/*` plugin modules) — there are **no
+CPU oracles**; the GLSL kernels are the sole implementation, verified behaviourally.
+
+The substrate is founded on **conserved chemical substances**, not per-phenomenon channels: one
+conserved H₂O substance (liquid/vapor/cloud/fog/snow/ice are phases derived from temperature vs
+saturation), a `biomass` substance, and a unified fractional `rock_fill` with a derived solid + a
+`mineral_total` conservation ledger. Transitions between substances are **data records** in a generic
+reaction engine (`material/MaterialReactions3D.gd`) rather than bespoke code.
+
+**Retired:** the old `WorldSimulation`/`PlantRabbitField`/`VoxelWorldDemo` gameplay stack was deleted,
+and the **native C++ voxel/sim sources were dropped** — the `localagents` GDExtension now ships only
+the llama.cpp/LLM agent runtime. The "Unified GPU Voxel Transform" / projectile-voxel-destruction
+material below (and the enforceable destruction wave) describes that **removed** native subsystem; it
+is retained as historical native/GPU-first policy and design intent, not as a current live path.
+
 ## Current Live Work
 
 Active threads (details and acceptance criteria are captured per-lane in commits/PRs; git history
@@ -50,7 +85,8 @@ records superseded wave-by-wave inventories):
 
 - Native/GPU + shader-first migration: move practical GDScript runtime logic to C++ GDExtension
   call surfaces and practical CPU work to GPU/shader paths; keep GDScript as thin
-  forwarding/HUD orchestration only. Remaining CPU/GDS pieces are tracked transitional shims.
+  forwarding/HUD orchestration only. Remaining CPU/GDS pieces are migration targets to build out
+  native/GPU-first — not tracked as debt.
 - Unified Shader-Max impact pipeline: one authoritative ingress schema + one native mutation path
   for initial projectile impact, debris impact, and re-impact. GPU owns contact reduction,
   durability/chip accumulation, and fracture spawn-entry generation; C++ is orchestration-only;
@@ -74,9 +110,51 @@ records superseded wave-by-wave inventories):
   under the soft size limit by extracting responsibilities before behavior growth.
 - Native shutdown RID teardown ordering: release GPU RIDs while rendering APIs are still available;
   no `free_rid` from late thread-local teardown; no RID-leak warnings on shutdown.
+- Unified material substrate (`LAMaterialField`): a 2.5D cellular automaton over per-XZ columns that
+  owns heat, liquid water, lava, the vapor→cloud/fog→rain cycle, gravity, and combustion. Water is
+  unified here (springs → rivers/lakes → ocean; the calm sea is a cheap static GPU `LAOceanPlane` and
+  the CA mesh renders only deviations/freshwater); query API `is_water_at`/`is_ocean_at`/`surface_y_at`/
+  `depth_at`/`temp_at`/`salinity_at`. Evaporation off warm water → vapor → condenses (cool surface cells
+  pool ground FOG, cooler-aloft cells form CLOUD) → thick cloud rains back and shades the sun; wind
+  advects the airborne quantities while liquid flows by gravity (rendered by `LACloudLayer`). The hot
+  loops run on `RenderingDevice` compute (`material/MaterialGPU3D.gd` + `material/kernels3d/*.glsl`); the
+  CPU step is the permanent headless/no-GPU fallback (not a parity contract).
+- Dense 3D material field (`LAMaterialField3D`, in progress): the DENSE 3D successor to the 2.5D field
+  — a temperature + per-material amount for every (x,y,z) cell — so fluids interact with the terrain
+  caves (water pools in caverns, lava drains into tubes, gas rises shafts) instead of being clamped to
+  a surface column. Dense (flat 3D array, ~20 MB at 5-unit resolution) rather than sparse bricks. 3D
+  water CA is validated in isolation; heat/atmosphere/lava passes and `VoxelWorld` integration remain.
+  Design rationale is in the `MaterialField3D.gd` header.
 
 Validation for player-facing destruction work is non-headless launch first, then headless sweeps
 (`run_all_tests.gd`, `run_runtime_tests_bounded.gd`, destruction/fps-fire harnesses).
+
+## 0.4 roadmap (deferred — forward-looking)
+
+These are the next architecture moves, all deferred out of 0.3. Full context + acceptance notes live in
+`TODO.md` (Phase C) and the design docs in-tree. Marked clearly as **not yet done**.
+
+- **Event tracker + lightning-as-event.** A discrete-event layer (`on_ejecta`/`on_impact`/`on_bolt`
+  style callbacks) so named moments surface for FX/telemetry/commentary without per-phenomenon code;
+  lightning becomes the reference event (charge already fires bolts — the tracker just observes it).
+- **Remaining disaster dissolutions.** Continue dissolve-don't-patch through Tornado (vorticity → force
+  replaces `_fling_wildlife`), Hurricane, Thunderstorm, Earthquake, Meteor — measuring success in
+  special-case code deleted. Volcano (0.3) is the pattern to follow.
+- **Ejecta / meteor as a momentum primitive.** The keystone `C0` move: pressure/vorticity/kinetic →
+  momentum on matter (ejecta parcels that arc under radial gravity and re-deposit heat + rock/sediment),
+  plus the reference-frame handoff so a lava bomb can leave one body and land on another.
+- **Composition-per-cell (metals / ores / salts).** A thin composition slice on top of the DEFS slot
+  registry — build only when a metal/ore feature is wanted.
+- **Mantle convection.** Real radial magma/geothermal circulation in the innermost layers (the current
+  core is a seeded heat source).
+- **Time-bubble tool.** A localized fast-forward / time-scale control for slow-emergent phenomena
+  (island-building, forest succession, erosion) so geological time compresses to seconds.
+- **Activity bubbles (scaling lever).** Per-tile activity/sleep + indirect dispatch so quiescent regions
+  skip work — the primary lever for affording whole-planet (and eventually multi-body) fields.
+
+The committed longer arc remains a **solar system of bodies** (Outer-Wilds scale): orbiting/spinning
+bodies with body-local fields, an n-body attractor integrator + a GPU test-particle buffer for
+ejecta/debris. See `TODO.md` (SOLAR-SYSTEM-FIRST) for the full plan.
 
 ## Mature Subsystem Status (Concerns A–I)
 
@@ -153,7 +231,7 @@ rigid-body server unless a documented `PhysicsServer3D` blocker is recorded here
   stages with resident GPU fields, ping-pong/barriers, active-set sleep/wake + sparse-brick
   residency + stream compaction, multi-rate/fusion scheduling, shader/pipeline resource caching;
   native query surface (pressure gradients, heat fronts, failure/ignition risk, flow, top-k
-  hazards) with one migrated gameplay/AI consumer; GPU-vs-CPU parity/perf CI gates.
+  hazards) with one migrated gameplay/AI consumer; perf + behavioural-aggregate CI gates.
 - `VoxelEditEngine` stays orchestration-only (no inline shader/pipeline selection, no CPU-success
   path); pass resolution/dispatch lives in `VoxelEditGpuExecutor`. Split oversized source by
   responsibility per the soft size limit.
@@ -173,13 +251,14 @@ single authoritative wave record; superseded per-wave inventories live in git hi
   - Make projectile voxel destruction authority shader-first plus native C++ mutation execution.
   - Remove GDScript outcome interpretation on the projectile impact path.
   - Preserve direct chain authority only: `impact contact -> C++ mutation -> apply result`.
-  - Keep remaining non-native/non-GPU path segments as transitional shims only.
+  - Any remaining non-native/non-GPU path segments are migration targets built out native/GPU-first, or
+    legitimate CPU fallbacks — never parked as tolerated "shims."
 - Acceptance criteria:
   - Every successful projectile impact records native mutation evidence and shader-backed metadata.
   - Missing GPU/native prerequisites hard-fail with typed reasons (`GPU_REQUIRED`/`gpu_unavailable`,
     `NATIVE_REQUIRED`/`native_unavailable`); no path reports success without native `changed=true`.
-  - The transitional shim inventory below stays complete with `owner`, `removal trigger`,
-    `target wave`, and `blocker` for each shim.
+  - The legacy-adapter migration list below stays complete with `owner`, `done when`,
+    `target wave`, and `blocker` for each entry.
 - Verification commands (run in order):
   1. `./scripts/run_fps_fire_destroy.sh --timeout=120 --test_mode_minimized=true`
   2. `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
@@ -188,25 +267,56 @@ single authoritative wave record; superseded per-wave inventories live in git hi
   5. `scripts/run_single_test.sh test_native_orchestration_dispatch_runtime_contract.gd --timeout=180`
 - Wave invariants: `INV-NATIVE-001`, `INV-GPU-001`, `INV-FALLBACK-001`, `INV-CONTRACT-001`,
   `INV-HANDSHAKE-001`, `INV-PROJECTILE-DIRECT-001`, `INV-NO-GDS-MULTIHOP-001`.
-- Transitional shim inventory (required fields):
-  - Shim: `addons/local_agents/scenes/simulation/controllers/world/WorldDispatchController.gd`
+- Legacy adapters being migrated to native/GPU-first (required fields):
+  - Adapter: `addons/local_agents/scenes/simulation/controllers/world/WorldDispatchController.gd`
     - owner: Runtime Bindings lane
-    - removal trigger: native dispatch bridge consumes normalized contact and mutation payloads end-to-end with no GDS mutation decisions.
+    - done when: native dispatch bridge consumes normalized contact and mutation payloads end-to-end with no GDS mutation decisions.
     - target wave: `Wave 0F`
-    - blocker: runtime telemetry parity must remain stable for existing harness assertions.
-  - Shim: `addons/local_agents/scenes/simulation/controllers/world/WorldSimulation.gd` projectile dispatch adapter
+    - blocker: runtime telemetry aggregates must stay behaviourally sane for existing harness assertions.
+  - Adapter: `addons/local_agents/scenes/simulation/controllers/world/WorldSimulation.gd` projectile dispatch adapter
     - owner: Runtime Simulation lane
-    - removal trigger: per-frame projectile contact sampling and handoff fully delegated to the native contract payload builder.
+    - done when: per-frame projectile contact sampling and handoff fully delegated to the native contract payload builder.
     - target wave: `Wave 0E`
     - blocker: active launcher input hooks still attach through world controller glue.
-  - Shim: `addons/local_agents/native/LocalAgentsVoxelDispatchBridge.gd` pre-dispatch CPU contact reduction
+  - Adapter: `addons/local_agents/native/LocalAgentsVoxelDispatchBridge.gd` pre-dispatch CPU contact reduction
     - owner: Native Compute lane
-    - removal trigger: staged GPU contact reduction hook is enabled by default and the CPU pre-reduction path is deleted.
+    - done when: staged GPU contact reduction hook is enabled by default and the CPU pre-reduction path is deleted.
     - target wave: `Wave 0T`
     - blocker: GPU reduction diagnostics contract is not yet wired into all runtime verification harnesses.
 
 ## Breaking Changes
 
+- **2026-07 (0.3): flat/box world removed — the cubed-sphere planet is the sole world.** The
+  origin-centered box `MaterialField3D` grid, its box GPU driver, the dead box `_physics_process` step
+  branch, and the 21 CPU-oracle + box-GPU field modules were deleted, along with 32 dead box
+  `*3d.glsl` kernels and the flat/2.5D code paths across terrain/ocean/camera/actors (~11,000+ lines
+  removed). The field now lives on `LASphereGrid`; kernels are `*_sphere3d.glsl` only. There is no CPU
+  parity oracle — verification is behavioural (`SIM_REPORT` aggregates), per the perf-over-parity rule.
+- **2026-07 (0.3): substrate re-founded on conserved substances + data-driven reactions.** Separate
+  vapor/cloud/fog channels were fused into one conserved `_airwater` channel and snow/ice folded into
+  the same H₂O substance; a `biomass` substance and a unified fractional `rock_fill` (derived solid +
+  `mineral_total` ledger) were added. Same-cell chemistry (gas sky-exchange, fungus decompose,
+  photosynthesis/respiration, freeze/melt, dust-loft) moved into reaction **records** in
+  `MaterialReactions3D.gd` — adding a reaction is a data record, not a kernel.
+- **2026-07 (0.3): scripted `Volcano.gd` eruption logic dissolved.** A seabed vent builds an island
+  emergently (magma → water-quench solidify → `rock_fill` accumulation → `MineralStamp3D` SDF growth);
+  the actor is now seed + FX only.
+- **2026-07 (0.3): render/actor consolidation.** `RainLayer`/`CloudLayer` dissolved into one
+  `WaterParticles.gd` GPU renderer (phase-selected cloud/fog/rain/snow); `VoxelWorld` and
+  `MaterialField3D` split into focused controllers; the throwaway A0/A1 spike harnesses and
+  `PlanetPreview` removed.
+- 2026-07: Active scene is the from-scratch godot_voxel ecosystem sim
+  (`scenes/simulation/voxel/VoxelWorld.tscn`). The old `WorldSimulation`/`PlantRabbitField`/
+  `VoxelWorldDemo` gameplay stack and the homegrown voxel-grid runtime were deleted; the LLM editor
+  plugin was uncoupled from the old-sim Flow config.
+- 2026-07: Native C++ voxel/sim sources dropped from the `localagents` GDExtension — it now ships only
+  the llama.cpp/LLM agent runtime (AgentRuntime/AgentNode/NetworkGraph/ModelDownloadManager). The
+  simulation runs in GDScript with GPU compute for the material field; the projectile-voxel-destruction
+  native path and its tests/scripts (`run_destruction_tests.sh`, `benchmark_voxel_pipeline.gd`,
+  `test_native_voxel_op_*`) are removed.
+- 2026-07: In the voxel scene, `WaterFieldSystem.gd` and `FireSystem.gd` were folded into
+  `LAMaterialField` (water is unified CA; wildfire is the combustion pass). No standalone water/fire
+  systems remain.
 - 2026-02-12: Ecology runtime migrated from legacy hex-grid paths to shared voxel-grid systems
   (`VoxelGridSystem`, `SmellFieldSystem`, `WindFieldSystem`); hex/grid contracts are non-authoritative.
 - 2026-02-12: `SpatialFlowNetworkSystem` keys routes by voxel coordinates.

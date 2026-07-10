@@ -10,22 +10,26 @@ const PlantScript: GDScript = preload("res://addons/local_agents/scenes/simulati
 const RockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Rock.gd")
 const TreeScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Tree.gd")
 const FishScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Fish.gd")
-const ScentFieldScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ScentField.gd")
 const TrackSystemScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/TrackSystem.gd")
-const FireSystemScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/FireSystem.gd")
 
 const KINDS: Array = ["plant", "rabbit", "fox", "bird", "villager", "fish", "rock", "tree"]
-const FISH_CAP: int = 26
+
+# Aquatic sampling budget: tries per placement to land inside a species' salinity/depth band (radial).
+const AQUATIC_SAMPLE_TRIES: int = 60
+# A LIVING sea: scale every aquatic species' starting count AND its population cap by this factor so the
+# ocean/lakes teem instead of trickling. Data files stay the single source of the per-species ratios; this
+# is the one owned dial that makes the water busy without editing eight species files.
+const AQUATIC_STOCK_MULT: float = 2.6
 
 var terrain = null                       # LAVoxelTerrainService
 var actors_root: Node3D = null
-var _scent = null                        # LAScentField (observer; creatures query it)
 var _tracks = null                       # LATrackSystem (observer; footprints)
-var _water = null                        # LAWaterFieldSystem (observer; creatures/fish query it)
-var _fire = null                         # LAFireSystem (wildfire spread over flammable actors)
-
-# world spawn area (XZ half-extent) used for spawn_initial scatter
-var spawn_extent: float = 80.0
+var _material = null                      # LAMaterialField — the ONE substrate (water/heat/materials)
+var _cognition_sched = null              # LACognitionScheduler (shared slow-brain budget/queue)
+var _veg_renderer = null                 # LAVegetationRenderer — plants/trees render through its batched MultiMesh
+# Extracted single-owner modules this thin hub delegates to (it stays a facade + step-orchestration):
+var _stimulus: LAEcologyStimulus = null  # stimulus/broadcast bus (disturb/seismic/blast/scare/call/wind)
+var _spawner: LAEcologySpawner = null    # spawn/population placement (spawn, initial seeding, forests, nests)
 
 # Shared day/night clock (0=midnight .. 0.5=noon), set by VoxelWorld each frame. Creatures
 # read is_night() so nocturnal species behave differently after dark — emergent, not scripted.
@@ -45,187 +49,327 @@ var _pending: Array = []
 var _breed_timer: float = 0.0
 var _seed_timer: float = 0.0
 var _fish_timer: float = 0.0
+var _tree_timer: float = 0.0             # forest succession: groves densify on biomass-rich ground
+var _aquatic_kinds_cache: Array = []     # aquatic species ids (config aquatic:true), indexed once
+var _aquatic_indexed: bool = false
+var _land_kinds_cache: Array = []        # land creature species ids (has diet, not aquatic), indexed once
+var _land_indexed: bool = false
+# Permanent kinship graph backing every creature's family_id. A family is a connected component; family_id is
+# its stable label. Founder clusters allocate a fresh label (LAKinshipGraph.new_family) and offspring inherit
+# their parent's component at birth — bonds are recorded once, never rewritten. Updated only on the
+# founding/birth/death events (never per frame); kin recognition reads the cheap family_id, not the graph.
+var _kinship: LAKinshipGraph = LAKinshipGraph.new()
+
+
+# The permanent kinship graph (owned here; the field/world hubs stay extract-only).
+func kinship() -> LAKinshipGraph:
+	return _kinship
+
+# --- Seismic / shock stimulus (emergent camera shake) ------------------------
+# Ground disturbances now inject into the field's PROPAGATING shock wave (LAMaterialShock3D); the camera
+# reads seismic_energy_at() (→ field.shock_at) and shakes. No local ring — the wave carries it (see below).
 
 
 # --- species / plant configs ------------------------------------------------
 func _species_config(kind: String) -> Dictionary:
-	match kind:
-		"rabbit":
-			return {
-				"species": "rabbit", "diet": "herbivore",
-				"speed": 3.6, "size": 0.55, "color": Color(0.72, 0.58, 0.44),
-				"can_fly": false, "sense_radius": 9.0, "maturity_age": 14.0,
-				"preys_on": PackedStringArray(),
-				"flees_from": PackedStringArray(["fox", "villager"]),
-				"herd": true, "pop_cap": 40,
-				# Low stamina: sprinting from a persistence hunter exhausts them.
-				"max_energy": 70.0, "metabolism": 2.6, "food_value": 50.0,
-				"thirst_rate": 1.4,
-				# Loose, skittish ground herd: modest cohesion, strong separation;
-				# breaks apart the instant a predator is near.
-				"flock_cohesion": 0.6, "flock_alignment": 0.55,
-				"flock_separation": 1.1, "flock_radius": 8.0, "flock_weight": 0.9,
-			}
-		"fox":
-			return {
-				"species": "fox", "diet": "carnivore",
-				"speed": 4.6, "size": 0.8, "color": Color(0.82, 0.36, 0.12),
-				"can_fly": false, "sense_radius": 16.0, "maturity_age": 20.0,
-				"preys_on": PackedStringArray(["rabbit", "fish"]),
-				"flees_from": PackedStringArray(),
-				"herd": false, "pop_cap": 12, "nocturnal": true,
-				"max_energy": 130.0, "metabolism": 2.0, "food_value": 70.0,
-				"thirst_rate": 1.0,
-				# Semi-solitary: weak cohesion so they never clump, some alignment,
-				# healthy personal space.
-				"flock_cohesion": 0.25, "flock_alignment": 0.4,
-				"flock_separation": 0.85, "flock_radius": 12.0, "flock_weight": 0.5,
-			}
-		"bird":
-			return {
-				"species": "bird", "diet": "herbivore",
-				"speed": 6.5, "size": 0.4, "color": Color(0.30, 0.52, 0.85),
-				"can_fly": true, "cruise_height": 14.0,
-				"sense_radius": 13.0, "maturity_age": 11.0,
-				"preys_on": PackedStringArray(),
-				"flees_from": PackedStringArray(),
-				"herd": true, "pop_cap": 30,
-				"max_energy": 60.0, "metabolism": 2.0, "food_value": 30.0,
-				"thirst_rate": 0.6,
-				# Tight, fast, highly-aligned 3D aerial flock: alignment and
-				# cohesion dominate over a large perception radius.
-				"flock_cohesion": 0.9, "flock_alignment": 1.2,
-				"flock_separation": 0.7, "flock_radius": 18.0, "flock_weight": 1.4,
-			}
-		"villager":
-			return {
-				"species": "villager", "diet": "omnivore",
-				"speed": 3.0, "size": 1.0, "color": Color(0.85, 0.72, 0.55),
-				"can_fly": false, "sense_radius": 14.0, "maturity_age": 26.0,
-				"preys_on": PackedStringArray(["rabbit", "fox", "fish"]),
-				"flees_from": PackedStringArray(),
-				"herd": true, "pop_cap": 16,
-				# Endurance apex: high stamina, hunts by persistence + thrown rocks,
-				# scavenges anything. Slower than prey, so it wears them down.
-				"max_energy": 160.0, "metabolism": 1.4, "food_value": 90.0,
-				"thirst_rate": 1.1,
-				"throws": true, "throw_range": 15.0,
-				# Loose social groups: balanced cohesion + alignment, moderate
-				# spacing — they gather but keep an arm's length.
-				"flock_cohesion": 0.7, "flock_alignment": 0.7,
-				"flock_separation": 0.7, "flock_radius": 10.0, "flock_weight": 0.9,
-			}
-		_:
-			return {}
+	# Species stats live in per-type DATA files under data/species/<class>/<kind>.json, kept OUT of
+	# this business logic so a creature can be retuned by editing one small file (see LASpeciesLibrary).
+	return LASpeciesLibrary.load_config(kind)
 
 
-func _fish_config() -> Dictionary:
-	return {
-		"species": "fish", "speed": randf_range(2.2, 3.2), "size": randf_range(0.28, 0.42),
-		"color": Color(0.60, 0.70, 0.84).lerp(Color(0.75, 0.62, 0.5), randf() * 0.4),
-		"sense_radius": 9.0, "maturity_age": 12.0, "food_value": 26.0,
-		"max_age": randf_range(110.0, 160.0),
-	}
+# Every species whose data file is flagged `aquatic: true` (fish variants, turtle, crab, whale, …).
+# Indexed once from the species library; drives all aquatic stocking generically — no hardcoded list.
+func _aquatic_kinds() -> Array:
+	if _aquatic_indexed:
+		return _aquatic_kinds_cache
+	_aquatic_indexed = true
+	_aquatic_kinds_cache = []
+	for kind in LASpeciesLibrary.known_kinds():
+		var cfg: Dictionary = LASpeciesLibrary.load_config(String(kind))
+		if bool(cfg.get("aquatic", false)):
+			_aquatic_kinds_cache.append(String(kind))
+	return _aquatic_kinds_cache
+
+
+# Every LAND creature species (has a `diet`, not flagged aquatic) — the set the population-dynamics breeding
+# loop drives. Indexed once from the species library so a NEW land species (its JSON dropped in) breeds and
+# recovers automatically, with no hardcoded roster to edit. Aquatic species are stocked separately (below);
+# plants/rocks/trees have no `diet` and are excluded.
+func _land_kinds() -> Array:
+	if _land_indexed:
+		return _land_kinds_cache
+	_land_indexed = true
+	_land_kinds_cache = []
+	for kind in LASpeciesLibrary.known_kinds():
+		var cfg: Dictionary = LASpeciesLibrary.load_config(String(kind))
+		if not bool(cfg.get("aquatic", false)) and cfg.has("diet"):
+			_land_kinds_cache.append(String(kind))
+	return _land_kinds_cache
 
 
 func _plant_config() -> Dictionary:
 	return {
 		"species": "plant", "color": Color(0.30, 0.66, 0.24),
-		"grow_time": 8.0, "max_scale": 2.0, "seed_period": 9.0,
-		"edible": true, "pop_cap": 120,
+		"grow_time": 6.0, "max_scale": 2.0, "seed_period": 6.0,
+		"edible": true, "pop_cap": 220,
 	}
+
+
+# Plant-family routing: a species DATA file flagged `plant: true` (flowers, shrubs, …) is instanced as an
+# LAPlant from its own config — so new vegetation drops in as data, with no _instance_actor type-branch per kind.
+func _is_plant_kind(kind: String) -> bool:
+	return bool(_species_config(kind).get("plant", false))
+
+
+# Every vegetation kind that must pass the germination gate + stand radially: trees, the generic plant, and any
+# data-flagged plant (flowers/shrubs).
+func _is_veg_kind(kind: String) -> bool:
+	return kind == "plant" or kind == "tree" or _is_plant_kind(kind)
+
+
+# The config an LAPlant is built from: the fast hardcoded default for the generic "plant", else the species
+# DATA file for a flagged vegetation kind (flowers/shrubs carry their own colour/nectar/pop_cap).
+func _veg_config(kind: String) -> Dictionary:
+	if kind == "plant":
+		return _plant_config()
+	var cfg: Dictionary = _species_config(kind)
+	return cfg if not cfg.is_empty() else _plant_config()
 
 
 func setup(_terrain, _actors_root: Node3D) -> void:
 	terrain = _terrain
 	actors_root = _actors_root
-	# Decoupled observer systems: scent trails (predators track prey) + footprints.
-	_scent = ScentFieldScript.new()
-	_scent.name = "ScentField"
-	add_child(_scent)
-	_scent.setup(terrain)
+	# Stimulus/broadcast bus (a Node child so it can scan scene groups) + spawn/population placement
+	# module (a plain helper reaching back for shared state). Both single-owner; this hub forwards to them.
+	_stimulus = LAEcologyStimulus.new()
+	_stimulus.name = "EcologyStimulus"
+	add_child(_stimulus)
+	_stimulus.set_material_field(_material)
+	_spawner = LAEcologySpawner.new()
+	_spawner.setup(self)
+	# Scent/waste is now an emergent field channel (LAMaterialScent3D in MaterialField3D), not an observer.
 	_tracks = TrackSystemScript.new()
 	_tracks.name = "TrackSystem"
 	add_child(_tracks)
 	_tracks.setup(terrain)
-	_fire = FireSystemScript.new()
-	_fire.name = "FireSystem"
-	add_child(_fire)
-	_fire.setup(self)
+	# Shared System-2 slow brain (FunctionGemma) with a global call budget; creatures escalate to
+	# it rarely and asynchronously. Loaded by path + guarded so the sim still runs on pure fast
+	# heuristics + social learning if the scheduler script or model is unavailable.
+	var sched_script: GDScript = load("res://addons/local_agents/scenes/simulation/voxel/cognition/CognitionScheduler.gd")
+	if sched_script != null:
+		_cognition_sched = sched_script.new()
+		_cognition_sched.name = "CognitionScheduler"
+		add_child(_cognition_sched)
+		if _cognition_sched.has_method("setup"):
+			# Point the slow brain at a running FunctionGemma llama-server if one is configured
+			# (env FUNCTIONGEMMA_URL); otherwise it uses the built-in heuristic teacher fallback.
+			var opts: Dictionary = {}
+			var url: String = OS.get_environment("FUNCTIONGEMMA_URL")
+			if url != "":
+				opts["server_url"] = url
+			_cognition_sched.setup(opts)
 
 
-func scent_field():
-	return _scent
+# The ONE substrate: water (creatures drink, fish live in it), heat/temperature (fire + comfort),
+# and every material. Disasters inject heat/material; everything else reads it.
+func set_material_field(m) -> void:
+	_material = m
+	if _stimulus != null:
+		_stimulus.set_material_field(m)          # the stimulus bus injects ground disturbance / shock into the field
+	# The field owns combustion (no separate fire system) and needs to reach back for
+	# topple/reseed/scare when it consumes a burning actor.
+	if _material != null and _material.has_method("set_ecology"):
+		_material.set_ecology(self)
 
 
-func set_water(w) -> void:
-	_water = w
+## Wire the shared GPU-instanced vegetation renderer (set by VoxelWorld). Plants/trees register with it at
+## spawn instead of owning a MeshInstance, so all vegetation of a type draws in one batched MultiMesh.
+func set_vegetation_renderer(r) -> void:
+	_veg_renderer = r
 
 
-func water_field():
-	return _water
+func material_field():
+	return _material
 
 
+# Back-compat accessor: fire lives in the material field now (combustion folded in).
 func fire_system():
-	return _fire
+	return _material
 
 
-# Ignite flammable actors within radius of a point (meteor strike, etc.).
+# Ground-disturbance + seismic-pulse stimuli live in LAEcologyStimulus (the broadcast bus); these stay
+# as thin forwarders for the disaster actors that call them on the service.
+func disturb_ground(world_pos: Vector3, radius: float, strength: float) -> void:
+	_stimulus.disturb_ground(world_pos, radius, strength)
+
+
+func broadcast_seismic(world_pos: Vector3, magnitude: float) -> void:
+	_stimulus.broadcast_seismic(world_pos, magnitude)
+
+
+# Shock energy felt at world_pos — the propagated field value (proximity + terrain muffling emerge from
+# the wave). The camera rig queries this and shakes in proportion.
+func seismic_energy_at(world_pos: Vector3) -> float:
+	return _material.shock_at(world_pos) if _material != null and _material.has_method("shock_at") else 0.0
+
+
+# Scene-wide shock intensity (peak) for the energy graph / streamer.
+func total_seismic_energy() -> float:
+	return _material.shock_peak() if _material != null and _material.has_method("shock_peak") else 0.0
+
+
+func cognition_scheduler():
+	return _cognition_sched
+
+
+# A hot event "starts a fire" only by depositing heat — vegetation there ignites on the next
+# combustion scan because its cell crossed the ignition temperature. Pure emergence, no fire code.
 func ignite_area(world_pos: Vector3, radius: float) -> void:
-	if _fire != null and _fire.has_method("ignite_area"):
-		_fire.ignite_area(world_pos, radius)
+	if _material != null and _material.has_method("add_heat"):
+		_material.add_heat(world_pos, 900.0, radius)   # ~3x wood's 300°C ignition temp
 
 
+# Emergent growth CONDITION (not a hardcoded elevation): a seed only takes where the ground is warm enough
+# and not under snow. Because the temperature field cools with altitude (LAPSE) and snow forms on the cold
+# summits, this makes the treeline + the bare snow cap EMERGE from the climate — a warm coast forests over,
+# frozen peaks stay bare, and the line MOVES if the climate warms/cools. GROW_MIN_TEMP is the germination
+# threshold (a property of vegetation, tunable), read against the field — never an elevation number.
+const GROW_MIN_TEMP: float = 7.5          # °C below which the ground is too cold for a seed to germinate
+const GROW_SNOW_MAX: float = 0.02         # snowpack depth above which the ground is snow-covered (no germination)
+
+
+# The SKY-EXPOSED open cell one voxel ABOVE a ground point (offset outward along the radial). Biomass,
+# snow and near-surface temperature live in that open surface cell, NOT in the solid cell a base-anchored
+# actor's exact position maps to — so every climate read below samples here to get the real values.
+const SURFACE_PROBE_UP: float = 6.0     # a little over one 5-unit field cell, into the open surface layer
+func _air_point(pos: Vector3) -> Vector3:
+	if terrain != null and terrain.has_method("up_at"):
+		var u: Vector3 = terrain.up_at(pos)
+		if u.length() > 0.0001:
+			return pos + u.normalized() * SURFACE_PROBE_UP
+	return pos + Vector3.UP * SURFACE_PROBE_UP
+
+
+# Can vegetation take root at `placed`? Reads the field CONDITIONS (temperature + snow cover) in the TRUE
+# 3D sky-exposed surface cell (three-d-always — the 2.5D x,z form returns safe defaults on a sphere and never
+# gates), so the treeline is emergent: warm snow-free ground greens over, frozen/snow-capped poles stay bare
+# and the line MOVES with the climate. True when there is no material field wired yet (boot spawns aren't blocked).
+func _can_grow_here(placed: Vector3) -> bool:
+	if _material == null:
+		return true
+	var air: Vector3 = _air_point(placed)
+	if _material.has_method("temp_at") and _material.temp_at(air) < GROW_MIN_TEMP:
+		return false   # too cold — above the emergent treeline
+	if _material.has_method("snow_depth_at") and _material.snow_depth_at(air) > GROW_SNOW_MAX:
+		return false   # snow-covered ground
+	return true
+
+
+# Radius of the SKY-EXPOSED top shell cell (r = depth-1), where photosynthesis (MaterialReactions3D R19, gated
+# to the outermost open cell that faces space) deposits the biomass for a whole column. Cached from the sphere
+# grid; -1 until the field is wired. Biomass is read there, per column, not at the ground.
+var _shell_sample_radius: float = -1.0
+func _shell_top_radius() -> float:
+	if _shell_sample_radius > 0.0:
+		return _shell_sample_radius
+	if _material != null and _material.has_method("sphere_grid"):
+		var g: RefCounted = _material.sphere_grid()
+		if g != null:
+			_shell_sample_radius = float(g.core_radius) + (float(g.depth) - 0.5) * float(g.cell_size)
+	return _shell_sample_radius
+
+
+# Living BIOMASS above a surface point — the emergent photosynthesis product for that column (warm, sunlit,
+# CO₂-rich columns fix the most). Read at the sky-exposed top shell cell along the point's radial, since that
+# is where R19 deposits it. Forests gate on this so groves densify under the columns the chemistry made most
+# productive (sunlit continents) and stay sparse under cold/polar/night columns. 0 when no field wired yet.
+func _biomass_at(pos: Vector3) -> float:
+	if _material == null or not _material.has_method("biomass_at"):
+		return 0.0
+	var r: float = _shell_top_radius()
+	if r <= 0.0:
+		return _material.biomass_at(pos.x, pos.y, pos.z)
+	var pc: Vector3 = terrain.planet_center()
+	var dir: Vector3 = pos - pc
+	if dir.length() < 0.001:
+		return 0.0
+	var s: Vector3 = pc + dir.normalized() * r
+	return _material.biomass_at(s.x, s.y, s.z)
+
+
+# Spawning + population placement live in LAEcologyStimulus's sibling, LAEcologySpawner. These stay as
+# thin forwarders: the public spawn API for external callers, plus the surface/tangent helpers the
+# per-tick breeding/seeding below still reuse.
 func spawn(kind: String, world_pos: Vector3) -> Node:
-	if actors_root == null:
-		push_warning("LAEcologyService.spawn before setup()")
-		return null
-	var placed = _place_on_surface(world_pos)
-	if placed == null:
-		# surface not ready: queue for retry, return null (caller may ignore)
-		_pending.append({"kind": kind, "pos": world_pos, "tries": 0})
-		return null
-	return _instance_actor(kind, placed)
+	return _spawner.spawn(kind, world_pos)
 
 
 func spawn_initial(counts: Dictionary) -> void:
-	for kind in counts.keys():
-		var n: int = int(counts[kind])
-		for i in n:
-			var p: Vector3 = _random_spawn_point()
-			var placed = _place_on_surface(p)
-			if placed == null:
-				_pending.append({"kind": String(kind), "pos": p, "tries": 0})
-			else:
-				_instance_actor(String(kind), placed)
+	_spawner.spawn_initial(counts)
 
 
-func _random_spawn_point() -> Vector3:
-	var x: float = randf_range(-spawn_extent, spawn_extent)
-	var z: float = randf_range(-spawn_extent, spawn_extent)
-	return Vector3(x, 0.0, z)
+## SAVE-RESTORE instancing: place an actor at an EXACT saved transform (no surface projection / no water-body
+## gate — a saved creature already lived there, so its transform is authoritative). Reuses the normal
+## _instance_actor path (so a creature still gets its body, cognition scheduler, material field wiring and the
+## tree_exited→kinship.forget hook), then stamps the full saved transform over the placement position. Kinship
+## membership is reconstructed separately by the world-save restore (grouped by family), so `family_id` is set
+## on the node here but NOT registered as a founder cluster. Returns the node, or null if the kind is unknown.
+func restore_actor(kind: String, xform: Transform3D, genome = null, family_id: int = -1) -> Node:
+	var node: Node = _instance_actor(kind, xform.origin, genome, -1, true)
+	if node != null and node is Node3D:
+		(node as Node3D).global_transform = xform
+		if family_id >= 0 and "family_id" in node:
+			node.set("family_id", family_id)
+	return node
 
 
-# Resolve a surface Y for a horizontal position. Returns a positioned Vector3, or
-# null if the terrain isn't meshed there yet.
-func _place_on_surface(world_pos: Vector3):
-	if terrain == null:
-		return null
-	var y: float = NAN
-	if terrain.has_method("surface_height"):
-		y = float(terrain.surface_height(world_pos.x, world_pos.z))
-	if is_nan(y):
-		return null
-	return Vector3(world_pos.x, y, world_pos.z)
+func _place_on_surface(world_pos):
+	return _spawner._place_on_surface(world_pos)
 
 
-func _instance_actor(kind: String, placed: Vector3) -> Node:
+func _tangent_offset_point(anchor: Vector3, u: float, v: float) -> Vector3:
+	return _spawner._tangent_offset_point(anchor, u, v)
+
+
+# Orient a spawned static actor (tree/plant/rock) so its local +Y points along the radial up at its
+# position — otherwise everything would stand parallel to world +Y and lean over as you round the
+# globe. Preserves the node's current scale.
+func _orient_to_surface(node: Node3D, pos: Vector3) -> void:
+	if node == null:
+		return
+	var up: Vector3 = terrain.up_at(pos)
+	if up.length() < 0.001:
+		return
+	up = up.normalized()
+	if node.has_method("set_up"):
+		node.set_up(up)
+		return
+	var ref: Vector3 = Vector3.RIGHT
+	if absf(up.dot(ref)) > 0.99:
+		ref = Vector3.FORWARD
+	var right: Vector3 = ref.cross(up).normalized()
+	var fwd: Vector3 = up.cross(right).normalized()
+	var scl: Vector3 = node.scale
+	node.global_transform = Transform3D(Basis(right, up, fwd), pos)
+	node.scale = scl
+
+
+# True when `placed` sits in water — inside the planet's sea shell (at or below the sea radius).
+func _is_water_pos(placed: Vector3) -> bool:
+	return (placed - terrain.planet_center()).length() <= terrain.sea_radius()
+
+
+func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: int = -1, force_place: bool = false) -> Node:
 	var node: Node = null
-	if kind == "plant":
+	if kind == "plant" or _is_plant_kind(kind):
 		var plant: PlantScript = PlantScript.new()
 		actors_root.add_child(plant)
 		plant.global_position = placed
-		plant.setup(terrain, _plant_config())
+		if _veg_renderer != null and plant.has_method("set_vegetation_renderer"):
+			plant.set_vegetation_renderer(_veg_renderer)   # render through the batched MultiMesh, not a model child
+		plant.setup(terrain, _veg_config(kind))          # generic plant | flower | shrub — all config-driven
+		if plant.has_method("set_material_field"):
+			plant.set_material_field(_material)          # so it can photosynthesize (fix CO₂ → O₂) into the field
 		node = plant
 	elif kind == "rock":
 		var rock: RockScript = RockScript.new()
@@ -237,33 +381,53 @@ func _instance_actor(kind: String, placed: Vector3) -> Node:
 		var tree: TreeScript = TreeScript.new()
 		actors_root.add_child(tree)
 		tree.global_position = placed
+		if _veg_renderer != null and tree.has_method("set_vegetation_renderer"):
+			tree.set_vegetation_renderer(_veg_renderer)    # render through the batched MultiMesh, not a model child
 		tree.setup(terrain, _tree_config())
 		node = tree
-	elif kind == "fish":
-		# Fish only exist in water: refuse to place one on dry ground.
-		if _water == null or not _water.has_method("is_water_at") or not _water.is_water_at(placed.x, placed.z):
-			return null
-		var fish: FishScript = FishScript.new()
-		actors_root.add_child(fish)
-		fish.global_position = placed
-		fish.setup(terrain, _water, _fish_config())
-		node = fish
 	else:
 		var cfg: Dictionary = _species_config(kind)
 		if cfg.is_empty():
 			push_warning("LAEcologyService: unknown kind '%s'" % kind)
 			return null
+		# Aquatic species (config aquatic:true) are all driven by the ONE LAFish script — a fish, turtle,
+		# crab or whale differ only by config (salinity/depth band, body, speed). They exist only in water.
+		if bool(cfg.get("aquatic", false)):
+			# force_place (save-restore) skips the water gate: the fish already lived at this exact point (a
+			# basking turtle/crab hauled onto the beach, or a swimmer at the waterline) — its transform is
+			# authoritative, so re-instance it there rather than dropping it for being momentarily out of the sea.
+			if not force_place and not _is_water_pos(placed):
+				return null
+			var fish: FishScript = FishScript.new()
+			actors_root.add_child(fish)
+			fish.global_position = placed
+			fish.setup(terrain, _material, cfg)
+			return fish
+		# Founder clusters share a family_id (permanent kin bond). Only applies to the ancestral (null-genome)
+		# path — a bred offspring carries its inherited family_id in the genome's base_config instead.
+		if family_id >= 0 and genome == null:
+			cfg["family_id"] = family_id
 		var creature: CreatureScript = CreatureScript.new()
 		actors_root.add_child(creature)
 		creature.global_position = placed
-		creature.setup(terrain, cfg)
-		if creature.has_method("set_scent"):
-			creature.set_scent(_scent)
+		creature.setup(terrain, cfg, genome)          # genome (if bred) drives traits + instincts
 		if creature.has_method("set_ecology"):
 			creature.set_ecology(self)
-		if creature.has_method("set_water"):
-			creature.set_water(_water)
+		if creature.has_method("set_material_field"):
+			creature.set_material_field(_material)
+		if creature.has_method("set_cognition_scheduler"):
+			creature.set_cognition_scheduler(_cognition_sched)
+		# Back family_id with the kinship graph. Founder-cluster members (family_id >= 0) join their shared
+		# family component; an offspring already carries its inherited label (registered at the breeding site).
+		# On removal (death), the creature forgets itself so the graph stays bounded (event-driven, O(degree)).
+		var cid: int = int(creature.get_instance_id())
+		if family_id >= 0:
+			_kinship.add_member(family_id, cid)
+		creature.tree_exited.connect(func() -> void: _kinship.forget(cid))
 		node = creature
+	# Stand static vegetation/rocks up along the radial on a planet (no-op on flat terrain).
+	if node != null and (_is_veg_kind(kind) or kind == "rock"):
+		_orient_to_surface(node as Node3D, placed)
 	return node
 
 
@@ -272,57 +436,22 @@ func _tree_config() -> Dictionary:
 	return {"species": "pine" if pine else "oak"}
 
 
-# Scatter ambient rocks and clustered forests across the world (independent of meteors).
+# Ambient rock + forest scatter lives in LAEcologySpawner; thin forwarder for the world spawn controller.
 func populate_environment(rock_count: int, forest_clusters: int) -> void:
-	for i in rock_count:
-		spawn("rock", _random_spawn_point())
-	for c in forest_clusters:
-		var center: Vector3 = _random_spawn_point()
-		var trees: int = randi_range(7, 15)
-		for t in trees:
-			var off: Vector3 = Vector3(randf_range(-14, 14), 0, randf_range(-14, 14))
-			spawn("tree", center + off)
+	_spawner.populate_environment(rock_count, forest_clusters)
 
 
-func damage_sphere(world_pos: Vector3, radius: float) -> void:
-	# Meteor impact: creatures die into flung corpses; plants/rocks are cleared.
-	var r2: float = radius * radius
-	for actor in get_tree().get_nodes_in_group("selectable"):
-		if not is_instance_valid(actor) or not (actor is Node3D):
-			continue
-		var a: Node3D = actor as Node3D
-		if a.global_position.distance_squared_to(world_pos) > r2:
-			continue
-		if a.has_method("topple"):
-			# Trees don't vanish — the blast knocks them over, falling away from impact.
-			var dir: Vector3 = a.global_position - world_pos
-			dir.y = 0.0
-			a.topple(dir)
-		elif a.has_method("die"):
-			var away: Vector3 = a.global_position - world_pos
-			away.y = absf(away.y) + 2.0
-			var force: float = 1.0 - a.global_position.distance_to(world_pos) / maxf(1.0, radius)
-			a.die("meteor", away.normalized() * (14.0 + 34.0 * force))
-		elif not a.is_in_group("corpse"):
-			a.queue_free()
+# Point-blast + area terror/wind stimuli live in LAEcologyStimulus; thin forwarders for the disasters.
+func damage_sphere(world_pos: Vector3, radius: float, base_damage: float = 1000.0) -> void:
+	_stimulus.damage_sphere(world_pos, radius, base_damage)
 
 
-# Broadcast a felt/heard terror event (meteor impact, etc). Every creature within
-# `radius` panics and sprints away, more intensely the closer it is.
 func broadcast_scare(world_pos: Vector3, radius: float, base_intensity: float = 1.0) -> void:
-	if radius <= 0.0:
-		return
-	for actor in get_tree().get_nodes_in_group("selectable"):
-		if not is_instance_valid(actor) or not (actor is Node3D):
-			continue
-		if not actor.has_method("add_fear"):
-			continue
-		var d: float = (actor as Node3D).global_position.distance_to(world_pos)
-		if d > radius:
-			continue
-		var closeness: float = 1.0 - (d / radius)          # 1 at impact, 0 at edge
-		var panic_seconds: float = lerpf(2.0, 7.0, closeness) * base_intensity
-		actor.call("add_fear", world_pos, panic_seconds)
+	_stimulus.broadcast_scare(world_pos, radius, base_intensity)
+
+
+func apply_wind_force(world_pos: Vector3, radius: float, force_fn: Callable, delta: float = 0.0) -> void:
+	_stimulus.apply_wind_force(world_pos, radius, force_fn, delta)
 
 
 func _physics_process(delta: float) -> void:
@@ -340,7 +469,11 @@ func _physics_process(delta: float) -> void:
 	_fish_timer -= delta
 	if _fish_timer <= 0.0:
 		_fish_timer = 2.5
-		_tick_fish()
+		_tick_aquatic()
+	_tree_timer -= delta
+	if _tree_timer <= 0.0:
+		_tree_timer = 1.4
+		_tick_tree_seeding()
 
 
 func _process_pending() -> void:
@@ -350,7 +483,12 @@ func _process_pending() -> void:
 	for entry in _pending:
 		var placed = _place_on_surface(entry["pos"])
 		if placed != null:
-			_instance_actor(String(entry["kind"]), placed)
+			var k: String = String(entry["kind"])
+			if _is_veg_kind(k) and not _can_grow_here(placed):
+				continue   # surface resolved somewhere too cold / snowy for vegetation — drop it
+			var node = _instance_actor(k, placed, null, int(entry.get("family_id", -1)))
+			if bool(entry.get("elder", false)):
+				_spawner._seed_elder(node)   # a founder whose centre wasn't meshed at boot still becomes its band's elder
 		else:
 			entry["tries"] = int(entry["tries"]) + 1
 			if int(entry["tries"]) < 300:      # keep retrying ~ a few seconds
@@ -358,13 +496,21 @@ func _process_pending() -> void:
 	_pending = still
 
 
+# A herd that has lost members REBUILDS — births each tick scale with the number of mature breeders, so a
+# thinned population recovers toward its carrying capacity (the pop_cap) instead of the old flat one-birth-
+# per-species-per-tick that could never replace predation + starvation + old-age losses. Vigorous breeding
+# is safe because the cap is the hard ceiling: births stop at cap, so this refills toward equilibrium but
+# never explodes past it. Rates are config/const (BREED_* + per-species pop_cap), never scripted counts.
+const BREED_FRACTION_PER_TICK: float = 0.16   # fraction of mature adults that may produce young each breed tick
+const BREED_MAX_PER_TICK: int = 8             # bound per species per tick (keeps the work + the surge bounded)
 func _tick_breeding() -> void:
-	for kind in ["rabbit", "fox", "bird", "villager"]:
+	for kind in _land_kinds():
 		var cfg: Dictionary = _species_config(kind)
 		var cap: int = int(cfg.get("pop_cap", 20))
 		var group: String = "species_%s" % kind
 		var members: Array = get_tree().get_nodes_in_group(group)
-		if members.size() < 2 or members.size() >= cap:
+		var deficit: int = cap - members.size()
+		if members.size() < 2 or deficit <= 0:
 			continue
 		# count mature adults
 		var adults: Array = []
@@ -373,26 +519,122 @@ func _tick_breeding() -> void:
 				adults.append(m)
 		if adults.size() < 2:
 			continue
-		if randf() > 0.5:
-			continue                            # not every tick
-		var parent: Node3D = adults[randi() % adults.size()] as Node3D
-		var offset: Vector3 = Vector3(randf_range(-2.0, 2.0), 0.0, randf_range(-2.0, 2.0))
-		var placed = _place_on_surface(parent.global_position + offset)
-		if placed != null:
-			_instance_actor(kind, placed)
+		# Births this tick scale with the breeder pool, bounded by the room left under the cap and a hard
+		# per-tick ceiling — so a depleted herd rebuilds quickly while a full one stops breeding entirely.
+		var births: int = clampi(int(ceil(float(adults.size()) * BREED_FRACTION_PER_TICK)), 1, mini(deficit, BREED_MAX_PER_TICK))
+		for i in range(births):
+			_birth_one(kind, adults)
 
 
-# A creature dropped this poop: connect its fertilize request so dung emergently
-# grows a new plant on the enriched patch (respecting the plant population cap).
-func register_poop(poop) -> void:
-	if poop == null or not poop.has_signal("wants_seed"):
+# Produce ONE offspring for `kind` from two random mature parents in `adults`: crossover genome + mutation,
+# born at a parent's nest (natal philopatry) and recorded in the kinship graph. Factored out of the breed
+# loop so a recovering herd can birth several young per tick through the same evolution + lineage path.
+func _birth_one(kind: String, adults: Array) -> void:
+	var pa: Node3D = adults[randi() % adults.size()] as Node3D
+	var pb: Node3D = adults[randi() % adults.size()] as Node3D
+	var guard: int = 0
+	while pb == pa and guard < 4:
+		pb = adults[randi() % adults.size()] as Node3D
+		guard += 1
+	# Breed AT a parent's nest if it has one — young are born at home and inherit the site.
+	var base_pos: Vector3 = pa.global_position
+	if bool(pa.get("has_nest")) and not is_inf(float((pa.get("nest_pos") as Vector3).x)):
+		base_pos = pa.get("nest_pos")
+	var placed = _place_on_surface(_tangent_offset_point(base_pos, randf_range(-2.0, 2.0), randf_range(-2.0, 2.0)))
+	if placed == null:
 		return
-	if not poop.wants_seed.is_connected(seed_plant_at):
-		poop.wants_seed.connect(seed_plant_at)
+	var child = _instance_actor(kind, placed, _breed_genome(pa, pb))
+	_inherit_nest(pa, child)
+	# Record the permanent lineage in the kinship graph: the child joins its parent's family component
+	# (its family_id, inherited via the genome, is that same component's label) and the mate pair bond
+	# is stored. Bonds are added once here and never rewritten.
+	if child != null and is_instance_valid(child):
+		_kinship.add_offspring(int(pa.get_instance_id()), int(child.get_instance_id()))
+		_kinship.add_bond(int(pa.get_instance_id()), int(pb.get_instance_id()))
 
 
-# Grow a plant at world_pos if the plant population is under its cap. Shared by dung
-# fertilization (register_poop) and, later, wildfire ash regrowth.
+# HARNESS AID (--debug-family): deterministically produce a small family through the REAL reproduction path so
+# the family-tree inspector has something to draw. Finds the first species with >=2 mature adults, breeds that
+# pair twice (recording parent->child + the mate bond exactly as _tick_breeding does), then kills one child so a
+# dead/greyed kin appears in the lineage. Returns a parent to root the tree on (null if no mature pair exists).
+func debug_seed_family() -> Node:
+	for kind in ["rabbit", "fox", "bird", "villager", "vulture"]:
+		var adults: Array = []
+		for m in get_tree().get_nodes_in_group("species_%s" % kind):
+			if is_instance_valid(m) and m.has_method("is_mature") and m.is_mature():
+				adults.append(m)
+		if adults.size() < 2:
+			continue
+		var pa: Node3D = adults[0] as Node3D
+		var pb: Node3D = adults[1] as Node3D
+		var kids: Array = []
+		for i in range(2):
+			var placed = _place_on_surface(_tangent_offset_point(pa.global_position, randf_range(-2.0, 2.0), randf_range(-2.0, 2.0)))
+			if placed == null:
+				continue
+			var child = _instance_actor(kind, placed, _breed_genome(pa, pb))
+			if child != null and is_instance_valid(child):
+				_inherit_nest(pa, child)
+				_kinship.add_offspring(int(pa.get_instance_id()), int(child.get_instance_id()))
+				_kinship.add_bond(int(pa.get_instance_id()), int(pb.get_instance_id()))
+				kids.append(child)
+		# Grey one branch: kill a child so the tree shows a dead kin while the lineage persists.
+		if kids.size() >= 2 and kids[1].has_method("die"):
+			kids[1].die("debug_family")
+		return pa
+	return null
+
+
+# Natal philopatry: the offspring adopts a parent's home site, so kin CLUSTER in space over
+# generations — which makes vision/sound social learning spread fastest among relatives (culture).
+func _inherit_nest(parent, child) -> void:
+	if child == null or not is_instance_valid(child):
+		return
+	if not bool(parent.get("has_nest")):
+		return
+	var np: Vector3 = parent.get("nest_pos")
+	if is_inf(np.x):
+		return
+	child.set("nest_pos", np)
+	child.set("has_nest", true)
+	var nn = parent.get("_nest_node")
+	if nn != null and is_instance_valid(nn) and nn.has_method("register_young"):
+		nn.register_young()
+
+
+# Nest placement lives in LAEcologySpawner; thin forwarder for the nesting creature that establishes a home.
+func spawn_nest(site: Vector3, nest_species: String, owner_family: int, in_tree: bool):
+	return _spawner.spawn_nest(site, nest_species, owner_family, in_tree)
+
+
+# Build a child genome from two parents: rare Baldwin canalization of each parent's deepest lifelong
+# habits into the germline, then crossover + mutation. The child inherits one parent's family line so
+# kin preferentially learn from each other. Returns null (→ ancestral genome) if parents lack genomes.
+func _breed_genome(pa, pb):
+	var ga = pa.get_genome() if pa.has_method("get_genome") else null
+	var gb = pb.get_genome() if pb.has_method("get_genome") else null
+	if ga == null or gb == null:
+		return null
+	if pa.has_method("get_cognition") and pa.get_cognition() != null:
+		ga.maybe_canalize(pa.get_cognition().policy)
+	if pb.has_method("get_cognition") and pb.get_cognition() != null:
+		gb.maybe_canalize(pb.get_cognition().policy)
+	var child = LAGenome.crossover(ga, gb)
+	child.mutate()
+	# The child's family_id is its parent's connected-component label, sourced from the kinship graph (which
+	# equals pa's stable family_id, since components never merge). The parent→child edge itself is recorded at
+	# the breeding call site once the child node exists.
+	child.base_config["family_id"] = _kinship.family_of(int(pa.get_instance_id()))
+	return child
+
+
+# Animal-call relay lives in LAEcologyStimulus (the broadcast bus); thin forwarder for the caller creature.
+func broadcast_call(world_pos: Vector3, from_species: String, call_type: String, caller) -> void:
+	_stimulus.broadcast_call(world_pos, from_species, call_type, caller)
+
+
+# Grow a plant at world_pos if the plant population is under its cap. Called by LAMaterialScent3D where
+# soil FERTILITY is richest (dung fertilizes → grass sprouts) and by wildfire ash regrowth.
 func seed_plant_at(world_pos: Vector3) -> void:
 	var cap: int = int(_plant_config().get("pop_cap", 120))
 	if get_tree().get_nodes_in_group("plant").size() >= cap:
@@ -400,49 +642,170 @@ func seed_plant_at(world_pos: Vector3) -> void:
 	spawn("plant", world_pos)
 
 
-# Keep lakes/rivers stocked with fish. Fish appear (and recover) only where water has
-# actually pooled, so they emerge wherever the water field decides to form water bodies —
-# no hand-placed spawn points. One fish added per tick until the cap is reached.
-func _tick_fish() -> void:
-	if _water == null or not _water.has_method("is_water_at"):
-		return
-	if get_tree().get_nodes_in_group("species_fish").size() >= FISH_CAP:
-		return
-	var wet: Vector3 = _random_wet_point()
-	if is_nan(wet.x):
-		return
-	_instance_actor("fish", wet)
+# Seed a modest starting population of every aquatic species into water matching its band. Called once
+# after the sea level is locked. Ongoing recovery is handled by _tick_aquatic; this just makes the sea
+# and lakes feel alive from the first frame instead of trickling in.
+func stock_initial_aquatic() -> void:
+	for kind in _aquatic_kinds():
+		var cfg: Dictionary = _species_config(String(kind))
+		var initial: int = int(round(float(cfg.get("initial", 0)) * AQUATIC_STOCK_MULT))
+		for i in range(initial):
+			var wet: Vector3 = _random_aquatic_point(cfg)
+			if not is_nan(wet.x):
+				_instance_actor(String(kind), wet)
 
 
-# Sample random points across the play area for one that sits over water; returns a
-# surface-projected point, or a NAN-x vector if no water was found this tick.
-func _random_wet_point() -> Vector3:
-	for i in range(24):
-		var x: float = randf_range(-spawn_extent, spawn_extent)
-		var z: float = randf_range(-spawn_extent, spawn_extent)
-		if _water.is_water_at(x, z):
-			var placed = _place_on_surface(Vector3(x, 0.0, z))
-			if placed != null:
-				return placed
+# AQUATIC BREEDING — the de-hack that retires the old `restock` spawn-from-nowhere crutch. Every aquatic
+# species now recovers the SAME way the land herds do (see _tick_breeding): parent-based reproduction bounded
+# by pop_cap, so no individual appears without living parents. Young are born beside a mature parent (same
+# school). GRAZERS (config diet:"grazer" / grazes_biomass:true — the web BASE, bugs+shrimp) additionally have
+# their birth rate MODULATED by the BIOMASS/algae base they graze: births scale with the mean field biomass at
+# the school's surface column, so the food-web bottom TRACKS primary production (algae-rich water multiplies the
+# base; barren water only trickles) while the fish/birds keep foraging them. The per-species pop_cap stays the
+# hard ceiling; grazes_biomass is the food gate. No per-species code — the flag + pop_cap drive it. Initial
+# founding stock is seeded once by stock_initial_aquatic(); this refills toward equilibrium, never past cap.
+const AQUATIC_BREED_FRACTION: float = 0.12    # fraction of mature adults that may spawn young each aquatic tick
+const AQUATIC_BREED_MAX_PER_TICK: int = 4     # per-species per-tick bound (keeps the surge + work bounded)
+const GRAZE_BIOMASS_FULL: float = 0.05        # biomass at/above which a grazer breeds at full rate (algae-rich water)
+const GRAZE_BIOMASS_FLOOR: float = 0.30       # survival birth-rate multiplier in barren water (never a hard 0 → no collapse)
+const GRAZE_BIOMASS_SAMPLES: int = 6          # adults sampled for the school's mean biomass (O(k), not O(adults))
+func _tick_aquatic() -> void:
+	for kind in _aquatic_kinds():
+		var cfg: Dictionary = _species_config(String(kind))
+		var cap: int = int(round(float(cfg.get("pop_cap", 12)) * AQUATIC_STOCK_MULT))
+		var members: Array = get_tree().get_nodes_in_group("species_%s" % String(kind))
+		var deficit: int = cap - members.size()
+		if members.size() < 2 or deficit <= 0:
+			continue
+		var adults: Array = []
+		for m in members:
+			if is_instance_valid(m) and m.has_method("is_mature") and m.is_mature():
+				adults.append(m)
+		if adults.size() < 2:
+			continue
+		# Food gate: a grazer's birth rate rides the biomass base it grazes (mean over a cheap sample of the school).
+		var food_mult: float = 1.0
+		if bool(cfg.get("grazes_biomass", false)):
+			food_mult = _graze_food_mult(adults)
+		var births: int = clampi(int(ceil(float(adults.size()) * AQUATIC_BREED_FRACTION * food_mult)), 1, mini(deficit, AQUATIC_BREED_MAX_PER_TICK))
+		for i in range(births):
+			_birth_aquatic_one(String(kind), adults, cfg)
+
+
+# Birth-rate multiplier (∈ [GRAZE_BIOMASS_FLOOR, 1]) for a grazer school from the biomass base it feeds on —
+# the mean surface biomass at a cheap random sample of its adults. Rich algae water → full rate; barren water →
+# the survival floor (so the base tracks primary production without ever collapsing to zero and starving the web).
+func _graze_food_mult(adults: Array) -> float:
+	if adults.is_empty():
+		return GRAZE_BIOMASS_FLOOR
+	var sum_b: float = 0.0
+	var n: int = mini(adults.size(), GRAZE_BIOMASS_SAMPLES)
+	for i in range(n):
+		var a: Node3D = adults[randi() % adults.size()] as Node3D
+		if a != null and is_instance_valid(a):
+			sum_b += _biomass_at(a.global_position)
+	var mean_b: float = sum_b / float(maxi(n, 1))
+	return clampf(mean_b / GRAZE_BIOMASS_FULL, GRAZE_BIOMASS_FLOOR, 1.0)
+
+
+# Produce ONE aquatic offspring for `kind`: born beside a random mature parent (nudged in the water so schools
+# stay together), falling back to a valid point in the species' salinity/depth band if the parent drifted to the
+# waterline. The water gate in _instance_actor rejects any point that isn't inside the sea shell.
+func _birth_aquatic_one(kind: String, adults: Array, cfg: Dictionary) -> void:
+	var pa: Node3D = adults[randi() % adults.size()] as Node3D
+	if pa != null and is_instance_valid(pa):
+		var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0) * randf_range(0.5, 2.5)
+		var near: Vector3 = pa.global_position + jitter
+		if _is_water_pos(near):
+			_instance_actor(kind, near)
+			return
+	var wet: Vector3 = _random_aquatic_point(cfg)
+	if not is_nan(wet.x):
+		_instance_actor(kind, wet)
+
+
+# Sample the sea for a point inside a species' depth band: pick a random direction where the GROUND surface
+# sits below sea level, then place the individual somewhere in the underwater shell between the seabed and the
+# sea radius, inside the species' depth band. Everything is radial (no XZ column reads — three-d-always), so
+# species self-sort into the right water with no hand-placed spawn points. NAN-x vector if none found.
+func _random_aquatic_point(cfg: Dictionary) -> Vector3:
+	var dmin: float = float(cfg.get("depth_min", 0.0))
+	var dmax: float = float(cfg.get("depth_max", 999.0))
+	var pc: Vector3 = terrain.planet_center()
+	var sea_r: float = terrain.sea_radius()
+	for i in range(AQUATIC_SAMPLE_TRIES):
+		var dir: Vector3 = LAEcologySpawner._random_sphere_dir()
+		var ground_r: float = terrain.surface_radius(dir)
+		if is_nan(ground_r) or ground_r >= sea_r:
+			continue                                  # unmeshed, or dry land poking above sea level
+		var lo: float = maxf(ground_r, sea_r - dmax)  # deepest allowed (clamped to just above the seabed)
+		var hi: float = sea_r - dmin                  # shallowest allowed (just below the surface)
+		if hi <= lo:
+			continue
+		return pc + dir * randf_range(lo, hi)
 	return Vector3(NAN, 0.0, 0.0)
 
 
 func _tick_plant_seeding() -> void:
 	var plants: Array = get_tree().get_nodes_in_group("plant")
-	var cap: int = int(_plant_config().get("pop_cap", 120))
-	if plants.size() >= cap:
-		return
 	for p in plants:
 		if not is_instance_valid(p):
 			continue
-		if p.has_method("has_seed") and p.has_seed():
-			if randf() > 0.4:
-				continue
-			var offset: Vector3 = Vector3(randf_range(-3.5, 3.5), 0.0, randf_range(-3.5, 3.5))
-			var placed = _place_on_surface((p as Node3D).global_position + offset)
-			if placed != null:
-				_instance_actor("plant", placed)
+		if not (p.has_method("has_seed") and p.has_seed()):
+			continue
+		# A seed-ready plant spreads its OWN kind (generic plant, flower, or shrub) into its neighbourhood,
+		# bounded by THAT kind's pop_cap — so flowers beget flowers (only while pollinated, via has_seed) and
+		# each vegetation type self-limits. No type-branch: the kind + cap come from the parent + its data file.
+		var kind: String = String(p.species) if "species" in p else "plant"
+		var cap: int = int(_veg_config(kind).get("pop_cap", 120))
+		if get_tree().get_nodes_in_group("species_%s" % kind).size() >= cap:
 			if p.has_method("consume"):
-				p.consume()
-			if get_tree().get_nodes_in_group("plant").size() >= cap:
-				return
+				p.consume()                         # at cap: consume the seed so it re-readies later
+			continue
+		if randf() > 0.7:
+			continue                                # most seed-ready plants spread each tick → pasture densifies
+		var placed = _place_on_surface(_tangent_offset_point((p as Node3D).global_position, randf_range(-3.5, 3.5), randf_range(-3.5, 3.5)))
+		if placed != null and _can_grow_here(placed):
+			_instance_actor(kind, placed)          # seed only takes on warm, snow-free ground (emergent treeline)
+		if p.has_method("consume"):
+			p.consume()
+
+
+# FOREST SUCCESSION — the emergent grove-builder. Each tick a few existing trees standing on biomass-rich
+# ground drop a seedling into their tangent neighbourhood, but ONLY where the local biomass the photosynthesis
+# chemistry has fixed clears an adaptive threshold (a fraction of the richest grove's biomass). So forests
+# THICKEN on the warm fertile continents that grew the most biomass, spread out from existing trees (groves,
+# not scatter), and stall at cold/snowy/coastal margins where biomass never crosses the bar or the treeline
+# gate blocks germination. Forests are a consequence of the chemistry, not a placement table.
+const TREE_POP_CAP: int = 400               # forest carrying capacity (well above the initial seed count)
+const TREE_SEED_BIOMASS_FRAC: float = 0.35  # seed only onto ground with >= this fraction of the richest grove's biomass
+const TREE_SEED_FLOOR: float = 0.04         # absolute biomass floor so bare/cold ground never seeds
+const TREE_SEED_SPREAD: float = 8.0         # how far a seedling lands from its parent (grove tightness, metres)
+const TREE_SEEDS_PER_TICK: int = 10         # parents that attempt to seed per tick (bounded work — big-O by tick, not grid)
+func _tick_tree_seeding() -> void:
+	var trees: Array = get_tree().get_nodes_in_group("tree")
+	if trees.is_empty() or trees.size() >= TREE_POP_CAP:
+		return
+	# The richest grove's biomass sets an ADAPTIVE bar (self-scales to whatever the chemistry produces), so
+	# the forest advances onto ground within TREE_SEED_BIOMASS_FRAC of the best fertility.
+	var peak: float = 0.0
+	for t in trees:
+		if is_instance_valid(t):
+			peak = maxf(peak, _biomass_at((t as Node3D).global_position))
+	var thresh: float = maxf(TREE_SEED_FLOOR, peak * TREE_SEED_BIOMASS_FRAC)
+	var seeded: int = 0
+	var guard: int = 0
+	while seeded < TREE_SEEDS_PER_TICK and guard < TREE_SEEDS_PER_TICK * 4:
+		guard += 1
+		var parent: Node3D = trees[randi() % trees.size()] as Node3D
+		if not is_instance_valid(parent) or _biomass_at(parent.global_position) < thresh:
+			continue                                # parent isn't on rich enough ground to spread a grove
+		seeded += 1
+		var placed = _place_on_surface(_tangent_offset_point(parent.global_position, randf_range(-TREE_SEED_SPREAD, TREE_SEED_SPREAD), randf_range(-TREE_SEED_SPREAD, TREE_SEED_SPREAD)))
+		if placed == null or _is_water_pos(placed) or not _can_grow_here(placed):
+			continue                                # off the treeline / into the sea — the grove's edge
+		if _biomass_at(placed) < thresh:
+			continue                                # seedling site not fertile enough — keeps groves dense, not scattered
+		_instance_actor("tree", placed)
+		if get_tree().get_nodes_in_group("tree").size() >= TREE_POP_CAP:
+			return

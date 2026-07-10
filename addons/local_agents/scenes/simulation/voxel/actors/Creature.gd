@@ -13,15 +13,34 @@ const GROUP_CREATURE: String = "creature"
 const GROUP_ROCK: String = "rock"
 const GROUP_CARRION: String = "carrion"
 const PREDATOR_SIZE_RATIO: float = 1.2     # flee anything this many times my size that hunts
+# Flyers turn GRADUALLY (max radians/sec) so flocks wheel and vultures circle wide instead of
+# snapping direction every frame — the fix for frantic, too-fast circling.
+const BIRD_TURN_RATE: float = 1.5
+const GROUND_TURN_RATE: float = 6.0        # ground creatures turn briskly-but-smoothly toward their decided
+                                           # heading each frame, so throttled decisions don't read as jerky pops
+const THINK_STRIDE: int = 3                 # decide every N physics frames (movement stays every-frame)
 
-const CorpseScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Corpse.gd")
 const ThrownRockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/ThrownRock.gd")
-const PoopScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Poop.gd")
 
 # --- energy / hunger / mortality (emergent: eat to live, starve or age to die) ---
 var energy: float = 100.0
 var max_energy: float = 100.0
 var metabolism: float = 2.2
+
+# --- breathing (emergent: breathe your medium; suffocate out of it). Land animals breathe AIR — submerged
+# past the head, or in O2-depleted smoke, they can't breathe and burn through a per-animal BREATH reserve;
+# at zero they suffocate (drown). breath_capacity is the seconds of held breath — big lungs (diving birds,
+# aquatic mammals) can stay under longer to hunt, then must resurface. See LACreatureMetabolism.tick_breath.
+var breath_capacity: float = 6.0
+var _breath: float = 6.0
+# Breathing organ: "air" = LUNGS (land animals — suffocate underwater / in smoke), "water" = GILLS (suffocate
+# in air). Every creature is equipped with one; land LACreature default to lungs, aquatic LAFish to gills.
+var breathes: String = "air"
+
+# --- health / HP (emergent damage: blasts & lightning deal graded, deterministic damage;
+# 0 HP = death). Bigger creatures carry more HP; set from `size` at spawn. ---
+var health: float = 100.0
+var max_health: float = 100.0
 var food_value: float = 55.0
 var max_age: float = 90.0
 var hungry_at: float = 0.7
@@ -33,7 +52,12 @@ var max_hydration: float = 100.0
 var thirst_rate: float = 1.0
 const DRINK_RATE: float = 45.0             # hydration/sec restored while drinking
 const THIRSTY_FRACTION: float = 0.5        # below this, seeking water interrupts other drives
-var _water = null                          # LAWaterFieldSystem (injected)
+
+# Temperature-comfort + drowning constants moved to LACreatureMetabolism (which owns that survival tick):
+# heat/cold/combust/lethal bounds + drown depth. A wildfire, lava, a hot day, or a cold snap all act through
+# that one temperature rule — no per-disaster code.
+
+var _material = null                          # LAMaterialField (temp_at / depth_at / is_water_at)
 var _water_dir_cache: Vector3 = Vector3.ZERO
 var _water_search_cd: float = 0.0
 
@@ -60,6 +84,16 @@ var maturity_age: float = 15.0
 var preys_on: PackedStringArray = PackedStringArray()
 var flees_from: PackedStringArray = PackedStringArray()
 var herd: bool = false
+# How strongly this species clings to an incumbent local leader (emergent hysteresis). A challenger must
+# out-rank the current leader by MORE than this margin to take over. 0 = pure meritocracy (always follow the
+# local top — animals); high = sticky dynasties that survive a slump (humans). One number, no per-species code.
+var leader_loyalty: float = 0.0
+# Emergent leadership SHAPE for this species (one knob, increasing structure):
+#   "flat"    — one local leader per cluster; everyone else follows it directly (the base model).
+#   "family"  — juveniles follow their nearest family adult (parent/elder); adults flat-follow the pack leader.
+#   "command" — family-following PLUS a multi-level rank tree among adults (grunt→lieutenant→huntmaster).
+# "family"/"command" both parent-follow, so parent-following is just a mode of hierarchy, not a separate flag.
+var hierarchy: String = "flat"
 var nocturnal: bool = false
 # Perception scale for the night: recomputed each frame from the shared day/night clock.
 # Nocturnal species see FARTHER after dark; diurnal species see LESS — so nights favour
@@ -76,23 +110,109 @@ var flock_weight: float = 0.7
 var age: float = 0.0
 var state: String = "wander"
 
+# --- the player's "hand" (Black & White): picked up, carried, then dropped or thrown ---
+# While _held, _physics_process is suspended so VoxelWorld drives global_position directly.
+# A THROW is just a fling: it releases the same physics shadow (below), so a thrown creature tumbles
+# under real physics and stands back up on landing — one mechanism, no separate ballistic path.
+var _held: bool = false
+
+# Physics shadow (HL2-style): while _ragdoll, a RigidBody3D SHADOW drives the body (fling/topple),
+# and the visible creature reads its transform each frame. On settle it either stands up (alive) or
+# becomes a _carcass — the SAME node, no separate corpse, no model swap — and rots green->black.
+var _ragdoll: bool = false
+var _carcass: bool = false
+var _dead: bool = false
+var _shadow: RigidBody3D = null
+var _settle_t: float = 0.0
+var _decay_age: float = 0.0
+var _carrion: float = 0.0                     # remaining meat value once a carcass
+var _rot_overlay: StandardMaterial3D = null   # shared green->black decay tint on the model
+
 var _heading: Vector3 = Vector3.FORWARD
+var _target_heading: Vector3 = Vector3.FORWARD   # decided heading; _heading eases toward it each frame
 var _wander_timer: float = 0.0
 var _repath_timer: float = 0.0
 var _mesh: MeshInstance3D = null
+
+# --- display model (glTF via LAModelVisual) when the species has one; else the capsule above.
+# Animation is driven visually in _process from actual per-frame displacement. ---
+var _model_root: Node3D = null
+var _model_anim: AnimationPlayer = null
+var _model_anims: Dictionary = {}
+var _model_run_speed: float = 999.0
+var _vis_prev_pos: Vector3 = Vector3.ZERO
+var _vis_t: float = 0.0
+
+# --- behavior-state debug tint (DebugPanel HIGHLIGHT · BEHAVIOR) -----------------------------------
+# When a behavior category is enabled in the debug panel, a creature whose current `state` maps to that
+# category is dyed with an emissive overlay (Foraging=green, Hunting=red, …). The enabled set is shared
+# (static) across all creatures; each creature applies/clears its own overlay only when its category
+# changes — cheap, no central per-frame scan. Empty set => zero cost (early-out below).
+static var _behavior_tints: Dictionary = {}       # category -> Color (the currently-enabled highlights)
+var _tint_category: String = ""                   # the category currently painted on this creature ("" = none)
+var _tint_mat: StandardMaterial3D = null          # per-creature emissive overlay (reused across colours)
+var _tint_targets: Array = []                      # cached MeshInstance3D nodes to overlay (lazy)
 
 # --- terror / fear system: sprint away from felt/heard violence, overriding all else ---
 var _panic_timer: float = 0.0
 var _panic_source: Vector3 = Vector3.ZERO
 
-# Injected scent field (LAScentField) — predators follow prey scent when out of sight.
-var _scent = null
-# Injected ecology service — used to register droppings so dung can seed plants.
+# --- decision throttling: think every THINK_STRIDE frames (instance-staggered), move every frame ---
+var _eff_speed: float = 0.0                 # decided speed, carried between think-frames
+var _think_phase: int = -1                  # per-instance stagger offset (lazily set on first tick)
+var _force_think: bool = false              # acute event (scare/damage) → re-decide next frame
+
+# --- emergent local leadership (LACreatureLeadership) ---
+# A `herd` creature is either the local top-ranked same-species individual (a LEADER: _leader==null,
+# _is_leader==true, runs the full think cascade) or a FOLLOWER (_leader set → adopts the leader's decision
+# and coasts). Election is throttled by _leader_elect_cd. Non-herd creatures are always their own leader.
+var _leader: Node3D = null
+var _is_leader: bool = true
+var _leader_elect_cd: int = 0
+
+# Injected ecology service — broadcast calls, spawns.
 var _ecology = null
 
-# Digestion: every so often a fed creature leaves droppings (a strong scent marker
-# that predators track prey by, and that occasionally fertilizes a new plant).
+# Digestion + marking: a fed creature periodically drops FECES (soil fertility + a food/musk cue) and, more
+# often, URINE (territorial musk). Both deposit into the shared scent/fertility field (LAMaterialScent3D)
+# via _material — predators track prey by their dung, and dung fertilizes the soil so plants regrow.
 var _poop_cd: float = 0.0
+var _urine_cd: float = 0.0
+
+# --- perception genes: sight is a FOV cone (LAVision), hearing is omnidirectional ---
+# eye_fov = full cone width in degrees. Wide (prey, ~300) = panoramic but shallow; narrow
+# (predator, ~100) = must aim, but binocular depth buys longer range. Heritable + evolvable.
+var eye_fov: float = 220.0
+var hearing_range: float = 12.0            # calls carry this far, in every direction, even at night
+var _call_cd: float = 0.0
+
+# --- cognition (fast/slow) + genetics ---
+# family_id groups kin: offspring inherit a parent's id, so relatives learn from each other more
+# strongly than unrelated herd-mates (social/cultural transmission of behaviour).
+var family_id: int = 0
+var _genome = null                         # LAGenome (heritable traits + baked instinct priors)
+var _cognition = null                      # LACognition (per-creature learned policy + slow-brain hook)
+# PLAYER CONTROL over the local-LLM "slow brain": opt-out per creature (config-driven, default on). When
+# off, cognition never escalates to the shared scheduler (see LACognition._should_escalate) — the creature
+# runs on its fast reinforced policy + innate cascade only. Toggled per-creature / per-group from the UI.
+var llm_enabled: bool = true
+var _migrate_dir: Vector3 = Vector3.ZERO   # steady heading chosen when the 'migrate' action fires
+var _veto_dir: Vector3 = Vector3.ZERO      # committed retreat heading when cognition VETOES a learned-lethal action
+var _veto_timer: float = 0.0               # seconds left on the current retreat commitment (latched, anti-oscillation)
+
+# --- flight / scavenging / public information ("watch the vultures") ---
+var _target_altitude: float = 12.0         # per-frame desired flight height above ground (flyers descend to feed/circle)
+var _cue_pos: Vector3 = Vector3.ZERO       # a heard/smelt carrion cue to investigate
+var _cue_cd: float = 0.0                    # seconds the current cue stays salient
+var _pursued_cue: String = ""              # the LEARNED cue key currently being investigated
+var _pursued_cd: float = 0.0               # window to credit that cue if food follows (else it decays)
+
+# --- nesting / shelter (birds nest, mammals burrow/den; offspring inherit the site) ---
+var nests: bool = false
+var nest_habitat: String = ""                    # "tree" | "ground" | "water" (default derived from can_fly)
+var has_nest: bool = false
+var nest_pos: Vector3 = Vector3(INF, INF, INF)   # sentinel = no nest yet
+var _nest_node = null                            # LANest (the placed home site)
 
 
 func add_fear(source_pos: Vector3, intensity: float) -> void:
@@ -100,18 +220,177 @@ func add_fear(source_pos: Vector3, intensity: float) -> void:
 		return
 	_panic_source = source_pos
 	_panic_timer = maxf(_panic_timer, clampf(intensity, 0.6, 7.0))
+	_force_think = true                       # acute terror: bolt NEXT frame, don't wait for the stride
 
 
-func set_scent(s) -> void:
-	_scent = s
+# --- the player's hand: pick up, carry, drop, or throw a creature ---
+# The picking-up: suspend the AI/terrain-snap so the hand (VoxelWorld) can position us freely.
+func hold_begin() -> void:
+	_held = true
+	_panic_timer = 0.0                        # in the hand it stops panicking
+
+
+# A gentle set-down: resume normal life wherever we were dropped.
+func hold_end() -> void:
+	_held = false
+
+
+# Released with a fling: hand the release velocity to the physics shadow as an impulse — the body
+# tumbles under real physics and (surviving) gets back up on landing. Same path as any other fling.
+func throw(velocity: Vector3) -> void:
+	_held = false
+	fling(velocity)
+
+
+func is_held() -> bool:
+	return _held or _ragdoll
+
+
+## Current steering heading (unit-ish world vector the creature is moving along) — read by the debug
+## overlay to draw its intended path. Zero while held/ragdolling (no self-directed motion).
+func debug_heading() -> Vector3:
+	if _held or _ragdoll or _carcass:
+		return Vector3.ZERO
+	return _heading
+
+
+# --- behavior-state debug tint -------------------------------------------------------------------
+
+## Enable/disable a behavior-state highlight globally (called by VoxelDebugWiring from the DebugPanel).
+## The tint applies to whichever creatures are in a matching state; multiple categories can be on at once.
+static func set_behavior_highlight(category: String, col: Color, on: bool) -> void:
+	if on:
+		_behavior_tints[category] = col
+	else:
+		_behavior_tints.erase(category)
+
+
+## Map a raw think/state string (LACreatureThink) to a debug highlight CATEGORY. Idle/wander/cruise/soar/
+## circle/migrate/investigate have no category ("") — they are the un-tinted default.
+static func _state_category(s: String) -> String:
+	match s:
+		"eat":
+			return "foraging"
+		"chase", "stalk", "track", "throw":
+			return "hunting"
+		"flee", "panic":
+			return "fleeing"
+		"drink", "seek":
+			return "drinking"
+		"rest", "sleep", "roost":
+			return "sleeping"
+		"nesting":
+			return "nesting"
+		_:
+			return ""
+
+
+## Re-evaluate this creature's tint against the current enabled set (paint/clear only if the category
+## changed). Cheap: an O(1) category lookup, does real material work solely on a change.
+func _update_state_tint() -> void:
+	if _behavior_tints.is_empty():
+		if _tint_category != "":
+			_tint_category = ""
+			_apply_tint_overlay(Color.WHITE, false)
+		return
+	# The LLM slow-brain highlight (thinking/queued) takes priority over the behavior-state tint so a live
+	# model consult is always the visible dye; falls back to the behavior-state category otherwise.
+	var cat: String = _cognition_highlight_category()
+	if cat == "":
+		cat = _state_category(state)
+	var want: String = cat if _behavior_tints.has(cat) else ""
+	if want == _tint_category:
+		return
+	_tint_category = want
+	if want == "":
+		_apply_tint_overlay(Color.WHITE, false)
+	else:
+		_apply_tint_overlay(_behavior_tints[want], true)
+
+
+## The LLM slow-brain highlight category for this creature ("llm_thinking"/"llm_queued"/""), asked only
+## when that highlight is enabled. Reads the shared scheduler through this creature's cognition — O(1)
+## scheduler lookups, no per-frame scan (and a no-op early-out when neither highlight is registered).
+func _cognition_highlight_category() -> String:
+	if _cognition == null:
+		return ""
+	var want_thinking: bool = _behavior_tints.has(LALLMControl.HL_THINKING)
+	var want_queued: bool = _behavior_tints.has(LALLMControl.HL_QUEUED)
+	if not (want_thinking or want_queued):
+		return ""
+	var sched = _cognition.scheduler()
+	if sched == null:
+		return ""
+	if want_thinking and sched.is_thinking(self):
+		return LALLMControl.HL_THINKING
+	if want_queued and sched.is_queued(self):
+		return LALLMControl.HL_QUEUED
+	return ""
+
+
+## Force a fresh tint evaluation (VoxelDebugWiring calls this on a checkbox toggle so live creatures
+## update at once rather than waiting for their next state change).
+func refresh_state_tint() -> void:
+	_tint_category = "__force__"                 # impossible category → forces _update_state_tint to reapply
+	_update_state_tint()
+
+
+# Paint (or clear) the emissive tint overlay on every visual mesh of this creature. Uses material_overlay
+# so it layers over the model/capsule material without mutating the (species-shared) base materials.
+func _apply_tint_overlay(col: Color, on: bool) -> void:
+	if _tint_targets.is_empty():
+		_collect_tint_targets()
+	var mat: Material = null
+	if on:
+		if _tint_mat == null:
+			_tint_mat = StandardMaterial3D.new()
+			_tint_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			_tint_mat.emission_enabled = true
+		_tint_mat.albedo_color = Color(col.r, col.g, col.b, 0.5)
+		_tint_mat.emission = col
+		_tint_mat.emission_energy_multiplier = 0.9
+		mat = _tint_mat
+	for mi in _tint_targets:
+		if is_instance_valid(mi):
+			mi.material_overlay = mat
+
+
+func _collect_tint_targets() -> void:
+	_tint_targets = []
+	if _mesh != null:
+		_tint_targets.append(_mesh)
+	elif _model_root != null:
+		_gather_mesh_instances(_model_root, _tint_targets)
+
+
+func _gather_mesh_instances(node: Node, out: Array) -> void:
+	if node is MeshInstance3D:
+		out.append(node)
+	for child in node.get_children():
+		_gather_mesh_instances(child, out)
 
 
 func set_ecology(e) -> void:
 	_ecology = e
 
 
-func set_water(w) -> void:
-	_water = w
+func set_material_field(w) -> void:
+	_material = w
+
+
+# Organic matter combusts — bursts into flame (not incandescent glow) and dies burned. The flame is
+# detached at the spot so it lingers as the body drops, rather than freeing with the creature.
+func _combust() -> void:
+	if _dying:
+		return
+	var parent: Node = get_parent()
+	if parent != null:
+		var flame: Node3D = LAFlameFX.make()
+		parent.add_child(flame)
+		flame.global_position = global_position
+		var timer: SceneTreeTimer = get_tree().create_timer(2.5)
+		timer.timeout.connect(func(): if is_instance_valid(flame): flame.queue_free())
+	die("burned", Vector3(0.0, 2.0, 0.0))
 
 
 # A thrown rock struck me — I die (drop a corpse).
@@ -119,44 +398,74 @@ func on_struck() -> void:
 	die("struck")
 
 
-# Death leaves a physical corpse (carrion) — creatures never just vanish.
-# `impulse` (e.g. from a meteor) flings the body outward.
-func die(_cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
+# Take deterministic HP damage from a blast/lightning/etc. Death happens only when HP hits 0.
+# A surviving creature hit by a real impulse is FLUNG (physics shadow) and gets back up; the
+# killing blow's impulse flings the body that then stays as a carcass. No randomness in the path.
+func take_damage(amount: float, cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
+	if _dying or amount <= 0.0:
+		return
+	_force_think = true                       # being hurt forces an immediate re-decision (flee/react)
+	health -= amount
+	# A wound bleeds: a burst of BLOOD scent into the field draws opportunists to hurt prey (emergent).
+	if _material != null and _material.has_method("deposit_blood"):
+		_material.deposit_blood(global_position, clampf(amount * 0.04, 0.2, 3.0))
+	if health <= 0.0:
+		die(cause, impulse)
+	elif impulse.length() > 3.0:
+		fling(impulse)
+
+
+# Shove the LIVING creature with a physics impulse: the shadow takes over, it tumbles, then stands
+# back up. This is the same mechanism death uses — flinging is decoupled from dying.
+func fling(impulse: Vector3) -> void:
+	if _dying or _held:
+		return
+	LACreatureRagdoll.launch(self, impulse, false)
+
+
+# Instance hook for the EcologyStimulus.apply_wind_force area broadcast: apply a CONTINUOUS field
+# force (world units/sec) to this creature over `delta`. Distinct from fling()'s discrete impulse —
+# this is the wind/momentum advection path (delegates to LACreatureFieldForces; inert while zero).
+func apply_field_force(force: Vector3, delta: float) -> void:
+	if _held or _ragdoll or _carcass:
+		return
+	LACreatureFieldForces.apply(self, force, delta)
+
+
+# Death: the creature does NOT vanish or spawn a corpse — it becomes a carcass IN PLACE. Its physics
+# shadow is released so the body falls/tumbles (an `impulse`, e.g. a meteor, flings it), and once it
+# settles it stays where it fell and rots (green->black) before finally shrinking away. Same node,
+# same model, throughout.
+func die(cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
 	if _dying:
 		return
 	_dying = true
-	var parent: Node = get_parent()
-	if parent != null and is_inside_tree():
-		var corpse: CorpseScript = CorpseScript.new()
-		parent.add_child(corpse)
-		corpse.setup(species, color, size, terrain)
-		corpse.global_position = global_position
-		if impulse.length() > 0.01 and corpse.has_method("fling"):
-			# Fling after the body has a physics space (next physics tick).
-			var c = corpse
-			var imp: Vector3 = impulse
-			get_tree().create_timer(0.06).timeout.connect(
-				func(): if is_instance_valid(c): c.fling(imp))
-	queue_free()
+	LASimReport.event("death", {"cause": cause, "species": species})
+	# A death cry: nearby animals hear it and startle (predators may later home in on it).
+	if _ecology != null and _ecology.has_method("broadcast_call"):
+		_ecology.broadcast_call(global_position, species, "distress", self)
+	LACreatureRagdoll.launch(self, impulse, true)
 
 
-# Leave a dropping at `ground_pos`: a strong species-scent marker that predators
-# emergently track prey by, and that (via the ecology) may fertilize a new plant.
-func _drop_poop(ground_pos: Vector3) -> void:
-	var parent: Node = get_parent()
-	if parent == null or not is_inside_tree():
-		return
-	var poop: LAPoop = PoopScript.new()
-	parent.add_child(poop)
-	poop.global_position = ground_pos
-	poop.setup(terrain, _scent, species)
-	if _ecology != null and _ecology.has_method("register_poop"):
-		_ecology.register_poop(poop)
+# Deposit waste at `ground_pos` into the shared scent/fertility field: feces enriches the soil (plants
+# regrow on dung — emergent) and carries a food + musk cue predators track prey by; urine is territorial
+# musk. No node is spawned — the deposit is a few cells in LAMaterialScent3D that diffuse + wash away.
+func _deposit_waste(ground_pos: Vector3, kind: String) -> void:
+	if _material != null and _material.has_method("deposit_waste"):
+		_material.deposit_waste(ground_pos, self, kind)
 
 
-func setup(_terrain, _config: Dictionary) -> void:
+func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	terrain = _terrain
-	config = _config.duplicate(true)
+	# Genome drives the config: an offspring/evolved creature is passed a genome and we express it;
+	# otherwise we build an ancestral genome from the species template so EVERY creature has
+	# heritable genes (and per-individual variation once bred).
+	if _genome_arg != null:
+		_genome = _genome_arg
+		config = _genome.express()
+	else:
+		config = _config.duplicate(true)
+		_genome = LAGenome.from_config(config)
 	species = String(config.get("species", species))
 	diet = String(config.get("diet", diet))
 	speed = float(config.get("speed", speed))
@@ -169,6 +478,8 @@ func setup(_terrain, _config: Dictionary) -> void:
 	preys_on = PackedStringArray(config.get("preys_on", PackedStringArray()))
 	flees_from = PackedStringArray(config.get("flees_from", PackedStringArray()))
 	herd = bool(config.get("herd", herd))
+	leader_loyalty = float(config.get("leader_loyalty", leader_loyalty))
+	hierarchy = String(config.get("hierarchy", hierarchy))
 	nocturnal = bool(config.get("nocturnal", nocturnal))
 	flock_cohesion = float(config.get("flock_cohesion", flock_cohesion))
 	flock_alignment = float(config.get("flock_alignment", flock_alignment))
@@ -177,7 +488,13 @@ func setup(_terrain, _config: Dictionary) -> void:
 	flock_weight = float(config.get("flock_weight", flock_weight))
 	max_energy = float(config.get("max_energy", 100.0))
 	energy = max_energy
+	# HP scales with body size: a bigger animal endures more before a blast kills it.
+	max_health = float(config.get("max_health", 30.0 + size * 120.0))
+	health = max_health
 	metabolism = float(config.get("metabolism", metabolism))
+	breath_capacity = float(config.get("breath_capacity", breath_capacity))
+	_breath = breath_capacity
+	breathes = String(config.get("breathes", breathes))
 	max_hydration = float(config.get("max_hydration", 100.0))
 	hydration = max_hydration
 	thirst_rate = float(config.get("thirst_rate", thirst_rate))
@@ -186,12 +503,23 @@ func setup(_terrain, _config: Dictionary) -> void:
 	hungry_at = float(config.get("hungry_at", hungry_at))
 	throws = bool(config.get("throws", throws))
 	throw_range = float(config.get("throw_range", throw_range))
+	# Perception genes (with sensible per-body defaults) + kin id for social learning.
+	eye_fov = float(config.get("eye_fov", eye_fov))
+	hearing_range = float(config.get("hearing_range", sense_radius * 1.5))
+	family_id = int(config.get("family_id", get_instance_id()))
+	# Nesting is general and config-driven: ANY species that actually nests/shelters sets nests:true
+	# (birds roost in trees, mammals/snakes burrow or den) — no per-species branch here.
+	nests = bool(config.get("nests", nests))
+	nest_habitat = String(config.get("nest_habitat", "tree" if can_fly else "ground"))
+	llm_enabled = bool(config.get("llm_enabled", true))   # per-creature slow-brain opt-out (default on)
+	_target_altitude = cruise_height
 	state = "cruise" if can_fly else "wander"
 	_poop_cd = randf_range(20.0, 45.0)
+	_call_cd = randf_range(0.0, 2.0)
 
 	collision_layer = 2
 	collision_mask = 0                    # movement is manual; picked via layer-2 query
-	_build_body()
+	LACreatureBody.build_body(self)
 	add_to_group(GROUP_SELECTABLE)
 	add_to_group(_species_group(species))
 	add_to_group(GROUP_CREATURE)
@@ -199,327 +527,484 @@ func setup(_terrain, _config: Dictionary) -> void:
 	if _heading == Vector3.ZERO:
 		_heading = Vector3.FORWARD
 
+	# The fast/slow brain: born with the genome's baked instinct priors; learns the rest by living
+	# and by watching kin. The shared slow-brain scheduler is injected separately (set_cognition_scheduler).
+	_cognition = LACognition.new()
+	_cognition.seed_from_genome(_genome)
+
+
+# The shared System-2 scheduler (FunctionGemma budget/queue), injected by the ecology after setup.
+func set_cognition_scheduler(s) -> void:
+	if _cognition != null:
+		_cognition.set_scheduler(s)
+
+
+func get_cognition():
+	return _cognition
+
+
+func get_genome():
+	return _genome
+
+
+func get_family_id() -> int:
+	return family_id
+
 
 static func _species_group(sp: String) -> String:
 	return "species_%s" % sp
 
 
-func _build_body() -> void:
-	var mesh: MeshInstance3D = MeshInstance3D.new()
-	if can_fly:
-		var cap: CapsuleMesh = CapsuleMesh.new()
-		cap.radius = size * 0.5
-		cap.height = maxf(size * 1.4, size)
-		mesh.mesh = cap
-	else:
-		var body: CapsuleMesh = CapsuleMesh.new()
-		body.radius = size * 0.6
-		body.height = maxf(size * 2.0, size * 1.2)
-		mesh.mesh = body
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.roughness = 0.85
-	mesh.material_override = mat
-	add_child(mesh)
-	_mesh = mesh
+# Visual-only animation: play idle/move/run (or bob a rigless model) from actual displacement.
+# Kept out of _physics_process so it never perturbs movement/AI, only presentation.
+func _process(delta: float) -> void:
+	if _model_root == null:
+		return
+	if _ragdoll or _carcass:
+		return                            # the shadow/decay owns the transform; don't drive idle/run anim
+	_vis_t += delta
+	var p: Vector3 = global_position
+	var sp: float = 0.0
+	if delta > 0.0001:
+		sp = (p - _vis_prev_pos).length() / delta
+	_vis_prev_pos = p
+	LAModelVisual.animate(_model_root, _model_anim, _model_anims, sp, _model_run_speed, _vis_t, delta)
 
-	var shape: CollisionShape3D = CollisionShape3D.new()
-	var cyl: CapsuleShape3D = CapsuleShape3D.new()
-	cyl.radius = maxf(size * 0.6, 0.1)
-	cyl.height = maxf(size * 2.0, 0.4)
-	shape.shape = cyl
-	add_child(shape)
 
-	# Throwers (humans) carry a visible rock when armed.
-	if throws:
-		_rock_visual = MeshInstance3D.new()
-		_rock_visual.mesh = LARockMesh.make(maxf(size * 0.32, 0.18), 4242, 0.45)
-		_rock_visual.material_override = LARockMesh.material()
-		_rock_visual.position = Vector3(size * 0.55, size * 0.7, size * 0.35)
-		_rock_visual.visible = false
-		add_child(_rock_visual)
+# --- decision LOD (distance + sleep) ------------------------------------------------------------
+# The full cognition cascade is the creature's only non-trivial per-frame cost. Every-frame work
+# (metabolism, thirst, temperature, ageing, death, movement) stays every-frame so distant creatures
+# still live/die/glide correctly; only the DISCRETIONARY think cascade is throttled by how visible
+# and how idle the creature is. This spreads the cost automatically: a fraction of the population is
+# always asleep (diurnal by night / nocturnal by day, staggered), and most animals are off-screen.
+const MID_THINK_STRIDE: int = 10           # mid-distance discretionary thinking (~6 Hz)
+const FAR_THINK_STRIDE: int = 30           # far/off-screen discretionary thinking (~2 Hz)
+const SLEEP_THINK_STRIDE: int = 30         # asleep/resting: no decisions to make — heaviest throttle
+const NEAR_LOD_D2: float = 900.0           # <30 m from camera → full THINK_STRIDE rate
+const MID_LOD_D2: float = 4900.0           # <70 m → MID rate; beyond → FAR rate
+
+# --- Emergent local leadership (LACreatureLeadership). A `herd` creature that is NOT the local top-ranked
+# same-species individual becomes a FOLLOWER: it ADOPTS its leader's decision (the canonical action) and
+# coasts on it, so it skips the whole expensive think_* + cognition assessment and ticks slowly. Only the
+# few local leaders pay the heavy "what to do" cost. Reflexes (flee/thirst) + all pathing stay per-individual.
+const FOLLOWER_THINK_STRIDE: int = 18      # a follower re-decides rarely (~3 Hz) — it coasts on the adopted action
+# Election cadence + the LA_NO_LEADERSHIP kill-switch now live in LACreatureLeadership (all leadership logic in
+# one module); the election state-machine moved there too — _physics_process just calls maybe_elect(self, pos).
+
+# Camera position, fetched once per physics frame and shared by every creature (a single
+# get_camera_3d() lookup, not one per creature). INF when there is no active camera.
+static var _cam_frame: int = -1
+static var _cam_pos: Vector3 = Vector3(INF, INF, INF)
+
+
+func _camera_pos() -> Vector3:
+	var f: int = int(Engine.get_physics_frames())
+	if f != _cam_frame:
+		_cam_frame = f
+		var vp: Viewport = get_viewport()
+		var cam: Camera3D = vp.get_camera_3d() if vp != null else null
+		_cam_pos = cam.global_position if cam != null else Vector3(INF, INF, INF)
+	return _cam_pos
+
+
+# Global AI-tick multiplier resolved from the Sim/AI setting `la_ai_tick_frames` (published by
+# LAVoxelSettingsApplier as an Engine metadata global). Baseline is THINK_STRIDE (3) — the Medium default
+# (3) leaves every stride unchanged; a higher setting stretches all strides so the population re-decides
+# less often (cheaper CPU), a lower one tightens them. Cached once per physics frame (ONE meta read shared
+# by the whole population, mirroring _camera_pos) and clamped so creatures never freeze (min stride 1
+# enforced at the call site) nor thrash. Re-read live each frame, so a mid-game settings re-apply takes
+# effect immediately (LAVoxelSettingsApplier.publish_globals rewrites the meta on GameMode.settings_applied).
+static var _ai_scale_frame: int = -1
+static var _ai_tick_scale: float = 1.0
+
+static func _ai_tick_scale_cached() -> float:
+	var f: int = int(Engine.get_physics_frames())
+	if f != _ai_scale_frame:
+		_ai_scale_frame = f
+		var n: float = float(Engine.get_meta("la_ai_tick_frames", THINK_STRIDE)) if Engine.has_meta("la_ai_tick_frames") else float(THINK_STRIDE)
+		_ai_tick_scale = clampf(n / float(THINK_STRIDE), 0.34, 20.0)
+	return _ai_tick_scale
+
+
+# The LOD/distance base stride, then scaled by the AI-tick setting in _think_stride.
+func _think_stride() -> int:
+	return maxi(1, int(round(float(_base_think_stride()) * _ai_tick_scale_cached())))
+
+
+# How often THIS creature runs the discretionary think cascade, in physics frames. Sleep is cheapest,
+# then distance-graded for idle/discretionary states; time-critical states (fleeing, hunting, drinking)
+# stay at the full near rate at any distance so an off-screen chase or a drink never stalls.
+func _base_think_stride() -> int:
+	if state == "sleep" or state == "roost" or state == "nesting" or state == "rest":
+		return SLEEP_THINK_STRIDE
+	if state == "flee" or state == "panic" or state == "chase" or state == "stalk" \
+			or state == "throw" or state == "seek" or state == "drink":
+		return THINK_STRIDE
+	# A follower (anyone with a valid leader — herd member, squad grunt, or a parent-following juvenile)
+	# coasts on its adopted action and re-decides rarely; its leader pays the heavy "what to do" cost.
+	# Time-critical states above already opted out, so a fleeing/drinking follower is never throttled.
+	if _leader != null and is_instance_valid(_leader):
+		return FOLLOWER_THINK_STRIDE
+	var cam: Vector3 = _camera_pos()
+	if is_inf(cam.x):
+		return THINK_STRIDE
+	var d2: float = global_position.distance_squared_to(cam)
+	if d2 < NEAR_LOD_D2:
+		return THINK_STRIDE
+	if d2 < MID_LOD_D2:
+		return MID_THINK_STRIDE
+	return FAR_THINK_STRIDE
 
 
 func _physics_process(delta: float) -> void:
+	# In the player's hand: VoxelWorld sets our position each frame; skip AI + terrain-snap.
+	if _held:
+		return
+	# Physics shadow drives the body (fling/topple), alive or dead — overrides all AI this frame.
+	if _ragdoll:
+		LACreatureRagdoll.tick(self, delta)
+		return
+	# Dead and come to rest: rot in place where it fell (no AI, no movement).
+	if _carcass:
+		LACreatureRagdoll.decay_tick(self, delta)
+		return
 	age += delta
+	if _think_phase < 0:
+		_think_phase = int(get_instance_id())                  # raw id; the think stagger is (id % stride)
 	_throw_cd -= delta
 	# Night perception: nocturnal species gain range after dark, diurnal ones lose it.
 	_sense_mult = 1.0
 	if _ecology != null and _ecology.has_method("is_night") and _ecology.is_night():
 		_sense_mult = 1.4 if nocturnal else 0.7
-	# Metabolism drains energy; exertion costs more; eating refills. Starve or age = death.
-	var exertion: float = 1.6 if (state == "flee" or state == "panic" or state == "chase") else 1.0
-	energy -= metabolism * exertion * delta
-	if energy <= 0.0:
-		die("starvation")
-		return
-	# Thirst drains steadily; dehydration kills like starvation. Drinking (below) refills it.
-	hydration -= thirst_rate * delta
-	if hydration <= 0.0:
-		die("thirst")
-		return
-	if age >= max_age:
-		die("old age")
+	# Metabolism (exertion-scaled energy burn) + thirst + ageing — see LACreatureMetabolism. Death stops us.
+	if LACreatureMetabolism.tick(self, delta):
 		return
 	if terrain == null:
 		return
 
 	var pos: Vector3 = global_position
-	var surf: float = _surface_at(pos.x, pos.z)
-	if is_nan(surf):
+
+	# Continuous field-force advection: the substrate's local wind/momentum drags the body (storm
+	# gale, updraft, shock front). Sampled every frame; distinct from the discrete fling() impulse.
+	# The field's wind3_at is zero today, so this is inert until the substrate lights it up.
+	LACreatureFieldForces.tick(self, delta)
+
+	# Temperature comfort + combustion, emergent from the shared field at my feet.
+	if LACreatureMetabolism.tick_environment(self, pos, delta):
+		return
+	# Breathing: drown when submerged past my breath reserve, or suffocate in O2-depleted smoke.
+	if LACreatureMetabolism.tick_breath(self, pos, delta):
+		return
+
+	# Radial locomotion: `up` points away from the planet centre. All heading/heading-flatten math projects
+	# onto the local tangent plane using `up`, and ground reads/snaps go radial. `ground_pos` is the world
+	# point on the ground below us.
+	var up: Vector3 = terrain.up_at(pos)
+	var up_dir0: Vector3 = (pos - terrain.planet_center()).normalized()
+	var ground_pos: Vector3 = terrain.surface_point(up_dir0)
+	if is_nan(ground_pos.x):
 		return                            # unmeshed / off-terrain: skip this frame
 
-	# Digestion: a fed creature periodically leaves droppings on the ground below it.
+	# Digestion + marking: a fed creature periodically drops feces (soil fertility + food/musk cue), and
+	# more often urinates (territorial musk). Both write to the shared scent/fertility field below it.
 	_poop_cd -= delta
 	if _poop_cd <= 0.0:
 		_poop_cd = randf_range(24.0, 48.0)
 		if energy > max_energy * 0.35:
-			_drop_poop(Vector3(pos.x, surf, pos.z))
+			_deposit_waste(ground_pos, "feces")
+	_urine_cd -= delta
+	if _urine_cd <= 0.0:
+		_urine_cd = randf_range(10.0, 22.0)
+		_deposit_waste(ground_pos, "urine")
 
-	var desired: Vector3 = _heading
-	_wander_timer -= delta
-	_repath_timer -= delta
-	_panic_timer -= delta
+	# EMERGENT LEADERSHIP: decide (throttled) whether I lead my local same-species cluster or follow its
+	# top — done BEFORE the stride is computed so a fresh follower immediately gets the slow follower rate,
+	# and a leaderless creature (dead/departed leader) re-elects or self-decides this frame. Non-herd
+	# creatures are always their own leader (they never delegate their decision).
+	# Emergent leadership (all logic in LACreatureLeadership): decide (throttled) whether I lead my local
+	# cluster or follow a leader/parent — done BEFORE the stride so a fresh follower gets the slow rate and a
+	# leaderless creature (dead/departed leader) re-elects this frame.
+	LACreatureLeadership.maybe_elect(self, pos)
 
-	var eff_speed: float = speed
-	if _panic_timer > 0.0:
-		# TERROR: sprint straight away from what was heard/felt. Overrides everything.
-		state = "panic"
-		var away: Vector3 = pos - _panic_source
-		away.y = 0.0
-		if away.length() > 0.001:
-			desired = away.normalized()
-		eff_speed = speed * 2.1
-	else:
-		# Universal, emergent: flee any nearby larger hunter first (no hardcoded pairs).
-		var big_pred: Node3D = LACreatureSenses.nearest_larger_predator(self, pos)
-		if big_pred != null:
-			state = "flee"
-			var away: Vector3 = pos - big_pred.global_position
-			away.y = 0.0
+	# DECISION THROTTLE (LOD): run the full cognition cascade only every `stride` frames, where the
+	# stride grows with distance to the camera and is heaviest while asleep/resting — see _think_stride.
+	# Instance-staggered (id % stride) so the population spreads its think-frames evenly at every rate.
+	# An acute event (_force_think, set by scare/damage) re-decides NEXT frame regardless — so a sleeping
+	# or distant creature still wakes and reacts. Between think-frames the creature keeps gliding along its
+	# last _heading at _eff_speed — movement + metabolism below stay every-frame for smoothness.
+	var stride: int = _think_stride()
+	var do_think: bool = _force_think or ((int(Engine.get_physics_frames()) + _think_phase) % stride == 0)
+	if do_think:
+		LASimReport.event("decision")   # telemetry: discretionary decisions/run — proves the AI-tick stride knob bites
+		var desired: Vector3 = _heading
+		_wander_timer -= delta
+		_veto_timer -= delta
+		_repath_timer -= delta
+		_panic_timer -= delta
+		_call_cd -= delta
+		_cue_cd -= delta
+		# A cue I chased that led to no food weakens that association (so only reliable signs stick).
+		if _pursued_cd > 0.0:
+			_pursued_cd -= delta
+			if _pursued_cd <= 0.0 and _pursued_cue != "":
+				if _cognition != null:
+					_cognition.reinforce_cue(_pursued_cue, -0.3)
+				_pursued_cue = ""
+		# Flyers default to cruise altitude each frame; foraging/circling/roosting lowers it.
+		_target_altitude = cruise_height
+		# Social learning: copy confident habits from visible same-species kin/herd-mates (throttled).
+		if _cognition != null:
+			_cognition.observe(self, delta)
+
+		var eff_speed: float = speed
+		if _panic_timer > 0.0:
+			# TERROR: sprint straight away from what was heard/felt. Overrides everything.
+			state = "panic"
+			var away: Vector3 = pos - _panic_source
+			away = away - up * away.dot(up)      # keep the flee in the local tangent plane
 			if away.length() > 0.001:
 				desired = away.normalized()
-			eff_speed = speed * 1.7
+			eff_speed = speed * 2.1
+			_emit_call("alarm")                          # screech so unseeing herd-mates also bolt
 		else:
-			# Thirst competes with hunger: once parched, seeking/drinking water interrupts
-			# normal behavior (but never overrides fleeing a predator, handled above).
-			var thirst_action: String = _handle_thirst(pos, delta)
-			if thirst_action == "drink":
-				eff_speed = 0.0                      # stand at the water's edge and drink
-			elif thirst_action == "seek":
-				desired = _water_dir_cache
-			elif can_fly:
-				desired = _think_bird(pos, delta)
-				state = "cruise"
-			elif diet == "carnivore" or (diet == "omnivore" and preys_on.size() > 0):
-				desired = _think_predator(pos, desired)
+			# Did a cognition decision run THIS tick (leader decide() OR follower learn_and_veto)? Gates the
+			# shared veto-retreat below so a stale veto from a past tick never hijacks a flee/drink frame.
+			var cognized: bool = false
+			# Universal, emergent: flee any nearby larger hunter first (no hardcoded pairs).
+			var big_pred: Node3D = LACreatureSenses.nearest_larger_predator(self, pos)
+			if big_pred != null:
+				state = "flee"
+				var away: Vector3 = pos - big_pred.global_position
+				away = away - up * away.dot(up)  # keep the flee in the local tangent plane
+				if away.length() > 0.001:
+					desired = away.normalized()
+				eff_speed = speed * 1.7
+				_emit_call("alarm")                      # sentinel call flushes the whole warren
 			else:
-				desired = _think_prey(pos, desired)
+				# Thirst competes with hunger: once parched, seeking/drinking water interrupts
+				# normal behavior (but never overrides fleeing a predator, handled above).
+				var thirst_action: String = LACreatureThirst.handle_thirst(self, pos, delta)
+				if thirst_action == "drink":
+					eff_speed = 0.0                      # stand at the water's edge and drink
+					state = "drink"
+				elif thirst_action == "seek":
+					desired = _water_dir_cache
+					state = "seek"
+				elif _leader != null and is_instance_valid(_leader):
+					# FOLLOWER (herd member, squad grunt, OR a parent-following juvenile): adopt my leader's
+					# DECISION (its canonical action) and act on it locally — skipping the whole expensive
+					# think_* + cognition assessment, which my leader (or the huntmaster above it) already
+					# paid. execute_action still finds MY own food/water/heading, so a lieutenant leading a
+					# sub-hunt and its grunts each chase their own nearest prey → coordinated, divergent hunts.
+					var la: String = LACreatureThink._adoptable_action(
+							LACreatureThink.state_to_action(_leader, _leader.state), self)
+					# CHEAP per-creature learning (followers too, O(1)): reinforce MY policy from MY own outcome
+					# and VETO the adopted action if MY own experience proves it lethal for me. No senses scan and
+					# no LLM here — that expensive "what to do" assessment stays leader-only (the decide() block).
+					if _cognition != null and state != "roost" and state != "nesting":
+						var sig_f: Dictionary = LASituationSignature.compute(self)
+						la = _cognition.learn_and_veto(self, la, sig_f, delta)
+						cognized = true
+					var mv_f: Dictionary = LACreatureThink.execute_action(self, la, pos, delta)
+					if mv_f.has("heading"):
+						desired = mv_f["heading"]
+					state = String(mv_f.get("state", state))
+					eff_speed = float(mv_f.get("speed", eff_speed))
+				elif diet == "scavenger":
+					desired = LACreatureThink.think_scavenger(self, pos, delta)   # vultures: soar, follow carrion, circle, feed
+				elif can_fly:
+					desired = LACreatureThink.think_bird(self, pos, delta)         # sets its own state; may land to feed/drink
+				elif diet == "carnivore" or (diet == "omnivore" and preys_on.size() > 0):
+					desired = LACreatureThink.think_predator(self, pos, desired)
+				else:
+					desired = LACreatureThink.think_prey(self, pos, desired)
 
-		if big_pred == null and _wander_timer <= 0.0:
-			_wander_timer = randf_range(1.2, 3.0)
-			var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0) * 0.6
-			desired = (desired + jitter)
+			# Nesting/roosting drive (ANY nesting species, config-driven): head home to roost at night
+			# or to breed, establishing the site the first time. Offspring inherit it (philopatry).
+			if nests and LACreatureNesting.should_seek_nest(self):
+				desired = _handle_nesting(pos, desired)
+				if state == "sleep":
+					eff_speed = speed * 0.05          # barely stir while sleeping at the nest
 
-	desired.y = 0.0
-	if desired.length() > 0.001:
-		_heading = desired.normalized()
+			# COGNITION (fast/slow) — the EXPENSIVE, LEADER-ONLY assessment of WHAT to do. Only local leaders
+			# (and non-herd creatures, which are their own leader) pay the senses scan + slow-brain LLM
+			# escalation; a confident learned habit may substitute a better action here. FOLLOWERS never reach
+			# this — they already adopted their leader's action above and ran the CHEAP learn_and_veto there.
+			# An empty policy changes nothing, so day-0 behaviour is unchanged (regression-safe).
+			if big_pred == null and _is_leader and _cognition != null and state != "roost" and state != "nesting":
+				var sig: Dictionary = LASituationSignature.compute(self)
+				var innate_action: String = LACreatureThink.state_to_action(self, state)
+				var chosen: String = _cognition.decide(self, innate_action, sig, delta)
+				if chosen != innate_action:
+					var mv: Dictionary = LACreatureThink.execute_action(self, chosen, pos, delta)
+					if mv.has("heading"):
+						desired = mv["heading"]
+					state = String(mv.get("state", state))
+					eff_speed = float(mv.get("speed", eff_speed))
+				cognized = true
 
-	var step: Vector3 = _heading * eff_speed * delta
-	var new_x: float = pos.x + step.x
-	var new_z: float = pos.z + step.z
+			# LEARNED-LETHAL VETO retreat — shared by leaders (decide) and followers (learn_and_veto). If a
+			# decision THIS tick REFUSED an action learned reliably lethal HERE, don't merely coast on the safe
+			# fallback's heading — actively RETREAT away from the harm, at normal pace, so the creature clears
+			# the hazard instead of re-deciding into it. `cognized` gates freshness (a decision ran this tick)
+			# so a stale veto never hijacks a flee/drink frame. Latched for a short interval (anti-oscillation).
+			if cognized and _cognition.was_vetoed():
+				if _veto_timer <= 0.0:
+					# Dominant learned-lethal case is water (drowning): retreat to DRY LAND (opposite the nearest
+					# water). No water sensed -> back out the way it came (reverse heading). Latched, anti-oscillation.
+					var wdir: Vector3 = LACreatureThirst.find_water_dir(self, pos)
+					_veto_dir = (-wdir) if wdir.length() > 0.001 else (-_heading)
+					_veto_timer = randf_range(1.5, 2.5)
+				if _veto_dir.length() > 0.001:
+					desired = _veto_dir
+					eff_speed = speed
 
-	var target_surf: float = _surface_at(new_x, new_z)
-	if is_nan(target_surf):
-		target_surf = surf
-	var target_y: float = target_surf + size
-	if can_fly:
-		target_y = target_surf + cruise_height
+			if big_pred == null and _wander_timer <= 0.0:
+				_wander_timer = randf_range(1.2, 3.0)
+				var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0) * 0.6
+				desired = (desired + jitter)
 
-	global_position = Vector3(new_x, target_y, new_z)
+		desired = desired - up * desired.dot(up)   # decided heading lives in the local tangent plane
+		if desired.length() > 0.001:
+			# Record the decided direction as a TARGET; the movement block turns _heading toward it
+			# smoothly every frame (see below). On an acute flee (_force_think) snap instantly so a
+			# startled animal bolts NOW rather than banking into the turn.
+			_target_heading = desired.normalized()
+			if _force_think:
+				_heading = _target_heading
+		_eff_speed = eff_speed          # carry this decision to the movement of the next few frames
+		_force_think = false
+
+	# MOVEMENT — every frame. The DECIDED heading is a TARGET the creature turns toward smoothly each
+	# frame (not snapped), so throttled decisions (every THINK_STRIDE frames) still read as fluid motion
+	# instead of 20Hz direction pops. Acute flees snap instantly (see the think block).
+	if _target_heading.length() > 0.01:
+		var turn_rate: float = BIRD_TURN_RATE if can_fly else GROUND_TURN_RATE
+		_heading = _turn_toward(_heading, _target_heading, turn_rate * delta)
+	var step: Vector3 = _heading * _eff_speed * delta
+	# Height held above the local ground (flyers cruise; walkers ride at body radius).
+	var offset: float = cruise_height if can_fly else size
+	# Step in the tangent plane, then snap radially: the new ground point is along the NEW radial direction
+	# from the planet centre, and we sit `offset` above it (up == that same radial dir).
+	var new_pos: Vector3 = pos + step
+	var nud: Vector3 = (new_pos - terrain.planet_center()).normalized()
+	var gpt: Vector3 = terrain.surface_point(nud)
+	if is_nan(gpt.x):
+		gpt = ground_pos                      # unmeshed ahead: hold last known ground
+	global_position = gpt + nud * offset
 
 	if _heading.length() > 0.01:
-		var look: Vector3 = global_position + _heading
-		look.y = global_position.y
-		if not look.is_equal_approx(global_position):
-			look_at(look, Vector3.UP)
+		# Gaze along the heading projected into the local tangent plane, with the local up as roll axis.
+		var look_up: Vector3 = terrain.up_at(global_position)
+		var fwd: Vector3 = _heading - look_up * _heading.dot(look_up)
+		if fwd.length() > 0.001:
+			var look: Vector3 = global_position + fwd
+			if not look.is_equal_approx(global_position):
+				look_at(look, look_up)
+
+	# Behavior-state debug tint: repaint iff my category changed (free early-out when no highlights on).
+	_update_state_tint()
 
 
-func _surface_at(x: float, z: float) -> float:
-	if terrain == null or not terrain.has_method("surface_height"):
-		return NAN
-	return float(terrain.surface_height(x, z))
+# Rotate `from` toward `to` about the LOCAL up axis by at most `max_angle` radians. Both vectors are
+# projected onto the local tangent plane using the local radial up, so the turn always happens in the
+# plane the creature actually walks on.
+func _turn_toward(from: Vector3, to: Vector3, max_angle: float) -> Vector3:
+	var up: Vector3 = terrain.up_at(global_position) if terrain != null else Vector3.UP
+	var a: Vector3 = from - up * from.dot(up)
+	var b: Vector3 = to - up * to.dot(up)
+	if a.length() < 0.001:
+		return to
+	a = a.normalized()
+	if b.length() < 0.001:
+		return a
+	b = b.normalized()
+	var ang: float = a.signed_angle_to(b, up)
+	var clamped: float = clampf(ang, -max_angle, max_angle)
+	return a.rotated(up, clamped)
 
 
-# --- prey behavior: flee predators (dominates), else wander + flock, eat plants ---
-func _think_prey(pos: Vector3, fallback: Vector3) -> Vector3:
-	var threat: Node3D = LACreatureSenses.nearest_of(self, pos, flees_from)
-	if threat != null:
-		state = "flee"
-		var away: Vector3 = pos - threat.global_position
-		away.y = 0.0
-		if away.length() > 0.001:
-			return away.normalized() * 1.5
-	if diet != "carnivore" and _try_eat_plant(pos):
-		state = "eat"
-		return fallback + LACreatureFlocking.steer(self, pos, true)
-	state = "wander"
-	return fallback + LACreatureFlocking.steer(self, pos, true)
-
-
-# --- predator behavior: scavenge, hunt prey (throw or bite), track scent, else flock ---
-func _think_predator(pos: Vector3, fallback: Vector3) -> Vector3:
-	# Scavenge carrion whenever not near-full (omnivores/humans eat anything they can).
-	if energy < max_energy * 0.95 and _try_scavenge(pos):
-		state = "eat"
-		return fallback
-	var prey: Node3D = LACreatureSenses.nearest_of(self, pos, preys_on)
-	if prey != null:
-		var to_prey: Vector3 = prey.global_position - pos
-		to_prey.y = 0.0
-		if throws:
-			return _hunt_with_rock(pos, prey, to_prey, fallback)   # ranged: humans throw rocks
-		if to_prey.length() <= maxf(size + 0.8, 1.0):
-			_kill_and_eat(prey)
-			state = "eat"
-			return fallback
-		state = "chase"
-		if to_prey.length() > 0.001:
-			return to_prey.normalized()
-	else:
-		var trail: Vector3 = LACreatureSenses.follow_prey_scent(self, pos)
-		if trail != Vector3.ZERO:
-			state = "track"
-			return trail
-	if diet == "omnivore" and _try_eat_plant(pos):
-		state = "eat"
-		return fallback + LACreatureFlocking.steer(self, pos, true)
-	state = "wander"
-	return fallback + LACreatureFlocking.steer(self, pos, true)
-
-
-# Persistence hunting: the hunter can't outrun fleeing prey, so it just keeps walking
-# after it. The prey sprints (burning energy fast) and eventually collapses from
-# exhaustion. A rock, if grabbed on the way, ends it sooner.
-func _hunt_with_rock(pos: Vector3, prey: Node3D, to_prey: Vector3, fallback: Vector3) -> Vector3:
-	var dist: float = to_prey.length()
-	if not has_rock:
-		var rock: Node3D = LACreatureSenses.nearest_rock(self, pos)
-		if rock != null and pos.distance_to((rock as Node3D).global_position) <= maxf(size + 1.3, 1.7):
-			if rock.has_method("take"):
-				rock.take()
-			has_rock = true
-			_set_rock_visual(true)
-	if has_rock and dist <= throw_range and _throw_cd <= 0.0:
-		_throw_rock_at(prey)
-		state = "throw"
-		return fallback
-	state = "stalk"
-	return to_prey.normalized() if dist > 0.001 else fallback
-
-
-func _throw_rock_at(prey: Node3D) -> void:
-	has_rock = false
-	_set_rock_visual(false)
-	_throw_cd = 2.5
-	var parent: Node = get_parent()
-	if parent == null:
-		return
-	var rock: ThrownRockScript = ThrownRockScript.new()
-	parent.add_child(rock)
-	if rock.has_method("setup"):
-		rock.setup(terrain, _water)
-	rock.throw_at(global_position + Vector3(0, size, 0), prey, 26.0)
-
-
-func _kill_and_eat(prey: Node3D) -> void:
-	var gain: float = food_value
-	if prey is LACreature:
-		gain = (prey as LACreature).food_value
-	energy = minf(max_energy, energy + gain * 0.7)
-	LocalAgentsAudioDirector.emit(get_tree(), "chomp", global_position)
-	if prey.has_method("die"):
-		prey.die("eaten")           # leaves a carcass (leftovers for scavengers)
-	elif prey.has_method("queue_free"):
-		prey.queue_free()
-
-
-func _try_scavenge(pos: Vector3) -> bool:
-	if diet == "herbivore":
+# Off-hours: diurnal animals rest at night, nocturnal ones by day — from the one `nocturnal` flag +
+# the shared clock, no per-species sleep schedule.
+func _rest_period() -> bool:
+	if _ecology == null or not _ecology.has_method("is_night"):
 		return false
-	for c in get_tree().get_nodes_in_group(GROUP_CARRION):
-		if not is_instance_valid(c) or not (c is Node3D):
-			continue
-		if pos.distance_to((c as Node3D).global_position) <= maxf(size + 1.0, 1.4):
-			if c.has_method("feed"):
-				var got: float = float(c.call("feed", 30.0))
-				energy = minf(max_energy, energy + got)
-				return got > 0.0
-	return false
+	return _ecology.is_night() != nocturnal
 
 
-func _set_rock_visual(on: bool) -> void:
-	if _rock_visual != null and is_instance_valid(_rock_visual):
-		_rock_visual.visible = on
+# Home drive: establish a nest the first time, then head to it — to SLEEP through the rest period,
+# or to breed. Returns the desired heading; sets state (roost/nesting/sleep). Site + shelter are
+# config-driven (birds nest in trees, mammals/snakes burrow, aquatic species nest in water).
+func _handle_nesting(pos: Vector3, fallback: Vector3) -> Vector3:
+	if not has_nest:
+		_establish_nest(pos)
+	if not has_nest:
+		return fallback
+	if LACreatureNesting.at_nest(self, pos):
+		_nest_touch()
+		state = "sleep" if _rest_period() else "nesting"
+		if can_fly:
+			_target_altitude = maxf(size + 0.5, 1.0)      # settle onto the nest/roost
+		return Vector3.ZERO                                 # stay put
+	state = "roost" if _rest_period() else "nesting"
+	var nh: Vector3 = LACreatureNesting.steer_to_nest(self, pos)
+	return nh if nh != Vector3.ZERO else fallback
 
 
-func _think_bird(pos: Vector3, _delta: float) -> Vector3:
-	return _heading + LACreatureFlocking.steer(self, pos, false)
+func _establish_nest(pos: Vector3) -> void:
+	var site: Vector3 = LACreatureNesting.choose_site(self, pos)
+	if is_inf(site.x):
+		return
+	nest_pos = site
+	has_nest = true
+	if _ecology != null and _ecology.has_method("spawn_nest"):
+		var n = _ecology.spawn_nest(site, species, family_id, can_fly)
+		if n != null:
+			_nest_node = n
 
 
-# Thirst drive. Returns "" (not thirsty enough / no water known), "drink" (standing at
-# water — refill in place) or "seek" (head toward the nearest water via _water_dir_cache).
-# Emergent watering holes: nothing scripts where animals gather — they simply walk to the
-# nearest wet cell of the shared water field, so they cluster wherever water actually pools.
-func _handle_thirst(pos: Vector3, delta: float) -> String:
-	if _water == null or not _water.has_method("is_water_at"):
-		return ""
-	if hydration >= max_hydration * THIRSTY_FRACTION:
-		return ""
-	if _water.is_water_at(pos.x, pos.z):
-		hydration = minf(max_hydration, hydration + DRINK_RATE * delta)
-		return "drink"
-	_water_search_cd -= delta
-	if _water_search_cd <= 0.0:
-		_water_search_cd = 0.5
-		_water_dir_cache = _find_water_dir(pos)
-	if _water_dir_cache != Vector3.ZERO:
-		return "seek"
-	return ""
+func _nest_touch() -> void:
+	if _nest_node != null and is_instance_valid(_nest_node) and _nest_node.has_method("touch"):
+		_nest_node.touch()
 
 
-# Probe rings of increasing radius for the nearest wet cell and return a flat unit
-# heading toward it, or ZERO if no water is within reach. Cheap: index-math queries.
-func _find_water_dir(pos: Vector3) -> Vector3:
-	if _water == null or not _water.has_method("is_water_at"):
-		return Vector3.ZERO
-	var radii: Array = [sense_radius, sense_radius * 2.0, sense_radius * 3.5]
-	var dirs: int = 12
-	for r in radii:
-		for k in range(dirs):
-			var ang: float = TAU * float(k) / float(dirs)
-			var px: float = pos.x + cos(ang) * float(r)
-			var pz: float = pos.z + sin(ang) * float(r)
-			if _water.is_water_at(px, pz):
-				var d: Vector3 = Vector3(px - pos.x, 0.0, pz - pos.z)
-				if d.length() > 0.001:
-					return d.normalized()
-	return Vector3.ZERO
+func _forage_action() -> String:
+	if diet == "herbivore":
+		return "graze"
+	return "hunt" if preys_on.size() > 0 else "graze"
 
 
-func _try_eat_plant(pos: Vector3) -> bool:
-	if energy > max_energy * 0.92:
-		return false                          # sated: don't bother grazing
-	for p in get_tree().get_nodes_in_group(GROUP_PLANT):
-		if not is_instance_valid(p) or not (p is Node3D):
-			continue
-		if pos.distance_to((p as Node3D).global_position) <= maxf(size + 0.6, 0.9):
-			if p.has_method("is_edible") and not p.is_edible():
-				continue
-			(p as Node3D).queue_free()
-			energy = minf(max_energy, energy + 32.0)
-			return true
-	return false
+# Emit an animal call others can hear (omnidirectional). The ecology relays it; each listener gates
+# on its own hearing_range. Throttled so a panicking animal doesn't scream every frame.
+func _emit_call(call_type: String) -> void:
+	if _ecology == null or not _ecology.has_method("broadcast_call"):
+		return
+	if _call_cd > 0.0:
+		return
+	_call_cd = 1.5 if call_type == "alarm" else 4.0
+	_ecology.broadcast_call(global_position, species, call_type, self)
+
+
+# Hear a call from `caller` (already range-checked by the broadcaster against my hearing_range).
+# Alarm/distress feed the fear reflex even with no line of sight; a same-species forage call teaches
+# me to forage in my current situation, kin weighted over strangers — sound-based social learning.
+func hear_call(source_pos: Vector3, from_species: String, call_type: String, caller) -> void:
+	match call_type:
+		"alarm":
+			add_fear(source_pos, 1.2)
+		"distress":
+			add_fear(source_pos, 0.8)
+		"forage":
+			if from_species == species and _cognition != null:
+				var kin: bool = caller != null and caller.has_method("get_family_id") and caller.get_family_id() == family_id
+				var rel: float = 1.0 if kin else 0.35
+				_cognition.learn_from_sound(self, _forage_action(), rel)
+		"carrion":
+			# A scavenger announced a carcass: any non-herbivore remembers it as a cue to investigate,
+			# so it can converge on the kill even without seeing the vultures (sound past line of sight).
+			if diet != "herbivore":
+				_cue_pos = source_pos
+				_cue_cd = 12.0
 
 
 # Emergent threat detection: no hardcoded predator pairs. Flee ANY nearby creature that
@@ -535,4 +1020,23 @@ func is_mature() -> bool:
 
 # Inspector presentation lives in LACreatureInspector; this stays as the group-facing hook.
 func get_inspector_payload() -> Dictionary:
+	if _carcass:
+		return LACreatureRagdoll.inspector_payload(self)
 	return LACreatureInspector.payload(self)
+
+
+# --- carcass food contract (only meaningful once dead; scavengers eat via these) ----------------
+
+# A scavenger takes a bite of the carcass; returns the energy actually removed.
+func feed(amount: float) -> float:
+	return LACreatureRagdoll.feed(self, amount)
+
+
+# What this body is worth as food. Meat once a carcass; live creatures are hunted, not foraged.
+func food_profile() -> Dictionary:
+	return LACreatureRagdoll.food_profile(self)
+
+
+# Remaining meat value in the carcass.
+func nutrition() -> float:
+	return _carrion

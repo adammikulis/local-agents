@@ -1,0 +1,23 @@
+{
+	"species": "mullet",
+	"aquatic": true,
+	"diet": "insectivore",
+	"preys_on": ["bug", "shrimp"],
+	"model": "fish",
+	"tint_model": true,
+	"body": "fish",
+	"speed": 2.5,
+	"size": 0.36,
+	"color": [0.70, 0.72, 0.66],
+	"salinity_min": 0.30,
+	"salinity_max": 0.70,
+	"depth_min": 0.0,
+	"depth_max": 10.0,
+	"submerge": 0.35,
+	"sense_radius": 9.0,
+	"maturity_age": 12.0,
+	"food_value": 26.0,
+	"max_age": 130.0,
+	"pop_cap": 12,
+	"initial": 5
+}

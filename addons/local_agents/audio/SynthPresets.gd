@@ -63,6 +63,55 @@ static func sfx_presets() -> Dictionary:
 			"filter_type": F.LOWPASS, "filter_cutoff": 480.0, "filter_q": 1.0,
 			"amplitude": 1.0, "seed": 105,
 		}),
+		# Thunder — a sharp crack over a long low rolling rumble.
+		"thunder": Params.make({
+			"noise_mix": 0.95, "noise_type": N.PINK,
+			"frequency": 160.0, "frequency_end": 55.0, "duration": 1.60,
+			"attack": 0.001, "decay": 0.55, "sustain": 0.18, "release": 0.70,
+			"filter_type": F.LOWPASS, "filter_cutoff": 900.0, "filter_q": 1.3,
+			"amplitude": 1.0, "seed": 123,
+		}),
+		# Sizzle — hot rock/lava meeting water: sharp high hiss that fades fast (flash-steam).
+		"sizzle": Params.make({
+			"noise_mix": 1.0, "noise_type": N.WHITE,
+			"frequency": 2000.0, "frequency_end": 1400.0, "duration": 0.55,
+			"attack": 0.003, "decay": 0.34, "sustain": 0.10, "release": 0.16,
+			"filter_type": F.HIGHPASS, "filter_cutoff": 2600.0, "filter_q": 0.7,
+			"amplitude": 0.6, "seed": 121,
+		}),
+		# Rolling boil / steam vent — sustained airy hiss with a little body.
+		"steam": Params.make({
+			"noise_mix": 1.0, "noise_type": N.WHITE,
+			"frequency": 900.0, "frequency_end": 700.0, "duration": 1.10,
+			"attack": 0.02, "decay": 0.35, "sustain": 0.4, "release": 0.35,
+			"filter_type": F.BANDPASS, "filter_cutoff": 1300.0, "filter_q": 1.2,
+			"amplitude": 0.5, "seed": 122,
+		}),
+		# Volcano leadup — a deep, swelling sub-bass rumble while the magma chamber pressurizes toward
+		# the breach. Emitted more frequently as the pressure climbs, so the ground seems to growl louder.
+		"volcano_rumble": Params.make({
+			"noise_mix": 1.0, "noise_type": N.PINK,
+			"frequency": 48.0, "frequency_end": 36.0, "duration": 1.9,
+			"attack": 0.30, "decay": 0.65, "sustain": 0.55, "release": 0.85,
+			"filter_type": F.LOWPASS, "filter_cutoff": 170.0, "filter_q": 1.2,
+			"amplitude": 0.68, "seed": 130,
+		}),
+		# Volcano breach/eruption — a huge blast: a sharp crack punching into a long, deep collapsing roar.
+		"volcano_erupt": Params.make({
+			"noise_mix": 0.95, "noise_type": N.PINK,
+			"frequency": 120.0, "frequency_end": 34.0, "duration": 2.6,
+			"attack": 0.001, "decay": 0.95, "sustain": 0.28, "release": 1.20,
+			"filter_type": F.LOWPASS, "filter_cutoff": 750.0, "filter_q": 1.1,
+			"amplitude": 1.0, "seed": 131,
+		}),
+		# Volcano roar — the sustained low boom of an active eruption, emitted in overlapping bursts.
+		"volcano_roar": Params.make({
+			"noise_mix": 1.0, "noise_type": N.PINK,
+			"frequency": 78.0, "frequency_end": 58.0, "duration": 1.5,
+			"attack": 0.05, "decay": 0.55, "sustain": 0.45, "release": 0.55,
+			"filter_type": F.LOWPASS, "filter_cutoff": 320.0, "filter_q": 1.0,
+			"amplitude": 0.78, "seed": 132,
+		}),
 		# Predator eats prey — quick downward chirp + bite.
 		"chomp": Params.make({
 			"waveform": W.SQUARE, "duty": 0.35, "noise_mix": 0.4, "noise_type": N.PINK,

@@ -1,12 +1,23 @@
+# Large third-party asset packs — keep locally, never commit
+/Kenney Game Assets All-in-1 3.5.0.zip
+Kenney*.zip
+
 # Godot 4+ specific ignores
 .godot/
 
 # Godot-specific ignores
 .import/
 export.cfg
-export_presets.cfg
+# export_presets.cfg IS tracked — it is the itch.io release export config (no secrets;
+# signing identities are left blank). See docs/EXPORT.md.
 *.import
 *.uid
+
+# Export output (built by scripts/export_game.sh)
+/build/
+
+# ...but DO track 3D-model import sidecars so glTF/GLB loads resolve on a fresh checkout.
+!addons/local_agents/assets/models/**/*.import
 
 # Imported translations (automatically generated from CSV files)
 *.translation
@@ -39,3 +50,9 @@ addons/local_agents/voices/
 # Local tooling bundles (e.g. downloaded Godot editor archives)
 tools/
 logs/validation_lane/
+
+# generated FunctionGemma finetune artifacts
+addons/local_agents/models/functiongemma/train_examples.jsonl
+addons/local_agents/models/functiongemma/*.gguf
+addons/local_agents/gdextensions/localagents/bin
+volcano_shot_*.png

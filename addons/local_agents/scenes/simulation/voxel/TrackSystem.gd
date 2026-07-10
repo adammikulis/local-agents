@@ -143,24 +143,22 @@ func _drop_footprint(creature_pos: Vector3) -> bool:
 	if _terrain == null or _footprint_texture == null:
 		return false
 
-	var ground_y: float = creature_pos.y
-	if _terrain.has_method("surface_height"):
-		var h = _terrain.surface_height(creature_pos.x, creature_pos.z)
-		# Guard NAN / non-finite surface heights: skip this print rather than
-		# placing a decal at an invalid Y.
-		if typeof(h) != TYPE_FLOAT and typeof(h) != TYPE_INT:
+	var ground: Vector3 = creature_pos
+	var up: Vector3 = Vector3.UP
+	if _terrain.has_method("ground_point"):
+		var gp: Vector3 = _terrain.ground_point(creature_pos)
+		# Guard a NAN / non-finite surface: skip this print rather than placing a decal at an invalid spot.
+		if is_nan(gp.x) or is_inf(gp.x):
 			return false
-		var hf: float = float(h)
-		if is_nan(hf) or is_inf(hf):
-			return false
-		ground_y = hf
+		ground = gp
+		up = _terrain.up_at(gp) if _terrain.has_method("up_at") else Vector3.UP
 
 	var decal: Decal = Decal.new()
 	decal.texture_albedo = _footprint_texture
 	decal.size = DECAL_SIZE
-	# Decals project along their local -Y (downward), so sitting the box a
-	# little above the surface lets it project cleanly onto the ground.
-	decal.position = Vector3(creature_pos.x, ground_y + SURFACE_OFFSET, creature_pos.z)
+	# Decals project along their local -Y (downward), so sitting the box a little proud of the surface
+	# (radially) lets it project cleanly onto the ground.
+	decal.position = ground + up * SURFACE_OFFSET
 	decal.rotation.y = randf() * TAU  # small/arbitrary yaw for variety
 	decal.albedo_mix = 0.5            # subtle, not a hard grey stamp
 	decal.modulate = Color(1.0, 1.0, 1.0, 0.5)

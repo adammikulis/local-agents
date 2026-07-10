@@ -20,6 +20,18 @@
           "recommended": false
         },
         {
+          "id": "qwen3-1_7b-q4_k_m",
+          "label": "Qwen3 1.7B (Q4_K_M)",
+          "repo_id": "unsloth/Qwen3-1.7B-GGUF",
+          "filename": "Qwen3-1.7B-Q4_K_M.gguf",
+          "folder": "qwen3-1_7b",
+          "parameters": "1.7B",
+          "quantization": "Q4_K_M",
+          "size_bytes": 1107409472,
+          "updated_at": "2025-05-21T06:31:50Z",
+          "recommended": false
+        },
+        {
           "id": "qwen3-4b-instruct-q4_k_m",
           "label": "Qwen3 4B Instruct (Q4_K_M)",
           "repo_id": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
@@ -73,6 +85,25 @@
           "size_bytes": 2104932768,
           "updated_at": "2024-09-20T06:34:33Z",
           "recommended": false
+        }
+      ]
+    },
+    {
+      "id": "functiongemma",
+      "label": "FunctionGemma (function calling)",
+      "description": "Google's Gemma-3-270M tuned for on-device function calling and designed to be fine-tuned for custom tool-use workflows.",
+      "models": [
+        {
+          "id": "functiongemma-270m-it-q8_0",
+          "label": "FunctionGemma 270M IT (Q8_0)",
+          "repo_id": "unsloth/functiongemma-270m-it-GGUF",
+          "filename": "functiongemma-270m-it-Q8_0.gguf",
+          "folder": "functiongemma-270m-it",
+          "parameters": "0.27B",
+          "quantization": "Q8_0",
+          "size_bytes": 291558624,
+          "updated_at": "2026-01-15T03:33:41Z",
+          "recommended": true
         }
       ]
     }

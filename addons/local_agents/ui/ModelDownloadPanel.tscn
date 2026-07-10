@@ -1,0 +1,57 @@
+[gd_scene load_steps=2 format=3 uid="uid://c7lamdlpnl0ui"]
+
+[ext_resource type="Script" path="res://addons/local_agents/ui/ModelDownloadPanel.gd" id="1_panel"]
+
+[node name="ModelDownloadPanel" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_panel")
+
+[node name="Background" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Margin" type="MarginContainer" parent="Background"]
+layout_mode = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 24
+
+[node name="Body" type="VBoxContainer" parent="Background/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="TitleLabel" type="Label" parent="Background/Margin/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Download a model"
+
+[node name="Subtitle" type="Label" parent="Background/Margin/Body"]
+layout_mode = 2
+text = "Pick a local model to run offline. Downloads are saved under user://local_agents/models."
+
+[node name="Scroll" type="ScrollContainer" parent="Background/Margin/Body"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="RowsBox" type="VBoxContainer" parent="Background/Margin/Body/Scroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 10
+
+[node name="StatusLabel" type="Label" parent="Background/Margin/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Choose a model to download."

@@ -1,0 +1,23 @@
+{
+	"species": "trout",
+	"aquatic": true,
+	"diet": "insectivore",
+	"preys_on": ["bug", "shrimp"],
+	"model": "fish",
+	"tint_model": true,
+	"body": "fish",
+	"speed": 2.8,
+	"size": 0.34,
+	"color": [0.42, 0.52, 0.36],
+	"salinity_min": 0.0,
+	"salinity_max": 0.25,
+	"depth_min": 0.0,
+	"depth_max": 10.0,
+	"submerge": 0.35,
+	"sense_radius": 9.0,
+	"maturity_age": 12.0,
+	"food_value": 24.0,
+	"max_age": 130.0,
+	"pop_cap": 14,
+	"initial": 5
+}

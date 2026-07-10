@@ -18,7 +18,7 @@ const AUDIO_GROUP := "local_agents_audio"
 const DEFAULT_SAMPLE_RATE := 44100
 
 @export var enabled: bool = true
-@export var music_enabled: bool = true
+@export var music_enabled: bool = false   # music OFF by default on any launch (player enables it in the audio menu)
 @export var sfx_enabled: bool = true
 
 var _voice: LocalAgentsSynthVoice = null
@@ -124,6 +124,12 @@ func set_music_progression(name: String) -> void:
 func set_music_auto(auto: bool) -> void:
 	if _music != null:
 		_music.set_auto_mode(auto)
+
+## Re-seed the generative music engine in place (per-session salt). Independent of the sim's
+## world seed — the world stays deterministic while the music varies each launch.
+func reseed_music(seed: int) -> void:
+	if _music != null:
+		_music.reseed(seed)
 
 func set_music_arrangement_enabled(enabled_flag: bool) -> void:
 	if _music != null:

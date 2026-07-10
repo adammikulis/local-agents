@@ -34,6 +34,7 @@ set(SRC
     src/AgentRuntime.cpp
     src/ModelDownloadManager.cpp
     src/NetworkGraph.cpp
+    src/LAProcess.cpp
     src/LocalAgentsRegister.cpp
 )
 

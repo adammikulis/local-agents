@@ -1,0 +1,22 @@
+{
+	"species": "shrimp",
+	"aquatic": true,
+	"model": "",
+	"body": "shrimp",
+	"speed": 1.2,
+	"size": 0.16,
+	"color": [0.86, 0.52, 0.46],
+	"salinity_min": 0.2,
+	"salinity_max": 1.0,
+	"depth_min": 1.0,
+	"depth_max": 30.0,
+	"submerge": 0.6,
+	"sense_radius": 4.0,
+	"maturity_age": 6.0,
+	"food_value": 9.0,
+	"max_age": 60.0,
+	"pop_cap": 12,
+	"initial": 10,
+	"diet": "grazer",
+	"grazes_biomass": true
+}

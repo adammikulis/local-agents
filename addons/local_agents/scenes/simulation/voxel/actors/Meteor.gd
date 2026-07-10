@@ -2,21 +2,35 @@
 class_name LAMeteor
 extends Node3D
 
-## A spawnable fireball that plummets toward a target world position, carves the
-## voxel terrain and damages nearby life on impact, then cleans itself up after
-## the FX. Built entirely in code (no external assets). Primary live-test tool
-## for destruction. (Explicit types only — project rule: no ':=' inferred typing.)
+## A meteor is NOT a scripted explosion — it is a falling hot fast rock (a seed/marker + visual) whose
+## impact seeds the shared substrate ONCE. Everything downstream emerges with zero meteor code:
+##   • emit_shock radiates a seismic wave (tremor + felt panic);
+##   • eject throws molten mass as ballistic ejecta parcels that arc under radial gravity and re-deposit
+##     — the debris fling and the ejecta blanket both fall out of the field, no per-actor chunk code;
+##   • add_charge ionises the air above the crater → the field's breakdown discharges a bolt (the same
+##     charge→bolt primitive a storm feeds);
+##   • add_heat dumps the kinetic+thermal energy as a molten spike (crater glows, vegetation ignites);
+##   • broadcast_scare / damage_sphere / disturb_ground panic, kill and slump via the shared stimuli;
+##   • the crater itself emerges from the existing carve + ejecta redeposit.
+##
+## Deleted vs the old scripted meteor: `_spawn_debris_chunks` (22 RigidBody3D debris chunks with random
+## velocities), `_impact_material_palette`, `_spawn_impact_fx` (one-shot burst particles + flash light) and
+## `_make_debris_mesh`. A "debris chunk", a "crater", a "shockwave" — all just words for what the one
+## substrate does. The actor is now seed + falling visual + one impact→substrate call.
+## (Explicit types only — project rule: no ':=' inferred typing.)
 
 # --- Tunables -----------------------------------------------------------------
-const SPAWN_HEIGHT: float = 140.0          # how far above the target it appears
-const START_SPEED: float = 70.0            # initial fall speed (units/s)
-const GRAVITY: float = 55.0                # downward acceleration (units/s^2)
-const MAX_SPEED: float = 260.0
+const SPAWN_HEIGHT: float = 140.0          # fallback drop height when launched with no camera origin
+const START_SPEED: float = 70.0            # initial fall speed (units/s) for the fallback drop
+const LAUNCH_SPEED: float = 150.0          # fallback launch speed only if no gravity body exists yet
+const MAX_SPEED: float = 600.0             # cap so a slingshot can't run away numerically
+const ESCAPE_RADIUS_MULT: float = 30.0     # free the rock once it coasts this many body-radii out (left the system)
+const MAX_LIFETIME: float = 240.0          # absolute lifespan cap so long-lived orbiters eventually clear
+const METEOR_MASS_SCALE: float = 400.0     # mass = size³ × this; momentum = mass × velocity → planet orbital impulse
 const IMPACT_RADIUS: float = 10.0          # carve radius — large & dramatic
 const DAMAGE_SCALE: float = 1.6            # ecology damage radius = radius * this
 const BODY_RADIUS: float = 1.4
 const FX_LINGER: float = 1.8               # seconds of FX after impact before free
-const SAFETY_FALL_TIME: float = 12.0       # force impact if it never reaches ground
 
 enum State { IDLE, FALLING, IMPACTED }
 
@@ -29,13 +43,16 @@ var _fall_time: float = 0.0
 var _fx_time: float = 0.0
 var _impact_point: Vector3 = Vector3.ZERO
 var _spawned_at: Vector3 = Vector3.ZERO
+var _guided: bool = false                  # true = FPS-style homing projectile; false = ballistic drop
 
 var _body: MeshInstance3D = null
 var _glow: OmniLight3D = null
 var _trail: GPUParticles3D = null
-var _flash: OmniLight3D = null
-var _burst: GPUParticles3D = null
 var _picker: StaticBody3D = null
+
+# Per-meteor size (randomized on launch): scales the rock, crater, heat, blast and ground shake so
+# strikes vary from small bright pebbles to landscape-cratering giants.
+var _size: float = 1.0
 
 
 func _ready() -> void:
@@ -48,18 +65,51 @@ func setup(terrain: Object, ecology: Object) -> void:
 	_ecology = ecology
 
 
-## Spawn above `target` and begin the fall, with a slight lateral offset so the
-## descent reads as an angled streak rather than a vertical drop.
-func launch(target: Vector3) -> void:
+## Effective impact radius for THIS meteor (base * its random size).
+func _radius() -> float:
+	return IMPACT_RADIUS * _size
+
+
+## Launch toward `target`. If `from_pos` is finite it fires FROM THAT POINT (the camera / screen
+## centre) like an FPS projectile, streaking straight out and homing onto the target so it always
+## lands on the click point; otherwise it falls ballistically from above the target. Size is
+## randomized each launch so strikes vary in scale.
+func launch(target: Vector3, from_pos: Vector3 = Vector3(INF, INF, INF)) -> void:
 	_target = target
-	var lateral: Vector3 = Vector3(randf_range(-24.0, 24.0), 0.0, randf_range(-24.0, 24.0))
-	_spawned_at = target + Vector3(0.0, SPAWN_HEIGHT, 0.0) + lateral
+	_size = randf_range(0.55, 2.3)
+	if is_finite(from_pos.x) and is_finite(from_pos.y) and is_finite(from_pos.z):
+		# Player-fired: leave the camera along the aim ray and then COAST under real N-body gravity — aim
+		# tangential to a body and it settles into ORBIT, aim inward and it strikes, aim fast/outward and it
+		# escapes. Launch at the local circular-orbit speed so a sideways flick actually orbits.
+		var aim: Vector3 = target - from_pos
+		if aim.length() < 0.001:
+			aim = Vector3.DOWN
+		aim = aim.normalized()
+		_spawned_at = from_pos + aim * 3.0
+		_guided = true
+		var vcirc: float = LAGravity.circular_speed(get_tree(), _spawned_at)
+		_velocity = aim * (vcirc if vcirc > 1.0 else LAUNCH_SPEED)
+	else:
+		# Auto/ambient drop: spawn radially "up" (away from the nearest body's core) above the target and
+		# fall inward, so ballistic strikes head straight at the planet instead of drifting toward world -Y.
+		var up0: Vector3 = _up_at(target)
+		var tangent: Vector3 = up0.cross(Vector3.RIGHT)
+		if tangent.length() < 0.01:
+			tangent = up0.cross(Vector3.FORWARD)
+		tangent = tangent.normalized()
+		var lateral: Vector3 = tangent * randf_range(-24.0, 24.0) + up0.cross(tangent).normalized() * randf_range(-24.0, 24.0)
+		_spawned_at = target + up0 * SPAWN_HEIGHT + lateral
+		_guided = false
+		var dir: Vector3 = _target - _spawned_at
+		if dir.length() < 0.001:
+			dir = -up0
+		_velocity = dir.normalized() * START_SPEED
 	global_position = _spawned_at
-	var dir: Vector3 = _target - _spawned_at
-	if dir.length() < 0.001:
-		dir = Vector3.DOWN
-	dir = dir.normalized()
-	_velocity = dir * START_SPEED
+	# Bigger rock = bigger visual body, glow and trail.
+	if _body != null:
+		_body.scale = Vector3.ONE * _size
+	if _glow != null:
+		_glow.omni_range = 30.0 * _size
 	_fall_time = 0.0
 	_state = State.FALLING
 	if _trail != null:
@@ -94,7 +144,10 @@ func _physics_process(delta: float) -> void:
 
 func _step_fall(delta: float) -> void:
 	_fall_time += delta
-	_velocity.y -= GRAVITY * delta
+	# Coast as a TEST PARTICLE under the summed N-body gravity of every body in the system (Outer-Wilds
+	# style). Symplectic Euler: nudge velocity by the local acceleration, then advance. Orbits, flybys and
+	# slingshots emerge — no homing, no single-centre / world-axis assumption.
+	_velocity += LAGravity.acceleration_at(get_tree(), global_position) * delta
 	if _velocity.length() > MAX_SPEED:
 		_velocity = _velocity.normalized() * MAX_SPEED
 
@@ -108,11 +161,36 @@ func _step_fall(delta: float) -> void:
 
 	global_position = next_pos
 	if _velocity.length() > 0.01:
-		look_at(global_position + _velocity, Vector3.UP)
+		var vdir: Vector3 = _velocity.normalized()
+		var up_hint: Vector3 = _up_at(global_position)
+		look_at(global_position + _velocity, up_hint if absf(up_hint.dot(vdir)) < 0.98 else Vector3.UP)
 
-	if _fall_time > SAFETY_FALL_TIME:
-		_impact_point = global_position
-		_on_impact()
+	# Missed everything and either drifted for ages or left the system — free it. (Never force a phantom
+	# impact here: that is what used to kill orbits before they could form.)
+	if _fall_time > MAX_LIFETIME or _escaped():
+		queue_free()
+
+
+## Radial "up" (away from the nearest gravity body's core) at a world point — the dominant body, else the
+## terrain planet, else world up. Used for the ballistic spawn + orientation so nothing assumes world +Y.
+func _up_at(pos: Vector3) -> Vector3:
+	var b: Object = LAGravity.dominant_body(get_tree(), pos) if is_inside_tree() else null
+	if b != null and b.has_method("center"):
+		var r: Vector3 = pos - (b.center() as Vector3)
+		if r.length() > 0.001:
+			return r.normalized()
+	if _terrain != null and _terrain.has_method("up_at"):
+		return _terrain.up_at(pos)
+	return Vector3.UP
+
+
+## True once the meteor has coasted far beyond the dominant body's reach (it left the system).
+func _escaped() -> bool:
+	var b: Object = LAGravity.dominant_body(get_tree(), global_position)
+	if b == null or not (b.has_method("center") and b.has_method("radius")):
+		return false
+	var far: float = maxf(float(b.radius()), 1.0) * ESCAPE_RADIUS_MULT
+	return global_position.distance_to(b.center() as Vector3) > far
 
 
 ## Returns {"hit": bool, "point": Vector3}. Tries surface_height, then a swept
@@ -120,10 +198,11 @@ func _step_fall(delta: float) -> void:
 func _detect_impact(from: Vector3, to: Vector3) -> Dictionary:
 	var no_hit: Dictionary = {"hit": false, "point": Vector3.ZERO}
 
-	if _terrain != null and _terrain.has_method("surface_height"):
-		var gy: float = _terrain.surface_height(to.x, to.z)
-		if not is_nan(gy) and to.y <= gy:
-			return {"hit": true, "point": Vector3(to.x, gy, to.z)}
+	if _terrain != null and _terrain.has_method("altitude_at"):
+		var alt: float = _terrain.altitude_at(to)             # height above the local ground (radial); <0 = below
+		if not is_nan(alt) and alt <= 0.0:
+			var sp: Vector3 = _terrain.ground_point(to) if _terrain.has_method("ground_point") else to
+			return {"hit": true, "point": (to if is_nan(sp.x) else sp)}
 
 	if _terrain != null and _terrain.has_method("raycast_terrain"):
 		var seg: Vector3 = to - from
@@ -143,21 +222,52 @@ func _on_impact() -> void:
 	_state = State.IMPACTED
 	_fx_time = 0.0
 
+	# MOMENTUM into the planet's orbit: a big/fast strike (or a sustained volley) perturbs the orbital velocity —
+	# enough of it knocks the planet onto a decaying orbit into the sun, or past escape velocity out of the system.
+	# Impulse = meteor mass (∝ size³) × its impact velocity. Emergent from the same momentum the ejecta uses.
+	var orbits: Node = get_tree().get_first_node_in_group("system_orbits")
+	if orbits != null and orbits.has_method("apply_impulse"):
+		orbits.apply_impulse(_velocity * (METEOR_MASS_SCALE * _size * _size * _size))
+
+	var r: float = _radius()                                   # size-scaled crater
 	if _terrain != null and _terrain.has_method("carve_sphere"):
-		_terrain.carve_sphere(_impact_point, IMPACT_RADIUS)
+		_terrain.carve_sphere(_impact_point, r)
 	if _ecology != null and _ecology.has_method("damage_sphere"):
-		_ecology.damage_sphere(_impact_point, IMPACT_RADIUS * DAMAGE_SCALE)
+		_ecology.damage_sphere(_impact_point, r * DAMAGE_SCALE)
 	# Big splash if it struck water.
-	if _ecology != null and _ecology.has_method("water_field"):
-		var water: Object = _ecology.water_field()
-		if water != null and water.has_method("is_water_at") and water.is_water_at(_impact_point.x, _impact_point.z):
-			water.splash(_impact_point, 3.5)
+	if _ecology != null and _ecology.has_method("material_field"):
+		var water: Object = _ecology.material_field()
+		if water != null and water.has_method("is_water_at") and water.is_water_at(_impact_point):
+			water.splash(_impact_point, 3.5 * _size)
+			# White-hot rock hitting water flashes to steam — sizzle + a steam hiss.
+			LocalAgentsAudioDirector.emit(get_tree(), "sizzle", _impact_point)
+			LocalAgentsAudioDirector.emit(get_tree(), "steam", _impact_point)
 	# Terror shockwave: everything that hears/feels the impact panics and flees.
 	if _ecology != null and _ecology.has_method("broadcast_scare"):
-		_ecology.broadcast_scare(_impact_point, IMPACT_RADIUS * 6.0, 1.0)
-	# The molten strike sets nearby vegetation alight — a wildfire may spread from here.
-	if _ecology != null and _ecology.has_method("ignite_area"):
-		_ecology.ignite_area(_impact_point, IMPACT_RADIUS * 2.2)
+		_ecology.broadcast_scare(_impact_point, r * 6.0, 1.0)
+	# The strike dumps its kinetic+thermal energy into the ground as a molten HEAT spike: the crater
+	# glows incandescently (terrain shader) and cools over time, and vegetation that crosses the
+	# ignition temperature catches fire — all emergent from the temperature field, nothing scripted.
+	if _ecology != null and _ecology.has_method("material_field"):
+		var field: Object = _ecology.material_field()
+		if field != null and field.has_method("add_heat"):
+			field.add_heat(_impact_point, 1600.0, r * 2.2)     # molten rock ~1600°C
+		# The impact IS a shock source + an ejecta source — both are the substrate's own primitives now (no
+		# per-actor wave/debris code). emit_shock radiates a seismic wave (tremor + panic); eject throws molten
+		# debris parcels that arc under radial gravity and re-deposit on landing (a glowing ejecta blanket).
+		if field != null and field.has_method("emit_shock"):
+			field.emit_shock(_impact_point, 2.0 + _size * 2.0)
+		if field != null and field.has_method("eject"):
+			var up: Vector3 = (_impact_point - field._origin).normalized() if "_origin" in field else Vector3.UP
+			field.eject(_impact_point, 0.4 * _size, 900.0 * _size, up * 0.6)
+			# Hypervelocity impact IONISES the air above the crater — a charge seed the field's breakdown then
+			# discharges as a bolt (the same charge→bolt primitive a storm feeds; here from impact plasma).
+			if field.has_method("add_charge"):
+				field.add_charge(_impact_point + up * 20.0, 12.0, r)
+	# Shake the ground: steep terrain in the blast radius slumps downhill under gravity (a meteor into
+	# a mountainside triggers a slide — pure material physics, no landslide code).
+	if _ecology != null and _ecology.has_method("disturb_ground"):
+		_ecology.disturb_ground(_impact_point, r * 2.0, _size)
 
 	if _body != null:
 		_body.visible = false
@@ -169,106 +279,10 @@ func _on_impact() -> void:
 		_picker.queue_free()
 		_picker = null
 
-	_spawn_impact_fx()
-	_spawn_debris_chunks(_impact_point)
-
-	# Procedural impact boom (presentation only; resolves the AudioDirector by group).
+	# Procedural impact boom (presentation only; resolves the AudioDirector by group). The flash, debris
+	# fling and ejecta blanket are no longer scripted here — they emerge from the eject/add_heat/add_charge
+	# seeds above (glowing ejecta parcels + molten crater glow + a discharge bolt).
 	LocalAgentsAudioDirector.emit(get_tree(), "meteor_impact", _impact_point)
-
-
-# Fling physical debris outward from the impact — a MIX of whatever was hit:
-# topsoil, dirt clods and rock, colored to match the surface. Parented to the
-# meteor's parent so debris persists after the meteor frees itself.
-func _spawn_debris_chunks(world_point: Vector3) -> void:
-	var parent: Node = get_parent()
-	if parent == null:
-		return
-	var palette: Array = _impact_material_palette(world_point)
-	var n: int = 22
-	for i in n:
-		var chunk: RigidBody3D = RigidBody3D.new()
-		chunk.collision_layer = 4          # debris layer (not pickable, not creatures)
-		chunk.collision_mask = 1           # collide with terrain only
-		chunk.gravity_scale = 1.4
-		var is_dirt: bool = randf() < 0.6
-		var sz: float = randf_range(0.22, 0.5) if is_dirt else randf_range(0.5, 1.2)
-		var tint: Color = palette[randi() % palette.size()]
-		if is_dirt:
-			tint = tint.darkened(randf_range(0.0, 0.15))
-		var mi: MeshInstance3D = MeshInstance3D.new()
-		mi.mesh = LARockMesh.make(sz, randi(), 0.55 if is_dirt else 0.5)
-		mi.material_override = LARockMesh.material(tint)
-		chunk.add_child(mi)
-		var col: CollisionShape3D = CollisionShape3D.new()
-		var bs: SphereShape3D = SphereShape3D.new()
-		bs.radius = sz * 0.85
-		col.shape = bs
-		chunk.add_child(col)
-		parent.add_child(chunk)
-		chunk.global_position = world_point + Vector3(randf_range(-2.5, 2.5), randf_range(1.0, 3.5), randf_range(-2.5, 2.5))
-		var dir: Vector3 = Vector3(randf_range(-1.0, 1.0), randf_range(1.1, 2.2), randf_range(-1.0, 1.0)).normalized()
-		chunk.linear_velocity = dir * randf_range(11.0, 30.0)
-		chunk.angular_velocity = Vector3(randf_range(-7, 7), randf_range(-7, 7), randf_range(-7, 7))
-		var timer: SceneTreeTimer = get_tree().create_timer(16.0)
-		timer.timeout.connect(func(): if is_instance_valid(chunk): chunk.queue_free())
-
-
-# Approximate the surface materials at the impact (matching the triplanar terrain
-# shader's height/slope rule) so debris is dirt/sand/grass/rock/snow as appropriate.
-func _impact_material_palette(point: Vector3) -> Array:
-	var normal: Vector3 = Vector3.UP
-	if _terrain != null and _terrain.has_method("raycast_terrain"):
-		var hit: Dictionary = _terrain.raycast_terrain(point + Vector3(0, 6, 0), Vector3.DOWN, 14.0)
-		if bool(hit.get("hit", false)):
-			normal = hit.get("normal", Vector3.UP)
-	var y: float = point.y
-	var steep: bool = normal.y < 0.62
-	var dirt: Color = Color(0.40, 0.28, 0.18)
-	var out: Array = [dirt, dirt]              # subsurface dirt is always thrown
-	if steep:
-		out.append(Color(0.45, 0.45, 0.47))
-		out.append(Color(0.38, 0.37, 0.38))
-	elif y < 2.5:
-		out.append(Color(0.80, 0.74, 0.55))
-	elif y > 55.0:
-		out.append(Color(0.90, 0.93, 0.97))
-		out.append(Color(0.62, 0.6, 0.6))
-	else:
-		out.append(Color(0.30, 0.55, 0.24))
-		out.append(Color(0.34, 0.24, 0.15))
-	return out
-
-
-func _spawn_impact_fx() -> void:
-	_flash = OmniLight3D.new()
-	_flash.light_color = Color(1.0, 0.75, 0.35)
-	_flash.light_energy = 24.0
-	_flash.omni_range = IMPACT_RADIUS * 8.0
-	_flash.position = Vector3.ZERO
-	add_child(_flash)
-	var tw: Tween = create_tween()
-	tw.tween_property(_flash, "light_energy", 0.0, FX_LINGER)
-
-	_burst = GPUParticles3D.new()
-	_burst.one_shot = true
-	_burst.emitting = true
-	_burst.amount = 96
-	_burst.lifetime = FX_LINGER
-	_burst.explosiveness = 1.0
-	_burst.draw_pass_1 = _make_debris_mesh()
-	var pm: ParticleProcessMaterial = ParticleProcessMaterial.new()
-	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	pm.emission_sphere_radius = IMPACT_RADIUS * 0.6
-	pm.direction = Vector3(0.0, 1.0, 0.0)
-	pm.spread = 75.0
-	pm.initial_velocity_min = 12.0
-	pm.initial_velocity_max = 42.0
-	pm.gravity = Vector3(0.0, -30.0, 0.0)
-	pm.scale_min = 0.4
-	pm.scale_max = 1.6
-	pm.color = Color(1.0, 0.55, 0.2)
-	_burst.process_material = pm
-	add_child(_burst)
 
 
 func _build_visuals() -> void:
@@ -294,20 +308,24 @@ func _build_visuals() -> void:
 
 	_trail = GPUParticles3D.new()
 	_trail.emitting = false
-	_trail.amount = 120
-	_trail.lifetime = 0.7
+	_trail.amount = 240
+	_trail.lifetime = 1.1
 	_trail.draw_pass_1 = _make_trail_mesh()
 	var tp: ParticleProcessMaterial = ParticleProcessMaterial.new()
 	tp.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
-	tp.emission_sphere_radius = BODY_RADIUS * 0.7
+	tp.emission_sphere_radius = BODY_RADIUS * 0.8
+	# Particles are emitted with almost no velocity so they hang in the air where the fireball WAS,
+	# leaving a burning trail behind the moving meteor. They shrink and darken over their life.
 	tp.direction = Vector3(0.0, 1.0, 0.0)
-	tp.spread = 25.0
-	tp.initial_velocity_min = 2.0
-	tp.initial_velocity_max = 8.0
-	tp.gravity = Vector3.ZERO
-	tp.scale_min = 0.5
-	tp.scale_max = 1.4
-	tp.color = Color(1.0, 0.65, 0.2)
+	tp.spread = 40.0
+	tp.initial_velocity_min = 0.5
+	tp.initial_velocity_max = 4.0
+	tp.gravity = Vector3(0.0, 4.0, 0.0)          # hot embers loft a little as they trail
+	tp.scale_min = 0.7
+	tp.scale_max = 1.8
+	tp.scale_curve = _trail_scale_curve()        # taper to nothing so it reads as a tapering tail
+	tp.color = Color(1.0, 0.6, 0.18)
+	tp.color_ramp = _fire_ramp()                 # white-hot -> orange -> smoke over the ember's life
 	_trail.process_material = tp
 	add_child(_trail)
 
@@ -321,6 +339,31 @@ func _build_visuals() -> void:
 	col.shape = cs
 	_picker.add_child(col)
 	add_child(_picker)
+
+
+# White-hot at birth (just off the fireball) fading through orange to dark smoke as each ember ages —
+# the classic burning-reentry tail.
+func _fire_ramp() -> GradientTexture1D:
+	# Alpha fades from a hazy-hot core to fully transparent smoke, so the trail is translucent — you
+	# see terrain through it and it dissolves rather than reading as a solid ribbon.
+	var g: Gradient = Gradient.new()
+	g.set_color(0, Color(1.0, 0.95, 0.7, 0.75))
+	g.add_point(0.35, Color(1.0, 0.55, 0.12, 0.5))
+	g.add_point(0.7, Color(0.6, 0.16, 0.05, 0.22))
+	g.set_color(1, Color(0.12, 0.11, 0.11, 0.0))
+	var tex: GradientTexture1D = GradientTexture1D.new()
+	tex.gradient = g
+	return tex
+
+
+# Embers start full-size and shrink to nothing, so the trail tapers to a point behind the meteor.
+func _trail_scale_curve() -> CurveTexture:
+	var c: Curve = Curve.new()
+	c.add_point(Vector2(0.0, 1.0))
+	c.add_point(Vector2(1.0, 0.0))
+	var tex: CurveTexture = CurveTexture.new()
+	tex.curve = c
+	return tex
 
 
 func _make_trail_mesh() -> Mesh:
@@ -337,17 +380,5 @@ func _make_trail_mesh() -> Mesh:
 	mat.albedo_color = Color(1.0, 0.5, 0.1)
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
-	m.material = mat
-	return m
-
-
-func _make_debris_mesh() -> Mesh:
-	var m: BoxMesh = BoxMesh.new()
-	m.size = Vector3(0.6, 0.6, 0.6)
-	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.25, 0.18, 0.14)
-	mat.emission_enabled = true
-	mat.emission = Color(0.9, 0.35, 0.1)
-	mat.emission_energy_multiplier = 2.0
 	m.material = mat
 	return m

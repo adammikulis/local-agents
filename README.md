@@ -1,267 +1,172 @@
 # Local Agents (Godot)
 
-Current project focus is a deterministic 3D simulation vertical slice with ecology, mammals, and inspectable chemical smell fields.
+**Local large language models, running fully offline, driving both actions and responses inside a
+Godot game.** No cloud, no API keys, no network round-trip — the model runs on the player's own
+machine through a llama.cpp-backed GDExtension. A `LocalAgentsAgent` node loads a GGUF model and
+gives you two things at once: **responses** (chat, dialogue, a live commentator) and **actions**
+(a creature deciding to flee, a streamer reacting to what just happened on screen).
 
-## Current Scope
+The flagship showcase is an emergent voxel planet where herds think, disasters emerge from physics,
+and a local-LLM streamer narrates the chaos live — all offline.
 
-- `PlantRabbitField` scene as the active sandbox.
-- Edible plants as small thin green capsules with staged growth and flowering.
-- Rabbits as white spheres that forage, flee, eat plants, digest seeds, and reseed via poop.
-- Mammal smell behavior generalized via profile resources (rabbits and villagers share the same contract, with different sensitivities).
-- Smell and wind simulated on a shared sparse voxel field (clean break from active hex runtime path).
-- Click selection + inspector panel + spawn UI (targeted spawn and random spawn).
-- Camera controls for simulation editing (orbit/pan/zoom + right-click pan).
-- Debug overlays for smell, wind, and temperature with translucent voxel rendering.
+![The emergent voxel planet demo](addons/local_agents/docs/img/planet.png)
 
-## Core Runtime Model
+## What it is
 
-### Shared Voxel Infrastructure
+- **Offline-first local LLM in an engine.** Drop one node, point it at a GGUF model, call
+  `think()`, and read the reply. Everything runs in-process on the player's hardware.
+- **Actions and responses from the same runtime.** The same agent that answers a chat prompt can
+  emit an `action_requested` signal that game code turns into behavior. Creatures in the voxel sim
+  use fast local rules for the common case and call the model for novel situations; a streamer
+  overlay watches the sim and comments on it with generated speech (TTS) and, optionally, listens
+  back (STT).
+- **A native GDExtension** (`localagents`) wrapping llama.cpp for text generation, plus whisper.cpp
+  for transcription and Piper for speech — all embedded, all local.
 
-- `addons/local_agents/simulation/VoxelGridSystem.gd`
-- Used by:
-  - `SmellFieldSystem`
-  - `WindFieldSystem`
-  - `EcologyController` edible indexing/debug views
+## Origin story (an early local-LLM agent, since March 2024)
 
-### Chemistry-Driven Smell
+This project began on **2024-03-14** as **MindGame** (`adammikulis/MindGame`) — a C# / LlamaSharp
+Godot plugin for loading a `.gguf` model and chatting with it locally, with a built-in model
+download manager. That makes it **one of the earliest local-LLM agents embedded in a piece of
+software** that we're aware of.
 
-Plants and mammals emit chemical mixtures, not generic `food`/`danger` tags.
+It was hand-rolled for a pointed reason: at the time, the local-LLM binding it depended on
+(LlamaSharp, over the then-young llama.cpp) was **too new for the coding assistants of the day to
+know** — those models had little or no training coverage of the libraries the project needed, so
+there was no shortcut. It had to be written by hand.
 
-Examples currently modeled:
-- Plant/flower compounds: `hexanal`, `cis_3_hexenol`, `linalool`, `benzyl_acetate`, `phenylacetaldehyde`, `geraniol`, `methyl_salicylate`.
-- Taste/defense compounds: `sugars`, `tannins`, `alkaloids`.
-- Mammal/waste compounds: `ammonia`, `butyric_acid`, `2_heptanone`.
+Over roughly 2.3 years and ~830 commits it grew from that C# chat prototype into today's project:
+a GDScript addon backed by a native C++/llama.cpp GDExtension, and an emergent voxel ecosystem sim
+used as the live showcase. There's a light full-circle irony that a coding agent can now help
+finish an early local coding-agent project — the libraries it needed finally made it into the
+tools that couldn't help build it in 2024.
 
-Mammals convert these into behavior using weighted sensitivity profiles (`MammalProfileResource`).
+## Prerequisites (both are required to run)
 
-### Wind and Decay
+A fresh clone will **not** run until you have these two things. Neither is committed to the repo.
 
-- Smell advects with wind direction/intensity when enabled.
-- Smell decays over time.
-- Rain increases decay.
-- Wind field evolves spatially from base wind + terrain/temperature effects.
+### 1. The native extension binary
 
-## Field Controls
+The `localagents` GDExtension is a compiled C++ library (`bin/` is a gitignored build artifact). Get
+it one of two ways:
 
-Inside `PlantRabbitField`:
+- **Download a CI artifact (no toolchain needed).** The
+  [Build Extension (Cross-Platform)](.github/workflows/build-extension.yml) GitHub Actions workflow
+  builds Linux, Windows, and macOS binaries and uploads each as an artifact named
+  `localagents-<platform>-bin`. Download the one for your platform from the workflow run and unzip it
+  into `addons/local_agents/gdextensions/localagents/bin/`.
+- **Build it locally.** From the extension directory:
 
-- `LMB`: select actor / place spawn (when spawn mode active)
-- `Esc` or `RMB`: cancel spawn mode back to select
-- Spawn mode auto-resets to select after placing one entity
-- Mouse wheel: zoom
-- `MMB drag`: orbit
-- `Shift + MMB drag`: pan
-- `RMB drag`: pan
+  ```bash
+  cd addons/local_agents/gdextensions/localagents
+  ./scripts/fetch_dependencies.sh        # godot-cpp, llama.cpp, whisper.cpp, sqlite (+ the default model & voices)
+  ./scripts/build_extension.sh --platform macos   # or: linux | windows
+  ```
 
-Bottom HUD supports:
-- `Select`
-- `Spawn Plant`
-- `Spawn Rabbit`
-- `Spawn Random` with user-set counts
+  This produces `bin/localagents.<platform>.{dylib,so,dll}` plus the bundled runtimes. (Running
+  `fetch_dependencies.sh` without `--skip-models` also downloads the default GGUF model, covering
+  step 2 in one shot.)
 
-Right HUD shows inspector payload for selected entities.
+If the binary is missing, the runtime status will say so ("Native runtime missing…") instead of
+silently doing nothing.
 
-## Debug Views
+### 2. A GGUF model
 
-Debug overlay roots:
-- `SmellDebug`
-- `WindDebug`
-- `TemperatureDebug`
+The default model is **`Qwen3-4B-Instruct-2507-Q4_K_M.gguf`**, resolved from
+`user://local_agents/models/qwen3-4b-instruct/` (or the in-repo
+`addons/local_agents/models/` fetched by the build script).
 
-Rendering style:
-- Smell: translucent chemical voxel overlays.
-- Temperature: translucent blue-to-red voxel spectrum.
-- Wind: translucent directional vector markers.
+The friendliest way to get one: open the project in Godot, enable the **Local Agents** plugin, and
+use the **Local Agents → Downloads** bottom panel to fetch a model. It lands in the user models
+directory automatically.
 
-## Key Scenes and Scripts
+## 60-second quickstart
 
-- Scene: `addons/local_agents/scenes/simulation/PlantRabbitField.tscn`
-- Scene: `addons/local_agents/scenes/demos/VoxelWorldDemo.tscn` (seed + sliders + visible baked flowmap arrows)
-- Controller: `addons/local_agents/scenes/simulation/controllers/PlantRabbitField.gd`
-- Ecology orchestration: `addons/local_agents/scenes/simulation/controllers/EcologyController.gd`
-- Plant actor: `addons/local_agents/scenes/simulation/actors/EdiblePlantCapsule.gd`
-- Rabbit actor: `addons/local_agents/scenes/simulation/actors/RabbitSphere.gd`
-- Villager actor: `addons/local_agents/scenes/simulation/actors/VillagerCapsule.gd`
+1. **Get the native binary** (above) — download the CI artifact or build locally.
+2. **Get a model** (above) — the editor **Local Agents → Downloads** panel is the easy path.
+3. **Open the quickstart scene** `addons/local_agents/examples/AgentQuickstart.tscn`, press play,
+   type a prompt, and press enter.
 
-## Voxel Simulator Features
+![The quickstart scene answering a prompt with a local model](addons/local_agents/docs/img/quickstart.png)
 
-### World Generation
+That scene is literally **one `Agent` node plus a prompt box and a reply label**. To build the same
+thing from scratch, drop a `LocalAgentsAgent` node (once the plugin is enabled it shows up as
+**Agent** in the Add Node dialog) and wire five lines:
 
-- FastNoiseLite-based 3D voxel terrain generation with deterministic seeds.
-- Minecraft-style stratified block stacks: topsoil/subsoil/stone/water with caves.
-- Multiple terrain/resource block types in generated columns and block rows (soil variants + ore blocks).
-- Deterministic baked flow maps (downhill direction, accumulation, channel strength).
+```gdscript
+@onready var agent: LocalAgentsAgent = %Agent
 
-### Runtime Simulation
+func _ready() -> void:
+    agent.configure()                                  # picks up the default model + runtime
+    agent.model_output_received.connect(_on_reply)     # fires when the model answers
+    var result: Dictionary = agent.think("Say hello.") # runs the local model
+    if not result.get("ok", true):
+        push_warning("Agent unavailable: %s" % result.get("error", ""))
 
-- Deterministic voxel transform pipeline with generic transport/thermal/mechanics/failure passes (single runtime authority).
-- Transform snapshots and diagnostics are stage-agnostic contract payloads (`transform_snapshot`, `transform_diagnostics`) for runtime/bridge consumers.
-- Preset-based emitters drive destruction/environment edit emission; profile switches are preset changes, not runtime-stack swaps.
-- Material identity is required on active voxel state (`material_id`, `material_profile_id`, `material_phase_id`).
-- Runtime target bootstrap stamps default destructible target columns/wall during setup (`WorldSimulation` calls `simulation_controller.stamp_default_voxel_target_wall(...)` after `configure_environment(...)`).
-- Default fracture-prone column material profile is `rock` via canonical profile resolution (`stone`/`gravel` canonicalize to `rock`).
-- Transform execution is GPU-required; no CPU-success fallback path exists for unified transform runtime.
-- Legacy named stage requests (weather/hydrology/erosion/solar) are unsupported in active runtime and fail as `unsupported_legacy_stage`.
-
-### Rendering and GPU Shaders
-
-- Chunked terrain rendering via `MultiMeshInstance3D` for voxel blocks.
-- GPU flow and terrain shading sample generic transform field textures/buffers (no named stage authority).
-- GPU river-flow overlay shader driven by baked flow-map rows.
-- GPU cloud layers: animated cloud plane + volumetric cloud shell.
-- GPU post-processing effects are driven by transform diagnostics/material state instead of named weather-stage contracts.
-- Volumetric fog + automatic day/night sun animation, integrated with global lighting and SDFGI-enabled demo environment.
-
-### Integrated Demo and Controls
-
-- Single canonical scene: `VoxelWorldDemo` (project main scene).
-- Terrain controls include dimensions, sea level, surface base/range, noise frequency/octaves/lacunarity/gain, smoothing, and cave threshold.
-- Flow-map visualizer controls (show/hide, threshold, stride) with animated flow arrows.
-- Timelapse-style simulation controls (play/pause/fast-forward/rewind/fork) and state restore.
-- Live stats report generic transform metrics/diagnostics in demo HUD/status labels.
-- Integrated runtime stack in one scene: worldgen + unified transform runtime + settlement/culture/ecology controllers + debug overlays.
-
-Runtime target setup hook/config points:
-- Hook point: `addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd` (`configure_environment` then `stamp_default_voxel_target_wall` during ready/bootstrap).
-- Column mutation path: `addons/local_agents/simulation/controller/SimulationVoxelTerrainMutator.gd` (`stamp_default_target_wall`, `_apply_column_surface_delta`).
-- Canonical material profiles: `addons/local_agents/configuration/parameters/simulation/MaterialProfileTableResource.gd` (`rock`, `soil`, `water`, `ice`, `metal`, `wood`, `unknown`).
-
-Profile resources (defaults + wiring):
-- `TargetWallProfileResource` (`addons/local_agents/configuration/parameters/simulation/TargetWallProfileResource.gd`)
-  - `wall_height_levels=6`
-  - `column_extra_levels=4`
-  - `column_span_interval=3`
-  - `material_profile_key="rock"`
-  - `destructible_tag="target_wall"`
-  - `brittleness=1.0`
-- `FpsLauncherProfileResource` (`addons/local_agents/configuration/parameters/simulation/FpsLauncherProfileResource.gd`)
-  - `launch_speed=60.0`
-  - `launch_mass=0.2`
-  - `projectile_radius=0.07`
-  - `projectile_ttl_seconds=4.0`
-  - `launch_energy_scale=1.0`
-- Wiring
-  - `WorldSimulation` (`addons/local_agents/scenes/simulation/controllers/WorldSimulation.gd`) exposes `target_wall_profile_override` and `fps_launcher_profile_override`; in `_ready()` it applies the target-wall override via `simulation_controller.set_target_wall_profile(...)` and stamps via `stamp_default_voxel_target_wall(...)`.
-  - `WorldSimulation` configures `FpsLauncherController` with `configure(world_camera, self, fps_launcher_profile_override)`.
-  - `FpsLauncherController` (`addons/local_agents/scenes/simulation/controllers/world/FpsLauncherController.gd`) maps the profile into live launcher values in `_apply_profile_resource(...)`.
-
-## Run
-
-```bash
-godot --path . --editor
+func _on_reply(text: String) -> void:
+    print(text)
 ```
 
-Project is configured to launch `VoxelWorldDemo` as the main scene.
+`think(prompt)` records the prompt, runs the local model, returns a result `Dictionary`, and emits
+`model_output_received` with the text. For TTS/STT use `say(text)` / `listen()`; to drive game
+behavior, connect the `action_requested(action, params)` signal.
 
-Headless smoke boot:
+## Demos
+
+Each demo is a scene you can open and run. The examples form a **ladder**: each rung adds one
+capability over the last, so you can watch features layer up from a one-node chatbot to the flagship
+planet sim. The friendliest entry point is the **launcher**, which lists every demo with a one-line
+description and an Open button.
+
+| Demo | Scene | What it shows |
+| --- | --- | --- |
+| **Demo launcher** (start here) | `addons/local_agents/examples/DemoLauncher.tscn` | The front door — a menu of every demo below, ordered simplest to fullest, each with a one-click Open button. |
+| **1. Quickstart** | `addons/local_agents/examples/AgentQuickstart.tscn` | The smallest "talk to a local LLM" scene — one `Agent` node, a prompt box, a reply. |
+| **2. Agent drives actions** | `addons/local_agents/examples/AgentActionsDemo.tscn` | The actions loop that makes an agent more than a chatbot — the model's reply becomes `enqueue_action` calls that recolor and pulse an on-screen orb (manual buttons fire the same actions, so it works with no model). |
+| **3. Two agents converse** | `addons/local_agents/examples/AgentConversationDemo.tscn` | Cognition + memory — Ada and Ben take turns, and every line is recorded as a node in a shared `LocalAgentsGraph` (chained by `then` edges) that grows as the conversation's memory. |
+| **4. Chat** | `addons/local_agents/examples/ChatExample.tscn` | A fuller chat UI with model/inference configuration, runtime-health status, and saved conversations. |
+| **5. 3D Agent** | `addons/local_agents/examples/Agent3DExample.tscn` | A talking 3D agent prefab driven by the same runtime, with an on-screen setup checklist. |
+| **6. Graph** | `addons/local_agents/examples/GraphExample.tscn` | The `LocalAgentsGraph` resource (nodes/edges) for structured agent knowledge — runs without a model. |
+| **Voxel planet sim** (flagship) | `addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn` | An emergent ecosystem on a voxel planet: one chemistry-like material substrate (heat, water, wind, fire, lava, erosion…), herds that forage/flee/hunt with kinship, disasters that emerge from physics rather than scripts, and a local-LLM streamer narrating it live. |
+
+The voxel sim is also the project's `run/main_scene`, so pressing play on the project launches it.
+It self-harnesses for non-interactive runs:
 
 ```bash
-godot --headless --no-window --path . addons/local_agents/scenes/simulation/PlantRabbitField.tscn --quit
+# headless smoke boot: prints one SIM_REPORT={...} telemetry line, then quits
+godot --headless res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --run-frames=300
+
+# windowed screenshot (whole-planet vista); also --auto-meteor / --auto-volcano / --auto-lightning
+godot res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --shoot=/tmp/shot.png --overview
 ```
 
-World generation demo:
-
-```bash
-godot --path . addons/local_agents/scenes/demos/VoxelWorldDemo.tscn
-```
+> A new `.gd` `class_name` or `.gdextension` only registers after an editor scan — run
+> `godot --headless --editor --quit-after 400` once, or new classes report as missing.
 
 ## Tests
 
-Core harness:
+The unified harness wraps the canonical runners, tees a log, and prints one
+`AGENT_HARNESS_RESULT={...}` line:
 
 ```bash
-godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd --skip-heavy
+scripts/agent_harness.sh fast       # fast test sweep
+scripts/agent_harness.sh all        # full suite
+scripts/agent_harness.sh bounded    # bounded runtime-heavy suite
+scripts/agent_harness.sh extension  # validate the GDExtension
+scripts/agent_harness.sh lint       # typing + process gates
 ```
 
-Fast local harness (reduced core set, skips runtime-heavy by default):
+Run one module through the canonical helper (never launch a `test_*.gd` directly):
 
 ```bash
-godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd --fast --skip-heavy
+scripts/run_single_test.sh test_agent_integration.gd
 ```
-
-Bounded runtime-heavy harness (each heavy test runs in its own process with per-test timeout):
-
-```bash
-godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd
-```
-
-Canonical destruction-only sequence (non-headless FPS fire verification first, then headless suite):
-
-```bash
-scripts/run_destruction_tests.sh
-```
-
-Run one `test_*.gd` module via the canonical helper (default timeout is `120` seconds):
-
-```bash
-scripts/run_single_test.sh test_native_voxel_op_contracts.gd
-scripts/run_single_test.sh test_native_voxel_op_contracts.gd --timeout=180
-```
-
-Equivalent direct harness invocation (when needed):
-
-```bash
-godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_op_contracts.gd --timeout=120
-```
-
-Banned direct invocation (do not run test modules as SceneTree scripts):
-
-```bash
-godot --headless --no-window -s addons/local_agents/tests/test_native_voxel_op_contracts.gd
-```
-
-This is enforced in automation via `scripts/check_no_direct_refcounted_invocation.sh` (invoked by `scripts/check_max_file_length.sh`).
-
-CI timeout policy for deterministic replay/runtime shards:
-- Default shard budget: `120` seconds.
-- GPU/mobile-oriented shard budget: `180` seconds.
-
-Optional explicit GPU/mobile run:
-
-```bash
-godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --use-gpu --timeout-sec=180
-```
-
-Run a subset with `--tests` (comma-separated, full path or filename):
-
-```bash
-godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --timeout-sec=120 --tests=test_simulation_villager_cognition.gd,test_agent_runtime_heavy.gd
-```
-
-Run the destruction-only bounded suite directly:
-
-```bash
-godot --headless --no-window -s addons/local_agents/tests/run_runtime_tests_bounded.gd -- --suite=destruction --timeout-sec=120
-```
-
-Useful runtime test flags:
-- `--workers=<N>`: run bounded runtime tests in parallel processes.
-- `--fast`: select a reduced runtime-heavy subset.
-- `--use-gpu --gpu-layers=<N>`: opt into GPU layer offload for runtime tests.
-- `--context-size=<N> --max-tokens=<N>`: override runtime model load context and token limits in heavy tests.
-
-CPU vs GPU voxel benchmark:
-
-```bash
-# CPU-only simulation pipeline timing
-godot --headless --no-window -s addons/local_agents/tests/benchmark_voxel_pipeline.gd -- --mode=cpu --iterations=3 --ticks=96 --width=64 --height=64 --world-height=40
-
-# GPU render-path timing (run with rendering, not headless)
-godot --path . -s addons/local_agents/tests/benchmark_voxel_pipeline.gd -- --mode=gpu --iterations=3 --gpu-frames=120 --width=64 --height=64 --world-height=40
-```
-
-Notes:
-- Current terrain noise generation is CPU-side; GPU benchmark covers shader/render upload/update loops.
-- Compare `cpu.mean_ms` vs `gpu.total.mean_ms` and `gpu.avg_frame.mean_ms` from JSON output.
-
-Targeted deterministic checks include:
-- `addons/local_agents/tests/test_smell_field_system.gd`
-- `addons/local_agents/tests/test_wind_field_system.gd`
 
 ## Notes
 
-- Runtime is intentionally scene-first and resource-driven.
-- Prefer voxel-native simulation/collision/destruction as the default implementation path.
-- Use `RigidBody3D` only as a minimal, exception-based choice.
-- Required systems should fail fast rather than silently fallback.
-- `ARCHITECTURE_PLAN.md` tracks breaking changes and migration status.
+- Runtime is scene-first and resource-driven; simulation-authoritative compute targets GPU/native
+  and fails fast (`GPU_REQUIRED` / `NATIVE_REQUIRED`) rather than silently degrading. The one
+  legitimate CPU form is the headless/no-GPU fallback.
+- Process and Godot rules are canonical in `CLAUDE.md` and `GODOT_BEST_PRACTICES.md`;
+  `ARCHITECTURE_PLAN.md` tracks breaking changes. The emergent-design north star and worked
+  examples live in `addons/local_agents/scenes/simulation/voxel/EMERGENCE.md`.

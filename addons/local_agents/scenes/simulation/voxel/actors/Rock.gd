@@ -36,16 +36,12 @@ func setup(terrain) -> void:
 	_snap_to_surface()
 
 func _snap_to_surface() -> void:
-	if _terrain == null or not _terrain.has_method("surface_height"):
+	if _terrain == null or not _terrain.has_method("ground_point"):
 		return
-	var y = _terrain.surface_height(global_position.x, global_position.z)
-	if typeof(y) != TYPE_FLOAT and typeof(y) != TYPE_INT:
+	var sp: Vector3 = _terrain.ground_point(global_position)   # radial re-seat onto the ground
+	if is_nan(sp.x):
 		return
-	if is_nan(float(y)):
-		return
-	var pos: Vector3 = global_position
-	pos.y = float(y)
-	global_position = pos
+	global_position = sp
 
 func get_inspector_payload() -> Dictionary:
 	return {

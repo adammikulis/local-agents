@@ -1,0 +1,38 @@
+{
+  "species": "fox",
+  "diet": "carnivore",
+  "speed": 4.6,
+  "size": 0.8,
+  "color": [
+    0.82,
+    0.36,
+    0.12
+  ],
+  "can_fly": false,
+  "sense_radius": 16.0,
+  "maturity_age": 20.0,
+  "preys_on": [
+    "rabbit",
+    "mouse",
+    "fish"
+  ],
+  "flees_from": [],
+  "herd": false,
+  "hierarchy": "family",
+  "pop_cap": 12,
+  "nocturnal": true,
+  "max_energy": 130.0,
+  "metabolism": 1.7,
+  "food_value": 70.0,
+  "thirst_rate": 1.0,
+  "flock_cohesion": 0.25,
+  "flock_alignment": 0.4,
+  "flock_separation": 0.85,
+  "flock_radius": 12.0,
+  "flock_weight": 0.5,
+  "eye_fov": 100.0,
+  "hearing_range": 18.0,
+  "nests": true,
+  "nest_habitat": "ground",
+  "max_age": 220.0
+}

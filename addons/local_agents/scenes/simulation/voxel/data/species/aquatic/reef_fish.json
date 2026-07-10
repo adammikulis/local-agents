@@ -1,0 +1,23 @@
+{
+	"species": "reef_fish",
+	"aquatic": true,
+	"diet": "insectivore",
+	"preys_on": ["bug", "shrimp"],
+	"model": "fish",
+	"tint_model": true,
+	"body": "fish",
+	"speed": 3.0,
+	"size": 0.28,
+	"color": [0.95, 0.55, 0.18],
+	"salinity_min": 0.55,
+	"salinity_max": 1.0,
+	"depth_min": 1.0,
+	"depth_max": 14.0,
+	"submerge": 0.4,
+	"sense_radius": 9.0,
+	"maturity_age": 11.0,
+	"food_value": 22.0,
+	"max_age": 120.0,
+	"pop_cap": 18,
+	"initial": 8
+}

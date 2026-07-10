@@ -93,6 +93,13 @@ func configure(voice: LocalAgentsSynthVoice = null, sample_rate: int = 44100, se
 	_base_tempo = _tempo_bpm
 	_begin_section(_arranger.next_section(_rng, not _mode_locked, _arrangement_enabled))
 
+## Re-seed the generative RNG in place (no player rebuild) so each session's music evolves
+## differently. Feeds a fresh section from the new seed. Cheap — just reseats the sequencer.
+func reseed(seed: int) -> void:
+	_rng.seed = seed
+	_arranger.reset()
+	_begin_section(_arranger.next_section(_rng, not _mode_locked, _arrangement_enabled))
+
 func _steps_per_bar() -> int:
 	return STEPS_PER_BEAT * maxi(2, _beats_per_bar)
 

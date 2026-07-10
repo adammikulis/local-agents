@@ -37,12 +37,23 @@ var max_scale: float = 1.0
 var age: float = 0.0
 var toppled: bool = false
 
+# --- health / HP: a taller trunk takes more punishment before a blast fells it. 0 HP = topple. ---
+var health: float = 100.0
+var max_health: float = 100.0
+
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _tilt: float = 0.0               # small resting lean of the whole tree
 var _upright_basis: Basis = Basis.IDENTITY
 var _topple_axis: Vector3 = Vector3.RIGHT
 var _topple_t: float = 0.0
 var _topple_tween_active: bool = false
+
+# GPU-instanced rendering: the tree registers with the shared LAVegetationRenderer and pushes its transform
+# WHILE growing or toppling, then settles (zero per-frame render cost). Falls back to procedural trunk+canopy
+# meshes if no renderer is wired (headless tests). Its visual type ("tree_oak"/"tree_pine") is its species.
+var _veg = null                      # LAVegetationRenderer (injected before setup)
+var _veg_slot: int = -1
+var _render_settled: bool = false
 
 
 func setup(_terrain, _config: Dictionary = {}) -> void:
@@ -80,21 +91,34 @@ func setup(_terrain, _config: Dictionary = {}) -> void:
 	# Slight resting lean so a stand of trees doesn't look regimented.
 	_tilt = _rng.randf_range(-0.06, 0.06)
 
+	# HP scales with trunk height: a big tree survives a blast that fells a sapling.
+	max_health = maxf(60.0 + trunk_height * 40.0, 40.0)
+	health = max_health
+
 	collision_layer = 2
 	collision_mask = 0
 	add_to_group(GROUP_SELECTABLE)
 	add_to_group(GROUP_TREE)
 
-	_build_trunk()
-	if species == "pine":
-		_build_pine_canopy()
-	else:
-		_build_broadleaf_canopy()
+	# Prefer the shared GPU-instanced renderer (one batched draw for every tree of this species). If wired,
+	# register a slot and skip the per-tree model — the MultiMesh draws it. Otherwise build a Kenney Nature
+	# Kit model (base-anchored), falling back to procedural trunk+canopy.
+	var instanced: bool = false
+	if _veg != null:
+		_veg_slot = _veg.register(_render_type())
+		instanced = _veg_slot >= 0
+	if not instanced and not _build_model():
+		_build_trunk()
+		if species == "pine":
+			_build_pine_canopy()
+		else:
+			_build_broadleaf_canopy()
 	_build_collision()
 
 	_apply_resting_tilt()
 	_snap_to_surface()
 	_apply_growth()
+	_sync_render()   # push the initial sapling pose into the instanced batch
 
 
 func _jitter_hue(base: Color, amount: float = 0.05) -> Color:
@@ -110,6 +134,22 @@ func _make_material(col: Color) -> StandardMaterial3D:
 	mat.roughness = 0.95
 	mat.metallic = 0.0
 	return mat
+
+
+## Build the species model at trunk height. Returns true on success, false to trigger the
+## procedural fallback (unknown species model / load failure).
+func _build_model() -> bool:
+	var id: String = "tree_pine" if species == "pine" else "tree_oak"
+	var def: Dictionary = LAActorModels.get_def(id)
+	if String(def.get("path", "")).is_empty():
+		return false
+	var model: Node3D = LAModelVisual.build(def["path"], trunk_height, "base", float(def.get("yaw", 0.0)), Color(0, 0, 0, 0))
+	if model == null:
+		return false
+	LAModelVisual.recolor(model, def.get("recolor", {}))   # fix Kenney's cyan-shifted foliage
+	model.name = "TreeModel"
+	add_child(model)
+	return true
 
 
 func _build_trunk() -> void:
@@ -188,24 +228,35 @@ func _build_collision() -> void:
 	add_child(shape)
 
 
+# Local "up" the tree stands along: radial on a planet, +Y on the flat island (safe both modes).
+func _up_axis() -> Vector3:
+	if terrain != null and terrain.has_method("up_at"):
+		var u: Vector3 = terrain.up_at(global_position)
+		if u.length() > 0.0001:
+			return u.normalized()
+	return Vector3.UP
+
+
 func _apply_resting_tilt() -> void:
 	# Store the upright orientation (with lean) so topple can rotate from it.
-	_upright_basis = Basis(Vector3.FORWARD, _tilt)
+	# Stand radially: local +Y = radial up, then apply the small resting lean about a tangent axis.
+	var up: Vector3 = _up_axis()
+	var ref: Vector3 = Vector3.FORWARD if absf(up.dot(Vector3.FORWARD)) < 0.9 else Vector3.RIGHT
+	var right: Vector3 = up.cross(ref).normalized()
+	var fwd: Vector3 = right.cross(up).normalized()
+	_upright_basis = Basis(right, up, fwd).rotated(right, _tilt)
 	transform.basis = _upright_basis
 
 
 func _snap_to_surface() -> void:
-	if terrain == null or not terrain.has_method("surface_height"):
+	if terrain == null:
 		return
-	var y = terrain.surface_height(global_position.x, global_position.z)
-	if typeof(y) != TYPE_FLOAT and typeof(y) != TYPE_INT:
-		return
-	var yf: float = float(y)
-	if is_nan(yf) or is_inf(yf):
-		return
-	var pos: Vector3 = global_position
-	pos.y = yf
-	global_position = pos
+	# Snap onto the solid surface along our radial ray.
+	var center: Vector3 = terrain.planet_center()
+	var dir: Vector3 = (global_position - center).normalized()
+	var surf: Vector3 = terrain.surface_point(dir)
+	if not is_nan(surf.x):
+		global_position = surf
 
 
 func _physics_process(delta: float) -> void:
@@ -213,9 +264,19 @@ func _physics_process(delta: float) -> void:
 		# The Tween (if any) drives the fall; otherwise lerp it here.
 		if not _topple_tween_active:
 			_advance_topple(delta)
+		# Follow the fall in the instanced batch until it settles flat.
+		if not _render_settled:
+			_sync_render()
+			if _topple_t >= 1.0:
+				_render_settled = true
 		return
 	age += delta
 	_apply_growth()
+	# Push the growing pose until mature; then settle (no per-frame render cost) until a topple wakes it.
+	if not _render_settled:
+		_sync_render()
+		if _grown_fraction() >= 1.0:
+			_render_settled = true
 
 
 func _grown_fraction() -> float:
@@ -247,20 +308,34 @@ func get_inspector_payload() -> Dictionary:
 	}
 
 
+# Deterministic HP damage from a blast/lightning. When HP runs out the tree topples away from
+# the blow (impulse direction); a felled tree ignores further damage.
+func take_damage(amount: float, _cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
+	if toppled or amount <= 0.0:
+		return
+	health -= amount
+	if health <= 0.0:
+		topple(impulse)
+
+
 func topple(direction: Vector3) -> void:
 	if toppled:
 		return
 	toppled = true
-	# Rotate about the horizontal axis perpendicular to the fall direction.
-	var dir: Vector3 = Vector3(direction.x, 0.0, direction.z)
+	_render_settled = false   # wake the instanced pose so the fall animates in the batch
+	# Rotate about the tangent axis perpendicular to the fall direction. "Down" is along local up
+	# (radial on a planet, +Y on the flat island), so project the fall direction into the tangent plane.
+	var up: Vector3 = _up_axis()
+	var dir: Vector3 = direction - up * direction.dot(up)
 	if dir.length() < 0.001:
-		dir = Vector3(_rng.randf_range(-1.0, 1.0), 0.0, _rng.randf_range(-1.0, 1.0))
+		var r: Vector3 = Vector3(_rng.randf_range(-1.0, 1.0), _rng.randf_range(-1.0, 1.0), _rng.randf_range(-1.0, 1.0))
+		dir = r - up * r.dot(up)
 		if dir.length() < 0.001:
-			dir = Vector3.RIGHT
+			dir = up.cross(Vector3.RIGHT if absf(up.dot(Vector3.RIGHT)) < 0.9 else Vector3.FORWARD)
 	dir = dir.normalized()
 	# Axis is perpendicular to fall direction and to up, so the crown swings
 	# toward `direction`.
-	_topple_axis = Vector3.UP.cross(dir).normalized()
+	_topple_axis = up.cross(dir).normalized()
 	if _topple_axis.length() < 0.001:
 		_topple_axis = Vector3.RIGHT
 	_topple_t = 0.0
@@ -278,3 +353,29 @@ func _set_topple_progress(t: float) -> void:
 	var eased: float = ease(_topple_t, 2.2)
 	var fall: Basis = Basis(_topple_axis, eased * TOPPLE_ANGLE)
 	transform.basis = fall * _upright_basis
+
+
+# Injected by LAEcologyService before setup(): the shared GPU-instanced vegetation renderer.
+func set_vegetation_renderer(r) -> void:
+	_veg = r
+
+
+# The instanced visual type is the tree's species — a separate MultiMesh per species keeps oak/pine coloured
+# correctly (each has its own recolored prototype). Config-driven, no per-species branch in the render path.
+func _render_type() -> String:
+	return "tree_pine" if species == "pine" else "tree_oak"
+
+
+# Write our current pose into the shared instanced batch. The prototype mesh is height-normalized to 1, so we
+# scale by trunk_height; our node transform already carries orientation + growth scale + any topple rotation.
+func _sync_render() -> void:
+	if _veg_slot < 0 or _veg == null:
+		return
+	var b: Basis = transform.basis.scaled(Vector3.ONE * trunk_height)
+	_veg.set_xform(_render_type(), _veg_slot, Transform3D(b, transform.origin))
+
+
+func _exit_tree() -> void:
+	if _veg_slot >= 0 and _veg != null:
+		_veg.release(_render_type(), _veg_slot)
+		_veg_slot = -1

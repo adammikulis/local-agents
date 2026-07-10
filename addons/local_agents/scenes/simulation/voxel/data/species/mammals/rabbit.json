@@ -1,0 +1,38 @@
+{
+  "species": "rabbit",
+  "diet": "herbivore",
+  "speed": 3.6,
+  "size": 0.55,
+  "color": [
+    0.72,
+    0.58,
+    0.44
+  ],
+  "can_fly": false,
+  "sense_radius": 9.0,
+  "maturity_age": 14.0,
+  "preys_on": [],
+  "flees_from": [
+    "fox",
+    "villager"
+  ],
+  "herd": true,
+  "leader_loyalty": 0.0,
+  "hierarchy": "family",
+  "pop_cap": 55,
+  "max_energy": 85.0,
+  "metabolism": 1.8,
+  "breath_capacity": 5.0,
+  "food_value": 50.0,
+  "thirst_rate": 1.1,
+  "flock_cohesion": 0.6,
+  "flock_alignment": 0.55,
+  "flock_separation": 1.1,
+  "flock_radius": 8.0,
+  "flock_weight": 0.9,
+  "eye_fov": 320.0,
+  "hearing_range": 16.0,
+  "nests": true,
+  "nest_habitat": "ground",
+  "max_age": 170.0
+}

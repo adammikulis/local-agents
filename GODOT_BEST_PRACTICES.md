@@ -135,24 +135,34 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 
 ## Headless Harness Invocation (Mandatory)
 
+- Preferred entrypoint: `scripts/agent_harness.sh <fast|all|bounded|single|smoke|extension|lint>`
+  wraps the canonical runners, tees a log, and prints one `AGENT_HARNESS_RESULT={...}` line.
 - Always run SceneTree harness scripts via `godot --headless --no-window -s <script>`.
 - Canonical harness scripts:
   - `addons/local_agents/tests/run_all_tests.gd`
   - `addons/local_agents/tests/run_runtime_tests_bounded.gd`
   - `addons/local_agents/tests/run_single_test.gd`
-  - `addons/local_agents/tests/benchmark_voxel_pipeline.gd`
 - `addons/local_agents/tests/test_*.gd` modules are usually `RefCounted` test definitions, not SceneTree entrypoints; never launch directly with `godot -s test_x.gd`.
-- Canonical helper for single-test execution: `scripts/run_single_test.sh test_native_voxel_op_contracts.gd` (defaults to `--timeout=120`).
-- Canonical helper for destruction-path validation sequence: `scripts/run_destruction_tests.sh` (runs non-headless FPS fire harness first, then `--suite=destruction` headless suite).
+- Canonical helper for single-test execution: `scripts/run_single_test.sh test_agent_integration.gd` (defaults to `--timeout=120`).
 - Execute `test_*.gd` modules through `addons/local_agents/tests/run_single_test.gd` and pass the test path with `-- --test=res://...` and explicit timeout.
 - Correct example: `godot --headless --no-window -s addons/local_agents/tests/run_all_tests.gd -- --timeout=120`
 - Broken example: `godot --headless --no-window addons/local_agents/tests/run_all_tests.gd` (`doesn't inherit from SceneTree or MainLoop`)
-- Correct example: `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_native_voxel_op_contracts.gd --timeout=120`
-- Banned example: `godot --headless --no-window -s addons/local_agents/tests/test_native_voxel_op_contracts.gd`
+- Correct example: `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_agent_integration.gd --timeout=120`
+- Banned example: `godot --headless --no-window -s addons/local_agents/tests/test_agent_integration.gd`
+- **Voxel scene self-harness** (the active `VoxelWorld.tscn`): pass args after `--`. Headless smoke
+  `godot --headless res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --run-frames=300`
+  prints `SIM_REPORT={...}`; windowed `--shoot=<png> --shoot-frames=N` screenshots, `--overview`
+  frames a wide island vista, `--time=<0..1>` sets time of day, and `--auto-meteor`/`--auto-volcano`/
+  `--auto-lightning` trigger disasters. A NEW `class_name`/`.gdextension` needs one editor scan first
+  (`godot --headless --editor --quit-after 400`).
 - Never pass a harness `.gd` as a main scene path without `-s`.
 - When forwarding arguments to harnesses, keep the `--` separator.
 - Keep README command templates synchronized with this file.
 - For scene/playability validation, do not rely only on editor/manual launch; use harness-driven headless execution to surface parse/runtime failures.
+- Historical note: the native projectile-voxel-destruction path (and its `run_destruction_tests.sh` /
+  `benchmark_voxel_pipeline.gd` / `test_native_voxel_op_*` harnesses) was removed with the C++ voxel/sim
+  sources; the destruction-specific invariants and error-log entries below are retained as native/GPU
+  policy and history, not as current commands.
 
 ## Plugin UX and Documentation Process
 
@@ -213,3 +223,20 @@ var value: Variant = payload_dict.get("key", fallback)
   - Success requires explicit native mutation evidence (`mutation_applied == true` or equivalent typed contract field); missing evidence must hard-fail with a typed code.
   - Deadline misses must emit explicit typed failure (`PROJECTILE_MUTATION_DEADLINE_EXCEEDED`) and must never be downgraded to no-op/success in wrappers.
   - Validation must include launched-window FPS fire verification plus headless contract tests asserting no success state is reachable when native mutation evidence is absent.
+
+### 2026-07-08: new `.glsl` compute kernels break at a MERGE boundary (gitignored `.import`)
+
+- Failure: `feature/sphere-spike` merged into `0.3-dev` cleanly and the *worktree* booted with 0 errors, but the *primary* checkout then threw ~23 `ERROR: No loader found for resource: …/kernels3d/*_sphere3d.glsl` + `Cannot call method 'get_spirv' on a null value`. The compute `.glsl` files are committed, but their generated `.glsl.import` resources are **gitignored** — so `load(<kernel>.glsl)` returns null (no `RDShaderFile`) in any checkout/worktree that has not run an editor import scan since the kernels arrived.
+- Root cause: the "a NEW `.glsl`/`class_name` only registers after an editor scan" rule is not just a first-author gotcha — it recurs at EVERY boundary where the `.glsl` lands without its `.import`: a fresh clone, a **new worktree checkout**, and a **merge into another checkout**.
+- Preventative pattern:
+  - After merging (or checking out) a branch that ADDS or CHANGES `kernels3d/*.glsl`, run `godot --headless --editor --quit-after 600 --path .` ONCE in that checkout before any run/validation, then re-verify boot.
+  - When a GPU kernel load returns null / `get_spirv on null`, suspect a missing `.import` (unscanned checkout) BEFORE suspecting the shader — check for the `.glsl.import` file first.
+  - A green boot in the authoring worktree does NOT certify other checkouts; the merge target must be booted + scanned independently before claiming the merge is clean (done here — primary re-verified 0 errors post-scan).
+
+### 2026-07-09: FIXED — `rc=134` SIGABRT at process exit under Metal/MoltenVK (clean exit via `LAAppExit` + `LAProcess.exit_now`)
+
+- Symptom (was): a windowed Metal run (`scripts/run_sim_offscreen.sh … VoxelWorld.tscn -- --run-frames=N`) printed `SIM_REPORT={…}` normally, then aborted on the way out with `libc++abi: terminating due to uncaught exception … recursive_mutex lock failed: Invalid argument` and exited `rc=134`.
+- Root cause: the ordinary `SceneTree.quit()` path on macOS runs through `-[NSApplication terminate:]`, which posts `NSApplicationWillTerminate` → a MoltenVK (`mvk…`) termination-observer locks an already-destroyed `std::recursive_mutex` and aborts. There are **no GDScript frames** in the stack — it fires during `NSApplication` teardown, AFTER `SceneTree`/`_exit_tree`/`dispose()` have returned. It is downstream of, and independent of, our resource management: freeing every RID + the local `RenderingDevice` (0 leaked RIDs) does NOT prevent it (verified `feature/gpu-teardown`).
+- The fix (`feature/clean-quit`): we take ownership of the exit. All quit call sites (VoxelWorld `--shoot`, VoxelHarness `--run-frames`, VoxelPauseMenu, MainMenu, MenuShooter) route through the `AppExit` autoload (`scenes/AppExit.gd`, class `LAAppExit`) via `LAAppExit.request(node, code)`. On a real quit it lets saves/config (already written synchronously) and `SIM_REPORT` settle for one idle frame, then calls the native `LAProcess.exit_now(code)` (`gdextensions/localagents`, `std::_Exit`): flush stdio → terminate immediately, running NO C++ static destructors and firing NO AppKit termination notification, so MoltenVK's observer never runs. Windowed `--run-frames=150` now exits **rc 0** with SIM_REPORT intact and no `recursive_mutex`/abort. The kernel reclaims all memory/GPU on `_Exit`, so no data is lost and no RID leaks persist. `LAAppExit` also sets `auto_accept_quit(false)` and handles `NOTIFICATION_WM_CLOSE_REQUEST` so the window-`X` button takes the same clean path.
+- Still-correct discipline (kept): free every RID + the local `RenderingDevice` while the tree is up (`MaterialField3D._exit_tree` → `_gpu.dispose()`, each sphere pass a `dispose(rd)`). That remains the right hygiene for the editor/headless teardown and any RID-ordering crash; the hard exit is layered on top for the windowed Metal case only.
+- Gating: a windowed Metal run should now exit `rc 0` with `SIM_REPORT` (sane aggregates) as the last meaningful line. A returning `rc=134` with the `NSApplication terminate:` → `recursive_mutex` MoltenVK frame means the quit path bypassed `LAAppExit`/`LAProcess` (check the extension loaded + the autoload is registered); any `rc=134` with a GDScript frame in the stack IS a real regression to investigate.
