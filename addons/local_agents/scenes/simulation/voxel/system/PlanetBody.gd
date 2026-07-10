@@ -36,6 +36,10 @@ func setup(opts: Dictionary = {}) -> void:
 	actors_root.name = "Actors"
 	add_child(actors_root)
 
+	# Register as a gravity source for the N-body integrator (LAGravity). Every free body (meteors, ejecta,
+	# ships) is a test particle summing the pull of all `gravity_body` members — orbits/flybys/slingshots emerge.
+	add_to_group("gravity_body")
+
 
 func terrain() -> RefCounted:
 	return _terrain

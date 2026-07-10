@@ -22,15 +22,14 @@ extends Node3D
 # --- Tunables -----------------------------------------------------------------
 const SPAWN_HEIGHT: float = 140.0          # fallback drop height when launched with no camera origin
 const START_SPEED: float = 70.0            # initial fall speed (units/s) for the fallback drop
-const LAUNCH_SPEED: float = 150.0          # speed when fired from the camera like an FPS projectile
-const STEER_RATE: float = 3.4              # how fast the projectile homes its heading onto the target
-const GRAVITY: float = 55.0                # downward acceleration (units/s^2), fallback drop only
-const MAX_SPEED: float = 260.0
+const LAUNCH_SPEED: float = 150.0          # fallback launch speed only if no gravity body exists yet
+const MAX_SPEED: float = 600.0             # cap so a slingshot can't run away numerically
+const ESCAPE_RADIUS_MULT: float = 30.0     # free the rock once it coasts this many body-radii out (left the system)
+const MAX_LIFETIME: float = 240.0          # absolute lifespan cap so long-lived orbiters eventually clear
 const IMPACT_RADIUS: float = 10.0          # carve radius — large & dramatic
 const DAMAGE_SCALE: float = 1.6            # ecology damage radius = radius * this
 const BODY_RADIUS: float = 1.4
 const FX_LINGER: float = 1.8               # seconds of FX after impact before free
-const SAFETY_FALL_TIME: float = 12.0       # force impact if it never reaches ground
 
 enum State { IDLE, FALLING, IMPACTED }
 
@@ -78,22 +77,31 @@ func launch(target: Vector3, from_pos: Vector3 = Vector3(INF, INF, INF)) -> void
 	_target = target
 	_size = randf_range(0.55, 2.3)
 	if is_finite(from_pos.x) and is_finite(from_pos.y) and is_finite(from_pos.z):
-		# Fire from the camera itself so it reads as a projectile leaving screen centre toward the
-		# crosshair; a small forward nudge keeps it from spawning inside the near plane.
+		# Player-fired: leave the camera along the aim ray and then COAST under real N-body gravity — aim
+		# tangential to a body and it settles into ORBIT, aim inward and it strikes, aim fast/outward and it
+		# escapes. Launch at the local circular-orbit speed so a sideways flick actually orbits.
 		var aim: Vector3 = target - from_pos
 		if aim.length() < 0.001:
 			aim = Vector3.DOWN
 		aim = aim.normalized()
 		_spawned_at = from_pos + aim * 3.0
 		_guided = true
-		_velocity = aim * LAUNCH_SPEED
+		var vcirc: float = LAGravity.circular_speed(get_tree(), _spawned_at)
+		_velocity = aim * (vcirc if vcirc > 1.0 else LAUNCH_SPEED)
 	else:
-		var lateral: Vector3 = Vector3(randf_range(-24.0, 24.0), 0.0, randf_range(-24.0, 24.0))
-		_spawned_at = target + Vector3(0.0, SPAWN_HEIGHT, 0.0) + lateral
+		# Auto/ambient drop: spawn radially "up" (away from the nearest body's core) above the target and
+		# fall inward, so ballistic strikes head straight at the planet instead of drifting toward world -Y.
+		var up0: Vector3 = _up_at(target)
+		var tangent: Vector3 = up0.cross(Vector3.RIGHT)
+		if tangent.length() < 0.01:
+			tangent = up0.cross(Vector3.FORWARD)
+		tangent = tangent.normalized()
+		var lateral: Vector3 = tangent * randf_range(-24.0, 24.0) + up0.cross(tangent).normalized() * randf_range(-24.0, 24.0)
+		_spawned_at = target + up0 * SPAWN_HEIGHT + lateral
 		_guided = false
 		var dir: Vector3 = _target - _spawned_at
 		if dir.length() < 0.001:
-			dir = Vector3.DOWN
+			dir = -up0
 		_velocity = dir.normalized() * START_SPEED
 	global_position = _spawned_at
 	# Bigger rock = bigger visual body, glow and trail.
@@ -135,19 +143,12 @@ func _physics_process(delta: float) -> void:
 
 func _step_fall(delta: float) -> void:
 	_fall_time += delta
-	if _guided:
-		# FPS projectile: hold a constant speed and steer the heading onto the target so it lands
-		# exactly on the click point regardless of where it was fired from.
-		var to_target: Vector3 = _target - global_position
-		if to_target.length() > 0.001:
-			var want: Vector3 = to_target.normalized()
-			var cur: Vector3 = _velocity.normalized() if _velocity.length() > 0.001 else want
-			var steered: Vector3 = cur.lerp(want, clampf(STEER_RATE * delta, 0.0, 1.0)).normalized()
-			_velocity = steered * LAUNCH_SPEED
-	else:
-		_velocity.y -= GRAVITY * delta
-		if _velocity.length() > MAX_SPEED:
-			_velocity = _velocity.normalized() * MAX_SPEED
+	# Coast as a TEST PARTICLE under the summed N-body gravity of every body in the system (Outer-Wilds
+	# style). Symplectic Euler: nudge velocity by the local acceleration, then advance. Orbits, flybys and
+	# slingshots emerge — no homing, no single-centre / world-axis assumption.
+	_velocity += LAGravity.acceleration_at(get_tree(), global_position) * delta
+	if _velocity.length() > MAX_SPEED:
+		_velocity = _velocity.normalized() * MAX_SPEED
 
 	var next_pos: Vector3 = global_position + _velocity * delta
 	var impact: Dictionary = _detect_impact(global_position, next_pos)
@@ -159,11 +160,36 @@ func _step_fall(delta: float) -> void:
 
 	global_position = next_pos
 	if _velocity.length() > 0.01:
-		look_at(global_position + _velocity, Vector3.UP)
+		var vdir: Vector3 = _velocity.normalized()
+		var up_hint: Vector3 = _up_at(global_position)
+		look_at(global_position + _velocity, up_hint if absf(up_hint.dot(vdir)) < 0.98 else Vector3.UP)
 
-	if _fall_time > SAFETY_FALL_TIME:
-		_impact_point = global_position
-		_on_impact()
+	# Missed everything and either drifted for ages or left the system — free it. (Never force a phantom
+	# impact here: that is what used to kill orbits before they could form.)
+	if _fall_time > MAX_LIFETIME or _escaped():
+		queue_free()
+
+
+## Radial "up" (away from the nearest gravity body's core) at a world point — the dominant body, else the
+## terrain planet, else world up. Used for the ballistic spawn + orientation so nothing assumes world +Y.
+func _up_at(pos: Vector3) -> Vector3:
+	var b: Object = LAGravity.dominant_body(get_tree(), pos) if is_inside_tree() else null
+	if b != null and b.has_method("center"):
+		var r: Vector3 = pos - (b.center() as Vector3)
+		if r.length() > 0.001:
+			return r.normalized()
+	if _terrain != null and _terrain.has_method("up_at"):
+		return _terrain.up_at(pos)
+	return Vector3.UP
+
+
+## True once the meteor has coasted far beyond the dominant body's reach (it left the system).
+func _escaped() -> bool:
+	var b: Object = LAGravity.dominant_body(get_tree(), global_position)
+	if b == null or not (b.has_method("center") and b.has_method("radius")):
+		return false
+	var far: float = maxf(float(b.radius()), 1.0) * ESCAPE_RADIUS_MULT
+	return global_position.distance_to(b.center() as Vector3) > far
 
 
 ## Returns {"hit": bool, "point": Vector3}. Tries surface_height, then a swept
