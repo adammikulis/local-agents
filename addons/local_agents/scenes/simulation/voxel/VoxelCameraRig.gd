@@ -614,6 +614,24 @@ func _process(delta: float) -> void:
 	# work is the emergent seismic camera shake. (The old flat WASD/edge-scroll/keyboard-fly path was dead
 	# once the planet became the sole world — deleted.)
 	_apply_seismic_shake(delta)
+	# Enforce the player's draw-distance budget on the far plane every frame, whatever view mode set `far`.
+	# One central seam (each mode sets a zoom-derived far first; this bounds it) so the knob composes with all
+	# modes and picks up a live settings re-apply. The 0.5×budget floor lets far GROW with a high budget too
+	# (not just cap), and the budget floor of DRAW_BUDGET_MIN keeps it well past what the small planet needs to
+	# stay visible — so no view is ever clipped, the knob only trades cull distance for fill-rate.
+	var budget: float = _far_budget()
+	far = clampf(far, budget * 0.5, budget)
+
+
+## The camera far-plane budget in metres — the player's Graphics draw-distance knob (la_draw_distance,
+## published by LAVoxelSettingsApplier). Default/missing → 8000. Clamped to DRAW_BUDGET_MIN so it always
+## clears the whole planet (radius ~250, farthest orbit ~1500 → ~1750 needed), never clipping the view.
+const DRAW_BUDGET_MIN: float = 4000.0
+const DRAW_BUDGET_MAX: float = 80000.0
+
+func _far_budget() -> float:
+	var b: float = float(Engine.get_meta("la_draw_distance", 8000.0)) if Engine.has_meta("la_draw_distance") else 8000.0
+	return clampf(b, DRAW_BUDGET_MIN, DRAW_BUDGET_MAX)
 
 
 ## Emergent camera shake, shared by flat and orbit modes: query the seismic field at the camera's own

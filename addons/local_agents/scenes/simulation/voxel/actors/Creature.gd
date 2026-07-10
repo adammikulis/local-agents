@@ -607,10 +607,34 @@ func _camera_pos() -> Vector3:
 	return _cam_pos
 
 
+# Global AI-tick multiplier resolved from the Sim/AI setting `la_ai_tick_frames` (published by
+# LAVoxelSettingsApplier as an Engine metadata global). Baseline is THINK_STRIDE (3) — the Medium default
+# (3) leaves every stride unchanged; a higher setting stretches all strides so the population re-decides
+# less often (cheaper CPU), a lower one tightens them. Cached once per physics frame (ONE meta read shared
+# by the whole population, mirroring _camera_pos) and clamped so creatures never freeze (min stride 1
+# enforced at the call site) nor thrash. Re-read live each frame, so a mid-game settings re-apply takes
+# effect immediately (LAVoxelSettingsApplier.publish_globals rewrites the meta on GameMode.settings_applied).
+static var _ai_scale_frame: int = -1
+static var _ai_tick_scale: float = 1.0
+
+static func _ai_tick_scale_cached() -> float:
+	var f: int = int(Engine.get_physics_frames())
+	if f != _ai_scale_frame:
+		_ai_scale_frame = f
+		var n: float = float(Engine.get_meta("la_ai_tick_frames", THINK_STRIDE)) if Engine.has_meta("la_ai_tick_frames") else float(THINK_STRIDE)
+		_ai_tick_scale = clampf(n / float(THINK_STRIDE), 0.34, 20.0)
+	return _ai_tick_scale
+
+
+# The LOD/distance base stride, then scaled by the AI-tick setting in _think_stride.
+func _think_stride() -> int:
+	return maxi(1, int(round(float(_base_think_stride()) * _ai_tick_scale_cached())))
+
+
 # How often THIS creature runs the discretionary think cascade, in physics frames. Sleep is cheapest,
 # then distance-graded for idle/discretionary states; time-critical states (fleeing, hunting, drinking)
 # stay at the full near rate at any distance so an off-screen chase or a drink never stalls.
-func _think_stride() -> int:
+func _base_think_stride() -> int:
 	if state == "sleep" or state == "roost" or state == "nesting" or state == "rest":
 		return SLEEP_THINK_STRIDE
 	if state == "flee" or state == "panic" or state == "chase" or state == "stalk" \
@@ -711,6 +735,7 @@ func _physics_process(delta: float) -> void:
 	var stride: int = _think_stride()
 	var do_think: bool = _force_think or ((int(Engine.get_physics_frames()) + _think_phase) % stride == 0)
 	if do_think:
+		LASimReport.event("decision")   # telemetry: discretionary decisions/run — proves the AI-tick stride knob bites
 		var desired: Vector3 = _heading
 		_wander_timer -= delta
 		_veto_timer -= delta

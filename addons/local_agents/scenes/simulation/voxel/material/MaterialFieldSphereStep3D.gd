@@ -13,12 +13,24 @@ extends RefCounted
 # Fixed-step cadence — mirrors the field's own constants so the loop is self-contained.
 const STEP_DT: float = 1.0 / 10.0
 const MAX_STEPS_PER_FRAME: int = 2
+const FIELD_CADENCE_MAX: int = 60                       # clamp for the published Sim knob (avoid absurd skips)
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
+var _frame_gate: int = 0                                 # frames elapsed since the last GPU field run (cadence skip counter)
 
 
 func setup(field) -> void:
 	_f = field
+
+
+## Field substrate steps every N physics frames, N = the player's Sim knob `la_field_cadence` (published by
+## LAVoxelSettingsApplier as an Engine metadata global). Default/missing/zero → 1 (step every frame, i.e. the
+## historical behaviour). Read live so a mid-game settings re-apply retunes it. Skip-and-accumulate: dt is
+## banked every frame regardless, so a slower cadence runs the (fixed-step) loop less often — genuinely less
+## GPU field work — without desyncing the buffers (dirty-gated uploads still flush on the next run).
+func _field_cadence() -> int:
+	var n: int = int(Engine.get_meta("la_field_cadence", 1)) if Engine.has_meta("la_field_cadence") else 1
+	return clampi(n, 1, FIELD_CADENCE_MAX)
 
 
 ## Cubed-sphere per-frame step (Phase B MVP): activate the sphere GPU driver once, then run the fixed-step
@@ -34,11 +46,31 @@ func process(delta: float) -> void:
 		return
 	if not _f._use_gpu:
 		return
+	# Bank the frame's dt EVERY frame (even ones we skip), clamped so a high cadence can't let the accumulator
+	# run away into a huge catch-up spike after a long skip (excess banked time is dropped → the field simply
+	# evolves slower at a slow cadence, the intended perf trade; buffers stay consistent).
 	_f._step_accum += delta
+	_f._step_accum = minf(_f._step_accum, STEP_DT * float(MAX_STEPS_PER_FRAME + 1))
+	# Cadence gate: only run the GPU begin/step/end loop every N frames (N = la_field_cadence). At N == 1 this
+	# reduces to the historical every-frame path (the gate never trips).
+	var cadence: int = _field_cadence()
+	_frame_gate += 1
+	if _frame_gate < cadence:
+		return
+	_frame_gate = 0
+	# At the natural cadence (1) allow up to MAX_STEPS to catch up a frame hitch — conserving sim time. At a
+	# slower cadence (N > 1) cap to ONE step per gate AND drop the dt banked during the skipped frames, so the
+	# field genuinely dispatches LESS often (fewer GPU steps → lower avg field_ms) instead of catching up: it
+	# evolves in slight slow-motion, the intended perf trade. Every step is still a full begin/step/end with
+	# the dirty-gated uploads, so buffers never desync. (The knob only slows the field once N pushes below the
+	# ~10 Hz fixed-step rate; presets 1-2 keep full fidelity.)
+	var cap: int = MAX_STEPS_PER_FRAME if cadence <= 1 else 1
 	var steps: int = 0
-	while _f._step_accum >= STEP_DT and steps < MAX_STEPS_PER_FRAME:
+	while _f._step_accum >= STEP_DT and steps < cap:
 		_f._step_accum -= STEP_DT
 		steps += 1
+	if cadence > 1:
+		_f._step_accum = minf(_f._step_accum, STEP_DT)
 	if steps <= 0:
 		return
 	var t0: int = Time.get_ticks_usec()
@@ -82,6 +114,7 @@ func process(delta: float) -> void:
 	if _f._stamp != null:
 		_f._stamp.maybe_scan()                       # Stage C: stamp rock_fill 0.5-crossings into the SDF (gated)
 	LASimReport.gauge("field_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
+	LASimReport.event("field_step")   # telemetry: GPU field runs/run — a slower cadence lowers this (and the avg field_ms)
 
 
 ## Scatter every channel the sphere driver read back into its CPU array, so actor world-space queries

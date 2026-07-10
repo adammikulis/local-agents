@@ -81,5 +81,8 @@ static func emit_smoke_summary(w) -> void:
 	LASimReport.gauge("draw_calls", Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
 	LASimReport.gauge("prims_M", Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1.0e6)
 	LASimReport.gauge("video_mem_MB", Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1.048576e6)
+	var _cam: Camera3D = w.get_viewport().get_camera_3d() if w.get_viewport() != null else null
+	if _cam != null:
+		LASimReport.gauge("camera_far", _cam.far)   # proof the draw-distance knob bites
 	LASimReport.emit()
 	LAAppExit.request(w, 0)

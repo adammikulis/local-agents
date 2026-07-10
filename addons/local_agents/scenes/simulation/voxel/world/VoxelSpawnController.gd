@@ -72,7 +72,9 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 	# Radial world: ecology places life ON the sphere (surface_point spawn), fish in the sea shell; the
 	# orbit camera frames the body; the planet centre is pinned hot for the radial geothermal gradient.
 	_ecology.spawn_initial(_scaled_counts())
-	_ecology.populate_environment(ROCK_COUNT, maxi(1, int(round(float(FOREST_CLUSTERS) * _spawn_scale))))
+	# Forest seed clusters scale by BOTH the actor budget and the graphics vegetation-density knob
+	# (la_vegetation_scale), so a low-foliage setting thins the groves and a high one densifies them.
+	_ecology.populate_environment(ROCK_COUNT, maxi(1, int(round(float(FOREST_CLUSTERS) * _spawn_scale * _vegetation_scale()))))
 	if _ecology.has_method("stock_initial_aquatic"):
 		_ecology.stock_initial_aquatic()
 	if _camera.has_method("set_orbit_target"):
@@ -91,15 +93,27 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 	_hud.set_status("World ready — spawn things, click to inspect, press V for scent.")
 
 
-## The base counts scaled by the quality actor_budget factor (at least one of each).
+## Graphics vegetation-density knob (la_vegetation_scale, published by LAVoxelSettingsApplier from the
+## Graphics settings). Default/missing → 1.0 (untouched ecosystem balance). Only the "plant" spawn count and
+## the forest-cluster seeding read this; creature counts are governed solely by the actor budget. Read once
+## at spawn time (initial spawning is a one-shot gate).
+func _vegetation_scale() -> float:
+	var v: float = float(Engine.get_meta("la_vegetation_scale", 1.0)) if Engine.has_meta("la_vegetation_scale") else 1.0
+	return clampf(v, 0.1, 2.0)
+
+
+## The base counts scaled by the quality actor_budget factor (at least one of each). The "plant" count also
+## carries the graphics vegetation-density knob, so foliage thins/densifies independently of the actor budget.
 func _scaled_counts() -> Dictionary:
-	if is_equal_approx(_spawn_scale, 1.0):
+	var veg: float = _vegetation_scale()
+	if is_equal_approx(_spawn_scale, 1.0) and is_equal_approx(veg, 1.0):
 		return INITIAL_COUNTS
 	var counts: Dictionary = {}
 	var total: int = 0
 	for kind in INITIAL_COUNTS:
-		var n: int = maxi(1, int(round(float(INITIAL_COUNTS[kind]) * _spawn_scale)))
+		var factor: float = _spawn_scale * (veg if kind == "plant" else 1.0)
+		var n: int = maxi(1, int(round(float(INITIAL_COUNTS[kind]) * factor)))
 		counts[kind] = n
 		total += n
-	print("SPAWN_SCALE={factor:%.2f, total:%d}" % [_spawn_scale, total])
+	print("SPAWN_SCALE={factor:%.2f, veg:%.2f, total:%d}" % [_spawn_scale, veg, total])
 	return counts

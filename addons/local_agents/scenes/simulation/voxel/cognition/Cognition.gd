@@ -354,7 +354,12 @@ func _escalate(c, sig: Dictionary, innate_action: String) -> void:
 	if not _sched.request(c, self, sig, innate_action):
 		return
 	_pending = true
-	_cooldown = 6.0
+	# The slow-brain re-consult cooldown is the player's Sim/AI cadence knob (`la_llm_cadence`, seconds,
+	# published by LAVoxelSettingsApplier). A missing/zero global falls back to the historical 6 s. Read
+	# live each escalation so a mid-game settings re-apply retunes it — shorter cadence → the slow brain
+	# runs more often (heavier CPU), longer → rarer.
+	var cad: float = float(Engine.get_meta("la_llm_cadence", 0.0)) if Engine.has_meta("la_llm_cadence") else 0.0
+	_cooldown = cad if cad > 0.0 else 6.0
 	escalations += 1
 
 
