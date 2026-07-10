@@ -35,6 +35,7 @@ const GameProgressionScript: GDScript = preload("res://addons/local_agents/scene
 const GameHudScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/GameHud.gd")
 const CampaignTutorialScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/CampaignTutorial.gd")
 const SettingsApplierScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelSettingsApplier.gd")
+const WorldSaveControllerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/game/WorldSaveController.gd")
 
 # --- SOLAR-SYSTEM-FIRST: the world is a star + planet body (see TODO). Radial is the default; flat retired. ---
 const PLANET_RADIUS: float = 250.0
@@ -335,6 +336,14 @@ func _ready() -> void:
 	tutorial.name = "CampaignTutorial"
 	add_child(tutorial)
 	tutorial.setup(_interaction, _hud, _game_hud, _input, _progression)
+
+	# Save / load: resumes a menu-requested slot (deferred until the field GPU is up) and hosts the pause-menu
+	# "Save game" entry. All gather/apply logic lives in LAWorldSaveController + LAWorldSaveState (this root
+	# stays a composition root — one wire line).
+	var save_ctrl: LAWorldSaveController = WorldSaveControllerScript.new()
+	save_ctrl.name = "WorldSaveController"
+	add_child(save_ctrl)
+	save_ctrl.setup(self)
 
 
 func _process(delta: float) -> void:

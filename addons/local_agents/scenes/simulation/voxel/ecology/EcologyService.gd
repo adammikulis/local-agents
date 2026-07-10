@@ -287,6 +287,21 @@ func spawn_initial(counts: Dictionary) -> void:
 	_spawner.spawn_initial(counts)
 
 
+## SAVE-RESTORE instancing: place an actor at an EXACT saved transform (no surface projection / no water-body
+## gate — a saved creature already lived there, so its transform is authoritative). Reuses the normal
+## _instance_actor path (so a creature still gets its body, cognition scheduler, material field wiring and the
+## tree_exited→kinship.forget hook), then stamps the full saved transform over the placement position. Kinship
+## membership is reconstructed separately by the world-save restore (grouped by family), so `family_id` is set
+## on the node here but NOT registered as a founder cluster. Returns the node, or null if the kind is unknown.
+func restore_actor(kind: String, xform: Transform3D, genome = null, family_id: int = -1) -> Node:
+	var node: Node = _instance_actor(kind, xform.origin, genome, -1, true)
+	if node != null and node is Node3D:
+		(node as Node3D).global_transform = xform
+		if family_id >= 0 and "family_id" in node:
+			node.set("family_id", family_id)
+	return node
+
+
 func _place_on_surface(world_pos):
 	return _spawner._place_on_surface(world_pos)
 
@@ -323,7 +338,7 @@ func _is_water_pos(placed: Vector3) -> bool:
 	return (placed - terrain.planet_center()).length() <= terrain.sea_radius()
 
 
-func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: int = -1) -> Node:
+func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: int = -1, force_place: bool = false) -> Node:
 	var node: Node = null
 	if kind == "plant":
 		var plant: PlantScript = PlantScript.new()
@@ -357,7 +372,10 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 		# Aquatic species (config aquatic:true) are all driven by the ONE LAFish script — a fish, turtle,
 		# crab or whale differ only by config (salinity/depth band, body, speed). They exist only in water.
 		if bool(cfg.get("aquatic", false)):
-			if not _is_water_pos(placed):
+			# force_place (save-restore) skips the water gate: the fish already lived at this exact point (a
+			# basking turtle/crab hauled onto the beach, or a swimmer at the waterline) — its transform is
+			# authoritative, so re-instance it there rather than dropping it for being momentarily out of the sea.
+			if not force_place and not _is_water_pos(placed):
 				return null
 			var fish: FishScript = FishScript.new()
 			actors_root.add_child(fish)

@@ -124,9 +124,13 @@ func _on_new_campaign() -> void:
 
 
 func _on_continue() -> void:
-	# Save loading is not built yet; Continue is disabled unless a save exists. When it does, a
-	# campaign resume is the intended behaviour, so launch campaign mode.
-	GameMode.start_campaign()
+	# Resume the most-recently-written save. request_load() sets the pending-load slot the sim's
+	# LAWorldSaveController consumes on boot (and switches to campaign mode); the slot's own settings are
+	# restored by the save system, but apply the current settings so the boot has a valid config either way.
+	var slot: String = LAGameSave.latest_slot()
+	if slot == "":
+		return                                    # nothing to resume (button should have been disabled)
+	GameMode.request_load(slot)
 	GameMode.apply(GameMode.settings)
 	_change_scene(WORLD_SCENE)
 

@@ -173,6 +173,48 @@ func set_field(name: String, arr) -> void:
 	else:
 		_upload_f(b, arr)
 
+
+## SAVE snapshot: read back EVERY GPU-resident channel (pair channels from their live half, single channels
+## direct) into a { name -> PackedFloat32Array } dict. This is the authoritative field state a save persists;
+## restore_channels() uploads it back verbatim. Geometry SSBOs (nbr/radial/pos) are rebuilt from the grid on
+## load and are deliberately NOT snapshotted. Returns an empty dict with no device (headless/no-GPU).
+func snapshot_channels() -> Dictionary:
+	var out: Dictionary = {}
+	if _rd == null:
+		return out
+	for name in PAIR_CHANNELS:
+		out[name] = _rd.buffer_get_data(_live(name)).to_float32_array()
+	out["scent"] = _rd.buffer_get_data(_bufs["scent"][_phase]).to_float32_array()
+	for name in SINGLE_CHANNELS:
+		out[name] = _rd.buffer_get_data(_bufs[name]).to_float32_array()
+	return out
+
+
+## LOAD: upload a snapshot_channels() dict back into the GPU buffers. Pair channels are written to BOTH halves
+## so the state is consistent regardless of the current ping-pong phase; single channels write their one buffer.
+## Sizes are validated per channel (a channel of the wrong length — e.g. a save from a different grid resolution
+## — is skipped rather than corrupting the device). Unknown keys are ignored (forward/backward tolerant).
+func restore_channels(data: Dictionary) -> void:
+	if _rd == null:
+		return
+	for name in data.keys():
+		var key: String = String(name)
+		if not _bufs.has(key):
+			continue
+		var arr: PackedFloat32Array = data[key]
+		var bytes: PackedByteArray = arr.to_byte_array()
+		var b = _bufs[key]
+		if b is Array:
+			var expect: int = _cc * (SCENT_PLANES if key == "scent" else 1)
+			if arr.size() != expect:
+				continue
+			_rd.buffer_update(b[0], 0, bytes.size(), bytes)
+			_rd.buffer_update(b[1], 0, bytes.size(), bytes)
+		elif b is RID:
+			if arr.size() != _cc:
+				continue
+			_rd.buffer_update(b, 0, bytes.size(), bytes)
+
 func set_precip(v: float) -> void:
 	_ctx["precip"] = v
 

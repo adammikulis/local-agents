@@ -50,6 +50,13 @@ func is_spawned() -> bool:
 	return _spawned_initial
 
 
+## SAVE-LOAD: mark the initial population as already spawned so try_spawn() is a no-op. A loaded world already
+## carries its own creatures/vegetation (restored by LAWorldSaveController) — seeding a fresh founding stock on
+## top would double the population and desync it from the restored kinship/field.
+func suppress_initial_spawn() -> void:
+	_spawned_initial = true
+
+
 ## Scale factor applied to the base spawn counts (from the quality actor_budget). Set before the surface
 ## meshes so the first (and only) spawn uses it.
 func set_spawn_scale(scale: float) -> void:

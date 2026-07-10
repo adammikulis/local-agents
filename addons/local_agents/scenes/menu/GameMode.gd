@@ -25,22 +25,56 @@ signal mode_changed(mode: int)
 var mode: int = Mode.SANDBOX
 var settings: LAGameSettings = null
 
+## Slot the next sim launch should LOAD from ("" = start a fresh world). Set by the main menu's Continue and
+## read once by the sim's save controller on boot (then cleared), the same carry-across-scene mechanism as
+## `mode`/`settings`. A scene change tears down the tree, so this autoload is the only place it can ride.
+var pending_load_slot: String = ""
+
+
+## Ask the next sim launch to resume from `slot` (in campaign mode — a save is always a campaign world).
+func request_load(slot: String) -> void:
+	pending_load_slot = slot
+	mode = Mode.CAMPAIGN
+	mode_changed.emit(mode)
+
+
+## The pending load slot, consumed once by the save controller so a later New/Sandbox launch starts fresh.
+func take_pending_load_slot() -> String:
+	var slot: String = pending_load_slot
+	pending_load_slot = ""
+	return slot
+
 
 func _ready() -> void:
 	# Load the persisted settings once so any scene (menu or sim) can read GameMode.settings.
 	if settings == null:
 		settings = LAGameSettings.load_or_default()
+	# When the sim scene is booted DIRECTLY (headless harness / dev shortcut, no main menu), honour the
+	# mode arg here — autoloads ready before the main scene, so the progression system sees the right mode.
+	# The main-menu path sets the mode explicitly and passes no such arg, so this never fights it.
+	for arg in OS.get_cmdline_user_args():
+		if arg == "--campaign":
+			mode = Mode.CAMPAIGN
+		elif arg == "--sandbox":
+			mode = Mode.SANDBOX
+		elif arg.begins_with("--load-slot="):
+			# A save is always a campaign world; arm the pending load HERE (before the main scene's progression
+			# system readies) so it boots in campaign mode and the save controller resumes the slot.
+			mode = Mode.CAMPAIGN
+			pending_load_slot = arg.substr("--load-slot=".length())
 
 
 ## Select campaign mode (progression gating on) for the next sim launch.
 func start_campaign() -> void:
 	mode = Mode.CAMPAIGN
+	pending_load_slot = ""          # a fresh campaign, not a resume
 	mode_changed.emit(mode)
 
 
 ## Select sandbox mode (progression gating off) for the next sim launch.
 func start_sandbox() -> void:
 	mode = Mode.SANDBOX
+	pending_load_slot = ""          # a fresh sandbox, not a resume
 	mode_changed.emit(mode)
 
 

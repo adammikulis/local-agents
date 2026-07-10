@@ -92,6 +92,34 @@ func add_bond(a_cid: int, b_cid: int) -> void:
 		_append_unique(_mates, b_cid, a_cid)
 
 
+## SAVE-RESTORE: replant the directed lineage skeleton (parent→child, child→parent, mate↔mate) after a reload
+## has re-instanced every creature under NEW instance ids. The caller has already rebuilt component membership
+## (new_family + add_member) and remapped these dicts from saved indices to the live cids, so this simply
+## adopts them verbatim (each is cid -> Array[int] of cids). Undirected _adj is rebuilt from them so the
+## family-tree inspector's edge reads stay consistent. Does not touch union-find (membership is already set).
+## SAVE-CAPTURE: the directed lineage skeleton as three copies ({children, parents, mates}, each cid ->
+## Array[int] cids). The world-save remaps these cids to save indices before persisting. Copies, so a caller
+## can't alias the internal dicts.
+func directed_edges() -> Dictionary:
+	return {
+		"children": _children.duplicate(true),
+		"parents": _parents.duplicate(true),
+		"mates": _mates.duplicate(true),
+	}
+
+
+func restore_directed(children: Dictionary, parents: Dictionary, mates: Dictionary) -> void:
+	_children = children.duplicate(true)
+	_parents = parents.duplicate(true)
+	_mates = mates.duplicate(true)
+	for parent_cid in _children.keys():
+		for child_cid in (_children[parent_cid] as Array):
+			_link(int(parent_cid), int(child_cid))
+	for a_cid in _mates.keys():
+		for b_cid in (_mates[a_cid] as Array):
+			_link(int(a_cid), int(b_cid))
+
+
 func _append_unique(store: Dictionary, key: int, value: int) -> void:
 	if not store.has(key):
 		store[key] = []

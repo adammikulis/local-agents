@@ -17,6 +17,7 @@ const HelpOverlayScript: GDScript = preload("res://addons/local_agents/scenes/si
 
 var _panel: Control = null
 var _speed_buttons: Array[Button] = []
+var _save_status: Label = null
 
 
 func _init() -> void:
@@ -93,6 +94,20 @@ func _build_ui() -> void:
 		speed_row.add_child(b)
 		_speed_buttons.append(b)
 
+	# Save game: snapshots the whole world (field + creatures + kinship + progression) to the current slot via
+	# the world save controller. A status label under it confirms the write (or reports there is nothing to save).
+	var save_btn: Button = Button.new()
+	save_btn.text = "Save game"
+	save_btn.custom_minimum_size = Vector2(0.0, 44.0)
+	save_btn.pressed.connect(_on_save)
+	vbox.add_child(save_btn)
+
+	_save_status = Label.new()
+	_save_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_save_status.add_theme_color_override("font_color", Color(0.7, 0.85, 0.7))
+	_save_status.add_theme_font_size_override("font_size", 13)
+	vbox.add_child(_save_status)
+
 	var help: Button = Button.new()
 	help.text = "Controls & help"
 	help.custom_minimum_size = Vector2(0.0, 44.0)
@@ -163,6 +178,17 @@ func set_time_scale(n: int) -> void:
 	var mult: int = clampi(n, 1, SPEEDS[SPEEDS.size() - 1])
 	Engine.time_scale = float(mult)
 	Engine.max_physics_steps_per_frame = maxi(8, mult)
+
+
+func _on_save() -> void:
+	var ctrl: LAWorldSaveController = LAWorldSaveController.active()
+	if ctrl == null:
+		if _save_status != null:
+			_save_status.text = "Save unavailable"
+		return
+	var err: int = ctrl.quick_save()
+	if _save_status != null:
+		_save_status.text = "World saved" if err == OK else "Save failed (err %d)" % err
 
 
 func _on_quit() -> void:
