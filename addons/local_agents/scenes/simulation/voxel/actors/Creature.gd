@@ -730,6 +730,9 @@ func _physics_process(delta: float) -> void:
 		return
 	# Short-term exertion chemistry: sprinting builds muscle lactate, resting clears it (see the speed cap below).
 	LACreatureMetabolism.tick_exertion(self, delta)
+	if _prof_on:
+		_prof_add("cr_meta", _pt)
+		_pt = Time.get_ticks_usec()
 
 	# Radial locomotion: `up` points away from the planet centre. All heading/heading-flatten math projects
 	# onto the local tangent plane using `up`, and ground reads/snaps go radial. `ground_pos` is the world
@@ -739,6 +742,9 @@ func _physics_process(delta: float) -> void:
 	var ground_pos: Vector3 = terrain.surface_point(up_dir0)
 	if is_nan(ground_pos.x):
 		return                            # unmeshed / off-terrain: skip this frame
+	if _prof_on:
+		_prof_add("cr_terrain", _pt)
+		_pt = Time.get_ticks_usec()
 
 	# Digestion + marking: a fed creature periodically drops feces (soil fertility + food/musk cue), and
 	# more often urinates (territorial musk). Both write to the shared scent/fertility field below it.
@@ -760,7 +766,7 @@ func _physics_process(delta: float) -> void:
 	# or distant creature still wakes and reacts. Between think-frames the creature keeps gliding along its
 	# last _heading at _eff_speed — movement + metabolism below stay every-frame for smoothness.
 	if _prof_on:
-		_prof_add("cr_upkeep", _pt)
+		_prof_add("cr_glue", _pt)
 		_pt = Time.get_ticks_usec()
 	var stride: int = _think_stride()
 	var do_think: bool = _force_think or ((int(Engine.get_physics_frames()) + _think_phase) % stride == 0)
