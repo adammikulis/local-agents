@@ -12,14 +12,23 @@ extends RefCounted
 ## (Explicit types only — project rule: no ':=' inferred typing.)
 
 
+## Minimum pending digested residue (LACreatureDigestion.gut_waste) before a feces deposit is worth making —
+## an animal that has not digested anything has nothing to pass.
+const FECES_MIN_WASTE: float = 0.5
+
+
 ## Per-frame excretion tick, called from LACreature._physics_process with the ground point below the body.
-## Counts down the two cooldowns and deposits when each elapses (feces only while fed above the threshold).
+## Counts down the two cooldowns and deposits when each elapses. Feces is the OUTPUT of digestion: it deposits
+## only the residue LACreatureDigestion has banked in c.gut_waste, and clears it on deposit — digestion feeds
+## this level rather than depositing itself, so the waste is counted exactly once. Urine is unrelated
+## territorial musk on its own cadence.
 static func tick(c, ground_pos: Vector3, delta: float) -> void:
 	c._poop_cd -= delta
 	if c._poop_cd <= 0.0:
 		c._poop_cd = randf_range(24.0, 48.0)
-		if c.energy > c.max_energy * 0.35:
+		if c.gut_waste >= FECES_MIN_WASTE:
 			deposit(c, ground_pos, "feces")
+			c.gut_waste = 0.0                     # expelled — the pending digested residue is passed (no double count)
 	c._urine_cd -= delta
 	if c._urine_cd <= 0.0:
 		c._urine_cd = randf_range(10.0, 22.0)

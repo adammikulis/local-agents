@@ -49,6 +49,16 @@ var food_value: float = 55.0
 var max_age: float = 90.0
 var hungry_at: float = 0.7
 
+# --- digestion: a gut buffer that turns eaten biomass into energy + waste OVER TIME (LACreatureDigestion),
+# replacing the old instant feed. A bite fills the gut; the gut digests each frame into energy (at a
+# microbiome-scaled efficiency) and pending feces (gut_waste). Energy now climbs as food digests, a full gut
+# buffers surplus, and an empty gut means no energy until the creature eats. State lives here; logic is in the
+# module. Sized + seeded at spawn (LACreatureDigestion.setup); the waste is deposited by LACreatureExcretion.
+var gut: float = 0.0                          # biomass currently buffered in the gut (energy-equivalent units)
+var gut_capacity: float = 0.0                 # max gut fill (set at spawn ~ max_energy * CAPACITY_FRAC)
+var gut_waste: float = 0.0                    # indigestible residue awaiting excretion (feeds LACreatureExcretion)
+var microbiome: float = 1.0                   # gut-flora digestive-efficiency scalar (herbivores ferment plants)
+
 # --- thirst (emergent: drink from the water field or die of dehydration) ---
 # hydration mirrors energy: full at max, drains at thirst_rate, drinking refills, 0 = death.
 var hydration: float = 100.0
@@ -537,6 +547,8 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	# lineage is born avoiding the blood scent, a carrion-hungry one drawn to the food scent). Lifetime
 	# smell/taste learning refines them and observe() spreads them to kin — see LACreatureChemSense.
 	LACreatureChemSense.seed_priors(self)
+	# Size the gut from max energy and pick the microbiome from diet (herbivores ferment plant matter).
+	LACreatureDigestion.setup(self)
 
 
 # The shared System-2 scheduler (FunctionGemma budget/queue), injected by the ecology after setup.
@@ -735,6 +747,10 @@ func _physics_process(delta: float) -> void:
 	_sense_mult = 1.0
 	if _ecology != null and _ecology.has_method("is_night") and _ecology.is_night():
 		_sense_mult = 1.4 if nocturnal else 0.7
+	# Digestion: the gut converts buffered food into energy (+ pending feces) this frame — run BEFORE the
+	# metabolism burn/starvation check so a creature that just ate is credited its digested energy and won't
+	# starve with a full gut. Empty gut = no energy (must eat). See LACreatureDigestion.
+	LACreatureDigestion.tick(self, delta)
 	# Metabolism (exertion-scaled energy burn) + thirst + ageing — see LACreatureMetabolism. Death stops us.
 	if LACreatureMetabolism.tick(self, delta):
 		return
