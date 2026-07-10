@@ -72,6 +72,11 @@ if (CURL_FOUND)
     target_compile_definitions(localagents PRIVATE LLAMA_USE_CURL)
 endif()
 
+if (WIN32)
+    # SHA-256 for downloaded-model verification uses the CNG (BCrypt) provider.
+    target_link_libraries(localagents PRIVATE bcrypt)
+endif()
+
 target_compile_definitions(localagents PRIVATE
     SQLITE_ENABLE_JSON1
     SQLITE_ENABLE_FTS5
