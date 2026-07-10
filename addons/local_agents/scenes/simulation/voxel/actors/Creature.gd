@@ -451,12 +451,10 @@ func die(cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
 	LACreatureRagdoll.launch(self, impulse, true)
 
 
-# Deposit waste at `ground_pos` into the shared scent/fertility field: feces enriches the soil (plants
-# regrow on dung — emergent) and carries a food + musk cue predators track prey by; urine is territorial
-# musk. No node is spawned — the deposit is a few cells in LAMaterialScent3D that diffuse + wash away.
+# Deposit waste at `ground_pos` into the shared scent/fertility field — thin forwarder to
+# LACreatureExcretion, which owns the digestion/marking logic (feces fertility cue + urine musk).
 func _deposit_waste(ground_pos: Vector3, kind: String) -> void:
-	if _material != null and _material.has_method("deposit_waste"):
-		_material.deposit_waste(ground_pos, self, kind)
+	LACreatureExcretion.deposit(self, ground_pos, kind)
 
 
 func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
@@ -672,7 +670,7 @@ func _physics_process(delta: float) -> void:
 	if _carcass:
 		LACreatureRagdoll.decay_tick(self, delta)
 		return
-	age += delta
+	LACreatureLifeStage.tick(self, delta)   # advance age (life-stage owner)
 	if _think_phase < 0:
 		_think_phase = int(get_instance_id())                  # raw id; the think stagger is (id % stride)
 	_throw_cd -= delta
@@ -713,15 +711,7 @@ func _physics_process(delta: float) -> void:
 
 	# Digestion + marking: a fed creature periodically drops feces (soil fertility + food/musk cue), and
 	# more often urinates (territorial musk). Both write to the shared scent/fertility field below it.
-	_poop_cd -= delta
-	if _poop_cd <= 0.0:
-		_poop_cd = randf_range(24.0, 48.0)
-		if energy > max_energy * 0.35:
-			_deposit_waste(ground_pos, "feces")
-	_urine_cd -= delta
-	if _urine_cd <= 0.0:
-		_urine_cd = randf_range(10.0, 22.0)
-		_deposit_waste(ground_pos, "urine")
+	LACreatureExcretion.tick(self, ground_pos, delta)
 
 	# EMERGENT LEADERSHIP: decide (throttled) whether I lead my local same-species cluster or follow its
 	# top — done BEFORE the stride is computed so a fresh follower immediately gets the slow follower rate,
@@ -1031,8 +1021,9 @@ func is_hunter() -> bool:
 	return diet == "carnivore" or (diet == "omnivore" and preys_on.size() > 0)
 
 
+# Thin forwarder — life-stage/maturity logic lives in LACreatureLifeStage (Phase 2: graded stages).
 func is_mature() -> bool:
-	return age >= maturity_age
+	return LACreatureLifeStage.is_mature(self)
 
 
 # Inspector presentation lives in LACreatureInspector; this stays as the group-facing hook.
