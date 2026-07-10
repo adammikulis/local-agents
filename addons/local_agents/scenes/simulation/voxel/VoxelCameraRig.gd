@@ -66,6 +66,12 @@ var _drag_orbiting: bool = false
 var _drag_orbit_armed: bool = false
 var _drag_orbit_travel: float = 0.0
 
+# Invert the planet drag-rotate axes (player Controls setting). When on, that drag component is negated so
+# the surface swings the opposite way for that axis. Read from LAGameSettings (GameMode autoload), refreshed
+# live on GameMode.settings_applied so a mid-game Save takes effect without a relaunch.
+var _invert_rotate_x: bool = false
+var _invert_rotate_y: bool = false
+
 # --- Orbit (planet) mode state ------------------------------------------------
 # When _orbit_mode is true the rig ignores _focus/_yaw/_pitch and instead sits on a sphere of radius
 # `_distance` around `_orbit_center` (the planet centre), oriented by azimuth/elevation, looking in.
@@ -170,6 +176,34 @@ func _ready() -> void:
 	_yaw = 0.0
 	_pitch = deg_to_rad(55.0)
 	_update_transform()
+	# Pick up the player's drag-rotate invert toggles and follow live re-applies (skip in the @tool preview).
+	if not Engine.is_editor_hint():
+		_read_invert_settings()
+		var gm: Node = get_node_or_null("/root/GameMode")
+		if gm != null and gm.has_signal("settings_applied"):
+			var cb: Callable = Callable(self, "_on_settings_applied")
+			if not gm.is_connected("settings_applied", cb):
+				gm.settings_applied.connect(cb)
+
+
+## The active LAGameSettings from the GameMode autoload (null in a direct-scene/test launch → defaults kept).
+func _game_settings() -> LAGameSettings:
+	var gm: Node = get_node_or_null("/root/GameMode")
+	if gm != null and gm.get("settings") != null:
+		return gm.get("settings")
+	return null
+
+
+## Read the two drag-rotate invert toggles off the live settings so a Save applies them without a relaunch.
+func _read_invert_settings() -> void:
+	var settings: LAGameSettings = _game_settings()
+	if settings != null:
+		_invert_rotate_x = settings.invert_rotate_x
+		_invert_rotate_y = settings.invert_rotate_y
+
+
+func _on_settings_applied(_new_settings: LAGameSettings) -> void:
+	_read_invert_settings()
 
 
 ## Frame a sweeping 3/4 vista over `center` (the spawn area, at the true surface height).
@@ -540,15 +574,20 @@ func _fly_dolly(dir: float) -> void:
 ## re-aims the locked body-local spot (rotating it in world space, then folding back into the body frame) so
 ## dragging re-chooses which region stays centred with no jump.
 func _orbit_drag(rel: Vector2) -> void:
+	# Grab-the-globe feel: the surface under the cursor follows the hand. Dragging right swings the camera left
+	# so the surface tracks right; dragging down lifts the camera north so the surface tracks down. The Controls
+	# invert toggles negate the matching drag component for players who prefer the opposite mapping.
+	var dx: float = -rel.x if _invert_rotate_x else rel.x
+	var dy: float = -rel.y if _invert_rotate_y else rel.y
 	if _geosync and _geosync_body != null and is_instance_valid(_geosync_body):
 		var cur: Vector3 = (_geosync_body.global_transform.basis * _geosync_local_dir).normalized()
 		var right: Vector3 = cur.cross(Vector3.UP)
 		right = right.normalized() if right.length() > 0.001 else Vector3.RIGHT
-		var moved: Vector3 = cur.rotated(Vector3.UP, -rel.x * ORBIT_SENSITIVITY).rotated(right, -rel.y * ORBIT_SENSITIVITY).normalized()
+		var moved: Vector3 = cur.rotated(Vector3.UP, -dx * ORBIT_SENSITIVITY).rotated(right, dy * ORBIT_SENSITIVITY).normalized()
 		_geosync_local_dir = (_geosync_body.global_transform.basis.inverse() * moved).normalized()
 		return
-	_orbit_azimuth -= rel.x * ORBIT_SENSITIVITY
-	_orbit_elevation = clampf(_orbit_elevation - rel.y * ORBIT_SENSITIVITY, -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
+	_orbit_azimuth -= dx * ORBIT_SENSITIVITY
+	_orbit_elevation = clampf(_orbit_elevation + dy * ORBIT_SENSITIVITY, -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
 
 
 func _set_panning(active: bool) -> void:
