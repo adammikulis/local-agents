@@ -43,7 +43,10 @@ const RAY_LENGTH: float = 4000.0
 # Parallel mode used when the world is a spherical planet: the rig sits on a sphere around the
 # planet centre (spherical coords: azimuth + elevation), looks at the centre, and scroll zooms the
 # orbit radius. Enabled by set_orbit_target(); the flat fly path below is left untouched.
-const ORBIT_DEFAULT_DISTANCE_MULT: float = 2.4   # sandbox start distance = planet_radius * this (whole-planet framing)
+const ORBIT_DEFAULT_DISTANCE_MULT: float = 2.4   # whole-planet framing distance = planet_radius * this
+# Sandbox opens ZOOMED IN but not all the way — inside the arc-down/ground-walk regime (near_frac < 1) so the
+# player starts near creature level with WASD/edge-scroll live, yet not pinned to the surface (min ~1.05).
+const START_MODERATE_MULT: float = 1.4
 # Campaign opens CLOSE — right down on a curated patch of the surface — so the new player shapes what is in
 # front of them by spawning before ever pulling out. Just above the min zoom, well under the baseline ceiling.
 const CAMPAIGN_START_DISTANCE_MULT: float = 1.2
@@ -51,6 +54,11 @@ const ORBIT_MIN_DISTANCE_MULT: float = 1.05      # closest zoom — just above t
 const ORBIT_MAX_DISTANCE_MULT: float = 6.0       # farthest zoom — a few planet radii out
 # Clamp elevation shy of the poles so "up" stays world-up without a gimbal flip through the pole.
 const ORBIT_ELEVATION_LIMIT: float = deg_to_rad(85.0)
+# GROUND-WALK: when zoomed in (the arc-down eye-level regime, near_frac < 1), WASD/arrows + edge-scroll
+# "walk" the view across the planet surface — the flat-world pan reborn for the sphere. Rotational speed of
+# the view sweep, scaled down as you get closer for fine control among the creatures. Zoomed all the way out
+# (near_frac >= 1) it is inert and the globe is drag-rotated instead — the mode swap the player feels.
+const SURFACE_WALK_SPEED: float = 0.8     # radians/sec of surface sweep at full stick (before the near-zoom taper)
 
 # Reference distance the pan speeds are tuned against; panning scales with distance so the
 # world moves a consistent fraction of the screen at every zoom level.
@@ -671,6 +679,69 @@ func _pan_ground(right: float, forward: float) -> void:
 	_clamp_focus()
 
 
+## GROUND-WALK across the sphere: while zoomed in (near_frac < 1), WASD/arrows + edge-scroll sweep the view
+## over the planet surface — screen-forward/right projected onto the tangent plane at the current view point,
+## used to rotate the view direction. Geosync rotates the body-locked local dir (so the walk rides the spin);
+## plain orbit nudges azimuth/elevation. Zoomed all the way out it is inert (the globe is drag-rotated instead).
+func _surface_walk(delta: float) -> void:
+	if not _orbit_mode or _fly or _solar_view:
+		return
+	# Mode gate: only in the zoomed-in (arc-down eye-level) regime. Fully out = orbit/drag mode, no walk.
+	var near_frac: float = clampf((_distance - _orbit_min_distance) / maxf(_orbit_radius * 0.5, 1.0), 0.0, 1.0)
+	if near_frac >= 1.0:
+		return
+	var fwd_in: float = 0.0
+	var right_in: float = 0.0
+	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
+		fwd_in += 1.0
+	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
+		fwd_in -= 1.0
+	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
+		right_in += 1.0
+	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
+		right_in -= 1.0
+	# Edge-scroll: cursor pushed to a screen border pans the same way (only with a visible cursor, so a captured
+	# mouse-look drag never edge-scrolls).
+	var vp: Viewport = get_viewport()
+	if vp != null and Input.mouse_mode == Input.MOUSE_MODE_VISIBLE:
+		var mp: Vector2 = vp.get_mouse_position()
+		var sz: Vector2 = vp.get_visible_rect().size
+		if mp.x >= 0.0 and mp.y >= 0.0 and mp.x <= sz.x and mp.y <= sz.y:
+			if mp.x < EDGE_MARGIN:
+				right_in -= 1.0
+			elif mp.x > sz.x - EDGE_MARGIN:
+				right_in += 1.0
+			if mp.y < EDGE_MARGIN:
+				fwd_in += 1.0
+			elif mp.y > sz.y - EDGE_MARGIN:
+				fwd_in -= 1.0
+	if fwd_in == 0.0 and right_in == 0.0:
+		return
+	# Current world view direction from the planet centre (the radial the transform is built around).
+	var geo: bool = _geosync and _geosync_body != null and is_instance_valid(_geosync_body)
+	var radial: Vector3 = (_geosync_body.global_transform.basis * _geosync_local_dir).normalized() if geo else _radial_from_azel()
+	# Screen forward/right projected onto the tangent plane at the view point.
+	var t_fwd: Vector3 = -global_transform.basis.z
+	t_fwd = (t_fwd - radial * t_fwd.dot(radial))
+	if t_fwd.length() < 0.001:
+		t_fwd = global_transform.basis.x.cross(radial)   # looking straight down: fall back to a stable tangent
+	t_fwd = t_fwd.normalized()
+	var t_rgt: Vector3 = radial.cross(t_fwd).normalized()
+	var move: Vector3 = t_fwd * fwd_in - t_rgt * right_in
+	if move.length() < 0.001:
+		return
+	# Slower the closer you are (near_frac→0), for fine control face-to-face with the creatures.
+	var step: float = SURFACE_WALK_SPEED * delta * clampf(0.22 + near_frac, 0.22, 1.0)
+	var new_radial: Vector3 = (radial + move.normalized() * step).normalized()
+	if geo:
+		# The geosync rebuild in _process (which runs right after this) picks up the new local dir.
+		_geosync_local_dir = (_geosync_body.global_transform.basis.inverse() * new_radial).normalized()
+	else:
+		_orbit_elevation = clampf(asin(clampf(new_radial.y, -1.0, 1.0)), -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
+		_orbit_azimuth = atan2(new_radial.x, new_radial.z)
+		_update_transform()
+
+
 func _process(delta: float) -> void:
 	# Don't drive movement in the editor (@tool) preview.
 	if Engine.is_editor_hint():
@@ -678,6 +749,9 @@ func _process(delta: float) -> void:
 	# Undo last frame's shake so the seismic offset never accumulates into the base position.
 	global_position -= _shake_applied
 	_shake_applied = Vector3.ZERO
+	# GROUND-WALK: WASD/arrows + edge-scroll sweep the surface view while zoomed in. Updates the orbit/geosync
+	# state the transform rebuild below reads; inert when zoomed out, flying, or in the solar overview.
+	_surface_walk(delta)
 	# FLY: drive the drone from the keyboard every frame (WASD/lift/descend/boost).
 	if _fly:
 		_fly_step(delta)
