@@ -263,6 +263,27 @@ func fire_test_meteor() -> void:
 		_camera.look_at(impact, Vector3.UP)
 
 
+## Rain a BARRAGE of large meteors onto the camera-aimed region — bombard the planet to expose its deep
+## geology (crust -> mantle -> magma) and, with enough hits, fracture it to pieces. Concentrated (small
+## spread) so the impacts STACK into a deep crater rather than scattering shallowly; each rock is size-scaled
+## big so a single volley digs toward the mantle.
+func fire_barrage(count: int = 18, size_scale: float = 5.5, spread: float = 20.0) -> void:
+	if _camera == null or _terrain == null:
+		return
+	var ray: Dictionary = _camera.aim_ray()
+	var hit: Dictionary = _terrain.raycast_terrain(ray["origin"], ray["dir"], 3000.0)
+	if not bool(hit.get("hit", false)):
+		return
+	var impact: Vector3 = hit["position"]
+	for i in count:
+		var j: Vector3 = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0) * spread
+		var m: MeteorScript = MeteorScript.new()
+		_actors_root.add_child(m)
+		m.setup(_terrain, _ecology)
+		m.launch(impact + j, _camera.global_position + j * 4.0, size_scale)
+	_world.set_destruction(1.0)
+
+
 ## Fling a meteor toward `target` FROM an explicit world position (the trailer director aims one in from the
 ## frame edge). It then coasts under real N-body gravity like any launched meteor.
 func fire_meteor_at(target: Vector3, from_pos: Vector3) -> void:
