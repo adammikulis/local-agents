@@ -15,13 +15,36 @@ extends RefCounted
 ## changes groups (leaves its species/creature groups, joins carrion/corpse) and starts decaying.
 ## Static + dependency-free of concrete types (explicit types only — no ':=').
 
-const DECAY_LIFETIME: float = 70.0        # seconds a carcass lasts before it is gone
-const SHRINK_DURATION: float = 4.0        # final seconds spent shrinking away to nothing
-const NUTRITION_PER_SIZE: float = 40.0    # carrion food value per unit of body size
-const DETRITUS_PER_SEC: float = 0.35      # dead matter a rotting carcass sheds into the field's decomposer channel
+const NUTRITION_PER_SIZE: float = 40.0    # carcass biomass (and carrion food value) per unit of body size
 const SETTLE_SPEED: float = 0.35          # below this lin+ang speed the shadow counts as resting
 const SETTLE_HOLD: float = 0.4            # seconds it must stay slow before we call it settled
+const MAX_RAGDOLL_TIME: float = 1.0       # hard cap on the tumble before we force-settle (see tick())
 const SHADOW_MASK: int = 1                # collide with the terrain (static body on layer 1) only
+
+# --- Emergent decomposition (no timer) --------------------------------------------------------------
+# A carcass is just a lump of organic BIOMASS (c._carrion). While the animal lived, its own gut microbes were
+# held in check; death ends that suppression and they OVERGROW, consuming the body from within. The microbe
+# bloom is autocatalytic — the more biomass already converted, the bigger it gets — so we read it straight off
+# how much biomass is already gone (MICROBE_SEED = the suppressed load that blooms), with NO scalar stored on
+# the living creature (that + digestion benefit + soil bacteria is a separate creature-side follow-up). The
+# bloom RATE is gated by the field's local warmth × moisture, so warm+wet rots fast and cold+dry near-stalls →
+# permafrost mummification emerges for free. What the microbes consume is handed to the substrate's existing
+# decomposer loop as detritus (deposit_detritus → fungus/decompose → soil fertility + CO₂). The carcass is
+# freed once its biomass is fully returned to soil, so the count SELF-BOUNDS (no despawn timer).
+const MICROBE_SEED: float = 0.2           # suppressed microbe load at death; blooms as the body is consumed
+const DECOMP_RATE_PER_SEC: float = 0.35   # fraction of biomass the full bloom converts per second at warm+wet
+const COLD_STALL_C: float = -2.0          # at/below this the bloom stalls to MUMMIFY_FLOOR (frozen preservation)
+const WARM_OPT_C: float = 28.0            # at/above this warmth is optimal (rate factor 1.0)
+const MUMMIFY_FLOOR: float = 0.06         # slowest warmth factor — a frozen carcass lingers ~16x longer
+const DRY_MOISTURE: float = 0.6           # moisture factor for a dry-land carcass (a wet/submerged one = 1.0)
+const DETRITUS_YIELD: float = 1.0         # detritus deposited into the field per unit biomass consumed
+const SHRINK_FRACTION: float = 0.25       # over the final quarter of decomposition the body shrinks away
+const MAX_CARCASSES: int = 80             # GENEROUS safety backstop only — decomposition self-bounds the count
+
+# World-wide carcass registry, in creation order. Decomposition already self-bounds the count (bodies rot back
+# into soil), so this is only a backstop against a pathological pileup (e.g. a mass die-off in permafrost where
+# everything mummifies): if the count ever exceeds MAX_CARCASSES, the OLDEST body (front) is despawned.
+static var _carcasses: Array = []
 
 
 # Release the shadow: the creature is flung and physics takes over. `lethal` marks this as a death,
@@ -78,6 +101,8 @@ static func tick(c, delta: float) -> void:
 		_on_settled(c)
 		return
 	c.global_transform = c._shadow.global_transform
+	# Total time spent tumbling (reuses _decay_age, which stays 0 until the body settles into a carcass).
+	c._decay_age += delta
 
 	var lin: float = c._shadow.linear_velocity.length()
 	var ang: float = c._shadow.angular_velocity.length()
@@ -85,7 +110,12 @@ static func tick(c, delta: float) -> void:
 		c._settle_t += delta
 	else:
 		c._settle_t = 0.0
-	if c._settle_t >= SETTLE_HOLD:
+	# Settle when the tumble rests OR after MAX_RAGDOLL_TIME. The hard cap is essential on a planet: the shadow
+	# falls under world-down (-Y) gravity, not the radial "down", so it never actually comes to rest on the
+	# spherical surface — without the cap every dead body would ragdoll forever as an ACTIVE RigidBody3D, and
+	# they pile up until physics (and fps) collapse. The cap dismisses the expensive shadow promptly and
+	# re-seats the body radially (via ground_point) as a static, decomposing carcass.
+	if c._settle_t >= SETTLE_HOLD or c._decay_age >= MAX_RAGDOLL_TIME:
 		_on_settled(c)
 
 
@@ -95,6 +125,7 @@ static func _on_settled(c) -> void:
 	_dismiss_shadow(c)
 	c._ragdoll = false
 	c._settle_t = 0.0
+	c._decay_age = 0.0                # reset the tumble-timer reuse: decomposition ages from a fresh 0
 
 	if c._dead:
 		# Lie where it fell: keep the tumbled orientation, just seat it on the surface. Radial planet
@@ -139,32 +170,95 @@ static func _become_carcass(c) -> void:
 	c.add_to_group(c.GROUP_CARRION)
 	c.add_to_group("corpse")
 	_freeze_animations(c._model_root if c._model_root != null else c._mesh)
+	_register_carcass(c)
 
 
-# Decay in place: age the body, wash it green->black, then shrink and vanish. The carcass advertises FOOD
-# scent emergently — LAMaterialScent3D scans the "carrion" group each step and lays FOOD from `_carrion`,
-# so scavengers home in on it (no explicit deposit here, and it rides the wind + washes in rain for free).
+# Track this new carcass and keep the world-wide carcass count within MAX_CARCASSES. Prunes entries that
+# already rotted away (freed nodes) then, while still over budget, evicts the OLDEST carcass first.
+static func _register_carcass(c) -> void:
+	_carcasses.append(c)
+	var i: int = _carcasses.size() - 1
+	while i >= 0:
+		if not is_instance_valid(_carcasses[i]):
+			_carcasses.remove_at(i)
+		i -= 1
+	while _carcasses.size() > MAX_CARCASSES:
+		var oldest: Node = _carcasses.pop_front()
+		_despawn_carcass(oldest)
+	LASimReport.gauge("carcasses", float(_carcasses.size()))
+
+
+# Drop a carcass from the registry once it has fully decomposed away (keeps the count telemetry honest).
+static func _forget_carcass(c) -> void:
+	_carcasses.erase(c)
+	LASimReport.gauge("carcasses", float(_carcasses.size()))   # telemetry: live carcass count (bounded by the cap)
+
+
+# Force a capped-out carcass to vanish now: drop any lingering physics shadow and free the body node.
+static func _despawn_carcass(c) -> void:
+	if not is_instance_valid(c):
+		return
+	_dismiss_shadow(c)
+	c.queue_free()
+
+
+# Decompose in place: the microbe bloom (gated by field warmth+moisture) eats the carcass biomass and hands
+# it to the substrate's decomposer loop; the body washes green->black + shrinks in step with how much biomass
+# is gone, then vanishes once fully returned to soil. The carcass also advertises FOOD scent emergently —
+# LAMaterialScent3D scans the "carrion" group each step and lays FOOD from `_carrion`, so scavengers home in
+# on it (rides the wind + washes in rain for free), and any diet=scavenger creature can bite via feed().
 static func decay_tick(c, delta: float) -> void:
 	c._decay_age += delta
-	_update_rot(c)
-	# DEATH→SOIL: a rotting carcass literally becomes soil — it sheds dead matter into the field's decomposer
-	# channel, where fungus grows on it and rots it back into CO₂ + soil fertility (LAMaterialFungus3D). Scaled
-	# by remaining meat so a fresh, meaty carcass feeds the ground more than a picked-clean one. Emergent, general.
-	if c._material != null and c._material.has_method("deposit_detritus") and c._carrion > 0.0:
-		c._material.deposit_detritus(c.global_position, DETRITUS_PER_SEC * delta)
-
-	if c._decay_age >= DECAY_LIFETIME:
+	var initial: float = maxf(c.size, 0.05) * NUTRITION_PER_SIZE
+	if initial <= 0.0:
+		_forget_carcass(c)
 		c.queue_free()
 		return
-	# Waste away over the final seconds so it visibly shrinks to nothing before removal.
-	var shrink_start: float = DECAY_LIFETIME - SHRINK_DURATION
-	if c._decay_age >= shrink_start:
-		var t: float = clampf((c._decay_age - shrink_start) / SHRINK_DURATION, 0.0, 1.0)
+	var consumed_frac: float = clampf(1.0 - c._carrion / initial, 0.0, 1.0)
+	# Autocatalytic microbe bloom: a suppressed seed at death that grows toward full as the body is converted.
+	var microbes: float = MICROBE_SEED + consumed_frac * (1.0 - MICROBE_SEED)
+	# DEATH→SOIL: the bloom eats biomass at a warmth×moisture-gated rate and hands the consumed matter to the
+	# field's existing detritus→fungus/decompose→CO₂+fertility loop (deposit_detritus). Warm+wet = rapid
+	# putrefaction; cold+dry = near-stall (mummification). Scavenger bites (feed) reduce _carrion too and so
+	# compose in — an eaten carcass both shrinks and decomposes faster (more converted ⇒ bigger bloom).
+	var consumed: float = minf(initial * DECOMP_RATE_PER_SEC * microbes * _decomp_env(c) * delta, c._carrion)
+	if consumed > 0.0:
+		c._carrion -= consumed
+		if c._material != null and c._material.has_method("deposit_detritus"):
+			c._material.deposit_detritus(c.global_position, consumed * DETRITUS_YIELD)
+
+	_update_rot(c)
+	# Shrink away over the final stretch of decomposition so it visibly wastes to nothing before removal.
+	if consumed_frac >= 1.0 - SHRINK_FRACTION:
+		var t: float = clampf((consumed_frac - (1.0 - SHRINK_FRACTION)) / SHRINK_FRACTION, 0.0, 1.0)
 		c.scale = Vector3.ONE * clampf(1.0 - t, 0.05, 1.0)
+	# Biomass fully returned to soil: the carcass is gone. This is what SELF-BOUNDS the carcass count.
+	if c._carrion <= 0.0:
+		_forget_carcass(c)
+		c.queue_free()
 
 
-# A shared translucent overlay on every mesh of the body: fades a green rot tint in over the first
-# stretch of decay, then lerps that green toward black as the carcass rots down.
+# The local decomposition rate factor: warmth × moisture, read from the field at the carcass cell. Warmth
+# (the field TEMPERATURE, a cheap cell read) is the primary spatial driver: warm ground → rapid rot; a frozen
+# peak → ~MUMMIFY_FLOOR (a carcass lingers — permafrost preservation, emergent, no per-biome branch). Moisture
+# is coarse for now (dry land, halved further under snow) — a fuller soil-wetness read is a field-side follow-up.
+static func _decomp_env(c) -> float:
+	if c._material == null:
+		return DRY_MOISTURE
+	var pos: Vector3 = c.global_position
+	var warmth: float = 1.0
+	if c._material.has_method("temp_at"):
+		var t_c: float = c._material.temp_at(pos)          # cheap cell read; the primary spatial driver
+		warmth = clampf((t_c - COLD_STALL_C) / (WARM_OPT_C - COLD_STALL_C), MUMMIFY_FLOOR, 1.0)
+	var moisture: float = DRY_MOISTURE
+	if c._material.has_method("snow_depth_at") and c._material.snow_depth_at(pos) > 0.01:
+		moisture *= 0.5                        # frozen under snow: driest + coldest ⇒ slowest (permafrost)
+	return warmth * moisture
+
+
+# A shared translucent overlay on every mesh of the body: fades a green rot tint in as decomposition starts,
+# then lerps that green toward black as the biomass is consumed. Driven by how much biomass is GONE (not a
+# clock), so a fast warm rot blackens quickly and a mummifying cold one stays fresh-looking for a long time.
 static func _update_rot(c) -> void:
 	if c._rot_overlay == null:
 		c._rot_overlay = StandardMaterial3D.new()
@@ -173,7 +267,8 @@ static func _update_rot(c) -> void:
 		c._rot_overlay.metallic = 0.0
 		c._rot_overlay.albedo_color = Color(0.13, 0.32, 0.05, 0.0)
 		_apply_overlay(c._model_root if c._model_root != null else c._mesh, c._rot_overlay)
-	var pt: float = clampf(c._decay_age / DECAY_LIFETIME, 0.0, 1.0)
+	var initial: float = maxf(c.size, 0.05) * NUTRITION_PER_SIZE
+	var pt: float = clampf(1.0 - c._carrion / initial, 0.0, 1.0) if initial > 0.0 else 1.0
 	var green: Color = Color(0.13, 0.32, 0.05)
 	var black: Color = Color(0.02, 0.02, 0.02)
 	var col: Color = green.lerp(black, clampf((pt - 0.35) / 0.65, 0.0, 1.0))
@@ -208,15 +303,18 @@ static func feed(c, amount: float) -> float:
 		return 0.0
 	var taken: float = clampf(amount, 0.0, c._carrion)
 	c._carrion -= taken
-	if c._carrion <= 0.0:
+	if c._carrion < 0.0:
 		c._carrion = 0.0
-		c._decay_age = maxf(c._decay_age, DECAY_LIFETIME - SHRINK_DURATION)
+	# When a scavenger strips the last of the meat the next decay_tick sees _carrion <= 0 and frees the body.
 	return taken
 
 
-# Unified food model: a carcass is MEAT — fresh at first, then "decayed" (worth less) as it rots.
+# Unified food model: a carcass is MEAT — fresh at first, then "decayed" (worth less) once decomposition has
+# converted more than 40% of the biomass.
 static func food_profile(c) -> Dictionary:
-	var st: String = "decayed" if c._decay_age > DECAY_LIFETIME * 0.4 else "dead"
+	var initial: float = maxf(c.size, 0.05) * NUTRITION_PER_SIZE
+	var consumed_frac: float = clampf(1.0 - c._carrion / initial, 0.0, 1.0) if initial > 0.0 else 1.0
+	var st: String = "decayed" if consumed_frac > 0.4 else "dead"
 	return {"type": "meat", "state": st, "value": c._carrion}
 
 

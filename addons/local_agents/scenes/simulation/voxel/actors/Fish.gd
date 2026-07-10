@@ -16,6 +16,7 @@ const GROUP_FISH: String = "fish"
 const SPECIES_GROUP: String = "species_fish"    # shared "aquatic life" group (debug overlay + schooling base)
 
 const DEFAULT_SUBMERGE: float = 0.35  # how far below the surface a swimmer rides (config: "submerge")
+const GILL_SUBMERGE_MARGIN: float = 0.15  # keep a gill-breather's top this far under the sea shell so it stays submerged
 const SCHOOL_RADIUS: float = 6.0
 const SCHOOL_WEIGHT: float = 0.8
 const BASK_DURATION: float = 6.0      # seconds a basking species rests hauled out on the beach
@@ -659,7 +660,13 @@ func _swim_planet(pos: Vector3, candidate: Vector3, step_len: float, up: Vector3
 	var target_r: float = sea - eff_submerge
 	var sr: float = terrain.surface_radius(next_dir)
 	if not is_nan(sr):
-		target_r = maxf(target_r, sr + size)
+		target_r = maxf(target_r, sr + size)               # never sink through the solid floor
+	# Gills must NEVER be lifted above the sea shell: keep a water-breather's top (target_r + size) a margin
+	# below the surface even where the floor clamp above would otherwise push it up into air. That air-clamp
+	# in thin shoreline water is exactly what suffocates gill fish in the shallows. Air-breathers are exempt —
+	# their eff_submerge deliberately breaches the surface so they can breathe (whale/turtle/bug).
+	if breathes == "water":
+		target_r = minf(target_r, sea - size - GILL_SUBMERGE_MARGIN)
 	global_position = center + next_dir * target_r
 	return false
 
@@ -670,7 +677,16 @@ func _habitable_dir(dir: Vector3) -> bool:
 	var sr: float = terrain.surface_radius(dir)
 	if is_nan(sr):
 		return false                     # unmeshed patch: treat as non-habitable so the fish turns back
-	return sr < terrain.sea_radius()
+	var sea: float = terrain.sea_radius()
+	if sr >= sea:
+		return false                     # dry land above the waterline
+	# Gill (water) breathers need a column deep enough to hold the whole body under the surface; thin
+	# shoreline water would clamp them up into air and suffocate them, so it is NOT habitable for gills and
+	# the correction steers them back toward deeper water. Air-breathers surface to breathe, so any water
+	# shell is fine for them — their habitability stays plain shell-presence.
+	if breathes == "water" and (sea - sr) < size * 2.0:
+		return false
+	return true
 
 
 # PLANET: probe tangent directions (rings, like the flat version) for the nearest column that still has a
