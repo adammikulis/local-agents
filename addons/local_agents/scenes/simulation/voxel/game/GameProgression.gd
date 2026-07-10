@@ -122,8 +122,11 @@ func _game_mode() -> Object:
 # capabilities are earned, not handed over at spawn. Thresholds are tunable data; behaviour is generic.
 func _build_ladder() -> void:
 	_stages = [
-		# Rally a herd: followers is the running peak of the herd-follower gauge (starts at 0, climbs as herds form).
-		_stage("herd_form", "Rally a herd of 12", "gauges/followers/max", 12.0, 0.0,
+		# Plant vegetation: the player's first act. Needs PLAYER action (baseline spawn_plant/tree are unlocked
+		# from the start), so — unlike a herd metric that a fresh population satisfies instantly — it can't
+		# auto-complete. Reaching the target opens rabbits (which then have food). Pairs with a sparse curated
+		# start area (few initial plants) so `plants` genuinely starts below the threshold.
+		_stage("plant_life", "Plant vegetation so rabbits can feed", "plants", 30.0, 0.0,
 			PackedStringArray(["spawn_rabbit", "spawn_fox", "spawn_fish"]), 2.4),
 		# A thriving world: total living creatures grow past the founding stock (needs births beyond the initial spawn).
 		_stage("thriving", "Grow the world to 170 creatures", "creatures", 170.0, 0.0,

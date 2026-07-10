@@ -331,9 +331,29 @@ func _update_orbit_transform() -> void:
 	else:
 		_orbit_elevation = clampf(_orbit_elevation, -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
 		radial = _radial_from_azel()
-	global_position = _orbit_center + radial * _distance
 	var up: Vector3 = Vector3.UP if absf(radial.dot(Vector3.UP)) < 0.985 else Vector3.RIGHT
-	look_at(_orbit_center, up)
+	# ARC-DOWN near the surface: far out, sit on the orbit sphere and look straight in at the planet centre
+	# (the whole-world view). As zoom approaches the minimum, BLEND the pose down to eye-level ON the surface
+	# looking HORIZONTALLY across it — so the closest zoom is face-to-face with the inhabitants instead of
+	# pitched straight into the ground. `near_frac` is 1 far out, easing to 0 at the closest zoom.
+	var far_pos: Vector3 = _orbit_center + radial * _distance
+	var near_frac: float = clampf((_distance - _orbit_min_distance) / maxf(_orbit_radius * 0.5, 1.0), 0.0, 1.0)
+	if near_frac >= 1.0:
+		global_position = far_pos
+		look_at(_orbit_center, up)
+	else:
+		var upn: Vector3 = radial                                   # radial normal at the ground point
+		var surface_pt: Vector3 = _orbit_center + radial * _orbit_radius
+		var back: Vector3 = up - radial * up.dot(radial)            # a tangent "behind" the eye
+		if back.length() < 0.01:
+			back = Vector3.RIGHT - radial * Vector3.RIGHT.dot(radial)
+		back = back.normalized()
+		var t: float = 1.0 - near_frac                              # 0 far .. 1 closest
+		var eye: Vector3 = surface_pt + upn * 3.0 + back * 9.0      # eye-level, a little back from the point
+		global_position = far_pos.lerp(eye, t)
+		var far_look: Vector3 = _orbit_center
+		var close_look: Vector3 = surface_pt + upn * 2.6           # look nearly level, at head height
+		look_at(far_look.lerp(close_look, t), upn)
 	# Far plane scaled to the orbit distance so the whole planet stays inside the frustum when pulled out.
 	far = clampf(_distance * 4.0, 4000.0, 40000.0)
 
