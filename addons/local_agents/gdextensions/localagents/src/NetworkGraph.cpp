@@ -212,8 +212,8 @@ void NetworkGraph::load_embeddings() {
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         EmbeddingRecord record;
-        record.id = sqlite3_column_int64(stmt, 0);
-        record.node_id = sqlite3_column_int64(stmt, 1);
+        record.id = (int64_t)sqlite3_column_int64(stmt, 0);
+        record.node_id = (int64_t)sqlite3_column_int64(stmt, 1);
         int dim = sqlite3_column_int(stmt, 2);
         record.norm = static_cast<float>(sqlite3_column_double(stmt, 3));
         const void *blob = sqlite3_column_blob(stmt, 4);
@@ -312,7 +312,7 @@ RETURNING id;
 
     int64_t node_id = -1;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-        node_id = sqlite3_column_int64(stmt, 0);
+        node_id = (int64_t)sqlite3_column_int64(stmt, 0);
     }
     sqlite3_finalize(stmt);
     return node_id;
@@ -388,14 +388,14 @@ Dictionary NetworkGraph::get_node(int64_t node_id) const {
     sqlite3_bind_int64(stmt, 1, node_id);
 
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-        result["id"] = sqlite3_column_int64(stmt, 0);
+        result["id"] = (int64_t)sqlite3_column_int64(stmt, 0);
         result["space"] = String((const char *)sqlite3_column_text(stmt, 1));
         if (sqlite3_column_type(stmt, 2) != SQLITE_NULL) {
             result["label"] = String((const char *)sqlite3_column_text(stmt, 2));
         }
         String json = String((const char *)sqlite3_column_text(stmt, 3));
         result["data"] = json_to_dictionary(json);
-        result["created_at"] = sqlite3_column_int64(stmt, 4);
+        result["created_at"] = (int64_t)sqlite3_column_int64(stmt, 4);
     }
     sqlite3_finalize(stmt);
     return result;
@@ -428,14 +428,14 @@ LIMIT ?2 OFFSET ?3;
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         Dictionary row;
-        row["id"] = sqlite3_column_int64(stmt, 0);
+        row["id"] = (int64_t)sqlite3_column_int64(stmt, 0);
         row["space"] = String((const char *)sqlite3_column_text(stmt, 1));
         if (sqlite3_column_type(stmt, 2) != SQLITE_NULL) {
             row["label"] = String((const char *)sqlite3_column_text(stmt, 2));
         }
         String json = String((const char *)sqlite3_column_text(stmt, 3));
         row["data"] = json_to_dictionary(json);
-        row["created_at"] = sqlite3_column_int64(stmt, 4);
+        row["created_at"] = (int64_t)sqlite3_column_int64(stmt, 4);
         rows.push_back(row);
     }
     sqlite3_finalize(stmt);
@@ -474,14 +474,14 @@ LIMIT ?4 OFFSET ?5;
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         Dictionary row;
-        row["id"] = sqlite3_column_int64(stmt, 0);
+        row["id"] = (int64_t)sqlite3_column_int64(stmt, 0);
         row["space"] = String((const char *)sqlite3_column_text(stmt, 1));
         if (sqlite3_column_type(stmt, 2) != SQLITE_NULL) {
             row["label"] = String((const char *)sqlite3_column_text(stmt, 2));
         }
         String json = String((const char *)sqlite3_column_text(stmt, 3));
         row["data"] = json_to_dictionary(json);
-        row["created_at"] = sqlite3_column_int64(stmt, 4);
+        row["created_at"] = (int64_t)sqlite3_column_int64(stmt, 4);
         rows.push_back(row);
     }
 
@@ -573,16 +573,16 @@ LIMIT ?2;
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         Dictionary row;
-        row["id"] = sqlite3_column_int64(stmt, 0);
-        row["source_id"] = sqlite3_column_int64(stmt, 1);
-        row["target_id"] = sqlite3_column_int64(stmt, 2);
+        row["id"] = (int64_t)sqlite3_column_int64(stmt, 0);
+        row["source_id"] = (int64_t)sqlite3_column_int64(stmt, 1);
+        row["target_id"] = (int64_t)sqlite3_column_int64(stmt, 2);
         if (sqlite3_column_type(stmt, 3) != SQLITE_NULL) {
             row["kind"] = String((const char *)sqlite3_column_text(stmt, 3));
         }
         row["weight"] = sqlite3_column_double(stmt, 4);
         String json = String((const char *)sqlite3_column_text(stmt, 5));
         row["data"] = json_to_dictionary(json);
-        row["created_at"] = sqlite3_column_int64(stmt, 6);
+        row["created_at"] = (int64_t)sqlite3_column_int64(stmt, 6);
         rows.push_back(row);
     }
     sqlite3_finalize(stmt);
