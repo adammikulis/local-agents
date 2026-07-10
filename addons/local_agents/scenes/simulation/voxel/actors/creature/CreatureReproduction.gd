@@ -50,8 +50,11 @@ static func tick(c, delta: float) -> void:
 		c._repro_cd = maxf(0.0, c._repro_cd - delta)
 	if not c.pregnant:
 		return
-	# Carrying young costs energy every frame (spread the total cost across the gestation period).
-	c.energy = maxf(0.0, c.energy - GESTATION_ENERGY_COST * (delta / GESTATION_SECONDS))
+	# Carrying young costs energy every frame (spread the total cost across the gestation period). The period
+	# is compressed by LA_EVO_FAST for evolution-observation runs, so the drain uses the same shortened duration
+	# and the TOTAL energy cost per birth stays GESTATION_ENERGY_COST regardless of the compression.
+	var gest_dur: float = GESTATION_SECONDS / LAAblate.evo_fast()
+	c.energy = maxf(0.0, c.energy - GESTATION_ENERGY_COST * (delta / gest_dur))
 	c._gestation_t -= delta
 	if c._gestation_t <= 0.0:
 		_give_birth(c)
@@ -127,10 +130,10 @@ static func _nearest_fertile_mate(c, pos: Vector3):
 ## `mate` is untyped so the dynamic `_repro_cd` field access resolves at runtime (like the other Creature* helpers).
 static func _conceive(c, mate) -> void:
 	c.pregnant = true
-	c._gestation_t = GESTATION_SECONDS
+	c._gestation_t = GESTATION_SECONDS / LAAblate.evo_fast()
 	c._mate = mate
 	if mate != null and is_instance_valid(mate):
-		mate._repro_cd = maxf(mate._repro_cd, MATE_REFRACTORY)
+		mate._repro_cd = maxf(mate._repro_cd, MATE_REFRACTORY / LAAblate.evo_fast())
 
 
 ## Give birth at term: route through the shared heredity machinery (LAEcologyService.birth_offspring →
@@ -142,6 +145,6 @@ static func _give_birth(c) -> void:
 	c._gestation_t = 0.0
 	var mate = c._mate
 	c._mate = null
-	c._repro_cd = POST_BIRTH_COOLDOWN
+	c._repro_cd = POST_BIRTH_COOLDOWN / LAAblate.evo_fast()
 	if c._ecology != null and c._ecology.has_method("birth_offspring"):
 		c._ecology.birth_offspring(c.species, c, mate)

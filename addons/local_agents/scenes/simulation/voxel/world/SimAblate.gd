@@ -33,3 +33,17 @@ static func spawn_scale() -> float:
 		if OS.has_environment("LA_SPAWN_SCALE"):
 			_spawn_scale = maxf(0.05, float(OS.get_environment("LA_SPAWN_SCALE")))
 	return _spawn_scale
+
+
+## Evolution-observation knob (dev tool). LA_EVO_FAST=N compresses the BIOLOGICAL cadence — gestation,
+## post-birth cooldown, mate refractory, and the maturity/grow-time threshold all divide by N — so generations
+## turn over in ~1/N the sim-time (and compute) without touching Engine.time_scale (which can't help: physics is
+## the bottleneck, so N steps/frame just makes each frame N× heavier). Lets a selection experiment reach several
+## generations inside one short run so gene-mean drift is observable. Default 1.0 = realtime biology, fully inert.
+static var _evo_fast: float = -1.0
+static func evo_fast() -> float:
+	if _evo_fast < 0.0:
+		_evo_fast = 1.0
+		if OS.has_environment("LA_EVO_FAST"):
+			_evo_fast = clampf(float(OS.get_environment("LA_EVO_FAST")), 1.0, 50.0)
+	return _evo_fast

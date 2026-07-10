@@ -31,13 +31,13 @@ static func tick(c, delta: float) -> void:
 ## True once the creature has reached breeding/adult maturity — the "is it an adult" query the rest of the sim
 ## (reproduction fertility, leadership eligibility, the inspector label) reads.
 static func is_mature(c) -> bool:
-	return c.age >= c.maturity_age
+	return c.age >= c.maturity_age / LAAblate.evo_fast()
 
 
 ## Visual size as a fraction of the adult body: NEWBORN_SCALE at birth, rising linearly to 1.0 by the end of
 ## the juvenile grow-time (maturity_age * GROW_TIME_FRAC). Founders spawned aged-in are already full size.
 static func growth_scale(c) -> float:
-	var grow_time: float = maxf(c.maturity_age * GROW_TIME_FRAC, 0.001)
+	var grow_time: float = maxf(c.maturity_age * GROW_TIME_FRAC / LAAblate.evo_fast(), 0.001)
 	return lerpf(NEWBORN_SCALE, 1.0, clampf(c.age / grow_time, 0.0, 1.0))
 
 
