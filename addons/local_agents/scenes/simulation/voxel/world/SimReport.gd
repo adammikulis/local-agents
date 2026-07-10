@@ -58,12 +58,17 @@ static func register(provider: Callable) -> void:
 ## not per frame, so their (possibly heavy) scans only run when a snapshot is actually taken.
 static func snapshot() -> Dictionary:
 	var out: Dictionary = {"events": _events.duplicate(true), "gauges": _gauges.duplicate(true)}
+	var dead: Array = []
 	for p in _providers:
 		if p is Callable and p.is_valid():
 			var d = p.call()
 			if d is Dictionary:
 				for k in d:
 					out[k] = d[k]
+		else:
+			dead.append(p)          # provider's node was freed → drop it so _providers doesn't accrete dead refs
+	for p in dead:
+		_providers.erase(p)
 	return out
 
 
