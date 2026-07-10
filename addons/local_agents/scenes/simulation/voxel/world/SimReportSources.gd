@@ -71,6 +71,14 @@ static func cognition(w) -> Dictionary:
 	                          # learning, which cues_learned's positive-only count can't see). Proves affinity's aversive half.
 	var vetoed: int = 0
 	var learners: int = 0     # creatures with >=1 learned policy OR cue entry (learning-spread numerator)
+	# Population gene means — the evolvable loci whose drift makes SELECTION observable (a toxin-heavy pasture
+	# should push neophobia up over generations, predation should push speed up, etc.). Accumulated in THIS same
+	# O(N) pass — no second population scan (big-O discipline). decode_gene() is the raw locus value.
+	const REPORTED_GENES: Array = ["size", "speed", "metabolism", "carnivory", "neophobia", "boldness", "scent_acuity", "taste_sensitivity"]
+	var gene_sum: Dictionary = {}
+	for gk in REPORTED_GENES:
+		gene_sum[gk] = 0.0
+	var gene_pop: int = 0
 	for c in creatures:
 		if not is_instance_valid(c) or not c.has_method("get_cognition"):
 			continue
@@ -90,7 +98,16 @@ static func cognition(w) -> Dictionary:
 			elif float(cv) <= -0.4:
 				aversions += 1
 		if c.has_method("get_genome") and c.get_genome() != null:
-			max_gen = maxi(max_gen, int(c.get_genome().generation))
+			var gen = c.get_genome()
+			max_gen = maxi(max_gen, int(gen.generation))
+			if gen.has_method("decode_gene"):
+				gene_pop += 1
+				for gk in REPORTED_GENES:
+					gene_sum[gk] += gen.decode_gene(gk)
+	var genes: Dictionary = {}
+	if gene_pop > 0:
+		for gk in REPORTED_GENES:
+			genes[gk] = snappedf(gene_sum[gk] / float(gene_pop), 0.001)
 	var sched: int = 0
 	if w._ecology != null and w._ecology.has_method("cognition_scheduler"):
 		var sc = w._ecology.cognition_scheduler()
@@ -100,4 +117,5 @@ static func cognition(w) -> Dictionary:
 		"minds": minds, "habits": habits, "escalations": asked, "social_lessons": learned,
 		"max_generation": max_gen, "slow_brain_calls": sched, "cues_learned": cues, "vetoes": vetoed,
 		"aversions": aversions, "learners": learners,
+		"genes": genes, "gene_pop": gene_pop,
 	}
