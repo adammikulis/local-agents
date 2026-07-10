@@ -13,6 +13,7 @@
   "maturity_age": 20.0,
   "preys_on": [
     "rabbit",
+    "mouse",
     "fish"
   ],
   "flees_from": [],

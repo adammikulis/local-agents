@@ -1,0 +1,37 @@
+{
+  "species": "swallow",
+  "diet": "omnivore",
+  "speed": 7.0,
+  "size": 0.26,
+  "color": [
+    0.2,
+    0.28,
+    0.46
+  ],
+  "can_fly": true,
+  "cruise_height": 8.0,
+  "sense_radius": 14.0,
+  "maturity_age": 10.0,
+  "preys_on": [
+    "bug"
+  ],
+  "flees_from": [],
+  "herd": true,
+  "leader_loyalty": 0.0,
+  "hierarchy": "family",
+  "pop_cap": 12,
+  "max_energy": 65.0,
+  "metabolism": 1.5,
+  "food_value": 22.0,
+  "thirst_rate": 0.6,
+  "flock_cohesion": 1.0,
+  "flock_alignment": 1.2,
+  "flock_separation": 0.7,
+  "flock_radius": 16.0,
+  "flock_weight": 1.4,
+  "eye_fov": 300.0,
+  "hearing_range": 20.0,
+  "nests": true,
+  "nest_habitat": "tree",
+  "max_age": 130.0
+}

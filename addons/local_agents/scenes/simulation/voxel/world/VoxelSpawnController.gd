@@ -9,8 +9,10 @@ extends Node
 # A visibly BUSY world: land herbivores forage the emergent forests, predators/scavengers scale with the
 # prey/carrion base, birds fill the sky. Far actors self-throttle via the creatures' distance-graded think
 # LOD (Creature._think_stride), so a populous world stays playable — raise counts, don't cap the world small.
-# Predator↔prey ratio: foxes ≈ rabbits/5, vultures track the bird/carrion base.
-const INITIAL_COUNTS: Dictionary = {"plant": 260, "rabbit": 90, "fox": 10, "bird": 55, "villager": 12, "vulture": 12}
+# Predator↔prey ratio: foxes ≈ rabbits/5, vultures track the bird/carrion base. The mix is a PYRAMID —
+# lots of vegetation + small herbivores (rabbit, mouse) + mid consumers (bird, swallow insectivore), fewer
+# predators (fox) / scavengers (vulture). The aquatic web base (bug/shrimp) is stocked separately, in water.
+const INITIAL_COUNTS: Dictionary = {"plant": 260, "rabbit": 90, "mouse": 12, "fox": 10, "bird": 55, "swallow": 10, "villager": 12, "vulture": 12}
 const ROCK_COUNT: int = 60
 # Many forest SEEDS scattered onto the best (warm/fertile) ground; groves then DENSIFY emergently over the
 # run wherever photosynthesis has built biomass (see LAEcologyService._tick_tree_seeding), thinning at the

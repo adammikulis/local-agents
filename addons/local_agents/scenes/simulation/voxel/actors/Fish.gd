@@ -49,6 +49,18 @@ var basks: bool = false               # can haul out to rest on the beach (turtl
 var _bask_timer: float = 0.0          # >0 while resting on the beach
 var _bask_cd: float = 0.0             # cooldown before the next haul-out
 
+# --- Foraging (config-driven, same idea as LACreature's preys_on): a swimmer with a non-empty preys_on is
+# an insectivore/planktivore — it steers toward the nearest edible prey in its own sense radius and eats it
+# on contact, giving the aquatic food web a real bottom (fish → bugs/shrimp → the algae/biomass base). An
+# empty preys_on (whales aside) leaves the pure config-band swimmer behaviour unchanged. No per-species
+# branch: WHAT a swimmer eats is entirely the `preys_on` list in its data file. ---
+var diet: String = ""                 # informational ("insectivore"/"filter_feeder"/…); behaviour keys off preys_on
+var preys_on: PackedStringArray = PackedStringArray()   # species this swimmer forages (e.g. ["bug","shrimp"])
+const FORAGE_WEIGHT: float = 1.1      # how hard the prey-attraction pulls vs. wander/schooling
+# One shared frame-stamped spatial index over the prey groups, rebuilt at most once/frame/group across ALL
+# swimmers (the same O(active) lookup LACreatureSenses uses) so foraging stays sub-quadratic with many bugs.
+static var _forage_index: LASpatialIndex = LASpatialIndex.new()
+
 # --- health / HP: fish are fragile; a small pool of HP so a bolt's current kills them near the
 # strike but graded damage lets edge-of-range fish survive. 0 HP = death. ---
 var health: float = 12.0
@@ -100,6 +112,8 @@ func setup(_terrain, _material, _config: Dictionary) -> void:
 	model_id = String(config.get("model", species))
 	body_shape = String(config.get("body", "fish"))
 	basks = bool(config.get("basks", false))
+	diet = String(config.get("diet", diet))
+	preys_on = PackedStringArray(config.get("preys_on", PackedStringArray()))
 	# Fragile: HP scales gently with size, but fish die easily to a strike near the bolt.
 	max_health = float(config.get("max_health", 8.0 + size * 20.0))
 	health = max_health
@@ -146,6 +160,8 @@ func _build_procedural_body() -> void:
 		"turtle": _build_turtle_body()
 		"whale": _build_whale_body()
 		"jellyfish": _build_jellyfish_body()
+		"bug": _build_bug_body()
+		"shrimp": _build_shrimp_body()
 		_: _build_fish_body()
 
 
@@ -298,6 +314,48 @@ func _build_jellyfish_body() -> void:
 		add_child(tent)
 
 
+# A tiny single-mesh speck — the base of the aquatic web (surface midges / water bugs). Kept to ONE low-poly
+# mesh because bugs are numerous; the whole point is a cheap, plentiful food particle for the fish/birds.
+func _build_bug_body() -> void:
+	var mat: StandardMaterial3D = _body_material()
+	mat.metallic = 0.0
+	_mesh = MeshInstance3D.new()
+	var body: SphereMesh = SphereMesh.new()
+	body.radius = size
+	body.height = size * 2.0
+	body.radial_segments = 5
+	body.rings = 3
+	_mesh.mesh = body
+	_mesh.scale = Vector3(0.8, 0.6, 1.2)          # a stubby little bug
+	_mesh.material_override = mat
+	add_child(_mesh)
+
+
+# A small curved crustacean — one slim body mesh plus a short tail flick. A bottom-shell grazer (the second
+# aquatic base). Cheap: two primitives, since shrimp are also plentiful prey.
+func _build_shrimp_body() -> void:
+	var mat: StandardMaterial3D = _body_material()
+	_mesh = MeshInstance3D.new()
+	var body: SphereMesh = SphereMesh.new()
+	body.radius = size
+	body.height = size * 2.0
+	body.radial_segments = 6
+	body.rings = 3
+	_mesh.mesh = body
+	_mesh.scale = Vector3(0.5, 0.5, 1.6)          # slim and elongated
+	_mesh.material_override = mat
+	add_child(_mesh)
+	var tail: MeshInstance3D = MeshInstance3D.new()
+	var fan: SphereMesh = SphereMesh.new()
+	fan.radius = size * 0.5
+	fan.height = size
+	tail.mesh = fan
+	tail.scale = Vector3(1.0, 0.2, 0.6)
+	tail.material_override = mat
+	tail.position = Vector3(0.0, 0.0, size * 1.4)
+	add_child(tail)
+
+
 # Build the display model from the config model row (if any) and start its (looping) swim clip. A
 # swimmer is always swimming, so there is no per-frame animation logic — just play once at spawn. When
 # a variant reuses a shared mesh (finned fish share fish.glb), its config colour is passed as a flat
@@ -441,6 +499,9 @@ func _physics_process(delta: float) -> void:
 			var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0) * 0.7
 			desired = _heading + jitter
 		desired += _school_steer(pos, up)
+		# Insectivore/planktivore swimmers steer toward (and eat) the nearest prey — the aquatic web's bottom.
+		if not preys_on.is_empty():
+			desired += _forage_steer(pos, up)
 	# Flatten the intention into the local tangent plane (was desired.y = 0.0 for the flat +Y world).
 	desired = desired - up * desired.dot(up)
 
@@ -493,6 +554,59 @@ func _school_steer(pos: Vector3, up: Vector3) -> Vector3:
 	if align.length() > 0.001:
 		steer += align.normalized() * 0.5
 	return steer * SCHOOL_WEIGHT
+
+
+# FORAGING: steer toward the nearest edible prey (config `preys_on`) inside the sense radius, and EAT it on
+# contact. The aquatic mirror of a land predator's hunt, but simpler — a swimmer has no metabolism, so eating
+# just removes the prey (bounding its numbers) and gives the fish a real reason to chase the bug/shrimp
+# clouds. Returns a tangent-plane steer toward the prey (ZERO when there is none, or right after eating one).
+func _forage_steer(pos: Vector3, up: Vector3) -> Vector3:
+	var prey: Node3D = _nearest_prey(pos)
+	if prey == null:
+		return Vector3.ZERO
+	var to_prey: Vector3 = prey.global_position - pos
+	var reach: float = maxf(size + 0.5, 0.7)
+	if to_prey.length() <= reach:
+		_eat_prey(prey)
+		return Vector3.ZERO
+	# Keep the pull in the local swim (tangent) plane, exactly like schooling/wander.
+	var steer: Vector3 = to_prey - up * to_prey.dot(up)
+	if steer.length() > 0.001:
+		return steer.normalized() * FORAGE_WEIGHT
+	return Vector3.ZERO
+
+
+# Nearest visible prey of any species in `preys_on`, within sense_radius, via the shared frame-stamped
+# spatial index (rebuilt once/frame/group across every swimmer — O(active), not an O(n²) group sweep).
+func _nearest_prey(pos: Vector3) -> Node3D:
+	var groups: Array = []
+	for sp in preys_on:
+		groups.append("species_" + String(sp))
+	_forage_index.rebuild_if_stale(get_tree(), Engine.get_physics_frames(), groups)
+	var best: Node3D = null
+	var best_d: float = sense_radius
+	for sp in preys_on:
+		for cand in _forage_index.query("species_" + String(sp), pos, best_d):
+			if cand == self or not is_instance_valid(cand):
+				continue
+			var d: float = pos.distance_to((cand as Node3D).global_position)
+			if d < best_d:
+				best_d = d
+				best = cand as Node3D
+	return best
+
+
+# Consume a prey actor: kill it through its own death path (bugs/shrimp are LAFish → die() splashes + frees).
+# No energy transfer — swimmers have no metabolism; the point is that eating BOUNDS the prey population.
+func _eat_prey(prey: Node3D) -> void:
+	if prey == null or not is_instance_valid(prey):
+		return
+	var prey_species: String = String(prey.get("species")) if "species" in prey else ""
+	LASimReport.event("predation", {"species": species, "prey": prey_species})
+	if prey.has_method("die"):
+		prey.die("eaten")
+	elif prey.has_method("queue_free"):
+		prey.queue_free()
 
 
 # Species submerge depth for this frame. Gill-breathers ride at the fixed submerge. An air-breather cycles

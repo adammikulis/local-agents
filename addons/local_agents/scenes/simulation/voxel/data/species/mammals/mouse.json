@@ -1,0 +1,39 @@
+{
+  "species": "mouse",
+  "diet": "herbivore",
+  "speed": 3.8,
+  "size": 0.3,
+  "color": [
+    0.55,
+    0.5,
+    0.46
+  ],
+  "can_fly": false,
+  "sense_radius": 7.0,
+  "maturity_age": 9.0,
+  "preys_on": [],
+  "flees_from": [
+    "fox",
+    "villager",
+    "vulture"
+  ],
+  "herd": true,
+  "leader_loyalty": 0.0,
+  "hierarchy": "family",
+  "pop_cap": 14,
+  "max_energy": 60.0,
+  "metabolism": 1.7,
+  "breath_capacity": 5.0,
+  "food_value": 28.0,
+  "thirst_rate": 1.1,
+  "flock_cohesion": 0.6,
+  "flock_alignment": 0.5,
+  "flock_separation": 1.1,
+  "flock_radius": 7.0,
+  "flock_weight": 0.85,
+  "eye_fov": 330.0,
+  "hearing_range": 15.0,
+  "nests": true,
+  "nest_habitat": "ground",
+  "max_age": 120.0
+}

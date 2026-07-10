@@ -1,6 +1,8 @@
 {
 	"species": "whale",
 	"aquatic": true,
+	"diet": "filter_feeder",
+	"preys_on": ["shrimp"],
 	"model": "",
 	"body": "whale",
 	"speed": 1.4,
