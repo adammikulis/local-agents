@@ -119,6 +119,14 @@ committed). When removing files:
   time-scale** (run N sim steps per render frame) so geological time compresses to seconds — never wait
   real-time for something you can accelerate. Parallelize (fan out subagents), pick the cheapest run that
   proves the point, and cut anything that makes the loop slower than it needs to be.
+- **NON-INTERACTIVE RUNS MUST NOT INTERRUPT THE USER — use `scripts/run_sim_offscreen.sh`.** Metal/GPU runs
+  need a real window (headless has no compute device), and a Godot window both APPEARS on-screen AND STEALS
+  KEYBOARD FOCUS at launch — a hard interruption. The wrapper `scripts/run_sim_offscreen.sh` fixes both:
+  launches with `--position 30000,30000 --resolution 640x400` (off-screen, applied before first paint) AND
+  hands focus back to whatever app was frontmost (macOS `osascript`, retried as Godot grabs focus during
+  startup). ALWAYS run non-interactive sims through it — `scripts/run_sim_offscreen.sh --path . <scene> --
+  --run-frames=N` (env like `LA_NO_STREAMER=1` still works). This applies to the main thread AND every
+  sub-agent's run commands. (Moving the window after `_ready` is too late — it flashes + steals focus first.)
 
 - "Does it work" checks require **both** a non-headless launched-window run **and** headless harness
   suites; run them in whichever order is convenient (a non-headless launch first is a good habit for
@@ -264,6 +272,18 @@ committed). When removing files:
 
 ## File size & refactor discipline
 
+- **DESIGNATED THIN HUBS — `VoxelWorld.gd` and `MaterialField3D.gd` are EXTRACT-ONLY; do NOT add behavior
+  to them.** These two files have been split THREE times because new work keeps re-accreting into them (they
+  are the composition root and the field hub, so it's where wiring/channels naturally land). Stop the cycle
+  by rule: **`VoxelWorld` is a composition root ONLY** — it may instantiate + wire controllers and nothing
+  more; a new feature gets at most a one-line `add_child(controller)` / signal hookup there, and its behavior
+  lives in a NEW focused controller module. **`MaterialField3D` is the field's thin public facade +
+  step-orchestration ONLY** — a new channel/query/process goes in a NEW module (a channel module, a pass, a
+  query facade) that the field merely delegates to; never add inline channel logic or query bodies. This
+  applies to the main thread AND every sub-agent: **a contract that would grow `VoxelWorld`/`MaterialField3D`
+  is wrong by construction — rewrite it to add a module instead.** When you catch yourself about to add a
+  method to either, STOP and make the module. (Same pattern for any future god-object hub — name it here and
+  make it extract-only before it becomes the fourth serialization bottleneck.)
 - **PARALLELIZABILITY is a first-class refactor driver — not just line count.** Line limits are a floor;
   the deeper question is *"can this area be owned by a separate agent without colliding?"* A file that
   multiple concurrent workstreams must all edit is a **serialization bottleneck** — split it into
