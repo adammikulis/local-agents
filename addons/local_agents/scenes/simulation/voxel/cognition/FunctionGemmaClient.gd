@@ -102,13 +102,36 @@ static func parse_action(response: Dictionary) -> String:
 			if LAActionRegistry.is_valid(name):
 				return name
 
-	# Fallback: some servers return the call as plain text — scan for any known action token.
-	var content: String = String(message.get("content", ""))
+	# Fallback: some servers return the call as plain text. Match a real TOKEN, not a bare substring — require a
+	# word boundary before and a boundary or '(' after — so "head to the nearest water" no longer matches "rest"
+	# inside "nea-rest", and multi-action text picks the EARLIEST call by position (not ACTIONS order).
+	var content: String = String(message.get("content", "")).to_lower()
 	if content != "":
+		var best_pos: int = 0x7fffffff
+		var best_action: String = ""
 		for action in LAActionRegistry.ACTIONS:
-			if content.findn(String(action)) != -1:
-				return String(action)
+			var name_l: String = String(action).to_lower()
+			var from: int = 0
+			while true:
+				var p: int = content.find(name_l, from)
+				if p < 0:
+					break
+				var before_ok: bool = p == 0 or not _is_word_char(content[p - 1])
+				var ae: int = p + name_l.length()
+				var after_ok: bool = ae >= content.length() or content[ae] == "(" or not _is_word_char(content[ae])
+				if before_ok and after_ok:
+					if p < best_pos:
+						best_pos = p
+						best_action = String(action)
+					break
+				from = p + 1
+		if best_action != "":
+			return best_action
 	return ""
+
+
+static func _is_word_char(ch: String) -> bool:
+	return ch == "_" or (ch >= "a" and ch <= "z") or (ch >= "0" and ch <= "9")
 
 
 static func _as_array(v) -> Array:

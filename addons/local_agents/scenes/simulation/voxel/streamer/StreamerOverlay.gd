@@ -178,8 +178,6 @@ func show_line(text: String) -> void:
 func _push_feed(text: String) -> void:
 	if _feed == null:
 		return
-	for child in _feed.get_children():
-		child.queue_free()
 	var line: Label = Label.new()
 	line.text = "› " + text
 	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -187,6 +185,9 @@ func _push_feed(text: String) -> void:
 	line.add_theme_font_size_override("font_size", 11)
 	line.add_theme_color_override("font_color", Color(0.72, 0.66, 0.82))
 	_feed.add_child(line)
+	_feed.move_child(line, 0)                        # newest at top
+	while _feed.get_child_count() > FEED_MAX:         # bounded rolling history (was clearing to a single line)
+		_feed.get_child(_feed.get_child_count() - 1).queue_free()
 
 
 # --- master show/hide (host gates streamer compute off when hidden) ------------------------------

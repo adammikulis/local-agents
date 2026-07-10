@@ -92,7 +92,11 @@ func _ready() -> void:
 		_unlock_everything()
 	else:
 		_apply_baseline()
-		load_from_disk()
+		# Only RESUME saved progression when actually loading a save (a pending load slot). A genuinely NEW
+		# campaign (start_campaign cleared the slot) stays at BASELINE — otherwise it inherits the previous
+		# campaign's unlocks/stage from the shared global progression.cfg and boots with the gating bypassed.
+		if gm != null and String(gm.pending_load_slot) != "":
+			load_from_disk()
 	LASimReport.register(Callable(self, "report"))
 	print("PROGRESSION={mode:%s, stage:%d/%d, zoom_mult:%.2f, unlocked:%d}" % [
 		("sandbox" if _sandbox else "campaign"), _current, _stages.size(), _zoom_mult, _unlocked.size()])

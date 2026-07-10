@@ -125,9 +125,9 @@ func _ready() -> void:
 
 	_add_section("PERF")
 	var shadows: CheckButton = _add_check("Sun shadows", func(on: bool) -> void: perf_toggled.emit("shadows", on))
-	shadows.button_pressed = true                    # on by default (matches the scene)
+	shadows.set_pressed_no_signal(false)             # start OFF (no emit) — the applied quality preset drives the real
 	var ssao: CheckButton = _add_check("SSAO", func(on: bool) -> void: perf_toggled.emit("ssao", on))
-	ssao.button_pressed = true
+	ssao.set_pressed_no_signal(false)                # render state; forcing ON lied about it + its init emit was swallowed → 2 clicks
 
 	_add_section("CAPTURE")
 	var shot: Button = Button.new()

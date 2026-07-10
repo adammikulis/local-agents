@@ -104,6 +104,7 @@ var _last_fear: float = 0.0               # panic/fear level at the last decisio
 var _last_o2: float = 1.0                 # breath fraction (0..1) at the last decision — low = suffocating
 var _last_temp: float = 15.0             # ambient °C at the last decision — outside comfort band = discomfort
 var _last_veto: bool = false             # did the last decide() REFUSE a learned-lethal action? (Creature reads this to retreat)
+var _last_was_fallback: bool = false     # was _last_action a veto REDIRECT (not a free choice)? gates the durability guard
 
 # lifetime stats (surfaced to the inspector + harness)
 var escalations: int = 0
@@ -240,6 +241,7 @@ func _apply_veto(chosen: String, innate_action: String, learned) -> String:
 func _snapshot(c, key: int, chosen: String, senses: Dictionary) -> void:
 	_last_key = key
 	_last_action = chosen
+	_last_was_fallback = _last_veto     # capture whether THIS decision was a veto redirect (survives the reset next tick)
 	_last_energy = c.energy
 	_last_hydration = c.hydration
 	_last_health = float(senses.get("health", c.health))
@@ -309,7 +311,7 @@ func _reinforce(c, senses: Dictionary) -> void:
 	# DIFFERENT action, do NOT overwrite it with a fresh "fallback is fine here" record — that erased the aversion
 	# after a single veto and let the creature walk straight back into the lethal action next tick. Keep the floor.
 	if entry != null and String((entry as Dictionary).get("action", "")) != _last_action \
-			and _last_action == SAFE_FALLBACK_ACTION \
+			and _last_was_fallback \
 			and float((entry as Dictionary).get("weight", 0.0)) <= VETO_WEIGHT:
 		return
 	if entry == null or String((entry as Dictionary).get("action", "")) != _last_action:

@@ -158,6 +158,9 @@ func _vortex_gradient() -> Vector2:
 func _physics_process(delta: float) -> void:
 	_age += delta
 	_spin += SPIN_SPEED * delta
+	if _age >= LIFETIME_MAX:
+		queue_free()          # age out even when the field is unavailable (was leaking forever if _field == null)
+		return
 	if _field == null:
 		return
 

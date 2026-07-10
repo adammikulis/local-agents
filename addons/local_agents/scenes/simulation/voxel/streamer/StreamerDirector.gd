@@ -75,6 +75,7 @@ const ENERGY_TO_INTENSITY: float = 0.02   # intensity points per unit of energy 
 const ENERGY_URGENT_RISE: float = 400.0   # an energy jump this big is a landmark — queue a must-say beat
 var _energy_source: Node = null           # LASceneEnergyGraph, exposes current_total()
 var _last_energy: float = 0.0
+var _energy_primed: bool = false         # seed _last_energy on the first sample so the starting energy isn't a false surge
 
 # --- scene sampling ---
 # Behaviour states worth naming in the commentary; each carries a representative animal (species,
@@ -274,12 +275,16 @@ func _take_sample() -> void:
 	# proportion to how big it is; a large jump is a landmark event and joins the must-say queue too.
 	if _energy_source != null and _energy_source.has_method("current_total"):
 		var e: float = float(_energy_source.current_total())
-		var rise: float = maxf(0.0, e - _last_energy)
-		if rise > 0.0:
-			_intensity += rise * ENERGY_TO_INTENSITY
-			if rise >= ENERGY_URGENT_RISE:
-				_push_event("a massive surge of energy just tore through the scene", URGENT_BAR + rise * 0.01)
-		_last_energy = e
+		if not _energy_primed:
+			_energy_primed = true       # first sample: seed the baseline so the whole starting energy isn't a phantom "surge"
+			_last_energy = e
+		else:
+			var rise: float = maxf(0.0, e - _last_energy)
+			if rise > 0.0:
+				_intensity += rise * ENERGY_TO_INTENSITY
+				if rise >= ENERGY_URGENT_RISE:
+					_push_event("a massive surge of energy just tore through the scene", URGENT_BAR + rise * 0.01)
+			_last_energy = e
 
 
 # Intensity weights: the scanner's "how big a deal is this" score. THRESHOLD is 6, so anything >=6

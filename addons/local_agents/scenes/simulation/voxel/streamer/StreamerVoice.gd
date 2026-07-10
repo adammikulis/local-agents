@@ -80,6 +80,17 @@ func setup(options: Dictionary = {}) -> void:
 		_begin_voice_download()
 
 
+## Join the off-thread probe/synth workers on teardown so Godot doesn't error ("Thread still running")
+## or hang at quit (they were never joined). Mirrors StreamerDirector's cleanup.
+func _exit_tree() -> void:
+	if _probe_thread != null and _probe_thread.is_started():
+		_probe_thread.wait_to_finish()
+	_probe_thread = null
+	if _synth_thread != null and _synth_thread.is_started():
+		_synth_thread.wait_to_finish()
+	_synth_thread = null
+
+
 ## Switch the streamer's voice by gender ("male"/"female"); downloads that voice if not present.
 func set_gender(gender: String) -> void:
 	var preset: Dictionary = VOICES.get(gender, VOICES["male"])
