@@ -146,6 +146,12 @@ not `if species==X`. See [[dissolve-dont-patch]].
   `read()`), implement `scent_at`/`scent_gradient` (5-packed `base=ch*cell_count`), `deposit_*` → seed +
   `_scent_dirty`, dirty-gated `set_field("scent", …)` upload. Same pattern shock/charge already use.
 - [ ] **Extend `Genome`** — add personality/temperament gene(s) + heritable diet/appearance; mutation modest.
+- [ ] **Goal-directed foraging: FIND + STEER (user-flagged, foundational — do via workflow/subagents).** Two
+  primitives every forager / hunter / pollinator needs and lacks today: **(A) sense the nearest edible** — query
+  the shared 3D spatial index by the creature's diet → a target; **(B) steer locomotion toward a chosen
+  direction/target** (goal-seek, not just wander/flee). Right now forage has NO food-seeking steer, so a hungry
+  bee can't approach a flower (0.3 fell back to proximity pollination). Add both to the generalized cognition +
+  radial locomotion so true nectar-seeking, grazing-toward-pasture, and pursuit hunting fall out emergently.
 
 ### Phase 1 — THE SIGNAL SPINE (build once; communication emerges)
 - [ ] One general **Signal** system: emit (a typed record: medium + payload + intensity) into a medium

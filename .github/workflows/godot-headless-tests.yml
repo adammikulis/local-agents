@@ -45,7 +45,7 @@ jobs:
 
       - name: Enforce no fallback paths in simulation LLM services
         run: |
-          if rg -n "_fallback_|synthetic\\s*:\\s*true" addons/local_agents/simulation/NarratorDirector.gd addons/local_agents/simulation/VillagerDreamService.gd addons/local_agents/simulation/VillagerMindService.gd; then
+          if grep -nE "_fallback_|synthetic[[:space:]]*:[[:space:]]*true" addons/local_agents/simulation/NarratorDirector.gd addons/local_agents/simulation/VillagerDreamService.gd addons/local_agents/simulation/VillagerMindService.gd 2>/dev/null; then
             echo "Fallback/synthetic generation paths are disallowed for required local LLM services."
             exit 1
           fi
@@ -169,15 +169,15 @@ jobs:
 
       - name: Enforce runtime log health
         run: |
-          if rg -n "Simulation dependency error|empty_generation" logs/runtime-heavy-tests.log; then
+          if grep -nE "Simulation dependency error|empty_generation" logs/runtime-heavy-tests.log; then
             echo "Runtime-heavy log contains dependency/empty-generation errors."
             exit 1
           fi
-          if rg -n "Skipping cognition trace isolation test" logs/runtime-heavy-tests.log; then
+          if grep -nE "Skipping cognition trace isolation test" logs/runtime-heavy-tests.log; then
             echo "Cognition trace isolation test was skipped."
             exit 1
           fi
-          if ! rg -n "Cognition trace isolation test passed" logs/runtime-heavy-tests.log; then
+          if ! grep -nE "Cognition trace isolation test passed" logs/runtime-heavy-tests.log; then
             echo "Cognition trace isolation test did not pass."
             exit 1
           fi
