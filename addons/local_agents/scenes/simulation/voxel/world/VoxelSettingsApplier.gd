@@ -159,6 +159,7 @@ func publish_globals() -> void:
 	Engine.set_meta("la_ai_tick_frames", ai_tick_frames())
 	Engine.set_meta("la_llm_cadence", llm_cadence())
 	Engine.set_meta("la_field_cadence", field_cadence())
+	Engine.set_meta("la_effects_scale", particle_scale())   # quality-scaled effects budget (ejecta pool, …)
 
 
 # --- Live binding (cadence + effects + re-apply) ---
