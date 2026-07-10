@@ -26,6 +26,7 @@ const LAUNCH_SPEED: float = 150.0          # fallback launch speed only if no gr
 const MAX_SPEED: float = 600.0             # cap so a slingshot can't run away numerically
 const ESCAPE_RADIUS_MULT: float = 30.0     # free the rock once it coasts this many body-radii out (left the system)
 const MAX_LIFETIME: float = 240.0          # absolute lifespan cap so long-lived orbiters eventually clear
+const METEOR_MASS_SCALE: float = 400.0     # mass = size³ × this; momentum = mass × velocity → planet orbital impulse
 const IMPACT_RADIUS: float = 10.0          # carve radius — large & dramatic
 const DAMAGE_SCALE: float = 1.6            # ecology damage radius = radius * this
 const BODY_RADIUS: float = 1.4
@@ -220,6 +221,13 @@ func _detect_impact(from: Vector3, to: Vector3) -> Dictionary:
 func _on_impact() -> void:
 	_state = State.IMPACTED
 	_fx_time = 0.0
+
+	# MOMENTUM into the planet's orbit: a big/fast strike (or a sustained volley) perturbs the orbital velocity —
+	# enough of it knocks the planet onto a decaying orbit into the sun, or past escape velocity out of the system.
+	# Impulse = meteor mass (∝ size³) × its impact velocity. Emergent from the same momentum the ejecta uses.
+	var orbits: Node = get_tree().get_first_node_in_group("system_orbits")
+	if orbits != null and orbits.has_method("apply_impulse"):
+		orbits.apply_impulse(_velocity * (METEOR_MASS_SCALE * _size * _size * _size))
 
 	var r: float = _radius()                                   # size-scaled crater
 	if _terrain != null and _terrain.has_method("carve_sphere"):
