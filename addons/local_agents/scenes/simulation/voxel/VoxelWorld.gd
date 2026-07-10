@@ -33,6 +33,7 @@ const DebugWiringScript: GDScript = preload("res://addons/local_agents/scenes/si
 const AudioControllerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelAudioController.gd")
 const GameProgressionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/game/GameProgression.gd")
 const GameHudScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/GameHud.gd")
+const TimeControlScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelTimeControl.gd")
 const CampaignTutorialScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/CampaignTutorial.gd")
 const SettingsApplierScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelSettingsApplier.gd")
 const WorldSaveControllerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/game/WorldSaveController.gd")
@@ -57,6 +58,7 @@ var _veg_renderer: Node3D    # LAVegetationRenderer (batched vegetation draws)
 var _render_opts: Dictionary = {}   # quality-preset render flags (ssao/glow/sun_shadows/fog/ocean_transparent)
 var _hud: CanvasLayer       # LASpawnPaletteHud
 var _game_hud: CanvasLayer = null  # LAGameHud — gamified objective/summary overlay (H toggles it)
+var _time_control: CanvasLayer = null  # LAVoxelTimeControl — pause/slow/play/fast (Space + ,/.) owning time_scale
 var _actors_root: Node3D
 var _interaction: Node3D = null   # LAVoxelInteraction — input, selection, the player's hand
 var _brush: Node3D = null         # LAVoxelSpawnBrush — radius spawn brush + placement
@@ -185,6 +187,11 @@ func _ready() -> void:
 	# Kept as a ref so the interaction controller's H key can toggle it alongside the spawn palette.
 	_game_hud = GameHudScript.new()
 	add_child(_game_hud)
+
+	# Player time-dilation controls (Space=pause, ,/. = slower/faster, Home=1×). Owns Engine.time_scale.
+	_time_control = TimeControlScript.new()
+	add_child(_time_control)
+	_time_control.set_camera(_camera)
 
 	# --- Procedural audio ---
 	_audio = AudioDirectorScript.new()
