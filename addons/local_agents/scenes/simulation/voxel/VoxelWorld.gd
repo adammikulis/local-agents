@@ -291,13 +291,10 @@ func _ready() -> void:
 	add_child(_debug)
 	_debug.setup(self, _material, _terrain, _sky_ctrl, _hud, _input, _ecology)
 
-	# --- Streamer / commentator (lower-right face-cam driven by the local LLM). Skipped with --no-streamer
-	# (or env LA_NO_STREAMER) so a run doesn't spin up the local LLM / TTS. ---
-	if _input.streamer_enabled() and not OS.has_environment("LA_NO_STREAMER"):
-		_streamer_host = StreamerHostScript.new()
-		_streamer_host.name = "StreamerHost"
-		add_child(_streamer_host)
-		_streamer_host.setup(self, _ecology, _material, _input.streamer_persona(), _input.streamer_avatar_flavor())
+	# --- Streamer / commentator (lower-right face-cam driven by the local LLM). LAZY + default-OFF: nothing
+	# is built at startup, so a fresh launch spins up NO local LLM / TTS and shows no overlay. The player
+	# presses C (toggle_streamer) to build it on first use. --no-streamer / LA_NO_STREAMER disable it
+	# entirely (it can't even be lazily built). See _ensure_streamer_host(). ---
 
 	# --- Interaction / spawn brush / disasters controllers ---
 	# Order: disasters first (the brush casts through it), then the brush, then interaction (routes input
@@ -535,10 +532,29 @@ func toggle_temp_view() -> void:
 		_debug.toggle_temp_view()
 
 
-# C key (from the interaction controller): hide/show the streamer, gating its LLM + TTS compute off/on.
+# C key (from the interaction controller): build the streamer on first use (lazy — keeps the local LLM
+# + TTS entirely unloaded until the player asks for it), then hide/show it, gating its compute off/on.
 func toggle_streamer() -> void:
-	if _streamer_host != null and _streamer_host.has_method("toggle_streamer"):
+	if not _ensure_streamer_host():
+		return
+	if _streamer_host.has_method("toggle_streamer"):
 		_streamer_host.toggle_streamer()
+
+
+# Build the streamer host the first time it is requested. Returns false when the streamer is disabled for
+# this run (--no-streamer / env LA_NO_STREAMER), so a headless / perf / no-LLM run never spins one up. The
+# freshly built host starts hidden + compute-gated (see VoxelStreamerHost.setup); the toggle above then
+# shows it, so the building press is what turns it on.
+func _ensure_streamer_host() -> bool:
+	if _streamer_host != null:
+		return true
+	if not _input.streamer_enabled() or OS.has_environment("LA_NO_STREAMER"):
+		return false
+	_streamer_host = StreamerHostScript.new()
+	_streamer_host.name = "StreamerHost"
+	add_child(_streamer_host)
+	_streamer_host.setup(self, _ecology, _material, _input.streamer_persona(), _input.streamer_avatar_flavor())
+	return true
 
 
 func _push_environment() -> void:
