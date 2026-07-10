@@ -28,13 +28,16 @@ macos.universal={
 "res://addons/local_agents/gdextensions/localagents/bin/libggml-blas.0.dylib": "",
 "res://addons/local_agents/gdextensions/localagents/bin/libggml-metal.0.dylib": ""
 }
+; Linux: the loader resolves DT_NEEDED sonames (the .so.0 versioned names), not the unversioned
+; link-time .so — and rpath is $ORIGIN, so these must sit beside the binary. Reference the versioned
+; sonames the CI build actually produces (localagents-linux-bin). No libggml-blas: the Linux llama.cpp
+; build has no BLAS backend, so it is neither produced nor linked (confirmed via the binary's DT_NEEDED).
 linux.x86_64={
-"res://addons/local_agents/gdextensions/localagents/bin/libllama.so": "",
-"res://addons/local_agents/gdextensions/localagents/bin/libmtmd.so": "",
-"res://addons/local_agents/gdextensions/localagents/bin/libggml.so": "",
-"res://addons/local_agents/gdextensions/localagents/bin/libggml-base.so": "",
-"res://addons/local_agents/gdextensions/localagents/bin/libggml-cpu.so": "",
-"res://addons/local_agents/gdextensions/localagents/bin/libggml-blas.so": ""
+"res://addons/local_agents/gdextensions/localagents/bin/libllama.so.0": "",
+"res://addons/local_agents/gdextensions/localagents/bin/libmtmd.so.0": "",
+"res://addons/local_agents/gdextensions/localagents/bin/libggml.so.0": "",
+"res://addons/local_agents/gdextensions/localagents/bin/libggml-base.so.0": "",
+"res://addons/local_agents/gdextensions/localagents/bin/libggml-cpu.so.0": ""
 }
 windows.x86_64={
 "res://addons/local_agents/gdextensions/localagents/bin/llama.dll": "",
