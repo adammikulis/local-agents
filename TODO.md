@@ -228,9 +228,11 @@ already close it):
 ### Confirmed field/GPU bugs to fix in the 0.4 field pass (from the 0.3 bug-hunt — deferred as substrate-risky)
 - [ ] **Combustion O₂/CO₂ written to the wrong ping-pong half** (`sphere_passes/FireDustPass.gd:82`) — bind o2/co2
   to the BACK half in the fire uniform set so the in-place consume/emit lands on the buffer transport wrote.
-- [ ] **`deposit_detritus` mutates a CPU array never uploaded to the GPU** (`MaterialField3D.gd:1139`) — add a
-  `_detritus_dirty` flag + dirty-gated `set_field("detritus", …)` upload (mirror charge/shock) so carcass/waste
-  detritus actually reaches the R15/R20 carbon-loop reactions → fertility. (This is the flagged detritus→fertility gap.)
+- [ ] **`deposit_detritus`→GPU + detritus readback + full fertility loop** (`MaterialField3D.gd:1139`, GPU driver
+  readback) — the upload/readback plumbing alone (mirror of charge) did NOT visibly close the loop: `detritus_peak`
+  stayed 0 even after 94 meteor deaths, because `fungus_peak` is 0 (R15 fungus-decompose never runs) and the
+  carcass→`deposit_detritus`→fertility chain needs building end-to-end. Do the WHOLE loop in the 0.4 nutrient pass:
+  carcass deposits detritus, fungus/soil-bacteria present, detritus→R15→fertility, uptake by plants (fertility_at).
 - [ ] **Fuel channel allocated to zeros, never populated** (`MaterialField3D.gd:325`) — seed fuel from biomass on
   surface cells + upload, so the fire kernel has something to burn (combustion currently has no fuel substrate).
 - [ ] **Organically-grown storm charge can cross breakdown but never fire a bolt** (`MaterialCharge3D.gd:63`) —
