@@ -333,6 +333,14 @@ func dust_total() -> float:
 			sum += _f._dust[c]
 	return sum
 
+## Mean airborne dust across the grid — a 0..~ opacity proxy for how much debris in the air blocks the sun
+## (a meteor volley lofts dust → this rises → insolation drops → impact winter). Cheap O(1)-amortised via dust_total.
+func avg_atmos_dust() -> float:
+	if _f._cell_count <= 0:
+		return 0.0
+	return dust_total() / float(_f._cell_count)
+
+
 ## Molten rock (lava) over ALL cells — the "molten" phase. Summed everywhere (not just open cells) because add_lava
 ## can inject lava into a still-solid vent and lava lingers the instant a cell crosses to derived-solid; excluding
 ## those would leak the ledger. Lava physically exists wherever its mass is, regardless of the derived `solid` flag.

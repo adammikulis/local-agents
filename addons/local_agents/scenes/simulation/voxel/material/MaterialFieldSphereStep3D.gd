@@ -82,7 +82,11 @@ func process(delta: float) -> void:
 	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
 	# sun_dir points from the planet toward the star; ThermalPass' solar kernel does max(0, dot(cell_radial, sun_dir)).
 	if _f._sun_light != null and _f._gpu.has_method("set_sun_dir"):
-		_f._gpu.set_sun_dir(_f._sun_light.global_transform.basis.z)
+		# The MAGNITUDE of sun_dir carries INSOLATION (orbit-distance² × atmospheric transmission), stamped on the
+		# sun by LASystemOrbits. The solar kernel's max(0, dot(cell_radial, sun_dir)) then scales intensity with the
+		# direction — nearer the sun bakes, farther freezes, airborne dust dims it → impact winter. Default 1.0.
+		var insol: float = float(_f._sun_light.get_meta("insolation", 1.0))
+		_f._gpu.set_sun_dir(_f._sun_light.global_transform.basis.z * insol)
 	if _f._terrain != null and _f._terrain.has_method("sea_radius") and _f._gpu.has_method("set_sea_radius"):
 		_f._gpu.set_sea_radius(_f._terrain.sea_radius())
 	# add_lava injected on the CPU this frame → push the edited lava + bedrock into the GPU before stepping

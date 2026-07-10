@@ -690,6 +690,9 @@ func avg_cloud_cover() -> float:
 		_refresh_atmos_aggregates()
 	return _cloud_cover_c
 
+func avg_atmos_dust() -> float:
+	return _queries.avg_atmos_dust()
+
 func avg_fog_cover() -> float:
 	if _atmos_dirty:
 		_refresh_atmos_aggregates()

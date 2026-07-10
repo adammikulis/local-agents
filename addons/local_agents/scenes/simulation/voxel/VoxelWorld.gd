@@ -45,10 +45,12 @@ const PLANET_FEATURE: float = 78.0
 # ground stays dry — a real coastline. Just below the mean radius → a bit more land than sea.
 const PLANET_SEA_RADIUS: float = 248.0
 const PLANET_SPIN_RATE: float = 0.10        # rad/s axial spin (~1 rotation / 63s) — day/night sweep
-const PLANET_SPIN_AXIS: Vector3 = Vector3(0.15, 1.0, 0.0)   # slightly tilted (obliquity); normalized at use
+const PLANET_SPIN_AXIS: Vector3 = Vector3(0.40, 0.92, 0.0)   # ~23.5° obliquity vs the orbit plane → real seasons
 
 var _body: Node3D = null    # LAPlanetBody — the one planet (owns terrain + actors in its local frame)
 var _terrain                # LAVoxelTerrainService (from _body.terrain())
+var _orbits: LASystemOrbits = null   # moving-frame solar system: planet orbit + sun/insolation/seasons drive
+var _moon: LAMoon = null             # kinematic moon (gravity body + visual)
 var _camera: Camera3D
 var _ecology: Node          # LAEcologyService
 var _veg_renderer: Node3D    # LAVegetationRenderer (batched vegetation draws)
@@ -261,6 +263,21 @@ func _ready() -> void:
 	# the water-particle renderer.
 	_sky_ctrl.bind_scene(_weather, _material, _water)
 
+	# --- MOVING-FRAME SOLAR SYSTEM: the planet carries a heliocentric orbital STATE that drives the sun's motion
+	# across the sky, the seasons (tilted spin axis vs orbit plane), and insolation (orbit distance × atmospheric
+	# dust → bake / freeze / impact-winter). A moon orbits the planet (a gravity body meteors can slingshot).
+	# Meteor impacts transfer momentum into the orbit → knock the planet toward the sun or out of the system. ---
+	_moon = LAMoon.new()
+	_moon.name = "Moon"
+	add_child(_moon)
+	_orbits = LASystemOrbits.new()
+	_orbits.name = "SystemOrbits"
+	_orbits.add_to_group("system_orbits")
+	add_child(_orbits)
+	_orbits.setup(_body, _sky_ctrl, _material)
+	_orbits.set_moon(_moon)
+	LASimReport.register(Callable(_orbits, "report"))
+
 	# Feed the live temperature texture to the terrain shader so HOT GROUND GLOWS (meteor craters, lava,
 	# wildfire fronts) — emergent incandescence, updated in place each field step.
 	if _terrain.has_method("set_shader_param") and _material.has_method("heat_texture"):
@@ -350,6 +367,9 @@ func _process(delta: float) -> void:
 	_frame += 1
 	# Track the physics-tick cost every frame so SimReport's max = the heavy STEP-FRAME spike.
 	LASimReport.gauge("physics_ms", Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0)
+	# Advance the orbit BEFORE the sky so the sun-shine direction + insolation are fresh when the sky reads them.
+	if _orbits != null:
+		_orbits.update(delta)
 	_sky_ctrl.update(delta)
 	# Share the sky clock with the ecology so nocturnal behavior can key off night.
 	if _ecology != null and _ecology.has_method("set_time_of_day"):

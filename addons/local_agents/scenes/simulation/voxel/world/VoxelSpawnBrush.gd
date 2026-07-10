@@ -83,6 +83,12 @@ func adjust_radius(grow: bool) -> void:
 func place_armed(screen_pos: Vector2) -> void:
 	var point: Vector3 = _terrain_point(screen_pos)
 	if not is_finite(point.x):
+		# Meteors can be flung at EMPTY SPACE — aim along the camera ray so you can put one into orbit, sling it
+		# past the moon, or graze the atmosphere. It then coasts under real gravity. Everything else needs ground.
+		if _armed_kind == "meteor":
+			var ray: Dictionary = _camera.aim_ray(screen_pos)
+			_apply_at(ray["origin"] + ray["dir"] * 1500.0)
+			return
 		_hud.set_status("No ground under cursor — aim at the terrain.")
 		return
 	_paint_brush(point)
