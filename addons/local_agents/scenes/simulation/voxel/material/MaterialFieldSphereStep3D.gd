@@ -29,6 +29,8 @@ func setup(field) -> void:
 ## banked every frame regardless, so a slower cadence runs the (fixed-step) loop less often — genuinely less
 ## GPU field work — without desyncing the buffers (dirty-gated uploads still flush on the next run).
 func _field_cadence() -> int:
+	if OS.has_environment("LA_FIELD_CADENCE"):   # benchmark override: measure field step-rate vs perf/aggregates
+		return clampi(int(OS.get_environment("LA_FIELD_CADENCE")), 1, FIELD_CADENCE_MAX)
 	var n: int = int(Engine.get_meta("la_field_cadence", 1)) if Engine.has_meta("la_field_cadence") else 1
 	return clampi(n, 1, FIELD_CADENCE_MAX)
 
