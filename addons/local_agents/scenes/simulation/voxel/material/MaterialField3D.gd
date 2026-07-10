@@ -141,6 +141,9 @@ var _charge: PackedFloat32Array = PackedFloat32Array()   # electrification charg
 var _dust: PackedFloat32Array = PackedFloat32Array()     # airborne dust density per cell (wind-lofted sand storm)
 # Seismic / sound SHOCK amplitude per cell — a propagating pressure wave (GPU shock_sphere3d radiates it).
 var _shock: PackedFloat32Array = PackedFloat32Array()
+# Five-plane SCENT density (SCENT_CHANNELS * _cell_count, plane-major: channel*_cell_count + cell). Prey/
+# predator/blood/food/alarm chemical trails the GPU scent kernel diffuses + advects on the wind each step.
+var _scent: PackedFloat32Array = PackedFloat32Array()
 var _sun_light = null                                    # DirectionalLight3D — solar forcing (top cells)
 
 # CPU-ORACLE CONCERN MODULES RETIRED. The cubed-sphere *_sphere3d GLSL kernels (MaterialSphereGPU3D + its
@@ -168,9 +171,11 @@ var _sphere_step = null                                  # LAMaterialFieldSphere
 # per-actor dissolution agents fill: shock (Earthquake/Meteor), charge→bolt (Thunderstorm), ejecta (bombs/debris).
 var _shock_mod = null                                    # LAMaterialShock3D — shock channel + emit/readback
 var _charge_mod = null                                   # LAMaterialCharge3D — charge readback + breakdown→bolt
+var _scent_mod = null                                    # LAMaterialScent3D — 5-plane scent channel + deposit/readback
 var _ejecta = null                                       # LAMaterialEjecta3D — momentum/ejecta parcels (Node3D child)
 var _pending_lightning_cb: Callable = Callable()         # lightning visual callback (registered pre-activate)
 const ShockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialShock3D.gd")
+const ScentScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialScent3D.gd")
 const ChargeScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialCharge3D.gd")
 const EjectaScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialEjecta3D.gd")
 
@@ -214,6 +219,7 @@ var _vapor_dirty: bool = false
 var _lava_dirty: bool = false
 var _rock_fill_dirty: bool = false       # add_lava debited bedrock on the CPU → re-upload rock_fill this step
 var _shock_dirty: bool = false           # emit_shock seeded shock on the CPU → re-upload shock this step
+var _scent_dirty: bool = false           # deposit() seeded scent on the CPU → re-upload the 5-plane scent this step
 var _charge_dirty: bool = false          # add_charge seeded charge on the CPU → re-upload charge this step
 var _charge_woke: bool = false           # a charge injection woke the breakdown scan (stimulus = compute bubble)
 # Lazy solidity sampling: the field is created before the terrain has finished streaming, so it samples
@@ -357,6 +363,9 @@ func _alloc_channels() -> void:
 	_dust.resize(_cell_count)
 	_shock = PackedFloat32Array()
 	_shock.resize(_cell_count)
+	# Five scent planes packed into one flat array (plane-major): SCENT_CHANNELS * _cell_count.
+	_scent = PackedFloat32Array()
+	_scent.resize(SCENT_CHANNELS * _cell_count)
 	# Read-only query accessors bind to this field now; the arrays they read exist from here on.
 	_queries = QueriesScript.new()
 	_queries.setup(self)
@@ -497,6 +506,8 @@ func activate() -> void:
 	_charge_mod.setup(self)
 	if _pending_lightning_cb.is_valid():
 		_charge_mod.set_visual(_pending_lightning_cb)
+	_scent_mod = ScentScript.new()
+	_scent_mod.setup(self)
 	_ejecta = EjectaScript.new()
 	_ejecta.setup(self)
 	add_child(_ejecta)                            # Node3D: integrates ballistic parcels + owns the GPU ejecta particles
@@ -910,28 +921,35 @@ func active_fire_count() -> int:
 	return 0
 
 
-# --- Scent / waste / fertility — CPU scent oracle retired; the sphere scent readback is not yet wired, so
-# deposits are no-ops and reads return safe defaults (SCENT_PREY/… channel indices live at the top). ------
+# --- Scent / waste / fertility — thin forwarders to LAMaterialScent3D (the 5-plane scent channel module).
+# The field stays an extract-only facade: deposits seed a plane + set _scent_dirty (uploaded before the next
+# GPU step), reads sample the plane the sphere driver read back. Channel indices (SCENT_PREY/…) live at top. --
 
-## Drop feces/urine at a world point. No-op until the sphere scent path is wired.
+## Drop feces/urine at a world point. Feces carries a FOOD/musk cue (predators track prey by dung); urine is a
+## territorial musk that marks a PREY trail. Simple per-kind channel mapping — the scent kernel diffuses it.
 func deposit_waste(world_pos: Vector3, creature, kind: String) -> void:
-	pass
+	if _scent_mod == null:
+		return
+	var channel: int = SCENT_FOOD if kind == "feces" else SCENT_PREY
+	_scent_mod.deposit(world_pos, channel, 1.0)
 
 ## A fresh burst of BLOOD scent (a wound or a kill).
 func deposit_blood(world_pos: Vector3, amount: float) -> void:
-	pass
+	if _scent_mod != null:
+		_scent_mod.deposit(world_pos, SCENT_BLOOD, amount)
 
 ## A carcass advertising FOOD (the decaying-corpse cue scavengers follow).
 func deposit_food(world_pos: Vector3, amount: float) -> void:
-	pass
+	if _scent_mod != null:
+		_scent_mod.deposit(world_pos, SCENT_FOOD, amount)
 
 ## Scent density of a channel (SCENT_PREY/PREDATOR/BLOOD/FOOD/ALARM) at a world point.
 func scent_at(world_pos: Vector3, channel: int) -> float:
-	return 0.0
+	return _scent_mod.scent_at(world_pos, channel) if _scent_mod != null else 0.0
 
-## Normalized XZ direction UP a scent channel's gradient (predator tracking, prey avoidance).
+## Normalized world direction UP a scent channel's gradient (predator tracking, prey avoidance).
 func scent_gradient(world_pos: Vector3, channel: int) -> Vector3:
-	return Vector3.ZERO
+	return _scent_mod.scent_gradient(world_pos, channel) if _scent_mod != null else Vector3.ZERO
 
 ## Soil nutrient at a world point (plants grow faster on rich ground).
 func fertility_at(world_pos: Vector3) -> float:
@@ -939,7 +957,7 @@ func fertility_at(world_pos: Vector3) -> float:
 
 ## Columns carrying meaningful airborne scent (SMOKE_SUMMARY `scent_cells`).
 func scent_cell_count() -> int:
-	return 0
+	return _scent_mod.scent_cell_count() if _scent_mod != null else 0
 
 ## Peak soil nutrient (SMOKE_SUMMARY `fertility_peak`).
 func fertility_peak() -> float:

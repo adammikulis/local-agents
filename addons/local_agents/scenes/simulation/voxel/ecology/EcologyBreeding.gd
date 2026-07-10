@@ -124,8 +124,11 @@ func _breed_genome(pa, pb):
 		ga.maybe_canalize(pa.get_cognition().policy)
 	if pb.has_method("get_cognition") and pb.get_cognition() != null:
 		gb.maybe_canalize(pb.get_cognition().policy)
-	var child = LAGenome.crossover(ga, gb)
-	child.mutate()
+	# All heredity stochastics (crossover points, point mutations, indel) draw from the ONE seeded sim RNG so
+	# an evolutionary run reproduces from its seed — never a bare randf().
+	var rng: LASimRng = LASimRng.shared()
+	var child = LADNA.crossover(ga, gb, rng)
+	child.mutate(rng)
 	# The child's family_id is its parent's connected-component label, sourced from the kinship graph (which
 	# equals pa's stable family_id, since components never merge). The parent→child edge itself is recorded at
 	# the breeding call site once the child node exists.

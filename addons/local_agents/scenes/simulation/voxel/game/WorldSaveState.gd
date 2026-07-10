@@ -10,7 +10,7 @@ extends RefCounted
 ## WHAT A SAVE HOLDS:
 ##   * field       — every GPU field channel (water/heat/moisture/rock_fill/lava/o2/co2/biomass/snow/…).
 ##   * creatures   — species, transform, age, energy/hydration/health/breath, family_id, leadership role,
-##                   llm_enabled, the heritable genome (base_config/traits/instincts/generation), and the
+##                   llm_enabled, the heritable genome (LADNA strand + base_config/instincts/generation), and the
 ##                   LEARNED cognition (policy + cue_values) so a reloaded animal keeps what it learned.
 ##   * fish        — species, transform, age, health, breath (aquatic actors have no cognition/kinship).
 ##   * vegetation  — plant/tree/rock kind + transform (ambient scatter; re-instanced in place).
@@ -22,7 +22,7 @@ extends RefCounted
 ## projection), re-apply scalar state + cognition, then reconstruct kinship by grouping creatures by their
 ## saved family and replaying the directed edges through a save-index→live-cid map. (Explicit types — no ':=' .)
 
-const GenomeScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/cognition/Genome.gd")
+const DNAScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/cognition/DNA.gd")
 const FieldSnapshotScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldSnapshot3D.gd")
 
 
@@ -86,12 +86,7 @@ static func _capture_creature(c, ecology) -> Dictionary:
 	}
 	var genome = c.get_genome() if c.has_method("get_genome") else null
 	if genome != null:
-		d["genome"] = {
-			"base_config": genome.base_config.duplicate(true),
-			"traits": genome.traits.duplicate(true),
-			"instincts": genome.instincts.duplicate(true),
-			"generation": int(genome.generation),
-		}
+		d["genome"] = genome.snapshot()
 	var cog = c.get_cognition() if c.has_method("get_cognition") else null
 	if cog != null:
 		d["cognition"] = {
@@ -194,11 +189,7 @@ static func _apply_creature(ecology, cd: Dictionary):
 	var genome = null
 	if cd.has("genome"):
 		var gd: Dictionary = cd["genome"]
-		genome = GenomeScript.new()
-		genome.base_config = (gd.get("base_config", {}) as Dictionary).duplicate(true)
-		genome.traits = (gd.get("traits", {}) as Dictionary).duplicate(true)
-		genome.instincts = (gd.get("instincts", {}) as Dictionary).duplicate(true)
-		genome.generation = int(gd.get("generation", 0))
+		genome = DNAScript.restore(gd)
 	var node = ecology.restore_actor(String(cd.get("species", "creature")), cd.get("xform", Transform3D.IDENTITY), genome, -1)
 	if node == null or not is_instance_valid(node):
 		return null

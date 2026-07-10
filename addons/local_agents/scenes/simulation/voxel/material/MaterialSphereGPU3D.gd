@@ -148,6 +148,9 @@ func end_frame(_rv: bool = true, _rc: bool = true, _rf: bool = true, _rr: bool =
 	# phase — without it, dust→sediment deposits/settles stayed GPU-only and the ledger under-counted.
 	for k in ["temp", "water", "moisture", "lava", "fire", "o2", "co2", "dust", "shock", "sediment"]:
 		out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
+	# scent is a 5-plane packed pair (SCENT_PLANES * cell_count) — read its live half whole so the CPU bridge
+	# scatters all five planes (prey/predator/blood/food/alarm) back for the sense gradients.
+	out["scent"] = _rd.buffer_get_data(_live("scent")).to_float32_array()
 	# biomass + snow are SINGLE (non-ping-pong) GPU-resident channels — read their one buffer directly, not _live().
 	if _bufs.has("biomass"):
 		out["biomass"] = _rd.buffer_get_data(_bufs["biomass"]).to_float32_array()
@@ -169,7 +172,13 @@ func set_field(name: String, arr) -> void:
 		return
 	var b = _bufs[name]
 	if b is Array:
-		_upload_f(b[_phase], arr)
+		# scent is a 5-plane pair (SCENT_PLANES * cell_count); every other pair channel is one plane (cell_count).
+		# Upload the whole array into the live half when it matches the channel's expected length (mirrors
+		# restore_channels) — the shared _upload_f only accepts a single-plane cell_count array, so route directly.
+		var expect: int = _cc * (SCENT_PLANES if name == "scent" else 1)
+		if arr.size() == expect:
+			var bytes: PackedByteArray = arr.to_byte_array()
+			_rd.buffer_update(b[_phase], 0, bytes.size(), bytes)
 	else:
 		_upload_f(b, arr)
 

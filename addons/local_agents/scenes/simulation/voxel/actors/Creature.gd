@@ -194,7 +194,7 @@ var _call_cd: float = 0.0
 # family_id groups kin: offspring inherit a parent's id, so relatives learn from each other more
 # strongly than unrelated herd-mates (social/cultural transmission of behaviour).
 var family_id: int = 0
-var _genome = null                         # LAGenome (heritable traits + baked instinct priors)
+var _genome = null                         # LADNA (literal DNA strand → traits + baked instinct priors)
 var _cognition = null                      # LACognition (per-creature learned policy + slow-brain hook)
 # PLAYER CONTROL over the local-LLM "slow brain": opt-out per creature (config-driven, default on). When
 # off, cognition never escalates to the shared scheduler (see LACognition._should_escalate) — the creature
@@ -467,7 +467,7 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 		config = _genome.express()
 	else:
 		config = _config.duplicate(true)
-		_genome = LAGenome.from_config(config)
+		_genome = LADNA.from_config(config)
 	species = String(config.get("species", species))
 	diet = String(config.get("diet", diet))
 	speed = float(config.get("speed", speed))

@@ -107,6 +107,10 @@ func process(delta: float) -> void:
 	if _f._charge_dirty and _f._gpu.has_method("set_field"):
 		_f._gpu.set_field("charge", _f._charge)
 		_f._charge_dirty = false
+	# Scent is a 5-plane packed channel; deposit() seeded a plane on the CPU this frame → push it before the step.
+	if _f._scent_dirty and _f._gpu.has_method("set_field"):
+		_f._gpu.set_field("scent", _f._scent)
+		_f._scent_dirty = false
 	if _f._vapor_dirty and _f._gpu.has_method("set_field"):
 		_f._gpu.set_field("moisture", _f._moisture)
 		_f._vapor_dirty = false
@@ -146,6 +150,8 @@ func _apply_readback(res: Dictionary) -> void:
 	# velocity field (wind3_at/wind_at read a real force instead of ZERO).
 	if res.has("shock") and res["shock"].size() == n: _f._shock = res["shock"]
 	if res.has("charge") and res["charge"].size() == n: _f._charge = res["charge"]
+	# Scent is the 5-plane packed buffer (SCENT_CHANNELS * n) — scatter it back so senses smell live gradients.
+	if res.has("scent") and res["scent"].size() == LAMaterialField3D.SCENT_CHANNELS * n: _f._scent = res["scent"]
 	if res.has("vel_x") and res["vel_x"].size() == n: _f._vel_x = res["vel_x"]
 	if res.has("vel_y") and res["vel_y"].size() == n: _f._vel_y = res["vel_y"]
 	if res.has("vel_z") and res["vel_z"].size() == n: _f._vel_z = res["vel_z"]

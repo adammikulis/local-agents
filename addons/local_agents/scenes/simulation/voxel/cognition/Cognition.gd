@@ -17,7 +17,7 @@ extends RefCounted
 ##   * SOCIAL learning — the main channel. A creature copies confident heuristics from same-species
 ##     animals it can SEE (vision cone), weighted by relatedness (family/kin strongest). Habits
 ##     diffuse through a herd the way flocking already does (imitation).
-##   * GENETIC priors — a small baked instinct set from the genome (see LAGenome), evolving slowly.
+##   * GENETIC priors — a small baked instinct set from the genome (see LADNA), evolving slowly.
 ##   * Survival reflexes (flee/panic/thirst) are innate in the cascade and never learned/overridden.
 ##
 ## policy: signature_key:int -> {action:String, weight:float}
