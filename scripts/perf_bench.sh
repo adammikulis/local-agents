@@ -37,13 +37,40 @@ run_one() {  # $1=label  $2=extra-env (space-sep KEY=VAL)  $3=extra-sim-args
     echo "$out" | grep -iE "SCRIPT ERROR|ERROR|abort|Segmentation|RUN_TIMEOUT|out of memory" | tail -2 | sed 's/^/    /'
     return
   fi
-  echo "$rep" | LABEL="$label" python3 -c "
+  echo "$rep" | LABEL="$label" DATAFILE="${DATAFILE:-/dev/null}" python3 -c "
 import sys,os,json
 d=json.loads(sys.stdin.read().split('SIM_REPORT=',1)[1]); g=d.get('gauges',{})
 def gv(k): return g.get(k,{}).get('cur',0)
+fps=gv('fps'); phys=gv('physics_ms'); actors=d.get('actors',0)
 print('%-22s | %-8s | %-10.1f | %-9.1f | %-8d | %s' % (
-    os.environ['LABEL'], gv('fps'), gv('physics_ms'), gv('field_ms'),
-    int(gv('draw_calls')), d.get('actors','-')))"
+    os.environ['LABEL'], fps, phys, gv('field_ms'), int(gv('draw_calls')), actors))
+df=os.environ['DATAFILE']
+if df!='/dev/null':
+    open(df,'a').write('%s %s %s\n' % (actors, phys, fps))"
+}
+
+fit_bigO() {  # reads DATAFILE lines: 'actors physics_ms fps' → log-log slope k (time ~ N^k)
+  python3 -c "
+import math
+pts=[]
+for line in open('$1'):
+    a,p,f=line.split()
+    a=float(a); p=float(p); f=float(f)
+    if a>0 and p>0 and f>0: pts.append((a,p,f))
+if len(pts)<2:
+    print('  (need >=2 valid points to fit)'); raise SystemExit
+def slope(xs,ys):
+    n=len(xs); mx=sum(xs)/n; my=sum(ys)/n
+    den=sum((x-mx)**2 for x in xs)
+    return (sum((x-mx)*(y-my) for x,y in zip(xs,ys))/den) if den else 0.0
+lx=[math.log(a) for a,p,f in pts]
+kf=slope(lx,[math.log(1000.0/f) for a,p,f in pts])   # frametime = 1000/fps
+kp=slope(lx,[math.log(p) for a,p,f in pts])
+print('BIG-O FIT  (time ~ N^k; log-log slope over %d points, N=%d..%d):' % (len(pts),int(min(a for a,_,_ in pts)),int(max(a for a,_,_ in pts))))
+print('  frametime(1/fps) vs actors:  k = %.2f' % kf)
+print('  physics_ms       vs actors:  k = %.2f' % kp)
+lab=lambda k: 'O(N) linear' if k<1.25 else ('O(N log N)' if k<1.5 else ('super-linear' if k<1.8 else 'O(N^2) quadratic'))
+print('  => frametime scales %s ; physics %s' % (lab(kf),lab(kp)))"
 }
 
 case "$SUITE" in
@@ -64,6 +91,15 @@ case "$SUITE" in
   population)
     run_one "full"        "" ""
     run_one "smoke(potato)" "" "--smoke"
+    ;;
+  scaling)
+    # Vary ONLY the actor count (LA_SPAWN_SCALE scales spawn counts + breeding caps; grid/res/effects
+    # held fixed) and fit the empirical Big-O so a super-linear hotspot shows up as k>1 immediately.
+    DATAFILE="$(mktemp)"; export DATAFILE
+    for s in 0.25 0.5 1.0 1.5 2.0; do run_one "scale=${s}" "LA_SPAWN_SCALE=${s}" ""; done
+    printf -- '-%.0s' {1..80}; printf '\n'
+    fit_bigO "$DATAFILE"
+    rm -f "$DATAFILE"; unset DATAFILE
     ;;
   standard|*)
     run_one "full"            ""                          ""

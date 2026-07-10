@@ -48,7 +48,7 @@ func setup(eco: LAEcologyService) -> void:
 func _tick_breeding() -> void:
 	for kind in _eco._land_kinds():
 		var cfg: Dictionary = _eco._species_config(kind)
-		var cap: int = int(cfg.get("pop_cap", 20))
+		var cap: int = int(round(float(cfg.get("pop_cap", 20)) * LAAblate.spawn_scale()))   # LA_SPAWN_SCALE benchmark knob (1.0 unless set)
 		var group: String = "species_%s" % kind
 		var members: Array = _eco.get_tree().get_nodes_in_group(group)
 		var deficit: int = cap - members.size()
@@ -136,7 +136,7 @@ func _breed_genome(pa, pb):
 func _tick_aquatic() -> void:
 	for kind in _eco._aquatic_kinds():
 		var cfg: Dictionary = _eco._species_config(String(kind))
-		var cap: int = int(round(float(cfg.get("pop_cap", 12)) * LAEcologyService.AQUATIC_STOCK_MULT))
+		var cap: int = int(round(float(cfg.get("pop_cap", 12)) * LAEcologyService.AQUATIC_STOCK_MULT * LAAblate.spawn_scale()))
 		var members: Array = _eco.get_tree().get_nodes_in_group("species_%s" % String(kind))
 		var deficit: int = cap - members.size()
 		if members.size() < 2 or deficit <= 0:

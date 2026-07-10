@@ -21,3 +21,15 @@ static func off(system: String) -> bool:
 			for n in OS.get_environment("LA_ABLATE").split(",", false):
 				_set[n.strip_edges()] = true
 	return _set.has(system)
+
+
+## Benchmark population-scale knob (dev tool). LA_SPAWN_SCALE multiplies BOTH the initial spawn counts and
+## the breeding pop_caps, so a scaling sweep can vary the steady-state actor count cleanly (hold grid /
+## resolution / effects fixed, change only N) and fit the empirical Big-O. Default 1.0 = unchanged.
+static var _spawn_scale: float = -1.0
+static func spawn_scale() -> float:
+	if _spawn_scale < 0.0:
+		_spawn_scale = 1.0
+		if OS.has_environment("LA_SPAWN_SCALE"):
+			_spawn_scale = maxf(0.05, float(OS.get_environment("LA_SPAWN_SCALE")))
+	return _spawn_scale

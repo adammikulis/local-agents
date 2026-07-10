@@ -124,12 +124,13 @@ func _vegetation_scale() -> float:
 ## carries the graphics vegetation-density knob, so foliage thins/densifies independently of the actor budget.
 func _scaled_counts() -> Dictionary:
 	var veg: float = _vegetation_scale()
-	if is_equal_approx(_spawn_scale, 1.0) and is_equal_approx(veg, 1.0):
+	var bench: float = LAAblate.spawn_scale()   # LA_SPAWN_SCALE benchmark knob (1.0 unless set)
+	if is_equal_approx(_spawn_scale * bench, 1.0) and is_equal_approx(veg, 1.0):
 		return INITIAL_COUNTS
 	var counts: Dictionary = {}
 	var total: int = 0
 	for kind in INITIAL_COUNTS:
-		var factor: float = _spawn_scale * (veg if VEG_KINDS.has(kind) else 1.0)
+		var factor: float = _spawn_scale * bench * (veg if VEG_KINDS.has(kind) else 1.0)
 		var n: int = maxi(1, int(round(float(INITIAL_COUNTS[kind]) * factor)))
 		counts[kind] = n
 		total += n
