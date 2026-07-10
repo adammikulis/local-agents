@@ -52,6 +52,8 @@ var _fish_timer: float = 0.0
 var _tree_timer: float = 0.0             # forest succession: groves densify on biomass-rich ground
 var _aquatic_kinds_cache: Array = []     # aquatic species ids (config aquatic:true), indexed once
 var _aquatic_indexed: bool = false
+var _land_kinds_cache: Array = []        # land creature species ids (has diet, not aquatic), indexed once
+var _land_indexed: bool = false
 # Permanent kinship graph backing every creature's family_id. A family is a connected component; family_id is
 # its stable label. Founder clusters allocate a fresh label (LAKinshipGraph.new_family) and offspring inherit
 # their parent's component at birth — bonds are recorded once, never rewritten. Updated only on the
@@ -87,6 +89,22 @@ func _aquatic_kinds() -> Array:
 		if bool(cfg.get("aquatic", false)):
 			_aquatic_kinds_cache.append(String(kind))
 	return _aquatic_kinds_cache
+
+
+# Every LAND creature species (has a `diet`, not flagged aquatic) — the set the population-dynamics breeding
+# loop drives. Indexed once from the species library so a NEW land species (its JSON dropped in) breeds and
+# recovers automatically, with no hardcoded roster to edit. Aquatic species are stocked separately (below);
+# plants/rocks/trees have no `diet` and are excluded.
+func _land_kinds() -> Array:
+	if _land_indexed:
+		return _land_kinds_cache
+	_land_indexed = true
+	_land_kinds_cache = []
+	for kind in LASpeciesLibrary.known_kinds():
+		var cfg: Dictionary = LASpeciesLibrary.load_config(String(kind))
+		if not bool(cfg.get("aquatic", false)) and cfg.has("diet"):
+			_land_kinds_cache.append(String(kind))
+	return _land_kinds_cache
 
 
 func _plant_config() -> Dictionary:
@@ -447,7 +465,7 @@ func _process_pending() -> void:
 const BREED_FRACTION_PER_TICK: float = 0.16   # fraction of mature adults that may produce young each breed tick
 const BREED_MAX_PER_TICK: int = 8             # bound per species per tick (keeps the work + the surge bounded)
 func _tick_breeding() -> void:
-	for kind in ["rabbit", "fox", "bird", "villager", "vulture"]:
+	for kind in _land_kinds():
 		var cfg: Dictionary = _species_config(kind)
 		var cap: int = int(cfg.get("pop_cap", 20))
 		var group: String = "species_%s" % kind
@@ -600,19 +618,23 @@ func stock_initial_aquatic() -> void:
 
 # Keep the water stocked with every aquatic species. Each appears (and recovers) only where water in
 # its OWN salinity/depth band exists, so species self-sort: freshwater fish into lakes, salt species out
-# in the deep sea, brackish species along the coast — no hand-placed spawn points, all emergent. One
-# individual of one under-cap species is added per tick.
+# in the deep sea, brackish species along the coast — no hand-placed spawn points, all emergent. Each
+# under-cap species restocks by its config `restock` rate/tick (default 1 = the old gentle trickle); the
+# fast-breeding web BASE (bugs/shrimp) sets a higher rate so it replenishes what the fish/birds eat. The
+# per-species pop_cap is still the hard ceiling, so this refills toward equilibrium but never runs away.
 func _tick_aquatic() -> void:
 	for kind in _aquatic_kinds():
 		var cfg: Dictionary = _species_config(String(kind))
 		var cap: int = int(round(float(cfg.get("pop_cap", 12)) * AQUATIC_STOCK_MULT))
-		if get_tree().get_nodes_in_group("species_%s" % String(kind)).size() >= cap:
+		var deficit: int = cap - get_tree().get_nodes_in_group("species_%s" % String(kind)).size()
+		if deficit <= 0:
 			continue
-		var wet: Vector3 = _random_aquatic_point(cfg)
-		if is_nan(wet.x):
-			continue
-		_instance_actor(String(kind), wet)
-		return                                       # one spawn per tick keeps the stocking gentle
+		var restock: int = mini(deficit, maxi(1, int(cfg.get("restock", 1))))
+		for i in range(restock):
+			var wet: Vector3 = _random_aquatic_point(cfg)
+			if is_nan(wet.x):
+				break                                # no matching water found this tick; try again next tick
+			_instance_actor(String(kind), wet)
 
 
 # Sample the sea for a point inside a species' depth band: pick a random direction where the GROUND surface

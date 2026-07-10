@@ -1,6 +1,8 @@
 {
 	"species": "fish",
 	"aquatic": true,
+	"diet": "insectivore",
+	"preys_on": ["bug", "shrimp"],
 	"model": "fish",
 	"body": "fish",
 	"speed": 2.6,

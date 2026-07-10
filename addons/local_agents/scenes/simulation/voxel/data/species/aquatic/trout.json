@@ -1,6 +1,8 @@
 {
 	"species": "trout",
 	"aquatic": true,
+	"diet": "insectivore",
+	"preys_on": ["bug", "shrimp"],
 	"model": "fish",
 	"tint_model": true,
 	"body": "fish",
