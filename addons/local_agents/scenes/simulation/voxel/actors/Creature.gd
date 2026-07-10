@@ -685,6 +685,9 @@ static func _prof_report() -> Dictionary:
 	return out
 
 
+const FAR_LOD_D2: float = 40000.0   # beyond this (²) a creature updates every 8th frame; MID..FAR every 4th (catch-up dt)
+var _lod_accum: float = 0.0
+
 func _physics_process(delta: float) -> void:
 	if LAAblate.off("creatures"):
 		return
@@ -699,6 +702,21 @@ func _physics_process(delta: float) -> void:
 	if _carcass:
 		LACreatureRagdoll.decay_tick(self, delta)
 		return
+	# Compute-bubble LOD: FAR / off-screen creatures run the whole update on a coarse staggered cadence with a
+	# catch-up dt (their motion is off-screen, so the stepping is invisible), while NEAR creatures update every
+	# frame for smooth on-screen motion. Metabolism/aging stay correct because their dt IS the accumulated
+	# catch-up. An acute event (_force_think from a scare/damage) always runs live. No camera → no LOD.
+	if _think_phase < 0:
+		_think_phase = int(get_instance_id())
+	if not _force_think:
+		var cam_d2: float = global_position.distance_squared_to(_camera_pos())
+		if is_finite(cam_d2) and cam_d2 > MID_LOD_D2:
+			_lod_accum += delta
+			var lod_stride: int = 8 if cam_d2 > FAR_LOD_D2 else 4
+			if (int(Engine.get_physics_frames()) + _think_phase) % lod_stride != 0:
+				return
+			delta = _lod_accum
+			_lod_accum = 0.0
 	if not _prof_reg:
 		_prof_reg = true
 		_prof_on = bool(Engine.get_meta("la_prof", false)) or OS.has_environment("LA_PROF")
