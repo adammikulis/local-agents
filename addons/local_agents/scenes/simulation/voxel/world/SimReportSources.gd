@@ -40,6 +40,19 @@ static func population(w) -> Dictionary:
 		"plants": tree.get_nodes_in_group("plant").size(),
 		"trees": tree.get_nodes_in_group("tree").size(),
 		"nests": tree.get_nodes_in_group("nest").size(),
+		# Aquatic web BASE (grazers) — should persist by grazing biomass now, not by restock.
+		"bug": tree.get_nodes_in_group("species_bug").size(),
+		"shrimp": tree.get_nodes_in_group("species_shrimp").size(),
+		# Land invertebrate base + pollinators.
+		"beetle": tree.get_nodes_in_group("species_beetle").size(),
+		"ant": tree.get_nodes_in_group("species_ant").size(),
+		"grasshopper": tree.get_nodes_in_group("species_grasshopper").size(),
+		"butterfly": tree.get_nodes_in_group("species_butterfly").size(),
+		"fly": tree.get_nodes_in_group("species_fly").size(),
+		"bee": tree.get_nodes_in_group("species_bee").size(),
+		# Flowers + a running count of pollination visits (bee-activity proxy) — flower spread should track it.
+		"flowers": tree.get_nodes_in_group("species_flower_daisy").size() + tree.get_nodes_in_group("species_flower_clover").size(),
+		"pollinations": LAPlant.pollination_events,
 		"min_hydration": min_hyd,
 		"drinking": drinkers,
 	}

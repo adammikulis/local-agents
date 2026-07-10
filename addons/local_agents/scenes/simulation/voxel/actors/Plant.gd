@@ -36,7 +36,10 @@ const BIOMASS_GROWTH_MAX: float = 2.0    # cap on the biomass growth boost
 # way real grazing does. The reserve regrows toward FOOD_CAPACITY × grown-fraction (bigger plants feed
 # more), faster where the emergent biomass field is rich (the same fertile ground that speeds growth).
 const FOOD_CAPACITY: float = 46.0        # max edible reserve of a full-grown plant (energy)
-const FOOD_REGROW: float = 5.0           # reserve regrown per second (photosynthesis; boosted by field biomass)
+const FOOD_REGROW: float = 8.0           # reserve regrown per second (photosynthesis; boosted by field biomass).
+                                         # Raised from 5 so a pasture sustains the broader herbivore community
+                                         # (rabbits + birds + the new insects) without the added grazers
+                                         # out-competing the flyers off the plants — carrying capacity, not more nodes.
 const FOOD_MIN_EDIBLE: float = 5.0       # below this the plant is grazed-down and not worth targeting (recovers)
 var _food: float = FOOD_CAPACITY * 0.6   # current edible reserve (starts partway; regrows in)
 
@@ -46,6 +49,32 @@ var grow_time: float = 12.0
 var max_scale: float = 1.0
 var seed_period: float = 8.0
 var edible: bool = true
+
+# --- Flowers + pollination mutualism. A plant flagged `flower` carries a richer NECTAR reserve (so foraging
+# pollinators prefer it via the shared food-value ranking) and is POLLINATED by visits: every bite (feed(),
+# whose dominant flower visitor is the bee) deposits decaying pollen, and the more recent pollen a flower
+# holds the FASTER its seed timer runs — so a well-visited flower spreads far sooner than a neglected one.
+# Flower spread RATE therefore TRACKS pollinator activity — more bees → more visits → faster seeding → more
+# flowers + nectar. Pure emergence, config + this node only (no per-species code, no Creature/Cognition edit). ---
+var flower: bool = false
+var nectar: float = FOOD_CAPACITY          # edible reserve cap of a full-grown flower (config "nectar")
+var _pollination: float = 0.0              # decaying pollen load; each visit adds POLLINATE_PER_VISIT
+const POLLINATE_PER_VISIT: float = 1.0     # pollen deposited by one flower visit (a feed() bite)
+const POLLINATE_DECAY: float = 0.10        # pollen lost per second (a flower must be re-visited to stay pollinated)
+const POLLINATE_MAX: float = 4.0           # cap on the pollen load (bounded)
+const POLLINATE_SEED_BOOST: float = 7.0    # a fully-pollinated flower seeds this many × faster than an un-visited one
+static var pollination_events: int = 0     # global running count of flower visits (SIM_REPORT bee-activity proxy)
+# PROXIMITY pollination: a pollinator flying NEAR a bloom carries pollen to it, so a flower is pollinated by
+# pollinator PRESENCE (not only by being eaten — the creature AI has no food-seeking, so eating a specific
+# flower is rare). Which species pollinate is a small data list of nectar-foragers (not a behaviour branch);
+# the shared 3D spatial hash makes each flower's check O(local), rebuilt once per frame per group, and a
+# flower only scans on a slow cadence. This is what makes flower spread TRACK bee/butterfly activity.
+const POLLINATOR_SPECIES: Array = ["bee", "butterfly"]
+const POLLEN_RADIUS: float = 10.0          # a pollinator within this range deposits pollen (bees cruise ~5 m up, so
+                                           # this reaches a bee/butterfly passing overhead, not only one landed alongside)
+const POLLEN_SCAN_PERIOD: float = 0.5      # seconds between a flower's cheap pollinator-proximity checks
+static var _pollinator_index: LASpatialIndex = LASpatialIndex.new()
+var _pollen_scan_t: float = 0.0
 
 var age: float = 0.0
 var _seed_timer: float = 0.0
@@ -71,6 +100,9 @@ func setup(_terrain, _config: Dictionary) -> void:
 	max_scale = float(config.get("max_scale", max_scale))
 	seed_period = maxf(float(config.get("seed_period", seed_period)), 0.5)
 	edible = bool(config.get("edible", edible))
+	flower = bool(config.get("flower", flower))
+	nectar = float(config.get("nectar", FOOD_CAPACITY))
+	_food = _food_capacity() * 0.6           # start partway; regrows toward the (nectar-scaled) capacity
 
 	collision_layer = 2
 	collision_mask = 0
@@ -78,6 +110,7 @@ func setup(_terrain, _config: Dictionary) -> void:
 	_build_body()
 	add_to_group(GROUP_SELECTABLE)
 	add_to_group(GROUP_PLANT)
+	add_to_group("species_%s" % species)     # per-species group so seeding caps count each vegetation kind
 	_orient_to_ground()
 	_apply_growth()
 	_sync_render()   # push the initial (freshly-grown) pose into the instanced batch
@@ -107,6 +140,12 @@ func set_vegetation_renderer(r) -> void:
 
 
 func _build_body() -> void:
+	# Flowers get a small, colourful procedural bloom (a thin stem + a bright petal head in the config colour)
+	# — NOT the shared green bush prototype — so they read clearly as flowers and the added life is visible.
+	if flower:
+		_build_flower_body()
+		_add_collision_shape()
+		return
 	# Prefer the shared instanced renderer (one batched draw for every plant). Register a slot; the model is
 	# drawn by the MultiMesh, so no per-plant MeshInstance/model child is built.
 	if _veg != null:
@@ -149,6 +188,11 @@ func _build_body() -> void:
 		foliage.material_override = fmat
 		add_child(foliage)
 
+	_add_collision_shape()
+
+
+# Pickable collision cylinder shared by the bush and flower bodies (layer-2 selection like every actor).
+func _add_collision_shape() -> void:
 	var shape: CollisionShape3D = CollisionShape3D.new()
 	var cyl: CylinderShape3D = CylinderShape3D.new()
 	cyl.radius = 0.25
@@ -158,6 +202,44 @@ func _build_body() -> void:
 	add_child(shape)
 
 
+# A small flower: a thin green stem topped by a bright petal head (config colour). Kept to TWO primitives
+# with shadow-casting OFF — flowers are numerous, so the render cost per bloom must stay tiny. The node's
+# growth scale in _apply_growth scales it with the plant as it matures.
+func _build_flower_body() -> void:
+	var stem: MeshInstance3D = MeshInstance3D.new()
+	var stalk: CylinderMesh = CylinderMesh.new()
+	stalk.top_radius = 0.03
+	stalk.bottom_radius = 0.05
+	stalk.height = _base_height * 0.7
+	stalk.radial_segments = 5
+	stem.mesh = stalk
+	stem.position = Vector3(0.0, _base_height * 0.35, 0.0)
+	stem.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var smat: StandardMaterial3D = StandardMaterial3D.new()
+	smat.albedo_color = Color(0.24, 0.5, 0.2)
+	smat.roughness = 0.95
+	stem.material_override = smat
+	add_child(stem)
+	_mesh = stem
+
+	# Bright petal head in the config colour so daisies/clover read as distinct blooms.
+	var bloom: MeshInstance3D = MeshInstance3D.new()
+	var head: SphereMesh = SphereMesh.new()
+	head.radius = 0.18
+	head.height = 0.30
+	head.radial_segments = 7
+	head.rings = 4
+	bloom.mesh = head
+	bloom.scale = Vector3(1.0, 0.5, 1.0)                 # a flat, splayed flower head
+	bloom.position = Vector3(0.0, _base_height * 0.72, 0.0)
+	bloom.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var bmat: StandardMaterial3D = StandardMaterial3D.new()
+	bmat.albedo_color = color
+	bmat.roughness = 0.7
+	bloom.material_override = bmat
+	add_child(bloom)
+
+
 ## Wire the shared material field so this plant grows faster on the emergent biomass it reads. Injected by
 ## LAEcologyService at spawn, exactly like creatures get set_material_field.
 func set_material_field(m) -> void:
@@ -165,7 +247,11 @@ func set_material_field(m) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	var growth_boost: float = _biomass_boost()
+	# The field biomass read (biomass_at) only matters WHILE growing — a mature plant's grown_fraction is capped
+	# at 1, so its growth boost is moot. Skipping the per-frame biomass sample once mature drops the dominant
+	# per-plant cost (a whole pasture of settled plants no longer each hit the field every frame). Big-O by relevance.
+	var growing: bool = _grown_fraction() < 1.0
+	var growth_boost: float = _biomass_boost() if growing else 0.0
 	age += delta * (1.0 + growth_boost)
 	_apply_growth()
 	# Push the growing pose into the instanced batch; stop once mature (settled → no per-frame render cost).
@@ -175,11 +261,26 @@ func _physics_process(delta: float) -> void:
 			_render_settled = true
 	# Regrow the edible reserve (photosynthesis) toward this plant's size-scaled capacity, faster on
 	# fertile (biomass-rich) ground — the renewable-pasture recovery that makes grazing sustainable.
-	var cap: float = FOOD_CAPACITY * _grown_fraction()
+	var cap: float = _food_capacity() * _grown_fraction()
 	if _food < cap:
 		_food = minf(cap, _food + FOOD_REGROW * (1.0 + growth_boost) * delta)
+	# Pollen decays: a flower loses its pollinated state unless visitors (bees) keep topping it up.
+	if flower and _pollination > 0.0:
+		_pollination = maxf(0.0, _pollination - POLLINATE_DECAY * delta)
+	# Proximity pollination: pick up pollen from any pollinator nearby (throttled + cheap via the 3D index).
+	if flower:
+		_pollen_scan_t -= delta
+		if _pollen_scan_t <= 0.0:
+			_pollen_scan_t = POLLEN_SCAN_PERIOD
+			_pollinate_from_nearby()
 	if _grown_fraction() >= 1.0:
-		_seed_timer -= delta
+		# A flower's seed timer runs FASTER the more it has been pollinated — so a well-visited flower reaches
+		# seed-ready (and thus spreads) far sooner than an un-visited one. Flower spread RATE therefore tracks
+		# pollinator (bee) activity; a neglected flower still seeds, but only on its slow base period.
+		var seed_rate: float = 1.0
+		if flower:
+			seed_rate = 1.0 + POLLINATE_SEED_BOOST * clampf(_pollination / POLLINATE_MAX, 0.0, 1.0)
+		_seed_timer -= delta * seed_rate
 		if _seed_timer <= 0.0:
 			_seed_ready = true
 
@@ -220,6 +321,37 @@ func _exit_tree() -> void:
 		_veg_slot = -1
 
 
+# Deposit pollen if a pollinator (bee/butterfly) is within POLLEN_RADIUS — the emergent "a bee visited this
+# bloom" event. One pollinator's pollen per scan is enough; the pollen load (and thus the seed-rate boost)
+# then reflects how often pollinators pass by, so denser bee traffic → faster-spreading flowers.
+func _pollinate_from_nearby() -> void:
+	if not is_inside_tree():
+		return
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	var groups: Array = []
+	for sp in POLLINATOR_SPECIES:
+		groups.append("species_" + String(sp))
+	_pollinator_index.rebuild_if_stale(tree, Engine.get_physics_frames(), groups)
+	var pos: Vector3 = global_position
+	for g in groups:
+		for cand in _pollinator_index.query(String(g), pos, POLLEN_RADIUS):
+			if cand != null and is_instance_valid(cand) and pos.distance_to((cand as Node3D).global_position) <= POLLEN_RADIUS:
+				_pollination = minf(POLLINATE_MAX, _pollination + POLLINATE_PER_VISIT)
+				pollination_events += 1
+				return
+
+
+# Edible-reserve capacity: a flower's is its (richer) nectar; an ordinary plant's is the base capacity.
+func _food_capacity() -> float:
+	return nectar if flower else FOOD_CAPACITY
+
+
+func is_flower() -> bool:
+	return flower
+
+
 # --- seeding API used by LAEcologyService ---
 func has_seed() -> bool:
 	return _seed_ready
@@ -241,6 +373,11 @@ func is_edible() -> bool:
 func feed(amount: float) -> float:
 	var take: float = clampf(amount, 0.0, _food)
 	_food -= take
+	# A visit to a flower deposits pollen (POLLINATION): the visitor — bees dominate flower visits — carries
+	# pollen between blooms, so a fed-on flower becomes/stays seed-ready. This is the mutualism, no scripting.
+	if flower and take > 0.0:
+		_pollination = minf(POLLINATE_MAX, _pollination + POLLINATE_PER_VISIT)
+		pollination_events += 1
 	return take
 
 

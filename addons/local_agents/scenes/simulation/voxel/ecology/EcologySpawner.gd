@@ -51,7 +51,7 @@ func spawn(kind: String, world_pos: Vector3) -> Node:
 		# surface not ready: queue for retry, return null (caller may ignore)
 		_eco._pending.append({"kind": kind, "pos": world_pos, "tries": 0})
 		return null
-	if (kind == "tree" or kind == "plant") and not _eco._can_grow_here(placed):
+	if _eco._is_veg_kind(kind) and not _eco._can_grow_here(placed):
 		return null   # too cold / snow-covered — vegetation doesn't take here (emergent treeline; no retry)
 	return _eco._instance_actor(kind, placed)
 
@@ -77,7 +77,7 @@ func _spawn_scattered_one(kind: String) -> void:
 	var placed = _place_on_surface(p)
 	if placed == null:
 		_eco._pending.append({"kind": kind, "pos": p, "tries": 0, "family_id": -1})
-	elif (kind == "tree" or kind == "plant") and not _eco._can_grow_here(placed):
+	elif _eco._is_veg_kind(kind) and not _eco._can_grow_here(placed):
 		pass   # too cold / snow-covered — skip this vegetation placement (emergent treeline)
 	else:
 		_eco._instance_actor(kind, placed)

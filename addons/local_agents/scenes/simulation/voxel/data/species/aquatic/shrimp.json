@@ -17,5 +17,6 @@
 	"max_age": 60.0,
 	"pop_cap": 12,
 	"initial": 10,
-	"restock": 2
+	"diet": "grazer",
+	"grazes_biomass": true
 }

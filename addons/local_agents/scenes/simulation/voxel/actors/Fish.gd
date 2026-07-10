@@ -523,9 +523,11 @@ func _physics_process(delta: float) -> void:
 
 
 # Loose schooling with nearby SAME-SPECIES swimmers: cohesion + alignment (same shared idea as creature
-# flocking). Filtering by species keeps a whale from schooling with minnows — schools stay per-species.
+# flocking). Scanning the PER-SPECIES group ("species_<kind>") — not the shared "aquatic life" group — keeps
+# this O(own-species²) instead of O(all-aquatic²): a school only ever considers its own kind, so a big sea
+# (many species) never makes each fish sweep every other swimmer. (Same result the species filter gave.)
 func _school_steer(pos: Vector3, up: Vector3) -> Vector3:
-	var mates: Array = get_tree().get_nodes_in_group(SPECIES_GROUP)
+	var mates: Array = get_tree().get_nodes_in_group("species_%s" % species)
 	var center: Vector3 = Vector3.ZERO
 	var align: Vector3 = Vector3.ZERO
 	var n: int = 0

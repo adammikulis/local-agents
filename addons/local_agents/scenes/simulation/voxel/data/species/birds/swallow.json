@@ -13,7 +13,9 @@
   "sense_radius": 14.0,
   "maturity_age": 10.0,
   "preys_on": [
-    "bug"
+    "bug",
+    "butterfly",
+    "fly"
   ],
   "flees_from": [],
   "herd": true,

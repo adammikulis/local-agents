@@ -1,0 +1,12 @@
+{
+	"species": "flower_clover",
+	"plant": true,
+	"flower": true,
+	"color": [0.82, 0.42, 0.72],
+	"grow_time": 5.0,
+	"max_scale": 0.50,
+	"seed_period": 16.0,
+	"edible": true,
+	"nectar": 58.0,
+	"pop_cap": 45
+}
