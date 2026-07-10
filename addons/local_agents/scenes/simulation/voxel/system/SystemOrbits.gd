@@ -14,7 +14,7 @@ extends Node
 ## The moon is a light body on a kinematic orbit about the planet (and a gravity source meteors can slingshot).
 ## (Full literal planet-flight-through-space is the 0.4 moving-frame-field migration.) Explicit types; no ':='.
 
-const SUN_MU: float = 171300.0            # GM of the sun (abstract orbital units) — sets the year length with R0
+const SUN_MU: float = 1.0e6               # GM of the sun — with R0 gives a ~200s "year" (fast enough to watch seasons drift)
 const ORBIT_RADIUS: float = 1000.0        # nominal orbital radius (abstract) — insolation == 1 here
 const SUN_SCENE_DISTANCE: float = 1200.0  # how far the visible sun disc sits from the planet in the SCENE
 const INSOLATION_MIN: float = 0.02        # never fully zero (numeric floor)
