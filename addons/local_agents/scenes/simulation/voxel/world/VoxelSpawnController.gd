@@ -28,6 +28,16 @@ const ROCK_COUNT: int = 60
 # cold/snowy poles where the treeline gate blocks germination. Forests are a consequence of the chemistry.
 const FOREST_CLUSTERS: int = 16
 
+# CAMPAIGN start is deliberately SPARSE — a curated near-empty world the new player GROWS by spawning. Only a
+# little vegetation, no creatures at all (rabbits/fish/etc. are locked spawns earned up the ladder), so every
+# population/plant objective genuinely begins below its threshold. Sandbox keeps the full founding ecology
+# (INITIAL_COUNTS above). Data-driven — tune these counts, no spawner rewrite.
+const CAMPAIGN_INITIAL_COUNTS: Dictionary = {
+	"plant": 12, "shrub": 3, "flower_daisy": 4, "flower_clover": 3,
+}
+const CAMPAIGN_ROCK_COUNT: int = 10
+const CAMPAIGN_FOREST_CLUSTERS: int = 2
+
 var _world: Node = null
 var _body: Node3D = null
 var _terrain = null
@@ -89,12 +99,18 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 	LASimReport.reset()
 	# Radial world: ecology places life ON the sphere (surface_point spawn), fish in the sea shell; the
 	# orbit camera frames the body; the planet centre is pinned hot for the radial geothermal gradient.
-	_ecology.spawn_initial(_scaled_counts())
-	# Forest seed clusters scale by BOTH the actor budget and the graphics vegetation-density knob
-	# (la_vegetation_scale), so a low-foliage setting thins the groves and a high one densifies them.
-	_ecology.populate_environment(ROCK_COUNT, maxi(1, int(round(float(FOREST_CLUSTERS) * _spawn_scale * _vegetation_scale()))))
-	if _ecology.has_method("stock_initial_aquatic"):
-		_ecology.stock_initial_aquatic()
+	if _is_campaign():
+		# Sparse curated start: a handful of vegetation + rocks + a couple of groves, and NO creatures — the
+		# player earns and stocks the living world by spawning. No aquatic stocking (fish are a locked spawn).
+		_ecology.spawn_initial(CAMPAIGN_INITIAL_COUNTS)
+		_ecology.populate_environment(CAMPAIGN_ROCK_COUNT, CAMPAIGN_FOREST_CLUSTERS)
+	else:
+		_ecology.spawn_initial(_scaled_counts())
+		# Forest seed clusters scale by BOTH the actor budget and the graphics vegetation-density knob
+		# (la_vegetation_scale), so a low-foliage setting thins the groves and a high one densifies them.
+		_ecology.populate_environment(ROCK_COUNT, maxi(1, int(round(float(FOREST_CLUSTERS) * _spawn_scale * _vegetation_scale()))))
+		if _ecology.has_method("stock_initial_aquatic"):
+			_ecology.stock_initial_aquatic()
 	if _camera.has_method("set_orbit_target"):
 		_camera.set_orbit_target(_body.center(), _body.radius())
 	if _material.has_method("add_magma_source"):
@@ -109,6 +125,13 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 		_material.add_magma_source(_body.center(), 1300.0, 0.6)
 	_spawned_initial = true
 	_hud.set_status("World ready — spawn things, click to inspect, press V for scent.")
+
+
+## True in CAMPAIGN mode (progression gating on) — the initial spawn is sparse so the player grows the world.
+## Sandbox, or no progression instance at all (isolated tools/tests), keeps the full founding ecology.
+func _is_campaign() -> bool:
+	var prog: LAGameProgression = LAGameProgression.active()
+	return prog != null and not prog.is_sandbox()
 
 
 ## Graphics vegetation-density knob (la_vegetation_scale, published by LAVoxelSettingsApplier from the
