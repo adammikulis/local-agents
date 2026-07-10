@@ -34,6 +34,8 @@ var _climate_value: Label = null
 var _master_value: Label = null
 var _music_value: Label = null
 var _sfx_value: Label = null
+var _invert_x_option: OptionButton = null
+var _invert_y_option: OptionButton = null
 
 var _graphics: LAGraphicsSettingsSection = null
 var _sim: LASimSettingsSection = null
@@ -137,6 +139,15 @@ func _build_ui() -> void:
 		"Procedural sound-effects level.", 0.0, 1.0, 0.01, _settings.sfx_volume, Callable(self, "_fmt_percent"), Callable(self, "_on_sfx_changed"))
 	_sfx_value = sv["value"]
 
+	# --- Controls ---
+	LASettingsWidgets.add_header(vbox, "Controls")
+	_invert_x_option = LASettingsWidgets.add_option(vbox, "Invert rotate X",
+		"Flip the horizontal drag direction when rotating the planet.",
+		["Off", "On"], 1 if _settings.invert_rotate_x else 0, Callable(self, "_on_invert_x"))
+	_invert_y_option = LASettingsWidgets.add_option(vbox, "Invert rotate Y",
+		"Flip the vertical drag direction when rotating the planet.",
+		["Off", "On"], 1 if _settings.invert_rotate_y else 0, Callable(self, "_on_invert_y"))
+
 	# --- Actions ---
 	var spacer: Control = Control.new()
 	spacer.custom_minimum_size = Vector2(0.0, 8.0)
@@ -213,6 +224,20 @@ func _on_sfx_changed(value: float) -> void:
 	_sfx_value.text = _fmt_percent(value)
 	if not _suppress:
 		_settings.sfx_volume = value
+
+
+func _on_invert_x(index: int) -> void:
+	if _suppress:
+		return
+	_settings.invert_rotate_x = index == 1
+	_on_section_changed()
+
+
+func _on_invert_y(index: int) -> void:
+	if _suppress:
+		return
+	_settings.invert_rotate_y = index == 1
+	_on_section_changed()
 
 
 func _on_save() -> void:
