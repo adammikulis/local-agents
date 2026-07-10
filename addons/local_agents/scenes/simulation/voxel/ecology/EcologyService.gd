@@ -115,6 +115,27 @@ func _plant_config() -> Dictionary:
 	}
 
 
+# Plant-family routing: a species DATA file flagged `plant: true` (flowers, shrubs, …) is instanced as an
+# LAPlant from its own config — so new vegetation drops in as data, with no _instance_actor type-branch per kind.
+func _is_plant_kind(kind: String) -> bool:
+	return bool(_species_config(kind).get("plant", false))
+
+
+# Every vegetation kind that must pass the germination gate + stand radially: trees, the generic plant, and any
+# data-flagged plant (flowers/shrubs).
+func _is_veg_kind(kind: String) -> bool:
+	return kind == "plant" or kind == "tree" or _is_plant_kind(kind)
+
+
+# The config an LAPlant is built from: the fast hardcoded default for the generic "plant", else the species
+# DATA file for a flagged vegetation kind (flowers/shrubs carry their own colour/nectar/pop_cap).
+func _veg_config(kind: String) -> Dictionary:
+	if kind == "plant":
+		return _plant_config()
+	var cfg: Dictionary = _species_config(kind)
+	return cfg if not cfg.is_empty() else _plant_config()
+
+
 func setup(_terrain, _actors_root: Node3D) -> void:
 	terrain = _terrain
 	actors_root = _actors_root
@@ -340,13 +361,13 @@ func _is_water_pos(placed: Vector3) -> bool:
 
 func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: int = -1, force_place: bool = false) -> Node:
 	var node: Node = null
-	if kind == "plant":
+	if kind == "plant" or _is_plant_kind(kind):
 		var plant: PlantScript = PlantScript.new()
 		actors_root.add_child(plant)
 		plant.global_position = placed
 		if _veg_renderer != null and plant.has_method("set_vegetation_renderer"):
 			plant.set_vegetation_renderer(_veg_renderer)   # render through the batched MultiMesh, not a model child
-		plant.setup(terrain, _plant_config())
+		plant.setup(terrain, _veg_config(kind))          # generic plant | flower | shrub — all config-driven
 		if plant.has_method("set_material_field"):
 			plant.set_material_field(_material)          # so it can photosynthesize (fix CO₂ → O₂) into the field
 		node = plant
@@ -405,7 +426,7 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 		creature.tree_exited.connect(func() -> void: _kinship.forget(cid))
 		node = creature
 	# Stand static vegetation/rocks up along the radial on a planet (no-op on flat terrain).
-	if node != null and (kind == "plant" or kind == "tree" or kind == "rock"):
+	if node != null and (_is_veg_kind(kind) or kind == "rock"):
 		_orient_to_surface(node as Node3D, placed)
 	return node
 
@@ -463,7 +484,7 @@ func _process_pending() -> void:
 		var placed = _place_on_surface(entry["pos"])
 		if placed != null:
 			var k: String = String(entry["kind"])
-			if (k == "tree" or k == "plant") and not _can_grow_here(placed):
+			if _is_veg_kind(k) and not _can_grow_here(placed):
 				continue   # surface resolved somewhere too cold / snowy for vegetation — drop it
 			var node = _instance_actor(k, placed, null, int(entry.get("family_id", -1)))
 			if bool(entry.get("elder", false)):
@@ -634,25 +655,73 @@ func stock_initial_aquatic() -> void:
 				_instance_actor(String(kind), wet)
 
 
-# Keep the water stocked with every aquatic species. Each appears (and recovers) only where water in
-# its OWN salinity/depth band exists, so species self-sort: freshwater fish into lakes, salt species out
-# in the deep sea, brackish species along the coast — no hand-placed spawn points, all emergent. Each
-# under-cap species restocks by its config `restock` rate/tick (default 1 = the old gentle trickle); the
-# fast-breeding web BASE (bugs/shrimp) sets a higher rate so it replenishes what the fish/birds eat. The
-# per-species pop_cap is still the hard ceiling, so this refills toward equilibrium but never runs away.
+# AQUATIC BREEDING — the de-hack that retires the old `restock` spawn-from-nowhere crutch. Every aquatic
+# species now recovers the SAME way the land herds do (see _tick_breeding): parent-based reproduction bounded
+# by pop_cap, so no individual appears without living parents. Young are born beside a mature parent (same
+# school). GRAZERS (config diet:"grazer" / grazes_biomass:true — the web BASE, bugs+shrimp) additionally have
+# their birth rate MODULATED by the BIOMASS/algae base they graze: births scale with the mean field biomass at
+# the school's surface column, so the food-web bottom TRACKS primary production (algae-rich water multiplies the
+# base; barren water only trickles) while the fish/birds keep foraging them. The per-species pop_cap stays the
+# hard ceiling; grazes_biomass is the food gate. No per-species code — the flag + pop_cap drive it. Initial
+# founding stock is seeded once by stock_initial_aquatic(); this refills toward equilibrium, never past cap.
+const AQUATIC_BREED_FRACTION: float = 0.12    # fraction of mature adults that may spawn young each aquatic tick
+const AQUATIC_BREED_MAX_PER_TICK: int = 4     # per-species per-tick bound (keeps the surge + work bounded)
+const GRAZE_BIOMASS_FULL: float = 0.05        # biomass at/above which a grazer breeds at full rate (algae-rich water)
+const GRAZE_BIOMASS_FLOOR: float = 0.30       # survival birth-rate multiplier in barren water (never a hard 0 → no collapse)
+const GRAZE_BIOMASS_SAMPLES: int = 6          # adults sampled for the school's mean biomass (O(k), not O(adults))
 func _tick_aquatic() -> void:
 	for kind in _aquatic_kinds():
 		var cfg: Dictionary = _species_config(String(kind))
 		var cap: int = int(round(float(cfg.get("pop_cap", 12)) * AQUATIC_STOCK_MULT))
-		var deficit: int = cap - get_tree().get_nodes_in_group("species_%s" % String(kind)).size()
-		if deficit <= 0:
+		var members: Array = get_tree().get_nodes_in_group("species_%s" % String(kind))
+		var deficit: int = cap - members.size()
+		if members.size() < 2 or deficit <= 0:
 			continue
-		var restock: int = mini(deficit, maxi(1, int(cfg.get("restock", 1))))
-		for i in range(restock):
-			var wet: Vector3 = _random_aquatic_point(cfg)
-			if is_nan(wet.x):
-				break                                # no matching water found this tick; try again next tick
-			_instance_actor(String(kind), wet)
+		var adults: Array = []
+		for m in members:
+			if is_instance_valid(m) and m.has_method("is_mature") and m.is_mature():
+				adults.append(m)
+		if adults.size() < 2:
+			continue
+		# Food gate: a grazer's birth rate rides the biomass base it grazes (mean over a cheap sample of the school).
+		var food_mult: float = 1.0
+		if bool(cfg.get("grazes_biomass", false)):
+			food_mult = _graze_food_mult(adults)
+		var births: int = clampi(int(ceil(float(adults.size()) * AQUATIC_BREED_FRACTION * food_mult)), 1, mini(deficit, AQUATIC_BREED_MAX_PER_TICK))
+		for i in range(births):
+			_birth_aquatic_one(String(kind), adults, cfg)
+
+
+# Birth-rate multiplier (∈ [GRAZE_BIOMASS_FLOOR, 1]) for a grazer school from the biomass base it feeds on —
+# the mean surface biomass at a cheap random sample of its adults. Rich algae water → full rate; barren water →
+# the survival floor (so the base tracks primary production without ever collapsing to zero and starving the web).
+func _graze_food_mult(adults: Array) -> float:
+	if adults.is_empty():
+		return GRAZE_BIOMASS_FLOOR
+	var sum_b: float = 0.0
+	var n: int = mini(adults.size(), GRAZE_BIOMASS_SAMPLES)
+	for i in range(n):
+		var a: Node3D = adults[randi() % adults.size()] as Node3D
+		if a != null and is_instance_valid(a):
+			sum_b += _biomass_at(a.global_position)
+	var mean_b: float = sum_b / float(maxi(n, 1))
+	return clampf(mean_b / GRAZE_BIOMASS_FULL, GRAZE_BIOMASS_FLOOR, 1.0)
+
+
+# Produce ONE aquatic offspring for `kind`: born beside a random mature parent (nudged in the water so schools
+# stay together), falling back to a valid point in the species' salinity/depth band if the parent drifted to the
+# waterline. The water gate in _instance_actor rejects any point that isn't inside the sea shell.
+func _birth_aquatic_one(kind: String, adults: Array, cfg: Dictionary) -> void:
+	var pa: Node3D = adults[randi() % adults.size()] as Node3D
+	if pa != null and is_instance_valid(pa):
+		var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0) * randf_range(0.5, 2.5)
+		var near: Vector3 = pa.global_position + jitter
+		if _is_water_pos(near):
+			_instance_actor(kind, near)
+			return
+	var wet: Vector3 = _random_aquatic_point(cfg)
+	if not is_nan(wet.x):
+		_instance_actor(kind, wet)
 
 
 # Sample the sea for a point inside a species' depth band: pick a random direction where the GROUND surface
@@ -679,22 +748,27 @@ func _random_aquatic_point(cfg: Dictionary) -> Vector3:
 
 func _tick_plant_seeding() -> void:
 	var plants: Array = get_tree().get_nodes_in_group("plant")
-	var cap: int = int(_plant_config().get("pop_cap", 120))
-	if plants.size() >= cap:
-		return
 	for p in plants:
 		if not is_instance_valid(p):
 			continue
-		if p.has_method("has_seed") and p.has_seed():
-			if randf() > 0.7:
-				continue                            # most seed-ready plants spread each tick → pasture densifies
-			var placed = _place_on_surface(_tangent_offset_point((p as Node3D).global_position, randf_range(-3.5, 3.5), randf_range(-3.5, 3.5)))
-			if placed != null and _can_grow_here(placed):
-				_instance_actor("plant", placed)   # seed only takes on warm, snow-free ground (emergent treeline)
+		if not (p.has_method("has_seed") and p.has_seed()):
+			continue
+		# A seed-ready plant spreads its OWN kind (generic plant, flower, or shrub) into its neighbourhood,
+		# bounded by THAT kind's pop_cap — so flowers beget flowers (only while pollinated, via has_seed) and
+		# each vegetation type self-limits. No type-branch: the kind + cap come from the parent + its data file.
+		var kind: String = String(p.species) if "species" in p else "plant"
+		var cap: int = int(_veg_config(kind).get("pop_cap", 120))
+		if get_tree().get_nodes_in_group("species_%s" % kind).size() >= cap:
 			if p.has_method("consume"):
-				p.consume()
-			if get_tree().get_nodes_in_group("plant").size() >= cap:
-				return
+				p.consume()                         # at cap: consume the seed so it re-readies later
+			continue
+		if randf() > 0.7:
+			continue                                # most seed-ready plants spread each tick → pasture densifies
+		var placed = _place_on_surface(_tangent_offset_point((p as Node3D).global_position, randf_range(-3.5, 3.5), randf_range(-3.5, 3.5)))
+		if placed != null and _can_grow_here(placed):
+			_instance_actor(kind, placed)          # seed only takes on warm, snow-free ground (emergent treeline)
+		if p.has_method("consume"):
+			p.consume()
 
 
 # FOREST SUCCESSION — the emergent grove-builder. Each tick a few existing trees standing on biomass-rich

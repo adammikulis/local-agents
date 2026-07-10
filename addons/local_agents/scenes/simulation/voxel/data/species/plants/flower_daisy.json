@@ -1,0 +1,12 @@
+{
+	"species": "flower_daisy",
+	"plant": true,
+	"flower": true,
+	"color": [0.98, 0.92, 0.55],
+	"grow_time": 5.0,
+	"max_scale": 0.55,
+	"seed_period": 16.0,
+	"edible": true,
+	"nectar": 60.0,
+	"pop_cap": 60
+}

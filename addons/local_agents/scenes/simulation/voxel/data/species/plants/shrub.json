@@ -1,0 +1,11 @@
+{
+	"species": "shrub",
+	"plant": true,
+	"flower": false,
+	"color": [0.22, 0.48, 0.20],
+	"grow_time": 8.0,
+	"max_scale": 2.4,
+	"seed_period": 8.0,
+	"edible": true,
+	"pop_cap": 70
+}

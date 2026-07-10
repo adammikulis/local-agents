@@ -12,7 +12,16 @@ extends Node
 # Predator↔prey ratio: foxes ≈ rabbits/5, vultures track the bird/carrion base. The mix is a PYRAMID —
 # lots of vegetation + small herbivores (rabbit, mouse) + mid consumers (bird, swallow insectivore), fewer
 # predators (fox) / scavengers (vulture). The aquatic web base (bug/shrimp) is stocked separately, in water.
-const INITIAL_COUNTS: Dictionary = {"plant": 260, "rabbit": 90, "mouse": 12, "fox": 10, "bird": 55, "swallow": 10, "villager": 12, "vulture": 12}
+# The LAND-invertebrate base — cheap/numerous insects (beetle/ant/grasshopper ground herbivores; butterfly/
+# fly/bee flyers) — broadens the web bottom and feeds the birds; flowers + a shrub add vegetation variety and
+# the nectar bees pollinate. All are ordinary config species (diet/plant data files); no special spawn code.
+const INITIAL_COUNTS: Dictionary = {
+	"plant": 260, "shrub": 28, "flower_daisy": 36, "flower_clover": 26,
+	"rabbit": 90, "mouse": 12, "fox": 10, "bird": 55, "swallow": 10, "villager": 12, "vulture": 12,
+	"beetle": 10, "ant": 12, "grasshopper": 10, "butterfly": 10, "fly": 12, "bee": 14,
+}
+# Vegetation kinds (density-scaled by the graphics foliage knob, like the base plant) — flowers + shrub ride it too.
+const VEG_KINDS: Array = ["plant", "shrub", "flower_daisy", "flower_clover"]
 const ROCK_COUNT: int = 60
 # Many forest SEEDS scattered onto the best (warm/fertile) ground; groves then DENSIFY emergently over the
 # run wherever photosynthesis has built biomass (see LAEcologyService._tick_tree_seeding), thinning at the
@@ -120,7 +129,7 @@ func _scaled_counts() -> Dictionary:
 	var counts: Dictionary = {}
 	var total: int = 0
 	for kind in INITIAL_COUNTS:
-		var factor: float = _spawn_scale * (veg if kind == "plant" else 1.0)
+		var factor: float = _spawn_scale * (veg if VEG_KINDS.has(kind) else 1.0)
 		var n: int = maxi(1, int(round(float(INITIAL_COUNTS[kind]) * factor)))
 		counts[kind] = n
 		total += n
