@@ -182,6 +182,38 @@ not `if species==X`. See [[dissolve-dont-patch]].
   spike** (#44 — browser-local LLM via WASM/WebGPU + `JavaScriptBridge`, chat/agent first). **Composition-per-
   cell** (#30 — DEFS ~80% there; thin slice when a metal/ore/salt feature is wanted).
 
+### Chemistry to add + hand-coded to rip out (specifics — the standing rule, grounded)
+**New DEFS reactions/channels** (`material/MaterialReactions3D.gd`, `_rec(rate_model, k, driver, reactants[],
+products[], gate_mask, threshold, driver2)`; slots biomass/O₂/CO₂/detritus/fungus/fertility already exist — the
+carbon loop **R15 fungus-decompose** `detritus+O₂→CO₂+fertility` and **R20 respiration** `biomass+O₂→CO₂+detritus`
+already close it):
+- **Excretion → soil (mostly REUSE):** creatures deposit feces into the existing **detritus** channel
+  (`deposit_detritus`) → **R15** already rots it → fertility. Only add a faster **R-MANURE** (BILINEAR decompose
+  on a new `manure` slot) if leaf-litter rate is too slow for feces to enrich noticeably.
+- **Nitrogen fixation → fertility (GENUINELY NEW):** add an atmospheric **nitrogen** slot + **R-NFIX**
+  `nitrogen(air)→fertility(soil)`, BILINEAR/CONST gated (`gate_mask`) on legume-biomass × moisture (the N-fixer
+  bacterial role the user named). Conserved (draws from the N pool); makes fertility actually replenish → plants
+  regrow. Without this the loop leaks fertility and can't sustain.
+- **Death decomposition = UNIFY, do NOT re-add:** a carcass becomes **biomass/detritus in the field** → the
+  existing **R20 + R15** rot it → CO₂ + fertility. No new reaction.
+- **Digestion + gut microbiome = per-creature metabolism, NOT a field CA** — lives in `CreatureMetabolism`
+  (gut buffer: ingested biomass → energy + waste over time, efficiency × microbiome scalar); only its **waste
+  output** deposits into field detritus. State this boundary so it isn't mis-built as a DEFS record.
+
+**Hand-coded systems to rip out → emergent** (delete + route through substrate/cognition):
+- **Comms (Phase 1):** `Creature.gd:992-1003` `hear_call` `match call_type` branches + per-type
+  `EcologyStimulus` methods (`broadcast_call`/`broadcast_scare`, :96-144) → ONE signal record + `reinforce_cue`
+  learned meaning.
+- **Eating (Phase 3):** instant `feed()`→energy (`Creature.gd:1031` `feed`/`food_profile`/`nutrition`) →
+  digestion-over-time gut buffer × microbiome efficiency.
+- **Death decomposition (Phase 3):** the bespoke `CreatureRagdoll` `MICROBE_SEED`/`DECOMP_RATE_PER_SEC` bloom
+  (0.3's field-side taste) → carcass = biomass/detritus rotted by R20+R15; delete the constants.
+- **Breeding (Phase 2 W-LIFECYCLE):** population-tick `EcologyService._tick_breeding` (:485, every 2 s fraction +
+  `pop_cap`) → emergent per-creature courtship/mate-seeking + gestation; population regulated by food/energy/
+  space, not a global cap.
+- **Fish (Phase 2 W-FISH):** brainless config-band swim logic in `Fish.gd` → generalized cognition via a fish
+  adapter. **Any `if species==X`** → genome/config (the new personality/diet genes).
+
 ### Orchestration + verification
 Phase 0 = serialized (splits + generalize + wiring). Phases 1→2 = **Workflow fan-out** (`pipeline()`
 implement→verify per workstream; worktree isolation; per-agent pre-write contract + behavioural SIM_REPORT gate;
