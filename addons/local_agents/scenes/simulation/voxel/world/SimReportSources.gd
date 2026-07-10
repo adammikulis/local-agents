@@ -67,6 +67,8 @@ static func cognition(w) -> Dictionary:
 	var learned: int = 0
 	var max_gen: int = 0
 	var cues: int = 0
+	var aversions: int = 0    # learned AVERSIONS: cue values driven to/below the food-avoid threshold (toxin/danger
+	                          # learning, which cues_learned's positive-only count can't see). Proves affinity's aversive half.
 	var vetoed: int = 0
 	var learners: int = 0     # creatures with >=1 learned policy OR cue entry (learning-spread numerator)
 	for c in creatures:
@@ -85,6 +87,8 @@ static func cognition(w) -> Dictionary:
 		for cv in cog.cue_values.values():
 			if float(cv) >= 0.6:
 				cues += 1
+			elif float(cv) <= -0.4:
+				aversions += 1
 		if c.has_method("get_genome") and c.get_genome() != null:
 			max_gen = maxi(max_gen, int(c.get_genome().generation))
 	var sched: int = 0
@@ -95,5 +99,5 @@ static func cognition(w) -> Dictionary:
 	return {
 		"minds": minds, "habits": habits, "escalations": asked, "social_lessons": learned,
 		"max_generation": max_gen, "slow_brain_calls": sched, "cues_learned": cues, "vetoes": vetoed,
-		"learners": learners,
+		"aversions": aversions, "learners": learners,
 	}
