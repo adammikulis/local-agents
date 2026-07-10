@@ -658,6 +658,31 @@ func _base_think_stride() -> int:
 	return FAR_THINK_STRIDE
 
 
+# --- Per-subsystem profiling (dev tool) -------------------------------------------------------------
+# Gated by Engine meta "la_prof" (default off) — ZERO meaningful cost when off. Accumulates each phase's
+# microseconds across ALL creatures and emits avg ms/physics-frame to SIM_REPORT (cr_upkeep_ms /
+# cr_think_ms / cr_move_ms), so a headless offscreen run prints the creature hot-path breakdown with no
+# GUI profiler. The first creature to tick registers the report provider (a static Callable, so it is not
+# pruned when any one creature frees).
+static var _prof_on: bool = false
+static var _prof_reg: bool = false
+static var _prof_us: Dictionary = {}
+static var _prof_last_frame: int = 0
+
+static func _prof_add(bucket: String, t0: int) -> void:
+	_prof_us[bucket] = int(_prof_us.get(bucket, 0)) + (Time.get_ticks_usec() - t0)
+
+static func _prof_report() -> Dictionary:
+	var now: int = int(Engine.get_physics_frames())
+	var f: int = maxi(now - _prof_last_frame, 1)
+	_prof_last_frame = now
+	var out: Dictionary = {}
+	for k in _prof_us.keys():
+		out["%s_ms" % k] = (float(_prof_us[k]) / 1000.0) / float(f)
+	_prof_us = {}
+	return out
+
+
 func _physics_process(delta: float) -> void:
 	# In the player's hand: VoxelWorld sets our position each frame; skip AI + terrain-snap.
 	if _held:
@@ -670,6 +695,12 @@ func _physics_process(delta: float) -> void:
 	if _carcass:
 		LACreatureRagdoll.decay_tick(self, delta)
 		return
+	if not _prof_reg:
+		_prof_reg = true
+		_prof_on = bool(Engine.get_meta("la_prof", false)) or OS.has_environment("LA_PROF")
+		if _prof_on:
+			LASimReport.register(LACreature._prof_report)
+	var _pt: int = Time.get_ticks_usec() if _prof_on else 0
 	LACreatureLifeStage.tick(self, delta)   # advance age (life-stage owner)
 	if _think_phase < 0:
 		_think_phase = int(get_instance_id())                  # raw id; the think stagger is (id % stride)
@@ -728,6 +759,9 @@ func _physics_process(delta: float) -> void:
 	# An acute event (_force_think, set by scare/damage) re-decides NEXT frame regardless — so a sleeping
 	# or distant creature still wakes and reacts. Between think-frames the creature keeps gliding along its
 	# last _heading at _eff_speed — movement + metabolism below stay every-frame for smoothness.
+	if _prof_on:
+		_prof_add("cr_upkeep", _pt)
+		_pt = Time.get_ticks_usec()
 	var stride: int = _think_stride()
 	var do_think: bool = _force_think or ((int(Engine.get_physics_frames()) + _think_phase) % stride == 0)
 	if do_think:
@@ -881,6 +915,9 @@ func _physics_process(delta: float) -> void:
 		_eff_speed = eff_speed * (1.0 - 0.5 * lactate)   # carry this decision to the movement of the next few frames
 		_force_think = false
 
+	if _prof_on:
+		_prof_add("cr_think", _pt)
+		_pt = Time.get_ticks_usec()
 	# MOVEMENT — every frame. The DECIDED heading is a TARGET the creature turns toward smoothly each
 	# frame (not snapped), so throttled decisions (every THINK_STRIDE frames) still read as fluid motion
 	# instead of 20Hz direction pops. Acute flees snap instantly (see the think block).
@@ -899,6 +936,8 @@ func _physics_process(delta: float) -> void:
 	if is_nan(gpt.x):
 		gpt = ground_pos                      # unmeshed ahead: hold last known ground
 	global_position = gpt + nud * offset
+	if _prof_on:
+		_prof_add("cr_move", _pt)
 
 	if _heading.length() > 0.01:
 		# Gaze along the heading projected into the local tangent plane, with the local up as roll axis.
