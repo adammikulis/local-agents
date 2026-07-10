@@ -25,6 +25,10 @@ extends Camera3D
 const MIN_DISTANCE: float = 0.5           # closest zoom (units from focus) — right down onto an animal
 const MAX_DISTANCE: float = 1400.0        # farthest zoom — pull way out for a whole-world view
 const ZOOM_STEP: float = 1.12             # wheel multiplier per notch (bigger = faster zoom) — gentle, slow zoom
+# Each wheel notch sets a TARGET distance; the actual _distance eases toward it every frame (exponential glide),
+# so zoom is continuous instead of stepping — and because the arc-down eye-level blend reads _distance, the arc
+# glides smoothly with it rather than snapping between notches. Higher = snappier glide.
+const ZOOM_SMOOTH: float = 9.0
 # LMB/RMB "grab the planet" drag-orbit only engages once the cursor has moved past this many pixels, so a
 # plain click still selects / casts (near-zero drag) while a real drag rotates the view. No mouse capture on
 # these buttons (they double as click actions) — we read relative motion with the cursor left visible.
@@ -67,6 +71,7 @@ const PAN_REFERENCE_DISTANCE: float = 100.0
 # --- State --------------------------------------------------------------------
 var _focus: Vector3 = Vector3.ZERO
 var _distance: float = 140.0
+var _target_distance: float = 140.0       # wheel-set zoom goal; _distance eases toward it (smooth-zoom glide)
 var _yaw: float = 0.0
 var _pitch: float = deg_to_rad(55.0)
 var _panning: bool = false
@@ -184,6 +189,7 @@ func _ready() -> void:
 	# a 3/4 downward vista, pulled back so we open on a landscape rather than inside a hill.
 	_focus = Vector3(0.0, 20.0, 0.0)
 	_distance = 140.0
+	_target_distance = 140.0
 	_yaw = 0.0
 	_pitch = deg_to_rad(55.0)
 	_update_transform()
@@ -237,6 +243,7 @@ func frame_overview(center: Vector3, dist: float = 360.0) -> void:
 		# orbit distance (clamped to the zoom range), keeping the current azimuth/elevation.
 		_orbit_center = center
 		_distance = clampf(dist, _orbit_min_distance, _orbit_max_distance)
+		_target_distance = _distance
 		_update_transform()
 		return
 	_focus = center + Vector3(0.0, 10.0, 0.0)
@@ -284,6 +291,7 @@ func set_orbit_target(center: Vector3, radius: float) -> void:
 	_orbit_min_distance = _orbit_radius * ORBIT_MIN_DISTANCE_MULT
 	_orbit_max_distance = _effective_orbit_max()
 	_distance = clampf(_orbit_radius * _start_distance_mult(), _orbit_min_distance, _orbit_max_distance)
+	_target_distance = _distance                 # keep the smooth-zoom goal in sync with this framing jump
 	_orbit_azimuth = 0.0
 	_orbit_elevation = deg_to_rad(20.0)
 	stop_tracking()          # storm-follow is a flat-world concept; drop it on entering orbit
@@ -368,7 +376,7 @@ func _update_orbit_transform() -> void:
 		if back.length() < 0.01:
 			back = Vector3.RIGHT - radial * Vector3.RIGHT.dot(radial)
 		back = back.normalized()
-		var t: float = 1.0 - near_frac                              # 0 far .. 1 closest
+		var t: float = smoothstep(0.0, 1.0, 1.0 - near_frac)        # 0 far .. 1 closest, eased so the arc glides in/out
 		var eye: Vector3 = surface_pt + upn * 3.0 + back * 9.0      # eye-level, a little back from the point
 		global_position = far_pos.lerp(eye, t)
 		var far_look: Vector3 = _orbit_center
@@ -417,6 +425,7 @@ func set_solar_view(pos: Vector3, look_target: Vector3, orbit_dist: float) -> vo
 	global_position = pos
 	look_at(look_target, Vector3.UP)
 	_distance = orbit_dist
+	_target_distance = orbit_dist
 	_orbit_max_distance = maxf(_orbit_max_distance, orbit_dist * 2.0)
 	far = clampf(orbit_dist * 4.0, 4000.0, 80000.0)
 
@@ -654,13 +663,14 @@ func _update_mouse_capture() -> void:
 
 
 func _zoom(factor: float) -> void:
+	# Set the TARGET distance; _process eases _distance toward it (smooth glide), so both the zoom and the
+	# arc-down eye-level blend that reads _distance are continuous instead of snapping per wheel notch.
 	if _orbit_mode:
 		# Re-read the progression-capped ceiling each zoom so a freshly-earned stage lets the player pull out further.
 		_orbit_max_distance = _effective_orbit_max()
-		_distance = clampf(_distance * factor, _orbit_min_distance, _orbit_max_distance)
+		_target_distance = clampf(_target_distance * factor, _orbit_min_distance, _orbit_max_distance)
 	else:
-		_distance = clampf(_distance * factor, MIN_DISTANCE, MAX_DISTANCE)
-	_update_transform()
+		_target_distance = clampf(_target_distance * factor, MIN_DISTANCE, MAX_DISTANCE)
 
 
 ## Pan factor relative to the reference distance, so pan speeds scale with zoom.
@@ -752,6 +762,15 @@ func _process(delta: float) -> void:
 	# GROUND-WALK: WASD/arrows + edge-scroll sweep the surface view while zoomed in. Updates the orbit/geosync
 	# state the transform rebuild below reads; inert when zoomed out, flying, or in the solar overview.
 	_surface_walk(delta)
+	# SMOOTH ZOOM: ease _distance toward the wheel target so zoom and the arc-down glide are continuous. Geosync
+	# rebuilds every frame below (picks up the new _distance); plain orbit needs an explicit rebuild while easing.
+	if _orbit_mode and not is_equal_approx(_distance, _target_distance):
+		_distance = lerpf(_distance, _target_distance, 1.0 - exp(-ZOOM_SMOOTH * delta))
+		if absf(_distance - _target_distance) < 0.05:
+			_distance = _target_distance
+		var geosyncing: bool = _geosync and not _solar_view and _geosync_body != null and is_instance_valid(_geosync_body)
+		if not geosyncing:
+			_update_transform()
 	# FLY: drive the drone from the keyboard every frame (WASD/lift/descend/boost).
 	if _fly:
 		_fly_step(delta)
