@@ -246,6 +246,10 @@ func set_material_field(m) -> void:
 	_material = m
 
 
+const PLANT_SETTLE_STRIDE: int = 24   # a settled plant runs its body ~every 24 frames (catch-up dt) — Big-O by relevance
+var _settle_accum: float = 0.0
+var _settle_phase: int = -1
+
 func _physics_process(delta: float) -> void:
 	if LAAblate.off("plants"):
 		return
@@ -253,6 +257,17 @@ func _physics_process(delta: float) -> void:
 	# at 1, so its growth boost is moot. Skipping the per-frame biomass sample once mature drops the dominant
 	# per-plant cost (a whole pasture of settled plants no longer each hit the field every frame). Big-O by relevance.
 	var growing: bool = _grown_fraction() < 1.0
+	# A fully-grown plant has only slow LINEAR timers left (food regrow, seed timer, flower-pollen decay), so
+	# advance it on a coarse STAGGERED cadence with a catch-up delta rather than every frame — hundreds of settled
+	# plants stop each running the body 60x/s. The timers are dt-linear, so the accumulated-dt outcome is unchanged.
+	if not growing:
+		if _settle_phase < 0:
+			_settle_phase = int(get_instance_id())
+		_settle_accum += delta
+		if (int(Engine.get_physics_frames()) + _settle_phase) % PLANT_SETTLE_STRIDE != 0:
+			return
+		delta = _settle_accum
+		_settle_accum = 0.0
 	var growth_boost: float = _biomass_boost() if growing else 0.0
 	age += delta * (1.0 + growth_boost)
 	_apply_growth()
