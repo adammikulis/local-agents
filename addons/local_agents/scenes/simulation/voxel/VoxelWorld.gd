@@ -343,6 +343,28 @@ func _ready() -> void:
 	# Wire the input controller's auto-demo hooks now that every scene ref exists.
 	_input.bind(_terrain, _camera, _body, _sky_ctrl.star(), _material, _disasters, _interaction, _ecology)
 
+	# Cinematic trailer capture (--trailer-shot=NAME): a scene-scripter drives a scripted camera + timed events
+	# and auto-quits; run with Godot movie-maker (--write-movie) to record. Clean footage → hide the game UI.
+	if _input.trailer_shot() != "":
+		# Clean footage: hide EVERY UI overlay (HUD, gamified HUD, debug field-view panel, view-mode bar and the
+		# thought panel are each their own CanvasLayer), so only the world renders.
+		for child in get_children():
+			if child is CanvasLayer:
+				(child as CanvasLayer).visible = false
+		# Cinematic PHYSICAL camera: real f-stop depth-of-field + exposure (Godot's CameraAttributesPhysical).
+		# f/2.8 with a mid focus distance gives a gentle background bokeh; per-shot focus can be tuned in the
+		# director. Applied only in trailer mode so gameplay exposure is untouched.
+		if _camera is Camera3D:
+			var cam_attr: CameraAttributesPhysical = CameraAttributesPhysical.new()
+			cam_attr.exposure_aperture = 2.8
+			cam_attr.frustum_focus_distance = 80.0
+			cam_attr.frustum_focal_length = 40.0
+			(_camera as Camera3D).attributes = cam_attr
+		var director: LATrailerDirector = LATrailerDirector.new()
+		director.name = "TrailerDirector"
+		add_child(director)
+		director.begin(self, _camera, _disasters, _input, _body, null, _input.trailer_shot())
+
 	# Bind the settings applier's live concerns now that disasters/terrain/particles exist: pushes the effects
 	# density onto the atmosphere particles and arms the difficulty-scaled ambient-disaster cadence.
 	_settings_applier.bind(self, _disasters, _terrain, _water)

@@ -95,6 +95,7 @@ var _fly: bool = false           # FLY: planet-aware free-flight drone (WASD + h
 var _solar_view: bool = false    # PLANET orbit ↔ SOLAR-SYSTEM overview (planet + visible sun)
 var _view_controls = null                # the on-screen [Planet|Solar] · [Free|Geosync] · [Auto-spin] cluster (LAVoxelViewControls)
 var _fast: int = 1                       # --fast=N: sim steps per render frame (1 = realtime)
+var _trailer_shot: String = ""           # --trailer-shot=NAME: LATrailerDirector drives a scripted capture
 var _face_sun: bool = false              # --face-sun: aim the camera at the star before the screenshot (sun-visibility proof)
 var _face_sun_done: bool = false
 var _menu_shot: bool = false             # --menu-shot: show the pause menu overlay before the screenshot (menu proof)
@@ -119,6 +120,10 @@ func parse_cmdline() -> void:
 			_shoot_frames = int(arg.substr("--shoot-frames=".length()))
 		elif arg.begins_with("--run-frames="):
 			_run_frames = int(arg.substr("--run-frames=".length()))
+		elif arg.begins_with("--trailer-shot="):
+			# Cinematic capture: LATrailerDirector drives a scripted shot; run with --write-movie to record it.
+			_trailer_shot = arg.substr("--trailer-shot=".length())
+			_streamer_enabled = false
 		elif arg == "--smoke":
 			# Fast minimal-config boot: streamer off here + an Engine meta the settings applier reads to force the
 			# Potato/Low presets (smallest grid, fewest actors, effects/FX off). One flag, two readers, no wiring.
@@ -776,6 +781,14 @@ func force_wind() -> float: return _force_wind
 func overview() -> bool: return _overview
 func farview() -> bool: return _farview
 func auto_meteor() -> bool: return _auto_meteor
+func trailer_shot() -> String: return _trailer_shot
+
+# Live fast-forward multiplier (sim steps per rendered frame) — forwards to the pause menu's clamped setter, the
+# same one the in-menu speed buttons and the --fast cmdline use. Lets the trailer director time-lapse mid-shot.
+func set_time_scale(n: int) -> void:
+	_fast = maxi(1, n)
+	if _pause_menu != null and _pause_menu.has_method("set_time_scale"):
+		_pause_menu.set_time_scale(_fast)
 func auto_select() -> bool: return _auto_select
 func debug_family() -> bool: return _debug_family
 func auto_seavolcano() -> bool: return _auto_seavolcano
