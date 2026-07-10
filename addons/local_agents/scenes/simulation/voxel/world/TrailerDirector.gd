@@ -42,13 +42,28 @@ func begin(world: Node, camera: Camera3D, disasters: Node, input: Node, body: No
 		push_warning("TrailerDirector: unknown shot '%s'" % shot)
 		return
 	_end_frame = int(_beats.back().get("at", 0)) + int(_beats.back().get("hold", 120))
-	# Clean footage: hide the HUD overlay and stop the camera driving itself from input.
+	# Clean footage: hide EVERY UI overlay in the whole tree (the view-mode bar + debug panel are nested
+	# CanvasLayers a direct-children pass misses), and stop the camera driving itself from input.
+	_hide_all_ui()
 	if _hud_root != null:
 		_hud_root.visible = false
 	if _input != null and _input.has_method("set_capture_mode"):
 		_input.set_capture_mode(true)
 	_active = true
 	print("TRAILER_SHOT_BEGIN=%s end_frame=%d" % [shot, _end_frame])
+
+
+## Recursively hide every CanvasLayer in the scene tree so no game UI (HUD, gamified HUD, debug field-view panel,
+## the view-mode bar, thought panel) leaks into the footage — they are nested under different parents.
+func _hide_all_ui() -> void:
+	if is_inside_tree():
+		_hide_canvas_layers(get_tree().root)
+
+func _hide_canvas_layers(n: Node) -> void:
+	for child in n.get_children():
+		if child is CanvasLayer:
+			(child as CanvasLayer).visible = false
+		_hide_canvas_layers(child)
 
 
 func _process(_delta: float) -> void:
