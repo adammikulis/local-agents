@@ -30,6 +30,15 @@
 #include <CommonCrypto/CommonDigest.h>
 #elif __has_include(<openssl/sha.h>)
 #include <openssl/sha.h>
+#elif defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <bcrypt.h>
 #endif
 
 namespace godot {
@@ -198,6 +207,30 @@ std::string sha256_file_hex(const std::filesystem::path &path) {
     unsigned char digest[SHA256_DIGEST_LENGTH];
     SHA256_Final(digest, &ctx);
     constexpr size_t digest_len = SHA256_DIGEST_LENGTH;
+#elif defined(_WIN32)
+    // Windows: hash via the CNG (BCrypt) SHA-256 provider — no OpenSSL dependency
+    // (vcpkg curl uses Schannel, so <openssl/sha.h> is absent on this toolchain).
+    unsigned char digest[32];
+    constexpr size_t digest_len = 32;
+    BCRYPT_ALG_HANDLE h_alg = nullptr;
+    BCRYPT_HASH_HANDLE h_hash = nullptr;
+    if (BCryptOpenAlgorithmProvider(&h_alg, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0) {
+        return std::string();
+    }
+    if (BCryptCreateHash(h_alg, &h_hash, nullptr, 0, nullptr, 0, 0) < 0) {
+        BCryptCloseAlgorithmProvider(h_alg, 0);
+        return std::string();
+    }
+    while (in.good()) {
+        in.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        std::streamsize got = in.gcount();
+        if (got > 0) {
+            BCryptHashData(h_hash, reinterpret_cast<PUCHAR>(buffer.data()), static_cast<ULONG>(got), 0);
+        }
+    }
+    BCryptFinishHash(h_hash, digest, static_cast<ULONG>(digest_len), 0);
+    BCryptDestroyHash(h_hash);
+    BCryptCloseAlgorithmProvider(h_alg, 0);
 #else
     (void)buffer;
     return std::string();
