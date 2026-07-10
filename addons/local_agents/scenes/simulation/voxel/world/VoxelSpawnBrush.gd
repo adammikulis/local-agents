@@ -211,8 +211,14 @@ func update_brush_ring() -> void:
 		_brush_ring.visible = false
 		return
 	_brush_ring.visible = true
-	_brush_ring.global_position = p + Vector3(0.0, 0.15, 0.0)
-	_brush_ring.scale = Vector3(_brush_radius, 1.0, _brush_radius)
+	# Lie the flat torus in the tangent plane at p: its Y (the torus's flat-plane normal) tracks the local
+	# radial normal, so on a sphere the ring hugs the surface instead of lying in the world XZ plane. Radius
+	# scaling stays on the ring's own in-plane axes (X/Z), leaving the normal (Y) axis unit-length.
+	var up: Vector3 = _terrain.up_at(p)
+	var ring_basis: Basis = _ring_basis_from_up(up)
+	ring_basis.x *= _brush_radius
+	ring_basis.z *= _brush_radius
+	_brush_ring.global_transform = Transform3D(ring_basis, p + up * 0.15)
 	var mat: StandardMaterial3D = _brush_ring.material_override as StandardMaterial3D
 	if mat != null:
 		mat.albedo_color = _kind_color(_armed_kind)
@@ -238,6 +244,17 @@ func _ensure_brush_ring() -> void:
 	ring.visible = false
 	add_child(ring)
 	_brush_ring = ring
+
+
+# An orthonormal basis whose Y axis is the given surface normal, so a flat (XZ-plane) mesh laid on it
+# sits in the tangent plane at that point. The in-plane X/Z axes are an arbitrary but stable tangent
+# pair (the ring is rotationally symmetric, so their heading doesn't matter).
+func _ring_basis_from_up(up: Vector3) -> Basis:
+	var n: Vector3 = up.normalized() if up.length() > 0.0001 else Vector3.UP
+	var ref: Vector3 = Vector3.RIGHT if absf(n.x) < 0.9 else Vector3.FORWARD
+	var t: Vector3 = ref.cross(n).normalized()
+	var b: Vector3 = n.cross(t)
+	return Basis(t, n, b)
 
 
 func _kind_color(kind: String) -> Color:

@@ -394,7 +394,10 @@ func update_selection_ring() -> void:
 		return
 	if _selected is Node3D:
 		var p: Vector3 = (_selected as Node3D).global_position
-		_selection_ring.global_position = p + Vector3(0, 0.1, 0)
+		# Lay the flat torus in the tangent plane at the selected point: its Y (flat-plane normal) tracks
+		# the local radial normal, so on a sphere the ring hugs the surface instead of the world XZ plane.
+		var up: Vector3 = _terrain.up_at(p) if _terrain != null and _terrain.has_method("up_at") else Vector3.UP
+		_selection_ring.global_transform = Transform3D(_ring_basis_from_up(up), p + up * 0.1)
 		if _selected.has_method("get_inspector_payload"):
 			_hud.show_inspector(_selected.call("get_inspector_payload"))
 
@@ -413,3 +416,14 @@ func _make_selection_ring() -> MeshInstance3D:
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mi.material_override = mat
 	return mi
+
+
+# An orthonormal basis whose Y axis is the given surface normal, so a flat (XZ-plane) mesh laid on it
+# sits in the tangent plane at that point. The in-plane X/Z axes are an arbitrary but stable tangent
+# pair (the ring is rotationally symmetric, so their heading doesn't matter).
+func _ring_basis_from_up(up: Vector3) -> Basis:
+	var n: Vector3 = up.normalized() if up.length() > 0.0001 else Vector3.UP
+	var ref: Vector3 = Vector3.RIGHT if absf(n.x) < 0.9 else Vector3.FORWARD
+	var t: Vector3 = ref.cross(n).normalized()
+	var b: Vector3 = n.cross(t)
+	return Basis(t, n, b)
