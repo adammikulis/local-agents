@@ -25,6 +25,16 @@ uniform vec3 grass_dark : source_color = vec3(0.22, 0.32, 0.15);
 uniform vec3 rock_color : source_color = vec3(0.42, 0.40, 0.38);
 uniform vec3 snow_color : source_color = vec3(0.92, 0.94, 0.97);
 
+// --- Radial geology (planet mode): exposed INTERIOR rock (revealed by carving / meteor impacts) grades
+// crust -> mantle -> molten magma by actual RADIUS toward the hot core, and glows from the geothermal
+// gradient. Banded by radius so the natural surface (high radius) is untouched — only dug-out deep rock
+// shows layers. Makes blasting the planet reveal real geology instead of a uniform crust over water. ---
+uniform float planet_mantle_radius = 175.0;   // at/below this radius exposed rock reads as mantle
+uniform float planet_core_radius = 92.0;      // at/below this radius it is molten magma (glows)
+uniform float planet_core_temp = 1300.0;      // core temperature driving the radial incandescence
+uniform vec3 mantle_color : source_color = vec3(0.30, 0.12, 0.09);
+uniform vec3 magma_color : source_color = vec3(0.95, 0.35, 0.05);
+
 // --- Temperature field (baked by LAMaterialField into an R-float texture over world XZ). ---
 // The ground reads the temperature at its position and GLOWS incandescently when hot (a meteor
 // strike, lava, a wildfire) — emergent blackbody radiation, no per-event code. heat_debug flips the
@@ -137,6 +147,20 @@ void fragment() {
 		* (1.0 - smoothstep(0.5, 0.8, slope));
 	col = mix(col, snow_color, clamp(snowf, 0.0, 1.0));
 
+	// Radial GEOLOGY (planet): exposed interior rock grades crust -> mantle -> molten magma by actual
+	// radius toward the hot core, and picks up a geothermal glow. The natural surface sits at a high
+	// radius (crust band), so this only reshapes DUG-OUT deep rock — carving/blasting reveals real layers.
+	float radial_temp = 0.0;
+	if (planet_enabled > 0.5) {
+		float r = length(wp - planet_center);
+		float mantle_f = smoothstep(planet_mantle_radius + 45.0, planet_mantle_radius, r);
+		float magma_f = smoothstep(planet_core_radius + 40.0, planet_core_radius, r);
+		col = mix(col, mantle_color * (0.75 + 0.5 * n), mantle_f);
+		col = mix(col, magma_color, magma_f);
+		float depth_f = clamp((planet_sea_radius - r) / max(planet_sea_radius - planet_core_radius, 1.0), 0.0, 1.0);
+		radial_temp = depth_f * depth_f * planet_core_temp;   // squared: glow stays deep, not at the crust
+	}
+
 	// Sample the temperature field at this world XZ.
 	vec2 huv = (wp.xz - heat_world_min) / heat_world_size;
 	float temp = texture(heat_tex, huv).r;
@@ -171,7 +195,8 @@ void fragment() {
 		METALLIC = 0.0;
 		// Hot ground glows — a meteor crater, lava, or a wildfire front lights the terrain itself. This
 		// SMOOTH (linear-filtered heat field) glow is the main visual of molten lava; the lava surface
-		// mesh on top is a subtler crust, so the flow reads smooth, not as blocky per-cell squares.
-		EMISSION = incandescence(temp) * 3.8;
+		// mesh on top is a subtler crust, so the flow reads smooth, not as blocky per-cell squares. The
+		// radial geothermal temp adds the deep-rock/magma glow revealed by carving, even with no strike.
+		EMISSION = incandescence(max(temp, radial_temp)) * 3.8;
 	}
 }
