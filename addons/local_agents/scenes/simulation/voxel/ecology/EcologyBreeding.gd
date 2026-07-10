@@ -1,31 +1,28 @@
 class_name LAEcologyBreeding
 extends RefCounted
 
-## Reproduction / population dynamics for the living world — the parent-based breeding that keeps every
-## land herd and aquatic school recovering toward its carrying capacity. Land breeding (_tick_breeding →
-## _birth_one) and aquatic breeding (_tick_aquatic → _birth_aquatic_one, with the biomass food gate) both
-## live here: births scale with the mature-breeder pool, are bounded by the room left under the per-species
-## pop_cap, and each young inherits a crossover+mutation genome, its parent's natal nest, and its family
-## line in the kinship graph. No individual appears without living parents.
+## Reproduction / population dynamics for the living world — the genome/kinship/nest MACHINERY that every
+## birth reuses, plus the aquatic school's population tick. Phase 2 (W-REPRO) DISSOLVED the top-down land
+## breeding: land births are no longer scheduled here by a god-tick — each individual now decides to breed
+## for itself (courtship + gestation, energy-costed) in LACreatureReproduction, which calls back into
+## birth_child() below to produce the actual offspring through the SAME heredity path. So the reusable
+## helpers stay here (one owner of the placement + genome + lineage machinery) while the DECISION to breed
+## moved out to the creature. Aquatic breeding (_tick_aquatic → _birth_aquatic_one, with the biomass food
+## gate) is still a population tick for now (fish get the per-creature treatment later). Every young inherits
+## a crossover+mutation genome, its parent's natal nest, and its family line in the kinship graph. No
+## individual appears without living parents.
 ##
-## Owned by LAEcologyService, whose _physics_process forwards its breed/aquatic-breed ticks here. This
-## module reaches back into the service for the shared state that stays on the hub — the species/land/
-## aquatic rosters, get_tree, the surface + tangent placement helpers, the actor instancer, biomass reads,
-## the water gate, the aquatic-point sampler and the kinship graph — so there is exactly one owner of each.
-## Kept isolated because phase 2 (W-REPRO) will later dissolve _tick_breeding/_tick_aquatic wholesale.
-## Explicit types only (project rule: no ':=').
+## Owned by LAEcologyService. Its _physics_process forwards the aquatic tick here; the per-creature land path
+## reaches birth_child()/species_below_cap() through the service forwarders (LAEcologyService.birth_offspring
+## / can_species_breed). This module reaches back into the service for the shared state that stays on the hub
+## — the species/aquatic rosters, get_tree, the surface + tangent placement helpers, the actor instancer,
+## biomass reads, the water gate, the aquatic-point sampler and the kinship graph — so there is exactly one
+## owner of each. Explicit types only (project rule: no ':=').
 
-# A herd that has lost members REBUILDS — births each tick scale with the number of mature breeders, so a
-# thinned population recovers toward its carrying capacity (the pop_cap) instead of the old flat one-birth-
-# per-species-per-tick that could never replace predation + starvation + old-age losses. Vigorous breeding
-# is safe because the cap is the hard ceiling: births stop at cap, so this refills toward equilibrium but
-# never explodes past it. Rates are config/const (BREED_* + per-species pop_cap), never scripted counts.
-const BREED_FRACTION_PER_TICK: float = 0.16   # fraction of mature adults that may produce young each breed tick
-const BREED_MAX_PER_TICK: int = 8             # bound per species per tick (keeps the work + the surge bounded)
-
-# AQUATIC BREEDING — the de-hack that retires the old `restock` spawn-from-nowhere crutch. Every aquatic
-# species now recovers the SAME way the land herds do (see _tick_breeding): parent-based reproduction bounded
-# by pop_cap, so no individual appears without living parents. Young are born beside a mature parent (same
+# AQUATIC BREEDING — the de-hack that retires the old `restock` spawn-from-nowhere crutch. Aquatic species
+# still recover through a parent-based population tick bounded by pop_cap (the land herds moved to the
+# per-creature courtship drive in LACreatureReproduction; fish get that treatment later), so no individual
+# appears without living parents. Young are born beside a mature parent (same
 # school). GRAZERS (config diet:"grazer" / grazes_biomass:true — the web BASE, bugs+shrimp) additionally have
 # their birth rate MODULATED by the BIOMASS/algae base they graze: births scale with the mean field biomass at
 # the school's surface column, so the food-web bottom TRACKS primary production (algae-rich water multiplies the
@@ -40,59 +37,63 @@ const GRAZE_BIOMASS_SAMPLES: int = 6          # adults sampled for the school's 
 
 var _eco: LAEcologyService = null
 
+# Frame-stamped soft-ceiling cache: species -> [physics_frame, below_cap_bool]. species_below_cap is asked by
+# EVERY fertile creature's courtship check each think-frame, so without this the per-species group scan would
+# be O(n) per creature → O(n²) across the population. Caching the result per species per frame collapses that
+# to one scan per species per frame (all creatures of a species that frame reuse the same answer).
+var _cap_frame: Dictionary = {}
+
 
 func setup(eco: LAEcologyService) -> void:
 	_eco = eco
 
 
-func _tick_breeding() -> void:
-	for kind in _eco._land_kinds():
-		var cfg: Dictionary = _eco._species_config(kind)
-		var cap: int = int(round(float(cfg.get("pop_cap", 20)) * LAAblate.spawn_scale()))   # LA_SPAWN_SCALE benchmark knob (1.0 unless set)
-		var group: String = "species_%s" % kind
-		var members: Array = _eco.get_tree().get_nodes_in_group(group)
-		var deficit: int = cap - members.size()
-		if members.size() < 2 or deficit <= 0:
-			continue
-		# count mature adults
-		var adults: Array = []
-		for m in members:
-			if is_instance_valid(m) and m.has_method("is_mature") and m.is_mature():
-				adults.append(m)
-		if adults.size() < 2:
-			continue
-		# Births this tick scale with the breeder pool, bounded by the room left under the cap and a hard
-		# per-tick ceiling — so a depleted herd rebuilds quickly while a full one stops breeding entirely.
-		var births: int = clampi(int(ceil(float(adults.size()) * BREED_FRACTION_PER_TICK)), 1, mini(deficit, BREED_MAX_PER_TICK))
-		for i in range(births):
-			_birth_one(kind, adults)
+# SOFT CEILING — true while `kind` is still below its per-species pop_cap (the LA_SPAWN_SCALE benchmark knob
+# scales it). The per-creature reproduction drive (LACreatureReproduction) gates CONCEPTION on this so a
+# creature never conceives once its species is at/over cap: food + energy regulate the population emergently,
+# and the cap is the hard backstop that stops any runaway. This replaces the old deficit-driven god-tick.
+# Result is cached per species per physics frame (see _cap_frame) so the population-wide courtship checks
+# stay O(species-per-frame), not O(n²).
+func species_below_cap(kind: String) -> bool:
+	var frame: int = int(Engine.get_physics_frames())
+	var cached: Variant = _cap_frame.get(kind)
+	if cached != null and int((cached as Array)[0]) == frame:
+		return bool((cached as Array)[1])
+	var cfg: Dictionary = _eco._species_config(kind)
+	var cap: int = int(round(float(cfg.get("pop_cap", 20)) * LAAblate.spawn_scale()))
+	var members: Array = _eco.get_tree().get_nodes_in_group("species_%s" % kind)
+	var below: bool = members.size() < cap
+	_cap_frame[kind] = [frame, below]
+	return below
 
 
-# Produce ONE offspring for `kind` from two random mature parents in `adults`: crossover genome + mutation,
-# born at a parent's nest (natal philopatry) and recorded in the kinship graph. Factored out of the breed
-# loop so a recovering herd can birth several young per tick through the same evolution + lineage path.
-func _birth_one(kind: String, adults: Array) -> void:
-	var pa: Node3D = adults[randi() % adults.size()] as Node3D
-	var pb: Node3D = adults[randi() % adults.size()] as Node3D
-	var guard: int = 0
-	while pb == pa and guard < 4:
-		pb = adults[randi() % adults.size()] as Node3D
-		guard += 1
-	# Breed AT a parent's nest if it has one — young are born at home and inherit the site.
+# Produce ONE offspring for `kind` from a specific mated pair (pa = the bearer that gestated it, pb = the
+# other parent) — crossover genome + mutation, born at the bearer's nest (natal philopatry) and recorded in
+# the kinship graph. This is the shared heredity path every birth flows through: the per-creature gestation
+# drive calls it at term (via LAEcologyService.birth_offspring). If the other parent has since died/drifted
+# invalid the child is bred from the bearer alone (a single-parent line) rather than losing the pregnancy.
+# Returns the child node (or null if placement failed).
+func birth_child(kind: String, pa: Node3D, pb: Node3D) -> Node:
+	if pa == null or not is_instance_valid(pa):
+		return null
+	# Breed AT the bearer's nest if it has one — young are born at home and inherit the site.
 	var base_pos: Vector3 = pa.global_position
 	if bool(pa.get("has_nest")) and not is_inf(float((pa.get("nest_pos") as Vector3).x)):
 		base_pos = pa.get("nest_pos")
 	var placed = _eco._place_on_surface(_eco._tangent_offset_point(base_pos, randf_range(-2.0, 2.0), randf_range(-2.0, 2.0)))
 	if placed == null:
-		return
-	var child = _eco._instance_actor(kind, placed, _breed_genome(pa, pb))
+		return null
+	var mate: Node3D = pb if (pb != null and is_instance_valid(pb)) else pa
+	var child = _eco._instance_actor(kind, placed, _breed_genome(pa, mate))
 	_inherit_nest(pa, child)
 	# Record the permanent lineage in the kinship graph: the child joins its parent's family component
 	# (its family_id, inherited via the genome, is that same component's label) and the mate pair bond
 	# is stored. Bonds are added once here and never rewritten.
 	if child != null and is_instance_valid(child):
 		_eco.kinship().add_offspring(int(pa.get_instance_id()), int(child.get_instance_id()))
-		_eco.kinship().add_bond(int(pa.get_instance_id()), int(pb.get_instance_id()))
+		if mate != pa:
+			_eco.kinship().add_bond(int(pa.get_instance_id()), int(mate.get_instance_id()))
+	return child
 
 
 # Natal philopatry: the offspring adopts a parent's home site, so kin CLUSTER in space over
