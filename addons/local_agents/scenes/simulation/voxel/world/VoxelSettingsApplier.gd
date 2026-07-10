@@ -64,7 +64,23 @@ func read_settings() -> void:
 		_settings = gm.get("settings")
 	if _settings == null:
 		_settings = LAGameSettings.load_or_default()
+	_apply_smoke_overrides()
 	publish_globals()
+
+
+## `--smoke` (VoxelInputController sets the `la_smoke` Engine meta before this runs): force the MINIMAL config
+## for a fast parse+run check — the smallest grid + fewest actors + effects/FX off + a calm world. Reuses the
+## existing Potato-graphics + Low-sim presets (no parallel config path) on a DUPLICATE so the persisted resource
+## is never mutated. Streamer-off is handled by the input controller; the ambient disaster director stays off
+## because disaster_frequency drops below DISASTER_FREQ_OFF.
+func _apply_smoke_overrides() -> void:
+	if not (Engine.has_meta("la_smoke") and bool(Engine.get_meta("la_smoke"))):
+		return
+	var smoke: LAGameSettings = _settings.duplicate() if _settings != null else LAGameSettings.new()
+	smoke.apply_graphics_preset(LAGameSettings.GraphicsPreset.POTATO)
+	smoke.apply_sim_preset(LAGameSettings.SimPreset.LOW)
+	smoke.disaster_frequency = 0.0
+	_settings = smoke
 
 
 func settings() -> LAGameSettings:
