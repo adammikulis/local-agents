@@ -162,6 +162,11 @@ static func _try_eat_food(c, pos: Vector3) -> bool:
 			var prof: Dictionary = f.food_profile()
 			if not LAFood.can_forage(c.diet, prof):
 				continue
+			# TASTE AVERSION: refuse a food this creature has LEARNED tastes bad (a poison it has been sickened
+			# by, or absorbed as a fear from kin) unless it is desperate enough to gamble — the affinity system
+			# now steers foraging, so a herbivore skips the toxic plant it learned and grazes the wholesome ones.
+			if LACreatureChemSense.avoids_food(c, prof):
+				continue
 			var v: float = LAFood.value(prof)
 			if v > best_val:
 				best_val = v
@@ -179,6 +184,12 @@ static func _try_eat_food(c, pos: Vector3) -> bool:
 		return false
 	# The bite fills the GUT (biomass) instead of crediting energy directly — energy rises only as it digests.
 	LACreatureDigestion.ingest(c, gained, profile)
+	# TOXIC bite: a poisonous plant still fed the gut, but it also HARMS. Route the poison through the ordinary
+	# damage path so the HP loss flows into cognition's aversive valence + learned-lethal veto exactly like any
+	# other harm — the creature learns to shun this plant. Survivable by design (see LACreatureChemSense consts).
+	var toxin: float = LACreatureChemSense.toxin_damage(c, profile)
+	if toxin > 0.0:
+		c.take_damage(toxin, "toxin")
 	c._emit_call("forage")
 	_reinforce_cue_success(c)
 	# TASTE learning: reinforce the food's taste cue by how much this bite fed me (chemical affinity).

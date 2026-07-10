@@ -44,6 +44,24 @@ const SCENT_CUES: Array = [
 const NEUTRAL_BITE_FRAC: float = 0.14
 const TASTE_REWARD_CAP: float = 1.0
 
+# TOXICITY tuning. A toxic plant (LAPlant `toxic` in [0,1], surfaced on food_profile()["toxicity"]) hurts the
+# grazer AND tastes of poison, so the affinity system learns to shun it — driven off the toxicity VALUE, never a
+# species branch. Balance intent: a lesson, not a death. toxin_damage() removes only TOXIN_DAMAGE_FRAC of max HP
+# per unit toxicity per bite, so even a fully-toxic plant needs many bites to kill — and the creature learns to
+# refuse it long before that. TOXIN_FELT_PENALTY is subtracted from the bite's felt reward (per unit toxicity)
+# so the NET taste is clearly negative even when the poison also fed the animal — a POSITIVE cue never forms for
+# a toxic taste. Kept > the max positive felt (+1) so a rich-but-toxic bite still trains an aversion.
+const TOXIN_DAMAGE_FRAC: float = 0.16      # HP lost as a fraction of max_health, per unit toxicity, per bite
+const TOXIN_FELT_PENALTY: float = 2.2      # aversive taste subtracted from felt, per unit toxicity
+
+# Foraging taste gate. Once a food's learned taste cue drops this negative, a creature REFUSES to forage it
+# (the affinity made visible: it steers off the plant it learned is poison) — UNLESS it is desperate enough that
+# hunger outweighs the risk, at which point it gambles on the bad taste rather than starve (emergent risk-taking,
+# the same drive-discount ethos as the cognition veto). So a fed herbivore avoids toxic plants; a starving one
+# may still try one. No plant is hardcoded avoided — the LEARNED valence decides.
+const TASTE_AVOID_THRESHOLD: float = -0.4  # a taste cue at/below this is refused when not desperate
+const TASTE_DESPERATE_FRAC: float = 0.3    # below this energy fraction, hunger overrides the taste aversion
+
 # How strongly a born-in [0,1] DNA prior seeds its learned cue (before lifetime learning refines it). Each
 # row maps a genome cue-prior gene to a cue key and a sign: blood-wariness is an AVERSION to the blood scent;
 # carrion-appetite an appetite for the food scent; water-affinity a draw to water. Add a gene->cue row to
@@ -66,8 +84,40 @@ const STEER_SUPPRESS_STATES: Array = ["flee", "panic", "drink", "seek"]
 
 ## Mint the taste cue key for a food profile — its (type, state) signature. Two foods that feed a creature
 ## the same way (carbs/living, meat/decayed, …) share a signature, so learning about one transfers to the next.
+## Toxic foods get their OWN taste class ("…/toxic") so the aversion a poison trains never taints the wholesome
+## majority that shares its (type, state) — a herbivore learns "toxic plants taste bad", not "all plants do".
 static func taste_key(profile: Dictionary) -> String:
-	return "taste:%s/%s" % [String(profile.get("type", "")), String(profile.get("state", ""))]
+	var base: String = "taste:%s/%s" % [String(profile.get("type", "")), String(profile.get("state", ""))]
+	if float(profile.get("toxicity", 0.0)) > 0.0:
+		base += "/toxic"
+	return base
+
+
+## HP a toxic bite of `profile` should remove from `c` — a fraction of its max HP scaled by the plant's toxicity,
+## so the poison hurts proportionally to how toxic the plant is and to the creature's size (bigger bodies, bigger
+## dose). Zero for wholesome food. The eating path feeds this straight into c.take_damage(), so the loss flows
+## through the SAME aversive-valence + learned-lethal-veto machinery cognition already runs for any other harm.
+static func toxin_damage(c, profile: Dictionary) -> float:
+	if c == null:
+		return 0.0
+	var toxicity: float = clampf(float(profile.get("toxicity", 0.0)), 0.0, 1.0)
+	if toxicity <= 0.0:
+		return 0.0
+	return maxf(0.0, float(c.max_health)) * TOXIN_DAMAGE_FRAC * toxicity
+
+
+## Should `c` REFUSE to forage this food on taste alone? True once its learned taste cue is clearly negative
+## (a poison it has learned, or absorbed from kin via observe()) AND the creature is not desperate — a starving
+## animal gambles on the bad taste rather than starve. This is the affinity system steering foraging: no food is
+## ever hardcoded off-limits; the LEARNED valence of its taste decides, so a naive creature still tries it once.
+static func avoids_food(c, profile: Dictionary) -> bool:
+	if c == null or c._cognition == null:
+		return false
+	if c._cognition.cue_value(taste_key(profile)) > TASTE_AVOID_THRESHOLD:
+		return false
+	if c.max_energy > 0.0 and c.energy < c.max_energy * TASTE_DESPERATE_FRAC:
+		return false   # desperate: hunger overrides the taste aversion (risk the bad taste rather than starve)
+	return true
 
 
 ## Reinforce the taste cue of a food just eaten, by how much energy the bite delivered (the same appetitive
@@ -81,7 +131,14 @@ static func on_eat(c, profile: Dictionary, gained: float) -> void:
 		return
 	var max_energy: float = maxf(float(c.max_energy), 1.0)
 	var frac: float = gained / max_energy
-	var felt: float = clampf(frac / NEUTRAL_BITE_FRAC - 1.0, -TASTE_REWARD_CAP, TASTE_REWARD_CAP)
+	var felt: float = frac / NEUTRAL_BITE_FRAC - 1.0
+	# TOXICITY folds an aversive term into `felt` BEFORE the clamp, so a poison drives the taste cue NEGATIVE even
+	# when the same bite fed the animal — the net feeling is bad, so a POSITIVE cue never forms for a toxic taste
+	# and the creature (and, via observe(), its kin) learns to shun it. Driven off the toxicity value, no branch.
+	var toxicity: float = clampf(float(profile.get("toxicity", 0.0)), 0.0, 1.0)
+	if toxicity > 0.0:
+		felt -= toxicity * TOXIN_FELT_PENALTY
+	felt = clampf(felt, -TASTE_REWARD_CAP, TASTE_REWARD_CAP)
 	c._cognition.reinforce_cue(taste_key(profile), felt)
 
 

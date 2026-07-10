@@ -1,0 +1,13 @@
+{
+	"species": "nightshade",
+	"plant": true,
+	"flower": true,
+	"color": [0.34, 0.09, 0.42],
+	"grow_time": 6.0,
+	"max_scale": 0.6,
+	"seed_period": 16.0,
+	"edible": true,
+	"nectar": 52.0,
+	"toxic": 0.75,
+	"pop_cap": 24
+}

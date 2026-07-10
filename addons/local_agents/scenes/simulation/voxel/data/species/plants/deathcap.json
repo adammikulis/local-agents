@@ -1,0 +1,12 @@
+{
+	"species": "deathcap",
+	"plant": true,
+	"flower": false,
+	"color": [0.86, 0.82, 0.68],
+	"grow_time": 8.0,
+	"max_scale": 1.0,
+	"seed_period": 10.0,
+	"edible": true,
+	"toxic": 1.0,
+	"pop_cap": 20
+}
