@@ -60,6 +60,11 @@ build that boots.** Everything below is MERGED on `feature/sphere-followups` unl
 - **All disasters DISSOLVED** into the substrate (Volcano/Meteor/Tornado/Hurricane/Earthquake/Thunderstorm-
   Lightning) — momentum/ejecta + charge→bolt + shock + local heat/vapor injection primitives; disaster actors
   are seeds/visuals only. Emergent phenomenon **event tracker** feeds the streamer + telemetry.
+- **Outer-Wilds N-body gravity + moving-frame solar system:** meteors are test particles (orbit / flyby /
+  slingshot / launch anywhere); the planet carries a heliocentric orbital state driving the **sun across the
+  sky, seasons (23.5° tilt), and insolation** (orbit-distance² × atmospheric dust → **bake / freeze / impact
+  winter**); a **moon** orbits the planet; a meteor **volley knocks the planet toward the sun or out of the
+  system** (momentum). Debris/ejecta perf-bounded (pooled). Full literal planet-flight = 0.5.
 - **Living, learning creatures:** clustered herds + permanent **kinship graph** + sticky leadership;
   **value-based cognition** (multi-sense reward valence — pain/fear/suffocation/cold; drive-modulated risk
   tolerance; learned-lethal **veto**; social aversion spread; **followers learn too** → ~95% of the population
@@ -223,6 +228,19 @@ adversarial verify for correctness-sensitive bits). Main thread integrates/merge
 learned-not-branched, fish/bees learn, the nutrient loop conserves matter). Windowed launch for the pet.
 
 ---
+
+## 0.5 — THE FULL SOLAR SYSTEM (moved here from 0.4 — 0.4 stays the living creatures)
+
+0.3 shipped the **moving-frame** solar system: the sim stays centred on the planet, but a real heliocentric
+orbital STATE drives the sun across the sky, seasons (axial tilt), insolation (bake/freeze/impact-winter), a
+moon, and momentum knock-out-of-orbit. 0.5 makes the system **literal + navigable**:
+- [ ] **Literal planet flight through space** — migrate the GPU field/ocean to a **moving-frame body-local**
+  representation so the planet node can actually translate (not just its orbital state). Unblocks everything
+  below. (The one 0.3 relic: `MaterialField`/ocean/water are world-anchored at the planet's start.)
+- [ ] **Full multi-body physics** — planets + moons + sun as first-class bodies on real orbits; fly between
+  them; land on the moon (give it terrain/field); N-body for the bodies themselves, not just test particles.
+- [ ] **Solar-system view renders the real orbits** (the campaign capstone) from the body states.
+- [ ] **Persist + save** the orbital state; barycentre drift; slingshot missions; comets.
 
 ## How to run / verify
 - **Non-interactive (off-screen, focus-safe, SILENT audio) — always use the wrapper:**
