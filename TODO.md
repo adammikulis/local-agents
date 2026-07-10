@@ -3,6 +3,35 @@
 Master tracker. Main scene: the game boots to `scenes/menu/MainMenu.tscn`; the flagship sim is
 `scenes/simulation/voxel/VoxelWorld.tscn`. Read `CLAUDE.md` + `EMERGENCE.md` first.
 
+## ▶ NEXT SESSION — START HERE (this file IS the plan doc; feed it in)
+To start **0.4 (the living creatures / their entire life cycle)**, in order:
+1. **Read:** `CLAUDE.md` (process, incl. the standing **Workflow-tool** fan-out rule) · `EMERGENCE.md`
+   (design) · the **`## 0.4 — THE LIVING CREATURES`** section below (the roadmap, in detail) ·
+   **`docs/0.4_PARALLELIZATION_GUIDE.md`** (the concrete file-split plan: which bottleneck files to split
+   and in what order) · the auto-loaded memories — `roadmap-0.4-life-cycle`, `dissolve-dont-patch`,
+   `surfaced-bugs-not-punted`, `workflow-tool-standing-process`, `parallelizability-first-refactor`,
+   `three-d-always`, `perf-over-parity`, `no-inferred-typing`, `local-agents-identity`.
+2. **Branch off `0.3-dev`** into a git worktree (per CLAUDE.md — never edit the shared checkout).
+3. **Do the Phase-0 seam-directed SPLITS FIRST** (from the parallelization guide) — serialized, one owner:
+   split `Creature.gd` (the #1 bottleneck) + `EcologyService.gd`, then generalize cognition off
+   `LACreature`, split the reaction records, extract `PlantLifeCycle`/`FishBody`. This is the prerequisite
+   that lets the fan-out stay parallel instead of collapsing to a queue.
+4. **Then FAN OUT the 6 workstreams via the `Workflow` tool** (standing process — pipeline implement→verify
+   per workstream; the main thread integrates/merges/gates).
+
+### Faster iteration — dev-speed levers (USE THESE)
+- **`scripts/run_sim_offscreen.sh`** — off-screen, focus-safe, SILENT-audio verification wrapper (now on the
+  branch; agents no longer re-copy it).
+- **`--smoke`** — boots the sim at the minimal (Potato) config for fast "parses + runs + no NaN" checks;
+  reserve the full sim for the final gate. **`scripts/smoke_check.sh`** — one-command behavioral gate
+  (asserts 0 errors/NaN, population/herds/field/fps invariants; exit 0/1). *(landing at end of 0.3.)*
+- **Save-based test fixtures** — load a committed stable-world save → short delta → assert, instead of
+  booting + growing a world each run (faster + deterministic). *(landing at end of 0.3.)*
+- **Pre-write contracts + seam-directed splits** (above) = maximal parallel agents. **Prefer `--fast`**
+  time-scale for slow-emergent verification (compress ecological/geological time to seconds).
+- **0.4 dev-loop wins in the roadmap:** async/partial GPU field readback (the dominant sim cost → speeds
+  EVERY verify) · a cached/prebuilt native binary (so native changes don't need a full godot-cpp rebuild).
+
 ## North-star
 - **Dissolve, don't patch (THE CORE):** ONE physical substrate (`MaterialField3D`) — matter with pressure/
   temperature/phase/gravity/momentum + chemistry (a generic DEFS reaction engine). Named phenomena
