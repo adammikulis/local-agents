@@ -533,6 +533,10 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	# and by watching kin. The shared slow-brain scheduler is injected separately (set_cognition_scheduler).
 	_cognition = LACognition.new()
 	_cognition.seed_from_genome(_genome)
+	# Born-in chemical instincts: the genome's cue priors become starting scent valences (a blood-wary
+	# lineage is born avoiding the blood scent, a carrion-hungry one drawn to the food scent). Lifetime
+	# smell/taste learning refines them and observe() spreads them to kin — see LACreatureChemSense.
+	LACreatureChemSense.seed_priors(self)
 
 
 # The shared System-2 scheduler (FunctionGemma budget/queue), injected by the ecology after setup.
@@ -876,6 +880,12 @@ func _physics_process(delta: float) -> void:
 					desired = LACreatureThink.think_predator(self, pos, desired)
 				else:
 					desired = LACreatureThink.think_prey(self, pos, desired)
+
+			# CHEMICAL-AFFINITY SMELL STEERING (LACreatureChemSense): bias the foraging heading toward scents
+			# this creature has LEARNED (or was born, via DNA cue priors) to associate with food/prey, and away
+			# from ones it learned mean danger — scaled by hunger so a fed animal ignores it. Emergent: no scent
+			# channel is hardcoded good or bad; the sign is learned. Suppressed while fleeing/drinking (see module).
+			desired = LACreatureChemSense.steer(self, pos, desired)
 
 			# Nesting/roosting drive (ANY nesting species, config-driven): head home to roost at night
 			# or to breed, establishing the site the first time. Offspring inherit it (philopatry).

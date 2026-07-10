@@ -119,6 +119,9 @@ static func _kill_and_eat(c, prey: Node3D) -> void:
 	LocalAgentsAudioDirector.emit(c.get_tree(), "chomp", c.global_position)
 	c._emit_call("forage")                     # a kill call: kin nearby learn to hunt this situation
 	_reinforce_cue_success(c)
+	# TASTE learning: a fresh kill's taste cue, reinforced by how much the meal fed me (chemical affinity).
+	if prey != null and prey.has_method("food_profile"):
+		LACreatureChemSense.on_eat(c, prey.food_profile(), gain * 0.7)
 	if prey.has_method("die"):
 		prey.die("eaten")           # leaves a carcass (leftovers for scavengers)
 	elif prey.has_method("queue_free"):
@@ -172,6 +175,8 @@ static func _try_eat_food(c, pos: Vector3) -> bool:
 	c.energy = minf(c.max_energy, c.energy + gained)
 	c._emit_call("forage")
 	_reinforce_cue_success(c)
+	# TASTE learning: reinforce the food's taste cue by how much this bite fed me (chemical affinity).
+	LACreatureChemSense.on_eat(c, profile, gained)
 	return true
 
 
