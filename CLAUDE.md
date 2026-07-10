@@ -74,6 +74,26 @@ committed). When removing files:
 - Prefer sub-agents for substantial or parallel work — parallelizable scope, contract-heavy or
   native-path changes, larger refactors — with explicit acceptance criteria. Close stale/finished
   sub-agents to conserve slots.
+- **USE THE `Workflow` TOOL for fan-outs — this is standing, typical process (the maintainer opted in;
+  no per-task re-authorization needed).** When work decomposes into parallel UNITS over shared state —
+  one agent per actor / per kernel / per 0.4 workstream / per split-out file / per review dimension —
+  author a Workflow script (fan out → verify → synthesize) instead of hand-launching N agents and playing
+  the serialization point yourself. It formalizes the manual pattern into deterministic control flow
+  (loops/conditionals/fan-out) with structured results.
+  - **`pipeline()` is the default** (each unit flows implement→verify with NO barrier — item A verifies
+    while item B still implements). Use `parallel()` (a barrier) ONLY when you genuinely need ALL results
+    together (dedup/merge across the set, early-exit on zero, cross-item comparison).
+  - **Compose with the existing discipline, don't replace it:** do the SEAM-DIRECTED SPLITS first (see the
+    parallelizability rule + the 0.4 split guide) so units are one-owner; each `agent()` prompt is a
+    PRE-WRITE CONTRACT (goal · files to add/change/DELETE · shared interface · a hard behavioural
+    `SIM_REPORT`/gate); use `isolation:'worktree'` when agents mutate files in parallel; adversarially
+    VERIFY findings (N skeptics, kill on majority-refute) for review/audit passes.
+  - **Scope to the ask:** a few finders + single-vote verify for "find any bugs"; a larger pool + 3–5-vote
+    adversarial pass + synthesis for "thoroughly audit / be comprehensive."
+  - **The coordinator (main thread) still integrates:** worktree-isolated Workflow agents commit to their
+    branches; merging + conflict resolution + the editor-scan/verify gate stay the main thread's job
+    (Workflow doesn't auto-merge). A single `Agent` call is still fine for a genuinely one-off, independent
+    unit; reach for `Workflow` the moment it's a *set* of units.
 - **PRE-WRITE CONTRACTS to keep the pipeline full.** A sub-agent contract is: the goal, the exact
   files/records to add/change/DELETE, the shared interface it must honor, and a **hard behavioural
   acceptance gate** (exact run command + pass thresholds; "commit only if it passes, else report the
