@@ -164,6 +164,7 @@ var _panic_source: Vector3 = Vector3.ZERO
 # --- decision throttling: think every THINK_STRIDE frames (instance-staggered), move every frame ---
 var _eff_speed: float = 0.0                 # decided speed, carried between think-frames
 var _think_phase: int = -1                  # per-instance stagger offset (lazily set on first tick)
+var _lod_accum: float = 0.0                 # skipped dt accumulated while off-screen; applied as catch-up when a FAR creature does run
 var _force_think: bool = false              # acute event (scare/damage) → re-decide next frame
 
 # --- emergent local leadership (LACreatureLeadership) ---
@@ -586,6 +587,7 @@ const FAR_THINK_STRIDE: int = 30           # far/off-screen discretionary thinki
 const SLEEP_THINK_STRIDE: int = 30         # asleep/resting: no decisions to make — heaviest throttle
 const NEAR_LOD_D2: float = 900.0           # <30 m from camera → full THINK_STRIDE rate
 const MID_LOD_D2: float = 4900.0           # <70 m → MID rate; beyond → FAR rate
+const FAR_LOD_D2: float = 40000.0          # beyond this (²): the WHOLE update runs every 8th frame; MID..FAR every 4th (catch-up dt)
 
 # --- Emergent local leadership (LACreatureLeadership). A `herd` creature that is NOT the local top-ranked
 # same-species individual becomes a FOLLOWER: it ADOPTS its leader's decision (the canonical action) and
@@ -672,6 +674,24 @@ func _physics_process(delta: float) -> void:
 	if _carcass:
 		LACreatureRagdoll.decay_tick(self, delta)
 		return
+	# Compute-bubble LOD: FAR / off-screen creatures run the WHOLE update on a coarse staggered cadence with a
+	# catch-up dt (their motion is off-screen, so the stepping is invisible), while NEAR creatures update every
+	# frame for smooth on-screen motion. Metabolism/ageing stay correct because their dt IS the accumulated
+	# catch-up. An acute event (_force_think from a scare/damage) always runs live. No camera → no LOD. Unlike the
+	# discretionary think-stride below, this throttles movement/metabolism/terrain-snap too — the bigger win.
+	if _think_phase < 0:
+		_think_phase = int(get_instance_id())
+	if not _force_think:
+		var _lod_cam: Vector3 = _camera_pos()
+		if not is_inf(_lod_cam.x):
+			var _lod_d2: float = global_position.distance_squared_to(_lod_cam)
+			if _lod_d2 > MID_LOD_D2:
+				_lod_accum += delta
+				var _lod_stride: int = 8 if _lod_d2 > FAR_LOD_D2 else 4
+				if (int(Engine.get_physics_frames()) + _think_phase) % _lod_stride != 0:
+					return
+				delta = _lod_accum
+				_lod_accum = 0.0
 	age += delta
 	if _think_phase < 0:
 		_think_phase = int(get_instance_id())                  # raw id; the think stagger is (id % stride)
