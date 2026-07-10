@@ -247,6 +247,8 @@ func set_material_field(m) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if LAAblate.off("plants"):
+		return
 	# The field biomass read (biomass_at) only matters WHILE growing — a mature plant's grown_fraction is capped
 	# at 1, so its growth boost is moot. Skipping the per-frame biomass sample once mature drops the dominant
 	# per-plant cost (a whole pasture of settled plants no longer each hit the field every frame). Big-O by relevance.

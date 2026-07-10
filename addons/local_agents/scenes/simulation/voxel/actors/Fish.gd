@@ -450,6 +450,8 @@ func _think_stride() -> int:
 
 
 func _physics_process(delta: float) -> void:
+	if LAAblate.off("fish"):
+		return
 	if _dying:
 		return
 	age += delta

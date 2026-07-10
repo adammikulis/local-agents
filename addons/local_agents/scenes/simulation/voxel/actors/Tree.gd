@@ -260,6 +260,8 @@ func _snap_to_surface() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if LAAblate.off("trees"):
+		return
 	if toppled:
 		# The Tween (if any) drives the fall; otherwise lerp it here.
 		if not _topple_tween_active:

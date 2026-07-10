@@ -560,6 +560,8 @@ static func _species_group(sp: String) -> String:
 # Visual-only animation: play idle/move/run (or bob a rigless model) from actual displacement.
 # Kept out of _physics_process so it never perturbs movement/AI, only presentation.
 func _process(delta: float) -> void:
+	if LAAblate.off("anim"):
+		return
 	if _model_root == null:
 		return
 	if _ragdoll or _carcass:
@@ -684,6 +686,8 @@ static func _prof_report() -> Dictionary:
 
 
 func _physics_process(delta: float) -> void:
+	if LAAblate.off("creatures"):
+		return
 	# In the player's hand: VoxelWorld sets our position each frame; skip AI + terrain-snap.
 	if _held:
 		return

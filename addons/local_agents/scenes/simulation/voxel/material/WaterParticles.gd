@@ -87,6 +87,8 @@ func set_sky_tint(c: Color) -> void:
 
 
 func _process(_delta: float) -> void:
+	if LAAblate.off("water"):
+		return
 	if _pm == null or _camera == null or not is_instance_valid(_camera):
 		return
 	var cp: Vector3 = _camera.global_position

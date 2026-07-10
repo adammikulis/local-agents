@@ -464,6 +464,8 @@ func apply_wind_force(world_pos: Vector3, radius: float, force_fn: Callable, del
 
 
 func _physics_process(delta: float) -> void:
+	if LAAblate.off("ecology"):
+		return
 	if terrain == null or actors_root == null:
 		return
 	_process_pending()

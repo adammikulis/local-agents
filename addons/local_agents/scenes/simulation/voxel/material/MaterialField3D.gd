@@ -550,6 +550,8 @@ func _exit_tree() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if LAAblate.off("field"):
+		return
 	# The cubed-sphere is the SOLE substrate: one self-contained GPU step over the *_sphere3d kernels.
 	# The fixed-step begin/step/end loop + readback scatter live in LAMaterialFieldSphereStep3D.
 	# (The retired box grid + its CPU-oracle tails lived here; deleted with the sphere-only cleanup.)
