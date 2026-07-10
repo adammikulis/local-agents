@@ -124,10 +124,12 @@ func _game_settings() -> LAGameSettings:
 	return null
 
 
-## True when audio should start silent. Default: SILENT in the editor + any debug run (i.e. all testing —
-## no audio during the dev loop), audio ON only in the exported RELEASE build. Explicit override either way:
-## `LA_NO_AUDIO=1` / `--no-audio` force silent; `LA_NO_AUDIO=0` / `--audio` force audio on (e.g. to test audio
-## from the editor). The player's in-game volume/mute settings still apply on top of this default.
+## True when audio should start silent. Default: audio ON for any interactive launch — pressing Play in
+## the editor, a debug build, or the exported release game all have sound. Automated test runs stay silent
+## because they go through run_sim_offscreen.sh / smoke_check, which export `LA_NO_AUDIO=1` (handled by the
+## explicit override below); and a bare `--headless` run has no audio device, so it stays silent too.
+## Explicit override either way: `LA_NO_AUDIO=1` / `--no-audio` force silent; `LA_NO_AUDIO=0` / `--audio`
+## force audio on. The player's in-game volume/mute settings still apply on top of this default.
 func _audio_disabled() -> bool:
 	if OS.has_environment("LA_NO_AUDIO"):
 		return OS.get_environment("LA_NO_AUDIO") != "0"
@@ -136,7 +138,7 @@ func _audio_disabled() -> bool:
 			return true
 		if arg == "--audio":
 			return false
-	return OS.has_feature("editor") or OS.is_debug_build()
+	return DisplayServer.get_name() == "headless"
 
 
 # --- Music bed ------------------------------------------------------------------------------------

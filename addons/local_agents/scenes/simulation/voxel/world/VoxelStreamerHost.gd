@@ -79,10 +79,10 @@ func setup(world: Node, ecology: Node, material: Node, persona: String, avatar_f
 	_streamer_overlay.set_default_persona(_streamer_persona)
 	_streamer_overlay.set_default_avatar(_streamer_avatar_flavor)
 
-	# Apply the player's remembered show/hide choice. Default is visible (it's the identity showcase),
-	# but if they hid it last session it stays hidden — and hidden means the compute is gated off.
-	if _load_hidden():
-		_set_streamer_active(false)
+	# A freshly built host always starts hidden + compute-gated: it is now built LAZILY the first time the
+	# player presses the streamer hotkey (VoxelWorld._ensure_streamer_host), and that same press then toggles
+	# it active/shown. Starting inactive here keeps the local LLM + TTS idle until that toggle fires.
+	_set_streamer_active(false)
 
 
 # Swap the streamer between male/female: rebuild the avatar body + switch the TTS voice live.
