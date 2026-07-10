@@ -1,319 +1,152 @@
-# TODO / Roadmap — Voxel Ecosystem Sim
+# TODO / Roadmap — Local Agents (voxel-planet caretaker sim)
 
-Master tracker for the from-scratch **godot_voxel ecosystem simulation** (project `main_scene`:
-`VoxelWorld.tscn`). Full rationale for the roadmap below lives in the plan file + `SPHERICAL_PLANET_PLAN.md`.
+Master tracker. Main scene: the game boots to `scenes/menu/MainMenu.tscn`; the flagship sim is
+`scenes/simulation/voxel/VoxelWorld.tscn`. Read `CLAUDE.md` + `EMERGENCE.md` first.
 
-## North-star (read CLAUDE.md + EMERGENCE.md first)
-- **Dissolve, don't patch (THE CORE):** ONE physical substrate (`MaterialField3D`) — matter with
-  pressure/temperature/phase/gravity/**momentum** + chemistry. Named phenomena — "volcano", "eruption",
-  "lava-bomb", "tornado", "hurricane", "storm", "weather" — have **zero dedicated behavior code**; they EMERGE
-  from the universal rules. When you meet a `*Volcano.gd` / `_is_erupting()` / burst timer / `BOMBS_PER_BURST`,
-  push the universal rule into the substrate and **DELETE the special-case system.** Disaster actors are
-  seeds/markers/visuals only. **Success = named-phenomenon code DELETED, not features added.**
-- **3D always** (no 2.5D column holdovers) · **perf-first** (playable frame-rate is first-class) ·
-  **GPU-GLSL-only: there are NO CPU oracles** (the GLSL kernels are the sole implementation; the CPU branches
-  are an unmaintained headless fallback, never a parity contract) · **bias to action** (spike, don't pad).
-- **Big-O is a first-class goal (CORE):** drive down *asymptotic* cost, then constants. (1) Prefer the
-  better-scaling structure — spatial hash/tree/neighbour-table, O(K) test-particle passes, event/dirty-set
-  updates — never a per-frame O(n²) or a blind full-grid sweep. (2) **Do less by RELEVANCE (adaptive LOD is
-  mandatory):** offscreen / distant / un-zoomed / dormant / empty regions do less (coarser grid, staggered or
-  skipped timesteps, frozen sim, culled draws, lower-LOD meshes, sleeping actors). Budget compute where the
-  player looks. Composes with GPU-first + emergent; when in tension, cutting asymptotic/relevance cost wins.
-
-## SOLAR-SYSTEM-FIRST (canonical architecture — decided 2026-07)
-The world is **a solar system of bodies**, not one flat world. Structure everything around this spine now;
-grow the content in stages. **Radial is the default everywhere; flat retires to git history (no flag, no
-parallel mode).** Node spine:
-- **`LASolarSystem`** (system root — repurpose `VoxelWorld`): owns the star, the bodies, and shared services
-  (camera rig that can target any body, HUD, audio, the world-space gravity + free-particle buffer = orbits +
-  ejecta). Runs the n-body integrator; wires the ACTIVE body's terrain/field/ecology to the shared controllers.
-- **`LAStar`**: positioned light + gravity source; drives per-cell solar (`dot(cell_radial,sun_dir)`, `1/dist²`)
-  → terminator. **`LAPlanetBody`**: ONE body in a LOCAL frame (transform = orbit position + spin) that OWNS its
-  terrain (`build_planet`) · field (body-local) · ocean shell · actors · ecology; exposes `center/radius/
-  sea_radius/up_at/altitude_at/surface_point/is_solid/carve` + `mass` + atmosphere-shell radius (frame-handoff
-  boundary). Bodies move/rotate → their field/terrain/actors ride the transform.
-- **Interim substrate (migration, NOT a parallel system):** each body keeps a `MaterialField3D` box grid as the
-  working field until Phase B swaps it for the cubed-sphere `SphereGrid` substrate, then the box grid is
-  DELETED. Not ripped out first: actors couple only to the field's **world-space 3D queries** (`temp_at`,
-  `breathable_o2_at`, `is_submerged_at`, `is_solid`) which are substrate-agnostic and survive the swap — the
-  only box-specific coupling is one instantiation line. Ripping it out first would pull the hardest work (the
-  kernel port) before any visible planet and kill all field behaviour meanwhile.
-- **Staging (visible result fast):** 1 static lit walkable body → body spins → orbits `LAStar` → 2nd body →
-  camera travel between bodies. Multi-body ORCHESTRATION detail deferred until its bodies exist (not
-  speculative — it's the committed end goal, built minimally + grown).
-
-## Current state (1-liner)
-The sim is a **CHEMISTRY-BASED cubed-sphere substrate**, all MERGED + verified on `0.3-dev`. Water is ONE
-conserved H₂O substance (liquid/vapor/cloud/fog/snow/ice — phase EMERGENT from temperature, 2a+H₂O-unify);
-a generic **DEFS reaction engine** (2b) drives gas sky-exchange, fungus decompose, photosynthesis/respiration,
-freeze/melt as DATA RECORDS (adding a reaction = a record, not a kernel); **biomass** makes vegetation emerge
-from photosynthesis (Plant CPU code dissolved); a single **GPU water-particle renderer** draws cloud/fog/rain/
-snow by phase (RainLayer + CloudLayer DISSOLVED — clouds are VISIBLE on the planet now); rock/mineral is
-unified through Stage 0+A (conservation ledger `mineral_total` + dust-loft/susp-settle → records, `dust_loft`
-kernel deleted). Emergent + verified: solar terminator, geothermal core + conduction, sea→evaporation→cloud→
-rain water cycle, snow line (~280 snow / 40+ ice cells), carbon loop, ~280 entities, ~80fps, ZERO errors.
-Throwaway A0/A1 spikes removed. North-star framing: substances conserved · phases are states · transitions are
-reactions (see memories chemistry-based-substrate, unified-water-particles).
-
-### DEFERRED for a SUPERVISED run (staged contracts in scratchpad `POST_2B_CONTRACTS.md`, designs in
-`ROCK_UNIFY_DESIGN.md`/`WATER_RENDER_DESIGN.md`/`COMPOSITION_DESIGN.md`):
-- **Rock Stage B/C/D** — fractional `rock_fill` + DERIVED `solid` (rewires ~10 kernels — high blast radius) →
-  SDF terrain-growth stamp → erosion. The gateway to real geology; hook documented at `MaterialField3D.add_lava()`.
-- **Volcano / disasters (Phase C)** — dissolve to a CONDUIT CARVE; eruption/plug-cycle/ejecta emerge from
-  pressure→momentum + magma buoyancy. CAPSTONE SUCCESS = a SEABED volcano builds an ISLAND (water-quench
-  solidify → rock_fill → SDF growth → breach). Needs Rock Stage B/C + the ejecta primitive. Big emergent payoff
-  to watch — not fired blind.
-- **Composition-per-cell (metals/ores)** — spike verdict: the DEFS engine is already ~80% there (slot registry);
-  build the thin slice ONLY when a metal/ore/salt feature is wanted, else defer.
-- **Fuller readback** for scent/fungus/erosion (need CPU→GPU injection round-trips).
+## North-star
+- **Dissolve, don't patch (THE CORE):** ONE physical substrate (`MaterialField3D`) — matter with pressure/
+  temperature/phase/gravity/momentum + chemistry (a generic DEFS reaction engine). Named phenomena
+  (volcano, eruption, tornado, storm, weather, decomposition, …) have **zero dedicated behavior code**; they
+  EMERGE. Removing a hack (a timer/cap/`restock`-from-nowhere/special-case) and making it emergent is the
+  **definition of done, not an optional feature.** Success = special-case code DELETED.
+- **Emergent-everything** · **3D always** (no 2.5D holdovers) · **GPU/native-first, GPU-GLSL-only** (no CPU
+  oracles) · **perf-first** (playable frame-rate is first-class) · **Big-O first-class** (better-scaling
+  structures + do-less-by-relevance/LOD + activity bubbles) · **bias to action** · **config over `if
+  species==X`**.
+- **Dual-purpose:** a reusable Godot dev tool (the `LocalAgentsAgent` LLM node) AND a full game that is the
+  flagship demo. Local LLMs drive creature cognition + the streamer, fully offline — headline this.
 
 ---
 
-# ROADMAP
+## 0.3 — THE CARETAKER GAME (current release — nearly done)
 
-## Phase A — SPHERE FOUNDATION (visible planet). Grid-independent; land first.
-- **TARGET = an OUTER-WILDS-SCALE solar system (~tens of km total; a body is 1-of-N moving, spinning worlds).**
-  This scale is the SWEET SPOT and makes the design SIMPLER: fp32 covers the WHOLE system in one coordinate
-  space (~cm precision at 100 km) → **NO fp64 build, NO floating-origin rebase, NO double-precision rebuild of
-  `godot_voxel`/our GDExtension.** Everything lives in one world; bodies are just nodes at their positions.
-  **Space between bodies is NOT a field** (thin bounded atmosphere shells; don't voxelize vacuum). The
-  cubed-sphere is unchanged. Disciplines baked in from A1:
-  - **(1) Field is body-LOCAL because bodies MOVE + ROTATE (the #1 rule).** Each body's `SphereGrid`+
-    `MaterialField` is simulated in body-local space; the body's `Transform3D` (position + orientation, stepped
-    each frame by the orbital/spin integrator) places it in the shared world. Creatures/water/clouds simulate
-    locally — oblivious to the planet's motion — and render THROUGH the transform. This is exactly what lets you
-    stand on a spinning planet with its ocean and air rotating with you (Outer Wilds' whole identity). Not a
-    precision hack here — it's the moving-rigid-frame model.
-  - **(2) Sun is a POSITIONED body** — per-cell solar = `dot(cell_radial, normalize(sun_pos-body_center))` ×
-    `1/dist²`, not a baked global `sun_dir` (and you literally watch it move).
-  - **(3) Two gravity scales, separate:** per-cell radial gravity INSIDE each field (on-planet) vs. a
-    world-space point-mass integrator for the bodies + free actors (player, ejecta). **DECIDED: emergent
-    real-time n-body gravity** — orbits EMERGE from the same momentum+gravity substrate (dissolve-don't-patch
-    applied to celestial mechanics), no scripted paths. Kepler rails are the FALLBACK ONLY if perf is
-    unacceptable — not the default.
-  - **GRAVITY = TWO INTEGRATORS, NOT ONE (keeps it ~O(K), not O(n²) as projectiles/asteroids multiply):**
-    - **Attractors** (star + planets + moons, ~10): full direct-sum **velocity-Verlet** (symplectic → orbits
-      don't decay; seed near-circular velocities `v≈√(GM/r)⊥r` so it's stable without rails). Mutual O(M²)≈100
-      pairs — trivial, CPU or a tiny kernel. **Softening** `g=GM·r/(|r|²+ε²)^{3/2}` to kill close-approach
-      singularities (prevents forced tiny timesteps).
-    - **Everything else = a GPU TEST-PARTICLE buffer** (pos, vel, mass, state∈{bound,free,landed}): projectiles/
-      ejecta/asteroids/debris FEEL gravity but don't EXERT it (a pebble can't perturb a planet, nor each other)
-      → cost is O(K·M), and with **dominant-attractor / sphere-of-influence** (only the strongest body's pull,
-      KSP-style) it drops to **O(K)**, one compute invocation per particle. Same buffer as the Phase C ejecta
-      system → gravity + inter-body travel + impact all fall out of one structure.
-    - **Keep M small:** mass-threshold **promotion** — an asteroid big enough joins the attractor set; pebbles
-      never do. **Bound K structurally:** landed ejecta re-deposits as field mass + despawns, escaped ejecta
-      culled past a boundary radius, debris merges into what it hits (already the Phase C re-deposit plan) →
-      K is bounded by lifetime, not by launch volume. Optional **block/individual timesteps** (only the fast
-      close-encounter bin steps every frame). **Barnes-Hut octree = escalation path, likely never needed**
-      (only if thousands of MUTUALLY-massive bodies ever appear).
-  - **Reference-frame handoff = the ejecta primitive at scale.** A test particle is `bound` to a body's local
-    frame (on/near surface, moving with it) or `free` in world space (in transit); handoff at the
-    atmosphere-shell radius (enter → rebind to that planet's local frame; `landed` → re-deposit + despawn). A
-    lava bomb with enough momentum leaves local frame → world-space projectile under multi-body gravity → lands
-    on ANOTHER planet. Outer Wilds' comet-debris / sand-pillar behaviour falls out of Phase C for free.
-  - Additive later (no sphere change): only-active/near-planet full-rate field (distant ones coarse/frozen),
-    system-scale camera/LOD.
-- [x] **A0 — spike the cubed-sphere seam table** (DONE, `feature/sphere-spike` 6f19512): `LASphereGrid` builds
-  6 gnomonic faces × res² × depth radial layers + the per-cell 6-neighbour+radial index table; seams stitched
-  geometrically (nearest surface dir past the edge — no hand-coded 24 edge/8 corner cases). `spike_sphere.gd`
-  proved it BEHAVIOURALLY: `SPIKE_REPORT ok=true`, closed+symmetric, `min_adj_dot=0.986` (no seam teleport),
-  seam diffusion smooth (`max_grad=0.068`, `mass_err=0.0`), radial convection monotone. `SphereGrid.gd` is the
-  keeper (Phase B's neighbour SSBO); the harness is throwaway.
-- [x] **A1 — visible planet** (COMPLETE on `feature/sphere-spike`):
-  - [x] **Terrain crux PROVEN** (`c76dd9e`): `LASpherePlanetGenerator` = NATIVE `VoxelGeneratorGraph`
-    `sdf=(length(p)-radius)-amp·fbm3d` (no heightmap, no box axes; solid-inside matches `is_solid<0`).
-    `spike_planet.gd` → `PLANET_REPORT ok=true` (compiled, is_sphere 20-dir/0-miss, center_solid via
-    generate_block, space_empty). `PlanetPreview.tscn` renders it: Transvoxel mesh + distance-LOD + lit planet
-    with a natural directional-light terminator (`planet_preview.png`). Flat relic is small + isolated: ONLY
-    `VoxelGeneratorImage`, `surface_height(x,z)` (down-ray), `carve_caves` (world-Y) assume `(x,z)→Y`;
-    `sdf_at`/`is_solid`/`carve_sphere`/`fill_*`/`raycast_terrain` are world-space and SURVIVE.
-  - [x] **`VoxelTerrainService` planet-capable** (`9cf2d63`): `build_planet` + radial queries (`up_at`,
-    `surface_radius`, `surface_point`, `altitude_at`, shape-aware `is_ready_at`); `SERVICE_REPORT ok=true`,
-    markers rest on the ground; island path structurally untouched (107fps windowed, no regression).
-  - [ ] **Build the SOLAR-SYSTEM node spine** (the in-place refactor of `VoxelWorld`):
-    - **`LAPlanetBody`** — extract terrain + field(body-local) + ocean + actors + ecology ownership out of
-      `VoxelWorld` into a body node in a local frame; expose `center/radius/up_at/altitude_at/surface_point/
-      is_solid/carve/mass`. Uses `build_planet`. Field = the interim box grid (unchanged internals).
-    - **`LAStar`** — positioned light + gravity source + solar driver.
-    - **`LASolarSystem`** — repurpose `VoxelWorld` into the system root: create `LAStar` + ONE `LAPlanetBody`;
-      wire shared controllers (camera/HUD/audio/weather/disasters/brush/interaction) to the active body's
-      services. Retire flat island + flat `OceanPlane` + flat fly-cam. (main_scene stays `VoxelWorld.tscn`.)
-  - [x] **Spine boots the planet + FAN-OUT integrated** (`c6bbe65`): real `VoxelWorld` boots a LIVING planet —
-    275 entities on the sphere, blue oceans / green continents / sandy radial coastlines, orbit camera, 96fps,
-    zero errors. 7-agent parallel fan-out done, all via the terrain radial contract (gated by `is_planet`):
-    Ecology radial spawn (surface_point + tangent clusters + underwater shell); `Creature`/`Fish` tangent-plane
-    steering + radial ground-snap/submersion; `Plant`/`Tree`/`Nest` radial up + surface snap; `VoxelCameraRig`
-    orbit mode; `OceanPlane.setup_sphere` translucent sea shell; terrain shader climate keyed off radial
-    altitude/up (coastlines ring the globe, no +Y-pole snow). Flat path preserved in every file.
-  - [x] **Planet SPIN** (`726efcb`): body spins as one moving frame (terrain+actors ride it), camera in the
-    system frame → day/night sweeps. Validated godot_voxel honors a rotated `VoxelLodTerrain`; `VoxelTool`
-    queries (sdf_at/carve/fill) made world↔local rotation-safe. **Magma-core seed** (`a70c793`):
-    `add_magma_source` at the centre (interim; Phase B makes it the innermost radial layers).
-  - [x] **Planetary SKY + star-lit terminator** (`da9156f`): `set_space_mode` → dark space background + dark
-    COLOR ambient (the flat atmosphere dome sourced ambient from itself, washing out the night side) + sun
-    FIXED shining star→planet, clock frozen. Spinning planet turns under it → stark day/night terminator.
-    155fps (no atmosphere dome). Star drives the light end-to-end now.
-  - [x] **Cloud/fog/rain hidden in planet mode** (`c9a127a`): flat +Y-atmosphere sheets read as grey wisps
-    against space → hidden until Phase B grows radial cloud/fog SHELLS. Clean planet in space, 97fps.
-  - [x] **Surface-level playtest** (`c9a127a`, temporary close orbit): life sits on the ground with correct
-    radial climate bands (grass / beach / lake) + curved coastline; camera reverted to whole-planet framing.
-  - **A1 COMPLETE.** Deliverable met: walkable, lit, SPINNING planet in space — SDF sphere terrain, radial life
-    (creatures/fish/plants/trees/nests), radial climate (oceans/coasts/snow), ocean shell, orbit camera,
-    star-lit day/night terminator, magma-core seed. ~290 entities, ~100–155fps, flat world retired.
-  - **Orbit-a-star is BLOCKED on Phase B** (deferred there, not A1): the interim field is an ORIGIN-centered
-    box (not a child of the body), so spin (rotation about the centre) is fine but ORBIT (translating the body)
-    would desync terrain from the field box. Needs the body-local field → do it in/after Phase B.
-  - Deferred to **Phase B** (cubed-sphere body-local field — NOT worth throwaway box-grid work): per-cell solar
-    field TERMINATOR (`heat3d_solar.glsl` reads `LAStar` sun_dir), real radial magma core / geothermal, radial
-    water/rivers. Radial caves + scripted volcano → Phase C.
-- Field's gravity-dependent processes parked until Phase B (box grid enclosing the body meanwhile). Deliverable
-  SO FAR: walkable, lit planet with oceans/coasts/climate + life. Left: terminator, hot core, spin.
+A caretaker god-game on an emergent chemistry planet, driven by local LLMs, shipping as a native itch.io
+download. **The game is feature-complete, playable (~67 fps default @ 720p), and exports to a standalone
+build that boots.** Everything below is MERGED on `feature/sphere-followups` unless noted.
 
-## Phase B — CUBED-SPHERE FIELD PORT + activity-bubbles + reaction engine + water-cycle unify.
-**Investigation done (3 agents, 2026-07).** The field is a flat `PackedFloat32Array` per channel of length
-`_cell_count`; the SphereGrid keeps that flat-array contract (`cell = surf*depth + r`). SURVIVES unchanged: the
-query facade (`temp_at`/`breathable_o2_at`/`is_submerged_at`/… world-space sigs), the step scheduler (order /
-GPU-CPU split / `_slow_tick` stagger / dirty-gating / cadenced readback), the channel set, ping-pong / dispatch
-/ barriers / frame API (topology-agnostic), same-cell reactions, and the world-space SDF `carve/fill` calls.
-- **PROVEN + COMMITTED (the risky parts of B, de-risked in isolation):** cubed-sphere seam table (A0);
-  `SphereGrid.world_to_cell` exact inverse of `cell_world_pos` (`MAP_REPORT`, `8149579`); `MaterialField3D.
-  setup_sphere` lays every channel on the sphere, box path intact (`FIELD_SPHERE_REPORT`, `4b95019`);
-  **neighbour-SSBO gather on the REAL GPU** — `heat_sphere3d.glsl` diffuses across cube seams on-device
-  (`GPU_SPHERE_REPORT ok=true`, `b16ee2c`) = the template EVERY kernel follows. The rest of B is now mechanical
-  volume against proven templates.
-- [ ] **B1 — grid layer + world↔cell + neighbour SSBO + ACTIVITY BUBBLES.** [CPU layer DONE `4b95019`; world↔
-  cell DONE `8149579`.] REMAINING: `MaterialGPU3D._ensure_buffers` size classes → `surf_count*depth`/
-  `surf_count`; resident int32 `_buf_neighbours` (`neighbours_kernel_order`) + `_buf_cell_radial`, uploaded once
-  + bound into every gather set; push-constants swap dims→surf_count/depth (keep cell_count); activity-bubble
-  dispatch (active-tile list + indirect, or sleep-flag + early-out).
-  - CPU seam = 5 primitives in `MaterialField3D.gd` + `setup`: `_idx :379`, `_col_i :445`, `cell_world_pos :387`,
-    `_in_bounds :383`, `_surface_iy :907` → reimplement over `LASphereGrid` (world_pos → gnomonic face+surf+
-    radial layer; `_surface_iy` → outermost open radial layer along a surf column). `setup_sphere(sphere_grid)`
-    allocs channels of length `cell_count = surf_count*depth`. Resolution target ~300K cells (res≈45/face,
-    depth≈24) — tune vs perf.
-  - GPU seam = `MaterialGPU3D._ensure_buffers` size classes (`"cell"`→`surf_count*depth`, `"col"`→`surf_count`,
-    `"send"`→`cell_count*6`) + a NEW resident int32 `_buf_neighbours` (`cell_count*6`, slot order matching the
-    water/lava/slump send convention: **0=inward/down, 1-4 lateral, 5=outward/up**) uploaded once, bound into
-    every gather set; push-constants swap `dim_x/y/z`→`surf_count/depth` but KEEP `cell_count` + all physical
-    scalars. Also upload per-cell `cell_radial` (for solar + gravity). Ping-pong/dispatch/barriers untouched.
-  - **ACTIVITY BUBBLES (bake into the dispatch NOW — the planet's scaling lever, see CLAUDE.md):** per-tile (or
-    per-cell) activity + sleep; step active tiles every frame, quiescent tiles rarely/never; a changed cell
-    wakes its neighbour tiles (bubble grows); stimuli (inject_*/carve/impact) wake a region. GPU: active-tile
-    list + indirect dispatch (O(active)), or v1 = per-tile sleep flag + kernel early-out. Compose with
-    distance-relevance. This is what makes ~300K–4M planet cells affordable.
-- [x] **B2 KERNELS CONVERTED** (`043ff36`): all 30 `*_sphere3d.glsl` written + SPIR-V-valid at import (box
-  originals untouched, nothing loads them yet → non-breaking). heat/water/slump/lava/atmos×4/o2/co2/shock/
-  fungus/scent×2/dust×3/buoyancy×2/wind×2/charge/fire/erosion×2/gas_sky/snowice/fungus_fert/heat_cool/lava_phase
-  + solar (per-cell terminator). Slot 0=down,1-4 lateral,5=up; nbr binding 15, cell_radial 14. Flags for
-  integration: gas/scent wind-advection dropped to pure diffusion; scent/fert want the 4-slot surf_nbr table;
-  heat3d_buoyancy now needs a ping-pong (added TempOut); cross-seam wind reciprocity approximate.
-- [~] **B2-WIRE / INTEGRATION — the live field IS cubed-sphere now (WIP; resume here).**
-  DONE + committed: `MaterialField3D.setup_sphere` lays channels on the `LASphereGrid` (`4b95019`); a
-  `_sphere_process` fast-path in `_physics_process` runs the GPU driver + scatters temp/water, bypassing box
-  CPU tails (`fc10ca5`); query facade (`breathable_o2_at`/`is_submerged_at`/`temp_at`/`o2_at`/`co2_at` +
-  guarded 2.5D) routed through `world_to_cell` → **field runs CLEAN in the live sim: 274 entities, 156fps,
-  ZERO errors** on the heat+water MVP (`9a2a945`). `MaterialSphereGPU3D` is a PLUGIN HOST (`03f0cbf`):
-  allocates all channel buffers (ping-pong pairs + singles) + neighbour/radial/pos SSBOs, exposes a `bufs`
-  dict, loads+dispatches `material/sphere_passes/*.gd`. All 6 pass modules authored + parse-clean
-  (`WaterSlumpLava`, `GasWind`, `FireDust`, `Atmosphere`, `EcoSurface`, `Thermal`) wiring every `*_sphere3d`
-  kernel via `bufs` (`2a2191d`).
-  **REMAINING (serial finish — needs a booted verify loop):**
-  1. [x] **DONE (`a427bcc`) — reconcile ping-pong PHASE across the 6 passes + fix the driver dispatch order.**
-     (Renamed the misleading "parity" → **ping-pong phase**: it is on-GPU double-buffering, NOT CPU-oracle
-     parity — there is none.) Data-flow order is now WaterSlumpLava → Thermal → GasWind → Atmosphere →
-     FireDust → EcoSurface so every "back"-written channel is read from "back" downstream (per-pass
-     submit+sync makes each pass see prior GPU writes; one phase flip/step). Wired `set_sun_dir`
-     (toward-star, from `_sun_light.basis.z`) + `set_sea_radius` (`_terrain.sea_radius()`) in
-     `_sphere_process`. **Verified BEHAVIOURALLY: 240 frames @ ~227fps, 290 actors, temp field live
-     (heat_peak 15), physics 2.9ms, ZERO per-frame errors / shader fails / OOB.** Known one-step
-     coupling-fidelity lags (o2/co2/fire/fungus in-place-on-live, snow meltwater→live water) accepted under
-     perf-over-parity; tighten later. dispose()/`_exit_tree` added (`chore` commit) — teardown
-     recursive_mutex crash is PRE-EXISTING + environmental (0.3-dev box path crashes identically after a
-     clean SIM_REPORT; Godot 4.7 + MoltenVK windowed local-RD shutdown quirk), NOT ours.
-  2. **Fuller readback + terminator sweep**: `_sphere_process` only applies `temp`/`water` back to CPU (so
-     SIM_REPORT's field metrics read 0 — wet_cells/cloud_cells/etc). Expand it to consume the channels
-     `end_frame` already returns (vapor/cloud/fog/lava/fire/o2/co2/dust/shock) + route them into the report;
-     and rotate `sun_dir` with the body spin (or make the field body-local) so the temp terminator SWEEPS,
-     not just a static day/night gradient. (Windowed Temperature debug view to confirm.)
-  3. **Gaps**: port the 2 missing `erosion_*_sphere3d.glsl` (only box exist; EcoSurfacePass already skips them).
-  4. **Activity BUBBLES** dispatch (per-tile sleep/wake — the scaling lever; shape is free-choice, see CLAUDE).
-  5. [x] **DONE — box grid + box GPU driver + 16 CPU-oracle modules DELETED** (`4956dc1`/`5238d90`/`780e9bd`):
-     killed the dead box `_physics_process` branch, retired every CPU-oracle module from `activate()`, re-homed
-     the scent channel consts (`LAMaterialField3D.SCENT_*`), and `git rm`'d 21 files. Cubed-sphere is the sole
-     substrate; scene boots with 0 errors. REMAINING before merge: (a) re-home magma injection to a direct
-     sphere `_temp/_lava` write (restore the planet's internal heat), (b) `git rm` the now-dead box `*3d.glsl`
-     kernels (inert on disk), (c) strip the `LA_SPHERE_DBG` probe, (d) fuller readback for the still-defaulting
-     channels (scent/fungus/erosion/snow), then merge `feature/sphere-spike` → `0.3-dev`.
-- [ ] **B3 — during the rewrite:** generic **DEFS reaction engine** for the ~9-11 clean same-cell reactions
-  (evap/condense/boil/re-evap `MaterialAtmosphere3D`, combustion, fungus-decompose, photosynthesis, gas
-  sky-exchange, lava sustain-heat) — `{reactants[(chan,coeff)], products[…], driver+threshold, rate, cap,
-  target}`; KEEP special (cross-cell / SDF-editing): rain (cloud→ground column), meltwater, magma buoy, erosion
-  advect, lava solidify/melt, magma pressure-melt, ice freeze/thaw, slump. **Unify the water cycle** into one
-  conserved `_airwater` channel (fuse `_vapor`/`_cloud`/`_fog`, all owned by `MaterialAtmosphere3D`; cloud/fog/
-  vapor derived from local T vs `sat(T)`; evap a true transfer `water-=e`; rise folds into buoyant wind `vel_y`,
-  drop `VAPOR_RISE`). Deliverable: complete weather + volcanism + real radial magma/geothermal emerge on the
-  planet; the interim box grid is DELETED; the planet can ORBIT (field is body-local).
+### Done + integrated
+- **Emergent world:** cubed-sphere chemistry substrate (one conserved H₂O; DEFS reaction engine; biomass/
+  photosynthesis; rock/mineral unified; GPU water-particle render). Solar terminator, geothermal **hot core +
+  temperate surface via crust insulation**, water cycle, snow line, carbon loop.
+- **All disasters DISSOLVED** into the substrate (Volcano/Meteor/Tornado/Hurricane/Earthquake/Thunderstorm-
+  Lightning) — momentum/ejecta + charge→bolt + shock + local heat/vapor injection primitives; disaster actors
+  are seeds/visuals only. Emergent phenomenon **event tracker** feeds the streamer + telemetry.
+- **Living, learning creatures:** clustered herds + permanent **kinship graph** + sticky leadership;
+  **value-based cognition** (multi-sense reward valence — pain/fear/suffocation/cold; drive-modulated risk
+  tolerance; learned-lethal **veto**; social aversion spread; **followers learn too** → ~95% of the population
+  learns, not just leaders). Family-tree inspector. **Sustainable ecosystem** (renewable pasture, capped
+  breeding, prey pyramid — stable ~130). Fish eat bugs/shrimp (aquatic web given a bottom).
+- **The game:** campaign **progression** (start constrained → unlock overview → orbit → geosync → **solar-
+  system view** capstone) · **Sandbox** mode · gamified **HUD** (objectives/progress/unlock toasts) ·
+  **main menu + settings** · **quality settings** (Graphics Potato/Low/Medium/High/Ultra + separate Sim/AI
+  category, numeric sliders, per-setting tooltips) · **save/load** (full world + learned cognition + kinship +
+  progression, slot-based) · in-UI **tutorial** (first-run campaign) + **help/reference** (controls auto-gen
+  from the hotkey registry, codex, tooltips) · **hotkeys** (digit-select palette + full map) · audio/music
+  (salted; silent in editor/debug, on in the release) · human **huts**.
+- **The local-LLM showcase (the identity):** click a creature → its **actual on-device reasoning** (thought
+  inspector) + the streamer; **LLM-thinking control** (per-creature/group on/off + highlight/select who's
+  thinking/queued).
+- **Model UX:** in-game **downloader** (ungated Q4, size + EMA ETA) + **model management** (HF-cache reuse,
+  bring-your-own GGUF, rich inference config).
+- **Release/tooling:** native **itch export** (presets + build script + `docs/EXPORT.md`; boots standalone) ·
+  **credits** screen + `AUTHORS`/`CREDITS.md`/`THIRD_PARTY_LICENSES.md` (Kenney, Quaternius, Zylann/godot_voxel,
+  engine, models) · **quickstart node** + identity/origin README + demos ladder · **crash-on-quit fixed**
+  (native `LAProcess._Exit`, rc 0) · GPU teardown/RID cleanup · 3D-query port (sphere-correct field reads) ·
+  perf (**vegetation MultiMesh instancing**, playable default) · **30s trailer script** (`docs/TRAILER.md`).
 
-## Phase C — DISSOLVE named phenomena + emergent rendering (volcano first, then fan out).
-- [ ] **C0 — keystone primitive: pressure/vorticity/kinetic → MOMENTUM on matter** in the substrate: ejecta
-  parcels (lava/rock launched when overpressure beats confinement, arc under radial gravity, re-deposit heat+
-  lava/sediment) + a wind/vortex force that ADVECTS creatures/debris/sediment (replaces every geometric
-  `throw()`). Build once → all the flings/bombs dissolve.
-- [ ] **C1 — generalize the render seam:** discrete-event callbacks `on_ejecta`/`on_impact` mirroring
-  `MaterialCharge3D.on_bolt` + `set_lightning_visual` (`LightningStrike` is the visual-only reference); ONE
-  field-driven **volumetric FX renderer** sampling a 3D density (start with the already-simulated-but-unrendered
-  `dust_at`, + cloud/vorticity) → GPU particles (generalize `RainLayer`). Funnels/spirals/ash/glow render FROM
-  field state.
-- [ ] **C2 — Volcano FIRST (the pattern):** delete `_is_erupting`/`_bomb_cd`/`BOMBS_PER_BURST`/`_launch_bombs`;
-  ejecta from C0, glow/ash from C1; actor → seed + visual callback.
-- [ ] **C3 — fan out one subagent per actor:** Tornado (vorticity→force replaces `_fling_wildlife`), Hurricane
-  (pressure→force + emergent embedded severe-wx, delete `_maybe_breed`/`_stir_wildlife`), Thunderstorm (delete
-  `_maybe_strike` — charge already fires bolts), Earthquake (crustal stress-release wave replaces the timer
-  burst-emitter), Meteor (kinetic-impact → ejecta momentum + crater-as-sediment). Already-dissolved (reference):
-  Lightning, Landslide, Flood, Weather/Rain. Deliverable: disaster behavior code DELETED (measure: lines).
-
-## Cross-cutting — file-splitting + subagent orchestration (prerequisite + ongoing)
-- [ ] Split remaining large files so each unit is an independently-ownable file (max parallel subagents, no
-  write conflicts): `MaterialField3D.gd` (~1285: setup/sampling · step-orchestration · queries facade · report),
-  `MaterialGPU3D.gd` (~1232: resource-mgmt vs dispatch), `VoxelWorld.gd` (~730: disaster auto-flags · water-seed
-  · fps probe), `SpawnPaletteHud.gd` (758), `EcologyService.gd` (613), `Fish.gd` (~600). Split BEFORE the phase
-  that touches them.
-- Orchestration: each phase decomposes per-unit (per kernel / actor / reaction / file); a coordinator subagent
-  per workstream launches worker subagents per unit (subagents can spawn subagents), each owning one file with
-  a shared contract (neighbour table / ejecta primitive / DEFS record) + a behavioural `SIM_REPORT` gate.
-
-## Perf follow-up (any time)
-- [ ] Charge tail's ~3.6ms floor → GPU-side charge hot-cell list (its own module).
+### 0.3 remaining (the tail)
+- [~] **Emergent decomposition + fish fix** (running) — carcasses decompose via a warmth/moisture-gated
+  bacterial bloom into the existing detritus→fertility+CO₂ loop (mummification/permafrost fall out free); fish
+  no longer suffocate in shallows. (#74 + polish)
+- [ ] **Insects + flowers + bees** (#76, next — de-hacking, NOT a feature) — bugs/shrimp eat real biomass/
+  detritus (drop the `restock`-from-nowhere hack); add a land-insect layer; flowers + more plants; **bee↔flower
+  pollination mutualism** (visiting spreads pollen → pollinated flowers spread). Broadens the web for stability.
+- [ ] **Rebuild the native extension** (#71) — activate the `LAProcess`/clean-quit primitive in the shared bin;
+  verify rc 0 end-to-end. (CI/release build does this automatically for the shipped build.)
+- [ ] **Shoot the 30s trailer** (per `docs/TRAILER.md`) + a few looping GIFs for the itch page/README.
+- [ ] **Final full-sim verify → merge `feature/sphere-followups` → `0.3-dev` → tag 0.3.**
 
 ---
 
-## Where everything lives
-- **Root:** `VoxelWorld.gd`/`.tscn` (main_scene). **Terrain:** `terrain/VoxelTerrainService.gd`
-  (`VoxelLodTerrain`, heightmap→sphere in Phase A; `sdf_at`/`is_solid`/`carve_sphere`/`carve_caves` survive).
-- **THE substrate:** `material/MaterialField3D.gd` — dense-3D GPU field; per-force modules
-  `Material{Heat,Water,Lava,Atmosphere,Wind,Combustion,Slump,Erosion,SnowIce,Dust,Scent,Magma,Charge,Shock,Gas,
-  Fungus}3D` + `MaterialGPU3D`(+Geo/Push) + `kernels3d/*3d.glsl` (authoritative; no CPU oracle to maintain).
-  Facades/render: `MaterialField{Queries,Inject,Render}3D`, `MaterialHeatTexture3D`, `OceanPlane`, `CloudLayer`,
-  `RainLayer`. Telemetry: `world/SimReport.gd` + `world/SimReportSources.gd` (`SIM_REPORT` snapshot).
-- **Actors:** `actors/{Creature,Plant,Tree,Rock,Corpse,Food,Fish,Nest}` + creature helpers `actors/creature/`
-  (leadership/metabolism/flocking/think/senses/nesting/ragdoll); disasters `actors/{Meteor,Volcano,Earthquake,
-  LightningStrike,Flood,Tornado,Thunderstorm,Hurricane}` (dissolving in Phase C).
-- **Cognition:** `cognition/*` (fast rules + sparing LLM). **Data:** `data/species/**/*.json`. **UI:** `ui/*`.
-  **Camera:** `VoxelCameraRig.gd`. **Design:** `EMERGENCE.md`.
+## 0.4 — THE LIVING CREATURES (next release — their entire life cycle)
+
+Where 0.3 went broad (the game + emergent world), **0.4 goes deep on the creatures themselves — the whole arc
+of a life**, all emergent (one substrate, reaction engine, config over `if species==X`), realistic within our
+confines. The creatures are the star (local LLMs driving the minds).
+
+- [ ] **FLAGSHIP — the living nutrient cycle** (#75): rework digestion (food → gut → energy **over time**,
+  efficiency set by the microbiome; herbivores need gut flora to digest plants) + **gut-microbiome benefits**
+  (a per-creature microbe scalar aids digestion/health while alive) + **excretion / pooping** (waste → soil
+  detritus/fertility + spreads gut bacteria) + **soil bacteria / nitrogen-fixers** (enrich fertility → plants
+  grow) + **death decomposition** (the same microbiome overgrows on death; 0.3 ships the field-side taste). A
+  handful of bacterial ROLES as substrate reactions; conserved matter (food → energy + waste → soil → plants →
+  food). Big systemic feature — re-balance the ecosystem after.
+- [ ] **Plant life cycle** — blooming as a real reproductive STAGE: grow → **bloom** → pollinated (bees/wind) →
+  seed → sprout → age → die → decompose. Config `reproduction mode`: `flower` (bloom, most angiosperms —
+  grasses/broadleaf trees/crops/flowers), `cone` (conifers — wind pollen, no bloom), `spore` (ferns/mosses/
+  fungus). Bees boost the flowering ones; wind is the fallback.
+- [ ] **Diverse flowers + LEARNING bees + pollinator-driven selection** — each flower species: a distinct
+  **scent** (deposited into the scent field), look, and **bloom-time** window (dawn/dusk stagger). Bees LEARN
+  which flowers pay off via the existing reinforcement cognition (scent cue → nectar reward → preference) and
+  forage by **smell, not sight**. Emergent payoff nobody scripts: bees favor certain traits → pollinate those
+  more → those flowers spread → **pollinator-driven selection of flower traits emerges.** (Needs bees to carry
+  cognition — same extension as fish minds.)
+- [ ] **Trainable Creature companion** (#48) — a large animal that sees the player as its permanent **Leader**
+  (reuse the leadership/follower-adoption); shaped by **operant conditioning** — player reward/punish feeds the
+  existing `reinforce_cue` learning. Black & White-style. Minimal bespoke code.
+- [ ] **Fish cognition** — fish are currently brainless config-band swimmers; give them the same value-based
+  cognition the land animals have, so the aquatic life learns too.
+- [ ] **Rest of the animal life arc** — growth/juvenile→adult stages + visuals, courtship/mating, aging/
+  senescence effects, disease (pathogen-bacteria overgrowth).
+- [ ] **Reusable creature NODE (dual-purpose gap)** — only `LocalAgentsAgent` (the LLM node) is drop-in today;
+  the sim actors are coupled to the voxel sim (injected terrain/field/ecology/cognition, no `.tscn`). Decouple
+  Creature behind small INTERFACES + a lightweight default adapter so a bare "AgentCreature" node works
+  standalone (rules-based) and lights up with a sim + a model — a thinking creature a dev can drop into any
+  Godot game. Makes the dual-purpose promise fully real.
+
+### 0.4 perf / platform (deferred, not blocking)
+- [ ] **Async/partial GPU field readback** (#72) — the per-step full-grid GPU→CPU readback is the dominant field
+  cost; async/partial readback cuts it without reducing grid resolution (recover full climate fidelity at high
+  fps). Core field-architecture change.
+- [ ] **HTML5 web export spike** (#44) — the repo's open issue. Native GDExtension + subprocess llama-server
+  can't web-export; but browser-local LLMs are now feasible (wllama/WebLLM/transformers.js via WASM/WebGPU). A
+  web-target LLM backend via `JavaScriptBridge`, starting with the chat/agent quickstart (not the full GPU
+  planet). Ship 0.3 as native download; this is the follow-on.
+- [ ] **Composition-per-cell (metals/ores)** (#30) — the DEFS engine is ~80% there (slot registry); build the
+  thin slice only when a metal/ore/salt feature is wanted.
+
+---
 
 ## How to run / verify
-- **Windowed (exercises the GPU + screenshots):**
-  `LA_NO_STREAMER=1 godot --rendering-driver metal --path . addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --shoot=<png> --shoot-frames=N`
-  — `--overview` wide vista; `--time=<0..1>`; disaster triggers `--auto-{meteor,volcano,lightning,tornado,
-  thunderstorm,hurricane}`; `--auto-select`. (`--run-frames`/`--shoot` auto-move the window off-screen.)
-- **Headless/behavioural smoke:** `LA_NO_STREAMER=1 godot --rendering-driver metal --path . …/VoxelWorld.tscn -- --run-frames=N`
-  → one `SIM_REPORT={...}` line (events{deaths…} + gauges{fps,physics_ms,field_ms,leaders,min_hydration,…} +
-  field/population/cognition sections). Acceptance is BEHAVIOURAL (aggregates sane, no NaN/runaway, fps good) —
-  **no CPU↔GPU parity gate.**
-- **Lint/tests:** `scripts/agent_harness.sh <lint|fast|bounded|extension>`. **Gotcha:** a NEW `.gd` `class_name`
-  registers only after `godot --headless --editor --quit-after 400`.
+- **Non-interactive (off-screen, focus-safe, SILENT audio) — always use the wrapper:**
+  `scripts/run_sim_offscreen.sh --path . addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --run-frames=N`
+  → one `SIM_REPORT={…}` line (gauges: fps/field_ms/physics_ms/leaders/followers/…; field/population/cognition
+  sections). `--shoot=<png>` for a screenshot; `--campaign`/`--sandbox` to boot the sim in a mode; disaster
+  triggers `--auto-{meteor,volcano,lightning,tornado,thunderstorm,hurricane,earthquake}`; `--auto-select`.
+  `LA_RES=WxH` sets resolution; `LA_NO_STREAMER=1` skips the LLM streamer; `LA_NO_AUDIO=0`/`--audio` forces
+  audio on in dev. Acceptance is BEHAVIOURAL (aggregates sane, no NaN/runaway, fps good) — no CPU↔GPU parity.
+- **Gotcha:** a NEW `.gd` `class_name` / `.gdextension` / new `.glsl` registers only after an editor scan:
+  `godot --headless --path . --editor --quit-after 400`. Native changes (e.g. `LAProcess`) need the extension
+  rebuilt (CI `build-extension.yml` or the local build).
+- **Lint/tests:** `scripts/agent_harness.sh <lint|fast|bounded|extension>`; `scripts/check_max_file_length.sh`.
+
+## Where everything lives
+- **Front end:** `scenes/menu/` (MainMenu · SettingsMenu + Graphics/Sim sections · CreditsMenu · HelpMenu/tabs ·
+  GameSettings/GameMode/GameSave). **Game systems:** `scenes/simulation/voxel/game/` (GameProgression ·
+  WorldSaveState/Controller). **Composition root:** `VoxelWorld.gd` (extract-only). **Quit:** `scenes/AppExit.gd`
+  + native `LAProcess`.
+- **THE substrate:** `material/MaterialField3D.gd` (thin facade, extract-only) + modules `MaterialSphereGPU3D`
+  (GPU host) · `sphere_passes/*` · `kernels3d/*_sphere3d.glsl` (authoritative) · `MaterialField{Queries,Inject,
+  Snapshot}3D` · `Material{Ejecta,Charge,Shock}3D` · `MaterialReactions3D` (DEFS) · `WaterParticles` ·
+  `mesh/VegetationRenderer`.
+- **Actors:** `actors/{Creature,Fish,Plant,Tree,Rock,Nest,Food}` + `actors/creature/*` (leadership/metabolism/
+  flocking/think/senses/nesting/ragdoll/field-forces); disasters `actors/{Meteor,Volcano,…}` (dissolved →
+  seeds/visuals). **Cognition:** `cognition/*` (value-based policy + sparing local-LLM slow brain).
+  **Ecology:** `ecology/{EcologyService,EcologySpawner,KinshipGraph}`. **Events/streamer:** `events/*`,
+  `streamer/*`. **UI:** `ui/*` (HUD, thought panel, debug, tutorial). **Data:** `data/species/**/*.json`.
+- **Reusable addon (dev tool):** `agents/` (LocalAgentsAgent + Agent3D) · `runtime/` · `ui/ModelManager*` ·
+  `examples/` (AgentQuickstart, demos, DemoLauncher). **Design:** `EMERGENCE.md`, `docs/TRAILER.md`, `docs/EXPORT.md`.
 
 ## Guiding principle
 **dissolve-don't-patch + emergent-everything** — one substrate, universal rules, named phenomena fall out;
-disaster actors are seeds/visuals; measure success by special-case code deleted. See `EMERGENCE.md`.
+removing a hack to make behavior emergent is the definition of done. See `EMERGENCE.md`.
