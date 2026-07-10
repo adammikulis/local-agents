@@ -72,6 +72,10 @@ const PAN_REFERENCE_DISTANCE: float = 100.0
 var _focus: Vector3 = Vector3.ZERO
 var _distance: float = 140.0
 var _target_distance: float = 140.0       # wheel-set zoom goal; _distance eases toward it (smooth-zoom glide)
+# SUNNYSIDE START: open the orbit view over the lit hemisphere. Resolved one-shot on the first orbit frame
+# (the sky controller orients the sun in its own per-frame update, so it is not yet placed at _ready time).
+var _sun_light: Node3D = null
+var _sunnyside_pending: bool = false
 var _yaw: float = 0.0
 var _pitch: float = deg_to_rad(55.0)
 var _panning: bool = false
@@ -295,6 +299,23 @@ func set_orbit_target(center: Vector3, radius: float) -> void:
 	_orbit_azimuth = 0.0
 	_orbit_elevation = deg_to_rad(20.0)
 	stop_tracking()          # storm-follow is a flat-world concept; drop it on entering orbit
+	_update_transform()
+
+
+## Ask the rig to open over the LIT hemisphere: stores the sun light and orients toward it on the first orbit
+## frame (deferred because the sky controller only places the sun during its per-frame update). One-time framing.
+func face_sun_on_start(sun_light: Node3D) -> void:
+	_sun_light = sun_light
+	_sunnyside_pending = _sun_light != null
+
+
+## Point the orbit view along a world direction (sets azimuth/elevation so the camera sits on that side looking in).
+func orient_toward(world_dir: Vector3) -> void:
+	if not _orbit_mode or world_dir.length() < 0.001:
+		return
+	var d: Vector3 = world_dir.normalized()
+	_orbit_elevation = clampf(asin(clampf(d.y, -1.0, 1.0)), -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
+	_orbit_azimuth = atan2(d.x, d.z)
 	_update_transform()
 
 
@@ -759,6 +780,16 @@ func _process(delta: float) -> void:
 	# Undo last frame's shake so the seismic offset never accumulates into the base position.
 	global_position -= _shake_applied
 	_shake_applied = Vector3.ZERO
+	# SUNNYSIDE: one-shot orient over the lit hemisphere once the sun light is placed (basis.z = toward the sun,
+	# matching the sky shader's sun_dir). Waits for a non-degenerate transform, then never runs again.
+	if _sunnyside_pending and _orbit_mode:
+		if _sun_light != null and is_instance_valid(_sun_light):
+			var to_sun: Vector3 = _sun_light.global_transform.basis.z
+			if to_sun.length() > 0.001:
+				orient_toward(to_sun)
+				_sunnyside_pending = false
+		else:
+			_sunnyside_pending = false
 	# GROUND-WALK: WASD/arrows + edge-scroll sweep the surface view while zoomed in. Updates the orbit/geosync
 	# state the transform rebuild below reads; inert when zoomed out, flying, or in the solar overview.
 	_surface_walk(delta)

@@ -156,6 +156,9 @@ func _ready() -> void:
 	# Orbit-the-planet camera (radial up, MMB-drag orbit, scroll zoom) framing the body from space.
 	if _camera.has_method("set_orbit_target"):
 		_camera.set_orbit_target(_body.center(), _body.radius())
+		# Open the view over the lit hemisphere (resolved one-shot once the sun light is placed).
+		if _camera.has_method("face_sun_on_start") and _sky_ctrl != null:
+			_camera.face_sun_on_start(_sky_ctrl.sun())
 
 	# --- Actors + ecology (actors live UNDER the body so they ride its frame) ---
 	_actors_root = _body.actors_root
