@@ -268,7 +268,6 @@ func _spawn_puff(pos: Vector3, tint: Color) -> void:
 	p.amount = 28
 	p.lifetime = 1.1
 	p.explosiveness = 0.85
-	p.global_position = pos + Vector3(0, 0.4, 0)
 	var quad: QuadMesh = QuadMesh.new()
 	quad.size = Vector2(0.22, 0.22)
 	var qmat: StandardMaterial3D = StandardMaterial3D.new()
@@ -294,5 +293,8 @@ func _spawn_puff(pos: Vector3, tint: Color) -> void:
 	pm.color = tint
 	p.process_material = pm
 	add_child(p)
+	# Set the world position only after the node is in the tree — global_position on an orphan node
+	# reads an identity global transform (spams "!is_inside_tree()" and drops the puff at the origin).
+	p.global_position = pos + Vector3(0, 0.4, 0)
 	var t: SceneTreeTimer = get_tree().create_timer(1.6)
 	t.timeout.connect(func(): if is_instance_valid(p): p.queue_free())
