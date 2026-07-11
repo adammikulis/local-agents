@@ -65,6 +65,29 @@ const ORBIT_ELEVATION_LIMIT: float = deg_to_rad(85.0)
 # (near_frac >= 1) it is inert and the globe is drag-rotated instead — the mode swap the player feels.
 const SURFACE_WALK_SPEED: float = 0.8     # radians/sec of surface sweep at full stick (before the near-zoom taper)
 
+# --- Approach arc -------------------------------------------------------------
+# As the player zooms in the camera ARCS like an RTS swoop onto the map: far out it sits on the orbit sphere
+# looking straight in at the planet centre (whole-globe, top-down feel); as it approaches it progressively
+# descends and pitches forward until, at the closest zoom, it is at eye level looking horizontally across the
+# surface. The blend spans the whole APPROACH — from the whole-planet framing distance down to the surface —
+# so the arc is felt the entire way in, not just tipped over in the last stretch.
+# The span is ABSOLUTE (a multiple of the planet radius), NOT normalized to the progression-capped max zoom,
+# so a campaign that is constrained near the surface still opens arced at eye level rather than snapping flat.
+# ARC_TOP_MULT: the distance (× planet radius) at/above which the view is the flat top-down globe (arc = 0).
+# Below it the arc ramps in to 1 at the surface. Bigger = the arc begins engaging from further out (arcs more);
+# keep it near/just above the whole-planet framing (ORBIT_DEFAULT_DISTANCE_MULT) so the pulled-out globe view
+# stays clean. This is the primary knob to tune the RTS-approach feel.
+const ARC_TOP_MULT: float = 2.6
+# Ground-walk (WASD/edge-scroll surface sweep) takes over from globe-drag once the arc is at least this engaged.
+const GROUND_WALK_ARC_T: float = 0.35
+# The closest-zoom eye pose, relative to the surface point under the view (all tunable — the low POV is the
+# most-played view, so this is the one to get right): height ABOVE the ground (a little over the creatures, not
+# down in the grass), tangential offset BACK from the point, and the height of the look target (creature/head
+# height, so you gaze slightly down at the animals rather than across their feet).
+const ARC_EYE_HEIGHT: float = 5.0
+const ARC_EYE_BACK: float = 11.0
+const ARC_LOOK_HEIGHT: float = 1.6
+
 # Reference distance the pan speeds are tuned against; panning scales with distance so the
 # world moves a consistent fraction of the screen at every zoom level.
 const PAN_REFERENCE_DISTANCE: float = 100.0
@@ -374,6 +397,17 @@ func _radial_from_azel() -> Vector3:
 	return Vector3(cos(e) * sin(_orbit_azimuth), sin(e), cos(e) * cos(_orbit_azimuth))
 
 
+## The approach-arc blend for the current zoom: 0.0 far out (orbit sphere, look at the planet centre) → 1.0 at
+## the closest zoom (hover above the surface, look across at the creatures). Widened across the whole approach
+## and tied to an ABSOLUTE band (× planet radius, not the progression-capped max) so the camera arcs the entire
+## way in and a near-surface campaign still opens arced rather than snapping flat. One source of truth, read by
+## the transform and the ground-walk gate alike.
+func _approach_t() -> float:
+	var span: float = maxf((ARC_TOP_MULT - ORBIT_MIN_DISTANCE_MULT) * _orbit_radius, 1.0)
+	var near_frac: float = clampf((_distance - _orbit_min_distance) / span, 0.0, 1.0)
+	return smoothstep(0.0, 1.0, 1.0 - near_frac)
+
+
 ## Rebuild the transform for orbit (planet) mode: place the camera on a sphere of radius `_distance`
 ## around `_orbit_center` and look straight in. FREE mode uses azimuth/elevation (a world-fixed pose the
 ## spinning planet turns under); GEOSYNC derives the radial from a body-LOCAL direction so the camera rides
@@ -386,13 +420,14 @@ func _update_orbit_transform() -> void:
 		_orbit_elevation = clampf(_orbit_elevation, -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
 		radial = _radial_from_azel()
 	var up: Vector3 = Vector3.UP if absf(radial.dot(Vector3.UP)) < 0.985 else Vector3.RIGHT
-	# ARC-DOWN near the surface: far out, sit on the orbit sphere and look straight in at the planet centre
-	# (the whole-world view). As zoom approaches the minimum, BLEND the pose down to eye-level ON the surface
-	# looking HORIZONTALLY across it — so the closest zoom is face-to-face with the inhabitants instead of
-	# pitched straight into the ground. `near_frac` is 1 far out, easing to 0 at the closest zoom.
+	# APPROACH ARC: far out, sit on the orbit sphere and look straight in at the planet centre (the whole-globe,
+	# top-down view). As the player zooms in, `_approach_t()` progressively BLENDS the pose down — the camera
+	# descends and pitches forward — until at the closest zoom it hovers just above the surface point looking
+	# across at the creatures. The blend spans the whole approach (see ARC_TOP_MULT) so the camera arcs the
+	# entire way in like an RTS swoop, not just tipping over at the very end.
 	var far_pos: Vector3 = _orbit_center + radial * _distance
-	var near_frac: float = clampf((_distance - _orbit_min_distance) / maxf(_orbit_radius * 0.5, 1.0), 0.0, 1.0)
-	if near_frac >= 1.0:
+	var t: float = _approach_t()
+	if t <= 0.001:
 		global_position = far_pos
 		look_at(_orbit_center, up)
 	else:
@@ -402,11 +437,10 @@ func _update_orbit_transform() -> void:
 		if back.length() < 0.01:
 			back = Vector3.RIGHT - radial * Vector3.RIGHT.dot(radial)
 		back = back.normalized()
-		var t: float = smoothstep(0.0, 1.0, 1.0 - near_frac)        # 0 far .. 1 closest, eased so the arc glides in/out
-		var eye: Vector3 = surface_pt + upn * 3.0 + back * 9.0      # eye-level, a little back from the point
+		var eye: Vector3 = surface_pt + upn * ARC_EYE_HEIGHT + back * ARC_EYE_BACK   # hover just above the point
 		global_position = far_pos.lerp(eye, t)
 		var far_look: Vector3 = _orbit_center
-		var close_look: Vector3 = surface_pt + upn * 2.6           # look nearly level, at head height
+		var close_look: Vector3 = surface_pt + upn * ARC_LOOK_HEIGHT                 # gaze at creature height
 		look_at(far_look.lerp(close_look, t), upn)
 	# Far plane scaled to the orbit distance so the whole planet stays inside the frustum when pulled out.
 	far = clampf(_distance * 4.0, 4000.0, 40000.0)
@@ -736,9 +770,10 @@ func _pan_ground(right: float, forward: float) -> void:
 func _surface_walk(delta: float) -> void:
 	if not _orbit_mode or _fly or _solar_view:
 		return
-	# Mode gate: only in the zoomed-in (arc-down eye-level) regime. Fully out = orbit/drag mode, no walk.
-	var near_frac: float = clampf((_distance - _orbit_min_distance) / maxf(_orbit_radius * 0.5, 1.0), 0.0, 1.0)
-	if near_frac >= 1.0:
+	# Mode gate: only once the approach arc is engaged enough (zoomed in toward the surface). Pulled further out
+	# the arc is shallow and the globe is drag-rotated instead — the mode swap the player feels.
+	var t_arc: float = _approach_t()
+	if t_arc < GROUND_WALK_ARC_T:
 		return
 	var fwd_in: float = 0.0
 	var right_in: float = 0.0
@@ -780,8 +815,8 @@ func _surface_walk(delta: float) -> void:
 	var move: Vector3 = t_fwd * fwd_in - t_rgt * right_in
 	if move.length() < 0.001:
 		return
-	# Slower the closer you are (near_frac→0), for fine control face-to-face with the creatures.
-	var step: float = SURFACE_WALK_SPEED * delta * clampf(0.22 + near_frac, 0.22, 1.0)
+	# Slower the closer you are (arc fully engaged), for fine control face-to-face with the creatures.
+	var step: float = SURFACE_WALK_SPEED * delta * clampf(0.22 + (1.0 - t_arc), 0.22, 1.0)
 	var new_radial: Vector3 = (radial + move.normalized() * step).normalized()
 	if geo:
 		# The geosync rebuild in _process (which runs right after this) picks up the new local dir.
