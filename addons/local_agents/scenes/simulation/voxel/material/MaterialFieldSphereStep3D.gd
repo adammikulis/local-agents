@@ -15,6 +15,8 @@ const STEP_DT: float = 1.0 / 10.0
 const MAX_STEPS_PER_FRAME: int = 2
 const FIELD_CADENCE_MAX: int = 60                       # clamp for the published Sim knob (avoid absurd skips)
 
+const LakesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldLakes3D.gd")
+
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 var _frame_gate: int = 0                                 # frames elapsed since the last GPU field run (cadence skip counter)
 
@@ -44,6 +46,7 @@ func process(delta: float) -> void:
 		_f._sample_solidity_sphere()
 		_f._seed_sphere_sea()         # static field sea = the evaporation source that drives the water cycle
 		_f._compute_regolith()        # the permeable aquifer band (+ initial water table) for groundwater flow
+		LakesScript.new().seed(_f)    # priority-flood standing lakes in enclosed land basins (static water bodies)
 		_f.activate()                 # is_sphere() → picks SphereGPUScript + sets _use_gpu
 		_f._ready_sim = true
 		return

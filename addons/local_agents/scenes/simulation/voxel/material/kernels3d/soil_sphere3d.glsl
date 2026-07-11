@@ -48,6 +48,12 @@ const float MAX_FLOW_FRAC = 0.35;     // cap total outflow to this fraction of a
 const float SPRING_CONDUCT = 0.20;    // groundwater daylighting at valley walls. Paired with the exponential
                                       // (Clausius–Clapeyron) evap curve: exfiltrated baseflow now persists on
                                       // cool land instead of flashing off, so springs sustain visible streams.
+// WATERLOGGED UP-SEEP: a regolith cell whose water table is near-full can hold no more groundwater, so the
+// surplus wells UP into the open cell above = a water-table lake. Groundwater (Darcy) converges into low BASINS
+// (nowhere lower to flow), saturates them, and this seep keeps them wet — PERENNIAL lakes fed by the aquifer's
+// rain-recharged reservoir, not a one-shot seed. This is the artesian leg the sideways-only spring rule lacked.
+const float SEEP_THRESH = 0.9;        // fraction of CAPACITY above which a saturated cell overflows upward
+const float SEEP_RATE = 0.5;          // fraction of the above-threshold surplus that seeps up per step
 const float MIN_W = 0.002;            // surface water below this doesn't infiltrate
 // INFIL_RATE is deliberately SLOWER than the per-step rainfall so a storm's rain EXCEEDS the soil's intake
 // and the surplus stays on the surface as RUNOFF (Hortonian/saturation overland flow) — which is what
@@ -131,6 +137,17 @@ void main() {
 						send[base + uint(d)] = exf;
 						remaining -= exf;
 					}
+				}
+			}
+			// WATERLOGGED UP-SEEP: if the table is near-full (basin groundwater has nowhere lower to go), well the
+			// surplus straight up into the open cell above → a perennial water-table lake sustained by the aquifer.
+			float surplus = s - CAPACITY * SEEP_THRESH;
+			if (surplus > 0.0 && remaining > 0.0) {
+				int up = nbr[base + 5u];
+				if (up >= 0 && solid[up] == 0.0 && static_cells[up] == 0.0) {
+					float seep = min(remaining, surplus * SEEP_RATE);
+					send[base + 5u] += seep;
+					remaining -= seep;
 				}
 			}
 			return;

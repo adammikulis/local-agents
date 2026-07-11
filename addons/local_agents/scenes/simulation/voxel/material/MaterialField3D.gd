@@ -604,6 +604,7 @@ func _compute_regolith() -> void:
 				_regolith[base + r] = 1
 				_soil[base + r] = seed_soil               # prime the water table
 
+
 ## The regolith permeability mask (1 = groundwater-bearing rock). Uploaded to the GPU soil pass.
 func regolith_mask() -> PackedByteArray:
 	return _regolith

@@ -21,6 +21,7 @@ const WeatherScript: GDScript = preload("res://addons/local_agents/scenes/simula
 const OceanPlaneScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/OceanPlane.gd")
 const MaterialField3DScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField3D.gd")
 const WaterParticlesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/WaterParticles.gd")
+const WaterSurfaceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldRender3D.gd")
 const StreamerHostScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelStreamerHost.gd")
 const ThoughtPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/CreatureThoughtPanel.gd")
 const EventTrackerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/events/LAEventTracker.gd")
@@ -55,6 +56,11 @@ const PLANET_FEATURE: float = 155.0 * PLANET_SCALE
 # rivers to drain into. Raise OCEAN_BIAS (or SEA_RADIUS) for more water; lower for more land.
 const PLANET_SEA_RADIUS: float = PLANET_RADIUS
 const PLANET_OCEAN_BIAS: float = 7.0 * PLANET_SCALE   # ~72% ocean / 28% land (Earth-like); raise for more sea
+# BASIN relief: medium-wavelength undulation carved into the flat cellular plateaus so land has CLOSED
+# DEPRESSIONS (lake bowls) — the pools springs/rain/runoff collect into as standing lakes (raise for deeper
+# lakes/more relief; 0 = flat plateaus that only drain to the sea).
+const PLANET_BASIN_RELIEF: float = 20.0 * PLANET_SCALE
+const PLANET_BASIN_SIZE: float = 130.0 * PLANET_SCALE
 const PLANET_SPIN_RATE: float = 0.10        # rad/s axial spin (~1 rotation / 63s) — day/night sweep
 const PLANET_SPIN_AXIS: Vector3 = Vector3(0.40, 0.92, 0.0)   # ~23.5° obliquity vs the orbit plane → real seasons
 
@@ -77,6 +83,7 @@ var _weather: Node = null   # LAWeatherSystem (visual rain/wind for now; being m
 var _material: Node = null   # LAMaterialField — the ONE substrate: terrain-coupled water + heat/air
 var _ocean: Node = null      # LAOceanPlane — the calm sea drawn as one GPU plane (CA meshes only waves)
 var _water: Node = null      # LAWaterParticles — the ONE field-driven atmosphere visual (cloud/fog/rain/snow)
+var _water_surface: Node = null  # LAMaterialFieldRender3D — dynamic fluid surface (springs/rivers/lakes/floods)
 var _streamer_host: Node = null # LAVoxelStreamerHost — owns the streamer overlay/avatar/voice/director
 var _thought_panel: CanvasLayer = null # LACreatureThoughtPanel — click-a-creature "what it's thinking" hook
 var _events: Node = null     # LAEventTracker — the ONE emergent phenomenon-event source (streamer + telemetry consume it)
@@ -154,6 +161,7 @@ func _ready() -> void:
 	_body.name = "PlanetBody"
 	add_child(_body)
 	_body.setup({"radius": PLANET_RADIUS, "relief": PLANET_RELIEF, "feature_size": PLANET_FEATURE,
+		"basin_relief": PLANET_BASIN_RELIEF, "basin_size": PLANET_BASIN_SIZE,
 		"sea_radius": PLANET_SEA_RADIUS, "ocean_bias": PLANET_OCEAN_BIAS, "view_distance": 2000, "seed": 1337})
 	_terrain = _body.terrain()
 	# PLANETARY SKY: view from space with the sun FIXED shining star->planet; the spinning planet turns
@@ -283,6 +291,14 @@ func _ready() -> void:
 	_water = WaterParticlesScript.new()
 	add_child(_water)
 	_water.setup(_material, _camera, _sky_ctrl.sun(), _body.center(), _body.sea_radius())
+
+	# The dynamic FLUID SURFACE: springs/rivers/waterfalls/lakes/floods meshed from the field's `water` column
+	# and drawn with VoxelWater.gdshader (this water was simulated but never rendered before). Near-cap + ~4.5 Hz
+	# rebuild; all behavior in the module (composition root = one add_child).
+	_water_surface = WaterSurfaceScript.new()
+	_water_surface.name = "WaterSurface"
+	add_child(_water_surface)
+	_water_surface.setup(_material, _camera, _terrain, _sky_ctrl.sun(), _body.center(), _body.sea_radius())
 
 	# The sky cycle reads the field each frame (cloud-cover dimming) + pushes the day/night colour tint to
 	# the water-particle renderer.

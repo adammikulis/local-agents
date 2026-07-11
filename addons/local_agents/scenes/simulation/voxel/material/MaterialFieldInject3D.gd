@@ -13,6 +13,12 @@ extends RefCounted
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 
+## Emitted every time something splashes water at a world point (meteor / tornado / fish / thrown rock /
+## flood / plant). The water-surface renderer (LAMaterialFieldRender3D) connects here to spawn an expanding
+## impact ripple on the fluid shader — so the same splash that flings droplets also rings the water, with
+## zero coupling from this module to the renderer type. `strength` matches the droplet strength (0.1..4).
+signal splashed(world_pos: Vector3, strength: float)
+
 
 func setup(field) -> void:
 	_f = field
@@ -166,6 +172,7 @@ func splash(world_pos: Vector3, strength: float) -> void:
 	if not _f.is_inside_tree() or is_nan(world_pos.x):
 		return
 	var s: float = clampf(strength, 0.1, 4.0)
+	splashed.emit(world_pos, s)                          # ring the fluid surface (renderer listens); droplets below
 	var mesh: SphereMesh = SphereMesh.new()
 	mesh.radius = 0.12
 	mesh.height = 0.24

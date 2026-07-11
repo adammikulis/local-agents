@@ -27,6 +27,7 @@ uniform vec3 salt_deep : source_color = vec3(0.01, 0.11, 0.30);       // deep oc
 uniform vec3 sky_tint : source_color = vec3(0.42, 0.62, 0.82);        // reflected at grazing angles
 uniform vec3 foam_color : source_color = vec3(0.93, 0.97, 0.99);
 uniform float salinity : hint_range(0.0, 1.0) = 1.0;                  // ocean sets ~1, CA fresh water ~0
+uniform float salinity_from_vertex : hint_range(0.0, 1.0) = 0.0;     // 1 = take salinity per-vertex from COLOR.a (unified sea+lake mesh)
 
 uniform float depth_fade = 14.0;      // world units of water thickness to reach full deep colour
 uniform float foam_depth = 2.2;       // shoreline thickness below which foam appears
@@ -61,6 +62,7 @@ varying vec2 v_flow;      // world-XZ flow direction for detail scrolling
 varying float v_steep;    // CA slope steepness (whitewater on falls)
 varying float v_foam_add; // ripple-crest + whitewater foam accumulated in the vertex stage
 varying float v_crest;    // normalized swell crest height (for wind whitecaps)
+varying float v_salinity; // PER-VERTEX salinity (COLOR.a): sea=1 salt, lake/river=0 fresh — one seamless surface
 
 // Wind swell: three crossed components around the wind direction, amplitude scaled by wind_strength so
 // the sea flattens to glass when calm and steepens (choppier, shorter) as the wind rises.
@@ -109,6 +111,7 @@ void vertex() {
 	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	v_flow = mix(vec2(0.35, 0.20), (COLOR.rg * 2.0 - 1.0), flow_scale);  // CA: signed flow; sea: gentle scroll
 	v_steep = COLOR.b * flow_scale;
+	v_salinity = mix(salinity, COLOR.a, salinity_from_vertex);   // per-vertex salt/fresh when driven by the mesh
 	float sh = swell(v_world.xz, TIME);
 	float rfoam = 0.0;
 	float rh = ripple_h(v_world.xz, rfoam);
@@ -137,8 +140,8 @@ void fragment() {
 	NORMAL = normalize((VIEW_MATRIX * vec4(wn, 0.0)).xyz);
 
 	// --- Salinity palette: fresh (clear green-teal) ↔ salt (deep blue), continuous. ---
-	vec3 shallow_color = mix(fresh_shallow, salt_shallow, salinity);
-	vec3 deep_color = mix(fresh_deep, salt_deep, salinity);
+	vec3 shallow_color = mix(fresh_shallow, salt_shallow, v_salinity);
+	vec3 deep_color = mix(fresh_deep, salt_deep, v_salinity);
 
 	// --- Water thickness from scene depth (how far below the surface the seabed sits at this pixel). ---
 	float scene_d = texture(depth_tex, SCREEN_UV).r;
@@ -154,7 +157,7 @@ void fragment() {
 	// --- Foam: shoreline (salt seas foam more), impact-ring crests, and CA whitewater. ---
 	float foam_edge = (1.0 - smoothstep(0.0, foam_depth, thickness)) * depth_influence;
 	float foam_wave = 0.5 + 0.5 * sin(v_world.x * 0.5 + v_world.z * 0.5 + TIME * 2.0);
-	float shore_foam = foam_edge * (0.55 + 0.45 * foam_wave) * (0.5 + 0.5 * salinity);
+	float shore_foam = foam_edge * (0.55 + 0.45 * foam_wave) * (0.5 + 0.5 * v_salinity);
 	// Wind whitecaps: the tops of steep swell break into foam as the wind rises (storm sea goes white).
 	float whitecap = smoothstep(0.55, 1.0, v_crest) * smoothstep(0.5, 1.2, wind_strength);
 	float foam = clamp(max(max(shore_foam, v_foam_add), whitecap), 0.0, 1.0);
@@ -170,6 +173,6 @@ void fragment() {
 	SPECULAR = 0.75;
 	// Fresh + thin water is clearer; salt + deep water is murkier/more opaque; foam + grazing angles solid.
 	float body_alpha = mix(base_alpha, mix(0.55, 0.96, deep_t) + fres * 0.35, depth_influence);
-	float clarity = mix(0.12, 0.0, salinity);        // fresh water a touch more see-through
+	float clarity = mix(0.12, 0.0, v_salinity);        // fresh water a touch more see-through
 	ALPHA = clamp(max(body_alpha - clarity, foam), 0.0, 1.0);
 }

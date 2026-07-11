@@ -66,6 +66,11 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 	var jitter: float = clampf(float(opts.get("jitter", 1.0)), 0.0, 1.0)
 	var octaves: int = int(opts.get("octaves", 3))
 	var seed_val: int = int(opts.get("seed", 1337))
+	# BASINS: a medium-wavelength simplex layer whose hollows become closed depressions on the otherwise-flat
+	# cellular plateaus — the endorheic bowls where springs/rain/runoff POOL into standing lakes (the cellular
+	# CELL_VALUE relief is flat-topped, so without this land drains monotonically to the sea and nothing pools).
+	var basin_relief: float = float(opts.get("basin_relief", 0.0))
+	var basin_size: float = float(opts.get("basin_size", 130.0))
 
 	# CONTINENTS: cellular F2-F1 — high at cell cores, ~0 along the borders (the valley network). Fractal-FBM
 	# layered so continents carry sub-cells (bays, sub-basins). This is the drainage-shaping field.
@@ -91,6 +96,17 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 	detail.fractal_lacunarity = 2.0
 	detail.fractal_gain = 0.5
 
+	# BASINS: medium-wavelength simplex fBm added to the relief; its ±amplitude undulation carves hollows into
+	# the flat plateaus (local minima the water CA fills = lakes) and raises low hills between them.
+	var basin: ZN_FastNoiseLite = ZN_FastNoiseLite.new()
+	basin.noise_type = ZN_FastNoiseLite.TYPE_OPEN_SIMPLEX_2S
+	basin.seed = seed_val + 13
+	basin.period = maxf(1.0, basin_size)
+	basin.fractal_type = ZN_FastNoiseLite.FRACTAL_FBM
+	basin.fractal_octaves = 3
+	basin.fractal_lacunarity = 2.0
+	basin.fractal_gain = 0.5
+
 	var gen: VoxelGeneratorGraph = VoxelGeneratorGraph.new()
 	var fn: VoxelGraphFunction = gen.get_main_function()
 	fn.clear()
@@ -113,15 +129,27 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 	fn.add_connection(det_noise, 0, det_mul, 0)
 	fn.set_node_default_input(det_mul, 1, detail_relief)
 
+	# basin relief = fbm * basin_relief  (±amplitude → hollows/hills on the plateaus)
+	var basin_noise: int = fn.create_node(T_FAST_NOISE_3D, Vector2(0, 500), 0)
+	fn.set_node_param_by_name(basin_noise, "noise", basin)
+	var basin_mul: int = fn.create_node(T_MULTIPLY, Vector2(200, 500), 0)
+	fn.add_connection(basin_noise, 0, basin_mul, 0)
+	fn.set_node_default_input(basin_mul, 1, basin_relief)
+
 	# relief = continent + detail
 	var relief_sum: int = fn.create_node(T_ADD, Vector2(400, 280), 0)
 	fn.add_connection(cont_mul, 0, relief_sum, 0)
 	fn.add_connection(det_mul, 0, relief_sum, 1)
 
+	# relief += basin  (undulate the plateaus so closed depressions exist for water to pool)
+	var relief_sum2: int = fn.create_node(T_ADD, Vector2(500, 400), 0)
+	fn.add_connection(relief_sum, 0, relief_sum2, 0)
+	fn.add_connection(basin_mul, 0, relief_sum2, 1)
+
 	# core = sphere - relief  (raise surface outward where relief is high)
 	var core: int = fn.create_node(T_SUBTRACT, Vector2(600, 140), 0)
 	fn.add_connection(sphere, 0, core, 0)
-	fn.add_connection(relief_sum, 0, core, 1)
+	fn.add_connection(relief_sum2, 0, core, 1)
 
 	# biased = core + ocean_bias  (push the whole surface inward => most of the sphere is ocean)
 	var biased: int = fn.create_node(T_ADD, Vector2(800, 140), 0)
