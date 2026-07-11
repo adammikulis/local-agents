@@ -77,6 +77,15 @@ committed). When removing files:
 - Prefer sub-agents for substantial or parallel work — parallelizable scope, contract-heavy or
   native-path changes, larger refactors — with explicit acceptance criteria. Close stale/finished
   sub-agents to conserve slots.
+- **The roadmap is DELIBERATELY divergent so it parallelizes — do NOT bounce it back as a question.**
+  `TODO.md`'s "Next — pick up here" and the 0.4 phases list several independent tracks *on purpose*: that
+  spread is the whole point, the raw material for a Workflow fan-out, not an ambiguity to resolve. When you
+  meet a set of divergent tracks, the standing response is to ACT, not ask "which one?": build the
+  collision map (which shared files each track touches), do the seam-directed refactor to unblock (see the
+  serialized Phase-0 split rule below), then fan the tracks out in parallel (worktree-isolated agents, one
+  per track) and integrate what verifies. Only surface a genuine either/or that changes the *architecture*
+  (a held-back-by-code relic, two incompatible substrate designs) — never "this work is divergent, what do
+  I do."
 - **USE THE `Workflow` TOOL for fan-outs — this is standing, typical process (the maintainer opted in;
   no per-task re-authorization needed).** When work decomposes into parallel UNITS over shared state —
   one agent per actor / per kernel / per 0.4 workstream / per split-out file / per review dimension —
