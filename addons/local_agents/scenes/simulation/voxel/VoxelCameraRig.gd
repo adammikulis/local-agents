@@ -644,7 +644,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		# resolve on the same (non-consumed) event over in VoxelWorld's interaction/brush.
 		if mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT:
 			if mb.pressed:
-				_drag_orbit_armed = true
+				_drag_orbit_armed = false   # disabled: LMB/RMB stay pure select/place; PIVOT is MIDDLE-mouse held-drag
 				_drag_orbiting = false
 				_drag_orbit_travel = 0.0
 			else:
