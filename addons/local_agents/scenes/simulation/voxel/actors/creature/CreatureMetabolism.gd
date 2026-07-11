@@ -44,7 +44,12 @@ static func tick(c, delta: float) -> bool:
 	if c.hydration <= 0.0:
 		c.die("thirst")
 		return true
-	if c.age >= c.max_age:
+	# LA_EVO_FAST compresses the lifespan too (not just breeding): old founders must DIE for their offspring to
+	# win a breeding slot, or generations never turn over under the pop_cap. But death is compressed only by
+	# SQRT of the factor while breeding (gestation/maturity) gets the FULL factor — because metabolism/eating are
+	# NOT sped up, so a fully-compressed lifespan kills creatures before they can bank breeding energy (a die-off,
+	# not evolution). The sqrt gap keeps birth ahead of death: the population sustains AND turns over. Inert at 1.
+	if c.age >= c.max_age / sqrt(LAAblate.evo_fast()):
 		c.die("old age")
 		return true
 	return false
