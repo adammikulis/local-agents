@@ -30,7 +30,7 @@ layout(push_constant, std430) uniform Params {
 const float SAT_BASE = 0.06;
 const float SAT_TEMP_GAIN = 0.055;
 const float EVAP_TEMP_REF = 22.0;
-const float RAIN_MASS_THRESHOLD = 0.45;
+const float RAIN_MASS_THRESHOLD = 0.28;   // lowered (was 0.45) → a wetter world: clouds shed rain sooner so
 const float RAIN_RATE = 0.16;
 
 void main() {

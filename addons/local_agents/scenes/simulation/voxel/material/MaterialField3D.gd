@@ -78,7 +78,7 @@ const SAT_TEMP_GAIN: float = 0.055
 const EVAP_TEMP_REF: float = 22.0
 const FOG_MAX_TEMP: float = 12.0
 const CONDENSE_COVER_MIN: float = 0.05
-const RAIN_MASS_THRESHOLD: float = 0.45   # condensed mass over this sheds rain (matches atmos_precip_sphere3d)
+const RAIN_MASS_THRESHOLD: float = 0.28   # condensed mass over this sheds rain (matches atmos_precip_sphere3d) — lowered for a wetter world (more rain reaches land → the water table recharges → baseflow rivers)
 # Scent channel indices (formerly LAMaterialScent3D.PREY/… — re-homed here after the CPU-oracle module was
 # retired). External senses/cognition sites reference these via LAMaterialField3D.SCENT_*.
 const SCENT_PREY: int = 0
