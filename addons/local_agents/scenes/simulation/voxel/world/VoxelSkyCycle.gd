@@ -14,6 +14,13 @@ var _sun_shine: Vector3 = Vector3(0, -1, 0) # world direction the sunlight trave
 const SPACE_AMBIENT: float = 0.14           # low ambient so the planet's night side darkens (stark terminator)
 const SPACE_BG: Color = Color(0.01, 0.015, 0.03)      # near-black space
 const SPACE_AMBIENT_COLOR: Color = Color(0.10, 0.13, 0.22)  # faint cool fill on the night side
+# SURFACE ATMOSPHERE: down among the creatures the planet-from-space look (dark flat bg + 0.14 ambient) reads
+# far too dark, so the environment blends toward a bright blue daytime SKY as the camera approaches the surface
+# (driven by the orbit camera's surface_blend(): 0 in space → 1 at ground). SURFACE_ATMO_T is the approach point
+# where the background/ambient source switches to the blue atmosphere; SURFACE_AMBIENT is the sky-sourced ambient
+# energy at ground level — generous, so the ground reads as a lit, blue-sky day rather than a dim terminator.
+const SURFACE_ATMO_T: float = 0.12
+const SURFACE_AMBIENT: float = 0.70
 
 ## PLANETARY SKY: view the world as a planet from space. The flat sky is an ATMOSPHERE DOME that sources
 ## ambient from itself (washes out the night side), so switch to a dark space background + a dark COLOR ambient
@@ -24,16 +31,13 @@ func set_space_mode(shine_dir: Vector3) -> void:
 		return
 	_sun_shine = shine_dir.normalized()
 	_planet_mode = true
-	if _env != null:
-		_env.background_mode = Environment.BG_COLOR
-		_env.background_color = SPACE_BG
-		_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-		_env.ambient_light_color = SPACE_AMBIENT_COLOR
-		_env.ambient_light_energy = SPACE_AMBIENT
-		_env.fog_enabled = false                                   # atmospheric fog reads wrong from orbit
+	# The environment (space-dark vs surface-blue) is now driven EVERY frame by the altitude blend in
+	# _apply_surface_atmosphere(), so this only latches the mode + sun direction — no hard env set to fight it.
 var _moon: DirectionalLight3D = null         # cool moonlight; energy tracks the lunar phase
 var _sky_shader_mat: ShaderMaterial = null   # VoxelSky.gdshader: stars + phase-shaded moon disc
 var _env: Environment = null
+var _world_ref: Node3D = null                # source of the active camera (for the altitude atmosphere blend)
+var _want_fog: bool = true                   # effective fog toggle (quality preset + NOFOG), applied near surface
 var _time_of_day: float = 0.30              # start just after dawn (dawn = .25) so the sun is already
                                             # up and climbing — the world reads as a lit morning
 # Lunar cycle: an independent clock (survives day wraps). Starts at a waxing crescent so the
@@ -157,6 +161,8 @@ func setup(world: Node3D, time_of_day: float, lunar_phase: float, render_opts: D
 	world.add_child(env)
 	_sky_shader_mat = sky_mat
 	_env = e
+	_world_ref = world
+	_want_fog = e.fog_enabled
 
 	var sun: DirectionalLight3D = DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-52.0, -47.0, 0.0)
@@ -245,6 +251,7 @@ func _update_day_night(delta: float) -> void:
 		# neutral-white, only dimmed by storm/overcast so a heavy sky greys the clouds.
 		if _water != null and _water.has_method("set_sky_tint"):
 			_water.set_sky_tint(Color(1.0, 1.0, 1.0) * (0.55 + 0.45 * pstorm))
+		_apply_surface_atmosphere()
 		return
 	_time_of_day = fposmod(_time_of_day + delta / DAY_LENGTH, 1.0)
 	# Sun elevation: -1 (midnight) .. +1 (noon), zero at dawn (.25) and dusk (.75).
@@ -316,3 +323,43 @@ func _update_day_night(delta: float) -> void:
 	# NOTE: the material field is NOT fed rain/daylight here — it reads the sun node directly and
 	# derives its own heating/weather. This day/night code only owns the sky + sun transform/energy.
 	# The ecology clock is fed from VoxelWorld._process via time_of_day() (kept decoupled here).
+
+
+## Altitude-aware atmosphere for planet mode: blend the environment from the stark dark space look (pulled out)
+## to a bright blue daytime sky with sky-sourced ambient + fog (down among the creatures), driven by the orbit
+## camera's surface_blend(). This is why the ground is no longer "too dark": near the surface the ambient lifts
+## from the 0.14 space value to SURFACE_AMBIENT and the background becomes the blue procedural sky (its day
+## colours, set once in setup, are untouched in planet mode). The space view keeps its dark, stark-terminator
+## look. Called every frame from the planet branch, so it has the last word on the environment.
+func _apply_surface_atmosphere() -> void:
+	if _env == null:
+		return
+	var t: float = _surface_blend()          # 0 in space .. 1 hovering at the surface
+	if t > SURFACE_ATMO_T:
+		# Near the surface: the blue procedural sky + sky-sourced ambient + atmospheric fog light the ground.
+		_env.background_mode = Environment.BG_SKY
+		_env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+		_env.fog_enabled = _want_fog
+	else:
+		# Pulled out to orbit/space: the dark flat background + dim colour ambient (stark day/night terminator).
+		_env.background_mode = Environment.BG_COLOR
+		_env.background_color = SPACE_BG
+		_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+		_env.ambient_light_color = SPACE_AMBIENT_COLOR
+		_env.fog_enabled = false
+	# Ambient energy ramps continuously with altitude so the descent brightens smoothly across the switch.
+	_env.ambient_light_energy = lerpf(SPACE_AMBIENT, SURFACE_AMBIENT, t)
+
+
+## The active orbit camera's surface_blend() (0 space → 1 ground), or 0 if there is no such camera (headless, or
+## a non-orbit camera) so the environment safely defaults to the space look.
+func _surface_blend() -> float:
+	if _world_ref == null:
+		return 0.0
+	var vp: Viewport = _world_ref.get_viewport()
+	if vp == null:
+		return 0.0
+	var cam: Camera3D = vp.get_camera_3d()
+	if cam != null and cam.has_method("surface_blend"):
+		return cam.surface_blend()
+	return 0.0

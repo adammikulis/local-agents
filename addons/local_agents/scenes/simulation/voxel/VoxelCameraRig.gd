@@ -341,6 +341,7 @@ func face_sun_on_start(sun_light: Node3D) -> void:
 func orient_toward(world_dir: Vector3) -> void:
 	if not _orbit_mode or world_dir.length() < 0.001:
 		return
+	_sunnyside_pending = false          # an explicit aim (e.g. onto the campaign herd) wins over deferred sunnyside
 	var d: Vector3 = world_dir.normalized()
 	_orbit_elevation = clampf(asin(clampf(d.y, -1.0, 1.0)), -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
 	_orbit_azimuth = atan2(d.x, d.z)
@@ -406,6 +407,16 @@ func _approach_t() -> float:
 	var span: float = maxf((ARC_TOP_MULT - ORBIT_MIN_DISTANCE_MULT) * _orbit_radius, 1.0)
 	var near_frac: float = clampf((_distance - _orbit_min_distance) / span, 0.0, 1.0)
 	return smoothstep(0.0, 1.0, 1.0 - near_frac)
+
+
+## How close the orbit camera is to the surface: 0 in space / whole-globe framing → 1 hovering among the
+## creatures. The sky cycle reads this to drive altitude-aware atmosphere (a bright blue sky + fill when down
+## at ground level, the stark dark space look when pulled out). 0 outside orbit mode (fly/solar keep the space
+## look). Public wrapper over the internal approach blend.
+func surface_blend() -> float:
+	if not _orbit_mode:
+		return 0.0
+	return _approach_t()
 
 
 ## Rebuild the transform for orbit (planet) mode: place the camera on a sphere of radius `_distance`

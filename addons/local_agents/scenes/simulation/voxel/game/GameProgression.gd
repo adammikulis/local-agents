@@ -35,7 +35,9 @@ const ZOOM_MULT_UNBOUNDED: float = 999.0
 
 # Capabilities and zoom ceiling handed to the player before any objective is met (campaign). Sandbox ignores
 # these and unlocks the full set. Baseline = plants + trees, the close orbit + fly views, camera near surface.
-const BASELINE_ZOOM_MULT: float = 1.5
+# Campaign opens LOCKED at the close ground view (== VoxelCameraRig.CAMPAIGN_START_DISTANCE_MULT): the player
+# starts face-to-face with the rabbit herd and cannot pull back out until a stage unlock raises the ceiling.
+const BASELINE_ZOOM_MULT: float = 1.2
 const BASELINE_UNLOCKS: PackedStringArray = [
 	"spawn_plant", "spawn_tree", "view_orbit", "view_fly",
 ]

@@ -32,15 +32,16 @@ const ROCK_COUNT: int = 60
 # cold/snowy poles where the treeline gate blocks germination. Forests are a consequence of the chemistry.
 const FOREST_CLUSTERS: int = 16
 
-# CAMPAIGN start is deliberately SPARSE — a curated near-empty world the new player GROWS by spawning. Only a
-# little vegetation, no creatures at all (rabbits/fish/etc. are locked spawns earned up the ladder), so every
-# population/plant objective genuinely begins below its threshold. Sandbox keeps the full founding ecology
-# (INITIAL_COUNTS above). Data-driven — tune these counts, no spawner rewrite.
+# CAMPAIGN start drops the player right in with a single RABBIT HERD and nothing else living — no plants, no
+# trees (rabbit ≤ HERD_CLUSTER_SIZE ⇒ exactly one founder cluster, so the herd is all in one place), so the
+# player opens face-to-face with the animals they are responsible for and grows the vegetation/world from a
+# clean slate (every plant/population objective genuinely begins below its threshold). Sandbox keeps the full
+# founding ecology (INITIAL_COUNTS above). Data-driven — tune these counts, no spawner rewrite.
 const CAMPAIGN_INITIAL_COUNTS: Dictionary = {
-	"plant": 12, "shrub": 3, "flower_daisy": 4, "flower_clover": 3,
+	"rabbit": 12,
 }
 const CAMPAIGN_ROCK_COUNT: int = 10
-const CAMPAIGN_FOREST_CLUSTERS: int = 2
+const CAMPAIGN_FOREST_CLUSTERS: int = 0
 
 var _world: Node = null
 var _body: Node3D = null
@@ -104,8 +105,8 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 	# Radial world: ecology places life ON the sphere (surface_point spawn), fish in the sea shell; the
 	# orbit camera frames the body; the planet centre is pinned hot for the radial geothermal gradient.
 	if _is_campaign():
-		# Sparse curated start: a handful of vegetation + rocks + a couple of groves, and NO creatures — the
-		# player earns and stocks the living world by spawning. No aquatic stocking (fish are a locked spawn).
+		# Ground-level start: one rabbit herd and nothing else living — no plants/trees (the player grows the
+		# vegetation) and no aquatic stocking (fish are a locked spawn). The camera opens ON the herd below.
 		_ecology.spawn_initial(CAMPAIGN_INITIAL_COUNTS)
 		_ecology.populate_environment(CAMPAIGN_ROCK_COUNT, CAMPAIGN_FOREST_CLUSTERS)
 	else:
@@ -117,6 +118,12 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 			_ecology.stock_initial_aquatic()
 	if _camera.has_method("set_orbit_target"):
 		_camera.set_orbit_target(_body.center(), _body.radius())
+	# CAMPAIGN opens looking AT the herd: aim the orbit camera at the rabbit cluster (the close approach arc then
+	# frames them at eye level). orient_toward clears the deferred sunnyside so the herd aim wins.
+	if _is_campaign() and _camera.has_method("orient_toward"):
+		var herd_dir: Vector3 = _campaign_herd_dir()
+		if herd_dir != Vector3.ZERO:
+			_camera.orient_toward(herd_dir)
 	if _material.has_method("add_magma_source"):
 		# Geothermal core pin — a genuinely HOT magma core (deep mantle temperature) so deep melt + emergent
 		# volcanoes are dramatic. This coexists with a temperate habitable surface because the field ThermalPass
@@ -136,6 +143,24 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 func _is_campaign() -> bool:
 	var prog: LAGameProgression = LAGameProgression.active()
 	return prog != null and not prog.is_sandbox()
+
+
+## Average world direction (planet centre → creatures) of the freshly-spawned campaign herd, so the camera can
+## open looking straight at it. Reads the "creature" group the rabbits joined on spawn; ZERO if none placed yet
+## (e.g. a founder site that meshed late and queued) — the caller then just keeps the default framing.
+func _campaign_herd_dir() -> Vector3:
+	if _body == null:
+		return Vector3.ZERO
+	var center: Vector3 = _body.center()
+	var sum: Vector3 = Vector3.ZERO
+	var n: int = 0
+	for node in get_tree().get_nodes_in_group("creature"):
+		if node is Node3D:
+			sum += (node as Node3D).global_position - center
+			n += 1
+	if n == 0:
+		return Vector3.ZERO
+	return sum.normalized()
 
 
 ## Graphics vegetation-density knob (la_vegetation_scale, published by LAVoxelSettingsApplier from the
