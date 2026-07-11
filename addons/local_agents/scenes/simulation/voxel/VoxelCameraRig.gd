@@ -25,10 +25,11 @@ extends Camera3D
 const MIN_DISTANCE: float = 0.5           # closest zoom (units from focus) — right down onto an animal
 const MAX_DISTANCE: float = 1400.0        # farthest zoom — pull way out for a whole-world view
 const ZOOM_STEP: float = 1.12             # wheel multiplier per notch (bigger = faster zoom) — gentle, slow zoom
-# Each wheel notch sets a TARGET distance; the actual _distance eases toward it every frame (exponential glide),
-# so zoom is continuous instead of stepping — and because the arc-down eye-level blend reads _distance, the arc
-# glides smoothly with it rather than snapping between notches. Higher = snappier glide.
-const ZOOM_SMOOTH: float = 9.0
+# Each wheel notch sets a TARGET distance; _distance eases toward it every frame via a critically-damped spring
+# (smooth accel AND decel — no fast-start/slow-crawl of a plain exponential), so zoom is continuous and, because
+# the arc-down eye-level blend reads _distance, the arc glides gently with it. This is the approx seconds to
+# settle — larger = slower, calmer glide.
+const ZOOM_SMOOTH_TIME: float = 0.62
 # LMB/RMB "grab the planet" drag-orbit only engages once the cursor has moved past this many pixels, so a
 # plain click still selects / casts (near-zero drag) while a real drag rotates the view. No mouse capture on
 # these buttons (they double as click actions) — we read relative motion with the cursor left visible.
@@ -72,6 +73,7 @@ const PAN_REFERENCE_DISTANCE: float = 100.0
 var _focus: Vector3 = Vector3.ZERO
 var _distance: float = 140.0
 var _target_distance: float = 140.0       # wheel-set zoom goal; _distance eases toward it (smooth-zoom glide)
+var _zoom_vel: float = 0.0                 # critically-damped spring velocity for the zoom glide
 # SUNNYSIDE START: open the orbit view over the lit hemisphere. Resolved one-shot on the first orbit frame
 # (the sky controller orients the sun in its own per-frame update, so it is not yet placed at _ready time).
 var _sun_light: Node3D = null
@@ -194,6 +196,7 @@ func _ready() -> void:
 	_focus = Vector3(0.0, 20.0, 0.0)
 	_distance = 140.0
 	_target_distance = 140.0
+	_zoom_vel = 0.0
 	_yaw = 0.0
 	_pitch = deg_to_rad(55.0)
 	_update_transform()
@@ -248,6 +251,7 @@ func frame_overview(center: Vector3, dist: float = 360.0) -> void:
 		_orbit_center = center
 		_distance = clampf(dist, _orbit_min_distance, _orbit_max_distance)
 		_target_distance = _distance
+		_zoom_vel = 0.0
 		_update_transform()
 		return
 	_focus = center + Vector3(0.0, 10.0, 0.0)
@@ -296,6 +300,7 @@ func set_orbit_target(center: Vector3, radius: float) -> void:
 	_orbit_max_distance = _effective_orbit_max()
 	_distance = clampf(_orbit_radius * _start_distance_mult(), _orbit_min_distance, _orbit_max_distance)
 	_target_distance = _distance                 # keep the smooth-zoom goal in sync with this framing jump
+	_zoom_vel = 0.0
 	_orbit_azimuth = 0.0
 	_orbit_elevation = deg_to_rad(20.0)
 	stop_tracking()          # storm-follow is a flat-world concept; drop it on entering orbit
@@ -447,6 +452,7 @@ func set_solar_view(pos: Vector3, look_target: Vector3, orbit_dist: float) -> vo
 	look_at(look_target, Vector3.UP)
 	_distance = orbit_dist
 	_target_distance = orbit_dist
+	_zoom_vel = 0.0
 	_orbit_max_distance = maxf(_orbit_max_distance, orbit_dist * 2.0)
 	far = clampf(orbit_dist * 4.0, 4000.0, 80000.0)
 
@@ -694,6 +700,19 @@ func _zoom(factor: float) -> void:
 		_target_distance = clampf(_target_distance * factor, MIN_DISTANCE, MAX_DISTANCE)
 
 
+## Critically-damped spring toward `target` over ~ZOOM_SMOOTH_TIME seconds (the standard SmoothDamp): smooth
+## acceleration AND deceleration, framerate-independent, no overshoot. Threads the spring velocity through _zoom_vel.
+func _smooth_damp_distance(current: float, target: float, dt: float) -> float:
+	var smooth_time: float = maxf(ZOOM_SMOOTH_TIME, 0.0001)
+	var omega: float = 2.0 / smooth_time
+	var x: float = omega * dt
+	var exp_f: float = 1.0 / (1.0 + x + 0.48 * x * x + 0.235 * x * x * x)
+	var change: float = current - target
+	var temp: float = (_zoom_vel + omega * change) * dt
+	_zoom_vel = (_zoom_vel - omega * temp) * exp_f
+	return target + (change + temp) * exp_f
+
+
 ## Pan factor relative to the reference distance, so pan speeds scale with zoom.
 func _distance_pan_factor() -> float:
 	return _distance / PAN_REFERENCE_DISTANCE
@@ -793,12 +812,14 @@ func _process(delta: float) -> void:
 	# GROUND-WALK: WASD/arrows + edge-scroll sweep the surface view while zoomed in. Updates the orbit/geosync
 	# state the transform rebuild below reads; inert when zoomed out, flying, or in the solar overview.
 	_surface_walk(delta)
-	# SMOOTH ZOOM: ease _distance toward the wheel target so zoom and the arc-down glide are continuous. Geosync
-	# rebuilds every frame below (picks up the new _distance); plain orbit needs an explicit rebuild while easing.
-	if _orbit_mode and not is_equal_approx(_distance, _target_distance):
-		_distance = lerpf(_distance, _target_distance, 1.0 - exp(-ZOOM_SMOOTH * delta))
-		if absf(_distance - _target_distance) < 0.05:
+	# SMOOTH ZOOM: critically-damped glide of _distance toward the wheel target so zoom and the arc-down blend are
+	# continuous and calm. Geosync rebuilds every frame below (picks up the new _distance); plain orbit needs an
+	# explicit rebuild while easing.
+	if _orbit_mode and (absf(_distance - _target_distance) > 0.02 or absf(_zoom_vel) > 0.01):
+		_distance = _smooth_damp_distance(_distance, _target_distance, delta)
+		if absf(_distance - _target_distance) < 0.02:
 			_distance = _target_distance
+			_zoom_vel = 0.0
 		var geosyncing: bool = _geosync and not _solar_view and _geosync_body != null and is_instance_valid(_geosync_body)
 		if not geosyncing:
 			_update_transform()
