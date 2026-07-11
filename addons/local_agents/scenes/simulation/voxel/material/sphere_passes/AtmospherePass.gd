@@ -131,10 +131,11 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		_precip_set[p] = _mkset(rd, _precip_shader, [
 			[0, moisture[p]], [1, temp[back]], [2, solid], [3, moisture[back]], [4, _rain_buf]])
 
-		# RAIN — atmos_rain_sphere3d.glsl (unchanged): 0=rain scratch, 1=solid, 2=water(back, in place +=
-		# rain − boil), 3=boil scratch (all zeros now), 15=nbr.
+		# RAIN — atmos_rain_sphere3d.glsl: 0=rain scratch, 1=solid, 2=water(back, in place += rain − boil),
+		# 3=boil scratch (all zeros now), 4=STATIC (rain over the sea vanishes into the infinite reservoir, not
+		# parked in undrained static-cell water — the fix for the unbounded h2o climb), 15=nbr.
 		_rain_set[p] = _mkset(rd, _rain_shader, [
-			[0, _rain_buf], [1, solid], [2, water[back]], [3, _boil_buf], [15, nbr]])
+			[0, _rain_buf], [1, solid], [2, water[back]], [3, _boil_buf], [4, stat], [15, nbr]])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:

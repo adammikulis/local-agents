@@ -20,9 +20,10 @@ const SAMPLES_PER_EVENT: int = 10        # boundary points sampled per event; th
 const BOUNDARY_PROBE: float = 0.06       # angular half-width (radians) for detecting a nearby plate boundary
 const CONVERGE_MIN: float = 0.25         # |relative-normal velocity| fraction above which it's convergent/divergent
 const DRIFT_RATE_MAX: float = 0.02       # max plate angular speed (rad/s) — plates crawl
-const VOLCANO_CHANCE_CONVERGENT: float = 0.05   # arc volcano at a convergent margin is RARE (else just a quake) —
-                                                # kept low so accumulated volcanic heat doesn't bake the planet
-const VENT_CHANCE_DIVERGENT: float = 0.04       # rift vent even rarer
+const VOLCANO_CHANCE_CONVERGENT: float = 0.3    # arc volcano at a convergent margin (else just a quake). Now that
+                                                # subaerial lava COOLS + solidifies (finite heat source), volcanoes
+                                                # can be frequent again without baking the planet — and they BUILD land.
+const VENT_CHANCE_DIVERGENT: float = 0.12       # rift vent
 
 var _terrain = null                      # LAVoxelTerrainService (planet_center/radius, surface_point, sea_radius)
 var _disasters = null                    # LAVoxelDisasters (spawn_volcano / spawn_earthquake)
@@ -51,6 +52,10 @@ func _process(delta: float) -> void:
 		return
 	if not _terrain.has_method("surface_point") or not _terrain.has_method("planet_center"):
 		return
+	# DRIFT: rotate each plate seed about its Euler pole every frame, so the Voronoi boundaries MIGRATE over time
+	# and the Ring of Fire slowly moves (was frozen — the seeds were set once in setup and never integrated).
+	for i in range(_seeds.size()):
+		_seeds[i] = (_seeds[i] as Vector3).rotated((_poles[i] as Vector3).normalized(), float(_rates[i]) * delta)
 	_cd -= delta
 	if _cd > 0.0:
 		return
@@ -129,13 +134,18 @@ func _other_plate_near(dir: Vector3, own: int) -> int:
 		t1 = _tangent(dir, Vector3.FORWARD)
 	t1 = t1.normalized()
 	var t2: Vector3 = dir.cross(t1).normalized()
+	var best: int = -1
+	var best_dot: float = -2.0
 	for k in range(6):
 		var ang: float = TAU * float(k) / 6.0
 		var off: Vector3 = (dir + (t1 * cos(ang) + t2 * sin(ang)) * BOUNDARY_PROBE).normalized()
 		var pk: int = _plate_of(off)
 		if pk != own:
-			return pk
-	return -1
+			var dp: float = dir.dot(_seeds[pk])       # keep the NEAREST differing plate (correct at triple junctions)
+			if dp > best_dot:
+				best_dot = dp
+				best = pk
+	return best
 
 
 # Surface velocity of plate `k` at unit point `p` from its Euler rotation (ω × p).

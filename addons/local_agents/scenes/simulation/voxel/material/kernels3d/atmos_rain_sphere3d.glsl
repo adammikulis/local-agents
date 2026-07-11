@@ -19,6 +19,7 @@ layout(set = 0, binding = 0, std430) restrict readonly buffer Rain { float rain[
 layout(set = 0, binding = 1, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 2, std430) restrict buffer Water { float water[]; };
 layout(set = 0, binding = 3, std430) restrict readonly buffer Boil { float boil[]; };  // dynamic water flashed to steam by atmos_condense_sphere3d — drained here
+layout(set = 0, binding = 4, std430) restrict readonly buffer Static { float static_cells[]; };  // calm sea = infinite sink
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
 
 layout(push_constant, std430) uniform Params {
@@ -36,9 +37,11 @@ void main() {
 	int idx = int(g);
 	int base = idx * 6;
 
-	// The CPU only ever adds rain into non-solid cells (target is always an open cell). Solid cells are
-	// left untouched.
-	if (solid[g] != 0.0) {
+	// Solid cells hold no water. STATIC sea cells are the infinite reservoir (both the evap SOURCE and the
+	// drainage SINK) — rain over the ocean must VANISH into it, exactly as the water CA makes water flowing into
+	// a static cell vanish. Without this the rain gather parked evaporated mass permanently in static-cell water
+	// (nothing drains it) → an unbounded source that slowly flooded the world (the h2o climb). Skip both.
+	if (solid[g] != 0.0 || static_cells[g] != 0.0) {
 		return;
 	}
 

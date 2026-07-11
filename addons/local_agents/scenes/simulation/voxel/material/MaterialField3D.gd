@@ -1087,8 +1087,8 @@ func water_total() -> float:
 		return 0.0
 	var sum: float = 0.0
 	for c in _cell_count:
-		if _solid[c] == 0:
-			sum += _water[c]
+		if _solid[c] == 0 and _static[c] == 0:      # exclude the static sea reservoir (matches the docstring) —
+			sum += _water[c]                        # else the infinite-reservoir cells inflate the conserved ledger
 	return sum
 ## Total water stored in the SOIL (ground cells) — the subsurface leg of the conserved h2o budget. Infiltrated
 ## water lives here rather than in _water, so it must be counted or conservation would appear to leak.

@@ -31,6 +31,14 @@ const float SOLIDIFY_TEMP = 800.0;
 const float MOLTEN_FLOOR = 950.0;
 const float LAVA_EMPLACE_TEMP = 1150.0;
 const float EMPLACE_DEPTH = 1.0;
+// Radiative cooling of exposed molten rock toward the air/surface ambient. This is the FIX for the thermal
+// runaway: the old unconditional re-pin to MOLTEN_FLOOR made subaerial lava an IMMORTAL heat source (never
+// cooled below the 800C solidus, never solidified, conducted heat into the crust forever -> the planet baked).
+// Now lava sheds heat each step, so a flow that is no longer SUPPLIED crosses the solidus and the M5 record
+// freezes it to rock (a FINITE source that also BUILDS land above sea). A fresh vent re-emplaces at 1150C each
+// step so the active vent stays molten; a thin crust cools faster than a deep pool.
+const float LAVA_AMBIENT = 40.0;
+const float LAVA_COOL_RATE = 0.05;
 
 void main() {
 	uint g = gl_GlobalInvocationID.x;
@@ -49,10 +57,10 @@ void main() {
 		// lava to rock_fill downstream. (Was: solid=1; lava=0 — dissolved into the conserving M5 record.)
 		return;
 	}
-	// SUSTAIN — keep the remaining lava molten, depth-scaled.
-	float span = LAVA_EMPLACE_TEMP - MOLTEN_FLOOR;
-	float molten = MOLTEN_FLOOR + span * clamp(d / EMPLACE_DEPTH, 0.0, 1.0);
-	if (temp[g] < molten) {
-		temp[g] = molten;
-	}
+	// COOL toward the ambient each step (Newtonian) instead of re-pinning to a molten floor, so lava that stops
+	// being supplied loses heat and eventually crosses the 800C solidus (then the M5 record freezes it to rock).
+	// A deep pool (large d) retains heat longer than a thin crust; a live vent re-heats its cell to 1150C each
+	// step via re-emplacement, so the active vent stays molten while stranded flows harden -> a FINITE heat source.
+	float cool_k = LAVA_COOL_RATE * clamp(EMPLACE_DEPTH / d, 0.25, 3.0);
+	temp[g] = max(LAVA_AMBIENT, temp[g] - cool_k * (temp[g] - LAVA_AMBIENT));
 }
