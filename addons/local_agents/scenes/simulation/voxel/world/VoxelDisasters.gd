@@ -12,6 +12,7 @@ const LightningScript: GDScript = preload("res://addons/local_agents/scenes/simu
 const TornadoScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Tornado.gd")
 const ThunderstormScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Thunderstorm.gd")
 const HurricaneScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Hurricane.gd")
+const EarthquakeScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Earthquake.gd")
 
 var _world = null            # LAVoxelWorld (dynamic; method calls only)
 var _terrain = null
@@ -61,6 +62,16 @@ func _surface_spawn(dir: Vector3) -> Vector3:
 	var c: Vector3 = _terrain.planet_center() if _terrain != null and _terrain.has_method("planet_center") else Vector3.ZERO
 	var sea_r: float = _terrain.sea_radius() if _terrain != null and _terrain.has_method("sea_radius") else 100.0
 	return c + dir.normalized() * sea_r
+
+
+## Rupture an earthquake at `point`: it releases one seismic pulse into the shared shock field (the propagating
+## wave IS the quake — camera shake + wildlife panic emerge from it). Used by plate tectonics at fault boundaries.
+func spawn_earthquake(point: Vector3) -> Node:
+	var q: Node = EarthquakeScript.new()
+	_actors_root.add_child(q)
+	q.setup(_terrain, _ecology)
+	q.rupture(point)
+	return q
 
 
 func spawn_volcano(point: Vector3) -> Node:

@@ -338,6 +338,11 @@ func _ready() -> void:
 	governor.name = "PopulationGovernor"
 	add_child(governor)
 	governor.setup(_ecology, _terrain, _actors_root)
+	# Plate tectonics: drifting plates whose boundaries seed volcanoes/earthquakes (Ring of Fire). Self-ticks.
+	var tectonics: LAPlateTectonics = LAPlateTectonics.new()
+	tectonics.name = "PlateTectonics"
+	add_child(tectonics)
+	tectonics.setup(_terrain, _disasters)
 	_brush = SpawnBrushScript.new()
 	_brush.name = "SpawnBrush"
 	add_child(_brush)
