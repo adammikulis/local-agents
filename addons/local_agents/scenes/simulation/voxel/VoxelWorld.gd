@@ -40,12 +40,16 @@ const SettingsApplierScript: GDScript = preload("res://addons/local_agents/scene
 const WorldSaveControllerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/game/WorldSaveController.gd")
 
 # --- SOLAR-SYSTEM-FIRST: the world is a star + planet body (see TODO). Radial is the default; flat retired. ---
+# CELLULAR (Voronoi) relief: continents sit at the cell cores, valley networks run the cell borders → real
+# emergent river drainage. RELIEF is the cellular amplitude; FEATURE is the cell size (continent wavelength).
 const PLANET_RADIUS: float = 250.0
-const PLANET_RELIEF: float = 16.0
-const PLANET_FEATURE: float = 78.0
-# Sea sits INSIDE the relief band (surface radius spans ~radius±relief) so low ground floods and high
-# ground stays dry — a real coastline. Just below the mean radius → a bit more land than sea.
-const PLANET_SEA_RADIUS: float = 248.0
+const PLANET_RELIEF: float = 46.0
+const PLANET_FEATURE: float = 155.0
+# OCEAN-heavy world: sea shell at the mean radius and OCEAN_BIAS pushes the whole surface inward, so most of
+# the sphere is below the sea — continents/islands emerge only at the cellular cores, with the sea for the
+# rivers to drain into. Raise OCEAN_BIAS (or SEA_RADIUS) for more water; lower for more land.
+const PLANET_SEA_RADIUS: float = 250.0
+const PLANET_OCEAN_BIAS: float = 7.0        # ~72% ocean / 28% land (Earth-like); raise for more sea
 const PLANET_SPIN_RATE: float = 0.10        # rad/s axial spin (~1 rotation / 63s) — day/night sweep
 const PLANET_SPIN_AXIS: Vector3 = Vector3(0.40, 0.92, 0.0)   # ~23.5° obliquity vs the orbit plane → real seasons
 
@@ -144,7 +148,7 @@ func _ready() -> void:
 	_body.name = "PlanetBody"
 	add_child(_body)
 	_body.setup({"radius": PLANET_RADIUS, "relief": PLANET_RELIEF, "feature_size": PLANET_FEATURE,
-		"sea_radius": PLANET_SEA_RADIUS, "view_distance": 2000, "seed": 1337})
+		"sea_radius": PLANET_SEA_RADIUS, "ocean_bias": PLANET_OCEAN_BIAS, "view_distance": 2000, "seed": 1337})
 	_terrain = _body.terrain()
 	# PLANETARY SKY: view from space with the sun FIXED shining star->planet; the spinning planet turns
 	# under it → a stark star-lit day/night terminator sweeps the surface.

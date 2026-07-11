@@ -118,11 +118,39 @@ func _seed_elder(node) -> void:
 		node.age = float(node.maturity_age) * FOUNDER_ELDER_AGE_MULT
 
 
+# Metres above the sea shell a direction's surface must clear to count as DRY LAND (not tidal shallows).
+const LAND_MARGIN: float = 2.0
+# How many random directions to try before giving up on finding dry land (the planet is ~70% ocean now, so a
+# handful of tries almost always lands one; the loop is cheap — a radial raycast against the low-LOD sphere).
+const LAND_TRIES: int = 32
+
+
 func _random_spawn_point() -> Vector3:
-	# On a sphere the whole surface is fair game: pick a random unit direction from the planet centre and
-	# hand back a point along it (above the surface); _place_on_surface() re-projects it down to the meshed
-	# ground radially. (The planet is the sole world — the old flat XZ scatter is gone.)
-	return _eco.terrain.planet_center() + _random_sphere_dir() * (_eco.terrain.planet_radius() + 1.0)
+	# LAND-biased: the planet is ocean-DOMINANT now (~72% sea), so a blind random direction would drop most
+	# land actors (herd founders, rocks, forests) onto the SEABED, underwater. Rejection-sample directions and
+	# take the first whose surface clears the sea shell (dry land); keep the highest sampled direction as a
+	# fallback so we still return the most-land-like point if no clearly-dry site was meshed yet. The returned
+	# raw point is re-projected to the meshed ground by _place_on_surface(); an unmeshed patch queues + retries.
+	var center: Vector3 = _eco.terrain.planet_center()
+	var above: float = _eco.terrain.planet_radius() + 1.0
+	var sea_r: float = _eco.terrain.sea_radius() if _eco.terrain.has_method("sea_radius") else 0.0
+	if sea_r <= 0.0 or not _eco.terrain.has_method("surface_radius"):
+		return center + _random_sphere_dir() * above
+	var best_dir: Vector3 = Vector3.ZERO
+	var best_r: float = -INF
+	for i in range(LAND_TRIES):
+		var d: Vector3 = _random_sphere_dir()
+		var sr: float = _eco.terrain.surface_radius(d)
+		if is_nan(sr):
+			continue                                   # unmeshed patch — skip, keep trying
+		if sr > best_r:
+			best_r = sr
+			best_dir = d
+		if sr >= sea_r + LAND_MARGIN:
+			return center + d * above                  # dry land found
+	if best_dir == Vector3.ZERO:
+		best_dir = _random_sphere_dir()                # nothing meshed yet — hand back any dir (spawn will queue)
+	return center + best_dir * above
 
 
 # A uniform-ish random unit direction on the sphere (reject the degenerate near-zero vector). Static +

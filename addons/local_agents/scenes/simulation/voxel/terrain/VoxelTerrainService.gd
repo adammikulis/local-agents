@@ -67,15 +67,16 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 		return
 	_shape = "planet"
 	_center = opts.get("center", Vector3.ZERO)
-	_planet_relief = float(opts.get("relief", 16.0))
+	_planet_relief = float(opts.get("relief", 46.0))
 
 	var pg: RefCounted = PlanetGenScript.new()
 	var gen: VoxelGeneratorGraph = pg.build({
 		"radius": float(opts.get("radius", 250.0)),
-		"sea_radius": opts.get("sea_radius", float(opts.get("radius", 250.0)) * 0.93),
+		"sea_radius": opts.get("sea_radius", float(opts.get("radius", 250.0))),
+		"ocean_bias": float(opts.get("ocean_bias", 7.0)),
 		"relief": _planet_relief,
-		"feature_size": float(opts.get("feature_size", 78.0)),
-		"octaves": int(opts.get("octaves", 4)),
+		"feature_size": float(opts.get("feature_size", 155.0)),
+		"octaves": int(opts.get("octaves", 3)),
 		"seed": int(opts.get("seed", 1337)),
 	})
 	_planet_radius = pg.radius()
