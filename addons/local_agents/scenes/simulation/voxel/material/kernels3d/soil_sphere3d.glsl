@@ -45,9 +45,17 @@ const float MAX_FLOW_FRAC = 0.35;     // cap total outflow to this fraction of a
 // the table can't exceed unless brim-full). This auto-concentrates discharge at valleys and self-limits: seeping
 // drains the local table, so a spring only SUSTAINS where groundwater keeps CONVERGING (a real valley). No fixed
 // threshold, no blanket baseflow (which floods the whole surface). SPRING_CONDUCT = discharge per unit head.
-const float SPRING_CONDUCT = 0.08;
+const float SPRING_CONDUCT = 0.20;    // groundwater daylighting at valley walls. Paired with the exponential
+                                      // (Clausius–Clapeyron) evap curve: exfiltrated baseflow now persists on
+                                      // cool land instead of flashing off, so springs sustain visible streams.
 const float MIN_W = 0.002;            // surface water below this doesn't infiltrate
-const float INFIL_RATE = 0.20;        // peak infiltration (moderate moisture)
+// INFIL_RATE is deliberately SLOWER than the per-step rainfall so a storm's rain EXCEEDS the soil's intake
+// and the surplus stays on the surface as RUNOFF (Hortonian/saturation overland flow) — which is what
+// concentrates into streams and rivers. At the old 0.20 the ground drank rain faster than it fell, so every
+// drop infiltrated into the aquifer and no surface water ever persisted (the planet ran bone-dry: land
+// water_total ~2). The aquifer still recharges from this slower trickle + feeds perennial springs; the
+// difference is that visible surface flow now survives long enough to carve drainage networks to the sea.
+const float INFIL_RATE = 0.045;       // peak infiltration — under the rainfall rate so storms produce runoff
 const float DRY_CRUST = 0.12;         // bone-dry infiltration fraction (hydrophobic crust → flash flood)
 const float WET_KNEE = 0.25;          // soil fraction by which the ground has rehydrated to full infiltration
 

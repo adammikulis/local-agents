@@ -33,6 +33,8 @@ layout(push_constant, std430) uniform Params {
 
 // Constants — MUST match the query-side sat()/evap math in MaterialField3D.gd + the box heritage.
 const float EVAP_RATE = 0.019;   // restored toward normal (rain now drains into the sea reservoir, so the cycle is bounded)
+const float EVAP_WARM_K = 0.11;  // Clausius–Clapeyron slope: e ~ exp((T-REF)*k). Cold land water barely evaporates
+                                 // (rivers persist); the warm sea evaporates hard (drives the cycle).
 const float WATER_MIN = 0.05;
 const float EVAP_TEMP_REF = 22.0;
 const float MAX_MASS = 1.0;
@@ -73,9 +75,15 @@ void main() {
 	float added = 0.0;   // moisture gained this step
 	float debit = 0.0;   // DYNAMIC water drained this step (0 for the infinite static sea)
 
-	// EVAPORATION — from an exposed surface, more when warm.
+	// EVAPORATION — from an exposed surface, rising STEEPLY with temperature (Clausius–Clapeyron: saturation
+	// vapour pressure is exponential in T, not linear). This is what lets surface water PERSIST on cool land:
+	// a warm equatorial SEA cell (~35°C) evaporates hard and drives the moisture cycle, while a cold highland
+	// river/lake/meltwater cell (~8-14°C) barely evaporates, so spring- and rain-fed streams survive long enough
+	// to pool in basins and run to the sea = visible rivers/lakes emerge (the old linear T/22 stripped cold
+	// water almost as fast as warm, so nothing on land ever accumulated). EVAP_WARM_K sets the exponential
+	// slope; the clamp keeps a hot sea from runaway steaming.
 	if (open_above) {
-		float warmth = clamp(temp[g] / EVAP_TEMP_REF, 0.0, 2.0);
+		float warmth = clamp(exp((temp[g] - EVAP_TEMP_REF) * EVAP_WARM_K), 0.0, 2.5);
 		float e = EVAP_RATE * warmth;
 		if (is_static) {
 			added += e;                       // infinite reservoir: gain without draining
