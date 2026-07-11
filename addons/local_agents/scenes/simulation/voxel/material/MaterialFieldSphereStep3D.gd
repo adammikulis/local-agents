@@ -43,6 +43,7 @@ func process(delta: float) -> void:
 			return
 		_f._sample_solidity_sphere()
 		_f._seed_sphere_sea()         # static field sea = the evaporation source that drives the water cycle
+		_f._compute_regolith()        # the permeable aquifer band (+ initial water table) for groundwater flow
 		_f.activate()                 # is_sphere() → picks SphereGPUScript + sets _use_gpu
 		_f._ready_sim = true
 		return

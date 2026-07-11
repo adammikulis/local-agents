@@ -35,6 +35,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var static_rid: RID = bufs.get("static", RID())
 	var send_rid: RID = bufs.get("send", RID())
 	var nbr_rid: RID = bufs.get("nbr", RID())
+	var regolith_rid: RID = bufs.get("regolith", RID())
 	var water_pair: Array = bufs.get("water", [RID(), RID()])
 	var soil_pair: Array = bufs.get("soil", [RID(), RID()])
 
@@ -47,25 +48,29 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			[3, send_rid],             # Send scratch
 			[4, soil_pair[p]],         # SoilIn  = live soil (last step's output)
 			[5, soil_pair[back]],      # SoilOut = back soil (this step's output)
+			[6, regolith_rid],         # Regolith aquifer permeability mask
 			[15, nbr_rid],             # Neigh table
 		])
 
 
-func dispatch(rd: RenderingDevice, cl: int, parity: int, _ctx: Dictionary, cc: int, groups: int) -> void:
+func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	if _rd == null:
 		return
 	var uset: RID = _set[parity]
-	# PASS 0 — compute vertical transfers into `send`.
+	var depth: int = int(ctx.get("depth", 20))
+	var core_r: float = float(ctx.get("core_radius", 170.0))
+	var cell_size: float = float(ctx.get("cell_size", 8.0))
+	# PASS 0 — compute groundwater/infiltration/exfiltration transfers into `send`.
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, uset, 0)
-	var pc0: PackedByteArray = _pc(cc, 0)
+	var pc0: PackedByteArray = _pc(cc, 0, depth, core_r, cell_size)
 	rd.compute_list_set_push_constant(cl, pc0, pc0.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)
 	# PASS 1 — apply.
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, uset, 0)
-	var pc1: PackedByteArray = _pc(cc, 1)
+	var pc1: PackedByteArray = _pc(cc, 1, depth, core_r, cell_size)
 	rd.compute_list_set_push_constant(cl, pc1, pc1.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)
@@ -97,5 +102,8 @@ func _build_set(shader: RID, entries: Array) -> RID:
 	return _rd.uniform_set_create(uniforms, shader, 0)
 
 
-func _pc(cc: int, pass_id: int) -> PackedByteArray:
-	return PackedInt32Array([cc, pass_id, 0, 0]).to_byte_array()
+func _pc(cc: int, pass_id: int, depth: int, core_r: float, cell_size: float) -> PackedByteArray:
+	# std430 push constant: 4x uint (cell_count, pass_id, depth, pad) then 2x float (core_radius, cell_size).
+	var out: PackedByteArray = PackedInt32Array([cc, pass_id, depth, 0]).to_byte_array()
+	out.append_array(PackedFloat32Array([core_r, cell_size]).to_byte_array())
+	return out

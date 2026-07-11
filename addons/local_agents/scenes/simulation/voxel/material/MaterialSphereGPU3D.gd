@@ -31,7 +31,8 @@ const PAIR_CHANNELS: PackedStringArray = [
 # and GPU-evolved (M5 solidify / M6 melt records write it), re-uploaded from the CPU only on an add_lava injection.
 const SINGLE_CHANNELS: PackedStringArray = [
 	"solid", "static", "fuel", "charge", "detritus", "biomass", "pressure",
-	"vel_x", "vel_y", "vel_z", "dust_outscale", "fungus_fert", "surf_vx", "surf_vz", "snow", "rock_fill"]
+	"vel_x", "vel_y", "vel_z", "dust_outscale", "fungus_fert", "surf_vx", "surf_vz", "snow", "rock_fill",
+	"regolith"]     # aquifer permeability mask (1 = groundwater-bearing rock) — static; seeded once
 
 # Data-flow dispatch order (see the PING-PONG PHASE note above). WaterSlumpLava MUST precede Thermal
 # (Thermal reads water/lava from "back" + consumes the lava carry-heat left in "live" temp); Atmosphere/
@@ -92,8 +93,10 @@ func setup(field) -> void:
 	# Seed channels from the field's CPU state.
 	_seed("temp", field._temp)
 	_seed("o2", field._o2)
+	_seed("soil", field._soil)          # initial water table (regolith primed by _compute_regolith)
 	_seed_solid()
 	_seed_rock_fill()
+	_seed_regolith()                    # aquifer permeability mask (static)
 
 	# Load + set up the pass modules (skip any that fail to load — WIP-tolerant).
 	for path in PASS_SCRIPTS:
@@ -117,6 +120,8 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: flo
 	_ctx["wind"] = wind
 	_ctx["dt"] = 0.1
 	_ctx["cell_size"] = _grid.cell_size
+	_ctx["core_radius"] = _grid.core_radius     # groundwater aquifer needs the shell geometry for cell elevation
+	_ctx["depth"] = _grid.depth
 	_ctx["sea_radius"] = _field.sphere_grid().core_radius   # placeholder; overridden by set_sea_radius
 	if not _ctx.has("sun_dir"):
 		_ctx["sun_dir"] = Vector3(0, 1, 0)
@@ -306,6 +311,20 @@ func _seed_solid() -> void:
 ## mineral (1.0), a void cell none (0.0). Only run at setup — rock_fill is GPU-authoritative thereafter (the
 ## derive pass recomputes `solid` from it, and M5/M6 records + add_lava evolve it). Because 1.0 >= 0.5 and
 ## 0.0 < 0.5, the derived `solid` reproduces `_solid` EXACTLY when nothing has melted/solidified (stability).
+## Seed the aquifer permeability mask (1.0 = permeable regolith, 0.0 = bedrock/void) from the field's CPU mask.
+## Static after setup (recomputed only if the terrain is carved deeply — a future concern), so seeded once here.
+func _seed_regolith() -> void:
+	var m: PackedByteArray = _field._regolith
+	if m.size() != _cc:
+		return
+	var f: PackedFloat32Array = PackedFloat32Array()
+	f.resize(_cc)
+	for i in _cc:
+		f[i] = 1.0 if m[i] != 0 else 0.0
+	var b: PackedByteArray = f.to_byte_array()
+	_rd.buffer_update(_bufs["regolith"], 0, b.size(), b)
+
+
 func _seed_rock_fill() -> void:
 	var f: PackedFloat32Array = PackedFloat32Array()
 	f.resize(_cc)

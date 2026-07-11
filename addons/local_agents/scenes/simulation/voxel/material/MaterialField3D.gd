@@ -566,6 +566,48 @@ func _seed_sphere_sea() -> void:
 			_water[c] = 1.0
 			_static[c] = 1
 
+## The REGOLITH (aquifer) band: the top REGOLITH_CELLS solid shells of each column are PERMEABLE — groundwater
+## lives + flows here; everything below is impermeable BEDROCK. This surface-following band is what lets the
+## water table flow ridge→valley (through the rock) and DAYLIGHT as springs where it meets open ground, instead
+## of the naive "all groundwater sinks to the core". Computed once from the solid mask (grid columns are
+## contiguous: cell = surf_col*depth + r, r=depth-1 outermost). Also SEEDS an initial half-full water table so
+## springs flow from the start (a planet has an existing aquifer; it then self-maintains via rain/snow recharge).
+const REGOLITH_CELLS: int = 4
+const INITIAL_TABLE_FRAC: float = 0.7     # regolith starts this fraction of SOIL_CAPACITY saturated (just under
+                                          # the spring gush level, so groundwater CONVERGENCE at valleys triggers springs)
+const SOIL_CAPACITY: float = 0.6          # MUST match soil_sphere3d.glsl CAPACITY
+var _regolith: PackedByteArray = PackedByteArray()
+
+func _compute_regolith() -> void:
+	if _sphere == null or _solid.size() != _cell_count:
+		return
+	_regolith = PackedByteArray()
+	_regolith.resize(_cell_count)                          # 0 = bedrock/void, 1 = permeable regolith
+	if _soil.size() != _cell_count:
+		_soil = PackedFloat32Array()
+		_soil.resize(_cell_count)
+	var surf_count: int = int(_sphere.surf_count)
+	var depth: int = int(_sphere.depth)
+	var seed_soil: float = SOIL_CAPACITY * INITIAL_TABLE_FRAC
+	for s in range(surf_count):
+		var base: int = s * depth
+		var surf_r: int = -1
+		for r in range(depth - 1, -1, -1):                # find the outermost solid shell (the ground surface)
+			if _solid[base + r] != 0:
+				surf_r = r
+				break
+		if surf_r < 0:
+			continue                                      # an all-open column (deep ocean over no floor) — no regolith
+		var lo: int = maxi(0, surf_r - REGOLITH_CELLS + 1)
+		for r in range(lo, surf_r + 1):
+			if _solid[base + r] != 0:
+				_regolith[base + r] = 1
+				_soil[base + r] = seed_soil               # prime the water table
+
+## The regolith permeability mask (1 = groundwater-bearing rock). Uploaded to the GPU soil pass.
+func regolith_mask() -> PackedByteArray:
+	return _regolith
+
 ## Release the GPU driver's local RenderingDevice while the tree is still up — freeing every RID cleanly so
 ## the device reports 0 leaked RIDs. (The `rc=134` MoltenVK `recursive_mutex` abort at NSApplication-terminate
 ## is separately avoided by the clean-quit path — `LAAppExit`/`LAProcess.exit_now`; see GODOT_BEST_PRACTICES.md → Error Log, 2026-07-09.)
