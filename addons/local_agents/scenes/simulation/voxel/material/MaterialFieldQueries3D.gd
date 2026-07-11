@@ -75,6 +75,53 @@ func water_at_cell(ix: int, iy: int, iz: int) -> float:
 	return _f._water[_f._idx(ix, iy, iz)]
 
 
+# --- Water CURRENT (the sweep force) -----------------------------------------
+# Tuning for the shallow-water drag that moving water exerts on anything standing in it.
+const SWEEP_PROBE: float = 6.0        # tangent-plane sample distance for the downhill gradient (~one cell)
+const SWEEP_STRENGTH: float = 9.0     # world units/sec of push per (depth × slope) unit — tune vs flood feel
+const SWEEP_MIN_WATER: float = 0.12   # below this local water mass (and no sea shell) there's no current
+
+## Local WATER CURRENT force at a world point — the direction + strength moving water pushes anything standing
+## in it. It is the shallow-water drag: proportional to how DEEP the water is AND how STEEP the free surface is
+## (the terrain's tangent-plane gradient), pointed DOWNHILL. Zero where there's no water or the ground is flat
+## — a still pond gives no sweep (you just drown if it's deep), a flooded hillside or a river gives a strong
+## downhill shove. No new CA and no new state: derived from the existing water buffer + terrain.surface_radius.
+## Returned in world space, tangent to the surface. O(1) + a few radial raycasts, and only paid by actors the
+## caller already knows are in water (they gate on is_water_at first).
+func water_force_at(pos: Vector3) -> Vector3:
+	if _f._water.size() != _f._cell_count or _f._terrain == null or not _f._terrain.has_method("surface_radius"):
+		return Vector3.ZERO
+	var c: int = _f.world_to_cell(pos)
+	var depth: float = _f._water[c] if c >= 0 else 0.0
+	if depth < SWEEP_MIN_WATER and not _sea_under(pos):
+		return Vector3.ZERO
+	var up: Vector3 = pos - _f._origin
+	if up.length_squared() < 1.0e-6:
+		return Vector3.ZERO
+	up = up.normalized()
+	# Two tangent axes spanning the local ground plane (pick a stable seed axis away from the radial).
+	var t1: Vector3 = up.cross(Vector3.RIGHT)
+	if t1.length_squared() < 1.0e-4:
+		t1 = up.cross(Vector3.FORWARD)
+	t1 = t1.normalized()
+	var t2: Vector3 = up.cross(t1).normalized()
+	var r_p1: float = _f._terrain.surface_radius((pos + t1 * SWEEP_PROBE) - _f._origin)
+	var r_m1: float = _f._terrain.surface_radius((pos - t1 * SWEEP_PROBE) - _f._origin)
+	var r_p2: float = _f._terrain.surface_radius((pos + t2 * SWEEP_PROBE) - _f._origin)
+	var r_m2: float = _f._terrain.surface_radius((pos - t2 * SWEEP_PROBE) - _f._origin)
+	if is_nan(r_p1) or is_nan(r_m1) or is_nan(r_p2) or is_nan(r_m2):
+		return Vector3.ZERO
+	# Free-surface gradient (approximated by the ground gradient — the water sheet follows the terrain); the
+	# current flows toward DECREASING surface radius (downhill).
+	var grad: Vector3 = t1 * ((r_p1 - r_m1) / (2.0 * SWEEP_PROBE)) + t2 * ((r_p2 - r_m2) / (2.0 * SWEEP_PROBE))
+	var slope: float = grad.length()
+	if slope < 1.0e-4:
+		return Vector3.ZERO
+	var downhill: Vector3 = -grad / slope
+	var d: float = maxf(depth, 0.3)          # the sea/lake shell carries a current even where the cell mass reads low
+	return downhill * (SWEEP_STRENGTH * d * slope)
+
+
 func total_water() -> float:
 	var s: float = 0.0
 	for i in range(_f._cell_count):

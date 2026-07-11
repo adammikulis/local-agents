@@ -467,6 +467,12 @@ func is_water_at(pos: Vector3) -> bool:
 	return _queries.is_water_at(pos)
 
 
+# World-space WATER CURRENT (sweep) force at a point — downhill × depth × slope; ZERO in still/dry ground.
+# The seam creatures (mass-scaled drag) and plants (uproot vs root strength) read to be swept by moving water.
+func water_force_at(pos: Vector3) -> Vector3:
+	return _queries.water_force_at(pos)
+
+
 ## Register a persistent spring: `rate` water mass per second injected at `pos` each step.
 func add_source(pos: Vector3, rate: float) -> void:
 	_sources.append({"pos": pos, "rate": rate})

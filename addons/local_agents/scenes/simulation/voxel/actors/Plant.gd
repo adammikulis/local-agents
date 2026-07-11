@@ -57,6 +57,14 @@ var edible: bool = true
 # 0 == wholesome (the vast majority of vegetation); >0 == toxic strength.
 var toxic: float = 0.0
 
+# ROOTING — the water-current magnitude this plant's roots withstand before flowing water TEARS IT OUT. A
+# data-driven property (config `root_strength`); when unset it scales with the plant's mature size (bigger
+# plant, deeper roots), so grass + flowers wash away in a flood/river first and a big shrub holds far longer.
+# Trees set their own (much higher) value. This is the plant half of "moving water sweeps weakly-rooted life."
+const ROOT_BASE: float = 1.5
+const ROOT_PER_SCALE: float = 3.0
+var root_strength: float = 3.0
+
 # --- Flowers + pollination mutualism. A plant flagged `flower` carries a richer NECTAR reserve (so foraging
 # pollinators prefer it via the shared food-value ranking) and is POLLINATED by visits: every bite (feed(),
 # whose dominant flower visitor is the bee) deposits decaying pollen, and the more recent pollen a flower
@@ -110,6 +118,8 @@ func setup(_terrain, _config: Dictionary) -> void:
 	toxic = clampf(float(config.get("toxic", 0.0)), 0.0, 1.0)
 	flower = bool(config.get("flower", flower))
 	nectar = float(config.get("nectar", FOOD_CAPACITY))
+	# Root strength: explicit config, else scaled from mature size (already read above) so bigger plants hold on.
+	root_strength = maxf(0.2, float(config.get("root_strength", ROOT_BASE + ROOT_PER_SCALE * max_scale)))
 	_food = _food_capacity() * 0.6           # start partway; regrows toward the (nectar-scaled) capacity
 
 	collision_layer = 2
@@ -276,6 +286,14 @@ func _physics_process(delta: float) -> void:
 			return
 		delta = _settle_accum
 		_settle_accum = 0.0
+	# UPROOTING: moving water tears out a plant whose roots can't hold. Cheap dry early-out (is_water_at is one
+	# cell lookup) so a dry pasture pays nothing; only a flooded plant samples the current and compares it to its
+	# root strength. The same downhill current that sweeps animals uproots weakly-rooted vegetation — grass +
+	# flowers wash out first, deep-rooted plants hold. An uprooted plant dies in place (swept debris).
+	if _material != null and _material.has_method("is_water_at") and _material.is_water_at(global_position):
+		if _material.has_method("water_force_at") and _material.water_force_at(global_position).length() > root_strength:
+			_uproot()
+			return
 	var growth_boost: float = _biomass_boost() if growing else 0.0
 	age += delta * (1.0 + growth_boost)
 	_apply_growth()
@@ -338,6 +356,14 @@ func _sync_render() -> void:
 		return
 	var b: Basis = transform.basis.scaled(Vector3.ONE * _base_height)
 	_veg.set_xform(RENDER_TYPE, _veg_slot, Transform3D(b, transform.origin))
+
+
+# Torn out by flowing water: a splash accent where it washed away, then remove it (the renderer slot is
+# released in _exit_tree). The plant's biomass simply leaves the pasture — no corpse node.
+func _uproot() -> void:
+	if _material != null and _material.has_method("splash"):
+		_material.splash(global_position, 1.2)
+	queue_free()
 
 
 func _exit_tree() -> void:
