@@ -20,8 +20,9 @@ const SAMPLES_PER_EVENT: int = 10        # boundary points sampled per event; th
 const BOUNDARY_PROBE: float = 0.06       # angular half-width (radians) for detecting a nearby plate boundary
 const CONVERGE_MIN: float = 0.25         # |relative-normal velocity| fraction above which it's convergent/divergent
 const DRIFT_RATE_MAX: float = 0.02       # max plate angular speed (rad/s) — plates crawl
-const QUAKE_CHANCE_CONVERGENT: float = 0.7
-const VENT_CHANCE_DIVERGENT: float = 0.35
+const VOLCANO_CHANCE_CONVERGENT: float = 0.05   # arc volcano at a convergent margin is RARE (else just a quake) —
+                                                # kept low so accumulated volcanic heat doesn't bake the planet
+const VENT_CHANCE_DIVERGENT: float = 0.04       # rift vent even rarer
 
 var _terrain = null                      # LAVoxelTerrainService (planet_center/radius, surface_point, sea_radius)
 var _disasters = null                    # LAVoxelDisasters (spawn_volcano / spawn_earthquake)
@@ -96,9 +97,11 @@ func _fire_boundary_event() -> void:
 	if is_nan(point.x):
 		return
 	if best_kind == "convergent":
-		_disasters.spawn_volcano(point)                   # subduction arc volcano
-		if randf() < QUAKE_CHANCE_CONVERGENT:
-			_disasters.spawn_earthquake(point)
+		# Quakes are the routine signature of a convergent margin; a full arc VOLCANO is the rare, dramatic
+		# event — kept rare so sustained volcanic heat doesn't accumulate and bake the planet over a long game.
+		_disasters.spawn_earthquake(point)
+		if randf() < VOLCANO_CHANCE_CONVERGENT:
+			_disasters.spawn_volcano(point)
 	elif best_kind == "transform":
 		_disasters.spawn_earthquake(point)                # the fault ruptures
 	else:

@@ -32,7 +32,7 @@ layout(push_constant, std430) uniform Params {
 } params;
 
 // Constants — MUST match the query-side sat()/evap math in MaterialField3D.gd + the box heritage.
-const float EVAP_RATE = 0.02;
+const float EVAP_RATE = 0.013;   // lowered (was 0.02): the aquifer supplies land water, so a gentler sea-evap keeps the water cycle BOUNDED (no slow flood)
 const float WATER_MIN = 0.05;
 const float EVAP_TEMP_REF = 22.0;
 const float MAX_MASS = 1.0;
