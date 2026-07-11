@@ -104,7 +104,7 @@ static func cognition(w) -> Dictionary:
 	# Population gene means — the evolvable loci whose drift makes SELECTION observable (a toxin-heavy pasture
 	# should push neophobia up over generations, predation should push speed up, etc.). Accumulated in THIS same
 	# O(N) pass — no second population scan (big-O discipline). decode_gene() is the raw locus value.
-	const REPORTED_GENES: Array = ["size", "speed", "metabolism", "carnivory", "neophobia", "boldness", "scent_acuity", "taste_sensitivity"]
+	const REPORTED_GENES: Array = ["size", "speed", "metabolism", "carnivory", "neophobia", "boldness", "scent_acuity", "taste_sensitivity", "constitution"]
 	var gene_sum: Dictionary = {}
 	for gk in REPORTED_GENES:
 		gene_sum[gk] = 0.0

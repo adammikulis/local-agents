@@ -90,7 +90,10 @@ const LOCI: Array = [
 	["water_affinity", "cue", 1, 0.0, 1.0],
 	["carrion_appetite", "cue", 1, 0.0, 1.0],
 	["_spacer_d", "spacer", 2, 0.0, 0.0],
-	["_reserved_0", "reserved", 2, 0.0, 1.0],
+	# Immune CONSTITUTION — how well the animal fights off infection (read by LACreatureDisease). Heritable +
+	# mutable, so an epidemic SELECTS for it: plague survivors pass on higher constitution and the population
+	# evolves disease resistance. Claimed from a reserved locus, so the strand length is unchanged.
+	["constitution", "gene", 2, 0.3, 2.5],
 	["_reserved_1", "reserved", 2, 0.0, 1.0],
 	["_reserved_2", "reserved", 2, 0.0, 1.0],
 	["_reserved_3", "reserved", 2, 0.0, 1.0],
@@ -246,6 +249,7 @@ static func from_config(cfg: Dictionary) -> LADNA:
 	g.encode_gene("active_metabolism", float(cfg.get("active_metabolism", 1.0)))
 	g.encode_gene("scent_acuity", float(cfg.get("scent_acuity", 0.5)))
 	g.encode_gene("taste_sensitivity", float(cfg.get("taste_sensitivity", 0.5)))
+	g.encode_gene("constitution", float(cfg.get("constitution", 1.2)))   # healthy immune default; epidemics select it up
 	# Regulatory cue priors — born-in chemical valences for the coming affinity system.
 	var carn: float = LADNA._carnivory_from_diet(String(cfg.get("diet", "herbivore")))
 	g.encode_gene("blood_wariness", float(cfg.get("blood_wariness", 1.0 - carn)))
