@@ -106,10 +106,17 @@ func build(grid: RefCounted, water: PackedFloat32Array, solid: PackedByteArray, 
 		var a_hat: Vector3 = _tangent(grid, s, a_col, na_col, wp, center)
 		var b_hat: Vector3 = _tangent(grid, s, b_col, nb_col, wp, center)
 		var flow_world: Vector3 = -(a_hat * da + b_hat * db)
-		var steep: float = clampf(flow_world.length() / cell_size, 0.0, 1.0)
+		# Steepness drives the shader's whitewater foam — only meaningful for FLOWING fresh water (rivers/falls).
+		# On the flat SEA the r_top step at a sea↔lake / bias boundary would spike the gradient into false foam
+		# facets, so zero it for salt cells; the sea's look is swell + shoreline foam, not gradient whitewater.
+		var steep: float = 0.0
+		if sal[s] < 0.5:
+			steep = clampf(flow_world.length() / cell_size, 0.0, 1.0)
 		var flow_local: Vector3 = inv_xform.basis * flow_world
 		var fl: Vector2 = Vector2(flow_local.x, flow_local.z)
-		if fl.length() > 1.0e-4:
+		if sal[s] >= 0.5 or fl.length() <= 1.0e-4:
+			fl = Vector2.ZERO                                # sea uses the shader's gentle default scroll, not mesh flow
+		else:
 			fl = fl.normalized()
 		vidx[s] = verts.size()
 		verts.push_back(inv_xform * wp)

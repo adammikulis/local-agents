@@ -100,6 +100,8 @@ var _fast: int = 1                       # --fast=N: sim steps per render frame 
 var _trailer_shot: String = ""           # --trailer-shot=NAME: LATrailerDirector drives a scripted capture
 var _face_sun: bool = false              # --face-sun: aim the camera at the star before the screenshot (sun-visibility proof)
 var _face_sun_done: bool = false
+var _water_cam: bool = false             # --water-cam: hover just above the sea looking across it (fluid-render proof)
+var _water_cam_done: bool = false
 var _menu_shot: bool = false             # --menu-shot: show the pause menu overlay before the screenshot (menu proof)
 var _menu_shot_done: bool = false
 var _help_shot: bool = false             # --help-shot: open the pause "Controls & help" overlay before the screenshot
@@ -204,6 +206,8 @@ func parse_cmdline() -> void:
 			_fast = int(arg.substr("--fast=".length()))
 		elif arg == "--face-sun":
 			_face_sun = true
+		elif arg == "--water-cam":
+			_water_cam = true
 		elif arg == "--menu-shot":
 			_menu_shot = true
 		elif arg == "--help-shot":
@@ -557,6 +561,20 @@ func update(frame: int, spawned: bool) -> void:
 			_camera.global_position = center + perp * (radius * 1.4) + Vector3.UP * (radius * 0.4) + sun_dir * (radius * 0.6)
 			_camera.look_at(star_pos, Vector3.UP)
 			_face_sun_done = true
+
+	# --water-cam: hover the camera just above sea level looking ACROSS the water toward a nearby shore, so the
+	# dynamic fluid surface (waves/foam/salinity) fills the frame — the close-up render proof I otherwise can't
+	# frame. Sits inside FAR_ALT so the dynamic surface (not the far sphere) draws.
+	if _water_cam and not _water_cam_done and _shoot_path != "" and _camera != null and _body != null:
+		if frame >= _shoot_frames - 60:
+			var wc_center: Vector3 = _body.center()
+			var sea_r: float = _body.sea_radius() if _body.has_method("sea_radius") else 500.0
+			var wdir: Vector3 = Vector3(0.42, 0.36, 0.83).normalized()      # a fixed spot over open sea
+			var wtan: Vector3 = wdir.cross(Vector3.UP).normalized()
+			_camera.global_position = wc_center + wdir * (sea_r + 18.0)     # ~18 units above the sea surface
+			var look_dir: Vector3 = (wdir + wtan * 0.9).normalized()        # across the water, toward the horizon
+			_camera.look_at(wc_center + look_dir * (sea_r + 2.0), wdir)     # up = local radial
+			_water_cam_done = true
 
 	# --menu-shot: show the pause menu OVERLAY (without pausing, so the capture loop keeps ticking) just before
 	# the screenshot, and self-test that open() would pause the tree — the menu proof.
