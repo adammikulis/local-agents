@@ -43,14 +43,18 @@ const WorldSaveControllerScript: GDScript = preload("res://addons/local_agents/s
 # --- SOLAR-SYSTEM-FIRST: the world is a star + planet body (see TODO). Radial is the default; flat retired. ---
 # CELLULAR (Voronoi) relief: continents sit at the cell cores, valley networks run the cell borders → real
 # emergent river drainage. RELIEF is the cellular amplitude; FEATURE is the cell size (continent wavelength).
-const PLANET_RADIUS: float = 250.0
-const PLANET_RELIEF: float = 46.0
-const PLANET_FEATURE: float = 155.0
+# A BIGGER radius flattens the ground horizon (a moderate village fits the close view with little curvature).
+# RELIEF + FEATURE + OCEAN_BIAS + the field shell (below) all scale with the radius via PLANET_SCALE, so the
+# ocean fraction (~72%), continent count, and field cost (cell_count fixed — just coarser cells) are preserved.
+const PLANET_RADIUS: float = 500.0
+const PLANET_SCALE: float = PLANET_RADIUS / 250.0     # everything below was tuned at radius 250
+const PLANET_RELIEF: float = 46.0 * PLANET_SCALE
+const PLANET_FEATURE: float = 155.0 * PLANET_SCALE
 # OCEAN-heavy world: sea shell at the mean radius and OCEAN_BIAS pushes the whole surface inward, so most of
 # the sphere is below the sea — continents/islands emerge only at the cellular cores, with the sea for the
 # rivers to drain into. Raise OCEAN_BIAS (or SEA_RADIUS) for more water; lower for more land.
-const PLANET_SEA_RADIUS: float = 250.0
-const PLANET_OCEAN_BIAS: float = 7.0        # ~72% ocean / 28% land (Earth-like); raise for more sea
+const PLANET_SEA_RADIUS: float = PLANET_RADIUS
+const PLANET_OCEAN_BIAS: float = 7.0 * PLANET_SCALE   # ~72% ocean / 28% land (Earth-like); raise for more sea
 const PLANET_SPIN_RATE: float = 0.10        # rad/s axial spin (~1 rotation / 63s) — day/night sweep
 const PLANET_SPIN_AXIS: Vector3 = Vector3(0.40, 0.92, 0.0)   # ~23.5° obliquity vs the orbit plane → real seasons
 
@@ -230,8 +234,11 @@ func _ready() -> void:
 	# the neighbour table with radial gravity. ~123K cells (res 32/face × depth 20 × 6). Down = inward-radial.
 	var field_grid: RefCounted = SphereGridScript.new()
 	# Per-face cell resolution + shell depth come from the quality setting (Low runs a smaller grid on weak
-	# GPUs). Medium keeps the historical 32/face; core_radius 170, cell 8 → shell 170..330.
-	field_grid.build(_settings_applier.grid_res_per_face(), _settings_applier.grid_depth(), 170.0, 8.0, _body.center())
+	# GPUs). Medium keeps the historical 32/face. The shell (core_radius, cell_size) SCALES with the planet
+	# radius (PLANET_SCALE) so it always spans the surface band + atmosphere with the SAME cell_count — a bigger
+	# planet costs the same field, just with proportionally coarser cells (at radius 250: core 170, cell 8 →
+	# shell 170..330). Cells stay ~cubical because the lateral cell size also scales with radius at fixed res.
+	field_grid.build(_settings_applier.grid_res_per_face(), _settings_applier.grid_depth(), 170.0 * PLANET_SCALE, 8.0 * PLANET_SCALE, _body.center())
 	_material.setup_sphere(field_grid, _terrain)
 	if _material.has_method("sample_solidity"):
 		_material.sample_solidity()                        # fill the solid mask from the terrain SDF
