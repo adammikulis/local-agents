@@ -67,7 +67,10 @@ static func tick(c, delta: float) -> void:
 		return
 	if c.energy >= c.max_energy - FULL_EPS:
 		return                                       # sated: hold the gut, buffer the surplus (no matter lost)
-	var digested: float = minf(c.gut, c.gut * DIGEST_RATE * delta)
+	# LA_EVO_FAST compresses digestion throughput by the SAME factor as the metabolic burn (CreatureMetabolism),
+	# so energy recovery keeps pace with the faster burn — a bite refills proportionally faster and the population
+	# doesn't starve at high fast-factors. The minf cap keeps it bounded/conserved (never digest more than held).
+	var digested: float = minf(c.gut, c.gut * DIGEST_RATE * delta * LAAblate.evo_fast())
 	if digested <= 0.0:
 		return
 	c.gut -= digested

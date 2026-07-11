@@ -29,27 +29,31 @@ const SUFFOCATE_DRAIN: float = 45.0        # energy/sec once the breath reserve 
 
 ## Energy metabolism (exertion-scaled) + thirst + ageing. Returns true if the creature died (starve/thirst/age).
 static func tick(c, delta: float) -> bool:
+	# LA_EVO_FAST compresses the WHOLE life — metabolism/eating AND life-events — by the SAME factor, so the
+	# energy economy is scale-invariant: a creature burns energy `evo`× faster but (see CreatureDigestion) also
+	# digests `evo`× faster and ages `evo`× faster, so it still banks breeding energy before it dies. Inert at 1.
+	var evo: float = LAAblate.evo_fast()
 	# Metabolism drains energy; exertion costs more, sleeping costs less; eating (elsewhere) refills.
 	var exertion: float = 1.0
 	if c.state == "flee" or c.state == "panic" or c.state == "chase":
 		exertion = 1.6
 	elif c.state == "sleep" or c.state == "rest" or c.state == "roost":
 		exertion = 0.5                        # sleeping/resting conserves energy — why animals do it
-	c.energy -= c.metabolism * exertion * delta
+	c.energy -= c.metabolism * exertion * delta * evo
 	if c.energy <= 0.0:
 		c.die("starvation")
 		return true
-	# Thirst drains steadily; dehydration kills like starvation. Drinking (elsewhere) refills it.
+	# Thirst drains steadily; dehydration kills like starvation. Drinking (elsewhere) refills it. Left UNSCALED by
+	# evo on purpose: drinking cadence is brain-driven (not compressed), so compressing thirst too would cause a
+	# dehydration die-off at high factors — thirst just becomes a lesser pressure over a compressed life.
 	c.hydration -= c.thirst_rate * delta
 	if c.hydration <= 0.0:
 		c.die("thirst")
 		return true
-	# LA_EVO_FAST compresses the lifespan too (not just breeding): old founders must DIE for their offspring to
-	# win a breeding slot, or generations never turn over under the pop_cap. But death is compressed only by
-	# SQRT of the factor while breeding (gestation/maturity) gets the FULL factor — because metabolism/eating are
-	# NOT sped up, so a fully-compressed lifespan kills creatures before they can bank breeding energy (a die-off,
-	# not evolution). The sqrt gap keeps birth ahead of death: the population sustains AND turns over. Inert at 1.
-	if c.age >= c.max_age / sqrt(LAAblate.evo_fast()):
+	# Lifespan now compresses by the FULL factor (was sqrt): with metabolism/eating ALSO compressed, offspring
+	# bank breeding energy within a fully-compressed life, so old founders can die on the full schedule and
+	# generations turn over cleanly under the pop_cap — no die-off. Inert at 1.
+	if c.age >= c.max_age / evo:
 		c.die("old age")
 		return true
 	return false
