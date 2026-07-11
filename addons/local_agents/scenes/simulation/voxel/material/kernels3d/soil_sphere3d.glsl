@@ -50,7 +50,10 @@ const float INFIL_RATE = 0.20;        // peak infiltration (at moderate moisture
 const float DRY_CRUST = 0.12;         // bone-dry infiltration as a fraction of peak (hydrophobic/baked crust)
 const float WET_KNEE = 0.25;          // soil fraction by which the ground has rehydrated to full infiltration
 const float BASEFLOW = 0.0025;
-const float MIN_W = 0.02;
+// Low threshold on purpose: the soil pass runs right after rain (before the next step's evaporation), so a
+// THIN film of fresh rain/snowmelt must be able to soak in and be BANKED in the soil before it evaporates —
+// this is how diffuse precip recharges the table. Too high a gate and ambient rain never wets the ground.
+const float MIN_W = 0.002;
 
 void main() {
 	uint g = gl_GlobalInvocationID.x;

@@ -134,59 +134,8 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 		# well under creatures' 50°C lethal-heat limit. (Was pinned to 150°C as an interim fix when the crust
 		# conducted uniformly and a hot core baked the surface to ~110°C, killing the ecosystem.)
 		_material.add_magma_source(_body.center(), 1300.0, 0.6)
-	_seed_springs()
 	_spawned_initial = true
 	_hud.set_status("World ready — spawn things, click to inspect, press V for scent.")
-
-
-# Persistent SPRINGS: perennial water sources seeded on the HIGHEST land (mountain headwaters) so their steady
-# flow runs downhill through the Voronoi valleys and drains to the sea — emergent RIVERS, carried entirely by
-# the field's own water CA (no painted channels). Highland siting means the water has a long way to fall, so it
-# concentrates into channels on the way down. Tune SPRING_COUNT/SPRING_RATE for wetter/drier continents.
-const SPRING_COUNT: int = 7
-const SPRING_RATE: float = 0.9           # water mass/sec injected at each spring head (steady baseflow)
-const SPRING_SAMPLES: int = 400          # candidate directions scanned for the highest land
-
-func _seed_springs() -> void:
-	if _material == null or not _material.has_method("add_source") or _body == null:
-		return
-	if _terrain == null or not _terrain.has_method("surface_radius") or not _terrain.has_method("surface_point"):
-		return
-	var sea_r: float = _terrain.sea_radius() if _terrain.has_method("sea_radius") else 0.0
-	# Rank a spread of directions by land height (surface radius); keep the highest SPRING_COUNT that clear the
-	# sea by a good margin (real highlands, not tidal flats), spaced apart via a coarse angular reject so the
-	# springs seed different continents rather than clustering on the single tallest massif.
-	var cands: Array = []
-	for i in range(SPRING_SAMPLES):
-		var u: float = (float(i) + 0.5) / float(SPRING_SAMPLES)
-		var phi: float = acos(1.0 - 2.0 * u)
-		var theta: float = float(i) * 2.399963
-		var dir: Vector3 = Vector3(sin(phi) * cos(theta), cos(phi), sin(phi) * sin(theta)).normalized()
-		var sr: float = _terrain.surface_radius(dir)
-		if is_nan(sr) or sr < sea_r + 8.0:
-			continue
-		cands.append({"dir": dir, "r": sr})
-	cands.sort_custom(func(a, b): return float(a["r"]) > float(b["r"]))
-	var placed: int = 0
-	var used: Array = []
-	for c in cands:
-		if placed >= SPRING_COUNT:
-			break
-		var dir: Vector3 = c["dir"]
-		var too_close: bool = false
-		for ud in used:
-			if dir.dot(ud) > 0.72:            # ~44° apart → spread across the highlands
-				too_close = true
-				break
-		if too_close:
-			continue
-		var head: Vector3 = _terrain.surface_point(dir)
-		if is_nan(head.x):
-			continue
-		_material.add_source(head, SPRING_RATE)
-		used.append(dir)
-		placed += 1
-	print("SPRINGS={placed:%d, rate:%.2f}" % [placed, SPRING_RATE])
 
 
 ## True in CAMPAIGN mode (progression gating on) — the initial spawn is sparse so the player grows the world.
