@@ -4,20 +4,41 @@ Master tracker. Main scene: the game boots to `scenes/menu/MainMenu.tscn`; the f
 `scenes/simulation/voxel/VoxelWorld.tscn`. Read `CLAUDE.md` + `EMERGENCE.md` first.
 
 ## ▶ NEXT SESSION — START HERE (this file IS the plan doc; feed it in)
-To start **0.4 (the living creatures / their entire life cycle)**, in order:
-1. **Read:** `CLAUDE.md` (process, incl. the standing **Workflow-tool** fan-out rule) · `EMERGENCE.md`
-   (design) · the **`## 0.4 — THE LIVING CREATURES`** section below (the roadmap, in detail) ·
-   **`docs/0.4_PARALLELIZATION_GUIDE.md`** (the concrete file-split plan: which bottleneck files to split
-   and in what order) · the auto-loaded memories — `roadmap-0.4-life-cycle`, `dissolve-dont-patch`,
-   `surfaced-bugs-not-punted`, `workflow-tool-standing-process`, `parallelizability-first-refactor`,
-   `three-d-always`, `perf-over-parity`, `no-inferred-typing`, `local-agents-identity`.
-2. **Branch off `0.3-dev`** into a git worktree (per CLAUDE.md — never edit the shared checkout).
-3. **Do the Phase-0 seam-directed SPLITS FIRST** (from the parallelization guide) — serialized, one owner:
-   split `Creature.gd` (the #1 bottleneck) + `EcologyService.gd`, then generalize cognition off
-   `LACreature`, split the reaction records, extract `PlantLifeCycle`/`FishBody`. This is the prerequisite
-   that lets the fan-out stay parallel instead of collapsing to a queue.
-4. **Then FAN OUT the 6 workstreams via the `Workflow` tool** (standing process — pipeline implement→verify
-   per workstream; the main thread integrates/merges/gates).
+**0.4 (the living creatures) is well underway on `0.4-dev`** — the current dev branch. 0.3.1 shipped and
+lives on `main` (tagged `v0.3.1`); the old `0.3-dev` is retired. Read `CLAUDE.md` (process + Workflow-tool
+fan-out rule) · `EMERGENCE.md` (design) · the memories (`roadmap-0.4-life-cycle`, `dissolve-dont-patch`,
+`perf-over-parity`, `three-d-always`, …); work in a worktree off `0.4-dev`.
+
+**Shipped in 0.4 so far** (merged on `0.4-dev`, editor-scan-clean, behaviorally verified):
+- **Living-creatures fan-out** — literal **DNA** (codon strand → traits, replaced LAGenome) + heritable
+  cue-priors · **chemical affinity** (learned taste/scent cues; toxic plants teach avoidance; social spread
+  via observe) · **digestion/metabolism** (gut buffer; waste → field) · **per-creature reproduction**
+  (courtship→gestation→birth; dissolved the breeding god-tick) · **emergent evolution** (selection +
+  mutation). `Creature.gd`/`EcologyService.gd` split into one-owner modules (Phase 0 done).
+- **Evolution-observation harness** — `LA_EVO_FAST=N` compresses breeding (full factor) + lifespan (sqrt)
+  so a viable population turns over generations in seconds; `aversions` + population **gene-means** in
+  SimReport make affinity + selection measurable.
+- **Player time controls** — pause/slow/play/fast (Space · `,`/`.` · Home) + **snapshot timeline**:
+  reverse (J) + fork (resume forward = divergent future). Snapshots are **actors-only** (~100 KB,
+  perf-over-parity: life reverts, field flows on; `LA_SNAPSHOT_FIELD=1` for full); OFF in the harness
+  unless `LA_SNAPSHOTS=1`.
+- **Camera** — ground-walk (WASD/edge-scroll when zoomed in), critically-damped smooth zoom
+  (`ZOOM_SMOOTH_TIME` knob), eased arc-down to eye level, sunnyside + moderate zoomed-in start.
+
+**Next — pick up here:**
+1. **Windowed verification pass** (cannot be tested headless): reverse/fork *feel* · zoom curve (tune
+   `ZOOM_SMOOTH_TIME`, 0.62 now) · affinity/veto behavior (watch creatures learn to shun toxic plants).
+2. **Chemistry channels** — the "convert everything to chemicals" half still owed: toxin/nectar/nitrogen as
+   real field substances (diffuse/deposit/decay) so affinity learns about actual chemicals, not just food
+   tags. See "Chemistry to add" + Phase 2 below.
+3. **Deeper evolution** — for coherent deep-generation runs, also scale metabolism/eating with
+   `LA_EVO_FAST` (only life-events are compressed now, so high factors starve the population).
+4. **Phases 1–5 below still stand** (signal spine · nutrient cycle · pet companion) — the affinity/scent-cue
+   path is a partial down-payment on the signal spine.
+5. **Bigger planet** is affordable if wanted (the field grid is the only size-scaling cost; activity-LOD
+   offsets it; terrain/creatures don't scale with size).
+
+Dev knobs added this session: `LA_EVO_FAST` · `LA_SNAPSHOTS` / `LA_SNAPSHOT_FIELD` · `ZOOM_SMOOTH_TIME`.
 
 ### Faster iteration — dev-speed levers (USE THESE)
 - **`scripts/run_sim_offscreen.sh`** — off-screen, focus-safe, SILENT-audio verification wrapper (now on the
@@ -98,7 +119,8 @@ build that boots.** Everything below is MERGED on `feature/sphere-followups` unl
 - [ ] **Rebuild the native extension** (#71) — activate the `LAProcess`/clean-quit primitive in the shared bin;
   verify rc 0 end-to-end. (CI/release build does this automatically for the shipped build.)
 - [ ] **Shoot the 30s trailer** (per `docs/TRAILER.md`) + a few looping GIFs for the itch page/README.
-- [ ] **Final full-sim verify → merge `feature/sphere-followups` → `0.3-dev` → tag 0.3.**
+- [x] **0.3 shipped** — released as **0.3.1** on `main` (tagged `v0.3.1`; macOS + Linux builds on the GitHub
+  release). `0.3-dev` retired; development continues on `0.4-dev`.
 
 ---
 
