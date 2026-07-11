@@ -102,6 +102,12 @@ func tick(creature, delta: float) -> bool:
 			var fever: float = float(rec["fever"])
 			if fever > 0.0 and creature._material != null and creature._material.has_method("add_heat"):
 				creature._material.add_heat(pos, fever * load * delta, 2.0)
+			# Lethargy: a sick animal is WINDED — feed muscle lactate so the existing lactate speed-cap slows it.
+			# A slowed, weak animal is easier PREY, so predators preferentially cull the sick → the population is
+			# selected for constitution. No new movement hook — the lactate→speed machinery already does the rest.
+			var slow: float = float(rec["slow"])
+			if slow > 0.0:
+				creature.lactate = minf(1.0, float(creature.lactate) + slow * load * delta)
 			if creature.health <= 0.0:
 				creature.die("disease")
 				return true
