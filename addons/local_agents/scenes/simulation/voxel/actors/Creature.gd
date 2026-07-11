@@ -25,6 +25,11 @@ const ThrownRockScript: GDScript = preload("res://addons/local_agents/scenes/sim
 # --- energy / hunger / mortality (emergent: eat to live, starve or age to die) ---
 var energy: float = 100.0
 var max_energy: float = 100.0
+# Per-creature disease/immune state — owned by LACreatureDisease so all of it lives off this monolith (the
+# seam the disease fan-out builds on). Set in setup(); ticked in _physics_process; transmission modules call
+# disease.infect(). Symptoms damage the HP `health` field below. Null-guarded so the sim runs identically
+# until disease behaviour lands.
+var disease: LACreatureDisease = null
 var lactate: float = 0.0                     # muscle LACTATE (0..1): the anaerobic-exertion fatigue byproduct.
                                              # Builds when sprinting past the aerobic threshold, clears aerobically
                                              # at rest; caps top speed + makes conserving energy a top drive so
@@ -561,6 +566,8 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	LACreatureChemSense.seed_priors(self)
 	# Size the gut from max energy and pick the microbiome from diet (herbivores ferment plant matter).
 	LACreatureDigestion.setup(self)
+	disease = LACreatureDisease.new()        # per-creature disease/immune state (owned off this monolith)
+	disease.setup(self, config)
 
 
 # The shared System-2 scheduler (FunctionGemma budget/queue), injected by the ecology after setup.
@@ -768,6 +775,10 @@ func _physics_process(delta: float) -> void:
 	# so the gestation drain is folded into this frame's energy accounting. Courtship/mate-seeking (the steering)
 	# happens later in the decision cascade via courtship_heading. See LACreatureReproduction.
 	LACreatureReproduction.tick(self, delta)
+	# Disease/immune: progress any active infection, fight it (immune system), express symptoms (energy/speed),
+	# recover-with-immunity or die of disease. Owned by LACreatureDisease; a no-op until the disease work lands.
+	if disease != null and disease.tick(self, delta):
+		return
 	# Metabolism (exertion-scaled energy burn) + thirst + ageing — see LACreatureMetabolism. Death stops us.
 	if LACreatureMetabolism.tick(self, delta):
 		return
