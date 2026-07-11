@@ -46,6 +46,9 @@ static func active() -> LAWorldSaveController:
 
 func _ready() -> void:
 	_active = self
+	# ALWAYS so a deferred restore still completes while the tree is paused — the timeline pauses the sim during
+	# a reverse scrub, and each rewind step's restore must finish across those paused frames.
+	process_mode = Node.PROCESS_MODE_ALWAYS
 
 
 func _exit_tree() -> void:
@@ -256,12 +259,23 @@ func save_to_slot(slot: String) -> int:
 # it in place, reusing the deferred field-ready restore machinery.
 
 ## Capture the whole world to an in-memory dict (no file). Requires the field to be ready (else returns {}).
+## Timeline snapshots default to ACTORS-ONLY: the multi-MB GPU field (water/heat/chemistry — the bulk of a
+## snapshot) is dropped so the rewind ring stays small. A rewind then restores the LIFE (population, genes,
+## cognition, kinship) faithfully while the environment keeps flowing — behavioural, NOT bit-parity, in the
+## repo's perf-over-parity spirit. LA_SNAPSHOT_FIELD=1 keeps the full field for a heavier, fuller rewind.
 func capture_snapshot() -> Dictionary:
 	if _world == null or _world._material == null:
 		return {}
 	if not FieldSnapshotScript.is_ready(_world._material):
 		return {}
-	return StateScript.capture(_world)
+	var state: Dictionary = StateScript.capture(_world)
+	if not _snapshot_includes_field():
+		state["field"] = {}                # drop the heavy field block; restore leaves the live field untouched
+	return state
+
+
+func _snapshot_includes_field() -> bool:
+	return OS.has_environment("LA_SNAPSHOT_FIELD") and OS.get_environment("LA_SNAPSHOT_FIELD") != "0"
 
 
 ## True while a restore is mid-flight (the caller should not capture or restore again until it clears).

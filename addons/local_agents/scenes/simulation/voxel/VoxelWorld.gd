@@ -34,6 +34,7 @@ const AudioControllerScript: GDScript = preload("res://addons/local_agents/scene
 const GameProgressionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/game/GameProgression.gd")
 const GameHudScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/GameHud.gd")
 const TimeControlScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelTimeControl.gd")
+const TimelineScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelTimeline.gd")
 const CampaignTutorialScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/CampaignTutorial.gd")
 const SettingsApplierScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelSettingsApplier.gd")
 const WorldSaveControllerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/game/WorldSaveController.gd")
@@ -390,6 +391,14 @@ func _ready() -> void:
 	save_ctrl.name = "WorldSaveController"
 	add_child(save_ctrl)
 	save_ctrl.setup(self)
+
+	# Timeline snapshot ring — smooth in-place reverse + fork (RAM ring, off in the harness unless LA_SNAPSHOTS=1).
+	var timeline: LAVoxelTimeline = TimelineScript.new()
+	timeline.name = "Timeline"
+	add_child(timeline)
+	timeline.setup(save_ctrl)
+	if _time_control != null and _time_control.has_method("set_timeline"):
+		_time_control.set_timeline(timeline)
 
 
 func _process(delta: float) -> void:
