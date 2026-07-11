@@ -145,6 +145,7 @@ func _apply_readback(res: Dictionary) -> void:
 	if res.has("snow") and res["snow"].size() == n: _f._snow = res["snow"]
 	if res.has("dust") and res["dust"].size() == n: _f._dust = res["dust"]
 	if res.has("sediment") and res["sediment"].size() == n: _f._sediment = res["sediment"]
+	if res.has("soil") and res["soil"].size() == n: _f._soil = res["soil"]        # water-table reservoir readback
 	if res.has("rock_fill") and res["rock_fill"].size() == n: _f._rock_fill = res["rock_fill"]
 	# Substrate-foundation channels: shock (tremor/impact), charge (bolt breakdown), and the emergent WIND
 	# velocity field (wind3_at/wind_at read a real force instead of ZERO).

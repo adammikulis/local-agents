@@ -24,7 +24,7 @@ extends RefCounted
 # Ping-pong (double-buffered) channels — one _a/_b pair each.
 const PAIR_CHANNELS: PackedStringArray = [
 	"temp", "water", "moisture", "lava", "sediment", "fire", "dust",
-	"o2", "co2", "shock", "fungus", "susp", "fert"]
+	"o2", "co2", "shock", "fungus", "susp", "fert", "soil"]
 # scent is a 5-plane packed pair (5*cell_count); handled specially.
 # Single (non-ping-pong) float buffers. `rock_fill` is the fractional bedrock-mineral channel (rock unification
 # Stage B): `solid` is DERIVED from it each step (solid iff rock_fill >= 0.5, see SolidDerivePass). It is GPU-owned
@@ -42,6 +42,7 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/ThermalPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/GasWindPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/AtmospherePass.gd",
+	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/SoilPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/ReactionsPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/FireDustPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/EcoSurfacePass.gd"]
@@ -146,7 +147,7 @@ func end_frame(_rv: bool = true, _rc: bool = true, _rf: bool = true, _rr: bool =
 		return out
 	# `sediment` joins the readback so the mineral conservation ledger (mineral_total) sees the loose-regolith
 	# phase — without it, dust→sediment deposits/settles stayed GPU-only and the ledger under-counted.
-	for k in ["temp", "water", "moisture", "lava", "fire", "o2", "co2", "dust", "shock", "sediment"]:
+	for k in ["temp", "water", "moisture", "lava", "fire", "o2", "co2", "dust", "shock", "sediment", "soil"]:
 		out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
 	# scent is a 5-plane packed pair (SCENT_PLANES * cell_count) — read its live half whole so the CPU bridge
 	# scatters all five planes (prey/predator/blood/food/alarm) back for the sense gradients.
@@ -334,5 +335,5 @@ func _empty_result() -> Dictionary:
 		"detritus": PackedFloat32Array(), "shock": PackedFloat32Array(),
 		"dust": PackedFloat32Array(), "snow": PackedFloat32Array(),
 		"susp": PackedFloat32Array(), "biomass": PackedFloat32Array(),
-		"rock_fill": PackedFloat32Array(),
+		"rock_fill": PackedFloat32Array(), "soil": PackedFloat32Array(),
 	}

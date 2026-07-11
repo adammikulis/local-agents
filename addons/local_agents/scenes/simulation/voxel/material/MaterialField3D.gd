@@ -119,6 +119,12 @@ var _co2: PackedFloat32Array = PackedFloat32Array()      # atmospheric CO₂ lev
 # --- Emergent DECOMPOSER loop (LAMaterialFungus3D): dead organic matter (DETRITUS) deposited by rotting
 # carcasses + wildfire ash is colonised by FUNGUS, which rots it back into CO₂ + soil fertility while drawing
 # O₂ (aerobic). Closes the carbon/nutrient loop (death→soil→plant). Seeded ~0; only exists where a source made it.
+# --- SOIL WATER / water table (LASoilPass / soil_sphere3d): water held in the top GROUND (solid) cell layer.
+# The reservoir that lets land water persist — surface water infiltrates in, the ground releases it slowly as
+# baseflow (perennial rivers) + saturation overflow. GPU-owned; read back for soil_at()/soil_total() + the
+# conserved h2o ledger (infiltrated water lives here, NOT in _water, so it must be counted). The SAME conserved
+# H₂O substance as _water/_moisture/_snow, just the subsurface phase.
+var _soil: PackedFloat32Array = PackedFloat32Array()     # water stored in the ground per cell (0 = bone dry)
 var _detritus: PackedFloat32Array = PackedFloat32Array() # dead decomposable organic matter per cell (0 = none)
 var _fungus: PackedFloat32Array = PackedFloat32Array()   # fungal biomass density per cell (0 = none; high = mushrooms)
 # --- Emergent LIVING BIOMASS (MaterialReactions3D R19/R20 — the plant carbon-fix leg dissolved into the field).
@@ -324,6 +330,9 @@ func _alloc_channels() -> void:
 	_moisture.fill(VAPOR_AMBIENT)
 	_lava = PackedFloat32Array()
 	_lava.resize(_cell_count)
+	# Soil water reservoir (water table): starts BONE DRY (0) everywhere; rain/rivers wet it over the run.
+	_soil = PackedFloat32Array()
+	_soil.resize(_cell_count)
 	# Bedrock mineral fraction: seeded from the solid mask on activate (mirrors _solid), GPU-owned thereafter.
 	_rock_fill = PackedFloat32Array()
 	_rock_fill.resize(_cell_count)
@@ -1039,11 +1048,21 @@ func water_total() -> float:
 		if _solid[c] == 0:
 			sum += _water[c]
 	return sum
-## Conserved H₂O budget of the DYNAMIC system: liquid water + airborne moisture + frozen snow. Freeze/melt/
-## deposition/evap/rain are all pure transfers between these three, so this must stay BOUNDED (a slow static-sea
-## source + rain-to-sea sink hold it at a steady level) — the mass-conservation spot check fed into SIM_REPORT.
+## Total water stored in the SOIL (ground cells) — the subsurface leg of the conserved h2o budget. Infiltrated
+## water lives here rather than in _water, so it must be counted or conservation would appear to leak.
+func soil_total() -> float:
+	if _soil.size() != _cell_count:
+		return 0.0
+	var sum: float = 0.0
+	for c in _cell_count:
+		if _solid[c] != 0:
+			sum += _soil[c]
+	return sum
+## Conserved H₂O budget of the DYNAMIC system: liquid water + airborne moisture + frozen snow + SOIL water.
+## Freeze/melt/deposition/evap/rain/infiltration are all pure transfers between these, so this stays BOUNDED
+## (a slow static-sea source + rain-to-sea sink hold it steady) — the mass-conservation spot check for SIM_REPORT.
 func h2o_total() -> float:
-	return water_total() + moisture_total() + snow_total()
+	return water_total() + moisture_total() + snow_total() + soil_total()
 ## Mean temperature over the snow-covered cells — proves snow sits on the COLD side (should read below FREEZE_TEMP).
 func snow_line_temp() -> float:
 	if _snow.size() != _cell_count:
@@ -1261,7 +1280,7 @@ func report() -> Dictionary:
 		"co2_peak": co2_peak(), "co2_avg": co2_avg(), "fungus_cells": fungus_cells(),
 		"fungus_peak": fungus_peak(), "detritus_peak": detritus_peak(),
 		"biomass_total": biomass_total(),
-		"h2o_total": h2o_total(), "water_total": water_total(), "snow_total": snow_total(),
+		"h2o_total": h2o_total(), "water_total": water_total(), "snow_total": snow_total(), "soil_total": soil_total(),
 		"snow_line_temp": snow_line_temp(),
 		"mineral_total": _queries.mineral_total(), "rock_cells": _queries.rock_cells(),
 		"rock_fill_total": _queries.rock_fill_total(), "lava_total": _queries.lava_total(),
