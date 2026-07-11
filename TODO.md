@@ -24,6 +24,16 @@ fan-out rule) · `EMERGENCE.md` (design) · the memories (`roadmap-0.4-life-cycl
   unless `LA_SNAPSHOTS=1`.
 - **Camera** — ground-walk (WASD/edge-scroll when zoomed in), critically-damped smooth zoom
   (`ZOOM_SMOOTH_TIME` knob), eased arc-down to eye level, sunnyside + moderate zoomed-in start.
+- **World + water + disease (this session)** — RTS approach-arc camera + ground-level **campaign** start
+  (one rabbit herd, no plants, zoom-locked) + altitude-aware blue-sky lighting. **Ocean-heavy Voronoi
+  planet** (~72% sea, cellular continents) + **land-biased spawn**; **2× radius (500)** for a flat
+  village-scale horizon (field shell + relief/feature/ocean scale with the radius → same cell_count/perf).
+  **Emergent water**: mass-scaled water **sweep** + plant **rooting** (uproot) · **flood = cloudburst**
+  (no conjured water) + **smite population governor** · **soil water table** (GPU channel: infiltration
+  with a bone-dry hydrophobic-crust FLASH-FLOOD hump, holding capacity, baseflow; in the conserved h2o
+  ledger). **Disease/pests/immune** (`#7`): data-driven strains (`data/diseases/*.json`), contact/airborne/
+  waterborne/pest transmission, incubation→immune-fight→symptoms(energy/HP/fever/**lethargy→easier prey**)→
+  recover-with-immunity or die; **constitution** is now a heritable gene so epidemics evolve resistance.
 
 **Next — pick up here:**
 1. **Windowed verification pass** (cannot be tested headless): reverse/fork *feel* · zoom curve (tune
@@ -35,10 +45,25 @@ fan-out rule) · `EMERGENCE.md` (design) · the memories (`roadmap-0.4-life-cycl
    `LA_EVO_FAST` (only life-events are compressed now, so high factors starve the population).
 4. **Phases 1–5 below still stand** (signal spine · nutrient cycle · pet companion) — the affinity/scent-cue
    path is a partial down-payment on the signal spine.
-5. **Bigger planet** is affordable if wanted (the field grid is the only size-scaling cost; activity-LOD
-   offsets it; terrain/creatures don't scale with size).
+5. **Bigger planet** — DONE (2×, radius 500; field shell scales with radius at fixed cell_count).
+6. **Windowed feel-tuning** (the maintainer's eye, can't headless): camera arc pose + ground brightness
+   (`SURFACE_AMBIENT`) · disease *look* (a sick-animal visual tell was left for tuning — the emissive
+   tint-overlay path in `Creature._apply_tint_overlay` conflicts with the debug behavior-tint, so wire it
+   throttled/on-change) · planet size (500 now — bump `PLANET_RADIUS`, everything else scales).
+7. **Visible perennial rivers** need the **0.5 aquifer baseflow** (see `ROADMAP_0.5.md`) OR much stronger
+   inland moisture transport — the water TABLE is correct but diffuse precip doesn't recharge land on the
+   ocean-heavy world (arid interiors; the table fills from pooling/floods only). `#10`.
+8. **Off-camera statistical creature LOD** (`#13`) — aggregate off-screen populations by equation, freeing
+   per-individual cost; re-materialize on approach. Deferred (risky) — a marquee scalability win.
+9. **evo_fast + disease balance**: under `LA_EVO_FAST` the population declines (death > birth, few
+   generations) so multi-generation SELECTION on `constitution` isn't observable there; normal play is
+   stable (~174). Tune the breeding/lifespan/disease-mortality balance in evo_fast mode to see selection.
 
-Dev knobs added this session: `LA_EVO_FAST` · `LA_SNAPSHOTS` / `LA_SNAPSHOT_FIELD` · `ZOOM_SMOOTH_TIME`.
+Deferred to **0.5** (captured in `ROADMAP_0.5.md`): grow-the-planet baking · emergent erosion + sediment
+(hydraulic/glacial/thermal/aeolian) · full 3D groundwater aquifer → head-pressured emergent springs.
+
+Dev knobs added this session: `LA_EVO_FAST` · `LA_SNAPSHOTS` / `LA_SNAPSHOT_FIELD` · `ZOOM_SMOOTH_TIME` ·
+`LA_POP_CEILING` / `LA_NO_SMITE` (smite governor) · `LA_DISEASE_SEED` / `LA_DISEASE_STRAIN` (disease).
 
 ### Faster iteration — dev-speed levers (USE THESE)
 - **`scripts/run_sim_offscreen.sh`** — off-screen, focus-safe, SILENT-audio verification wrapper (now on the
