@@ -84,6 +84,7 @@ var _events: Node = null     # LAEventTracker — the ONE emergent phenomenon-ev
 # --- Focused controllers (each owns one cross-cutting concern) ---
 var _sky_ctrl: LAVoxelSkyController = null      # star/sun + sky-mode wiring + day/night clock
 var _spawn: LAVoxelSpawnController = null       # initial ecology/actor spawning + counts + river springs
+var _gen_screen: LAGeneratingPlanetScreen = null   # "Generating planet" loading overlay (hides world assembly)
 var _input: LAVoxelInputController = null       # CLI-arg parsing + auto-demo firing + pause-menu host
 var _debug: LAVoxelDebugWiring = null           # DebugPanel/DebugOverlay wiring + debug-view dispatch
 var _progression: LAGameProgression = null      # campaign stage ladder gating camera zoom / view modes / spawns
@@ -366,6 +367,11 @@ func _ready() -> void:
 	add_child(_spawn)
 	_spawn.setup(self, _body, _terrain, _ecology, _camera, _material, _hud, _disasters)
 	_spawn.set_spawn_scale(_settings_applier.spawn_scale())   # quality actor_budget → fewer/more actors
+	# "Generating planet" loading overlay — covers the world ASSEMBLING (terrain streaming, camera arc settling,
+	# initial spawn) so the player never watches it build; finished + faded the moment the world is ready.
+	_gen_screen = LAGeneratingPlanetScreen.new()
+	_gen_screen.name = "GeneratingPlanetScreen"
+	add_child(_gen_screen)
 
 	# Wire the input controller's auto-demo hooks now that every scene ref exists.
 	_input.bind(_terrain, _camera, _body, _sky_ctrl.star(), _material, _disasters, _interaction, _ecology)
@@ -440,6 +446,10 @@ func _process(delta: float) -> void:
 		_body.rotate(PLANET_SPIN_AXIS.normalized(), PLANET_SPIN_RATE * delta)
 	# Spawn the starting ecology once terrain has streamed + collided at the surface.
 	_spawn.try_spawn(_input.overview(), _input.farview(), _input.auto_meteor(), _input.auto_select())
+	# World is ready → fade out the "Generating planet" overlay (once).
+	if _gen_screen != null and _spawn.is_spawned():
+		_gen_screen.finish()
+		_gen_screen = null
 	_interaction.update_hand(delta)
 	_interaction.update_selection_ring()
 	_brush.update_brush_ring()
