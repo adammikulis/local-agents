@@ -418,7 +418,10 @@ func _approach_t() -> float:
 ## at ground level, the stark dark space look when pulled out). 0 outside orbit mode (fly/solar keep the space
 ## look). Public wrapper over the internal approach blend.
 func surface_blend() -> float:
-	if not _orbit_mode:
+	# Fly + the pulled-way-out SOLAR-SYSTEM overview always read as SPACE (dark starfield, no atmosphere dome),
+	# regardless of the raw orbit distance — else the solar view shows the sky shader's ground/horizon band as a
+	# false horizon behind the planet. (_orbit_mode can stay true under solar view, so test the views explicitly.)
+	if not _orbit_mode or _solar_view or _fly:
 		return 0.0
 	# Atmosphere/brightness lags the pose arc: stay stark-dark SPACE for the first part of the descent, then
 	# ease the blue sky + fill in gradually over the LOWER half of the approach — so it doesn't "get too bright
