@@ -24,6 +24,11 @@ var _slot: String = LAGameSave.DEFAULT_SLOT      # the slot quick_save writes to
 var _pending: Dictionary = {}                     # a loaded save awaiting the field-ready deferred restore
 var _restore_pending: bool = false
 var _restore_deadline: int = 0                    # frames to wait for the field before giving up (fail-graceful)
+var _restore_min_wait: int = 0                    # frames to hold before applying (lets a live reset's queue_free complete)
+# --timeline-selftest: capture at frame 300, let the world diverge, restore in place at 600, print state each
+# step. Proves the in-memory capture + live reset + restore round-trips (population/kinship/field return).
+var _selftest_stage: int = 0                      # 0 off · 1 armed · 2 captured · 3 restoring · 4 done
+var _selftest_snap: Dictionary = {}
 # Headless round-trip harness hooks (CLI): --save-slot=NAME [--save-frame=N] auto-saves at frame N and prints a
 # deterministic state line; --load-slot=NAME resumes that slot (equivalent to the menu Continue).
 var _auto_save_slot: String = ""
@@ -78,6 +83,8 @@ func _parse_cli() -> void:
 			_auto_save_frame = int(arg.substr("--save-frame=".length()))
 		elif arg.begins_with("--load-fixture="):
 			_load_fixture_dir = arg.substr("--load-fixture=".length())
+		elif arg == "--timeline-selftest":
+			_selftest_stage = 1
 	if _auto_save_slot != "" and _auto_save_frame <= 0:
 		_auto_save_frame = 400
 
@@ -132,6 +139,8 @@ func _begin_load_dir(dir: String) -> void:
 
 func _process(_delta: float) -> void:
 	_frame += 1
+	if _selftest_stage > 0:
+		_run_timeline_selftest()
 	# Headless auto-save hook: snapshot once the field is up AND the target frame has arrived.
 	if _auto_save_slot != "" and not _auto_saved and _frame >= _auto_save_frame \
 			and FieldSnapshotScript.is_ready(_world._material):
@@ -140,6 +149,9 @@ func _process(_delta: float) -> void:
 		_emit_state("SAVE_STATE_SAVED")
 	if not _restore_pending:
 		return
+	if _restore_min_wait > 0:
+		_restore_min_wait -= 1                       # hold so a live reset's queue_free'd actors leave the tree first
+		return
 	_restore_deadline -= 1
 	if _restore_deadline <= 0:
 		push_warning("LAWorldSaveController: field never became ready — actors restored without the field")
@@ -147,6 +159,23 @@ func _process(_delta: float) -> void:
 		return
 	if FieldSnapshotScript.is_ready(_world._material):
 		_finish_restore()
+
+
+## Headless proof of the in-place snapshot round-trip. Emits TL_* state lines: the captured snapshot, the
+## diverged world just before restore, and the restored world (which should match the capture).
+func _run_timeline_selftest() -> void:
+	if _selftest_stage == 1 and _frame >= 300 and FieldSnapshotScript.is_ready(_world._material):
+		_selftest_snap = capture_snapshot()
+		_selftest_stage = 2 if not _selftest_snap.is_empty() else 1
+		if _selftest_stage == 2:
+			_emit_state("TL_CAPTURED")
+	elif _selftest_stage == 2 and _frame >= 600:
+		_emit_state("TL_BEFORE_RESTORE")
+		restore_snapshot(_selftest_snap)
+		_selftest_stage = 3
+	elif _selftest_stage == 3 and not _restore_pending:
+		_emit_state("TL_RESTORED")           # should match TL_CAPTURED (population/habits/families/mineral)
+		_selftest_stage = 4
 
 
 func _finish_restore() -> void:
@@ -219,3 +248,38 @@ func save_to_slot(slot: String) -> int:
 	var err: int = LAGameSave.write_world(slot, header, state, settings)
 	print("SAVE_WRITE={slot:%s, err:%d, population:%d, stage:%d}" % [slot, err, population, stage])
 	return err
+
+
+# --- Timeline snapshots (in-memory rewind/fork; no disk) -----------------------------------------------------
+# A snapshot is exactly the whole-world state dict StateScript.capture() builds — the same blob quick_save
+# writes, just held in RAM by the timeline ring instead of a file. Restore wipes the live world and re-applies
+# it in place, reusing the deferred field-ready restore machinery.
+
+## Capture the whole world to an in-memory dict (no file). Requires the field to be ready (else returns {}).
+func capture_snapshot() -> Dictionary:
+	if _world == null or _world._material == null:
+		return {}
+	if not FieldSnapshotScript.is_ready(_world._material):
+		return {}
+	return StateScript.capture(_world)
+
+
+## True while a restore is mid-flight (the caller should not capture or restore again until it clears).
+func is_restoring() -> bool:
+	return _restore_pending
+
+
+## Restore a snapshot IN PLACE (live rewind/fork): wipe the current population + registries, then re-apply the
+## snapshot's field + actors once the freed nodes have left the tree and the field is ready. Deferred via the
+## same _restore_pending path as a disk load, plus a short min-wait for the reset's queue_free to complete.
+func restore_snapshot(data: Dictionary) -> void:
+	if _world == null or data.is_empty() or _restore_pending:
+		return
+	if _world._ecology != null and _world._ecology.has_method("reset_world"):
+		_world._ecology.reset_world()
+	_pending = data.duplicate(true)                 # own a copy — the ring keeps the original
+	_restore_pending = true
+	_restore_min_wait = 2
+	_restore_deadline = 3600
+	if _world._progression != null and _world._progression.has_method("restore"):
+		_world._progression.restore(data.get("progression", {}))

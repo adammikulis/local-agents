@@ -65,6 +65,29 @@ var _kinship: LAKinshipGraph = LAKinshipGraph.new()
 func kinship() -> LAKinshipGraph:
 	return _kinship
 
+
+## Wipe the live population + registries back to the fresh-but-initialized state, so a saved snapshot can be
+## restored IN PLACE (no scene reload) — used by the timeline rewind/fork. Frees every actor node (creatures,
+## fish, vegetation, rocks, nests, disaster markers — all carry GROUP_SELECTABLE) and resets the kinship graph;
+## vegetation actors release their renderer slots on _exit_tree, so the batched MultiMesh recycles them. The
+## field is restored separately by the caller. Lazy species-kind caches are left (immutable, config-derived).
+func reset_world() -> void:
+	if actors_root == null:
+		return
+	var tree: SceneTree = actors_root.get_tree()
+	if tree == null:
+		return
+	var seen: Dictionary = {}
+	for grp in ["creature", "fish", "selectable"]:
+		for a in tree.get_nodes_in_group(grp):
+			if a is Node and is_instance_valid(a) and not seen.has(a.get_instance_id()):
+				seen[a.get_instance_id()] = true
+				a.queue_free()
+	# Fresh kinship graph — apply_actors rebuilds families from the snapshot's saved edges.
+	_kinship = LAKinshipGraph.new()
+	# Drop any queued spawn work so it can't spawn into the restored world.
+	_pending.clear()
+
 # --- Seismic / shock stimulus (emergent camera shake) ------------------------
 # Ground disturbances now inject into the field's PROPAGATING shock wave (LAMaterialShock3D); the camera
 # reads seismic_energy_at() (→ field.shock_at) and shakes. No local ring — the wave carries it (see below).
