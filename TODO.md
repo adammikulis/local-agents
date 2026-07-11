@@ -35,6 +35,20 @@ fan-out rule) · `EMERGENCE.md` (design) · the memories (`roadmap-0.4-life-cycl
   waterborne/pest transmission, incubation→immune-fight→symptoms(energy/HP/fever/**lethargy→easier prey**)→
   recover-with-immunity or die; **constitution** is now a heritable gene so epidemics evolve resistance.
 
+- **Planet-correctness + geophysics pass (this session, part 2)** — a multi-agent REVIEW workflow
+  (`planet-correctness-review`, read-only + adversarially-verified) found 7 real substrate bugs; 5 fixed:
+  the **aquifer had no receiver-capacity cap** so the water table collapsed to the bottom shell + valley
+  springs dried out (fixed → land surface water 4200→5600+, **rivers finally work**); advection could
+  **manufacture moisture** (Courant clamps summed >1, tightened to 1/3); a **snow-mass leak** (SNOW_MIN
+  clamp, now conserving); **combustion O2/CO2 written to the discarded ping-pong half** (fixed to BACK);
+  a one-sided flood ring. Plus: **3D groundwater AQUIFER** (regolith band + bedrock floor + Darcy flow →
+  perennial springs/rivers), **water-sweep perf** (raycast throttle 123ms→22ms), **water-cycle balance**
+  (bounded the h2o drift: rain-threshold + evap), **faked PLATE TECTONICS** (drifting Voronoi plates →
+  quakes + rare arc volcanoes at boundaries = a Ring of Fire), **coast avoidance** (land walkers don't
+  drown off islands), a **"Generating planet" loading screen**, and the RTS **camera arc** (bows/swoops,
+  less steep, smoothed space→sky transition). Long-run STABILITY verified: temperate (no thermal runaway),
+  bounded water, playable perf. Design captured in `PLANET_GEOPHYSICS.md`.
+
 **Next — pick up here:**
 1. **Windowed verification pass** (cannot be tested headless): reverse/fork *feel* · zoom curve (tune
    `ZOOM_SMOOTH_TIME`, 0.62 now) · affinity/veto behavior (watch creatures learn to shun toxic plants).
@@ -58,6 +72,16 @@ fan-out rule) · `EMERGENCE.md` (design) · the memories (`roadmap-0.4-life-cycl
 9. **evo_fast + disease balance**: under `LA_EVO_FAST` the population declines (death > birth, few
    generations) so multi-generation SELECTION on `constitution` isn't observable there; normal play is
    stable (~174). Tune the breeding/lifespan/disease-mortality balance in evo_fast mode to see selection.
+
+10. **Camera controls to live-tune** (need your hands, can't headless): the drag X/Y felt reversed after the
+    arc change, and right-click should PIVOT the view rather than drag-rotate the globe like left-click — but
+    RMB currently doubles as spawn-placement, so that's a control-scheme decision. Also confirm the arc feel.
+11. **Volcano heat-shedding** — sustained/multiple volcanoes bake the planet over a long game (temp runaway),
+    so tectonic arc volcanoes are kept RARE as a band-aid. The `planet-fix-validation` workflow is
+    root-causing whether the surface radiative sink is too weak; fix it to re-enable frequent volcanism.
+12. **Big planetary events** (deep-geophysics arc, `PLANET_GEOPHYSICS.md`) — real crust FRACTURING (#15),
+    the Theia giant-impact (#16), and true emergent PLATE TECTONICS (#17, the faked version shipped is the
+    first slice). Research-grade; design with the maintainer.
 
 Deferred to **0.5** (captured in `ROADMAP_0.5.md`): grow-the-planet baking · emergent erosion + sediment
 (hydraulic/glacial/thermal/aeolian) · full 3D groundwater aquifer → head-pressured emergent springs.
