@@ -77,16 +77,20 @@ const SURFACE_WALK_SPEED: float = 0.8     # radians/sec of surface sweep at full
 # Below it the arc ramps in to 1 at the surface. Bigger = the arc begins engaging from further out (arcs more);
 # keep it near/just above the whole-planet framing (ORBIT_DEFAULT_DISTANCE_MULT) so the pulled-out globe view
 # stays clean. This is the primary knob to tune the RTS-approach feel.
-const ARC_TOP_MULT: float = 2.6
+const ARC_TOP_MULT: float = 4.2
 # Ground-walk (WASD/edge-scroll surface sweep) takes over from globe-drag once the arc is at least this engaged.
 const GROUND_WALK_ARC_T: float = 0.35
 # The closest-zoom eye pose, relative to the surface point under the view (all tunable — the low POV is the
 # most-played view, so this is the one to get right): height ABOVE the ground (a little over the creatures, not
 # down in the grass), tangential offset BACK from the point, and the height of the look target (creature/head
 # height, so you gaze slightly down at the animals rather than across their feet).
-const ARC_EYE_HEIGHT: float = 5.0
-const ARC_EYE_BACK: float = 11.0
-const ARC_LOOK_HEIGHT: float = 1.6
+const ARC_EYE_HEIGHT: float = 8.5
+const ARC_EYE_BACK: float = 13.0
+const ARC_LOOK_HEIGHT: float = 2.2
+# Lateral SWING of the descent path (× planet radius, peaking mid-approach): the camera bows out to the side as
+# it comes down instead of plunging straight along the radial, so it reads as an RTS SWOOP/ARC toward the
+# surface rather than a straight-down zoom. 0 = straight down; bigger = a wider curved approach.
+const ARC_SWING_MULT: float = 0.45
 
 # Reference distance the pan speeds are tuned against; panning scales with distance so the
 # world moves a consistent fraction of the screen at every zoom level.
@@ -416,7 +420,10 @@ func _approach_t() -> float:
 func surface_blend() -> float:
 	if not _orbit_mode:
 		return 0.0
-	return _approach_t()
+	# Atmosphere/brightness lags the pose arc: stay stark-dark SPACE for the first part of the descent, then
+	# ease the blue sky + fill in gradually over the LOWER half of the approach — so it doesn't "get too bright
+	# too quick" the instant you leave the globe view. A gentle, delayed S-curve, not the raw approach blend.
+	return smoothstep(0.30, 0.98, _approach_t())
 
 
 ## Rebuild the transform for orbit (planet) mode: place the camera on a sphere of radius `_distance`
@@ -449,7 +456,10 @@ func _update_orbit_transform() -> void:
 			back = Vector3.RIGHT - radial * Vector3.RIGHT.dot(radial)
 		back = back.normalized()
 		var eye: Vector3 = surface_pt + upn * ARC_EYE_HEIGHT + back * ARC_EYE_BACK   # hover just above the point
-		global_position = far_pos.lerp(eye, t)
+		# Bow the path out sideways (peaks at mid-approach, zero at both ends) so the camera SWOOPS in along an
+		# arc rather than dropping straight down the radial — the RTS "approach a planet" feel.
+		var swing: float = sin(t * PI) * ARC_SWING_MULT * _orbit_radius
+		global_position = far_pos.lerp(eye, t) + back * swing
 		var far_look: Vector3 = _orbit_center
 		var close_look: Vector3 = surface_pt + upn * ARC_LOOK_HEIGHT                 # gaze at creature height
 		look_at(far_look.lerp(close_look, t), upn)

@@ -13,6 +13,10 @@ const GROUP_CREATURE: String = "creature"
 const GROUP_ROCK: String = "rock"
 const GROUP_CARRION: String = "carrion"
 const PREDATOR_SIZE_RATIO: float = 1.2     # flee anything this many times my size that hunts
+# COAST AVOIDANCE: a land walker won't step onto ground that sits more than this far below the sea shell (i.e.
+# into deep, drownable water) — it stays on land instead of wandering/fleeing off a shoreline into the ocean.
+# The shallow shore (for drinking) stays open; only genuinely deep water is a soft wall. Flyers are exempt.
+const COAST_AVOID_DEPTH: float = 3.0
 # Flyers turn GRADUALLY (max radians/sec) so flocks wheel and vultures circle wide instead of
 # snapping direction every frame — the fix for frantic, too-fast circling.
 const BIRD_TURN_RATE: float = 1.5
@@ -1025,6 +1029,15 @@ func _physics_process(delta: float) -> void:
 	var gpt: Vector3 = terrain.surface_point(nud)
 	if is_nan(gpt.x):
 		gpt = ground_pos                      # unmeshed ahead: hold last known ground
+	# COAST AVOIDANCE: a land walker won't step into deep (drownable) water — if the ground ahead is well below
+	# the sea shell, hold on the current land and turn back inland, so spawned rabbits don't run off an island
+	# and drown. Flyers cross water freely; the shallow shore stays reachable for drinking.
+	elif not can_fly and terrain.has_method("sea_radius"):
+		var sea_r: float = terrain.sea_radius()
+		if sea_r > 0.0 and (gpt - terrain.planet_center()).length() < sea_r - COAST_AVOID_DEPTH:
+			gpt = ground_pos
+			_heading = -_heading                 # reflect off the coast — turn back toward land
+			_target_heading = _heading
 	global_position = gpt + nud * offset
 	if _prof_on:
 		_prof_add("cr_move", _pt)
