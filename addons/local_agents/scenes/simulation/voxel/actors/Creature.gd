@@ -35,6 +35,7 @@ var max_energy: float = 100.0
 # until disease behaviour lands.
 var disease: LACreatureDisease = null
 var lactate: float = 0.0                     # muscle LACTATE (0..1): the anaerobic-exertion fatigue byproduct.
+var _water_force: Vector3 = Vector3.ZERO     # cached water-current sweep (recomputed on a stride; raycast-heavy)
                                              # Builds when sprinting past the aerobic threshold, clears aerobically
                                              # at rest; caps top speed + makes conserving energy a top drive so
                                              # animals aren't perpetually running. (0.4: full ATP/glycogen/O₂ chem.)

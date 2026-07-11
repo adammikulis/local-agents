@@ -91,7 +91,7 @@ func _seed_scale() -> float:
 # Pump the cloudburst ingredients across the footprint: humid air + surface heat at several ground points, and
 # hard cooling in the air column overhead — the field then condenses cloud → heavy rain here on its own.
 func _pump_cloudburst(intensity: float, delta: float) -> void:
-	var offsets: Array = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5]     # a ring of angles (+ centre) spreading the cell
+	var offsets: Array = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]     # a FULL ring of angles (0..300°) + centre — spreads the cell evenly (was 0..150°, one-sided)
 	var pts: int = offsets.size() + 1
 	var per_vapor: float = VAPOR_PER_SEC * intensity * delta / float(pts)
 	var per_heat: float = SEED_HEAT_PER_SEC * intensity * delta / float(pts)

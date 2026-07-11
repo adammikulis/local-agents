@@ -31,6 +31,7 @@ const FORCE_EPSILON_SQ: float = 0.0001
 const WATER_REF_SIZE: float = 0.5
 const WATER_COUPLING: float = 1.0
 const WATER_MIN_FORCE_SQ: float = 0.04
+const SWEEP_STRIDE: int = 8          # recompute the raycast-heavy water current only every N frames (cached between)
 
 
 static func tick(c, delta: float) -> void:
@@ -43,11 +44,17 @@ static func tick(c, delta: float) -> void:
 	# (dry creatures pay nothing), then sample the current and shove the body along it, mass-scaled by size —
 	# heavier animals resist. A flyer cruising above the surface reads no water at its airborne position, so it
 	# is naturally never swept until it lands in the flow. Drowning in the deep still emerges separately.
-	if c._material.has_method("water_force_at") and c._material.has_method("is_water_at") and c._material.is_water_at(p):
-		var wf: Vector3 = c._material.water_force_at(p)
-		if wf.length_squared() >= WATER_MIN_FORCE_SQ:
+	if c._material.has_method("is_water_at") and c._material.is_water_at(p):
+		# water_force_at is raycast-heavy (samples the terrain gradient); the current changes slowly and the body
+		# drifts smoothly, so recompute it only every SWEEP_STRIDE frames (staggered per creature) and cache it —
+		# this keeps the sweep cheap even when a big herd is standing in a new river/flood.
+		if c._material.has_method("water_force_at") and (int(Engine.get_physics_frames()) + c._think_phase) % SWEEP_STRIDE == 0:
+			c._water_force = c._material.water_force_at(p)
+		if c._water_force.length_squared() >= WATER_MIN_FORCE_SQ:
 			var weight: float = maxf(float(c.size), 0.1)
-			c.global_position = c.global_position + wf * (WATER_COUPLING * (WATER_REF_SIZE / weight) * delta)
+			c.global_position = c.global_position + c._water_force * (WATER_COUPLING * (WATER_REF_SIZE / weight) * delta)
+	else:
+		c._water_force = Vector3.ZERO
 
 
 # Apply a field force `force` (a velocity-like push, world units/sec) to the creature over `delta`,

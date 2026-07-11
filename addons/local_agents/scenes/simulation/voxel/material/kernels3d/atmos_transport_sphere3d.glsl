@@ -83,17 +83,17 @@ void main() {
 		// LOSE my share: up (slot 5) when rising, down (slot 0) when sinking — into an open cell only.
 		if (vy > 0.0 && q > 0.0) {
 			int nu = nbr[base + 5];
-			if (nu >= 0 && solid[nu] == 0.0) { delta -= q * clamp(vy * wdy, 0.0, 0.5); }
+			if (nu >= 0 && solid[nu] == 0.0) { delta -= q * clamp(vy * wdy, 0.0, 0.3333); }
 		} else if (vy < 0.0 && q > 0.0) {
 			int nd = nbr[base + 0];
-			if (nd >= 0 && solid[nd] == 0.0) { delta -= q * clamp(-vy * wdy, 0.0, 0.5); }
+			if (nd >= 0 && solid[nd] == 0.0) { delta -= q * clamp(-vy * wdy, 0.0, 0.3333); }
 		}
 		// GAIN from the cell BELOW (slot 0) if it rises toward me.
 		{
 			int mb = nbr[base + 0];
 			if (mb >= 0 && solid[mb] == 0.0) {
 				float vb = vel_y[mb];
-				if (vb > 0.0) { delta += q_in[mb] * clamp(vb * wdy, 0.0, 0.5); }
+				if (vb > 0.0) { delta += q_in[mb] * clamp(vb * wdy, 0.0, 0.3333); }
 			}
 		}
 		// GAIN from the cell ABOVE (slot 5) if it sinks toward me.
@@ -101,7 +101,7 @@ void main() {
 			int ma = nbr[base + 5];
 			if (ma >= 0 && solid[ma] == 0.0) {
 				float va = vel_y[ma];
-				if (va < 0.0) { delta += q_in[ma] * clamp(-va * wdy, 0.0, 0.5); }
+				if (va < 0.0) { delta += q_in[ma] * clamp(-va * wdy, 0.0, 0.3333); }
 			}
 		}
 	}
@@ -112,7 +112,7 @@ void main() {
 	if (wdt > 0.0) {
 		// --- a-axis (wind X): LOSE my downwind share into slot 2 (+a) if vx>0 else slot 1 (-a) ---
 		float vx = vel_x[g];
-		float axi = clamp(abs(vx) * wdt, 0.0, 0.5);
+		float axi = clamp(abs(vx) * wdt, 0.0, 0.3333);
 		if (axi > 0.0 && q > 0.0) {
 			int slot = vx > 0.0 ? 2 : 1;
 			int n = nbr[base + slot];
@@ -125,7 +125,7 @@ void main() {
 			int m = nbr[base + 1];
 			if (m >= 0 && solid[m] == 0.0) {
 				float vm = vel_x[m];
-				if (vm > 0.0) { delta += q_in[m] * clamp(vm * wdt, 0.0, 0.5); }
+				if (vm > 0.0) { delta += q_in[m] * clamp(vm * wdt, 0.0, 0.3333); }
 			}
 		}
 		// GAIN from the +a neighbour (slot 2) if IT blows -a toward me.
@@ -133,12 +133,12 @@ void main() {
 			int m = nbr[base + 2];
 			if (m >= 0 && solid[m] == 0.0) {
 				float vm = vel_x[m];
-				if (vm < 0.0) { delta += q_in[m] * clamp(-vm * wdt, 0.0, 0.5); }
+				if (vm < 0.0) { delta += q_in[m] * clamp(-vm * wdt, 0.0, 0.3333); }
 			}
 		}
 		// --- b-axis (wind Z): LOSE my downwind share into slot 4 (+b) if vz>0 else slot 3 (-b) ---
 		float vz = vel_z[g];
-		float azi = clamp(abs(vz) * wdt, 0.0, 0.5);
+		float azi = clamp(abs(vz) * wdt, 0.0, 0.3333);
 		if (azi > 0.0 && q > 0.0) {
 			int slot = vz > 0.0 ? 4 : 3;
 			int n = nbr[base + slot];
@@ -151,7 +151,7 @@ void main() {
 			int m = nbr[base + 3];
 			if (m >= 0 && solid[m] == 0.0) {
 				float vm = vel_z[m];
-				if (vm > 0.0) { delta += q_in[m] * clamp(vm * wdt, 0.0, 0.5); }
+				if (vm > 0.0) { delta += q_in[m] * clamp(vm * wdt, 0.0, 0.3333); }
 			}
 		}
 		// GAIN from the +b neighbour (slot 4) if IT blows -b toward me.
@@ -159,7 +159,7 @@ void main() {
 			int m = nbr[base + 4];
 			if (m >= 0 && solid[m] == 0.0) {
 				float vm = vel_z[m];
-				if (vm < 0.0) { delta += q_in[m] * clamp(-vm * wdt, 0.0, 0.5); }
+				if (vm < 0.0) { delta += q_in[m] * clamp(-vm * wdt, 0.0, 0.3333); }
 			}
 		}
 	}

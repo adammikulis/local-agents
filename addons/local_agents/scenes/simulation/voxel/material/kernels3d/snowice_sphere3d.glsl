@@ -67,6 +67,7 @@ void main() {
 	}
 
 	if (snow[idx] < SNOW_MIN) {
-		snow[idx] = 0.0;
+		moisture[idx] += snow[idx];   // return the dust-thin remnant to the air (CONSERVING) instead of deleting
+		snow[idx] = 0.0;              // it — else the conserved water+moisture+snow+soil ledger slowly leaks here
 	}
 }

@@ -78,7 +78,7 @@ const SAT_TEMP_GAIN: float = 0.055
 const EVAP_TEMP_REF: float = 22.0
 const FOG_MAX_TEMP: float = 12.0
 const CONDENSE_COVER_MIN: float = 0.05
-const RAIN_MASS_THRESHOLD: float = 0.28   # condensed mass over this sheds rain (matches atmos_precip_sphere3d) — lowered for a wetter world (more rain reaches land → the water table recharges → baseflow rivers)
+const RAIN_MASS_THRESHOLD: float = 0.42   # matches atmos_precip_sphere3d; aquifer springs supply land water so less rain needed
 # Scent channel indices (formerly LAMaterialScent3D.PREY/… — re-homed here after the CPU-oracle module was
 # retired). External senses/cognition sites reference these via LAMaterialField3D.SCENT_*.
 const SCENT_PREY: int = 0
@@ -573,7 +573,7 @@ func _seed_sphere_sea() -> void:
 ## contiguous: cell = surf_col*depth + r, r=depth-1 outermost). Also SEEDS an initial half-full water table so
 ## springs flow from the start (a planet has an existing aquifer; it then self-maintains via rain/snow recharge).
 const REGOLITH_CELLS: int = 4
-const INITIAL_TABLE_FRAC: float = 0.7     # regolith starts this fraction of SOIL_CAPACITY saturated (just under
+const INITIAL_TABLE_FRAC: float = 0.5     # regolith starts half-saturated (spring level 0.85); convergence tops valleys over
                                           # the spring gush level, so groundwater CONVERGENCE at valleys triggers springs)
 const SOIL_CAPACITY: float = 0.6          # MUST match soil_sphere3d.glsl CAPACITY
 var _regolith: PackedByteArray = PackedByteArray()

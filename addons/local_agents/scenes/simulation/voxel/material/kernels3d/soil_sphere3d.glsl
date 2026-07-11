@@ -97,9 +97,17 @@ void main() {
 					float nh = head_of(n, soil_in[n]);
 					float dh = my_head - nh;
 					if (dh > 0.0) {
+						// Cap by the RECEIVER's remaining headroom too (mirror the infiltration cap) — else a cell
+						// fills past CAPACITY, its head stops rising (head_of clamps the table at one cell_size),
+						// and all groundwater funnels into the lowest regolith shell instead of levelling laterally
+						// + feeding the upper-shell valley-wall springs (which would then dry out). This is what
+						// keeps the water table surface-following + the springs perennial.
 						float flow = min(CONDUCT * dh, remaining);
-						send[base + uint(d)] = flow;
-						remaining -= flow;
+						flow = min(flow, max(0.0, CAPACITY - soil_in[n]));
+						if (flow > 0.0) {
+							send[base + uint(d)] = flow;
+							remaining -= flow;
+						}
 					}
 				} else if (solid[n] == 0.0 && static_cells[n] == 0.0) {
 					// Open neighbour: SPRING if the water-table head is above this cell's floor. On flat ground the

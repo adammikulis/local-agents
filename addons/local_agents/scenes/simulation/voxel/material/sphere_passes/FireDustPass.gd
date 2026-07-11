@@ -75,11 +75,13 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 		var back: int = 1 - p
 
 		# fire_sphere3d.glsl — 0 fire_in(live), 1 fire_out(back), 2 fuel(single), 3 temp(back, in place),
-		# 4 water(back), 5 solid(single), 6 o2(live, in place), 7 co2(live, in place), 15 nbr.
-		# (temp/water read the post-everything BACK state, o2/co2 mutate the LIVE pair — mirrors the box.)
+		# 4 water(back), 5 solid(single), 6 o2(BACK, in place), 7 co2(BACK, in place), 15 nbr.
+		# o2/co2 must mutate the BACK half: GasWind wrote its transport result into o2/co2[back] earlier this
+		# step, and the authoritative readback reads _live() = the back half AFTER the phase flip — so combustion
+		# must consume O2 / emit CO2 into [back] or its writes are silently discarded (fire wouldn't affect gas).
 		_fire_set[p] = _build_set(rd, _fire_shader, [
 			[0, fire[p]], [1, fire[back]], [2, fuel], [3, temp[back]],
-			[4, water[back]], [5, solid], [6, o2[p]], [7, co2[p]], [15, nbr]])
+			[4, water[back]], [5, solid], [6, o2[back]], [7, co2[back]], [15, nbr]])
 
 		# dust_transport_sphere3d.glsl — 0 dust_in(live), 1 dust_out(back), 2 sediment(back, in place +=
 		# deposit), 3 outscale(single), 4 vel_x, 5 vel_y, 6 vel_z, 7 solid, 15 nbr.
