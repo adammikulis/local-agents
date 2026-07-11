@@ -49,7 +49,23 @@ fan-out rule) · `EMERGENCE.md` (design) · the memories (`roadmap-0.4-life-cycl
   less steep, smoothed space→sky transition). Long-run STABILITY verified: temperate (no thermal runaway),
   bounded water, playable perf. Design captured in `PLANET_GEOPHYSICS.md`.
 
+- **FLUID RENDERING — the water is finally VISIBLE (latest)** — the `water` field channel was simulated but
+  drawn NOWHERE; resurrected the abandoned `MaterialFieldRender3D` + wired the full `VoxelWater.gdshader`.
+  ONE dynamic surface unifies **sea + lakes + rivers** with per-vertex salinity (fresh↔salt seamless), Gerstner
+  swell, `splash()`→ripple ring buffer, shoreline foam. Near-camera tangent-frame patch (small cap, ~4.5 Hz
+  rebuild, altitude-gated so orbit/overview keeps the cheap smooth sphere). **Standing lakes** via priority-flood
+  depression-fill (`MaterialFieldLakes3D`) seeded STATIC (permanent, like the sea — the dry-land equilibrium
+  can't hold a perched lake); terrain **basin relief** term undulates the plateaus. Physics: Clausius–Clapeyron
+  evap, aquifer waterlogged up-seep. **Sky fix**: the solar-system view now shows black space + stars (was a
+  false sky/horizon dome — `surface_blend` didn't force space in solar/fly). Verified windowed (planet globe
+  from space; sea + islands render). Merged to 0.4-dev. `#18/#20/#21/#23`.
+
 **Next — pick up here:**
+0. **Water — the maintainer's eye (can't headless well):** close-up sea/lake *aesthetics* (fly to a coast — the
+   near-cap patch looked blocky at overview distance, should read better up close); tune spring/rain so visible
+   flowing RIVERS emerge (the terrain drains to the sea + has few enclosed basins, so the SEA is the abundant
+   water and lakes are rare — rivers need a stronger persistent highland source); confirm blasting a below-sea
+   crater near camera shows water (dynamic sea) vs. rock above sea (`#20`, needs interactive blast test).
 1. **Windowed verification pass** (cannot be tested headless): reverse/fork *feel* · zoom curve (tune
    `ZOOM_SMOOTH_TIME`, 0.62 now) · affinity/veto behavior (watch creatures learn to shun toxic plants).
 2. **Chemistry channels** — the "convert everything to chemicals" half still owed: toxin/nectar/nitrogen as
@@ -64,9 +80,10 @@ fan-out rule) · `EMERGENCE.md` (design) · the memories (`roadmap-0.4-life-cycl
    (`SURFACE_AMBIENT`) · disease *look* (a sick-animal visual tell was left for tuning — the emissive
    tint-overlay path in `Creature._apply_tint_overlay` conflicts with the debug behavior-tint, so wire it
    throttled/on-change) · planet size (500 now — bump `PLANET_RADIUS`, everything else scales).
-7. **Visible perennial rivers** need the **0.5 aquifer baseflow** (see `ROADMAP_0.5.md`) OR much stronger
-   inland moisture transport — the water TABLE is correct but diffuse precip doesn't recharge land on the
-   ocean-heavy world (arid interiors; the table fills from pooling/floods only). `#10`.
+7. **Visible perennial rivers** — the water is now RENDERED (see the milestone above), so this is no longer a
+   "can't see it" problem but a SUPPLY one: the dry-land cycle equilibrium drains any land water to the sea, so
+   persistent flowing rivers need a stronger continuous highland source (spring baseflow, orographic rain, or
+   snowmelt) that outpaces evaporation. Standing lakes are seeded static; rivers still owed. `#10`.
 8. **Off-camera statistical creature LOD** (`#13`) — aggregate off-screen populations by equation, freeing
    per-individual cost; re-materialize on approach. Deferred (risky) — a marquee scalability win.
 9. **evo_fast + disease balance**: under `LA_EVO_FAST` the population declines (death > birth, few
