@@ -8,20 +8,23 @@ rules. `AGENTS.md` simply points here. Keep process rules in this file (and Godo
 
 ## Branch & worktree workflow (DEFAULT)
 
-- **`0.3-dev` is the main development branch** — the integration branch all feature work targets.
-  `main` is downstream. Do **not** commit feature work directly to `main`.
-- **Do every non-trivial change in a dedicated git worktree branched off `0.3-dev`**, not in the
-  primary checkout:
-  `git worktree add ../local-agents-<feature> -b feature/<name> 0.3-dev`
-  Build there, commit as you go, and merge back into `0.3-dev` only when verified. This is the
+- **The current development branch is `0.4-dev`** — the integration branch all feature work targets (this
+  is the ONE place its name is written; everywhere else says "the current dev branch" so a version bump
+  changes only this line). `main` is downstream — it holds the shipped release (currently **0.3.1**, tagged
+  `v0.3.1`). Do **not** commit feature work directly to `main`.
+- **Do every non-trivial change in a dedicated git worktree branched off the current dev branch**, not in
+  the primary checkout:
+  `git worktree add ../local-agents-<feature> -b feature/<name> <dev-branch>`
+  Build there, commit as you go, and merge back into the dev branch only when verified. This is the
   standard because another session/agent running git ops (checkout/reset/merge) on the shared
   checkout has corrupted and wiped untracked in-progress work here before — an isolated worktree
   makes your files immune to another writer's branch switches.
 - The compiled GDExtension `bin/` is a gitignored build artifact absent from a fresh worktree —
   symlink it from the primary checkout so the extension loads:
   `ln -s <primary>/addons/local_agents/gdextensions/localagents/bin <worktree>/addons/local_agents/gdextensions/localagents/bin`
-- When a feature is verified, merge it into `0.3-dev`, then prune: `git worktree remove <dir>` and
-  `git branch -d feature/<name>` (delete the pushed remote branch too once merged).
+- When a feature is verified, merge it into the current dev branch, then prune: `git worktree remove <dir>`
+  and `git branch -d feature/<name>` (delete the pushed remote branch too once merged). At release, the dev
+  branch merges to `main` and is tagged.
 - Skip the worktree only for trivial single-file edits (docs) or when you have confirmed you are the
   sole writer. **Never** run a bulk-edit sub-agent on files you (or another lane) are also
   live-editing; commit before any bulk delete so a mistake is one `git checkout` away.
@@ -66,10 +69,10 @@ committed). When removing files:
   ambiguous work start with a short investigation pass.
 - The main thread MAY perform implementation edits itself — it is **not** limited to orchestration, and
   there is no rule that all implementation must be delegated. **But editing is permitted only inside its
-  OWN dedicated worktree off `0.3-dev`, NEVER directly on the shared `0.3-dev` primary checkout.** The
+  OWN dedicated worktree off the current dev branch, NEVER directly on the shared primary checkout.** The
   distinction is exact: the main thread may *edit*; it may not edit/commit on the shared main-branch
   checkout. So before doing hands-on work, the main thread creates its own worktree (see Branch &
-  worktree workflow) and works there — the shared `0.3-dev` primary is treated as read-only, reserved for
+  worktree workflow) and works there — the shared primary checkout is treated as read-only, reserved for
   another writer (the user's editor, another session). This is **always** the rule, main thread included.
 - Prefer sub-agents for substantial or parallel work — parallelizable scope, contract-heavy or
   native-path changes, larger refactors — with explicit acceptance criteria. Close stale/finished
@@ -179,13 +182,13 @@ committed). When removing files:
 - No downstream consumers to preserve right now: prioritize rapid feature improvement and stronger
   simulation behavior over compatibility. Break APIs freely when it improves architecture; remove old
   abstractions when replacing systems rather than leaving parallel ones.
-- **Temporary breakage is ALLOWED on a non-`main` / non-`0.3-dev` branch when it's the cleaner path.** When
+- **Temporary breakage is ALLOWED on a feature branch (not `main` or the current dev branch) when it's the cleaner path.** When
   adding a feature, porting a substrate, or fixing perf, do NOT contort into a non-breaking parallel path
   (duplicate systems + `if mode` branches + a keep-the-old-working tax) if converting IN PLACE / ripping out
   the old and fixing FORWARD is simpler — that better matches "retire the old, no parallel systems." On a
   feature branch the sim need not boot mid-refactor: commit clearly-tagged WIP checkpoints so progress
   persists, and drive it back to a verified working state (windowed + `SIM_REPORT`) BEFORE merging to
-  `0.3-dev`/`main`. The non-breaking discipline is only mandatory on the shared integration branches and when
+  the dev branch / `main`. The non-breaking discipline is only mandatory on the shared integration branches and when
   another writer depends on the code right now. Weigh it each time: pick temporary-break-then-fix-forward when
   it yields materially cleaner code or less throwaway; keep non-breaking when the churn is small either way.
 - **Surface held-back-by-code moments — don't just proceed.** If, while doing a task, you realize the
