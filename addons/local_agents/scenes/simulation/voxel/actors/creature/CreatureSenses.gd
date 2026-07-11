@@ -24,6 +24,16 @@ static func _fresh_index(c, groups: Array) -> LASpatialIndex:
 	return _index
 
 
+## Every live creature within `radius` of `c` (itself excluded) — a proximity query over the shared frame index
+## (NOT vision-gated: disease/contagion doesn't need line of sight). Reused by LACreatureDisease shedding.
+static func creatures_within(c, radius: float) -> Array:
+	var out: Array = []
+	for cand in _fresh_index(c, ["creature"]).query("creature", c.global_position, radius):
+		if is_instance_valid(cand) and cand != c:
+			out.append(cand)
+	return out
+
+
 ## Nearest live member of any species in `species_list` the creature can SEE (inside its FOV cone
 ## and eye range, per LAVision — so a hunter must face prey, and binocular eyes reach farther).
 static func nearest_of(c, pos: Vector3, species_list) -> Node3D:

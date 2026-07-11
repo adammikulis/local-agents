@@ -1,0 +1,6 @@
+{
+  "name": "Water Rot", "vector": "waterborne",
+  "transmissibility": 0.5, "range": 4.0, "incubation": 5.0,
+  "virulence": 0.07, "lethality": 0.03, "drain": 0.8, "slow": 0.3, "fever": 0.0,
+  "resolve": 0.04, "immunity_gain": 0.6, "hosts": []
+}

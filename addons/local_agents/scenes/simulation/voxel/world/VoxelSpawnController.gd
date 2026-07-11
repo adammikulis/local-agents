@@ -134,8 +134,41 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 		# well under creatures' 50°C lethal-heat limit. (Was pinned to 150°C as an interim fix when the crust
 		# conducted uniformly and a hot core baked the surface to ~110°C, killing the ecosystem.)
 		_material.add_magma_source(_body.center(), 1300.0, 0.6)
+	_seed_diseases()
 	_spawned_initial = true
 	_hud.set_status("World ready — spawn things, click to inspect, press V for scent.")
+
+
+# Seed a few PATIENT-ZERO infections so outbreaks are part of the living world (they then spread, cull, and
+# leave immune survivors — all emergent from LACreatureDisease). Sandbox seeds a handful; campaign seeds none
+# by default (the player's small starter herd grows disease-free until a pest/contact introduces it). Override
+# with LA_DISEASE_SEED=N (0 disables — e.g. for a clean perf run). Each seed infects a random creature with a
+# random strain the strain library knows; host-incompatible picks are simply shrugged off by infect().
+const DISEASE_SEED_SANDBOX: int = 3
+
+func _seed_diseases() -> void:
+	var count: int = DISEASE_SEED_SANDBOX if not _is_campaign() else 0
+	var env: String = OS.get_environment("LA_DISEASE_SEED")
+	if env != "":
+		count = maxi(0, int(env))
+	if count <= 0:
+		return
+	var strains: Array = LADiseaseLibrary.known_strains()
+	if strains.is_empty():
+		return
+	var creatures: Array = get_tree().get_nodes_in_group("creature")
+	if creatures.is_empty():
+		return
+	var forced: String = OS.get_environment("LA_DISEASE_STRAIN")   # test hook: seed only this strain
+	var seeded: int = 0
+	for i in range(count):
+		var c = creatures[randi() % creatures.size()]
+		if not is_instance_valid(c) or c.get("disease") == null:
+			continue
+		var strain_id: String = forced if forced != "" else String(strains[randi() % strains.size()])
+		c.disease.infect(strain_id, 0.6)               # a solid starting dose so the infection establishes
+		seeded += 1
+	print("DISEASE_SEED={seeded:%d, strains:%d}" % [seeded, strains.size()])
 
 
 ## True in CAMPAIGN mode (progression gating on) — the initial spawn is sparse so the player grows the world.

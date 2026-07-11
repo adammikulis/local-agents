@@ -238,6 +238,7 @@ func _ready() -> void:
 	LASimReport.register(Callable(_material, "report"))   # field channel aggregates flow into SIM_REPORT
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.population(self))
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.cognition(self))
+	LASimReport.register(func() -> Dictionary: return LASimReportSources.disease(self))
 	# The field reads the REAL sun (DirectionalLight3D) live — its energy + angle drive all heating.
 	_material.set_sun(_sky_ctrl.sun())
 	if _ecology.has_method("set_material_field"):

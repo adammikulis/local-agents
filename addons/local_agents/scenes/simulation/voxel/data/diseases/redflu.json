@@ -1,0 +1,6 @@
+{
+  "name": "Red Flu", "vector": "airborne",
+  "transmissibility": 0.6, "range": 6.0, "incubation": 3.0,
+  "virulence": 0.08, "lethality": 0.01, "drain": 0.4, "slow": 0.3, "fever": 1.5,
+  "resolve": 0.06, "immunity_gain": 0.9, "hosts": []
+}

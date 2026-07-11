@@ -38,6 +38,11 @@ static func load_config(kind: String) -> Dictionary:
 		push_warning("LASpeciesLibrary: %s is not a JSON object" % _index[kind])
 		return {}
 	var cfg: Dictionary = _convert(parsed)
+	# Inject the taxonomic class from the DATA FOLDER (data/species/<class>/<kind>.json) as host_class, unless
+	# the file overrides it — so disease host-restriction, and anything else keyed on class, is data-driven off
+	# the folder layout with no per-species field to maintain (mammals/, birds/, insects/, people/, plants/, …).
+	if not cfg.has("host_class"):
+		cfg["host_class"] = String(_index[kind]).get_base_dir().get_file()
 	_cache[kind] = cfg
 	return cfg.duplicate(true)
 

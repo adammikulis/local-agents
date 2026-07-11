@@ -58,6 +58,36 @@ static func population(w) -> Dictionary:
 	}
 
 
+## Live DISEASE / immune snapshot (proof outbreaks spread, cull, and leave immune survivors). One O(N) scan at
+## report time: how many creatures carry an active infection, how many are symptomatic, how many hold acquired
+## immunity, and the total pathogen burden — plus a per-strain infected count so a specific plague is visible.
+static func disease(w) -> Dictionary:
+	var creatures: Array = w.get_tree().get_nodes_in_group("creature")
+	var infected: int = 0
+	var sick: int = 0
+	var immune: int = 0
+	var burden: float = 0.0
+	var per_strain: Dictionary = {}
+	for c in creatures:
+		if not is_instance_valid(c) or c.get("disease") == null:
+			continue
+		var dz = c.disease
+		if not dz.immunity.is_empty():
+			immune += 1
+		if dz.loads.is_empty():
+			continue
+		infected += 1
+		if dz.infectiousness() > 0.0:
+			sick += 1
+		for sid in dz.loads.keys():
+			burden += float((dz.loads[sid] as Dictionary)["load"])
+			per_strain[sid] = int(per_strain.get(sid, 0)) + 1
+	return {
+		"infected": infected, "sick": sick, "immune": immune,
+		"pathogen_burden": snappedf(burden, 0.01), "strains": per_strain,
+	}
+
+
 ## Live cognition / genetics snapshot (proof the fast/slow brain + evolution are running).
 static func cognition(w) -> Dictionary:
 	var creatures: Array = w.get_tree().get_nodes_in_group("creature")
