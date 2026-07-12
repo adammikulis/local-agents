@@ -36,6 +36,42 @@ uniform float moon_energy = 1.0;
 uniform float moon_phase : hint_range(0.0, 1.0) = 0.5;   // 0 new, 0.5 full
 uniform float moon_size = 0.9985;   // cos(angular radius): larger -> smaller disc
 
+// --- Analytic Rayleigh + Mie single-scatter sky -------------------------------------------------------
+// A cheap, closed-form daytime sky driven entirely by `sun_dir` (no ray-march, no LUT). It gives a blue
+// zenith, a pale warm horizon, real sunset reddening as the sun nears the terminator (long air-path
+// extinction removes blue first), and a soft Mie forward-glow around the sun. Emergent-by-physics: one
+// wavelength-dependent extinction term does sunset, horizon warmth, and the sun halo — no per-case tint.
+//
+// betaR is blue-biased (short wavelengths scatter most → blue sky); betaM is neutral (aerosol haze).
+uniform vec3 rayleigh_beta : source_color = vec3(0.058, 0.135, 0.331);
+uniform vec3 mie_beta : source_color = vec3(0.021, 0.021, 0.021);
+uniform float sky_exposure = 22.0;     // overall scatter magnitude → perceived brightness
+uniform float mie_g = 0.76;            // Mie asymmetry (forward-scatter glow tightness)
+
+// Air-mass proxy: view-ray path length through the shell, ~1 at the zenith and growing toward the horizon.
+float air_mass(float cos_up) {
+	float c = max(cos_up, 0.0);
+	return 1.0 / (c * c * 0.4 + c * 0.6 + 0.06);
+}
+
+// Closed-form single-scatter radiance looking along `dir` with the sun toward `sun_n` (both normalized).
+vec3 atmosphere(vec3 dir, vec3 sun_n) {
+	float cos_theta = dot(dir, sun_n);
+	float ray_phase = 0.75 * (1.0 + cos_theta * cos_theta);
+	float g2 = mie_g * mie_g;
+	float mie_phase = (1.0 - g2) / pow(max(1.0 + g2 - 2.0 * mie_g * cos_theta, 1.0e-4), 1.5) * (0.25 / PI);
+
+	float view_mass = air_mass(dir.y);
+	float sun_mass = air_mass(sun_n.y);
+
+	// Sunlight reaching the scattering column, reddened by the long slanted path at low sun (sunset).
+	vec3 sun_transmit = exp(-(rayleigh_beta + mie_beta) * sun_mass * 1.4);
+	// In-scattered light along the view ray, then attenuated by the view path (deep-sky/horizon haze).
+	vec3 in_scatter = (rayleigh_beta * ray_phase + mie_beta * mie_phase) * view_mass;
+	vec3 view_transmit = exp(-(rayleigh_beta + mie_beta) * view_mass * 0.20);
+	return in_scatter * sun_transmit * sky_exposure * view_transmit;
+}
+
 float hash21(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));
 	p += dot(p, p + 45.32);
@@ -68,13 +104,22 @@ float starfield(vec3 dir) {
 void sky() {
 	vec3 dir = normalize(EYEDIR);
 
-	// --- Base gradient: sky above the horizon, ground band below ---
-	vec3 sky_col = mix(sky_horizon_color, sky_top_color, smoothstep(0.0, 0.4, dir.y));
+	// --- Daytime sky: analytic Rayleigh+Mie scatter from sun_dir. At night the scatter self-darkens (the
+	// sun is below the horizon, so its transmit term → ~0), and we blend to the controller's dark night
+	// gradient as `night` rises so the moon/stars read against a deep-blue floor, not pure black. ---
+	vec3 sun_n = normalize(sun_dir);
+	vec3 scatter = atmosphere(dir, sun_n);
+	vec3 night_sky = mix(sky_horizon_color, sky_top_color, smoothstep(0.0, 0.4, dir.y));
+	vec3 sky_col = mix(scatter, night_sky, night);
 	vec3 ground_col = mix(ground_horizon_color, ground_bottom_color, smoothstep(0.0, -0.4, dir.y));
-	vec3 col = mix(ground_col, sky_col, step(0.0, dir.y));
+	vec3 col = mix(ground_col, sky_col, smoothstep(-0.02, 0.02, dir.y));
 
-	// Crossfade the whole sky toward black space as the camera climbs (no hard background-mode flip).
+	// Crossfade the whole sky toward black space as the camera climbs (no hard background-mode flip)...
 	col = mix(col, space_color, space_amount);
+	// ...but keep a thin ATMOSPHERIC LIMB: a bright scatter band hugging the horizon that survives into
+	// space, so from orbit the planet wears a glowing blue rim instead of a hard black edge.
+	float limb = exp(-abs(dir.y) * 7.0) * smoothstep(0.0, 0.25, dir.y + 0.12);
+	col += atmosphere(normalize(vec3(dir.x, max(dir.y, 0.02), dir.z)), sun_n) * limb * space_amount * 0.7;
 
 	// --- Stars: at night above the horizon, and everywhere once out in space (as the atmosphere fades) ---
 	float above = smoothstep(0.0, 0.15, dir.y);

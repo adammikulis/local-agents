@@ -72,6 +72,13 @@ func setup(field, camera: Node3D, terrain, _sun, center: Vector3, sea_radius: fl
 	_ready = true
 
 
+## Moon-driven tide: set the sea-surface radius the near-cap mesh builds against. The next throttled rebuild
+## re-meshes the cap at the new level, so the shoreline advances/recedes with the tide for free. A scalar set
+## (no rebuild here) — driven each frame by LASystemOrbits alongside the ocean-shell tide so the two stay in step.
+func set_sea_radius(r: float) -> void:
+	_sea_radius = r
+
+
 func _on_splashed(world_pos: Vector3, strength: float) -> void:
 	add_ripple(world_pos, strength)
 

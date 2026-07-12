@@ -28,10 +28,19 @@ const MOON_RADIUS_MULT: float = 3.2       # orbit radius = planet_radius * this
 const MOON_RATE: float = 0.06             # rad/s (a moon-month a few× the day)
 const MOON_INCLINATION: float = 0.28      # radians the moon plane is tipped from the planet equator
 
+# Tides: the moon's pull raises the sea toward it and on the antipode, so the shell radius swings as the moon
+# orbits. A justified fake — nearly free: sea_radius = base + TIDE_AMP·cos(2·moon_angle) (two bulges per orbit).
+# The ocean shell (LAOceanPlane) and the near-cap surface (LAMaterialFieldRender3D) both read the tided radius,
+# so the shoreline advances/recedes with no per-cell simulation.
+const TIDE_AMP: float = 4.0               # peak sea-level swing (world units) — ~0.8% of the 500u planet radius
+
 var _body: Node3D = null                  # LAPlanetBody (the planet — orbit reference + scene centre)
 var _sky_ctrl: Node = null                # LAVoxelSkyController (owns the star node + the sky sun)
 var _material = null                      # LAMaterialField3D (read atmospheric dust; it reads the sun back)
 var _moon: Node3D = null                  # LAMoon (set via set_moon)
+var _ocean = null                         # LAOceanPlane — the sea shell (tided via apply_tide)
+var _sea_surface = null                   # LAMaterialFieldRender3D — near-cap surface (tided via set_sea_radius)
+var _sea_base_radius: float = 0.0         # un-tided sea radius (base the tide swings around)
 
 # Heliocentric orbital state of the planet (abstract units; the orbit plane maps to world XZ, normal = world Y).
 var _helio_pos: Vector3 = Vector3(ORBIT_RADIUS, 0.0, 0.0)
@@ -53,6 +62,19 @@ func setup(body: Node3D, sky_ctrl: Node, material) -> void:
 
 func set_moon(moon: Node3D) -> void:
 	_moon = moon
+
+
+## Wire the tide targets: the ocean shell + the near-cap fluid surface both take the moon-driven sea radius.
+## `base_radius` is the un-tided sea level the tide swings around.
+func set_tide_targets(ocean, sea_surface, base_radius: float) -> void:
+	_ocean = ocean
+	_sea_surface = sea_surface
+	_sea_base_radius = base_radius
+
+
+## Current tide offset (world units) from the moon's orbital angle — two bulges per orbit (sub-lunar + antipode).
+func tide_offset() -> float:
+	return TIDE_AMP * cos(2.0 * _moon_angle)
 
 
 ## Advance the orbit + moon and push the derived sun direction / position / insolation into the scene. Called
@@ -121,6 +143,14 @@ func _update_moon(delta: float, centre: Vector3) -> void:
 	var pos: Vector3 = Vector3(cos(_moon_angle), 0.0, sin(_moon_angle)) * radius
 	_moon.global_position = centre + pos.rotated(Vector3.RIGHT, MOON_INCLINATION)
 
+	# The moon drags the tide: raise/lower the sea shell (and the near-cap surface) around the base radius so
+	# the shoreline advances/recedes as the moon orbits. Both sinks read the SAME offset → they stay in step.
+	var offset: float = tide_offset()
+	if _ocean != null and _ocean.has_method("apply_tide"):
+		_ocean.apply_tide(offset)
+	if _sea_surface != null and _sea_surface.has_method("set_sea_radius"):
+		_sea_surface.set_sea_radius(_sea_base_radius + offset)
+
 
 ## Momentum transfer from a meteor strike: Δv = impulse / effective-planet-mass, added to the orbital velocity.
 ## A large/fast rock (or a volley) accumulates enough Δv to destabilise the orbit — into the sun, or out of the
@@ -147,4 +177,6 @@ func report() -> Dictionary:
 		"orbit_dist": snappedf(1.0 / maxf(dist_factor, 0.0001), 0.01),
 		"insolation": snappedf(clampf(dist_factor * dist_factor * _atmos_t, INSOLATION_MIN, INSOLATION_MAX), 0.01),
 		"orbit_status": status(),
+		"moon_angle": snappedf(_moon_angle, 0.01),
+		"tide": snappedf(tide_offset(), 0.01),
 	}

@@ -344,6 +344,7 @@ func _ready() -> void:
 	add_child(_orbits)
 	_orbits.setup(_body, _sky_ctrl, _material)
 	_orbits.set_moon(_moon)
+	_orbits.set_tide_targets(_ocean, _water_surface, _body.sea_radius())   # moon drives the sea shell + near-cap tide
 	LASimReport.register(Callable(_orbits, "report"))
 
 	# Feed the live temperature texture to the terrain shader so HOT GROUND GLOWS (meteor craters, lava,
