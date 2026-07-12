@@ -10,6 +10,7 @@ class_name LAVoxelWorld
 
 const CameraRigScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/VoxelCameraRig.gd")
 const EcologyServiceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ecology/EcologyService.gd")
+const LlmServiceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/LlmService.gd")
 const VegetationRendererScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/mesh/VegetationRenderer.gd")
 const HudScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/SpawnPaletteHud.gd")
 const AudioDirectorScript: GDScript = preload("res://addons/local_agents/audio/AudioDirector.gd")
@@ -91,6 +92,7 @@ var _orbits: LASystemOrbits = null   # moving-frame solar system: planet orbit +
 var _moon: LAMoon = null             # kinematic moon (gravity body + visual)
 var _camera: Camera3D
 var _ecology: Node          # LAEcologyService
+var _llm_service: Node       # LALlmService — shared local-LLM runtime (one agent/server/model for cognition + streamer)
 var _veg_renderer: Node3D    # LAVegetationRenderer (batched vegetation draws)
 var _render_opts: Dictionary = {}   # quality-preset render flags (ssao/glow/sun_shadows/fog/ocean_transparent)
 var _hud: CanvasLayer       # LASpawnPaletteHud
@@ -231,11 +233,25 @@ func _ready() -> void:
 		if _camera.has_method("face_sun_on_start") and _sky_ctrl != null:
 			_camera.face_sun_on_start(_sky_ctrl.sun())
 
+	# --- Shared local-LLM runtime: ONE agent + server + model for the whole sim ---
+	# The creature slow brain (cognition) and the streamer both talk through this one client — the
+	# collapse of the three forked chat-completions paths. Offline (teacher/canned) when no model.
+	_llm_service = LlmServiceScript.new()
+	_llm_service.name = "LlmService"
+	add_child(_llm_service)
+	var llm_opts: Dictionary = {}
+	var fg_url: String = OS.get_environment("FUNCTIONGEMMA_URL")
+	if fg_url != "":
+		llm_opts["server_url"] = fg_url
+	_llm_service.setup(llm_opts)
+
 	# --- Actors + ecology (actors live UNDER the body so they ride its frame) ---
 	_actors_root = _body.actors_root
 	_ecology = EcologyServiceScript.new()
 	_ecology.name = "Ecology"
 	add_child(_ecology)
+	if _llm_service.is_available():
+		_ecology.set_llm_client(_llm_service.client())
 	_ecology.setup(_terrain, _actors_root)
 	# Shared GPU-instanced vegetation renderer: plants/trees draw through its batched MultiMesh (one draw per
 	# type) instead of hundreds of per-node MeshInstances. Lives under actors_root so it rides the planet frame.
@@ -704,7 +720,8 @@ func _ensure_streamer_host() -> bool:
 	_streamer_host = StreamerHostScript.new()
 	_streamer_host.name = "StreamerHost"
 	add_child(_streamer_host)
-	_streamer_host.setup(self, _ecology, _material, _input.streamer_persona(), _input.streamer_avatar_flavor())
+	var streamer_client = _llm_service.client() if _llm_service != null and _llm_service.is_available() else null
+	_streamer_host.setup(self, _ecology, _material, _input.streamer_persona(), _input.streamer_avatar_flavor(), streamer_client)
 	return true
 
 

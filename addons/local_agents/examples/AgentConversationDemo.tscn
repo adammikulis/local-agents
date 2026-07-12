@@ -36,7 +36,7 @@ text = "Two agents converse (cognition + memory)"
 [node name="Subtitle" type="Label" parent="Margin/VBox"]
 layout_mode = 2
 autowrap_mode = 3
-text = "Ada and Ben take turns. Each line is recorded as a node in a shared LocalAgentsGraph, chained by 'then' edges: that graph is the conversation's memory."
+text = "Ada and Ben take turns. Each line is recorded as a node in a shared LocalAgentGraph, chained by 'then' edges: that graph is the conversation's memory."
 
 [node name="StatusLabel" type="Label" parent="Margin/VBox"]
 unique_name_in_owner = true

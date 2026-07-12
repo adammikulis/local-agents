@@ -1,5 +1,5 @@
 extends Node
-class_name LocalAgentsAgentManager
+class_name LocalAgentManager
 
 signal agent_ready(agent)
 signal configs_updated()

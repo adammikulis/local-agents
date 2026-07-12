@@ -6,7 +6,7 @@ class_name LocalAgentsConfigurationPanel
 @onready var _model_config: LocalAgentsModelConfig = %ModelConfig
 @onready var _inference_config: LocalAgentsInferenceConfig = %InferenceConfig
 
-var _manager: LocalAgentsAgentManager
+var _manager: LocalAgentManager
 
 func _ready() -> void:
     _manager = get_node_or_null("/root/AgentManager")

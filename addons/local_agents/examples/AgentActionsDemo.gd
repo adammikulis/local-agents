@@ -1,5 +1,5 @@
 extends Node
-class_name LocalAgentsAgentActionsDemo
+class_name LocalAgentActionsDemo
 
 ## Ladder rung 2: the actions loop. This is the step that makes an agent more
 ## than a chatbot. Instead of only reading the model's text, we turn the reply
@@ -10,7 +10,7 @@ class_name LocalAgentsAgentActionsDemo
 ## The same buttons that the model "presses" are also wired to real buttons, so
 ## the actions -> effect loop is visible even with no model or runtime installed.
 
-@onready var agent: LocalAgentsAgent = %Agent
+@onready var agent: LocalAgent = %Agent
 @onready var prompt_input: LineEdit = %PromptInput
 @onready var status_label: Label = %StatusLabel
 @onready var log_label: RichTextLabel = %LogLabel

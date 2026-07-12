@@ -1,5 +1,5 @@
 extends Node3D
-class_name LocalAgentsAgent3DExample
+class_name LocalAgent3DExample
 
 const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
 const RuntimeHealth := preload("res://addons/local_agents/runtime/RuntimeHealth.gd")

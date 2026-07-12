@@ -1,9 +1,13 @@
 extends Node
-class_name LocalAgentsAgent
+class_name LocalAgent
 
 signal model_output_received(text)
 signal message_emitted(role, content)
 signal action_requested(action, params)
+# Emitted on the MAIN thread when a think_async() job finishes (its result Dictionary is the same
+# shape as sync think()). This is the one seam that lets a caller — a creature's slow brain, the
+# streamer — run inference OFF the physics frame instead of blocking on the native call.
+signal think_completed(result)
 
 var agent_node: Object
 var history: Array = []
@@ -26,6 +30,9 @@ var _speech_service_connected := false
 var _speech_service
 var _llama_server_manager = LlamaServerManager.new()
 var _last_llama_server_shutdown_on_exit := true
+# Worker thread for think_async(). One in-flight per agent — a second async request while one is
+# running is rejected (the caller's own budget/queue decides what to do). Joined in _exit_tree.
+var _think_thread: Thread = null
 
 func _ready() -> void:
     if not _ensure_agent_node():
@@ -84,7 +91,7 @@ func submit_user_message(text: String) -> void:
     history.append({"role": "user", "content": text})
 
 # Re-emit the native AgentNode signals on this wrapper so scenes can listen to
-# LocalAgentsAgent directly (message_emitted / action_requested). These are the
+# LocalAgent directly (message_emitted / action_requested). These are the
 # handlers connected in _ready(); without them enqueue_action would raise a
 # "nonexistent function" error and the wrapper signals would never fire.
 func _on_agent_message(role, content) -> void:
@@ -96,31 +103,134 @@ func _on_agent_action(action, params) -> void:
 func think(prompt: String, extra_opts: Dictionary = {}) -> Dictionary:
     if not _ensure_agent_node():
         return {"ok": false, "error": "agent_unavailable"}
-    submit_user_message(prompt)
+    if prompt != "":
+        submit_user_message(prompt)   # skip empties (the LLMClient path supplies opts.messages instead)
+    var opts := _merged_options(extra_opts)
+    var result: Dictionary = _run_think(prompt, opts)
+    _post_think(result)
+    return result
+
+# Run inference OFF the physics frame: the blocking work is done on a worker Thread and the result is
+# delivered on the MAIN thread via the think_completed signal (never blocks rendering). Returns true if
+# a job was started; false if the agent is unavailable or one is already in flight (the caller — e.g. the
+# slow-brain scheduler's global budget — decides what to do when rejected).
+#
+# The async worker calls the signal-FREE AgentRuntime.generate() directly instead of AgentNode.think():
+# think() emits message_emitted on the node, and Godot forbids emitting a node's signals from a worker
+# thread. generate() is the same inference under the hood (both backends, mutex-guarded) but pure
+# data-in/data-out, so it is safe off-thread. Every node read (model path, runtime dir, history) is
+# snapshotted HERE on the main thread and handed to the worker as plain values.
+func think_async(prompt: String, extra_opts: Dictionary = {}) -> bool:
+    if not _ensure_agent_node():
+        call_deferred("_emit_think_completed", {"ok": false, "error": "agent_unavailable"})
+        return false
+    if _think_thread != null and _think_thread.is_alive():
+        return false
+    if _think_thread != null:
+        _think_thread.wait_to_finish()
+        _think_thread = null
+    var runtime = _agent_runtime()
+    if runtime == null:
+        call_deferred("_emit_think_completed", {"ok": false, "error": "runtime_unavailable"})
+        return false
+    if prompt != "":
+        submit_user_message(prompt)   # skip empties (the LLMClient path supplies opts.messages instead)
+    var opts := _merged_options(extra_opts)
+    _sync_runtime_config(runtime)     # push the node's model path / runtime dir onto the shared runtime (main thread)
+    var job := {
+        "runtime": runtime,
+        "request": {"prompt": prompt, "history": history.duplicate(true), "options": opts},
+        "opts": opts,
+        "server_model_path": _resolve_llama_server_model_path(opts),
+        "runtime_dir": _current_runtime_dir(),
+    }
+    _think_thread = Thread.new()
+    _think_thread.start(Callable(self, "_generate_worker").bind(job))
+    return true
+
+# Worker-thread body: ensure the llama-server if needed (HTTP/process only — no scene touch), then run
+# the signal-free generate(). All inputs are pre-snapshotted plain values (no node access here).
+func _generate_worker(job: Dictionary) -> void:
+    var opts: Dictionary = job.get("opts", {})
+    var server_err: Dictionary = _ensure_server_captured(opts, String(job.get("server_model_path", "")), String(job.get("runtime_dir", "")))
+    if not server_err.is_empty():
+        call_deferred("_emit_think_completed", server_err)
+        return
+    var runtime = job.get("runtime", null)
+    if runtime == null:
+        call_deferred("_emit_think_completed", {"ok": false, "error": "runtime_unavailable"})
+        return
+    var result: Dictionary = runtime.generate(job.get("request", {}))
+    call_deferred("_emit_think_completed", result)
+
+func _emit_think_completed(result: Dictionary) -> void:
+    if _think_thread != null and not _think_thread.is_alive():
+        _think_thread.wait_to_finish()
+        _think_thread = null
+    _post_think(result)
+    emit_signal("think_completed", result)
+
+func _agent_runtime():
+    if not Engine.has_singleton("AgentRuntime"):
+        return null
+    return Engine.get_singleton("AgentRuntime")
+
+# Mirror onto the shared runtime singleton the same model/dir config AgentNode.think sets each call, so
+# the worker's in-process generate can load the default model. Main thread only (reads the native node).
+func _sync_runtime_config(runtime) -> void:
+    if agent_node == null or runtime == null:
+        return
+    var dmp := String(agent_node.get("default_model_path"))
+    if dmp != "" and runtime.has_method("set_default_model_path"):
+        runtime.set_default_model_path(dmp)
+    var rd := String(agent_node.get("runtime_directory"))
+    if rd != "" and runtime.has_method("set_runtime_directory"):
+        runtime.set_runtime_directory(rd)
+
+func _merged_options(extra_opts: Dictionary) -> Dictionary:
     var opts := inference_options.duplicate(true)
     for key in extra_opts.keys():
         opts[key] = extra_opts[key]
-    if _is_llama_server_backend(opts):
-        var autostart := bool(opts.get("server_autostart", true))
-        _last_llama_server_shutdown_on_exit = bool(opts.get("server_shutdown_on_exit", true))
-        if autostart:
-            var model_path := _resolve_llama_server_model_path(opts)
-            var lifecycle = _llama_server_manager.ensure_running(opts, model_path, _current_runtime_dir())
-            if not bool(lifecycle.get("ok", false)):
-                return {
-                    "ok": false,
-                    "provider": "llama_server",
-                    "error": String(lifecycle.get("error", "llama_server_unavailable")),
-                    "lifecycle": lifecycle,
-                }
-    var result: Dictionary = agent_node.think(prompt, opts)
-    var text := result.get("text", "")
+    return opts
+
+# The blocking part of sync think(): ensure the llama-server if that backend is requested, then run the
+# native AgentNode.think (which emits message_emitted — fine here, this is the main thread).
+func _run_think(prompt: String, opts: Dictionary) -> Dictionary:
+    if not (agent_node and is_instance_valid(agent_node)):
+        return {"ok": false, "error": "agent_unavailable"}
+    var server_err: Dictionary = _ensure_server_captured(opts, _resolve_llama_server_model_path(opts), _current_runtime_dir())
+    if not server_err.is_empty():
+        return server_err
+    return agent_node.think(prompt, opts)
+
+# Ensure the managed llama-server is up for a llama_server-backend request. Returns {} when not needed
+# or already running, else an error dict. Takes pre-resolved model_path + runtime_dir so it is callable
+# from either the main thread (sync) or the worker (async) without touching the node.
+func _ensure_server_captured(opts: Dictionary, model_path: String, runtime_dir: String) -> Dictionary:
+    if not _is_llama_server_backend(opts):
+        return {}
+    var autostart := bool(opts.get("server_autostart", true))
+    _last_llama_server_shutdown_on_exit = bool(opts.get("server_shutdown_on_exit", true))
+    if not autostart:
+        return {}
+    var lifecycle = _llama_server_manager.ensure_running(opts, model_path, runtime_dir)
+    if not bool(lifecycle.get("ok", false)):
+        return {
+            "ok": false,
+            "provider": "llama_server",
+            "error": String(lifecycle.get("error", "llama_server_unavailable")),
+            "lifecycle": lifecycle,
+        }
+    return {}
+
+# Main-thread side effects of a completed think (sync or async): record the reply + emit + optionally speak.
+func _post_think(result: Dictionary) -> void:
+    var text := String(result.get("text", ""))
     if text != "":
         history.append({"role": "assistant", "content": text})
         emit_signal("model_output_received", text)
         if _should_speak_response():
             _speak_text_async(text)
-    return result
 
 func say(text: String, opts: Dictionary = {}) -> bool:
     if not _ensure_agent_node():
@@ -318,6 +428,9 @@ func stop_managed_llama_server() -> Dictionary:
     return _llama_server_manager.stop_managed()
 
 func _exit_tree() -> void:
+    if _think_thread != null:
+        _think_thread.wait_to_finish()   # a think may still be in flight on quit
+        _think_thread = null
     if _last_llama_server_shutdown_on_exit:
         _llama_server_manager.stop_managed()
 

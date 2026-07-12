@@ -1,5 +1,5 @@
 extends CharacterBody3D
-class_name LocalAgentsAgent3D
+class_name LocalAgent3D
 
 signal model_output_received(text)
 

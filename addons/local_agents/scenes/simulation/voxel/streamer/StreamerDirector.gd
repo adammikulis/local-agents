@@ -2,10 +2,11 @@ class_name LAStreamerDirector
 extends Node
 
 ## The commentator's brain. Watches the living sim, decides WHEN there is something worth saying, and
-## turns it into one short streamer line via a local llama-server — all off the physics frame. It never
-## blocks: server bring-up runs on a worker thread, and every generation is an async HTTPRequest with a
-## single-in-flight budget (mirroring cognition/CognitionScheduler). If the server is not up yet it
-## falls back to canned streamer-isms so the stream is never dead.
+## turns it into one short streamer line via the shared local-LLM client — all off the physics frame. It
+## never blocks: generation is an async request through the shared LocalAgentLlmClient (LALlmService's
+## LocalAgent, run on a worker thread) with a single-in-flight budget. The server + model are owned by
+## LALlmService (one server, one model, one config — no private llama-server here anymore). When no client
+## is injected (no model installed) it stays silent, holding the event queue until a client appears.
 ##
 ## Context hygiene: the request is near-stateless — a persona system prompt + only a short rolling
 ## window of recent lines + the current scene delta — and the window is hard-reset on big events / every
@@ -13,9 +14,6 @@ extends Node
 ##
 ## Emits `line_ready(text)`; the world wires that to the overlay caption + StreamerVoice.
 ## (Explicit types only — project rule: no ':=' inferred typing.)
-
-const RuntimePaths: GDScript = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
-const LlamaServerManager: GDScript = preload("res://addons/local_agents/runtime/LlamaServerManager.gd")
 
 signal line_ready(text: String)
 signal status_changed(status: String)
@@ -30,13 +28,8 @@ var _world: Node = null
 var _voice: Node = null                # optional; checked for is_speaking()
 var _enabled: bool = true
 
-# --- llama-server ---
-var _server_mgr = null
-var _server_url: String = "http://127.0.0.1:8080"
-var _server_ready: bool = false
-var _server_thread: Thread = null
-var _model_path: String = ""
-var _model_name: String = "local"
+# --- shared local-LLM client (owned by LALlmService; null = offline/silent) ---
+var _llm_client = null
 
 # --- persona / context hygiene ---
 var _persona_id: String = ""
@@ -95,23 +88,13 @@ func setup(world: Node, options: Dictionary = {}) -> void:
 	_voice = options.get("voice", null)
 	_enabled = bool(options.get("enabled", true))
 	_persona_id = String(options.get("persona", LAStreamerPersonas.default_id()))
-	_server_url = String(options.get("server_url", "http://127.0.0.1:8080")).strip_edges()
-	while _server_url.ends_with("/"):
-		_server_url = _server_url.substr(0, _server_url.length() - 1)
-	_model_path = _resolve_model_path(String(options.get("model_path", "")))
-	_model_name = _model_path.get_file() if _model_path != "" else "local"
-
-	# Headless smoke runs stay light and fast: prove event-detection + line emission with canned lines,
-	# without loading a 1GB model each run. The real llama-server only boots in a windowed session.
-	var headless: bool = DisplayServer.get_name() == "headless"
-	if _model_path != "" and not headless:
-		_server_thread = Thread.new()
-		_server_thread.start(Callable(self, "_boot_server"))
-		emit_signal("status_changed", "starting model…")
-	elif headless:
-		emit_signal("status_changed", "headless — canned mode")
+	# The shared local-LLM client (LALlmService's LocalAgentLlmClient). Its server + model bring-up is
+	# owned by LALlmService — the director just requests lines through it. Null when nothing is installed.
+	_llm_client = options.get("llm_client", null)
+	if _has_client():
+		emit_signal("status_changed", "live")
 	else:
-		emit_signal("status_changed", "no model — canned mode")
+		emit_signal("status_changed", "no model — silent")
 
 
 func set_enabled(on: bool) -> void:
@@ -132,54 +115,16 @@ func latest_line() -> String:
 	return _last_line
 
 
-# --- server bring-up (worker thread) ------------------------------------------------------------
+# --- shared LLM client --------------------------------------------------------------------------
 
-func _boot_server() -> void:
-	var mgr = LlamaServerManager.new()
-	var runtime_dir: String = RuntimePaths.runtime_dir()
-	# GPU layers: the commentator LLM shares the machine's Metal GPU with the game's RENDERER, so offloading
-	# all layers (99) means each generation STARVES rendering — measured ~90ms/frame, dropping the sim from
-	# ~45 to ~9 FPS. Commentary is occasional, short, and fully async (worker thread + HTTPRequest), so it
-	# does NOT need GPU speed: default to CPU inference (0 layers) to keep the render GPU free. Override with
-	# env LA_STREAMER_GPU_LAYERS=<n> if you have GPU headroom and want faster commentary.
-	var gpu_layers: int = 0
-	if OS.has_environment("LA_STREAMER_GPU_LAYERS"):
-		gpu_layers = maxi(0, int(OS.get_environment("LA_STREAMER_GPU_LAYERS")))
-	var opts: Dictionary = {
-		"server_base_url": _server_url,
-		"context_size": 4096,
-		"n_gpu_layers": gpu_layers,
-		"server_slots": 1,
-		"server_start_timeout_ms": 40000,
-	}
-	var result: Dictionary = mgr.ensure_running(opts, _model_path, runtime_dir)
-	call_deferred("_on_server_booted", mgr, result)
+## Inject/replace the shared LocalAgentLlmClient (e.g. if the runtime resolves a model after startup).
+func set_llm_client(client) -> void:
+	_llm_client = client
+	emit_signal("status_changed", "live" if _has_client() else "no model — silent")
 
 
-func _on_server_booted(mgr, result: Dictionary) -> void:
-	if _server_thread != null:
-		_server_thread.wait_to_finish()
-		_server_thread = null
-	_server_mgr = mgr
-	_server_ready = bool(result.get("ok", false))
-	if _server_ready:
-		emit_signal("status_changed", "live: %s" % _model_name)
-	else:
-		emit_signal("status_changed", "server offline — canned mode (%s)" % String(result.get("error", "?")))
-
-
-func _resolve_model_path(preferred: String) -> String:
-	var candidates: Array = []
-	if preferred != "":
-		candidates.append(preferred)
-	# Default to the ~2B tier (Qwen3-1.7B); degrade to 0.6B, then the 4B res copy if present.
-	candidates.append("user://local_agents/models/qwen3-1_7b/Qwen3-1.7B-Q4_K_M.gguf")
-	candidates.append("user://local_agents/models/qwen3-0_6b-instruct/Qwen3-0.6B-Q4_K_M.gguf")
-	candidates.append("user://local_agents/models/qwen3-4b-instruct/Qwen3-4B-Instruct-2507-Q4_K_M.gguf")
-	for c in candidates:
-		if FileAccess.file_exists(ProjectSettings.globalize_path(String(c))):
-			return String(c)
-	return ""
+func _has_client() -> bool:
+	return _llm_client != null and _llm_client.has_method("request")
 
 
 # --- main loop ----------------------------------------------------------------------------------
@@ -463,9 +408,9 @@ func _tod_phase(tod: float) -> String:
 # --- firing a line ------------------------------------------------------------------------------
 
 func _fire(idle: bool) -> void:
-	# No brain yet: stay SILENT (there is no canned pool) and leave the events queued — the moment the
-	# model server is up, the backlog (volcano and all) gets its reaction.
-	if not _server_ready:
+	# No brain yet: stay SILENT (there is no canned pool) and leave the events queued — the moment a
+	# client is available, the backlog (volcano and all) gets its reaction.
+	if not _has_client():
 		return
 	_intensity = 0.0
 	_time_since_line = 0.0
@@ -491,48 +436,36 @@ func _requeue_urgent(events_snapshot: Array) -> void:
 
 
 func _dispatch_llm(events_snapshot: Array, ambient: bool = false) -> void:
-	var http: HTTPRequest = HTTPRequest.new()
-	add_child(http)
-	http.timeout = 8.0
-	http.request_completed.connect(_on_llm_completed.bind(http, events_snapshot))
-
+	if not _has_client():
+		_requeue_urgent(events_snapshot)
+		return
 	var user_content: String = _build_ambient_context() if ambient else _build_context(events_snapshot)
 	var messages: Array = [{"role": "system", "content": LAStreamerPersonas.system_prompt(_persona_id) + " /no_think"}]
 	messages.append_array(_window)
 	messages.append({"role": "user", "content": user_content})
 
-	var body: Dictionary = {
-		"model": _model_name,
-		"messages": messages,
+	# Chat, no tools — the shared client forwards these sampling opts to the native path (cache_prompt lets
+	# llama.cpp reuse the KV of the shared persona prefix instead of recomputing every line).
+	var opts: Dictionary = {
 		"temperature": 0.9,
 		"top_p": 0.9,
 		"frequency_penalty": 0.7,
 		"presence_penalty": 0.6,   # nudged up: push the small model off stock phrasing it keeps reaching for
 		"max_tokens": 96,          # room for ONE real flowing sentence, not a clipped fragment
-		"stream": false,
-		# ONE persistent server for the whole session. Persona swaps just change the system prompt on
-		# the next request; cache_prompt lets llama.cpp reuse the KV of the shared prefix instead of
-		# recomputing (and we never relaunch the server to change voice).
 		"cache_prompt": true,
 	}
-	var headers: PackedStringArray = PackedStringArray(["Content-Type: application/json"])
-	var err: int = http.request(_server_url + "/v1/chat/completions", headers, HTTPClient.METHOD_POST, JSON.stringify(body))
-	if err != OK:
-		http.queue_free()
-		_requeue_urgent(events_snapshot)   # couldn't reach the model — retry the landmark beats, no canned line
+	if not bool(_llm_client.request(messages, [], opts, _on_line_result.bind(events_snapshot))):
+		# The shared client was busy (cognition mid-think) — retry the landmark beats next free beat.
+		_requeue_urgent(events_snapshot)
 		return
 	_pending_request = true
 
 
-func _on_llm_completed(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray, http: HTTPRequest, events_snapshot: Array) -> void:
-	if is_instance_valid(http):
-		http.queue_free()
+func _on_line_result(result: Dictionary, events_snapshot: Array) -> void:
 	_pending_request = false
 	var line: String = ""
-	if result == HTTPRequest.RESULT_SUCCESS and code == 200:
-		var parsed = JSON.parse_string(body.get_string_from_utf8())
-		if parsed is Dictionary:
-			line = _clean(_extract_content(parsed as Dictionary))
+	if bool(result.get("ok", false)):
+		line = _clean(String(result.get("text", "")))
 	# Reject a repeat of anything said recently (the small model latches onto a phrase).
 	if line != "" and _said_recently(line):
 		line = ""
@@ -636,19 +569,6 @@ func _said_recently(line: String) -> bool:
 	return false
 
 
-func _extract_content(response: Dictionary) -> String:
-	var choices = response.get("choices", [])
-	if not (choices is Array) or (choices as Array).is_empty():
-		return ""
-	var first = (choices as Array)[0]
-	if not (first is Dictionary):
-		return ""
-	var message = (first as Dictionary).get("message", {})
-	if not (message is Dictionary):
-		return ""
-	return String((message as Dictionary).get("content", ""))
-
-
 ## Sanitize a raw model completion into one clean spoken line: drop any <think> block, strip
 ## markup/quotes, collapse to a single line, and cap the length.
 func _clean(raw: String) -> String:
@@ -709,10 +629,5 @@ func _fire_count() -> int:
 func _species_label(sp: String) -> String:
 	return String(SPECIES_LABELS.get(sp, sp + "s"))
 
-
-func _exit_tree() -> void:
-	if _server_thread != null:
-		_server_thread.wait_to_finish()   # boot may still be in flight on quit
-		_server_thread = null
-	if _server_mgr != null and _server_mgr.has_method("stop_managed"):
-		_server_mgr.stop_managed()
+# The LLM server + agent lifecycle is owned by LALlmService now (not the director), so there is no
+# per-director server/thread to tear down here anymore.

@@ -1,10 +1,10 @@
 extends Node
-class_name LocalAgentsAgentQuickstart
+class_name LocalAgentQuickstart
 
-## The smallest possible "talk to a local LLM" demo: one LocalAgentsAgent node, a
+## The smallest possible "talk to a local LLM" demo: one LocalAgent node, a
 ## prompt box, and a reply label. Type a message, press enter, read the model's reply.
 
-@onready var agent: LocalAgentsAgent = %Agent
+@onready var agent: LocalAgent = %Agent
 @onready var prompt_input: LineEdit = %PromptInput
 @onready var reply_label: RichTextLabel = %ReplyLabel
 @onready var status_label: Label = %StatusLabel

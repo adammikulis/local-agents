@@ -8,8 +8,11 @@ extends Node
 ## so the global concurrency/rate caps are honoured no matter how many creatures escalate at once.
 ##
 ## Two backends resolve an escalation into one LAActionRegistry action:
-##   1. Real FunctionGemma — an async HTTP POST to a running llama.cpp llama-server. Signal-based; it
-##      never blocks the frame. Used when a `server_url` is configured and we are inside the tree.
+##   1. The shared LLMClient — a LocalAgentLlmClient (a LocalAgent behind an async seam), owned by
+##      LALlmService and injected by EcologyService. request() runs the native function-calling think
+##      OFF the frame and hands back the chosen tool call. Used when a client is injected and we are
+##      inside the tree. This is the SAME LocalAgent the standalone agent + streamer use — one server,
+##      one model, one config (no more private HTTPRequest client here).
 ##   2. Heuristic teacher — a synchronous rule-of-thumb resolved from the signature+context, but its
 ##      callback is DEFERRED so it too never blocks. This is the offline fallback AND the "teacher"
 ##      that keeps generating training traces when no model is loaded.
@@ -19,7 +22,6 @@ extends Node
 ##
 ## (Explicit types only — project rule: no ':=' inferred typing.)
 
-const DEFAULT_MODEL: String = "google/functiongemma-270m-it"
 const DEFAULT_TRACE_PATH: String = "user://functiongemma_traces.jsonl"
 const SCAN_LIMIT: int = 40                 # per-group cap when gathering escalation context
 const PREDATOR_SIZE_RATIO: float = 1.2     # a "predator" must be at least this much bigger than me
@@ -31,10 +33,11 @@ const ACTIVITY_PRUNE_AT: int = 256         # prune expired activity entries once
 
 # --- configuration (set via setup) ---
 var _enabled: bool = true
-var _server_url: String = ""
-var _model: String = DEFAULT_MODEL
+# The shared LLMClient (a LocalAgentLlmClient owned by LALlmService), injected by EcologyService. When
+# null the scheduler resolves every escalation with the built-in heuristic teacher (the offline path).
+# This replaces the old raw HTTPRequest + server_url/model plumbing: one client, one server, one model.
+var _llm_client = null
 var _trace_path: String = DEFAULT_TRACE_PATH
-var _timeout: float = 4.0
 var _max_in_flight: int = 2
 var _max_rps: float = 4.0
 
@@ -54,15 +57,11 @@ var _in_flight_ids: Dictionary = {}
 var _activity: Dictionary = {}
 
 
-## Configure the scheduler. Robust to a missing/empty server_url (falls back to the teacher).
+## Configure the scheduler. Robust to a missing llm_client (falls back to the teacher for every call).
 func setup(options: Dictionary = {}) -> void:
 	_enabled = bool(options.get("enabled", true))
-	_server_url = String(options.get("server_url", "")).strip_edges()
-	if _server_url.ends_with("/"):
-		_server_url = _server_url.substr(0, _server_url.length() - 1)
-	_model = String(options.get("model", DEFAULT_MODEL))
+	_llm_client = options.get("llm_client", null)
 	_trace_path = String(options.get("trace_path", DEFAULT_TRACE_PATH))
-	_timeout = float(options.get("timeout", 4.0))
 	_max_in_flight = maxi(1, int(options.get("max_in_flight", 2)))
 	_max_rps = maxf(0.1, float(options.get("max_rps", 4.0)))
 
@@ -98,13 +97,12 @@ func request(creature, cognition, sig: Dictionary, innate_action: String) -> boo
 		"sig": sig,
 		"innate_action": String(innate_action),
 		"context": context,
-		"http": null,
 	}
 
-	if _enabled and _server_url != "" and is_inside_tree():
+	if _enabled and _llm_client != null and is_inside_tree():
 		if _dispatch_llm(job):
 			return true
-		# Could not even dispatch the HTTP request — fall through to the teacher so we still resolve.
+		# The shared client was busy/unavailable — fall through to the teacher so we still resolve.
 	call_deferred("_resolve_teacher", job)
 	return true
 
@@ -124,41 +122,33 @@ func _accept() -> bool:
 	return true
 
 
-# --- real FunctionGemma backend -------------------------------------------------------------------
+# --- shared-LLMClient backend (function-calling) --------------------------------------------------
 
+## Dispatch one escalation through the shared LocalAgentLlmClient. FunctionGemmaClient shapes the
+## messages; the client supplies transport + tools + tool_choice and delivers the native result async.
+## Returns false when the client rejects (already in flight) so the caller falls back to the teacher.
 func _dispatch_llm(job: Dictionary) -> bool:
-	var http: HTTPRequest = HTTPRequest.new()
-	add_child(http)
-	http.timeout = _timeout
-	http.request_completed.connect(_on_llm_completed.bind(job))
-	job["http"] = http
-
-	var body_dict: Dictionary = LAFunctionGemmaClient.build_request(
-		_model, job["sig"], job["context"], LAActionRegistry.tool_specs()
-	)
-	var body: String = JSON.stringify(body_dict)
-	var headers: PackedStringArray = PackedStringArray(["Content-Type: application/json"])
-	var err: int = http.request(_server_url + "/v1/chat/completions", headers, HTTPClient.METHOD_POST, body)
-	if err != OK:
-		http.queue_free()
-		job["http"] = null
+	if _llm_client == null:
+		return false
+	var messages: Array = LAFunctionGemmaClient.build_messages(job["sig"], job["context"])
+	var tools: Array = LAActionRegistry.tool_specs()
+	var accepted: bool = bool(_llm_client.request(messages, tools, {}, _on_llm_result.bind(job)))
+	if not accepted:
 		return false
 	_llm_calls += 1
 	return true
 
 
-func _on_llm_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray, job: Dictionary) -> void:
-	var http = job.get("http", null)
-	if http != null and is_instance_valid(http):
-		(http as Node).queue_free()
-	job["http"] = null
-
-	var action: String = ""
-	if result == HTTPRequest.RESULT_SUCCESS and response_code == 200:
-		var text: String = body.get_string_from_utf8()
-		var parsed = JSON.parse_string(text)
-		if parsed is Dictionary:
-			action = LAFunctionGemmaClient.parse_action(parsed as Dictionary)
+## Async result from the shared client: the native think Dictionary ({ok, text, tool_calls?, response?}).
+## FunctionGemmaClient reads the chosen action out of it (native tool-call first, then a content scan). If
+## the model itself was unavailable (ok:false — server down, model not loaded) we DEGRADE to the heuristic
+## teacher so a broken/offline model never breaks cognition; a model that answered but chose no valid
+## action still reports failure (the creature keeps its fast-path pick).
+func _on_llm_result(result: Dictionary, job: Dictionary) -> void:
+	if not bool(result.get("ok", false)):
+		_resolve_teacher(job)
+		return
+	var action: String = LAFunctionGemmaClient.parse_action_from_result(result)
 	_finish(job, action, "llm")
 
 

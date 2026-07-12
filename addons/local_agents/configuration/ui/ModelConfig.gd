@@ -2,7 +2,7 @@
 extends Control
 class_name LocalAgentsModelConfig
 
-@onready var manager: LocalAgentsAgentManager = get_node_or_null("/root/AgentManager")
+@onready var manager: LocalAgentManager = get_node_or_null("/root/AgentManager")
 @onready var name_edit: LineEdit = %ConfigNameLineEdit
 @onready var max_actions_slider: HSlider = %ChatContextSizeHSlider
 @onready var max_actions_label: Label = %ChatContextSizeLabel

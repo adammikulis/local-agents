@@ -1,8 +1,8 @@
 extends Resource
-class_name LocalAgentsGraph
+class_name LocalAgentGraph
 
-@export var nodes: Array[LocalAgentsGraphNode] = []
-@export var edges: Array[LocalAgentsGraphEdge] = []
+@export var nodes: Array[LocalAgentGraphNode] = []
+@export var edges: Array[LocalAgentGraphEdge] = []
 
 var _next_node_id := 0
 var _next_edge_id := 0
@@ -18,9 +18,9 @@ func ensure_id_counters() -> void:
         max_edge_id = max(max_edge_id, edge.id)
     _next_edge_id = max_edge_id + 1
 
-func add_node(name: String = "", data: Dictionary = {}) -> LocalAgentsGraphNode:
+func add_node(name: String = "", data: Dictionary = {}) -> LocalAgentGraphNode:
     ensure_id_counters()
-    var node := LocalAgentsGraphNode.new(_next_node_id, name, data)
+    var node := LocalAgentGraphNode.new(_next_node_id, name, data)
     nodes.append(node)
     _next_node_id += 1
     return node
@@ -38,18 +38,18 @@ func remove_node(node_id: int) -> bool:
         edges.erase(edge)
     return true
 
-func add_edge(source_id: int, target_id: int, name: String = "", weight: float = 1.0, data: Dictionary = {}, is_bidirectional: bool = false) -> LocalAgentsGraphEdge:
+func add_edge(source_id: int, target_id: int, name: String = "", weight: float = 1.0, data: Dictionary = {}, is_bidirectional: bool = false) -> LocalAgentGraphEdge:
     ensure_id_counters()
     var source_node := get_node(source_id)
     var target_node := get_node(target_id)
     if source_node == null or target_node == null:
         push_error("Source or target node does not exist")
         return null
-    var edge := LocalAgentsGraphEdge.new(_next_edge_id, source_id, target_id, name, weight, data)
+    var edge := LocalAgentGraphEdge.new(_next_edge_id, source_id, target_id, name, weight, data)
     edges.append(edge)
     _next_edge_id += 1
     if is_bidirectional:
-        var reverse := LocalAgentsGraphEdge.new(_next_edge_id, target_id, source_id, name, weight, data)
+        var reverse := LocalAgentGraphEdge.new(_next_edge_id, target_id, source_id, name, weight, data)
         edges.append(reverse)
         _next_edge_id += 1
     return edge
@@ -61,19 +61,19 @@ func remove_edge(edge_id: int) -> bool:
     edges.erase(edge)
     return true
 
-func get_node(node_id: int) -> LocalAgentsGraphNode:
+func get_node(node_id: int) -> LocalAgentGraphNode:
     for node in nodes:
         if node.id == node_id:
             return node
     return null
 
-func get_edge(edge_id: int) -> LocalAgentsGraphEdge:
+func get_edge(edge_id: int) -> LocalAgentGraphEdge:
     for edge in edges:
         if edge.id == edge_id:
             return edge
     return null
 
-func get_edges() -> Array[LocalAgentsGraphEdge]:
+func get_edges() -> Array[LocalAgentGraphEdge]:
     return edges
 
 func update_edge_weight(edge_id: int, amount: float) -> void:

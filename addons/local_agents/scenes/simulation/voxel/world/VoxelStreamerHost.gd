@@ -25,7 +25,7 @@ var _streamer_avatar_flavor: String = "male"   # "male" | "female"; override wit
 # Build the streamer overlay + avatar + voice + director + energy graph, parenting them onto the world.
 # `world`/`ecology`/`material` feed the energy graph; `persona`/`avatar_flavor` seed the defaults
 # (command-line overrides).
-func setup(world: Node, ecology: Node, material: Node, persona: String, avatar_flavor: String) -> void:
+func setup(world: Node, ecology: Node, material: Node, persona: String, avatar_flavor: String, llm_client = null) -> void:
 	_streamer_persona = persona
 	_streamer_avatar_flavor = avatar_flavor
 
@@ -50,7 +50,7 @@ func setup(world: Node, ecology: Node, material: Node, persona: String, avatar_f
 	_streamer_director = StreamerDirectorScript.new()
 	_streamer_director.name = "StreamerDirector"
 	world.add_child(_streamer_director)
-	_streamer_director.setup(world, {"voice": _streamer_voice, "persona": _streamer_persona})
+	_streamer_director.setup(world, {"voice": _streamer_voice, "persona": _streamer_persona, "llm_client": llm_client})
 
 	# Consume the ONE emergent phenomenon-event source instead of scanning the world for events itself: the
 	# tracker detects eruptions/wildfires/floods/deaths/… from the shared field + ecology and the director

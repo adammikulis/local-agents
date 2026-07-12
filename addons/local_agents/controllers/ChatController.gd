@@ -39,8 +39,8 @@ var _tab_container: TabContainer
 var _configuration_panel: LocalAgentsConfigurationPanel
 var _conversation_session_service
 var _conversation_history_service
-var _manager: LocalAgentsAgentManager
-var _agent: LocalAgentsAgent
+var _manager: LocalAgentManager
+var _agent: LocalAgent
 var _is_generating := false
 var _status_text := "Idle"
 
@@ -121,7 +121,7 @@ func _open_configuration_panel(section: String) -> void:
 		"inference":
 			_configuration_panel.focus_inference()
 
-func _on_agent_ready(agent: LocalAgentsAgent) -> void:
+func _on_agent_ready(agent: LocalAgent) -> void:
 	if _agent:
 		if _agent.model_output_received.is_connected(_on_model_output_received):
 			_agent.model_output_received.disconnect(_on_model_output_received)

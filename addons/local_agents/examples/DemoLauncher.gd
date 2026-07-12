@@ -38,7 +38,7 @@ const DEMOS: Array = [
 	},
 	{
 		"title": "6. Graph memory",
-		"desc": "The LocalAgentsGraph resource (nodes/edges) for structured knowledge. Runs with no model.",
+		"desc": "The LocalAgentGraph resource (nodes/edges) for structured knowledge. Runs with no model.",
 		"scene": "res://addons/local_agents/examples/GraphExample.tscn",
 	},
 	{

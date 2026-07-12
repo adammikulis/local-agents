@@ -2,7 +2,7 @@
 extends Control
 class_name LocalAgentsInferenceConfig
 
-@onready var manager: LocalAgentsAgentManager = get_node_or_null("/root/AgentManager")
+@onready var manager: LocalAgentManager = get_node_or_null("/root/AgentManager")
 @onready var add_button: Button = %AddInferenceConfigButton
 @onready var delete_button: Button = %DeleteInferenceConfigButton
 @onready var back_button: Button = %BackButton

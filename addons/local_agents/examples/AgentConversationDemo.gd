@@ -1,9 +1,9 @@
 extends Node
-class_name LocalAgentsAgentConversationDemo
+class_name LocalAgentConversationDemo
 
-## Ladder rung 3: cognition + memory. Two LocalAgentsAgent nodes take turns
+## Ladder rung 3: cognition + memory. Two LocalAgent nodes take turns
 ## talking to each other. Each utterance is recorded as a node in a shared
-## LocalAgentsGraph (the same graph resource shown on its own in GraphExample),
+## LocalAgentGraph (the same graph resource shown on its own in GraphExample),
 ## chained by "then" edges. That growing graph is the conversation's memory:
 ## structured, queryable state that accumulates as the agents think.
 ##
@@ -12,8 +12,8 @@ class_name LocalAgentsAgentConversationDemo
 ## demo falls back to a short canned exchange so the turn-taking + memory graph
 ## are still visible.
 
-@onready var agent_a: LocalAgentsAgent = %AgentA
-@onready var agent_b: LocalAgentsAgent = %AgentB
+@onready var agent_a: LocalAgent = %AgentA
+@onready var agent_b: LocalAgent = %AgentB
 @onready var status_label: Label = %StatusLabel
 @onready var transcript_label: RichTextLabel = %TranscriptLabel
 @onready var memory_label: Label = %MemoryLabel
@@ -35,7 +35,7 @@ const CANNED: Array = [
 	"Ben: Agreed, herbs it is. We can graduate to tomatoes once we know we can keep up.",
 ]
 
-var _graph: LocalAgentsGraph
+var _graph: LocalAgentGraph
 var _turn: int = 0
 var _last_node_id: int = -1
 var _transcript: Array = []
@@ -43,13 +43,13 @@ var _busy: bool = false
 var _use_model: bool = false
 
 func _ready() -> void:
-	_graph = LocalAgentsGraph.new()
+	_graph = LocalAgentGraph.new()
 	next_button.pressed.connect(_on_next_turn)
 	reset_button.pressed.connect(_reset)
 	_reset()
 
 func _reset() -> void:
-	_graph = LocalAgentsGraph.new()
+	_graph = LocalAgentGraph.new()
 	_turn = 0
 	_last_node_id = -1
 	_transcript.clear()
@@ -76,7 +76,7 @@ func _produce_line(speaker_name: String) -> String:
 	if not _use_model:
 		var canned: String = String(CANNED[_turn % CANNED.size()])
 		return canned.split(": ", true, 1)[-1]
-	var agent: LocalAgentsAgent = agent_a if speaker_name == "Ada" else agent_b
+	var agent: LocalAgent = agent_a if speaker_name == "Ada" else agent_b
 	var persona: String = PERSONA_A if speaker_name == "Ada" else PERSONA_B
 	var prompt: String = "%s\nTopic: %s\nConversation so far:\n%s\nReply as %s in one short sentence." % [
 		persona, TOPIC, _recent_transcript(), speaker_name,
@@ -99,7 +99,7 @@ func _record(speaker_name: String, line: String) -> void:
 	var entry: String = "%s: %s" % [speaker_name, line]
 	_transcript.append(entry)
 	transcript_label.append_text(entry + "\n")
-	var node: LocalAgentsGraphNode = _graph.add_node(speaker_name, {"turn": _turn, "said": line})
+	var node: LocalAgentGraphNode = _graph.add_node(speaker_name, {"turn": _turn, "said": line})
 	if _last_node_id != -1:
 		_graph.add_edge(_last_node_id, node.id, "then")
 	_last_node_id = node.id

@@ -62,6 +62,45 @@ static func context_prompt(sig: Dictionary, context: Dictionary) -> String:
 	) % [species, diet, energy_word, e_pct, hydration_word, h_pct, time_word, ground, visible]
 
 
+## The chat messages for one escalation: the developer instruction + the situation description. This is
+## the prompt-shaping half of the client — the LocalAgentLlmClient supplies the tools + tool_choice and
+## does the transport, so the scheduler no longer owns a raw HTTP body.
+static func build_messages(sig: Dictionary, context: Dictionary) -> Array:
+	return [
+		{"role": "system", "content": developer_prompt()},
+		{"role": "user", "content": context_prompt(sig, context)},
+	]
+
+
+## Read the chosen action out of a native LocalAgent.think result Dictionary
+## ({ok, text, tool_calls?, response?, …}). Prefers the structured native `tool_calls` (llama-server
+## function-calling), then the full chat-completions `response`, then a content scan of `text`. Returns
+## "" when no valid known action is present.
+static func parse_action_from_result(result: Dictionary) -> String:
+	if result.is_empty():
+		return ""
+	# 1) Native surfaces the OpenAI message.tool_calls array at the top level for the llama_server backend.
+	var tool_calls: Array = _as_array(result.get("tool_calls", []))
+	if not tool_calls.is_empty():
+		var call = tool_calls[0]
+		if call is Dictionary:
+			var fn: Dictionary = _as_dict((call as Dictionary).get("function", {}))
+			var name: String = String(fn.get("name", ""))
+			if LAActionRegistry.is_valid(name):
+				return name
+	# 2) Full chat-completions response (choices/message) — parse_action handles tool_calls + content scan.
+	var response: Dictionary = _as_dict(result.get("response", {}))
+	if not response.is_empty():
+		var from_response: String = parse_action(response)
+		if from_response != "":
+			return from_response
+	# 3) In-process backend returns only bare `text` — scan it for a known action token.
+	var text: String = String(result.get("text", ""))
+	if text != "":
+		return _scan_action_text(text.to_lower())
+	return ""
+
+
 ## Build the OpenAI chat-completions body for the llama-server `/v1/chat/completions` endpoint.
 ## `tool_specs` is expected to be LAActionRegistry.tool_specs(); `tool_choice: "required"` forces a
 ## call, low temperature keeps the pick decisive, and a tiny token cap keeps latency down.
@@ -107,27 +146,32 @@ static func parse_action(response: Dictionary) -> String:
 	# inside "nea-rest", and multi-action text picks the EARLIEST call by position (not ACTIONS order).
 	var content: String = String(message.get("content", "")).to_lower()
 	if content != "":
-		var best_pos: int = 0x7fffffff
-		var best_action: String = ""
-		for action in LAActionRegistry.ACTIONS:
-			var name_l: String = String(action).to_lower()
-			var from: int = 0
-			while true:
-				var p: int = content.find(name_l, from)
-				if p < 0:
-					break
-				var before_ok: bool = p == 0 or not _is_word_char(content[p - 1])
-				var ae: int = p + name_l.length()
-				var after_ok: bool = ae >= content.length() or content[ae] == "(" or not _is_word_char(content[ae])
-				if before_ok and after_ok:
-					if p < best_pos:
-						best_pos = p
-						best_action = String(action)
-					break
-				from = p + 1
-		if best_action != "":
-			return best_action
+		return _scan_action_text(content)
 	return ""
+
+
+## Find the EARLIEST valid action name that appears as a real token in `content_lower` (word boundary
+## before, and a boundary or '(' after — so "nea-rest" no longer matches "rest"). Returns "" if none.
+static func _scan_action_text(content_lower: String) -> String:
+	var best_pos: int = 0x7fffffff
+	var best_action: String = ""
+	for action in LAActionRegistry.ACTIONS:
+		var name_l: String = String(action).to_lower()
+		var from: int = 0
+		while true:
+			var p: int = content_lower.find(name_l, from)
+			if p < 0:
+				break
+			var before_ok: bool = p == 0 or not _is_word_char(content_lower[p - 1])
+			var ae: int = p + name_l.length()
+			var after_ok: bool = ae >= content_lower.length() or content_lower[ae] == "(" or not _is_word_char(content_lower[ae])
+			if before_ok and after_ok:
+				if p < best_pos:
+					best_pos = p
+					best_action = String(action)
+				break
+			from = p + 1
+	return best_action
 
 
 static func _is_word_char(ch: String) -> bool:
