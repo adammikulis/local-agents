@@ -39,21 +39,28 @@ static func hydration_bucket(frac: float) -> int:
 ##   text  : String — stable human-readable form (prompts, traces, dataset)
 ##   e/h/w/n : the raw feature components (for feedback + prompt building)
 static func compute(c) -> Dictionary:
+	# Reads are DUCK-TYPED via Object.get (returns null for a missing property, never errors) so an aquatic
+	# actor that lacks a land-only field (e.g. a fish with no hydration) still computes a valid signature. For a
+	# land creature every read resolves to the exact same value it always did — behaviour is identical.
+	var max_e = c.get("max_energy")
 	var e_frac: float = 0.0
-	if c.max_energy > 0.0:
-		e_frac = clampf(c.energy / c.max_energy, 0.0, 1.0)
+	if max_e != null and float(max_e) > 0.0:
+		e_frac = clampf(float(c.get("energy")) / float(max_e), 0.0, 1.0)
+	var max_h = c.get("max_hydration")
 	var h_frac: float = 0.0
-	if c.max_hydration > 0.0:
-		h_frac = clampf(c.hydration / c.max_hydration, 0.0, 1.0)
+	if max_h != null and float(max_h) > 0.0:
+		h_frac = clampf(float(c.get("hydration")) / float(max_h), 0.0, 1.0)
 	var e: int = energy_bucket(e_frac)
 	var h: int = hydration_bucket(h_frac)
 
+	var mat = c.get("_material")
 	var at_water: int = 0
-	if c._material != null and c._material.has_method("is_water_at"):
-		if c._material.is_water_at(c.global_position):
+	if mat != null and mat.has_method("is_water_at"):
+		if mat.is_water_at(c.global_position):
 			at_water = 1
+	var eco = c.get("_ecology")
 	var night: int = 0
-	if c._ecology != null and c._ecology.has_method("is_night") and c._ecology.is_night():
+	if eco != null and eco.has_method("is_night") and eco.is_night():
 		night = 1
 
 	var key: int = ((e * HYDRATION_BUCKETS + h) * 2 + at_water) * 2 + night

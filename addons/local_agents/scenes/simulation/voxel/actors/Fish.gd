@@ -79,6 +79,39 @@ var dive_depth: float = 0.0           # air-breathers forage this far down, then
 var _breath: float = 12.0
 const BREATH_REFILL: float = 25.0     # breath reserve refilled per sec while in the breathing medium
 
+# --- energy / hunger (0.4: a fish is a LIVING creature with a metabolism, like a land animal). Energy drains
+# every frame and is refilled by eating prey; a forager that empties its reserve starves. Hunger (energy below
+# hungry_at) is what makes a swimmer break off schooling to forage — the SAME drive land creatures run on.
+# The base of the web (grazers/filter feeders — an EMPTY preys_on) is sustained by ambient biomass and never
+# starves, so seeding those populations (bug/shrimp/turtle/crab/jellyfish) behaves exactly as before. ---
+var energy: float = 60.0
+var max_energy: float = 60.0
+var metabolism: float = 0.5           # energy burned per second (baseline swim cost)
+var hungry_at: float = 0.6            # forage urgently once energy drops below this fraction of max
+# Fish live IN water, so they never thirst — hydration is kept full so the SHARED cognition reward math (which
+# weighs energy + hydration) sees zero thirst pressure. Present so the reused stack needs no per-fish branch.
+var hydration: float = 100.0
+var max_hydration: float = 100.0
+
+# --- predator flight: flee the nearest actor whose species is in `flees_from` (config), within sense range.
+# Emergent + config-driven — prey swimmers (shrimp/bug) list the fish that eat them and bolt; the SAME rule the
+# insects use on land. No hardcoded predator pairs in code. ---
+var flees_from: PackedStringArray = PackedStringArray()
+var _panic_timer: float = 0.0         # >0 while fleeing felt/seen danger (feeds the cognition fear reward)
+var _panic_source: Vector3 = Vector3.ZERO
+
+# --- shared cognition (REUSES the land stack: LACognition + LASituationSignature + LAActionRegistry). A fish
+# runs the same fast/slow brain — it picks from the shared action vocabulary, learns from how its own welfare
+# changes, and (rarely) escalates to the shared slow-brain scheduler. The fields below satisfy the stack's
+# duck-typed reads so NO fish branch is needed inside cognition itself. ---
+var _cognition = null                 # LACognition (per-fish learned policy + slow-brain hook)
+var _ecology = null                   # LAEcologyService (is_night, injected via set_ecology)
+var _material = null                  # LAMaterialField alias for cognition's is_water_at/temp_at reads
+var family_id: int = 0                # kin id (social learning groups relatives) — mirrors LACreature
+var llm_enabled: bool = true          # per-fish slow-brain opt-out (default on), read by cognition
+var eye_fov: float = 300.0            # panoramic vision (side-set eyes) — read by LAVision during observe()
+var _sense_mult: float = 1.0          # perception scalar (fish have no day/night modulation) — read by LAVision
+
 var age: float = 0.0
 var state: String = "swim"
 var _dying: bool = false
@@ -90,9 +123,10 @@ var _mesh: MeshInstance3D = null
 var _model_root: Node3D = null
 
 
-func setup(_terrain, _material, _config: Dictionary) -> void:
+func setup(_terrain, _mat_field, _config: Dictionary) -> void:
 	terrain = _terrain
-	material = _material
+	material = _mat_field
+	_material = _mat_field                  # cognition/scheduler read `_material` (is_water_at / temp_at)
 	config = _config.duplicate(true)
 	species = String(config.get("species", species))
 	speed = float(config.get("speed", speed))
@@ -120,6 +154,18 @@ func setup(_terrain, _material, _config: Dictionary) -> void:
 	# Fragile: HP scales gently with size, but fish die easily to a strike near the bolt.
 	max_health = float(config.get("max_health", 8.0 + size * 20.0))
 	health = max_health
+	# Energy / hunger + predator flight + kin (all config-driven; sensible defaults keep the base web fed).
+	max_energy = float(config.get("max_energy", max_energy))
+	energy = max_energy
+	metabolism = float(config.get("metabolism", metabolism))
+	hungry_at = float(config.get("hungry_at", hungry_at))
+	flees_from = PackedStringArray(config.get("flees_from", PackedStringArray()))
+	family_id = int(config.get("family_id", get_instance_id()))
+	llm_enabled = bool(config.get("llm_enabled", true))
+	eye_fov = float(config.get("eye_fov", eye_fov))
+	# Born with the SHARED fast/slow brain — same class land creatures use. No genome yet (policy is learned in
+	# life); the scheduler is injected after setup by the ecology (set_cognition_scheduler), exactly like land.
+	_cognition = LACognition.new()
 
 	collision_layer = 2                # pickable via the same layer-2 query as other actors
 	collision_mask = 0                 # movement is manual
@@ -131,6 +177,34 @@ func setup(_terrain, _material, _config: Dictionary) -> void:
 	_heading = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0).normalized()
 	if _heading == Vector3.ZERO:
 		_heading = Vector3.FORWARD
+
+
+# --- shared cognition wiring (mirrors LACreature so the ecology injects the same way) ---------------
+func set_ecology(e) -> void:
+	_ecology = e
+
+
+func set_cognition_scheduler(s) -> void:
+	if _cognition != null:
+		_cognition.set_scheduler(s)
+
+
+func get_cognition():
+	return _cognition
+
+
+func get_genome():
+	return null                                # a fish carries no DNA strand yet — its policy is learned in life
+
+
+func get_family_id() -> int:
+	return family_id
+
+
+# A fish that forages live prey is a "hunter" (read by the shared scheduler's predator scan). False for the
+# pure grazers/filter feeders / baskers (empty preys_on), so they are never counted as predators.
+func is_hunter() -> bool:
+	return not preys_on.is_empty()
 
 
 func _build_body() -> void:
@@ -470,6 +544,16 @@ func _physics_process(delta: float) -> void:
 		state = "bask"
 		return
 
+	# METABOLISM: a forager (non-empty preys_on) burns energy every frame and STARVES at empty — its hunger is
+	# what drives the forage cascade below, and eating prey (_eat_prey) refills it. The base of the web
+	# (grazers/filter feeders — empty preys_on) grazes ambient biomass, so it stays fed and its numbers are
+	# bounded only by predation/age exactly as before this change (no new starvation on the existing populations).
+	if not preys_on.is_empty():
+		energy -= metabolism * delta
+		if energy <= 0.0:
+			die("starved")
+			return
+
 	var pos: Vector3 = global_position
 	# Local "up": radial on a planet, +Y on the flat island. Used for every up-reference below.
 	var up: Vector3 = terrain.up_at(pos) if terrain != null else Vector3.UP
@@ -489,24 +573,14 @@ func _physics_process(delta: float) -> void:
 			die("drowned" if breathes == "air" else "suffocated")
 			return
 
-	# DECISION THROTTLE: recompute the swim intention (wander jitter + the O(n) schooling steer) only
-	# every THINK_STRIDE frames, instance-staggered. Between updates the fish keeps its last _heading —
-	# the habitability correction + movement below still run EVERY frame, so it never glides onto land.
+	# DECISION THROTTLE: recompute the swim intention (the SHARED cognition cascade + the O(n) schooling steer)
+	# only every THINK_STRIDE frames, instance-staggered. Between updates the fish keeps its last _heading — the
+	# habitability correction + movement below still run EVERY frame, so it never glides onto land.
 	var desired: Vector3 = _heading
 	var stride: int = _think_stride()
 	var do_think: bool = (int(Engine.get_physics_frames()) + _think_phase) % stride == 0
 	if do_think:
-		_wander_timer -= delta
-		if _wander_timer <= 0.0:
-			_wander_timer = randf_range(1.0, 2.5)
-			# Isotropic 3D jitter; the tangent-plane projection below keeps it in the swim plane
-			# (identical to the old flat (x,0,z) jitter when up == +Y).
-			var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0) * 0.7
-			desired = _heading + jitter
-		desired += _school_steer(pos, up)
-		# Insectivore/planktivore swimmers steer toward (and eat) the nearest prey — the aquatic web's bottom.
-		if not preys_on.is_empty():
-			desired += _forage_steer(pos, up)
+		desired = _decide_heading(pos, up, delta)
 	# Flatten the intention into the local tangent plane (was desired.y = 0.0 for the flat +Y world).
 	desired = desired - up * desired.dot(up)
 
@@ -524,6 +598,73 @@ func _physics_process(delta: float) -> void:
 		var look: Vector3 = global_position + _heading
 		if not look.is_equal_approx(global_position):
 			look_at(look, up)
+
+
+# The fish's decision each think-frame — REUSES the shared cognition (LACognition + LASituationSignature +
+# LAActionRegistry). It builds the innate choice from its drives (flee a predator > forage when hungry > school),
+# lets the fast/slow brain confirm/override + learn from how its own welfare changed, then turns the chosen
+# action into a swim steer. Schooling still contributes cohesion under forage/wander so a school stays coherent
+# even while foraging — emergent from local mates, not scripted. Returns the (un-flattened) desired heading.
+func _decide_heading(pos: Vector3, up: Vector3, delta: float) -> Vector3:
+	_panic_timer = maxf(0.0, _panic_timer - delta)
+	var desired: Vector3 = _heading
+	_wander_timer -= delta
+	if _wander_timer <= 0.0:
+		_wander_timer = randf_range(1.0, 2.5)
+		# Isotropic 3D jitter; the tangent-plane projection by the caller keeps it in the swim plane.
+		var jitter: Vector3 = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0) * 0.7
+		desired = _heading + jitter
+
+	var threat: Node3D = _nearest_threat(pos)
+	var hungry: bool = energy < max_energy * hungry_at
+	# Innate cascade (mirrors the land creature's ordering): flee a predator first, else forage when hungry,
+	# else school. `flee` is a reflex in the registry, so cognition returns it unchanged (survival is not learned).
+	var innate: String = "flee" if threat != null else ("hunt" if (hungry and not preys_on.is_empty()) else "flock")
+	var action: String = innate
+	if _cognition != null:
+		_cognition.observe(self, delta)                    # social learning from same-species mates in view
+		var sig: Dictionary = LASituationSignature.compute(self)
+		action = _cognition.decide(self, innate, sig, delta)   # fast/slow brain; reinforces the previous action
+
+	# FLEE overrides everything: bolt straight away from the threat, marking fear so cognition learns the dread.
+	if action == "flee" and threat != null:
+		var away: Vector3 = pos - threat.global_position
+		away = away - up * away.dot(up)
+		if away.length() > 0.001:
+			desired = away.normalized() * 2.0
+		state = "flee"
+		_panic_timer = maxf(_panic_timer, 1.2)
+		_panic_source = threat.global_position
+		return desired
+
+	# Schooling always adds loose cohesion/alignment; foraging pulls toward (and eats) prey when hungry or when
+	# cognition chose to hunt. _forage_steer eats on contact — transferring energy — so hunger falls as it feeds.
+	desired += _school_steer(pos, up)
+	if (action == "hunt" or hungry) and not preys_on.is_empty():
+		desired += _forage_steer(pos, up)
+		state = "forage"
+	else:
+		state = "swim"
+	return desired
+
+
+# Nearest actor of a `flees_from` species within sense range — the config-driven predator flight. Emergent:
+# prey swimmers list the fish that eat them and bolt, the SAME rule land insects use; no hardcoded predator
+# pairs. Empty flees_from (most fish) → no threat, so the cascade above never flees for them.
+func _nearest_threat(pos: Vector3) -> Node3D:
+	if flees_from.is_empty():
+		return null
+	var best: Node3D = null
+	var best_d: float = sense_radius
+	for sp in flees_from:
+		for m in get_tree().get_nodes_in_group("species_" + String(sp)):
+			if m == self or not is_instance_valid(m) or not (m is Node3D):
+				continue
+			var d: float = pos.distance_to((m as Node3D).global_position)
+			if d < best_d:
+				best_d = d
+				best = m as Node3D
+	return best
 
 
 # Loose schooling with nearby SAME-SPECIES swimmers: cohesion + alignment (same shared idea as creature
@@ -564,9 +705,9 @@ func _school_steer(pos: Vector3, up: Vector3) -> Vector3:
 
 
 # FORAGING: steer toward the nearest edible prey (config `preys_on`) inside the sense radius, and EAT it on
-# contact. The aquatic mirror of a land predator's hunt, but simpler — a swimmer has no metabolism, so eating
-# just removes the prey (bounding its numbers) and gives the fish a real reason to chase the bug/shrimp
-# clouds. Returns a tangent-plane steer toward the prey (ZERO when there is none, or right after eating one).
+# contact. The aquatic mirror of a land predator's hunt — eating removes the prey (bounding its numbers) AND
+# transfers its food_value into this fish's energy (see _eat_prey), so a hungry swimmer actually refuels by
+# feeding. Returns a tangent-plane steer toward the prey (ZERO when there is none, or right after eating one).
 func _forage_steer(pos: Vector3, up: Vector3) -> Vector3:
 	var prey: Node3D = _nearest_prey(pos)
 	if prey == null:
@@ -603,12 +744,17 @@ func _nearest_prey(pos: Vector3) -> Node3D:
 	return best
 
 
-# Consume a prey actor: kill it through its own death path (bugs/shrimp are LAFish → die() splashes + frees).
-# No energy transfer — swimmers have no metabolism; the point is that eating BOUNDS the prey population.
+# Consume a prey actor: transfer its food_value into MY energy (so eating actually refuels a hungry fish),
+# then kill it through its own death path (bugs/shrimp are LAFish → die() splashes + frees). Eating both BOUNDS
+# the prey population AND is the fish's only energy source — the aquatic food web now carries real energy.
 func _eat_prey(prey: Node3D) -> void:
 	if prey == null or not is_instance_valid(prey):
 		return
 	var prey_species: String = String(prey.get("species")) if "species" in prey else ""
+	# Energy transfer: gain the prey's food_value (duck-typed — any actor exposing food_value works), capped at max.
+	var fv = prey.get("food_value")
+	if fv != null:
+		energy = minf(energy + float(fv), max_energy)
 	LASimReport.event("predation", {"species": species, "prey": prey_species})
 	if prey.has_method("die"):
 		prey.die("eaten")
@@ -741,17 +887,25 @@ func get_inspector_payload() -> Dictionary:
 		doing = "heading for water"
 	elif state == "bask":
 		doing = "basking on the beach"
+	elif state == "flee":
+		doing = "fleeing a predator"
+	elif state == "forage":
+		doing = "foraging"
 	var band: String = "fresh"
 	if salinity_min >= 0.55:
 		band = "salt"
 	elif salinity_max > 0.25:
 		band = "brackish"
+	var lines: Array = [
+		"Species: %s (%s)" % [species, stage],
+		"Doing: %s" % doing,
+		"Water: %s (salinity %.2f–%.2f, depth %.0f–%.0f)" % [band, salinity_min, salinity_max, depth_min, depth_max],
+		"Age: %.0fs / %.0fs" % [age, max_age],
+	]
+	# Only foragers have a real energy budget (grazers/filter feeders live off ambient biomass — see metabolism).
+	if not preys_on.is_empty():
+		lines.append("Energy: %.0f / %.0f%s" % [energy, max_energy, "  (hungry)" if energy < max_energy * hungry_at else ""])
 	return {
 		"title": species.capitalize(),
-		"lines": [
-			"Species: %s (%s)" % [species, stage],
-			"Doing: %s" % doing,
-			"Water: %s (salinity %.2f–%.2f, depth %.0f–%.0f)" % [band, salinity_min, salinity_max, depth_min, depth_max],
-			"Age: %.0fs / %.0fs" % [age, max_age],
-		],
+		"lines": lines,
 	}

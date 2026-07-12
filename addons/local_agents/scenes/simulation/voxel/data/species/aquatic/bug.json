@@ -20,5 +20,6 @@
 	"pop_cap": 16,
 	"initial": 12,
 	"diet": "grazer",
-	"grazes_biomass": true
+	"grazes_biomass": true,
+	"flees_from": ["fish", "trout", "reef_fish", "mullet"]
 }

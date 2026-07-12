@@ -267,9 +267,13 @@ func _sample_senses(c) -> Dictionary:
 	if c.breath_capacity > 0.0:
 		o2 = clampf(c._breath / c.breath_capacity, 0.0, 1.0)
 	var temp: float = _last_temp
-	if c._material != null and c._material.has_method("temp_at"):
-		temp = c._material.temp_at(c.global_position)
-	return {"health": c.health, "fear": c._panic_timer, "o2": o2, "temp": temp}
+	# DUCK-TYPED (Object.get → null when absent): a fish reads its `_material`/`_panic_timer` the same as a land
+	# creature, but any aquatic actor missing one degrades gracefully instead of erroring. Land is unchanged.
+	var mat = c.get("_material")
+	if mat != null and mat.has_method("temp_at"):
+		temp = mat.temp_at(c.global_position)
+	var fear = c.get("_panic_timer")
+	return {"health": c.health, "fear": float(fear) if fear != null else 0.0, "o2": o2, "temp": temp}
 
 
 ## Reward the last action by how the creature's WHOLE welfare changed since (Half A). Energy + hydration
@@ -340,9 +344,13 @@ func _drive_urgency(c) -> float:
 	var hunger: float = 0.0
 	if c.max_energy > 0.0:
 		hunger = clampf(1.0 - c.energy / c.max_energy, 0.0, 1.0)
+	# Thirst is DUCK-TYPED: an actor with no hydration (a fish never thirsts) contributes zero, so drive urgency
+	# reduces to pure hunger for it. A land creature reads the same hydration it always did — identical result.
 	var thirst: float = 0.0
-	if c.max_hydration > 0.0:
-		thirst = clampf(1.0 - c.hydration / c.max_hydration, 0.0, 1.0)
+	var max_h = c.get("max_hydration")
+	var hyd = c.get("hydration")
+	if max_h != null and hyd != null and float(max_h) > 0.0:
+		thirst = clampf(1.0 - float(hyd) / float(max_h), 0.0, 1.0)
 	return maxf(hunger, thirst)
 
 

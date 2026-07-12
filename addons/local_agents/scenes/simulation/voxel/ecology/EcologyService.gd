@@ -433,6 +433,12 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 			actors_root.add_child(fish)
 			fish.global_position = placed
 			fish.setup(terrain, _material, cfg)
+			# Fish are now living creatures on the SHARED cognition stack — inject the same ecology + slow-brain
+			# scheduler land creatures get (is_night for the signature, escalation budget for the fast/slow brain).
+			if fish.has_method("set_ecology"):
+				fish.set_ecology(self)
+			if fish.has_method("set_cognition_scheduler"):
+				fish.set_cognition_scheduler(_cognition_sched)
 			return fish
 		# Founder clusters share a family_id (permanent kin bond). Only applies to the ancestral (null-genome)
 		# path — a bred offspring carries its inherited family_id in the genome's base_config instead.
