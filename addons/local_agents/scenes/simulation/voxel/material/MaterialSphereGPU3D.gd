@@ -82,12 +82,12 @@ var _slow_gate: int = 0             # cadence counter for the slow (ledger/baker
 # every-frame world queries) — a direct cut of ~6 of 21 blocking readbacks on the other frames. Between reads the
 # CPU array keeps its prior value (the _apply_readback scatter is res.has()-guarded), which the consumers tolerate.
 const SLOW_READBACK_EVERY: int = 4
-# LEDGER/BAKER channels: mineral-conservation ledger (sediment/susp/rock_fill), decomposer fertility (fert),
-# water-table reservoir (soil), eco biomass metric + coarse fuel-refill source (biomass). All PURE-READBACK (no
-# every-frame CPU re-upload), so a stale read can never clobber the GPU evolution. `fuel`/`charge` are deliberately
-# NOT here — their consumers (surface-seed refill, charge bolt firing) edit + re-upload the channel, so reading
-# them stale could clobber the on-device evolution; they stay in the hot set.
-const SLOW_CHANNELS: PackedStringArray = ["sediment", "susp", "fert", "soil", "rock_fill", "biomass"]
+# LEDGER/BAKER channels: mineral-conservation ledger (sediment/susp), decomposer fertility (fert), water-table
+# reservoir (soil), eco biomass metric + coarse fuel-refill source (biomass) — all coarse-cadence consumers, so a
+# stale read never matters. `fuel`/`charge`/`rock_fill` are deliberately NOT here: fuel/charge consumers edit +
+# re-upload the channel, and ROCK_FILL is scanned EVERY frame by MineralStamp3D to stamp the terrain SDF (the
+# volcano land-building) + rewrite _solid — a stale/coarse rock_fill made eruptions grow FLOATING CUBES. Stay hot.
+const SLOW_CHANNELS: PackedStringArray = ["sediment", "susp", "fert", "soil", "biomass"]
 
 
 func setup(field) -> void:
@@ -246,17 +246,18 @@ func _read_channels(read_slow: bool) -> Dictionary:
 		out["fuel"] = _rd.buffer_get_data(_bufs["fuel"]).to_float32_array()
 	# Emergent WIND velocity (SINGLE, in-place) — wind3_at/wind_at expose a real force field. CHARGE (SINGLE,
 	# in-place) kept HOT so the breakdown→bolt firing sees fresh accumulated charge (it edits+re-uploads charge).
-	for k in ["vel_x", "vel_y", "vel_z", "charge"]:
+	# ROCK_FILL (SINGLE) kept HOT: MineralStamp3D scans it EVERY frame to stamp SDF grow/carve (volcano land-
+	# building) + rewrites _solid; a stale/coarse rock_fill made eruptions stamp FLOATING CUBES in mid-air.
+	for k in ["vel_x", "vel_y", "vel_z", "charge", "rock_fill"]:
 		if _bufs.has(k):
 			out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
 	# SLOW — ledger/baker channels, read only on the coarse cadence. PAIR channels (sediment/susp/fert/soil) from
-	# the live half; single channels (rock_fill/biomass) direct.
+	# the live half; single channel (biomass) direct.
 	if read_slow:
 		for k in ["sediment", "susp", "fert", "soil"]:
 			out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
-		for k in ["rock_fill", "biomass"]:
-			if _bufs.has(k):
-				out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
+		if _bufs.has("biomass"):
+			out["biomass"] = _rd.buffer_get_data(_bufs["biomass"]).to_float32_array()
 	return out
 
 func set_field(name: String, arr) -> void:
