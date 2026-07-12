@@ -47,6 +47,29 @@ static func load_config(kind: String) -> Dictionary:
 	return cfg.duplicate(true)
 
 
+## Convert a RAW JSON species dictionary into engine form (color arrays → Color, string arrays →
+## PackedStringArray). Public so callers holding a raw dict (a designer's inline config, a hand-loaded
+## file) can normalize it the same way load_config does. Idempotent on already-converted values.
+static func convert(raw: Dictionary) -> Dictionary:
+	return _convert(raw)
+
+
+## Load + parse + convert a species config from an explicit res:// (or absolute) JSON path — the
+## standalone/library counterpart of load_config(kind) for files that live outside the species tree.
+## Returns an empty Dictionary if the file is missing or not a JSON object.
+static func load_path(path: String) -> Dictionary:
+	if path == "":
+		return {}
+	var text: String = _read_file(path)
+	if text == "":
+		return {}
+	var parsed = JSON.parse_string(text)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		push_warning("LASpeciesLibrary: %s is not a JSON object" % path)
+		return {}
+	return _convert(parsed)
+
+
 ## Every species kind that has a data file (across all class folders).
 static func known_kinds() -> Array:
 	_build_index()
