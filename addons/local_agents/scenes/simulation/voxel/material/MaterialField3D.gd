@@ -166,6 +166,7 @@ const SphereGPUScript: GDScript = preload("res://addons/local_agents/scenes/simu
 const QueriesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldQueries3D.gd")
 const InjectScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldInject3D.gd")
 const SphereStepScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldSphereStep3D.gd")
+const BoxStepScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldBoxStep3D.gd")
 const SurfaceSeedScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialSurfaceSeed3D.gd")
 const CoverBakerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/CoverTextureBaker.gd")
 var _cover_baker = null                                  # LACoverTextureBaker — bakes the render cover texture
@@ -178,6 +179,7 @@ var _queries = null                                      # LAMaterialFieldQuerie
 var _inject = null                                       # LAMaterialFieldInject3D (write-side injection + FX)
 var _stamp = null                                        # LAMineralStamp3D — Stage C rock_fill->SDF growth stamp
 var _sphere_step = null                                  # LAMaterialFieldSphereStep3D — cubed-sphere per-frame step loop
+var _box_step = null                                     # LAMaterialFieldBoxStep3D — box-mode CPU thermal step (setup_dims)
 var _surface_seed = null                                 # LAMaterialSurfaceSeed3D — ground-surface fuel + soil detritus seed/refill
 # Substrate-foundation primitive modules (the field only delegates; all logic lives in these). Seams the
 # per-actor dissolution agents fill: shock (Earthquake/Meteor), charge→bolt (Thunderstorm), ejecta (bombs/debris).
@@ -318,6 +320,15 @@ func setup_dims(dim_x: int, dim_y: int, dim_z: int, cell_size: float, origin: Ve
 	_origin = origin
 	_cell_count = _dim_x * _dim_y * _dim_z
 	_alloc_channels()
+	# Box mode never runs activate() (that is the cubed-sphere GPU path), so wire the injection facade here so
+	# add_heat/add_vapor work — it edits the CPU channel arrays directly (box add_heat degrades to the single
+	# world_to_cell). Without this _inject is null and add_heat silently no-ops.
+	_inject = InjectScript.new()
+	_inject.setup(self)
+	# Box mode has no cubed-sphere GPU kernels: a small CPU thermal stepper drives the volume so injected heat
+	# diffuses + rises (the library box-field sandbox). New module + one-line delegation from _physics_process.
+	_box_step = BoxStepScript.new()
+	_box_step.setup(self)
 
 ## Allocate + seed every per-cell channel for the current `_cell_count`. Shared by setup_dims (box) and
 ## setup_sphere (cubed-sphere) — both set _cell_count first, then call this.
@@ -642,6 +653,9 @@ func _physics_process(delta: float) -> void:
 	# (The retired box grid + its CPU-oracle tails lived here; deleted with the sphere-only cleanup.)
 	if is_sphere() and _sphere_step != null:
 		_sphere_step.process(delta)
+	elif not is_sphere() and _box_step != null:
+		# Box mode (setup_dims): CPU thermal step so an origin-box volume heats/flows without a planet or GPU.
+		_box_step.process(delta)
 
 
 ## Temperature °C at a true-3D world point (a mild default outside the shell). Sphere-native single read.

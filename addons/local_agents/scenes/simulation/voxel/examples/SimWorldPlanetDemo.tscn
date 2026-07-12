@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://bsimworldplanet1"]
+
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/voxel/examples/SimWorldPlanetDemo.gd" id="1_sw"]
+
+[node name="SimWorldPlanetDemo" type="Node3D"]
+script = ExtResource("1_sw")

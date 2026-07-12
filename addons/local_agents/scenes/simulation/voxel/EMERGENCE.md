@@ -133,12 +133,16 @@ to visuals that seed a source and *read back* the feature the field produces.
   bolt to the tallest ground, dumping a heat pulse (which can ignite a wildfire through the ordinary
   combustion rule) and a scare stimulus. Storms that make lightning make *fires* without anyone wiring
   the two together.
-- **Erosion / snow / dust / shock are all the same move.** Water carrying sediment cuts canyons and
-  builds deltas (`MaterialErosion3D`); snowpack accretes where it's cold and melts to meltwater where
-  it's warm (`MaterialSnowIce3D`); wind lofts dry sediment into dust storms and migrates dunes
-  (`MaterialDust3D`); a propagating pressure wave carries an earthquake's shake and startle outward
-  (`MaterialShock3D`, which replaced a point-based seismic ring). Each is a local rule over a channel,
-  so each rides the wind, water, and heat that are already there.
+- **Snow / dust / shock (and, partially, erosion) are all the same move.** Snowpack accretes where it's
+  cold and melts to meltwater where it's warm (`snowice_sphere3d` kernel); wind lofts dry sediment into
+  dust storms and migrates dunes (`dust_transport_sphere3d`); a propagating pressure wave carries an
+  earthquake's shake and startle outward (`MaterialShock3D`, which replaced a point-based seismic ring).
+  Each is a local rule over a channel, so each rides the wind, water, and heat that are already there.
+  **Erosion is only PARTLY landed, not shipped:** the sediment *pickup* phase exists as a GPU kernel
+  (`erosion_pickup_sphere3d` / `ErosionPickupPass`), but the old `MaterialErosion3D` deposition module that
+  cut canyons and built deltas was **deleted**, and the suspended-sediment (`susp`) phase is currently a
+  live-but-dead channel. Full hydraulic erosion (canyon-cutting + delta-building) is a **0.5 goal** (see
+  `TODO.md` "Erosion re-land" and `ROADMAP_0.5.md`) — do not describe canyons/deltas as a working feature yet.
 - **Temperature is conserved energy, so the treeline draws itself (`MaterialHeat3D`).** Heat is not a
   free-floating number that can be manufactured: conduction/buoyancy move bounded energy, a radiative
   sink bleeds hot dry plumes toward space, and a steep adiabatic lapse cools rising air — so summits get

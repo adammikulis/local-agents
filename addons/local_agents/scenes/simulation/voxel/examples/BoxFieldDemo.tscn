@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://bboxfielddemo01"]
+
+[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/voxel/examples/BoxFieldDemo.gd" id="1_bf"]
+
+[node name="BoxFieldDemo" type="Node3D"]
+script = ExtResource("1_bf")

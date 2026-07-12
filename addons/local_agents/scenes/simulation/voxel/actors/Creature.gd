@@ -97,6 +97,17 @@ var _dying: bool = false
 var terrain = null                       # LAVoxelTerrainService (injected)
 var config: Dictionary = {}
 
+# --- STANDALONE (library drop-in) support -------------------------------------------------------
+# A Creature dropped into a scene as a NODE (Creature.tscn), with NO ecology / MaterialField / planet
+# wiring, is configured by setup_standalone(): it gets a flat-ground terrain + sensible defaults and runs
+# on its pure FAST brain (no slow-LLM escalation, no shared field reads, no ecology broadcasts). When
+# `standalone_on_ready` is set, the .tscn self-configures in _ready from `standalone_species` (a species id
+# like "rabbit", a res:// JSON path, or "" for a generic walker) — so the prefab "just works" on drop-in.
+# Default OFF so a sim creature (built via _instance_actor, whose setup() is called explicitly right after
+# add_child) never self-configures — its _ready sees an empty config but standalone_on_ready is false.
+@export var standalone_on_ready: bool = false
+@export var standalone_species: String = ""
+
 var species: String = "creature"
 var diet: String = "herbivore"
 var speed: float = 3.0
@@ -602,6 +613,22 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	# speed/max_energy baselines NOW (after config/genome expression) so age can grade them down later.
 	senescence = LACreatureSenescence.new()
 	senescence.setup(self)
+
+
+# Library drop-in self-config: a Creature.tscn placed in a scene with standalone_on_ready = true
+# configures itself here (config empty + no terrain injected). Inert for sim creatures (flag default off).
+func _ready() -> void:
+	if standalone_on_ready and config.is_empty() and terrain == null:
+		setup_standalone(standalone_species)
+
+
+## LIBRARY drop-in entry — configure this Creature to live on a bare FLAT floor with NONE of the sim's
+## optional services (no ecology broadcasts, no shared LAMaterialField, no shared slow-brain scheduler): a
+## pure fast/reinforced-brain animal you can drop into any scene. Thin forwarder — the resolution + wiring
+## live in LACreatureStandalone (off this monolith). `config_source` may be a Dictionary, a ".json" path, a
+## species id ("rabbit", …) or "" (generic walker); `opts` may carry {ground_y, cognition_scheduler}.
+func setup_standalone(config_source = {}, opts: Dictionary = {}) -> void:
+	LACreatureStandalone.setup(self, config_source, opts)
 
 
 # The shared System-2 scheduler (FunctionGemma budget/queue), injected by the ecology after setup.

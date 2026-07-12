@@ -21,6 +21,7 @@ const SETTINGS_SCENE: String = "res://addons/local_agents/scenes/menu/SettingsMe
 const ModelManagerPanelScript: GDScript = preload("res://addons/local_agents/ui/ModelManagerPanel.gd")
 const HELP_SCENE: String = "res://addons/local_agents/scenes/menu/HelpMenu.tscn"
 const CREDITS_SCENE: String = "res://addons/local_agents/scenes/menu/CreditsMenu.tscn"
+const EXAMPLES_SCENE: String = "res://addons/local_agents/examples/DemoLauncher.tscn"
 
 var _continue_button: Button = null
 
@@ -100,6 +101,11 @@ func _build_ui() -> void:
 	models_button.tooltip_text = "Download / pick the local LLMs that drive creatures + the streamer"
 	models_button.pressed.connect(_on_models)
 	vbox.add_child(models_button)
+
+	var examples_button: Button = LAMenuStyle.make_button("Examples")
+	examples_button.tooltip_text = "The local-agent library demos: quickstart LLM chat, a thinking creature, a SimWorld planet"
+	examples_button.pressed.connect(func() -> void: _change_scene(EXAMPLES_SCENE))
+	vbox.add_child(examples_button)
 
 	var help_button: Button = LAMenuStyle.make_button("Help")
 	help_button.pressed.connect(func() -> void: _change_scene(HELP_SCENE))
