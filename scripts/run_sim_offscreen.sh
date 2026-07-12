@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Launch the voxel sim for non-interactive runs (--run-frames/--shoot) WITHOUT interrupting the user:
-# the window is positioned far off-screen AND keyboard focus is handed back to whatever app was frontmost,
-# so a verification run never steals attention. Pass the normal godot args, e.g.:
+# the window is positioned off-screen to the BOTTOM-LEFT (off the left edge + below the visible area, so it's
+# out of view) AND keyboard focus is handed back to whatever app was frontmost, so a verification run never
+# steals attention. Override the position with LA_WIN_POS="x,y". Pass the normal godot args, e.g.:
 #   scripts/run_sim_offscreen.sh --path . addons/.../VoxelWorld.tscn -- --run-frames=200
 # Env passthrough (LA_NO_STREAMER etc.) works as usual. Requires macOS (osascript); elsewhere it just runs.
 # Test runs are SILENT by default (no audio during the dev loop) — the shipped game keeps audio on.
@@ -12,7 +13,10 @@ export LA_NO_AUDIO="${LA_NO_AUDIO:-1}"
 # `timeout` because godot is backgrounded here — the watchdog guarantees the run always terminates.
 RUN_TIMEOUT="${LA_RUN_TIMEOUT:-240}"
 FRONT_BID="$(osascript -e 'tell application "System Events" to get bundle identifier of first application process whose frontmost is true' 2>/dev/null)"
-godot --rendering-driver metal --position 30000,30000 --resolution "${LA_RES:-640x400}" "$@" &
+# Bottom-left + off-view: negative X pushes the whole window off the left edge; the large Y drops it below the
+# visible desktop — so it consistently lands out of view toward the bottom-left, never over the user's work.
+WIN_POS="${LA_WIN_POS:--2400,1600}"
+godot --rendering-driver metal --position "$WIN_POS" --resolution "${LA_RES:-640x400}" "$@" &
 GODOT_PID=$!
 ( sleep "$RUN_TIMEOUT"; kill -KILL "$GODOT_PID" 2>/dev/null && echo "RUN_TIMEOUT: killed godot after ${RUN_TIMEOUT}s (did not finish)" >&2 ) &
 WATCHDOG_PID=$!
