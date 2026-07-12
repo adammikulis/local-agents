@@ -572,11 +572,13 @@ func update(frame: int, spawned: bool) -> void:
 		if frame >= _shoot_frames - 60:
 			var wc_center: Vector3 = _body.center()
 			var sea_r: float = _body.sea_radius() if _body.has_method("sea_radius") else 500.0
-			var wdir: Vector3 = Vector3(0.42, 0.36, 0.83).normalized()      # a fixed spot over open sea
+			var wdir: Vector3 = Vector3(0.42, 0.36, 0.83).normalized()      # a fixed spot on the planet
 			var wtan: Vector3 = wdir.cross(Vector3.UP).normalized()
-			_camera.global_position = wc_center + wdir * (sea_r + 18.0)     # ~18 units above the sea surface
-			var look_dir: Vector3 = (wdir + wtan * 0.9).normalized()        # across the water, toward the horizon
-			_camera.look_at(wc_center + look_dir * (sea_r + 2.0), wdir)     # up = local radial
+			# Low aerial oblique (inside FAR_ALT so the dynamic water surface draws), gazing DOWN-and-across so the
+			# land below — its lakes and valley rivers — fills the frame.
+			_camera.global_position = wc_center + wdir * (sea_r + 115.0)
+			var look_dir: Vector3 = (wdir * 0.45 + wtan * 0.7).normalized()  # steeper downward gaze onto the ground
+			_camera.look_at(wc_center + look_dir * (sea_r + 5.0), wdir)      # up = local radial
 			_water_cam_done = true
 
 	# --menu-shot: show the pause menu OVERLAY (without pausing, so the capture loop keeps ticking) just before

@@ -149,13 +149,14 @@ void fragment() {
 	vec4 view_p = INV_PROJECTION_MATRIX * vec4(ndc, 1.0);
 	view_p.xyz /= view_p.w;
 	float thickness = max((-view_p.z) - (-VERTEX.z), 0.0);
-	// depth_influence lets a thin CA sheet ignore thickness (which would otherwise turn a shallow lake
-	// opaque-white); the deep sea uses it fully for shallow→deep colour + a shoreline foam line.
-	float deep_t = clamp(thickness / depth_fade, 0.0, 1.0) * depth_influence;
+	// PER-VERTEX depth influence: fresh water (lakes/rivers) is a THIN sheet — ignore scene thickness so it stays
+	// clear teal instead of turning opaque-white foam; the salt SEA uses it fully for shallow→deep + shoreline foam.
+	float di = mix(0.15, depth_influence, v_salinity);
+	float deep_t = clamp(thickness / depth_fade, 0.0, 1.0) * di;
 	vec3 col = mix(shallow_color, deep_color, deep_t);
 
 	// --- Foam: shoreline (salt seas foam more), impact-ring crests, and CA whitewater. ---
-	float foam_edge = (1.0 - smoothstep(0.0, foam_depth, thickness)) * depth_influence;
+	float foam_edge = (1.0 - smoothstep(0.0, foam_depth, thickness)) * di;
 	float foam_wave = 0.5 + 0.5 * sin(v_world.x * 0.5 + v_world.z * 0.5 + TIME * 2.0);
 	float shore_foam = foam_edge * (0.55 + 0.45 * foam_wave) * (0.5 + 0.5 * v_salinity);
 	// Wind whitecaps: the tops of steep swell break into foam as the wind rises (storm sea goes white).
