@@ -44,18 +44,18 @@ layout(push_constant, std430) uniform Params {
 } params;
 
 // Constants — MUST match MaterialCombustion3D.gd exactly.
-const float IGNITE_TEMP = 300.0;
+const float IGNITE_TEMP = 450.0;
 const float BURN_TEMP = 640.0;
 const float FUEL_MIN = 0.02;
 const float FIRE_MIN = 0.02;
 const float FIRE_START = 0.4;
 const float FIRE_GROW = 0.3;
-const float BURN_RATE = 0.045;
+const float BURN_RATE = 0.12;
 const float WET_MAX = 0.05;
-const float EMBER_HEAT = 22.0;
+const float EMBER_HEAT = 12.0;
 const float EMBER_WIND_GAIN = 5.0;
 const float EMBER_MAX = 70.0;
-const float EMBER_UP = 16.0;
+const float EMBER_UP = 8.0;
 // Oxygen coupling — MUST match MaterialCombustion3D.gd. Burning consumes O₂; below O2_MIN a cell can't
 // ignite / a burning cell suffocates (so a sealed cave's fire draws down trapped O₂ and dies).
 const float O2_MIN = 0.35;

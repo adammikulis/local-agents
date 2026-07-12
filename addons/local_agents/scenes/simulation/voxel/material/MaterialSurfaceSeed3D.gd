@@ -25,16 +25,16 @@ extends RefCounted
 
 # Flammable vegetation mass laid on a bare ground-surface cell at activation (over the kernel's FUEL_MIN = 0.02
 # so it can ignite; enough to sustain a burn for many BURN_RATE = 0.045 steps before it is spent to ash).
-const BASELINE_FUEL: float = 0.8
+const BASELINE_FUEL: float = 0.4
 # Living-biomass → fuel conversion: a surface cell's standing biomass density scaled into flammable mass. The
 # refill TOPS UP a burned cell toward the fuel its standing biomass supports, but is CAPPED at BASELINE_FUEL so
 # a cell never holds more than one cell's worth of vegetation — the fuel ledger stays bounded (≤ the seed), so
 # a fire's consumption shows as a genuine dip in fuel_total instead of ballooning with the greening biosphere.
-const BIOMASS_FUEL_GAIN: float = 4.0
+const BIOMASS_FUEL_GAIN: float = 1.2
 # Refill cadence (GPU field steps between biomass→fuel top-ups). A burning cell spends ~BURN_RATE per step, so
 # topping up every N steps (N·BURN_RATE < BASELINE) keeps a standing fire fed by its living vegetation instead
 # of self-extinguishing the moment its seed fuel is spent — the fire persists as long as biomass regrows under it.
-const REFILL_EVERY: int = 12
+const REFILL_EVERY: int = 40
 # Soil organic matter laid on a ground-surface cell at activation — over the fungus kernel's DETRITUS_MIN = 0.05
 # so fungus colonises it and the decompose reaction (detritus × fungus → CO₂ + fertility) fires from the start.
 const BASELINE_DETRITUS: float = 0.15
