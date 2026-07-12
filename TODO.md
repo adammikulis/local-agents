@@ -49,7 +49,21 @@ fan-out rule) · `EMERGENCE.md` (design) · the memories (`roadmap-0.4-life-cycl
   less steep, smoothed space→sky transition). Long-run STABILITY verified: temperate (no thermal runaway),
   bounded water, playable perf. Design captured in `PLANET_GEOPHYSICS.md`.
 
-- **FLUID RENDERING — the water is finally VISIBLE (latest)** — the `water` field channel was simulated but
+- **WATER IS NOW USABLE — mostly-land planet with rivers + lakes (latest)** — the Voronoi CELL_VALUE continents
+  (flat plateaus + cliff borders) FRAGMENTED drainage, so switched to COMBINED FRACTAL NOISE in
+  `SpherePlanetGenerator`: smooth simplex-fBm continents (long slopes → long rivers) + a RIDGED-multifractal
+  valley layer (dendritic river valleys) + basin undulation (lakes) + detail; `ocean_bias` went NEGATIVE so it's
+  MOSTLY LAND (low regions = sea; tunable `LA_OCEAN_BIAS`). Result: green/tan continents, snow ridges, ~196 lake
+  cells + 371 river cells seeded (STATIC water on the emergent drainage — `MaterialFieldLakes3D` priority-flood
+  basins + D8 flow-accumulation channels), 34 fps. Debug: `--debug-rivers` / DEBUG-panel "Rivers (drainage)"
+  highlights the network; `--water-cam` aerial view; per-vertex-salinity shader (fresh clear, salt deep) +
+  `FAR_ALT`-gated near-cap surface (smooth sphere when pulled back). Fixed: solar-view sky (black space + stars),
+  LMB=orbit / MMB=aim camera. NEXT (water polish): close-full-screen-water perf ~16-27 fps; hydraulic-erosion
+  pre-pass would carve true incised valleys (the maintainer endorsed pre-sim; noise got us to usable).
+- **0.4 BIO upgrades IN PROGRESS** — nutrient/microbiome · trainable pet · fish cognition · birth→death senescence
+  (fanned out to worktree agents; coordinator merges + windowed-verifies).
+
+- **FLUID RENDERING — the water is finally VISIBLE** — the `water` field channel was simulated but
   drawn NOWHERE; resurrected the abandoned `MaterialFieldRender3D` + wired the full `VoxelWater.gdshader`.
   ONE dynamic surface unifies **sea + lakes + rivers** with per-vertex salinity (fresh↔salt seamless), Gerstner
   swell, `splash()`→ripple ring buffer, shoreline foam. Near-camera tangent-frame patch (small cap, ~4.5 Hz
