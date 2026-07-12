@@ -25,6 +25,18 @@ static func payload(c) -> Dictionary:
 		"Herd nearby: %d" % maxi(0, nearby),
 		"Pos: (%.0f, %.0f, %.0f)" % [p.x, p.y, p.z],
 	]
+	# COMPANION / taming — high in the panel so the otherwise-hidden pet controls are DISCOVERABLE (feed to tame,
+	# then command). Wild = a prompt to press B; part-tame = a progress bar; bonded = the active command + keys.
+	if "bond" in c and c.bond != null:
+		var tame_pct: int = int(round(100.0 * c.bond.tameness))
+		if c.bond.is_bonded():
+			var cmd: String = c.bond.command_name if c.bond.command_name != "" else "free"
+			lines.insert(3, "Command: %s   (J come · L stay · N follow · O free)" % cmd)
+			lines.insert(3, "Companion: BONDED %d%% %s" % [tame_pct, energy_bar(tame_pct)])
+		elif tame_pct > 0:
+			lines.insert(3, "Taming: %d%% %s   (press B to feed / pet)" % [tame_pct, energy_bar(tame_pct)])
+		else:
+			lines.insert(3, "Wild — press B to feed / pet it (tame)")
 	if c.throws:
 		lines.append("Rock in hand: %s" % ("yes" if c.has_rock else "no"))
 	# Cognition/genetics readout: how much this individual has learned and which generation it is.
