@@ -21,18 +21,24 @@
 // target = AMBIENT_NIGHT + SOLAR_WARMTH * insolation, then relax by AMBIENT_RELAX. The night side relaxes to the
 // bare AMBIENT_NIGHT floor; the sub-solar point to AMBIENT_NIGHT + SOLAR_WARMTH.
 //
-// DECISION — height-lapse + marine branch DROPPED. The box target also subtracted a lapse * (world_height -
-// sea_level) and, for ocean columns, anchored to a warm marine air target. Both need the cell's world height /
-// radius, but binding-14 radial is a UNIT vector (length 1) and no per-cell world-position buffer is available
-// to a sphere kernel (only nbr=15 + radial=14 beyond the box's own temp/solid), and MaterialGPU3D must not be
-// edited to add one. Per the port brief ("else keep the target formula but drive it by the per-cell
-// insolation"), the lapse/marine terms are dropped and the ambient/solar target is driven purely by the
-// per-cell insolation. Constants copied EXACTLY from MaterialHeat3D.gd.
+// ALTITUDE LAPSE — RESTORED (climate lane). The box target subtracted a lapse * (world_height - sea_level) so
+// high ground read cold (snow-capped peaks + an alpine treeline at ANY latitude). The box→sphere port dropped
+// it claiming "no per-cell world-position buffer is available." That claim is stale: the driver already packs a
+// per-cell world position (`pos`, flat float3 c*3+{0,1,2}, the SAME buffer heat3d_cool binds) and hands it to
+// this pass via `bufs["pos"]`. We bind it here (binding 3) and compute the cell's ALTITUDE above the sea shell
+// = max(0, length(pos) - sea_radius), then subtract LAPSE * altitude from the insolation target. On the sphere
+// "up" is the outward radial, so altitude is a radial distance above the sea-surface RADIUS (sea_radius, the
+// same push param heat3d_cool uses) — not a planar height. This is pure GEOMETRY: a peak is cold because it is
+// FAR FROM THE CENTRE, independent of where the sun is, so snow caps the highest terrain on the equator too and
+// the treeline descends toward the poles (where the insolation base is already low). No special-case "mountain"
+// or "snow" code — the cold peak falls out of one lapse term over the shared position field.
+// Constants copied from MaterialHeat3D.gd; LAPSE tuned for the PLANET_RELIEF≈16 / sea_radius≈248 world scale.
 
 layout(local_size_x = 64) in;
 
 layout(set = 0, binding = 0, std430) restrict buffer Temp { float temp[]; };
 layout(set = 0, binding = 1, std430) restrict readonly buffer Solid { float solid[]; };
+layout(set = 0, binding = 3, std430) restrict readonly buffer Pos { float pos[]; };          // per-cell world position, packed flat c*3+{0,1,2}
 layout(set = 0, binding = 14, std430) restrict readonly buffer Radial { float radial[]; };  // per-cell outward unit vec, packed flat c*3+{0,1,2}
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };         // idx*6 + slot
 
@@ -41,16 +47,20 @@ layout(push_constant, std430) uniform Params {
 	uint pad0;
 	uint pad1;
 	uint pad2;
-	float sun_x;        // NEW: world-space unit vector pointing TOWARD the sun
+	float sun_x;        // world-space unit vector pointing TOWARD the sun (magnitude carries insolation)
 	float sun_y;
 	float sun_z;
-	float pad3;
+	float sea_radius;   // world radius of the sea shell — altitude datum for the lapse term
 } params;
 
 // Constants — MUST match MaterialHeat3D.gd exactly.
 const float AMBIENT_NIGHT = 6.0;
 const float SOLAR_WARMTH = 18.0;
 const float AMBIENT_RELAX = 0.05;
+// ALTITUDE LAPSE: °C dropped from the solar target per world-unit of altitude above the sea shell. Tuned so the
+// highest peaks (~18 u above sea at PLANET_RELIEF 16) fall well below FREEZE_TEMP (12.5) even at the sub-solar
+// equator (target 24 - 1.1*18 ≈ 4 °C → snow), while mid-slope land (~9 u) stays temperate (24 - 1.1*9 ≈ 14 °C).
+const float LAPSE = 1.1;
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;
@@ -60,10 +70,21 @@ void main() {
 	if (solid[idx] != 0.0) {
 		return;                                            // rock is not a sky cell
 	}
-	// SKY-EXPOSED surface = outermost open cell (its outward-radial neighbour is space or rock).
+	// TWO insolation surfaces on the shell:
+	//   * TOP-OF-ATMOSPHERE — the outermost open cell (its OUTWARD neighbour, slot 5, is space or rock). This is
+	//     the historical terminator surface: the sun bakes/freezes the exposed top of the air column and
+	//     conduction/buoyancy carry it down. Radius ≈ shell top for EVERY column, so a lapse here would be a
+	//     near-uniform giant offset that just freezes the whole atmosphere — so the lapse does NOT apply here.
+	//   * GROUND-HUGGING — an air cell resting directly ON terrain (its INWARD neighbour, slot 0, is solid rock).
+	//     This is the set snow deposits on (matches snowice_sphere3d), and its RADIUS TRACKS THE TERRAIN, so its
+	//     altitude above the sea shell varies from ~0 in the valleys to the relief height on the peaks. The lapse
+	//     applies HERE, cooling high ground below freezing → snow-capped peaks + an alpine treeline at ANY
+	//     latitude, straight out of geometry. Lowland ground stays at the full insolation target (temperate).
 	int up = nbr[idx * 6u + 5u];
-	bool is_surface = (up < 0) || (solid[up] != 0.0);
-	if (!is_surface) {
+	int down = nbr[idx * 6u + 0u];
+	bool top_of_atm = (up < 0) || (solid[up] != 0.0);
+	bool ground_hug = (down >= 0) && (solid[down] != 0.0);
+	if (!top_of_atm && !ground_hug) {
 		return;
 	}
 	// Per-cell insolation from this cell's outward radial vs the sun direction (the terminator).
@@ -73,5 +94,10 @@ void main() {
 	float insolation = max(0.0, dot(cell_radial, sun_dir));
 
 	float target = AMBIENT_NIGHT + SOLAR_WARMTH * insolation;
+	if (ground_hug) {
+		// ALTITUDE above the sea shell — the terrain elevation. Peaks are far from the centre → cold.
+		float altitude = max(0.0, length(vec3(pos[rb + 0u], pos[rb + 1u], pos[rb + 2u])) - params.sea_radius);
+		target -= LAPSE * altitude;
+	}
 	temp[idx] += AMBIENT_RELAX * (target - temp[idx]);
 }

@@ -88,13 +88,15 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var vz: RID = bufs["vel_z"]
 	var charge: RID = bufs["charge"]
 	var nbr: RID = bufs["nbr"]
+	var pos: RID = bufs["pos"]        # per-cell world position (altitude + local tangent-basis reconstruction)
+	var radial: RID = bufs["radial"]  # per-cell outward unit vector (latitude + zonal direction)
 
 	for p in 2:
 		var back: int = 1 - p
 		# wind_pressure: 0=TempIn(live), 1=Solid, 2=PressureOut
 		_wp_set[p] = _uset(_wp_shader, [[0, temp[p]], [1, solid], [2, pressure]])
-		# wind_step: 0=PressureIn, 1=TempIn(live), 2=Solid, 3=VelX, 4=VelY, 5=VelZ, 15=Neigh
-		_ws_set[p] = _uset(_ws_shader, [[0, pressure], [1, temp[p]], [2, solid], [3, vx], [4, vy], [5, vz], [15, nbr]])
+		# wind_step: 0=PressureIn, 1=TempIn(live), 2=Solid, 3=VelX, 4=VelY, 5=VelZ, 13=Pos, 14=Radial, 15=Neigh
+		_ws_set[p] = _uset(_ws_shader, [[0, pressure], [1, temp[p]], [2, solid], [3, vx], [4, vy], [5, vz], [13, pos], [14, radial], [15, nbr]])
 		# o2_transport: 0=O2In(live), 1=O2Out(back), 2=Solid, 15=Neigh
 		_o2_set[p] = _uset(_o2_shader, [[0, o2[p]], [1, o2[back]], [2, solid], [15, nbr]])
 		# co2_transport: 0=CO2In(live), 1=CO2Out(back), 2=Solid, 3=VelX, 4=VelY, 5=VelZ, 15=Neigh
@@ -110,9 +112,12 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	var dt: float = float(ctx.get("dt", DEFAULT_DT))
 	var wind: Vector2 = ctx.get("wind", DEFAULT_WIND)
 	var buoy_on: int = 1 if float(ctx.get("buoy", DEFAULT_BUOY)) >= 0.5 else 0
+	# Planet spin axis (north pole) in the field frame — drives latitude, banded zonal flow + Coriolis handedness.
+	# The current planet's pole is world +Y (matches the terrain's radial snow-line convention); ctx may override.
+	var spin: Vector3 = ctx.get("spin_axis", Vector3(0.0, 1.0, 0.0))
 
 	var pc_cc: PackedByteArray = _pc_cellcount(cc)              # {cell_count, pad, pad, pad}
-	var pc_ws: PackedByteArray = _pc_windstep(cc, wind.x, wind.y, dt, buoy_on)
+	var pc_ws: PackedByteArray = _pc_windstep(cc, wind.x, wind.y, dt, buoy_on, spin)
 	var pc_ch: PackedByteArray = _pc_charge(cc, dt)
 
 	# 1) wind_pressure (PASS A): temp -> pressure, purely per-cell.
@@ -202,8 +207,8 @@ func _uset(shader: RID, entries: Array) -> RID:
 func _pc_cellcount(cc: int) -> PackedByteArray:
 	return PackedInt32Array([cc, 0, 0, 0]).to_byte_array()
 
-# Params { uint cell_count; float pvx; float pvz; float dt; uint buoy; uint pad0; uint pad1; uint pad2; } — wind_step.
-func _pc_windstep(cc: int, pvx: float, pvz: float, dt: float, buoy: int) -> PackedByteArray:
+# Params { uint cell_count; float pvx; float pvz; float dt; uint buoy; float spin_x; float spin_y; float spin_z; } — wind_step.
+func _pc_windstep(cc: int, pvx: float, pvz: float, dt: float, buoy: int, spin: Vector3) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(32)
 	pc.encode_u32(0, cc)
@@ -211,9 +216,9 @@ func _pc_windstep(cc: int, pvx: float, pvz: float, dt: float, buoy: int) -> Pack
 	pc.encode_float(8, pvz)
 	pc.encode_float(12, dt)
 	pc.encode_u32(16, buoy)
-	pc.encode_u32(20, 0)
-	pc.encode_u32(24, 0)
-	pc.encode_u32(28, 0)
+	pc.encode_float(20, spin.x)
+	pc.encode_float(24, spin.y)
+	pc.encode_float(28, spin.z)
 	return pc
 
 # Params { uint cell_count; float dt; float pad0; float pad1; } — charge_accum.

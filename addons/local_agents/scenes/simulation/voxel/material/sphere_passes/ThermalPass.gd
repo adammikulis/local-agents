@@ -124,9 +124,9 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[0, temp_live], [1, _cond_scratch], [2, nbr], [3, solid]])
 		_copy_set[p] = _make_set(rd, _copy_shader, [
 			[0, _cond_scratch], [1, temp_live]])
-		# solar: 0 = temp (LIVE, in-place), 1 = solid, 14 = radial, 15 = nbr.
+		# solar: 0 = temp (LIVE, in-place), 1 = solid, 3 = pos (flat float3, altitude lapse), 14 = radial, 15 = nbr.
 		_solar_set[p] = _make_set(rd, _solar_shader, [
-			[0, temp_live], [1, solid], [14, radial], [15, nbr]])
+			[0, temp_live], [1, solid], [3, pos], [14, radial], [15, nbr]])
 		# buoyancy: 0 = TempIn (LIVE), 1 = TempOut (BACK), 2 = solid, 15 = nbr.
 		_buoy_set[p] = _make_set(rd, _buoy_shader, [
 			[0, temp_live], [1, temp_back], [2, solid], [15, nbr]])
@@ -164,7 +164,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	# 1. SOLAR — the terminator, in-place on temp LIVE.
 	rd.compute_list_bind_compute_pipeline(cl, _solar_pipe)
 	rd.compute_list_bind_uniform_set(cl, _solar_set[parity], 0)
-	var solar_pc: PackedByteArray = _solar_pc(cc, sun_dir)
+	var solar_pc: PackedByteArray = _solar_pc(cc, sun_dir, sea_radius)
 	rd.compute_list_set_push_constant(cl, solar_pc, solar_pc.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # solar output (temp LIVE) visible to the buoyancy gather
@@ -270,8 +270,8 @@ func _make_set(rd: RenderingDevice, shader: RID, pairs: Array) -> RID:
 
 
 # heat3d_solar Params: { uint cell_count; uint pad0; uint pad1; uint pad2; float sun_x; float sun_y;
-#   float sun_z; float pad3; } — 32 bytes. sun_dir (world-space unit vector toward the sun) at offset 16.
-func _solar_pc(cc: int, sun_dir: Vector3) -> PackedByteArray:
+#   float sun_z; float sea_radius; } — 32 bytes. sun_dir at offset 16; sea_radius (altitude-lapse datum) at 28.
+func _solar_pc(cc: int, sun_dir: Vector3, sea_radius: float) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(32)
 	pc.encode_u32(0, cc)
@@ -281,7 +281,7 @@ func _solar_pc(cc: int, sun_dir: Vector3) -> PackedByteArray:
 	pc.encode_float(16, sun_dir.x)
 	pc.encode_float(20, sun_dir.y)
 	pc.encode_float(24, sun_dir.z)
-	pc.encode_float(28, 0.0)
+	pc.encode_float(28, sea_radius)
 	return pc
 
 
