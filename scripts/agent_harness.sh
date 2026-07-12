@@ -12,6 +12,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GODOT="${GODOT:-godot}"
 MAIN_SCENE="res://addons/local_agents/scenes/simulation/WorldSimulation.tscn"
 
+# Any godot process this harness (or a test it spawns) launches inherits this: it makes the in-code
+# LA_OFFSCREEN guards shove stray windows off-view — notably a model-download / model-manager panel run as
+# its own scene root (the "DEBUG" banner + Qwen model list), which would otherwise pop up in front.
+export LA_OFFSCREEN="${LA_OFFSCREEN:-1}"
+
 DEFAULT_LOG_DIR="/private/tmp/claude-501/-Users-adammikulis-Documents-repos-godot-local-agents/875e28b8-01fe-4c33-9e93-4e0845b300cd/scratchpad"
 LOG_DIR="${LOG_DIR:-$DEFAULT_LOG_DIR}"
 

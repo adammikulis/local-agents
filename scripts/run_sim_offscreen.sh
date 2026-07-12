@@ -8,6 +8,12 @@
 # Test runs are SILENT by default (no audio during the dev loop) — the shipped game keeps audio on.
 # Force audio on for a specific test with `LA_NO_AUDIO=0 scripts/run_sim_offscreen.sh ...`.
 export LA_NO_AUDIO="${LA_NO_AUDIO:-1}"
+# Route EVERY window this process opens off-view, not just the main sim window. The CLI --position below
+# only moves the first/main window; a secondary window the game pops up (the model-download / model-manager
+# panel — the "DEBUG" banner + Qwen model list) is hidden by the in-code LA_OFFSCREEN guards instead. Setting
+# it here makes those guards fire for agent/test runs so no stray window ever appears in front of the user.
+# (Off-screen, not minimized: a minimized Metal window stops rendering, which would break --shoot capture.)
+export LA_OFFSCREEN="${LA_OFFSCREEN:-1}"
 # Hard watchdog: kill godot if it runs past LA_RUN_TIMEOUT seconds (default 240). A crashed/hung sim that
 # never reaches --run-frames (GPU stall, infinite loop, assert spin) would otherwise orphan past the outer
 # `timeout` because godot is backgrounded here — the watchdog guarantees the run always terminates.
