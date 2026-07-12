@@ -14,6 +14,7 @@ const VegetationRendererScript: GDScript = preload("res://addons/local_agents/sc
 const HudScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/SpawnPaletteHud.gd")
 const AudioDirectorScript: GDScript = preload("res://addons/local_agents/audio/AudioDirector.gd")
 const InteractionScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelInteraction.gd")
+const CompanionControllerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/CompanionController.gd")
 const SpawnBrushScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelSpawnBrush.gd")
 const DisastersScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelDisasters.gd")
 const PopulationGovernorScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ecology/PopulationGovernor.gd")
@@ -85,6 +86,7 @@ var _time_control: CanvasLayer = null  # LAVoxelTimeControl — pause/slow/play/
 var _actors_root: Node3D
 var _interaction: Node3D = null   # LAVoxelInteraction — input, selection, the player's hand
 var _brush: Node3D = null         # LAVoxelSpawnBrush — radius spawn brush + placement
+var _companion: Node = null       # LACompanionController — routes tame/command input to bonded creatures
 var _disasters: Node = null       # LAVoxelDisasters — volcano/lightning/meteor casts
 var _weather: Node = null   # LAWeatherSystem (visual rain/wind for now; being made emergent)
 var _material: Node = null   # LAMaterialField — the ONE substrate: terrain-coupled water + heat/air
@@ -392,6 +394,13 @@ func _ready() -> void:
 	add_child(_interaction)
 	_interaction.setup(self, _terrain, _camera, _ecology, _hud, _audio, _brush)
 	_interaction.set_game_hud(_game_hud)   # H toggles the gamified overlay alongside the spawn palette
+	# Companion/pet commands (tame + come/stay/follow): a thin self-ticking controller; interaction routes the
+	# tame/command keys to it. Behavior lives in LACompanionController + LACreatureBond, not this root.
+	_companion = CompanionControllerScript.new()
+	_companion.name = "CompanionController"
+	add_child(_companion)
+	_companion.setup(_camera, _terrain, _hud)
+	_interaction.set_companion(_companion)
 	if _hud.has_signal("spawn_selected"):
 		_hud.spawn_selected.connect(_interaction.on_spawn_selected)
 	# Re-root the family-tree inspector whenever the selection changes (debug reader; wired here as the two

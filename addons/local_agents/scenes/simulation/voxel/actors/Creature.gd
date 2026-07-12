@@ -216,6 +216,11 @@ var _call_cd: float = 0.0
 var family_id: int = 0
 var _genome = null                         # LADNA (literal DNA strand → traits + baked instinct priors)
 var _cognition = null                      # LACognition (per-creature learned policy + slow-brain hook)
+# Per-creature TAMENESS / companion state — owned by LACreatureBond so all of it lives off this monolith (a
+# per-creature RefCounted module that owns its own state). Set in setup(); ticked in _physics_process; friendly
+# interaction calls bond.befriend(). While bonded + commanded it pre-empts the autonomous decision cascade (the
+# command override below). Null-guarded so a wild, untamed creature runs identically to before.
+var bond: LACreatureBond = null
 # PLAYER CONTROL over the local-LLM "slow brain": opt-out per creature (config-driven, default on). When
 # off, cognition never escalates to the shared scheduler (see LACognition._should_escalate) — the creature
 # runs on its fast reinforced policy + innate cascade only. Toggled per-creature / per-group from the UI.
@@ -573,6 +578,10 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	LACreatureDigestion.setup(self)
 	disease = LACreatureDisease.new()        # per-creature disease/immune state (owned off this monolith)
 	disease.setup(self, config)
+	# Per-creature tameness/companion state (owned off this monolith). A wild creature starts untamed;
+	# friendly interaction (feeding/petting, calm proximity to the hand) raises the bond — see LACreatureBond.
+	bond = LACreatureBond.new()
+	bond.setup(self, config)
 
 
 # The shared System-2 scheduler (FunctionGemma budget/queue), injected by the ecology after setup.
@@ -784,6 +793,9 @@ func _physics_process(delta: float) -> void:
 	# recover-with-immunity or die of disease. Owned by LACreatureDisease; a no-op until the disease work lands.
 	if disease != null and disease.tick(self, delta):
 		return
+	# Tameness/companion upkeep: bond decays slowly, and a lapsed bond drops its command (LACreatureBond).
+	if bond != null:
+		bond.tick(self, delta)
 	# Metabolism (exertion-scaled energy burn) + thirst + ageing — see LACreatureMetabolism. Death stops us.
 	if LACreatureMetabolism.tick(self, delta):
 		return
@@ -868,7 +880,17 @@ func _physics_process(delta: float) -> void:
 			_cognition.observe(self, delta)
 
 		var eff_speed: float = speed
-		if _panic_timer > 0.0:
+		if bond != null and bond.is_commanded():
+			# COMPANION COMMAND OVERRIDE: a tamed creature under an active player command (come/stay/follow)
+			# PRE-EMPTS its autonomous drive — the command steering wins outright until the player frees it or
+			# the bond lapses. Runs the command action through the same execute_action dispatch the fast policy
+			# uses, so a commanded pet reuses the ordinary movement path (LACreatureBond + LACompanionController).
+			var cmv: Dictionary = LACreatureThink.execute_action(self, bond.command(), pos, delta)
+			if cmv.has("heading"):
+				desired = cmv["heading"]
+			state = String(cmv.get("state", state))
+			eff_speed = float(cmv.get("speed", eff_speed))
+		elif _panic_timer > 0.0:
 			# TERROR: sprint straight away from what was heard/felt. Overrides everything.
 			state = "panic"
 			var away: Vector3 = pos - _panic_source

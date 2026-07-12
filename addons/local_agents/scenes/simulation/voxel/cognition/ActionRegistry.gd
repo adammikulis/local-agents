@@ -22,6 +22,9 @@ extends RefCounted
 const ACTIONS: Array = [
 	"flee", "hunt", "throw_rock", "scavenge", "graze",
 	"drink", "seek_water", "flock", "wander", "rest", "migrate", "investigate",
+	# Player COMPANION commands (appended; a bonded/tamed creature obeys these, pre-empting its autonomy —
+	# see LACreatureBond + LACompanionController). Harmless for wild creatures: with no bond target they no-op.
+	"come", "stay", "follow",
 ]
 
 # Actions that are *safety reflexes*: when the innate cascade picks one of these, cognition
@@ -44,6 +47,9 @@ const DESCRIPTIONS: Dictionary = {
 	"rest": "Stay nearly still to conserve energy when safe but tired.",
 	"migrate": "Travel steadily in one direction to reach new territory or resources.",
 	"investigate": "Move toward a food cue — circling scavengers, a carrion scent, or a carrion call.",
+	"come": "Go to the player who tamed you (a companion command).",
+	"stay": "Hold your ground where you are (a companion command).",
+	"follow": "Trail the player who tamed you, keeping close (a companion command).",
 }
 
 

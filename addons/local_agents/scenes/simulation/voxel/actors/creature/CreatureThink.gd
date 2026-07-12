@@ -8,6 +8,7 @@ extends RefCounted
 ## cyclic class reference). (Explicit types only — project rule: no ':=' inferred typing.)
 
 const DRINK_RATE: float = 45.0             # hydration/sec restored while drinking (mirrors LACreature.DRINK_RATE)
+const COMPANION_FOLLOW_DIST: float = 4.0   # a "follow" companion closes to this range, then heels/holds
 
 const ThrownRockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/ThrownRock.gd")
 
@@ -440,4 +441,25 @@ static func execute_action(c, action: String, pos: Vector3, delta: float) -> Dic
 			return {"heading": away.normalized(), "state": "flee", "speed": c.speed * 1.5}
 		"wander":
 			return {"heading": c._heading, "state": "wander", "speed": c.speed}
+		"come":
+			# COMPANION "come": a bonded creature walks to the player's hand beacon (LACreatureBond.target) and
+			# stops on arrival. No bond target yet → hold in place rather than wander off.
+			if c.bond == null or not c.bond.has_target():
+				return {"heading": c._heading, "state": "come", "speed": 0.0}
+			var to_hand: Vector3 = c.bond.target() - pos
+			if to_hand.length() <= maxf(c.size + 1.4, 1.8):
+				return {"heading": c._heading, "state": "come", "speed": 0.0}   # arrived at the hand
+			return {"heading": to_hand.normalized(), "state": "come", "speed": c.speed * 1.2}
+		"follow":
+			# COMPANION "follow": trail the player, closing to a comfortable distance then holding (so a bonded
+			# pack heels alongside the player rather than piling onto the exact point).
+			if c.bond == null or not c.bond.has_target():
+				return {"heading": c._heading, "state": "follow", "speed": 0.0}
+			var to_p: Vector3 = c.bond.target() - pos
+			if to_p.length() <= COMPANION_FOLLOW_DIST:
+				return {"heading": c._heading, "state": "follow", "speed": 0.0}
+			return {"heading": to_p.normalized(), "state": "follow", "speed": c.speed}
+		"stay":
+			# COMPANION "stay": stand your ground where commanded (keeps facing, no travel).
+			return {"heading": c._heading, "state": "stay", "speed": 0.0}
 	return {"heading": c._heading, "state": c.state, "speed": c.speed}

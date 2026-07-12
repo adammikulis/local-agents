@@ -25,6 +25,9 @@ var _hud: CanvasLayer = null
 var _game_hud: CanvasLayer = null   # LAGameHud — the objective/summary overlay (H toggles it alongside the palette)
 var _audio = null
 var _brush = null            # LAVoxelSpawnBrush
+var _companion = null        # LACompanionController — routes tame/command input to bonded creatures (set by the root)
+
+const BEFRIEND_GAIN: float = 0.25   # bond gained per B-press (feed/pet) — a couple of presses tames a creature
 
 var _selection_ring: MeshInstance3D = null
 var _selected: Node = null
@@ -57,6 +60,34 @@ func setup(world, terrain, camera: Camera3D, ecology: Node, hud: CanvasLayer, au
 ## the instance it created — this node holds no cyclic type reference).
 func set_game_hud(game_hud: CanvasLayer) -> void:
 	_game_hud = game_hud
+
+
+## Wire the companion controller (composition root passes it) so the tame/command keys route through one owner.
+func set_companion(companion) -> void:
+	_companion = companion
+
+
+# B: a friendly interaction with the selected creature — feed/pet it to raise its bond (repeat to tame it).
+# Routed through the companion controller so bond-crossing immediately adopts any standing command.
+func _befriend_selected() -> void:
+	if _companion == null:
+		return
+	if _selected == null or not is_instance_valid(_selected) or not (_selected is Node3D):
+		if _hud != null and _hud.has_method("set_status"):
+			_hud.set_status("Select a creature first (left-click), then press B to befriend it.")
+		return
+	if not (_selected as Node).is_in_group("creature"):
+		return
+	_companion.befriend(_selected, BEFRIEND_GAIN)
+
+
+# Y: jump-select the nearest already-bonded companion (reuses the select-by-predicate path so the ring +
+# inspector light up on it and the camera frames it).
+func _select_nearest_companion() -> void:
+	var n: int = select_by_predicate(func(c):
+		return "bond" in c and c.bond != null and c.bond.is_bonded())
+	if n == 0 and _hud != null and _hud.has_method("set_status"):
+		_hud.set_status("No companions yet — feed a creature (B) to tame it.")
 
 
 func selected() -> Node:
@@ -94,6 +125,37 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _game_hud != null and _game_hud.has_method("toggle_visible"):
 			_game_hud.toggle_visible()
 		return
+	# COMPANION taming + commands (LACreatureBond / LACompanionController). B feeds/pets the selected creature
+	# (repeat to build the bond → tame it); once bonded it obeys a standing command: J come, L stay, N follow,
+	# O free. Y jump-selects the nearest existing companion (reuses select_by_predicate). Events are consumed so
+	# they never double-trigger another handler; all routed to the companion controller so command state + the
+	# player beacon live in one thin owner, not here. (Keys chosen to avoid the camera controller's G/F/P/K.)
+	if event is InputEventKey and event.pressed and not event.echo:
+		var ck: int = (event as InputEventKey).keycode
+		if ck == KEY_B:
+			_befriend_selected()
+			get_viewport().set_input_as_handled()
+			return
+		if ck == KEY_J and _companion != null:
+			_companion.command("come")
+			get_viewport().set_input_as_handled()
+			return
+		if ck == KEY_L and _companion != null:
+			_companion.command("stay")
+			get_viewport().set_input_as_handled()
+			return
+		if ck == KEY_N and _companion != null:
+			_companion.command("follow")
+			get_viewport().set_input_as_handled()
+			return
+		if ck == KEY_O and _companion != null:
+			_companion.command("")
+			get_viewport().set_input_as_handled()
+			return
+		if ck == KEY_Y:
+			_select_nearest_companion()
+			get_viewport().set_input_as_handled()
+			return
 	# [ / ]: shrink / grow the spawn brush from the keyboard (same action as Ctrl + wheel).
 	if event is InputEventKey and event.pressed and not event.echo \
 			and (event.keycode == KEY_BRACKETLEFT or event.keycode == KEY_BRACKETRIGHT):
