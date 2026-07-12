@@ -69,6 +69,25 @@ var _groups: int = 0
 var _bufs: Dictionary = {}          # key → RID (single) or [rid_a, rid_b] (pair)
 var _passes: Array = []
 var _ctx: Dictionary = {}
+# Async readback pipeline (perf B2): step() submits its ONE compute list WITHOUT syncing; the sync + channel
+# readback is deferred to the NEXT begin_frame's _drain_pending(), so the GPU compute overlaps the inter-frame
+# CPU work (render/actor cognition) instead of stalling the field step. end_frame() then hands back `_cached`
+# (the previous step's channels) — a one-frame coupling lag, already an accepted "coupling-fidelity" lag (see
+# header ~:22). A local RenderingDevice allows exactly ONE submit() per sync(), which this respects.
+var _pending: bool = false          # a step() submit is in flight, not yet synced/read
+var _cached: Dictionary = {}        # channels read back from the last drained step (what end_frame returns)
+var _slow_gate: int = 0             # cadence counter for the slow (ledger/baker) channel readback set
+
+# Slow channels are read back only every Nth drain (their CPU consumers are coarse-cadence ledgers/bakers, not
+# every-frame world queries) — a direct cut of ~6 of 21 blocking readbacks on the other frames. Between reads the
+# CPU array keeps its prior value (the _apply_readback scatter is res.has()-guarded), which the consumers tolerate.
+const SLOW_READBACK_EVERY: int = 4
+# LEDGER/BAKER channels: mineral-conservation ledger (sediment/susp/rock_fill), decomposer fertility (fert),
+# water-table reservoir (soil), eco biomass metric + coarse fuel-refill source (biomass). All PURE-READBACK (no
+# every-frame CPU re-upload), so a stale read can never clobber the GPU evolution. `fuel`/`charge` are deliberately
+# NOT here — their consumers (surface-seed refill, charge bolt firing) edit + re-upload the channel, so reading
+# them stale could clobber the on-device evolution; they stay in the hot set.
+const SLOW_CHANNELS: PackedStringArray = ["sediment", "susp", "fert", "soil", "rock_fill", "biomass"]
 
 
 func setup(field) -> void:
@@ -116,6 +135,10 @@ func setup(field) -> void:
 func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: float = 0.6, wind: Vector2 = Vector2.ZERO) -> void:
 	if _rd == null:
 		return
+	# Drain the previous frame's in-flight step FIRST: sync it (usually already done — the GPU ran it during the
+	# inter-frame CPU work) and read its channels into `_cached`. Must happen before the temp/water uploads below,
+	# which write the same live buffers the step wrote. This is the CPU↔GPU overlap that hides the field step cost.
+	_drain_pending()
 	_upload_f(_live("temp"), temp)
 	_upload_f(_live("water"), water)
 	_seed_solid()
@@ -138,52 +161,102 @@ func set_sea_radius(r: float) -> void:
 func step() -> void:
 	if _rd == null:
 		return
+	# A local RenderingDevice permits exactly ONE submit() per sync(). The rare 2-steps-per-frame catch-up calls
+	# step() twice: sync the earlier submit before opening a new list (this also makes its writes visible to this
+	# step, replacing the old per-step sync for that boundary).
+	if _pending:
+		_rd.sync()
+		_pending = false
+	# B1 — ALL passes into ONE compute list, then a SINGLE submit()+deferred-sync (was: compute_list_begin →
+	# dispatch → end → submit → sync PER pass = 10 blocking CPU↔GPU round-trips/step, up to 20/frame). The kernel
+	# math is cheap; those round-trips were the cost. Godot 4.7 does NOT auto-insert memory barriers between
+	# dispatches in a list (every multi-dispatch pass already barriers internally), so we insert a GPU-side
+	# `compute_list_add_barrier` between passes: the passes are authored in strict data-flow order and each reads
+	# channels a prior pass wrote to "back", so pass N+1 must see pass N's writes. This barrier is what the
+	# single-dispatch passes (SolidDerive / ErosionPickup / Reactions) previously got from the per-pass sync. A
+	# barrier is a GPU pipeline barrier, NOT a CPU stall — correctness > a marginal extra barrier (perf-over-parity:
+	# verified behaviourally, not bit-exact).
 	# The `send` outflow scratch needs no external clear: the 2-pass finite-volume kernels (WaterSlumpLava)
 	# self-zero all 6 of each cell's send slots at the top of pass 0, before any read. Clearing here (or inside
 	# the pass) is both redundant and — inside an open compute list — illegal, so it is omitted.
-	for p in _passes:
-		var cl: int = _rd.compute_list_begin()
-		p.dispatch(_rd, cl, _phase, _ctx, _cc, _groups)
-		_rd.compute_list_end()
-		_rd.submit()
-		_rd.sync()
+	var cl: int = _rd.compute_list_begin()
+	var last: int = _passes.size() - 1
+	for i in _passes.size():
+		_passes[i].dispatch(_rd, cl, _phase, _ctx, _cc, _groups)
+		if i < last:
+			_rd.compute_list_add_barrier(cl)
+	_rd.compute_list_end()
+	_rd.submit()                        # deferred sync — drained at the next begin_frame (GPU overlaps CPU frame work)
+	_pending = true
 	_phase = 1 - _phase
 
+## Hand back the channels read from the LAST drained step (populated in begin_frame → _drain_pending). This is a
+## one-frame-lagged snapshot — the accepted coupling-fidelity latency (header ~:22). The actual readback + sync
+## now happen in _drain_pending, overlapped with the inter-frame CPU work, not synchronously here. The legacy
+## `_r*` params are ignored (per-channel cadence is decided in _read_channels).
 func end_frame(_rv: bool = true, _rc: bool = true, _rf: bool = true, _rr: bool = true, _rl: bool = true, _rs: bool = true) -> Dictionary:
-	var out: Dictionary = _empty_result()
 	if _rd == null:
-		return out
-	# `sediment` joins the readback so the mineral conservation ledger (mineral_total) sees the loose-regolith
-	# phase — without it, dust→sediment deposits/settles stayed GPU-only and the ledger under-counted.
-	# `fert` (PAIR): the decomposer's soil-fertility output, read back so fertility_at/fertility_peak see the
-	# live GPU channel (was never read → hardcoded 0). Its live half after the step carries the accumulated deposit.
-	# `susp` (waterborne suspended sediment) joins the readback so the mineral conservation ledger (mineral_total)
-	# counts the phase erosion pickup lifts into the water — without it the scoured mass would look VANISHED (the
-	# rock_fill dropped but susp was GPU-only), a false conservation break. Its live half after the flip is the
-	# post-pickup+settle susp.
-	for k in ["temp", "water", "moisture", "lava", "fire", "o2", "co2", "dust", "shock", "sediment", "soil", "fert", "susp"]:
+		return _empty_result()
+	return _cached if not _cached.is_empty() else _empty_result()
+
+
+## Sync an in-flight step submit WITHOUT reading channels — for save/load/dispose paths that touch buffers
+## outside the normal begin/step/end loop. Leaves `_cached` untouched (those paths don't feed the CPU query arrays).
+func _flush_pending() -> void:
+	if not _pending:
+		return
+	_rd.sync()
+	_pending = false
+
+
+## Sync the in-flight step and read its channels into `_cached`. Called at the top of begin_frame so the GPU had
+## the whole inter-frame gap to finish — the sync is usually already satisfied (that is the overlap win). HOT
+## channels (actor world-queries / senses / render every frame) are read every drain; SLOW ledger/baker channels
+## only every SLOW_READBACK_EVERY drains (a direct readback cut on the other frames).
+func _drain_pending() -> void:
+	if not _pending:
+		return
+	_rd.sync()
+	_pending = false
+	_slow_gate += 1
+	var read_slow: bool = _slow_gate >= SLOW_READBACK_EVERY
+	if read_slow:
+		_slow_gate = 0
+	_cached = _read_channels(read_slow)
+
+
+## Read the GPU channels the CPU consumes back into a result dict. Split HOT (every drain) vs SLOW (coarse cadence).
+## `sediment`/`susp` feed the mineral-conservation ledger (loose-regolith + waterborne phases — without them the
+## ledger under-counts / sees a false conservation break); `fert` is the decomposer's soil-fertility output;
+## `soil` the water-table reservoir; `rock_fill` the authoritative fractional bedrock mass; `biomass` the eco
+## metric + coarse fuel-refill source — all coarse-cadence consumers, so they ride the slow set.
+func _read_channels(read_slow: bool) -> Dictionary:
+	var out: Dictionary = _empty_result()
+	# HOT — read EVERY drain. Ping-pong PAIR channels read from their live half; single channels read direct.
+	for k in ["temp", "water", "moisture", "lava", "fire", "o2", "co2", "dust", "shock"]:
 		out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
 	# scent is a 5-plane packed pair (SCENT_PLANES * cell_count) — read its live half whole so the CPU bridge
 	# scatters all five planes (prey/predator/blood/food/alarm) back for the sense gradients.
 	out["scent"] = _rd.buffer_get_data(_live("scent")).to_float32_array()
-	# biomass + snow are SINGLE (non-ping-pong) GPU-resident channels — read their one buffer directly, not _live().
-	if _bufs.has("biomass"):
-		out["biomass"] = _rd.buffer_get_data(_bufs["biomass"]).to_float32_array()
+	# snow (SINGLE) — surface snow render/meltwater. fuel (SINGLE) — fire consumes it in place; kept HOT so the
+	# surface-seed refill compares against fresh fuel (avoids over-refill) and fire dynamics don't lag.
 	if _bufs.has("snow"):
 		out["snow"] = _rd.buffer_get_data(_bufs["snow"]).to_float32_array()
-	# fuel is a SINGLE GPU channel: the fire kernel consumes it in place each step. Read it back so fuel_total
-	# reflects the burn (drops where fire is active) and the seed module can maxf-refill it from biomass.
 	if _bufs.has("fuel"):
 		out["fuel"] = _rd.buffer_get_data(_bufs["fuel"]).to_float32_array()
-	# rock_fill is a SINGLE GPU-owned channel (the fractional bedrock mass); read it back so the CPU mineral
-	# ledger (mineral_total) counts the authoritative bedrock phase and add_lava sees the current rock mass.
-	if _bufs.has("rock_fill"):
-		out["rock_fill"] = _rd.buffer_get_data(_bufs["rock_fill"]).to_float32_array()
-	# Emergent WIND velocity (SINGLE, in-place channels) — read back so wind3_at/wind_at expose a real force
-	# field (was ZERO). CHARGE (SINGLE, in-place) too, so the breakdown→bolt firing sees the accumulated charge.
+	# Emergent WIND velocity (SINGLE, in-place) — wind3_at/wind_at expose a real force field. CHARGE (SINGLE,
+	# in-place) kept HOT so the breakdown→bolt firing sees fresh accumulated charge (it edits+re-uploads charge).
 	for k in ["vel_x", "vel_y", "vel_z", "charge"]:
 		if _bufs.has(k):
 			out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
+	# SLOW — ledger/baker channels, read only on the coarse cadence. PAIR channels (sediment/susp/fert/soil) from
+	# the live half; single channels (rock_fill/biomass) direct.
+	if read_slow:
+		for k in ["sediment", "susp", "fert", "soil"]:
+			out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
+		for k in ["rock_fill", "biomass"]:
+			if _bufs.has(k):
+				out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
 	return out
 
 func set_field(name: String, arr) -> void:
@@ -210,6 +283,7 @@ func snapshot_channels() -> Dictionary:
 	var out: Dictionary = {}
 	if _rd == null:
 		return out
+	_flush_pending()        # a step submit may be in flight (async pipeline) — sync before reading the buffers
 	for name in PAIR_CHANNELS:
 		out[name] = _rd.buffer_get_data(_live(name)).to_float32_array()
 	out["scent"] = _rd.buffer_get_data(_bufs["scent"][_phase]).to_float32_array()
@@ -225,6 +299,7 @@ func snapshot_channels() -> Dictionary:
 func restore_channels(data: Dictionary) -> void:
 	if _rd == null:
 		return
+	_flush_pending()        # a step submit may be in flight — sync before overwriting the buffers
 	for name in data.keys():
 		var key: String = String(name)
 		if not _bufs.has(key):
@@ -264,6 +339,7 @@ func set_raining(v: bool) -> void:
 func dispose() -> void:
 	if _rd == null:
 		return
+	_flush_pending()        # ensure the GPU is idle (no in-flight step submit) before freeing any RID
 	for p in _passes:
 		if p != null and p.has_method("dispose"):
 			p.dispose(_rd)
