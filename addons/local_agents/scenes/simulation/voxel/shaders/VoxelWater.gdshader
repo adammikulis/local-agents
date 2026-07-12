@@ -57,6 +57,29 @@ uniform float flow_speed = 0.9;
 
 uniform sampler2D depth_tex : hint_depth_texture, filter_linear_mipmap;
 
+// --- EMERGENT SEA ICE (near-cap leg): whiten the SALT sea where the field froze it, matching the ocean shell so
+// descending onto a frozen pole shows continuous white ice (not a blue near-cap under a white shell). Fed the
+// SAME cube-face coverage texture as VoxelWaterSphere by LASeaIceShaderController; sampled by the surface radial
+// (mesh origin = planet centre). Off (sea_ice_enabled=0) on the flat island and for all freshwater. ---
+uniform sampler2DArray sea_ice_tex : filter_linear;
+uniform float sea_ice_enabled = 0.0;
+uniform vec3 sea_ice_color : source_color = vec3(0.90, 0.94, 0.97);
+uniform float sea_ice_edge = 0.06;
+const vec3 ICE_FACE_N[6] = vec3[6](vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, -1.0, 0.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, -1.0));
+const vec3 ICE_FACE_R[6] = vec3[6](vec3(0.0, 0.0, -1.0), vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0));
+const vec3 ICE_FACE_U[6] = vec3[6](vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, -1.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0));
+
+float sea_ice_at(vec3 dir) {
+	vec3 a = abs(dir);
+	int f = (a.x >= a.y && a.x >= a.z) ? (dir.x >= 0.0 ? 0 : 1) : ((a.y >= a.z) ? (dir.y >= 0.0 ? 2 : 3) : (dir.z >= 0.0 ? 4 : 5));
+	float denom = dot(dir, ICE_FACE_N[f]);
+	if (denom < 0.0001) { return 0.0; }
+	vec3 p = dir / denom;
+	float u = clamp((dot(p, ICE_FACE_R[f]) + 1.0) * 0.5, 0.0, 0.99999);
+	float v = clamp((dot(p, ICE_FACE_U[f]) + 1.0) * 0.5, 0.0, 0.99999);
+	return textureLod(sea_ice_tex, vec3(u, v, float(f)), 0.0).r;
+}
+
 varying vec3 v_world;
 varying vec2 v_flow;      // world-XZ flow direction for detail scrolling
 varying float v_steep;    // CA slope steepness (whitewater on falls)
@@ -168,12 +191,22 @@ void fragment() {
 	float fres = pow(1.0 - clamp(dot(normalize(NORMAL), normalize(VIEW)), 0.0, 1.0), 4.0);
 	col = mix(col, sky_tint, fres * 0.25);
 
+	// --- EMERGENT SEA ICE: whiten the frozen SALT sea (fresh lakes/rivers never freeze white here). Sampled by
+	// the surface radial from the mesh origin (= planet centre). Matches the ocean shell for a seamless cap. ---
+	float ice = 0.0;
+	if (sea_ice_enabled > 0.5 && v_salinity > 0.5) {
+		vec3 centre = MODEL_MATRIX[3].xyz;
+		vec3 radial = normalize(v_world - centre);
+		ice = smoothstep(sea_ice_edge, sea_ice_edge + 0.35, sea_ice_at(radial)) * smoothstep(0.5, 0.8, v_salinity);
+	}
+	col = mix(col, sea_ice_color, ice);
+
 	ALBEDO = col;
-	ROUGHNESS = mix(0.05, 0.24, deep_t);
+	ROUGHNESS = mix(mix(0.05, 0.24, deep_t), 0.85, ice);
 	METALLIC = 0.0;
-	SPECULAR = 0.75;
+	SPECULAR = mix(0.75, 0.2, ice);
 	// Fresh + thin water is clearer; salt + deep water is murkier/more opaque; foam + grazing angles solid.
 	float body_alpha = mix(base_alpha, mix(0.55, 0.96, deep_t) + fres * 0.35, depth_influence);
 	float clarity = mix(0.12, 0.0, v_salinity);        // fresh water a touch more see-through
-	ALPHA = clamp(max(body_alpha - clarity, foam), 0.0, 1.0);
+	ALPHA = clamp(max(max(body_alpha - clarity, foam), ice), 0.0, 1.0);   // frozen ice is opaque white
 }

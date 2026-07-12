@@ -760,7 +760,7 @@ func climate_snapshot() -> Dictionary:
 		return {}
 	return {
 		"moisture": _moisture, "temp": _temp, "snow": _snow,
-		"solid": _solid, "cell_count": _cell_count,
+		"solid": _solid, "static": _static, "cell_count": _cell_count,
 	}
 
 
@@ -1347,6 +1347,7 @@ func report() -> Dictionary:
 		"wind": wind().length(), "scent_cells": scent_cell_count(),
 		"fertility_peak": fertility_peak(), "magma_cells": magma_cell_count(),
 		"erosion_cells": erosion_cell_count(), "snow_cells": snow_cell_count(), "ice_cells": ice_cell_count(),
+		"sea_ice_cells": _queries.sea_ice_cell_count(), "sea_ice_temp": _queries.sea_ice_temp_avg(), "open_sea_temp": _queries.open_sea_temp_avg(),
 		"dust_cells": dust_cell_count(), "charge_peak": charge_peak(), "bolts": bolts_fired(),
 		"shock_cells": shock_cell_count(), "o2_min": o2_min_open(), "o2_avg": o2_avg(),
 		"co2_peak": co2_peak(), "co2_avg": co2_avg(), "fungus_cells": fungus_cells(),

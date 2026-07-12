@@ -54,6 +54,17 @@ func setup_sphere(center: Vector3, sea_radius: float, transparent: bool = true) 
 	global_position = center
 
 
+## Feed the emergent sea-ice texture (6-layer cube-face coverage, one texel per surface column) to the shell
+## shader so frozen sea reads WHITE from orbit. Bound once by LASeaIceShaderController; the shell samples it by
+## its own radial each frame (no per-frame upload here). A no-op on the flat island (no spherical shell).
+func set_sea_ice_texture(tex: Texture2DArray) -> void:
+	var mat: ShaderMaterial = material_override as ShaderMaterial
+	if mat == null:
+		return
+	mat.set_shader_parameter("sea_ice_tex", tex)
+	mat.set_shader_parameter("sea_ice_enabled", 1.0)
+
+
 ## Apply the moon-driven tide: raise/lower the whole sea shell by `offset` world units around its base radius.
 ## Uniform node scaling keeps the shell centred on the planet, so land near the coast floods/drains for free
 ## and the near-cap surface (which is fed the same tided radius) stays in lock-step. Called each frame by the

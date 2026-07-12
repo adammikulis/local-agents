@@ -530,3 +530,61 @@ func fertility_peak() -> float:
 		if _f._solid[c] == 0 and _f._fert[c] > m:
 			m = _f._fert[c]
 	return m
+
+
+# --- SEA ICE — emergent frozen sea surface (polar caps / winter sea ice) --------------------------------------
+# A "sea-surface" cell is a static-sea cell (`_static==1`, so it is the calm seeded ocean, not a perched lake or
+# dynamic river) whose OUTWARD radial neighbour (c+1 in the contiguous column c = s*depth + r) is NOT static —
+# i.e. the topmost sea layer, the air/water interface where sea ice forms. Sea ice is just the `_snow` (frozen
+# H₂O) channel accumulated on that cell by the freeze reaction — no separate buffer. These getters split the
+# frozen vs open sea so SIM_REPORT proves caps are EMERGENT (cold poles freeze, warm tropics stay open), not
+# global. Sphere-only (needs the contiguous radial column layout); returns 0 in box mode.
+
+## True if linear cell `c` is the topmost layer of the static sea (the freezable sea surface).
+func _is_sea_surface(c: int, depth: int) -> bool:
+	if _f._static[c] == 0 or _f._solid[c] != 0:
+		return false
+	var r: int = c % depth
+	if r == depth - 1:
+		return true                                   # outermost shell — nothing above it
+	return _f._static[c + 1] == 0                     # the cell just outward is air → this is the surface
+
+## Count of sea-surface cells frozen over (snow/ice depth past SNOW_PRESENT) — the emergent sea-ice extent.
+func sea_ice_cell_count() -> int:
+	if not _f.is_sphere() or _f._dim_y <= 0 or _f._snow.size() != _f._cell_count:
+		return 0
+	var depth: int = _f._dim_y
+	var n: int = 0
+	for c in _f._cell_count:
+		if _is_sea_surface(c, depth) and _f._snow[c] > _f.SNOW_PRESENT:
+			n += 1
+	return n
+
+## Mean temperature of the FROZEN sea-surface cells — should read below the freeze threshold (proves cold-driven).
+func sea_ice_temp_avg() -> float:
+	if not _f.is_sphere() or _f._dim_y <= 0 or _f._snow.size() != _f._cell_count:
+		return 0.0
+	var depth: int = _f._dim_y
+	var sum: float = 0.0
+	var n: int = 0
+	for c in _f._cell_count:
+		if _is_sea_surface(c, depth) and _f._snow[c] > _f.SNOW_PRESENT:
+			sum += _f._temp[c]
+			n += 1
+	return sum / float(n) if n > 0 else 0.0
+
+## Mean temperature of the OPEN (unfrozen) sea-surface cells — should read ABOVE the frozen mean (warm sea stays
+## liquid). Together with sea_ice_temp_avg this shows ice tracks temperature, not latitude. Excludes lava/geothermal
+## anomalies (a handful of undersea-vent cells at hundreds of °C would otherwise swamp the mean).
+const OPEN_SEA_TEMP_CAP: float = 100.0   # ignore boiling-hot vent cells — not representative open water
+func open_sea_temp_avg() -> float:
+	if not _f.is_sphere() or _f._dim_y <= 0 or _f._snow.size() != _f._cell_count:
+		return 0.0
+	var depth: int = _f._dim_y
+	var sum: float = 0.0
+	var n: int = 0
+	for c in _f._cell_count:
+		if _is_sea_surface(c, depth) and _f._snow[c] <= _f.SNOW_PRESENT and _f._temp[c] < OPEN_SEA_TEMP_CAP:
+			sum += _f._temp[c]
+			n += 1
+	return sum / float(n) if n > 0 else 0.0

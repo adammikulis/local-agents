@@ -25,6 +25,7 @@ const WaterParticlesScript: GDScript = preload("res://addons/local_agents/scenes
 const WaterSurfaceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldRender3D.gd")
 const DrainageOverlayScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DrainageOverlay.gd")
 const BiomeShaderScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/BiomeShaderController.gd")
+const SeaIceShaderScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/SeaIceShaderController.gd")
 const StreamerHostScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelStreamerHost.gd")
 const ThoughtPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/CreatureThoughtPanel.gd")
 const EventTrackerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/events/LAEventTracker.gd")
@@ -107,6 +108,7 @@ var _water: Node = null      # LAWaterParticles — the ONE field-driven atmosph
 var _water_surface: Node = null  # LAMaterialFieldRender3D — dynamic fluid surface (springs/rivers/lakes/floods)
 var _drainage: Node = null       # LADrainageOverlay — debug highlight of the drainage network
 var _biome_shader: Node = null   # LABiomeShaderController — bakes climate (moisture/temp) into terrain colour
+var _sea_ice_shader: Node = null # LASeaIceShaderController — bakes emergent sea ice into the ocean shell (white polar caps)
 
 
 # Ocean fraction knob: how far the whole surface is pushed below sea level. LA_OCEAN_BIAS overrides the default
@@ -374,6 +376,15 @@ func _ready() -> void:
 	_biome_shader.name = "BiomeShader"
 	add_child(_biome_shader)
 	_biome_shader.setup(_material, _terrain)
+
+	# EMERGENT SEA ICE: bake the conserved frozen-sea (`_snow` on cold static-sea cells) into a cube-face texture
+	# the ocean shell samples so polar caps + winter sea ice read WHITE from orbit while warm sea stays blue. No
+	# new physics — the generic freeze reaction already froze the cold sea; this only renders it. Disable with
+	# LA_NO_SEAICE. Composition root = one add_child + wire.
+	_sea_ice_shader = SeaIceShaderScript.new()
+	_sea_ice_shader.name = "SeaIceShader"
+	add_child(_sea_ice_shader)
+	_sea_ice_shader.setup(_material, _ocean, _water_surface)
 
 	# --- Debug menu (left) + world-space gizmo overlay: field views, type highlights, intended paths. ---
 	_debug = DebugWiringScript.new()

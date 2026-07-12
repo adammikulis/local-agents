@@ -72,6 +72,17 @@ func setup(field, camera: Node3D, terrain, _sun, center: Vector3, sea_radius: fl
 	_ready = true
 
 
+## Feed the emergent sea-ice coverage texture to the near-cap water material so a frozen sea reads WHITE up close
+## too — matching the ocean shell so descending onto a frozen pole is continuous ice, not a blue cap under white.
+## The mesh node sits at the planet centre, so the shader recovers the surface radial from its own MODEL_MATRIX;
+## no centre uniform needed. Bound once by LASeaIceShaderController (disabled by LA_NO_SEAICE / on the flat island).
+func set_sea_ice_texture(tex: Texture2DArray) -> void:
+	if _mat == null:
+		return
+	_mat.set_shader_parameter("sea_ice_tex", tex)
+	_mat.set_shader_parameter("sea_ice_enabled", 1.0)
+
+
 ## Moon-driven tide: set the sea-surface radius the near-cap mesh builds against. The next throttled rebuild
 ## re-meshes the cap at the new level, so the shoreline advances/recedes with the tide for free. A scalar set
 ## (no rebuild here) — driven each frame by LASystemOrbits alongside the ocean-shell tide so the two stay in step.
