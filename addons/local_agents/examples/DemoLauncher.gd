@@ -42,6 +42,21 @@ const DEMOS: Array = [
 		"scene": "res://addons/local_agents/examples/GraphExample.tscn",
 	},
 	{
+		"title": "7. Thinking creature (flat ground)",
+		"desc": "One Creature on a plain floor via setup_standalone — pure fast brain, no planet. Optional LocalAgent slow brain.",
+		"scene": "res://addons/local_agents/scenes/simulation/voxel/examples/ThinkingCreatureDemo.tscn",
+	},
+	{
+		"title": "8. Box-field heat sandbox",
+		"desc": "A volumetric MaterialField (setup_dims): inject heat and watch it diffuse + rise in a bare box, no planet.",
+		"scene": "res://addons/local_agents/scenes/simulation/voxel/examples/BoxFieldDemo.tscn",
+	},
+	{
+		"title": "9. Standalone planet (SimWorld)",
+		"desc": "A whole cubed-sphere planet + ecology from one SimWorld node — no game shell (HUD/menus/disasters).",
+		"scene": "res://addons/local_agents/scenes/simulation/voxel/examples/SimWorldPlanetDemo.tscn",
+	},
+	{
 		"title": "Play the planet (flagship)",
 		"desc": "The emergent voxel ecosystem: one material substrate, herds, disasters, and a local-LLM streamer.",
 		"scene": "res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn",
