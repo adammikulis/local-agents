@@ -20,7 +20,9 @@ const INITIAL_COUNTS: Dictionary = {
 	# TOXIC vegetation is a deliberate MINORITY (nightshade/deathcap) among the wholesome majority above — enough
 	# for a grazer to meet, learn from, and avoid, without denting a herd that thrives on the wholesome plants.
 	"nightshade": 14, "deathcap": 10,
-	"rabbit": 90, "mouse": 12, "fox": 10, "bird": 55, "swallow": 10, "villager": 12, "vulture": 12,
+	# Rabbits open just UNDER their pop_cap (85) rather than over it — a founding herd that grows toward
+	# carrying capacity, not one that starts over-cap and mass-starves in a crash before it can settle.
+	"rabbit": 50, "mouse": 12, "fox": 10, "bird": 55, "swallow": 10, "villager": 12, "vulture": 12,
 	"beetle": 10, "ant": 12, "grasshopper": 10, "butterfly": 10, "fly": 12, "bee": 14,
 }
 # Vegetation kinds (density-scaled by the graphics foliage knob, like the base plant) — flowers + shrub + the

@@ -19,7 +19,7 @@
   "herd": true,
   "leader_loyalty": 0.0,
   "hierarchy": "family",
-  "pop_cap": 55,
+  "pop_cap": 85,
   "max_energy": 85.0,
   "metabolism": 1.8,
   "breath_capacity": 5.0,

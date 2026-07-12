@@ -13,7 +13,12 @@ const WARM_COMFORT: float = 28.0
 const COOL_COMFORT: float = 8.0
 const HEAT_THIRST_FACTOR: float = 0.15     # extra thirst/sec per °C above WARM_COMFORT
 const HEAT_ENERGY_FACTOR: float = 0.08     # extra energy/sec burned per °C above WARM_COMFORT
-const COLD_ENERGY_FACTOR: float = 0.15     # energy/sec burned per °C below COOL_COMFORT
+const COLD_ENERGY_FACTOR: float = 0.012    # energy/sec burned per °C below COOL_COMFORT. The vegetated land band
+                                           # runs genuinely COOL, and this tax was the hidden extinction engine: it
+                                           # drained energy to 0 (a death reported as "starvation") on the cold night
+                                           # side faster than a grazer could refeed, so herbivores collapsed while
+                                           # carnivores (fed by big kills) rode it out. Cold still KILLS at LETHAL_COLD
+                                           # (frozen) — a real, occasional killer — but no longer slow-starves the herds.
 const LETHAL_HEAT: float = 50.0            # °C at/above which it dies of heatstroke (no flame)
 const COMBUST_TEMP: float = 200.0          # °C — organic tissue catches FIRE (in a wildfire/lava)
 const LETHAL_COLD: float = -18.0           # °C at/below which it freezes

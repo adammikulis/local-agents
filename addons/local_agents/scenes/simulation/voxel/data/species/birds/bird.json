@@ -17,7 +17,7 @@
   "herd": true,
   "leader_loyalty": 0.0,
   "hierarchy": "family",
-  "pop_cap": 40,
+  "pop_cap": 60,
   "max_energy": 75.0,
   "metabolism": 1.5,
   "food_value": 30.0,

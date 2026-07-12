@@ -49,6 +49,37 @@ static func setup(c) -> void:
 	c.microbiome = MICROBIOME_HERBIVORE if String(c.diet) == "herbivore" else MICROBIOME_DEFAULT
 
 
+# Ambient GROUNDCOVER grazing. A plant-eater standing on vegetated ground continuously nibbles the grass/algae
+# living there — the shared biomass field — the SAME "grazers live off ambient biomass" rule that keeps the
+# aquatic web base stable (Fish grazers never starve; only foragers burn energy). Land herbivores had no such
+# safety net: they depended entirely on reaching discrete Plant nodes and so starved to extinction amid abundant
+# vegetation, while carnivores/scavengers/omnivores thrived. This gives grassland itself a subsistence food value
+# — a grazer on green ground stays fed and can bank surplus for breeding — while BARREN or FROZEN ground
+# (biomass≈0) yields nothing, so cold/desert is still a real starvation pressure. Discrete Plant bites remain the
+# richer food. Emergent: one O(1) field read, gated by diet; no per-species code.
+const GRAZE_BIOMASS_FULL: float = 0.05   # per-cell biomass at/above which groundcover grazing is at full rate (mirrors LAEcologyBreeding)
+const AMBIENT_GRAZE_RATE: float = 4.0    # biomass/sec drawn from RICH groundcover (scaled down by how sparse the local biomass is)
+
+static func ambient_graze(c, pos: Vector3, delta: float) -> void:
+	if c == null or delta <= 0.0 or c._material == null or String(c.diet) != "herbivore":
+		return
+	if c.gut >= c.gut_capacity:
+		return                                       # gut full — no room to nibble more
+	# Photosynthesis deposits biomass in the SKY-EXPOSED surface cell of the column, which for land is a cell or two
+	# ABOVE the ground-hug cell the body's feet quantise into — so a single ground-level read misses it. Sample a
+	# short outward stack and take the MAX, so a grazer standing on green ground reliably reads the groundcover it
+	# feeds on (still 0 over barren rock / snow, where nothing grew).
+	var up: Vector3 = c.terrain.up_at(pos) if (c.terrain != null and c.terrain.has_method("up_at")) else Vector3.UP
+	var b: float = 0.0
+	for h in [maxf(float(c.size), 0.8), 4.0, 9.0, 15.0, 22.0]:
+		var s: Vector3 = pos + up * float(h)
+		b = maxf(b, c._material.biomass_at(s.x, s.y, s.z))
+	if b <= 0.0:
+		return
+	var lush: float = clampf(b / GRAZE_BIOMASS_FULL, 0.0, 1.0)   # 0 barren .. 1 rich groundcover
+	ingest(c, AMBIENT_GRAZE_RATE * lush * delta * LAAblate.evo_fast())
+
+
 ## A bite: add its biomass to the gut buffer, bounded by capacity (a stuffed gut can't hold more — the excess
 ## is simply not taken). `biomass` is the food's energy-equivalent value (the same number the old path credited
 ## straight to energy); `profile` is accepted for future diet-fit nuance but unused today. O(1).

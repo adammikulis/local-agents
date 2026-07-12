@@ -32,7 +32,9 @@ layout(push_constant, std430) uniform Params {
 } params;
 
 // Constants — MUST match the query-side sat()/evap math in MaterialField3D.gd + the box heritage.
-const float EVAP_RATE = 0.019;   // restored toward normal (rain now drains into the sea reservoir, so the cycle is bounded)
+const float EVAP_RATE = 0.012;   // slowed: the infinite static-sea reservoir pumped moisture faster than rain drained
+                                 // it, so atmospheric moisture ran away (~11x over 2000 frames) and snowed out onto the
+                                 // highlands, a creeping cold drift that froze the habitable band mid-run (population sustain)
 const float EVAP_WARM_K = 0.11;  // Clausius–Clapeyron slope: e ~ exp((T-REF)*k). Cold land water barely evaporates
                                  // (rivers persist); the warm sea evaporates hard (drives the cycle).
 const float WATER_MIN = 0.05;

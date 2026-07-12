@@ -109,6 +109,8 @@ func _spawn_herd_founders(kind: String, n: int) -> void:
 				var node = _eco._instance_actor(kind, placed, null, fam)
 				if mi == 0:
 					_seed_elder(node)   # the founder at the cluster centre is the family elder → its band's stable leader
+				else:
+					_seed_founder_age(node)   # stagger the herd's ages so the cohort doesn't age out all at once
 
 
 # Age a founder into its family elder (a head-start age so it out-ranks the age-0 cohort). Shared by the
@@ -116,6 +118,16 @@ func _spawn_herd_founders(kind: String, n: int) -> void:
 func _seed_elder(node) -> void:
 	if node != null and is_instance_valid(node) and node is Node3D:
 		node.age = float(node.maturity_age) * FOUNDER_ELDER_AGE_MULT
+
+
+# Give a non-elder founder a RANDOM age spread across its lifespan, so the founding herd has a natural age
+# structure (juveniles + adults + elders) instead of one age-0 cohort that matures, breeds, and then ages out
+# ALL AT ONCE — the synchronized founder die-off that left no younger generation behind and collapsed the herd
+# to extinction. A staggered age pyramid means deaths trickle out over time and there is always a next generation.
+func _seed_founder_age(node) -> void:
+	if node != null and is_instance_valid(node) and node is Node3D:
+		var span: float = maxf(float(node.max_age) * 0.6, float(node.maturity_age))
+		node.age = LASimRng.shared().randf_range(0.0, span)
 
 
 # Metres above the sea shell a direction's surface must clear to count as DRY LAND (not tidal shallows).

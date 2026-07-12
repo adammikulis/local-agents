@@ -1168,8 +1168,26 @@ func breathable_o2_at(x: float, y: float, z: float) -> float:
 	var c: int = world_to_cell(Vector3(x, y, z))
 	if c < 0:
 		return O2_AMBIENT                 # above the atmosphere shell = open sky
-	if _solid[c] != 0 or _water[c] >= MAX_MASS * 0.5:
+	# Water fills the cell → air is displaced → a lung drowns. Real; keep it (drowning + smoke stay 0).
+	if _water[c] >= MAX_MASS * 0.5:
 		return 0.0
+	# ROCK holds no air — but a ground-standing creature whose head cell QUANTISES into the surface rock
+	# (body size 0.5 ≪ cell size 5) is NOT buried; it breathes the thin air resting on the ground. Step
+	# radially outward to the first open cell and read ITS O₂ (the true surface air — still 0 if choked by
+	# smoke there). Only a creature truly encased in rock (no open cell outward within reach) reads 0. This
+	# fixes land animals wrongly suffocating on solid ground without breaking drowning/smoke suffocation.
+	if _solid[c] != 0:
+		if _sphere == null:
+			return 0.0                    # box mode (unused in the sim): keep the strict rule
+		var steps: int = 0
+		while _solid[c] != 0 and steps < 4:
+			var up_c: int = _sphere.neighbours[c * 6 + 1]   # N_OUT = 1 (radially outward)
+			if up_c < 0:
+				return 0.0                # reached space while still in rock → encased
+			c = up_c
+			steps += 1
+		if _solid[c] != 0 or _water[c] >= MAX_MASS * 0.5:
+			return 0.0
 	return _o2[c]
 
 ## Is the TRUE-3D cell at this world point underwater (over half-full of water)? What a gill-breather needs

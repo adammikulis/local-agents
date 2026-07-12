@@ -81,6 +81,26 @@ static func nearest_larger_predator(c, pos: Vector3) -> Node3D:
 	return best
 
 
+## Nearest edible plant (group "plant") within forage range — the herbivore food-seek target, mirroring
+## nearest_rock / nearest_of. Filters to plants edible RIGHT NOW (a grazed-down plant recovers before it is
+## worth the trip, per Plant.is_edible), so a hungry grazer heads for real food. Uses the shared O(N) spatial
+## index (no O(n²) scan). Returns null if none in range. This is what lets a herbivore REACH the plants around
+## it instead of only eating what it randomly bumps into (the fix for herbivores starving amid full pastures).
+static func nearest_plant(c, pos: Vector3) -> Node3D:
+	var best: Node3D = null
+	var best_d: float = c.sense_radius * 2.5
+	for p in _fresh_index(c, ["plant"]).query("plant", pos, best_d):
+		if not is_instance_valid(p) or not (p is Node3D):
+			continue
+		if p.has_method("is_edible") and not p.call("is_edible"):
+			continue
+		var d: float = pos.distance_to((p as Node3D).global_position)
+		if d < best_d:
+			best_d = d
+			best = p
+	return best
+
+
 ## Nearest ground rock (for throwers that grab one to hurl at prey).
 static func nearest_rock(c, pos: Vector3) -> Node3D:
 	var best: Node3D = null

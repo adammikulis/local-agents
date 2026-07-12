@@ -13,7 +13,7 @@ const COMPANION_FOLLOW_DIST: float = 4.0   # a "follow" companion closes to this
 const ThrownRockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/ThrownRock.gd")
 
 
-# --- prey behavior: flee predators (dominates), else wander + flock, eat plants ---
+# --- prey behavior: flee predators (dominates), else forage (seek + eat plants), else wander + flock ---
 static func think_prey(c, pos: Vector3, fallback: Vector3) -> Vector3:
 	var threat: Node3D = LACreatureSenses.nearest_of(c, pos, c.flees_from)
 	if threat != null:
@@ -22,9 +22,28 @@ static func think_prey(c, pos: Vector3, fallback: Vector3) -> Vector3:
 		away.y = 0.0
 		if away.length() > 0.001:
 			return away.normalized() * 1.5
-	if c.diet != "carnivore" and _try_eat_plant(c, pos):
+	if c.diet != "carnivore":
+		return forage_graze(c, pos, fallback)
+	c.state = "wander"
+	return fallback + LACreatureFlocking.steer(c, pos, true)
+
+
+# DIRECTED GRAZING for a plant-eater. Eat a plant within reach; else — if hungry — steer toward the nearest
+# SENSED edible plant (the exact "locate the food and move to it" rule a predator uses to chase prey), which the
+# tangent-projection in Creature turns into surface movement; else wander + flock. Before this, a herbivore only
+# ate what it randomly bumped into (reach ~1.5 u) and so starved to extinction amid abundant, growing plants —
+# now it walks to the pasture. Emergent (no per-species code): one seek-and-eat drive, gated by the hunger signal.
+static func forage_graze(c, pos: Vector3, fallback: Vector3) -> Vector3:
+	if _try_eat_plant(c, pos):
 		c.state = "eat"
 		return fallback + LACreatureFlocking.steer(c, pos, true)
+	if LACreatureDigestion.hunger(c) > 0.12:
+		var food: Node3D = LACreatureSenses.nearest_plant(c, pos)
+		if food != null:
+			var to_food: Vector3 = (food as Node3D).global_position - pos
+			if to_food.length() > 0.001:
+				c.state = "forage"
+				return to_food.normalized()
 	c.state = "wander"
 	return fallback + LACreatureFlocking.steer(c, pos, true)
 
@@ -365,7 +384,7 @@ static func state_to_action(c, s: String) -> String:
 			return "scavenge"
 		"investigate":
 			return "investigate"
-		"eat":
+		"eat", "forage":
 			return "graze" if c.diet == "herbivore" else "scavenge"
 		"rest", "sleep", "roost", "nesting":
 			return "rest"
@@ -396,8 +415,10 @@ static func _adoptable_action(action: String, f) -> String:
 static func execute_action(c, action: String, pos: Vector3, delta: float) -> Dictionary:
 	match action:
 		"graze":
-			_try_eat_plant(c, pos)
-			return {"heading": c._heading + LACreatureFlocking.steer(c, pos, true), "state": "eat", "speed": c.speed}
+			# Directed grazing (seek + eat), so a herbivore driven here by its policy/leader walks to the pasture
+			# instead of only eating what it bumps into. forage_graze sets c.state ("eat"/"forage"/"wander").
+			var gh: Vector3 = forage_graze(c, pos, c._heading)
+			return {"heading": gh, "state": c.state, "speed": c.speed}
 		"scavenge":
 			_try_scavenge(c, pos)
 			return {"heading": c._heading + LACreatureFlocking.steer(c, pos, true), "state": "eat", "speed": c.speed}

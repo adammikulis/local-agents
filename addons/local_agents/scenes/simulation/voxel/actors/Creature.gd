@@ -502,7 +502,11 @@ func _deposit_waste(ground_pos: Vector3, kind: String) -> void:
 
 
 func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
-	terrain = _terrain
+	# Terrain is the only hard dependency for the movement path. With no voxel planet injected (a standalone
+	# creature on a plain floor), default to the FLAT-ground adapter so up_at/surface_point/ground_point/etc.
+	# resolve against y=0 instead of null-derefing. VoxelWorld still injects LAVoxelTerrainService (the sphere
+	# adapter) for the planet path; both honour the same duck-typed terrain contract (see LAFlatGroundTerrain).
+	terrain = _terrain if _terrain != null else LAFlatGroundTerrain.new()
 	# Genome drives the config: an offspring/evolved creature is passed a genome and we express it;
 	# otherwise we build an ancestral genome from the species template so EVERY creature has
 	# heritable genes (and per-individual variation once bred).
@@ -800,6 +804,11 @@ func _physics_process(delta: float) -> void:
 	_sense_mult = 1.0
 	if _ecology != null and _ecology.has_method("is_night") and _ecology.is_night():
 		_sense_mult = 1.4 if nocturnal else 0.7
+	# Ambient groundcover grazing: a herbivore on vegetated ground draws a steady subsistence feed from the shared
+	# biomass field (grass/algae) into its gut, so grassland itself feeds it and pure grazers don't starve amid
+	# plenty — the land twin of the aquatic ambient-biomass grazers. Run BEFORE digestion so it is digested this
+	# same frame. Barren/frozen ground (biomass≈0) yields nothing, keeping cold/desert a real pressure.
+	LACreatureDigestion.ambient_graze(self, global_position, delta)
 	# Digestion: the gut converts buffered food into energy (+ pending feces) this frame — run BEFORE the
 	# metabolism burn/starvation check so a creature that just ate is credited its digested energy and won't
 	# starve with a full gut. Empty gut = no energy (must eat). See LACreatureDigestion.

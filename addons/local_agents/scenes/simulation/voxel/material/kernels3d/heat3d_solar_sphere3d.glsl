@@ -53,14 +53,19 @@ layout(push_constant, std430) uniform Params {
 	float sea_radius;   // world radius of the sea shell — altitude datum for the lapse term
 } params;
 
-// Constants — MUST match MaterialHeat3D.gd exactly.
-const float AMBIENT_NIGHT = 6.0;
+// Constants — the authoritative surface-temperature model (no GDScript mirror; the old MaterialHeat3D.gd is gone).
+// AMBIENT_NIGHT is the night-side floor (thermal retention keeps a real planet's night well above freezing); it
+// was 6 °C, which — combined with the altitude lapse over land that sits ABOVE the sea datum — drove the WHOLE
+// habitable surface to ~0-3 °C (creatures froze en masse). Raised so lowland nights stay temperate and only high
+// ground / poles freeze. Keeps cold a real but occasional killer, not an extinction driver (population-sustain).
+const float AMBIENT_NIGHT = 13.0;
 const float SOLAR_WARMTH = 18.0;
 const float AMBIENT_RELAX = 0.05;
-// ALTITUDE LAPSE: °C dropped from the solar target per world-unit of altitude above the sea shell. Tuned so the
-// highest peaks (~18 u above sea at PLANET_RELIEF 16) fall well below FREEZE_TEMP (12.5) even at the sub-solar
-// equator (target 24 - 1.1*18 ≈ 4 °C → snow), while mid-slope land (~9 u) stays temperate (24 - 1.1*9 ≈ 14 °C).
-const float LAPSE = 1.1;
+// ALTITUDE LAPSE: °C dropped from the solar target per world-unit of altitude above the sea shell. Softened from
+// 1.1 so the elevated land surface (which sits several units above the sea datum) is not chilled below freezing
+// everywhere, while HIGH peaks + the night side still fall below FREEZE_TEMP (12.5) → snow-capped peaks + an
+// alpine treeline survive: night peak (~18 u) = 12 - 0.6*18 ≈ 1 °C (snow); mid-slope day (~9 u) = 30 - 0.6*9 ≈ 25 °C.
+const float LAPSE = 0.5;
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;

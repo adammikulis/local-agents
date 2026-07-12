@@ -30,10 +30,16 @@ extends RefCounted
 ## (Explicit types only — project rule: no ':=' inferred typing.)
 
 # --- tuning (exposed as named consts so the population can be retuned under a live run) --------------------
-const MIN_ENERGY_FRAC: float = 0.6      # only a creature above this fraction of max_energy is well-fed enough to breed
+const MIN_ENERGY_FRAC: float = 0.55     # well-fed-enough-to-breed gate. Kept comfortably above the gestation drain (a
+                                        # pregnancy costs GESTATION_ENERGY_COST over gestation ON TOP of metabolism, so
+                                        # conceiving while only marginally fed risks starving the mother mid-gestation), but
+                                        # low enough that grazers in the cool land band still breed fast enough to keep the
+                                        # herbivore base — and the predators that depend on it — supplied. Eased from 0.6.
 const GESTATION_SECONDS: float = 12.0   # seconds a bearer carries a pregnancy before giving birth
-const GESTATION_ENERGY_COST: float = 30.0   # total energy the bearer pays, drained smoothly across gestation
-const POST_BIRTH_COOLDOWN: float = 18.0     # seconds a bearer must recover before it can conceive again
+const GESTATION_ENERGY_COST: float = 24.0   # total energy the bearer pays, drained smoothly across gestation (trimmed from
+                                        # 30 so pregnancy is survivable in the cool land band without a starvation death spiral)
+const POST_BIRTH_COOLDOWN: float = 13.0     # seconds a bearer must recover (refeed) before conceiving again — shortened from
+                                        # 18 so the herbivore base replaces attrition fast enough to sustain the food web
 const MATE_REFRACTORY: float = 6.0      # short pair-bond cooldown put on the partner at conception (stops the SAME
                                         # pairing from both conceiving at once; keeps the effective birth rate sane)
 const MATE_SEEK_RADIUS: float = 16.0    # how far a courting adult looks for a mate (herds already cluster same-species)
