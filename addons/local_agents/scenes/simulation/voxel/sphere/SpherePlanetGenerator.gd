@@ -71,18 +71,22 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 	# CELL_VALUE relief is flat-topped, so without this land drains monotonically to the sea and nothing pools).
 	var basin_relief: float = float(opts.get("basin_relief", 0.0))
 	var basin_size: float = float(opts.get("basin_size", 130.0))
+	# RIDGES: a RIDGED-fractal layer — branching sharp ridge lines with VALLEYS between them. This is the classic
+	# river-valley noise: it carves a dendritic valley network into the smooth continents so drainage concentrates
+	# into long branching rivers (fBm alone gives only broad slopes). Amplitude kept modest (not a spiky world).
+	var ridge_relief: float = float(opts.get("ridge_relief", 0.0))
+	var ridge_size: float = float(opts.get("ridge_size", 90.0))
 
-	# CONTINENTS: cellular F2-F1 — high at cell cores, ~0 along the borders (the valley network). Fractal-FBM
-	# layered so continents carry sub-cells (bays, sub-basins). This is the drainage-shaping field.
+	# CONTINENTS: smooth SIMPLEX fBm (was cellular CELL_VALUE — its flat-topped plateaus + sharp cliff borders
+	# FRAGMENTED drainage so rivers stayed short). A rolling continental field has large-scale SLOPES water can
+	# run down for a long way → long rivers from the high interior to the coast. Low octave count keeps the shape
+	# broad (few big landmasses / one large sea) rather than noisy.
 	var cont: ZN_FastNoiseLite = ZN_FastNoiseLite.new()
-	cont.noise_type = ZN_FastNoiseLite.TYPE_CELLULAR
+	cont.noise_type = ZN_FastNoiseLite.TYPE_OPEN_SIMPLEX_2S
 	cont.seed = seed_val
 	cont.period = maxf(1.0, feature_size)
-	cont.cellular_distance_function = ZN_FastNoiseLite.CELLULAR_DISTANCE_EUCLIDEAN
-	cont.cellular_return_type = ZN_FastNoiseLite.CELLULAR_RETURN_CELL_VALUE
-	cont.cellular_jitter = jitter
 	cont.fractal_type = ZN_FastNoiseLite.FRACTAL_FBM
-	cont.fractal_octaves = maxi(1, octaves)
+	cont.fractal_octaves = maxi(2, octaves + 1)
 	cont.fractal_lacunarity = 2.0
 	cont.fractal_gain = 0.5
 
@@ -106,6 +110,16 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 	basin.fractal_octaves = 3
 	basin.fractal_lacunarity = 2.0
 	basin.fractal_gain = 0.5
+
+	# RIDGES: ridged multifractal → branching ridge lines + valleys (the dendritic river-valley network).
+	var ridge: ZN_FastNoiseLite = ZN_FastNoiseLite.new()
+	ridge.noise_type = ZN_FastNoiseLite.TYPE_OPEN_SIMPLEX_2S
+	ridge.seed = seed_val + 23
+	ridge.period = maxf(1.0, ridge_size)
+	ridge.fractal_type = ZN_FastNoiseLite.FRACTAL_RIDGED
+	ridge.fractal_octaves = 4
+	ridge.fractal_lacunarity = 2.0
+	ridge.fractal_gain = 0.5
 
 	var gen: VoxelGeneratorGraph = VoxelGeneratorGraph.new()
 	var fn: VoxelGraphFunction = gen.get_main_function()
@@ -141,15 +155,27 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 	fn.add_connection(cont_mul, 0, relief_sum, 0)
 	fn.add_connection(det_mul, 0, relief_sum, 1)
 
-	# relief += basin  (undulate the plateaus so closed depressions exist for water to pool)
+	# ridge relief = ridged * ridge_relief  (branching ridge lines → river valleys between)
+	var ridge_noise: int = fn.create_node(T_FAST_NOISE_3D, Vector2(0, 640), 0)
+	fn.set_node_param_by_name(ridge_noise, "noise", ridge)
+	var ridge_mul: int = fn.create_node(T_MULTIPLY, Vector2(200, 640), 0)
+	fn.add_connection(ridge_noise, 0, ridge_mul, 0)
+	fn.set_node_default_input(ridge_mul, 1, ridge_relief)
+
+	# relief += basin  (undulate so closed depressions exist for water to pool)
 	var relief_sum2: int = fn.create_node(T_ADD, Vector2(500, 400), 0)
 	fn.add_connection(relief_sum, 0, relief_sum2, 0)
 	fn.add_connection(basin_mul, 0, relief_sum2, 1)
 
+	# relief += ridge  (carve the dendritic valley network)
+	var relief_sum3: int = fn.create_node(T_ADD, Vector2(560, 460), 0)
+	fn.add_connection(relief_sum2, 0, relief_sum3, 0)
+	fn.add_connection(ridge_mul, 0, relief_sum3, 1)
+
 	# core = sphere - relief  (raise surface outward where relief is high)
 	var core: int = fn.create_node(T_SUBTRACT, Vector2(600, 140), 0)
 	fn.add_connection(sphere, 0, core, 0)
-	fn.add_connection(relief_sum2, 0, core, 1)
+	fn.add_connection(relief_sum3, 0, core, 1)
 
 	# biased = core + ocean_bias  (push the whole surface inward => most of the sphere is ocean)
 	var biased: int = fn.create_node(T_ADD, Vector2(800, 140), 0)

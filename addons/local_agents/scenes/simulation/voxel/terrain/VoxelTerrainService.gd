@@ -78,6 +78,8 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 		"feature_size": float(opts.get("feature_size", 155.0)),
 		"basin_relief": float(opts.get("basin_relief", 0.0)),
 		"basin_size": float(opts.get("basin_size", 130.0)),
+		"ridge_relief": float(opts.get("ridge_relief", 0.0)),
+		"ridge_size": float(opts.get("ridge_size", 90.0)),
 		"octaves": int(opts.get("octaves", 3)),
 		"seed": int(opts.get("seed", 1337)),
 	})

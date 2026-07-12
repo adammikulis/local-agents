@@ -56,12 +56,18 @@ const PLANET_FEATURE: float = 155.0 * PLANET_SCALE
 # the sphere is below the sea — continents/islands emerge only at the cellular cores, with the sea for the
 # rivers to drain into. Raise OCEAN_BIAS (or SEA_RADIUS) for more water; lower for more land.
 const PLANET_SEA_RADIUS: float = PLANET_RADIUS
-const PLANET_OCEAN_BIAS: float = 7.0 * PLANET_SCALE   # ~72% ocean / 28% land (Earth-like); raise for more sea
+const PLANET_OCEAN_BIAS: float = -10.0 * PLANET_SCALE  # NEGATIVE = mostly LAND (rivers/lakes) with the low regions
+                                                      # as the sea (smooth simplex continents are centred ~0, so a
+                                                      # negative bias lifts most of the surface above sea level).
+                                                      # RAISE toward + for more sea. Runtime-tunable: LA_OCEAN_BIAS=<n>.
 # BASIN relief: medium-wavelength undulation carved into the flat cellular plateaus so land has CLOSED
 # DEPRESSIONS (lake bowls) — the pools springs/rain/runoff collect into as standing lakes (raise for deeper
 # lakes/more relief; 0 = flat plateaus that only drain to the sea).
 const PLANET_BASIN_RELIEF: float = 20.0 * PLANET_SCALE
 const PLANET_BASIN_SIZE: float = 130.0 * PLANET_SCALE
+# RIDGES: ridged-multifractal river-valley network carved into the continents (branching valleys → long rivers).
+const PLANET_RIDGE_RELIEF: float = 22.0 * PLANET_SCALE
+const PLANET_RIDGE_SIZE: float = 95.0 * PLANET_SCALE
 const PLANET_SPIN_RATE: float = 0.10        # rad/s axial spin (~1 rotation / 63s) — day/night sweep
 const PLANET_SPIN_AXIS: Vector3 = Vector3(0.40, 0.92, 0.0)   # ~23.5° obliquity vs the orbit plane → real seasons
 
@@ -86,6 +92,14 @@ var _ocean: Node = null      # LAOceanPlane — the calm sea drawn as one GPU pl
 var _water: Node = null      # LAWaterParticles — the ONE field-driven atmosphere visual (cloud/fog/rain/snow)
 var _water_surface: Node = null  # LAMaterialFieldRender3D — dynamic fluid surface (springs/rivers/lakes/floods)
 var _drainage: Node = null       # LADrainageOverlay — debug highlight of the drainage network
+
+
+# Ocean fraction knob: how far the whole surface is pushed below sea level. LA_OCEAN_BIAS overrides the default
+# (pre-scale units, like PLANET_OCEAN_BIAS) so the land/sea split can be tuned per-launch without an edit.
+func _ocean_bias() -> float:
+	if OS.has_environment("LA_OCEAN_BIAS"):
+		return float(OS.get_environment("LA_OCEAN_BIAS")) * PLANET_SCALE
+	return PLANET_OCEAN_BIAS
 var _streamer_host: Node = null # LAVoxelStreamerHost — owns the streamer overlay/avatar/voice/director
 var _thought_panel: CanvasLayer = null # LACreatureThoughtPanel — click-a-creature "what it's thinking" hook
 var _events: Node = null     # LAEventTracker — the ONE emergent phenomenon-event source (streamer + telemetry consume it)
@@ -164,7 +178,8 @@ func _ready() -> void:
 	add_child(_body)
 	_body.setup({"radius": PLANET_RADIUS, "relief": PLANET_RELIEF, "feature_size": PLANET_FEATURE,
 		"basin_relief": PLANET_BASIN_RELIEF, "basin_size": PLANET_BASIN_SIZE,
-		"sea_radius": PLANET_SEA_RADIUS, "ocean_bias": PLANET_OCEAN_BIAS, "view_distance": 2000, "seed": 1337})
+		"ridge_relief": PLANET_RIDGE_RELIEF, "ridge_size": PLANET_RIDGE_SIZE,
+		"sea_radius": PLANET_SEA_RADIUS, "ocean_bias": _ocean_bias(), "view_distance": 2000, "seed": 1337})
 	_terrain = _body.terrain()
 	# PLANETARY SKY: view from space with the sun FIXED shining star->planet; the spinning planet turns
 	# under it → a stark star-lit day/night terminator sweeps the surface.
