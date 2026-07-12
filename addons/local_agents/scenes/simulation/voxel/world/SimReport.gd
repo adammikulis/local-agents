@@ -47,6 +47,13 @@ static func gauge(name: String, value: float) -> void:
 	_gauges[name] = g
 
 
+## Current value of a gauge (or `default_val` if not recorded yet) — a cheap single-key read for live HUD
+## readouts, without the snapshot() dictionary duplication.
+static func gauge_cur(name: String, default_val: float = 0.0) -> float:
+	var g: Dictionary = _gauges.get(name, {})
+	return float(g.get("cur", default_val))
+
+
 ## Register a subsystem aggregate provider — a Callable returning a Dictionary merged into snapshot(). No-op
 ## if already registered (safe to call from _ready).
 static func register(provider: Callable) -> void:

@@ -410,7 +410,7 @@ func bind(terrain, camera: Camera3D, body: Node3D, star: Node3D, material: Node,
 	_view_controls = ViewControlsScript.new()
 	_view_controls.name = "ViewControls"
 	add_child(_view_controls)
-	_view_controls.call("setup", self)
+	_view_controls.call("setup", self, _camera, _body)
 	_refresh_view_controls()
 
 

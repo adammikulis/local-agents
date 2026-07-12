@@ -66,9 +66,14 @@ const PLANET_OCEAN_BIAS: float = -10.0 * PLANET_SCALE  # NEGATIVE = mostly LAND 
 # lakes/more relief; 0 = flat plateaus that only drain to the sea).
 const PLANET_BASIN_RELIEF: float = 20.0 * PLANET_SCALE
 const PLANET_BASIN_SIZE: float = 130.0 * PLANET_SCALE
-# RIDGES: ridged-multifractal river-valley network carved into the continents (branching valleys → long rivers).
-const PLANET_RIDGE_RELIEF: float = 22.0 * PLANET_SCALE
+# RIDGES: ridged-multifractal MOUNTAIN layer. Rivers no longer ride this noise — the drainage network is carved
+# into the terrain from the ACTUAL water flow (see MaterialFieldLakes3D river carving), so this layer's only job
+# is gentle mountain extrusions. Kept LOW-amplitude + few octaves so peaks are rolling, not craggy spikes.
+const PLANET_RIDGE_RELIEF: float = 9.0 * PLANET_SCALE   # was 22 (welded to rivers → craggy); now light mountains
 const PLANET_RIDGE_SIZE: float = 95.0 * PLANET_SCALE
+const PLANET_RIDGE_OCTAVES: int = 3                     # was 4; fewer octaves = softer ridge lines (less spiky)
+# DETAIL: fine high-frequency roughness. Halved from the old default (6) so hillsides read textured, not gritty.
+const PLANET_DETAIL_RELIEF: float = 1.5 * PLANET_SCALE  # effective ~3 (was ~6) — less craggy surface grain
 const PLANET_SPIN_RATE: float = 0.10        # rad/s axial spin (~1 rotation / 63s) — day/night sweep
 const PLANET_SPIN_AXIS: Vector3 = Vector3(0.40, 0.92, 0.0)   # ~23.5° obliquity vs the orbit plane → real seasons
 
@@ -180,7 +185,8 @@ func _ready() -> void:
 	add_child(_body)
 	_body.setup({"radius": PLANET_RADIUS, "relief": PLANET_RELIEF, "feature_size": PLANET_FEATURE,
 		"basin_relief": PLANET_BASIN_RELIEF, "basin_size": PLANET_BASIN_SIZE,
-		"ridge_relief": PLANET_RIDGE_RELIEF, "ridge_size": PLANET_RIDGE_SIZE,
+		"ridge_relief": PLANET_RIDGE_RELIEF, "ridge_size": PLANET_RIDGE_SIZE, "ridge_octaves": PLANET_RIDGE_OCTAVES,
+		"detail_relief": PLANET_DETAIL_RELIEF,
 		"sea_radius": PLANET_SEA_RADIUS, "ocean_bias": _ocean_bias(), "view_distance": 2000, "seed": 1337})
 	_terrain = _body.terrain()
 	# PLANETARY SKY: view from space with the sun FIXED shining star->planet; the spinning planet turns

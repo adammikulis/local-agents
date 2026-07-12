@@ -19,6 +19,7 @@ const CAT_SELECTION: String = "Selection"
 const CAT_VIEW: String = "Camera & view"
 const CAT_OVERLAY: String = "Overlays"
 const CAT_BRUSH: String = "Brush"
+const CAT_COMPANION: String = "Companion (select a creature first)"
 const CAT_INTERFACE: String = "Interface"
 
 # The shift glyph (U+21E7) used in the compact key hints so "⇧1" reads at a glance on the palette buttons.
@@ -60,6 +61,14 @@ static func hotkey_map() -> Array:
 	rows.append(_row("[", "brush_shrink", "Shrink spawn brush", CAT_BRUSH))
 	rows.append(_row("]", "brush_grow", "Grow spawn brush", CAT_BRUSH))
 	rows.append(_row("Ctrl + Wheel", "brush_size", "Resize spawn brush", CAT_BRUSH))
+
+	# --- Companion / pet (owned by LAVoxelInteraction; act on the selected creature) ---
+	rows.append(_row("B", "companion_feed", "Feed / pet the selected creature (tame it)", CAT_COMPANION))
+	rows.append(_row("Y", "companion_select", "Set the selected creature as your companion", CAT_COMPANION))
+	rows.append(_row("J", "companion_come", "Command: come", CAT_COMPANION))
+	rows.append(_row("L", "companion_stay", "Command: stay", CAT_COMPANION))
+	rows.append(_row("N", "companion_follow", "Command: follow", CAT_COMPANION))
+	rows.append(_row("O", "companion_free", "Command: free (roam)", CAT_COMPANION))
 
 	# --- Interface ---
 	rows.append(_row("M", "audio_menu", "Toggle audio & music menu", CAT_INTERFACE))

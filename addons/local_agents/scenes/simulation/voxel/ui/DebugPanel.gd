@@ -16,6 +16,8 @@ signal perf_toggled(key: String, on: bool)           # "shadows" | "ssao"
 signal family_tree_toggled(on: bool)                 # show the kinship family-tree inspector for the selection
 signal screenshot_requested()                        # user clicked the save-screenshot button
 signal select_llm_requested(kind: String)            # select every creature thinking/queued via the local model
+signal perf_overlay_toggled(on: bool)                # HUD readout: expand to frame/field/physics ms + draw calls
+signal render_debug_toggled(mode: String, on: bool)  # viewport debug draw: "wireframe" | "overdraw" (one at a time)
 
 # Field-channel heatmap rows: display label -> view_toggled key (the DebugOverlay samples that channel).
 const FIELD_VIEWS: Array = [
@@ -129,6 +131,15 @@ func _ready() -> void:
 	shadows.set_pressed_no_signal(false)             # start OFF (no emit) — the applied quality preset drives the real
 	var ssao: CheckButton = _add_check("SSAO", func(on: bool) -> void: perf_toggled.emit("ssao", on))
 	ssao.set_pressed_no_signal(false)                # render state; forcing ON lied about it + its init emit was swallowed → 2 clicks
+
+	_add_section("STATS")
+	_add_check("Detailed perf readout", func(on: bool) -> void: perf_overlay_toggled.emit(on))
+
+	_add_section("RENDER DEBUG")
+	# Godot viewport debug-draw modes (dev QoL): show the geometry as wireframe, or overdraw (brighter =
+	# more overlapping fragments = fill-rate cost). One at a time — enabling one is handled downstream.
+	_add_check("Wireframe", func(on: bool) -> void: render_debug_toggled.emit("wireframe", on))
+	_add_check("Overdraw", func(on: bool) -> void: render_debug_toggled.emit("overdraw", on))
 
 	_add_section("CAPTURE")
 	var shot: Button = Button.new()

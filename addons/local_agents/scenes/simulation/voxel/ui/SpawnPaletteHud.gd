@@ -100,6 +100,7 @@ var _palette_panel: PanelContainer
 
 var _status_label: Label
 var _readout_label: Label
+var _perf_detail: bool = false      # DEBUG-panel "Detailed perf": expands the FPS readout to frame/field/phys ms + draws
 var _inspector_title: Label
 var _inspector_lines: VBoxContainer
 
@@ -143,7 +144,19 @@ func _process(_delta: float) -> void:
 	var tree: SceneTree = get_tree()
 	if tree != null:
 		entity_count = tree.get_nodes_in_group("selectable").size()
-	_readout_label.text = "%d FPS   |   %d entities" % [fps, entity_count]
+	if _perf_detail:
+		var frame_ms: float = Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+		var phys_ms: float = Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+		var field_ms: float = LASimReport.gauge_cur("field_ms")
+		var draws: int = int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
+		_readout_label.text = "%d FPS  %.1fms   |   field %.1f  phys %.1f  draws %d   |   %d ents" % [fps, frame_ms, field_ms, phys_ms, draws, entity_count]
+	else:
+		_readout_label.text = "%d FPS   |   %d entities" % [fps, entity_count]
+
+
+## DEBUG-panel toggle: show the detailed perf breakdown (frame/field/physics ms + draw calls) in the readout.
+func set_perf_detail(on: bool) -> void:
+	_perf_detail = on
 
 
 # ---------------------------------------------------------------------------

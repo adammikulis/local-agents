@@ -102,7 +102,8 @@ func seed(field) -> void:
 
 
 const RIVER_ACCUM_MIN: int = 6           # upstream cells before a channel carries a visible river
-const RIVER_MAX_DEPTH_CELLS: int = 2     # deepest a big trunk river is seeded (cells above the valley floor)
+const RIVER_MAX_DEPTH_CELLS: int = 2     # deepest a big trunk river incises (cells below the valley floor)
+const RIVER_CARVE_MAX: int = 6000        # safety cap on channel carves (bounds the one-time world-gen cost)
 
 ## Seed PERSISTENT RIVERS along the drainage network: standard D8 flow accumulation on a CONTINUOUS sub-shell
 ## elevation (sampled from the terrain SDF — the shell-quantised elevation can't concentrate flow across the
@@ -171,17 +172,44 @@ func _seed_rivers(field, grid: RefCounted, sea_r: float, core_r: float, cs: floa
 		var d: int = downstream[s]
 		if d >= 0 and is_land[d] == 1:
 			accum[d] += accum[s]
-	# Fill the channels with static freshwater; depth grows (log) with upstream area.
+	# CARVE the channels into the terrain SDF so rivers sit in INCISED valleys (a light notch in the ground)
+	# rather than flat water ribbons laid on top — and fill the notch with static freshwater. Incision depth
+	# grows (log) with upstream area (trunk rivers cut deeper than headwater creeks). Because the channel is
+	# placed by ACTUAL flow accumulation (D8), rivers cut through FLAT land too, not just where mountains are —
+	# fully decoupled from the ridge/mountain noise. The carve keeps the field's solidity in step (the carved
+	# cells become open water). Off (LA_NO_RIVER_CARVE) or on a terrain without carve_sphere → the old
+	# thin-ribbon-above-the-floor fill, so headless/reference paths still get rivers.
+	var can_carve: bool = terrain.has_method("carve_sphere") and not OS.has_environment("LA_NO_RIVER_CARVE")
+	var center2: Vector3 = grid.center
 	var count: int = 0
+	var carved: int = 0
 	for s in order:
 		if accum[s] < RIVER_ACCUM_MIN:
 			continue
 		var mag: int = clampi(int(log(float(accum[s])) / log(4.0)), 1, RIVER_MAX_DEPTH_CELLS)
 		var base2: int = s * depth
-		for k in range(mag):
-			var c: int = base2 + eground[s] + k                  # cells just above the valley floor
-			if c < base2 + depth and field._solid[c] == 0 and field._static[c] == 0:
+		var top: int = eground[s] - 1                            # shell of the top solid cell (the valley floor)
+		if top < 0:
+			continue
+		if can_carve and carved < RIVER_CARVE_MAX:
+			# Bite the top `mag` shells out of the ground with a small sphere at the surface point; overlapping
+			# spheres down the channel trace one continuous incised valley. Radius grows with the incision depth.
+			var cdir: Vector3 = grid.surf_dir(s)
+			terrain.carve_sphere(center2 + cdir * elev[s], cs * (0.5 + 0.7 * float(mag)))
+			carved += 1
+			for j in range(mag):                                 # keep the field's solidity consistent with the carve
+				var rc: int = top - j
+				if rc >= 0:
+					field._solid[base2 + rc] = 0
+		# Fill: the carved notch (cells eground-mag .. eground-1), or — carving off — a thin ribbon above the floor.
+		var lo: int = maxi(0, eground[s] - mag) if can_carve else eground[s]
+		var hi: int = eground[s] if can_carve else (eground[s] + mag)
+		for r in range(lo, mini(hi, depth)):
+			var c: int = base2 + r
+			if field._solid[c] == 0 and field._static[c] == 0:
 				field._static[c] = 1
 				field._water[c] = 1.0
 				count += 1
+	if OS.has_environment("LA_WATER_DEBUG"):
+		print("RIVER_CARVE={filled:%d, carved:%d, cap:%d}" % [count, carved, RIVER_CARVE_MAX])
 	return count

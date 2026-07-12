@@ -76,6 +76,7 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 	# into long branching rivers (fBm alone gives only broad slopes). Amplitude kept modest (not a spiky world).
 	var ridge_relief: float = float(opts.get("ridge_relief", 0.0))
 	var ridge_size: float = float(opts.get("ridge_size", 90.0))
+	var ridge_octaves: int = maxi(1, int(opts.get("ridge_octaves", 4)))
 
 	# CONTINENTS: smooth SIMPLEX fBm (was cellular CELL_VALUE — its flat-topped plateaus + sharp cliff borders
 	# FRAGMENTED drainage so rivers stayed short). A rolling continental field has large-scale SLOPES water can
@@ -117,7 +118,7 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 	ridge.seed = seed_val + 23
 	ridge.period = maxf(1.0, ridge_size)
 	ridge.fractal_type = ZN_FastNoiseLite.FRACTAL_RIDGED
-	ridge.fractal_octaves = 4
+	ridge.fractal_octaves = ridge_octaves
 	ridge.fractal_lacunarity = 2.0
 	ridge.fractal_gain = 0.5
 

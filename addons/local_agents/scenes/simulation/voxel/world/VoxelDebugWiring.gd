@@ -75,6 +75,8 @@ func setup(world: Node, material: Node, terrain, sky: LAVoxelSkyController, hud:
 	_debug_panel.family_tree_toggled.connect(_on_debug_family_tree)
 	_debug_panel.screenshot_requested.connect(_on_debug_screenshot)
 	_debug_panel.select_llm_requested.connect(_on_select_llm)
+	_debug_panel.perf_overlay_toggled.connect(_on_debug_perf_overlay)
+	_debug_panel.render_debug_toggled.connect(_on_debug_render)
 	# Family-tree inspector (right dock): a pure reader over the kinship graph, re-rooted on each selection.
 	_family_tree = FamilyTreePanelScript.new()
 	_family_tree.name = "FamilyTreePanel"
@@ -206,6 +208,30 @@ func _on_debug_perf(key: String, on: bool) -> void:
 		"ssao":
 			if _sky != null:
 				_sky.set_ssao(on)
+
+
+# DEBUG panel "Detailed perf readout": expand the HUD's FPS line to frame/field/physics ms + draw calls.
+func _on_debug_perf_overlay(on: bool) -> void:
+	if _hud != null and _hud.has_method("set_perf_detail"):
+		_hud.set_perf_detail(on)
+
+
+# DEBUG panel render-debug-draw modes (wireframe / overdraw). One at a time: enabling one wins; disabling the
+# active one restores normal draw. Applied to the sim viewport.
+func _on_debug_render(mode: String, on: bool) -> void:
+	if _world == null:
+		return
+	var vp: Viewport = _world.get_viewport()
+	if vp == null:
+		return
+	if on:
+		match mode:
+			"wireframe":
+				vp.debug_draw = Viewport.DEBUG_DRAW_WIREFRAME
+			"overdraw":
+				vp.debug_draw = Viewport.DEBUG_DRAW_OVERDRAW
+	else:
+		vp.debug_draw = Viewport.DEBUG_DRAW_DISABLED
 
 
 # Save-screenshot button (DebugPanel): capture the current viewport to a numbered PNG in the project

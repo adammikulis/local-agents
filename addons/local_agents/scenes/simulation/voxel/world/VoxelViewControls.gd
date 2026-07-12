@@ -13,12 +13,19 @@ const PANEL_BG: Color = Color(0.05, 0.07, 0.11, 0.9)
 const ACCENT: Color = Color(0.55, 0.72, 1.0)
 
 var _host = null
+var _camera: Camera3D = null      # live camera + planet body, so the bar can show a real altitude readout
+var _body: Node3D = null
 var _planet_btn: Button = null
 var _solar_btn: Button = null
 var _orbit_btn: Button = null
 var _geo_btn: Button = null
 var _fly_btn: Button = null
 var _spin_btn: Button = null
+var _alt_label: Label = null      # live "alt N m" readout (camera height above the ground under it)
+var _alt_accum: float = 0.0
+# The altitude readout raycasts the ground under the camera; it doesn't need per-frame precision, so sample it
+# a few times a second (cheap, and steadier to read than a per-frame flicker).
+const ALT_UPDATE_INTERVAL: float = 0.2
 var _geo_hotkey: String = ""      # cached registry key labels folded into the gated tooltips
 var _solar_hotkey: String = ""
 
@@ -27,8 +34,10 @@ func _init() -> void:
 	layer = 120
 
 
-func setup(host) -> void:
+func setup(host, camera: Camera3D = null, body: Node3D = null) -> void:
 	_host = host
+	_camera = camera
+	_body = body
 	_build_ui()
 	_apply_locks()
 	# Re-enable a button the instant its capability is earned (campaign). No-op when no progression exists.
@@ -96,9 +105,46 @@ func _build_ui() -> void:
 	_spin_btn = _make_button("Auto-spin", null, box)
 	_spin_btn.tooltip_text = "Turn the planet in front of you  (%s)" % spin_key
 	_spin_btn.toggled.connect(func(on: bool) -> void: _host.set_auto_spin(on))
+
+	_add_divider(box)
+	_alt_label = Label.new()
+	_alt_label.text = "alt —"
+	_alt_label.add_theme_color_override("font_color", Color(0.72, 0.80, 0.92))
+	_alt_label.custom_minimum_size = Vector2(104.0, 0.0)
+	_alt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_alt_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_alt_label.tooltip_text = "Camera height above the ground beneath it"
+	box.add_child(_alt_label)
+
 	# Geosync / Solar tooltips (which fold in the campaign-lock state) are set by _apply_locks() below.
 	_geo_hotkey = geo_key
 	_solar_hotkey = solar_key
+
+
+## Live altitude readout: a few samples a second, the camera's height above the terrain directly under it. Uses
+## the body's ground raycast (altitude_at); over an unmeshed patch it falls back to height above the mean sphere.
+func _process(delta: float) -> void:
+	if _alt_label == null or _camera == null or _body == null:
+		return
+	_alt_accum += delta
+	if _alt_accum < ALT_UPDATE_INTERVAL:
+		return
+	_alt_accum = 0.0
+	var alt: float = NAN
+	if _body.has_method("altitude_at"):
+		alt = _body.altitude_at(_camera.global_position)
+	if is_nan(alt) and _body.has_method("center"):
+		var r: float = _body.radius() if _body.has_method("radius") else 0.0
+		alt = _camera.global_position.distance_to(_body.center()) - r
+	_alt_label.text = "alt %s" % _format_alt(alt)
+
+
+func _format_alt(alt: float) -> String:
+	if is_nan(alt):
+		return "—"
+	if absf(alt) >= 10000.0:
+		return "%.1f km" % (alt / 1000.0)
+	return "%d m" % roundi(alt)
 
 
 func _make_button(text: String, group: ButtonGroup, parent: Control) -> Button:

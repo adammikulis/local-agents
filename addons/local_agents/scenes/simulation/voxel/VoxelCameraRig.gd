@@ -91,6 +91,13 @@ const ARC_LOOK_HEIGHT: float = 2.2
 # it comes down instead of plunging straight along the radial, so it reads as an RTS SWOOP/ARC toward the
 # surface rather than a straight-down zoom. 0 = straight down; bigger = a wider curved approach.
 const ARC_SWING_MULT: float = 0.45
+# TERRAIN-FOLLOW anti-clip: when zoomed in, the close-eye pose is built above the REAL terrain radius under the
+# view (mountains/ridges), not the idealized base sphere — otherwise rotating the globe under a fixed-altitude
+# eye drives the camera straight into a ridge (the mountains swing up ~40+ units past the smooth radius). We
+# query the ground radius along the view radial (the same raycast surface_radius() spawning uses), keep the eye
+# a clearance above it, and EASE that radius so crossing a ridge is a smooth rise, not a pop.
+const MIN_EYE_CLEARANCE: float = 6.0      # eye never sits closer than this above the terrain beneath the view
+const TERRAIN_FOLLOW_TIME: float = 0.35   # ease time (s) of the terrain-radius follow — smooths ridges under the eye
 
 # Reference distance the pan speeds are tuned against; panning scales with distance so the
 # world moves a consistent fraction of the screen at every zoom level.
@@ -140,6 +147,9 @@ var _orbit_azimuth: float = 0.0           # rotation around the polar axis, radi
 var _orbit_elevation: float = deg_to_rad(20.0)  # latitude of the camera, radians (clamped off the poles)
 var _orbit_min_distance: float = 0.0
 var _orbit_max_distance: float = 0.0
+# Eased terrain radius under the view (anti-clip terrain-follow). 0 = uninitialised; first valid query seeds it,
+# then it eases toward the queried ground radius so the eye rises/falls smoothly across ridges instead of popping.
+var _smooth_surface_r: float = 0.0
 
 # --- Rotation mode: FREE (camera fixed in the world frame, planet spins under it) vs GEOSYNC (camera rides
 # the planet's rotating frame, locked over one surface region so it stays centred as the planet spins).
@@ -461,7 +471,11 @@ func _update_orbit_transform() -> void:
 		look_at(_orbit_center, up)
 	else:
 		var upn: Vector3 = radial                                   # radial normal at the ground point
-		var surface_pt: Vector3 = _orbit_center + radial * _orbit_radius
+		# TERRAIN-FOLLOW: build the close pose above the REAL ground radius under the view (mountains/ridges),
+		# eased — not the idealized base sphere — so rotating the globe under a zoomed-in eye can't drive it
+		# through a ridge. Falls back to _orbit_radius when the patch is unmeshed (see _terrain_aware_radius).
+		var base_r: float = _terrain_aware_radius(radial)
+		var surface_pt: Vector3 = _orbit_center + radial * base_r
 		var back: Vector3 = up - radial * up.dot(radial)            # a tangent "behind" the eye
 		if back.length() < 0.01:
 			back = Vector3.RIGHT - radial * Vector3.RIGHT.dot(radial)
@@ -470,7 +484,16 @@ func _update_orbit_transform() -> void:
 		# Bow the path out sideways (peaks at mid-approach, zero at both ends) so the camera SWOOPS in along an
 		# arc rather than dropping straight down the radial — the RTS "approach a planet" feel.
 		var swing: float = sin(t * PI) * ARC_SWING_MULT * _orbit_radius
-		global_position = far_pos.lerp(eye, t) + back * swing
+		var pos: Vector3 = far_pos.lerp(eye, t) + back * swing
+		# Final anti-clip floor: never let the eye sit below the (eased) terrain beneath the view + clearance.
+		# The eye's tangential back/swing offset can slide it over a spot taller than the look point; push it
+		# straight back out along its own radial if so. base_r is eased, so this floor moves smoothly too.
+		var min_r: float = base_r + MIN_EYE_CLEARANCE
+		var pos_off: Vector3 = pos - _orbit_center
+		if pos_off.length() < min_r:
+			var pdir: Vector3 = pos_off.normalized() if pos_off.length() > 0.001 else radial
+			pos = _orbit_center + pdir * min_r
+		global_position = pos
 		var far_look: Vector3 = _orbit_center
 		var close_look: Vector3 = surface_pt + upn * ARC_LOOK_HEIGHT                 # gaze at creature height
 		look_at(far_look.lerp(close_look, t), upn)
@@ -783,6 +806,27 @@ func _zoom(factor: float) -> void:
 		_target_distance = clampf(_target_distance * factor, _orbit_min_distance, _orbit_max_distance)
 	else:
 		_target_distance = clampf(_target_distance * factor, MIN_DISTANCE, MAX_DISTANCE)
+
+
+## Terrain-aware ground radius under the view direction `radial`, eased so the eye rides smoothly over ridges.
+## Returns the max of the idealized orbit radius and the REAL meshed terrain radius (via the geosync body's
+## surface_radius raycast — the same path spawning uses). NaN / unmeshed / no-body falls back to _orbit_radius,
+## so the eye never chases a bad value into the ground. One raycast per close-zoom frame.
+func _terrain_aware_radius(radial: Vector3) -> float:
+	var r: float = _orbit_radius
+	if _geosync_body != null and is_instance_valid(_geosync_body) and _geosync_body.has_method("surface_radius"):
+		var tr: float = _geosync_body.surface_radius(radial)
+		if not is_nan(tr) and tr > 0.0:
+			r = maxf(r, tr)
+	# Ease toward the queried radius (framerate-independent exponential) so a ridge sweeping under the camera is
+	# a smooth rise, not a snap. Seed on the first valid frame so we don't ramp up from zero.
+	if _smooth_surface_r <= 0.0:
+		_smooth_surface_r = r
+	else:
+		var dt: float = get_process_delta_time()
+		var k: float = 1.0 - exp(-dt / maxf(TERRAIN_FOLLOW_TIME, 0.0001))
+		_smooth_surface_r = lerpf(_smooth_surface_r, r, k)
+	return _smooth_surface_r
 
 
 ## Critically-damped spring toward `target` over ~ZOOM_SMOOTH_TIME seconds (the standard SmoothDamp): smooth
