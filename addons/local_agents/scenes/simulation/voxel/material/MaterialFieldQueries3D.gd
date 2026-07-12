@@ -214,6 +214,43 @@ func _shell_mean(shell_sum: PackedFloat32Array, shell_n: PackedInt32Array, r: in
 	return shell_sum[r] / float(shell_n[r])
 
 
+## HOT-SPRING gauge (proof the geothermal groundwater→surface heat coupling emerges). Counts OPEN, non-sea
+## (dynamic-water, not the static ocean reservoir) surface-water cells whose temperature has been driven well
+## above ambient by groundwater surfacing through hot rock — i.e. hot springs / fumaroles. `hotspring_cells` =
+## warm discharge (>60°C), `hotspring_boiling` = at/over boiling (>=90°C, where the evap kernel flashes steam),
+## `hotspring_max_c` = the hottest such cell. The static-sea exclusion + the 60°C floor keep the ordinary sea
+## and solar-warmed rivers out, so a non-zero count is specifically groundwater-carried geothermal heat.
+## Snapshot-time only, one O(cells) pass.
+func hot_spring_stats() -> Dictionary:
+	var count: int = _f._cell_count
+	if _f._temp.size() != count or _f._water.size() != count or _f._solid.size() != count:
+		return {"hotspring_cells": 0, "hotspring_boiling": 0, "hotspring_max_c": 0.0}
+	var warm: int = 0        # open, non-sea surface water >60°C (a hot spring)
+	var boiling: int = 0     # >=90°C (the evap kernel flashes steam)
+	var mild: int = 0        # >30°C with any discharge film (early/faint geothermal signal)
+	var spring_wet: int = 0  # open non-sea cells holding ANY discharge film (denominator for the warm fraction)
+	var mx: float = 0.0      # hottest open non-sea surface-water cell (the true spring peak, no threshold)
+	for i in range(count):
+		if _f._solid[i] != 0 or _f._static[i] != 0:
+			continue
+		if _f._water[i] < 0.01:
+			continue
+		spring_wet += 1
+		var t: float = _f._temp[i]
+		if t > mx:
+			mx = t
+		if t > 30.0:
+			mild += 1
+		if t > 60.0:
+			warm += 1
+		if t >= 90.0:
+			boiling += 1
+	return {
+		"hotspring_cells": warm, "hotspring_boiling": boiling, "hotspring_max_c": snappedf(mx, 0.1),
+		"hotspring_mild": mild, "hotspring_wet": spring_wet,
+	}
+
+
 func wet_cell_count() -> int:
 	var n: int = 0
 	for i in range(_f._cell_count):

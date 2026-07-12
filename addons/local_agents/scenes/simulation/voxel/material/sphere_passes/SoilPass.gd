@@ -11,7 +11,7 @@ extends RefCounted
 ##
 ## Per-parity binding → bufs map (see soil_sphere3d.glsl header for the authoritative layout):
 ##   0 Water = water[BACK] (settled surface water, read-modify-write) · 1 Solid · 2 Static · 3 Send scratch ·
-##   4 SoilIn = soil[LIVE] · 5 SoilOut = soil[BACK] · 15 Neigh
+##   4 SoilIn = soil[LIVE] · 5 SoilOut = soil[BACK] · 6 Regolith · 7 Temp = temp[BACK] (post-thermal, rw) · 15 Neigh
 ## Push constant: PackedInt32Array([cell_count, pass_id, 0, 0]).to_byte_array().
 
 const SOIL_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/soil_sphere3d.glsl"
@@ -38,6 +38,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var regolith_rid: RID = bufs.get("regolith", RID())
 	var water_pair: Array = bufs.get("water", [RID(), RID()])
 	var soil_pair: Array = bufs.get("soil", [RID(), RID()])
+	var temp_pair: Array = bufs.get("temp", [RID(), RID()])
 
 	for p in 2:
 		var back: int = 1 - p
@@ -49,6 +50,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			[4, soil_pair[p]],         # SoilIn  = live soil (last step's output)
 			[5, soil_pair[back]],      # SoilOut = back soil (this step's output)
 			[6, regolith_rid],         # Regolith aquifer permeability mask
+			[7, temp_pair[back]],      # Temp = POST-thermal temp (BACK, rw) — carry geothermal heat into springs
 			[15, nbr_rid],             # Neigh table
 		])
 

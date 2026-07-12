@@ -57,6 +57,11 @@ var _llm_select_done: bool = false
 var _llm_report_frame: int = 0          # throttles the periodic LLM_HIGHLIGHT count print
 var _auto_volcano: bool = false
 var _auto_volcano_fired: bool = false
+var _hotspring_test: bool = false        # --hotspring-test: sustained SHALLOW heat source in the regolith + surface
+                                         # rain recharge at one site — the boundary conditions of a geothermal field
+                                         # (a magma body under a wet aquifer). The hot spring itself is NOT scripted:
+                                         # it must EMERGE from the aquifer up-seep carrying the rock's heat to the
+                                         # surface (the coupling under test). Verification aid, like --auto-volcano.
 var _auto_seavolcano: bool = false
 var _auto_seavolcano_fired: bool = false
 var _seavolcano: Node = null
@@ -201,6 +206,8 @@ func parse_cmdline() -> void:
 			_farview = true
 		elif arg == "--rain":
 			_rain_force = true
+		elif arg == "--hotspring-test":
+			_hotspring_test = true
 		elif arg == "--cognition-stats":
 			_cognition_stats = true
 		elif arg == "--stamp-test":
@@ -448,6 +455,27 @@ func update(frame: int, spawned: bool) -> void:
 				if _camera != null and _camera.has_method("frame_vista"):
 					_camera.frame_vista(vsite)
 				_auto_volcano_fired = true
+
+	# --hotspring-test: sustain the boundary conditions of a geothermal field at ONE land site — a SHALLOW heat
+	# source buried in the regolith (a magma body) + rain recharge on the surface above it. Both are physical
+	# boundary conditions (a hot rock body; rain), NOT a spring: whether hot water reaches the surface is left to
+	# the substrate (aquifer up-seep + the soil pass's donor-rock carry-heat). The heat is injected 2.5 cells DOWN
+	# so it lands in the rock, never in the open cells above the surface, so surface water can only warm via the
+	# groundwater it up-seeps — isolating the coupling under test. Modest per-frame heat balances conduction losses
+	# to hold a hot (bounded) rock body rather than a runaway.
+	if _hotspring_test and spawned and frame >= 90 and frame <= 620:
+		var hfield = _ecology.material_field() if (_ecology != null and _ecology.has_method("material_field")) else null
+		if hfield != null and hfield.has_method("add_heat") and hfield.has_method("add_water_pooled") \
+				and _terrain != null and _terrain.has_method("surface_point") and hfield.has_method("sphere_grid"):
+			var hdir: Vector3 = Vector3(0.2, 1.0, 0.2).normalized()
+			var hsurf: Vector3 = _terrain.surface_point(hdir)
+			var hgrid = hfield.sphere_grid()
+			if not is_nan(hsurf.x) and hgrid != null:
+				var cs: float = float(hgrid.cell_size)
+				var hbelow: Vector3 = hsurf - hdir * (cs * 1.6)   # in the regolith just under the surface (the up-seep shell)
+				hfield.add_heat(hbelow, 6.0, cs * 1.2)            # sustained shallow magma-body heat (bounded steady state ~= core)
+				hfield.add_water_pooled(hsurf, 0.5, cs * 3.5)     # DIFFUSE rain recharge — saturates the aquifer AROUND the
+				                                                  # vent without dumping cold water on the exact up-seep cell
 
 	# CAPSTONE — auto-seavolcano: seed a SEABED vent EARLY so the sustained supply has a long window to build a
 	# new island underwater and breach the surface. Frame the camera on the SEA SURFACE above the vent.

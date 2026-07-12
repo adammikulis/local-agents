@@ -25,6 +25,7 @@ layout(set = 0, binding = 3, std430) restrict buffer Send { float send[]; };    
 layout(set = 0, binding = 4, std430) restrict readonly buffer SoilIn { float soil_in[]; };  // live soil (last step)
 layout(set = 0, binding = 5, std430) restrict writeonly buffer SoilOut { float soil_out[]; };
 layout(set = 0, binding = 6, std430) restrict readonly buffer Regolith { float regolith[]; }; // 1 = permeable aquifer rock
+layout(set = 0, binding = 7, std430) restrict buffer Temp { float temp[]; };                // POST-thermal temp, carry-heat in place
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
 
 layout(push_constant, std430) uniform Params {
@@ -185,13 +186,19 @@ void main() {
 	float own_out = send[base + 0u] + send[base + 1u] + send[base + 2u]
 		+ send[base + 3u] + send[base + 4u] + send[base + 5u];
 	float inflow = 0.0;
-	int nb;
-	nb = nbr[base + 0u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 5u]; }  // down-nbr sent UP into me
-	nb = nbr[base + 5u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 0u]; }  // up-nbr sent DOWN into me
-	nb = nbr[base + 1u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 2u]; }
-	nb = nbr[base + 2u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 1u]; }
-	nb = nbr[base + 3u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 4u]; }
-	nb = nbr[base + 4u]; if (nb >= 0) { inflow += send[uint(nb) * 6u + 3u]; }
+	// Accumulate the geothermal heat riding the groundwater: for each REGOLITH donor that sent water into this
+	// cell, track (inflow_i * donor_temp_i) and inflow_i, so an open cell can arrive at the inflow-weighted
+	// donor temperature. Donors are regolith-only (open cells only push water DOWN), so no open temp is ever
+	// read here — and regolith cells never WRITE temp in this pass — making the neighbour temp reads race-free.
+	float hot_flux = 0.0;
+	float hot_mass = 0.0;
+	int nb; float sflow;
+	nb = nbr[base + 0u]; if (nb >= 0) { sflow = send[uint(nb) * 6u + 5u]; inflow += sflow; if (regolith[nb] != 0.0 && sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; } }  // down-nbr sent UP into me
+	nb = nbr[base + 5u]; if (nb >= 0) { sflow = send[uint(nb) * 6u + 0u]; inflow += sflow; if (regolith[nb] != 0.0 && sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; } }  // up-nbr sent DOWN into me
+	nb = nbr[base + 1u]; if (nb >= 0) { sflow = send[uint(nb) * 6u + 2u]; inflow += sflow; if (regolith[nb] != 0.0 && sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; } }
+	nb = nbr[base + 2u]; if (nb >= 0) { sflow = send[uint(nb) * 6u + 1u]; inflow += sflow; if (regolith[nb] != 0.0 && sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; } }
+	nb = nbr[base + 3u]; if (nb >= 0) { sflow = send[uint(nb) * 6u + 4u]; inflow += sflow; if (regolith[nb] != 0.0 && sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; } }
+	nb = nbr[base + 4u]; if (nb >= 0) { sflow = send[uint(nb) * 6u + 3u]; inflow += sflow; if (regolith[nb] != 0.0 && sflow > 0.0) { hot_flux += sflow * temp[nb]; hot_mass += sflow; } }
 
 	if (regolith[g] != 0.0) {
 		// Regolith: gains groundwater from higher-head neighbours + infiltration from above; loses outflow.
@@ -200,6 +207,20 @@ void main() {
 		// Open cell: gains spring exfiltration from regolith neighbours, loses infiltration it sent down.
 		water[g] = max(0.0, water[g] - own_out + inflow);
 		soil_out[g] = 0.0;
+		// CARRY GEOTHERMAL HEAT: groundwater surfacing from hot regolith arrives at the donor rock's temperature.
+		// Mix the incoming hot groundwater into the surface water already present (energy-conserving: the parcel's
+		// heat is the rock's, continuously replenished by conduction from the core/magma). Water sourced from
+		// deep/near-magma regolith surfaces HOT → the boiling/evap kernel steams it (a hot spring / fumarole);
+		// water from cool shallow regolith surfaces cool → an ordinary spring. Nothing is scripted: which springs
+		// are hot falls out of the head gradient meeting the existing geothermal heat field.
+		if (hot_mass > 0.0) {
+			float donor_t = hot_flux / hot_mass;
+			float wnew = water[g];
+			if (donor_t > temp[g] && wnew > 1.0e-6) {
+				float frac = clamp(hot_mass / wnew, 0.0, 1.0);
+				temp[g] = mix(temp[g], donor_t, frac);
+			}
+		}
 	} else {
 		soil_out[g] = soil_in[g];                          // impermeable bedrock: inert
 	}

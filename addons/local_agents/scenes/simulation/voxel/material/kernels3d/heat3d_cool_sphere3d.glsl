@@ -46,6 +46,15 @@ const float THERMOCLINE_SCALE = 24.0;
 const float LAVA_QUENCH_MIN = 0.02;     // a wet cell with at least this much molten mineral quenches hard
 const float LAVA_QUENCH_FRAC = 0.7;     // fraction of the gap to the cold sea target closed per step (950->~296)
 
+// HOT-SPRING GATE. A wet cell ABOVE sea level that is far HOTTER than the marine (SST) target is not a
+// solar-warmed river or the sea surface — it is a geothermal SPRING: groundwater that surfaced through hot
+// rock (the soil pass's carry-heat). Relaxing it toward the ~26°C SST target at the full marine rate would
+// QUENCH it before the boiling/evap kernel ever sees ~100°C, so a hot land cell sheds heat MUCH slower here
+// (it still loses heat to conduction + the latent-heat sink of evaporation/boiling, which is the physical way
+// a spring cools). The sea, and ordinary-temperature land water near the target, relax at the full rate.
+const float HOT_SPRING_MARGIN = 15.0;   // °C above the marine target beyond which a LAND cell counts as a spring
+const float HOT_SPRING_COOL_FRAC = 0.06; // hot land springs relax ~16x slower than the marine rate
+
 // Sea thermal profile — MUST match MaterialHeat3D.sea_water_target(): warm skin near the surface decaying
 // with depth toward the cold deep floor (thermocline). On the sphere `wy` is the cell RADIUS and `sea` the
 // sea-surface RADIUS, so `depth = max(0, sea - radius)` is the radial depth below the surface — the exact
@@ -72,7 +81,12 @@ void main() {
 			// solidus this step and the M5 record freezes it to rock — the seabed volcano's island-builder.
 			temp[idx] = mix(temp[idx], wt, LAVA_QUENCH_FRAC);
 		} else {
-			temp[idx] += WATER_COOL_RATE * (wt - temp[idx]) * clamp(water[idx], 0.0, 1.0);
+			// Hot land springs (above sea level, well over the SST target) shed heat slowly so boiling/evap can act.
+			float rate = WATER_COOL_RATE;
+			if (radius > params.sea_radius && temp[idx] > wt + HOT_SPRING_MARGIN) {
+				rate = WATER_COOL_RATE * HOT_SPRING_COOL_FRAC;
+			}
+			temp[idx] += rate * (wt - temp[idx]) * clamp(water[idx], 0.0, 1.0);
 		}
 	}
 }

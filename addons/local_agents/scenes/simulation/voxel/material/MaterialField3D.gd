@@ -1361,4 +1361,5 @@ func report() -> Dictionary:
 	}
 	r.merge(_open_temp_stats())
 	r.merge(_queries.rock_radial_profile())
+	r.merge(_queries.hot_spring_stats())
 	return r
