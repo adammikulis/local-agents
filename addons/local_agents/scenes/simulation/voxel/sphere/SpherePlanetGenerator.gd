@@ -27,6 +27,9 @@ const T_OUTPUT_SDF: int = 4
 const T_ADD: int = 5
 const T_SUBTRACT: int = 6
 const T_MULTIPLY: int = 7
+const T_ABS: int = 11
+const T_MIN: int = 16
+const T_MAX: int = 17
 const T_SDF_SPHERE: int = 32
 const T_FAST_NOISE_3D: int = 40
 
@@ -77,6 +80,19 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 	var ridge_relief: float = float(opts.get("ridge_relief", 0.0))
 	var ridge_size: float = float(opts.get("ridge_size", 90.0))
 	var ridge_octaves: int = maxi(1, int(opts.get("ridge_octaves", 4)))
+	# CAVES: emergent fractal "spaghetti" tunnels carved into the SDF underground. NOT a dedicated cave system
+	# — just two more 3D noise layers whose iso-surface intersection is a winding tube, thresholded and gated to
+	# open air below the surface (see the cave block below). Knobs (all overridable; caves_enabled=false or the
+	# LA_CAVES=0 env → no cave nodes at all, so the SDF is byte-identical to the pre-cave planet):
+	#   cave_size       — tunnel noise wavelength (world units; bigger => longer, wider-spaced tunnels)
+	#   cave_threshold  — how near the two iso-surfaces must sit to open a tube (bigger => fatter tunnels)
+	#   cave_strength   — void-SDF scale (wall sharpness; must clear 0 to open — 0 disables)
+	#   cave_depth_fade — minimum depth below the surface before tunnels open (keeps the surface intact)
+	var caves_enabled: bool = bool(opts.get("caves_enabled", true))
+	var cave_size: float = maxf(1.0, float(opts.get("cave_size", 70.0)))
+	var cave_threshold: float = float(opts.get("cave_threshold", 0.08))
+	var cave_strength: float = float(opts.get("cave_strength", 40.0))
+	var cave_depth_fade: float = maxf(0.0, float(opts.get("cave_depth_fade", 24.0)))
 
 	# CONTINENTS: smooth SIMPLEX fBm (was cellular CELL_VALUE — its flat-topped plateaus + sharp cliff borders
 	# FRAGMENTED drainage so rivers stayed short). A rolling continental field has large-scale SLOPES water can
@@ -183,9 +199,82 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 	fn.add_connection(core, 0, biased, 0)
 	fn.set_node_default_input(biased, 1, ocean_bias)
 
+	# --- CAVES: carve winding tunnels into the SDF below the surface (emergent, config-driven) ---
+	# `biased` is the surface SDF (=0 at the surface, <0 solid inside, >0 air outside). We build a VOID term
+	# that is POSITIVE only inside a tunnel and combine with max(base, void): max pushes the field toward air
+	# wherever the void term is positive, so tunnels open; everywhere else the void term stays negative and the
+	# base rock is preserved (max keeps its sign, so no new surface appears). A DEPTH GATE forces the void
+	# strongly negative near/above the surface so tunnels can never shred the surface into swiss-cheese holes.
+	var final_node: int = biased
+	if caves_enabled and cave_strength > 0.0:
+		# Two INDEPENDENT 3D simplex-fBm fields. A single |noise| < eps carves 2D SHEET caves (the noise's
+		# zero-set is a surface); the INTERSECTION of two such near-zero sets is a 1D-ish winding curve, i.e.
+		# connected TUBE tunnels — the effect we want. Modest octaves keep the per-voxel SDF eval cheap.
+		var cave1: ZN_FastNoiseLite = ZN_FastNoiseLite.new()
+		cave1.noise_type = ZN_FastNoiseLite.TYPE_OPEN_SIMPLEX_2S
+		cave1.seed = seed_val + 101
+		cave1.period = cave_size
+		cave1.fractal_type = ZN_FastNoiseLite.FRACTAL_FBM
+		cave1.fractal_octaves = 3
+		cave1.fractal_lacunarity = 2.0
+		cave1.fractal_gain = 0.5
+
+		var cave2: ZN_FastNoiseLite = ZN_FastNoiseLite.new()
+		cave2.noise_type = ZN_FastNoiseLite.TYPE_OPEN_SIMPLEX_2S
+		cave2.seed = seed_val + 211
+		cave2.period = cave_size
+		cave2.fractal_type = ZN_FastNoiseLite.FRACTAL_FBM
+		cave2.fractal_octaves = 3
+		cave2.fractal_lacunarity = 2.0
+		cave2.fractal_gain = 0.5
+
+		var cn1: int = fn.create_node(T_FAST_NOISE_3D, Vector2(0, 820), 0)
+		fn.set_node_param_by_name(cn1, "noise", cave1)
+		var cn2: int = fn.create_node(T_FAST_NOISE_3D, Vector2(0, 980), 0)
+		fn.set_node_param_by_name(cn2, "noise", cave2)
+
+		# cave_open = cave_threshold - max(|n1|, |n2|)  => >0 only where BOTH noises sit near their zero-set
+		var abs1: int = fn.create_node(T_ABS, Vector2(200, 820), 0)
+		fn.add_connection(cn1, 0, abs1, 0)
+		var abs2: int = fn.create_node(T_ABS, Vector2(200, 980), 0)
+		fn.add_connection(cn2, 0, abs2, 0)
+		var amax: int = fn.create_node(T_MAX, Vector2(400, 900), 0)
+		fn.add_connection(abs1, 0, amax, 0)
+		fn.add_connection(abs2, 0, amax, 1)
+		var copen: int = fn.create_node(T_SUBTRACT, Vector2(560, 900), 0)
+		fn.set_node_default_input(copen, 0, cave_threshold)
+		fn.add_connection(amax, 0, copen, 1)
+
+		# void SDF = cave_open * cave_strength  (positive inside a tunnel, negative in solid rock)
+		var cvoid: int = fn.create_node(T_MULTIPLY, Vector2(720, 900), 0)
+		fn.add_connection(copen, 0, cvoid, 0)
+		fn.set_node_default_input(cvoid, 1, cave_strength)
+
+		# DEPTH GATE: depth = -base_sdf ; gate = min(0, depth - cave_depth_fade)
+		#   => 0 once we are deeper than cave_depth_fade, strongly negative near/above the surface. Adding it to
+		#   the void drives the void negative near the surface, so surface tunnels are suppressed (no holes).
+		var depth: int = fn.create_node(T_MULTIPLY, Vector2(720, 60), 0)
+		fn.add_connection(biased, 0, depth, 0)
+		fn.set_node_default_input(depth, 1, -1.0)
+		var dminus: int = fn.create_node(T_SUBTRACT, Vector2(900, 60), 0)
+		fn.add_connection(depth, 0, dminus, 0)
+		fn.set_node_default_input(dminus, 1, cave_depth_fade)
+		var gate: int = fn.create_node(T_MIN, Vector2(1080, 60), 0)
+		fn.add_connection(dminus, 0, gate, 0)
+		fn.set_node_default_input(gate, 1, 0.0)
+
+		# gated void = void + gate  ; carve = max(base_sdf, gated void)
+		var gvoid: int = fn.create_node(T_ADD, Vector2(1080, 900), 0)
+		fn.add_connection(cvoid, 0, gvoid, 0)
+		fn.add_connection(gate, 0, gvoid, 1)
+		var carved: int = fn.create_node(T_MAX, Vector2(1260, 500), 0)
+		fn.add_connection(biased, 0, carved, 0)
+		fn.add_connection(gvoid, 0, carved, 1)
+		final_node = carved
+
 	# output
-	var out: int = fn.create_node(T_OUTPUT_SDF, Vector2(1000, 140), 0)
-	fn.add_connection(biased, 0, out, 0)
+	var out: int = fn.create_node(T_OUTPUT_SDF, Vector2(1460, 140), 0)
+	fn.add_connection(final_node, 0, out, 0)
 
 	var res: Dictionary = gen.compile()
 	if not bool(res.get("success", false)):

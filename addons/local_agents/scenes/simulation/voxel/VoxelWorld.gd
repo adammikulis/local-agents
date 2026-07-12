@@ -75,6 +75,12 @@ const PLANET_RIDGE_SIZE: float = 95.0 * PLANET_SCALE
 const PLANET_RIDGE_OCTAVES: int = 3                     # was 4; fewer octaves = softer ridge lines (less spiky)
 # DETAIL: fine high-frequency roughness. Halved from the old default (6) so hillsides read textured, not gritty.
 const PLANET_DETAIL_RELIEF: float = 1.5 * PLANET_SCALE  # effective ~3 (was ~6) — less craggy surface grain
+# CAVES: emergent fractal spaghetti tunnels carved into the SDF underground (see LASpherePlanetGenerator).
+# Two 3D noise iso-surfaces intersect into winding tubes, gated below the surface. Set LA_CAVES=0 to disable.
+const PLANET_CAVE_SIZE: float = 60.0 * PLANET_SCALE      # tunnel wavelength (world units)
+const PLANET_CAVE_THRESHOLD: float = 0.09                # near-zero band => tunnel fatness (scale-free)
+const PLANET_CAVE_STRENGTH: float = 40.0                 # void-SDF wall sharpness (0 disables)
+const PLANET_CAVE_DEPTH_FADE: float = 14.0 * PLANET_SCALE # min depth below surface before tunnels open
 const PLANET_SPIN_RATE: float = 0.10        # rad/s axial spin (~1 rotation / 63s) — day/night sweep
 const PLANET_SPIN_AXIS: Vector3 = Vector3(0.40, 0.92, 0.0)   # ~23.5° obliquity vs the orbit plane → real seasons
 
@@ -109,6 +115,11 @@ func _ocean_bias() -> float:
 	if OS.has_environment("LA_OCEAN_BIAS"):
 		return float(OS.get_environment("LA_OCEAN_BIAS")) * PLANET_SCALE
 	return PLANET_OCEAN_BIAS
+# Underground fractal tunnels are on by default; LA_CAVES=0 builds the pre-cave (solid-interior) planet.
+func _caves_enabled() -> bool:
+	if OS.has_environment("LA_CAVES"):
+		return OS.get_environment("LA_CAVES") != "0"
+	return true
 var _streamer_host: Node = null # LAVoxelStreamerHost — owns the streamer overlay/avatar/voice/director
 var _thought_panel: CanvasLayer = null # LACreatureThoughtPanel — click-a-creature "what it's thinking" hook
 var _events: Node = null     # LAEventTracker — the ONE emergent phenomenon-event source (streamer + telemetry consume it)
@@ -189,6 +200,8 @@ func _ready() -> void:
 		"basin_relief": PLANET_BASIN_RELIEF, "basin_size": PLANET_BASIN_SIZE,
 		"ridge_relief": PLANET_RIDGE_RELIEF, "ridge_size": PLANET_RIDGE_SIZE, "ridge_octaves": PLANET_RIDGE_OCTAVES,
 		"detail_relief": PLANET_DETAIL_RELIEF,
+		"caves_enabled": _caves_enabled(), "cave_size": PLANET_CAVE_SIZE, "cave_threshold": PLANET_CAVE_THRESHOLD,
+		"cave_strength": PLANET_CAVE_STRENGTH, "cave_depth_fade": PLANET_CAVE_DEPTH_FADE,
 		"sea_radius": PLANET_SEA_RADIUS, "ocean_bias": _ocean_bias(), "view_distance": 2000, "seed": 1337})
 	_terrain = _body.terrain()
 	# PLANETARY SKY: view from space with the sun FIXED shining star->planet; the spinning planet turns

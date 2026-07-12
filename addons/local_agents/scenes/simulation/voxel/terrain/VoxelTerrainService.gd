@@ -82,6 +82,12 @@ func build_planet(parent: Node3D, opts: Dictionary = {}) -> void:
 		"ridge_relief": float(opts.get("ridge_relief", 0.0)),
 		"ridge_size": float(opts.get("ridge_size", 90.0)),
 		"ridge_octaves": int(opts.get("ridge_octaves", 4)),
+		# Fractal cave tunnels (see LASpherePlanetGenerator); caves_enabled=false / LA_CAVES=0 disables them.
+		"caves_enabled": bool(opts.get("caves_enabled", true)),
+		"cave_size": float(opts.get("cave_size", 70.0)),
+		"cave_threshold": float(opts.get("cave_threshold", 0.08)),
+		"cave_strength": float(opts.get("cave_strength", 40.0)),
+		"cave_depth_fade": float(opts.get("cave_depth_fade", 24.0)),
 		"octaves": int(opts.get("octaves", 3)),
 		"seed": int(opts.get("seed", 1337)),
 	})
