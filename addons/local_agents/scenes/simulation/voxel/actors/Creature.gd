@@ -34,6 +34,7 @@ var max_energy: float = 100.0
 # disease.infect(). Symptoms damage the HP `health` field below. Null-guarded so the sim runs identically
 # until disease behaviour lands.
 var disease: LACreatureDisease = null
+var gut_microbiome: LACreatureMicrobiome = null  # adaptive gut flora — modulates digestive yield (LACreatureMicrobiome)
 var lactate: float = 0.0                     # muscle LACTATE (0..1): the anaerobic-exertion fatigue byproduct.
 var _water_force: Vector3 = Vector3.ZERO     # cached water-current sweep (recomputed on a stride; raycast-heavy)
                                              # Builds when sprinting past the aerobic threshold, clears aerobically
@@ -578,6 +579,11 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	LACreatureDigestion.setup(self)
 	disease = LACreatureDisease.new()        # per-creature disease/immune state (owned off this monolith)
 	disease.setup(self, config)
+	# Gut flora, seeded from diet (herbivores born plant-fermenting); it ADAPTS to what the animal actually eats
+	# and modulates digestive yield (see LACreatureMicrobiome + LACreatureDigestion). Dynamicises the old static
+	# `microbiome` scalar. Owned off this monolith.
+	gut_microbiome = LACreatureMicrobiome.new()
+	gut_microbiome.setup(self, config)
 	# Per-creature tameness/companion state (owned off this monolith). A wild creature starts untamed;
 	# friendly interaction (feeding/petting, calm proximity to the hand) raises the bond — see LACreatureBond.
 	bond = LACreatureBond.new()
@@ -796,6 +802,9 @@ func _physics_process(delta: float) -> void:
 	# Tameness/companion upkeep: bond decays slowly, and a lapsed bond drops its command (LACreatureBond).
 	if bond != null:
 		bond.tick(self, delta)
+	# Gut flora re-cultures toward the recent diet (modulates the next bite's energy yield). No death gate.
+	if gut_microbiome != null:
+		gut_microbiome.tick(self, delta)
 	# Metabolism (exertion-scaled energy burn) + thirst + ageing — see LACreatureMetabolism. Death stops us.
 	if LACreatureMetabolism.tick(self, delta):
 		return

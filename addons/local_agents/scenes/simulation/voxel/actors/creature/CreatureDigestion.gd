@@ -56,6 +56,10 @@ static func ingest(c, biomass: float, _profile: Dictionary = {}) -> void:
 	if c == null or biomass <= 0.0:
 		return
 	c.gut = minf(c.gut_capacity, c.gut + biomass)
+	# Let the gut flora learn from this bite (shifts recent_diet toward the food's plant-fraction) — one source of
+	# truth: the same event that buffers the food adapts the microbiome. Guarded (null before setup / on old actors).
+	if "gut_microbiome" in c and c.gut_microbiome != null:
+		c.gut_microbiome.note_food(_profile, biomass)
 
 
 ## Digest a slice of the gut this frame: convert it to energy at the realised efficiency and bank the
@@ -74,7 +78,11 @@ static func tick(c, delta: float) -> void:
 	if digested <= 0.0:
 		return
 	c.gut -= digested
-	var efficiency: float = clampf(BASE_EFFICIENCY * float(c.microbiome), 0.0, 1.0)
+	# Realised efficiency uses the DYNAMIC gut-flora yield (adapts to lived diet) when present, else the static
+	# spawn-time microbiome scalar. Bounded/floored inside multiplier() so it stays near the old 1.12 range — no
+	# food-web destabilisation.
+	var mb: float = c.gut_microbiome.multiplier() if ("gut_microbiome" in c and c.gut_microbiome != null) else float(c.microbiome)
+	var efficiency: float = clampf(BASE_EFFICIENCY * mb, 0.0, 1.0)
 	var to_energy: float = digested * efficiency
 	c.energy = minf(c.max_energy, c.energy + to_energy)
 	c.gut_waste += digested - to_energy              # matter conserved: digested == energy gained + waste
