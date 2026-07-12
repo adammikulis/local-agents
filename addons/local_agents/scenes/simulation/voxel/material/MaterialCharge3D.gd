@@ -20,9 +20,13 @@ extends RefCounted
 # charge_accum's reduced CHARGE_GAIN=4 + faster CHARGE_LEAK=0.05, that only real storm cells reach it (so
 # lightning is modest and storm-clustered, not a continuous planet-wide firehose).
 const BREAKDOWN: float = 8.0
-# After firing, the cell's charge is knocked down to this (a near-full discharge) so it must recharge before
-# it can strike again — a natural per-cell cooldown, no timer.
+# After firing, charge is knocked down to this (a near-full discharge) so a cell must recharge before it can
+# strike again — a natural cooldown, no timer.
 const RESIDUAL_AFTER_BOLT: float = 0.1
+# A bolt drains the capacitor over a NEIGHBOURHOOD, not just the leader cell: the struck storm core goes flat
+# and must fully rebuild before re-firing. Draining only the single cell left its still-charged neighbours at
+# breakdown to re-fire next step (the firehose). Radius spans the convective charged core (~a few cells).
+const DEPLETE_R: float = 22.0
 # Heat dumped at the strike point (°C spike over STRIKE_HEAT_R) — enough to cross fuel's ignition temp.
 const STRIKE_HEAT: float = 900.0
 const STRIKE_HEAT_R: float = 10.0
@@ -88,7 +92,6 @@ func post_step() -> void:
 		if fired >= MAX_BOLTS_PER_STEP:
 			continue
 		_fire_bolt(cc)
-		_f._charge[cc] = RESIDUAL_AFTER_BOLT
 		discharged = true
 		fired += 1
 	_charge_peak = true_peak
@@ -98,12 +101,16 @@ func post_step() -> void:
 		_f._charge_dirty = true                           # push the discharge back to the GPU next step
 
 
-# Fire one bolt at cell `cc`: inject the heat pulse (ignition), count it, and call the visual/audio callback.
+# Fire one bolt at cell `cc`: inject the heat pulse (ignition), DRAIN the charged core around the strike (so
+# the storm cell must fully rebuild — the discharge, not a single-cell reset), count it, and call the visual.
 func _fire_bolt(cc: int) -> void:
 	var pos: Vector3 = _f.cell_world_pos_linear(cc)
 	_bolts += 1
 	if _f._inject != null:
 		_f._inject.add_heat(pos, STRIKE_HEAT, STRIKE_HEAT_R)
+		_f._inject.deplete_charge(pos, DEPLETE_R, RESIDUAL_AFTER_BOLT)
+	else:
+		_f._charge[cc] = RESIDUAL_AFTER_BOLT
 	if _visual.is_valid():
 		_visual.call(pos)
 

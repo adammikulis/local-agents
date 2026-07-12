@@ -71,6 +71,21 @@ func add_charge(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	                                                      # slip between the strided probe's samples otherwise
 
 
+## Discharge (drain) the electrification charge across a radius around a lightning strike — a bolt empties
+## the local capacitor, not just the single leader cell, so the whole struck storm CORE goes flat and must
+## fully rebuild its charge before it can strike again. This is the emergent per-storm cooldown (no timer):
+## without it, the neighbours of a fired cell sit at breakdown and re-fire next step (the firehose). Every
+## cell in the bubble is knocked down to `residual`; the channel is GPU-resident, so mark it dirty.
+func deplete_charge(world_pos: Vector3, radius: float, residual: float) -> void:
+	if _f._charge.size() != _f._cell_count:
+		return
+	var cells: PackedInt32Array = _cells_within(world_pos, radius)
+	for c in cells:
+		if _f._charge[c] > residual:
+			_f._charge[c] = residual
+	_f._charge_dirty = true
+
+
 ## Gather the linear cell indices within `radius` world-units of `world_pos` (the centre cell always included).
 ## Bounded neighbour-BFS over the sphere grid's precomputed 6-neighbour table — O(k) in the bubble, never the
 ## whole grid. radius <= 0 (or no sphere grid) collapses to the single centre cell.

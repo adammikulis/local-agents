@@ -29,20 +29,29 @@ layout(push_constant, std430) uniform Params {
 	float pad1;
 } params;
 
-// Charge separation tunables. LIGHTNING TRACKS REAL STORMS, NOT A FIREHOSE: real thunderstorm charge
-// separation happens in the mixed-phase region where a strong updraft lofts cloud into GENUINELY SUPERCOOLED
-// (sub-freezing) air, so ice/graupel collisions separate charge. The old FREEZE_T=13 let ANY cloudy cell below
-// the snow line charge — over a warm, cloudy planet that meant charging conditions were met almost everywhere
-// continuously, so charge pinned at BREAKDOWN and fired ~925 bolts/1500-frame run (a perpetual storm that never
-// dissipated). Requiring true supercooling (FREEZE_T at 0 °C, `cold` ramping in over the first 10 °C below
-// freezing) confines charging to cold convective cloud tops — actual storm cells — so bolts are episodic and
-// storm-clustered. A larger LEAK drains a cell's charge within a few seconds once its updraft/cloud passes, so
-// a storm cell DISSIPATES (charge → 0) instead of holding at breakdown. Snow/freeze is unaffected (that lives
-// in snowice_sphere3d / MaterialReactions3D, FREEZE_TEMP=12.5).
-const float FREEZE_T = 0.0;        // charging requires SUB-FREEZING cloud (real mixed-phase electrification)
-const float COLD_SPAN = 10.0;      // °C below 0 over which `cold` ramps 0 -> 1 (deeper supercooling = stronger)
-const float CHARGE_GAIN = 4.0;     // charge separated per (updraft × cloud × cold) per second (only vigorous cells reach breakdown)
-const float CHARGE_LEAK = 0.05;    // fraction of a cell's charge that bleeds away each step (storms dissipate in ~a few s)
+// Charge separation tunables. STORMS MUST FORM *AND* DISSIPATE. Two prior calibrations each failed one
+// half: FREEZE_T=13 + a near-zero LEAK (0.004) let charge STAND forever wherever it built, so a warm cloudy
+// planet pinned at BREAKDOWN and firehosed ~1900 bolts/1500f (forms, never dissipates); FREEZE_T=0 then over-
+// corrected the SOURCE — almost no cell on this warm world reaches sub-freezing, so charge never reached
+// breakdown and ZERO bolts fired (dissipates, never forms). The real bug was never the source — it was the
+// missing SINK. So the SOURCE is restored to this planet's warm calibration (FREEZE_T ~13 just above the snow
+// line, COLD_SPAN 6, GAIN 8) so genuine convective cells DO reach breakdown, and the fix lives entirely in
+// DISSIPATION: (1) the driver-gated decay below, and (2) post-bolt neighbourhood depletion in MaterialCharge3D.
+// Snow/freeze is unaffected (that lives in snowice_sphere3d / MaterialReactions3D, FREEZE_TEMP=12.5).
+const float FREEZE_T = 13.0;       // top of the charging band (just above the snow line) — warm-planet calibrated
+const float COLD_SPAN = 6.0;       // °C below FREEZE_T over which `cold` fades 1 -> 0 (a few degrees of supercooling)
+const float CHARGE_GAIN = 8.0;     // charge separated per (updraft × cloud × cold) per second
+// TWO LEAKS set BOTH the firing threshold and the dissipation. While a cell is ACTIVELY electrifying (rising +
+// cloudy + in-band) it leaks at CHARGE_LEAK, so its charge equilibrates at ~= GAIN·up·cold·cloud·dt / CHARGE_LEAK.
+// That equilibrium is a FORCING-STRENGTH THRESHOLD: with the old near-zero 0.004 leak the equilibrium was ~200×
+// the forcing, so even a weakly-rising cloudy cell pinned far past breakdown and fired — the firehose. A larger
+// CHARGE_LEAK pulls the equilibrium down so ONLY a vigorous convective CORE (strong updraft) crosses breakdown;
+// broad gentle cloud settles below it and never fires. Then the moment the driver passes (no updraft / no cloud /
+// warm), the cell switches to the MUCH stronger CHARGE_LEAK_QUIET and sheds its charge to ~0 within a handful of
+// steps — so a settled/dry region goes quiet and the global charge_peak falls between storms (the sawtooth),
+// instead of an ex-storm cell holding at breakdown and re-firing forever. This is the missing SINK.
+const float CHARGE_LEAK = 0.05;       // bleed WHILE electrifying — sets the forcing threshold for breakdown (cores only)
+const float CHARGE_LEAK_QUIET = 0.4;  // fast bleed once the storm driver is gone (~8 -> ~0.1 in ~9 steps)
 const float UPDRAFT_MIN = 0.0;     // only POSITIVE vertical wind (rising air) separates charge
 
 void main() {
@@ -56,10 +65,14 @@ void main() {
 	}
 	float up = vel_y[g];
 	float q = charge[g];
-	if (up > UPDRAFT_MIN && cloud[g] > 0.0) {
-		float cold = clamp((FREEZE_T - temp[g]) / COLD_SPAN, 0.0, 1.0);
+	float cold = 0.0;
+	bool driven = (up > UPDRAFT_MIN && cloud[g] > 0.0);
+	if (driven) {
+		cold = clamp((FREEZE_T - temp[g]) / COLD_SPAN, 0.0, 1.0);
 		q += CHARGE_GAIN * max(0.0, up) * cloud[g] * cold * params.dt;
 	}
-	q *= (1.0 - CHARGE_LEAK);        // slow leak toward neutral
+	// Actively electrifying (rising + supercooled + cloudy) -> slow leak; otherwise the driver is gone -> fast leak.
+	float leak = (driven && cold > 0.0) ? CHARGE_LEAK : CHARGE_LEAK_QUIET;
+	q *= (1.0 - leak);
 	charge[g] = q;
 }
