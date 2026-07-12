@@ -44,6 +44,9 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/GasWindPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/AtmospherePass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/SoilPass.gd",
+	# EROSION PICKUP (Stage D): scours rock_fill→susp where water flows, and CARRIES susp live→back — MUST run
+	# right before Reactions so M3 SETTLE (susp→sediment) reads the freshly-scoured susp the same step.
+	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/ErosionPickupPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/ReactionsPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/FireDustPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/EcoSurfacePass.gd"]
@@ -154,7 +157,11 @@ func end_frame(_rv: bool = true, _rc: bool = true, _rf: bool = true, _rr: bool =
 	# phase — without it, dust→sediment deposits/settles stayed GPU-only and the ledger under-counted.
 	# `fert` (PAIR): the decomposer's soil-fertility output, read back so fertility_at/fertility_peak see the
 	# live GPU channel (was never read → hardcoded 0). Its live half after the step carries the accumulated deposit.
-	for k in ["temp", "water", "moisture", "lava", "fire", "o2", "co2", "dust", "shock", "sediment", "soil", "fert"]:
+	# `susp` (waterborne suspended sediment) joins the readback so the mineral conservation ledger (mineral_total)
+	# counts the phase erosion pickup lifts into the water — without it the scoured mass would look VANISHED (the
+	# rock_fill dropped but susp was GPU-only), a false conservation break. Its live half after the flip is the
+	# post-pickup+settle susp.
+	for k in ["temp", "water", "moisture", "lava", "fire", "o2", "co2", "dust", "shock", "sediment", "soil", "fert", "susp"]:
 		out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
 	# scent is a 5-plane packed pair (SCENT_PLANES * cell_count) — read its live half whole so the CPU bridge
 	# scatters all five planes (prey/predator/blood/food/alarm) back for the sense gradients.

@@ -397,14 +397,17 @@ func wind() -> Vector2:
 # (rock_fill), so the ledger conserves CONTINUOUSLY across the solid boundary (a partial solidify credits fractional
 # rock, not a whole fabricated cell). sediment/dust are surface phases (open cells); lava/rock_fill sum ALL cells.
 
-## Loose granular regolith (talus/dune sediment) over open cells — the "loose" mineral phase.
+## Loose granular regolith (talus/dune sediment) — the "loose" mineral phase. Summed over ALL cells (not just
+## open): lithification (D2) and solidify can turn a sediment-bearing cell to bedrock with residual sediment
+## still in it, and the slump kernel FREEZES a solidified cell's sediment in place — counting only open cells
+## would then LEAK that trapped mass out of the ledger. Sediment is 0 in solid cells at seed, so summing all
+## cells equals the old open-only sum until a cell traps some, which is exactly the mass conservation must keep.
 func sediment_total() -> float:
 	if _f._sediment.size() != _f._cell_count:
 		return 0.0
 	var sum: float = 0.0
 	for c in _f._cell_count:
-		if _f._solid[c] == 0:
-			sum += _f._sediment[c]
+		sum += _f._sediment[c]
 	return sum
 
 ## Airborne wind-lofted dust over open cells — the "airborne" mineral phase.
@@ -456,10 +459,23 @@ func rock_fill_total() -> float:
 		sum += _f._rock_fill[c]
 	return sum
 
-## The ONE mineral total: Σ bedrock(rock_fill) + molten(lava) + loose(sediment) + suspended(susp, dead until Stage D)
-## + airborne(dust). Must stay BOUNDED — this is the unification's proof object.
+## Waterborne SUSPENDED sediment over open cells — the "suspended" mineral phase. LIVE as of Stage D: erosion
+## pickup scours bedrock into it and M3 SETTLE drops it back to loose sediment, so it now carries real transient
+## mass mid-transport and MUST be counted or the ledger under-reports (rock_fill dropped, susp uncounted).
+func susp_total() -> float:
+	if _f._susp.size() != _f._cell_count:
+		return 0.0
+	var sum: float = 0.0
+	for c in _f._cell_count:
+		sum += _f._susp[c]
+	return sum
+
+## The ONE mineral total: Σ bedrock(rock_fill) + molten(lava) + loose(sediment) + suspended(susp) + airborne(dust).
+## Must stay BOUNDED — this is the unification's proof object. Every phase transfer (scour rock→susp, settle
+## susp→sediment, slump, weather rock→sediment, lithify sediment→rock, M5/M6 lava↔rock) moves mass between two
+## counted legs, so this stays flat across a long erosion run.
 func mineral_total() -> float:
-	return rock_fill_total() + lava_total() + sediment_total() + dust_total()
+	return rock_fill_total() + lava_total() + sediment_total() + dust_total() + susp_total()
 
 
 # --- Combustion FUEL / FIRE diagnostics (read the seeded + GPU-consumed fuel channel and the fire channel) ----

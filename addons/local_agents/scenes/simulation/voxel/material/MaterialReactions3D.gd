@@ -123,6 +123,24 @@ const LOFT_RATE: float = 0.003           # sediment lofted per step per unit win
 # exists by construction; when Stage D erosion feeds susp, it settles without a new kernel. CONST_FRAC.
 const SUSP_SETTLE_RATE: float = 0.05     # per-step fraction of suspended sediment that settles out when calm
 
+# --- WEATHERING (Stage D, rock_fill→sediment): frost/thermal breakdown of exposed bedrock into the transportable
+# loose pool. Runs in OPEN surface cells (GATE_SURFACE), where rock_fill is the partial boundary bedrock. Colder
+# exposed rock breaks faster (freeze–thaw shattering), so it is DEFICIT_BELOW_THRESHOLD on TEMP: x = max(0,
+# WEATHER_TEMP - temp) * WEATHER_RATE, capped by the ROCK_FILL present → a conserving rock_fill→sediment transfer.
+# This gives slopes a water-INDEPENDENT talus source (weathered rock → slump → downhill) that composes with the
+# river-scour pickup. WEATHER_TEMP sits at the top of this world's open-cell range (~11–21 °C) so all exposed rock
+# weathers, fastest at the cold poles/night — the emergent latitudinal weathering gradient, no per-case code.
+const WEATHER_TEMP: float = 20.0
+const WEATHER_RATE: float = 0.004        # per-step k on x = max(0, WEATHER_TEMP - temp) * k (capped by rock_fill)
+# --- LITHIFICATION (Stage D, sediment→rock_fill): deep/old sediment compacts back into bedrock. EXCESS_OVER_
+# THRESHOLD on SEDIMENT: x = max(0, sediment - LITH_DEPTH) * LITH_RATE, capped by the SEDIMENT present → a
+# conserving sediment→rock_fill transfer. Only the EXCESS above a deep threshold lithifies, so thin dustings stay
+# loose and only genuine basins/deltas turn to stone — rock_fill crossing 0.5 there makes MineralStamp3D grow NEW
+# land (a delta prograding into rock, a sediment plain becoming a coastal shelf). Closes the cycle: rock→susp→
+# sediment→rock, so mineral_total is conserved end-to-end and the planet gains a real depositional history.
+const LITH_DEPTH: float = 0.5            # sediment mass above which the EXCESS compacts to bedrock (deep deposits only)
+const LITH_RATE: float = 0.02            # per-step k on x = max(0, sediment - LITH_DEPTH) * k (capped by sediment)
+
 # --- BEDROCK phase transfers (rock unification Stage B) — molten LAVA <-> fractional bedrock ROCK_FILL ------------
 # ONE conserved mineral: solidify and melt are own-cell, mass-conserving transfers between the molten and bedrock
 # phases (reactant-capped debit + equal credit → conserving by construction). `solid` is DERIVED (rock_fill>=0.5),
@@ -235,6 +253,21 @@ static func records() -> Array:
 		# boundary rock; deep full-bedrock melt is driven by add_lava / the Stage-C bore (see the const note).
 		_rec(EXCESS_OVER_THRESHOLD, ROCK_MELT_RATE, TEMP, [[ROCK_FILL, 1.0]], [[LAVA, 1.0, TGT_SELF]],
 			0, ROCK_MELT_TEMP),
+
+		# D1 — WEATHERING (bedrock → loose): exposed surface rock_fill breaks down into transportable SEDIMENT,
+		# fastest where cold (freeze–thaw). DEFICIT_BELOW_THRESHOLD on TEMP: x = max(0, WEATHER_TEMP - temp) *
+		# WEATHER_RATE, capped by ROCK_FILL → conserving rock_fill→sediment transfer. GATE_SURFACE = sky-exposed
+		# bedrock only. Feeds the loose pool the slump CA then spreads downhill — a water-independent talus source.
+		_rec(DEFICIT_BELOW_THRESHOLD, WEATHER_RATE, TEMP, [[ROCK_FILL, 1.0]], [[SEDIMENT, 1.0, TGT_SELF]],
+			GATE_SURFACE, WEATHER_TEMP),
+
+		# D2 — LITHIFICATION (loose → bedrock): deep/old SEDIMENT compacts back into ROCK_FILL under its own
+		# accumulated weight. EXCESS_OVER_THRESHOLD on SEDIMENT: x = max(0, sediment - LITH_DEPTH) * LITH_RATE,
+		# capped by SEDIMENT → conserving sediment→rock_fill transfer. Only deep deposits (deltas/basins) turn to
+		# stone; the accreted rock_fill crossing 0.5 makes MineralStamp3D grow NEW land. Closes rock→susp→
+		# sediment→rock, so mineral_total conserves and deposition builds a real geological history.
+		_rec(EXCESS_OVER_THRESHOLD, LITH_RATE, SEDIMENT, [[SEDIMENT, 1.0]], [[ROCK_FILL, 1.0, TGT_SELF]],
+			0, LITH_DEPTH),
 	]
 
 

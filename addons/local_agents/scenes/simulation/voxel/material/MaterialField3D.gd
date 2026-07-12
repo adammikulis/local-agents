@@ -143,6 +143,7 @@ var _vel_x: PackedFloat32Array = PackedFloat32Array()    # wind velocity X per c
 var _vel_y: PackedFloat32Array = PackedFloat32Array()    # wind velocity Y per cell (world +Y, up)
 var _vel_z: PackedFloat32Array = PackedFloat32Array()    # wind velocity Z per cell (world +Z)
 var _sediment: PackedFloat32Array = PackedFloat32Array() # loose granular mass per cell (landslide slump)
+var _susp: PackedFloat32Array = PackedFloat32Array()     # waterborne suspended sediment (erosion pickup → settle); mineral phase read back for the ledger
 # --- Emergent ELECTRIFICATION (LAMaterialCharge3D) + airborne DUST (LAMaterialDust3D). Field-resident so the
 # GPU backend can own their per-cell compute (charge_accum3d / dust_*3d kernels) and round-trip them each
 # frame like fire/fuel/sediment; the CPU modules reach into `_f._charge` / `_f._dust` (the CPU-oracle path).
@@ -1357,6 +1358,7 @@ func report() -> Dictionary:
 		"mineral_total": _queries.mineral_total(), "rock_cells": _queries.rock_cells(),
 		"rock_fill_total": _queries.rock_fill_total(), "lava_total": _queries.lava_total(),
 		"sediment_total": _queries.sediment_total(), "dust_total": _queries.dust_total(),
+		"susp_total": _queries.susp_total(),
 		"rock_grows": (_stamp.grows if _stamp != null else 0), "rock_shrinks": (_stamp.shrinks if _stamp != null else 0),
 	}
 	r.merge(_open_temp_stats())
