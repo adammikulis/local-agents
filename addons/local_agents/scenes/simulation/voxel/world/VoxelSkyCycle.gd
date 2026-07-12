@@ -20,7 +20,10 @@ const SPACE_AMBIENT_COLOR: Color = Color(0.10, 0.13, 0.22)  # faint cool fill on
 # where the background/ambient source switches to the blue atmosphere; SURFACE_AMBIENT is the sky-sourced ambient
 # energy at ground level — generous, so the ground reads as a lit, blue-sky day rather than a dim terminator.
 const SURFACE_ATMO_T: float = 0.12
-const SURFACE_AMBIENT: float = 0.70
+const SURFACE_AMBIENT: float = 0.55         # ground-level ambient energy (was 0.70 — trimmed so the day side
+                                            # doesn't blow out to white when the atmosphere fades in)
+const SURFACE_FILL_COLOR: Color = Color(0.50, 0.56, 0.66)   # soft blue-grey day fill (ambient at the surface)
+const FOG_DENSITY_SURFACE: float = 0.0016   # target fog density at ground; fades in from 0 with descent
 
 ## PLANETARY SKY: view the world as a planet from space. The flat sky is an ATMOSPHERE DOME that sources
 ## ambient from itself (washes out the night side), so switch to a dark space background + a dark COLOR ambient
@@ -334,21 +337,19 @@ func _update_day_night(delta: float) -> void:
 func _apply_surface_atmosphere() -> void:
 	if _env == null:
 		return
-	var t: float = _surface_blend()          # 0 in space .. 1 hovering at the surface
-	if t > SURFACE_ATMO_T:
-		# Near the surface: the blue procedural sky + sky-sourced ambient + atmospheric fog light the ground.
-		_env.background_mode = Environment.BG_SKY
-		_env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-		_env.fog_enabled = _want_fog
-	else:
-		# Pulled out to orbit/space: the dark flat background + dim colour ambient (stark day/night terminator).
-		_env.background_mode = Environment.BG_COLOR
-		_env.background_color = SPACE_BG
-		_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-		_env.ambient_light_color = SPACE_AMBIENT_COLOR
-		_env.fog_enabled = false
-	# Ambient energy ramps continuously with altitude so the descent brightens smoothly across the switch.
+	var t: float = clampf(_surface_blend(), 0.0, 1.0)   # 0 in space .. 1 hovering at the surface
+	# CONTINUOUS crossfade — NO hard background-mode/ambient-source switch (that read as an instant flip + a
+	# white-out). The sky SHADER stays active always and fades atmosphere<->space via `space_amount`; the ambient
+	# and fog LERP with altitude. So descending from orbit is one smooth blend.
+	if _sky_shader_mat != null:
+		_sky_shader_mat.set_shader_parameter("space_amount", 1.0 - t)
+	_env.background_mode = Environment.BG_SKY
+	_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	_env.ambient_light_color = SPACE_AMBIENT_COLOR.lerp(SURFACE_FILL_COLOR, t)
 	_env.ambient_light_energy = lerpf(SPACE_AMBIENT, SURFACE_AMBIENT, t)
+	# Fog fades IN with descent (0 in space → full near the surface) so there's no fog pop either.
+	_env.fog_enabled = _want_fog
+	_env.fog_density = FOG_DENSITY_SURFACE * t if _want_fog else 0.0
 
 
 ## The active orbit camera's surface_blend() (0 space → 1 ground), or 0 if there is no such camera (headless, or

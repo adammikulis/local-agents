@@ -18,6 +18,12 @@ uniform vec3 ground_bottom_color : source_color = vec3(0.30, 0.34, 0.30);
 uniform float night : hint_range(0.0, 1.0) = 0.0;
 uniform float star_intensity = 1.0;
 
+// ALTITUDE fade: 0 = down at the surface (blue atmosphere), 1 = up in space (black sky + stars everywhere).
+// Driven per-frame from the camera's surface_blend so the sky CROSSFADES atmosphere<->space instead of the
+// environment hard-switching background_mode (which read as an instant flip + white-out).
+uniform float space_amount : hint_range(0.0, 1.0) = 0.0;
+uniform vec3 space_color : source_color = vec3(0.012, 0.016, 0.03);
+
 // Sun: direction toward the sun in the sky, tint, and energy (0 hides it).
 uniform vec3 sun_dir = vec3(0.4, 0.7, 0.4);
 uniform vec3 sun_color : source_color = vec3(1.0, 1.0, 1.0);
@@ -67,9 +73,14 @@ void sky() {
 	vec3 ground_col = mix(ground_horizon_color, ground_bottom_color, smoothstep(0.0, -0.4, dir.y));
 	vec3 col = mix(ground_col, sky_col, step(0.0, dir.y));
 
-	// --- Stars: only above the horizon, only at night ---
+	// Crossfade the whole sky toward black space as the camera climbs (no hard background-mode flip).
+	col = mix(col, space_color, space_amount);
+
+	// --- Stars: at night above the horizon, and everywhere once out in space (as the atmosphere fades) ---
 	float above = smoothstep(0.0, 0.15, dir.y);
-	float stars = starfield(dir) * night * star_intensity * above;
+	float star_gate = mix(above, 1.0, space_amount);       // in space stars fill the sphere, not just overhead
+	float star_vis = max(night, space_amount);             // visible at night OR in space
+	float stars = starfield(dir) * star_vis * star_intensity * star_gate;
 	col += stars * vec3(0.90, 0.95, 1.0);
 
 	// --- Sun disc + glow (energy ~0 at night, so it self-hides) ---
