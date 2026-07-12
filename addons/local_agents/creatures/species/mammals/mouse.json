@@ -21,6 +21,8 @@
   "leader_loyalty": 0.0,
   "hierarchy": "family",
   "pop_cap": 14,
+  "breed_carrying_density": 6,
+  "breed_density_radius": 9.0,
   "max_energy": 60.0,
   "metabolism": 1.7,
   "breath_capacity": 5.0,

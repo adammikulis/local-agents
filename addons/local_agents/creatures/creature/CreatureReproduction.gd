@@ -18,6 +18,11 @@ extends RefCounted
 ##      (matching the old god-tick's steady state) — the cap is the hard backstop against any runaway.
 ## In-flight pregnancies complete even if the pop nudges just over cap during gestation, so the population
 ## oscillates gently around the cap by the number of concurrent pregnancies — bounded, never explosive.
+##   3. LOCAL DENSITY (opt-in per species): a creature senses its own conspecific density (neighbours within
+##      breed_density_radius) and damps its breeding by it — crowded → don't breed / breed slower, sparse →
+##      full drive. This is the negative feedback that turns a boom→age-out→crash into a logistic settle around a
+##      LOCAL carrying capacity, and it is what keeps a persistent prey base alive under the predators. See the
+##      density-dependent-breeding const block below for the mechanism.
 ##
 ## The BIRTH itself reuses the shared heredity machinery (one owner, LAEcologyBreeding): crossover+mutation
 ## genome from both parents, the bearer's natal nest, and the kinship graph (add_offspring + the mate bond) —
@@ -52,6 +57,25 @@ const MATING_RADIUS: float = 3.0        # within this range of a ready mate, con
 # reproductive-senescence window, straight off the one senescence curve, no per-age cases.
 const STERILE_FLOOR: float = 0.15       # fertility_mult at/below which the creature can no longer conceive (barren)
 
+# --- density-dependent breeding (local negative feedback → logistic population, not boom→age-out→crash) -----
+# A creature senses its LOCAL conspecific density (same-species neighbours within breed_density_radius, an O(k)
+# spatial-index query that REUSES the frame index the mate-seek already builds) and modulates its OWN breeding
+# drive by it — no global population controller. Two emergent effects fall out of the one local count:
+#   • CROWDED → don't breed: at/above breed_carrying_density (the local carrying capacity) a creature is simply
+#     not ready to breed, so a region rides UP to its carrying density and holds instead of overshooting then
+#     ageing out en masse. This is the hard ceiling on the local cohort.
+#   • APPROACHING carrying → breed SLOWER: between CROWD_SOFT_FRAC of carrying and carrying, the post-birth
+#     cooldown lengthens (up to CROWD_COOLDOWN_MULT×), so births STAGGER as density rises instead of firing in
+#     one synchronised pulse — which is what desynchronises the cohort so it stops ageing out together.
+#   • SPARSE (below the soft fraction) → breed at FULL drive (cooldown ×1, no ceiling), so a THINNED population
+#     rebounds fast. The Allee floor (needing a mate at all) is already enforced by MATE_SEEK_RADIUS.
+# Per-species: breed_carrying_density + breed_density_radius live in the species JSON (config over identity). The
+# rule is OPT-IN — absent/≤0 breed_carrying_density leaves a species on the pure energy+cap regulation (birds,
+# insects, aquatic keep their existing behaviour); only species given the params get the density feedback.
+const DEFAULT_DENSITY_RADIUS: float = 12.0  # fallback sensing radius if a tuned species omits breed_density_radius
+const CROWD_SOFT_FRAC: float = 0.45     # fraction of carrying density at/below which breeding stays at full rate
+const CROWD_COOLDOWN_MULT: float = 6.0  # post-birth cooldown multiplier as local density approaches carrying (staggers births)
+
 
 ## Per-frame reproduction tick: run the cooldown down, and if pregnant advance the gestation clock, drain the
 ## gestation energy cost, and give birth at term. Called early in _physics_process (after digestion, before
@@ -79,9 +103,58 @@ static func tick(c, delta: float) -> void:
 static func ready_to_breed(c) -> bool:
 	if not _is_fertile(c):
 		return false
+	# LOCAL density ceiling: a creature in a neighbourhood already at its carrying density does not breed, so a
+	# region settles at carrying capacity instead of overshooting then ageing out together. Counted once per
+	# seeker here (O(k), reusing the mate-seek frame index) — never per candidate. Opt-in per species.
+	var carry: float = _carrying_density(c)
+	if carry > 0.0 and float(_local_conspecifics(c, c.global_position)) >= carry:
+		return false
 	if c._ecology == null or not c._ecology.has_method("can_species_breed"):
 		return false
 	return bool(c._ecology.can_species_breed(c.species))
+
+
+## Per-species LOCAL carrying capacity: the conspecific count (within breed_density_radius) at/above which this
+## creature stops breeding. 0/absent = the density rule is OFF for this species (energy + pop_cap regulate it).
+static func _carrying_density(c) -> float:
+	return float(c.config.get("breed_carrying_density", 0.0))
+
+
+## Radius over which local conspecific density is sensed (falls back to DEFAULT_DENSITY_RADIUS).
+static func _density_radius(c) -> float:
+	return float(c.config.get("breed_density_radius", DEFAULT_DENSITY_RADIUS))
+
+
+## Count of live same-species OTHERS within breed_density_radius of `pos` — the local conspecific density. Reuses
+## the frame-stamped spatial index (the same species group the mate-seek queries), so it is O(k), not an O(n) scan.
+static func _local_conspecifics(c, pos: Vector3) -> int:
+	var radius: float = _density_radius(c)
+	var sp: String = "species_" + String(c.species)
+	var idx = LACreatureSenses._fresh_index(c, [sp])
+	var cands: Array = idx.query(sp, pos, radius)
+	var n: int = 0
+	for m in cands:
+		if m == c or not is_instance_valid(m):
+			continue
+		if pos.distance_to((m as Node3D).global_position) <= radius:
+			n += 1
+	return n
+
+
+## Post-birth cooldown multiplier from local crowding (∈ [1, CROWD_COOLDOWN_MULT]). 1.0 when the neighbourhood is
+## sparse (below CROWD_SOFT_FRAC of carrying → full-rate rebound), rising toward CROWD_COOLDOWN_MULT as density
+## approaches carrying → births STAGGER before the hard ceiling stops them, which desynchronises the cohort. The
+## rule is off (mult 1.0) for a species without breed_carrying_density.
+static func _crowd_cooldown_mult(c) -> float:
+	var carry: float = _carrying_density(c)
+	if carry <= 0.0:
+		return 1.0
+	var count: float = float(_local_conspecifics(c, c.global_position))
+	var soft: float = carry * CROWD_SOFT_FRAC
+	if count <= soft:
+		return 1.0
+	var t: float = clampf((count - soft) / maxf(carry - soft, 0.001), 0.0, 1.0)
+	return lerpf(1.0, CROWD_COOLDOWN_MULT, t)
 
 
 ## Lightweight fertility test with NO pop_cap (group-scan) cost — mature, not pregnant, off cooldown, and
@@ -170,6 +243,9 @@ static func _give_birth(c) -> void:
 	# falls back cleanly to a single-parent line (the breeding module already handles a null mate).
 	var mate = c._mate if (c._mate != null and is_instance_valid(c._mate)) else null
 	c._mate = null
-	c._repro_cd = POST_BIRTH_COOLDOWN / LAAblate.evo_fast()
+	# Density-scaled recovery: sparse regions recover at the base cooldown (fast rebound); as the local
+	# neighbourhood fills toward carrying, the cooldown lengthens so births STAGGER (desynchronising the cohort)
+	# before the ready_to_breed ceiling halts them entirely. ×1 for species without the density rule.
+	c._repro_cd = (POST_BIRTH_COOLDOWN / LAAblate.evo_fast()) * _crowd_cooldown_mult(c)
 	if c._ecology != null and c._ecology.has_method("birth_offspring"):
 		c._ecology.birth_offspring(c.species, c, mate)

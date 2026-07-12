@@ -63,15 +63,22 @@ func spawn_initial(counts: Dictionary) -> void:
 		if n <= 0:
 			continue
 		var cfg: Dictionary = _eco._species_config(kind_s)
-		if bool(cfg.get("herd", false)):
-			_spawn_herd_founders(kind_s, n)
+		# Cluster size: a HERD species founds as big bands (HERD_CLUSTER_SIZE); a SOLITARY-but-social species
+		# (a fox family group) can set found_cluster_size to found as a few SMALL family clusters instead of a
+		# planet-wide smear — otherwise a handful of scattered predators never fall within one mate-seek radius
+		# of each other, so they can never pair, never breed, and their age-0 founder cohort ages out to
+		# extinction. A cluster of a few kin means mates are in range and natal philopatry keeps a lineage going.
+		var cluster_size: int = HERD_CLUSTER_SIZE if bool(cfg.get("herd", false)) else int(cfg.get("found_cluster_size", 0))
+		if cluster_size > 0:
+			_spawn_clustered_founders(kind_s, n, cluster_size)
 		else:
 			for i in n:
 				_spawn_scattered_one(kind_s)
 
 
 # Place ONE individual at an independent random surface point (queue if the patch isn't meshed yet, skip
-# vegetation that can't germinate here). The pre-clustering behaviour, kept for solitary / non-herd kinds.
+# vegetation that can't germinate here). The pre-clustering behaviour, kept for truly solitary / non-social kinds.
+# Non-vegetation founders get a random age (a natural age structure) so a scattered cohort never ages out all at once.
 func _spawn_scattered_one(kind: String) -> void:
 	var p: Vector3 = _random_spawn_point()
 	var placed = _place_on_surface(p)
@@ -80,16 +87,19 @@ func _spawn_scattered_one(kind: String) -> void:
 	elif _eco._is_veg_kind(kind) and not _eco._can_grow_here(placed):
 		pass   # too cold / snow-covered — skip this vegetation placement (emergent treeline)
 	else:
-		_eco._instance_actor(kind, placed)
+		var node = _eco._instance_actor(kind, placed)
+		if node != null and not _eco._is_veg_kind(kind):
+			_seed_founder_age(node)   # stagger scattered founders' ages too (no synchronized age-out)
 
 
-# Seed a herding species as K founder clusters (K scales with the count). Each cluster gets a fresh
-# family_id and scatters its members around one founder site in the founder's tangent plane, so kin are
-# spatially local from frame 0 — leadership then elects one leader per band with real followers. Total
-# count is preserved. The founder sits at the cluster centre, within every cohort member's leadership
-# radius, and is aged into the family elder (its band's stable leader from the first election).
-func _spawn_herd_founders(kind: String, n: int) -> void:
-	var clusters: int = maxi(1, int(round(float(n) / float(HERD_CLUSTER_SIZE))))
+# Seed a social species as K founder clusters (K scales with the count / cluster_size — a big band for a herd,
+# a small family group for a solitary-but-social predator). Each cluster gets a fresh family_id and scatters its
+# members around one founder site in the founder's tangent plane, so kin are spatially local from frame 0 —
+# leadership then elects one leader per band with real followers, AND mates fall within one mate-seek radius so
+# the group can actually reproduce. Total count is preserved. The founder sits at the cluster centre, within
+# every cohort member's leadership radius, and is aged into the family elder (its band's stable leader).
+func _spawn_clustered_founders(kind: String, n: int, cluster_size: int) -> void:
+	var clusters: int = maxi(1, int(round(float(n) / float(maxi(cluster_size, 1)))))
 	var base: int = n / clusters
 	var extra: int = n % clusters               # spread the remainder one-per-cluster so totals match exactly
 	for ci in range(clusters):
