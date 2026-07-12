@@ -242,9 +242,9 @@ func _snapshot(c, key: int, chosen: String, senses: Dictionary) -> void:
 	_last_key = key
 	_last_action = chosen
 	_last_was_fallback = _last_veto     # capture whether THIS decision was a veto redirect (survives the reset next tick)
-	_last_energy = c.energy
-	_last_hydration = c.hydration
-	_last_health = float(senses.get("health", c.health))
+	_last_energy = LACognizerAdapter.energy(c)
+	_last_hydration = LACognizerAdapter.hydration(c)
+	_last_health = float(senses.get("health", LACognizerAdapter.health(c)))
 	_last_fear = float(senses.get("fear", 0.0))
 	_last_o2 = float(senses.get("o2", 1.0))
 	_last_temp = float(senses.get("temp", _last_temp))
@@ -263,17 +263,7 @@ func _record_choice(action: String, how: String, sig: Dictionary) -> void:
 ## called once per decision, which is already throttled — no per-frame or neighbour scan. Returns
 ## {health, fear, o2, temp}: HP, the panic/fear level, the breath fraction in-medium, and ambient °C.
 func _sample_senses(c) -> Dictionary:
-	var o2: float = 1.0
-	if c.breath_capacity > 0.0:
-		o2 = clampf(c._breath / c.breath_capacity, 0.0, 1.0)
-	var temp: float = _last_temp
-	# DUCK-TYPED (Object.get → null when absent): a fish reads its `_material`/`_panic_timer` the same as a land
-	# creature, but any aquatic actor missing one degrades gracefully instead of erroring. Land is unchanged.
-	var mat = c.get("_material")
-	if mat != null and mat.has_method("temp_at"):
-		temp = mat.temp_at(c.global_position)
-	var fear = c.get("_panic_timer")
-	return {"health": c.health, "fear": float(fear) if fear != null else 0.0, "o2": o2, "temp": temp}
+	return LACognizerAdapter.senses(c, _last_temp)
 
 
 ## Reward the last action by how the creature's WHOLE welfare changed since (Half A). Energy + hydration
@@ -285,18 +275,21 @@ func _reinforce(c, senses: Dictionary) -> void:
 	if _last_key < 0 or _last_action == "":
 		return
 	var de: float = 0.0
-	if c.max_energy > 0.0:
-		de = (c.energy - _last_energy) / c.max_energy
+	var me: float = LACognizerAdapter.max_energy(c)
+	if me > 0.0:
+		de = (LACognizerAdapter.energy(c) - _last_energy) / me
 	var dh: float = 0.0
-	if c.max_hydration > 0.0:
-		dh = (c.hydration - _last_hydration) / c.max_hydration
+	var mh: float = LACognizerAdapter.max_hydration(c)
+	if mh > 0.0:
+		dh = (LACognizerAdapter.hydration(c) - _last_hydration) / mh
 	var appetitive: float = (de + dh) * 8.0
 
 	# Aversive senses (each >= 0, individually capped so one can't swamp the sum).
 	var aversive: float = 0.0
 	# Damage: fraction of HP lost since the last decision.
-	if c.max_health > 0.0:
-		var dhp: float = (_last_health - float(senses.get("health", c.health))) / c.max_health
+	var mhp: float = LACognizerAdapter.max_health(c)
+	if mhp > 0.0:
+		var dhp: float = (_last_health - float(senses.get("health", LACognizerAdapter.health(c)))) / mhp
 		aversive += clampf(maxf(0.0, dhp) * W_DAMAGE, 0.0, TERM_CAP)
 	# Fear: a rise in the panic/dread level (predator proximity, felt violence).
 	var dfear: float = float(senses.get("fear", 0.0)) - _last_fear
@@ -342,29 +335,27 @@ func _comfort_deviation(t: float) -> float:
 # This is what discounts remembered pain in decide() — the hungrier/thirstier, the more risk it will accept.
 func _drive_urgency(c) -> float:
 	var hunger: float = 0.0
-	if c.max_energy > 0.0:
-		hunger = clampf(1.0 - c.energy / c.max_energy, 0.0, 1.0)
-	# Thirst is DUCK-TYPED: an actor with no hydration (a fish never thirsts) contributes zero, so drive urgency
-	# reduces to pure hunger for it. A land creature reads the same hydration it always did — identical result.
+	var me: float = LACognizerAdapter.max_energy(c)
+	if me > 0.0:
+		hunger = clampf(1.0 - LACognizerAdapter.energy(c) / me, 0.0, 1.0)
 	var thirst: float = 0.0
-	var max_h = c.get("max_hydration")
-	var hyd = c.get("hydration")
-	if max_h != null and hyd != null and float(max_h) > 0.0:
-		thirst = clampf(1.0 - float(hyd) / float(max_h), 0.0, 1.0)
+	var mh: float = LACognizerAdapter.max_hydration(c)
+	if mh > 0.0:
+		thirst = clampf(1.0 - LACognizerAdapter.hydration(c) / mh, 0.0, 1.0)
 	return maxf(hunger, thirst)
 
 
 func _should_escalate(c, learned) -> bool:
 	# PLAYER CONTROL: the slow brain is opt-out per creature (config-driven `llm_enabled`, default on). When
 	# off, this creature never escalates — it runs purely on its fast reinforced policy + innate cascade.
-	if c != null and not c.llm_enabled:
+	if c != null and not LACognizerAdapter.llm_enabled(c):
 		return false
 	if _sched == null or _pending or _cooldown > 0.0:
 		return false
 	if learned == null:
 		return true                                   # never-seen situation
 	var w: float = float((learned as Dictionary).get("weight", 0.0))
-	var pressed: bool = c.energy < c.max_energy * 0.4 or c.hydration < c.max_hydration * 0.4
+	var pressed: bool = LACognizerAdapter.energy(c) < LACognizerAdapter.max_energy(c) * 0.4 or LACognizerAdapter.hydration(c) < LACognizerAdapter.max_hydration(c) * 0.4
 	return w < 0.2 and pressed
 
 
@@ -444,22 +435,19 @@ func observe(c, delta: float) -> void:
 	if _observe_cd > 0.0:
 		return
 	_observe_cd = randf_range(1.5, 3.0)
-	var group: String = "species_" + String(c.species)
 	var seen: int = 0
-	for m in c.get_tree().get_nodes_in_group(group):
+	for m in LACognizerAdapter.neighbours(c):
 		if seen >= OBSERVE_MAX_NEIGHBOURS:
 			break
 		if m == c or not is_instance_valid(m) or not (m is Node3D):
 			continue
-		if not LAVision.sees_node(c, m):
+		if not LACognizerAdapter.sees(c, m):
 			continue                                  # only learn from herd-mates you actually see
-		var mc = null
-		if m.has_method("get_cognition"):
-			mc = m.get_cognition()
+		var mc = LACognizerAdapter.cognition_of(m)
 		if mc == null:
 			continue
 		seen += 1
-		var kin: bool = int(m.get("family_id")) == int(c.family_id)
+		var kin: bool = LACognizerAdapter.neighbour_family_id(m) == LACognizerAdapter.family_id(c)
 		var rel: float = KIN_RELATEDNESS if kin else SPECIES_RELATEDNESS
 		for key in mc.policy.keys():
 			var e = mc.policy[key]
