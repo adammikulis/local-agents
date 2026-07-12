@@ -64,7 +64,7 @@ var total_supplied: float = 0.0             # Σ lava mass actually injected (co
 
 func _ready() -> void:
 	add_to_group("selectable")
-	_rng.seed = 0x0FA5             # fixed so the scattered supply — and the island it builds — reproduce run to run
+	_rng.seed = LASimRng.shared().randi()   # seeded from the sim stream so the island reproduces from LA_SIM_SEED
 
 
 func setup(terrain: Object, ecology: Object) -> void:

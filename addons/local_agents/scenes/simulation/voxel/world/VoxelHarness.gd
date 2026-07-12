@@ -37,6 +37,12 @@ static func emit_population_trace(w, frame: int) -> void:
 			if String(k).begins_with("death/"):
 				deaths[String(k).substr(6)] = ev[k]
 	var temp_mean: float = float(snap.get("temp_mean", 0.0))
+	# Storm life-cycle telemetry: charge_peak (should rise then discharge in a sawtooth, not pin at breakdown)
+	# and cumulative bolts (their per-window delta shows lightning clustered in storm episodes, not constant).
+	var charge_peak: float = float(snap.get("charge_peak", 0.0))
+	var bolts: int = int(snap.get("bolts", 0))
+	var rain: float = float(snap.get("moisture_total", 0.0))
+	var clouds: int = int(snap.get("cloud_cells", 0))
 	# Sample the temperature creatures ACTUALLY stand in: read the field at living surface actors (trees/plants).
 	var surf_sum: float = 0.0
 	var surf_max: float = -1.0e9
@@ -54,7 +60,7 @@ static func emit_population_trace(w, frame: int) -> void:
 				surf_max = maxf(surf_max, t)
 				surf_n += 1
 	var surf_mean: float = surf_sum / float(surf_n) if surf_n > 0 else 0.0
-	print("POP_TRACE={\"frame\":%d,\"counts\":%s,\"temp_mean\":%.1f,\"surf_mean\":%.1f,\"surf_max\":%.1f,\"deaths\":%s}" % [frame, JSON.stringify(counts), temp_mean, surf_mean, surf_max, JSON.stringify(deaths)])
+	print("POP_TRACE={\"frame\":%d,\"counts\":%s,\"temp_mean\":%.1f,\"surf_mean\":%.1f,\"surf_max\":%.1f,\"charge_peak\":%.2f,\"bolts\":%d,\"moisture\":%.0f,\"cloud_cells\":%d,\"deaths\":%s}" % [frame, JSON.stringify(counts), temp_mean, surf_mean, surf_max, charge_peak, bolts, rain, clouds, JSON.stringify(deaths)])
 
 
 static func emit_smoke_summary(w) -> void:

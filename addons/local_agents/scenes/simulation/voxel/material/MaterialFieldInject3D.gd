@@ -192,8 +192,9 @@ func splash(world_pos: Vector3, strength: float) -> void:
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		body.add_child(mi)
 		_f.add_child(body)
-		body.global_position = world_pos + Vector3(randf_range(-0.15, 0.15), 0.1, randf_range(-0.15, 0.15))
-		var ang: float = randf() * TAU
-		body.linear_velocity = Vector3(cos(ang) * randf_range(1.0, 2.5) * s, randf_range(2.5, 4.5) * s, sin(ang) * randf_range(1.0, 2.5) * s)
+		var rng: LASimRng = LASimRng.shared()
+		body.global_position = world_pos + Vector3(rng.randf_range(-0.15, 0.15), 0.1, rng.randf_range(-0.15, 0.15))
+		var ang: float = rng.randf() * TAU
+		body.linear_velocity = Vector3(cos(ang) * rng.randf_range(1.0, 2.5) * s, rng.randf_range(2.5, 4.5) * s, sin(ang) * rng.randf_range(1.0, 2.5) * s)
 		var tm: SceneTreeTimer = _f.get_tree().create_timer(2.0)
 		tm.timeout.connect(func(): if is_instance_valid(body): body.queue_free())

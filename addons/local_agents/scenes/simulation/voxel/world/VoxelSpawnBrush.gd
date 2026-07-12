@@ -127,8 +127,9 @@ func _paint_brush(center: Vector3) -> void:
 # A random point in the brush disk around `center`, re-snapped to the terrain surface (falls back
 # to the centre height when the offset lands off the meshed area).
 func _scatter_point(center: Vector3) -> Vector3:
-	var ang: float = randf() * TAU
-	var rad: float = sqrt(randf()) * _brush_radius
+	var rng: LASimRng = LASimRng.shared()
+	var ang: float = rng.randf() * TAU
+	var rad: float = sqrt(rng.randf()) * _brush_radius
 	var p: Vector3 = center + Vector3(cos(ang) * rad, 0.0, sin(ang) * rad)
 	if _terrain != null and _terrain.has_method("ground_point"):
 		var gp: Vector3 = _terrain.ground_point(p)          # radial re-seat onto the surface

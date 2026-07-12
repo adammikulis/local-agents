@@ -15,9 +15,11 @@ extends RefCounted
 ## time — charge exists only under an active storm, which is rare). Holds no field state; reaches into `_f`.
 ## (Explicit types only — no ':=' inferred typing.)
 
-# Charge at which a cell breaks down and fires a bolt. Reachable by a mature storm's accumulation OR a direct
-# add_charge seed. Tuned against charge_accum's CHARGE_GAIN=8 so a sustained updraft×cloud×cold reaches it.
-const BREAKDOWN: float = 6.0
+# Charge at which a cell breaks down and fires a bolt. Reachable only by a VIGOROUS storm's accumulation (a
+# strong cold updraft × supercooled cloud) OR a direct add_charge seed — kept high enough, against
+# charge_accum's reduced CHARGE_GAIN=4 + faster CHARGE_LEAK=0.05, that only real storm cells reach it (so
+# lightning is modest and storm-clustered, not a continuous planet-wide firehose).
+const BREAKDOWN: float = 8.0
 # After firing, the cell's charge is knocked down to this (a near-full discharge) so it must recharge before
 # it can strike again — a natural per-cell cooldown, no timer.
 const RESIDUAL_AFTER_BOLT: float = 0.1

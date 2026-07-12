@@ -29,16 +29,20 @@ layout(push_constant, std430) uniform Params {
 	float pad1;
 } params;
 
-// Charge separation tunables. CALIBRATED TO THIS PLANET'S CLIMATE: the old COLD_SPAN=30 wanted cells down to
-// -18 °C (a cold box atmosphere), but this warm world's coldest cell is ~10 °C, so `cold` capped near 0.07 and
-// storm bolts never reached BREAKDOWN. Here the band saturates within a few degrees of supercooling BELOW the
-// snow line (FREEZE_T ~13 °C, COLD_SPAN 6 °C → cold=1 by ~7 °C, ~0.5 at 10 °C), which the thunderstorm's own
-// aloft cooling (add_cooling) reaches under its updraft — so a mature cell charges to breakdown and fires
-// naturally. Snow/freeze is unaffected (that lives in snowice_sphere3d / MaterialReactions3D, FREEZE_TEMP=12.5).
-const float FREEZE_T = 13.0;       // top of the charging band (just above the snow line)
-const float COLD_SPAN = 6.0;       // °C below FREEZE_T over which `cold` fades 1 -> 0 (a few degrees of supercooling)
-const float CHARGE_GAIN = 8.0;     // charge separated per (updraft × cloud × cold) per second
-const float CHARGE_LEAK = 0.004;   // fraction of a cell's charge that bleeds away each step
+// Charge separation tunables. LIGHTNING TRACKS REAL STORMS, NOT A FIREHOSE: real thunderstorm charge
+// separation happens in the mixed-phase region where a strong updraft lofts cloud into GENUINELY SUPERCOOLED
+// (sub-freezing) air, so ice/graupel collisions separate charge. The old FREEZE_T=13 let ANY cloudy cell below
+// the snow line charge — over a warm, cloudy planet that meant charging conditions were met almost everywhere
+// continuously, so charge pinned at BREAKDOWN and fired ~925 bolts/1500-frame run (a perpetual storm that never
+// dissipated). Requiring true supercooling (FREEZE_T at 0 °C, `cold` ramping in over the first 10 °C below
+// freezing) confines charging to cold convective cloud tops — actual storm cells — so bolts are episodic and
+// storm-clustered. A larger LEAK drains a cell's charge within a few seconds once its updraft/cloud passes, so
+// a storm cell DISSIPATES (charge → 0) instead of holding at breakdown. Snow/freeze is unaffected (that lives
+// in snowice_sphere3d / MaterialReactions3D, FREEZE_TEMP=12.5).
+const float FREEZE_T = 0.0;        // charging requires SUB-FREEZING cloud (real mixed-phase electrification)
+const float COLD_SPAN = 10.0;      // °C below 0 over which `cold` ramps 0 -> 1 (deeper supercooling = stronger)
+const float CHARGE_GAIN = 4.0;     // charge separated per (updraft × cloud × cold) per second (only vigorous cells reach breakdown)
+const float CHARGE_LEAK = 0.05;    // fraction of a cell's charge that bleeds away each step (storms dissipate in ~a few s)
 const float UPDRAFT_MIN = 0.0;     // only POSITIVE vertical wind (rising air) separates charge
 
 void main() {

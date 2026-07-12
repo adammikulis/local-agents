@@ -77,7 +77,7 @@ func setup(terrain: Object, ecology: Object) -> void:
 func begin(point: Vector3) -> void:
 	_center = point
 	global_position = _center
-	var ang: float = randf() * TAU
+	var ang: float = LASimRng.shared().randf() * TAU
 	_heading = Vector2(cos(ang), sin(ang))
 	_build_fx()
 	LocalAgentsAudioDirector.emit(get_tree(), "crumble", _center)

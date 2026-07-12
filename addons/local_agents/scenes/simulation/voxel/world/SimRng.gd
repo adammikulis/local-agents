@@ -51,6 +51,22 @@ func randi_range(a: int, b: int) -> int:
 	return _rng.randi_range(a, b)
 
 
+## Uniform 32-bit unsigned-ish integer (matches Godot's global randi(); use for `randi() % n` replacements).
+func randi() -> int:
+	return _rng.randi()
+
+
+## Normally-distributed float (mean, deviation) — the seeded counterpart of Godot's global randfn().
+func randfn(mean: float = 0.0, deviation: float = 1.0) -> float:
+	return _rng.randfn(mean, deviation)
+
+
+## A random unit-ish direction vector, each component in [-1, 1) (seeded replacement for the common
+## `Vector3(randf()*2-1, ...)` idiom used to pick a direction on the sphere).
+func rand_dir() -> Vector3:
+	return Vector3(_rng.randf() * 2.0 - 1.0, _rng.randf() * 2.0 - 1.0, _rng.randf() * 2.0 - 1.0)
+
+
 ## Capture the exact stream position (seed + internal state) so restore() resumes the identical sequence.
 func snapshot() -> Dictionary:
 	return {"seed": int(_rng.seed), "state": int(_rng.state)}

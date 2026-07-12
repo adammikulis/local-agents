@@ -44,9 +44,12 @@ func _process(delta: float) -> void:
 	# this stays weak on purpose (it must not overpower the field's own latitude bands through the fallback path).
 	_wind_timer -= delta
 	if _wind_timer <= 0.0:
-		_wind_timer = randf_range(18.0, 40.0)
-		var ang: float = randf() * TAU
-		var strength: float = randf_range(0.5, 1.5) + rain_intensity * 2.0
+		# Seeded (LASimRng): the breeze feeds moisture transport -> charge -> emergent lightning, so its
+		# randomness must reproduce from LA_SIM_SEED for a deterministic run.
+		var rng: LASimRng = LASimRng.shared()
+		_wind_timer = rng.randf_range(18.0, 40.0)
+		var ang: float = rng.randf() * TAU
+		var strength: float = rng.randf_range(0.5, 1.5) + rain_intensity * 2.0
 		_target_wind = Vector3(cos(ang), 0.0, sin(ang)) * strength
 	wind = wind.lerp(_target_wind, clampf(delta * 0.3, 0.0, 1.0))
 

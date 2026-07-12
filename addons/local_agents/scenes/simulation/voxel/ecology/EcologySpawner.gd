@@ -101,7 +101,7 @@ func _spawn_herd_founders(kind: String, n: int) -> void:
 		for mi in range(members):
 			var raw: Vector3 = founder_raw
 			if mi > 0:
-				raw = _tangent_offset_raw(founder_raw, randf_range(-HERD_CLUSTER_SPREAD, HERD_CLUSTER_SPREAD), randf_range(-HERD_CLUSTER_SPREAD, HERD_CLUSTER_SPREAD))
+				raw = _tangent_offset_raw(founder_raw, LASimRng.shared().randf_range(-HERD_CLUSTER_SPREAD, HERD_CLUSTER_SPREAD), LASimRng.shared().randf_range(-HERD_CLUSTER_SPREAD, HERD_CLUSTER_SPREAD))
 			var placed = _place_on_surface(raw)
 			if placed == null:
 				_eco._pending.append({"kind": kind, "pos": raw, "tries": 0, "family_id": fam, "elder": mi == 0})
@@ -156,9 +156,9 @@ func _random_spawn_point() -> Vector3:
 # A uniform-ish random unit direction on the sphere (reject the degenerate near-zero vector). Static +
 # stateless so the service's aquatic sampler can reuse it without a spawner instance.
 static func _random_sphere_dir() -> Vector3:
-	var v: Vector3 = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0)
+	var v: Vector3 = LASimRng.shared().rand_dir()
 	while v.length() < 0.05:
-		v = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0)
+		v = LASimRng.shared().rand_dir()
 	return v.normalized()
 
 
@@ -214,10 +214,10 @@ func populate_environment(rock_count: int, forest_clusters: int) -> void:
 		var center: Vector3 = _best_forest_center(FOREST_CLUSTER_TRIES)
 		if is_nan(center.x):
 			continue
-		var trees: int = randi_range(11, 20)
+		var trees: int = LASimRng.shared().randi_range(11, 20)
 		for t in trees:
 			# Scatter the cluster in the centre's tangent plane, then re-project to the sphere.
-			spawn("tree", _tangent_offset_point(center, randf_range(-FOREST_CLUSTER_SPREAD, FOREST_CLUSTER_SPREAD), randf_range(-FOREST_CLUSTER_SPREAD, FOREST_CLUSTER_SPREAD)))
+			spawn("tree", _tangent_offset_point(center, LASimRng.shared().randf_range(-FOREST_CLUSTER_SPREAD, FOREST_CLUSTER_SPREAD), LASimRng.shared().randf_range(-FOREST_CLUSTER_SPREAD, FOREST_CLUSTER_SPREAD)))
 
 
 # Pick the most forest-suitable of `tries` random surface points: highest biomass, warmest, snow-free. At

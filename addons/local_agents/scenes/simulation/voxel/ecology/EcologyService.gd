@@ -469,7 +469,7 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 
 
 func _tree_config() -> Dictionary:
-	var pine: bool = randf() < 0.4
+	var pine: bool = LASimRng.shared().randf() < 0.4
 	return {"species": "pine" if pine else "oak"}
 
 
@@ -553,7 +553,7 @@ func debug_seed_family() -> Node:
 		var pb: Node3D = adults[1] as Node3D
 		var kids: Array = []
 		for i in range(2):
-			var placed = _place_on_surface(_tangent_offset_point(pa.global_position, randf_range(-2.0, 2.0), randf_range(-2.0, 2.0)))
+			var placed = _place_on_surface(_tangent_offset_point(pa.global_position, LASimRng.shared().randf_range(-2.0, 2.0), LASimRng.shared().randf_range(-2.0, 2.0)))
 			if placed == null:
 				continue
 			var child = _instance_actor(kind, placed, _breeding._breed_genome(pa, pb))

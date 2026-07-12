@@ -12,11 +12,12 @@ extends Node
 ##     counts by (fewer actors on Low, more on High).
 ##   • quality → effects_level   : a particle-density scale pushed to the atmosphere particle system.
 ##   • difficulty → disaster_frequency : the cadence of an AMBIENT natural-events director that SEEDS the
-##     existing VoxelDisasters casts (lightning / storm / tornado / hurricane / volcano). It invents no
-##     new physics — the disaster actors are seeds/markers/visuals and the field carries the phenomena;
-##     this only decides how often a seed is dropped, scaled by the difficulty.
-##   • difficulty → climate_harshness : biases WHICH disaster the director seeds (mild → lightning /
-##     storms; extreme → volcano / hurricane / tornado).
+##     existing VoxelDisasters casts (storm / tornado / hurricane / volcano) as RARE special events. It
+##     invents no new physics — the disaster actors are seeds/markers/visuals and the field carries the
+##     phenomena; this only decides how often a seed is dropped, scaled by the difficulty. Lightning is NOT
+##     seeded here — it is fully emergent from the field's charge physics under a real storm.
+##   • difficulty → climate_harshness : biases WHICH disaster the director seeds (mild → storm seed;
+##     extreme → volcano / hurricane / tornado).
 ##
 ## Grid resolution + spawn counts can only take effect at world build, so VoxelWorld/SpawnController QUERY
 ## the resolved values here before building; audio volumes are applied by LAVoxelAudioController; cadence
@@ -35,12 +36,17 @@ const SPAWN_SCALE_MIN: float = 0.15
 const SPAWN_SCALE_MAX: float = 4.0
 
 ## Ambient-disaster cadence: mean seconds between seeded events, interpolated by disaster_frequency
-## (0..1). At frequency 1 a disaster is seeded roughly every DISASTER_INTERVAL_FAST s, at ~0 every
-## DISASTER_INTERVAL_SLOW s; below DISASTER_FREQ_OFF the director is disabled entirely (a calm world).
-const DISASTER_INTERVAL_FAST: float = 5.0
-const DISASTER_INTERVAL_SLOW: float = 90.0
+## (0..1). These are RARE SPECIAL EVENTS, not a firehose — historically it is disease / starvation /
+## drought / exposure / predation that pressures a population, NOT catastrophes, so the ambient director
+## only sprinkles the occasional tornado / hurricane / volcano and lets the ECOLOGY be the real attrition.
+## Ordinary weather (rain → charge → LIGHTNING) is fully EMERGENT in the field's water cycle and needs no
+## director seed, so the director no longer fires bolts at all. At frequency 1 a catastrophe is seeded
+## roughly every DISASTER_INTERVAL_FAST s, at ~0 every DISASTER_INTERVAL_SLOW s (effectively never in a
+## normal run); below DISASTER_FREQ_OFF the director is disabled entirely (a calm world).
+const DISASTER_INTERVAL_FAST: float = 180.0
+const DISASTER_INTERVAL_SLOW: float = 2400.0
 const DISASTER_FREQ_OFF: float = 0.03
-const DISASTER_JITTER: float = 0.35        # ± fraction of the interval added as randomness
+const DISASTER_JITTER: float = 0.35        # ± fraction of the interval added as randomness (seeded)
 
 var _settings: LAGameSettings = null
 
@@ -233,7 +239,7 @@ func _process(delta: float) -> void:
 	if _disaster_accum < _disaster_next:
 		return
 	_disaster_accum = 0.0
-	_disaster_next = _disaster_interval * (1.0 + randf_range(-DISASTER_JITTER, DISASTER_JITTER))
+	_disaster_next = _disaster_interval * (1.0 + LASimRng.shared().randf_range(-DISASTER_JITTER, DISASTER_JITTER))
 	_seed_ambient_disaster()
 
 
@@ -242,9 +248,6 @@ func _process(delta: float) -> void:
 func _seed_ambient_disaster() -> void:
 	var kind: String = _pick_disaster_kind(clampf(settings().climate_harshness, 0.0, 1.0))
 	match kind:
-		"lightning":
-			if _disasters.has_method("strike_random_lightning"):
-				_disasters.strike_random_lightning()
 		"thunderstorm":
 			if _disasters.has_method("spawn_thunderstorm"):
 				_disasters.spawn_thunderstorm(_random_surface_point())
@@ -260,11 +263,12 @@ func _seed_ambient_disaster() -> void:
 	print("AMBIENT_DISASTER={type:%s, climate:%.2f, interval:%.1f}" % [kind, settings().climate_harshness, _disaster_interval])
 
 
-## Weighted pick: mild climates lean to lightning/storms, harsh climates open up the destructive events.
-## Config over branches — a new event kind is one row.
+## Weighted pick: mild climates lean to a storm seed (which just intensifies the emergent water cycle so
+## its own charge physics can fire lightning), harsh climates open up the destructive events. There is no
+## "lightning" kind — bolts are emergent from field charge, never seeded directly. Config over branches —
+## a new event kind is one row. Seeded via LASimRng so placement/timing reproduce from LA_SIM_SEED.
 func _pick_disaster_kind(climate: float) -> String:
 	var weights: Dictionary = {
-		"lightning": 3.0,
 		"thunderstorm": 2.0,
 		"tornado": 1.0 + 2.0 * climate,
 		"hurricane": 0.5 + 2.5 * climate,
@@ -273,17 +277,18 @@ func _pick_disaster_kind(climate: float) -> String:
 	var total: float = 0.0
 	for k in weights:
 		total += float(weights[k])
-	var roll: float = randf() * total
+	var roll: float = LASimRng.shared().randf() * total
 	for k in weights:
 		roll -= float(weights[k])
 		if roll <= 0.0:
 			return String(k)
-	return "lightning"
+	return "thunderstorm"
 
 
 ## A random world-space point on the planet surface (falls back to a point above the centre if unmeshed).
+## Seeded (LASimRng) so an ambient event lands at a reproducible site for a given LA_SIM_SEED.
 func _random_surface_point() -> Vector3:
-	var dir: Vector3 = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0)
+	var dir: Vector3 = LASimRng.shared().rand_dir()
 	if dir.length_squared() < 1.0e-4:
 		dir = Vector3.UP
 	dir = dir.normalized()

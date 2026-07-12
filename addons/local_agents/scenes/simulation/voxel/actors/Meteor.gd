@@ -79,7 +79,7 @@ func launch(target: Vector3, from_pos: Vector3 = Vector3(INF, INF, INF), size_sc
 	# Base random variation scaled by the caller's size hint: the spawn brush passes a factor derived
 	# from its radius, so growing the brush (Ctrl + wheel) flings a bigger, more cratering rock. Clamped
 	# so a maxed brush can't produce a runaway crater.
-	_size = clampf(randf_range(0.55, 2.3) * size_scale, 0.2, 8.0)
+	_size = clampf(LASimRng.shared().randf_range(0.55, 2.3) * size_scale, 0.2, 8.0)
 	if is_finite(from_pos.x) and is_finite(from_pos.y) and is_finite(from_pos.z):
 		# Player-fired: leave the camera along the aim ray and then COAST under real N-body gravity — aim
 		# tangential to a body and it settles into ORBIT, aim inward and it strikes, aim fast/outward and it
@@ -100,7 +100,7 @@ func launch(target: Vector3, from_pos: Vector3 = Vector3(INF, INF, INF), size_sc
 		if tangent.length() < 0.01:
 			tangent = up0.cross(Vector3.FORWARD)
 		tangent = tangent.normalized()
-		var lateral: Vector3 = tangent * randf_range(-24.0, 24.0) + up0.cross(tangent).normalized() * randf_range(-24.0, 24.0)
+		var lateral: Vector3 = tangent * LASimRng.shared().randf_range(-24.0, 24.0) + up0.cross(tangent).normalized() * LASimRng.shared().randf_range(-24.0, 24.0)
 		_spawned_at = target + up0 * SPAWN_HEIGHT + lateral
 		_guided = false
 		var dir: Vector3 = _target - _spawned_at

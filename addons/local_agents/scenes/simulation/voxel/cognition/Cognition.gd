@@ -434,7 +434,7 @@ func observe(c, delta: float) -> void:
 	_observe_cd -= delta
 	if _observe_cd > 0.0:
 		return
-	_observe_cd = randf_range(1.5, 3.0)
+	_observe_cd = LASimRng.shared().randf_range(1.5, 3.0)
 	var seen: int = 0
 	for m in LACognizerAdapter.neighbours(c):
 		if seen >= OBSERVE_MAX_NEIGHBOURS:

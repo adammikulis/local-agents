@@ -55,5 +55,5 @@ func _random_aquatic_point(cfg: Dictionary) -> Vector3:
 		var hi: float = sea_r - dmin                  # shallowest allowed (just below the surface)
 		if hi <= lo:
 			continue
-		return pc + dir * randf_range(lo, hi)
+		return pc + dir * LASimRng.shared().randf_range(lo, hi)
 	return Vector3(NAN, 0.0, 0.0)

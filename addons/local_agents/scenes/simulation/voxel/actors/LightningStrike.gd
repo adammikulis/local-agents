@@ -65,13 +65,14 @@ func _build_bolt(point: Vector3, up: Vector3) -> void:
 	mat.albedo_color = Color(0.9, 0.95, 1.0)
 	mat.vertex_color_use_as_albedo = true
 	mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP, mat)
-	var top: Vector3 = point + up * STRIKE_HEIGHT + t1 * randf_range(-14.0, 14.0) + t2 * randf_range(-14.0, 14.0)
+	var rng: LASimRng = LASimRng.shared()
+	var top: Vector3 = point + up * STRIKE_HEIGHT + t1 * rng.randf_range(-14.0, 14.0) + t2 * rng.randf_range(-14.0, 14.0)
 	for s in range(SEGMENTS + 1):
 		var t: float = float(s) / float(SEGMENTS)
 		var base: Vector3 = top.lerp(point, t)
 		var jitter: float = (1.0 - t) * 5.0                   # straightens toward the ground
 		if s > 0 and s < SEGMENTS:
-			base += t1 * randf_range(-jitter, jitter) + t2 * randf_range(-jitter, jitter)
+			base += t1 * rng.randf_range(-jitter, jitter) + t2 * rng.randf_range(-jitter, jitter)
 		mesh.surface_add_vertex(base)
 	mesh.surface_end()
 	var mi: MeshInstance3D = MeshInstance3D.new()

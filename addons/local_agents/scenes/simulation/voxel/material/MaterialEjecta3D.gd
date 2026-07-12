@@ -206,10 +206,11 @@ func eject(world_pos: Vector3, mass: float, energy: float, dir_bias: Vector3 = V
 			_ejected += per_mass
 			_deposit(world_pos, per_mass)
 			continue
-		var ang: float = randf() * TAU
-		var spread: float = randf() * CONE
+		var rng: LASimRng = LASimRng.shared()
+		var ang: float = rng.randf() * TAU
+		var spread: float = rng.randf() * CONE
 		var dir: Vector3 = (launch_dir * cos(spread) + (tan_a * cos(ang) + tan_b * sin(ang)) * sin(spread)).normalized()
-		var speed: float = base_speed * randf_range(0.7, 1.15)
+		var speed: float = base_speed * rng.randf_range(0.7, 1.15)
 		_p_pos.append(world_pos)
 		_p_vel.append(dir * speed)
 		_p_mass.append(per_mass)

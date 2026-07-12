@@ -218,7 +218,7 @@ func spawn_lightning(point: Vector3) -> void:
 func strike_random_lightning() -> void:
 	if _terrain == null or not _terrain.has_method("surface_point"):
 		return
-	var dir: Vector3 = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0)
+	var dir: Vector3 = LASimRng.shared().rand_dir()
 	if dir.length_squared() < 1.0e-4:
 		dir = Vector3.UP
 	var sp: Vector3 = _terrain.surface_point(dir.normalized())
@@ -292,7 +292,7 @@ func fire_barrage(count: int = 18, size_scale: float = 5.5, spread: float = 20.0
 		return
 	var impact: Vector3 = hit["position"]
 	for i in count:
-		var j: Vector3 = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0) * spread
+		var j: Vector3 = LASimRng.shared().rand_dir() * spread
 		var m: MeteorScript = MeteorScript.new()
 		_actors_root.add_child(m)
 		m.setup(_terrain, _ecology)

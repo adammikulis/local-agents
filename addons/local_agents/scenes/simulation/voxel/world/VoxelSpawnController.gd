@@ -162,10 +162,10 @@ func _seed_diseases() -> void:
 	var forced: String = OS.get_environment("LA_DISEASE_STRAIN")   # test hook: seed only this strain
 	var seeded: int = 0
 	for i in range(count):
-		var c = creatures[randi() % creatures.size()]
+		var c = creatures[LASimRng.shared().randi_range(0, creatures.size() - 1)]
 		if not is_instance_valid(c) or c.get("disease") == null:
 			continue
-		var strain_id: String = forced if forced != "" else String(strains[randi() % strains.size()])
+		var strain_id: String = forced if forced != "" else String(strains[LASimRng.shared().randi_range(0, strains.size() - 1)])
 		c.disease.infect(strain_id, 0.6)               # a solid starting dose so the infection establishes
 		seeded += 1
 	print("DISEASE_SEED={seeded:%d, strains:%d}" % [seeded, strains.size()])
