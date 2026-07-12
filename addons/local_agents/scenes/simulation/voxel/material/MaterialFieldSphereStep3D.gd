@@ -115,6 +115,16 @@ func process(delta: float) -> void:
 	if _f._scent_dirty and _f._gpu.has_method("set_field"):
 		_f._gpu.set_field("scent", _f._scent)
 		_f._scent_dirty = false
+	# Combustion fuel seeded/refilled on the CPU (surface seed module) → push it into the GPU fuel buffer so the
+	# fire kernel (which gates on fuel > 0) can ignite + consume it. Dirty-gated: else fuel stays GPU-resident.
+	if _f._fuel_dirty and _f._gpu.has_method("set_field"):
+		_f._gpu.set_field("fuel", _f._fuel)
+		_f._fuel_dirty = false
+	# One-shot: push the initial soil detritus seed into the GPU before the first step so the decomposer has
+	# substrate from frame 0. Cleared immediately so the GPU-evolved detritus (respiration/decompose) is never clobbered.
+	if _f._detritus_seed_dirty and _f._gpu.has_method("set_field"):
+		_f._gpu.set_field("detritus", _f._detritus)
+		_f._detritus_seed_dirty = false
 	if _f._vapor_dirty and _f._gpu.has_method("set_field"):
 		_f._gpu.set_field("moisture", _f._moisture)
 		_f._vapor_dirty = false
@@ -122,6 +132,9 @@ func process(delta: float) -> void:
 		_f._gpu.step()
 	var res: Dictionary = _f._gpu.end_frame()
 	_apply_readback(res)
+	# Surface seed module: coarse-cadence refill of fuel from the freshly read-back biomass (marks _fuel_dirty).
+	if _f._surface_seed != null:
+		_f._surface_seed.post_readback()
 	# Charge module scans the fresh charge readback for breakdown → fires bolts (heat inject + visual callback).
 	if _f._charge_mod != null:
 		_f._charge_mod.post_step()
@@ -143,6 +156,8 @@ func _apply_readback(res: Dictionary) -> void:
 	_f._atmos_dirty = true          # new moisture/temp → invalidate the cached condensate aggregates
 	if res.has("lava") and res["lava"].size() == n: _f._lava = res["lava"]
 	if res.has("fire") and res["fire"].size() == n: _f._fire = res["fire"]
+	if res.has("fuel") and res["fuel"].size() == n: _f._fuel = res["fuel"]
+	if res.has("fert") and res["fert"].size() == n: _f._fert = res["fert"]
 	if res.has("o2") and res["o2"].size() == n: _f._o2 = res["o2"]
 	if res.has("co2") and res["co2"].size() == n: _f._co2 = res["co2"]
 	if res.has("biomass") and res["biomass"].size() == n: _f._biomass = res["biomass"]

@@ -239,6 +239,11 @@ func fire_test_lightning() -> void:
 				impact = (t as Node3D).global_position
 				found = true
 	if found:
+		# Deposit the strike's ignition heat (the emergent "start a fire = drop heat" primitive) so vegetation
+		# there crosses the combustion ignition temp — a real bolt does this via the charge breakdown callback,
+		# but this test path spawns the visual directly, so inject the heat here (else the bolt is inert).
+		if _ecology != null and _ecology.has_method("ignite_area"):
+			_ecology.ignite_area(impact, 18.0)
 		spawn_lightning(impact)
 
 

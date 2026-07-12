@@ -423,3 +423,57 @@ func rock_fill_total() -> float:
 ## + airborne(dust). Must stay BOUNDED — this is the unification's proof object.
 func mineral_total() -> float:
 	return rock_fill_total() + lava_total() + sediment_total() + dust_total()
+
+
+# --- Combustion FUEL / FIRE diagnostics (read the seeded + GPU-consumed fuel channel and the fire channel) ----
+
+## Total flammable fuel mass over every open cell — >0 once seeded; DROPS as a fire burns it to ash, recovers
+## as biomass regrows it (the fuel seed module's refill). The spot check that combustion has fuel to ignite.
+func fuel_total() -> float:
+	if _f._fuel.size() != _f._cell_count:
+		return 0.0
+	var sum: float = 0.0
+	for c in _f._cell_count:
+		if _f._solid[c] == 0:
+			sum += _f._fuel[c]
+	return sum
+
+## Peak burning intensity over the field (0 = nothing on fire; up to ~1 for a raging cell). >0 proves ignition.
+func fire_peak() -> float:
+	if _f._fire.size() != _f._cell_count:
+		return 0.0
+	var m: float = 0.0
+	for c in _f._cell_count:
+		if _f._fire[c] > m:
+			m = _f._fire[c]
+	return m
+
+## Count of cells currently burning (fire intensity over the kernel's FIRE_MIN ignition floor).
+func fire_cells() -> int:
+	if _f._fire.size() != _f._cell_count:
+		return 0
+	var n: int = 0
+	for c in _f._cell_count:
+		if _f._fire[c] > 0.02:
+			n += 1
+	return n
+
+
+# --- Soil FERTILITY (decomposer output: detritus → fungus → CO₂ + fertility) — read the GPU fert channel -------
+
+## Soil nutrient density at a world point (plants grow faster on rich ground). 0 outside the shell / before readback.
+func fertility_at(pos: Vector3) -> float:
+	if _f._fert.size() != _f._cell_count:
+		return 0.0
+	var c: int = _f.world_to_cell(pos)
+	return _f._fert[c] if c >= 0 else 0.0
+
+## Peak soil fertility over every open cell — >0 once the decomposer loop deposits nutrient (was hardcoded 0).
+func fertility_peak() -> float:
+	if _f._fert.size() != _f._cell_count:
+		return 0.0
+	var m: float = 0.0
+	for c in _f._cell_count:
+		if _f._solid[c] == 0 and _f._fert[c] > m:
+			m = _f._fert[c]
+	return m

@@ -152,7 +152,9 @@ func end_frame(_rv: bool = true, _rc: bool = true, _rf: bool = true, _rr: bool =
 		return out
 	# `sediment` joins the readback so the mineral conservation ledger (mineral_total) sees the loose-regolith
 	# phase — without it, dust→sediment deposits/settles stayed GPU-only and the ledger under-counted.
-	for k in ["temp", "water", "moisture", "lava", "fire", "o2", "co2", "dust", "shock", "sediment", "soil"]:
+	# `fert` (PAIR): the decomposer's soil-fertility output, read back so fertility_at/fertility_peak see the
+	# live GPU channel (was never read → hardcoded 0). Its live half after the step carries the accumulated deposit.
+	for k in ["temp", "water", "moisture", "lava", "fire", "o2", "co2", "dust", "shock", "sediment", "soil", "fert"]:
 		out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
 	# scent is a 5-plane packed pair (SCENT_PLANES * cell_count) — read its live half whole so the CPU bridge
 	# scatters all five planes (prey/predator/blood/food/alarm) back for the sense gradients.
@@ -162,6 +164,10 @@ func end_frame(_rv: bool = true, _rc: bool = true, _rf: bool = true, _rr: bool =
 		out["biomass"] = _rd.buffer_get_data(_bufs["biomass"]).to_float32_array()
 	if _bufs.has("snow"):
 		out["snow"] = _rd.buffer_get_data(_bufs["snow"]).to_float32_array()
+	# fuel is a SINGLE GPU channel: the fire kernel consumes it in place each step. Read it back so fuel_total
+	# reflects the burn (drops where fire is active) and the seed module can maxf-refill it from biomass.
+	if _bufs.has("fuel"):
+		out["fuel"] = _rd.buffer_get_data(_bufs["fuel"]).to_float32_array()
 	# rock_fill is a SINGLE GPU-owned channel (the fractional bedrock mass); read it back so the CPU mineral
 	# ledger (mineral_total) counts the authoritative bedrock phase and add_lava sees the current rock mass.
 	if _bufs.has("rock_fill"):

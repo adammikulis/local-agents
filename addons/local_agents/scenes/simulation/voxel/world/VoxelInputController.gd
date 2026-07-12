@@ -503,7 +503,9 @@ func update(frame: int, spawned: bool) -> void:
 
 	# Auto-lightning demo/test: strike the nearest tree so a wildfire emerges from the bolt's heat.
 	if _auto_lightning and not _auto_lightning_fired and spawned:
-		var ltrigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 600, 60)
+		# Strike ~150 frames before the end so the emergent wildfire is still burning at the final SIM_REPORT
+		# snapshot (the combustion front is self-limiting — a strike far earlier has burned out by the snapshot).
+		var ltrigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 100, 60)
 		if frame >= ltrigger:
 			_disasters.fire_test_lightning()
 			_auto_lightning_fired = true

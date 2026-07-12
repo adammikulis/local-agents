@@ -127,6 +127,9 @@ var _co2: PackedFloat32Array = PackedFloat32Array()      # atmospheric CO₂ lev
 var _soil: PackedFloat32Array = PackedFloat32Array()     # water stored in the ground per cell (0 = bone dry)
 var _detritus: PackedFloat32Array = PackedFloat32Array() # dead decomposable organic matter per cell (0 = none)
 var _fungus: PackedFloat32Array = PackedFloat32Array()   # fungal biomass density per cell (0 = none; high = mushrooms)
+# Soil FERTILITY per cell — the decomposer loop's output (detritus → fungus → CO₂ + fertility). GPU-owned PAIR
+# channel (scent_fert blur/leach + fungus_fert deposit); read back each frame for fertility_at/fertility_peak.
+var _fert: PackedFloat32Array = PackedFloat32Array()     # soil nutrient density per cell (0 = barren)
 # --- Emergent LIVING BIOMASS (MaterialReactions3D R19/R20 — the plant carbon-fix leg dissolved into the field).
 # GPU-produced/consumed ONLY: photosynthesis grows it at sky-exposed surface cells (CO₂ + warmth/light → biomass
 # + O₂), respiration/decay oxidizes it back (biomass + O₂ → CO₂ + detritus). Seeded 0; a pure GPU channel that
@@ -162,6 +165,7 @@ const SphereGPUScript: GDScript = preload("res://addons/local_agents/scenes/simu
 const QueriesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldQueries3D.gd")
 const InjectScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldInject3D.gd")
 const SphereStepScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldSphereStep3D.gd")
+const SurfaceSeedScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialSurfaceSeed3D.gd")
 const CoverBakerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/CoverTextureBaker.gd")
 var _cover_baker = null                                  # LACoverTextureBaker — bakes the render cover texture
 var _gpu = null                                          # LAMaterialSphereGPU3D (local RenderingDevice) or null
@@ -173,6 +177,7 @@ var _queries = null                                      # LAMaterialFieldQuerie
 var _inject = null                                       # LAMaterialFieldInject3D (write-side injection + FX)
 var _stamp = null                                        # LAMineralStamp3D — Stage C rock_fill->SDF growth stamp
 var _sphere_step = null                                  # LAMaterialFieldSphereStep3D — cubed-sphere per-frame step loop
+var _surface_seed = null                                 # LAMaterialSurfaceSeed3D — ground-surface fuel + soil detritus seed/refill
 # Substrate-foundation primitive modules (the field only delegates; all logic lives in these). Seams the
 # per-actor dissolution agents fill: shock (Earthquake/Meteor), charge→bolt (Thunderstorm), ejecta (bombs/debris).
 var _shock_mod = null                                    # LAMaterialShock3D — shock channel + emit/readback
@@ -228,6 +233,8 @@ var _shock_dirty: bool = false           # emit_shock seeded shock on the CPU �
 var _scent_dirty: bool = false           # deposit() seeded scent on the CPU → re-upload the 5-plane scent this step
 var _charge_dirty: bool = false          # add_charge seeded charge on the CPU → re-upload charge this step
 var _charge_woke: bool = false           # a charge injection woke the breakdown scan (stimulus = compute bubble)
+var _fuel_dirty: bool = false            # fuel seed/refill edited the CPU channel → re-upload fuel this step
+var _detritus_seed_dirty: bool = false   # one-shot: initial soil detritus seeded → upload once before the first step
 # Lazy solidity sampling: the field is created before the terrain has finished streaming, so it samples
 # rock/void a budget of columns per frame and self-activates (seed sea + build modules) once complete —
 # exactly how the old field lazily sampled heights. No blocking, no external init calls.
@@ -353,6 +360,9 @@ func _alloc_channels() -> void:
 	_detritus.resize(_cell_count)
 	_fungus = PackedFloat32Array()
 	_fungus.resize(_cell_count)
+	# Soil fertility (decomposer output) starts barren; the GPU decomposer grows it where detritus rots.
+	_fert = PackedFloat32Array()
+	_fert.resize(_cell_count)
 	# Biomass starts empty; photosynthesis grows it on the GPU where CO₂ + warmth + sky-exposed surface meet.
 	_biomass = PackedFloat32Array()
 	_biomass.resize(_cell_count)
@@ -511,6 +521,11 @@ func activate() -> void:
 		_use_gpu = true
 	_inject = InjectScript.new()
 	_inject.setup(self)
+	# Ground-surface substrate: seed baseline flammable fuel (so lightning/lava can ignite) + soil detritus (so the
+	# decomposer→fertility loop bootstraps) on surface cells.
+	_surface_seed = SurfaceSeedScript.new()
+	_surface_seed.setup(self)
+	_surface_seed.seed_initial()
 	# Stage C: the sparse, event-driven rock_fill 0.5-crossing -> SDF terrain-growth stamp (idle until armed).
 	_stamp = MineralStampScript.new()
 	_stamp.setup(self)
@@ -1022,17 +1037,17 @@ func scent_at(world_pos: Vector3, channel: int) -> float:
 func scent_gradient(world_pos: Vector3, channel: int) -> Vector3:
 	return _scent_mod.scent_gradient(world_pos, channel) if _scent_mod != null else Vector3.ZERO
 
-## Soil nutrient at a world point (plants grow faster on rich ground).
+## Soil nutrient at a world point (plants grow faster on rich ground) — the read-back GPU fertility channel.
 func fertility_at(world_pos: Vector3) -> float:
-	return 0.0
+	return _queries.fertility_at(world_pos) if _queries != null else 0.0
 
 ## Columns carrying meaningful airborne scent (SMOKE_SUMMARY `scent_cells`).
 func scent_cell_count() -> int:
 	return _scent_mod.scent_cell_count() if _scent_mod != null else 0
 
-## Peak soil nutrient (SMOKE_SUMMARY `fertility_peak`).
+## Peak soil nutrient (SMOKE_SUMMARY `fertility_peak`) — the read-back GPU fertility channel.
 func fertility_peak() -> float:
-	return 0.0
+	return _queries.fertility_peak() if _queries != null else 0.0
 
 
 # --- Emergent-process forwarders (magma volcano / erosion / snow-ice / dust / charge lightning / shock).
@@ -1336,6 +1351,7 @@ func report() -> Dictionary:
 		"co2_peak": co2_peak(), "co2_avg": co2_avg(), "fungus_cells": fungus_cells(),
 		"fungus_peak": fungus_peak(), "detritus_peak": detritus_peak(),
 		"biomass_total": biomass_total(),
+		"fuel_total": _queries.fuel_total(), "fire_peak": _queries.fire_peak(), "fire_cells": _queries.fire_cells(),
 		"h2o_total": h2o_total(), "water_total": water_total(), "snow_total": snow_total(), "soil_total": soil_total(),
 		"snow_line_temp": snow_line_temp(),
 		"mineral_total": _queries.mineral_total(), "rock_cells": _queries.rock_cells(),
