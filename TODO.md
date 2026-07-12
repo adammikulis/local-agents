@@ -49,7 +49,16 @@ fan-out rule) · `EMERGENCE.md` (design) · the memories (`roadmap-0.4-life-cycl
   less steep, smoothed space→sky transition). Long-run STABILITY verified: temperate (no thermal runaway),
   bounded water, playable perf. Design captured in `PLANET_GEOPHYSICS.md`.
 
-- **WATER IS NOW USABLE — mostly-land planet with rivers + lakes (latest)** — the Voronoi CELL_VALUE continents
+- **UX / camera / sky polish (latest)** — camera drag flipped to natural GRAB-THE-GLOBE (drag right rolls the
+  globe right) + middle-mouse free-look aim; BOTH now honour the Controls invert-X/Y toggles (the recurring
+  "backwards" is now a user setting, not a code guess). **Space↔atmosphere CROSSFADE** — the sky shader stays
+  active and fades blue-atmosphere ↔ black-space-with-stars via a `space_amount` uniform (= 1−surface_blend)
+  with ambient+fog lerped, replacing the hard background-mode flip that read as an instant switch + white-out
+  (surface ambient trimmed 0.70→0.55). **DISCOVERABILITY GAP (owed):** the trainable-pet controls are hidden
+  keybinds (select a creature → B feed/tame · J come · L stay · N follow · O free · Y select-companion) with NO
+  on-screen hint — should surface a bond bar + the keys in the creature inspector panel. Rivers are viewable via
+  DEBUG-panel "Rivers (drainage)" or `--debug-rivers`; lakes/rivers render as blue water when zoomed in close.
+- **WATER IS NOW USABLE — mostly-land planet with rivers + lakes** — the Voronoi CELL_VALUE continents
   (flat plateaus + cliff borders) FRAGMENTED drainage, so switched to COMBINED FRACTAL NOISE in
   `SpherePlanetGenerator`: smooth simplex-fBm continents (long slopes → long rivers) + a RIDGED-multifractal
   valley layer (dendritic river valleys) + basin undulation (lakes) + detail; `ocean_bias` went NEGATIVE so it's
