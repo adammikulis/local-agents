@@ -30,8 +30,12 @@ layout(push_constant, std430) uniform Params {
 const float SAT_BASE = 0.06;
 const float SAT_TEMP_GAIN = 0.055;
 const float EVAP_TEMP_REF = 22.0;
-const float RAIN_MASS_THRESHOLD = 0.42;   // raised back (aquifer springs now supply land water, so less rain needed → bounded water cycle)
-const float RAIN_RATE = 0.16;
+// RAIN is the atmosphere's moisture SINK. It was too weak to balance the infinite static-sea evaporation SOURCE,
+// so a large reservoir of sub-threshold condensate piled up cell-by-cell and total moisture ran away (cloud deck
+// grew without bound → snow-out). Lowered threshold + faster rate so the sink SCALES with load and drains the
+// condensate that clouds are made of → atmospheric moisture reaches a STEADY cover instead of climbing forever.
+const float RAIN_MASS_THRESHOLD = 0.14;   // start raining once condensate exceeds a thin margin over saturation
+const float RAIN_RATE = 0.24;             // fraction of the excess condensate shed as rain per step
 
 void main() {
 	uint g = gl_GlobalInvocationID.x;

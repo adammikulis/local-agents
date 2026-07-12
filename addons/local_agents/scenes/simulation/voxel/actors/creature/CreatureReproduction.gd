@@ -38,11 +38,13 @@ const MIN_ENERGY_FRAC: float = 0.55     # well-fed-enough-to-breed gate. Kept co
 const GESTATION_SECONDS: float = 12.0   # seconds a bearer carries a pregnancy before giving birth
 const GESTATION_ENERGY_COST: float = 24.0   # total energy the bearer pays, drained smoothly across gestation (trimmed from
                                         # 30 so pregnancy is survivable in the cool land band without a starvation death spiral)
-const POST_BIRTH_COOLDOWN: float = 13.0     # seconds a bearer must recover (refeed) before conceiving again — shortened from
+const POST_BIRTH_COOLDOWN: float = 8.0      # seconds a bearer must recover (refeed) before conceiving again — shortened from
                                         # 18 so the herbivore base replaces attrition fast enough to sustain the food web
 const MATE_REFRACTORY: float = 6.0      # short pair-bond cooldown put on the partner at conception (stops the SAME
                                         # pairing from both conceiving at once; keeps the effective birth rate sane)
-const MATE_SEEK_RADIUS: float = 16.0    # how far a courting adult looks for a mate (herds already cluster same-species)
+const MATE_SEEK_RADIUS: float = 26.0    # how far a courting adult looks for a mate — widened so a THINNED population
+                                        # (post-overshoot, low density) can still pair up and recover, instead of
+                                        # spiralling to a near-extinct Allee floor because mates fell out of range
 const MATING_RADIUS: float = 3.0        # within this range of a ready mate, conception happens (else steer closer)
 # FERTILITY declines with age (LACreatureSenescence.fertility_mult 1.0→0.0 from prime toward max_age). Below
 # STERILE_FLOOR an old creature is effectively barren; between there and prime, its effective energy bar rises
@@ -163,7 +165,10 @@ static func _conceive(c, mate) -> void:
 static func _give_birth(c) -> void:
 	c.pregnant = false
 	c._gestation_t = 0.0
-	var mate = c._mate
+	# The mate is captured at conception and only cleared here, so it can be FREED mid-gestation if the partner
+	# dies. Passing a freed Node to birth_offspring raised "previously freed" errors; null it out here so birth
+	# falls back cleanly to a single-parent line (the breeding module already handles a null mate).
+	var mate = c._mate if (c._mate != null and is_instance_valid(c._mate)) else null
 	c._mate = null
 	c._repro_cd = POST_BIRTH_COOLDOWN / LAAblate.evo_fast()
 	if c._ecology != null and c._ecology.has_method("birth_offspring"):

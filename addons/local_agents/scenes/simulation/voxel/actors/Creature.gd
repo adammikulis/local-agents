@@ -116,6 +116,17 @@ var color: Color = Color(0.7, 0.7, 0.7)
 var can_fly: bool = false
 var cruise_height: float = 12.0
 var sense_radius: float = 8.0
+# COHORT DESYNC: every individual gets its OWN maturity/lifespan, jittered around the species value, so a
+# generation doesn't mature, breed and die in lockstep. Without this, founders (all spawned at age 0 with an
+# identical species maturity_age) came of age together, bred in one pulse, then that whole cohort aged out
+# together — a synchronized boom-bust (the ~frame-360 peak then crash, and the old-age death spike). The spread
+# smears each of those events over a window, so births/deaths overlap generations and the population oscillates
+# gently around carrying capacity instead of pulsing. randf is on the run's seeded RNG → reproducible.
+const MATURITY_VARIANCE: float = 0.45    # ±fraction on per-individual maturity_age
+const LIFESPAN_VARIANCE: float = 0.45    # ±fraction on per-individual max_age — WIDE, so even a big single-
+                                         # generation boom (an overshoot cohort) ages out over a LONG spread of
+                                         # time (overlapping generations) instead of dying together in one pulse
+                                         # that crashes the population below its recovery floor (the boom-bust)
 var maturity_age: float = 15.0
 var preys_on: PackedStringArray = PackedStringArray()
 var flees_from: PackedStringArray = PackedStringArray()
@@ -536,6 +547,10 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	cruise_height = float(config.get("cruise_height", cruise_height))
 	sense_radius = float(config.get("sense_radius", sense_radius))
 	maturity_age = float(config.get("maturity_age", maturity_age))
+	# COHORT DESYNC (see MATURITY_VARIANCE): per-individual jitter so a generation doesn't come of age in
+	# lockstep. Applied to the founder template AND to bred offspring (extra non-heritable phenotype spread on
+	# top of the genome's own maturity gene) — both need breaking up. max_age is jittered separately below.
+	maturity_age *= 1.0 + randf_range(-MATURITY_VARIANCE, MATURITY_VARIANCE)
 	preys_on = PackedStringArray(config.get("preys_on", PackedStringArray()))
 	flees_from = PackedStringArray(config.get("flees_from", PackedStringArray()))
 	herd = bool(config.get("herd", herd))
@@ -561,6 +576,19 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	thirst_rate = float(config.get("thirst_rate", thirst_rate))
 	food_value = float(config.get("food_value", size * 90.0))
 	max_age = float(config.get("max_age", maxf(maturity_age * 5.0, 60.0)))
+	# COHORT DESYNC: independent lifespan jitter so an age-matched cohort doesn't die of old age all at once
+	# (the old-age death spike). max_age is not a heritable gene (it tracks maturity_age*5), so this is the only
+	# spread it gets — apply it per individual.
+	max_age *= 1.0 + randf_range(-LIFESPAN_VARIANCE, LIFESPAN_VARIANCE)
+	# FOUNDER AGE SPREAD: the starting population is placed all at once. If every founder began at age 0 they
+	# would all cross maturity together and breed in one pulse (the initial boom that then busts). Seed founders
+	# across a range of ages — a natural standing age structure of juveniles through adults — so births spread out
+	# from frame one. Bred offspring (genome passed) are TRUE newborns (age 0); only the initial cohort is spread.
+	if _genome_arg == null:
+		# Spread founders across juvenile→young-adult (not up to old age): enough to desync the first maturation
+		# wave, but WITHOUT front-loading old-age deaths by seeding founders already near the end of their lives
+		# (which threw the initial cohort straight into a die-off). A standing age structure of the young + prime.
+		age = randf() * maturity_age * 1.8
 	hungry_at = float(config.get("hungry_at", hungry_at))
 	throws = bool(config.get("throws", throws))
 	throw_range = float(config.get("throw_range", throw_range))

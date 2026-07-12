@@ -57,26 +57,33 @@ static func setup(c) -> void:
 # — a grazer on green ground stays fed and can bank surplus for breeding — while BARREN or FROZEN ground
 # (biomass≈0) yields nothing, so cold/desert is still a real starvation pressure. Discrete Plant bites remain the
 # richer food. Emergent: one O(1) field read, gated by diet; no per-species code.
-const GRAZE_BIOMASS_FULL: float = 0.05   # per-cell biomass at/above which groundcover grazing is at full rate (mirrors LAEcologyBreeding)
-const AMBIENT_GRAZE_RATE: float = 4.0    # biomass/sec drawn from RICH groundcover (scaled down by how sparse the local biomass is)
+# GROUNDCOVER SUBSISTENCE FEED. Grazers draw a steady subsistence graze from the grassland they stand on so pure
+# herbivores don't starve amid plenty. This reads the GROUND at the grazer's FEET, not the R19 biomass field: on
+# the thick sphere atmosphere (~80-cell shell) photosynthesis deposits its biomass in the sky-exposed TOP-of-column
+# cell, dozens of cells ABOVE the grazer — so a ground-level biomass read was always 0 and the safety net was dead
+# (starvation was the dominant death by far, 237 vs 1 eaten, while total biomass sat healthy but unreachable OVER
+# THE OCEAN). Instead we key the feed on the same thing that actually grows grass: WARM, non-flooded ground.
+# Groundcover thrives where the surface is warm (photosynthesis ∝ temperature, exactly as R19) and there is no
+# standing water; it yields NOTHING on frozen poles or open sea, so cold/desert/ocean stay a real pressure and the
+# food is bounded by climate. Emergent from the local field — no per-species code, never depletes, can't be crashed.
+const GRAZE_MIN_TEMP: float = 3.0        # °C below which the ground is too cold/frozen for grass → no feed
+const GRAZE_FULL_TEMP: float = 14.0      # °C at/above which groundcover is at full lushness
+const AMBIENT_GRAZE_RATE: float = 5.0    # biomass/sec drawn from lush warm groundcover (scaled by warmth below)
 
 static func ambient_graze(c, pos: Vector3, delta: float) -> void:
 	if c == null or delta <= 0.0 or c._material == null or String(c.diet) != "herbivore":
 		return
 	if c.gut >= c.gut_capacity:
 		return                                       # gut full — no room to nibble more
-	# Photosynthesis deposits biomass in the SKY-EXPOSED surface cell of the column, which for land is a cell or two
-	# ABOVE the ground-hug cell the body's feet quantise into — so a single ground-level read misses it. Sample a
-	# short outward stack and take the MAX, so a grazer standing on green ground reliably reads the groundcover it
-	# feeds on (still 0 over barren rock / snow, where nothing grew).
 	var up: Vector3 = c.terrain.up_at(pos) if (c.terrain != null and c.terrain.has_method("up_at")) else Vector3.UP
-	var b: float = 0.0
-	for h in [maxf(float(c.size), 0.8), 4.0, 9.0, 15.0, 22.0]:
-		var s: Vector3 = pos + up * float(h)
-		b = maxf(b, c._material.biomass_at(s.x, s.y, s.z))
-	if b <= 0.0:
+	var feet: Vector3 = pos + up * maxf(float(c.size), 0.8)   # just above the ground the body quantises into
+	if c._material.has_method("is_water_at") and c._material.is_water_at(feet):
+		return                                       # standing in water / sea — no groundcover
+	var t: float = float(c._material.temp_at(feet))
+	# Lushness rises with surface warmth (mirrors photosynthesis ∝ temp): frozen ground barren, temperate+ = full.
+	var lush: float = clampf((t - GRAZE_MIN_TEMP) / (GRAZE_FULL_TEMP - GRAZE_MIN_TEMP), 0.0, 1.0)
+	if lush <= 0.0:
 		return
-	var lush: float = clampf(b / GRAZE_BIOMASS_FULL, 0.0, 1.0)   # 0 barren .. 1 rich groundcover
 	ingest(c, AMBIENT_GRAZE_RATE * lush * delta * LAAblate.evo_fast())
 
 

@@ -20,6 +20,14 @@ const SUN_SCENE_DISTANCE: float = 1200.0  # how far the visible sun disc sits fr
 const INSOLATION_MIN: float = 0.02        # never fully zero (numeric floor)
 const INSOLATION_MAX: float = 4.0         # cap the bake so the field can't NaN
 const DUST_OPACITY: float = 3.5           # how strongly atmospheric dust/cloud blocks the sun (impact winter)
+# CLOUD attenuation is BOUNDED (the stabilizing radiative floor). Clouds legitimately dim the ground — that
+# phenomenon stays — but the cloud→insolation link was UNBOUNDED: as cover climbed, transmission collapsed, the
+# surface cooled, and colder air made MORE cloud (a runaway that froze the world). Capping the cloud opacity
+# contribution keeps "clouds cool the ground" while guaranteeing a temperate insolation floor no overcast can
+# breach, so temperature settles at an Earth-like equilibrium clouds modulate AROUND. DUST is deliberately NOT
+# capped here (it is added separately below) — a meteor volley's impact winter must still be able to go dark.
+const CLOUD_OPACITY_CAP: float = 0.22     # max opacity clouds alone may add (transmission floor ~1/(1+3.5*0.22)=0.56)
+const CLOUD_OPACITY_K: float = 0.35       # per-unit-cover cloud opacity (pre-cap)
 const KNOCK_GAIN: float = 1.0             # tuning: how hard a meteor's momentum perturbs the orbit
 const PLANET_MASS_EFF: float = 6.0e5      # effective planet mass for impact momentum → Δvelocity
 
@@ -127,10 +135,13 @@ func _integrate_orbit(delta: float) -> void:
 ## Atmospheric transmission (0..1): airborne dust + cloud block sunlight (a meteor volley → impact winter).
 func _compute_transmission() -> float:
 	var opacity: float = 0.0
+	# DUST — unbounded (impact winter can go dark).
 	if _material != null and _material.has_method("avg_atmos_dust"):
 		opacity += float(_material.avg_atmos_dust())
+	# CLOUD — BOUNDED contribution: dims the sun but capped so insolation never collapses (breaks the
+	# cloud→cold→more-cloud runaway; the surface settles at a temperate equilibrium clouds modulate around).
 	if _material != null and _material.has_method("avg_cloud_cover"):
-		opacity += float(_material.avg_cloud_cover()) * 0.35
+		opacity += minf(float(_material.avg_cloud_cover()) * CLOUD_OPACITY_K, CLOUD_OPACITY_CAP)
 	return 1.0 / (1.0 + DUST_OPACITY * maxf(opacity, 0.0))
 
 

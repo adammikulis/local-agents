@@ -146,7 +146,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	# debited in place (conserving).
 	rd.compute_list_bind_compute_pipeline(cl, _evap_pipe)
 	rd.compute_list_bind_uniform_set(cl, _evap_set[parity], 0)
-	rd.compute_list_set_push_constant(cl, _pc_plain(cc), 16)
+	rd.compute_list_set_push_constant(cl, _pc_evap(cc, float(ctx.get("atmos_humidity", 0.0))), 16)
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # post-evap moisture[back] visible to transport
 
@@ -224,6 +224,23 @@ func _pc_plain(cc: int) -> PackedByteArray:
 	pc.resize(16)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, 0)
+	pc.encode_u32(8, 0)
+	pc.encode_u32(12, 0)
+	return pc
+
+
+# EVAP push constant: cell_count + the STATIC-SEA evaporation brake (0..1). The brake tapers the infinite
+# reservoir's un-debited moisture add to ZERO as AVERAGE atmospheric moisture reaches MOIST_TARGET — the global
+# bound that caps total atmospheric H2O so it can't run away (a steady cloud deck, not a creeping snow-out that
+# buries the grazable land). Dynamic-water evaporation is NOT gated, so the water cycle keeps running; only the
+# un-conserving infinite source tapers. The fed-in atmos_humidity signal is mean moisture per cell.
+const MOIST_TARGET: float = 0.11   # avg moisture/cell the atmosphere settles at; static sea stops pumping here
+func _pc_evap(cc: int, avg_moisture: float) -> PackedByteArray:
+	var brake: float = clampf((MOIST_TARGET - avg_moisture) / MOIST_TARGET, 0.0, 1.0)
+	var pc: PackedByteArray = PackedByteArray()
+	pc.resize(16)
+	pc.encode_u32(0, cc)
+	pc.encode_float(4, brake)
 	pc.encode_u32(8, 0)
 	pc.encode_u32(12, 0)
 	return pc

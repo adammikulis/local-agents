@@ -26,13 +26,15 @@ layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
-	uint pad0;
+	float static_brake;   // 0..1 GLOBAL bound: scales the INFINITE static-sea moisture add. 1 = pump freely,
+	                      // 0 = sea holds (atmosphere is at its target cloud cover). Dynamic-water evap is NOT
+	                      // gated by this, so the water cycle keeps running; only the un-conserving source tapers.
 	uint pad1;
 	uint pad2;
 } params;
 
 // Constants — MUST match the query-side sat()/evap math in MaterialField3D.gd + the box heritage.
-const float EVAP_RATE = 0.012;   // slowed: the infinite static-sea reservoir pumped moisture faster than rain drained
+const float EVAP_RATE = 0.007;   // slowed: the infinite static-sea reservoir pumped moisture faster than rain drained
                                  // it, so atmospheric moisture ran away (~11x over 2000 frames) and snowed out onto the
                                  // highlands, a creeping cold drift that froze the habitable band mid-run (population sustain)
 const float EVAP_WARM_K = 0.11;  // Clausius–Clapeyron slope: e ~ exp((T-REF)*k). Cold land water barely evaporates
@@ -40,6 +42,20 @@ const float EVAP_WARM_K = 0.11;  // Clausius–Clapeyron slope: e ~ exp((T-REF)*
 const float WATER_MIN = 0.05;
 const float EVAP_TEMP_REF = 22.0;
 const float MAX_MASS = 1.0;
+// SATURATION / HUMIDITY BRAKE — the stabilizing negative feedback that BOUNDS the moisture pump. Physically a
+// surface cannot keep evaporating into air that is already saturated: the closer the local air is to holding all
+// the water it can, the slower net evaporation runs (real Clausius–Clapeyron limit). Without this the infinite
+// static-sea reservoir added moisture every step regardless of how humid the column already was, so atmospheric
+// moisture RAN AWAY (~11x over 2000 frames), cloud cover climbed toward 1.0, that dimmed insolation (SystemOrbits
+// transmission), the surface drifted monotonically cold, and colder air condensed still more cloud — an UNBOUNDED
+// cloud→cooling feedback that froze the habitable band. The brake caps the CONDENSED load (moisture over sat(T),
+// the part that becomes cloud) each cell can build from local evaporation: evaporation tapers linearly to zero as
+// condensed → EVAP_COND_CEIL. Advection/uplift/night-cooling can still pile a cell past this to rain (the cycle
+// keeps running); what stops is the runaway SOURCE. sat() curve constants MUST match atmos_precip/snowice/MaterialField.
+const float SAT_BASE = 0.06;
+const float SAT_TEMP_GAIN = 0.055;
+const float EVAP_COND_CEIL = 0.30;  // condensed (cloud) headroom above saturation at which local evaporation stops
+                                    // (> atmos_precip RAIN_MASS_THRESHOLD=0.14 so convergence zones still rain first)
 const float BOIL_TEMP = 100.0;
 const float BOIL_RATE = 0.02;
 const float BOIL_MAX_FRAC = 0.5;
@@ -87,8 +103,18 @@ void main() {
 	if (open_above) {
 		float warmth = clamp(exp((temp[g] - EVAP_TEMP_REF) * EVAP_WARM_K), 0.0, 2.5);
 		float e = EVAP_RATE * warmth;
+		// HUMIDITY BRAKE (the bound): taper evaporation to zero as this cell's air approaches its condensed
+		// ceiling, so a saturated column stops pumping — the negative feedback that settles cloud cover instead
+		// of letting it run away. sat rises with T (warm air holds more), so the warm sea keeps evaporating while
+		// an already-cloudy cold column shuts its own source off.
+		float sat = SAT_BASE * exp(SAT_TEMP_GAIN * (temp[g] - EVAP_TEMP_REF));
+		float condensed = max(0.0, aw - sat);
+		float humid_brake = clamp(1.0 - condensed / EVAP_COND_CEIL, 0.0, 1.0);
+		e *= humid_brake;
 		if (is_static) {
-			added += e;                       // infinite reservoir: gain without draining
+			added += e * params.static_brake; // infinite reservoir: gain without draining, GLOBALLY bounded so the
+			                                  // total atmospheric H2O can't run away — the sea stops pumping once
+			                                  // cloud cover reaches its target (a steady deck, not a creeping snow-out)
 		} else {
 			e = min(e, water[g]);             // never drive water below 0
 			added += e;
@@ -100,7 +126,7 @@ void main() {
 	if (temp[g] > BOIL_TEMP) {
 		float bfrac = clamp((temp[g] - BOIL_TEMP) * BOIL_RATE, 0.0, BOIL_MAX_FRAC);
 		if (is_static) {
-			added += bfrac * STATIC_STEAM_MASS;
+			added += bfrac * STATIC_STEAM_MASS * params.static_brake;
 		} else if (water[g] > WATER_MIN) {
 			float b = min(water[g] * bfrac, water[g] - debit);
 			if (b > 0.0) {

@@ -155,6 +155,12 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: flo
 func set_sun_dir(v: Vector3) -> void:
 	_ctx["sun_dir"] = v if v.length() > 0.001 else Vector3(0, 1, 0)
 
+## Global atmospheric humidity signal (cloud cover 0..1), fed to atmos_evap so the infinite static sea stops
+## pumping once the air holds its target moisture — the GLOBAL bound on the water cycle (a local per-cell brake
+## can't cap a total that transport keeps redistributing). Slowly-varying; last cached value is fine.
+func set_atmos_humidity(h: float) -> void:
+	_ctx["atmos_humidity"] = clampf(h, 0.0, 1.0)
+
 func set_sea_radius(r: float) -> void:
 	_ctx["sea_radius"] = r
 

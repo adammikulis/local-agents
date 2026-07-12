@@ -37,7 +37,7 @@ layout(push_constant, std430) uniform Params {
 // VOID_CONDUCT ≈ the old 0.14 relax-to-mean spread over 6 open bonds (air/water mix briskly). ROCK_CONDUCT is
 // ~6× lower so the crust insulates: the deep interior stays near the core pin while the surface equilibrates to
 // the solar/radiative ambient band. Tuned so a 1300°C core coexists with a temperate (~15-30°C) surface.
-const float VOID_CONDUCT = 0.0233;
+const float VOID_CONDUCT = 0.016;
 const float ROCK_CONDUCT = 0.004;
 
 void main() {

@@ -38,6 +38,8 @@ const float SAT_BASE = 0.06;
 const float SAT_TEMP_GAIN = 0.055;
 const float EVAP_TEMP_REF = 22.0;
 const float SNOW_MIN = 0.001;        // clamp dust-thin snow to 0
+const float SUBLIMATE_FRAC = 0.004;  // per-step fraction of the snowpack that sublimates back to moisture, so
+                                     // deposition balances at a STEADY snow line instead of an unbounded snow-out
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;
@@ -64,6 +66,18 @@ void main() {
 			moisture[idx] -= x;
 			snow[idx] += x;
 		}
+	}
+
+	// SUBLIMATION — the snowpack's steady-state SINK. Snow deposition alone is one-way on ground that never warms
+	// past MELT_TEMP (the poles / high peaks), so snow ACCUMULATED without bound — a creeping snow-out that buried
+	// the grazable land and starved the herds over a long run. Real snow also leaves the pack by SUBLIMATING
+	// straight back to vapour (even well below freezing, driven by dry air + sun). A small per-step fraction
+	// returns to moisture, so deposition and sublimation balance at a STEADY snow line (persistent polar snow +
+	// sea ice remain — they just stop growing forever). Conserving: snow → moisture (the H₂O ledger is preserved).
+	float subl = snow[idx] * SUBLIMATE_FRAC;
+	if (subl > 0.0) {
+		snow[idx] -= subl;
+		moisture[idx] += subl;
 	}
 
 	if (snow[idx] < SNOW_MIN) {
