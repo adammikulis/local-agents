@@ -96,5 +96,92 @@ func seed(field) -> void:
 				field._static[c2] = 1                         # permanent freshwater body (like the sea, above sea level)
 				field._water[c2] = 1.0
 				lake_cells += 1
+	var river_cells: int = _seed_rivers(field, grid, sea_r, core_r, cs, sc, depth, surf_nbr)
 	if OS.has_environment("LA_WATER_DEBUG"):
-		print("LAKES_SEEDED={cells:%d}" % lake_cells)
+		print("LAKES_SEEDED={cells:%d, rivers:%d}" % [lake_cells, river_cells])
+
+
+const RIVER_ACCUM_MIN: int = 6           # upstream cells before a channel carries a visible river
+const RIVER_MAX_DEPTH_CELLS: int = 2     # deepest a big trunk river is seeded (cells above the valley floor)
+
+## Seed PERSISTENT RIVERS along the drainage network: standard D8 flow accumulation on a CONTINUOUS sub-shell
+## elevation (sampled from the terrain SDF — the shell-quantised elevation can't concentrate flow across the
+## smooth continents), then fill the high-accumulation valley channels with static freshwater (depth scaling with
+## upstream area, so trunk rivers are wider/deeper than headwater creeks). The rivers run down the terrain's own
+## valleys into the lakes/sea; the dry-land water-cycle equilibrium can't keep them full on its own, so — like
+## the lakes and the sea — they are a permanent water body (the emergent drainage decides WHERE; this fills it).
+func _seed_rivers(field, grid: RefCounted, sea_r: float, core_r: float, cs: float, sc: int, depth: int, surf_nbr: PackedInt32Array) -> int:
+	var terrain = field._terrain
+	if terrain == null or not terrain.has_method("sdf_at"):
+		return 0
+	var center: Vector3 = grid.center
+	var solid: PackedByteArray = field._solid
+	# CONTINUOUS surface elevation + ground shell per column.
+	var elev: PackedFloat32Array = PackedFloat32Array()
+	elev.resize(sc)
+	var eground: PackedInt32Array = PackedInt32Array()
+	eground.resize(sc)
+	var is_land: PackedByteArray = PackedByteArray()
+	is_land.resize(sc)
+	for s in range(sc):
+		var base: int = s * depth
+		var sr: int = -1
+		for r in range(depth - 1, -1, -1):
+			if solid[base + r] != 0:
+				sr = r
+				break
+		eground[s] = (sr + 1) if sr >= 0 else 0
+		if sr < 0:
+			is_land[s] = 0
+			elev[s] = -1.0e9
+			continue
+		var dir: Vector3 = grid.surf_dir(s)
+		var r_lo: float = core_r + (float(sr) + 0.5) * cs
+		var r_hi: float = core_r + (float(sr) + 1.5) * cs
+		var d_lo: float = terrain.sdf_at(center + dir * r_lo)
+		var d_hi: float = terrain.sdf_at(center + dir * r_hi)
+		var e: float = core_r + float(sr + 1) * cs
+		if d_hi > d_lo:
+			e = clampf(r_lo + (-d_lo) / (d_hi - d_lo) * (r_hi - r_lo), r_lo, r_hi)
+		elev[s] = e
+		is_land[s] = 1 if e > sea_r else 0
+	# Steepest descent + upstream-area accumulation (process high→low).
+	var downstream: PackedInt32Array = PackedInt32Array()
+	downstream.resize(sc)
+	downstream.fill(-1)
+	var order: Array = []
+	for s in range(sc):
+		if is_land[s] == 0:
+			continue
+		var lowest: int = -1
+		var lowest_e: float = elev[s]
+		for slot in range(4):
+			var n: int = surf_nbr[s * 4 + slot]
+			if n >= 0 and elev[n] < lowest_e:
+				lowest_e = elev[n]
+				lowest = n
+		downstream[s] = lowest
+		order.append(s)
+	order.sort_custom(func(a: int, b: int) -> bool: return elev[a] > elev[b])
+	var accum: PackedInt32Array = PackedInt32Array()
+	accum.resize(sc)
+	accum.fill(0)
+	for s in order:
+		accum[s] += 1
+		var d: int = downstream[s]
+		if d >= 0 and is_land[d] == 1:
+			accum[d] += accum[s]
+	# Fill the channels with static freshwater; depth grows (log) with upstream area.
+	var count: int = 0
+	for s in order:
+		if accum[s] < RIVER_ACCUM_MIN:
+			continue
+		var mag: int = clampi(int(log(float(accum[s])) / log(4.0)), 1, RIVER_MAX_DEPTH_CELLS)
+		var base2: int = s * depth
+		for k in range(mag):
+			var c: int = base2 + eground[s] + k                  # cells just above the valley floor
+			if c < base2 + depth and field._solid[c] == 0 and field._static[c] == 0:
+				field._static[c] = 1
+				field._water[c] = 1.0
+				count += 1
+	return count
