@@ -59,7 +59,7 @@ const PLANET_FEATURE: float = 155.0 * PLANET_SCALE
 # the sphere is below the sea — continents/islands emerge only at the cellular cores, with the sea for the
 # rivers to drain into. Raise OCEAN_BIAS (or SEA_RADIUS) for more water; lower for more land.
 const PLANET_SEA_RADIUS: float = PLANET_RADIUS
-const PLANET_OCEAN_BIAS: float = 6.0 * PLANET_SCALE   # EARTH-LIKE: ~70% ocean + distinct continents (was -10 mostly-land;
+const PLANET_OCEAN_BIAS: float = 3.0 * PLANET_SCALE   # more LAND than pure-Earth (was 6=too-much-ocean): prominent
                                                       # as the sea (smooth simplex continents are centred ~0, so a
                                                       # negative bias lifts most of the surface above sea level).
                                                       # RAISE toward + for more sea. Runtime-tunable: LA_OCEAN_BIAS=<n>.
