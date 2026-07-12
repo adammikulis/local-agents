@@ -735,6 +735,19 @@ func _ensure_cover_baker() -> void:
 	_cover_baker.setup(_sphere, sea_r, FOG_MAX_TEMP, RAIN_MASS_THRESHOLD, SAT_BASE, SAT_TEMP_GAIN, EVAP_TEMP_REF)
 
 
+## Read-only CLIMATE snapshot — the live per-cell moisture/temp/snow/solid readback the biome surface baker
+## reduces into a terrain-colour texture (LABiomeShaderController owns the baking; the field just exposes its
+## buffers). Thin facade accessor, no behaviour. Empty dict until the field is active. Returns the live arrays
+## (not copies) — the baker only reads them, matching how the cover baker consumes the same buffers in-place.
+func climate_snapshot() -> Dictionary:
+	if _cell_count <= 0 or _moisture.size() != _cell_count or _temp.size() != _cell_count:
+		return {}
+	return {
+		"moisture": _moisture, "temp": _temp, "snow": _snow,
+		"solid": _solid, "cell_count": _cell_count,
+	}
+
+
 ## The baked 6-layer RGBA cover texture (null until the first atmosphere refresh) — the water-particle
 ## renderer's field bridge. Plus the atmosphere shell radii it needs to place + classify particles.
 func field_cover_texture() -> Texture2DArray:

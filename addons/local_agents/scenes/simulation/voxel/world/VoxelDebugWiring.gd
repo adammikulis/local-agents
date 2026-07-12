@@ -105,6 +105,14 @@ func setup(world: Node, material: Node, terrain, sky: LAVoxelSkyController, hud:
 	if _input != null and _input.debug_family() and _family_tree != null:
 		_family_tree.set_enabled(true)
 
+	# Anti-aliasing at BOOT (not only when a screenshot is taken): the low-poly, cel-shaded terrain/actors have
+	# hard silhouettes that crawl and alias badly in normal play. MSAA 4x cleans the geometry edges — important
+	# now the toon shader gives crisp light/shadow terminators. The scene is CPU-bound, so this GPU-side
+	# smoothing is effectively free here.
+	var boot_vp: Viewport = world.get_viewport()
+	if boot_vp != null:
+		boot_vp.msaa_3d = Viewport.MSAA_4X
+
 
 ## Late-bind the interaction controller (built after this wiring in the composition order) so the "select
 ## all thinking/queued" button can drive the shared single-selection path via a predicate.
@@ -244,11 +252,12 @@ func _on_debug_screenshot() -> void:
 	if _hud != null and _hud.has_method("set_status"):
 		_hud.set_status("Saved screenshot → %s" % path)
 
-	# Anti-aliasing: the low-poly terrain/actors have hard silhouettes that crawl and alias badly. MSAA 2x
-	# cleans the geometry edges. The scene is CPU-bound so this GPU-side smoothing is effectively free here.
+	# Anti-aliasing: the low-poly terrain/actors have hard silhouettes that crawl and alias badly. MSAA 4x
+	# cleans the geometry edges (matches the boot-time setting in setup(), so a shot never downgrades AA).
+	# The scene is CPU-bound so this GPU-side smoothing is effectively free here.
 	var vp: Viewport = get_viewport()
 	if vp != null:
-		vp.msaa_3d = Viewport.MSAA_2X
+		vp.msaa_3d = Viewport.MSAA_4X
 	# Enable per-viewport GPU render-time measurement so the perf probe can report the rendering cost
 	# isolated from the (highly variable) CPU sim load.
 	if _input != null and _input.shoot_path() != "":

@@ -24,6 +24,7 @@ const MaterialField3DScript: GDScript = preload("res://addons/local_agents/scene
 const WaterParticlesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/WaterParticles.gd")
 const WaterSurfaceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldRender3D.gd")
 const DrainageOverlayScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DrainageOverlay.gd")
+const BiomeShaderScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/BiomeShaderController.gd")
 const StreamerHostScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelStreamerHost.gd")
 const ThoughtPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/CreatureThoughtPanel.gd")
 const EventTrackerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/events/LAEventTracker.gd")
@@ -99,6 +100,7 @@ var _ocean: Node = null      # LAOceanPlane — the calm sea drawn as one GPU pl
 var _water: Node = null      # LAWaterParticles — the ONE field-driven atmosphere visual (cloud/fog/rain/snow)
 var _water_surface: Node = null  # LAMaterialFieldRender3D — dynamic fluid surface (springs/rivers/lakes/floods)
 var _drainage: Node = null       # LADrainageOverlay — debug highlight of the drainage network
+var _biome_shader: Node = null   # LABiomeShaderController — bakes climate (moisture/temp) into terrain colour
 
 
 # Ocean fraction knob: how far the whole surface is pushed below sea level. LA_OCEAN_BIAS overrides the default
@@ -350,6 +352,14 @@ func _ready() -> void:
 		_terrain.set_shader_param("heat_tex", _material.heat_texture())
 		_terrain.set_shader_param("heat_world_min", _material.heat_world_min())
 		_terrain.set_shader_param("heat_world_size", _material.heat_world_size())
+
+	# BIOME COLORATION: bake the emergent climate (moisture + temperature) into a terrain-shader texture so
+	# the ground reads as distinct places (desert / savanna / jungle / steppe / tundra) instead of one lawn.
+	# All logic in the controller + baker module; composition root = one add_child + wire.
+	_biome_shader = BiomeShaderScript.new()
+	_biome_shader.name = "BiomeShader"
+	add_child(_biome_shader)
+	_biome_shader.setup(_material, _terrain)
 
 	# --- Debug menu (left) + world-space gizmo overlay: field views, type highlights, intended paths. ---
 	_debug = DebugWiringScript.new()
