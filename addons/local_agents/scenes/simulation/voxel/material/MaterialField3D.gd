@@ -1341,8 +1341,11 @@ func report() -> Dictionary:
 		"mineral_total": _queries.mineral_total(), "rock_cells": _queries.rock_cells(),
 		"rock_fill_total": _queries.rock_fill_total(), "lava_total": _queries.lava_total(),
 		"sediment_total": _queries.sediment_total(), "dust_total": _queries.dust_total(),
+		"enclosed_void": _queries.enclosed_void_cells(),
+		"enclosed_void5": _queries.enclosed_void_cells(5),
 		"rock_grows": (_stamp.grows if _stamp != null else 0), "rock_shrinks": (_stamp.shrinks if _stamp != null else 0),
 	}
 	r.merge(_open_temp_stats())
 	r.merge(_queries.rock_radial_profile())
+	r.merge(_queries.lava_shell_diag())
 	return r
