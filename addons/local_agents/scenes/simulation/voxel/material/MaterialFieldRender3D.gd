@@ -18,9 +18,10 @@ const MeshBuilderScript: GDScript = preload("res://addons/local_agents/scenes/si
 
 const CAP_ANGLE: float = 0.8               # rebuild within this half-angle of the camera radial — a small NEAR patch
                                            # (nearly flat, so the flat Y-up shader stays correct; far sea = the sphere)
-const FAR_ALT: float = 420.0               # above this altitude (world units over sea level) the dynamic surface is
-                                           # skipped and the cheap ocean sphere shows — its flat-patch look only reads
-                                           # right up close; from orbit/overview the smooth sphere is better + cheaper
+const FAR_ALT: float = 130.0               # above this altitude (world units over sea level) the dynamic surface is
+                                           # skipped and the cheap ocean sphere shows. The flat/Y-up patch only reads
+                                           # right when you're DOWN near the water (small, ~flat cap); from any pulled-
+                                           # back view the curved cap looks blocky/weird, so hand those to the sphere.
 const MAX_MASS: float = 1.0                # water kernel's MAX_MASS (a full cell) — for the sub-cell height fraction
 const REBUILD_PERIOD: float = 0.22         # ~4.5 Hz geometry rebuild (stale a couple frames is imperceptible)
 const RECENTER_DOT: float = 0.999          # rebuild early if the camera radial rotates past this (recentre the cap)

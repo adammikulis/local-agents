@@ -46,6 +46,7 @@ var _interaction: Node = null               # LAVoxelInteraction — for "select
 var _scent_visible: bool = false
 var _temp_debug_visible: bool = false   # T toggles the terrain temperature heatmap debug view
 var _active_field_view: String = ""     # the single field-channel heatmap currently shown ("" = none)
+var _drainage: Node = null              # LADrainageOverlay — the drainage-network debug highlight
 var _user_shot_counter: int = 0         # numbers the screenshots the DebugPanel's save button writes
 
 
@@ -139,6 +140,13 @@ func on_selection_changed(node: Node) -> void:
 
 # --- Debug menu handlers -----------------------------------------------------
 
+## Register the drainage-network overlay (built by VoxelWorld under the planet body) + honour --debug-rivers.
+func set_drainage(overlay: Node, show_now: bool) -> void:
+	_drainage = overlay
+	if show_now and _drainage != null:
+		_drainage.set_shown(true)
+
+
 func _on_debug_view(view: String, on: bool) -> void:
 	match view:
 		"temp":
@@ -152,6 +160,9 @@ func _on_debug_view(view: String, on: bool) -> void:
 			_scent_visible = on
 			if _debug_overlay != null:
 				_debug_overlay.set_scent(on)
+		"drainage":
+			if _drainage != null:
+				_drainage.set_shown(on)
 		_:
 			# A substrate field-channel heatmap (biomass/lava/snow/…). Only one at a time: enabling a
 			# channel shows it; disabling it clears the overlay only if it was the active one.

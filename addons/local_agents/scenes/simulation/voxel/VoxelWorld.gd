@@ -22,6 +22,7 @@ const OceanPlaneScript: GDScript = preload("res://addons/local_agents/scenes/sim
 const MaterialField3DScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField3D.gd")
 const WaterParticlesScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/WaterParticles.gd")
 const WaterSurfaceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldRender3D.gd")
+const DrainageOverlayScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DrainageOverlay.gd")
 const StreamerHostScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelStreamerHost.gd")
 const ThoughtPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/CreatureThoughtPanel.gd")
 const EventTrackerScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/events/LAEventTracker.gd")
@@ -84,6 +85,7 @@ var _material: Node = null   # LAMaterialField — the ONE substrate: terrain-co
 var _ocean: Node = null      # LAOceanPlane — the calm sea drawn as one GPU plane (CA meshes only waves)
 var _water: Node = null      # LAWaterParticles — the ONE field-driven atmosphere visual (cloud/fog/rain/snow)
 var _water_surface: Node = null  # LAMaterialFieldRender3D — dynamic fluid surface (springs/rivers/lakes/floods)
+var _drainage: Node = null       # LADrainageOverlay — debug highlight of the drainage network
 var _streamer_host: Node = null # LAVoxelStreamerHost — owns the streamer overlay/avatar/voice/director
 var _thought_panel: CanvasLayer = null # LACreatureThoughtPanel — click-a-creature "what it's thinking" hook
 var _events: Node = null     # LAEventTracker — the ONE emergent phenomenon-event source (streamer + telemetry consume it)
@@ -331,6 +333,13 @@ func _ready() -> void:
 	_debug.name = "DebugWiring"
 	add_child(_debug)
 	_debug.setup(self, _material, _terrain, _sky_ctrl, _hud, _input, _ecology)
+	# Drainage-network debug highlight (where rivers should run) — a child of the planet body so it rides the
+	# spin; DebugWiring owns its toggle (DEBUG panel "Rivers" + --debug-rivers). Composition root = wiring only.
+	_drainage = DrainageOverlayScript.new()
+	_drainage.name = "DrainageOverlay"
+	_body.add_child(_drainage)
+	_drainage.setup(_material)
+	_debug.set_drainage(_drainage, _input.debug_rivers())
 
 	# --- Streamer / commentator (lower-right face-cam driven by the local LLM). LAZY + default-OFF: nothing
 	# is built at startup, so a fresh launch spins up NO local LLM / TTS and shows no overlay. The player

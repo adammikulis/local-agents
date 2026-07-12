@@ -45,6 +45,7 @@ var _rain_force: bool = false           # --rain: force the rain visual on (veri
 var _debug_demo: bool = false
 var _wind_view: bool = false            # --wind-view: enable ONLY the emergent wind-arrow overlay
 var _debug_field: String = ""           # --debug-field=<channel>: pre-enable a substrate heatmap (biomass/lava/…)
+var _debug_rivers: bool = false          # --debug-rivers: highlight the drainage network (where rivers should run)
 var _debug_behaviors: String = ""       # --debug-behaviors[=a,b]: pre-enable behavior-state highlights (default foraging+hunting)
 # --- local-LLM slow-brain control/verification flags ---
 var _llm_highlight: bool = false        # --llm-highlight: pre-enable the thinking/queued tints + report live counts
@@ -146,6 +147,8 @@ func parse_cmdline() -> void:
 			_wind_view = true
 		elif arg.begins_with("--debug-field="):
 			_debug_field = arg.substr("--debug-field=".length())
+		elif arg == "--debug-rivers":
+			_debug_rivers = true
 		elif arg == "--debug-behaviors":
 			_debug_behaviors = "foraging,hunting"
 		elif arg.begins_with("--debug-behaviors="):
@@ -824,5 +827,6 @@ func auto_seavolcano() -> bool: return _auto_seavolcano
 func debug_demo() -> bool: return _debug_demo
 func wind_view() -> bool: return _wind_view
 func debug_field() -> String: return _debug_field
+func debug_rivers() -> bool: return _debug_rivers
 func debug_behaviors() -> String: return _debug_behaviors
 func fast_multiplier() -> int: return _fast

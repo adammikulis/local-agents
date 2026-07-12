@@ -114,6 +114,14 @@ var _orbiting: bool = false
 var _drag_orbiting: bool = false
 var _drag_orbit_armed: bool = false
 var _drag_orbit_travel: float = 0.0
+# MIDDLE-mouse (scroll-wheel) held-drag AIMS the camera in place (free-look yaw/pitch offset on top of the orbit
+# pose) — pivot your head without moving the globe. LEFT-mouse held-drag moves the globe (orbit). Shift+MMB pans.
+var _aiming: bool = false
+var _aim_yaw: float = 0.0
+var _aim_pitch: float = 0.0
+const AIM_DRAG_SPEED: float = 0.005      # radians of camera-aim per pixel of MMB drag
+const AIM_YAW_LIMIT: float = 1.2         # clamp free-look yaw (rad)
+const AIM_PITCH_LIMIT: float = 1.0       # clamp free-look pitch (rad)
 
 # Invert the planet drag-rotate axes (player Controls setting). When on, that drag component is negated so
 # the surface swings the opposite way for that axis. Read from LAGameSettings (GameMode autoload), refreshed
@@ -466,6 +474,10 @@ func _update_orbit_transform() -> void:
 		var far_look: Vector3 = _orbit_center
 		var close_look: Vector3 = surface_pt + upn * ARC_LOOK_HEIGHT                 # gaze at creature height
 		look_at(far_look.lerp(close_look, t), upn)
+	# FREE-LOOK aim offset (MMB drag): pivot the camera in place on top of the orbit pose, without moving the globe.
+	if not is_zero_approx(_aim_yaw) or not is_zero_approx(_aim_pitch):
+		rotate_object_local(Vector3.UP, _aim_yaw)
+		rotate_object_local(Vector3.RIGHT, _aim_pitch)
 	# Far plane scaled to the orbit distance so the whole planet stays inside the frustum when pulled out.
 	far = clampf(_distance * 4.0, 4000.0, 40000.0)
 
@@ -630,24 +642,24 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_MIDDLE:
-			# Plain MMB held + drag orbits (horizontal = yaw, vertical = pitch);
-			# Shift + MMB pans. RMB is left free for spawn/cast.
+			# Plain MMB (scroll-wheel) held + drag AIMS the camera in place (free-look yaw/pitch — pivot your view
+			# without moving the globe); Shift + MMB pans. Moving the globe is LEFT-mouse drag (below).
 			if mb.pressed:
 				stop_tracking()          # grabbing the view takes back control from a storm follow
 				if Input.is_key_pressed(KEY_SHIFT):
 					_set_panning(true)
 				else:
-					_set_orbiting(true)
+					_aiming = true
 			else:
 				_set_panning(false)
-				_set_orbiting(false)
+				_aiming = false
 			return
-		# Plain LMB / RMB held: arm a "grab the planet" drag-orbit. It only starts rotating once the
-		# cursor moves past DRAG_ORBIT_THRESHOLD, so a click still selects (LMB) / casts (RMB) — those
-		# resolve on the same (non-consumed) event over in VoxelWorld's interaction/brush.
+		# LEFT-mouse held: arm a "grab the globe" drag-orbit — it only starts rotating once the cursor moves past
+		# DRAG_ORBIT_THRESHOLD, so a plain click still selects (the non-consumed event resolves in VoxelWorld's
+		# interaction). RIGHT-mouse stays pure spawn/cast (no camera grab).
 		if mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_RIGHT:
 			if mb.pressed:
-				_drag_orbit_armed = false   # disabled: LMB/RMB stay pure select/place; PIVOT is MIDDLE-mouse held-drag
+				_drag_orbit_armed = (mb.button_index == MOUSE_BUTTON_LEFT)
 				_drag_orbiting = false
 				_drag_orbit_travel = 0.0
 			else:
@@ -674,6 +686,15 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	elif event is InputEventMouseMotion:
 		var mm: InputEventMouseMotion = event as InputEventMouseMotion
+		if _aiming:
+			# Free-look: pivot the camera's aim in place (does NOT move the globe).
+			_aim_yaw = clampf(_aim_yaw - mm.relative.x * AIM_DRAG_SPEED, -AIM_YAW_LIMIT, AIM_YAW_LIMIT)
+			_aim_pitch = clampf(_aim_pitch - mm.relative.y * AIM_DRAG_SPEED, -AIM_PITCH_LIMIT, AIM_PITCH_LIMIT)
+			if _fly:
+				_fly_look_drag(mm.relative)
+			else:
+				_update_transform()
+			return
 		if _drag_orbit_armed:
 			# Accumulate travel; once past the click threshold the hold becomes a planet-rotate drag.
 			_drag_orbit_travel += mm.relative.length()
