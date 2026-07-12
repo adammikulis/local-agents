@@ -7,7 +7,7 @@ extends Node3D
 ## The creature runs on its pure fast/reinforced brain against the flat ground; no MaterialField is created.
 ## (Explicit types only — project rule: no ':=' inferred typing.)
 
-const CreatureScene: PackedScene = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Creature.tscn")
+const CreatureScene: PackedScene = preload("res://addons/local_agents/creatures/Creature.tscn")
 const LocalAgentScript: GDScript = preload("res://addons/local_agents/agents/Agent.gd")
 
 ## A species with a data file ("rabbit", "fox", "bird", …) or "" for the built-in generic walker.

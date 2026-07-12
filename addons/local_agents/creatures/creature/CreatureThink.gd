@@ -10,7 +10,20 @@ extends RefCounted
 const DRINK_RATE: float = 45.0             # hydration/sec restored while drinking (mirrors LACreature.DRINK_RATE)
 const COMPANION_FOLLOW_DIST: float = 4.0   # a "follow" companion closes to this range, then heels/holds
 
-const ThrownRockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/ThrownRock.gd")
+# Rock-throwing is an OPTIONAL behaviour that depends on the game's LAThrownRock prop. It is resolved
+# lazily + guarded (never top-level `preload`d) so a core creature parses and runs with the game deleted —
+# it simply cannot throw. Resolves to null when the prop script is absent.
+const THROWN_ROCK_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/actors/ThrownRock.gd"
+static var _thrown_rock_script: GDScript = null
+static var _thrown_rock_resolved: bool = false
+
+static func _resolve_thrown_rock() -> GDScript:
+	if _thrown_rock_resolved:
+		return _thrown_rock_script
+	_thrown_rock_resolved = true
+	if ResourceLoader.exists(THROWN_ROCK_PATH):
+		_thrown_rock_script = load(THROWN_ROCK_PATH) as GDScript
+	return _thrown_rock_script
 
 
 # --- prey behavior: flee predators (dominates), else forage (seek + eat plants), else wander + flock ---
@@ -118,13 +131,16 @@ static func _hunt_with_rock(c, pos: Vector3, prey: Node3D, to_prey: Vector3, fal
 
 
 static func _throw_rock_at(c, prey: Node3D) -> void:
+	var rock_script: GDScript = _resolve_thrown_rock()
+	if rock_script == null:
+		return   # no LAThrownRock prop (core/library build with the game deleted) — can't throw
 	c.has_rock = false
 	_set_rock_visual(c, false)
 	c._throw_cd = 2.5
 	var parent: Node = c.get_parent()
 	if parent == null:
 		return
-	var rock: ThrownRockScript = ThrownRockScript.new()
+	var rock: Node = rock_script.new()
 	parent.add_child(rock)
 	if rock.has_method("setup"):
 		rock.setup(c.terrain, c._material)
@@ -249,7 +265,7 @@ static func think_scavenger(c, pos: Vector3, _delta: float) -> Vector3:
 	if carcass != null:
 		to_flat = Vector3(carcass.global_position.x - pos.x, 0.0, carcass.global_position.z - pos.z)
 	elif c._material != null and c._material.has_method("scent_gradient"):
-		var d: Vector3 = c._material.scent_gradient(pos, LAMaterialField3D.SCENT_FOOD)
+		var d: Vector3 = c._material.scent_gradient(pos, LAScentChannels.SCENT_FOOD)
 		if d != Vector3.ZERO:
 			to_flat = Vector3(d.x, 0.0, d.z)
 	if to_flat != Vector3.ZERO:
@@ -348,7 +364,7 @@ static func _carrion_cue(c, pos: Vector3) -> Vector3:
 		if d.length() > 0.001:
 			return d.normalized()
 	if c._material != null and c._material.has_method("scent_gradient"):
-		var s: Vector3 = c._material.scent_gradient(pos, LAMaterialField3D.SCENT_FOOD)
+		var s: Vector3 = c._material.scent_gradient(pos, LAScentChannels.SCENT_FOOD)
 		if s != Vector3.ZERO:
 			return Vector3(s.x, 0.0, s.z).normalized()
 	if c._cue_cd > 0.0:

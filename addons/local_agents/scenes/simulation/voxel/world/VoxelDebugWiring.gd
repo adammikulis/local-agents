@@ -10,7 +10,7 @@ extends Node
 const DebugPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugPanel.gd")
 const DebugOverlayScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/DebugOverlay.gd")
 const FamilyTreePanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ui/FamilyTreePanel.gd")
-const CreatureScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Creature.gd")
+const CreatureScript: GDScript = preload("res://addons/local_agents/creatures/Creature.gd")
 
 # The active field-channel keys (a heatmap in the DebugOverlay), distinct from temp (terrain shader),
 # wind, and scent (own overlays). One is drawn at a time; enabling a new one replaces the last.

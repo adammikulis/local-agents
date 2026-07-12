@@ -3,7 +3,7 @@ extends RefCounted
 
 ## Loads DISEASE STRAIN records from data files, exactly like LASpeciesLibrary loads creatures — a disease is a
 ## DATA record, never an `if strain == "X"` branch (config-over-cases). Each strain lives in one small JSON under
-## `data/diseases/<id>.json`, so a designer adds a new plague by dropping in a file: the transmission + immune +
+## `creatures/data/diseases/<id>.json`, so a designer adds a new plague by dropping in a file: the transmission + immune +
 ## symptom code all read the record generically, so the new disease composes in with zero code.
 ##
 ## Strain record schema (all optional; sane defaults below):
@@ -23,7 +23,7 @@ extends RefCounted
 ##
 ## (Explicit types only — project rule: no ':=' inferred typing.)
 
-const DISEASE_DIR: String = "res://addons/local_agents/scenes/simulation/voxel/data/diseases"
+const DISEASE_DIR: String = "res://addons/local_agents/creatures/data/diseases"
 
 const DEFAULTS: Dictionary = {
 	"name": "Plague", "vector": "contact", "transmissibility": 0.5, "range": 3.0,

@@ -5,11 +5,11 @@ extends Node
 # with population caps, herd cohesion (delegated to creatures), and plant seeding.
 # Every actor is placed on the terrain surface via LAVoxelTerrainService.
 
-const CreatureScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Creature.gd")
+const CreatureScript: GDScript = preload("res://addons/local_agents/creatures/Creature.gd")
 const PlantScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Plant.gd")
 const RockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Rock.gd")
 const TreeScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Tree.gd")
-const FishScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/Fish.gd")
+const FishScript: GDScript = preload("res://addons/local_agents/creatures/Fish.gd")
 const TrackSystemScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/TrackSystem.gd")
 
 const KINDS: Array = ["plant", "rabbit", "fox", "bird", "villager", "fish", "rock", "tree"]
@@ -187,7 +187,7 @@ func setup(_terrain, _actors_root: Node3D) -> void:
 	# Shared System-2 slow brain (FunctionGemma) with a global call budget; creatures escalate to
 	# it rarely and asynchronously. Loaded by path + guarded so the sim still runs on pure fast
 	# heuristics + social learning if the scheduler script or model is unavailable.
-	var sched_script: GDScript = load("res://addons/local_agents/scenes/simulation/voxel/cognition/CognitionScheduler.gd")
+	var sched_script: GDScript = load("res://addons/local_agents/creatures/cognition/CognitionScheduler.gd")
 	if sched_script != null:
 		_cognition_sched = sched_script.new()
 		_cognition_sched.name = "CognitionScheduler"

@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3 uid="uid://bc7l2q0creature0"]
 
-[ext_resource type="Script" path="res://addons/local_agents/scenes/simulation/voxel/actors/Creature.gd" id="1_creature"]
+[ext_resource type="Script" path="res://addons/local_agents/creatures/Creature.gd" id="1_creature"]
 
 [node name="Creature" type="CharacterBody3D"]
 script = ExtResource("1_creature")

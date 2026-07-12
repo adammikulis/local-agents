@@ -79,14 +79,15 @@ const EVAP_TEMP_REF: float = 22.0
 const FOG_MAX_TEMP: float = 12.0
 const CONDENSE_COVER_MIN: float = 0.05
 const RAIN_MASS_THRESHOLD: float = 0.42   # matches atmos_precip_sphere3d; aquifer springs supply land water so less rain needed
-# Scent channel indices (formerly LAMaterialScent3D.PREY/… — re-homed here after the CPU-oracle module was
-# retired). External senses/cognition sites reference these via LAMaterialField3D.SCENT_*.
-const SCENT_PREY: int = 0
-const SCENT_PREDATOR: int = 1
-const SCENT_BLOOD: int = 2
-const SCENT_FOOD: int = 3
-const SCENT_ALARM: int = 4
-const SCENT_CHANNELS: int = 5
+# Scent channel indices — sourced from the CORE const LAScentChannels (creatures/ScentChannels.gd) so the
+# field (writer) and the creature senses/cognition (reader, in the core library) can never drift. The field
+# re-exports them as LAMaterialField3D.SCENT_* for the game-side material passes that reference them here.
+const SCENT_PREY: int = LAScentChannels.SCENT_PREY
+const SCENT_PREDATOR: int = LAScentChannels.SCENT_PREDATOR
+const SCENT_BLOOD: int = LAScentChannels.SCENT_BLOOD
+const SCENT_FOOD: int = LAScentChannels.SCENT_FOOD
+const SCENT_ALARM: int = LAScentChannels.SCENT_ALARM
+const SCENT_CHANNELS: int = LAScentChannels.SCENT_CHANNELS
 var _temp: PackedFloat32Array = PackedFloat32Array()     # temperature °C per cell (rock + void)
 # ONE conserved atmospheric-water channel: total water suspended in a cell's air (Phase 2a — collapses the
 # old vapor/cloud/fog trio). vapor = min(moisture, sat(T)); condensed = max(0, moisture − sat(T)); the

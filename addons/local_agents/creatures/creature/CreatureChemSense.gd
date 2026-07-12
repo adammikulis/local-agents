@@ -28,11 +28,11 @@ extends RefCounted
 # row per LAMaterialField3D channel: [channel_index, cue_key]. The cue key is just the generic reward-channel
 # string LACognition.reinforce_cue / cue_value already understand — the SIGN of the value is never set here.
 const SCENT_CUES: Array = [
-	[LAMaterialField3D.SCENT_PREY, "scent:prey"],
-	[LAMaterialField3D.SCENT_PREDATOR, "scent:predator"],
-	[LAMaterialField3D.SCENT_BLOOD, "scent:blood"],
-	[LAMaterialField3D.SCENT_FOOD, "scent:food"],
-	[LAMaterialField3D.SCENT_ALARM, "scent:alarm"],
+	[LAScentChannels.SCENT_PREY, "scent:prey"],
+	[LAScentChannels.SCENT_PREDATOR, "scent:predator"],
+	[LAScentChannels.SCENT_BLOOD, "scent:blood"],
+	[LAScentChannels.SCENT_FOOD, "scent:food"],
+	[LAScentChannels.SCENT_ALARM, "scent:alarm"],
 ]
 
 # Taste reward tuning. A bite delivers a fraction of max energy; a "par" bite is worth NEUTRAL_BITE_FRAC of

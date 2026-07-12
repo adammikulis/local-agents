@@ -24,8 +24,6 @@ const GROUND_TURN_RATE: float = 6.0        # ground creatures turn briskly-but-s
                                            # heading each frame, so throttled decisions don't read as jerky pops
 const THINK_STRIDE: int = 3                 # decide every N physics frames (movement stays every-frame)
 
-const ThrownRockScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/actors/ThrownRock.gd")
-
 # --- energy / hunger / mortality (emergent: eat to live, starve or age to die) ---
 var energy: float = 100.0
 var max_energy: float = 100.0
@@ -448,14 +446,30 @@ func set_material_field(w) -> void:
 	_material = w
 
 
+# The game's LAFlameFX combustion visual — resolved lazily + guarded (never top-level `preload`d) so a
+# core creature parses and dies-burned with the game deleted; it just skips the flame prop. Null when absent.
+const FLAME_FX_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/actors/FlameFX.gd"
+static var _flame_fx_script: GDScript = null
+static var _flame_fx_resolved: bool = false
+
+static func _resolve_flame_fx() -> GDScript:
+	if _flame_fx_resolved:
+		return _flame_fx_script
+	_flame_fx_resolved = true
+	if ResourceLoader.exists(FLAME_FX_PATH):
+		_flame_fx_script = load(FLAME_FX_PATH) as GDScript
+	return _flame_fx_script
+
+
 # Organic matter combusts — bursts into flame (not incandescent glow) and dies burned. The flame is
 # detached at the spot so it lingers as the body drops, rather than freeing with the creature.
 func _combust() -> void:
 	if _dying:
 		return
 	var parent: Node = get_parent()
-	if parent != null:
-		var flame: Node3D = LAFlameFX.make()
+	var flame_script: GDScript = _resolve_flame_fx()
+	if parent != null and flame_script != null and flame_script.has_method("make"):
+		var flame: Node3D = flame_script.make()
 		parent.add_child(flame)
 		flame.global_position = global_position
 		var timer: SceneTreeTimer = get_tree().create_timer(2.5)

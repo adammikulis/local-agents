@@ -22,7 +22,7 @@ extends RefCounted
 ## projection), re-apply scalar state + cognition, then reconstruct kinship by grouping creatures by their
 ## saved family and replaying the directed edges through a save-index→live-cid map. (Explicit types — no ':=' .)
 
-const DNAScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/cognition/DNA.gd")
+const DNAScript: GDScript = preload("res://addons/local_agents/creatures/cognition/DNA.gd")
 const FieldSnapshotScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialFieldSnapshot3D.gd")
 
 

@@ -21,7 +21,7 @@ const PlanetBodyScript: GDScript = preload("res://addons/local_agents/scenes/sim
 const SphereGridScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/sphere/SphereGrid.gd")
 const MaterialFieldScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/material/MaterialField3D.gd")
 const EcologyServiceScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/ecology/EcologyService.gd")
-const FlatTerrainScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/terrain/adapters/FlatGroundTerrain.gd")
+const FlatTerrainScript: GDScript = preload("res://addons/local_agents/creatures/terrain/adapters/FlatGroundTerrain.gd")
 
 # --- Headline: which substrate this world is. Everything below splits on it. ---
 @export var world_type: WorldType = WorldType.SPHERE

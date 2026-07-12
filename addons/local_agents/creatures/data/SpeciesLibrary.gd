@@ -2,7 +2,7 @@ class_name LASpeciesLibrary
 extends RefCounted
 
 ## Loads per-species creature configs from easy-to-find DATA files, keeping tuning OUT of the
-## ecology's business logic. Configs live under `data/species/<class>/<kind>.json` (clustered by
+## ecology's business logic. Configs live under `creatures/species/<class>/<kind>.json` (clustered by
 ## type — `mammals/`, `birds/`, `people/`, …), one file per species, so a designer edits a single
 ## small JSON to retune a creature without touching code.
 ##
@@ -14,7 +14,7 @@ extends RefCounted
 ##
 ## (Explicit types only — project rule: no ':=' inferred typing.)
 
-const SPECIES_DIR: String = "res://addons/local_agents/scenes/simulation/voxel/data/species"
+const SPECIES_DIR: String = "res://addons/local_agents/creatures/species"
 const STRING_ARRAY_KEYS: Array = ["preys_on", "flees_from"]
 
 static var _cache: Dictionary = {}     # kind -> converted config
