@@ -53,7 +53,7 @@ const WorldSaveControllerScript: GDScript = preload("res://addons/local_agents/s
 # ocean fraction (~72%), continent count, and field cost (cell_count fixed — just coarser cells) are preserved.
 const PLANET_RADIUS: float = 500.0
 const PLANET_SCALE: float = PLANET_RADIUS / 250.0     # everything below was tuned at radius 250
-const PLANET_RELIEF: float = 46.0 * PLANET_SCALE
+const PLANET_RELIEF: float = 28.0 * PLANET_SCALE   # was 46 → gentler, less-mountainous continents (LA_RELIEF overrides)
 const PLANET_FEATURE: float = 155.0 * PLANET_SCALE
 # OCEAN-heavy world: sea shell at the mean radius and OCEAN_BIAS pushes the whole surface inward, so most of
 # the sphere is below the sea — continents/islands emerge only at the cellular cores, with the sea for the
@@ -66,16 +66,16 @@ const PLANET_OCEAN_BIAS: float = -10.0 * PLANET_SCALE  # NEGATIVE = mostly LAND 
 # BASIN relief: medium-wavelength undulation carved into the flat cellular plateaus so land has CLOSED
 # DEPRESSIONS (lake bowls) — the pools springs/rain/runoff collect into as standing lakes (raise for deeper
 # lakes/more relief; 0 = flat plateaus that only drain to the sea).
-const PLANET_BASIN_RELIEF: float = 20.0 * PLANET_SCALE
+const PLANET_BASIN_RELIEF: float = 12.0 * PLANET_SCALE   # was 20 → shallower undulation (still enough for lake bowls)
 const PLANET_BASIN_SIZE: float = 130.0 * PLANET_SCALE
 # RIDGES: ridged-multifractal MOUNTAIN layer. Rivers no longer ride this noise — the drainage network is carved
 # into the terrain from the ACTUAL water flow (see MaterialFieldLakes3D river carving), so this layer's only job
 # is gentle mountain extrusions. Kept LOW-amplitude + few octaves so peaks are rolling, not craggy spikes.
-const PLANET_RIDGE_RELIEF: float = 9.0 * PLANET_SCALE   # was 22 (welded to rivers → craggy); now light mountains
+const PLANET_RIDGE_RELIEF: float = 4.0 * PLANET_SCALE   # was 22→9→4: barely-there rolling mountains, not craggy (LA_RIDGE)
 const PLANET_RIDGE_SIZE: float = 95.0 * PLANET_SCALE
-const PLANET_RIDGE_OCTAVES: int = 3                     # was 4; fewer octaves = softer ridge lines (less spiky)
-# DETAIL: fine high-frequency roughness. Halved from the old default (6) so hillsides read textured, not gritty.
-const PLANET_DETAIL_RELIEF: float = 1.5 * PLANET_SCALE  # effective ~3 (was ~6) — less craggy surface grain
+const PLANET_RIDGE_OCTAVES: int = 2                     # was 4→3→2; fewer octaves = smoother ridge lines
+# DETAIL: fine high-frequency roughness — the "rough grain". Cut hard (6→3→1) so the surface reads smooth, not gritty.
+const PLANET_DETAIL_RELIEF: float = 1.0 * PLANET_SCALE  # was ~6→3→2 (LA_DETAIL overrides)
 # CAVES: emergent fractal spaghetti tunnels carved into the SDF underground (see LASpherePlanetGenerator).
 # Two 3D noise iso-surfaces intersect into winding tubes, gated below the surface. Set LA_CAVES=0 to disable.
 const PLANET_CAVE_SIZE: float = 60.0 * PLANET_SCALE      # tunnel wavelength (world units)
@@ -117,6 +117,14 @@ func _ocean_bias() -> float:
 	if OS.has_environment("LA_OCEAN_BIAS"):
 		return float(OS.get_environment("LA_OCEAN_BIAS")) * PLANET_SCALE
 	return PLANET_OCEAN_BIAS
+# Terrain-roughness live knobs (pre-scale units, per-launch, no edit): LA_RELIEF=continent height,
+# LA_RIDGE=mountain-ridge amplitude, LA_DETAIL=fine surface grain. Lower = smoother/flatter. e.g. LA_RELIEF=20.
+func _relief() -> float:
+	return float(OS.get_environment("LA_RELIEF")) * PLANET_SCALE if OS.has_environment("LA_RELIEF") else PLANET_RELIEF
+func _ridge_relief() -> float:
+	return float(OS.get_environment("LA_RIDGE")) * PLANET_SCALE if OS.has_environment("LA_RIDGE") else PLANET_RIDGE_RELIEF
+func _detail_relief() -> float:
+	return float(OS.get_environment("LA_DETAIL")) * PLANET_SCALE if OS.has_environment("LA_DETAIL") else PLANET_DETAIL_RELIEF
 # Underground fractal tunnels are on by default; LA_CAVES=0 builds the pre-cave (solid-interior) planet.
 func _caves_enabled() -> bool:
 	if OS.has_environment("LA_CAVES"):
@@ -198,10 +206,10 @@ func _ready() -> void:
 	_body = PlanetBodyScript.new()
 	_body.name = "PlanetBody"
 	add_child(_body)
-	_body.setup({"radius": PLANET_RADIUS, "relief": PLANET_RELIEF, "feature_size": PLANET_FEATURE,
+	_body.setup({"radius": PLANET_RADIUS, "relief": _relief(), "feature_size": PLANET_FEATURE,
 		"basin_relief": PLANET_BASIN_RELIEF, "basin_size": PLANET_BASIN_SIZE,
-		"ridge_relief": PLANET_RIDGE_RELIEF, "ridge_size": PLANET_RIDGE_SIZE, "ridge_octaves": PLANET_RIDGE_OCTAVES,
-		"detail_relief": PLANET_DETAIL_RELIEF,
+		"ridge_relief": _ridge_relief(), "ridge_size": PLANET_RIDGE_SIZE, "ridge_octaves": PLANET_RIDGE_OCTAVES,
+		"detail_relief": _detail_relief(),
 		"caves_enabled": _caves_enabled(), "cave_size": PLANET_CAVE_SIZE, "cave_threshold": PLANET_CAVE_THRESHOLD,
 		"cave_strength": PLANET_CAVE_STRENGTH, "cave_depth_fade": PLANET_CAVE_DEPTH_FADE,
 		"sea_radius": PLANET_SEA_RADIUS, "ocean_bias": _ocean_bias(), "view_distance": 2000, "seed": 1337})

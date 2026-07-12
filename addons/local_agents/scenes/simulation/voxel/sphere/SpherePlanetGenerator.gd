@@ -113,7 +113,7 @@ func build(opts: Dictionary = {}) -> VoxelGeneratorGraph:
 	detail.seed = seed_val + 7
 	detail.period = maxf(1.0, detail_size)
 	detail.fractal_type = ZN_FastNoiseLite.FRACTAL_FBM
-	detail.fractal_octaves = 4
+	detail.fractal_octaves = 2                # was 4 → fewer octaves = far less fine "grain" on the surface
 	detail.fractal_lacunarity = 2.0
 	detail.fractal_gain = 0.5
 
