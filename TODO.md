@@ -4,10 +4,25 @@ Master tracker. Main scene: the game boots to `scenes/menu/MainMenu.tscn`; the f
 `scenes/simulation/voxel/VoxelWorld.tscn`. Read `CLAUDE.md` + `EMERGENCE.md` first.
 
 ## ▶ NEXT SESSION — START HERE (this file IS the plan doc; feed it in)
-**0.4 (the living creatures) is well underway on `0.4-dev`** — the current dev branch. 0.3.1 shipped and
-lives on `main` (tagged `v0.3.1`); the old `0.3-dev` is retired. Read `CLAUDE.md` (process + Workflow-tool
-fan-out rule) · `EMERGENCE.md` (design) · the memories (`roadmap-0.4-life-cycle`, `dissolve-dont-patch`,
-`perf-over-parity`, `three-d-always`, …); work in a worktree off `0.4-dev`.
+**ROADMAP PIVOT (2026-07-12): 0.4 is now THE EMERGENT PLANET; the living creatures moved to 0.5; the full
+solar system moved to 0.6.** 0.4 makes the physical substrate the star — geology + hydrology + volcanism +
+climate, all emergent from the ONE field, simulated START TO FINISH (a geological bake: rough world → weathering/
+erosion/volcanism/climate run forward → frozen as a livable, beautiful start state you can tend or just watch —
+"deism-optional"). Look = CEL-SHADING. See **"0.4 — THE EMERGENT PLANET"** below (the full tiered plan). 0.3.1
+shipped on `main` (`v0.3.1`); development is on `0.4-dev`. Read `CLAUDE.md` · `EMERGENCE.md` · memories
+(`roadmap-0.4-life-cycle` [pivot], `dissolve-dont-patch`, `perf-first-ruthlessly`, `big-o-first-class`,
+`fire-balance-wildfire`, `worktree-shader-import-gotcha`, `three-d-always`); work in a worktree off `0.4-dev`.
+
+**Shipped this session (0.4-planet, on `0.4-dev`):** camera terrain-follow anti-clip · rivers DECOUPLED from
+mountains (gentle ridges + rivers carved into the SDF along real D8 drainage, flat areas too) · debug/QoL
+(companion keys in controls, altitude readout, perf readout, wireframe/overdraw) · cognizer-adapter seam (early
+0.5) · **Wave-1 planet lanes: cel-shaded toon look + emergent biome coloration (moisture×temp), analytic
+scattering sky + moon tides + sphere-aware ocean, altitude lapse + latitude Coriolis/orographic wind.** Fixed a
+worktree gotcha: fresh worktrees need `godot --headless --path . --import` or the GPU field is silently dead
+(biomass=0) + get_spirv spam.
+**In flight / held:** fire-balance (rare-but-real wildfires) + hot springs + lava tubes on feature branches;
+the fuel/fertility/storm-charge fixes are HELD on `integ/substrate-cognizer` pending the fire-balance merge
+(they made wildfires too lethal — see `fire-balance-wildfire`).
 
 **Shipped in 0.4 so far** (merged on `0.4-dev`, editor-scan-clean, behaviorally verified):
 - **Living-creatures fan-out** — literal **DNA** (codon strand → traits, replaced LAGenome) + heritable
@@ -218,7 +233,44 @@ build that boots.** Everything below is MERGED on `feature/sphere-followups` unl
 
 ---
 
-## 0.4 — THE LIVING CREATURES (next release — their entire life cycle)
+## 0.4 — THE EMERGENT PLANET (current release — the physical world as the star)
+
+The substrate is genuinely **~70% there**; almost every gap below is **coupling / read-out of fields already
+simulated**, not new systems (full audit + file:line detail: the domain-audit synthesis). Guiding: dissolve-
+don't-patch · emergent-everything · perf-first · Big-O + activity-bubble LOD · **fakery = the LOD tier** (full
+sim in the compute-bubble; cheap analytic stand-ins for distant/dormant/offscreen, re-materialize on approach).
+
+**3 KEYSTONES (everything leans on these):**
+- **A — Erosion re-land.** `MaterialErosion3D` was DELETED; `susp` is a live-but-dead phase; SETTLE (M3) + slump
+  already WAIT for a pickup kernel that doesn't exist. Load-bearing for "planet with history" (deltas/beaches/
+  canyons/floodplains). Fix `EMERGENCE.md:136-137` (falsely claims it ships).
+- **B — Moisture→vegetation→albedo.** *(Visual half SHIPPED in Wave-1 biome color.)* Sim half still owed: the
+  germination gate + photosynthesis R19 read temp only, not moisture — a dry plateau greens like a rainforest.
+- **C — Activity-bubble field LOD.** Not built — every kernel dispatches the full grid every step, capped 2/frame.
+  Scale ceiling + fast-forward desync + the prerequisite for the "watch it form" geological bake.
+
+**TIERS** (SIMULATE = emerge from substrate · FAKE = justified LOD/cosmetic · [✓]=shipped this session):
+- **T1 (do first, small):** hot springs (in flight) · moon tides [FAKE] [✓] · altitude lapse [✓] · default-look MSAA/grade [✓ partial] · moisture growth-gate (Keystone B sim half).
+- **T2 (core systems):** biome coloration [✓] · **erosion pickup kernel (Keystone A, L)** · weathering + lithification (2 DEFS records) · Coriolis + orographic wind [✓] · snow render from real `_snow` field + honest 0°C freeze · sea ice at poles · fertility readback (on `integ` branch) · emergent river supply (highland baseflow + snowmelt) · **radiative-sink fix** (the one un-dissolved band-aid — lets volcanism be frequent without baking the planet).
+- **T3 (visual polish):** cel-shading [✓] · scattering sky [✓] · sphere-aware ocean [✓] · cloud→ground shadows · re-enable sun shadows · grass/ground-cover [FAKE] · climate-typed flora envelopes · glacier flow (retarget slump to `_snow`) · cheap strata [FAKE] · lava tubes (edge-cooling — in flight).
+- **T4 (bake + livability):** **activity-bubble LOD (Keystone C, L)** → geotime `--geotime=N` bake → bake-then-freeze orchestration (snapshot path exists) · season/year retune.
+
+**FAKE ledger (deliberate):** tides · far/orbit ocean (mid/ground MUST be real) · accretion (see-once) · plate
+tectonics (keep kinematic Voronoi; true tectonics = 0.5) · grass/clouds/strata · **static sea + static lakes (the
+livability anchor — a fully-conserved cycle drains land dry).**
+**Livability risks:** volcano thermal runaway (→ radiative sink) · high-`--fast` field desync (→ Keystone C) ·
+land drains dry (→ spring baseflow) · erosion mass drift (→ cap by stream-power, verify vs `mineral_total`).
+
+**SEQUENCE:** Phase-0 seam ownership (4 shared files: `MaterialReactions3D`, `VoxelTerrainTriplanar.gdshader`,
+`heat3d_solar_sphere3d.glsl`, sphere GPU host) — one owner each, consumers staged. Then fan out lanes (Wave-1
+climate/terrain-look/sky-ocean SHIPPED; Wave-2 = erosion Keystone A + activity-LOD Keystone C, staged behind the
+host-touching fire-balance/hot-springs merges). Critical path: Keystone B all-the-way-through the shader (biggest
+"one lawn → distinct places") + Keystone A (highest-leverage sim add) + Keystone C (unlocks the literal formation arc;
+if it slips, 0.4 still ships a livable+beautiful+stable planet — "start-to-finish" degrades to climate/ecology settling).
+
+---
+
+## 0.5 — THE LIVING CREATURES (moved from 0.4 — their entire life cycle)
 
 Where 0.3 went broad (the game + emergent world), **0.4 goes deep on the creatures themselves — the whole arc
 of a life**, all emergent (one substrate, reaction engine, config over `if species==X`). The creatures are the
@@ -367,7 +419,7 @@ learned-not-branched, fish/bees learn, the nutrient loop conserves matter). Wind
 
 ---
 
-## 0.5 — THE FULL SOLAR SYSTEM (moved here from 0.4 — 0.4 stays the living creatures)
+## 0.6 — THE FULL SOLAR SYSTEM (moved from 0.5 by the 2026-07-12 pivot; 0.4=planet, 0.5=creatures)
 
 0.3 shipped the **moving-frame** solar system: the sim stays centred on the planet, but a real heliocentric
 orbital STATE drives the sun across the sky, seasons (axial tilt), insolation (bake/freeze/impact-winter), a
