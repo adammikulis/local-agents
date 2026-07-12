@@ -23,6 +23,7 @@ copy `addons/local_agents/`, delete the game, and keep a fully-working local-age
 | `agents/` | `LocalAgent`, `LocalAgent3D` — the LLM-driven agent nodes |
 | `agent_manager/` | `AgentManager` autoload (agent registry / lifecycle) |
 | `graph/` | `LocalAgentGraph` — a nodes/edges memory resource |
+| `creatures/` | the decoupled creature-behaviour stack — `LACreature`/`LAFish` + their fast/slow-brain modules (`creature/`), the cognition stack (`cognition/`), species + disease data (`data/`, `species/`), the flat-ground terrain adapter (`terrain/`), model/rock visuals (`visual/`), and the sim telemetry/ablation/rng utilities (`sim/`). Runs with no game/field/planet. |
 | `runtime/` | GDExtension loader + runtime glue |
 | `api/`, `configuration/`, `models/` | LLM client API, config, model management |
 | `editor/` | the in-editor Local Agents panel |
@@ -115,7 +116,7 @@ self-configures on drop-in when its `standalone_on_ready` export is set.
 
 ## Add a species via JSON
 
-Species stats live in `addons/local_agents/scenes/simulation/voxel/data/species/<class>/<kind>.json` (clustered by
+Species stats live in `addons/local_agents/creatures/species/<class>/<kind>.json` (clustered by
 taxonomic folder: `mammals/`, `birds/`, `insects/`, `people/`, `aquatic/`, `plants/`). Drop a new file in and it
 loads automatically — the taxonomic class is inferred from the folder. Example `mammals/otter.json`:
 
@@ -157,7 +158,7 @@ agent runs its offline/teacher fallback.) See `examples/AgentQuickstart.tscn` fo
 ```gdscript
 extends Node3D
 
-const CreatureScene := preload("res://addons/local_agents/scenes/simulation/voxel/actors/Creature.tscn")
+const CreatureScene := preload("res://addons/local_agents/creatures/Creature.tscn")
 
 func _ready() -> void:
     var creature := CreatureScene.instantiate()
