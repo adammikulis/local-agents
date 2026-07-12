@@ -30,11 +30,18 @@ const MAX_BOLTS_PER_STEP: int = 4
 # BREAKDOWN (charge is spatially broad, so a coarse stride still catches a charged region).
 const PROBE_STRIDE: int = 64
 const PROBE_GATE: float = 0.5
+# The strided probe has a blind spot: GPU-grown charge can cross BREAKDOWN in a cell the stride skips, and
+# `_charge_woke` is only set by explicit injection — so a NATURAL storm's charge never trips the gate and no
+# bolt fires. Guarantee detection with a coarse-cadence FORCED full scan: at least once every FULL_SCAN_EVERY
+# frames run the full 127K-cell pass regardless of the probe. It's amortized and cheap in practice — charge is
+# ~0 everywhere except under an active storm, which is rare — so this is one full sweep per ~20 quiescent frames.
+const FULL_SCAN_EVERY: int = 20
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 var _visual: Callable = Callable()                       # bolt visual/audio callback (VoxelDisasters.spawn_lightning)
 var _bolts: int = 0                                      # cumulative bolts fired (bolts_fired diagnostic)
 var _charge_peak: float = 0.0                            # cached peak charge (charge_peak diagnostic)
+var _since_full: int = 0                                 # frames since the last full breakdown scan (forced cadence)
 
 
 func setup(field) -> void:
@@ -59,9 +66,13 @@ func post_step() -> void:
 		c += PROBE_STRIDE
 	_charge_peak = probe_max
 	# Scan when the probe sees charge climbing OR when an injection explicitly woke us (a small injected blob can
-	# slip between the strided probe's samples). Otherwise skip — the common, quiescent case.
-	if probe_max < BREAKDOWN * PROBE_GATE and not _f._charge_woke:
+	# slip between the strided probe's samples) OR when the forced-cadence timer is due (catches GPU-grown charge
+	# the strided probe blind-spots past — the natural-storm case). Otherwise skip — the common, quiescent case.
+	_since_full += 1
+	var force_full: bool = _since_full >= FULL_SCAN_EVERY
+	if probe_max < BREAKDOWN * PROBE_GATE and not _f._charge_woke and not force_full:
 		return
+	_since_full = 0
 	# A region is charging: full scan for cells at/over breakdown, fire up to MAX_BOLTS_PER_STEP of the strongest.
 	var fired: int = 0
 	var discharged: bool = false
