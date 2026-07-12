@@ -60,8 +60,13 @@ fan-out rule) · `EMERGENCE.md` (design) · the memories (`roadmap-0.4-life-cycl
   `FAR_ALT`-gated near-cap surface (smooth sphere when pulled back). Fixed: solar-view sky (black space + stars),
   LMB=orbit / MMB=aim camera. NEXT (water polish): close-full-screen-water perf ~16-27 fps; hydraulic-erosion
   pre-pass would carve true incised valleys (the maintainer endorsed pre-sim; noise got us to usable).
-- **0.4 BIO upgrades IN PROGRESS** — nutrient/microbiome · trainable pet · fish cognition · birth→death senescence
-  (fanned out to worktree agents; coordinator merges + windowed-verifies).
+- **0.4 BIO upgrades SHIPPED** — FISH COGNITION (fish forage/flee/school with energy via the shared cognition,
+  eating transfers energy) · TRAINABLE PET (tame by feeding, command come/stay/follow — keys B/Y/J/L/N/O;
+  needs live play-test) · ADAPTIVE MICROBIOME (gut flora re-cultures to lived diet, modulates digestion) ·
+  GRADED SENESCENCE (juvenile→prime→old, age-declining vigour → generational turnover). All per-creature
+  disease-seam modules; verified windowed (~50 fps, stable). Built by a Workflow fan-out; a worktree-base quirk
+  meant the coordinator salvaged/integrated by patch+cherry-pick (see the workflow-base memory). Still open:
+  fertility actually feeding plants; pet+senescence play-feel tuning.
 
 - **FLUID RENDERING — the water is finally VISIBLE** — the `water` field channel was simulated but
   drawn NOWHERE; resurrected the abandoned `MaterialFieldRender3D` + wired the full `VoxelWater.gdshader`.
