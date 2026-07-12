@@ -687,9 +687,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion:
 		var mm: InputEventMouseMotion = event as InputEventMouseMotion
 		if _aiming:
-			# Free-look: pivot the camera's aim in place (does NOT move the globe).
-			_aim_yaw = clampf(_aim_yaw - mm.relative.x * AIM_DRAG_SPEED, -AIM_YAW_LIMIT, AIM_YAW_LIMIT)
-			_aim_pitch = clampf(_aim_pitch - mm.relative.y * AIM_DRAG_SPEED, -AIM_PITCH_LIMIT, AIM_PITCH_LIMIT)
+			# Free-look: pivot the camera's aim in place (does NOT move the globe). Drag right → look right,
+			# drag up → look up (FPS-standard), honouring the same Controls invert toggles as the globe drag.
+			var ax: float = -mm.relative.x if _invert_rotate_x else mm.relative.x
+			var ay: float = -mm.relative.y if _invert_rotate_y else mm.relative.y
+			_aim_yaw = clampf(_aim_yaw - ax * AIM_DRAG_SPEED, -AIM_YAW_LIMIT, AIM_YAW_LIMIT)
+			_aim_pitch = clampf(_aim_pitch + ay * AIM_DRAG_SPEED, -AIM_PITCH_LIMIT, AIM_PITCH_LIMIT)
 			if _fly:
 				_fly_look_drag(mm.relative)
 			else:
@@ -736,17 +739,20 @@ func _orbit_drag(rel: Vector2) -> void:
 	# Grab-the-globe feel: the surface under the cursor follows the hand. Dragging right swings the camera left
 	# so the surface tracks right; dragging down lifts the camera north so the surface tracks down. The Controls
 	# invert toggles negate the matching drag component for players who prefer the opposite mapping.
+	# GRAB-THE-GLOBE: drag right → the globe rolls right under your hand; drag down → it rolls toward you. (This
+	# is the opposite azimuth sign from a "swing the camera" mapping — the recurring "backwards" was that flip.)
+	# The Controls invert_rotate_x / invert_rotate_y toggles negate each axis for the opposite preference.
 	var dx: float = -rel.x if _invert_rotate_x else rel.x
 	var dy: float = -rel.y if _invert_rotate_y else rel.y
 	if _geosync and _geosync_body != null and is_instance_valid(_geosync_body):
 		var cur: Vector3 = (_geosync_body.global_transform.basis * _geosync_local_dir).normalized()
 		var right: Vector3 = cur.cross(Vector3.UP)
 		right = right.normalized() if right.length() > 0.001 else Vector3.RIGHT
-		var moved: Vector3 = cur.rotated(Vector3.UP, -dx * ORBIT_SENSITIVITY).rotated(right, dy * ORBIT_SENSITIVITY).normalized()
+		var moved: Vector3 = cur.rotated(Vector3.UP, dx * ORBIT_SENSITIVITY).rotated(right, -dy * ORBIT_SENSITIVITY).normalized()
 		_geosync_local_dir = (_geosync_body.global_transform.basis.inverse() * moved).normalized()
 		return
-	_orbit_azimuth -= dx * ORBIT_SENSITIVITY
-	_orbit_elevation = clampf(_orbit_elevation + dy * ORBIT_SENSITIVITY, -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
+	_orbit_azimuth += dx * ORBIT_SENSITIVITY
+	_orbit_elevation = clampf(_orbit_elevation - dy * ORBIT_SENSITIVITY, -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
 
 
 func _set_panning(active: bool) -> void:
