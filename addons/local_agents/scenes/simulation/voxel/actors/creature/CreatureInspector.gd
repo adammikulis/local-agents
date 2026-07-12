@@ -6,7 +6,9 @@ extends RefCounted
 ## bar. Static + dependency-free of the LACreature type. (Explicit types only — no ':=' typing.)
 
 static func payload(c) -> Dictionary:
-	var maturity: String = "adult" if c.is_mature() else "juvenile"
+	# Graded life stage (juvenile → prime → old) straight off the age + senescence curve — shows the creature
+	# visibly ageing through stages in the HUD, not just adult/juvenile.
+	var maturity: String = LACreatureLifeStage.stage(c)
 	var activity: String = describe_activity(String(c.state))
 	var energy_pct: int = int(round(100.0 * c.energy / maxf(1.0, c.max_energy)))
 	var hydration_pct: int = int(round(100.0 * c.hydration / maxf(1.0, c.max_hydration)))

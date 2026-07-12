@@ -255,6 +255,12 @@ var _repro_cd: float = 0.0                       # seconds until this creature m
 
 # --- life stage (LACreatureLifeStage): a newborn is born small and grows to adult size along the age axis ---
 var _growth: float = 1.0                          # cached visual growth scale (1.0 = full adult); updated by the life-stage tick
+# --- senescence / ageing (LACreatureSenescence): a graded juvenile→prime→old decline of speed, fertility, and
+# resilience (max_energy reserve) as age climbs toward max_age. Owns its own curve + the youthful speed/max_energy
+# baselines it rewrites the live traits from each frame; ticked right after the life-stage age advance. Metabolism
+# reads its factor() for old-age mortality; reproduction reads its fertility_mult(). Null until setup(); the sim
+# runs identically until it is created (all age-graded state lives off this monolith, mirroring the `disease` seam).
+var senescence: LACreatureSenescence = null
 
 
 func add_fear(source_pos: Vector3, intensity: float) -> void:
@@ -588,6 +594,10 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	# friendly interaction (feeding/petting, calm proximity to the hand) raises the bond — see LACreatureBond.
 	bond = LACreatureBond.new()
 	bond.setup(self, config)
+	# Per-creature ageing/senescence state (owned off this monolith). Captures this individual's youthful
+	# speed/max_energy baselines NOW (after config/genome expression) so age can grade them down later.
+	senescence = LACreatureSenescence.new()
+	senescence.setup(self)
 
 
 # The shared System-2 scheduler (FunctionGemma budget/queue), injected by the ecology after setup.
@@ -779,6 +789,10 @@ func _physics_process(delta: float) -> void:
 			LASimReport.register(LACreature._prof_report)
 	var _pt: int = Time.get_ticks_usec() if _prof_on else 0
 	LACreatureLifeStage.tick(self, delta)   # advance age (life-stage owner)
+	# Ageing: grade speed / max_energy reserve down along the senescence curve (runs AFTER the age advance,
+	# BEFORE the reproduction/metabolism ticks that read the updated traits + the senescence factor).
+	if senescence != null:
+		senescence.tick(self, delta)
 	if _think_phase < 0:
 		_think_phase = int(get_instance_id())                  # raw id; the think stagger is (id % stride)
 	_throw_cd -= delta

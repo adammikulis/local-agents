@@ -25,6 +25,12 @@ const LETHAL_COLD: float = -18.0           # °C at/below which it freezes
 const BREATHE_MIN_O2: float = 0.3          # O2 below this can't sustain a lung (water displaces it, or fire smoke)
 const BREATH_REFILL: float = 25.0          # breath reserve refilled per sec while in the breathing medium
 const SUFFOCATE_DRAIN: float = 45.0        # energy/sec once the breath reserve is exhausted — death comes fast
+# Old-age FRAILTY (senescence-driven mortality — see LACreatureSenescence). Past FRAILTY_ONSET on the 0..1
+# senescence factor, failing resilience drains health at up to FRAILTY_HP_FRAC of max_health/sec (scaled by how
+# far past onset), so an old, worn-out animal dies of "old age" — sooner if it is also stressed/hurt. A hard
+# backstop at factor 1.0 (age == the effective max_age) guarantees death even for an unstressed elder.
+const FRAILTY_ONSET: float = 0.5           # senescence factor above which frailty begins draining health
+const FRAILTY_HP_FRAC: float = 0.06        # fraction of max_health drained per second at full (factor→1) frailty
 
 
 ## Energy metabolism (exertion-scaled) + thirst + ageing. Returns true if the creature died (starve/thirst/age).
@@ -50,12 +56,21 @@ static func tick(c, delta: float) -> bool:
 	if c.hydration <= 0.0:
 		c.die("thirst")
 		return true
-	# Lifespan now compresses by the FULL factor (was sqrt): with metabolism/eating ALSO compressed, offspring
-	# bank breeding energy within a fully-compressed life, so old founders can die on the full schedule and
-	# generations turn over cleanly under the pop_cap — no die-off. Inert at 1.
-	if c.age >= c.max_age / evo:
+	# Old-age mortality, driven by the SENESCENCE CURVE (LACreatureSenescence) rather than a hard age cliff:
+	# as the factor rises past prime, the body's reserve (max_energy) shrinks (see the senescence tick) and
+	# frailty mounts, draining health so a worn-out animal dies of "old age" — earlier if it is also stressed
+	# or hurt (its declining health has less margin). A hard backstop at factor 1.0 (age == the evo-compressed
+	# max_age) guarantees death even for an unstressed elder, matching the old lifespan schedule. Lifespan still
+	# compresses by the full LA_EVO_FAST factor (the factor() curve measures against max_age / evo).
+	var sen: float = c.senescence.factor(c) if c.senescence != null else clampf(c.age / maxf(c.max_age / evo, 0.001), 0.0, 1.0)
+	if sen >= 1.0:
 		c.die("old age")
 		return true
+	if sen > FRAILTY_ONSET:
+		c.health -= c.max_health * FRAILTY_HP_FRAC * (sen - FRAILTY_ONSET) * evo * delta
+		if c.health <= 0.0:
+			c.die("old age")
+			return true
 	return false
 
 

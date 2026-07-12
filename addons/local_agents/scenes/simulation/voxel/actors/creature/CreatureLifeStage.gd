@@ -34,6 +34,23 @@ static func is_mature(c) -> bool:
 	return c.age >= c.maturity_age / LAAblate.evo_fast()
 
 
+# Senescence factor at/above which a mature creature is labelled "old" (visibly slowing + declining fertility).
+const OLD_STAGE_ONSET: float = 0.35
+
+
+## Graded life stage as a plain label — "juvenile" (pre-maturity, still growing), "prime" (adult, low
+## senescence), or "old" (senescence past OLD_STAGE_ONSET — slowing, less fertile, nearing death of old age).
+## Reads the maturity threshold plus the senescence curve (LACreatureSenescence), so the three stages fall out
+## of the two age axes with no per-age cases. Used by the inspector/telemetry to show a creature's life stage.
+static func stage(c) -> String:
+	if not is_mature(c):
+		return "juvenile"
+	var sen: float = 0.0
+	if c.get("senescence") != null:
+		sen = c.senescence.factor(c)
+	return "old" if sen >= OLD_STAGE_ONSET else "prime"
+
+
 ## Visual size as a fraction of the adult body: NEWBORN_SCALE at birth, rising linearly to 1.0 by the end of
 ## the juvenile grow-time (maturity_age * GROW_TIME_FRAC). Founders spawned aged-in are already full size.
 static func growth_scale(c) -> float:

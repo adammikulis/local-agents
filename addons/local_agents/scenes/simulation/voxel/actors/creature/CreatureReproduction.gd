@@ -38,6 +38,11 @@ const MATE_REFRACTORY: float = 6.0      # short pair-bond cooldown put on the pa
                                         # pairing from both conceiving at once; keeps the effective birth rate sane)
 const MATE_SEEK_RADIUS: float = 16.0    # how far a courting adult looks for a mate (herds already cluster same-species)
 const MATING_RADIUS: float = 3.0        # within this range of a ready mate, conception happens (else steer closer)
+# FERTILITY declines with age (LACreatureSenescence.fertility_mult 1.0→0.0 from prime toward max_age). Below
+# STERILE_FLOOR an old creature is effectively barren; between there and prime, its effective energy bar rises
+# (need = MIN_ENERGY_FRAC / fertility_mult), so breeding TAPERS off with age before ceasing — an emergent
+# reproductive-senescence window, straight off the one senescence curve, no per-age cases.
+const STERILE_FLOOR: float = 0.15       # fertility_mult at/below which the creature can no longer conceive (barren)
 
 
 ## Per-frame reproduction tick: run the cooldown down, and if pregnant advance the gestation clock, drain the
@@ -77,7 +82,16 @@ static func ready_to_breed(c) -> bool:
 static func _is_fertile(c) -> bool:
 	if not c.is_mature() or c.pregnant or c._repro_cd > 0.0:
 		return false
-	return c.energy >= c.max_energy * MIN_ENERGY_FRAC
+	# Reproductive senescence: fertility falls with age (LACreatureSenescence). An old creature is barren below
+	# STERILE_FLOOR; above it, declining fertility RAISES the energy bar to conceive, so breeding tapers off with
+	# age before stopping — emergent, from the one senescence curve. Prime creatures (fert 1.0) are unchanged.
+	var fert: float = 1.0
+	if c.senescence != null:
+		fert = c.senescence.fertility_mult(c)
+	if fert <= STERILE_FLOOR:
+		return false
+	var need: float = clampf(MIN_ENERGY_FRAC / clampf(fert, STERILE_FLOOR, 1.0), MIN_ENERGY_FRAC, 0.95)
+	return c.energy >= c.max_energy * need
 
 
 ## Cascade gate: should this creature spend a think-frame steering toward a mate? (Just ready_to_breed —
