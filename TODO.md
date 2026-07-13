@@ -13,6 +13,54 @@ shipped on `main` (`v0.3.1`); development is on `0.4-dev`. Read `CLAUDE.md` · `
 (`roadmap-0.4-life-cycle` [pivot], `dissolve-dont-patch`, `perf-first-ruthlessly`, `big-o-first-class`,
 `fire-balance-wildfire`, `worktree-shader-import-gotcha`, `three-d-always`); work in a worktree off `0.4-dev`.
 
+---
+### ⚑ LIBRARY-REFACTOR SESSION (2026-07-12) — status at pause (memory: `refactor-0.4-library-integrated`)
+The big breaking refactor "make the addon a reusable library + faster + Earth-like living planet." **Merged +
+verified on `0.4-dev`** (HEAD `4af6788`), editor-scan-clean, sim_check PASS:
+- **LLM unification + rename** — 3 LLM paths (native Agent · CognitionScheduler · StreamerDirector) collapsed
+  onto ONE shared `LALlmService`/`LocalAgentLlmClient`; async `think_async` on a signal-free worker thread.
+  Public node family renamed dropping the stutter: `LocalAgent` / `LocalAgent3D` / `LocalAgentManager` /
+  `LocalAgentGraph*` (internal sim classes keep `LA*`).
+- **Reusable library** — new `SimWorld` facade node with a first-class `world_type:{SPHERE,FLAT}` + bounds
+  exports (sphere = PlanetBody+setup_sphere; flat = FlatGroundTerrain+setup_dims box path); standalone
+  `Creature.tscn` + `setup_standalone`; game-optional node registration (core plugin never top-level-preloads
+  game scripts); 3 demos (thinking-creature-on-flat-ground · box-field · SimWorld planet); `USAGE.md`.
+- **Voxel-OPTIONAL / AI-in-core** — the AI/behaviour stack (Creature + 26 modules + Fish + cognition +
+  FlatGroundTerrain + species) relocated OUT of the voxel tree into core `addons/local_agents/creatures/`.
+  `SCENT_*` unified into core `LAScentChannels` (field re-sources from it); ThrownRock/FlameFX via guarded
+  `load()`. PROVEN game-deletable: delete `scenes/simulation/voxel/` → a core `Creature.setup_standalone("rabbit")`
+  still stands up and runs (CORE_SMOKE ok). The addon's intelligence now needs no voxel world.
+- **Perf** — batched the ~10 per-pass GPU submit/sync into one compute_list + barriers; async/trimmed
+  next-frame readback (HOT vs SLOW channel sets). **fps ~18 → ~39.** (Lane B3 activity-LOD still owed.)
+- **Climate + ecology** — bounded the water-cycle runaway (moisture/snow plateau, warm tropics + icy poles);
+  fixed the REAL killer (a biomass-coordinate bug: grazers read biomass at ground, photosynthesis deposits
+  ~80u up → starvation, not freezing); **density-dependent breeding** as an emergent local rule (breed less
+  when locally crowded) + predator-founding fix (solitary foxes now spawn in family clusters so they can pair
+  → foxes breed 10→13). Demographic crash fixed.
+- **Tooling** — ocean-fraction dialled back (bias 6→3, `LA_OCEAN_BIAS`); `scripts/screenshot_suite.sh` visual-
+  regression tool; stray model-panel "DEBUG/Qwen" window sent off-screen during agent/test runs (`LA_OFFSCREEN`
+  in both run wrappers).
+
+**REMAINING (paused here — pick up in this order):**
+- **#22 — ice-albedo equatorial freeze-lock (THE self-sustaining blocker).** Surfaced by the breeding work: a
+  runaway ice-albedo feedback freezes+LOCKS the tropics during the seasonal swing (t_eq 30→7°C, never thaws in
+  spring → water ices over → thirst die-off → foxes/herbivores extinct); lethal even at real-time. **WIP on
+  branch `feature/thaw-tropics` (`f1f53c7`, DO NOT MERGE — unverified):** the climate half WORKS (t_eq holds
+  ~15.5°C, poles icy, sea ice persists) but population still declined + `tmin` dipped to −6°C; was mid death-cause
+  investigation when paused. Resume: pull death causes at f≈2000, check −6°C isn't a new cold-kill, re-run
+  multi-season with dd-breeding for the persistence gate. Iterate at `--fast=1` (high fast stretches winters).
+- **A4 — dogfood: rebuild `VoxelWorld` → Anima.** Refactor the 730-line inline `VoxelWorld._ready` to COMPOSE
+  from `SimWorld` + the reusable nodes, and RENAME the game `VoxelWorld` → **Anima**. HELD for direct/supervised
+  handling — it rebuilds the composition root, so it needs a launched-window verification, not fire-and-forget.
+- **#20 — `LocalAgent` slow-brain must not delay/block startup when no model is ready** (a drop-in creature/demo
+  should degrade to fast policy instantly; today the windowed thinking-creature demo takes minutes to first frame).
+- **Lane B3 — compute-bubble activity-LOD** (last perf lever; the main win is already banked).
+
+Stale worktrees to prune when convenient: `la-feature-ecosystem-equilibrium`, `la-feature-population-sustain`,
+`la-integ-pop` (from the earlier completed ecosystem task #14). `sorting.py` at repo root is the maintainer's,
+untracked — leave it.
+
+---
 **Shipped this session (0.4-planet, on `0.4-dev`):** camera terrain-follow anti-clip · rivers DECOUPLED from
 mountains (gentle ridges + rivers carved into the SDF along real D8 drainage, flat areas too) · debug/QoL
 (companion keys in controls, altitude readout, perf readout, wireframe/overdraw) · cognizer-adapter seam (early
