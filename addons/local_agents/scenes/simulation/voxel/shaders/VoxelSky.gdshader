@@ -11,8 +11,6 @@ shader_type sky;
 // Gradient — driven per-frame (day<->night lerp lives in VoxelWorld).
 uniform vec3 sky_top_color : source_color = vec3(0.36, 0.56, 0.86);
 uniform vec3 sky_horizon_color : source_color = vec3(0.72, 0.80, 0.88);
-uniform vec3 ground_horizon_color : source_color = vec3(0.62, 0.66, 0.62);
-uniform vec3 ground_bottom_color : source_color = vec3(0.30, 0.34, 0.30);
 
 // Night visibility of stars + moon (0 day .. 1 night) and overall star brightness.
 uniform float night : hint_range(0.0, 1.0) = 0.0;
@@ -111,8 +109,12 @@ void sky() {
 	vec3 scatter = atmosphere(dir, sun_n);
 	vec3 night_sky = mix(sky_horizon_color, sky_top_color, smoothstep(0.0, 0.4, dir.y));
 	vec3 sky_col = mix(scatter, night_sky, night);
-	vec3 ground_col = mix(ground_horizon_color, ground_bottom_color, smoothstep(0.0, -0.4, dir.y));
-	vec3 col = mix(ground_col, sky_col, smoothstep(-0.02, 0.02, dir.y));
+	// No painted ground hemisphere. On a spherical planet the lower half of the view is REAL terrain, so a
+	// sky-drawn ground band only ever showed up as a hard false horizon line at dir.y = 0 (the old
+	// smoothstep(-0.02, 0.02) transition) sitting behind or through the actual landscape. The sky is one
+	// continuous scatter in every direction; the true horizon is wherever the terrain silhouette ends, and
+	// the distance fog dissolves the far terrain/ocean edge into it.
+	vec3 col = sky_col;
 
 	// Crossfade the whole sky toward black space as the camera climbs (no hard background-mode flip)...
 	col = mix(col, space_color, space_amount);

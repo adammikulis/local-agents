@@ -48,15 +48,35 @@ const RAY_LENGTH: float = 4000.0
 # Parallel mode used when the world is a spherical planet: the rig sits on a sphere around the
 # planet centre (spherical coords: azimuth + elevation), looks at the centre, and scroll zooms the
 # orbit radius. Enabled by set_orbit_target(); the flat fly path below is left untouched.
-const ORBIT_DEFAULT_DISTANCE_MULT: float = 2.4   # whole-planet framing distance = planet_radius * this
-# Sandbox opens ZOOMED IN but not all the way — inside the arc-down/ground-walk regime (near_frac < 1) so the
-# player starts near creature level with WASD/edge-scroll live, yet not pinned to the surface (min ~1.05).
-const START_MODERATE_MULT: float = 1.4
-# Campaign opens CLOSE — right down on a curated patch of the surface — so the new player shapes what is in
-# front of them by spawning before ever pulling out. Just above the min zoom, well under the baseline ceiling.
-const CAMPAIGN_START_DISTANCE_MULT: float = 1.2
-const ORBIT_MIN_DISTANCE_MULT: float = 1.05      # closest zoom — just above the surface
-const ORBIT_MAX_DISTANCE_MULT: float = 6.0       # farthest zoom — a few planet radii out
+# --- RTS zoom band (absolute altitudes, not radius multiples) -----------------
+# This is an RTS camera: it lives in a band of altitude above the ground and never pulls back far enough to
+# read as an orbital/space view. Expressing the band as absolute altitudes (rather than the old multiples of
+# the planet radius) is what keeps the feel identical when the planet is resized — a radius multiple puts the
+# closest zoom at 0.05 * R, so a bigger planet would silently lose the creature-level view. Metres above the
+# terrain under the view.
+const RTS_ALT_MIN: float = 6.0       # closest zoom — down among the creatures
+const RTS_ALT_MAX: float = 220.0     # farthest zoom — a wide tactical view, still clearly on the surface
+# The most-constrained campaign ceiling (stage 1). The progression ladder interpolates from here up to
+# RTS_ALT_MAX as stages unlock; see _effective_alt_max().
+const RTS_ALT_CEILING_MIN: float = 70.0
+# Where the view opens. Campaign opens close (working a curated patch); sandbox opens at a comfortable
+# working height with the local area in frame.
+const RTS_ALT_START: float = 95.0
+const RTS_ALT_START_CAMPAIGN: float = 40.0
+
+# --- RTS pitch ----------------------------------------------------------------
+# Pitch is constant across the whole zoom band — the defining property of an RTS camera. Zoom changes how
+# much ground you see, never the angle you see it from. The old rig had no independent pitch at all: the
+# angle was a side effect of zoom distance via the approach-arc blend, so zooming also tilted the view.
+const RTS_PITCH_DEG: float = 50.0
+const RTS_PITCH_MIN_DEG: float = 40.0
+const RTS_PITCH_MAX_DEG: float = 60.0
+
+# Progression ladder domain. GameProgression hands out zoom ceilings on the old radius-multiple scale
+# (1.2 baseline .. 6.0 capstone); we map that range onto the RTS altitude ceiling instead of letting it set a
+# distance directly, so a stage unlock widens the tactical view rather than reintroducing the space pose.
+const ORBIT_MAX_DISTANCE_MULT: float = 6.0
+const ORBIT_DEFAULT_DISTANCE_MULT: float = 2.4   # retained for the (deferred) solar/space framing only
 # Clamp elevation shy of the poles so "up" stays world-up without a gimbal flip through the pole.
 const ORBIT_ELEVATION_LIMIT: float = deg_to_rad(85.0)
 # GROUND-WALK: when zoomed in (the arc-down eye-level regime, near_frac < 1), WASD/arrows + edge-scroll
@@ -65,33 +85,11 @@ const ORBIT_ELEVATION_LIMIT: float = deg_to_rad(85.0)
 # (near_frac >= 1) it is inert and the globe is drag-rotated instead — the mode swap the player feels.
 const SURFACE_WALK_SPEED: float = 0.8     # radians/sec of surface sweep at full stick (before the near-zoom taper)
 
-# --- Approach arc -------------------------------------------------------------
-# As the player zooms in the camera ARCS like an RTS swoop onto the map: far out it sits on the orbit sphere
-# looking straight in at the planet centre (whole-globe, top-down feel); as it approaches it progressively
-# descends and pitches forward until, at the closest zoom, it is at eye level looking horizontally across the
-# surface. The blend spans the whole APPROACH — from the whole-planet framing distance down to the surface —
-# so the arc is felt the entire way in, not just tipped over in the last stretch.
-# The span is ABSOLUTE (a multiple of the planet radius), NOT normalized to the progression-capped max zoom,
-# so a campaign that is constrained near the surface still opens arced at eye level rather than snapping flat.
-# ARC_TOP_MULT: the distance (× planet radius) at/above which the view is the flat top-down globe (arc = 0).
-# Below it the arc ramps in to 1 at the surface. Bigger = the arc begins engaging from further out (arcs more);
-# keep it near/just above the whole-planet framing (ORBIT_DEFAULT_DISTANCE_MULT) so the pulled-out globe view
-# stays clean. This is the primary knob to tune the RTS-approach feel.
-const ARC_TOP_MULT: float = 4.2
-# Ground-walk (WASD/edge-scroll surface sweep) takes over from globe-drag once the arc is at least this engaged.
-const GROUND_WALK_ARC_T: float = 0.35
-# The closest-zoom eye pose, relative to the surface point under the view (all tunable — the low POV is the
-# most-played view, so this is the one to get right): height ABOVE the ground (a little over the creatures, not
-# down in the grass), tangential offset BACK from the point, and the height of the look target (creature/head
-# height, so you gaze slightly down at the animals rather than across their feet).
-const ARC_EYE_HEIGHT: float = 8.5
-const ARC_EYE_BACK: float = 13.0
+# --- Look target --------------------------------------------------------------
+# Height of the point the camera aims at, above the ground under the view. Creature/head height, so the gaze
+# lands on the animals rather than across their feet.
 const ARC_LOOK_HEIGHT: float = 2.2
-# Lateral SWING of the descent path (× planet radius, peaking mid-approach): the camera bows out to the side as
-# it comes down instead of plunging straight along the radial, so it reads as an RTS SWOOP/ARC toward the
-# surface rather than a straight-down zoom. 0 = straight down; bigger = a wider curved approach.
-const ARC_SWING_MULT: float = 0.45
-# TERRAIN-FOLLOW anti-clip: when zoomed in, the close-eye pose is built above the REAL terrain radius under the
+# TERRAIN-FOLLOW anti-clip: the eye pose is built above the REAL terrain radius under the
 # view (mountains/ridges), not the idealized base sphere — otherwise rotating the globe under a fixed-altitude
 # eye drives the camera straight into a ridge (the mountains swing up ~40+ units past the smooth radius). We
 # query the ground radius along the view radial (the same raycast surface_radius() spawning uses), keep the eye
@@ -147,6 +145,9 @@ var _orbit_azimuth: float = 0.0           # rotation around the polar axis, radi
 var _orbit_elevation: float = deg_to_rad(20.0)  # latitude of the camera, radians (clamped off the poles)
 var _orbit_min_distance: float = 0.0
 var _orbit_max_distance: float = 0.0
+# Constant RTS view pitch, radians. Held across the whole zoom band; adjustable within
+# [RTS_PITCH_MIN_DEG, RTS_PITCH_MAX_DEG] via set_rts_pitch_deg().
+var _rts_pitch: float = deg_to_rad(RTS_PITCH_DEG)
 # Eased terrain radius under the view (anti-clip terrain-follow). 0 = uninitialised; first valid query seeds it,
 # then it eases toward the queried ground radius so the eye rises/falls smoothly across ridges instead of popping.
 var _smooth_surface_r: float = 0.0
@@ -333,17 +334,17 @@ func focus_on(point: Vector3) -> void:
 	_update_transform()
 
 
-## Switch the rig into orbit (planet) mode around `center` at radius `radius`. Starts at a
-## whole-planet framing distance (radius * ORBIT_DEFAULT_DISTANCE_MULT) and clamps zoom from just
-## above the surface out to a few planet radii. Called by VoxelWorld once the planet is known.
+## Switch the rig into orbit (planet) mode around `center` at radius `radius`. Opens at the RTS working
+## altitude and clamps zoom to the RTS altitude band, so the camera can never pull back to the detached
+## whole-globe pose. Called by VoxelWorld once the planet is known.
 ## The flat fly state is left intact, so this is a mode switch, not a teardown.
 func set_orbit_target(center: Vector3, radius: float) -> void:
 	_orbit_mode = true
 	_orbit_center = center
 	_orbit_radius = maxf(1.0, radius)
-	_orbit_min_distance = _orbit_radius * ORBIT_MIN_DISTANCE_MULT
+	_orbit_min_distance = _orbit_radius + RTS_ALT_MIN
 	_orbit_max_distance = _effective_orbit_max()
-	_distance = clampf(_orbit_radius * _start_distance_mult(), _orbit_min_distance, _orbit_max_distance)
+	_distance = clampf(_orbit_radius + _start_altitude(), _orbit_min_distance, _orbit_max_distance)
 	_target_distance = _distance                 # keep the smooth-zoom goal in sync with this framing jump
 	_zoom_vel = 0.0
 	_orbit_azimuth = 0.0
@@ -370,21 +371,30 @@ func orient_toward(world_dir: Vector3) -> void:
 	_update_transform()
 
 
-## The orbit max-distance ceiling in world units, capped by the campaign progression: the player starts
-## constrained near the surface and each earned stage raises the ceiling (sandbox / no progression = the full
-## ORBIT_MAX_DISTANCE_MULT). Recomputed on every zoom so a live unlock takes effect immediately.
+## The zoom ceiling as an ALTITUDE above the ground, capped by the campaign progression. The progression
+## ladder still speaks in the old radius-multiple scale (BASELINE_ZOOM_MULT 1.2 .. ORBIT_MAX_DISTANCE_MULT
+## 6.0), so map that range onto [RTS_ALT_CEILING_MIN .. RTS_ALT_MAX]: an earned stage widens the tactical
+## view instead of unlocking the detached globe pose. Sandbox (no progression) gets the full band.
+func _effective_alt_max() -> float:
+	var m: float = clampf(LAGameProgression.zoom_ceiling_mult(),
+		LAGameProgression.BASELINE_ZOOM_MULT, ORBIT_MAX_DISTANCE_MULT)
+	var span: float = maxf(ORBIT_MAX_DISTANCE_MULT - LAGameProgression.BASELINE_ZOOM_MULT, 0.0001)
+	var f: float = (m - LAGameProgression.BASELINE_ZOOM_MULT) / span
+	return lerpf(RTS_ALT_CEILING_MIN, RTS_ALT_MAX, clampf(f, 0.0, 1.0))
+
+
+## The orbit max distance in world units — the RTS altitude ceiling measured from the planet centre.
 func _effective_orbit_max() -> float:
-	var cap_mult: float = minf(ORBIT_MAX_DISTANCE_MULT, LAGameProgression.zoom_ceiling_mult())
-	return _orbit_radius * maxf(ORBIT_MIN_DISTANCE_MULT, cap_mult)
+	return _orbit_radius + maxf(RTS_ALT_MIN, _effective_alt_max())
 
 
-## Where the orbit view opens: campaign starts CLOSE (near the surface, CAMPAIGN_START_DISTANCE_MULT) so the
-## player begins working a curated patch; sandbox / no progression opens at the whole-planet framing distance.
-func _start_distance_mult() -> float:
+## Altitude the view opens at: campaign starts close (working a curated patch); sandbox opens at a
+## comfortable working height. Clamped into the band by the caller.
+func _start_altitude() -> float:
 	var prog: LAGameProgression = LAGameProgression.active()
 	if prog != null and not prog.is_sandbox():
-		return CAMPAIGN_START_DISTANCE_MULT
-	return ORBIT_DEFAULT_DISTANCE_MULT
+		return RTS_ALT_START_CAMPAIGN
+	return RTS_ALT_START
 
 
 ## Leave orbit mode and return to the flat fly camera (kept for completeness / mode toggles).
@@ -420,31 +430,29 @@ func _radial_from_azel() -> Vector3:
 	return Vector3(cos(e) * sin(_orbit_azimuth), sin(e), cos(e) * cos(_orbit_azimuth))
 
 
-## The approach-arc blend for the current zoom: 0.0 far out (orbit sphere, look at the planet centre) → 1.0 at
-## the closest zoom (hover above the surface, look across at the creatures). Widened across the whole approach
-## and tied to an ABSOLUTE band (× planet radius, not the progression-capped max) so the camera arcs the entire
-## way in and a near-surface campaign still opens arced rather than snapping flat. One source of truth, read by
-## the transform and the ground-walk gate alike.
+## The camera's altitude above the nominal planet surface, in metres. This is what zoom controls in RTS mode
+## (`_distance` is still stored as distance-from-centre so the smooth-zoom spring and the deferred space view
+## keep working). Measured against the nominal radius, not the terrain under the view, so the camera holds a
+## steady height as it rides over a mountain instead of being pushed down by it.
+func _rts_altitude() -> float:
+	return clampf(_distance - _orbit_radius, RTS_ALT_MIN, RTS_ALT_MAX)
+
+
+## Where the current zoom sits in the RTS altitude band: 1.0 down among the creatures → 0.0 at the ceiling.
+## Read by the ground-walk taper for fine control when close. Note this no longer drives the camera ANGLE —
+## pitch is constant in RTS mode; this is purely a "how zoomed in am I" fraction.
 func _approach_t() -> float:
-	var span: float = maxf((ARC_TOP_MULT - ORBIT_MIN_DISTANCE_MULT) * _orbit_radius, 1.0)
-	var near_frac: float = clampf((_distance - _orbit_min_distance) / span, 0.0, 1.0)
-	return smoothstep(0.0, 1.0, 1.0 - near_frac)
+	var span: float = maxf(RTS_ALT_MAX - RTS_ALT_MIN, 0.0001)
+	return clampf(1.0 - (_rts_altitude() - RTS_ALT_MIN) / span, 0.0, 1.0)
 
 
-## How close the orbit camera is to the surface: 0 in space / whole-globe framing → 1 hovering among the
-## creatures. The sky cycle reads this to drive altitude-aware atmosphere (a bright blue sky + fill when down
-## at ground level, the stark dark space look when pulled out). 0 outside orbit mode (fly/solar keep the space
-## look). Public wrapper over the internal approach blend.
+## How close the orbit camera is to the surface, for the sky cycle's altitude-aware atmosphere. In RTS mode the
+## whole zoom band is well inside the atmosphere — even the ceiling is a couple hundred metres up — so the
+## ground look is always fully engaged. Fly and the (deferred) solar overview still read as space.
 func surface_blend() -> float:
-	# Fly + the pulled-way-out SOLAR-SYSTEM overview always read as SPACE (dark starfield, no atmosphere dome),
-	# regardless of the raw orbit distance — else the solar view shows the sky shader's ground/horizon band as a
-	# false horizon behind the planet. (_orbit_mode can stay true under solar view, so test the views explicitly.)
 	if not _orbit_mode or _solar_view or _fly:
 		return 0.0
-	# Atmosphere/brightness lags the pose arc: stay stark-dark SPACE for the first part of the descent, then
-	# ease the blue sky + fill in gradually over the LOWER half of the approach — so it doesn't "get too bright
-	# too quick" the instant you leave the globe view. A gentle, delayed S-curve, not the raw approach blend.
-	return smoothstep(0.30, 0.98, _approach_t())
+	return 1.0
 
 
 ## Rebuild the transform for orbit (planet) mode: place the camera on a sphere of radius `_distance`
@@ -452,6 +460,9 @@ func surface_blend() -> float:
 ## spinning planet turns under); GEOSYNC derives the radial from a body-LOCAL direction so the camera rides
 ## the planet's spin and one region stays centred. Up flips to RIGHT near the poles so world-up never gimbals.
 func _update_orbit_transform() -> void:
+	# The solar overview writes its own absolute pose; never overwrite it with the RTS ground pose.
+	if _solar_view:
+		return
 	var radial: Vector3
 	if _geosync and _geosync_body != null and is_instance_valid(_geosync_body):
 		radial = (_geosync_body.global_transform.basis * _geosync_local_dir).normalized()
@@ -459,44 +470,36 @@ func _update_orbit_transform() -> void:
 		_orbit_elevation = clampf(_orbit_elevation, -ORBIT_ELEVATION_LIMIT, ORBIT_ELEVATION_LIMIT)
 		radial = _radial_from_azel()
 	var up: Vector3 = Vector3.UP if absf(radial.dot(Vector3.UP)) < 0.985 else Vector3.RIGHT
-	# APPROACH ARC: far out, sit on the orbit sphere and look straight in at the planet centre (the whole-globe,
-	# top-down view). As the player zooms in, `_approach_t()` progressively BLENDS the pose down — the camera
-	# descends and pitches forward — until at the closest zoom it hovers just above the surface point looking
-	# across at the creatures. The blend spans the whole approach (see ARC_TOP_MULT) so the camera arcs the
-	# entire way in like an RTS swoop, not just tipping over at the very end.
-	var far_pos: Vector3 = _orbit_center + radial * _distance
-	var t: float = _approach_t()
-	if t <= 0.001:
-		global_position = far_pos
-		look_at(_orbit_center, up)
-	else:
-		var upn: Vector3 = radial                                   # radial normal at the ground point
-		# TERRAIN-FOLLOW: build the close pose above the REAL ground radius under the view (mountains/ridges),
-		# eased — not the idealized base sphere — so rotating the globe under a zoomed-in eye can't drive it
-		# through a ridge. Falls back to _orbit_radius when the patch is unmeshed (see _terrain_aware_radius).
-		var base_r: float = _terrain_aware_radius(radial)
-		var surface_pt: Vector3 = _orbit_center + radial * base_r
-		var back: Vector3 = up - radial * up.dot(radial)            # a tangent "behind" the eye
-		if back.length() < 0.01:
-			back = Vector3.RIGHT - radial * Vector3.RIGHT.dot(radial)
-		back = back.normalized()
-		var eye: Vector3 = surface_pt + upn * ARC_EYE_HEIGHT + back * ARC_EYE_BACK   # hover just above the point
-		# Bow the path out sideways (peaks at mid-approach, zero at both ends) so the camera SWOOPS in along an
-		# arc rather than dropping straight down the radial — the RTS "approach a planet" feel.
-		var swing: float = sin(t * PI) * ARC_SWING_MULT * _orbit_radius
-		var pos: Vector3 = far_pos.lerp(eye, t) + back * swing
-		# Final anti-clip floor: never let the eye sit below the (eased) terrain beneath the view + clearance.
-		# The eye's tangential back/swing offset can slide it over a spot taller than the look point; push it
-		# straight back out along its own radial if so. base_r is eased, so this floor moves smoothly too.
-		var min_r: float = base_r + MIN_EYE_CLEARANCE
-		var pos_off: Vector3 = pos - _orbit_center
-		if pos_off.length() < min_r:
-			var pdir: Vector3 = pos_off.normalized() if pos_off.length() > 0.001 else radial
-			pos = _orbit_center + pdir * min_r
-		global_position = pos
-		var far_look: Vector3 = _orbit_center
-		var close_look: Vector3 = surface_pt + upn * ARC_LOOK_HEIGHT                 # gaze at creature height
-		look_at(far_look.lerp(close_look, t), upn)
+	var upn: Vector3 = radial                                   # radial normal at the ground point
+	# TERRAIN-FOLLOW: build the pose above the REAL ground radius under the view (mountains/ridges), eased —
+	# not the idealized base sphere — so rotating the globe under the eye can't drive it through a ridge.
+	# Falls back to _orbit_radius when the patch is unmeshed (see _terrain_aware_radius).
+	var base_r: float = _terrain_aware_radius(radial)
+	var surface_pt: Vector3 = _orbit_center + radial * base_r
+	var back: Vector3 = up - radial * up.dot(radial)            # a tangent "behind" the eye
+	if back.length() < 0.01:
+		back = Vector3.RIGHT - radial * Vector3.RIGHT.dot(radial)
+	back = back.normalized()
+	# RTS POSE: hold a constant pitch and let zoom set the altitude. The camera sits `alt` above the ground
+	# point and far enough back along the tangent that the line of sight down to the look target makes exactly
+	# RTS_PITCH. Because the horizontal offset is derived from the altitude, zooming slides the camera along a
+	# fixed-angle ray — you see more or less ground, always from the same angle. That is the whole difference
+	# from the old rig, where the angle was a by-product of distance and zooming also tilted the view.
+	var alt: float = _rts_altitude()
+	var look_pt: Vector3 = surface_pt + upn * ARC_LOOK_HEIGHT   # gaze at creature height
+	var rise: float = maxf(alt - ARC_LOOK_HEIGHT, 0.1)          # vertical run from the look target up to the eye
+	var eye_back: float = rise / maxf(tan(_rts_pitch), 0.0001)
+	var pos: Vector3 = look_pt + upn * rise + back * eye_back
+	# Anti-clip floor: never let the eye sit below the (eased) terrain beneath the view + clearance. The
+	# tangential back-offset can slide it over a spot taller than the look point; push it straight back out
+	# along its own radial if so. base_r is eased, so this floor moves smoothly too.
+	var min_r: float = base_r + MIN_EYE_CLEARANCE
+	var pos_off: Vector3 = pos - _orbit_center
+	if pos_off.length() < min_r:
+		var pdir: Vector3 = pos_off.normalized() if pos_off.length() > 0.001 else radial
+		pos = _orbit_center + pdir * min_r
+	global_position = pos
+	look_at(look_pt, upn)
 	# FREE-LOOK aim offset (MMB drag): pivot the camera in place on top of the orbit pose, without moving the globe.
 	if not is_zero_approx(_aim_yaw) or not is_zero_approx(_aim_pitch):
 		rotate_object_local(Vector3.UP, _aim_yaw)
@@ -550,12 +553,27 @@ func set_solar_view(pos: Vector3, look_target: Vector3, orbit_dist: float) -> vo
 	far = clampf(orbit_dist * 4.0, 4000.0, 80000.0)
 
 
-## Leave the solar overview and reframe the planet at the default orbit distance.
+## Leave the solar overview and drop back to the RTS working altitude.
 func set_planet_view() -> void:
 	_solar_view = false
 	_orbit_max_distance = _effective_orbit_max()
-	_distance = clampf(_orbit_radius * ORBIT_DEFAULT_DISTANCE_MULT, _orbit_min_distance, _orbit_max_distance)
+	_distance = clampf(_orbit_radius + _start_altitude(), _orbit_min_distance, _orbit_max_distance)
+	_target_distance = _distance
+	_zoom_vel = 0.0
 	_update_transform()
+
+
+## Set the constant RTS view pitch in degrees, clamped to the supported band. Exposed so the pitch can be
+## tuned live (and later bound to a settings control) without touching the pose maths.
+func set_rts_pitch_deg(deg: float) -> void:
+	_rts_pitch = deg_to_rad(clampf(deg, RTS_PITCH_MIN_DEG, RTS_PITCH_MAX_DEG))
+	if _orbit_mode:
+		_update_transform()
+
+
+## The current RTS view pitch in degrees.
+func rts_pitch_deg() -> float:
+	return rad_to_deg(_rts_pitch)
 
 
 func is_solar_view() -> bool:
@@ -858,17 +876,13 @@ func _pan_ground(right: float, forward: float) -> void:
 	_clamp_focus()
 
 
-## GROUND-WALK across the sphere: while zoomed in (near_frac < 1), WASD/arrows + edge-scroll sweep the view
-## over the planet surface — screen-forward/right projected onto the tangent plane at the current view point,
-## used to rotate the view direction. Geosync rotates the body-locked local dir (so the walk rides the spin);
-## plain orbit nudges azimuth/elevation. Zoomed all the way out it is inert (the globe is drag-rotated instead).
+## GROUND-WALK across the sphere: WASD/arrows + edge-scroll sweep the view over the planet surface —
+## screen-forward/right projected onto the tangent plane at the current view point, used to rotate the view
+## direction. Geosync rotates the body-locked local dir (so the walk rides the spin); plain orbit nudges
+## azimuth/elevation. Active across the whole RTS zoom band: an RTS camera pans at every zoom level, so unlike
+## the old rig there is no zoomed-out regime where this goes inert and the globe drag-rotates instead.
 func _surface_walk(delta: float) -> void:
 	if not _orbit_mode or _fly or _solar_view:
-		return
-	# Mode gate: only once the approach arc is engaged enough (zoomed in toward the surface). Pulled further out
-	# the arc is shallow and the globe is drag-rotated instead — the mode swap the player feels.
-	var t_arc: float = _approach_t()
-	if t_arc < GROUND_WALK_ARC_T:
 		return
 	var fwd_in: float = 0.0
 	var right_in: float = 0.0
@@ -911,7 +925,9 @@ func _surface_walk(delta: float) -> void:
 	if move.length() < 0.001:
 		return
 	# Slower the closer you are (arc fully engaged), for fine control face-to-face with the creatures.
-	var step: float = SURFACE_WALK_SPEED * delta * clampf(0.22 + (1.0 - t_arc), 0.22, 1.0)
+	# Taper the sweep rate as you zoom in so panning stays fine-grained among the creatures and quick when
+	# pulled back to the tactical view.
+	var step: float = SURFACE_WALK_SPEED * delta * clampf(0.22 + (1.0 - _approach_t()), 0.22, 1.0)
 	var new_radial: Vector3 = (radial + move.normalized() * step).normalized()
 	if geo:
 		# The geosync rebuild in _process (which runs right after this) picks up the new local dir.
