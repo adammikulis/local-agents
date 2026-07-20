@@ -251,7 +251,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventKey) or not event.pressed or event.echo:
 		return
 	var kc: int = (event as InputEventKey).keycode
-	if kc == KEY_ESCAPE and _pause_menu != null and not _pause_menu.is_open():
+	if kc == KEY_ESCAPE and (event as InputEventKey).ctrl_pressed:
+		# Ctrl+Esc quits the game directly (the old bare-Esc autoquit, kept as a deliberate two-key combo so a
+		# stray Esc can never drop the player out — plain Esc opens the pause menu, which also has a Quit button).
+		LAAppExit.request(self, 0)
+		get_viewport().set_input_as_handled()
+	elif kc == KEY_ESCAPE and _pause_menu != null and not _pause_menu.is_open():
 		_pause_menu.open()
 		get_viewport().set_input_as_handled()
 	elif kc == KEY_G:

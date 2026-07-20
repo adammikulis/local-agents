@@ -14,6 +14,7 @@ const ACCENT: Color = Color(0.55, 0.72, 1.0)
 const SPEEDS: Array[int] = [1, 2, 4, 8, 16]
 
 const HelpOverlayScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/PauseHelpOverlay.gd")
+const SettingsPanelScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/PauseSettingsPanel.gd")
 
 var _panel: Control = null
 var _speed_buttons: Array[Button] = []
@@ -72,6 +73,14 @@ func _build_ui() -> void:
 	resume.custom_minimum_size = Vector2(0.0, 44.0)
 	resume.pressed.connect(close)
 	vbox.add_child(resume)
+
+	# Descriptive settings block (Graphics · Simulation/CPU · Animal cognition), each applied live. Owned by
+	# LAPauseSettingsPanel so this menu stays a thin host.
+	var settings_panel: LAPauseSettingsPanel = SettingsPanelScript.new()
+	vbox.add_child(settings_panel)
+
+	var sep: HSeparator = HSeparator.new()
+	vbox.add_child(sep)
 
 	# Optional in-menu fast-forward (Contract 10): pick how many sim steps run per render frame.
 	var speed_label: Label = Label.new()

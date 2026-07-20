@@ -29,13 +29,16 @@ ALL_SYS="creatures,anim,plants,trees,fish,ecology,water,field"
 # Nothing else may be running, or the numbers are contended — kill any stray off-screen sim first.
 pkill -f "run_sim_offscreen" 2>/dev/null; pkill -f "rendering-driver metal" 2>/dev/null && sleep 1
 
-printf '%-22s | %-7s | %-8s | %-8s | %-9s | %-8s | %s\n' "config" "fps" "frame_ms" "cpuR_ms" "process_ms" "draws" "actors"
-printf -- '-%.0s' {1..92}; printf '\n'
+# NOTE: process_ms (Performance.TIME_PROCESS) is deliberately NOT shown — it reads ~constant regardless of
+# what is ablated (it does not track the actual frame cost on this build), so it is misleading. frame_ms is
+# the ground truth (summed _process delta). cpuR_ms is CPU draw submission (viewport render-time-cpu).
+printf '%-22s | %-7s | %-8s | %-8s | %-8s | %s\n' "config" "fps" "frame_ms" "cpuR_ms" "draws" "actors"
+printf -- '-%.0s' {1..80}; printf '\n'
 
 run_one() {  # $1=label  $2=extra-env (space-sep KEY=VAL)  $3=extra-sim-args
   local label="$1"; local xenv="$2"; local xargs="$3"
   local out rep
-  out=$(env $xenv LA_NO_STREAMER=1 LA_RUN_TIMEOUT=$(( FRAMES / 2 + 90 )) \
+  out=$(env $xenv LA_NO_STREAMER=1 LA_RUN_TIMEOUT=$(( FRAMES / 2 + 200 )) \
         scripts/run_sim_offscreen.sh --path . "$SCENE" -- --perf-frames="$FRAMES" $xargs 2>&1)
   rep=$(echo "$out" | grep -oE "PERF=.*" | tail -1)
   if [ -z "$rep" ]; then
@@ -47,8 +50,8 @@ run_one() {  # $1=label  $2=extra-env (space-sep KEY=VAL)  $3=extra-sim-args
 import sys,os,json
 d=json.loads(sys.stdin.read().split('PERF=',1)[1])
 fps=d['fps']; phys=d['physics_ms']; actors=d.get('actors',0)
-print('%-22s | %-7.1f | %-8.2f | %-8.2f | %-9.2f | %-8d | %s' % (
-    os.environ['LABEL'], fps, d.get('frame_ms',1000.0/max(fps,0.001)), d['cpu_render_ms'], d['process_ms'], d['draw_calls'], actors))
+print('%-22s | %-7.1f | %-8.2f | %-8.2f | %-8d | %s' % (
+    os.environ['LABEL'], fps, d.get('frame_ms',1000.0/max(fps,0.001)), d['cpu_render_ms'], d['draw_calls'], actors))
 df=os.environ['DATAFILE']
 if df!='/dev/null':
     open(df,'a').write('%s %s %s\n' % (actors, phys, fps))"
@@ -105,6 +108,15 @@ case "$SUITE" in
     printf -- '-%.0s' {1..80}; printf '\n'
     fit_bigO "$DATAFILE"
     rm -f "$DATAFILE"; unset DATAFILE
+    ;;
+  list)
+    # Custom ablation list: every arg after `list` is one LA_ABLATE value ("" = baseline). Lets a focused
+    # sweep run exactly the configs you name instead of a fixed suite.
+    shift
+    for ab in "$@"; do
+      lbl="${ab:-<baseline>}"
+      run_one "$lbl" "LA_ABLATE=$ab" ""
+    done
     ;;
   standard|*)
     run_one "full"            ""                          ""
