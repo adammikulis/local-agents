@@ -33,6 +33,7 @@ var _lunar_phase: float = 0.15
 var _shoot_path: String = ""
 var _shoot_frames: int = 150
 var _run_frames: int = 0
+var _perf_frames: int = 0               # --perf-frames=N: GPU-timed fps bench (see parse_cmdline + VoxelWorld._process)
 var _smoke: bool = false                # --smoke: boot the MINIMAL (Potato/Low) config for fast parse+run checks
 var _force_wind: float = 0.0            # --wind=<x>: force a constant eastward wind (verification)
 var _cognition_stats: bool = false      # --cognition-stats: print fast/slow brain + genetics metrics
@@ -130,6 +131,11 @@ func parse_cmdline() -> void:
 			_shoot_frames = int(arg.substr("--shoot-frames=".length()))
 		elif arg.begins_with("--run-frames="):
 			_run_frames = int(arg.substr("--run-frames=".length()))
+		elif arg.begins_with("--perf-frames="):
+			# Perf-bench path: run N frames, then average fps + GPU render-time over a trailing window and emit a
+			# single PERF={...} line before quitting. Distinct from --run-frames (which prints the full SIM_REPORT):
+			# a clean, comparable, GPU-timed reading with no report-frame contamination, for scripts/perf_bench.sh.
+			_perf_frames = int(arg.substr("--perf-frames=".length()))
 		elif arg.begins_with("--trailer-shot="):
 			# Cinematic capture: LATrailerDirector drives a scripted shot; run with --write-movie to record it.
 			_trailer_shot = arg.substr("--trailer-shot=".length())
@@ -840,6 +846,7 @@ func lunar_seed() -> float: return _lunar_phase
 func shoot_path() -> String: return _shoot_path
 func shoot_frames() -> int: return _shoot_frames
 func run_frames() -> int: return _run_frames
+func perf_frames() -> int: return _perf_frames
 func smoke() -> bool: return _smoke
 func force_wind() -> float: return _force_wind
 func overview() -> bool: return _overview

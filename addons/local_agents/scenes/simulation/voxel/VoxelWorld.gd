@@ -159,6 +159,10 @@ var _peak_slump: int = 0                    # most loose-sediment cells slumping
 var _fps_accum: float = 0.0
 var _fps_count: int = 0
 var _gpu_ms_accum: float = 0.0    # isolated GPU render time — independent of CPU sim load
+var _cpu_render_ms_accum: float = 0.0   # CPU-side render (RenderingServer) time — draw-call submission cost
+var _proc_ms_accum: float = 0.0   # CPU _process time (field orchestration/readback, actors) — the sim's CPU cost
+var _phys_ms_accum: float = 0.0
+var _frame_dt_accum: float = 0.0  # summed _process delta over the window = TRUE wall-clock frame time
 const FPS_PROBE_FRAMES: int = 150
 
 
@@ -188,10 +192,17 @@ func _ready() -> void:
 	# Non-interactive verification/screenshot runs (--run-frames / --shoot) shove the OS window WAY
 	# off-screen the instant we start, so agent/CI runs that render on a real display path never pop a
 	# visible window in front of the user. Env LA_OFFSCREEN forces it too.
-	if (_input.run_frames() > 0 or _input.shoot_path() != "" or OS.has_environment("LA_OFFSCREEN")) and DisplayServer.get_name() != "headless":
+	if (_input.run_frames() > 0 or _input.perf_frames() > 0 or _input.shoot_path() != "" or OS.has_environment("LA_OFFSCREEN")) and DisplayServer.get_name() != "headless":
 		DisplayServer.window_set_position(Vector2i(-8000, -8000))
-		# Opt-in uncap (LA_UNCAP): drop vsync + the fps limit to see headroom above the monitor refresh.
-		if _input.run_frames() > 0 and OS.has_environment("LA_UNCAP"):
+		# The perf bench (--perf-frames) ALWAYS uncaps: vsync/refresh-capping would clamp the reading to the
+		# monitor rate and hide both the true frame cost and any headroom. Also turn on per-viewport render-time
+		# measurement so the CPU/GPU split (viewport_get_measured_render_time_{gpu,cpu}) reports real numbers
+		# instead of 0. Opt-in uncap (LA_UNCAP) still applies to plain --run-frames runs.
+		if _input.perf_frames() > 0:
+			DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+			Engine.max_fps = 0
+			RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
+		elif _input.run_frames() > 0 and OS.has_environment("LA_UNCAP"):
 			DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 			Engine.max_fps = 0
 
@@ -600,6 +611,44 @@ func _process(delta: float) -> void:
 		LAVoxelHarness.emit_population_trace(self, _frame)   # trajectory samples through a long run
 	if _input.run_frames() > 0 and _frame == _input.run_frames():
 		LAVoxelHarness.emit_smoke_summary(self)
+
+	# PERF BENCH (--perf-frames=N): average fps + a CPU/GPU render split over the trailing window, then emit one
+	# clean PERF={...} line and quit. Uses Godot's own instrumentation — Performance monitors for the CPU sim
+	# cost and RenderingServer.viewport_get_measured_render_time_{gpu,cpu} for the render split — so a run tells
+	# us definitively whether a config is GPU-bound (fill/particles) or CPU-bound (field stepping in GDScript),
+	# which raw fps cannot. Averaged over a window so no single report/step-frame spike skews it.
+	if _input.perf_frames() > 0:
+		var pf: int = _input.perf_frames()
+		var window: int = mini(FPS_PROBE_FRAMES, maxi(30, pf / 2))
+		if _frame > pf - window and _frame <= pf:
+			var vp_rid: RID = get_viewport().get_viewport_rid()
+			# True wall-clock frame time: the _process delta IS the frame period. This is the ground truth that
+			# disambiguates the fps counter (a rolling average that can lag) from the Performance.TIME_PROCESS
+			# gauge (which on the compute-field path includes the CPU stall waiting on the GPU dispatch).
+			_frame_dt_accum += delta
+			_fps_accum += Engine.get_frames_per_second()
+			_gpu_ms_accum += RenderingServer.viewport_get_measured_render_time_gpu(vp_rid)
+			_cpu_render_ms_accum += RenderingServer.viewport_get_measured_render_time_cpu(vp_rid)
+			_proc_ms_accum += Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+			_phys_ms_accum += Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+			_fps_count += 1
+		if _frame == pf:
+			var n: float = maxf(1.0, float(_fps_count))
+			var frame_ms: float = (_frame_dt_accum / n) * 1000.0
+			print("PERF={\"fps\":%.1f,\"frame_ms\":%.2f,\"gpu_ms\":%.2f,\"cpu_render_ms\":%.2f,\"process_ms\":%.2f,\"physics_ms\":%.2f,\"draw_calls\":%d,\"prims_M\":%.2f,\"actors\":%d,\"creatures\":%d,\"nodes\":%d,\"window\":%d}" % [
+				1000.0 / maxf(frame_ms, 0.001),
+				frame_ms,
+				_gpu_ms_accum / n,
+				_cpu_render_ms_accum / n,
+				_proc_ms_accum / n,
+				_phys_ms_accum / n,
+				int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
+				Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1.0e6,
+				_actors_root.get_child_count(),
+				get_tree().get_nodes_in_group("creature").size(),
+				int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
+				_fps_count])
+			LAAppExit.request(self, 0)
 
 
 # Sample transient emergent behaviours so a run can prove they occurred (not just at the final frame).

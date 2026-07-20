@@ -13,6 +13,12 @@
 #   LA_RES=1280x720 scripts/perf_bench.sh ablation      # hold resolution fixed for an ablation
 #
 # Read the table as: cost of a system ~= (1000/fps_without) - (1000/fps_full) ms/frame.
+#
+# Drives the in-engine --perf-frames path (VoxelWorld._process), which averages fps + a CPU/GPU render split
+# over a trailing window using Godot's own instrumentation: Performance monitors for the CPU sim cost and
+# RenderingServer.viewport_get_measured_render_time_{gpu,cpu} for the render split. So the table shows whether
+# a config is GPU-bound (gpu_ms) or CPU-bound (proc_ms) — raw fps alone cannot, and the old single-frame
+# report gauges timed the heavy report frame and self-contradicted.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 SCENE="addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn"
@@ -21,17 +27,17 @@ SUITE="${1:-standard}"
 ALL_SYS="creatures,anim,plants,trees,fish,ecology,water,field"
 
 # Nothing else may be running, or the numbers are contended — kill any stray off-screen sim first.
-pkill -f "position 30000,30000" 2>/dev/null && sleep 1
+pkill -f "run_sim_offscreen" 2>/dev/null; pkill -f "rendering-driver metal" 2>/dev/null && sleep 1
 
-printf '%-22s | %-8s | %-10s | %-9s | %-8s | %s\n' "config" "fps" "physics_ms" "field_ms" "draws" "actors"
-printf -- '-%.0s' {1..80}; printf '\n'
+printf '%-22s | %-7s | %-8s | %-8s | %-9s | %-8s | %s\n' "config" "fps" "frame_ms" "cpuR_ms" "process_ms" "draws" "actors"
+printf -- '-%.0s' {1..92}; printf '\n'
 
 run_one() {  # $1=label  $2=extra-env (space-sep KEY=VAL)  $3=extra-sim-args
   local label="$1"; local xenv="$2"; local xargs="$3"
   local out rep
-  out=$(env $xenv LA_NO_STREAMER=1 LA_RUN_TIMEOUT=$(( FRAMES / 2 + 70 )) \
-        scripts/run_sim_offscreen.sh --path . "$SCENE" -- --run-frames="$FRAMES" $xargs 2>&1)
-  rep=$(echo "$out" | grep -oE "SIM_REPORT=.*" | tail -1)
+  out=$(env $xenv LA_NO_STREAMER=1 LA_RUN_TIMEOUT=$(( FRAMES / 2 + 90 )) \
+        scripts/run_sim_offscreen.sh --path . "$SCENE" -- --perf-frames="$FRAMES" $xargs 2>&1)
+  rep=$(echo "$out" | grep -oE "PERF=.*" | tail -1)
   if [ -z "$rep" ]; then
     printf '%-22s | %s\n' "$label" "CRASH / no report"
     echo "$out" | grep -iE "SCRIPT ERROR|ERROR|abort|Segmentation|RUN_TIMEOUT|out of memory" | tail -2 | sed 's/^/    /'
@@ -39,11 +45,10 @@ run_one() {  # $1=label  $2=extra-env (space-sep KEY=VAL)  $3=extra-sim-args
   fi
   echo "$rep" | LABEL="$label" DATAFILE="${DATAFILE:-/dev/null}" python3 -c "
 import sys,os,json
-d=json.loads(sys.stdin.read().split('SIM_REPORT=',1)[1]); g=d.get('gauges',{})
-def gv(k): return g.get(k,{}).get('cur',0)
-fps=gv('fps'); phys=gv('physics_ms'); actors=d.get('actors',0)
-print('%-22s | %-8s | %-10.1f | %-9.1f | %-8d | %s' % (
-    os.environ['LABEL'], fps, phys, gv('field_ms'), int(gv('draw_calls')), actors))
+d=json.loads(sys.stdin.read().split('PERF=',1)[1])
+fps=d['fps']; phys=d['physics_ms']; actors=d.get('actors',0)
+print('%-22s | %-7.1f | %-8.2f | %-8.2f | %-9.2f | %-8d | %s' % (
+    os.environ['LABEL'], fps, d.get('frame_ms',1000.0/max(fps,0.001)), d['cpu_render_ms'], d['process_ms'], d['draw_calls'], actors))
 df=os.environ['DATAFILE']
 if df!='/dev/null':
     open(df,'a').write('%s %s %s\n' % (actors, phys, fps))"
