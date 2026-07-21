@@ -198,6 +198,9 @@ var _anim_stride: int = 1            # last computed animation-update stride (1 
 # ~95-220 m up) still update near every frame while the far-side population updates a few times a second.
 const ANIM_LOD_METRES_PER_STRIDE: float = 45.0
 const ANIM_STRIDE_MAX: int = 8      # farthest creatures update every 8th frame (~7 Hz) — imperceptible at range
+# Dev A/B knob (LA_NO_ANIM_LOD=1): force every creature to animate every frame (the pre-LOD behaviour) so the
+# animation-LOD win can be measured against a same-machine baseline. Off in normal play.
+static var _anim_lod_off: bool = OS.has_environment("LA_NO_ANIM_LOD")
 var _model_run_speed: float = 999.0
 var _vis_prev_pos: Vector3 = Vector3.ZERO
 var _vis_t: float = 0.0
@@ -740,7 +743,7 @@ func _process(delta: float) -> void:
 	_anim_accum += delta
 	var cam_d2: float = p.distance_squared_to(_camera_pos())
 	var stride: int = 1
-	if is_finite(cam_d2):
+	if is_finite(cam_d2) and not _anim_lod_off:
 		stride = clampi(1 + int(sqrt(cam_d2) / ANIM_LOD_METRES_PER_STRIDE), 1, ANIM_STRIDE_MAX)
 	_anim_stride = stride
 	if _anim_phase < 0:
