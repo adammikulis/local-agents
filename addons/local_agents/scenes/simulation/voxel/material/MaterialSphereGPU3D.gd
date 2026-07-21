@@ -78,6 +78,21 @@ var _pending: bool = false          # a step() submit is in flight, not yet sync
 var _cached: Dictionary = {}        # channels read back from the last drained step (what end_frame returns)
 var _slow_gate: int = 0             # cadence counter for the slow (ledger/baker) channel readback set
 
+# DEMAND-DRIVEN readback for the situational disaster channels (lava/fire/dust/shock/charge/rock_fill). These
+# are consumed ONLY by disaster actors (while one is alive) + debug overlays (while shown) + save — not by any
+# per-frame path — so on a calm planet copying them back every step is pure waste. A channel is read back only
+# while it has been REQUESTED (injected into, or queried) within the last CHANNEL_HOLD_DRAINS drains; the field
+# facade requests on inject/query. A skipped channel keeps its prior CPU array (the scatter is size-guarded),
+# so a stale read is at most a one-frame lag on first access — the same coupling lag the pipeline already has.
+# Gated set = the disaster channels with NO per-frame CPU consumer (verified: their only CPU-array reads are
+# injection, save/snapshot, and the _at queries — rendering reads the GPU buffers directly). charge (scanned by
+# MaterialCharge on breakdown) and rock_fill (scanned by MineralStamp during volcano land-building) are kept
+# always-hot because those modules read them per active-frame; gating them would need those modules to request.
+const SITUATIONAL_CHANNELS: Array = ["lava", "fire", "dust", "shock"]
+const CHANNEL_HOLD_DRAINS: int = 20     # stay hot ~20 drains past the last request so intermittent queries don't thrash
+var _channel_hold: Dictionary = {}      # channel name -> drain index it stays hot through
+var _drain_count: int = 0               # monotonic drain counter the holds are measured against
+
 # Slow channels are read back only every Nth drain (their CPU consumers are coarse-cadence ledgers/bakers, not
 # every-frame world queries) — a direct cut of ~6 of 21 blocking readbacks on the other frames. Between reads the
 # CPU array keeps its prior value (the _apply_readback scatter is res.has()-guarded), which the consumers tolerate.
@@ -222,13 +237,21 @@ func _flush_pending() -> void:
 func _drain_pending() -> void:
 	if not _pending:
 		return
+	var t0: int = Time.get_ticks_usec()
 	_rd.sync()
+	var t_sync: int = Time.get_ticks_usec()
 	_pending = false
+	_drain_count += 1
 	_slow_gate += 1
 	var read_slow: bool = _slow_gate >= SLOW_READBACK_EVERY
 	if read_slow:
 		_slow_gate = 0
 	_cached = _read_channels(read_slow)
+	# Direct sub-timings (noise-immune, unlike fps): how long the GPU sync stall vs the channel copy/convert
+	# actually cost this drain. The readback (buffer_get_data + to_float32_array over ~17 full-grid channels) is
+	# the suspected field bottleneck; measuring it directly is how we know what gating it can win.
+	LASimReport.gauge("field_sync_ms", float(t_sync - t0) / 1000.0)
+	LASimReport.gauge("field_readback_ms", float(Time.get_ticks_usec() - t_sync) / 1000.0)
 
 
 ## Read the GPU channels the CPU consumes back into a result dict. Split HOT (every drain) vs SLOW (coarse cadence).
@@ -238,8 +261,10 @@ func _drain_pending() -> void:
 ## metric + coarse fuel-refill source — all coarse-cadence consumers, so they ride the slow set.
 func _read_channels(read_slow: bool) -> Dictionary:
 	var out: Dictionary = _empty_result()
-	# HOT — read EVERY drain. Ping-pong PAIR channels read from their live half; single channels read direct.
-	for k in ["temp", "water", "moisture", "lava", "fire", "o2", "co2", "dust", "shock"]:
+	# ALWAYS-HOT — read EVERY drain (per-frame consumers: actor world-queries, senses, render, surface-seed).
+	# Ping-pong PAIR channels read from their live half; single channels read direct. lava/fire/dust/shock moved
+	# to the DEMAND-GATED block below (they have no per-frame consumer on a calm planet).
+	for k in ["temp", "water", "moisture", "o2", "co2"]:
 		out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
 	# scent is a 5-plane packed pair (SCENT_PLANES * cell_count) — read its live half whole so the CPU bridge
 	# scatters all five planes (prey/predator/blood/food/alarm) back for the sense gradients.
@@ -250,13 +275,22 @@ func _read_channels(read_slow: bool) -> Dictionary:
 		out["snow"] = _rd.buffer_get_data(_bufs["snow"]).to_float32_array()
 	if _bufs.has("fuel"):
 		out["fuel"] = _rd.buffer_get_data(_bufs["fuel"]).to_float32_array()
-	# Emergent WIND velocity (SINGLE, in-place) — wind3_at/wind_at expose a real force field. CHARGE (SINGLE,
-	# in-place) kept HOT so the breakdown→bolt firing sees fresh accumulated charge (it edits+re-uploads charge).
-	# ROCK_FILL (SINGLE) kept HOT: MineralStamp3D scans it EVERY frame to stamp SDF grow/carve (volcano land-
-	# building) + rewrites _solid; a stale/coarse rock_fill made eruptions stamp FLOATING CUBES in mid-air.
+	# Emergent WIND velocity (SINGLE, in-place) — wind3_at/wind_at expose a real force field that EVERY creature
+	# samples per frame (LACreatureFieldForces), so it stays always-hot. CHARGE (breakdown→bolt firing edits +
+	# re-uploads it) and ROCK_FILL (MineralStamp scans it every active frame to stamp SDF grow/carve) also have
+	# per-frame-ish module consumers, so they stay hot too.
 	for k in ["vel_x", "vel_y", "vel_z", "charge", "rock_fill"]:
 		if _bufs.has(k):
 			out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
+	# DEMAND-GATED situational channels — read back ONLY while requested (a disaster is injecting/querying them,
+	# or a debug overlay is showing them). On a calm planet nothing requests them, so this is the readback cut.
+	# A skipped channel keeps its prior CPU array; the size-guarded scatter makes a stale read a 1-frame lag.
+	# lava/fire/dust/shock are ping-pong PAIRS (read the live half); charge/rock_fill are SINGLE buffers.
+	for k in SITUATIONAL_CHANNELS:
+		if not _bufs.has(k) or int(_channel_hold.get(k, -1)) < _drain_count:
+			continue
+		var src: RID = _bufs[k] if k in SINGLE_CHANNELS else _live(k)
+		out[k] = _rd.buffer_get_data(src).to_float32_array()
 	# SLOW — ledger/baker channels, read only on the coarse cadence. PAIR channels (sediment/susp/fert/soil) from
 	# the live half; single channel (biomass) direct.
 	if read_slow:
@@ -265,6 +299,14 @@ func _read_channels(read_slow: bool) -> Dictionary:
 		if _bufs.has("biomass"):
 			out["biomass"] = _rd.buffer_get_data(_bufs["biomass"]).to_float32_array()
 	return out
+
+## Mark a demand-gated situational channel as NEEDED — its readback resumes now and stays hot for
+## CHANNEL_HOLD_DRAINS more drains. The field facade calls this whenever the channel is injected into or queried
+## (a live disaster, a debug overlay), so a channel with no active consumer simply stops being copied back.
+## No-op for channels that are always read anyway.
+func request_channel(name: String) -> void:
+	_channel_hold[name] = _drain_count + CHANNEL_HOLD_DRAINS
+
 
 func set_field(name: String, arr) -> void:
 	if _rd == null or not _bufs.has(name):

@@ -899,6 +899,7 @@ func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 func add_lava(world_pos: Vector3, amount: float) -> void:
 	if amount <= 0.0 or _rock_fill.size() != _cell_count or _lava.size() != _cell_count:
 		return
+	if _gpu != null: _gpu.request_channel("lava")   # an active vent → keep the lava readback hot
 	var c: int = world_to_cell(world_pos)
 	if c < 0 or c >= _cell_count:
 		return
@@ -1291,6 +1292,7 @@ func deposit_detritus(world_pos: Vector3, amount: float) -> void:
 # fraction, and pre-lightning electrification. Pure reads for the DebugPanel field-view heatmaps.
 func lava_at(x: float, y: float, z: float) -> float:
 	if _sphere != null:
+		if _gpu != null: _gpu.request_channel("lava")   # keep lava readback hot while something queries it
 		var c: int = world_to_cell(Vector3(x, y, z))
 		return _lava[c] if (c >= 0 and _lava.size() == _cell_count) else 0.0
 	return 0.0
@@ -1327,10 +1329,13 @@ func bolts_fired() -> int:
 ## Inject a shock/sound wave (explosion, thunder, impact, stampede) — the real emergent shock channel (module).
 func emit_shock(world_pos: Vector3, magnitude: float) -> void:
 	if _shock_mod != null:
+		if _gpu != null: _gpu.request_channel("shock")   # injecting shock → keep its readback hot
 		_shock_mod.emit_shock(world_pos, magnitude)
 func shock_at(world_pos: Vector3) -> float:
+	if _gpu != null: _gpu.request_channel("shock")
 	return _shock_mod.shock_at(world_pos) if _shock_mod != null else 0.0
 func shock_gradient(world_pos: Vector3) -> Vector3:
+	if _gpu != null: _gpu.request_channel("shock")
 	return _shock_mod.shock_gradient(world_pos) if _shock_mod != null else Vector3.ZERO
 func shock_cell_count() -> int:
 	return _shock_mod.shock_cell_count() if _shock_mod != null else 0
