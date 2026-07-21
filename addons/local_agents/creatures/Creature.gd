@@ -193,6 +193,16 @@ var _model_anims: Dictionary = {}
 var _anim_accum: float = 0.0
 var _anim_phase: int = -1
 var _anim_stride: int = 1            # last computed animation-update stride (1 = every frame); telemetry reads it
+# Collision-LOD: the creature's pick shape is disabled (removed from the physics broadphase) when it is far
+# from the camera — it isn't clickable at that range anyway, and 229 moving bodies each updating their
+# broadphase AABB every frame is a large engine cost. Re-enabled when it comes near. _collision_shape is set
+# in LACreatureBody.build_body; _collision_on tracks the current state to avoid redundant toggles.
+var _collision_shape: CollisionShape3D = null
+var _collision_on: bool = true
+# Beyond this squared camera distance (~250 m, matching the animation band) the pick shape is dropped from the
+# broadphase. Same reasoning as ANIM_LOD: this camera dollies, so distance tracks on-screen size.
+const COLLISION_LOD_D2: float = 62500.0
+static var _collision_lod_off: bool = OS.has_environment("LA_NO_COLLISION_LOD")   # A/B knob: force collision always on
 # The animation update stride grows one step per this many metres of camera distance: at 0 m stride 1 (every
 # frame), at ~120 m stride ~3, capped at ANIM_STRIDE_MAX. Tuned so the creatures under the view (the eye sits
 # ~95-220 m up) still update near every frame while the far-side population updates a few times a second.
@@ -742,6 +752,13 @@ func _process(delta: float) -> void:
 	var p: Vector3 = global_position
 	_anim_accum += delta
 	var cam_d2: float = p.distance_squared_to(_camera_pos())
+	# COLLISION-LOD: drop the pick shape from the physics broadphase when far (not clickable at range), so the
+	# engine stops updating its AABB every frame as the creature walks. Reuses the camera distance computed here.
+	if _collision_shape != null and not _collision_lod_off:
+		var want_col: bool = not is_finite(cam_d2) or cam_d2 < COLLISION_LOD_D2
+		if want_col != _collision_on:
+			_collision_on = want_col
+			_collision_shape.disabled = not want_col
 	var stride: int = 1
 	if is_finite(cam_d2) and not _anim_lod_off:
 		stride = clampi(1 + int(sqrt(cam_d2) / ANIM_LOD_METRES_PER_STRIDE), 1, ANIM_STRIDE_MAX)

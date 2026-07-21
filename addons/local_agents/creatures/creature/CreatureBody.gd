@@ -37,6 +37,7 @@ static func build_body(c) -> void:
 	cyl.height = maxf(c.size * 2.0, 0.4)
 	shape.shape = cyl
 	c.add_child(shape)
+	c._collision_shape = shape                     # kept so the collision-LOD can disable it when the creature is far
 
 	# Throwers (humans) carry a visible rock when armed.
 	if c.throws:
