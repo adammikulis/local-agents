@@ -26,16 +26,13 @@ const MATURITY_CAP: float = 6.0   # elders keep gaining rank up to 6× maturity 
                                   # command trees have distinct rungs (a tiny spread collapses every tier flat).
 
 
-## A creature's emergent leadership rank — CHEAP reads only, no scans. Higher = more fit to lead.
+## A creature's emergent leadership rank — CHEAP reads only, no scans. Higher = more fit to lead. Delegates to
+## the shared valuator (LAAppraisal.dominance) so rank and mate choice run on ONE phenotype-scoring rule; with
+## default weights this is the same well-rounded-alpha ranking as before, and a species that courts on ornament
+## (dominance_traits.display) now leads on it too. The W_* / MATURITY_CAP consts above are retained as the
+## documented default weights (mirrored in LAAppraisal.DEFAULT_WEIGHTS).
 static func leader_score(c) -> float:
-	var maturity: float = clampf(c.age / maxf(c.maturity_age, 0.001), 0.0, MATURITY_CAP)
-	var vigor: float = c.energy / maxf(c.max_energy, 1.0)
-	var competence: float = 0.0
-	if c.has_method("get_cognition"):
-		var cog = c.get_cognition()
-		if cog != null and cog.has_method("policy_size"):
-			competence = float(cog.policy_size())
-	return W_MATURITY * maturity + W_SIZE * c.size + W_VIGOR * vigor + W_COMPETENCE * competence
+	return LAAppraisal.dominance(c)
 
 
 ## The local leader for `c`: the highest-ranked SAME-SPECIES creature within `radius` (bare distance, NO

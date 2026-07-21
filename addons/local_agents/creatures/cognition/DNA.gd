@@ -94,7 +94,12 @@ const LOCI: Array = [
 	# mutable, so an epidemic SELECTS for it: plague survivors pass on higher constitution and the population
 	# evolves disease resistance. Claimed from a reserved locus, so the strand length is unchanged.
 	["constitution", "gene", 2, 0.3, 2.5],
-	["_reserved_1", "reserved", 2, 0.0, 1.0],
+	# DISPLAY — heritable ornament/brightness (read by LAAppraisal). Expressed strongly in males, faintly in
+	# females. An HONEST signal: maintaining a bright display costs energy every tick (LACreatureMetabolism) and
+	# dulls with poor health/age, so only genuinely fit males stay bright. Females CHOOSE the brightest,
+	# highest-dominance males (LACreatureReproduction) → the gene is under sexual selection and a lineage visibly
+	# brightens over generations. Claimed from a reserved locus, so the strand length is unchanged.
+	["display", "gene", 2, 0.0, 1.0],
 	["_reserved_2", "reserved", 2, 0.0, 1.0],
 	["_reserved_3", "reserved", 2, 0.0, 1.0],
 	["_reserved_4", "reserved", 2, 0.0, 1.0],
@@ -250,6 +255,7 @@ static func from_config(cfg: Dictionary) -> LADNA:
 	g.encode_gene("scent_acuity", float(cfg.get("scent_acuity", 0.5)))
 	g.encode_gene("taste_sensitivity", float(cfg.get("taste_sensitivity", 0.5)))
 	g.encode_gene("constitution", float(cfg.get("constitution", 1.2)))   # healthy immune default; epidemics select it up
+	g.encode_gene("display", float(cfg.get("display", 0.3)))   # modest starting ornament; sexual selection drives it up
 	# Regulatory cue priors — born-in chemical valences for the coming affinity system.
 	var carn: float = LADNA._carnivory_from_diet(String(cfg.get("diet", "herbivore")))
 	g.encode_gene("blood_wariness", float(cfg.get("blood_wariness", 1.0 - carn)))

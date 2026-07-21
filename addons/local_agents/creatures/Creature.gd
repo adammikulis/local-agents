@@ -111,6 +111,10 @@ var diet: String = "herbivore"
 var speed: float = 3.0
 var size: float = 0.5
 var color: Color = Color(0.7, 0.7, 0.7)
+# SEX (assigned ~50/50 at setup via the seeded sim RNG, not inherited). Breeding needs one of each: the female
+# bears + gestates and CHOOSES her mate; the male courts and shows his DISPLAY (see LAAppraisal /
+# LACreatureReproduction). is_male also gates how strongly the display gene is expressed.
+var is_male: bool = false
 var can_fly: bool = false
 var cruise_height: float = 12.0
 var sense_radius: float = 8.0
@@ -603,6 +607,18 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 		# wave, but WITHOUT front-loading old-age deaths by seeding founders already near the end of their lives
 		# (which threw the initial cohort straight into a die-off). A standing age structure of the young + prime.
 		age = randf() * maturity_age * 1.8
+	# SEX: ~50/50 at birth via the seeded sim RNG (reproducible; not a heritable trait). A config override
+	# ("sex": "male"/"female") is honoured for tests/set-pieces.
+	if config.has("sex"):
+		is_male = String(config.get("sex", "")) == "male"
+	else:
+		is_male = LASimRng.shared().randf() < 0.5
+	# ORNAMENT TINT: warm a displaying male's base colour by his display gene so brighter males are visibly
+	# brighter. Static (set once from the gene) — as sexual selection raises the lineage's mean display gene the
+	# whole population visibly warms over generations, without a per-frame tint that would fight the debug tints.
+	var display_gene: float = clampf(float(config.get("display", 0.0)), 0.0, 1.0)
+	if is_male and display_gene > 0.01:
+		color = color.lerp(Color(1.0, 0.72, 0.28), 0.6 * display_gene)
 	hungry_at = float(config.get("hungry_at", hungry_at))
 	throws = bool(config.get("throws", throws))
 	throw_range = float(config.get("throw_range", throw_range))

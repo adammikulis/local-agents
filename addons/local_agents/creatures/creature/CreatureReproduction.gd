@@ -101,6 +101,10 @@ static func tick(c, delta: float) -> void:
 ## well-fed, AND its species is still below its pop_cap (the soft ceiling). Used by the seeker to gate its
 ## own courtship — the O(n) cap check happens once here per seeker, never per candidate.
 static func ready_to_breed(c) -> bool:
+	# Only FEMALES initiate: the female is the bearer (she gestates + births) and the chooser. Males court but
+	# never start a pregnancy, so the courtship loop runs from the female side and picks the best available male.
+	if bool(c.get("is_male")):
+		return false
 	if not _is_fertile(c):
 		return false
 	# LOCAL density ceiling: a creature in a neighbourhood already at its carrying density does not breed, so a
@@ -186,7 +190,7 @@ static func should_seek_mate(c) -> bool:
 ## becomes the bearer, gestation begins, the partner gets a short refractory) and return `fallback` (no more
 ## steering needed). Otherwise steer toward the chosen mate, or return `fallback` if none is in range.
 static func courtship_heading(c, pos: Vector3, fallback: Vector3) -> Vector3:
-	var mate = _nearest_fertile_mate(c, pos)
+	var mate = _best_mate(c, pos)
 	if mate == null:
 		return fallback
 	var mate3: Node3D = mate as Node3D
@@ -200,22 +204,27 @@ static func courtship_heading(c, pos: Vector3, fallback: Vector3) -> Vector3:
 	return fallback
 
 
-## Nearest fertile, valid, same-species OTHER creature within MATE_SEEK_RADIUS (spatial index, O(k)) —
-## mirrors LACreatureLeadership.local_leader's query. Candidates are filtered by the cheap _is_fertile only.
-static func _nearest_fertile_mate(c, pos: Vector3):
+## The female `c`'s CHOSEN mate: the highest-valued fertile MALE within MATE_SEEK_RADIUS (spatial index, O(k)).
+## This is where sexual selection enters — instead of pairing with the nearest male, she appraises each suitor
+## by LAAppraisal.mate_value (dominance + honest display, mildly distance-discounted) and picks the best, so
+## dominant/brightly-displaying males father disproportionately many young and the display gene is selected up.
+static func _best_mate(c, pos: Vector3):
 	var sp: String = "species_" + String(c.species)
 	var idx = LACreatureSenses._fresh_index(c, [sp])
 	var cands: Array = idx.query(sp, pos, MATE_SEEK_RADIUS)
 	var best = null
-	var best_d: float = MATE_SEEK_RADIUS
+	var best_v: float = -1.0e9
 	for m in cands:
 		if m == c or not is_instance_valid(m):
 			continue
-		if not _is_fertile(m):
+		if not bool(m.get("is_male")) or not _is_fertile(m):
 			continue
 		var d: float = pos.distance_to((m as Node3D).global_position)
-		if d < best_d:
-			best_d = d
+		if d > MATE_SEEK_RADIUS:
+			continue
+		var v: float = LAAppraisal.mate_value(c, m, d, MATE_SEEK_RADIUS)
+		if v > best_v:
+			best_v = v
 			best = m
 	return best
 

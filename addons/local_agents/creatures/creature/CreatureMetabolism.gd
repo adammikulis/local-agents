@@ -51,6 +51,10 @@ static func tick(c, delta: float) -> bool:
 	elif c.state == "sleep" or c.state == "rest" or c.state == "roost":
 		exertion = 0.5                        # sleeping/resting conserves energy — why animals do it
 	c.energy -= c.metabolism * exertion * delta * evo
+	# ORNAMENT UPKEEP: a displaying male pays extra energy every tick to hold his bright signal (0 for females /
+	# undisplayed genomes). This is what makes the display HONEST — only a genuinely well-fed male can afford to
+	# stay bright — so the sexual-selection loop (LAAppraisal / LACreatureReproduction) selects real fitness.
+	c.energy -= LAAppraisal.display_upkeep(c, delta) * evo
 	if c.energy <= 0.0:
 		c.die("starvation")
 		return true
