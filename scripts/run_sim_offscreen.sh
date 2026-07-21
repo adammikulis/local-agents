@@ -19,9 +19,11 @@ export LA_OFFSCREEN="${LA_OFFSCREEN:-1}"
 # `timeout` because godot is backgrounded here — the watchdog guarantees the run always terminates.
 RUN_TIMEOUT="${LA_RUN_TIMEOUT:-240}"
 FRONT_BID="$(osascript -e 'tell application "System Events" to get bundle identifier of first application process whose frontmost is true' 2>/dev/null)"
-# Bottom-left + off-view: negative X pushes the whole window off the left edge; the large Y drops it below the
-# visible desktop — so it consistently lands out of view toward the bottom-left, never over the user's work.
-WIN_POS="${LA_WIN_POS:--2400,1600}"
+# Fully off-view to the upper-left. The negative X must exceed the WINDOW WIDTH so the right edge also clears
+# the screen: at a 1080p test res (1920 px wide) -2400 left only -480 of slack, so a wide window still poked out
+# on the left. -10000 clears any width, and matches the in-code reposition (VoxelWorld sends the window to
+# -8000,-8000), so neither the initial paint nor the reposition shows.
+WIN_POS="${LA_WIN_POS:--10000,-10000}"
 godot --rendering-driver metal --position "$WIN_POS" --resolution "${LA_RES:-640x400}" "$@" &
 GODOT_PID=$!
 ( sleep "$RUN_TIMEOUT"; kill -KILL "$GODOT_PID" 2>/dev/null && echo "RUN_TIMEOUT: killed godot after ${RUN_TIMEOUT}s (did not finish)" >&2 ) &
