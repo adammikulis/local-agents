@@ -93,6 +93,7 @@ static func cognition(w) -> Dictionary:
 	var creatures: Array = w.get_tree().get_nodes_in_group("creature")
 	var minds: int = 0
 	var males: int = 0
+	var anim_stride_sum: int = 0
 	var bird_display_sum: float = 0.0
 	var bird_n: int = 0
 	var habits: int = 0
@@ -132,6 +133,7 @@ static func cognition(w) -> Dictionary:
 				aversions += 1
 		if bool(c.get("is_male")):
 			males += 1
+		anim_stride_sum += int(c.get("_anim_stride"))
 		# Bird-only display mean: birds court on ornament (dominance_traits.display), so if sexual selection is
 		# working this rises over generations while the population-wide display mean (diluted by the other
 		# species, which do not weight display) stays flat. A cheap, targeted read of the selection signal.
@@ -161,5 +163,6 @@ static func cognition(w) -> Dictionary:
 		"max_generation": max_gen, "slow_brain_calls": sched, "cues_learned": cues, "vetoes": vetoed,
 		"aversions": aversions, "learners": learners,
 		"genes": genes, "gene_pop": gene_pop, "males": males,
+		"anim_stride_avg": snappedf(float(anim_stride_sum) / float(maxi(minds, 1)), 0.01),
 		"bird_display": snappedf(bird_display_sum / float(maxi(bird_n, 1)), 0.001),
 	}

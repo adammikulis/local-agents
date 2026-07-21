@@ -188,6 +188,16 @@ var _mesh: MeshInstance3D = null
 var _model_root: Node3D = null
 var _model_anim: AnimationPlayer = null
 var _model_anims: Dictionary = {}
+# Animation-framerate LOD state: accumulated real time since this creature's last skeleton update, and its
+# instance-staggered phase so the population's animation frames spread evenly instead of all landing together.
+var _anim_accum: float = 0.0
+var _anim_phase: int = -1
+var _anim_stride: int = 1            # last computed animation-update stride (1 = every frame); telemetry reads it
+# The animation update stride grows one step per this many metres of camera distance: at 0 m stride 1 (every
+# frame), at ~120 m stride ~3, capped at ANIM_STRIDE_MAX. Tuned so the creatures under the view (the eye sits
+# ~95-220 m up) still update near every frame while the far-side population updates a few times a second.
+const ANIM_LOD_METRES_PER_STRIDE: float = 45.0
+const ANIM_STRIDE_MAX: int = 8      # farthest creatures update every 8th frame (~7 Hz) — imperceptible at range
 var _model_run_speed: float = 999.0
 var _vis_prev_pos: Vector3 = Vector3.ZERO
 var _vis_t: float = 0.0
@@ -720,13 +730,33 @@ func _process(delta: float) -> void:
 		return
 	if _ragdoll or _carcass:
 		return                            # the shadow/decay owns the transform; don't drive idle/run anim
-	_vis_t += delta
+	# ANIMATION-FRAMERATE LOD (do-less-by-relevance): the AnimationPlayer runs in MANUAL mode, so nothing poses
+	# the skeleton until this drives it. Re-posing every skeleton at 60 Hz is a big share of the frame with a few
+	# hundred creatures, and limb motion is imperceptible at a distance — so the update STRIDE grows LINEARLY with
+	# camera distance: every frame up close, progressively fewer updates farther out. We accumulate real delta and
+	# advance() the mixer by the whole accumulation on the update frame, so the animation still plays at correct
+	# real-time speed — only its refresh rate drops (a far creature's gait updates a few times a second, not 60).
 	var p: Vector3 = global_position
+	_anim_accum += delta
+	var cam_d2: float = p.distance_squared_to(_camera_pos())
+	var stride: int = 1
+	if is_finite(cam_d2):
+		stride = clampi(1 + int(sqrt(cam_d2) / ANIM_LOD_METRES_PER_STRIDE), 1, ANIM_STRIDE_MAX)
+	_anim_stride = stride
+	if _anim_phase < 0:
+		_anim_phase = int(get_instance_id())
+	if (int(Engine.get_physics_frames()) + _anim_phase) % stride != 0:
+		return                            # not this creature's animation frame — hold the last pose
+	var adt: float = _anim_accum
+	_anim_accum = 0.0
+	_vis_t += adt
 	var sp: float = 0.0
-	if delta > 0.0001:
-		sp = (p - _vis_prev_pos).length() / delta
+	if adt > 0.0001:
+		sp = (p - _vis_prev_pos).length() / adt
 	_vis_prev_pos = p
-	LAModelVisual.animate(_model_root, _model_anim, _model_anims, sp, _model_run_speed, _vis_t, delta)
+	LAModelVisual.animate(_model_root, _model_anim, _model_anims, sp, _model_run_speed, _vis_t, adt)
+	if _model_anim != null:
+		_model_anim.advance(adt)          # MANUAL mode: step the mixer by the accumulated real time
 
 
 # --- decision LOD (distance + sleep) ------------------------------------------------------------
