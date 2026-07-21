@@ -110,8 +110,12 @@ const GRAPHICS_PRESETS: Dictionary = {
 
 # Simulation preset → concrete CPU knobs. More population + more frequent thinking / LLM calls + field every
 # frame all cost CPU, so Low is the light-CPU floor and Ultra the busiest world.
+# field_cadence stays 1 at every tier: measured, stepping the field LESS often does NOT help fps (it batches +
+# catches up, so a field frame just runs multiple steps at once — spikier, slightly slower). The processor
+# slider's real levers are actor_budget (fewer creatures = less animation/render/AI) and ai_tick_frames.
+# Reducing the field cost needs activity-LOD (step only the active cells), not temporal cadence.
 const SIM_PRESETS: Dictionary = {
-	SimPreset.LOW: {"actor_budget": 48, "ai_tick_frames": 6, "llm_cadence": 24.0, "field_cadence": 2},
+	SimPreset.LOW: {"actor_budget": 48, "ai_tick_frames": 6, "llm_cadence": 24.0, "field_cadence": 1},
 	SimPreset.MEDIUM: {"actor_budget": 120, "ai_tick_frames": 3, "llm_cadence": 12.0, "field_cadence": 1},
 	SimPreset.HIGH: {"actor_budget": 240, "ai_tick_frames": 2, "llm_cadence": 8.0, "field_cadence": 1},
 	SimPreset.ULTRA: {"actor_budget": 360, "ai_tick_frames": 1, "llm_cadence": 5.0, "field_cadence": 1},
