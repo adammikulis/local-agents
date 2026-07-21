@@ -92,6 +92,11 @@ const SITUATIONAL_CHANNELS: Array = ["lava", "fire", "dust", "shock"]
 const CHANNEL_HOLD_DRAINS: int = 20     # stay hot ~20 drains past the last request so intermittent queries don't thrash
 var _channel_hold: Dictionary = {}      # channel name -> drain index it stays hot through
 var _drain_count: int = 0               # monotonic drain counter the holds are measured against
+# begin_frame upload gates: the solid/static masks and CPU water copy are re-uploaded only when actually edited
+# (SDF stamp / water injection), not every step — the per-step re-upload was pure CPU↔GPU transfer waste. Both
+# default true so the first begin_frame seeds them.
+var _solid_dirty: bool = true
+var _water_dirty: bool = true
 
 # Slow channels are read back only every Nth drain (their CPU consumers are coarse-cadence ledgers/bakers, not
 # every-frame world queries) — a direct cut of ~6 of 21 blocking readbacks on the other frames. Between reads the
@@ -154,9 +159,18 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: flo
 	# inter-frame CPU work) and read its channels into `_cached`. Must happen before the temp/water uploads below,
 	# which write the same live buffers the step wrote. This is the CPU↔GPU overlap that hides the field step cost.
 	_drain_pending()
-	_upload_f(_live("temp"), temp)
-	_upload_f(_live("water"), water)
-	_seed_solid()
+	_upload_f(_live("temp"), temp)                 # pin_core_heat edits temp on the CPU every step → must re-upload
+	# water is only CPU-modified by injection (add_water / lakes seed), never per-step; after the readback the CPU
+	# copy already equals the GPU's evolved water, so re-uploading it every step is redundant. Gate it on a dirty
+	# flag the injectors set.
+	if _water_dirty:
+		_upload_f(_live("water"), water)
+		_water_dirty = false
+	# solid + static masks change only on an SDF edit (volcano stamp, terrain edit) — NOT per step. _seed_solid
+	# rebuilt + uploaded BOTH full-grid buffers every frame; gate it so it only fires when the CPU mask changed.
+	if _solid_dirty:
+		_seed_solid()
+		_solid_dirty = false
 	_ctx["solar"] = solar
 	_ctx["wind"] = wind
 	_ctx["dt"] = 0.1
@@ -306,6 +320,17 @@ func _read_channels(read_slow: bool) -> Dictionary:
 ## No-op for channels that are always read anyway.
 func request_channel(name: String) -> void:
 	_channel_hold[name] = _drain_count + CHANNEL_HOLD_DRAINS
+
+
+## The CPU solid/static mask changed (initial solidity sample, a volcano SDF stamp, a terrain edit) — re-seed
+## the GPU solid/static buffers on the next begin_frame instead of every step.
+func mark_solid_dirty() -> void:
+	_solid_dirty = true
+
+
+## The CPU water channel was edited (add_water injection, lake seed) — re-upload it on the next begin_frame.
+func mark_water_dirty() -> void:
+	_water_dirty = true
 
 
 func set_field(name: String, arr) -> void:

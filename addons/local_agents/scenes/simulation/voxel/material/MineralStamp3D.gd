@@ -110,6 +110,10 @@ func _scan() -> void:
 	last_scan_ms = float(Time.get_ticks_usec() - t0) / 1000.0
 	if found > 0:
 		_window = ACTIVE_WINDOW                     # sustained activity keeps the scan awake
+		# The CPU solid mask changed (land grew/shrank) → re-seed the GPU solid/static buffers next begin_frame.
+		# begin_frame no longer uploads them every step, so this is what keeps the on-device solidity in sync.
+		if _f._gpu != null and _f._gpu.has_method("mark_solid_dirty"):
+			_f._gpu.mark_solid_dirty()
 	if OS.has_environment("LA_STAMP_DEBUG"):
 		print("STAMP_SCAN={ms:%.3f, found:%d, cells:%d}" % [last_scan_ms, found, n])
 

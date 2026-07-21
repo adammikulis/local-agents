@@ -467,6 +467,7 @@ func add_water_cell(ix: int, iy: int, iz: int, amount: float) -> void:
 	if _solid[i] != 0:
 		return
 	_water[i] = maxf(0.0, _water[i] + amount)
+	if _gpu != null: _gpu.mark_water_dirty()   # CPU water edit → re-upload it next begin_frame
 
 
 func water_at_cell(ix: int, iy: int, iz: int) -> float:
@@ -957,12 +958,14 @@ func wet_cell_count() -> int:
 func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
 	if _inject != null:
 		_inject.add_water_pooled(center, amount, radius)
+		if _gpu != null: _gpu.mark_water_dirty()   # CPU water edit → re-upload it next begin_frame
 
 
 ## Re-sample rock/void from the terrain SDF in a region after an edit (a crater, a lava-built delta).
 func resample_terrain(world_pos: Vector3, radius: float) -> void:
 	if _inject != null:
 		_inject.resample_terrain(world_pos, radius)
+		if _gpu != null: _gpu.mark_solid_dirty()   # the solid mask changed → re-seed the GPU solid/static buffers
 
 
 ## Count of OPEN cells carrying derived condensate (moisture over saturation) at/above CONDENSE_COVER_MIN.
