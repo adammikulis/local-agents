@@ -891,6 +891,16 @@ static func _prof_report() -> Dictionary:
 
 const FAR_LOD_D2: float = 40000.0   # beyond this (²) a creature updates every 8th frame; MID..FAR every 4th (catch-up dt)
 var _lod_accum: float = 0.0
+# LINEAR physics-rate LOD: beyond the near band the whole _physics_process (movement + physiology + think) runs
+# on a stride that grows ONE step per PHYS_LOD_METRES_PER_STRIDE metres of camera distance, capped at
+# PHYS_STRIDE_MAX. Replaces the old binary 4/8 tiers with a smooth ramp — near-view creatures update near every
+# frame (smooth motion), the far-side population a couple times a second. The accumulated catch-up dt keeps
+# metabolism/aging/movement distance correct; a far creature simply advances several frames of motion at once
+# (invisible at range). Same principle + shape as the animation-framerate LOD.
+const PHYS_LOD_METRES_PER_STRIDE: float = 40.0
+const PHYS_STRIDE_MAX: int = 12     # far-side creatures update every 12th frame (was a hard 8) — the linear ramp
+                                    # spends the reclaimed budget keeping NEAR-view motion smoother (stride ~1-2)
+static var _phys_lod_off: bool = OS.has_environment("LA_NO_PHYS_LOD")   # A/B knob: force the old binary tiers
 
 func _physics_process(delta: float) -> void:
 	if LAAblate.off("creatures"):
@@ -916,7 +926,12 @@ func _physics_process(delta: float) -> void:
 		var cam_d2: float = global_position.distance_squared_to(_camera_pos())
 		if is_finite(cam_d2) and cam_d2 > MID_LOD_D2:
 			_lod_accum += delta
-			var lod_stride: int = 8 if cam_d2 > FAR_LOD_D2 else 4
+			var lod_stride: int
+			if _phys_lod_off:
+				lod_stride = 8 if cam_d2 > FAR_LOD_D2 else 4      # legacy binary tiers (A/B baseline)
+			else:
+				# Linear ramp from the near band (sqrt MID_LOD_D2 ≈ 70 m) outward.
+				lod_stride = clampi(1 + int((sqrt(cam_d2) - 70.0) / PHYS_LOD_METRES_PER_STRIDE), 1, PHYS_STRIDE_MAX)
 			if (int(Engine.get_physics_frames()) + _think_phase) % lod_stride != 0:
 				return
 			delta = _lod_accum
