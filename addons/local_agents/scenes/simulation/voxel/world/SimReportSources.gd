@@ -92,6 +92,10 @@ static func disease(w) -> Dictionary:
 static func cognition(w) -> Dictionary:
 	var creatures: Array = w.get_tree().get_nodes_in_group("creature")
 	var minds: int = 0
+	var males: int = 0
+	var anim_stride_sum: int = 0
+	var bird_display_sum: float = 0.0
+	var bird_n: int = 0
 	var habits: int = 0
 	var asked: int = 0
 	var learned: int = 0
@@ -104,7 +108,7 @@ static func cognition(w) -> Dictionary:
 	# Population gene means — the evolvable loci whose drift makes SELECTION observable (a toxin-heavy pasture
 	# should push neophobia up over generations, predation should push speed up, etc.). Accumulated in THIS same
 	# O(N) pass — no second population scan (big-O discipline). decode_gene() is the raw locus value.
-	const REPORTED_GENES: Array = ["size", "speed", "metabolism", "carnivory", "neophobia", "boldness", "scent_acuity", "taste_sensitivity", "constitution"]
+	const REPORTED_GENES: Array = ["size", "speed", "metabolism", "carnivory", "neophobia", "boldness", "scent_acuity", "taste_sensitivity", "constitution", "display"]
 	var gene_sum: Dictionary = {}
 	for gk in REPORTED_GENES:
 		gene_sum[gk] = 0.0
@@ -127,6 +131,17 @@ static func cognition(w) -> Dictionary:
 				cues += 1
 			elif float(cv) <= -0.4:
 				aversions += 1
+		if bool(c.get("is_male")):
+			males += 1
+		anim_stride_sum += int(c.get("_anim_stride"))
+		# Bird-only display mean: birds court on ornament (dominance_traits.display), so if sexual selection is
+		# working this rises over generations while the population-wide display mean (diluted by the other
+		# species, which do not weight display) stays flat. A cheap, targeted read of the selection signal.
+		if String(c.get("species")) == "bird" and c.has_method("get_genome") and c.get_genome() != null:
+			var bg = c.get_genome()
+			if bg.has_method("decode_gene"):
+				bird_display_sum += bg.decode_gene("display")
+				bird_n += 1
 		if c.has_method("get_genome") and c.get_genome() != null:
 			var gen = c.get_genome()
 			max_gen = maxi(max_gen, int(gen.generation))
@@ -147,5 +162,7 @@ static func cognition(w) -> Dictionary:
 		"minds": minds, "habits": habits, "escalations": asked, "social_lessons": learned,
 		"max_generation": max_gen, "slow_brain_calls": sched, "cues_learned": cues, "vetoes": vetoed,
 		"aversions": aversions, "learners": learners,
-		"genes": genes, "gene_pop": gene_pop,
+		"genes": genes, "gene_pop": gene_pop, "males": males,
+		"anim_stride_avg": snappedf(float(anim_stride_sum) / float(maxi(minds, 1)), 0.01),
+		"bird_display": snappedf(bird_display_sum / float(maxi(bird_n, 1)), 0.001),
 	}

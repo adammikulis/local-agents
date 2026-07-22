@@ -111,6 +111,10 @@ var diet: String = "herbivore"
 var speed: float = 3.0
 var size: float = 0.5
 var color: Color = Color(0.7, 0.7, 0.7)
+# SEX (assigned ~50/50 at setup via the seeded sim RNG, not inherited). Breeding needs one of each: the female
+# bears + gestates and CHOOSES her mate; the male courts and shows his DISPLAY (see LAAppraisal /
+# LACreatureReproduction). is_male also gates how strongly the display gene is expressed.
+var is_male: bool = false
 var can_fly: bool = false
 var cruise_height: float = 12.0
 var sense_radius: float = 8.0
@@ -184,6 +188,29 @@ var _mesh: MeshInstance3D = null
 var _model_root: Node3D = null
 var _model_anim: AnimationPlayer = null
 var _model_anims: Dictionary = {}
+# Animation-framerate LOD state: accumulated real time since this creature's last skeleton update, and its
+# instance-staggered phase so the population's animation frames spread evenly instead of all landing together.
+var _anim_accum: float = 0.0
+var _anim_phase: int = -1
+var _anim_stride: int = 1            # last computed animation-update stride (1 = every frame); telemetry reads it
+# Collision-LOD: the creature's pick shape is disabled (removed from the physics broadphase) when it is far
+# from the camera — it isn't clickable at that range anyway, and 229 moving bodies each updating their
+# broadphase AABB every frame is a large engine cost. Re-enabled when it comes near. _collision_shape is set
+# in LACreatureBody.build_body; _collision_on tracks the current state to avoid redundant toggles.
+var _collision_shape: CollisionShape3D = null
+var _collision_on: bool = true
+# Beyond this squared camera distance (~250 m, matching the animation band) the pick shape is dropped from the
+# broadphase. Same reasoning as ANIM_LOD: this camera dollies, so distance tracks on-screen size.
+const COLLISION_LOD_D2: float = 62500.0
+static var _collision_lod_off: bool = OS.has_environment("LA_NO_COLLISION_LOD")   # A/B knob: force collision always on
+# The animation update stride grows one step per this many metres of camera distance: at 0 m stride 1 (every
+# frame), at ~120 m stride ~3, capped at ANIM_STRIDE_MAX. Tuned so the creatures under the view (the eye sits
+# ~95-220 m up) still update near every frame while the far-side population updates a few times a second.
+const ANIM_LOD_METRES_PER_STRIDE: float = 45.0
+const ANIM_STRIDE_MAX: int = 8      # farthest creatures update every 8th frame (~7 Hz) — imperceptible at range
+# Dev A/B knob (LA_NO_ANIM_LOD=1): force every creature to animate every frame (the pre-LOD behaviour) so the
+# animation-LOD win can be measured against a same-machine baseline. Off in normal play.
+static var _anim_lod_off: bool = OS.has_environment("LA_NO_ANIM_LOD")
 var _model_run_speed: float = 999.0
 var _vis_prev_pos: Vector3 = Vector3.ZERO
 var _vis_t: float = 0.0
@@ -603,6 +630,18 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 		# wave, but WITHOUT front-loading old-age deaths by seeding founders already near the end of their lives
 		# (which threw the initial cohort straight into a die-off). A standing age structure of the young + prime.
 		age = randf() * maturity_age * 1.8
+	# SEX: ~50/50 at birth via the seeded sim RNG (reproducible; not a heritable trait). A config override
+	# ("sex": "male"/"female") is honoured for tests/set-pieces.
+	if config.has("sex"):
+		is_male = String(config.get("sex", "")) == "male"
+	else:
+		is_male = LASimRng.shared().randf() < 0.5
+	# ORNAMENT TINT: warm a displaying male's base colour by his display gene so brighter males are visibly
+	# brighter. Static (set once from the gene) — as sexual selection raises the lineage's mean display gene the
+	# whole population visibly warms over generations, without a per-frame tint that would fight the debug tints.
+	var display_gene: float = clampf(float(config.get("display", 0.0)), 0.0, 1.0)
+	if is_male and display_gene > 0.01:
+		color = color.lerp(Color(1.0, 0.72, 0.28), 0.6 * display_gene)
 	hungry_at = float(config.get("hungry_at", hungry_at))
 	throws = bool(config.get("throws", throws))
 	throw_range = float(config.get("throw_range", throw_range))
@@ -704,13 +743,40 @@ func _process(delta: float) -> void:
 		return
 	if _ragdoll or _carcass:
 		return                            # the shadow/decay owns the transform; don't drive idle/run anim
-	_vis_t += delta
+	# ANIMATION-FRAMERATE LOD (do-less-by-relevance): the AnimationPlayer runs in MANUAL mode, so nothing poses
+	# the skeleton until this drives it. Re-posing every skeleton at 60 Hz is a big share of the frame with a few
+	# hundred creatures, and limb motion is imperceptible at a distance — so the update STRIDE grows LINEARLY with
+	# camera distance: every frame up close, progressively fewer updates farther out. We accumulate real delta and
+	# advance() the mixer by the whole accumulation on the update frame, so the animation still plays at correct
+	# real-time speed — only its refresh rate drops (a far creature's gait updates a few times a second, not 60).
 	var p: Vector3 = global_position
+	_anim_accum += delta
+	var cam_d2: float = p.distance_squared_to(_camera_pos())
+	# COLLISION-LOD: drop the pick shape from the physics broadphase when far (not clickable at range), so the
+	# engine stops updating its AABB every frame as the creature walks. Reuses the camera distance computed here.
+	if _collision_shape != null and not _collision_lod_off:
+		var want_col: bool = not is_finite(cam_d2) or cam_d2 < COLLISION_LOD_D2
+		if want_col != _collision_on:
+			_collision_on = want_col
+			_collision_shape.disabled = not want_col
+	var stride: int = 1
+	if is_finite(cam_d2) and not _anim_lod_off:
+		stride = clampi(1 + int(sqrt(cam_d2) / ANIM_LOD_METRES_PER_STRIDE), 1, ANIM_STRIDE_MAX)
+	_anim_stride = stride
+	if _anim_phase < 0:
+		_anim_phase = int(get_instance_id())
+	if (int(Engine.get_physics_frames()) + _anim_phase) % stride != 0:
+		return                            # not this creature's animation frame — hold the last pose
+	var adt: float = _anim_accum
+	_anim_accum = 0.0
+	_vis_t += adt
 	var sp: float = 0.0
-	if delta > 0.0001:
-		sp = (p - _vis_prev_pos).length() / delta
+	if adt > 0.0001:
+		sp = (p - _vis_prev_pos).length() / adt
 	_vis_prev_pos = p
-	LAModelVisual.animate(_model_root, _model_anim, _model_anims, sp, _model_run_speed, _vis_t, delta)
+	LAModelVisual.animate(_model_root, _model_anim, _model_anims, sp, _model_run_speed, _vis_t, adt)
+	if _model_anim != null:
+		_model_anim.advance(adt)          # MANUAL mode: step the mixer by the accumulated real time
 
 
 # --- decision LOD (distance + sleep) ------------------------------------------------------------
@@ -825,6 +891,16 @@ static func _prof_report() -> Dictionary:
 
 const FAR_LOD_D2: float = 40000.0   # beyond this (²) a creature updates every 8th frame; MID..FAR every 4th (catch-up dt)
 var _lod_accum: float = 0.0
+# LINEAR physics-rate LOD: beyond the near band the whole _physics_process (movement + physiology + think) runs
+# on a stride that grows ONE step per PHYS_LOD_METRES_PER_STRIDE metres of camera distance, capped at
+# PHYS_STRIDE_MAX. Replaces the old binary 4/8 tiers with a smooth ramp — near-view creatures update near every
+# frame (smooth motion), the far-side population a couple times a second. The accumulated catch-up dt keeps
+# metabolism/aging/movement distance correct; a far creature simply advances several frames of motion at once
+# (invisible at range). Same principle + shape as the animation-framerate LOD.
+const PHYS_LOD_METRES_PER_STRIDE: float = 40.0
+const PHYS_STRIDE_MAX: int = 12     # far-side creatures update every 12th frame (was a hard 8) — the linear ramp
+                                    # spends the reclaimed budget keeping NEAR-view motion smoother (stride ~1-2)
+static var _phys_lod_off: bool = OS.has_environment("LA_NO_PHYS_LOD")   # A/B knob: force the old binary tiers
 
 func _physics_process(delta: float) -> void:
 	if LAAblate.off("creatures"):
@@ -850,7 +926,12 @@ func _physics_process(delta: float) -> void:
 		var cam_d2: float = global_position.distance_squared_to(_camera_pos())
 		if is_finite(cam_d2) and cam_d2 > MID_LOD_D2:
 			_lod_accum += delta
-			var lod_stride: int = 8 if cam_d2 > FAR_LOD_D2 else 4
+			var lod_stride: int
+			if _phys_lod_off:
+				lod_stride = 8 if cam_d2 > FAR_LOD_D2 else 4      # legacy binary tiers (A/B baseline)
+			else:
+				# Linear ramp from the near band (sqrt MID_LOD_D2 ≈ 70 m) outward.
+				lod_stride = clampi(1 + int((sqrt(cam_d2) - 70.0) / PHYS_LOD_METRES_PER_STRIDE), 1, PHYS_STRIDE_MAX)
 			if (int(Engine.get_physics_frames()) + _think_phase) % lod_stride != 0:
 				return
 			delta = _lod_accum

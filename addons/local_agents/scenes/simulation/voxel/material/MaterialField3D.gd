@@ -467,6 +467,7 @@ func add_water_cell(ix: int, iy: int, iz: int, amount: float) -> void:
 	if _solid[i] != 0:
 		return
 	_water[i] = maxf(0.0, _water[i] + amount)
+	if _gpu != null: _gpu.mark_water_dirty()   # CPU water edit → re-upload it next begin_frame
 
 
 func water_at_cell(ix: int, iy: int, iz: int) -> float:
@@ -899,6 +900,7 @@ func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 func add_lava(world_pos: Vector3, amount: float) -> void:
 	if amount <= 0.0 or _rock_fill.size() != _cell_count or _lava.size() != _cell_count:
 		return
+	if _gpu != null: _gpu.request_channel("lava")   # an active vent → keep the lava readback hot
 	var c: int = world_to_cell(world_pos)
 	if c < 0 or c >= _cell_count:
 		return
@@ -956,12 +958,14 @@ func wet_cell_count() -> int:
 func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
 	if _inject != null:
 		_inject.add_water_pooled(center, amount, radius)
+		if _gpu != null: _gpu.mark_water_dirty()   # CPU water edit → re-upload it next begin_frame
 
 
 ## Re-sample rock/void from the terrain SDF in a region after an edit (a crater, a lava-built delta).
 func resample_terrain(world_pos: Vector3, radius: float) -> void:
 	if _inject != null:
 		_inject.resample_terrain(world_pos, radius)
+		if _gpu != null: _gpu.mark_solid_dirty()   # the solid mask changed → re-seed the GPU solid/static buffers
 
 
 ## Count of OPEN cells carrying derived condensate (moisture over saturation) at/above CONDENSE_COVER_MIN.
@@ -1291,6 +1295,7 @@ func deposit_detritus(world_pos: Vector3, amount: float) -> void:
 # fraction, and pre-lightning electrification. Pure reads for the DebugPanel field-view heatmaps.
 func lava_at(x: float, y: float, z: float) -> float:
 	if _sphere != null:
+		if _gpu != null: _gpu.request_channel("lava")   # keep lava readback hot while something queries it
 		var c: int = world_to_cell(Vector3(x, y, z))
 		return _lava[c] if (c >= 0 and _lava.size() == _cell_count) else 0.0
 	return 0.0
@@ -1327,10 +1332,13 @@ func bolts_fired() -> int:
 ## Inject a shock/sound wave (explosion, thunder, impact, stampede) — the real emergent shock channel (module).
 func emit_shock(world_pos: Vector3, magnitude: float) -> void:
 	if _shock_mod != null:
+		if _gpu != null: _gpu.request_channel("shock")   # injecting shock → keep its readback hot
 		_shock_mod.emit_shock(world_pos, magnitude)
 func shock_at(world_pos: Vector3) -> float:
+	if _gpu != null: _gpu.request_channel("shock")
 	return _shock_mod.shock_at(world_pos) if _shock_mod != null else 0.0
 func shock_gradient(world_pos: Vector3) -> Vector3:
+	if _gpu != null: _gpu.request_channel("shock")
 	return _shock_mod.shock_gradient(world_pos) if _shock_mod != null else Vector3.ZERO
 func shock_cell_count() -> int:
 	return _shock_mod.shock_cell_count() if _shock_mod != null else 0

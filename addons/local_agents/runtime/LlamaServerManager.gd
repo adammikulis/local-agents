@@ -9,9 +9,26 @@ var _managed_base_url: String = ""
 var _managed_model_path: String = ""
 var _managed_runtime_dir: String = ""
 var _last_startup_report: Dictionary = {}
+# Negative cache: once an ensure attempt fails with no managed server up, remember it so the next calls
+# short-circuit instead of each re-paying the probe/spawn. This is what lets a creature/demo with no model
+# ready degrade to its fast policy INSTANTLY on every subsequent frame instead of stalling repeatedly.
+# Cleared whenever a server is successfully found/started. Re-probed after a cooldown so a server that comes
+# up later is still picked up.
+var _unavailable_until_ms: int = -1
+const UNAVAILABLE_COOLDOWN_MS: int = 3000
+# Quick single-shot connect budget for the "is a server ALREADY running?" probe — long enough for a local
+# server that is up to answer, short enough that a miss returns fast instead of the old 1200 ms spin.
+const QUICK_PROBE_CONNECT_MS: int = 200
 
 func ensure_running(options: Dictionary, model_path: String, runtime_dir: String = "") -> Dictionary:
     var base_url := _normalized_base_url(options)
+    # Fast path: a managed server we already started is up — skip all probing (no HTTP, no spin).
+    if _managed_pid > 0 and _managed_base_url == base_url:
+        return {"ok": true, "managed": true, "base_url": base_url}
+    # Negative cache: a recent attempt failed and nothing is managed — short-circuit so the caller (often a
+    # per-frame creature/demo cognition tick) drops to its fast policy immediately instead of re-stalling.
+    if _managed_pid <= 0 and _unavailable_until_ms > 0 and Time.get_ticks_msec() < _unavailable_until_ms:
+        return {"ok": false, "error": "llm_unavailable_cached", "base_url": base_url}
     var host_port := _parse_host_port(base_url)
     var report := _build_startup_report(options, model_path, runtime_dir, base_url)
     if not bool(host_port.get("ok", false)):
@@ -24,7 +41,11 @@ func ensure_running(options: Dictionary, model_path: String, runtime_dir: String
             "base_url": base_url,
         }
 
-    if _is_server_ready(String(host_port.get("host", "127.0.0.1")), int(host_port.get("port", 8080)), int(options.get("server_ready_timeout_ms", 1200))):
+    # "Is a server ALREADY running?" — a SINGLE quick probe, not the old 1200 ms retry spin. If one is up it
+    # answers in a few ms; if not, this returns fast so we fall through to spawn (or to the fast policy) without
+    # blocking the caller's frame.
+    if _probe_server_ready(String(host_port.get("host", "127.0.0.1")), int(host_port.get("port", 8080))):
+        _unavailable_until_ms = -1
         report["ok"] = true
         report["already_running"] = true
         report["managed"] = false
@@ -37,6 +58,9 @@ func ensure_running(options: Dictionary, model_path: String, runtime_dir: String
 
     var resolved_model_path := _normalize_path(model_path)
     if resolved_model_path == "" or not FileAccess.file_exists(resolved_model_path):
+        # No model on disk — the common "nothing is ready" case (#20). Cache it so a per-frame cognition tick
+        # stops re-checking the filesystem every call and drops to fast policy instantly.
+        _unavailable_until_ms = Time.get_ticks_msec() + UNAVAILABLE_COOLDOWN_MS
         report["ok"] = false
         report["error"] = "server_model_missing"
         _last_startup_report = report
@@ -139,6 +163,7 @@ func ensure_running(options: Dictionary, model_path: String, runtime_dir: String
     var startup_timeout_ms := int(options.get("server_start_timeout_ms", 30000))
     if not _is_server_ready(String(host_port.get("host", "127.0.0.1")), int(host_port.get("port", 8080)), startup_timeout_ms):
         _kill_managed()
+        _unavailable_until_ms = Time.get_ticks_msec() + UNAVAILABLE_COOLDOWN_MS   # don't re-spawn every call
         report["ok"] = false
         report["error"] = "llama_server_start_timeout"
         report["pid"] = pid
@@ -151,6 +176,7 @@ func ensure_running(options: Dictionary, model_path: String, runtime_dir: String
             "pid": pid,
         }
 
+    _unavailable_until_ms = -1                       # a server is up now — clear the negative cache
     report["ok"] = true
     report["managed"] = true
     report["pid"] = pid
@@ -249,13 +275,22 @@ func _is_server_ready(host: String, port: int, timeout_ms: int) -> bool:
         OS.delay_msec(120)
     return false
 
-func _http_get_ready(host: String, port: int, path: String) -> bool:
+# Single-shot readiness probe with a SHORT connect budget: one /health + /v1/models attempt, no retry spin.
+# Used for the "is a server already running?" question so a miss returns in ~QUICK_PROBE_CONNECT_MS instead of
+# the ~1200 ms the retry loop used to cost — the difference between a drop-in agent stalling at startup and
+# degrading to fast policy instantly.
+func _probe_server_ready(host: String, port: int) -> bool:
+    if _http_get_ready(host, port, "/health", QUICK_PROBE_CONNECT_MS):
+        return true
+    return _http_get_ready(host, port, "/v1/models", QUICK_PROBE_CONNECT_MS)
+
+func _http_get_ready(host: String, port: int, path: String, connect_budget_ms: int = 1000) -> bool:
     var client := HTTPClient.new()
     var connect_err := client.connect_to_host(host, port)
     if connect_err != OK:
         return false
 
-    var connect_deadline: int = Time.get_ticks_msec() + 1000
+    var connect_deadline: int = Time.get_ticks_msec() + maxi(50, connect_budget_ms)
     while Time.get_ticks_msec() < connect_deadline:
         client.poll()
         var status := client.get_status()

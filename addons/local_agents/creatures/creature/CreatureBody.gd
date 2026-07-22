@@ -37,6 +37,7 @@ static func build_body(c) -> void:
 	cyl.height = maxf(c.size * 2.0, 0.4)
 	shape.shape = cyl
 	c.add_child(shape)
+	c._collision_shape = shape                     # kept so the collision-LOD can disable it when the creature is far
 
 	# Throwers (humans) carry a visible rock when armed.
 	if c.throws:
@@ -63,6 +64,11 @@ static func build_model(c) -> void:
 	c.add_child(model)
 	c._model_root = model
 	c._model_anim = LAModelVisual.find_anim(model)
+	if c._model_anim != null:
+		# MANUAL process: the creature drives the mixer itself via advance() on a distance-scaled cadence
+		# (animation-framerate LOD in LACreature._process), instead of Godot auto-sampling every skeleton every
+		# frame. This is what lets a distant creature's skeleton update a few times a second instead of 60.
+		c._model_anim.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
 	c._model_anims = def.get("anims", {})
 	c._model_run_speed = float(def.get("run", 999.0))
 	c._vis_prev_pos = c.global_position

@@ -54,6 +54,7 @@ var _settings: LAGameSettings = null
 var _world: Node = null
 var _disasters: Node = null
 var _terrain = null
+var _water: Node = null                                  # kept so a live settings re-apply can re-push effects density
 
 var _disaster_interval: float = DISASTER_INTERVAL_SLOW
 var _disaster_accum: float = 0.0
@@ -193,6 +194,7 @@ func bind(world: Node, disasters: Node, terrain, water: Node) -> void:
 	_world = world
 	_disasters = disasters
 	_terrain = terrain
+	_water = water
 	if water != null and water.has_method("set_density_scale"):
 		water.set_density_scale(particle_scale())
 	_recompute_disaster_cadence()
@@ -215,6 +217,11 @@ func _on_settings_applied(new_settings: LAGameSettings) -> void:
 	if new_settings != null:
 		_settings = new_settings
 	publish_globals()
+	# Push the live-adjustable effects density so a mid-game Graphics change (e.g. from the pause menu) shows
+	# up immediately in the rain/spray particle budget. Grid resolution + shadow maps are build-time only and
+	# take effect on the next world load — the pause settings panel says so.
+	if _water != null and is_instance_valid(_water) and _water.has_method("set_density_scale"):
+		_water.set_density_scale(particle_scale())
 	_recompute_disaster_cadence()
 
 

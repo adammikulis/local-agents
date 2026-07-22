@@ -68,10 +68,6 @@ const SKY_TOP_NIGHT: Color = Color(0.02, 0.03, 0.11)
 const SKY_HORIZON_DAY: Color = Color(0.86, 0.90, 0.94)
 const SKY_HORIZON_NIGHT: Color = Color(0.05, 0.06, 0.15)
 const SKY_HORIZON_DUSK: Color = Color(0.92, 0.48, 0.24)
-const GROUND_HORIZON_DAY: Color = Color(0.62, 0.66, 0.62)
-const GROUND_HORIZON_NIGHT: Color = Color(0.04, 0.05, 0.10)
-const GROUND_BOTTOM_DAY: Color = Color(0.30, 0.34, 0.30)
-const GROUND_BOTTOM_NIGHT: Color = Color(0.02, 0.02, 0.05)
 
 
 # Build the sky material, WorldEnvironment, sun (with PSSM cascade-blend shadows) and moon, parenting
@@ -98,8 +94,6 @@ func setup(world: Node3D, time_of_day: float, lunar_phase: float, render_opts: D
 	sky_mat.shader = load("res://addons/local_agents/scenes/simulation/voxel/shaders/VoxelSky.gdshader")
 	sky_mat.set_shader_parameter("sky_top_color", SKY_TOP_DAY)
 	sky_mat.set_shader_parameter("sky_horizon_color", SKY_HORIZON_DAY)
-	sky_mat.set_shader_parameter("ground_horizon_color", Color(0.62, 0.66, 0.62))
-	sky_mat.set_shader_parameter("ground_bottom_color", Color(0.30, 0.34, 0.30))
 	sky_mat.set_shader_parameter("night", 0.0)
 	sky_mat.set_shader_parameter("star_intensity", 1.0)
 	sky_mat.set_shader_parameter("moon_phase", _lunar_phase)
@@ -296,8 +290,6 @@ func _update_day_night(delta: float) -> void:
 		_sky_shader_mat.set_shader_parameter("sky_horizon_color", horizon)
 		# Darken the ground band at night too, else the static ground horizon reads as a bright
 		# pale strip against the dark night sky.
-		_sky_shader_mat.set_shader_parameter("ground_horizon_color", GROUND_HORIZON_DAY.lerp(GROUND_HORIZON_NIGHT, night))
-		_sky_shader_mat.set_shader_parameter("ground_bottom_color", GROUND_BOTTOM_DAY.lerp(GROUND_BOTTOM_NIGHT, night))
 		_sky_shader_mat.set_shader_parameter("night", night)
 		_sky_shader_mat.set_shader_parameter("moon_phase", _lunar_phase)
 		# Sun/moon directions drive the discs directly (basis.z of a DirectionalLight3D points

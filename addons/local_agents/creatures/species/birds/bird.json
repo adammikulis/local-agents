@@ -31,5 +31,12 @@
   "hearing_range": 20.0,
   "nests": true,
   "nest_habitat": "tree",
-  "max_age": 150.0
+  "max_age": 150.0,
+  "display": 0.35,
+  "dominance_traits": {
+    "size": 0.4,
+    "vigor": 0.5,
+    "maturity": 0.6,
+    "display": 2.5
+  }
 }

@@ -83,8 +83,12 @@ func process(delta: float) -> void:
 	# Global scalar solar term is a constant fallback; the per-cell solar terminator comes from the sphere
 	# ThermalPass' set_sun_dir kernel (max(0, dot(cell_radial, sun_dir))), not this scalar.
 	var solar: float = 0.6
+	var t_pin: int = Time.get_ticks_usec()
 	_f._pin_core_heat()              # geothermal boundary: re-pin the hot inner shells before the upload
-	_f._gpu.begin_frame(_f._temp, _f._water, solar, Vector2.ZERO)
+	LASimReport.gauge("field_pin_ms", float(Time.get_ticks_usec() - t_pin) / 1000.0)
+	var t_begin: int = Time.get_ticks_usec()
+	_f._gpu.begin_frame(_f._temp, _f._water, solar, Vector2.ZERO)   # drains prev step (sync+readback) + uploads
+	LASimReport.gauge("field_begin_ms", float(Time.get_ticks_usec() - t_begin) / 1000.0)
 	# Per-cell solar terminator + marine cooling need the world-space sun direction and the sea shell radius.
 	# sun_dir points from the planet toward the star; ThermalPass' solar kernel does max(0, dot(cell_radial, sun_dir)).
 	if _f._sun_light != null and _f._gpu.has_method("set_sun_dir"):
@@ -138,9 +142,12 @@ func process(delta: float) -> void:
 	if _f._vapor_dirty and _f._gpu.has_method("set_field"):
 		_f._gpu.set_field("moisture", _f._moisture)
 		_f._vapor_dirty = false
+	var t_step: int = Time.get_ticks_usec()
 	for i in steps:
 		_f._gpu.step()
+	LASimReport.gauge("field_dispatch_ms", float(Time.get_ticks_usec() - t_step) / 1000.0)
 	var res: Dictionary = _f._gpu.end_frame()
+	var t_post: int = Time.get_ticks_usec()
 	_apply_readback(res)
 	# Surface seed module: coarse-cadence refill of fuel from the freshly read-back biomass (marks _fuel_dirty).
 	if _f._surface_seed != null:
@@ -150,6 +157,7 @@ func process(delta: float) -> void:
 		_f._charge_mod.post_step()
 	if _f._stamp != null:
 		_f._stamp.maybe_scan()                       # Stage C: stamp rock_fill 0.5-crossings into the SDF (gated)
+	LASimReport.gauge("field_post_ms", float(Time.get_ticks_usec() - t_post) / 1000.0)   # scatter + CPU post-passes
 	LASimReport.gauge("field_ms", float(Time.get_ticks_usec() - t0) / 1000.0)
 	LASimReport.event("field_step")   # telemetry: GPU field runs/run — a slower cadence lowers this (and the avg field_ms)
 
