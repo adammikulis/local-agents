@@ -66,13 +66,37 @@ had been sitting unmerged in an existing worktree, merged it, and confirmed the 
   today). This is a **different, already-merged** mechanism from the creature-level distance/think-stride
   throttling already in `Creature.gd` (also sometimes called "compute-bubble" in code comments) — don't
   conflate the two. The field one is the real remaining big lever; started below.
-- **In progress:** the field activity-bubble LOD build (see the fresh worktree note below) — a per-tile sleep
-  flag + early-out, wake-propagated by a stimulus or a neighbor cell crossing a change threshold.
+- **Started: field activity-bubble LOD, first slice (WIP, unmerged — DO NOT MERGE yet).** Branch
+  `feature/activity-bubble-lod` (`c7808b2`), worktree `../local-agents-activity-lod`. New ping-pong `activity`
+  channel + `ActivityPass` (GATHER-style, models `FireDustPass`) computing a per-cell wake bubble: a cell
+  self-seeds active if burning or fuelled+hot-enough-to-approach-ignition (100°C margin), then radiates that
+  as a decaying bubble via neighbour-max-minus-decay (no atomics, one GATHER kernel, matches the codebase's
+  existing convention). Wired to gate ONLY `fire_sphere3d.glsl` so far — a quiescent cell skips the whole
+  ember-gather + combustion-phase body and just persists `fire_out=fire_in`. `activity` is GPU-only (never
+  added to the CPU readback allowlist), so it costs zero extra CPU↔GPU traffic.
+  - **Verified:** compiles/imports clean; several headless smoke runs (default + `--auto-lightning` at 90 and
+    400 frames) all clean (0 errors), aggregate SIM_REPORT stats matching an unmodified-`0.4-dev` baseline run
+    of the same scenarios within noise — no regression on a fire-free planet.
+  - **NOT verified — blocks merge:** could not get an organic in-sim fire to actually ignite via
+    `--auto-lightning` in this harness invocation to observe mid-burn behavior under the gate. `bolts:0` and
+    `fire_cells:0` at report time in BOTH the modified run and the unmodified-`0.4-dev` baseline — the strike
+    is timed (`VoxelInputController.gd` ~line 543-548) to land ~100 frames before the report specifically so
+    the wildfire is "still burning at the final SIM_REPORT snapshot," but isn't, on **either** branch, on this
+    world seed. **This is a separate, pre-existing bug in the auto-lightning test path, not caused by this
+    change** (identical on baseline) — but it also means the fire-gate's mid-burn behavior is only verified by
+    code-level reasoning (the self-seed predicate is a proven superset of the real kernel's own ignite/burn
+    conditions), not an observed fire. Before merging: either fix/investigate why
+    `VoxelDisasters.fire_test_lightning` isn't producing a sustained fire (tree-finding? ignition heat too
+    low/too far from the target?), or get a windowed manual check with a real fire burning.
+  - **Not started:** gating the other 8 passes (thermal/atmos/reactions/erosion/etc.) — this slice only proves
+    the mechanism on one pass. Extend the same `activity`-read + early-out pattern per-pass once the fire gate
+    is confirmed safe.
 
 **REMAINING (pick up in this order):**
+- **Close the activity-bubble-lod merge gap above** (fix or work around the auto-lightning fire-trigger gap,
+  confirm mid-burn fire behavior unchanged under the gate, merge), then extend the gate to more passes.
 - **Lane B3 / Keystone C — field activity-bubble compute-LOD** (the actual last big perf lever; confirmed zero
-  existing code, see clarification above). **IN PROGRESS** — worktree `../local-agents-activity-lod`, branch
-  `feature/activity-bubble-lod`.
+  existing code, see clarification above; first slice in progress, see just above).
 - **#22 — ice-albedo equatorial freeze-lock (THE self-sustaining blocker).** Surfaced by the breeding work: a
   runaway ice-albedo feedback freezes+LOCKS the tropics during the seasonal swing (t_eq 30→7°C, never thaws in
   spring → water ices over → thirst die-off → foxes/herbivores extinct); lethal even at real-time. **WIP on
