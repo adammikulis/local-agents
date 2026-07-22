@@ -155,20 +155,4 @@ scripts/run_single_test.sh test_agent_integration.gd
 
 ---
 
-##### Origin story (an early local-LLM agent, since March 2024)
-
-This project began on **2024-03-14** as **MindGame** (`adammikulis/MindGame`) — a C# / LlamaSharp
-Godot plugin for loading a `.gguf` model and chatting with it locally, with a built-in model
-download manager. That makes it **one of the earliest local-LLM agents embedded in a piece of
-software** that we're aware of.
-
-It was hand-rolled for a pointed reason: at the time, the local-LLM binding it depended on
-(LlamaSharp, over the then-young llama.cpp) was **too new for the coding assistants of the day to
-know** — those models had little or no training coverage of the libraries the project needed, so
-there was no shortcut. It had to be written by hand.
-
-Over roughly 2.3 years and ~830 commits it grew from that C# chat prototype into today's project:
-a GDScript addon backed by a native C++/llama.cpp GDExtension, and an emergent voxel ecosystem sim
-used as the live showcase. There's a light full-circle irony that a coding agent can now help
-finish an early local coding-agent project — the libraries it needed finally made it into the
-tools that couldn't help build it in 2024.
+*This project started as MindGame, a hand-rolled C# Godot plugin that integrates local LLMs and had one of the first in-engine coding agents.*
