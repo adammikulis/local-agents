@@ -24,8 +24,14 @@ extends RefCounted
 ## (Explicit types only — no ':=' inferred typing.)
 
 # Flammable vegetation mass laid on a bare ground-surface cell at activation (over the kernel's FUEL_MIN = 0.02
-# so it can ignite; enough to sustain a burn for many BURN_RATE = 0.045 steps before it is spent to ash).
-const BASELINE_FUEL: float = 0.4
+# so it can ignite; enough to sustain a burn for many steps before it is spent to ash — sized against the
+# kernel's actual BURN_RATE = 0.12 (fire_sphere3d.glsl), ~16-17 steps. BUG FIX: this constant used to be 0.4,
+# sized against a BURN_RATE = 0.045 that this comment (and PHASE_B3_DESIGN.md's independent reaction inventory)
+# still documented — the two drifted apart at some point (BURN_RATE was raised, likely as part of the wildfire-
+# lethality balance pass, without updating the fuel that was sized against the old rate), so a tree's fuel was
+# only ~3 steps' worth (0.3s sim-time) — burned out almost the instant it ignited. 5x'd to restore a genuinely
+# visible burn while keeping BURN_RATE (and the spread/severity tuning that depends on it) untouched.
+const BASELINE_FUEL: float = 2.0
 # Living-biomass → fuel conversion: a surface cell's standing biomass density scaled into flammable mass. The
 # refill TOPS UP a burned cell toward the fuel its standing biomass supports, but is CAPPED at BASELINE_FUEL so
 # a cell never holds more than one cell's worth of vegetation — the fuel ledger stays bounded (≤ the seed), so
