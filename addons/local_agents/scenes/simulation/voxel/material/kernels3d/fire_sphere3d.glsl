@@ -23,6 +23,12 @@
 //     exactly as the box had fire climb toward +layer. The outward-radial (slot 5) neighbour contributes NO
 //     ember here, matching the box (the cell above never threw ember downward).
 // Constants copied EXACTLY from MaterialCombustion3D.gd.
+//
+// ACTIVITY GATE (Keystone C / "Lane B3" first slice — see activity_sphere3d.glsl): binding 8 is this same
+// step's wake bubble, computed by ActivityPass immediately before this pass from the SAME fire/fuel/temp
+// values this kernel is about to read. A cell with activity <= 0 has no fire, no fuel-and-hot-enough-to-
+// ignite neighbour within the bubble radius, and isn't near a burning cell — the full reaction below would
+// compute exactly fire_out[g] = fire_in[g] = 0 for it, so skip straight to that.
 
 layout(local_size_x = 64) in;
 
@@ -34,6 +40,7 @@ layout(set = 0, binding = 4, std430) restrict buffer Water   { float water[]; };
 layout(set = 0, binding = 5, std430) restrict buffer Solid   { float solid[]; };
 layout(set = 0, binding = 6, std430) restrict buffer O2      { float o2[]; };
 layout(set = 0, binding = 7, std430) restrict buffer CO2     { float co2[]; };
+layout(set = 0, binding = 8, std430) restrict readonly buffer Activity { float activity[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };   // idx*6 + slot
 
 layout(push_constant, std430) uniform Params {
@@ -79,6 +86,10 @@ void main() {
 	}
 	if (solid[g] != 0.0) {
 		fire_out[g] = 0.0;
+		return;
+	}
+	if (activity[g] <= 0.0) {
+		fire_out[g] = fire_in[g];   // quiescent: no fire, no fuel-and-hot neighbour within the wake bubble
 		return;
 	}
 	uint base = g * 6u;

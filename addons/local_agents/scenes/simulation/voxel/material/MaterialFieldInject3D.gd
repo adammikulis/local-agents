@@ -44,6 +44,15 @@ func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	var cells: PackedInt32Array = _cells_within(world_pos, radius)
 	for c in cells:
 		_f._temp[c] = _f._temp[c] + amount
+	# BUG FIX: `fire` is a SITUATIONAL (demand-gated) readback channel with no dedicated actor to ever request
+	# it hot (fire is fully emergent — dissolved into the substrate, no `FireActor` node) — so `fire_cells()`/
+	# `fire_peak` read a permanently-stale CPU array (frozen at its zero seed) even while real combustion is
+	# happening on the GPU. ANY heat injection can plausibly push a fuelled cell over the ignition threshold
+	# (a meteor, a real lightning strike via MaterialCharge3D, ignite_area, even disease fever), so this is the
+	# one choke point that should wake it — cheap (measured: gating all 4 situational channels saves ~0.5ms
+	# total, a rounding error) and self-expires (CHANNEL_HOLD_DRAINS) once nothing is igniting anymore.
+	if amount > 0.0 and _f._gpu != null:
+		_f._gpu.request_channel("fire")
 
 ## Inject airborne water vapor (humidity) into the air cell at `world_pos` (and within `radius`) — a storm's
 ## LOCAL moisture source. Moisture is GPU-resident, so mark it dirty for the sphere-step re-upload.
