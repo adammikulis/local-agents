@@ -3,7 +3,7 @@
 **Design spike only — no code changed.** Targets the cubed-sphere kernels
 (`material/kernels3d/*_sphere3d.glsl`) + pass modules (`material/sphere_passes/*.gd`) orchestrated by
 `material/MaterialSphereGPU3D.gd`. The box path (`*3d.glsl` without `_sphere`) is being deleted
-(TODO.md B2-WIRE step 5) and is **not** a target.
+(HANDOFF.md B2-WIRE step 5) and is **not** a target.
 
 North stars this obeys: *dissolve-don't-patch* (measure success in special-case code **deleted**),
 *GPU-GLSL-only, no CPU oracle*, *perf-over-parity* (behavioural verification, not bit-exact CPU↔GPU).
@@ -35,7 +35,7 @@ bespoke.
 | R15 | **Fungus decompose** detritus+O₂→CO₂+fert | `fungus_sphere3d.glsl:100-118` | `EcoSurfacePass.gd:206` | `consumed=DECOMPOSE_RATE·g·d` (capped by d and by `o2/O2_PER_DECOMPOSE`); `co2+=…; o2-=…; fert_scratch=…` | **CLEAN** (canonical) | same-cell **bilinear** (fungus×detritus), multi-product, reactant_cap + aux-cap (o2), fert product → **scratch** buffer (`fungus_fert`). Perfect reaction-record fit. |
 | R16 | **Fungus growth / spread / death** | `fungus_sphere3d.glsl:82-95,120-126` | same | spore gather; `g += GROW_RATE·d·moist`; decay | **SPECIAL** | spore term is **cross-cell**; growth/death is non-conservative population dynamics, not a mass transfer. |
 | R17 | **Snow accrete** precip→snow | `snowice_sphere3d.glsl:69-70` | `EcoSurfacePass.gd:208` | `depth += precip*SNOW_FALL_RATE` when cold | **SPECIAL** | reactant (`precip`) is an external push scalar, not a channel; snow is a surface-gated bespoke field. |
-| R18 | **Snow melt** snow→meltwater | `snowice_sphere3d.glsl:71-76` | same | `depth-=melted; water += melted*SNOW_WATER_YIELD` | **SPECIAL** | surface-gated on a bespoke snow field; couples to the freeze/thaw **geometry** (water→ice `solid` stamp) CPU tail. Kept special per TODO.md:230. |
+| R18 | **Snow melt** snow→meltwater | `snowice_sphere3d.glsl:71-76` | same | `depth-=melted; water += melted*SNOW_WATER_YIELD` | **SPECIAL** | surface-gated on a bespoke snow field; couples to the freeze/thaw **geometry** (water→ice `solid` stamp) CPU tail. Kept special per HANDOFF.md:230. |
 | R19 | **Photosynthesis** CO₂→O₂+growth | `Plant.gd:152-` (CPU actor via `field.photosynthesize`) | — (not a kernel) | daylight-gated `co2-=; o2+=` | **CLEAN in principle / BLOCKED** | same-cell, daylight-gated — but there is **no vegetation/biomass field channel** (plants are actor nodes), so it cannot be a pure field reaction yet. See §5 note. |
 
 **Also present, not reactions** (pure transport/derivation, excluded): `o2_transport`, `co2_transport`,
@@ -45,7 +45,7 @@ bespoke.
 
 **Subsumable by the generic engine (this phase):** R1, R5 (water cycle, via 2a), R11, R12, R15, plus R13
 and R9 as deferred candidates. R2/R3/R4 are **deleted** by 2a rather than moved. Everything else stays
-bespoke. That is ~6-8 records live now, ~9-11 counting the deferred R13/R9/R19 — matching TODO.md:227.
+bespoke. That is ~6-8 records live now, ~9-11 counting the deferred R13/R9/R19 — matching HANDOFF.md:227.
 
 ---
 
@@ -280,7 +280,7 @@ condense kernel's entire dewpoint/re-evap/decay block is deleted.
   `:529 dewpoint_at` already use `sat()`; swap `_vapor[idx]` → `min(_moisture[idx], sat)`. Readers
   `RainLayer.gd:78-87`, `Thunderstorm.gd:82,208` are unchanged (facade intact).
 - **CPU field arrays** (`_vapor/_cloud/_fog`) collapse to `_moisture`; the sphere readback
-  (`_sphere_process`, TODO.md step 2) applies `moisture`+`temp`; queries derive.
+  (`_sphere_process`, HANDOFF.md step 2) applies `moisture`+`temp`; queries derive.
 
 ---
 
@@ -341,7 +341,7 @@ channel — flag to user: today plants are actor nodes, so this is a *held-back-
 **Behavioural checks (assert emergent aggregates, not CPU parity):**
 - **Water cycle conserved:** track `sum(water) + sum(moisture) + rain_to_ground` across N frames — total
   moved is bounded and non-negative; no runaway (moisture not exploding, not draining to 0 under stable T).
-  Add `moisture_total`, `wet_cells`, `cloud_cells`, `rain_intensity` to SIM_REPORT (TODO.md step 2 already
+  Add `moisture_total`, `wet_cells`, `cloud_cells`, `rain_intensity` to SIM_REPORT (HANDOFF.md step 2 already
   wants fuller readback).
 - **Clouds/fog still emerge:** `cloud_cells > 0` over humid regions; fog appears cold + near ground;
   raising solar (evaporation) then cooling produces condensed mass and rain — same qualitative cycle as

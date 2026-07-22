@@ -5,7 +5,7 @@ It is the single live status tracker for architecture and migration work. Record
 API/schema changes here before merge.
 
 Canonical process rules live in `AGENTS.md` and `GODOT_BEST_PRACTICES.md`. The native voxel
-target model and migration intent are detailed in `NATIVE_SIM_UNIFICATION_PLAN.md`.
+target model and migration intent are detailed in `docs/NATIVE_SIM_UNIFICATION_PLAN.md`.
 
 **North-star (see CLAUDE.md + EMERGENCE.md): named phenomena have ZERO dedicated code.** One physical
 substrate (matter + pressure/temp/phase/gravity/momentum + chemistry); "volcano/eruption/storm/lava-bomb/
@@ -31,7 +31,7 @@ it — disaster actors are seeds/markers/visuals only. Success = special-case co
 
 One unified voxel transform system is the only supported simulation path (no separate
 erosion/weather/hydrology/solar systems — those are only preset/config labels). Summary of the
-locked invariants (full model in `NATIVE_SIM_UNIFICATION_PLAN.md`):
+locked invariants (full model in `docs/NATIVE_SIM_UNIFICATION_PLAN.md`):
 
 - All active voxels/chunks execute via GPU shader passes; GPU is required. Missing GPU capability
   is a hard fail with an explicit typed status. No CPU-success fallback for transform execution.
@@ -50,13 +50,13 @@ locked invariants (full model in `NATIVE_SIM_UNIFICATION_PLAN.md`):
   `unsupported_legacy_stage` (no implicit remap, no compatibility adapters).
 
 Migration sequencing (P0 lock architecture -> P1 unify op schema/pass descriptors -> P2 enforce
-and CI-gate) is tracked below and in `NATIVE_SIM_UNIFICATION_PLAN.md`.
+and CI-gate) is tracked below and in `docs/NATIVE_SIM_UNIFICATION_PLAN.md`.
 
 ## Active project: godot_voxel ecosystem sim (0.3 — chemistry planet)
 
 The live scene is the from-scratch **godot_voxel ecosystem showcase** at
 `addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn` (the project `main_scene`); current
-state, layout, and run/verify commands are in `TODO.md`.
+state, layout, and run/verify commands are in `HANDOFF.md`.
 
 As of **0.3** the world is a **chemistry-based cubed-sphere planet**, not a flat island. Terrain is an
 SDF sphere (`length(p)-radius - amp·fbm`) with radial `is_solid(pos)`/`sdf_at(pos)`/`up_at`/`altitude_at`
@@ -132,7 +132,7 @@ Validation for player-facing destruction work is non-headless launch first, then
 ## 0.4 roadmap (deferred — forward-looking)
 
 These are the next architecture moves, all deferred out of 0.3. Full context + acceptance notes live in
-`TODO.md` (Phase C) and the design docs in-tree. Marked clearly as **not yet done**.
+`HANDOFF.md` (Phase C) and the design docs in-tree. Marked clearly as **not yet done**.
 
 - **Event tracker + lightning-as-event.** A discrete-event layer (`on_ejecta`/`on_impact`/`on_bolt`
   style callbacks) so named moments surface for FX/telemetry/commentary without per-phenomenon code;
@@ -154,7 +154,7 @@ These are the next architecture moves, all deferred out of 0.3. Full context + a
 
 The committed longer arc remains a **solar system of bodies** (Outer-Wilds scale): orbiting/spinning
 bodies with body-local fields, an n-body attractor integrator + a GPU test-particle buffer for
-ejecta/debris. See `TODO.md` (SOLAR-SYSTEM-FIRST) for the full plan.
+ejecta/debris. See `HANDOFF.md` (SOLAR-SYSTEM-FIRST) for the full plan.
 
 ## Mature Subsystem Status (Concerns A–I)
 

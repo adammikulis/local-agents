@@ -142,7 +142,7 @@ to visuals that seed a source and *read back* the feature the field produces.
   (`erosion_pickup_sphere3d` / `ErosionPickupPass`), but the old `MaterialErosion3D` deposition module that
   cut canyons and built deltas was **deleted**, and the suspended-sediment (`susp`) phase is currently a
   live-but-dead channel. Full hydraulic erosion (canyon-cutting + delta-building) is a **0.5 goal** (see
-  `TODO.md` "Erosion re-land" and `ROADMAP_0.5.md`) — do not describe canyons/deltas as a working feature yet.
+  `HANDOFF.md` "Erosion re-land" and `docs/ROADMAP_0.5.md`) — do not describe canyons/deltas as a working feature yet.
 - **Temperature is conserved energy, so the treeline draws itself (`MaterialHeat3D`).** Heat is not a
   free-floating number that can be manufactured: conduction/buoyancy move bounded energy, a radiative
   sink bleeds hot dry plumes toward space, and a steep adiabatic lapse cools rising air — so summits get
