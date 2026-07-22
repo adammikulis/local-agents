@@ -78,7 +78,7 @@ committed). When removing files:
   native-path changes, larger refactors — with explicit acceptance criteria. Close stale/finished
   sub-agents to conserve slots.
 - **The roadmap is DELIBERATELY divergent so it parallelizes — do NOT bounce it back as a question.**
-  `TODO.md`'s "Next — pick up here" and the 0.4 phases list several independent tracks *on purpose*: that
+  `HANDOFF.md`'s "Next — pick up here" and the 0.4 phases list several independent tracks *on purpose*: that
   spread is the whole point, the raw material for a Workflow fan-out, not an ambiguity to resolve. When you
   meet a set of divergent tracks, the standing response is to ACT, not ask "which one?": build the
   collision map (which shared files each track touches), do the seam-directed refactor to unblock (see the
@@ -344,7 +344,7 @@ committed). When removing files:
 
 - **Main scene / active work:** `addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn` — a
   from-scratch godot_voxel ecosystem sim. Current state, architecture, pending work, and the exact
-  run/verify commands are in **`TODO.md`**; the emergent-natural-disasters effort (unified
+  run/verify commands are in **`HANDOFF.md`**; the emergent-natural-disasters effort (unified
   `material/MaterialField` substrate + disasters) is tracked in its plan file and built in the
   `feature/emergent-disasters` worktree. The guiding principle is **emergent-everything** (see
   `.../voxel/EMERGENCE.md`).
