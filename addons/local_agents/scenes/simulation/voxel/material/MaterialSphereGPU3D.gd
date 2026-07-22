@@ -22,9 +22,11 @@ extends RefCounted
 ## one-step coupling-fidelity lags, NOT crashes — acceptable under perf-over-parity; tighten later if needed.
 
 # Ping-pong (double-buffered) channels — one _a/_b pair each.
+# `activity` is the Keystone-C wake-bubble channel (ActivityPass; see activity_sphere3d.glsl) — not a physical
+# substance, but ping-ponged like one because it is GATHER-propagated from neighbours' prior values.
 const PAIR_CHANNELS: PackedStringArray = [
 	"temp", "water", "moisture", "lava", "sediment", "fire", "dust",
-	"o2", "co2", "shock", "fungus", "susp", "fert", "soil"]
+	"o2", "co2", "shock", "fungus", "susp", "fert", "soil", "activity"]
 # scent is a 5-plane packed pair (5*cell_count); handled specially.
 # Single (non-ping-pong) float buffers. `rock_fill` is the fractional bedrock-mineral channel (rock unification
 # Stage B): `solid` is DERIVED from it each step (solid iff rock_fill >= 0.5, see SolidDerivePass). It is GPU-owned
@@ -48,6 +50,9 @@ const PASS_SCRIPTS: PackedStringArray = [
 	# right before Reactions so M3 SETTLE (susp→sediment) reads the freshly-scoured susp the same step.
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/ErosionPickupPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/ReactionsPass.gd",
+	# ACTIVITY (Keystone C first slice) MUST precede FireDust: it reads this step's live fire/fuel/temp to
+	# compute the wake bubble, and FireDust reads that same-step "back" result to gate its combustion kernel.
+	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/ActivityPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/FireDustPass.gd",
 	"res://addons/local_agents/scenes/simulation/voxel/material/sphere_passes/EcoSurfacePass.gd"]
 
