@@ -66,37 +66,49 @@ had been sitting unmerged in an existing worktree, merged it, and confirmed the 
   today). This is a **different, already-merged** mechanism from the creature-level distance/think-stride
   throttling already in `Creature.gd` (also sometimes called "compute-bubble" in code comments) — don't
   conflate the two. The field one is the real remaining big lever; started below.
-- **Started: field activity-bubble LOD, first slice (WIP, unmerged — DO NOT MERGE yet).** Branch
-  `feature/activity-bubble-lod` (`c7808b2`), worktree `../local-agents-activity-lod`. New ping-pong `activity`
-  channel + `ActivityPass` (GATHER-style, models `FireDustPass`) computing a per-cell wake bubble: a cell
-  self-seeds active if burning or fuelled+hot-enough-to-approach-ignition (100°C margin), then radiates that
-  as a decaying bubble via neighbour-max-minus-decay (no atomics, one GATHER kernel, matches the codebase's
-  existing convention). Wired to gate ONLY `fire_sphere3d.glsl` so far — a quiescent cell skips the whole
-  ember-gather + combustion-phase body and just persists `fire_out=fire_in`. `activity` is GPU-only (never
-  added to the CPU readback allowlist), so it costs zero extra CPU↔GPU traffic.
-  - **Verified:** compiles/imports clean; several headless smoke runs (default + `--auto-lightning` at 90 and
-    400 frames) all clean (0 errors), aggregate SIM_REPORT stats matching an unmodified-`0.4-dev` baseline run
-    of the same scenarios within noise — no regression on a fire-free planet.
-  - **NOT verified — blocks merge:** could not get an organic in-sim fire to actually ignite via
-    `--auto-lightning` in this harness invocation to observe mid-burn behavior under the gate. `bolts:0` and
-    `fire_cells:0` at report time in BOTH the modified run and the unmodified-`0.4-dev` baseline — the strike
-    is timed (`VoxelInputController.gd` ~line 543-548) to land ~100 frames before the report specifically so
-    the wildfire is "still burning at the final SIM_REPORT snapshot," but isn't, on **either** branch, on this
-    world seed. **This is a separate, pre-existing bug in the auto-lightning test path, not caused by this
-    change** (identical on baseline) — but it also means the fire-gate's mid-burn behavior is only verified by
-    code-level reasoning (the self-seed predicate is a proven superset of the real kernel's own ignite/burn
-    conditions), not an observed fire. Before merging: either fix/investigate why
-    `VoxelDisasters.fire_test_lightning` isn't producing a sustained fire (tree-finding? ignition heat too
-    low/too far from the target?), or get a windowed manual check with a real fire burning.
-  - **Not started:** gating the other 8 passes (thermal/atmos/reactions/erosion/etc.) — this slice only proves
-    the mechanism on one pass. Extend the same `activity`-read + early-out pattern per-pass once the fire gate
-    is confirmed safe.
+- **MERGED: field activity-bubble LOD, first slice.** New ping-pong `activity` channel + `ActivityPass`
+  (GATHER-style, models `FireDustPass`) computing a per-cell wake bubble: a cell self-seeds active if burning
+  or fuelled+hot-enough-to-approach-ignition (100°C margin), then radiates that as a decaying bubble via
+  neighbour-max-minus-decay (no atomics, one GATHER kernel, matches the codebase's existing convention). Gates
+  ONLY `fire_sphere3d.glsl` so far — a quiescent cell skips the whole ember-gather + combustion-phase body and
+  just persists `fire_out=fire_in`. `activity` is GPU-only (never added to the CPU readback allowlist), so it
+  costs zero extra CPU↔GPU traffic. **Not started:** gating the other 8 passes (thermal/atmos/reactions/
+  erosion/etc.) — this slice only proves the mechanism on one pass; extend the same `activity`-read + early-out
+  pattern per-pass as the next step.
+- **Two bugs found + fixed while closing the merge-blocker above** (trying to observe a real fire under the
+  gate kept coming back `fire_cells:0` even with confirmed successful ignition — direct field inspection at
+  the strike cell showed temp:917°C, fuel:0.4, water:0, o2:0.99, all past-threshold):
+  - **`fire`'s CPU readback was permanently demand-gated with no requester anywhere in the codebase.**
+    `MaterialSphereGPU3D`'s `SITUATIONAL_CHANNELS` only copies `fire` back to CPU while something has called
+    `request_channel("fire")` — but fire has no dedicated actor (fully emergent, dissolved into the substrate)
+    to ever make that call; grep confirmed `request_channel()` is only ever called for `"lava"`/`"shock"`.
+    `fire_cells()`/`fire_peak` (and any other CPU query) therefore ALWAYS read a stale, zero-seeded array
+    regardless of what's actually burning on the GPU — this was true before this session too, not something
+    the activity-lod work introduced. Fixed at the one real choke point instead of the ~10 scattered
+    `add_heat` call sites: `add_heat` (`MaterialFieldInject3D.gd`) now wakes the fire readback itself, since
+    any heat injection can plausibly ignite a fuelled cell.
+  - **Trees burned out in ~3 field steps (0.3s sim-time) — user-flagged as "way too quickly."** Root cause:
+    `MaterialSurfaceSeed3D.gd`'s `BASELINE_FUEL` (0.4) was sized against a documented `BURN_RATE = 0.045`
+    (matching `PHASE_B3_DESIGN.md`'s independent reaction inventory) that drifted to the live kernel's
+    `BURN_RATE = 0.12` (`fire_sphere3d.glsl`) — likely an unreconciled wildfire-lethality balance pass that
+    raised the burn rate without updating the fuel sized against the old one. Raised `BASELINE_FUEL` 0.4→2.0
+    (5x) rather than reverting the burn rate (which governs O2 draw/CO2 emission/spread-window per step, not
+    just duration, and risks undoing that deliberate lethality tuning) — a tree now burns ~16-17 steps.
+  - **Verified** (multiple `--auto-lightning` runs, 63-400 frames): fire now reaches full intensity
+    (`fire_peak` up to 1.0, was capped ~0.4-0.7) and stays alive noticeably longer, while remaining BOUNDED —
+    `fire_cells` never exceeded 2 in any sample, no runaway spread. Default (no-ignition) scenario unaffected
+    (0 errors, stable populations/o2/co2). Post-merge smoke on `0.4-dev` itself: clean, 0 errors.
+  - **Not a full re-tune:** `REFILL_EVERY`/`BIOMASS_FUEL_GAIN` (sustained-fire-from-regrowth dynamics)
+    untouched — this only fixed one tree's initial burn duration. Exact player-felt pacing may still want the
+    maintainer's live/windowed eye (same convention as camera arc / disease visual tell — headless can't judge
+    "does this feel right").
 
 **REMAINING (pick up in this order):**
-- **Close the activity-bubble-lod merge gap above** (fix or work around the auto-lightning fire-trigger gap,
-  confirm mid-burn fire behavior unchanged under the gate, merge), then extend the gate to more passes.
-- **Lane B3 / Keystone C — field activity-bubble compute-LOD** (the actual last big perf lever; confirmed zero
-  existing code, see clarification above; first slice in progress, see just above).
+- **Lane B3 / Keystone C — field activity-bubble compute-LOD, extend past the first slice.** First slice
+  (fire-only gate) MERGED + verified, see just above. Next: extend the same `activity`-read + early-out
+  pattern to the other 8 passes (thermal/atmos/gaswind/soil/erosion/reactions/ecosurface/solidderive) — each
+  needs its own self-seed predicate (what makes THAT pass's work non-trivial for a cell) reusing the same
+  `activity` channel and bubble-propagation kernel; only the self_seed inputs change per pass.
 - **#22 — ice-albedo equatorial freeze-lock (THE self-sustaining blocker).** Surfaced by the breeding work: a
   runaway ice-albedo feedback freezes+LOCKS the tropics during the seasonal swing (t_eq 30→7°C, never thaws in
   spring → water ices over → thirst die-off → foxes/herbivores extinct); lethal even at real-time. **WIP on
