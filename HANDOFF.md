@@ -41,7 +41,38 @@ verified on `0.4-dev`** (HEAD `4af6788`), editor-scan-clean, sim_check PASS:
   regression tool; stray model-panel "DEBUG/Qwen" window sent off-screen during agent/test runs (`LA_OFFSCREEN`
   in both run wrappers).
 
-**REMAINING (paused here — pick up in this order):**
+---
+### ⚑ PERF-FIRST SESSION (2026-07-22) — status at pause
+Standing rule for this pass: **performance before adding/expanding anything.** Rescued a proven perf win that
+had been sitting unmerged in an existing worktree, merged it, and confirmed the real remaining big lever below.
+- **Merged `feature/rts-camera-scale` → `0.4-dev`** (was untracked by this file — found during investigation).
+  Lands: **creature animation-framerate LOD** (update stride grows with camera distance; previously measured
+  ~2x frame-cost cut at 1080p, re-verified here with a clean smoke boot + a positive fps delta on the
+  `LA_NO_ANIM_LOD` A/B knob), **physics-rate LOD** + **distance-LOD'd collision pick shape**, **dirty-gated
+  field CPU→GPU uploads** (skip re-upload of unchanged static/water masks), and dropping the counterproductive
+  `field_cadence>1` from quality presets (measured *slower*, not faster — the catch-up loop just batches
+  steps). Also lands the `--perf-frames` GPU/CPU-split benchmark harness itself (`scripts/perf_bench.sh`).
+  Gotcha hit + resolved: after merging, `godot --headless --path . --editor --quit-after 400` is needed on the
+  **primary checkout too** (not just fresh worktrees) — merging modified `.gd` files outside the editor can
+  leave the local `.godot` global-script-class cache stale (`Nonexistent function 'tick' in base 'GDScript'`
+  until rescanned).
+- **#20 RESOLVED** (same branch, commit tagged "issue #20" in its own message) — `LlamaServerManager.gd`'s
+  "is a server already running?" check is now a single ~200ms probe (was a 1200ms retry spin), and a missing-
+  model/failed-spawn result is negative-cached for 3s so a per-frame cognition tick short-circuits to fast
+  policy instantly instead of re-probing the filesystem every call. Verified present in the merged code.
+- **Naming clarification:** "Lane B3" below and **Keystone C** (0.4 tiers, further down this file) are the
+  SAME still-unbuilt item — the **field-level** activity-bubble compute-LOD (every GPU kernel pass dispatches
+  the full grid every step; zero dirty/sleep/wake concept exists in `MaterialSphereGPU3D.gd`/`sphere_passes/*`
+  today). This is a **different, already-merged** mechanism from the creature-level distance/think-stride
+  throttling already in `Creature.gd` (also sometimes called "compute-bubble" in code comments) — don't
+  conflate the two. The field one is the real remaining big lever; started below.
+- **In progress:** the field activity-bubble LOD build (see the fresh worktree note below) — a per-tile sleep
+  flag + early-out, wake-propagated by a stimulus or a neighbor cell crossing a change threshold.
+
+**REMAINING (pick up in this order):**
+- **Lane B3 / Keystone C — field activity-bubble compute-LOD** (the actual last big perf lever; confirmed zero
+  existing code, see clarification above). **IN PROGRESS** — worktree `../local-agents-activity-lod`, branch
+  `feature/activity-bubble-lod`.
 - **#22 — ice-albedo equatorial freeze-lock (THE self-sustaining blocker).** Surfaced by the breeding work: a
   runaway ice-albedo feedback freezes+LOCKS the tropics during the seasonal swing (t_eq 30→7°C, never thaws in
   spring → water ices over → thirst die-off → foxes/herbivores extinct); lethal even at real-time. **WIP on
@@ -52,9 +83,6 @@ verified on `0.4-dev`** (HEAD `4af6788`), editor-scan-clean, sim_check PASS:
 - **A4 — dogfood: rebuild `VoxelWorld` → Anima.** Refactor the 730-line inline `VoxelWorld._ready` to COMPOSE
   from `SimWorld` + the reusable nodes, and RENAME the game `VoxelWorld` → **Anima**. HELD for direct/supervised
   handling — it rebuilds the composition root, so it needs a launched-window verification, not fire-and-forget.
-- **#20 — `LocalAgent` slow-brain must not delay/block startup when no model is ready** (a drop-in creature/demo
-  should degrade to fast policy instantly; today the windowed thinking-creature demo takes minutes to first frame).
-- **Lane B3 — compute-bubble activity-LOD** (last perf lever; the main win is already banked).
 
 Stale worktrees to prune when convenient: `la-feature-ecosystem-equilibrium`, `la-feature-population-sustain`,
 `la-integ-pop` (from the earlier completed ecosystem task #14). `sorting.py` at repo root is the maintainer's,
