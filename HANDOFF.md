@@ -103,12 +103,81 @@ had been sitting unmerged in an existing worktree, merged it, and confirmed the 
     maintainer's live/windowed eye (same convention as camera arc / disease visual tell — headless can't judge
     "does this feel right").
 
+---
+### ⚑ RELEVANCE-LOD SESSION (2026-07-23) — Lane B3 / Keystone C extended + unified with creature LOD
+Standing rule again: **performance before expanding the world.** Picked up the queued "extend past the fire-only
+first slice" item. The literal instruction ("extend the same activity-read + early-out pattern to the other 8
+passes") turned out to be unsafe as written — investigation found several of those 8 (thermal's solar/
+conduction/buoyancy/cool, gaswind's wind circulation, atmosphere's evap/transport/precip, reactions'
+background respiration/photosynthesis/weathering) are continuous, everywhere-active planetary forcings, not
+sparse events; gating them on a fire-seeded bubble would have silently disabled them almost everywhere except
+near hotspots — a correctness bug, not a perf win. Also redesigned the gate shape itself: a binary
+`activity<=0` cutoff draws a hard edge around each active region (a visible seam), so live feedback during
+this session pushed it to a continuous relevance-driven **update stride** instead — no cutoff anywhere, a
+smooth gradient of compute like a topo map's contour spacing, mirroring the shape `Creature.gd`'s
+physics/anim-rate LOD already used.
+- **New shared mechanism `addons/local_agents/runtime/LALodStride.gd`** — `relevance_from_distance(distance,
+  characteristic_distance)` (smooth 0..1 falloff, exactly 1 at distance 0, no hard cutoff) +
+  `stride_for(relevance, max_stride, base_stride=1)` (continuous update-stride from a 0..1 relevance score) +
+  `should_run(tick, phase, stride)` (the phase-staggered modulo gate). ONE canonical formula, GDScript for CPU
+  call sites, a hand-duplicated GLSL mirror (documented "must match exactly", same convention as
+  `FIRE_MIN`/`FUEL_MIN`/`IGNITE_TEMP` already duplicated between `activity_sphere3d.glsl`/`fire_sphere3d.glsl`)
+  for GPU kernels, since GLSL can't call GDScript.
+- **De-duplication sweep** (found while looking for "what else has the same reinvented pattern"): refactored
+  `Creature.gd`'s physics-LOD, anim-LOD, AND its never-converted `_base_think_stride()` NEAR/MID/FAR tiers,
+  `Fish.gd`'s duplicate tiering, `CreatureFieldForces.gd`'s sweep stride, `Plant.gd`/`Tree.gd`'s settle-stride,
+  and `CompanionController.gd`'s tick stride — all now call the one shared mechanism instead of each
+  hand-rolling its own `(tick+phase)%stride` + rate/cap constants (the same duplicated-constant drift class
+  that caused the BURN_RATE/BASELINE_FUEL desync bug above). Left alone (different LOD category, not a
+  rate-throttle — see commit for the full list): collision pick-shape LOD (binary broadphase toggle),
+  `MaterialEjecta3D`'s arc-vs-instant behavior swap, `MaterialCharge3D`'s spatial probe stride,
+  `CreatureLeadership`'s countdown-based election timer, fixed global cadences, the LLM slow-brain cooldown.
+- **Field relevance = `max(activity-bubble, camera-proximity)`** — the activity-bubble GATHER/self-seed/decay
+  mechanism from the first slice is kept (extended with new self-seed predicates for erosion/soil/lava/
+  storm-charge/dust, each verified against its real kernel's own threshold constants), OR'd with a new,
+  purely-geometric camera-distance relevance term (the field's first-ever camera-awareness — previously the
+  field simulated the whole grid regardless of where the camera was). Composes the repo's own stated principle
+  ("a region is stepped if active OR near the viewer") instead of leaving it as only-activity.
+- **6 kernels gated onto the continuous stride** (was: fire-only, binary): `ErosionPickupPass` (copy-through
+  persist), `SoilPass` (pass 0 only — pass 1/apply stays unconditional so a same-step neighbour inflow is never
+  dropped), `ThermalPass`'s `lava_phase` leg only (`magma_buoy` explicitly NOT gated — its 2-pass donor/
+  receiver transfer would lose mass under per-thread gating; needs a wake-on-inject fix first), `GasWindPass`'s
+  `charge_accum` leg only (skip branch keeps applying `CHARGE_LEAK_QUIET` so residual storm charge still decays
+  instead of plateauing), `FireDustPass`'s `dust_outscale`+`dust_transport` (finishing the first slice), and a
+  retrofit of `fire_sphere3d.glsl` itself onto the same mechanism (was the one binary holdout).
+- **New telemetry** `active_cells()`/`mean_relevance()` on `MaterialFieldQueries3D.gd` (demand-gated readback,
+  self-requesting since — unlike fire's `add_heat` — there's no natural per-event injection site for a derived
+  channel) + `LA_NO_ACTIVITY_LOD` bypass (forces relevance=1.0 everywhere via one push-constant, mirrors
+  `LA_NO_ANIM_LOD`/`LA_NO_PHYS_LOD`) + a monotonic `_step_index` field-step counter on `MaterialSphereGPU3D`.
+- **Verified correct** across every gated system: quiescent smoke (0 errors), `LA_NO_ACTIVITY_LOD=1` bypass
+  (`mean_relevance` reads exactly 1.0 and `active_cells` hits the full grid, confirming the bypass reaches
+  every gated kernel), `--auto-volcano` (lava_total nonzero, mineral ledger stable), `--rain` (soil/rock_fill
+  stable, h2o_total sane), `--auto-thunderstorm` over the full storm+decay cycle (`charge_peak` rises through
+  the storm 0.05→0.61, bolts fire, then decays — proving the quiet-leak fix rather than a false plateau).
+- **HONEST perf finding — no measurable fps win yet, and here's exactly why (so nobody re-measures and
+  concludes the mechanism is broken):** `field_dispatch_ms` (CPU-side command-recording, ~0.13-0.19ms) was
+  IDENTICAL with the gate on vs. `LA_NO_ACTIVITY_LOD=1` off, even though `active_cells` correctly dropped from
+  the full grid to ~43% on a quiescent scene — because (1) this build has **no GPU-side execution timer**
+  (`gpu_ms` in the PERF report is always `0.00`; nothing in this codebase currently measures actual shader
+  execution time, only CPU-side command submission, which is roughly constant regardless of what a shader's
+  threads branch into), and (2) even if it were reduced, `field_readback_ms` (a CPU↔GPU buffer-size-driven
+  transfer, ~4.4-4.7ms) dominates `field_dispatch_ms` by ~25-30x, so total `field_ms`/fps is insensitive to
+  dispatch-side savings until readback itself is addressed — exactly the "async/partial GPU field readback"
+  item already flagged below as the dominant remaining sim cost. **The gating groundwork (the shared
+  relevance channel, the LALodStride mechanism, 6 verified per-kernel gates + the retrofit) is real,
+  correct, and the necessary foundation** for (a) extending to the still-ungated bigger kernels once they get
+  proper per-record/composite gating (Reactions, EcoSurface — deliberately deferred this round, see below) and
+  (b) the readback fix making dispatch-side savings visible again. Treat this as infrastructure banked for a
+  future win, not a completed perf win — don't re-claim "field is now faster" from this alone.
+- **Explicitly deferred, with reasons (so a future session doesn't re-read the old "extend to 8 passes" text
+  and re-attempt the unsafe ones):** `magma_buoy_sphere3d.glsl` (mass-transfer race, needs wake-on-inject);
+  `AtmospherePass` (ocean is a perpetual unconditional source); `ReactionsPass` (background biology active
+  almost everywhere — would need per-record gate bits, a separate design); `EcoSurfacePass` (mixed sparsity,
+  already relatively cheap — future measured follow-up); `SolidDerivePass` (foundational, runs before
+  relevance even exists, negligible cost); `ThermalPass`'s continuous legs and `GasWindPass`'s continuous
+  legs (wrong shape for a decaying/distance relevance gradient regardless of stride vs. binary).
+
 **REMAINING (pick up in this order):**
-- **Lane B3 / Keystone C — field activity-bubble compute-LOD, extend past the first slice.** First slice
-  (fire-only gate) MERGED + verified, see just above. Next: extend the same `activity`-read + early-out
-  pattern to the other 8 passes (thermal/atmos/gaswind/soil/erosion/reactions/ecosurface/solidderive) — each
-  needs its own self-seed predicate (what makes THAT pass's work non-trivial for a cell) reusing the same
-  `activity` channel and bubble-propagation kernel; only the self_seed inputs change per pass.
 - **#22 — ice-albedo equatorial freeze-lock (THE self-sustaining blocker).** Surfaced by the breeding work: a
   runaway ice-albedo feedback freezes+LOCKS the tropics during the seasonal swing (t_eq 30→7°C, never thaws in
   spring → water ices over → thirst die-off → foxes/herbivores extinct); lethal even at real-time. **WIP on
