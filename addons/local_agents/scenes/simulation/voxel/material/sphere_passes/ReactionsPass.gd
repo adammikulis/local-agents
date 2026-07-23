@@ -14,7 +14,10 @@ extends RefCounted
 ##
 ## Kernel binding -> bufs-key map (authoritative layout is reactions_sphere3d.glsl):
 ##   0 Temp=temp[back] · 1 Water=water[back] · 2 Moisture=moisture[back] · 3 O2=o2[back] · 4 CO2=co2[back] ·
-##   7 Detritus=detritus(single) · 8 Fungus=fungus[live] · 10 Solid=solid · 11 Biomass=biomass(single) ·
+##   7 Detritus=detritus(single) · 8 Fungus=fungus[live] · 9 Fert=fert[live] (R19 nutrient-uptake reactant now
+##   debits it in place — its own diffuse/leach/decompose-deposit producer, EcoSurfacePass's scent_fert/
+##   fungus_fert kernels, runs LATER this step, so LIVE is the freshest read, same convention as Fungus) ·
+##   10 Solid=solid · 11 Biomass=biomass(single) ·
 ##   12 Snow=snow(single, freeze/melt phase transfer) · 15 Neigh=nbr · 20 Scratch=fungus_fert(single, SCRATCH
 ##   product) · 21 Defs=<record SSBO> · 22 Lava=lava[back] · 23 RockFill=rock_fill(single) — M5 solidify /
 ##   M6 melt transfer mineral mass between LAVA and ROCK_FILL (own-cell, conserving).
@@ -58,6 +61,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var o2: Array = _pair(bufs, "o2")
 	var co2: Array = _pair(bufs, "co2")
 	var fungus: Array = _pair(bufs, "fungus")
+	var fert: Array = _pair(bufs, "fert")
 	var detritus: RID = _single(bufs, "detritus")
 	var biomass: RID = _single(bufs, "biomass")
 	var snow: RID = _single(bufs, "snow")
@@ -82,6 +86,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[4, co2[back]],         # co2 transport output — edited in place (sky vent / decompose emit)
 			[7, detritus],          # SINGLE — decompose debits in place / respiration credits in place
 			[8, fungus[p]],         # LIVE — decompose driver (read-only; producer runs later)
+			[9, fert[p]],           # LIVE — R19 nutrient-uptake reactant, debited in place (producer runs later)
 			[11, biomass],          # SINGLE — photosynthesis grows it, respiration/decay oxidizes it (persistent, GPU-owned)
 			[12, snow],             # SINGLE — freeze (R21) credits it, melt (R22) debits it; SAME H₂O as water/moisture (persistent, GPU-owned)
 			[13, sediment[back]],   # loose regolith — loft (M4) debits it; SAME buffer FireDust transport deposits into + reads back

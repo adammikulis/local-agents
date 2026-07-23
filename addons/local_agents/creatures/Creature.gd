@@ -559,12 +559,6 @@ func die(cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
 	LACreatureRagdoll.launch(self, impulse, true)
 
 
-# Deposit waste at `ground_pos` into the shared scent/fertility field — thin forwarder to
-# LACreatureExcretion, which owns the digestion/marking logic (feces fertility cue + urine musk).
-func _deposit_waste(ground_pos: Vector3, kind: String) -> void:
-	LACreatureExcretion.deposit(self, ground_pos, kind)
-
-
 func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	# Terrain is the only hard dependency for the movement path. With no voxel planet injected (a standalone
 	# creature on a plain floor), default to the FLAT-ground adapter so up_at/surface_point/ground_point/etc.
