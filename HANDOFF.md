@@ -177,6 +177,61 @@ physics/anim-rate LOD already used.
   relevance even exists, negligible cost); `ThermalPass`'s continuous legs and `GasWindPass`'s continuous
   legs (wrong shape for a decaying/distance relevance gradient regardless of stride vs. binary).
 
+---
+### ⚑ FIELD-READBACK SESSION (2026-07-23) — demoted 3 channels, built a real benchmark, honest null-ish result
+Follow-on to the relevance-LOD session above: traced WHY `field_dispatch_ms` (~0.13-0.19ms) never moved fps —
+`field_readback_ms` (~4.4-4.7ms, CPU↔GPU buffer transfer for ~13 "always-hot" channels copied back in full
+every drain) dominates it by ~25-30x and is the real remaining field bottleneck. Investigated whether Godot's
+`buffer_get_data_async` fixes this — **do not use it**: real, open Godot engine bug
+([#105256](https://github.com/godotengine/godot/issues/105256)) returns STALE data for compute-shader-written
+buffers on 4.4+ (thus 4.7). Forking/patching Godot itself was considered and explicitly rejected (maintenance
+burden of an un-upstreamed engine fork, rebuild-for-every-platform cost) — stuck to GDExtension-side fixes.
+- **Demoted `co2`/`fuel`/`rock_fill` from always-hot to demand-gated** (the same `SITUATIONAL_CHANNELS`
+  tier `fire`/`lava`/`dust`/`shock`/`activity` already use), each with a verified wake-up hook so the
+  existing "fire had NO requester anywhere, always read stale" bug class (see the PERF-FIRST session above)
+  isn't reintroduced: `co2_at`/`co2_peak`/`co2_avg` self-request (no natural producer-side trigger for a
+  continuously-evolving background quantity); `MaterialSurfaceSeed3D.post_readback` pre-warms fuel 20 drains
+  ahead of its 40-drain refill cadence; `MineralStamp3D.arm()` wakes rock_fill (mirrors how `add_heat`
+  already wakes `fire`). Verified under real load: `--auto-lightning` (fuel/fire dynamics unchanged),
+  `--auto-volcano` (`rock_grows:66` — MineralStamp actively stamping with fresh rock_fill data).
+- **`moisture` looked like the same kind of win on paper (no creature reads it directly) — investigated and
+  correctly reverted.** Tracing `avg_cloud_cover()`/`moisture_total()` found they funnel through
+  `_atmos_dirty`, which gets set true every drain regardless of which channel actually refreshed (temp
+  always does, and the condensate formula needs both), and `VoxelSkyCycle` polls `avg_cloud_cover()` at
+  ~150Hz. Demoting moisture would either go stale or get re-requested every drain anyway — verified this
+  BEFORE committing rather than shipping a no-op "optimization." A caution for next time: an "always-hot
+  channel with no per-frame consumer" search has to trace through cached-aggregate choke points
+  (`_atmos_dirty`-style dirty flags), not just grep for direct per-cell array reads.
+- **Built durable benchmark infrastructure** (requested mid-session, not a one-off): `--quality=<preset>`
+  (potato/low/medium/high/ultra, same Engine-meta pattern `--smoke` already uses); `--seed=` (seeds Godot's
+  global RNG — world-gen AND disaster intensity/site draws read it directly, unlike `LASimRng`'s own seed,
+  which does not cover disasters, per the existing `disaster-load-unseeded-rng` gap); `--bench=<name>` +
+  `--bench-interval=N` — a **scripted, deterministic event timeline** (`BENCH_TIMELINES` in
+  `VoxelInputController.gd`, currently one entry: `"readback"`) that fires the same disaster calls the
+  `--auto-*` flags use but at CHOSEN frames, plus periodic `BENCH_SNAPSHOT={...}` lines mixing timing gauges
+  (fps/field_dispatch_ms/field_readback_ms/field_ms — noisy, read as directional) with count/state gauges
+  (active_cells/mean_relevance/fire_cells/lava_total/charge_peak/bolts/co2_avg/fuel_total/rock_fill_total/
+  mineral_total/h2o_total/creatures — deterministic given the same timeline, the trustworthy signal).
+  `--bench=` auto-applies a fixed default seed unless `--seed=` overrides it.
+- **Honest result, not a claimed win.** A seeded `--bench=readback` run at `--quality=medium` + 1080p
+  (`LA_RES=1920x1080`), before vs. after the channel demotions, showed `field_readback_ms` moving in BOTH
+  directions across the run's snapshots — within this machine's apparent timing noise floor (this session's
+  investigation surfaced that concurrent GPU/CPU load from other processes on this machine is a real
+  possibility, and raw fps/ms numbers should be read as directional, not precise, unless corroborated).
+  The count/state gauges tracked sanely and closely between the two runs (mineral conservation held; fuel/
+  lava/charge trajectories were close given the same seed), so the change is CORRECT — just not proven as a
+  measurable win. **Also found: even with a fixed `--seed=`, back-to-back runs are close but NOT
+  bit-identical** (229 vs 225 creatures at the same frame) — most likely physics-tick/real-delta coupling
+  reacting to actual system load between runs, not an RNG gap. Not chased down this session; a real
+  determinism question for whoever next needs bit-exact reproducibility (a fixed physics timestep
+  decoupled from wall-clock would be the natural fix, if the engine isn't already doing that).
+- **Not done:** GPU-side reduction kernels for the many `report()` aggregate queries that read back a FULL
+  per-cell array just to loop it on CPU for one sum/max/avg (`hot_cell_count`, `active_cells`/
+  `mean_relevance`, `soil_total`, `sediment_total`/`susp_total`, `_open_temp_stats`, `mineral_total`,
+  `scent_cell_count` — prioritized in that order by real callsite frequency × array size, see the
+  investigation this session ran). Likely the larger remaining lever on the readback side; use
+  `--bench=readback` (or a new timeline) to measure it for real once built, not an unseeded organic run.
+
 **REMAINING (pick up in this order):**
 - **#22 — ice-albedo equatorial freeze-lock (THE self-sustaining blocker).** Surfaced by the breeding work: a
   runaway ice-albedo feedback freezes+LOCKS the tropics during the seasonal swing (t_eq 30→7°C, never thaws in
