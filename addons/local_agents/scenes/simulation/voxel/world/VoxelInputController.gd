@@ -4,6 +4,20 @@ extends Node
 const PauseMenuScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelPauseMenu.gd")
 const ViewControlsScript: GDScript = preload("res://addons/local_agents/scenes/simulation/voxel/world/VoxelViewControls.gd")
 
+## --bench=<name> timelines: frame -> deterministic action, fired once each via _bench_fire(). Add a new
+## named Array here (and a case in _bench_fire()'s match) for a new scripted scenario; frames are absolute
+## world-frame numbers (pair with --run-frames= comfortably past the last one so the final SIM_REPORT still
+## sees the effects). "readback" exercises the field-readback-cost-relevant substrate systems (fire/fuel,
+## lava/rock_fill, storm-charge) at fixed points so field_dispatch_ms/field_readback_ms are comparable
+## before/after a change instead of depending on organic random-world timing.
+const BENCH_TIMELINES: Dictionary = {
+	"readback": [
+		{"frame": 100, "action": "lightning"},
+		{"frame": 400, "action": "volcano"},
+		{"frame": 900, "action": "thunderstorm"},
+	],
+}
+
 ## LAVoxelInputController — owns the CLI-arg parsing + all the harness/demo flag state, the per-frame
 ## auto-demo firing (meteor/volcano/seavolcano/stamp-test/lightning/storm/select), and is the host point
 ## for an in-game pause (Esc) menu. Factored out of LAVoxelWorld so the "input / Esc menu" concern is one
@@ -91,6 +105,16 @@ var _stamp_test_reported: bool = false
 var _stamp_test_target: Vector3 = Vector3.ZERO
 var _stamp_test_deposit_frame: int = 0
 
+# --- Scripted perf benchmark: --bench=<name> fires a NAMED, deterministic event timeline (same disaster
+# calls as the --auto-* flags above, just at chosen frames instead of "near the end") and, every
+# --bench-interval frames, prints one BENCH_SNAPSHOT={...} line of field/telemetry gauges. The point is
+# reproducibility: the SAME launch line run before/after a code change hits the same events at the same
+# frames, so snapshots are a real apples-to-apples diff instead of comparing two runs of divergent organic
+# world state. See BENCH_TIMELINES below for the available names + BenchNote in the class doc.
+var _bench_name: String = ""
+var _bench_interval: int = 0
+var _bench_fired: Dictionary = {}   # timeline index (int) -> true, once its action has fired
+
 # --- Esc pause menu (this controller is its documented host point) ---
 var _pause_menu: LAVoxelPauseMenu = null
 
@@ -146,6 +170,17 @@ func parse_cmdline() -> void:
 			_smoke = true
 			_streamer_enabled = false
 			Engine.set_meta("la_smoke", true)
+		elif arg.begins_with("--quality="):
+			# Explicit graphics-quality preset for reproducible perf comparisons (potato/low/medium/high/ultra) —
+			# same Engine-meta-to-settings-applier pattern as --smoke, but a NAMED preset instead of a fixed floor,
+			# so the SAME launch line can be re-run before/after a change at a known, comparable grid_resolution.
+			Engine.set_meta("la_quality", arg.substr("--quality=".length()).to_lower())
+		elif arg.begins_with("--bench="):
+			_bench_name = arg.substr("--bench=".length()).to_lower()
+			if _bench_interval <= 0:
+				_bench_interval = 100   # default snapshot cadence unless --bench-interval= overrides it below
+		elif arg.begins_with("--bench-interval="):
+			_bench_interval = maxi(1, int(arg.substr("--bench-interval=".length())))
 		elif arg.begins_with("--time="):
 			_time_of_day = clampf(float(arg.substr("--time=".length())), 0.0, 1.0)
 		elif arg.begins_with("--lunar="):
@@ -440,6 +475,14 @@ func mark_auto_meteor_fired() -> void:
 ## Per-frame auto-demo firing. `frame` is the world's frame counter; `spawned` gates every hook on the
 ## ecology being placed. Pure harness/CLI behaviour — no-op unless a --auto-* / --stamp-test flag is set.
 func update(frame: int, spawned: bool) -> void:
+	# --bench=<name>: fire this timeline's scheduled actions + print periodic BENCH_SNAPSHOT lines. Runs
+	# before the ad-hoc --auto-* triggers below (independent, disjoint concerns — a bench run doesn't also
+	# set --auto-* flags in practice, but nothing here depends on that).
+	if _bench_name != "" and spawned:
+		_bench_fire(frame)
+	if _bench_interval > 0 and frame > 0 and frame % _bench_interval == 0:
+		_bench_snapshot(frame)
+
 	# Auto-meteor demo/test: drop a meteor on a forest so it carves a crater, topples trees, ignites fire.
 	if _auto_meteor and not _auto_meteor_fired and spawned:
 		var trigger: int = (_shoot_frames - 240) if _shoot_path != "" else maxi(_run_frames - 600, 60)
@@ -874,3 +917,64 @@ func debug_field() -> String: return _debug_field
 func debug_rivers() -> bool: return _debug_rivers
 func debug_behaviors() -> String: return _debug_behaviors
 func fast_multiplier() -> int: return _fast
+
+
+## Fire the current --bench timeline's scheduled action for `frame`, once each. Reuses the SAME disaster
+## calls the --auto-* flags above use -- a scripted timeline is just those calls at chosen frames instead
+## of "near the end of the run," so results are reproducible run-to-run for a before/after comparison.
+func _bench_fire(frame: int) -> void:
+	var timeline: Array = BENCH_TIMELINES.get(_bench_name, [])
+	for i in timeline.size():
+		if _bench_fired.has(i):
+			continue
+		var entry: Dictionary = timeline[i]
+		if frame < int(entry.get("frame", -1)):
+			continue
+		_bench_fired[i] = true
+		var action: String = String(entry.get("action", ""))
+		match action:
+			"lightning":
+				if _disasters != null and _disasters.has_method("fire_test_lightning"):
+					_disasters.fire_test_lightning()
+			"volcano":
+				if _disasters != null and _terrain != null and _terrain.has_method("surface_point"):
+					var vsite: Vector3 = _terrain.surface_point(Vector3(0.2, 1.0, 0.2).normalized())
+					if not is_nan(vsite.x):
+						var vc: Node = _disasters.spawn_volcano(vsite)
+						if vc != null and vc.has_method("force_erupt"):
+							vc.force_erupt()
+			"thunderstorm", "tornado", "hurricane":
+				if _disasters != null and _disasters.has_method("fire_auto_storm"):
+					_disasters.fire_auto_storm(action)
+			"meteor":
+				if _disasters != null and _disasters.has_method("fire_test_meteor"):
+					_disasters.fire_test_meteor()
+			_:
+				push_warning("VoxelInputController: unknown --bench action '%s' at frame %d" % [action, frame])
+		print("BENCH_EVENT={frame:%d, action:\"%s\"}" % [frame, action])
+
+
+## Print one BENCH_SNAPSHOT line of field/telemetry gauges at the current frame. Mixes TIMING gauges
+## (fps/field_dispatch_ms/field_readback_ms/field_ms -- noisy if this machine is running other GPU work
+## concurrently; read these as directional, not precise) with COUNT/STATE gauges (active_cells,
+## mean_relevance, fire_cells, lava_total, charge_peak, bolts, co2_avg, fuel_total, rock_fill_total,
+## mineral_total, h2o_total, creatures -- deterministic given the same --bench timeline fired the same
+## events at the same frames, so THESE are the primary signal for a before/after diff).
+func _bench_snapshot(frame: int) -> void:
+	var snap: Dictionary = LASimReport.snapshot()
+	var g: Dictionary = snap.get("gauges", {})
+	var fps: float = float(g.get("fps", {}).get("cur", 0.0))
+	var dispatch_ms: float = float(g.get("field_dispatch_ms", {}).get("cur", 0.0))
+	var readback_ms: float = float(g.get("field_readback_ms", {}).get("cur", 0.0))
+	var field_ms: float = float(g.get("field_ms", {}).get("cur", 0.0))
+	print(("BENCH_SNAPSHOT={frame:%d, fps:%.1f, field_dispatch_ms:%.3f, field_readback_ms:%.3f, field_ms:%.3f, " +
+		"active_cells:%d, mean_relevance:%.3f, fire_cells:%d, lava_total:%.1f, charge_peak:%.3f, bolts:%d, " +
+		"co2_avg:%.4f, fuel_total:%.1f, rock_fill_total:%.1f, mineral_total:%.1f, h2o_total:%.1f, creatures:%d}") % [
+		frame, fps, dispatch_ms, readback_ms, field_ms,
+		int(snap.get("active_cells", 0)), float(snap.get("mean_relevance", 0.0)),
+		int(snap.get("fire_cells", 0)), float(snap.get("lava_total", 0.0)),
+		float(snap.get("charge_peak", 0.0)), int(snap.get("bolts", 0)),
+		float(snap.get("co2_avg", 0.0)), float(snap.get("fuel_total", 0.0)),
+		float(snap.get("rock_fill_total", 0.0)), float(snap.get("mineral_total", 0.0)),
+		float(snap.get("h2o_total", 0.0)), int(snap.get("creatures", 0)),
+	])

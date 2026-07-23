@@ -72,6 +72,7 @@ func read_settings() -> void:
 	if _settings == null:
 		_settings = LAGameSettings.load_or_default()
 	_apply_smoke_overrides()
+	_apply_quality_override()
 	publish_globals()
 
 
@@ -88,6 +89,28 @@ func _apply_smoke_overrides() -> void:
 	smoke.apply_sim_preset(LAGameSettings.SimPreset.LOW)
 	smoke.disaster_frequency = 0.0
 	_settings = smoke
+
+
+## `--quality=<name>` (potato/low/medium/high/ultra): force a NAMED graphics preset on a DUPLICATE settings
+## resource (never mutates the persisted user resource), for reproducible perf comparisons at a known,
+## documented grid_resolution across runs/branches. Unknown names are ignored (keep whatever --smoke or the
+## persisted settings already resolved) rather than silently falling back to a default that could be
+## mistaken for the requested one.
+func _apply_quality_override() -> void:
+	if not Engine.has_meta("la_quality"):
+		return
+	var name: String = String(Engine.get_meta("la_quality"))
+	var preset_map: Dictionary = {
+		"potato": LAGameSettings.GraphicsPreset.POTATO, "low": LAGameSettings.GraphicsPreset.LOW,
+		"medium": LAGameSettings.GraphicsPreset.MEDIUM, "high": LAGameSettings.GraphicsPreset.HIGH,
+		"ultra": LAGameSettings.GraphicsPreset.ULTRA,
+	}
+	if not preset_map.has(name):
+		push_warning("VoxelSettingsApplier: unknown --quality=%s (expected potato/low/medium/high/ultra), ignoring" % name)
+		return
+	var q: LAGameSettings = _settings.duplicate() if _settings != null else LAGameSettings.new()
+	q.apply_graphics_preset(preset_map[name])
+	_settings = q
 
 
 func settings() -> LAGameSettings:
