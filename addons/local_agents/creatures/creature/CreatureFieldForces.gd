@@ -48,7 +48,7 @@ static func tick(c, delta: float) -> void:
 		# water_force_at is raycast-heavy (samples the terrain gradient); the current changes slowly and the body
 		# drifts smoothly, so recompute it only every SWEEP_STRIDE frames (staggered per creature) and cache it —
 		# this keeps the sweep cheap even when a big herd is standing in a new river/flood.
-		if c._material.has_method("water_force_at") and (int(Engine.get_physics_frames()) + c._think_phase) % SWEEP_STRIDE == 0:
+		if c._material.has_method("water_force_at") and LALodStride.should_run(int(Engine.get_physics_frames()), c._think_phase, SWEEP_STRIDE):
 			c._water_force = c._material.water_force_at(p)
 		if c._water_force.length_squared() >= WATER_MIN_FORCE_SQ:
 			var weight: float = maxf(float(c.size), 0.1)

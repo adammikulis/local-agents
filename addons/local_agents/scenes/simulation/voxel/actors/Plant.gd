@@ -282,7 +282,7 @@ func _physics_process(delta: float) -> void:
 		if _settle_phase < 0:
 			_settle_phase = int(get_instance_id())
 		_settle_accum += delta
-		if (int(Engine.get_physics_frames()) + _settle_phase) % PLANT_SETTLE_STRIDE != 0:
+		if not LALodStride.should_run(int(Engine.get_physics_frames()), _settle_phase, PLANT_SETTLE_STRIDE):
 			return
 		delta = _settle_accum
 		_settle_accum = 0.0

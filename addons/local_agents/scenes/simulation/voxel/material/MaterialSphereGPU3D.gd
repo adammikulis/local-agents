@@ -70,6 +70,8 @@ var _field = null
 var _grid: RefCounted = null
 var _cc: int = 0
 var _phase: int = 0                 # ping-pong phase ∈ {0,1}; flips once per step (NOT CPU parity)
+var _step_index: int = 0            # monotonic field-step counter; ActivityPass's relevance-gated kernels
+                                    # use this as the LALodStride.should_run "tick" (phase = the cell index)
 var _groups: int = 0
 var _bufs: Dictionary = {}          # key → RID (single) or [rid_a, rid_b] (pair)
 var _passes: Array = []
@@ -189,6 +191,12 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: flo
 func set_sun_dir(v: Vector3) -> void:
 	_ctx["sun_dir"] = v if v.length() > 0.001 else Vector3(0, 1, 0)
 
+## World-space camera position, fed to ActivityPass so a cell's relevance also rises "OR near the viewer"
+## (not just locally active) — the field's half of the same relevance principle Creature.gd's distance-LOD
+## already applies. No camera (headless run) -> ActivityPass falls back to activity-only relevance.
+func set_camera_pos(v: Vector3) -> void:
+	_ctx["camera_pos"] = v
+
 ## Global atmospheric humidity signal (cloud cover 0..1), fed to atmos_evap so the infinite static sea stops
 ## pumping once the air holds its target moisture — the GLOBAL bound on the water cycle (a local per-cell brake
 ## can't cap a total that transport keeps redistributing). Slowly-varying; last cached value is fine.
@@ -219,6 +227,7 @@ func step() -> void:
 	# The `send` outflow scratch needs no external clear: the 2-pass finite-volume kernels (WaterSlumpLava)
 	# self-zero all 6 of each cell's send slots at the top of pass 0, before any read. Clearing here (or inside
 	# the pass) is both redundant and — inside an open compute list — illegal, so it is omitted.
+	_ctx["step_index"] = _step_index
 	var cl: int = _rd.compute_list_begin()
 	var last: int = _passes.size() - 1
 	for i in _passes.size():
@@ -229,6 +238,7 @@ func step() -> void:
 	_rd.submit()                        # deferred sync — drained at the next begin_frame (GPU overlaps CPU frame work)
 	_pending = true
 	_phase = 1 - _phase
+	_step_index += 1
 
 ## Hand back the channels read from the LAST drained step (populated in begin_frame → _drain_pending). This is a
 ## one-frame-lagged snapshot — the accepted coupling-fidelity latency (header ~:22). The actual readback + sync
