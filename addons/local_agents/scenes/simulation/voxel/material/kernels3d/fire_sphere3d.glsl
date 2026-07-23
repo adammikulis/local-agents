@@ -24,11 +24,12 @@
 //     ember here, matching the box (the cell above never threw ember downward).
 // Constants copied EXACTLY from MaterialCombustion3D.gd.
 //
-// ACTIVITY GATE (Keystone C / "Lane B3" first slice — see activity_sphere3d.glsl): binding 8 is this same
-// step's wake bubble, computed by ActivityPass immediately before this pass from the SAME fire/fuel/temp
-// values this kernel is about to read. A cell with activity <= 0 has no fire, no fuel-and-hot-enough-to-
-// ignite neighbour within the bubble radius, and isn't near a burning cell — the full reaction below would
-// compute exactly fire_out[g] = fire_in[g] = 0 for it, so skip straight to that.
+// RELEVANCE-GATED (Keystone C — retrofit onto the shared continuous stride mechanism, was a binary
+// activity<=0 cutoff): binding 8 is this same step's relevance, computed by ActivityPass immediately
+// before this pass from the SAME fire/fuel/temp values this kernel is about to read (plus camera
+// proximity). A far/quiescent cell recomputes the combustion test on a continuous stride instead of every
+// step; the persist below is exactly what the full reaction would compute for a cell with no fire, no
+// fuel-and-hot-enough-to-ignite neighbour, and not near a burning cell.
 
 layout(local_size_x = 64) in;
 
@@ -40,12 +41,12 @@ layout(set = 0, binding = 4, std430) restrict buffer Water   { float water[]; };
 layout(set = 0, binding = 5, std430) restrict buffer Solid   { float solid[]; };
 layout(set = 0, binding = 6, std430) restrict buffer O2      { float o2[]; };
 layout(set = 0, binding = 7, std430) restrict buffer CO2     { float co2[]; };
-layout(set = 0, binding = 8, std430) restrict readonly buffer Activity { float activity[]; };
+layout(set = 0, binding = 8, std430) restrict readonly buffer Relevance { float relevance[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };   // idx*6 + slot
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
-	uint pad0;
+	uint step_index;   // monotonic field-step counter, for the relevance-gated update stride
 	uint pad1;
 	uint pad2;
 } params;
@@ -79,6 +80,16 @@ float ember(float neighbour_fire, float toward) {
 	return min(EMBER_MAX, w) * clamp(neighbour_fire, 0.0, 1.0);
 }
 
+// GLSL mirror of LALodStride.stride_for/should_run (runtime/LALodStride.gd) -- MUST match exactly.
+int stride_for(float rel, int max_stride, int base_stride) {
+	float r = max(rel, float(base_stride) / float(max_stride));
+	return clamp(int(round(float(base_stride) / r)), base_stride, max_stride);
+}
+bool should_run(uint tick, uint phase, int stride) {
+	return (tick + phase) % uint(stride) == 0u;
+}
+const int MAX_STRIDE = 16;
+
 void main() {
 	uint g = gl_GlobalInvocationID.x;
 	if (g >= params.cell_count) {
@@ -88,8 +99,9 @@ void main() {
 		fire_out[g] = 0.0;
 		return;
 	}
-	if (activity[g] <= 0.0) {
-		fire_out[g] = fire_in[g];   // quiescent: no fire, no fuel-and-hot neighbour within the wake bubble
+	int stride = stride_for(relevance[g], MAX_STRIDE, 1);
+	if (!should_run(params.step_index, g, stride)) {
+		fire_out[g] = fire_in[g];   // not this cell's step — hold state (persist), exactly as an inert cell would
 		return;
 	}
 	uint base = g * 6u;

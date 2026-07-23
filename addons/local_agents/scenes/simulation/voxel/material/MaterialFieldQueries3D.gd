@@ -512,6 +512,36 @@ func fire_cells() -> int:
 	return n
 
 
+# --- Keystone C relevance telemetry — demand-gated (activity is GPU-only unless requested; unlike fire's
+# add_heat, there is no natural per-event injection site for a derived channel, so these queries themselves
+# are what wakes the readback — matches the driver's documented "request on inject/query" contract) --------
+
+## Count of cells currently at/near full update rate (relevance high enough that LALodStride.stride_for
+## resolves to <=2). A proxy for "how much of the grid is genuinely active or near the viewer right now."
+func active_cells() -> int:
+	if _f._gpu != null:
+		_f._gpu.request_channel("activity")
+	if _f._activity.size() != _f._cell_count:
+		return 0
+	var n: int = 0
+	for c in _f._cell_count:
+		if _f._activity[c] >= 0.5:   # relevance>=0.5 -> LALodStride.stride_for(rel,16,1) resolves to stride<=2
+			n += 1
+	return n
+
+## Mean relevance across every cell (0..1) — the gradient's overall shape in one number: near 0 on a fully
+## quiescent, off-camera planet; rising toward 1 as more of the grid is active or near the viewer.
+func mean_relevance() -> float:
+	if _f._gpu != null:
+		_f._gpu.request_channel("activity")
+	if _f._activity.size() != _f._cell_count or _f._cell_count <= 0:
+		return 0.0
+	var total: float = 0.0
+	for c in _f._cell_count:
+		total += _f._activity[c]
+	return total / float(_f._cell_count)
+
+
 # --- Soil FERTILITY (decomposer output: detritus → fungus → CO₂ + fertility) — read the GPU fert channel -------
 
 ## Soil nutrient density at a world point (plants grow faster on rich ground). 0 outside the shell / before readback.

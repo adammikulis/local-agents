@@ -95,7 +95,7 @@ var _slow_gate: int = 0             # cadence counter for the slow (ledger/baker
 # injection, save/snapshot, and the _at queries — rendering reads the GPU buffers directly). charge (scanned by
 # MaterialCharge on breakdown) and rock_fill (scanned by MineralStamp during volcano land-building) are kept
 # always-hot because those modules read them per active-frame; gating them would need those modules to request.
-const SITUATIONAL_CHANNELS: Array = ["lava", "fire", "dust", "shock"]
+const SITUATIONAL_CHANNELS: Array = ["lava", "fire", "dust", "shock", "activity"]
 const CHANNEL_HOLD_DRAINS: int = 20     # stay hot ~20 drains past the last request so intermittent queries don't thrash
 var _channel_hold: Dictionary = {}      # channel name -> drain index it stays hot through
 var _drain_count: int = 0               # monotonic drain counter the holds are measured against
@@ -533,4 +533,5 @@ func _empty_result() -> Dictionary:
 		"dust": PackedFloat32Array(), "snow": PackedFloat32Array(),
 		"susp": PackedFloat32Array(), "biomass": PackedFloat32Array(),
 		"rock_fill": PackedFloat32Array(), "soil": PackedFloat32Array(),
+		"activity": PackedFloat32Array(),
 	}

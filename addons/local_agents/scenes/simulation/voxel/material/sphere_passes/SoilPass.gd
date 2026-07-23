@@ -11,8 +11,12 @@ extends RefCounted
 ##
 ## Per-parity binding → bufs map (see soil_sphere3d.glsl header for the authoritative layout):
 ##   0 Water = water[BACK] (settled surface water, read-modify-write) · 1 Solid · 2 Static · 3 Send scratch ·
-##   4 SoilIn = soil[LIVE] · 5 SoilOut = soil[BACK] · 6 Regolith · 7 Temp = temp[BACK] (post-thermal, rw) · 15 Neigh
-## Push constant: PackedInt32Array([cell_count, pass_id, 0, 0]).to_byte_array().
+##   4 SoilIn = soil[LIVE] · 5 SoilOut = soil[BACK] · 6 Regolith · 7 Temp = temp[BACK] (post-thermal, rw) ·
+##   8 Relevance = activity[LIVE] (this pass runs before ActivityPass — one-step-lagged relevance) · 15 Neigh
+## Relevance-gated (LALodStride mirror, Keystone C): PASS 0 (the branchy transfer compute) is gated; PASS 1
+## (apply) always runs unconditionally — a quiescent cell can receive same-step inflow from a neighbour whose
+## own relevance hasn't caught up yet, and gating pass 1 too would silently drop that inflow (a real mass bug).
+## Push constant: PackedInt32Array([cell_count, pass_id, depth, step_index]) + [core_radius, cell_size] floats.
 
 const SOIL_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/material/kernels3d/soil_sphere3d.glsl"
 
@@ -39,6 +43,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 	var water_pair: Array = bufs.get("water", [RID(), RID()])
 	var soil_pair: Array = bufs.get("soil", [RID(), RID()])
 	var temp_pair: Array = bufs.get("temp", [RID(), RID()])
+	var activity_pair: Array = bufs.get("activity", [RID(), RID()])
 
 	for p in 2:
 		var back: int = 1 - p
@@ -51,6 +56,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			[5, soil_pair[back]],      # SoilOut = back soil (this step's output)
 			[6, regolith_rid],         # Regolith aquifer permeability mask
 			[7, temp_pair[back]],      # Temp = POST-thermal temp (BACK, rw) — carry geothermal heat into springs
+			[8, activity_pair[p]],     # Relevance (live half — this pass runs before ActivityPass)
 			[15, nbr_rid],             # Neigh table
 		])
 
@@ -62,17 +68,18 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	var depth: int = int(ctx.get("depth", 20))
 	var core_r: float = float(ctx.get("core_radius", 170.0))
 	var cell_size: float = float(ctx.get("cell_size", 8.0))
+	var step_index: int = int(ctx.get("step_index", 0))
 	# PASS 0 — compute groundwater/infiltration/exfiltration transfers into `send`.
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, uset, 0)
-	var pc0: PackedByteArray = _pc(cc, 0, depth, core_r, cell_size)
+	var pc0: PackedByteArray = _pc(cc, 0, depth, step_index, core_r, cell_size)
 	rd.compute_list_set_push_constant(cl, pc0, pc0.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)
 	# PASS 1 — apply.
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, uset, 0)
-	var pc1: PackedByteArray = _pc(cc, 1, depth, core_r, cell_size)
+	var pc1: PackedByteArray = _pc(cc, 1, depth, step_index, core_r, cell_size)
 	rd.compute_list_set_push_constant(cl, pc1, pc1.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)
@@ -104,8 +111,8 @@ func _build_set(shader: RID, entries: Array) -> RID:
 	return _rd.uniform_set_create(uniforms, shader, 0)
 
 
-func _pc(cc: int, pass_id: int, depth: int, core_r: float, cell_size: float) -> PackedByteArray:
-	# std430 push constant: 4x uint (cell_count, pass_id, depth, pad) then 2x float (core_radius, cell_size).
-	var out: PackedByteArray = PackedInt32Array([cc, pass_id, depth, 0]).to_byte_array()
+func _pc(cc: int, pass_id: int, depth: int, step_index: int, core_r: float, cell_size: float) -> PackedByteArray:
+	# std430 push constant: 4x uint (cell_count, pass_id, depth, step_index) then 2x float (core_radius, cell_size).
+	var out: PackedByteArray = PackedInt32Array([cc, pass_id, depth, step_index]).to_byte_array()
 	out.append_array(PackedFloat32Array([core_r, cell_size]).to_byte_array())
 	return out

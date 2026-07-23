@@ -17,10 +17,11 @@ layout(local_size_x = 64) in;
 layout(set = 0, binding = 0, std430) restrict buffer Lava { float lava[]; };
 layout(set = 0, binding = 1, std430) restrict buffer Temp { float temp[]; };
 layout(set = 0, binding = 2, std430) restrict buffer Solid { float solid[]; };
+layout(set = 0, binding = 3, std430) restrict readonly buffer Relevance { float relevance[]; };  // Keystone C
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
-	uint pad0;
+	uint step_index;   // monotonic field-step counter, for the relevance-gated update stride
 	uint pad1;
 	uint pad2;
 } params;
@@ -40,6 +41,16 @@ const float EMPLACE_DEPTH = 1.0;
 const float LAVA_AMBIENT = 40.0;
 const float LAVA_COOL_RATE = 0.05;
 
+// GLSL mirror of LALodStride.stride_for/should_run (runtime/LALodStride.gd) -- MUST match exactly.
+int stride_for(float rel, int max_stride, int base_stride) {
+	float r = max(rel, float(base_stride) / float(max_stride));
+	return clamp(int(round(float(base_stride) / r)), base_stride, max_stride);
+}
+bool should_run(uint tick, uint phase, int stride) {
+	return (tick + phase) % uint(stride) == 0u;
+}
+const int MAX_STRIDE = 16;
+
 void main() {
 	uint g = gl_GlobalInvocationID.x;
 	if (g >= params.cell_count) {
@@ -50,6 +61,13 @@ void main() {
 		return;
 	}
 	if (solid[g] != 0.0) {
+		return;
+	}
+	// RELEVANCE-GATED (Keystone C): a true no-op skip is safe here — this kernel has no neighbour reads, so
+	// leaving lava/temp untouched on a skipped step is exactly what the ungated kernel would produce for a
+	// cell that hasn't crossed the (own-cell-only) sustain/solidify tests since its last real run.
+	int stride = stride_for(relevance[g], MAX_STRIDE, 1);
+	if (!should_run(params.step_index, g, stride)) {
 		return;
 	}
 	if (temp[g] < SOLIDIFY_TEMP) {

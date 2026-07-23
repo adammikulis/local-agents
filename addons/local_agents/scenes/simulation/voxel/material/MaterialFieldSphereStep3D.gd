@@ -211,6 +211,8 @@ func _apply_readback(res: Dictionary) -> void:
 	# velocity field (wind3_at/wind_at read a real force instead of ZERO).
 	if res.has("shock") and res["shock"].size() == n: _f._shock = res["shock"]
 	if res.has("charge") and res["charge"].size() == n: _f._charge = res["charge"]
+	# Keystone C relevance — demand-gated (only copied back while active_cells()/mean_stride() are being polled).
+	if res.has("activity") and res["activity"].size() == n: _f._activity = res["activity"]
 	# Scent is the 5-plane packed buffer (SCENT_CHANNELS * n) — scatter it back so senses smell live gradients.
 	if res.has("scent") and res["scent"].size() == LAMaterialField3D.SCENT_CHANNELS * n: _f._scent = res["scent"]
 	if res.has("vel_x") and res["vel_x"].size() == n: _f._vel_x = res["vel_x"]
