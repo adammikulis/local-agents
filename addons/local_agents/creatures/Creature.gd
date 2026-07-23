@@ -203,10 +203,11 @@ var _collision_on: bool = true
 # broadphase. Same reasoning as ANIM_LOD: this camera dollies, so distance tracks on-screen size.
 const COLLISION_LOD_D2: float = 62500.0
 static var _collision_lod_off: bool = OS.has_environment("LA_NO_COLLISION_LOD")   # A/B knob: force collision always on
-# The animation update stride grows one step per this many metres of camera distance: at 0 m stride 1 (every
-# frame), at ~120 m stride ~3, capped at ANIM_STRIDE_MAX. Tuned so the creatures under the view (the eye sits
-# ~95-220 m up) still update near every frame while the far-side population updates a few times a second.
-const ANIM_LOD_METRES_PER_STRIDE: float = 45.0
+# The distance at which camera-relevance has fallen to 0.5 (LALodStride.relevance_from_distance): at 0 m
+# relevance=1 -> stride 1 (every frame), growing smoothly (no cutoff) and capped at ANIM_STRIDE_MAX. Tuned
+# so the creatures under the view (the eye sits ~95-220 m up) still update near every frame while the
+# far-side population updates a few times a second. One number, no separate rate+cap pair to keep in sync.
+const ANIM_LOD_CHARACTERISTIC_DISTANCE: float = 45.0
 const ANIM_STRIDE_MAX: int = 8      # farthest creatures update every 8th frame (~7 Hz) — imperceptible at range
 # Dev A/B knob (LA_NO_ANIM_LOD=1): force every creature to animate every frame (the pre-LOD behaviour) so the
 # animation-LOD win can be measured against a same-machine baseline. Off in normal play.
@@ -745,10 +746,11 @@ func _process(delta: float) -> void:
 		return                            # the shadow/decay owns the transform; don't drive idle/run anim
 	# ANIMATION-FRAMERATE LOD (do-less-by-relevance): the AnimationPlayer runs in MANUAL mode, so nothing poses
 	# the skeleton until this drives it. Re-posing every skeleton at 60 Hz is a big share of the frame with a few
-	# hundred creatures, and limb motion is imperceptible at a distance — so the update STRIDE grows LINEARLY with
-	# camera distance: every frame up close, progressively fewer updates farther out. We accumulate real delta and
-	# advance() the mixer by the whole accumulation on the update frame, so the animation still plays at correct
-	# real-time speed — only its refresh rate drops (a far creature's gait updates a few times a second, not 60).
+	# hundred creatures, and limb motion is imperceptible at a distance — so the update stride grows smoothly as
+	# camera relevance falls off (LALodStride): every frame up close, progressively fewer updates farther out,
+	# never a hard cutoff. We accumulate real delta and advance() the mixer by the whole accumulation on the
+	# update frame, so the animation still plays at correct real-time speed — only its refresh rate drops (a far
+	# creature's gait updates a few times a second, not 60).
 	var p: Vector3 = global_position
 	_anim_accum += delta
 	var cam_d2: float = p.distance_squared_to(_camera_pos())
@@ -761,11 +763,12 @@ func _process(delta: float) -> void:
 			_collision_shape.disabled = not want_col
 	var stride: int = 1
 	if is_finite(cam_d2) and not _anim_lod_off:
-		stride = clampi(1 + int(sqrt(cam_d2) / ANIM_LOD_METRES_PER_STRIDE), 1, ANIM_STRIDE_MAX)
+		var relevance: float = LALodStride.relevance_from_distance(sqrt(cam_d2), ANIM_LOD_CHARACTERISTIC_DISTANCE)
+		stride = LALodStride.stride_for(relevance, ANIM_STRIDE_MAX)
 	_anim_stride = stride
 	if _anim_phase < 0:
 		_anim_phase = int(get_instance_id())
-	if (int(Engine.get_physics_frames()) + _anim_phase) % stride != 0:
+	if not LALodStride.should_run(int(Engine.get_physics_frames()), _anim_phase, stride):
 		return                            # not this creature's animation frame — hold the last pose
 	var adt: float = _anim_accum
 	_anim_accum = 0.0
@@ -779,17 +782,19 @@ func _process(delta: float) -> void:
 		_model_anim.advance(adt)          # MANUAL mode: step the mixer by the accumulated real time
 
 
-# --- decision LOD (distance + sleep) ------------------------------------------------------------
+# --- decision LOD (relevance + sleep) -----------------------------------------------------------
 # The full cognition cascade is the creature's only non-trivial per-frame cost. Every-frame work
 # (metabolism, thirst, temperature, ageing, death, movement) stays every-frame so distant creatures
 # still live/die/glide correctly; only the DISCRETIONARY think cascade is throttled by how visible
 # and how idle the creature is. This spreads the cost automatically: a fraction of the population is
 # always asleep (diurnal by night / nocturnal by day, staggered), and most animals are off-screen.
-const MID_THINK_STRIDE: int = 10           # mid-distance discretionary thinking (~6 Hz)
-const FAR_THINK_STRIDE: int = 30           # far/off-screen discretionary thinking (~2 Hz)
+const FAR_THINK_STRIDE: int = 30           # far/off-screen discretionary thinking cap (~2 Hz)
 const SLEEP_THINK_STRIDE: int = 30         # asleep/resting: no decisions to make — heaviest throttle
-const NEAR_LOD_D2: float = 900.0           # <30 m from camera → full THINK_STRIDE rate
-const MID_LOD_D2: float = 4900.0           # <70 m → MID rate; beyond → FAR rate
+const MID_LOD_D2: float = 4900.0           # physics-LOD's legacy A/B tier boundary (LA_NO_PHYS_LOD only)
+# The distance at which camera-relevance has fallen to 0.5 (LALodStride.relevance_from_distance): stride
+# grows smoothly from THINK_STRIDE (the floor even up close — decisions never need 60 Hz resolution) up
+# to FAR_THINK_STRIDE, with no cutoff anywhere. One number, no separate rate+cap pair to keep in sync.
+const THINK_LOD_CHARACTERISTIC_DISTANCE: float = 90.0
 
 # --- Emergent local leadership (LACreatureLeadership). A `herd` creature that is NOT the local top-ranked
 # same-species individual becomes a FOLLOWER: it ADOPTS its leader's decision (the canonical action) and
@@ -856,12 +861,11 @@ func _base_think_stride() -> int:
 	var cam: Vector3 = _camera_pos()
 	if is_inf(cam.x):
 		return THINK_STRIDE
-	var d2: float = global_position.distance_squared_to(cam)
-	if d2 < NEAR_LOD_D2:
-		return THINK_STRIDE
-	if d2 < MID_LOD_D2:
-		return MID_THINK_STRIDE
-	return FAR_THINK_STRIDE
+	# Continuous relevance-driven ramp (replaces the old NEAR/MID/FAR jump-tier ladder) — no distance
+	# branch anywhere: stride grows smoothly from THINK_STRIDE, capped at FAR_THINK_STRIDE.
+	var d: float = sqrt(global_position.distance_squared_to(cam))
+	var relevance: float = LALodStride.relevance_from_distance(d, THINK_LOD_CHARACTERISTIC_DISTANCE)
+	return LALodStride.stride_for(relevance, FAR_THINK_STRIDE, THINK_STRIDE)
 
 
 # --- Per-subsystem profiling (dev tool) -------------------------------------------------------------
@@ -889,17 +893,15 @@ static func _prof_report() -> Dictionary:
 	return out
 
 
-const FAR_LOD_D2: float = 40000.0   # beyond this (²) a creature updates every 8th frame; MID..FAR every 4th (catch-up dt)
+const FAR_LOD_D2: float = 40000.0   # legacy binary-tier A/B baseline only (LA_NO_PHYS_LOD)
 var _lod_accum: float = 0.0
-# LINEAR physics-rate LOD: beyond the near band the whole _physics_process (movement + physiology + think) runs
-# on a stride that grows ONE step per PHYS_LOD_METRES_PER_STRIDE metres of camera distance, capped at
-# PHYS_STRIDE_MAX. Replaces the old binary 4/8 tiers with a smooth ramp — near-view creatures update near every
-# frame (smooth motion), the far-side population a couple times a second. The accumulated catch-up dt keeps
-# metabolism/aging/movement distance correct; a far creature simply advances several frames of motion at once
-# (invisible at range). Same principle + shape as the animation-framerate LOD.
-const PHYS_LOD_METRES_PER_STRIDE: float = 40.0
-const PHYS_STRIDE_MAX: int = 12     # far-side creatures update every 12th frame (was a hard 8) — the linear ramp
-                                    # spends the reclaimed budget keeping NEAR-view motion smoother (stride ~1-2)
+# PHYSICS-RATE LOD: the whole _physics_process (movement + physiology + think) runs on a stride derived
+# from camera relevance (LALodStride) — near-view creatures update near every frame (smooth motion), the
+# far-side population a couple times a second, smoothly in between with no cutoff. The accumulated
+# catch-up dt keeps metabolism/aging/movement distance correct; a far creature simply advances several
+# frames of motion at once (invisible at range). Same principle + shape as the animation-framerate LOD.
+const PHYS_LOD_CHARACTERISTIC_DISTANCE: float = 40.0
+const PHYS_STRIDE_MAX: int = 12     # far-side creatures update at most every 12th frame
 static var _phys_lod_off: bool = OS.has_environment("LA_NO_PHYS_LOD")   # A/B knob: force the old binary tiers
 
 func _physics_process(delta: float) -> void:
@@ -916,23 +918,23 @@ func _physics_process(delta: float) -> void:
 	if _carcass:
 		LACreatureRagdoll.decay_tick(self, delta)
 		return
-	# Compute-bubble LOD: FAR / off-screen creatures run the whole update on a coarse staggered cadence with a
-	# catch-up dt (their motion is off-screen, so the stepping is invisible), while NEAR creatures update every
-	# frame for smooth on-screen motion. Metabolism/aging stay correct because their dt IS the accumulated
-	# catch-up. An acute event (_force_think from a scare/damage) always runs live. No camera → no LOD.
+	# Compute-bubble LOD: the whole update runs on a cadence derived from camera relevance, with a
+	# catch-up dt so metabolism/aging/movement distance stay correct however sparse the update (a far
+	# creature simply advances several frames of motion at once, invisible at range). An acute event
+	# (_force_think from a scare/damage) always runs live. No camera -> relevance undefined -> full rate.
 	if _think_phase < 0:
 		_think_phase = int(get_instance_id())
 	if not _force_think:
 		var cam_d2: float = global_position.distance_squared_to(_camera_pos())
-		if is_finite(cam_d2) and cam_d2 > MID_LOD_D2:
+		if is_finite(cam_d2):
 			_lod_accum += delta
 			var lod_stride: int
 			if _phys_lod_off:
-				lod_stride = 8 if cam_d2 > FAR_LOD_D2 else 4      # legacy binary tiers (A/B baseline)
+				lod_stride = 8 if cam_d2 > FAR_LOD_D2 else (4 if cam_d2 > MID_LOD_D2 else 1)   # legacy binary tiers (A/B baseline)
 			else:
-				# Linear ramp from the near band (sqrt MID_LOD_D2 ≈ 70 m) outward.
-				lod_stride = clampi(1 + int((sqrt(cam_d2) - 70.0) / PHYS_LOD_METRES_PER_STRIDE), 1, PHYS_STRIDE_MAX)
-			if (int(Engine.get_physics_frames()) + _think_phase) % lod_stride != 0:
+				var relevance: float = LALodStride.relevance_from_distance(sqrt(cam_d2), PHYS_LOD_CHARACTERISTIC_DISTANCE)
+				lod_stride = LALodStride.stride_for(relevance, PHYS_STRIDE_MAX)
+			if not LALodStride.should_run(int(Engine.get_physics_frames()), _think_phase, lod_stride):
 				return
 			delta = _lod_accum
 			_lod_accum = 0.0

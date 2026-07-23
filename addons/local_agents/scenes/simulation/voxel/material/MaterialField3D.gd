@@ -106,6 +106,7 @@ var _lava: PackedFloat32Array = PackedFloat32Array()     # lava mass per cell (a
 # injecting heat + consuming fuel — spreads to neighbours on HEAT + the WIND field (downwind), and leaves ash.
 var _fuel: PackedFloat32Array = PackedFloat32Array()     # flammable fuel mass per cell (vegetation)
 var _fire: PackedFloat32Array = PackedFloat32Array()     # burning intensity per cell (0 = not burning)
+var _activity: PackedFloat32Array = PackedFloat32Array() # Keystone C relevance per cell (demand-gated readback)
 # --- Emergent ATMOSPHERIC OXYGEN (LAMaterialGas3D): a per-cell O₂ level, seeded to O2_AMBIENT in every OPEN
 # cell and replenished from the sky only at each column's exposed surface. It diffuses/advects on the wind;
 # combustion CONSUMES it and can't burn below O2_MIN, so fire suffocates in sealed caves + roars where wind
@@ -360,6 +361,8 @@ func _alloc_channels() -> void:
 	_fuel.resize(_cell_count)
 	_fire = PackedFloat32Array()
 	_fire.resize(_cell_count)
+	_activity = PackedFloat32Array()
+	_activity.resize(_cell_count)
 	# Oxygen starts at ambient in every cell (solid cells are ignored by the gas/fire loops); the sky
 	# exchange keeps open surface cells topped up, combustion draws burning cells down.
 	_o2 = PackedFloat32Array()
@@ -1395,6 +1398,7 @@ func report() -> Dictionary:
 		"fungus_peak": fungus_peak(), "detritus_peak": detritus_peak(),
 		"biomass_total": biomass_total(),
 		"fuel_total": _queries.fuel_total(), "fire_peak": _queries.fire_peak(), "fire_cells": _queries.fire_cells(),
+		"active_cells": _queries.active_cells(), "mean_relevance": _queries.mean_relevance(),
 		"h2o_total": h2o_total(), "water_total": water_total(), "snow_total": snow_total(), "soil_total": soil_total(),
 		"snow_line_temp": snow_line_temp(),
 		"mineral_total": _queries.mineral_total(), "rock_cells": _queries.rock_cells(),

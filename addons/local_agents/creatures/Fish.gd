@@ -492,10 +492,10 @@ func is_mature() -> bool:
 static var _cam_frame: int = -1
 static var _cam_pos: Vector3 = Vector3(INF, INF, INF)
 
-const MID_THINK_STRIDE: int = 10           # mid-distance schooling/wander recompute (~6 Hz)
-const FAR_THINK_STRIDE: int = 30           # far/off-screen recompute (~2 Hz)
-const NEAR_LOD_D2: float = 900.0           # <30 m from camera → full THINK_STRIDE rate
-const MID_LOD_D2: float = 4900.0           # <70 m → MID rate; beyond → FAR rate
+const FAR_THINK_STRIDE: int = 30           # far/off-screen recompute cap (~2 Hz)
+# The distance at which camera-relevance has fallen to 0.5 (LALodStride.relevance_from_distance): stride
+# grows smoothly from THINK_STRIDE up to FAR_THINK_STRIDE, no cutoff. Mirrors LACreature's think-stride.
+const THINK_LOD_CHARACTERISTIC_DISTANCE: float = 90.0
 
 
 func _camera_pos() -> Vector3:
@@ -508,19 +508,16 @@ func _camera_pos() -> Vector3:
 	return _cam_pos
 
 
-# Distance LOD for the O(n) schooling recompute: near fish re-plan every THINK_STRIDE frames, distant
-# ones far less often. The per-frame habitability correction + movement below are UNAFFECTED, so a fish
-# never glides onto land regardless of distance — only the discretionary steer is throttled.
+# Relevance LOD for the O(n) schooling recompute: near fish re-plan every THINK_STRIDE frames, distant
+# ones far less often, smoothly. The per-frame habitability correction + movement below are UNAFFECTED, so
+# a fish never glides onto land regardless of distance — only the discretionary steer is throttled.
 func _think_stride() -> int:
 	var cam: Vector3 = _camera_pos()
 	if is_inf(cam.x):
 		return THINK_STRIDE
-	var d2: float = global_position.distance_squared_to(cam)
-	if d2 < NEAR_LOD_D2:
-		return THINK_STRIDE
-	if d2 < MID_LOD_D2:
-		return MID_THINK_STRIDE
-	return FAR_THINK_STRIDE
+	var d: float = sqrt(global_position.distance_squared_to(cam))
+	var relevance: float = LALodStride.relevance_from_distance(d, THINK_LOD_CHARACTERISTIC_DISTANCE)
+	return LALodStride.stride_for(relevance, FAR_THINK_STRIDE, THINK_STRIDE)
 
 
 func _physics_process(delta: float) -> void:
@@ -578,7 +575,7 @@ func _physics_process(delta: float) -> void:
 	# habitability correction + movement below still run EVERY frame, so it never glides onto land.
 	var desired: Vector3 = _heading
 	var stride: int = _think_stride()
-	var do_think: bool = (int(Engine.get_physics_frames()) + _think_phase) % stride == 0
+	var do_think: bool = LALodStride.should_run(int(Engine.get_physics_frames()), _think_phase, stride)
 	if do_think:
 		desired = _decide_heading(pos, up, delta)
 	# Flatten the intention into the local tangent plane (was desired.y = 0.0 for the flat +Y world).

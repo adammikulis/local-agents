@@ -19,10 +19,25 @@ const LakesScript: GDScript = preload("res://addons/local_agents/scenes/simulati
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 var _frame_gate: int = 0                                 # frames elapsed since the last GPU field run (cadence skip counter)
+var _cam_frame: int = -1
+var _cam_pos: Vector3 = Vector3(INF, INF, INF)
 
 
 func setup(field) -> void:
 	_f = field
+
+
+## Active camera position in the field's own local space (matches the per-cell `pos` buffer's frame),
+## cached once per render frame. Mirrors MaterialEjecta3D/Fish/Creature's shared-lookup pattern. INF when
+## there is no active camera (headless run) -- ActivityPass reads this as "no camera-proximity term".
+func _camera_pos() -> Vector3:
+	var f: int = int(Engine.get_frames_drawn())
+	if f != _cam_frame:
+		_cam_frame = f
+		var vp: Viewport = _f.get_viewport()
+		var cam: Camera3D = vp.get_camera_3d() if vp != null else null
+		_cam_pos = _f.to_local(cam.global_position) if cam != null else Vector3(INF, INF, INF)
+	return _cam_pos
 
 
 ## Field substrate steps every N physics frames, N = the player's Sim knob `la_field_cadence` (published by
@@ -99,6 +114,12 @@ func process(delta: float) -> void:
 		_f._gpu.set_sun_dir(_f._sun_light.global_transform.basis.z * insol)
 	if _f._terrain != null and _f._terrain.has_method("sea_radius") and _f._gpu.has_method("set_sea_radius"):
 		_f._gpu.set_sea_radius(_f._terrain.sea_radius())
+	# Camera world position, in the field's own local space (matches the per-cell `pos` buffer's frame) — feeds
+	# ActivityPass's "OR near the viewer" relevance term. Cached once per RENDER frame (mirrors the
+	# Fish/Creature/MaterialEjecta3D shared-lookup pattern); no camera (headless run) -> ActivityPass falls back
+	# to activity-only relevance.
+	if _f._gpu.has_method("set_camera_pos"):
+		_f._gpu.set_camera_pos(_camera_pos())
 	# GLOBAL water-cycle bound: feed the current cloud cover to atmos_evap so the infinite static sea tapers its
 	# pumping as the atmosphere fills toward a steady cover (a local humidity brake can't cap a total that
 	# transport keeps moving around). Uses the cached aggregate (refreshed by the atmos/report cadence) — the
@@ -190,6 +211,8 @@ func _apply_readback(res: Dictionary) -> void:
 	# velocity field (wind3_at/wind_at read a real force instead of ZERO).
 	if res.has("shock") and res["shock"].size() == n: _f._shock = res["shock"]
 	if res.has("charge") and res["charge"].size() == n: _f._charge = res["charge"]
+	# Keystone C relevance — demand-gated (only copied back while active_cells()/mean_stride() are being polled).
+	if res.has("activity") and res["activity"].size() == n: _f._activity = res["activity"]
 	# Scent is the 5-plane packed buffer (SCENT_CHANNELS * n) — scatter it back so senses smell live gradients.
 	if res.has("scent") and res["scent"].size() == LAMaterialField3D.SCENT_CHANNELS * n: _f._scent = res["scent"]
 	if res.has("vel_x") and res["vel_x"].size() == n: _f._vel_x = res["vel_x"]

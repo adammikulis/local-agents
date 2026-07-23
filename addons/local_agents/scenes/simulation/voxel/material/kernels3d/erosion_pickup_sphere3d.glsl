@@ -32,11 +32,12 @@ layout(set = 0, binding = 2, std430) restrict readonly buffer Static { float sta
 layout(set = 0, binding = 3, std430) restrict buffer RockFill { float rock_fill[]; };            // bedrock mineral — scoured in place (cross-cell to DOWN, unique)
 layout(set = 0, binding = 4, std430) restrict readonly buffer SuspIn { float susp_in[]; };       // susp live half (carry source)
 layout(set = 0, binding = 5, std430) restrict writeonly buffer SuspOut { float susp_out[]; };    // susp back half (carry + pickup)
+layout(set = 0, binding = 6, std430) restrict readonly buffer Relevance { float relevance[]; };  // Keystone C
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };             // idx*6 + slot
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
-	uint pad0;
+	uint step_index;   // monotonic field-step counter, for the relevance-gated update stride
 	uint pad1;
 	uint pad2;
 } params;
@@ -48,6 +49,16 @@ const float MAX_SCOUR   = 0.08;   // hard cap on bedrock lifted from one bed cel
 const float ROCK_MIN    = 1.0e-4; // don't bother scouring a nearly-empty bed cell
 const float HEAD_MIN    = 1.0e-3; // ignore negligible head differences (matches the water CA MIN_FLOW scale)
 
+// GLSL mirror of LALodStride.stride_for/should_run (runtime/LALodStride.gd) -- MUST match exactly.
+int stride_for(float rel, int max_stride, int base_stride) {
+	float r = max(rel, float(base_stride) / float(max_stride));
+	return clamp(int(round(float(base_stride) / r)), base_stride, max_stride);
+}
+bool should_run(uint tick, uint phase, int stride) {
+	return (tick + phase) % uint(stride) == 0u;
+}
+const int MAX_STRIDE = 16;
+
 void main() {
 	uint gidx = gl_GlobalInvocationID.x;
 	if (gidx >= params.cell_count) {
@@ -57,6 +68,15 @@ void main() {
 
 	// Default: pure ping-pong carry of the live susp into the back half (settle reads it next).
 	float susp_here = susp_in[gidx];
+
+	// RELEVANCE-GATED (Keystone C): quiescent/far cells recompute the scour test on a continuous stride
+	// instead of every step; the persist below is exactly what the kernel already does for any cell that
+	// fails its own water/rock/head-gradient checks, so this gate is behaviourally exact, not approximate.
+	int stride = stride_for(relevance[gidx], MAX_STRIDE, 1);
+	if (!should_run(params.step_index, gidx, stride)) {
+		susp_out[gidx] = susp_here;
+		return;
+	}
 
 	// Only OPEN, non-static (genuinely flowing) water cells scour. Rock and the held static sea are inert.
 	if (solid[gidx] != 0.0 || static_cells[gidx] != 0.0) {

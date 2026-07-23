@@ -73,7 +73,7 @@ func active_command() -> String:
 func _physics_process(delta: float) -> void:
 	_acc += delta
 	_frame += 1
-	if _frame % TICK_STRIDE != 0:
+	if not LALodStride.should_run(_frame, 0, TICK_STRIDE):
 		return
 	var dt: float = _acc
 	_acc = 0.0

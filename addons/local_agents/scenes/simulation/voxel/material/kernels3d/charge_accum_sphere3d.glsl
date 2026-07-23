@@ -21,11 +21,12 @@ layout(set = 0, binding = 1, std430) restrict readonly buffer TempIn { float tem
 layout(set = 0, binding = 2, std430) restrict readonly buffer CloudIn { float cloud[]; };
 layout(set = 0, binding = 3, std430) restrict readonly buffer VelY { float vel_y[]; };    // outward-radial (up) wind
 layout(set = 0, binding = 4, std430) restrict readonly buffer Solid { float solid[]; };
+layout(set = 0, binding = 5, std430) restrict readonly buffer Relevance { float relevance[]; };  // Keystone C
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
-	float dt;       // STEP_DT
-	float pad0;
+	float dt;           // STEP_DT
+	uint step_index;    // monotonic field-step counter, for the relevance-gated update stride
 	float pad1;
 } params;
 
@@ -54,6 +55,16 @@ const float CHARGE_LEAK = 0.05;       // bleed WHILE electrifying — sets the f
 const float CHARGE_LEAK_QUIET = 0.4;  // fast bleed once the storm driver is gone (~8 -> ~0.1 in ~9 steps)
 const float UPDRAFT_MIN = 0.0;     // only POSITIVE vertical wind (rising air) separates charge
 
+// GLSL mirror of LALodStride.stride_for/should_run (runtime/LALodStride.gd) -- MUST match exactly.
+int stride_for(float rel, int max_stride, int base_stride) {
+	float r = max(rel, float(base_stride) / float(max_stride));
+	return clamp(int(round(float(base_stride) / r)), base_stride, max_stride);
+}
+bool should_run(uint tick, uint phase, int stride) {
+	return (tick + phase) % uint(stride) == 0u;
+}
+const int MAX_STRIDE = 16;
+
 void main() {
 	uint g = gl_GlobalInvocationID.x;
 	if (g >= params.cell_count) {
@@ -61,6 +72,17 @@ void main() {
 	}
 	if (solid[g] != 0.0) {
 		charge[g] = 0.0;
+		return;
+	}
+	// RELEVANCE-GATED (Keystone C): the build predicate (updraft x cloud, temp<FREEZE_T) is exactly this
+	// kernel's own `driven && cold>0` condition, so a gated cell was never about to gain charge this step —
+	// but it may still hold RESIDUAL charge from an earlier storm, which must keep decaying even while
+	// gated (CHARGE_LEAK_QUIET), or a formerly-charged cell would plateau at a non-zero floor instead of
+	// dissipating. This is provably equivalent to what the ungated kernel already does for any non-driven
+	// cell (its own `leak` is CHARGE_LEAK_QUIET whenever `driven` is false, independent of gating).
+	int stride = stride_for(relevance[g], MAX_STRIDE, 1);
+	if (!should_run(params.step_index, g, stride)) {
+		charge[g] = charge[g] * (1.0 - CHARGE_LEAK_QUIET);
 		return;
 	}
 	float up = vel_y[g];

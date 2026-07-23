@@ -36,7 +36,7 @@ var _transport_shader: RID = RID()
 
 var _fire_set: Array = [RID(), RID()]       # per parity p
 var _transport_set: Array = [RID(), RID()]  # per parity p
-var _outscale_set: RID = RID()              # parity-independent (only SINGLE buffers) → one set
+var _outscale_set: Array = [RID(), RID()]   # per parity p (now binds the PAIR relevance channel, Keystone C)
 
 
 func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
@@ -76,8 +76,8 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 		var back: int = 1 - p
 
 		# fire_sphere3d.glsl — 0 fire_in(live), 1 fire_out(back), 2 fuel(single), 3 temp(back, in place),
-		# 4 water(back), 5 solid(single), 6 o2(BACK, in place), 7 co2(BACK, in place), 8 activity(BACK,
-		# Keystone-C wake gate — ActivityPass runs just before this pass and writes activity[back] this same
+		# 4 water(back), 5 solid(single), 6 o2(BACK, in place), 7 co2(BACK, in place), 8 relevance(BACK,
+		# Keystone-C gate — ActivityPass runs just before this pass and writes activity[back] this same
 		# step), 15 nbr.
 		# o2/co2 must mutate the BACK half: GasWind wrote its transport result into o2/co2[back] earlier this
 		# step, and the authoritative readback reads _live() = the back half AFTER the phase flip — so combustion
@@ -87,24 +87,26 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 			[4, water[back]], [5, solid], [6, o2[back]], [7, co2[back]], [8, activity[back]], [15, nbr]])
 
 		# dust_transport_sphere3d.glsl — 0 dust_in(live), 1 dust_out(back), 2 sediment(back, in place +=
-		# deposit), 3 outscale(single), 4 vel_x, 5 vel_y, 6 vel_z, 7 solid, 15 nbr.
+		# deposit), 3 outscale(single), 4 vel_x, 5 vel_y, 6 vel_z, 7 solid, 8 relevance(BACK, Keystone C), 15 nbr.
 		_transport_set[p] = _build_set(rd, _transport_shader, [
 			[0, dust[p]], [1, dust[back]], [2, sediment[back]], [3, outscale],
-			[4, vel_x], [5, vel_y], [6, vel_z], [7, solid], [15, nbr]])
+			[4, vel_x], [5, vel_y], [6, vel_z], [7, solid], [8, activity[back]], [15, nbr]])
 
-	# dust_outscale_sphere3d.glsl — 0 outscale(out, single), 1 vel_x, 2 vel_y, 3 vel_z, 4 solid, 15 nbr.
-	# No PAIR buffers → parity-independent, one set reused for both parities.
-	_outscale_set = _build_set(rd, _outscale_shader, [
-		[0, outscale], [1, vel_x], [2, vel_y], [3, vel_z], [4, solid], [15, nbr]])
+		# dust_outscale_sphere3d.glsl — 0 outscale(out, single), 1 vel_x, 2 vel_y, 3 vel_z, 4 solid,
+		# 5 relevance(BACK, Keystone C), 15 nbr. Now per-parity (was parity-independent) since it binds the
+		# PAIR relevance channel.
+		_outscale_set[p] = _build_set(rd, _outscale_shader, [
+			[0, outscale], [1, vel_x], [2, vel_y], [3, vel_z], [4, solid], [5, activity[back]], [15, nbr]])
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
 	var dt: float = float(ctx.get("dt", DEFAULT_DT))
 	var cell_size: float = float(ctx.get("cell_size", DEFAULT_CELL_SIZE))
 	var k: float = dt / cell_size if cell_size != 0.0 else 0.0
+	var step_index: int = int(ctx.get("step_index", 0))
 
-	var pc_fire: PackedByteArray = _pc_count(cc)
-	var pc_k: PackedByteArray = _pc_count_k(cc, k)
+	var pc_fire: PackedByteArray = _pc_count(cc, step_index)
+	var pc_k: PackedByteArray = _pc_count_k(cc, k, step_index)
 
 	# 1) FIRE — combustion gather: fire[live] -> fire[back]; temp/fuel/o2/co2 mutated in place.
 	rd.compute_list_bind_compute_pipeline(cl, _fire_pipe)
@@ -115,7 +117,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 
 	# 2) DUST OUTSCALE — precompute per-cell CFL out-flux scale into the dust_outscale SINGLE buffer.
 	rd.compute_list_bind_compute_pipeline(cl, _outscale_pipe)
-	rd.compute_list_bind_uniform_set(cl, _outscale_set, 0)
+	rd.compute_list_bind_uniform_set(cl, _outscale_set[parity], 0)
 	rd.compute_list_set_push_constant(cl, pc_k, pc_k.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # out-flux scale visible to the transport gather
@@ -134,15 +136,13 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 func dispose(rd: RenderingDevice) -> void:
 	if rd == null:
 		return
-	for s: Array in [_fire_set, _transport_set]:
+	for s: Array in [_fire_set, _transport_set, _outscale_set]:
 		for r in s:
 			if r is RID and r.is_valid():
 				rd.free_rid(r)
 	_fire_set = [RID(), RID()]
 	_transport_set = [RID(), RID()]
-	if _outscale_set.is_valid():
-		rd.free_rid(_outscale_set)
-		_outscale_set = RID()
+	_outscale_set = [RID(), RID()]
 	for r: RID in [_fire_pipe, _outscale_pipe, _transport_pipe,
 			_fire_shader, _outscale_shader, _transport_shader]:
 		if r.is_valid():
@@ -170,14 +170,16 @@ func _u(binding: int, buf: RID) -> RDUniform:
 	u.add_id(buf)
 	return u
 
-# fire push: { uint cell_count; uint pad0,pad1,pad2; }
-func _pc_count(cc: int) -> PackedByteArray:
-	return PackedInt32Array([cc, 0, 0, 0]).to_byte_array()
+# fire push: { uint cell_count; uint step_index; uint pad1,pad2; }. step_index feeds the fire kernel's own
+# relevance-gated update stride (Keystone C retrofit — see fire_sphere3d.glsl).
+func _pc_count(cc: int, step_index: int) -> PackedByteArray:
+	return PackedInt32Array([cc, step_index, 0, 0]).to_byte_array()
 
-# dust_outscale / dust_transport push: { uint cell_count; float k; float pad0,pad1; }
-func _pc_count_k(cc: int, k: float) -> PackedByteArray:
+# dust_outscale / dust_transport push: { uint cell_count; float k; uint step_index; float pad1; }
+func _pc_count_k(cc: int, k: float, step_index: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(16)
 	pc.encode_u32(0, cc)
 	pc.encode_float(4, k)
+	pc.encode_u32(8, step_index)
 	return pc

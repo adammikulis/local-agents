@@ -20,12 +20,13 @@ layout(set = 0, binding = 4, std430) restrict readonly buffer VelX { float vel_x
 layout(set = 0, binding = 5, std430) restrict readonly buffer VelY { float vel_y[]; };
 layout(set = 0, binding = 6, std430) restrict readonly buffer VelZ { float vel_z[]; };
 layout(set = 0, binding = 7, std430) restrict readonly buffer Solid { float solid[]; };
+layout(set = 0, binding = 8, std430) restrict readonly buffer Relevance { float relevance[]; };  // Keystone C
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };  // idx*6 + slot
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
-	float k;        // STEP_DT / cell_size (Courant factor)
-	float pad0;
+	float k;             // STEP_DT / cell_size (Courant factor)
+	uint step_index;     // monotonic field-step counter, for the relevance-gated update stride
 	float pad1;
 } params;
 
@@ -47,6 +48,16 @@ float fall_frac(uint i, float k) {
 	return max(0.0, -vyi) * k + settle;
 }
 
+// GLSL mirror of LALodStride.stride_for/should_run (runtime/LALodStride.gd) -- MUST match exactly.
+int stride_for(float rel, int max_stride, int base_stride) {
+	float r = max(rel, float(base_stride) / float(max_stride));
+	return clamp(int(round(float(base_stride) / r)), base_stride, max_stride);
+}
+bool should_run(uint tick, uint phase, int stride) {
+	return (tick + phase) % uint(stride) == 0u;
+}
+const int MAX_STRIDE = 16;
+
 void main() {
 	uint g = gl_GlobalInvocationID.x;
 	if (g >= params.cell_count) {
@@ -54,6 +65,15 @@ void main() {
 	}
 	if (solid[g] != 0.0) {
 		dust_out[g] = 0.0;
+		return;
+	}
+	// RELEVANCE-GATED (Keystone C): true ping-pong copy-through on a skipped step — dust is carried state
+	// (unlike outscale's fully-recomputed scratch), and the new dust self-seed term in ActivityPass keeps a
+	// cell awake as long as it actually carries airborne dust, so this persist is safe (a truly empty cell
+	// has nothing to transport anyway).
+	int stride = stride_for(relevance[g], MAX_STRIDE, 1);
+	if (!should_run(params.step_index, g, stride)) {
+		dust_out[g] = dust_in[g];
 		return;
 	}
 	uint base = g * 6u;

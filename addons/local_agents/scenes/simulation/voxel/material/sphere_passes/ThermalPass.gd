@@ -110,6 +110,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var temp: Array = bufs["temp"]
 	var water: Array = bufs["water"]
 	var lava: Array = bufs["lava"]
+	var activity: Array = bufs["activity"]
 
 	for p in 2:
 		var back: int = 1 - p
@@ -134,9 +135,10 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# post-flow) — a wet cell carrying lava quenches HARD (submerged-lava sink; builds the seabed island).
 		_cool_set[p] = _make_set(rd, _cool_shader, [
 			[0, temp_back], [1, water_back], [2, solid], [3, pos], [4, lava_back]])
-		# lava_phase: 0 = lava (BACK, in-place), 1 = temp (BACK, in-place), 2 = solid.
+		# lava_phase: 0 = lava (BACK, in-place), 1 = temp (BACK, in-place), 2 = solid, 3 = relevance (LIVE — this
+		# pass runs before ActivityPass, so it reads last step's settled relevance, Keystone C).
 		_lava_phase_set[p] = _make_set(rd, _lava_phase_shader, [
-			[0, lava_back], [1, temp_back], [2, solid]])
+			[0, lava_back], [1, temp_back], [2, solid], [3, activity[p]]])
 		# magma: 0 = lava (BACK, rw), 1 = scratch (private), 2 = temp (BACK, carry-heat), 3 = solid, 15 = nbr.
 		_magma_set[p] = _make_set(rd, _magma_shader, [
 			[0, lava_back], [1, _scratch], [2, temp_back], [3, solid], [15, nbr]])
@@ -185,10 +187,10 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # post-heat temp committed before the lava passes read it
 
-	# 4. LAVA PHASE — solidify + sustain, in-place on lava BACK + temp BACK.
+	# 4. LAVA PHASE — solidify + sustain, in-place on lava BACK + temp BACK. Relevance-gated (Keystone C).
 	rd.compute_list_bind_compute_pipeline(cl, _lava_phase_pipe)
 	rd.compute_list_bind_uniform_set(cl, _lava_phase_set[parity], 0)
-	var phase_pc: PackedByteArray = _count_pc(cc)
+	var phase_pc: PackedByteArray = _lava_phase_pc(cc, int(ctx.get("step_index", 0)))
 	rd.compute_list_set_push_constant(cl, phase_pc, phase_pc.size())
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # post-phase lava/temp visible to the magma snapshot
@@ -296,12 +298,24 @@ func _cool_pc(cc: int, sea_radius: float) -> PackedByteArray:
 	return pc
 
 
-# heat3d_buoyancy / lava_phase Params: { uint cell_count; uint pad0; uint pad1; uint pad2; } — 16 bytes.
+# heat3d_buoyancy Params: { uint cell_count; uint pad0; uint pad1; uint pad2; } — 16 bytes.
 func _count_pc(cc: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(16)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, 0)
+	pc.encode_u32(8, 0)
+	pc.encode_u32(12, 0)
+	return pc
+
+
+# lava_phase Params: { uint cell_count; uint step_index; uint pad1; uint pad2; } — 16 bytes. step_index feeds
+# the relevance-gated update stride (Keystone C).
+func _lava_phase_pc(cc: int, step_index: int) -> PackedByteArray:
+	var pc: PackedByteArray = PackedByteArray()
+	pc.resize(16)
+	pc.encode_u32(0, cc)
+	pc.encode_u32(4, step_index)
 	pc.encode_u32(8, 0)
 	pc.encode_u32(12, 0)
 	return pc
