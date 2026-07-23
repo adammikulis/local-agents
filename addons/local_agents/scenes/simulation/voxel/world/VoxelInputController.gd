@@ -114,6 +114,8 @@ var _stamp_test_deposit_frame: int = 0
 var _bench_name: String = ""
 var _bench_interval: int = 0
 var _bench_fired: Dictionary = {}   # timeline index (int) -> true, once its action has fired
+var _seed_explicit: bool = false    # true once --seed= was parsed, so the --bench default below doesn't override it
+const DEFAULT_BENCH_SEED: int = 424242   # applied automatically for --bench= runs unless --seed= overrides it
 
 # --- Esc pause menu (this controller is its documented host point) ---
 var _pause_menu: LAVoxelPauseMenu = null
@@ -181,6 +183,15 @@ func parse_cmdline() -> void:
 				_bench_interval = 100   # default snapshot cadence unless --bench-interval= overrides it below
 		elif arg.begins_with("--bench-interval="):
 			_bench_interval = maxi(1, int(arg.substr("--bench-interval=".length())))
+		elif arg.begins_with("--seed="):
+			# Seeds Godot's GLOBAL RNG (world-gen + disaster intensity/site draws use it directly, per the
+			# documented disaster-load-unseeded-rng gap -- LASimRng's own seed does NOT cover disasters).
+			# Pairs with --bench=: the SAME seed + the SAME scripted timeline makes two runs of this launch
+			# line produce identical world state and identical disaster outcomes, not just identical event
+			# TIMING -- required for a real before/after diff (a --bench run without this can still see a
+			# volcano erupt at a different intensity/site between runs, confounding field-cost comparisons).
+			seed(int(arg.substr("--seed=".length())))
+			_seed_explicit = true
 		elif arg.begins_with("--time="):
 			_time_of_day = clampf(float(arg.substr("--time=".length())), 0.0, 1.0)
 		elif arg.begins_with("--lunar="):
@@ -273,6 +284,11 @@ func parse_cmdline() -> void:
 			GameMode.start_campaign()      # force campaign gating for a verification run (menu sets this normally)
 		elif arg == "--sandbox":
 			GameMode.start_sandbox()       # force sandbox (everything unlocked) for a verification run
+	# --bench= defaults to a FIXED seed (unless --seed= explicitly overrode it above) so a scripted run is
+	# reproducible out of the box -- nobody re-running the same --bench launch line should have to remember
+	# to also pass --seed= just to get a comparable result.
+	if _bench_name != "" and not _seed_explicit:
+		seed(DEFAULT_BENCH_SEED)
 	# Apply the fast-forward multiplier through the pause menu's single setter (shared with the in-menu speed
 	# buttons). Clamped there; N=1 leaves the engine clock untouched.
 	if _pause_menu != null:
