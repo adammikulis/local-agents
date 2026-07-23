@@ -206,16 +206,64 @@ found both the branch list and the roadmap text had drifted.
     `VoxelWorld.gd` (`_sea_ice_shader.setup(...)`), and bake real polar-cap coverage from the `_snow` channel
     on static-sea surface cells. Marked `[✓]` below.
   - **Fertility readback is DONE and NOT on a side branch** — `fertility_at`/`fertility_peak`
-    (`MaterialFieldQueries3D.gd`) read a real GPU channel fed by R15 fungus-decompose + `CreatureExcretion`
-    feces deposits, reported in SIM_REPORT (`fertility_peak`), fully in `0.4-dev`. **What's genuinely still
-    open** (confirmed by grep — `EcologyPlants.gd`'s tree-seeding/growth logic calls only `_biomass_at`, never
-    `fertility_at`): the loop isn't CLOSED — fertility is produced and measurable but nothing consumes it to
-    modulate plant growth/germination rate yet. Retitled the checklist item to name that precisely instead of
-    the old "readback" framing, which undersold what's done and oversold what's left as "not started."
+    (`MaterialFieldQueries3D.gd`) read a real GPU channel fed by R15 fungus-decompose, reported in SIM_REPORT
+    (`fertility_peak`), fully in `0.4-dev`. **Correction (this claim was itself wrong, fixed same day — see the
+    fertility-uptake session below): `CreatureExcretion`'s feces deposit did NOT feed fertility at the time
+    this was written** — it only wrote a scent/food cue (`deposit_waste`), despite its own docstring claiming
+    otherwise; only carcass decomposition (`CreatureRagdoll`→`deposit_detritus`) fed the real loop. Fixed
+    later the same day, see below. **What was genuinely still open** (confirmed by grep — `EcologyPlants.gd`'s
+    tree-seeding/growth logic calls only `_biomass_at`, never `fertility_at`): the loop wasn't CLOSED —
+    fertility was produced and measurable but nothing consumed it to modulate plant growth. **Also fixed same
+    day**, see the fertility-uptake session below.
   - The **"Confirmed field/GPU bugs" `deposit_detritus`→GPU / detritus-readback / full-fertility-loop** bullet
     below (written during the 0.3 bug-hunt, before this was built) is likewise stale — `detritus_peak`/
     `fungus_peak` are real and nonzero now. Left the bullet as a dated historical record but flagged it
     resolved-except-for-plant-uptake so a future session doesn't re-investigate it from scratch.
+
+---
+### ⚑ FERTILITY-UPTAKE SESSION (2026-07-23) — closed the "fertility feeds plants" gap, in `feature/fertility-uptake`
+Direct follow-through on the gap the repo-hygiene audit above just named: nothing consumed `fert` to modulate
+growth. Worked in a dedicated worktree (`la-fertility-uptake`, pruned after merge) since this touches the
+generic DEFS reaction engine — a shared substrate seam, not a docs edit. Merged to `0.4-dev` clean.
+- **R19 photosynthesis now takes FERT as a second reactant** (`MaterialReactions3D.gd`): extent is capped by
+  `min(co2, fert/FERT_UPTAKE_COST)` — Liebig's-law-of-the-minimum, using the EXISTING generic reactant-cap+debit
+  loop already used for CO2 (no new rate model). Wired `fert[live]` into `ReactionsPass.gd` +
+  `reactions_sphere3d.glsl` (new binding 9, `read_ch`/`add_ch` cases) the same way `fungus` already is — its
+  real per-step producer (`EcoSurfacePass`'s scent_fert diffuse/leach + fungus_fert decompose-deposit kernels)
+  runs LATER in the same step, so binding the LIVE half (not BACK) is the correct convention, matching the
+  driver's own documented ordering rules. FERT is a genuine conserving debit (plants actually consume soil
+  nutrient), not a read-only rate multiplier.
+- **Found + fixed a second gap while wiring this**: `CreatureExcretion.deposit()`'s "feces" path called
+  `deposit_waste` only — a SCENT/food-cue deposit, never `deposit_detritus` — despite its own docstring
+  claiming "feces enriches the soil (emergent nutrient cycle)". Only carcass decomposition
+  (`CreatureRagdoll`→`deposit_detritus`) fed the real loop; a living population's waste did nothing for the
+  soil it stood on. Fixed: feces now also deposits real detritus (1:1 `FECES_DETRITUS_YIELD`, mirroring
+  `CreatureRagdoll.DETRITUS_YIELD`'s carcass convention). Deleted `Creature._deposit_waste` — a dead 3-arg
+  forwarder with zero callers left over from before this fix changed `deposit()`'s signature.
+- **Tuning — the first coefficient guess was ~25x too strong, caught by measurement, not shipped blind.** A
+  naive per-cell estimate (fertility_peak observed ~3-6, CO2-capped extent ~0.02-0.06/step) suggested
+  `FERT_UPTAKE_COST=0.5` would rarely bind. WRONG: a same-seed A/B (seed=777, both runs hit the identical
+  eruption/impact timeline, isolating the code change from the disaster-load noise this repo already knows
+  about) showed it crashed `biomass_total` 9514→1873 (−80%) and `fertility_peak` 6.31→0.36 (−94%) — a
+  per-step SINK competes against the stock's NET ACCUMULATION rate, not its peak, and the new drain was
+  comparable to or larger than the entire rate that built the peak over 600 steps in the first place; a
+  self-reinforcing collapse (less biomass → less respiration/detritus → less decompose → less fert → even
+  less growth), not the intended "only barren ground throttles" behaviour. Cut to `FERT_UPTAKE_COST=0.02`:
+  re-measured same-seed A/B showed biomass/fertility within normal range of baseline (a modest ~25-35% pull,
+  not a cliff), creature count and starvation deaths actually slightly BETTER than baseline (noise from a
+  slightly different disaster count, not a regression).
+- **Verified, not just tuned:** a same-seed 2000-frame long run (the standard "does it hold over slow-emergent
+  time" gate) showed `creatures` collapsing to 39 survivors — investigated before treating it as a regression:
+  a same-seed run of the UNMODIFIED baseline code crashed even further (13 survivors) with MORE disasters (17
+  impacts vs. this change's 16) and near-identical biomass/fertility. **The population crash is the
+  pre-existing, already-tracked disaster-load issue** (memory `disaster-load-unseeded-rng`: sandbox population
+  is disaster-load-bound, disasters aren't covered by the sim seed) present in baseline too — not caused by
+  this change, and out of this session's scope to fix. `godot --headless --path . --editor --quit-after 400`
+  re-run on the primary checkout after merge (the merged-`.gd`-outside-the-editor stale-cache gotcha) +
+  a clean 200-frame smoke, both green.
+- **Not done / left for whoever tackles the disaster-load issue itself**: the 16-17-impacts-per-2000-frames
+  rate this session measured (twice, incidentally) is a concrete, reproducible data point for that pre-existing
+  problem — worth citing directly instead of re-measuring from scratch.
 
 ---
 ### ⚑ FIELD-READBACK SESSION (2026-07-23) — demoted 3 channels, built a real benchmark, honest null-ish result
@@ -529,7 +577,7 @@ sim in the compute-bubble; cheap analytic stand-ins for distant/dormant/offscree
 
 **TIERS** (SIMULATE = emerge from substrate · FAKE = justified LOD/cosmetic · [✓]=shipped this session):
 - **T1 (do first, small):** hot springs (in flight) · moon tides [FAKE] [✓] · altitude lapse [✓] · default-look MSAA/grade [✓ partial] · moisture growth-gate (Keystone B sim half).
-- **T2 (core systems):** biome coloration [✓] · **erosion pickup kernel (Keystone A, L)** · weathering + lithification (2 DEFS records) · Coriolis + orographic wind [✓] · snow render from real `_snow` field + honest 0°C freeze · sea ice at poles [✓] · fertility readback [✓ readback+production done; plant-uptake consumer still owed, see Phase 3] · emergent river supply (highland baseflow + snowmelt) · **radiative-sink fix** (the one un-dissolved band-aid — lets volcanism be frequent without baking the planet).
+- **T2 (core systems):** biome coloration [✓] · **erosion pickup kernel (Keystone A, L)** · weathering + lithification (2 DEFS records) · Coriolis + orographic wind [✓] · snow render from real `_snow` field + honest 0°C freeze · sea ice at poles [✓] · fertility→growth loop [✓ closed 2026-07-23, fertility-uptake session — R19 photosynthesis now consumes FERT as a Liebig-limiting reactant] · emergent river supply (highland baseflow + snowmelt) · **radiative-sink fix** (the one un-dissolved band-aid — lets volcanism be frequent without baking the planet).
 - **T3 (visual polish):** cel-shading [✓] · scattering sky [✓] · sphere-aware ocean [✓] · cloud→ground shadows · re-enable sun shadows · grass/ground-cover [FAKE] · climate-typed flora envelopes · glacier flow (retarget slump to `_snow`) · cheap strata [FAKE] · lava tubes (edge-cooling — in flight).
 - **T4 (bake + livability):** **activity-bubble LOD (Keystone C, L)** → geotime `--geotime=N` bake → bake-then-freeze orchestration (snapshot path exists) · season/year retune.
 
@@ -623,12 +671,16 @@ not `if species==X`. See [[dissolve-dont-patch]].
 - [ ] Digestion over time (efficiency set by the microbiome; herbivores need gut flora) + gut-microbiome benefit +
   excretion/pooping (→ soil detritus/fertility + spreads gut bacteria) + soil bacteria/nitrogen-fixers (→ plants
   grow) + death decomposition (0.3 shipped the field-side taste). Bacterial **roles as DEFS reactions**;
-  conserved matter food→energy+waste→soil→plants→food. **Prereq status (corrected 2026-07-23 — was stale):**
-  the detritus→fertility production+readback side is DONE (`CreatureExcretion` deposits feces, R15
-  fungus-decompose produces fertility, `fertility_at`/`fertility_peak` are real GPU reads, not stubs). The
-  actual remaining prereq is narrower than this bullet implied: **wire `EcologyPlants.gd`'s growth/germination
-  rate to consume `fertility_at`** (it currently reads only `_biomass_at`) — that's the one missing link that
-  closes the loop. Re-balance the ecosystem after.
+  conserved matter food→energy+waste→soil→plants→food. **Prereq status (corrected 2026-07-23, closed same
+  day — fertility-uptake session):** the WHOLE detritus→fertility→growth chain is now DONE:
+  `CreatureExcretion` deposits real feces detritus (fixed same session — it previously only wrote a scent
+  cue despite claiming otherwise), R15 fungus-decompose produces fertility, and **R19 photosynthesis now
+  consumes FERT as a second, Liebig-limiting reactant** (`MaterialReactions3D.gd`, `FERT_UPTAKE_COST`) — soil
+  fertility genuinely gates plant growth on barren ground without destabilizing already-vegetated land
+  (tuned + verified via same-seed A/B, see the session note above). What's still open for THIS phase is the
+  narrower remainder: digestion-over-time (a gut buffer instead of instant `feed()`), the microbiome
+  efficiency scalar, and nitrogen-fixer bacteria as a genuinely new DEFS reaction (R-NFIX) — the loop-closing
+  part is done, the deeper metabolism modeling is not.
 
 ### Phase 4 — THE PET COMPANION (stretch — end of 0.4 or 0.5)
 - [ ] Large animal + player pinned as permanent **Leader** + **operant conditioning** (`reinforce_cue`) +
