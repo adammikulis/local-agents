@@ -136,9 +136,11 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		_cool_set[p] = _make_set(rd, _cool_shader, [
 			[0, temp_back], [1, water_back], [2, solid], [3, pos], [4, lava_back]])
 		# lava_phase: 0 = lava (BACK, in-place), 1 = temp (BACK, in-place), 2 = solid, 3 = relevance (LIVE — this
-		# pass runs before ActivityPass, so it reads last step's settled relevance, Keystone C).
+		# pass runs before ActivityPass, so it reads last step's settled relevance, Keystone C), 15 = nbr
+		# (shell-first edge cooling reads each cell's 6 faces to count EXPOSED faces -> a flow's rind hardens
+		# while the core stays molten and drains, leaving a lava tube).
 		_lava_phase_set[p] = _make_set(rd, _lava_phase_shader, [
-			[0, lava_back], [1, temp_back], [2, solid], [3, activity[p]]])
+			[0, lava_back], [1, temp_back], [2, solid], [3, activity[p]], [15, nbr]])
 		# magma: 0 = lava (BACK, rw), 1 = scratch (private), 2 = temp (BACK, carry-heat), 3 = solid, 15 = nbr.
 		_magma_set[p] = _make_set(rd, _magma_shader, [
 			[0, lava_back], [1, _scratch], [2, temp_back], [3, solid], [15, nbr]])

@@ -512,6 +512,38 @@ func fire_cells() -> int:
 	return n
 
 
+# --- LAVA-TUBE / HOLLOW signature -------------------------------------------
+# A lava tube is an OPEN cell (rock_fill < 0.5 ⇒ derived-solid == 0, and no molten lava sitting in it — it has
+# DRAINED) that is walled in by SOLID rock on most of its faces. Count them: an emergent tube/hollow interior
+# shows up as a nonzero population of "open cell with ≥ min_solid_nbr solid neighbours". With uniform own-cell
+# cooling a stalled flow freezes into a SOLID PLUG (no enclosed voids, ≈ 0); with shell-first edge-cooling the
+# rind solidifies around a still-molten core that then drains → a hollow remains → this count rises. Pure O(cells)
+# snapshot read (polled at report time only), no grid sweep per frame.
+const TUBE_LAVA_NEAR_ZERO: float = 0.05
+
+func enclosed_void_cells(min_solid_nbr: int = 4) -> int:
+	if _f._sphere == null or _f._solid.size() != _f._cell_count or _f._lava.size() != _f._cell_count:
+		return 0
+	var nbr: PackedInt32Array = _f._sphere.neighbours
+	if nbr.size() != _f._cell_count * 6:
+		return 0
+	var n: int = 0
+	for c in range(_f._cell_count):
+		if _f._solid[c] != 0:
+			continue                                    # cell itself must be OPEN (rock_fill < 0.5)
+		if _f._lava[c] >= TUBE_LAVA_NEAR_ZERO:
+			continue                                    # still lava-filled — not yet a drained hollow
+		var base: int = c * 6
+		var sn: int = 0
+		for d in range(6):
+			var nb: int = nbr[base + d]
+			if nb >= 0 and _f._solid[nb] != 0:
+				sn += 1
+		if sn >= min_solid_nbr:
+			n += 1
+	return n
+
+
 # --- Keystone C relevance telemetry — demand-gated (activity is GPU-only unless requested; unlike fire's
 # add_heat, there is no natural per-event injection site for a derived channel, so these queries themselves
 # are what wakes the readback — matches the driver's documented "request on inject/query" contract) --------
@@ -618,3 +650,53 @@ func open_sea_temp_avg() -> float:
 			sum += _f._temp[c]
 			n += 1
 	return sum / float(n) if n > 0 else 0.0
+# Shell-first DIAGNOSTIC (proof the differential cooling fires). Classifies live lava cells (lava ≥ near-zero,
+# temp ≥ solidus) as INTERIOR (0 exposed faces — every open neighbour is hot lava, or all neighbours solid) vs
+# RIND (≥1 exposed face — borders open air/void or a cold cell), and reports how many of each plus their mean
+# temperature. If the mechanism works, interior cells outnumber-or-outlast the rind and run HOTTER than rind
+# cells (the rind sheds heat faster). Snapshot-time only.
+func lava_shell_diag() -> Dictionary:
+	if _f._sphere == null or _f._solid.size() != _f._cell_count or _f._lava.size() != _f._cell_count:
+		return {"lava_live": 0, "lava_interior": 0, "lava_rind": 0, "lava_int_c": 0.0, "lava_rind_c": 0.0}
+	var nbr: PackedInt32Array = _f._sphere.neighbours
+	if nbr.size() != _f._cell_count * 6:
+		return {"lava_live": 0, "lava_interior": 0, "lava_rind": 0, "lava_int_c": 0.0, "lava_rind_c": 0.0}
+	var live: int = 0
+	var interior: int = 0
+	var rind: int = 0
+	var int_sum: float = 0.0
+	var rind_sum: float = 0.0
+	var thick: int = 0            # lava cells carrying a substantial body (>= 0.5 mass) — the tube prerequisite
+	var maxmass: float = 0.0      # peak per-cell lava mass anywhere (how deep does the flow ever get?)
+	for c in range(_f._cell_count):
+		var lv: float = _f._lava[c]
+		if lv > maxmass and _f._solid[c] == 0:
+			maxmass = lv
+		if _f._solid[c] != 0 or lv < 0.001 or _f._temp[c] < 800.0:
+			continue
+		if lv >= 0.5:
+			thick += 1
+		live += 1
+		var base: int = c * 6
+		var exposed: int = 0
+		for d in range(6):
+			var nb: int = nbr[base + d]
+			if nb < 0:
+				exposed += 1
+				continue
+			if _f._solid[nb] != 0:
+				continue
+			if _f._lava[nb] < TUBE_LAVA_NEAR_ZERO or _f._temp[nb] < 800.0:
+				exposed += 1
+		if exposed == 0:
+			interior += 1
+			int_sum += _f._temp[c]
+		else:
+			rind += 1
+			rind_sum += _f._temp[c]
+	return {
+		"lava_live": live, "lava_interior": interior, "lava_rind": rind,
+		"lava_thick": thick, "lava_maxmass": snappedf(maxmass, 0.001),
+		"lava_int_c": snappedf(int_sum / float(max(1, interior)), 0.1),
+		"lava_rind_c": snappedf(rind_sum / float(max(1, rind)), 0.1),
+	}
