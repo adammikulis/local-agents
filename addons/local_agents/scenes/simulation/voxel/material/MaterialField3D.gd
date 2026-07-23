@@ -1243,11 +1243,15 @@ func o2_avg() -> float:
 	return sum / float(n) if n > 0 else O2_AMBIENT
 # Emergent CARBON DIOXIDE (second gas channel): CO₂ level at a point + build-up diagnostics.
 func co2_at(x: float, y: float, z: float) -> float:
+	if _gpu != null:
+		_gpu.request_channel("co2")   # co2 is demand-gated; no producer-side event to hook, so query self-wakes it
 	if _sphere != null:
 		var c: int = world_to_cell(Vector3(x, y, z))
 		return _co2[c] if c >= 0 else 0.0
 	return 0.0
 func co2_peak() -> float:
+	if _gpu != null:
+		_gpu.request_channel("co2")
 	if _co2.size() != _cell_count or _cell_count <= 0:
 		return 0.0
 	var mx: float = 0.0
@@ -1256,6 +1260,8 @@ func co2_peak() -> float:
 			mx = maxf(mx, _co2[c])
 	return mx
 func co2_avg() -> float:
+	if _gpu != null:
+		_gpu.request_channel("co2")
 	if _co2.size() != _cell_count or _cell_count <= 0:
 		return 0.0
 	var sum: float = 0.0

@@ -95,7 +95,7 @@ var _slow_gate: int = 0             # cadence counter for the slow (ledger/baker
 # injection, save/snapshot, and the _at queries — rendering reads the GPU buffers directly). charge (scanned by
 # MaterialCharge on breakdown) and rock_fill (scanned by MineralStamp during volcano land-building) are kept
 # always-hot because those modules read them per active-frame; gating them would need those modules to request.
-const SITUATIONAL_CHANNELS: Array = ["lava", "fire", "dust", "shock", "activity"]
+const SITUATIONAL_CHANNELS: Array = ["lava", "fire", "dust", "shock", "activity", "co2", "fuel", "rock_fill"]
 const CHANNEL_HOLD_DRAINS: int = 20     # stay hot ~20 drains past the last request so intermittent queries don't thrash
 var _channel_hold: Dictionary = {}      # channel name -> drain index it stays hot through
 var _drain_count: int = 0               # monotonic drain counter the holds are measured against
@@ -291,30 +291,34 @@ func _drain_pending() -> void:
 func _read_channels(read_slow: bool) -> Dictionary:
 	var out: Dictionary = _empty_result()
 	# ALWAYS-HOT — read EVERY drain (per-frame consumers: actor world-queries, senses, render, surface-seed).
-	# Ping-pong PAIR channels read from their live half; single channels read direct. lava/fire/dust/shock moved
-	# to the DEMAND-GATED block below (they have no per-frame consumer on a calm planet).
-	for k in ["temp", "water", "moisture", "o2", "co2"]:
+	# Ping-pong PAIR channels read from their live half; single channels read direct. lava/fire/dust/shock/
+	# co2/fuel/rock_fill moved to the DEMAND-GATED block below (verified: no per-frame consumer — co2 is
+	# debug-overlay-only; fuel's own consumer only ACTS every 40 drains; rock_fill's claimed "every active
+	# frame" consumer is a real no-op unless armed by a CPU-side edit). moisture stays hot: it looked like a
+	# demand-gating candidate (no creature reads it directly) until tracing `avg_cloud_cover()`/
+	# `moisture_total()` found `_atmos_dirty` gets set every drain regardless of which channel actually
+	# refreshed (temp always does), and VoxelSkyCycle polls `avg_cloud_cover()` at ~150Hz — demand-gating it
+	# would either go stale or get re-requested every drain anyway, so there's nothing to win.
+	for k in ["temp", "water", "moisture", "o2"]:
 		out[k] = _rd.buffer_get_data(_live(k)).to_float32_array()
 	# scent is a 5-plane packed pair (SCENT_PLANES * cell_count) — read its live half whole so the CPU bridge
 	# scatters all five planes (prey/predator/blood/food/alarm) back for the sense gradients.
 	out["scent"] = _rd.buffer_get_data(_live("scent")).to_float32_array()
-	# snow (SINGLE) — surface snow render/meltwater. fuel (SINGLE) — fire consumes it in place; kept HOT so the
-	# surface-seed refill compares against fresh fuel (avoids over-refill) and fire dynamics don't lag.
+	# snow (SINGLE) — read every physics frame per living carcass (decomposition/permafrost gating), not just
+	# render/debug, so it stays hot even though most consumers are periodic.
 	if _bufs.has("snow"):
 		out["snow"] = _rd.buffer_get_data(_bufs["snow"]).to_float32_array()
-	if _bufs.has("fuel"):
-		out["fuel"] = _rd.buffer_get_data(_bufs["fuel"]).to_float32_array()
 	# Emergent WIND velocity (SINGLE, in-place) — wind3_at/wind_at expose a real force field that EVERY creature
-	# samples per frame (LACreatureFieldForces), so it stays always-hot. CHARGE (breakdown→bolt firing edits +
-	# re-uploads it) and ROCK_FILL (MineralStamp scans it every active frame to stamp SDF grow/carve) also have
-	# per-frame-ish module consumers, so they stay hot too.
-	for k in ["vel_x", "vel_y", "vel_z", "charge", "rock_fill"]:
+	# samples per frame (LACreatureFieldForces), so it stays always-hot. CHARGE (breakdown→bolt firing) also has
+	# a per-frame consumer with NO CPU-side trigger event to hook a request_channel() call to, so it stays hot too.
+	for k in ["vel_x", "vel_y", "vel_z", "charge"]:
 		if _bufs.has(k):
 			out[k] = _rd.buffer_get_data(_bufs[k]).to_float32_array()
 	# DEMAND-GATED situational channels — read back ONLY while requested (a disaster is injecting/querying them,
 	# or a debug overlay is showing them). On a calm planet nothing requests them, so this is the readback cut.
 	# A skipped channel keeps its prior CPU array; the size-guarded scatter makes a stale read a 1-frame lag.
-	# lava/fire/dust/shock are ping-pong PAIRS (read the live half); charge/rock_fill are SINGLE buffers.
+	# lava/fire/dust/shock/co2 are ping-pong PAIRS (read the live half); rock_fill/fuel are SINGLE
+	# buffers (SINGLE_CHANNELS decides which below — charge stays always-hot above, not in this list).
 	for k in SITUATIONAL_CHANNELS:
 		if not _bufs.has(k) or int(_channel_hold.get(k, -1)) < _drain_count:
 			continue

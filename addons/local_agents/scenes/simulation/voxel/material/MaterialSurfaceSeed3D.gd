@@ -41,6 +41,9 @@ const BIOMASS_FUEL_GAIN: float = 1.2
 # topping up every N steps (N·BURN_RATE < BASELINE) keeps a standing fire fed by its living vegetation instead
 # of self-extinguishing the moment its seed fuel is spent — the fire persists as long as biomass regrows under it.
 const REFILL_EVERY: int = 40
+# Drains ahead of REFILL_EVERY to start requesting the (demand-gated) fuel channel, so it has already been
+# read back fresh by the time the refill below runs -- must be >= the driver's CHANNEL_HOLD_DRAINS (20).
+const FUEL_REQUEST_LEAD: int = 20
 # Soil organic matter laid on a ground-surface cell at activation — over the fungus kernel's DETRITUS_MIN = 0.05
 # so fungus colonises it and the decompose reaction (detritus × fungus → CO₂ + fertility) fires from the start.
 const BASELINE_DETRITUS: float = 0.15
@@ -79,8 +82,12 @@ func seed_initial() -> void:
 ## are freshly scattered), so a burned cell whose biomass has regrown gets its fuel restored (capped at baseline,
 ## never lowers). Detritus is NOT refilled here — it is GPU-owned after the one-shot seed (respiration credits it,
 ## the decompose record debits it), so re-uploading would clobber that on-device evolution.
+## fuel is demand-gated (SITUATIONAL_CHANNELS): pre-warm its readback a few drains ahead of REFILL_EVERY so it's
+## genuinely fresh by the time this actually reads it below, instead of requesting-and-reading the same drain.
 func post_readback() -> void:
 	_refill_tick += 1
+	if _refill_tick >= REFILL_EVERY - FUEL_REQUEST_LEAD and _f != null and _f._gpu != null:
+		_f._gpu.request_channel("fuel")
 	if _refill_tick < REFILL_EVERY:
 		return
 	_refill_tick = 0
