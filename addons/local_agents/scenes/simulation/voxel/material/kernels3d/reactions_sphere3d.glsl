@@ -24,6 +24,7 @@ layout(set = 0, binding = 3, std430) restrict buffer O2       { float o2[]; };
 layout(set = 0, binding = 4, std430) restrict buffer CO2      { float co2[]; };
 layout(set = 0, binding = 7, std430) restrict buffer Detritus { float detritus[]; };
 layout(set = 0, binding = 8, std430) restrict readonly buffer Fungus { float fungus[]; };
+layout(set = 0, binding = 9, std430) restrict buffer Fert { float fert[]; };           // soil nutrient (R15 fungus-decompose + creature excretion feed it; R19 uptake now debits it — LIVE half, its diffuse/leach producer runs later this step, same convention as Fungus above)
 layout(set = 0, binding = 11, std430) restrict buffer Biomass { float biomass[]; };    // living plant matter (photosynthesis grows it, respiration/decay oxidizes it)
 layout(set = 0, binding = 12, std430) restrict buffer Snow { float snow[]; };          // frozen H₂O (freeze credits it, melt debits it) — SAME substance as water/moisture
 // --- MINERAL phases (rock unification): loose sediment, airborne dust, waterborne suspension. Loft (M4) moves
@@ -118,6 +119,7 @@ float read_ch(int slot, uint i) {
 	if (slot == CO2)      return co2[i];
 	if (slot == DETRITUS) return detritus[i];
 	if (slot == FUNGUS)   return fungus[i];
+	if (slot == FERT)     return fert[i];
 	if (slot == BIOMASS)  return biomass[i];
 	if (slot == SNOW)     return snow[i];
 	if (slot == SEDIMENT) return sediment[i];
@@ -129,8 +131,11 @@ float read_ch(int slot, uint i) {
 	return 0.0;
 }
 
-// Add v to a channel slot (own cell). Mass channels clamp at 0. FUNGUS/FERT/unbound slots are not writable
-// as SELF (FERT is a SCRATCH-only product; fungus is produced by its own kernel) → no-op here.
+// Add v to a channel slot (own cell). Mass channels clamp at 0. FUNGUS/unbound slots are not writable as SELF
+// (fungus is produced by its own kernel) → no-op here. FERT is now also a real reactant (R19 uptake debits it
+// in place on its LIVE half — safe because its own diffuse/leach/decompose-deposit producer runs later this
+// step in EcoSurfacePass, so this write is the freshest value by the time that kernel reads it, same one-step
+// ordering already used for FUNGUS as a read-only driver).
 void add_ch(int slot, uint i, float v) {
 	if      (slot == TEMP)     { temp[i]     += v; }
 	else if (slot == WATER)    { water[i]     = max(0.0, water[i] + v); }
@@ -138,6 +143,7 @@ void add_ch(int slot, uint i, float v) {
 	else if (slot == O2)       { o2[i]        = max(0.0, o2[i] + v); }
 	else if (slot == CO2)      { co2[i]       = max(0.0, co2[i] + v); }
 	else if (slot == DETRITUS) { detritus[i]  = max(0.0, detritus[i] + v); }
+	else if (slot == FERT)     { fert[i]      = max(0.0, fert[i] + v); }
 	else if (slot == BIOMASS)  { biomass[i]   = max(0.0, biomass[i]  + v); }
 	else if (slot == SNOW)     { snow[i]      = max(0.0, snow[i]     + v); }
 	else if (slot == SEDIMENT) { sediment[i]  = max(0.0, sediment[i] + v); }

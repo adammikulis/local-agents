@@ -16,6 +16,11 @@ extends RefCounted
 ## an animal that has not digested anything has nothing to pass.
 const FECES_MIN_WASTE: float = 0.5
 
+## Detritus deposited into the field's soil-nutrient loop per unit of feces mass (same 1:1 conserving-transfer
+## convention CreatureRagdoll.DETRITUS_YIELD uses for carcasses) — R15 fungus-decompose then rots it into
+## fertility, and R19 photosynthesis now actually consumes that fertility to grow (the loop this closes).
+const FECES_DETRITUS_YIELD: float = 1.0
+
 
 ## Per-frame excretion tick, called from LACreature._physics_process with the ground point below the body.
 ## Counts down the two cooldowns and deposits when each elapses. Feces is the OUTPUT of digestion: it deposits
@@ -27,17 +32,23 @@ static func tick(c, ground_pos: Vector3, delta: float) -> void:
 	if c._poop_cd <= 0.0:
 		c._poop_cd = randf_range(24.0, 48.0)
 		if c.gut_waste >= FECES_MIN_WASTE:
-			deposit(c, ground_pos, "feces")
+			deposit(c, ground_pos, "feces", c.gut_waste)
 			c.gut_waste = 0.0                     # expelled — the pending digested residue is passed (no double count)
 	c._urine_cd -= delta
 	if c._urine_cd <= 0.0:
 		c._urine_cd = randf_range(10.0, 22.0)
-		deposit(c, ground_pos, "urine")
+		deposit(c, ground_pos, "urine", 0.0)
 
 
-## Deposit waste at `ground_pos` into the shared scent/fertility field. Feces enriches the soil (plants
-## regrow on dung — emergent) and carries a food + musk cue predators track prey by; urine is territorial
-## musk. No node is spawned — the deposit is a few cells in LAMaterialScent3D that diffuse and wash away.
-static func deposit(c, ground_pos: Vector3, kind: String) -> void:
-	if c._material != null and c._material.has_method("deposit_waste"):
+## Deposit waste at `ground_pos` into the shared scent/fertility field. Feces enriches the soil — a REAL
+## detritus deposit (was scent-only: this comment used to overclaim, see the repo-hygiene audit) that feeds
+## the existing detritus→fungus/decompose→fertility loop — and carries a food + musk cue predators track prey
+## by; urine is territorial musk only, no soil contribution. No node is spawned — the deposit is a few cells
+## that diffuse/wash away or, for feces' detritus leg, decay through the field's carbon/nutrient chemistry.
+static func deposit(c, ground_pos: Vector3, kind: String, waste_amount: float) -> void:
+	if c._material == null:
+		return
+	if c._material.has_method("deposit_waste"):
 		c._material.deposit_waste(ground_pos, c, kind)
+	if kind == "feces" and waste_amount > 0.0 and c._material.has_method("deposit_detritus"):
+		c._material.deposit_detritus(ground_pos, waste_amount * FECES_DETRITUS_YIELD)

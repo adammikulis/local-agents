@@ -85,6 +85,21 @@ const CO2_AMBIENT_TRACE: float = 0.05
 const PHOTO_RATE: float = 0.02           # per-step k on x = PHOTO_RATE * co2 * temp (capped by co2)
 const PHOTO_O2_YIELD: float = 1.0        # O₂ released per unit CO₂ fixed (stoichiometric ~1:1)
 const PHOTO_BIOMASS_YIELD: float = 1.0   # biomass grown per unit CO₂ fixed
+# NUTRIENT UPTAKE (closes the "fertility actually feeds plants" gap — bio-0.4-shipped left this open): FERT is
+# now a second reactant on R19, so growth is co-limited by CO₂ AND soil fertility (Liebig's-law-of-the-minimum,
+# same reactant-cap machinery that already caps CO2 — no new rate model needed).
+#
+# TUNING HISTORY (measured, same-seed A/B on --sandbox, frame 600, seed=777 so both runs hit the identical
+# eruption/impact timeline — isolates the code change from disaster-load noise): a naive per-cell estimate
+# (fertility_peak ~3-6, typical CO2-capped extent ~0.02-0.06/step) suggested 0.5 would rarely bind — WRONG,
+# because a per-step SINK competes against the STOCK'S NET ACCUMULATION RATE, not its accumulated peak. At
+# 0.5 the new uptake drain (~0.02/step/cell) was comparable to or larger than the ~0.01/step net inflow that
+# took 600 steps to build fertility_peak to 6.31 in the first place — planet-wide biomass_total crashed
+# 9514->1873 (-80%) and fertility_peak crashed 6.31->0.36 (-94%), a self-reinforcing collapse (less biomass ->
+# less respiration/detritus -> less decompose -> less fert -> even less photosynthesis), NOT the intended
+# "only barren ground throttles" behaviour. Cut ~25x to 0.02, keeping the drain clearly subordinate to the
+# natural replenishment rate so it only binds where fert is genuinely near-zero.
+const FERT_UPTAKE_COST: float = 0.02     # fertility consumed per unit of photosynthesis extent (2nd reactant)
 # Respiration + decay: biomass + O₂ → CO₂ + detritus. Living matter slowly oxidizes everywhere it exists,
 # returning carbon to the air (CO₂) and shedding litter (detritus) that the fungus-decompose record then rots
 # into CO₂ + soil fertility. Proportional to biomass → self-limiting (as biomass rises, respiration rises to
@@ -195,11 +210,14 @@ static func records() -> Array:
 			[[CO2, CO2_PER_DECOMPOSE, TGT_SELF], [FERT, FERT_PER_DECOMPOSE, TGT_SCRATCH]],
 			0, 0.0, DETRITUS),
 
-		# R19 — PHOTOSYNTHESIS: CO₂ + light → biomass + O₂ at sky-exposed surface cells (the plant carbon-fix leg,
-		# dissolved from Plant.gd's CPU `field.photosynthesize`). BILINEAR: x = PHOTO_RATE*co2*temp (temp = the
-		# daylight proxy; the day side is warmer → fixes more). The single CO₂ reactant caps the extent, so growth
-		# is CO₂-limited (bounded). Products: O₂ + BIOMASS into the own surface cell. GATE_SURFACE = sky-exposed.
-		_rec(BILINEAR, PHOTO_RATE, CO2, [[CO2, 1.0]],
+		# R19 — PHOTOSYNTHESIS: CO₂ + FERT + light → biomass + O₂ at sky-exposed surface cells (the plant
+		# carbon-fix leg, dissolved from Plant.gd's CPU `field.photosynthesize`). BILINEAR: x = PHOTO_RATE*co2*temp
+		# (temp = the daylight proxy; the day side is warmer → fixes more). TWO reactants now cap the extent — CO₂
+		# (always has) and FERT (nutrient uptake, closes the fertility→growth loop): x is capped by
+		# min(co2, fert/FERT_UPTAKE_COST), so growth is CO₂-AND-fertility-limited (bounded, Liebig's-law style).
+		# The FERT debit is a real conserving draw on the soil-nutrient channel — plants actually consume it, not
+		# just read it. Products: O₂ + BIOMASS into the own surface cell. GATE_SURFACE = sky-exposed.
+		_rec(BILINEAR, PHOTO_RATE, CO2, [[CO2, 1.0], [FERT, FERT_UPTAKE_COST]],
 			[[O2, PHOTO_O2_YIELD, TGT_SELF], [BIOMASS, PHOTO_BIOMASS_YIELD, TGT_SELF]],
 			GATE_SURFACE, 0.0, TEMP),
 
