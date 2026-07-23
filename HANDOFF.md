@@ -178,6 +178,46 @@ physics/anim-rate LOD already used.
   legs (wrong shape for a decaying/distance relevance gradient regardless of stride vs. binary).
 
 ---
+### ⚑ REPO-HYGIENE + ROADMAP-ACCURACY SESSION (2026-07-23) — pruned dead branches, corrected stale checklist claims
+A plain "update HANDOFF.md" ask, taken as a cue to verify this file still matches reality rather than just append.
+Audited every non-`0.4-dev` branch/worktree and cross-checked two T2 checklist items against the actual code —
+found both the branch list and the roadmap text had drifted.
+- **Pruned 3 stale worktrees** (`la-feature-ecosystem-equilibrium`, `la-feature-population-sustain`,
+  `la-integ-pop` — flagged "prune when convenient" since the earlier completed ecosystem task #14; all
+  confirmed clean, no uncommitted work). Their branches (`feature/ecosystem-equilibrium`,
+  `feature/population-sustain`, `integ/population`) hold commits `81e2349`/`29bd642` whose content is verified
+  **byte-identical to what's already in `0.4-dev`** (diffed `SeaIceTextureBaker.gd`/`SeaIceShaderController.gd`
+  — zero diff) — but `git branch -d` refuses them ("not fully merged", since they landed via hand-port/squash
+  rather than a real merge, so they're not literal ancestors). Left the branch refs in place rather than
+  force-delete (`-D` is on the never-without-explicit-request list) — safe for the maintainer to `-D` directly.
+- **Deleted `feature/0.4-parallel-tracks`** (0 commits ahead of `0.4-dev` — a genuinely empty/never-used branch,
+  `-d` succeeded cleanly).
+- **Found 2 fully-orphaned duplicate branches with no live worktree**: `worktree-wf_91b2a1d4-ae2-2` and `-3`
+  (byte-identical to each other, tip dated 2026-07-10) — leftovers from an old Workflow-tool fan-out. Checked
+  all 15 of their unmerged-by-hash commits (Ctrl+scroll brush sizing, meteor barrage, geosync arc-down zoom,
+  radial crust→mantle→magma terrain grading, camera invert-X/Y, Linux export fixes, …) against the current tree:
+  **every one is already present in `0.4-dev`** under different commits (the `workflow-worktree-base-quirk`
+  salvage pattern — hand-ported/re-applied rather than merged). `git branch -d` still refuses both (same
+  non-ancestor reason); left for the maintainer to `-D`.
+- **Two T2/Phase-3 roadmap claims were stale — corrected below, not just appended:** grepped for
+  `fertility_at`/`SeaIceTextureBaker` expecting stubs (per this file's own text) and found real, wired,
+  SIM_REPORT-reported implementations instead:
+  - **Sea ice at poles is DONE** — `SeaIceShaderController`/`SeaIceTextureBaker` exist, are instantiated in
+    `VoxelWorld.gd` (`_sea_ice_shader.setup(...)`), and bake real polar-cap coverage from the `_snow` channel
+    on static-sea surface cells. Marked `[✓]` below.
+  - **Fertility readback is DONE and NOT on a side branch** — `fertility_at`/`fertility_peak`
+    (`MaterialFieldQueries3D.gd`) read a real GPU channel fed by R15 fungus-decompose + `CreatureExcretion`
+    feces deposits, reported in SIM_REPORT (`fertility_peak`), fully in `0.4-dev`. **What's genuinely still
+    open** (confirmed by grep — `EcologyPlants.gd`'s tree-seeding/growth logic calls only `_biomass_at`, never
+    `fertility_at`): the loop isn't CLOSED — fertility is produced and measurable but nothing consumes it to
+    modulate plant growth/germination rate yet. Retitled the checklist item to name that precisely instead of
+    the old "readback" framing, which undersold what's done and oversold what's left as "not started."
+  - The **"Confirmed field/GPU bugs" `deposit_detritus`→GPU / detritus-readback / full-fertility-loop** bullet
+    below (written during the 0.3 bug-hunt, before this was built) is likewise stale — `detritus_peak`/
+    `fungus_peak` are real and nonzero now. Left the bullet as a dated historical record but flagged it
+    resolved-except-for-plant-uptake so a future session doesn't re-investigate it from scratch.
+
+---
 ### ⚑ FIELD-READBACK SESSION (2026-07-23) — demoted 3 channels, built a real benchmark, honest null-ish result
 Follow-on to the relevance-LOD session above: traced WHY `field_dispatch_ms` (~0.13-0.19ms) never moved fps —
 `field_readback_ms` (~4.4-4.7ms, CPU↔GPU buffer transfer for ~13 "always-hot" channels copied back in full
@@ -244,9 +284,11 @@ burden of an un-upstreamed engine fork, rebuild-for-every-platform cost) — stu
   from `SimWorld` + the reusable nodes, and RENAME the game `VoxelWorld` → **Anima**. HELD for direct/supervised
   handling — it rebuilds the composition root, so it needs a launched-window verification, not fire-and-forget.
 
-Stale worktrees to prune when convenient: `la-feature-ecosystem-equilibrium`, `la-feature-population-sustain`,
-`la-integ-pop` (from the earlier completed ecosystem task #14). `sorting.py` at repo root is the maintainer's,
-untracked — leave it.
+Worktrees `la-feature-ecosystem-equilibrium`/`la-feature-population-sustain`/`la-integ-pop` were pruned
+2026-07-23 (see the repo-hygiene session above); their branches (`feature/ecosystem-equilibrium`,
+`feature/population-sustain`, `integ/population`) plus 2 orphaned Workflow-leftover branches
+(`worktree-wf_91b2a1d4-ae2-2`/`-3`) are verified fully superseded but need `git branch -D` (not `-d`) to
+remove — left for the maintainer. `sorting.py` at repo root is the maintainer's, untracked — leave it.
 
 ---
 **Shipped this session (0.4-planet, on `0.4-dev`):** camera terrain-follow anti-clip · rivers DECOUPLED from
@@ -487,7 +529,7 @@ sim in the compute-bubble; cheap analytic stand-ins for distant/dormant/offscree
 
 **TIERS** (SIMULATE = emerge from substrate · FAKE = justified LOD/cosmetic · [✓]=shipped this session):
 - **T1 (do first, small):** hot springs (in flight) · moon tides [FAKE] [✓] · altitude lapse [✓] · default-look MSAA/grade [✓ partial] · moisture growth-gate (Keystone B sim half).
-- **T2 (core systems):** biome coloration [✓] · **erosion pickup kernel (Keystone A, L)** · weathering + lithification (2 DEFS records) · Coriolis + orographic wind [✓] · snow render from real `_snow` field + honest 0°C freeze · sea ice at poles · fertility readback (on `integ` branch) · emergent river supply (highland baseflow + snowmelt) · **radiative-sink fix** (the one un-dissolved band-aid — lets volcanism be frequent without baking the planet).
+- **T2 (core systems):** biome coloration [✓] · **erosion pickup kernel (Keystone A, L)** · weathering + lithification (2 DEFS records) · Coriolis + orographic wind [✓] · snow render from real `_snow` field + honest 0°C freeze · sea ice at poles [✓] · fertility readback [✓ readback+production done; plant-uptake consumer still owed, see Phase 3] · emergent river supply (highland baseflow + snowmelt) · **radiative-sink fix** (the one un-dissolved band-aid — lets volcanism be frequent without baking the planet).
 - **T3 (visual polish):** cel-shading [✓] · scattering sky [✓] · sphere-aware ocean [✓] · cloud→ground shadows · re-enable sun shadows · grass/ground-cover [FAKE] · climate-typed flora envelopes · glacier flow (retarget slump to `_snow`) · cheap strata [FAKE] · lava tubes (edge-cooling — in flight).
 - **T4 (bake + livability):** **activity-bubble LOD (Keystone C, L)** → geotime `--geotime=N` bake → bake-then-freeze orchestration (snapshot path exists) · season/year retune.
 
@@ -581,9 +623,12 @@ not `if species==X`. See [[dissolve-dont-patch]].
 - [ ] Digestion over time (efficiency set by the microbiome; herbivores need gut flora) + gut-microbiome benefit +
   excretion/pooping (→ soil detritus/fertility + spreads gut bacteria) + soil bacteria/nitrogen-fixers (→ plants
   grow) + death decomposition (0.3 shipped the field-side taste). Bacterial **roles as DEFS reactions**;
-  conserved matter food→energy+waste→soil→plants→food. **Prereq:** finish the detritus→fertility uptake wiring on
-  the sphere (`fertility_at` stubbed, detritus not GPU-round-tripped) — same pattern as the Phase-0 scent finish.
-  Re-balance the ecosystem after.
+  conserved matter food→energy+waste→soil→plants→food. **Prereq status (corrected 2026-07-23 — was stale):**
+  the detritus→fertility production+readback side is DONE (`CreatureExcretion` deposits feces, R15
+  fungus-decompose produces fertility, `fertility_at`/`fertility_peak` are real GPU reads, not stubs). The
+  actual remaining prereq is narrower than this bullet implied: **wire `EcologyPlants.gd`'s growth/germination
+  rate to consume `fertility_at`** (it currently reads only `_biomass_at`) — that's the one missing link that
+  closes the loop. Re-balance the ecosystem after.
 
 ### Phase 4 — THE PET COMPANION (stretch — end of 0.4 or 0.5)
 - [ ] Large animal + player pinned as permanent **Leader** + **operant conditioning** (`reinforce_cue`) +
@@ -632,11 +677,12 @@ already close it):
 ### Confirmed field/GPU bugs to fix in the 0.4 field pass (from the 0.3 bug-hunt — deferred as substrate-risky)
 - [ ] **Combustion O₂/CO₂ written to the wrong ping-pong half** (`sphere_passes/FireDustPass.gd:82`) — bind o2/co2
   to the BACK half in the fire uniform set so the in-place consume/emit lands on the buffer transport wrote.
-- [ ] **`deposit_detritus`→GPU + detritus readback + full fertility loop** (`MaterialField3D.gd:1139`, GPU driver
-  readback) — the upload/readback plumbing alone (mirror of charge) did NOT visibly close the loop: `detritus_peak`
-  stayed 0 even after 94 meteor deaths, because `fungus_peak` is 0 (R15 fungus-decompose never runs) and the
-  carcass→`deposit_detritus`→fertility chain needs building end-to-end. Do the WHOLE loop in the 0.4 nutrient pass:
-  carcass deposits detritus, fungus/soil-bacteria present, detritus→R15→fertility, uptake by plants (fertility_at).
+- [x] **`deposit_detritus`→GPU + detritus readback + full fertility loop** (`MaterialField3D.gd:1139`) —
+  **RESOLVED** as of the 2026-07-23 repo-hygiene audit: `detritus_peak`/`fungus_peak`/`fertility_peak` are all
+  live nonzero GPU reads now (R15 fungus-decompose runs, `CreatureExcretion` deposits feces into detritus/
+  fertility). Dated historical record of the original 0.3 bug-hunt finding, kept for context — do NOT
+  re-investigate this from scratch. The ONE piece still open is plant **uptake**: nothing consumes
+  `fertility_at` to modulate growth yet (see Phase 3 above, corrected same session).
 - [ ] **Fuel channel allocated to zeros, never populated** (`MaterialField3D.gd:325`) — seed fuel from biomass on
   surface cells + upload, so the fire kernel has something to burn (combustion currently has no fuel substrate).
 - [ ] **Organically-grown storm charge can cross breakdown but never fire a bolt** (`MaterialCharge3D.gd:63`) —
