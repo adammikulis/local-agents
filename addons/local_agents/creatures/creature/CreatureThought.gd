@@ -66,6 +66,20 @@ static func thought(c) -> Dictionary:
 		"source": "rule-based", "is_llm": false}
 
 
+## Phrase one entry of LACognition.history() (the panel's scrolling "stream") for display. Returns
+## {text, kind} — kind ∈ "fast"|"llm"|"teacher", for the panel to colour by who/what decided.
+static func history_line(entry: Dictionary) -> Dictionary:
+	var kind: String = String(entry.get("kind", "fast"))
+	var action: String = String(entry.get("action", ""))
+	var e: int = int(entry.get("e", 2))
+	var h: int = int(entry.get("h", 3))
+	var who: String = "local model" if kind == "llm" else ("offline teacher" if kind == "teacher" else _how_word(String(entry.get("how", ""))))
+	return {
+		"text": "%s and %s — decided to %s (%s)." % [_cap(_thirst_word(h)), _hunger_word(e), _intent(action), who],
+		"kind": kind,
+	}
+
+
 ## Supporting lines under the thought: current behaviour, how the last pick was reached, what it has
 ## learned, and the strongest cue it watches. All O(1)/O(small) reads of the live brain.
 static func detail_lines(c) -> Array:

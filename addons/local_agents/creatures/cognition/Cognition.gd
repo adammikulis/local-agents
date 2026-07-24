@@ -120,6 +120,30 @@ var vetoes: int = 0                        # times this brain REFUSED a learned-
 var _last_choice: Dictionary = {}          # {action, how, e, h, w, n}   how: reflex|habit|instinct
 var _last_ask: Dictionary = {}             # {action, source, e, h, w, n}   source: llm|teacher
 
+# Bounded history of DISTINCT decisions (the thought-inspector panel's "stream" — what actually made this
+# creature do what it did, over time, not just the current instant). A ring buffer, not a full log: capped
+# at HISTORY_CAP and only appended when the action or WHO decided it actually changes, so a creature holding
+# one behaviour for many ticks doesn't spam the stream with repeats — the log reads as a sequence of real
+# transitions. Each entry: {ts (msec), kind: "fast"|"llm"|"teacher", action, how, e, h}.
+const HISTORY_CAP: int = 40
+var _history: Array = []
+
+func _push_history(kind: String, action: String, how: String, sig: Dictionary) -> void:
+	if not _history.is_empty():
+		var prev: Dictionary = _history[-1]
+		if String(prev.get("kind", "")) == kind and String(prev.get("action", "")) == action:
+			return                                  # no real change — don't spam the stream
+	_history.append({
+		"ts": Time.get_ticks_msec(), "kind": kind, "action": action, "how": how,
+		"e": int(sig.get("e", 2)), "h": int(sig.get("h", 3)),
+	})
+	if _history.size() > HISTORY_CAP:
+		_history.pop_front()
+
+## The bounded decision history for the thought-inspector's "stream" — read-only, oldest first.
+func history() -> Array:
+	return _history
+
 
 func set_scheduler(s) -> void:
 	_sched = s
@@ -257,6 +281,7 @@ func _record_choice(action: String, how: String, sig: Dictionary) -> void:
 		"e": int(sig.get("e", 2)), "h": int(sig.get("h", 3)),
 		"w": int(sig.get("w", 0)), "n": int(sig.get("n", 0)),
 	}
+	_push_history("fast", action, how, sig)
 
 
 ## Sample the creature's full welfare senses right now. Cheap O(1) scalar reads (+ one field temp probe);
@@ -387,6 +412,7 @@ func apply_llm_result(key: int, action: String, source: String = "llm", sig: Dic
 		"e": int(sig.get("e", 2)), "h": int(sig.get("h", 3)),
 		"w": int(sig.get("w", 0)), "n": int(sig.get("n", 0)),
 	}
+	_push_history(source, action, source, sig)   # source: "llm" | "teacher"
 
 
 func on_llm_failed() -> void:
