@@ -75,7 +75,25 @@ var _step_index: int = 0            # monotonic field-step counter; ActivityPass
 var _groups: int = 0
 var _bufs: Dictionary = {}          # key → RID (single) or [rid_a, rid_b] (pair)
 var _passes: Array = []
+var _pass_names: PackedStringArray = []   # parallel to _passes — short label per pass, for GPU per-pass timing
 var _ctx: Dictionary = {}
+# GPU-SIDE EXECUTION TIMING (distinct from field_dispatch_ms, which only ever measured CPU command-recording
+# time — step() just records + submit()s, deferred; the GPU may still be chewing on last step's work). Uses
+# RenderingDevice's timestamp-query API (capture_timestamp / get_captured_timestamp_*), which is a lightweight
+# command inserted INTO the already-open compute list — no extra CPU<->GPU round-trip, since the values only
+# become readable after the SAME single sync() _drain_pending already performs. Godot returns GPU time in
+# nanoseconds (confirmed empirically, see below).
+#
+# KNOWN ENGINE GAP (verified 2026-07-23, isolated with a minimal standalone repro outside this driver): on
+# Godot 4.7's METAL RenderingDevice backend — this project's actual default, hardcoded in
+# scripts/run_sim_offscreen.sh — get_captured_timestamp_gpu_time ALWAYS returns 0 (get_captured_timestamp_cpu_time
+# still works fine; it's plain CPU-side bookkeeping). The SAME repro under `--rendering-driver vulkan`
+# (MoltenVK, same machine) returns real nonzero GPU deltas. So this instrumentation is CORRECT and will
+# report real per-pass numbers the moment Metal support lands (or immediately under Vulkan) — but reads 0
+# across the board on the normal Metal dev loop. Not a bug here; don't re-debug this from scratch. Use
+# `LA_RENDER_DRIVER=vulkan scripts/run_sim_offscreen.sh ...` for a one-off GPU-timing deep-dive.
+var _gpu_pass_ms: Dictionary = {}   # pass name -> this step's GPU execution time (ms)
+var _gpu_dispatch_ms: float = 0.0   # sum of all passes — the real GPU counterpart to field_dispatch_ms
 # Async readback pipeline (perf B2): step() submits its ONE compute list WITHOUT syncing; the sync + channel
 # readback is deferred to the NEXT begin_frame's _drain_pending(), so the GPU compute overlaps the inter-frame
 # CPU work (render/actor cognition) instead of stalling the field step. end_frame() then hands back `_cached`
@@ -157,6 +175,7 @@ func setup(field) -> void:
 		if p.has_method("setup"):
 			p.setup(_rd, _bufs, _cc)
 			_passes.append(p)
+			_pass_names.append(path.get_file().get_basename())   # e.g. "ThermalPass" — timestamp label
 
 
 func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: float = 0.6, wind: Vector2 = Vector2.ZERO) -> void:
@@ -209,32 +228,52 @@ func set_sea_radius(r: float) -> void:
 func step() -> void:
 	if _rd == null:
 		return
-	# A local RenderingDevice permits exactly ONE submit() per sync(). The rare 2-steps-per-frame catch-up calls
-	# step() twice: sync the earlier submit before opening a new list (this also makes its writes visible to this
-	# step, replacing the old per-step sync for that boundary).
+	# A local RenderingDevice permits exactly ONE submit() per sync(). The "rare" 2-steps-per-frame catch-up
+	# (MAX_STEPS_PER_FRAME=2 in MaterialFieldSphereStep3D) calls step() twice in one tick: sync the earlier
+	# submit before opening a new list (this also makes its writes visible to this step, replacing the old
+	# per-step sync for that boundary). NOT actually rare under this project's typical loaded --sandbox run:
+	# process_ms routinely exceeds 2×STEP_DT (200ms), so this fires most ticks, not occasionally. It must read
+	# that step's GPU timestamps here too (not only in _drain_pending), or they're discarded unread whenever
+	# two steps fire in one tick (2026-07-23).
 	if _pending:
 		_rd.sync()
 		_pending = false
-	# B1 — ALL passes into ONE compute list, then a SINGLE submit()+deferred-sync (was: compute_list_begin →
-	# dispatch → end → submit → sync PER pass = 10 blocking CPU↔GPU round-trips/step, up to 20/frame). The kernel
-	# math is cheap; those round-trips were the cost. Godot 4.7 does NOT auto-insert memory barriers between
-	# dispatches in a list (every multi-dispatch pass already barriers internally), so we insert a GPU-side
-	# `compute_list_add_barrier` between passes: the passes are authored in strict data-flow order and each reads
-	# channels a prior pass wrote to "back", so pass N+1 must see pass N's writes. This barrier is what the
-	# single-dispatch passes (SolidDerive / ErosionPickup / Reactions) previously got from the per-pass sync. A
-	# barrier is a GPU pipeline barrier, NOT a CPU stall — correctness > a marginal extra barrier (perf-over-parity:
-	# verified behaviourally, not bit-exact).
-	# The `send` outflow scratch needs no external clear: the 2-pass finite-volume kernels (WaterSlumpLava)
-	# self-zero all 6 of each cell's send slots at the top of pass 0, before any read. Clearing here (or inside
-	# the pass) is both redundant and — inside an open compute list — illegal, so it is omitted.
+		_read_gpu_pass_timings()
 	_ctx["step_index"] = _step_index
-	var cl: int = _rd.compute_list_begin()
 	var last: int = _passes.size() - 1
+	# B1 — ALL passes into ONE submit()+deferred-sync (was: compute_list_begin → dispatch → end → submit →
+	# sync PER pass = 10 blocking CPU↔GPU round-trips/step, up to 20/frame). The kernel math is cheap; those
+	# round-trips were the cost. Still only ONE submit() here — ending+reopening compute_list per pass does NOT
+	# reintroduce them (submit()/sync() are the only actual CPU↔GPU round-trip; list begin/end are pure
+	# recording-time bookkeeping into the same not-yet-submitted command buffer).
+	#
+	# EACH PASS gets its OWN compute_list_begin()/end() pair (rather than one list spanning all passes), because
+	# capture_timestamp() is ONLY legal OUTSIDE an open compute list — Godot throws "Capturing timestamps during
+	# compute list creation is not allowed" otherwise. This is a REAL, confirmed engine constraint (found
+	# 2026-07-23 chasing why gpu_dispatch_ms always read 0: the error was firing every step and silently
+	# discarding the entire capture set, since a failed capture_timestamp call doesn't abort the list — it just
+	# never got created). Godot 4.7 does NOT auto-barrier between separate list segments any more than it does
+	# between dispatches within one list, so `_rd.full_barrier()` (RenderingDevice-level, legal outside a list)
+	# between passes replaces the old in-list `compute_list_add_barrier` — same "a barrier is a GPU pipeline
+	# barrier, NOT a CPU stall; correctness > a marginal extra barrier" tradeoff the original design already made.
+	#
+	# STILL UNRESOLVED (2026-07-23, do not re-attempt from scratch): fixing the above error stopped the crash,
+	# but get_captured_timestamps_count() still reads 0 in THIS driver specifically, even for the smallest
+	# possible case (one real pass, one capture pair, no barrier). A battery of isolated repros — matching the
+	# capture pattern, deferred submit timing, physics-tick callback, distinct-pipeline count, push constants,
+	# realistic dispatch scale, and running concurrently inside this same busy scene — all reproduced CORRECTLY
+	# (real nonzero counts/times under Vulkan; Metal's own get_captured_timestamp_gpu_time is separately known
+	# to always return 0, see below, but the COUNT itself was fine). The one remaining, untested difference is
+	# this driver's total GPU resource footprint at setup() time (dozens of buffers/uniform sets across all 11
+	# passes) vs. every synthetic repro's much smaller footprint — a real next lead, not yet chased down.
+	_rd.capture_timestamp("field_start")   # marker 0 — the interval to pass 0's own marker is pass 0's GPU time
 	for i in _passes.size():
+		var cl: int = _rd.compute_list_begin()
 		_passes[i].dispatch(_rd, cl, _phase, _ctx, _cc, _groups)
+		_rd.compute_list_end()
+		_rd.capture_timestamp(_pass_names[i])
 		if i < last:
-			_rd.compute_list_add_barrier(cl)
-	_rd.compute_list_end()
+			_rd.full_barrier()
 	_rd.submit()                        # deferred sync — drained at the next begin_frame (GPU overlaps CPU frame work)
 	_pending = true
 	_phase = 1 - _phase
@@ -281,6 +320,41 @@ func _drain_pending() -> void:
 	# the suspected field bottleneck; measuring it directly is how we know what gating it can win.
 	LASimReport.gauge("field_sync_ms", float(t_sync - t0) / 1000.0)
 	LASimReport.gauge("field_readback_ms", float(Time.get_ticks_usec() - t_sync) / 1000.0)
+	_read_gpu_pass_timings()   # real GPU execution time for the step just sync()'d — see field vars above
+
+
+## Real per-pass GPU execution time, read from the timestamp markers step() capture()'d across its per-pass
+## compute lists, just sync()'d above. N+1 markers ("field_start" + one per pass) -> N intervals; interval i is
+## [marker(i), marker(i+1)) = pass i's own GPU time, regardless of how long its CPU-side dispatch() call took
+## to just RECORD the commands (field_dispatch_ms). Reports both the per-pass breakdown (which kernel is
+## actually the hot one) and the aggregate (the true GPU counterpart to field_dispatch_ms). Currently always
+## reads 0 captures in this driver for a still-unresolved reason — see the comment in step() before
+## re-investigating; the plumbing itself is correct and will report real numbers once that's found.
+func _read_gpu_pass_timings() -> void:
+	var n: int = _rd.get_captured_timestamps_count()
+	if n < 2:
+		return   # timestamp queries unsupported/unavailable on this backend — leave gauges at their last value
+	_gpu_pass_ms.clear()
+	var total_ns: int = 0
+	var t_prev: int = _rd.get_captured_timestamp_gpu_time(0)
+	for i in range(1, n):
+		var t_cur: int = _rd.get_captured_timestamp_gpu_time(i)
+		var dt_ns: int = t_cur - t_prev
+		var pass_ms: float = float(dt_ns) / 1_000_000.0
+		_gpu_pass_ms[_rd.get_captured_timestamp_name(i)] = pass_ms
+		LASimReport.gauge("gpu_" + _gpu_gauge_key(i - 1) + "_ms", pass_ms)
+		total_ns += dt_ns
+		t_prev = t_cur
+	_gpu_dispatch_ms = float(total_ns) / 1_000_000.0
+	LASimReport.gauge("gpu_dispatch_ms", _gpu_dispatch_ms)
+
+
+## "ThermalPass" -> "thermal"; a short, gauge-key-safe name (strip the "Pass" suffix, snake_case the rest).
+func _gpu_gauge_key(pass_index: int) -> String:
+	var n: String = _pass_names[pass_index]
+	if n.ends_with("Pass"):
+		n = n.substr(0, n.length() - 4)
+	return n.to_snake_case()
 
 
 ## Read the GPU channels the CPU consumes back into a result dict. Split HOT (every drain) vs SLOW (coarse cadence).
@@ -437,6 +511,7 @@ func dispose() -> void:
 		if p != null and p.has_method("dispose"):
 			p.dispose(_rd)
 	_passes = []
+	_pass_names = PackedStringArray()
 	for k in _bufs:
 		var b = _bufs[k]
 		if b is Array:

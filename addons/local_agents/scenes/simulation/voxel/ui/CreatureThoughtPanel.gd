@@ -3,20 +3,25 @@ extends CanvasLayer
 
 ## The headline hook: click a creature and this panel shows what it is actually thinking — its name,
 ## its current behaviour, how it decided, what it has learned, and (the star) its latest natural-language
-## thought from the LOCAL model, offline. It SURFACES the existing per-creature cognition via
-## LACreatureThought; it starts no LLM of its own. Self-contained CanvasLayer built in code (same
-## convention as StreamerOverlay / SpawnPaletteHud / DebugPanel).
+## thought from the LOCAL model, offline — PLUS a scrolling STREAM of its recent decisions, so you can watch
+## fast-path habit and slow-brain (LLM/teacher) resolutions play out over time, not just see one instant. A
+## full-height sidebar docked on the RIGHT (an "overall inspection panel"), not a small floating popup. It
+## SURFACES the existing per-creature cognition via LACreatureThought/LACognition.history(); it starts no
+## LLM of its own. Self-contained CanvasLayer built in code (same convention as StreamerOverlay /
+## SpawnPaletteHud / DebugPanel).
 ##
 ## Cheap by construction: it rebuilds only on selection change and on a coarse timer while one creature
 ## is selected — never per frame, never per creature, no group scans. (Explicit types only — no ':='.)
 
 const REFRESH_INTERVAL: float = 0.3   # seconds between live refreshes while a creature is selected
+const PANEL_WIDTH: float = 340.0
 
 const COL_HEADING: Color = Color(0.86, 0.92, 1.0)
 const COL_THOUGHT: Color = Color(0.98, 0.90, 0.55)   # warm amber — the star line
 const COL_THOUGHT_LLM: Color = Color(0.60, 0.95, 0.70)   # green when the local model authored it
 const COL_TEXT: Color = Color(0.80, 0.83, 0.88)
 const COL_DIM: Color = Color(0.58, 0.61, 0.68)
+const COL_TEACHER: Color = Color(0.62, 0.78, 0.98)   # soft blue — slow-brain resolved, but by the offline teacher not the LLM
 
 var _panel: PanelContainer = null
 var _title: Label = null
@@ -27,6 +32,8 @@ var _lines: VBoxContainer = null
 var _llm_toggle: CheckButton = null   # per-creature local-LLM "slow brain" on/off for the selection
 var _llm_species_btn: Button = null   # apply the toggle's value to this creature's whole species
 var _llm_all_btn: Button = null       # apply the toggle's value to every creature
+var _history_box: VBoxContainer = null
+var _history_scroll: ScrollContainer = null
 
 var _interaction: Node = null
 var _selected: Node = null
@@ -50,11 +57,13 @@ func setup(interaction: Node) -> void:
 func _build_ui() -> void:
 	_panel = PanelContainer.new()
 	_panel.name = "ThoughtPanel"
-	_panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	_panel.offset_left = 14.0
+	# Full-height sidebar docked on the RIGHT (an "overall inspection panel", not a small floating popup) —
+	# anchored to the right edge, top-to-bottom, so the recent-thoughts stream below has real room to scroll.
+	_panel.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
+	_panel.offset_left = -PANEL_WIDTH
+	_panel.offset_right = -14.0
+	_panel.offset_top = 14.0
 	_panel.offset_bottom = -14.0
-	_panel.custom_minimum_size = Vector2(320.0, 0.0)
 	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 
 	var style: StyleBoxFlat = StyleBoxFlat.new()
@@ -126,6 +135,29 @@ func _build_ui() -> void:
 	_lines.add_theme_constant_override("separation", 3)
 	vbox.add_child(_lines)
 
+	var sep3: HSeparator = HSeparator.new()
+	vbox.add_child(sep3)
+
+	var stream_label: Label = Label.new()
+	stream_label.text = "Recent thoughts"
+	stream_label.add_theme_font_size_override("font_size", 12)
+	stream_label.add_theme_color_override("font_color", COL_DIM)
+	vbox.add_child(stream_label)
+
+	# The STREAM: every distinct decision this creature has made recently (fast-path habit vs a slow-brain
+	# LLM/teacher resolution), oldest at top — a scrolling log, not just the single current instant above.
+	# The ONE child given SIZE_EXPAND_FILL, so it soaks up whatever height the full-height sidebar has left
+	# after the fixed-size sections above.
+	_history_scroll = ScrollContainer.new()
+	_history_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_history_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	vbox.add_child(_history_scroll)
+
+	_history_box = VBoxContainer.new()
+	_history_box.add_theme_constant_override("separation", 2)
+	_history_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_history_scroll.add_child(_history_box)
+
 
 func _on_selection_changed(node: Node) -> void:
 	if node != null and node.is_in_group("creature") and node.has_method("get_cognition"):
@@ -186,6 +218,35 @@ func _refresh() -> void:
 		lbl.add_theme_font_size_override("font_size", 12)
 		lbl.add_theme_color_override("font_color", COL_TEXT)
 		_lines.add_child(lbl)
+
+	_refresh_history(c)
+
+
+# The STREAM: rebuild the recent-decisions log from LACognition.history() (oldest first) and snap the
+# scroll to the bottom so the newest entry is always in view — a cheap O(HISTORY_CAP) rebuild on the same
+# coarse timer as everything else above, not per frame.
+func _refresh_history(c: Node) -> void:
+	if _history_box == null:
+		return
+	_clear(_history_box)
+	var cog = c.get_cognition() if c.has_method("get_cognition") else null
+	if cog == null or not cog.has_method("history"):
+		return
+	for entry in cog.history():
+		var line: Dictionary = LACreatureThought.history_line(entry as Dictionary)
+		var lbl: Label = Label.new()
+		lbl.text = String(line.get("text", ""))
+		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lbl.custom_minimum_size = Vector2(300.0, 0.0)
+		lbl.add_theme_font_size_override("font_size", 12)
+		var kind: String = String(line.get("kind", "fast"))
+		var col: Color = COL_THOUGHT_LLM if kind == "llm" else (COL_TEACHER if kind == "teacher" else COL_DIM)
+		lbl.add_theme_color_override("font_color", col)
+		_history_box.add_child(lbl)
+	# Scroll to the newest entry (bottom) once the new children have been laid out.
+	await get_tree().process_frame
+	if _history_scroll != null:
+		_history_scroll.scroll_vertical = int(_history_scroll.get_v_scroll_bar().max_value)
 
 
 # Per-creature toggle: turn this creature's slow brain on/off. Config-driven flag on the creature; gating

@@ -5,6 +5,11 @@
 # steals attention. Override the position with LA_WIN_POS="x,y". Pass the normal godot args, e.g.:
 #   scripts/run_sim_offscreen.sh --path . addons/.../VoxelWorld.tscn -- --run-frames=200
 # Env passthrough (LA_NO_STREAMER etc.) works as usual. Requires macOS (osascript); elsewhere it just runs.
+# Rendering driver defaults to metal (this project's verified default — cel-shading/water/sky shaders have
+# all been built and checked against it). Override with LA_RENDER_DRIVER=vulkan for a one-off diagnostic run
+# (e.g. real GPU-side timestamp queries via RenderingDevice.get_captured_timestamp_gpu_time — Metal's Godot
+# 4.7 backend always returns 0 there, MoltenVK/Vulkan returns real values; see MaterialSphereGPU3D.gd). Not
+# yet verified as a safe DEFAULT switch — that needs a real visual check of every shader path, not just this.
 # Test runs are SILENT by default (no audio during the dev loop) — the shipped game keeps audio on.
 # Force audio on for a specific test with `LA_NO_AUDIO=0 scripts/run_sim_offscreen.sh ...`.
 export LA_NO_AUDIO="${LA_NO_AUDIO:-1}"
@@ -24,7 +29,8 @@ FRONT_BID="$(osascript -e 'tell application "System Events" to get bundle identi
 # on the left. -10000 clears any width, and matches the in-code reposition (VoxelWorld sends the window to
 # -8000,-8000), so neither the initial paint nor the reposition shows.
 WIN_POS="${LA_WIN_POS:--10000,-10000}"
-godot --rendering-driver metal --position "$WIN_POS" --resolution "${LA_RES:-640x400}" "$@" &
+RENDER_DRIVER="${LA_RENDER_DRIVER:-metal}"
+godot --rendering-driver "$RENDER_DRIVER" --position "$WIN_POS" --resolution "${LA_RES:-640x400}" "$@" &
 GODOT_PID=$!
 ( sleep "$RUN_TIMEOUT"; kill -KILL "$GODOT_PID" 2>/dev/null && echo "RUN_TIMEOUT: killed godot after ${RUN_TIMEOUT}s (did not finish)" >&2 ) &
 WATCHDOG_PID=$!
