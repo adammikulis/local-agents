@@ -320,6 +320,50 @@ burden of an un-upstreamed engine fork, rebuild-for-every-platform cost) — stu
   investigation this session ran). Likely the larger remaining lever on the readback side; use
   `--bench=readback` (or a new timeline) to measure it for real once built, not an unseeded organic run.
 
+---
+### ⚑ THOUGHT-PANEL + GPU-TIMER SESSION (2026-07-24) — right-side stream UI + a real (if unresolved) engine bug found
+Two asks in one session: a UI request (see the click-a-creature thought panel) and "can you make a GPU-side
+execution timer" (following up on the perf sessions' honest "no GPU timer exists" finding). Both merged to
+`0.4-dev` in `feature/thought-panel-gputimer`; verified (editor-scan clean, same-seed run lands in the known
+biomass/fertility/mineral range, no errors).
+- **Thought-inspector panel rebuilt as a full-height RIGHT-side sidebar** (was a small bottom-left popup) with
+  a new scrolling "recent thoughts" STREAM beneath the current-thought summary — the ask was to see fast vs.
+  LLM/teacher reasoning as a stream over time, not just the current instant. `LACognition` gains a bounded
+  (cap 40), de-duplicated decision history (`history()` — only appends on a genuine action/kind change, so a
+  creature holding one behaviour for many ticks doesn't spam the log); `LACreatureThought.history_line()`
+  phrases each entry consistently with the existing star-line wording. `CreatureThoughtPanel.gd` renders it in
+  a `ScrollContainer` that auto-scrolls to the newest entry, full O(cap) rebuild per refresh (same cheap
+  "coarse timer, never per-frame" convention the panel already used for its detail lines).
+- **GPU-side execution timer — real progress, but still returns 0 in this driver, root cause NOT fully found.**
+  Instrumented `MaterialSphereGPU3D.step()` with `RenderingDevice.capture_timestamp` markers per pass (the
+  driver's own `field_dispatch_ms` only ever measured CPU-side command-*recording* time, never actual GPU
+  execution — the exact gap the relevance-LOD/field-readback sessions already flagged as blocking honest perf
+  measurement). Found and FIXED a real, confirmed Godot 4.7 engine constraint along the way: **capture_timestamp
+  is illegal while a compute list is open** ("Capturing timestamps during compute list creation is not
+  allowed") — the original single-big-list design (all 11 passes in ONE `compute_list_begin()`/`end()`, per the
+  B1 perf note) was silently having every capture discarded. Fixed by giving each pass its own
+  `compute_list_begin()`/`end()` pair with `_rd.full_barrier()` (legal outside a list) replacing the old in-list
+  `compute_list_add_barrier` — still exactly ONE `submit()`+deferred-sync per step, so the B1 win (10 blocking
+  round-trips → 1) is NOT reintroduced; ending/reopening a list is pure CPU-side recording, not a round-trip.
+  **Still unresolved:** even after that fix, `get_captured_timestamps_count()` reads 0 in THIS driver
+  specifically, for every real pass, even the smallest possible case (one pass, one capture pair, no barrier).
+  A large battery of isolated repros — matching the capture pattern, the deferred-submit/sync-next-tick timing,
+  a `_physics_process` callback, 11 distinct compiled pipelines, push constants, realistic dispatch scale
+  (127k-cell-equivalent buffers/groups), 400 cumulative iterations, and running concurrently embedded INSIDE
+  the live busy scene — all reproduced CORRECTLY (real nonzero counts under Vulkan/MoltenVK). The one remaining,
+  genuinely untested candidate is this driver's total GPU resource footprint at `setup()` time (dozens of
+  buffers/uniform-sets across all 11 passes, vs. every synthetic repro's much smaller footprint) — a concrete
+  next lead for whoever picks this up, documented in the `step()` comment so it isn't re-investigated from
+  scratch. The plumbing itself is correct and harmless (degrades to 0 exactly as before the change).
+- **Separately confirmed: Metal's own `get_captured_timestamp_gpu_time` always returns 0** in this Godot 4.7
+  build regardless of the above — verified with an isolated repro showing real nonzero deltas under
+  `--rendering-driver vulkan` (MoltenVK) on the same machine, `cpu_time` working fine under both. `Metal` stays
+  the project default (`scripts/run_sim_offscreen.sh`, matching years of shader work verified against it) but
+  the wrapper now takes `LA_RENDER_DRIVER` to override it (e.g. `LA_RENDER_DRIVER=vulkan …`) for a one-off
+  diagnostic run. A quick visual spot-check (orbit-view + `--water-cam` screenshots) showed no rendering
+  difference between backends, but that was NOT a thorough per-shader check — flip the project default only
+  after a real one.
+
 **REMAINING (pick up in this order):**
 - **#22 — ice-albedo equatorial freeze-lock (THE self-sustaining blocker).** Surfaced by the breeding work: a
   runaway ice-albedo feedback freezes+LOCKS the tropics during the seasonal swing (t_eq 30→7°C, never thaws in
