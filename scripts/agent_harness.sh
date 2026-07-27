@@ -10,7 +10,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GODOT="${GODOT:-godot}"
-MAIN_SCENE="res://addons/local_agents/scenes/simulation/WorldSimulation.tscn"
+# The headless smoke target. Deliberately the menu, not the voxel world: headless has no GPU
+# compute device, so the planet scene cannot boot here (use run_sim_offscreen.sh for that).
+# Was pointing at scenes/simulation/WorldSimulation.tscn, deleted with the old stack.
+MAIN_SCENE="res://addons/local_agents/game/menu/MainMenu.tscn"
 
 # Any godot process this harness (or a test it spawns) launches inherits this: it makes the in-code
 # LA_OFFSCREEN guards shove stray windows off-view — notably a model-download / model-manager panel run as

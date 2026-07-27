@@ -1,7 +1,7 @@
 # Changelog
 
 All notable changes to this project are recorded here. The active project is the from-scratch
-godot_voxel ecosystem simulation (`addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn`).
+godot_voxel ecosystem simulation (`addons/local_agents/game/VoxelWorld.tscn`).
 
 ## 0.3.0
 

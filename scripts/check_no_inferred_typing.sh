@@ -6,7 +6,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-ENFORCED_DIR="addons/local_agents/scenes/simulation/voxel"
+# Directories where ':=' is a hard failure. Add a directory here once its ':=' sweep is done —
+# an array (not a single dir) so widening coverage is a one-line append, not a rewrite.
+ENFORCED_DIRS=(
+  "addons/local_agents/sim"
+  "addons/local_agents/game"
+)
 
 # Match ' := ' assignments (avoids matching '==', '<=', '>=', ':=' only as the walrus infer op).
 PATTERN=':='
@@ -14,7 +19,7 @@ PATTERN=':='
 # Strip trailing comments before matching so ':=' in doc-comments (e.g. the "no ':='" rule note itself)
 # doesn't trip the gate. Both the enforced check AND the advisory repo count strip comments the same way,
 # so a file whose ONLY ':=' is inside a comment is treated as clean, not a false-positive "legacy" hit.
-enforced_hits=$(grep -rnE "[^:]${PATTERN}[^=]" "$ENFORCED_DIR" --include='*.gd' 2>/dev/null \
+enforced_hits=$(grep -rnE "[^:]${PATTERN}[^=]" "${ENFORCED_DIRS[@]}" --include='*.gd' 2>/dev/null \
   | awk -F: '{ code=$0; sub(/^[^:]*:[0-9]+:/,"",code); sub(/#.*/,"",code); if (code ~ /[^:]:=[^=]/) print }' || true)
 repo_hits=$(grep -rnE "[^:]${PATTERN}[^=]" addons --include='*.gd' 2>/dev/null \
   | awk -F: '{ file=$1; code=$0; sub(/^[^:]*:[0-9]+:/,"",code); sub(/#.*/,"",code); if (code ~ /[^:]:=[^=]/) print file }' \

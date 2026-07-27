@@ -476,7 +476,7 @@ func set_material_field(w) -> void:
 
 # The game's LAFlameFX combustion visual — resolved lazily + guarded (never top-level `preload`d) so a
 # core creature parses and dies-burned with the game deleted; it just skips the flame prop. Null when absent.
-const FLAME_FX_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/actors/FlameFX.gd"
+const FLAME_FX_PATH: String = "res://addons/local_agents/sim/actors/FlameFX.gd"
 static var _flame_fx_script: GDScript = null
 static var _flame_fx_resolved: bool = false
 

@@ -173,7 +173,7 @@ committed). When removing files:
 - Success = behaviors we did not explicitly write (stampedes from a strike, predators scattering when
   a bigger hunter wanders in, herds reforming after a scare, fire spreading downwind) *fall out* of the
   rules. Canonical worked examples + rationale live in
-  `addons/local_agents/scenes/simulation/voxel/EMERGENCE.md` — read it before extending sim behavior.
+  `addons/local_agents/sim/EMERGENCE.md` — read it before extending sim behavior.
 - **One-substrate default — ALWAYS ask "can this be rolled into `MaterialField3D`?"** `MaterialField3D`
   is the single simulation substrate (the ONE field: terrain-coupled water + heat + air/vapor/cloud/fog +
   lava, and — as they land — pressure/wind, fire/fuel, granular slump, scent, waste/nutrient). Before
@@ -342,7 +342,7 @@ committed). When removing files:
 
 ## Orientation
 
-- **Main scene / active work:** `addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn` — a
+- **Main scene / active work:** `addons/local_agents/game/VoxelWorld.tscn` — a
   from-scratch godot_voxel ecosystem sim. Current state, architecture, pending work, and the exact
   run/verify commands are in **`HANDOFF.md`**; the emergent-natural-disasters effort (unified
   `material/MaterialField` substrate + disasters) is tracked in its plan file and built in the

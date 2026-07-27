@@ -17,7 +17,7 @@ const EDITOR_ENABLED_SETTING := "local_agents/editor/enabled"
 # file exists (load() at runtime, never preload) so deleting the voxel tree leaves the agent nodes intact.
 const GAME_TYPES := [
     {"name": "Creature", "base": "CharacterBody3D", "path": "res://addons/local_agents/creatures/Creature.gd"},
-    {"name": "Sim World", "base": "Node3D", "path": "res://addons/local_agents/scenes/simulation/voxel/world/SimWorld.gd"},
+    {"name": "Sim World", "base": "Node3D", "path": "res://addons/local_agents/sim/SimWorld.gd"},
 ]
 
 var _panel_instance: Control

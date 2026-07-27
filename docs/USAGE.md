@@ -29,17 +29,23 @@ copy `addons/local_agents/`, delete the game, and keep a fully-working local-age
 | `editor/` | the in-editor Local Agents panel |
 | `gdextensions/` | the compiled native runtime |
 
+**SIM dirs** (the reusable simulation library — the world, without the game shell):
+`sim/` — the `LASimWorld` one-node facade, the `MaterialField3D` substrate (`material/`), ecology, planet /
+cubed-sphere generation, terrain, actors, events, and the local-LLM streamer. SPHERE mode additionally needs
+the optional `zylann.voxel` GDExtension; FLAT mode does not.
+
 **GAME dirs** (the optional Anima game — safe to delete):
-`scenes/`, `scenes/simulation/`, `audio/`, `voices/`, `assets/`, and the game-only controllers/UI under them.
+`game/` (the `VoxelWorld` shell, its controllers, HUD, menus, progression and save), `audio/`, `voices/`,
+`assets/`.
 
 **Autoloads (`project.godot`).** Only **`AgentManager`** is core. **`GameMode`** and **`AppExit`** are game-only
-(they live under `scenes/`). A consumer copying just the library into their own project should register **only
+(they live under `game/`). A consumer copying just the library into their own project should register **only
 `AgentManager`** and must **not** add `GameMode`/`AppExit`.
 
 **Consumer quickstart (library only):**
 
 1. Copy `addons/local_agents/` into your project's `addons/`.
-2. (Optional) delete `addons/local_agents/scenes/` and everything game-specific under `simulation/` — the core
+2. (Optional) delete `addons/local_agents/game/` — and `sim/` too if you only want the agent nodes. The core
    plugin degrades gracefully: it registers the agent nodes and never top-level-`preload`s a game script, so a
    missing game tree is a clean skip, not a parse error.
 3. Enable the **Local Agents** plugin (Project → Project Settings → Plugins). Register only the `AgentManager`
@@ -176,7 +182,7 @@ Add a `StaticBody3D` floor + a `Camera3D` and the rabbit senses, idles, and wand
 ```gdscript
 extends Node3D
 
-const SimWorldScript := preload("res://addons/local_agents/scenes/simulation/voxel/world/SimWorld.gd")
+const SimWorldScript := preload("res://addons/local_agents/sim/SimWorld.gd")
 
 func _ready() -> void:
     var sim := SimWorldScript.new()

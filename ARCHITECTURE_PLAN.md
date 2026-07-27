@@ -55,7 +55,7 @@ and CI-gate) is tracked below and in `docs/NATIVE_SIM_UNIFICATION_PLAN.md`.
 ## Active project: godot_voxel ecosystem sim (0.3 — chemistry planet)
 
 The live scene is the from-scratch **godot_voxel ecosystem showcase** at
-`addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn` (the project `main_scene`); current
+`addons/local_agents/game/VoxelWorld.tscn` (the project `main_scene`); current
 state, layout, and run/verify commands are in `HANDOFF.md`.
 
 As of **0.3** the world is a **chemistry-based cubed-sphere planet**, not a flat island. Terrain is an

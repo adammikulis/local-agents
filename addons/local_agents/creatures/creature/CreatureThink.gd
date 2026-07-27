@@ -13,7 +13,7 @@ const COMPANION_FOLLOW_DIST: float = 4.0   # a "follow" companion closes to this
 # Rock-throwing is an OPTIONAL behaviour that depends on the game's LAThrownRock prop. It is resolved
 # lazily + guarded (never top-level `preload`d) so a core creature parses and runs with the game deleted —
 # it simply cannot throw. Resolves to null when the prop script is absent.
-const THROWN_ROCK_PATH: String = "res://addons/local_agents/scenes/simulation/voxel/actors/ThrownRock.gd"
+const THROWN_ROCK_PATH: String = "res://addons/local_agents/sim/actors/ThrownRock.gd"
 static var _thrown_rock_script: GDScript = null
 static var _thrown_rock_resolved: bool = false
 

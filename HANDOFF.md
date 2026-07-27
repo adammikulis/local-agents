@@ -812,7 +812,7 @@ moon, and momentum knock-out-of-orbit. 0.5 makes the system **literal + navigabl
 
 ## How to run / verify
 - **Non-interactive (off-screen, focus-safe, SILENT audio) — always use the wrapper:**
-  `scripts/run_sim_offscreen.sh --path . addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --run-frames=N`
+  `scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -- --run-frames=N`
   → one `SIM_REPORT={…}` line (gauges: fps/field_ms/physics_ms/leaders/followers/…; field/population/cognition
   sections). `--shoot=<png>` for a screenshot; `--campaign`/`--sandbox` to boot the sim in a mode; disaster
   triggers `--auto-{meteor,volcano,lightning,tornado,thunderstorm,hurricane,earthquake}`; `--auto-select`.

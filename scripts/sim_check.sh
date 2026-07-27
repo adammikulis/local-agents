@@ -25,7 +25,7 @@ LOG="${LA_CHECK_LOG:-/tmp/sim_check.log}"
 # Default to --sandbox unless the caller already picked a mode.
 MODE=""; case " ${EXTRA[*]-} " in *" --campaign "*|*" --sandbox "*) ;; *) MODE="--sandbox";; esac
 
-"$SELF/run_sim_offscreen.sh" --path "$DIR" addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn \
+"$SELF/run_sim_offscreen.sh" --path "$DIR" addons/local_agents/game/VoxelWorld.tscn \
   -- $MODE --run-frames="$FRAMES" "${EXTRA[@]-}" >"$LOG" 2>&1
 RC=$?
 

@@ -21,7 +21,7 @@
 # report gauges timed the heavy report frame and self-contradicted.
 set -u
 cd "$(dirname "$0")/.." || exit 1
-SCENE="addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn"
+SCENE="addons/local_agents/game/VoxelWorld.tscn"
 FRAMES="${FRAMES:-240}"
 SUITE="${1:-standard}"
 ALL_SYS="creatures,anim,plants,trees,fish,ecology,water,field"

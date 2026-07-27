@@ -109,17 +109,17 @@ description and an Open button.
 | **4. Chat** | `addons/local_agents/examples/ChatExample.tscn` | A fuller chat UI with model/inference configuration, runtime-health status, and saved conversations. |
 | **5. 3D Agent** | `addons/local_agents/examples/Agent3DExample.tscn` | A talking 3D agent prefab driven by the same runtime, with an on-screen setup checklist. |
 | **6. Graph** | `addons/local_agents/examples/GraphExample.tscn` | The `LocalAgentsGraph` resource (nodes/edges) for structured agent knowledge — runs without a model. |
-| **Voxel planet sim** (flagship) | `addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn` | An emergent ecosystem on a voxel planet: one chemistry-like material substrate (heat, water, wind, fire, lava, erosion…), herds that forage/flee/hunt with kinship, disasters that emerge from physics rather than scripts, and a local-LLM streamer narrating it live. |
+| **Voxel planet sim** (flagship) | `addons/local_agents/game/VoxelWorld.tscn` | An emergent ecosystem on a voxel planet: one chemistry-like material substrate (heat, water, wind, fire, lava, erosion…), herds that forage/flee/hunt with kinship, disasters that emerge from physics rather than scripts, and a local-LLM streamer narrating it live. |
 
 The voxel sim is also the project's `run/main_scene`, so pressing play on the project launches it.
 It self-harnesses for non-interactive runs:
 
 ```bash
 # headless smoke boot: prints one SIM_REPORT={...} telemetry line, then quits
-godot --headless res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --run-frames=300
+godot --headless res://addons/local_agents/game/VoxelWorld.tscn -- --run-frames=300
 
 # windowed screenshot (whole-planet vista); also --auto-meteor / --auto-volcano / --auto-lightning
-godot res://addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn -- --shoot=/tmp/shot.png --overview
+godot res://addons/local_agents/game/VoxelWorld.tscn -- --shoot=/tmp/shot.png --overview
 ```
 
 > A new `.gd` `class_name` or `.gdextension` only registers after an editor scan — run
@@ -151,7 +151,7 @@ scripts/run_single_test.sh test_agent_integration.gd
   legitimate CPU form is the headless/no-GPU fallback.
 - Process and Godot rules are canonical in `CLAUDE.md` and `GODOT_BEST_PRACTICES.md`;
   `ARCHITECTURE_PLAN.md` tracks breaking changes. The emergent-design north star and worked
-  examples live in `addons/local_agents/scenes/simulation/voxel/EMERGENCE.md`.
+  examples live in `addons/local_agents/sim/EMERGENCE.md`.
 
 ---
 

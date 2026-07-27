@@ -18,7 +18,7 @@ DIR="."; OUT="/private/tmp/claude-501/-Users-adammikulis-Documents-repos-godot-l
 shift 2>/dev/null || true
 while [ $# -gt 0 ]; do case "$1" in --path) DIR="$2"; shift 2;; --out) OUT="$2"; shift 2;; *) shift;; esac; done
 mkdir -p "$OUT"
-SCENE="addons/local_agents/scenes/simulation/voxel/VoxelWorld.tscn"
+SCENE="addons/local_agents/game/VoxelWorld.tscn"
 RES="${LA_RES:-1280x800}"
 
 # scenario = "name|extra-sim-flags|shoot-frames". The world-view flags frame the camera; --auto-* fire a disaster
