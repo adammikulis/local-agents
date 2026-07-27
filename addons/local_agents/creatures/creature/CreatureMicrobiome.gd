@@ -41,7 +41,7 @@ const FLORA_DRIFT: float = 0.04
 const DIET_EMA: float = 0.25
 
 
-## Seed the flora + recent-diet from the creature's diet, once at spawn (called from LACreature.setup like the
+## Seed the flora + recent-diet from the creature's diet, once at spawn (called from LocalAgentCreature.setup like the
 ## other Creature* modules, after `diet` is known). A herbivore is born plant-tuned and adapted; a carnivore
 ## meat-tuned. Falls back to the config dict if the creature is not passed.
 func setup(creature, config: Dictionary) -> void:

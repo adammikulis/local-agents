@@ -4,7 +4,7 @@
 [ext_resource type="PackedScene" path="res://addons/local_agents/editor/DownloadTab.tscn" id="2"]
 [ext_resource type="PackedScene" path="res://addons/local_agents/editor/ConfigurationPanel.tscn" id="3"]
 
-[node name="LocalAgentsPanel" type="Control"]
+[node name="LocalAgentPanel" type="Control"]
 anchor_right = 1.0
 anchor_bottom = 1.0
 

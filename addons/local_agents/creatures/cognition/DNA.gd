@@ -25,7 +25,7 @@ extends RefCounted
 ##                 from the evolvable `carnivory` gradient (bucketed herbivore/omnivore/carnivore) so it can
 ##                 blend and evolve while predation targets (preys_on) stay identity.
 ##
-## COMPATIBILITY SEAM: express() decodes to the SAME trait Dictionary LACreature.setup() already consumes, so
+## COMPATIBILITY SEAM: express() decodes to the SAME trait Dictionary LocalAgentCreature.setup() already consumes, so
 ## nothing downstream changes. It only overrides a legacy gene the species config actually set (mirroring the
 ## old genome, which never overrode an absent gene), and adds the new keys on top.
 ##
@@ -41,7 +41,7 @@ const GENOME_FORMAT_VERSION: int = 1
 const SYMBOLS_PER_CODON: int = 4       # four 2-bit bases per codon → one byte (0..255) of resolution
 const SYMBOL_MAX: int = 3              # a base is 0..3 (A/C/G/T)
 
-# The legacy quantitative genes LACreature.setup() has always consumed. Kept as the canonical list so callers
+# The legacy quantitative genes LocalAgentCreature.setup() has always consumed. Kept as the canonical list so callers
 # can enumerate them and so express() reproduces the SAME-named floats. (Plain Array — a PackedStringArray
 # constructor is not a constant expression.)
 const GENE_KEYS: Array = [
@@ -301,7 +301,7 @@ static func _carnivory_from_diet(diet: String) -> float:
 
 # --- EXPRESSION --------------------------------------------------------------------------------------------
 
-## The config dict LACreature.setup() consumes: identity from base_config, decoded genes overlaid. Legacy
+## The config dict LocalAgentCreature.setup() consumes: identity from base_config, decoded genes overlaid. Legacy
 ## genes override only where the species set them (mirrors the old genome); the new genes + the diet gradient
 ## + the cue_priors dict are added on top. DIET is expressed from the carnivory gradient (bucketed), so it is
 ## now heritable/evolvable while leaving base_config immutable.

@@ -1,9 +1,9 @@
 extends Node3D
 
-## Library demo — a whole cubed-sphere PLANET with a living ecology from a single LASimWorld node, with NO
+## Library demo — a whole cubed-sphere PLANET with a living ecology from a single LocalAgentSimWorld node, with NO
 ## game shell (no HUD, menus, disasters, save system or streamer). This is the "standalone planet" story:
-## LASimWorld composes the planet body, the MaterialField, the ecology and the spawn, and this scene just
-## frames it with a camera. LASimWorld owns its own `--run-frames=N` headless harness (prints SIM_WORLD_REPORT
+## LocalAgentSimWorld composes the planet body, the MaterialField, the ecology and the spawn, and this scene just
+## frames it with a camera. LocalAgentSimWorld owns its own `--run-frames=N` headless harness (prints SIM_WORLD_REPORT
 ## then quits). (Explicit types only — project rule: no ':=' inferred typing.)
 
 const SimWorldScript: GDScript = preload("res://addons/local_agents/sim/SimWorld.gd")
@@ -17,7 +17,7 @@ var _sim = null
 func _ready() -> void:
 	_sim = SimWorldScript.new()
 	_sim.name = "SimWorld"
-	_sim.world_type = LASimWorld.WorldType.SPHERE
+	_sim.world_type = LocalAgentSimWorld.WorldType.SPHERE
 	_sim.radius = radius
 	_sim.grid_res = grid_res
 	add_child(_sim)

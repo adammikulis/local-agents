@@ -1,13 +1,13 @@
 class_name LACreatureExcretion
 extends RefCounted
 
-## Digestion + marking waste for LACreature, factored out of the hot _physics_process. A fed creature
+## Digestion + marking waste for LocalAgentCreature, factored out of the hot _physics_process. A fed creature
 ## periodically drops feces (soil fertility + a food/musk cue predators track prey by) and, more often,
 ## urine (territorial musk). Both deposit into the shared scent/fertility field (LAMaterialScent3D) via
 ## c._material — no node is spawned; the deposit is a few cells that diffuse + wash away. Feces enrich
 ## the soil so plants regrow on dung (emergent nutrient cycle), so a well-fed animal fertilises its range.
 ##
-## Static + dependency-free of the LACreature type (dynamic field access, like the other Creature* helpers).
+## Static + dependency-free of the LocalAgentCreature type (dynamic field access, like the other Creature* helpers).
 ## The cooldown timers (_poop_cd/_urine_cd) stay on the creature; only the tick logic lives here.
 ## (Explicit types only — project rule: no ':=' inferred typing.)
 
@@ -22,7 +22,7 @@ const FECES_MIN_WASTE: float = 0.5
 const FECES_DETRITUS_YIELD: float = 1.0
 
 
-## Per-frame excretion tick, called from LACreature._physics_process with the ground point below the body.
+## Per-frame excretion tick, called from LocalAgentCreature._physics_process with the ground point below the body.
 ## Counts down the two cooldowns and deposits when each elapses. Feces is the OUTPUT of digestion: it deposits
 ## only the residue LACreatureDigestion has banked in c.gut_waste, and clears it on deposit — digestion feeds
 ## this level rather than depositing itself, so the waste is counted exactly once. Urine is unrelated

@@ -52,7 +52,7 @@ var basks: bool = false               # can haul out to rest on the beach (turtl
 var _bask_timer: float = 0.0          # >0 while resting on the beach
 var _bask_cd: float = 0.0             # cooldown before the next haul-out
 
-# --- Foraging (config-driven, same idea as LACreature's preys_on): a swimmer with a non-empty preys_on is
+# --- Foraging (config-driven, same idea as LocalAgentCreature's preys_on): a swimmer with a non-empty preys_on is
 # an insectivore/planktivore — it steers toward the nearest edible prey in its own sense radius and eats it
 # on contact, giving the aquatic food web a real bottom (fish → bugs/shrimp → the algae/biomass base). An
 # empty preys_on (whales aside) leaves the pure config-band swimmer behaviour unchanged. No per-species
@@ -107,7 +107,7 @@ var _panic_source: Vector3 = Vector3.ZERO
 var _cognition = null                 # LACognition (per-fish learned policy + slow-brain hook)
 var _ecology = null                   # LAEcologyService (is_night, injected via set_ecology)
 var _material = null                  # LAMaterialField alias for cognition's is_water_at/temp_at reads
-var family_id: int = 0                # kin id (social learning groups relatives) — mirrors LACreature
+var family_id: int = 0                # kin id (social learning groups relatives) — mirrors LocalAgentCreature
 var llm_enabled: bool = true          # per-fish slow-brain opt-out (default on), read by cognition
 var eye_fov: float = 300.0            # panoramic vision (side-set eyes) — read by LAVision during observe()
 var _sense_mult: float = 1.0          # perception scalar (fish have no day/night modulation) — read by LAVision
@@ -179,7 +179,7 @@ func setup(_terrain, _mat_field, _config: Dictionary) -> void:
 		_heading = Vector3.FORWARD
 
 
-# --- shared cognition wiring (mirrors LACreature so the ecology injects the same way) ---------------
+# --- shared cognition wiring (mirrors LocalAgentCreature so the ecology injects the same way) ---------------
 func set_ecology(e) -> void:
 	_ecology = e
 
@@ -488,13 +488,13 @@ func is_mature() -> bool:
 
 
 # Camera position, fetched once per physics frame and shared across all fish (one get_camera_3d()
-# lookup per frame, not one per fish). INF when there is no active camera. Mirrors LACreature's cache.
+# lookup per frame, not one per fish). INF when there is no active camera. Mirrors LocalAgentCreature's cache.
 static var _cam_frame: int = -1
 static var _cam_pos: Vector3 = Vector3(INF, INF, INF)
 
 const FAR_THINK_STRIDE: int = 30           # far/off-screen recompute cap (~2 Hz)
 # The distance at which camera-relevance has fallen to 0.5 (LALodStride.relevance_from_distance): stride
-# grows smoothly from THINK_STRIDE up to FAR_THINK_STRIDE, no cutoff. Mirrors LACreature's think-stride.
+# grows smoothly from THINK_STRIDE up to FAR_THINK_STRIDE, no cutoff. Mirrors LocalAgentCreature's think-stride.
 const THINK_LOD_CHARACTERISTIC_DISTANCE: float = 90.0
 
 

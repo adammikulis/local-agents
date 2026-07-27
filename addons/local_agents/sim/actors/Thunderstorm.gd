@@ -70,7 +70,7 @@ func begin(point: Vector3) -> void:
 	_center = point
 	global_position = _center
 	_build_fx()
-	LocalAgentsAudioDirector.emit(get_tree(), "thunder", _center)
+	LocalAgentAudioDirector.emit(get_tree(), "thunder", _center)
 
 
 func get_inspector_payload() -> Dictionary:

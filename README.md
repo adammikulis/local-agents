@@ -2,7 +2,7 @@
 
 **Local large language models, running fully offline, driving both actions and responses inside a
 Godot game.** No cloud, no API keys, no network round-trip — the model runs on the player's own
-machine through a llama.cpp-backed GDExtension. A `LocalAgentsAgent` node loads a GGUF model and
+machine through a llama.cpp-backed GDExtension. A `LocalAgent` node loads a GGUF model and
 gives you two things at once: **responses** (chat, dialogue, a live commentator) and **actions**
 (a creature deciding to flee, a streamer reacting to what just happened on screen).
 
@@ -72,11 +72,11 @@ directory automatically.
 ![The quickstart scene answering a prompt with a local model](addons/local_agents/docs/img/quickstart.png)
 
 That scene is literally **one `Agent` node plus a prompt box and a reply label**. To build the same
-thing from scratch, drop a `LocalAgentsAgent` node (once the plugin is enabled it shows up as
+thing from scratch, drop a `LocalAgent` node (once the plugin is enabled it shows up as
 **Agent** in the Add Node dialog) and wire five lines:
 
 ```gdscript
-@onready var agent: LocalAgentsAgent = %Agent
+@onready var agent: LocalAgent = %Agent
 
 func _ready() -> void:
     agent.configure()                                  # picks up the default model + runtime
@@ -105,10 +105,10 @@ description and an Open button.
 | **Demo launcher** (start here) | `addons/local_agents/examples/DemoLauncher.tscn` | The front door — a menu of every demo below, ordered simplest to fullest, each with a one-click Open button. |
 | **1. Quickstart** | `addons/local_agents/examples/AgentQuickstart.tscn` | The smallest "talk to a local LLM" scene — one `Agent` node, a prompt box, a reply. |
 | **2. Agent drives actions** | `addons/local_agents/examples/AgentActionsDemo.tscn` | The actions loop that makes an agent more than a chatbot — the model's reply becomes `enqueue_action` calls that recolor and pulse an on-screen orb (manual buttons fire the same actions, so it works with no model). |
-| **3. Two agents converse** | `addons/local_agents/examples/AgentConversationDemo.tscn` | Cognition + memory — Ada and Ben take turns, and every line is recorded as a node in a shared `LocalAgentsGraph` (chained by `then` edges) that grows as the conversation's memory. |
+| **3. Two agents converse** | `addons/local_agents/examples/AgentConversationDemo.tscn` | Cognition + memory — Ada and Ben take turns, and every line is recorded as a node in a shared `LocalAgentGraph` (chained by `then` edges) that grows as the conversation's memory. |
 | **4. Chat** | `addons/local_agents/examples/ChatExample.tscn` | A fuller chat UI with model/inference configuration, runtime-health status, and saved conversations. |
 | **5. 3D Agent** | `addons/local_agents/examples/Agent3DExample.tscn` | A talking 3D agent prefab driven by the same runtime, with an on-screen setup checklist. |
-| **6. Graph** | `addons/local_agents/examples/GraphExample.tscn` | The `LocalAgentsGraph` resource (nodes/edges) for structured agent knowledge — runs without a model. |
+| **6. Graph** | `addons/local_agents/examples/GraphExample.tscn` | The `LocalAgentGraph` resource (nodes/edges) for structured agent knowledge — runs without a model. |
 | **Voxel planet sim** (flagship) | `addons/local_agents/game/VoxelWorld.tscn` | An emergent ecosystem on a voxel planet: one chemistry-like material substrate (heat, water, wind, fire, lava, erosion…), herds that forage/flee/hunt with kinship, disasters that emerge from physics rather than scripts, and a local-LLM streamer narrating it live. |
 
 The voxel sim is also the project's `run/main_scene`, so pressing play on the project launches it.

@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsBackstoryKnowledgeOps
+class_name LocalAgentBackstoryKnowledgeOps
 
 static func record_oral_knowledge(svc, knowledge_id: String, npc_id: String, category: String, content: String, confidence: float, motifs: Array, world_day: int, metadata: Dictionary) -> Dictionary:
     if npc_id.strip_edges() == "":

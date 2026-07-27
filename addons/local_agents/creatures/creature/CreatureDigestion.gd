@@ -1,7 +1,7 @@
 class_name LACreatureDigestion
 extends RefCounted
 
-## Gut buffer + digestion for LACreature — turns ingested food into energy and waste over time, replacing
+## Gut buffer + digestion for LocalAgentCreature — turns ingested food into energy and waste over time, replacing
 ## the old instant-feed path. Eating no longer credits energy at the moment of the bite; a bite adds biomass
 ## to a per-creature gut buffer, and tick() digests that buffer down each frame, converting biomass into
 ## energy at a digestive efficiency (scaled by the creature's microbiome — a herbivore's gut flora ferments
@@ -15,7 +15,7 @@ extends RefCounted
 ## double-counting). Everything here is O(1) per creature per frame.
 ##
 ## State lives on the creature as plain fields (gut, gut_capacity, gut_waste, microbiome) so this module owns
-## digestion without editing the brain. Static + dependency-free of the LACreature type (dynamic field access,
+## digestion without editing the brain. Static + dependency-free of the LocalAgentCreature type (dynamic field access,
 ## like the other Creature* helpers). (Explicit types only — project rule: no ':=' inferred typing.)
 
 # Gut sizing + rates. The gut holds up to CAPACITY_FRAC of the creature's max energy as buffered biomass (a big
@@ -38,7 +38,7 @@ const MICROBIOME_DEFAULT: float = 1.0      # carnivore / omnivore / scavenger: n
 const FULL_EPS: float = 0.01            # at/above (max_energy - this) the gut holds (satiety) — buffers surplus
 
 
-## Size the gut and pick the microbiome from diet, once at spawn (called from LACreature.setup after max_energy
+## Size the gut and pick the microbiome from diet, once at spawn (called from LocalAgentCreature.setup after max_energy
 ## and diet are known). A herbivore is born with cellulose-fermenting flora; every other diet digests at base.
 static func setup(c) -> void:
 	if c == null:

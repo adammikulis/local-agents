@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsTestLaneRegistry
+class_name LocalAgentTestLaneRegistry
 
 # Test lanes for the LLM/agent/audio stack. The old homegrown ecosystem/settlement
 # simulation + native voxel-op tests were removed with that stack, so these lanes now

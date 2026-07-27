@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsMusicTheory
+class_name LocalAgentMusicTheory
 
 ## Pure, stateless music-theory library: scales/modes, diatonic chord construction,
 ## and note naming. No engine state, no RNG — trivially unit-testable and shared by

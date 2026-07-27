@@ -20,7 +20,7 @@ class_name LocalAgentConversationDemo
 @onready var next_button: Button = %NextButton
 @onready var reset_button: Button = %ResetButton
 
-const ExtensionLoader = preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const ExtensionLoader = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 const RuntimePaths = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 
 const PERSONA_A: String = "You are Ada, a curious optimist planning a small garden."

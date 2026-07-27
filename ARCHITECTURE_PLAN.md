@@ -97,13 +97,13 @@ records superseded wave-by-wave inventories):
   executor and forward into engine `execution`/`result` payloads so the native mutator consumes
   them directly instead of recomputing.
 - Native fracture debris emission on authoritative mutation
-  (`LocalAgentsFractureDebrisEmitter`), bounded by per-mutation/active caps, with runtime evidence.
-- Voxel destruction orchestration consolidated into native `LocalAgentsVoxelDispatchBridge`
+  (`LocalAgentFractureDebrisEmitter`), bounded by per-mutation/active caps, with runtime evidence.
+- Voxel destruction orchestration consolidated into native `LocalAgentVoxelDispatchBridge`
   (`impact contact -> C++ mutation -> apply result`); `WorldDispatchController` is a thin adapter.
 - No-inference mutation rule: `mutation_applied` is true only when the native mutator returns
   `changed=true`; no synthetic/inferred success anywhere.
 - Boids migration to shader-authoritative compute with a minimal native bridge
-  (`LocalAgentsBoidsNativeBridge`) and typed fail-fast (`GPU_REQUIRED`/`NATIVE_REQUIRED`,
+  (`LocalAgentBoidsNativeBridge`) and typed fail-fast (`GPU_REQUIRED`/`NATIVE_REQUIRED`,
   `CPU_FALLBACK_FORBIDDEN`); no synthetic success on unsupported dispatch.
 - Runtime Bindings thin-orchestration migration: native API owns per-frame queue/deadline/cadence
   decisions; GDScript forwards context and applies native contract outputs. Keep helper files
@@ -160,7 +160,7 @@ ejecta/debris. See `HANDOFF.md` (SOLAR-SYSTEM-FIRST) for the full plan.
 
 ### Concern A: Runtime and GDExtension Stability
 Scope: `addons/local_agents/gdextensions/localagents/`, `runtime/`, `agents/`.
-Done: lazy runtime init (`LocalAgentsExtensionLoader`) + placeholder panel, preflight binary
+Done: lazy runtime init (`LocalAgentExtensionLoader`) + placeholder panel, preflight binary
 checks and `Agent`/`AgentNode` safety guards, fresh-machine init validation, structured
 editor/test runtime health visibility.
 
@@ -278,7 +278,7 @@ single authoritative wave record; superseded per-wave inventories live in git hi
     - done when: per-frame projectile contact sampling and handoff fully delegated to the native contract payload builder.
     - target wave: `Wave 0E`
     - blocker: active launcher input hooks still attach through world controller glue.
-  - Adapter: `addons/local_agents/native/LocalAgentsVoxelDispatchBridge.gd` pre-dispatch CPU contact reduction
+  - Adapter: `addons/local_agents/native/LocalAgentVoxelDispatchBridge.gd` pre-dispatch CPU contact reduction
     - owner: Native Compute lane
     - done when: staged GPU contact reduction hook is enabled by default and the CPU pre-reduction path is deleted.
     - target wave: `Wave 0T`

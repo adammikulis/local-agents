@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsBackstoryMemoryStateOps
+class_name LocalAgentBackstoryMemoryStateOps
 
 static func record_event(svc, event_id: String, event_type: String, summary: String, world_day: int, place_id: String, participant_npc_ids: Array, metadata: Dictionary) -> Dictionary:
     if event_id.strip_edges() == "":

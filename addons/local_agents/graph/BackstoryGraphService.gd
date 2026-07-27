@@ -1,8 +1,8 @@
 @tool
 extends Node
-class_name LocalAgentsBackstoryGraphService
+class_name LocalAgentBackstoryGraphService
 
-const ExtensionLoader = preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const ExtensionLoader = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 const RuntimePaths = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 const LlamaServerManager = preload("res://addons/local_agents/runtime/LlamaServerManager.gd")
 const BackstoryCypherPlaybookScript = preload("res://addons/local_agents/graph/BackstoryCypherPlaybook.gd")

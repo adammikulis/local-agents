@@ -6,7 +6,7 @@ extends RefCounted
 ## flying dead straight, plus a soft push up off the ground, so murmurations emerge from local rules
 ## rather than a scripted path. Altitude bobs on thermals via the creature's own age-phase so each
 ## bird rides its own rhythm (deterministic-ish, not a global clock). All static + dependency-free of
-## the LACreature type. (Explicit types only — project rule: no ':=' inferred typing.)
+## the LocalAgentCreature type. (Explicit types only — project rule: no ':=' inferred typing.)
 
 # Strength of the perpetual banking turn folded into the steer.
 const BANK_STRENGTH: float = 0.35

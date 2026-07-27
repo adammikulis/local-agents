@@ -17,7 +17,7 @@ class_name LocalAgentActionsDemo
 @onready var orb: ColorRect = %Orb
 @onready var caption_label: Label = %CaptionLabel
 
-const ExtensionLoader = preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const ExtensionLoader = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 const RuntimePaths = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 
 # The small, fixed vocabulary the agent is allowed to drive. Keeping the action

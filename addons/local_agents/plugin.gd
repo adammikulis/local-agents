@@ -8,8 +8,8 @@ extends EditorPlugin
 const AGENT_SCRIPT := preload("res://addons/local_agents/agents/Agent.gd")
 const AGENT3D_SCRIPT := preload("res://addons/local_agents/agents/Agent3D.gd")
 const GRAPH_SCRIPT := preload("res://addons/local_agents/graph/Graph.gd")
-const PANEL_SCENE := preload("res://addons/local_agents/editor/LocalAgentsPanel.tscn")
-const EXTENSION_LOADER := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const PANEL_SCENE := preload("res://addons/local_agents/editor/LocalAgentPanel.tscn")
+const EXTENSION_LOADER := preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 
 const EDITOR_ENABLED_SETTING := "local_agents/editor/enabled"
 
@@ -62,7 +62,7 @@ func _create_placeholder_panel() -> void:
     if _panel_instance:
         return
     var container := VBoxContainer.new()
-    container.name = "LocalAgentsPlaceholder"
+    container.name = "LocalAgentPlaceholder"
     container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     container.size_flags_vertical = Control.SIZE_EXPAND_FILL
     var label := RichTextLabel.new()

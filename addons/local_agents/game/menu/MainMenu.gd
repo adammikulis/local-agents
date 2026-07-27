@@ -148,7 +148,7 @@ func _on_sandbox() -> void:
 
 
 ## Open the in-game model manager as a full-screen overlay on top of the menu (no scene switch, so Back
-## just frees it). Reuses LocalAgentsModelManagerPanel.open(); a Close button dismisses the overlay.
+## just frees it). Reuses LocalAgentModelManagerPanel.open(); a Close button dismisses the overlay.
 func _on_models() -> void:
 	var overlay: Control = Control.new()
 	overlay.name = "ModelManagerOverlay"

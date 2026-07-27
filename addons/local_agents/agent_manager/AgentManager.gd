@@ -10,7 +10,7 @@ signal configs_updated()
 const CONFIG_LIST_SEED_PATH := "res://addons/local_agents/configuration/parameters/ConfigList.tres"
 const USER_CONFIG_LIST_PATH := "user://local_agents/config/ConfigList.tres"
 const DEFAULT_INFERENCE_PARAMS_PATH := "res://addons/local_agents/configuration/parameters/InferenceParams.tres"
-const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 const AgentScript := preload("res://addons/local_agents/agents/Agent.gd")
 const ConfigListScript := preload("res://addons/local_agents/configuration/parameters/ConfigList.gd")
 const InferenceParamsScript := preload("res://addons/local_agents/configuration/parameters/InferenceParams.gd")

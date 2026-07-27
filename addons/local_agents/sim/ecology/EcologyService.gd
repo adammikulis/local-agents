@@ -23,8 +23,8 @@ var terrain = null                       # LAVoxelTerrainService
 var actors_root: Node3D = null
 var _tracks = null                       # LATrackSystem (observer; footprints)
 var _material = null                      # LAMaterialField — the ONE substrate (water/heat/materials)
-var _cognition_sched = null              # LACognitionScheduler (shared slow-brain budget/queue)
-var _llm_client = null                   # shared LocalAgentLlmClient (from LALlmService); null = teacher-only
+var _cognition_sched = null              # LocalAgentCognitionScheduler (shared slow-brain budget/queue)
+var _llm_client = null                   # shared LocalAgentLlmClient (from LocalAgentLlmService); null = teacher-only
 var _veg_renderer = null                 # LAVegetationRenderer — plants/trees render through its batched MultiMesh
 # Extracted single-owner modules this thin hub delegates to (it stays a facade + step-orchestration):
 var _stimulus: LAEcologyStimulus = null  # stimulus/broadcast bus (disturb/seismic/blast/scare/call/wind)
@@ -193,7 +193,7 @@ func setup(_terrain, _actors_root: Node3D) -> void:
 		_cognition_sched.name = "CognitionScheduler"
 		add_child(_cognition_sched)
 		if _cognition_sched.has_method("setup"):
-			# Route the slow brain through the shared LocalAgentLlmClient (owned by LALlmService, set by
+			# Route the slow brain through the shared LocalAgentLlmClient (owned by LocalAgentLlmService, set by
 			# VoxelWorld via set_llm_client before this setup runs). When null — no model/server installed —
 			# the scheduler falls back to the built-in heuristic teacher for every escalation.
 			_cognition_sched.setup({"llm_client": _llm_client})
@@ -251,7 +251,7 @@ func cognition_scheduler():
 	return _cognition_sched
 
 
-## Inject the shared LLMClient (LALlmService's LocalAgentLlmClient) BEFORE setup() so the slow-brain
+## Inject the shared LLMClient (LocalAgentLlmService's LocalAgentLlmClient) BEFORE setup() so the slow-brain
 ## scheduler is built with it. Null = offline: the scheduler runs pure heuristic-teacher fallback.
 func set_llm_client(client) -> void:
 	_llm_client = client

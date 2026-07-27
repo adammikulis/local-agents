@@ -1,7 +1,7 @@
 class_name LATutorialSequencer
 extends Node
 
-## Drives a guided tutorial: walks an ordered list of LATutorialStep resources, resolving each step's
+## Drives a guided tutorial: walks an ordered list of LocalAgentTutorialStep resources, resolving each step's
 ## target to a screen rectangle and feeding an LATutorialHighlightOverlay, then advancing when the step's
 ## condition is met (Next button, target press, a polled predicate, or an external signal). Supports back,
 ## skip, and a persisted "don't show again" flag per tutorial id (user:// config). Fully decoupled from any
@@ -9,13 +9,13 @@ extends Node
 ## and an optional Camera3D (for world-space targets). (Explicit types only — no ':=' .)
 
 signal tutorial_started
-signal step_changed(index: int, step: LATutorialStep)
+signal step_changed(index: int, step: LocalAgentTutorialStep)
 signal tutorial_finished(completed: bool)   # completed = walked to the end (vs. skipped/quit)
 
 const CONFIG_PATH: String = "user://tutorial_state.cfg"
 const CONFIG_SECTION: String = "seen"
 
-var _steps: Array[LATutorialStep] = []
+var _steps: Array[LocalAgentTutorialStep] = []
 var _overlay: LATutorialHighlightOverlay = null
 var _target_root: Node = null
 var _camera: Camera3D = null
@@ -54,7 +54,7 @@ static func set_dont_show(tutorial_id: String, dont_show: bool) -> void:
 ## Start walking `steps`. `target_root` is the base for step control paths; `camera` projects world targets.
 ## `tutorial_id` keys the "don't show again" flag (pass "" to disable persistence). Returns false without
 ## starting if the id has been dismissed.
-func start(steps: Array[LATutorialStep], overlay: LATutorialHighlightOverlay, target_root: Node,
+func start(steps: Array[LocalAgentTutorialStep], overlay: LATutorialHighlightOverlay, target_root: Node,
 		camera: Camera3D = null, tutorial_id: String = "") -> bool:
 	if steps.is_empty() or overlay == null:
 		return false
@@ -100,7 +100,7 @@ func _goto(index: int) -> void:
 		_complete(true)
 		return
 	_index = index
-	var step: LATutorialStep = _steps[_index]
+	var step: LocalAgentTutorialStep = _steps[_index]
 	_resolve_target(step)
 	_wire_advance(step)
 	_present(step)
@@ -108,9 +108,9 @@ func _goto(index: int) -> void:
 	set_process(true)   # poll target rect (moving controls / world points) + predicate advance
 
 
-func _present(step: LATutorialStep) -> void:
+func _present(step: LocalAgentTutorialStep) -> void:
 	var res: Dictionary = _target_rect_for(step)
-	var next_visible: bool = step.advance == LATutorialStep.Advance.NEXT_BUTTON
+	var next_visible: bool = step.advance == LocalAgentTutorialStep.Advance.NEXT_BUTTON
 	var next_label: String = "Finish" if _index == _steps.size() - 1 else "Next"
 	var progress: String = "Step %d of %d" % [_index + 1, _steps.size()]
 	_overlay.show_step(res["rect"], res["has"], step.title, step.text, progress,
@@ -120,33 +120,33 @@ func _present(step: LATutorialStep) -> void:
 func _process(_delta: float) -> void:
 	if not _active or _index < 0 or _index >= _steps.size():
 		return
-	var step: LATutorialStep = _steps[_index]
+	var step: LocalAgentTutorialStep = _steps[_index]
 	# Keep the spotlight tracking a target that moves (a relaying control, a world point under a moving camera).
 	var res: Dictionary = _target_rect_for(step)
 	_overlay.update_target(res["rect"], res["has"])
 	# Predicate advance is polled here.
-	if step.advance == LATutorialStep.Advance.PREDICATE and step.advance_predicate.is_valid():
+	if step.advance == LocalAgentTutorialStep.Advance.PREDICATE and step.advance_predicate.is_valid():
 		if bool(step.advance_predicate.call()):
 			_advance()
 
 
-func _resolve_target(step: LATutorialStep) -> void:
+func _resolve_target(step: LocalAgentTutorialStep) -> void:
 	_target_control = null
-	if step.target_kind == LATutorialStep.TargetKind.CONTROL and _target_root != null:
+	if step.target_kind == LocalAgentTutorialStep.TargetKind.CONTROL and _target_root != null:
 		var n: Node = _target_root.get_node_or_null(step.control_path)
 		if n is Control:
 			_target_control = n as Control
 
 
-func _target_rect_for(step: LATutorialStep) -> Dictionary:
+func _target_rect_for(step: LocalAgentTutorialStep) -> Dictionary:
 	match step.target_kind:
-		LATutorialStep.TargetKind.CONTROL:
+		LocalAgentTutorialStep.TargetKind.CONTROL:
 			if _target_control != null and _target_control.is_visible_in_tree():
 				return {"rect": _target_control.get_global_rect().grow(step.target_pad), "has": true}
 			return {"rect": Rect2(), "has": false}
-		LATutorialStep.TargetKind.RECT:
+		LocalAgentTutorialStep.TargetKind.RECT:
 			return {"rect": step.rect.grow(step.target_pad), "has": true}
-		LATutorialStep.TargetKind.WORLD:
+		LocalAgentTutorialStep.TargetKind.WORLD:
 			if _camera != null and not _camera.is_position_behind(step.world_point):
 				var p: Vector2 = _camera.unproject_position(step.world_point)
 				var half: float = 28.0 + step.target_pad
@@ -156,14 +156,14 @@ func _target_rect_for(step: LATutorialStep) -> Dictionary:
 			return {"rect": Rect2(), "has": false}
 
 
-func _wire_advance(step: LATutorialStep) -> void:
+func _wire_advance(step: LocalAgentTutorialStep) -> void:
 	match step.advance:
-		LATutorialStep.Advance.TARGET_PRESSED:
+		LocalAgentTutorialStep.Advance.TARGET_PRESSED:
 			if _target_control is BaseButton:
 				_connected_target = _target_control as BaseButton
 				if not _connected_target.pressed.is_connected(_on_target_pressed):
 					_connected_target.pressed.connect(_on_target_pressed)
-		LATutorialStep.Advance.SIGNAL:
+		LocalAgentTutorialStep.Advance.SIGNAL:
 			if step.signal_source != null and step.signal_name != &"" and step.signal_source.has_signal(step.signal_name):
 				_connected_signal_source = step.signal_source
 				_connected_signal_name = step.signal_name

@@ -1,10 +1,10 @@
 @tool
 extends Control
-class_name LocalAgentsConfigurationPanel
+class_name LocalAgentConfigurationPanel
 
 @onready var _tabs: TabContainer = %ConfigTabs
-@onready var _model_config: LocalAgentsModelConfig = %ModelConfig
-@onready var _inference_config: LocalAgentsInferenceConfig = %InferenceConfig
+@onready var _model_config: LocalAgentModelConfig = %ModelConfig
+@onready var _inference_config: LocalAgentInferenceConfig = %InferenceConfig
 
 var _manager: LocalAgentManager
 

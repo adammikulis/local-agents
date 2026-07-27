@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsBackstoryClaimOps
+class_name LocalAgentBackstoryClaimOps
 
 static func claim_key(subject_id: String, predicate: String) -> String:
     return "%s|%s" % [subject_id.strip_edges().to_lower(), predicate.strip_edges().to_lower()]

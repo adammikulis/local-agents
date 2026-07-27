@@ -92,7 +92,7 @@ var _orbits: LASystemOrbits = null   # moving-frame solar system: planet orbit +
 var _moon: LAMoon = null             # kinematic moon (gravity body + visual)
 var _camera: Camera3D
 var _ecology: Node          # LAEcologyService
-var _llm_service: Node       # LALlmService — shared local-LLM runtime (one agent/server/model for cognition + streamer)
+var _llm_service: Node       # LocalAgentLlmService — shared local-LLM runtime (one agent/server/model for cognition + streamer)
 var _veg_renderer: Node3D    # LAVegetationRenderer (batched vegetation draws)
 var _render_opts: Dictionary = {}   # quality-preset render flags (ssao/glow/sun_shadows/fog/ocean_transparent)
 var _hud: CanvasLayer       # LASpawnPaletteHud
@@ -146,7 +146,7 @@ var _progression: LAGameProgression = null      # campaign stage ladder gating c
 var _settings_applier: LAVoxelSettingsApplier = null  # applies GameMode.settings → grid res / spawn counts / effects / disaster cadence
 
 # --- Procedural audio (presentation only; reacts to events, never drives the sim) ---
-var _audio: LocalAgentsAudioDirector = null
+var _audio: LocalAgentAudioDirector = null
 var _music_destruction: float = 0.0     # decays each frame; meteors spike it
 var _mood_timer: int = 0
 var _music_auto_adapt: bool = true      # when false, stop feeding sim mood so manual menu picks stick

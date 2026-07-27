@@ -1,16 +1,16 @@
 @tool
 extends RefCounted
-class_name LocalAgentsModelSettingsStore
+class_name LocalAgentModelSettingsStore
 
 # Persistent model + inference settings for the in-game model manager.
 #
-# Reuses the existing LocalAgentsInferenceParams resource for the sampling fields (temperature,
+# Reuses the existing LocalAgentInferenceParams resource for the sampling fields (temperature,
 # top_p, top_k, repeat_penalty, max_tokens, seed, …) so the runtime and the editor config UI speak
 # the same shape, and adds the model-load knobs a player expects (context length, threads, GPU
 # layers, system prompt). Everything round-trips through a single ConfigFile under user:// — no
 # AgentManager autoload required, so this works standalone inside the voxel sim.
 #
-# to_llama_options() emits the exact Dictionary LocalAgentsLlamaServerManager.ensure_running() reads
+# to_llama_options() emits the exact Dictionary LocalAgentLlamaServerManager.ensure_running() reads
 # (context_size / threads / n_gpu_layers alongside the sampling params from InferenceParams).
 
 const InferenceParams: GDScript = preload("res://addons/local_agents/configuration/parameters/InferenceParams.gd")
@@ -27,7 +27,7 @@ const ROLE_LABELS: Dictionary = {
 }
 
 # Sampling params (reused resource).
-var inference: LocalAgentsInferenceParams = null
+var inference: LocalAgentInferenceParams = null
 
 # Model-load knobs (map to LlamaServerManager options).
 var n_ctx: int = 4096
@@ -169,7 +169,7 @@ static func run_selftest() -> Dictionary:
 			backup = reader.get_buffer(reader.get_length())
 			reader.close()
 
-	var store: LocalAgentsModelSettingsStore = LocalAgentsModelSettingsStore.new()
+	var store: LocalAgentModelSettingsStore = LocalAgentModelSettingsStore.new()
 	store.inference.temperature = 0.42
 	store.inference.top_k = 33
 	store.inference.max_tokens = 777
@@ -185,7 +185,7 @@ static func run_selftest() -> Dictionary:
 	store.role_models = {"streamer": "/models/b/streamer.gguf"}
 	var saved: bool = store.save()
 
-	var loaded_store: LocalAgentsModelSettingsStore = LocalAgentsModelSettingsStore.new()
+	var loaded_store: LocalAgentModelSettingsStore = LocalAgentModelSettingsStore.new()
 	var loaded: bool = loaded_store.load()
 
 	var checks: Dictionary = {

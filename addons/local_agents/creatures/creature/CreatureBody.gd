@@ -1,7 +1,7 @@
 class_name LACreatureBody
 extends RefCounted
 
-## Body/model construction for LACreature, factored out of the main brain. Builds the display model
+## Body/model construction for LocalAgentCreature, factored out of the main brain. Builds the display model
 ## (glTF via LAModelVisual) when the species has one, else a procedural capsule, plus the collision
 ## shape and the thrower's carried-rock visual. Static + dynamic access on the passed creature so there
 ## is no cyclic class reference. (Explicit types only — project rule: no ':=' inferred typing.)
@@ -66,7 +66,7 @@ static func build_model(c) -> void:
 	c._model_anim = LAModelVisual.find_anim(model)
 	if c._model_anim != null:
 		# MANUAL process: the creature drives the mixer itself via advance() on a distance-scaled cadence
-		# (animation-framerate LOD in LACreature._process), instead of Godot auto-sampling every skeleton every
+		# (animation-framerate LOD in LocalAgentCreature._process), instead of Godot auto-sampling every skeleton every
 		# frame. This is what lets a distant creature's skeleton update a few times a second instead of 60.
 		c._model_anim.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
 	c._model_anims = def.get("anims", {})

@@ -1,7 +1,7 @@
-class_name LASimWorld
+class_name LocalAgentSimWorld
 extends Node3D
 
-## LASimWorld — the ONE-node facade for a self-contained ecosystem sim. Drop it in, pick a `world_type`
+## LocalAgentSimWorld — the ONE-node facade for a self-contained ecosystem sim. Drop it in, pick a `world_type`
 ## (SPHERE planet or FLAT box), set its bounds, and call spawn_world() (or let it auto-run on _ready). It
 ## COMPOSES the existing controllers behind a tiny export surface — it does NOT reimplement their logic:
 ##   - SPHERE : LAPlanetBody.setup({radius,…}) → its LAVoxelTerrainService → LAMaterialField3D.setup_sphere
@@ -12,7 +12,7 @@ extends Node3D
 ## nodes. This keeps the composition-root wiring OUT of the game shell (VoxelWorld) so a library user gets a
 ## planet or a flat sandbox in one node, with no HUD/camera/disaster/save machinery.
 ##
-## The heavy hubs stay untouched: LASimWorld only INSTANTIATES + WIRES controllers (composition root), it adds
+## The heavy hubs stay untouched: LocalAgentSimWorld only INSTANTIATES + WIRES controllers (composition root), it adds
 ## no behaviour to LAMaterialField3D / VoxelWorld. (Explicit types only — project rule: no ':=' inferred typing.)
 
 enum WorldType { SPHERE, FLAT }

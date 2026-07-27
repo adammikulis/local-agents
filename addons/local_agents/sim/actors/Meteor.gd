@@ -244,8 +244,8 @@ func _on_impact() -> void:
 		if water != null and water.has_method("is_water_at") and water.is_water_at(_impact_point):
 			water.splash(_impact_point, 3.5 * _size)
 			# White-hot rock hitting water flashes to steam — sizzle + a steam hiss.
-			LocalAgentsAudioDirector.emit(get_tree(), "sizzle", _impact_point)
-			LocalAgentsAudioDirector.emit(get_tree(), "steam", _impact_point)
+			LocalAgentAudioDirector.emit(get_tree(), "sizzle", _impact_point)
+			LocalAgentAudioDirector.emit(get_tree(), "steam", _impact_point)
 	# Terror shockwave: everything that hears/feels the impact panics and flees.
 	if _ecology != null and _ecology.has_method("broadcast_scare"):
 		_ecology.broadcast_scare(_impact_point, r * 6.0, 1.0)
@@ -291,7 +291,7 @@ func _on_impact() -> void:
 	# Procedural impact boom (presentation only; resolves the AudioDirector by group). The flash, debris
 	# fling and ejecta blanket are no longer scripted here — they emerge from the eject/add_heat/add_charge
 	# seeds above (glowing ejecta parcels + molten crater glow + a discharge bolt).
-	LocalAgentsAudioDirector.emit(get_tree(), "meteor_impact", _impact_point)
+	LocalAgentAudioDirector.emit(get_tree(), "meteor_impact", _impact_point)
 
 
 func _build_visuals() -> void:

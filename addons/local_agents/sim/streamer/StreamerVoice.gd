@@ -289,7 +289,7 @@ func _on_python_probed(python: String) -> void:
 
 func _resolve_installed_voice() -> void:
 	# Prefer a previously-downloaded copy under user://, then a checked-in copy under res://.
-	var roots: Array = [VOICE_DIR, LocalAgentsRuntimePaths.VOICES_RES_ROOT]
+	var roots: Array = [VOICE_DIR, LocalAgentRuntimePaths.VOICES_RES_ROOT]
 	for root in roots:
 		var onnx: String = "%s/%s.onnx" % [root, _voice_id]
 		if FileAccess.file_exists(ProjectSettings.globalize_path(onnx)):

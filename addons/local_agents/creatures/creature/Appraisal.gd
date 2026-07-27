@@ -11,7 +11,7 @@ extends RefCounted
 ## display, villagers weight age+experience: same function, different config. Rank is never assigned; it
 ## falls out of who out-scores whom, and mate choice falls out of females valuing the same signal.
 ##
-## Static + dependency-free of the LACreature type (dynamic `.get()` access), like the other LACreature*
+## Static + dependency-free of the LocalAgentCreature type (dynamic `.get()` access), like the other LocalAgentCreature*
 ## helpers. (Explicit types only — no ':=' inferred typing.)
 
 # Default dominance weights — a well-rounded contender: biggest · best-conditioned · eldest/most-experienced,

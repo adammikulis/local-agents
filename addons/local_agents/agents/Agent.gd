@@ -12,7 +12,7 @@ signal think_completed(result)
 var agent_node: Object
 var history: Array = []
 var inference_options: Dictionary = {}
-const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 const RuntimePaths := preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 const LlamaServerManager := preload("res://addons/local_agents/runtime/LlamaServerManager.gd")
 const SpeechService := preload("res://addons/local_agents/runtime/audio/SpeechService.gd")

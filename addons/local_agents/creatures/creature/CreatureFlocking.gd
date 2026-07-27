@@ -1,11 +1,11 @@
 class_name LACreatureFlocking
 extends RefCounted
 
-## Same-kind flocking / imitation steering for LACreature, factored out of the main brain.
+## Same-kind flocking / imitation steering for LocalAgentCreature, factored out of the main brain.
 ## Shared by ALL species: cohesion (toward local centre), alignment (match average heading —
 ## "do what others like me do") and separation (avoid crowding), weighted by the creature's
 ## per-species flock_* config. `flatten` zeroes Y for ground creatures. Static + dependency-free
-## of the LACreature type. (Explicit types only — project rule: no ':=' inferred typing.)
+## of the LocalAgentCreature type. (Explicit types only — project rule: no ':=' inferred typing.)
 ##
 ## Leadership is UNIFIED into flocking: every neighbour's pull on the group heading/centre is
 ## scaled by its _influence() — how urgent/committed/senior it is — so the first animals to bolt

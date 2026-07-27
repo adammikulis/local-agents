@@ -91,7 +91,7 @@ func erupt_at(point: Vector3) -> void:
 	if _terrain != null and _terrain.has_method("sea_radius"):
 		_submerged_seed = seed_surface_radius > 0.0 and seed_surface_radius < _terrain.sea_radius()
 	_build_fx()
-	LocalAgentsAudioDirector.emit(get_tree(), "crumble", point)
+	LocalAgentAudioDirector.emit(get_tree(), "crumble", point)
 
 
 ## Legacy demo hook: a quick pulse of lava at the vent right now (kept so --auto-volcano still shows molten output

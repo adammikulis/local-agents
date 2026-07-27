@@ -1,6 +1,6 @@
 @tool
 extends Node
-class_name LocalAgentsMusicDirector
+class_name LocalAgentMusicDirector
 
 ## Multi-layer generative music engine with long-form song structure.
 ##
@@ -34,7 +34,7 @@ const STEPS_PER_BEAT := 4
 const KEY_MIN := 33   # A1
 const KEY_MAX := 57   # A3
 
-var _voice: LocalAgentsSynthVoice = null
+var _voice: LocalAgentSynthVoice = null
 var _sample_rate: int = 44100
 var _rng := RandomNumberGenerator.new()
 var _planner := Planner.new()
@@ -83,7 +83,7 @@ var _perc_players: Array[AudioStreamPlayer] = []
 var _note_cache: Dictionary = {}
 var _chord_cache: Dictionary = {}
 
-func configure(voice: LocalAgentsSynthVoice = null, sample_rate: int = 44100, seed: int = 1337, music_bus: StringName = &"Music") -> void:
+func configure(voice: LocalAgentSynthVoice = null, sample_rate: int = 44100, seed: int = 1337, music_bus: StringName = &"Music") -> void:
 	_voice = voice if voice != null else GdScriptSynthVoice.new()
 	_sample_rate = maxi(8000, sample_rate)
 	_rng.seed = seed
@@ -415,13 +415,13 @@ func _chord_stream(chord: Array) -> AudioStreamWAV:
 	if _chord_cache.has(sig):
 		return _chord_cache[sig]
 	var presets := SynthPresets.music_voice_presets()
-	var base: LocalAgentsSynthVoiceParamsResource = presets.get("pad_warm")
+	var base: LocalAgentSynthVoiceParamsResource = presets.get("pad_warm")
 	if base == null:
 		return null
 	var mix := PackedFloat32Array()
 	var gain := 1.0 / sqrt(float(maxi(1, chord.size())))
 	for note in chord:
-		var params: LocalAgentsSynthVoiceParamsResource = base.duplicate_params()
+		var params: LocalAgentSynthVoiceParamsResource = base.duplicate_params()
 		var freq := Theory.midi_to_hz(int(note))
 		params.frequency = freq
 		params.frequency_end = freq
@@ -442,7 +442,7 @@ func _note_stream(voice_name: String, midi: int) -> AudioStreamWAV:
 	var presets := SynthPresets.music_voice_presets()
 	if not presets.has(voice_name):
 		return null
-	var params: LocalAgentsSynthVoiceParamsResource = (presets[voice_name] as LocalAgentsSynthVoiceParamsResource).duplicate_params()
+	var params: LocalAgentSynthVoiceParamsResource = (presets[voice_name] as LocalAgentSynthVoiceParamsResource).duplicate_params()
 	var freq := Theory.midi_to_hz(midi)
 	params.frequency = freq
 	params.frequency_end = freq

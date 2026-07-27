@@ -1,7 +1,7 @@
 class_name LACreatureReproduction
 extends RefCounted
 
-## Per-creature courtship + gestation for LACreature — the individual side of breeding that DISSOLVED the
+## Per-creature courtship + gestation for LocalAgentCreature — the individual side of breeding that DISSOLVED the
 ## old top-down population god-tick (LAEcologyBreeding._tick_breeding). Reproduction is now an emergent
 ## per-creature drive: a mature, WELL-FED, non-pregnant, off-cooldown adult seeks a nearby mature same-species
 ## mate (spatial-index query, O(k), like leadership's local_leader), and on reaching one CONCEIVES — the
@@ -28,10 +28,10 @@ extends RefCounted
 ## genome from both parents, the bearer's natal nest, and the kinship graph (add_offspring + the mate bond) —
 ## reached through LAEcologyService.birth_offspring so the creature never depends on the breeding module type.
 ##
-## Called from LACreature._physics_process (tick) like LACreatureMetabolism/LACreatureDigestion, plus a
+## Called from LocalAgentCreature._physics_process (tick) like LACreatureMetabolism/LACreatureDigestion, plus a
 ## courtship-steering hook in the decision cascade (courtship_heading). Mate/gestation state lives on the
 ## creature as plain fields (pregnant, _gestation_t, _mate, _repro_cd). Static + dependency-free of the
-## LACreature type (dynamic field access, like the other Creature* helpers).
+## LocalAgentCreature type (dynamic field access, like the other Creature* helpers).
 ## (Explicit types only — project rule: no ':=' inferred typing.)
 
 # --- tuning (exposed as named consts so the population can be retuned under a live run) --------------------

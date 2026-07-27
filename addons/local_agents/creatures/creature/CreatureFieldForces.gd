@@ -6,7 +6,7 @@ extends RefCounted
 ## A creature is continuously ADVECTED by the substrate's local wind/momentum: a storm's gale drags
 ## it downwind, an updraft lifts it, a shock front shoves it. This is a CONTINUOUS push sampled from
 ## the field every frame — distinct from the DISCRETE throw()/fling() impulse path (a one-shot ragdoll
-## launch, which stays in LACreature/LACreatureRagdoll). Both compose: a creature can be blown by the
+## launch, which stays in LocalAgentCreature/LACreatureRagdoll). Both compose: a creature can be blown by the
 ## wind and, if the gust is violent enough, flung off its feet.
 ##
 ## The field's wind3_at() currently returns a zero vector (the CPU wind oracle is retired and the GPU
@@ -24,7 +24,7 @@ const FORCE_EPSILON_SQ: float = 0.0001
 
 
 # Sample the substrate's local 3D wind/momentum at the creature's position and advect it that way this
-# frame. Called once per physics frame from LACreature._physics_process (alive path only).
+# frame. Called once per physics frame from LocalAgentCreature._physics_process (alive path only).
 # Reference body size at which the water current pushes at full strength. Weight scales with size, so a
 # BIGGER (heavier) animal is dragged LESS by the same current and a smaller one MORE — mass resists the sweep.
 # A cornered flood thus washes away mice and rabbits before it can budge a big-bodied grazer.

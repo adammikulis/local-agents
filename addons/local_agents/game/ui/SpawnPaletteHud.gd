@@ -237,7 +237,7 @@ func arm_kind(kind: String) -> void:
 
 
 ## Wire the audio menu to the live audio director.
-func set_audio_director(director: LocalAgentsAudioDirector) -> void:
+func set_audio_director(director: LocalAgentAudioDirector) -> void:
 	if _audio_panel != null:
 		_audio_panel.bind(director)
 

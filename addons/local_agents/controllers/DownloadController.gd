@@ -1,6 +1,6 @@
 @tool
 extends Control
-class_name LocalAgentsDownloadController
+class_name LocalAgentDownloadController
 
 @export var output_log: RichTextLabel
 

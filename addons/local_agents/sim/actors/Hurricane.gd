@@ -80,7 +80,7 @@ func begin(point: Vector3) -> void:
 	var ang: float = LASimRng.shared().randf() * TAU
 	_heading = Vector2(cos(ang), sin(ang))
 	_build_fx()
-	LocalAgentsAudioDirector.emit(get_tree(), "crumble", _center)
+	LocalAgentAudioDirector.emit(get_tree(), "crumble", _center)
 
 
 func get_inspector_payload() -> Dictionary:

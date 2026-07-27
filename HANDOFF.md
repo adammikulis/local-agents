@@ -18,7 +18,7 @@ shipped on `main` (`v0.3.1`); development is on `0.4-dev`. Read `CLAUDE.md` · `
 The big breaking refactor "make the addon a reusable library + faster + Earth-like living planet." **Merged +
 verified on `0.4-dev`** (HEAD `4af6788`), editor-scan-clean, sim_check PASS:
 - **LLM unification + rename** — 3 LLM paths (native Agent · CognitionScheduler · StreamerDirector) collapsed
-  onto ONE shared `LALlmService`/`LocalAgentLlmClient`; async `think_async` on a signal-free worker thread.
+  onto ONE shared `LocalAgentLlmService`/`LocalAgentLlmClient`; async `think_async` on a signal-free worker thread.
   Public node family renamed dropping the stutter: `LocalAgent` / `LocalAgent3D` / `LocalAgentManager` /
   `LocalAgentGraph*` (internal sim classes keep `LA*`).
 - **Reusable library** — new `SimWorld` facade node with a first-class `world_type:{SPHERE,FLAT}` + bounds
@@ -542,7 +542,7 @@ Dev knobs added this session: `LA_EVO_FAST` · `LA_SNAPSHOTS` / `LA_SNAPSHOT_FIE
   oracles) · **perf-first** (playable frame-rate is first-class) · **Big-O first-class** (better-scaling
   structures + do-less-by-relevance/LOD + activity bubbles) · **bias to action** · **config over `if
   species==X`**.
-- **Dual-purpose:** a reusable Godot dev tool (the `LocalAgentsAgent` LLM node) AND a full game that is the
+- **Dual-purpose:** a reusable Godot dev tool (the `LocalAgent` LLM node) AND a full game that is the
   flagship demo. Local LLMs drive creature cognition + the streamer, fully offline — headline this.
 
 ---
@@ -663,7 +663,7 @@ not `if species==X`. See [[dissolve-dont-patch]].
 ### Reuse-vs-build ground truth (from code exploration — anchors)
 | Concern | Verdict | Anchor |
 |---|---|---|
-| Learning core (`reinforce_cue`, `decide`, `learn_and_veto`, reward/valence, veto, social `observe`) | reuse, **generalize off `LACreature`** | `cognition/Cognition.gd` (545/144/201/278/227/424) |
+| Learning core (`reinforce_cue`, `decide`, `learn_and_veto`, reward/valence, veto, social `observe`) | reuse, **generalize off `LocalAgentCreature`** | `cognition/Cognition.gd` (545/144/201/278/227/424) |
 | Slow brain (LLM + teacher, budget, perception scans) | reuse, generalize | `cognition/CognitionScheduler.gd:73,220` |
 | Kinship graph + `family_id` · Leadership/leader-pin (= pet's "player as Leader") | reuse as-is | `ecology/KinshipGraph.gd` · `actors/creature/CreatureLeadership.gd` |
 | Genome (crossover+mutate exist; `eye_fov`/`sense_radius` acuity already heritable) | reuse, **extend** (add personality + diet genes) | `cognition/Genome.gd` (22/92/113) |
@@ -678,7 +678,7 @@ not `if species==X`. See [[dissolve-dont-patch]].
 - [ ] Split `Creature.gd` → modules under `actors/creature/` (hand/carry/throw · damage/death/fling · think-LOD ·
   movement · social/calls · life-stage · nesting-glue · state-tint); split `EcologyService.gd` → Spawner/
   Breeding/Plants/Aquatic (guide Wave 0a).
-- [ ] **Generalize cognition off `LACreature`** — a small duck-typed cognizer interface + `cognition/adapters/`
+- [ ] **Generalize cognition off `LocalAgentCreature`** — a small duck-typed cognizer interface + `cognition/adapters/`
   per actor kind (unblocks bee/fish/pet minds). Keep `reinforce_cue` verbatim.
 - [ ] **Finish the scent-field wiring** — scatter `_f._scent` in `_apply_readback` (+ `"scent"` in driver
   `read()`), implement `scent_at`/`scent_gradient` (5-packed `base=ch*cell_count`), `deposit_*` → seed +
@@ -837,7 +837,7 @@ moon, and momentum knock-out-of-orbit. 0.5 makes the system **literal + navigabl
   seeds/visuals). **Cognition:** `cognition/*` (value-based policy + sparing local-LLM slow brain).
   **Ecology:** `ecology/{EcologyService,EcologySpawner,KinshipGraph}`. **Events/streamer:** `events/*`,
   `streamer/*`. **UI:** `ui/*` (HUD, thought panel, debug, tutorial). **Data:** `data/species/**/*.json`.
-- **Reusable addon (dev tool):** `agents/` (LocalAgentsAgent + Agent3D) · `runtime/` · `ui/ModelManager*` ·
+- **Reusable addon (dev tool):** `agents/` (LocalAgent + Agent3D) · `runtime/` · `ui/ModelManager*` ·
   `examples/` (AgentQuickstart, demos, DemoLauncher). **Design:** `EMERGENCE.md`, `docs/TRAILER.md`, `docs/EXPORT.md`.
 
 ## Guiding principle

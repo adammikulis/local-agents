@@ -2,7 +2,7 @@ class_name LAAudioMenuPanel
 extends PanelContainer
 
 ## In-code audio control menu for the voxel simulation. Binds the whole procedural
-## audio control surface (LocalAgentsAudioDirector) to the UI: music composition
+## audio control surface (LocalAgentAudioDirector) to the UI: music composition
 ## (scale / progression / key / tempo / time signature / auto / arrangement), a single
 ## UNIFIED per-aspect mixer (Master / Music / SFX / Voice / UI — each a volume slider +
 ## a mute), and an SFX preview bench.
@@ -45,7 +45,7 @@ const COL_TEXT_HEADING: Color = Color(0.98, 0.99, 1.0, 1.0)
 const COL_ACCENT: Color = Color(0.33, 0.70, 0.98, 1.0)
 const COL_BORDER: Color = Color(0.24, 0.27, 0.33, 1.0)
 
-var _director: LocalAgentsAudioDirector = null
+var _director: LocalAgentAudioDirector = null
 
 # Controls we need to read/refresh after bind.
 var _mode_option: OptionButton
@@ -97,7 +97,7 @@ func _process(_delta: float) -> void:
 # ---------------------------------------------------------------------------
 
 ## Wire this panel to the live audio director and initialize all control states.
-func bind(director: LocalAgentsAudioDirector) -> void:
+func bind(director: LocalAgentAudioDirector) -> void:
 	_director = director
 	if _director == null:
 		return
@@ -269,7 +269,7 @@ func _build_sfx_bench(col: VBoxContainer) -> void:
 	if _director != null:
 		keys = _director.sfx_keys()
 	if keys.is_empty():
-		keys = LocalAgentsSynthPresets.sfx_presets().keys()
+		keys = LocalAgentSynthPresets.sfx_presets().keys()
 	keys.sort()
 	for key in keys:
 		var btn: Button = Button.new()

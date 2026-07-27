@@ -1,5 +1,5 @@
 extends VBoxContainer
-class_name LocalAgentsDetectedModelsTab
+class_name LocalAgentDetectedModelsTab
 
 # "Installed / detected" tab of the model manager.
 #
@@ -12,14 +12,14 @@ const ModelDownloadService: GDScript = preload("res://addons/local_agents/contro
 
 signal active_model_changed(path: String)
 
-var _inventory: LocalAgentsModelInventory = null
-var _store: LocalAgentsModelSettingsStore = null
-var _service: LocalAgentsModelDownloadService = null
+var _inventory: LocalAgentModelInventory = null
+var _store: LocalAgentModelSettingsStore = null
+var _service: LocalAgentModelDownloadService = null
 
 var _list_box: VBoxContainer = null
 var _status: Label = null
 
-func setup(inventory: LocalAgentsModelInventory, store: LocalAgentsModelSettingsStore) -> void:
+func setup(inventory: LocalAgentModelInventory, store: LocalAgentModelSettingsStore) -> void:
 	_inventory = inventory
 	_store = store
 	_service = ModelDownloadService.new()
@@ -92,9 +92,9 @@ func _make_catalog_row(model: Dictionary, hit: Dictionary) -> Control:
 	var status_text: String = ""
 	if found:
 		var source: String = String(hit.get("source", ""))
-		if source == LocalAgentsModelInventory.SOURCE_HF:
+		if source == LocalAgentModelInventory.SOURCE_HF:
 			status_text = "Installed (found in HF cache)"
-		elif source == LocalAgentsModelInventory.SOURCE_FOLDER:
+		elif source == LocalAgentModelInventory.SOURCE_FOLDER:
 			status_text = "Installed (custom folder)"
 		else:
 			status_text = "Installed (local folder)"
@@ -104,7 +104,7 @@ func _make_catalog_row(model: Dictionary, hit: Dictionary) -> Control:
 
 func _make_loose_row(row: Dictionary) -> Control:
 	var filename: String = String(row.get("filename", ""))
-	var size_pretty: String = LocalAgentsModelDownloadManager.format_bytes(int(row.get("size_bytes", 0)))
+	var size_pretty: String = LocalAgentModelDownloadManager.format_bytes(int(row.get("size_bytes", 0)))
 	var status_text: String = "%s · %s" % [String(row.get("source_label", "")), size_pretty]
 	return _make_row(filename, status_text, true, String(row.get("path", "")))
 

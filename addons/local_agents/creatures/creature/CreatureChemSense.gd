@@ -1,7 +1,7 @@
 class_name LACreatureChemSense
 extends RefCounted
 
-## Chemical-affinity learning for LACreature — the smell/taste side of cognition, built on the shared
+## Chemical-affinity learning for LocalAgentCreature — the smell/taste side of cognition, built on the shared
 ## scent field (LAMaterialField3D scent channels) plus the literal-DNA cue priors (LADNA cue_priors).
 ##
 ## Nothing here decides a chemical is "good" or "bad". A cue's valence is LEARNED (from how eating a food
@@ -21,7 +21,7 @@ extends RefCounted
 ##                                   scaled by hunger (a fed animal ignores it, so day-0 behaviour is intact).
 ##   * seed_priors(c)              — once at birth: reinforce the genome's born-in cue priors into cognition.
 ##
-## Static + dependency-free of the LACreature type (dynamic field access, like the other Creature* helpers).
+## Static + dependency-free of the LocalAgentCreature type (dynamic field access, like the other Creature* helpers).
 ## (Explicit types only — project rule: no ':=' inferred typing.)
 
 # The scent channels a creature can smell, paired with the cue key its learned valence is stored under. One

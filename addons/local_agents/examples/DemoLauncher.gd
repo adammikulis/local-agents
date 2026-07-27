@@ -1,5 +1,5 @@
 extends Control
-class_name LocalAgentsDemoLauncher
+class_name LocalAgentDemoLauncher
 
 ## The friendly front door. Lists every demo from the simplest rung to the
 ## flagship voxel planet, each with a one-line description and an Open button

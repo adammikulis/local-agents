@@ -1,9 +1,9 @@
 class_name LACreatureMetabolism
 extends RefCounted
 
-## Per-frame survival for LACreature, factored out of the hot _physics_process: energy metabolism, thirst,
+## Per-frame survival for LocalAgentCreature, factored out of the hot _physics_process: energy metabolism, thirst,
 ## ageing, and environmental temperature/drowning read from the shared MaterialField. Static + dependency-free
-## of the LACreature type (dynamic access, like the other Creature* helpers). Each tick returns TRUE if the
+## of the LocalAgentCreature type (dynamic access, like the other Creature* helpers). Each tick returns TRUE if the
 ## creature DIED this frame — the caller must then stop processing it. (Explicit types only — no ':=' .)
 
 # Temperature comfort band (°C), read from the field at the creature's feet. Between COOL and WARM costs

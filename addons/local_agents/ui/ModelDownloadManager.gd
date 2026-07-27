@@ -1,12 +1,12 @@
 extends Node
-class_name LocalAgentsModelDownloadManager
+class_name LocalAgentModelDownloadManager
 
 # Runtime (in-game) model download manager.
 #
 # Fetches a GGUF model straight from its source into user://local_agents/models using an async
 # HTTPRequest node (never blocks the main thread). It reuses the shipped model catalog
-# (LocalAgentsModelDownloadService + res://addons/local_agents/models/catalog.json) so runtime and
-# editor agree on repos/sizes, and reuses LocalAgentsRuntimePaths for the models directory.
+# (LocalAgentModelDownloadService + res://addons/local_agents/models/catalog.json) so runtime and
+# editor agree on repos/sizes, and reuses LocalAgentRuntimePaths for the models directory.
 #
 # Speed/ETA are smoothed with an exponential moving average so the "~2m left" readout does not
 # jitter with every network hiccup:  smoothed = alpha*inst + (1 - alpha)*smoothed  (sampled ~1 Hz).
@@ -42,7 +42,7 @@ signal download_progress(model_id: String, received_bytes: int, total_bytes: int
 signal download_finished(model_id: String, ok: bool, path: String, error: String)
 signal model_installed(model_id: String, path: String)
 
-var _service: LocalAgentsModelDownloadService = ModelDownloadService.new()
+var _service: LocalAgentModelDownloadService = ModelDownloadService.new()
 var _http: HTTPRequest = null
 
 var _active_id: String = ""

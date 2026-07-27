@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsSynthPresets
+class_name LocalAgentSynthPresets
 
 ## A curated library of good-sounding starting points, so a user (or an LLM agent)
 ## can pick a named preset and tweak from there instead of dialing in raw DSP.
@@ -11,7 +11,7 @@ class_name LocalAgentsSynthPresets
 ##
 ## Everything is tuned toward the project's naturalistic/ambient aesthetic
 ## (filtered pink noise for impacts, soft-filtered triangles/sines for pads).
-## All presets are plain `LocalAgentsSynthVoiceParamsResource` — enumerate them,
+## All presets are plain `LocalAgentSynthVoiceParamsResource` — enumerate them,
 ## `duplicate_params()`, and adjust any field.
 
 const Params := preload("res://addons/local_agents/audio/params/SynthVoiceParamsResource.gd")
@@ -241,8 +241,8 @@ static func preset_names() -> Array:
 	return all_presets().keys()
 
 ## Fetch a fresh (deep-duplicated) copy of a named preset, or null if unknown.
-static func get_preset(preset_name: String) -> LocalAgentsSynthVoiceParamsResource:
+static func get_preset(preset_name: String) -> LocalAgentSynthVoiceParamsResource:
 	var all := all_presets()
 	if not all.has(preset_name):
 		return null
-	return (all[preset_name] as LocalAgentsSynthVoiceParamsResource).duplicate_params()
+	return (all[preset_name] as LocalAgentSynthVoiceParamsResource).duplicate_params()

@@ -1,10 +1,10 @@
 extends Node
-class_name LocalAgentsChatExample
+class_name LocalAgentChatExample
 
-@onready var chat_controller: LocalAgentsChatController = %ChatController
-@onready var saved_controller: LocalAgentsSavedChatsController = %SavedChatsController
-@onready var inference_config: LocalAgentsInferenceConfig = %InferenceConfig
-@onready var model_config: LocalAgentsModelConfig = %ModelConfig
+@onready var chat_controller: LocalAgentChatController = %ChatController
+@onready var saved_controller: LocalAgentSavedChatsController = %SavedChatsController
+@onready var inference_config: LocalAgentInferenceConfig = %InferenceConfig
+@onready var model_config: LocalAgentModelConfig = %ModelConfig
 @onready var home_button: Button = %HomeButton
 @onready var chat_button: Button = %ChatButton
 @onready var download_models_button: Button = %DownloadModelsButton
@@ -14,7 +14,7 @@ class_name LocalAgentsChatExample
 @onready var model_status_label: Label = %ModelStatusLabel
 @onready var download_hint_label: RichTextLabel = %DownloadHintLabel
 
-const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 const RuntimePaths := preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 
 func _ready() -> void:

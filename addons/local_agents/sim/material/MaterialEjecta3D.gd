@@ -81,7 +81,7 @@ var _ejected: float = 0.0                                # cumulative mass hande
 var _peak_inflight: int = 0                              # high-water mark of live parcels (plateau check)
 
 # Active camera, cached once per render frame (a single get_camera_3d() lookup shared by every parcel, not one
-# per parcel — mirrors LACreature._camera_pos).
+# per parcel — mirrors LocalAgentCreature._camera_pos).
 var _cam_frame: int = -1
 var _cam: Camera3D = null
 

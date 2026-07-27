@@ -1,6 +1,6 @@
 @tool
 extends Resource
-class_name LocalAgentsSynthVoiceParamsResource
+class_name LocalAgentSynthVoiceParamsResource
 
 ## Typed parameters describing one synthesized voice/sound. Fully inspector-editable
 ## and serializable, so presets can live as `.tres` files or be built in code. A
@@ -46,11 +46,11 @@ enum NoiseType { WHITE, PINK }
 @export var seed: int = 0
 
 ## Convenience constructor for code-defined presets.
-static func make(fields: Dictionary) -> LocalAgentsSynthVoiceParamsResource:
-	var p := LocalAgentsSynthVoiceParamsResource.new()
+static func make(fields: Dictionary) -> LocalAgentSynthVoiceParamsResource:
+	var p := LocalAgentSynthVoiceParamsResource.new()
 	for key in fields:
 		p.set(key, fields[key])
 	return p
 
-func duplicate_params() -> LocalAgentsSynthVoiceParamsResource:
-	return duplicate(true) as LocalAgentsSynthVoiceParamsResource
+func duplicate_params() -> LocalAgentSynthVoiceParamsResource:
+	return duplicate(true) as LocalAgentSynthVoiceParamsResource

@@ -1,10 +1,10 @@
-class_name LALlmService
+class_name LocalAgentLlmService
 extends Node
 
 ## The ONE shared owner of the local-LLM runtime for the whole sim. It holds a single LocalAgent (the
 ## in-process / llama-server primitive), resolves the model path + server URL in ONE place
 ## (RuntimePaths + the chat-model candidates the streamer used to resolve privately), and hands out a
-## single shared LocalAgentLlmClient. The creature slow brain (LACognitionScheduler) and the streamer
+## single shared LocalAgentLlmClient. The creature slow brain (LocalAgentCognitionScheduler) and the streamer
 ## commentator (LAStreamerDirector) both talk through this one client → one server, one model, one config.
 ##
 ## This is the collapse of the three forked chat-completions paths: cognition's raw HTTPRequest client,

@@ -1,5 +1,5 @@
 extends Resource
-class_name LocalAgentsConfigList
+class_name LocalAgentConfigList
 
 @export var model_configurations: Array = []
 @export var inference_configurations: Array = []

@@ -87,7 +87,7 @@ const OBSERVE_MAX_NEIGHBOURS: int = 6      # cap the per-observation scan for pe
 
 var policy: Dictionary = {}
 
-var _sched = null                          # LACognitionScheduler (shared; injected)
+var _sched = null                          # LocalAgentCognitionScheduler (shared; injected)
 var _pending: bool = false                 # an LLM request is in flight for this creature
 var _cooldown: float = 0.0                 # seconds until this creature may escalate again
 var _observe_cd: float = 0.0               # throttles the social-learning scan
@@ -149,7 +149,7 @@ func set_scheduler(s) -> void:
 	_sched = s
 
 
-## The shared slow-brain scheduler (LACognitionScheduler), or null. Surfaced so the creature's highlight can
+## The shared slow-brain scheduler (LocalAgentCognitionScheduler), or null. Surfaced so the creature's highlight can
 ## ask the scheduler whether it is currently thinking/queued (read-only; starts no model path).
 func scheduler():
 	return _sched

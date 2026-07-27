@@ -9,7 +9,7 @@ class_name LocalAgentQuickstart
 @onready var reply_label: RichTextLabel = %ReplyLabel
 @onready var status_label: Label = %StatusLabel
 
-const ExtensionLoader = preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const ExtensionLoader = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 const RuntimePaths = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 
 var _busy: bool = false

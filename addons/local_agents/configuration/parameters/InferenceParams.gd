@@ -1,5 +1,5 @@
 extends Resource
-class_name LocalAgentsInferenceParams
+class_name LocalAgentInferenceParams
 
 @export var inference_config_name: String = ""
 @export var temperature: float = 0.8

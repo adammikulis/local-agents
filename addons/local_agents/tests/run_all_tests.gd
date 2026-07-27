@@ -22,7 +22,7 @@ const SKIP_HEAVY_FLAG := "--skip-heavy"
 const INCLUDE_LONG_FLAG := "--include-long"
 const FAST_FLAG := "--fast"
 const TestModelHelper := preload("res://addons/local_agents/tests/test_model_helper.gd")
-const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 const AgentResultReporter := preload("res://addons/local_agents/tests/agent_result_reporter.gd")
 
 var _failures: Array[String] = []

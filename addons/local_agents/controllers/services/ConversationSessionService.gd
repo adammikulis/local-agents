@@ -1,5 +1,5 @@
 extends RefCounted
-class_name LocalAgentsConversationSessionService
+class_name LocalAgentConversationSessionService
 
 var _conversation_store: Node
 var _conversation_index: Array = []

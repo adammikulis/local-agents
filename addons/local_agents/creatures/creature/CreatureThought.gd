@@ -1,11 +1,11 @@
 class_name LACreatureThought
 extends RefCounted
 
-## Thought-inspector presentation for LACreature: turns the creature's LIVE cognition into a stable
+## Thought-inspector presentation for LocalAgentCreature: turns the creature's LIVE cognition into a stable
 ## individual name, a natural-language "thought", and a few supporting decision/habit/cue lines. It
 ## SURFACES the existing brain — the last fast-path pick, the last slow-brain resolution (the local
 ## FunctionGemma model or the offline teacher), the learned policy, and the learned cue associations —
-## and NEVER calls a model itself. Static + dependency-free of the LACreature type.
+## and NEVER calls a model itself. Static + dependency-free of the LocalAgentCreature type.
 ## (Explicit types only — project rule: no ':=' inferred typing.)
 
 # A small pool of friendly names so a clicked animal reads as an individual ("Pip the fox"), not a

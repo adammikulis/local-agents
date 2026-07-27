@@ -3,7 +3,7 @@ extends RefCounted
 
 const AgentManagerScript := preload("res://addons/local_agents/agent_manager/AgentManager.gd")
 const AgentScript := preload("res://addons/local_agents/agents/Agent.gd")
-const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 
 func run_test(tree: SceneTree) -> bool:
     if not ExtensionLoader.ensure_initialized():

@@ -23,14 +23,14 @@ copy `addons/local_agents/`, delete the game, and keep a fully-working local-age
 | `agents/` | `LocalAgent`, `LocalAgent3D` — the LLM-driven agent nodes |
 | `agent_manager/` | `AgentManager` autoload (agent registry / lifecycle) |
 | `graph/` | `LocalAgentGraph` — a nodes/edges memory resource |
-| `creatures/` | the decoupled creature-behaviour stack — `LACreature`/`LAFish` + their fast/slow-brain modules (`creature/`), the cognition stack (`cognition/`), species + disease data (`data/`, `species/`), the flat-ground terrain adapter (`terrain/`), model/rock visuals (`visual/`), and the sim telemetry/ablation/rng utilities (`sim/`). Runs with no game/field/planet. |
+| `creatures/` | the decoupled creature-behaviour stack — `LocalAgentCreature`/`LAFish` + their fast/slow-brain modules (`creature/`), the cognition stack (`cognition/`), species + disease data (`data/`, `species/`), the flat-ground terrain adapter (`terrain/`), model/rock visuals (`visual/`), and the sim telemetry/ablation/rng utilities (`sim/`). Runs with no game/field/planet. |
 | `runtime/` | GDExtension loader + runtime glue |
 | `api/`, `configuration/`, `models/` | LLM client API, config, model management |
 | `editor/` | the in-editor Local Agents panel |
 | `gdextensions/` | the compiled native runtime |
 
 **SIM dirs** (the reusable simulation library — the world, without the game shell):
-`sim/` — the `LASimWorld` one-node facade, the `MaterialField3D` substrate (`material/`), ecology, planet /
+`sim/` — the `LocalAgentSimWorld` one-node facade, the `MaterialField3D` substrate (`material/`), ecology, planet /
 cubed-sphere generation, terrain, actors, events, and the local-LLM streamer. SPHERE mode additionally needs
 the optional `zylann.voxel` GDExtension; FLAT mode does not.
 
@@ -102,7 +102,7 @@ creature never null-derefs its movement path.
 
 ## The injection quartet (wiring a Creature)
 
-A `Creature` (class `LACreature`) has **one** hard dependency (terrain) and **three optional** injectors. All
+A `Creature` (class `LocalAgentCreature`) has **one** hard dependency (terrain) and **three optional** injectors. All
 three optional wires are `has_method`-guarded, so a creature runs fine with none of them (pure fast brain):
 
 | call | injects | absent ⇒ |
@@ -110,7 +110,7 @@ three optional wires are `has_method`-guarded, so a creature runs fine with none
 | `setup(terrain, config, genome=null)` | terrain (required) + species config | terrain defaults to `LAFlatGroundTerrain` |
 | `set_material_field(field)` | the shared `LAMaterialField3D` substrate (heat/water/scent) | no field reads (comfort/scent/drink neutral) |
 | `set_ecology(service)` | the `LAEcologyService` (broadcasts, births, calls) | no ecology broadcasts |
-| `set_cognition_scheduler(sched)` | the shared slow-brain (`LACognitionScheduler`) | fast/reinforced brain only, no LLM escalation |
+| `set_cognition_scheduler(sched)` | the shared slow-brain (`LocalAgentCognitionScheduler`) | fast/reinforced brain only, no LLM escalation |
 
 **Standalone shortcut.** `Creature.setup_standalone(config_source, opts={})` gives a library user a one-call
 drop-in: it supplies an `LAFlatGroundTerrain` and leaves all three optional injectors unset (that absence *is*
@@ -186,13 +186,13 @@ const SimWorldScript := preload("res://addons/local_agents/sim/SimWorld.gd")
 
 func _ready() -> void:
     var sim := SimWorldScript.new()
-    sim.world_type = LASimWorld.WorldType.SPHERE   # or FLAT
+    sim.world_type = LocalAgentSimWorld.WorldType.SPHERE   # or FLAT
     sim.radius = 180.0
     add_child(sim)                                  # builds planet + field + ecology + spawns life
     # add your own Camera3D framing sim.planet_body().center()
 ```
 
-`LASimWorld` composes the planet body, the `MaterialField`, the ecology, and the spawn behind one node — no game
+`LocalAgentSimWorld` composes the planet body, the `MaterialField`, the ecology, and the spawn behind one node — no game
 shell (HUD/menus/disasters/save). Its export surface:
 
 | export | mode | meaning |

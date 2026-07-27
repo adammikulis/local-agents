@@ -35,7 +35,7 @@ func strike(point: Vector3) -> void:
 	_flash.omni_range = 60.0
 	_flash.position = point + up * 6.0
 	add_child(_flash)
-	LocalAgentsAudioDirector.emit(get_tree(), "thunder", point)
+	LocalAgentAudioDirector.emit(get_tree(), "thunder", point)
 
 
 func _process(delta: float) -> void:

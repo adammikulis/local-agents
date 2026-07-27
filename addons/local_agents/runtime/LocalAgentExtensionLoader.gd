@@ -1,6 +1,6 @@
 @tool
 extends Object
-class_name LocalAgentsExtensionLoader
+class_name LocalAgentExtensionLoader
 
 const EXTENSION_PATH := "res://addons/local_agents/gdextensions/localagents/localagents.gdextension"
 const RUNTIME_SINGLETON := "AgentRuntime"

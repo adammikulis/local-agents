@@ -3,7 +3,7 @@ extends Node
 
 ## Game-feel audio wiring for the voxel sim — presentation only, reacts to the sim, never drives it.
 ##
-## This is thin WIRING over the existing procedural-audio subsystem (LocalAgentsAudioDirector +
+## This is thin WIRING over the existing procedural-audio subsystem (LocalAgentAudioDirector +
 ## MusicDirector + SfxBank). It does NOT synthesize anything itself; it only:
 ##   1. salts the generative-music seed so each play session's bed evolves differently (the world
 ##      stays deterministic — the music seed is INDEPENDENT of the sim world seed);
@@ -38,7 +38,7 @@ const UI_CLICK: String = "ui_click"
 ## the sting. The tracker already samples at 1 Hz with detector rearm/cooldown; this is a cheap backstop.
 const STING_COOLDOWN_S: float = 1.5
 
-var _audio: Node = null                 # LocalAgentsAudioDirector (pulled off the world)
+var _audio: Node = null                 # LocalAgentAudioDirector (pulled off the world)
 var _events: Node = null                # LAEventTracker (pulled off the world)
 var _last_sting_time: Dictionary = {}   # type -> last wall-clock seconds a sting played
 var _ready_ok: bool = false

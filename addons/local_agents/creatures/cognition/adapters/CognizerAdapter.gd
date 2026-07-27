@@ -2,8 +2,8 @@ class_name LACognizerAdapter
 extends RefCounted
 
 ## Duck-typed read facade between the per-creature brain (LACognition) and whatever ACTOR is cognizing.
-## LACognition talks ONLY through this adapter — it never names an LACreature field directly — so the
-## brain is decoupled from any single actor implementation: LACreature today, and any other actor (e.g.
+## LACognition talks ONLY through this adapter — it never names an LocalAgentCreature field directly — so the
+## brain is decoupled from any single actor implementation: LocalAgentCreature today, and any other actor (e.g.
 ## an aquatic swimmer) that exposes the same duck-typed surface tomorrow reuses LACognition unchanged.
 ## Adding a new kind of cognizer = provide these properties, not patch the brain.
 ##

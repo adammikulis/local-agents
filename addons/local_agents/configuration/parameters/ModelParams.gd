@@ -1,5 +1,5 @@
 extends Resource
-class_name LocalAgentsModelParams
+class_name LocalAgentModelParams
 
 @export var model_config_name: String = ""
 @export var db_path: String = ""

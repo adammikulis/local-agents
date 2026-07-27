@@ -1,4 +1,4 @@
-class_name LACognitionScheduler
+class_name LocalAgentCognitionScheduler
 extends Node
 
 ## The shared "slow brain" throttle. Every creature's LACognition escalates rare/uncertain
@@ -9,7 +9,7 @@ extends Node
 ##
 ## Two backends resolve an escalation into one LAActionRegistry action:
 ##   1. The shared LLMClient — a LocalAgentLlmClient (a LocalAgent behind an async seam), owned by
-##      LALlmService and injected by EcologyService. request() runs the native function-calling think
+##      LocalAgentLlmService and injected by EcologyService. request() runs the native function-calling think
 ##      OFF the frame and hands back the chosen tool call. Used when a client is injected and we are
 ##      inside the tree. This is the SAME LocalAgent the standalone agent + streamer use — one server,
 ##      one model, one config (no more private HTTPRequest client here).
@@ -33,7 +33,7 @@ const ACTIVITY_PRUNE_AT: int = 256         # prune expired activity entries once
 
 # --- configuration (set via setup) ---
 var _enabled: bool = true
-# The shared LLMClient (a LocalAgentLlmClient owned by LALlmService), injected by EcologyService. When
+# The shared LLMClient (a LocalAgentLlmClient owned by LocalAgentLlmService), injected by EcologyService. When
 # null the scheduler resolves every escalation with the built-in heuristic teacher (the offline path).
 # This replaces the old raw HTTPRequest + server_url/model plumbing: one client, one server, one model.
 var _llm_client = null

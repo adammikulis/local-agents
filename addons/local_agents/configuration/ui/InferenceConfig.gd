@@ -1,6 +1,6 @@
 @tool
 extends Control
-class_name LocalAgentsInferenceConfig
+class_name LocalAgentInferenceConfig
 
 @onready var manager: LocalAgentManager = get_node_or_null("/root/AgentManager")
 @onready var add_button: Button = %AddInferenceConfigButton
@@ -30,7 +30,7 @@ class_name LocalAgentsInferenceConfig
 @onready var mirostat_m_spin: SpinBox = %MirostatMSpinBox
 @onready var output_json_checkbox: CheckBox = %OutputJsonCheckBox
 
-var current_config: LocalAgentsInferenceParams
+var current_config: LocalAgentInferenceParams
 var _updating_ui := false
 var _rng := RandomNumberGenerator.new()
 
@@ -44,7 +44,7 @@ func _ready() -> void:
     _apply_saved_config()
 
 func _init_defaults() -> void:
-    current_config = LocalAgentsInferenceParams.new()
+    current_config = LocalAgentInferenceParams.new()
     current_config.inference_config_name = "<default>"
     current_config.temperature = 0.8
     current_config.max_tokens = 512
@@ -110,7 +110,7 @@ func _apply_saved_config() -> void:
     if not manager:
         return
     autoload_checkbox.button_pressed = manager.config_list.autoload_last_good_inference_config
-    var cfg: LocalAgentsInferenceParams = manager.config_list.last_good_inference_config
+    var cfg: LocalAgentInferenceParams = manager.config_list.last_good_inference_config
     if cfg:
         _load_config(cfg)
 
@@ -132,7 +132,7 @@ func _refresh_list() -> void:
 func _on_add_pressed() -> void:
     if not manager:
         return
-    var cfg: LocalAgentsInferenceParams = current_config.duplicate(true)
+    var cfg: LocalAgentInferenceParams = current_config.duplicate(true)
     manager.add_inference_config(cfg)
     manager.apply_inference_config(cfg)
     _refresh_list()
@@ -160,7 +160,7 @@ func _on_item_selected(index: int) -> void:
     var configs := manager.get_inference_configs()
     if index < 0 or index >= configs.size():
         return
-    var cfg: LocalAgentsInferenceParams = configs[index]
+    var cfg: LocalAgentInferenceParams = configs[index]
     manager.apply_inference_config(cfg)
     _load_config(cfg)
 
@@ -196,11 +196,11 @@ func _on_mirostat_mode_selected(index: int) -> void:
     current_config.mirostat_mode = mirostat_option.get_item_id(index)
     _publish_current_config()
 
-func _load_config(cfg: LocalAgentsInferenceParams) -> void:
+func _load_config(cfg: LocalAgentInferenceParams) -> void:
     current_config = cfg
     _apply_config_to_ui(cfg)
 
-func _apply_config_to_ui(cfg: LocalAgentsInferenceParams) -> void:
+func _apply_config_to_ui(cfg: LocalAgentInferenceParams) -> void:
     _updating_ui = true
     name_edit.text = cfg.inference_config_name
     backend_edit.text = cfg.backend

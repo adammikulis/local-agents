@@ -1,7 +1,7 @@
 extends Node3D
 class_name LocalAgent3DExample
 
-const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentsExtensionLoader.gd")
+const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 const RuntimeHealth := preload("res://addons/local_agents/runtime/RuntimeHealth.gd")
 const RuntimePaths := preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 

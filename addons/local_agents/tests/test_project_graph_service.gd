@@ -27,7 +27,7 @@ func run_test(tree: SceneTree) -> bool:
 
     _prepare_test_files()
 
-    var service := LocalAgentsProjectGraphService.new()
+    var service := LocalAgentProjectGraphService.new()
     tree.get_root().add_child(service)
     service._runtime = MockRuntime.new()
 

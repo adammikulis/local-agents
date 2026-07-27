@@ -58,7 +58,7 @@ func surge(center: Vector3, brush_radius: float = MIN_RADIUS) -> void:
 		var u: Vector3 = _terrain.up_at(_center)
 		if u.length() > 0.0001:
 			_up = u.normalized()
-	LocalAgentsAudioDirector.emit(get_tree(), "steam", _center)
+	LocalAgentAudioDirector.emit(get_tree(), "steam", _center)
 	if _ecology != null and _ecology.has_method("broadcast_scare"):
 		_ecology.broadcast_scare(_center, _radius * SCARE_MULT, 1.1)
 

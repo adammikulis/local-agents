@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsModelDownloadService
+class_name LocalAgentModelDownloadService
 
 const CATALOG_PATH := "res://addons/local_agents/models/catalog.json"
 const MODELS_ROOT := "user://local_agents/models"

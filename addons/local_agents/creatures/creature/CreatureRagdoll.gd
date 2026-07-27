@@ -3,7 +3,7 @@ extends RefCounted
 
 ## The creature's "physics shadow" (HL2-style) + its become-a-carcass-in-place death.
 ##
-## A living LACreature is a kinematic CharacterBody3D driven by AI. This module lets a real
+## A living LocalAgentCreature is a kinematic CharacterBody3D driven by AI. This module lets a real
 ## RigidBody3D — a single capsule, the SHADOW — occasionally OVERRIDE that: on any impulse
 ## (meteor blast, explosion, a lethal blow) the shadow is released, tumbles under real physics,
 ## and the visible creature simply reads the shadow's transform each frame (its model rides along,

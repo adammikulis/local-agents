@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsBackstoryEmbeddingOps
+class_name LocalAgentBackstoryEmbeddingOps
 
 const RuntimePaths = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 

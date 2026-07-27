@@ -1,7 +1,7 @@
 class_name LACreatureLifeStage
 extends RefCounted
 
-## Life stage + ageing for LACreature, factored out of the main brain. Today this is minimal: age
+## Life stage + ageing for LocalAgentCreature, factored out of the main brain. Today this is minimal: age
 ## advances every frame, and maturity is a single threshold (age >= maturity_age) gating breeding,
 ## leadership eligibility, and the adult/juvenile inspector label. Death by old age lives in
 ## LACreatureMetabolism (the survival tick that owns starve/thirst/age mortality).
@@ -13,7 +13,7 @@ extends RefCounted
 ## raw `age`/`maturity_age`/`max_age` state plus a cached `_growth` scale, and forwards to these functions, so
 ## life-stage behaviour is owned here without touching Creature.gd's brain.
 ##
-## Static + dependency-free of the LACreature type (dynamic field access, like the other Creature* helpers).
+## Static + dependency-free of the LocalAgentCreature type (dynamic field access, like the other Creature* helpers).
 ## (Explicit types only — project rule: no ':=' inferred typing.)
 
 # --- growth curve (exposed as named consts for retuning) -------------------------------------------------

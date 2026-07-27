@@ -3,7 +3,7 @@ extends Node
 
 ## LACampaignTutorial — the first-run campaign intro. It scripts the guided tour that teaches the core
 ## caretaker loop the moment a player starts a CAMPAIGN, built ENTIRELY on the reusable tutorial system
-## (LATutorialSequencer + LATutorialHighlightOverlay + LATutorialStep). This file owns NO tutorial
+## (LATutorialSequencer + LATutorialHighlightOverlay + LocalAgentTutorialStep). This file owns NO tutorial
 ## mechanics — it only authors a data-defined step list, resolves each step's highlight target to a live
 ## Control, and hands the list to the sequencer. Wired into VoxelWorld with one add_child + setup line.
 ##
@@ -135,7 +135,7 @@ func _controls_ready() -> bool:
 
 
 func _start_tour() -> void:
-	var steps: Array[LATutorialStep] = _build_steps()
+	var steps: Array[LocalAgentTutorialStep] = _build_steps()
 	# Target root = the scene tree root so each step's control_path (computed via get_path_to) resolves any
 	# HUD control regardless of which CanvasLayer owns it. No camera needed (no world-space targets).
 	var ok: bool = _seq.start(steps, _overlay, get_tree().root, null, TUTORIAL_ID)
@@ -164,8 +164,8 @@ func _drive() -> void:
 
 # --- The scripted tour (data, not logic) -------------------------------------------------------------------
 
-func _build_steps() -> Array[LATutorialStep]:
-	var steps: Array[LATutorialStep] = []
+func _build_steps() -> Array[LocalAgentTutorialStep]:
+	var steps: Array[LocalAgentTutorialStep] = []
 
 	# 0 — Welcome. Sets the caretaker frame + the local-first identity. Centred card, advance on Next.
 	steps.append(StepScript.message(
@@ -174,38 +174,38 @@ func _build_steps() -> Array[LATutorialStep]:
 		"Welcome, caretaker"))
 
 	# 1 — Look around. Spotlight the view-controls bar; advance on Next (looking has no single event).
-	var look: LATutorialStep = _control_step(_view_controls_panel(),
+	var look: LocalAgentTutorialStep = _control_step(_view_controls_panel(),
 		("Drag to orbit the planet and scroll to zoom. Switch between the close planet view and the "
 		+ "solar-system overview here (or press %s).") % _key("view_solar"),
 		"Look around")
-	look.advance = LATutorialStep.Advance.NEXT_BUTTON
+	look.advance = LocalAgentTutorialStep.Advance.NEXT_BUTTON
 	steps.append(look)
 
 	# 2 — Spawn life. Spotlight the palette + name the digit hotkey; advance once the population grows.
 	var first_kind: String = LASpawnPaletteHud.LIFE_KINDS[0]      # "plant" — unlocked from the start
-	var spawn: LATutorialStep = _control_step(_spawn_palette_panel(),
+	var spawn: LocalAgentTutorialStep = _control_step(_spawn_palette_panel(),
 		("Arm a %s with %s (or click it in the palette), then click the ground to place it. "
 		+ "Life is how your world begins.") % [_kind_label(first_kind), _spawn_key(first_kind)],
 		"Spawn some life")
-	spawn.advance = LATutorialStep.Advance.PREDICATE
+	spawn.advance = LocalAgentTutorialStep.Advance.PREDICATE
 	spawn.advance_predicate = Callable(self, "_placed_something")
 	steps.append(spawn)
 
 	# 3 — Meet a mind. No spotlight (they click a creature in the world); advance on the selection signal.
-	var mind: LATutorialStep = StepScript.message(
+	var mind: LocalAgentTutorialStep = StepScript.message(
 		"Click any creature to open its mind — its last decision and why. Every one of them is thinking "
 		+ "on your device, offline. Try it now.",
 		"Meet a mind")
-	mind.advance = LATutorialStep.Advance.SIGNAL
+	mind.advance = LocalAgentTutorialStep.Advance.SIGNAL
 	mind.signal_source = _interaction
 	mind.signal_name = &"selection_changed"
 	steps.append(mind)
 
 	# 4 — Your goal. Spotlight the objective panel; fold in the live first objective. Advance on Next.
-	var goal: LATutorialStep = _control_step(_objective_panel(),
+	var goal: LocalAgentTutorialStep = _control_step(_objective_panel(),
 		"Your aim as caretaker: %s. Track your progress here — meeting it earns you more to work with." % _objective_text(),
 		"Your goal")
-	goal.advance = LATutorialStep.Advance.NEXT_BUTTON
+	goal.advance = LocalAgentTutorialStep.Advance.NEXT_BUTTON
 	steps.append(goal)
 
 	# 5 — Speed it up. The fast-forward lives in the pause menu; name the real key.
@@ -230,7 +230,7 @@ func _build_steps() -> Array[LATutorialStep]:
 
 # --- Step / advance callbacks ------------------------------------------------------------------------------
 
-func _on_step_changed(index: int, _step: LATutorialStep) -> void:
+func _on_step_changed(index: int, _step: LocalAgentTutorialStep) -> void:
 	print("TUTORIAL_STEP=%d" % index)
 	if index == STEP_SPAWN:
 		_spawn_baseline = _population()   # so "placed something" measures growth from here, not the founding stock
@@ -255,16 +255,16 @@ func _placed_something() -> bool:
 # Each step points at a live Control via a path computed from the scene root, so it resolves through whatever
 # CanvasLayer owns the widget. Nodes that are momentarily absent yield an empty path (the overlay just dims).
 
-func _control_step(control: Control, body: String, heading: String) -> LATutorialStep:
-	var step: LATutorialStep = StepScript.new()
+func _control_step(control: Control, body: String, heading: String) -> LocalAgentTutorialStep:
+	var step: LocalAgentTutorialStep = StepScript.new()
 	step.title = heading
 	step.text = body
 	if control != null:
-		step.target_kind = LATutorialStep.TargetKind.CONTROL
+		step.target_kind = LocalAgentTutorialStep.TargetKind.CONTROL
 		step.control_path = get_tree().root.get_path_to(control)
 	else:
-		step.target_kind = LATutorialStep.TargetKind.NONE
-	step.advance = LATutorialStep.Advance.NEXT_BUTTON
+		step.target_kind = LocalAgentTutorialStep.TargetKind.NONE
+	step.advance = LocalAgentTutorialStep.Advance.NEXT_BUTTON
 	return step
 
 

@@ -1,6 +1,6 @@
 @tool
 extends Control
-class_name LocalAgentsModelConfig
+class_name LocalAgentModelConfig
 
 @onready var manager: LocalAgentManager = get_node_or_null("/root/AgentManager")
 @onready var name_edit: LineEdit = %ConfigNameLineEdit
@@ -15,7 +15,7 @@ class_name LocalAgentsModelConfig
 @onready var clear_db_button: Button = %ClearChatPathButton
 @onready var select_db_dialog: FileDialog = %SelectChatPathFileDialog
 
-var current_config: LocalAgentsModelParams
+var current_config: LocalAgentModelParams
 var _updating := false
 
 func _ready() -> void:
@@ -24,7 +24,7 @@ func _ready() -> void:
     _load_from_manager()
 
 func _init_defaults() -> void:
-    current_config = LocalAgentsModelParams.new()
+    current_config = LocalAgentModelParams.new()
     current_config.model_config_name = "<default>"
     current_config.max_actions_per_tick = 4
     current_config.tick_interval = 0.0

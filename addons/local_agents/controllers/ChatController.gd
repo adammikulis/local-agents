@@ -1,6 +1,6 @@
 @tool
 extends Control
-class_name LocalAgentsChatController
+class_name LocalAgentChatController
 
 signal prompt_input_received(text)
 
@@ -29,14 +29,14 @@ const RuntimeHealth := preload("res://addons/local_agents/runtime/RuntimeHealth.
 @onready var _send_button: Button = %SendButton
 @onready var _clear_button: Button = %ClearButton
 @onready var _saved_chats_window: Window = %SavedChatsWindow
-@onready var _saved_chats_controller: LocalAgentsSavedChatsController = %SavedChatsController
+@onready var _saved_chats_controller: LocalAgentSavedChatsController = %SavedChatsController
 @onready var _rename_window: Window = %RenameConversationWindow
 @onready var _rename_line_edit: LineEdit = %RenameLineEdit
 @onready var _rename_cancel_button: Button = %RenameCancelButton
 @onready var _rename_confirm_button: Button = %RenameConfirmButton
 
 var _tab_container: TabContainer
-var _configuration_panel: LocalAgentsConfigurationPanel
+var _configuration_panel: LocalAgentConfigurationPanel
 var _conversation_session_service
 var _conversation_history_service
 var _manager: LocalAgentManager
@@ -95,11 +95,11 @@ func _locate_tab_container() -> TabContainer:
 		node = node.get_parent()
 	return node as TabContainer
 
-func _get_configuration_panel() -> LocalAgentsConfigurationPanel:
+func _get_configuration_panel() -> LocalAgentConfigurationPanel:
 	if not _tab_container:
 		return null
 	var panel_node := _tab_container.get_node_or_null("Configuration")
-	if panel_node and panel_node is LocalAgentsConfigurationPanel:
+	if panel_node and panel_node is LocalAgentConfigurationPanel:
 		return panel_node
 	return null
 

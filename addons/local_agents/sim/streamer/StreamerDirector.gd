@@ -3,9 +3,9 @@ extends Node
 
 ## The commentator's brain. Watches the living sim, decides WHEN there is something worth saying, and
 ## turns it into one short streamer line via the shared local-LLM client — all off the physics frame. It
-## never blocks: generation is an async request through the shared LocalAgentLlmClient (LALlmService's
+## never blocks: generation is an async request through the shared LocalAgentLlmClient (LocalAgentLlmService's
 ## LocalAgent, run on a worker thread) with a single-in-flight budget. The server + model are owned by
-## LALlmService (one server, one model, one config — no private llama-server here anymore). When no client
+## LocalAgentLlmService (one server, one model, one config — no private llama-server here anymore). When no client
 ## is injected (no model installed) it stays silent, holding the event queue until a client appears.
 ##
 ## Context hygiene: the request is near-stateless — a persona system prompt + only a short rolling
@@ -28,7 +28,7 @@ var _world: Node = null
 var _voice: Node = null                # optional; checked for is_speaking()
 var _enabled: bool = true
 
-# --- shared local-LLM client (owned by LALlmService; null = offline/silent) ---
+# --- shared local-LLM client (owned by LocalAgentLlmService; null = offline/silent) ---
 var _llm_client = null
 
 # --- persona / context hygiene ---
@@ -88,8 +88,8 @@ func setup(world: Node, options: Dictionary = {}) -> void:
 	_voice = options.get("voice", null)
 	_enabled = bool(options.get("enabled", true))
 	_persona_id = String(options.get("persona", LAStreamerPersonas.default_id()))
-	# The shared local-LLM client (LALlmService's LocalAgentLlmClient). Its server + model bring-up is
-	# owned by LALlmService — the director just requests lines through it. Null when nothing is installed.
+	# The shared local-LLM client (LocalAgentLlmService's LocalAgentLlmClient). Its server + model bring-up is
+	# owned by LocalAgentLlmService — the director just requests lines through it. Null when nothing is installed.
 	_llm_client = options.get("llm_client", null)
 	if _has_client():
 		emit_signal("status_changed", "live")
@@ -629,5 +629,5 @@ func _fire_count() -> int:
 func _species_label(sp: String) -> String:
 	return String(SPECIES_LABELS.get(sp, sp + "s"))
 
-# The LLM server + agent lifecycle is owned by LALlmService now (not the director), so there is no
+# The LLM server + agent lifecycle is owned by LocalAgentLlmService now (not the director), so there is no
 # per-director server/thread to tear down here anymore.

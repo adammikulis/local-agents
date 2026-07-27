@@ -1,7 +1,7 @@
 extends Control
 
 ## Standalone demo + usage example for the reusable tutorial system (LATutorialSequencer +
-## LATutorialHighlightOverlay + LATutorialStep). Builds four demo buttons and a three-step guided tour
+## LATutorialHighlightOverlay + LocalAgentTutorialStep). Builds four demo buttons and a three-step guided tour
 ## that spotlights three of them in turn ("click this", "now this"), verifiable WITHOUT the voxel sim.
 ##
 ## Self-harness (matches the repo's convention):
@@ -114,12 +114,12 @@ func _on_demo_button(which: String) -> void:
 
 
 func _start_tutorial() -> void:
-	var steps: Array[LATutorialStep] = []
-	var s1: LATutorialStep = StepScript.for_control(NodePath("Buttons/Spawn"),
+	var steps: Array[LocalAgentTutorialStep] = []
+	var s1: LocalAgentTutorialStep = StepScript.for_control(NodePath("Buttons/Spawn"),
 		"This is the Spawn button. Give it a click to add a creature.", "Step 1: Spawn")
-	var s2: LATutorialStep = StepScript.for_control(NodePath("Buttons/Grow"),
+	var s2: LocalAgentTutorialStep = StepScript.for_control(NodePath("Buttons/Grow"),
 		"Nice. Now click Grow to expand the world.", "Step 2: Grow")
-	var s3: LATutorialStep = StepScript.for_control(NodePath("Buttons/Reset"),
+	var s3: LocalAgentTutorialStep = StepScript.for_control(NodePath("Buttons/Reset"),
 		"Last one — click Reset to finish the tour.", "Step 3: Reset")
 	steps.append(s1)
 	steps.append(s2)
@@ -134,7 +134,7 @@ func _start_tutorial() -> void:
 	_step_targets.append(_buttons.get("Reset", null))
 
 
-func _on_step_changed(index: int, _step: LATutorialStep) -> void:
+func _on_step_changed(index: int, _step: LocalAgentTutorialStep) -> void:
 	print("TUTORIAL_STEP=%d" % index)
 	_auto_cooldown = 24   # let the spotlight settle before the auto-driver presses
 

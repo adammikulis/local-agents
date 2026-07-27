@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsRuntimeHealth
+class_name LocalAgentRuntimeHealth
 
 static func summarize() -> Dictionary:
     var result := {

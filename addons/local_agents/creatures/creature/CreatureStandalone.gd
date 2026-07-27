@@ -1,7 +1,7 @@
 class_name LACreatureStandalone
 extends RefCounted
 
-## Standalone (library drop-in) configuration for LACreature, factored out of the main brain so the monolith
+## Standalone (library drop-in) configuration for LocalAgentCreature, factored out of the main brain so the monolith
 ## stays lean. A Creature placed in a scene as a NODE (Creature.tscn) with no ecology / MaterialField / planet
 ## wiring is configured here: it gets an LAFlatGroundTerrain + sensible defaults and runs on its pure fast/
 ## reinforced brain (no slow-LLM escalation, no shared field reads, no ecology broadcasts). Static access on the

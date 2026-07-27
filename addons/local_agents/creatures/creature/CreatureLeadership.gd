@@ -1,8 +1,8 @@
 class_name LACreatureLeadership
 extends RefCounted
 
-## Emergent LOCAL leadership for LACreature — factored out like LACreatureFlocking, static + dependency-
-## free of the LACreature type (dynamic access).
+## Emergent LOCAL leadership for LocalAgentCreature — factored out like LACreatureFlocking, static + dependency-
+## free of the LocalAgentCreature type (dynamic access).
 ##
 ## EMERGENT-EVERYTHING: no appointment, no registry, no scripted succession. Each creature independently
 ## computes whether it is the top-ranked SAME-SPECIES individual within its own radius (then it is a

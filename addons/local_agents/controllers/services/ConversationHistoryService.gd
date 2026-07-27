@@ -1,5 +1,5 @@
 extends RefCounted
-class_name LocalAgentsConversationHistoryService
+class_name LocalAgentConversationHistoryService
 
 func append_to_history(history_label: RichTextLabel, text: String) -> void:
     history_label.append_text("%s\n" % text)

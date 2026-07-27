@@ -41,7 +41,7 @@ func rupture(center: Vector3) -> void:
 	# One onset terror broadcast (the same stimulus every disaster reuses → emergent flee, no per-case code).
 	if _ecology != null and _ecology.has_method("broadcast_scare"):
 		_ecology.broadcast_scare(_center, SCARE_RADIUS, 1.0)
-	LocalAgentsAudioDirector.emit(get_tree(), "meteor_impact", _center)
+	LocalAgentAudioDirector.emit(get_tree(), "meteor_impact", _center)
 
 
 func _process(delta: float) -> void:

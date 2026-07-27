@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsDownloadClient
+class_name LocalAgentDownloadClient
 
 static func download_request(request: Dictionary) -> Dictionary:
     var runtime := Engine.get_singleton("AgentRuntime")

@@ -1,9 +1,9 @@
 class_name LACreatureInspector
 extends RefCounted
 
-## Inspector presentation for LACreature, factored out of the main brain: turns live creature
+## Inspector presentation for LocalAgentCreature, factored out of the main brain: turns live creature
 ## state into the {title, lines} payload the HUD shows, plus the activity phrase and energy/water
-## bar. Static + dependency-free of the LACreature type. (Explicit types only — no ':=' typing.)
+## bar. Static + dependency-free of the LocalAgentCreature type. (Explicit types only — no ':=' typing.)
 
 static func payload(c) -> Dictionary:
 	# Graded life stage (juvenile → prime → old) straight off the age + senescence curve — shows the creature

@@ -108,7 +108,7 @@ func touch_down(point: Vector3) -> void:
 	_build_fx()
 	if _ecology != null and _ecology.has_method("broadcast_scare"):
 		_ecology.broadcast_scare(_base, SCARE_BASE, 0.7)
-	LocalAgentsAudioDirector.emit(get_tree(), "crumble", _base)
+	LocalAgentAudioDirector.emit(get_tree(), "crumble", _base)
 
 
 func get_inspector_payload() -> Dictionary:

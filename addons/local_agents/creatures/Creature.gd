@@ -1,4 +1,4 @@
-class_name LACreature
+class_name LocalAgentCreature
 extends CharacterBody3D
 
 # One flexible creature driven by a species config Dictionary. Terrain-follow via an
@@ -47,7 +47,7 @@ var metabolism: float = 2.2
 var breath_capacity: float = 6.0
 var _breath: float = 6.0
 # Breathing organ: "air" = LUNGS (land animals — suffocate underwater / in smoke), "water" = GILLS (suffocate
-# in air). Every creature is equipped with one; land LACreature default to lungs, aquatic LAFish to gills.
+# in air). Every creature is equipped with one; land LocalAgentCreature default to lungs, aquatic LAFish to gills.
 var breathes: String = "air"
 
 # --- health / HP (emergent damage: blasts & lightning deal graded, deterministic damage;
@@ -298,7 +298,7 @@ var _nest_node = null                            # LANest (the placed home site)
 # all logic lives in the module. `pregnant` gates re-conception; `_mate` is the captured partner used at birth.
 var pregnant: bool = false
 var _gestation_t: float = 0.0                    # seconds of gestation remaining while pregnant
-var _mate = null                                 # LACreature partner captured at conception (for the birth genome/bond)
+var _mate = null                                 # LocalAgentCreature partner captured at conception (for the birth genome/bond)
 var _repro_cd: float = 0.0                       # seconds until this creature may conceive again (post-birth / pair refractory)
 
 # --- life stage (LACreatureLifeStage): a newborn is born small and grows to adult size along the age axis ---
@@ -936,7 +936,7 @@ func _physics_process(delta: float) -> void:
 		_prof_reg = true
 		_prof_on = bool(Engine.get_meta("la_prof", false)) or OS.has_environment("LA_PROF")
 		if _prof_on:
-			LASimReport.register(LACreature._prof_report)
+			LASimReport.register(LocalAgentCreature._prof_report)
 	var _pt: int = Time.get_ticks_usec() if _prof_on else 0
 	LACreatureLifeStage.tick(self, delta)   # advance age (life-stage owner)
 	# Ageing: grade speed / max_energy reserve down along the senescence curve (runs AFTER the age advance,

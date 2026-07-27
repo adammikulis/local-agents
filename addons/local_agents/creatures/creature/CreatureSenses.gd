@@ -1,13 +1,13 @@
 class_name LACreatureSenses
 extends RefCounted
 
-## Perception queries for LACreature, factored out of the main brain. All functions are
+## Perception queries for LocalAgentCreature, factored out of the main brain. All functions are
 ## static and take the creature `c` — they read its senses (sense_radius, night _sense_mult,
 ## size, injected _scent, preys_on) and scan the scene groups. Kept dependency-free of the
-## LACreature type (dynamic access + inlined group names/constants) so there is no cyclic
+## LocalAgentCreature type (dynamic access + inlined group names/constants) so there is no cyclic
 ## class reference. (Explicit types only — project rule: no ':=' inferred typing.)
 
-# Mirrors LACreature.PREDATOR_SIZE_RATIO — flee hunters at least this many times my size.
+# Mirrors LocalAgentCreature.PREDATOR_SIZE_RATIO — flee hunters at least this many times my size.
 const PREDATOR_SIZE_RATIO: float = 1.2
 
 # One spatial hash shared by every creature's sense queries; lazily built and rebuilt at most once per

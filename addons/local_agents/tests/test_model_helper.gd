@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsTestModelHelper
+class_name LocalAgentTestModelHelper
 
 const MODEL_ID := "qwen3-0_6b-instruct-q4_k_m"
 const MODEL_FILENAME := "Qwen3-0.6B-Q4_K_M.gguf"

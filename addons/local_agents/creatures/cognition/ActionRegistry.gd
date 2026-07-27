@@ -11,7 +11,7 @@ extends RefCounted
 ##      labels are exactly "the function calls we have in our program."
 ##
 ## The registry owns only the *schemas / names* (data). The *executors* that turn a chosen
-## action into a heading/effect live on LACreature (`_execute_action`) because they need creature
+## action into a heading/effect live on LocalAgentCreature (`_execute_action`) because they need creature
 ## internals. Keeping the two apart lets the fast policy, the LLM, and the dataset all agree on a
 ## vocabulary without any of them depending on movement code.
 ##

@@ -1,6 +1,6 @@
 @tool
 extends RefCounted
-class_name LocalAgentsLlamaServerManager
+class_name LocalAgentLlamaServerManager
 
 const RuntimePaths := preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 
