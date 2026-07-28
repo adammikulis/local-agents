@@ -14,6 +14,16 @@ class_name LocalAgent
 ## inference_options below — because "which weights, loaded how" and "how to sample from them" have
 ## different lifetimes.
 ##
+## This file is the node's public face: the export surface, the model/option precedence those exports
+## define, and short methods that hand the actual work to four helpers it owns —
+##
+##   AgentHistory  — the conversation, the system prompt, the memory graph
+##   AgentJobs     — the think_async worker thread
+##   AgentServer   — the managed llama-server process
+##   AgentSpeech   — TTS/STT and the playback node
+##
+## — each of which can be read and changed without opening this one.
+##
 ## @tool is on so the node can report configuration warnings while you edit the scene. Every
 ## lifecycle callback therefore opens with an `Engine.is_editor_hint()` guard, and _ensure_agent_node()
 ## refuses outright in the editor: an agent sitting in an open scene must never boot the native
@@ -39,13 +49,15 @@ var inference_options: Dictionary = {}
 ## them" are different concerns with different lifetimes — a user switching sampling presets must not
 ## silently drop their context size. Kept out of configure()'s replace path for exactly that reason.
 var load_options: Dictionary = {}
-const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
-const RuntimePaths := preload("res://addons/local_agents/runtime/RuntimePaths.gd")
-const LlamaServerManager := preload("res://addons/local_agents/runtime/LlamaServerManager.gd")
-const SpeechService := preload("res://addons/local_agents/runtime/audio/SpeechService.gd")
+const ExtensionLoader: GDScript = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
+const RuntimePaths: GDScript = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 const AgentStatus: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.gd")
 const AgentWarnings: GDScript = preload("res://addons/local_agents/agents/AgentWarnings.gd")
 const ModelSettingsStore: GDScript = preload("res://addons/local_agents/runtime/ModelSettingsStore.gd")
+const AgentHistory: GDScript = preload("res://addons/local_agents/agents/AgentHistory.gd")
+const AgentJobs: GDScript = preload("res://addons/local_agents/agents/AgentJobs.gd")
+const AgentServer: GDScript = preload("res://addons/local_agents/agents/AgentServer.gd")
+const AgentSpeech: GDScript = preload("res://addons/local_agents/agents/AgentSpeech.gd")
 
 @export_group("Model")
 
@@ -153,23 +165,18 @@ const ModelSettingsStore: GDScript = preload("res://addons/local_agents/runtime/
         if agent_node != null and is_instance_valid(agent_node) and db_path != "":
             agent_node.db_path = db_path
 
-var _audio_player: AudioStreamPlayer
-var _pending_tts_jobs := {}
-var _speech_service_connected := false
-var _speech_service
-var _llama_server_manager = LlamaServerManager.new()
-var _last_llama_server_shutdown_on_exit := true
-# Worker thread for think_async(). One in-flight per agent — a second async request while one is
-# running is rejected (the caller's own budget/queue decides what to do). Joined in _exit_tree.
-var _think_thread: Thread = null
+# The four helpers this node delegates to. Plain RefCounted, constructed with the node (so a setter
+# that fires during scene load already has one to talk to) and dropped with it.
+var _history: AgentHistory = AgentHistory.new()
+var _jobs: AgentJobs = AgentJobs.new()
+var _server: AgentServer = AgentServer.new()
+var _speech: AgentSpeech = AgentSpeech.new()
 # The player's saved in-game model settings, read once on first use. Null until Use Player Settings
 # is on and a settings file exists.
 var _player_store: LocalAgentModelSettingsStore = null
 # model_path of the profile configure() was last handed. Sits below this node's own Model Path in the
 # resolution order and above the project-wide default.
 var _configured_model_path: String = ""
-# Newest node written into memory_graph, so the next message can be chained onto it.
-var _last_memory_node_id: int = -1
 
 func _ready() -> void:
     if Engine.is_editor_hint():
@@ -177,11 +184,7 @@ func _ready() -> void:
     if not _ensure_agent_node():
         push_warning("Local Agents extension unavailable; agent node inactive")
         return
-    _audio_player = AudioStreamPlayer.new()
-    _audio_player.name = "TTSPlayer"
-    add_child(_audio_player)
-    if _speech_service == null:
-        _speech_service = SpeechService.new()
+    _speech.attach(self)
     if not agent_node.is_connected("message_emitted", Callable(self, "_on_agent_message")):
         agent_node.connect("message_emitted", Callable(self, "_on_agent_message"))
     if not agent_node.is_connected("action_requested", Callable(self, "_on_agent_action")):
@@ -190,27 +193,15 @@ func _ready() -> void:
         _register_with_manager()
     else:
         call_deferred("_register_with_manager")
-    _ensure_speech_service()
     # A llama-server keeps the weights in its own process, so an in-process preload would only load
     # them a second time for nothing.
-    if preload_model and not _is_llama_server_backend(_merged_options({})):
+    if preload_model and not AgentServer.is_server_backend(_merged_options({})):
         ensure_model_loaded()
 
 func _register_with_manager() -> void:
     var manager = get_node_or_null("/root/AgentManager")
     if manager:
         manager.register_agent(self)
-
-func _ensure_speech_service() -> void:
-    if _speech_service == null:
-        _speech_service = SpeechService.new()
-    if _speech_service == null:
-        return
-    if not _speech_service_connected:
-        var service_obj: Object = _speech_service
-        if not service_obj.is_connected("job_failed", Callable(self, "_on_speech_job_failed")):
-            service_obj.connect("job_failed", Callable(self, "_on_speech_job_failed"))
-        _speech_service_connected = true
 
 ## Applies a saved model profile and/or sampling preset from outside the scene. AgentManager calls it
 ## with the project-wide configs — `configure(null, preset)` — and the editor panels call it when you
@@ -314,8 +305,7 @@ func _apply_model_path() -> void:
         agent_node.default_model_path = path
 
 # Put `path` in memory in place of whatever the runtime currently holds, and report whether that
-# model is resident afterwards. Safe to call from the think_async worker: it touches the runtime
-# singleton and the static tracking pair, never the scene.
+# model is resident afterwards.
 # Delegates to LocalAgentStatus, which owns the "what is resident" answer for the whole addon.
 # This used to keep its own static cache, but that cache was only written here while at least five
 # other paths loaded models without touching it (AgentStatus.ensure_model_loaded, three examples,
@@ -332,56 +322,7 @@ func _refresh_warnings() -> void:
         update_configuration_warnings()
 
 func submit_user_message(text: String) -> void:
-    history.append({"role": "user", "content": text})
-    _record_in_memory_graph("user", text)
-
-# Put this agent's system_prompt at the front of its conversation.
-#
-# It has to go in the HISTORY, not in the options dictionary. The native runtime never reads
-# options["system_prompt"] — it has a single `system_prompt_` member on the shared AgentRuntime
-# singleton, which it injects only when the history contains no system message of its own
-# (AgentRuntime.cpp:1643). So routing a per-agent prompt through set_system_prompt() would make
-# every agent in the scene share one persona, and routing it through the options did nothing at all.
-# A system message at index 0 is per-agent, and it also suppresses the runtime's generic default.
-func _apply_system_prompt() -> void:
-    var wanted: String = system_prompt.strip_edges()
-    if wanted == "":
-        return
-    var first_is_system: bool = false
-    if history.size() > 0 and history[0] is Dictionary:
-        first_is_system = String((history[0] as Dictionary).get("role", "")) == "system"
-    if first_is_system:
-        var current: Dictionary = history[0]
-        if String(current.get("content", "")) == wanted:
-            return                      # already in place; do not churn the native history
-        current["content"] = wanted
-    else:
-        history.insert(0, {"role": "system", "content": wanted})
-    # The sync path reads the NATIVE node's own history (AgentNode::think uses get_history()), so the
-    # GDScript-side edit has to be mirrored across or think() would not see it.
-    _sync_history_to_agent_node()
-
-func _sync_history_to_agent_node() -> void:
-    if not (agent_node and is_instance_valid(agent_node)):
-        return
-    agent_node.clear_history()
-    for entry_variant in history:
-        if not (entry_variant is Dictionary):
-            continue
-        var entry: Dictionary = entry_variant
-        agent_node.add_message(String(entry.get("role", "user")), String(entry.get("content", "")))
-
-# Append one message to the Memory Graph, chained to the previous one by a "then" edge so the graph
-# reads back as the conversation in order. Does nothing when no graph is assigned.
-func _record_in_memory_graph(role: String, content: String) -> void:
-    if memory_graph == null or content.strip_edges() == "":
-        return
-    var entry: LocalAgentGraphNode = memory_graph.add_node(role, {"role": role, "content": content})
-    if entry == null:
-        return
-    if _last_memory_node_id >= 0:
-        memory_graph.add_edge(_last_memory_node_id, entry.id, "then")
-    _last_memory_node_id = entry.id
+    _history.submit_user_message(history, text, memory_graph)
 
 # Re-emit the native AgentNode signals on this wrapper so scenes can listen to
 # LocalAgent directly (message_emitted / action_requested). These are the
@@ -396,43 +337,40 @@ func _on_agent_action(action, params) -> void:
 func think(prompt: String, extra_opts: Dictionary = {}) -> Dictionary:
     if not _ensure_agent_node():
         return {"ok": false, "error": "agent_unavailable"}
-    _apply_system_prompt()
+    _history.apply_system_prompt(history, system_prompt, agent_node)
     if prompt != "":
         submit_user_message(prompt)   # skip empties (the LLMClient path supplies opts.messages instead)
-    var opts := _merged_options(extra_opts)
+    var opts: Dictionary = _merged_options(extra_opts)
     var result: Dictionary = _run_think(prompt, opts)
     _post_think(result)
     return result
 
-# Run inference OFF the physics frame: the blocking work is done on a worker Thread and the result is
-# delivered on the MAIN thread via the think_completed signal (never blocks rendering). Returns true if
-# a job was started; false if the agent is unavailable or one is already in flight (the caller — e.g. the
-# slow-brain scheduler's global budget — decides what to do when rejected).
+# Run inference OFF the physics frame: the blocking work is done on a worker Thread (owned by
+# AgentJobs) and the result is delivered on the MAIN thread via the think_completed signal, so
+# rendering never blocks. Returns true if a job was started; false if the agent is unavailable or one
+# is already in flight (the caller — e.g. the slow-brain scheduler's global budget — decides what to
+# do when rejected).
 #
-# The async worker calls the signal-FREE AgentRuntime.generate() directly instead of AgentNode.think():
-# think() emits message_emitted on the node, and Godot forbids emitting a node's signals from a worker
-# thread. generate() is the same inference under the hood (both backends, mutex-guarded) but pure
-# data-in/data-out, so it is safe off-thread. Every node read (model path, runtime dir, history) is
-# snapshotted HERE on the main thread and handed to the worker as plain values.
+# Every node read the worker needs (model path, runtime dir, history) is snapshotted HERE on the main
+# thread and handed over as plain values; see AgentJobs for why the worker uses AgentRuntime.generate()
+# rather than AgentNode.think().
 func think_async(prompt: String, extra_opts: Dictionary = {}) -> bool:
     if not _ensure_agent_node():
         call_deferred("_emit_think_completed", {"ok": false, "error": "agent_unavailable"})
         return false
-    if _think_thread != null and _think_thread.is_alive():
+    if _jobs.is_busy():
         return false
-    if _think_thread != null:
-        _think_thread.wait_to_finish()
-        _think_thread = null
+    _jobs.reap()
     var runtime = _agent_runtime()
     if runtime == null:
         call_deferred("_emit_think_completed", {"ok": false, "error": "runtime_unavailable"})
         return false
-    _apply_system_prompt()
+    _history.apply_system_prompt(history, system_prompt, agent_node)
     if prompt != "":
         submit_user_message(prompt)   # skip empties (the LLMClient path supplies opts.messages instead)
-    var opts := _merged_options(extra_opts)
+    var opts: Dictionary = _merged_options(extra_opts)
     _sync_runtime_config(runtime)     # push the node's model path / runtime dir onto the shared runtime (main thread)
-    var job := {
+    var job: Dictionary = {
         "runtime": runtime,
         "request": {"prompt": prompt, "history": history.duplicate(true), "options": opts},
         "opts": opts,
@@ -442,32 +380,11 @@ func think_async(prompt: String, extra_opts: Dictionary = {}) -> bool:
         # may be writing them.
         "agent_model_path": _per_agent_model_path(),
     }
-    _think_thread = Thread.new()
-    _think_thread.start(Callable(self, "_generate_worker").bind(job))
+    _jobs.start(job, _server, Callable(self, "_emit_think_completed"))
     return true
 
-# Worker-thread body: ensure the llama-server if needed (HTTP/process only — no scene touch), then run
-# the signal-free generate(). All inputs are pre-snapshotted plain values (no node access here).
-func _generate_worker(job: Dictionary) -> void:
-    var opts: Dictionary = job.get("opts", {})
-    var server_err: Dictionary = _ensure_server_captured(opts, String(job.get("server_model_path", "")), String(job.get("runtime_dir", "")))
-    if not server_err.is_empty():
-        call_deferred("_emit_think_completed", server_err)
-        return
-    var runtime = job.get("runtime", null)
-    if runtime == null:
-        call_deferred("_emit_think_completed", {"ok": false, "error": "runtime_unavailable"})
-        return
-    # Same per-agent model swap as the sync path, done HERE so the load cost stays off the frame.
-    if not _is_llama_server_backend(opts):
-        _load_runtime_model(String(job.get("agent_model_path", "")), opts)
-    var result: Dictionary = runtime.generate(job.get("request", {}))
-    call_deferred("_emit_think_completed", result)
-
 func _emit_think_completed(result: Dictionary) -> void:
-    if _think_thread != null and not _think_thread.is_alive():
-        _think_thread.wait_to_finish()
-        _think_thread = null
+    _jobs.reap()
     _post_think(result)
     emit_signal("think_completed", result)
 
@@ -481,10 +398,10 @@ func _agent_runtime():
 func _sync_runtime_config(runtime) -> void:
     if agent_node == null or runtime == null:
         return
-    var dmp := String(agent_node.get("default_model_path"))
+    var dmp: String = String(agent_node.get("default_model_path"))
     if dmp != "" and runtime.has_method("set_default_model_path"):
         runtime.set_default_model_path(dmp)
-    var rd := String(agent_node.get("runtime_directory"))
+    var rd: String = String(agent_node.get("runtime_directory"))
     if rd != "" and runtime.has_method("set_runtime_directory"):
         runtime.set_runtime_directory(rd)
 
@@ -529,71 +446,33 @@ func _player_options() -> Dictionary:
 func _run_think(prompt: String, opts: Dictionary) -> Dictionary:
     if not (agent_node and is_instance_valid(agent_node)):
         return {"ok": false, "error": "agent_unavailable"}
-    var server_err: Dictionary = _ensure_server_captured(opts, _resolve_llama_server_model_path(opts), _current_runtime_dir())
+    var server_err: Dictionary = _server.ensure_running(opts, _resolve_llama_server_model_path(opts), _current_runtime_dir())
     if not server_err.is_empty():
         return server_err
     # In-process: put THIS agent's weights in memory first. The runtime holds one model for the whole
     # process and only lazy-loads when nothing is loaded, so a per-agent model needs the explicit swap.
-    if not _is_llama_server_backend(opts):
+    if not AgentServer.is_server_backend(opts):
         _load_runtime_model(_per_agent_model_path(), opts)
     return agent_node.think(prompt, opts)
 
-# Ensure the managed llama-server is up for a llama_server-backend request. Returns {} when not needed
-# or already running, else an error dict. Takes pre-resolved model_path + runtime_dir so it is callable
-# from either the main thread (sync) or the worker (async) without touching the node.
-func _ensure_server_captured(opts: Dictionary, model_path: String, runtime_dir: String) -> Dictionary:
-    if not _is_llama_server_backend(opts):
-        return {}
-    var autostart := bool(opts.get("server_autostart", true))
-    _last_llama_server_shutdown_on_exit = bool(opts.get("server_shutdown_on_exit", true))
-    if not autostart:
-        return {}
-    var lifecycle = _llama_server_manager.ensure_running(opts, model_path, runtime_dir)
-    if not bool(lifecycle.get("ok", false)):
-        return {
-            "ok": false,
-            "provider": "llama_server",
-            "error": String(lifecycle.get("error", "llama_server_unavailable")),
-            "lifecycle": lifecycle,
-        }
-    return {}
-
 # Main-thread side effects of a completed think (sync or async): record the reply + emit + optionally speak.
 func _post_think(result: Dictionary) -> void:
-    var text := String(result.get("text", ""))
+    var text: String = String(result.get("text", ""))
     if text != "":
-        history.append({"role": "assistant", "content": text})
-        _record_in_memory_graph("assistant", text)
+        _history.record_assistant_message(history, text, memory_graph)
         emit_signal("model_output_received", text)
         if _should_speak_response():
-            _speak_text_async(text)
+            _speech.speak_async(text, voice, _current_runtime_dir())
 
 func say(text: String, opts: Dictionary = {}) -> bool:
     if not _ensure_agent_node():
         return false
-    _ensure_speech_service()
-    if _speech_service == null:
-        return false
-    var service = _speech_service
-    var payload = opts.duplicate(true)
-    payload["voice_id"] = voice
-    var runtime_dir: String = _current_runtime_dir()
-    payload["runtime_directory"] = RuntimePaths.normalize_path(runtime_dir) if runtime_dir != "" else ""
-    payload["text"] = text
-    var result = service.synthesize(payload)
-    return result.get("ok", false)
+    return _speech.say(text, opts, voice, _current_runtime_dir())
 
 func listen(opts: Dictionary = {}) -> String:
     if not _ensure_agent_node():
         return ""
-    _ensure_speech_service()
-    if _speech_service == null:
-        return ""
-    var service = _speech_service
-    var payload = opts.duplicate(true)
-    var runtime_dir: String = _current_runtime_dir()
-    payload["runtime_directory"] = RuntimePaths.normalize_path(runtime_dir) if runtime_dir != "" else ""
-    var result = service.transcribe(payload)
+    var result: Dictionary = _speech.transcribe(opts, _current_runtime_dir())
     if not result.get("ok", false):
         return ""
     var transcript: String = String(result.get("text", ""))
@@ -603,15 +482,7 @@ func listen(opts: Dictionary = {}) -> String:
     return transcript
 
 func listen_async(input_path: String, opts: Dictionary = {}, callback: Callable = Callable()) -> int:
-    _ensure_speech_service()
-    if _speech_service == null:
-        return -1
-    var service = _speech_service
-    var payload = opts.duplicate(true)
-    var runtime_dir: String = _current_runtime_dir()
-    payload["runtime_directory"] = RuntimePaths.normalize_path(runtime_dir) if runtime_dir != "" else ""
-    payload["model_path"] = payload.get("model_path", "")
-    return service.transcribe_async(input_path, payload, callback)
+    return _speech.transcribe_async(input_path, opts, _current_runtime_dir(), callback)
 
 func clear_history() -> void:
     history.clear()
@@ -627,24 +498,7 @@ func set_history(messages: Array) -> void:
     history.clear()
     if not _ensure_agent_node():
         return
-    agent_node.clear_history()
-    for entry_variant in messages:
-        var entry: Dictionary = {}
-        if entry_variant is Dictionary:
-            entry = entry_variant
-        else:
-            continue
-        var role_value := entry.get("role", "")
-        var content_value := entry.get("content", "")
-        var role := role_value as String if role_value is String else str(role_value)
-        var content := content_value as String if content_value is String else str(content_value)
-        if role.is_empty() or content.strip_edges().is_empty():
-            continue
-        history.append({
-            "role": role,
-            "content": content,
-        })
-        agent_node.add_message(role, content)
+    _history.set_messages(history, messages, agent_node)
 
 func enqueue_action(name: String, params: Dictionary = {}):
     if _ensure_agent_node() and agent_node:
@@ -669,7 +523,7 @@ func _ensure_agent_node() -> bool:
 func _sync_agent_node_properties() -> void:
     if not agent_node:
         return
-    var runtime_dir := RuntimePaths.runtime_dir()
+    var runtime_dir: String = RuntimePaths.runtime_dir()
     if runtime_dir != "":
         agent_node.runtime_directory = runtime_dir
     _apply_model_path()
@@ -684,104 +538,22 @@ func _sync_agent_node_properties() -> void:
 func _should_speak_response() -> bool:
     return speak_responses and _ensure_agent_node()
 
-func _speak_text_async(text: String) -> void:
-    _ensure_speech_service()
-    if _speech_service == null:
-        push_warning("Speech service unavailable; cannot synthesize speech")
-        return
-    var service = _speech_service
-    var voice_report := RuntimePaths.voice_asset_report(voice)
-    if not voice_report.get("ok", false):
-        var checked := PackedStringArray(voice_report.get("candidates", PackedStringArray()))
-        push_warning("Voice assets not found for '%s'. Checked: %s" % [voice, ", ".join(checked)])
-        return
-    var assets := {
-        "model": voice_report.get("model", ""),
-        "config": voice_report.get("config", ""),
-    }
-    var output_rel := RuntimePaths.make_tts_output_path("local_agents")
-    var output_abs := ProjectSettings.globalize_path(output_rel)
-    var runtime_dir: String = _current_runtime_dir()
-    var runtime_abs := RuntimePaths.normalize_path(runtime_dir) if runtime_dir != "" else ""
-    var options := {
-        "voice_id": voice,
-        "voice_path": assets.get("model", ""),
-        "voice_config": assets.get("config", ""),
-        "output_path": output_abs,
-        "runtime_directory": runtime_abs,
-    }
-    var job_id = service.synthesize_async(text, options, Callable(self, "_on_tts_job_finished"))
-    _pending_tts_jobs[job_id] = {
-        "relative_output": output_rel,
-        "absolute_output": output_abs,
-    }
-
-func _play_tts_audio(user_path: String) -> void:
-    if _audio_player == null:
-        return
-    if _audio_player.playing:
-        _audio_player.stop()
-    var stream := ResourceLoader.load(user_path)
-    if stream is AudioStream:
-        _audio_player.stream = stream
-        _audio_player.play()
-    else:
-        push_warning("Failed to load generated audio at %s" % user_path)
-
-func _on_tts_job_finished(job_id: int, result: Dictionary) -> void:
-    var job := _pending_tts_jobs.get(job_id, {})
-    _pending_tts_jobs.erase(job_id)
-    if not result.get("ok", false):
-        var error := result.get("error", "tts_failed")
-        push_warning("Speech synthesis failed (%s)" % error)
-        return
-    var rel_path: String = String(job.get("relative_output", ""))
-    var resolved: String = String(result.get("output_path", ""))
-    if rel_path == "" and resolved != "":
-        if ProjectSettings.has_setting("application/config/name"):
-            rel_path = ProjectSettings.localize_path(resolved)
-        else:
-            rel_path = resolved
-    if rel_path == "":
-        rel_path = "user://local_agents/tts"
-    _play_tts_audio(rel_path)
-
-func _on_speech_job_failed(job_id: int, result: Dictionary) -> void:
-    if _pending_tts_jobs.has(job_id):
-        _pending_tts_jobs.erase(job_id)
-    var error := result.get("error", "speech_job_failed")
-    push_warning("Speech service job %d failed: %s" % [job_id, error])
-
 func _current_runtime_dir() -> String:
     if agent_node != null:
         var value = agent_node.get("runtime_directory")
-        var path := String(value)
+        var path: String = String(value)
         if path != "":
             return path
     return RuntimePaths.runtime_dir()
 
 func stop_managed_llama_server() -> Dictionary:
-    return _llama_server_manager.stop_managed()
+    return _server.stop_managed()
 
 func _exit_tree() -> void:
     if Engine.is_editor_hint():
         return   # @tool: nothing was started in the editor, so there is nothing to tear down
-    if _think_thread != null:
-        _think_thread.wait_to_finish()   # a think may still be in flight on quit
-        _think_thread = null
-    if _last_llama_server_shutdown_on_exit:
-        _llama_server_manager.stop_managed()
-
-func _is_llama_server_backend(opts: Dictionary) -> bool:
-    var backend := String(opts.get("backend", "")).to_lower().strip_edges()
-    return backend in [
-        "llama_server",
-        "llama-server",
-        "llama.cpp_server",
-        "llama.cpp-http",
-        "llama_cpp_http",
-        "llama_http",
-    ]
+    _jobs.join()          # a think may still be in flight on quit
+    _server.stop_on_exit()
 
 # Which weights the managed llama-server is told to serve. A per-call `server_model_path` still wins
 # (that is how LocalAgentLlmService pins its own model), then this agent's own resolution order, then

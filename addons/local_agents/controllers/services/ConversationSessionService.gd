@@ -32,7 +32,7 @@ func refresh_conversations() -> Dictionary:
             "selected_index": -1,
             "selected_id": -1,
         }
-    var desired_id := _selected_conversation_id
+    var desired_id: int = _selected_conversation_id
     _conversation_index = []
     var raw_list: Array = _conversation_store.list_conversations()
     for i in raw_list.size():
@@ -59,7 +59,7 @@ func refresh_conversations() -> Dictionary:
         else:
             _conversation_index = [{"id": 0, "title": "Conversation"}]
 
-    var selected_index := 0
+    var selected_index: int = 0
     if desired_id != -1:
         for idx in _conversation_index.size():
             if _conversation_index[idx].get("id", -1) == desired_id:
@@ -82,7 +82,7 @@ func select_conversation_by_list_index(index: int) -> int:
 func create_conversation() -> int:
     if not _conversation_store:
         return -1
-    var title := "Conversation %d" % (_conversation_index.size() + 1)
+    var title: String = "Conversation %d" % (_conversation_index.size() + 1)
     var convo: Dictionary = {}
     if _conversation_store.has_method("create_conversation"):
         var convo_variant: Variant = _conversation_store.create_conversation(title)

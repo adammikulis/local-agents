@@ -140,4 +140,9 @@ static func emit_smoke_summary(w) -> void:
 	if _cam != null:
 		LASimReport.gauge("camera_far", _cam.far)   # proof the draw-distance knob bites
 	LASimReport.emit()
+	# The same end-of-run sentinel every LocalAgentDemoHarness prints, so run_sim_offscreen.sh can tell
+	# a finished run from a progress line. It cannot infer that from SIM_REPORT alone: this harness
+	# also emits POP_TRACE={"frame":N,...} every 180 frames, which is equally JSON-shaped, and a
+	# watchdog matching on shape killed healthy 800- and 1200-frame runs at frame 180.
+	LocalAgentDemoHarness.print_complete(0)
 	LAAppExit.request(w, 0)

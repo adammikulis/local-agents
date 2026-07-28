@@ -10,8 +10,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GODOT="${GODOT:-godot}"
-# The headless smoke target. Deliberately the menu, not the voxel world: headless has no GPU
-# compute device, so the planet scene cannot boot here (use run_sim_offscreen.sh for that).
+# The headless smoke target. Deliberately the menu, not the voxel world. VoxelWorld.tscn does BOOT
+# headless and exits rc 0 (measured 2026-07-28: 5.3s), but headless has no compute device, so its
+# SIM_REPORT comes back EMPTY — active_cells 0, biomass 0, heat_cells 0, temp flat, no field_* gauges —
+# where the same run windowed reports active_cells ~27.5k. It fails silently rather than loudly, so a
+# headless voxel smoke would be a green light that measured nothing. Use run_sim_offscreen.sh for it.
 # Was pointing at scenes/simulation/WorldSimulation.tscn, deleted with the old stack.
 MAIN_SCENE="res://addons/local_agents/game/menu/MainMenu.tscn"
 
@@ -34,6 +37,8 @@ Commands:
                 e.g. bounded --suite=fast --workers=2
   single <f> [a] Run one test via scripts/run_single_test.sh <f> [--timeout=120].
   smoke         Boot the main scene headless briefly; fail on script/parse errors.
+  demo [args]   Run example scenes BARE HEADLESS via scripts/run_demo.sh (~1s each).
+                e.g. demo --list | demo --all [frames] | demo BoxFieldDemo [frames]
   extension     Validate the GDExtension via scripts/check_extension.gd.
   lint          Run lint checks: no-direct-refcounted (gate) + file-length &amp;
                 policy markers (advisory).
@@ -57,7 +62,7 @@ fi
 shift || true
 
 case "$cmd" in
-  fast|all|bounded|single|smoke|extension|lint) ;;
+  fast|all|bounded|single|smoke|extension|lint|demo) ;;
   *)
     echo "agent_harness: unknown command '$cmd'" >&2
     usage >&2
@@ -93,6 +98,9 @@ case "$cmd" in
   smoke)
     child=("$GODOT" --headless --no-window --quit-after 120 "$MAIN_SCENE")
     ;;
+  demo)
+    child=("$SCRIPT_DIR/run_demo.sh" "$@")
+    ;;
   extension)
     child=("$GODOT" -s scripts/check_extension.gd)
     ;;
@@ -120,13 +128,33 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_no_direct_refcounted_invocation.sh ($rc_gate)"
       exit 1
     fi
-    # Gate: no inferred typing (:=) in the new voxel scene.
+    # Gate: no inferred typing (:=) in the enforced directories.
     set +e
     "$SCRIPT_DIR/check_no_inferred_typing.sh"
     rc_typing=$?
     set -e
     if [[ $rc_typing -ne 0 ]]; then
       echo "LINT_FAIL: check_no_inferred_typing.sh ($rc_typing)"
+      exit 1
+    fi
+    # Gate: no @tool script writing serialised state in the editor. Two independently written nodes
+    # shipped that bug (silently editing the user's .tscn) before this existed.
+    set +e
+    "$SCRIPT_DIR/check_tool_safety.sh"
+    rc_tool=$?
+    set -e
+    if [[ $rc_tool -ne 0 ]]; then
+      echo "LINT_FAIL: check_tool_safety.sh ($rc_tool)"
+      exit 1
+    fi
+    # Gate: the addon still parses with the game deleted. docs/USAGE.md promises this; nothing
+    # enforced it, and it had already rotted once.
+    set +e
+    "$SCRIPT_DIR/check_library_only.sh"
+    rc_libonly=$?
+    set -e
+    if [[ $rc_libonly -ne 0 ]]; then
+      echo "LINT_FAIL: check_library_only.sh ($rc_libonly)"
       exit 1
     fi
     echo "All lint gates passed (file-length + policy markers are advisory)."
@@ -166,6 +194,20 @@ if [[ -n "$result_json" ]]; then
   f="$(printf '%s' "$result_json" | grep -oE '"failed"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | head -n1)"
   [[ -n "$p" ]] && passed="$p"
   [[ -n "$f" ]] && failed="$f"
+fi
+
+# run_demo.sh --all closes with RUN_DEMO_ALL={"ran":N,"failed":N,...}; map it onto passed/failed so the
+# demo command emits the same shape of result line as the test commands.
+if [[ "$cmd" == "demo" && "$passed" == "null" ]]; then
+  demo_json="$(grep -o 'RUN_DEMO_ALL=.*' "$LOG_FILE" 2>/dev/null | tail -n 1)"
+  if [[ -n "$demo_json" ]]; then
+    ran="$(printf '%s' "$demo_json" | grep -oE '"ran"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | head -n1)"
+    f="$(printf '%s' "$demo_json" | grep -oE '"failed"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+$' | head -n1)"
+    if [[ -n "$ran" && -n "$f" ]]; then
+      passed="$((ran - f))"
+      failed="$f"
+    fi
+  fi
 fi
 
 # Legacy markers: "<N> passed" / "<N> failed" summary lines.

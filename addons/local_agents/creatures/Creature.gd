@@ -19,16 +19,8 @@ const GROUP_CREATURE: String = "creature"
 const GROUP_ROCK: String = "rock"
 const GROUP_CARRION: String = "carrion"
 const PREDATOR_SIZE_RATIO: float = 1.2     # flee anything this many times my size that hunts
-# COAST AVOIDANCE: a land walker won't step onto ground that sits more than this far below the sea shell (i.e.
-# into deep, drownable water) — it stays on land instead of wandering/fleeing off a shoreline into the ocean.
-# The shallow shore (for drinking) stays open; only genuinely deep water is a soft wall. Flyers are exempt.
-const COAST_AVOID_DEPTH: float = 3.0
-# Flyers turn GRADUALLY (max radians/sec) so flocks wheel and vultures circle wide instead of
-# snapping direction every frame — the fix for frantic, too-fast circling.
-const BIRD_TURN_RATE: float = 1.5
-const GROUND_TURN_RATE: float = 6.0        # ground creatures turn briskly-but-smoothly toward their decided
-                                           # heading each frame, so throttled decisions don't read as jerky pops
-const THINK_STRIDE: int = 3                 # decide every N physics frames (movement stays every-frame)
+# Turn rates + coast avoidance live in LACreatureLocomotion (which owns the movement step); the think and
+# physics-rate stride constants live in LACreatureLod (which owns the decision + update cadence).
 
 # --- energy / hunger / mortality (emergent: eat to live, starve or age to die) ---
 var energy: float = 100.0
@@ -135,17 +127,9 @@ var is_male: bool = false
 var can_fly: bool = false
 var cruise_height: float = 12.0
 var sense_radius: float = 8.0
-# COHORT DESYNC: every individual gets its OWN maturity/lifespan, jittered around the species value, so a
-# generation doesn't mature, breed and die in lockstep. Without this, founders (all spawned at age 0 with an
-# identical species maturity_age) came of age together, bred in one pulse, then that whole cohort aged out
-# together — a synchronized boom-bust (the ~frame-360 peak then crash, and the old-age death spike). The spread
-# smears each of those events over a window, so births/deaths overlap generations and the population oscillates
-# gently around carrying capacity instead of pulsing. randf is on the run's seeded RNG → reproducible.
-const MATURITY_VARIANCE: float = 0.45    # ±fraction on per-individual maturity_age
-const LIFESPAN_VARIANCE: float = 0.45    # ±fraction on per-individual max_age — WIDE, so even a big single-
-                                         # generation boom (an overshoot cohort) ages out over a LONG spread of
-                                         # time (overlapping generations) instead of dying together in one pulse
-                                         # that crashes the population below its recovery floor (the boom-bust)
+# COHORT DESYNC: every individual gets its OWN maturity/lifespan, jittered around the species value at spawn
+# so a generation doesn't mature, breed and die in lockstep (the variance constants + the jitter live in
+# LACreatureSetup, which owns the whole spawn-time config expression).
 var maturity_age: float = 15.0
 var preys_on: PackedStringArray = PackedStringArray()
 var flees_from: PackedStringArray = PackedStringArray()
@@ -205,40 +189,22 @@ var _mesh: MeshInstance3D = null
 var _model_root: Node3D = null
 var _model_anim: AnimationPlayer = null
 var _model_anims: Dictionary = {}
-# Animation-framerate LOD state: accumulated real time since this creature's last skeleton update, and its
-# instance-staggered phase so the population's animation frames spread evenly instead of all landing together.
+# Animation-framerate + collision LOD state, driven by LACreatureAnim (which owns both throttles and the
+# animation playback): accumulated real time since this creature's last skeleton update, its instance-
+# staggered phase so the population's animation frames spread evenly, and the last computed stride (read by
+# telemetry). _collision_shape is set in LACreatureBody.build_body; _collision_on tracks the pick shape's
+# current broadphase state to avoid redundant toggles.
 var _anim_accum: float = 0.0
 var _anim_phase: int = -1
 var _anim_stride: int = 1            # last computed animation-update stride (1 = every frame); telemetry reads it
-# Collision-LOD: the creature's pick shape is disabled (removed from the physics broadphase) when it is far
-# from the camera — it isn't clickable at that range anyway, and 229 moving bodies each updating their
-# broadphase AABB every frame is a large engine cost. Re-enabled when it comes near. _collision_shape is set
-# in LACreatureBody.build_body; _collision_on tracks the current state to avoid redundant toggles.
 var _collision_shape: CollisionShape3D = null
 var _collision_on: bool = true
-# Beyond this squared camera distance (~250 m, matching the animation band) the pick shape is dropped from the
-# broadphase. Same reasoning as ANIM_LOD: this camera dollies, so distance tracks on-screen size.
-const COLLISION_LOD_D2: float = 62500.0
-static var _collision_lod_off: bool = OS.has_environment("LA_NO_COLLISION_LOD")   # A/B knob: force collision always on
-# The distance at which camera-relevance has fallen to 0.5 (LALodStride.relevance_from_distance): at 0 m
-# relevance=1 -> stride 1 (every frame), growing smoothly (no cutoff) and capped at ANIM_STRIDE_MAX. Tuned
-# so the creatures under the view (the eye sits ~95-220 m up) still update near every frame while the
-# far-side population updates a few times a second. One number, no separate rate+cap pair to keep in sync.
-const ANIM_LOD_CHARACTERISTIC_DISTANCE: float = 45.0
-const ANIM_STRIDE_MAX: int = 8      # farthest creatures update every 8th frame (~7 Hz) — imperceptible at range
-# Dev A/B knob (LA_NO_ANIM_LOD=1): force every creature to animate every frame (the pre-LOD behaviour) so the
-# animation-LOD win can be measured against a same-machine baseline. Off in normal play.
-static var _anim_lod_off: bool = OS.has_environment("LA_NO_ANIM_LOD")
 var _model_run_speed: float = 999.0
 var _vis_prev_pos: Vector3 = Vector3.ZERO
 var _vis_t: float = 0.0
 
 # --- behavior-state debug tint (DebugPanel HIGHLIGHT · BEHAVIOR) -----------------------------------
-# When a behavior category is enabled in the debug panel, a creature whose current `state` maps to that
-# category is dyed with an emissive overlay (Foraging=green, Hunting=red, …). The enabled set is shared
-# (static) across all creatures; each creature applies/clears its own overlay only when its category
-# changes — cheap, no central per-frame scan. Empty set => zero cost (early-out below).
-static var _behavior_tints: Dictionary = {}       # category -> Color (the currently-enabled highlights)
+# Per-creature state only; the shared enabled-category set + all the painting logic live in LACreatureTint.
 var _tint_category: String = ""                   # the category currently painted on this creature ("" = none)
 var _tint_mat: StandardMaterial3D = null          # per-creature emissive overlay (reused across colours)
 var _tint_targets: Array = []                      # cached MeshInstance3D nodes to overlay (lazy)
@@ -247,7 +213,8 @@ var _tint_targets: Array = []                      # cached MeshInstance3D nodes
 var _panic_timer: float = 0.0
 var _panic_source: Vector3 = Vector3.ZERO
 
-# --- decision throttling: think every THINK_STRIDE frames (instance-staggered), move every frame ---
+# --- decision throttling (cadence owned by LACreatureLod): think every N frames (instance-staggered),
+# move every frame ---
 var _eff_speed: float = 0.0                 # decided speed, carried between think-frames
 var _think_phase: int = -1                  # per-instance stagger offset (lazily set on first tick)
 var _force_think: bool = false              # acute event (scare/damage) → re-decide next frame
@@ -374,120 +341,18 @@ func debug_heading() -> Vector3:
 	return _heading
 
 
-# --- behavior-state debug tint -------------------------------------------------------------------
+# --- behavior-state debug tint (all logic in LACreatureTint) --------------------------------------
 
 ## Enable/disable a behavior-state highlight globally (called by VoxelDebugWiring from the DebugPanel).
 ## The tint applies to whichever creatures are in a matching state; multiple categories can be on at once.
 static func set_behavior_highlight(category: String, col: Color, on: bool) -> void:
-	if on:
-		_behavior_tints[category] = col
-	else:
-		_behavior_tints.erase(category)
-
-
-## Map a raw think/state string (LACreatureThink) to a debug highlight CATEGORY. Idle/wander/cruise/soar/
-## circle/migrate/investigate have no category ("") — they are the un-tinted default.
-static func _state_category(s: String) -> String:
-	match s:
-		"eat":
-			return "foraging"
-		"chase", "stalk", "track", "throw":
-			return "hunting"
-		"flee", "panic":
-			return "fleeing"
-		"drink", "seek":
-			return "drinking"
-		"rest", "sleep", "roost":
-			return "sleeping"
-		"nesting":
-			return "nesting"
-		_:
-			return ""
-
-
-## Re-evaluate this creature's tint against the current enabled set (paint/clear only if the category
-## changed). Cheap: an O(1) category lookup, does real material work solely on a change.
-func _update_state_tint() -> void:
-	if _behavior_tints.is_empty():
-		if _tint_category != "":
-			_tint_category = ""
-			_apply_tint_overlay(Color.WHITE, false)
-		return
-	# The LLM slow-brain highlight (thinking/queued) takes priority over the behavior-state tint so a live
-	# model consult is always the visible dye; falls back to the behavior-state category otherwise.
-	var cat: String = _cognition_highlight_category()
-	if cat == "":
-		cat = _state_category(state)
-	var want: String = cat if _behavior_tints.has(cat) else ""
-	if want == _tint_category:
-		return
-	_tint_category = want
-	if want == "":
-		_apply_tint_overlay(Color.WHITE, false)
-	else:
-		_apply_tint_overlay(_behavior_tints[want], true)
-
-
-## The LLM slow-brain highlight category for this creature ("llm_thinking"/"llm_queued"/""), asked only
-## when that highlight is enabled. Reads the shared scheduler through this creature's cognition — O(1)
-## scheduler lookups, no per-frame scan (and a no-op early-out when neither highlight is registered).
-func _cognition_highlight_category() -> String:
-	if _cognition == null:
-		return ""
-	var want_thinking: bool = _behavior_tints.has(LALLMControl.HL_THINKING)
-	var want_queued: bool = _behavior_tints.has(LALLMControl.HL_QUEUED)
-	if not (want_thinking or want_queued):
-		return ""
-	var sched = _cognition.scheduler()
-	if sched == null:
-		return ""
-	if want_thinking and sched.is_thinking(self):
-		return LALLMControl.HL_THINKING
-	if want_queued and sched.is_queued(self):
-		return LALLMControl.HL_QUEUED
-	return ""
+	LACreatureTint.set_highlight(category, col, on)
 
 
 ## Force a fresh tint evaluation (VoxelDebugWiring calls this on a checkbox toggle so live creatures
 ## update at once rather than waiting for their next state change).
 func refresh_state_tint() -> void:
-	_tint_category = "__force__"                 # impossible category → forces _update_state_tint to reapply
-	_update_state_tint()
-
-
-# Paint (or clear) the emissive tint overlay on every visual mesh of this creature. Uses material_overlay
-# so it layers over the model/capsule material without mutating the (species-shared) base materials.
-func _apply_tint_overlay(col: Color, on: bool) -> void:
-	if _tint_targets.is_empty():
-		_collect_tint_targets()
-	var mat: Material = null
-	if on:
-		if _tint_mat == null:
-			_tint_mat = StandardMaterial3D.new()
-			_tint_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			_tint_mat.emission_enabled = true
-		_tint_mat.albedo_color = Color(col.r, col.g, col.b, 0.5)
-		_tint_mat.emission = col
-		_tint_mat.emission_energy_multiplier = 0.9
-		mat = _tint_mat
-	for mi in _tint_targets:
-		if is_instance_valid(mi):
-			mi.material_overlay = mat
-
-
-func _collect_tint_targets() -> void:
-	_tint_targets = []
-	if _mesh != null:
-		_tint_targets.append(_mesh)
-	elif _model_root != null:
-		_gather_mesh_instances(_model_root, _tint_targets)
-
-
-func _gather_mesh_instances(node: Node, out: Array) -> void:
-	if node is MeshInstance3D:
-		out.append(node)
-	for child in node.get_children():
-		_gather_mesh_instances(child, out)
+	LACreatureTint.refresh(self)
 
 
 func set_ecology(e) -> void:
@@ -583,136 +448,11 @@ func die(cause: String = "", impulse: Vector3 = Vector3.ZERO) -> void:
 	LACreatureRagdoll.launch(self, impulse, true)
 
 
+## Spawn-time configuration: express the genome/species config onto this individual, build the body, and
+## construct the per-creature sub-state modules. Thin forwarder — the whole pass lives in LACreatureSetup
+## (off this monolith), which writes the trait fields declared above.
 func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
-	# Terrain is the only hard dependency for the movement path. With no voxel planet injected (a standalone
-	# creature on a plain floor), default to the FLAT-ground adapter so up_at/surface_point/ground_point/etc.
-	# resolve against y=0 instead of null-derefing. VoxelWorld still injects LAVoxelTerrainService (the sphere
-	# adapter) for the planet path; both honour the same duck-typed terrain contract (see LAFlatGroundTerrain).
-	terrain = _terrain if _terrain != null else LAFlatGroundTerrain.new()
-	# Genome drives the config: an offspring/evolved creature is passed a genome and we express it;
-	# otherwise we build an ancestral genome from the species template so EVERY creature has
-	# heritable genes (and per-individual variation once bred).
-	if _genome_arg != null:
-		_genome = _genome_arg
-		config = _genome.express()
-	else:
-		config = _config.duplicate(true)
-		_genome = LADNA.from_config(config)
-	species = String(config.get("species", species))
-	diet = String(config.get("diet", diet))
-	speed = float(config.get("speed", speed))
-	size = float(config.get("size", size))
-	color = config.get("color", color)
-	can_fly = bool(config.get("can_fly", can_fly))
-	cruise_height = float(config.get("cruise_height", cruise_height))
-	sense_radius = float(config.get("sense_radius", sense_radius))
-	maturity_age = float(config.get("maturity_age", maturity_age))
-	# COHORT DESYNC (see MATURITY_VARIANCE): per-individual jitter so a generation doesn't come of age in
-	# lockstep. Applied to the founder template AND to bred offspring (extra non-heritable phenotype spread on
-	# top of the genome's own maturity gene) — both need breaking up. max_age is jittered separately below.
-	maturity_age *= 1.0 + randf_range(-MATURITY_VARIANCE, MATURITY_VARIANCE)
-	preys_on = PackedStringArray(config.get("preys_on", PackedStringArray()))
-	flees_from = PackedStringArray(config.get("flees_from", PackedStringArray()))
-	herd = bool(config.get("herd", herd))
-	leader_loyalty = float(config.get("leader_loyalty", leader_loyalty))
-	hierarchy = String(config.get("hierarchy", hierarchy))
-	nocturnal = bool(config.get("nocturnal", nocturnal))
-	flock_cohesion = float(config.get("flock_cohesion", flock_cohesion))
-	flock_alignment = float(config.get("flock_alignment", flock_alignment))
-	flock_separation = float(config.get("flock_separation", flock_separation))
-	flock_radius = float(config.get("flock_radius", sense_radius))
-	flock_weight = float(config.get("flock_weight", flock_weight))
-	max_energy = float(config.get("max_energy", 100.0))
-	energy = max_energy
-	# HP scales with body size: a bigger animal endures more before a blast kills it.
-	max_health = float(config.get("max_health", 30.0 + size * 120.0))
-	health = max_health
-	metabolism = float(config.get("metabolism", metabolism))
-	breath_capacity = float(config.get("breath_capacity", breath_capacity))
-	_breath = breath_capacity
-	breathes = String(config.get("breathes", breathes))
-	max_hydration = float(config.get("max_hydration", 100.0))
-	hydration = max_hydration
-	thirst_rate = float(config.get("thirst_rate", thirst_rate))
-	food_value = float(config.get("food_value", size * 90.0))
-	max_age = float(config.get("max_age", maxf(maturity_age * 5.0, 60.0)))
-	# COHORT DESYNC: independent lifespan jitter so an age-matched cohort doesn't die of old age all at once
-	# (the old-age death spike). max_age is not a heritable gene (it tracks maturity_age*5), so this is the only
-	# spread it gets — apply it per individual.
-	max_age *= 1.0 + randf_range(-LIFESPAN_VARIANCE, LIFESPAN_VARIANCE)
-	# FOUNDER AGE SPREAD: the starting population is placed all at once. If every founder began at age 0 they
-	# would all cross maturity together and breed in one pulse (the initial boom that then busts). Seed founders
-	# across a range of ages — a natural standing age structure of juveniles through adults — so births spread out
-	# from frame one. Bred offspring (genome passed) are TRUE newborns (age 0); only the initial cohort is spread.
-	if _genome_arg == null:
-		# Spread founders across juvenile→young-adult (not up to old age): enough to desync the first maturation
-		# wave, but WITHOUT front-loading old-age deaths by seeding founders already near the end of their lives
-		# (which threw the initial cohort straight into a die-off). A standing age structure of the young + prime.
-		age = randf() * maturity_age * 1.8
-	# SEX: ~50/50 at birth via the seeded sim RNG (reproducible; not a heritable trait). A config override
-	# ("sex": "male"/"female") is honoured for tests/set-pieces.
-	if config.has("sex"):
-		is_male = String(config.get("sex", "")) == "male"
-	else:
-		is_male = LASimRng.shared().randf() < 0.5
-	# ORNAMENT TINT: warm a displaying male's base colour by his display gene so brighter males are visibly
-	# brighter. Static (set once from the gene) — as sexual selection raises the lineage's mean display gene the
-	# whole population visibly warms over generations, without a per-frame tint that would fight the debug tints.
-	var display_gene: float = clampf(float(config.get("display", 0.0)), 0.0, 1.0)
-	if is_male and display_gene > 0.01:
-		color = color.lerp(Color(1.0, 0.72, 0.28), 0.6 * display_gene)
-	hungry_at = float(config.get("hungry_at", hungry_at))
-	throws = bool(config.get("throws", throws))
-	throw_range = float(config.get("throw_range", throw_range))
-	# Perception genes (with sensible per-body defaults) + kin id for social learning.
-	eye_fov = float(config.get("eye_fov", eye_fov))
-	hearing_range = float(config.get("hearing_range", sense_radius * 1.5))
-	family_id = int(config.get("family_id", get_instance_id()))
-	# Nesting is general and config-driven: ANY species that actually nests/shelters sets nests:true
-	# (birds roost in trees, mammals/snakes burrow or den) — no per-species branch here.
-	nests = bool(config.get("nests", nests))
-	nest_habitat = String(config.get("nest_habitat", "tree" if can_fly else "ground"))
-	llm_enabled = bool(config.get("llm_enabled", llm_enabled))   # export is the default; config may override
-	_target_altitude = cruise_height
-	state = "cruise" if can_fly else "wander"
-	_poop_cd = randf_range(20.0, 45.0)
-	_call_cd = randf_range(0.0, 2.0)
-
-	collision_layer = 2
-	collision_mask = 0                    # movement is manual; picked via layer-2 query
-	LACreatureBody.build_body(self)
-	add_to_group(GROUP_SELECTABLE)
-	add_to_group(_species_group(species))
-	add_to_group(GROUP_CREATURE)
-	_heading = Vector3(randf() * 2.0 - 1.0, 0.0, randf() * 2.0 - 1.0).normalized()
-	if _heading == Vector3.ZERO:
-		_heading = Vector3.FORWARD
-
-	# The fast/slow brain: born with the genome's baked instinct priors; learns the rest by living
-	# and by watching kin. The shared slow-brain scheduler is injected separately (set_cognition_scheduler).
-	_cognition = LACognition.new()
-	_cognition.seed_from_genome(_genome)
-	# Born-in chemical instincts: the genome's cue priors become starting scent valences (a blood-wary
-	# lineage is born avoiding the blood scent, a carrion-hungry one drawn to the food scent). Lifetime
-	# smell/taste learning refines them and observe() spreads them to kin — see LACreatureChemSense.
-	LACreatureChemSense.seed_priors(self)
-	# Size the gut from max energy and pick the microbiome from diet (herbivores ferment plant matter).
-	LACreatureDigestion.setup(self)
-	disease = LACreatureDisease.new()        # per-creature disease/immune state (owned off this monolith)
-	disease.setup(self, config)
-	# Gut flora, seeded from diet (herbivores born plant-fermenting); it ADAPTS to what the animal actually eats
-	# and modulates digestive yield (see LACreatureMicrobiome + LACreatureDigestion). Dynamicises the old static
-	# `microbiome` scalar. Owned off this monolith.
-	gut_microbiome = LACreatureMicrobiome.new()
-	gut_microbiome.setup(self, config)
-	# Per-creature tameness/companion state (owned off this monolith). A wild creature starts untamed;
-	# friendly interaction (feeding/petting, calm proximity to the hand) raises the bond — see LACreatureBond.
-	bond = LACreatureBond.new()
-	bond.setup(self, config)
-	# Per-creature ageing/senescence state (owned off this monolith). Captures this individual's youthful
-	# speed/max_energy baselines NOW (after config/genome expression) so age can grade them down later.
-	senescence = LACreatureSenescence.new()
-	senescence.setup(self)
+	LACreatureSetup.apply(self, _terrain, _config, _genome_arg)
 
 
 # Library drop-in self-config: a Creature.tscn placed in a scene with standalone_on_ready = true
@@ -762,7 +502,8 @@ static func _species_group(sp: String) -> String:
 
 
 # Visual-only animation: play idle/move/run (or bob a rigless model) from actual displacement.
-# Kept out of _physics_process so it never perturbs movement/AI, only presentation.
+# Kept out of _physics_process so it never perturbs movement/AI, only presentation. The animation-
+# framerate LOD, the collision LOD and the playback itself all live in LACreatureAnim.
 func _process(delta: float) -> void:
 	if Engine.is_editor_hint():
 		return                            # @tool guard — see the header note
@@ -772,165 +513,17 @@ func _process(delta: float) -> void:
 		return
 	if _ragdoll or _carcass:
 		return                            # the shadow/decay owns the transform; don't drive idle/run anim
-	# ANIMATION-FRAMERATE LOD (do-less-by-relevance): the AnimationPlayer runs in MANUAL mode, so nothing poses
-	# the skeleton until this drives it. Re-posing every skeleton at 60 Hz is a big share of the frame with a few
-	# hundred creatures, and limb motion is imperceptible at a distance — so the update stride grows smoothly as
-	# camera relevance falls off (LALodStride): every frame up close, progressively fewer updates farther out,
-	# never a hard cutoff. We accumulate real delta and advance() the mixer by the whole accumulation on the
-	# update frame, so the animation still plays at correct real-time speed — only its refresh rate drops (a far
-	# creature's gait updates a few times a second, not 60).
-	var p: Vector3 = global_position
-	_anim_accum += delta
-	var cam_d2: float = p.distance_squared_to(_camera_pos())
-	# COLLISION-LOD: drop the pick shape from the physics broadphase when far (not clickable at range), so the
-	# engine stops updating its AABB every frame as the creature walks. Reuses the camera distance computed here.
-	if _collision_shape != null and not _collision_lod_off:
-		var want_col: bool = not is_finite(cam_d2) or cam_d2 < COLLISION_LOD_D2
-		if want_col != _collision_on:
-			_collision_on = want_col
-			_collision_shape.disabled = not want_col
-	var stride: int = 1
-	if is_finite(cam_d2) and not _anim_lod_off:
-		var relevance: float = LALodStride.relevance_from_distance(sqrt(cam_d2), ANIM_LOD_CHARACTERISTIC_DISTANCE)
-		stride = LALodStride.stride_for(relevance, ANIM_STRIDE_MAX)
-	_anim_stride = stride
-	if _anim_phase < 0:
-		_anim_phase = int(get_instance_id())
-	if not LALodStride.should_run(int(Engine.get_physics_frames()), _anim_phase, stride):
-		return                            # not this creature's animation frame — hold the last pose
-	var adt: float = _anim_accum
-	_anim_accum = 0.0
-	_vis_t += adt
-	var sp: float = 0.0
-	if adt > 0.0001:
-		sp = (p - _vis_prev_pos).length() / adt
-	_vis_prev_pos = p
-	LAModelVisual.animate(_model_root, _model_anim, _model_anims, sp, _model_run_speed, _vis_t, adt)
-	if _model_anim != null:
-		_model_anim.advance(adt)          # MANUAL mode: step the mixer by the accumulated real time
+	LACreatureAnim.tick(self, delta)
 
 
-# --- decision LOD (relevance + sleep) -----------------------------------------------------------
-# The full cognition cascade is the creature's only non-trivial per-frame cost. Every-frame work
-# (metabolism, thirst, temperature, ageing, death, movement) stays every-frame so distant creatures
-# still live/die/glide correctly; only the DISCRETIONARY think cascade is throttled by how visible
-# and how idle the creature is. This spreads the cost automatically: a fraction of the population is
-# always asleep (diurnal by night / nocturnal by day, staggered), and most animals are off-screen.
-const FAR_THINK_STRIDE: int = 30           # far/off-screen discretionary thinking cap (~2 Hz)
-const SLEEP_THINK_STRIDE: int = 30         # asleep/resting: no decisions to make — heaviest throttle
-const MID_LOD_D2: float = 4900.0           # physics-LOD's legacy A/B tier boundary (LA_NO_PHYS_LOD only)
-# The distance at which camera-relevance has fallen to 0.5 (LALodStride.relevance_from_distance): stride
-# grows smoothly from THINK_STRIDE (the floor even up close — decisions never need 60 Hz resolution) up
-# to FAR_THINK_STRIDE, with no cutoff anywhere. One number, no separate rate+cap pair to keep in sync.
-const THINK_LOD_CHARACTERISTIC_DISTANCE: float = 90.0
-
-# --- Emergent local leadership (LACreatureLeadership). A `herd` creature that is NOT the local top-ranked
-# same-species individual becomes a FOLLOWER: it ADOPTS its leader's decision (the canonical action) and
-# coasts on it, so it skips the whole expensive think_* + cognition assessment and ticks slowly. Only the
-# few local leaders pay the heavy "what to do" cost. Reflexes (flee/thirst) + all pathing stay per-individual.
-const FOLLOWER_THINK_STRIDE: int = 18      # a follower re-decides rarely (~3 Hz) — it coasts on the adopted action
-# Election cadence + the LA_NO_LEADERSHIP kill-switch now live in LACreatureLeadership (all leadership logic in
-# one module); the election state-machine moved there too — _physics_process just calls maybe_elect(self, pos).
-
-# Camera position, fetched once per physics frame and shared by every creature (a single
-# get_camera_3d() lookup, not one per creature). INF when there is no active camera.
-static var _cam_frame: int = -1
-static var _cam_pos: Vector3 = Vector3(INF, INF, INF)
-
-
-func _camera_pos() -> Vector3:
-	var f: int = int(Engine.get_physics_frames())
-	if f != _cam_frame:
-		_cam_frame = f
-		var vp: Viewport = get_viewport()
-		var cam: Camera3D = vp.get_camera_3d() if vp != null else null
-		_cam_pos = cam.global_position if cam != null else Vector3(INF, INF, INF)
-	return _cam_pos
-
-
-# Global AI-tick multiplier resolved from the Sim/AI setting `la_ai_tick_frames` (published by
-# LAVoxelSettingsApplier as an Engine metadata global). Baseline is THINK_STRIDE (3) — the Medium default
-# (3) leaves every stride unchanged; a higher setting stretches all strides so the population re-decides
-# less often (cheaper CPU), a lower one tightens them. Cached once per physics frame (ONE meta read shared
-# by the whole population, mirroring _camera_pos) and clamped so creatures never freeze (min stride 1
-# enforced at the call site) nor thrash. Re-read live each frame, so a mid-game settings re-apply takes
-# effect immediately (LAVoxelSettingsApplier.publish_globals rewrites the meta on GameMode.settings_applied).
-static var _ai_scale_frame: int = -1
-static var _ai_tick_scale: float = 1.0
-
-static func _ai_tick_scale_cached() -> float:
-	var f: int = int(Engine.get_physics_frames())
-	if f != _ai_scale_frame:
-		_ai_scale_frame = f
-		var n: float = float(Engine.get_meta("la_ai_tick_frames", THINK_STRIDE)) if Engine.has_meta("la_ai_tick_frames") else float(THINK_STRIDE)
-		_ai_tick_scale = clampf(n / float(THINK_STRIDE), 0.34, 20.0)
-	return _ai_tick_scale
-
-
-# The LOD/distance base stride, then scaled by the AI-tick setting in _think_stride.
-func _think_stride() -> int:
-	return maxi(1, int(round(float(_base_think_stride()) * _ai_tick_scale_cached())))
-
-
-# How often THIS creature runs the discretionary think cascade, in physics frames. Sleep is cheapest,
-# then distance-graded for idle/discretionary states; time-critical states (fleeing, hunting, drinking)
-# stay at the full near rate at any distance so an off-screen chase or a drink never stalls.
-func _base_think_stride() -> int:
-	if state == "sleep" or state == "roost" or state == "nesting" or state == "rest":
-		return SLEEP_THINK_STRIDE
-	if state == "flee" or state == "panic" or state == "chase" or state == "stalk" \
-			or state == "throw" or state == "seek" or state == "drink":
-		return THINK_STRIDE
-	# A follower (anyone with a valid leader — herd member, squad grunt, or a parent-following juvenile)
-	# coasts on its adopted action and re-decides rarely; its leader pays the heavy "what to do" cost.
-	# Time-critical states above already opted out, so a fleeing/drinking follower is never throttled.
-	if _leader != null and is_instance_valid(_leader):
-		return FOLLOWER_THINK_STRIDE
-	var cam: Vector3 = _camera_pos()
-	if is_inf(cam.x):
-		return THINK_STRIDE
-	# Continuous relevance-driven ramp (replaces the old NEAR/MID/FAR jump-tier ladder) — no distance
-	# branch anywhere: stride grows smoothly from THINK_STRIDE, capped at FAR_THINK_STRIDE.
-	var d: float = sqrt(global_position.distance_squared_to(cam))
-	var relevance: float = LALodStride.relevance_from_distance(d, THINK_LOD_CHARACTERISTIC_DISTANCE)
-	return LALodStride.stride_for(relevance, FAR_THINK_STRIDE, THINK_STRIDE)
-
-
-# --- Per-subsystem profiling (dev tool) -------------------------------------------------------------
-# Gated by Engine meta "la_prof" (default off) — ZERO meaningful cost when off. Accumulates each phase's
-# microseconds across ALL creatures and emits avg ms/physics-frame to SIM_REPORT (cr_upkeep_ms /
-# cr_think_ms / cr_move_ms), so a headless offscreen run prints the creature hot-path breakdown with no
-# GUI profiler. The first creature to tick registers the report provider (a static Callable, so it is not
-# pruned when any one creature frees).
-static var _prof_on: bool = false
-static var _prof_reg: bool = false
-static var _prof_us: Dictionary = {}
-static var _prof_last_frame: int = 0
-
-static func _prof_add(bucket: String, t0: int) -> void:
-	_prof_us[bucket] = int(_prof_us.get(bucket, 0)) + (Time.get_ticks_usec() - t0)
-
-static func _prof_report() -> Dictionary:
-	var now: int = int(Engine.get_physics_frames())
-	var f: int = maxi(now - _prof_last_frame, 1)
-	_prof_last_frame = now
-	var out: Dictionary = {}
-	for k in _prof_us.keys():
-		out["%s_ms" % k] = (float(_prof_us[k]) / 1000.0) / float(f)
-	_prof_us = {}
-	return out
-
-
-const FAR_LOD_D2: float = 40000.0   # legacy binary-tier A/B baseline only (LA_NO_PHYS_LOD)
+# --- decision + physics-rate LOD, and the hot-path profiler ---------------------------------------
+# The full cognition cascade is the creature's only non-trivial per-frame cost, and the whole physics
+# tick runs on a relevance-derived stride with a catch-up dt. Both cadences (plus the shared camera
+# position and the global AI-tick multiplier) live in LACreatureLod; the per-subsystem microsecond
+# accounting emitted to SIM_REPORT lives in LACreatureProfile. Election cadence + the
+# LA_NO_LEADERSHIP kill-switch live in LACreatureLeadership.
 var _lod_accum: float = 0.0
-# PHYSICS-RATE LOD: the whole _physics_process (movement + physiology + think) runs on a stride derived
-# from camera relevance (LALodStride) — near-view creatures update near every frame (smooth motion), the
-# far-side population a couple times a second, smoothly in between with no cutoff. The accumulated
-# catch-up dt keeps metabolism/aging/movement distance correct; a far creature simply advances several
-# frames of motion at once (invisible at range). Same principle + shape as the animation-framerate LOD.
-const PHYS_LOD_CHARACTERISTIC_DISTANCE: float = 40.0
-const PHYS_STRIDE_MAX: int = 12     # far-side creatures update at most every 12th frame
-static var _phys_lod_off: bool = OS.has_environment("LA_NO_PHYS_LOD")   # A/B knob: force the old binary tiers
+
 
 func _physics_process(delta: float) -> void:
 	if Engine.is_editor_hint():
@@ -954,26 +547,12 @@ func _physics_process(delta: float) -> void:
 	# (_force_think from a scare/damage) always runs live. No camera -> relevance undefined -> full rate.
 	if _think_phase < 0:
 		_think_phase = int(get_instance_id())
-	if not _force_think:
-		var cam_d2: float = global_position.distance_squared_to(_camera_pos())
-		if is_finite(cam_d2):
-			_lod_accum += delta
-			var lod_stride: int
-			if _phys_lod_off:
-				lod_stride = 8 if cam_d2 > FAR_LOD_D2 else (4 if cam_d2 > MID_LOD_D2 else 1)   # legacy binary tiers (A/B baseline)
-			else:
-				var relevance: float = LALodStride.relevance_from_distance(sqrt(cam_d2), PHYS_LOD_CHARACTERISTIC_DISTANCE)
-				lod_stride = LALodStride.stride_for(relevance, PHYS_STRIDE_MAX)
-			if not LALodStride.should_run(int(Engine.get_physics_frames()), _think_phase, lod_stride):
-				return
-			delta = _lod_accum
-			_lod_accum = 0.0
-	if not _prof_reg:
-		_prof_reg = true
-		_prof_on = bool(Engine.get_meta("la_prof", false)) or OS.has_environment("LA_PROF")
-		if _prof_on:
-			LASimReport.register(LocalAgentCreature._prof_report)
-	var _pt: int = Time.get_ticks_usec() if _prof_on else 0
+	var lod_dt: float = LACreatureLod.phys_gate(self, delta)
+	if lod_dt < 0.0:
+		return                            # not this creature's update frame — its dt keeps accumulating
+	delta = lod_dt
+	var prof: bool = LACreatureProfile.ensure()
+	var _pt: int = Time.get_ticks_usec() if prof else 0
 	LACreatureLifeStage.tick(self, delta)   # advance age (life-stage owner)
 	# Ageing: grade speed / max_energy reserve down along the senescence curve (runs AFTER the age advance,
 	# BEFORE the reproduction/metabolism ticks that read the updated traits + the senescence factor).
@@ -1031,8 +610,8 @@ func _physics_process(delta: float) -> void:
 		return
 	# Short-term exertion chemistry: sprinting builds muscle lactate, resting clears it (see the speed cap below).
 	LACreatureMetabolism.tick_exertion(self, delta)
-	if _prof_on:
-		_prof_add("cr_meta", _pt)
+	if prof:
+		LACreatureProfile.add("cr_meta", _pt)
 		_pt = Time.get_ticks_usec()
 
 	# Radial locomotion: `up` points away from the planet centre. All heading/heading-flatten math projects
@@ -1043,8 +622,8 @@ func _physics_process(delta: float) -> void:
 	var ground_pos: Vector3 = terrain.surface_point(up_dir0)
 	if is_nan(ground_pos.x):
 		return                            # unmeshed / off-terrain: skip this frame
-	if _prof_on:
-		_prof_add("cr_terrain", _pt)
+	if prof:
+		LACreatureProfile.add("cr_terrain", _pt)
 		_pt = Time.get_ticks_usec()
 
 	# Digestion + marking: a fed creature periodically drops feces (soil fertility + food/musk cue), and
@@ -1066,10 +645,10 @@ func _physics_process(delta: float) -> void:
 	# An acute event (_force_think, set by scare/damage) re-decides NEXT frame regardless — so a sleeping
 	# or distant creature still wakes and reacts. Between think-frames the creature keeps gliding along its
 	# last _heading at _eff_speed — movement + metabolism below stay every-frame for smoothness.
-	if _prof_on:
-		_prof_add("cr_glue", _pt)
+	if prof:
+		LACreatureProfile.add("cr_glue", _pt)
 		_pt = Time.get_ticks_usec()
-	var stride: int = _think_stride()
+	var stride: int = LACreatureLod.think_stride(self)
 	var do_think: bool = _force_think or ((int(Engine.get_physics_frames()) + _think_phase) % stride == 0)
 	if do_think:
 		LASimReport.event("decision")   # telemetry: discretionary decisions/run — proves the AI-tick stride knob bites
@@ -1246,68 +825,21 @@ func _physics_process(delta: float) -> void:
 		_eff_speed = eff_speed * (1.0 - 0.5 * lactate)   # carry this decision to the movement of the next few frames
 		_force_think = false
 
-	if _prof_on:
-		_prof_add("cr_think", _pt)
+	if prof:
+		LACreatureProfile.add("cr_think", _pt)
 		_pt = Time.get_ticks_usec()
-	# MOVEMENT — every frame. The DECIDED heading is a TARGET the creature turns toward smoothly each
-	# frame (not snapped), so throttled decisions (every THINK_STRIDE frames) still read as fluid motion
-	# instead of 20Hz direction pops. Acute flees snap instantly (see the think block).
-	if _target_heading.length() > 0.01:
-		var turn_rate: float = BIRD_TURN_RATE if can_fly else GROUND_TURN_RATE
-		_heading = _turn_toward(_heading, _target_heading, turn_rate * delta)
-	var step: Vector3 = _heading * _eff_speed * delta
-	# Height held above the local ground: flyers use their DECIDED altitude (they descend to feed/drink/roost —
-	# _target_altitude, default cruise_height); walkers ride at body radius.
-	var offset: float = _target_altitude if can_fly else size
-	# Step in the tangent plane, then snap radially: the new ground point is along the NEW radial direction
-	# from the planet centre, and we sit `offset` above it (up == that same radial dir).
-	var new_pos: Vector3 = pos + step
-	var nud: Vector3 = (new_pos - terrain.planet_center()).normalized()
-	var gpt: Vector3 = terrain.surface_point(nud)
-	if is_nan(gpt.x):
-		gpt = ground_pos                      # unmeshed ahead: hold last known ground
-	# COAST AVOIDANCE: a land walker won't step into deep (drownable) water — if the ground ahead is well below
-	# the sea shell, hold on the current land and turn back inland, so spawned rabbits don't run off an island
-	# and drown. Flyers cross water freely; the shallow shore stays reachable for drinking.
-	elif not can_fly and terrain.has_method("sea_radius"):
-		var sea_r: float = terrain.sea_radius()
-		if sea_r > 0.0 and (gpt - terrain.planet_center()).length() < sea_r - COAST_AVOID_DEPTH:
-			gpt = ground_pos
-			_heading = -_heading                 # reflect off the coast — turn back toward land
-			_target_heading = _heading
-	global_position = gpt + nud * offset
-	if _prof_on:
-		_prof_add("cr_move", _pt)
+	# MOVEMENT — every frame: turn toward the decided TARGET heading, step, and re-seat radially on the
+	# surface (coast avoidance included). All of it lives in LACreatureLocomotion; the think cascade above
+	# only ever sets _target_heading / _eff_speed, which this carries the body along smoothly, so throttled
+	# decisions still read as fluid motion instead of 20 Hz direction pops.
+	LACreatureLocomotion.move(self, pos, ground_pos, delta)
+	if prof:
+		LACreatureProfile.add("cr_move", _pt)
 
-	if _heading.length() > 0.01:
-		# Gaze along the heading projected into the local tangent plane, with the local up as roll axis.
-		var look_up: Vector3 = terrain.up_at(global_position)
-		var fwd: Vector3 = _heading - look_up * _heading.dot(look_up)
-		if fwd.length() > 0.001:
-			var look: Vector3 = global_position + fwd
-			if not look.is_equal_approx(global_position):
-				look_at(look, look_up)
+	LACreatureLocomotion.face_heading(self)
 
 	# Behavior-state debug tint: repaint iff my category changed (free early-out when no highlights on).
-	_update_state_tint()
-
-
-# Rotate `from` toward `to` about the LOCAL up axis by at most `max_angle` radians. Both vectors are
-# projected onto the local tangent plane using the local radial up, so the turn always happens in the
-# plane the creature actually walks on.
-func _turn_toward(from: Vector3, to: Vector3, max_angle: float) -> Vector3:
-	var up: Vector3 = terrain.up_at(global_position) if terrain != null else Vector3.UP
-	var a: Vector3 = from - up * from.dot(up)
-	var b: Vector3 = to - up * to.dot(up)
-	if a.length() < 0.001:
-		return to
-	a = a.normalized()
-	if b.length() < 0.001:
-		return a
-	b = b.normalized()
-	var ang: float = a.signed_angle_to(b, up)
-	var clamped: float = clampf(ang, -max_angle, max_angle)
-	return a.rotated(up, clamped)
+	LACreatureTint.update(self)
 
 
 # Off-hours: diurnal animals rest at night, nocturnal ones by day — from the one `nocturnal` flag +

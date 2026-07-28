@@ -4,9 +4,9 @@ class_name LocalAgentChatController
 
 signal prompt_input_received(text)
 
-const DEFAULT_STORE := preload("res://addons/local_agents/controllers/ConversationStore.gd")
-const ConversationSessionService := preload("res://addons/local_agents/controllers/services/ConversationSessionService.gd")
-const ConversationHistoryService := preload("res://addons/local_agents/controllers/services/ConversationHistoryService.gd")
+const DEFAULT_STORE: GDScript = preload("res://addons/local_agents/controllers/ConversationStore.gd")
+const ConversationSessionService: GDScript = preload("res://addons/local_agents/controllers/services/ConversationSessionService.gd")
+const ConversationHistoryService: GDScript = preload("res://addons/local_agents/controllers/services/ConversationHistoryService.gd")
 const Status: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.gd")
 
 @onready var _model_option: OptionButton = %ModelOptionButton
@@ -41,8 +41,8 @@ var _conversation_session_service
 var _conversation_history_service
 var _manager: LocalAgentManager
 var _agent: LocalAgent
-var _is_generating := false
-var _status_text := "Idle"
+var _is_generating: bool = false
+var _status_text: String = "Idle"
 
 func _ready() -> void:
 	_conversation_session_service = ConversationSessionService.new()
@@ -98,7 +98,7 @@ func _locate_tab_container() -> TabContainer:
 func _get_configuration_panel() -> LocalAgentConfigurationPanel:
 	if not _tab_container:
 		return null
-	var panel_node := _tab_container.get_node_or_null("Configuration")
+	var panel_node: Node = _tab_container.get_node_or_null("Configuration")
 	if panel_node and panel_node is LocalAgentConfigurationPanel:
 		return panel_node
 	return null
@@ -112,7 +112,7 @@ func _open_configuration_panel(section: String) -> void:
 		push_warning("Configuration tab unavailable")
 		return
 	_configuration_panel.refresh_configs()
-	var tab_index := _tab_container.get_tab_idx_from_control(_configuration_panel)
+	var tab_index: int = _tab_container.get_tab_idx_from_control(_configuration_panel)
 	if tab_index != -1:
 		_tab_container.current_tab = tab_index
 	match section:
@@ -185,7 +185,7 @@ func _refresh_conversations() -> void:
 func _on_model_selected(index: int) -> void:
 	if not _manager:
 		return
-	var configs := _manager.get_model_configs()
+	var configs: Array = _manager.get_model_configs()
 	if index < 0 or index >= configs.size():
 		return
 	_manager.apply_model_config(configs[index])
@@ -193,7 +193,7 @@ func _on_model_selected(index: int) -> void:
 func _on_inference_selected(index: int) -> void:
 	if not _manager:
 		return
-	var configs := _manager.get_inference_configs()
+	var configs: Array = _manager.get_inference_configs()
 	if index < 0 or index >= configs.size():
 		return
 	_manager.apply_inference_config(configs[index])
@@ -210,7 +210,7 @@ func _on_load_model_pressed() -> void:
 		_update_status("No default model configured")
 		return
 	var ok: bool = _agent.agent_node.load_model(default_model, {})
-	var status_text := "Model loaded" if ok else "Failed to load model"
+	var status_text: String = "Model loaded" if ok else "Failed to load model"
 	_update_status(status_text)
 	_update_state_labels()
 
@@ -244,7 +244,7 @@ func _on_rename_confirmed() -> void:
 	if selected_conversation_id == -1:
 		_rename_window.hide()
 		return
-	var new_title := _rename_line_edit.text.strip_edges()
+	var new_title: String = _rename_line_edit.text.strip_edges()
 	if new_title.is_empty():
 		_rename_window.hide()
 		return
@@ -265,7 +265,7 @@ func _on_delete_conversation_pressed() -> void:
 func _on_send_pressed() -> void:
 	if _is_generating:
 		return
-	var text := _prompt_edit.text.strip_edges()
+	var text: String = _prompt_edit.text.strip_edges()
 	if text.is_empty():
 		return
 	_prompt_edit.text = ""
@@ -350,9 +350,9 @@ func _refresh_graph() -> void:
 
 func _refresh_graph_with_conversation(convo: Dictionary) -> void:
 	_conversation_graph.clear()
-	var root := _conversation_graph.create_item()
+	var root: TreeItem = _conversation_graph.create_item()
 	root.set_text(0, convo.get("title", "Conversation"))
-	var convo_messages_variant := convo.get("messages", [])
+	var convo_messages_variant: Variant = convo.get("messages", [])
 	var convo_messages: Array = []
 	if convo_messages_variant is Array:
 		convo_messages = convo_messages_variant
@@ -360,7 +360,7 @@ func _refresh_graph_with_conversation(convo: Dictionary) -> void:
 		var message: Dictionary = {}
 		if message_variant is Dictionary:
 			message = message_variant
-		var item := _conversation_graph.create_item(root)
+		var item: TreeItem = _conversation_graph.create_item(root)
 		item.set_text(0, "%s #%d" % [message.get("role", "user"), message.get("order", 0)])
 		item.set_metadata(0, message)
 

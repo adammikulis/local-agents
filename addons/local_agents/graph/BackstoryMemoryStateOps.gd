@@ -97,10 +97,10 @@ static func add_memory(svc, memory_id: String, npc_id: String, summary: String, 
                 "conversation_id": conversation_id,
             })
 
-    var response := {
+    var response: Dictionary = {
         "node_id": memory_node_id,
     }
-    var skip_embedding := bool(metadata.get("skip_embedding", false))
+    var skip_embedding: bool = bool(metadata.get("skip_embedding", false))
     if not skip_embedding:
         var embedding_opts: Dictionary = svc._embedding_options.duplicate(true)
         var meta_embedding_opts = metadata.get("embedding_options", null)
@@ -113,7 +113,7 @@ static func add_memory(svc, memory_id: String, npc_id: String, summary: String, 
 
 static func add_dream_memory(svc, memory_id: String, npc_id: String, summary: String, world_day: int, influence: Dictionary, importance: float, confidence: float, metadata: Dictionary) -> Dictionary:
     var merged_tags: Array = ["dream"]
-    var merged_metadata := metadata.duplicate(true)
+    var merged_metadata: Dictionary = metadata.duplicate(true)
     merged_metadata["memory_kind"] = "dream"
     merged_metadata["is_dream"] = true
     merged_metadata["is_factual"] = false
@@ -133,7 +133,7 @@ static func add_dream_memory(svc, memory_id: String, npc_id: String, summary: St
 
 static func add_thought_memory(svc, memory_id: String, npc_id: String, summary: String, world_day: int, source_refs: Array, importance: float, confidence: float, metadata: Dictionary) -> Dictionary:
     var merged_tags: Array = ["thought"]
-    var merged_metadata := metadata.duplicate(true)
+    var merged_metadata: Dictionary = metadata.duplicate(true)
     merged_metadata["memory_kind"] = "thought"
     merged_metadata["is_dream"] = false
     merged_metadata["is_factual"] = false
@@ -296,11 +296,11 @@ static func get_memory_recall_candidates(svc, npc_id: String, world_day: int, li
     var candidates: Array = []
     for row in rows:
         var data: Dictionary = row.get("data", {})
-        var row_day := int(data.get("world_day", -1))
+        var row_day: int = int(data.get("world_day", -1))
         if world_day >= 0 and row_day >= 0 and row_day > world_day:
             continue
         var metadata: Dictionary = data.get("metadata", {})
-        var is_dream := bool(metadata.get("is_dream", false))
+        var is_dream: bool = bool(metadata.get("is_dream", false))
         if not include_dreams and is_dream:
             continue
         candidates.append({
@@ -314,11 +314,11 @@ static func get_memory_recall_candidates(svc, npc_id: String, world_day: int, li
             "metadata": metadata.duplicate(true),
         })
     candidates.sort_custom(func(a, b):
-        var ia := float(a.get("importance", 0.0))
-        var ib := float(b.get("importance", 0.0))
+        var ia: float = float(a.get("importance", 0.0))
+        var ib: float = float(b.get("importance", 0.0))
         if ia == ib:
-            var da := int(a.get("world_day", -1))
-            var db := int(b.get("world_day", -1))
+            var da: int = int(a.get("world_day", -1))
+            var db: int = int(b.get("world_day", -1))
             return da > db
         return ia > ib
     )
@@ -338,10 +338,10 @@ static func index_memory_embedding(svc, memory_id: String, text: String, options
     if rows.is_empty():
         return svc._error("missing_memory", "memory_id not found", {"memory_id": memory_id})
     var row: Dictionary = rows[0]
-    var node_id := int(row.get("id", -1))
+    var node_id: int = int(row.get("id", -1))
     var data: Dictionary = row.get("data", {})
-    var npc_id := String(data.get("npc_id", ""))
-    var summary := text.strip_edges()
+    var npc_id: String = String(data.get("npc_id", ""))
+    var summary: String = text.strip_edges()
     if summary == "":
         summary = String(data.get("summary", "")).strip_edges()
     var merged: Dictionary = svc._embedding_options.duplicate(true)
@@ -379,7 +379,7 @@ static func search_memory_embeddings(svc, npc_id: String, query: String, top_k: 
         if not (item_variant is Dictionary):
             continue
         var item: Dictionary = item_variant
-        var node_id := int(item.get("node_id", -1))
+        var node_id: int = int(item.get("node_id", -1))
         if node_id == -1:
             continue
         var node: Dictionary = svc._graph.get_node(node_id)

@@ -135,7 +135,7 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 
 ## Headless Harness Invocation (Mandatory)
 
-- Preferred entrypoint: `scripts/agent_harness.sh <fast|all|bounded|single|smoke|extension|lint>`
+- Preferred entrypoint: `scripts/agent_harness.sh <fast|all|bounded|single|smoke|demo|extension|lint>`
   wraps the canonical runners, tees a log, and prints one `AGENT_HARNESS_RESULT={...}` line.
 - Always run SceneTree harness scripts via `godot --headless --no-window -s <script>`.
 - Canonical harness scripts:
@@ -149,12 +149,38 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 - Broken example: `godot --headless --no-window addons/local_agents/tests/run_all_tests.gd` (`doesn't inherit from SceneTree or MainLoop`)
 - Correct example: `godot --headless --no-window -s addons/local_agents/tests/run_single_test.gd -- --test=res://addons/local_agents/tests/test_agent_integration.gd --timeout=120`
 - Banned example: `godot --headless --no-window -s addons/local_agents/tests/test_agent_integration.gd`
-- **Voxel scene self-harness** (the active `VoxelWorld.tscn`): pass args after `--`. Headless smoke
-  `godot --headless res://addons/local_agents/game/VoxelWorld.tscn -- --run-frames=300`
-  prints `SIM_REPORT={...}`; windowed `--shoot=<png> --shoot-frames=N` screenshots, `--overview`
-  frames a wide island vista, `--time=<0..1>` sets time of day, and `--auto-meteor`/`--auto-volcano`/
-  `--auto-lightning` trigger disasters. A NEW `class_name`/`.gdextension` needs one editor scan first
+- **Which scenes need a window, and which do not.** Measured 2026-07-28 on this tree. Re-measure rather
+  than assume; getting this backwards taxes every verification in a session.
+  - **Example scenes (`addons/local_agents/examples/`) do not need a window.** Run them with
+    `scripts/run_demo.sh <name> [frames]`, or `scripts/agent_harness.sh demo --all` for the set — both
+    are bare `godot --headless`. The whole set takes **3.8s**: BoxFieldDemo 0.79s, CoreCreatureSmoke
+    0.59s, SimWorldPlanetDemo 1.11s, ThinkingCreatureDemo 0.58s, TutorialDemo 0.48s, all exit code 0.
+    (Windowed, the same four measurable scenes take 1.0-1.9s, so the window buys nothing here.)
+  - **`game/VoxelWorld.tscn` needs a window.** `scripts/run_sim_offscreen.sh --path .
+    addons/local_agents/game/VoxelWorld.tscn -- --run-frames=40` takes 7-9s and exits 0. It also *boots*
+    headless and exits 0 in 5.3s, but with no compute device the field never runs and `SIM_REPORT` comes
+    back empty: `active_cells` 0, `biomass_total` 0, `heat_cells` 0, temperatures flat at the seed value,
+    and no `field_*` gauges at all, where the same run windowed reports `active_cells` around 27.5k. That
+    is a silent empty pass, not a loud failure, so never read a headless voxel `SIM_REPORT` as evidence
+    the simulation ran.
+- **`--run-frames` and `--shoot` are a scene contract, not engine flags.** They are implemented by
+  `LocalAgentDemoHarness` (`addons/local_agents/runtime/DemoHarness.gd`). A scene without that node
+  ignores them and runs until something kills it — which is why runs used to burn the wrapper's whole
+  timeout. `scripts/run_demo.sh --list` reports which example scenes carry it (5 of 12 on 2026-07-28)
+  and refuses to launch the others. For any scene that lacks it, use the engine's own
+  `--quit-after <iterations>` instead.
+- **Voxel scene self-harness** (the active `VoxelWorld.tscn`): pass args after `--`. `--run-frames=N`
+  prints `SIM_REPORT={...}`, `--shoot=<png> --shoot-frames=N` screenshots, `--overview` frames a wide
+  island vista, `--time=<0..1>` sets time of day, and `--auto-meteor`/`--auto-volcano`/`--auto-lightning`
+  trigger disasters. Run all of them windowed through `scripts/run_sim_offscreen.sh` for the reason
+  above. A NEW `class_name`/`.gdextension` needs one editor scan first
   (`godot --headless --editor --quit-after 400`).
+- **`run_sim_offscreen.sh` names its failures instead of waiting them out.** The default
+  `LA_RUN_TIMEOUT` is 60s (was 240s), and the script watches the child's output through godot's own
+  `--log-file`, leaving stdout untouched. It exits **124** when the scene never printed a completion
+  marker (`RUN_TIMEOUT` — usually a scene with no harness) and **125** when the marker printed but the
+  process would not exit (`RUN_HUNG_AFTER_REPORT` — the exit path itself is broken), each with an
+  explanatory message on stderr. `LA_EXIT_GRACE` (default 10s) sets the post-marker grace period.
 - Never pass a harness `.gd` as a main scene path without `-s`.
 - When forwarding arguments to harnesses, keep the `--` separator.
 - Keep README command templates synchronized with this file.
@@ -240,3 +266,53 @@ var value: Variant = payload_dict.get("key", fallback)
 - The fix (`feature/clean-quit`): we take ownership of the exit. All quit call sites (VoxelWorld `--shoot`, VoxelHarness `--run-frames`, VoxelPauseMenu, MainMenu, MenuShooter) route through the `AppExit` autoload (`scenes/AppExit.gd`, class `LAAppExit`) via `LAAppExit.request(node, code)`. On a real quit it lets saves/config (already written synchronously) and `SIM_REPORT` settle for one idle frame, then calls the native `LAProcess.exit_now(code)` (`gdextensions/localagents`, `std::_Exit`): flush stdio → terminate immediately, running NO C++ static destructors and firing NO AppKit termination notification, so MoltenVK's observer never runs. Windowed `--run-frames=150` now exits **rc 0** with SIM_REPORT intact and no `recursive_mutex`/abort. The kernel reclaims all memory/GPU on `_Exit`, so no data is lost and no RID leaks persist. `LAAppExit` also sets `auto_accept_quit(false)` and handles `NOTIFICATION_WM_CLOSE_REQUEST` so the window-`X` button takes the same clean path.
 - Still-correct discipline (kept): free every RID + the local `RenderingDevice` while the tree is up (`MaterialField3D._exit_tree` → `_gpu.dispose()`, each sphere pass a `dispose(rd)`). That remains the right hygiene for the editor/headless teardown and any RID-ordering crash; the hard exit is layered on top for the windowed Metal case only.
 - Gating: a windowed Metal run should now exit `rc 0` with `SIM_REPORT` (sane aggregates) as the last meaningful line. A returning `rc=134` with the `NSApplication terminate:` → `recursive_mutex` MoltenVK frame means the quit path bypassed `LAAppExit`/`LAProcess` (check the extension loaded + the autoload is registered); any `rc=134` with a GDScript frame in the stack IS a real regression to investigate.
+- Still holding on 2026-07-28: instrumenting the chain end to end confirms `AppExit.quit` resumes past its
+  `await`, `ClassDB.class_exists("LAProcess")` is true, and `exit_now` fires — windowed and headless alike.
+
+### 2026-07-28: a "windowed runs never exit" diagnosis that was wrong, and the real cause
+
+- Symptom (real): every `scripts/run_sim_offscreen.sh` run cost 2-4 minutes and ended with the child killed,
+  which taxed every verification in the session.
+- Diagnosis that was recorded and acted on (wrong): "the scene prints its report, calls its quit path, and
+  the process does not exit", with `LAAppExit.quit()` being a coroutine (it contains `await
+  tree.process_frame`) invoked through `Object.call()` as the prime suspect.
+- What measurement showed instead. Every scene that carries a `LocalAgentDemoHarness` exits cleanly
+  windowed: BoxFieldDemo 1.7s, ThinkingCreatureDemo 1.1s, SimWorldPlanetDemo 1.9s, CoreCreatureSmoke 1.0s,
+  VoxelWorld 8.7s — all exit code 0. Temporary prints in `DemoHarness._quit` and `LAAppExit.quit` showed, in
+  windowed *and* headless runs: `_quit` reached; `/root/AppExit` present with a `quit` method;
+  `AppExit.quit` entered; **`AppExit.quit` resumed past its `await`**, so `.call()` on a coroutine does run
+  to completion; `ClassDB.class_exists("LAProcess")` true; and nothing printed after, because `exit_now`
+  fired. All four candidate causes were false.
+- Real cause: `--run-frames` is a scene contract, not an engine flag. Seven of the twelve example scenes
+  have no `LocalAgentDemoHarness`, so they ignore the flag and run forever until the watchdog kills them —
+  at a 240s ceiling. The wrapper logged only "RUN_TIMEOUT: killed godot", which is exactly what a genuine
+  hang looks like, so the log could not tell the two apart and the wrong story was the plausible one.
+- Preventative pattern:
+  - A wrapper that kills on timeout must say **which** failure it saw. `run_sim_offscreen.sh` now watches
+    the child through godot's `--log-file` (stdout untouched) and separates "never reached a report"
+    (exit 124) from "reported, then would not exit" (exit 125).
+  - Before adopting a stated root cause — including one from a reviewer, a handoff, or a previous session —
+    run the experiment that would falsify it. Here that was one instrumented run.
+  - Do not use the windowed wrapper to discover whether a scene self-terminates. Ask
+    `scripts/run_demo.sh --list` first.
+- Tail: the first version of that marker watchdog matched a bare `^[A-Z][A-Z0-9_]*=\{`, and **killed a
+  healthy 40-frame VoxelWorld run at 12.7s, before its `SIM_REPORT`**. VoxelWorld prints a dozen startup
+  status lines of exactly that shape — `PROGRESSION={mode:sandbox…}`, `GAME_HUD={ready:true}`,
+  `MUSIC_SEED={value:…}` — so the grace clock armed on line 4. The discriminator is the quote: a harness
+  report body is always JSON (`={"…`), while Godot's `Dictionary` printing leaves keys unquoted. When a
+  watchdog can kill a good run, its trigger must be validated against a real log of the run it is meant to
+  protect, not just against the string it is meant to catch.
+
+### 2026-07-28: a background `sleep` watchdog stalls any caller reading the script through a pipe
+
+- Failure: `scripts/agent_harness.sh demo --all` took **64s** to run five demos that finish in **3.8s**
+  when run directly.
+- Cause: the per-demo guard was `( sleep 60; kill -KILL $child ) &`. Killing `$guard` reaps the subshell but
+  not the `sleep` it is blocked in, and the orphaned `sleep` inherits the script's stdout — so it holds the
+  write end of the pipe into `tee` open for the full 60s, and the harness cannot finish. The same shape cost
+  a piped `run_sim_offscreen.sh` caller 1.4s through its `( sleep 3.5; osascript … ) &` focus helpers.
+- Preventative pattern: a background watchdog must poll in short slices and exit as soon as the child is
+  gone, and/or have its stdout and stderr redirected to `/dev/null` so it cannot hold a caller's pipe. Both
+  are applied now (`run_demo.sh` guard loop, `run_sim_offscreen.sh` focus subshells).
+- Quick check: if a script is fast when redirected to a file and slow through a pipe, look for a background
+  child still holding fd 1.

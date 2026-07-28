@@ -11,6 +11,12 @@ const DETERMINISTIC_TESTS: Array[String] = [
 	"res://addons/local_agents/tests/test_agent_utilities.gd",
 	"res://addons/local_agents/tests/test_synth_dsp.gd",
 	"res://addons/local_agents/tests/test_audio_music.gd",
+	# The GDScript <-> native option contract (dead exports), and the node behaviours that shipped
+	# with no tests. test_node_frames.gd runs run_frame_probe.gd in a child process for the half of
+	# that behaviour which only exists across engine frames.
+	"res://addons/local_agents/tests/test_native_option_contract.gd",
+	"res://addons/local_agents/tests/test_node_behaviour.gd",
+	"res://addons/local_agents/tests/test_node_frames.gd",
 ]
 
 const INTEGRATION_TESTS: Array[String] = []

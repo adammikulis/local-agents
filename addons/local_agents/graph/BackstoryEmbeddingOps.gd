@@ -22,15 +22,15 @@ static func index_memory_embedding_node(svc, node_id: int, memory_id: String, np
     if vector.is_empty():
         return {"ok": false, "error": "embedding_failed"}
 
-    var embedding_model := String(embed_options.get("server_model", embed_options.get("model", ""))).strip_edges()
+    var embedding_model: String = String(embed_options.get("server_model", embed_options.get("model", ""))).strip_edges()
     if embedding_model == "" and runtime.has_method("get_default_model_path"):
-        var model_path := String(runtime.call("get_default_model_path")).strip_edges()
+        var model_path: String = String(runtime.call("get_default_model_path")).strip_edges()
         if model_path != "":
             embedding_model = model_path.get_file()
     if embedding_model == "":
         embedding_model = "unknown"
 
-    var embedding_id := int(svc._graph.add_embedding(node_id, vector, {
+    var embedding_id: int = int(svc._graph.add_embedding(node_id, vector, {
         "type": "memory",
         "memory_id": memory_id,
         "npc_id": npc_id,

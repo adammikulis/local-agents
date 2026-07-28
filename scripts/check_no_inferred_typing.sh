@@ -11,6 +11,8 @@ cd "$ROOT"
 ENFORCED_DIRS=(
   "addons/local_agents/sim"
   "addons/local_agents/game"
+  "addons/local_agents/controllers"
+  "addons/local_agents/graph"
 )
 
 # Match ' := ' assignments (avoids matching '==', '<=', '>=', ':=' only as the walrus infer op).
@@ -26,9 +28,12 @@ repo_hits=$(grep -rnE "[^:]${PATTERN}[^=]" addons --include='*.gd' 2>/dev/null \
   | sort -u | wc -l | tr -d ' ')
 
 if [ -n "$enforced_hits" ]; then
-  echo "FAIL: inferred typing ':=' found in $ENFORCED_DIR (use explicit types):"
+  # NOTE: this used to interpolate $ENFORCED_DIR, which no longer exists — under `set -u` that
+  # aborted the script with "unbound variable" instead of printing the offending lines.
+  echo "FAIL: inferred typing ':=' found in an enforced directory (use explicit types):"
+  printf '  enforced: %s\n' "${ENFORCED_DIRS[@]}"
   echo "$enforced_hits"
   echo "check_no_inferred_typing: FAIL"
   exit 1
 fi
-echo "check_no_inferred_typing: OK (enforced dir clean; $repo_hits legacy files repo-wide still use ':=')"
+echo "check_no_inferred_typing: OK (${#ENFORCED_DIRS[@]} enforced dirs clean; $repo_hits legacy files repo-wide still use ':=')"

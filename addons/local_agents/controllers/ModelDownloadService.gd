@@ -2,11 +2,11 @@
 extends RefCounted
 class_name LocalAgentModelDownloadService
 
-const CATALOG_PATH := "res://addons/local_agents/models/catalog.json"
-const MODELS_ROOT := "user://local_agents/models"
-const DEFAULT_MODEL_ID := "qwen3-4b-instruct-q4_k_m"
+const CATALOG_PATH: String = "res://addons/local_agents/models/catalog.json"
+const MODELS_ROOT: String = "user://local_agents/models"
+const DEFAULT_MODEL_ID: String = "qwen3-4b-instruct-q4_k_m"
 
-const FALLBACK_MODEL := {
+const FALLBACK_MODEL: Dictionary = {
     "id": DEFAULT_MODEL_ID,
     "label": "Qwen3 4B Instruct (Q4_K_M)",
     "repo_id": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
@@ -20,7 +20,7 @@ const FALLBACK_MODEL := {
 }
 
 var _catalog_cache: Dictionary = {}
-var _catalog_loaded := false
+var _catalog_loaded: bool = false
 
 func reload_catalog() -> void:
     _catalog_loaded = false
@@ -34,12 +34,12 @@ func get_catalog() -> Dictionary:
     if not FileAccess.file_exists(CATALOG_PATH):
         push_warning("Local Agents model catalog missing: %s" % CATALOG_PATH)
         return _catalog_cache
-    var file := FileAccess.open(CATALOG_PATH, FileAccess.READ)
+    var file: FileAccess = FileAccess.open(CATALOG_PATH, FileAccess.READ)
     if file == null:
         push_warning("Unable to open model catalog: %s" % CATALOG_PATH)
         return _catalog_cache
-    var text := file.get_as_text()
-    var parsed := JSON.parse_string(text)
+    var text: String = file.get_as_text()
+    var parsed: Variant = JSON.parse_string(text)
     if typeof(parsed) == TYPE_DICTIONARY:
         _catalog_cache = parsed
     else:
@@ -47,11 +47,11 @@ func get_catalog() -> Dictionary:
     return _catalog_cache
 
 func list_families() -> Array:
-    var catalog := get_catalog()
+    var catalog: Dictionary = get_catalog()
     var families: Array = catalog.get("families", [])
     var result: Array = []
     for family_data in families:
-        var family := {
+        var family: Dictionary = {
             "id": family_data.get("id", ""),
             "label": family_data.get("label", ""),
             "description": family_data.get("description", ""),
@@ -87,14 +87,14 @@ func get_default_model() -> Dictionary:
         for model in family.get("models", []):
             if model.get("recommended", false):
                 return model
-    var fallback := _normalize_model(FALLBACK_MODEL, {
+    var fallback: Dictionary = _normalize_model(FALLBACK_MODEL, {
         "id": "fallback",
         "label": "Fallback"
     })
     return fallback
 
 func create_request(overrides: Dictionary = {}, model_id: String = "") -> Dictionary:
-    var target := {}
+    var target: Dictionary = {}
     if model_id != "":
         target = find_model(model_id)
     elif overrides.has("id"):
@@ -104,29 +104,29 @@ func create_request(overrides: Dictionary = {}, model_id: String = "") -> Dictio
     if target.is_empty():
         return {}
 
-    var url := target.get("download_url", "")
+    var url: String = target.get("download_url", "")
     if url.is_empty():
         url = _build_download_url(target)
-    var output_path := _resolve_output_path(target)
+    var output_path: String = _resolve_output_path(target)
     if output_path.is_empty():
         push_warning("Unable to resolve output path for %s" % target.get("id", ""))
         return {}
 
-    var request := {
+    var request: Dictionary = {
         "url": url,
         "output_path": output_path,
         "label": target.get("label", target.get("filename", "")),
         "force": overrides.get("force", false),
         "skip_existing": overrides.get("skip_existing", true)
     }
-    var checksum := String(target.get("sha256", ""))
+    var checksum: String = String(target.get("sha256", ""))
     if checksum != "":
         request["sha256"] = checksum
 
-    var hf_repo := target.get("hf_repo", target.get("repo_id", ""))
+    var hf_repo: String = target.get("hf_repo", target.get("repo_id", ""))
     if hf_repo != "":
         request["hf_repo"] = hf_repo
-    var hf_file := target.get("hf_file", target.get("filename", ""))
+    var hf_file: String = target.get("hf_file", target.get("filename", ""))
     if hf_file != "":
         request["hf_file"] = hf_file
     if target.has("hf_tag"):
@@ -146,9 +146,9 @@ func create_request(overrides: Dictionary = {}, model_id: String = "") -> Dictio
 func format_size(size_bytes: int) -> String:
     if size_bytes <= 0:
         return "Unknown"
-    var units := ["B", "KB", "MB", "GB", "TB"]
-    var size := float(size_bytes)
-    var idx := 0
+    var units: Array[String] = ["B", "KB", "MB", "GB", "TB"]
+    var size: float = float(size_bytes)
+    var idx: int = 0
     while size >= 1024.0 and idx < units.size() - 1:
         size /= 1024.0
         idx += 1
@@ -157,7 +157,7 @@ func format_size(size_bytes: int) -> String:
     return "%.2f %s" % [size, units[idx]]
 
 func _normalize_model(model_data: Dictionary, family: Dictionary) -> Dictionary:
-    var normalized := model_data.duplicate(true)
+    var normalized: Dictionary = model_data.duplicate(true)
     normalized["family_id"] = family.get("id", "")
     normalized["family_label"] = family.get("label", "")
     normalized["family_description"] = family.get("description", "")
@@ -165,37 +165,37 @@ func _normalize_model(model_data: Dictionary, family: Dictionary) -> Dictionary:
     normalized["repo_url"] = _build_repo_url(normalized)
     normalized["size_pretty"] = format_size(int(normalized.get("size_bytes", 0)))
     normalized["updated_timestamp"] = _parse_timestamp(normalized.get("updated_at", ""))
-    var repo_id := normalized.get("repo_id", "")
+    var repo_id: String = normalized.get("repo_id", "")
     if normalized.get("hf_repo", "") == "" and repo_id != "":
         normalized["hf_repo"] = repo_id
-    var hf_file := normalized.get("hf_file", normalized.get("filename", ""))
+    var hf_file: String = normalized.get("hf_file", normalized.get("filename", ""))
     if hf_file != "":
         normalized["hf_file"] = hf_file
     return normalized
 
 func _build_download_url(model: Dictionary) -> String:
-    var repo := model.get("repo_id", "")
-    var filename := model.get("filename", "")
+    var repo: String = model.get("repo_id", "")
+    var filename: String = model.get("filename", "")
     if repo.is_empty() or filename.is_empty():
         return ""
     return "https://huggingface.co/%s/resolve/main/%s" % [repo, filename]
 
 func _build_repo_url(model: Dictionary) -> String:
-    var repo := model.get("repo_id", "")
+    var repo: String = model.get("repo_id", "")
     if repo.is_empty():
         return ""
     return "https://huggingface.co/%s" % repo
 
 func _resolve_output_path(model: Dictionary) -> String:
-    var folder := model.get("folder", "")
-    var filename := model.get("filename", "")
+    var folder: String = model.get("folder", "")
+    var filename: String = model.get("filename", "")
     if filename.is_empty():
         return ""
-    var local_dir := MODELS_ROOT
+    var local_dir: String = MODELS_ROOT
     if not folder.is_empty():
         local_dir = "%s/%s" % [MODELS_ROOT, folder]
-    var absolute_dir := ProjectSettings.globalize_path(local_dir)
-    var err := DirAccess.make_dir_recursive_absolute(absolute_dir)
+    var absolute_dir: String = ProjectSettings.globalize_path(local_dir)
+    var err: int = DirAccess.make_dir_recursive_absolute(absolute_dir)
     if err != OK and err != ERR_ALREADY_EXISTS:
         push_warning("Unable to ensure model directory %s (error %d)" % [absolute_dir, err])
     return "%s/%s" % [absolute_dir, filename]
@@ -206,17 +206,17 @@ func _parse_timestamp(value: String) -> int:
     return int(Time.get_unix_time_from_datetime_string(value))
 
 func _compare_models(a: Dictionary, b: Dictionary) -> bool:
-    var a_time := a.get("updated_timestamp", 0)
-    var b_time := b.get("updated_timestamp", 0)
+    var a_time: int = a.get("updated_timestamp", 0)
+    var b_time: int = b.get("updated_timestamp", 0)
     if a_time != b_time:
         return a_time > b_time
-    var a_size := int(a.get("size_bytes", 0))
-    var b_size := int(b.get("size_bytes", 0))
+    var a_size: int = int(a.get("size_bytes", 0))
+    var b_size: int = int(b.get("size_bytes", 0))
     if a_size != b_size:
         return a_size > b_size
     return String(a.get("label", "")) < String(b.get("label", ""))
 
 func _compare_families(a: Dictionary, b: Dictionary) -> bool:
-    var a_label := String(a.get("label", ""))
-    var b_label := String(b.get("label", ""))
+    var a_label: String = String(a.get("label", ""))
+    var b_label: String = String(b.get("label", ""))
     return a_label < b_label

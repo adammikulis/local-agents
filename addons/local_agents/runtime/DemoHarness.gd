@@ -115,9 +115,26 @@ func _tick() -> void:
 		_quit(_exit_code())
 
 
+## The one line that means "this run is ending, deliberately". Printed immediately before the quit by
+## every harness in the repo, and by nothing else.
+##
+## An external watchdog CANNOT reliably infer completion from the report line. run_sim_offscreen.sh
+## tried, matching "an all-caps token followed by ={quote}" on the theory that only a JSON report body
+## has quoted keys — and VoxelWorld's own periodic `POP_TRACE={"frame":180,...}` matches that exactly.
+## The watchdog therefore armed at frame 180 and SIGKILLed healthy 800- and 1200-frame runs. An
+## explicit sentinel is not a heuristic and no progress line can spoof it.
+const COMPLETE_MARKER: String = "LA_RUN_COMPLETE"
+
+
 ## Print the report line now, without quitting. Public so a host can force a report at any moment.
 func emit_report() -> void:
 	print("%s%s=%s" % [report_prefix, report_suffix, _report_body()])
+
+
+## Announce a deliberate end-of-run, with the exit code that is about to be used. Static so the voxel
+## game's own harness can emit the identical marker without owning one of these nodes.
+static func print_complete(code: int) -> void:
+	print("%s={\"code\":%d}" % [COMPLETE_MARKER, code])
 
 
 func _report_body() -> String:
@@ -160,6 +177,7 @@ func _quit(code: int) -> void:
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return
+	print_complete(code)
 	if use_app_exit:
 		var app_exit: Node = tree.root.get_node_or_null("AppExit")
 		if app_exit != null and app_exit.has_method("quit"):

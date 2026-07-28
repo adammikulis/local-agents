@@ -170,8 +170,6 @@ const InjectScript: GDScript = preload("res://addons/local_agents/sim/material/M
 const SphereStepScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSphereStep3D.gd")
 const BoxStepScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldBoxStep3D.gd")
 const SurfaceSeedScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialSurfaceSeed3D.gd")
-const CoverBakerScript: GDScript = preload("res://addons/local_agents/sim/material/CoverTextureBaker.gd")
-var _cover_baker = null                                  # LACoverTextureBaker — bakes the render cover texture
 var _gpu = null                                          # LAMaterialSphereGPU3D (local RenderingDevice) or null
 var _use_gpu: bool = false
 var _core_temp: float = 0.0                              # geothermal core pin temperature (0 = disarmed)
@@ -194,6 +192,29 @@ const ShockScript: GDScript = preload("res://addons/local_agents/sim/material/Ma
 const ScentScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialScent3D.gd")
 const ChargeScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialCharge3D.gd")
 const EjectaScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialEjecta3D.gd")
+# Read-only DERIVATION modules. Each owns one cohesive family of accessors whose bodies used to inline here;
+# they hold no per-cell state (every one reaches back into this field's arrays), so the field stays the thin
+# facade + step orchestration and each family is independently ownable. Built in _init so every accessor is
+# safe to call before setup_dims/setup_sphere, exactly as the inlined bodies were.
+var _atmos = null                                        # LAMaterialFieldAtmos3D — condensate derivation + aggregates
+var _ledger = null                                       # LAMaterialFieldLedger3D — conserved H₂O ledger + snow/ice
+var _channels = null                                     # LAMaterialFieldChannels3D — per-cell gas/biomass/phase reads
+var _report_mod = null                                   # LAMaterialFieldReport3D — SIM_REPORT telemetry snapshot
+const AtmosScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldAtmos3D.gd")
+const LedgerScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldLedger3D.gd")
+const ChannelsScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldChannels3D.gd")
+const ReportScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldReport3D.gd")
+
+
+func _init() -> void:
+	_atmos = AtmosScript.new()
+	_atmos.setup(self)
+	_ledger = LedgerScript.new()
+	_ledger.setup(self)
+	_channels = ChannelsScript.new()
+	_channels.setup(self)
+	_report_mod = ReportScript.new()
+	_report_mod.setup(self)
 
 
 ## Wire the real scene sun (DirectionalLight3D); the heat module reads its energy + angle for solar input.
@@ -681,38 +702,11 @@ func salinity_at(pos: Vector3) -> float:
 
 
 # --- Atmosphere queries — all DERIVED from the one conserved `moisture` channel vs sat(T) (Phase 2a).
-# cloud/fog/vapor are no longer stored; every reader below recomputes them instantaneously from _moisture +
-# _temp. Signatures are unchanged so WeatherSystem/Thunderstorm/CloudLayer/RainLayer keep working.
-
-## Saturation humidity at temperature `t` — the dewpoint moisture is read against. MUST match the kernel
-## constants in atmos_evap/atmos_precip_sphere3d.glsl.
-func _sat(t: float) -> float:
-	return SAT_BASE * exp(SAT_TEMP_GAIN * (t - EVAP_TEMP_REF))
-
-## Suspended condensate (liquid/ice) at a linear cell = the moisture over saturation. 0 for solid/oob cells.
-func _condensed_at(cell: int) -> float:
-	if cell < 0 or cell >= _cell_count or _solid[cell] != 0:
-		return 0.0
-	return maxf(0.0, _moisture[cell] - _sat(_temp[cell]))
-
-## Cloud density at a world XZ column (0 if unresolved). Cloud = the condensate that is NOT ground fog.
-func cloud_at(x: float, z: float) -> float:
-	var c: int = world_to_cell(Vector3(x, cloud_base_y(), z))
-	if c < 0:
-		return 0.0
-	return 0.0 if _temp[c] < FOG_MAX_TEMP else _condensed_at(c)
-
-## Fog density at a world XZ column (0 if unresolved). Fog = cool near-ground condensate.
-func fog_at(x: float, z: float) -> float:
-	var c: int = world_to_cell(Vector3(x, fog_base_y(), z))
-	if c < 0:
-		return 0.0
-	return _condensed_at(c) if _temp[c] < FOG_MAX_TEMP else 0.0
-
-# Cached domain aggregates over the derived condensate. A full-grid scan (with an exp() per cell) would be
-# far too costly to run per RENDER frame (VoxelSkyCycle/RainLayer poll cover every frame at ~150Hz); instead
-# ONE pass recomputes all of them together and caches, invalidated only when a new moisture/temp field is
-# read back (~10Hz). Big-O: one O(cells) pass per SIM step, not per query × per frame.
+# cloud/fog/vapor are no longer stored; every reader recomputes them instantaneously from _moisture + _temp.
+# The derivation, the cached domain aggregates and the render cover-texture bake all live in
+# LAMaterialFieldAtmos3D; the field keeps only the cache SLOTS below (the step + snapshot modules invalidate
+# `_atmos_dirty` and read `_moisture_total_c`) plus these forwarders, so the consumer signatures
+# (WeatherSystem/Thunderstorm/CloudLayer/RainLayer) are unchanged.
 var _atmos_dirty: bool = true
 var _cloud_cover_c: float = 0.0
 var _fog_cover_c: float = 0.0
@@ -720,141 +714,70 @@ var _cloud_cells_c: int = 0
 var _precip_c: float = 0.0
 var _moisture_total_c: float = 0.0
 
-## Recompute all condensate aggregates in a single grid pass. The fog/cloud split is a temperature proxy
-## (cool, T<FOG_MAX_TEMP = fog; warmer = cloud) for the kernel's slot-0 near-ground test, which is not
-## replicated on the CPU — these are report/visual metrics only.
-func _refresh_atmos_aggregates() -> void:
-	_atmos_dirty = false
-	var cloud_n: int = 0
-	var fog_n: int = 0
-	var precip_n: int = 0
-	var total: float = 0.0
-	for i in range(_cell_count):
-		if _solid[i] != 0:
-			continue
-		var aw: float = _moisture[i]
-		total += aw
-		var cond: float = aw - _sat(_temp[i])
-		if cond <= 0.0:
-			continue
-		if cond > RAIN_MASS_THRESHOLD:
-			precip_n += 1
-		if cond >= CONDENSE_COVER_MIN:
-			if _temp[i] < FOG_MAX_TEMP:
-				fog_n += 1
-			else:
-				cloud_n += 1
-	var inv: float = 1.0 / float(_cell_count) if _cell_count > 0 else 0.0
-	_cloud_cells_c = cloud_n
-	_cloud_cover_c = float(cloud_n) * inv
-	_fog_cover_c = float(fog_n) * inv
-	_precip_c = clampf(float(precip_n) * inv * 40.0, 0.0, 1.0)
-	_moisture_total_c = total
-	# Fold the render cover-texture bake into this same ~10Hz condensate pass (the water-particle renderer
-	# samples it per particle). Cheap: one extra O(cell_count) reduction over the CPU readback we already have.
-	if _sphere != null:
-		_ensure_cover_baker()
-		if _cover_baker != null:
-			_cover_baker.bake(_moisture, _temp, _snow, _solid, _cell_count)
+## Cloud density at a world XZ column (0 if unresolved). Cloud = the condensate that is NOT ground fog.
+func cloud_at(x: float, z: float) -> float:
+	return _atmos.cloud_at(x, z)
 
-
-## Lazily build the cover-texture baker (sphere only). Callable before the first bake so the renderer can
-## read the atmosphere band radii at setup.
-func _ensure_cover_baker() -> void:
-	if _cover_baker != null or _sphere == null:
-		return
-	var sea_r: float = 248.0
-	if _terrain != null and _terrain.has_method("sea_radius"):
-		sea_r = _terrain.sea_radius()
-	_cover_baker = CoverBakerScript.new()
-	_cover_baker.setup(_sphere, sea_r, FOG_MAX_TEMP, RAIN_MASS_THRESHOLD, SAT_BASE, SAT_TEMP_GAIN, EVAP_TEMP_REF)
-
+## Fog density at a world XZ column (0 if unresolved). Fog = cool near-ground condensate.
+func fog_at(x: float, z: float) -> float:
+	return _atmos.fog_at(x, z)
 
 ## Read-only CLIMATE snapshot — the live per-cell moisture/temp/snow/solid readback the biome surface baker
-## reduces into a terrain-colour texture (LABiomeShaderController owns the baking; the field just exposes its
-## buffers). Thin facade accessor, no behaviour. Empty dict until the field is active. Returns the live arrays
-## (not copies) — the baker only reads them, matching how the cover baker consumes the same buffers in-place.
+## reduces into a terrain-colour texture. Empty dict until the field is active.
 func climate_snapshot() -> Dictionary:
-	if _cell_count <= 0 or _moisture.size() != _cell_count or _temp.size() != _cell_count:
-		return {}
-	return {
-		"moisture": _moisture, "temp": _temp, "snow": _snow,
-		"solid": _solid, "static": _static, "cell_count": _cell_count,
-	}
-
+	return _atmos.climate_snapshot()
 
 ## The baked 6-layer RGBA cover texture (null until the first atmosphere refresh) — the water-particle
 ## renderer's field bridge. Plus the atmosphere shell radii it needs to place + classify particles.
 func field_cover_texture() -> Texture2DArray:
-	return _cover_baker.texture() if _cover_baker != null else null
+	return _atmos.field_cover_texture()
 
 func atmos_cloud_base_r() -> float:
-	_ensure_cover_baker()
-	return _cover_baker.cloud_base_r() if _cover_baker != null else sea_level + 62.0
+	return _atmos.atmos_cloud_base_r()
 
 func atmos_fog_top_r() -> float:
-	_ensure_cover_baker()
-	return _cover_baker.fog_top_r() if _cover_baker != null else sea_level + 16.0
+	return _atmos.atmos_fog_top_r()
 
 func atmos_fog_lo_r() -> float:
-	_ensure_cover_baker()
-	return _cover_baker.fog_lo_r() if _cover_baker != null else sea_level
+	return _atmos.atmos_fog_lo_r()
 
 func atmos_outer_r() -> float:
-	_ensure_cover_baker()
-	return _cover_baker.outer_r() if _cover_baker != null else 330.0
+	return _atmos.atmos_outer_r()
 
 func avg_cloud_cover() -> float:
-	if _atmos_dirty:
-		_refresh_atmos_aggregates()
-	return _cloud_cover_c
+	return _atmos.avg_cloud_cover()
 
 func avg_atmos_dust() -> float:
 	return _queries.avg_atmos_dust()
 
 func avg_fog_cover() -> float:
-	if _atmos_dirty:
-		_refresh_atmos_aggregates()
-	return _fog_cover_c
+	return _atmos.avg_fog_cover()
 
 ## Domain precipitation proxy 0..1 — fraction of open cells whose condensate is over the rain threshold.
 func precipitation() -> float:
-	if _atmos_dirty:
-		_refresh_atmos_aggregates()
-	return _precip_c
+	return _atmos.precipitation()
 
 ## Total suspended atmospheric water mass (mass-conservation spot check; used by the SIM_REPORT).
 func moisture_total() -> float:
-	if _atmos_dirty:
-		_refresh_atmos_aggregates()
-	return _moisture_total_c
+	return _atmos.moisture_total()
 
 # The flat cloud/fog sheet projection (cloud_grid/fog_grid) was a box-era concept, dissolved with the
 # CloudLayer sheets — the water-particle renderer samples the baked cover texture instead. cloud_base_y/
 # fog_base_y survive as the near-ground radii the derived point queries (cloud_at/fog_at) sample at.
 func cloud_base_y() -> float:
-	return sea_level + 62.0
+	return _atmos.cloud_base_y()
 
 func fog_base_y() -> float:
-	return sea_level + 6.0
+	return _atmos.fog_base_y()
 
 ## Relative humidity 0..1 near the ground at a world XZ column = vapor / sat(T) = min(moisture, sat)/sat.
 func relative_humidity_at(x: float, z: float) -> float:
-	var c: int = world_to_cell(Vector3(x, fog_base_y(), z))
-	if c < 0 or _solid[c] != 0:
-		return 0.0
-	var s: float = _sat(_temp[c])
-	if s <= 0.0:
-		return 0.0
-	return clampf(_moisture[c] / s, 0.0, 1.0)
+	return _atmos.relative_humidity_at(x, z)
 
 ## Dewpoint °C near the ground at a world XZ column — the temperature at which the cell's moisture would
 ## saturate (invert sat(T)). NAN if unresolved or bone dry.
 func dewpoint_at(x: float, z: float) -> float:
-	var c: int = world_to_cell(Vector3(x, fog_base_y(), z))
-	if c < 0 or _solid[c] != 0 or _moisture[c] <= 0.0:
-		return NAN
-	return EVAP_TEMP_REF + log(_moisture[c] / SAT_BASE) / SAT_TEMP_GAIN
+	return _atmos.dewpoint_at(x, z)
 
 ## Prevailing (large-scale) wind input. The emergent wind now lives on the GPU; forward it to the driver.
 func set_wind(w: Vector2) -> void:
@@ -974,9 +897,7 @@ func resample_terrain(world_pos: Vector3, radius: float) -> void:
 ## Count of OPEN cells carrying derived condensate (moisture over saturation) at/above CONDENSE_COVER_MIN.
 ## Cached with the other atmosphere aggregates (recomputed once per field readback, not per call).
 func cloud_cell_count(min_density: float = 0.05) -> int:
-	if _atmos_dirty:
-		_refresh_atmos_aggregates()
-	return _cloud_cells_c
+	return _atmos.cloud_cell_count()
 
 
 # --- Heat diagnostics -------------------------------------------------------
@@ -1099,75 +1020,35 @@ func magma_erupting() -> bool:
 	return false
 func erosion_cell_count() -> int:
 	return 0
+# --- Conserved H₂O ledger + snow/ice diagnostics — bodies live in LAMaterialFieldLedger3D. ONE water
+# substance in four phase channels (liquid `_water`, airborne `_moisture`, frozen `_snow`, subsurface
+# `_soil`); every transition is a transfer between them, so h2o_total must stay BOUNDED. ------------------
 ## Snow depth at a world point (frozen H₂O in the cell). 2.5D-style (x,z) calls have no radial point, so they
 ## return the safe default 0 (matching temp_at); a full 3D call (x,z,y) reads the real cell — three-d-always.
 func snow_depth_at(pos: Vector3) -> float:
-	if _snow.size() != _cell_count:
-		return 0.0
-	var c: int = world_to_cell(pos)
-	return _snow[c] if c >= 0 else 0.0
+	return _ledger.snow_depth_at(pos)
 ## Open cells carrying a snowpack (frozen H₂O over SNOW_PRESENT) — the emergent snow-line count for SIM_REPORT.
 func snow_cell_count() -> int:
-	if _snow.size() != _cell_count:
-		return 0
-	var n: int = 0
-	for c in _cell_count:
-		if _solid[c] == 0 and _snow[c] > SNOW_PRESENT:
-			n += 1
-	return n
+	return _ledger.snow_cell_count()
 ## Cells whose pack is thick enough to read as glacial ICE (deep end of the SAME _snow channel, no separate buffer).
 func ice_cell_count() -> int:
-	if _snow.size() != _cell_count:
-		return 0
-	var n: int = 0
-	for c in _cell_count:
-		if _solid[c] == 0 and _snow[c] >= ICE_DEPTH:
-			n += 1
-	return n
+	return _ledger.ice_cell_count()
 ## Total frozen H₂O over the field (one leg of the conserved h2o_total).
 func snow_total() -> float:
-	if _snow.size() != _cell_count:
-		return 0.0
-	var sum: float = 0.0
-	for c in _cell_count:
-		if _solid[c] == 0:
-			sum += _snow[c]
-	return sum
+	return _ledger.snow_total()
 ## Total dynamic liquid water over the field (excludes the static sea reservoir; one leg of h2o_total).
 func water_total() -> float:
-	if _water.size() != _cell_count:
-		return 0.0
-	var sum: float = 0.0
-	for c in _cell_count:
-		if _solid[c] == 0 and _static[c] == 0:      # exclude the static sea reservoir (matches the docstring) —
-			sum += _water[c]                        # else the infinite-reservoir cells inflate the conserved ledger
-	return sum
+	return _ledger.water_total()
 ## Total water stored in the SOIL (ground cells) — the subsurface leg of the conserved h2o budget. Infiltrated
 ## water lives here rather than in _water, so it must be counted or conservation would appear to leak.
 func soil_total() -> float:
-	if _soil.size() != _cell_count:
-		return 0.0
-	var sum: float = 0.0
-	for c in _cell_count:
-		if _solid[c] != 0:
-			sum += _soil[c]
-	return sum
+	return _ledger.soil_total()
 ## Conserved H₂O budget of the DYNAMIC system: liquid water + airborne moisture + frozen snow + SOIL water.
-## Freeze/melt/deposition/evap/rain/infiltration are all pure transfers between these, so this stays BOUNDED
-## (a slow static-sea source + rain-to-sea sink hold it steady) — the mass-conservation spot check for SIM_REPORT.
 func h2o_total() -> float:
-	return water_total() + moisture_total() + snow_total() + soil_total()
+	return _ledger.h2o_total()
 ## Mean temperature over the snow-covered cells — proves snow sits on the COLD side (should read below FREEZE_TEMP).
 func snow_line_temp() -> float:
-	if _snow.size() != _cell_count:
-		return 0.0
-	var sum: float = 0.0
-	var n: int = 0
-	for c in _cell_count:
-		if _solid[c] == 0 and _snow[c] > SNOW_PRESENT:
-			sum += _temp[c]
-			n += 1
-	return sum / float(n) if n > 0 else 0.0
+	return _ledger.snow_line_temp()
 func dust_at(x: float, y: float, z: float) -> float:
 	return 0.0
 func dust_cell_count() -> int:
@@ -1175,149 +1056,52 @@ func dust_cell_count() -> int:
 
 # MINERAL conservation ledger (rock unification) lives in LAMaterialFieldQueries3D (`_queries.*_total()` etc.);
 # report() reads it directly. ONE conserved mineral; mineral_total must stay BOUNDED (the unification's proof).
-# Emergent atmospheric OXYGEN (LAMaterialGas3D): O₂ level at a point + depletion diagnostics.
+# --- Per-cell CHANNEL point reads (atmospheric O₂/CO₂, living biomass, the decomposer deposit, and the
+# phase-channel debug readers) — bodies live in LAMaterialFieldChannels3D. -------------------------------
+## Atmospheric O₂ level at a world point (ambient outside the shell / in box mode).
 func o2_at(x: float, y: float, z: float) -> float:
-	if _sphere != null:
-		var c: int = world_to_cell(Vector3(x, y, z))
-		return _o2[c] if c >= 0 else O2_AMBIENT
-	return O2_AMBIENT
-
+	return _channels.o2_at(x, y, z)
 ## BREATHABLE oxygen at a TRUE-3D world point — the cell's O₂, but ZERO once WATER fills the cell (water
-## displaces air) or the cell is rock. One 3D read that lets a lung suffocate underwater OR in O₂-depleted
-## smoke, with altitude respected for free (a flying bird's head cell holds no water; a diver's does) — no
-## 2.5D depth column, no can_fly special-case. Gills invert it (see is_submerged_at). Above the volume = open sky.
+## displaces air) or the creature is truly encased in rock. One 3D read that lets a lung suffocate underwater
+## OR in O₂-depleted smoke, with altitude respected for free — no 2.5D depth column, no can_fly special-case.
 func breathable_o2_at(x: float, y: float, z: float) -> float:
-	var c: int = world_to_cell(Vector3(x, y, z))
-	if c < 0:
-		return O2_AMBIENT                 # above the atmosphere shell = open sky
-	# Water fills the cell → air is displaced → a lung drowns. Real; keep it (drowning + smoke stay 0).
-	if _water[c] >= MAX_MASS * 0.5:
-		return 0.0
-	# ROCK holds no air — but a ground-standing creature whose head cell QUANTISES into the surface rock
-	# (body size 0.5 ≪ cell size 5) is NOT buried; it breathes the thin air resting on the ground. Step
-	# radially outward to the first open cell and read ITS O₂ (the true surface air — still 0 if choked by
-	# smoke there). Only a creature truly encased in rock (no open cell outward within reach) reads 0. This
-	# fixes land animals wrongly suffocating on solid ground without breaking drowning/smoke suffocation.
-	if _solid[c] != 0:
-		if _sphere == null:
-			return 0.0                    # box mode (unused in the sim): keep the strict rule
-		var steps: int = 0
-		while _solid[c] != 0 and steps < 4:
-			var up_c: int = _sphere.neighbours[c * 6 + 1]   # N_OUT = 1 (radially outward)
-			if up_c < 0:
-				return 0.0                # reached space while still in rock → encased
-			c = up_c
-			steps += 1
-		if _solid[c] != 0 or _water[c] >= MAX_MASS * 0.5:
-			return 0.0
-	return _o2[c]
-
+	return _channels.breathable_o2_at(x, y, z)
 ## Is the TRUE-3D cell at this world point underwater (over half-full of water)? What a gill-breather needs
 ## (and what tells a lung it is submerged). Solid rock reads not-submerged (no water there).
 func is_submerged_at(x: float, y: float, z: float) -> bool:
-	var c: int = world_to_cell(Vector3(x, y, z))
-	return c >= 0 and _solid[c] == 0 and _water[c] >= MAX_MASS * 0.5
+	return _channels.is_submerged_at(x, y, z)
 # Open-cell O₂ min / mean over the GPU readback (_o2). Proves the sky-refill + transport keep the open air
 # oxygenated and expose sealed-cavity draw-down. Falls back to ambient when no field is resident.
 func o2_min_open() -> float:
-	if _o2.size() != _cell_count or _cell_count <= 0:
-		return O2_AMBIENT
-	var mn: float = 1.0e20
-	var n: int = 0
-	for c in _cell_count:
-		if _solid[c] != 0 or _water[c] >= MAX_MASS * 0.5:
-			continue
-		mn = minf(mn, _o2[c])
-		n += 1
-	return mn if n > 0 else O2_AMBIENT
+	return _channels.o2_min_open()
 func o2_avg() -> float:
-	if _o2.size() != _cell_count or _cell_count <= 0:
-		return O2_AMBIENT
-	var sum: float = 0.0
-	var n: int = 0
-	for c in _cell_count:
-		if _solid[c] != 0 or _water[c] >= MAX_MASS * 0.5:
-			continue
-		sum += _o2[c]
-		n += 1
-	return sum / float(n) if n > 0 else O2_AMBIENT
+	return _channels.o2_avg()
 # Emergent CARBON DIOXIDE (second gas channel): CO₂ level at a point + build-up diagnostics.
 func co2_at(x: float, y: float, z: float) -> float:
-	if _gpu != null:
-		_gpu.request_channel("co2")   # co2 is demand-gated; no producer-side event to hook, so query self-wakes it
-	if _sphere != null:
-		var c: int = world_to_cell(Vector3(x, y, z))
-		return _co2[c] if c >= 0 else 0.0
-	return 0.0
+	return _channels.co2_at(x, y, z)
 func co2_peak() -> float:
-	if _gpu != null:
-		_gpu.request_channel("co2")
-	if _co2.size() != _cell_count or _cell_count <= 0:
-		return 0.0
-	var mx: float = 0.0
-	for c in _cell_count:
-		if _solid[c] == 0:
-			mx = maxf(mx, _co2[c])
-	return mx
+	return _channels.co2_peak()
 func co2_avg() -> float:
-	if _gpu != null:
-		_gpu.request_channel("co2")
-	if _co2.size() != _cell_count or _cell_count <= 0:
-		return 0.0
-	var sum: float = 0.0
-	var n: int = 0
-	for c in _cell_count:
-		if _solid[c] != 0:
-			continue
-		sum += _co2[c]
-		n += 1
-	return sum / float(n) if n > 0 else 0.0
+	return _channels.co2_avg()
 # Emergent LIVING BIOMASS (MaterialReactions3D R19/R20): CO₂ fixed into plant matter on the GPU + queried here.
 func biomass_at(x: float, y: float, z: float) -> float:
-	if _sphere != null:
-		var c: int = world_to_cell(Vector3(x, y, z))
-		return _biomass[c] if (c >= 0 and _biomass.size() == _cell_count) else 0.0
-	return 0.0
+	return _channels.biomass_at(x, y, z)
 ## Total living biomass over every open cell — the emergent-growth spot check (should rise then plateau, not
 ## explode; bounded by the CO₂ budget + respiration). Fed into SIM_REPORT.
 func biomass_total() -> float:
-	if _biomass.size() != _cell_count or _cell_count <= 0:
-		return 0.0
-	var sum: float = 0.0
-	for c in _cell_count:
-		if _solid[c] == 0:
-			sum += _biomass[c]
-	return sum
+	return _channels.biomass_total()
 # Emergent DECOMPOSER loop (LAMaterialFungus3D): dead matter (detritus) → fungus → CO₂ + soil fertility.
-## Deposit dead decomposable matter at the surface cell under a world point (a rotting carcass, wildfire
-## ash). Fungus grows on it + rots it back into the carbon/nutrient loop. Mirrors photosynthesize()'s lookup.
+## Deposit dead decomposable matter at the surface cell under a world point (a rotting carcass, wildfire ash).
 func deposit_detritus(world_pos: Vector3, amount: float) -> void:
-	if _cell_count <= 0 or amount <= 0.0:
-		return
-	var c: int = world_to_cell(world_pos)          # the carcass's own 3D cell on the ground
-	if c < 0 or _solid[c] != 0:
-		return
-	if _detritus.size() != _cell_count:
-		_detritus.resize(_cell_count)
-	_detritus[c] += amount
+	_channels.deposit_detritus(world_pos, amount)
 # Per-cell debug readers for the phase channels (mirror biomass_at/co2_at): molten mineral, bedrock
 # fraction, and pre-lightning electrification. Pure reads for the DebugPanel field-view heatmaps.
 func lava_at(x: float, y: float, z: float) -> float:
-	if _sphere != null:
-		if _gpu != null: _gpu.request_channel("lava")   # keep lava readback hot while something queries it
-		var c: int = world_to_cell(Vector3(x, y, z))
-		return _lava[c] if (c >= 0 and _lava.size() == _cell_count) else 0.0
-	return 0.0
+	return _channels.lava_at(x, y, z)
 func rock_fill_at(x: float, y: float, z: float) -> float:
-	if _sphere != null:
-		var c: int = world_to_cell(Vector3(x, y, z))
-		return _rock_fill[c] if (c >= 0 and _rock_fill.size() == _cell_count) else 0.0
-	return 0.0
+	return _channels.rock_fill_at(x, y, z)
 func charge_at(x: float, y: float, z: float) -> float:
-	if _sphere != null:
-		var c: int = world_to_cell(Vector3(x, y, z))
-		return _charge[c] if (c >= 0 and _charge.size() == _cell_count) else 0.0
-	return 0.0
+	return _channels.charge_at(x, y, z)
 func fungus_at(x: float, y: float, z: float) -> float:
 	return 0.0
 func fungus_peak() -> float:
@@ -1360,63 +1144,7 @@ func rebuild_surface() -> void:
 
 ## Central-telemetry provider (registered once with LASimReport): this field's channel aggregates, in ONE
 ## dict, so they flow into SIM_REPORT from their owner instead of being hand-threaded into a format string.
-## Open-cell (void) temperature spread — the direct read of whether the solar terminator + heat diffusion
-## actually move the temp field (a flat min==max means solar is not depositing). Snapshot-time only.
-func _open_temp_stats() -> Dictionary:
-	var mn: float = 1.0e20
-	var mx: float = -1.0e20
-	var sum: float = 0.0
-	var n: int = 0
-	for c in _cell_count:
-		if _solid[c] != 0:
-			continue
-		var t: float = _temp[c]
-		if t < mn:
-			mn = t
-		if t > mx:
-			mx = t
-		sum += t
-		n += 1
-	# All-cell max (incl. solid) exposes the pinned geothermal core + the conduction gradient, which the
-	# open-cell stats above hide (the hot core cells are rock).
-	var all_mx: float = -1.0e20
-	for v in _temp:
-		if v > all_mx:
-			all_mx = v
-	if n == 0:
-		return {"temp_min": 0.0, "temp_mean": 0.0, "temp_max": 0.0, "temp_open": 0, "temp_all_max": all_mx}
-	return {"temp_min": mn, "temp_mean": sum / float(n), "temp_max": mx, "temp_open": n, "temp_all_max": all_mx}
-
-
-## Polled only at snapshot time, so these (cheap forwarder) reads don't run per frame.
+## Built in LAMaterialFieldReport3D; polled only at snapshot time, so the O(cells) reads behind it never run
+## per frame.
 func report() -> Dictionary:
-	var r: Dictionary = {
-		"wet_cells": wet_cell_count(), "heat_peak": peak_heat(), "heat_cells": hot_cell_count(),
-		"lava_cells": lava_peak(), "cloud_cells": cloud_cell_count(), "cloud_cover": avg_cloud_cover(),
-		"fog_cover": avg_fog_cover(), "moisture_total": moisture_total(),
-		"wind": wind().length(), "scent_cells": scent_cell_count(),
-		"fertility_peak": fertility_peak(), "magma_cells": magma_cell_count(),
-		"erosion_cells": erosion_cell_count(), "snow_cells": snow_cell_count(), "ice_cells": ice_cell_count(),
-		"sea_ice_cells": _queries.sea_ice_cell_count(), "sea_ice_temp": _queries.sea_ice_temp_avg(), "open_sea_temp": _queries.open_sea_temp_avg(),
-		"dust_cells": dust_cell_count(), "charge_peak": charge_peak(), "bolts": bolts_fired(),
-		"shock_cells": shock_cell_count(), "o2_min": o2_min_open(), "o2_avg": o2_avg(),
-		"co2_peak": co2_peak(), "co2_avg": co2_avg(), "fungus_cells": fungus_cells(),
-		"fungus_peak": fungus_peak(), "detritus_peak": detritus_peak(),
-		"biomass_total": biomass_total(),
-		"fuel_total": _queries.fuel_total(), "fire_peak": _queries.fire_peak(), "fire_cells": _queries.fire_cells(),
-		"active_cells": _queries.active_cells(), "mean_relevance": _queries.mean_relevance(),
-		"h2o_total": h2o_total(), "water_total": water_total(), "snow_total": snow_total(), "soil_total": soil_total(),
-		"snow_line_temp": snow_line_temp(),
-		"mineral_total": _queries.mineral_total(), "rock_cells": _queries.rock_cells(),
-		"rock_fill_total": _queries.rock_fill_total(), "lava_total": _queries.lava_total(),
-		"sediment_total": _queries.sediment_total(), "dust_total": _queries.dust_total(),
-		"susp_total": _queries.susp_total(),
-		"enclosed_void": _queries.enclosed_void_cells(),
-		"enclosed_void5": _queries.enclosed_void_cells(5),
-		"rock_grows": (_stamp.grows if _stamp != null else 0), "rock_shrinks": (_stamp.shrinks if _stamp != null else 0),
-	}
-	r.merge(_open_temp_stats())
-	r.merge(_queries.rock_radial_profile())
-	r.merge(_queries.hot_spring_stats())
-	r.merge(_queries.lava_shell_diag())
-	return r
+	return _report_mod.report()
