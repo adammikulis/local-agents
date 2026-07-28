@@ -238,10 +238,18 @@ rigid-body server unless a documented `PhysicsServer3D` blocker is recorded here
 - Approved blocker `PhysicsServer3D-contact-divergence-v1` (2026-02-14): `PhysicsServer3D` remains
   the authoritative contact source; bridge adapters may only normalize contact payloads.
 
-## Enforceable P0 Wave: WF-P0-SHADER-VOXEL-DESTRUCTION-2026-02-17
+## Enforceable P0 Wave: WF-P0-SHADER-VOXEL-DESTRUCTION-2026-02-17 (CLOSED — stack removed)
 
-This block is the canonical enforceable-wave contract for the destruction path (retained as the
-single authoritative wave record; superseded per-wave inventories live in git history).
+**Status as of 2026-07: closed, not completed.** Every file this wave was written against has since
+been deleted along with the pre-voxel simulation stack — `scenes/simulation/controllers/world/`
+(`WorldDispatchController.gd`, `WorldSimulation.gd`), `native/LocalAgentVoxelDispatchBridge.gd`,
+`scripts/run_fps_fire_destroy.sh`, and the two runtime-contract tests the verification list names.
+The projectile-destruction path it describes no longer exists in any form.
+
+The record is kept because the *principles* it encodes are still repo policy and are enforced
+elsewhere: shader-first authority, native mutation execution, and typed hard-fails
+(`GPU_REQUIRED` / `NATIVE_REQUIRED`) instead of silent degradation. See CLAUDE.md. The verification
+commands and the legacy-adapter list below are historical and should not be run or worked from.
 
 - Priority: `P0`
 - Owners:
