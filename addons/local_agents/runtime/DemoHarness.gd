@@ -37,6 +37,14 @@ const ARG_SHOOT_FRAMES: String = "--shoot-frames="
 ## Frames to run before printing the report and quitting. 0 = never auto-quit (normal interactive play).
 ## The command line overrides this: `-- --run-frames=N`.
 @export_range(0, 100000, 1, "suffix:frames") var run_frames: int = 0
+## Count PHYSICS frames instead of render frames.
+##
+## Turn this on for anything measuring a simulation. Physics ticks are fixed-rate while render frames
+## are not, so a run ended after N render frames contains a machine-dependent number of simulation
+## steps — which is why the field demo's temperatures moved by 2x between machines and made a useless
+## regression signal. Leave it off for UI demos, where "frames" means frames drawn.
+@export var count_physics_frames: bool = false
+
 ## Node queried for the report payload. It must expose `demo_report() -> Dictionary`.
 ## Left empty, the parent node is used — so dropping this harness under a scene root just works.
 @export var report_source: Node
@@ -81,7 +89,17 @@ func frames_elapsed() -> int:
 	return _frame
 
 
+func _physics_process(_delta: float) -> void:
+	if count_physics_frames:
+		_tick()
+
+
 func _process(_delta: float) -> void:
+	if not count_physics_frames:
+		_tick()
+
+
+func _tick() -> void:
 	if _done:
 		return
 	_frame += 1

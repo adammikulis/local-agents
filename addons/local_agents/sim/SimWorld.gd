@@ -102,11 +102,10 @@ const SLOW_BUILD_CELLS: int = 250000
 ## Keys are the ecology's built-in kinds — "plant", "rabbit", "fox", "bird", "villager", "fish", "rock",
 ## "tree" — or any species id shipped under creatures/species/ (e.g. "mouse", "trout", "butterfly").
 ## An unknown key spawns nothing.
-## Deliberately an untyped Dictionary. Godot silently REJECTS assigning a plain `{"rabbit": 3}`
-## literal to a Dictionary[String, int] property from code — no error, the property just stays empty
-## and the world quietly founds itself on DEFAULT_COUNTS instead. Every documented usage and every
-## in-tree caller passes a plain literal, so the stricter type broke them all invisibly.
-@export var initial_counts: Dictionary = {}
+## Typed so the inspector gives you String keys and int values. From code, assign it directly
+## (`world.initial_counts = {"rabbit": 3}` converts fine); `set("initial_counts", {...})` with an
+## untyped literal is silently dropped, so pass a typed local if you must go through set().
+@export var initial_counts: Dictionary[String, int] = {}
 ## Forest seed clusters scattered across the world at start. SPHERE only: a FLAT world gets its plants
 ## from initial_counts instead.
 @export_range(0, 64, 1, "or_greater", "suffix:clusters") var forest_clusters: int = 6

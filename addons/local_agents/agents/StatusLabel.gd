@@ -54,10 +54,11 @@ var _last_headline: String = ""
 
 
 func _ready() -> void:
-    # Editor: paint the current status once so the label is not a lying placeholder in the scene
-    # view, then stop. No timer, no per-frame work — the node must not tick inside the editor.
+    # Editor: do nothing at all. refresh() assigns `text` and calls add_theme_color_override(),
+    # and BOTH are serialised Label properties — painting the live status here would overwrite
+    # whatever the scene author typed and bake the runtime state into their .tscn on the next save.
+    # A placeholder is a much smaller lie than silently editing someone's scene.
     if Engine.is_editor_hint():
-        refresh()
         return
     _timer = Timer.new()
     _timer.name = "StatusTimer"

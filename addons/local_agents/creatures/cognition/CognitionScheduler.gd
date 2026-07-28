@@ -43,7 +43,7 @@ signal degraded(reason: String)
 ## The shared LLM service (a LocalAgentLlmService node) every escalation is resolved through. Leave
 ## empty — or leave the service disabled — and every escalation resolves with the built-in heuristic
 ## teacher instead, which still plays correctly and still writes training traces.
-@export var llm_service: Node
+@export var llm_service: LocalAgentLlmService
 
 ## Master switch for the slow brain. Off sends every escalation straight to the heuristic teacher and
 ## never touches the model, which is the cheapest way to A/B the model against the rules of thumb.
@@ -71,7 +71,9 @@ signal degraded(reason: String)
 
 ## Folder the trace file is written into. "user://" is the per-project writable folder, which is the
 ## right place for it — res:// is read-only in an exported game.
-@export_dir var trace_dir: String = "user://"
+## Left a plain String rather than @export_dir: that picker is res://-scoped and cannot browse to
+## user://, so it could not express this property's own default.
+@export var trace_dir: String = "user://"
 
 ## Name of the trace file inside the folder above. Lines are appended, never overwritten.
 @export var trace_filename: String = "functiongemma_traces.jsonl"
@@ -91,7 +93,6 @@ signal degraded(reason: String)
 # server_url/model plumbing: one client, one server, one model.
 var _llm_client = null
 var _trace_path_override: String = ""      # setup({"trace_path": ...}) wins over the exports above
-var _setup_called: bool = false            # setup() is the programmatic override of the exports
 var _degraded_reported: bool = false       # `degraded` is emitted at most once
 
 # --- live budget / stats ---
@@ -114,7 +115,6 @@ var _activity: Dictionary = {}
 ## back to the heuristic teacher for every call. Keys: enabled, llm_service, llm_client, trace_path,
 ## max_in_flight, max_rps.
 func setup(options: Dictionary = {}) -> void:
-	_setup_called = true
 	enabled = bool(options.get("enabled", enabled))
 	if options.has("llm_service"):
 		llm_service = options["llm_service"]
@@ -158,10 +158,11 @@ func _adopt_existing() -> void:
 # node_added fires for EVERY node in the scene, so the check is cheap and the work is deferred.
 #
 # Deferred ALWAYS, including for a node already in the group. node_added fires during add_child,
-# which is before the spawner calls setup() on the creature — and setup() assigns the creature's
-# scheduler reference, so an adoption applied at add_child time is overwritten a moment later and
-# the creature ends up with no scheduler at all. Deferring also covers the other direction, where a
-# spawner calls add_to_group() after add_child().
+# which is before the spawner calls setup(). Creature.set_cognition_scheduler() is
+# `if _cognition != null: _cognition.set_scheduler(s)`, and _cognition is not built until setup()
+# runs — so adopting at add_child time is a SILENT no-op and the creature ends up with no scheduler
+# at all. Deferring also covers the other direction, where a spawner calls add_to_group() after
+# add_child().
 func _on_node_added(node: Node) -> void:
 	if adopt_group == &"" or node == null:
 		return

@@ -60,9 +60,11 @@ const SETTING_BACKEND: String = "local_agents/llm/backend"
 
 @export_group("Server")
 
-## Base URL of the llama-server to talk to. Only used by the "llama_server" backend. Leave at the
-## default unless you run the server yourself on another port or machine.
-@export var server_url: String = "http://127.0.0.1:8080"
+## Base URL of the llama-server to talk to. Only used by the "llama_server" backend.
+## Leave EMPTY to follow Project Settings > local_agents/llm/server_url (or the FUNCTIONGEMMA_URL
+## environment variable), which is the usual case. Fill it in only to point this one service
+## somewhere else — anything typed here wins, the same way Model Path does.
+@export_placeholder("http://127.0.0.1:8080") var server_url: String = ""
 
 ## Launch llama-server automatically when nothing is answering on the URL above. Turn off to require an
 ## already-running server (nothing is spawned, and requests simply fail while it is down).
@@ -273,13 +275,15 @@ func _describe_offline() -> String:
 	return "a model is installed (%s) but the service is switched off, so consumers run their offline paths. Tick 'Enabled' on this node, or turn on the project setting %s." % [_resolved_model.get_file(), SETTING_AUTO_ENABLE]
 
 
-# ProjectSetting → FUNCTIONGEMMA_URL → the export. The setting only wins when it differs from the export
-# default, so a URL typed into the inspector is not silently overridden by an untouched project setting.
+# This node's own export wins, then the project setting (which itself falls back to FUNCTIONGEMMA_URL
+# and then the built-in default). Node-specific beating project-wide is the normal Godot expectation
+# and matches how model_path behaves here. The previous order was inverted: the setting won whenever
+# it differed from a hardcoded default string, so a URL typed into the inspector was ignored.
 func _setting_server_url() -> String:
-	var from_settings: String = LocalAgentSettings.get_string(SETTING_SERVER_URL).strip_edges()
-	if from_settings != "" and from_settings != "http://127.0.0.1:8080":
-		return from_settings
-	return server_url
+	var from_export: String = server_url.strip_edges()
+	if from_export != "":
+		return from_export
+	return LocalAgentSettings.get_string(SETTING_SERVER_URL).strip_edges()
 
 
 func _normalize_url(raw: String) -> String:

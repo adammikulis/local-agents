@@ -92,10 +92,13 @@ func _ready() -> void:
     if not _has_scene_nodes():
         push_warning("LocalAgentChatPanel expects the node layout from ChatPanel.tscn; instance that scene instead of attaching this script by hand.")
         return
-    _apply_presentation()
+    # The editor guard comes FIRST. _apply_presentation() writes placeholder_text and `visible` on
+    # child nodes, and both are serialised — running it in the editor turns them into saved instance
+    # overrides in whatever scene this panel was dropped into.
     if Engine.is_editor_hint():
         update_configuration_warnings()
         return
+    _apply_presentation()
     _prompt_input.text_submitted.connect(_on_text_submitted)
     _send_button.pressed.connect(_on_send_pressed)
     agent = _find_agent()
@@ -139,6 +142,7 @@ func send(text: String) -> void:
     _prompt_input.clear()
     _busy = true
     _update_input_state(true)
+    refresh_status()      # so the status bar actually shows "Thinking..." while it is thinking
 
     var full_prompt: String = prompt
     if prompt_prefix.strip_edges() != "":
@@ -289,12 +293,11 @@ func _find_agent() -> LocalAgent:
     return _first_agent_under(parent)
 
 
+# Siblings and own children only, deliberately NOT the parent's whole subtree. Recursing further is
+# how two panels under one parent end up driving each other's agent, which was what the comment above
+# claimed this avoided while the code did the opposite.
 func _first_agent_under(root: Node) -> LocalAgent:
     for child in root.get_children():
         if child is LocalAgent:
             return child as LocalAgent
-    for child in root.get_children():
-        var nested: LocalAgent = _first_agent_under(child)
-        if nested != null:
-            return nested
     return null

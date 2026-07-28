@@ -21,6 +21,9 @@ const CreatureScene: PackedScene = preload("res://addons/local_agents/creatures/
 @export_group("Population")
 ## Species id -> how many to spawn, e.g. {"rabbit": 5, "fox": 1}. Ids are the file names under
 ## creatures/species/**/<id>.json. A blank id is not valid here — name a species.
+## Typed so the inspector gives you String keys and int values instead of a free-for-all. From code,
+## assign it directly (`spawner.counts = {"rabbit": 5}` converts fine); `set("counts", {...})` with
+## an untyped literal is silently dropped, so pass a typed local if you must go through set().
 @export var counts: Dictionary[String, int] = {"rabbit": 5}:
 	set(value):
 		counts = value
@@ -53,7 +56,7 @@ const CreatureScene: PackedScene = preload("res://addons/local_agents/creatures/
 @export_group("Cognition")
 ## Scheduler these creatures escalate through (a LocalAgent-backed slow brain). Leave it empty for fast
 ## rules only, or if something else in the scene already hands them a scheduler.
-@export var cognition_scheduler: Node = null:
+@export var cognition_scheduler: LocalAgentCognitionScheduler = null:
 	set(value):
 		cognition_scheduler = value
 		_refresh_warnings()

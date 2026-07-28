@@ -45,6 +45,9 @@ func _add_harness() -> void:
 	harness.name = "DemoHarness"
 	harness.report_prefix = "BOX_FIELD"
 	harness.report_source = self
+	# Count physics frames: the field steps and the heat goes in on that clock, so ending the run on
+	# render frames made the reported temperatures track machine speed rather than the simulation.
+	harness.count_physics_frames = true
 	add_child(harness)
 
 

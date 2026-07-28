@@ -44,8 +44,9 @@ static func check_species(species_id: String, label: String) -> PackedStringArra
 	if id == "":
 		return out                       # blank is legal — it means the built-in generic walker
 	if id.ends_with(".json"):
-		# A data file is addressed by path. FileAccess, not ResourceLoader: a plain .json that Godot has
-		# not imported is invisible to ResourceLoader.exists() even though it is right there on disk.
+		# A data file is addressed by path. FileAccess because we only care whether the bytes are on
+		# disk — this never goes through the resource system. (ResourceLoader.exists() also returns true
+		# for these; the earlier claim here that it did not was wrong.)
 		if not FileAccess.file_exists(id):
 			out.append("%s points at \"%s\", which does not exist." % [label, id])
 		return out

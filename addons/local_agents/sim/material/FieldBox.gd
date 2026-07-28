@@ -126,7 +126,12 @@ func _sample(ix: int, iy: int, iz: int) -> float:
 	return _field.temp_at(_cell_point(ix, iy, iz))
 
 
-func _process(_delta: float) -> void:
+# Heat goes in on the PHYSICS clock, because that is the clock LAMaterialField3D steps the volume on
+# (its own _physics_process). Injecting from _process tied the energy put into the box to the display
+# framerate: the same 120-frame run deposited very different totals on a fast machine and a slow one,
+# and every number in demo_report() moved with it. Physics ticks are fixed-rate, so "40 degrees per
+# frame for 40 frames" now means the same thing on every machine.
+func _physics_process(_delta: float) -> void:
 	if _field == null:
 		return
 	_frame += 1
@@ -135,6 +140,13 @@ func _process(_delta: float) -> void:
 			_rebuild_source_points()
 		for p in _source_points:
 			_field.add_heat(p, heat_per_frame)
+
+
+# The slice is presentation, so it stays on the render clock — redrawing it more often than the
+# display refreshes would be wasted work.
+func _process(_delta: float) -> void:
+	if _field == null:
+		return
 	_update_slice()
 
 

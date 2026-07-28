@@ -29,8 +29,10 @@ signal conversation_finished()
 
 const Status: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.gd")
 
-# A plain Array literal, NOT PackedStringArray([...]): a const cannot hold a constructor call.
-const DEFAULT_CANNED: Array = [
+# A literal, not PackedStringArray([...]): a const cannot hold a CONSTRUCTOR CALL. A typed const
+# from a literal (const X: PackedStringArray = ["a"]) is perfectly legal — verified — it is only
+# the constructor form that fails.
+const DEFAULT_CANNED: PackedStringArray = [
     "Let's start with the cheapest thing that could possibly work.",
     "Cheap is fine until it breaks. What happens then?",
     "Then we replace it, having learned what we actually needed.",
