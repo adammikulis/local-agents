@@ -21,6 +21,7 @@ extends EditorPlugin
 
 const PANEL_SCENE: PackedScene = preload("res://addons/local_agents/editor/LocalAgentPanel.tscn")
 const SETUP_TAB_SCRIPT: GDScript = preload("res://addons/local_agents/editor/SetupTab.gd")
+const CHOICE_INSPECTOR_SCRIPT: GDScript = preload("res://addons/local_agents/editor/ChoiceInspectorPlugin.gd")
 const EXTENSION_LOADER: GDScript = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 const SETTINGS: GDScript = preload("res://addons/local_agents/runtime/Settings.gd")
 
@@ -36,6 +37,9 @@ var _panel_loaded: bool = false
 # True only when THIS plugin added the autoload, so disabling the plugin never removes an entry the
 # project author wrote themselves.
 var _autoload_registered: bool = false
+# Supplies pick-lists for the String properties whose valid values are discovered from disk
+# (species ids, Piper voices, installed .gguf files).
+var _choice_inspector: EditorInspectorPlugin = null
 
 func _enter_tree() -> void:
     if not Engine.is_editor_hint():
@@ -43,9 +47,18 @@ func _enter_tree() -> void:
     _editor_active = true
     _register_settings()
     _register_autoload()
+    _register_inspector()
     _create_setup_panel()
     if _should_auto_activate():
         call_deferred("_activate_panel")
+
+## Dropdowns for species / voice / model_path. Purely an editor convenience: with the plugin off,
+## every one of those is an ordinary String field and nothing at runtime changes.
+func _register_inspector() -> void:
+    if _choice_inspector != null:
+        return
+    _choice_inspector = CHOICE_INSPECTOR_SCRIPT.new()
+    add_inspector_plugin(_choice_inspector)
 
 func _exit_tree() -> void:
     if not _editor_active:
@@ -56,6 +69,9 @@ func _exit_tree() -> void:
     if _autoload_registered:
         remove_autoload_singleton(AUTOLOAD_NAME)
         _autoload_registered = false
+    if _choice_inspector != null:
+        remove_inspector_plugin(_choice_inspector)
+        _choice_inspector = null
     _panel_instance = null
     _panel_button = null
     _panel_loaded = false
