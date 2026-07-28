@@ -1,4 +1,5 @@
 @tool
+@icon("res://addons/local_agents/icons/local_agent_world.svg")
 class_name LocalAgentSimWorld
 extends Node3D
 

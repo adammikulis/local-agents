@@ -1,4 +1,5 @@
 @tool
+@icon("res://addons/local_agents/icons/local_agent_status.svg")
 extends Label
 class_name LocalAgentStatusLabel
 

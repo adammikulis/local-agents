@@ -1,3 +1,4 @@
+@icon("res://addons/local_agents/icons/local_agent_harness.svg")
 class_name LocalAgentDemoHarness
 extends Node
 

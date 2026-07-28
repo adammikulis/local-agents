@@ -1,4 +1,5 @@
 @tool
+@icon("res://addons/local_agents/icons/local_agent_conversation.svg")
 extends Node
 class_name LocalAgentConversation
 

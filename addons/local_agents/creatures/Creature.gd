@@ -1,4 +1,5 @@
 @tool
+@icon("res://addons/local_agents/icons/local_agent_creature.svg")
 class_name LocalAgentCreature
 extends CharacterBody3D
 

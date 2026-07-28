@@ -1,4 +1,5 @@
 @tool
+@icon("res://addons/local_agents/icons/local_agent_spawner.svg")
 class_name LocalAgentCreatureSpawner
 extends Node3D
 

@@ -1,4 +1,5 @@
 @tool
+@icon("res://addons/local_agents/icons/local_agent_llm.svg")
 class_name LocalAgentLlmService
 extends Node
 

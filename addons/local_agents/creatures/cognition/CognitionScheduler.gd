@@ -1,3 +1,4 @@
+@icon("res://addons/local_agents/icons/local_agent_scheduler.svg")
 class_name LocalAgentCognitionScheduler
 extends Node
 

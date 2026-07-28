@@ -1,3 +1,4 @@
+@icon("res://addons/local_agents/icons/local_agent_field.svg")
 class_name LocalAgentFieldBox
 extends Node3D
 

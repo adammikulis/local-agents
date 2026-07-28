@@ -1,4 +1,5 @@
 @tool
+@icon("res://addons/local_agents/icons/local_agent_chat.svg")
 extends PanelContainer
 class_name LocalAgentChatPanel
 

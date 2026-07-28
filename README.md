@@ -79,6 +79,17 @@ file where the plugin expects it.
 
 If either one is missing the plugin tells you which, and what to do about it.
 
+## What you get in the editor
+
+Once the plugin is enabled, these show up in Add Node (press A in the scene tree) and in the Create
+Resource dialog. Type "LocalAgent" to filter to them.
+
+![The nodes the plugin adds](addons/local_agents/docs/img/nodes.svg)
+
+Most of what the examples do is these nodes with their properties filled in, so you can build the
+same thing without writing code. The icon colours follow Godot's own convention, so a red icon is a
+3D node, green is UI, orange is a resource.
+
 ## Using it in your own project
 
 Add a LocalAgent node to a scene and connect to it:
