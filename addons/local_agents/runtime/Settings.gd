@@ -38,11 +38,13 @@ const SPECS: Array = [
 		"type": TYPE_PACKED_STRING_ARRAY,
 		"hint": PROPERTY_HINT_NONE,
 		"hint_string": "",
-		"default": PackedStringArray([
+		# A plain Array, not PackedStringArray(...): a constructor call is not a constant expression,
+		# so it cannot appear inside a const. get_string_array() converts on the way out.
+		"default": [
 			"user://local_agents/models/qwen3-4b-instruct/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
 			"user://local_agents/models/qwen3-1_7b/Qwen3-1.7B-Q4_K_M.gguf",
 			"user://local_agents/models/qwen3-0_6b-instruct/Qwen3-0.6B-Q4_K_M.gguf",
-		]),
+		],
 		"env": "",
 		"doc": "Ordered GGUF candidates tried when no explicit model path is set. First existing file wins.",
 	},
