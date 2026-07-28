@@ -7,44 +7,25 @@ const MODEL_FILENAME := "Qwen3-0.6B-Q4_K_M.gguf"
 const MODEL_REPO := "unsloth/Qwen3-0.6B-GGUF"
 const DEFAULT_FOLDER := "user://local_agents/models/qwen3-0_6b-instruct"
 const MODEL_DOWNLOAD_SERVICE := preload("res://addons/local_agents/controllers/ModelDownloadService.gd")
-const DOWNLOAD_CLIENT := preload("res://addons/local_agents/api/DownloadClient.gd")
 
+# Fetches the tiny test GGUF with curl. This used to route through the deleted native download
+# wrapper, i.e. through the AgentRuntime singleton — so a headless test run could not obtain its own
+# fixture unless the native library was already built. curl has no such dependency, which is the point.
 func ensure_local_model() -> String:
-    var existing := find_existing_model()
+    var existing: String = find_existing_model()
     if existing != "":
         return existing
-    if _get_runtime() == null:
-        push_warning("AgentRuntime unavailable; set LOCAL_AGENTS_TEST_GGUF manually.")
-        return ""
-    var request := _build_request()
+    var request: Dictionary = _build_request()
     if request.is_empty():
         push_warning("Unable to build download request for %s" % MODEL_ID)
         return ""
-    var result: Dictionary = DOWNLOAD_CLIENT.download_request(request)
-    if result.get("ok", false):
-        var output_path := String(request.get("output_path", ""))
-        if output_path != "" and FileAccess.file_exists(output_path):
+    var repo: String = String(request.get("hf_repo", request.get("repo_id", MODEL_REPO)))
+    var file: String = String(request.get("hf_file", request.get("filename", MODEL_FILENAME)))
+    var output_path: String = String(request.get("output_path", ""))
+    if repo != "" and file != "" and output_path != "":
+        if _download_with_curl(repo, file, output_path) and FileAccess.file_exists(output_path):
             return output_path
-    if result.has("error"):
-        push_warning("download_model failed: %s" % result.get("error"))
-    # Fall back to direct HF download to the resolved directory
-    var repo := request.get("hf_repo", request.get("repo_id", ""))
-    var file := request.get("hf_file", request.get("filename", MODEL_FILENAME))
-    if repo != "" and file != "":
-        var options := {
-            "dir": request.get("output_path", "").get_base_dir(),
-            "offline": false,
-            "force": false,
-        }
-        var hf_result := DOWNLOAD_CLIENT.download_hf(repo, file, options)
-        if hf_result.get("ok", false):
-            var path := _locate_download_target()
-            if path != "":
-                return path
-        var output_path := String(request.get("output_path", ""))
-        if output_path != "" and _download_with_curl(repo, file, output_path):
-            if FileAccess.file_exists(output_path):
-                return output_path
+    push_warning("Unable to fetch %s; set LOCAL_AGENTS_TEST_GGUF to an existing model." % MODEL_ID)
     return find_existing_model()
 
 func find_existing_model() -> String:

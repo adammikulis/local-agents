@@ -7,7 +7,7 @@ signal prompt_input_received(text)
 const DEFAULT_STORE := preload("res://addons/local_agents/controllers/ConversationStore.gd")
 const ConversationSessionService := preload("res://addons/local_agents/controllers/services/ConversationSessionService.gd")
 const ConversationHistoryService := preload("res://addons/local_agents/controllers/services/ConversationHistoryService.gd")
-const RuntimeHealth := preload("res://addons/local_agents/runtime/RuntimeHealth.gd")
+const Status: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.gd")
 
 @onready var _model_option: OptionButton = %ModelOptionButton
 @onready var _manage_model_button: Button = %ManageModelButton
@@ -379,11 +379,14 @@ func _update_state_labels() -> void:
 	_load_model_button.disabled = _agent == null
 	_status_label.text = _status_text
 
-	var runtime_state := RuntimeHealth.summarize()
+	# One probe, one source of truth (LocalAgentStatus). The old runtime-health helper phrased the same
+	# facts differently from every other surface in the addon and never said how to fix them.
+	var state: Dictionary = Status.check()
 	if _runtime_state_label:
-		_runtime_state_label.text = runtime_state.get("runtime", "Runtime: unknown")
+		_runtime_state_label.text = String(state["headline"])
+		_runtime_state_label.tooltip_text = String(state["next_step"])
 	if _speech_state_label:
-		_speech_state_label.text = runtime_state.get("speech", "Speech: unknown")
+		_speech_state_label.text = "Speech: ready" if bool(state["speech_ok"]) else "Speech: missing voice runtime"
 	_update_send_button_state()
 
 func _sync_agent_with_messages(messages: Array) -> void:

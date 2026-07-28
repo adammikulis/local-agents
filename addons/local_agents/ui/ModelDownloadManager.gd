@@ -1,7 +1,11 @@
+# @tool so the EDITOR Downloads tab can drive this same downloader. Without it Godot refuses to give
+# the node a script instance inside the editor, and the plugin would have needed a second, parallel
+# downloader — which is exactly the duplication this file replaced.
+@tool
 extends Node
 class_name LocalAgentModelDownloadManager
 
-# Runtime (in-game) model download manager.
+# Model download manager, shared by the in-game panel and the editor Downloads tab.
 #
 # Fetches a GGUF model straight from its source into user://local_agents/models using an async
 # HTTPRequest node (never blocks the main thread). It reuses the shipped model catalog

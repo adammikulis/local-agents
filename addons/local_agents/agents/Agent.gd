@@ -11,7 +11,14 @@ signal think_completed(result)
 
 var agent_node: Object
 var history: Array = []
+## Sampling settings (temperature, penalties, backend). configure() REPLACES this wholesale when it
+## is handed an inference preset, so nothing else may store state here.
 var inference_options: Dictionary = {}
+## Model LOAD-time knobs: context window, threads, GPU layers, system prompt. Deliberately a separate
+## Dictionary from inference_options, because "which weights, loaded how" and "how to sample from
+## them" are different concerns with different lifetimes — a user switching sampling presets must not
+## silently drop their context size. Kept out of configure()'s replace path for exactly that reason.
+var load_options: Dictionary = {}
 const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 const RuntimePaths := preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 const LlamaServerManager := preload("res://addons/local_agents/runtime/LlamaServerManager.gd")
@@ -187,8 +194,11 @@ func _sync_runtime_config(runtime) -> void:
     if rd != "" and runtime.has_method("set_runtime_directory"):
         runtime.set_runtime_directory(rd)
 
+# Precedence: load-time knobs, then the sampling preset, then this call's overrides.
 func _merged_options(extra_opts: Dictionary) -> Dictionary:
-    var opts := inference_options.duplicate(true)
+    var opts: Dictionary = load_options.duplicate(true)
+    for key in inference_options.keys():
+        opts[key] = inference_options[key]
     for key in extra_opts.keys():
         opts[key] = extra_opts[key]
     return opts

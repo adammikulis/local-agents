@@ -6,7 +6,8 @@ class_name LocalAgentStatus
 ##
 ## Before this existed the same probe was reimplemented four times — twice through private API
 ## (`agent.agent_node.load_model()`, `Engine.get_singleton("AgentRuntime")` reflection) — in
-## AgentQuickstart, Agent3DExample, ChatController and RuntimeHealth. Every one of them phrased the
+## AgentQuickstart, Agent3DExample, ChatController and the old RuntimeHealth helper (now deleted).
+## Every one of them phrased the
 ## failure differently and none of them told the user how to fix it.
 ##
 ## `check()` returns a fixed-shape Dictionary: the keys below are ALWAYS present, so a caller never
@@ -243,9 +244,13 @@ static func _speech_ok() -> bool:
 	return true
 
 
-# The autoload only exists inside a running SceneTree. In the editor (a @tool script parsing a scene)
-# there is no main loop to look in, so absence there is not a real blocker.
+# In the EDITOR, check the project setting rather than the scene tree. The editor does have a
+# SceneTree, but a non-@tool autoload script (AgentManager.gd is not @tool) is never instantiated
+# into the editor's root — so has_node() reports false even when the autoload is correctly
+# registered, which showed a permanently red, unfixable row in the Setup tab.
 static func _autoload_present() -> bool:
+	if Engine.is_editor_hint():
+		return ProjectSettings.has_setting("autoload/AgentManager")
 	var loop: MainLoop = Engine.get_main_loop()
 	if loop == null or not (loop is SceneTree):
 		return true

@@ -8,12 +8,17 @@ extends Node3D
 
 const MaterialFieldScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialField3D.gd")
 
+@export_group("Box volume")
+## Size of the simulated box in world units: width (x) × height (y) × depth (z).
 @export var extent: Vector3 = Vector3(60.0, 40.0, 60.0)
-@export var cell_size: float = 5.0
+## Field cell size in world units. extent / cell_size cells per axis, so smaller = finer + slower.
+@export_range(1.0, 20.0, 0.5, "suffix:m") var cell_size: float = 5.0
+
+@export_group("Heat source")
 ## Heat injected per frame at the floor centre during the initial burst (°C per frame per source cell).
-@export var heat_per_frame: float = 40.0
+@export_range(0.0, 200.0, 1.0) var heat_per_frame: float = 40.0
 ## How many frames the floor heat source runs before switching off (then we watch it flow + settle).
-@export var heat_burst_frames: int = 40
+@export_range(0, 10000, 1, "suffix:frames") var heat_burst_frames: int = 40
 
 var _field = null
 var _dx: int = 0
@@ -22,17 +27,25 @@ var _dz: int = 0
 var _origin: Vector3 = Vector3.ZERO
 var _slice_cubes: Array = []          # {mi, ix, iy} for the z-mid vertical slice
 var _slice_mats: Array = []
-var _run_frames: int = 0
 var _frame: int = 0
 var _top_start: float = 0.0
 
 
 func _ready() -> void:
-	_parse_run_frames()
 	_build_camera_and_light()
 	_build_field()
 	_build_slice_visual()
 	_top_start = _sample_top_center()
+	_add_harness()
+
+
+# The shared headless harness: `-- --run-frames=N` prints BOX_FIELD_REPORT={...} and quits.
+func _add_harness() -> void:
+	var harness: LocalAgentDemoHarness = LocalAgentDemoHarness.new()
+	harness.name = "DemoHarness"
+	harness.report_prefix = "BOX_FIELD"
+	harness.report_source = self
+	add_child(harness)
 
 
 func _build_camera_and_light() -> void:
@@ -89,8 +102,6 @@ func _process(_delta: float) -> void:
 			for oz in range(-1, 2):
 				_field.add_heat(_cell_center(clampi(cx + ox, 0, _dx - 1), 0, clampi(cz + oz, 0, _dz - 1)), heat_per_frame)
 	_update_slice_colours()
-	if _run_frames > 0 and _frame == _run_frames:
-		_emit_report_and_quit()
 
 
 func _update_slice_colours() -> void:
@@ -113,16 +124,12 @@ func _sample_bottom_center() -> float:
 	return _field.temp_at(_cell_center(_dx / 2, 0, _dz / 2))
 
 
-func _emit_report_and_quit() -> void:
+# LocalAgentDemoHarness asks for the payload at the end of a `--run-frames=N` run. Built as a string
+# rather than a Dictionary because the temperatures read best at two fixed decimals, which JSON's
+# float formatting will not give us.
+func demo_report_json() -> String:
 	var top_now: float = _sample_top_center()
 	var bottom_now: float = _sample_bottom_center()
 	var rose: bool = top_now > _top_start + 0.5      # heat reached the top ⇒ the field flowed (non-static)
-	print("BOX_FIELD_REPORT={\"frames\":%d,\"cells\":%d,\"top_start\":%.2f,\"top_now\":%.2f,\"bottom_now\":%.2f,\"flowed\":%s}"
+	return ("{\"frames\":%d,\"cells\":%d,\"top_start\":%.2f,\"top_now\":%.2f,\"bottom_now\":%.2f,\"flowed\":%s}"
 		% [_frame, _dx * _dy * _dz, _top_start, top_now, bottom_now, str(rose)])
-	LAAppExit.request(self, 0)
-
-
-func _parse_run_frames() -> void:
-	for arg in OS.get_cmdline_user_args():
-		if String(arg).begins_with("--run-frames="):
-			_run_frames = maxi(0, int(String(arg).get_slice("=", 1)))

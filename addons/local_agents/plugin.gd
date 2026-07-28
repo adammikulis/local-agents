@@ -1,38 +1,49 @@
 @tool
 extends EditorPlugin
 
-# CORE agent-library scripts — always present in any install, so a top-level preload is safe. The plugin
-# must NOT top-level-preload any voxel/game script: the voxel tree is OPTIONAL (an agent-only install may
-# delete scenes/simulation/), and a top-level preload of a deleted path fail-parses the WHOLE plugin. The
-# game nodes are registered separately via a guarded load() below (absence = graceful skip, not a parse error).
-const AGENT_SCRIPT := preload("res://addons/local_agents/agents/Agent.gd")
-const AGENT3D_SCRIPT := preload("res://addons/local_agents/agents/Agent3D.gd")
-const GRAPH_SCRIPT := preload("res://addons/local_agents/graph/Graph.gd")
-const PANEL_SCENE := preload("res://addons/local_agents/editor/LocalAgentPanel.tscn")
-const EXTENSION_LOADER := preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
+## The Local Agents editor plugin.
+##
+## Enabling the plugin has to be ENOUGH. It does three things a third-party project used to have to
+## do by hand:
+##   1. registers the `AgentManager` autoload (required by every LocalAgent node),
+##   2. publishes every `LocalAgentSettings` spec into Project Settings as a typed, hinted row,
+##   3. adds the bottom panel, whose first tab is a first-run checklist.
+##
+## None of that needs the native extension. Gating the panel on a successful extension load was the
+## bug: the Setup tab and the Downloads tab are exactly where you go to FIX a failed load, so hiding
+## them behind it made the addon unrecoverable from the editor.
+##
+## No custom node types are registered here. Every node script in this addon declares a `class_name`,
+## so Godot already lists it in Create Node; registering an editor-side alias on top of that put a
+## second, generically-iconed copy of Agent / LocalAgent3D / Creature / Sim World in the dialog.
+##
+## (Explicit types only — project rule: no ':=' inferred typing.)
 
-const EDITOR_ENABLED_SETTING := "local_agents/editor/enabled"
+const PANEL_SCENE: PackedScene = preload("res://addons/local_agents/editor/LocalAgentPanel.tscn")
+const SETUP_TAB_SCRIPT: GDScript = preload("res://addons/local_agents/editor/SetupTab.gd")
+const EXTENSION_LOADER: GDScript = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
+const SETTINGS: GDScript = preload("res://addons/local_agents/runtime/Settings.gd")
 
-# OPTIONAL game/voxel nodes: {display name, base class, res:// script path}. Registered only if the script
-# file exists (load() at runtime, never preload) so deleting the voxel tree leaves the agent nodes intact.
-const GAME_TYPES := [
-    {"name": "Creature", "base": "CharacterBody3D", "path": "res://addons/local_agents/creatures/Creature.gd"},
-    {"name": "Sim World", "base": "Node3D", "path": "res://addons/local_agents/sim/SimWorld.gd"},
-]
+const AUTOLOAD_NAME: String = "AgentManager"
+const AUTOLOAD_PATH: String = "res://addons/local_agents/agent_manager/AgentManager.gd"
+const AUTOLOAD_SETTING: String = "autoload/AgentManager"
+const EDITOR_ENABLED_SETTING: String = "local_agents/editor/enabled"
 
-var _panel_instance: Control
-var _panel_button: Button
-var _editor_active := false
-var _panel_loaded := false
-var _custom_type_registered := false
-# Every custom type name this plugin registered (agent + any present game nodes), for clean removal.
-var _registered_type_names: Array = []
+var _panel_instance: Control = null
+var _panel_button: Button = null
+var _editor_active: bool = false
+var _panel_loaded: bool = false
+# True only when THIS plugin added the autoload, so disabling the plugin never removes an entry the
+# project author wrote themselves.
+var _autoload_registered: bool = false
 
 func _enter_tree() -> void:
     if not Engine.is_editor_hint():
         return
     _editor_active = true
-    _create_placeholder_panel()
+    _register_settings()
+    _register_autoload()
+    _create_setup_panel()
     if _should_auto_activate():
         call_deferred("_activate_panel")
 
@@ -42,11 +53,9 @@ func _exit_tree() -> void:
     if _panel_instance:
         remove_control_from_bottom_panel(_panel_instance)
         _panel_instance.queue_free()
-    if _custom_type_registered:
-        for type_name in _registered_type_names:
-            remove_custom_type(type_name)
-        _registered_type_names.clear()
-        _custom_type_registered = false
+    if _autoload_registered:
+        remove_autoload_singleton(AUTOLOAD_NAME)
+        _autoload_registered = false
     _panel_instance = null
     _panel_button = null
     _panel_loaded = false
@@ -58,37 +67,66 @@ func make_visible(visible: bool) -> void:
     if _panel_instance:
         _panel_instance.visible = visible
 
-func _create_placeholder_panel() -> void:
+# -- Project configuration ----------------------------------------------------
+
+## Publish every LocalAgentSettings spec so Project Settings renders it as a typed row (file picker,
+## enum, checkbox) instead of the user hand-editing project.godot. Existing values are never
+## overwritten — only absent keys get seeded — so re-enabling the plugin is not destructive.
+func _register_settings() -> void:
+    var wrote_any: bool = false
+    for spec_variant in SETTINGS.specs():
+        var spec: Dictionary = spec_variant
+        var setting_name: String = String(spec["name"])
+        var default_value: Variant = spec["default"]
+        if not ProjectSettings.has_setting(setting_name):
+            ProjectSettings.set_setting(setting_name, default_value)
+            wrote_any = true
+        ProjectSettings.set_initial_value(setting_name, default_value)
+        ProjectSettings.set_as_basic(setting_name, true)
+        ProjectSettings.add_property_info({
+            "name": setting_name,
+            "type": int(spec["type"]),
+            "hint": int(spec["hint"]),
+            "hint_string": String(spec["hint_string"]),
+        })
+    if wrote_any:
+        ProjectSettings.save()
+
+## The AgentManager autoload is REQUIRED — LocalAgent nodes resolve it as /root/AgentManager. It is
+## registered here (in _enter_tree), not in _activate_panel, because it must exist whether or not the
+## native library loaded and whether or not the bottom panel was ever opened.
+func _register_autoload() -> void:
+    if ProjectSettings.has_setting(AUTOLOAD_SETTING):
+        # Already present (this project wrote it, or a previous enable did). Leave it alone.
+        return
+    if not ResourceLoader.exists(AUTOLOAD_PATH):
+        push_warning("Local Agents: cannot register the AgentManager autoload, %s is missing." % AUTOLOAD_PATH)
+        return
+    add_autoload_singleton(AUTOLOAD_NAME, AUTOLOAD_PATH)
+    _autoload_registered = true
+
+# -- Bottom panel -------------------------------------------------------------
+
+## The panel that exists before (and without) activation: the Setup checklist. It renders with no
+## native binary, which is the entire point — it is what tells you how to get one.
+func _create_setup_panel() -> void:
     if _panel_instance:
         return
-    var container := VBoxContainer.new()
-    container.name = "LocalAgentPlaceholder"
-    container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    container.size_flags_vertical = Control.SIZE_EXPAND_FILL
-    var label := RichTextLabel.new()
-    label.bbcode_enabled = true
-    label.fit_content = true
-    label.autowrap_mode = TextServer.AUTOWRAP_WORD
-    label.text = "[b]Local Agents[/b]\nEditor tools stay inactive until activated to avoid long startup times."
-    label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    label.size_flags_vertical = Control.SIZE_EXPAND_FILL
-    container.add_child(label)
-    var button := Button.new()
-    button.text = "Activate Local Agents"
-    button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-    button.pressed.connect(func(): _activate_panel(true))
-    container.add_child(button)
-    _panel_instance = container
+    var setup: Control = SETUP_TAB_SCRIPT.new()
+    setup.name = "LocalAgentSetup"
+    setup.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    setup.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    _panel_instance = setup
+    _wire_setup_tabs(_panel_instance)
     _panel_button = add_control_to_bottom_panel(_panel_instance, "Local Agents")
 
 func _activate_panel(save_preference: bool = false) -> void:
     if _panel_loaded:
         _show_bottom_panel()
         return
-    if not EXTENSION_LOADER.ensure_initialized():
-        push_error("Local Agents extension unavailable: %s" % EXTENSION_LOADER.get_error())
-        return
-    _register_agent_type()
+    # Best-effort only. A failed load is reported by the Setup tab (with the expected library path
+    # and a fix sentence) rather than swallowing the whole UI.
+    EXTENSION_LOADER.ensure_initialized()
     _swap_in_panel_scene()
     _panel_loaded = true
     _show_bottom_panel()
@@ -97,47 +135,42 @@ func _activate_panel(save_preference: bool = false) -> void:
     _ensure_agent_manager_ready()
 
 func _swap_in_panel_scene() -> void:
-    if _panel_instance:
-        remove_control_from_bottom_panel(_panel_instance)
-        _panel_instance.queue_free()
-    _panel_instance = PANEL_SCENE.instantiate()
-    if not _panel_instance:
-        push_error("Failed to instantiate Local Agents panel")
-        _create_placeholder_panel()
+    var previous: Control = _panel_instance
+    var full_panel: Control = PANEL_SCENE.instantiate()
+    if full_panel == null:
+        push_error("Failed to instantiate the Local Agents panel; keeping the Setup checklist.")
         return
+    if previous:
+        remove_control_from_bottom_panel(previous)
+        previous.queue_free()
+    _panel_instance = full_panel
+    _wire_setup_tabs(_panel_instance)
     _panel_button = add_control_to_bottom_panel(_panel_instance, "Local Agents")
 
-func _register_agent_type() -> void:
-    if _custom_type_registered:
+# Connect every Setup tab in a subtree (the standalone checklist, or the one inside the full panel).
+# Matched by signal rather than by class so a not-yet-scanned class_name cannot break the plugin.
+func _wire_setup_tabs(root: Node) -> void:
+    if root == null:
         return
-    # Core agent nodes (always present). No dedicated icons ship with the addon → null (reuses the base-class
-    # icon), matching the historical Agent registration.
-    add_custom_type("Agent", "Node", AGENT_SCRIPT, null)
-    _registered_type_names.append("Agent")
-    add_custom_type("LocalAgent3D", "CharacterBody3D", AGENT3D_SCRIPT, null)
-    _registered_type_names.append("LocalAgent3D")
-    add_custom_type("LocalAgentGraph", "Resource", GRAPH_SCRIPT, null)
-    _registered_type_names.append("LocalAgentGraph")
-    _register_game_types()
-    _custom_type_registered = true
+    if root.has_signal("activate_requested") and root.has_signal("register_autoload_requested"):
+        if not root.is_connected("activate_requested", Callable(self, "_on_setup_activate_requested")):
+            root.connect("activate_requested", Callable(self, "_on_setup_activate_requested"))
+        if not root.is_connected("register_autoload_requested", Callable(self, "_on_setup_register_autoload_requested")):
+            root.connect("register_autoload_requested", Callable(self, "_on_setup_register_autoload_requested"))
+    for child in root.get_children():
+        _wire_setup_tabs(child)
 
-# Register the OPTIONAL game/voxel nodes only when their scripts are present. Uses ResourceLoader.exists +
-# load() (never a top-level preload) so an agent-only install with the voxel tree deleted skips them cleanly
-# with zero parse errors. A failed/missing load is simply not registered.
-func _register_game_types() -> void:
-    for entry_variant in GAME_TYPES:
-        var entry: Dictionary = entry_variant
-        var path: String = String(entry["path"])
-        if not ResourceLoader.exists(path):
-            continue
-        var script_res: Script = load(path)
-        if script_res == null:
-            continue
-        add_custom_type(String(entry["name"]), String(entry["base"]), script_res, null)
-        _registered_type_names.append(String(entry["name"]))
+func _on_setup_activate_requested() -> void:
+    _activate_panel(true)
+
+func _on_setup_register_autoload_requested() -> void:
+    if ProjectSettings.has_setting(AUTOLOAD_SETTING):
+        return
+    _register_autoload()
+    ProjectSettings.save()
 
 func _ensure_agent_manager_ready() -> void:
-    var manager := get_node_or_null("/root/AgentManager")
+    var manager: Node = get_node_or_null("/root/AgentManager")
     if manager and manager.has_method("_ensure_agent"):
         manager.call("_ensure_agent")
 
@@ -146,7 +179,7 @@ func _show_bottom_panel() -> void:
         make_bottom_panel_item_visible(_panel_instance)
 
 func _should_auto_activate() -> bool:
-    return ProjectSettings.get_setting(EDITOR_ENABLED_SETTING, false)
+    return SETTINGS.get_bool(EDITOR_ENABLED_SETTING)
 
 func _set_plugin_enabled(enabled: bool) -> void:
     ProjectSettings.set_setting(EDITOR_ENABLED_SETTING, enabled)

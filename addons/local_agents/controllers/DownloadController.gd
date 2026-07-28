@@ -2,6 +2,27 @@
 extends Control
 class_name LocalAgentDownloadController
 
+## The editor Downloads tab: pick a model from the shipped catalog, fetch it, and watch the log.
+##
+## There is exactly ONE downloader in this addon now. This tab used to route models through a thin
+## `api/` wrapper over the `AgentRuntime` native singleton — so downloading a model required the
+## native library, which is the very thing you download a model in order to use.
+## It now drives `LocalAgentModelDownloadManager` (pure GDScript, HTTPRequest, streams to a `.part`
+## file and promotes it only after the size verifies), the same downloader the in-game panel uses.
+## Nothing on the model path needs the native binary any more.
+##
+## The worker Thread survives only for the shell script job (voices / build dependencies via
+## fetch_dependencies.sh). The model path is signal-driven and needs no thread at all.
+##
+## (Explicit types only — project rule: no ':=' inferred typing.)
+
+const FETCH_SCRIPT: String = "res://addons/local_agents/gdextensions/localagents/scripts/fetch_dependencies.sh"
+const MODEL_SERVICE: GDScript = preload("res://addons/local_agents/controllers/ModelDownloadService.gd")
+const DOWNLOAD_MANAGER: GDScript = preload("res://addons/local_agents/ui/ModelDownloadManager.gd")
+
+@export_group("Wiring")
+## RichTextLabel that receives the download transcript (script output, URLs, results). Leave unset
+## to run the tab silently.
 @export var output_log: RichTextLabel
 
 @onready var status_label: Label = %StatusLabel
@@ -13,362 +34,221 @@ class_name LocalAgentDownloadController
 @onready var selection_info_label: Label = %SelectionInfo
 @onready var refresh_button: Button = %RefreshButton
 
-const FETCH_SCRIPT := "res://addons/local_agents/gdextensions/localagents/scripts/fetch_dependencies.sh"
-const MODEL_SERVICE := preload("res://addons/local_agents/controllers/ModelDownloadService.gd")
-const DOWNLOAD_CLIENT := preload("res://addons/local_agents/api/DownloadClient.gd")
+var _model_service: LocalAgentModelDownloadService = MODEL_SERVICE.new()
+var _downloader: LocalAgentModelDownloadManager = null
+var _selected_model_id: String = ""
 
-const JOB_SCRIPT := "script"
-const JOB_MODEL := "model"
-const JOB_COMPOSITE := "composite"
-
-var _worker: Thread
-var _is_running := false
-var _pending_job: Dictionary = {}
-var _model_service := MODEL_SERVICE.new()
-var _download_client := DOWNLOAD_CLIENT
-var _selected_model_id := ""
-var _runtime: Object = null
-var _runtime_connected := false
-var _runtime_log_streaming := false
-var _active_download_path := ""
-var _active_download_dir := ""
-var _active_download_label := ""
-var _active_download_progress := 0.0
-var _active_download_received := 0
-var _active_download_total := 0
+# Shell-script job state (voices / dependencies). The model job carries none of this.
+var _worker: Thread = null
+var _script_running: bool = false
+var _pending_args: PackedStringArray = PackedStringArray()
+# Model queued to start once the script job succeeds ("Download Defaults" = script, then model).
+var _queued_model_id: String = ""
+var _active_model_label: String = ""
 
 func _ready() -> void:
     _reset_output()
+    _ensure_downloader()
     _populate_model_tree()
     _set_running_state(false, "Idle")
-    _connect_runtime_signals()
 
 func _exit_tree() -> void:
     if _worker:
         _worker.wait_to_finish()
         _worker = null
-    _disconnect_runtime_signals()
 
+# -- Public actions (wired from DownloadTab.tscn) ------------------------------
+
+## Dependencies + voices first, then the selected (or recommended) model.
 func download_all() -> void:
-    var request := _model_service.create_request({}, _selected_model_id)
-    if request.is_empty():
+    var model_id: String = _resolve_model_id()
+    if model_id == "":
         push_error("Default model configuration unavailable")
         return
-    var status := "Fetching assets"
-    if request.has("label"):
-        status = "Fetching assets & %s" % request["label"]
-    _start_worker({
-        "type": JOB_COMPOSITE,
-        "args": PackedStringArray(["--skip-models"]),
-        "request": request,
-        "status_label": status
-    })
+    _queued_model_id = model_id
+    _start_script_job(PackedStringArray(["--skip-models"]), "Fetching assets")
 
 func download_models_only() -> void:
-    var request := _model_service.create_request({}, _selected_model_id)
-    if request.is_empty():
+    var model_id: String = _resolve_model_id()
+    if model_id == "":
         push_error("Default model configuration unavailable")
         return
-    var status := "Downloading model"
-    if request.has("label"):
-        status = "Downloading %s" % request["label"]
-    _start_worker({
-        "type": JOB_MODEL,
-        "request": request,
-        "status_label": status
-    })
+    _queued_model_id = ""
+    _start_model_job(model_id)
 
 func download_voices_only() -> void:
-    _start_worker({
-        "type": JOB_SCRIPT,
-        "args": PackedStringArray(["--skip-models"]),
-        "status_label": "Downloading voices"
-    })
+    _queued_model_id = ""
+    _start_script_job(PackedStringArray(["--skip-models"]), "Downloading voices")
 
 func clean_downloads() -> void:
-    _start_worker({
-        "type": JOB_SCRIPT,
-        "args": PackedStringArray(["--clean"]),
-        "status_label": "Cleaning assets"
-    })
+    _queued_model_id = ""
+    _start_script_job(PackedStringArray(["--clean"]), "Cleaning assets")
 
 func refresh_models() -> void:
-    if _is_running:
+    if _is_busy():
         push_warning("Download already in progress")
         return
     _model_service.reload_catalog()
     _populate_model_tree()
     _set_running_state(false, "Catalog refreshed")
 
-func _start_worker(job: Dictionary) -> void:
-    if _is_running:
+# -- Model download (LocalAgentModelDownloadManager) ---------------------------
+
+func _ensure_downloader() -> void:
+    if _downloader != null:
+        return
+    _downloader = DOWNLOAD_MANAGER.new()
+    _downloader.name = "EditorModelDownloader"
+    add_child(_downloader)
+    _downloader.download_started.connect(_on_model_download_started)
+    _downloader.download_progress.connect(_on_model_download_progress)
+    _downloader.download_finished.connect(_on_model_download_finished)
+
+func _resolve_model_id() -> String:
+    if _selected_model_id != "":
+        return _selected_model_id
+    var default_model: Dictionary = _model_service.get_default_model()
+    return String(default_model.get("id", ""))
+
+func _start_model_job(model_id: String) -> void:
+    if _is_busy():
         push_warning("Download already in progress")
         return
-    var job_type := job.get("type", JOB_SCRIPT)
-    var needs_script: bool = job_type in [JOB_SCRIPT, JOB_COMPOSITE]
-    var script_path := ""
-    if needs_script:
-        if not FileAccess.file_exists(FETCH_SCRIPT):
-            push_error("Download script missing: %s" % FETCH_SCRIPT)
-            _clear_runtime_tracking()
-            return
-        script_path = ProjectSettings.globalize_path(FETCH_SCRIPT)
-        job["script_path"] = script_path
+    _ensure_downloader()
+    if _downloader == null:
+        push_error("Model downloader unavailable")
+        return
+    var model: Dictionary = _model_service.find_model(model_id)
+    var label: String = String(model.get("label", model_id))
+    var installed: String = _downloader.installed_path(model_id)
+    if installed != "":
+        _log("%s is already installed at %s" % [label, installed])
+        _set_running_state(false, "%s already installed" % label)
+        return
+
+    _active_model_label = label
+    _reset_output()
+    _log("Downloading %s" % label)
+    var download_url: String = String(model.get("download_url", ""))
+    if download_url != "":
+        _log("Source: %s" % download_url)
+    var size_bytes: int = int(model.get("size_bytes", 0))
+    if size_bytes > 0:
+        _log("Size: %s" % LocalAgentModelDownloadManager.format_bytes(size_bytes))
+    _log("")
+    _set_running_state(true, "Downloading %s" % label)
+
+    if not _downloader.start_download(model_id):
+        _log("Could not start the download (busy, unknown model id, or no network).")
+        _set_running_state(false, "Failed to start %s" % label)
+        _active_model_label = ""
+
+func _on_model_download_started(_model_id: String, total_bytes: int) -> void:
+    var total_text: String = "unknown size"
+    if total_bytes > 0:
+        total_text = LocalAgentModelDownloadManager.format_bytes(total_bytes)
+    _set_running_state(true, "%s — starting (%s)" % [_active_model_label, total_text])
+
+func _on_model_download_progress(_model_id: String, received_bytes: int, total_bytes: int, speed_bytes_per_sec: float, eta_seconds: float) -> void:
+    if status_label == null:
+        return
+    var percent: float = 0.0
+    if total_bytes > 0:
+        percent = clampf(float(received_bytes) / float(total_bytes) * 100.0, 0.0, 100.0)
+    var received_text: String = LocalAgentModelDownloadManager.format_bytes(received_bytes)
+    var total_text: String = "?"
+    if total_bytes > 0:
+        total_text = LocalAgentModelDownloadManager.format_bytes(total_bytes)
+    status_label.text = "%s %.1f%% (%s / %s) · %s · %s" % [
+        _active_model_label,
+        percent,
+        received_text,
+        total_text,
+        LocalAgentModelDownloadManager.format_speed(speed_bytes_per_sec),
+        LocalAgentModelDownloadManager.format_eta(eta_seconds),
+    ]
+
+func _on_model_download_finished(_model_id: String, ok: bool, path: String, error: String) -> void:
+    var label: String = _active_model_label
+    if label == "":
+        label = "model"
+    if ok:
+        _log("Downloaded: %s" % path)
+        _set_running_state(false, "Downloaded %s" % label)
+    else:
+        _log("Download failed: %s" % error)
+        _set_running_state(false, "Failed %s (%s)" % [label, error])
+    _active_model_label = ""
+
+# -- Shell script job (voices / build dependencies) ----------------------------
+
+func _start_script_job(args: PackedStringArray, status: String) -> void:
+    if _is_busy():
+        push_warning("Download already in progress")
+        return
+    if not FileAccess.file_exists(FETCH_SCRIPT):
+        push_error("Download script missing: %s" % FETCH_SCRIPT)
+        _queued_model_id = ""
+        return
+    var script_path: String = ProjectSettings.globalize_path(FETCH_SCRIPT)
     if _worker:
         _worker.wait_to_finish()
     _worker = Thread.new()
-    if job_type == JOB_MODEL or job_type == JOB_COMPOSITE:
-        _start_tracking_request(job.get("request", {}))
-    else:
-        _clear_runtime_tracking()
-    _pending_job = job.duplicate(true)
-    _is_running = true
-    var status := job.get("status_label", "Running download")
+    _pending_args = args
+    _script_running = true
+    _reset_output()
+    _log("Running: %s %s" % [script_path, " ".join(args)])
+    if _queued_model_id != "":
+        _log("A model download will follow once the script finishes.")
+    _log("")
     _set_running_state(true, status)
-    _log_job(_pending_job)
-    _worker.start(Callable(self, "_thread_download").bind(script_path))
+    _worker.start(Callable(self, "_thread_script_job").bind(script_path))
 
-func _connect_runtime_signals() -> void:
-    if _runtime_connected:
-        return
-    if not Engine.has_singleton("AgentRuntime"):
-        return
-    var runtime := Engine.get_singleton("AgentRuntime")
-    if runtime == null:
-        return
-    var connected := false
-    if runtime.has_signal("download_started") and not runtime.is_connected("download_started", Callable(self, "_on_runtime_download_started")):
-        runtime.connect("download_started", Callable(self, "_on_runtime_download_started"))
-        connected = true
-    if runtime.has_signal("download_progress") and not runtime.is_connected("download_progress", Callable(self, "_on_runtime_download_progress")):
-        runtime.connect("download_progress", Callable(self, "_on_runtime_download_progress"))
-        connected = true
-    if runtime.has_signal("download_log") and not runtime.is_connected("download_log", Callable(self, "_on_runtime_download_log")):
-        runtime.connect("download_log", Callable(self, "_on_runtime_download_log"))
-        connected = true
-    if runtime.has_signal("download_finished") and not runtime.is_connected("download_finished", Callable(self, "_on_runtime_download_finished")):
-        runtime.connect("download_finished", Callable(self, "_on_runtime_download_finished"))
-        connected = true
-    if connected:
-        _runtime = runtime
-        _runtime_connected = true
-
-func _disconnect_runtime_signals() -> void:
-    if not _runtime_connected:
-        return
-    if _runtime == null:
-        _runtime_connected = false
-        return
-    if _runtime.is_connected("download_started", Callable(self, "_on_runtime_download_started")):
-        _runtime.disconnect("download_started", Callable(self, "_on_runtime_download_started"))
-    if _runtime.is_connected("download_progress", Callable(self, "_on_runtime_download_progress")):
-        _runtime.disconnect("download_progress", Callable(self, "_on_runtime_download_progress"))
-    if _runtime.is_connected("download_log", Callable(self, "_on_runtime_download_log")):
-        _runtime.disconnect("download_log", Callable(self, "_on_runtime_download_log"))
-    if _runtime.is_connected("download_finished", Callable(self, "_on_runtime_download_finished")):
-        _runtime.disconnect("download_finished", Callable(self, "_on_runtime_download_finished"))
-    _runtime = null
-    _runtime_connected = false
-
-func _start_tracking_request(request: Dictionary) -> void:
-    _connect_runtime_signals()
-    _runtime_log_streaming = _runtime_connected
-    if request.is_empty():
-        _clear_runtime_tracking()
-        return
-    var output_path_variant := request.get("output_path", "")
-    _active_download_path = String(output_path_variant)
-    _active_download_dir = _active_download_path.get_base_dir()
-    _active_download_label = String(request.get("label", ""))
-    _active_download_progress = 0.0
-    _active_download_received = 0
-    _active_download_total = 0
-
-func _clear_runtime_tracking() -> void:
-    _active_download_path = ""
-    _active_download_dir = ""
-    _active_download_label = ""
-    _active_download_progress = 0.0
-    _active_download_received = 0
-    _active_download_total = 0
-    _runtime_log_streaming = false
-
-func _is_tracking_path(path: String) -> bool:
-    if _active_download_path.is_empty():
-        return false
-    if path == _active_download_path:
-        return true
-    if _active_download_dir != "" and path.begins_with(_active_download_dir):
-        return true
-    return false
-
-func _on_runtime_download_started(label: String, path: String) -> void:
-    call_deferred("_handle_runtime_started", label, path)
-
-func _handle_runtime_started(label: String, path: String) -> void:
-    if not _is_tracking_path(path):
-        return
-    _active_download_label = label
-    _active_download_progress = 0.0
-    _active_download_received = 0
-    _active_download_total = 0
-    _refresh_runtime_status_label()
-
-func _on_runtime_download_progress(label: String, progress: float, received_bytes: int, total_bytes: int, path: String) -> void:
-    call_deferred("_update_runtime_progress", label, progress, received_bytes, total_bytes, path)
-
-func _update_runtime_progress(label: String, progress: float, received_bytes: int, total_bytes: int, path: String) -> void:
-    if not _is_tracking_path(path):
-        return
-    if label != "":
-        _active_download_label = label
-    _active_download_progress = progress
-    _active_download_received = received_bytes
-    _active_download_total = total_bytes
-    _refresh_runtime_status_label()
-
-func _on_runtime_download_log(line: String, path: String) -> void:
-    call_deferred("_append_runtime_log_line", line, path)
-
-func _append_runtime_log_line(line: String, path: String) -> void:
-    if not _is_tracking_path(path):
-        return
-    if output_log:
-        output_log.append_text("%s\n" % line)
-
-func _on_runtime_download_finished(ok: bool, error: String, path: String) -> void:
-    call_deferred("_handle_runtime_finished", ok, error, path)
-
-func _handle_runtime_finished(ok: bool, error: String, path: String) -> void:
-    if not _is_tracking_path(path):
-        return
-    if ok:
-        _active_download_progress = 1.0
-        _active_download_received = max(_active_download_received, _active_download_total)
-    _refresh_runtime_status_label()
-
-func _refresh_runtime_status_label() -> void:
-    if not status_label:
-        return
-    var label := _active_download_label
-    if label == "":
-        label = "Downloading model"
-    var percent := clamp(_active_download_progress * 100.0, 0.0, 100.0)
-    if _active_download_total > 0:
-        status_label.text = "%s %.1f%% (%s / %s)" % [label, percent, _format_bytes(_active_download_received), _format_bytes(_active_download_total)]
-    elif _active_download_received > 0:
-        status_label.text = "%s %.1f%% (%s)" % [label, percent, _format_bytes(_active_download_received)]
-    else:
-        status_label.text = "%s %.1f%%" % [label, percent]
-
-func _format_bytes(amount: int) -> String:
-    if amount <= 0:
-        return "0 B"
-    var units := ["B", "KB", "MB", "GB", "TB"]
-    var size := float(amount)
-    var index := 0
-    while size >= 1024.0 and index < units.size() - 1:
-        size /= 1024.0
-        index += 1
-    if index == 0:
-        return "%d %s" % [int(size), units[index]]
-    return "%.2f %s" % [size, units[index]]
-
-func _thread_download(script_path: String) -> void:
-    var job := _pending_job.duplicate(true)
-    var job_type := job.get("type", JOB_SCRIPT)
-    var result := {}
-    match job_type:
-        JOB_SCRIPT:
-            result = _execute_script_job(script_path, job)
-        JOB_MODEL:
-            result = _execute_model_job(job)
-        JOB_COMPOSITE:
-            result = _execute_composite_job(script_path, job)
-        _:
-            result = {"ok": false, "log": PackedStringArray(["Unknown job type: %s" % job_type]), "exit_code": -1}
-    call_deferred("_on_download_finished", result)
-
-func _execute_script_job(script_path: String, job: Dictionary) -> Dictionary:
-    var args: PackedStringArray = job.get("args", PackedStringArray())
+func _thread_script_job(script_path: String) -> void:
     var captured: Array = []
-    var exit_code := OS.execute(script_path, args, captured, true, true)
-    var lines := PackedStringArray()
+    var exit_code: int = OS.execute(script_path, _pending_args, captured, true, true)
+    var lines: PackedStringArray = PackedStringArray()
     for entry in captured:
         lines.append(str(entry))
-    return {
-        "ok": exit_code == 0,
-        "exit_code": exit_code,
-        "log": lines
-    }
+    call_deferred("_on_script_job_finished", exit_code, lines)
 
-func _execute_model_job(job: Dictionary) -> Dictionary:
-    var request: Dictionary = job.get("request", {})
-    var lines := PackedStringArray()
-    if request.is_empty():
-        lines.append("Model request missing")
-        return {"ok": false, "log": lines, "exit_code": -1}
-    var model_result: Dictionary = _download_client.download_request(request)
-    var model_log: PackedStringArray = model_result.get("log", PackedStringArray())
-    if not _runtime_log_streaming:
-        lines.append_array(model_log)
-    var ok := model_result.get("ok", false)
-    if not ok and model_result.has("error"):
-        lines.append("Error: %s" % model_result["error"])
-    elif ok and model_result.has("sha256"):
-        lines.append("SHA256: %s" % model_result["sha256"])
-    var exit_code := 0
-    if not ok:
-        exit_code = -1
-    return {
-        "ok": ok,
-        "log": lines,
-        "model": model_result,
-        "exit_code": exit_code
-    }
-
-func _execute_composite_job(script_path: String, job: Dictionary) -> Dictionary:
-    var combined := PackedStringArray()
-    var script_result := _execute_script_job(script_path, job)
-    combined.append_array(script_result.get("log", PackedStringArray()))
-    if not script_result.get("ok", false):
-        script_result["log"] = combined
-        return script_result
-    var model_job := {"request": job.get("request", {})}
-    var model_result := _execute_model_job(model_job)
-    if not _runtime_log_streaming:
-        combined.append_array(model_result.get("log", PackedStringArray()))
-    return {
-        "ok": model_result.get("ok", false),
-        "log": combined,
-        "model": model_result.get("model", {}),
-        "exit_code": model_result.get("exit_code", -1)
-    }
-
-func _on_download_finished(result: Dictionary) -> void:
-    var ok := result.get("ok", false)
-    if output_log:
-        var log_lines: PackedStringArray = result.get("log", PackedStringArray())
-        for line in log_lines:
-            output_log.append_text("%s\n" % line)
-        output_log.append_text("\nResult: %s\n" % ("Success" if ok else "Failed"))
-    _is_running = false
+func _on_script_job_finished(exit_code: int, lines: PackedStringArray) -> void:
+    _script_running = false
     if _worker:
         _worker.wait_to_finish()
         _worker = null
-    _pending_job = {}
-    var final_message := "Completed" if ok else "Failed"
-    if _active_download_label != "":
-        final_message = "%s %s" % [("Downloaded" if ok else "Failed"), _active_download_label]
-    _set_running_state(false, final_message)
-    _clear_runtime_tracking()
+    for line in lines:
+        _log(line)
+    var ok: bool = exit_code == 0
+    _log("")
+    _log("Script result: %s (exit %d)" % ["Success" if ok else "Failed", exit_code])
+    if ok and _queued_model_id != "":
+        var next_id: String = _queued_model_id
+        _queued_model_id = ""
+        _start_model_job(next_id)
+        return
+    _queued_model_id = ""
+    _set_running_state(false, "Completed" if ok else "Failed")
+
+func _is_busy() -> bool:
+    if _script_running:
+        return true
+    return _downloader != null and _downloader.is_downloading()
+
+# -- Log -----------------------------------------------------------------------
+
+func _log(line: String) -> void:
+    if output_log:
+        output_log.append_text("%s\n" % line)
 
 func _reset_output() -> void:
     if output_log:
         output_log.clear()
         output_log.append_text("Local Agents Downloader\n")
         output_log.append_text("-------------------------\n")
-        output_log.append_text("Downloads models, voices, and dependencies using llama.cpp helpers.\n\n")
+        output_log.append_text("Models stream straight to user://local_agents/models; voices and build dependencies use fetch_dependencies.sh.\n\n")
+
+# -- Model catalog tree --------------------------------------------------------
 
 func _populate_model_tree() -> void:
     if not model_tree:
@@ -380,40 +260,42 @@ func _populate_model_tree() -> void:
     model_tree.set_column_title(1, "Params")
     model_tree.set_column_title(2, "Size")
     model_tree.set_column_title(3, "Updated")
-    var root := model_tree.create_item()
-    var families := _model_service.list_families()
-    var default_model := _model_service.get_default_model()
-    var default_id := default_model.get("id", "")
-    var selection_set := false
+    var root: TreeItem = model_tree.create_item()
+    var families: Array = _model_service.list_families()
+    var default_model: Dictionary = _model_service.get_default_model()
+    var default_id: String = String(default_model.get("id", ""))
+    var selection_set: bool = false
     var first_model_item: TreeItem = null
-    for family in families:
-        var family_item := model_tree.create_item(root)
-        family_item.set_text(0, family.get("label", ""))
+    for family_variant in families:
+        var family: Dictionary = family_variant
+        var family_item: TreeItem = model_tree.create_item(root)
+        family_item.set_text(0, String(family.get("label", "")))
         family_item.set_metadata(0, "")
         family_item.collapsed = false
-        for model in family.get("models", []):
-            var item := model_tree.create_item(family_item)
-            item.set_text(0, model.get("label", ""))
-            item.set_text(1, model.get("parameters", ""))
-            item.set_text(2, model.get("size_pretty", ""))
-            item.set_text(3, _format_updated(model.get("updated_timestamp", 0)))
-            item.set_metadata(0, model.get("id", ""))
+        for model_variant in family.get("models", []):
+            var model: Dictionary = model_variant
+            var item: TreeItem = model_tree.create_item(family_item)
+            item.set_text(0, String(model.get("label", "")))
+            item.set_text(1, String(model.get("parameters", "")))
+            item.set_text(2, String(model.get("size_pretty", "")))
+            item.set_text(3, _format_updated(int(model.get("updated_timestamp", 0))))
+            item.set_metadata(0, String(model.get("id", "")))
             item.set_tooltip_text(0, _build_model_tooltip(model))
             if first_model_item == null:
                 first_model_item = item
-            if not selection_set and (model.get("recommended", false) or model.get("id", "") == default_id):
+            if not selection_set and (bool(model.get("recommended", false)) or String(model.get("id", "")) == default_id):
                 model_tree.select_item(item, 0)
                 _apply_model_selection(model)
                 selection_set = true
     if not selection_set and first_model_item:
         model_tree.select_item(first_model_item, 0)
-        var meta := first_model_item.get_metadata(0)
+        var meta: Variant = first_model_item.get_metadata(0)
         if typeof(meta) == TYPE_STRING and String(meta) != "":
-            var fallback_model := _model_service.find_model(String(meta))
+            var fallback_model: Dictionary = _model_service.find_model(String(meta))
             _apply_model_selection(fallback_model)
 
 func _apply_model_selection(model: Dictionary) -> void:
-    _selected_model_id = model.get("id", "")
+    _selected_model_id = String(model.get("id", ""))
     _update_selection_info(model)
 
 func _update_selection_info(model: Dictionary) -> void:
@@ -422,12 +304,12 @@ func _update_selection_info(model: Dictionary) -> void:
     if model.is_empty():
         selection_info_label.text = "Select a model to view download details"
         return
-    var parts: Array = []
-    parts.append("Selected: %s" % model.get("label", ""))
-    var params := model.get("parameters", "")
-    var size := model.get("size_pretty", "")
-    var updated := _format_updated(model.get("updated_timestamp", 0))
-    var meta_parts: Array = []
+    var parts: Array[String] = []
+    parts.append("Selected: %s" % String(model.get("label", "")))
+    var params: String = String(model.get("parameters", ""))
+    var size: String = String(model.get("size_pretty", ""))
+    var updated: String = _format_updated(int(model.get("updated_timestamp", 0)))
+    var meta_parts: Array[String] = []
     if params != "":
         meta_parts.append(params)
     if size != "":
@@ -436,7 +318,7 @@ func _update_selection_info(model: Dictionary) -> void:
         meta_parts.append("Updated %s" % updated)
     if not meta_parts.is_empty():
         parts.append(" • ".join(meta_parts))
-    var repo_url := model.get("repo_url", "")
+    var repo_url: String = String(model.get("repo_url", ""))
     if repo_url != "":
         parts.append("Source: %s" % repo_url)
     selection_info_label.text = "\n".join(parts)
@@ -444,18 +326,18 @@ func _update_selection_info(model: Dictionary) -> void:
 func _format_updated(timestamp: int) -> String:
     if timestamp <= 0:
         return "Unknown"
-    var dt := Time.get_datetime_string_from_unix_time(timestamp)
+    var dt: String = Time.get_datetime_string_from_unix_time(timestamp)
     if dt.length() >= 10:
         return dt.substr(0, 10)
     return dt
 
 func _build_model_tooltip(model: Dictionary) -> String:
-    var lines: Array = []
-    lines.append(model.get("label", ""))
-    var params := model.get("parameters", "")
-    var quant := model.get("quantization", "")
-    var size := model.get("size_pretty", "")
-    var updated := model.get("updated_at", "")
+    var lines: Array[String] = []
+    lines.append(String(model.get("label", "")))
+    var params: String = String(model.get("parameters", ""))
+    var quant: String = String(model.get("quantization", ""))
+    var size: String = String(model.get("size_pretty", ""))
+    var updated: String = String(model.get("updated_at", ""))
     if params != "":
         lines.append("Parameters: %s" % params)
     if quant != "":
@@ -464,7 +346,7 @@ func _build_model_tooltip(model: Dictionary) -> String:
         lines.append("Size: %s" % size)
     if updated != "":
         lines.append("Updated: %s" % updated)
-    var repo_url := model.get("repo_url", "")
+    var repo_url: String = String(model.get("repo_url", ""))
     if repo_url != "":
         lines.append("Source: %s" % repo_url)
     return "\n".join(lines)
@@ -472,14 +354,14 @@ func _build_model_tooltip(model: Dictionary) -> String:
 func _on_model_tree_item_selected() -> void:
     if not model_tree:
         return
-    var item := model_tree.get_selected()
+    var item: TreeItem = model_tree.get_selected()
     if item == null:
         _selected_model_id = ""
         _update_selection_info({})
         return
-    var model_id_variant := item.get_metadata(0)
+    var model_id_variant: Variant = item.get_metadata(0)
     if typeof(model_id_variant) == TYPE_STRING and String(model_id_variant) != "":
-        var model := _model_service.find_model(String(model_id_variant))
+        var model: Dictionary = _model_service.find_model(String(model_id_variant))
         _apply_model_selection(model)
     else:
         _selected_model_id = ""
@@ -488,52 +370,14 @@ func _on_model_tree_item_selected() -> void:
 func _on_model_tree_item_activated() -> void:
     if not model_tree:
         return
-    var item := model_tree.get_selected()
+    var item: TreeItem = model_tree.get_selected()
     if item == null:
         return
-    var model_id_variant := item.get_metadata(0)
+    var model_id_variant: Variant = item.get_metadata(0)
     if typeof(model_id_variant) == TYPE_STRING and String(model_id_variant) != "":
         download_models_only()
 
-func _log_job(job: Dictionary) -> void:
-    _reset_output()
-    if not output_log:
-        return
-    var job_type := job.get("type", JOB_SCRIPT)
-    match job_type:
-        JOB_MODEL:
-            var request: Dictionary = job.get("request", {})
-            output_log.append_text("AgentRuntime Model Download\n\n")
-            output_log.append_text("Target: %s\n" % request.get("output_path", ""))
-            output_log.append_text("Source: %s\n\n" % request.get("url", ""))
-            var hf_repo := String(request.get("hf_repo", ""))
-            if hf_repo != "":
-                output_log.append_text("HF Repo: %s\n" % hf_repo)
-            var hf_file := String(request.get("hf_file", ""))
-            if hf_file != "":
-                output_log.append_text("HF File: %s\n" % hf_file)
-            var hf_tag := String(request.get("hf_tag", ""))
-            if hf_tag != "":
-                output_log.append_text("HF Tag: %s\n" % hf_tag)
-            var sha := String(request.get("sha256", ""))
-            if sha != "":
-                output_log.append_text("Expected SHA256: %s\n" % sha)
-            if hf_repo != "" or hf_file != "" or hf_tag != "":
-                output_log.append_text("\n")
-        JOB_COMPOSITE:
-            var args: PackedStringArray = job.get("args", PackedStringArray())
-            var arg_string := ""
-            for arg in args:
-                arg_string += " %s" % arg
-            output_log.append_text("Dependency Script: %s%s\n" % [job.get("script_path", ""), arg_string])
-            output_log.append_text("\nModel download will follow via AgentRuntime.\n\n")
-        _:
-            var args_default: PackedStringArray = job.get("args", PackedStringArray())
-            var script_string := job.get("script_path", "")
-            var combined := ""
-            for arg in args_default:
-                combined += " %s" % arg
-            output_log.append_text("Running: %s%s\n\n" % [script_string, combined])
+# -- Button state --------------------------------------------------------------
 
 func _set_running_state(running: bool, label: String) -> void:
     if status_label:
@@ -549,4 +393,4 @@ func _set_running_state(running: bool, label: String) -> void:
     if refresh_button:
         refresh_button.disabled = running
     if model_tree:
-        model_tree.disabled = running
+        model_tree.mouse_filter = Control.MOUSE_FILTER_IGNORE if running else Control.MOUSE_FILTER_STOP

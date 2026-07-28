@@ -4,7 +4,7 @@ extends Control
 ## LATutorialHighlightOverlay + LocalAgentTutorialStep). Builds four demo buttons and a three-step guided tour
 ## that spotlights three of them in turn ("click this", "now this"), verifiable WITHOUT the voxel sim.
 ##
-## Self-harness (matches the repo's convention):
+## Self-harness (a LocalAgentDemoHarness child, matching the repo's convention):
 ##   -- --shoot=<png> [--shoot-frames=N]   capture a screenshot at frame N (tutorial resting on step 1,
 ##                                          so the shot shows the spotlight + callout on a button), then quit.
 ##   -- --run-frames=N                      auto-drive: programmatically press each spotlighted button to
@@ -16,17 +16,19 @@ const OverlayScript: GDScript = preload("res://addons/local_agents/ui/tutorial/T
 const SequencerScript: GDScript = preload("res://addons/local_agents/ui/tutorial/TutorialSequencer.gd")
 const StepScript: GDScript = preload("res://addons/local_agents/ui/tutorial/TutorialStep.gd")
 
+@export_group("Auto-drive")
+## Seconds-equivalent settle time (in frames) between the spotlight landing on a button and the
+## headless auto-driver pressing it. Long enough that a screenshot catches the callout at rest.
+@export_range(0, 240, 1, "suffix:frames") var press_cooldown_frames: int = 24
+
 var _overlay: LATutorialHighlightOverlay = null
 var _seq: LATutorialSequencer = null
 var _buttons: Dictionary = {}          # name -> Button
 var _step_targets: Array[Button] = []  # target button per tutorial step (for auto-drive), null if none
 var _log: Label = null
 
-# Harness state.
-var _shoot_path: String = ""
-var _shoot_frames: int = 90
-var _run_frames: int = 0
-var _frame: int = 0
+# Auto-drive state. Frame counting / screenshots / quitting all belong to the LocalAgentDemoHarness child.
+var _harness_frames: int = 0
 var _auto: bool = false
 var _auto_cooldown: int = 0
 var _finished: bool = false
@@ -34,7 +36,6 @@ var _finished: bool = false
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_parse_args()
 	_build_background()
 	_build_buttons()
 	_overlay = OverlayScript.new()
@@ -44,19 +45,23 @@ func _ready() -> void:
 	_seq.step_changed.connect(_on_step_changed)
 	_seq.tutorial_finished.connect(_on_finished)
 	_start_tutorial()
-	if _run_frames > 0 or _shoot_path != "":
-		set_process(true)
+	_add_harness()
 
 
-func _parse_args() -> void:
-	for arg in OS.get_cmdline_user_args():
-		if arg.begins_with("--shoot="):
-			_shoot_path = arg.substr("--shoot=".length())
-		elif arg.begins_with("--shoot-frames="):
-			_shoot_frames = int(arg.substr("--shoot-frames=".length()))
-		elif arg.begins_with("--run-frames="):
-			_run_frames = int(arg.substr("--run-frames=".length()))
-			_auto = true
+# The shared headless harness: `-- --run-frames=N` prints DEMO_REPORT={...}, `-- --shoot=<png>` grabs a frame.
+func _add_harness() -> void:
+	var harness: LocalAgentDemoHarness = LocalAgentDemoHarness.new()
+	harness.name = "DemoHarness"
+	harness.report_prefix = "DEMO"
+	harness.report_source = self
+	add_child(harness)
+
+
+# The harness hands back the resolved command line; `--run-frames` is what arms the auto-driver.
+func demo_harness_configured(frames: int, _shoot: String) -> void:
+	_harness_frames = frames
+	_auto = frames > 0
+	set_process(_auto)
 
 
 func _build_background() -> void:
@@ -136,7 +141,7 @@ func _start_tutorial() -> void:
 
 func _on_step_changed(index: int, _step: LocalAgentTutorialStep) -> void:
 	print("TUTORIAL_STEP=%d" % index)
-	_auto_cooldown = 24   # let the spotlight settle before the auto-driver presses
+	_auto_cooldown = press_cooldown_frames   # let the spotlight settle before the auto-driver presses
 
 
 func _on_finished(completed: bool) -> void:
@@ -146,37 +151,31 @@ func _on_finished(completed: bool) -> void:
 		_log.text = "Tutorial finished."
 
 
+# Auto-drive mode: press the current step's target button to advance (proves TARGET_PRESSED wiring).
+# Screenshot + report + quit are the harness child's job; this only presses buttons.
 func _process(_delta: float) -> void:
-	_frame += 1
-
-	# Screenshot mode: sit on the first spotlight step and capture, so the shot shows spotlight + callout.
-	if _shoot_path != "" and _frame == _shoot_frames:
-		_capture(_shoot_path)
-		get_tree().quit(0)
+	if not _auto or _finished:
 		return
-
-	# Auto-drive mode: press the current step's target button to advance (proves TARGET_PRESSED wiring).
-	if _auto and not _finished:
-		if _auto_cooldown > 0:
-			_auto_cooldown -= 1
-		elif _seq.is_active():
-			var idx: int = _seq.current_index()
-			if idx >= 0 and idx < _step_targets.size() and _step_targets[idx] != null:
-				(_step_targets[idx] as Button).pressed.emit()
-				_auto_cooldown = 24
-
-	if _run_frames > 0 and _frame >= _run_frames:
-		var report: Dictionary = {
-			"frames": _frame,
-			"tutorial_finished": _finished,
-			"fps": Performance.get_monitor(Performance.TIME_FPS),
-			"nodes": Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
-		}
-		print("DEMO_REPORT=%s" % JSON.stringify(report))
-		get_tree().quit(0)
+	if _auto_cooldown > 0:
+		_auto_cooldown -= 1
+	elif _seq.is_active():
+		var idx: int = _seq.current_index()
+		if idx >= 0 and idx < _step_targets.size() and _step_targets[idx] != null:
+			(_step_targets[idx] as Button).pressed.emit()
+			_auto_cooldown = press_cooldown_frames
 
 
-func _capture(path: String) -> void:
-	var img: Image = get_viewport().get_texture().get_image()
-	img.save_png(path)
-	print("SHOT_SAVED=%s size=%dx%d step=%d" % [path, img.get_width(), img.get_height(), _seq.current_index()])
+# The payload LocalAgentDemoHarness prints at the end of a `--run-frames=N` run. Declared in alphabetical
+# order so the printed line stays byte-identical to the sorted JSON this demo emitted before the harness.
+func demo_report() -> Dictionary:
+	return {
+		"fps": Performance.get_monitor(Performance.TIME_FPS),
+		"frames": _harness_frames,
+		"nodes": Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
+		"tutorial_finished": _finished,
+	}
+
+
+# Appended to the harness's SHOT_SAVED line, so a screenshot still records which step it caught.
+func demo_shot_info() -> String:
+	return "step=%d" % _seq.current_index()

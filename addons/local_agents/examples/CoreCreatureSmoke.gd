@@ -13,16 +13,21 @@ extends Node3D
 
 const CreatureScene: PackedScene = preload("res://addons/local_agents/creatures/Creature.tscn")
 
+## Species data file to instantiate, e.g. "rabbit", "fox", "bird", "mouse", "villager", "fish".
+## Backed by creatures/species/**/<id>.json — drop a JSON file there and its id works here.
+## Blank uses the built-in generic walker.
+## (Left a plain String on purpose: @export_enum cannot offer an empty option, so it could not
+## express the generic walker. The editor plugin supplies the dropdown instead.)
 @export var species: String = "rabbit"
+## Frames to step before printing CORE_SMOKE and quitting. `-- --run-frames=N` overrides it.
+@export_range(1, 100000, 1, "suffix:frames") var smoke_frames: int = 60
 
-var _run_frames: int = 60
-var _frame: int = 0
+var _harness_frames: int = 60
 var _creature: Node = null
 var _spawn_y: float = 2.0
 
 
 func _ready() -> void:
-	_parse_run_frames()
 	_build_floor()
 	_creature = CreatureScene.instantiate()
 	_creature.standalone_on_ready = false          # configure explicitly after positioning
@@ -30,6 +35,20 @@ func _ready() -> void:
 	if _creature is Node3D:
 		(_creature as Node3D).global_position = Vector3(0.0, _spawn_y, 0.0)
 	_creature.setup_standalone(species)            # flat-ground terrain + pure fast brain, no field/ecology
+	_add_harness()
+
+
+# The shared headless harness. Prints a bare CORE_SMOKE={...} with no "_REPORT" suffix, because that
+# is the marker this scene has always printed and saved logs are easier to compare if it stays put.
+# Exits non-zero when the creature failed to stand.
+func _add_harness() -> void:
+	var harness: LocalAgentDemoHarness = LocalAgentDemoHarness.new()
+	harness.name = "DemoHarness"
+	harness.report_prefix = "CORE_SMOKE"
+	harness.report_suffix = ""
+	harness.run_frames = smoke_frames
+	harness.report_source = self
+	add_child(harness)
 
 
 func _build_floor() -> void:
@@ -44,11 +63,13 @@ func _build_floor() -> void:
 	floor_body.add_child(shape)
 
 
-func _process(_delta: float) -> void:
-	_frame += 1
-	if _frame < _run_frames:
-		return
-	set_process(false)
+func demo_harness_configured(frames: int, _shoot: String) -> void:
+	_harness_frames = frames
+
+
+# Built as a string rather than a Dictionary because `y` reads as three fixed decimals here, which JSON's
+# float formatting will not give us.
+func demo_report_json() -> String:
 	var exists: bool = is_instance_valid(_creature)
 	var y: float = 999.0
 	var sp: String = ""
@@ -57,13 +78,12 @@ func _process(_delta: float) -> void:
 		y = (_creature as Node3D).global_position.y
 		stands = absf(y) < 5.0                      # snapped to the flat ground (y ~ 0), not fallen away
 		sp = String(_creature.get("species")) if _creature.get("species") != null else ""
-	var ok: bool = exists and stands
-	print("CORE_SMOKE={\"ok\":%s,\"exists\":%s,\"stands\":%s,\"species\":\"%s\",\"y\":%.3f,\"frames\":%d}"
-		% [str(ok).to_lower(), str(exists).to_lower(), str(stands).to_lower(), sp, y, _frame])
-	get_tree().quit(0 if ok else 1)
+	return ("{\"ok\":%s,\"exists\":%s,\"stands\":%s,\"species\":\"%s\",\"y\":%.3f,\"frames\":%d}"
+		% [str(exists and stands).to_lower(), str(exists).to_lower(), str(stands).to_lower(), sp, y, _harness_frames])
 
 
-func _parse_run_frames() -> void:
-	for arg in OS.get_cmdline_user_args():
-		if String(arg).begins_with("--run-frames="):
-			_run_frames = maxi(1, int(String(arg).get_slice("=", 1)))
+# A smoke test is only useful if it can fail the build: non-zero unless the creature exists and stands.
+func demo_exit_code() -> int:
+	var exists: bool = is_instance_valid(_creature)
+	var stands: bool = exists and _creature is Node3D and absf((_creature as Node3D).global_position.y) < 5.0
+	return 0 if (exists and stands) else 1

@@ -75,13 +75,9 @@ var _sun: DirectionalLight3D = null
 var _built: bool = false
 var _spawned: bool = false
 var _ready_ticks: int = 0
-# Headless / off-screen harness: `-- --run-frames=N` counts frames then prints a report + quits.
-var _run_frames: int = 0
-var _frame: int = 0
 
 
 func _ready() -> void:
-	_parse_run_frames()
 	if build_on_ready:
 		spawn_world()
 
@@ -163,10 +159,6 @@ func _build_flat() -> void:
 func _process(_delta: float) -> void:
 	if _built and not _spawned and auto_spawn:
 		_try_spawn_life()
-	if _run_frames > 0:
-		_frame += 1
-		if _frame == _run_frames:
-			_emit_report_and_quit()
 
 
 ## Spawn the starting ecology now (bypassing the auto gate). Safe to call once the world is built.
@@ -217,19 +209,3 @@ func ecology(): return _ecology
 func terrain(): return _terrain
 func planet_body(): return _body
 func actors_root() -> Node3D: return _actors_root
-
-
-# --- Headless run-frames harness ---------------------------------------------------------------
-func _parse_run_frames() -> void:
-	for arg in OS.get_cmdline_user_args():
-		if String(arg).begins_with("--run-frames="):
-			_run_frames = maxi(0, int(String(arg).get_slice("=", 1)))
-
-
-func _emit_report_and_quit() -> void:
-	var creatures: int = get_tree().get_nodes_in_group("creature").size()
-	var plants: int = get_tree().get_nodes_in_group("plant").size()
-	var kind: String = "SPHERE" if world_type == WorldType.SPHERE else "FLAT"
-	print("SIM_WORLD_REPORT={\"world_type\":\"%s\",\"frames\":%d,\"creatures\":%d,\"plants\":%d,\"spawned\":%s}"
-		% [kind, _frame, creatures, plants, str(_spawned)])
-	LAAppExit.request(self, 0)

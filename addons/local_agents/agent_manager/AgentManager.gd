@@ -7,13 +7,13 @@ signal configs_updated()
 # res:// is READ-ONLY in an exported build (errno 19), so the shipped .tres is a read-only SEED only.
 # Runtime edits persist to a writable user:// copy (copy-on-first-write): read user:// if present, else
 # fall back to the res:// seed; always SAVE to user://.
-const CONFIG_LIST_SEED_PATH := "res://addons/local_agents/configuration/parameters/ConfigList.tres"
-const USER_CONFIG_LIST_PATH := "user://local_agents/config/ConfigList.tres"
-const DEFAULT_INFERENCE_PARAMS_PATH := "res://addons/local_agents/configuration/parameters/InferenceParams.tres"
-const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
-const AgentScript := preload("res://addons/local_agents/agents/Agent.gd")
-const ConfigListScript := preload("res://addons/local_agents/configuration/parameters/ConfigList.gd")
-const InferenceParamsScript := preload("res://addons/local_agents/configuration/parameters/InferenceParams.gd")
+const CONFIG_LIST_SEED_PATH: String = "res://addons/local_agents/configuration/parameters/ConfigList.tres"
+const USER_CONFIG_LIST_PATH: String = "user://local_agents/config/ConfigList.tres"
+const DEFAULT_INFERENCE_PARAMS_PATH: String = "res://addons/local_agents/configuration/parameters/InferenceParams.tres"
+const ExtensionLoader: GDScript = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
+const AgentScript: GDScript = preload("res://addons/local_agents/agents/Agent.gd")
+const ConfigListScript: GDScript = preload("res://addons/local_agents/configuration/parameters/ConfigList.gd")
+const InferenceParamsScript: GDScript = preload("res://addons/local_agents/configuration/parameters/InferenceParams.gd")
 
 var config_list: Resource
 var agent: Node
@@ -42,20 +42,34 @@ func register_agent(agent_instance: Node) -> void:
     _ensure_config_list()
     agent = agent_instance
     if config_list.current_model_config:
-        agent.configure(config_list.current_model_config, null)
+        _apply_model_profile(config_list.current_model_config as LocalAgentModelProfile)
     if config_list.current_inference_config:
         agent.configure(null, config_list.current_inference_config)
     emit_signal("agent_ready", agent_instance)
 
 func _ensure_config_list() -> void:
     var seeded_from_default: bool = false
+    var had_user_file: bool = false
     if FileAccess.file_exists(USER_CONFIG_LIST_PATH):
+        had_user_file = true
         config_list = ResourceLoader.load(USER_CONFIG_LIST_PATH)
     elif FileAccess.file_exists(CONFIG_LIST_SEED_PATH):
         # First run in this user profile: seed from the read-only shipped default, then persist to user://.
         config_list = ResourceLoader.load(CONFIG_LIST_SEED_PATH)
         seeded_from_default = true
     if config_list == null:
+        # An existing user file that would not load. Most likely it persisted a ModelParams
+        # sub-resource, whose script was removed when model profiles replaced it, so its
+        # ext_resource no longer resolves. Falling through to a blank list silently discards every
+        # saved model and inference config, so keep a copy and say so rather than wiping it quietly.
+        if had_user_file:
+            var salvage_path: String = "%s.unreadable" % USER_CONFIG_LIST_PATH
+            if DirAccess.copy_absolute(
+                    ProjectSettings.globalize_path(USER_CONFIG_LIST_PATH),
+                    ProjectSettings.globalize_path(salvage_path)) == OK:
+                push_warning("Local Agents: could not read %s, so it was reset. The previous file was kept at %s." % [USER_CONFIG_LIST_PATH, salvage_path])
+            else:
+                push_warning("Local Agents: could not read %s and it has been reset. Saved model and inference configs were lost." % USER_CONFIG_LIST_PATH)
         config_list = ConfigListScript.new()
         _save_config_list()
     elif seeded_from_default:
@@ -82,18 +96,34 @@ func _save_config_list() -> void:
     if err != OK:
         push_error("Failed to save config list: %s" % err)
 
-func apply_model_config(params) -> void:
+## Makes `params` the model profile every agent loads from now on, and persists it.
+func apply_model_config(params: LocalAgentModelProfile) -> void:
     _ensure_config_list()
     _ensure_agent()
     config_list.current_model_config = params
     if params:
         if agent:
-            agent.configure(params, null)
+            _apply_model_profile(params)
         else:
             push_warning("Agent unavailable; model config saved and will apply after runtime activation")
         config_list.last_good_model_config = params
         _save_config_list()
         emit_signal("configs_updated")
+
+# A model profile carries LOAD-time knobs (context window, threads, GPU layers, system prompt)
+# rather than agent behaviour, so it goes in the agent's `load_options` slot.
+#
+# It deliberately does NOT go in `inference_options`: Agent.configure(null, preset) REPLACES that
+# Dictionary wholesale, and both callers apply the profile BEFORE the inference config, so every
+# profile value was being dropped the moment a sampling preset was applied. Two separate slots make
+# the ordering irrelevant instead of load-bearing.
+#
+# NOTE: profile.model_path is NOT injected here — which weights load is owned by
+# LocalAgentStatus.resolve_model_path(), and ensure_running() takes the path as its own argument.
+func _apply_model_profile(params: LocalAgentModelProfile) -> void:
+    if agent == null or params == null:
+        return
+    agent.set("load_options", params.to_options())
 
 func apply_inference_config(params) -> void:
     _ensure_config_list()
@@ -108,7 +138,8 @@ func apply_inference_config(params) -> void:
         _save_config_list()
         emit_signal("configs_updated")
 
-func add_model_config(params) -> void:
+## Adds `params` to the saved list of model profiles without making it the active one.
+func add_model_config(params: LocalAgentModelProfile) -> void:
     config_list.model_configurations.append(params)
     _save_config_list()
     emit_signal("configs_updated")

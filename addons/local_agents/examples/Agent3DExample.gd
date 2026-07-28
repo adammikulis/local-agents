@@ -1,9 +1,16 @@
 extends Node3D
 class_name LocalAgent3DExample
 
-const ExtensionLoader := preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
-const RuntimeHealth := preload("res://addons/local_agents/runtime/RuntimeHealth.gd")
-const RuntimePaths := preload("res://addons/local_agents/runtime/RuntimePaths.gd")
+## Minimal "prove the runtime works" demo: a status checklist, a Load Model button, and a prompt box.
+##
+## Everything it knows about readiness comes from ONE `LocalAgentStatus.check()` call. It used to
+## reimplement that probe inline — `Engine.get_singleton("AgentRuntime")` reflection, its own
+## `is_model_loaded` poke, its own model-path resolution and its own four-way guidance ladder — which
+## is precisely the duplication `LocalAgentStatus` exists to end.
+##
+## (Explicit types only — project rule: no ':=' inferred typing.)
+
+const Status: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.gd")
 
 @onready var agent_3d: CharacterBody3D = %Agent3D
 @onready var guidance_label: RichTextLabel = %GuidanceLabel
@@ -17,7 +24,7 @@ const RuntimePaths := preload("res://addons/local_agents/runtime/RuntimePaths.gd
 @onready var send_button: Button = %SendButton
 @onready var transcript_label: RichTextLabel = %TranscriptLabel
 
-var _request_in_flight := false
+var _request_in_flight: bool = false
 
 func _ready() -> void:
     refresh_status_button.pressed.connect(_refresh_hud_status)
@@ -33,60 +40,52 @@ func _ready() -> void:
     _refresh_hud_status()
 
 func _refresh_hud_status() -> void:
-    var runtime_ready := ExtensionLoader.ensure_initialized()
-    var runtime_state := RuntimeHealth.summarize()
-    var runtime_text := String(runtime_state.get("runtime", "Runtime: unavailable"))
-    if runtime_ready:
-        runtime_status_label.text = runtime_text
-    else:
-        var runtime_error := ExtensionLoader.get_error()
-        if runtime_error.is_empty():
-            runtime_error = "Unavailable"
-        runtime_status_label.text = "Runtime: %s" % runtime_error
+    var state: Dictionary = Status.check()
 
-    var default_model := RuntimePaths.resolve_default_model()
-    var has_default_model := default_model != ""
-    if has_default_model:
-        model_status_label.text = "Model file: %s" % default_model.get_file()
+    runtime_status_label.text = String(state["headline"])
+    var extension_error: String = String(state["extension_error"])
+    if not bool(state["extension_ok"]) and extension_error != "":
+        runtime_status_label.tooltip_text = extension_error
     else:
-        model_status_label.text = "Model file: Missing default model in user://local_agents/models"
+        runtime_status_label.tooltip_text = String(state["expected_library_path"])
 
-    var runtime := _runtime_singleton(runtime_ready)
-    var model_loaded := _is_model_loaded(runtime)
+    var model_path: String = String(state["model_path"])
+    if model_path == "":
+        model_status_label.text = "Model file: none found"
+        model_status_label.tooltip_text = "Checked: %s" % ", ".join(state["model_candidates"])
+    else:
+        model_status_label.text = "Model file: %s" % model_path.get_file()
+        model_status_label.tooltip_text = model_path
+
+    var model_loaded: bool = bool(state["model_loaded"])
     load_status_label.text = "Runtime model: Loaded" if model_loaded else "Runtime model: Not loaded"
 
-    load_model_button.disabled = not runtime_ready or not has_default_model or _request_in_flight
+    load_model_button.disabled = not bool(state["extension_ok"]) or model_path == "" or _request_in_flight
     send_button.disabled = not model_loaded or _request_in_flight
 
-    guidance_label.text = _guidance_text(runtime_ready, has_default_model, model_loaded)
+    guidance_label.text = _guidance_text(state)
+
+# The ladder is data, not branches: blockers come back from LocalAgentStatus already ordered by fix
+# order, so the first one IS the current step and its fix sentence is already written.
+func _guidance_text(state: Dictionary) -> String:
+    var blockers: PackedStringArray = state["blockers"]
+    if blockers.is_empty():
+        return "[b]Ready[/b] Enter a prompt and press [i]Send[/i] to drive Agent3D output."
+    var total_steps: int = blockers.size()
+    return "[b]Step 1 of %d[/b] %s" % [total_steps, String(state["next_step"])]
 
 func _on_load_model_pressed() -> void:
-    var runtime_ready := ExtensionLoader.ensure_initialized()
-    var runtime := _runtime_singleton(runtime_ready)
-    if runtime == null:
-        action_status_label.text = "Action: Runtime unavailable. Build binaries and refresh."
-        _refresh_hud_status()
-        return
-
-    var default_model := RuntimePaths.resolve_default_model()
-    if default_model == "":
-        action_status_label.text = "Action: No default GGUF found. Download one from Local Agents -> Downloads."
-        _refresh_hud_status()
-        return
-
     action_status_label.text = "Action: Loading model..."
     _request_in_flight = true
     _refresh_hud_status()
 
-    var ok := false
-    if runtime.has_method("load_model"):
-        ok = bool(runtime.call("load_model", default_model, {}))
+    var ok: bool = Status.ensure_model_loaded()
 
     _request_in_flight = false
     if ok:
         action_status_label.text = "Action: Model loaded. You can now send prompts."
     else:
-        action_status_label.text = "Action: Model load failed. Check runtime binaries and model integrity."
+        action_status_label.text = "Action: %s" % Status.next_step()
     _refresh_hud_status()
 
 func _on_send_pressed() -> void:
@@ -96,17 +95,22 @@ func _on_prompt_submitted(text: String) -> void:
     _submit_prompt(text)
 
 func _submit_prompt(text: String) -> void:
-    var prompt := text.strip_edges()
+    var prompt: String = text.strip_edges()
     if prompt.is_empty() or _request_in_flight:
         return
 
-    var runtime := _runtime_singleton(ExtensionLoader.ensure_initialized())
-    if not _is_model_loaded(runtime):
-        action_status_label.text = "Action: Load a model first."
+    # Gate on blockers, NOT on is_ready(). is_ready() means level == READY, and the level drops to
+    # DEGRADED for advisory warnings like a missing Piper voice or a missing godot_voxel — neither of
+    # which stops the model answering. Gating on it refused to send on a perfectly working setup, and
+    # since blockers was empty, next_step() returned "" so the label just read "Action: ".
+    var state: Dictionary = Status.check()
+    var blockers: PackedStringArray = state["blockers"]
+    if not blockers.is_empty():
+        action_status_label.text = "Action: %s" % String(state["next_step"])
         _refresh_hud_status()
         return
 
-    var controller := _agent_controller()
+    var controller: Object = _agent_controller()
     if controller == null:
         action_status_label.text = "Action: Agent node is unavailable."
         _refresh_hud_status()
@@ -129,33 +133,12 @@ func _submit_prompt(text: String) -> void:
     _refresh_hud_status()
 
 func _on_agent_output(text: String) -> void:
-    var trimmed := text.strip_edges()
+    var trimmed: String = text.strip_edges()
     if trimmed.is_empty():
         return
     transcript_label.append_text("Agent: %s\n" % trimmed)
-
-func _runtime_singleton(runtime_ready: bool) -> Object:
-    if not runtime_ready:
-        return null
-    if not Engine.has_singleton("AgentRuntime"):
-        return null
-    return Engine.get_singleton("AgentRuntime")
-
-func _is_model_loaded(runtime: Object) -> bool:
-    if runtime == null or not runtime.has_method("is_model_loaded"):
-        return false
-    return bool(runtime.call("is_model_loaded"))
 
 func _agent_controller() -> Object:
     if agent_3d == null:
         return null
     return agent_3d.get("agent")
-
-func _guidance_text(runtime_ready: bool, has_model: bool, model_loaded: bool) -> String:
-    if not runtime_ready:
-        return "[b]Step 1[/b] Build extension binaries and refresh status.\nExpected: Runtime label reports loaded/ready."
-    if not has_model:
-        return "[b]Step 2[/b] Open [i]Local Agents -> Downloads[/i] and fetch a GGUF model.\nExpected: Model file is detected under user://local_agents/models."
-    if not model_loaded:
-        return "[b]Step 3[/b] Press [i]Load Default Model[/i].\nExpected: Runtime model switches to Loaded."
-    return "[b]Step 4[/b] Enter a prompt and press [i]Send[/i] to drive Agent3D output."

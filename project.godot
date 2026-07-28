@@ -37,10 +37,6 @@ window/vsync/vsync_mode=0
 
 enabled=PackedStringArray("res://addons/local_agents/plugin.cfg")
 
-[local_agents]
-
-editor/enabled=false
-
 [physics]
 
 3d/physics_engine="Jolt Physics"

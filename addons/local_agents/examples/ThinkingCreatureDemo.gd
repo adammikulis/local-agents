@@ -10,21 +10,27 @@ extends Node3D
 const CreatureScene: PackedScene = preload("res://addons/local_agents/creatures/Creature.tscn")
 const LocalAgentScript: GDScript = preload("res://addons/local_agents/agents/Agent.gd")
 
-## A species with a data file ("rabbit", "fox", "bird", …) or "" for the built-in generic walker.
+@export_group("Creatures")
+## Species data file to instantiate, e.g. "rabbit", "fox", "bird", "mouse", "villager", "fish".
+## Backed by creatures/species/**/<id>.json — drop a JSON file there and its id works here.
+## Blank uses the built-in generic walker.
+## (Left a plain String on purpose: @export_enum cannot offer an empty option, so it could not
+## express the generic walker. The editor plugin supplies the dropdown instead.)
 @export var species: String = "rabbit"
-@export var creature_count: int = 5
+## How many creatures to spawn on the floor at startup.
+@export_range(1, 200, 1) var creature_count: int = 5
+
+@export_group("Cognition")
 ## Opt IN to add a core LocalAgent node as the co-located slow brain (inert with no local model). Off by
 ## default so the demo boots clean with no LLM server.
 @export var wire_local_agent_slow_brain: bool = false
 
-var _run_frames: int = 0
-var _frame: int = 0
+var _harness_frames: int = 0
 var _agent = null
 var _creatures: Array = []
 
 
 func _ready() -> void:
-	_parse_run_frames()
 	_build_floor()
 	_build_camera_and_light()
 	if wire_local_agent_slow_brain:
@@ -34,6 +40,16 @@ func _ready() -> void:
 		_agent.name = "SlowBrain"
 		add_child(_agent)
 	_spawn_creatures()
+	_add_harness()
+
+
+# The shared headless harness: `-- --run-frames=N` prints THINKING_CREATURE_REPORT={...} and quits.
+func _add_harness() -> void:
+	var harness: LocalAgentDemoHarness = LocalAgentDemoHarness.new()
+	harness.name = "DemoHarness"
+	harness.report_prefix = "THINKING_CREATURE"
+	harness.report_source = self
+	add_child(harness)
 
 
 # A plain visible + collidable floor at y = 0 (the flat terrain's ground plane). A StaticBody3D so a thrown
@@ -81,24 +97,24 @@ func _spawn_creatures() -> void:
 		_creatures.append(creature)
 
 
-func _process(_delta: float) -> void:
-	if _run_frames <= 0:
-		return
-	_frame += 1
-	if _frame == _run_frames:
-		var alive: int = 0
-		var moved: int = 0
-		for c in _creatures:
-			if is_instance_valid(c) and c is Node3D:
-				alive += 1
-				if absf((c as Node3D).global_position.y) < 5.0:
-					moved += 1
-		print("THINKING_CREATURE_REPORT={\"frames\":%d,\"creatures\":%d,\"on_floor\":%d,\"species\":\"%s\"}"
-			% [_frame, alive, moved, species])
-		LAAppExit.request(self, 0)
+# LocalAgentDemoHarness hands back the resolved command line, so the report can quote the frame budget
+# it was actually given without the demo re-reading argv.
+func demo_harness_configured(frames: int, _shoot: String) -> void:
+	_harness_frames = frames
 
 
-func _parse_run_frames() -> void:
-	for arg in OS.get_cmdline_user_args():
-		if String(arg).begins_with("--run-frames="):
-			_run_frames = maxi(0, int(String(arg).get_slice("=", 1)))
+# The payload LocalAgentDemoHarness prints at the end of a `--run-frames=N` run.
+func demo_report() -> Dictionary:
+	var alive: int = 0
+	var moved: int = 0
+	for c in _creatures:
+		if is_instance_valid(c) and c is Node3D:
+			alive += 1
+			if absf((c as Node3D).global_position.y) < 5.0:
+				moved += 1
+	return {
+		"frames": _harness_frames,
+		"creatures": alive,
+		"on_floor": moved,
+		"species": species,
+	}
