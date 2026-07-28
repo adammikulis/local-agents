@@ -140,6 +140,17 @@ committed). When removing files:
   --run-frames=N` (env like `LA_NO_STREAMER=1` still works). This applies to the main thread AND every
   sub-agent's run commands. (Moving the window after `_ready` is too late — it flashes + steals focus first.)
 
+- **NEVER run two editor scans at once — use `scripts/editor_scan.sh`.** A full
+  `godot --headless --editor` loads every GDExtension, including the zylann.voxel EDITOR build, which
+  spins worker threads to import and generate. Two of those racing on the same `.godot/` directory
+  SEGFAULT: measured 2026-07-28, six Godot crashes in three minutes (`EXC_BAD_ACCESS` at 0x10/0x50/0x60,
+  faulting frames inside `libvoxel.macos.editor.universal` on a thread named "run") while ten parallel
+  agents each ran the scan a few times. The scan is also the one thing every agent needs — a new
+  `class_name` does not register without it — so "don't run it concurrently" is not a rule anyone can
+  follow by hand. `scripts/editor_scan.sh` takes a per-project lock so concurrent callers queue and
+  each still gets a correct scan; it prints the error count and exits non-zero when the scan found any.
+  **Sub-agent prompts must point at this script, never at a bare `godot --headless --editor`.**
+
 - **BUT the wrapper is only for the scenes that NEED a window — everything else runs bare headless in
   about a second.** Measured 2026-07-28: a wrapper run costs 2–4 MINUTES, because the windowed scene
   prints its report and then fails to exit, so the script waits out its `RUN_TIMEOUT`. The same scenes
