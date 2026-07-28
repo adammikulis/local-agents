@@ -140,6 +140,16 @@ committed). When removing files:
   --run-frames=N` (env like `LA_NO_STREAMER=1` still works). This applies to the main thread AND every
   sub-agent's run commands. (Moving the window after `_ready` is too late — it flashes + steals focus first.)
 
+- **BUT the wrapper is only for the scenes that NEED a window — everything else runs bare headless in
+  about a second.** Measured 2026-07-28: a wrapper run costs 2–4 MINUTES, because the windowed scene
+  prints its report and then fails to exit, so the script waits out its `RUN_TIMEOUT`. The same scenes
+  run headless in 0–2s with exit code 0:
+  `godot --headless addons/local_agents/examples/<Demo>.tscn -- --run-frames=40`. BoxFieldDemo ~1s,
+  ThinkingCreatureDemo ~1s, CoreCreatureSmoke ~0s, SimWorldPlanetDemo ~2s. Only
+  `game/VoxelWorld.tscn` (GPU compute field) genuinely needs the window. Reserve the wrapper for it
+  and for `--shoot` screenshots. **Never loop several wrapper runs in one command** — that is minutes
+  of waiting for nothing.
+
 - "Does it work" checks require **both** a non-headless launched-window run **and** headless harness
   suites; run them in whichever order is convenient (a non-headless launch first is a good habit for
   surfacing parser/runtime scene errors early).
@@ -149,6 +159,37 @@ committed). When removing files:
   check — automated/headless tests are necessary but not sufficient.
 - For changed native or simulation-contract areas, give the validation pass explicit acceptance
   criteria and test commands.
+
+## Inspector-surface rules (learned the hard way, 2026-07)
+
+Every one of these cost a real bug that passed every gate. They are cheap to follow and expensive to
+rediscover.
+
+- **A dead `@export` is worse than no `@export` — it lies to the user.** A property that is declared,
+  documented, and then never read by anything is a promise the code does not keep. Four shipped that
+  way at once (`system_prompt`, `max_actions_per_tick`, `db_path`, `model_profile.threads`) and all
+  four *looked* correctly plumbed from GDScript. **PROVE an export reaches behaviour by RUNNING it,
+  not by reading the call chain.** For the GDScript↔C++ boundary specifically, an option key is only
+  live if the native source actually reads it — grep `gdextensions/localagents/src/` for the key.
+- **Never write a serialised property from a `@tool` script in the editor.** `text`, `visible`,
+  `position`, `placeholder_text`, `modulate`, `add_theme_*_override` — writing any of them under
+  `Engine.is_editor_hint()` silently edits the user's `.tscn`. Adding `@tool` means EVERY lifecycle
+  callback (`_ready`/`_process`/`_physics_process`/`_enter_tree`) opens with
+  `if Engine.is_editor_hint(): return`, and the editor guard comes FIRST, before any node mutation.
+- **Precedence is always node → project setting → env var → default.** The node's own export wins
+  when the author filled it in; empty means "follow the project". Inverting this (a setting quietly
+  beating a value typed into the inspector) makes the inspector a lie.
+- **Measure a simulation on the physics clock.** A report ended after N *render* frames contains a
+  machine-dependent number of simulation steps, so its numbers track framerate, not behaviour. Use
+  `LocalAgentDemoHarness.count_physics_frames` for anything measuring the field or the sim.
+- **Typed `Dictionary` exports are good — keep them.** They give real typed key/value fields in the
+  inspector. The one caveat: `set("prop", {untyped literal})` is silently dropped, while direct
+  assignment (`node.prop = {"a": 1}`) converts fine. Prefer direct assignment.
+- **Verify claims before acting on them, including a reviewer's.** An adversarial review pass is
+  worth its cost, but a reviewer is another agent and can be confidently wrong. Three review claims
+  in this effort were false on measurement (typed dictionaries "break assignment"; a typed
+  `const PackedStringArray` literal being illegal; `ResourceLoader.exists()` not seeing a `.json`).
+  Run the command, quote the output, then change the code.
 
 ## Guiding design principle — Emergent-Everything (north star)
 
