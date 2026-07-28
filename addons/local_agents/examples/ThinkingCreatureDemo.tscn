@@ -1,6 +1,48 @@
-[gd_scene load_steps=2 format=3 uid="uid://bthinkcreature01"]
+[gd_scene load_steps=6 format=3 uid="uid://bthinkcreature01"]
 
 [ext_resource type="Script" path="res://addons/local_agents/examples/ThinkingCreatureDemo.gd" id="1_tc"]
+[ext_resource type="Script" path="res://addons/local_agents/creatures/CreatureSpawner.gd" id="2_spawner"]
+[ext_resource type="Script" path="res://addons/local_agents/agents/LlmService.gd" id="3_llm"]
+[ext_resource type="Script" path="res://addons/local_agents/creatures/cognition/CognitionScheduler.gd" id="4_sched"]
+[ext_resource type="Script" path="res://addons/local_agents/runtime/DemoHarness.gd" id="5_harness"]
 
 [node name="ThinkingCreatureDemo" type="Node3D"]
 script = ExtResource("1_tc")
+
+[node name="Spawner" type="Node3D" parent="."]
+unique_name_in_owner = true
+script = ExtResource("2_spawner")
+counts = Dictionary[String, int]({
+"rabbit": 5
+})
+area_extent = Vector3(16, 0, 16)
+ground_y = 0.0
+spawn_on_ready = true
+placement_seed = 0
+build_floor = true
+floor_size = 80.0
+floor_color = Color(0.32, 0.45, 0.28, 1)
+llm_enabled = false
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.8775826, -0.4794255, 0, 0.4794255, 0.8775826, 0, 14, 24)
+current = true
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.8253356, 0, -0.5646425, -0.5032136, 0.4535961, -0.7355452, 0.2561196, 0.8912074, 0.374369, 0, 0, 0)
+
+[node name="LlmService" type="Node" parent="."]
+script = ExtResource("3_llm")
+enabled = false
+backend = "llama_server"
+
+[node name="CognitionScheduler" type="Node" parent="." node_paths=PackedStringArray("llm_service")]
+script = ExtResource("4_sched")
+llm_service = NodePath("../LlmService")
+enabled = true
+write_traces = false
+adopt_group = &"la_creatures"
+
+[node name="DemoHarness" type="Node" parent="."]
+script = ExtResource("5_harness")
+report_prefix = "THINKING_CREATURE"

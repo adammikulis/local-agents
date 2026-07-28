@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3 uid="uid://dut8m0d0ukohs"]
+[gd_scene load_steps=9 format=3 uid="uid://dut8m0d0ukohs"]
 
 [ext_resource type="Script" path="res://addons/local_agents/examples/ChatExample.gd" id="1_jmq1r"]
 [ext_resource type="PackedScene" uid="uid://bkhc2d37hv1ou" path="res://addons/local_agents/controllers/ChatController.tscn" id="3_4x4kj"]
@@ -6,6 +6,8 @@
 [ext_resource type="PackedScene" uid="uid://vymn5e6vd5gq" path="res://addons/local_agents/configuration/ui/ModelConfig.tscn" id="4_i4nn4"]
 [ext_resource type="Script" path="res://addons/local_agents/agents/Agent.gd" id="5_ilgjl"]
 [ext_resource type="PackedScene" uid="uid://miqqdcapma1b" path="res://addons/local_agents/controllers/SavedChatsController.tscn" id="6_2ncav"]
+[ext_resource type="Script" path="res://addons/local_agents/agents/StatusLabel.gd" id="7_status"]
+[ext_resource type="Resource" path="res://addons/local_agents/configuration/parameters/InferenceParams.tres" id="8_inference"]
 
 [node name="ChatExample" type="Node"]
 script = ExtResource("1_jmq1r")
@@ -48,22 +50,12 @@ text = "Exit"
 [node name="SidebarSeparator" type="HSeparator" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
 layout_mode = 2
 
-[node name="RuntimeStatusLabel" type="Label" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
-unique_name_in_owner = true
+[node name="SetupStatus" type="Label" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
+custom_minimum_size = Vector2(220, 0)
 layout_mode = 2
+text = "Local Agents status appears here at run time."
 autowrap_mode = 3
-text = "Runtime: Checking..."
-
-[node name="ModelStatusLabel" type="Label" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
-unique_name_in_owner = true
-layout_mode = 2
-autowrap_mode = 3
-text = "Model: Checking..."
-
-[node name="RefreshStatusButton" type="Button" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Refresh Status"
+script = ExtResource("7_status")
 
 [node name="DownloadHintLabel" type="RichTextLabel" parent="HBoxContainer/PanelContainer/VBoxContainer2"]
 unique_name_in_owner = true
@@ -86,15 +78,6 @@ size_flags_horizontal = 1
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="HBoxContainer" type="HBoxContainer" parent="HBoxContainer/ChatVBoxContainer"]
-layout_mode = 2
-
-[node name="ModelSelectButton" type="OptionButton" parent="HBoxContainer/ChatVBoxContainer/HBoxContainer"]
-layout_mode = 2
-size_flags_horizontal = 3
-item_count = 1
-popup/item_0/text = "<Download Model>"
-
 [node name="ChatController" parent="HBoxContainer/ChatVBoxContainer" instance=ExtResource("3_4x4kj")]
 unique_name_in_owner = true
 layout_mode = 2
@@ -111,3 +94,5 @@ visible = false
 [node name="Agent" type="Node" parent="."]
 unique_name_in_owner = true
 script = ExtResource("5_ilgjl")
+system_prompt = "You are a helpful assistant running entirely on this machine."
+inference = ExtResource("8_inference")

@@ -147,6 +147,15 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_tool_safety.sh ($rc_tool)"
       exit 1
     fi
+    # Gate: the demo catalogue matches the demos on disk (no orphan entry, no unlisted demo).
+    set +e
+    "$SCRIPT_DIR/check_demo_catalog.sh"
+    rc_catalog=$?
+    set -e
+    if [[ $rc_catalog -ne 0 ]]; then
+      echo "LINT_FAIL: check_demo_catalog.sh ($rc_catalog)"
+      exit 1
+    fi
     # Gate: the addon still parses with the game deleted. docs/USAGE.md promises this; nothing
     # enforced it, and it had already rotted once.
     set +e

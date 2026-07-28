@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="LocalAgentDemoEntry" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/examples/DemoEntry.gd" id="1_entry"]
+
+[resource]
+script = ExtResource("1_entry")
+order = 120
+title = "Play the planet"
+description = "The flagship: the whole game shell around the planet — herds, emergent disasters, HUD and a local-LLM streamer commentating over the top. Needs a real window; the GPU field has no compute device headless."
+scene_path = "res://addons/local_agents/game/VoxelWorld.tscn"
+requires_model = false
+requires_voxel_backend = true

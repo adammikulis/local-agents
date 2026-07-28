@@ -1,66 +1,33 @@
 extends Node3D
 
-## CORE smoke test — proves the relocated creature/behaviour stack runs with the game deleted. It
-## instantiates a core Creature via setup_standalone("rabbit") on a bare Node3D + flat floor, steps it
-## headless for a few frames, and prints CORE_SMOKE={...} reporting the creature exists and stands on the
-## ground plane. It references ONLY core classes (Creature.tscn + its default LAFlatGroundTerrain adapter,
-## LASpeciesLibrary reading creatures/species/) — no MaterialField, no planet, no ecology, no game autoload —
-## so it stays runnable after scenes/simulation/voxel/ (the whole game) is removed. This file lives in the
-## core library (creatures/smoke/) precisely so it survives that deletion and can be the game-deletable proof.
+## CORE smoke test — proves the creature/behaviour stack runs with the game deleted. This is a PASS/FAIL
+## gate, not a showcase: it exits NON-ZERO when the creature is missing or has fallen off the ground
+## plane, so CI notices.
+##
+## THE SCENE IS THE TEST, and it is deliberately the simplest thing that can work — the drop-in path a
+## library user takes first:
+##   - Creature is a plain Creature.tscn INSTANCE, dragged in and dropped 2 m above the floor, with
+##     Standalone Species set to "rabbit" in the inspector. Nothing configures it; Creature.tscn ships
+##     with Standalone On Ready ticked, so it reads its species file, attaches a flat-ground terrain
+##     adapter at Ground Y and starts running its fast brain by itself. That "it just works" is exactly
+##     what this smoke exists to check.
+##   - Floor is an ordinary StaticBody3D so a dropped body has something to rest on.
+##   - DemoHarness owns the run: Run Frames 60, and a bare CORE_SMOKE={...} marker (Report Suffix is
+##     cleared) because that is the marker this scene has always printed. `-- --run-frames=N` overrides.
+##
+## It references ONLY core classes — no MaterialField, no planet, no ecology, no game autoload — so it
+## stays runnable after the whole voxel game is removed.
 ##
 ## Run: godot --headless --path . addons/local_agents/examples/CoreCreatureSmoke.tscn -- --run-frames=120
 ## (Explicit types only — project rule: no ':=' inferred typing.)
 
-const CreatureScene: PackedScene = preload("res://addons/local_agents/creatures/Creature.tscn")
+## How far the creature may sit from the ground plane and still count as standing. Generous on purpose:
+## the test is "did it snap to the floor", not "did it hold a pose".
+const STAND_TOLERANCE_M: float = 5.0
 
-## Species data file to instantiate, e.g. "rabbit", "fox", "bird", "mouse", "villager", "fish".
-## Backed by creatures/species/**/<id>.json — drop a JSON file there and its id works here.
-## Blank uses the built-in generic walker.
-## (Left a plain String on purpose: @export_enum cannot offer an empty option, so it could not
-## express the generic walker. The editor plugin supplies the dropdown instead.)
-@export var species: String = "rabbit"
-## Frames to step before printing CORE_SMOKE and quitting. `-- --run-frames=N` overrides it.
-@export_range(1, 100000, 1, "suffix:frames") var smoke_frames: int = 60
+@onready var _creature: LocalAgentCreature = %Creature as LocalAgentCreature
 
-var _harness_frames: int = 60
-var _creature: Node = null
-var _spawn_y: float = 2.0
-
-
-func _ready() -> void:
-	_build_floor()
-	_creature = CreatureScene.instantiate()
-	_creature.standalone_on_ready = false          # configure explicitly after positioning
-	add_child(_creature)
-	if _creature is Node3D:
-		(_creature as Node3D).global_position = Vector3(0.0, _spawn_y, 0.0)
-	_creature.setup_standalone(species)            # flat-ground terrain + pure fast brain, no field/ecology
-	_add_harness()
-
-
-# The shared headless harness. Prints a bare CORE_SMOKE={...} with no "_REPORT" suffix, because that
-# is the marker this scene has always printed and saved logs are easier to compare if it stays put.
-# Exits non-zero when the creature failed to stand.
-func _add_harness() -> void:
-	var harness: LocalAgentDemoHarness = LocalAgentDemoHarness.new()
-	harness.name = "DemoHarness"
-	harness.report_prefix = "CORE_SMOKE"
-	harness.report_suffix = ""
-	harness.run_frames = smoke_frames
-	harness.report_source = self
-	add_child(harness)
-
-
-func _build_floor() -> void:
-	var floor_body: StaticBody3D = StaticBody3D.new()
-	floor_body.name = "Floor"
-	add_child(floor_body)
-	var shape: CollisionShape3D = CollisionShape3D.new()
-	var box: BoxShape3D = BoxShape3D.new()
-	box.size = Vector3(80.0, 0.4, 80.0)
-	shape.shape = box
-	shape.position = Vector3(0.0, -0.2, 0.0)
-	floor_body.add_child(shape)
+var _harness_frames: int = 0
 
 
 func demo_harness_configured(frames: int, _shoot: String) -> void:
@@ -74,16 +41,21 @@ func demo_report_json() -> String:
 	var y: float = 999.0
 	var sp: String = ""
 	var stands: bool = false
-	if exists and _creature is Node3D:
-		y = (_creature as Node3D).global_position.y
-		stands = absf(y) < 5.0                      # snapped to the flat ground (y ~ 0), not fallen away
-		sp = String(_creature.get("species")) if _creature.get("species") != null else ""
+	if exists:
+		y = _creature.global_position.y
+		stands = _stands()
+		sp = _creature.species
 	return ("{\"ok\":%s,\"exists\":%s,\"stands\":%s,\"species\":\"%s\",\"y\":%.3f,\"frames\":%d}"
 		% [str(exists and stands).to_lower(), str(exists).to_lower(), str(stands).to_lower(), sp, y, _harness_frames])
 
 
 # A smoke test is only useful if it can fail the build: non-zero unless the creature exists and stands.
 func demo_exit_code() -> int:
-	var exists: bool = is_instance_valid(_creature)
-	var stands: bool = exists and _creature is Node3D and absf((_creature as Node3D).global_position.y) < 5.0
-	return 0 if (exists and stands) else 1
+	return 0 if (is_instance_valid(_creature) and _stands()) else 1
+
+
+# Snapped to the flat ground (y ~ Ground Y), not fallen away through it.
+func _stands() -> bool:
+	if not is_instance_valid(_creature):
+		return false
+	return absf(_creature.global_position.y - _creature.ground_y) < STAND_TOLERANCE_M

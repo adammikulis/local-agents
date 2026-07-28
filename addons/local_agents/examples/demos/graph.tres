@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="LocalAgentDemoEntry" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/examples/DemoEntry.gd" id="1_entry"]
+
+[resource]
+script = ExtResource("1_entry")
+order = 60
+title = "Graph memory"
+description = "The LocalAgentGraph resource on its own — nodes, edges and queries for structured knowledge. Needs no model at all."
+scene_path = "res://addons/local_agents/examples/GraphExample.tscn"
+requires_model = false
+requires_voxel_backend = false

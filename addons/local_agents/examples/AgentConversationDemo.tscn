@@ -1,18 +1,33 @@
-[gd_scene load_steps=3 format=3 uid="uid://d3convo0demo01"]
+[gd_scene load_steps=7 format=3 uid="uid://d3convo0demo01"]
 
 [ext_resource type="Script" path="res://addons/local_agents/examples/AgentConversationDemo.gd" id="1_convo"]
-[ext_resource type="Script" path="res://addons/local_agents/agents/Agent.gd" id="2_agentn"]
+[ext_resource type="Script" path="res://addons/local_agents/agents/Agent.gd" id="2_agent"]
+[ext_resource type="Script" path="res://addons/local_agents/agents/Conversation.gd" id="3_conversation"]
+[ext_resource type="Script" path="res://addons/local_agents/agents/StatusLabel.gd" id="4_status"]
+[ext_resource type="Script" path="res://addons/local_agents/graph/Graph.gd" id="5_graph"]
+
+[sub_resource type="Resource" id="Resource_memory"]
+script = ExtResource("5_graph")
 
 [node name="AgentConversationDemo" type="Node"]
 script = ExtResource("1_convo")
 
-[node name="AgentA" type="Node" parent="."]
-unique_name_in_owner = true
-script = ExtResource("2_agentn")
+[node name="Ada" type="Node" parent="."]
+script = ExtResource("2_agent")
+system_prompt = "You are Ada, a curious optimist planning a small shared garden. Answer in one short sentence."
 
-[node name="AgentB" type="Node" parent="."]
+[node name="Ben" type="Node" parent="."]
+script = ExtResource("2_agent")
+system_prompt = "You are Ben, a practical skeptic who worries about the budget. Answer in one short sentence."
+
+[node name="Conversation" type="Node" parent="." node_paths=PackedStringArray("agents")]
 unique_name_in_owner = true
-script = ExtResource("2_agentn")
+script = ExtResource("3_conversation")
+agents = [NodePath("../Ada"), NodePath("../Ben")]
+topic = "What should we plant first in the shared garden?"
+context_turns = 6
+memory_graph = SubResource("Resource_memory")
+canned_lines = PackedStringArray("Let's start with tomatoes, they give the most for a first season.", "Tomatoes need cages and daily water though. Can we afford that?", "Fair. Herbs are cheaper and hard to kill, so maybe basil and mint first.", "Agreed, herbs it is. We can graduate to tomatoes once we know we can keep up.")
 
 [node name="Margin" type="MarginContainer" parent="."]
 anchors_preset = 15
@@ -25,49 +40,52 @@ theme_override_constants/margin_top = 16
 theme_override_constants/margin_right = 16
 theme_override_constants/margin_bottom = 16
 
-[node name="VBox" type="VBoxContainer" parent="Margin"]
+[node name="Column" type="VBoxContainer" parent="Margin"]
 layout_mode = 2
 theme_override_constants/separation = 10
 
-[node name="Title" type="Label" parent="Margin/VBox"]
+[node name="Title" type="Label" parent="Margin/Column"]
 layout_mode = 2
-text = "Two agents converse (cognition + memory)"
+theme_override_font_sizes/font_size = 22
+text = "Two agents converse, and the conversation is the memory"
 
-[node name="Subtitle" type="Label" parent="Margin/VBox"]
+[node name="Hint" type="Label" parent="Margin/Column"]
 layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.74, 0.8, 1)
+text = "The LocalAgentConversation node holds the cast, the topic and the offline lines — select it to change any of them. Every utterance becomes a node in its memory graph, chained by a \"then\" edge."
 autowrap_mode = 3
-text = "Ada and Ben take turns. Each line is recorded as a node in a shared LocalAgentGraph, chained by 'then' edges: that graph is the conversation's memory."
 
-[node name="StatusLabel" type="Label" parent="Margin/VBox"]
-unique_name_in_owner = true
+[node name="SetupStatus" type="Label" parent="Margin/Column"]
 layout_mode = 2
+text = "Local Agents status appears here at run time."
 autowrap_mode = 3
-text = "Checking runtime..."
+script = ExtResource("4_status")
 
-[node name="Buttons" type="HBoxContainer" parent="Margin/VBox"]
+[node name="Buttons" type="HBoxContainer" parent="Margin/Column"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="NextButton" type="Button" parent="Margin/VBox/Buttons"]
-unique_name_in_owner = true
+[node name="NextButton" type="Button" parent="Margin/Column/Buttons"]
 layout_mode = 2
 text = "Next turn"
 
-[node name="ResetButton" type="Button" parent="Margin/VBox/Buttons"]
-unique_name_in_owner = true
+[node name="ResetButton" type="Button" parent="Margin/Column/Buttons"]
 layout_mode = 2
 text = "Reset"
 
-[node name="MemoryLabel" type="Label" parent="Margin/VBox"]
+[node name="MemoryLabel" type="Label" parent="Margin/Column"]
 unique_name_in_owner = true
 layout_mode = 2
-autowrap_mode = 3
 text = "Memory graph: 0 nodes, 0 edges"
+autowrap_mode = 3
 
-[node name="TranscriptLabel" type="RichTextLabel" parent="Margin/VBox"]
+[node name="Transcript" type="RichTextLabel" parent="Margin/Column"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 bbcode_enabled = true
-fit_content = true
-text = "The conversation will appear here."
+scroll_following = true
+
+[connection signal="turn_taken" from="Conversation" to="." method="_on_conversation_turn_taken"]
+[connection signal="pressed" from="Margin/Column/Buttons/NextButton" to="Conversation" method="next_turn"]
+[connection signal="pressed" from="Margin/Column/Buttons/ResetButton" to="." method="_on_reset_button_pressed"]

@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="LocalAgentDemoEntry" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/local_agents/examples/DemoEntry.gd" id="1_entry"]
+
+[resource]
+script = ExtResource("1_entry")
+order = 20
+title = "The agent drives actions"
+description = "The reply becomes game actions instead of text: the agent recolours and pulses an orb through enqueue_action. Buttons fire the identical actions, so the loop is visible with no model installed."
+scene_path = "res://addons/local_agents/examples/AgentActionsDemo.tscn"
+requires_model = false
+requires_voxel_backend = false

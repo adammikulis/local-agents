@@ -1,6 +1,35 @@
-[gd_scene load_steps=2 format=3 uid="uid://bboxfielddemo01"]
+[gd_scene load_steps=3 format=3 uid="uid://bboxfielddemo01"]
 
-[ext_resource type="Script" path="res://addons/local_agents/examples/BoxFieldDemo.gd" id="1_bf"]
+[ext_resource type="Script" path="res://addons/local_agents/sim/material/FieldBox.gd" id="1_fieldbox"]
+[ext_resource type="Script" path="res://addons/local_agents/runtime/DemoHarness.gd" id="2_harness"]
 
 [node name="BoxFieldDemo" type="Node3D"]
-script = ExtResource("1_bf")
+
+[node name="FieldBox" type="Node3D" parent="."]
+script = ExtResource("1_fieldbox")
+extent = Vector3(60, 40, 60)
+cell_size = 5.0
+heat_enabled = true
+heat_per_frame = 40.0
+heat_burst_frames = 40
+heat_source_cells = Vector3i(3, 1, 3)
+show_slice = true
+slice_axis = "Z"
+slice_position = 0.5
+cube_fill = 0.85
+color_span = 60.0
+cold_color = Color(0.15, 0.2, 0.5, 1)
+hot_color = Color(1, 0.35, 0.1, 1)
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.9689124, -0.247404, 0, 0.247404, 0.9689124, 0, 24, 70)
+current = true
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.8775826, 0, -0.4794255, -0.3755469, 0.62161, -0.687434, 0.2980157, 0.7833269, 0.545514, 0, 0, 0)
+
+[node name="DemoHarness" type="Node" parent="." node_paths=PackedStringArray("report_source")]
+script = ExtResource("2_harness")
+count_physics_frames = true
+report_source = NodePath("../FieldBox")
+report_prefix = "BOX_FIELD"

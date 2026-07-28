@@ -1,46 +1,55 @@
 extends Node
 class_name LocalAgentGraphExample
 
-@export var GraphResource: Resource
+## Prints the contents of a LocalAgentGraph into a Label, so you can see what a graph resource holds.
+##
+## The graph itself is NOT built here. It is a sub-resource of GraphExample.tscn: select the root
+## node, open Graph in the inspector, and the four nodes and two edges are right there to edit. That
+## is the point — a graph is data you author, not code you run.
+##
+## It used to `load()` res://addons/local_agents/graph/Graph.tres and then GROW it at run time
+## through `_ensure_node()` / `_ensure_edge()` guards. Two problems with that: res:// is read-only in
+## an exported build, and the four demo nodes lived in `_ready()` where the inspector could never
+## show them. Both are gone; nothing in this file writes to a resource.
+##
+## Needs no model and no runtime — a graph is plain data.
+##
+## (Explicit types only — project rule: no ':=' inferred typing.)
+
+## The graph to display. Authored as a sub-resource inside this scene; point it at a .tres instead if
+## you want one graph shared between scenes.
+@export var graph: LocalAgentGraph = null
+
 @onready var _output_label: Label = %OutputLabel
 
+
 func _ready() -> void:
-    if not (GraphResource is LocalAgentGraph):
-        _output_label.text = "GraphExample: assign a LocalAgentGraph resource."
-        return
-    var graph: LocalAgentGraph = GraphResource
-    var food_node: LocalAgentGraphNode = _ensure_node(graph, "Food", {"nutrition": 5})
-    var poison_node: LocalAgentGraphNode = _ensure_node(graph, "Poison", {"toxicity": 10})
-    var apple_node: LocalAgentGraphNode = _ensure_node(graph, "Apple", {"type": "fruit"})
-    var berry_node: LocalAgentGraphNode = _ensure_node(graph, "Oozing Berry", {"type": "berry"})
-    _ensure_edge(graph, apple_node.id, food_node.id, "heals")
-    _ensure_edge(graph, berry_node.id, poison_node.id, "hurts")
-    _render_summary(graph)
+	_output_label.text = summary()
 
-func _render_summary(graph: LocalAgentGraph) -> void:
-    var lines: PackedStringArray = []
-    lines.append("LocalAgentGraph demo ready")
-    lines.append("Nodes: %d | Edges: %d" % [graph.nodes.size(), graph.edges.size()])
-    lines.append("")
-    lines.append("Node samples:")
-    for node in graph.nodes:
-        lines.append("- %s (%d)" % [node.name, node.id])
-        for key in node.data.keys():
-            lines.append("  %s: %s" % [key, node.data[key]])
-    lines.append("")
-    lines.append("Edges:")
-    for edge in graph.edges:
-        lines.append("- %s: %s -> %s (%s)" % [edge.id, edge.source_id, edge.target_id, edge.name])
-    _output_label.text = "\n".join(lines)
 
-func _ensure_node(graph: LocalAgentGraph, name: String, data: Dictionary) -> LocalAgentGraphNode:
-    for existing in graph.nodes:
-        if existing.name == name:
-            return existing
-    return graph.add_node(name, data)
+## The graph rendered as text. Public so a test or another panel can ask for the same readout.
+func summary() -> String:
+	if graph == null:
+		return "GraphExample: assign a LocalAgentGraph to the Graph property in the inspector."
 
-func _ensure_edge(graph: LocalAgentGraph, source_id: int, target_id: int, edge_name: String) -> void:
-    for edge in graph.edges:
-        if edge.source_id == source_id and edge.target_id == target_id and edge.name == edge_name:
-            return
-    graph.add_edge(source_id, target_id, edge_name)
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append("Nodes: %d | Edges: %d" % [graph.nodes.size(), graph.edges.size()])
+	lines.append("")
+	lines.append("Nodes:")
+	for node in graph.nodes:
+		lines.append("- %s (id %d)" % [node.name, node.id])
+		for key in node.data.keys():
+			lines.append("    %s: %s" % [key, node.data[key]])
+	lines.append("")
+	lines.append("Edges:")
+	for edge in graph.edges:
+		lines.append("- %s %s %s" % [_node_name(edge.source_id), edge.name, _node_name(edge.target_id)])
+	return "\n".join(lines)
+
+
+# Edges store ids, not names; a reader wants "Apple heals Food", not "2 heals 0".
+func _node_name(node_id: int) -> String:
+	var node: LocalAgentGraphNode = graph.get_node(node_id)
+	if node == null:
+		return "<missing id %d>" % node_id
+	return node.name
