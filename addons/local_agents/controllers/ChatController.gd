@@ -137,10 +137,13 @@ func _on_agent_ready(agent: LocalAgent) -> void:
 func _refresh_configs() -> void:
 	if not _manager:
 		return
-	_populate_option_button(_model_option, _manager.get_model_configs(), "model_config_name")
+	_populate_option_button(_model_option, _manager.get_model_configs(), "profile_name")
 	_populate_option_button(_inference_option, _manager.get_inference_configs(), "inference_config_name")
 	_update_state_labels()
 
+# Presets arrive as Resources (LocalAgentModelProfile / LocalAgentInferenceParams), but this only
+# read label_field out of a Dictionary — so cfg stayed empty and EVERY entry fell back to
+# "config N". The dropdowns have never shown a saved preset's real name. Handle both shapes.
 func _populate_option_button(button: OptionButton, configs: Array, label_field: String) -> void:
 	button.clear()
 	if configs.is_empty():
@@ -150,11 +153,16 @@ func _populate_option_button(button: OptionButton, configs: Array, label_field: 
 	button.disabled = false
 	for idx in configs.size():
 		var cfg_variant: Variant = configs[idx]
-		var cfg: Dictionary = {}
+		var label_value: Variant = null
 		if cfg_variant is Dictionary:
-			cfg = cfg_variant
-		var label_value := cfg.get(label_field, "config %d" % idx)
-		var label: String = label_value as String if label_value is String else str(label_value)
+			label_value = (cfg_variant as Dictionary).get(label_field, null)
+		elif cfg_variant is Object:
+			label_value = (cfg_variant as Object).get(label_field)
+		var label: String = ""
+		if label_value != null:
+			label = String(label_value).strip_edges()
+		if label == "":
+			label = "config %d" % idx
 		button.add_item(label, idx)
 	button.select(0)
 

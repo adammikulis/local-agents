@@ -288,7 +288,9 @@ func _refresh_row(row: Dictionary, state: Dictionary) -> void:
         return
     container.visible = true
 
-    var problems: PackedStringArray = Status.warnings_for(_needs_for(String(spec["needs"])))
+    # Reuse the state refresh() already computed. warnings_for() would re-probe the filesystem, the
+    # extension loader and ClassDB for every row, which is six full probes per tick in the editor.
+    var problems: PackedStringArray = Status.warnings_for_state(state, _needs_for(String(spec["needs"])))
     var ok: bool = problems.is_empty()
     var badge: Label = row["badge"]
     var detail: Label = row["detail"]

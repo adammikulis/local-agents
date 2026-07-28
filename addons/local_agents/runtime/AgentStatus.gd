@@ -142,8 +142,14 @@ static func ensure_model_loaded() -> bool:
 ## apply to this node, e.g. {"model": true, "autoload": true} — so each node's implementation stays a
 ## one-line forwarder instead of growing its own copy of this logic.
 static func warnings_for(needs: Dictionary) -> PackedStringArray:
+	return warnings_for_state(check(), needs)
+
+
+## Same as warnings_for(), against a state you already have. check() re-probes the filesystem, the
+## ClassDB and the extension loader every call, so a UI drawing several rows per tick should call
+## check() once and pass the result here rather than paying for it per row.
+static func warnings_for_state(state: Dictionary, needs: Dictionary) -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
-	var state: Dictionary = check()
 	if bool(needs.get("extension", true)) and not bool(state["extension_ok"]):
 		out.append("%s\nExpected: %s" % [String(_FIX[BLOCK_EXTENSION_MISSING]), String(state["expected_library_path"])])
 	if bool(needs.get("autoload", false)) and not bool(state["autoload_ok"]):
