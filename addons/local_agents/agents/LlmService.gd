@@ -1,9 +1,10 @@
+@tool
 class_name LocalAgentLlmService
 extends Node
 
 ## The ONE shared owner of the local-LLM runtime for the whole sim. It holds a single LocalAgent (the
 ## in-process / llama-server primitive), resolves the model path + server URL in ONE place
-## (RuntimePaths + the chat-model candidates the streamer used to resolve privately), and hands out a
+## (LocalAgentStatus + the chat-model candidates the streamer used to resolve privately), and hands out a
 ## single shared LocalAgentLlmClient. The creature slow brain (LocalAgentCognitionScheduler) and the streamer
 ## commentator (LAStreamerDirector) both talk through this one client → one server, one model, one config.
 ##
@@ -11,8 +12,14 @@ extends Node
 ## the streamer's private HTTPRequest client + private server manager + private model resolution, and the
 ## standalone agent's native path are now the SAME LocalAgent behind this service.
 ##
-## When no model is present AND no server URL was explicitly configured it reports is_available()==false;
-## callers then run their offline paths (the heuristic teacher / canned-silent streamer), exactly as before.
+## NO-CODE USE: drop this node into a scene, tick `enabled`, and point a LocalAgentCognitionScheduler at
+## it. Everything below is configurable from the inspector; `_ready()` self-configures from those exports
+## whenever `setup()` was not called first, so a scene-placed service needs no script at all.
+##
+## When the service is disabled (or nothing is installed) `is_available()` is false and every consumer
+## runs its offline path — the heuristic teacher for cognition, the canned/silent streamer. That path is
+## correct behaviour, not an error, but it used to be COMPLETELY silent: `log_availability` now prints one
+## line saying which model and server were resolved, or why the service is offline and what to change.
 ##
 ## (Explicit types only — project rule: no ':=' inferred typing.)
 
@@ -20,69 +27,203 @@ const AgentScript: GDScript = preload("res://addons/local_agents/agents/Agent.gd
 const LlmClientScript: GDScript = preload("res://addons/local_agents/agents/LlmClient.gd")
 const RuntimePaths: GDScript = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 
-# Chat/instruct model candidates, resolved in order after RuntimePaths' own default. This is the same
-# list StreamerDirector used to resolve privately — now the ONE resolution owner. A capable instruct
-# model serves BOTH the streamer chat and the creature function-calls, so there is one server + one
-# model for the whole session.
+# Chat/instruct model candidates, tried after LocalAgentStatus' own resolution (explicit setting →
+# RuntimePaths default → the project's search_paths). Kept as the last resort so a user who installed one
+# of these without touching Project Settings still gets a model. A capable instruct model serves BOTH the
+# streamer chat and the creature function-calls, so there is one server + one model for the whole session.
 const MODEL_CANDIDATES: Array = [
 	"user://local_agents/models/qwen3-1_7b/Qwen3-1.7B-Q4_K_M.gguf",
 	"user://local_agents/models/qwen3-0_6b-instruct/Qwen3-0.6B-Q4_K_M.gguf",
 	"user://local_agents/models/qwen3-4b-instruct/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
 ]
 
+const SETTING_AUTO_ENABLE: String = "local_agents/llm/auto_enable_when_model_present"
+const SETTING_SERVER_URL: String = "local_agents/llm/server_url"
+const SETTING_BACKEND: String = "local_agents/llm/backend"
+
+
+@export_group("Availability")
+
+## Master switch for the shared local-LLM runtime. Off means is_available() stays false and every
+## consumer (the creature slow brain, the streamer) runs its offline path. Off by default so the addon
+## never boots a llama-server behind the player's back — tick it once you have a model installed.
+@export var enabled: bool = false
+
+## Where inference actually runs. "llama_server" talks to a llama-server process over HTTP (the Server
+## group below applies); "in_process" runs the weights inside the game through the native runtime.
+@export_enum("llama_server", "in_process") var backend: String = "llama_server"
+
+## Print one line at startup naming the resolved model and server — or, when the service is offline,
+## the reason and the fix. Leave on: an offline service is otherwise completely silent, which is the
+## single most confusing thing a new user of this addon can hit.
+@export var log_availability: bool = true
+
+@export_group("Server")
+
+## Base URL of the llama-server to talk to. Only used by the "llama_server" backend. Leave at the
+## default unless you run the server yourself on another port or machine.
+@export var server_url: String = "http://127.0.0.1:8080"
+
+## Launch llama-server automatically when nothing is answering on the URL above. Turn off to require an
+## already-running server (nothing is spawned, and requests simply fail while it is down).
+@export var autostart_server: bool = true
+
+## How long to wait for an auto-started llama-server process to come up before giving up on it.
+@export_range(1000, 300000, 500, "suffix:ms") var start_timeout_ms: int = 30000
+
+## How long to wait for a server that is already up to report that it is ready to serve requests.
+@export_range(200, 60000, 100, "suffix:ms") var ready_timeout_ms: int = 1200
+
+@export_group("Model")
+
+## Explicit GGUF weights for this service. Leave empty to resolve through the project's model settings
+## (LocalAgentStatus.resolve_model_path(): the default path, then the search paths).
+## Global rather than res://-scoped: the Downloads tab installs models under user://, which a
+## project-relative file picker cannot browse to.
+@export_global_file("*.gguf") var model_path: String = ""
+
+## Optional load-time knobs shared by every request: context window, threads, GPU layers, system prompt.
+## Leave empty to use the runtime's own defaults.
+@export var model_profile: LocalAgentModelProfile
+
+## Optional sampling knobs (temperature, max tokens, penalties) applied to every request through this
+## service. Its own Server sub-group is IGNORED here — the Server group on this node wins, so the
+## connection is described in exactly one place.
+@export var inference: LocalAgentInferenceParams
+
+
 var _agent: Node = null
 var _client = null                       # LocalAgentLlmClient (shared by cognition + streamer)
-var _model_path: String = ""
-var _server_url: String = "http://127.0.0.1:8080"
-var _backend: String = "llama_server"
+var _resolved_model: String = ""
+var _resolved_server: String = "http://127.0.0.1:8080"
+var _resolved_backend: String = "llama_server"
 var _available: bool = false
+var _offline_reason: String = ""
+var _configured: bool = false            # setup() or the _ready() self-configure already ran
 
 
-## Resolve model + server once, then build the shared LocalAgent + client. Options:
-##   server_url : llama-server base URL (e.g. env FUNCTIONGEMMA_URL); default 127.0.0.1:8080.
-##   enabled    : force-enable even without a server_url (e.g. for the in_process backend).
-##   model_path : explicit gguf; otherwise resolved from RuntimePaths + MODEL_CANDIDATES.
+## Self-configure from the exports above unless a script already called setup(). Guarded against the
+## editor so a @tool node never boots a model server while you are editing the scene.
+func _ready() -> void:
+	if Engine.is_editor_hint():
+		return
+	if _configured:
+		return
+	_configure({})
+
+
+## Programmatic override of the inspector exports. Options (all optional):
+##   server_url : llama-server base URL. Passing this key explicitly also FORCE-ENABLES the service,
+##                which is how a script points the sim at a server it just started.
+##   enabled    : force the service on/off, ignoring the `enabled` export.
+##   model_path : explicit gguf; otherwise resolved from the export / project settings / candidates.
 ##   backend    : "llama_server" (default) or "in_process".
 ##
-## Availability is OPT-IN: without an explicit server_url (or enabled:true) the service stays offline and
-## every consumer runs its heuristic/teacher path — the mere presence of a model file on disk does NOT
-## silently switch the sim onto the LLM (that would change behaviour + boot a server behind the player's
-## back). This mirrors the old FUNCTIONGEMMA_URL gate, now unified through the one LocalAgent.
+## Availability stays OPT-IN: with no explicit server_url, no `enabled`, and no
+## local_agents/llm/auto_enable_when_model_present, the service stays offline and every consumer runs
+## its heuristic/teacher path — the mere presence of a model file on disk does not silently switch the
+## sim onto the LLM (that would change behaviour and boot a server behind the player's back).
 func setup(options: Dictionary = {}) -> void:
-	_backend = String(options.get("backend", "llama_server"))
-	_server_url = String(options.get("server_url", "http://127.0.0.1:8080")).strip_edges()
-	while _server_url.ends_with("/"):
-		_server_url = _server_url.substr(0, _server_url.length() - 1)
-	_model_path = resolve_model_path(String(options.get("model_path", "")))
+	_configure(options)
 
-	var has_server_override: bool = options.has("server_url") and _server_url != ""
-	var force_enabled: bool = bool(options.get("enabled", false))
-	_available = has_server_override or force_enabled
-	if not _available:
-		return
 
+# The one configuration path; both setup() and the _ready() self-configure land here. Idempotent: an
+# earlier agent/client is torn down first so calling it twice cannot leave two agents parented.
+func _configure(options: Dictionary) -> void:
+	_configured = true
+	_teardown()
+
+	_resolved_backend = String(options.get("backend", backend)).strip_edges()
+	if _resolved_backend == "":
+		_resolved_backend = LocalAgentSettings.get_string(SETTING_BACKEND)
+	_resolved_server = _normalize_url(String(options.get("server_url", _setting_server_url())))
+	_resolved_model = resolve_model_path(String(options.get("model_path", model_path)))
+	_available = _resolve_availability(options)
+
+	if _available:
+		_offline_reason = ""
+		_build_agent()
+	else:
+		_offline_reason = _describe_offline()
+	if log_availability:
+		print(status_line())
+
+
+# Enabled by ANY of: an explicit setup() flag, an explicit setup() server_url (a script pointing us at a
+# server it owns), the `enabled` export, or the project's auto-enable setting once a model resolves. The
+# FUNCTIONGEMMA_URL environment variable is the registered env override for local_agents/llm/server_url
+# (see LocalAgentSettings.SPECS), so setting it still brings the service online the way it used to.
+func _resolve_availability(options: Dictionary) -> bool:
+	if options.has("enabled"):
+		return bool(options["enabled"]) or (options.has("server_url") and _resolved_server != "")
+	if options.has("server_url") and _resolved_server != "":
+		return true
+	if enabled:
+		return true
+	if OS.get_environment("FUNCTIONGEMMA_URL").strip_edges() != "":
+		return true
+	return LocalAgentSettings.get_bool(SETTING_AUTO_ENABLE) and _resolved_model != ""
+
+
+func _build_agent() -> void:
 	_agent = AgentScript.new()
 	_agent.name = "LlmServiceAgent"
 	add_child(_agent)
-	var defaults: Dictionary = {"backend": _backend}
-	if _backend == "llama_server":
-		defaults["server_base_url"] = _server_url
-		if _model_path != "":
-			defaults["server_model_path"] = _model_path
-	_client = LlmClientScript.new(_agent, defaults)
+	# load_options = "which weights, loaded how"; inference_options = "how to sample". The two are kept
+	# apart by LocalAgent itself (see _merged_options), so feed each from its own resource.
+	var load_options: Dictionary = {}
+	if model_profile != null:
+		load_options = model_profile.to_options()
+	if _resolved_model != "" and not load_options.has("model_path"):
+		load_options["model_path"] = _resolved_model
+	_agent.load_options = load_options
+	if inference != null:
+		_agent.inference_options = inference.to_options()
+	_client = LlmClientScript.new(_agent, _request_defaults())
 
 
-## The single model-resolution owner: an explicit path wins, else RuntimePaths' default, else the
-## chat-model candidate list. Returns "" when nothing is installed.
+# Standing per-request options the shared client sends with every call: backend + connection. These are
+# merged OVER the agent's inference_options, so this node's Server group is the authority on the
+# connection even when an InferenceParams resource also carries server_* fields.
+func _request_defaults() -> Dictionary:
+	var defaults: Dictionary = {"backend": _resolved_backend}
+	if _resolved_backend == "llama_server":
+		defaults["server_base_url"] = _resolved_server
+		defaults["server_autostart"] = autostart_server
+		defaults["server_start_timeout_ms"] = start_timeout_ms
+		defaults["server_ready_timeout_ms"] = ready_timeout_ms
+		if _resolved_model != "":
+			defaults["server_model_path"] = _resolved_model
+	elif _resolved_model != "":
+		defaults["model_path"] = _resolved_model
+	return defaults
+
+
+func _teardown() -> void:
+	_client = null
+	if _agent != null and is_instance_valid(_agent):
+		# Unparent BEFORE queue_free: the free is deferred, so a re-configure would otherwise leave two
+		# agents parented (and both connected) for the rest of the frame.
+		if _agent.get_parent() == self:
+			remove_child(_agent)
+		_agent.queue_free()
+	_agent = null
+
+
+## The single model-resolution owner: an explicit path wins, then the project's model settings
+## (LocalAgentStatus), then this addon's own chat-model candidates. Returns "" when nothing is installed.
 func resolve_model_path(preferred: String = "") -> String:
 	if preferred.strip_edges() != "":
 		return preferred.strip_edges()
+	var from_settings: String = LocalAgentStatus.resolve_model_path()
+	if from_settings != "":
+		return from_settings
 	var runtime_default: String = RuntimePaths.resolve_default_model()
 	if runtime_default != "":
 		return runtime_default
-	for c in MODEL_CANDIDATES:
-		if FileAccess.file_exists(ProjectSettings.globalize_path(String(c))):
-			return String(c)
+	for candidate in MODEL_CANDIDATES:
+		if FileAccess.file_exists(ProjectSettings.globalize_path(String(candidate))):
+			return String(candidate)
 	return ""
 
 
@@ -95,5 +236,61 @@ func client():
 	return _client
 
 
-func model_path() -> String:
-	return _model_path
+## The GGUF this service resolved to, whether or not it is enabled. "" when nothing is installed.
+func resolved_model_path() -> String:
+	return _resolved_model
+
+
+## The llama-server base URL this service resolved to (after trimming any trailing slash).
+func resolved_server_url() -> String:
+	return _resolved_server
+
+
+## Why the service is offline, in one sentence with the fix. "" when it is online.
+func offline_reason() -> String:
+	return _offline_reason
+
+
+## One line safe to print or drop into a Label: online with what, or offline and why.
+func status_line() -> String:
+	if is_available():
+		var model_name: String = "none"
+		if _resolved_model != "":
+			model_name = _resolved_model.get_file()
+		if _resolved_backend == "llama_server":
+			return "LocalAgentLlmService: online — backend=llama_server server=%s model=%s" % [_resolved_server, model_name]
+		return "LocalAgentLlmService: online — backend=%s model=%s" % [_resolved_backend, model_name]
+	return "LocalAgentLlmService: offline — %s" % _offline_reason
+
+
+# The reason + the fix, chosen by what is actually missing. The "model installed but switched off" case
+# is the important one: it is the state a user lands in after downloading a model and wondering why
+# nothing in the sim uses it.
+func _describe_offline() -> String:
+	if _resolved_model == "":
+		var checked: PackedStringArray = LocalAgentStatus.candidate_paths()
+		return "no GGUF model found, so consumers run their offline paths. Install one from the Local Agents panel > Downloads, or set local_agents/model/default_path. Checked: %s" % ", ".join(checked)
+	return "a model is installed (%s) but the service is switched off, so consumers run their offline paths. Tick 'Enabled' on this node, or turn on the project setting %s." % [_resolved_model.get_file(), SETTING_AUTO_ENABLE]
+
+
+# ProjectSetting → FUNCTIONGEMMA_URL → the export. The setting only wins when it differs from the export
+# default, so a URL typed into the inspector is not silently overridden by an untouched project setting.
+func _setting_server_url() -> String:
+	var from_settings: String = LocalAgentSettings.get_string(SETTING_SERVER_URL).strip_edges()
+	if from_settings != "" and from_settings != "http://127.0.0.1:8080":
+		return from_settings
+	return server_url
+
+
+func _normalize_url(raw: String) -> String:
+	var url: String = raw.strip_edges()
+	while url.ends_with("/"):
+		url = url.substr(0, url.length() - 1)
+	return url
+
+
+func _get_configuration_warnings() -> PackedStringArray:
+	var out: PackedStringArray = LocalAgentStatus.warnings_for({"extension": true, "model": true})
+	if not enabled and not LocalAgentSettings.get_bool(SETTING_AUTO_ENABLE):
+		out.append("This service is disabled, so every consumer (creature cognition, the streamer) will run its offline path. Tick 'Enabled' to bring the shared local LLM online.")
+	return out

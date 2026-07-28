@@ -116,26 +116,54 @@ static func next_step() -> String:
 	return String(check()["next_step"])
 
 
-## Load the resolved model if the runtime is up and nothing is loaded yet. Absorbs the private-API
-## poking (`agent.agent_node.load_model()`) that three demos each reimplemented.
-static func ensure_model_loaded() -> bool:
-	if not ExtensionLoader.ensure_initialized():
-		return false
-	var runtime: Object = _runtime()
-	if runtime == null:
-		return false
-	if _model_loaded():
-		return true
-	var path: String = resolve_model_path()
+## Which weights are currently resident. "" means nothing loaded, or something loaded them behind
+## this module's back — which is why load_model() below is the only sanctioned loader.
+static var _resident_path: String = ""
+static var _load_lock: Mutex = Mutex.new()
+
+
+## THE one place a model is loaded.
+##
+## AgentRuntime::load_model always unload_model_locked()s and reloads from disk (AgentRuntime.cpp:1845)
+## — it never short-circuits on an already-resident path — so callers must not invoke it
+## speculatively, and "what is resident" has to be tracked. Tracking it in more than one place is
+## how an agent ends up silently generating on someone else's weights: a per-node cache went stale
+## the moment any other path loaded a model, and there were five such paths.
+##
+## Returns true when `path` is resident afterwards.
+static func load_model(path: String, options: Dictionary = {}) -> bool:
 	if path == "":
 		return false
-	if not runtime.has_method("load_model"):
+	var runtime: Object = _runtime()
+	if runtime == null or not runtime.has_method("load_model"):
 		return false
-	var result: Variant = runtime.call("load_model", path)
-	# load_model returns either a bool or a {ok: bool} result depending on the build.
-	if result is Dictionary:
-		return bool((result as Dictionary).get("ok", false))
-	return bool(result)
+	_load_lock.lock()
+	if _resident_path == path and _model_loaded():
+		_load_lock.unlock()
+		return true
+	# Two arguments: load_model is bound as (model_path, options). Calling it with the path alone
+	# silently fails, which left the chat panel, the conversation driver and three demos unable to
+	# generate on an otherwise healthy install.
+	var ok: bool = bool(runtime.call("load_model", path, options))
+	_resident_path = path if ok else ""
+	_load_lock.unlock()
+	return ok
+
+
+## The path load_model() believes is resident, or "" if nothing is.
+static func resident_model_path() -> String:
+	return _resident_path
+
+
+## Load the project's resolved model if nothing is loaded yet. Absorbs the private-API poking
+## (`agent.agent_node.load_model()`) that three demos each reimplemented.
+## `options` carries the load-time knobs (context size, GPU layers).
+static func ensure_model_loaded(options: Dictionary = {}) -> bool:
+	if not ExtensionLoader.ensure_initialized():
+		return false
+	if _model_loaded() and _resident_path != "":
+		return true
+	return load_model(resolve_model_path(), options)
 
 
 ## Editor-facing warning strings for `_get_configuration_warnings()`. `needs` selects which checks

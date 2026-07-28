@@ -9,10 +9,10 @@ extends Node
 ##
 ## Two backends resolve an escalation into one LAActionRegistry action:
 ##   1. The shared LLMClient — a LocalAgentLlmClient (a LocalAgent behind an async seam), owned by
-##      LocalAgentLlmService and injected by EcologyService. request() runs the native function-calling think
-##      OFF the frame and hands back the chosen tool call. Used when a client is injected and we are
-##      inside the tree. This is the SAME LocalAgent the standalone agent + streamer use — one server,
-##      one model, one config (no more private HTTPRequest client here).
+##      LocalAgentLlmService. request() runs the native function-calling think OFF the frame and hands
+##      back the chosen tool call. Used when a service/client is available and we are inside the tree.
+##      This is the SAME LocalAgent the standalone agent + streamer use — one server, one model, one
+##      config (no more private HTTPRequest client here).
 ##   2. Heuristic teacher — a synchronous rule-of-thumb resolved from the signature+context, but its
 ##      callback is DEFERRED so it too never blocks. This is the offline fallback AND the "teacher"
 ##      that keeps generating training traces when no model is loaded.
@@ -20,26 +20,79 @@ extends Node
 ## Either way the result is fed back via `cognition.apply_llm_result(key, action)` (success) or
 ## `cognition.on_llm_failed()` (failure/timeout), and — on success — appended as one JSONL trace line.
 ##
+## NO-CODE USE: drop this node into a scene next to a LocalAgentLlmService, pick that service in
+## `llm_service`, and every creature in `adopt_group` is wired to it on ready — including creatures
+## spawned later. That is the whole hookup; no script is involved.
+##
 ## (Explicit types only — project rule: no ':=' inferred typing.)
 
 const DEFAULT_TRACE_PATH: String = "user://functiongemma_traces.jsonl"
 const SCAN_LIMIT: int = 40                 # per-group cap when gathering escalation context
 const PREDATOR_SIZE_RATIO: float = 1.2     # a "predator" must be at least this much bigger than me
-# How long the "thinking"/"queued" highlight lingers after the event so the player (and a screenshot) can
-# actually SEE a consult that resolved in a single frame (the teacher path resolves next idle). Purely a
-# display window — the authoritative in-flight state (is_thinking) is exact via _in_flight_ids.
-const HIGHLIGHT_LINGER_MS: int = 1200
 const ACTIVITY_PRUNE_AT: int = 256         # prune expired activity entries once the map grows past this
 
+## Emitted ONCE per scheduler, the first time an escalation falls back to the heuristic teacher instead
+## of the model. `reason` is a sentence naming the cause and the fix. It is a signal rather than a print
+## because the fallback is CORRECT behaviour that fires per-creature per-second — logging every one
+## would flood the console. Connect it to a HUD line if you want it surfaced.
+signal degraded(reason: String)
+
+
+@export_group("Model")
+
+## The shared LLM service (a LocalAgentLlmService node) every escalation is resolved through. Leave
+## empty — or leave the service disabled — and every escalation resolves with the built-in heuristic
+## teacher instead, which still plays correctly and still writes training traces.
+@export var llm_service: Node
+
+## Master switch for the slow brain. Off sends every escalation straight to the heuristic teacher and
+## never touches the model, which is the cheapest way to A/B the model against the rules of thumb.
+@export var enabled: bool = true
+
+@export_group("Budget")
+
+## How many slow-brain resolutions may be in flight at once across the WHOLE world. One shared server
+## answers them all, so this is the knob that stops a thousand creatures queueing behind each other.
+@export_range(1, 16, 1) var max_in_flight: int = 2
+
+## Ceiling on how many escalations per second are accepted world-wide. Escalations over the ceiling are
+## dropped, and those creatures keep the action their fast brain already picked.
+@export_range(0.1, 60.0, 0.1, "suffix:/s") var max_requests_per_second: float = 4.0
+
+## How long the "thinking"/"queued" highlight stays on a creature after its consult resolves, so a
+## decision that took a single frame is still visible. Display only — it changes no behaviour.
+@export_range(0, 10000, 50, "suffix:ms") var highlight_linger_ms: int = 1200
+
+@export_group("Training traces")
+
+## Append one JSONL line per resolved escalation (the situation, the options, the chosen action, and
+## who chose it). This is the dataset the auto-finetune loop trains on. Off writes nothing.
+@export var write_traces: bool = true
+
+## Folder the trace file is written into. "user://" is the per-project writable folder, which is the
+## right place for it — res:// is read-only in an exported game.
+@export_dir var trace_dir: String = "user://"
+
+## Name of the trace file inside the folder above. Lines are appended, never overwritten.
+@export var trace_filename: String = "functiongemma_traces.jsonl"
+
+@export_group("Auto-adopt")
+
+## Creatures in this group are wired to this scheduler automatically — on ready for the ones already in
+## the scene, and as they are added for the ones spawned later. Clear it to disable auto-adoption and
+## wire creatures yourself with set_cognition_scheduler().
+@export var adopt_group: StringName = &"la_creatures"
+
+
 # --- configuration (set via setup) ---
-var _enabled: bool = true
-# The shared LLMClient (a LocalAgentLlmClient owned by LocalAgentLlmService), injected by EcologyService. When
-# null the scheduler resolves every escalation with the built-in heuristic teacher (the offline path).
-# This replaces the old raw HTTPRequest + server_url/model plumbing: one client, one server, one model.
+# The shared LLMClient (a LocalAgentLlmClient owned by LocalAgentLlmService), injected by setup(). When
+# null the scheduler asks `llm_service` for one; when that is null too, every escalation resolves with
+# the built-in heuristic teacher (the offline path). This replaces the old raw HTTPRequest +
+# server_url/model plumbing: one client, one server, one model.
 var _llm_client = null
-var _trace_path: String = DEFAULT_TRACE_PATH
-var _max_in_flight: int = 2
-var _max_rps: float = 4.0
+var _trace_path_override: String = ""      # setup({"trace_path": ...}) wins over the exports above
+var _setup_called: bool = false            # setup() is the programmatic override of the exports
+var _degraded_reported: bool = false       # `degraded` is emitted at most once
 
 # --- live budget / stats ---
 var _in_flight: int = 0
@@ -57,13 +110,125 @@ var _in_flight_ids: Dictionary = {}
 var _activity: Dictionary = {}
 
 
-## Configure the scheduler. Robust to a missing llm_client (falls back to the teacher for every call).
+## Programmatic override of the inspector exports above. Robust to a missing service/client — it falls
+## back to the heuristic teacher for every call. Keys: enabled, llm_service, llm_client, trace_path,
+## max_in_flight, max_rps.
 func setup(options: Dictionary = {}) -> void:
-	_enabled = bool(options.get("enabled", true))
-	_llm_client = options.get("llm_client", null)
-	_trace_path = String(options.get("trace_path", DEFAULT_TRACE_PATH))
-	_max_in_flight = maxi(1, int(options.get("max_in_flight", 2)))
-	_max_rps = maxf(0.1, float(options.get("max_rps", 4.0)))
+	_setup_called = true
+	enabled = bool(options.get("enabled", enabled))
+	if options.has("llm_service"):
+		llm_service = options["llm_service"]
+	if options.has("llm_client"):
+		_llm_client = options["llm_client"]
+	_trace_path_override = String(options.get("trace_path", ""))
+	max_in_flight = maxi(1, int(options.get("max_in_flight", max_in_flight)))
+	max_requests_per_second = maxf(0.1, float(options.get("max_rps", max_requests_per_second)))
+
+
+## Adopt every creature already in `adopt_group`, then keep adopting the ones spawned later. This lives
+## in the scheduler so Creature.gd needs no knowledge of it: a creature only has to be in the group.
+func _ready() -> void:
+	_adopt_existing()
+	var tree: SceneTree = get_tree()
+	if tree != null and not tree.node_added.is_connected(_on_node_added):
+		tree.node_added.connect(_on_node_added)
+
+
+## One summary line for the whole run: how the world's escalations were actually resolved. The
+## per-escalation teacher fallback is deliberately silent (it fires per-creature per-second); this is
+## where you find out whether the model was doing the deciding or the rules of thumb were.
+func _exit_tree() -> void:
+	var tree: SceneTree = get_tree()
+	if tree != null and tree.node_added.is_connected(_on_node_added):
+		tree.node_added.disconnect(_on_node_added)
+	if _total_calls > 0:
+		print("LocalAgentCognitionScheduler: %d escalations — %d dispatched to the model, %d resolved by the heuristic teacher, %d dropped (budget full)." % [_total_calls, _llm_calls, _teacher_calls, _dropped])
+
+
+func _adopt_existing() -> void:
+	if adopt_group == &"":
+		return
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	for node in tree.get_nodes_in_group(adopt_group):
+		_try_adopt(node)
+
+
+# node_added fires for EVERY node in the scene, so the check is cheap and the work is deferred.
+#
+# Deferred ALWAYS, including for a node already in the group. node_added fires during add_child,
+# which is before the spawner calls setup() on the creature — and setup() assigns the creature's
+# scheduler reference, so an adoption applied at add_child time is overwritten a moment later and
+# the creature ends up with no scheduler at all. Deferring also covers the other direction, where a
+# spawner calls add_to_group() after add_child().
+func _on_node_added(node: Node) -> void:
+	if adopt_group == &"" or node == null:
+		return
+	if node.is_in_group(adopt_group) or node.has_method("set_cognition_scheduler"):
+		call_deferred("_try_adopt", node)
+
+
+func _try_adopt(node) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	if not (node as Node).is_in_group(adopt_group):
+		return
+	if not (node as Node).has_method("set_cognition_scheduler"):
+		return
+	(node as Node).set_cognition_scheduler(self)
+
+
+# The shared client: an explicitly injected one wins, else the assigned service's — but only while that
+# service reports itself available (a disabled or model-less service must not be asked for one).
+func _client_or_null():
+	if _llm_client != null:
+		return _llm_client
+	if llm_service == null or not is_instance_valid(llm_service):
+		return null
+	if llm_service.has_method("is_available") and not bool(llm_service.is_available()):
+		return null
+	if not llm_service.has_method("client"):
+		return null
+	return llm_service.client()
+
+
+# Where trace lines are appended: setup()'s explicit path wins, else the exported folder + filename.
+# "" when tracing is off, which _write_trace treats as "write nothing".
+func _resolve_trace_path() -> String:
+	if not write_traces:
+		return ""
+	if _trace_path_override != "":
+		return _trace_path_override
+	var dir: String = trace_dir.strip_edges()
+	if dir == "":
+		return DEFAULT_TRACE_PATH
+	if not dir.ends_with("/"):
+		dir += "/"
+	var file_name: String = trace_filename.strip_edges()
+	if file_name == "":
+		return ""
+	return dir + file_name
+
+
+# Emit `degraded` at most once, naming why the model is not deciding and what to change.
+func _note_degraded() -> void:
+	if _degraded_reported:
+		return
+	_degraded_reported = true
+	degraded.emit(_degrade_reason())
+
+
+func _degrade_reason() -> String:
+	if not enabled:
+		return "The cognition scheduler is disabled, so every decision comes from the built-in heuristic teacher."
+	if _llm_client == null and (llm_service == null or not is_instance_valid(llm_service)):
+		return "No LLM service is assigned, so every decision comes from the built-in heuristic teacher. Add a LocalAgentLlmService to the scene and pick it in this node's 'Llm Service' property."
+	if llm_service != null and is_instance_valid(llm_service) and llm_service.has_method("is_available") and not bool(llm_service.is_available()):
+		if llm_service.has_method("offline_reason"):
+			return "The shared LLM service is offline, so decisions come from the built-in heuristic teacher: %s" % String(llm_service.offline_reason())
+		return "The shared LLM service reports itself unavailable, so decisions come from the built-in heuristic teacher."
+	return "The shared LLM client was busy or the request failed, so this decision came from the built-in heuristic teacher."
 
 
 ## The escalation entry point called by LACognition. Returns true if the request was accepted (a
@@ -77,7 +242,7 @@ func request(creature, cognition, sig: Dictionary, innate_action: String) -> boo
 		_dropped += 1
 		# Wanted to consult the slow brain but the shared budget was full → mark QUEUED (waiting its turn).
 		if cid != 0:
-			_activity[cid] = {"kind": "queued", "until": Time.get_ticks_msec() + HIGHLIGHT_LINGER_MS}
+			_activity[cid] = {"kind": "queued", "until": Time.get_ticks_msec() + highlight_linger_ms}
 			_maybe_prune()
 		return false
 
@@ -86,7 +251,7 @@ func request(creature, cognition, sig: Dictionary, innate_action: String) -> boo
 	# Accepted → this creature is now consulting the slow brain (THINKING), exact until _finish clears it.
 	if cid != 0:
 		_in_flight_ids[cid] = true
-		_activity[cid] = {"kind": "thinking", "until": Time.get_ticks_msec() + HIGHLIGHT_LINGER_MS}
+		_activity[cid] = {"kind": "thinking", "until": Time.get_ticks_msec() + highlight_linger_ms}
 		_maybe_prune()          # bound the map on this add path too (not just the drop path) — else it leaks
 
 	var context: Dictionary = _gather_context(creature)
@@ -99,7 +264,7 @@ func request(creature, cognition, sig: Dictionary, innate_action: String) -> boo
 		"context": context,
 	}
 
-	if _enabled and _llm_client != null and is_inside_tree():
+	if enabled and is_inside_tree():
 		if _dispatch_llm(job):
 			return true
 		# The shared client was busy/unavailable — fall through to the teacher so we still resolve.
@@ -110,13 +275,13 @@ func request(creature, cognition, sig: Dictionary, innate_action: String) -> boo
 ## Global budget gate: cap concurrent in-flight resolutions AND requests-per-second. Records the
 ## accept timestamp when it lets one through.
 func _accept() -> bool:
-	if _in_flight >= _max_in_flight:
+	if _in_flight >= max_in_flight:
 		return false
 	var now: int = Time.get_ticks_msec()
 	var cutoff: int = now - 1000
 	while _recent_ms.size() > 0 and int(_recent_ms[0]) < cutoff:
 		_recent_ms.remove_at(0)
-	if float(_recent_ms.size()) >= _max_rps:
+	if float(_recent_ms.size()) >= max_requests_per_second:
 		return false
 	_recent_ms.append(now)
 	return true
@@ -128,11 +293,12 @@ func _accept() -> bool:
 ## messages; the client supplies transport + tools + tool_choice and delivers the native result async.
 ## Returns false when the client rejects (already in flight) so the caller falls back to the teacher.
 func _dispatch_llm(job: Dictionary) -> bool:
-	if _llm_client == null:
+	var llm_client = _client_or_null()
+	if llm_client == null:
 		return false
 	var messages: Array = LAFunctionGemmaClient.build_messages(job["sig"], job["context"])
 	var tools: Array = LAActionRegistry.tool_specs()
-	var accepted: bool = bool(_llm_client.request(messages, tools, {}, _on_llm_result.bind(job)))
+	var accepted: bool = bool(llm_client.request(messages, tools, {}, _on_llm_result.bind(job)))
 	if not accepted:
 		return false
 	_llm_calls += 1
@@ -156,6 +322,9 @@ func _on_llm_result(result: Dictionary, job: Dictionary) -> void:
 
 func _resolve_teacher(job: Dictionary) -> void:
 	_teacher_calls += 1
+	# Say ONCE (via the signal, not the console) that the model is not the one deciding. The fallback
+	# itself is correct behaviour and fires constantly, so it stays otherwise silent.
+	_note_degraded()
 	var action: String = _teacher_action(job["sig"], job["context"])
 	_finish(job, action, "teacher")
 
@@ -191,7 +360,7 @@ func _finish(job: Dictionary, action: String, source: String) -> void:
 	var cid: int = int(job.get("cid", 0))
 	if cid != 0:
 		_in_flight_ids.erase(cid)
-		_activity[cid] = {"kind": "thinking", "until": Time.get_ticks_msec() + HIGHLIGHT_LINGER_MS}
+		_activity[cid] = {"kind": "thinking", "until": Time.get_ticks_msec() + highlight_linger_ms}
 		_maybe_prune()          # bound the map on the finish path too — else it leaks for always-accepted creatures
 	var cognition = job.get("cognition", null)
 	if action != "" and LAActionRegistry.is_valid(action):
@@ -301,7 +470,8 @@ func _scan_group_visible(creature, tree: SceneTree, group: String) -> bool:
 # --- trace logging (fixed schema — the finetune exporter reads this) ------------------------------
 
 func _write_trace(job: Dictionary, action: String, source: String) -> void:
-	if _trace_path == "":
+	var trace_path: String = _resolve_trace_path()
+	if trace_path == "":
 		return
 	var ctx: Dictionary = job["context"]
 	var sig: Dictionary = job["sig"]
@@ -325,9 +495,10 @@ func _write_trace(job: Dictionary, action: String, source: String) -> void:
 		"chosen_action": action,
 		"source": source,
 	}
-	var f: FileAccess = FileAccess.open(_trace_path, FileAccess.READ_WRITE)
+	var f: FileAccess = FileAccess.open(trace_path, FileAccess.READ_WRITE)
 	if f == null:
-		f = FileAccess.open(_trace_path, FileAccess.WRITE)   # first write — create the file
+		DirAccess.make_dir_recursive_absolute(trace_path.get_base_dir())   # a chosen folder may not exist yet
+		f = FileAccess.open(trace_path, FileAccess.WRITE)   # first write — create the file
 	if f == null:
 		return
 	f.seek_end()
@@ -345,7 +516,7 @@ func _action_name_list() -> Array:
 # --- live consult set (player highlight + select-by-predicate) ------------------------------------
 
 ## Is this creature consulting the slow brain right now (or within the brief display linger)? Exact while
-## the escalation is in flight (_in_flight_ids), then lingers HIGHLIGHT_LINGER_MS so a one-frame teacher
+## the escalation is in flight (_in_flight_ids), then lingers highlight_linger_ms so a one-frame teacher
 ## consult is still visible. O(1).
 func is_thinking(c) -> bool:
 	if c == null:

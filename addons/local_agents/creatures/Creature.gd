@@ -1,6 +1,12 @@
+@tool
 class_name LocalAgentCreature
 extends CharacterBody3D
 
+# @tool is here ONLY so the inspector can show _get_configuration_warnings() on a Creature dropped into a
+# scene. Nothing else about this script may run in the editor: _ready, _process and _physics_process each
+# return immediately under Engine.is_editor_hint(), and those three are the script's only engine callbacks
+# (there is no _init / _enter_tree / _notification here), so an editor-placed Creature stays inert.
+#
 # One flexible creature driven by a species config Dictionary. Terrain-follow via an
 # injected LAVoxelTerrainService (surface_height(x,z)). Behavior is emergent: flee larger
 # hunters, hunt prey (melee bite or persistence + thrown rocks), scavenge carrion, eat
@@ -103,8 +109,19 @@ var config: Dictionary = {}
 # like "rabbit", a res:// JSON path, or "" for a generic walker) — so the prefab "just works" on drop-in.
 # Default OFF so a sim creature (built via _instance_actor, whose setup() is called explicitly right after
 # add_child) never self-configures — its _ready sees an empty config but standalone_on_ready is false.
+# Creature.tscn stores `standalone_on_ready = true`, so a Creature DRAGGED into a scene does self-configure;
+# only the bare-script/`.new()` path (which the ecology uses) starts from this OFF default.
+@export_group("Standalone")
+## Configure this creature from its species file during _ready, with a flat-ground terrain at Ground Y.
+## Turn off if a world (LocalAgentSimWorld / EcologyService) will call setup() for it instead.
 @export var standalone_on_ready: bool = false
+## Species id, e.g. "rabbit", "fox", "bird". Backed by creatures/species/**/<id>.json.
+## A res:// path ending in ".json" also works. Blank uses the built-in generic walker.
+## (Plain String on purpose: @export_enum cannot offer an empty option, so it could not express
+## the generic walker. The editor plugin supplies the dropdown instead.)
 @export var standalone_species: String = ""
+## World Y of the flat ground plane this creature stands on when running standalone.
+@export_range(-1000.0, 1000.0, 0.05, "or_less", "or_greater", "suffix:m") var ground_y: float = 0.0
 
 var species: String = "creature"
 var diet: String = "herbivore"
@@ -270,10 +287,17 @@ var _cognition = null                      # LACognition (per-creature learned p
 # interaction calls bond.befriend(). While bonded + commanded it pre-empts the autonomous decision cascade (the
 # command override below). Null-guarded so a wild, untamed creature runs identically to before.
 var bond: LACreatureBond = null
-# PLAYER CONTROL over the local-LLM "slow brain": opt-out per creature (config-driven, default on). When
-# off, cognition never escalates to the shared scheduler (see LACognition._should_escalate) — the creature
-# runs on its fast reinforced policy + innate cascade only. Toggled per-creature / per-group from the UI.
-var llm_enabled: bool = true
+# PLAYER CONTROL over the local-LLM "slow brain". When off, cognition never escalates to the shared
+# scheduler (see LACognition._should_escalate) — the creature runs on its fast reinforced policy + innate
+# cascade only. Toggled per-creature / per-group from the UI (LALLMControl, CreatureThoughtPanel).
+# This export is the DEFAULT; a species config key "llm_enabled" still overrides it in setup().
+@export_group("Cognition")
+## Let this creature escalate novel situations to the language model. Off = fast rules only.
+## Needs a cognition scheduler injected (set_cognition_scheduler) before it can do anything, and
+## with no scheduler present this costs nothing — escalations just resolve on the heuristic teacher.
+## Defaults ON to match the behaviour before this was an export: no species JSON sets the key, so a
+## default of false silently took the slow brain away from every land creature in the shipped sim.
+@export var llm_enabled: bool = true
 var _migrate_dir: Vector3 = Vector3.ZERO   # steady heading chosen when the 'migrate' action fires
 var _veto_dir: Vector3 = Vector3.ZERO      # committed retreat heading when cognition VETOES a learned-lethal action
 var _veto_timer: float = 0.0               # seconds left on the current retreat commitment (latched, anti-oscillation)
@@ -648,7 +672,7 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 	# (birds roost in trees, mammals/snakes burrow or den) — no per-species branch here.
 	nests = bool(config.get("nests", nests))
 	nest_habitat = String(config.get("nest_habitat", "tree" if can_fly else "ground"))
-	llm_enabled = bool(config.get("llm_enabled", true))   # per-creature slow-brain opt-out (default on)
+	llm_enabled = bool(config.get("llm_enabled", llm_enabled))   # export is the default; config may override
 	_target_altitude = cruise_height
 	state = "cruise" if can_fly else "wander"
 	_poop_cd = randf_range(20.0, 45.0)
@@ -694,8 +718,16 @@ func setup(_terrain, _config: Dictionary, _genome_arg = null) -> void:
 # Library drop-in self-config: a Creature.tscn placed in a scene with standalone_on_ready = true
 # configures itself here (config empty + no terrain injected). Inert for sim creatures (flag default off).
 func _ready() -> void:
+	if Engine.is_editor_hint():
+		return                            # @tool is for the inspector warnings only — never simulate in-editor
 	if standalone_on_ready and config.is_empty() and terrain == null:
-		setup_standalone(standalone_species)
+		setup_standalone(standalone_species, {"ground_y": ground_y})
+
+
+## Inspector validation for a Creature dropped into a scene (species id typos, an ignored species).
+## The checks live in LocalAgentCreatureWarnings so nothing but exports lands in this file.
+func _get_configuration_warnings() -> PackedStringArray:
+	return LocalAgentCreatureWarnings.check(self)
 
 
 ## LIBRARY drop-in entry — configure this Creature to live on a bare FLAT floor with NONE of the sim's
@@ -732,6 +764,8 @@ static func _species_group(sp: String) -> String:
 # Visual-only animation: play idle/move/run (or bob a rigless model) from actual displacement.
 # Kept out of _physics_process so it never perturbs movement/AI, only presentation.
 func _process(delta: float) -> void:
+	if Engine.is_editor_hint():
+		return                            # @tool guard — see the header note
 	if LAAblate.off("anim"):
 		return
 	if _model_root == null:
@@ -899,6 +933,8 @@ const PHYS_STRIDE_MAX: int = 12     # far-side creatures update at most every 12
 static var _phys_lod_off: bool = OS.has_environment("LA_NO_PHYS_LOD")   # A/B knob: force the old binary tiers
 
 func _physics_process(delta: float) -> void:
+	if Engine.is_editor_hint():
+		return                            # @tool guard — see the header note
 	if LAAblate.off("creatures"):
 		return
 	# In the player's hand: VoxelWorld sets our position each frame; skip AI + terrain-snap.

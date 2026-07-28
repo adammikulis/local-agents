@@ -14,6 +14,11 @@ const TrackSystemScript: GDScript = preload("res://addons/local_agents/sim/Track
 
 const KINDS: Array = ["plant", "rabbit", "fox", "bird", "villager", "fish", "rock", "tree"]
 
+# Every creature/fish this service spawns joins this group, which is the default `adopt_group` of
+# LocalAgentCognitionScheduler. That is what lets a scheduler dropped into a scene from the inspector
+# wire itself to the whole population with no code (this service also injects its own directly).
+const COGNITION_GROUP: StringName = &"la_creatures"
+
 # A LIVING sea: scale every aquatic species' starting count AND its population cap by this factor so the
 # ocean/lakes teem instead of trickling. Data files stay the single source of the per-species ratios; this
 # is the one owned dial that makes the water busy without editing eight species files.
@@ -24,7 +29,7 @@ var actors_root: Node3D = null
 var _tracks = null                       # LATrackSystem (observer; footprints)
 var _material = null                      # LAMaterialField — the ONE substrate (water/heat/materials)
 var _cognition_sched = null              # LocalAgentCognitionScheduler (shared slow-brain budget/queue)
-var _llm_client = null                   # shared LocalAgentLlmClient (from LocalAgentLlmService); null = teacher-only
+var _llm_service = null                  # shared LocalAgentLlmService node; null/offline = teacher-only
 var _veg_renderer = null                 # LAVegetationRenderer — plants/trees render through its batched MultiMesh
 # Extracted single-owner modules this thin hub delegates to (it stays a facade + step-orchestration):
 var _stimulus: LAEcologyStimulus = null  # stimulus/broadcast bus (disturb/seismic/blast/scare/call/wind)
@@ -193,10 +198,11 @@ func setup(_terrain, _actors_root: Node3D) -> void:
 		_cognition_sched.name = "CognitionScheduler"
 		add_child(_cognition_sched)
 		if _cognition_sched.has_method("setup"):
-			# Route the slow brain through the shared LocalAgentLlmClient (owned by LocalAgentLlmService, set by
-			# VoxelWorld via set_llm_client before this setup runs). When null — no model/server installed —
-			# the scheduler falls back to the built-in heuristic teacher for every escalation.
-			_cognition_sched.setup({"llm_client": _llm_client})
+			# Route the slow brain through the shared LocalAgentLlmService (set by VoxelWorld via
+			# set_llm_service before this setup runs). When it is null or reports itself offline — no
+			# model installed, or the service is switched off — the scheduler falls back to the built-in
+			# heuristic teacher for every escalation.
+			_cognition_sched.setup({"llm_service": _llm_service})
 
 
 # The ONE substrate: water (creatures drink, fish live in it), heat/temperature (fire + comfort),
@@ -251,10 +257,10 @@ func cognition_scheduler():
 	return _cognition_sched
 
 
-## Inject the shared LLMClient (LocalAgentLlmService's LocalAgentLlmClient) BEFORE setup() so the slow-brain
-## scheduler is built with it. Null = offline: the scheduler runs pure heuristic-teacher fallback.
-func set_llm_client(client) -> void:
-	_llm_client = client
+## Inject the shared LocalAgentLlmService BEFORE setup() so the slow-brain scheduler is built with it.
+## Null (or an offline service) = the scheduler runs pure heuristic-teacher fallback.
+func set_llm_service(service) -> void:
+	_llm_service = service
 
 
 # A hot event "starts a fire" only by depositing heat — vegetation there ignites on the next
@@ -434,6 +440,9 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 			if not force_place and not _is_water_pos(placed):
 				return null
 			var fish: FishScript = FishScript.new()
+			# Join the cognition group so a scene-placed scheduler can find it. The ecology injects its own
+			# scheduler explicitly below; the group is what lets a scheduler the USER dropped in adopt it.
+			fish.add_to_group(COGNITION_GROUP)
 			actors_root.add_child(fish)
 			fish.global_position = placed
 			fish.setup(terrain, _material, cfg)
@@ -449,6 +458,9 @@ func _instance_actor(kind: String, placed: Vector3, genome = null, family_id: in
 		if family_id >= 0 and genome == null:
 			cfg["family_id"] = family_id
 		var creature: CreatureScript = CreatureScript.new()
+		# Join the cognition group so a scene-placed scheduler can find it. The ecology injects its own
+		# scheduler explicitly below; the group is what lets a scheduler the USER dropped in adopt it.
+		creature.add_to_group(COGNITION_GROUP)
 		actors_root.add_child(creature)
 		creature.global_position = placed
 		creature.setup(terrain, cfg, genome)          # genome (if bred) drives traits + instincts

@@ -249,20 +249,14 @@ func _ready() -> void:
 	# collapse of the three forked chat-completions paths. Offline (teacher/canned) when no model.
 	_llm_service = LlmServiceScript.new()
 	_llm_service.name = "LlmService"
-	add_child(_llm_service)
-	var llm_opts: Dictionary = {}
-	var fg_url: String = OS.get_environment("FUNCTIONGEMMA_URL")
-	if fg_url != "":
-		llm_opts["server_url"] = fg_url
-	_llm_service.setup(llm_opts)
+	add_child(_llm_service)      # self-configures from its exports + the local_agents/llm/* settings
 
 	# --- Actors + ecology (actors live UNDER the body so they ride its frame) ---
 	_actors_root = _body.actors_root
 	_ecology = EcologyServiceScript.new()
 	_ecology.name = "Ecology"
 	add_child(_ecology)
-	if _llm_service.is_available():
-		_ecology.set_llm_client(_llm_service.client())
+	_ecology.set_llm_service(_llm_service)      # slow brain resolves the shared client from the service
 	_ecology.setup(_terrain, _actors_root)
 	# Shared GPU-instanced vegetation renderer: plants/trees draw through its batched MultiMesh (one draw per
 	# type) instead of hundreds of per-node MeshInstances. Lives under actors_root so it rides the planet frame.
