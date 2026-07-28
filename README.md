@@ -1,158 +1,157 @@
-# Local Agents (Godot)
+# Local Agents
 
-**Local large language models, running fully offline, driving both actions and responses inside a
-Godot game.** No cloud, no API keys, no network round-trip — the model runs on the player's own
-machine through a llama.cpp-backed GDExtension. A `LocalAgent` node loads a GGUF model and
-gives you two things at once: **responses** (chat, dialogue, a live commentator) and **actions**
-(a creature deciding to flee, a streamer reacting to what just happened on screen).
+**An AI that runs on your own computer, inside a video game.**
 
-The flagship showcase is an emergent voxel planet where herds think, disasters emerge from physics,
-and a local-LLM streamer narrates the chaos live — all offline.
+When you use most AI assistants, your words travel to a company's servers, get answered there, and
+come back. Local Agents doesn't do that. The AI model runs on the player's own machine — no internet
+connection, no accounts, no data leaving the computer. It keeps working on a plane.
 
-![The emergent voxel planet demo](addons/local_agents/docs/img/planet.png)
+This is a plugin for [Godot](https://godotengine.org), a free game engine. It gives a game two
+things that usually require a cloud service:
 
-## What it is
+- **Characters that talk.** Dialogue written as the game is played, not chosen from a script.
+- **Characters that decide.** The model doesn't just produce words — it chooses what a character
+  should *do*, and the game carries it out.
 
-- **Offline-first local LLM in an engine.** Drop one node, point it at a GGUF model, call
-  `think()`, and read the reply. Everything runs in-process on the player's hardware.
-- **Actions and responses from the same runtime.** The same agent that answers a chat prompt can
-  emit an `action_requested` signal that game code turns into behavior. Creatures in the voxel sim
-  use fast local rules for the common case and call the model for novel situations; a streamer
-  overlay watches the sim and comments on it with generated speech (TTS) and, optionally, listens
-  back (STT).
-- **A native GDExtension** (`localagents`) wrapping llama.cpp for text generation, plus whisper.cpp
-  for transcription and Piper for speech — all embedded, all local.
+![A voxel planet with weather, terrain and animals](addons/local_agents/docs/img/planet.png)
 
-## Prerequisites (both are required to run)
+## The demo world
 
-A fresh clone will **not** run until you have these two things. Neither is committed to the repo.
+The largest example is a small planet that runs itself.
 
-### 1. The native extension binary
+It has one shared physical layer underneath everything — heat, water, air, fire, rock — and the rest
+follows from it. Rain falls because water evaporated and cooled. A volcano erupts because pressure
+built up under rock. Nothing is a scripted special effect; there is no "make a storm" button in the
+code. The weather and the disasters are consequences.
 
-The `localagents` GDExtension is a compiled C++ library (`bin/` is a gitignored build artifact). Get
-it one of two ways:
+Animals live on it. They eat, drink, flee, hunt, form herds and raise young. Most of the time they
+use fast built-in instincts. When something unfamiliar happens, the animal asks the language model
+what to do — and that answer becomes an action in the world.
 
-- **Download a CI artifact (no toolchain needed).** The
-  [Build Extension (Cross-Platform)](.github/workflows/build-extension.yml) GitHub Actions workflow
-  builds Linux, Windows, and macOS binaries and uploads each as an artifact named
-  `localagents-<platform>-bin`. Download the one for your platform from the workflow run and unzip it
-  into `addons/local_agents/gdextensions/localagents/bin/`.
-- **Build it locally.** From the extension directory:
+There's also an optional commentator: a second model instance that watches the simulation and talks
+about it out loud, in a generated voice, as it happens.
 
-  ```bash
-  cd addons/local_agents/gdextensions/localagents
-  ./scripts/fetch_dependencies.sh        # godot-cpp, llama.cpp, whisper.cpp, sqlite (+ the default model & voices)
-  ./scripts/build_extension.sh --platform macos   # or: linux | windows
-  ```
+All of it runs offline on one machine.
 
-  This produces `bin/localagents.<platform>.{dylib,so,dll}` plus the bundled runtimes. (Running
-  `fetch_dependencies.sh` without `--skip-models` also downloads the default GGUF model, covering
-  step 2 in one shot.)
+## How it works
 
-If the binary is missing, the runtime status will say so ("Native runtime missing…") instead of
-silently doing nothing.
+Three pieces, in plain terms:
 
-### 2. A GGUF model
+| Piece | What it is |
+| --- | --- |
+| The model | A file, a few gigabytes, containing a trained language model. You download one once. |
+| The engine | A C++ component built on [llama.cpp](https://github.com/ggml-org/llama.cpp) that runs that file efficiently on your CPU or graphics card. Speech recognition and text-to-speech are built in too. |
+| The plugin | The Godot side: drop an "agent" into a scene, point it at the model, and it starts answering and acting. |
 
-The default model is **`Qwen3-4B-Instruct-2507-Q4_K_M.gguf`**, resolved from
-`user://local_agents/models/qwen3-4b-instruct/` (or the in-repo
-`addons/local_agents/models/` fetched by the build script).
-
-The friendliest way to get one: open the project in Godot, enable the **Local Agents** plugin, and
-use the **Local Agents → Downloads** bottom panel to fetch a model. It lands in the user models
-directory automatically.
-
-## 60-second quickstart
-
-1. **Get the native binary** (above) — download the CI artifact or build locally.
-2. **Get a model** (above) — the editor **Local Agents → Downloads** panel is the easy path.
-3. **Open the quickstart scene** `addons/local_agents/examples/AgentQuickstart.tscn`, press play,
-   type a prompt, and press enter.
-
-![The quickstart scene answering a prompt with a local model](addons/local_agents/docs/img/quickstart.png)
-
-That scene is literally **one `Agent` node plus a prompt box and a reply label**. To build the same
-thing from scratch, drop a `LocalAgent` node (once the plugin is enabled it shows up as
-**Agent** in the Add Node dialog) and wire five lines:
-
-```gdscript
-@onready var agent: LocalAgent = %Agent
-
-func _ready() -> void:
-    agent.configure()                                  # picks up the default model + runtime
-    agent.model_output_received.connect(_on_reply)     # fires when the model answers
-    var result: Dictionary = agent.think("Say hello.") # runs the local model
-    if not result.get("ok", true):
-        push_warning("Agent unavailable: %s" % result.get("error", ""))
-
-func _on_reply(text: String) -> void:
-    print(text)
-```
-
-`think(prompt)` records the prompt, runs the local model, returns a result `Dictionary`, and emits
-`model_output_received` with the text. For TTS/STT use `say(text)` / `listen()`; to drive game
-behavior, connect the `action_requested(action, params)` signal.
-
-## Demos
-
-Each demo is a scene you can open and run. The examples form a **ladder**: each rung adds one
-capability over the last, so you can watch features layer up from a one-node chatbot to the flagship
-planet sim. The friendliest entry point is the **launcher**, which lists every demo with a one-line
-description and an Open button.
-
-| Demo | Scene | What it shows |
-| --- | --- | --- |
-| **Demo launcher** (start here) | `addons/local_agents/examples/DemoLauncher.tscn` | The front door — a menu of every demo below, ordered simplest to fullest, each with a one-click Open button. |
-| **1. Quickstart** | `addons/local_agents/examples/AgentQuickstart.tscn` | The smallest "talk to a local LLM" scene — one `Agent` node, a prompt box, a reply. |
-| **2. Agent drives actions** | `addons/local_agents/examples/AgentActionsDemo.tscn` | The actions loop that makes an agent more than a chatbot — the model's reply becomes `enqueue_action` calls that recolor and pulse an on-screen orb (manual buttons fire the same actions, so it works with no model). |
-| **3. Two agents converse** | `addons/local_agents/examples/AgentConversationDemo.tscn` | Cognition + memory — Ada and Ben take turns, and every line is recorded as a node in a shared `LocalAgentGraph` (chained by `then` edges) that grows as the conversation's memory. |
-| **4. Chat** | `addons/local_agents/examples/ChatExample.tscn` | A fuller chat UI with model/inference configuration, runtime-health status, and saved conversations. |
-| **5. 3D Agent** | `addons/local_agents/examples/Agent3DExample.tscn` | A talking 3D agent prefab driven by the same runtime, with an on-screen setup checklist. |
-| **6. Graph** | `addons/local_agents/examples/GraphExample.tscn` | The `LocalAgentGraph` resource (nodes/edges) for structured agent knowledge — runs without a model. |
-| **Voxel planet sim** (flagship) | `addons/local_agents/game/VoxelWorld.tscn` | An emergent ecosystem on a voxel planet: one chemistry-like material substrate (heat, water, wind, fire, lava, erosion…), herds that forage/flee/hunt with kinship, disasters that emerge from physics rather than scripts, and a local-LLM streamer narrating it live. |
-
-The voxel sim is also the project's `run/main_scene`, so pressing play on the project launches it.
-It self-harnesses for non-interactive runs:
-
-```bash
-# headless smoke boot: prints one SIM_REPORT={...} telemetry line, then quits
-godot --headless res://addons/local_agents/game/VoxelWorld.tscn -- --run-frames=300
-
-# windowed screenshot (whole-planet vista); also --auto-meteor / --auto-volcano / --auto-lightning
-godot res://addons/local_agents/game/VoxelWorld.tscn -- --shoot=/tmp/shot.png --overview
-```
-
-> A new `.gd` `class_name` or `.gdextension` only registers after an editor scan — run
-> `godot --headless --editor --quit-after 400` once, or new classes report as missing.
-
-## Tests
-
-The unified harness wraps the canonical runners, tees a log, and prints one
-`AGENT_HARNESS_RESULT={...}` line:
-
-```bash
-scripts/agent_harness.sh fast       # fast test sweep
-scripts/agent_harness.sh all        # full suite
-scripts/agent_harness.sh bounded    # bounded runtime-heavy suite
-scripts/agent_harness.sh extension  # validate the GDExtension
-scripts/agent_harness.sh lint       # typing + process gates
-```
-
-Run one module through the canonical helper (never launch a `test_*.gd` directly):
-
-```bash
-scripts/run_single_test.sh test_agent_integration.gd
-```
-
-## Notes
-
-- Runtime is scene-first and resource-driven; simulation-authoritative compute targets GPU/native
-  and fails fast (`GPU_REQUIRED` / `NATIVE_REQUIRED`) rather than silently degrading. The one
-  legitimate CPU form is the headless/no-GPU fallback.
-- Process and Godot rules are canonical in `CLAUDE.md` and `GODOT_BEST_PRACTICES.md`;
-  `ARCHITECTURE_PLAN.md` tracks breaking changes. The emergent-design north star and worked
-  examples live in `addons/local_agents/sim/EMERGENCE.md`.
+The interesting engineering problem is speed. A language model takes a moment to think, and a game
+draws sixty frames a second — so the model can't be asked about everything. Characters run on cheap
+instinctive rules almost all the time, and the model is called only for genuinely novel situations,
+on a background thread, within a strict budget. The simulation itself runs on the graphics card.
 
 ---
 
-*This project started as MindGame, a hand-rolled C# Godot plugin that integrates local LLMs and had one of the first in-engine coding agents.*
+The rest of this page is for developers.
+
+## Using it in code
+
+Add a `LocalAgent` node to a scene, then:
+
+```gdscript
+@onready var agent: LocalAgent = $LocalAgent
+
+func _ready() -> void:
+    agent.think_completed.connect(_on_reply)
+    agent.think_async("Say hello in one short sentence.")
+
+func _on_reply(result: Dictionary) -> void:
+    if result.get("ok", false):
+        print(result["text"])
+    else:
+        push_warning(result.get("error", "agent unavailable"))
+```
+
+`think_async()` runs the model on a worker thread and delivers the result on the main thread, so the
+game keeps rendering while it generates. There is a blocking `think()` as well, but it stalls the
+frame for as long as generation takes — use it in tools and tests, not in gameplay.
+
+For speech, call `say(text)` and `listen()`. To let the model drive behaviour instead of producing
+text, connect its `action_requested(action, params)` signal and decide in your own code what each
+action means.
+
+## Getting set up
+
+Two things aren't in the repository, and you need both.
+
+**1. The native extension.** It's compiled C++, so `bin/` is a build artifact. Either download a
+prebuilt one — the [Build Extension](.github/workflows/build-extension.yml) workflow publishes an
+artifact named `localagents-<platform>-bin` for Linux, Windows and macOS; unzip it into
+`addons/local_agents/gdextensions/localagents/bin/` — or build it:
+
+```bash
+cd addons/local_agents/gdextensions/localagents
+./scripts/fetch_dependencies.sh                  # godot-cpp, llama.cpp, whisper.cpp, sqlite
+./scripts/build_extension.sh --platform macos    # or: linux | windows
+```
+
+**2. A model.** Any GGUF file works; the default is `Qwen3-4B-Instruct-2507-Q4_K_M.gguf`. The easiest
+route is from inside the editor: enable the Local Agents plugin, open the Local Agents panel at the
+bottom of the window, and use the Downloads tab.
+
+If either is missing, the plugin says which one and what to do about it rather than failing quietly.
+
+## Examples
+
+Open `addons/local_agents/examples/DemoLauncher.tscn` and press play — it lists every example with an
+Open button. They build on each other, so it's worth going in order.
+
+![The quickstart scene answering a prompt](addons/local_agents/docs/img/quickstart.png)
+
+| | Scene | What it covers |
+| --- | --- | --- |
+| 1 | `AgentQuickstart.tscn` | One agent, a prompt box, a reply. The smallest thing that works. |
+| 2 | `AgentActionsDemo.tscn` | The model's reply becomes game actions instead of text. Buttons fire the same actions, so it works with no model installed. |
+| 3 | `AgentConversationDemo.tscn` | Two agents take turns; each line is stored in a shared memory graph. |
+| 4 | `ChatExample.tscn` | A full chat interface with model settings, sampling settings and saved conversations. |
+| 5 | `Agent3DExample.tscn` | A talking agent in a 3D scene. |
+| 6 | `GraphExample.tscn` | The memory graph resource on its own. Runs without a model. |
+
+All of them live in `addons/local_agents/examples/`.
+
+The planet is `addons/local_agents/game/VoxelWorld.tscn`. It can run itself for testing:
+
+```bash
+# run 300 frames, print one SIM_REPORT={...} telemetry line, quit
+scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -- --run-frames=300
+
+# take a screenshot
+godot addons/local_agents/game/VoxelWorld.tscn -- --shoot=/tmp/shot.png --overview
+```
+
+If you want the agent library without the game, delete `addons/local_agents/game/` —
+[docs/USAGE.md](docs/USAGE.md) covers what's reusable and what isn't.
+
+## Tests
+
+```bash
+scripts/agent_harness.sh fast        # quick sweep
+scripts/agent_harness.sh all         # everything
+scripts/agent_harness.sh extension   # check the GDExtension loads
+scripts/agent_harness.sh lint        # typing and process gates
+```
+
+A useful gotcha: a new `class_name` or `.gdextension` only registers after an editor scan. If Godot
+reports a class as missing, run `godot --headless --editor --quit-after 400` once.
+
+## Learning more
+
+- [docs/USAGE.md](docs/USAGE.md) — using the library in your own project, the adapter contracts, and
+  adding a new species with a JSON file.
+- [addons/local_agents/sim/EMERGENCE.md](addons/local_agents/sim/EMERGENCE.md) — the design rule
+  behind the simulation: behaviour comes from simple local rules interacting, never from scripted
+  special cases.
+- `CLAUDE.md` and `GODOT_BEST_PRACTICES.md` — contributor process and Godot conventions.
+
+---
+
+*This project started as MindGame, a hand-rolled C# Godot plugin for local language models, which had
+one of the first in-engine coding agents.*
