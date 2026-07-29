@@ -135,16 +135,17 @@ const CO2_AMBIENT_TRACE: float = 0.05
 #              so moving the record there does not starve it of carbon)
 #   rooting-column water  mean 0.702, p10 2.6e-7, p50 0.805, p90 1.275, max 1.904;
 #              13.4% of land is bone dry (<0.01) and 39.0% is dry (<0.5)
-# PHOTO_RATE was first set to 0.04, which reproduces the OLD per-cell extent (old x ≈ 0.4·co2 ≈ 0.012/step at
-# co2 ≈ 0.030; new x at the mean lit ground cell = 0.04 · 0.554 · 0.55 ≈ 0.012/step). Measured, that gave
-# biomass_total 689 against a 3271–4306 baseline — an 82% drop, because matching the per-cell rate does NOT
-# match the total when the reaction stops running on ~6000 cells it never belonged on (the whole sky skin and
-# the whole static ocean surface). Equilibrium biomass is fixation/RESP_RATE, i.e. linear in the rate, so 3x
-# restores the planet-wide total to the baseline band while the reaction stays on the ~2170 cells that are
-# actually ground. At 0.12 the light-limited extent at a bright warm cell (0.118) now EXCEEDS the local CO₂
-# (0.071 measured at the ground), so CO₂ becomes the binding reactant exactly where production is highest —
-# which is the correct Liebig behaviour and self-limiting, not a runaway.
-const PHOTO_RATE: float = 0.12           # per-step k on x = PHOTO_RATE * light * band(temp)
+# PHOTO_RATE — MEASURED, and the measurement overturned the obvious guess. 0.04 reproduces the OLD per-cell
+# extent (old x ≈ 0.4·co2 ≈ 0.012/step at co2 ≈ 0.030; new x at the mean lit ground cell = 0.04·0.554·0.55 ≈
+# 0.012/step) and gave biomass_total 689. Reasoning that equilibrium biomass = fixation/RESP_RATE is linear in
+# the rate, 0.12 was tried to lift the total back toward the 3271–4306 baseline. It did the OPPOSITE:
+# biomass_total 320, and ground CO₂ fell from 0.0710 to 0.0313 with a p10 of 0.0015. Tripling the rate does not
+# triple fixation, because on the GROUND the binding constraint is not the rate, it is how fast CO₂ gets down
+# here from the sky trace. A rate that outruns delivery just strips the local carbon to zero every step, which
+# also starves the cells that would otherwise have fixed slowly, so net production FALLS. Back near 0.05, where
+# CO₂ sits comfortably above the extent and Liebig binds only at the brightest cells — which is the regime the
+# whole record is supposed to be in.
+const PHOTO_RATE: float = 0.05           # per-step k on x = PHOTO_RATE * light * band(temp)
 const PHOTO_O2_YIELD: float = 1.0        # O₂ released per unit CO₂ fixed (stoichiometric ~1:1)
 const PHOTO_BIOMASS_YIELD: float = 1.0   # biomass grown per unit CO₂ fixed
 # TEMPERATURE OPTIMUM (the OPTIMUM_BAND parameters). Photosynthesis stops frozen and stops cooked; between
@@ -165,16 +166,33 @@ const PHOTO_T_WIDTH: float = 24.0        # °C from the optimum to where it stop
 #
 # HOW WATER ACTUALLY LIMITS HERE, which is not what a first reading of "Liebig reactant" suggests. The reactant
 # cap is a CLIP (`x ≤ stock/cost`), not a graded response, so it only bites once the local stock is nearly gone.
-# With a rooting column ~80x the per-step demand, that never happens in one step — it happens by DRAWDOWN. So
-# the mechanism is: transpiration pulls on every lit cell, lateral Darcy flow only refills the cells water
-# CONVERGES into, and the ones with no convergence progressively empty until the clip binds and their growth
-# falls to whatever recharge they get. Deserts are cells that lose the drawdown race. That means this constant
-# is really setting a TIMESCALE, and it has to sit near the existing groundwater throughput to matter at all:
-# at 0.12, with the 3x PHOTO_RATE above, the draw is ~2170 · 0.02 · 0.12 ≈ 5.2 units/step, about 0.9x the
-# measured natural drainage — a co-equal sink, so the table finds a new lower equilibrium over a run instead of
-# either being ignored (0.2 with the old rate gave a measured wet/dry biomass ratio of 1.018, i.e. nothing) or
-# being mined out (a cost of 0.6 would draw ~26/step against a 1300-unit stock and strip the land in ~50 steps).
-const PHOTO_WATER_COST: float = 0.12     # soil water transpired per unit CO₂ fixed (debit SOIL_ROOT, credit MOISTURE)
+# It therefore does two distinct things at two timescales: IMMEDIATELY it zeroes the cells whose rooting column
+# is already empty (the measured 13.4% of land at <0.01, and 2.6e-7 at the 10th percentile — these are deserts
+# from the first step), and SLOWLY it expands that set, because transpiration pulls on every lit cell while
+# lateral Darcy flow only refills the cells water CONVERGES into. Ground that gets no convergence loses the
+# drawdown race and joins the desert. This constant sets the speed of the second process.
+#
+# SIZE IT AGAINST THE REALISED EXTENT, NOT THE LIGHT-LIMITED ONE. The realised extent is ~0.003/step, six times
+# smaller than the light-limited ~0.02, because CO₂ and the night side hold it down — so a first sizing off the
+# light-limited rate over-costs the water by 6x. Same trap the FERT_UPTAKE_COST note below records: a per-step
+# sink competes against a RATE, and it has to be the rate that actually happens.
+#
+# MEASURED at 0.2, 0.45 and 0.0 (same seed, same everything else). 0.2 wins outright, and it wins for a reason
+# worth writing down: raising the cost does not deepen the water limitation, it SHALLOWS it. At 0.45 growth on
+# marginal ground is throttled, so those plants transpire less, so the table draws down LESS and fewer cells
+# ever cross into limitation — biomass_total 318, lit wet/dry contrast 16.3x, dry land 41.0%. At 0.2 plants on
+# marginal ground still grow, transpire more in total, and pull the table down further — biomass_total 781, lit
+# wet/dry contrast 51.8x, dry land 43.3%. The sink is self-limiting, so the cheaper cost yields both more
+# vegetation and more desert. That is not what the sizing argument above predicts; the runs said otherwise, and
+# the runs win.
+#
+# THE TRANSFER DOES NOT LEAK, and the control that proves it is this constant set to 0.0 — transfer disabled,
+# everything else identical, same seed. h2o_total 9556.61 (off) vs 9648.66 (on) = +0.96%, well inside the ±5%
+# run-to-run spread the baseline shows on its own. And the mass is accounted for on both sides:
+# soil_total 3942.75 -> 3590.86 (-351.9), moisture_total 4972.69 -> 5382.61 (+409.9). The same control also
+# isolates the water leg's ONLY behavioural effect: lit wet/dry biomass contrast 0.94 with it off (flat — dry
+# and wet ground carry the same biomass) against 51.8 with it on.
+const PHOTO_WATER_COST: float = 0.2      # soil water transpired per unit CO₂ fixed (debit SOIL_ROOT, credit MOISTURE)
 # NUTRIENT UPTAKE (closes the "fertility actually feeds plants" gap — bio-0.4-shipped left this open): FERT is
 # now a second reactant on R19, so growth is co-limited by CO₂ AND soil fertility (Liebig's-law-of-the-minimum,
 # same reactant-cap machinery that already caps CO2 — no new rate model needed).

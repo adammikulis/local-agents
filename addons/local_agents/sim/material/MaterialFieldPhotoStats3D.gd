@@ -98,6 +98,10 @@ func report() -> Dictionary:
 	var bio_dry: float = 0.0
 	var bio_lit: float = 0.0
 	var bio_dark: float = 0.0
+	var bio_lit_dry: float = 0.0
+	var bio_lit_wet: float = 0.0
+	var lit_dry_n: int = 0
+	var lit_wet_n: int = 0
 
 	for c in cc:
 		if solid[c] != 0 or stat[c] != 0:
@@ -134,6 +138,16 @@ func report() -> Dictionary:
 		if light > LIT_MIN:
 			lit_n += 1
 			bio_lit += biomass[c]
+			# WETNESS, ISOLATED FROM LIGHT. Wet ground and lit ground are correlated on a planet (the wettest
+			# land is often the cold pole), so a raw wet/dry split confounds the two drivers. Restricting the
+			# comparison to cells that are already LIT removes light as the limiter, leaving water as the only
+			# thing that differs — this is the pair that actually tests the claim.
+			if col < DRY_EPS:
+				lit_dry_n += 1
+				bio_lit_dry += biomass[c]
+			elif col >= WET_SPLIT:
+				lit_wet_n += 1
+				bio_lit_wet += biomass[c]
 		else:
 			dark_n += 1
 			bio_dark += biomass[c]
@@ -166,10 +180,13 @@ func report() -> Dictionary:
 	out["root_col_p50"] = _pct(col_sorted, 0.50)
 	out["root_col_p90"] = _pct(col_sorted, 0.90)
 	out["root_col_max"] = col_sorted[col_sorted.size() - 1]
-	# THE WETNESS GRADIENT, measured the way the claim should be tested: sort the land ground cells by their
-	# rooting-column water, cut into quartiles, and report mean biomass in each. A single wet/dry ratio hides
-	# the shape; four monotone-rising numbers are the actual evidence that growth tracks water, and four flat
-	# ones are the actual evidence that it does not.
+	# Wetness quartiles: sort the land ground cells by rooting-column water and report mean biomass in each.
+	# READ THESE WITH CARE — they are CONFOUNDED and should not be used as the wetness result on their own.
+	# On a planet the wettest ground is disproportionately the cold dark pole (that is where water converges and
+	# stays), so a raw water-quartile split also sorts by light and temperature, and the quartile means come out
+	# NON-MONOTONE even when water is limiting hard (measured: 0.338 / 0.441 / 0.467 / 0.199 while the
+	# light-isolated contrast over the same cells was 51.8x). `biomass_lit_wet_dry_ratio` below is the valid
+	# statistic; these four are kept because seeing the confound is more useful than not having the shape.
 	var q1: float = _pct(col_sorted, 0.25)
 	var q2: float = _pct(col_sorted, 0.50)
 	var q3: float = _pct(col_sorted, 0.75)
@@ -222,6 +239,12 @@ func report() -> Dictionary:
 	out["biomass_wet_dry_ratio"] = (float(out["biomass_wet_mean"]) / dm) if dm > 1.0e-9 else 0.0
 	var km: float = float(out["biomass_dark_mean"])
 	out["biomass_lit_dark_ratio"] = (float(out["biomass_lit_mean"]) / km) if km > 1.0e-9 else 0.0
+	out["lit_dry_cells"] = lit_dry_n
+	out["lit_wet_cells"] = lit_wet_n
+	out["biomass_lit_dry_mean"] = (bio_lit_dry / float(lit_dry_n)) if lit_dry_n > 0 else 0.0
+	out["biomass_lit_wet_mean"] = (bio_lit_wet / float(lit_wet_n)) if lit_wet_n > 0 else 0.0
+	var ldm: float = float(out["biomass_lit_dry_mean"])
+	out["biomass_lit_wet_dry_ratio"] = (float(out["biomass_lit_wet_mean"]) / ldm) if ldm > 1.0e-9 else 0.0
 	return out
 
 
@@ -239,6 +262,8 @@ func _blank() -> Dictionary:
 		"biomass_lit_mean": 0.0, "biomass_dark_mean": 0.0, "biomass_lit_dark_ratio": 0.0,
 		"biomass_wq1": 0.0, "biomass_wq2": 0.0, "biomass_wq3": 0.0, "biomass_wq4": 0.0,
 		"biomass_wq4_wq1_ratio": 0.0, "biomass_bone_mean": 0.0,
+		"biomass_lit_dry_mean": 0.0, "biomass_lit_wet_mean": 0.0, "biomass_lit_wet_dry_ratio": 0.0,
+		"lit_dry_cells": 0, "lit_wet_cells": 0,
 	}
 
 
