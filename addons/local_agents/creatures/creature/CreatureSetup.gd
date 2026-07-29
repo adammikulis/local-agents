@@ -117,6 +117,10 @@ static func apply(c, terrain_arg, config_arg: Dictionary, genome_arg) -> void:
 	c.eye_fov = float(config.get("eye_fov", c.eye_fov))
 	c.hearing_range = float(config.get("hearing_range", c.sense_radius * 1.5))
 	c.family_id = int(config.get("family_id", c.get_instance_id()))
+	# AFFILIATION starts as a band of ONE and is not configurable: which animals run together is something
+	# the world works out from who keeps company with whom (LACreatureAffiliation), not something a spawn
+	# decides. Stamping a band here would only rename the family id this line sets one above.
+	LACreatureAffiliation.setup(c)
 	# Nesting is general and config-driven: ANY species that actually nests/shelters sets nests:true
 	# (birds roost in trees, mammals/snakes burrow or den) — no per-species branch here.
 	c.nests = bool(config.get("nests", c.nests))
