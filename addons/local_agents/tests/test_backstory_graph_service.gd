@@ -213,6 +213,12 @@ func run_test(tree: SceneTree) -> bool:
     var ritual_history: Dictionary = service.get_ritual_history_for_site("site_spring", 16, 8)
     ok = ok and _assert(ritual_history.get("ritual_events", []).size() >= 1, "Ritual history missing recorded event")
 
+    # A LATE set_database_path must actually redirect the store. It used to be dropped with a warning once
+    # _ready() had opened the graph, so a caller one line too late kept writing to the shared default
+    # database while every call still returned ok — test_agent_backstory.gd did exactly that and wiped the
+    # player's real backstory space on every run while reporting PASS. Assert on WHERE THE ROWS LANDED.
+    ok = ok and _assert(_check_late_database_switch(tree), "a late set_database_path did not redirect the store")
+
     service.clear_backstory_space()
     service.queue_free()
     if FileAccess.file_exists(absolute_test_db):
@@ -225,6 +231,50 @@ func run_test(tree: SceneTree) -> bool:
         else:
             print("BackstoryGraphService tests passed (graph ops and embeddings)")
     return ok
+
+## Write one NPC, switch the database AFTER the graph is already open, write a second NPC, then reopen each
+## file on a fresh service and check each NPC landed in exactly one of them. Checking only that the second
+## write returned ok would pass even if the switch were ignored entirely — which is the bug this covers.
+func _check_late_database_switch(tree: SceneTree) -> bool:
+    var stamp: int = int(Time.get_unix_time_from_system())
+    var path_a: String = "user://local_agents/network_switch_a_%d.sqlite3" % stamp
+    var path_b: String = "user://local_agents/network_switch_b_%d.sqlite3" % stamp
+
+    var svc: Node = BackstoryGraphService.new()
+    svc.set_database_path(path_a)
+    tree.get_root().add_child(svc)
+    svc.upsert_npc("npc_before_switch", "Before")
+    svc.set_database_path(path_b)          # LATE: the graph is already open on path_a
+    svc.upsert_npc("npc_after_switch", "After")
+    svc.queue_free()
+
+    var ok: bool = true
+    ok = _assert(_npc_exists(tree, path_a, "npc_before_switch"),
+        "the pre-switch NPC is missing from the first database") and ok
+    ok = _assert(not _npc_exists(tree, path_a, "npc_after_switch"),
+        "the post-switch NPC leaked into the first database (the switch was ignored)") and ok
+    ok = _assert(_npc_exists(tree, path_b, "npc_after_switch"),
+        "the post-switch NPC never reached the second database") and ok
+    ok = _assert(not _npc_exists(tree, path_b, "npc_before_switch"),
+        "the pre-switch NPC leaked into the second database") and ok
+
+    for path in [path_a, path_b]:
+        var absolute: String = ProjectSettings.globalize_path(path)
+        if FileAccess.file_exists(absolute):
+            DirAccess.remove_absolute(absolute)
+    return ok
+
+
+## Existence probe against a specific database file: get_backstory_context reports ok=false with a
+## missing_npc error when the NPC is not in the store it is currently pointed at.
+func _npc_exists(tree: SceneTree, db_path: String, npc_id: String) -> bool:
+    var probe: Node = BackstoryGraphService.new()
+    probe.set_database_path(db_path)
+    tree.get_root().add_child(probe)
+    var context: Dictionary = probe.get_backstory_context(npc_id, -1, 4)
+    probe.queue_free()
+    return bool(context.get("ok", false))
+
 
 func _assert(condition: bool, message: String) -> bool:
     if not condition:

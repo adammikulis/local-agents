@@ -516,9 +516,12 @@ run_one "$name" "$frames" || rc=$?
   - `graph/Backstory*`'s `upsert_faction` and `update_quest_state` were dismissed twice as "RPG
     furniture, a poor fit for a creature sim". Reading the signatures: a faction is a named persistent
     group with dated membership and inter-group relationships, which is strictly what
-    `Creature.gd:250`'s `var family_id: int = get_instance_id()` is a degenerate version of, and a
-    quest is a named persistent goal with state across days, which the per-tick cognition stack has no
-    representation of at all.
+    `Creature.gd:250`'s `family_id` is a degenerate version of, and a quest is a named persistent goal
+    with state across days, which the per-tick cognition stack has no representation of at all.
+    *(Citation corrected 2026-07-29: this quoted the declaration as `var family_id: int =
+    get_instance_id()`. It is `var family_id: int = 0`; the instance-id default is applied in the setup
+    path at `CreatureSetup.gd:119`. The point stands, but an entry in the very list warning against
+    reasoning from a name instead of the source should quote the source correctly.)*
 - Root cause: a name is a compression written by someone for a different audience, sometimes years ago
   and sometimes for a different domain. It is evidence about intent, not about behaviour. Reasoning
   from it feels like reading the code and is not.
