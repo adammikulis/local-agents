@@ -24,10 +24,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential cmake curl libcurl4-openssl-dev git pkg-config unzip ripgrep
 
-      - name: Lint and structural gates
-        run: |
-          ./scripts/agent_harness.sh lint
-
       - name: Install Godot headless binary
         run: |
           curl -fsSL -o /tmp/godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
@@ -35,6 +31,16 @@ jobs:
           chmod +x "/tmp/Godot_v${GODOT_VERSION}_linux.x86_64"
           sudo mv "/tmp/Godot_v${GODOT_VERSION}_linux.x86_64" /usr/local/bin/godot4
           godot4 --version
+
+      # MUST come after the Godot install: check_library_only.sh stages a consumer project and runs an
+      # editor scan over it, so it needs a binary. It does NOT need the extension build — it deliberately
+      # stages without a native binary — so this sits before the ~13-minute build and fails in seconds.
+      # GODOT is set because the runner installs the binary as `godot4`, while the scripts default to `godot`.
+      - name: Lint and structural gates
+        env:
+          GODOT: godot4
+        run: |
+          ./scripts/agent_harness.sh lint
 
       - name: Build localagents extension
         run: |
