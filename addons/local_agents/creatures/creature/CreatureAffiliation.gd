@@ -26,8 +26,8 @@ extends RefCounted
 ##   1. FORGET   every remembered bond fades at a fixed rate, whoever it is with.
 ##   2. COMPANY  the nearest few same-species animals actually beside me right now gain bond.
 ##   3. LEAVE    if nobody left in my band is still company, I am back to a band of one.
-##   4. JOIN     otherwise, if my strongest companion outside my band has outgrown both the join
-##               threshold and whatever still holds me here, I adopt their band.
+##   4. JOIN     otherwise, if my strongest companion outside my band has passed the join threshold and
+##               their band is older than mine, I adopt it.
 ##
 ## Splinter groups, adoption, exile and a driven-out animal finding a new pack are all that rule running;
 ## none of them is written anywhere. A sub-group that drifts away keeps its mutual bonds and loses the
@@ -38,6 +38,13 @@ extends RefCounted
 ## label propagation converge instead of two animals swapping labels forever, and it means a newcomer joins
 ## the established band rather than renaming it. Every creature mints one permanent solo label at setup and
 ## returns to exactly that label on step 3, so leaving a band cannot mint labels without bound.
+##
+## Step 4 deliberately does NOT also require the outside bond to beat the strongest bond inside my own band.
+## That reads like the right test — "the pull out must exceed the pull in" — and it is the right test for a
+## DEFECTION, but adopting an older label is a MERGE, not a defection: nobody leaves anyone. Requiring it
+## stalls every merge at the first animal whose closest companion is already a band-mate, which is almost all
+## of them. Measured on a 250-animal, 15-cluster bench: 106 distinct bands with the clause, 21 without, at
+## the same cost (18.8 vs 17.7 us per creature-tick, inside the noise).
 ##
 ## COMPLEXITY. Per creature, once per ASSOC_PERIOD (not per frame): one bounded query against the spatial
 ## hash LACreatureSenses already rebuilds at most once per group per frame, a linear pass over its
@@ -76,11 +83,24 @@ static func mint_label() -> int:
 
 ## Give `c` its starting affiliation state: a band of one, and a staggered first sample so the population
 ## does not run its association tick on the same frame. Called from LACreatureSetup.
+##
+## The stagger comes from the band label, NOT from LASimRng, and that is deliberate on both counts. Drawing
+## here would consume one number from the seeded stream per creature and shift every later draw — vegetation
+## scatter, sex, lifespan jitter — so two runs of the same seed would no longer be the same world and no A/B
+## against a pre-affiliation build could be read. Measured: an RNG-seeded stagger moved a --seed=4242 sandbox
+## from 1483 actors to 1580 and its draw calls from 1673 to 2093, which swamps anything being compared.
+##
+## And the label rather than the instance id, because the label is a plain counter and so is uniform mod
+## STAGGER_SLOTS by construction. Instance ids advance by however many objects a creature's construction
+## happens to allocate, which can be a constant stride — and a stride sharing a factor with the slot count
+## collapses the whole population onto a couple of phases, which is a thundering herd, not a stagger.
+const STAGGER_SLOTS: int = 16
+
 static func setup(c) -> void:
 	c._band_solo = mint_label()
 	c.band_id = c._band_solo
 	c._assoc = {}
-	c._assoc_cd = LASimRng.shared().randf_range(0.0, ASSOC_PERIOD)
+	c._assoc_cd = ASSOC_PERIOD * float(c._band_solo % STAGGER_SLOTS) / float(STAGGER_SLOTS)
 
 
 ## The whole rule, run on the coarse cadence. Called once per physics tick from the creature; returns
@@ -186,9 +206,10 @@ static func _decide(c, assoc: Dictionary) -> void:
 	if my_band != c._band_solo and own_bond < KEEP_BOND:
 		_set_band(c, int(c._band_solo))
 		return
-	# JOIN: my strongest companion outside my band has outgrown the threshold AND whatever still holds me
-	# here, and their band is older than mine. Older-wins is what makes this converge (see the header).
-	if best_bond >= JOIN_BOND and best_bond > own_bond and best_band > 0 and best_band < my_band:
+	# JOIN: my strongest companion outside my band has passed the threshold and their band is older than
+	# mine. Older-wins is what makes this converge; see the header for why there is no also-beats-my-own-band
+	# test here, which stalls merges rather than preventing churn.
+	if best_bond >= JOIN_BOND and best_band > 0 and best_band < my_band:
 		_set_band(c, best_band)
 
 

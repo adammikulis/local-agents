@@ -657,8 +657,13 @@ func _physics_process(delta: float) -> void:
 	# leaderless creature (dead/departed leader) re-elects this frame.
 	# EMERGENT AFFILIATION: keep company with whoever is beside me, and let my band follow from that
 	# (LACreatureAffiliation). Runs on its own coarse cadence, not per frame, and settles `band_id` BEFORE
-	# the election and the flocking below read it.
+	# the election and the flocking below read it. Given its own profiler bucket rather than folded into
+	# cr_glue, because "one bounded query per creature per half second" is a claim, and a claim about cost
+	# on this hot path should be readable off a run instead of argued.
+	var _at: int = Time.get_ticks_usec() if prof else 0
 	LACreatureAffiliation.tick(self, pos, delta)
+	if prof:
+		LACreatureProfile.add("cr_affil", _at)
 	LACreatureLeadership.maybe_elect(self, pos)
 
 	# DECISION THROTTLE (LOD): run the full cognition cascade only every `stride` frames, where the
