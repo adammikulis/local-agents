@@ -2,6 +2,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib_require.sh
+source "$SCRIPT_DIR/lib_require.sh"
+require_tool rg   # without this the file list comes back empty and the gate passes on zero files
 # Two thresholds: a SOFT smell limit that warns (split before you cross it) and a HARD limit that FAILS
 # the build. A first-party source/config file over the hard limit must be split into focused modules.
 SOFT_FILE_LINES="${SOFT_FILE_LINES:-1300}"

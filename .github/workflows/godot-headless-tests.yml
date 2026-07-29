@@ -4,8 +4,10 @@ on:
   push:
   pull_request:
 
+# Godot version MUST match project.godot's config/features. The project declares 4.7; CI ran 4.6-stable
+# until 2026-07-29, so every green here was a green on a different engine than anyone develops against.
 env:
-  GODOT_VERSION: 4.6-stable
+  GODOT_VERSION: 4.7-stable
 
 jobs:
   core-headless:
@@ -20,13 +22,11 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake curl libcurl4-openssl-dev git pkg-config unzip
+          sudo apt-get install -y build-essential cmake curl libcurl4-openssl-dev git pkg-config unzip ripgrep
 
-      - name: Enforce file size limits (800 soft warn, 1000 hard gate)
-        env:
-          MAX_FILE_LINES: "1000"
+      - name: Lint and structural gates
         run: |
-          ./scripts/check_max_file_length.sh
+          ./scripts/agent_harness.sh lint
 
       - name: Install Godot headless binary
         run: |
@@ -43,12 +43,38 @@ jobs:
           ./scripts/fetch_dependencies.sh --skip-models --skip-voices
           ./scripts/build_extension.sh 2>&1 | tee "${GITHUB_WORKSPACE}/logs/core-headless-build.log"
 
-      - name: Enforce no fallback paths in simulation LLM services
+      - name: Register class_names (editor scan builds the global class cache)
         run: |
-          if grep -nE "_fallback_|synthetic[[:space:]]*:[[:space:]]*true" addons/local_agents/simulation/NarratorDirector.gd addons/local_agents/simulation/VillagerDreamService.gd addons/local_agents/simulation/VillagerMindService.gd 2>/dev/null; then
+          # Without this, headless runs cannot resolve `class_name` types, the autoloads fail to parse
+          # ("does not inherit from 'Node'"), and the suite still reports "All selected tests passed" — a
+          # green over a half-broken project. runtime-heavy always did this step; this job did not, which is
+          # why its logs carried those errors. Best-effort; ignore its exit.
+          godot4 --headless --editor --path . --quit-after 600 >/dev/null 2>&1 || true
+
+      - name: Enforce no fallback paths in required local LLM services
+        run: |
+          # These must reach a real local model or fail loudly; a synthetic or fallback generation path in
+          # them turns a hard failure into a soft pass.
+          # (Retargeted 2026-07-29: this named addons/local_agents/simulation/{NarratorDirector,
+          # VillagerDreamService,VillagerMindService}.gd. That directory became sim/ and those three files no
+          # longer exist, so grep returned non-zero every run and the gate could never fire. It now fails if
+          # a target goes missing, rather than passing vacuously.)
+          targets=(
+            addons/local_agents/agents/LlmService.gd
+            addons/local_agents/creatures/cognition/CognitionScheduler.gd
+            addons/local_agents/sim/streamer/StreamerDirector.gd
+          )
+          for f in "${targets[@]}"; do
+            if [[ ! -f "$f" ]]; then
+              echo "Gate target missing: $f — a gate cannot check what is not there. Update this list."
+              exit 1
+            fi
+          done
+          if grep -nE "_fallback_|synthetic[[:space:]]*:[[:space:]]*true" "${targets[@]}"; then
             echo "Fallback/synthetic generation paths are disallowed for required local LLM services."
             exit 1
           fi
+          echo "No fallback/synthetic generation paths in the required LLM services."
 
       - name: Run deterministic headless harness
         run: |
@@ -62,6 +88,16 @@ jobs:
           godot4 --headless --no-window --path . -s addons/local_agents/tests/run_integration_tests.gd \
             2>&1 | tee logs/integration-tests.log
 
+      - name: Enforce core log health
+        run: |
+          # A suite reporting "All selected tests passed" while autoloads fail to parse is not a pass.
+          if grep -nE "Failed to instantiate an autoload|does not inherit from 'Node'" \
+               logs/deterministic-tests.log logs/integration-tests.log; then
+            echo "Autoload failures in a run that otherwise reported success."
+            exit 1
+          fi
+          echo "Core logs are clean."
+
       - name: Upload core artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -73,47 +109,6 @@ jobs:
             addons/local_agents/gdextensions/localagents/build/CMakeFiles/CMakeOutput.log
             addons/local_agents/gdextensions/localagents/build/CMakeFiles/CMakeError.log
             ~/.local/share/godot/app_userdata/LocalAgents/**
-
-  perf-benchmarks:
-    name: perf-benchmarks
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake curl libcurl4-openssl-dev git pkg-config unzip
-
-      - name: Enforce file size limits (800 soft warn, 1000 hard gate)
-        env:
-          MAX_FILE_LINES: "1000"
-        run: |
-          ./scripts/check_max_file_length.sh
-
-      - name: Install Godot headless binary
-        run: |
-          curl -fsSL -o /tmp/godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
-          unzip -q /tmp/godot.zip -d /tmp
-          chmod +x "/tmp/Godot_v${GODOT_VERSION}_linux.x86_64"
-          sudo mv "/tmp/Godot_v${GODOT_VERSION}_linux.x86_64" /usr/local/bin/godot4
-          godot4 --version
-
-      - name: Build localagents extension
-        run: |
-          mkdir -p logs
-          cd addons/local_agents/gdextensions/localagents
-          ./scripts/fetch_dependencies.sh --skip-models --skip-voices
-          ./scripts/build_extension.sh 2>&1 | tee "${GITHUB_WORKSPACE}/logs/perf-build.log"
-
-      - name: Run perf benchmark harness
-        run: |
-          mkdir -p logs
-          godot4 --headless --no-window --path . -s addons/local_agents/tests/run_perf_benchmarks.gd \
-            2>&1 | tee logs/perf-benchmarks.log
 
   runtime-heavy:
     name: runtime-heavy
@@ -127,13 +122,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake curl libcurl4-openssl-dev git pkg-config unzip
-
-      - name: Enforce file size limits (800 soft warn, 1000 hard gate)
-        env:
-          MAX_FILE_LINES: "1000"
-        run: |
-          ./scripts/check_max_file_length.sh
+          sudo apt-get install -y build-essential cmake curl libcurl4-openssl-dev git pkg-config unzip ripgrep
 
       - name: Install Godot headless binary
         run: |
@@ -175,18 +164,18 @@ jobs:
 
       - name: Enforce runtime log health
         run: |
+          # (Corrected 2026-07-29.) This step also required the log to contain "Cognition trace isolation
+          # test passed". That test was pruned in e14c79d ("prune old-sim/native tests; repoint harness +
+          # lanes to the LLM/agent stack"), so the string could never appear and this step failed on EVERY
+          # push from then until now — it was the only genuinely failing step in the workflow. Requiring a
+          # named test to report in is a good pattern, but it has to name a test that exists; re-add one when
+          # there is a specific run-only invariant worth pinning, and delete it in the same commit that
+          # deletes the test.
           if grep -nE "Simulation dependency error|empty_generation" logs/runtime-heavy-tests.log; then
             echo "Runtime-heavy log contains dependency/empty-generation errors."
             exit 1
           fi
-          if grep -nE "Skipping cognition trace isolation test" logs/runtime-heavy-tests.log; then
-            echo "Cognition trace isolation test was skipped."
-            exit 1
-          fi
-          if ! grep -nE "Cognition trace isolation test passed" logs/runtime-heavy-tests.log; then
-            echo "Cognition trace isolation test did not pass."
-            exit 1
-          fi
+          echo "Runtime-heavy log is clean."
 
       - name: Upload runtime-heavy artifacts on failure
         if: failure()
@@ -200,3 +189,17 @@ jobs:
             addons/local_agents/gdextensions/localagents/build/CMakeFiles/CMakeError.log
             ~/.cache/huggingface/hub/models--ggml-org--Qwen3-0.6B-GGUF/**
             ~/.local/share/godot/app_userdata/LocalAgents/**
+
+# REMOVED 2026-07-29: the `perf-benchmarks` job. It ran
+#   godot4 --headless -s addons/local_agents/tests/run_perf_benchmarks.gd
+# and that file does not exist in this repository. Godot exits 0 when handed a script it cannot find, so the
+# job spent ~21 minutes per push building the extension and then reported success for running nothing. The
+# real perf tooling (scripts/perf_bench.sh, --perf-frames, --bench) needs a GPU and a window, which a headless
+# ubuntu runner does not have, so there is nothing honest for this job to do. Perf is measured locally; see
+# HANDOFF.md. Do not re-add a job here without a script that exists and an assertion that can fail.
+#
+# The file-size step each job used to run separately is now covered by "Lint and structural gates", which runs
+# scripts/agent_harness.sh lint. That also brings the five gates CI never ran: the := typing ban, @tool write
+# safety, the demo catalogue, the public-surface check, and library-only parse. Its old step name claimed
+# "800 soft warn, 1000 hard gate" while setting MAX_FILE_LINES=1000 and leaving SOFT_FILE_LINES at its 1300
+# default, so it advertised three thresholds and used two.

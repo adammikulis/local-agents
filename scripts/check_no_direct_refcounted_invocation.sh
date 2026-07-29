@@ -2,6 +2,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib_require.sh
+source "$SCRIPT_DIR/lib_require.sh"
+require_tool rg   # the search below is `|| true`, so a missing rg would silently report "passed"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # RefCounted test modules under addons/local_agents/tests/test_*.gd must run
