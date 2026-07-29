@@ -12,7 +12,8 @@
 // move = BUOYANCY*(temp[i]-temp[iu])*0.5 is split symmetrically: cell i LOSES `move` to the cell above it
 // (when i is hotter), and GAINS the matching `move` from the cell below it (when below is hotter) — the two
 // halves are computed independently in each invocation but pair up exactly, so energy is conserved with no
-// sequential coupling. Constant copied EXACTLY from heat3d_buoyancy.glsl / MaterialHeat3D.gd.
+// sequential coupling. BUOYANCY originated in heat3d_buoyancy.glsl / MaterialHeat3D.gd; both are deleted, so
+// the value below is the only one left.
 //
 // Neighbour table `nbr[idx*6 + slot]`: slot 0 = inward/DOWN, 5 = outward/UP; -1 = boundary → no exchange.
 
@@ -30,7 +31,8 @@ layout(push_constant, std430) uniform Params {
 	uint pad2;
 } params;
 
-// Constant — MUST match heat3d_buoyancy.glsl / MaterialHeat3D.gd exactly.
+// Constant — authoritative here. (Corrected 2026-07-29: said "MUST match heat3d_buoyancy.glsl /
+// MaterialHeat3D.gd exactly"; both were deleted in the box->sphere migration.)
 const float BUOYANCY = 0.18;
 
 void main() {

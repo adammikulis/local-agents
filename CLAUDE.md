@@ -429,11 +429,20 @@ rediscover.
     mandates). Worked example: before dissolving the disaster actors, extract `EcologyService`'s broadcast
     seam and `Creature`'s field-force seam into their own modules so each disaster agent owns a new module
     and never re-touches the hub.
-- `scripts/check_max_file_length.sh` enforces TWO thresholds on first-party source/config files:
-  a **soft smell limit of `SOFT_FILE_LINES=1300` (WARNING)** and a **hard limit of `MAX_FILE_LINES=1500`
-  (FAILS — non-zero exit / CI gate)**. Over 1300 = split it soon; over 1500 = the build fails until it's
-  split. It also runs `check_no_direct_refcounted_invocation.sh` (a real gate banning
+- `scripts/check_max_file_length.sh` enforces TWO thresholds on first-party source/config **and MARKDOWN**
+  files: a **soft smell limit of `SOFT_FILE_LINES=1300` (WARNING)** and a **hard limit of
+  `MAX_FILE_LINES=1500` (FAILS — non-zero exit / CI gate)**. Over 1300 = split it soon; over 1500 = the
+  build fails until it's split. It also runs `check_no_direct_refcounted_invocation.sh` (a real gate banning
   `godot -s addons/local_agents/tests/test_*.gd` in automation).
+  - **`.md` is checked as of 2026-07-29, and so are `docs/` and the repo-root docs** (`HANDOFF.md`,
+    `CLAUDE.md`, `GODOT_BEST_PRACTICES.md`, `ARCHITECTURE_PLAN.md`, `README.md`), none of which any scan
+    root previously covered. Prose rots exactly like code: `API.md` reached 1480 lines unnoticed because
+    the glob listed source extensions only, and nobody reads to the bottom of a file that long, so the
+    claims down there go stale unchecked. **`HANDOFF.md` is subject to this too** — when it approaches
+    1300, split it (the per-session log is the part to move out; the roadmap and "Next" list stay).
+  - **The harness runs it ADVISORY (`agent_harness.sh lint` prints warnings and does not gate);
+    CI runs it as a HARD GATE** (three call sites in `.github/workflows/godot-headless-tests.yml`). So a
+    green local lint does not mean a green CI. Read the warnings.
 - **Do NOT add to a file that is already over the smell threshold.** If a change would grow an
   ≥1300-line file, first REFACTOR: extract the relevant responsibility into a NEW focused module (or add
   your new code as a new file), then make the edit there. Never push a file past the 1500-line hard limit

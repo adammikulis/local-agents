@@ -22,12 +22,21 @@ done
 # run separately (see scripts/check_policy_plan_markers.sh, invoked by the lint
 # harness as advisory-only).
 
+# MARKDOWN IS CHECKED TOO (added 2026-07-29). Docs rot the same way source does: API.md reached 1480 lines
+# and nothing warned, because this list globbed source extensions only. Prose over the soft limit is the same
+# problem as code over it — nobody reads to the bottom, and claims at the bottom go stale unnoticed.
+# `docs/` and the repo-root .md files (HANDOFF.md, CLAUDE.md, GODOT_BEST_PRACTICES.md, ARCHITECTURE_PLAN.md,
+# README.md) were never scanned by any root in this list, so they are added here explicitly. Third-party
+# markdown under gdextensions/ stays excluded by the filters below.
 FILES=()
 while IFS= read -r file; do
   FILES+=("$file")
 done < <(
-  rg --files addons/local_agents scripts .github/workflows \
-    -g '*.gd' -g '*.gdshader' -g '*.tscn' -g '*.tres' -g '*.yml' -g '*.yaml' \
+  {
+    rg --files addons/local_agents scripts .github/workflows docs \
+      -g '*.gd' -g '*.gdshader' -g '*.tscn' -g '*.tres' -g '*.yml' -g '*.yaml' -g '*.md'
+    rg --files --max-depth 1 . -g '*.md'
+  } \
   | rg -v '/gdextensions/localagents/(thirdparty|build|build_native)/' \
   | rg -v '/build_native/'
 )
