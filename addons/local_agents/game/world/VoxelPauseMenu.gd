@@ -182,9 +182,21 @@ func _on_speed_pressed(n: int) -> void:
 		b.button_pressed = (b.text == "%dx" % n)
 
 
-## Reusable fast-forward setter (also called by the CLI --fast path). Caps N to the SPEEDS range.
+## Reusable fast-forward setter. DELEGATES to LAVoxelTimeControl, which owns Engine.time_scale.
+##
+## This used to write Engine.time_scale itself, which made two owners of one global. LAVoxelTimeControl is
+## built after VoxelWorld parses the command line, and its _ready() -> _apply() writes the same global, so
+## whichever ran last won — always the time control, resetting the speed to 1.0×. That is why `--fast=N`
+## measurably did nothing. One writer now; this is a forwarder.
 func set_time_scale(n: int) -> void:
 	var mult: int = clampi(n, 1, SPEEDS[SPEEDS.size() - 1])
+	var ctrl: LAVoxelTimeControl = LAVoxelTimeControl.active()
+	if ctrl != null:
+		ctrl.set_multiplier(float(mult))
+		return
+	# No time control in this scene (a demo, or a harness mounting the menu alone): own it directly. A time
+	# control appearing later takes over, which is the behaviour that caused the bug and is why the CLI path
+	# now applies AFTER the control exists rather than relying on this branch.
 	Engine.time_scale = float(mult)
 	Engine.max_physics_steps_per_frame = maxi(8, mult)
 

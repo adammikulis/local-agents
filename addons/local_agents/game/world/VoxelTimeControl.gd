@@ -16,6 +16,10 @@ const PLAY_IDX: int = 2   # 1.0×
 
 signal speed_changed(paused: bool, speed: float)
 
+## THE one live time control, so anything wanting to change speed goes through the node that OWNS
+## Engine.time_scale instead of writing it directly and being silently overwritten (see set_multiplier).
+static var _active: LAVoxelTimeControl = null
+
 var _idx: int = PLAY_IDX
 var _paused: bool = false
 var _camera: Node = null           # optional — to yield Space to the fly-drone's lift control
@@ -32,7 +36,44 @@ func _init() -> void:
 
 
 func _ready() -> void:
+	_active = self
 	_build_hud()
+	_apply()
+
+
+func _exit_tree() -> void:
+	if _active == self:
+		_active = null
+
+
+## The live time control, or null before the world has built one.
+static func active() -> LAVoxelTimeControl:
+	return _active
+
+
+## Set the speed from a raw multiplier, snapped to the nearest supported SPEED. THIS is the entry point for
+## every non-key speed change (the `--fast=N` command line, the pause menu's speed row, the trailer director).
+##
+## Why it has to funnel here, measured 2026-07-29: `Engine.time_scale` had TWO owners. `--fast=N` was applied
+## during VoxelWorld's parse_cmdline() (VoxelWorld.gd:177) by writing Engine.time_scale through the pause
+## menu, and then this node was created ~114 lines later (:291) and its _ready() -> _apply() reset
+## Engine.time_scale to SPEEDS[PLAY_IDX], i.e. 1.0. So `--fast` silently did nothing: a probe under
+## `--fast=8` read back time_scale 1.000 with delta exactly 1/60. The one thing that appeared to work,
+## max_physics_steps_per_frame reading 8, was a coincidence — both paths compute 8 at their own multiplier.
+##
+## The cost of that was not just a dead flag. CLAUDE.md, HANDOFF.md and the run wrappers all tell agents to
+## use `--fast=N` to compress slow-emergent time for verification, so every measurement taken "at --fast=4"
+## was really taken at 1x over a shorter horizon than its author believed.
+func set_multiplier(mult: float) -> void:
+	var best: int = PLAY_IDX
+	var best_delta: float = INF
+	for i in range(SPEEDS.size()):
+		var d: float = absf(SPEEDS[i] - mult)
+		if d < best_delta:
+			best_delta = d
+			best = i
+	_idx = best
+	_paused = false
 	_apply()
 
 
