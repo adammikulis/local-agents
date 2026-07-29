@@ -44,8 +44,8 @@ var _band_count: int = 0               # distinct multi-member bands at the last
 var _written: int = 0                  # membership records written this run (telemetry)
 
 # Per-creature bookkeeping, all keyed by instance id.
-var _seen: Dictionary = {}             # cid -> the band integer last observed
-var _since: Dictionary = {}            # cid -> _now when that band was first observed
+var _seen: Dictionary = {}             # cid -> the membership last observed (band, or 0 for unaffiliated)
+var _since: Dictionary = {}            # cid -> _now when that membership was first observed
 var _recorded: Dictionary = {}         # cid -> the band currently written as OPEN in the store (0 = none)
 var _npc_ids: Dictionary = {}          # cid -> npc id, kept so a dead creature's record can still be closed
 var _pending: Dictionary = {}          # cid -> the band to write next (at most one queued change each)
@@ -115,8 +115,11 @@ func step(delta: float) -> void:
 	_accum += delta
 	if _accum < SCAN_PERIOD:
 		return
+	# Advance by what actually elapsed, not by one period: at a low frame rate (or under --fast) a single
+	# delta can exceed SCAN_PERIOD, and counting periods instead of seconds would silently measure the dwell
+	# in SCANS — making it frame-rate dependent, which is the mistake the inspector rules already log once.
+	_now += _accum
 	_accum = 0.0
-	_now += SCAN_PERIOD
 	_scan()
 	_drain(MAX_WRITES_PER_SCAN)
 
@@ -152,12 +155,16 @@ func _scan() -> void:
 		var cid: int = int(c.get_instance_id())
 		alive[cid] = true
 		var band: int = int(c.get("band_id"))
-		if int(_seen.get(cid, 0)) != band:
-			_seen[cid] = band
-			_since[cid] = _now
-			_npc_ids[cid] = _npc_id_for(c)
 		# A band of one is not a faction — an animal on its own is simply unaffiliated (0).
 		var target: int = band if int(counts.get(band, 0)) > 1 else 0
+		# Dwell is measured on the TARGET, not on the raw band. A band of two whose other member wanders off
+		# becomes a band of one without this creature's own integer changing at all, and that is exactly as
+		# much a settling artefact as a relabel is — timing it from the band alone would let one animal's
+		# churn write and rewrite its neighbour's record with no debounce at all.
+		if int(_seen.get(cid, -1)) != target:
+			_seen[cid] = target
+			_since[cid] = _now
+			_npc_ids[cid] = _npc_id_for(c)
 		if int(_recorded.get(cid, 0)) == target:
 			_pending.erase(cid)                       # it drifted back to what is already written
 			continue
