@@ -87,7 +87,7 @@ func _select_nearest_companion() -> void:
 	var n: int = select_by_predicate(func(c):
 		return "bond" in c and c.bond != null and c.bond.is_bonded())
 	if n == 0 and _hud != null and _hud.has_method("set_status"):
-		_hud.set_status("No companions yet — feed a creature (B) to tame it.")
+		_hud.set_status("No companions yet. Feed a creature (B) to tame it.")
 
 
 func selected() -> Node:
@@ -217,9 +217,9 @@ func _unhandled_input(event: InputEvent) -> void:
 func on_spawn_selected(kind: String) -> void:
 	_brush.set_armed_kind(kind)
 	if kind == "":
-		_hud.set_status("Select mode — left-click a creature to inspect, hold to pick it up.")
+		_hud.set_status("Select mode. Left-click a creature to inspect, hold to pick it up.")
 	else:
-		_hud.set_status("Cast %s — right-click the ground to place." % kind)
+		_hud.set_status("Cast %s. Right-click the ground to place." % kind)
 
 
 # Digit-select: arm `kind` through the HUD so the palette button, the armed state, and the progression

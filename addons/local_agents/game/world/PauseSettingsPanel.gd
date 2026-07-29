@@ -1,14 +1,14 @@
 class_name LAPauseSettingsPanel
 extends VBoxContainer
 
-## PauseSettingsPanel — the in-game settings block hosted inside the Esc pause menu. Three DESCRIPTIVE tier
+## PauseSettingsPanel: the in-game settings block hosted inside the Esc pause menu. Three DESCRIPTIVE tier
 ## selectors (Graphics · Simulation/CPU · Animal cognition), each a row of named-tier buttons with a plain
-## sentence under it explaining WHAT the tier does — no magic numbers or raw units shown to the player. Owns
+## sentence under it explaining WHAT the tier does, with no magic numbers or raw units shown to the player. Owns
 ## no state of its own: it reads the live LAGameSettings off the GameMode autoload, mutates it on a pick, and
 ## routes the change through GameMode.apply() (the single application entry point) so the settings applier
-## re-publishes the live knobs — field/creature cadence + cognition cadence + effects density take effect the
+## re-publishes the live knobs. Field/creature cadence + cognition cadence + effects density take effect the
 ## next frame without a rebuild. The change is also persisted to disk. Split into its own module so the pause
-## menu stays a thin host (file-size + one-owner discipline). (Explicit types only — no ':=' inferred typing.)
+## menu stays a thin host (file-size + one-owner discipline). (Explicit types only, no ':=' inferred typing.)
 
 const HEADING: Color = Color(0.72, 0.82, 1.0)
 const DESC: Color = Color(0.68, 0.72, 0.8)
@@ -20,7 +20,7 @@ const ACCENT: Color = Color(0.55, 0.72, 1.0)
 
 const GRAPHICS_TIERS: Array = [
 	["Low", "Fewest effects and a coarse world. Best frame rate on a weak GPU."],
-	["Medium", "A balanced look — modest effects, no sun shadows."],
+	["Medium", "A balanced look with modest effects and no sun shadows."],
 	["High", "Richer effects and soft shadows. Needs a capable GPU."],
 	["Ultra", "Everything on at the finest world detail. For strong GPUs."],
 ]
@@ -46,7 +46,7 @@ const SIM_PRESET_BY_TIER: Array = [
 ]
 
 const COGNITION_TIERS: Array = [
-	["Instinct", "Animals act on hard-wired instinct alone. The local AI model stays idle — lightest on the processor."],
+	["Instinct", "Animals act on hard-wired instinct alone. The local AI model stays idle, which is lightest on the processor."],
 	["Occasional", "Animals consult the local AI model now and then, for genuinely tricky choices."],
 	["Frequent", "Animals think with the local AI model often, for richer, more surprising behaviour."],
 	["Constant", "Animals lean on the local AI model as much as possible. The most lifelike, and the heaviest."],

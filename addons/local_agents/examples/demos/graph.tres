@@ -6,7 +6,7 @@
 script = ExtResource("1_entry")
 order = 60
 title = "Graph memory"
-description = "The LocalAgentGraph resource on its own — nodes, edges and queries for structured knowledge. Needs no model at all."
+description = "The LocalAgentGraph resource on its own, with nodes, edges and queries for structured knowledge. Needs no model at all."
 scene_path = "res://addons/local_agents/examples/GraphExample.tscn"
 requires_model = false
 requires_voxel_backend = false

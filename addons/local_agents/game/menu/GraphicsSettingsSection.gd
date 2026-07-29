@@ -1,7 +1,7 @@
 class_name LAGraphicsSettingsSection
 extends RefCounted
 
-## LAGraphicsSettingsSection — the GRAPHICS (GPU-bound) category of the settings screen. It draws a five-step
+## LAGraphicsSettingsSection: the GRAPHICS (GPU-bound) category of the settings screen. It draws a five-step
 ## overall preset row (Potato / Low / Medium / High / Ultra) plus the individual GPU knobs those presets map
 ## to: field/render resolution, effects/particle density, shadow quality, ambient occlusion, bloom/glow,
 ## ocean water quality, atmospheric fog, vegetation density and draw distance. Picking an overall preset sets
@@ -42,15 +42,15 @@ func setup(settings: LAGameSettings, on_changed: Callable) -> void:
 
 
 func build(col: VBoxContainer) -> void:
-	LASettingsWidgets.add_header(col, "Graphics — GPU")
+	LASettingsWidgets.add_header(col, "Graphics (GPU)")
 
 	_preset_group = ButtonGroup.new()
 	var row: HBoxContainer = LASettingsWidgets.add_row(col)
-	_add_preset(row, LAGameSettings.GraphicsPreset.POTATO, "Potato", "Absolute minimum for weak / integrated GPUs — coarsest field, no shadows or post FX. GPU cost: lowest.")
-	_add_preset(row, LAGameSettings.GraphicsPreset.LOW, "Low", "Low GPU load — coarse field, cheap water, no post FX. GPU cost: low.")
-	_add_preset(row, LAGameSettings.GraphicsPreset.MEDIUM, "Medium", "Balanced default — playable field resolution, effects on, fill-rate killers off. GPU cost: moderate.")
+	_add_preset(row, LAGameSettings.GraphicsPreset.POTATO, "Potato", "Absolute minimum for weak / integrated GPUs. Coarsest field, no shadows or post FX. GPU cost: lowest.")
+	_add_preset(row, LAGameSettings.GraphicsPreset.LOW, "Low", "Low GPU load. Coarse field, cheap water, no post FX. GPU cost: low.")
+	_add_preset(row, LAGameSettings.GraphicsPreset.MEDIUM, "Medium", "Balanced default. Playable field resolution, effects on, fill-rate killers off. GPU cost: moderate.")
 	_add_preset(row, LAGameSettings.GraphicsPreset.HIGH, "High", "Fine field, translucent water, ambient occlusion + glow + shadows. GPU cost: high.")
-	_add_preset(row, LAGameSettings.GraphicsPreset.ULTRA, "Ultra", "Maximum — finest field and the full post-FX stack. GPU cost: highest (strong GPUs only).")
+	_add_preset(row, LAGameSettings.GraphicsPreset.ULTRA, "Ultra", "Maximum. Finest field and the full post-FX stack. GPU cost: highest (strong GPUs only).")
 
 	_preset_caption = LAMenuStyle.make_caption("")
 	_preset_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -58,7 +58,7 @@ func build(col: VBoxContainer) -> void:
 
 	# --- Individual GPU knobs ---
 	var grid: Dictionary = LASettingsWidgets.add_slider(col, "Field resolution",
-		"Field / render grid cells per axis — the single biggest GPU cost (per-cell compute + readback). GPU cost: very high.",
+		"Field / render grid cells per axis, the single biggest GPU cost (per-cell compute + readback). GPU cost: very high.",
 		24.0, 192.0, 12.0, float(_settings.grid_resolution), Callable(self, "_fmt_int"), Callable(self, "_on_grid"))
 	_grid_slider = grid["slider"]
 	_grid_value = grid["value"]
@@ -68,15 +68,15 @@ func build(col: VBoxContainer) -> void:
 		["Low", "Medium", "High"], int(_settings.effects_level), Callable(self, "_on_effects"))
 
 	_shadow_option = LASettingsWidgets.add_option(col, "Shadow quality",
-		"Sun shadow map — a second scene pass. Visual only. GPU cost: high.",
+		"Sun shadow map, a second scene pass. Visual only. GPU cost: high.",
 		["Off", "Low", "High"], int(_settings.shadow_quality), Callable(self, "_on_shadow"))
 
 	_ssao_option = LASettingsWidgets.add_option(col, "Ambient occlusion",
-		"Screen-space ambient occlusion contact shadows — a full-screen post pass. Visual only. GPU cost: high.",
+		"Screen-space ambient occlusion contact shadows, a full-screen post pass. Visual only. GPU cost: high.",
 		["Off", "On"], 1 if _settings.ssao_enabled else 0, Callable(self, "_on_ssao"))
 
 	_glow_option = LASettingsWidgets.add_option(col, "Bloom / glow",
-		"HDR bloom on bright pixels — a full-screen post pass. Visual only. GPU cost: medium.",
+		"HDR bloom on bright pixels, a full-screen post pass. Visual only. GPU cost: medium.",
 		["Off", "On"], 1 if _settings.glow_enabled else 0, Callable(self, "_on_glow"))
 
 	_ocean_option = LASettingsWidgets.add_option(col, "Ocean water quality",
@@ -94,7 +94,7 @@ func build(col: VBoxContainer) -> void:
 	_veg_value = veg["value"]
 
 	var draw: Dictionary = LASettingsWidgets.add_slider(col, "Draw distance",
-		"Camera far-plane budget — how far the world stays visible before it is clipped. GPU cost: medium.",
+		"Camera far-plane budget, how far the world stays visible before it is clipped. GPU cost: medium.",
 		2000.0, 20000.0, 500.0, _settings.draw_distance, Callable(self, "_fmt_metres"), Callable(self, "_on_draw"))
 	_draw_slider = draw["slider"]
 	_draw_value = draw["value"]

@@ -1,11 +1,11 @@
 class_name LAVoxelDebugWiring
 extends Node
 
-## LAVoxelDebugWiring — owns the debug menu (LADebugPanel, left dock) + its world-space gizmo overlay
+## LAVoxelDebugWiring: owns the debug menu (LADebugPanel, left dock) + its world-space gizmo overlay
 ## (LADebugOverlay), the panel→handler signal wiring, and the debug-view dispatch (temp/wind/scent views,
 ## type highlights, intended paths, perf toggles, the save-screenshot button) plus the V/T scent+temp
 ## toggles the interaction controller triggers. Factored out of LAVoxelWorld so the "debug views + behavior
-## highlights" concern is one file. (Explicit types only — no ':=' inferred typing.)
+## highlights" concern is one file. (Explicit types only, no ':=' inferred typing.)
 
 const DebugPanelScript: GDScript = preload("res://addons/local_agents/game/ui/DebugPanel.gd")
 const DebugOverlayScript: GDScript = preload("res://addons/local_agents/game/ui/DebugOverlay.gd")

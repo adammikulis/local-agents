@@ -7,20 +7,20 @@ extends RefCounted
 ## into coarse cells and visiting only the cells overlapping a query's radius collapses that to a small
 ## constant per query.
 ##
-## Rebuilt at most ONCE per physics frame PER GROUP (lazily — the first sense call of a frame that needs
+## Rebuilt at most ONCE per physics frame PER GROUP (lazily: the first sense call of a frame that needs
 ## a group rebuilds it; later calls that frame reuse it). All creatures share ONE index instance
 ## (LACreatureSenses holds it), so the whole population pays for one rebuild per group per frame.
 ##
 ## Binning is 3D (x/y/z cells): on a PLANET the population wraps a spherical shell, so the old XZ-only
-## (flat-island) binning projected the whole globe onto one overlapping disk — creatures on opposite
+## (flat-island) binning projected the whole globe onto one overlapping disk. Creatures on opposite
 ## hemispheres shared a cell and every query returned a near-global candidate set (senses collapsed back
 ## toward O(n²), which is what made a bigger population so costly). Binning in full 3D partitions the shell,
 ## so a query visits only the cells within `radius` in space. A candidate whose true 3D distance is within
-## `radius` is guaranteed to fall in the visited 3D cells — the cell set is a strict SUPERSET of the in-range
+## `radius` is guaranteed to fall in the visited 3D cells, because the cell set is a strict SUPERSET of the in-range
 ## set. Positions are cached at rebuild time (start of frame); a creature that moves within the frame is
 ## still found because the query visits neighbour cells and the CALLER re-checks the exact current distance
-## (and validity/vision/species/size filters). Pure speedup — same nearest node within range as a linear scan.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (and validity/vision/species/size filters). Pure speedup: same nearest node within range as a linear scan.
+## (Explicit types only, no ':=' inferred typing.)
 
 # Coarse cell edge in world units. Chosen >= the largest sense query radius in play: the widest query is
 # nearest_visible_carrion / nearest_visible_in_state at effective_range*1.5 ≈ 20 (max sense_radius) *

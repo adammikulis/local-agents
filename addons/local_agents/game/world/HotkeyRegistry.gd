@@ -1,20 +1,20 @@
 class_name LAHotkeyRegistry
 extends RefCounted
 
-## LAHotkeyRegistry — the ONE source of truth for the voxel sim's keyboard shortcuts. It is pure DATA:
+## LAHotkeyRegistry: the ONE source of truth for the voxel sim's keyboard shortcuts. It is pure DATA:
 ## a static catalog of {key, action, label, category} records plus the digit-select policy the spawn
 ## palette and its handler both read from, so the on-screen hint, the input router, and a future
 ## controls-reference screen all describe the same bindings and can never drift.
 ##
-## Nothing here executes a shortcut — the existing owners still do that (LAVoxelInputController for the
+## Nothing here executes a shortcut. The existing owners still do that (LAVoxelInputController for the
 ## camera modes / pause, LAVoxelInteraction for selection + palette + brush + overlays, the HUD for its
 ## own toggles). This registry only NAMES the bindings and derives the spawn-palette digit assignments
 ## from the palette's own kind lists (LASpawnPaletteHud.LIFE_KINDS / DISASTER_KINDS), so adding a spawn
-## entry re-labels its hotkey automatically. (Explicit types only — project rule: no ':=' inferred typing.)
+## entry re-labels its hotkey automatically. (Explicit types only, no ':=' inferred typing.)
 
 # Category labels (sentence case) used to group the catalog for the controls-reference screen.
-const CAT_LIFE: String = "Spawn — life"
-const CAT_DISASTER: String = "Spawn — disasters"
+const CAT_LIFE: String = "Spawn life"
+const CAT_DISASTER: String = "Spawn disasters"
 const CAT_SELECTION: String = "Selection"
 const CAT_VIEW: String = "Camera & view"
 const CAT_OVERLAY: String = "Overlays"

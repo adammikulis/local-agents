@@ -3,11 +3,11 @@
 extends Node
 class_name LocalAgentConversation
 
-## N LocalAgent nodes taking turns talking to each other — the addon's plural name made real.
+## N LocalAgent nodes taking turns talking to each other, the addon's plural name made real.
 ##
 ## Drop this node in, drag your agents into `agents`, type a `topic`, and press play. Each utterance
 ## is appended to the transcript and recorded as a node in `memory_graph`, chained to the previous one
-## by an edge named `edge_name`; that growing graph IS the conversation's memory — structured state
+## by an edge named `edge_name`. That growing graph is the conversation's memory: structured state
 ## you can query, save as a `.tres`, or draw.
 ##
 ## This was 140 lines living inside AgentConversationDemo, hard-coded to exactly two agents called Ada
@@ -18,10 +18,10 @@ class_name LocalAgentConversation
 ## With no usable model the node speaks `canned_lines` instead, so the turn-taking and the memory
 ## graph still demonstrate themselves on a machine with nothing installed.
 ##
-## Generation runs through `think_async`, so a turn never blocks the frame; the line arrives on
+## Generation runs through `think_async`, so a turn never blocks the frame. The line arrives on
 ## `turn_taken` when the model is done.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only. Project rule: no ':=' inferred typing.)
 
 ## Emitted once per completed utterance, after it has been recorded in the transcript and the graph.
 signal turn_taken(speaker: String, text: String)
@@ -37,7 +37,7 @@ const DEFAULT_CANNED: PackedStringArray = [
     "Let's start with the cheapest thing that could possibly work.",
     "Cheap is fine until it breaks. What happens then?",
     "Then we replace it, having learned what we actually needed.",
-    "Agreed — start small, keep the receipts.",
+    "Agreed, start small and keep the receipts.",
 ]
 
 @export_group("Cast")
@@ -79,7 +79,7 @@ const DEFAULT_CANNED: PackedStringArray = [
 @export_group("Memory")
 
 ## Graph that records the conversation: one node per utterance, chained in order. Leave empty and one
-## is created when the scene runs, so the memory exists either way; assign a saved `.tres` to keep it.
+## is created when the scene runs, so the memory exists either way. Assign a saved `.tres` to keep it.
 @export var memory_graph: LocalAgentGraph
 
 ## Name given to the edge joining each utterance to the one before it.

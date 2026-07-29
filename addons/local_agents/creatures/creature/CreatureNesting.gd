@@ -5,8 +5,8 @@ extends RefCounted
 ## flyers roost/breed in the treetops, ground species shelter in a burrow near where they stand.
 ## All functions are static and take the creature `c`, reading its fields dynamically so this stays
 ## dependency-free of the LocalAgentCreature type (no cyclic class reference). These helpers only DECIDE and
-## STEER — they never spawn the Nest actor or mutate `c`; the caller owns `c.nest_pos`/`c.has_nest`
-## and the actual spawn. (Explicit types only — project rule: no ':=' inferred typing.)
+## STEER. They never spawn the Nest actor or mutate `c`; the caller owns `c.nest_pos`/`c.has_nest`
+## and the actual spawn. (Explicit types only, no ':=' inferred typing.)
 
 # How far above a tree's own position a flyer roosts (treetop clearance, metres).
 const TREETOP_RISE: float = 5.0

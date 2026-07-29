@@ -1,7 +1,7 @@
 class_name LADiseaseLibrary
 extends RefCounted
 
-## Loads DISEASE STRAIN records from data files, exactly like LASpeciesLibrary loads creatures — a disease is a
+## Loads DISEASE STRAIN records from data files, exactly like LASpeciesLibrary loads creatures. A disease is a
 ## DATA record, never an `if strain == "X"` branch (config-over-cases). Each strain lives in one small JSON under
 ## `creatures/data/diseases/<id>.json`, so a designer adds a new plague by dropping in a file: the transmission + immune +
 ## symptom code all read the record generically, so the new disease composes in with zero code.
@@ -21,7 +21,7 @@ extends RefCounted
 ##   immunity_gain  acquired-immunity level granted on recovery (0..1)
 ##   hosts          array of host tags it can infect ("mammal","bird","insect","people","any"); empty = any
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 const DISEASE_DIR: String = "res://addons/local_agents/creatures/data/diseases"
 

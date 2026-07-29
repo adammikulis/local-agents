@@ -3,8 +3,8 @@ extends RefCounted
 
 ## Shared code-built flame effect: rising orange particles + a warm point light. Parent it to any
 ## burning thing (a tree, a creature that combusted) and it frees with the host. Organic matter
-## COMBUSTS (this) rather than glowing incandescently — glow is for inorganic hot material.
-## (Explicit types only — no ':=' inferred typing.)
+## COMBUSTS (this) rather than glowing incandescently, because glow is for inorganic hot material.
+## (Explicit types only, no ':=' inferred typing.)
 
 static func make() -> Node3D:
 	var root: Node3D = Node3D.new()

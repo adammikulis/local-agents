@@ -8,17 +8,17 @@ extends RefCounted
 ## handed in via `bufs` and every per-frame scalar via `ctx`.
 ##
 ## KERNELS + ORDER (recorded into the caller's compute list, in this exact sequence):
-##   1. heat3d_solar_sphere3d   — THE TERMINATOR. Per-cell insolation = max(0, dot(cell_radial, sun_dir)) at
+##   1. heat3d_solar_sphere3d:    THE TERMINATOR. Per-cell insolation = max(0, dot(cell_radial, sun_dir)) at
 ##                                sky-exposed surface cells; heat-IN-PLACE on temp + solid + radial(14) + nbr(15).
-##   2. heat3d_buoyancy_sphere3d — hot void rises radially outward. RACE-FREE double-buffered GATHER
+##   2. heat3d_buoyancy_sphere3d: hot void rises radially outward. RACE-FREE double-buffered GATHER
 ##                                (TempIn -> TempOut) + solid + nbr(15).
-##   3. heat3d_cool_sphere3d     — evaporative/marine cooling of wet cells toward the sea thermocline; IN-PLACE
+##   3. heat3d_cool_sphere3d:     evaporative/marine cooling of wet cells toward the sea thermocline; IN-PLACE
 ##                                on temp, reads post-flow water + solid + per-cell world Pos(3, vec4) + lava(4)
 ##                                and a sea_radius push param. A wet cell carrying lava QUENCHES hard (the
 ##                                submerged-lava heat sink that lets a seabed vent build an island).
-##   4. lava_phase_sphere3d      — solidify (freeze cold lava to rock) + sustain (keep remaining lava molten);
+##   4. lava_phase_sphere3d:      solidify (freeze cold lava to rock) + sustain (keep remaining lava molten);
 ##                                IN-PLACE on lava + temp + solid, no neighbour reads.
-##   5. magma_buoy_sphere3d      — buoyant overpressure up-flow, TWO passes (0 = copy snapshot, 1 =
+##   5. magma_buoy_sphere3d:      buoyant overpressure up-flow, TWO passes (0 = copy snapshot, 1 =
 ##                                gather/apply) with a barrier between; lava + private scratch + temp + solid +
 ##                                nbr(15).
 ##
@@ -33,7 +33,7 @@ extends RefCounted
 ##     - lava_phase: IN-PLACE on lava BACK[1-p] + temp BACK[1-p]
 ##     - magma     : lava BACK[1-p] + temp BACK[1-p] + private scratch
 ##   ENTRY expectation: fresh temp in LIVE[p]; fresh water + lava already in BACK[1-p] (their flow gathers ran
-##   earlier this frame). EXIT state: fresh temp AND lava both in BACK[1-p] — consistent with the box's
+##   earlier this frame). EXIT state: fresh temp AND lava both in BACK[1-p], consistent with the box's
 ##   post-heat convention (downstream wind/atmosphere read temp_back) and a single end-of-step parity flip.
 
 const CONDUCT_PATH: String = "res://addons/local_agents/sim/material/kernels3d/heat_sphere3d.glsl"

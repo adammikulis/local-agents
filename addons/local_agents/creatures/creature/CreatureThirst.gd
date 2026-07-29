@@ -2,9 +2,9 @@ class_name LACreatureThirst
 extends RefCounted
 
 ## Thirst / water-seeking drive for LocalAgentCreature, factored out of the main brain. Emergent watering holes:
-## nothing scripts where animals gather — they simply drink from, or walk toward, the nearest wet cell of
+## nothing scripts where animals gather. They simply drink from, or walk toward, the nearest wet cell of
 ## the shared water field, so they cluster wherever water actually pools. Static + dynamic access on the
-## passed creature so there is no cyclic class reference. (Explicit types only — no ':=' typing.)
+## passed creature so there is no cyclic class reference. (Explicit types only, no ':=' inferred typing.)
 
 const DRINK_RATE: float = 45.0             # hydration/sec restored while drinking (mirrors LocalAgentCreature.DRINK_RATE)
 const THIRSTY_FRACTION: float = 0.5        # below this, seeking water interrupts other drives

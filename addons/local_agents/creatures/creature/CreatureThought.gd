@@ -3,10 +3,10 @@ extends RefCounted
 
 ## Thought-inspector presentation for LocalAgentCreature: turns the creature's LIVE cognition into a stable
 ## individual name, a natural-language "thought", and a few supporting decision/habit/cue lines. It
-## SURFACES the existing brain — the last fast-path pick, the last slow-brain resolution (the local
-## FunctionGemma model or the offline teacher), the learned policy, and the learned cue associations —
-## and NEVER calls a model itself. Static + dependency-free of the LocalAgentCreature type.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## SURFACES the existing brain: the last fast-path pick, the last slow-brain resolution (the local
+## FunctionGemma model or the offline teacher), the learned policy, and the learned cue associations.
+## It NEVER calls a model itself. Static + dependency-free of the LocalAgentCreature type.
+## (Explicit types only, no ':=' inferred typing.)
 
 # A small pool of friendly names so a clicked animal reads as an individual ("Pip the fox"), not a
 # faceless instance. Stable per-creature (keyed by instance id), presentation-only.
@@ -41,7 +41,7 @@ static func thought(c) -> Dictionary:
 
 	# A slow-brain resolution is in flight — name that honestly.
 	if cog != null and cog.has_method("is_thinking") and cog.is_thinking():
-		return {"text": "%s and %s — thinking it over (asking the local model)…"
+		return {"text": "%s and %s, thinking it over (asking the local model)…"
 			% [_cap(_thirst_word(h)), _hunger_word(e)], "source": "local model", "is_llm": false}
 
 	# The star: the local model (or offline teacher) actually decided the live behaviour.
@@ -54,7 +54,7 @@ static func thought(c) -> Dictionary:
 			var by_llm: bool = String(ask.get("source", "")) == "llm"
 			var who: String = "the local model" if by_llm else "instinct"
 			return {
-				"text": "%s and %s, so I decided to %s — %s worked it out."
+				"text": "%s and %s, so I decided to %s, and %s worked it out."
 					% [_cap(_thirst_word(ah)), _hunger_word(ae), _intent(action), who],
 				"source": ("local model (FunctionGemma, offline)" if by_llm else "offline teacher"),
 				"is_llm": by_llm,
@@ -62,7 +62,7 @@ static func thought(c) -> Dictionary:
 
 	# Rule-based read of the current situation (no model has been consulted for this animal yet).
 	var doing: String = LACreatureInspector.describe_activity(String(c.state))
-	return {"text": "%s and %s — %s." % [_cap(_thirst_word(h)), _hunger_word(e), doing],
+	return {"text": "%s and %s, %s." % [_cap(_thirst_word(h)), _hunger_word(e), doing],
 		"source": "rule-based", "is_llm": false}
 
 
@@ -75,7 +75,7 @@ static func history_line(entry: Dictionary) -> Dictionary:
 	var h: int = int(entry.get("h", 3))
 	var who: String = "local model" if kind == "llm" else ("offline teacher" if kind == "teacher" else _how_word(String(entry.get("how", ""))))
 	return {
-		"text": "%s and %s — decided to %s (%s)." % [_cap(_thirst_word(h)), _hunger_word(e), _intent(action), who],
+		"text": "%s and %s, decided to %s (%s)." % [_cap(_thirst_word(h)), _hunger_word(e), _intent(action), who],
 		"kind": kind,
 	}
 

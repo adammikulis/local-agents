@@ -5,7 +5,7 @@ extends MeshInstance3D
 ## and toggled by the DebugPanel (via VoxelWorld). It can HIGHLIGHT every instance of a type (a colored
 ## beam + base cross over each member of a group, drawn through terrain so they're easy to find), draw
 ## each creature's INTENDED PATH (a ray along its steering heading), and show the WIND as a grid of
-## arrows. Purely presentational — reads groups/positions, owns no sim state. (Explicit types only.)
+## arrows. Purely presentational: it reads groups/positions and owns no sim state. (Explicit types only.)
 
 const BEAM_HEIGHT: float = 16.0            # tall beam so highlighted objects are visible far off
 const BEAM_THICK: float = 0.09             # offset used to fake line thickness (4 parallel beams)

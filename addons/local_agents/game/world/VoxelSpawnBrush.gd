@@ -95,7 +95,7 @@ func place_armed(screen_pos: Vector2) -> void:
 			var ray: Dictionary = _camera.aim_ray(screen_pos)
 			_apply_at(ray["origin"] + ray["dir"] * 1500.0)
 			return
-		_hud.set_status("No ground under cursor — aim at the terrain.")
+		_hud.set_status("No ground under cursor. Aim at the terrain.")
 		return
 	_paint_brush(point)
 
@@ -152,7 +152,7 @@ func _apply_at(point: Vector3) -> void:
 	elif _armed_kind == "volcano":
 		_disasters.spawn_volcano(point)
 		_world.set_destruction(1.0)
-		_hud.set_status("A volcano rises — stand back!")
+		_hud.set_status("A volcano rises. Stand back!")
 	elif _armed_kind == "lightning":
 		_disasters.spawn_lightning(point)
 		_world.set_destruction(0.7)

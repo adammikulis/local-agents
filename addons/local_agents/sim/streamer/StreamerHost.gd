@@ -11,7 +11,7 @@ const StreamerOverlayScript: GDScript = preload("res://addons/local_agents/sim/s
 const StreamerAvatarScript: GDScript = preload("res://addons/local_agents/sim/streamer/StreamerAvatar.gd")
 const StreamerVoiceScript: GDScript = preload("res://addons/local_agents/sim/streamer/StreamerVoice.gd")
 const StreamerDirectorScript: GDScript = preload("res://addons/local_agents/sim/streamer/StreamerDirector.gd")
-const EnergyGraphScript: GDScript = preload("res://addons/local_agents/game/ui/SceneEnergyGraph.gd")
+const EnergyGraphScript: GDScript = preload("res://addons/local_agents/sim/streamer/SceneEnergyGraph.gd")
 
 var _streamer_overlay: CanvasLayer = null  # LAStreamerOverlay (lower-right face-cam + caption + toggle)
 var _streamer_director: Node = null        # LAStreamerDirector (LLM commentary brain)

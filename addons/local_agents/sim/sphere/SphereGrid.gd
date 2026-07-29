@@ -1,7 +1,7 @@
 class_name LASphereGrid
 extends RefCounted
 
-## Cubed-sphere grid + seam-aware NEIGHBOUR TABLE — the planet's substrate geometry (Phase A0 spike).
+## Cubed-sphere grid + seam-aware NEIGHBOUR TABLE: the planet's substrate geometry (Phase A0 spike).
 ##
 ## 6 gnomonic cube faces, each `res × res` surface cells, extruded into `depth` RADIAL layers (r=0 = innermost
 ## core shell, r=depth-1 = outermost/space). This replaces the flat cartesian `idx=(iy*dim_z+iz)*dim_x+ix` +
@@ -11,7 +11,7 @@ extends RefCounted
 ## The only hard part is the cube-face SEAMS (a cell on a face edge's lateral neighbour lives on an ADJACENT
 ## face). We sidestep hand-coding 24 edge transforms + 8 corner cases by building the 2D SURFACE adjacency
 ## GEOMETRICALLY: step just past the edge in local coords, project to a sphere direction, and match the nearest
-## surface cell on another face. Radial neighbours are then trivial arithmetic. (Explicit types only — no ':=' .)
+## surface cell on another face. Radial neighbours are then trivial arithmetic. (Explicit types only, no ':=' inferred typing.)
 
 const FACES: int = 6
 # Per-cell neighbour slots (flat table = cell*6 + slot):

@@ -1,18 +1,18 @@
 class_name LAMaterialFieldLedger3D
 extends RefCounted
 
-## LAMaterialFieldLedger3D — the conserved H₂O LEDGER of LAMaterialField3D (plus the snow/ice diagnostics it
+## LAMaterialFieldLedger3D: the conserved H₂O LEDGER of LAMaterialField3D (plus the snow/ice diagnostics it
 ## is built from), factored out of the extract-only field hub. Same pattern as the query / atmos / scent
 ## modules: it holds no state of its own and reaches into the owning field `_f` for the shared channels.
 ##
-## There is ONE conserved water substance stored in four phase channels — liquid `_water`, airborne
+## There is ONE conserved water substance stored in four phase channels: liquid `_water`, airborne
 ## `_moisture`, frozen `_snow`, subsurface `_soil`. Freeze / melt / deposition / evaporation / rain /
 ## infiltration are all pure TRANSFERS between them, so their sum (`h2o_total`) must stay BOUNDED: that is
 ## the mass-conservation spot check the SIM_REPORT prints. Snow and ice are the same channel read at two
 ## depths (SNOW_PRESENT = covered, ICE_DEPTH = glacial), not two buffers.
 ##
-## Every method here is a pure getter over the GPU readback — O(cells) scans polled at snapshot time, never
-## per frame. (Explicit types only — no ':=' inferred typing.)
+## Every method here is a pure getter over the GPU readback: O(cells) scans polled at snapshot time, never
+## per frame. (Explicit types only, no ':=' inferred typing.)
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 

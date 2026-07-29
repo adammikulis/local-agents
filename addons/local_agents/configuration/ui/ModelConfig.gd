@@ -1,6 +1,6 @@
 @tool
 extends Control
-class_name LocalAgentModelConfig
+class_name LAModelConfig
 
 # Editor/in-game panel for ONE LocalAgentModelProfile: which .gguf to load, how big a context to
 # give it, and how many layers to push onto the GPU. It edits the same Resource a developer would

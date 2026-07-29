@@ -1,22 +1,23 @@
 extends Node3D
 
-## ThinkingCreatureDemo — the CORE showcase: creatures that stand, wander and think on a plain flat
-## floor, with NO voxel world, no MaterialField, no ecology and no planet.
+## The core showcase: creatures that stand, wander and think on a plain flat floor, with no voxel
+## world, no MaterialField, no ecology and no planet.
 ##
-## THE SCENE IS THE DEMO. Everything you can see was placed and configured in the editor, not built
+## The scene is the demo. Everything you can see was placed and configured in the editor, not built
 ## here in code:
 ##   - Spawner (LocalAgentCreatureSpawner) makes the population and its floor. Type species and counts
-##     into its Counts dictionary; it instantiates Creature.tscn, scatters it and calls setup_standalone.
+##     into its Counts dictionary. The spawner instantiates Creature.tscn, scatters it and calls
+##     setup_standalone.
 ##   - Camera3D / DirectionalLight3D frame and light it.
 ##   - LlmService + CognitionScheduler are the no-code path to a thinking creature: the scheduler
 ##     auto-adopts anything in its Adopt Group ("la_creatures"), which every standalone creature joins
-##     on setup. Both ship INERT — LlmService.Enabled is off, and the spawner's Llm Enabled is off — so
+##     on setup. Both ship inert, with LlmService.Enabled off and the spawner's Llm Enabled off, so
 ##     the demo boots with no model and no server. Point LlmService at a .gguf, tick its Enabled, tick
 ##     the spawner's Llm Enabled, and the same creatures start escalating to the model. No code changes.
 ##   - DemoHarness gives the scene `-- --run-frames=N`, which prints THINKING_CREATURE_REPORT and quits.
 ##
 ## All that is left in this script is the thing a game author would actually write: what the run should
-## measure. (Explicit types only — project rule: no ':=' inferred typing.)
+## measure. (Explicit types only. The project rule bans ':=' inferred typing.)
 
 @onready var _spawner: LocalAgentCreatureSpawner = %Spawner as LocalAgentCreatureSpawner
 

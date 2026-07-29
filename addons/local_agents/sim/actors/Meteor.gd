@@ -2,11 +2,11 @@
 class_name LAMeteor
 extends Node3D
 
-## A meteor is NOT a scripted explosion — it is a falling hot fast rock (a seed/marker + visual) whose
+## A meteor is NOT a scripted explosion. It is a falling hot fast rock (a seed/marker + visual) whose
 ## impact seeds the shared substrate ONCE. Everything downstream emerges with zero meteor code:
 ##   • emit_shock radiates a seismic wave (tremor + felt panic);
 ##   • eject throws molten mass as ballistic ejecta parcels that arc under radial gravity and re-deposit
-##     — the debris fling and the ejecta blanket both fall out of the field, no per-actor chunk code;
+##     (the debris fling and the ejecta blanket both fall out of the field, with no per-actor chunk code);
 ##   • add_charge ionises the air above the crater → the field's breakdown discharges a bolt (the same
 ##     charge→bolt primitive a storm feeds);
 ##   • add_heat dumps the kinetic+thermal energy as a molten spike (crater glows, vegetation ignites);
@@ -15,9 +15,9 @@ extends Node3D
 ##
 ## Deleted vs the old scripted meteor: `_spawn_debris_chunks` (22 RigidBody3D debris chunks with random
 ## velocities), `_impact_material_palette`, `_spawn_impact_fx` (one-shot burst particles + flash light) and
-## `_make_debris_mesh`. A "debris chunk", a "crater", a "shockwave" — all just words for what the one
+## `_make_debris_mesh`. A "debris chunk", a "crater", a "shockwave" are all just words for what the one
 ## substrate does. The actor is now seed + falling visual + one impact→substrate call.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 # --- Tunables -----------------------------------------------------------------
 const SPAWN_HEIGHT: float = 140.0          # fallback drop height when launched with no camera origin
@@ -30,6 +30,32 @@ const METEOR_MASS_SCALE: float = 400.0     # mass = size³ × this; momentum = m
 const IMPACT_RADIUS: float = 10.0          # carve radius — large & dramatic
 const DAMAGE_SCALE: float = 1.6            # ecology damage radius = radius * this
 const BODY_RADIUS: float = 1.4
+# --- Heating ------------------------------------------------------------------
+# A meteor has no fixed temperature. It arrives cold and heats by ramming air, so how hot it gets is
+# an outcome of how fast and how steeply it came in, not a constant anyone typed. There was a flat
+# 1600 °C here, injected on impact no matter whether the rock fell from orbit at 600 u/s or was lobbed
+# at 150, and a separate hardcoded orange for the visual, so the look and the physics could disagree
+# about the same rock.
+#
+# Convective entry heating goes as air density times the cube of speed, and the body radiates back
+# toward ambient. Those two lines are the whole model. What falls out: a fast steep entry goes
+# white-hot and lights the ground under it, a slow graze barely reddens, a rock that never meets the
+# atmosphere stays dark, and a big rock hits harder than a small one at the same speed because the
+# impact term carries its mass.
+const AMBIENT_TEMP_C: float = -60.0        # what it starts at and relaxes toward
+const ENTRY_HEAT_GAIN: float = 4.23e-6     # scales rho * v^3 into °C/s; ~1600 °C at MAX_SPEED in thick air
+const RADIATIVE_COOL: float = 0.55         # per second, fraction of the excess over ambient shed again
+const MAX_SURFACE_TEMP_C: float = 3000.0   # cap, so a runaway entry cannot inject absurd heat
+# Air density is READ FROM THE FIELD, not modelled here. The substrate already simulates a 3D oxygen
+# channel, so `o2_at()` at the meteor's own position is how much air there is to ram, and it composes
+# for free: a thin atmosphere heats meteors less, a region stripped by an eruption heats them less
+# right there, and a planet with no air at all never lights one up. A local scale-height formula would
+# have been a second, disagreeing atmosphere living inside this actor.
+const AIR_REFERENCE_O2: float = 0.21       # the o2 level treated as full thickness, so rho is a ratio
+# On impact the remaining kinetic energy also goes into the ground. E = 1/2 m v^2, and mass goes as
+# size cubed, so this term is what lets a big fast rock melt a crater that a small slow one does not.
+const KINETIC_HEAT_GAIN: float = 0.004
+const MAX_IMPACT_TEMP_C: float = 2500.0
 const FX_LINGER: float = 1.8               # seconds of FX after impact before free
 
 enum State { IDLE, FALLING, IMPACTED }
@@ -38,6 +64,8 @@ var _terrain: Object = null                # LAVoxelTerrainService (duck-typed)
 var _ecology: Object = null                # LAEcologyService (duck-typed)
 var _state: int = State.IDLE
 var _velocity: Vector3 = Vector3.ZERO
+var _surface_temp: float = AMBIENT_TEMP_C   # °C, integrated during flight; drives both glow and impact heat
+var _body_material: StandardMaterial3D = null
 var _target: Vector3 = Vector3.ZERO
 var _fall_time: float = 0.0
 var _fx_time: float = 0.0
@@ -155,6 +183,8 @@ func _step_fall(delta: float) -> void:
 	if _velocity.length() > MAX_SPEED:
 		_velocity = _velocity.normalized() * MAX_SPEED
 
+	_step_entry_heat(delta)
+
 	var next_pos: Vector3 = global_position + _velocity * delta
 	var impact: Dictionary = _detect_impact(global_position, next_pos)
 	if bool(impact.get("hit", false)):
@@ -173,6 +203,51 @@ func _step_fall(delta: float) -> void:
 	# impact here: that is what used to kill orbits before they could form.)
 	if _fall_time > MAX_LIFETIME or _escaped():
 		queue_free()
+
+
+## How much air there is to ram, as a fraction of a full atmosphere, read straight out of the field's
+## oxygen channel. 0 when there is no field or no air, so a meteor in vacuum never heats.
+func _air_density_at(pos: Vector3) -> float:
+	if _ecology == null or not _ecology.has_method("material_field"):
+		return 0.0
+	var field: Object = _ecology.material_field()
+	if field == null or not field.has_method("o2_at"):
+		return 0.0
+	return clampf(float(field.o2_at(pos.x, pos.y, pos.z)) / AIR_REFERENCE_O2, 0.0, 1.0)
+
+
+## The two lines that replace the old fixed temperature. Heating goes as air density times the cube of
+## speed, cooling as the excess over ambient. Nothing here knows what a "meteor" is, so the same rule
+## would heat anything else moving fast through air.
+func _step_entry_heat(delta: float) -> void:
+	var speed: float = _velocity.length()
+	var rho: float = _air_density_at(global_position)
+	var gain: float = ENTRY_HEAT_GAIN * rho * speed * speed * speed
+	var excess: float = _surface_temp - AMBIENT_TEMP_C
+	_surface_temp = clampf(_surface_temp + (gain - RADIATIVE_COOL * excess) * delta,
+		AMBIENT_TEMP_C, MAX_SURFACE_TEMP_C)
+	_apply_heat_visual()
+
+
+## The look follows the temperature rather than being set once at spawn, so a rock visibly lights up on
+## the way in and a slow one never does.
+func _apply_heat_visual() -> void:
+	if _body_material != null:
+		LAHeatGlow.apply(_body_material, _surface_temp)
+	if _glow != null:
+		var lit: bool = _surface_temp >= LAHeatGlow.GLOW_MIN
+		_glow.visible = lit
+		if lit:
+			_glow.light_color = LAHeatGlow.emission(_surface_temp)
+			_glow.light_energy = LAHeatGlow.energy(_surface_temp) * _size
+
+
+## What the ground receives. The skin temperature it arrived at, plus the kinetic energy it still had,
+## which is where mass finally matters: a big fast rock melts a crater a small slow one does not.
+func _impact_temp_c() -> float:
+	var speed: float = _velocity.length()
+	var kinetic: float = KINETIC_HEAT_GAIN * speed * speed * _size
+	return clampf(_surface_temp + kinetic, AMBIENT_TEMP_C, MAX_IMPACT_TEMP_C)
 
 
 ## Radial "up" (away from the nearest gravity body's core) at a world point — the dominant body, else the
@@ -244,8 +319,8 @@ func _on_impact() -> void:
 		if water != null and water.has_method("is_water_at") and water.is_water_at(_impact_point):
 			water.splash(_impact_point, 3.5 * _size)
 			# White-hot rock hitting water flashes to steam — sizzle + a steam hiss.
-			LocalAgentAudioDirector.emit(get_tree(), "sizzle", _impact_point)
-			LocalAgentAudioDirector.emit(get_tree(), "steam", _impact_point)
+			LAAudioDirector.emit(get_tree(), "sizzle", _impact_point)
+			LAAudioDirector.emit(get_tree(), "steam", _impact_point)
 	# Terror shockwave: everything that hears/feels the impact panics and flees.
 	if _ecology != null and _ecology.has_method("broadcast_scare"):
 		_ecology.broadcast_scare(_impact_point, r * 6.0, 1.0)
@@ -255,7 +330,7 @@ func _on_impact() -> void:
 	if _ecology != null and _ecology.has_method("material_field"):
 		var field: Object = _ecology.material_field()
 		if field != null and field.has_method("add_heat"):
-			field.add_heat(_impact_point, 1600.0, r * 2.2)     # molten rock ~1600°C
+			field.add_heat(_impact_point, _impact_temp_c(), r * 2.2)   # what it actually arrived carrying
 		# The impact IS a shock source + an ejecta source — both are the substrate's own primitives now (no
 		# per-actor wave/debris code). emit_shock radiates a seismic wave (tremor + panic); eject throws molten
 		# debris parcels that arc under radial gravity and re-deposit on landing (a glowing ejecta blanket).
@@ -291,7 +366,7 @@ func _on_impact() -> void:
 	# Procedural impact boom (presentation only; resolves the AudioDirector by group). The flash, debris
 	# fling and ejecta blanket are no longer scripted here — they emerge from the eject/add_heat/add_charge
 	# seeds above (glowing ejecta parcels + molten crater glow + a discharge bolt).
-	LocalAgentAudioDirector.emit(get_tree(), "meteor_impact", _impact_point)
+	LAAudioDirector.emit(get_tree(), "meteor_impact", _impact_point)
 
 
 func _build_visuals() -> void:
@@ -302,18 +377,19 @@ func _build_visuals() -> void:
 	sphere.height = BODY_RADIUS * 2.0
 	_body.mesh = sphere
 	var mat: StandardMaterial3D = StandardMaterial3D.new()
-	mat.albedo_color = Color(0.9, 0.25, 0.05)
-	mat.emission_enabled = true
-	mat.emission = Color(1.0, 0.55, 0.15)
-	mat.emission_energy_multiplier = 6.0
+	mat.albedo_color = Color(0.35, 0.3, 0.28)
+	# Cold rock. Its incandescence is applied per frame from _surface_temp, which starts at ambient and
+	# only rises if the thing actually rams air on the way in.
+	_body_material = mat
 	_body.material_override = mat
 	add_child(_body)
 
 	_glow = OmniLight3D.new()
-	_glow.light_color = Color(1.0, 0.6, 0.25)
 	_glow.light_energy = 6.0
 	_glow.omni_range = 30.0
+	_glow.visible = false
 	add_child(_glow)
+	_apply_heat_visual()
 
 	_trail = GPUParticles3D.new()
 	_trail.emitting = false

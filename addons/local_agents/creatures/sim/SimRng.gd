@@ -1,7 +1,7 @@
 class_name LASimRng
 extends RefCounted
 
-## The ONE seeded random source for deterministic simulation stochastics — heredity (DNA crossover /
+## The ONE seeded random source for deterministic simulation stochastics: heredity (DNA crossover /
 ## mutation), and the coming evolution/affinity work. Wrapping a single RandomNumberGenerator behind a
 ## shared locator means a whole run reproduces bit-for-bit from its seed: no scattered bare `randf()`
 ## calls (which draw from Godot's global, un-seeded generator and make runs irreproducible). Any code
@@ -13,7 +13,7 @@ extends RefCounted
 ## capture the exact stream position so a save resumes the same sequence.
 ##
 ## Reproducible-run knob: set env `LA_SIM_SEED=<int>` to seed the shared generator on first use.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 # A fixed default so an unconfigured run is still deterministic (same sequence every launch) rather than
 # time-randomized. Override per world via set_seed()/setup(), or globally via the LA_SIM_SEED env var.

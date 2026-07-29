@@ -1,7 +1,7 @@
 class_name LACreatureDisease
 extends RefCounted
 
-## LACreatureDisease — the per-creature DISEASE / IMMUNE state, owned as an instance on each creature
+## LACreatureDisease: the per-creature DISEASE / IMMUNE state, owned as an instance on each creature
 ## (`creature.disease`) so all of it lives HERE, off the Creature monolith. Transmission calls infect(); the
 ## creature's _physics_process delegates to tick(); the immune system, strain progression, symptoms, recovery
 ## and immunity all live in this module. Creature.gd only holds `var disease` + one setup + one tick call.
@@ -14,7 +14,7 @@ extends RefCounted
 ## virulence and is fought down by the immune system (innate constitution + acquired immunity); while
 ## symptomatic it drains energy, damages HP, runs a fever, and sheds to nearby hosts; clearing it grants lasting
 ## immunity, and enough HP damage KILLS. Emergent: outbreaks sweep herds, cull the weak, and leave immune
-## survivors so the population rebounds resistant. (Explicit types only — project rule: no ':='.)
+## survivors so the population rebounds resistant. (Explicit types only, no ':=' inferred typing.)
 
 # Active infections: strain_id -> {"load": float 0..~1, "age": float secs since infection, "sympt": bool}.
 var loads: Dictionary = {}

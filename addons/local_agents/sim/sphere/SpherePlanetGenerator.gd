@@ -9,18 +9,18 @@ extends RefCounted
 ##
 ## RELIEF is dominated by CELLULAR (Worley/Voronoi) noise, return type CELL_VALUE: each Voronoi cell gets its
 ## own random elevation, so the planet breaks into DISTINCT continents + islands (the cells) separated by the
-## sea, with sharp coastlines along the cell borders — a cell-structured world, not a smooth fBm dome where
+## sea, with sharp coastlines along the cell borders. This is a cell-structured world, not a smooth fBm dome where
 ## everything sheets radially the same. (CELL_VALUE is the only cellular return type with a well-spread
 ## distribution here; DISTANCE / DISTANCE_2_SUB come back cramped-negative → an all-ocean planet.) A
 ## low-amplitude fBm detail layer breaks up each plateau into hills + valleys, so runoff finds channels and
-## rivers drain to the coast emergently. (Beaches + eroded coasts are a 0.5 job — see the bake-the-planet task.)
+## rivers drain to the coast emergently. (Beaches + eroded coasts are a 0.5 job, see the bake-the-planet task.)
 ##
-## OCEAN_BIAS pushes the whole surface inward so most of the sphere sits BELOW the sea shell — an ocean world
+## OCEAN_BIAS pushes the whole surface inward so most of the sphere sits BELOW the sea shell: an ocean world
 ## with continents/islands at the cellular cores, the sea for rivers to reach. Raise ocean_bias / raise
 ## sea_radius for more water; lower for more land.
 ##
-## Everything runs in the native VoxelGeneratorGraph (compiled, SIMD) — NO per-voxel GDScript (native/Big-O
-## mandate). godot_voxel's VoxelLodTerrain gives distance-LOD for free. (Explicit types only — no ':=' .)
+## Everything runs in the native VoxelGeneratorGraph (compiled, SIMD), with NO per-voxel GDScript (native/Big-O
+## mandate). godot_voxel's VoxelLodTerrain gives distance-LOD for free. (Explicit types only, no ':=' inferred typing.)
 
 # VoxelGraphFunction NODE_* type ids (from this build's ClassDB):
 const T_OUTPUT_SDF: int = 4

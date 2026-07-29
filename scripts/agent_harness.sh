@@ -40,6 +40,9 @@ Commands:
   demo [args]   Run example scenes BARE HEADLESS via scripts/run_demo.sh (~1s each).
                 e.g. demo --list | demo --all [frames] | demo BoxFieldDemo [frames]
   extension     Validate the GDExtension via scripts/check_extension.gd.
+  dropin        Prove the addon works as a drop-in: stage a consumer project holding only
+                addons/local_agents/, author a scene with no script in it, and run it.
+                Set LA_GATE_MODEL=/path/to/model.gguf to also require a real reply.
   lint          Run lint checks: no-direct-refcounted (gate) + file-length &amp;
                 policy markers (advisory).
   -h | --help   Show this help and exit 0.
@@ -62,7 +65,7 @@ fi
 shift || true
 
 case "$cmd" in
-  fast|all|bounded|single|smoke|extension|lint|demo) ;;
+  fast|all|bounded|single|smoke|extension|lint|demo|dropin) ;;
   *)
     echo "agent_harness: unknown command '$cmd'" >&2
     usage >&2
@@ -103,6 +106,12 @@ case "$cmd" in
     ;;
   extension)
     child=("$GODOT" -s scripts/check_extension.gd)
+    ;;
+  # Kept OUT of lint on purpose. It stages a whole project and runs the importer, measured at 3s warm
+  # and about 25s cold, and reply mode additionally loads a model. lint has to stay cheap enough to
+  # run on every change.
+  dropin)
+    child=("$SCRIPT_DIR/check_dropin_scene.sh" "$@")
     ;;
   lint)
     : # handled specially below
@@ -154,6 +163,17 @@ if [[ "$cmd" == "lint" ]]; then
     set -e
     if [[ $rc_catalog -ne 0 ]]; then
       echo "LINT_FAIL: check_demo_catalog.sh ($rc_catalog)"
+      exit 1
+    fi
+    # Gate: only real public API reaches a creation dialog under the LocalAgent prefix. README tells
+    # users to type "LocalAgent" into Add Node to find the addon's nodes, and that was returning about
+    # twice as much noise as signal.
+    set +e
+    "$SCRIPT_DIR/check_public_surface.sh"
+    rc_surface=$?
+    set -e
+    if [[ $rc_surface -ne 0 ]]; then
+      echo "LINT_FAIL: check_public_surface.sh ($rc_surface)"
       exit 1
     fi
     # Gate: the addon still parses with the game deleted. docs/USAGE.md promises this; nothing

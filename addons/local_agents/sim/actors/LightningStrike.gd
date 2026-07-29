@@ -1,11 +1,11 @@
 class_name LALightningStrike
 extends Node3D
 
-## A lightning bolt — VISUAL/AUDIO ONLY. The physics (charge buildup, breakdown, the heat pulse that
+## A lightning bolt: VISUAL/AUDIO ONLY. The physics (charge buildup, breakdown, the heat pulse that
 ## ignites wildfire via combustion, and the scare broadcast) now live in the field's emergent CHARGE
 ## process (LAMaterialCharge3D); the field injects the heat + broadcasts the scare itself, then fires
 ## this bolt via a callback. So this node just draws the jagged flash and plays the thunder, then
-## self-frees. (Explicit types only — no ':=' inferred typing.)
+## self-frees. (Explicit types only, no ':=' inferred typing.)
 
 const STRIKE_HEIGHT: float = 130.0        # bolt drawn from this high down to the point
 const FLASH_ENERGY: float = 34.0
@@ -35,7 +35,7 @@ func strike(point: Vector3) -> void:
 	_flash.omni_range = 60.0
 	_flash.position = point + up * 6.0
 	add_child(_flash)
-	LocalAgentAudioDirector.emit(get_tree(), "thunder", point)
+	LAAudioDirector.emit(get_tree(), "thunder", point)
 
 
 func _process(delta: float) -> void:

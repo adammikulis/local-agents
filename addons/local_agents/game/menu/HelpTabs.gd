@@ -1,11 +1,11 @@
 class_name LAHelpTabs
 extends RefCounted
 
-## LAHelpTabs — the shared help hub: a segmented [Overview | Controls | Codex] switcher over three panels,
+## LAHelpTabs: the shared help hub, a segmented [Overview | Controls | Codex] switcher over three panels,
 ## returned as one Control so BOTH the main-menu Help screen and the in-sim pause-menu overlay show the exact
 ## same reference, from one place. Overview is a short orientation blurb, Controls is the auto-generated key
 ## reference (LAControlsReference, straight from LAHotkeyRegistry), and Codex is the browsable manual
-## (LAHelpCodex). Pure static builder. (Explicit types only — no ':=' inferred typing.)
+## (LAHelpCodex). Pure static builder. (Explicit types only, no ':=' inferred typing.)
 
 const ACCENT: Color = Color(0.55, 0.72, 1.0)
 const TEXT: Color = Color(0.90, 0.92, 0.95)
@@ -14,7 +14,7 @@ const TEXT: Color = Color(0.90, 0.92, 0.95)
 const OVERVIEW_SECTIONS: Array = [
 	{
 		"title": "Welcome back",
-		"body": "This is a living world simulated on your own machine. You are its caretaker: seed life and matter, stir up disasters, and watch an ecosystem run itself. Nothing here is scripted — behaviour emerges from simple physical rules.",
+		"body": "This is a living world simulated on your own machine. You are its caretaker: seed life and matter, stir up disasters, and watch an ecosystem run itself. Nothing here is scripted, and behaviour emerges from simple physical rules.",
 	},
 	{
 		"title": "Getting your bearings",

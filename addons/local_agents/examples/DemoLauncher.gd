@@ -1,19 +1,21 @@
 extends Control
-class_name LocalAgentDemoLauncher
+class_name LADemoLauncher
 
 ## The friendly front door: every demo, simplest first, each with an Open button.
 ##
-## The list is NOT in this file. It is scanned from `examples/demos/*.tres`, one LocalAgentDemoEntry
-## per demo, following the `creatures/species/*.json` precedent — drop a resource in the directory
-## and a row appears. Adding a demo is no longer a GDScript edit, and because each entry holds a
-## PackedScene rather than a `res://` String, a renamed scene breaks when the catalogue loads instead
-## of quietly becoming a button labelled "Missing".
+## The list is not in this file. It is scanned from `examples/demos/*.tres`, one LocalAgentDemoEntry
+## per demo, following the `creatures/species/*.json` precedent. Drop a resource in the directory and
+## a row appears, so adding a demo is no longer a GDScript edit. Each entry holds a `res://` path
+## rather than a PackedScene, so painting the menu costs one file check per row instead of loading
+## every demo scene. A renamed scene is caught by scripts/check_demo_catalog.sh, which fails the
+## build rather than leaving a button labelled "Missing".
 ##
-## Rows are still built in code, deliberately: their number and their enabled/disabled state depend
-## on what is installed on THIS machine, which a .tscn cannot express. The scene owns the shell
-## (title, subtitle, status label, scroll, %ListBox) and this script owns only the dynamic part.
+## Rows are still built in code, deliberately: their number and their enabled or disabled state
+## depend on what is installed on this machine, which a .tscn cannot express. The scene owns the
+## shell (title, subtitle, status label, scroll, %ListBox) and this script owns only the dynamic
+## part.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only. The project rule bans ':=' inferred typing.)
 
 const Status: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.gd")
 
@@ -37,7 +39,7 @@ const REPORT_FLAG: String = "--catalog-report"
 
 
 func _ready() -> void:
-	# ONE check() for the whole list. It re-probes the filesystem, the ClassDB and the extension
+	# One check() for the whole list. It re-probes the filesystem, the ClassDB and the extension
 	# loader on every call (see AgentStatus.check), so per-row calls would pay for that N times.
 	var state: Dictionary = Status.check()
 	var entries: Array[LocalAgentDemoEntry] = load_catalog()
@@ -66,9 +68,10 @@ static func load_catalog() -> Array[LocalAgentDemoEntry]:
 		var path: String = "%s/%s" % [CATALOG_DIR, entry_name]
 		var resource: Resource = ResourceLoader.load(path)
 		if resource == null:
-			# The usual cause is exactly what PackedScene references exist to surface: the demo scene
-			# this entry points at was moved, renamed or deleted.
-			push_warning("Demo entry failed to load (moved or renamed scene?): %s" % path)
+			# With `scene_path` a plain String, the entry file itself has to be broken to land here:
+			# a corrupt .tres, or one whose script reference is gone. A moved or renamed demo scene
+			# is caught by scripts/check_demo_catalog.sh instead.
+			push_warning("Demo entry failed to load: %s" % path)
 			continue
 		if not (resource is LocalAgentDemoEntry):
 			push_warning("Not a LocalAgentDemoEntry, ignoring: %s" % path)
@@ -82,8 +85,8 @@ static func _by_order(a: LocalAgentDemoEntry, b: LocalAgentDemoEntry) -> bool:
 	return a.order < b.order
 
 
-## "" when this demo can run here; otherwise the one sentence that says why it cannot, and what to do
-## about it. `state` is a LocalAgentStatus.check() result.
+## "" when this demo can run here. Otherwise it is the one sentence that says why it cannot, and what
+## to do about it. `state` is a LocalAgentStatus.check() result.
 static func gate_reason(entry: LocalAgentDemoEntry, state: Dictionary) -> String:
 	if entry.scene_path.strip_edges() == "":
 		return "This catalogue entry has no scene assigned."
@@ -95,8 +98,8 @@ static func gate_reason(entry: LocalAgentDemoEntry, state: Dictionary) -> String
 		var blockers: PackedStringArray = state["blockers"]
 		if blockers.is_empty():
 			return ""
-		# BLOCK_MODEL_NOT_LOADED is not a reason to stop anyone opening a demo — the weights are on
-		# disk and the demo loads them itself. It is also only ever the LAST blocker: check() appends
+		# BLOCK_MODEL_NOT_LOADED is not a reason to stop anyone opening a demo. The weights are on
+		# disk and the demo loads them itself. It is also only ever the last blocker: check() appends
 		# it in the `elif` arm of the model test, after the extension and autoload checks, so any
 		# genuinely hard blocker is blockers[0] and `next_step` is already the right sentence for it.
 		if blockers[0] == Status.BLOCK_MODEL_NOT_LOADED:

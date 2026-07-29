@@ -2,20 +2,20 @@
 extends RefCounted
 class_name LocalAgentSettings
 
-## The ONE registry of Local Agents project settings.
+## The one registry of Local Agents project settings.
 ##
 ## `plugin.gd` registers every entry in SPECS with ProjectSettings (typed hints and all), and every
-## consumer reads back through the typed getters below. Adding a setting is one record here — never a
+## consumer reads back through the typed getters below. Adding a setting is one record here, never a
 ## `ProjectSettings.get_setting()` literal sprinkled at a call site.
 ##
 ## Resolution order is **ProjectSetting -> environment variable -> default**. The env vars stay working
 ## because CI and the harness scripts set them, but they are no longer the only way to tune anything:
 ## a designer gets a typed row in Project Settings instead of an undocumented `LA_*` string.
 ##
-## Only settings that something actually READS live here. Registering knobs nothing consumes is worse
-## than not registering them — it promises control that does not exist.
+## Only settings that something actually reads live here. Registering knobs nothing consumes is worse
+## than not registering them, because it promises control that does not exist.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only. Project rule: no ':=' inferred typing.)
 
 ## name        : the ProjectSettings key
 ## type        : Variant.Type used for the property info

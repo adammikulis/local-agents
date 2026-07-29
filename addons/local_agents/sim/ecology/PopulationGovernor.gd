@@ -1,15 +1,15 @@
 class_name LAPopulationGovernor
 extends Node
 
-## The population governor — the "smite" cap that keeps the living world inside the frame-rate budget.
+## The population governor: the "smite" cap that keeps the living world inside the frame-rate budget.
 ## Too many minds is too much compute (every creature thinks, senses, digests), so when the animal count
 ## climbs past a ceiling the governor seeds an emergent culling FLOOD at the DENSEST cluster of animals.
 ##
 ## It does NOT kill anyone directly. It pours water where life is thickest; drowning (non-flyers caught in
-## deep water), panic, and dispersal to high ground all EMERGE from the flood's own water CA — the same seed
+## deep water), panic, and dispersal to high ground all EMERGE from the flood's own water CA, the same seed
 ## the player's flood brush uses. Old-testament by design: when the world overflows its budget, the waters
 ## rise over the crowded lowlands and thin the herd back to a playable number, while birds and animals on
-## high ground survive. No per-species logic, no scripted deaths — one ceiling, one seed, physics does the rest.
+## high ground survive. No per-species logic, no scripted deaths: one ceiling, one seed, physics does the rest.
 ##
 ## Config over cases (project rule): a single ceiling + hysteresis band drives it; a denser cluster floods a
 ## wider footprint because that is where the cull is needed. Big-O: the census + density peak are one O(n)

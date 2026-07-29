@@ -4,12 +4,12 @@ extends CharacterBody3D
 ## A material-bound aquatic animal. It lives inside the shared material field (LAMaterialField): it
 ## swims just under the surface, loosely schools with its OWN species, and turns back whenever its
 ## next step would leave water OR enter water outside its tolerated salinity / depth band. Nothing
-## scripts where it goes — it simply stays in cells that match its config band, so freshwater fish keep
+## scripts where it goes. It simply stays in cells that match its config band, so freshwater fish keep
 ## to lakes/rivers, salt species keep to the open sea, brackish species hug the coast and river mouths,
 ## and schools form and follow wherever the matching water actually is. All differentiation is CONFIG
-## (salinity_min/max, depth_min/max, size, speed, body shape, basks) — one general rule, no per-species
+## (salinity_min/max, depth_min/max, size, speed, body shape, basks). One general rule, no per-species
 ## branches. Drives EVERY aquatic species (fish variants, turtle, crab, whale, jellyfish); every one
-## works with no external asset via a procedural fallback body. (Explicit types only — no ':=' typing.)
+## works with no external asset via a procedural fallback body. (Explicit types only, no ':=' inferred typing.)
 
 const GROUP_SELECTABLE: String = "selectable"
 const GROUP_FISH: String = "fish"
@@ -896,7 +896,7 @@ func get_inspector_payload() -> Dictionary:
 	var lines: Array = [
 		"Species: %s (%s)" % [species, stage],
 		"Doing: %s" % doing,
-		"Water: %s (salinity %.2f–%.2f, depth %.0f–%.0f)" % [band, salinity_min, salinity_max, depth_min, depth_max],
+		"Water: %s (salinity %.2f to %.2f, depth %.0f to %.0f)" % [band, salinity_min, salinity_max, depth_min, depth_max],
 		"Age: %.0fs / %.0fs" % [age, max_age],
 	]
 	# Only foragers have a real energy budget (grazers/filter feeders live off ambient biomass — see metabolism).

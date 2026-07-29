@@ -1,10 +1,10 @@
 class_name LASimReportSources
 extends RefCounted
 
-## Telemetry providers for LASimReport — pull population + cognition aggregates from the live tree at snapshot
+## Telemetry providers for LASimReport: pull population + cognition aggregates from the live tree at snapshot
 ## time (registered once in VoxelWorld, so these scans run only when a report is taken, not per frame). Static
 ## + dependency-free of the concrete node types (dynamic access). This is where the old hand-synced
-## SMOKE_SUMMARY computation moved to — each subsystem owns its slice of SIM_REPORT. (Explicit types only.)
+## SMOKE_SUMMARY computation moved to, so each subsystem owns its slice of SIM_REPORT. (Explicit types only.)
 
 
 ## Live population / hydration snapshot.

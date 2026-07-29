@@ -65,7 +65,7 @@ size_flags_vertical = 3
 bbcode_enabled = true
 fit_content = true
 scroll_active = false
-text = "[b]Tip[/b]\nDownload models from the Local Agents bottom panel."
+text = "[b]Chat[/b]\nUse [i]Load Model[/i] in the chat toolbar before sending prompts."
 
 [node name="SavedChatsController" parent="HBoxContainer" instance=ExtResource("6_2ncav")]
 unique_name_in_owner = true
@@ -96,3 +96,8 @@ unique_name_in_owner = true
 script = ExtResource("5_ilgjl")
 system_prompt = "You are a helpful assistant running entirely on this machine."
 inference = ExtResource("8_inference")
+
+[connection signal="pressed" from="HBoxContainer/PanelContainer/VBoxContainer2/HomeButton" to="." method="_on_home_button_pressed"]
+[connection signal="pressed" from="HBoxContainer/PanelContainer/VBoxContainer2/ChatButton" to="." method="_on_chat_button_pressed"]
+[connection signal="pressed" from="HBoxContainer/PanelContainer/VBoxContainer2/DownloadModelsButton" to="." method="_on_download_models_button_pressed"]
+[connection signal="pressed" from="HBoxContainer/PanelContainer/VBoxContainer2/ExitButton" to="." method="_on_exit_button_pressed"]

@@ -6,14 +6,14 @@ class_name LocalAgent3D
 ## head and plays a talk animation while it does.
 ##
 ## The three node paths below are how it finds its own parts. They default to the names used in
-## Agent3D.tscn, so an instance of that scene needs no configuration at all; re-point them if you
+## Agent3D.tscn, so an instance of that scene needs no configuration at all. Re-point them if you
 ## build your own character around a LocalAgent.
 ##
-## `think()` / `think_async()` / `say()` forward to the LocalAgent, so a caller drives the character
+## `think()` / `think_async()` / `speak()` forward to the LocalAgent, so a caller drives the character
 ## directly instead of reaching through `.get("agent")` or `Engine.get_singleton("AgentRuntime")`
 ## reflection to find the runtime.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only. Project rule: no ':=' inferred typing.)
 
 ## Re-emitted from the inner LocalAgent whenever the model produces text, after it has been written
 ## onto the Label3D.
@@ -71,10 +71,10 @@ func think_async(prompt: String, extra_opts: Dictionary = {}) -> bool:
     return agent.think_async(prompt, extra_opts)
 
 ## Speak `text` aloud through the agent's voice, without asking the model anything.
-func say(text: String, opts: Dictionary = {}) -> bool:
+func speak(text: String, opts: Dictionary = {}) -> bool:
     if agent == null:
         return false
-    return agent.say(text, opts)
+    return agent.speak(text, opts)
 
 func _on_agent_output(text: String) -> void:
     if chat_label != null:

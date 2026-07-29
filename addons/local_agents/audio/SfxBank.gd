@@ -4,17 +4,17 @@ class_name LocalAgentSfxBank
 
 ## Renders parametric SFX presets into cached 16-bit `AudioStreamWAV` resources,
 ## keyed by name. Each key is synthesized once (lazily, on first request) via the
-## configured `SynthVoice` backend and then reused — playback variety comes from
+## configured `SynthVoice` backend and then reused. Playback variety comes from
 ## per-play pitch/volume jitter at the pool, not from re-synthesis.
 ##
-## Callers can also register custom `LocalAgentSynthVoiceParamsResource` presets.
+## Callers can also register custom `LASynthVoiceParams` presets.
 
 const SynthPresets := preload("res://addons/local_agents/audio/SynthPresets.gd")
 const GdScriptSynthVoice := preload("res://addons/local_agents/audio/synth/GdScriptSynthVoice.gd")
 
 var _voice: LocalAgentSynthVoice = null
 var _sample_rate: int = 44100
-var _defs: Dictionary = {}          # key -> LocalAgentSynthVoiceParamsResource
+var _defs: Dictionary = {}          # key -> LASynthVoiceParams
 var _cache: Dictionary = {}         # key -> AudioStreamWAV
 
 func configure(voice: LocalAgentSynthVoice = null, sample_rate: int = 44100) -> void:
@@ -24,7 +24,7 @@ func configure(voice: LocalAgentSynthVoice = null, sample_rate: int = 44100) -> 
 	_cache.clear()
 
 ## Add or override a preset definition. Invalidates any cached render for that key.
-func register(key: String, params: LocalAgentSynthVoiceParamsResource) -> void:
+func register(key: String, params: LASynthVoiceParams) -> void:
 	if key == "" or params == null:
 		return
 	_defs[key] = params
@@ -46,7 +46,7 @@ func get_stream(key: String) -> AudioStreamWAV:
 		return null
 	if _voice == null:
 		_voice = GdScriptSynthVoice.new()
-	var params: LocalAgentSynthVoiceParamsResource = _defs[key]
+	var params: LASynthVoiceParams = _defs[key]
 	var stream := _voice.render_to_stream(params, _sample_rate, false)
 	_cache[key] = stream
 	return stream

@@ -228,7 +228,7 @@ func arm_kind(kind: String) -> void:
 		return
 	# Campaign gating: refuse to arm a spawn the player has not earned (also blocks the number hotkeys).
 	if not LAGameProgression.spawn_unlocked(kind):
-		set_status("%s is locked — earn it in the campaign." % String(KIND_LABELS.get(kind, kind)))
+		set_status("%s is locked. Earn it in the campaign." % String(KIND_LABELS.get(kind, kind)))
 		return
 	for btn in _palette_group.get_buttons():
 		if String(btn.get_meta("kind", "")) == kind:
@@ -237,7 +237,7 @@ func arm_kind(kind: String) -> void:
 
 
 ## Wire the audio menu to the live audio director.
-func set_audio_director(director: LocalAgentAudioDirector) -> void:
+func set_audio_director(director: LAAudioDirector) -> void:
 	if _audio_panel != null:
 		_audio_panel.bind(director)
 

@@ -4,6 +4,10 @@ extends RefCounted
 const BackstoryGraphService = preload("res://addons/local_agents/graph/BackstoryGraphService.gd")
 const ExtensionLoader = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 
+# Set when the embedding backend was unreachable, so the pass line can say which half it proved.
+var _embedding_skipped: bool = false
+var _embedding_reason: String = ""
+
 func run_test(tree: SceneTree) -> bool:
     if not ExtensionLoader.ensure_initialized():
         push_error("NetworkGraph init failed: %s" % ExtensionLoader.get_error())
@@ -51,6 +55,23 @@ func run_test(tree: SceneTree) -> bool:
         add_memory_result.get("ok", false),
         "Failed to add memory"
     )
+    # add_memory() returns ok as soon as the graph write lands, and reports the embedding separately
+    # under "embedding". This test used to check only the outer ok, so it printed
+    # "BackstoryGraphService tests passed" on a run whose console also carried
+    # `AgentRuntime::embed_text - http_status_error: 501`. That is a soft pass over a real failure,
+    # which this repo forbids. Semantic recall is the whole point of storing an embedding, so a
+    # silent 501 means search_memory_embeddings() is quietly answering from nothing.
+    #
+    # It stays non-fatal on purpose: embeddings need a llama-server started with --embeddings, and
+    # requiring one would make the graph suite unrunnable on a machine that has no server. So the
+    # outcome is REPORTED rather than swallowed, and the run says which of the two things it proved.
+    var embedding_result: Dictionary = add_memory_result.get("embedding", {}) as Dictionary
+    if embedding_result.is_empty():
+        push_warning("Backstory: add_memory returned no embedding block, so indexing did not run at all.")
+    elif not bool(embedding_result.get("ok", false)):
+        _embedding_skipped = true
+        _embedding_reason = String(embedding_result.get("error", "unknown"))
+        push_warning("Backstory: memory embedding failed (%s). Graph ops are covered by this run, semantic recall is NOT. Start llama-server with --embeddings to cover it." % _embedding_reason)
     var upsert_npc_child_result: Dictionary = service.upsert_npc("npc_child", "Mira")
     ok = ok and _assert(upsert_npc_child_result.get("ok", false), "Failed to create npc_child")
     var upsert_npc_brent_result: Dictionary = service.upsert_npc("npc_brent", "Brent")
@@ -197,7 +218,12 @@ func run_test(tree: SceneTree) -> bool:
     if FileAccess.file_exists(absolute_test_db):
         DirAccess.remove_absolute(absolute_test_db)
     if ok:
-        print("BackstoryGraphService tests passed")
+        # Say what was actually covered. "tests passed" alone let a run with a dead embedding path
+        # read as full coverage.
+        if _embedding_skipped:
+            print("BackstoryGraphService tests passed (graph ops only, embeddings unavailable: %s)" % _embedding_reason)
+        else:
+            print("BackstoryGraphService tests passed (graph ops and embeddings)")
     return ok
 
 func _assert(condition: bool, message: String) -> bool:

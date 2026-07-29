@@ -1,7 +1,7 @@
 class_name LAMainMenu
 extends Control
 
-## LAMainMenu — the game's title screen and front door. Seven actions, top to bottom:
+## LAMainMenu: the game's title screen and front door. Seven actions, top to bottom:
 ##   New campaign · Continue · Sandbox · Settings · Help · Credits · Quit.
 ##
 ## "New campaign" and "Sandbox" both launch the SAME sim scene (VoxelWorld.tscn) via
@@ -14,7 +14,7 @@ extends Control
 ## The UI is built in code to match the in-sim pause menu / view-controls styling (see LAMenuStyle).
 ## Fully keyboard-navigable: the first button grabs focus and arrow keys/Tab move between buttons.
 ## Dev shortcut: pass `--sim` (or `--sandbox` / `--campaign`) as a user arg to boot straight past the
-## menu into the sim. (Explicit types only — no ':=' inferred typing.)
+## menu into the sim. (Explicit types only, no ':=' inferred typing.)
 
 const WORLD_SCENE: String = "res://addons/local_agents/game/VoxelWorld.tscn"
 const SETTINGS_SCENE: String = "res://addons/local_agents/game/menu/SettingsMenu.tscn"
@@ -148,7 +148,7 @@ func _on_sandbox() -> void:
 
 
 ## Open the in-game model manager as a full-screen overlay on top of the menu (no scene switch, so Back
-## just frees it). Reuses LocalAgentModelManagerPanel.open(); a Close button dismisses the overlay.
+## just frees it). Reuses LAModelManagerPanel.open(); a Close button dismisses the overlay.
 func _on_models() -> void:
 	var overlay: Control = Control.new()
 	overlay.name = "ModelManagerOverlay"

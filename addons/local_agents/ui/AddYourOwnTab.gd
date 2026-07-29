@@ -1,5 +1,5 @@
 extends VBoxContainer
-class_name LocalAgentAddYourOwnTab
+class_name LAAddYourOwnTab
 
 # "Add your own" tab of the model manager.
 #
@@ -14,7 +14,7 @@ signal active_model_changed(path: String)
 signal registry_changed()
 
 var _store: LocalAgentModelSettingsStore = null
-var _download_manager: LocalAgentModelDownloadManager = null
+var _download_manager: LAModelDownloadManager = null
 
 var _browse_dialog: FileDialog = null
 var _folder_dialog: FileDialog = null
@@ -267,9 +267,9 @@ func _on_repo_download_pressed() -> void:
 		_download_status.text = "Could not start download (offline or invalid input)."
 
 func _on_download_progress(_model_id: String, received: int, total: int, speed: float, eta: float) -> void:
-	var received_text: String = LocalAgentModelDownloadManager.format_bytes(received)
-	var total_text: String = LocalAgentModelDownloadManager.format_bytes(total) if total > 0 else "?"
-	_download_status.text = "%s / %s · %s · %s" % [received_text, total_text, LocalAgentModelDownloadManager.format_speed(speed), LocalAgentModelDownloadManager.format_eta(eta)]
+	var received_text: String = LAModelDownloadManager.format_bytes(received)
+	var total_text: String = LAModelDownloadManager.format_bytes(total) if total > 0 else "?"
+	_download_status.text = "%s / %s · %s · %s" % [received_text, total_text, LAModelDownloadManager.format_speed(speed), LAModelDownloadManager.format_eta(eta)]
 
 func _on_download_finished(_model_id: String, ok: bool, path: String, error: String) -> void:
 	_download_button.disabled = false

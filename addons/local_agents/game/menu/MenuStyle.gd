@@ -1,10 +1,10 @@
 class_name LAMenuStyle
 extends RefCounted
 
-## LAMenuStyle — shared look for the front-end menus (main / settings / help), so all three read as one
+## LAMenuStyle: shared look for the front-end menus (main / settings / help), so all three read as one
 ## system and match the in-sim pause menu / view-controls palette (the same deep-blue panel + light-blue
 ## accent). Pure static builders; no state. Keeps each menu script free of duplicated stylebox setup.
-## (Explicit types only — no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 const OVERLAY_BG: Color = Color(0.02, 0.03, 0.06, 1.0)
 const PANEL_BG: Color = Color(0.06, 0.08, 0.12, 0.96)

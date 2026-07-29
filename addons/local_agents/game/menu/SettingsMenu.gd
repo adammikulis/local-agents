@@ -1,22 +1,22 @@
 class_name LASettingsMenu
 extends Control
 
-## LASettingsMenu — the settings screen. It edits the live LAGameSettings held on the GameMode autoload, in
+## LASettingsMenu: the settings screen. It edits the live LAGameSettings held on the GameMode autoload, in
 ## four groups, keeping the two performance categories SEPARATE:
 ##   - Difficulty       : a Peaceful / Normal / Harsh preset row (seeds the two knobs below) plus the two
-##                        continuous sliders — disaster frequency and climate harshness (gameplay, not perf).
-##   - Graphics (GPU)   : a Potato / Low / Medium / High / Ultra preset row plus the individual GPU knobs —
+##                        continuous sliders: disaster frequency and climate harshness (gameplay, not perf).
+##   - Graphics (GPU)   : a Potato / Low / Medium / High / Ultra preset row plus the individual GPU knobs for
 ##                        field resolution, effects density, shadows, ambient occlusion, glow, ocean quality,
 ##                        fog, vegetation density and draw distance. Owned by LAGraphicsSettingsSection.
-##   - Simulation / AI  : a SEPARATE Low / Medium / High / Ultra preset row plus the CPU knobs — population
+##   - Simulation / AI  : a SEPARATE Low / Medium / High / Ultra preset row plus the CPU knobs for population
 ##                        budget, AI tick rate, LLM cadence and field cadence. Owned by LASimSettingsSection.
 ##   - Audio            : master / music / sfx volume sliders (linear 0..1).
 ##
 ## "Save" persists the resource to user:// (ConfigFile) AND calls GameMode.apply(settings) to broadcast it on
-## the settings_applied signal — LAVoxelSettingsApplier consumes that to push the knobs into the field / spawn
+## the settings_applied signal, and LAVoxelSettingsApplier consumes that to push the knobs into the field / spawn
 ## / render systems. "Back" returns to the main menu. Built in code to match the shared menu styling
 ## (LAMenuStyle) and the shared control builders (LASettingsWidgets); keyboard-navigable. (Explicit types
-## only — no ':=' inferred typing.)
+## only, no ':=' inferred typing.)
 
 const MAIN_MENU_SCENE: String = "res://addons/local_agents/game/menu/MainMenu.tscn"
 const ModelManagerPanelScript: GDScript = preload("res://addons/local_agents/ui/ModelManagerPanel.gd")

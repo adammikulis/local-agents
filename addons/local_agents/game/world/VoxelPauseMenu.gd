@@ -1,12 +1,12 @@
 class_name LAVoxelPauseMenu
 extends CanvasLayer
 
-## LAVoxelPauseMenu — the Esc pause menu. Esc opens it from ANY state and PAUSES the sim
+## LAVoxelPauseMenu: the Esc pause menu. Esc opens it from ANY state and PAUSES the sim
 ## (get_tree().paused); Esc again or the Resume button closes it and unpauses; Quit exits. Built in code
 ## (no .tscn) as a self-contained CanvasLayer so the input controller can host it with one add_child. The
 ## layer runs PROCESS_MODE_ALWAYS so its buttons + Esc still work while the tree is paused. It also carries
-## the optional in-menu fast-forward control (Contract 10) — the speed row sets Engine.time_scale so the
-## sim runs N steps per render frame. (Explicit types only — no ':=' inferred typing.)
+## the optional in-menu fast-forward control (Contract 10), where the speed row sets Engine.time_scale so the
+## sim runs N steps per render frame. (Explicit types only, no ':=' inferred typing.)
 
 const OVERLAY_DIM: Color = Color(0.0, 0.0, 0.02, 0.62)
 const PANEL_BG: Color = Color(0.06, 0.08, 0.12, 0.96)

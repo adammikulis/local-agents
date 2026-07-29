@@ -1,27 +1,27 @@
 class_name LAVoxelSettingsApplier
 extends Node
 
-## LAVoxelSettingsApplier — the ONE bridge from the front-end LAGameSettings (carried on the GameMode
+## LAVoxelSettingsApplier: the ONE bridge from the front-end LAGameSettings (carried on the GameMode
 ## autoload) into the live simulation. VoxelWorld stays a thin composition root; this module owns the
 ## whole "apply the player's settings" concern so no application logic accretes into the hub.
 ##
 ## It reads GameMode.settings on boot and resolves them into concrete sim knobs:
-##   • quality → grid_resolution : the cubed-sphere field's per-face cell resolution (build-time — read
+##   • quality → grid_resolution : the cubed-sphere field's per-face cell resolution (build-time, read
 ##     BEFORE the field is built) so a Low preset runs a smaller grid on weak GPUs.
 ##   • quality → actor_budget    : a spawn-count scale the initial-spawn controller multiplies its base
 ##     counts by (fewer actors on Low, more on High).
 ##   • quality → effects_level   : a particle-density scale pushed to the atmosphere particle system.
 ##   • difficulty → disaster_frequency : the cadence of an AMBIENT natural-events director that SEEDS the
 ##     existing VoxelDisasters casts (storm / tornado / hurricane / volcano) as RARE special events. It
-##     invents no new physics — the disaster actors are seeds/markers/visuals and the field carries the
+##     invents no new physics. The disaster actors are seeds/markers/visuals and the field carries the
 ##     phenomena; this only decides how often a seed is dropped, scaled by the difficulty. Lightning is NOT
-##     seeded here — it is fully emergent from the field's charge physics under a real storm.
+##     seeded here, because it is fully emergent from the field's charge physics under a real storm.
 ##   • difficulty → climate_harshness : biases WHICH disaster the director seeds (mild → storm seed;
 ##     extreme → volcano / hurricane / tornado).
 ##
 ## Grid resolution + spawn counts can only take effect at world build, so VoxelWorld/SpawnController QUERY
 ## the resolved values here before building; audio volumes are applied by LAVoxelAudioController; cadence
-## and effects apply live and re-apply on GameMode.settings_applied. (Explicit types only — no ':=' .)
+## and effects apply live and re-apply on GameMode.settings_applied. (Explicit types only, no ':=' inferred typing.)
 
 ## Quality grid_resolution (48/96/128) maps to the field's per-face cell resolution. Medium (96) keeps the
 ## historical 32 cells/face, so 96/3 == 32 is the pivot; Low → 16, High → ~43.

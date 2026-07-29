@@ -1,26 +1,26 @@
 class_name LACampaignTutorial
 extends Node
 
-## LACampaignTutorial — the first-run campaign intro. It scripts the guided tour that teaches the core
+## LACampaignTutorial: the first-run campaign intro. It scripts the guided tour that teaches the core
 ## caretaker loop the moment a player starts a CAMPAIGN, built ENTIRELY on the reusable tutorial system
 ## (LATutorialSequencer + LATutorialHighlightOverlay + LocalAgentTutorialStep). This file owns NO tutorial
-## mechanics — it only authors a data-defined step list, resolves each step's highlight target to a live
+## mechanics. It only authors a data-defined step list, resolves each step's highlight target to a live
 ## Control, and hands the list to the sequencer. Wired into VoxelWorld with one add_child + setup line.
 ##
 ## Rules it honours:
-##   - CAMPAIGN ONLY — never runs in Sandbox (queries the progression's mode).
-##   - FIRST RUN ONLY — keyed to the sequencer's persisted "seen" flag (user://tutorial_state.cfg); once
+##   - CAMPAIGN ONLY: never runs in Sandbox (queries the progression's mode).
+##   - FIRST RUN ONLY: keyed to the sequencer's persisted "seen" flag (user://tutorial_state.cfg); once
 ##     finished OR skipped it marks itself done, so a second campaign launch skips straight past it.
-##   - SKIPPABLE — the overlay's Skip button ends it (and marks it seen).
+##   - SKIPPABLE: the overlay's Skip button ends it (and marks it seen).
 ##   - Keys come from LAHotkeyRegistry (the one source of truth), never hardcoded, so the copy always
 ##     names the real bindings.
 ##
 ## Verification hooks (parsed from the shared -- user args, matching the repo convention):
 ##   --tutorial-auto        walk every step to the end by pressing Next on a cooldown (proves stepping;
 ##                          prints TUTORIAL_STEP=<i> per step and TUTORIAL_DONE on finish).
-##   --shoot=<png>          (VoxelWorld owns the capture) — the tutorial advances to a spotlight step and
+##   --shoot=<png>          (VoxelWorld owns the capture). The tutorial advances to a spotlight step and
 ##                          HOLDS there so the screenshot shows a callout + spotlight, not the intro card.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 const OverlayScript: GDScript = preload("res://addons/local_agents/ui/tutorial/TutorialHighlightOverlay.gd")
 const SequencerScript: GDScript = preload("res://addons/local_agents/ui/tutorial/TutorialSequencer.gd")
@@ -169,8 +169,8 @@ func _build_steps() -> Array[LocalAgentTutorialStep]:
 
 	# 0 — Welcome. Sets the caretaker frame + the local-first identity. Centred card, advance on Next.
 	steps.append(StepScript.message(
-		"You tend a whole living world — its creatures think and choose for themselves, on this device, "
-		+ "offline. Let's walk through the basics.",
+		"You tend a whole living world, and its creatures think and choose for themselves, on this "
+		+ "device, offline. Let's walk through the basics.",
 		"Welcome, caretaker"))
 
 	# 1 — Look around. Spotlight the view-controls bar; advance on Next (looking has no single event).
@@ -193,8 +193,8 @@ func _build_steps() -> Array[LocalAgentTutorialStep]:
 
 	# 3 — Meet a mind. No spotlight (they click a creature in the world); advance on the selection signal.
 	var mind: LocalAgentTutorialStep = StepScript.message(
-		"Click any creature to open its mind — its last decision and why. Every one of them is thinking "
-		+ "on your device, offline. Try it now.",
+		"Click any creature to open its mind, where you see its last decision and why it made it. Every "
+		+ "one of them is thinking on your device, offline. Try it now.",
 		"Meet a mind")
 	mind.advance = LocalAgentTutorialStep.Advance.SIGNAL
 	mind.signal_source = _interaction
@@ -203,19 +203,19 @@ func _build_steps() -> Array[LocalAgentTutorialStep]:
 
 	# 4 — Your goal. Spotlight the objective panel; fold in the live first objective. Advance on Next.
 	var goal: LocalAgentTutorialStep = _control_step(_objective_panel(),
-		"Your aim as caretaker: %s. Track your progress here — meeting it earns you more to work with." % _objective_text(),
+		"Your aim as caretaker: %s. Track your progress here. Meeting it earns you more to work with." % _objective_text(),
 		"Your goal")
 	goal.advance = LocalAgentTutorialStep.Advance.NEXT_BUTTON
 	steps.append(goal)
 
 	# 5 — Speed it up. The fast-forward lives in the pause menu; name the real key.
 	steps.append(StepScript.message(
-		"Life takes time. Press %s for the menu and pick a faster time speed — watch a herd grow in seconds." % _key("select_cursor"),
+		"Life takes time. Press %s for the menu and pick a faster time speed, then watch a herd grow in seconds." % _key("select_cursor"),
 		"Speed it up"))
 
 	# 6 — Trouble comes. Nothing is scripted: name the physics the disasters fall out of.
 	steps.append(StepScript.message(
-		"Storms, quakes, floods and eruptions are never scripted — they emerge from the same physics as "
+		"Storms, quakes, floods and eruptions are never scripted. They emerge from the same physics as "
 		+ "everything else: heat, pressure and water finding their level. Keep your herd out of harm's way.",
 		"Trouble comes"))
 

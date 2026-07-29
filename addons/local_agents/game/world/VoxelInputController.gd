@@ -22,7 +22,7 @@ const BENCH_TIMELINES: Dictionary = {
 ## auto-demo firing (meteor/volcano/seavolcano/stamp-test/lightning/storm/select), and is the host point
 ## for an in-game pause (Esc) menu. Factored out of LAVoxelWorld so the "input / Esc menu" concern is one
 ## file. parse_cmdline() runs first (its seeds feed the sky), then bind() wires the scene refs the demo
-## hooks fire through, then update() is ticked each frame. (Explicit types only — no ':=' inferred typing.)
+## hooks fire through, then update() is ticked each frame. (Explicit types only, no ':=' inferred typing.)
 
 # --- Scene refs the demo hooks fire through (wired via bind()) ---
 var _terrain = null
@@ -155,8 +155,11 @@ func parse_cmdline() -> void:
 			_shoot_path = arg.substr("--shoot=".length())
 		elif arg.begins_with("--shoot-frames="):
 			_shoot_frames = int(arg.substr("--shoot-frames=".length()))
-		elif arg.begins_with("--run-frames="):
-			_run_frames = int(arg.substr("--run-frames=".length()))
+		elif arg.begins_with(LocalAgentDemoHarness.ARG_RUN_FRAMES):
+			# One owner for this flag's spelling. This scene cannot use LocalAgentDemoHarness itself,
+			# because it also needs --perf-frames, the --bench timelines and the framerate uncap below,
+			# but the flag it shares with every demo is parsed by the same code they use.
+			_run_frames = LocalAgentDemoHarness.parse_run_frames(_run_frames)
 		elif arg.begins_with("--perf-frames="):
 			# Perf-bench path: run N frames, then average fps + GPU render-time over a trailing window and emit a
 			# single PERF={...} line before quitting. Distinct from --run-frames (which prints the full SIM_REPORT):

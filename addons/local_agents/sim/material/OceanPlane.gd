@@ -1,11 +1,11 @@
 class_name LAOceanPlane
 extends MeshInstance3D
 
-## LAOceanPlane — the planet sea, drawn as ONE fixed spherical shell of radius `sea_radius` centred on
+## LAOceanPlane: the planet sea, drawn as ONE fixed spherical shell of radius `sea_radius` centred on
 ## the planet. Land above the shell pokes out; the sea floor below sits submerged. A static shell: no
-## camera follow and no per-frame wave/ripple upload — the planet's real (radial) normals are kept and lit
+## camera follow and no per-frame wave/ripple upload. The planet's real (radial) normals are kept and lit
 ## by a simple translucent water material.
-## (Explicit types only — no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 # SphereMesh radial/ring resolution — high enough to read smooth at planet scale.
 const SPHERE_RADIAL_SEGMENTS: int = 96

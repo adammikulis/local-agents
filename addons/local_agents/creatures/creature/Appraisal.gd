@@ -1,18 +1,18 @@
 class_name LAAppraisal
 extends RefCounted
 
-## LAAppraisal — the ONE valuator. "What is this worth to me right now?" is the single question behind
+## LAAppraisal: the ONE valuator. "What is this worth to me right now?" is the single question behind
 ## dominance contests, mate choice, and (as they migrate here) food/threat assessment. Keeping it in one
 ## place means those decisions share one honest, phenotype-driven scoring rule instead of three bespoke ones.
 ##
 ## EMERGENT-EVERYTHING: nothing here is per-species. A creature's DOMINANCE is a weighted sum of its real,
-## observable phenotype — size, condition, age/experience, and (in males) ornamental DISPLAY — with the
-## weights supplied by species CONFIG (`dominance_traits`), not code. Wolves weight size, deer/birds weight
+## observable phenotype: size, condition, age/experience, and (in males) ornamental DISPLAY. The
+## weights are supplied by species CONFIG (`dominance_traits`), not code. Wolves weight size, deer/birds weight
 ## display, villagers weight age+experience: same function, different config. Rank is never assigned; it
 ## falls out of who out-scores whom, and mate choice falls out of females valuing the same signal.
 ##
 ## Static + dependency-free of the LocalAgentCreature type (dynamic `.get()` access), like the other LocalAgentCreature*
-## helpers. (Explicit types only — no ':=' inferred typing.)
+## helpers. (Explicit types only, no ':=' inferred typing.)
 
 # Default dominance weights — a well-rounded contender: biggest · best-conditioned · eldest/most-experienced,
 # with display neutral by default (species that court on ornament raise it via `dominance_traits`). These

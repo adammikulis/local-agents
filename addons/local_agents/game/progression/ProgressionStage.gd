@@ -1,7 +1,7 @@
 class_name LAProgressionStage
 extends Resource
 
-## One rung of the campaign ladder — a pure data record (no per-stage logic). An objective is a single
+## One rung of the campaign ladder, a pure data record (no per-stage logic). An objective is a single
 ## numeric read from the live telemetry snapshot (LASimReport.snapshot()) compared against a threshold,
 ## optionally required to hold for `hold_seconds`; completing it grants `unlocks` (capability ids) and, when
 ## `zoom_mult` is positive, raises the camera's orbit max-distance ceiling to that multiple of the planet
@@ -13,7 +13,7 @@ extends Resource
 ##   "phenomena_tracked"      -> snapshot["phenomena_tracked"]
 ##   "gauges/followers/max"   -> snapshot["gauges"]["followers"]["max"]  (a running-peak gauge)
 ## Anything missing resolves to 0.0, so an unwired metric simply never completes rather than erroring.
-## (Explicit types only — no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 @export var id: String = ""
 @export var title: String = ""

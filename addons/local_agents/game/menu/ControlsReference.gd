@@ -1,11 +1,11 @@
 class_name LAControlsReference
 extends RefCounted
 
-## LAControlsReference — the controls screen, built entirely from LAHotkeyRegistry.hotkey_map() (the ONE
+## LAControlsReference: the controls screen, built entirely from LAHotkeyRegistry.hotkey_map() (the ONE
 ## source of truth for the sim's key bindings) grouped by category, so it can never drift from the keys the
 ## input router actually reads. Pure static builder returning a scrollable Control; reused by BOTH the
 ## main-menu Help screen and the in-sim pause menu's "Controls & help" overlay, so there is exactly one
-## controls list in the codebase. No state, no second hardcoded table. (Explicit types only — no ':=' .)
+## controls list in the codebase. No state, no second hardcoded table. (Explicit types only, no ':=' inferred typing.)
 
 const ACCENT: Color = Color(0.55, 0.72, 1.0)
 const TEXT: Color = Color(0.90, 0.92, 0.95)

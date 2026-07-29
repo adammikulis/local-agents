@@ -81,8 +81,9 @@ If either one is missing the plugin tells you which, and what to do about it.
 
 ## What you get in the editor
 
-Once the plugin is enabled, these show up in Add Node (press A in the scene tree) and in the Create
-Resource dialog. Type "LocalAgent" to filter to them.
+Once the plugin is enabled, these show up in Add Node and in the Create Resource dialog. To reach Add
+Node, right-click a node in the Scene dock and click Add Child Node. Type "LocalAgent" to filter to
+them.
 
 ![The nodes the plugin adds](addons/local_agents/docs/img/nodes.svg)
 
@@ -112,9 +113,12 @@ think_async() runs the model on a worker thread and gives you the result back on
 the game keeps drawing while it generates. There is a blocking think() as well, but it freezes the
 frame until the model finishes, so save that for tools and tests.
 
-Call say(text) to speak a line out loud and listen() to transcribe the microphone. To have the model
-drive behaviour instead of producing text, connect its action_requested(action, params) signal and
-decide in your own code what each action does.
+Call speak(text) to say a line out loud through Piper. transcribe(path) turns an audio file into text through
+whisper, and it needs the native runtime. Neither one records audio, so capturing a microphone is
+still your job.
+
+To have the model drive behaviour instead of producing text, connect its action_requested(action,
+params) signal and decide in your own code what each action does.
 
 ## Examples
 
@@ -146,8 +150,11 @@ scripts/run_sim_offscreen.sh --path . addons/local_agents/game/VoxelWorld.tscn -
 godot addons/local_agents/game/VoxelWorld.tscn -- --shoot=/tmp/shot.png --overview
 ```
 
-If you only want the agent library and not the game, delete `addons/local_agents/game/`. See
-[docs/USAGE.md](docs/USAGE.md) for what is reusable and what is not.
+If you only want the agent library, delete `addons/local_agents/game/`. Nothing outside it points in,
+and `scripts/agent_harness.sh lint` proves that on every run by staging a game-free copy and
+force-loading every script in it. See
+[addons/local_agents/docs/USAGE.md](addons/local_agents/docs/USAGE.md) for what else the library
+boundary does and does not cover.
 
 ## Tests
 
@@ -163,8 +170,9 @@ Godot says a class is missing, run `godot --headless --editor --quit-after 400` 
 
 ## More reading
 
-[docs/USAGE.md](docs/USAGE.md) covers using the library in your own project, the two adapter
-contracts the creature behaviour talks through, and how to add a new species with a JSON file.
+[addons/local_agents/docs/USAGE.md](addons/local_agents/docs/USAGE.md) covers using the library in
+your own project, the two adapter contracts the creature behaviour talks through, and how to add a
+new species with a JSON file.
 
 [addons/local_agents/sim/EMERGENCE.md](addons/local_agents/sim/EMERGENCE.md) explains the rule the
 simulation is built on: behaviour comes from simple local rules interacting, never from scripted

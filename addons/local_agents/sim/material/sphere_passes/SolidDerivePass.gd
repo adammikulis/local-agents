@@ -7,7 +7,7 @@ extends RefCounted
 ## (the old seed→never-readback divergence). Every downstream `solid == 0.0` reader is unchanged.
 ##
 ## `solid` and `rock_fill` are both SINGLE (non-ping-pong) buffers, so there is one uniform set (no parity).
-## Kernel binding -> bufs-key: 0 RockFill=rock_fill · 1 Solid=solid. Push { uint cell_count; 3x pad } — 16 bytes.
+## Kernel binding -> bufs-key: 0 RockFill=rock_fill · 1 Solid=solid. Push { uint cell_count; 3x pad }, 16 bytes.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/solid_derive_sphere3d.glsl"
 

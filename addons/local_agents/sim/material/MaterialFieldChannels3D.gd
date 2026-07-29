@@ -1,21 +1,21 @@
 class_name LAMaterialFieldChannels3D
 extends RefCounted
 
-## LAMaterialFieldChannels3D — the per-cell CHANNEL accessors of LAMaterialField3D (the atmospheric gases,
+## LAMaterialFieldChannels3D: the per-cell CHANNEL accessors of LAMaterialField3D (the atmospheric gases,
 ## living biomass, the decomposer's detritus deposit, and the phase-channel debug reads), factored out of the
 ## extract-only field hub. Same pattern as the query / atmos / ledger / scent modules: no state of its own, it
 ## reaches into the owning field `_f` for the shared per-cell arrays and geometry.
 ##
-## Everything here is a TRUE-3D world-point read of a channel the GPU owns and reads back — no 2.5D column
+## Everything here is a TRUE-3D world-point read of a channel the GPU owns and reads back, with no 2.5D column
 ## walk, no per-species special case. The two that carry real rules are:
 ##   - breathable_o2_at: air is displaced by water (a lung drowns) and rock holds none, but a ground-standing
-##     creature whose head cell QUANTISES into the surface rock is not buried — step radially outward to the
+##     creature whose head cell QUANTISES into the surface rock is not buried, so step radially outward to the
 ##     first open cell. Drowning + smoke suffocation stay 0; only a truly encased creature reads 0.
-##   - is_submerged_at: the same cell test inverted — what a gill-breather needs.
+##   - is_submerged_at: the same cell test inverted, which is what a gill-breather needs.
 ## Both fall straight out of the substrate, which is why lungs/gills need no can_fly or depth_at branch.
 ##
-## Demand-gated channels (co2, lava) self-wake their readback via `_f._gpu.request_channel(...)` on query —
-## there is no producer-side event to hook them to. (Explicit types only — no ':=' inferred typing.)
+## Demand-gated channels (co2, lava) self-wake their readback via `_f._gpu.request_channel(...)` on query, because
+## there is no producer-side event to hook them to. (Explicit types only, no ':=' inferred typing.)
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 

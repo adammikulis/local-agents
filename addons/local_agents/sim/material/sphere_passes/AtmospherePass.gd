@@ -1,9 +1,9 @@
 extends RefCounted
 
-## CUBED-SPHERE ATMOSPHERE PASS — the emergent water cycle on ONE conserved `moisture` channel.
+## CUBED-SPHERE ATMOSPHERE PASS: the emergent water cycle on ONE conserved `moisture` channel.
 ##
 ## Phase 2a collapsed the three separate atmospheric water channels vapor/cloud/fog into a SINGLE conserved
-## `moisture` (total water suspended in a cell's air). cloud/fog/vapor are no longer stored — they are
+## `moisture` (total water suspended in a cell's air). cloud/fog/vapor are no longer stored. They are
 ## DERIVED at read time from `moisture` vs `sat(T)` (see MaterialField3D._condensed_at). So condensation,
 ## re-evaporation and cloud-decay disappear as discrete steps; the only real mass transfers left are:
 ##   EVAP(+BOIL): water -> moisture (conserving; debits DYNAMIC water, static sea is an infinite reservoir)
@@ -12,10 +12,10 @@ extends RefCounted
 ## plus one conservative TRANSPORT of moisture (diffuse / buoyant rise / wind).
 ##
 ## PLUGIN CONTRACT
-##   setup(rd, bufs, cc)  — load 4 shaders/pipelines, allocate the rain scratch (+ a zeroed boil scratch the
+##   setup(rd, bufs, cc):   load 4 shaders/pipelines, allocate the rain scratch (+ a zeroed boil scratch the
 ##                          unchanged rain gather still reads), and build 2 uniform sets per kernel (one per
 ##                          parity p; PAIR channel bindings use live=[p]/back=[1-p]).
-##   dispatch(rd, cl, parity, ctx, cc, groups) — record the four stages into the driver's compute list.
+##   dispatch(rd, cl, parity, ctx, cc, groups): record the four stages into the driver's compute list.
 ##                          ctx: ctx["wind"] (Vector2 prevailing), ctx["dt"] (default 0.1),
 ##                          ctx["cell_size"] (default 5.0, folded with dt+wind_gain into the transport wdt).
 ##

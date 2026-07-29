@@ -52,7 +52,7 @@ text = "Two agents converse, and the conversation is the memory"
 [node name="Hint" type="Label" parent="Margin/Column"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.7, 0.74, 0.8, 1)
-text = "The LocalAgentConversation node holds the cast, the topic and the offline lines — select it to change any of them. Every utterance becomes a node in its memory graph, chained by a \"then\" edge."
+text = "The LocalAgentConversation node holds the cast, the topic and the offline lines, so select it to change any of them. Every utterance becomes a node in its memory graph, chained by a \"then\" edge."
 autowrap_mode = 3
 
 [node name="SetupStatus" type="Label" parent="Margin/Column"]
@@ -77,6 +77,13 @@ text = "Reset"
 unique_name_in_owner = true
 layout_mode = 2
 text = "Memory graph: 0 nodes, 0 edges"
+autowrap_mode = 3
+
+[node name="LastRecordedLabel" type="Label" parent="Margin/Column"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.74, 0.8, 1)
+text = "Last recorded: -"
 autowrap_mode = 3
 
 [node name="Transcript" type="RichTextLabel" parent="Margin/Column"]

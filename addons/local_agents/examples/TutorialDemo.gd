@@ -5,13 +5,13 @@ extends Control
 ## them in turn ("click this", "now this"). Needs no model, no runtime and no voxel sim.
 ##
 ## Everything you would configure lives in TutorialDemo.tscn: the buttons, the overlay, the sequencer
-## and — the part worth copying — the `steps` themselves, authored as LocalAgentTutorialStep
-## sub-resources you can edit in the inspector. Select the root node, open Steps, and each step's
+## and the `steps` themselves, authored as LocalAgentTutorialStep sub-resources you can edit in the
+## inspector. The steps are the part worth copying. Select the root node, open Steps, and each step's
 ## text, title and target button are right there. This file only does what a game would still have to
 ## do by hand: hand the list to the sequencer and react to a button being pressed.
 ##
 ## The version this replaced built the background, the labels, the VBox and all four buttons in
-## `_ready()` from a const array, then aimed its steps at NodePath("Buttons/Spawn") — a path into a
+## `_ready()` from a const array, then aimed its steps at NodePath("Buttons/Spawn"), a path into a
 ## tree that existed only after that build ran. Opening the scene in the editor showed one empty
 ## Control.
 ##
@@ -20,7 +20,7 @@ extends Control
 ##                           TUTORIAL_DONE and DEMO_REPORT, then quit (proves the advance wiring).
 ##   -- --shoot=<png>        capture a frame with the spotlight resting on a button, then quit.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only. The project rule bans ':=' inferred typing.)
 
 ## The guided tour, in order. Authored as sub-resources in TutorialDemo.tscn.
 @export var steps: Array[LocalAgentTutorialStep] = []
@@ -30,7 +30,7 @@ extends Control
 
 @export_group("Headless auto-drive")
 ## Frames the spotlight is left resting on a button before the headless auto-driver presses it.
-## Interactive runs never use this — `--run-frames` is what arms the driver.
+## Interactive runs never use this. `--run-frames` is what arms the driver.
 @export_range(0, 240, 1, "suffix:frames") var press_cooldown_frames: int = 6
 
 @onready var _overlay: LATutorialHighlightOverlay = %HighlightOverlay

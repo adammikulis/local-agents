@@ -1,7 +1,7 @@
 class_name LAVoxelSpawnController
 extends Node
 
-## LAVoxelSpawnController — owns the INITIAL ecology/actor spawning: the "terrain ready" gate, the starting
+## LAVoxelSpawnController owns the INITIAL ecology/actor spawning: the "terrain ready" gate, the starting
 ## counts, forest/rock population, aquatic stocking, the geothermal core seed, and the persistent river
 ## springs (seed_water). Factored out of LAVoxelWorld so the "more actors / forests" concern is one file.
 ## The world composition root ticks try_spawn() each frame until the surface has meshed. (Explicit types.)
@@ -138,7 +138,7 @@ func try_spawn(_overview: bool, _farview: bool, _auto_meteor: bool, _auto_select
 		_material.add_magma_source(_body.center(), 1300.0, 0.6)
 	_seed_diseases()
 	_spawned_initial = true
-	_hud.set_status("World ready — spawn things, click to inspect, press V for scent.")
+	_hud.set_status("World ready. Spawn things, click to inspect, press V for scent.")
 
 
 # Seed a few PATIENT-ZERO infections so outbreaks are part of the living world (they then spread, cull, and

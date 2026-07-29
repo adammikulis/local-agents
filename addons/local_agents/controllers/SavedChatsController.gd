@@ -1,6 +1,6 @@
 @tool
 extends Control
-class_name LocalAgentSavedChatsController
+class_name LASavedChatsController
 
 signal conversation_selected(conversation_id)
 signal conversation_deleted(conversation_id)

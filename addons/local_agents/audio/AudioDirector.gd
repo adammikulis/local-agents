@@ -1,13 +1,13 @@
 @tool
 extends Node
-class_name LocalAgentAudioDirector
+class_name LAAudioDirector
 
 ## Presentation-layer composition root for all procedural audio.
 ##
 ## Owns the swappable synth voice, the SFX bank + voice pool, and the generative
 ## MusicDirector. Sim/actor code reaches it via the "local_agents_audio" group and
 ## calls `play_sfx(...)`; VoxelWorld feeds `set_music_mood(...)` each frame.
-## It never reads or writes simulation-authoritative state — it only reacts.
+## It never reads or writes simulation-authoritative state. It only reacts.
 
 const GdScriptSynthVoice := preload("res://addons/local_agents/audio/synth/GdScriptSynthVoice.gd")
 const SfxBank := preload("res://addons/local_agents/audio/SfxBank.gd")
@@ -23,8 +23,8 @@ const DEFAULT_SAMPLE_RATE := 44100
 
 var _voice: LocalAgentSynthVoice = null
 var _sfx: LocalAgentSfxBank = null
-var _pool: LocalAgentAudioVoicePool = null
-var _music: LocalAgentMusicDirector = null
+var _pool: LAAudioVoicePool = null
+var _music: LAMusicDirector = null
 var _jitter := RandomNumberGenerator.new()
 
 func _ready() -> void:
@@ -86,7 +86,7 @@ func play_sfx(key: String, world_position: Variant = null, volume_db: float = 0.
 	return _pool.play_nonpositional(stream, pitch, vol, &"Ui", key)
 
 ## Register/override a custom SFX preset (see SynthPresets for the field shape).
-func register_sfx(key: String, params: LocalAgentSynthVoiceParamsResource) -> void:
+func register_sfx(key: String, params: LASynthVoiceParams) -> void:
 	if _sfx != null:
 		_sfx.register(key, params)
 

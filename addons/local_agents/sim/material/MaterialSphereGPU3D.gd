@@ -8,7 +8,7 @@ extends RefCounted
 ## (sphere_passes/*.gd) that each wire their kernels via that dict. Passes are authored independently; the
 ## driver owns buffer allocation, parity, ctx, dispatch ordering, and readback.
 ##
-## PING-PONG PHASE (NOT CPU parity — there is no CPU oracle). `_phase` ∈ {0,1} selects which half of each
+## PING-PONG PHASE (NOT CPU parity, since there is no CPU oracle). `_phase` ∈ {0,1} selects which half of each
 ## double-buffered PAIR channel is the read/"live" half (`bufs[k][_phase]`) vs the write/"back" half
 ## (`bufs[k][1-_phase]`) within a step. One flip per step. Passes are dispatched in DATA-FLOW ORDER so a
 ## channel written to "back" by an earlier pass is read from "back" by a later one (per-pass submit+sync makes
@@ -19,7 +19,7 @@ extends RefCounted
 ##   temp/water/o2/co2/moisture back + fungus live; folds gas sky-exchange/vent + fungus decompose as records)
 ##   → FireDust (reads temp/water back) → EcoSurface.
 ## Remaining cross-pass clashes (o2/co2/fire/fungus in-place-on-live reads, snow meltwater into live water) are
-## one-step coupling-fidelity lags, NOT crashes — acceptable under perf-over-parity; tighten later if needed.
+## one-step coupling-fidelity lags, NOT crashes, and acceptable under perf-over-parity; tighten later if needed.
 
 # Ping-pong (double-buffered) channels — one _a/_b pair each.
 # `activity` is the Keystone-C wake-bubble channel (ActivityPass; see activity_sphere3d.glsl) — not a physical

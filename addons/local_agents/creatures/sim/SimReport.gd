@@ -1,19 +1,19 @@
 class_name LASimReport
 extends RefCounted
 
-## Central sim telemetry — the ONE place everything reports to, replacing scattered one-off tallies (a static
+## Central sim telemetry: the ONE place everything reports to, replacing scattered one-off tallies (a static
 ## death dict on Creature, HERD_DEBUG/BREATH_DBG prints, …) and the brittle hand-synced SMOKE_SUMMARY string.
 ##
 ## Three ways in, one way out:
-##   • event(kind, tags)  — record that something HAPPENED (a death, birth, ignition, bolt). Auto-tallies the
+##   • event(kind, tags):   record that something HAPPENED (a death, birth, ignition, bolt). Auto-tallies the
 ##                          bare kind AND a per-tag breakdown, so "how many rabbits drowned" is free.
-##   • gauge(name, value) — record a current metric; tracks running min/max (free peak tracking).
-##   • register(provider) — a subsystem hands over a `func() -> Dictionary` of its aggregates, polled only
+##   • gauge(name, value):  record a current metric; tracks running min/max (free peak tracking).
+##   • register(provider):  a subsystem hands over a `func() -> Dictionary` of its aggregates, polled only
 ##                          when a snapshot is taken (so heavy grid scans don't run per frame).
-##   snapshot()/emit()    — merge it all into one structured dict; emit() prints `SIM_REPORT={…}`.
+##   snapshot()/emit():     merge it all into one structured dict; emit() prints `SIM_REPORT={…}`.
 ##
 ## All STATIC so any node reports without needing a reference. A live HUD / the streamer can read snapshot()
-## too — one source of truth for headless smoke, on-screen debug, and commentary. (Explicit types only.)
+## too, so there is one source of truth for headless smoke, on-screen debug, and commentary. (Explicit types only.)
 
 static var _events: Dictionary = {}       # tally: key -> count (bare kind + per-tag breakdowns)
 static var _gauges: Dictionary = {}       # name -> {"cur","min","max"}

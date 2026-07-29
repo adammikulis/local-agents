@@ -146,7 +146,7 @@ var _progression: LAGameProgression = null      # campaign stage ladder gating c
 var _settings_applier: LAVoxelSettingsApplier = null  # applies GameMode.settings → grid res / spawn counts / effects / disaster cadence
 
 # --- Procedural audio (presentation only; reacts to events, never drives the sim) ---
-var _audio: LocalAgentAudioDirector = null
+var _audio: LAAudioDirector = null
 var _music_destruction: float = 0.0     # decays each frame; meteors spike it
 var _mood_timer: int = 0
 var _music_auto_adapt: bool = true      # when false, stop feeding sim mood so manual menu picks stick
@@ -588,23 +588,16 @@ func _process(delta: float) -> void:
 	# Per-frame auto-demo firing (meteor/volcano/seavolcano/stamp/lightning/storm/select) — CLI-driven only.
 	_input.update(_frame, _spawn.is_spawned())
 
-	# Accumulate FPS over the final window before the screenshot for a stable perf reading.
-	if _input.shoot_path() != "" and _frame > _input.shoot_frames() - FPS_PROBE_FRAMES and _frame <= _input.shoot_frames():
-		_fps_accum += Engine.get_frames_per_second()
-		_gpu_ms_accum += RenderingServer.viewport_get_measured_render_time_gpu(get_viewport().get_viewport_rid())
-		_fps_count += 1
+	# --shoot is the harness child's job too. The FPS_AVG line that used to print just before the
+	# screenshot is gone rather than moved: --perf-frames already emits a strictly better reading over
+	# the same window, with a CPU/GPU render split, and two perf numbers from two code paths is how they
+	# start disagreeing.
 
-	if _input.shoot_path() != "" and _frame == _input.shoot_frames():
-		var avg_fps: float = _fps_accum / maxf(1.0, float(_fps_count))
-		var avg_gpu: float = _gpu_ms_accum / maxf(1.0, float(_fps_count))
-		print("FPS_AVG=%.1f GPU_MS=%.3f frames=%d entities=%d" % [avg_fps, avg_gpu, _fps_count, _actors_root.get_child_count()])
-		capture_screenshot(_input.shoot_path())
-		LAAppExit.request(self, 0)
-
+	# Trajectory samples through a long run. The END of the run is NOT handled here: the
+	# LocalAgentDemoHarness child counts the frames, calls demo_report() below, prints SIM_REPORT,
+	# emits LA_RUN_COMPLETE and owns the exit, the same contract every demo scene gets.
 	if _input.run_frames() > 0 and _frame % 180 == 0 and _frame < _input.run_frames():
-		LAVoxelHarness.emit_population_trace(self, _frame)   # trajectory samples through a long run
-	if _input.run_frames() > 0 and _frame == _input.run_frames():
-		LAVoxelHarness.emit_smoke_summary(self)
+		LAVoxelHarness.emit_population_trace(self, _frame)
 
 	# PERF BENCH (--perf-frames=N): average fps + a CPU/GPU render split over the trailing window, then emit one
 	# clean PERF={...} line and quit. Uses Godot's own instrumentation — Performance monitors for the CPU sim
@@ -643,6 +636,14 @@ func _process(delta: float) -> void:
 				int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
 				_fps_count])
 			LAAppExit.request(self, 0)
+
+
+## The LocalAgentDemoHarness contract. The harness child calls this on its final frame and prints the
+## result as SIM_REPORT={...}, so this scene now answers the same question, the same way, as every demo
+## in examples/. Field, population and cognition arrive through their registered LASimReport providers,
+## deaths through events, behaviour peaks through gauges, so nothing needs listing here.
+func demo_report() -> Dictionary:
+	return LAVoxelHarness.build_report(self)
 
 
 # Sample transient emergent behaviours so a run can prove they occurred (not just at the final frame).
@@ -713,7 +714,7 @@ func _update_music_mood() -> void:
 func _on_music_auto_adapt_changed(on: bool) -> void:
 	_music_auto_adapt = on
 	if _hud != null and _hud.has_method("set_status"):
-		_hud.set_status("Music auto-adapt: %s" % ("ON" if on else "off — manual control"))
+		_hud.set_status("Music auto-adapt: %s" % ("on" if on else "off, manual control"))
 
 
 # --- controller callbacks: the interaction/brush/disasters controllers forward the few bits of

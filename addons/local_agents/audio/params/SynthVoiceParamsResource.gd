@@ -1,6 +1,6 @@
 @tool
 extends Resource
-class_name LocalAgentSynthVoiceParamsResource
+class_name LASynthVoiceParams
 
 ## Typed parameters describing one synthesized voice/sound. Fully inspector-editable
 ## and serializable, so presets can live as `.tres` files or be built in code. A
@@ -16,7 +16,7 @@ enum NoiseType { WHITE, PINK }
 @export var waveform: Waveform = Waveform.SINE
 ## Starting pitch in Hz.
 @export var frequency: float = 220.0
-## Ending pitch in Hz — differs from `frequency` to glide/sweep across the sound.
+## Ending pitch in Hz. Set it away from `frequency` to glide or sweep across the sound.
 @export var frequency_end: float = 220.0
 ## Square-wave duty cycle (only used for SQUARE).
 @export_range(0.02, 0.98, 0.01) var duty: float = 0.5
@@ -46,11 +46,11 @@ enum NoiseType { WHITE, PINK }
 @export var seed: int = 0
 
 ## Convenience constructor for code-defined presets.
-static func make(fields: Dictionary) -> LocalAgentSynthVoiceParamsResource:
-	var p := LocalAgentSynthVoiceParamsResource.new()
+static func make(fields: Dictionary) -> LASynthVoiceParams:
+	var p := LASynthVoiceParams.new()
 	for key in fields:
 		p.set(key, fields[key])
 	return p
 
-func duplicate_params() -> LocalAgentSynthVoiceParamsResource:
-	return duplicate(true) as LocalAgentSynthVoiceParamsResource
+func duplicate_params() -> LASynthVoiceParams:
+	return duplicate(true) as LASynthVoiceParams

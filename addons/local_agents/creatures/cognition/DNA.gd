@@ -1,26 +1,26 @@
 class_name LADNA
 extends RefCounted
 
-## A creature's heritable makeup as a LITERAL DNA SEQUENCE — a strand of 2-bit symbols (four bases,
+## A creature's heritable makeup as a LITERAL DNA SEQUENCE: a strand of 2-bit symbols (four bases,
 ## A/C/G/T ≡ 0..3), read four-to-a-codon (one byte, 0..255), against a FIXED locus table that assigns each
 ## gene a span of codons. A gene's numeric value is DECODED from its codons (combined big-endian, normalised
 ## to the gene's [min, max]); an offspring is a genuine RECOMBINATION + point-mutation of two parent strands,
-## so drift, blending and — through non-coding SPACER regions between genes — pleiotropy and frameshift room
+## so drift, blending and (through non-coding SPACER regions between genes) pleiotropy and frameshift room
 ## all fall out of sequence operations rather than per-trait arithmetic. This is the heredity substrate 0.4
 ## builds on: chemical-affinity priors, an evolvable diet gradient, personality, and metabolism genes all
 ## ride the one strand.
 ##
 ## Three parts to an individual:
-##   * strand    — the codon sequence: the quantitative genes (speed…flock_weight), the NEW heritable content
+##   * strand:     the codon sequence, holding the quantitative genes (speed…flock_weight), the NEW heritable content
 ##                 (carnivory diet-gradient, neophobia/boldness personality, basal/active metabolism-rate,
 ##                 scent/taste senses), a regulatory 'cue_priors' region (born-in chemical valences like
 ##                 innate blood-wariness for the coming affinity system), plus non-coding spacers + a block of
 ##                 RESERVED spare loci so future genes never invalidate an already-saved genome (forward-compat).
-##   * instincts — a SMALL set of genetically-baked reaction priors (signature_key:int -> {action, weight}).
+##   * instincts:  a SMALL set of genetically-baked reaction priors (signature_key:int -> {action, weight}).
 ##                 Unlike quantitative genes these have arbitrary keys, so they live beside the strand as a
 ##                 Dictionary. They change only slowly: by crossover, forgetting, and rare "canalization" of a
 ##                 habit a lineage has relied on for generations (the Baldwin effect).
-##   * base_config — species identity (colour, preys_on, flees_from, flags…): carried verbatim, never mutated.
+##   * base_config: species identity (colour, preys_on, flees_from, flags…), carried verbatim and never mutated.
 ##                 DIET is the one exception that USED to live here immutably and now LEAVES: it is expressed
 ##                 from the evolvable `carnivory` gradient (bucketed herbivore/omnivore/carnivore) so it can
 ##                 blend and evolve while predation targets (preys_on) stay identity.
@@ -30,9 +30,9 @@ extends RefCounted
 ## old genome, which never overrode an absent gene), and adds the new keys on top.
 ##
 ## DETERMINISM: every stochastic draw (crossover points, mutations, canalization) goes through an injected
-## LASimRng — never a bare randf() — so a run reproduces from its seed.
+## LASimRng (never a bare randf()), so a run reproduces from its seed.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 # Bump when the on-strand layout changes in a way a loader must know about. Saved genomes stamp this; the
 # RESERVED block means adding genes (claiming reserved loci) need NOT bump it — old saves still decode.

@@ -31,7 +31,7 @@ if graph.open(ProjectSettings.globalize_path("user://local_agents/network.sqlite
 
 ## Conversation Store
 
-`LocalAgentConversationStore` fronts the SQLite store. It:
+`LAConversationStore` fronts the SQLite store. It:
 
 - Creates conversations and messages as graph nodes.
 - Maintains `contains` and `sequence` edges for traversal.
@@ -43,7 +43,7 @@ if graph.open(ProjectSettings.globalize_path("user://local_agents/network.sqlite
 `addons/local_agents/graph/ProjectGraphService.gd` scans project folders and maps them into the graph:
 
 ```gdscript
-var service := LocalAgentProjectGraphService.new()
+var service := LAProjectGraphService.new()
 service.rebuild_project_graph("res://", ["gd", "tscn"])
 var hits := service.search_code("dialogue manager", 5)
 ```

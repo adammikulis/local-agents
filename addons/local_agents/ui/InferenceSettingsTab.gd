@@ -1,5 +1,5 @@
 extends VBoxContainer
-class_name LocalAgentInferenceSettingsTab
+class_name LAInferenceSettingsTab
 
 # "Inference settings" tab of the model manager.
 #

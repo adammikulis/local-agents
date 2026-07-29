@@ -14,6 +14,78 @@ shipped on `main` (`v0.3.1`); development is on `0.4-dev`. Read `CLAUDE.md` · `
 `fire-balance-wildfire`, `worktree-shader-import-gotcha`, `three-d-always`); work in a worktree off `0.4-dev`.
 
 ---
+### ⚑ ADDON-UX SESSION (2026-07-29) — IN FLIGHT on `feature/addon-ux`, not yet merged
+Goal: make `addons/local_agents/` installable and usable without reading its source. Worktree
+`../local-agents-addon-ux`. **Lint is intentionally RED on this branch** until the renames below land.
+
+**Landed and verified.** Directory split into `sim/` + `game/`; 58 classes canonicalized; dead types
+removed (`ModelParams`, `Character`, `RuntimeHealth`, `api/`, `addons/phantom_camera/`); inspector
+surfaces for agent/creature/world/field/cognition; every example rebuilt as a real scene (three scripts
+deleted outright, the rest cut 40-70%); the addon's icon set. **The acceptance gate passes**:
+`scripts/check_dropin_scene.sh` stages a consumer project holding only `addons/local_agents/`, authors
+a scene with no script in it, and gets `DROPIN_REPLY=Paris` from a local 4B model. Run it with
+`scripts/agent_harness.sh dropin` (3s), or `LA_GATE_MODEL=<path>.gguf` for the full reply mode.
+
+**`LocalAgent.say()` was dead in every install and now works.** The native path needs a `piper` binary
+that is not shipped, so `AgentSpeech` went through it and produced nothing, while the streamer already
+ran `python -m piper` in `StreamerVoice`. Both now share `agents/SpeechEngine.gd`
+(`LocalAgentSpeechEngine`): piper binary, then python piper, then `DisplayServer` TTS, then one warning.
+Verified by an independent agent in a scratch project: 78380-byte wav, real PCM, 601 ms.
+
+**New gates, all wired into `agent_harness.sh lint` and each observed failing on purpose.**
+`check_public_surface.sh` (only sanctioned public API may reach a creation dialog under the
+`LocalAgent` prefix, currently FAILS with 24 named offenders), `check_tool_safety.sh`,
+`check_demo_catalog.sh`, and `check_library_only.sh`, which was strengthened after it was found passing
+green over three real breaks. Two measured facts are baked into it: an editor scan only loads what
+something references, and `load()` on a script with a missing preload returns NON-null while printing
+the error to stderr. It now force-loads all 217 scripts (`scripts/parse_all_scripts.gd`) and greps.
+
+**Boundary truths that gate then exposed.** `audio/` is NOT game-only: `CreatureThink.gd:158` and
+`sim/actors/{Meteor,LightningStrike,Flood,Volcano}.gd` all call `LAAudioDirector.emit()`, so it
+is core and the staging no longer deletes it. `game/ui/SceneEnergyGraph.gd` moved to `sim/streamer/`,
+next to the only code that used it, which removed the last `sim/` to `game/` edge.
+
+**Naming.** 23 internal classes renamed off the public prefix, so `check_public_surface.sh` now holds
+the line: typing "LocalAgent" in Add Node returns 25 types and every one is meant to be used. The
+speech surface was renamed too: `say`/`listen` became `speak`/`transcribe`, because `speak` already
+outnumbered `say` 71 to 8 in-tree, `say()` beside `think()` reads as "speak what you thought" (it
+vocalizes whatever String you pass), and `listen()` never opened a microphone at all, it transcribed a
+file path. `LocalAgentSpeechEngine` moved from `agents/` to `runtime/audio/`, which let
+`AgentStatus._speech_ok()` stop asking for a piper binary the addon does not ship and start asking
+whether anything can speak. That was the real cause of a healthy install reporting itself degraded.
+
+**Two constants dissolved rather than tidied.** `Meteor` had a flat `1600.0` °C injected on impact
+regardless of how it arrived, plus a separate hardcoded orange for the visual, so the look and the
+physics could disagree about the same rock. Temperature is now an outcome: heating goes as air density
+times speed cubed, cooling as the excess over ambient, and **air density is read from the field's own
+`o2_at()`** rather than from a scale-height formula living inside the actor. Measured spread: 600 u/s
+in thick air reaches 1541 °C and glows, 300 u/s reaches 140 °C and does not, a 150 u/s lob stays cold,
+and 600 u/s in vacuum never lights up but still craters at 1380 °C from kinetic energy alone. None of
+that is written down anywhere. `LAHeatGlow` is wired to it, and its header no longer claims creatures
+and trees glow: they combust (`Creature.gd:79`), which the code already did correctly.
+
+**Duplicates collapsed.** `LlmService.resolve_model_path()` had its own `MODEL_CANDIDATES` list and a
+re-try of a step that could never fire; it now defers to `LocalAgentStatus`, the one resolver. And
+**`VoxelWorld.tscn` now mounts a `LocalAgentDemoHarness` like every demo scene.** The stated reason it
+could not ("it needs --perf-frames and --bench") was never true: of 20 flags exactly 3 overlapped, and
+`LASimReport.snapshot()` already returned the payload in the shape the harness wants. `VoxelHarness`
+split into `build_report()`, the harness owns counting, printing, `LA_RUN_COMPLETE` and the exit, and
+`--perf-frames`/`--bench` stayed in `VoxelInputController` where they belong. `LAGenome` is deleted,
+its own header having set the removal condition. Verified windowed at 200 frames: POP_TRACE at 180,
+SIM_REPORT, `LA_RUN_COMPLETE={"code":0}`, exit 0.
+
+**Still owed.** `graph/Backstory*` is public and its test is honest about the embedding 501 now, but it
+is still only reachable by hand: 1955 lines of NPC memory with embeddings, belief-versus-truth and
+oral-knowledge lineage that nothing in the addon calls. Wiring it to `LocalAgent.memory_graph` is the
+next real feature, and the oral-knowledge lineage is most of the "signal spine" 0.5 wants.
+
+**Process lesson worth keeping.** Seven of seven fan-out units FAILED their adversarial verification
+first time, and the verifiers were right nearly every time. Two fix agents then introduced NEW false
+claims while correcting old ones, so a fix pass needs its own recheck. Eleven dated entries were added
+to `GODOT_BEST_PRACTICES.md`; the load-bearing one is that an `@export` nothing reads is
+indistinguishable from a working one, and only running the model proved `system_prompt` was dead.
+
+---
 ### ⚑ LIBRARY-REFACTOR SESSION (2026-07-12) — status at pause (memory: `refactor-0.4-library-integrated`)
 The big breaking refactor "make the addon a reusable library + faster + Earth-like living planet." **Merged +
 verified on `0.4-dev`** (HEAD `4af6788`), editor-scan-clean, sim_check PASS:
@@ -24,7 +96,8 @@ verified on `0.4-dev`** (HEAD `4af6788`), editor-scan-clean, sim_check PASS:
 - **Reusable library** — new `SimWorld` facade node with a first-class `world_type:{SPHERE,FLAT}` + bounds
   exports (sphere = PlanetBody+setup_sphere; flat = FlatGroundTerrain+setup_dims box path); standalone
   `Creature.tscn` + `setup_standalone`; game-optional node registration (core plugin never top-level-preloads
-  game scripts); 3 demos (thinking-creature-on-flat-ground · box-field · SimWorld planet); `docs/USAGE.md`.
+  game scripts); 3 demos (thinking-creature-on-flat-ground · box-field · SimWorld planet);
+  `addons/local_agents/docs/USAGE.md`.
 - **Voxel-OPTIONAL / AI-in-core** — the AI/behaviour stack (Creature + 26 modules + Fish + cognition +
   FlatGroundTerrain + species) relocated OUT of the voxel tree into core `addons/local_agents/creatures/`.
   `SCENT_*` unified into core `LAScentChannels` (field re-sources from it); ThrownRock/FlameFX via guarded
@@ -611,13 +684,26 @@ don't-patch · emergent-everything · perf-first · Big-O + activity-bubble LOD 
 sim in the compute-bubble; cheap analytic stand-ins for distant/dormant/offscreen, re-materialize on approach).
 
 **3 KEYSTONES (everything leans on these):**
-- **A — Erosion re-land.** `MaterialErosion3D` was DELETED; `susp` is a live-but-dead phase; SETTLE (M3) + slump
-  already WAIT for a pickup kernel that doesn't exist. Load-bearing for "planet with history" (deltas/beaches/
-  canyons/floodplains). Fix `EMERGENCE.md:136-137` (falsely claims it ships).
-- **B — Moisture→vegetation→albedo.** *(Visual half SHIPPED in Wave-1 biome color.)* Sim half still owed: the
-  germination gate + photosynthesis R19 read temp only, not moisture — a dry plateau greens like a rainforest.
-- **C — Activity-bubble field LOD.** Not built — every kernel dispatches the full grid every step, capped 2/frame.
-  Scale ceiling + fast-forward desync + the prerequisite for the "watch it form" geological bake.
+- **A — Erosion re-land. SHIPPED.** *(Corrected 2026-07-29. This entry said for weeks that the pickup kernel
+  "doesn't exist", and it does.)* `sim/material/kernels3d/erosion_pickup_sphere3d.glsl`, driven by
+  `sim/material/sphere_passes/ErosionPickupPass.gd`, registered at `MaterialSphereGPU3D.gd:51` immediately before
+  `ReactionsPass` so M3 SETTLE reads the freshly-scoured `susp` in the same step. `susp` is a live phase in the
+  mineral ledger, not a dead one. Still owed is the BEHAVIOURAL proof that deltas, beaches, canyons and
+  floodplains actually form over geological time, which needs C's fast-forward before it can be observed.
+- **B — Moisture→vegetation→albedo. THE ONE GENUINELY OWED KEYSTONE.** *(Visual half SHIPPED in Wave-1 biome
+  color.)* Sim half still owed and confirmed still owed on 2026-07-29: R19's reactants are CO₂, FERT, light and
+  temp (`MaterialReactions3D.gd:213`), and `grep -n moisture MaterialReactions3D.gd` returns one comment about
+  H₂O conservation and nothing else. A dry plateau greens like a rainforest. The fix is small: moisture as a
+  third Liebig-limiting reactant beside FERT, plus a germination gate.
+- **C — Activity-bubble field LOD. SHIPPED IN ITS CHEAP FORM; the asymptotic half is owed.** *(Corrected
+  2026-07-29. This entry said "Not built".)* `sim/material/kernels3d/activity_sphere3d.glsl` +
+  `sphere_passes/ActivityPass.gd`, registered at `MaterialSphereGPU3D.gd:55` before FireDustPass, computing a
+  wake-bubble plus camera-proximity relevance channel, with an `LA_NO_ACTIVITY_LOD=1` A/B knob. But the second
+  half of the old sentence is still true: gating is per-cell stride and early-out, so every kernel still
+  dispatches the full grid and cells merely bail. That saves ALU, not dispatch or bandwidth. CLAUDE.md sanctions
+  the early-out form as the floor, so this is a deliberate stopping point rather than a relic. **Before building
+  the O(active) indirect-dispatch version, run the `LA_NO_ACTIVITY_LOD=1` A/B that already exists** and find out
+  whether the shipped gating buys measurable frame time. That measurement decides whether the rewrite is worth it.
 
 **TIERS** (SIMULATE = emerge from substrate · FAKE = justified LOD/cosmetic · [✓]=shipped this session):
 - **T1 (do first, small):** hot springs (in flight) · moon tides [FAKE] [✓] · altitude lapse [✓] · default-look MSAA/grade [✓ partial] · moisture growth-gate (Keystone B sim half).

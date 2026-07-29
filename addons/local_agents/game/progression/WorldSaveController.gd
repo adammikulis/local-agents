@@ -1,7 +1,7 @@
 class_name LAWorldSaveController
 extends Node
 
-## LAWorldSaveController — the live save/load orchestrator wired into VoxelWorld (one add_child + setup line;
+## LAWorldSaveController: the live save/load orchestrator wired into VoxelWorld (one add_child + setup line;
 ## the composition root stays extract-only). It:
 ##   * on boot, reads GameMode.take_pending_load_slot(); if a slot was requested (menu → Continue), it loads
 ##     that slot: progression/mode are applied at once, the default initial spawn is SUPPRESSED, and the heavy
@@ -12,7 +12,7 @@ extends Node
 ## The gather/apply logic lives in LAWorldSaveState (actors/kinship/progression) and LAMaterialFieldSnapshot3D
 ## (field); this node only sequences them against boot timing + the current slot. A static active() lets the
 ## deep pause menu reach the one controller without threading a reference through the input stack.
-## (Explicit types only — no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 const StateScript: GDScript = preload("res://addons/local_agents/game/progression/WorldSaveState.gd")
 const FieldSnapshotScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSnapshot3D.gd")
@@ -104,7 +104,7 @@ func _game_mode() -> Object:
 func _begin_load(slot: String) -> void:
 	var data: Dictionary = LAGameSave.read_world(slot)
 	if data.is_empty():
-		push_warning("LAWorldSaveController: save slot '%s' missing or corrupt — starting a fresh world" % slot)
+		push_warning("LAWorldSaveController: save slot '%s' is missing or corrupt, so starting a fresh world" % slot)
 		return
 	_slot = slot
 	_pending = data
@@ -126,7 +126,7 @@ func _begin_load(slot: String) -> void:
 func _begin_load_dir(dir: String) -> void:
 	var data: Dictionary = LAGameSave.read_world_dir(dir)
 	if data.is_empty():
-		push_warning("LAWorldSaveController: fixture '%s' missing or corrupt — starting a fresh world" % dir)
+		push_warning("LAWorldSaveController: fixture '%s' is missing or corrupt, so starting a fresh world" % dir)
 		return
 	_slot = LAGameSave.DEFAULT_SLOT
 	_pending = data
@@ -157,7 +157,7 @@ func _process(_delta: float) -> void:
 		return
 	_restore_deadline -= 1
 	if _restore_deadline <= 0:
-		push_warning("LAWorldSaveController: field never became ready — actors restored without the field")
+		push_warning("LAWorldSaveController: field never became ready, so actors are restored without the field")
 		_finish_restore()
 		return
 	if FieldSnapshotScript.is_ready(_world._material):

@@ -1,12 +1,12 @@
 class_name LAEcologyStimulus
 extends Node
 
-## The world's STIMULUS / BROADCAST bus — the single seam every disaster couples to the living world
+## The world's STIMULUS / BROADCAST bus: the single seam every disaster couples to the living world
 ## through. A meteor, earthquake, volcano, storm, flood or a hard landing does not reach into creatures
 ## or the terrain itself: it emits a stimulus here (a ground disturbance, a seismic pulse, a graded
 ## point blast, a felt terror, an animal call, an area wind force) and the affected actors + the field
 ## react locally. New events compose with existing reactions for free, so a disaster is a SEED that
-## emits — never per-event coupling code.
+## emits, never per-event coupling code.
 ##
 ## Owned by LAEcologyService (a Node child, so it can scan the scene groups); the service keeps thin
 ## forwarders for back-compat. The material field is pushed in via set_material_field so the ground

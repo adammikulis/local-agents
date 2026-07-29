@@ -1,14 +1,14 @@
 class_name LACreatureMicrobiome
 extends RefCounted
 
-## LACreatureMicrobiome — the per-creature GUT FLORA state, owned as an instance on each creature
+## LACreatureMicrobiome: the per-creature GUT FLORA state, owned as an instance on each creature
 ## (`creature.gut_microbiome`) so all of it lives HERE, off the Creature monolith (the same one-field/one-setup/
-## one-tick seam the other Creature* helper modules use — metabolism, thirst, senses). The gut flora ADAPTS to
+## one-tick seam the other Creature* helper modules use: metabolism, thirst, senses). The gut flora ADAPTS to
 ## what the animal actually eats and MODULATES how much energy it extracts from a bite: the eating path asks this
 ## module for a yield multiplier and scales the energy the food is worth by it.
 ##
 ## The model is one emergent scalar pair, no per-species branch (config-over-cases):
-##   * `flora` (0..1) is the gut community's current composition — 1 = plant/cellulose-fermenting flora,
+##   * `flora` (0..1) is the gut community's current composition: 1 = plant/cellulose-fermenting flora,
 ##     0 = meat-digesting flora. It DRIFTS slowly toward the recent diet (a gut community re-cultures over time).
 ##   * `recent_diet` (0..1) is a fast running average of what has recently been eaten (1 = all carbs/plants,
 ##     0 = all meat/fat), nudged on every bite (the eating path calls note_food with the food's profile).
@@ -16,7 +16,7 @@ extends RefCounted
 ## when the flora MATCHES the recent diet (a well-adapted gut) and LOW when they diverge, PLUS a cellulose-
 ## fermentation bonus for a plant-flora gut working plant food. So a herbivore whose flora is plant-tuned and who
 ## eats plants extracts the full ~1.12 fermentation bonus; switch it to meat and its `recent_diet` swings toward
-## meat immediately while its slow `flora` lags — the mismatch drops the yield (it digests the meat poorly) until
+## meat immediately while its slow `flora` lags, so the mismatch drops the yield (it digests the meat poorly) until
 ## the flora re-cultures toward meat and recovers to the base rate. Emergent: diet drives flora, flora drives
 ## energy return; there is no `if species == "X"`.
 ##

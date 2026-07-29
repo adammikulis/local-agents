@@ -1,6 +1,6 @@
 @tool
 extends Node
-class_name LocalAgentConversationStore
+class_name LAConversationStore
 
 const STORE_DIR: String = "user://local_agents"
 const DB_PATH: String = STORE_DIR + "/network.sqlite3"

@@ -3,12 +3,12 @@ extends RefCounted
 
 ## Turns a creature's current inner/outer state into a small discrete key. That key is what the
 ## fast policy (System 1) looks up, what a learned heuristic is filed under, and what an escalation
-## trace records. It MUST stay cheap — it is computed every tick for every creature — so it reads
+## trace records. It MUST stay cheap (it is computed every tick for every creature), so it reads
 ## only O(1) scalar state (energy, hydration, one water probe, the shared day/night flag) and never
 ## scans neighbour groups. The richer, expensive context (who is nearby / in view) is gathered only
 ## on the rare escalation path and handed to the LLM in its prompt.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 # Bucket boundaries (fractions of max). Coarse on purpose: fewer buckets = faster convergence of
 # learned heuristics and a smaller genome to inherit.

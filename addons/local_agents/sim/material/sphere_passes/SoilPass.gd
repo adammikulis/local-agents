@@ -2,7 +2,7 @@ extends RefCounted
 
 ## Cubed-sphere GPU pass plugin: the SOIL WATER / WATER-TABLE CA (soil_sphere3d.glsl). Surface water soaks
 ## into the ground (up to a holding capacity) and the ground releases it back slowly as baseflow + saturation
-## overflow — the reservoir that makes land water persist, rivers run perennial, and floods behave (dry soaks,
+## overflow, the reservoir that makes land water persist, rivers run perennial, and floods behave (dry soaks,
 ## saturated sheds). Wired to the SphereGPU driver via the plugin contract (setup once, dispatch each step).
 ##
 ## It runs AFTER AtmospherePass so it sees the settled + freshly-rained surface water. It modifies the settled
@@ -12,9 +12,9 @@ extends RefCounted
 ## Per-parity binding → bufs map (see soil_sphere3d.glsl header for the authoritative layout):
 ##   0 Water = water[BACK] (settled surface water, read-modify-write) · 1 Solid · 2 Static · 3 Send scratch ·
 ##   4 SoilIn = soil[LIVE] · 5 SoilOut = soil[BACK] · 6 Regolith · 7 Temp = temp[BACK] (post-thermal, rw) ·
-##   8 Relevance = activity[LIVE] (this pass runs before ActivityPass — one-step-lagged relevance) · 15 Neigh
+##   8 Relevance = activity[LIVE] (this pass runs before ActivityPass, so relevance is one-step-lagged) · 15 Neigh
 ## Relevance-gated (LALodStride mirror, Keystone C): PASS 0 (the branchy transfer compute) is gated; PASS 1
-## (apply) always runs unconditionally — a quiescent cell can receive same-step inflow from a neighbour whose
+## (apply) always runs unconditionally, because a quiescent cell can receive same-step inflow from a neighbour whose
 ## own relevance hasn't caught up yet, and gating pass 1 too would silently drop that inflow (a real mass bug).
 ## Push constant: PackedInt32Array([cell_count, pass_id, depth, step_index]) + [core_radius, cell_size] floats.
 

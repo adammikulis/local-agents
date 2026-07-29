@@ -5,7 +5,7 @@ extends RefCounted
 ## chemical/phase reaction on the sphere path (gas sky-exchange, CO₂ vent, fungus decompose, …) is expressed
 ## HERE as a fixed-size Reaction RECORD instead of a bespoke kernel. `reactions_sphere3d.glsl` loops these
 ## records per cell; ReactionsPass uploads them once as a read-only SSBO. Adding a future reaction is adding a
-## record to `records()` — NOT writing a kernel. (dissolve-don't-patch: success = bespoke kernels deleted.)
+## record to `records()`, NOT writing a kernel. (dissolve-don't-patch: success = bespoke kernels deleted.)
 ##
 ## The kernel binds every reactable CHANNEL at a fixed binding and a record names a channel by a SLOT enum
 ## (below), resolved through the kernel's read_ch/add_ch switch-ladders. Only the channels the live records

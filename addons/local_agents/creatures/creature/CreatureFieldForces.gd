@@ -5,12 +5,12 @@ extends RefCounted
 ##
 ## A creature is continuously ADVECTED by the substrate's local wind/momentum: a storm's gale drags
 ## it downwind, an updraft lifts it, a shock front shoves it. This is a CONTINUOUS push sampled from
-## the field every frame — distinct from the DISCRETE throw()/fling() impulse path (a one-shot ragdoll
+## the field every frame, distinct from the DISCRETE throw()/fling() impulse path (a one-shot ragdoll
 ## launch, which stays in LocalAgentCreature/LACreatureRagdoll). Both compose: a creature can be blown by the
 ## wind and, if the gust is violent enough, flung off its feet.
 ##
 ## The field's wind3_at() currently returns a zero vector (the CPU wind oracle is retired and the GPU
-## wind read is not wired to a per-point query yet), so today this samples zero and applies nothing —
+## wind read is not wired to a per-point query yet), so today this samples zero and applies nothing, with
 ## no behaviour change. It is the pre-wired seam the substrate agent's real wind/momentum force lights
 ## up, and the target every storm/tornado/hurricane fling dissolution will drive (via the
 ## EcologyStimulus.apply_wind_force broadcast) instead of editing the creature or the ecology hub.

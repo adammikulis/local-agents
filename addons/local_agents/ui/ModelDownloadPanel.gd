@@ -1,12 +1,12 @@
 extends Control
-class_name LocalAgentModelDownloadPanel
+class_name LAModelDownloadPanel
 
 # Runtime (in-game) model download panel.
 #
 # Shows a curated shortlist of ungated GGUF models, each with its size shown up front and a Download
 # button (or an "Installed" badge if the file is already present under user://local_agents/models).
 # Downloading swaps the row into a live progress bar with "420 MB / 1.1 GB", an EMA-smoothed speed,
-# an ETA ("~2m left") and a Cancel button. All fetching is async via LocalAgentModelDownloadManager.
+# an ETA ("~2m left") and a Cancel button. All fetching is async via LAModelDownloadManager.
 #
 # Public API (for a main menu / "no model yet" prompt to invoke later — not wired here):
 #   open()                       -> show the panel and refresh installed states
@@ -26,7 +26,7 @@ signal model_installed(model_id: String, path: String)
 @onready var _status_label: Label = %StatusLabel
 @onready var _title_label: Label = %TitleLabel
 
-var _manager: LocalAgentModelDownloadManager = null
+var _manager: LAModelDownloadManager = null
 var _rows: Dictionary = {}   # model_id -> Dictionary of that row's controls
 
 # --- Self-harness state ---

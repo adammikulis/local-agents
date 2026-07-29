@@ -1,21 +1,21 @@
 class_name LAMaterialFieldInject3D
 extends RefCounted
 
-## LAMaterialFieldInject3D — the WRITE-side injection + FX API of the dense 3D MaterialField3D, factored
+## LAMaterialFieldInject3D: the WRITE-side injection + FX API of the dense 3D MaterialField3D, factored
 ## out so the field node stays a thin simulation/composition core (and under the file-size gate). Holds
 ## NO state of its own: it reaches into the owning LAMaterialField3D (`_f`) for the shared per-cell arrays
 ## (`_solid`/`_water`/…), geometry (`_cell_size`, `_origin`), the terrain SDF (`_terrain`), and the field's
 ## sphere-native cell seam (`world_to_cell` / `cell_world_pos_linear` + the local `_cells_within` neighbour-BFS
-## bubble) — exactly as the heat / atmosphere / lava concern modules do. The field owns these as its real
-## injection surface
-## (this is the same split as MaterialFieldQueries3D / MaterialFieldRender3D, not a compat layer).
-## (Explicit types only — no ':=' inferred typing.)
+## bubble), exactly as the heat / atmosphere / lava concern modules do. The field owns these as its real
+## injection surface.
+## (This is the same split as MaterialFieldQueries3D / MaterialFieldRender3D, not a compat layer.)
+## (Explicit types only, no ':=' inferred typing.)
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 
 ## Emitted every time something splashes water at a world point (meteor / tornado / fish / thrown rock /
 ## flood / plant). The water-surface renderer (LAMaterialFieldRender3D) connects here to spawn an expanding
-## impact ripple on the fluid shader — so the same splash that flings droplets also rings the water, with
+## impact ripple on the fluid shader, so the same splash that flings droplets also rings the water, with
 ## zero coupling from this module to the renderer type. `strength` matches the droplet strength (0.1..4).
 signal splashed(world_pos: Vector3, strength: float)
 

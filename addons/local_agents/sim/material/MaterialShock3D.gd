@@ -1,17 +1,17 @@
 class_name LAMaterialShock3D
 extends RefCounted
 
-## LAMaterialShock3D — the SHOCK / seismic-sound channel of LAMaterialField3D, factored into its own module
+## LAMaterialShock3D: the SHOCK / seismic-sound channel of LAMaterialField3D, factored into its own module
 ## (the field only forwards). A shock is a propagating pressure/sound wave: emit_shock SEEDS amplitude into a
 ## cell, and the GPU shock_sphere3d kernel (wired in EcoSurfacePass) radiates + attenuates it over the neighbour
-## table each step (a blast behind a ridge is muffled emergently — a solid neighbour reflects). The field reads
+## table each step (a blast behind a ridge is muffled emergently, because a solid neighbour reflects). The field reads
 ## the wave back into `_f._shock` so a meteor/earthquake/eruption/stampede shakes the camera and panics creatures.
 ## This is the substrate primitive Earthquake + Meteor DISSOLVE into: they become seeds/markers that call
 ## emit_shock, with no dedicated wave code of their own.
 ##
-## Holds NO state of its own — it reaches into the owning LAMaterialField3D (`_f`) for the shared `_shock`
+## Holds NO state of its own. It reaches into the owning LAMaterialField3D (`_f`) for the shared `_shock`
 ## array, geometry (`world_to_cell`, `cell_world_pos_linear`, `cell_radial`), the sphere neighbour table, and
-## the `_shock_dirty` upload flag, exactly as the query/inject modules do. (Explicit types only — no ':=' .)
+## the `_shock_dirty` upload flag, exactly as the query/inject modules do. (Explicit types only, no ':=' inferred typing.)
 
 # A cell whose shock amplitude is over this reads as "actively shaking" (shock_cell_count, tremor gates).
 const SHOCK_ACTIVE: float = 0.05

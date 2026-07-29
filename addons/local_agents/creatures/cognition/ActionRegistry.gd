@@ -4,10 +4,10 @@ extends RefCounted
 ## The single source of truth for the discrete "function calls" a creature can perform.
 ##
 ## This one registry is consumed three ways:
-##   1. Fast tier (System 1) — the set of action names its heuristic policy chooses among.
-##   2. Slow tier (System 2) — the `tools` list declared to FunctionGemma, and the label space
+##   1. Fast tier (System 1): the set of action names its heuristic policy chooses among.
+##   2. Slow tier (System 2): the `tools` list declared to FunctionGemma, and the label space
 ##      its returned function call must fall within.
-##   3. Auto-finetune — the tool schemas emitted into every training example, so the dataset's
+##   3. Auto-finetune: the tool schemas emitted into every training example, so the dataset's
 ##      labels are exactly "the function calls we have in our program."
 ##
 ## The registry owns only the *schemas / names* (data). The *executors* that turn a chosen
@@ -15,7 +15,7 @@ extends RefCounted
 ## internals. Keeping the two apart lets the fast policy, the LLM, and the dataset all agree on a
 ## vocabulary without any of them depending on movement code.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 # Canonical action vocabulary. Order is stable so a policy/genome can index by it.
 # (A plain Array literal — a PackedStringArray(...) constructor is not a constant expression.)

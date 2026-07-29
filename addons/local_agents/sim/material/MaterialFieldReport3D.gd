@@ -1,14 +1,14 @@
 class_name LAMaterialFieldReport3D
 extends RefCounted
 
-## LAMaterialFieldReport3D — the central-telemetry snapshot of LAMaterialField3D, factored out of the
+## LAMaterialFieldReport3D: the central-telemetry snapshot of LAMaterialField3D, factored out of the
 ## extract-only field hub. Same pattern as the query / atmos / ledger / channel modules: no state of its own,
 ## it reaches into the owning field `_f` and calls the field's own (cheap forwarder) accessors.
 ##
 ## This is the ONE dict the field contributes to SIM_REPORT, so every channel aggregate flows in from its
-## owner instead of being hand-threaded into a format string somewhere else. Polled only at snapshot time —
+## owner instead of being hand-threaded into a format string somewhere else. Polled only at snapshot time, so
 ## the O(cells) scans behind these getters never run per frame.
-## (Explicit types only — no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 var _f = null                                            # back-reference to the owning LAMaterialField3D
 

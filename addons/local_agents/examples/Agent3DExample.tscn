@@ -78,7 +78,7 @@ theme_override_constants/separation = 8
 [node name="Title" type="Label" parent="CanvasLayer/Hud/Column"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 22
-text = "Agent3D — a character that thinks"
+text = "Agent3D, a character that thinks"
 
 [node name="SetupStatus" type="Label" parent="CanvasLayer/Hud/Column"]
 custom_minimum_size = Vector2(400, 0)

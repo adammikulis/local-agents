@@ -1,28 +1,28 @@
 class_name LAMineralStamp3D
 extends RefCounted
 
-## Rock Stage C — the SDF terrain-growth stamp.
+## Rock Stage C: the SDF terrain-growth stamp.
 ##
 ## Stage B made bedrock a FRACTIONAL `rock_fill` channel and `solid` a DERIVED view of it (solid iff
 ## rock_fill >= 0.5). So when cooled lava re-accretes (M5) or a hot bore melts rock (M6), `rock_fill` can
 ## rise or fall THROUGH 0.5 in a cell whose real godot_voxel terrain mesh does not yet reflect it. This
-## module closes that loop: it watches rock_fill's 0.5-crossings and stamps them into the SDF —
+## module closes that loop. It watches rock_fill's 0.5-crossings and stamps them into the SDF:
 ##   • void -> solid (rock_fill rose past 0.55): GROW terrain (VoxelTerrainService.fill_rock)
 ##   • solid -> void (rock_fill fell below 0.45): SHRINK terrain (VoxelTerrainService.carve_sphere)
 ##
 ## It is EVENT-DRIVEN, not a per-cell CA: the crossing scan idles at zero cost until armed by a mineral
 ## edit (add_lava / a deposit), then runs on a throttled cadence with a per-scan stamp budget, and re-arms
-## itself while it still finds crossings — so a sustained eruption keeps stamping and a quiet world sleeps.
+## itself while it still finds crossings, so a sustained eruption keeps stamping and a quiet world sleeps.
 ## Hysteresis (grow >= 0.55, shrink <= 0.45) stops a cell hovering at 0.5 from thrashing the remesher.
 ##
 ## The field's `_rock_fill`/`_solid` stay the source of truth; the SDF mesh is the downstream VIEW this
 ## refreshes. `_solid` doubles as the previous-derived-solid cache (the last-stamped state): comparing the
 ## live rock_fill against it detects crossings, and writing it on each stamp keeps the CPU solid mask
-## consistent with the grown/shrunk mesh for the field's world-space queries — for free, O(changed-cells).
+## consistent with the grown/shrunk mesh for the field's world-space queries, all for free at O(changed-cells).
 ##
 ## Frame note: the field grid is world-fixed while the planet body SPINS, so a stamp is placed via the
-## terrain's world->local transform (VoxelTerrainService already does `to_local`) — correct at the instant
-## of the crossing. (Explicit types only — no ':=' inferred typing.)
+## terrain's world->local transform (VoxelTerrainService already does `to_local`), which is correct at the instant
+## of the crossing. (Explicit types only, no ':=' inferred typing.)
 
 const GROW_THRESHOLD: float = 0.55       # hysteresis high: void->solid only once rock_fill rises past this
 const SHRINK_THRESHOLD: float = 0.45     # hysteresis low: solid->void only once rock_fill falls below this

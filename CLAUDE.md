@@ -106,6 +106,21 @@ committed). When removing files:
     branches; merging + conflict resolution + the editor-scan/verify gate stay the main thread's job
     (Workflow doesn't auto-merge). A single `Agent` call is still fine for a genuinely one-off, independent
     unit; reach for `Workflow` the moment it's a *set* of units.
+- **DO NOT FAN OUT PROSE, AND NEVER RUN A THIRD ROUND.** Fan-out earns its cost when units are parallel
+  IMPLEMENTATION over disjoint files whose correctness is settled by RUNNING something: a demo exits 0, a
+  gate fails on purpose, a report marker appears. It does not earn its cost on documentation, where
+  correctness is a hundred small independent factual claims. Verification there does not parallelize the
+  way the writing does, so the checking costs more than the writing, and every fix round gets a fresh
+  chance to be wrong about something new.
+  - **Hard limit: two rounds, then take it in-house.** If a fix pass introduces NEW errors at anything
+    like the rate it removes old ones, stop launching agents and do the remaining items yourself. Measured
+    2026-07-29: two doc fan-outs plus two fix fan-outs came to 28 agents and ~3.4M subagent tokens, and
+    the eight defects the coordinator then closed by hand took ten tool calls and introduced none.
+    Agents correcting agents correcting agents is not convergence, it is spend.
+  - **The tell:** if the verifier's report is longer than the artifact it reviewed, the wrong tool was
+    picked. Read the findings yourself and fix them directly.
+  - Adversarial verification is still right for code and for audits, where a finding is one falsifiable
+    claim about behaviour that a command can settle. Keep it there.
 - **PRE-WRITE CONTRACTS to keep the pipeline full.** A sub-agent contract is: the goal, the exact
   files/records to add/change/DELETE, the shared interface it must honor, and a **hard behavioural
   acceptance gate** (exact run command + pass thresholds; "commit only if it passes, else report the
@@ -121,6 +136,22 @@ committed). When removing files:
 - For substantial or breaking work, keep `ARCHITECTURE_PLAN.md` current: record the intended change and
   note breaking API/schema changes there before merge. Keep commits scoped by domain
   (runtime/editor/tests/docs) where practical.
+- **KEEP `HANDOFF.md` CURRENT WITHOUT BEING ASKED — it is the master tracker and the next agent's only
+  map.** Update it on your own initiative at each of these points, not when someone reminds you:
+  - a phase, workstream, or fan-out lands, or a feature is verified;
+  - you discover a claim already in the file is FALSE (fix it in place, mark it corrected with the date,
+    and say what it said before, so nobody re-derives the same wrong conclusion);
+  - before merging any branch to the dev branch, and before a session ends or pauses.
+  - **Correcting stale claims matters more than appending new ones.** This file told every agent for
+    weeks that Keystone A's erosion pickup kernel "doesn't exist" (it ships, `MaterialSphereGPU3D.gd:51`)
+    and that Keystone C was "not built" (it ships, `:55`). Both errors sent work at problems that were
+    already solved, and one of them ordered a fix to `EMERGENCE.md`, which was correct all along. A
+    tracker that is confidently wrong is worse than one that is merely out of date.
+  - **Verify before you write.** Every status claim you add or leave standing must be one you just
+    checked against the code. "Shipped", "not built", "still owed" are all falsifiable in one grep, so
+    do the grep. Cite `file:line` for anything a reader would otherwise have to hunt for.
+  - Keep the "Next — pick up here" list honest: delete what is done, and say what would actually decide
+    the open items (a specific measurement or run), not just that they are open.
 
 ## Validation defaults
 
@@ -259,6 +290,36 @@ rediscover.
   approach and what it unlocks, and ask. Do **not** silently work around it (delivering a lesser result
   the user didn't know was a compromise), and do **not** unilaterally rip it out either. The user will
   usually say "yes, change it" — but it's their call, and flagging it is how big upgrades get found.
+- **"X can't, because Y" is almost always FALSE HERE. Y is a fact about how the code is written today,
+  and the code is yours to change.** Catch yourself writing "this can't use that because it needs
+  P, Q, R" and stop: you have just described the current shape and promoted it to a law. The question
+  is not "what does this file happen to do" but "what should it do". Every constraint in this repo is
+  a past decision, not physics, and there are no downstream consumers to protect.
+  - The tell is a sentence of the form "A cannot adopt B because A also does C". Ask instead: should B
+    grow C, should C live somewhere else entirely, or should A be split so the part that wants B can
+    have it. One of those three is usually right and cheap.
+  - Worked example, 2026-07-29: "VoxelWorld can't use LocalAgentDemoHarness because it needs
+    --perf-frames, --bench and framerate uncapping". Measuring took one command and showed 20 flags of
+    which exactly 3 overlap. The answer was to let the harness own the harness contract (run frames,
+    report, screenshot, quit) and leave the other 17 world-config flags where they were. The stated
+    blocker was never a blocker, only an unexamined shape.
+  - This composes with the held-back-by-code rule below. That one says SURFACE a relic rather than
+    silently working around it. This one says the far more common failure is not even noticing you
+    worked around it, because you wrote a plausible reason first.
+- **Unwired code is an UNFINISHED JOB, not dead weight — the default is to WIRE IT IN, not delete it.**
+  When you find a class, module, or subsystem that nothing calls, assume a previous agent ran out of
+  session before connecting it, and finish the job. Read it, judge whether the feature is worth having,
+  and wire it to its seam. Deleting is the exception and needs a reason beyond "nothing references it":
+  the author left an explicit removal condition that is now met, the feature was superseded by something
+  that demonstrably does the same job, or the design is genuinely wrong. Say which one applies before
+  removing anything. Two worked examples found on the same day: `LAGenome` was a 21-line shim whose own
+  comment said "remove once no reference remains", and that condition was met, so it goes; `LAHeatGlow`
+  is 38 lines of blackbody incandescence that makes any actor in a fire or lava flow glow straight from
+  the field's temperature with no per-case code, and nothing called it, so it gets wired.
+  - **Measure "unreferenced" correctly before you believe it.** This codebase loads internals by
+    `preload("res://...")` far more than by `class_name` identifier, so a grep for the identifier alone
+    reports roughly 50 false positives. Count BOTH identifier references and `res://` path references,
+    across `.gd`, `.tscn`, `.tres` and `.cfg`, before calling anything unwired. The real count was 2.
 - **Composable-plugins mandate — host + registry over monolith (the architectural form of emergent-everything).**
   For anything that is a SET of composable things over shared state — field processes, reactions, disasters/FX,
   telemetry sources, spawnable content, solar-system bodies — prefer a thin HOST that owns the shared substrate

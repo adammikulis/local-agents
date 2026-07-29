@@ -262,7 +262,7 @@ var bond: LACreatureBond = null
 @export_group("Cognition")
 ## Let this creature escalate novel situations to the language model. Off = fast rules only.
 ## Needs a cognition scheduler injected (set_cognition_scheduler) before it can do anything, and
-## with no scheduler present this costs nothing — escalations just resolve on the heuristic teacher.
+## with no scheduler present this costs nothing, because escalations resolve on the heuristic teacher.
 ## Defaults ON to match the behaviour before this was an export: no species JSON sets the key, so a
 ## default of false silently took the slow brain away from every land creature in the shipped sim.
 @export var llm_enabled: bool = true

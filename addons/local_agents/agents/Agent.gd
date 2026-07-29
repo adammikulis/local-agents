@@ -4,33 +4,33 @@ extends Node
 class_name LocalAgent
 
 ## A local LLM agent you can use without writing any code: drop this node into a scene, pick a
-## `.gguf` in the inspector, then call think() — or turn on Autonomy and let it act by itself.
+## `.gguf` in the inspector, then call think(). Or turn on Autonomy and let it act by itself.
 ##
 ## Which weights load is layered, most specific first: the player's in-game model manager (when Use
 ## Player Settings is on) beats this node's Model Path, which beats its Model Profile, which beats
 ## whatever configure() was handed, which beats the project-wide default
 ## (Project Settings > local_agents/model/default_path, resolved by LocalAgentStatus).
 ##
-## Sampling and load-time knobs are kept in two separate dictionaries — see load_options /
-## inference_options below — because "which weights, loaded how" and "how to sample from them" have
+## Sampling and load-time knobs are kept in two separate dictionaries, load_options and
+## inference_options below, because "which weights, loaded how" and "how to sample from them" have
 ## different lifetimes.
 ##
 ## This file is the node's public face: the export surface, the model/option precedence those exports
-## define, and short methods that hand the actual work to four helpers it owns —
+## define, and short methods that hand the actual work to four helpers it owns.
 ##
-##   AgentHistory  — the conversation, the system prompt, the memory graph
-##   AgentJobs     — the think_async worker thread
-##   AgentServer   — the managed llama-server process
-##   AgentSpeech   — TTS/STT and the playback node
+##   AgentHistory: the conversation, the system prompt, the memory graph
+##   AgentJobs:    the think_async worker thread
+##   AgentServer:  the managed llama-server process
+##   AgentSpeech:  TTS/STT and the playback node
 ##
-## — each of which can be read and changed without opening this one.
+## Each of those can be read and changed without opening this one.
 ##
 ## @tool is on so the node can report configuration warnings while you edit the scene. Every
 ## lifecycle callback therefore opens with an `Engine.is_editor_hint()` guard, and _ensure_agent_node()
 ## refuses outright in the editor: an agent sitting in an open scene must never boot the native
 ## runtime or load a model inside the editor.
 ##
-## (New code here uses explicit types — project rule: no ':=' inferred typing.)
+## (New code here uses explicit types. Project rule: no ':=' inferred typing.)
 
 signal model_output_received(text)
 signal message_emitted(role, content)
@@ -42,12 +42,12 @@ signal think_completed(result)
 
 var agent_node: Object
 var history: Array = []
-## Sampling settings (temperature, penalties, backend). configure() REPLACES this wholesale when it
+## Sampling settings (temperature, penalties, backend). configure() replaces this wholesale when it
 ## is handed an inference preset, so nothing else may store state here.
 var inference_options: Dictionary = {}
-## Model LOAD-time knobs: context window, threads, GPU layers, system prompt. Deliberately a separate
+## Model load-time knobs: context window, threads, GPU layers, system prompt. Deliberately a separate
 ## Dictionary from inference_options, because "which weights, loaded how" and "how to sample from
-## them" are different concerns with different lifetimes — a user switching sampling presets must not
+## them" are different concerns with different lifetimes. A user switching sampling presets must not
 ## silently drop their context size. Kept out of configure()'s replace path for exactly that reason.
 var load_options: Dictionary = {}
 const ExtensionLoader: GDScript = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
@@ -79,7 +79,7 @@ const AgentSpeech: GDScript = preload("res://addons/local_agents/agents/AgentSpe
 
 ## How the model is loaded: context window and GPU layers. Share one profile between agents to load
 ## the weights once. Empty uses the project defaults.
-## These knobs only apply when this agent also names a Model Path (here or on the profile) — without
+## These knobs only apply when this agent also names a Model Path (here or on the profile). Without
 ## one the runtime lazy-loads with its own defaults and the profile is ignored. The profile's
 ## `threads` field is not implemented by the runtime yet.
 @export var model_profile: LocalAgentModelProfile = null:
@@ -106,8 +106,8 @@ const AgentSpeech: GDScript = preload("res://addons/local_agents/agents/AgentSpe
 
 @export_group("Speech")
 
-## Piper voice id under addons/local_agents/voices — a folder or .onnx basename, e.g. "en_US-amy".
-## Empty means this agent never speaks.
+## Piper voice id under addons/local_agents/voices. Give a folder name or an .onnx basename,
+## e.g. "en_US-amy". Empty means this agent never speaks.
 @export_placeholder("en_US-amy") var voice: String = "":
     set(value):
         voice = value
@@ -123,7 +123,7 @@ const AgentSpeech: GDScript = preload("res://addons/local_agents/agents/AgentSpe
 
 @export_group("Autonomy")
 
-## Let the agent act on its own — the native runtime ticks it and it may emit action_requested
+## Let the agent act on its own, so the native runtime ticks it and it may emit action_requested
 ## without anyone calling think(). Off means it only ever responds when asked.
 @export var tick_enabled: bool = false:
     set(value):
@@ -132,7 +132,7 @@ const AgentSpeech: GDScript = preload("res://addons/local_agents/agents/AgentSpe
             agent_node.tick_enabled = tick_enabled
         _refresh_warnings()
 
-## Seconds of game time between autonomous ticks. 0 DISABLES ticking — the native runtime returns
+## Seconds of game time between autonomous ticks. 0 disables ticking. The native runtime returns
 ## early on a non-positive interval (AgentNode.cpp:56), so an agent set to 0 never acts at all.
 @export_range(0.0, 60.0, 0.05, "or_greater", "suffix:s") var tick_interval: float = 1.0:
     set(value):
@@ -154,10 +154,10 @@ const AgentSpeech: GDScript = preload("res://addons/local_agents/agents/AgentSpe
 
 ## Knowledge graph this agent writes its conversation into: every message it is given and every reply
 ## it produces becomes a node, chained to the one before it by a "then" edge. Empty keeps no graph.
-## Two agents handed the SAME graph resource write into one shared record.
+## Two agents handed the same graph resource write into one shared record.
 @export var memory_graph: LocalAgentGraph = null
 
-## Reserved. Handed to the native agent node, which stores it and does not read it yet — conversation
+## Reserved. Handed to the native agent node, which stores it and does not read it yet. Conversation
 ## persistence currently goes through ConversationStore, not this. Kept because it is part of the
 ## native node's published surface.
 @export_global_file("*.db", "*.sqlite", "*.sqlite3") var db_path: String = "":
@@ -205,14 +205,14 @@ func _register_with_manager() -> void:
         manager.register_agent(self)
 
 ## Applies a saved model profile and/or sampling preset from outside the scene. AgentManager calls it
-## with the project-wide configs — `configure(null, preset)` — and the editor panels call it when you
+## with the project-wide configs as `configure(null, preset)`, and the editor panels call it when you
 ## pick a different one.
 ##
 ## The profile lands in `load_options` and the preset in `inference_options`, never both in one
-## dictionary: `inference_options` is REPLACED wholesale here, so anything durable (context size,
+## dictionary: `inference_options` is replaced wholesale here, so anything durable (context size,
 ## threads, GPU layers, the system prompt) would be dropped the moment a sampling preset was applied.
 ##
-## Neither argument overrides this node's own Model Profile / Inference resources — see
+## Neither argument overrides this node's own Model Profile / Inference resources. See
 ## _merged_options() for the whole precedence chain.
 func configure(model_profile_config: LocalAgentModelProfile = null, inference_params: LocalAgentInferenceParams = null) -> void:
     _ensure_agent_node()
@@ -224,7 +224,8 @@ func configure(model_profile_config: LocalAgentModelProfile = null, inference_pa
         inference_options = inference_params.to_options()
 
 ## True when the native runtime is available at all: the extension is loaded and the AgentManager
-## autoload is registered. Whether a MODEL is ready is a separate question — see is_model_ready().
+## autoload is registered. Whether a model is ready is a separate question, answered by
+## is_model_ready().
 ##
 ## Gates on those two facts rather than LocalAgentStatus.is_ready(), which is false for purely
 ## advisory warnings (a missing Piper voice) that must not stop an agent from thinking.
@@ -232,7 +233,7 @@ func is_runtime_ready() -> bool:
     var state: Dictionary = AgentStatus.check()
     return bool(state["extension_ok"]) and bool(state["autoload_ok"])
 
-## True when this agent has weights to use AND the runtime currently holds a model in memory.
+## True when this agent has weights to use and the runtime currently holds a model in memory.
 func is_model_ready() -> bool:
     return resolve_model_path() != "" and bool(AgentStatus.check()["model_loaded"])
 
@@ -465,12 +466,23 @@ func _post_think(result: Dictionary) -> void:
         if _should_speak_response():
             _speech.speak_async(text, voice, _current_runtime_dir())
 
-func say(text: String, opts: Dictionary = {}) -> bool:
+## Speak one line out loud through Piper and return whether audio was produced. Blocking, measured at
+## about 0.5s for a short line, so call it from a turn or a menu rather than from _process.
+##
+## Named speak() rather than say() on purpose. Beside think(), a method called say() reads as "speak
+## what you just thought", and it does not: it vocalizes whatever String you hand it, which need not
+## have come from the model at all. Every other name in this stack already said speak.
+func speak(text: String, opts: Dictionary = {}) -> bool:
     if not _ensure_agent_node():
         return false
-    return _speech.say(text, opts, voice, _current_runtime_dir())
+    return _speech.speak(text, opts, voice, _current_runtime_dir())
 
-func listen(opts: Dictionary = {}) -> String:
+## Transcribe an audio file through whisper, record the transcript as a user message, and return it.
+## Returns "" when the runtime is unavailable or the transcription failed.
+##
+## This does NOT record audio. It was called listen(), which implied a microphone it never opened.
+## Capturing audio is the caller's job; this turns a file into text.
+func transcribe(opts: Dictionary = {}) -> String:
     if not _ensure_agent_node():
         return ""
     var result: Dictionary = _speech.transcribe(opts, _current_runtime_dir())
@@ -482,7 +494,8 @@ func listen(opts: Dictionary = {}) -> String:
         emit_signal("model_output_received", transcript)
     return transcript
 
-func listen_async(input_path: String, opts: Dictionary = {}, callback: Callable = Callable()) -> int:
+## Non-blocking transcribe(). Returns a job id, or -1 when the speech service is unavailable.
+func transcribe_async(input_path: String, opts: Dictionary = {}, callback: Callable = Callable()) -> int:
     return _speech.transcribe_async(input_path, opts, _current_runtime_dir(), callback)
 
 func clear_history() -> void:

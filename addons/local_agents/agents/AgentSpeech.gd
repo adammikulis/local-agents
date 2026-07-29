@@ -2,39 +2,42 @@
 extends RefCounted
 class_name LocalAgentAgentSpeech
 
-## Everything LocalAgent does with sound: the SpeechService wiring, the AudioStreamPlayer that plays a
-## generated reply back, and the map of in-flight TTS jobs that connects a finished synthesis to the
-## file it wrote.
+## Everything LocalAgent does with sound: a LocalAgentSpeechEngine for text to speech, and the
+## SpeechService wiring for speech to text.
 ##
 ## Split out of Agent.gd so the node keeps the inference API. The agent owns one of these and hands it
-## the values it needs per call (the voice id, the runtime directory), so nothing here reads the node's
-## exports - the only node this file touches is the AudioStreamPlayer it created itself.
+## the values it needs per call (the voice id, the runtime directory), so nothing here reads the
+## node's exports.
+##
+## Speech used to go straight to AgentRuntime.synthesize_speech, which needs a `piper` binary in the
+## runtime directory that the addon does not ship, so speak() could not work in any install. It now
+## goes through LocalAgentSpeechEngine, which tries that binary first and then falls back to the
+## piper Python module and the system voice. Transcription still has no fallback: whisper needs the
+## native runtime.
 ##
 ## (Explicit types only - project rule: no ':=' inferred typing.)
 
 const SpeechService: GDScript = preload("res://addons/local_agents/runtime/audio/SpeechService.gd")
+const SpeechEngine: GDScript = preload("res://addons/local_agents/runtime/audio/SpeechEngine.gd")
 const RuntimePaths: GDScript = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 
-# Plays back the .wav Piper writes. Created by attach() and parented to the agent, so it dies with it.
-var _audio_player: AudioStreamPlayer = null
-# job id -> {relative_output, absolute_output}: where the synthesis job in flight was told to write.
-var _pending_jobs: Dictionary = {}
+# Owns the voice model, the backend chain and the playback node. Parented to the agent by attach(),
+# so it dies with it.
+var _engine: SpeechEngine = null
+var _parent: Node = null
 var _service: SpeechService = null
 var _service_connected: bool = false
 
 
-## Create the playback node under `parent` and bring the speech service up. Called from the agent's
-## _ready, so only ever at runtime - a @tool agent sitting in the editor never gets here.
+## Bring speech up under `parent`. Called from the agent's _ready, so only ever at runtime - a @tool
+## agent sitting in the editor never gets here.
 func attach(parent: Node) -> void:
-    if _audio_player == null:
-        _audio_player = AudioStreamPlayer.new()
-        _audio_player.name = "TTSPlayer"
-        parent.add_child(_audio_player)
+    _parent = parent
     ensure_service()
 
 
 ## Make sure the SpeechService exists and its failure signal is connected. Idempotent: every entry
-## point calls it, because speech can be asked for before or after _ready.
+## point calls it, because transcription can be asked for before or after _ready.
 func ensure_service() -> void:
     if _service == null:
         _service = SpeechService.new()
@@ -46,20 +49,33 @@ func ensure_service() -> void:
         _service_connected = true
 
 
-## Blocking synthesis (LocalAgent.say): true when the service accepted the request and produced audio.
-func say(text: String, opts: Dictionary, voice: String, runtime_dir: String) -> bool:
-    ensure_service()
-    if _service == null:
+## Blocking synthesis (LocalAgent.say): true when audio was produced and playback started, or the
+## system voice accepted the line. The engine warns once with the reason when it returns false.
+##
+## This blocks the caller for as long as synthesis takes, about half a second for a short line
+## through python piper. LocalAgent's `speak_responses` uses speak_async() instead, which does not.
+##
+## An explicit speak() outranks a queued reply. The engine cuts off whatever it was saying and drops
+## its backlog first, so the agent never has two lines going at once.
+func speak(text: String, opts: Dictionary, voice: String, runtime_dir: String) -> bool:
+    var engine: SpeechEngine = _ensure_engine(voice, runtime_dir)
+    if engine == null:
+        push_warning("Local Agents cannot speak without a running scene tree. Call speak() from a node that is inside the tree.")
         return false
-    var payload: Dictionary = opts.duplicate(true)
-    payload["voice_id"] = voice
-    payload["runtime_directory"] = _normalized_runtime_dir(runtime_dir)
-    payload["text"] = text
-    var result: Dictionary = _service.synthesize(payload)
-    return bool(result.get("ok", false))
+    return engine.speak_blocking(text, opts)
 
 
-## Blocking transcription (LocalAgent.listen). Returns the service's raw result - the agent decides
+## Say a finished reply out loud without blocking the frame: hand the line to the engine, which
+## queues it, synthesizes off the main thread and plays the result when it lands.
+func speak_async(text: String, voice: String, runtime_dir: String) -> void:
+    var engine: SpeechEngine = _ensure_engine(voice, runtime_dir)
+    if engine == null:
+        push_warning("Local Agents cannot speak without a running scene tree. The reply was not spoken.")
+        return
+    engine.speak(text)
+
+
+## Blocking transcription (LocalAgent.transcribe). Returns the service's raw result - the agent decides
 ## what to do with the transcript, because recording it in history and re-emitting it are its job, not
 ## this file's. An empty dictionary means the service was unavailable, which reads as "not ok".
 func transcribe(opts: Dictionary, runtime_dir: String) -> Dictionary:
@@ -71,7 +87,7 @@ func transcribe(opts: Dictionary, runtime_dir: String) -> Dictionary:
     return _service.transcribe(payload)
 
 
-## Non-blocking transcription (LocalAgent.listen_async). Returns the job id, or -1 when the service is
+## Non-blocking transcription (LocalAgent.transcribe_async). Returns the job id, or -1 when the service is
 ## unavailable.
 func transcribe_async(input_path: String, opts: Dictionary, runtime_dir: String, callback: Callable) -> int:
     ensure_service()
@@ -83,73 +99,55 @@ func transcribe_async(input_path: String, opts: Dictionary, runtime_dir: String,
     return _service.transcribe_async(input_path, payload, callback)
 
 
-## Say a finished reply out loud without blocking the frame: kick Piper off, and play whatever it
-## wrote when the job reports back. A missing voice is a warning, not an error - an agent whose voice
-## assets are not installed still thinks and still emits its reply as text.
-func speak_async(text: String, voice: String, runtime_dir: String) -> void:
-    ensure_service()
-    if _service == null:
-        push_warning("Speech service unavailable; cannot synthesize speech")
-        return
-    var voice_report: Dictionary = RuntimePaths.voice_asset_report(voice)
-    if not bool(voice_report.get("ok", false)):
-        var checked: PackedStringArray = PackedStringArray(voice_report.get("candidates", PackedStringArray()))
-        push_warning("Voice assets not found for '%s'. Checked: %s" % [voice, ", ".join(checked)])
-        return
-    var output_rel: String = RuntimePaths.make_tts_output_path("local_agents")
-    var output_abs: String = ProjectSettings.globalize_path(output_rel)
-    var options: Dictionary = {
+## Which backend the next spoken line will use: "native_piper", "python_piper", "system_tts" or
+## "none". Worth logging when someone reports hearing nothing, and asserted by the headless speech
+## self-check in addons/local_agents/tests/test_speech_engine.gd.
+##
+## Builds the engine if it does not exist yet, and the first call can block for about 0.14s probing
+## for a Python interpreter that can import piper. Call it from a menu or a log line, not _process.
+func backend_name(voice: String, runtime_dir: String) -> String:
+    var engine: SpeechEngine = _ensure_engine(voice, runtime_dir)
+    if engine == null:
+        return "none"
+    return engine.backend_name()
+
+
+# Build the engine on first use and keep it in step with the agent's exports afterwards. The engine
+# is a Node: it owns an AudioStreamPlayer, a download request and its worker threads, and it has to
+# be in the tree for all three.
+func _ensure_engine(voice: String, runtime_dir: String) -> SpeechEngine:
+    if _engine != null and is_instance_valid(_engine):
+        if voice != "":
+            _engine.set_voice(voice)
+        _engine.set_runtime_directory(_normalized_runtime_dir(runtime_dir))
+        return _engine
+    var host: Node = _engine_host()
+    if host == null:
+        return null
+    _engine = SpeechEngine.new()
+    _engine.name = "SpeechEngine"
+    host.add_child(_engine)
+    _engine.setup({
         "voice_id": voice,
-        "voice_path": String(voice_report.get("model", "")),
-        "voice_config": String(voice_report.get("config", "")),
-        "output_path": output_abs,
         "runtime_directory": _normalized_runtime_dir(runtime_dir),
-    }
-    var job_id: int = _service.synthesize_async(text, options, Callable(self, "_on_job_finished"))
-    _pending_jobs[job_id] = {
-        "relative_output": output_rel,
-        "absolute_output": output_abs,
-    }
+    })
+    return _engine
 
 
-# A synthesis job finished. Prefer the path we asked for; fall back to the one the service reports,
-# localized when there is a project to localize against.
-func _on_job_finished(job_id: int, result: Dictionary) -> void:
-    var job: Dictionary = _pending_jobs.get(job_id, {})
-    _pending_jobs.erase(job_id)
-    if not bool(result.get("ok", false)):
-        push_warning("Speech synthesis failed (%s)" % String(result.get("error", "tts_failed")))
-        return
-    var rel_path: String = String(job.get("relative_output", ""))
-    var resolved: String = String(result.get("output_path", ""))
-    if rel_path == "" and resolved != "":
-        if ProjectSettings.has_setting("application/config/name"):
-            rel_path = ProjectSettings.localize_path(resolved)
-        else:
-            rel_path = resolved
-    if rel_path == "":
-        rel_path = "user://local_agents/tts"
-    _play(rel_path)
+# The agent when attach() ran, otherwise the scene root. Null means there is no scene tree at all,
+# which is a RefCounted-only context where nothing can play anyway.
+func _engine_host() -> Node:
+    if _parent != null and is_instance_valid(_parent):
+        return _parent
+    var loop: MainLoop = Engine.get_main_loop()
+    if loop is SceneTree:
+        return (loop as SceneTree).root
+    return null
 
 
-# Any speech job (synthesis or transcription) the service gave up on.
+# Any speech job (transcription) the service gave up on.
 func _on_job_failed(job_id: int, result: Dictionary) -> void:
-    if _pending_jobs.has(job_id):
-        _pending_jobs.erase(job_id)
     push_warning("Speech service job %d failed: %s" % [job_id, String(result.get("error", "speech_job_failed"))])
-
-
-func _play(user_path: String) -> void:
-    if _audio_player == null:
-        return
-    if _audio_player.playing:
-        _audio_player.stop()
-    var stream: Resource = ResourceLoader.load(user_path)
-    if stream is AudioStream:
-        _audio_player.stream = stream
-        _audio_player.play()
-    else:
-        push_warning("Failed to load generated audio at %s" % user_path)
 
 
 # The service wants an absolute runtime directory, and "" when there is none to give.

@@ -1,7 +1,7 @@
 class_name LAMaterialFieldAtmos3D
 extends RefCounted
 
-## LAMaterialFieldAtmos3D — the ATMOSPHERE derivation of LAMaterialField3D, factored out of the extract-only
+## LAMaterialFieldAtmos3D: the ATMOSPHERE derivation of LAMaterialField3D, factored out of the extract-only
 ## field hub (same pattern as the query / inject / scent / step modules: it holds no per-cell state of its own
 ## and reaches into the owning field `_f` for the shared arrays).
 ##
@@ -18,7 +18,7 @@ extends RefCounted
 ##
 ## Also owns the render COVER-TEXTURE bake (LACoverTextureBaker), folded into the same ~10Hz pass, plus the
 ## atmosphere shell radii the water-particle renderer places particles against.
-## (Explicit types only — no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 const CoverBakerScript: GDScript = preload("res://addons/local_agents/sim/material/CoverTextureBaker.gd")
 

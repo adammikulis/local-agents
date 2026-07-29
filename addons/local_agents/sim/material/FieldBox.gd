@@ -2,12 +2,12 @@
 class_name LocalAgentFieldBox
 extends Node3D
 
-## LocalAgentFieldBox — the material field sandbox as a node you can DROP INTO A SCENE.
+## LocalAgentFieldBox: the material field sandbox as a node you can DROP INTO A SCENE.
 ##
 ## Drag this in, press play, and you get a volumetric MaterialField in BOX mode (setup_dims) with a heat
 ## source at its floor and a plane of cubes tinted by the live temperature, so you can watch warmth diffuse
-## and rise. Everything the code-only demo did by hand — sizing the volume, injecting heat, sampling
-## temperatures back out, colouring the slice — is an inspector property here.
+## and rise. Everything the code-only demo did by hand (sizing the volume, injecting heat, sampling
+## temperatures back out, colouring the slice) is an inspector property here.
 ##
 ## It OWNS a LAMaterialField3D as a child rather than extending it: the field script is a designated
 ## extract-only hub, so the inspector surface lives out here and the field stays untouched.
@@ -22,7 +22,7 @@ extends Node3D
 ##
 ## Pair it with a LocalAgentDemoHarness (report_source = this node) for the repo's standard
 ## `-- --run-frames=N` report line.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 const MaterialFieldScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialField3D.gd")
 

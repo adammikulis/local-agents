@@ -3,15 +3,15 @@ extends RefCounted
 
 ## Per-subsystem PROFILING for the LocalAgentCreature hot path (a dev tool), factored out of the main brain.
 ##
-## Gated by Engine meta "la_prof" (default off) or the LA_PROF environment variable — zero meaningful cost
+## Gated by Engine meta "la_prof" (default off) or the LA_PROF environment variable, so there is zero meaningful cost
 ## when off. It accumulates each phase's microseconds across ALL creatures and emits avg ms/physics-frame to
 ## SIM_REPORT (cr_meta_ms / cr_terrain_ms / cr_glue_ms / cr_think_ms / cr_move_ms), so a headless offscreen
 ## run prints the creature hot-path breakdown with no GUI profiler.
 ##
 ## The first creature to tick calls ensure(), which registers the report provider once (a static Callable, so
-## it is not pruned when any one creature frees) and returns whether profiling is on — the caller keeps that
+## it is not pruned when any one creature frees) and returns whether profiling is on, and the caller keeps that
 ## in a local so the per-phase guards stay a plain boolean test, exactly as before.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 static var on: bool = false
 static var _registered: bool = false

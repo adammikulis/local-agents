@@ -1,43 +1,43 @@
 class_name LAMaterialEjecta3D
 extends Node3D
 
-## LAMaterialEjecta3D — THE KEYSTONE momentum/ejecta primitive of the substrate. When a pressure release throws
+## LAMaterialEjecta3D: THE KEYSTONE momentum/ejecta primitive of the substrate. When a pressure release throws
 ## matter (a volcano bomb, a meteor's debris, a geyser/steam blast), that matter is just a PARCEL of mass+heat
 ## given momentum: it arcs under the planet's RADIAL gravity and, on landing, re-deposits its mass + heat into
-## the field at the impact cell. There is no "bomb code" — every named thrown-debris phenomenon is this ONE
+## the field at the impact cell. There is no "bomb code", because every named thrown-debris phenomenon is this ONE
 ## primitive with different seed parameters. Disaster actors DISSOLVE into a single eject() call.
 ##
-## PERF — BOUNDED + ACTIVITY-LOD (a meteor volley must NOT tank the frame-rate). Two levers, per the repo's
+## PERF is BOUNDED + ACTIVITY-LOD (a meteor volley must NOT tank the frame-rate). Two levers, per the repo's
 ## Big-O / bubbles-of-compute mandate, layered on the emergent physics WITHOUT losing it:
 ##   1. GLOBAL BUDGET/POOL. There is a hard cap on TOTAL live parcels, quality-scaled (Potato/Low small →
 ##      Ultra large) from the published `la_effects_scale`. At the cap a new impact spawns FEWER airborne
-##      parcels; the leftover mass is DEPOSITED IMMEDIATELY at the impact point (conserved — nothing vanishes),
+##      parcels; the leftover mass is DEPOSITED IMMEDIATELY at the impact point (conserved, nothing vanishes),
 ##      so a sustained volley plateaus at the budget instead of growing debris fields without bound.
 ##   2. ACTIVITY-LOD FAST-SETTLE. Only parcels that are near AND in the camera's view stay airborne and tick
-##      (the compute bubble). A parcel that is off-screen or far from the camera SETTLES IMMEDIATELY — it still
-##      deposits its mass/heat (conserved), it just skips the invisible arc animation. An impact whose launch
+##      (the compute bubble). A parcel that is off-screen or far from the camera SETTLES IMMEDIATELY. It still
+##      deposits its mass/heat (conserved) and just skips the invisible arc animation. An impact whose launch
 ##      point is off-screen spawns ZERO parcels and deposits in one shot. Airborne work therefore scales with
 ##      what the player can actually see, not with how many meteors fell.
 ## Neither lever changes the physics: airborne parcels still carry real momentum and every gram of mass/heat
 ## still redeposits into the field (mass conserved). Only the COUNT is bounded and invisible arcs are skipped.
 ##
-## PHYSICS (CPU, serial — airborne parcels are FEW by construction now, like actors; the per-cell field CAs stay
+## PHYSICS (CPU, serial, because airborne parcels are FEW by construction now, like actors; the per-cell field CAs stay
 ## on the GPU). The per-parcel step is data-parallel, but the hard budget + view-LOD keep the live count to a
-## few dozen, so CPU ballistic integration costs a fraction of a millisecond — a GPU port would only add a
+## few dozen, so CPU ballistic integration costs a fraction of a millisecond. A GPU port would only add a
 ## landing-event readback hop (against the minimize-CPU↔GPU-hops rule) for no measurable win. The CPU form is
 ## the right tool at this bounded scale.
 ##   • eject(world_pos, mass, energy, dir_bias) launches a small spray of parcels outward (radial + bias +
-##     cone), speed scaled from `energy` — subject to the budget + view-LOD gates above.
+##     cone), speed scaled from `energy`, subject to the budget + view-LOD gates above.
 ##   • each step every AIRBORNE parcel integrates ballistically under radial gravity a = −g·r̂(pos).
 ##   • a parcel LANDS when it has risen and fallen back to (or below) its launch radius while descending (or is
 ##     culled by the LOD/lifetime gate); it then deposits: add_lava at the impact (a conserving bedrock→lava
-##     phase move, so mineral_total stays BOUNDED — the parcel melts an impact blob rather than fabricating
+##     phase move, so mineral_total stays BOUNDED, because the parcel melts an impact blob rather than fabricating
 ##     mass) + add_heat (the glowing scar).
 ##
 ## RENDER: a MultiMeshInstance3D of small emissive embers (GPU-instanced, ONE draw call) whose per-instance
-## transforms track the live parcels — the field-driven glowing-ejecta visual. The MultiMesh is allocated to the
+## transforms track the live parcels, the field-driven glowing-ejecta visual. The MultiMesh is allocated to the
 ## absolute ceiling once; visible_instance_count follows the live (budgeted) count.
-## (Explicit types only — no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 # Radial gravity pulling parcels back to the surface (units/s²). Sized so a mid-energy bomb arcs for a few
 # seconds, not a geological age (iterate-fast: a visible arc within a short verification run).

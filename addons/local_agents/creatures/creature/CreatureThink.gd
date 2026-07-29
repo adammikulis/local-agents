@@ -5,7 +5,7 @@ extends RefCounted
 ## action-vocabulary bridge, factored out of the main brain. Each entry point returns a desired heading
 ## and sets the creature's `state`; unified eating, ranged hunting, "watch the vultures" public-information
 ## cues, and the innate→action dispatch all live here. Static + dynamic access on the passed creature (no
-## cyclic class reference). (Explicit types only — project rule: no ':=' inferred typing.)
+## cyclic class reference). (Explicit types only, no ':=' inferred typing.)
 
 const DRINK_RATE: float = 45.0             # hydration/sec restored while drinking (mirrors LocalAgentCreature.DRINK_RATE)
 const COMPANION_FOLLOW_DIST: float = 4.0   # a "follow" companion closes to this range, then heels/holds
@@ -155,7 +155,7 @@ static func _kill_and_eat(c, prey: Node3D) -> void:
 	var meat: float = gain * 0.7
 	var prey_profile: Dictionary = prey.food_profile() if prey != null and prey.has_method("food_profile") else {}
 	LACreatureDigestion.ingest(c, meat, prey_profile)
-	LocalAgentAudioDirector.emit(c.get_tree(), "chomp", c.global_position)
+	LAAudioDirector.emit(c.get_tree(), "chomp", c.global_position)
 	c._emit_call("forage")                     # a kill call: kin nearby learn to hunt this situation
 	_reinforce_cue_success(c)
 	# TASTE learning: a fresh kill's taste cue, reinforced by how much the meal is worth (chemical affinity).

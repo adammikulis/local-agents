@@ -3,7 +3,7 @@ extends RefCounted
 
 ## Shared helper that turns a model file (imported glTF/GLB -> PackedScene) into a live child
 ## Node3D for any actor: instanced, uniformly scaled to a target height, optionally flat-tinted,
-## and — when the model ships a rig — animated by movement. Rigless models get a lightweight
+## and (when the model ships a rig) animated by movement. Rigless models get a lightweight
 ## procedural bob so they still read as alive. Nothing here branches on species; callers pass a
 ## row from LAActorModels, keeping the visual path config-driven per the emergent-everything rule.
 

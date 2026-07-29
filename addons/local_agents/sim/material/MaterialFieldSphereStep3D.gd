@@ -1,14 +1,14 @@
 class_name LAMaterialFieldSphereStep3D
 extends RefCounted
 
-## LAMaterialFieldSphereStep3D — the cubed-sphere per-frame STEP ORCHESTRATION of LAMaterialField3D,
+## LAMaterialFieldSphereStep3D: the cubed-sphere per-frame STEP ORCHESTRATION of LAMaterialField3D,
 ## factored out so the field node stays a thin substrate/composition core (and under the file-size gate).
 ## Holds NO field state of its own: it reaches into the owning LAMaterialField3D (`_f`) for the GPU driver,
 ## the per-cell channel arrays, the dirty flags and the step accumulator, exactly as the query/inject
 ## modules do. Only the fixed-step begin_frame/step/end_frame loop + the readback scatter live here; the
 ## in-place packed-array mutators (core-heat pin, solidity sample, sea seed) stay on the field (they edit
 ## packed arrays element-wise, which is cleanest done on the owning object).
-## (Explicit types only — no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 # Fixed-step cadence — mirrors the field's own constants so the loop is self-contained.
 const STEP_DT: float = 1.0 / 10.0

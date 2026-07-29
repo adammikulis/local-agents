@@ -2,13 +2,13 @@ class_name LABiomeShaderController
 extends Node
 
 ## Owns the biome climate texture and feeds it to the terrain's triplanar shader so the ground reads by
-## CLIMATE (moisture + temperature) instead of altitude alone — deserts, savanna, jungle, steppe and tundra
+## CLIMATE (moisture + temperature) instead of altitude alone. Deserts, savanna, jungle, steppe and tundra
 ## self-differentiate from where the emergent field is dry/wet/hot/cold. All the baking logic lives in the
 ## LABiomeTextureBaker MODULE; this controller is the thin driver + shader glue (VoxelWorld / MaterialField3D
 ## stay extract-only). Sphere-only; a no-op on the flat island (which has no cubed-sphere climate field).
 ##
 ## Cheap: rebakes on a ~2.5 Hz cadence off the field's live CPU readback (one O(surf_count) reduction), and
-## pushes ONE texture the shader samples in place (uniform is bound once). (Explicit types only — no ':=' .)
+## pushes ONE texture the shader samples in place (uniform is bound once). (Explicit types only, no ':=' inferred typing.)
 
 const BiomeBakerScript: GDScript = preload("res://addons/local_agents/sim/material/BiomeTextureBaker.gd")
 

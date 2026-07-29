@@ -1,8 +1,8 @@
 class_name LABiomeTextureBaker
 extends RefCounted
 
-## Bakes the field's near-GROUND climate into a 6-layer RGBA8 Texture2DArray — one texel per SphereGrid
-## surface column — so the terrain shader can colour by CLIMATE (moisture + temperature), not altitude
+## Bakes the field's near-GROUND climate into a 6-layer RGBA8 Texture2DArray (one texel per SphereGrid
+## surface column), so the terrain shader can colour by CLIMATE (moisture + temperature), not altitude
 ## alone. This is the "one green lawn -> distinct places" bridge: a dry plateau reads savanna/desert while a
 ## humid coast reads jungle, purely because the emergent field is drier/wetter there. No per-place scripting.
 ##
@@ -16,7 +16,7 @@ extends RefCounted
 ##   B = snowpack presence (cold-wet flag), lets the shader bias toward frost/tundra tint
 ##   A = valid flag (255 once baked) so the shader FALLS BACK to altitude-only bands before the first bake
 ##       (a fresh/ headless launch samples black -> A=0 -> unchanged legacy look, never a broken colour).
-## (Explicit types only — no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 const WARM_COLD_C: float = -25.0     # temperature that reads fully "tundra cold" (G = 0)
 const WARM_HOT_C: float = 40.0       # temperature that reads fully "tropical hot" (G = 1)

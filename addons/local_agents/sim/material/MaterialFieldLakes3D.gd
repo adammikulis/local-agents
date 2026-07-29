@@ -5,12 +5,12 @@ extends RefCounted
 ## Runs a PRIORITY-FLOOD depression fill (Barnes et al.) over the surface columns: starting from the sea, it
 ## propagates the lowest spill level inward, so every land column learns the water level of the basin it sits in.
 ## Where that spill level rises above the column's own ground, the bowl is underwater → a lake. The lake cells
-## are marked STATIC (a permanent water body, exactly like the sea) so they never drain away — the dry-land
+## are marked STATIC (a permanent water body, exactly like the sea) so they never drain away. The dry-land
 ## equilibrium of the water cycle can't keep a perched lake full on its own, and a real planet simply HAS lakes.
 ## Rivers/springs/rain flow INTO them (dynamic water entering a static cell is absorbed, as with the sea); they
 ## evaporate and feed local humidity. Elevations are the cell-quantised ground shells, so integer BUCKET
-## priority-flood is O(cells) with no heap. Called once from the field's seed sequence (a composable module — no
-## behaviour added to the field hub). (Explicit types only — no ':=' .)
+## priority-flood is O(cells) with no heap. Called once from the field's seed sequence (a composable module, with no
+## behaviour added to the field hub). (Explicit types only, no ':=' inferred typing.)
 
 ## Fill the field's enclosed land basins with static lake water. Reads/writes the field's packed arrays directly
 ## (the same access the query/inject/step sibling modules use).

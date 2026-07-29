@@ -1,17 +1,17 @@
 class_name LAEcologyPlants
 extends RefCounted
 
-## Vegetation seeding for the living world — the per-tick spread of plants (generic plant, flowers, shrubs)
+## Vegetation seeding for the living world: the per-tick spread of plants (generic plant, flowers, shrubs)
 ## and forest succession (trees). Seed-ready plants sow their own kind into their neighbourhood bounded by
 ## that kind's pop_cap; existing trees standing on biomass-rich ground drop seedlings so groves densify on
 ## the warm fertile continents the photosynthesis chemistry made most productive. Every germination passes
-## the emergent treeline gate (warm, snow-free ground) so cold/polar/coastal margins stay bare — vegetation
+## the emergent treeline gate (warm, snow-free ground) so cold/polar/coastal margins stay bare. Vegetation
 ## is a consequence of the climate + chemistry, not a placement table.
 ##
 ## Owned by LAEcologyService, whose _physics_process forwards its plant/tree seeding ticks here. This module
-## reaches back into the service for the shared state that stays on the hub — get_tree, the veg config, the
+## reaches back into the service for the shared state that stays on the hub (get_tree, the veg config, the
 ## surface + tangent placement helpers, the germination gate, the actor instancer, biomass reads and the
-## water gate — so there is exactly one owner of each. Explicit types only (project rule: no ':=').
+## water gate), so there is exactly one owner of each. Explicit types only (project rule: no ':=').
 
 var _eco: LAEcologyService = null
 

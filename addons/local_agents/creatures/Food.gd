@@ -4,12 +4,12 @@ extends RefCounted
 ## Unified food model: EVERYTHING edible is just "food", described by a nutrition TYPE and a life
 ## STATE. An animal eats what its diet accepts; how much energy it gains is the food's base value
 ## scaled by state (a fresh kill beats a rotten one; cooked beats raw). All data-driven off a tiny
-## `food_profile()` any edible actor returns — no per-food-source branching in the creatures.
+## `food_profile()` any edible actor returns, with no per-food-source branching in the creatures.
 ##
 ## A food's profile is a Dictionary: { "type": <carbs|meat|fat>, "state": <living|dead|decayed|cooked>,
 ## "value": <base energy float> }.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 const TYPE_CARBS: String = "carbs"      # plants, fruit, grain
 const TYPE_MEAT: String = "meat"        # flesh

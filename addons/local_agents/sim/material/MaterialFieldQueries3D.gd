@@ -1,14 +1,14 @@
 class_name LAMaterialFieldQueries3D
 extends RefCounted
 
-## LAMaterialFieldQueries3D — the READ-ONLY query accessors of the dense 3D MaterialField3D, factored
+## LAMaterialFieldQueries3D: the READ-ONLY query accessors of the dense 3D MaterialField3D, factored
 ## out so the field node stays a thin simulation/composition core (and under the file-size gate). Holds
 ## NO state of its own: it reaches into the owning LAMaterialField3D (`_f`) for the shared per-cell
 ## arrays (`_temp`, `_water`, `_solid`, `_static`, `_lava`) plus geometry (`_dim_x/_dim_y/_dim_z`,
 ## `_cell_size`, `_origin`, `sea_level`) and constants (`MAX_MASS`, `RENDER_MIN`), exactly as the heat /
-## atmosphere / lava concern modules do. Every method here is a pure getter — it never mutates the field.
+## atmosphere / lava concern modules do. Every method here is a pure getter that never mutates the field.
 ## The field exposes each as a thin forwarder so the 2.5D-compatible consumer API is unchanged.
-## (Explicit types only — no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 # Salinity banding (depth-of-sea proxy) — own copies of the field's constants so fish behave identically.
 const SALT_FULL_DEPTH: float = 22.0

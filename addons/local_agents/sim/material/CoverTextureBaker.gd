@@ -1,13 +1,13 @@
 class_name LACoverTextureBaker
 extends RefCounted
 
-## Bakes the field's DERIVED condensate into a 6-layer RGBA8 Texture2DArray — one texel per SphereGrid
-## surface cell — the ~24 KB render bridge the water-particle renderer samples per particle. The field
+## Bakes the field's DERIVED condensate into a 6-layer RGBA8 Texture2DArray (one texel per SphereGrid
+## surface cell), the ~24 KB render bridge the water-particle renderer samples per particle. The field
 ## runs on a LOCAL RenderingDevice whose SSBOs can't bind to scene shaders, so a small shared summary
 ## texture is the honest GPU-first bridge (per-particle motion/draw stays 100% on the GPU). Reduces each
 ## surface column's radial layers into: R=cloud density, G=fog density, B=precip intensity, A=cold flag
 ## (cold column -> the shader picks snow over rain). ONE O(cell_count) pass, folded into the ~10Hz atmos
-## aggregate refresh. Cell layout matches the grid: c = s*depth + r. (Explicit types only — no ':=' .)
+## aggregate refresh. Cell layout matches the grid: c = s*depth + r. (Explicit types only, no ':=' inferred typing.)
 
 var _res: int = 0
 var _depth: int = 0

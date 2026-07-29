@@ -4,12 +4,12 @@ extends RefCounted
 ## Digestion + marking waste for LocalAgentCreature, factored out of the hot _physics_process. A fed creature
 ## periodically drops feces (soil fertility + a food/musk cue predators track prey by) and, more often,
 ## urine (territorial musk). Both deposit into the shared scent/fertility field (LAMaterialScent3D) via
-## c._material — no node is spawned; the deposit is a few cells that diffuse + wash away. Feces enrich
+## c._material. No node is spawned; the deposit is a few cells that diffuse + wash away. Feces enrich
 ## the soil so plants regrow on dung (emergent nutrient cycle), so a well-fed animal fertilises its range.
 ##
 ## Static + dependency-free of the LocalAgentCreature type (dynamic field access, like the other Creature* helpers).
 ## The cooldown timers (_poop_cd/_urine_cd) stay on the creature; only the tick logic lives here.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 
 ## Minimum pending digested residue (LACreatureDigestion.gut_waste) before a feces deposit is worth making —

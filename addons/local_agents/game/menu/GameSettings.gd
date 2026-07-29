@@ -1,9 +1,9 @@
 class_name LAGameSettings
 extends Resource
 
-## LAGameSettings — the game's front-end configuration, held as a typed Resource (not a loose
+## LAGameSettings: the game's front-end configuration, held as a typed Resource (not a loose
 ## dictionary) so every consumer reads named, typed fields. It carries FOUR groups the player picks on
-## the settings screen, and — the point of this file — keeps the two performance categories SEPARATE so a
+## the settings screen, and (the point of this file) keeps the two performance categories SEPARATE so a
 ## player can trade GPU cost and CPU cost independently:
 ##   - difficulty        → a preset (peaceful/normal/harsh) plus two continuous knobs (disaster frequency,
 ##                         climate harshness) the preset seeds and the player can nudge (gameplay, not perf);
@@ -23,7 +23,7 @@ extends Resource
 ## APPLICATION INTERFACE: the sim consumes a settings object through `LAGameMode.apply(settings)`, which
 ## stores it and emits `LAGameMode.settings_applied(settings)`. LAVoxelSettingsApplier reads the concrete
 ## knobs off this resource and pushes them into the field/spawn/render systems. This file only DEFINES and
-## PERSISTS the values; it never reaches into simulation code. (Explicit types only — no ':=' inferred typing.)
+## PERSISTS the values; it never reaches into simulation code. (Explicit types only, no ':=' inferred typing.)
 
 enum Difficulty { PEACEFUL, NORMAL, HARSH }
 enum GraphicsPreset { POTATO, LOW, MEDIUM, HIGH, ULTRA, CUSTOM }

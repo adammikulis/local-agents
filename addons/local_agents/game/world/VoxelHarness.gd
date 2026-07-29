@@ -112,20 +112,20 @@ static func emit_population_trace(w, frame: int) -> void:
 	print("POP_TRACE={\"frame\":%d,\"counts\":%s,\"temp_mean\":%.1f,\"surf_mean\":%.1f,\"surf_max\":%.1f,\"t_eq\":%.1f,\"t_pole\":%.1f,\"rab_e\":%.2f,\"rab_gut\":%.2f,\"rab_bio\":%.4f,\"t_min\":%.1f,\"t_max\":%.1f,\"snow\":%d,\"ice\":%d,\"sea_ice\":%d,\"cloud_cover\":%.3f,\"sea_t\":%.1f,\"charge_peak\":%.2f,\"bolts\":%d,\"moisture\":%.0f,\"cloud_cells\":%d,\"deaths\":%s}" % [frame, JSON.stringify(counts), temp_mean, surf_mean, surf_max, t_eq, t_pole, rab_e, rab_g, rab_b, t_min, t_max, snow_c, ice_c, sea_ice, cloud_cover, open_sea_t, charge_peak, bolts, rain, clouds, JSON.stringify(deaths)])
 
 
-static func emit_smoke_summary(w) -> void:
-	# Draw-call source breakdown (mesh surfaces per actor group) — instancing target, only under LA_PROFILE.
-	if OS.has_environment("LA_PROFILE"):
-		var parts: PackedStringArray = PackedStringArray()
-		for g in ["creature", "fish", "plant", "tree", "rock", "nest", "villager"]:
-			var nodes: Array = w.get_tree().get_nodes_in_group(g)
-			var m: int = 0
-			for nd in nodes:
-				m += _count_meshes(nd)
-			parts.append("%s:n=%d,surf=%d" % [g, nodes.size(), m])
-		print("DRAW_SOURCES={%s}" % ", ".join(parts))
-	# Field, population + cognition all flow from their registered LASimReport providers; deaths are events;
-	# behaviour peaks are gauges (VoxelWorld._sample_behaviour_peaks). Feed the last few run-scalars + the
-	# ground-truth perf monitors, then emit the ONE SIM_REPORT snapshot and quit. (SMOKE_SUMMARY retired.)
+## Fill the run-scalar gauges and hand back the whole SIM_REPORT payload, WITHOUT printing or quitting.
+##
+## This used to be emit_smoke_summary(), which filled the gauges, printed, emitted the completion
+## sentinel and requested the quit. That made VoxelWorld the one scene in the repo running its own
+## private copy of the harness contract every demo gets from LocalAgentDemoHarness. The reason given
+## for that was "the flagship needs --perf-frames and --bench, so it cannot use the harness node",
+## which was never true: of 20 command-line flags exactly 3 overlapped, and LASimReport.snapshot()
+## already returned the payload as a Dictionary, which is precisely the shape the harness wants.
+##
+## So the split is: this builds the report, LocalAgentDemoHarness prints it, counts the frames, emits
+## LA_RUN_COMPLETE and owns the exit. --perf-frames and --bench stay in VoxelInputController, because
+## those really are game-specific and always were.
+static func build_report(w) -> Dictionary:
+	_emit_draw_sources(w)
 	LASimReport.gauge("frames", float(w._frame))
 	LASimReport.gauge("time_of_day", w._sky_ctrl.time_of_day() if w._sky_ctrl != null else 0.30)
 	LASimReport.gauge("peak_slump", float(w._peak_slump))
@@ -136,13 +136,20 @@ static func emit_smoke_summary(w) -> void:
 	LASimReport.gauge("draw_calls", Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
 	LASimReport.gauge("prims_M", Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1.0e6)
 	LASimReport.gauge("video_mem_MB", Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1.048576e6)
-	var _cam: Camera3D = w.get_viewport().get_camera_3d() if w.get_viewport() != null else null
-	if _cam != null:
-		LASimReport.gauge("camera_far", _cam.far)   # proof the draw-distance knob bites
-	LASimReport.emit()
-	# The same end-of-run sentinel every LocalAgentDemoHarness prints, so run_sim_offscreen.sh can tell
-	# a finished run from a progress line. It cannot infer that from SIM_REPORT alone: this harness
-	# also emits POP_TRACE={"frame":N,...} every 180 frames, which is equally JSON-shaped, and a
-	# watchdog matching on shape killed healthy 800- and 1200-frame runs at frame 180.
-	LocalAgentDemoHarness.print_complete(0)
-	LAAppExit.request(w, 0)
+	var cam: Camera3D = w.get_viewport().get_camera_3d() if w.get_viewport() != null else null
+	if cam != null:
+		LASimReport.gauge("camera_far", cam.far)   # proof the draw-distance knob bites
+	return LASimReport.snapshot()
+
+
+static func _emit_draw_sources(w) -> void:
+	# Draw-call source breakdown (mesh surfaces per actor group), an instancing target, only under LA_PROFILE.
+	if OS.has_environment("LA_PROFILE"):
+		var parts: PackedStringArray = PackedStringArray()
+		for g in ["creature", "fish", "plant", "tree", "rock", "nest", "villager"]:
+			var nodes: Array = w.get_tree().get_nodes_in_group(g)
+			var m: int = 0
+			for nd in nodes:
+				m += _count_meshes(nd)
+			parts.append("%s:n=%d,surf=%d" % [g, nodes.size(), m])
+		print("DRAW_SOURCES={%s}" % ", ".join(parts))

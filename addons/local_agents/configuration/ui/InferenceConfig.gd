@@ -1,6 +1,6 @@
 @tool
 extends Control
-class_name LocalAgentInferenceConfig
+class_name LAInferenceConfig
 
 @onready var manager: LocalAgentManager = get_node_or_null("/root/AgentManager")
 @onready var add_button: Button = %AddInferenceConfigButton

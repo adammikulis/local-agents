@@ -2,11 +2,11 @@ class_name LADebugPanel
 extends CanvasLayer
 
 ## The left-docked DEBUG MENU. A collapsible, scrollable column of toggles grouped into: field VIEWS
-## (temperature/wind/scent PLUS the substrate channel heatmaps — biomass, water-phase, snow, lava,
+## (temperature/wind/scent PLUS the substrate channel heatmaps: biomass, water-phase, snow, lava,
 ## rock_fill, CO2/O2, charge, fertility), species HIGHLIGHTs, BEHAVIOR-state highlights (tint creatures
-## by what they're doing), overlay PATHS, and PERF toggles. It owns no state — each toggle just emits a
+## by what they're doing), overlay PATHS, and PERF toggles. It owns no state, and each toggle just emits a
 ## signal VoxelWorld wires to the terrain shader, the debug overlay, the creatures, or the environment.
-## (Explicit types only — no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 signal view_toggled(view: String, on: bool)          # "temp"|"wind"|"scent"|a field-channel key
 signal highlight_toggled(group: String, on: bool)    # a "species_*" or "nest" group

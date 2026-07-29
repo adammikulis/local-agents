@@ -1,13 +1,13 @@
 @tool
 extends EditorInspectorPlugin
-class_name LocalAgentChoiceInspectorPlugin
+class_name LAChoiceInspectorPlugin
 
 ## Turns the addon's free-text String properties into pick-lists in the inspector.
 ##
 ## Several properties are really "one of a known set": a species id, a Piper voice, an installed
 ## .gguf. They stay plain `String` in code, because the set is discovered from files on disk and
 ## because blank has to remain a legal value (a species enum, for instance, cannot offer an empty
-## option — `@export_enum("", ...)` is a parse error). So the choices are supplied here instead.
+## option at all: `@export_enum("", ...)` is a parse error). So the choices are supplied here instead.
 ##
 ## This is a registry, not a pile of branches: adding a dropdown is one row in PROVIDERS, never a
 ## `_validate_property` override on a hub file. That matters because the obvious place to put a
@@ -101,7 +101,7 @@ func _scan_into(dir_path: String, extensions: Array, recurse: bool, out: PackedS
 
 ## The editor widget: a dropdown of discovered values beside a text field that stays authoritative.
 ## Keeping the LineEdit means a value the scan did not find (a path outside the project, a species
-## added at runtime, or blank for "use the default") is still typeable — a bare OptionButton would
+## added at runtime, or blank for "use the default") is still typeable. A bare OptionButton would
 ## quietly make those unrepresentable.
 class LocalAgentChoiceProperty extends EditorProperty:
 	var _choices: PackedStringArray

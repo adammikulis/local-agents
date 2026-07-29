@@ -1,15 +1,15 @@
 class_name LAFlood
 extends Node3D
 
-## A flash flood — as an EMERGENT CLOUDBURST, not a spawn of water from nothing. It conjures NO water: like a
+## A flash flood as an EMERGENT CLOUDBURST, not a spawn of water from nothing. It conjures NO water: like a
 ## Thunderstorm it seeds the physical ingredients of a violent downpour into the MaterialField and lets the
 ## unified water cycle rain it out. Each step it PUMPS humid air (add_vapor) up over the footprint, WARMS the
 ## surface (add_heat → a convective updraft), and hard-COOLS the air aloft (add_cooling) so the rising moist
 ## air blows past its dewpoint and the field's own condense→rain rules dump a torrent right here. Unlike a
 ## drifting storm cell it STAYS PUT over the target and pumps far harder for a few seconds, so the rain runs
-## off, pools in the low ground, and the current sweeps + drowns whatever is caught (all emergent — the water
+## off, pools in the low ground, and the current sweeps + drowns whatever is caught (all emergent, since the water
 ## is atmospheric moisture becoming surface water, conserved, never created). Splash accents + a scare on
-## arrival (animals flee to high ground — the ones that can't are swept). Self-frees. (Explicit types — no ':=' .)
+## arrival (animals flee to high ground, and the ones that can't are swept). Self-frees. (Explicit types only, no ':=' inferred typing.)
 
 const DURATION: float = 4.5              # seconds of torrential seeding
 const FADE_TIME: float = 1.5             # eases the seeding out at the end so it tapers, not cuts
@@ -58,7 +58,7 @@ func surge(center: Vector3, brush_radius: float = MIN_RADIUS) -> void:
 		var u: Vector3 = _terrain.up_at(_center)
 		if u.length() > 0.0001:
 			_up = u.normalized()
-	LocalAgentAudioDirector.emit(get_tree(), "steam", _center)
+	LAAudioDirector.emit(get_tree(), "steam", _center)
 	if _ecology != null and _ecology.has_method("broadcast_scare"):
 		_ecology.broadcast_scare(_center, _radius * SCARE_MULT, 1.1)
 

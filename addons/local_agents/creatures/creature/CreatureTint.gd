@@ -6,15 +6,15 @@ extends RefCounted
 ## (VoxelDebugWiring calls LocalAgentCreature.set_behavior_highlight, which forwards here), a creature
 ## whose current `state` maps to that category is dyed with an emissive overlay (Foraging=green,
 ## Hunting=red, …). The enabled set is SHARED (static) across all creatures; each creature applies or
-## clears its own overlay only when its category changes — cheap, no central per-frame scan. An empty
+## clears its own overlay only when its category changes, which is cheap and needs no central per-frame scan. An empty
 ## set means zero cost (the early-out in update()).
 ##
 ## The LLM slow-brain highlight (thinking/queued) takes priority over the behaviour-state tint, so a
 ## live model consult is always the visible dye.
 ##
 ## Per-creature state (_tint_category / _tint_mat / _tint_targets) still lives on the creature, reached
-## dynamically here exactly like the other Creature* modules do — no cyclic class reference.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## dynamically here exactly like the other Creature* modules do, so there is no cyclic class reference.
+## (Explicit types only, no ':=' inferred typing.)
 
 # category -> Color (the currently-enabled highlights), shared by the whole population.
 static var _tints: Dictionary = {}

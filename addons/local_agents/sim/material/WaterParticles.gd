@@ -1,7 +1,7 @@
 class_name LAWaterParticles
 extends GPUParticles3D
 
-## LAWaterParticles — the ONE atmosphere visual for the planet: a single GPUParticles3D whose custom
+## LAWaterParticles: the ONE atmosphere visual for the planet, a single GPUParticles3D whose custom
 ## process + draw shaders render whichever PHASE the field's water is in (cloud / fog / rain / snow),
 ## phase being a per-particle property classified from the sampled field-cover texture. It dissolves the
 ## old flat CloudLayer sheets (cloud + fog) and the RainLayer box into one field-driven, spherical system.
@@ -9,7 +9,7 @@ extends GPUParticles3D
 ## Bridge: the field bakes a 6-layer RGBA cover texture (one texel per SphereGrid surface cell) at ~10Hz;
 ## this node feeds it plus the live camera/sun to the process shader, which places particles in the camera-
 ## facing dome, samples the texture by normalize(pos - center), gates them to the emergent bands, and drifts
-## them SLOWLY. All per-particle work is on the GPU. (Explicit types only — project rule: no ':=' .)
+## them SLOWLY. All per-particle work is on the GPU. (Explicit types only, no ':=' inferred typing.)
 
 const PROC_SHADER: String = "res://addons/local_agents/sim/shaders/WaterParticles.gdshader"
 const DRAW_SHADER: String = "res://addons/local_agents/sim/shaders/WaterParticlesDraw.gdshader"

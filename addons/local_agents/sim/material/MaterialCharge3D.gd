@@ -1,19 +1,19 @@
 class_name LAMaterialCharge3D
 extends RefCounted
 
-## LAMaterialCharge3D — the CHARGE→BOLT firing of LAMaterialField3D, factored into its own module (the field
+## LAMaterialCharge3D: the CHARGE→BOLT firing of LAMaterialField3D, factored into its own module (the field
 ## only forwards). The charge FIELD already accumulates on the GPU (charge_accum_sphere3d, wired in GasWindPass):
-## charge separates where a convective updraft lofts supercooled cloud. This module owns the DISCHARGE half —
+## charge separates where a convective updraft lofts supercooled cloud. This module owns the DISCHARGE half, and
 ## after each readback it looks for cells whose charge has crossed the dielectric BREAKDOWN threshold and FIRES
-## A BOLT there: it injects a heat pulse at the strike (so a bolt can ignite fuel — emergent wildfire), zeroes
+## A BOLT there: it injects a heat pulse at the strike (so a bolt can ignite fuel, an emergent wildfire), zeroes
 ## the cell's charge (the discharge, re-uploaded next step), counts the strike, and calls the registered VISUAL
 ## callback (the LightningStrike actor / thunder). This is the substrate primitive Thunderstorm DISSOLVES into:
 ## the storm becomes a moisture/heat SEED, and lightning falls out of the field's own charge physics.
 ##
 ## Big-O / relevance: breakdown is not a per-frame full-grid sweep. A cheap STRIDED probe first asks "is any
 ## region charged at all?"; the full breakdown scan runs ONLY when the probe sees charge climbing (a bubble in
-## time — charge exists only under an active storm, which is rare). Holds no field state; reaches into `_f`.
-## (Explicit types only — no ':=' inferred typing.)
+## time, since charge exists only under an active storm, which is rare). Holds no field state; reaches into `_f`.
+## (Explicit types only, no ':=' inferred typing.)
 
 # Charge at which a cell breaks down and fires a bolt. Reachable only by a VIGOROUS storm's accumulation (a
 # strong cold updraft × supercooled cloud) OR a direct add_charge seed — kept high enough, against

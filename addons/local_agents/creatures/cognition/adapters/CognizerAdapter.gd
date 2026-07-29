@@ -2,20 +2,20 @@ class_name LACognizerAdapter
 extends RefCounted
 
 ## Duck-typed read facade between the per-creature brain (LACognition) and whatever ACTOR is cognizing.
-## LACognition talks ONLY through this adapter — it never names an LocalAgentCreature field directly — so the
+## LACognition talks ONLY through this adapter (it never names an LocalAgentCreature field directly), so the
 ## brain is decoupled from any single actor implementation: LocalAgentCreature today, and any other actor (e.g.
 ## an aquatic swimmer) that exposes the same duck-typed surface tomorrow reuses LACognition unchanged.
 ## Adding a new kind of cognizer = provide these properties, not patch the brain.
 ##
-## The cognizer surface LACognition depends on (all READ-ONLY — the brain never mutates the actor here):
+## The cognizer surface LACognition depends on (all READ-ONLY, since the brain never mutates the actor here):
 ##   drives  : energy/max_energy, hydration/max_hydration, health/max_health
 ##   body    : global_position; breath_capacity + _breath (breath fraction); _panic_timer (fear);
-##             _material (temp probe) — the private welfare senses, encapsulated by senses()
+##             _material (temp probe). These private welfare senses are encapsulated by senses()
 ##   control : llm_enabled (slow-brain opt-out)
 ##   social  : species, family_id; the scene-tree neighbour scan + each neighbour's get_cognition()
 ##
-## Static accessors so nothing is allocated per decision — this stays on the hot think path.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## Static accessors so nothing is allocated per decision, because this stays on the hot think path.
+## (Explicit types only, no ':=' inferred typing.)
 
 
 static func energy(c) -> float:

@@ -1,19 +1,19 @@
 class_name LAMaterialScent3D
 extends RefCounted
 
-## LAMaterialScent3D — the SCENT / chemical-signal channel of LAMaterialField3D, factored into its own module
+## LAMaterialScent3D: the SCENT / chemical-signal channel of LAMaterialField3D, factored into its own module
 ## (the field only forwards). Scent is a diffusing/advecting chemical cue: deposit() SEEDS a cell of one of the
 ## five channels (prey / predator / blood / food / alarm), and the GPU scent kernel spreads + attenuates it over
-## the neighbour table each step (a scent riding the real wind washes downwind and out in the rain — emergent).
+## the neighbour table each step (a scent riding the real wind washes downwind and out in the rain, emergently).
 ## The field reads the five planes back into `_f._scent` so senses/cognition can smell a gradient: prey follow a
 ## food/prey trail, scavengers home on blood/carcass food, and predators track prey while prey flee alarm.
 ## This is the substrate primitive marking/wounds/carcasses DISSOLVE into: a wound calls deposit(BLOOD), a
-## carcass deposit(FOOD), waste deposit(PREY/FOOD) — with no dedicated trail code of their own.
+## carcass deposit(FOOD), waste deposit(PREY/FOOD), with no dedicated trail code of their own.
 ##
-## Holds NO state of its own — it reaches into the owning LAMaterialField3D (`_f`) for the shared `_scent`
+## Holds NO state of its own. It reaches into the owning LAMaterialField3D (`_f`) for the shared `_scent`
 ## array, geometry (`world_to_cell`, `cell_world_pos_linear`), the sphere neighbour table, and the
 ## `_scent_dirty` upload flag, exactly as the shock/charge modules do. The five channels are packed into ONE
-## flat array, plane-major: index = channel * _f._cell_count + cell. (Explicit types only — no ':=' .)
+## flat array, plane-major: index = channel * _f._cell_count + cell. (Explicit types only, no ':=' inferred typing.)
 
 # A cell whose scent density is over this reads as "carrying meaningful scent" (scent_cell_count diagnostic).
 const SCENT_ACTIVE: float = 0.02

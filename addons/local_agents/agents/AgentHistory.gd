@@ -6,14 +6,14 @@ class_name LocalAgentAgentHistory
 ## front, mirroring the whole conversation into the native AgentNode, and writing each message into
 ## the Memory Graph.
 ##
-## The message Array itself deliberately stays on the node - `LocalAgent.history` is public and is read
-## straight off the node by scenes and tests - so every method here is HANDED that Array and mutates it
+## The message Array itself deliberately stays on the node. `LocalAgent.history` is public and is read
+## straight off the node by scenes and tests, so every method here is handed that Array and mutates it
 ## in place (Arrays are references in GDScript). The only state this file owns is the memory-graph
 ## cursor, which is what chains each message onto the one before it.
 ##
 ## Split out of Agent.gd so the node keeps the inference API and this file keeps the bookkeeping.
 ##
-## (Explicit types only - project rule: no ':=' inferred typing.)
+## (Explicit types only. Project rule: no ':=' inferred typing.)
 
 # Newest node written into the memory graph, so the next message can be chained onto it.
 var _last_memory_node_id: int = -1
@@ -33,8 +33,8 @@ func record_assistant_message(history: Array, text: String, memory_graph: LocalA
 
 ## Put the agent's system_prompt at the front of its conversation.
 ##
-## It has to go in the HISTORY, not in the options dictionary. The native runtime never reads
-## options["system_prompt"] - it has a single `system_prompt_` member on the shared AgentRuntime
+## It has to go in the history, not in the options dictionary. The native runtime never reads
+## options["system_prompt"]. It has a single `system_prompt_` member on the shared AgentRuntime
 ## singleton, which it injects only when the history contains no system message of its own
 ## (AgentRuntime.cpp:1643). So routing a per-agent prompt through set_system_prompt() would make
 ## every agent in the scene share one persona, and routing it through the options did nothing at all.
@@ -74,7 +74,7 @@ func sync_to_agent_node(history: Array, agent_node: Object) -> void:
 ## dictionaries, or whose role or content is empty, are skipped rather than stored.
 ##
 ## Clears `history` again even though the caller already did: set_history() empties the node's own
-## record BEFORE it checks that the runtime is available, so the two clears are not interchangeable
+## record before it checks that the runtime is available, so the two clears are not interchangeable
 ## and both have to stay.
 func set_messages(history: Array, messages: Array, agent_node: Object) -> void:
     history.clear()

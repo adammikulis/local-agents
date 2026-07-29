@@ -1,6 +1,6 @@
 @tool
 extends Node
-class_name LocalAgentProjectGraphService
+class_name LAProjectGraphService
 
 const STORE_DIR: String = "user://local_agents"
 const DB_PATH: String = STORE_DIR + "/network.sqlite3"

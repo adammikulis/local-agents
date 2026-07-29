@@ -4,24 +4,24 @@ extends RefCounted
 ## (reactions_sphere3d.glsl) into the sphere GPU driver as a single recordable pass. It replaces a pile of
 ## bespoke "clean same-cell" reaction kernels (gas sky-exchange/vent, fungus decompose, …) with one kernel
 ## that loops an array of Reaction RECORDS (authored in MaterialReactions3D.gd, uploaded once as a read-only
-## SSBO). Adding a reaction is adding a record there — not a kernel here.
+## SSBO). Adding a reaction is adding a record there, not a kernel here.
 ##
 ## Slotted AFTER AtmospherePass so temp/water/o2/co2/moisture are all settled (one-step coupling lag is the
-## accepted norm — MaterialSphereGPU3D.gd:19-20). Buffer HALVES per channel (why each differs): o2/co2 were
+## accepted norm, see MaterialSphereGPU3D.gd:19-20). Buffer HALVES per channel (why each differs): o2/co2 were
 ## produced by GasWind's transport into BACK (1-p); temp by Thermal into BACK; water/moisture by Atmosphere
-## into BACK — so those read/edit BACK. FUNGUS's producer (EcoSurface's fungus kernel) runs LATER, so the
+## into BACK, so those read/edit BACK. FUNGUS's producer (EcoSurface's fungus kernel) runs LATER, so the
 ## current fungus is still LIVE (p) at this slot → bound to LIVE, read-only.
 ##
 ## Kernel binding -> bufs-key map (authoritative layout is reactions_sphere3d.glsl):
 ##   0 Temp=temp[back] · 1 Water=water[back] · 2 Moisture=moisture[back] · 3 O2=o2[back] · 4 CO2=co2[back] ·
 ##   7 Detritus=detritus(single) · 8 Fungus=fungus[live] · 9 Fert=fert[live] (R19 nutrient-uptake reactant now
-##   debits it in place — its own diffuse/leach/decompose-deposit producer, EcoSurfacePass's scent_fert/
+##   debits it in place, and its own diffuse/leach/decompose-deposit producer, EcoSurfacePass's scent_fert/
 ##   fungus_fert kernels, runs LATER this step, so LIVE is the freshest read, same convention as Fungus) ·
 ##   10 Solid=solid · 11 Biomass=biomass(single) ·
 ##   12 Snow=snow(single, freeze/melt phase transfer) · 15 Neigh=nbr · 20 Scratch=fungus_fert(single, SCRATCH
-##   product) · 21 Defs=<record SSBO> · 22 Lava=lava[back] · 23 RockFill=rock_fill(single) — M5 solidify /
+##   product) · 21 Defs=<record SSBO> · 22 Lava=lava[back] · 23 RockFill=rock_fill(single). M5 solidify /
 ##   M6 melt transfer mineral mass between LAVA and ROCK_FILL (own-cell, conserving).
-## Push { uint cell_count; uint n_records; float dt; float pad; } — 16 bytes.
+## Push { uint cell_count; uint n_records; float dt; float pad; }, 16 bytes.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/reactions_sphere3d.glsl"
 const REACTIONS_SCRIPT: String = "res://addons/local_agents/sim/material/MaterialReactions3D.gd"

@@ -1,22 +1,22 @@
 class_name LAGameHud
 extends CanvasLayer
 
-## LAGameHud — the gamified overlay that turns the sim's own systems into a light game layer. It READS
+## LAGameHud: the gamified overlay that turns the sim's own systems into a light game layer. It READS
 ## everything and drives nothing:
 ##   • the current OBJECTIVE + a progress bar toward its threshold + the stage ("Stage 2 / 4"), from the
 ##     campaign progression system (LAGameProgression.current_progress());
 ##   • transient UNLOCK TOASTS with a milestone chime, off the progression's capability_unlocked /
 ##     objective_completed signals (audio via the static LAVoxelAudioController.chime resolver);
-##   • a light "how's my planet doing" SUMMARY corner — a few live figures pulled from the ONE telemetry
+##   • a light "how's my planet doing" SUMMARY corner, a few live figures pulled from the ONE telemetry
 ##     source (LASimReport.snapshot(): population, biomass, top generation).
 ##
-## SANDBOX (gating off): the objective/stage panel is hidden and a subtle "Sandbox" tag stands in — the
+## SANDBOX (gating off): the objective/stage panel is hidden and a subtle "Sandbox" tag stands in, while the
 ## summary stays. All panels ignore the mouse (display-only), so it never steals world clicks or covers the
 ## spawn palette's interactivity.
 ##
 ## Cheap by construction: it updates on the two progression signals plus a slow 0.5 s timer (a couple of
 ## telemetry reads a second), never per frame. Wired into VoxelWorld with one add_child line. A `toggle()` /
-## `set_hud_visible()` API is exposed for a later hotkey binding. (Explicit types only — no ':=' inferred typing.)
+## `set_hud_visible()` API is exposed for a later hotkey binding. (Explicit types only, no ':=' inferred typing.)
 
 ## How often the objective progress + summary figures refresh (seconds). Matches the progression evaluator's
 ## own cadence — a handful of cheap telemetry reads per second, never per frame.
@@ -168,7 +168,7 @@ func _refresh_objective() -> void:
 
 	var total: int = int(p.get("stages_total", 0))
 	if bool(p.get("done", false)):
-		_objective_title.text = "All objectives complete — survey the heavens"
+		_objective_title.text = "All objectives complete: survey the heavens"
 		_objective_title.add_theme_color_override("font_color", COL_GOLD)
 		_stage_label.text = "Stage %d / %d" % [total, total]
 		_progress_bar.visible = false

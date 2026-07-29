@@ -8,15 +8,15 @@ class_name LocalAgentAgentWarnings
 ## `_get_configuration_warnings()`, and so the wording can be reworked without touching the file that
 ## runs inference.
 ##
-## Project-wide conditions — native extension, AgentManager autoload, whether ANY model resolves,
-## whether the Piper speech runtime is installed — are answered by LocalAgentStatus.warnings_for().
-## This file only adds the checks that depend on THIS node's own properties, and never reimplements
-## the shared probe.
+## LocalAgentStatus.warnings_for() answers the project-wide conditions: the native extension, the
+## AgentManager autoload, whether any model resolves, and whether the Piper speech runtime is
+## installed. This file only adds the checks that depend on this node's own properties, and never
+## reimplements the shared probe.
 ##
 ## `agent` is typed `Node` rather than `LocalAgent`, and its properties are read through `get()`,
 ## because Agent.gd preloads this script: naming its class here would be a cyclic reference.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only. Project rule: no ':=' inferred typing.)
 
 const Status: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.gd")
 const RuntimePaths: GDScript = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
@@ -50,7 +50,7 @@ static func check(agent: Node) -> PackedStringArray:
     return out
 
 
-## The model THIS node names, ignoring the project-wide fallback: its own Model Path first, then its
+## The model this node names, ignoring the project-wide fallback: its own Model Path first, then its
 ## Model Profile's. "" when the node names neither and the project default applies.
 static func named_model_path(agent: Node) -> String:
     var own: String = _string_property(agent, "model_path")

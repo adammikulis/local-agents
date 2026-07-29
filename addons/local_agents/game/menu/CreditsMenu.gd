@@ -1,11 +1,11 @@
 class_name LACreditsMenu
 extends Control
 
-## LACreditsMenu — a scrollable credits screen reached from the main menu. It leads with the game's
+## LACreditsMenu: a scrollable credits screen reached from the main menu. It leads with the game's
 ## creator, then lists the third-party work Local Agents is built on, grouped by category (engine & tools,
 ## art, voice, AI models) with each item's license and source URL. A Back button returns to the main menu.
 ## Built in code to match the shared menu styling (LAMenuStyle); keyboard-navigable. The content is
-## SELF-CONTAINED — hardcoded below, NOT read/parsed from CREDITS.md / AUTHORS at runtime — so the in-game
+## SELF-CONTAINED (hardcoded below, NOT read/parsed from CREDITS.md / AUTHORS at runtime), so the in-game
 ## screen and the repo docs are maintained independently (some overlap is intended). (Explicit types only.)
 
 const MAIN_MENU_SCENE: String = "res://addons/local_agents/game/menu/MainMenu.tscn"
@@ -19,16 +19,16 @@ const CREDIT_GROUPS: Array = [
 		"entries": [
 			{"name": "Godot Engine", "license": "MIT", "url": "https://godotengine.org"},
 			{"name": "godot-cpp (GDExtension bindings)", "license": "MIT", "url": "https://github.com/godotengine/godot-cpp"},
-			{"name": "godot_voxel — Zylann / Marc Gilleron", "license": "MIT", "url": "https://github.com/Zylann/godot_voxel"},
-			{"name": "llama.cpp — the ggml authors", "license": "MIT", "url": "https://github.com/ggml-org/llama.cpp"},
-			{"name": "whisper.cpp — the ggml authors", "license": "MIT", "url": "https://github.com/ggml-org/whisper.cpp"},
+			{"name": "godot_voxel by Zylann / Marc Gilleron", "license": "MIT", "url": "https://github.com/Zylann/godot_voxel"},
+			{"name": "llama.cpp by the ggml authors", "license": "MIT", "url": "https://github.com/ggml-org/llama.cpp"},
+			{"name": "whisper.cpp by the ggml authors", "license": "MIT", "url": "https://github.com/ggml-org/whisper.cpp"},
 		],
 	},
 	{
 		"title": "Art",
 		"entries": [
-			{"name": "Kenney — Cube Pets & Nature Kit", "license": "CC0", "url": "https://kenney.nl"},
-			{"name": "Quaternius — creatures & character", "license": "CC0", "url": "https://quaternius.com"},
+			{"name": "Cube Pets & Nature Kit by Kenney", "license": "CC0", "url": "https://kenney.nl"},
+			{"name": "Creatures & character by Quaternius", "license": "CC0", "url": "https://quaternius.com"},
 		],
 	},
 	{
@@ -41,7 +41,7 @@ const CREDIT_GROUPS: Array = [
 	{
 		"title": "AI models (downloaded at runtime)",
 		"entries": [
-			{"name": "Qwen3 (0.6B–14B)", "license": "Apache-2.0", "url": "https://huggingface.co/Qwen"},
+			{"name": "Qwen3 (0.6B to 14B)", "license": "Apache-2.0", "url": "https://huggingface.co/Qwen"},
 			{"name": "Qwen2.5-3B-Instruct", "license": "Qwen Research License", "url": "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct"},
 			{"name": "FunctionGemma-270M (Google, Gemma 3)", "license": "Gemma Terms of Use", "url": "https://ai.google.dev/gemma/terms"},
 		],
@@ -122,14 +122,14 @@ func _build_ui() -> void:
 	back_button.grab_focus()
 
 
-## One credit row: "Name — License" with the source URL beneath it, dimmed.
+## One credit row: "Name, License" with the source URL beneath it, dimmed.
 func _make_entry(entry: Dictionary) -> Control:
 	var row: VBoxContainer = VBoxContainer.new()
 	row.add_theme_constant_override("separation", 1)
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	var name_label: Label = Label.new()
-	name_label.text = "%s — %s" % [String(entry["name"]), String(entry["license"])]
+	name_label.text = "%s, %s" % [String(entry["name"]), String(entry["license"])]
 	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	name_label.add_theme_color_override("font_color", LAMenuStyle.TEXT)
 	name_label.add_theme_font_size_override("font_size", 13)

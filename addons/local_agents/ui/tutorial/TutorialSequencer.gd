@@ -6,7 +6,7 @@ extends Node
 ## condition is met (Next button, target press, a polled predicate, or an external signal). Supports back,
 ## skip, and a persisted "don't show again" flag per tutorial id (user:// config). Fully decoupled from any
 ## particular scene: the caller supplies the step list, the overlay, a target root (for NodePath targets)
-## and an optional Camera3D (for world-space targets). (Explicit types only — no ':=' .)
+## and an optional Camera3D (for world-space targets). (Explicit types only. No ':=' inferred typing.)
 
 signal tutorial_started
 signal step_changed(index: int, step: LocalAgentTutorialStep)

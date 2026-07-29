@@ -1,17 +1,17 @@
 class_name LATornado
 extends Node3D
 
-## A PERSISTENT tornado — it lives for tens of seconds, WANDERS driven by the atmosphere's wind, and its
+## A PERSISTENT tornado. It lives for tens of seconds, WANDERS driven by the atmosphere's wind, and its
 ## strength EMERGES from what it feeds on: each step it reads the LOCAL temperature + relative humidity
 ## (and whether it stands over ocean) at its base. WARM + HUMID air feeds it (strength climbs → it can
 ## intensify), COOL / DRY air starves it (strength falls → it DISSIPATES). Nothing about its life is
-## scripted on a timeline — a tornado that drifts off warm humid ground onto a cold dry ridge withers on
+## scripted on a timeline: a tornado that drifts off warm humid ground onto a cold dry ridge withers on
 ## its own; one that tracks along a warm coast keeps spinning. Strength drives the funnel size, the
 ## swept footprint, and the vortex wind force. Over ocean it becomes a WATERSPOUT: it lifts moisture
 ## into the sky (add_vapor at its base) and kicks up spray (splash). It only READS the field + broadcasts
 ## stimuli (scare + a continuous vortex WIND that advects wildlife through the shared field force, never a
 ## teleport-fling); everything else emerges. Built in code, no assets.
-## (Explicit types only — no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 # --- Lifecycle ---------------------------------------------------------------
 const LIFETIME_MAX: float = 55.0          # hard cap: even a well-fed twister eventually spins down
@@ -108,7 +108,7 @@ func touch_down(point: Vector3) -> void:
 	_build_fx()
 	if _ecology != null and _ecology.has_method("broadcast_scare"):
 		_ecology.broadcast_scare(_base, SCARE_BASE, 0.7)
-	LocalAgentAudioDirector.emit(get_tree(), "crumble", _base)
+	LAAudioDirector.emit(get_tree(), "crumble", _base)
 
 
 func get_inspector_payload() -> Dictionary:

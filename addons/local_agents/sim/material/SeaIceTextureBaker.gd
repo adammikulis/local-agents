@@ -1,19 +1,19 @@
 class_name LASeaIceTextureBaker
 extends RefCounted
 
-## Bakes the EMERGENT sea-ice signal into a 6-layer R8-in-RGBA8 Texture2DArray — one texel per SphereGrid
-## surface column — the render bridge the ocean shell (VoxelWaterSphere.gdshader) samples so frozen sea reads
+## Bakes the EMERGENT sea-ice signal into a 6-layer R8-in-RGBA8 Texture2DArray (one texel per SphereGrid
+## surface column), the render bridge the ocean shell (VoxelWaterSphere.gdshader) samples so frozen sea reads
 ## WHITE from orbit (polar caps + winter sea ice) while open sea stays blue. Sea ice is NOT a new phenomenon
 ## with its own physics: it is simply the conserved `_snow` (frozen H₂O) channel that the generic freeze
 ## reaction (MaterialReactions3D R21: WATER → SNOW below FREEZE_TEMP) accumulates on cold STATIC-SEA surface
 ## cells, and thaws (R22) where the sea warms back up. This baker only READS that field and reduces it to a
-## per-column 0..1 "sea frozen" value for the shader — no simulation, no special-case cap code.
+## per-column 0..1 "sea frozen" value for the shader, with no simulation and no special-case cap code.
 ##
 ## Per column c = s*depth + r: scan radially OUTWARD→in for the topmost STATIC-sea cell (the sea surface). Its
 ## `snow` depth, scaled + clamped, is the ice value. Land columns (a solid cell is hit before any sea) and open
 ## warm sea (no snow on the surface cell) bake to 0. ONE O(surf_count) reduction, folded into the sea-ice
 ## controller's throttled refresh. Cell layout + face packing MATCH CoverTextureBaker/BiomeTextureBaker so the
-## shader's inverse-gnomonic face sample lands on the exact texel. (Explicit types only — no ':=' .)
+## shader's inverse-gnomonic face sample lands on the exact texel. (Explicit types only, no ':=' inferred typing.)
 
 const ICE_GAIN: float = 6.0        # snow-depth → ice coverage: a thin frozen skin (~0.17) already reads fully white
 const SNOW_PRESENT: float = 0.01   # MUST match MaterialField3D.SNOW_PRESENT — dust-thin snow is not ice yet

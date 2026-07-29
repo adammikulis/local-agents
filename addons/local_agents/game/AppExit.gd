@@ -1,17 +1,17 @@
 class_name LAAppExit
 extends Node
 
-## LAAppExit — the single, focused owner of process exit for the whole game.
+## LAAppExit: the single, focused owner of process exit for the whole game.
 ##
 ## Why it exists: on macOS/Metal the ordinary `get_tree().quit()` path runs through
 ## `-[NSApplication terminate:]`, which posts NSApplicationWillTerminate. MoltenVK's
 ## termination observer then locks an already-destroyed recursive_mutex and aborts
-## (SIGABRT, rc=134) — AFTER our clean shutdown (saves, dispose, SIM_REPORT) has fully
+## (SIGABRT, rc=134), AFTER our clean shutdown (saves, dispose, SIM_REPORT) has fully
 ## finished. That teardown-order bug is engine/library-internal; we cannot patch MoltenVK.
 ##
 ## The fix is to take ownership of the exit: after the normal shutdown has flushed and one
 ## idle frame has passed (so any queued disk writes complete), terminate the process HARD
-## and clean via the native `LAProcess.exit_now` (std::_Exit) — which flushes stdio, runs
+## and clean via the native `LAProcess.exit_now` (std::_Exit), which flushes stdio, runs
 ## no C++ static destructors, and fires NO AppKit termination notification, so MoltenVK's
 ## observer never runs. The process leaves with the requested code (0) and the kernel
 ## reclaims all memory/GPU resources. This ONLY happens on a real quit, never mid-run.

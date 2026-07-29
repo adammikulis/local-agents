@@ -1,14 +1,14 @@
 class_name LAVolcano
 extends Node3D
 
-## A volcano is NOT a scripted eruption — it is a VENT (a seed/marker) that does ONE authored thing: drive a
+## A volcano is NOT a scripted eruption. It is a VENT (a seed/marker) that does ONE authored thing: drive a
 ## SUSTAINED lava supply at a fixed spot on the terrain. EVERYTHING downstream EMERGES from the shared substrate
 ## with zero volcano code:
 ##   • erupt_source() extrudes deep-mantle lava into the OPEN seawater cell at the growing surface front;
 ##   • it spreads into a mound as more piles up (lava_flow);
 ##   • underwater it QUENCHES on contact with seawater (the marine-lava heat sink) and, cooled below the solidus,
 ##     the M5 reaction record freezes it to rock_fill;
-##   • rock_fill crossing 0.5 STAMPS the SDF terrain upward (MineralStamp3D) — the cone accretes;
+##   • rock_fill crossing 0.5 STAMPS the SDF terrain upward (MineralStamp3D), so the cone accretes;
 ##   • repeated supply piles the cone until it BREACHES the sea surface = a NEW ISLAND (the capstone), all from
 ##     eruption + water-quench solidification + rock accumulation + SDF growth composing. Nothing here says "island".
 ##
@@ -17,11 +17,11 @@ extends Node3D
 ## SMEARS into an arc. VoxelWorld FREEZES the planet spin for the --auto-seavolcano demo (a contract-sanctioned
 ## option, costing only the day/night sweep) so the field and terrain stay aligned and the island builds at exactly
 ## ONE spot. Each supply tick deposits at the CURRENT surface top along the vent radial (tracking the growing cone),
-## so lava always emerges into the open water at the front where the cell above is sea — the pile climbs, never plugs.
+## so lava always emerges into the open water at the front where the cell above is sea. The pile climbs, never plugs.
 ##
 ## Deleted vs the old scripted volcano: `_is_erupting`, `_bomb_cd`, `BOMBS_PER_BURST`/`BOMB_*`, `_launch_bombs`,
 ## the bomb GPUParticles/RigidBody emitter, `_bomb_impact`, the burst timer and pressure state machine. A thrown
-## rock ("bomb"), a geyser, an island — all just words for what the one substrate does. (Explicit types only.)
+## rock ("bomb"), a geyser, an island are all just words for what the one substrate does. (Explicit types only.)
 
 const SCARE_INTERVAL: float = 2.0
 const SCARE_RADIUS: float = 55.0
@@ -91,7 +91,7 @@ func erupt_at(point: Vector3) -> void:
 	if _terrain != null and _terrain.has_method("sea_radius"):
 		_submerged_seed = seed_surface_radius > 0.0 and seed_surface_radius < _terrain.sea_radius()
 	_build_fx()
-	LocalAgentAudioDirector.emit(get_tree(), "crumble", point)
+	LAAudioDirector.emit(get_tree(), "crumble", point)
 
 
 ## Legacy demo hook: a quick pulse of lava at the vent right now (kept so --auto-volcano still shows molten output

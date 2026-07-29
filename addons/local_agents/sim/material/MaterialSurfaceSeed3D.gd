@@ -1,19 +1,19 @@
 class_name LAMaterialSurfaceSeed3D
 extends RefCounted
 
-## LAMaterialSurfaceSeed3D — seeds + maintains the GROUND-SURFACE substrate channels of LAMaterialField3D that
+## LAMaterialSurfaceSeed3D seeds + maintains the GROUND-SURFACE substrate channels of LAMaterialField3D that
 ## are otherwise allocated to zeros and so never come alive, factored into its own module (the field hub only
 ## wires + forwards). Two channels, both "what sits on the ground":
 ##
-##   * FUEL (combustion) — the GPU fire kernel (fire_sphere3d.glsl) GATES on fuel > 0, so a zero-filled fuel
+##   * FUEL (combustion): the GPU fire kernel (fire_sphere3d.glsl) GATES on fuel > 0, so a zero-filled fuel
 ##     channel means combustion can NEVER ignite (no wildfire, no CO₂ from burning, no fuel-driven O₂ draw-down).
 ##     seed_initial() lays a baseline of flammable vegetation on every open ground-surface cell so a heat source
 ##     (lightning/lava/meteor) can ignite from frame 0; post_readback() refills it from the emergent LIVING
 ##     BIOMASS channel on a cadence (that standing vegetation IS the fuel), capped so a burned cell regrows to
-##     what its biomass supports — emergent wildfire recovery, no timers. Burned-BARE cells (no biomass) stay
+##     what its biomass supports: emergent wildfire recovery, no timers. Burned-BARE cells (no biomass) stay
 ##     ash, so the fuel ledger still falls where fire ran.
 ##
-##   * DETRITUS (decomposer substrate) — real soil holds dead organic matter; a zero-filled detritus channel
+##   * DETRITUS (decomposer substrate): real soil holds dead organic matter; a zero-filled detritus channel
 ##     leaves the detritus→fungus→CO₂+FERTILITY loop with no substrate to bootstrap from (fungus only grows on
 ##     detritus), so soil fertility stays flat 0 for hundreds of steps until biomass respiration slowly builds
 ##     it. seed_initial() lays a modest baseline of soil organic matter on the same ground-surface cells so the
@@ -21,7 +21,7 @@ extends RefCounted
 ##
 ## Holds NO field state: it reaches into the owning LAMaterialField3D (`_f`) for the per-cell arrays + the
 ## sphere neighbour table, exactly as the query/inject/step modules do.
-## (Explicit types only — no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 # Flammable vegetation mass laid on a bare ground-surface cell at activation (over the kernel's FUEL_MIN = 0.02
 # so it can ignite; enough to sustain a burn for many steps before it is spent to ash — sized against the

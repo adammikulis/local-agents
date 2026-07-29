@@ -2,7 +2,7 @@
 class_name LocalAgentCreatureWarnings
 extends RefCounted
 
-## Inspector validation for a LocalAgentCreature placed in a scene by hand — the checks behind
+## Inspector validation for a LocalAgentCreature placed in a scene by hand: the checks behind
 ## Creature._get_configuration_warnings(). It lives here rather than on the creature so Creature.gd stays
 ## exports-only, and it is static + duck-typed on the passed node so there is no cyclic class reference.
 ##
@@ -13,7 +13,7 @@ extends RefCounted
 ##
 ## LocalAgentCreatureSpawner reuses check_species() for the same validation over its `counts` keys.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 ## How many known species ids to name before the list is truncated in a warning message.
 const MAX_LISTED_KINDS: int = 24
@@ -52,7 +52,7 @@ static func check_species(species_id: String, label: String) -> PackedStringArra
 		return out
 	if not known_kinds().has(id):
 		out.append(
-			"%s is \"%s\", which has no species file — the creature will fall back to the generic walker." % [label, id]
+			"%s is \"%s\", which has no species file, so the creature falls back to the generic walker." % [label, id]
 			+ "\nKnown ids: %s" % known_kinds_text()
 			+ "\nOr add creatures/species/<class>/%s.json." % id
 		)

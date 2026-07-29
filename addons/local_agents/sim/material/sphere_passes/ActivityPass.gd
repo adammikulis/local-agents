@@ -1,11 +1,11 @@
 extends RefCounted
 
-## Cubed-sphere RELEVANCE pass (Keystone C / "Lane B3" — see activity_sphere3d.glsl for the full design).
+## Cubed-sphere RELEVANCE pass (Keystone C / "Lane B3", see activity_sphere3d.glsl for the full design).
 ## Runs the wake-bubble + camera-proximity kernel: reads the PAIR `activity` channel's live half + every
 ## gated kernel's own self-seed inputs, writes the new 0..1 relevance to `activity` back. Positioned in
 ## PASS_SCRIPTS right before FireDustPass so FireDustPass (and any other post-Activity pass) can read this
 ## step's freshly-computed `activity[back]` the same step; passes earlier in PASS_SCRIPTS read last step's
-## settled relevance via `activity[live]` — a one-step lag, the same accepted coupling-fidelity convention
+## settled relevance via `activity[live]`. That is a one-step lag, the same accepted coupling-fidelity convention
 ## already used elsewhere in this driver.
 ##
 ## bufs contract (from the driver): PAIR key -> [rid_a, rid_b]; SINGLE key -> rid. `nbr` is the SINGLE int32

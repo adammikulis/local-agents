@@ -1,21 +1,21 @@
 class_name LAVoxelAudioController
 extends Node
 
-## Game-feel audio wiring for the voxel sim — presentation only, reacts to the sim, never drives it.
+## Game-feel audio wiring for the voxel sim: presentation only, reacts to the sim, never drives it.
 ##
-## This is thin WIRING over the existing procedural-audio subsystem (LocalAgentAudioDirector +
+## This is thin WIRING over the existing procedural-audio subsystem (LAAudioDirector +
 ## MusicDirector + SfxBank). It does NOT synthesize anything itself; it only:
 ##   1. salts the generative-music seed so each play session's bed evolves differently (the world
-##      stays deterministic — the music seed is INDEPENDENT of the sim world seed);
+##      stays deterministic, because the music seed is INDEPENDENT of the sim world seed);
 ##   2. subscribes to the emergent phenomenon-event tracker (LAEventTracker.event_emitted) and fires
 ##      one SFX STING per field phenomenon (eruption / wildfire / flood / storm / lightning / impact),
 ##      so field-derived events sound off even when no scripted disaster actor is present;
 ##   3. exposes reusable UI-sound + milestone-chime helpers the HUD/menus can call.
 ##
 ## Audibility is gated by the existing per-aspect bus mixer (audio starts muted; the player unmutes in
-## the audio menu). This controller only WIRES the sources — it never force-unmutes. It degrades to
+## the audio menu). This controller only WIRES the sources. It never force-unmutes. It degrades to
 ## silence + a warning if the audio director or event tracker is unavailable (e.g. headless: no audio
-## device). No hard failure. (Explicit types only — project rule: no ':=' inferred typing.)
+## device). No hard failure. (Explicit types only, no ':=' inferred typing.)
 
 const AUDIO_GROUP: String = "local_agents_audio"
 
@@ -38,7 +38,7 @@ const UI_CLICK: String = "ui_click"
 ## the sting. The tracker already samples at 1 Hz with detector rearm/cooldown; this is a cheap backstop.
 const STING_COOLDOWN_S: float = 1.5
 
-var _audio: Node = null                 # LocalAgentAudioDirector (pulled off the world)
+var _audio: Node = null                 # LAAudioDirector (pulled off the world)
 var _events: Node = null                # LAEventTracker (pulled off the world)
 var _last_sting_time: Dictionary = {}   # type -> last wall-clock seconds a sting played
 var _ready_ok: bool = false
@@ -49,12 +49,12 @@ var _ready_ok: bool = false
 ## dependency is missing — logs a warning and stays inert (silence), never crashes.
 func setup(world: Node) -> void:
 	if world == null:
-		push_warning("VoxelAudioController: no world — audio wiring inert.")
+		push_warning("VoxelAudioController: no world, so audio wiring is inert.")
 		return
 	_audio = world.get("_audio")
 	_events = world.get("_events")
 	if _audio == null:
-		push_warning("VoxelAudioController: no AudioDirector — game-feel audio disabled (silent).")
+		push_warning("VoxelAudioController: no AudioDirector, so game-feel audio is disabled (silent).")
 		return
 	_ready_ok = true
 

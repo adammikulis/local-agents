@@ -1,8 +1,8 @@
 extends RefCounted
 
-## Cubed-sphere GPU pass plugin: the ECOSYSTEM / SURFACE field CAs — scent (surface-wind precompute,
+## Cubed-sphere GPU pass plugin: the ECOSYSTEM / SURFACE field CAs. These are scent (surface-wind precompute,
 ## lateral transport, soil-fertility creep), the fungus decomposer + its radial fertility reduce, the
-## snow phase, and the shock/sound pressure-wave — wired to the SphereGPU driver via the PLUGIN CONTRACT
+## snow phase, and the shock/sound pressure-wave, all wired to the SphereGPU driver via the PLUGIN CONTRACT
 ## (setup() once, dispatch() each step).
 ##
 ## The driver owns the RenderingDevice, all channel buffers, and the open compute list. This plugin only:

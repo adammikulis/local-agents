@@ -2,11 +2,11 @@ extends RefCounted
 
 ## Cubed-sphere FIRE + DUST pass plugin. Wires three GPU-proven sphere kernels behind the sphere GPU
 ## driver's pass contract (setup(rd, bufs, cc) / dispatch(rd, cl, parity, ctx, cc, groups)):
-##   * fire_sphere3d.glsl          — combustion GATHER (ember spread + plume; consumes fuel/O₂, emits CO₂)
-##   * dust_outscale_sphere3d.glsl — per-cell CFL out-flux scale precompute (→ dust_outscale SINGLE buffer)
-##   * dust_transport_sphere3d.glsl— airborne dust advect/diffuse/settle gather + leeward deposit to sediment
+##   * fire_sphere3d.glsl:           combustion GATHER (ember spread + plume; consumes fuel/O₂, emits CO₂)
+##   * dust_outscale_sphere3d.glsl:  per-cell CFL out-flux scale precompute (→ dust_outscale SINGLE buffer)
+##   * dust_transport_sphere3d.glsl: airborne dust advect/diffuse/settle gather + leeward deposit to sediment
 ## The old dust_loft_sphere3d.glsl (scour dry sediment into the cell-above's dust) is DISSOLVED into the DEFS
-## reaction engine as record M4 (sediment→own-cell dust, MaterialReactions3D.gd) — a clean own-cell transfer;
+## reaction engine as record M4 (sediment→own-cell dust, MaterialReactions3D.gd), a clean own-cell transfer;
 ## the kernel is deleted (dissolve-don't-patch). ReactionsPass runs the loft before this pass so transport
 ## advects the freshly lofted dust the same step.
 ##

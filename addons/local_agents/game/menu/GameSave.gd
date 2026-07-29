@@ -1,21 +1,21 @@
 class_name LAGameSave
 extends RefCounted
 
-## LAGameSave — the slot catalogue + on-disk plumbing for world saves. The main menu queries it to decide
+## LAGameSave: the slot catalogue + on-disk plumbing for world saves. The main menu queries it to decide
 ## whether "Continue" is enabled and which slot to resume; the sim's save controller (LAWorldSaveController)
-## calls it to WRITE and READ the heavy world blob. This file owns only the disk layout + catalogue reads —
+## calls it to WRITE and READ the heavy world blob. This file owns only the disk layout + catalogue reads, and
 ## the actual gather/apply of world state lives in LAWorldSaveState (creatures/kinship/progression) and
 ## LAMaterialFieldSnapshot3D (the field), keeping this a thin plumbing/catalogue facade.
 ##
-## Layout — one directory per slot under a saves root:
+## Disk layout is one directory per slot under a saves root:
 ##   user://local_agents/saves/<slot>/meta.cfg    ConfigFile header (version, timestamp, mode, seed, name,
-##                                                 population, progression_stage) — cheap to read for the menu
+##                                                 population, progression_stage), cheap to read for the menu
 ##   user://local_agents/saves/<slot>/world.sav   binary FileAccess.store_var of the one big state Dictionary
 ##                                                 (field channels + actors + kinship + progression)
 ##   user://local_agents/saves/<slot>/settings.res the active LAGameSettings resource (ResourceSaver)
 ##
 ## Everything fails GRACEFULLY: a missing/corrupt slot reads back as an empty dict (never a crash), so the
-## menu simply keeps Continue disabled and the sim boots a fresh world. (Explicit types only — no ':=' typing.)
+## menu simply keeps Continue disabled and the sim boots a fresh world. (Explicit types only, no ':=' inferred typing.)
 
 const SAVES_ROOT: String = "user://local_agents/saves"
 const SAVE_VERSION: int = 1

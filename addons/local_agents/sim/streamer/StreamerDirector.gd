@@ -2,18 +2,18 @@ class_name LAStreamerDirector
 extends Node
 
 ## The commentator's brain. Watches the living sim, decides WHEN there is something worth saying, and
-## turns it into one short streamer line via the shared local-LLM client — all off the physics frame. It
+## turns it into one short streamer line via the shared local-LLM client, all off the physics frame. It
 ## never blocks: generation is an async request through the shared LocalAgentLlmClient (LocalAgentLlmService's
 ## LocalAgent, run on a worker thread) with a single-in-flight budget. The server + model are owned by
-## LocalAgentLlmService (one server, one model, one config — no private llama-server here anymore). When no client
+## LocalAgentLlmService (one server, one model, one config, with no private llama-server here anymore). When no client
 ## is injected (no model installed) it stays silent, holding the event queue until a client appears.
 ##
-## Context hygiene: the request is near-stateless — a persona system prompt + only a short rolling
-## window of recent lines + the current scene delta — and the window is hard-reset on big events / every
+## Context hygiene: the request is near-stateless (a persona system prompt + only a short rolling
+## window of recent lines + the current scene delta), and the window is hard-reset on big events / every
 ## N lines, so the model never accumulates context rot.
 ##
 ## Emits `line_ready(text)`; the world wires that to the overlay caption + StreamerVoice.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 signal line_ready(text: String)
 signal status_changed(status: String)
@@ -94,7 +94,7 @@ func setup(world: Node, options: Dictionary = {}) -> void:
 	if _has_client():
 		emit_signal("status_changed", "live")
 	else:
-		emit_signal("status_changed", "no model — silent")
+		emit_signal("status_changed", "no model, silent")
 
 
 func set_enabled(on: bool) -> void:
@@ -120,7 +120,7 @@ func latest_line() -> String:
 ## Inject/replace the shared LocalAgentLlmClient (e.g. if the runtime resolves a model after startup).
 func set_llm_client(client) -> void:
 	_llm_client = client
-	emit_signal("status_changed", "live" if _has_client() else "no model — silent")
+	emit_signal("status_changed", "live" if _has_client() else "no model, silent")
 
 
 func _has_client() -> bool:

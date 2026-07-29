@@ -1,20 +1,20 @@
 @tool
 extends Control
-class_name LocalAgentDownloadController
+class_name LADownloadController
 
 ## The editor Downloads tab: pick a model from the shipped catalog, fetch it, and watch the log.
 ##
-## There is exactly ONE downloader in this addon now. This tab used to route models through a thin
-## `api/` wrapper over the `AgentRuntime` native singleton — so downloading a model required the
+## There is exactly one downloader in this addon now. This tab used to route models through a thin
+## `api/` wrapper over the `AgentRuntime` native singleton, so downloading a model required the
 ## native library, which is the very thing you download a model in order to use.
-## It now drives `LocalAgentModelDownloadManager` (pure GDScript, HTTPRequest, streams to a `.part`
+## It now drives `LAModelDownloadManager` (pure GDScript, HTTPRequest, streams to a `.part`
 ## file and promotes it only after the size verifies), the same downloader the in-game panel uses.
 ## Nothing on the model path needs the native binary any more.
 ##
 ## The worker Thread survives only for the shell script job (voices / build dependencies via
 ## fetch_dependencies.sh). The model path is signal-driven and needs no thread at all.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only. Project rule: no ':=' inferred typing.)
 
 const FETCH_SCRIPT: String = "res://addons/local_agents/gdextensions/localagents/scripts/fetch_dependencies.sh"
 const MODEL_SERVICE: GDScript = preload("res://addons/local_agents/controllers/ModelDownloadService.gd")
@@ -25,17 +25,20 @@ const DOWNLOAD_MANAGER: GDScript = preload("res://addons/local_agents/ui/ModelDo
 ## to run the tab silently.
 @export var output_log: RichTextLabel
 
-@onready var status_label: Label = %StatusLabel
-@onready var download_all_button: Button = %DownloadAllButton
-@onready var download_models_button: Button = %DownloadModelsButton
-@onready var download_voices_button: Button = %DownloadVoicesButton
-@onready var clean_button: Button = %CleanButton
-@onready var model_tree: Tree = %ModelTree
-@onready var selection_info_label: Label = %SelectionInfo
-@onready var refresh_button: Button = %RefreshButton
+# Resolved by scene path, not by `%`. DownloadTab.tscn sets unique_name_in_owner on StatusLabel and
+# SelectionInfo only, so the other six lookups returned null and pushed "Node not found" at load:
+# the buttons never disabled during a download, and the model tree was never populated.
+@onready var status_label: Label = $VBoxContainer/StatusLabel
+@onready var download_all_button: Button = $VBoxContainer/ButtonRow/DownloadAllButton
+@onready var download_models_button: Button = $VBoxContainer/ButtonRow/DownloadModelsButton
+@onready var download_voices_button: Button = $VBoxContainer/ButtonRow/DownloadVoicesButton
+@onready var clean_button: Button = $VBoxContainer/ButtonRow/CleanButton
+@onready var model_tree: Tree = $VBoxContainer/ModelPanel/ModelTree
+@onready var selection_info_label: Label = $VBoxContainer/SelectionInfo
+@onready var refresh_button: Button = $VBoxContainer/ModelHeader/RefreshButton
 
 var _model_service: LocalAgentModelDownloadService = MODEL_SERVICE.new()
-var _downloader: LocalAgentModelDownloadManager = null
+var _downloader: LAModelDownloadManager = null
 var _selected_model_id: String = ""
 
 # Shell-script job state (voices / dependencies). The model job carries none of this.
@@ -92,7 +95,7 @@ func refresh_models() -> void:
     _populate_model_tree()
     _set_running_state(false, "Catalog refreshed")
 
-# -- Model download (LocalAgentModelDownloadManager) ---------------------------
+# -- Model download (LAModelDownloadManager) ---------------------------
 
 func _ensure_downloader() -> void:
     if _downloader != null:
@@ -134,7 +137,7 @@ func _start_model_job(model_id: String) -> void:
         _log("Source: %s" % download_url)
     var size_bytes: int = int(model.get("size_bytes", 0))
     if size_bytes > 0:
-        _log("Size: %s" % LocalAgentModelDownloadManager.format_bytes(size_bytes))
+        _log("Size: %s" % LAModelDownloadManager.format_bytes(size_bytes))
     _log("")
     _set_running_state(true, "Downloading %s" % label)
 
@@ -146,8 +149,8 @@ func _start_model_job(model_id: String) -> void:
 func _on_model_download_started(_model_id: String, total_bytes: int) -> void:
     var total_text: String = "unknown size"
     if total_bytes > 0:
-        total_text = LocalAgentModelDownloadManager.format_bytes(total_bytes)
-    _set_running_state(true, "%s — starting (%s)" % [_active_model_label, total_text])
+        total_text = LAModelDownloadManager.format_bytes(total_bytes)
+    _set_running_state(true, "%s, starting (%s)" % [_active_model_label, total_text])
 
 func _on_model_download_progress(_model_id: String, received_bytes: int, total_bytes: int, speed_bytes_per_sec: float, eta_seconds: float) -> void:
     if status_label == null:
@@ -155,17 +158,17 @@ func _on_model_download_progress(_model_id: String, received_bytes: int, total_b
     var percent: float = 0.0
     if total_bytes > 0:
         percent = clampf(float(received_bytes) / float(total_bytes) * 100.0, 0.0, 100.0)
-    var received_text: String = LocalAgentModelDownloadManager.format_bytes(received_bytes)
+    var received_text: String = LAModelDownloadManager.format_bytes(received_bytes)
     var total_text: String = "?"
     if total_bytes > 0:
-        total_text = LocalAgentModelDownloadManager.format_bytes(total_bytes)
+        total_text = LAModelDownloadManager.format_bytes(total_bytes)
     status_label.text = "%s %.1f%% (%s / %s) · %s · %s" % [
         _active_model_label,
         percent,
         received_text,
         total_text,
-        LocalAgentModelDownloadManager.format_speed(speed_bytes_per_sec),
-        LocalAgentModelDownloadManager.format_eta(eta_seconds),
+        LAModelDownloadManager.format_speed(speed_bytes_per_sec),
+        LAModelDownloadManager.format_eta(eta_seconds),
     ]
 
 func _on_model_download_finished(_model_id: String, ok: bool, path: String, error: String) -> void:

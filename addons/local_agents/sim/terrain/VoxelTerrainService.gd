@@ -5,7 +5,7 @@ extends RefCounted
 ## Wraps a native VoxelLodTerrain (Transvoxel + heightmap noise) and exposes the
 ## build/query/destruction API defined in the build contract. Everyone else CALLS this.
 ##
-## This IS the SPHERE implementation of the duck-typed TERRAIN contract that actors read `terrain` through —
+## This IS the SPHERE implementation of the duck-typed TERRAIN contract that actors read `terrain` through,
 ## the same method surface LAFlatGroundTerrain provides for a flat world (its class doc lists the contract in
 ## full). A Creature/actor names none of these as "the sphere": it calls up_at / planet_center / sea_radius /
 ## surface_point(dir) / surface_radius(dir) / ground_point(pos) / altitude_at(pos) / is_planet / is_ready_at /

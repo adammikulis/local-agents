@@ -8,13 +8,13 @@ extends RefCounted
 ##
 ## Growth-by-age lives here (Phase 2, light): a newborn is BORN small (NEWBORN_SCALE of adult size) and grows
 ## linearly to full size as it matures, so a creature visibly develops from birth to adult. It is NOT yet
-## fertile as a juvenile — that gate is is_mature (age >= maturity_age), which LACreatureReproduction reads —
+## fertile as a juvenile. That gate is is_mature (age >= maturity_age), which LACreatureReproduction reads,
 ## so the size curve and the fertility threshold share the one `maturity_age` axis. Creature keeps only the
 ## raw `age`/`maturity_age`/`max_age` state plus a cached `_growth` scale, and forwards to these functions, so
 ## life-stage behaviour is owned here without touching Creature.gd's brain.
 ##
 ## Static + dependency-free of the LocalAgentCreature type (dynamic field access, like the other Creature* helpers).
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 # --- growth curve (exposed as named consts for retuning) -------------------------------------------------
 const NEWBORN_SCALE: float = 0.45         # a newborn's visual size as a fraction of the adult (grows up from here)

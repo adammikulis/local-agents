@@ -3,40 +3,40 @@
 class_name LocalAgentLlmService
 extends Node
 
-## The ONE shared owner of the local-LLM runtime for the whole sim. It holds a single LocalAgent (the
-## in-process / llama-server primitive), resolves the model path + server URL in ONE place
+## The one shared owner of the local-LLM runtime for the whole sim. It holds a single LocalAgent (the
+## in-process / llama-server primitive), resolves the model path + server URL in one place
 ## (LocalAgentStatus + the chat-model candidates the streamer used to resolve privately), and hands out a
 ## single shared LocalAgentLlmClient. The creature slow brain (LocalAgentCognitionScheduler) and the streamer
 ## commentator (LAStreamerDirector) both talk through this one client → one server, one model, one config.
 ##
 ## This is the collapse of the three forked chat-completions paths: cognition's raw HTTPRequest client,
 ## the streamer's private HTTPRequest client + private server manager + private model resolution, and the
-## standalone agent's native path are now the SAME LocalAgent behind this service.
+## standalone agent's native path are now the same LocalAgent behind this service.
 ##
-## NO-CODE USE: drop this node into a scene, tick `enabled`, and point a LocalAgentCognitionScheduler at
-## it. Everything below is configurable from the inspector; `_ready()` self-configures from those exports
+## No-code use: drop this node into a scene, tick `enabled`, and point a LocalAgentCognitionScheduler at
+## it. Everything below is configurable from the inspector. `_ready()` self-configures from those exports
 ## whenever `setup()` was not called first, so a scene-placed service needs no script at all.
 ##
 ## When the service is disabled (or nothing is installed) `is_available()` is false and every consumer
-## runs its offline path — the heuristic teacher for cognition, the canned/silent streamer. That path is
-## correct behaviour, not an error, but it used to be COMPLETELY silent: `log_availability` now prints one
+## runs its offline path: the heuristic teacher for cognition, the canned or silent streamer. That path
+## is correct behaviour, not an error, but it used to be completely silent. `log_availability` prints one
 ## line saying which model and server were resolved, or why the service is offline and what to change.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only. Project rule: no ':=' inferred typing.)
 
 const AgentScript: GDScript = preload("res://addons/local_agents/agents/Agent.gd")
 const LlmClientScript: GDScript = preload("res://addons/local_agents/agents/LlmClient.gd")
 const RuntimePaths: GDScript = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 
-# Chat/instruct model candidates, tried after LocalAgentStatus' own resolution (explicit setting →
-# RuntimePaths default → the project's search_paths). Kept as the last resort so a user who installed one
-# of these without touching Project Settings still gets a model. A capable instruct model serves BOTH the
-# streamer chat and the creature function-calls, so there is one server + one model for the whole session.
-const MODEL_CANDIDATES: Array = [
-	"user://local_agents/models/qwen3-1_7b/Qwen3-1.7B-Q4_K_M.gguf",
-	"user://local_agents/models/qwen3-0_6b-instruct/Qwen3-0.6B-Q4_K_M.gguf",
-	"user://local_agents/models/qwen3-4b-instruct/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
-]
+# MODEL_CANDIDATES used to live here: a second, hardcoded list of three GGUFs tried after
+# LocalAgentStatus had already resolved. It held the same three files as the DEFAULT
+# local_agents/model/search_paths (runtime/Settings.gd:43), in a different order, so the two resolvers
+# agreed only by coincidence. Nothing enforced that. Editing search_paths in Project Settings, or
+# adding a fourth candidate here, would have let the creature slow brain and the streamer load a model
+# that the setup panel reported as missing, because the panel reports on LocalAgentStatus.
+#
+# There is one resolver now. To add a search location, add it to search_paths, where check() will see
+# it too.
 
 const SETTING_AUTO_ENABLE: String = "local_agents/llm/auto_enable_when_model_present"
 const SETTING_SERVER_URL: String = "local_agents/llm/server_url"
@@ -47,24 +47,25 @@ const SETTING_BACKEND: String = "local_agents/llm/backend"
 
 ## Master switch for the shared local-LLM runtime. Off means is_available() stays false and every
 ## consumer (the creature slow brain, the streamer) runs its offline path. Off by default so the addon
-## never boots a llama-server behind the player's back — tick it once you have a model installed.
+## never boots a llama-server behind the player's back. Tick it once you have a model installed.
 @export var enabled: bool = false
 
-## Where inference actually runs. "llama_server" talks to a llama-server process over HTTP (the Server
-## group below applies); "in_process" runs the weights inside the game through the native runtime.
+## Where inference actually runs. "llama_server" talks to a llama-server process over HTTP, and the
+## Server group below applies to it. "in_process" runs the weights inside the game through the
+## native runtime.
 @export_enum("llama_server", "in_process") var backend: String = "llama_server"
 
-## Print one line at startup naming the resolved model and server — or, when the service is offline,
-## the reason and the fix. Leave on: an offline service is otherwise completely silent, which is the
-## single most confusing thing a new user of this addon can hit.
+## Print one line at startup. It names the resolved model and server, or the reason and the fix when
+## the service is offline. Leave it on: an offline service is otherwise completely silent, which is
+## the single most confusing thing a new user of this addon can hit.
 @export var log_availability: bool = true
 
 @export_group("Server")
 
 ## Base URL of the llama-server to talk to. Only used by the "llama_server" backend.
-## Leave EMPTY to follow Project Settings > local_agents/llm/server_url (or the FUNCTIONGEMMA_URL
+## Leave it empty to follow Project Settings > local_agents/llm/server_url (or the FUNCTIONGEMMA_URL
 ## environment variable), which is the usual case. Fill it in only to point this one service
-## somewhere else — anything typed here wins, the same way Model Path does.
+## somewhere else. Anything typed here wins, the same way Model Path does.
 @export_placeholder("http://127.0.0.1:8080") var server_url: String = ""
 
 ## Launch llama-server automatically when nothing is answering on the URL above. Turn off to require an
@@ -90,7 +91,7 @@ const SETTING_BACKEND: String = "local_agents/llm/backend"
 @export var model_profile: LocalAgentModelProfile
 
 ## Optional sampling knobs (temperature, max tokens, penalties) applied to every request through this
-## service. Its own Server sub-group is IGNORED here — the Server group on this node wins, so the
+## service. Its own Server sub-group is ignored here. The Server group on this node wins, so the
 ## connection is described in exactly one place.
 @export var inference: LocalAgentInferenceParams
 
@@ -116,15 +117,15 @@ func _ready() -> void:
 
 
 ## Programmatic override of the inspector exports. Options (all optional):
-##   server_url : llama-server base URL. Passing this key explicitly also FORCE-ENABLES the service,
+##   server_url : llama-server base URL. Passing this key explicitly also force-enables the service,
 ##                which is how a script points the sim at a server it just started.
 ##   enabled    : force the service on/off, ignoring the `enabled` export.
 ##   model_path : explicit gguf; otherwise resolved from the export / project settings / candidates.
 ##   backend    : "llama_server" (default) or "in_process".
 ##
-## Availability stays OPT-IN: with no explicit server_url, no `enabled`, and no
+## Availability stays opt-in: with no explicit server_url, no `enabled`, and no
 ## local_agents/llm/auto_enable_when_model_present, the service stays offline and every consumer runs
-## its heuristic/teacher path — the mere presence of a model file on disk does not silently switch the
+## its heuristic teacher path. The mere presence of a model file on disk does not silently switch the
 ## sim onto the LLM (that would change behaviour and boot a server behind the player's back).
 func setup(options: Dictionary = {}) -> void:
 	_configure(options)
@@ -213,21 +214,19 @@ func _teardown() -> void:
 	_agent = null
 
 
-## The single model-resolution owner: an explicit path wins, then the project's model settings
-## (LocalAgentStatus), then this addon's own chat-model candidates. Returns "" when nothing is installed.
+## This node's Model Path export wins, and everything else defers to LocalAgentStatus, which is the one
+## model-resolution owner. Returns "" when nothing is installed.
+##
+## This used to be a second resolver: after asking LocalAgentStatus it re-tried
+## RuntimePaths.resolve_default_model() (which LocalAgentStatus had already tried, so it never fired)
+## and then walked its own hardcoded MODEL_CANDIDATES. Those three files were the same three as the
+## DEFAULT search_paths, so the two agreed by coincidence. The panel reports on LocalAgentStatus, so
+## any edit to either list would have let the creature brain and the streamer load a model the setup
+## panel called missing.
 func resolve_model_path(preferred: String = "") -> String:
 	if preferred.strip_edges() != "":
 		return preferred.strip_edges()
-	var from_settings: String = LocalAgentStatus.resolve_model_path()
-	if from_settings != "":
-		return from_settings
-	var runtime_default: String = RuntimePaths.resolve_default_model()
-	if runtime_default != "":
-		return runtime_default
-	for candidate in MODEL_CANDIDATES:
-		if FileAccess.file_exists(ProjectSettings.globalize_path(String(candidate))):
-			return String(candidate)
-	return ""
+	return LocalAgentStatus.resolve_model_path()
 
 
 func is_available() -> bool:
@@ -261,9 +260,9 @@ func status_line() -> String:
 		if _resolved_model != "":
 			model_name = _resolved_model.get_file()
 		if _resolved_backend == "llama_server":
-			return "LocalAgentLlmService: online — backend=llama_server server=%s model=%s" % [_resolved_server, model_name]
-		return "LocalAgentLlmService: online — backend=%s model=%s" % [_resolved_backend, model_name]
-	return "LocalAgentLlmService: offline — %s" % _offline_reason
+			return "LocalAgentLlmService: online, backend=llama_server server=%s model=%s" % [_resolved_server, model_name]
+		return "LocalAgentLlmService: online, backend=%s model=%s" % [_resolved_backend, model_name]
+	return "LocalAgentLlmService: offline, %s" % _offline_reason
 
 
 # The reason + the fix, chosen by what is actually missing. The "model installed but switched off" case

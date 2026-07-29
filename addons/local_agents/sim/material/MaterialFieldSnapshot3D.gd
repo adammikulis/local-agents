@@ -1,7 +1,7 @@
 class_name LAMaterialFieldSnapshot3D
 extends RefCounted
 
-## LAMaterialFieldSnapshot3D — save/restore of the ONE material field's heavy per-cell state, factored out of
+## LAMaterialFieldSnapshot3D: save/restore of the ONE material field's heavy per-cell state, factored out of
 ## the extract-only LAMaterialField3D hub (same pattern as the query/inject/step modules: it reaches into the
 ## owning field `_f` for the GPU driver + CPU channel arrays). The field is the big blob a world-save persists:
 ## every GPU-resident channel (water/heat/moisture/rock_fill/lava/charge/snow/o2/co2/biomass/…) plus the CPU
@@ -9,9 +9,9 @@ extends RefCounted
 ##
 ## CAPTURE reads the authoritative GPU buffers back through the driver's snapshot_channels(); RESTORE uploads
 ## them verbatim through restore_channels() AND re-seeds the field's CPU mirror arrays (crucially _temp/_water,
-## which begin_frame re-uploads every step — leaving them stale would clobber the restored field on the very
+## which begin_frame re-uploads every step, since leaving them stale would clobber the restored field on the very
 ## next frame). The solid/static masks are NOT saved: they re-derive deterministically from the (fixed-seed)
-## terrain SDF + sea radius on boot, so a reload reproduces them exactly. (Explicit types only — no ':=' .)
+## terrain SDF + sea radius on boot, so a reload reproduces them exactly. (Explicit types only, no ':=' inferred typing.)
 
 # Channel name (as read back by the GPU driver) -> the field's CPU mirror array property, for the channels the
 # field keeps a CPU copy of (actor queries + SIM_REPORT totals read these until the next GPU readback). Channels
@@ -50,7 +50,7 @@ static func restore(field, data: Dictionary) -> bool:
 	if not is_ready(field) or data.is_empty():
 		return false
 	if int(data.get("cell_count", -1)) != field._cell_count:
-		push_warning("LAMaterialFieldSnapshot3D: cell_count mismatch (%s vs %d) — field not restored" % [
+		push_warning("LAMaterialFieldSnapshot3D: cell_count mismatch (%s vs %d), so the field is not restored" % [
 			str(data.get("cell_count", -1)), field._cell_count])
 		return false
 	var channels: Dictionary = data.get("channels", {})

@@ -2,7 +2,7 @@
 class_name LocalAgentDemoHarness
 extends Node
 
-## LocalAgentDemoHarness — the ONE headless run / report / screenshot harness for a demo scene.
+## The one headless run / report / screenshot harness for a demo scene.
 ##
 ## Drop it under any scene root, point `report_source` at the node that knows the numbers, and that
 ## scene gains the repo's standard command-line contract for free:
@@ -10,25 +10,25 @@ extends Node
 ##     godot --headless --path . <scene>.tscn -- --run-frames=120
 ##     godot --path . <scene>.tscn -- --shoot=shot.png --shoot-frames=90
 ##
-## Before this node existed every demo hand-rolled the same twenty lines — scan
+## Before this node existed every demo hand-rolled the same twenty lines. Scan
 ## `OS.get_cmdline_user_args()` for `--run-frames=`, count frames in `_process`, print a
-## `MARKER={...}` line, quit — five near-identical copies. Two of them called the game's `AppExit`
-## autoload, which a library-only install is told NOT to register, so those "showcase" demos failed
+## `MARKER={...}` line, quit: five near-identical copies. Two of them called the game's `AppExit`
+## autoload, which a library-only install is told not to register, so those "showcase" demos failed
 ## to parse for exactly the audience they were written for. This node owns the job once and resolves
-## the exit path at RUNTIME, so it behaves the same with or without that autoload.
+## the exit path at run time, so it behaves the same with or without that autoload.
 ##
-## The report source only ever answers questions; it never reads the command line itself:
+## The report source only ever answers questions. It never reads the command line itself.
 ##
-## - `demo_report() -> Dictionary` — the payload, printed as JSON. This is the normal case.
-## - `demo_report_json() -> String` — optional. The payload already serialised, for when exact number
+## - `demo_report() -> Dictionary` is the payload, printed as JSON. This is the normal case.
+## - `demo_report_json() -> String` is optional. The payload already serialised, for when exact number
 ##   formatting matters more than JSON conventions (e.g. two fixed decimals). Wins when present.
-## - `demo_exit_code() -> int` — optional. Process exit code, default 0, so a smoke scene can fail.
-## - `demo_shot_info() -> String` — optional. Extra `key=value` text appended to the SHOT_SAVED line.
-## - `demo_harness_configured(frames: int, shoot: String) -> void` — optional. Called once, right after
-##   the command line is parsed, so the scene can react to the RESOLVED settings (auto-drive itself,
-##   size a report) without re-reading argv.
+## - `demo_exit_code() -> int` is optional. Process exit code, default 0, so a smoke scene can fail.
+## - `demo_shot_info() -> String` is optional. Extra `key=value` text appended to the SHOT_SAVED line.
+## - `demo_harness_configured(frames: int, shoot: String) -> void` is optional. Called once, right
+##   after the command line is parsed, so the scene can react to the resolved settings (auto-drive
+##   itself, size a report) without re-reading argv.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only. Project rule: no ':=' inferred typing.)
 
 const ARG_RUN_FRAMES: String = "--run-frames="
 const ARG_SHOOT: String = "--shoot="
@@ -38,28 +38,28 @@ const ARG_SHOOT_FRAMES: String = "--shoot-frames="
 ## Frames to run before printing the report and quitting. 0 = never auto-quit (normal interactive play).
 ## The command line overrides this: `-- --run-frames=N`.
 @export_range(0, 100000, 1, "suffix:frames") var run_frames: int = 0
-## Count PHYSICS frames instead of render frames.
+## Count physics frames instead of render frames.
 ##
 ## Turn this on for anything measuring a simulation. Physics ticks are fixed-rate while render frames
 ## are not, so a run ended after N render frames contains a machine-dependent number of simulation
-## steps — which is why the field demo's temperatures moved by 2x between machines and made a useless
+## steps, which is why the field demo's temperatures moved by 2x between machines and made a useless
 ## regression signal. Leave it off for UI demos, where "frames" means frames drawn.
 @export var count_physics_frames: bool = false
 
 ## Node queried for the report payload. It must expose `demo_report() -> Dictionary`.
-## Left empty, the parent node is used — so dropping this harness under a scene root just works.
+## Left empty, the parent node is used, so dropping this harness under a scene root just works.
 @export var report_source: Node
 ## Marker prefix for the printed line, e.g. "BOX_FIELD" prints `BOX_FIELD_REPORT={...}`.
-## Nothing in scripts/ or CI greps these today; keep it stable anyway so saved logs stay comparable.
+## Nothing in scripts/ or CI greps these today. Keep it stable anyway so saved logs stay comparable.
 @export var report_prefix: String = "DEMO"
-## Text joined onto the prefix to form the marker. The default gives `PREFIX_REPORT={...}`;
-## clear it to print a bare `PREFIX={...}`.
+## Text joined onto the prefix to form the marker. The default gives `PREFIX_REPORT={...}`.
+## Clear it to print a bare `PREFIX={...}`.
 @export var report_suffix: String = "_REPORT"
 
 @export_group("Screenshot")
 ## Save a PNG of the viewport at `shoot_frames`, print `SHOT_SAVED=...`, then quit. Empty = no screenshot.
 ## The command line overrides this: `-- --shoot=<path.png>`.
-## Global, not @export_file: this is an OUTPUT path, usually absolute or user://. res:// is read-only
+## Global, not @export_file: this is an output path, usually absolute or user://. res:// is read-only
 ## in an exported build, and a res://-rooted picker cannot express a valid value.
 @export_global_file("*.png") var shoot_path: String = ""
 ## Frame the screenshot is taken on. Give the scene enough frames to settle before it shoots.
@@ -119,9 +119,9 @@ func _tick() -> void:
 ## The one line that means "this run is ending, deliberately". Printed immediately before the quit by
 ## every harness in the repo, and by nothing else.
 ##
-## An external watchdog CANNOT reliably infer completion from the report line. run_sim_offscreen.sh
+## An external watchdog cannot reliably infer completion from the report line. run_sim_offscreen.sh
 ## tried, matching "an all-caps token followed by ={quote}" on the theory that only a JSON report body
-## has quoted keys — and VoxelWorld's own periodic `POP_TRACE={"frame":180,...}` matches that exactly.
+## has quoted keys, and VoxelWorld's own periodic `POP_TRACE={"frame":180,...}` matches that exactly.
 ## The watchdog therefore armed at frame 180 and SIGKILLed healthy 800- and 1200-frame runs. An
 ## explicit sentinel is not a heuristic and no progress line can spoof it.
 const COMPLETE_MARKER: String = "LA_RUN_COMPLETE"
@@ -187,12 +187,26 @@ func _quit(code: int) -> void:
 	tree.quit(code)
 
 
-func _parse_cli() -> void:
+## The one place `--run-frames=N` is read. Returns `fallback` when the flag is absent.
+##
+## This is static and public because the game scene cannot use this node: `game/VoxelWorld.tscn` needs
+## `--perf-frames`, `--bench` timelines and framerate uncapping that live in VoxelInputController, so
+## it parses the command line itself. It was also re-implementing this flag, which is how one spelling
+## becomes two that drift. It calls this instead now, so the syntax has one owner even though the
+## behaviour has two.
+static func parse_run_frames(fallback: int = 0) -> int:
 	for arg_v in OS.get_cmdline_user_args():
 		var arg: String = String(arg_v)
 		if arg.begins_with(ARG_RUN_FRAMES):
-			run_frames = maxi(0, int(arg.substr(ARG_RUN_FRAMES.length())))
-		elif arg.begins_with(ARG_SHOOT_FRAMES):
+			return maxi(0, int(arg.substr(ARG_RUN_FRAMES.length())))
+	return fallback
+
+
+func _parse_cli() -> void:
+	run_frames = parse_run_frames(run_frames)
+	for arg_v in OS.get_cmdline_user_args():
+		var arg: String = String(arg_v)
+		if arg.begins_with(ARG_SHOOT_FRAMES):
 			shoot_frames = maxi(1, int(arg.substr(ARG_SHOOT_FRAMES.length())))
 		elif arg.begins_with(ARG_SHOOT):
 			shoot_path = arg.substr(ARG_SHOOT.length())

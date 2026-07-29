@@ -8,7 +8,7 @@ extends CanvasLayer
 ## to the sim behind it.
 ##
 ## Emits `enabled_toggled(on)` and `persona_selected(id)`; the world wires those to the director.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 signal enabled_toggled(on: bool)
 signal persona_selected(id: String)

@@ -21,7 +21,7 @@ func run_test(tree: SceneTree) -> bool:
         push_error("NetworkGraph missing after extension initialization.")
         return false
 
-    var store := LocalAgentConversationStore.new()
+    var store := LAConversationStore.new()
     tree.get_root().add_child(store)
     store._runtime = MockRuntime.new()
     store.clear_all()

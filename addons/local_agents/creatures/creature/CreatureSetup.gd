@@ -1,7 +1,7 @@
 class_name LACreatureSetup
 extends RefCounted
 
-## Spawn-time CONFIGURATION of a LocalAgentCreature — the whole "express the genome/species config onto this
+## Spawn-time CONFIGURATION of a LocalAgentCreature: the whole "express the genome/species config onto this
 ## individual" pass, factored out of the main brain. LocalAgentCreature.setup() is now a one-line forwarder
 ## into apply().
 ##
@@ -15,8 +15,8 @@ extends RefCounted
 ##   * construct the per-creature sub-state modules (cognition, chem-sense priors, digestion, disease,
 ##     microbiome, bond, senescence), each of which owns its own state off the monolith.
 ##
-## Static + dynamic field access on the passed creature, like the other Creature* modules — no cyclic class
-## reference. (Explicit types only — project rule: no ':=' inferred typing.)
+## Static + dynamic field access on the passed creature, like the other Creature* modules, so there is no cyclic class
+## reference. (Explicit types only, no ':=' inferred typing.)
 
 # COHORT DESYNC: every individual gets its OWN maturity/lifespan, jittered around the species value, so a
 # generation doesn't mature, breed and die in lockstep. Without this, founders (all spawned at age 0 with an

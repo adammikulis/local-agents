@@ -1,13 +1,13 @@
 class_name LAFamilyTreePanel
 extends CanvasLayer
 
-## FAMILY-TREE INSPECTOR — a pure READER over the permanent kinship graph (LAKinshipGraph). When a creature is
-## selected and the "Family tree" debug view is on, it walks that graph from the selected creature — ancestors
-## up (parents → grandparents, capped) and descendants down (offspring, capped), with mate(s) alongside — and
+## FAMILY-TREE INSPECTOR: a pure READER over the permanent kinship graph (LAKinshipGraph). When a creature is
+## selected and the "Family tree" debug view is on, it walks that graph from the selected creature. Ancestors
+## go up (parents → grandparents, capped) and descendants down (offspring, capped), with mate(s) alongside, and it
 ## draws a simple 2D node-link diagram: boxes = individuals (species + short id), lines = parent/child, a
 ## distinct dashed style = mate bonds, the selected creature highlighted as the root. Alive kin are tinted by
 ## species; dead / carcass / freed kin are greyed so a lineage stays legible after relatives die. Rebuilds ONLY
-## on select (not per frame). Click a box to re-root the tree on that individual. (Explicit types — no ':=' .)
+## on select (not per frame). Click a box to re-root the tree on that individual. (Explicit types only, no ':=' inferred typing.)
 
 const MAX_GEN_UP: int = 4          # ancestor generations walked above the root
 const MAX_GEN_DOWN: int = 4        # descendant generations walked below the root
@@ -215,13 +215,13 @@ func _draw_tree() -> void:
 		return
 	var font: Font = ThemeDB.fallback_font
 	if _root_cid == 0 or _nodes.is_empty():
-		_canvas.draw_string(font, Vector2(8.0, 20.0), "Family tree — select a creature",
+		_canvas.draw_string(font, Vector2(8.0, 20.0), "Select a creature to see its family tree",
 			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color(0.7, 0.74, 0.82))
 		return
 
 	# Title.
 	var root_node: Dictionary = _nodes[int(_index[_root_cid])] if _index.has(_root_cid) else {}
-	var title: String = "Family tree — %s #%d" % [String(root_node.get("species", "?")), _root_cid % 10000]
+	var title: String = "Family tree for %s #%d" % [String(root_node.get("species", "?")), _root_cid % 10000]
 	_canvas.draw_string(font, Vector2(8.0, 18.0), title, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color(0.82, 0.86, 0.94))
 
 	# Edges first (under the boxes). Parent/child solid, mate dashed + distinct colour.

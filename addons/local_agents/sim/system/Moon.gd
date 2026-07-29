@@ -4,7 +4,7 @@ extends Node3D
 ## A moon: a light gravity body on a kinematic orbit about the planet (positioned each frame by LASystemOrbits).
 ## It joins the `gravity_body` group so meteors feel it and can slingshot around it, and it draws a simple grey
 ## cratered sphere. It has NO terrain/field sim of its own (a second full body is the 0.4 multi-planet
-## migration), so meteors don't crater it — it is a gravity source + visual for now. Explicit types; no ':='.
+## migration), so meteors don't crater it. It is a gravity source + visual for now. Explicit types; no ':='.
 
 const RADIUS: float = 42.0
 const MASS: float = 8.0e4          # much less than the planet (6e5) so it perturbs meteors locally, never dominates

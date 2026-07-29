@@ -1,27 +1,27 @@
 class_name LACreatureSenescence
 extends RefCounted
 
-## LACreatureSenescence — the per-creature AGEING / SENESCENCE state, owned as an instance on each creature
+## LACreatureSenescence: the per-creature AGEING / SENESCENCE state, owned as an instance on each creature
 ## (`creature.senescence`) so all of it lives HERE, off the Creature monolith. The creature's _physics_process
 ## delegates to tick() once per frame (right after the life-stage age advance); Creature.gd only holds
 ## `var senescence` + one setup + one tick call, mirroring the `disease` seam.
 ##
-## Emergent, curve-driven — NO scripted deaths, NO `if age == X` cases. From the one age-vs-max_age axis this
+## Emergent, curve-driven, with no scripted deaths and no `if age == X` cases. From the one age-vs-max_age axis this
 ## module computes a single 0..1 SENESCENCE FACTOR: flat 0 through youth and prime (the middle of life is the
 ## peak), then rising with an accelerating curve toward max_age. Every age-graded trait is DERIVED from that one
 ## factor:
-##   • speed_mult      — an old animal visibly SLOWS (worn muscle), so it forages/flees/hunts less well.
-##   • max_energy_mult — its organ RESERVE shrinks (declining resilience → less buffer against starvation/stress).
-##   • fertility_mult  — it becomes LESS FERTILE, tapering to sterile well before death (read by reproduction).
+##   • speed_mult:       an old animal visibly SLOWS (worn muscle), so it forages/flees/hunts less well.
+##   • max_energy_mult:  its organ RESERVE shrinks (declining resilience → less buffer against starvation/stress).
+##   • fertility_mult:   it becomes LESS FERTILE, tapering to sterile well before death (read by reproduction).
 ## The old-age MORTALITY itself is driven by this curve in LACreatureMetabolism (frailty drains health as the
-## factor rises, with a hard backstop at max_age). Together these give life real stages — juvenile → prime →
-## old — so populations turn over with generational structure instead of everyone dying identically at a cliff.
+## factor rises, with a hard backstop at max_age). Together these give life real stages (juvenile → prime →
+## old), so populations turn over with generational structure instead of everyone dying identically at a cliff.
 ##
 ## The youthful BASELINES (speed, max_energy) are captured once at setup so tick() can rewrite the live traits
 ## from them every frame WITHOUT compounding (idempotent). Prime creatures get multiplier 1.0, so day-0 land
 ## behaviour is unchanged until an individual actually ages past its prime. Compresses with LA_EVO_FAST exactly
 ## like metabolism/reproduction, so the effective lifespan the curve measures against matches the death schedule.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 # --- curve shape (exposed as named consts for retuning) --------------------------------------------------
 const PRIME_END: float = 0.5        # fraction of (effective) lifespan spent at peak before senescence begins to rise

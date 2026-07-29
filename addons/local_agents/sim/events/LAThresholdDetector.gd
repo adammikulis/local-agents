@@ -1,25 +1,25 @@
 class_name LAThresholdDetector
 extends LAEventDetector
 
-## The GENERIC, CONFIG-DRIVEN detector — one class covers every "a scalar field aggregate crossed a
+## The GENERIC, CONFIG-DRIVEN detector: one class covers every "a scalar field aggregate crossed a
 ## threshold" phenomenon (eruption, wildfire, flood, storm, lightning, impact). This is "config over
 ## `if type == X`" applied to detection: the registry is a LIST of these configured with (key, mode,
 ## threshold, intensity), NOT a monolith with a branch per phenomenon. A new threshold phenomenon = one
 ## more configured record.
 ##
 ## Three modes, each with its own debounce so an ongoing phenomenon is not re-emitted every sample:
-##   • "cross_up" — fire when `cur[key]` rises above `threshold` from below `rearm` (HYSTERESIS: must
+##   • "cross_up":  fire when `cur[key]` rises above `threshold` from below `rearm` (HYSTERESIS: must
 ##                  drop back under `rearm` to re-arm). While held high, an escalation fires if the value
 ##                  grows past the last-fired value by `escalate_factor`. Used for lava_total / wind /
 ##                  heat that ramp up and stay up.
-##   • "increment" — fire when the value (a cumulative counter like `bolts`) increases, gated by
+##   • "increment": fire when the value (a cumulative counter like `bolts`) increases, gated by
 ##                   `cooldown_s`. Each strike/increment is its own event.
-##   • "rate"      — fire when the per-second RISE `(cur-prev)/dt` exceeds `threshold`, gated by
+##   • "rate":      fire when the per-second RISE `(cur-prev)/dt` exceeds `threshold`, gated by
 ##                   `cooldown_s`. Used for a FAST rise off a large baseline (a flood surge on
 ##                   water_total, an impact heat spike).
 ##
 ## Intensity scales with magnitude: `intensity_base + intensity_scale * <how far past the bar>`.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 var type_name: String = ""            # LAEvent.type this detector emits
 var key: String = ""                  # snapshot key it reads

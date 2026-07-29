@@ -1,7 +1,7 @@
 class_name LAEcologySpawner
 extends RefCounted
 
-## Spawn / population placement for the living world — every way an actor gets ONTO the planet surface:
+## Spawn / population placement for the living world, every way an actor gets ONTO the planet surface:
 ## the single-actor spawn, the initial population seeding (with herd founder-clustering that gives each
 ## band a shared family_id + an elder so leadership finds real followers), ambient rock + clustered
 ## forest scatter, nest placement, and the sphere-surface math (random points, tangent-plane offsets,
@@ -10,8 +10,8 @@ extends RefCounted
 ## Owned by LAEcologyService, which keeps thin forwarders for its public API (spawn / spawn_initial /
 ## populate_environment / spawn_nest) and reaches back here for the placement helpers its per-tick
 ## breeding/seeding uses. This module reaches back into the service for the shared state that stays on
-## the hub — terrain, actors_root, the material field, the pending-spawn queue, the actor instancer,
-## the germination gate, species configs, biomass reads and the kinship graph — so there is exactly one
+## the hub (terrain, actors_root, the material field, the pending-spawn queue, the actor instancer,
+## the germination gate, species configs, biomass reads and the kinship graph), so there is exactly one
 ## owner of each. Explicit types only (project rule: no ':=').
 
 const NestScript: GDScript = preload("res://addons/local_agents/sim/actors/Nest.gd")

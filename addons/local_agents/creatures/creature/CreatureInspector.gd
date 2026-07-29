@@ -3,7 +3,7 @@ extends RefCounted
 
 ## Inspector presentation for LocalAgentCreature, factored out of the main brain: turns live creature
 ## state into the {title, lines} payload the HUD shows, plus the activity phrase and energy/water
-## bar. Static + dependency-free of the LocalAgentCreature type. (Explicit types only — no ':=' typing.)
+## bar. Static + dependency-free of the LocalAgentCreature type. (Explicit types only, no ':=' inferred typing.)
 
 static func payload(c) -> Dictionary:
 	# Graded life stage (juvenile → prime → old) straight off the age + senescence curve — shows the creature
@@ -36,7 +36,7 @@ static func payload(c) -> Dictionary:
 		elif tame_pct > 0:
 			lines.insert(3, "Taming: %d%% %s   (press B to feed / pet)" % [tame_pct, energy_bar(tame_pct)])
 		else:
-			lines.insert(3, "Wild — press B to feed / pet it (tame)")
+			lines.insert(3, "Wild. Press B to feed / pet it (tame)")
 	if c.throws:
 		lines.append("Rock in hand: %s" % ("yes" if c.has_rock else "no"))
 	# Cognition/genetics readout: how much this individual has learned and which generation it is.
@@ -53,7 +53,7 @@ static func payload(c) -> Dictionary:
 
 static func describe_activity(state: String) -> String:
 	match state:
-		"panic": return "terrified — fleeing!"
+		"panic": return "terrified and fleeing"
 		"flee": return "fleeing a predator"
 		"chase": return "chasing prey"
 		"stalk": return "stalking prey (persistence hunt)"

@@ -1,21 +1,21 @@
 @tool
 extends Node
-class_name LocalAgentMusicDirector
+class_name LAMusicDirector
 
 ## Multi-layer generative music engine with long-form song structure.
 ##
 ## Layers (all synthesized at runtime via the swappable SynthVoice):
-##   • pad    — sustained chord tones (harmonic bed), crossfaded on chord change
-##   • bass   — chord root/fifth on downbeats
-##   • arp    — chord-tone arpeggio gated by density
-##   • melody — sparse in-mode motif with voice-leading toward chord tones
-##   • perc   — soft filtered-noise backbeat when energetic
+##   • pad:    sustained chord tones (harmonic bed), crossfaded on chord change
+##   • bass:   chord root/fifth on downbeats
+##   • arp:    chord-tone arpeggio gated by density
+##   • melody: sparse in-mode motif with voice-leading toward chord tones
+##   • perc:   soft filtered-noise backbeat when energetic
 ##
 ## Harmony source: "generative" (ChordProgressionPlanner over any mode, e.g.
 ## phrygian_dominant) or "library" (a named real-world progression). A SongArranger
-## walks a section form (intro/verse/chorus/bridge/outro) so the music EVOLVES —
+## walks a section form (intro/verse/chorus/bridge/outro) so the music evolves with
 ## mid-song key modulations, mode changes, time-signature changes, tempo shifts, and
-## fresh progressions per section — rather than looping four chords forever.
+## fresh progressions per section, rather than looping four chords forever.
 ##
 ## Pickable at runtime: set_mode(), set_key(), set_tempo(), set_time_signature(),
 ## set_progression(), set_arrangement_enabled(). Presentation-only + dedicated seeded
@@ -415,13 +415,13 @@ func _chord_stream(chord: Array) -> AudioStreamWAV:
 	if _chord_cache.has(sig):
 		return _chord_cache[sig]
 	var presets := SynthPresets.music_voice_presets()
-	var base: LocalAgentSynthVoiceParamsResource = presets.get("pad_warm")
+	var base: LASynthVoiceParams = presets.get("pad_warm")
 	if base == null:
 		return null
 	var mix := PackedFloat32Array()
 	var gain := 1.0 / sqrt(float(maxi(1, chord.size())))
 	for note in chord:
-		var params: LocalAgentSynthVoiceParamsResource = base.duplicate_params()
+		var params: LASynthVoiceParams = base.duplicate_params()
 		var freq := Theory.midi_to_hz(int(note))
 		params.frequency = freq
 		params.frequency_end = freq
@@ -442,7 +442,7 @@ func _note_stream(voice_name: String, midi: int) -> AudioStreamWAV:
 	var presets := SynthPresets.music_voice_presets()
 	if not presets.has(voice_name):
 		return null
-	var params: LocalAgentSynthVoiceParamsResource = (presets[voice_name] as LocalAgentSynthVoiceParamsResource).duplicate_params()
+	var params: LASynthVoiceParams = (presets[voice_name] as LASynthVoiceParams).duplicate_params()
 	var freq := Theory.midi_to_hz(midi)
 	params.frequency = freq
 	params.frequency_end = freq

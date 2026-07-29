@@ -7,12 +7,12 @@ extends RefCounted
 ## compute list in `dispatch()`.
 ##
 ## Kernels + role (see each .glsl for the verbatim math):
-##   wind_pressure_sphere3d  — PASS A: per-cell air pressure from temperature (no neighbours). pressure <= temp.
-##   wind_step_sphere3d      — PASS B: per-cell velocity update down the pressure gradient (+buoy/Coriolis/drag).
-##   o2_transport_sphere3d   — symmetric O2 diffusion over the neighbour table (advection dropped on the sphere).
-##   co2_transport_sphere3d  — CO2 diffusion + wind advection + downward settle over the neighbour table.
-##   charge_accum_sphere3d   — per-cell charge separation from updraft x supercooled cloud, in place on charge.
-## (The O₂ sky-refill + CO₂ sky-vent that gas_sky_sphere3d did here dissolved into the generic ReactionsPass —
+##   wind_pressure_sphere3d:   PASS A: per-cell air pressure from temperature (no neighbours). pressure <= temp.
+##   wind_step_sphere3d:       PASS B: per-cell velocity update down the pressure gradient (+buoy/Coriolis/drag).
+##   o2_transport_sphere3d:    symmetric O2 diffusion over the neighbour table (advection dropped on the sphere).
+##   co2_transport_sphere3d:   CO2 diffusion + wind advection + downward settle over the neighbour table.
+##   charge_accum_sphere3d:    per-cell charge separation from updraft x supercooled cloud, in place on charge.
+## (The O₂ sky-refill + CO₂ sky-vent that gas_sky_sphere3d did here dissolved into the generic ReactionsPass, and
 ##  they are now two Reaction records, applied one pass later on the same o2/co2 transport-output buffers.)
 ##
 ## PLUGIN CONTRACT (bufs dictionary):

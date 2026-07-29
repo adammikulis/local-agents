@@ -1,15 +1,15 @@
 class_name LACreatureBond
 extends RefCounted
 
-## LACreatureBond — the per-creature TAMENESS / COMPANION state, owned as an instance on each creature
+## LACreatureBond: the per-creature TAMENESS / COMPANION state, owned as an instance on each creature
 ## (`creature.bond`) so all of it lives HERE, off the Creature monolith (imitating the `disease` seam).
-## A wild creature starts at zero tameness. Repeated FRIENDLY interaction — being fed/petted, or lingering
-## calm at the player's hand — raises it (befriend()); with no attention it decays slowly back toward wild.
+## A wild creature starts at zero tameness. Repeated FRIENDLY interaction (being fed/petted, or lingering
+## calm at the player's hand) raises it (befriend()); with no attention it decays slowly back toward wild.
 ## Once tameness crosses the bond threshold the creature is BONDED: it will accept a standing player command
 ## (come / stay / follow) which its decision cascade obeys, pre-empting its autonomous drive. An unbonded (or
 ## lapsed) creature carries no command and behaves exactly as before, so the sim is unchanged until a creature
 ## is actually tamed. State lives here; the command STEERING lives in LACreatureThink.execute_action, and the
-## command/beacon are broadcast by LACompanionController. (Explicit types only — project rule: no ':='.)
+## command/beacon are broadcast by LACompanionController. (Explicit types only, no ':=' inferred typing.)
 
 # How strong the bond is, 0 (wild) .. 1 (devoted). Rises with friendly interaction, decays slowly otherwise.
 var tameness: float = 0.0

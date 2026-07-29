@@ -294,6 +294,51 @@ commands and the legacy-adapter list below are historical and should not be run 
 
 ## Breaking Changes
 
+- **2026-07-29 (0.4): the addon became installable without reading its source.** A consumer previously
+  had to hand-register an autoload, could not reach the model downloader without the native binary the
+  downloader was needed to obtain, saw every type twice in Add Node, and configured the whole thing
+  through about 25 `LA_*` environment variables. Everything below changed to fix that, and it is all
+  source-incompatible. There are no downstream consumers, so nothing was kept in parallel.
+  - **Directory layout split three ways.** `addons/local_agents/scenes/simulation/voxel/` is gone.
+    `sim/` holds the reusable simulation library (material substrate, ecology, planet generation,
+    actors, events, streamer). `game/` holds the Anima game shell (VoxelWorld and its controllers, HUD,
+    menus, progression, save) and is deletable. All demos moved into one `examples/`. Roughly 182
+    `scenes/simulation/voxel` path literals across 7 shell scripts and 7 docs were updated with it.
+  - **Class names canonicalized.** The `LocalAgents<Thing>` prefix is retired: `LocalAgent<Thing>` is
+    now a type a user instantiates or annotates against, `LA<Thing>` is a simulation internal. 58
+    classes renamed across roughly 96 files. Public sim types were promoted out of the `LA*` namespace:
+    `LASimWorld` to `LocalAgentSimWorld`, `LACreature` to `LocalAgentCreature`, `LALlmService` to
+    `LocalAgentLlmService`, `LACognitionScheduler` to `LocalAgentCognitionScheduler`, `LATutorialStep`
+    to `LocalAgentTutorialStep`. `Creature`'s 26 sibling modules stay `LA*`.
+  - **Types removed.** `configuration/parameters/ModelParams` (its `.tres` wrote five properties the
+    script did not declare, all silently dropped on load), `agents/Character.gd` and its `.tres` (no
+    consumer), `runtime/RuntimeHealth.gd` (absorbed by `LocalAgentStatus`), `api/DownloadClient.gd` and
+    the now-empty `api/` (the editor now uses the pure-GDScript `ui/ModelDownloadManager.gd`, which
+    needs no native binary), and `addons/phantom_camera/` (122 files, zero references).
+  - **`LocalAgent.configure()` resignatured** and now takes a `LocalAgentModelProfile` plus a
+    `LocalAgentInferenceParams`. It replaces `inference_options` wholesale, which is why load-time knobs
+    moved into a separate `load_options` dictionary: writing a profile into `inference_options` meant
+    `configure()` silently discarded it, and model profiles were entirely inert as a result. Precedence
+    is `load_options`, then `inference_options`, then per-call extras.
+  - **`think()` / `think_async()` error codes changed.** They no longer return the undiagnostic
+    `"agent_unavailable"`. They return the specific `LocalAgentStatus` blocker code plus a `detail`
+    string. `system_prompt` is now injected as a system message at `history[0]` rather than passed in
+    the options dictionary, which the native runtime never read.
+  - **The editor plugin no longer calls `add_custom_type`.** Every one of those scripts already
+    self-registers through `class_name`, so the aliases were the duplicate-entry bug. The plugin now
+    registers the `AgentManager` autoload itself, in `_enter_tree` rather than on panel activation, so
+    it exists with or without the native binary. The bottom panel is no longer gated on the extension.
+  - **Tuning moved from environment variables to ProjectSettings**, resolved ProjectSetting, then env
+    var, then default (`runtime/Settings.gd`), so existing `LA_*` variables keep working in CI. Debug
+    and CI-only knobs (`LA_ABLATE`, the `LA_NO_*` kill switches, `LOCAL_AGENTS_TEST_*`) stay env-only.
+  - **`addons/local_agents/tests/.gdignore` added**, so about 50 test scripts stop importing into a
+    consumer's project. The harness invokes them by path, so it is unaffected.
+  - New gates, all wired into `scripts/agent_harness.sh lint`: `check_library_only.sh` (the addon still
+    parses with the game deleted and no zylann.voxel), `check_tool_safety.sh` (no `@tool` script writes
+    serialized state in the editor), `check_demo_catalog.sh` (the demo catalogue matches disk).
+    `scripts/check_dropin_scene.sh` is separate because it costs about 25s: it builds a consumer
+    project from scratch and proves a scene with no script in it produces a reply from a local model.
+
 - **2026-07 (0.3): flat/box world removed — the cubed-sphere planet is the sole world.** The
   origin-centered box `MaterialField3D` grid, its box GPU driver, the dead box `_physics_process` step
   branch, and the 21 CPU-oracle + box-GPU field modules were deleted, along with 32 dead box

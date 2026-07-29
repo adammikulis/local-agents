@@ -5,22 +5,22 @@ extends RefCounted
 ## the main brain so the cadence policy lives in one owner file.
 ##
 ## Two related throttles live here:
-##   * think stride — how often the creature runs the DISCRETIONARY cognition cascade. Sleep is cheapest,
+##   * think stride: how often the creature runs the DISCRETIONARY cognition cascade. Sleep is cheapest,
 ##     followers coast on an adopted action, time-critical states (flee/hunt/drink) stay at the full near
 ##     rate at any distance, and everything else grades smoothly with camera relevance (LALodStride).
-##   * physics-rate gate — how often the whole _physics_process body runs at all, with an accumulated
+##   * physics-rate gate: how often the whole _physics_process body runs at all, with an accumulated
 ##     catch-up dt so metabolism/aging/movement distance stay correct however sparse the update (a far
 ##     creature simply advances several frames of motion at once, invisible at range).
 ##
 ## Every-frame work (metabolism, thirst, temperature, ageing, death, movement) is unaffected in substance:
-## the catch-up dt keeps its integrated result the same. This spreads cost automatically — a fraction of
+## the catch-up dt keeps its integrated result the same. This spreads cost automatically, because a fraction of
 ## the population is always asleep (diurnal by night / nocturnal by day, staggered) and most animals are
 ## off-screen.
 ##
 ## The shared camera position and the global AI-tick multiplier are cached ONCE PER PHYSICS FRAME here and
 ## reused by the whole population (one get_camera_3d() / one Engine meta read per frame, not one per
 ## creature). Static + dynamic field access on the passed creature, like the other Creature* modules.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 const THINK_STRIDE: int = 3                # decide every N physics frames (movement stays every-frame)
 const FAR_THINK_STRIDE: int = 30           # far/off-screen discretionary thinking cap (~2 Hz)

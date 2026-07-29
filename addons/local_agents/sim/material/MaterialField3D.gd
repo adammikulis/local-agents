@@ -1,12 +1,12 @@
 class_name LAMaterialField3D
 extends Node3D
 
-## LAMaterialField3D — the DENSE 3D material-flow substrate (successor to the 2.5D LAMaterialField).
+## LAMaterialField3D: the DENSE 3D material-flow substrate (successor to the 2.5D LAMaterialField).
 ##
 ## The 2.5D field stored one column per XZ cell (a surface height + material *depths*). That could not
 ## represent caves: water can't pool in a cavern, lava can't drain into a tube, a plume can't rise a
-## shaft. This field stores a real 3D volume — a temperature + per-material amount for every (x,y,z)
-## cell — so all of that EMERGES from local rules that now include the Y axis.
+## shaft. This field stores a real 3D volume (a temperature + per-material amount for every (x,y,z)
+## cell), so all of that EMERGES from local rules that now include the Y axis.
 ##
 ## DENSE (not sparse bricks): at the sim's 5-unit resolution the whole volume is ~0.9M cells × a few
 ## float layers ≈ ~20 MB, so a flat 3D array is the simplest thing that works. Solid rock cells (from
@@ -15,7 +15,7 @@ extends Node3D
 ##
 ## Index layout: idx = (iy * _dim_z + iz) * _dim_x + ix  (X contiguous, then Z, then Y). World position
 ## of a cell centre = _origin + Vector3(ix, iy, iz) * _cell_size.
-## (Explicit types only — no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 const Mat: GDScript = preload("res://addons/local_agents/sim/material/Materials.gd")
 const MineralStampScript: GDScript = preload("res://addons/local_agents/sim/material/MineralStamp3D.gd")

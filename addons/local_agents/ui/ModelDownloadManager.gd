@@ -3,7 +3,7 @@
 # downloader — which is exactly the duplication this file replaced.
 @tool
 extends Node
-class_name LocalAgentModelDownloadManager
+class_name LAModelDownloadManager
 
 # Model download manager, shared by the in-game panel and the editor Downloads tab.
 #

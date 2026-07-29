@@ -1,9 +1,9 @@
 class_name LAEcologyBreeding
 extends RefCounted
 
-## Reproduction / population dynamics for the living world — the genome/kinship/nest MACHINERY that every
+## Reproduction / population dynamics for the living world: the genome/kinship/nest MACHINERY that every
 ## birth reuses, plus the aquatic school's population tick. Phase 2 (W-REPRO) DISSOLVED the top-down land
-## breeding: land births are no longer scheduled here by a god-tick — each individual now decides to breed
+## breeding: land births are no longer scheduled here by a god-tick. Each individual now decides to breed
 ## for itself (courtship + gestation, energy-costed) in LACreatureReproduction, which calls back into
 ## birth_child() below to produce the actual offspring through the SAME heredity path. So the reusable
 ## helpers stay here (one owner of the placement + genome + lineage machinery) while the DECISION to breed
@@ -15,8 +15,8 @@ extends RefCounted
 ## Owned by LAEcologyService. Its _physics_process forwards the aquatic tick here; the per-creature land path
 ## reaches birth_child()/species_below_cap() through the service forwarders (LAEcologyService.birth_offspring
 ## / can_species_breed). This module reaches back into the service for the shared state that stays on the hub
-## — the species/aquatic rosters, get_tree, the surface + tangent placement helpers, the actor instancer,
-## biomass reads, the water gate, the aquatic-point sampler and the kinship graph — so there is exactly one
+## (the species/aquatic rosters, get_tree, the surface + tangent placement helpers, the actor instancer,
+## biomass reads, the water gate, the aquatic-point sampler and the kinship graph), so there is exactly one
 ## owner of each. Explicit types only (project rule: no ':=').
 
 # AQUATIC BREEDING — the de-hack that retires the old `restock` spawn-from-nowhere crutch. Aquatic species

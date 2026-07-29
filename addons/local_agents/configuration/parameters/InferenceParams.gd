@@ -1,13 +1,13 @@
 extends Resource
 class_name LocalAgentInferenceParams
 
-## How the model should *generate* — sampling, penalties, and which backend runs the request.
+## How the model should *generate*: sampling, penalties, and which backend runs the request.
 ##
 ## This is the companion to LocalAgentModelProfile: the profile says which weights to load, this
 ## says how to sample from them. Save it as a `.tres`, tweak it in the inspector, and hand it to
-## LocalAgent.configure() (or drop it in a LocalAgentConfigList).
+## LocalAgent.configure() (or drop it in a LAConfigList).
 ##
-## Defaults are deliberately safe and general-purpose; the two knobs worth touching first are
+## Defaults are deliberately safe and general-purpose. The two knobs worth touching first are
 ## Temperature (creativity) and Max tokens (reply length).
 
 ## Human-readable label for this preset, shown wherever presets are listed. Purely cosmetic.
@@ -15,7 +15,7 @@ class_name LocalAgentInferenceParams
 
 @export_group("Sampling")
 
-## Creativity. Low values (0.2) make the model repetitive but focused; high values (1.2+) make it
+## Creativity. Low values (0.2) make the model repetitive but focused. High values (1.2+) make it
 ## inventive but prone to nonsense. 0 makes it fully deterministic.
 @export_range(0.0, 2.0, 0.01) var temperature: float = 0.8
 
@@ -35,28 +35,28 @@ class_name LocalAgentInferenceParams
 ## Locally-typical sampling: prefers words of "average" surprise. 1.0 disables it.
 @export_range(0.0, 1.0, 0.01) var typical_p: float = 1.0
 
-## Random seed. -1 draws a fresh seed for every generation (different reply each time); pin it to
-## any value to make a run reproducible.
+## Random seed. -1 draws a fresh seed for every generation, so the reply differs each time. Pin it
+## to any value to make a run reproducible.
 @export_range(-1, 1000000, 1, "or_greater", "hide_slider") var seed: int = -1
 
 @export_group("Penalties")
 
-## Discourages repeating words already used. 1.0 is off; above ~1.3 the text starts to read oddly.
+## Discourages repeating words already used. 1.0 is off. Above about 1.3 the text starts to read oddly.
 @export_range(0.0, 2.0, 0.01) var repeat_penalty: float = 1.1
 
 ## How many of the most recent tokens the repeat penalty looks back over. 0 disables it.
 @export_range(0, 2048, 1) var repeat_last_n: int = 64
 
-## Penalty scaled by how often a word already appeared. Negative values ENCOURAGE repetition.
+## Penalty scaled by how often a word already appeared. Negative values encourage repetition.
 @export_range(-2.0, 2.0, 0.01) var frequency_penalty: float = 0.0
 
-## Flat penalty for any word that already appeared at all — nudges the model onto new topics.
+## Flat penalty for any word that already appeared at all, which nudges the model onto new topics.
 @export_range(-2.0, 2.0, 0.01) var presence_penalty: float = 0.0
 
 @export_group("Mirostat")
 
 ## Adaptive sampling that targets a constant "surprise" level instead of a fixed top_p/top_k.
-## Off is the normal choice; v2 is the cheaper of the two algorithms.
+## Off is the normal choice. v2 is the cheaper of the two algorithms.
 @export_enum("Off:0", "Mirostat v1:1", "Mirostat v2:2") var mirostat_mode: int = 0
 
 ## Target surprise (perplexity) Mirostat steers toward. Lower is more predictable text.
@@ -70,7 +70,7 @@ class_name LocalAgentInferenceParams
 
 @export_group("Backend")
 
-## Which runtime executes the request. Leave BLANK to follow the project's
+## Which runtime executes the request. Leave it blank to follow the project's
 ## `local_agents/llm/backend` setting (use the inspector's revert arrow to clear it).
 @export_enum("in_process", "llama_server") var backend: String = ""
 
@@ -82,8 +82,9 @@ class_name LocalAgentInferenceParams
 ## Base URL of an already-running llama-server. Blank uses the project's `local_agents/llm/server_url`.
 @export_placeholder("http://127.0.0.1:8080") var server_base_url: String = ""
 
-## Bearer token for a server that requires one. STORED AS PLAIN TEXT in the saved `.tres` and shown
-## unmasked in the inspector — do not put a secret you care about here, and do not commit the file.
+## Bearer token for a server that requires one. It is stored as plain text in the saved `.tres` and
+## shown unmasked in the inspector, so do not put a secret you care about here, and do not commit
+## the file.
 @export_placeholder("(sent as a bearer token)") var server_api_key: String = ""
 
 ## Model name to request from the server, for a server hosting several. Blank uses its default.
@@ -95,7 +96,7 @@ class_name LocalAgentInferenceParams
 ## Pin this agent to one server slot so its KV cache is not shared. -1 lets the server choose.
 @export_range(-1, 32, 1) var server_slot: int = -1
 
-## Let the server reuse the cached prefix of a repeated prompt. Big speedup; leave on.
+## Let the server reuse the cached prefix of a repeated prompt. Big speedup, so leave it on.
 @export var server_cache_prompt: bool = true
 
 ## Launch llama-server automatically if nothing is listening on the base URL yet.

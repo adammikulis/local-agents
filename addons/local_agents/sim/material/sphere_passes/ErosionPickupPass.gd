@@ -1,6 +1,6 @@
 extends RefCounted
 
-## Cubed-sphere GPU pass plugin: EROSION PICKUP — the scour leg of the mineral cycle (Stage D). Wires the ONE
+## Cubed-sphere GPU pass plugin: EROSION PICKUP, the scour leg of the mineral cycle (Stage D). Wires the ONE
 ## kernel erosion_pickup_sphere3d.glsl into the SphereGPU driver via the plugin contract (setup() once,
 ## dispatch() each step). Flowing water lifts bedrock (rock_fill) off its bed into waterborne suspension (susp);
 ## the existing M3 SETTLE record (ReactionsPass) drops susp back to loose sediment where flow slackens, and the
@@ -10,7 +10,7 @@ extends RefCounted
 ## PLACEMENT (MaterialSphereGPU3D.PASS_SCRIPTS): right BEFORE ReactionsPass, AFTER the water CA + Atmosphere have
 ## settled water into the BACK half. Reads water[back] (the current water), scours rock_fill (SINGLE, in place),
 ## and FULLY writes susp[back] = susp[live] (carry) + scour so ReactionsPass's M3 settle reads a consistent susp.
-## Single dispatch — the scour targets each solid bed cell's UNIQUE up-cell (radial reciprocity), so the
+## Single dispatch: the scour targets each solid bed cell's UNIQUE up-cell (radial reciprocity), so the
 ## cross-cell rock_fill write is race-free with no barrier; susp is written own-cell.
 ##
 ## Kernel binding -> bufs-key map (authoritative layout is erosion_pickup_sphere3d.glsl):

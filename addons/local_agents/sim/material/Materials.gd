@@ -3,15 +3,15 @@ extends RefCounted
 
 ## Data-driven material registry for the unified MaterialField.
 ##
-## EMERGENT-EVERYTHING: every substance in the sim — solids, granular soil, liquids, gases — is one
+## EMERGENT-EVERYTHING: every substance in the sim (solids, granular soil, liquids, gases) is one
 ## entry here, and the differences between water/lava/steam/rock/sand are DATA, not code. Flow,
 ## phase changes, combustion, buoyancy and settling all fall out of these properties, so the field's
 ## step loop never branches on "if water" / "if lava". Add a material by adding a row.
 ##
 ## Temperature is REAL degrees Celsius: 0°C freezes water, 100°C boils it, wood autoignites ~300°C,
-## lava solidifies ~800°C / rock melts ~1200°C. Ambient is a mild ~5–28°C driven by the sun; 0 is
+## lava solidifies ~800°C / rock melts ~1200°C. Ambient is a mild ~5-28°C driven by the sun; 0 is
 ## cold, not neutral. Disasters inject real spikes (lightning/lava → hundreds/thousands of °C,
-## blizzard → below zero). (Explicit types only — project rule: no ':=' inferred typing.)
+## blizzard → below zero). (Explicit types only, no ':=' inferred typing.)
 
 ## Material ids. Kept as plain ints (array index) so per-material state can live in flat arrays.
 const AIR: int = 0

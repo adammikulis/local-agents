@@ -1,28 +1,28 @@
 class_name LACreatureChemSense
 extends RefCounted
 
-## Chemical-affinity learning for LocalAgentCreature — the smell/taste side of cognition, built on the shared
+## Chemical-affinity learning for LocalAgentCreature: the smell/taste side of cognition, built on the shared
 ## scent field (LAMaterialField3D scent channels) plus the literal-DNA cue priors (LADNA cue_priors).
 ##
 ## Nothing here decides a chemical is "good" or "bad". A cue's valence is LEARNED (from how eating a food
 ## with a given taste signature actually felt, and from fear the rest of cognition already reinforces) or
 ## BORN-IN (the genome's cue priors, refined by a lifetime of that learning and spread to kin culturally by
 ## LACognition.observe()). This is the same generic reward machinery LACognition already runs for "watch the
-## vultures" cues — one level down, about the chemicals a creature smells and tastes rather than the animals
+## vultures" cues, but one level down: about the chemicals a creature smells and tastes rather than the animals
 ## it sees. So a scavenger learns rotten meat tastes worse than a fresh kill, a herbivore born blood-wary
-## keeps clear of a blood scent, and a hungry animal banks toward a smell it has learned means food — all
+## keeps clear of a blood scent, and a hungry animal banks toward a smell it has learned means food, all
 ## without one chemical being hardcoded anywhere.
 ##
 ## Two entry points, both O(1):
-##   * on_eat(c, profile, gained)  — after a bite: mint a taste cue from the food's (type, state) and
+##   * on_eat(c, profile, gained):   after a bite, mint a taste cue from the food's (type, state) and
 ##                                   reinforce it by how much energy the bite actually delivered.
-##   * steer(c, pos, desired)      — each forage think tick: bias the heading toward scent channels the
+##   * steer(c, pos, desired):       each forage think tick, bias the heading toward scent channels the
 ##                                   creature has learned to like and away from ones it has learned to fear,
 ##                                   scaled by hunger (a fed animal ignores it, so day-0 behaviour is intact).
-##   * seed_priors(c)              — once at birth: reinforce the genome's born-in cue priors into cognition.
+##   * seed_priors(c):               once at birth, reinforce the genome's born-in cue priors into cognition.
 ##
 ## Static + dependency-free of the LocalAgentCreature type (dynamic field access, like the other Creature* helpers).
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 # The scent channels a creature can smell, paired with the cue key its learned valence is stored under. One
 # row per LAMaterialField3D channel: [channel_index, cue_key]. The cue key is just the generic reward-channel

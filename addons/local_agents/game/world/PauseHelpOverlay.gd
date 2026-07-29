@@ -1,12 +1,12 @@
 class_name LAPauseHelpOverlay
 extends Control
 
-## LAPauseHelpOverlay — the in-sim "Controls & help" panel opened from the Esc pause menu, so a player mid-game
+## LAPauseHelpOverlay: the in-sim "Controls & help" panel opened from the Esc pause menu, so a player mid-game
 ## can re-check the bindings and mechanics without leaving the world. It embeds the SAME shared help hub
-## (LAHelpTabs) the main-menu Help screen uses — Overview, the auto-generated Controls reference, and the
-## browsable Codex — so there is one reference in the codebase, never a second in-sim copy. A dimmer swallows
+## (LAHelpTabs) the main-menu Help screen uses (Overview, the auto-generated Controls reference, and the
+## browsable Codex), so there is one reference in the codebase, never a second in-sim copy. A dimmer swallows
 ## clicks and a Close button (or Esc) frees the overlay back to the pause menu. Runs while the tree is paused
-## (its host CanvasLayer is PROCESS_MODE_ALWAYS, which it inherits). (Explicit types only — no ':=' .)
+## (its host CanvasLayer is PROCESS_MODE_ALWAYS, which it inherits). (Explicit types only, no ':=' inferred typing.)
 
 const OVERLAY_DIM: Color = Color(0.0, 0.0, 0.02, 0.72)
 const PANEL_WIDTH: float = 720.0

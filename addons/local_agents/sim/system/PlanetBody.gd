@@ -10,7 +10,7 @@ extends Node3D
 ##   - (folded in as the VoxelWorld migration proceeds) the body-local MaterialField, ocean shell, ecology
 ## Exposes the radial contract every actor/camera/spawn uses: center/radius/sea_radius/up_at/altitude_at/
 ## surface_point/is_solid/carve. `mass` is the gravity source for the system's n-body integrator (Phase later).
-## (Explicit types only — no ':=' .)
+## (Explicit types only, no ':=' inferred typing.)
 
 const TerrainServiceScript: GDScript = preload("res://addons/local_agents/sim/terrain/VoxelTerrainService.gd")
 

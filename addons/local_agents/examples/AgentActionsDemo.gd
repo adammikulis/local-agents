@@ -1,15 +1,15 @@
 extends Node
 
-## What the orb DOES when an action fires — and nothing else.
+## What the orb does when an action fires, and nothing else.
 ##
 ## Every connection this demo needs is in AgentActionsDemo.tscn, made in the Node dock: the agent's
 ## `action_requested`, each button's `pressed` (the colour buttons bind their own word), and the chat
 ## panel's `reply_received`. Nothing here looks a node up by name or wires a signal in `_ready()`.
 ##
 ## The vocabulary below is the whole contract with the model: it may name one of these colours and
-## may say "pulse". Add a row in the inspector and that colour becomes sayable — no code change.
+## may say "pulse". Add a row in the inspector and that colour becomes sayable, with no code change.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only. The project rule bans ':=' inferred typing.)
 
 ## The words the agent may name, and the colour each one paints the orb.
 @export var color_words: Dictionary[String, Color] = {}

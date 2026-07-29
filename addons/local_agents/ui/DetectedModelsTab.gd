@@ -1,5 +1,5 @@
 extends VBoxContainer
-class_name LocalAgentDetectedModelsTab
+class_name LADetectedModelsTab
 
 # "Installed / detected" tab of the model manager.
 #
@@ -29,7 +29,7 @@ func _build() -> void:
 	add_theme_constant_override("separation", 10)
 
 	var intro: Label = Label.new()
-	intro.text = "Models already on this machine. Anything found here can be used in place — no re-download needed."
+	intro.text = "Models already on this machine. Anything found here can be used in place, with no re-download needed."
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(intro)
 
@@ -104,7 +104,7 @@ func _make_catalog_row(model: Dictionary, hit: Dictionary) -> Control:
 
 func _make_loose_row(row: Dictionary) -> Control:
 	var filename: String = String(row.get("filename", ""))
-	var size_pretty: String = LocalAgentModelDownloadManager.format_bytes(int(row.get("size_bytes", 0)))
+	var size_pretty: String = LAModelDownloadManager.format_bytes(int(row.get("size_bytes", 0)))
 	var status_text: String = "%s · %s" % [String(row.get("source_label", "")), size_pretty]
 	return _make_row(filename, status_text, true, String(row.get("path", "")))
 

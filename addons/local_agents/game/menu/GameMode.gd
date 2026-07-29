@@ -1,18 +1,18 @@
 extends Node
 
-## LAGameMode — the autoload that carries the launch choice ACROSS the change_scene_to_file boundary
+## LAGameMode: the autoload that carries the launch choice ACROSS the change_scene_to_file boundary
 ## from the main menu into the sim (a scene switch tears down the old tree, so a static/autoload is the
 ## only thing that survives). It holds two things the sim reads on boot:
-##   - `mode`     — CAMPAIGN (progression gating ON) vs SANDBOX (gating OFF). The progression system,
+##   - `mode`:      CAMPAIGN (progression gating ON) vs SANDBOX (gating OFF). The progression system,
 ##                  once it exists, reads `is_campaign()` to decide whether to gate content.
-##   - `settings` — the active LAGameSettings the player configured (or the persisted defaults).
+##   - `settings`:  the active LAGameSettings the player configured (or the persisted defaults).
 ##
-## APPLICATION INTERFACE (the sim consumes this later — not wired here): call `apply(settings)` to set
+## APPLICATION INTERFACE (the sim consumes this later, not wired here): call `apply(settings)` to set
 ## the active settings and broadcast `settings_applied(settings)`. A future VoxelWorld pass connects to
 ## that signal (or just reads `GameMode.settings` in _ready) and pushes the values into the field/spawn/
 ## disaster systems. This autoload only STORES and BROADCASTS; it never touches simulation code.
 ##
-## Registered as the `GameMode` autoload in project.godot. (Explicit types only — no ':=' inferred typing.)
+## Registered as the `GameMode` autoload in project.godot. (Explicit types only, no ':=' inferred typing.)
 
 enum Mode { CAMPAIGN, SANDBOX }
 

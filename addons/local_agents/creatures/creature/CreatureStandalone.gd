@@ -5,7 +5,7 @@ extends RefCounted
 ## stays lean. A Creature placed in a scene as a NODE (Creature.tscn) with no ecology / MaterialField / planet
 ## wiring is configured here: it gets an LAFlatGroundTerrain + sensible defaults and runs on its pure fast/
 ## reinforced brain (no slow-LLM escalation, no shared field reads, no ecology broadcasts). Static access on the
-## passed creature so there is no cyclic class reference. (Explicit types only — project rule: no ':=' typing.)
+## passed creature so there is no cyclic class reference. (Explicit types only, no ':=' inferred typing.)
 
 # The default `adopt_group` of LocalAgentCognitionScheduler; a standalone creature joins it so a
 # scheduler placed in the scene can adopt it without any wiring code.

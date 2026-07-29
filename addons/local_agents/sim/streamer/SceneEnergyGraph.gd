@@ -2,13 +2,13 @@ class_name LASceneEnergyGraph
 extends Control
 
 ## A live line graph of the SCENE'S TOTAL ENERGY, broken into its physical sources:
-##   - KINETIC : the motion of the animals — Σ ½·m·v² over every creature (mass from its size, speed
+##   - KINETIC : the motion of the animals, Σ ½·m·v² over every creature (mass from its size, speed
 ##               scaled by how agitated its state is), so a calm herd reads low and a stampede spikes.
 ##   - SEISMIC : the ground-shake energy of impacts/quakes (the ecology's live seismic pulse ring).
-##   - THERMAL : heat in the world — hot cells + lava (a meteor crater, a wildfire, a lava flow).
-## Total = their weighted sum. The same number the streamer uses to gauge "how big a deal is this" — so
+##   - THERMAL : heat in the world, hot cells + lava (a meteor crater, a wildfire, a lava flow).
+## Total = their weighted sum. This is the same number the streamer uses to gauge "how big a deal is this", so
 ## the graph IS the intensity signal, made visible. Emergent: nothing is per-event, it's just the energy.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 const SAMPLE_HZ: float = 10.0
 # HARD minimum physics-frames between samples. _sample_energy() calls hot_cell_count()/lava_cell_count()

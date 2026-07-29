@@ -1,22 +1,22 @@
 class_name LACreatureDigestion
 extends RefCounted
 
-## Gut buffer + digestion for LocalAgentCreature — turns ingested food into energy and waste over time, replacing
+## Gut buffer + digestion for LocalAgentCreature. Turns ingested food into energy and waste over time, replacing
 ## the old instant-feed path. Eating no longer credits energy at the moment of the bite; a bite adds biomass
 ## to a per-creature gut buffer, and tick() digests that buffer down each frame, converting biomass into
-## energy at a digestive efficiency (scaled by the creature's microbiome — a herbivore's gut flora ferments
+## energy at a digestive efficiency (scaled by the creature's microbiome, so a herbivore's gut flora ferments
 ## fibrous plant matter it otherwise couldn't extract) while the indigestible remainder becomes feces the
 ## creature later excretes. So a starving animal with a full gut recovers over seconds, not instantly; a
 ## well-fed one buffers the surplus in its gut; and an empty gut means no energy until it eats again.
 ##
 ## Matter is (roughly) conserved: digested biomass -> energy + waste. Digestion is PER-CREATURE state, never a
-## field CA — only the waste OUTPUT enters the shared field, and it does so via LACreatureExcretion on that
+## field CA. Only the waste OUTPUT enters the shared field, and it does so via LACreatureExcretion on that
 ## module's existing feces cadence (this module only raises c.gut_waste; it never deposits, so there is no
 ## double-counting). Everything here is O(1) per creature per frame.
 ##
 ## State lives on the creature as plain fields (gut, gut_capacity, gut_waste, microbiome) so this module owns
 ## digestion without editing the brain. Static + dependency-free of the LocalAgentCreature type (dynamic field access,
-## like the other Creature* helpers). (Explicit types only — project rule: no ':=' inferred typing.)
+## like the other Creature* helpers). (Explicit types only, no ':=' inferred typing.)
 
 # Gut sizing + rates. The gut holds up to CAPACITY_FRAC of the creature's max energy as buffered biomass (a big
 # meal is stored and drawn down over time). DIGEST_RATE is the fraction of the CURRENT gut contents converted

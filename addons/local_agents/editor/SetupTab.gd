@@ -1,6 +1,6 @@
 @tool
 extends Control
-class_name LocalAgentSetupTab
+class_name LASetupTab
 
 ## The Local Agents first-run checklist.
 ##
@@ -29,8 +29,8 @@ signal register_autoload_requested()
 ## Seconds between automatic re-checks while the tab is on screen. Set to 0 to only refresh when the
 ## Re-check button is pressed (useful if you are watching a slow build in another terminal).
 @export_range(0.0, 30.0, 0.5, "suffix:s") var refresh_interval_seconds: float = 3.0
-## Also list advisory items — the speech runtime and the godot_voxel backend. Neither blocks text
-## generation, so turn this off for a blockers-only view.
+## Also list advisory items, meaning the speech runtime and the godot_voxel backend. Neither blocks
+## text generation, so turn this off for a blockers-only view.
 @export var show_optional_items: bool = true
 
 @export_group("Links")

@@ -1,7 +1,7 @@
 class_name LAVoxelSkyController
 extends Node
 
-## LAVoxelSkyController — owns the STAR (positioned light + gravity + solar driver) and the sky-cycle
+## LAVoxelSkyController: owns the STAR (positioned light + gravity + solar driver) and the sky-cycle
 ## (LAVoxelSkyCycle: sky shader, WorldEnvironment, sun/moon, day/night clock) plus the space-mode wiring.
 ## Factored out of LAVoxelWorld so the "visible sun / sky" concern is one file. The world composition root
 ## instantiates it, then reads sun()/env()/star() to wire the rest of the scene. (Explicit types only.)

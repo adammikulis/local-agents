@@ -1,18 +1,18 @@
 class_name LAHurricane
 extends Node3D
 
-## A HURRICANE — a big, slow, rotating storm system with a calm EYE. It is essentially a large,
+## A HURRICANE: a big, slow, rotating storm system with a calm EYE. It is essentially a large,
 ## structured, self-sustaining storm built from the SAME field reads as the thunderstorm and tornado; it
 ## differs only by CONFIG (huge scale, rotation, a calm eye, ocean genesis), not by copy-pasted logic. Its
 ## GENESIS is emergent: it only sustains + intensifies over WARM OCEAN (high temp AND is_ocean_at across
-## its eyewall) and WEAKENS over land or cool water — so it strengthens at sea and falls apart on
+## its eyewall) and WEAKENS over land or cool water, so it strengthens at sea and falls apart on
 ## landfall, read fresh each step. Structure: it pumps moisture + cool air aloft in an ANNULUS around the
 ## eye (never at the centre), so the field's condense→rain rules raise a dense spiral of cloud + torrential
 ## rain around a rain-free eye. It rotates: nearby wildlife is swept tangentially + slightly inward (advected
-## by the cyclonic wind force via EcologyStimulus.apply_wind_force — no direct throw()) and panicked. Embedded
+## by the cyclonic wind force via EcologyStimulus.apply_wind_force, with no direct throw()) and panicked. Embedded
 ## severe weather is EMERGENT, not scripted: the eyewall pumps moisture + cold aloft, so the field's own charge
 ## physics builds charge under the convective annulus and fires lightning where it breaks down (via
-## LAMaterialCharge3D). Built in code, no assets. (Explicit types only — no ':=' inferred typing.)
+## LAMaterialCharge3D). Built in code, no assets. (Explicit types only, no ':=' inferred typing.)
 
 const LIFETIME_MAX: float = 150.0         # a hurricane is long-lived; ocean fuel keeps it going within this
 const STRENGTH_START: float = 0.5
@@ -80,7 +80,7 @@ func begin(point: Vector3) -> void:
 	var ang: float = LASimRng.shared().randf() * TAU
 	_heading = Vector2(cos(ang), sin(ang))
 	_build_fx()
-	LocalAgentAudioDirector.emit(get_tree(), "crumble", _center)
+	LAAudioDirector.emit(get_tree(), "crumble", _center)
 
 
 func get_inspector_payload() -> Dictionary:

@@ -1,7 +1,7 @@
 extends RefCounted
 
-## Cubed-sphere GPU pass plugin: the three finite-volume mass-transport CAs — water, granular slump, and
-## lava flow — wired to the SphereGPU driver via the PLUGIN CONTRACT (setup() once, dispatch() each step).
+## Cubed-sphere GPU pass plugin: the three finite-volume mass-transport CAs (water, granular slump, and
+## lava flow), wired to the SphereGPU driver via the PLUGIN CONTRACT (setup() once, dispatch() each step).
 ##
 ## The driver owns the RenderingDevice, all channel buffers, and the compute list. This plugin only:
 ##   1. setup(): compiles the three cubed-sphere kernels, then builds TWO uniform sets per kernel (one per
@@ -11,7 +11,7 @@ extends RefCounted
 ## All three kernels are the sphere ports of the box finite-volume CAs and follow the SAME two-pass GATHER
 ## structure: pass 0 records per-direction OUTFLOW into the shared `send` scratch (idx*6 + dir), a barrier,
 ## then pass 1 = old - own_out + received INFLOW into the ping-pong BACK buffer. They all share the single
-## `send` scratch — no external clear is needed: every kernel's pass 0 unconditionally zeroes all 6 of its
+## `send` scratch, and no external clear is needed: every kernel's pass 0 unconditionally zeroes all 6 of its
 ## own send slots (idx*6+0..5) before any early-return, so the buffer is fully re-initialised each pass. That
 ## lets the three CAs run back-to-back in ONE open compute list without a buffer_clear (which is illegal while
 ## a compute list is open). Order: water, then slump, then lava.

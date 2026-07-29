@@ -3,8 +3,8 @@ extends Node3D
 
 ## The system's star in the SOLAR-SYSTEM-FIRST spine: a POSITIONED body (not a global sun_dir) that is at once
 ## the light source, the gravity source, and the driver of every body's per-cell solar terminator. A body's
-## sun direction is `normalize(star_pos - body_center)` and its insolation falls off as `1/dist²` — one planet
-## today, N tomorrow, same rule. (Explicit types only — no ':=' .)
+## sun direction is `normalize(star_pos - body_center)` and its insolation falls off as `1/dist²`. One planet
+## today, N tomorrow, same rule. (Explicit types only, no ':=' inferred typing.)
 
 var _light: DirectionalLight3D = null       # for a single close body, a directional light reads as "the sun"
 var _mass: float = 1.0e9

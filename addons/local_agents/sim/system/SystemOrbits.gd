@@ -1,14 +1,14 @@
 class_name LASystemOrbits
 extends Node
 
-## MOVING-FRAME solar system (0.3). The simulation stays centred on the planet (the field/terrain never move —
+## MOVING-FRAME solar system (0.3). The simulation stays centred on the planet (the field/terrain never move,
 ## zero risk), but the planet carries a real HELIOCENTRIC orbital STATE (position + velocity about the sun) that
 ## we integrate every frame. That state drives, in the planet's frame:
 ##   • the SUN's direction across the sky (the terminator) + its scene position (the visible disc moves);
-##   • SEASONS — the tilted spin axis vs the orbit plane makes the sub-solar latitude swing over a year;
+##   • SEASONS: the tilted spin axis vs the orbit plane makes the sub-solar latitude swing over a year;
 ##   • INSOLATION intensity = (nominal/dist)^2 × atmospheric transmission (dust/cloud), fed to the field as the
 ##     MAGNITUDE of sun_dir (the solar kernel does target = AMBIENT + SOLAR_WARMTH·max(0,dot(radial,sun_dir))),
-##     so nearer sun bakes, farther freezes, and airborne debris dims the sun → impact winter — all emergent.
+##     so nearer sun bakes, farther freezes, and airborne debris dims the sun → impact winter, all emergent.
 ## A meteor impact transfers MOMENTUM into the orbital velocity (`apply_impulse`), so a big enough strike (or a
 ## volley) drops the planet onto a decaying orbit into the sun, or past escape velocity out of the system.
 ## The moon is a light body on a kinematic orbit about the planet (and a gravity source meteors can slingshot).

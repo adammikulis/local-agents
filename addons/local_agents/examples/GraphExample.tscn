@@ -82,7 +82,7 @@ theme_override_constants/separation = 10
 [node name="Title" type="Label" parent="Margin/Column"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 22
-text = "LocalAgentGraph — nodes and edges authored in this scene"
+text = "LocalAgentGraph, nodes and edges authored in this scene"
 
 [node name="Hint" type="Label" parent="Margin/Column"]
 layout_mode = 2

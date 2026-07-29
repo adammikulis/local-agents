@@ -2,13 +2,13 @@ class_name LocalAgentTutorialStep
 extends Resource
 
 ## One step in a guided tutorial: the instruction text, what on screen it points at, and the condition
-## that advances to the next step. Pure data — a typed Resource so steps can be authored in the inspector
+## that advances to the next step. Pure data: a typed Resource so steps can be authored in the inspector
 ## or built in code, then handed to an LATutorialSequencer. Game-agnostic: nothing here knows about the
-## voxel sim or any particular scene. (Explicit types only — no ':=' .)
+## voxel sim or any particular scene. (Explicit types only. No ':=' inferred typing.)
 
 ## What the step's highlight points at.
 enum TargetKind {
-	NONE,     ## no spotlight — just a centered callout (intro / outro text)
+	NONE,     ## no spotlight, just a centered callout (intro / outro text)
 	CONTROL,  ## a Control node resolved from `control_path` relative to the sequencer's target root
 	RECT,     ## a fixed screen-space Rect2 (`rect`)
 	WORLD,    ## a world-space point (`world_point`) projected to screen via the sequencer's Camera3D
@@ -18,7 +18,7 @@ enum TargetKind {
 enum Advance {
 	NEXT_BUTTON,    ## the player presses the callout's "Next" button
 	TARGET_PRESSED, ## the target Control is a BaseButton and the player presses it
-	PREDICATE,      ## `advance_predicate` (a Callable returning bool) becomes true — polled each frame
+	PREDICATE,      ## `advance_predicate` (a Callable returning bool) becomes true, polled each frame
 	SIGNAL,         ## `signal_source` emits `signal_name` (e.g. an "objective met" broadcast)
 }
 
@@ -50,7 +50,7 @@ static func for_control(path: NodePath, body: String, heading: String = "", adv:
 	return s
 
 
-## Convenience: a text-only step (no spotlight) advanced by the Next button — intro/outro cards.
+## Convenience: a text-only step (no spotlight) advanced by the Next button, for intro and outro cards.
 static func message(body: String, heading: String = "") -> LocalAgentTutorialStep:
 	var s: LocalAgentTutorialStep = LocalAgentTutorialStep.new()
 	s.target_kind = TargetKind.NONE

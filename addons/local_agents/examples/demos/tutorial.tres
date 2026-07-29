@@ -6,7 +6,7 @@
 script = ExtResource("1_entry")
 order = 70
 title = "Guided tutorial overlay"
-description = "The reusable tutorial system: a sequencer walks a spotlight from button to button with a callout on each. Nothing here is specific to agents — it is the onboarding layer any scene can reuse."
+description = "The reusable tutorial system: a sequencer walks a spotlight from button to button with a callout on each. Nothing here is specific to agents, so any scene can reuse it for onboarding."
 scene_path = "res://addons/local_agents/examples/TutorialDemo.tscn"
 requires_model = false
 requires_voxel_backend = false

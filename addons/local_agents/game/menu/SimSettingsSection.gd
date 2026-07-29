@@ -1,7 +1,7 @@
 class_name LASimSettingsSection
 extends RefCounted
 
-## LASimSettingsSection — the SIMULATION / AI (CPU-bound) category of the settings screen, kept SEPARATE
+## LASimSettingsSection: the SIMULATION / AI (CPU-bound) category of the settings screen, kept SEPARATE
 ## from the GPU graphics category so a player can raise world detail without paying GPU cost, or vice versa.
 ## It draws its own four-step overall preset row (Low / Medium / High / Ultra) plus the individual CPU knobs
 ## those presets map to: creature population budget, AI/cognition tick rate, LLM call cadence and field
@@ -10,7 +10,7 @@ extends RefCounted
 ## affects and that the cost is on the CPU. Numeric knobs show a live value readout.
 ##
 ## It edits an LAGameSettings in place and calls `on_changed` after every edit. Built from LASettingsWidgets
-## so it shares the menu's control styling. (Explicit types only — no ':=' inferred typing.)
+## so it shares the menu's control styling. (Explicit types only, no ':=' inferred typing.)
 
 const CUSTOM_LABEL: String = "Custom (individual settings)"
 
@@ -38,14 +38,14 @@ func setup(settings: LAGameSettings, on_changed: Callable) -> void:
 
 
 func build(col: VBoxContainer) -> void:
-	LASettingsWidgets.add_header(col, "Simulation / AI — CPU")
+	LASettingsWidgets.add_header(col, "Simulation / AI (CPU)")
 
 	_preset_group = ButtonGroup.new()
 	var row: HBoxContainer = LASettingsWidgets.add_row(col)
-	_add_preset(row, LAGameSettings.SimPreset.LOW, "Low", "Light CPU — small population, creatures think rarely, field steps sparsely. CPU cost: low.")
-	_add_preset(row, LAGameSettings.SimPreset.MEDIUM, "Medium", "Balanced default — a healthy population thinking a few times a second, field every frame. CPU cost: moderate.")
-	_add_preset(row, LAGameSettings.SimPreset.HIGH, "High", "Busy world — larger population, more frequent thinking and LLM calls. CPU cost: high.")
-	_add_preset(row, LAGameSettings.SimPreset.ULTRA, "Ultra", "Maximum — largest population, every-frame thinking, most frequent LLM calls. CPU cost: highest.")
+	_add_preset(row, LAGameSettings.SimPreset.LOW, "Low", "Light CPU. Small population, creatures think rarely, field steps sparsely. CPU cost: low.")
+	_add_preset(row, LAGameSettings.SimPreset.MEDIUM, "Medium", "Balanced default. A healthy population thinking a few times a second, field every frame. CPU cost: moderate.")
+	_add_preset(row, LAGameSettings.SimPreset.HIGH, "High", "Busy world. Larger population, more frequent thinking and LLM calls. CPU cost: high.")
+	_add_preset(row, LAGameSettings.SimPreset.ULTRA, "Ultra", "Maximum. Largest population, every-frame thinking, most frequent LLM calls. CPU cost: highest.")
 
 	_preset_caption = LAMenuStyle.make_caption("")
 	_preset_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
@@ -53,13 +53,13 @@ func build(col: VBoxContainer) -> void:
 
 	# --- Individual CPU knobs ---
 	var pop: Dictionary = LASettingsWidgets.add_slider(col, "Population budget",
-		"Maximum concurrent creatures — every creature runs cognition and movement. CPU cost: high.",
+		"Maximum concurrent creatures. Every creature runs cognition and movement. CPU cost: high.",
 		20.0, 480.0, 10.0, float(_settings.actor_budget), Callable(self, "_fmt_int"), Callable(self, "_on_pop"))
 	_pop_slider = pop["slider"]
 	_pop_value = pop["value"]
 
 	var ai: Dictionary = LASettingsWidgets.add_slider(col, "AI tick rate",
-		"How often creatures re-decide — every N frames. Fewer frames = smarter but heavier. CPU cost: high.",
+		"How often creatures re-decide, in frames. Fewer frames = smarter but heavier. CPU cost: high.",
 		1.0, 12.0, 1.0, float(_settings.ai_tick_frames), Callable(self, "_fmt_every_frames"), Callable(self, "_on_ai"))
 	_ai_slider = ai["slider"]
 	_ai_value = ai["value"]
@@ -71,7 +71,7 @@ func build(col: VBoxContainer) -> void:
 	_llm_value = llm["value"]
 
 	var field: Dictionary = LASettingsWidgets.add_slider(col, "Field update cadence",
-		"How often the world substrate (water / heat / air / fire) steps — every N frames. CPU cost: high.",
+		"How often the world substrate (water / heat / air / fire) steps, in frames. CPU cost: high.",
 		1.0, 6.0, 1.0, float(_settings.field_cadence), Callable(self, "_fmt_every_frames"), Callable(self, "_on_field"))
 	_field_slider = field["slider"]
 	_field_value = field["value"]

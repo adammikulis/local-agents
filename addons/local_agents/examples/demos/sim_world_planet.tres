@@ -6,7 +6,7 @@
 script = ExtResource("1_entry")
 order = 110
 title = "A whole planet from one node"
-description = "LocalAgentSimWorld in SPHERE mode: the cubed-sphere body, the material field and a living ecology from a single node, framed by a camera. No game shell — no HUD, menus, disasters or streamer."
+description = "LocalAgentSimWorld in SPHERE mode: the cubed-sphere body, the material field and a living ecology from a single node, framed by a camera. There is no game shell around it, so no HUD, menus, disasters or streamer."
 scene_path = "res://addons/local_agents/examples/SimWorldPlanetDemo.tscn"
 requires_model = false
 requires_voxel_backend = true

@@ -316,3 +316,162 @@ var value: Variant = payload_dict.get("key", fallback)
   are applied now (`run_demo.sh` guard loop, `run_sim_offscreen.sh` focus subshells).
 - Quick check: if a script is fast when redirected to a file and slow through a pipe, look for a background
   child still holding fd 1.
+
+### 2026-07-29: an `@export` that nothing reads is indistinguishable from one that works
+
+- Failure: `LocalAgent.system_prompt` was exported, documented with a `##` comment, assigned in scenes, and
+  read by nothing. The native runtime never looks at `options["system_prompt"]`, so the property round-tripped
+  through the inspector and the `.tscn` and then fell on the floor. Separately, `LocalAgentModelProfile` was
+  entirely inert: `_apply_model_profile()` wrote its values into `inference_options`, and `configure()`
+  replaces that dictionary wholesale, so the profile was overwritten before it ever reached the model.
+- Why it survived review: every static signal was green. The property parsed, the editor showed it, the
+  scene saved it, `_ready()` read it, and it was passed to a `call()` that returned success. Nothing short of
+  observing the model's behaviour distinguishes "wired" from "assigned and discarded".
+- Detection that worked: run the model and ask a question whose answer the export would change. Set the
+  system prompt to "always answer BANANA", ask for the capital of France, and read the reply. It said Paris.
+- Preventative pattern: for every export you add, name the one run whose output differs if the property were
+  deleted, and do that run before calling it done. If you cannot name such a run, the export is decoration.
+  Fixed by injecting the prompt as a system message at `history[0]` and mirroring it into the native node,
+  and by splitting load-time knobs into `load_options` so `configure()` cannot clobber them.
+- Quick check: `grep` the property name across the repo. One hit at its declaration and one in `_ready()`
+  with nothing in between is the shape of a dead export.
+
+### 2026-07-29: three GDScript parse rules the editor scan does not report
+
+- Failure: three separate parse-level mistakes, none of which `godot --headless --editor` surfaced.
+  - `@icon("res://…")` placed *after* `extends` fails with `Annotation "@icon" must be at the top of the
+    class`. Six files declared `extends` first and broke. Annotations must precede both `extends` and
+    `class_name`; the order of those two relative to each other does not matter.
+  - `const SPECS: Array = [ PackedStringArray([...]) ]` fails with "Not a constant expression". A `const`
+    cannot hold a constructor call, so a default that needs a typed array must be a plain `Array` converted
+    on read (`runtime/Settings.gd:41` carries the note).
+  - `@export_enum("", "in_process", "llama_server")` rejects the empty option string. Give the empty case a
+    real label and map it in code.
+- Root cause of the miss: an editor scan reports *class registration* problems, not every script that fails
+  to load. A scan can print `editor_scan: OK (0 errors)` while a script in the tree does not parse.
+- Preventative pattern: a scan is necessary and not sufficient. Prove a changed script actually loads by
+  running something that instantiates it (`scripts/run_demo.sh <Name>`, `scripts/check_library_only.sh`),
+  and treat `check_library_only.sh` as the parse gate it is: it caught the `const` case when the scan did not.
+
+### 2026-07-29: a `@tool` script that writes a serialized property edits the user's scene file
+
+- Failure: two independently written nodes ran setter logic under `Engine.is_editor_hint()` that assigned to
+  an `@export`ed property. In the editor that marks the scene dirty and, on the next save, writes a value the
+  user never typed into their `.tscn`. Both authors reported the node as working, because at runtime it is.
+- Preventative pattern: `_get_configuration_warnings()` requires `@tool`, and `@tool` means every lifecycle
+  callback also runs in the editor. Guard `_ready`/`_process`/`_physics_process`/`_enter_tree` with
+  `if Engine.is_editor_hint(): return`, and never assign to a serialized property on an editor path.
+  `scripts/check_tool_safety.sh` gates this now and runs from `scripts/agent_harness.sh lint`.
+- Scope rule that follows: apply `@tool` only to small scripts you have read end to end. `Creature.gd` is
+  1300+ lines across 26 modules and carries `@tool` solely for its configuration warning, with every
+  lifecycle callback guarded, which is the maximum that is safe to do to a file that size.
+
+### 2026-07-29: concurrent editor scans segfault Godot
+
+- Failure: a string of `EXC_BAD_ACCESS` crash reports, faulting inside
+  `libvoxel.macos.editor.universal`. The user saw macOS crash dialogs, not a test failure.
+- Cause: every sub-agent contract in the session told the agent to run `godot --headless --editor
+  --quit-after 400` after its edits. With a dozen agents in flight that is a dozen processes writing the same
+  `.godot/` import cache and resource UID database at once. The crash is a symptom of the concurrency, not of
+  the voxel module.
+- Preventative pattern: an editor scan mutates shared project state, so it must be serialized.
+  `scripts/editor_scan.sh` takes an `mkdir`-based lock per project, reclaims a lock left by a dead PID, and
+  queues callers. Every contract now says to use it, and never to call `godot --headless --editor` directly.
+- Quick check: if Godot crashes inside a GDExtension during a scan and the same scan passes when run alone,
+  count how many godot processes are alive (`pgrep -fl godot`) before blaming the extension.
+
+### 2026-07-29: a threshold's doc comment and its configuration warning were both backwards
+
+- Failure: `LocalAgent.tick_interval` defaulted to `0.0`, its `##` comment described `0` as "tick every
+  frame", and the configuration warning fired on the wrong side of the comparison. The native
+  `AgentNode::_process` returns early when `tick_interval <= 0`, so `0` means *never ticks*. Enabling
+  `tick_enabled` on a default agent produced nothing, with the inspector affirming the setup was correct.
+- Preventative pattern: when you write a doc comment or a configuration warning about a threshold, open the
+  branch that implements it and read the comparison. Cite it: `AgentWarnings.gd:45` now names
+  `AgentNode.cpp:56` in a comment, so the next person can re-check the claim in one jump instead of
+  re-deriving it. Default is `1.0` now.
+
+### 2026-07-29: a smoke target pointing at a deleted scene passes by loading nothing
+
+- Failure: `scripts/agent_harness.sh smoke` pointed at `scenes/simulation/WorldSimulation.tscn`, deleted with
+  the old stack. Godot cannot load a missing main scene, prints a resource error, and exits 0. The harness
+  classified that as `pass` for an unknown number of runs.
+- Preventative pattern: a smoke test must assert it loaded *something*, not merely that the process exited 0.
+  The smoke path now greps the log for `SCRIPT ERROR|Parse Error|dependency error|Failed loading resource`
+  and downgrades a 0 exit to `fail` on a hit. Any check whose pass condition is "nothing bad printed" needs a
+  positive assertion alongside it.
+- Quick check: after moving or deleting a scene, `grep -rn "<old scene name>" scripts/` before anything else.
+
+### 2026-07-29: three gates were written, tested, and wired into nothing
+
+- Failure: `check_library_only.sh`, `check_tool_safety.sh` and `check_demo_catalog.sh` were each authored by
+  a different agent, each verified by its author against a deliberately broken input, and each reported as
+  delivered. None of them was called by `scripts/agent_harness.sh lint`, or by CI, or by anything else. A
+  gate that runs nowhere is indistinguishable from no gate, and all three had been "delivered" for days.
+- Preventative pattern: a new check is not done when it works. It is done when (1) it is invoked from
+  `scripts/agent_harness.sh lint` and you have traced that call, and (2) you have watched it fail on purpose
+  and print a useful message. Any contract that asks for a gate must make both of those the acceptance
+  criteria, because writing the check *feels* like finishing and is roughly half the work.
+- Quick check: `grep -n "check_" scripts/agent_harness.sh` and compare against `ls scripts/check_*.sh`.
+
+### 2026-07-29: a `PackedScene` export in a catalogue resource loads every scene to paint a menu
+
+- Failure: `LocalAgentDemoEntry.scene` was typed `PackedScene`, so it was a real dependency. Loading the
+  twelve catalogue entries to draw the demo launcher's list also loaded twelve demo scenes and their entire
+  script graphs. Measured at 563 ms of blocking work in `_ready()` on the addon's front door, against 92 us
+  for the `@export_file("*.tscn")` path check that replaced it.
+- The reasoning that produced the bug, recorded because it was plausible: a `PackedScene` was chosen so a
+  renamed demo would "fail loudly at edit time". Measurement showed the opposite. A missing target makes the
+  whole `.tres` fail to load, and the launcher logged a warning and silently dropped the row, which is the
+  quietest possible failure.
+- Preventative pattern: a resource that exists to be *listed* holds paths, not references. Godot loads a
+  `Resource`'s sub-resources eagerly, so any typed reference in a catalogue record is paid for at list time.
+  Enforce the corresponding drift check at build time instead (`scripts/check_demo_catalog.sh`).
+- Quick check: if a menu or list is slow to appear, look at what its records reference before profiling the
+  drawing code.
+
+### 2026-07-29: `set -e` plus a legitimately empty `grep` kills the script before its error path
+
+- Failure: `scripts/run_demo.sh` could not report a failing demo. Its error path began with a `grep` for a
+  completion marker that, on a failed run, correctly matches nothing. `grep` exits 1, `set -e` terminates the
+  script, and the code that would have printed the failure never ran. The same shape truncated the `--all`
+  loop at the first failure instead of running the remaining demos.
+- Preventative pattern: under `set -e`, any command whose empty result is a normal outcome needs `|| true`,
+  and any command whose non-zero exit you intend to inspect needs the capture idiom:
+
+```bash
+marker="$(grep -aE '^LA_RUN_COMPLETE=' "$log" | tail -n 1 || true)"
+
+rc=0
+run_one "$name" "$frames" || rc=$?
+```
+
+- Quick check: if a script's failure branch has never printed, check whether `set -e` is reaching it.
+
+### 2026-07-29: a staged tool binary carried an absolute rpath into a worktree that no longer exists
+
+- Failure: the `llama-server` and `llama-cli` binaries staged into
+  `addons/local_agents/gdextensions/localagents/bin/` had an `LC_RPATH` pointing at an absolute path inside a
+  build worktree (`…/local-agents-followups/…`). That directory had since been removed, so the shipped
+  binaries could not resolve their dylibs on the build machine, let alone anyone else's.
+- Preventative pattern: normalize link paths at the point where a binary is copied into the shipped tree, not
+  as a later step someone can skip. `build_extension.sh` now calls `normalize_tool_linkage()` from inside
+  `stage_tools()`, rewriting absolute rpaths to `@loader_path`.
+- Quick check: `otool -l <binary> | grep -A2 LC_RPATH` on anything staged for distribution. Any absolute path
+  under a developer's home directory is a bug.
+
+### 2026-07-29: acting on a reviewer's claim without running the experiment
+
+- Failure: an adversarial review agent reported that Godot cannot export a typed `Dictionary[String, int]`.
+  Two working typed exports were reverted to untyped `Dictionary` on that claim alone. The claim was false:
+  typed dictionary exports work, and only `set()` with an untyped literal fails against one. Two further
+  claims from the same review were also wrong, and a separate diagnosis about run slowness ("focus-return
+  retries") was asserted without measurement and was likewise wrong.
+- Root cause: an adversarial verifier is built to be believed, so its output arrives with the authority of a
+  check having been run. It is still a model's assertion, and reviewing is exactly as prone to a confident
+  wrong answer as implementing is.
+- Preventative pattern: a review finding is a hypothesis, not a result. Before acting on one, run the
+  experiment that would falsify it, and prefer an experiment that takes seconds. This applies to findings
+  from a reviewer, a handoff document, a previous session, and your own earlier reasoning.
+- Quick check: before reverting working code on a claim about engine behaviour, write the four-line scene
+  that demonstrates the behaviour and run it.

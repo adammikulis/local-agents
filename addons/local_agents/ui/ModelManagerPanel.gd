@@ -1,5 +1,5 @@
 extends Control
-class_name LocalAgentModelManagerPanel
+class_name LAModelManagerPanel
 
 # In-game model manager: one panel, four tabs.
 #
@@ -8,7 +8,7 @@ class_name LocalAgentModelManagerPanel
 #   Add your own        - browse to a .gguf, pull by HF repo id, or add scan locations.
 #   Inference settings  - context length / sampling / GPU layers / system prompt / per-role models.
 #
-# Everything reuses existing pieces: LocalAgentModelDownloadManager + catalog for downloads,
+# Everything reuses existing pieces: LAModelDownloadManager + catalog for downloads,
 # LocalAgentModelInventory for detection, LocalAgentModelSettingsStore (backed by
 # LocalAgentInferenceParams) for persisted config. No sim/field files are touched.
 #
@@ -39,9 +39,9 @@ var _inventory: LocalAgentModelInventory = null
 
 var _tabs: TabContainer = null
 var _active_label: Label = null
-var _detected_tab: LocalAgentDetectedModelsTab = null
-var _add_tab: LocalAgentAddYourOwnTab = null
-var _inference_tab: LocalAgentInferenceSettingsTab = null
+var _detected_tab: LADetectedModelsTab = null
+var _add_tab: LAAddYourOwnTab = null
+var _inference_tab: LAInferenceSettingsTab = null
 
 # Self-harness state.
 var _shoot_path: String = ""

@@ -1,17 +1,17 @@
 class_name LAEcologyAquatic
 extends RefCounted
 
-## Aquatic placement for the living world — the non-reproduction water helpers: the initial founding stock
+## Aquatic placement for the living world, the non-reproduction water helpers: the initial founding stock
 ## that makes the sea and lakes feel alive from the first frame, and the salinity/depth-band sampler that
-## finds a valid underwater point for a species. Everything is radial (no XZ column reads — three-d-always),
+## finds a valid underwater point for a species. Everything is radial (no XZ column reads, per three-d-always),
 ## so species self-sort into the right water with no hand-placed spawn points.
 ##
 ## Aquatic REPRODUCTION (the parent-based _tick_aquatic recovery) reuses the shared birth/genome/kinship
 ## machinery, so it lives in LAEcologyBreeding; this module owns only the non-repro
 ## spawn/placement helpers. Owned by LAEcologyService, which keeps a thin forwarder for the public
 ## stock_initial_aquatic() and for _random_aquatic_point() (which the breeding module reaches through the
-## hub). This module reaches back into the service for the shared state that stays on the hub — the aquatic
-## roster, species configs, terrain and the actor instancer — so there is exactly one owner of each.
+## hub). This module reaches back into the service for the shared state that stays on the hub (the aquatic
+## roster, species configs, terrain and the actor instancer), so there is exactly one owner of each.
 ## Explicit types only (project rule: no ':=').
 
 # Aquatic sampling budget: tries per placement to land inside a species' salinity/depth band (radial).

@@ -7,10 +7,10 @@ extends Node
 ## as "talking". Head accessories (cap / headphones / hair) ride a pivot synced to the model each frame.
 ##
 ## Two swappable flavors:
-##   "male"   — Quaternius villager.glb (embedded Idle) + red Kenney cap.
-##   "female" — Kenney characterLargeFemale mesh with the shared-skeleton Idle animation stitched on
+##   "male":    Quaternius villager.glb (embedded Idle) + red Kenney cap.
+##   "female":  Kenney characterLargeFemale mesh with the shared-skeleton Idle animation stitched on
 ##              from idle.fbx, a female skin, a ponytail, and procedural headphones.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 const RENDER_SIZE: Vector2i = Vector2i(240, 300)
 

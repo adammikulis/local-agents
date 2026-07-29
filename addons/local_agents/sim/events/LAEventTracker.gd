@@ -1,17 +1,17 @@
 class_name LAEventTracker
 extends Node
 
-## The emergent PHENOMENON EVENT TRACKER — the SINGLE source for FIELD-SUBSTRATE phenomena. It watches the
+## The emergent PHENOMENON EVENT TRACKER: the SINGLE source for FIELD-SUBSTRATE phenomena. It watches the
 ## shared field each sample and emits typed discrete LAEvents ("eruption", "wildfire", "flood", "storm",
 ## "lightning", "impact") with type + intensity + frame/time (and a best-effort locus). Every event is
-## derived purely from field aggregates — never from a scripted disaster actor. The streamer commentary and
+## derived purely from field aggregates, never from a scripted disaster actor. The streamer commentary and
 ## SIM_REPORT telemetry (and, later, the dissolved disaster actors' visuals) all CONSUME these events
-## instead of each scanning the world themselves — one emergent source, many consumers.
+## instead of each scanning the world themselves. One emergent source, many consumers.
 ##
-## SCOPE — field phenomena only (dissolve-don't-patch / no parallel systems): this deliberately does NOT
+## SCOPE is field phenomena only (dissolve-don't-patch / no parallel systems): this deliberately does NOT
 ## detect creature-ecology beats (deaths/births/stalks/…). The streamer already owns a RICHER, per-species,
 ## located narration scan for those, and duplicating it here would be a parallel system. What this DOES
-## dissolve is the streamer's crude FIELD detection (a "destruction spike" proxy + a raw fire count) — those
+## dissolve is the streamer's crude FIELD detection (a "destruction spike" proxy + a raw fire count). Those
 ## now arrive as proper field-derived events. If the disaster actors are later fully dissolved, ecology
 ## detectors can move here too (one more plugin each), but not while the streamer is their better owner.
 ##
@@ -20,14 +20,14 @@ extends Node
 ## a monolith.
 ##
 ## Big-O / LOD: detection is CHEAP. It samples at a COARSE cadence (1 Hz, not per frame) and computes ONLY
-## the few scalar aggregates its detectors actually read — lava_total, peak_heat, water_total, wind, bolts —
+## the few scalar aggregates its detectors actually read (lava_total, peak_heat, water_total, wind, bolts),
 ## NOT the field's full ~25-scan report() reduction (calling that at frame cadence was measured to halve fps;
 ## it is a snapshot-only reduction). That is a handful of O(cells) reductions per second (~sub-ms/frame
 ## amortised). Each detector is O(1) threshold/counter/rate arithmetic over the snapshot, so the pass is
 ## O(detectors) per sample. No O(n²), no per-frame full-grid sweep.
 ##
 ## Exposes both a SIGNAL (event_emitted) and a recent_events() query so pull- and push-style consumers both
-## work. (Explicit types only — project rule: no ':=' inferred typing.)
+## work. (Explicit types only, no ':=' inferred typing.)
 
 const ThresholdDetectorScript: GDScript = preload("res://addons/local_agents/sim/events/LAThresholdDetector.gd")
 

@@ -1,12 +1,12 @@
 class_name LAGravity
 extends Object
 
-## Outer-Wilds-style N-BODY gravity (a HARD PRINCIPLE of this project — see the nbody-gravity memory).
+## Outer-Wilds-style N-BODY gravity (a HARD PRINCIPLE of this project, see the nbody-gravity memory).
 ## Every body in the `gravity_body` group is a MASS at a position (LAPlanetBody / LAStar expose center()+mass()).
-## Any free body — a meteor, ejecta, later a ship or the player — is a TEST PARTICLE whose acceleration is the
+## Any free body (a meteor, ejecta, later a ship or the player) is a TEST PARTICLE whose acceleration is the
 ## SUMMED inverse-square pull of ALL of them. One gravitational constant G is calibrated once so surface gravity
 ## on the primary body feels right; from that single rule, orbits, elliptical capture, flybys and slingshots
-## EMERGE — there is no hardcoded single-centre or world-axis gravity anywhere. (Explicit types; no ':='.)
+## EMERGE, and there is no hardcoded single-centre or world-axis gravity anywhere. (Explicit types; no ':='.)
 
 const GROUP: String = "gravity_body"
 const SURFACE_G: float = 55.0        # target surface gravity (units/s^2) on the primary body — matches old feel

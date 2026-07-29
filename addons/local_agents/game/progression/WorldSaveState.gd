@@ -1,26 +1,26 @@
 class_name LAWorldSaveState
 extends RefCounted
 
-## LAWorldSaveState — gathers the LIVING WORLD into a plain-data Dictionary a save can persist, and applies
+## LAWorldSaveState: gathers the LIVING WORLD into a plain-data Dictionary a save can persist, and applies
 ## such a Dictionary back onto a freshly-booted world. It owns the per-actor + kinship + progression
 ## serialization; the heavy FIELD blob is delegated to LAMaterialFieldSnapshot3D and the disk I/O to
 ## LAGameSave. Kept out of the extract-only VoxelWorld/MaterialField hubs (a focused module the save
 ## controller calls).
 ##
 ## WHAT A SAVE HOLDS:
-##   * field       — every GPU field channel (water/heat/moisture/rock_fill/lava/o2/co2/biomass/snow/…).
-##   * creatures   — species, transform, age, energy/hydration/health/breath, family_id, leadership role,
+##   * field:        every GPU field channel (water/heat/moisture/rock_fill/lava/o2/co2/biomass/snow/…).
+##   * creatures:    species, transform, age, energy/hydration/health/breath, family_id, leadership role,
 ##                   llm_enabled, the heritable genome (LADNA strand + base_config/instincts/generation), and the
 ##                   LEARNED cognition (policy + cue_values) so a reloaded animal keeps what it learned.
-##   * fish        — species, transform, age, health, breath (aquatic actors have no cognition/kinship).
-##   * vegetation  — plant/tree/rock kind + transform (ambient scatter; re-instanced in place).
-##   * kinship     — each creature's family GROUP + the directed lineage edges, remapped to stable save
+##   * fish:         species, transform, age, health, breath (aquatic actors have no cognition/kinship).
+##   * vegetation:   plant/tree/rock kind + transform (ambient scatter; re-instanced in place).
+##   * kinship:      each creature's family GROUP + the directed lineage edges, remapped to stable save
 ##                   indices so the graph rebuilds correctly under the new instance ids a reload assigns.
-##   * progression — LAGameProgression.serialize() (mode/stage/unlocks/zoom ceiling).
+##   * progression:  LAGameProgression.serialize() (mode/stage/unlocks/zoom ceiling).
 ##
 ## RESTORE rebuilds deterministically: instance each actor at its saved transform (bypassing surface
 ## projection), re-apply scalar state + cognition, then reconstruct kinship by grouping creatures by their
-## saved family and replaying the directed edges through a save-index→live-cid map. (Explicit types — no ':=' .)
+## saved family and replaying the directed edges through a save-index→live-cid map. (Explicit types only, no ':=' inferred typing.)
 
 const DNAScript: GDScript = preload("res://addons/local_agents/creatures/cognition/DNA.gd")
 const FieldSnapshotScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldSnapshot3D.gd")

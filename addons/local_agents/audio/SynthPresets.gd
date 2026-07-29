@@ -6,12 +6,12 @@ class_name LocalAgentSynthPresets
 ## can pick a named preset and tweak from there instead of dialing in raw DSP.
 ##
 ## Two families:
-##   sfx_presets()          — one-shot event sounds (impacts, creatures, UI, …)
-##   music_voice_presets()  — sustained pads/drones + melodic voices for MusicDirector
+##   sfx_presets():         one-shot event sounds (impacts, creatures, UI, …)
+##   music_voice_presets(): sustained pads/drones + melodic voices for MusicDirector
 ##
 ## Everything is tuned toward the project's naturalistic/ambient aesthetic
 ## (filtered pink noise for impacts, soft-filtered triangles/sines for pads).
-## All presets are plain `LocalAgentSynthVoiceParamsResource` — enumerate them,
+## All presets are plain `LASynthVoiceParams`. Enumerate them,
 ## `duplicate_params()`, and adjust any field.
 
 const Params := preload("res://addons/local_agents/audio/params/SynthVoiceParamsResource.gd")
@@ -241,8 +241,8 @@ static func preset_names() -> Array:
 	return all_presets().keys()
 
 ## Fetch a fresh (deep-duplicated) copy of a named preset, or null if unknown.
-static func get_preset(preset_name: String) -> LocalAgentSynthVoiceParamsResource:
+static func get_preset(preset_name: String) -> LASynthVoiceParams:
 	var all := all_presets()
 	if not all.has(preset_name):
 		return null
-	return (all[preset_name] as LocalAgentSynthVoiceParamsResource).duplicate_params()
+	return (all[preset_name] as LASynthVoiceParams).duplicate_params()

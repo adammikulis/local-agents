@@ -3,14 +3,14 @@ extends RefCounted
 
 ## Stateless helpers that translate a creature's situation into a FunctionGemma (llama.cpp
 ## llama-server, launched with `--jinja`) chat-completions request and translate the reply back into
-## one of our discrete action names. Nothing here holds state or touches the scene — it is pure data
+## one of our discrete action names. Nothing here holds state or touches the scene. It is pure data
 ## shaping, so it is trivial to unit-test and equally usable by the auto-finetune exporter.
 ##
 ## The server parses the model's `<start_function_call>` into an OpenAI-style
 ## `choices[].message.tool_calls[]`, so the happy path is simply reading the first tool call's name.
 ## We keep a content-scanning fallback for servers/templates that emit the call inline as text.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 # Coarse human labels for the discrete signature buckets (see LASituationSignature).
 const ENERGY_WORDS: Array = ["starving", "low", "adequate", "full"]

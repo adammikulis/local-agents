@@ -2,7 +2,7 @@ class_name LAVoxelTimeControl
 extends CanvasLayer
 
 ## Player time-dilation controls (perf-first: event-driven, zero per-frame cost). The single authoritative
-## owner of the sim's playback rate — pause, slow-motion, real-time, and fast-forward — applied via
+## owner of the sim's playback rate (pause, slow-motion, real-time, and fast-forward), applied via
 ## Engine.time_scale (speed) and get_tree().paused (hard pause). Runs PROCESS_MODE_ALWAYS so the keys and the
 ## HUD keep working while the tree is paused (that is what lets Space un-pause).
 ##

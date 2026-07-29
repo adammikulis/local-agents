@@ -3,29 +3,29 @@ class_name LocalAgentCognitionScheduler
 extends Node
 
 ## The shared "slow brain" throttle. Every creature's LACognition escalates rare/uncertain
-## situations here; this one node decides — for the WHOLE world at once — whether there is budget to
+## situations here; this one node decides (for the WHOLE world at once) whether there is budget to
 ## resolve another deliberation right now, resolves it OFF the physics frame, and writes a training
 ## trace for the auto-finetune loop. It is deliberately the only place that talks to the model server
 ## so the global concurrency/rate caps are honoured no matter how many creatures escalate at once.
 ##
 ## Two backends resolve an escalation into one LAActionRegistry action:
-##   1. The shared LLMClient — a LocalAgentLlmClient (a LocalAgent behind an async seam), owned by
+##   1. The shared LLMClient: a LocalAgentLlmClient (a LocalAgent behind an async seam), owned by
 ##      LocalAgentLlmService. request() runs the native function-calling think OFF the frame and hands
 ##      back the chosen tool call. Used when a service/client is available and we are inside the tree.
-##      This is the SAME LocalAgent the standalone agent + streamer use — one server, one model, one
+##      This is the SAME LocalAgent the standalone agent + streamer use: one server, one model, one
 ##      config (no more private HTTPRequest client here).
-##   2. Heuristic teacher — a synchronous rule-of-thumb resolved from the signature+context, but its
+##   2. Heuristic teacher: a synchronous rule-of-thumb resolved from the signature+context, but its
 ##      callback is DEFERRED so it too never blocks. This is the offline fallback AND the "teacher"
 ##      that keeps generating training traces when no model is loaded.
 ##
 ## Either way the result is fed back via `cognition.apply_llm_result(key, action)` (success) or
-## `cognition.on_llm_failed()` (failure/timeout), and — on success — appended as one JSONL trace line.
+## `cognition.on_llm_failed()` (failure/timeout), and on success appended as one JSONL trace line.
 ##
 ## NO-CODE USE: drop this node into a scene next to a LocalAgentLlmService, pick that service in
-## `llm_service`, and every creature in `adopt_group` is wired to it on ready — including creatures
+## `llm_service`, and every creature in `adopt_group` is wired to it on ready, including creatures
 ## spawned later. That is the whole hookup; no script is involved.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 const DEFAULT_TRACE_PATH: String = "user://functiongemma_traces.jsonl"
 const SCAN_LIMIT: int = 40                 # per-group cap when gathering escalation context
@@ -34,7 +34,7 @@ const ACTIVITY_PRUNE_AT: int = 256         # prune expired activity entries once
 
 ## Emitted ONCE per scheduler, the first time an escalation falls back to the heuristic teacher instead
 ## of the model. `reason` is a sentence naming the cause and the fix. It is a signal rather than a print
-## because the fallback is CORRECT behaviour that fires per-creature per-second — logging every one
+## because the fallback is correct behaviour that fires per-creature per-second, and logging every one
 ## would flood the console. Connect it to a HUD line if you want it surfaced.
 signal degraded(reason: String)
 
@@ -42,7 +42,7 @@ signal degraded(reason: String)
 @export_group("Model")
 
 ## The shared LLM service (a LocalAgentLlmService node) every escalation is resolved through. Leave
-## empty — or leave the service disabled — and every escalation resolves with the built-in heuristic
+## empty, or leave the service disabled, and every escalation resolves with the built-in heuristic
 ## teacher instead, which still plays correctly and still writes training traces.
 @export var llm_service: LocalAgentLlmService
 
@@ -61,7 +61,7 @@ signal degraded(reason: String)
 @export_range(0.1, 60.0, 0.1, "suffix:/s") var max_requests_per_second: float = 4.0
 
 ## How long the "thinking"/"queued" highlight stays on a creature after its consult resolves, so a
-## decision that took a single frame is still visible. Display only — it changes no behaviour.
+## decision that took a single frame is still visible. Display only. It changes no behaviour.
 @export_range(0, 10000, 50, "suffix:ms") var highlight_linger_ms: int = 1200
 
 @export_group("Training traces")
@@ -71,7 +71,7 @@ signal degraded(reason: String)
 @export var write_traces: bool = true
 
 ## Folder the trace file is written into. "user://" is the per-project writable folder, which is the
-## right place for it — res:// is read-only in an exported game.
+## right place for it, because res:// is read-only in an exported game.
 ## Left a plain String rather than @export_dir: that picker is res://-scoped and cannot browse to
 ## user://, so it could not express this property's own default.
 @export var trace_dir: String = "user://"
@@ -81,7 +81,7 @@ signal degraded(reason: String)
 
 @export_group("Auto-adopt")
 
-## Creatures in this group are wired to this scheduler automatically — on ready for the ones already in
+## Creatures in this group are wired to this scheduler automatically: on ready for the ones already in
 ## the scene, and as they are added for the ones spawned later. Clear it to disable auto-adoption and
 ## wire creatures yourself with set_cognition_scheduler().
 @export var adopt_group: StringName = &"la_creatures"
@@ -143,7 +143,7 @@ func _exit_tree() -> void:
 	if tree != null and tree.node_added.is_connected(_on_node_added):
 		tree.node_added.disconnect(_on_node_added)
 	if _total_calls > 0:
-		print("LocalAgentCognitionScheduler: %d escalations — %d dispatched to the model, %d resolved by the heuristic teacher, %d dropped (budget full)." % [_total_calls, _llm_calls, _teacher_calls, _dropped])
+		print("LocalAgentCognitionScheduler: %d escalations, %d dispatched to the model, %d resolved by the heuristic teacher, %d dropped (budget full)." % [_total_calls, _llm_calls, _teacher_calls, _dropped])
 
 
 func _adopt_existing() -> void:

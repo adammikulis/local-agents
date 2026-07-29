@@ -3,7 +3,7 @@ extends RefCounted
 
 ## The MOVEMENT half of LocalAgentCreature's physics tick, factored out of the main brain: turning toward the
 ## decided heading, stepping across the planet's surface, coast avoidance, the radial ground snap, and the
-## gaze. Runs EVERY (LOD-strided) frame, whether or not a decision ran — the think cascade only ever sets a
+## gaze. Runs EVERY (LOD-strided) frame, whether or not a decision ran. The think cascade only ever sets a
 ## TARGET heading and speed, and this smoothly carries the body along it.
 ##
 ## Radial locomotion: `up` points away from the planet centre, so all heading math is projected onto the local
@@ -12,7 +12,7 @@ extends RefCounted
 ## direction pops; acute flees snap instantly (the think block sets _heading directly on _force_think).
 ##
 ## Static + dynamic field access on the passed creature, like the other Creature* modules.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 # Flyers turn GRADUALLY (max radians/sec) so flocks wheel and vultures circle wide instead of
 # snapping direction every frame — the fix for frantic, too-fast circling.

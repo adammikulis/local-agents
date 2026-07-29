@@ -6,7 +6,7 @@
 script = ExtResource("1_entry")
 order = 80
 title = "One creature, nothing else"
-description = "The smallest creature scene there is: a single species from creatures/species/ standing on a flat floor. No field, no planet, no ecology — the proof that the creature stack runs on its own."
+description = "The smallest creature scene there is: a single species from creatures/species/ standing on a flat floor. It references no field and no planet, which is what proves the creature stack runs on its own."
 scene_path = "res://addons/local_agents/examples/CoreCreatureSmoke.tscn"
 requires_model = false
 requires_voxel_backend = false

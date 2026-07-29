@@ -1,10 +1,10 @@
 class_name LAPlateTectonics
 extends Node
 
-## FAKED plate tectonics (the maintainer OK'd faking this one — true geodynamics is research-grade). The sphere
+## FAKED plate tectonics (the maintainer OK'd faking this one, because true geodynamics is research-grade). The sphere
 ## is partitioned into N drifting PLATES: a Voronoi partition over random seed directions, each plate slowly
 ## rotating about its own Euler pole. The plates themselves are scripted, but the GEOLOGY at their boundaries
-## EMERGES from the relative-motion kinematics — no per-event scripting, just: sample points near plate
+## EMERGES from the relative-motion kinematics. There is no per-event scripting, just: sample points near plate
 ## boundaries on a slow cadence, classify the boundary from the two plates' relative velocity, and seed the
 ## fitting disaster (which is itself an emergent field seed):
 ##   • CONVERGENT (plates closing) → an arc VOLCANO (subduction melt) + often an EARTHQUAKE.

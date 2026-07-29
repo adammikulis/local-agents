@@ -4,7 +4,7 @@ extends RefCounted
 ## The creature's "physics shadow" (HL2-style) + its become-a-carcass-in-place death.
 ##
 ## A living LocalAgentCreature is a kinematic CharacterBody3D driven by AI. This module lets a real
-## RigidBody3D — a single capsule, the SHADOW — occasionally OVERRIDE that: on any impulse
+## RigidBody3D (a single capsule, the SHADOW) occasionally OVERRIDE that: on any impulse
 ## (meteor blast, explosion, a lethal blow) the shadow is released, tumbles under real physics,
 ## and the visible creature simply reads the shadow's transform each frame (its model rides along,
 ## never swapped, never reparented). When the shadow settles:
@@ -13,7 +13,7 @@ extends RefCounted
 ##
 ## So there is no separate corpse node and no model hand-off: the creature IS the carcass. It just
 ## changes groups (leaves its species/creature groups, joins carrion/corpse) and starts decaying.
-## Static + dependency-free of concrete types (explicit types only — no ':=').
+## Static + dependency-free of concrete types (explicit types only, no ':=').
 
 const NUTRITION_PER_SIZE: float = 40.0    # carcass biomass (and carrion food value) per unit of body size
 const SETTLE_SPEED: float = 0.35          # below this lin+ang speed the shadow counts as resting

@@ -1,19 +1,19 @@
 class_name LAGameProgression
 extends Node
 
-## LAGameProgression — the campaign progression spine. The player starts CONSTRAINED (camera locked near the
+## LAGameProgression: the campaign progression spine. The player starts CONSTRAINED (camera locked near the
 ## surface, most spawns hidden, the solar-system view unavailable) and earns EXISTING capabilities by meeting
 ## objectives, ending with the solar-system overview as the capstone unlock. It invents no new powers and no
 ## bespoke trackers: every objective is a cheap read on a cadence from the sim's own telemetry
-## (LASimReport.snapshot() — population, cognition, herd gauges, phenomenon events), and every reward is an
+## (LASimReport.snapshot(): population, cognition, herd gauges, phenomenon events), and every reward is an
 ## existing capability (camera zoom ceiling, view mode, spawn-palette entry) it simply GATES.
 ##
 ## Data-driven ladder: `_stages` is a list of LAProgressionStage records (objective metric + threshold +
 ## unlock set), evaluated by ONE generic function. Adding a stage is a new record, not a new branch.
 ##
 ## Modes (read from the GameMode autoload):
-##   - CAMPAIGN — gating on: begin at the baseline unlock set, complete stages to earn the rest.
-##   - SANDBOX  — gating off: everything unlocked from the start (the same game, no ladder).
+##   - CAMPAIGN, gating on:  begin at the baseline unlock set, complete stages to earn the rest.
+##   - SANDBOX,  gating off: everything unlocked from the start (the same game, no ladder).
 ##
 ## Access: gating consumers (the camera rig, the view-controls cluster, the spawn palette) QUERY this via the
 ## static singleton `LAGameProgression.active()` and listen to `capability_unlocked` / `objective_completed`.

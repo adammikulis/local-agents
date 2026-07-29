@@ -4,7 +4,7 @@ extends RefCounted
 ## The per-creature "brain" that sits on top of the innate cascade. Each tick a creature reports the
 ## action its innate rules picked plus its cheap situation signature; this object decides whether a
 ## *learned heuristic* should override that choice, reinforces the previous choice by how the
-## creature has fared since, and — rarely, when uncertain — escalates to the slow brain
+## creature has fared since, and (rarely, when uncertain) escalates to the slow brain
 ## (FunctionGemma) via the shared scheduler.
 ##
 ## Thinking fast and slow:
@@ -14,15 +14,15 @@ extends RefCounted
 ##     signature recurs it is handled by the fast path. A creature escalates less as it ages.
 ##
 ## How discretionary behaviour spreads (NOT by inheriting a parent's thoughts):
-##   * SOCIAL learning — the main channel. A creature copies confident heuristics from same-species
+##   * SOCIAL learning: the main channel. A creature copies confident heuristics from same-species
 ##     animals it can SEE (vision cone), weighted by relatedness (family/kin strongest). Habits
 ##     diffuse through a herd the way flocking already does (imitation).
-##   * GENETIC priors — a small baked instinct set from the genome (see LADNA), evolving slowly.
+##   * GENETIC priors: a small baked instinct set from the genome (see LADNA), evolving slowly.
 ##   * Survival reflexes (flee/panic/thirst) are innate in the cascade and never learned/overridden.
 ##
 ## policy: signature_key:int -> {action:String, weight:float}
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 const CONFIDENCE_THRESHOLD: float = 1.0    # a learned entry must reach this to override the innate rules
 const START_WEIGHT: float = 0.4            # confidence of a freshly self-observed heuristic

@@ -1,6 +1,13 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://addons/local_agents/game/VoxelWorld.gd" id="1_world"]
+[ext_resource type="Script" path="res://addons/local_agents/runtime/DemoHarness.gd" id="2_harness"]
 
 [node name="VoxelWorld" type="Node3D"]
 script = ExtResource("1_world")
+
+[node name="DemoHarness" type="Node" parent="." node_paths=PackedStringArray("report_source")]
+script = ExtResource("2_harness")
+report_source = NodePath("..")
+report_prefix = "SIM"
+report_suffix = "_REPORT"

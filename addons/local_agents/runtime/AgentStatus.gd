@@ -20,10 +20,12 @@ class_name LocalAgentStatus
 const ExtensionLoader: GDScript = preload("res://addons/local_agents/runtime/LocalAgentExtensionLoader.gd")
 const RuntimePaths: GDScript = preload("res://addons/local_agents/runtime/RuntimePaths.gd")
 const Settings: GDScript = preload("res://addons/local_agents/runtime/Settings.gd")
+# Safe to preload: SpeechEngine only preloads RuntimePaths, so there is no cycle back to here.
+const SpeechEngine: GDScript = preload("res://addons/local_agents/runtime/audio/SpeechEngine.gd")
 
 enum Level {
 	READY,     ## Everything needed to generate text is present.
-	DEGRADED,  ## Generation works; something optional (speech, the voxel backend) does not.
+	DEGRADED,  ## Generation works, but part of the addon's own runtime is missing (speech).
 	BLOCKED,   ## Generation cannot happen at all.
 }
 
@@ -33,9 +35,23 @@ const BLOCK_AUTOLOAD_MISSING: String = "autoload_missing"
 const BLOCK_MODEL_MISSING: String = "model_missing"
 const BLOCK_MODEL_NOT_LOADED: String = "model_not_loaded"
 
-# Warnings — never gate generation.
+# Warnings — never gate generation. Some of these also do not lower `level`; see LEVEL_WARNINGS.
 const WARN_SPEECH_MISSING: String = "speech_runtime_missing"
 const WARN_VOXEL_MISSING: String = "voxel_backend_missing"
+
+# Which warnings are bad enough to knock the headline down to DEGRADED.
+#
+# Speech is: Piper ships with the addon, so a missing speech runtime means the addon's own install is
+# incomplete and say() will not work. The voxel backend is NOT: addons/zylann.voxel/ is an optional
+# third-party dependency that only LocalAgentSimWorld in SPHERE mode needs, and most consumers install
+# this addon to talk to a model and will never want it. Folding it into `level` made a fully working
+# chat install report "ready, 1 optional feature(s) unavailable" permanently, which is noise.
+#
+# WARN_VOXEL_MISSING is still reported in `warnings`, so a node that genuinely needs the backend
+# surfaces it through warnings_for_state(state, needs) — which is the right place for a need only the
+# node knows about.
+# A plain Array, not PackedStringArray(...): a constructor call is not a constant expression.
+const LEVEL_WARNINGS: Array = [WARN_SPEECH_MISSING]
 
 const _FIX: Dictionary = {
 	BLOCK_EXTENSION_MISSING:
@@ -79,8 +95,11 @@ static func check() -> Dictionary:
 	var level: int = Level.READY
 	if not blockers.is_empty():
 		level = Level.BLOCKED
-	elif not warnings.is_empty():
-		level = Level.DEGRADED
+	else:
+		for warning in warnings:
+			if LEVEL_WARNINGS.has(warning):
+				level = Level.DEGRADED
+				break
 
 	return {
 		"level": level,
@@ -248,7 +267,11 @@ static func _headline_for(level: int, blockers: PackedStringArray, warnings: Pac
 				return "Local Agents: not ready"
 	var name: String = model_path.get_file()
 	if level == Level.DEGRADED:
-		return "Local Agents: ready (%s) — %d optional feature(s) unavailable" % [name, warnings.size()]
+		# Only the warnings that set the level are named here, so the headline matches the reason.
+		# `warnings` can also carry advisory entries that leave the level at READY.
+		if warnings.has(WARN_SPEECH_MISSING):
+			return "Local Agents: ready (%s), but speech is unavailable" % name
+		return "Local Agents: ready (%s), with some features unavailable" % name
 	return "Local Agents: ready (%s)" % name
 
 
@@ -265,17 +288,14 @@ static func _model_loaded() -> bool:
 	return bool(runtime.call("is_model_loaded"))
 
 
+## Can this install actually say something out loud, by any route.
+##
+## This used to ask the native runtime whether a `piper` BINARY was present, and nothing else. The
+## addon does not ship that binary, so the answer was false on every stock install, which reported a
+## fully working setup as degraded forever. Speech really runs through SpeechEngine, which tries the
+## binary, then the piper Python module, then the system voice, so that is the question to ask.
 static func _speech_ok() -> bool:
-	var runtime: Object = _runtime()
-	if runtime == null or not runtime.has_method("get_runtime_health"):
-		return false
-	var health: Dictionary = runtime.call("get_runtime_health")
-	var missing: Variant = health.get("missing_binaries", PackedStringArray())
-	if missing is PackedStringArray:
-		return not (missing as PackedStringArray).has("piper")
-	if missing is Array:
-		return not (missing as Array).has("piper")
-	return true
+	return SpeechEngine.speech_available(RuntimePaths.runtime_dir())
 
 
 # In the EDITOR, check the project setting rather than the scene tree. The editor does have a

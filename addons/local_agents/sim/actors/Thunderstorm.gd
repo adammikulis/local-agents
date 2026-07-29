@@ -1,21 +1,21 @@
 class_name LAThunderstorm
 extends Node3D
 
-## A thunderstorm CELL. It doesn't paint rain or schedule thunder on a timeline — it seeds the physical
+## A thunderstorm CELL. It doesn't paint rain or schedule thunder on a timeline. It seeds the physical
 ## ingredients of a storm into the MaterialField and lets the emergent water cycle do the rest: each step
 ## it PUMPS humid air (add_vapor) up from the ground across its footprint, WARMS the surface (add_heat) to
 ## grow the convective updraft, and COOLS the air aloft (add_cooling), so rising moist air passes its
 ## dewpoint and the field's own condense→rain rules build a DENSE cloud → HEAVY rain right here.
 ##
-## LIGHTNING IS NOT SPAWNED HERE. There is no bolt cadence, no strike timer, no random footprint pick — the
+## LIGHTNING IS NOT SPAWNED HERE. There is no bolt cadence, no strike timer, no random footprint pick. The
 ## cell only seeds moisture + heat. Charge ACCUMULATES on the built-up cloud/water in MaterialCharge3D and
 ## fires bolts NATURALLY when a cell reaches dielectric breakdown (which injects the strike heat, discharges
-## the cell, and calls the bolt visual). So fires/scorch/panic still emerge from the bolt's heat as usual —
+## the cell, and calls the bolt visual). So fires/scorch/panic still emerge from the bolt's heat as usual,
 ## but the bolt itself falls out of the field's own charge physics, not out of this actor. The cell DRIFTS
-## downwind and rains itself out over its lifetime. Built in code, no assets. (Explicit types only — no ':=' .)
+## downwind and rains itself out over its lifetime. Built in code, no assets. (Explicit types only, no ':=' inferred typing.)
 ##
 ## Deleted vs the old scripted storm: `_maybe_strike`, `_bolt_cd`, BOLT_MIN_CD/MAX_CD/CLOUD_REF and the
-## random-footprint spawn_lightning call — a bolt is just what charge does at breakdown, not "bolt code".
+## random-footprint spawn_lightning call. A bolt is just what charge does at breakdown, not "bolt code".
 
 const LIFETIME: float = 46.0              # seconds from first charge to spent
 const BUILD_TIME: float = 6.0             # ramps the SEEDING up over this at the start (grace before starve-death)
@@ -70,7 +70,7 @@ func begin(point: Vector3) -> void:
 	_center = point
 	global_position = _center
 	_build_fx()
-	LocalAgentAudioDirector.emit(get_tree(), "thunder", _center)
+	LAAudioDirector.emit(get_tree(), "thunder", _center)
 
 
 func get_inspector_payload() -> Dictionary:

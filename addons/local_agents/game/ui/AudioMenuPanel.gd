@@ -2,18 +2,18 @@ class_name LAAudioMenuPanel
 extends PanelContainer
 
 ## In-code audio control menu for the voxel simulation. Binds the whole procedural
-## audio control surface (LocalAgentAudioDirector) to the UI: music composition
+## audio control surface (LAAudioDirector) to the UI: music composition
 ## (scale / progression / key / tempo / time signature / auto / arrangement), a single
-## UNIFIED per-aspect mixer (Master / Music / SFX / Voice / UI — each a volume slider +
+## UNIFIED per-aspect mixer (Master / Music / SFX / Voice / UI, each a volume slider +
 ## a mute), and an SFX preview bench.
 ##
 ## Every audio aspect is one row with the SAME two controls: drag the slider to set its
 ## volume, click the mute to silence it. Each row acts on that aspect's AudioServer bus
 ## (see audio/default_bus_layout.tres) and, where one exists, its director synthesis flag,
-## so muting also stops the work — one control surface, no separate enable checkboxes.
+## so muting also stops the work, giving one control surface with no separate enable checkboxes.
 ## The streamer TTS plays on the "Voice" bus, so it's controlled here too.
 ##
-## Presentation only — it drives the audio engine and the AudioServer buses; it never
+## Presentation only. It drives the audio engine and the AudioServer buses, and it never
 ## reads or writes simulation-authoritative state. Built entirely in code, inheriting
 ## the shared Theme from the parent HudRoot (see SpawnPaletteHud). No .tscn.
 
@@ -45,7 +45,7 @@ const COL_TEXT_HEADING: Color = Color(0.98, 0.99, 1.0, 1.0)
 const COL_ACCENT: Color = Color(0.33, 0.70, 0.98, 1.0)
 const COL_BORDER: Color = Color(0.24, 0.27, 0.33, 1.0)
 
-var _director: LocalAgentAudioDirector = null
+var _director: LAAudioDirector = null
 
 # Controls we need to read/refresh after bind.
 var _mode_option: OptionButton
@@ -97,7 +97,7 @@ func _process(_delta: float) -> void:
 # ---------------------------------------------------------------------------
 
 ## Wire this panel to the live audio director and initialize all control states.
-func bind(director: LocalAgentAudioDirector) -> void:
+func bind(director: LAAudioDirector) -> void:
 	_director = director
 	if _director == null:
 		return

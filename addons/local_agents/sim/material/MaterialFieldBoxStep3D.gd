@@ -1,21 +1,21 @@
 class_name LAMaterialFieldBoxStep3D
 extends RefCounted
 
-## LAMaterialFieldBoxStep3D — the per-frame STEP ORCHESTRATION for LAMaterialField3D's BOX mode (setup_dims):
+## LAMaterialFieldBoxStep3D drives the per-frame STEP ORCHESTRATION for LAMaterialField3D's BOX mode (setup_dims):
 ## an origin-box volume with no cubed-sphere grid and no planet terrain. It is the box twin of
 ## LAMaterialFieldSphereStep3D: the field node stays a thin substrate/facade and merely delegates its
 ## _physics_process to this module when the field is a box.
 ##
 ## Box mode has no *_sphere3d GPU kernels (those are all cubed-sphere), and it must also run HEADLESS (no
-## RenderingDevice), so this is a small CPU heat stepper — a fixed-step 3D thermal relaxation with an upward
+## RenderingDevice), so this is a small CPU heat stepper: a fixed-step 3D thermal relaxation with an upward
 ## BUOYANCY bias so injected heat both diffuses AND rises, making the field visibly non-static (a hot blob
 ## climbs + spreads). It is the CPU reference/oracle form the repo sanctions for a per-cell field that has no
 ## GPU kernel yet. It holds NO state of its own: it reaches into the owning field (`_f`) for the `_temp`
 ## array, the dimensions and the step accumulator, exactly as the sphere-step + query/inject modules do.
 ##
-## Only TEMPERATURE is stepped here — box mode is a volumetric heat sandbox (the library demo that exercises
+## Only TEMPERATURE is stepped here, because box mode is a volumetric heat sandbox (the library demo that exercises
 ## setup_dims). Water/gas/scent/etc. are cubed-sphere channels; they stay inert (safe defaults) in box mode.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 const STEP_DT: float = 1.0 / 20.0                  # fixed thermal step (20 Hz)
 const MAX_STEPS_PER_FRAME: int = 3

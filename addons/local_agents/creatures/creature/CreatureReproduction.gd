@@ -1,38 +1,38 @@
 class_name LACreatureReproduction
 extends RefCounted
 
-## Per-creature courtship + gestation for LocalAgentCreature — the individual side of breeding that DISSOLVED the
+## Per-creature courtship + gestation for LocalAgentCreature: the individual side of breeding that DISSOLVED the
 ## old top-down population god-tick (LAEcologyBreeding._tick_breeding). Reproduction is now an emergent
 ## per-creature drive: a mature, WELL-FED, non-pregnant, off-cooldown adult seeks a nearby mature same-species
-## mate (spatial-index query, O(k), like leadership's local_leader), and on reaching one CONCEIVES — the
+## mate (spatial-index query, O(k), like leadership's local_leader), and on reaching one CONCEIVES. The
 ## bearer enters GESTATION (a timed carry that drains energy every frame), and at term BIRTHS one offspring
 ## beside itself, then goes on a post-birth cooldown. So a new generation FALLS OUT of animals living and
 ## eating, not a scripted spawn tick.
 ##
-## STABILITY — conception is gated on two things so the population self-regulates instead of exploding:
+## STABILITY: conception is gated on two things so the population self-regulates instead of exploding:
 ##   1. ENERGY: both the bearer and the mate must be well-fed (energy above MIN_ENERGY_FRAC of max). Food and
-##      the digestion/metabolism budget therefore throttle breeding emergently — a starving region breeds
-##      less, a fat region breeds freely — which is the real regulator.
+##      the digestion/metabolism budget therefore throttle breeding emergently (a starving region breeds
+##      less, a fat region breeds freely), which is the real regulator.
 ##   2. The per-species pop_cap SOFT CEILING (LAEcologyBreeding.species_below_cap via the service): a creature
 ##      cannot conceive once its species is at/over cap, so the population rides up to the cap and holds there
-##      (matching the old god-tick's steady state) — the cap is the hard backstop against any runaway.
+##      (matching the old god-tick's steady state). The cap is the hard backstop against any runaway.
 ## In-flight pregnancies complete even if the pop nudges just over cap during gestation, so the population
-## oscillates gently around the cap by the number of concurrent pregnancies — bounded, never explosive.
+## oscillates gently around the cap by the number of concurrent pregnancies, bounded and never explosive.
 ##   3. LOCAL DENSITY (opt-in per species): a creature senses its own conspecific density (neighbours within
-##      breed_density_radius) and damps its breeding by it — crowded → don't breed / breed slower, sparse →
+##      breed_density_radius) and damps its breeding by it: crowded → don't breed / breed slower, sparse →
 ##      full drive. This is the negative feedback that turns a boom→age-out→crash into a logistic settle around a
 ##      LOCAL carrying capacity, and it is what keeps a persistent prey base alive under the predators. See the
 ##      density-dependent-breeding const block below for the mechanism.
 ##
 ## The BIRTH itself reuses the shared heredity machinery (one owner, LAEcologyBreeding): crossover+mutation
-## genome from both parents, the bearer's natal nest, and the kinship graph (add_offspring + the mate bond) —
+## genome from both parents, the bearer's natal nest, and the kinship graph (add_offspring + the mate bond),
 ## reached through LAEcologyService.birth_offspring so the creature never depends on the breeding module type.
 ##
 ## Called from LocalAgentCreature._physics_process (tick) like LACreatureMetabolism/LACreatureDigestion, plus a
 ## courtship-steering hook in the decision cascade (courtship_heading). Mate/gestation state lives on the
 ## creature as plain fields (pregnant, _gestation_t, _mate, _repro_cd). Static + dependency-free of the
 ## LocalAgentCreature type (dynamic field access, like the other Creature* helpers).
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 # --- tuning (exposed as named consts so the population can be retuned under a live run) --------------------
 const MIN_ENERGY_FRAC: float = 0.55     # well-fed-enough-to-breed gate. Kept comfortably above the gestation drain (a

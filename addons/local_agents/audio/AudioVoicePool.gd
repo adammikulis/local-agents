@@ -1,6 +1,6 @@
 @tool
 extends Node3D
-class_name LocalAgentAudioVoicePool
+class_name LAAudioVoicePool
 
 ## A fixed pool of reusable audio players with round-robin voice stealing and
 ## per-key cooldown rate limiting, so a burst of simultaneous events (e.g. many

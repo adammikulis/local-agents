@@ -10,12 +10,12 @@ class_name LocalAgentStatusLabel
 ## and red when generation cannot happen at all. With `show_next_step` on it also prints the one
 ## sentence that fixes the topmost problem, so a player or a designer is never left guessing.
 ##
-## Marked @tool so the label previews the real status while you are building the scene; the polling
+## Marked @tool so the label previews the real status while you are building the scene. The polling
 ## timer only exists at run time, so nothing ticks inside the editor.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only. Project rule: no ':=' inferred typing.)
 
-## Emitted when the level or the headline changes — connect it in the Node dock to show a "Fix setup"
+## Emitted when the level or the headline changes. Connect it in the Node dock to show a "Fix setup"
 ## button only while something is wrong. `level` matches LocalAgentStatus.Level (0 READY, 1 DEGRADED,
 ## 2 BLOCKED).
 signal status_changed(level: int, headline: String)
@@ -25,7 +25,7 @@ const Status: GDScript = preload("res://addons/local_agents/runtime/AgentStatus.
 @export_group("Content")
 
 ## Append the one-sentence fix for the topmost problem under the headline. Blocked setups become
-## self-explanatory; turn it off for a compact one-line readout.
+## self-explanatory. Turn it off for a compact one-line readout.
 @export var show_next_step: bool = true
 
 @export_group("Polling")

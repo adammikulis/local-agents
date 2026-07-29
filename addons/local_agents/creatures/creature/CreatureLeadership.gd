@@ -1,20 +1,20 @@
 class_name LACreatureLeadership
 extends RefCounted
 
-## Emergent LOCAL leadership for LocalAgentCreature — factored out like LACreatureFlocking, static + dependency-
+## Emergent LOCAL leadership for LocalAgentCreature, factored out like LACreatureFlocking, static + dependency-
 ## free of the LocalAgentCreature type (dynamic access).
 ##
 ## EMERGENT-EVERYTHING: no appointment, no registry, no scripted succession. Each creature independently
 ## computes whether it is the top-ranked SAME-SPECIES individual within its own radius (then it is a
-## LEADER and self-decides), or else finds its local top (its LEADER) and adopts that leader's DECISION —
-## the single canonical action symbol — so the heavy "what to do" assessment (senses scans + cognition
+## LEADER and self-decides), or else finds its local top (its LEADER) and adopts that leader's DECISION
+## (the single canonical action symbol), so the heavy "what to do" assessment (senses scans + cognition
 ## escalation + LLM) runs ONCE per local leader and the followers reuse it, pathing themselves. The map
 ## therefore has MANY leaders, one per local cluster; a spreading herd fissions into new local leaders.
 ##
 ## Leadership is CONTESTED + SELF-HEALING: rank is built from live age/size/energy/experience, so a
 ## starving/ageing/dying/departing leader loses rank and is displaced (see Creature._elect_leader, where
-## the per-species `leader_loyalty` margin tunes how sticky an incumbent is — humans cling → dynasties,
-## animals near-meritocratic → the biggest/oldest/best-fed leads). (Explicit types only — no ':=' .)
+## the per-species `leader_loyalty` margin tunes how sticky an incumbent is: humans cling → dynasties,
+## animals near-meritocratic → the biggest/oldest/best-fed leads). (Explicit types only, no ':=' inferred typing.)
 
 # Rank weights — a "well-rounded alpha": elder + biggest + best-fed + most-experienced. Tunable.
 const W_MATURITY: float = 1.0     # age relative to maturity — the DOMINANT axis (a village elder far out-ranks

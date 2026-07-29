@@ -1,10 +1,10 @@
 class_name LAFlatGroundTerrain
 extends RefCounted
 
-## Duck-typed TERRAIN adapter for a FLAT world — the standalone-creature counterpart of LAVoxelTerrainService
+## Duck-typed TERRAIN adapter for a FLAT world: the standalone-creature counterpart of LAVoxelTerrainService
 ## (which is the SPHERE adapter). A Creature talks to its terrain ONLY through this duck-typed surface, so a
 ## creature can stand on a plain floor with no voxel planet at all: Creature.setup() defaults `terrain` to this
-## when none is injected. Mirrors the LACognizerAdapter pattern — a new terrain kind = provide these methods,
+## when none is injected. Mirrors the LACognizerAdapter pattern: a new terrain kind = provide these methods,
 ## not patch the actor.
 ##
 ## THE DUCK-TYPED TERRAIN CONTRACT (the exact method surface every actor calls on `terrain`; both this flat
@@ -16,18 +16,18 @@ extends RefCounted
 ##   surface_radius(dir)   -> float   : distance centre→that surface point (NAN if none)
 ##   ground_point(pos)     -> Vector3 : the ground point directly below a world point
 ##   altitude_at(pos)      -> float   : height of a world point ABOVE the local ground (>0 air, <0 underground)
-##   is_planet()           -> bool    : radial-up planet (false here — flat +Y up)
+##   is_planet()           -> bool    : radial-up planet (false here, flat +Y up)
 ##   is_ready_at(pos)      -> bool     : whether the ground under pos is queryable (always true here)
 ##   raycast_terrain(from,dir,max) -> Dictionary {hit,position,normal} : ray vs ground
 ##   carve_sphere(pos,r)   -> void    : destructive edit (no-op on flat ground)
 ##
 ## FLAT GEOMETRY. The ground is the plane y == ground_y (+Y up). To reuse the SPHERE actor movement path
-## UNCHANGED — which does `dir = (pos - planet_center()).normalized()` then `surface_point(dir)` and finally
-## `global_position = surface_point(dir) + dir * offset` — the "planet centre" sits FAR_BELOW the plane, so a
+## UNCHANGED (which does `dir = (pos - planet_center()).normalized()` then `surface_point(dir)` and finally
+## `global_position = surface_point(dir) + dir * offset`), the "planet centre" sits FAR_BELOW the plane, so a
 ## radial from it through any near-ground point is ≈ +Y (up_at is exactly Vector3.UP) yet surface_point solves
 ## the exact RAY↔PLANE crossing, which preserves the point's horizontal x/z with full fp32 precision (a giant
 ## literal sphere would lose it). No sea, so land walkers never hit coast avoidance.
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 # World Y of the flat ground plane (the "sea datum" analogue). Configurable so a scene can raise/lower the floor.
 var ground_y: float = 0.0

@@ -7,7 +7,7 @@ extends RefCounted
 ## a smooth 0..1 score -- 1 = fully relevant (update every tick), 0 = irrelevant (update as rarely as the
 ## caller's max_stride allows) -- with no named distance tiers or branch cutoffs anywhere: both formulas
 ## below are continuous and asymptotic, so there is nothing to desync or re-tune per call site beyond one
-## intuitive "how far until this stops mattering" number. Two independently-tuned knobs (a rate AND a cap,
+## intuitive "how far until this stops mattering" number. Two independently-tuned knobs (a rate and a cap,
 ## as the old per-site linear ramps each had) is exactly the kind of duplicated, driftable tuning surface
 ## this collapses to one. The field's GPU kernels mirror both formulas in GLSL
 ## (kernels3d/activity_sphere3d.glsl) since GLSL can't call GDScript -- keep the two in sync if either

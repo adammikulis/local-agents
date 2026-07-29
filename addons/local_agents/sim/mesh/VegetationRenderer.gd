@@ -4,20 +4,20 @@ extends Node3D
 ## GPU-instanced rendering for the static vegetation (plants + trees). Each plant/tree keeps its own sim
 ## node (growth, collision, feed, seeding) but DOES NOT own a MeshInstance3D anymore: it registers with this
 ## renderer and pushes its transform while it is growing (or toppling). All plants of one visual type then
-## render in ONE batched MultiMesh draw instead of hundreds of per-node draws — the on-brand GPU-first fix
+## render in ONE batched MultiMesh draw instead of hundreds of per-node draws, the on-brand GPU-first fix
 ## for the 256+ vegetation actors that were dominating the draw-call count.
 ##
 ## One MultiMeshInstance3D per visual type (id from LAActorModels: "plant", "tree_oak", "tree_pine"). The
 ## source mesh is baked ONCE from the Kenney glTF, normalized to height 1 and base-anchored, so an actor's
-## instance transform is simply its own node transform scaled by its display height — the actor's existing
+## instance transform is simply its own node transform scaled by its display height, so the actor's existing
 ## growth/topple transform logic is unchanged, only its rendering is decoupled.
 ##
 ## Lives UNDER actors_root and its MMIs sit at identity, so a pushed instance transform is the actor's LOCAL
-## transform (actors are direct children of actors_root) — vegetation rides the planet frame for free.
+## transform (actors are direct children of actors_root), so vegetation rides the planet frame for free.
 ##
 ## LOD / bubbles-of-compute: an actor only pushes while it is CHANGING (growing to maturity, or toppling).
-## A mature, static tree/plant costs ZERO per-frame render work — its instance transform is written once and
-## left alone. (Explicit types only — project rule: no ':=' .)
+## A mature, static tree/plant costs ZERO per-frame render work: its instance transform is written once and
+## left alone. (Explicit types only, no ':=' inferred typing.)
 
 const _CHUNK: int = 256                 # capacity growth granularity (instances added per realloc)
 const _INITIAL_CAP: int = 512           # starting per-type capacity (covers the default preset with headroom)

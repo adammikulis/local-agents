@@ -6,22 +6,22 @@ extends Node3D
 ## Drop this node into a scene, type how many of each species you want, press play: you get a population of
 ## standalone LocalAgentCreatures scattered around it, optionally standing on a floor it builds for you. It is
 ## the no-code form of the spawn loop every demo used to write by hand (instantiate Creature.tscn, position it,
-## call setup_standalone, repeat) — see examples/ThinkingCreatureDemo.gd for that loop in GDScript.
+## call setup_standalone, repeat). See examples/ThinkingCreatureDemo.gd for that loop in GDScript.
 ##
 ## The creatures it makes are STANDALONE ones: a flat-ground terrain adapter at `ground_y`, no MaterialField,
-## no ecology, no planet — their pure fast/reinforced brain. Assign `cognition_scheduler` and turn on
+## no ecology, no planet, just their pure fast/reinforced brain. Assign `cognition_scheduler` and turn on
 ## `llm_enabled` to also let them escalate to a language model.
 ##
 ## @tool is here only for the inspector warnings; _ready returns immediately in the editor, so a spawner in an
 ## open scene never populates it. Call spawn() yourself from an editor script if you want that.
 ##
-## (Explicit types only — project rule: no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 const CreatureScene: PackedScene = preload("res://addons/local_agents/creatures/Creature.tscn")
 
 @export_group("Population")
 ## Species id -> how many to spawn, e.g. {"rabbit": 5, "fox": 1}. Ids are the file names under
-## creatures/species/**/<id>.json. A blank id is not valid here — name a species.
+## creatures/species/**/<id>.json. A blank id is not valid here. Name a species.
 ## Typed so the inspector gives you String keys and int values instead of a free-for-all. From code,
 ## assign it directly (`spawner.counts = {"rabbit": 5}` converts fine); `set("counts", {...})` with
 ## an untyped literal is silently dropped, so pass a typed local if you must go through set().
@@ -33,7 +33,7 @@ const CreatureScene: PackedScene = preload("res://addons/local_agents/creatures/
 @export_group("Placement")
 ## Full width/height/depth in METRES of the box creatures are scattered inside, centred on this node.
 ## Leave Y at 0 to keep everything on the ground plane; the creatures snap to the ground either way.
-## (No range hint: Godot 4.7 rejects @export_range on Vector3 — it only accepts float-ish types.)
+## (No range hint, because Godot 4.7 rejects @export_range on Vector3 and only accepts float-ish types.)
 @export var area_extent: Vector3 = Vector3(16.0, 0.0, 16.0):
 	set(value):
 		area_extent = value
@@ -186,7 +186,7 @@ func _get_configuration_warnings() -> PackedStringArray:
 		if int(counts[kind]) <= 0:
 			out.append("Counts[\"%s\"] is %d, so no %s will be spawned." % [id, int(counts[kind]), id])
 	if area_extent.x < 0.0 or area_extent.y < 0.0 or area_extent.z < 0.0:
-		out.append("Area Extent has a negative component %s. It is a box size — use 0 or more." % str(area_extent))
+		out.append("Area Extent has a negative component %s. It is a box size, so use 0 or more." % str(area_extent))
 	elif area_extent.x <= 0.0 and area_extent.z <= 0.0:
 		out.append("Area Extent is flat in X and Z, so every creature will be spawned on the same spot.")
 	if llm_enabled and cognition_scheduler == null:

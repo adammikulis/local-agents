@@ -6,7 +6,7 @@ extends RefCounted
 ## per-system cost and pin a regression. Example: LA_ABLATE=plants,trees,field,water leaves only creatures +
 ## ecology running. Parsed once from the environment and cached; a bare `off()` call is a dictionary lookup.
 ##
-## If a system cannot be ablated by a single guard at its per-frame entry, that is a refactor smell — give it
+## If a system cannot be ablated by a single guard at its per-frame entry, that is a refactor smell. Give it
 ## a real entry point so it becomes toggleable (per the project's per-subsystem kill-switch guidance).
 ## Known names: creatures, plants, trees, fish, ecology, field, water, veg.
 

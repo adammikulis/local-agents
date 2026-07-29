@@ -1,17 +1,17 @@
 class_name LAKinshipGraph
 extends RefCounted
 
-## Permanent KINSHIP GRAPH backing every creature's family_id (owned by LAEcologyService — kept out of the
+## Permanent KINSHIP GRAPH backing every creature's family_id (owned by LAEcologyService, kept out of the
 ## extract-only field/world hubs). A FAMILY is a connected component; family_id is that component's stable
 ## label. Relationships are recorded as EDGES once and never rewritten: founder-cluster siblings link to their
 ## cluster anchor at spawn, parent→offspring links at birth. A creature's family label is assigned once and
-## never changes for life — components only GROW as offspring join their parent's family, and distinct founder
+## never changes for life, because components only GROW as offspring join their parent's family, and distinct founder
 ## families are never merged, so labels stay immutable (kin is fixed for life).
 ##
 ## Kin recognition / regroup reads the cheap family_id equality (an omnidirectional smell/sound RANGE sense,
 ## see LACreatureLeadership.nearest_family_adult), NOT this graph, so the graph never sits on the per-frame
 ## path: it is touched only on the founding / birth / death EVENTS. Union-find find() is ~O(1) amortised
-## (path-compressed); death cleanup is O(degree). No per-frame rebuild, no O(n²). (Explicit types — no ':=' .)
+## (path-compressed); death cleanup is O(degree). No per-frame rebuild, no O(n²). (Explicit types only, no ':=' inferred typing.)
 
 var _parent: Dictionary = {}      # union-find: node/label id → parent id (a component's root IS its family label)
 var _adj: Dictionary = {}         # relationship record: node id → Array[int] of kin node ids (undirected edges)

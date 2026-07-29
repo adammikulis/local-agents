@@ -9,7 +9,7 @@ class_name LocalAgentGdScriptSynthVoice
 
 const Params := preload("res://addons/local_agents/audio/params/SynthVoiceParamsResource.gd")
 
-func render(params: LocalAgentSynthVoiceParamsResource, sample_rate: int) -> PackedFloat32Array:
+func render(params: LASynthVoiceParams, sample_rate: int) -> PackedFloat32Array:
 	if params == null:
 		return PackedFloat32Array()
 	var sr := maxi(8000, sample_rate)

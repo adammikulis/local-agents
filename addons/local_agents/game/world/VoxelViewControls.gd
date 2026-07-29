@@ -1,13 +1,13 @@
 extends CanvasLayer
 
-## LAVoxelViewControls — the small on-screen view-controls cluster the input controller hosts:
+## LAVoxelViewControls: the small on-screen view-controls cluster the input controller hosts:
 ##   [Planet | Solar System]   ·   [Orbit | Geosync | Fly]   ·   [Auto-spin]
 ## Planet/Solar switches the camera between the close planet orbit and the pulled-back solar-system overview
 ## (planet + visible sun); Orbit/Geosync/Fly switches the camera mode (camera fixed in world · riding the
 ## planet's spin locked over one region · free-flight drone); Auto-spin is the orbit-mode "planet turns in
 ## front of you" option. Buttons call straight back into the host (LAVoxelInputController); refresh() mirrors
 ## the host state. Anchored top-centre, below the status bar, clear of the left DEBUG panel and right Inspector.
-## (Explicit types only — no ':=' inferred typing.)
+## (Explicit types only, no ':=' inferred typing.)
 
 const PANEL_BG: Color = Color(0.05, 0.07, 0.11, 0.9)
 const ACCENT: Color = Color(0.55, 0.72, 1.0)
@@ -92,12 +92,12 @@ func _build_ui() -> void:
 
 	var rot_group: ButtonGroup = ButtonGroup.new()
 	_orbit_btn = _make_button("Orbit", rot_group, box)
-	_orbit_btn.tooltip_text = "Orbit — camera stays fixed in world; drag to rotate"
+	_orbit_btn.tooltip_text = "Camera stays fixed in world, drag to rotate"
 	_orbit_btn.pressed.connect(func() -> void: _host.set_orbit_mode())
 	_geo_btn = _make_button("Geosync", rot_group, box)
 	_geo_btn.pressed.connect(func() -> void: _host.set_geosync(true))
 	_fly_btn = _make_button("Fly", rot_group, box)
-	_fly_btn.tooltip_text = "Fly — free-flight drone  (%s)" % fly_key
+	_fly_btn.tooltip_text = "Free-flight drone  (%s)" % fly_key
 	_fly_btn.pressed.connect(func() -> void: _host.set_fly(true))
 
 	_add_divider(box)
@@ -108,7 +108,7 @@ func _build_ui() -> void:
 
 	_add_divider(box)
 	_alt_label = Label.new()
-	_alt_label.text = "alt —"
+	_alt_label.text = "alt n/a"
 	_alt_label.add_theme_color_override("font_color", Color(0.72, 0.80, 0.92))
 	_alt_label.custom_minimum_size = Vector2(104.0, 0.0)
 	_alt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -141,7 +141,7 @@ func _process(delta: float) -> void:
 
 func _format_alt(alt: float) -> String:
 	if is_nan(alt):
-		return "—"
+		return "n/a"
 	if absf(alt) >= 10000.0:
 		return "%.1f km" % (alt / 1000.0)
 	return "%d m" % roundi(alt)
@@ -173,8 +173,8 @@ func _apply_locks() -> void:
 		return
 	_geo_btn.disabled = not LAGameProgression.cap_unlocked("view_geosync")
 	_solar_btn.disabled = not LAGameProgression.cap_unlocked("view_solar")
-	_geo_btn.tooltip_text = ("Geosync — ride the planet's spin over one region  (%s)" % _geo_hotkey) if not _geo_btn.disabled else "Geosync — locked (earn it in the campaign)"
-	_solar_btn.tooltip_text = ("Solar-system overview — planet + sun  (%s)" % _solar_hotkey) if not _solar_btn.disabled else "Solar System — locked (campaign capstone)"
+	_geo_btn.tooltip_text = ("Ride the planet's spin over one region  (%s)" % _geo_hotkey) if not _geo_btn.disabled else "Geosync is locked. Earn it in the campaign."
+	_solar_btn.tooltip_text = ("Overview of the planet and its sun  (%s)" % _solar_hotkey) if not _solar_btn.disabled else "Solar System is locked. Earn it by finishing the campaign."
 
 
 ## Mirror the host's camera-mode state onto the buttons (no-signal so it doesn't re-fire the callbacks).

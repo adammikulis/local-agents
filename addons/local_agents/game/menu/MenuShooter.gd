@@ -1,11 +1,11 @@
 class_name LAMenuShooter
 extends Node
 
-## LAMenuShooter — the menu scenes' tiny self-screenshot harness (the front-end analogue of the sim's
+## LAMenuShooter: the menu scenes' tiny self-screenshot harness (the front-end analogue of the sim's
 ## --shoot path). A menu scene adds one as a child; it reads `--shoot=<path> [--shoot-frames=N]` from the
 ## user command-line args, waits N process frames so the UI has laid out and painted, captures the root
 ## viewport to a PNG, prints `MENU_SHOT_SAVED=<path>`, and quits. When no --shoot arg is present it does
-## nothing, so it is inert in normal interactive play. (Explicit types only — no ':=' inferred typing.)
+## nothing, so it is inert in normal interactive play. (Explicit types only, no ':=' inferred typing.)
 
 var _shoot_path: String = ""
 var _shoot_frames: int = 20

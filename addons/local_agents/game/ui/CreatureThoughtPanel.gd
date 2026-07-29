@@ -1,9 +1,9 @@
 class_name LACreatureThoughtPanel
 extends CanvasLayer
 
-## The headline hook: click a creature and this panel shows what it is actually thinking — its name,
+## The headline hook: click a creature and this panel shows what it is actually thinking. You get its name,
 ## its current behaviour, how it decided, what it has learned, and (the star) its latest natural-language
-## thought from the LOCAL model, offline — PLUS a scrolling STREAM of its recent decisions, so you can watch
+## thought from the LOCAL model, offline. It also carries a scrolling STREAM of its recent decisions, so you can watch
 ## fast-path habit and slow-brain (LLM/teacher) resolutions play out over time, not just see one instant. A
 ## full-height sidebar docked on the RIGHT (an "overall inspection panel"), not a small floating popup. It
 ## SURFACES the existing per-creature cognition via LACreatureThought/LACognition.history(); it starts no
@@ -11,7 +11,7 @@ extends CanvasLayer
 ## SpawnPaletteHud / DebugPanel).
 ##
 ## Cheap by construction: it rebuilds only on selection change and on a coarse timer while one creature
-## is selected — never per frame, never per creature, no group scans. (Explicit types only — no ':='.)
+## is selected, never per frame, never per creature, and never a group scan. (Explicit types only, no ':=' inferred typing.)
 
 const REFRESH_INTERVAL: float = 0.3   # seconds between live refreshes while a creature is selected
 const PANEL_WIDTH: float = 340.0
@@ -203,7 +203,7 @@ func _refresh() -> void:
 	if is_llm:
 		_badge.text = "thinking via %s" % String(t.get("source", "local model"))
 		_badge.add_theme_color_override("font_color", COL_THOUGHT_LLM)
-		_hint.text = "This behaviour was chosen by the on-device model — no cloud, fully offline."
+		_hint.text = "This behaviour was chosen by the on-device model. No cloud, fully offline."
 	else:
 		_badge.text = "reasoning: %s" % String(t.get("source", "rule-based"))
 		_badge.add_theme_color_override("font_color", COL_DIM)

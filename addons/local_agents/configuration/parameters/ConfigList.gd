@@ -1,5 +1,5 @@
 extends Resource
-class_name LocalAgentConfigList
+class_name LAConfigList
 
 ## The saved set of model profiles and inference presets, plus which one is active.
 ##

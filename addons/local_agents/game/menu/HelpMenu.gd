@@ -1,7 +1,7 @@
 class_name LAHelpMenu
 extends Control
 
-## LAHelpMenu — the persistent help & reference screen reached from the main menu, for a returning player who
+## LAHelpMenu: the persistent help & reference screen reached from the main menu, for a returning player who
 ## wants to re-acquaint from the screen (distinct from the one-time guided tutorial). It hosts the shared help
 ## hub (LAHelpTabs): an Overview blurb, the auto-generated Controls reference (LAControlsReference, straight
 ## from LAHotkeyRegistry so it never drifts from the real keys), and the browsable Codex (LAHelpCodex). The
@@ -9,7 +9,7 @@ extends Control
 ## keyboard-navigable, with a Back button that returns to the main menu.
 ##
 ## Screenshot harness: pass `-- --shoot=<png> [--help-tab=controls|codex]` to open on a given tab and capture
-## it (LAMenuShooter). (Explicit types only — no ':=' inferred typing.)
+## it (LAMenuShooter). (Explicit types only, no ':=' inferred typing.)
 
 const MAIN_MENU_SCENE: String = "res://addons/local_agents/game/menu/MainMenu.tscn"
 
