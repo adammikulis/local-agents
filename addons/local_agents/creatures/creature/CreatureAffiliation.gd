@@ -29,10 +29,19 @@ extends RefCounted
 ##   4. JOIN     otherwise, if my strongest companion outside my band has passed the join threshold and
 ##               their band is older than mine, I adopt it.
 ##
-## Splinter groups, adoption, exile and a driven-out animal finding a new pack are all that rule running;
-## none of them is written anywhere. A sub-group that drifts away keeps its mutual bonds and loses the
-## rest, so step 3 empties it out of the old band and step 4 re-converges it onto one new label. An animal
-## driven off loses its bonds by decay alone, and picks up whichever band it next keeps company with.
+## Splinter groups fall out of that rule with nothing written for them: a sub-group that drifts away keeps
+## its mutual bonds and loses the rest, so step 3 empties it out of the old band and step 4 re-converges it
+## onto one new label. Measured: 10 of 19 bands in a 600-frame run were a family that had split this way.
+##
+## WHAT DOES NOT HAPPEN YET, measured rather than assumed. An earlier version of this header claimed
+## adoption, exile and "a driven-out animal finding a new pack". Instrumenting the scan showed
+## `vq_mixed_bands = 0` in every run: over 600 frames and ~250 creatures, not one multi-member band ever
+## held two distinct lineages. The cause is structural, not a tuning miss — step 2 queries only
+## `"species_" + c.species`, and `EcologySpawner._spawn_clustered_founders` starts families as spatial
+## clusters, so your same-species neighbours ARE your relatives. Bands are therefore a strictly FINER
+## partition of families, never a crossing one. Rival packs and cross-family adoption need something that
+## actually mixes lineages in space first (migration, or a founder scatter that interleaves families);
+## until then this rule cannot express them, however it is tuned.
 ##
 ## BAND LABELS ARE MINTED IN ORDER, and step 4 only ever adopts a SMALLER (older) label. That is what makes
 ## label propagation converge instead of two animals swapping labels forever, and it means a newcomer joins

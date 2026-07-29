@@ -116,10 +116,16 @@ static func _capture_fish(f) -> Dictionary:
 		"health": float(f.health),
 		"breath": float(f._breath),
 		# LAFish carries the same lineage label land creatures do (Fish.gd:110) and the shared cognition
-		# stack weights imitation by it, but it was persisted by nothing — so every reload silently reset
-		# every fish to being related to no other fish. Fish are not in the kinship GRAPH (only creatures
-		# are registered there), so the saved integer is restored verbatim: it is unique per saved fish, so
-		# whatever grouping existed is reproduced exactly.
+		# stack weights imitation by it (Cognition.gd:476), so persisting it keeps a reload from handing a
+		# fish a fresh instance id that some unrelated fish might later be compared against.
+		#
+		# It does NOT restore fish kinship, and an earlier version of this comment claimed it did ("every
+		# reload silently reset every fish to being related to no other fish"). Every fish is already its
+		# own family in every world: `EcologyService._instance_actor` returns inside its
+		# `if bool(cfg.get("aquatic", false))` branch BEFORE the line that would put a family id into the
+		# config, so `Fish.setup` always falls through to `get_instance_id()`. The grouping reproduced here
+		# is the empty one. Real fish shoal kinship would need the aquatic spawn path to assign families in
+		# the first place; that is a separate change, and this field is ready for it when it lands.
 		"family_id": int(f.family_id),
 	}
 

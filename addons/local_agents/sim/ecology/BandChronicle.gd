@@ -53,6 +53,14 @@ var _npc_ensured: Dictionary = {}      # cid -> true once upsert_npc has run for
 var _faction_ensured: Dictionary = {}  # band -> true once upsert_faction has run for it
 
 
+## The chronicle's OWN database, never the shared one. `LocalAgentBackstoryGraphService` defaults to
+## `user://local_agents/network.sqlite3`, which is also where a game's conversations and an agent's long
+## memory live. A chronicle that opened that file would mix a quarter of a million throwaway creature rows
+## into the player's actual data — measured before this line existed: 1777 npc nodes, 113 band factions and
+## 2004 MEMBER_OF edges accumulated in a single afternoon of test runs, next to 45 real chat messages.
+const CHRONICLE_DB_PATH: String = "user://local_agents/chronicle.sqlite3"
+
+
 func _ready() -> void:
 	if OS.has_environment("LA_NO_CHRONICLE"):
 		return
@@ -60,7 +68,15 @@ func _ready() -> void:
 		_service = BackstoryServiceScript.new()
 		_service.name = "BackstoryGraphService"
 		_owns_service = true
+		# Path BEFORE add_child: _ready() is what opens the database.
+		_service.set_database_path(CHRONICLE_DB_PATH)
 		add_child(_service)
+		# ONE WORLD'S HISTORY, not every world ever run. npc ids here are derived from Godot instance ids,
+		# which are not stable across runs and are actively reused, so last run's rows can never be matched
+		# to this run's creatures — keeping them would be an unbounded append of records nothing can read.
+		# A band's history is meaningful within the world that grew it, so the chronicle is world-scoped.
+		# (An injected service via set_service() is the caller's to manage: not repathed, not cleared.)
+		_service.clear_backstory_space()
 	_enable()
 	var clock: LASimClock = LASimClock.active()
 	if clock != null and not clock.day_advanced.is_connected(_on_day_advanced):
