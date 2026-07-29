@@ -503,3 +503,31 @@ run_one "$name" "$frames" || rc=$?
     2026-07-08 `.glsl` `.import` entry, arriving by a different route.
   - When an rsync exclude is load-bearing for what a gate proves, verify the exclude actually excluded:
     `ls <staged>/…/bin` after staging, not just a clean exit code.
+
+### 2026-07-29: judging an API by its vocabulary instead of its signature
+
+- Failure: three times in one session, a thing was assessed from its NAME and the assessment was wrong.
+  - `LocalAgent.say()` was read as "speak the model's reply". It vocalizes whatever String it is handed,
+    which need not have come from the model. `listen()` was read as "record the microphone". It
+    transcribes a file path and never opens an input device.
+  - `LAHeatGlow`'s header said "for ANY actor" and named a creature and a tree. Flesh and wood do not
+    incandesce, and the codebase already knew: `Creature._combust()` says "bursts into flame (not
+    incandescent glow)". The header, not the code, was wrong, and it kept the file unwired for months.
+  - `graph/Backstory*`'s `upsert_faction` and `update_quest_state` were dismissed twice as "RPG
+    furniture, a poor fit for a creature sim". Reading the signatures: a faction is a named persistent
+    group with dated membership and inter-group relationships, which is strictly what
+    `Creature.gd:250`'s `var family_id: int = get_instance_id()` is a degenerate version of, and a
+    quest is a named persistent goal with state across days, which the per-tick cognition stack has no
+    representation of at all.
+- Root cause: a name is a compression written by someone for a different audience, sometimes years ago
+  and sometimes for a different domain. It is evidence about intent, not about behaviour. Reasoning
+  from it feels like reading the code and is not.
+- Preventative pattern:
+  - Before accepting or rejecting anything on the strength of what it is CALLED, read the signature and
+    one call site. `grep -n "func <name>" -A 5` costs seconds and is the actual answer.
+  - Be most suspicious when a name imports vocabulary from another genre ("quest", "faction", "NPC").
+    Ask what the parameters describe, not what the word usually means. `(npc_id, quest_id, state,
+    world_day, is_active)` describes a persistent goal with state, whatever it is called.
+  - A doc comment is a claim by a past author, at the same evidentiary level as a name. When it and the
+    code disagree, the code wins, and the comment should be corrected in the same edit so the next
+    reader is not misled the same way.

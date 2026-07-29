@@ -87,8 +87,27 @@ because the first version returned ok everywhere and recalled nothing (it looked
 world-truth with `detect_contradictions()`, sacred sites and rituals, and the oral-knowledge lineage
 with transmission hops are all still reachable only by hand. That last one is most of the "signal
 spine" 0.5 wants, and it is the interesting one: knowledge spreading between characters with
-provenance. The RPG-shaped parts (quests, factions) are a poor fit for a creature sim and should
-probably stay unwired.
+provenance.
+
+**Correction, same day: quests and factions are NOT the RPG-shaped leftovers this entry first called
+them.** That was reading the nouns instead of the signatures.
+
+- **Factions are what `family_id` is already failing to be.** Group identity today is
+  `var family_id: int = get_instance_id()` (`Creature.gd:250`, mirrored in `Fish.gd:110`): a bare
+  integer on each animal. It carries no name, no founding day and no metadata; it dies with its
+  members, so a warren has no existence apart from the animals currently in it; and two groups cannot
+  relate to each other, so rival packs and allied herds are not expressible.
+  `upsert_faction(id, name, metadata)` plus
+  `add_relationship(npc, faction, "MEMBER_OF", from_day, to_day, confidence, source, exclusive)` gives
+  all of that AND membership over time, so a creature that leaves one pack for another has a history
+  rather than just a different integer. Inter-faction `add_relationship` is territorial conflict.
+- **Quests are the long-horizon intention the cognition stack does not have.** Its drives are per-tick
+  (energy, hydration, fear). Nothing represents "I have been trying to do X since day N and here is
+  where I got to". `update_quest_state(npc_id, quest_id, state, world_day, is_active, metadata)` is
+  exactly that. A bird building a nest over days, a herd migrating, an animal seeking new territory
+  after being driven out. In this codebase a quest record is not authored content, it is a record of an
+  intention a creature FORMED, which is what the slow brain is for and what it currently cannot
+  remember having decided.
 
 **`feature/thaw-tropics-v3`** replaces `feature/thaw-tropics-v2`, which edited
 `scenes/simulation/voxel/material/...` and could no longer be applied at all after the restructure. Same
