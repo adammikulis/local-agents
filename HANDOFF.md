@@ -109,7 +109,34 @@ them.** That was reading the nouns instead of the signatures.
   intention a creature FORMED, which is what the slow brain is for and what it currently cannot
   remember having decided.
 
-**`feature/thaw-tropics-v3`** replaces `feature/thaw-tropics-v2`, which edited
+**`feature/thaw-tropics` is RETIRED (2026-07-29), measured obsolete rather than abandoned.** Both v2 and
+v3 are deleted, local and remote. Do not resurrect it without re-reading this.
+
+The patch existed to break an "equatorial ice-albedo freeze-lock" that held `t_eq` at 7C. That
+condition no longer exists: a baseline `0.4-dev` run reaches `t_eq` 12.5C by frame 180 and 29.2C by
+1080, so whatever fixed it arrived in the intervening work. Measured head to head, same seed 7, same
+`--fast=4`, same 1200 frames:
+
+| frame | baseline t_eq / foxes | with the patch |
+| --- | --- | --- |
+| 180 | 12.5 / 10 | 15.5 / 10 |
+| 540 | 18.0 / 10 | 20.3 / 7 |
+| 900 | 25.1 / 10 | 29.7 / 6 |
+
+So it solves a problem that is already solved and costs 40% of the fox population doing it, which is
+the same fox decline the original author reported and paused on. Two independent observations agree.
+
+Two corrections worth keeping, because both were mine and both were wrong in the same session. The
+monotonic `t_eq` climb is the BASELINE's behaviour under `--fast=4` (solar forcing compressed), not
+something the patch introduced. And an earlier partial read of only the early samples said the fox
+decline "does not reproduce"; it does, from frame 540 on. Caveat on the surviving claim: one seed, one
+run, so 10-vs-6 could carry noise. The obsolete-premise finding does not depend on it.
+
+The idea is still sound if the freeze-lock ever returns: insolation-driven melt with an albedo-feedback
+bound, in `heat3d_solar_sphere3d.glsl` + `ThermalPass.gd`, 37 lines. `git log --all --oneline` will not
+find it after this, so the shape is recorded here deliberately.
+
+**Superseded note, kept for provenance.** `feature/thaw-tropics-v3` replaced `feature/thaw-tropics-v2`, which edited
 `scenes/simulation/voxel/material/...` and could no longer be applied at all after the restructure. Same
 change, ported onto `sim/` paths, both hunks clean via `--3way`. STILL UNVERIFIED, DO NOT MERGE: the
 climate half works (t_eq ~15.5C against a 7C locked baseline, poles cold, sea ice persists) but
