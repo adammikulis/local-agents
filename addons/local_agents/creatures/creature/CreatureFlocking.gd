@@ -65,12 +65,17 @@ static func _leader_tether(c, pos: Vector3, flatten: bool) -> Vector3:
 
 
 ## Regroup pull for a truly LOST herd creature — alone (no mate in flock_radius) AND with no valid leader.
-## Homes toward the nearest kin/elder sharing its family_id, recognised by an OMNIDIRECTIONAL smell/sound
-## RANGE sense (a bounded spatial-hash query, never a vision cone). Runs only in this rare case, so the query
-## stays off the common path — Big-O flat.
-static func _kin_regroup(c, pos: Vector3, flatten: bool) -> Vector3:
+## Homes toward the nearest adult of ITS OWN BAND, recognised by an OMNIDIRECTIONAL smell/sound RANGE sense
+## (a bounded spatial-hash query, never a vision cone). Runs only in this rare case, so the query stays off
+## the common path — Big-O flat.
+##
+## Band, not bloodline. This used to read family_id, which meant a strayed animal could only ever be pulled
+## back toward blood relatives — the reason an animal could not leave one warren for another and still
+## belong anywhere. What a lost herd animal actually wants is whoever it has been running with
+## (LACreatureAffiliation), which is a band-of-one for a genuine loner and so correctly pulls nowhere.
+static func _band_regroup(c, pos: Vector3, flatten: bool) -> Vector3:
 	var reach: float = maxf(c.flock_radius * LACreatureLeadership.LEASH_MULT, c.hearing_range)
-	var kin = LACreatureLeadership.nearest_family_adult(c, pos, reach)
+	var kin = LACreatureLeadership.nearest_band_adult(c, pos, reach)
 	if kin == null:
 		return Vector3.ZERO
 	var to_home: Vector3 = kin.global_position - pos
@@ -125,9 +130,9 @@ static func steer(c, pos: Vector3, flatten: bool) -> Vector3:
 	# whether or not local mates are near, so a drifting sub-group is caught before it passes the leadership
 	# leash and splinters into a new leader-of-few. Composes with the sticky-leadership leash.
 	out += _leader_tether(c, pos, flatten)
-	# A truly lost herd creature (alone AND leaderless) homes toward its nearest kin by range sense.
+	# A truly lost herd creature (alone AND leaderless) homes toward its nearest band-mate by range sense.
 	if c.herd and wsum <= 0.0 and (c._leader == null or not is_instance_valid(c._leader)):
-		out += _kin_regroup(c, pos, flatten)
+		out += _band_regroup(c, pos, flatten)
 	# CROSS-SPECIES panic: align with any nearby fleeing creature of ANY species (not just my kind),
 	# so a mixed grazing group scatters as one. Reuses the shared frame-stamped spatial index (cheap).
 	var panic_align: Vector3 = Vector3.ZERO

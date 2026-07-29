@@ -245,9 +245,19 @@ var hearing_range: float = 12.0            # calls carry this far, in every dire
 var _call_cd: float = 0.0
 
 # --- cognition (fast/slow) + genetics ---
-# family_id groups kin: offspring inherit a parent's id, so relatives learn from each other more
-# strongly than unrelated herd-mates (social/cultural transmission of behaviour).
+# LINEAGE. family_id is the bloodline and ONLY the bloodline: offspring inherit a parent's id, so relatives
+# learn from each other more strongly than unrelated herd-mates (social/cultural transmission of behaviour).
+# It is immutable for life by design — LAKinshipGraph's components only grow and its labels never change,
+# which is what keeps the kin check a cached integer compare that can never go stale.
 var family_id: int = 0
+# AFFILIATION. band_id is who I currently RUN WITH, which is a different question and answers to a different
+# rule: it emerges from sustained association and CHANGES when the association does (LACreatureAffiliation).
+# These two used to be the same integer, which is why an animal could not leave one warren for another.
+# `_band_solo` is this creature's own permanent band-of-one label, returned to whenever it leaves a band.
+var band_id: int = 0
+var _band_solo: int = 0
+var _assoc: Dictionary = {}                # instance id -> association bond with that companion
+var _assoc_cd: float = 0.0                 # seconds until the next (coarse) association sample
 var _genome = null                         # LADNA (literal DNA strand → traits + baked instinct priors)
 var _cognition = null                      # LACognition (per-creature learned policy + slow-brain hook)
 # Per-creature TAMENESS / companion state — owned by LACreatureBond so all of it lives off this monolith (a
@@ -494,8 +504,15 @@ func get_genome():
 	return _genome
 
 
+## The bloodline this creature descends from (fixed for life).
 func get_family_id() -> int:
 	return family_id
+
+
+## The band it currently runs with (changes as its associations do). Named apart from get_family_id so a
+## caller has to say which of the two it means.
+func get_band_id() -> int:
+	return band_id
 
 
 static func _species_group(sp: String) -> String:
@@ -638,6 +655,10 @@ func _physics_process(delta: float) -> void:
 	# Emergent leadership (all logic in LACreatureLeadership): decide (throttled) whether I lead my local
 	# cluster or follow a leader/parent — done BEFORE the stride so a fresh follower gets the slow rate and a
 	# leaderless creature (dead/departed leader) re-elects this frame.
+	# EMERGENT AFFILIATION: keep company with whoever is beside me, and let my band follow from that
+	# (LACreatureAffiliation). Runs on its own coarse cadence, not per frame, and settles `band_id` BEFORE
+	# the election and the flocking below read it.
+	LACreatureAffiliation.tick(self, pos, delta)
 	LACreatureLeadership.maybe_elect(self, pos)
 
 	# DECISION THROTTLE (LOD): run the full cognition cascade only every `stride` frames, where the
@@ -915,7 +936,10 @@ func hear_call(source_pos: Vector3, from_species: String, call_type: String, cal
 			add_fear(source_pos, 0.8)
 		"forage":
 			if from_species == species and _cognition != null:
-				var kin: bool = caller != null and caller.has_method("get_family_id") and caller.get_family_id() == family_id
+				# LINEAGE, not band: a forage call teaches harder when it comes from a RELATIVE, and that is a
+				# fact about descent, so it reads through the lineage half of the affiliation seam.
+				var kin: bool = caller != null and caller.has_method("get_family_id") \
+						and LACreatureAffiliation.neighbour_lineage(caller) == LACreatureAffiliation.lineage_of(self)
 				var rel: float = 1.0 if kin else 0.35
 				_cognition.learn_from_sound(self, _forage_action(), rel)
 		"carrion":

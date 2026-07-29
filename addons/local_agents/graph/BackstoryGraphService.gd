@@ -13,6 +13,7 @@ const BackstoryEmbeddingOpsScript = preload("res://addons/local_agents/graph/Bac
 const BackstoryGraphQueryOpsScript = preload("res://addons/local_agents/graph/BackstoryGraphQueryOps.gd")
 const BackstoryRelationshipStateOpsScript = preload("res://addons/local_agents/graph/BackstoryRelationshipStateOps.gd")
 const BackstoryClaimOpsScript = preload("res://addons/local_agents/graph/BackstoryClaimOps.gd")
+const BackstoryFactionOpsScript = preload("res://addons/local_agents/graph/BackstoryFactionOps.gd")
 const STORE_DIR = "user://local_agents"
 const DB_PATH = STORE_DIR + "/network.sqlite3"
 
@@ -148,6 +149,19 @@ func get_relationship_state(source_npc_id: String, target_npc_id: String, world_
 
 func get_relationships_for_npc(npc_id: String, world_day: int, recent_window_days: int = 14, recent_limit: int = 64) -> Dictionary:
     return BackstoryRelationshipOpsScript.get_relationships_for_npc(self, npc_id, world_day, recent_window_days, recent_limit)
+
+## End an open dated relationship (the counterpart of add_relationship). Membership is a period, not a
+## flag, so something has to be able to close one — see LocalAgentBackstoryFactionOps.
+func close_relationship(source_npc_id: String, target_entity_id: String, relationship_type: String, to_day: int) -> Dictionary:
+    return BackstoryFactionOpsScript.close_relationship(self, source_npc_id, target_entity_id, relationship_type, to_day)
+
+## Every MEMBER_OF this npc has held, open or ended. get_backstory_context() answers "what is true on day
+## N"; this answers "what was the whole history".
+func membership_history(npc_id: String, limit: int = 64) -> Dictionary:
+    return BackstoryFactionOpsScript.membership_history(self, npc_id, limit)
+
+func get_faction(faction_id: String) -> Dictionary:
+    return BackstoryFactionOpsScript.get_faction(self, faction_id)
 
 func record_event(event_id: String, event_type: String, summary: String, world_day: int, place_id: String = "", participant_npc_ids: Array = [], metadata: Dictionary = {}) -> Dictionary:
     return BackstoryMemoryStateOpsScript.record_event(self, event_id, event_type, summary, world_day, place_id, participant_npc_ids, metadata)

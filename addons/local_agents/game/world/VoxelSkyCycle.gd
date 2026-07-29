@@ -43,9 +43,14 @@ var _world_ref: Node3D = null                # source of the active camera (for 
 var _want_fog: bool = true                   # effective fog toggle (quality preset + NOFOG), applied near surface
 var _time_of_day: float = 0.30              # start just after dawn (dawn = .25) so the sun is already
                                             # up and climbing — the world reads as a lit morning
-# Lunar cycle: an independent clock (survives day wraps). Starts at a waxing crescent so the
+# Lunar cycle: derived from the same elapsed time, on a longer period. Starts at a waxing crescent so the
 # very first night already has some moonlight rather than a black new moon.
 var _lunar_phase: float = 0.15              # 0=new, 0.25=first quarter, 0.5=full, 0.75=last quarter
+# Where on the day/lunar cycle this world STARTED. Both phases are now the world's elapsed time plus these
+# offsets, rather than two floats this node integrates separately: "what time the world opens at" is a
+# presentation choice and stays here, while how much time has passed belongs to LASimClock.
+var _tod_seed: float = 0.30
+var _lunar_seed: float = 0.15
 
 # Scene refs read each frame by the cycle (weather rain dims the sky; the field's cloud cover
 # overcasts; the cloud/fog sheets are tinted with the sky). Bound after those systems are created.
@@ -53,7 +58,10 @@ var _weather: Node = null
 var _material: Node = null
 var _water: Node = null      # LAWaterParticles — the day/night colour tint is pushed to it each frame
 
-const DAY_LENGTH: float = 200.0             # seconds per full day
+# Seconds per full day. Read from LASimClock, which OWNS elapsed time: this node draws the sun arc and the
+# moon phase, and a rendering node is the wrong owner for the world's history (see LASimClock's header). It
+# used to integrate its own `_time_of_day`, which wrapped at 1.0 and so could never say what day it was.
+const DAY_LENGTH: float = LASimClock.DAY_LENGTH
 const LUNAR_DAYS: float = 8.0               # in-game days per full new->full->new cycle
 const SUN_ENERGY_NOON: float = 1.45
 const AMBIENT_DAY: float = 0.62
@@ -77,6 +85,8 @@ const SKY_HORIZON_DUSK: Color = Color(0.92, 0.48, 0.24)
 func setup(world: Node3D, time_of_day: float, lunar_phase: float, render_opts: Dictionary = {}) -> void:
 	_time_of_day = time_of_day
 	_lunar_phase = lunar_phase
+	_tod_seed = time_of_day
+	_lunar_seed = lunar_phase
 	var want_ssao: bool = bool(render_opts.get("ssao", true))
 	var want_glow: bool = bool(render_opts.get("glow", true))
 	var want_shadows: bool = bool(render_opts.get("sun_shadows", true))
@@ -227,6 +237,25 @@ func update(delta: float) -> void:
 	_update_day_night(delta)
 
 
+## Read the day and lunar phase off the world's elapsed time. Both are the same number of elapsed days,
+## wrapped at different periods, plus the seeds this world opened at — so the two can never drift apart and
+## neither is a second copy of "how long has this been running".
+##
+## The fallback integrates locally when there is no clock in the tree, which is not a shim: LAVoxelSkyCycle
+## is usable on its own (a scene with a sky and no simulation), and a sky with no world behind it still has
+## to get light and dark. When a clock IS present it is the only source, and pause / --fast reach the sky
+## through it for free.
+func _advance_clocks(delta: float) -> void:
+	var clock: LASimClock = LASimClock.active()
+	if clock == null:
+		_time_of_day = fposmod(_time_of_day + delta / DAY_LENGTH, 1.0)
+		_lunar_phase = fposmod(_lunar_phase + delta / (DAY_LENGTH * LUNAR_DAYS), 1.0)
+		return
+	var days: float = clock.days_elapsed()
+	_time_of_day = fposmod(_tod_seed + days, 1.0)
+	_lunar_phase = fposmod(_lunar_seed + days / LUNAR_DAYS, 1.0)
+
+
 # Advance the clock and drive all sky lighting from it, dimmed by weather rain.
 # Emergent day arc: sun elevation is a sine of the time of day; everything (light
 # energy, warm horizon at dawn/dusk, ambient floor at night) follows from that one value.
@@ -250,7 +279,7 @@ func _update_day_night(delta: float) -> void:
 			_water.set_sky_tint(Color(1.0, 1.0, 1.0) * (0.55 + 0.45 * pstorm))
 		_apply_surface_atmosphere()
 		return
-	_time_of_day = fposmod(_time_of_day + delta / DAY_LENGTH, 1.0)
+	_advance_clocks(delta)
 	# Sun elevation: -1 (midnight) .. +1 (noon), zero at dawn (.25) and dusk (.75).
 	var elev: float = sin((_time_of_day - 0.25) * TAU)
 	var daylight: float = clampf(elev, 0.0, 1.0)
@@ -272,9 +301,8 @@ func _update_day_night(delta: float) -> void:
 	var warm: float = clampf(1.0 - elev * 2.5, 0.0, 1.0) * clampf(daylight * 6.0, 0.0, 1.0)
 	_sun.light_color = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.6, 0.32), warm * 0.8)
 
-	# Lunar cycle: advance the phase on its own slow clock; illuminated fraction is a cosine
-	# of the phase (0 at new, 1 at full). The moon arcs opposite the sun (up through the night).
-	_lunar_phase = fposmod(_lunar_phase + delta / (DAY_LENGTH * LUNAR_DAYS), 1.0)
+	# Illuminated fraction is a cosine of the lunar phase (0 at new, 1 at full), which _advance_clocks has
+	# already read off the same elapsed time. The moon arcs opposite the sun (up through the night).
 	var moon_illum: float = (1.0 - cos(_lunar_phase * TAU)) * 0.5
 	var moonup: float = clampf(-elev, 0.0, 1.0)
 	if _moon != null:

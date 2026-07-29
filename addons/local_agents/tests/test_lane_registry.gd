@@ -22,6 +22,10 @@ const DETERMINISTIC_TESTS: Array[String] = [
 	# recalled TEXT rather than on any call reporting ok, because the first version of that wiring
 	# returned ok everywhere and recalled nothing.
 	"res://addons/local_agents/tests/test_agent_backstory.gd",
+	# An animal can leave one group and join another, and the world writes both down as dated periods.
+	# Same shape as the test above: it needs the native NetworkGraph and nothing else, and it asserts on
+	# the membership history read back out of the store rather than on any call reporting ok.
+	"res://addons/local_agents/tests/test_band_affiliation.gd",
 ]
 
 const INTEGRATION_TESTS: Array[String] = []
