@@ -74,10 +74,29 @@ split into `build_report()`, the harness owns counting, printing, `LA_RUN_COMPLE
 its own header having set the removal condition. Verified windowed at 200 frames: POP_TRACE at 180,
 SIM_REPORT, `LA_RUN_COMPLETE={"code":0}`, exit 0.
 
-**Still owed.** `graph/Backstory*` is public and its test is honest about the embedding 501 now, but it
-is still only reachable by hand: 1955 lines of NPC memory with embeddings, belief-versus-truth and
-oral-knowledge lineage that nothing in the addon calls. Wiring it to `LocalAgent.memory_graph` is the
-next real feature, and the oral-knowledge lineage is most of the "signal spine" 0.5 wants.
+**Backstory is wired (2026-07-29, merged).** `LocalAgent` has a long memory: assign a
+`LocalAgentBackstoryGraphService` to its Backstory slot, give it an `npc_id`, and every line in and out
+is ingested into the SQLite store, with the most relevant memories recalled into a system message ahead
+of each prompt. Semantic search first, recent-and-important as the fallback when no llama-server with
+`--embeddings` is up. New module `agents/AgentBackstory.gd`; `Agent.gd` gained only exports and two
+call sites. `tests/test_agent_backstory.gd` asserts on the RECALLED TEXT, not on any call reporting ok,
+because the first version returned ok everywhere and recalled nothing (it looked for row keys
+`memories`/`results`/`rows`; the one carrying recent memories is `candidates`). Mutation-tested.
+
+**Still owed in Backstory.** Only conversation memory is connected. Relationship state, belief versus
+world-truth with `detect_contradictions()`, sacred sites and rituals, and the oral-knowledge lineage
+with transmission hops are all still reachable only by hand. That last one is most of the "signal
+spine" 0.5 wants, and it is the interesting one: knowledge spreading between characters with
+provenance. The RPG-shaped parts (quests, factions) are a poor fit for a creature sim and should
+probably stay unwired.
+
+**`feature/thaw-tropics-v3`** replaces `feature/thaw-tropics-v2`, which edited
+`scenes/simulation/voxel/material/...` and could no longer be applied at all after the restructure. Same
+change, ported onto `sim/` paths, both hunks clean via `--3way`. STILL UNVERIFIED, DO NOT MERGE: the
+climate half works (t_eq ~15.5C against a 7C locked baseline, poles cold, sea ice persists) but
+population still declines, foxes go extinct, and tmin dipped to -6C against a ~0C baseline. Resume by
+pulling death causes at f~2000, checking the -6C is not a new cold-kill, then re-running multi-season
+with density-dependent breeding.
 
 **Process lesson worth keeping.** Seven of seven fan-out units FAILED their adversarial verification
 first time, and the verifiers were right nearly every time. Two fix agents then introduced NEW false
