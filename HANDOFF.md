@@ -1,7 +1,12 @@
 # TODO / Roadmap — Local Agents (voxel-planet caretaker sim)
 
-Master tracker. Main scene: the game boots to `scenes/menu/MainMenu.tscn`; the flagship sim is
-`scenes/simulation/voxel/VoxelWorld.tscn`. Read `CLAUDE.md` + `EMERGENCE.md` first.
+Master tracker. Main scene: the game boots to `addons/local_agents/game/menu/MainMenu.tscn`
+(`project.godot:15`); the flagship sim is `addons/local_agents/game/VoxelWorld.tscn`. Read `CLAUDE.md` +
+`addons/local_agents/sim/EMERGENCE.md` first.
+*(Paths corrected 2026-07-29. This line gave `scenes/menu/MainMenu.tscn` and
+`scenes/simulation/voxel/VoxelWorld.tscn`; neither has existed since the addon-UX directory split moved
+everything under `addons/local_agents/{sim,game}/`. Stale `scenes/simulation/voxel/...` paths appear
+elsewhere in this file too — treat any of them as pre-split.)*
 
 ## ▶ NEXT SESSION — START HERE (this file IS the plan doc; feed it in)
 **ROADMAP PIVOT (2026-07-12): 0.4 is now THE EMERGENT PLANET; the living creatures moved to 0.5; the full
@@ -14,9 +19,14 @@ shipped on `main` (`v0.3.1`); development is on `0.4-dev`. Read `CLAUDE.md` · `
 `fire-balance-wildfire`, `worktree-shader-import-gotcha`, `three-d-always`); work in a worktree off `0.4-dev`.
 
 ---
-### ⚑ ADDON-UX SESSION (2026-07-29) — IN FLIGHT on `feature/addon-ux`, not yet merged
-Goal: make `addons/local_agents/` installable and usable without reading its source. Worktree
-`../local-agents-addon-ux`. **Lint is intentionally RED on this branch** until the renames below land.
+### ⚑ ADDON-UX SESSION (2026-07-29) — MERGED to `0.4-dev`, lint green
+Goal: make `addons/local_agents/` installable and usable without reading its source.
+*(Corrected 2026-07-29. This heading said "IN FLIGHT on `feature/addon-ux`, not yet merged", with worktree
+`../local-agents-addon-ux` and "**Lint is intentionally RED on this branch** until the renames below land".
+All three are false now: the work is on `0.4-dev` as `06d943c` + `c48200c`, the branch and worktree are gone,
+and `scripts/agent_harness.sh lint` measured GREEN — "All lint gates passed", `check_public_surface: OK
+(25 public, 130 classes reach a dialog)". The "currently FAILS with 24 named offenders" note below is
+likewise the pre-rename state, kept only as the record of why the gate was written.)*
 
 **Landed and verified.** Directory split into `sim/` + `game/`; 58 classes canonicalized; dead types
 removed (`ModelParams`, `Character`, `RuntimeHealth`, `api/`, `addons/phantom_camera/`); inspector
@@ -92,9 +102,14 @@ provenance.
 **Correction, same day: quests and factions are NOT the RPG-shaped leftovers this entry first called
 them.** That was reading the nouns instead of the signatures.
 
-- **Factions are what `family_id` is already failing to be.** Group identity today is
-  `var family_id: int = get_instance_id()` (`Creature.gd:250`, mirrored in `Fish.gd:110`): a bare
-  integer on each animal. It carries no name, no founding day and no metadata; it dies with its
+- **Factions are what `family_id` is already failing to be.** Group identity today is a bare integer
+  declared `var family_id: int = 0` (`Creature.gd:250`, mirrored at `Fish.gd:110`) and defaulted to the
+  creature's own instance id in the setup path, `c.family_id = int(config.get("family_id",
+  c.get_instance_id()))` (`CreatureSetup.gd:119`, mirrored at `Fish.gd:163`).
+  *(Citation corrected 2026-07-29: this said the declaration itself was `var family_id: int =
+  get_instance_id()` at `Creature.gd:250`. It is not — the instance-id default lives in `CreatureSetup`,
+  not on the field. Same wrong quote is at `GODOT_BEST_PRACTICES.md:519` and in item A below.)*
+  It carries no name, no founding day and no metadata; it dies with its
   members, so a warren has no existence apart from the animals currently in it; and two groups cannot
   relate to each other, so rival packs and allied herds are not expressible.
   `upsert_faction(id, name, metadata)` plus
@@ -503,22 +518,24 @@ biomass/fertility/mineral range, no errors).
   after a real one.
 
 **REMAINING (pick up in this order):**
-- **#22 — ice-albedo equatorial freeze-lock (THE self-sustaining blocker).** Surfaced by the breeding work: a
-  runaway ice-albedo feedback freezes+LOCKS the tropics during the seasonal swing (t_eq 30→7°C, never thaws in
-  spring → water ices over → thirst die-off → foxes/herbivores extinct); lethal even at real-time. **WIP on
-  branch `feature/thaw-tropics` (`f1f53c7`, DO NOT MERGE — unverified):** the climate half WORKS (t_eq holds
-  ~15.5°C, poles icy, sea ice persists) but population still declined + `tmin` dipped to −6°C; was mid death-cause
-  investigation when paused. Resume: pull death causes at f≈2000, check −6°C isn't a new cold-kill, re-run
-  multi-season with dd-breeding for the persistence gate. Iterate at `--fast=1` (high fast stretches winters).
+- **~~#22 — ice-albedo equatorial freeze-lock~~ CLOSED, premise obsolete.** *(Corrected 2026-07-29. This
+  bullet called it "THE self-sustaining blocker" and pointed at "**WIP on branch `feature/thaw-tropics`
+  (`f1f53c7`, DO NOT MERGE — unverified)**", with a resume recipe: pull death causes at f≈2000, check the
+  −6°C, re-run multi-season. That branch was retired and DELETED earlier the same day, and the
+  freeze-lock it existed to break no longer happens — baseline `0.4-dev` reaches t_eq 12.5°C by frame 180
+  and 29.2°C by 1080. The full head-to-head is in the thaw-tropics entry near the top of this file, which
+  this bullet sat 400 lines away from and contradicted. Nothing to resume.)*
 - **A4 — dogfood: rebuild `VoxelWorld` → Anima.** Refactor the 730-line inline `VoxelWorld._ready` to COMPOSE
   from `SimWorld` + the reusable nodes, and RENAME the game `VoxelWorld` → **Anima**. HELD for direct/supervised
   handling — it rebuilds the composition root, so it needs a launched-window verification, not fire-and-forget.
 
-Worktrees `la-feature-ecosystem-equilibrium`/`la-feature-population-sustain`/`la-integ-pop` were pruned
-2026-07-23 (see the repo-hygiene session above); their branches (`feature/ecosystem-equilibrium`,
-`feature/population-sustain`, `integ/population`) plus 2 orphaned Workflow-leftover branches
-(`worktree-wf_91b2a1d4-ae2-2`/`-3`) are verified fully superseded but need `git branch -D` (not `-d`) to
-remove — left for the maintainer. `sorting.py` at repo root is the maintainer's, untracked — leave it.
+**Branch/worktree state (re-measured 2026-07-29): there is nothing left to prune.** `git branch -a` shows
+only `0.4-dev`, `main` and their remotes; `git worktree list` shows the primary checkout alone.
+*(This paragraph previously asked the maintainer to `git branch -D` five branches —
+`feature/ecosystem-equilibrium`, `feature/population-sustain`, `integ/population` and the two orphaned
+Workflow leftovers `worktree-wf_91b2a1d4-ae2-2`/`-3`. All five are gone. So are the `feature/addon-ux`
+and `feature/thaw-tropics*` branches other entries still reference.)*
+`sorting.py` at repo root is the maintainer's, untracked — leave it.
 
 ---
 **Shipped this session (0.4-planet, on `0.4-dev`):** camera terrain-follow anti-clip · rivers DECOUPLED from
@@ -528,9 +545,16 @@ mountains (gentle ridges + rivers carved into the SDF along real D8 drainage, fl
 scattering sky + moon tides + sphere-aware ocean, altitude lapse + latitude Coriolis/orographic wind.** Fixed a
 worktree gotcha: fresh worktrees need `godot --headless --path . --import` or the GPU field is silently dead
 (biomass=0) + get_spirv spam.
-**In flight / held:** fire-balance (rare-but-real wildfires) + hot springs + lava tubes on feature branches;
-the fuel/fertility/storm-charge fixes are HELD on `integ/substrate-cognizer` pending the fire-balance merge
-(they made wildfires too lethal — see `fire-balance-wildfire`).
+**~~In flight / held~~ — all landed except lava tubes.** *(Corrected 2026-07-29. This said fire-balance,
+hot springs and lava tubes were "on feature branches" and that the fuel/fertility/storm-charge fixes were
+"HELD on `integ/substrate-cognizer` pending the fire-balance merge". None of those branches exist, and
+three of the four are demonstrably in `0.4-dev`: `BASELINE_FUEL = 2.0` (`MaterialSurfaceSeed3D.gd:34`, the
+fire-balance retune), `CHARGE_LEAK_QUIET = 0.4` (`charge_accum_sphere3d.glsl:55`, the storm-charge
+quiet-leak fix), `FERT_UPTAKE_COST = 0.02` (`MaterialReactions3D.gd:102`, the fertility uptake). Hot
+springs are emergent from the aquifer and reported as such — `hot_spring_stats()`
+(`MaterialFieldQueries3D.gd:224-250`) is wired into SIM_REPORT at `MaterialFieldReport3D.gd:80`. **Lava
+tubes are the one genuinely unbuilt item**: `grep -rl 'lava_tube\|lavatube' addons/local_agents/sim/`
+returns nothing.)*
 
 **Shipped in 0.4 so far** (merged on `0.4-dev`, editor-scan-clean, behaviorally verified):
 - **Living-creatures fan-out** — literal **DNA** (codon strand → traits, replaced LAGenome) + heritable
@@ -617,13 +641,25 @@ A. **Backstory as the creature social/memory substrate (NEW, 2026-07-29; the sto
    `LocalAgent` and everything below is now a config away rather than a build).** Reading the API
    instead of the nouns changed what this is worth. Three things the sim currently fakes or lacks have
    a first-class representation sitting unused:
-   - **Factions replace `family_id`.** Group identity is `var family_id: int = get_instance_id()`
-     (`Creature.gd:250`, `Fish.gd:110`): an integer that has no name, dies with its members, and cannot
-     relate to another group. `upsert_faction` + `add_relationship(npc, faction, "MEMBER_OF", from_day,
-     to_day, ..., exclusive)` gives a warren an existence independent of the rabbits in it, gives a
-     creature a membership HISTORY when it leaves one pack for another, and makes rival packs and
-     allied herds expressible as faction-to-faction relationships. Start here: it is the smallest change
-     with the largest reach, because kin logic already keys off `family_id` everywhere.
+   - **Factions take over the AFFILIATION half of `family_id`; lineage stays where it is.**
+     `var family_id: int = 0` (`Creature.gd:250`, `Fish.gd:110`), defaulted to the creature's own
+     instance id at `CreatureSetup.gd:119`, is one integer meaning two different things: who you are
+     descended from, and who you run with. `upsert_faction` + `add_relationship(npc, faction,
+     "MEMBER_OF", from_day, to_day, ..., exclusive)` gives a warren an existence independent of the
+     rabbits in it, a membership HISTORY when a creature leaves one pack for another, and
+     faction-to-faction edges for rival packs and allied herds.
+     *(Two corrections, 2026-07-29, both measured. (1) The declaration quote was wrong — see the
+     addon-UX entry above. (2) "kin logic already keys off `family_id` everywhere" is FALSE, and it
+     made this look like a bigger sweep than it is. There are exactly four readers:
+     `CreatureFlocking._kin_regroup` (`:68-81`, the lost-creature recovery path only — ordinary
+     flocking groups by the `species_<name>` scene-tree group and never reads family),
+     `CreatureLeadership.nearest_family_adult` (`:129-157`, the juvenile→parent hop only; every other
+     election is species-group + rank), `Creature.hear_call` (`:918`) and `Cognition.observe`
+     (`:476`), the last two via `CognizerAdapter.gd:57`/`:97`. The last two are kin-WEIGHTED social
+     learning, which wants lineage and should keep reading it — do not convert those to factions.
+     `KinshipGraph.gd:4-14` documents lineage immutability as the invariant that keeps the per-frame
+     kin check a cached int compare; that invariant is correct for bloodline and is exactly what dated
+     membership must NOT be forced into. Split the two meanings rather than swapping one for the other.)*
    - **Quests are the long-horizon intention the cognition stack has no representation of.** Drives are
      per-tick. Nothing holds "I have been trying to do X since day N, and here is where I got to".
      `update_quest_state(npc_id, quest_id, state, world_day, is_active)` is exactly that, and in this
@@ -636,9 +672,20 @@ A. **Backstory as the creature social/memory substrate (NEW, 2026-07-29; the sto
      across hops, and be wrong. Pair it with `upsert_npc_belief` vs `upsert_world_truth` and
      `get_belief_truth_conflicts` and a creature can hold a belief the world contradicts, which is the
      substrate for the affinity/veto learning in item 1 rather than a parallel system.
-   Sequencing: factions first (mechanical, replaces an existing field), then quests (needs a slow-brain
-   hook to write them), then oral knowledge (needs the other two). None of it needs a model: the store
-   is SQLite and only semantic recall wants embeddings.
+   **PREREQUISITE nobody had noticed (found 2026-07-29): the world has no elapsed time, so nothing here
+   can be dated yet.** `add_relationship`, `update_quest_state` and `record_relationship_interaction`
+   all hard-require `world_day >= 0` (`BackstoryRelationshipOps.gd:8-9`), and there is no day counter
+   anywhere to give them. `VoxelSkyCycle.gd:253` is `_time_of_day = fposmod(_time_of_day + delta /
+   DAY_LENGTH, 1.0)` — it wraps and never accumulates; `WorldSaveState.gd` persists no day; there is no
+   `LASimClock`. `AgentBackstory.record()` sidesteps it by hardcoding `world_day = -1`
+   (`AgentBackstory.gd:69`), which is legal for memories and rejected outright by all three calls above.
+   So a monotonic day counter comes FIRST, and it belongs in its own module that the sky, ecology, saves
+   and store all read — not bolted into `VoxelSkyCycle`, which is a rendering node. `set_world_time()`
+   already exists on the store and nothing calls it; that is where the clock publishes.
+
+   Sequencing: the clock, then factions, then quests (needs a slow-brain hook to write them), then oral
+   knowledge (needs the other two). None of it needs a model: the store is SQLite and only semantic
+   recall wants embeddings.
 
 0. **Water — the maintainer's eye (can't headless well):** close-up sea/lake *aesthetics* (fly to a coast — the
    near-cap patch looked blocky at overview distance, should read better up close); tune spring/rain so visible
@@ -785,10 +832,31 @@ sim in the compute-bubble; cheap analytic stand-ins for distant/dormant/offscree
   mineral ledger, not a dead one. Still owed is the BEHAVIOURAL proof that deltas, beaches, canyons and
   floodplains actually form over geological time, which needs C's fast-forward before it can be observed.
 - **B — Moisture→vegetation→albedo. THE ONE GENUINELY OWED KEYSTONE.** *(Visual half SHIPPED in Wave-1 biome
-  color.)* Sim half still owed and confirmed still owed on 2026-07-29: R19's reactants are CO₂, FERT, light and
-  temp (`MaterialReactions3D.gd:213`), and `grep -n moisture MaterialReactions3D.gd` returns one comment about
-  H₂O conservation and nothing else. A dry plateau greens like a rainforest. The fix is small: moisture as a
-  third Liebig-limiting reactant beside FERT, plus a germination gate.
+  color.)* Sim half still owed and confirmed still owed on 2026-07-29: `grep -n moisture
+  MaterialReactions3D.gd` returns one comment about H₂O conservation and nothing else, so a dry plateau greens
+  like a rainforest.
+
+  **The gap is bigger than this entry said, and the fix is not small.** *(Corrected 2026-07-29. This read
+  "R19's reactants are CO₂, FERT, light and temp" and prescribed "moisture as a third Liebig-limiting reactant
+  beside FERT, plus a germination gate". Light is NOT a reactant — that was the record's own header comment
+  being read as if it were the code.)* R19 is
+  `_rec(BILINEAR, PHOTO_RATE, CO2, [[CO2, 1.0], [FERT, FERT_UPTAKE_COST]], …, GATE_SURFACE, 0.0, TEMP)`
+  (`MaterialReactions3D.gd:220`), i.e. `x = PHOTO_RATE * co2 * temp`, and `:215` says what `temp` is doing
+  there in as many words: *"temp = the daylight proxy; the day side is warmer → fixes more"*. **Photosynthesis
+  is being driven by the temperature field standing in for the sun.** So a hot desert fixes carbon at night, a
+  bright cold polar summer barely fixes any, lava and wildfires feed plants, and volcanic-dust dimming only
+  suppresses growth second-hand through cooling.
+
+  It is a plumbing gap, not a design choice, and the kernel admits it: *"NEAR_GROUND / DAYLIGHT: no live record
+  needs them yet (would require radial+sun_dir bindings)"* (`reactions_sphere3d.glsl:186`). Both already exist
+  in the driver — `heat3d_solar_sphere3d.glsl` computes real per-cell insolation as
+  `max(0, dot(cell_radial, sun_dir))`, `radial` is a bound per-cell buffer, and `sun_dir` is already a pass-
+  context value (`ThermalPass.gd:150`, `:285-287`). Likewise the `soil` water table is a real channel in the
+  conserved H₂O ledger (`MaterialSphereGPU3D.gd:29`, `MaterialFieldLedger3D.gd:104`) with **no biological
+  consumer at all** — it feeds infiltration, baseflow and springs only. So Keystone B is: bind real light and
+  soil water into the reaction engine, make R19 light-driven with CO₂/water/nutrient as Liebig limits and
+  transpiration as a conserving soil→moisture transfer, and delete the temp-as-daylight proxy. Adding a
+  moisture cap on top of the proxy would have cemented it.
 - **C — Activity-bubble field LOD. SHIPPED IN ITS CHEAP FORM; the asymptotic half is owed.** *(Corrected
   2026-07-29. This entry said "Not built".)* `sim/material/kernels3d/activity_sphere3d.glsl` +
   `sphere_passes/ActivityPass.gd`, registered at `MaterialSphereGPU3D.gd:55` before FireDustPass, computing a
