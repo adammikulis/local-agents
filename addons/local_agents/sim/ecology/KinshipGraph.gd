@@ -9,7 +9,7 @@ extends RefCounted
 ## families are never merged, so labels stay immutable (kin is fixed for life).
 ##
 ## Kin recognition / regroup reads the cheap family_id equality (an omnidirectional smell/sound RANGE sense,
-## see LACreatureLeadership.nearest_family_adult), NOT this graph, so the graph never sits on the per-frame
+## see LACreatureLeadership.nearest_lineage_adult), NOT this graph, so the graph never sits on the per-frame
 ## path: it is touched only on the founding / birth / death EVENTS. Union-find find() is ~O(1) amortised
 ## (path-compressed); death cleanup is O(degree). No per-frame rebuild, no O(n²). (Explicit types only, no ':=' inferred typing.)
 

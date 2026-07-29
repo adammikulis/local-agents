@@ -14,6 +14,11 @@ extends RefCounted
 ##   control : llm_enabled (slow-brain opt-out)
 ##   social  : species, family_id; the scene-tree neighbour scan + each neighbour's get_cognition()
 ##
+## family_id here means LINEAGE and only lineage. Imitation is weighted by RELATEDNESS — you copy a
+## relative harder than a stranger — which is a fact about descent, so it reads the immutable bloodline
+## label rather than `band_id` (who the animal currently runs with, which changes; see
+## LACreatureAffiliation). These were one integer until the two meanings were split apart.
+##
 ## Static accessors so nothing is allocated per decision, because this stays on the hot think path.
 ## (Explicit types only, no ':=' inferred typing.)
 
@@ -54,6 +59,7 @@ static func species(c) -> String:
 	return String(c.species)
 
 
+## Cognizer `c`'s LINEAGE label (see the header). Not its band.
 static func family_id(c) -> int:
 	return int(c.family_id)
 

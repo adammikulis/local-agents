@@ -45,6 +45,8 @@ const TimelineScript: GDScript = preload("res://addons/local_agents/game/world/V
 const CampaignTutorialScript: GDScript = preload("res://addons/local_agents/game/ui/CampaignTutorial.gd")
 const SettingsApplierScript: GDScript = preload("res://addons/local_agents/game/world/VoxelSettingsApplier.gd")
 const WorldSaveControllerScript: GDScript = preload("res://addons/local_agents/game/progression/WorldSaveController.gd")
+const SimClockScript: GDScript = preload("res://addons/local_agents/sim/SimClock.gd")
+const BandChronicleScript: GDScript = preload("res://addons/local_agents/sim/ecology/BandChronicle.gd")
 
 # --- SOLAR-SYSTEM-FIRST: the world is a star + planet body (see TODO). Radial is the default; flat retired. ---
 # CELLULAR (Voronoi) relief: continents sit at the cell cores, valley networks run the cell borders → real
@@ -137,6 +139,7 @@ var _thought_panel: CanvasLayer = null # LACreatureThoughtPanel — click-a-crea
 var _events: Node = null     # LAEventTracker — the ONE emergent phenomenon-event source (streamer + telemetry consume it)
 
 # --- Focused controllers (each owns one cross-cutting concern) ---
+var _clock: LASimClock = null                   # the world's elapsed time (day count + time of day)
 var _sky_ctrl: LAVoxelSkyController = null      # star/sun + sky-mode wiring + day/night clock
 var _spawn: LAVoxelSpawnController = null       # initial ecology/actor spawning + counts + river springs
 var _gen_screen: LAGeneratingPlanetScreen = null   # "Generating planet" loading overlay (hides world assembly)
@@ -205,6 +208,12 @@ func _ready() -> void:
 		elif _input.run_frames() > 0 and OS.has_environment("LA_UNCAP"):
 			DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 			Engine.max_fps = 0
+
+	# --- The world's elapsed time. Built BEFORE the sky, which is now a consumer of it rather than the
+	# owner of a wrapping float that could never say what day it was. Everything dated reads LASimClock.
+	_clock = SimClockScript.new()
+	_clock.name = "SimClock"
+	add_child(_clock)
 
 	# --- Sun + sky + day/night + the star: owned by LAVoxelSkyController (cmdline-seeded clocks). ---
 	_sky_ctrl = SkyControllerScript.new()
@@ -540,6 +549,13 @@ func _ready() -> void:
 	save_ctrl.name = "WorldSaveController"
 	add_child(save_ctrl)
 	save_ctrl.setup(self)
+
+	# Social history: watches the band each animal has settled into (LACreatureAffiliation works that out
+	# from sustained association) and writes each settled change to the backstory store as a dated MEMBER_OF
+	# record. Owns its own store handle; all behaviour lives in LABandChronicle. LA_NO_CHRONICLE=1 disables.
+	var chronicle: LABandChronicle = BandChronicleScript.new()
+	chronicle.name = "BandChronicle"
+	add_child(chronicle)
 
 	# Timeline snapshot ring — smooth in-place reverse + fork (RAM ring, off in the harness unless LA_SNAPSHOTS=1).
 	var timeline: LAVoxelTimeline = TimelineScript.new()

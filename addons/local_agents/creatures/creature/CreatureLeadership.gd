@@ -126,13 +126,27 @@ static func local_superior(c, pos: Vector3, radius: float, loyalty: float):
 	return best   # null ⇒ no in-span superior nearby ⇒ c is a local root
 
 
-## Nearest mature same-species creature sharing c's `family_id` within `radius` — c's parent / family elder.
-## Offspring inherit a founder's family_id (see EcologyService), so same family_id == same lineage; a founder
-## with no kin nearby just gets null. Used so juveniles of `family`/`command`-mode species follow their
-## family's adult (who in turn follows the pack leader), forming the natural juvenile→parent→pack tree without
-## any explicit parent pointer. Skips the dead/carried/dying. Distance ties broken by the larger instance_id.
-static func nearest_family_adult(c, pos: Vector3, radius: float):
-	var fam: int = int(c.family_id)
+## Nearest mature same-species creature sharing c's LINEAGE within `radius` — c's parent / family elder.
+## Offspring inherit a founder's family_id (see EcologyService), so same family_id == same bloodline; a
+## founder with no kin nearby just gets null. Used so juveniles of `family`/`command`-mode species follow
+## their family's adult (who in turn follows the pack leader), forming the natural juvenile→parent→pack tree
+## without any explicit parent pointer. A juvenile follows its PARENT, which is descent, so this is the
+## lineage query and stays one — see nearest_band_adult below for the affiliation counterpart.
+## Skips the dead/carried/dying. Distance ties broken by the larger instance_id.
+static func nearest_lineage_adult(c, pos: Vector3, radius: float):
+	return _nearest_adult(c, pos, radius, LACreatureAffiliation.lineage_of(c), true)
+
+
+## Nearest mature same-species creature in c's BAND within `radius` — whoever it currently runs with, which
+## is not necessarily blood. This is what a lost herd animal homes toward (LACreatureFlocking._band_regroup):
+## a strayed rabbit rejoins the warren it belongs to now, not the litter it was born into.
+static func nearest_band_adult(c, pos: Vector3, radius: float):
+	return _nearest_adult(c, pos, radius, LACreatureAffiliation.band_of(c), false)
+
+
+## Shared body of the two queries above: nearest mature, live, free same-species creature whose lineage (or
+## band) integer matches `group`. One bounded spatial-hash query and a linear pass over its candidates.
+static func _nearest_adult(c, pos: Vector3, radius: float, group: int, by_lineage: bool):
 	var idx = LACreatureSenses._fresh_index(c, ["species_" + String(c.species)])
 	var cands: Array = idx.query("species_" + String(c.species), pos, radius)
 	var r2: float = radius * radius
@@ -142,7 +156,8 @@ static func nearest_family_adult(c, pos: Vector3, radius: float):
 	for m in cands:
 		if m == c or not is_instance_valid(m):
 			continue
-		if int(m.get("family_id")) != fam or not m.call("is_mature"):
+		var mine: int = LACreatureAffiliation.neighbour_lineage(m) if by_lineage else LACreatureAffiliation.neighbour_band(m)
+		if mine != group or not m.call("is_mature"):
 			continue
 		if m.get("_carcass") or m.get("_dead") or m.get("_held") or m.get("_dying"):
 			continue
@@ -154,7 +169,7 @@ static func nearest_family_adult(c, pos: Vector3, radius: float):
 			best_d2 = d2
 			best_id = mid
 			best = m
-	return best   # null ⇒ no adult kin nearby (orphan / founder) ⇒ fall back to rank/self
+	return best   # null ⇒ nobody of that group nearby (orphan / founder / newly exiled) ⇒ fall back to rank/self
 
 
 # ============================================================================================================
@@ -214,7 +229,7 @@ static func elect(c, pos: Vector3) -> void:
 	#    who in turn follows the pack leader → the family→pack tree self-assembles. Orphans (no adult kin
 	#    nearby) fall through to the rank rules; a matured creature stops following its parent.
 	if (c.hierarchy == "family" or c.hierarchy == "command") and not c.is_mature():
-		var guardian = nearest_family_adult(c, pos, radius)
+		var guardian = nearest_lineage_adult(c, pos, radius)
 		if guardian != null and not would_cycle(c, guardian, 8):
 			c._leader = guardian
 			c._is_leader = false

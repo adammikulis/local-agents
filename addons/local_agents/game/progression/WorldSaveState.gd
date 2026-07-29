@@ -12,7 +12,11 @@ extends RefCounted
 ##   * creatures:    species, transform, age, energy/hydration/health/breath, family_id, leadership role,
 ##                   llm_enabled, the heritable genome (LADNA strand + base_config/instincts/generation), and the
 ##                   LEARNED cognition (policy + cue_values) so a reloaded animal keeps what it learned.
-##   * fish:         species, transform, age, health, breath (aquatic actors have no cognition/kinship).
+##   * fish:         species, transform, age, health, breath, family_id (aquatic actors are outside the
+##                   kinship GRAPH, but they do carry the lineage label the shared cognition stack weights
+##                   imitation by, and it used to be dropped on every reload).
+##   * clock:        the world's elapsed time (LASimClock), so a reloaded world keeps its day count and the
+##                   dated records already written against it stay in the past.
 ##   * vegetation:   plant/tree/rock kind + transform (ambient scatter; re-instanced in place).
 ##   * kinship:      each creature's family GROUP + the directed lineage edges, remapped to stable save
 ##                   indices so the graph rebuilds correctly under the new instance ids a reload assigns.
@@ -58,6 +62,7 @@ static func capture(world) -> Dictionary:
 	if world._progression != null and world._progression.has_method("serialize"):
 		progression = world._progression.serialize()
 
+	var clock: LASimClock = LASimClock.active()
 	return {
 		"field": FieldSnapshotScript.capture(field),
 		"creatures": creatures,
@@ -65,6 +70,9 @@ static func capture(world) -> Dictionary:
 		"vegetation": vegetation,
 		"kinship": _capture_kinship(ecology, cid_to_index),
 		"progression": progression,
+		# Elapsed time. Without this a reloaded world was reborn on day zero, which made every dated record
+		# already in the backstory store belong to a future that had not happened yet.
+		"clock": clock.serialize() if clock != null else {},
 	}
 
 
@@ -107,6 +115,12 @@ static func _capture_fish(f) -> Dictionary:
 		"age": float(f.age),
 		"health": float(f.health),
 		"breath": float(f._breath),
+		# LAFish carries the same lineage label land creatures do (Fish.gd:110) and the shared cognition
+		# stack weights imitation by it, but it was persisted by nothing — so every reload silently reset
+		# every fish to being related to no other fish. Fish are not in the kinship GRAPH (only creatures
+		# are registered there), so the saved integer is restored verbatim: it is unique per saved fish, so
+		# whatever grouping existed is reproduced exactly.
+		"family_id": int(f.family_id),
 	}
 
 
@@ -160,6 +174,11 @@ static func _remap_edge_dict(src: Dictionary, cid_to_index: Dictionary) -> Dicti
 ## Re-instance every saved actor and rebuild kinship. Progression is applied separately (before this, by the
 ## controller) since it does not depend on the field/actors being up. Returns the number of creatures restored.
 static func apply_actors(world, data: Dictionary) -> int:
+	# Resume elapsed time first, so anything restored below that stamps a day gets the saved one rather than
+	# day zero. Restoring is not living through those days, so no day_advanced fires (see LASimClock.restore).
+	var clock: LASimClock = LASimClock.active()
+	if clock != null and data.has("clock"):
+		clock.restore(data.get("clock", {}))
 	var ecology = world._ecology
 	if ecology == null:
 		return 0
@@ -225,6 +244,8 @@ static func _apply_fish(ecology, fdat: Dictionary) -> void:
 		node.age = float(fd.get("age", 0.0))
 		node.health = float(fd.get("health", node.health))
 		node._breath = float(fd.get("breath", node._breath))
+		if fd.has("family_id"):
+			node.family_id = int(fd["family_id"])
 
 
 # Reconstruct the kinship graph under the new instance ids: group saved creatures by their saved family label,
