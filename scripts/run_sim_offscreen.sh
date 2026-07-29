@@ -76,10 +76,10 @@ for arg in "$@"; do
 done
 LOG_ARGS=()
 if [ -z "$TAP" ]; then
-  TAP="$(mktemp -t la_offscreen_tap)"
+  TAP="$(mktemp "${TMPDIR:-/tmp}/la_offscreen_tap.XXXXXX")"
   LOG_ARGS=(--log-file "$TAP")
 fi
-REASON_FILE="$(mktemp -t la_offscreen_reason)"
+REASON_FILE="$(mktemp "${TMPDIR:-/tmp}/la_offscreen_reason.XXXXXX")"
 # The tap duplicates output that already streamed to this script's stdout, so nothing is lost by
 # discarding it. `--log-file` rotates, so clear the siblings godot may have made next to it too.
 cleanup() {

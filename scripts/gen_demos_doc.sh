@@ -327,9 +327,9 @@ generate() {
 }
 
 # --- Modes --------------------------------------------------------------------------------------
-rendered="$(mktemp -t la_demos_doc)"
-body="$(mktemp -t la_demos_body)"
-diff_out="$(mktemp -t la_demos_diff)"
+rendered="$(mktemp "${TMPDIR:-/tmp}/la_demos_doc.XXXXXX")"
+body="$(mktemp "${TMPDIR:-/tmp}/la_demos_body.XXXXXX")"
+diff_out="$(mktemp "${TMPDIR:-/tmp}/la_demos_diff.XXXXXX")"
 trap 'rm -f "$rendered" "$body" "$diff_out"' EXIT
 
 generate "$rendered"
