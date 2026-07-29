@@ -70,7 +70,7 @@ run_one() {
   fi
 
   local log start rc elapsed marker
-  log="$(mktemp -t la_run_demo)"
+  log="$(mktemp "${TMPDIR:-/tmp}/la_run_demo.XXXXXX")"
   start="$(now_ms)"
   set +e
   ( cd "$REPO_ROOT" && "$GODOT" --headless --path . "$scene" -- --run-frames="$frames" ) >"$log" 2>&1 &
