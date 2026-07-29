@@ -43,8 +43,10 @@ Commands:
   dropin        Prove the addon works as a drop-in: stage a consumer project holding only
                 addons/local_agents/, author a scene with no script in it, and run it.
                 Set LA_GATE_MODEL=/path/to/model.gguf to also require a real reply.
-  lint          Run lint checks: no-direct-refcounted (gate) + file-length &amp;
-                policy markers (advisory).
+  lint          Run every structural gate: file length (soft 1300 warn / hard 1500 fail),
+                no-direct-refcounted, no ':=' typing, @tool write safety, demo catalogue,
+                public surface, library-only parse. Policy markers stay advisory.
+                CI runs this exact command, so a green here is a green there.
   -h | --help   Show this help and exit 0.
 
 Environment:
@@ -125,8 +127,19 @@ if [[ "$cmd" == "lint" ]]; then
   set +e
   {
     set +e
-    # Advisory: file-length soft limit (1000, matches docs + CI) never gates.
-    MAX_FILE_LINES=1000 "$SCRIPT_DIR/check_max_file_length.sh"
+    # Gate: file length, at the DOCUMENTED thresholds (soft 1300 warn, hard 1500 fail — the script's own
+    # defaults, which is what CLAUDE.md describes). This used to run at MAX_FILE_LINES=1000 as advisory,
+    # with the comment "matches docs + CI"; neither half was true. Docs said 1500, CI set 1000 — and CI's
+    # copy examined ZERO files because ripgrep is not installed on the runner, so it passed vacuously on
+    # every push. Three different numbers, none of them enforced. One number now, gating in both places.
+    set +e
+    "$SCRIPT_DIR/check_max_file_length.sh"
+    rc_len=$?
+    set -e
+    if [[ $rc_len -ne 0 ]]; then
+      echo "LINT_FAIL: check_max_file_length.sh ($rc_len)"
+      exit 1
+    fi
     # Advisory: policy/plan marker drift never gates.
     "$SCRIPT_DIR/check_policy_plan_markers.sh"
     # Gate: banning direct test_*.gd invocation is a genuine correctness check.
@@ -186,7 +199,7 @@ if [[ "$cmd" == "lint" ]]; then
       echo "LINT_FAIL: check_library_only.sh ($rc_libonly)"
       exit 1
     fi
-    echo "All lint gates passed (file-length + policy markers are advisory)."
+    echo "All lint gates passed (file length gates at soft 1300 / hard 1500; policy markers are advisory)."
     exit 0
   } 2>&1 | tee "$LOG_FILE"
   exit_code=${PIPESTATUS[0]}

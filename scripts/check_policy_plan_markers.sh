@@ -10,6 +10,9 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib_require.sh
+source "$SCRIPT_DIR/lib_require.sh"
+require_tool rg
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 AGENTS_FILE="$REPO_ROOT/AGENTS.md"

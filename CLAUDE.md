@@ -440,9 +440,21 @@ rediscover.
     the glob listed source extensions only, and nobody reads to the bottom of a file that long, so the
     claims down there go stale unchecked. **`HANDOFF.md` is subject to this too** — when it approaches
     1300, split it (the per-session log is the part to move out; the roadmap and "Next" list stay).
-  - **The harness runs it ADVISORY (`agent_harness.sh lint` prints warnings and does not gate);
-    CI runs it as a HARD GATE** (three call sites in `.github/workflows/godot-headless-tests.yml`). So a
-    green local lint does not mean a green CI. Read the warnings.
+  - **`scripts/agent_harness.sh lint` IS the gate, and CI runs that exact command**, so a green local lint
+    is a green CI. Do not add a check to one and not the other. *(Fixed 2026-07-29. Before that: the
+    thresholds disagreed three ways — this doc said 1500, `agent_harness.sh lint` ran at 1000 as advisory
+    with a comment claiming it "matches docs + CI", and CI set 1000 in a step named "800 soft warn, 1000
+    hard gate". Worse, none of them enforced anything: **`rg` is not installed on the GitHub runner**, so
+    `rg --files` failed, the file list came back empty, and the check printed "No matching files found"
+    and exited 0 on every push for months. `check_no_direct_refcounted_invocation.sh` wrapped its `rg` in
+    `|| true` and reported "passed" the same way. CI also never ran the `:=` typing ban, `@tool` write
+    safety, the demo catalogue, the public-surface check or library-only parse — all five are in `lint`,
+    which CI now calls.)*
+  - **A gate that cannot run must FAIL, never pass.** `scripts/lib_require.sh` provides `require_tool`;
+    every gate that needs `rg` calls it and exits **2** (distinct from a violation's 1) when it is absent.
+    When you write a new gate, ask what happens if its tool, its target file, or its input log is missing —
+    if the answer is "the `if` is false so the step succeeds", you have written a gate that can only ever
+    pass. Three of them shipped that way here.
 - **Do NOT add to a file that is already over the smell threshold.** If a change would grow an
   ≥1300-line file, first REFACTOR: extract the relevant responsibility into a NEW focused module (or add
   your new code as a new file), then make the edit there. Never push a file past the 1500-line hard limit
