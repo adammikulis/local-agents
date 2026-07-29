@@ -585,6 +585,34 @@ the fuel/fertility/storm-charge fixes are HELD on `integ/substrate-cognizer` pen
   from space; sea + islands render). Merged to 0.4-dev. `#18/#20/#21/#23`.
 
 **Next — pick up here:**
+
+A. **Backstory as the creature social/memory substrate (NEW, 2026-07-29; the store is wired to
+   `LocalAgent` and everything below is now a config away rather than a build).** Reading the API
+   instead of the nouns changed what this is worth. Three things the sim currently fakes or lacks have
+   a first-class representation sitting unused:
+   - **Factions replace `family_id`.** Group identity is `var family_id: int = get_instance_id()`
+     (`Creature.gd:250`, `Fish.gd:110`): an integer that has no name, dies with its members, and cannot
+     relate to another group. `upsert_faction` + `add_relationship(npc, faction, "MEMBER_OF", from_day,
+     to_day, ..., exclusive)` gives a warren an existence independent of the rabbits in it, gives a
+     creature a membership HISTORY when it leaves one pack for another, and makes rival packs and
+     allied herds expressible as faction-to-faction relationships. Start here: it is the smallest change
+     with the largest reach, because kin logic already keys off `family_id` everywhere.
+   - **Quests are the long-horizon intention the cognition stack has no representation of.** Drives are
+     per-tick. Nothing holds "I have been trying to do X since day N, and here is where I got to".
+     `update_quest_state(npc_id, quest_id, state, world_day, is_active)` is exactly that, and in this
+     codebase it is not authored content: it is a record of an intention a creature FORMED, which is
+     what the slow brain is for and what it currently cannot remember having decided. A nesting bird, a
+     migrating herd, an animal seeking territory after being driven out.
+   - **Oral knowledge is most of the signal spine** item 4 points at. `record_oral_knowledge` +
+     `link_oral_knowledge_lineage(source, derived, speaker, listener, transmission_hops, world_day)` is
+     knowledge spreading creature to creature WITH PROVENANCE, so a rumour can be traced, distorted
+     across hops, and be wrong. Pair it with `upsert_npc_belief` vs `upsert_world_truth` and
+     `get_belief_truth_conflicts` and a creature can hold a belief the world contradicts, which is the
+     substrate for the affinity/veto learning in item 1 rather than a parallel system.
+   Sequencing: factions first (mechanical, replaces an existing field), then quests (needs a slow-brain
+   hook to write them), then oral knowledge (needs the other two). None of it needs a model: the store
+   is SQLite and only semantic recall wants embeddings.
+
 0. **Water — the maintainer's eye (can't headless well):** close-up sea/lake *aesthetics* (fly to a coast — the
    near-cap patch looked blocky at overview distance, should read better up close); tune spring/rain so visible
    flowing RIVERS emerge (the terrain drains to the sea + has few enclosed basins, so the SEA is the abundant
@@ -598,8 +626,9 @@ the fuel/fertility/storm-charge fixes are HELD on `integ/substrate-cognizer` pen
 3. **Deeper evolution** — for coherent deep-generation runs, also scale metabolism/eating with
    `LA_EVO_FAST` (only life-events are compressed now, so high factors starve the population).
 4. **Phases 1–5 below still stand** (signal spine · nutrient cycle · pet companion) — the affinity/scent-cue
-   path is a partial down-payment on the signal spine.
-5. **Bigger planet** — DONE (2×, radius 500; field shell scales with radius at fixed cell_count).
+   path is a partial down-payment on the signal spine, and item A above is the other half: scent carries
+   a signal through the air, oral knowledge carries one from creature to creature with provenance. Read
+   A before designing the spine from scratch, the store already models the hard part.
 6. **Windowed feel-tuning** (the maintainer's eye, can't headless): camera arc pose + ground brightness
    (`SURFACE_AMBIENT`) · disease *look* (a sick-animal visual tell was left for tuning — the emissive
    tint-overlay path in `Creature._apply_tint_overlay` conflicts with the debug behavior-tint, so wire it
@@ -770,6 +799,15 @@ Where 0.3 went broad (the game + emergent world), **0.4 goes deep on the creatur
 of a life**, all emergent (one substrate, reaction engine, config over `if species==X`). The creatures are the
 star (local LLMs driving the minds). **This section is the approved, sequenced plan** (idea bank:
 `docs/0.4_CREATURE_FEATURES.md`; split plan: `docs/0.4_PARALLELIZATION_GUIDE.md`).
+
+> **2026-07-29: the memory/social substrate for this release already exists and is now reachable.**
+> `graph/BackstoryGraphService.gd` is wired to `LocalAgent` (see "Next — pick up here", item A). It
+> supplies factions with dated membership (the real version of `family_id`), persistent per-creature
+> goals with state across days (the long-horizon intention the per-tick drive stack lacks), oral
+> knowledge with transmission lineage and hop counts, and per-creature belief that can contradict world
+> truth. Design the signal system with that in hand: the "deception" the scope note expects to fall out
+> is `upsert_npc_belief` disagreeing with `upsert_world_truth`, and "dialects" are lineage distortion
+> across hops. Nothing here needs a model. It is SQLite; only semantic recall wants embeddings.
 
 **Scope decisions (locked):** full living-creatures release, **sequenced** (no single centerpiece) · build ONE
 **general signal system first**, then every call/scent/display composes in (deception/dialects fall out) ·
