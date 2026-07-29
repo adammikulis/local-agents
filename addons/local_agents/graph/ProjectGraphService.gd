@@ -8,7 +8,11 @@ const CODE_SPACE: String = "code"
 const DIRECTORY_SPACE: String = "code_dir"
 const DEFAULT_EXTENSIONS: Array[String] = ["gd", "tscn", "tres", "cs", "gdshader", "cfg"]
 
-var _graph: NetworkGraph
+# Typed Object, not NetworkGraph. That class comes from the native GDExtension, and a consumer who has
+# enabled the plugin but not yet built or downloaded the binary would otherwise get a PARSE error here
+# rather than the "native runtime unavailable" message LocalAgentStatus exists to show them. The
+# runtime guard below was always right; the type annotation was what broke a first install.
+var _graph: Object = null
 var _runtime: Object = null
 
 func _ready() -> void:
@@ -127,7 +131,7 @@ func _ensure_graph() -> bool:
     if not ClassDB.class_exists("NetworkGraph"):
         push_error("NetworkGraph extension unavailable")
         return false
-    _graph = NetworkGraph.new()
+    _graph = ClassDB.instantiate("NetworkGraph")   # by name: see the _graph declaration
     DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(STORE_DIR))
     if not _graph.open(ProjectSettings.globalize_path(DB_PATH)):
         push_error("Failed to open network graph database for project graph")

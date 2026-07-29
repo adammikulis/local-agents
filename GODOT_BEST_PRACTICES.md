@@ -475,3 +475,31 @@ run_one "$name" "$frames" || rc=$?
   from a reviewer, a handoff document, a previous session, and your own earlier reasoning.
 - Quick check: before reverting working code on a claim about engine behaviour, write the four-line scene
   that demonstrates the behaviour and run it.
+
+### 2026-07-29: a `class_name` from a GDExtension is a PARSE-time dependency, and a symlinked `bin/` hid it
+
+- Failure: `feature/addon-ux` merged into `0.4-dev` with every gate green in the authoring worktree, and
+  `check_library_only.sh` immediately failed in the primary checkout with
+  `Parse Error: Could not find type "NetworkGraph"` from `controllers/ConversationStore.gd` and
+  `graph/ProjectGraphService.gd`. Both files declared `var _graph: NetworkGraph` and called
+  `NetworkGraph.new()`, where `NetworkGraph` comes from the native GDExtension.
+- Why it matters: both files ALREADY guarded correctly at runtime with
+  `if not ClassDB.class_exists("NetworkGraph")`. The authors knew the class was optional. But a type
+  annotation and a constructor call are resolved when the script is PARSED, so a consumer who enabled
+  the plugin before building or downloading the binary got a parse error instead of the
+  "native runtime unavailable" message `LocalAgentStatus` exists to give them. The guard was right and
+  unreachable.
+- Why the worktree said OK: the gate stages the addon with `rsync --exclude 'gdextensions/localagents/bin/'`.
+  In a worktree `bin/` is a SYMLINK (per the setup in CLAUDE.md), and a trailing-slash directory exclude
+  does not match a symlink, so the extension was copied in and every native class resolved. In the
+  primary checkout `bin/` is a real directory, the exclude matched, and the truth appeared.
+- Preventative pattern:
+  - For any class that comes from a GDExtension, type the variable `Object` and construct it with
+    `ClassDB.instantiate("TheClass")`. Keep the `ClassDB.class_exists()` guard. A `has_method()` call
+    site needs no annotation, so nothing is lost.
+  - Treat a green gate in the authoring worktree as UNCERTIFIED for other checkouts, especially when the
+    gate copies files: a worktree's symlinked `bin/` makes it a different filesystem shape from the
+    primary. Re-run the gate in the merge target before believing it, which is the same lesson as the
+    2026-07-08 `.glsl` `.import` entry, arriving by a different route.
+  - When an rsync exclude is load-bearing for what a gate proves, verify the exclude actually excluded:
+    `ls <staged>/…/bin` after staging, not just a clean exit code.

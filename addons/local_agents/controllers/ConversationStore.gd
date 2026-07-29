@@ -7,7 +7,10 @@ const DB_PATH: String = STORE_DIR + "/network.sqlite3"
 const CONVERSATION_SPACE: String = "conversation"
 const MESSAGE_SPACE: String = "message"
 
-var _graph: NetworkGraph
+# Typed Object, not NetworkGraph. That class comes from the native GDExtension, so annotating against
+# it makes this file a PARSE error for anyone who enabled the plugin before building the binary. The
+# ClassDB.class_exists() guard below was always right; the annotation was what broke a first install.
+var _graph: Object = null
 var _runtime: Object = null
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
@@ -176,7 +179,7 @@ func _ensure_graph() -> bool:
     if not ClassDB.class_exists("NetworkGraph"):
         push_error("NetworkGraph extension unavailable")
         return false
-    _graph = NetworkGraph.new()
+    _graph = ClassDB.instantiate("NetworkGraph")   # by name: see the _graph declaration
     DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(STORE_DIR))
     var ok: bool = _graph.open(ProjectSettings.globalize_path(DB_PATH))
     if not ok:
