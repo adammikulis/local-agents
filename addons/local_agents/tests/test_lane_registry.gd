@@ -17,6 +17,11 @@ const DETERMINISTIC_TESTS: Array[String] = [
 	"res://addons/local_agents/tests/test_native_option_contract.gd",
 	"res://addons/local_agents/tests/test_node_behaviour.gd",
 	"res://addons/local_agents/tests/test_node_frames.gd",
+	# A LocalAgent with a backstory service attached actually remembers. Deterministic: it needs the
+	# native NetworkGraph for the SQLite store, but no model and no llama-server, and it asserts on the
+	# recalled TEXT rather than on any call reporting ok, because the first version of that wiring
+	# returned ok everywhere and recalled nothing.
+	"res://addons/local_agents/tests/test_agent_backstory.gd",
 ]
 
 const INTEGRATION_TESTS: Array[String] = []

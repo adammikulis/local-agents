@@ -59,6 +59,7 @@ const AgentHistory: GDScript = preload("res://addons/local_agents/agents/AgentHi
 const AgentJobs: GDScript = preload("res://addons/local_agents/agents/AgentJobs.gd")
 const AgentServer: GDScript = preload("res://addons/local_agents/agents/AgentServer.gd")
 const AgentSpeech: GDScript = preload("res://addons/local_agents/agents/AgentSpeech.gd")
+const AgentBackstory: GDScript = preload("res://addons/local_agents/agents/AgentBackstory.gd")
 
 @export_group("Model")
 
@@ -157,6 +158,36 @@ const AgentSpeech: GDScript = preload("res://addons/local_agents/agents/AgentSpe
 ## Two agents handed the same graph resource write into one shared record.
 @export var memory_graph: LocalAgentGraph = null
 
+## Optional long memory. Assign a LocalAgentBackstoryGraphService node and this agent also writes every
+## line into a SQLite store that can be searched semantically and survives the session, on top of the
+## Memory Graph above. The two answer different questions and both can be on: the graph is the literal
+## transcript, this is what the character can be reminded of later.
+@export var backstory: LocalAgentBackstoryGraphService = null:
+    set(value):
+        backstory = value
+        _sync_backstory()
+
+## Who this agent is in that store. Two agents sharing one id share one set of memories, which is what
+## you want for the same character across scenes and not what you want for two different characters.
+## Empty disables the long memory even when a service is assigned, because an unnamed character cannot
+## be looked up again.
+@export var npc_id: String = "":
+    set(value):
+        npc_id = value
+        _sync_backstory()
+
+## Display name written into the store the first time this agent is seen. Cosmetic: it is what a
+## debugger or a relationship query shows instead of a bare id.
+@export var npc_display_name: String = ""
+
+## Put the memories most relevant to each prompt in front of the model before it answers. Off by
+## default because it costs tokens on every turn and only helps once there is something remembered.
+@export var recall_memories: bool = false
+
+## How many memories to recall. Kept small deliberately: this text is prepended to every request, and a
+## long wall of half-relevant memory makes replies worse, not better.
+@export_range(1, 32, 1) var recall_limit: int = 6
+
 ## Reserved. Handed to the native agent node, which stores it and does not read it yet. Conversation
 ## persistence currently goes through ConversationStore, not this. Kept because it is part of the
 ## native node's published surface.
@@ -172,12 +203,29 @@ var _history: AgentHistory = AgentHistory.new()
 var _jobs: AgentJobs = AgentJobs.new()
 var _server: AgentServer = AgentServer.new()
 var _speech: AgentSpeech = AgentSpeech.new()
+var _backstory: AgentBackstory = AgentBackstory.new()
 # The player's saved in-game model settings, read once on first use. Null until Use Player Settings
 # is on and a settings file exists.
 var _player_store: LocalAgentModelSettingsStore = null
 # model_path of the profile configure() was last handed. Sits below this node's own Model Path in the
 # resolution order and above the project-wide default.
 var _configured_model_path: String = ""
+
+## Keep the backstory module pointed at whatever the inspector currently says. Called from the setters
+## rather than only from _ready() so changing the slot or the id on a live agent takes effect.
+func _sync_backstory() -> void:
+    if _backstory == null:
+        return
+    _backstory.attach(backstory, npc_id, npc_display_name)
+
+
+## Memories worth putting in front of `prompt`, as a system message, or "" when there are none. Public
+## because a caller driving the native node directly still wants the recall.
+func recall_context(prompt: String) -> String:
+    if not recall_memories:
+        return ""
+    return _backstory.recall(prompt, recall_limit)
+
 
 func _ready() -> void:
     if Engine.is_editor_hint():
@@ -186,6 +234,9 @@ func _ready() -> void:
         push_warning("Local Agents extension unavailable; agent node inactive")
         return
     _speech.attach(self)
+    # Also here, not only in the setters: during scene load the exports arrive one at a time, so the
+    # slot can be assigned before the id and display name are.
+    _sync_backstory()
     if not agent_node.is_connected("message_emitted", Callable(self, "_on_agent_message")):
         agent_node.connect("message_emitted", Callable(self, "_on_agent_message"))
     if not agent_node.is_connected("action_requested", Callable(self, "_on_agent_action")):
@@ -325,6 +376,7 @@ func _refresh_warnings() -> void:
 
 func submit_user_message(text: String) -> void:
     _history.submit_user_message(history, text, memory_graph)
+    _backstory.record("user", text)
 
 # Re-emit the native AgentNode signals on this wrapper so scenes can listen to
 # LocalAgent directly (message_emitted / action_requested). These are the
@@ -340,6 +392,7 @@ func think(prompt: String, extra_opts: Dictionary = {}) -> Dictionary:
     if not _ensure_agent_node():
         return {"ok": false, "error": "agent_unavailable"}
     _history.apply_system_prompt(history, system_prompt, agent_node)
+    _apply_recall(prompt)
     if prompt != "":
         submit_user_message(prompt)   # skip empties (the LLMClient path supplies opts.messages instead)
     var opts: Dictionary = _merged_options(extra_opts)
@@ -458,10 +511,25 @@ func _run_think(prompt: String, opts: Dictionary) -> Dictionary:
     return agent_node.think(prompt, opts)
 
 # Main-thread side effects of a completed think (sync or async): record the reply + emit + optionally speak.
+## Put recalled memories into the history as a system message, ahead of the line being answered, so
+## they read to the model as things this character knows rather than as something the user just said.
+## Recorded in history rather than glued onto the prompt string so it survives into the messages array
+## the llama-server backend sends, which never sees the raw prompt.
+func _apply_recall(prompt: String) -> void:
+    var context: String = recall_context(prompt)
+    if context == "":
+        return
+    history.append({
+        "role": "system",
+        "content": "Things you remember, most relevant first:\n" + context,
+    })
+
+
 func _post_think(result: Dictionary) -> void:
     var text: String = String(result.get("text", ""))
     if text != "":
         _history.record_assistant_message(history, text, memory_graph)
+        _backstory.record("assistant", text)
         emit_signal("model_output_received", text)
         if _should_speak_response():
             _speech.speak_async(text, voice, _current_runtime_dir())
