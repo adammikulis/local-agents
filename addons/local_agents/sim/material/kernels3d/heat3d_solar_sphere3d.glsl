@@ -32,7 +32,8 @@
 // FAR FROM THE CENTRE, independent of where the sun is, so snow caps the highest terrain on the equator too and
 // the treeline descends toward the poles (where the insolation base is already low). No special-case "mountain"
 // or "snow" code — the cold peak falls out of one lapse term over the shared position field.
-// Constants copied from MaterialHeat3D.gd; LAPSE tuned for the PLANET_RELIEF≈16 / sea_radius≈248 world scale.
+// Constants originated in MaterialHeat3D.gd, which is deleted — see the note above the constant block, which
+// already says so. LAPSE is tuned for the PLANET_RELIEF≈16 / sea_radius≈248 world scale.
 
 layout(local_size_x = 64) in;
 

@@ -12,7 +12,9 @@
 // surface given as a radius (sea_radius). The sea_water_target curve itself is byte-for-byte the box's
 // (warm skin near the surface decaying to the cold deep floor across THERMOCLINE_SCALE). This is the one
 // non-trivial change; everything else — the wet-cell gate, the knife-edge water >= 0.05 test, the relax
-// math — is IDENTICAL. Constants copied EXACTLY from MaterialHeat3D.gd — do not diverge.
+// math — is IDENTICAL. The constants originated in MaterialHeat3D.gd, which no longer exists (nor does any
+// box kernel: kernels3d/ holds only *_sphere3d.glsl now), so this file is their sole home. Nothing is left
+// to keep them in sync with; edit them here.
 
 layout(local_size_x = 64) in;
 
@@ -29,7 +31,18 @@ layout(push_constant, std430) uniform Params {
 	float pad1;
 } params;
 
-// Constants — MUST match MaterialHeat3D.gd exactly.
+// Constants — AUTHORITATIVE HERE, no mirror to match.
+// (Corrected 2026-07-29: this line said "MUST match MaterialHeat3D.gd exactly". That file is deleted, so the
+// instruction sent readers looking for a mirror that does not exist and implied a parity contract that ended
+// when the CPU heat module did.)
+//
+// WARNING, and the reason this is not merely a stale comment: SST_SURFACE / WATER_TEMP_DEEP make the ocean a
+// THERMOSTAT, not a body of water. Every wet cell is dragged toward this fixed profile, so sea-surface
+// temperature is 26 °C by fiat at every latitude, in every season, forever — it cannot respond to insolation,
+// to an impact winter, or to a volcano. That, plus the absence of any radiative sink (nothing here computes
+// T^4 emission to space; heat3d_solar relaxes toward a target instead), is why FREEZE_TEMP had to be moved to
+// 12.5 °C in MaterialReactions3D.gd and why arc volcanoes are kept artificially rare in PlateTectonics.gd.
+// Replacing this with a real energy balance is tracked as the radiative-sink work in HANDOFF.md.
 const float WATER_COOL_RATE = 0.12;
 const float SST_SURFACE = 26.0;
 const float WATER_TEMP_DEEP = 10.0;
@@ -55,7 +68,8 @@ const float LAVA_QUENCH_FRAC = 0.7;     // fraction of the gap to the cold sea t
 const float HOT_SPRING_MARGIN = 15.0;   // °C above the marine target beyond which a LAND cell counts as a spring
 const float HOT_SPRING_COOL_FRAC = 0.06; // hot land springs relax ~16x slower than the marine rate
 
-// Sea thermal profile — MUST match MaterialHeat3D.sea_water_target(): warm skin near the surface decaying
+// Sea thermal profile (formerly mirrored by MaterialHeat3D.sea_water_target(), now deleted — this is the only
+// copy): a warm skin near the surface decaying
 // with depth toward the cold deep floor (thermocline). On the sphere `wy` is the cell RADIUS and `sea` the
 // sea-surface RADIUS, so `depth = max(0, sea - radius)` is the radial depth below the surface — the exact
 // analog of the box's height-below-sea-level. The math is unchanged.

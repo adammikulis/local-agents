@@ -133,9 +133,12 @@ const MELT_RATE: float = 0.05            # per-step k on the above-threshold sno
 # it only bit at hspeed>~22, and sediment-capped extent stays bounded regardless).
 const LOFT_WIND: float = 6.0             # horizontal wind speed a dry surface must exceed to loft sand
 const LOFT_RATE: float = 0.003           # sediment lofted per step per unit wind OVER the threshold
-# SETTLE (M3, susp→sediment): turbid water drops its load when calm. susp is a DEAD phase today (no erosion
-# source on the sphere populates it), so this record is a NO-OP that is authored now so the clean transition
-# exists by construction; when Stage D erosion feeds susp, it settles without a new kernel. CONST_FRAC.
+# SETTLE (M3, susp→sediment): turbid water drops its load when calm. CONST_FRAC.
+# (Corrected 2026-07-29: this said "susp is a DEAD phase today (no erosion source on the sphere populates it),
+# so this record is a NO-OP". It is LIVE. ErosionPickupPass is registered at MaterialSphereGPU3D.gd:51,
+# immediately before ReactionsPass so this record reads the freshly-scoured susp in the same step. The same
+# false claim, that the erosion pickup kernel did not exist, sat in HANDOFF.md for weeks and sent work at a
+# problem that was already solved.)
 const SUSP_SETTLE_RATE: float = 0.05     # per-step fraction of suspended sediment that settles out when calm
 
 # --- WEATHERING (Stage D, rock_fill→sediment): frost/thermal breakdown of exposed bedrock into the transportable
@@ -252,9 +255,11 @@ static func records() -> Array:
 			GATE_DRY | GATE_NOT_RAINING, LOFT_WIND),
 
 		# M3 — SUSP SETTLE (suspended → loose): calm turbid water drops its load. CONST_FRAC on SUSP →
-		# SEDIMENT (own-cell, conserving). susp is a DEAD phase until Stage D erosion populates it, so this is
-		# an inert forward-looking record today (fires on all-zero susp → no-op); it makes the clean transition
-		# exist by construction so erosion needs no new settle kernel.
+		# SEDIMENT (own-cell, conserving). This record is LIVE: ErosionPickupPass (MaterialSphereGPU3D.gd:51)
+		# scours rock_fill into susp immediately before ReactionsPass, so the settle reads the same step's
+		# suspension and closes rock→susp→sediment→rock.
+		# (Corrected 2026-07-29: said "susp is a DEAD phase until Stage D erosion populates it, so this is an
+		# inert forward-looking record today". Stage D landed; the comment did not.)
 		_rec(CONST_FRAC, SUSP_SETTLE_RATE, SUSP, [[SUSP, 1.0]], [[SEDIMENT, 1.0, TGT_SELF]], 0),
 
 		# M5 — LAVA SOLIDIFY (molten → bedrock): lava colder than SOLIDIFY_TEMP freezes to rock. Runs in the open

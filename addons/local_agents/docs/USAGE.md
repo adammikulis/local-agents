@@ -42,7 +42,7 @@ Core library directories:
 | `editor/` | the Local Agents bottom panel and its Setup checklist |
 | `examples/` | the example scenes and the demo catalogue under `examples/demos/` |
 | `icons/` | the node icons that show up in Add Node |
-| `docs/` | this file, plus README.md, INSTALL.md, API.md, DEMOS.md and the images under `img/` |
+| `docs/` | this file, plus README.md, INSTALL.md, the API reference (API.md and its API_*.md pages), DEMOS.md and the images under `img/` |
 | `gdextensions/` | the native runtime source, and its compiled `bin/` |
 | `tests/` | the headless test suite |
 
