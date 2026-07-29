@@ -14,7 +14,7 @@
 set -uo pipefail
 SELF="$(cd "$(dirname "$0")" && pwd)"
 SET="${1:-quick}"; [ "$SET" = "--path" ] && SET="quick"   # allow flags-first
-DIR="."; OUT="/private/tmp/claude-501/-Users-adammikulis-Documents-repos-godot-local-agents/69654869-7907-4b7e-92ed-b2ce1104a628/scratchpad/shots/suite"
+DIR="."; OUT="${LA_SHOT_DIR:-${TMPDIR:-/tmp}/local-agents-shots/suite}"   # was a hardcoded agent-session scratchpad path
 shift 2>/dev/null || true
 while [ $# -gt 0 ]; do case "$1" in --path) DIR="$2"; shift 2;; --out) OUT="$2"; shift 2;; *) shift;; esac; done
 mkdir -p "$OUT"

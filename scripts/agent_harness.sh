@@ -23,7 +23,12 @@ MAIN_SCENE="res://addons/local_agents/game/menu/MainMenu.tscn"
 # its own scene root (the "DEBUG" banner + Qwen model list), which would otherwise pop up in front.
 export LA_OFFSCREEN="${LA_OFFSCREEN:-1}"
 
-DEFAULT_LOG_DIR="/private/tmp/claude-501/-Users-adammikulis-Documents-repos-godot-local-agents/875e28b8-01fe-4c33-9e93-4e0845b300cd/scratchpad"
+# Portable default. This was an absolute path into one agent session's scratchpad
+# (/private/tmp/claude-501/.../875e28b8-.../scratchpad), committed to the repo. It happened to exist on
+# the machine that wrote it, so nobody noticed — until CI started running this script and `mkdir -p`
+# on /private/... failed for a non-root user on Linux, killing the step under `set -euo pipefail`.
+# Override with LOG_DIR when you want the logs somewhere specific.
+DEFAULT_LOG_DIR="${TMPDIR:-/tmp}/local-agents-harness-logs"
 LOG_DIR="${LOG_DIR:-$DEFAULT_LOG_DIR}"
 
 usage() {
@@ -76,7 +81,14 @@ case "$cmd" in
 esac
 
 cd "$REPO_ROOT"
-mkdir -p "$LOG_DIR"
+# Say WHY when the log directory cannot be created. Under `set -euo pipefail` a bare `mkdir -p` failure
+# exits with nothing but "mkdir: ..." on stderr, which is exactly what a CI job saw: the lint step died in
+# 20 seconds having run no gates, and the output gave no hint that logging was the problem, not linting.
+if ! mkdir -p "$LOG_DIR" 2>/dev/null; then
+  echo "agent_harness: cannot create log directory '$LOG_DIR'." >&2
+  echo "               NO GATES HAVE RUN. Set LOG_DIR to a writable path and re-run." >&2
+  exit 2
+fi
 LOG_FILE="$LOG_DIR/agent_harness_${cmd}_$(date +%s).log"
 
 # --- build the child command as an argv array --------------------------------
