@@ -162,6 +162,20 @@ committed). When removing files:
   time-scale** (run N sim steps per render frame) so geological time compresses to seconds — never wait
   real-time for something you can accelerate. Parallelize (fan out subagents), pick the cheapest run that
   proves the point, and cut anything that makes the loop slower than it needs to be.
+  - **`--fast=N` DID NOTHING AT ALL until 2026-07-29, so discount any measurement that leaned on it.**
+    `Engine.time_scale` had two owners: `VoxelWorld.parse_cmdline()` applied `--fast` through the pause
+    menu at `VoxelWorld.gd:177`, and `LAVoxelTimeControl` was built ~114 lines later at `:291` where its
+    `_ready() -> _apply()` reset the global to 1.0×. A runtime probe under `--fast=8` read back
+    `time_scale 1.000` with delta exactly 1/60. Matched 300-frame runs: 135 field steps at `--fast=1`
+    versus 113 at `--fast=8`. Fixed by giving the global ONE owner (`LAVoxelTimeControl.set_multiplier`,
+    applied after that node exists). Now measured: 114 field steps → **5705**, and 0.06 → **3.97 sim
+    days**, which is the first time the day-rollover path has ever executed.
+  - **USE `--fast=2`. At `--fast>=4` the population dies.** Measured same-seed, 150 frames: `--fast=2`
+    keeps 180 creatures with biomass 8939; `--fast=4` reaches 1.56 sim days with **0 creatures left**.
+    Creatures tick on the scaled delta while the field is capped by `Engine.max_physics_steps_per_frame`,
+    so consumption outruns regrowth. This is the "high-`--fast` field desync" already listed under 0.4's
+    Livability risks — it was theoretical only because the flag was inert. Until the two clocks are
+    reconciled, a high multiplier measures a starving world, not a fast one.
 - **NON-INTERACTIVE RUNS MUST NOT INTERRUPT THE USER — use `scripts/run_sim_offscreen.sh`.** Metal/GPU runs
   need a real window (headless has no compute device), and a Godot window both APPEARS on-screen AND STEALS
   KEYBOARD FOCUS at launch — a hard interruption. The wrapper `scripts/run_sim_offscreen.sh` fixes both:

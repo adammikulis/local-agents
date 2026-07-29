@@ -291,6 +291,9 @@ func _ready() -> void:
 	_time_control = TimeControlScript.new()
 	add_child(_time_control)
 	_time_control.set_camera(_camera)
+	# --fast=N applies HERE, after its owner exists. parse_cmdline() runs ~114 lines earlier, so a speed set
+	# there was overwritten by this node's own _ready(), and the flag did nothing at all.
+	_time_control.set_multiplier(float(_input.fast_multiplier()))
 
 	# --- Procedural audio ---
 	_audio = AudioDirectorScript.new()
