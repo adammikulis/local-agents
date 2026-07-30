@@ -37,8 +37,34 @@ layout(push_constant, std430) uniform Params {
 // VOID_CONDUCT ≈ the old 0.14 relax-to-mean spread over 6 open bonds (air/water mix briskly). ROCK_CONDUCT is
 // ~6× lower so the crust insulates: the deep interior stays near the core pin while the surface equilibrates to
 // the solar/radiative ambient band. Tuned so a 1300°C core coexists with a temperate (~15-30°C) surface.
-const float VOID_CONDUCT = 0.016;
-const float ROCK_CONDUCT = 0.004;
+// VOID_CONDUCT cut 0.016 -> 0.0015 (about 10x). AIR IS A POOR CONDUCTOR; it moves heat by ADVECTION.
+//
+// At 0.016 per bond, ~0.096 per step over six bonds, the atmosphere equilibrated globally in roughly ten
+// steps — it conducted like a metal, so the whole planet sat near one temperature and a pole could not
+// stay cold no matter what the radiation budget did. This is precisely the behaviour the deleted
+// ATMOS_RELAX anchor was invented to fight: its comment records that "brisk lateral air mixing slowly
+// HOMOGENIZED the equator-to-pole gradient". The response then was to re-assert the gradient by fiat at a
+// rate tuned to outvote conduction. The cause was the conductivity itself.
+//
+// Real air has a thermal conductivity around 0.026 W/m/K against ~2 for rock and ~200 for aluminium — it
+// is an insulator, and Earth's equator-to-pole heat transport is done by WIND and ocean currents, not by
+// conduction. This sim already has the advection: GasWindPass moves temp with the wind field. Lowering
+// conduction lets that be the transport instead of a competitor to it.
+const float VOID_CONDUCT = 0.0015;
+// ROCK_CONDUCT cut 0.004 -> 0.0002 (20x) so the crust actually INSULATES.
+//
+// Measured 2026-07-30, with every prescribed temperature target removed: the planet's floor sat at
+// 11.06 C and its mean at 40.6 C, set by geothermal conduction from the 1300 C core rather than by the
+// sun — cutting the solar constant 20% moved the mean by ONE degree. The old hardcoded night floor,
+// AMBIENT_NIGHT = 13.0, was approximately that geothermal equilibrium: the prescribed target had been
+// tracking a real effect at the wrong scale the whole time.
+//
+// On Earth the surface geothermal flux is ~0.087 W/m^2 against ~340 W/m^2 of insolation, a ratio of about
+// 1:4000 — the interior is thermally almost irrelevant at the surface, which is exactly why the sun sets
+// the climate there. Here it was the senior partner. A thinner conductive path is the physical lever: the
+// core stays hot (it is still 1300 C, and a deep cave or a magma chamber is still hot), but that heat no
+// longer floods the surface faster than the surface can radiate it away.
+const float ROCK_CONDUCT = 0.0002;
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;
