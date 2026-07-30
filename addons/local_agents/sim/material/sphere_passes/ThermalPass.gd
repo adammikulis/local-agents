@@ -16,8 +16,12 @@ extends RefCounted
 ##                                on temp, reads post-flow water + solid + per-cell world Pos(3, vec4) + lava(4)
 ##                                and a sea_radius push param. A wet cell carrying lava QUENCHES hard (the
 ##                                submerged-lava heat sink that lets a seabed vent build an island).
-##   4. lava_phase_sphere3d:      solidify (freeze cold lava to rock) + sustain (keep remaining lava molten);
-##                                IN-PLACE on lava + temp + solid, no neighbour reads.
+##   4. lava_phase_sphere3d:      sustain (keep remaining lava molten) + shell-first edge cooling; IN-PLACE on
+##                                temp, own-cell writes only. COMPACTED: dispatched INDIRECTLY over the
+##                                active-cell list LavaCellListPass builds earlier in the same step, so it runs
+##                                one invocation per MOLTEN cell instead of one per grid cell (Keystone C's
+##                                asymptotic half). The relevance stride gate it used to evaluate per-thread
+##                                now lives in that list's append predicate.
 ##   5. magma_buoy_sphere3d:      buoyant overpressure up-flow, TWO passes (0 = copy snapshot, 1 =
 ##                                gather/apply) with a barrier between; lava + private scratch + temp + solid +
 ##                                nbr(15).
@@ -77,6 +81,11 @@ var _magma_set: Array = [RID(), RID()]
 # lava_phase/magma-only working buffer, exactly like the box's _buf_lava_scratch.
 var _scratch: RID = RID()
 
+# BORROWED (owned by the driver, freed there — NOT in dispose below): the dispatch-indirect argument buffer
+# LavaCellListPass publishes each step. Held as a field because dispatch() needs the RID, and it is the same
+# buffer for both parities.
+var _active_args: RID = RID()
+
 
 func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	_cc = cc
@@ -110,7 +119,10 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var temp: Array = bufs["temp"]
 	var water: Array = bufs["water"]
 	var lava: Array = bufs["lava"]
-	var activity: Array = bufs["activity"]
+	# Compacted active-cell list for the lava_phase leg (built by LavaCellListPass earlier in the same step).
+	var active_idx: RID = bufs["active_idx"]
+	var active_args: RID = bufs["active_args"]
+	_active_args = active_args
 
 	for p in 2:
 		var back: int = 1 - p
@@ -135,12 +147,15 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 		# post-flow) — a wet cell carrying lava quenches HARD (submerged-lava sink; builds the seabed island).
 		_cool_set[p] = _make_set(rd, _cool_shader, [
 			[0, temp_back], [1, water_back], [2, solid], [3, pos], [4, lava_back]])
-		# lava_phase: 0 = lava (BACK, in-place), 1 = temp (BACK, in-place), 2 = solid, 3 = relevance (LIVE — this
-		# pass runs before ActivityPass, so it reads last step's settled relevance, Keystone C), 15 = nbr
+		# lava_phase: 0 = lava (BACK, in-place), 1 = temp (BACK, in-place), 2 = solid, 4 = the compacted
+		# active-cell list, 5 = its dispatch-indirect args + list length (Keystone C asymptotic half —
+		# LavaCellListPass built both earlier this step, and applied the relevance stride gate this kernel
+		# used to evaluate per-thread, which is why `activity` is no longer bound here), 15 = nbr
 		# (shell-first edge cooling reads each cell's 6 faces to count EXPOSED faces -> a flow's rind hardens
 		# while the core stays molten and drains, leaving a lava tube).
 		_lava_phase_set[p] = _make_set(rd, _lava_phase_shader, [
-			[0, lava_back], [1, temp_back], [2, solid], [3, activity[p]], [15, nbr]])
+			[0, lava_back], [1, temp_back], [2, solid],
+			[4, active_idx], [5, active_args], [15, nbr]])
 		# magma: 0 = lava (BACK, rw), 1 = scratch (private), 2 = temp (BACK, carry-heat), 3 = solid, 15 = nbr.
 		_magma_set[p] = _make_set(rd, _magma_shader, [
 			[0, lava_back], [1, _scratch], [2, temp_back], [3, solid], [15, nbr]])
@@ -189,12 +204,16 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # post-heat temp committed before the lava passes read it
 
-	# 4. LAVA PHASE — solidify + sustain, in-place on lava BACK + temp BACK. Relevance-gated (Keystone C).
+	# 4. LAVA PHASE — sustain + shell-first edge cooling, in-place on lava BACK + temp BACK. COMPACTED
+	# (Keystone C asymptotic half): dispatched INDIRECTLY over LavaCellListPass's active-cell list, so this is
+	# one invocation per molten cell rather than per grid cell. On a planet with no lava that is one idle
+	# workgroup instead of `groups` (~2000) of them; the relevance gate it used to evaluate per-thread was
+	# folded into the list's append predicate, so the behaviour is unchanged.
 	rd.compute_list_bind_compute_pipeline(cl, _lava_phase_pipe)
 	rd.compute_list_bind_uniform_set(cl, _lava_phase_set[parity], 0)
-	var phase_pc: PackedByteArray = _lava_phase_pc(cc, int(ctx.get("step_index", 0)))
+	var phase_pc: PackedByteArray = _lava_phase_pc(cc)
 	rd.compute_list_set_push_constant(cl, phase_pc, phase_pc.size())
-	rd.compute_list_dispatch(cl, groups, 1, 1)
+	rd.compute_list_dispatch_indirect(cl, _active_args, 0)
 	rd.compute_list_add_barrier(cl)          # post-phase lava/temp visible to the magma snapshot
 
 	# 5. MAGMA — two-pass buoyant overpressure up-flow (0 = copy snapshot, 1 = gather/apply).
@@ -311,13 +330,14 @@ func _count_pc(cc: int) -> PackedByteArray:
 	return pc
 
 
-# lava_phase Params: { uint cell_count; uint step_index; uint pad1; uint pad2; } — 16 bytes. step_index feeds
-# the relevance-gated update stride (Keystone C).
-func _lava_phase_pc(cc: int, step_index: int) -> PackedByteArray:
+# lava_phase Params: { uint cell_count; uint pad0; uint pad1; uint pad2; } — 16 bytes. cell_count is now only a
+# defensive bound on the cell id read out of the active list; the step_index that used to drive the per-thread
+# relevance stride moved into LavaCellListPass, which applies that gate when it builds the list.
+func _lava_phase_pc(cc: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(16)
 	pc.encode_u32(0, cc)
-	pc.encode_u32(4, step_index)
+	pc.encode_u32(4, 0)
 	pc.encode_u32(8, 0)
 	pc.encode_u32(12, 0)
 	return pc
