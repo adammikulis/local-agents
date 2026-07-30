@@ -187,13 +187,19 @@ func parse_cmdline() -> void:
 		elif arg.begins_with("--bench-interval="):
 			_bench_interval = maxi(1, int(arg.substr("--bench-interval=".length())))
 		elif arg.begins_with("--seed="):
-			# Seeds Godot's GLOBAL RNG (world-gen + disaster intensity/site draws use it directly, per the
-			# documented disaster-load-unseeded-rng gap -- LASimRng's own seed does NOT cover disasters).
-			# Pairs with --bench=: the SAME seed + the SAME scripted timeline makes two runs of this launch
-			# line produce identical world state and identical disaster outcomes, not just identical event
-			# TIMING -- required for a real before/after diff (a --bench run without this can still see a
-			# volcano erupt at a different intensity/site between runs, confounding field-cost comparisons).
-			seed(int(arg.substr("--seed=".length())))
+			# Seeds BOTH generators, and the second one is new. Godot's GLOBAL RNG covers world-gen and
+			# whatever still calls the free functions; LASimRng is the dedicated sim stream that meteor
+			# directions, the barrage spread and (as of today) plate tectonics draw from.
+			#
+			# LASimRng WAS NEVER SEEDED BY THIS FLAG. Nothing anywhere called LASimRng.reset(), so `shared()`
+			# fell back to LA_SIM_SEED or a compiled-in DEFAULT_SEED, and `--seed=4242` therefore produced the
+			# SAME meteor directions and the SAME barrage spread as `--seed=999`. The comment that stood here
+			# claimed the flag made two runs "produce identical world state and identical disaster outcomes,
+			# not just identical event TIMING". It did not: three runs at --seed=4242 measured 2, 7 and 3
+			# impacts and 2, 4 and 0 eruptions, which is what made every A/B this week cost three repeats.
+			var world_seed: int = int(arg.substr("--seed=".length()))
+			seed(world_seed)
+			LASimRng.reset(world_seed)
 			_seed_explicit = true
 		elif arg.begins_with("--time="):
 			_time_of_day = clampf(float(arg.substr("--time=".length())), 0.0, 1.0)

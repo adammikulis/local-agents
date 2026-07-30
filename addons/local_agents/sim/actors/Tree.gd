@@ -28,6 +28,32 @@ const TOPPLE_ANGLE: float = 1.483529 # ~85 degrees, avoids clipping through grou
 var terrain = null             # terrain service exposing surface_height(x, z)
 var config: Dictionary = {}
 
+## SPECIES ARE DATA, NOT BRANCHES. Everything that differed between an oak and a pine used to be an
+## `if species == "pine"` at five separate sites: trunk height range, canopy colour, which canopy builder to
+## call, and the model id, twice. EMERGENCE.md:178 states the rule directly — "if you're about to write
+## `if species == \"X\"`, ask whether a property could express it" — and one of those five carried a comment
+## claiming it was already "config-driven, no per-species branch in the render path" while being exactly that.
+##
+## A third tree is now a RECORD here rather than an edit to five functions. `canopy` names the FORM, so a new
+## species picks an existing canopy shape instead of needing new geometry code. Anything unlisted falls back
+## to DEFAULT_SPECIES, so an unknown name renders as a plausible broadleaf rather than taking the oak path by
+## the accident of not being "pine".
+const SPECIES: Dictionary = {
+	"oak": {
+		"height": Vector2(3.0, 5.5),
+		"canopy_color": Color(0.18, 0.42, 0.16),
+		"canopy": "broadleaf",
+		"model": "tree_oak",
+	},
+	"pine": {
+		"height": Vector2(5.0, 7.0),
+		"canopy_color": Color(0.12, 0.32, 0.14),   # darker evergreen
+		"canopy": "conifer",
+		"model": "tree_pine",
+	},
+}
+const DEFAULT_SPECIES: String = "oak"
+
 var species: String = "oak"
 var trunk_height: float = 4.5
 var canopy_color: Color = Color(0.18, 0.42, 0.16)
@@ -61,28 +87,26 @@ func setup(_terrain, _config: Dictionary = {}) -> void:
 	config = _config.duplicate(true)
 
 	species = String(config.get("species", species)).to_lower()
-	if species != "pine" and species != "oak":
-		species = "oak"
+	if not SPECIES.has(species):
+		species = DEFAULT_SPECIES
 
 	# Deterministic per-tree variation.
 	var seed_val: int = int(config.get("seed", randi()))
 	_rng.seed = seed_val
 
-	# Base trunk height: config, else a species-appropriate random range.
+	var def: Dictionary = _species_def()
+
+	# Base trunk height: config, else this species' random range.
 	if config.has("height"):
 		trunk_height = maxf(float(config["height"]), 1.0)
-	elif species == "pine":
-		trunk_height = _rng.randf_range(5.0, 7.0)
 	else:
-		trunk_height = _rng.randf_range(3.0, 5.5)
+		var span: Vector2 = def["height"]
+		trunk_height = _rng.randf_range(span.x, span.y)
 
 	max_scale = maxf(float(config.get("scale", max_scale)), 0.05)
 
-	# Species foliage defaults, then optional override, then small hue jitter.
-	if species == "pine":
-		canopy_color = Color(0.12, 0.32, 0.14)   # darker evergreen
-	else:
-		canopy_color = Color(0.18, 0.42, 0.16)
+	# Species foliage default, then optional override, then small hue jitter.
+	canopy_color = def["canopy_color"]
 	if config.has("canopy_color"):
 		canopy_color = config["canopy_color"]
 	canopy_color = _jitter_hue(canopy_color)
@@ -109,7 +133,7 @@ func setup(_terrain, _config: Dictionary = {}) -> void:
 		instanced = _veg_slot >= 0
 	if not instanced and not _build_model():
 		_build_trunk()
-		if species == "pine":
+		if String(_species_def()["canopy"]) == "conifer":
 			_build_pine_canopy()
 		else:
 			_build_broadleaf_canopy()
@@ -119,6 +143,12 @@ func setup(_terrain, _config: Dictionary = {}) -> void:
 	_snap_to_surface()
 	_apply_growth()
 	_sync_render()   # push the initial sapling pose into the instanced batch
+
+
+## This tree's species record, falling back to the default for an unrecognised name. setup() already coerces
+## `species` into the table, so the fallback only matters if something writes the field directly.
+func _species_def() -> Dictionary:
+	return SPECIES.get(species, SPECIES[DEFAULT_SPECIES])
 
 
 func _jitter_hue(base: Color, amount: float = 0.05) -> Color:
@@ -139,7 +169,7 @@ func _make_material(col: Color) -> StandardMaterial3D:
 ## Build the species model at trunk height. Returns true on success, false to trigger the
 ## procedural fallback (unknown species model / load failure).
 func _build_model() -> bool:
-	var id: String = "tree_pine" if species == "pine" else "tree_oak"
+	var id: String = String(_species_def()["model"])
 	var def: Dictionary = LAActorModels.get_def(id)
 	if String(def.get("path", "")).is_empty():
 		return false
@@ -378,9 +408,10 @@ func set_vegetation_renderer(r) -> void:
 
 
 # The instanced visual type is the tree's species — a separate MultiMesh per species keeps oak/pine coloured
-# correctly (each has its own recolored prototype). Config-driven, no per-species branch in the render path.
+# correctly (each has its own recolored prototype). This comment used to claim it was "config-driven, no
+# per-species branch in the render path" while the line beneath it was `species == "pine"`. Now it is true.
 func _render_type() -> String:
-	return "tree_pine" if species == "pine" else "tree_oak"
+	return String(_species_def()["model"])
 
 
 # Write our current pose into the shared instanced batch. The prototype mesh is height-normalized to 1, so we

@@ -61,11 +61,17 @@ func setup(terrain, disasters) -> void:
 		_seeds.append(_rand_unit())
 		_poles.append(_rand_unit())
 		# Signed crawl rate, biased away from zero so every plate actually moves.
-		var r: float = randf_range(0.35, 1.0) * DRIFT_RATE_MAX
-		_rates.append(r if randf() < 0.5 else -r)
+		var r: float = LASimRng.shared().randf_range(0.35, 1.0) * DRIFT_RATE_MAX
+		_rates.append(r if LASimRng.shared().randf() < 0.5 else -r)
 
 
-func _process(delta: float) -> void:
+## THE TECTONIC DRUMBEAT RUNS ON THE PHYSICS CLOCK, not the render clock, and that is what makes a seeded run
+## reproducible. It used to be `_process`, so `_cd` counted down on RENDER-frame delta while this scene runs at
+## 2-3 fps with variable frame times — the number of tectonic events in a fixed `--run-frames=N` therefore
+## depended on how long each frame happened to take. Measured before this change, three runs at the SAME
+## `--seed=4242`: 2, 7 and 3 impacts and 2, 4 and 0 eruptions. `field_step` was 746 in every one of them, which
+## is the tell: the field's own clock is stable across runs and only the render-driven consumers wandered.
+func _physics_process(delta: float) -> void:
 	if not _enabled or _terrain == null or _disasters == null:
 		return
 	if not _terrain.has_method("surface_point") or not _terrain.has_method("planet_center"):
@@ -125,12 +131,12 @@ func _fire_boundary_event() -> void:
 		# accumulates with nowhere to go — see the constant's own comment for why that is a stand-in awaiting
 		# `feature/energy-balance`, and for the measurement that decides when this roll can be deleted.
 		_disasters.spawn_earthquake(point)
-		if randf() < VOLCANO_CHANCE_CONVERGENT:
+		if LASimRng.shared().randf() < VOLCANO_CHANCE_CONVERGENT:
 			_disasters.spawn_volcano(point)
 	elif best_kind == "transform":
 		_disasters.spawn_earthquake(point)                # the fault ruptures
 	else:
-		if randf() < VENT_CHANCE_DIVERGENT:
+		if LASimRng.shared().randf() < VENT_CHANCE_DIVERGENT:
 			_disasters.spawn_volcano(point)               # a rift vent
 
 
@@ -179,7 +185,4 @@ func _tangent(p: Vector3, v: Vector3) -> Vector3:
 
 
 func _rand_unit() -> Vector3:
-	var v: Vector3 = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0)
-	while v.length() < 0.05:
-		v = Vector3(randf() * 2.0 - 1.0, randf() * 2.0 - 1.0, randf() * 2.0 - 1.0)
-	return v.normalized()
+	return LASimRng.shared().rand_dir()
