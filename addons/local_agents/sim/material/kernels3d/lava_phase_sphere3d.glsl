@@ -21,15 +21,28 @@
 
 layout(local_size_x = 64) in;
 
+// COMPACTED DISPATCH (Keystone C, asymptotic half). This kernel is dispatched INDIRECTLY, with one invocation
+// per ACTIVE cell rather than one per grid cell: it reads its cell id out of `active_idx` and its loop bound
+// out of `active_args[3]`, both built the same step by cell_list_lava_sphere3d.glsl. That kernel evaluates,
+// verbatim, the three side-effect-free early-outs this one used to open with (lava < LAVA_MIN_MASS,
+// solid != 0, and the LALodStride relevance gate), which is why they are gone from below.
+//
+// THE WRITER SET IS UNCHANGED, which is the honest claim — not "bit-identical". The shell-first cooling
+// loop below READS neighbours (lava[nb], temp[nb], solid[nb]) while other threads write temp[g] to the
+// same buffer, so this kernel's output was never bit-reproducible and compaction changes which threads
+// are co-resident. That race is pre-existing and the distribution is unaffected because exactly the same
+// cells write exactly the same values; what compaction cannot do is introduce NEW nondeterminism. `relevance` and
+// `step_index` are consequently no longer bound here; the gate now happens once, upstream, for this kernel.
 layout(set = 0, binding = 0, std430) restrict buffer Lava { float lava[]; };
 layout(set = 0, binding = 1, std430) restrict buffer Temp { float temp[]; };
 layout(set = 0, binding = 2, std430) restrict buffer Solid { float solid[]; };
-layout(set = 0, binding = 3, std430) restrict readonly buffer Relevance { float relevance[]; };  // Keystone C
+layout(set = 0, binding = 4, std430) restrict readonly buffer ActiveIdx { uint active_idx[]; };
+layout(set = 0, binding = 5, std430) restrict readonly buffer ActiveArgs { uint active_args[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };   // idx*6 + slot
 
 layout(push_constant, std430) uniform Params {
-	uint cell_count;
-	uint step_index;   // monotonic field-step counter, for the relevance-gated update stride
+	uint cell_count;   // only a defensive bound on the id read out of active_idx
+	uint pad0;
 	uint pad1;
 	uint pad2;
 } params;
@@ -54,35 +67,20 @@ const float LAVA_COOL_RATE = 0.05;
 const float EXPOSURE_GAIN = 1.0;
 const float HOT_ROCK_AMBIENT = 780.0;
 
-// GLSL mirror of LALodStride.stride_for/should_run (runtime/LALodStride.gd) -- MUST match exactly.
-int stride_for(float rel, int max_stride, int base_stride) {
-	float r = max(rel, float(base_stride) / float(max_stride));
-	return clamp(int(round(float(base_stride) / r)), base_stride, max_stride);
-}
-bool should_run(uint tick, uint phase, int stride) {
-	return (tick + phase) % uint(stride) == 0u;
-}
-const int MAX_STRIDE = 16;
-
 void main() {
-	uint g = gl_GlobalInvocationID.x;
+	// One invocation per ACTIVE cell. `active_args[3]` is the compacted list length; the trailing invocations
+	// of the last workgroup (and the single idle group dispatched when the list is empty) fall out here.
+	uint t = gl_GlobalInvocationID.x;
+	if (t >= active_args[3]) {
+		return;
+	}
+	uint g = active_idx[t];
 	if (g >= params.cell_count) {
-		return;
+		return;                     // defensive: a corrupt list must not scribble outside the grid
 	}
+	// lava >= LAVA_MIN_MASS, solid == 0 and the relevance stride gate were all applied by
+	// cell_list_lava_sphere3d.glsl when it appended this cell, so a listed cell has already passed them.
 	float d = lava[g];
-	if (d < LAVA_MIN_MASS) {
-		return;
-	}
-	if (solid[g] != 0.0) {
-		return;
-	}
-	// RELEVANCE-GATED (Keystone C): a true no-op skip is safe here — this kernel has no neighbour reads, so
-	// leaving lava/temp untouched on a skipped step is exactly what the ungated kernel would produce for a
-	// cell that hasn't crossed the (own-cell-only) sustain/solidify tests since its last real run.
-	int stride = stride_for(relevance[g], MAX_STRIDE, 1);
-	if (!should_run(params.step_index, g, stride)) {
-		return;
-	}
 	if (temp[g] < SOLIDIFY_TEMP) {
 		// Cooled below the solidus: leave it cold (do NOT sustain) so the M5 solidify record freezes the
 		// lava to rock_fill downstream.
