@@ -42,6 +42,11 @@ const SINGLE_CHANNELS: PackedStringArray = [
 const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/SolidDerivePass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/WaterSlumpLavaPass.gd",
+	# ACTIVE-CELL COMPACTION (Keystone C, asymptotic half) — builds the compacted cell list + dispatch-indirect
+	# args that ThermalPass's lava_phase leg consumes. MUST sit after WaterSlumpLava (which finalises lava[back])
+	# and before Thermal (which consumes the list); it reads relevance from activity[LIVE], the same half
+	# lava_phase read for itself before the list existed.
+	"res://addons/local_agents/sim/material/sphere_passes/LavaCellListPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/ThermalPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/GasWindPass.gd",
 	"res://addons/local_agents/sim/material/sphere_passes/AtmospherePass.gd",
@@ -57,6 +62,13 @@ const PASS_SCRIPTS: PackedStringArray = [
 	"res://addons/local_agents/sim/material/sphere_passes/EcoSurfacePass.gd"]
 
 const SCENT_PLANES: int = 5
+# Slots in the `active_args` buffer (see setup()). 0-2 are the uvec3 dispatch-indirect argument; 3 is the
+# compacted list length a compacted kernel uses as its loop bound; 4-5 are sparsity telemetry. 8 rather than 6
+# purely for 32-byte alignment.
+const ACTIVE_ARGS_SLOTS: int = 8
+const ARG_SLOT_LIST_COUNT: int = 3
+const ARG_SLOT_RELEVANCE_GATE: int = 4
+const ARG_SLOT_STATIC_HOT: int = 5
 
 static func available() -> bool:
 	var rd: RenderingDevice = RenderingServer.create_local_rendering_device()
@@ -151,6 +163,16 @@ func setup(field) -> void:
 	for name in SINGLE_CHANNELS:
 		_bufs[name] = _new_f(_cc)
 	_bufs["send"] = _new_f(_cc * 6)
+	# ACTIVE-CELL LIST (Keystone C, asymptotic half). `active_idx` holds the compacted cell ids a compacted
+	# pass iterates; `active_args` is BOTH the uvec3 dispatch-indirect argument (slots 0-2) and the atomic
+	# counters (3 = list length, 4/5 = sparsity telemetry) — one buffer, because a storage buffer created with
+	# the DISPATCH_INDIRECT usage bit is still an ordinary SSBO the kernel can atomicAdd into. Neither is a
+	# field CHANNEL: they are rebuilt from scratch every step, so they are deliberately absent from
+	# PAIR_CHANNELS/SINGLE_CHANNELS and therefore never read back, snapshotted or restored.
+	_bufs["active_idx"] = _new_u32(_cc)
+	_bufs["active_args"] = _rd.storage_buffer_create(
+		ACTIVE_ARGS_SLOTS * 4, _zeros(ACTIVE_ARGS_SLOTS),
+		RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
 	# Sphere geometry SSBOs: neighbour table (int32, kernel slot order), radial + position (flat float3).
 	var nbr_bytes: PackedByteArray = _grid.neighbours_kernel_order().to_byte_array()
 	_bufs["nbr"] = _rd.storage_buffer_create(nbr_bytes.size(), nbr_bytes)
@@ -321,6 +343,7 @@ func _drain_pending() -> void:
 	LASimReport.gauge("field_sync_ms", float(t_sync - t0) / 1000.0)
 	LASimReport.gauge("field_readback_ms", float(Time.get_ticks_usec() - t_sync) / 1000.0)
 	_read_gpu_pass_timings()   # real GPU execution time for the step just sync()'d — see field vars above
+	_read_active_list_counts()
 
 
 ## Real per-pass GPU execution time, read from the timestamp markers step() capture()'d across its per-pass
@@ -347,6 +370,29 @@ func _read_gpu_pass_timings() -> void:
 		t_prev = t_cur
 	_gpu_dispatch_ms = float(total_ns) / 1_000_000.0
 	LASimReport.gauge("gpu_dispatch_ms", _gpu_dispatch_ms)
+
+
+## KEYSTONE C SPARSITY TELEMETRY — the three numbers that make the O(active) claim checkable, read from the
+## just-sync()'d `active_args` counters. This is a 32-BYTE readback next to the ~4.4MB of channels
+## _read_channels already copies each drain, so it does not move field_readback_ms.
+##   field_cells         — grid size, the denominator for both ratios below.
+##   lava_list_cells     — invocations lava_phase actually dispatched this step (was: field_cells, always).
+##   relevance_gate_cells— invocations a RELEVANCE-ONLY compaction would dispatch, i.e. what one shared list
+##                         for every gated pass would buy. Measured rather than assumed, because the answer on
+##                         a live sandbox turned out to be "most of the grid", not "a sparse bubble".
+##   static_hot_cells    — held-sea cells the relevance channel scores >= 0.5 (near full rate), the number
+##                         that decides whether making the static sea dynamic is affordable.
+func _read_active_list_counts() -> void:
+	if not _bufs.has("active_args"):
+		return
+	var raw: PackedByteArray = _rd.buffer_get_data(_bufs["active_args"])
+	if raw.size() < ACTIVE_ARGS_SLOTS * 4:
+		return
+	var slots: PackedInt32Array = raw.to_int32_array()
+	LASimReport.gauge("field_cells", float(_cc))
+	LASimReport.gauge("lava_list_cells", float(slots[ARG_SLOT_LIST_COUNT]))
+	LASimReport.gauge("relevance_gate_cells", float(slots[ARG_SLOT_RELEVANCE_GATE]))
+	LASimReport.gauge("static_hot_cells", float(slots[ARG_SLOT_STATIC_HOT]))
 
 
 ## "ThermalPass" -> "thermal"; a short, gauge-key-safe name (strip the "Pass" suffix, snake_case the rest).
@@ -531,6 +577,12 @@ func _live(name: String) -> RID:
 	return _bufs[name][_phase]
 
 func _new_f(n: int) -> RID:
+	var z: PackedByteArray = _zeros(n)
+	return _rd.storage_buffer_create(z.size(), z)
+
+## An n-element uint32 storage buffer. Same 4-bytes-per-element allocation as _new_f — the distinction is only
+## how the kernel declares it — but named separately so the active-cell list reads as the index buffer it is.
+func _new_u32(n: int) -> RID:
 	var z: PackedByteArray = _zeros(n)
 	return _rd.storage_buffer_create(z.size(), z)
 
