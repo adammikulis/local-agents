@@ -153,6 +153,52 @@ more generous than intended and passing it proved less than it looked. I gave `c
 baseline runs measured 17.65, 32.54, 43.89. This is exactly the error I flagged in the terrain track one
 section above, committed by me in the same session. **Quote a range from repeats, or say it is one draw.**
 
+**THE JET EXISTS — and the route to it went through a theorem, not a patch.**
+
+The handedness regression above **cannot be fixed as posed**, and the proof is worth keeping. At each cell the
+two 2-factor cycle-curves either cross transversally or bend; at a crossing the handedness sign *is* the
+transverse intersection sign of two closed curves, and on a sphere every closed curve bounds, so that signed
+count is exactly 0. Measured at res 16/24/32: every curve pair that meets holds **both** signs, every pair's
+signed sum is **0**. Uniform handedness would need zero crossings, which makes every cell a degenerate bend.
+The 50/50 split is a floor. Discrete hairy-ball; a torus is fine, which is why box grids never meet this.
+
+**And the damage was an order worse than a sign flip.** Cycle orientation sets the convention momentum is
+*stored and exchanged* in, so adjacent cells on different cycles disagreed about which way `tanA` points:
+**17.1% of links at res 24, an interior defect, flat across resolutions (O(res²))**, against the face-local
+frame's cross-face-only 2.1% (O(res)). Measuring the defect's *order* rather than its presence is what showed
+the seam repair had traded the wrong way for wind.
+
+**The fix: two tables instead of one overloaded one.** The 2-factor pairing keeps the adjacency (reciprocity
+untouched, 0/0/0 at res 16/24/32, 407808 links). The tangent frame gets its own face-local table — `tan_a`
+from `_FACE_R` projected into the tangent plane, `tan_b = radial × tan_a`, which forces `tan_a × tan_b ==
+radial` unconditionally. Verified independently: **3456 right / 0 left at res 24, `worst_handed` exactly
+1.000000, every face uniform**, and cross-frame disagreement now *falls* with resolution (2.08 → 1.39 →
+1.04%). Stored per *surface* cell, not per cell — the direction is identical in every radial layer of a
+column, so 110 KB at res 24 instead of 2.2 MB. Cross-seam vector transport uses a precomputed per-link
+rotation; round-trip error 5e-7, and the world-space dot matches the geometric bound `cos(cell tilt)` to
+3e-7, i.e. zero twist beyond the unavoidable plane tilt.
+
+**Then the Coriolis sign turned out to be negated** — a left deflection in the northern hemisphere. That was
+*literally an undefined quantity* while the frame was 50/50 handed, which is why it survived so long.
+
+**Result** (`bench_atmosphere_column`, res 24, 400 steps, positive = eastward): a westerly maximum aloft at
+h=120 of **+1.89 to +1.95 across bands 15–75**, over surface easterlies of −0.15 to −0.23 beneath it — about
+**13× the surface magnitude**, with the trades in the right sense. The driver is measured: equator-minus-pole
+pressure is −8.88 at the surface and reverses to **+2.46 at h=72**. Overturning was right all along and is
+unchanged by the sign flip.
+
+**Still missing, and not a constant to tune:** it is a westerly *belt*, not a jet stream — 1.72–1.95 across
+four adjacent bands with no sharp latitudinal core. Sharpening needs an eddy momentum flux this substrate
+does not carry, because res 24 does not resolve baroclinic eddies.
+
+**⚠ `wind` in `SIM_REPORT` is not comparable across this change.** `MaterialFieldQueries3D.wind3_at()`
+indexed the *internal* neighbour table (`[IN,OUT,A0,A1,B0,B1]`) with *kernel* slot numbers
+(`[IN,-a,+a,-b,+b,OUT]`), so "tangent A" was built from a lateral neighbour minus the **outward radial** one.
+**Every world-space wind vector handed to a creature or the HUD was wrong**, and the bench had the same bug.
+Any `wind` figure quoted before 2026-07-30 — including my own "0.0515 → 0.146" note above — is a wrong
+quantity, not a physics change.
+
+---
 **ROUND 3 — the atmosphere gets mass, and two of my own claims were demolished.**
 
 **Merged: a conserved AIR channel with real hydrostatic pressure.** Pass A was `P0 - K_T*(temp - T_REF)`,
