@@ -41,12 +41,24 @@ const ORBIT_RADIUS: float = 12000.0       # nominal orbital separation; insolati
 const INSOLATION_MIN: float = 0.02        # never fully zero (numeric floor)
 const INSOLATION_MAX: float = 4.0         # cap the bake so the field can't NaN
 const DUST_OPACITY: float = 3.5           # how strongly atmospheric dust/cloud blocks the sun (impact winter)
-# CLOUD attenuation is BOUNDED (the stabilizing radiative floor). Clouds legitimately dim the ground — that
-# phenomenon stays — but the cloud→insolation link was UNBOUNDED: as cover climbed, transmission collapsed, the
-# surface cooled, and colder air made MORE cloud (a runaway that froze the world). Capping the cloud opacity
-# contribution keeps "clouds cool the ground" while guaranteeing a temperate insolation floor no overcast can
-# breach, so temperature settles at an Earth-like equilibrium clouds modulate AROUND. DUST is deliberately NOT
-# capped here (it is added separately below) — a meteor volley's impact winter must still be able to go dark.
+# CLOUD attenuation is BOUNDED, and THIS CAP IS A STAND-IN FOR THE MISSING HALF OF A FEEDBACK. It used to be
+# described here as a design feature, "guaranteeing a temperate insolation floor no overcast can breach", and
+# that framing hid what it is.
+#
+# The failure it was written for was real: the cloud->insolation link was unbounded, so as cover climbed
+# transmission collapsed, the surface cooled, colder air made MORE cloud, and the world froze. But a runaway
+# in one direction means the OPPOSING term is absent, and it was — nothing in this simulation radiated heat
+# to space, so there was no sigma*eps*T^4 weakening as the surface cooled to arrest the slide. Capping the
+# input suppresses the symptom and leaves the cause.
+#
+# That sink now exists on `feature/energy-balance` (dT = (absorbed - sigma*eps*T^4)*dt/C, with an albedo term
+# that also closes the ice-albedo loop this cap was partly faking). REMOVING THIS CAP IS THAT BRANCH'S
+# ACCEPTANCE TEST, per the standing rule that a band-aid comes out to prove its root is fixed — and if the
+# snowball returns, the honest move is to report that the sink is not closing, not to quietly restore the
+# clamp. Do NOT delete it before then: on this branch there is still nothing to stop the runaway.
+#
+# DUST is deliberately NOT capped here (it is added separately below) — a meteor volley's impact winter must
+# still be able to go dark, and that is a transient with its own decay rather than a self-reinforcing loop.
 const CLOUD_OPACITY_CAP: float = 0.22     # max opacity clouds alone may add (transmission floor ~1/(1+3.5*0.22)=0.56)
 const CLOUD_OPACITY_K: float = 0.35       # per-unit-cover cloud opacity (pre-cap)
 # The one admitted exaggeration left in this file: a 400-mass rock genuinely cannot move a 1e6 planet, so the

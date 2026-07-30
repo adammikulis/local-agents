@@ -20,9 +20,27 @@ const SAMPLES_PER_EVENT: int = 10        # boundary points sampled per event; th
 const BOUNDARY_PROBE: float = 0.06       # angular half-width (radians) for detecting a nearby plate boundary
 const CONVERGE_MIN: float = 0.25         # |relative-normal velocity| fraction above which it's convergent/divergent
 const DRIFT_RATE_MAX: float = 0.02       # max plate angular speed (rad/s) — plates crawl
-const VOLCANO_CHANCE_CONVERGENT: float = 0.3    # arc volcano at a convergent margin (else just a quake). Now that
-                                                # subaerial lava COOLS + solidifies (finite heat source), volcanoes
-                                                # can be frequent again without baking the planet — and they BUILD land.
+# ARC VOLCANO at a convergent margin (else just a quake). THIS IS A RARITY ROLL STANDING IN FOR MISSING
+# PHYSICS and it is on the list to dissolve — but not yet, and the two comments describing it contradicted
+# each other, so here is the actual state.
+#
+# This line used to say volcanoes "can be frequent again without baking the planet" because subaerial lava
+# cools and solidifies, making it a finite heat source. The comment at the call site below said the opposite:
+# that the roll is "kept rare so sustained volcanic heat doesn't accumulate and bake the planet". Both were
+# written as current fact, 85 lines apart. The value never moved off 0.3 either way, so whichever was right,
+# nobody acted on it.
+#
+# What is true as of 2026-07-30: the premise is real (lava IS a finite heat source now) but the conclusion
+# does not follow, because this branch still has NO RADIATIVE SINK. Heat entering the field has nowhere to
+# leave, so a sustained source accumulates whether or not each individual flow cools. The sink —
+# dT = (absorbed - sigma*eps*T^4)*dt/C — is built on `feature/energy-balance` and has not merged. So the
+# call-site comment is the one describing today's code, and this one was aspirational.
+#
+# REMOVING THIS ROLL IS THE ACCEPTANCE TEST FOR THAT SINK, per the standing rule that a band-aid comes out to
+# prove its root is fixed. The measurement that settles it: raise this by a large factor (0.3 -> 1.0, every
+# convergent margin erupts) and compare temp_mean and temp_ground_mean at equal field_step across at least
+# three runs per arm, quoting eruption counts. If the planet bakes, the sink is not closing; if not, this goes.
+const VOLCANO_CHANCE_CONVERGENT: float = 0.3
 const VENT_CHANCE_DIVERGENT: float = 0.12       # rift vent
 
 var _terrain = null                      # LAVoxelTerrainService (planet_center/radius, surface_point, sea_radius)
@@ -103,7 +121,9 @@ func _fire_boundary_event() -> void:
 		return
 	if best_kind == "convergent":
 		# Quakes are the routine signature of a convergent margin; a full arc VOLCANO is the rare, dramatic
-		# event — kept rare so sustained volcanic heat doesn't accumulate and bake the planet over a long game.
+		# event. It is kept rare because the field has no radiative sink yet, so sustained volcanic heat
+		# accumulates with nowhere to go — see the constant's own comment for why that is a stand-in awaiting
+		# `feature/energy-balance`, and for the measurement that decides when this roll can be deleted.
 		_disasters.spawn_earthquake(point)
 		if randf() < VOLCANO_CHANCE_CONVERGENT:
 			_disasters.spawn_volcano(point)
