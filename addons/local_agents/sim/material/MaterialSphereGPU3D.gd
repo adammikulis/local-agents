@@ -78,6 +78,9 @@ static func available() -> bool:
 	return true
 
 var _rd: RenderingDevice = null
+# LA_INJECT_AUDIT=1 -> every whole-mirror set_field upload prints how much mass it wrote away (see
+# _audit_mirror_upload). Read once here, not per call: it costs a full-grid readback plus two sums.
+var _audit_mirror: bool = OS.has_environment("LA_INJECT_AUDIT")
 var _field = null
 var _grid: RefCounted = null
 var _cc: int = 0
@@ -479,9 +482,39 @@ func mark_water_dirty() -> void:
 	_water_dirty = true
 
 
+## Diagnostic (LA_INJECT_AUDIT=1): what a whole-mirror `set_field` upload does to a channel's TOTAL.
+##
+## This is the direct measurement of the thing the injection queue exists to avoid. The mirror was last filled
+## by a readback one frame (up to two steps) old, so uploading it writes away everything the kernels did in
+## between; the printed `delta` is exactly that mass, signed. It is measurement only and changes nothing.
+##
+## Two CPU writers still take this path — `add_lava` (rock_fill + lava) and the stamp's `debug_deposit` — and
+## `MaterialFieldSphereStep3D.gd:152` runs their upload AHEAD of the queue flush at :187. Ordering-wise that is
+## the safe direction and reversing it would be worse: the crater's `transfer` resolves its bedrock debit
+## against the LIVE buffer, so flushing FIRST and uploading the (unwritten) mirror SECOND would restore the rock
+## the crater had just removed while the sediment/dust credit stood, minting mineral. The real cost is the
+## rewind itself, which this gauge exposes and which no ordering can remove — only moving `add_lava` onto
+## `move_field_sparse` would, and that lives in the field hub, outside this module.
+func _audit_mirror_upload(name: String, arr) -> void:
+	var b = _bufs[name]
+	var buf: RID = _live(name) if b is Array else b
+	var live: PackedFloat32Array = _rd.buffer_get_data(buf).to_float32_array()
+	var lt: float = 0.0
+	var mt: float = 0.0
+	# Whole array, not the first _cc entries: `scent` is a 5-plane pair (SCENT_PLANES * _cc) and capping at _cc
+	# would report one plane's drift as the channel's.
+	var n: int = mini(live.size(), arr.size())
+	for i in n:
+		lt += live[i]
+		mt += arr[i]
+	print("MIRROR_REWIND={\"channel\":\"%s\",\"live\":%.4f,\"mirror\":%.4f,\"delta\":%.4f}" % [name, lt, mt, mt - lt])
+
+
 func set_field(name: String, arr) -> void:
 	if _rd == null or not _bufs.has(name):
 		return
+	if _audit_mirror and arr is PackedFloat32Array:
+		_audit_mirror_upload(name, arr)
 	var b = _bufs[name]
 	if b is Array:
 		# scent is a 5-plane pair (SCENT_PLANES * cell_count); every other pair channel is one plane (cell_count).
@@ -512,11 +545,27 @@ func set_field(name: String, arr) -> void:
 ## without knowing what is in it pass this and read the returned total.
 const DRAIN_ALL: float = -1.0e30
 
-## Fold a sparse per-cell delta into a channel's LIVE device buffer. `deltas[i]` is applied to `cells[i]`,
-## clamped into [0, ceiling]. Returns the total actually applied (sum of new - old), whose shortfall against
-## sum(deltas) is what the floor/ceiling refused — report that, never assume it was zero.
+## Fold a sparse per-cell delta into a channel's LIVE device buffer. `deltas[i]` is applied to `cells[i]`.
+## Returns the total actually applied (sum of new - old), whose shortfall against sum(deltas) is what the
+## floor/ceiling refused — report that, never assume it was zero.
+##
+## `ceiling` limits a POSITIVE delta to the cell's remaining headroom; it is not a clamp on the result. The
+## distinction is mass. `clampf(before + delta, 0.0, ceiling)` reduced any cell already sitting above the
+## ceiling, so a credit of +0.5 into a cell holding 1.4 with ceiling 1.0 left it at 1.0 and destroyed 0.4 —
+## an "add" that subtracts. Water reaches those values legitimately (the compression model at
+## MaterialField3D.gd:562 lets a cell exceed MAX_MASS) and `add_water_pooled` passes MAX_MASS as its ceiling,
+## so the one live caller of this path was exactly the case that lost mass. Measured 2026-07-30: four cells at
+## 1.4 given +0.5 each returned -1.6. Headroom-limiting instead means a full cell simply absorbs nothing and
+## an over-full cell is left alone, matching `move_field_sparse`'s `dst_ceiling` rule (take only what the
+## destination can hold) so the two primitives no longer disagree about what a ceiling means.
+##
+## A cells/deltas length mismatch is a caller bug that used to return 0.0 silently, which is indistinguishable
+## from "every target was saturated" and is how a malformed queue op hid for as long as it did. It is loud now.
 func add_field_sparse(name: String, cells: PackedInt32Array, deltas: PackedFloat32Array, ceiling: float = INF) -> float:
-	if _rd == null or not _bufs.has(name) or cells.size() == 0 or cells.size() != deltas.size():
+	if cells.size() != deltas.size():
+		push_error("add_field_sparse('%s'): %d cells vs %d deltas — op dropped" % [name, cells.size(), deltas.size()])
+		return 0.0
+	if _rd == null or not _bufs.has(name) or cells.size() == 0:
 		return 0.0
 	var buf: RID = _live(name) if _bufs[name] is Array else _bufs[name]
 	var arr: PackedFloat32Array = _rd.buffer_get_data(buf).to_float32_array()
@@ -530,7 +579,10 @@ func add_field_sparse(name: String, cells: PackedInt32Array, deltas: PackedFloat
 		if c < 0 or c >= _cc:
 			continue
 		var before: float = arr[c]
-		var after: float = clampf(before + deltas[i], 0.0, ceiling)
+		var delta: float = deltas[i]
+		if delta > 0.0:
+			delta = minf(delta, maxf(0.0, ceiling - before))   # fill the headroom only; never push a cell down
+		var after: float = maxf(0.0, before + delta)
 		if after == before:
 			continue
 		arr[c] = after
