@@ -28,11 +28,12 @@ extends RefCounted
 ## floor and the top shells are dry (measured d1 5.1e-9, d2 1.3e-8, d3 0.199, d4 0.543). Reading `soil` at the
 ## open cell, or at the single cell directly below it, reads a structural zero — not an absence of land water.
 ##
-## The column walk masks on `regolith`, NOT on `solid`, and that correction is load-bearing (2026-07-30). The
-## two masks diverge — `solid` is re-derived from rock_fill every step, `regolith` is seeded once — so an
-## eroded or river-carved aquifer cell reads open while still holding and still simulating its soil. Because
-## the water sits DEEP (d1/d2 ~0, d3/d4 carry it all), a walk that stopped at such a cell discarded the entire
-## water table and reported bone-dry ground: FAKE DESERTS, in the one gauge built to measure real ones.
+## The column walk masks on `regolith`, NOT on `solid` (corrected 2026-07-30). The two masks diverge — `solid`
+## is re-derived from rock_fill every step, `regolith` is seeded once — so an eroded or river-carved aquifer
+## cell reads open while still holding and still simulating its soil, and the old walk broke before counting
+## it. `root_col_open_frac` / `root_col_open_soil` below report exactly how many columns that affects and how
+## much water it was worth, because the honest answer to "how big was this" is a measurement, not the
+## reasoning that found it.
 ## (Explicit types only, no ':=' inferred typing.)
 
 const LIT_MIN: float = 0.05                # insolation above which a cell counts as genuinely lit

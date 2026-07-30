@@ -24,7 +24,7 @@ extends RefCounted
 ##   Nothing else narrows a leg. In particular the STATIC flag is NOT an accounting filter: it marks the
 ##   sea/lake cells whose `_water` the kernels treat as an infinite reservoir, which is a claim about what
 ##   is SIMULATED, not about what EXISTS. `static_water_total()` reports that subset as a memo line and
-##   `h2o_dynamic_total()` is the remainder, so nothing is lost by counting the sea in.
+##   SIM_REPORT's `h2o_dynamic_total` is the remainder, so nothing is lost by counting the sea in.
 ##
 ## WHY IT HAD TO BECOME ONE RULE. The four legs used four different predicates, so any transfer crossing a
 ## boundary that one leg respected and another ignored MINTED or DESTROYED ledger mass while the GPU buffers

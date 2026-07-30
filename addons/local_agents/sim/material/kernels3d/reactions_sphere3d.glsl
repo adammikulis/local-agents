@@ -161,11 +161,19 @@ float light_at(uint i) {
 // re-derived from rock_fill every step (SolidDerivePass), while `regolith` is seeded once at world-gen and
 // never updated, so any cell that erosion, a MineralStamp3D shrink or world-gen river carving has opened is
 // `solid = 0` with `regolith = 1`. soil_sphere3d.glsl:223 keys on regolith, so such a cell KEEPS its soil and
-// keeps being simulated as aquifer — but a solid-masked walk broke at it and threw away every shell BELOW it
-// too. The water is deep (measured root_d1 0.00026, root_d2 0.00024, root_d3 0.137, root_d4 0.422), so a break
-// in the top two shells discards essentially the whole aquifer and the plant reads bone-dry ground sitting on
-// a full water table. Emergent desert formation is what the photosynthesis work exists to produce, so a
-// spurious desert is the one failure that looks exactly like the intended result.
+// keeps being simulated as aquifer, while a solid-masked walk broke BEFORE counting it and the plant above read
+// a drier column than it stands on. Emergent desert formation is what the photosynthesis work exists to
+// produce, so a spurious desert is the one failure that looks exactly like the intended result.
+//
+// WHAT THIS DOES AND DOES NOT RECOVER — be precise, because the obvious reading overstates it. The walk still
+// STOPS at that opened cell; it just counts it first. It does not carry on into the shells below, and it must
+// not: an opened aquifer cell whose own inward neighbour is solid is itself a GATE_NEAR_GROUND rooting cell,
+// so the column beneath it belongs to the plant standing IN it, not to the one on the ledge above. Every
+// regolith cell therefore still has exactly one owner. The gain per affected column is one shell of soil, and
+// since carving and erosion cut from the surface DOWN while the water table sits on the bedrock floor
+// (measured root_d1 0.00026, root_d2 0.00024, root_d3 0.137, root_d4 0.422), that shell is usually a dry one.
+// Whether this moves the dryness statistics at all is an empirical question, which is why the mirror gauge
+// LAMaterialFieldPhotoStats3D reports root_col_open_frac / root_col_open_soil: measure it, do not assume it.
 //
 // RACE-FREEDOM (this is the ONE place the engine touches a cell other than its own, so the argument matters).
 // The walk INCLUDES the first open cell it reaches and then STOPS there. Every reacting cell is itself open,
