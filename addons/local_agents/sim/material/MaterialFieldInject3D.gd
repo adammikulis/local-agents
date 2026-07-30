@@ -11,7 +11,22 @@ extends RefCounted
 ## (This is the same split as MaterialFieldQueries3D / MaterialFieldRender3D, not a compat layer.)
 ## (Explicit types only, no ':=' inferred typing.)
 
+const QueueScript: GDScript = preload("res://addons/local_agents/sim/material/MaterialFieldInjectQueue3D.gd")
+
 var _f = null                                            # back-reference to the owning LAMaterialField3D
+
+## Pending sparse DEVICE edits + the H₂O injection ledger. Every CPU-side write into a GPU-resident channel
+## goes through here so it ADDS to live state instead of re-uploading a stale mirror over it, and so every
+## credit names the source it was taken from. Flushed by LAMaterialFieldSphereStep3D just before dispatch;
+## also written by LAMineralStamp3D (the water a growing rock cell has to hand off). Public on purpose — this
+## is the write-side API's own queue, not private state.
+var queue: LAMaterialFieldInjectQueue3D = QueueScript.new()
+
+# EVAPORATION SOURCING (add_vapor). A storm lifts water that is THERE: the liquid in its footprint and the
+# water table under it. These bound how hard one injection may pull, so a cell is thinned rather than punched
+# empty — a storm sitting on the sea must not open a hole in it.
+const EVAP_KEEP_LIQUID: float = 0.1      # liquid below this is not available to a storm (film left behind)
+const EVAP_TAKE_FRAC: float = 0.5        # fraction of a source cell's AVAILABLE contents one injection may lift
 
 ## Emitted every time something splashes water at a world point (meteor / tornado / fish / thrown rock /
 ## flood / plant). The water-surface renderer (LAMaterialFieldRender3D) connects here to spawn an expanding
@@ -22,6 +37,13 @@ signal splashed(world_pos: Vector3, strength: float)
 
 func setup(field) -> void:
 	_f = field
+
+
+## True when this field is running on a driver that can apply the queue's sparse device edits (the cubed-sphere
+## GPU driver). The box/CPU field has no such driver and nothing flushes the queue there, so its injectors must
+## not park ops that would accumulate forever.
+func _device_ready() -> bool:
+	return _f != null and _f._gpu != null and _f._gpu.has_method("move_field_sparse")
 
 
 # --- Local field injection (add_heat / add_vapor / add_charge) --------------------------------------
@@ -54,16 +76,119 @@ func add_heat(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 	if amount > 0.0 and _f._gpu != null:
 		_f._gpu.request_channel("fire")
 
-## Inject airborne water vapor (humidity) into the air cell at `world_pos` (and within `radius`) — a storm's
-## LOCAL moisture source. Moisture is GPU-resident, so mark it dirty for the sphere-step re-upload.
+## EVAPORATE airborne water vapor (humidity) into the air over `world_pos` (within `radius`) — a storm's LOCAL
+## moisture source. This is a TRANSFER, not a source. It used to do `_moisture[c] += amount` for every open cell
+## in the bubble and set a dirty flag, which (a) created that mass out of nothing — every storm minted water —
+## and (b) made the step re-upload the whole stale moisture mirror over the live GPU buffer, discarding a step
+## of atmosphere. Both are gone: the mass is lifted out of the liquid water and the soil water INSIDE the same
+## bubble, exactly the water→moisture debit atmos_evap_sphere3d already performs, and the edit is applied to the
+## live device buffer.
+##
+## Sources, in the order a real storm draws them:
+##   • LIQUID in the footprint (sea, lake, river, puddle) — evaporates into its OWN cell, where atmos_evap puts
+##     it too; a static-sea cell is a legitimate source, and debiting it is what keeps `h2o_closed_total` closed
+##     rather than moving the mint into the reservoir the ledger does not count.
+##   • SOIL water under the footprint (evapotranspiration) — surfaces in the open cell radially above the rock.
+## Whatever the footprint cannot supply is recorded as an explicit shortfall and reported in SIM_REPORT. A dry
+## footprint therefore yields a weak storm; it does not conjure rain.
 func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
-	if amount <= 0.0 or _f._moisture.size() != _f._cell_count:
+	if amount <= 0.0 or _f._moisture.size() != _f._cell_count or _f._water.size() != _f._cell_count:
+		return
+	if not _device_ready():
 		return
 	var cells: PackedInt32Array = _cells_within(world_pos, radius)
+	if cells.size() == 0:
+		return
+	# DEMAND is unchanged from the minting version (`amount` per open cell in the bubble), so `h2o_inject_demand`
+	# in SIM_REPORT is exactly the mass this call used to create from nothing.
+	var open_n: int = 0
 	for c in cells:
 		if _f._solid[c] == 0:
-			_f._moisture[c] = maxf(0.0, _f._moisture[c] + amount)
-	_f._vapor_dirty = true
+			open_n += 1
+	if open_n == 0:
+		return
+	var want: float = amount * float(open_n)
+	queue.note_demand(want)
+
+	# Source per SURFACE COLUMN, not per bubble cell. Evaporation is a surface process — it happens at the top of
+	# the water or the top of the wet ground, and the moisture enters the air directly above it — and keying on
+	# the column makes that independent of exactly where the injection blob's centre landed. That matters here:
+	# the storm actors aim with a cartesian `+Y` offset from a ground point, which on a sphere puts the blob a
+	# couple of cells off the surface at most latitudes, and a per-cell scan then found a bubble full of bedrock
+	# and reported a 100% shortfall that was about the AIM, not about the ground being dry. Walking the column
+	# makes a reported shortfall mean what it says.
+	#
+	# The CPU mirrors read here are a readback old, but they only SIZE the ask: move_field_sparse clamps every
+	# take to the live device value, so a stale over-estimate cannot mint, it comes back as shortfall.
+	var depth: int = _f._sphere.depth if _f._sphere != null else 1
+	var have_soil: bool = _f._soil.size() == _f._cell_count and _f._regolith.size() == _f._cell_count
+	var wet_cells: PackedInt32Array = PackedInt32Array()
+	var wet_take: PackedFloat32Array = PackedFloat32Array()
+	var wet_dst: PackedInt32Array = PackedInt32Array()
+	var wet_offer: float = 0.0
+	var soil_cells: PackedInt32Array = PackedInt32Array()
+	var soil_take: PackedFloat32Array = PackedFloat32Array()
+	var soil_dst: PackedInt32Array = PackedInt32Array()
+	var soil_offer: float = 0.0
+	var seen: Dictionary = {}
+	for c in cells:
+		var col: int = c / depth                          # cell = surf_col*depth + radial layer
+		if seen.has(col):
+			continue
+		seen[col] = true
+		var base: int = col * depth
+		var ground_r: int = -1                            # outermost SOLID shell = this column's ground surface
+		for r in range(depth - 1, -1, -1):
+			if _f._solid[base + r] != 0:
+				ground_r = r
+				break
+		# The exposed liquid surface: the outermost open cell above the ground that still holds water (sea, lake,
+		# river, puddle), and the air cell directly above it, which is where lifted moisture belongs.
+		var top_water: int = -1
+		for r in range(ground_r + 1, depth):
+			if _f._solid[base + r] != 0:
+				break
+			if _f._water[base + r] > EVAP_KEEP_LIQUID:
+				top_water = base + r
+		var air: int = -1
+		if top_water >= 0 and (top_water % depth) < depth - 1 and _f._solid[top_water + 1] == 0:
+			air = top_water + 1
+		elif ground_r >= 0 and ground_r < depth - 1 and _f._solid[base + ground_r + 1] == 0:
+			air = base + ground_r + 1
+		if top_water >= 0:
+			var avail: float = (_f._water[top_water] - EVAP_KEEP_LIQUID) * EVAP_TAKE_FRAC
+			if avail > 0.0:
+				wet_cells.append(top_water)
+				wet_take.append(avail)
+				wet_dst.append(air if air >= 0 else top_water)
+				wet_offer += avail
+		elif have_soil and air >= 0 and ground_r >= 0 and _f._regolith[base + ground_r] != 0:
+			# Dry column: transpire the water table out of the topmost permeable shell instead.
+			var av: float = _f._soil[base + ground_r] * EVAP_TAKE_FRAC
+			if av > 0.0:
+				soil_cells.append(base + ground_r)
+				soil_take.append(av)
+				soil_dst.append(air)
+				soil_offer += av
+	# Scale both pools down together when the footprint holds more than the storm wants, so a wet storm takes
+	# exactly its demand spread across its sources instead of stripping every one of them.
+	var offer: float = wet_offer + soil_offer
+	if offer > want and offer > 0.0:
+		var k: float = want / offer
+		wet_take = _scaled(wet_take, k)
+		soil_take = _scaled(soil_take, k)
+	queue.transfer("water", wet_cells, wet_take, "moisture", wet_dst)
+	queue.transfer("soil", soil_cells, soil_take, "moisture", soil_dst)
+
+
+## Packed arrays are copy-on-write VALUE types in GDScript — an in-place helper would scale a copy and leave
+## the caller's array untouched — so this returns the scaled array instead of mutating an argument.
+func _scaled(arr: PackedFloat32Array, k: float) -> PackedFloat32Array:
+	var out: PackedFloat32Array = PackedFloat32Array()
+	out.resize(arr.size())
+	for i in arr.size():
+		out[i] = arr[i] * k
+	return out
 
 ## Inject electrification charge into the air cell at `world_pos` (and within `radius`) — an explicit charge
 ## seed (a storm's charge source, or an ionising impact). The charge channel is GPU-resident + evolves in
@@ -164,19 +289,30 @@ func erupt_source(world_pos: Vector3, amount: float) -> float:
 ## Flood pool-fill: add water only where the ground is at/below the centre column's ground, so a surge
 ## fills the basin and runs downhill (never climbs a hillside). 3D analogue of the 2.5D add_water_pooled.
 func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
-	if amount <= 0.0 or _f._water.size() != _f._cell_count:
+	if amount <= 0.0 or _f._water.size() != _f._cell_count or not _device_ready():
 		return
 	# Sphere-native basin fill: deposit into open cells within the bubble that sit AT/BELOW the centre's
 	# altitude (radius from the planet centre), so a surge pools into the low ground and the field's own
-	# gravity-driven flow runs it downhill — never up a hillside. No vertical XZ column. _water uploads every
-	# frame, so the CPU edit reaches the GPU next step. O(k) over the bubble via the neighbour-BFS.
+	# gravity-driven flow runs it downhill — never up a hillside. No vertical XZ column. O(k) over the bubble
+	# via the neighbour-BFS.
+	#
+	# This is a SOURCELESS add (a scripted surge really does conjure its water), so it goes through the queue's
+	# `add` and lands in the reported `h2o_inject_minted` — visible rather than hidden. What it must NOT do is
+	# what it used to: edit the CPU mirror and mark the whole water channel dirty, which made begin_frame
+	# re-upload a one-to-two-step-old snapshot of the ENTIRE channel over the live GPU water, discarding a step
+	# of flow/rain/infiltration everywhere on the planet to deliver a puddle. The sparse device add touches only
+	# the bubble.
 	var center_r: float = (center - _f._origin).length()
 	var cells: PackedInt32Array = _cells_within(center, radius)
+	var fill_cells: PackedInt32Array = PackedInt32Array()
+	var fill_amt: PackedFloat32Array = PackedFloat32Array()
 	for c in cells:
 		if _f._solid[c] != 0:
 			continue
 		if (_f.cell_world_pos_linear(c) - _f._origin).length() <= center_r + _f._cell_size:
-			_f._water[c] = minf(_f._water[c] + amount, _f.MAX_MASS)
+			fill_cells.append(c)
+			fill_amt.append(amount)
+	queue.add("water", fill_cells, fill_amt, _f.MAX_MASS)
 
 
 ## Re-sample rock/void from the terrain SDF in a region after an edit (a crater, a lava-built delta). Sphere-
