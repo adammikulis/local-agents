@@ -51,13 +51,18 @@ const int MAX_STRIDE = 16;
 
 // Tuning.
 const float CAPACITY = 0.60;          // groundwater a regolith cell holds when saturated (MUST match MaterialField3D)
+const float MAX_MASS = 1.0;           // surface water a cell holds before it is "full" (MUST match MaterialField3D
+                                      // + water_sphere3d.glsl). An outlet at or above this can take no more, which
+                                      // is what gives a spring its back-pressure.
 const float CONDUCT = 0.35;           // Darcy conductivity: groundwater flow per unit head difference per step
 const float MAX_FLOW_FRAC = 0.35;     // cap total outflow to this fraction of a cell's soil per step (stability)
 // SPRINGS emerge where the water-table HEAD rises above an open neighbour's floor — i.e. at VALLEY WALLS where
 // the regolith meets open ground laterally, NOT on flat ground (whose only open neighbour is straight up, which
 // the table can't exceed unless brim-full). This auto-concentrates discharge at valleys and self-limits: seeping
 // drains the local table, so a spring only SUSTAINS where groundwater keeps CONVERGING (a real valley). No fixed
-// threshold, no blanket baseflow (which floods the whole surface). SPRING_CONDUCT = discharge per unit head.
+// threshold, no blanket baseflow (which floods the whole surface). SPRING_CONDUCT = discharge per step at UNIT
+// HYDRAULIC GRADIENT (head difference divided by cell size), i.e. the same dimensionless currency as INFIL_RATE
+// below — NOT per unit head in world units, which is what it used to be and why every spring pinned at the cap.
 const float SPRING_CONDUCT = 0.20;    // groundwater daylighting at valley walls. Paired with the exponential
                                       // (Clausius–Clapeyron) evap curve: exfiltrated baseflow now persists on
                                       // cool land instead of flashing off, so springs sustain visible streams.
@@ -207,10 +212,31 @@ void main() {
 					// test never covered, because a hollow filled by rain was never marked static.
 					int nr = n % int(params.depth);
 					float open_floor = params.core_radius + (float(nr) + 0.5) * params.cell_size;
-					float open_elev = open_floor + clamp(water[n], 0.0, 1.0) * params.cell_size;
+					// The outlet's water depth is read RAW, not clamped to one cell. The water CA is compressible
+					// (water_sphere3d.glsl: a cell above MAX_MASS is carrying the weight of a column above it), so
+					// water[n] > 1 is precisely the signal that this outlet is under pressure from above — which is
+					// the resistance a spring should feel. Clamping it to 1.0 threw that signal away and made every
+					// drowned outlet look like a cell holding exactly one unit of standing water.
+					float open_elev = open_floor + water[n] * params.cell_size;
 					float exf_head = my_head - open_elev;
 					if (exf_head > 0.0) {
-						float exf = min(remaining, SPRING_CONDUCT * exf_head);
+						// DARCY, AS A GRADIENT. exf_head is a length; dividing by the cell size makes it the
+						// dimensionless hydraulic gradient, so SPRING_CONDUCT is a flux per step in the same
+						// currency as INFIL_RATE. It was NOT: SPRING_CONDUCT multiplied a head in WORLD units
+						// (cell_size = 8*PLANET_SCALE), so 0.20 * a few metres always exceeded
+						// remaining = MAX_FLOW_FRAC*s <= 0.21 and min() picked the stability cap EVERY time.
+						// Every spring in the world ran flat out at the cap, head-proportional in name only.
+						float exf = SPRING_CONDUCT * (exf_head / params.cell_size);
+						// BACK-PRESSURE. A full outlet cannot accept water, and until now nothing said so: for the
+						// INWARD neighbour the geometry makes the head positive by construction
+						//     exf_head = table + (1 - w)*cell_size >= table > 0
+						// so a regolith cell drained into the open cell beneath it every step however full that
+						// cell already was. That one leg was 96% of the aquifer's measured drain, and 95% of its
+						// outlets were roofed voids and carved channels rather than the sea. This mirrors the
+						// receiver-headroom cap the Darcy leg above already applies to regolith receivers — the
+						// same rule, finally applied on the side that needed it most.
+						exf = min(exf, max(0.0, MAX_MASS - water[n]));
+						exf = min(exf, remaining);
 						send[base + uint(d)] = exf;
 						remaining -= exf;
 						dbg[dbase + DBG_SPRING_SENT] += exf;
@@ -234,14 +260,28 @@ void main() {
 			}
 			// WATERLOGGED UP-SEEP: if the table is near-full (basin groundwater has nowhere lower to go), well the
 			// surplus straight up into the open cell above → a perennial water-table lake sustained by the aquifer.
+			//
+			// THIS LEG IS A STAND-IN FOR HYDROSTATIC PRESSURE AND SHOULD EVENTUALLY BE DISSOLVED INTO ONE. The
+			// spring loop above already visits the outward neighbour, so artesian flow ought to fall out of the
+			// same head rule with no second leg — but it cannot, because head_of() clamps the table at one
+			// cell_size, which makes exf_head against the cell ABOVE negative by construction (its floor is a
+			// whole cell higher). Measured: spring_up is exactly 0.0000 at every horizon, and that is geometry,
+			// not physics. Real artesian flow is driven by a confined aquifer's recharge area standing HIGHER
+			// somewhere else — a pressure that is not a function of local water depth and that this substrate
+			// does not yet carry. Until a real pressure channel exists, this leg approximates it.
 			float surplus = s - CAPACITY * SEEP_THRESH;
 			if (surplus > 0.0 && remaining > 0.0) {
-				// Up-seep needs no static test either: an over-pressured aquifer welling up into the sea above it
-				// IS submarine discharge, and it is self-limiting because it only fires on the surplus above
-				// SEEP_THRESH, which the head term above now prevents the seabed from ever reaching by drainage.
 				int up = nbr[base + 5u];
 				if (up >= 0 && solid[up] == 0.0) {
 					float seep = min(remaining, surplus * SEEP_RATE);
+					// ...but it still cannot push water into a cell that is already full. The comment here used to
+					// argue up-seep needed no such guard, "self-limiting because it only fires on the surplus above
+					// SEEP_THRESH, which the head term prevents the seabed from ever reaching by drainage". That
+					// was true only while the spring leg drained the seabed continuously; the moment that drain was
+					// fixed the seabed saturated, crossed SEEP_THRESH, and this leg took over as the dominant sink
+					// — measured seep_sent 6.03/step -> 29.50/step at field_step 50, the largest single leg in the
+					// budget. Two legs each relying on the other to stay small is not self-limiting, it is a loop.
+					seep = min(seep, max(0.0, MAX_MASS - water[up]));
 					send[base + 5u] += seep;
 					remaining -= seep;
 					dbg[dbase + DBG_SEEP_SENT] += seep;
