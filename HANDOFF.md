@@ -19,6 +19,85 @@ shipped on `main` (`v0.3.1`); development is on `0.4-dev`. Read `CLAUDE.md` · `
 `fire-balance-wildfire`, `worktree-shader-import-gotcha`, `three-d-always`); work in a worktree off `0.4-dev`.
 
 ---
+### ⚑ CONSERVATION + FROZEN-FAKES SESSION (2026-07-30) — merged to `0.4-dev`, CI green
+
+Started as "read HANDOFF and do it", became an audit of what this simulation freezes in the name of
+performance. Nine merges. **CI passed for the first time in this history** — it had failed on every push
+since at least 2026-07-11.
+
+**CI was red for months, and the gates were worse than red — they were vacuous.** `ripgrep` is not
+installed on the GitHub runner and never was in the apt list, so `check_max_file_length.sh` printed
+"rg: command not found" three times, ended with an empty file list, said "No matching files found" and
+**exited 0**. `check_no_direct_refcounted_invocation.sh` wrapped its `rg` in `|| true` and reported
+"passed" the same way. Both examined ZERO files on every push while two files sat over the limit. The one
+step that genuinely failed required the log to contain `Cognition trace isolation test passed`, from a
+test pruned in `e14c79d`. Also fixed: CI ran Godot 4.6 against a 4.7 project; a `perf-benchmarks` job ran
+`tests/run_perf_benchmarks.gd`, which does not exist (Godot exits 0 on a missing script, so it burned ~21
+minutes a push reporting success for nothing); the "no fallback paths" gate grepped three files under
+`simulation/`, a directory renamed to `sim/`; and five lint gates never ran in CI at all. New
+`scripts/lib_require.sh` makes a gate that cannot run FAIL (exit 2), never pass. `agent_harness.sh lint`
+is now the single list and CI calls it. **Also: an agent session's scratchpad path was committed as the
+default log dir**, and `mktemp -t` without X's is BSD-only — both broke the runner.
+
+**`--fast=N` did nothing at all, and every measurement that leaned on it is suspect.** `Engine.time_scale`
+had two owners: `parse_cmdline()` applied the flag at `VoxelWorld.gd:177`, then `LAVoxelTimeControl` was
+built ~114 lines later and its `_ready()` reset the global to 1.0×. A runtime probe under `--fast=8` read
+back `time_scale 1.000` with delta exactly 1/60; matched 300-frame runs gave 135 field steps at
+`--fast=1` versus 113 at `--fast=8`. Fixed to one owner. Now 114 → **5705** field steps, 0.06 → **3.97
+sim days**, and the day-rollover path executed for the first time. **CAVEAT: at `--fast>=4` the
+population dies** (150 frames: `--fast=2` holds 180 creatures, `--fast=4` reaches 0). Creatures tick on
+scaled delta while the field is capped by `max_physics_steps_per_frame`. **Use `--fast=2`.**
+
+**Night did not exist.** `LAVoxelSkyCycle` latches `_planet_mode` and returns before `_advance_clocks()`,
+so `time_of_day` stayed at its seed: the gauge reads `{"cur":0.3,"min":0.3,"max":0.3}` across a whole run.
+`is_night()` answered FALSE for every creature, forever — diurnal animals never rested, nocturnal ones
+never woke, and the `night` bit in the learned-policy signature was constant, so **half the signature
+space was unreachable and every heuristic any creature has learned is a daytime heuristic**.
+`LACreatureLod`'s cost model documents "a fraction of the population is always asleep"; it was not.
+Dissolved rather than repaired: `is_night_at(pos)` is `dot(local_up, sun_dir) < 0`. The terminator was
+physical the whole time. New `night_frac` (0.479) and `resting_frac` (0.441) gauges.
+
+**Water conservation is now instrumented and mostly honest.** Nothing measured it before —
+`smoke_check.sh` only asserts h2o is finite and non-zero, so a run losing half the planet's water passed.
+The four ledger legs used four different cell predicates, so any transfer crossing the static boundary
+minted or destroyed ledger mass while the GPU buffers stayed conserving. Unified. New gauges:
+`h2o_closed_total`, `h2o_drift_per_step`, `static_water_total`, `soil_stranded`, `h2o_inject_minted`,
+`h2o_displaced`, `h2o_buried`, `h2o_stale_rewind`. Storms no longer mint water (`add_vapor` is a real
+transfer; shortfall reported, `h2o_inject_minted` 0.00). Injections no longer overwrite the live GPU
+buffer with a one-frame-stale CPU mirror (`h2o_stale_rewind` measures what that used to destroy: ~15
+units a run). `MineralStamp3D` displaces water out of cells it solidifies instead of stranding it.
+**Keystone C's asymptotic half started**: compacted active-cell list + indirect dispatch, proven on
+`lava_phase`.
+
+**The photosynthesis "-93% biomass regression" was not one.** The old R19 was gated `GATE_SURFACE`, which
+on a shell means the TOP OF THE ATMOSPHERE. Measured: biomass at the sky skin 2334, **at the ground skin
+0.0**. All primary production was happening in the stratosphere. Comparing that total to ground biomass
+is comparing a bug to its fix. Trees and plants are identical across the change (400/400, 439/439).
+`PHOTO_WATER_COST` retuned 0.2 → 0.05, which gives MORE vegetation and **six times** the wet/dry contrast:
+a cost that heavy makes the water cap bind everywhere, flattening the contrast it exists to create. Same
+trap as `FERT_UPTAKE_COST`, which was cut 25× for the same reason.
+
+**What is still frozen, ranked by how much it distorts the sim** (full audit in the session log):
+1. **No radiative sink anywhere.** `heat3d_solar` relaxes toward a prescribed target; its own comment says
+   that "mirrors radiative cooling to space", and `ATMOS_RELAX = 0.14` is deliberately tuned to OUTVOTE
+   real conduction. The ocean is a thermostat dragged to `SST_SURFACE = 26.0` by fiat. The core is an
+   infinite constant-temperature source. **Four separate band-aids exist because of this**: `FREEZE_TEMP`
+   moved to 12.5 °C because 0 °C "can never fire here", a whole `HOT_SPRING_GATE` invented to escape the
+   thermostat, arc volcanoes "kept rare so sustained volcanic heat doesn't accumulate", and
+   `CLOUD_OPACITY_CAP = 0.22` clipping a real feedback to stop a snowball runaway. One fix deletes all four.
+2. **There are no seasons and, by default, no planet rotation.** `ctx["spin_axis"]` is never set by anyone,
+   so the field's pole is world +Y while the planet spins about a 23.5° axis; the heliocentric orbit runs
+   entirely in the XZ plane, so the sub-solar latitude is pinned at the equator forever. `SystemOrbits`
+   documents seasons it structurally cannot produce. Spin is off by default and is explicitly FROZEN for
+   the seabed-volcano demo to hide a field-vs-terrain frame mismatch.
+3. **The Star is not in the `gravity_body` group** (`Star.gd` never calls `add_to_group`), so meteors feel
+   planet + moon and ZERO solar gravity, while the planet's orbit runs on a separate `SUN_MU` in
+   disconnected units — against `Gravity.gd`'s stated HARD PRINCIPLE of "no hardcoded single-centre
+   gravity anywhere". One line.
+4. **`resample_terrain` has zero callers**, so every meteor crater exists in the mesh and the collision but
+   not in the physics. Water will not pool in it.
+
+---
 ### ⚑ ADDON-UX SESSION (2026-07-29) — MERGED to `0.4-dev`, lint green
 Goal: make `addons/local_agents/` installable and usable without reading its source.
 *(Corrected 2026-07-29. This heading said "IN FLIGHT on `feature/addon-ux`, not yet merged", with worktree
@@ -518,6 +597,27 @@ biomass/fertility/mineral range, no errors).
   after a real one.
 
 **REMAINING (pick up in this order):**
+- **#24 — the dynamic sea, half-done on `feature/dynamic-sea` (2 WIP commits, DO NOT MERGE YET).** The
+  `_static` mask is gone: nothing seeds it, every cell is dynamic, and all 53 sites keyed on it are dead
+  branches awaiting deletion. Conservation improved 6x (`h2o_drift_per_step` -0.145 -> -0.024,
+  `static_cells` 0, no uncounted reservoir), creatures held, and `field_ms` went 5.2 -> 10.2 (2x, the
+  honest cost of simulating 3480 more cells — the active-cell compaction just landed for `lava_phase` is
+  what should absorb it). The seabed freeze in `soil_sphere3d.glsl` was replaced with the physics it
+  faked: the spring outlet head now includes the neighbour's standing water, so the sea holds its own
+  groundwater down by its own weight (and a spring into a full LAKE correctly stops too, which the static
+  test never covered).
+  **BLOCKER: soil_total still drains, 684 at field_step 53 to 51.8 at 746, and I do not have the root
+  cause.** All three transfer legs were traced by hand and none of them should do it. Note the old 3479
+  was itself mostly fake — the world-gen seed is 0.3 x ~11600 regolith cells = ~3480 and it had not moved
+  in 746 steps, i.e. nearly the whole "aquifer" was frozen seabed that never participated. Do NOT target
+  3479. Next step: instrument the soil kernel's four legs separately (per-leg totals in SIM_REPORT) so the
+  drain names itself instead of being reasoned about from source.
+- **#25 — `--fast>=4` kills the population.** Creatures tick on `Engine.time_scale`-scaled delta while the
+  field is bounded by `max_physics_steps_per_frame` and `MAX_STEPS_PER_FRAME`, so consumption outruns
+  regrowth. Measured, 150 frames: `--fast=2` holds 180 creatures and biomass 8939; `--fast=4` reaches 1.56
+  sim days with 0 creatures. This is 0.4's listed "high-`--fast` field desync" livability risk, now
+  reproducible because the flag finally works. Either scale the field's step budget with the multiplier or
+  clamp creature metabolism to the field's realised step rate.
 - **~~#22 — ice-albedo equatorial freeze-lock~~ CLOSED, premise obsolete.** *(Corrected 2026-07-29. This
   bullet called it "THE self-sustaining blocker" and pointed at "**WIP on branch `feature/thaw-tropics`
   (`f1f53c7`, DO NOT MERGE — unverified)**", with a resume recipe: pull death causes at f≈2000, check the
