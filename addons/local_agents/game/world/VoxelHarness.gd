@@ -128,6 +128,7 @@ static func build_report(w) -> Dictionary:
 	_emit_draw_sources(w)
 	LASimReport.gauge("frames", float(w._frame))
 	LASimReport.gauge("time_of_day", w._sky_ctrl.time_of_day() if w._sky_ctrl != null else 0.30)
+	_emit_night_gauges(w)
 	LASimReport.gauge("peak_slump", float(w._peak_slump))
 	LASimReport.gauge("fps", Performance.get_monitor(Performance.TIME_FPS))
 	LASimReport.gauge("process_ms", Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0)
@@ -153,3 +154,37 @@ static func _emit_draw_sources(w) -> void:
 				m += _count_meshes(nd)
 			parts.append("%s:n=%d,surf=%d" % [g, nodes.size(), m])
 		print("DRAW_SOURCES={%s}" % ", ".join(parts))
+
+
+## How much of the living population is on the DARK side, and how many of those that puts off-shift.
+##
+## This gauge exists because the thing it measures was silently broken and nothing caught it. Night used to
+## come from a global `time_of_day` scalar that is frozen at its seed value in planet mode (LAVoxelSkyCycle
+## returns before advancing its clock there), so every creature read "day" for the entire run: diurnal
+## animals never rested, nocturnal ones never woke, and the `night` bit in the learned-policy signature was
+## a constant that made half the signature space unreachable. A frozen scalar is indistinguishable from a
+## working one until something plots it.
+##
+## Read it like this: on a lit sphere `night_frac` should sit near 0.5 and sweep as the terminator moves.
+## A hard 0.0 or 1.0 means it is stuck again. `resting_frac` is the population actually off-shift, which is
+## the premise LACreatureLod's cost model rests on ("a fraction of the population is always asleep").
+static func _emit_night_gauges(w) -> void:
+	var eco = w._ecology
+	if eco == null or not eco.has_method("is_night_at"):
+		return
+	var live: int = 0
+	var dark: int = 0
+	var resting: int = 0
+	for c in w.get_tree().get_nodes_in_group("creature"):
+		if not is_instance_valid(c) or c.get("_dead"):
+			continue
+		live += 1
+		var night: bool = eco.is_night_at(c.global_position)
+		if night:
+			dark += 1
+		if night != bool(c.get("nocturnal")):
+			resting += 1
+	if live <= 0:
+		return
+	LASimReport.gauge("night_frac", float(dark) / float(live))
+	LASimReport.gauge("resting_frac", float(resting) / float(live))

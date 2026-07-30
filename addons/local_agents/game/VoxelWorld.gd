@@ -577,9 +577,14 @@ func _process(delta: float) -> void:
 	if _orbits != null:
 		_orbits.update(delta)
 	_sky_ctrl.update(delta)
-	# Share the sky clock with the ecology so nocturnal behavior can key off night.
-	if _ecology != null and _ecology.has_method("set_time_of_day"):
-		_ecology.set_time_of_day(_sky_ctrl.time_of_day())
+	# Publish the REAL sun geometry to the ecology, so night is a place on the sphere rather than a global
+	# clock. (Was `set_time_of_day(_sky_ctrl.time_of_day())` — and that clock is frozen in planet mode, so
+	# is_night() answered false for every creature for the entire run. See LAEcologyService.is_night_at.)
+	if _ecology != null and _ecology.has_method("set_sun") and _body != null:
+		var centre: Vector3 = _body.center()
+		var star: Node3D = _sky_ctrl.star() if _sky_ctrl != null else null
+		if star != null:
+			_ecology.set_sun((star.global_position - centre).normalized(), centre)
 	_update_music_mood()
 	# Planet axial SPIN — the body (its terrain + actors are children) turns as ONE moving frame while the
 	# camera stays in the system frame, so day/night sweeps across the surface. Starts after life is placed so
