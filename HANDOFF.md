@@ -72,6 +72,35 @@ boundary. Kernel slot order is `[0]=in, [1]=-a, [2]=+a, [3]=-b, [4]=+b, [5]=out`
 and it returned 0.0 for every one, while `move_field_sparse` works on the same buffers. That means
 `add_water_pooled`'s flood surge has never delivered its water.
 
+**Fixed, and it was eating the crater transfers: an in-place transfer aliased its own source.**
+`resample_terrain` queues `transfer("rock_fill", src, amounts, "sediment", src)` — one array as both source
+and destination, which is the honest way to say "this rock becomes sediment where it stands". But
+`PackedInt32Array` is copy-on-write, so the op held that single buffer in two of its dictionary slots and
+`_merge` appended into it twice: cell lists grew by two edits per merge while `amounts` grew by one.
+`move_field_sparse` early-returns 0.0 unless the sizes match, so **every coalesced mineral transfer was
+silently dropped**, and coalescing is what a barrage guarantees. Deterministic, two edits, no sim: before
+`9/7/9` with cells `[1,2,3,4,5,6,7,6,7]`, after `7/7/7`. Fixed in the queue (it owns the invariant) in
+`70dd6b7`, with `test_inject_queue_alias.gd` mutation-checked against it.
+
+**Soil drain: root cause found and fixed, on `feature/soil-drain-fix` (not merged).** Two real causes, both
+from the branch's own budget. `SPRING_CONDUCT` multiplied a head in **world units** while `INFIL_RATE` is a
+dimensionless per-step fraction, so `0.20 * a few metres` always exceeded `remaining = MAX_FLOW_FRAC*s` and
+every spring on the planet ran at the stability cap, head-proportional in name only; the head is now divided
+by `cell_size` to give a real gradient. And for the inward neighbour the geometry makes the head positive by
+construction, so a regolith cell drained into the cell beneath it however full that cell was; discharge is
+now capped by the outlet's remaining capacity, the same receiver-headroom rule the Darcy leg already used.
+Stopping that drain then exposed the leg it was propping up: the seabed saturated, crossed `SEEP_THRESH`,
+and up-seep took over at `6.03 -> 29.50` per step, so it got the same cap. Measured at `field_step 746`
+across three runs: **`soil_total` 48.96 → 105.15 / 106.86 / 108.79** (3.4% spread). The leak is closed and
+the budget says so: `kernel_delta` now oscillates about zero (+0.020, +0.340, −0.085, +0.109, +0.162 at
+steps 600–800) while `post_kernel`, which is R19 root uptake, runs a steady −0.35 to −0.64. What remains is
+plants drinking, which is consumption rather than leakage.
+
+**Still blocking the dynamic sea:** `h2o_total` is 4537–5885 on that branch against ~11539 dynamic on the
+static build. The aquifer is not where it went (soil moved by 58 units). Not attributable from these runs
+either, because the three drew 7/6, 7/4 and 1/0 impacts/eruptions and `LA_NO_AMBIENT_DISASTERS=1` does not
+pin the timeline — `LAPlateTectonics` fires on its own drumbeat.
+
 ---
 ### ⚑ PHYSICAL-PLANET SESSION (2026-07-30, later) — rotation MERGED, energy balance WIP
 
@@ -110,9 +139,26 @@ Three measurements worth keeping, in order of usefulness:
    comment complained about. Real air is an insulator; Earth moves heat poleward by wind, which this sim
    already advects.
 
-**Still short:** floor 4.27 °C, above freezing, so snow and sea ice are zero. Buoyancy mixing and the
-ground-hug cells' rock coupling are the next suspects, in that order. Ecosystem unbothered throughout
-(176 creatures, 400 trees).
+**Still short:** floor 4.27 °C, above freezing, so snow and sea ice are zero. Ecosystem unbothered
+throughout (176 creatures, 400 trees).
+
+**Corrected 2026-07-30, later:** the line above used to name "buoyancy mixing and the ground-hug cells'
+rock coupling" as the next suspects. That was a guess, and a better answer turned up while cleaning dead
+code. `LAPSE` was the **only altitude term in surface temperature**, and it died with the prescriber it
+belonged to: `target = AMBIENT_NIGHT + SOLAR_WARMTH*insolation - LAPSE*altitude` was still being computed
+every step by every cell for three commits, read by nothing. So there is now **no height dependence
+anywhere** in the surface balance. A mountain top and a sea-level cell at the same latitude, albedo and
+heat capacity reach the same equilibrium, and the snow-capped peaks and alpine treeline an old comment
+credited to "geometry" are not produced by anything. That is a likelier reason for zero snow and sea ice
+than a floor a few degrees too warm. Cleaned up in `ff0d8f9`, along with `ATMOS_RELAX` and five other
+constants that still read as live and had misled a reader that same day.
+
+**Do not re-prescribe the lapse.** A real surface is colder at height because the column above it is
+thinner: less mass, less downwelling longwave, adiabatic cooling of whatever rises. Two of those want the
+hydrostatic pressure channel; the third wants `EMISSIVITY` to vary with overlying air mass instead of
+being the constant 0.9 it is now. **That is the same missing term the jet stream is waiting on**, so
+pressure buys the lapse, the snow line, the ice-albedo feedback and the jet in one piece of work. It is
+the next thing to build on this branch.
 
 **A JET STREAM IS ONE TERM AWAY, and it is worth knowing before designing anything.** Wind is ALREADY 3D
 per cell (`vel_x` tangent A, `vel_y` redefined as outward-radial, `vel_z` tangent B) across 20 radial
