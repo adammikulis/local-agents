@@ -56,9 +56,22 @@ signal degraded(reason: String)
 ## answers them all, so this is the knob that stops a thousand creatures queueing behind each other.
 @export_range(1, 16, 1) var max_in_flight: int = 2
 
-## Ceiling on how many escalations per second are accepted world-wide. Escalations over the ceiling are
-## dropped, and those creatures keep the action their fast brain already picked.
-@export_range(0.1, 60.0, 0.1, "suffix:/s") var max_requests_per_second: float = 4.0
+## Ceiling on how many escalations per SIMULATED second are accepted world-wide. Escalations over the
+## ceiling are dropped, and those creatures keep the action their fast brain already picked.
+##
+## SIMULATED, not wall-clock, and that word is the whole point. This window used to be measured in
+## `Time.get_ticks_msec()`, which made the number of creatures that got to think depend on how fast the
+## machine happened to be running — and that was the last source of non-determinism in a seeded run.
+## Measured: under `--fixed-fps 60` the GPU field is bit-reproducible (soil_total and biomass_total
+## identical across runs) while `events.decision` still came back 663 vs 695, because `--fixed-fps` fixes the
+## delta handed to `_process` and does not touch the real clock. Counting physics frames instead makes the
+## budget a property of the simulation rather than of the hardware.
+##
+## The model server is still protected, by `max_in_flight` above — a concurrency cap is what a server
+## actually cares about, and it is unaffected by this. The one trade: under `--fast=N` the sim second passes
+## N times faster in real time, so escalations arrive N times faster in wall-clock. That is correct for a
+## simulation budget, and `max_in_flight` remains the binding constraint on the server.
+@export_range(0.1, 60.0, 0.1, "suffix:/sim-s") var max_requests_per_second: float = 4.0
 
 ## How long the "thinking"/"queued" highlight stays on a creature after its consult resolves, so a
 ## decision that took a single frame is still visible. Display only. It changes no behaviour.
@@ -102,7 +115,9 @@ var _total_calls: int = 0
 var _llm_calls: int = 0
 var _teacher_calls: int = 0
 var _dropped: int = 0
-var _recent_ms: Array = []                 # accept timestamps within the last second (rate limiting)
+var _recent_frames: Array = []             # accept PHYSICS-FRAME numbers within the last simulated second
+                                           # (rate limiting). Frames, not milliseconds, so the budget is a
+                                           # property of the simulation and a seeded run reproduces.
 
 # --- live "who is consulting the slow brain" set (drives the player's thinking/queued highlight + select) ---
 # _in_flight_ids: exact set of creatures whose escalation is being resolved RIGHT NOW (added on accept,
@@ -274,18 +289,24 @@ func request(creature, cognition, sig: Dictionary, innate_action: String) -> boo
 	return true
 
 
-## Global budget gate: cap concurrent in-flight resolutions AND requests-per-second. Records the
-## accept timestamp when it lets one through.
+## Global budget gate: cap concurrent in-flight resolutions AND escalations per simulated second. Records
+## the accept frame when it lets one through.
+##
+## THE WINDOW IS COUNTED IN PHYSICS FRAMES, NOT MILLISECONDS. See `max_requests_per_second` for why: a gate
+## that decides how much work happens must count sim time, or the run stops being reproducible. One
+## simulated second is `physics_ticks_per_second` frames, so the configured rate keeps its meaning exactly
+## at normal speed and becomes per-sim-second under a time scale.
 func _accept() -> bool:
 	if _in_flight >= max_in_flight:
 		return false
-	var now: int = Time.get_ticks_msec()
-	var cutoff: int = now - 1000
-	while _recent_ms.size() > 0 and int(_recent_ms[0]) < cutoff:
-		_recent_ms.remove_at(0)
-	if float(_recent_ms.size()) >= max_requests_per_second:
+	var now: int = int(Engine.get_physics_frames())
+	var window: int = maxi(1, Engine.physics_ticks_per_second)
+	var cutoff: int = now - window
+	while _recent_frames.size() > 0 and int(_recent_frames[0]) < cutoff:
+		_recent_frames.remove_at(0)
+	if float(_recent_frames.size()) >= max_requests_per_second:
 		return false
-	_recent_ms.append(now)
+	_recent_frames.append(now)
 	return true
 
 

@@ -220,6 +220,15 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
   against ~75 s (`field_step 746`) without it. Frames are nearly free in wall clock here — the windowed scene
   never exits, so the wrapper waits out `LA_RUN_TIMEOUT` whatever the frame count — so **buy the horizon with
   MORE FRAMES, not with a lower fixed rate.**
+- **The source, found by following that signal:** `CognitionScheduler._accept()` gates every slow-brain
+  escalation on a one-second sliding window measured in `Time.get_ticks_msec()` against
+  `max_requests_per_second`. That is wall-clock, so how many creatures get to think depends on real elapsed
+  time — machine speed and load — and `--fixed-fps` fixes the DELTA handed to `_process`, not the real clock.
+  This is a design call rather than a plain bug: the limiter exists to protect the local model server, and
+  wall-clock is the right unit for that job. The general lesson is the transferable part — **a simulation is
+  only reproducible if every gate that decides HOW MUCH WORK HAPPENS counts sim time or frames, never
+  milliseconds.** Rate limiters protecting an external resource are the usual offender, and they are easy to
+  miss because they look like infrastructure rather than simulation.
 - **A lower rate does NOT work, measured.** `--fixed-fps 10 --fast=2` reaches `field_step 280` in 150 frames,
   six times the horizon, but loses the determinism that was the point: two runs gave `soil_total` 3905.3994 vs
   3905.3636 (identical to four decimals at fps 60), `h2o_total` 12554.88 vs 12552.43, creatures 251 vs 237,
