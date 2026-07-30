@@ -560,23 +560,32 @@ func update(frame: int, spawned: bool) -> void:
 		if _seavolcano != null and _camera != null:
 			# A lit close-up: sit on the sunward side, above the sea surface over the vent, looking down at where the
 			# island emerges. Orbit-mode _process won't override a manual transform, so this framing holds.
+			# --farview keeps the same sunward framing but backs the standoff off, because the close-up cannot
+			# answer the question the capstone exists to answer: whether the deposits piled at ONE SPOT or walked
+			# into an arc is a shape spanning far more of the surface than 46 units of standoff can show.
+			var standoff: float = 8.0 if _farview else 1.0
 			var vdir: Vector3 = (_seavolcano_vent - _body.center()).normalized()
 			var sea_pt: Vector3 = _body.center() + vdir * (_terrain.sea_radius() + 2.0)
-			var cam_pos: Vector3 = sea_pt + sun_dir * 46.0 + vdir * 30.0
+			var cam_pos: Vector3 = sea_pt + sun_dir * (46.0 * standoff) + vdir * (30.0 * standoff)
 			_camera.global_position = cam_pos
 			_camera.look_at(sea_pt, vdir)
 		_auto_seavolcano_fired = true
 		var floor_r: float = (_seavolcano_vent - _body.center()).length() if _seavolcano != null else 0.0
 		print("SEAVOLCANO_SEED={vent:%v, floor_r:%.1f, sea_r:%.1f}" % [_seavolcano_vent, floor_r, _terrain.sea_radius()])
 	# Periodic island-growth proof: the vent column's surface radius rising toward/above sea_radius IS the
-	# emergent island. Cheap (one raycast + the running supply ledger).
+	# emergent island, and the vent's own cone_profile() says whether the material piled at ONE SPOT or walked.
+	# Asked of THIS node, not read from a report key: a run has several vents alive at once (the ambient
+	# director and LAPlateTectonics seed their own) and only the caller knows which one is the capstone.
 	if _auto_seavolcano and _seavolcano != null and frame % 150 == 0:
 		var vd: Vector3 = (_seavolcano.global_position - _body.center()).normalized()
 		var vr: float = _terrain.surface_radius(vd)
 		var sea_r2: float = _terrain.sea_radius()
-		print("SEAVOLCANO={frame:%d, vent_r:%.2f, sea_r:%.2f, above_sea:%s, supplied:%.0f}" % [
+		var shape: Dictionary = _seavolcano.cone_profile()
+		print("SEAVOLCANO={frame:%d, vent_r:%.2f, sea_r:%.2f, above_sea:%s, supplied:%.0f, rise:%.2f, breach:%.2f, smear:%.2f, drift:%.4f, span:%.4f, cover:%d/%d}" % [
 			frame, (vr if not is_nan(vr) else -1.0), sea_r2,
-			str((not is_nan(vr)) and vr > sea_r2), _seavolcano.total_supplied])
+			str((not is_nan(vr)) and vr > sea_r2), _seavolcano.total_supplied,
+			shape["rise"], shape["breach"], shape["smear"], shape["drift"], shape["span"],
+			shape["cover"], shape["samples"]])
 
 	# Rock Stage C proof: deposit rock into a VOID cell ~3 units above the top surface, then confirm the
 	# rock_fill 0.5-crossing GROWS terrain (is_solid flips false->true at the stamp point).
@@ -929,7 +938,11 @@ func set_time_scale(n: int) -> void:
 		_pause_menu.set_time_scale(_fast)
 func auto_select() -> bool: return _auto_select
 func debug_family() -> bool: return _debug_family
-func auto_seavolcano() -> bool: return _auto_seavolcano
+# auto_seavolcano() was here. It had exactly one caller: VoxelWorld's planet-spin line, which froze the
+# planet's rotation for this demo to hide a world-fixed field drifting against a spinning terrain. The field
+# is body-local now, the gate went with 440a86d, and the accretion was re-measured with the planet turning
+# (see Volcano.cone_profile), so nothing asks the question any more. The flag itself stays — it still names
+# the demo. (Deleted 2026-07-30, not "unwired code left unfinished": its removal condition was the gate's.)
 func debug_demo() -> bool: return _debug_demo
 func wind_view() -> bool: return _wind_view
 func debug_field() -> String: return _debug_field
