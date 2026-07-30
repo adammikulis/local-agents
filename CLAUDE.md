@@ -176,6 +176,24 @@ committed). When removing files:
     so consumption outruns regrowth. This is the "high-`--fast` field desync" already listed under 0.4's
     Livability risks — it was theoretical only because the flag was inert. Until the two clocks are
     reconciled, a high multiplier measures a starving world, not a fast one.
+- **MEASURE BEFORE YOU TUNE, AND CHANGE THE CONSTANT BY A LARGE FACTOR FIRST.** Before fitting any constant
+  to make a number look right, move it by 20% or more and check the response is the same order. Measured
+  2026-07-30: after adding a real radiative sink the planet ran warm, and cutting the solar constant 20%
+  moved the global mean by ONE degree — the sun was not the mechanism, and tuning it would have encoded an
+  accident as a target. The dominant term was geothermal, which the measurement found in one run. If the
+  output barely moves, you are adjusting the wrong thing.
+- **COMPARE DECAYING QUANTITIES AT EQUAL `field_step`, NEVER EQUAL FRAMES.** `soil_total` and `h2o_total`
+  are draining reservoirs whose value tracks STEPS taken. Two runs at the same `--run-frames` but different
+  `field_step` once produced an apparent 36% regression that was entirely horizon. Quote `field_step`
+  beside every such figure. And run-to-run spread here is DISCRETE — dominated by how many impacts and
+  eruptions a run happened to draw (2 vs 6), not Gaussian — so quote `phenomenon/impact` and
+  `phenomenon/eruption` too. `LA_NO_AMBIENT_DISASTERS=1` is NOT enough to hold the timeline fixed: it gates
+  only the ambient director, and `LAPlateTectonics` keeps firing on its own drumbeat.
+- **REMOVING A BAND-AID IS THE ACCEPTANCE TEST FOR FIXING ITS ROOT.** When a clamp, rarity roll or floor
+  exists to suppress a runaway, the proof that the root is fixed is that the clamp can come OUT and the
+  runaway does not return. If it does return, say so — do not quietly restore the clamp and claim the root
+  fix. Worked example: `FREEZE_TEMP` moved 12.5 -> 0.0 only after a real radiative sink made sub-zero
+  temperatures reachable at all.
 - **NON-INTERACTIVE RUNS MUST NOT INTERRUPT THE USER — use `scripts/run_sim_offscreen.sh`.** Metal/GPU runs
   need a real window (headless has no compute device), and a Godot window both APPEARS on-screen AND STEALS
   KEYBOARD FOCUS at launch — a hard interruption. The wrapper `scripts/run_sim_offscreen.sh` fixes both:

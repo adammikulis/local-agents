@@ -200,6 +200,86 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 
 ## Error Log / Preventative Patterns
 
+### 2026-07-30: A gate that cannot run reports a PASS
+
+- Failure: `ripgrep` is not installed on the GitHub Actions runner and was never in the workflow's apt
+  list. `check_max_file_length.sh` builds its file list with `rg --files`, so in CI it printed
+  "rg: command not found" three times, ended with an EMPTY list, printed "No matching files found" and
+  **exited 0**. `check_no_direct_refcounted_invocation.sh` wrapped its `rg` in `|| true` and printed
+  "check passed" the same way. Both reported success while examining ZERO files, on every push for
+  months, while two files sat over the limit they claimed to enforce.
+- Preventative pattern: a gate must FAIL when it cannot do its job. `scripts/lib_require.sh` provides
+  `require_tool`; call it for anything the gate depends on, and exit **2** (distinct from a violation's 1)
+  so a caller can tell "could not run" from "found something".
+- Quick check: when writing any gate, ask what happens if its tool, its target file, or its input log is
+  MISSING. If the answer is "the `if` is false, so the step succeeds", the gate can only ever pass. Three
+  shipped that way here — the length check, the test-invocation check, and a CI step that grepped three
+  files under a directory that had been renamed.
+
+### 2026-07-30: Two owners of one global, and the later one silently wins
+
+- Failure: `--fast=N` did nothing at all. `Engine.time_scale` was written by `VoxelWorld.parse_cmdline()`
+  and again ~114 lines later by `LAVoxelTimeControl._ready() -> _apply()`, which reset it to 1.0×.
+  Whichever ran last won, and it was always the time control. A runtime probe under `--fast=8` read back
+  `time_scale 1.000` with delta exactly 1/60; matched runs gave 135 field steps at `--fast=1` versus 113
+  at `--fast=8`. Because CLAUDE.md and HANDOFF both instruct agents to use `--fast` for slow-emergent
+  verification, every measurement taken "at `--fast=4`" was really 1× over a shorter horizon.
+- Preventative pattern: global engine state gets exactly ONE owner. Everything else routes through it
+  (`LAVoxelTimeControl.set_multiplier`), and the owner is applied AFTER it exists.
+- Quick check: `grep` for direct assignments to any `Engine.*` global. More than one writer is a bug
+  waiting on initialisation order.
+
+### 2026-07-30: A frozen scalar is indistinguishable from a working one
+
+- Failure: `is_night()` returned FALSE for every creature for entire runs, because `LAVoxelSkyCycle`
+  latches `_planet_mode` and returns before `_advance_clocks()`. Diurnal animals never rested, nocturnal
+  ones never woke, and the `night` bit in the learned-policy signature was constant — so half the
+  signature space was unreachable and every heuristic any creature had learned was a daytime heuristic.
+  Nothing noticed for months.
+- Preventative pattern: report a gauge's **min and max**, not just its current value, and sample it
+  PERIODICALLY rather than once at report time. Sampled once, min == max == cur and the gauge cannot show
+  whether the quantity moves — which is the exact failure it exists to catch. The bug was visible in one
+  line the moment this was done: `time_of_day {"cur":0.3,"min":0.3,"max":0.3}`.
+- Quick check: for any gauge that is supposed to VARY, a run where min == max is a red flag, not a pass.
+
+### 2026-07-30: A cross-check that is equal by construction
+
+- Failure: a fix made `soil_total()` literally `return regolith_soil_total()`, and then published BOTH in
+  SIM_REPORT as before/after proof that the two masks now agreed. Two keys, one function, agreeing with
+  itself forever — a permanently-green check that could not fail whatever anyone broke.
+- Preventative pattern: a cross-check must compare quantities that CAN differ. Replaced with
+  `soil_stranded`, which measures soil in cells that are regolith but no longer solid — a real number
+  (16.20 over 54 cells) that moves when the masks drift.
+- Quick check: if you cannot describe a code change that would make your check go red, it is not a check.
+
+### 2026-07-30: Comparing decaying quantities at equal FRAMES instead of equal STEPS
+
+- Failure: `soil_total` and `h2o_total` are draining reservoirs whose value tracks the number of FIELD
+  STEPS taken. Two runs compared at the same `--run-frames` but different `field_step` produced an
+  apparent 36% regression that was entirely horizon, not behaviour. Separately, a "1.41% noise floor" was
+  derived from two runs that happened to draw different disaster timelines and written into a header as a
+  general law; re-measured, two same-build runs came back **0.019%** apart. That number would have let a
+  future reader dismiss a genuine 1% regression.
+- Preventative pattern: quote `field_step` beside every h2o/soil figure and compare only at equal
+  `field_step`. Run-to-run spread here is DISCRETE — dominated by how many impacts and eruptions a run
+  drew (2 versus 6) — not Gaussian, so quote `phenomenon/impact` and `phenomenon/eruption` too. Note
+  `LA_NO_AMBIENT_DISASTERS=1` is NOT sufficient: it gates only the ambient director, and
+  `LAPlateTectonics` keeps firing on its own drumbeat.
+
+### 2026-07-30: Fitting a constant to an outcome instead of measuring the dominant term
+
+- Failure: after adding a real radiative sink, the world sat warmer than Earth-like, and the obvious move
+  was to lower the solar constant until the mean looked right. Cutting it 20% moved the global mean by
+  ONE degree — proof that the sun was not the term setting the temperature, and that dimming it would
+  have encoded an accident as a target. The dominant term was geothermal: with every prescribed target
+  removed the floor sat at 11.06 C, and the old hardcoded `AMBIENT_NIGHT` was 13.0. That constant had
+  been tracking a real effect at the wrong scale all along.
+- Preventative pattern: before tuning a constant to hit a number, CHANGE IT BY A LARGE FACTOR AND MEASURE.
+  If the output barely moves, that constant is not the mechanism and tuning it is curve-fitting.
+- Quick check: a 20% change in a supposedly dominant input should produce a response of the same order.
+  A one-degree answer means you are adjusting the wrong thing.
+
+
 ### 2026-02-15: `KEY_CONTROL` vs `KEY_CTRL` mismatch
 
 - Failure: used `KEY_CONTROL`; parser/runtime expected `KEY_CTRL`.
