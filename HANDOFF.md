@@ -96,10 +96,30 @@ the budget says so: `kernel_delta` now oscillates about zero (+0.020, +0.340, �
 steps 600–800) while `post_kernel`, which is R19 root uptake, runs a steady −0.35 to −0.64. What remains is
 plants drinking, which is consumption rather than leakage.
 
-**Still blocking the dynamic sea:** `h2o_total` is 4537–5885 on that branch against ~11539 dynamic on the
-static build. The aquifer is not where it went (soil moved by 58 units). Not attributable from these runs
-either, because the three drew 7/6, 7/4 and 1/0 impacts/eruptions and `LA_NO_AMBIENT_DISASTERS=1` does not
-pin the timeline — `LAPlateTectonics` fires on its own drumbeat.
+**~~Still blocking the dynamic sea: `h2o_total` is 4537–5885 against ~11539 on the static build.~~ THAT WAS
+WRONG, AND I WROTE IT. Corrected 2026-07-30.** The dynamic sea does not lose the planet's water. It
+**conserves it to 0.00–0.09% over 766 steps**, measured by a per-leg instrument that reads the channels off
+the device between passes so each leg is a difference of measured buffer state: `legs_all` is **0.0000 for
+all twelve passes at every sample** across three runs. No pass creates or destroys H₂O.
+
+**The static build was MINTING.** Both arms start at the same 7485.40 units — `_seed_sphere_sea` differs by
+the single line `_static[c] = 1`, which does not touch `_water` — so the static build's ~14272 was never the
+same water. Restoring that one line for one run: 7488.26 → 13751.54, **+6263.28 minted** (a verifier
+independently reproduced +6616.87 and +6635.40). The budget named the leg unprompted: `atmosphere` at
++6.61/step tapering to +0.33/step, which is `atmos_evap_sphere3d.glsl`'s `added += e * static_brake` **with no
+matching debit**. The static sea evaporates water it never loses. The "missing" 5600–7000 units were on the
+static side of the comparison the whole time.
+
+**What the ledger's decline actually is: BURIAL, and mostly moisture rather than sea water.** Of 1197–1755
+units buried at `field_step 767`: moisture 1021–1563, water 165–184, snow 6.0–8.5, soil off the regolith mask
+exactly 0.00. A cell whose `rock_fill` crosses 0.5 stops being counted *and* stops being simulated.
+`MineralStamp3D._settle_h2o` exists to displace exactly this but only catches what its throttled CPU scan
+reaches, and `h2o_buried`/`h2o_displaced` both read **0.0** on a run where the substrate buried ~1400. That
+under-reporting is the real remaining defect.
+
+**Lesson for the tracker itself:** this entry stood as a merge blocker for a day because a difference between
+two builds was read as a loss in one rather than a gain in the other. When two arms disagree, check what each
+one STARTS at before deciding which moved.
 
 **ROUND 2 — three more units, all merged.** Each was implemented worktree-isolated and then re-measured by
 an independent verifier that re-ran the acceptance gate itself rather than reading the diff.
@@ -132,6 +152,61 @@ not be read as the cause of any crater-fill change.
 more generous than intended and passing it proved less than it looked. I gave `crater_water 66.8`; three
 baseline runs measured 17.65, 32.54, 43.89. This is exactly the error I flagged in the terrain track one
 section above, committed by me in the same session. **Quote a range from repeats, or say it is one draw.**
+
+**ROUND 3 — the atmosphere gets mass, and two of my own claims were demolished.**
+
+**Merged: a conserved AIR channel with real hydrostatic pressure.** Pass A was `P0 - K_T*(temp - T_REF)`,
+purely per-cell with no neighbour table, no mass, no altitude. It is now a column solver: one thread per
+radial column moves column mass by vertically-integrated upwind flux through four lateral faces, settles it
+onto the exponential profile the local temperature sets, and integrates pressure inward as the weight of the
+air above. O(cells) total at 1/depth the thread count, stride-1 because `SphereGrid` packs a column
+contiguously. Measured: **monotone decreasing across all 20 shells**, p 82.05 at the surface → 0.617 at the
+top, **scale height 39.97** (varying with temperature as it should, 43 at the pole and 53 at the equator),
+**air mass conserved to 0.0004% over 400 steps**. Two things this made expressible for the first time:
+`(1/ρ)·∇p` replacing a constant gain (zonal wind ×155), and drag decaying with altitude — a height-independent
+`DAMP` asserts the whole atmosphere rubs on the ground, and that single assumption made friction beat Coriolis
+at *every* height, which forbids a jet by construction.
+
+**And `u(lat) = -BASE_WIND·cos(3·lat)` is deleted.** The hand-drawn Hadley cell is gone. A genuinely emergent
+thermally-direct overturning replaces it (`v_pole` equatorward low, poleward from h=40 up), and the
+thermal-wind driver is measured, not assumed: the equator-to-pole pressure difference grows from 1.77 at the
+surface to 35% of local pressure at h=120.
+
+**GATE 2 FAILED — there is no jet, and it must be recorded as failed, not as the "weak pass" the author
+offered.** The 0.0778 aloft maximum reproduces as a number and fails as physics: zonal wind sits 6–110× below
+what the kernel's own Coriolis constant and its own meridional wind imply, its sign alternates across latitude
+bands in a way one direct cell cannot produce, and its maximum lands in the 64-cell polar band where the
+thermal driver is 4× weaker than at mid-latitudes. **Merging the cosine deletion removes the planet's zonal
+bands outright** — an honest ~0.08 replaces a fake 6.0. That is the right call by this repo's own rules, but
+it is a real loss of appearance and it should be a knowing choice.
+
+**Why there is no jet — and it is a regression I merged, not the pre-existing cause the verifier assumed.**
+The tangent basis is no longer consistently handed, so Coriolis deflects half the cells backwards. Measured
+with a GPU-free probe at the mid shell: **pre-seam-repair 3456 right / 0 left; current dev 1732 / 1724.** The
+2-factorisation that bought slot-opposite reciprocity did not preserve orientation. Faces 0–3 are split within
+themselves; face 5 is entirely left-handed. **Do not revert the seam repair** — reciprocity is correct and its
+conservation win is real — fix the orientation on top of it, per-cycle rather than per-cell, since swapping one
+cell's slots breaks its neighbour's reciprocity. Nothing that only needs reciprocity (soil, water, slump, lava)
+is affected; everything reading tangent components (wind, scent, dust, CO₂ advection) is.
+
+**REFUTED: "`--fast≥4` kills the population."** It does not, and the rule cost this project a 4.3× iteration
+dial for weeks. There is no field/ecology clock divergence at any speed — the gap is 0.03–0.10 s in all 20
+instrumented runs with no trend, and the discard path I blamed is arithmetically unreachable (it needs
+`time_scale 18`; the maximum is 8). What actually happens: `max_physics_steps_per_frame` scales with the speed
+*while* `time_scale` already scales the delta, so sim-time per rendered frame is **quadratic** in the
+multiplier — 0.0995 / 0.533 / 1.98 / 5.28 sim-s per frame at `--fast` 1/2/4/8, a 53× spread over an 8× range.
+The original measurement compared 0.4 sim days against 1.5. The fast run had not starved; it was four sim-days
+older. **At equal field time: `--fast=2` → 146–174 creatures, `--fast=4` → 193–200, `--fast=8` → 213–236.**
+`CLAUDE.md` is corrected. Separate real finding: deep runs kill the population at *any* multiplier (1 and 0
+creatures at `field_step 3146`), which is the honest form of the livability gap.
+
+**FAILED HONESTLY: the lava spire.** Three substrate rules tried, none moved height or shape outside spread,
+nothing committed. But two things in my brief were wrong. It is not a one-cell spire — the screenshots show a
+**ten-column picket fence** with visible gaps, and the same growths appear on unrelated parts of the planet.
+And the vent **plugs its own column** and stops erupting around frame 300, so the height measured is how fast
+it plugs, not what sustained supply builds — which means `ISLAND_FREEBOARD` was measuring a plug. Suspected
+mechanism is the supply path, not the stamp: `erupt_source` writes the CPU lava mirror and never calls
+`request_channel("lava")`, so a demand-gated channel gets a stale whole-channel upload ~2.6 field steps apart.
 
 ---
 ### ⚑ PHYSICAL-PLANET SESSION (2026-07-30, later) — rotation MERGED, energy balance WIP
