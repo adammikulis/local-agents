@@ -62,16 +62,30 @@ extends RefCounted
 ##    2          0 / 0        7485.40 -> 7485.40      1755.00     5730.40          4628.39
 ##    3          4 / 3        7485.40 -> 7478.45      1197.77     6280.68          5820.97
 ##
-## So the substrate loses between 0.00 and 6.95 units of H₂O in 766 steps — 0.00% to 0.09% — across a disaster
-## spread of 0 to 4 impacts. `legs_all` is 0.0000 for all twelve passes at every sample in all three runs: no
-## pass creates or destroys water. `legs_open` is 0.0000 for all of them too, except `solid_derive`. Nothing
-## moves H₂O into bedrock; only the mask moves.
+## THE RANGES ABOVE ARE THREE RUNS AND THEY ARE TOO NARROW — an independent verifier's three further runs put
+## a sample outside every one of them, so quote the COMBINED figures below, not the table's own spread. The
+## qualitative result survives comfortably; the precision did not.
+##   substrate H₂O loss over 766 steps   combined 0.00 - 16.70 units  =  0.00% - 0.22%   (table said 0.00-0.09%)
+##   SIM_REPORT h2o_closed_total         combined 4628.39 - 6021.15                     (table said 4628-5821)
+##   burial @ 767                        combined 1079.82 - 1755.00                     (table said 1198-1755)
+## Verifier's own three: loss 8.50 / 16.70 / 11.90 at 7/4, 9/4 and 5/3 impacts/eruptions. All three sit above
+## the table's ceiling, on the same side, which is what makes this a real underestimate rather than noise.
+##
+## `legs_all` is 0.0000 for all twelve passes at every sample in every run, on both sides: no pass creates or
+## destroys water. `legs_open` is 0.0000 too, except `solid_derive`. Nothing moves H₂O into bedrock; only the
+## mask moves.
+##
+## AND THE RESIDUAL IS NOT FLOAT32 ACCUMULATION, which an earlier caveat here claimed. It is exactly
+## SIM_REPORT's `h2o_buried` — MineralStamp's accounted discard of H₂O in fully-enclosed cells — matching the
+## substrate delta 3 runs of 3 to snap precision (loss 8.50/16.70/11.90 against h2o_buried 8.50/16.69/11.90).
+## That makes the conservation result STRONGER, not weaker: the books close against a named quantity.
 ##
 ## The ledger's decline is therefore entirely BURIAL, and it is mostly MOISTURE, not sea water: at field_step
-## 767 the buried 1197-1755 splits as moisture 1020.96-1562.94, water 164.61-183.55, snow 5.97-8.51, soil off
+## 767 the buried 1080-1755 splits as moisture 1020.96-1562.94, water 164.61-183.55, snow 5.97-8.51, soil off
 ## the regolith mask exactly 0.00. Water in a cell whose rock_fill crosses 0.5 stops being counted and stops
 ## being simulated (every kernel early-outs on solid), and MineralStamp3D._settle_h2o only displaces the
-## subset its throttled, budgeted CPU scan happens to catch.
+## subset its throttled, budgeted CPU scan happens to catch — h2o_displaced varies 23.31-306.26 across runs,
+## a 13x spread that is worth explaining on its own.
 ##
 ## AND THE BASELINE THIS WAS BEING COMPARED AGAINST IS NOT CONSERVED WATER. Restoring `_static[c] = 1` in
 ## _seed_sphere_sea for one run (nothing else changed) reproduces the static-sea arm: all_total 7488.26 at
