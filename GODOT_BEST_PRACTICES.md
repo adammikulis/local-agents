@@ -200,6 +200,30 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 
 ## Error Log / Preventative Patterns
 
+### 2026-07-30: One table cannot be both a reciprocal adjacency and a tangent basis (hairy-ball)
+
+- Failure: the cubed-sphere neighbour table's four lateral slots were used for two incompatible jobs at once —
+  as the adjacency that 2-pass gather kernels index (`send[n*6 + OPPOSITE(slot)]`, which needs slot-opposite
+  RECIPROCITY) and as the tangent frame the wind kernel stores momentum in (`vel_x` along axis A, `vel_z`
+  along axis B, rotated for Coriolis, which needs consistent HANDEDNESS). Making the table reciprocal by
+  2-factorising the surface graph broke the handedness: 3456 right / 0 left before, 1732 / 1724 after.
+- **You cannot have both, and it is topology rather than a bug.** At each cell the two cycle-curves either
+  cross transversally or bend; at a crossing, the handedness sign IS the transverse intersection sign of two
+  closed curves. On a sphere every closed curve bounds, so the signed intersection count is exactly 0, and
+  reversing a curve flips both signs together. Measured at res 16/24/32: every curve pair that meets holds
+  BOTH signs, and every pair's signed sum is 0. Uniform handedness would require zero crossings, which makes
+  every cell a bend where the frame is degenerate. The 50/50 split is a floor. The same construction is fine
+  on a torus, which is why box grids never meet this.
+- Pattern: **when one structure is asked to satisfy two invariants, check they are compatible before
+  choosing an implementation.** Here the honest fix is two tables — keep the 2-factor pairing for adjacency,
+  and give the tangent basis its own face-local frame, which is right-handed on all six faces by
+  construction and merely discontinuous at the seams. Coriolis needs handedness, not continuity; cross-seam
+  advection takes a precomputed per-link rotation.
+- Sizing note worth copying: measure the defect's ORDER, not just its presence. The face-local basis is wrong
+  only on cross-face links (288 of 6912 at res 24, O(res), 2.1%); the 2-factor basis is wrong on interior
+  links too (17.1% at res 24, O(res²), and flat across resolutions). That comparison is what said the trade
+  had gone the wrong way for wind, and it is invisible if you only ask "is it consistent, yes or no".
+
 ### 2026-07-30: `--fixed-fps` makes the FIELD reproducible; the agent layer stays non-deterministic
 
 - Problem: every A/B measurement in this project costs three repeats, because two runs of the same command at
