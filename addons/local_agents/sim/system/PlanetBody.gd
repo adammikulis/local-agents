@@ -16,6 +16,7 @@ const TerrainServiceScript: GDScript = preload("res://addons/local_agents/sim/te
 
 var _terrain: RefCounted = null            # LAVoxelTerrainService (owns the VoxelLodTerrain child)
 var actors_root: Node3D = null
+var _spin_axis: Vector3 = Vector3.UP        # world-space rotation axis; set by the world that spins us
 var _mass: float = 1.0e6
 var _atmosphere_height: float = 60.0       # shell thickness above the surface (frame-handoff boundary)
 
@@ -48,6 +49,16 @@ func mass() -> float:
 	return _mass
 
 ## World-space centre of the body (its node origin). Radial "up"/gravity reference for everything on it.
+## The body's spin axis in WORLD space. Callers convert to whatever frame they need; the field wants it
+## body-local, where it is a constant.
+func set_spin_axis(axis: Vector3) -> void:
+	_spin_axis = axis.normalized() if axis.length() > 0.001 else Vector3.UP
+
+
+func spin_axis() -> Vector3:
+	return _spin_axis
+
+
 func center() -> Vector3:
 	return global_position
 

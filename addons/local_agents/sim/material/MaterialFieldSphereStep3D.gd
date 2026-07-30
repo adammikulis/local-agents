@@ -36,7 +36,9 @@ func _camera_pos() -> Vector3:
 		_cam_frame = f
 		var vp: Viewport = _f.get_viewport()
 		var cam: Camera3D = vp.get_camera_3d() if vp != null else null
-		_cam_pos = _f.to_local(cam.global_position) if cam != null else Vector3(INF, INF, INF)
+		# A world POINT, so it needs the origin offset removed before rotating — a basis-only transform is
+		# wrong here. (The old _f.to_local was identity: the field is a child of VoxelWorld, not the body.)
+		_cam_pos = _f.point_to_field(cam.global_position) if cam != null else Vector3(INF, INF, INF)
 	return _cam_pos
 
 
@@ -67,6 +69,8 @@ func process(delta: float) -> void:
 		return
 	if not _f._use_gpu:
 		return
+	# Refresh the body rotation FIRST: everything below that converts a position or a direction reads it.
+	_f.sync_body_frame()
 	# Bank the frame's dt EVERY frame (even ones we skip), clamped so a high cadence can't let the accumulator
 	# run away into a huge catch-up spike after a long skip (excess banked time is dropped → the field simply
 	# evolves slower at a slow cadence, the intended perf trade; buffers stay consistent).
@@ -111,7 +115,17 @@ func process(delta: float) -> void:
 		# sun by LASystemOrbits. The solar kernel's max(0, dot(cell_radial, sun_dir)) then scales intensity with the
 		# direction — nearer the sun bakes, farther freezes, airborne dust dims it → impact winter. Default 1.0.
 		var insol: float = float(_f._sun_light.get_meta("insolation", 1.0))
-		_f._gpu.set_sun_dir(_f._sun_light.global_transform.basis.z * insol)
+		# Into the FIELD's frame: the grid is body-local, so a world-space sun would hold still over the
+		# same cells while the planet turned underneath it — no terminator sweep, which is exactly the
+		# state that made day/night unreachable in the substrate. Magnitude (insolation) is preserved
+		# because the transform is a pure rotation.
+		_f._gpu.set_sun_dir(_f.dir_to_field(_f._sun_light.global_transform.basis.z * insol))
+	# Planet spin axis, in the field's frame. GasWindPass reads ctx["spin_axis"] for latitude bands and
+	# Coriolis handedness and NOTHING ever set it, so it defaulted to world +Y while the real axis is 23.5
+	# degrees away — the wind bands have been referenced to the wrong pole. In the body frame the axis is a
+	# constant, so this is exact and free.
+	if _f._body != null and _f._gpu.has_method("set_spin_axis"):
+		_f._gpu.set_spin_axis(_f.dir_to_field(_f._body.spin_axis() if _f._body.has_method("spin_axis") else Vector3.UP))
 	if _f._terrain != null and _f._terrain.has_method("sea_radius") and _f._gpu.has_method("set_sea_radius"):
 		_f._gpu.set_sea_radius(_f._terrain.sea_radius())
 	# Camera world position, in the field's own local space (matches the per-cell `pos` buffer's frame) — feeds

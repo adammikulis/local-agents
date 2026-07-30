@@ -340,6 +340,8 @@ func _ready() -> void:
 	LASimReport.register(func() -> Dictionary: return LASimReportSources.disease(self))
 	# The field reads the REAL sun (DirectionalLight3D) live — its energy + angle drive all heating.
 	_material.set_sun(_sky_ctrl.sun())
+	_material.set_body(_body)          # the field grid rides the planet's frame, so it can turn
+	_body.set_spin_axis(PLANET_SPIN_AXIS.normalized())
 	if _ecology.has_method("set_material_field"):
 		_ecology.set_material_field(_material)
 	# The ONE emergent phenomenon-event source: watches the field aggregates and emits typed events
@@ -590,7 +592,11 @@ func _process(delta: float) -> void:
 	# camera stays in the system frame, so day/night sweeps across the surface. Starts after life is placed so
 	# spawn stays deterministic. FROZEN during the seabed-volcano capstone so the world-fixed field and the
 	# spinning terrain SDF stay aligned (else a long accretion would smear the cone into an arc).
-	if _body != null and _spawn.is_spawned() and _terrain.is_planet() and not _input.auto_seavolcano() and not _input.manual_rotate():
+	# Spin is ON by default now. It was gated behind `not _input.manual_rotate()`, and manual_rotate() is
+	# `not (_auto_spin or _geosync)` with both false, so the planet only ever turned if the player pressed K.
+	# It was disabled because the world-fixed field drifted against the spinning terrain; the field is
+	# body-local now (LAMaterialField3D.set_body), so there is nothing left to hide.
+	if _body != null and _spawn.is_spawned() and _terrain.is_planet():
 		_body.rotate(PLANET_SPIN_AXIS.normalized(), PLANET_SPIN_RATE * delta)
 	# Spawn the starting ecology once terrain has streamed + collided at the surface.
 	_spawn.try_spawn(_input.overview(), _input.farview(), _input.auto_meteor(), _input.auto_select())
@@ -602,6 +608,12 @@ func _process(delta: float) -> void:
 	_interaction.update_selection_ring()
 	_brush.update_brush_ring()
 	_push_environment()
+	# Sample the night gauges PERIODICALLY, not once at report time. Sampled once, night_frac's min and max
+	# are the same number and the gauge cannot show whether the terminator moves — which is the exact
+	# failure mode it exists to catch, since the old global day/night clock read a constant 0.3 forever.
+	# Sampled every 15 frames, min/max span the sweep and a frozen sky shows up as min == max.
+	if _spawn.is_spawned() and _frame % 15 == 0:
+		LAVoxelHarness.sample_night(self)
 	if _spawn.is_spawned() and _frame % 15 == 0:
 		_sample_behaviour_peaks()
 	# Landslide diagnostic: track the most sediment cells slumping at once (throttled — the count is a full

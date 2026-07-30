@@ -226,6 +226,50 @@ func set_sun(light) -> void:
 	_sun_light = light
 
 
+# THE FIELD GRID IS BODY-LOCAL. Its cells, their pos/radial buffers and the rock sampled into them are
+# fixed relative to the PLANET, not to the world — which is what lets the planet turn at all.
+#
+# It used to be world-fixed while the body rotated, and the two drifted apart: the field's rock_fill and
+# the terrain SDF stopped describing the same place, so a long accretion smeared a volcanic cone into an
+# arc. The response at the time was to switch the planet's rotation OFF (it is off in every default path)
+# and freeze it explicitly for the seabed-volcano demo. A world that cannot turn also cannot separate its
+# day from its year, so it had no seasons either — the obliquity was there, but with no spin a surface
+# point sees the sun circle once per ORBIT and the two cycles are indistinguishable.
+#
+# Reparenting the field node would not have fixed it: the cell<->world mapping is pure arithmetic off
+# `grid.center` and never consults a transform. So the frame lives here, in the ONLY two functions that
+# cross between world and cell space — all ~49 call sites go through them and need no change. Directions
+# and points handed to the GPU are rotated to match where they are pushed (LAMaterialFieldSphereStep3D).
+var _body = null                                         # LAPlanetBody — the frame this grid rides
+var _body_basis: Basis = Basis.IDENTITY                  # body->world rotation, refreshed once per step
+var _body_basis_inv: Basis = Basis.IDENTITY
+
+
+## Wire the planet body whose rotation this grid rides. Null (a flat world, a bare field test) leaves the
+## basis identity, so every conversion below is a no-op and the field behaves exactly as it did before.
+func set_body(body) -> void:
+	_body = body
+
+
+## Refresh the cached body rotation. Called once per field step, before anything converts a position.
+func sync_body_frame() -> void:
+	if _body == null or not is_instance_valid(_body):
+		return
+	_body_basis = (_body as Node3D).global_transform.basis.orthonormalized()
+	_body_basis_inv = _body_basis.inverse()
+
+
+## A world DIRECTION expressed in the field's (body-local) frame — sun_dir and any other bare direction.
+func dir_to_field(world_dir: Vector3) -> Vector3:
+	return _body_basis_inv * world_dir
+
+
+## A world POINT in the field's frame. Rotation is about the planet centre, so the origin offset comes out
+## first — that is the part a basis-only transform gets wrong.
+func point_to_field(world_pos: Vector3) -> Vector3:
+	return _origin + _body_basis_inv * (world_pos - _origin)
+
+
 var sea_level: float = 0.0
 var _half_extent: float = 0.0
 
@@ -453,7 +497,8 @@ func cell_world_pos(ix: int, iy: int, iz: int) -> Vector3:
 ## World centre of a LINEAR cell index (cubed-sphere mode). Box mode: decode ix,iy,iz then cell_world_pos.
 func cell_world_pos_linear(c: int) -> Vector3:
 	if _sphere != null:
-		return _sphere.cell_world_pos(c)
+		# Body-local -> world: the grid rides the planet, so a cell's WORLD position turns with it.
+		return _origin + _body_basis * (_sphere.cell_world_pos(c) - _origin)
 	var layer: int = _dim_x * _dim_z
 	var iy: int = c / layer
 	var rem: int = c - iy * layer
@@ -465,7 +510,9 @@ func cell_world_pos_linear(c: int) -> Vector3:
 ## the shell). Box mode: clamp each axis and combine. This is the substrate-agnostic world→cell used by queries.
 func world_to_cell(world_pos: Vector3) -> int:
 	if _sphere != null:
-		return _sphere.world_to_cell(world_pos)
+		# World -> body-local. Every actor hands us a world position (actors are children of the spinning
+		# body), so this is where their frame and the grid's are reconciled — once, for all ~49 call sites.
+		return _sphere.world_to_cell(point_to_field(world_pos))
 	var ix: int = clampi(int(round((world_pos.x - _origin.x) / _cell_size)), 0, _dim_x - 1)
 	var iy: int = clampi(int(round((world_pos.y - _origin.y) / _cell_size)), 0, _dim_y - 1)
 	var iz: int = clampi(int(round((world_pos.z - _origin.z) / _cell_size)), 0, _dim_z - 1)

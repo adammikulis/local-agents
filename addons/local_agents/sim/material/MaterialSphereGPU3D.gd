@@ -229,6 +229,13 @@ func begin_frame(temp: PackedFloat32Array, water: PackedFloat32Array, solar: flo
 	if not _ctx.has("sun_dir"):
 		_ctx["sun_dir"] = Vector3(0, 1, 0)
 
+## Planet spin axis in the FIELD's frame. GasWindPass reads ctx["spin_axis"] for its latitude bands and
+## Coriolis handedness; until this existed nothing set it, so it fell back to world +Y while the planet's
+## real axis is 23.5 degrees away — every wind band was referenced to the wrong pole.
+func set_spin_axis(v: Vector3) -> void:
+	_ctx["spin_axis"] = v.normalized() if v.length() > 0.001 else Vector3(0, 1, 0)
+
+
 func set_sun_dir(v: Vector3) -> void:
 	_ctx["sun_dir"] = v if v.length() > 0.001 else Vector3(0, 1, 0)
 
