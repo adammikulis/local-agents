@@ -80,6 +80,12 @@ func report() -> Dictionary:
 		"enclosed_void5": q.enclosed_void_cells(5),
 		"rock_grows": (_f._stamp.grows if _f._stamp != null else 0), "rock_shrinks": (_f._stamp.shrinks if _f._stamp != null else 0),
 	}
+	# CONSERVATION. The four h2o legs above are absolute levels; a total printed only as an absolute cannot
+	# show a slow leak, which is exactly how this one hid. These add the reservoir the ledger does not count
+	# (static water), the closed sum of all five, the per-step drift, and the soil the regolith mask sees but
+	# the solidity mask has lost. Sampled on the field's own step counter so drift is per SIM step, not per
+	# render frame — a frame-based rate would track framerate rather than physics.
+	r.merge(_f._ledger.conservation_report(_f._gpu._step_index if _f._gpu != null else 0))
 	r.merge(_open_temp_stats())
 	r.merge(_photo.report())
 	r.merge(q.rock_radial_profile())
