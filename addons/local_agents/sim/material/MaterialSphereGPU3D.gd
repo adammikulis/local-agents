@@ -488,6 +488,135 @@ func set_field(name: String, arr) -> void:
 		_upload_f(b, arr)
 
 
+# --- SPARSE IN-PLACE EDITS (the additive counterpart to set_field) ----------------------------------------
+#
+# WHY THESE EXIST. set_field uploads the WHOLE CPU mirror over the live GPU buffer, but that mirror was last
+# filled by _apply_readback from a drain one frame (up to two steps) OLD. So an injection frame replaced the
+# device's current state with a stale snapshot plus the injection, silently discarding everything the kernels
+# did in between — the injection did not add to the channel, it REWOUND it. These two primitives read the live
+# buffer, fold a sparse per-cell edit into it, and write it back, so an injection composes with live state.
+# They must be called between _drain_pending() and step() (the GPU is idle there) — the sphere-step flush point,
+# which is exactly where the old set_field injections ran.
+#
+# The read is a full-buffer copy, but the write-back is only the touched INDEX SPAN, and both happen only on
+# frames something actually injected — the old path paid a full-buffer upload on those same frames anyway.
+
+## A delta this negative empties a cell exactly (the clamp floor is 0), so callers that want to DRAIN a cell
+## without knowing what is in it pass this and read the returned total.
+const DRAIN_ALL: float = -1.0e30
+
+## Fold a sparse per-cell delta into a channel's LIVE device buffer. `deltas[i]` is applied to `cells[i]`,
+## clamped into [0, ceiling]. Returns the total actually applied (sum of new - old), whose shortfall against
+## sum(deltas) is what the floor/ceiling refused — report that, never assume it was zero.
+func add_field_sparse(name: String, cells: PackedInt32Array, deltas: PackedFloat32Array, ceiling: float = INF) -> float:
+	if _rd == null or not _bufs.has(name) or cells.size() == 0 or cells.size() != deltas.size():
+		return 0.0
+	var buf: RID = _live(name) if _bufs[name] is Array else _bufs[name]
+	var arr: PackedFloat32Array = _rd.buffer_get_data(buf).to_float32_array()
+	if arr.size() < _cc:
+		return 0.0
+	var applied: float = 0.0
+	var lo: int = _cc
+	var hi: int = -1
+	for i in cells.size():
+		var c: int = cells[i]
+		if c < 0 or c >= _cc:
+			continue
+		var before: float = arr[c]
+		var after: float = clampf(before + deltas[i], 0.0, ceiling)
+		if after == before:
+			continue
+		arr[c] = after
+		applied += after - before
+		lo = mini(lo, c)
+		hi = maxi(hi, c)
+	if hi < lo:
+		return 0.0
+	var span: PackedFloat32Array = arr.slice(lo, hi + 1)
+	var bytes: PackedByteArray = span.to_byte_array()
+	_rd.buffer_update(buf, lo * 4, bytes.size(), bytes)
+	return applied
+
+
+## Move mass between channels ON DEVICE, per-cell paired: take up to `amounts[i]` from `src` at `src_cells[i]`
+## — whatever is actually there, read live, so a debit can never drive a cell negative — and credit exactly
+## that into `dst` at `dst_cells[i]`. A `dst_cells[i]` of -1 discards the debited mass (the caller is expected
+## to report it as an explicit loss). Returns the total moved.
+##
+## This is the primitive a CONSERVING injection needs. Because the source is read live and the credit is
+## whatever the debit actually yielded, the two sides are the same number BY CONSTRUCTION — a transfer cannot
+## mint even when the CPU mirror it was planned against was stale or the source turned out to be empty. The
+## caller's shortfall is simply sum(amounts) - returned.
+func move_field_sparse(src: String, src_cells: PackedInt32Array, amounts: PackedFloat32Array,
+		dst: String, dst_cells: PackedInt32Array, dst_ceiling: float = INF) -> float:
+	if _rd == null or not _bufs.has(src) or not _bufs.has(dst):
+		return 0.0
+	if src_cells.size() == 0 or src_cells.size() != amounts.size() or src_cells.size() != dst_cells.size():
+		return 0.0
+	var sbuf: RID = _live(src) if _bufs[src] is Array else _bufs[src]
+	var dbuf: RID = _live(dst) if _bufs[dst] is Array else _bufs[dst]
+	# A src==dst move (displacing water from a burying cell into its neighbour) must edit ONE array, or the
+	# second write-back would clobber the first. PackedFloat32Array is copy-on-write, so aliasing the handle is
+	# not enough — the branch below keeps a single array and a single touched span in that case.
+	var same: bool = sbuf == dbuf
+	var sarr: PackedFloat32Array = _rd.buffer_get_data(sbuf).to_float32_array()
+	var darr: PackedFloat32Array = PackedFloat32Array() if same else _rd.buffer_get_data(dbuf).to_float32_array()
+	if sarr.size() < _cc or (not same and darr.size() < _cc):
+		return 0.0
+	var moved: float = 0.0
+	var slo: int = _cc
+	var shi: int = -1
+	var dlo: int = _cc
+	var dhi: int = -1
+	for i in src_cells.size():
+		var sc: int = src_cells[i]
+		if sc < 0 or sc >= _cc:
+			continue
+		var take: float = minf(maxf(amounts[i], 0.0), sarr[sc])
+		var dc: int = dst_cells[i]
+		var live_dst: bool = dc >= 0 and dc < _cc
+		if live_dst:
+			# Honour the destination's own ceiling by taking only what it can hold (never spill mass).
+			var held: float = sarr[dc] if same else darr[dc]
+			take = minf(take, maxf(0.0, dst_ceiling - held))
+		if take <= 0.0:
+			continue
+		sarr[sc] -= take
+		slo = mini(slo, sc)
+		shi = maxi(shi, sc)
+		if live_dst:
+			if same:
+				sarr[dc] += take
+				slo = mini(slo, dc)
+				shi = maxi(shi, dc)
+			else:
+				darr[dc] += take
+				dlo = mini(dlo, dc)
+				dhi = maxi(dhi, dc)
+		moved += take
+	if shi >= slo:
+		var sspan: PackedByteArray = sarr.slice(slo, shi + 1).to_byte_array()
+		_rd.buffer_update(sbuf, slo * 4, sspan.size(), sspan)
+	if not same and dhi >= dlo:
+		var dspan: PackedByteArray = darr.slice(dlo, dhi + 1).to_byte_array()
+		_rd.buffer_update(dbuf, dlo * 4, dspan.size(), dspan)
+	return moved
+
+
+## Sum of a channel's LIVE device buffer. Diagnostic only (the injection queue's staleness audit compares it
+## against the CPU mirror to measure what a mirror-upload would have written away); nothing on the per-frame
+## path calls it, because it is a full-grid readback plus a full-grid sum.
+func channel_total(name: String) -> float:
+	if _rd == null or not _bufs.has(name):
+		return 0.0
+	var buf: RID = _live(name) if _bufs[name] is Array else _bufs[name]
+	var arr: PackedFloat32Array = _rd.buffer_get_data(buf).to_float32_array()
+	var sum: float = 0.0
+	for i in mini(arr.size(), _cc):
+		sum += arr[i]
+	return sum
+
+
 ## SAVE snapshot: read back EVERY GPU-resident channel (pair channels from their live half, single channels
 ## direct) into a { name -> PackedFloat32Array } dict. This is the authoritative field state a save persists;
 ## restore_channels() uploads it back verbatim. Geometry SSBOs (nbr/radial/pos) are rebuilt from the grid on

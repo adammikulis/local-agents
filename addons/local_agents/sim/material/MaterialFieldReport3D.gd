@@ -86,6 +86,14 @@ func report() -> Dictionary:
 	# the solidity mask has lost. Sampled on the field's own step counter so drift is per SIM step, not per
 	# render frame — a frame-based rate would track framerate rather than physics.
 	r.merge(_f._ledger.conservation_report(_f._gpu._step_index if _f._gpu != null else 0))
+	# INJECTION LEDGER. The gauges above say whether the books balance; these say who moved the money.
+	# `h2o_inject_demand` is what storms asked their own footprint for — and, before add_vapor became a
+	# transfer, exactly what they created out of nothing. `..._moved` is what the planet actually supplied,
+	# `..._short` the difference (a storm on a dry footprint), `..._minted` the genuinely sourceless adds (a
+	# scripted flood surge), and `h2o_displaced`/`h2o_buried` what a solidity change did with the water in a
+	# cell that stopped being able to hold it.
+	if _f._inject != null:
+		r.merge(_f._inject.queue.report())
 	r.merge(_open_temp_stats())
 	r.merge(_photo.report())
 	r.merge(q.rock_radial_profile())
