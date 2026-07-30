@@ -111,6 +111,9 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var vel_y: RID = bufs["vel_y"]
 	var vel_z: RID = bufs["vel_z"]
 	var nbr: RID = bufs["nbr"]
+	# Per-column tangent-frame table — the horizontal wind is stored in each cell's own frame, so transport
+	# reads link directions from here instead of assuming a slot is an axis (see wind_step_sphere3d).
+	var ltan: RID = bufs["link_tan"]
 
 	for p in 2:
 		var back: int = 1 - p
@@ -122,9 +125,10 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[4, stat], [5, moisture[back]], [15, nbr]])
 
 		# TRANSPORT — atmos_transport_sphere3d.glsl: 0=q in(post-evap back), 1=solid, 2=q out(live scratch),
-		# 3=vel_x, 4=vel_z, 5=vel_y (radial-up wind), 15=nbr.
+		# 3=vel_x, 4=vel_z, 5=vel_y (radial-up wind), 15=nbr, 16=link_tan.
 		_transport_set[p] = _mkset(rd, _transport_shader, [
-			[0, moisture[back]], [1, solid], [2, moisture[p]], [3, vel_x], [4, vel_z], [5, vel_y], [15, nbr]])
+			[0, moisture[back]], [1, solid], [2, moisture[p]], [3, vel_x], [4, vel_z], [5, vel_y],
+			[15, nbr], [16, ltan]])
 
 		# PRECIP — atmos_precip_sphere3d.glsl: 0=moisture in(live, post-transport), 1=temp(back), 2=solid,
 		# 3=moisture out(back), 4=rain scratch.
@@ -154,7 +158,9 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	# moisture[live] (one conservative pass). vel_y advection is what CLUMPS the field into cloud masses.
 	rd.compute_list_bind_compute_pipeline(cl, _transport_pipe)
 	rd.compute_list_bind_uniform_set(cl, _transport_set[parity], 0)
-	rd.compute_list_set_push_constant(cl, _pc_transport(cc, MOISTURE_DIFFUSE, _wdt(MOISTURE_VWIND_GAIN, dt, cell_size), _wdt(MOISTURE_WIND_GAIN, dt, cell_size)), 16)
+	rd.compute_list_set_push_constant(cl, _pc_transport(cc, MOISTURE_DIFFUSE,
+			_wdt(MOISTURE_VWIND_GAIN, dt, cell_size), _wdt(MOISTURE_WIND_GAIN, dt, cell_size),
+			maxi(int(ctx.get("depth", 1)), 1)), 32)
 	rd.compute_list_dispatch(cl, groups, 1, 1)
 	rd.compute_list_add_barrier(cl)          # post-transport moisture[live] visible to precip
 
@@ -246,14 +252,19 @@ func _pc_evap(cc: int, avg_moisture: float) -> PackedByteArray:
 	return pc
 
 
-# transport Params: {uint cell_count, float diffuse_frac, float wdt_y, float wdt} (16 bytes).
-func _pc_transport(cc: int, diffuse_frac: float, wdt_y: float, wdt: float) -> PackedByteArray:
+# transport Params: {uint cell_count, float diffuse_frac, float wdt_y, float wdt, uint depth, 3x pad} (32 bytes).
+# `depth` turns a cell index into its radial COLUMN, which is how the per-column link-direction table is indexed.
+func _pc_transport(cc: int, diffuse_frac: float, wdt_y: float, wdt: float, depth: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(16)
+	pc.resize(32)
 	pc.encode_u32(0, cc)
 	pc.encode_float(4, diffuse_frac)
 	pc.encode_float(8, wdt_y)
 	pc.encode_float(12, wdt)
+	pc.encode_u32(16, depth)
+	pc.encode_u32(20, 0)
+	pc.encode_u32(24, 0)
+	pc.encode_u32(28, 0)
 	return pc
 
 

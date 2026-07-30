@@ -22,13 +22,21 @@ layout(set = 0, binding = 6, std430) restrict readonly buffer VelZ { float vel_z
 layout(set = 0, binding = 7, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 8, std430) restrict readonly buffer Relevance { float relevance[]; };  // Keystone C
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };  // idx*6 + slot
+layout(set = 0, binding = 16, std430) restrict readonly buffer LinkTan { float ltan[]; };  // per-column link dirs
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	float k;             // STEP_DT / cell_size (Courant factor)
 	uint step_index;     // monotonic field-step counter, for the relevance-gated update stride
-	float pad1;
+	uint depth;          // radial shells per column — turns a cell index into its column for the ltan lookup
 } params;
+
+// Speed of cell `c` toward its lateral link `l` (0..3 == neighbour slots 1..4), in that cell's tangent frame.
+// MUST match dust_outscale_sphere3d.glsl exactly. See wind_step_sphere3d for why the frame is its own table.
+float toward_link(uint c, int l) {
+	uint b = ((c / max(params.depth, 1u)) * 4u + uint(l)) * 2u;
+	return vel_x[c] * ltan[b] + vel_z[c] * ltan[b + 1u];
+}
 
 // Transport tunables — MUST match dust_transport3d.glsl / MaterialDust3D.gd exactly.
 const float OUT_MAX = 0.55;
@@ -82,44 +90,37 @@ void main() {
 	float scale_i = outscale[g];
 
 	int nb_d = nbr[base + 0u];   // DOWN (below)
-	int nb_w = nbr[base + 1u];   // -x
-	int nb_e = nbr[base + 2u];   // +x
-	int nb_n = nbr[base + 3u];   // -z
-	int nb_s = nbr[base + 4u];   // +z
 	int nb_u = nbr[base + 5u];   // UP (above)
 
 	bool open_d = (nb_d >= 0) && (solid[nb_d] == 0.0);
-	bool open_w = (nb_w >= 0) && (solid[nb_w] == 0.0);
-	bool open_e = (nb_e >= 0) && (solid[nb_e] == 0.0);
-	bool open_n = (nb_n >= 0) && (solid[nb_n] == 0.0);
-	bool open_s = (nb_s >= 0) && (solid[nb_s] == 0.0);
 	bool open_u = (nb_u >= 0) && (solid[nb_u] == 0.0);
 
 	// raw_out_total for THIS cell (must match dust_outscale_sphere3d.glsl): retained fraction is di*(1-out_total).
+	// Lateral: one term per OPEN link, the wind Courant number along that link's own direction.
 	float raw = 0.0;
-	if (open_e) { raw += max(0.0, vel_x[g]) * k; }
-	if (open_w) { raw += max(0.0, -vel_x[g]) * k; }
-	if (open_s) { raw += max(0.0, vel_z[g]) * k; }
-	if (open_n) { raw += max(0.0, -vel_z[g]) * k; }
+	float lat_in = 0.0;
+	float lat_diff = 0.0;
+	for (int l = 0; l < 4; ++l) {
+		int m = nbr[base + uint(l + 1)];
+		if (m < 0 || solid[m] != 0.0) {
+			continue;
+		}
+		raw += max(0.0, toward_link(g, l)) * k;
+		// Inflow: that neighbour's scaled flux aimed back at me, read from ITS reverse link (l ^ 1).
+		lat_in += dust_in[m] * max(0.0, toward_link(uint(m), l ^ 1)) * k * outscale[m];
+		lat_diff += dust_in[m] - di;
+	}
 	if (open_u) { raw += max(0.0, vel_y[g]) * k; }
 	raw += fall_frac(g, k);
 	float out_total = raw * scale_i;
-	float value = di * (1.0 - out_total);
+	float value = di * (1.0 - out_total) + lat_in;
 
-	// Inflow: each neighbour's scaled flux flowing TOWARD this cell.
-	if (open_w) { value += dust_in[nb_w] * max(0.0, vel_x[nb_w]) * k * outscale[nb_w]; }   // -x nbr blows +x (us)
-	if (open_e) { value += dust_in[nb_e] * max(0.0, -vel_x[nb_e]) * k * outscale[nb_e]; }  // +x nbr blows -x
-	if (open_n) { value += dust_in[nb_n] * max(0.0, vel_z[nb_n]) * k * outscale[nb_n]; }   // -z nbr blows +z
-	if (open_s) { value += dust_in[nb_s] * max(0.0, -vel_z[nb_s]) * k * outscale[nb_s]; }  // +z nbr blows -z
+	// Vertical inflow.
 	if (open_d) { value += dust_in[nb_d] * max(0.0, vel_y[nb_d]) * k * outscale[nb_d]; }   // below blows UP toward us
 	if (open_u) { value += dust_in[nb_u] * fall_frac(uint(nb_u), k) * outscale[nb_u]; }    // above settles DOWN (whole fall flux)
 
 	// Symmetric diffusion (conservative): equalise a little with open neighbours.
-	float diff = 0.0;
-	if (open_w) { diff += dust_in[nb_w] - di; }
-	if (open_e) { diff += dust_in[nb_e] - di; }
-	if (open_n) { diff += dust_in[nb_n] - di; }
-	if (open_s) { diff += dust_in[nb_s] - di; }
+	float diff = lat_diff;
 	if (open_d) { diff += dust_in[nb_d] - di; }
 	if (open_u) { diff += dust_in[nb_u] - di; }
 	value += DIFFUSE_RATE * diff;

@@ -12,11 +12,24 @@
 // 1-4 = LATERAL, 5 = outward/radial-UP; -1 = boundary; a solid/boundary neighbour REFLECTS = reads p0c):
 //
 //   * PRESSURE GRADIENT — the box took central differences over the two lateral world axes (±1 = x,
-//     ±dim_x = z). On the sphere those two axes become the two LATERAL SLOT PAIRS: slot pair (1,2) is one
-//     tangent axis (the "x-analog": slot 2 = +x/high, slot 1 = -x/low → gx = 0.5·(p[2]-p[1])), slot pair
-//     (3,4) the other tangent axis (the "z-analog": slot 4 = +z/high, slot 3 = -z/low → gz = 0.5·(p[4]-p[3])).
-//     This matches the (1<->2),(3<->4) lateral pairing used by the water/slump/lava sphere ports. The two
-//     tangent components stay named vel_x / vel_z. The RADIAL pair (0,5) carries the vertical component.
+//     ±dim_x = z). On the sphere those two axes are the cell's own TANGENT FRAME (LASphereGrid.tan_a/tan_b),
+//     which is a SEPARATE TABLE from the neighbour slots — see below. The gradient is assembled as a real
+//     tangent VECTOR, 0.5 * sum over the four lateral neighbours of (p_n - p_c) * dir_n, where dir_n is the
+//     unit direction toward that neighbour in this cell's own (a, b) components (`ltan`). In a clean face
+//     interior dir is exactly (-1,0),(+1,0),(0,-1),(0,+1) and the sum collapses to the old
+//     0.5*(p[2]-p[1]), 0.5*(p[4]-p[3]) — identical arithmetic, now without the assumption that made it so.
+//     The two tangent components stay named vel_x / vel_z. The RADIAL pair (0,5) carries the vertical one.
+//
+//   * WHY THE SLOTS CANNOT BE THE FRAME (2026-07-30). This kernel used to declare vel_x as "tangent axis A
+//     (slots 1/2)" and rotate that pair for Coriolis. The four lateral slots were doing two incompatible
+//     jobs: the gather kernels need them slot-opposite RECIPROCAL, Coriolis needs them consistently HANDED,
+//     and on a sphere no single table can be both (the handedness sign at a crossing is the transverse
+//     intersection sign of two closed curves, and every closed curve on a sphere bounds, so the signed count
+//     is exactly zero — measured 1732 right / 1724 left at res 24). Worse than a sign flip: 17.13% of links
+//     had their two ends disagreeing about which way "tangent A" points, an interior defect scaling O(res^2).
+//     The frame now comes from LASphereGrid.tan_a/tan_b — face-local geometric axes, right-handed on all six
+//     faces by construction, discontinuous only at the seams, which is all Coriolis ever needed. `ltan`
+//     carries that discontinuity so this kernel does not have to know about it.
 //   * VEL_Y ↔ RADIAL-UP — the box vel_y is the world +Y vertical wind; on the sphere it is REDEFINED to be the
 //     OUTWARD-RADIAL (up) component. Buoyant lift is therefore added to vel_y as the radial-up accel, using the
 //     OUTWARD neighbour (slot 5) as the "cell above" (box used +layer). This keeps buoyancy AND the charge
@@ -29,8 +42,11 @@
 //     lateral boundary, so in practice every cell takes BODY_FORCE. (pvx/pvz remain the prevailing wind
 //     projected onto the two tangent axes by the dispatch side, exactly as the box supplied them.)
 //
-//   * TERRAIN DEFLECTION — cannot blow INTO a solid/boundary neighbour: zero vel_x against slot 2/1, vel_z
-//     against slot 4/3, vel_y against slot 5 (outward) / slot 0 (inward), same sign logic as the box.
+//   * TERRAIN DEFLECTION — cannot blow INTO a solid/boundary neighbour. Instead of zeroing a whole named
+//     component, the horizontal velocity has its projection onto each BLOCKED link direction removed. In a
+//     face interior that is exactly the old "zero vel_x against slot 2/1, vel_z against slot 4/3"; near a
+//     seam it is the same statement without needing the link to be axis-aligned. vel_y is still zeroed
+//     against slot 5 (outward) / slot 0 (inward), which are genuinely the radial directions.
 //
 // DELETED HERE (2026-07-30): the latitude-banded base flow `u(lat) = -BASE_WIND*cos(3*lat)`, BASE_WIND = 6.0.
 // It drew the trades and the mid-latitude westerlies in by hand — the same species of fake as the ATMOS_RELAX
@@ -49,11 +65,14 @@ layout(set = 0, binding = 0, std430) restrict readonly buffer PressureIn { float
 layout(set = 0, binding = 1, std430) restrict readonly buffer TempIn { float temp[]; };
 layout(set = 0, binding = 2, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 6, std430) restrict readonly buffer AirIn { float air[]; };   // pass A's fresh air mass
-layout(set = 0, binding = 3, std430) restrict buffer VelX { float vel_x[]; };   // tangent axis A (slots 1/2)
+layout(set = 0, binding = 3, std430) restrict buffer VelX { float vel_x[]; };   // along the cell's tan_a
 layout(set = 0, binding = 4, std430) restrict buffer VelY { float vel_y[]; };   // OUTWARD-RADIAL (up) (slots 0/5)
-layout(set = 0, binding = 5, std430) restrict buffer VelZ { float vel_z[]; };   // tangent axis B (slots 3/4)
+layout(set = 0, binding = 5, std430) restrict buffer VelZ { float vel_z[]; };   // along the cell's tan_b
 layout(set = 0, binding = 14, std430) restrict readonly buffer Radial { float radial[]; }; // per-cell outward unit vec, flat c*3+{0,1,2}
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };   // idx*6 + slot
+// TANGENT-FRAME table (LASphereGrid.link_tan), per SURFACE column: ((g/depth)*4 + l)*2 + {0,1} is the unit
+// direction toward the lateral slot l+1 neighbour, in THIS cell's own (tan_a, tan_b) components.
+layout(set = 0, binding = 16, std430) restrict readonly buffer LinkTan { float ltan[]; };
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
@@ -115,26 +134,36 @@ void main() {
 	}
 
 	uint base = g * 6u;
+	uint depth = max(params.depth, 1u);
 	int s_dn = nbr[base + 0u];   // radial DOWN
-	int s_xlo = nbr[base + 1u];  // tangent A -x
-	int s_xhi = nbr[base + 2u];  // tangent A +x
-	int s_zlo = nbr[base + 3u];  // tangent B -z
-	int s_zhi = nbr[base + 4u];  // tangent B +z
 	int s_up = nbr[base + 5u];   // radial UP (outward)
+
+	// The four lateral links, each as an index and a direction in THIS cell's tangent frame.
+	uint lb = (g / depth) * 8u;
+	int lat[4];
+	vec2 ldir[4];
+	for (int l = 0; l < 4; ++l) {
+		lat[l] = nbr[base + uint(l + 1)];
+		ldir[l] = vec2(ltan[lb + uint(l) * 2u], ltan[lb + uint(l) * 2u + 1u]);
+	}
 
 	float p0c = pressure[g];
 
-	// Central-difference pressure gradient over each tangent slot pair; a solid/boundary neighbour reflects (p0c).
-	float px_hi = (s_xhi >= 0 && solid[s_xhi] == 0.0) ? pressure[s_xhi] : p0c;
-	float px_lo = (s_xlo >= 0 && solid[s_xlo] == 0.0) ? pressure[s_xlo] : p0c;
-	float pz_hi = (s_zhi >= 0 && solid[s_zhi] == 0.0) ? pressure[s_zhi] : p0c;
-	float pz_lo = (s_zlo >= 0 && solid[s_zlo] == 0.0) ? pressure[s_zlo] : p0c;
-	float gx = 0.5 * (px_hi - px_lo);
-	float gz = 0.5 * (pz_hi - pz_lo);
+	// PRESSURE GRADIENT as a real tangent vector: 0.5 * sum (p_n - p_c) * dir_n over the four lateral links.
+	// A solid/boundary neighbour reflects (contributes p0c, hence nothing). In a face interior the four dirs
+	// are (-1,0),(+1,0),(0,-1),(0,+1) and this is bit-for-bit the old 0.5*(p_hi - p_lo) on each axis.
+	vec2 grad = vec2(0.0);
+	for (int l = 0; l < 4; ++l) {
+		int m = lat[l];
+		float pn = (m >= 0 && solid[m] == 0.0) ? pressure[m] : p0c;
+		grad += (0.5 * (pn - p0c)) * ldir[l];
+	}
+	float gx = grad.x;
+	float gz = grad.y;
 
 	// ALTITUDE, straight from the cell index: SphereGrid packs a column contiguously as c = s*depth + r, so the
 	// radial shell is g % depth and its centre radius follows from the shell geometry. No position buffer needed.
-	float shell = float(g % max(params.depth, 1u));
+	float shell = float(g % depth);
 	float altitude = (params.core_radius + (shell + 0.5) * params.cell_size) - params.sea_radius;
 	// Boundary layer: full surface drag at the ground, decaying to DAMP_FREE aloft (see the constants above).
 	float bl = exp(-max(altitude, 0.0) / BL_HEIGHT);
@@ -178,7 +207,7 @@ void main() {
 	// It rides the same boundary-layer profile as the drag, because it IS a drag: a pull toward a wind fixed
 	// somewhere else. Left height-independent it would be the single largest friction aloft (0.02 against
 	// DAMP_FREE's 0.006) and would hold the free atmosphere back on its own.
-	bool on_edge = (s_xlo < 0 || s_xhi < 0 || s_zlo < 0 || s_zhi < 0);
+	bool on_edge = (lat[0] < 0 || lat[1] < 0 || lat[2] < 0 || lat[3] < 0);
 	float force = (on_edge ? EDGE_FORCE : BODY_FORCE) * bl;
 	nvx += (params.pvx - nvx) * force;
 	nvz += (params.pvz - nvz) * force;
@@ -200,20 +229,20 @@ void main() {
 	// feeds the buoyancy/condensation chain, so the windward slope gets the rising-air rain and the lee stays dry
 	// (a rain shadow) — orographic precipitation falls out, no special-case code.
 	float blocked = 0.0;
-	if (nvx > 0.0 && (s_xhi < 0 || solid[s_xhi] != 0.0)) {
-		blocked += abs(nvx);
-		nvx = 0.0;
-	} else if (nvx < 0.0 && (s_xlo < 0 || solid[s_xlo] != 0.0)) {
-		blocked += abs(nvx);
-		nvx = 0.0;
+	vec2 vh = vec2(nvx, nvz);
+	for (int l = 0; l < 4; ++l) {
+		int m = lat[l];
+		if (m >= 0 && solid[m] == 0.0) {
+			continue;                      // open: nothing in the way
+		}
+		float into = dot(vh, ldir[l]);
+		if (into > 0.0) {
+			vh -= into * ldir[l];          // remove only the component aimed at the wall
+			blocked += into;
+		}
 	}
-	if (nvz > 0.0 && (s_zhi < 0 || solid[s_zhi] != 0.0)) {
-		blocked += abs(nvz);
-		nvz = 0.0;
-	} else if (nvz < 0.0 && (s_zlo < 0 || solid[s_zlo] != 0.0)) {
-		blocked += abs(nvz);
-		nvz = 0.0;
-	}
+	nvx = vh.x;
+	nvz = vh.y;
 	if (blocked > 0.0 && s_up >= 0 && solid[s_up] == 0.0) {
 		nvy += blocked * OROG_LIFT;   // windward uplift over the ridge
 	}

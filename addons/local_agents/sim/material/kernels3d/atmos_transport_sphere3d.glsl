@@ -12,11 +12,14 @@
 //   2) VERTICAL WIND ADVECTION — upwind advect by the LOCAL radial wind vel_y (slot 5 up, slot 0 down),
 //      replacing the old constant buoyant `rise_frac`. Updrafts concentrate moisture into cloud masses at
 //      convergence; subsidence clears the gaps. Same conservative gather form as the horizontal wind.
-//   3) horizontal WIND — first-order upwind advection by the LOCAL per-cell wind velocity. The box's two
-//      cartesian axes map onto the sphere's two lateral tangent axes: wind X → the a-axis (slot 1=-a,
-//      slot 2=+a); wind Z → the b-axis (slot 3=-b, slot 4=+b). A cell LOSES its downwind share to the
-//      lateral slot picked by the sign of its own wind component, and GAINS each lateral neighbour's share
-//      that is aimed back at it (neighbour blows toward me). ax = clamp(|vel_x|*wdt, 0, 0.5), likewise az.
+//      3) horizontal WIND — first-order upwind advection by the LOCAL per-cell wind velocity. The box's two
+//      cartesian axes map onto the CELL'S OWN TANGENT FRAME (vel_x along tan_a, vel_z along tan_b), which is
+//      a table of its own — NOT the neighbour slots, which cannot carry a consistently-handed frame on a
+//      sphere (see wind_step_sphere3d). So a cell's speed toward a given lateral neighbour is the dot of its
+//      velocity with that link's direction in its own frame (`ltan`), and it LOSES a share into every link it
+//      is blowing toward and GAINS from every neighbour blowing back at it (read from that neighbour's own
+//      reverse link, l ^ 1). In a face interior the four directions are exactly ±a, ±b and this reduces to
+//      the old per-axis form: a = clamp(|v·dir|*wdt, 0, 0.3333).
 // Matter only ever moves between NON-SOLID cells (rock is a wall to air). Race-free GATHER (read q_in,
 // write q_out), run once on the unified `moisture` channel with diffuse_frac, wdt_y (vertical), wdt.
 
@@ -29,15 +32,26 @@ layout(set = 0, binding = 3, std430) restrict readonly buffer VelX { float vel_x
 layout(set = 0, binding = 4, std430) restrict readonly buffer VelZ { float vel_z[]; };
 layout(set = 0, binding = 5, std430) restrict readonly buffer VelY { float vel_y[]; };  // OUTWARD-RADIAL (up) wind
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };
+layout(set = 0, binding = 16, std430) restrict readonly buffer LinkTan { float ltan[]; };  // per-column link dirs
 
 layout(push_constant, std430) uniform Params {
 	uint cell_count;
 	float diffuse_frac;   // isotropic spread per step
 	float wdt_y;          // VERTICAL wind gain: vwind_gain * step_dt / cell_size (per-cell ay = clamp(|vel_y|*wdt_y, 0, 0.5))
 	float wdt;            // wind_gain * step_dt / cell_size (per-cell ax = clamp(|vel_x|*wdt, 0, 0.5))
+	uint depth;           // radial shells per column — turns a cell index into its column for the ltan lookup
+	uint pad0;
+	uint pad1;
+	uint pad2;
 } params;
 
 const float DIFF6 = 1.0 / 6.0;
+
+// Speed of cell `c` toward its lateral link `l` (0..3 == neighbour slots 1..4), in that cell's tangent frame.
+float toward_link(uint c, int l) {
+	uint b = ((c / max(params.depth, 1u)) * 4u + uint(l)) * 2u;
+	return vel_x[c] * ltan[b] + vel_z[c] * ltan[b + 1u];
+}
 
 void main() {
 	uint g = gl_GlobalInvocationID.x;
@@ -110,56 +124,21 @@ void main() {
 	// wind_gain*step_dt/cell_size; a cell with no matter sends nothing (q_in==0 contributes 0 in the gather).
 	float wdt = params.wdt;
 	if (wdt > 0.0) {
-		// --- a-axis (wind X): LOSE my downwind share into slot 2 (+a) if vx>0 else slot 1 (-a) ---
-		float vx = vel_x[g];
-		float axi = clamp(abs(vx) * wdt, 0.0, 0.3333);
-		if (axi > 0.0 && q > 0.0) {
-			int slot = vx > 0.0 ? 2 : 1;
-			int n = nbr[base + slot];
-			if (n >= 0 && solid[n] == 0.0) {
-				delta -= q * axi;
+		// One sweep over the four lateral links. LOSE into every link this cell is blowing toward, GAIN from
+		// every neighbour blowing back at me. In a face interior exactly one of each opposite pair has a
+		// positive component, so this loses the same two shares the old per-axis form did.
+		for (int l = 0; l < 4; ++l) {
+			int m = nbr[base + l + 1];
+			if (m < 0 || solid[m] != 0.0) {
+				continue;
 			}
-		}
-		// GAIN from the -a neighbour (slot 1) if IT blows +a toward me.
-		{
-			int m = nbr[base + 1];
-			if (m >= 0 && solid[m] == 0.0) {
-				float vm = vel_x[m];
-				if (vm > 0.0) { delta += q_in[m] * clamp(vm * wdt, 0.0, 0.3333); }
+			float mine = toward_link(g, l);
+			if (mine > 0.0 && q > 0.0) {
+				delta -= q * clamp(mine * wdt, 0.0, 0.3333);
 			}
-		}
-		// GAIN from the +a neighbour (slot 2) if IT blows -a toward me.
-		{
-			int m = nbr[base + 2];
-			if (m >= 0 && solid[m] == 0.0) {
-				float vm = vel_x[m];
-				if (vm < 0.0) { delta += q_in[m] * clamp(-vm * wdt, 0.0, 0.3333); }
-			}
-		}
-		// --- b-axis (wind Z): LOSE my downwind share into slot 4 (+b) if vz>0 else slot 3 (-b) ---
-		float vz = vel_z[g];
-		float azi = clamp(abs(vz) * wdt, 0.0, 0.3333);
-		if (azi > 0.0 && q > 0.0) {
-			int slot = vz > 0.0 ? 4 : 3;
-			int n = nbr[base + slot];
-			if (n >= 0 && solid[n] == 0.0) {
-				delta -= q * azi;
-			}
-		}
-		// GAIN from the -b neighbour (slot 3) if IT blows +b toward me.
-		{
-			int m = nbr[base + 3];
-			if (m >= 0 && solid[m] == 0.0) {
-				float vm = vel_z[m];
-				if (vm > 0.0) { delta += q_in[m] * clamp(vm * wdt, 0.0, 0.3333); }
-			}
-		}
-		// GAIN from the +b neighbour (slot 4) if IT blows -b toward me.
-		{
-			int m = nbr[base + 4];
-			if (m >= 0 && solid[m] == 0.0) {
-				float vm = vel_z[m];
-				if (vm < 0.0) { delta += q_in[m] * clamp(-vm * wdt, 0.0, 0.3333); }
+			float theirs = toward_link(uint(m), l ^ 1);
+			if (theirs > 0.0) {
+				delta += q_in[m] * clamp(theirs * wdt, 0.0, 0.3333);
 			}
 		}
 	}

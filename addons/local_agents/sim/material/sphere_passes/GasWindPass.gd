@@ -95,24 +95,28 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var charge: RID = bufs["charge"]
 	var nbr: RID = bufs["nbr"]
 	var radial: RID = bufs["radial"]  # per-cell outward unit vector (latitude, for Coriolis handedness)
+	# Per-column tangent-frame table: the direction of each lateral link in the cell's OWN (tan_a, tan_b) axes.
+	# The wind kernels store momentum in that frame, so they read directions from here, never from slot order.
+	var ltan: RID = bufs["link_tan"]
 	var activity: Array = bufs["activity"]   # PAIR — Keystone C relevance
 
 	for p in 2:
 		var back: int = 1 - p
 		# wind_pressure: 0=AirIn(live), 1=AirOut(back), 2=TempIn(live), 3=Solid, 4=PressureOut, 5=VelX, 6=VelZ, 15=Neigh
 		_wp_set[p] = _uset(_wp_shader, [[0, air[p]], [1, air[back]], [2, temp[p]], [3, solid],
-				[4, pressure], [5, vx], [6, vz], [15, nbr]])
+				[4, pressure], [5, vx], [6, vz], [15, nbr], [16, ltan]])
 		# wind_step: 0=PressureIn, 1=TempIn(live), 2=Solid, 3=VelX, 4=VelY, 5=VelZ, 6=AirIn(back), 14=Radial, 15=Neigh
 		# (binding 13 = Pos went away with the latitude-band cosine — it was only read to rebuild the local
 		#  tangent basis that band vector had to be projected onto.)
 		# AirIn is the BACK half: wind_pressure wrote this step's air there and a barrier separates the two, so
 		# pass B divides by the same fresh density its pressure field was integrated from.
 		_ws_set[p] = _uset(_ws_shader, [[0, pressure], [1, temp[p]], [2, solid], [3, vx], [4, vy], [5, vz],
-				[6, air[back]], [14, radial], [15, nbr]])
+				[6, air[back]], [14, radial], [15, nbr], [16, ltan]])
 		# o2_transport: 0=O2In(live), 1=O2Out(back), 2=Solid, 15=Neigh
 		_o2_set[p] = _uset(_o2_shader, [[0, o2[p]], [1, o2[back]], [2, solid], [15, nbr]])
-		# co2_transport: 0=CO2In(live), 1=CO2Out(back), 2=Solid, 3=VelX, 4=VelY, 5=VelZ, 15=Neigh
-		_co2_set[p] = _uset(_co2_shader, [[0, co2[p]], [1, co2[back]], [2, solid], [3, vx], [4, vy], [5, vz], [15, nbr]])
+		# co2_transport: 0=CO2In(live), 1=CO2Out(back), 2=Solid, 3=VelX, 4=VelY, 5=VelZ, 15=Neigh, 16=LinkTan
+		_co2_set[p] = _uset(_co2_shader, [[0, co2[p]], [1, co2[back]], [2, solid], [3, vx], [4, vy], [5, vz],
+				[15, nbr], [16, ltan]])
 		# charge_accum: 0=Charge(single, in place), 1=TempIn(live), 2=CloudIn(live), 3=VelY, 4=Solid,
 		# 5=Relevance(live — this pass runs before ActivityPass, Keystone C)
 		_ch_set[p] = _uset(_ch_shader, [[0, charge], [1, temp[p]], [2, cloud[p]], [3, vy], [4, solid], [5, activity[p]]])
@@ -135,7 +139,7 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	_columns = cc / depth
 	_col_groups = int(ceil(float(_columns) / 64.0))
 
-	var pc_cc: PackedByteArray = _pc_cellcount(cc)              # {cell_count, pad, pad, pad}
+	var pc_cc: PackedByteArray = _pc_cellcount(cc, depth)       # {cell_count, depth, pad, pad}
 	var pc_wp: PackedByteArray = _pc_windpressure(_columns, depth,
 			float(ctx.get("core_radius", 0.0)), float(ctx.get("cell_size", 1.0)),
 			float(ctx.get("sea_radius", 0.0)), dt, step_index)
@@ -229,9 +233,10 @@ func _uset(shader: RID, entries: Array) -> RID:
 		uniforms.append(u)
 	return _rd.uniform_set_create(uniforms, shader, 0)
 
-# Params { uint cell_count; uint pad0; uint pad1; uint pad2; } — o2/co2 transport + wind_pressure.
-func _pc_cellcount(cc: int) -> PackedByteArray:
-	return PackedInt32Array([cc, 0, 0, 0]).to_byte_array()
+# Params { uint cell_count; uint depth; uint pad1; uint pad2; } — o2/co2 transport. co2 needs `depth` to turn a
+# cell index into its COLUMN and read the per-column tangent-frame table; o2 diffuses symmetrically and ignores it.
+func _pc_cellcount(cc: int, depth: int) -> PackedByteArray:
+	return PackedInt32Array([cc, depth, 0, 0]).to_byte_array()
 
 # Params { uint surf_count; uint depth; float core_radius; float cell_size; float sea_radius; float dt;
 #          uint step_index; uint pad0; } — wind_pressure (the per-COLUMN air/hydrostatic kernel).
