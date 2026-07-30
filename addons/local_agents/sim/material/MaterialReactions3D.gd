@@ -247,8 +247,8 @@ const RESP_DET_YIELD: float = 0.4        # detritus (litter) shed per unit bioma
 # TUNED to the sim's ACTUAL open-cell temperature range (~11–21 °C: this world's static terminator never drops
 # the night/pole floor near 0 °C), so freezing happens in the coldest ~1–2 °C cap instead of NEVER. A literal
 # 0 °C freeze can never fire here — see the task temp-range note; raise these with the real climate range.
-const FREEZE_TEMP: float = 12.5          # WATER (and, in the kernel, condensed MOISTURE) at T below this freezes → SNOW
-const MELT_TEMP: float = 14.0            # SNOW at T above this melts → liquid WATER
+const FREEZE_TEMP: float = 0.0          # WATER (and, in the kernel, condensed MOISTURE) at T below this freezes → SNOW
+const MELT_TEMP: float = 1.5            # SNOW at T above this melts → liquid WATER
 const FREEZE_RATE: float = 0.05          # per-step k on the below-threshold liquid-freeze extent
 const MELT_RATE: float = 0.05            # per-step k on the above-threshold snow-melt extent
 
