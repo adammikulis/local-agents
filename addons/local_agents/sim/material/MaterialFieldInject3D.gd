@@ -27,6 +27,7 @@ var queue: LAMaterialFieldInjectQueue3D = QueueScript.new()
 # empty — a storm sitting on the sea must not open a hole in it.
 const EVAP_KEEP_LIQUID: float = 0.1      # liquid below this is not available to a storm (film left behind)
 const EVAP_TAKE_FRAC: float = 0.5        # fraction of a source cell's AVAILABLE contents one injection may lift
+const SOIL_SEARCH_SHELLS: int = 4        # permeable shells to search inward for the water table (= REGOLITH_CELLS)
 
 ## Emitted every time something splashes water at a world point (meteor / tornado / fish / thrown rock /
 ## flood / plant). The water-surface renderer (LAMaterialFieldRender3D) connects here to spawn an expanding
@@ -162,14 +163,24 @@ func add_vapor(world_pos: Vector3, amount: float, radius: float = 0.0) -> void:
 				wet_take.append(avail)
 				wet_dst.append(air if air >= 0 else top_water)
 				wet_offer += avail
-		elif have_soil and air >= 0 and ground_r >= 0 and _f._regolith[base + ground_r] != 0:
-			# Dry column: transpire the water table out of the topmost permeable shell instead.
-			var av: float = _f._soil[base + ground_r] * EVAP_TAKE_FRAC
-			if av > 0.0:
-				soil_cells.append(base + ground_r)
+		elif have_soil and air >= 0 and ground_r >= 0:
+			# Dry column: transpire the WATER TABLE instead. Walk the permeable band inward from the surface
+			# rather than reading only the topmost shell — groundwater is gravity-driven, so the top shell of a
+			# column that has not rained recently is drained and the table sits one or more shells lower. Reading
+			# only the surface shell found nothing at all on this map (measured: soil_total 3441 planet-wide and
+			# still zero available under the storm).
+			for d in range(SOIL_SEARCH_SHELLS):
+				var sc: int = base + ground_r - d
+				if sc < base or _f._regolith[sc] == 0:
+					break
+				var av: float = _f._soil[sc] * EVAP_TAKE_FRAC
+				if av <= 0.0:
+					continue
+				soil_cells.append(sc)
 				soil_take.append(av)
 				soil_dst.append(air)
 				soil_offer += av
+				break
 	# Scale both pools down together when the footprint holds more than the storm wants, so a wet storm takes
 	# exactly its demand spread across its sources instead of stripping every one of them.
 	var offer: float = wet_offer + soil_offer

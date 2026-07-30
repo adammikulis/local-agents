@@ -30,6 +30,10 @@ const DRAIN_ALL: float = 1.0e30
 # --- cumulative H₂O injection ledger (SIM_REPORT gauges) ---------------------------------------------------
 var demand: float = 0.0        # mass transfers ASKED their sources for. Before this fix the same figure was
                                # created out of nothing every time, so it doubles as the old mint rate.
+var offered: float = 0.0       # mass the CPU-side scan BELIEVED its sources held. Splitting this out of
+                               # `moved` is what separates "the footprint really is dry" (offered ~ 0) from
+                               # "the scan found sources but the device disagreed" (offered > 0, moved 0) —
+                               # two very different bugs that look identical in a shortfall figure alone.
 var moved: float = 0.0         # mass actually transferred (source debited, sink credited — closed)
 var minted: float = 0.0        # mass added with NO source at all (a flood surge). Honest, not hidden.
 var buried: float = 0.0        # mass discarded because a cell turned solid with nowhere to displace it to
@@ -90,6 +94,8 @@ func transfer(src: String, src_cells: PackedInt32Array, amounts: PackedFloat32Ar
 		dst: String, dst_cells: PackedInt32Array, dst_ceiling: float = INF) -> void:
 	if src_cells.size() == 0 or src_cells.size() != amounts.size() or src_cells.size() != dst_cells.size():
 		return
+	for a in amounts:
+		offered += a
 	_merge("t|%s|%s|%f" % [src, dst, dst_ceiling], "transfer", src, dst, src_cells, amounts, dst_cells, dst_ceiling)
 
 
@@ -166,6 +172,7 @@ func audit_rewind(gpu, channel: String, mirror: PackedFloat32Array) -> void:
 func report() -> Dictionary:
 	return {
 		"h2o_inject_demand": snappedf(demand, 0.01),
+		"h2o_inject_offered": snappedf(offered, 0.01),
 		"h2o_inject_moved": snappedf(moved, 0.01),
 		"h2o_inject_short": snappedf(maxf(0.0, demand - moved), 0.01),
 		"h2o_inject_minted": snappedf(minted, 0.01),
