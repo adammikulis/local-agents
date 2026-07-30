@@ -158,6 +158,11 @@ const SLOW_READBACK_EVERY: int = 4
 # volcano land-building) + rewrite _solid — a stale/coarse rock_fill made eruptions grow FLOATING CUBES. Stay hot.
 const SLOW_CHANNELS: PackedStringArray = ["sediment", "susp", "fert", "soil", "biomass"]
 
+# BETWEEN-PASS PROBE (LA_H2O_BUDGET diagnostics only; armed per step by LAMaterialFieldH2OBudget3D, left
+# invalid otherwise). When valid, step() runs the checkpointed path below instead of the normal one-submit
+# path. Nothing on the per-frame path reads this.
+var _step_probe: Callable = Callable()
+
 
 func setup(field) -> void:
 	_field = field
@@ -288,6 +293,9 @@ func step() -> void:
 		_pending = false
 		_read_gpu_pass_timings()
 	_ctx["step_index"] = _step_index
+	if _step_probe.is_valid():
+		_step_checkpointed()
+		return
 	var last: int = _passes.size() - 1
 	# B1 — ALL passes into ONE submit()+deferred-sync (was: compute_list_begin → dispatch → end → submit →
 	# sync PER pass = 10 blocking CPU↔GPU round-trips/step, up to 20/frame). The kernel math is cheap; those
@@ -326,6 +334,61 @@ func step() -> void:
 	_pending = true
 	_phase = 1 - _phase
 	_step_index += 1
+
+## Arm / disarm the between-pass probe. A VALID callable makes the NEXT step() take the checkpointed path;
+## `Callable()` restores the normal one-submit path. Armed per step (not once at setup) because the checkpointed
+## path costs one CPU↔GPU round-trip PER PASS — fine on a 1-in-N sampled step, not fine every step.
+## Signature: `probe.call(pass_index: int, pass_name: String)`, pass_index -1 = before any pass ran.
+func set_step_probe(cb: Callable) -> void:
+	_step_probe = cb
+
+
+## CHECKPOINTED STEP (LA_H2O_BUDGET only) — the same passes, same order, same parity as step(), but each pass
+## gets its own submit()+sync() so a probe can read the channels BETWEEN passes.
+##
+## THAT SPLIT IS THE WHOLE INSTRUMENT. A per-leg budget built this way is DIFFERENCES OF MEASURED BUFFER STATE,
+## so the legs sum to the step's total change by construction — no kernel needs a probe slot, no kernel's
+## arithmetic has to be restated in GDScript (and so cannot be restated WRONG), and a pass added tomorrow is
+## instrumented for free. The soil budget had to go the other way (dbg slots inside soil_sphere3d.glsl) because
+## it needed to separate legs WITHIN one kernel; naming which PASS loses water needs nothing that fine.
+##
+## Timestamps are deliberately skipped here: capture_timestamp is only legal outside an open compute list AND
+## its captures are read after a sync, so interleaving them with per-pass submits would report garbage for a
+## diagnostic run nobody profiles.
+func _step_checkpointed() -> void:
+	_step_probe.call(-1, "start")
+	for i in _passes.size():
+		var cl: int = _rd.compute_list_begin()
+		_passes[i].dispatch(_rd, cl, _phase, _ctx, _cc, _groups)
+		_rd.compute_list_end()
+		_rd.submit()
+		_rd.sync()
+		_step_probe.call(i, _pass_names[i])
+	# Leave an in-flight submit so _drain_pending's contract is unchanged (it syncs, then reads this frame's
+	# channels into _cached). An empty compute list is a legal no-op submit.
+	var tail: int = _rd.compute_list_begin()
+	_rd.compute_list_end()
+	_rd.submit()
+	_pending = true
+	_phase = 1 - _phase
+	_step_index += 1
+
+
+## Current ping-pong phase — the probe needs it to know which half of a PAIR channel is live at a checkpoint.
+func probe_phase() -> int:
+	return _phase
+
+
+## Raw device readback of one channel half. Diagnostic only (the between-pass probe): `half` picks the ping-pong
+## slot for PAIR channels and is ignored for SINGLE ones. No sync is done here — the checkpointed step already
+## synced, and calling this off that path would read whatever the last sync left.
+func read_raw(name: String, half: int) -> PackedFloat32Array:
+	if _rd == null or not _bufs.has(name):
+		return PackedFloat32Array()
+	var b = _bufs[name]
+	var buf: RID = b[half] if b is Array else b
+	return _rd.buffer_get_data(buf).to_float32_array()
+
 
 ## Hand back the channels read from the LAST drained step (populated in begin_frame → _drain_pending). This is a
 ## one-frame-lagged snapshot — the accepted coupling-fidelity latency (header ~:22). The actual readback + sync
