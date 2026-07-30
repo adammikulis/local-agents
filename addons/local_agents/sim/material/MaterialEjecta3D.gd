@@ -28,7 +28,8 @@ extends Node3D
 ## the right tool at this bounded scale.
 ##   • eject(world_pos, mass, energy, dir_bias) launches a small spray of parcels outward (radial + bias +
 ##     cone), speed scaled from `energy`, subject to the budget + view-LOD gates above.
-##   • each step every AIRBORNE parcel integrates ballistically under radial gravity a = −g·r̂(pos).
+##   • each step every AIRBORNE parcel integrates under the SAME N-body field every other free body feels
+##     (LAGravity.acceleration_at) — the planet, the moon and the star, in the planet-centred frame.
 ##   • a parcel LANDS when it has risen and fallen back to (or below) its launch radius while descending (or is
 ##     culled by the LOD/lifetime gate); it then deposits: add_lava at the impact (a conserving bedrock→lava
 ##     phase move, so mineral_total stays BOUNDED, because the parcel melts an impact blob rather than fabricating
@@ -39,9 +40,15 @@ extends Node3D
 ## absolute ceiling once; visible_instance_count follows the live (budgeted) count.
 ## (Explicit types only, no ':=' inferred typing.)
 
-# Radial gravity pulling parcels back to the surface (units/s²). Sized so a mid-energy bomb arcs for a few
-# seconds, not a geological age (iterate-fast: a visible arc within a short verification run).
-const GRAVITY: float = 22.0
+# There is no gravity constant here. A thrown parcel is matter, and matter falls under LAGravity like a
+# meteor, a moon or a planet does — one rule, one G, one set of masses. This file used to carry its own
+# `GRAVITY = 22.0` radial about the field origin, which was a second, quieter hardcoded single-centre gravity
+# living inside the substrate: it never saw the moon, never saw the star, and disagreed with the 55 units/s²
+# every other falling thing felt, so an ejecta parcel and a meteor dropped side by side fell at different rates.
+# Consequence of the fix: arcs are ~2.5x shorter, because real surface gravity is 55, not 22.
+# A world with no registered gravity body (the flat box demo) gets zero acceleration — parcels coast and settle
+# on the MAX_LIFETIME cull with their mass still conserved. That is the honest answer for a world with no
+# gravity source, not a fallback constant pretending otherwise.
 # Parcels launched per eject() call (a spray, not a single dot). Kept small — ejecta are sparse events.
 const PARCELS_PER_EJECT: int = 6
 # Speed = clamp(sqrt(2·energy/mass)·GAIN) — a ballistic launch speed from the release energy. The max is kept
@@ -243,7 +250,9 @@ func _process(delta: float) -> void:
 		var radial: Vector3 = pos - _center
 		var r: float = radial.length()
 		var r_hat: Vector3 = radial / r if r > 1.0e-6 else Vector3.UP
-		vel += -r_hat * GRAVITY * dt
+		# The N-body field, not a local constant: the same call the meteor's coast uses, so a parcel arcs
+		# under the planet, gets bent by the moon on a close pass, and feels the star's tide out at range.
+		vel += LAGravity.acceleration_at(get_tree(), pos) * dt
 		pos += vel * dt
 		var age: float = _p_age[i] + dt
 		var r_now: float = (pos - _center).length()
