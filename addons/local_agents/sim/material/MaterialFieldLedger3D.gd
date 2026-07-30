@@ -38,6 +38,13 @@ extends RefCounted
 ## the true non-conserving flux of the closed system (runoff the sea absorbs, evaporation the sea does not
 ## debit) instead of a mixture of that flux and the accounting's own boundary errors.
 ##
+## NOISE FLOOR — read these gauges knowing it, or you will attribute weather to your patch. Disasters draw from
+## the Godot global RNG rather than LASimRng, so two runs at ONE seed diverge physically. Measured 2026-07-30,
+## same build, `--sandbox --seed=4242 --fast=2 --run-frames=300`, both sampled at field_step 1546:
+## h2o_closed_total 13615.06 vs 13807.19 — a 1.41% spread, with creatures 19 vs 23 and static_cells 3454 vs
+## 3490. Nothing below about 1.5% is resolvable by comparing two runs, so a change this size must be argued
+## structurally or measured IN-RUN (see LAMaterialFieldPhotoStats3D's root_col_open_* gauges for that pattern).
+##
 ## Every method here is a pure getter over the GPU readback: O(cells) scans polled at snapshot time, never
 ## per frame. (Explicit types only, no ':=' inferred typing.)
 
