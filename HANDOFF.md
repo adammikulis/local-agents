@@ -552,26 +552,44 @@ indistinguishable from a working one, and only running the model proved `system_
 
 ---
 **REMAINING (pick up in this order):**
-- **#24 — the dynamic sea, half-done on `feature/dynamic-sea` (2 WIP commits, DO NOT MERGE YET).** The
-  `_static` mask is gone: nothing seeds it, every cell is dynamic, all 53 sites keyed on it are dead
-  branches awaiting deletion. Conservation improved 6x (`h2o_drift_per_step` -0.145 -> -0.024,
-  `static_cells` 0), creatures held, `field_ms` 5.2 -> 10.2 (the honest cost of 3480 newly-simulated
-  cells — the active-cell compaction landed for `lava_phase` is what should absorb it). The seabed freeze
-  in `soil_sphere3d.glsl` was replaced with the physics it faked: the spring outlet head now includes the
-  neighbour's standing water.
-  **BLOCKER: `soil_total` still drains, 684 at field_step 53 to 51.8 at 746, root cause unknown.** All
-  three transfer legs traced by hand; none should do it. The old 3479 was ITSELF mostly fake (seed 0.3 x
-  ~11600 regolith cells, unmoved for 746 steps — nearly the whole "aquifer" was frozen seabed). DO NOT
-  target 3479. A fan-out agent is instrumenting the kernel's legs so the drain names itself.
-- **#25 — `--fast>=4` kills the population.** Creatures tick on `Engine.time_scale`-scaled delta while the
-  field is bounded by `max_physics_steps_per_frame`, so consumption outruns regrowth. Measured, 150
-  frames: `--fast=2` holds 180 creatures and biomass 8939; `--fast=4` reaches 1.56 sim days with 0
-  creatures. 0.4's listed "high-`--fast` field desync" risk, now reproducible because the flag works.
-  **Use `--fast=2` for everything until this is fixed.**
-- **#26 — the energy balance is WIP on `feature/energy-balance` (3 commits).** Mechanism complete,
-  calibration short: floor 4.27 C, still above freezing, so snow and sea ice are zero. Buoyancy mixing and
-  the ground-hug cells' rock coupling are the next suspects, in that order. See the physical-planet
-  session entry above for the three measurements that got it there.
+- **#24 — ⚑ TOP OF THE LIST: merge the dynamic sea. `0.4-dev` currently MINTS water.** *(Rewritten
+  2026-07-30; the blocker this entry used to describe was imaginary — see below.)* The static mask makes
+  `atmos_evap_sphere3d.glsl`'s `added += e * static_brake` run **with no matching debit**, so the sea
+  evaporates water it never loses. Restoring the single line `_static[c] = 1` for one run: 7488.26 →
+  13751.54, **+6263.28 minted** (a verifier reproduced +6616.87 and +6635.40). Dev's `h2o_total` of ~14000 is
+  roughly half invented, and every water figure in this file's history is inflated by it.
+  **The fix is measured and sitting on `feature/soil-drain-fix`** (4 commits off `a038e4b`): the dynamic sea
+  **conserves to 0.00–0.22% over 766 steps**, with `legs_all` = 0.0000 for all twelve passes at every sample.
+  It also carries `MaterialFieldH2OBudget3D.gd` (`LA_H2O_BUDGET=1`), the instrument that proved it.
+  - **Rebase notes.** Three files collide. `SphereGrid.gd`: **drop the branch's change** — it is the old
+    `validate()` reciprocity check, superseded by the 2-factor pairing and the tangent-basis tables.
+    `MaterialSphereGPU3D.gd` and `MaterialFieldSphereStep3D.gd`: both sides are purely additive, take both.
+  - **Doc fixes required first:** every quoted range on that branch is too narrow, and the headline
+    "0.00–0.09%" is **non-overlapping** with the verifier's 0.11–0.22%. Honest combined range 0.00–16.70
+    units. And its "caveat 2" is wrong — the residual is exactly `h2o_buried`, 3 of 3 to snap precision.
+  - **Expect a large CORRECT shift, not a regression:** `soil_total` ~3540 → ~105–165, `static_cells` 3480 →
+    0, `h2o_static_water` 2733 → 0, `h2o_total` ~14000 → ~5700. The dynamic numbers are the honest ones.
+  - ~~"BLOCKER: soil_total drains, root cause unknown"~~ — resolved. Springs ran at the stability cap because
+    conductance multiplied a head in world units, and downward head was positive by construction so cells
+    drained into whatever sat beneath them. Fixed; `kernel_delta` now oscillates about zero and the residual
+    decline is R19 root uptake, i.e. plants drinking.
+- **#25 — ~~`--fast>=4` kills the population~~ REFUTED 2026-07-30. `--fast=8` is safe and 4.3× faster.**
+  There is no clock desync: the field/ecology gap is 0.03–0.10 s in all 20 instrumented runs with no trend,
+  and the discard path this entry blamed is arithmetically unreachable (needs `time_scale 18`; max is 8).
+  What was really happening: `max_physics_steps_per_frame` scales with speed *while* `time_scale` already
+  scales the delta, so **sim-time per rendered frame is quadratic in the multiplier** — 0.0995 / 0.533 / 1.98
+  / 5.28 at `--fast` 1/2/4/8. The old measurement compared 0.4 sim days against 1.5; the fast run had not
+  starved, it was four sim-days older. **At equal field time: `--fast=2` → 146–174 creatures, `--fast=4` →
+  193–200, `--fast=8` → 213–236.** Compare at equal `field_sim_s`, never equal `--run-frames`.
+- **#26 — the energy balance, WIP on `feature/energy-balance`, and NOW UNBLOCKED.** Mechanism complete,
+  calibration short: floor 4.27 °C, snow and sea ice zero. ~~Buoyancy mixing and the ground-hug cells' rock
+  coupling are the next suspects~~ — that was a guess and it is superseded twice over. First: **`LAPSE` was
+  the only altitude term in surface temperature and it died with the prescriber**, so nothing makes high
+  ground cold. Second, and this is the opening: **air mass now exists as a channel**, so `EMISSIVITY` (a
+  constant 0.9) can finally vary with the overlying air mass. A thinner column above means less downwelling
+  longwave, which is the real reason a summit is cold — and it gives the lapse, the snow line and the
+  ice-albedo feedback in one change, without re-prescribing anything. Rebase the branch onto current dev
+  first; it predates the air channel entirely.
 - **#27 — DONE 2026-07-30, and its premise was already stale when written.** This item said the
   `--auto-seavolcano` spin freeze still existed. **It did not.** Commit `440a86d` ("the planet turns") had
   already removed `and not _input.auto_seavolcano()` from `VoxelWorld.gd`, and simply never re-ran the
