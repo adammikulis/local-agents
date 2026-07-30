@@ -29,6 +29,23 @@ const EVAP_KEEP_LIQUID: float = 0.1      # liquid below this is not available to
 const EVAP_TAKE_FRAC: float = 0.5        # fraction of a source cell's AVAILABLE contents one injection may lift
 const SOIL_SEARCH_SHELLS: int = 4        # permeable shells to search inward for the water table (= REGOLITH_CELLS)
 
+# EXCAVATION (resample_terrain). Fraction of destroyed bedrock that goes AIRBORNE as dust instead of settling
+# as loose sediment in the cell it came from. A hypervelocity strike pulverises a real share of what it digs
+# out. This is a MATERIAL property of shattering rock, not a per-disaster constant: a meteor, the player's
+# brush, and any future dig all get the same split because they all go through the same call.
+const EXCAVATED_DUST_FRAC: float = 0.25
+
+# CRATER TELEMETRY (published through the SIM_REPORT provider registered in setup()). `_crater_watch` keeps the
+# cells the most recent excavation opened so the report can re-read their LIVE rock_fill: that is the DEVICE-side
+# proof the substrate agrees the ground is gone, as opposed to "carve_sphere was called".
+const CRATER_WATCH_MAX: int = 256
+var _crater_watch: PackedInt32Array = PackedInt32Array()
+var _crater_seen: Dictionary = {}        # cell -> true, so overlapping craters do not watch a cell twice
+var _crater_opened: int = 0              # cumulative cells this run whose derived solidity went rock -> void
+var _crater_mass: float = 0.0            # cumulative bedrock mass DEBITED out of rock_fill; the matching credit
+                                         # the device accepted is mineral_inject_credited, and the two must agree
+var _crater_sea: int = 0                 # cumulative opened cells that were under the water line and flooded
+
 ## Emitted every time something splashes water at a world point (meteor / tornado / fish / thrown rock /
 ## flood / plant). The water-surface renderer (LAMaterialFieldRender3D) connects here to spawn an expanding
 ## impact ripple on the fluid shader, so the same splash that flings droplets also rings the water, with
@@ -38,6 +55,10 @@ signal splashed(world_pos: Vector3, strength: float)
 
 func setup(field) -> void:
 	_f = field
+	# Terrain-destruction telemetry as a registered provider (the LASimReport.register plugin seam), so the
+	# crater proof is polled at snapshot time — when `_rock_fill` holds the freshest readback — instead of
+	# being scanned every frame.
+	LASimReport.register(crater_report)
 
 
 ## True when this field is running on a driver that can apply the queue's sparse device edits (the cubed-sphere
@@ -326,14 +347,204 @@ func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
 	queue.add("water", fill_cells, fill_amt, _f.MAX_MASS)
 
 
-## Re-sample rock/void from the terrain SDF in a region after an edit (a crater, a lava-built delta). Sphere-
-## native: re-run is_solid per linear cell in the bubble around the edit (O(k), not the whole grid).
+## THE OTHER HALF OF A TERRAIN EDIT — call this straight after destroying terrain (`carve_sphere`).
+##
+## `VoxelTerrainService.carve_sphere` moves the godot_voxel SDF, which is the MESH and the COLLISION. It is not
+## the physics. The field's authoritative bedrock is `rock_fill` (rock unification Stage B: `solid` is a DERIVED
+## view that SolidDerivePass recomputes from rock_fill at the top of EVERY step, before any other kernel reads
+## it). So a meteor crater used to be a hole you could stand in and fall through that water would not pool into
+## and air would not fill, because the substrate still believed the rock was there. This closes that.
+##
+## It is a MASS MOVE, not a delete. Excavated bedrock does not leave the planet — it is shattered and thrown —
+## so it lands in the two LOOSE mineral phases the substrate already carries and already moves:
+##   • `sediment` — crushed breccia on the crater floor, which the slump/erosion kernels then run downhill,
+##     water re-suspends into `susp`, and lithification can cement back to bedrock.
+##   • `dust` — the lofted share, which the wind advects and which dims insolation through avg_atmos_dust.
+##     "Impact winter" is that one line and nothing else; there is no impact-winter system to write.
+## Both are counted legs of mineral_total(), so a strike moves mass between phases instead of destroying it.
+##
+## MECHANISM. The SDF is only the SHAPE ORACLE: it says which cells the edit opened, whatever shape it had (a
+## crater, a brush, a tunnel), so nothing here knows what a crater is.
+##
+## The debit and the credit are ONE conserving device move per cell (`queue.transfer` → `move_field_sparse`),
+## which reads the live bedrock, takes what is actually there, and credits exactly that. Debit and credit are
+## therefore the same number by construction: this cannot mint, and it cannot destroy.
+##
+## The CPU rock_fill mirror is deliberately left alone. Writing it looks tempting — rock_fill's only other CPU
+## writer, `add_lava`, edits the mirror and raises `_rock_fill_dirty`, which re-uploads the WHOLE channel at
+## MaterialFieldSphereStep3D.gd:152, ahead of the queue flush at :182 — but going through that path here
+## destroys mass. Measured 2026-07-30 on a barrage of 18: zeroing the mirror debited 175.0 of bedrock (the cells
+## really did open: crater_open_now 174/175) while the matching credit landed 0.0, because `add_field_sparse`,
+## the only primitive that can credit a channel with no upload path, applies nothing in this build — 1515
+## per-cell add edits reached it and it returned 0.0 for every one. (That is a live bug in
+## LAMaterialSphereGPU3D, not in this module: `move_field_sparse` on the same buffers works, which is why the
+## conserving transfer is the right call regardless. It also means `add_water_pooled`'s flood surge has never
+## actually delivered its water.) Leaving the mirror to the readback keeps this module's honesty testable too:
+## `crater_open_now` then reports what the DEVICE says about those cells, not what this function just wrote.
+##
+## The REVERSE direction (the SDF grew, so the field should gain rock) is deliberately NOT handled here:
+## LAMineralStamp3D owns field→SDF growth, and re-importing its own stamp would mint mineral on every eruption.
+## Sphere-native + O(k): one is_solid probe per cell in the bubble around the edit, never the whole grid.
 func resample_terrain(world_pos: Vector3, radius: float) -> void:
-	if _f._terrain == null or not _f._terrain.has_method("is_solid") or _f._solid.size() != _f._cell_count:
+	if _f == null or _f._terrain == null or not _f._terrain.has_method("is_solid"):
+		return
+	if _f._solid.size() != _f._cell_count or _f._rock_fill.size() != _f._cell_count:
 		return
 	var cells: PackedInt32Array = _cells_within(world_pos, radius)
+	if cells.size() == 0:
+		return
+	# NO DEVICE (the box/CPU field, i.e. the headless reference oracle). There is no rock_fill channel evolving
+	# on a GPU to be authoritative there and nothing ever flushes the queue, so `_solid` IS the mask and the
+	# direct re-sample is the correct write — which is what this function always did.
+	if not _device_ready():
+		var mask: PackedByteArray = _f._solid
+		for c in cells:
+			mask[c] = 1 if _f._terrain.is_solid(_f.cell_world_pos_linear(c)) else 0
+		_f._solid = mask
+		return
+	var rock: PackedFloat32Array = _f._rock_fill
+	var solid: PackedByteArray = _f._solid
+	var stat: PackedByteArray = _f._static
+	var src: PackedInt32Array = PackedInt32Array()
+	var to_sediment: PackedFloat32Array = PackedFloat32Array()
+	var to_dust: PackedFloat32Array = PackedFloat32Array()
+	var was_rock: PackedInt32Array = PackedInt32Array()   # cells the field held as DERIVED-SOLID bedrock (rock_fill
+	                                                      # >= 0.5) at this instant — the "before" side of the proof
+	# Cells the edit opened BELOW SEA LEVEL. Breaching the seabed floods: the hole is under the ocean, so it is
+	# ocean. That is not a rule invented for craters — it is exactly `_seed_sphere_sea`'s rule ("every open cell
+	# at/below sea_radius is static sea"), which until now only ran at world-gen, so anything that opened a cell
+	# afterwards left a dry pocket under the water line. The static sea is a one-way sink in water_sphere3d.glsl
+	# (dynamic water pours in and is absorbed; a static cell never pushes any back out), so without this a seabed
+	# crater could not fill from its neighbours no matter how long it sat there.
+	var sea_cells: PackedInt32Array = PackedInt32Array()
+	var sea_r: float = 0.0
+	if _f._terrain.has_method("sea_radius"):
+		sea_r = float(_f._terrain.sea_radius())
+	var has_static: bool = stat.size() == _f._cell_count
 	for c in cells:
-		_f._solid[c] = 1 if _f._terrain.is_solid(_f.cell_world_pos_linear(c)) else 0
+		if _f._terrain.is_solid(_f.cell_world_pos_linear(c)):
+			continue                                   # still rock — the edit did not reach this cell
+		var rf: float = rock[c]
+		if rf <= 0.0 and solid[c] == 0:
+			continue                                   # already void in the substrate — nothing was excavated
+		if rf >= 0.5:
+			was_rock.append(c)                         # this cell is the claim: derived-solid rock -> open
+		# Ask for a WHOLE cell, split by the material fraction. move_field_sparse clamps each take to the live
+		# bedrock, so over-asking against a stale mirror cannot mint — it just yields less. The two legs sum to
+		# MAX_MASS, so together they drain the cell however much was really in it.
+		src.append(c)
+		to_sediment.append(_f.MAX_MASS * (1.0 - EXCAVATED_DUST_FRAC))
+		to_dust.append(_f.MAX_MASS * EXCAVATED_DUST_FRAC)
+		_crater_mass += _f.MAX_MASS
+		# NEITHER `_rock_fill` NOR `_solid` is written here, and the second one is as deliberate as the first.
+		# They are read TOGETHER by LAMineralStamp3D, which treats `_solid` as the last-stamped state and fires a
+		# stamp on any disagreement with rock_fill. Clearing `_solid` while the rock_fill mirror still reads 1.0
+		# (it is refreshed only by readback) is precisely a void->solid crossing, so the stamp's very next scan
+		# would call fill_rock and put the crater back. Left alone, the pair stays consistent until the readback
+		# lands, and then the stamp sees the real solid->void crossing and clears `_solid` itself — the designed
+		# Stage C path, which also re-carves the SDF idempotently and costs a few frames of CPU-mask lag.
+		if has_static and sea_r > 0.0 \
+				and (_f.cell_world_pos_linear(c) - _f._origin).length() < sea_r:
+			stat[c] = 1                                # this cell is under the water line — it is sea now
+			sea_cells.append(c)
+	if sea_cells.size() > 0:
+		_f._static = stat                              # re-uploaded with `solid` by _seed_solid on mark_solid_dirty
+		_flood_from_sea(sea_cells)
+		_crater_sea += sea_cells.size()
+	if src.size() == 0:
+		return
+	# THE MOVE: bedrock out, loose phases in, resolved together on device.
+	queue.transfer("rock_fill", src, to_sediment, "sediment", src)
+	queue.transfer("rock_fill", src, to_dust, "dust", src)
+	_crater_opened += was_rock.size()
+	# ACCUMULATE the watch across every excavation in the run (bounded), rather than keeping only the newest —
+	# otherwise the proof covers whichever crater happened to land last instead of all of them.
+	# Overlapping craters (a barrage) re-excavate cells a previous strike already opened, and until the readback
+	# lands they still look like bedrock here, so dedupe or the "before" side counts the same cell twice.
+	for c in was_rock:
+		if _crater_watch.size() >= CRATER_WATCH_MAX:
+			break
+		if _crater_seen.has(c):
+			continue
+		_crater_seen[c] = true
+		_crater_watch.append(c)
+	if _f._gpu != null:
+		# Wake the demand-gated readbacks, or the change is invisible: on a calm planet nothing requests
+		# rock_fill or dust, so their CPU mirrors (and every gauge computed from them) simply stop updating.
+		_f._gpu.request_channel("rock_fill")
+		_f._gpu.request_channel("dust")
+
+
+## Fill freshly opened below-sea cells from the sea NEXT TO them — the crater floods.
+##
+## It has to be pulled in from a neighbour rather than simply switched on, because the calm sea is a ONE-WAY
+## SINK: water_sphere3d.glsl skips any cell whose `static` flag is set when it gathers outflow, so a static sea
+## cell absorbs every river that reaches it and never pushes a drop back out. A hole opened under the water line
+## therefore stays dry forever on its own, however long it sits there, which is why breaching the seabed used to
+## leave a dry pocket beneath the ocean. This is a CONSERVING transfer (the neighbour is debited exactly what
+## the crater is credited), and the sea's own evaporation source tops the reservoir back up, which is the same
+## bargain the static-sea model already makes everywhere else.
+func _flood_from_sea(cells: PackedInt32Array) -> void:
+	if _f._sphere == null or _f._water.size() != _f._cell_count:
+		return
+	var nbr: PackedInt32Array = _f._sphere.neighbours
+	var solid: PackedByteArray = _f._solid
+	var srcs: PackedInt32Array = PackedInt32Array()
+	var dsts: PackedInt32Array = PackedInt32Array()
+	var amounts: PackedFloat32Array = PackedFloat32Array()
+	for c in cells:
+		# Slot order is LASphereGrid's: 0 inward, 1 outward, 2..5 lateral. Prefer OUTWARD — the sea is above the
+		# floor we just broke, so that is where the water actually comes from.
+		for d in [1, 2, 3, 4, 5, 0]:
+			var nb: int = nbr[c * 6 + d]
+			if nb < 0 or nb >= _f._cell_count or solid[nb] != 0:
+				continue
+			if _f._water[nb] < _f.MAX_MASS * 0.5:
+				continue                               # not a full sea cell — nothing here to pour in
+			srcs.append(nb)
+			dsts.append(c)
+			amounts.append(_f.MAX_MASS)
+			break
+	if srcs.size() > 0:
+		queue.transfer("water", srcs, amounts, "water", dsts, _f.MAX_MASS)
+
+
+## SIM_REPORT provider: the proof that terrain destruction reached the SUBSTRATE, not just the mesh.
+##
+## `crater_watch` is the BEFORE side — cells the field held as derived-solid bedrock (rock_fill >= 0.5) at the
+## instant something excavated them. `crater_open_now` and `crater_rock_now` are the AFTER side, re-read from
+## the LIVE rock_fill readback: had the carve touched only the SDF, every one of those cells would still be
+## >= 0.5 here, `open_now` would be 0 and `rock_now` would equal `watch`. `crater_water` is the same cells'
+## liquid — where a crater that bottoms out below sea level shows that it took water.
+func crater_report() -> Dictionary:
+	var open_now: int = 0
+	var below_sea: int = 0
+	var rock_now: float = 0.0
+	var water: float = 0.0
+	var watch: int = _crater_watch.size()
+	if _f != null and watch > 0 and _f._rock_fill.size() == _f._cell_count:
+		var sea_r: float = 0.0
+		if _f._terrain != null and _f._terrain.has_method("sea_radius"):
+			sea_r = float(_f._terrain.sea_radius())
+		var has_water: bool = _f._water.size() == _f._cell_count
+		for c in _crater_watch:
+			rock_now += _f._rock_fill[c]
+			if _f._rock_fill[c] < 0.5:
+				open_now += 1
+			if sea_r > 0.0 and (_f.cell_world_pos_linear(c) - _f._origin).length() < sea_r:
+				below_sea += 1
+			if has_water:
+				water += _f._water[c]
+	return {
+		"crater_cells": _crater_opened,
+		"crater_mass": snappedf(_crater_mass, 0.01),
+		"crater_watch": watch,
+		"crater_open_now": open_now,
+		"crater_rock_now": snappedf(rock_now, 0.01),
+		"crater_below_sea": below_sea,
+		"crater_sea": _crater_sea,
+		"crater_water": snappedf(water, 0.01),
+	}
 
 
 # --- Physical splash droplets (FX) ------------------------------------------

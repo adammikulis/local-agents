@@ -27,6 +27,12 @@ extends RefCounted
 ## the live source value, so the caller gets an exact drain without knowing what the device holds.
 const DRAIN_ALL: float = 1.0e30
 
+## Channels whose mass is MINERAL rather than H₂O. This queue carries TWO ledgers, not one: excavated bedrock
+## handed to sediment/dust (a crater) is a real conserving transfer, but folding it into `moved` would print
+## rock as water moved and the h2o_* gauges would stop meaning what they say. Routing by source channel keeps
+## each total honest without either caller having to know the other exists.
+const MINERAL_CHANNELS: PackedStringArray = ["rock_fill", "lava", "sediment", "susp", "dust"]
+
 # --- cumulative H₂O injection ledger (SIM_REPORT gauges) ---------------------------------------------------
 var demand: float = 0.0        # mass transfers ASKED their sources for. Before this fix the same figure was
                                # created out of nothing every time, so it doubles as the old mint rate.
@@ -39,11 +45,27 @@ var minted: float = 0.0        # mass added with NO source at all (a flood surge
 var buried: float = 0.0        # mass discarded because a cell turned solid with nowhere to displace it to
 var displaced: float = 0.0     # mass a solidifying/melting cell handed to a neighbour instead of stranding
 
+# --- cumulative MINERAL transfer ledger (same mechanism, separate books — see MINERAL_CHANNELS) -------------
+var mineral_offered: float = 0.0   # mineral mass a transfer's CPU-side scan believed its source held
+var mineral_moved: float = 0.0     # mineral mass actually transferred — device-resolved, so debit == credit
+var mineral_credited: float = 0.0  # mineral mass ADDED to a loose phase against a debit taken elsewhere (a
+                                   # crater's excavated bedrock: rock_fill is debited through its whole-mirror
+                                   # upload, so the matching credit arrives here rather than through transfer()).
+                                   # Compare it with `crater_mass`: equal means the strike moved rock, not
+                                   # destroyed it, and a gap is destroyed mass the loose phases never received.
+
 # AUDIT (LA_INJECT_AUDIT=1): |CPU mirror total - live device total| for a channel at flush time. That gap IS
 # the mass the old set_field-from-the-mirror upload would have written away, so a nonzero reading here is a
 # direct measurement of the staleness this queue removes. Off by default — it costs a full-grid sum.
 var rewind_peak: float = 0.0
 var rewind_last: float = 0.0
+
+## Per-cell edits that actually reached a device primitive. An edit queued but never flushed is invisible in
+## every other counter here — the totals only ever grow from what `flush` applied — so without this a lost
+## queue looks exactly like a queue whose sources were all empty.
+var flushed_cells: int = 0
+var add_cells: int = 0         # ...of which belonged to `add` ops, so a credit that returned nothing is
+                               # distinguishable from a credit that was never queued
 
 var _ops: Array = []
 var _index: Dictionary = {}    # op signature -> slot in _ops, so same-signature edits COALESCE (see _merge)
@@ -94,8 +116,12 @@ func transfer(src: String, src_cells: PackedInt32Array, amounts: PackedFloat32Ar
 		dst: String, dst_cells: PackedInt32Array, dst_ceiling: float = INF) -> void:
 	if src_cells.size() == 0 or src_cells.size() != amounts.size() or src_cells.size() != dst_cells.size():
 		return
+	var is_mineral: bool = MINERAL_CHANNELS.has(src)
 	for a in amounts:
-		offered += a
+		if is_mineral:
+			mineral_offered += a
+		else:
+			offered += a
 	_merge("t|%s|%s|%f" % [src, dst, dst_ceiling], "transfer", src, dst, src_cells, amounts, dst_cells, dst_ceiling)
 
 
@@ -135,17 +161,27 @@ func flush(gpu) -> void:
 	if gpu == null or _ops.is_empty():
 		return
 	for op in _ops:
+		flushed_cells += (op["src_cells"] as PackedInt32Array).size()
 		var kind: String = String(op["kind"])
 		if kind == "transfer":
-			moved += gpu.move_field_sparse(op["src"], op["src_cells"], op["amounts"],
+			var m: float = gpu.move_field_sparse(op["src"], op["src_cells"], op["amounts"],
 				op["dst"], op["dst_cells"], float(op["ceiling"]))
+			if MINERAL_CHANNELS.has(String(op["src"])):
+				mineral_moved += m
+			else:
+				moved += m
 		elif kind == "displace":
 			displaced += gpu.move_field_sparse(op["src"], op["src_cells"], op["amounts"],
 				op["dst"], op["dst_cells"], float(op["ceiling"]))
 		elif kind == "discard":
 			buried += -gpu.add_field_sparse(op["src"], op["src_cells"], op["amounts"])
 		elif kind == "add":
-			minted += gpu.add_field_sparse(op["src"], op["src_cells"], op["amounts"], float(op["ceiling"]))
+			add_cells += (op["src_cells"] as PackedInt32Array).size()
+			var a: float = gpu.add_field_sparse(op["src"], op["src_cells"], op["amounts"], float(op["ceiling"]))
+			if MINERAL_CHANNELS.has(String(op["src"])):
+				mineral_credited += a
+			else:
+				minted += a
 	_ops.clear()
 	_index.clear()
 
@@ -179,4 +215,12 @@ func report() -> Dictionary:
 		"h2o_buried": snappedf(buried, 0.01),
 		"h2o_displaced": snappedf(displaced, 0.01),
 		"h2o_stale_rewind": snappedf(rewind_peak, 0.01),
+		# MINERAL leg (a crater handing its excavated bedrock to sediment/dust). `mineral_inject_moved` is the
+		# DEVICE truth for how much rock a terrain edit actually took out of the bedrock channel, against which
+		# `crater_mass` is only what the (possibly stale) CPU mirror asked for.
+		"mineral_inject_offered": snappedf(mineral_offered, 0.01),
+		"mineral_inject_moved": snappedf(mineral_moved, 0.01),
+		"mineral_inject_credited": snappedf(mineral_credited, 0.01),
+		"inject_flushed_cells": flushed_cells,
+		"inject_add_cells": add_cells,
 	}
