@@ -195,8 +195,23 @@ void main() {
 	// CORIOLIS scaled by sin(lat): ZERO at the equator (winds flow straight down the pressure gradient), full
 	// at the poles, and OPPOSITE-signed between hemispheres (sinlat flips) → correct cyclonic/anticyclonic
 	// handedness N vs S. A rotating low (vortex) still EMERGES; now it emerges with real latitude structure.
-	float rvx = nvx - CORIOLIS * sinlat * nvz * params.dt;
-	float rvz = nvz + CORIOLIS * sinlat * nvx * params.dt;
+	//
+	// SIGN CORRECTED 2026-07-30 — it used to deflect the wrong way, and until the tangent frame got its own
+	// table nothing could tell. The Coriolis acceleration is a = -2*omega x v. With omega = Omega*spin_axis
+	// (spin_axis IS the north pole, by the right-hand rule of the planet's own rotation) its horizontal part
+	// is -f*(radial x v), f = 2*Omega*sin(lat). The frame is right-handed — tan_a x tan_b = radial — so
+	// radial x v is the +90 degree rotation (a -> b), i.e. components (-v_b, v_a). Therefore
+	//     v' = v - f*dt*(-v_b, v_a) = (v_a + f*dt*v_b,  v_b - f*dt*v_a),
+	// which deflects eastward motion toward the equator in the northern hemisphere: to the RIGHT, as it must.
+	// The old form was (v_a - k*v_b, v_b + k*v_a) — the exact negative, a deflection to the LEFT.
+	// This was invisible while the frame came from the neighbour slots, because that frame was 50/50 handed
+	// (1732 right / 1724 left at res 24), so "the sign of the deflection" was not a defined quantity.
+	// Measured consequence, bench_atmosphere_column at res 24 / 400 steps: the thermal-wind maximum aloft is
+	// the same size and sits in the same place either way, but it blew EAST-to-WEST at -1.95 (shell 17,
+	// 15-30 deg) before and WEST-to-EAST after. The overturning was right all along and is untouched:
+	// poleward aloft, equatorward at the surface.
+	float rvx = nvx + CORIOLIS * sinlat * nvz * params.dt;
+	float rvz = nvz - CORIOLIS * sinlat * nvx * params.dt;
 	nvx = rvx;
 	nvz = rvz;
 
