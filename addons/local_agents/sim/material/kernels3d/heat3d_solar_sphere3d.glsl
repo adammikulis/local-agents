@@ -58,37 +58,27 @@ layout(push_constant, std430) uniform Params {
 } params;
 
 // Constants — the authoritative surface-temperature model (no GDScript mirror; the old MaterialHeat3D.gd is gone).
-// AMBIENT_NIGHT is the night-side floor (thermal retention keeps a real planet's night well above freezing); it
-// was 6 °C, which — combined with the altitude lapse over land that sits ABOVE the sea datum — drove the WHOLE
-// habitable surface to ~0-3 °C (creatures froze en masse). Raised so lowland nights stay temperate and only high
-// ground / poles freeze. Keeps cold a real but occasional killer, not an extinction driver (population-sustain).
-// AMBIENT_NIGHT is the night-side / low-sun-angle FLOOR (thermal retention). Kept LOW so the poles and the
-// deep night stay genuinely cold (persistent polar snow + sea ice form where the surface falls under
-// FREEZE_TEMP=12.5). SOLAR_WARMTH is the sub-solar (equatorial, sun-overhead) BONUS, scaled by the per-cell sun
-// angle (insolation = dot(radial, sun_dir)); a large value STEEPENS the equator→pole gradient — warm tropics and
-// a temperate mid-latitude land band where photosynthesis (∝ temp) feeds the herbivores, while the low-sun-angle
-// poles stay near the cold AMBIENT_NIGHT floor. This is the Earth-like structure the ecosystem needs: raising the
-// gradient here (not the uniform floor) warms the habitable band WITHOUT thawing the poles. The land equilibrium
-// had settled ~10 °C with tropics only ~16 °C (grazers slowly starved on a too-cold, low-biomass surface); the
-// steeper gradient + faster relax lifts the temperate/tropical band to a food-viable ~15–28 °C.
-const float AMBIENT_NIGHT = 13.0;
-const float SOLAR_WARMTH = 25.0;
-const float AMBIENT_RELAX = 0.08;
-// ALTITUDE LAPSE: °C dropped from the solar target per world-unit of altitude above the sea shell. Softened from
-// 1.1 so the elevated land surface (which sits several units above the sea datum) is not chilled below freezing
-// everywhere, while HIGH peaks + the night side still fall below FREEZE_TEMP (12.5) → snow-capped peaks + an
-// alpine treeline survive: night peak (~18 u) = 12 - 0.6*18 ≈ 1 °C (snow); mid-slope day (~9 u) = 30 - 0.6*9 ≈ 25 °C.
-const float LAPSE = 0.35;
-// RADIATIVE SINK for the near-surface atmosphere (the stabilizing feedback). The sky-baked surface cells relax
-// fast toward their insolation target (AMBIENT_RELAX); but the AIR BETWEEN them was governed by conduction ALONE,
-// and brisk lateral air mixing (heat_sphere3d VOID_CONDUCT ≈ 0.0233/bond, ~0.14/step over 6 bonds) slowly
-// HOMOGENIZED the equator→pole temperature gradient over a long run — the warm habitable equator drifted toward a
-// uniform lukewarm global mean, photosynthesis (∝ temp) fell, and grazers starved. Anchoring every cell in the
-// habitable air band to its OWN latitude/altitude insolation target at a gentle rate mirrors radiative cooling to
-// space: each air parcel is pulled back toward its local radiative-equilibrium temperature, so the gradient
-// PERSISTS (warm tropics, cold poles) instead of conducting flat. Bounded rate → clouds/weather still modulate
-// around it; it cannot drift monotonically. Band-gated to the surface/air shell so deep caves near the hot core
-// (governed by rock conduction from the magma pin) are untouched.
+//
+// EVERYTHING THAT USED TO PRESCRIBE A TEMPERATURE HAS BEEN DELETED, and with it a page of constants that
+// described the prescribed model: AMBIENT_NIGHT (a night-side floor), SOLAR_WARMTH (a sub-solar bonus),
+// AMBIENT_RELAX and ATMOS_RELAX (the rates those targets were imposed at), ATMOS_BAND_BELOW/ABOVE (the shell
+// the anchor covered), and LAPSE. They are gone rather than merely unused, because a constant that still
+// reads as live is worse than no constant: `target = AMBIENT_NIGHT + SOLAR_WARMTH * insolation` survived as
+// dead code for three commits after the branch that used it was removed, computed every step by every cell
+// and read by nothing, with a comment block above it still explaining how it set the climate.
+//
+// WHAT THIS COSTS, STATED RATHER THAN DISCOVERED LATER: there is now NO ALTITUDE TERM ANYWHERE in the
+// surface temperature. LAPSE was the only thing making high ground cold, and the surface energy balance
+// below has no height dependence at all — a mountain top and a sea-level cell at the same latitude, albedo
+// and heat capacity reach the SAME equilibrium. So snow-capped peaks and the alpine treeline that the old
+// comment credited to "geometry" are not currently produced by anything, and that is a likelier reason for
+// snow_cells and sea_ice_cells sitting at zero than the global floor being a few degrees too warm.
+//
+// The fix is NOT to re-prescribe a lapse. On a real planet the surface is colder at height because the air
+// column above it is thinner: less mass, less downwelling longwave, and adiabatic cooling of anything that
+// rises. Two of those need a hydrostatic pressure channel, which this substrate does not carry yet, and the
+// third needs the greybody EMISSIVITY below to vary with the overlying air mass instead of being a constant.
+// That is the same missing pressure term the jet stream is waiting on, so one piece of work buys both.
 // ===== ENERGY BALANCE CONSTANTS ===================================================================
 // Target is EARTH-LIKE behaviour, so these are derived rather than fitted to this world's old numbers.
 // STEFAN is the real Stefan-Boltzmann constant; EMISSIVITY is a greybody atmosphere (a value below 1 is
@@ -112,11 +102,6 @@ const float HEAT_CAP_AIR = 800.0;
 const float HEAT_CAP_ROCK = 1400.0;
 const float HEAT_CAP_WATER = 9000.0;   // the ocean's thermal inertia — why coasts are mild
 const float HEAT_CAP_SNOW = 2500.0;
-
-const float ATMOS_RELAX = 0.14;       // radiative anchor for interior air cells — STRONG enough to win against
-                                      // lateral air conduction (VOID_CONDUCT) so the equator->pole gradient holds
-const float ATMOS_BAND_BELOW = 6.0;   // metres below the sea shell the anchor still applies (sea-surface air, coasts)
-const float ATMOS_BAND_ABOVE = 42.0;  // metres above the sea shell the anchor reaches (terrain relief + low air)
 
 void main() {
 	uint idx = gl_GlobalInvocationID.x;
@@ -148,17 +133,9 @@ void main() {
 	vec3 sun_dir = vec3(params.sun_x, params.sun_y, params.sun_z);
 	float insolation = max(0.0, dot(cell_radial, sun_dir));
 
-	// Cell radius / altitude above the sea shell (peaks + upper air are far from the centre → cold, via the lapse).
-	float radius = length(vec3(pos[rb + 0u], pos[rb + 1u], pos[rb + 2u]));
-	float altitude = max(0.0, radius - params.sea_radius);
-
-	float target = AMBIENT_NIGHT + SOLAR_WARMTH * insolation;
-	// The lapse (higher = colder) applies to the GROUND-hugging skin and the interior air, but NOT to the free
-	// top-of-atmosphere skin (which sits at a near-uniform high radius, where a lapse would just be a giant
-	// uniform freeze offset). This gives snow-capped peaks + an alpine treeline straight out of geometry.
-	if (!top_of_atm) {
-		target -= LAPSE * altitude;
-	}
+	// NOTE: altitude is deliberately not read here any more. It fed the LAPSE term, which was part of the
+	// prescribed model and went with it; see the constants block for why re-prescribing it is the wrong fix
+	// and what has to exist first. `params.sea_radius` is still the altitude datum for other passes.
 
 	if (surface) {
 		// ===== REAL ENERGY BALANCE =====================================================================
