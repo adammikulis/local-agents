@@ -12,6 +12,13 @@ extends RefCounted
 
 # Fixed-step cadence — mirrors the field's own constants so the loop is self-contained.
 const STEP_DT: float = 1.0 / 10.0
+# Per-call step ceiling. THIS IS NOT WHAT MAKES A HIGH `--fast` KILL THE POPULATION, measured 2026-07-30 —
+# the accumulator clamp below drops banked time only once `_step_accum` exceeds STEP_DT*(MAX+1) = 0.3, and
+# the physics delta this is fed is `Engine.time_scale / 60`, which reaches 0.3 only at time_scale 18.
+# LAVoxelTimeControl.SPEEDS tops out at 8.0 (delta 0.1333), so the clamp is UNREACHABLE at every speed the
+# game can select. Measured directly at --fast 1/2/4/8: `field_offer_s - field_sim_s` was 0.03-0.10 in all
+# twelve runs, which is the residue still sitting in the accumulator at quit, not a systematic discard.
+# The field and the ecology advance the same number of sim-seconds; see the `field_sim_s`/`eco_sim_s` pair.
 const MAX_STEPS_PER_FRAME: int = 2
 const FIELD_CADENCE_MAX: int = 60                       # clamp for the published Sim knob (avoid absurd skips)
 
@@ -21,6 +28,16 @@ var _f = null                                            # back-reference to the
 var _frame_gate: int = 0                                 # frames elapsed since the last GPU field run (cadence skip counter)
 var _cam_frame: int = -1
 var _cam_pos: Vector3 = Vector3(INF, INF, INF)
+
+# TWO CLOCKS, PUBLISHED SO THEY CAN BE COMPARED. `field_sim_s` is the simulated time the substrate ACTUALLY
+# advanced (STEP_DT per GPU step); `field_offer_s` is the simulated time the physics tick HANDED it (the sum
+# of delta). Every actor in the tree keeps the second number in full, so a gap between the two would be time
+# the living half of the world spent eating while its physical half stood still. Measured 2026-07-30 the gap
+# is 0.03-0.10 seconds at every supported speed — the accumulator residue, and nothing more. Publishing both
+# is what turns "the population dies at --fast=4" from a story into a number a single run settles.
+# (LAEcologyService publishes eco_sim_s, the same sum taken on the actor side.)
+var _sim_s: float = 0.0
+var _offer_s: float = 0.0
 
 
 func setup(field) -> void:
@@ -75,6 +92,8 @@ func process(delta: float) -> void:
 	# run away into a huge catch-up spike after a long skip (excess banked time is dropped → the field simply
 	# evolves slower at a slow cadence, the intended perf trade; buffers stay consistent).
 	_f._step_accum += delta
+	_offer_s += delta
+	LASimReport.gauge("field_offer_s", _offer_s)
 	_f._step_accum = minf(_f._step_accum, STEP_DT * float(MAX_STEPS_PER_FRAME + 1))
 	# Cadence gate: only run the GPU begin/step/end loop every N frames (N = la_field_cadence). At N == 1 this
 	# reduces to the historical every-frame path (the gate never trips).
@@ -96,6 +115,8 @@ func process(delta: float) -> void:
 		steps += 1
 	if cadence > 1:
 		_f._step_accum = minf(_f._step_accum, STEP_DT)
+	_sim_s += STEP_DT * float(steps)
+	LASimReport.gauge("field_sim_s", _sim_s)
 	if steps <= 0:
 		return
 	var t0: int = Time.get_ticks_usec()

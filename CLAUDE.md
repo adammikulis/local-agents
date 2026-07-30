@@ -170,12 +170,37 @@ committed). When removing files:
     versus 113 at `--fast=8`. Fixed by giving the global ONE owner (`LAVoxelTimeControl.set_multiplier`,
     applied after that node exists). Now measured: 114 field steps → **5705**, and 0.06 → **3.97 sim
     days**, which is the first time the day-rollover path has ever executed.
-  - **USE `--fast=2`. At `--fast>=4` the population dies.** Measured same-seed, 150 frames: `--fast=2`
-    keeps 180 creatures with biomass 8939; `--fast=4` reaches 1.56 sim days with **0 creatures left**.
-    Creatures tick on the scaled delta while the field is capped by `Engine.max_physics_steps_per_frame`,
-    so consumption outruns regrowth. This is the "high-`--fast` field desync" already listed under 0.4's
-    Livability risks — it was theoretical only because the flag was inert. Until the two clocks are
-    reconciled, a high multiplier measures a starving world, not a fast one.
+  - **`--fast=4` AND `--fast=8` ARE SAFE. Compare runs at equal `field_sim_s`, never at equal
+    `--run-frames`.** *(Corrected 2026-07-30. This bullet previously read "USE `--fast=2`. At `--fast>=4`
+    the population dies", and blamed a desync: "creatures tick on the scaled delta while the field is
+    capped by `Engine.max_physics_steps_per_frame`, so consumption outruns regrowth." Both halves are
+    false, and the rule cost the project a 4x iteration-speed dial for nothing.)*
+    - **There is no desync.** The field and the actors advance the same simulated time to within the
+      accumulator residue. Measured over twelve runs at `--fast` 1/2/4/8, `field_offer_s - field_sim_s`
+      was 0.03-0.10 seconds in every one. The field's own clamp
+      (`LAMaterialFieldSphereStep3D.MAX_STEPS_PER_FRAME`) drops banked time only above `_step_accum` 0.3,
+      and the physics delta is `time_scale / 60`, which reaches 0.3 at time_scale 18. `SPEEDS` stops at
+      8.0. The clamp is unreachable at every speed the game can select.
+    - **What actually happens** is that `--run-frames=N` buys wildly different amounts of world-time at
+      different multipliers, because `LAVoxelTimeControl` scales `Engine.max_physics_steps_per_frame`
+      with the speed (`VoxelTimeControl.gd:219`) while `time_scale` is already scaling the delta. Sim
+      seconds per RENDERED frame: **0.0995 at `--fast=1`, 0.533 at 2, 1.98 at 4, 5.28 at 8** — a 53x
+      spread over an 8x speed range. The old measurement compared 150 frames against 150 frames, so the
+      `--fast=4` run was read at ~1.5 sim days and the `--fast=2` run at 0.4. It had not starved; it was
+      four sim-days older. (That line at `:219` is deliberate and stays — it is worth 54-56% of the
+      throughput at `--fast` 4 and 8. Its comment carries the measurement.)
+    - **At equal simulated time nothing collapses.** Three runs each, seed 4242, at 80 sim-seconds:
+      `--fast=2` ends with 146-174 creatures (impacts 4/7/12, eruptions 2/2/3); `--fast=4` ends with
+      193-200 (impacts 1/0/0, eruptions 2/0/1); `--fast=8` at 79-89 sim-seconds ends with 213-236.
+    - **`--fast=8` is the fastest dial and costs fidelity, not life.** Simulated seconds per wall second:
+      0.69-0.72 at `--fast=1`, 1.04-1.08 at 2, 2.40-2.56 at 4, 4.43-4.96 at 8. But a high multiplier
+      draws **far fewer ambient disasters over the same simulated time** (0-1 impacts at `--fast=4`
+      against 4-12 at `--fast=2`), so a fast run is a calmer world, not the same world seen sooner. Use
+      `--fast=8` for throughput; drop to 2 when the disaster timeline is what you are measuring.
+    - **Read `field_sim_s` / `eco_sim_s` out of `SIM_REPORT`** (published by
+      `MaterialFieldSphereStep3D` and `EcologyService`) to place any two runs on the same horizon.
+      Prefer them to `field_step`, which is an event counter zeroed by `LASimReport.reset()` at initial
+      spawn and so under-counts by the whole pre-spawn window — badly at a high multiplier.
 - **MEASURE BEFORE YOU TUNE, AND CHANGE THE CONSTANT BY A LARGE FACTOR FIRST.** Before fitting any constant
   to make a number look right, move it by 20% or more and check the response is the same order. Measured
   2026-07-30: after adding a real radiative sink the planet ran warm, and cutting the solar constant 20%

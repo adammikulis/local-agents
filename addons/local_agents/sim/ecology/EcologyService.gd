@@ -82,6 +82,14 @@ var _pending: Array = []
 var _seed_timer: float = 0.0
 var _fish_timer: float = 0.0
 var _tree_timer: float = 0.0             # forest succession: groves densify on biomass-rich ground
+# THE ACTOR-SIDE CLOCK, published so the world's two halves can be compared instead of argued about. Every
+# node in the tree (this service, every creature, every plant) is handed the full physics delta; the
+# substrate is handed the same delta and keeps only what its own step ceiling allows. If consumption were
+# ever outrunning regrowth because of a clock mismatch, `eco_sim_s` here would run ahead of `field_sim_s`
+# (LAMaterialFieldSphereStep3D). Measured 2026-07-30 at --fast 1/2/4/8, it does not: the two agree to
+# within 0.1 second at every multiplier, which is what retired the "high --fast desyncs the field" theory.
+var _eco_s: float = 0.0
+var _phys_frames: int = 0
 var _aquatic_kinds_cache: Array = []     # aquatic species ids (config aquatic:true), indexed once
 var _aquatic_indexed: bool = false
 var _land_kinds_cache: Array = []        # land creature species ids (has diet, not aquatic), indexed once
@@ -522,6 +530,13 @@ func _physics_process(delta: float) -> void:
 		return
 	if terrain == null or actors_root == null:
 		return
+	# Publish the actor-side clock (see _eco_s). phys_dt's min/max come free from the gauge, which is how
+	# we read what Engine.time_scale actually does to the physics delta at each --fast multiplier.
+	_eco_s += delta
+	_phys_frames += 1
+	LASimReport.gauge("eco_sim_s", _eco_s)
+	LASimReport.gauge("phys_dt", delta)
+	LASimReport.gauge("phys_frames", float(_phys_frames))
 	_process_pending()
 	# Land reproduction is no longer a god-tick: each creature decides to breed for itself
 	# (LACreatureReproduction, courtship + energy-costed gestation) and calls birth_offspring() at term.
