@@ -38,12 +38,25 @@ extends RefCounted
 ## the true non-conserving flux of the closed system (runoff the sea absorbs, evaporation the sea does not
 ## debit) instead of a mixture of that flux and the accounting's own boundary errors.
 ##
-## NOISE FLOOR — read these gauges knowing it, or you will attribute weather to your patch. Disasters draw from
-## the Godot global RNG rather than LASimRng, so two runs at ONE seed diverge physically. Measured 2026-07-30,
-## same build, `--sandbox --seed=4242 --fast=2 --run-frames=300`, both sampled at field_step 1546:
-## h2o_closed_total 13615.06 vs 13807.19 — a 1.41% spread, with creatures 19 vs 23 and static_cells 3454 vs
-## 3490. Nothing below about 1.5% is resolvable by comparing two runs, so a change this size must be argued
-## structurally or measured IN-RUN (see LAMaterialFieldPhotoStats3D's root_col_open_* gauges for that pattern).
+## RUN-TO-RUN SPREAD is NOT a smooth noise floor, and treating it as one will make you dismiss real effects.
+## Disasters draw from the Godot global RNG rather than LASimRng, so two runs at ONE seed diverge PHYSICALLY —
+## they select different disaster timelines. Measured 2026-07-30, same build, same command, at equal field_step:
+## two runs came back 0.019% apart (h2o_closed_total 14535.98 vs 14538.73) while a third sat 0.36% off them,
+## with impact counts of 2 versus 6 and static_cells 3473 / 3481 / 3490.
+##
+## So the spread is DISCRETE, not Gaussian: it is dominated by how many impacts and eruptions a run happened to
+## draw, and it can be near zero or a few tenths of a percent depending on whether two runs drew the same
+## timeline. An earlier version of this comment averaged two unlucky runs into "nothing below about 1.5% is
+## resolvable", which is exactly the kind of number a future reader uses to wave away a genuine 1% regression.
+## Do not compare bare totals across runs. Prefer measuring IN-RUN, with both quantities sampled from the same
+## snapshot (see LAMaterialFieldPhotoStats3D's root_col_open_* gauges for that pattern), or argue the change
+## structurally. If you must compare runs, quote `phenomenon/impact` and `phenomenon/eruption` beside every
+## number so the reader can see whether the timelines even matched.
+##
+## `LA_NO_AMBIENT_DISASTERS=1` is NOT enough to hold the timeline fixed, though it looks like it should be.
+## It only gates the ambient director (VoxelSettingsApplier.gd:253); LAPlateTectonics keeps firing arc
+## volcanoes and quakes on its own EVENT_PERIOD drumbeat. Measured 2026-07-30 with that variable set: still
+## 4 impacts and 3 eruptions in a 150-frame run.
 ##
 ## Every method here is a pure getter over the GPU readback: O(cells) scans polled at snapshot time, never
 ## per frame. (Explicit types only, no ':=' inferred typing.)
@@ -57,6 +70,7 @@ var _f = null                                            # back-reference to the
 # simulated days on one build and ROSE 1.4% on another. A conservation law nothing checks is a claim, not a
 # law. `_prev_*` are -1/NAN until the first sample so the first reading reports no drift rather than a
 # spurious one.
+var _stranded_cells: int = 0    # set by stranded_soil_total(); reported beside it
 var _prev_h2o: float = NAN
 var _prev_step: int = -1
 
@@ -204,10 +218,10 @@ func static_cell_count() -> int:
 
 ## Soil summed over the REGOLITH mask — the canonical implementation of the soil leg; `soil_total()` is this.
 ##
-## The two names are kept deliberately and they report the SAME number by construction. That identity is the
-## verifiable form of the fix: `soil_total` vs `soil_regolith_total` in SIM_REPORT used to differ by ~0.43%
-## and now agree exactly, so anyone re-deriving the masks can read the answer straight off the report instead
-## of trusting this comment. If they ever diverge again, someone has re-introduced a second mask.
+## NOTE FOR ANYONE READING SIM_REPORT: this used to be published beside `soil_total` as a cross-check, and
+## that was worthless — `soil_total()` is literally `return regolith_soil_total()`, so the two keys were one
+## function agreeing with itself, a permanently-green check that could not fail whatever anyone broke. It has
+## been replaced in the report by `soil_stranded`, which measures a quantity that can actually move.
 func regolith_soil_total() -> float:
 	if _f._soil.size() != _f._cell_count or _f._regolith.size() != _f._cell_count:
 		return 0.0
@@ -217,6 +231,37 @@ func regolith_soil_total() -> float:
 	for c in _f._cell_count:
 		if regolith[c] != 0:
 			sum += soil[c]
+	return sum
+
+
+## Soil sitting in cells that are REGOLITH but no longer SOLID — groundwater that is counted but frozen.
+##
+## The two masks drift apart continuously: `solid` is re-derived from `rock_fill` every step by
+## SolidDerivePass, while `regolith` is seeded once at world-gen and never updated. World-gen river carving
+## opens some regolith cells before the sim even starts; erosion and MineralStamp shrinks open more as it runs.
+##
+## Such a cell is in a contradictory state that neither pass resolves. soil_sphere3d.glsl tests `regolith`
+## BEFORE `solid` in both passes, so the cell keeps its soil, is never a spring outlet for its neighbours, and
+## can never infiltrate its own surface water — while the water CA happily treats it as open and pours water
+## in. Measured 2026-07-30 at field_step 746: 54 such cells holding 16.20 units, and every one still held
+## EXACTLY its world-gen seed of 0.3 after 746 steps. Not slow — motionless.
+##
+## So this is not merely an accounting curiosity: it is a running count of groundwater the hydrology has
+## stopped simulating. It should be small and it should not grow much. If it climbs, the masks are diverging
+## faster than world-gen alone explains and the aquifer is quietly freezing cell by cell.
+func stranded_soil_total() -> float:
+	if _f._soil.size() != _f._cell_count or _f._regolith.size() != _f._cell_count:
+		return 0.0
+	var regolith: PackedByteArray = _f._regolith
+	var solid: PackedByteArray = _f._solid
+	var soil: PackedFloat32Array = _f._soil
+	var sum: float = 0.0
+	var n: int = 0
+	for c in _f._cell_count:
+		if regolith[c] != 0 and solid[c] == 0:
+			sum += soil[c]
+			n += 1
+	_stranded_cells = n
 	return sum
 
 
@@ -246,7 +291,8 @@ func conservation_report(step_index: int) -> Dictionary:
 		"h2o_closed_total": snappedf(h2o, 0.01),
 		"h2o_drift": snappedf(drift, 0.01),
 		"h2o_drift_per_step": snappedf(per_step, 0.001),
-		"soil_regolith_total": snappedf(regolith_soil_total(), 0.01),
+		"soil_stranded": snappedf(stranded_soil_total(), 0.01),
+		"soil_stranded_cells": _stranded_cells,
 		"static_cells": static_cell_count(),
 	}
 

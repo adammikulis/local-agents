@@ -25,8 +25,13 @@ layout(local_size_x = 64) in;
 // per ACTIVE cell rather than one per grid cell: it reads its cell id out of `active_idx` and its loop bound
 // out of `active_args[3]`, both built the same step by cell_list_lava_sphere3d.glsl. That kernel evaluates,
 // verbatim, the three side-effect-free early-outs this one used to open with (lava < LAVA_MIN_MASS,
-// solid != 0, and the LALodStride relevance gate), which is why they are gone from below and why the result
-// is bit-identical rather than approximate — see that kernel's header for the full argument. `relevance` and
+// solid != 0, and the LALodStride relevance gate), which is why they are gone from below.
+//
+// THE WRITER SET IS UNCHANGED, which is the honest claim — not "bit-identical". The shell-first cooling
+// loop below READS neighbours (lava[nb], temp[nb], solid[nb]) while other threads write temp[g] to the
+// same buffer, so this kernel's output was never bit-reproducible and compaction changes which threads
+// are co-resident. That race is pre-existing and the distribution is unaffected because exactly the same
+// cells write exactly the same values; what compaction cannot do is introduce NEW nondeterminism. `relevance` and
 // `step_index` are consequently no longer bound here; the gate now happens once, upstream, for this kernel.
 layout(set = 0, binding = 0, std430) restrict buffer Lava { float lava[]; };
 layout(set = 0, binding = 1, std430) restrict buffer Temp { float temp[]; };

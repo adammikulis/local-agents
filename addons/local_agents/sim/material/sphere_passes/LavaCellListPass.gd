@@ -18,7 +18,14 @@ extends RefCounted
 ## lava[back] final (WaterSlumpLava's lava_flow leg writes it) and `solid` final (SolidDerivePass), and nothing
 ## between here and lava_phase writes either, so the list cannot go stale. `relevance` is activity[LIVE] —
 ## the same half, and therefore the same documented one-step lag, that lava_phase read for itself before this
-## pass existed. The driver's inter-pass full_barrier() is what makes the args visible to ThermalPass.
+## pass existed.
+##
+## WHAT MAKES THE ARGS VISIBLE TO ThermalPass: Godot's RenderingDeviceGraph, which tracks buffer
+## dependencies and inserts barriers automatically. NOT the driver's full_barrier() call — that is
+## DEPRECATED AND A NO-OP in Godot 4.7, and it warns 8855 times in a 150-frame run saying so
+## ("Barriers are automatically inserted by RenderingDevice"). An earlier version of this comment
+## credited full_barrier(), which matters because this is the comment the next pass conversion is told
+## to copy: someone would have preserved a no-op believing it was load-bearing.
 ##
 ## EXTENDING IT TO THE OTHER PASSES. The predicate is exact only because every branch it stands in for is a
 ## bare `return` in the consumer (see the kernel header). The other relevance-gated kernels all WRITE on their
@@ -43,6 +50,7 @@ const PASS_ARGS: int = 2
 var _shader: RID = RID()
 var _pipe: RID = RID()
 var _sets: Array = [RID(), RID()]       # one uniform set per ping-pong parity
+var _failed_announced: bool = false     # so the GPU_REQUIRED error below fires once, not 60x a second
 
 
 func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
@@ -82,7 +90,20 @@ func setup(rd: RenderingDevice, bufs: Dictionary, _cc: int) -> void:
 
 
 func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: int, groups: int) -> void:
+	# FAIL LOUDLY, ONCE. If setup() failed, this pass no-ops, `active_args` stays all-zero, and ThermalPass's
+	# dispatch_indirect then runs ZERO workgroups — lava_phase is completely dead while the sim keeps running
+	# and SIM_REPORT keeps printing normal-looking numbers. That is precisely the silent-degradation the repo
+	# forbids on an authoritative path, and it is reachable by the documented fresh-worktree trap (a .glsl that
+	# was never imported makes load() return null). The cheapest honest guard is to say so unmissably rather
+	# than let a run look healthy: one error, not one per frame, because 60 Hz of push_error buries the log
+	# that would explain it.
 	if not _pipe.is_valid():
+		if not _failed_announced:
+			_failed_announced = true
+			push_error("GPU_REQUIRED: LavaCellListPass has no pipeline, so lava_phase will process ZERO cells "
+				+ "and molten rock will neither cool nor solidify. Any lava/rock result from this run is void. "
+				+ "Usual cause: cell_list_lava_sphere3d.glsl was never imported — run "
+				+ "`godot --headless --path . --import` in this worktree.")
 		return
 	var step_index: int = int(ctx.get("step_index", 0))
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
