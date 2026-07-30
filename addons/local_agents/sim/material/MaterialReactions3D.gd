@@ -78,7 +78,14 @@ const GATE_SURFACE: int = 2           # OUTERMOST open cell (outward nbr is spac
                                       # TOP OF THE ATMOSPHERE — correct for sky gas exchange, wrong for ground.
 const GATE_NEAR_GROUND: int = 4       # GROUND-HUGGING open cell (INWARD nbr is rock) — where a plant, a snowpack
                                       # and the altitude lapse all actually are. Distinct set from GATE_SURFACE.
-const GATE_DAYLIGHT: int = 8          # insolation above DAYLIGHT_MIN (the lit hemisphere)
+const GATE_DAYLIGHT: int = 8          # insolation above DAYLIGHT_MIN (the lit hemisphere). NO RECORD USES THIS,
+                                      # and that is deliberate rather than an oversight: R19 drives on LIGHT
+                                      # directly, so a dark cell already yields x = 0 with no gate needed, and a
+                                      # hard daylight cutoff would replace that smooth falloff with a seam at the
+                                      # terminator. The bit and its kernel branch are kept because they are a
+                                      # correct, tested implementation that a future THRESHOLD record (something
+                                      # that must not fire at all below an insolation floor) can use — but if you
+                                      # are reaching for it to gate a rate, drive on LIGHT instead.
 const GATE_DRY: int = 16              # cell water <= WET_MAX_LOFT (dry surface) — sand only lofts when not wet
 const GATE_NOT_RAINING: int = 32      # global precipitation off — rain pins all dust down (loft parity)
 const GATE_NOT_STATIC: int = 64       # NOT an infinite static reservoir cell. The sea/lake is seeded as water=1
@@ -192,7 +199,20 @@ const PHOTO_T_WIDTH: float = 24.0        # °C from the optimum to where it stop
 # soil_total 3942.75 -> 3590.86 (-351.9), moisture_total 4972.69 -> 5382.61 (+409.9). The same control also
 # isolates the water leg's ONLY behavioural effect: lit wet/dry biomass contrast 0.94 with it off (flat — dry
 # and wet ground carry the same biomass) against 51.8 with it on.
-const PHOTO_WATER_COST: float = 0.2      # soil water transpired per unit CO₂ fixed (debit SOIL_ROOT, credit MOISTURE)
+#
+# RE-MEASURED 2026-07-30 AT 0.05, WHICH BEATS 0.2 ON EVERY AXIS. Every run quoted above used `--fast=4`, and
+# that flag did nothing at all: Engine.time_scale had two owners and the command line's value was always
+# overwritten (see LAVoxelTimeControl.set_multiplier). So those numbers are 1x over a shorter horizon than
+# their author believed, and none of them reached even a tenth of a simulated day. Re-run with a working
+# fast-forward — same seed 4242, --fast=2, 300 frames, 0.8 simulated days, everything else identical:
+#     cost 0.2  -> biomass_ground  708, lit wet/dry 1.14, h2o_total 10300, trees 400
+#     cost 0.05 -> biomass_ground 1143, lit wet/dry 6.86, h2o_total 10981, trees 400
+# More vegetation, six times the wet/dry contrast, and less water lost. The reason inverts the note above: a
+# cost this heavy makes the water cap bind almost EVERYWHERE, wet ground included, which flattens the very
+# contrast the reactant exists to create. Liebig only says something when exactly ONE input is scarce. This is
+# the FERT_UPTAKE_COST trap again — that constant was cut 25x for the same reason — and it is now twice in
+# this one file that the honest size was far gentler than the sizing argument predicted.
+const PHOTO_WATER_COST: float = 0.05     # soil water transpired per unit CO₂ fixed (debit SOIL_ROOT, credit MOISTURE)
 # NUTRIENT UPTAKE (closes the "fertility actually feeds plants" gap — bio-0.4-shipped left this open): FERT is
 # now a second reactant on R19, so growth is co-limited by CO₂ AND soil fertility (Liebig's-law-of-the-minimum,
 # same reactant-cap machinery that already caps CO2 — no new rate model needed).
