@@ -81,37 +81,36 @@ func is_empty() -> bool:
 ## pass each). Coalescing turns ~10 full-grid round-trips per storm frame into 2. Cells repeated across merged
 ## edits are still correct — move_field_sparse walks them in order against the values it is already updating.
 ##
-## The three `duplicate()` calls are load-bearing; do not simplify them away. `add()` and `discard()` pass the
-## same PackedInt32Array as both `src_cells` and `dst_cells` (an add's destination is its source), so the two
-## dictionary entries reference one copy-on-write buffer. Reading them into two locals does not detach that
-## buffer, so `sc.append_array()` grew it and the following `dc.append_array()` grew the already-grown array a
-## second time: after a single merge `src_cells` was [1, 2, 3, 3] against three `amounts`. `add_field_sparse`
-## then saw cells.size() != deltas.size() and returned 0.0 for the whole op, which is why the add path looked
-## like a dead primitive while `transfer`/`displace`, which pass two distinct arrays and so never aliased,
-## worked on the same buffers in the same run. `flushed_cells` and `add_cells` counted the doubled array, so
-## they over-reported at the same time (3 queued cells were reported as 4).
+## THE `duplicate()` CALLS ARE LOAD-BEARING; do not simplify them away. A caller is entitled to pass the same
+## PackedInt32Array as both `src_cells` and `dst_cells`, and three separate callers do: `add()` and `discard()`
+## because an add's destination IS its source, and `resample_terrain()` because an excavated cell hands its
+## bedrock to sediment right where it stands. The array is copy-on-write, so the two dictionary entries then
+## reference ONE buffer, and reading them into two locals does not detach it: `sc.append_array()` grew it and
+## the following `dc.append_array()` grew the already-grown array a second time. After one merge `src_cells`
+## was [1, 2, 3, 3] against three `amounts`. Both sparse primitives early-return 0.0 on a size mismatch
+## (`add_field_sparse` on cells vs deltas, `move_field_sparse` on src_cells vs amounts), so the whole op was
+## silently dropped. `flushed_cells` and `add_cells` counted the doubled array, over-reporting at the same
+## time: 3 queued cells reported as 4.
 ##
-## Reachability, measured 2026-07-30: this needs two same-signature `add` (or `discard`) ops in ONE flush
-## window, so it is a latent defect, not a permanent one. It reproduces deterministically through the real
-## classes against a live device, but four barrage runs and one `--auto-barrage --hotspring-test` run raised
-## the mismatch zero times, so the shipped scenarios happened not to coalesce two water adds in a frame. Do
-## not read the fix as the cause of any measured crater-fill change; it is a correctness fix.
-## Detaching all three up front keeps the merge correct whatever a caller passes.
+## Both ends are defended, deliberately: `dst_cells` is duplicated when the op is CREATED so no op ever holds
+## one buffer in two slots, and all three arrays are duplicated when an op is MERGED so the appends cannot
+## alias whatever a future caller passes. Either alone is sufficient; together they are cheap insurance on a
+## failure mode that reports nothing when it fires.
+##
+## THE `add` AND `transfer` CASES HAVE DIFFERENT REACHABILITY, and an earlier version of this comment got the
+## second one wrong by saying `transfer`/`displace` "pass two distinct arrays and so never aliased".
+##  - `add`/`discard` need two same-signature ops in ONE flush window, so that is latent: four barrage runs
+##    and one `--auto-barrage --hotspring-test` raised the mismatch zero times, and the fix should NOT be read
+##    as the cause of any measured crater-fill change.
+##  - `transfer` from `resample_terrain` DOES alias, and it fired in normal play: measured on a barrage,
+##    99/99/99 cells in and 268/169/268 out, so every coalesced mineral transfer was dropped. Coalescing is
+##    the common case the moment two excavations land between flushes, which is what a barrage is.
 func _merge(key: String, kind: String, src: String, dst: String, src_cells: PackedInt32Array,
 		amounts: PackedFloat32Array, dst_cells: PackedInt32Array, ceiling: float) -> void:
 	var slot: int = _index.get(key, -1)
 	if slot < 0:
 		_index[key] = _ops.size()
-		# `dst_cells` is DUPLICATED so one op can never hold the same buffer in both of its cell slots. A
-		# caller is entitled to pass the same array twice: an in-place transfer, where each cell hands mass to
-		# itself, is the natural way to say "this rock becomes sediment right here", and `resample_terrain`
-		# does exactly that. But PackedInt32Array is copy-on-write, so storing one array in two dictionary
-		# slots leaves both reading a SHARED buffer, and the merge below then appends into it twice — `sc` and
-		# `dc` are the same bytes, so the cell lists grow by two edits per merge while `amounts` grows by one.
-		# Measured on a barrage: 99/99/99 in, 268/169/268 out. `move_field_sparse` early-returns 0.0 on
-		# `src_cells.size() != amounts.size()`, so every COALESCED transfer was silently dropped, and
-		# coalescing is the common case the moment two excavations land between flushes — which is what a
-		# barrage is. Costs one duplicate per op, against the full-buffer device round-trip each op already pays.
+		# See the header: `dst_cells` is duplicated so no op ever holds one buffer in both of its cell slots.
 		_ops.append({"kind": kind, "src": src, "dst": dst, "src_cells": src_cells,
 			"amounts": amounts, "dst_cells": dst_cells.duplicate(), "ceiling": ceiling})
 		return
