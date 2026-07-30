@@ -26,6 +26,10 @@ const DETERMINISTIC_TESTS: Array[String] = [
 	# Same shape as the test above: it needs the native NetworkGraph and nothing else, and it asserts on
 	# the membership history read back out of the store rather than on any call reporting ok.
 	"res://addons/local_agents/tests/test_band_affiliation.gd",
+	# Surface gravity does not depend on which body registered first. Needs no native extension, no model and
+	# no GPU — two stub bodies in a bare tree settle it, which is the point: the bug it guards was invisible
+	# to every windowed run, because the shipped boot order happens to avoid the window that triggers it.
+	"res://addons/local_agents/tests/test_gravity_calibration.gd",
 ]
 
 const INTEGRATION_TESTS: Array[String] = []

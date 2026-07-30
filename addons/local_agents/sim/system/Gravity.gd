@@ -78,16 +78,29 @@ static func reference_body(tree: SceneTree) -> Object:
 
 
 ## G calibrated so |a| == SURFACE_G at the reference body's surface radius. Cached per reference body.
+##
+## THE CACHE IS KEYED ON WHICH BODY IS THE REFERENCE RIGHT NOW, and re-derives the moment that changes.
+## Checking merely that the remembered id is still ALIVE is a different question and a silent trap:
+## `reference_body` falls back to max mass until some body declares `is_gravity_reference()`, and the star
+## outweighs the planet 10:1 by design. So one gravity query inside the window where the star has registered
+## and the planet has not would calibrate G against a 250-radius, 1e7-mass star and keep answering with it
+## forever — surface gravity 3.10 against the intended 55, for the life of the process, nothing logged.
+## The shipped boot order does not open that window (VoxelWorld registers the star, then the planet, inside
+## one `_ready()` with no query between), but "correct only because of the order two unrelated lines happen
+## to run in" is not an invariant, and silent degradation on the gravity path is exactly what this repo
+## fails fast on. Re-deriving costs one more pass over the handful of gravity bodies, which `acceleration_at`
+## already walks anyway.
 static func gravitational_constant(tree: SceneTree) -> float:
-	if _g_const > 0.0 and _g_ref_id != 0 and is_instance_id_valid(_g_ref_id):
-		return _g_const
 	var p: Object = reference_body(tree)
 	if p != null and p.has_method("radius"):
+		var live_id: int = p.get_instance_id()
+		if _g_const > 0.0 and _g_ref_id == live_id:
+			return _g_const
 		var r: float = float(p.radius())
 		var m: float = float(p.mass())
 		if r > 1.0 and m > 0.0:
 			_g_const = SURFACE_G * r * r / m
-			_g_ref_id = p.get_instance_id()
+			_g_ref_id = live_id
 			return _g_const
 	return -1.0   # no usable body yet → acceleration_at returns ZERO, and we retry next call
 
