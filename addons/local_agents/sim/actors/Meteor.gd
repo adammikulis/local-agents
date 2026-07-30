@@ -311,6 +311,17 @@ func _on_impact() -> void:
 	var r: float = _radius()                                   # size-scaled crater
 	if _terrain != null and _terrain.has_method("carve_sphere"):
 		_terrain.carve_sphere(_impact_point, r)
+		# ...and TELL THE SUBSTRATE the rock is gone. carve_sphere only edits the godot_voxel SDF, which is the
+		# mesh and the collision; the field's own bedrock channel is what decides where water may pool and air
+		# may sit. Without this second call the crater was a hole you could stand in that the physics still
+		# treated as solid rock. resample_terrain re-reads the freshly carved SDF as its shape oracle and moves
+		# the excavated bedrock into the loose mineral phases, so the strike relocates mass instead of deleting
+		# it. Slightly wider than the carve so the cells straddling the rim are re-read too (they stay solid
+		# unless the carve actually reached them — the is_solid probe, not this radius, decides).
+		if _ecology != null and _ecology.has_method("material_field"):
+			var substrate: Object = _ecology.material_field()
+			if substrate != null and substrate.has_method("resample_terrain"):
+				substrate.resample_terrain(_impact_point, r * 1.5)
 	if _ecology != null and _ecology.has_method("damage_sphere"):
 		_ecology.damage_sphere(_impact_point, r * DAMAGE_SCALE)
 	# Big splash if it struck water.
