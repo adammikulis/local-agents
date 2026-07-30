@@ -92,8 +92,7 @@ func seed(field) -> void:
 		var base2: int = s * depth
 		for r in range(surfr[s] + 1, mini(wsurf, depth)):     # open cells between ground and the water surface
 			var c2: int = base2 + r
-			if field._solid[c2] == 0 and field._static[c2] == 0:
-				field._static[c2] = 1                         # permanent freshwater body (like the sea, above sea level)
+			if field._solid[c2] == 0 and field._water[c2] <= 0.0:
 				field._water[c2] = 1.0
 				lake_cells += 1
 	var river_cells: int = _seed_rivers(field, grid, sea_r, core_r, cs, sc, depth, surf_nbr)
@@ -206,8 +205,7 @@ func _seed_rivers(field, grid: RefCounted, sea_r: float, core_r: float, cs: floa
 		var hi: int = eground[s] if can_carve else (eground[s] + mag)
 		for r in range(lo, mini(hi, depth)):
 			var c: int = base2 + r
-			if field._solid[c] == 0 and field._static[c] == 0:
-				field._static[c] = 1
+			if field._solid[c] == 0 and field._water[c] <= 0.0:
 				field._water[c] = 1.0
 				count += 1
 	if OS.has_environment("LA_WATER_DEBUG"):

@@ -671,7 +671,6 @@ func _seed_sphere_sea() -> void:
 			continue
 		if (cell_world_pos_linear(c) - _origin).length_squared() <= sea_sq:
 			_water[c] = 1.0
-			_static[c] = 1
 
 ## The REGOLITH (aquifer) band: the top REGOLITH_CELLS solid shells of each column are PERMEABLE — groundwater
 ## lives + flows here; everything below is impermeable BEDROCK. This surface-following band is what lets the
