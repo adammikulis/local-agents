@@ -19,6 +19,60 @@ shipped on `main` (`v0.3.1`); development is on `0.4-dev`. Read `CLAUDE.md` · `
 `fire-balance-wildfire`, `worktree-shader-import-gotcha`, `three-d-always`); work in a worktree off `0.4-dev`.
 
 ---
+### ⚑ INTEGRATION ROUND (2026-07-30, latest) — gravity + terrain-to-field merged, three substrate bugs found
+
+Three worktree-isolated tracks landed and were integrated. **CI green; `0.4-dev` at `c4f16a9`.**
+
+**Merged: the star is a real gravity body.** `LAStar` had no `center()`, so every gravity loop's
+`has_method("center")` guard silently skipped it and meteors felt zero solar pull, while the planet's orbit
+ran on a separate `SUN_MU` in unrelated units and the visible star sat at a decorative
+`SUN_SCENE_DISTANCE = 1200`. Four numbers, four different suns, all gone. The frame is planetocentric and in
+free fall, so `LAGravity` subtracts each body's pull on the frame origin and what survives is the tidal
+differential: measured +0.114 sunward at r=640 and anti-sunward on the far side, which is the correct
+signature and not a global shove. Orbit holds 11880..12122 (2.0%) identically at 700 s and 2100 s.
+
+**An adversarial verify pass caught a real defect in that work, after I had already merged it.** The G cache
+validated only that the remembered instance id was still *alive*, never that it was still the reference body.
+`reference_body()` falls back to max mass until something declares `is_gravity_reference()`, and the star
+outweighs the planet ten to one, so one gravity query in the window between the star registering and the
+planet registering latched surface gravity at 1.37 against the intended 55.0, permanently and silently. The
+commit that introduced it claimed the opposite, that keying on instance id killed a load-order race; there was
+no such race, because the old guard was `if _g_const > 0.0` and a failed calibration returned -1, which
+retried. Fixed in `c4f16a9`, with `test_gravity_calibration.gd` as a regression test that is mutation-checked:
+reverting the fix fails it with "got 1.372879". Nothing in the shipped boot opened the window, which is
+exactly why it needed a test and not a comment.
+
+**Merged: terrain destruction reaches the substrate.** `carve_sphere` only moved the godot_voxel SDF, so a
+crater was a hole you could stand in that water would not pool into. `resample_terrain` had zero callers and
+wrote `_solid`, which `SolidDerivePass` recomputes from `rock_fill` every step, so wiring it up as written
+would have looked correct and done nothing. It now writes `rock_fill`, and the excavated bedrock is moved
+rather than deleted: one conserving transfer per cell into sediment and dust, giving impact winter with no
+impact-winter code.
+
+**Correction to how that was measured, because it cost me a wrong conclusion.** The default sandbox run spawns
+**no meteors at all**. `phenomenon/impact` in a plain run comes from `LAThresholdDetector` inferring an impact
+from a heat spike, not from any `Meteor` node. My first integration run therefore reported `crater_cells 0`
+with 10 "impacts" logged, and I briefly took that as the merge being broken. Pass `--auto-barrage` (or
+`--auto-meteor`). With it, at seed 4242 / `--fast=2` / 150 frames / field_step 746: `crater_cells 110`,
+`crater_water 66.8`, `rock_shrinks 95`, `mineral_inject_moved 115.08`, `dust_total 46.38`.
+Separately: that track's own commit message quotes one run out of five whose numbers disagree wildly at the
+same field_step (`crater_cells` 1, 2, 101, 114, 175). Treat its figures as one draw, not a measurement.
+
+**Verified substrate bug: the neighbour table is not slot-opposite reciprocal.** Confirmed independently on
+`0.4-dev` with a from-scratch probe rather than the reporting branch's own `validate()`: at res 24, **5760 of
+407808 links (1.412%)** have B listing A in some slot other than the opposite one, producing **5760 send slots
+no cell ever reads** and **5680 read twice**. Every 2-pass gather kernel here (soil, water, slump, lava)
+computes inflow as `send[neighbour*6 + OPPOSITE(slot)]`, so this destroys mass at the cube-face seams and
+duplicates it elsewhere. Measured downstream as `darcy_lost` of -2.13/step in the soil budget. `_seam()`
+stitches by nearest direction and cannot promise opposition, because the local (a,b) axes rotate across a face
+boundary. Kernel slot order is `[0]=in, [1]=-a, [2]=+a, [3]=-b, [4]=+b, [5]=out`, so the pairs are 0↔5, 1↔2,
+3↔4. `validate()` reported `symmetric = true` throughout because it only checked that B lists A *somewhere*.
+
+**Found, not yet fixed: `add_field_sparse` applies nothing in this build.** 1515 per-cell add edits reached it
+and it returned 0.0 for every one, while `move_field_sparse` works on the same buffers. That means
+`add_water_pooled`'s flood surge has never delivered its water.
+
+---
 ### ⚑ PHYSICAL-PLANET SESSION (2026-07-30, later) — rotation MERGED, energy balance WIP
 
 Follow-on to the audit below. Addressing the four structural fakes it named. **CI green throughout.**
