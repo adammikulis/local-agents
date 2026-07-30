@@ -128,7 +128,6 @@ static func build_report(w) -> Dictionary:
 	_emit_draw_sources(w)
 	LASimReport.gauge("frames", float(w._frame))
 	LASimReport.gauge("time_of_day", w._sky_ctrl.time_of_day() if w._sky_ctrl != null else 0.30)
-	_emit_night_gauges(w)
 	LASimReport.gauge("peak_slump", float(w._peak_slump))
 	LASimReport.gauge("fps", Performance.get_monitor(Performance.TIME_FPS))
 	LASimReport.gauge("process_ms", Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0)
@@ -168,7 +167,7 @@ static func _emit_draw_sources(w) -> void:
 ## Read it like this: on a lit sphere `night_frac` should sit near 0.5 and sweep as the terminator moves.
 ## A hard 0.0 or 1.0 means it is stuck again. `resting_frac` is the population actually off-shift, which is
 ## the premise LACreatureLod's cost model rests on ("a fraction of the population is always asleep").
-static func _emit_night_gauges(w) -> void:
+static func sample_night(w) -> void:
 	var eco = w._ecology
 	if eco == null or not eco.has_method("is_night_at"):
 		return
