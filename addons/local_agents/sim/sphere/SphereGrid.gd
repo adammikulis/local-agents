@@ -12,15 +12,49 @@ extends RefCounted
 ## face). We sidestep hand-coding 24 edge transforms + 8 corner cases by building the 2D SURFACE adjacency
 ## GEOMETRICALLY: step just past the edge in local coords, project to a sphere direction, and match the nearest
 ## surface cell on another face. Radial neighbours are then trivial arithmetic. (Explicit types only, no ':=' inferred typing.)
+##
+## SLOT-OPPOSITE RECIPROCITY (the contract the kernels actually depend on)
+## ----------------------------------------------------------------------
+## Every 2-pass gather kernel (`soil_/water_/slump_/lava_flow_sphere3d.glsl`) writes its outflow to
+## `send[me*6 + slot]` and credits its inflow from `send[neighbour*6 + OPPOSITE(slot)]`. That is only
+## mass-conserving if the table is RECIPROCAL IN THE OPPOSITE SLOT: `nbr[c*6+d] == m  ⟹  nbr[m*6+(d^1)] == c`.
+## Merely "A lists B somewhere" is not enough — a link placed in the wrong slot debits a send slot that NO cell
+## reads (mass destroyed) and makes some other slot get read twice (mass duplicated).
+##
+## The raw geometric stitch does NOT satisfy that, and no choice of per-face axes can fix it. Measured on the
+## unrepaired table at res 24: 288 of 576 directed cross-face links per radial layer land in a non-opposite
+## slot — 4 of the 12 cube edges have their local (a,b) axes ROTATED across the seam (a face-0 `+b` link is the
+## partner's `+a` link) and 2 more have them REFLECTED (both sides say `+b`). The rotation is irreducible: with
+## the grid lines kept straight, each face is crossed by exactly two of the three great-ring families (X-, Y-,
+## Z-rings), so labelling a family "the a-axis" globally requires 2-colouring a triangle. It cannot be done.
+##
+## The fix is to stop treating the four lateral slots as fixed compass directions and treat them as two
+## RECIPROCAL PAIRS: partition each cell's 4 lateral links into pair A (slots N_A0/N_A1) and pair B
+## (N_B0/N_B1) such that every link sits in the opposite slot at both ends. That partition is a 2-factorisation
+## of the 4-regular surface adjacency graph, which always exists (Petersen). We seed it from the geometry — so
+## in the interior of every face pair A really is the ±a axis and pair B the ±b axis, exactly as before — and
+## REPAIR only the seams where the geometry contradicts itself, by BENDING the affected line at a handful of
+## cells near the four rotated cube edges. Those bends are the topological branch cuts the 8 cube corners
+## demand, and there are O(res) of them, not O(res²): `lateral_bends` measures 2·res at even `res` and 6·res at
+## odd (an odd seam column cannot pair off internally, so its leftover cell routes a longer path) — at res 24
+## that is 48 bent links out of 6912. `surf_nbr` keeps its literal geometric meaning (WaterSurfaceMesh and
+## MaterialFieldLakes3D build quads and drainage from it), so only the 6-slot `neighbours` table is permuted.
 
 const FACES: int = 6
-# Per-cell neighbour slots (flat table = cell*6 + slot):
+# Per-cell neighbour slots (flat table = cell*6 + slot). OPPOSITE SLOT IS `d ^ 1` for all three pairs.
 const N_IN: int = 0    # inward  (r-1); -1 at the core boundary (r==0)
 const N_OUT: int = 1   # outward (r+1); -1 at the space boundary (r==depth-1)
-const N_A0: int = 2    # -a lateral (surface)
-const N_A1: int = 3    # +a lateral
-const N_B0: int = 4    # -b lateral
-const N_B1: int = 5    # +b lateral
+const N_A0: int = 2    # lateral pair A, entry end  (in a face interior: the -a lateral)
+const N_A1: int = 3    # lateral pair A, exit  end  (in a face interior: the +a lateral)
+const N_B0: int = 4    # lateral pair B, entry end  (in a face interior: the -b lateral)
+const N_B1: int = 5    # lateral pair B, exit  end  (in a face interior: the +b lateral)
+
+# GEOMETRIC surface-adjacency slots (flat table = surf*4 + slot) — `surf_nbr` only. These keep their literal
+# axis meaning; the reciprocal pairing above is a permutation of them stored in `lateral_slot`.
+const S_A0: int = 0    # -a lateral
+const S_A1: int = 1    # +a lateral
+const S_B0: int = 2    # -b lateral
+const S_B1: int = 3    # +b lateral
 
 # Cube-face bases: (normal, right=+a axis, up=+b axis). Handedness is irrelevant — the seams are stitched by
 # nearest-direction match, so any consistent per-face frame tiles the sphere correctly.
@@ -39,6 +73,10 @@ var center: Vector3 = Vector3.ZERO
 var _dir: PackedVector3Array = PackedVector3Array()        # surf_count unit surface directions
 var surf_nbr: PackedInt32Array = PackedInt32Array()        # surf_count*4 : [-a,+a,-b,+b] neighbour surf index
 var neighbours: PackedInt32Array = PackedInt32Array()      # cell_count*6 : the full per-cell table (for kernels)
+
+var _back: PackedInt32Array = PackedInt32Array()           # surf_count*4 : partner's geometric slot pointing back
+var lateral_slot: PackedInt32Array = PackedInt32Array()    # surf_count*4 : geometric slot -> lateral pair slot 0..3
+var lateral_bends: int = 0       # links whose pair had to be bent away from the geometric axis (seam repair)
 
 
 ## Local coord of surface cell (i,j) → cube point → unit sphere direction, for face `f`.
@@ -79,22 +117,24 @@ func build(p_res: int, p_depth: int, p_core_radius: float, p_cell_size: float, p
 			for j in res:
 				var b: float = (float(j) + 0.5) / float(res) * 2.0 - 1.0
 				var s: int = _surf_idx(f, i, j)
-				surf_nbr[s * 4 + 0] = _surf_idx(f, i - 1, j) if i > 0 else _seam(f, a - step, b)
-				surf_nbr[s * 4 + 1] = _surf_idx(f, i + 1, j) if i < res - 1 else _seam(f, a + step, b)
-				surf_nbr[s * 4 + 2] = _surf_idx(f, i, j - 1) if j > 0 else _seam(f, a, b - step)
-				surf_nbr[s * 4 + 3] = _surf_idx(f, i, j + 1) if j < res - 1 else _seam(f, a, b + step)
+				surf_nbr[s * 4 + S_A0] = _surf_idx(f, i - 1, j) if i > 0 else _seam(f, a - step, b)
+				surf_nbr[s * 4 + S_A1] = _surf_idx(f, i + 1, j) if i < res - 1 else _seam(f, a + step, b)
+				surf_nbr[s * 4 + S_B0] = _surf_idx(f, i, j - 1) if j > 0 else _seam(f, a, b - step)
+				surf_nbr[s * 4 + S_B1] = _surf_idx(f, i, j + 1) if j < res - 1 else _seam(f, a, b + step)
 
-	# 3) Full per-cell 6-neighbour table (radial ± arithmetic + lateral via surf_nbr, same layer).
+	# 3) Turn that geometric adjacency into a SLOT-OPPOSITE-RECIPROCAL lateral pairing (see the header).
+	_build_back_slots()
+	_build_lateral_slots()
+
+	# 4) Full per-cell 6-neighbour table (radial ± arithmetic + lateral via the reciprocal pairing, same layer).
 	neighbours.resize(cell_count * 6)
 	for s in surf_count:
 		for r in depth:
 			var c: int = s * depth + r
 			neighbours[c * 6 + N_IN] = (c - 1) if r > 0 else -1
 			neighbours[c * 6 + N_OUT] = (c + 1) if r < depth - 1 else -1
-			neighbours[c * 6 + N_A0] = surf_nbr[s * 4 + 0] * depth + r
-			neighbours[c * 6 + N_A1] = surf_nbr[s * 4 + 1] * depth + r
-			neighbours[c * 6 + N_B0] = surf_nbr[s * 4 + 2] * depth + r
-			neighbours[c * 6 + N_B1] = surf_nbr[s * 4 + 3] * depth + r
+			for g in 4:
+				neighbours[c * 6 + N_A0 + lateral_slot[s * 4 + g]] = surf_nbr[s * 4 + g] * depth + r
 
 
 ## The surf cell on any OTHER face whose direction is nearest to the off-edge step direction on face `f`.
@@ -110,6 +150,235 @@ func _seam(f: int, a_local: float, b_local: float) -> int:
 			best_dot = d
 			best = k
 	return best
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Reciprocal lateral pairing. Seeded from the geometry, repaired only where the geometry contradicts itself.
+# ---------------------------------------------------------------------------------------------------------
+
+## For every surface link (s, geometric slot g), the slot the PARTNER uses to point back at s. -1 if the stitch
+## failed to produce a mutual link (should never happen on a closed sphere; `validate().symmetric` reports it).
+func _build_back_slots() -> void:
+	_back.resize(surf_count * 4)
+	_back.fill(-1)
+	for s in surf_count:
+		for g in 4:
+			var m: int = surf_nbr[s * 4 + g]
+			if m < 0 or m >= surf_count:
+				continue
+			for g2 in 4:
+				if surf_nbr[m * 4 + g2] == s:
+					_back[s * 4 + g] = g2
+					break
+
+
+## How many of `s`'s 4 lateral links currently belong to family `f`.
+func _family_count(fam: PackedInt32Array, s: int, f: int) -> int:
+	var n: int = 0
+	for g in 4:
+		if fam[s * 4 + g] == f:
+			n += 1
+	return n
+
+
+## Seed each link's family from the geometry (family 0 = the ±a axis, 1 = ±b). Where the two ends disagree —
+## the rotated cube edges — the lower cell index wins, deterministically. Both ends compute the same answer.
+func _seed_families() -> PackedInt32Array:
+	var fam: PackedInt32Array = PackedInt32Array()
+	fam.resize(surf_count * 4)
+	fam.fill(0)
+	for s in surf_count:
+		for g in 4:
+			var m: int = surf_nbr[s * 4 + g]
+			var bg: int = _back[s * 4 + g]
+			if m < 0 or bg < 0:
+				fam[s * 4 + g] = g / 2
+				continue
+			var mine: int = g / 2
+			var theirs: int = bg / 2
+			if mine == theirs:
+				fam[s * 4 + g] = mine
+			else:
+				fam[s * 4 + g] = mine if s < m else theirs
+	return fam
+
+
+## Repair to the 2-factor condition (every cell exactly 2 links of each family). Two stages: a cheap adjacent-
+## pair sweep that resolves the whole seam in one pass at even `res`, then a general augmenting search for
+## whatever is left. Returns the number of links flipped away from their geometric family.
+func _repair_families(fam: PackedInt32Array) -> int:
+	return _repair_pairs(fam) + _repair_augment(fam)
+
+
+## Stage 1 — flip a link shared by TWO cells that are unbalanced the SAME way: one flip fixes both. Along a
+## rotated seam every cell of the column is unbalanced identically, so this walks the column pairing them off
+## and is the only stage that runs when `res` is even (measured: exactly 2·res flips, i.e. res/2 per seam).
+func _repair_pairs(fam: PackedInt32Array) -> int:
+	var flips: int = 0
+	var progress: bool = true
+	var passes: int = 0
+	while progress and passes < 8:
+		progress = false
+		passes += 1
+		for s in surf_count:
+			var da: int = _family_count(fam, s, 0)
+			if da == 2:
+				continue
+			var give: int = 0 if da > 2 else 1        # the family this cell has too many of
+			for g in 4:
+				if fam[s * 4 + g] != give:
+					continue
+				var m: int = surf_nbr[s * 4 + g]
+				var bg: int = _back[s * 4 + g]
+				if m < 0 or bg < 0:
+					continue
+				var dm: int = _family_count(fam, m, 0)
+				if (give == 0 and dm <= 2) or (give == 1 and dm >= 2):
+					continue                          # the far end does not want to give the same family away
+				fam[s * 4 + g] = 1 - give
+				fam[m * 4 + bg] = 1 - give
+				flips += 1
+				progress = true
+				break
+	return flips
+
+
+## Stage 2 — general alternating-path repair, needed when the seam column has ODD length (odd `res`), where
+## pairing cells off along the column always strands one. Walks an alternating path (remove an A link, add an
+## A link, remove, …) from an unbalanced cell to another one: every cell in the MIDDLE of such a path loses and
+## gains one A link, so only the two ENDS change, and both change toward balance.
+func _repair_augment(fam: PackedInt32Array) -> int:
+	var flips: int = 0
+	var rounds: int = 0
+	for u0 in surf_count:
+		while _family_count(fam, u0, 0) != 2 and rounds < surf_count:
+			rounds += 1
+			var applied: int = _augment_once(fam, u0)
+			if applied <= 0:
+				break                                 # no path exists — validate() will report the residue
+			flips += applied
+	return flips
+
+
+## One breadth-first alternating path from `u0`. A search state is (cell, kind) where kind 0 = the next link
+## taken must be family A and is flipped to B, kind 1 = the next must be B and is flipped to A. The path ends
+## at the first cell the arriving flip pushes toward balance. Returns the number of links flipped (0 = none).
+func _augment_once(fam: PackedInt32Array, u0: int) -> int:
+	var t0: int = 0 if _family_count(fam, u0, 0) > 2 else 1
+	var prev_state: PackedInt32Array = PackedInt32Array()
+	prev_state.resize(surf_count * 2)
+	prev_state.fill(-2)                               # -2 = unvisited, -1 = the start state
+	var prev_slot: PackedInt32Array = PackedInt32Array()
+	prev_slot.resize(surf_count * 2)
+	prev_slot.fill(-1)
+	var queue: PackedInt32Array = PackedInt32Array([u0 * 2 + t0])
+	prev_state[u0 * 2 + t0] = -1
+	var head: int = 0
+	var goal: int = -1
+	while head < queue.size() and goal < 0:
+		var st: int = queue[head]
+		head += 1
+		var v: int = st / 2
+		var t: int = st % 2
+		for g in 4:
+			if fam[v * 4 + g] != t:
+				continue
+			var w: int = surf_nbr[v * 4 + g]
+			if w < 0 or _back[v * 4 + g] < 0:
+				continue
+			var ns: int = w * 2 + (1 - t)
+			if prev_state[ns] != -2:
+				continue
+			prev_state[ns] = st
+			prev_slot[ns] = g
+			var dw: int = _family_count(fam, w, 0)
+			# `w != u0`: ending back on the start cell would move it TWICE in the same direction, turning a
+			# deficit of one into a surplus of one instead of balancing it. Passing THROUGH u0 is still fine
+			# (it gains and loses one link there), so u0 stays expandable — it just cannot be the endpoint.
+			if w != u0 and ((t == 0 and dw > 2) or (t == 1 and dw < 2)):
+				goal = ns                             # this flip balances the far end: path complete
+				break
+			queue.append(ns)
+	if goal < 0:
+		return 0
+	# Reconstruct. A path may in principle cross the same link once from each end; flipping it twice is a
+	# no-op that would leave the cells between the two crossings unbalanced, so reject rather than corrupt.
+	var used: Dictionary = {}
+	var cur: int = goal
+	while prev_state[cur] != -1:
+		var pv: int = prev_state[cur] / 2
+		var pg: int = prev_slot[cur]
+		var pw0: int = surf_nbr[pv * 4 + pg]
+		# canonical link id: the (cell, slot) pair as seen from the LOWER-indexed of its two ends
+		var key: int = (pv * 4 + pg) if pv < pw0 else (pw0 * 4 + _back[pv * 4 + pg])
+		if used.has(key):
+			return 0
+		used[key] = true
+		cur = prev_state[cur]
+	var flips: int = 0
+	cur = goal
+	while prev_state[cur] != -1:
+		var pst: int = prev_state[cur]
+		var pv2: int = pst / 2
+		var pg2: int = prev_slot[cur]
+		var pw: int = surf_nbr[pv2 * 4 + pg2]
+		var pbg: int = _back[pv2 * 4 + pg2]
+		var flipped: int = 1 - fam[pv2 * 4 + pg2]
+		fam[pv2 * 4 + pg2] = flipped
+		fam[pw * 4 + pbg] = flipped
+		flips += 1
+		cur = pst
+	return flips
+
+
+## Orient each family: its links form disjoint cycles (2 per cell), so walking a cycle and calling the link we
+## LEAVE by "exit" and the one we ARRIVE by "entry" puts every link in opposite slots at its two ends.
+func _orient_families(fam: PackedInt32Array) -> void:
+	lateral_slot.resize(surf_count * 4)
+	lateral_slot.fill(-1)
+	for f in 2:
+		var in_slot: int = 0 if f == 0 else 2
+		var out_slot: int = 1 if f == 0 else 3
+		for s in surf_count:
+			for g in 4:
+				if fam[s * 4 + g] != f or lateral_slot[s * 4 + g] >= 0:
+					continue
+				var cur: int = s
+				var og: int = g
+				while lateral_slot[cur * 4 + og] < 0:
+					var m: int = surf_nbr[cur * 4 + og]
+					var bg: int = _back[cur * 4 + og]
+					if m < 0 or bg < 0:
+						break
+					lateral_slot[cur * 4 + og] = out_slot
+					lateral_slot[m * 4 + bg] = in_slot
+					var nxt: int = -1
+					for g2 in 4:
+						if g2 != bg and fam[m * 4 + g2] == f:
+							nxt = g2
+							break
+					if nxt < 0:
+						break
+					cur = m
+					og = nxt
+
+
+## Seed → repair → orient, then a hard guard: every cell's four lateral slots must be a permutation of 0..3.
+## A cell that failed (only possible if the stitch itself is broken) falls back to the raw geometric order, so
+## the table stays well-formed and `validate()` reports the residual non-reciprocity instead of hiding it.
+func _build_lateral_slots() -> void:
+	var fam: PackedInt32Array = _seed_families()
+	lateral_bends = _repair_families(fam)
+	_orient_families(fam)
+	for s in surf_count:
+		var mask: int = 0
+		for g in 4:
+			var v: int = lateral_slot[s * 4 + g]
+			if v >= 0 and v < 4:
+				mask |= 1 << v
+		if mask != 15:
+			for g in 4:
+				lateral_slot[s * 4 + g] = g
 
 
 func cell_of(f: int, i: int, j: int, r: int) -> int:
@@ -169,7 +438,9 @@ func _face_of(dir: Vector3) -> int:
 
 
 ## Neighbour table packed in the GPU KERNEL slot order (matches the water/lava/slump send convention):
-## slot 0=inward/down, 1-4=lateral, 5=outward/up. (Internal table order is [IN,OUT,A0,A1,B0,B1].)
+## slot 0=inward/down, 1-4=lateral, 5=outward/up. (Internal table order is [IN,OUT,A0,A1,B0,B1].) The kernels'
+## opposite pairs (0↔5, 1↔2, 3↔4) map exactly onto the internal `d ^ 1` pairs, so the reciprocity guaranteed by
+## `validate().reciprocal` carries over to this packing unchanged.
 func neighbours_kernel_order() -> PackedInt32Array:
 	var out: PackedInt32Array = PackedInt32Array()
 	out.resize(cell_count * 6)
@@ -184,9 +455,20 @@ func neighbours_kernel_order() -> PackedInt32Array:
 	return out
 
 
-## SPIKE self-validation of the seam table. Returns {ok, symmetric, closed, min_dot, max_dot, errors}.
-## symmetric = every neighbour relation is mutual (A lists B ⟹ B lists A); closed = every neighbour valid.
-## min/max_dot = the alignment of adjacent cell directions (near 1.0 everywhere = a smooth, seam-free surface).
+## Self-validation of the seam table. Returns {ok, reciprocal, non_reciprocal, symmetric, closed, min_dot,
+## max_dot, lateral_bends, errors}.
+##
+## reciprocal = SLOT-OPPOSITE reciprocity over the full cell table: `nbr[c*6+d] == m ⟹ nbr[m*6+(d^1)] == c`.
+## This is the real contract — every 2-pass gather kernel credits its inflow from `send[m*6 + OPPOSITE(d)]`, so
+## a link sitting in any other slot destroys mass at that seam (the send slot is written and never read) and
+## duplicates it at another (read twice). Reciprocity implies BOTH of those counts are zero, because it makes
+## `(c,d) ↦ (m,d^1)` an involution on the valid links: every written send slot has exactly one reader.
+##
+## symmetric = the weaker set-level property (A lists B ⟹ B lists A SOMEWHERE). It is kept because it isolates
+## a genuine stitch failure from a mere slot-assignment failure, but on its own it proves nothing about mass —
+## it was true, and reported ok, throughout the years this table was silently leaking at 1.4% of its links.
+## closed = every surface neighbour index is in range. min/max_dot = alignment of adjacent cell directions
+## (near 1.0 everywhere = a smooth, seam-free surface). `ok` requires ALL of closed, symmetric and reciprocal.
 func validate() -> Dictionary:
 	var errors: int = 0
 	var closed: bool = true
@@ -204,7 +486,7 @@ func validate() -> Dictionary:
 			var d: float = _dir[s].dot(_dir[n])
 			min_dot = minf(min_dot, d)
 			max_dot = maxf(max_dot, d)
-			# symmetry: n must list s among ITS 4 neighbours
+			# set-level symmetry: n must list s among ITS 4 neighbours
 			var mutual: bool = false
 			for slot2 in 4:
 				if surf_nbr[n * 4 + slot2] == s:
@@ -213,9 +495,19 @@ func validate() -> Dictionary:
 			if not mutual:
 				symmetric = false
 				errors += 1
+	var non_recip: int = 0
+	for c in cell_count:
+		for d2 in 6:
+			var m: int = neighbours[c * 6 + d2]
+			if m < 0:
+				continue
+			if neighbours[m * 6 + (d2 ^ 1)] != c:
+				non_recip += 1
+	errors += non_recip
 	return {
-		"ok": closed and symmetric and errors == 0,
+		"ok": closed and symmetric and non_recip == 0 and errors == 0,
 		"closed": closed, "symmetric": symmetric, "errors": errors,
+		"reciprocal": non_recip == 0, "non_reciprocal": non_recip, "lateral_bends": lateral_bends,
 		"surf_count": surf_count, "cell_count": cell_count,
 		"min_adj_dot": min_dot, "max_adj_dot": max_dot,
 	}
