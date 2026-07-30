@@ -552,8 +552,20 @@ indistinguishable from a working one, and only running the model proved `system_
 
 ---
 **REMAINING (pick up in this order):**
-- **#24 — ⚑ TOP OF THE LIST: merge the dynamic sea. `0.4-dev` currently MINTS water.** *(Rewritten
-  2026-07-30; the blocker this entry used to describe was imaginary — see below.)* The static mask makes
+- **#24 — ✅ MERGED 2026-07-30. The static sea is gone and the planet no longer mints water.**
+  Three runs at `field_step 746`: `static_cells` **3480 → 0**, `h2o_static_water` **2733 → 0.0**,
+  `h2o_total` 14012–14019 → **5956–6201** (the honest figure), `soil_total` 3531–3551 → 173–205,
+  creatures 175–197 → **177–190** (held), `field_ms` min 3.00–3.60 → 3.10–3.36 (unchanged).
+  - **⚠ `biomass_total` fell 41%: 1594–1605 → 933–951.** Attributable, not mysterious: the minted water
+    entered through the `atmosphere` leg at +6.61/step, so it became moisture, then rain, then plant water.
+    A large part of the old biomass was fed by water that did not exist. **Do not revert this** — 933–951 is
+    the first honest measurement of what this water cycle supports. **See #32: how much water the planet
+    should START with is a design decision, and it is now open.**
+  - *What this entry used to say, kept because it was wrong in an instructive way:* "the dynamic sea is
+    half-done, DO NOT MERGE, blocker: soil_total drains, root cause unknown." The drain was real and is
+    fixed; the "loses the planet's water" premise was inverted — the other arm was minting. Both arms start
+    at the same 7485.40, which is the check that would have caught it on day one.
+- **#24-history — the static mask MINTED water, and here is the proof.** The static mask makes
   `atmos_evap_sphere3d.glsl`'s `added += e * static_brake` run **with no matching debit**, so the sea
   evaporates water it never loses. Restoring the single line `_static[c] = 1` for one run: 7488.26 →
   13751.54, **+6263.28 minted** (a verifier reproduced +6616.87 and +6635.40). Dev's `h2o_total` of ~14000 is
