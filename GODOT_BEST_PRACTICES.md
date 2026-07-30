@@ -200,6 +200,43 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 
 ## Error Log / Preventative Patterns
 
+### 2026-07-30: Two Dictionary slots holding one `Packed*Array` share a copy-on-write buffer
+
+- Failure: `LAMaterialFieldInjectQueue3D` stored a coalesced edit as
+  `{"src_cells": a, "amounts": b, "dst_cells": a}` — the same array in two slots, which three callers
+  legitimately produce (`add()` and `discard()`, because an add's destination is its source, and
+  `resample_terrain()`, because an excavated cell hands its bedrock to sediment where it stands). Merging a
+  second edit read them into two locals and appended to each. **Reading a `Packed*Array` out of a Dictionary
+  into a local does NOT detach the shared buffer**, so the first `append_array` grew it and the second grew
+  the already-grown array again: three queued cells came out as `[1, 2, 3, 3]` against three amounts.
+- Why it was invisible: both sparse device primitives early-return `0.0` on a size mismatch
+  (`add_field_sparse` on cells vs deltas, `move_field_sparse` on src vs amounts). The queue reported a
+  successful enqueue, the device call returned zero, and nothing logged anything. `add_field_sparse` looked
+  like a permanently dead primitive for as long as anyone had been looking, and the crater transfers that
+  did land were exactly the ones that had never coalesced.
+- Pattern: **when a container holds two references to one CoW value and you intend to mutate them
+  independently, `duplicate()` at the boundary.** Do it where the invariant lives (the queue), not in each
+  caller, because any future caller may alias too. Cheap: one copy per op against a full-buffer device
+  round-trip per op.
+- Detect it with a probe, not a sim run. Two same-signature edits through the real class and a print of the
+  three array sizes settles it in under a second and is deterministic; the sim runs that first surfaced it
+  disagreed with each other because impact counts differ run to run.
+
+### 2026-07-30: Verify BEFORE merging, not after — two defects reached `0.4-dev` this way
+
+- Failure: two worktree tracks were merged on the strength of their own commit messages, and the adversarial
+  verify stage then found a real defect in each: a gravity cache that could latch surface gravity to the star
+  (1.37 against a target of 55, silently, for the life of the process), and the CoW aliasing above, which made
+  the merged feature largely inert in exactly the case its headline numbers measured.
+- Both were caught, but only because the verify stage was still running after the merge. The ordering was
+  luck, not process.
+- Pattern: an implement-then-verify pipeline's merge step belongs **after** the verify result, not in
+  parallel with it. Read the verifier's verdict first; merge what it confirms.
+- Corollary on measurement: **quote a range from repeats, or say explicitly that it is one draw.** Two
+  baselines quoted from single runs this session (`h2o_drift_per_step 0.843`, `crater_water 66.8`) both failed
+  to reproduce — measured −0.046..0.506 and 17.65..43.89 respectively. Run-to-run spread here is discrete
+  (impact/eruption draws), so a single run is a sample, not a baseline.
+
 ### 2026-07-30: A gate that cannot run reports a PASS
 
 - Failure: `ripgrep` is not installed on the GitHub Actions runner and was never in the workflow's apt
