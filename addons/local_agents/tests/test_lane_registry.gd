@@ -30,6 +30,10 @@ const DETERMINISTIC_TESTS: Array[String] = [
 	# no GPU — two stub bodies in a bare tree settle it, which is the point: the bug it guards was invisible
 	# to every windowed run, because the shipped boot order happens to avoid the window that triggers it.
 	"res://addons/local_agents/tests/test_gravity_calibration.gd",
+	# An in-place transfer (same cell array as source and destination) coalesces without duplicating its
+	# cells. Pure GDScript against the queue object: no device, no field, no world. The bug it guards made
+	# every merged mineral transfer vanish into a size check inside move_field_sparse, reporting nothing.
+	"res://addons/local_agents/tests/test_inject_queue_alias.gd",
 ]
 
 const INTEGRATION_TESTS: Array[String] = []

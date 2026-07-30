@@ -85,8 +85,18 @@ func _merge(key: String, kind: String, src: String, dst: String, src_cells: Pack
 	var slot: int = _index.get(key, -1)
 	if slot < 0:
 		_index[key] = _ops.size()
+		# `dst_cells` is DUPLICATED so one op can never hold the same buffer in both of its cell slots. A
+		# caller is entitled to pass the same array twice: an in-place transfer, where each cell hands mass to
+		# itself, is the natural way to say "this rock becomes sediment right here", and `resample_terrain`
+		# does exactly that. But PackedInt32Array is copy-on-write, so storing one array in two dictionary
+		# slots leaves both reading a SHARED buffer, and the merge below then appends into it twice — `sc` and
+		# `dc` are the same bytes, so the cell lists grow by two edits per merge while `amounts` grows by one.
+		# Measured on a barrage: 99/99/99 in, 268/169/268 out. `move_field_sparse` early-returns 0.0 on
+		# `src_cells.size() != amounts.size()`, so every COALESCED transfer was silently dropped, and
+		# coalescing is the common case the moment two excavations land between flushes — which is what a
+		# barrage is. Costs one duplicate per op, against the full-buffer device round-trip each op already pays.
 		_ops.append({"kind": kind, "src": src, "dst": dst, "src_cells": src_cells,
-			"amounts": amounts, "dst_cells": dst_cells, "ceiling": ceiling})
+			"amounts": amounts, "dst_cells": dst_cells.duplicate(), "ceiling": ceiling})
 		return
 	var op: Dictionary = _ops[slot]
 	var sc: PackedInt32Array = op["src_cells"]
