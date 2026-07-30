@@ -101,6 +101,38 @@ static build. The aquifer is not where it went (soil moved by 58 units). Not att
 either, because the three drew 7/6, 7/4 and 1/0 impacts/eruptions and `LA_NO_AMBIENT_DISASTERS=1` does not
 pin the timeline — `LAPlateTectonics` fires on its own drumbeat.
 
+**ROUND 2 — three more units, all merged.** Each was implemented worktree-isolated and then re-measured by
+an independent verifier that re-ran the acceptance gate itself rather than reading the diff.
+
+**The neighbour table is reciprocal now, and the fix is not the one I asked for.** I specified a
+reconciliation pass that would place each cross-face back-link in the opposing slot. The agent proved that
+**impossible**, three ways: each face is crossed by exactly two of the three great-ring families, so labelling
+one family "the a-axis" globally is 2-colouring a triangle; and at each cube corner the three corner cells
+form an odd cycle needing a proper 2-edge-colouring. Rejecting the bad links was not available either — they
+are four entire cube edges. What it built instead: the four lateral slots stop being compass directions and
+become **two reciprocal pairs**, which is a 2-factorisation of the 4-regular surface graph and always exists.
+The pairing is seeded from the geometry, so in every face interior pair A is still ±a and pair B still ±b, and
+is repaired only at the topological branch cuts the eight corners demand. Cost is **O(res), not O(res²)**:
+48 bent links of 6912 at res 24. Zero kernel edits, zero links dropped, link count bit-identical.
+`surf_nbr` is untouched, which matters because `WaterSurfaceMesh` and `MaterialFieldLakes3D` build quads and
+drainage from its literal geometry. Verified 0/0/0 at res 16/24/32, and the agent found and fixed a bug in its
+own first two attempts that leaked at **odd** res — the inspector allows any res in 8..64.
+Conservation moved and the ranges are **disjoint**, which is the real evidence it reaches the kernels:
+`h2o_total` 14252–14286 → 14090–14126, `soil_total` 3629–3679 → 3530–3543, both at `field_step 746`.
+
+**`add_field_sparse` was dead for the same copy-on-write reason the crater transfers were.** `add()` and
+`discard()` pass one array as both source and destination, the two dictionary slots shared a buffer, and the
+merge grew it twice: `[1, 2, 3, 3]` against three amounts, so the size check dropped the op. Reachability
+differs from the transfer case and the agent measured it honestly: it needs two same-signature adds in **one
+flush window**, and five instrumented runs raised the mismatch zero times, so it is latent, and the fix must
+not be read as the cause of any crater-fill change.
+
+**Two of my own baselines did not reproduce, and I quoted both from single runs.** I gave `0.843` for
+`h2o_drift_per_step`; four baseline runs measured −0.046, 0.263, 0.355, 0.506, so my gate threshold was far
+more generous than intended and passing it proved less than it looked. I gave `crater_water 66.8`; three
+baseline runs measured 17.65, 32.54, 43.89. This is exactly the error I flagged in the terrain track one
+section above, committed by me in the same session. **Quote a range from repeats, or say it is one draw.**
+
 ---
 ### ⚑ PHYSICAL-PLANET SESSION (2026-07-30, later) — rotation MERGED, energy balance WIP
 
@@ -419,10 +451,31 @@ indistinguishable from a working one, and only running the model proved `system_
   calibration short: floor 4.27 C, still above freezing, so snow and sea ice are zero. Buoyancy mixing and
   the ground-hug cells' rock coupling are the next suspects, in that order. See the physical-planet
   session entry above for the three measurements that got it there.
-- **#27 — accretion cone with spin ON, then delete the freeze.** The `--auto-seavolcano` spin freeze and
-  `Volcano.ISLAND_FREEBOARD = 14.0` exist because a world-fixed field smeared a cone into an arc. The field
-  is body-local now so the cause is gone, but the capstone was not re-run. Verify the cone builds at ONE
-  spot with spin on, then delete both.
+- **#27 — DONE 2026-07-30, and its premise was already stale when written.** This item said the
+  `--auto-seavolcano` spin freeze still existed. **It did not.** Commit `440a86d` ("the planet turns") had
+  already removed `and not _input.auto_seavolcano()` from `VoxelWorld.gd`, and simply never re-ran the
+  capstone to check. What survived was the freeze's *paperwork*: `Volcano.gd:15-20` still asserted the spin
+  was frozen, and `VoxelInputController.auto_seavolcano()` was an orphan whose only caller had been the
+  deleted gate. Both are gone now, along with the verification `440a86d` skipped.
+  - **The cone holds its position with the planet turning.** "Smeared into an arc" is a shape and no scalar
+    told it from a cone, so `Volcano.cone_profile()` now takes a baseline radial profile on a body-local
+    polar grid around the vent and subtracts it later, leaving exactly what that vent added. Reduced to
+    second moments it gives `drift` (angular distance to the grown material's centroid) and `smear`
+    (major/minor half-width: ~1 round, >>1 an arc). Measured `smear` 1.03-1.29 across the agent's runs and
+    1.13/1.18 on the verifier's, at equal `field_step 3146`. It is a pile, not a band.
+  - **Corrected before merge:** the agent's own commit says the planet turns "~1.6 rotations", reading
+    `sim_days` as rotations. `PLANET_SPIN_RATE = 0.10` rad/s against `LASimClock.DAY_LENGTH = 200.0` s makes
+    `sim_days 1.6` **5.09 rotations**, carrying the vent about **14,040 units**, not 5,000. The error runs in
+    the conclusion's favour, so the finding stands and is stronger than claimed.
+  - **`ISLAND_FREEBOARD` is deleted but its root is NOT fixed — see #28.** It was not inert (657 of 5120
+    deposit attempts, 13%), it just never did its stated job.
+- **#28 — the runaway lava tower, still unsolved.** With `ISLAND_FREEBOARD` engaged the seabed pile stood
+  **107-116 units above sea level against the 14-unit freeboard it names**, and removing it changed nothing
+  outside run-to-run spread. It only ever chose WHICH column in the vent disc took the next deposit; height
+  is set downstream by quench/solidify/stamp, which no supply routing reaches. It also tested a one-cell-wide
+  spire with a single ray that misses it and reports the seafloor far below. **The fix belongs in the
+  substrate's stamp response to accumulated `rock_fill`**, not in supply routing. Deleting the clamp was
+  right — it told every reader this was handled — but the runaway is still there.
 - **A4 — dogfood: rebuild `VoxelWorld` -> Anima.** Refactor the 730-line inline `VoxelWorld._ready` to
   COMPOSE from `SimWorld` + the reusable nodes, and RENAME the game `VoxelWorld` -> **Anima**. HELD for
   direct/supervised handling — it rebuilds the composition root, so it needs launched-window verification.
