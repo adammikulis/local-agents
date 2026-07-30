@@ -25,7 +25,10 @@ extends RefCounted
 ##   24 Soil=soil[back] (SoilPass ran this step and wrote BACK; the SOIL_ROOT slot reads + debits the regolith
 ##   column beneath an open cell — transpiration's source) · 25 Radial=radial (per-cell outward unit vector,
 ##   the LIGHT slot's geometry; the same SSBO ThermalPass binds at 14 for the solar kernel) ·
-##   26 Static=static (the GATE_NOT_STATIC test — the sea/lake reservoir is not real per-cell chemistry).
+##   26 Static=static (the GATE_NOT_STATIC test — the sea/lake reservoir is not real per-cell chemistry) ·
+##   27 Regolith=regolith (SINGLE, seeded once — the aquifer mask root_soil() walks INSTEAD of `solid`, since
+##   `solid` is re-derived from rock_fill every step and an eroded/carved regolith cell is open but still an
+##   aquifer; same buffer ActivityPass binds at its own binding 9).
 ## Push { uint cell_count; uint n_records; float dt; uint raining; float sun_x, sun_y, sun_z, pad; }, 32 bytes.
 ## sun_dir is sourced from `ctx` exactly as ThermalPass.gd does, so the light the chemistry sees and the light
 ## the solar kernel heats with are ONE quantity — including its magnitude, which carries insolation.
@@ -85,6 +88,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var soil: Array = _pair(bufs, "soil")
 	var radial: RID = _single(bufs, "radial")
 	var static_rid: RID = _single(bufs, "static")
+	var regolith: RID = _single(bufs, "regolith")   # aquifer mask — the column SOIL_ROOT walks (see below)
 
 	for p in 2:
 		var back: int = 1 - p
@@ -114,6 +118,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			                        # regolith column BENEATH an open cell (SOIL_ROOT), the only place soil exists
 			[25, radial],           # per-cell outward unit vector — the derived LIGHT slot's geometry
 			[26, static_rid],       # infinite sea/lake reservoir mask — GATE_NOT_STATIC
+			[27, regolith],         # aquifer permeability mask — root_soil() walks THIS, not `solid`
 		])
 
 
