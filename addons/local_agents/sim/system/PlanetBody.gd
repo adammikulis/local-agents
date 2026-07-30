@@ -9,7 +9,14 @@ extends Node3D
 ##   - actors_root: everything alive on this body
 ##   - (folded in as the VoxelWorld migration proceeds) the body-local MaterialField, ocean shell, ecology
 ## Exposes the radial contract every actor/camera/spawn uses: center/radius/sea_radius/up_at/altitude_at/
-## surface_point/is_solid/carve. `mass` is the gravity source for the system's n-body integrator (Phase later).
+## surface_point/is_solid/carve. `mass` is a gravity source for the system's n-body integrator (LAGravity),
+## alongside LAStar and LAMoon.
+##
+## THIS BODY IS THE GRAVITY REFERENCE (is_gravity_reference below). Two things hang off that: LAGravity
+## calibrates its single G so |a| == SURFACE_G at THIS body's surface, and this body's centre is the origin
+## of the world frame, so every other body's pull on it is subtracted out of a test particle's acceleration.
+## Both matter because the star outweighs this planet 10:1 — picking the reference by "largest mass" would
+## calibrate surface gravity against the star and drag the world sunward at a constant rate.
 ## (Explicit types only, no ':=' inferred typing.)
 
 const TerrainServiceScript: GDScript = preload("res://addons/local_agents/sim/terrain/VoxelTerrainService.gd")
@@ -39,7 +46,7 @@ func setup(opts: Dictionary = {}) -> void:
 
 	# Register as a gravity source for the N-body integrator (LAGravity). Every free body (meteors, ejecta,
 	# ships) is a test particle summing the pull of all `gravity_body` members — orbits/flybys/slingshots emerge.
-	add_to_group("gravity_body")
+	add_to_group(LAGravity.GROUP)
 
 
 func terrain() -> RefCounted:
@@ -47,6 +54,12 @@ func terrain() -> RefCounted:
 
 func mass() -> float:
 	return _mass
+
+## True: this is the body LAGravity calibrates G against and treats as the world-frame origin. The star is
+## heavier and the moon is closer, but this is the one whose surface you stand on and whose transform the
+## terrain/field/actors ride, so it is the one that defines "gravity feels like 55 units/s^2 down here".
+func is_gravity_reference() -> bool:
+	return true
 
 ## World-space centre of the body (its node origin). Radial "up"/gravity reference for everything on it.
 ## The body's spin axis in WORLD space. Callers convert to whatever frame they need; the field wants it
