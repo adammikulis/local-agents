@@ -7,7 +7,10 @@ extends RefCounted
 ## compute list in `dispatch()`.
 ##
 ## Kernels + role (see each .glsl for the verbatim math):
-##   wind_pressure_sphere3d:   PASS A: per-cell air pressure from temperature (no neighbours). pressure <= temp.
+##   wind_pressure_sphere3d:   PASS A: conserved AIR mass + hydrostatic pressure. One thread per radial COLUMN
+##                             (not per cell): it moves column mass by the vertically-integrated upwind flux,
+##                             settles it onto the temperature-set exponential profile, and integrates
+##                             pressure inward as the weight of the air above. air <= air + temp + velocity.
 ##   wind_step_sphere3d:       PASS B: per-cell velocity update down the pressure gradient (+buoy/Coriolis/drag).
 ##   o2_transport_sphere3d:    symmetric O2 diffusion over the neighbour table (advection dropped on the sphere).
 ##   co2_transport_sphere3d:   CO2 diffusion + wind advection + downward settle over the neighbour table.
@@ -16,7 +19,7 @@ extends RefCounted
 ##  they are now two Reaction records, applied one pass later on the same o2/co2 transport-output buffers.)
 ##
 ## PLUGIN CONTRACT (bufs dictionary):
-##   PAIR channels (ping-pong [rid_live, rid_back]) used here: temp, o2, co2, cloud.
+##   PAIR channels (ping-pong [rid_live, rid_back]) used here: temp, o2, co2, cloud, air.
 ##   SINGLE channels (rid) used here: solid, pressure, vel_x, vel_y, vel_z, charge, nbr.
 ## For a dispatch at ping-pong parity p: PAIR reads live = pair[p], PAIR transport writes back = pair[1 - p].
 ## ReactionsPass (one pass later) edits those same o2/co2 back buffers for the sky exchange/vent; charge edits
@@ -35,6 +38,8 @@ const DEFAULT_BUOY: float = 1.0        # buoyancy enabled (1) when ctx has no "b
 
 var _rd: RenderingDevice = null
 var _cc: int = 0
+var _columns: int = 0            # surf_count = cell_count / depth — wind_pressure's thread count
+var _col_groups: int = 0         # dispatch groups for the per-COLUMN pressure kernel
 
 # shaders + pipelines
 var _wp_shader: RID = RID()
@@ -81,6 +86,7 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	# collapsed them into `moisture`); the total suspended water is a fine moisture proxy for the updraft ×
 	# cloud charge term (behavioural, perf-over-parity).
 	var cloud: Array = bufs["moisture"]   # PAIR (was "cloud"; now the unified moisture channel)
+	var air: Array = bufs["air"]       # PAIR — conserved air mass; pressure is its weight (see wind_pressure)
 	var solid: RID = bufs["solid"]     # SINGLE
 	var pressure: RID = bufs["pressure"]
 	var vx: RID = bufs["vel_x"]
@@ -88,16 +94,21 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var vz: RID = bufs["vel_z"]
 	var charge: RID = bufs["charge"]
 	var nbr: RID = bufs["nbr"]
-	var pos: RID = bufs["pos"]        # per-cell world position (altitude + local tangent-basis reconstruction)
-	var radial: RID = bufs["radial"]  # per-cell outward unit vector (latitude + zonal direction)
+	var radial: RID = bufs["radial"]  # per-cell outward unit vector (latitude, for Coriolis handedness)
 	var activity: Array = bufs["activity"]   # PAIR — Keystone C relevance
 
 	for p in 2:
 		var back: int = 1 - p
-		# wind_pressure: 0=TempIn(live), 1=Solid, 2=PressureOut
-		_wp_set[p] = _uset(_wp_shader, [[0, temp[p]], [1, solid], [2, pressure]])
-		# wind_step: 0=PressureIn, 1=TempIn(live), 2=Solid, 3=VelX, 4=VelY, 5=VelZ, 13=Pos, 14=Radial, 15=Neigh
-		_ws_set[p] = _uset(_ws_shader, [[0, pressure], [1, temp[p]], [2, solid], [3, vx], [4, vy], [5, vz], [13, pos], [14, radial], [15, nbr]])
+		# wind_pressure: 0=AirIn(live), 1=AirOut(back), 2=TempIn(live), 3=Solid, 4=PressureOut, 5=VelX, 6=VelZ, 15=Neigh
+		_wp_set[p] = _uset(_wp_shader, [[0, air[p]], [1, air[back]], [2, temp[p]], [3, solid],
+				[4, pressure], [5, vx], [6, vz], [15, nbr]])
+		# wind_step: 0=PressureIn, 1=TempIn(live), 2=Solid, 3=VelX, 4=VelY, 5=VelZ, 6=AirIn(back), 14=Radial, 15=Neigh
+		# (binding 13 = Pos went away with the latitude-band cosine — it was only read to rebuild the local
+		#  tangent basis that band vector had to be projected onto.)
+		# AirIn is the BACK half: wind_pressure wrote this step's air there and a barrier separates the two, so
+		# pass B divides by the same fresh density its pressure field was integrated from.
+		_ws_set[p] = _uset(_ws_shader, [[0, pressure], [1, temp[p]], [2, solid], [3, vx], [4, vy], [5, vz],
+				[6, air[back]], [14, radial], [15, nbr]])
 		# o2_transport: 0=O2In(live), 1=O2Out(back), 2=Solid, 15=Neigh
 		_o2_set[p] = _uset(_o2_shader, [[0, o2[p]], [1, o2[back]], [2, solid], [15, nbr]])
 		# co2_transport: 0=CO2In(live), 1=CO2Out(back), 2=Solid, 3=VelX, 4=VelY, 5=VelZ, 15=Neigh
@@ -118,15 +129,28 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 	# The current planet's pole is world +Y (matches the terrain's radial snow-line convention); ctx may override.
 	var spin: Vector3 = ctx.get("spin_axis", Vector3(0.0, 1.0, 0.0))
 
-	var pc_cc: PackedByteArray = _pc_cellcount(cc)              # {cell_count, pad, pad, pad}
-	var pc_ws: PackedByteArray = _pc_windstep(cc, wind.x, wind.y, dt, buoy_on, spin)
-	var pc_ch: PackedByteArray = _pc_charge(cc, dt, int(ctx.get("step_index", 0)))
+	var step_index: int = int(ctx.get("step_index", 0))
+	# PASS A runs one thread per radial COLUMN, so its dispatch is cell_count/depth threads, not cell_count.
+	var depth: int = maxi(int(ctx.get("depth", 1)), 1)
+	_columns = cc / depth
+	_col_groups = int(ceil(float(_columns) / 64.0))
 
-	# 1) wind_pressure (PASS A): temp -> pressure, purely per-cell.
+	var pc_cc: PackedByteArray = _pc_cellcount(cc)              # {cell_count, pad, pad, pad}
+	var pc_wp: PackedByteArray = _pc_windpressure(_columns, depth,
+			float(ctx.get("core_radius", 0.0)), float(ctx.get("cell_size", 1.0)),
+			float(ctx.get("sea_radius", 0.0)), dt, step_index)
+	var pc_ws: PackedByteArray = _pc_windstep(cc, wind.x, wind.y, dt, buoy_on, spin, depth,
+			float(ctx.get("core_radius", 0.0)), float(ctx.get("cell_size", 1.0)), float(ctx.get("sea_radius", 0.0)))
+	var pc_ch: PackedByteArray = _pc_charge(cc, dt, step_index)
+
+	# 1) wind_pressure (PASS A): air[live] + temp + velocity -> air[back] + pressure. ONE THREAD PER COLUMN:
+	# it walks the column O(depth) times (mass flux, hydrostatic settle, pressure integral), so total work is
+	# O(cells) at 1/depth the threads. Reads the 4 neighbour COLUMNS' air, hence the ping-pong (a same-buffer
+	# in-place update would race with the neighbouring column's thread).
 	rd.compute_list_bind_compute_pipeline(cl, _wp_pipe)
 	rd.compute_list_bind_uniform_set(cl, _wp_set[p], 0)
-	rd.compute_list_set_push_constant(cl, pc_cc, pc_cc.size())
-	rd.compute_list_dispatch(cl, groups, 1, 1)
+	rd.compute_list_set_push_constant(cl, pc_wp, pc_wp.size())
+	rd.compute_list_dispatch(cl, _col_groups, 1, 1)
 	rd.compute_list_add_barrier(cl)   # wind_step reads the pressure field written above
 
 	# 2) wind_step (PASS B): pressure gradient -> velocity, in place on vel_x/y/z.
@@ -209,10 +233,32 @@ func _uset(shader: RID, entries: Array) -> RID:
 func _pc_cellcount(cc: int) -> PackedByteArray:
 	return PackedInt32Array([cc, 0, 0, 0]).to_byte_array()
 
-# Params { uint cell_count; float pvx; float pvz; float dt; uint buoy; float spin_x; float spin_y; float spin_z; } — wind_step.
-func _pc_windstep(cc: int, pvx: float, pvz: float, dt: float, buoy: int, spin: Vector3) -> PackedByteArray:
+# Params { uint surf_count; uint depth; float core_radius; float cell_size; float sea_radius; float dt;
+#          uint step_index; uint pad0; } — wind_pressure (the per-COLUMN air/hydrostatic kernel).
+# step_index == 0 tells the kernel to seed the standard atmosphere; the air channel is allocated all-zero.
+func _pc_windpressure(columns: int, depth: int, core_radius: float, cell_size: float,
+		sea_radius: float, dt: float, step_index: int) -> PackedByteArray:
 	var pc: PackedByteArray = PackedByteArray()
 	pc.resize(32)
+	pc.encode_u32(0, columns)
+	pc.encode_u32(4, depth)
+	pc.encode_float(8, core_radius)
+	pc.encode_float(12, cell_size)
+	pc.encode_float(16, sea_radius)
+	pc.encode_float(20, dt)
+	pc.encode_u32(24, step_index)
+	pc.encode_u32(28, 0)
+	return pc
+
+
+# Params { uint cell_count; float pvx; float pvz; float dt; uint buoy; float spin_x; float spin_y; float spin_z;
+#          uint depth; float core_radius; float cell_size; float sea_radius; } — wind_step.
+# The shell geometry is here so the kernel can turn a cell index into an ALTITUDE (column-contiguous indexing
+# makes the shell g % depth) and taper drag through the boundary layer. No position buffer needed for it.
+func _pc_windstep(cc: int, pvx: float, pvz: float, dt: float, buoy: int, spin: Vector3,
+		depth: int, core_radius: float, cell_size: float, sea_radius: float) -> PackedByteArray:
+	var pc: PackedByteArray = PackedByteArray()
+	pc.resize(48)
 	pc.encode_u32(0, cc)
 	pc.encode_float(4, pvx)
 	pc.encode_float(8, pvz)
@@ -221,6 +267,10 @@ func _pc_windstep(cc: int, pvx: float, pvz: float, dt: float, buoy: int, spin: V
 	pc.encode_float(20, spin.x)
 	pc.encode_float(24, spin.y)
 	pc.encode_float(28, spin.z)
+	pc.encode_u32(32, depth)
+	pc.encode_float(36, core_radius)
+	pc.encode_float(40, cell_size)
+	pc.encode_float(44, sea_radius)
 	return pc
 
 # Params { uint cell_count; float dt; uint step_index; float pad1; } — charge_accum. step_index feeds the

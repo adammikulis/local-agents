@@ -24,9 +24,12 @@ extends RefCounted
 # Ping-pong (double-buffered) channels — one _a/_b pair each.
 # `activity` is the Keystone-C wake-bubble channel (ActivityPass; see activity_sphere3d.glsl) — not a physical
 # substance, but ping-ponged like one because it is GATHER-propagated from neighbours' prior values.
+# `air` is the atmosphere's conserved mass (GasWindPass / wind_pressure_sphere3d): pressure is its weight, so
+# the vertical structure, the lapse and the thermal wind all come off this one quantity. Ping-ponged because
+# the column kernel reads its four neighbour COLUMNS' air while writing its own.
 const PAIR_CHANNELS: PackedStringArray = [
 	"temp", "water", "moisture", "lava", "sediment", "fire", "dust",
-	"o2", "co2", "shock", "fungus", "susp", "fert", "soil", "activity"]
+	"o2", "co2", "shock", "fungus", "susp", "fert", "soil", "activity", "air"]
 # scent is a 5-plane packed pair (5*cell_count); handled specially.
 # Single (non-ping-pong) float buffers. `rock_fill` is the fractional bedrock-mineral channel (rock unification
 # Stage B): `solid` is DERIVED from it each step (solid iff rock_fill >= 0.5, see SolidDerivePass). It is GPU-owned
