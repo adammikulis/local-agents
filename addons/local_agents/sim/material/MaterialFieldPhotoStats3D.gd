@@ -110,6 +110,8 @@ func report() -> Dictionary:
 	var bio_lit_wet: float = 0.0
 	var lit_dry_n: int = 0
 	var lit_wet_n: int = 0
+	var open_n: int = 0                                      # ground columns whose walk ended on an OPEN aquifer cell
+	var open_soil: float = 0.0                               # soil in those cells — what the old solid-masked walk lost
 
 	for c in cc:
 		if solid[c] != 0 or stat[c] != 0:
@@ -138,6 +140,15 @@ func report() -> Dictionary:
 				col += soil[rc]
 				dsum[d] += soil[rc]
 				if solid[rc] == 0:
+					# An OPEN aquifer cell: regolith that erosion, a MineralStamp3D shrink or world-gen river
+					# carving has cleared. It terminates the walk (see above), and it is EXACTLY the cell the
+					# old solid-masked walk discarded — so `open_soil` is the water that walk was hiding and
+					# `open_n` counts the columns it hid water from. Reported because the size of the
+					# solid-vs-regolith divergence has to be a MEASURED number, and it has to be measured
+					# IN-RUN: disasters bypass the sim seed, so two runs at one seed diverge physically and a
+					# cross-run before/after cannot resolve an effect this small.
+					open_n += 1
+					open_soil += soil[rc]
 					break
 		col_vals.append(col)
 		col_bio.append(biomass[c])
@@ -187,6 +198,13 @@ func report() -> Dictionary:
 	out["fert_ground_mean"] = fert_sum / gn
 	out["root_col_dry_frac"] = float(dry_n) / gn
 	out["root_col_bone_frac"] = float(bone_n) / gn
+	# SOLID-vs-REGOLITH DIVERGENCE, measured rather than argued. `root_col_open_frac` is the share of ground
+	# columns whose rooting walk ends on an opened aquifer cell, and `root_col_open_soil` is the mean water per
+	# ground column that sat in those cells — precisely what the walk discarded while it masked on `solid`.
+	# Both are 0 on a world where nothing has carved or eroded the regolith, and both grow as it does, so this
+	# is also the live gauge for how far the once-seeded regolith mask has drifted from the per-step `solid`.
+	out["root_col_open_frac"] = float(open_n) / gn
+	out["root_col_open_soil"] = open_soil / gn
 	var col_sorted: PackedFloat32Array = col_vals.duplicate()
 	col_sorted.sort()
 	light_vals.sort()
@@ -268,6 +286,7 @@ func _blank() -> Dictionary:
 		"photo_ground_cells": 0, "photo_sky_cells": 0,
 		"root_col_mean": 0.0, "root_col_p10": 0.0, "root_col_p50": 0.0, "root_col_p90": 0.0,
 		"root_col_max": 0.0, "root_col_dry_frac": 0.0, "root_col_bone_frac": 0.0,
+		"root_col_open_frac": 0.0, "root_col_open_soil": 0.0,
 		"root_d1": 0.0, "root_d2": 0.0, "root_d3": 0.0, "root_d4": 0.0,
 		"light_mean": 0.0, "light_p50": 0.0, "light_max": 0.0, "light_lit_frac": 0.0,
 		"temp_ground_mean": 0.0, "temp_ground_p10": 0.0, "temp_ground_p50": 0.0, "temp_ground_p90": 0.0,

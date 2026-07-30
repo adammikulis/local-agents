@@ -109,9 +109,9 @@ func snow_total() -> float:
 
 ## Total liquid water over the field — EVERY open cell, static sea/lake reservoir INCLUDED (the one inclusion
 ## rule in the header). The static subset is still readable on its own as `static_water_total()`, and the old
-## sea-excluded figure as `h2o_dynamic_total()`; what is gone is a leg that had its own private idea of which
-## cells exist. Excluding the sea here while `snow_total`/`moisture_total` included it is precisely what let a
-## freeze at the shoreline create ledger mass from nothing.
+## sea-excluded figure as SIM_REPORT's `h2o_dynamic_total`; what is gone is a leg that had its own private idea
+## of which cells exist. Excluding the sea here while `snow_total`/`moisture_total` included it is precisely
+## what let a freeze at the shoreline create ledger mass from nothing.
 ##
 ## CONSUMER NOTE: LAEventTracker's "flood" detector reads `water_total` in `rate` mode — (cur-prev)/dt — so
 ## the sea's near-constant contribution cancels in the delta and widening this leg does not move that bar.
@@ -148,25 +148,18 @@ func soil_total() -> float:
 ## BOUNDED — the mass-conservation spot check for SIM_REPORT.
 ##
 ## This is now a CLOSED sum: with the inclusion rule unified there is no fifth reservoir sitting outside it,
-## which is why `h2o_closed_total` reports the same number. It used to be the dynamic subtotal, so its series
-## continues as `h2o_dynamic_total()` below.
+## which is why `h2o_closed_total` reports the same number. It used to be the sea-EXCLUDED subtotal, and that
+## series continues in SIM_REPORT as `h2o_dynamic_total` (h2o_total - static_water_total, computed once in
+## conservation_report from values it has already sampled) so the pre-unification baselines stay comparable.
 func h2o_total() -> float:
 	return water_total() + _f.moisture_total() + snow_total() + soil_total()
-
-
-## The sea-excluded subtotal: the water the simulation actually moves, with the infinite static reservoir taken
-## back out. Kept because it is the number a livability/hydrology reader wants (a planet whose lakes drained
-## into an infinite ocean has not lost water, but it HAS lost its lakes) — and because it is the continuation
-## of what `h2o_total` reported before the legs were unified, so the old baselines stay comparable.
-func h2o_dynamic_total() -> float:
-	return h2o_total() - static_water_total()
 
 
 ## Liquid water held in STATIC cells — the sea, the seeded lakes and the seeded river channels.
 ##
 ## A MEMO LINE, not a fifth reservoir: `water_total()` already counts these cells, so this is a subset of it,
 ## reported separately because "how much of the ledger is the sea abstraction" is worth seeing. It is what
-## `h2o_dynamic_total()` subtracts.
+## SIM_REPORT's `h2o_dynamic_total` subtracts.
 ##
 ## It was previously the reservoir the ledger did NOT count, and that omission — one leg excluding static
 ## cells while two others included them — was the accounting half of the imbalance. The PHYSICAL half is
