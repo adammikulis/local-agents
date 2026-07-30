@@ -194,10 +194,19 @@ void main() {
 		// Numerical guard ONLY (not a physics clamp): one step may not move a cell more than this, so a
 		// transient cannot NaN the field. Equilibrium is unaffected — it is reached over many steps.
 		temp[idx] += clamp(dT, -MAX_DT_PER_STEP, MAX_DT_PER_STEP);
-	} else if (radius >= params.sea_radius - ATMOS_BAND_BELOW && radius <= params.sea_radius + ATMOS_BAND_ABOVE) {
-		// Interior HABITABLE-AIR cell: gentle radiative anchor toward its latitude/altitude target so lateral air
-		// conduction can't homogenize the equator→pole gradient. Deep caves (below the band, near the hot core)
-		// and the free upper atmosphere are left to conduction/buoyancy as before.
-		temp[idx] += ATMOS_RELAX * (target - temp[idx]);
 	}
+	// INTERIOR AIR IS LEFT TO CONDUCTION AND BUOYANCY, which is what an atmosphere actually is.
+	//
+	// There used to be a second branch here pulling every cell in the habitable band toward the same
+	// algebraic target at ATMOS_RELAX = 0.14, a rate chosen expressly to OUTVOTE lateral conduction. Its own
+	// comment gave the reason: conduction was homogenizing the equator-to-pole gradient, so the gradient was
+	// re-asserted by fiat every step. That is not a radiative anchor, it is the answer being fed back in, and
+	// while it stood no change to the real physics could move the climate — measured, cutting the solar
+	// constant 20% moved the global mean by ONE degree.
+	//
+	// With a genuine sink at the surface the gradient no longer needs defending: the equator absorbs more
+	// than it emits and the poles emit more than they absorb, continuously, so conduction spreading heat
+	// poleward is the transport doing its job rather than an error to suppress. If the gradient still
+	// flattens, that is a real finding about circulation strength and belongs in the wind solver — not here,
+	// and not fixed by pinning air to a formula.
 }
