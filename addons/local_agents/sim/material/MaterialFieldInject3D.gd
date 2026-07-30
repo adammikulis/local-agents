@@ -492,9 +492,11 @@ func _flood_from_sea(cells: PackedInt32Array) -> void:
 	var srcs: PackedInt32Array = PackedInt32Array()
 	var dsts: PackedInt32Array = PackedInt32Array()
 	var amounts: PackedFloat32Array = PackedFloat32Array()
+	var unsourced: PackedInt32Array = PackedInt32Array()
 	for c in cells:
 		# Slot order is LASphereGrid's: 0 inward, 1 outward, 2..5 lateral. Prefer OUTWARD — the sea is above the
 		# floor we just broke, so that is where the water actually comes from.
+		var found: bool = false
 		for d in [1, 2, 3, 4, 5, 0]:
 			var nb: int = nbr[c * 6 + d]
 			if nb < 0 or nb >= _f._cell_count or solid[nb] != 0:
@@ -504,9 +506,29 @@ func _flood_from_sea(cells: PackedInt32Array) -> void:
 			srcs.append(nb)
 			dsts.append(c)
 			amounts.append(_f.MAX_MASS)
+			found = true
 			break
+		if not found:
+			unsourced.append(c)
 	if srcs.size() > 0:
 		queue.transfer("water", srcs, amounts, "water", dsts, _f.MAX_MASS)
+	if unsourced.size() > 0:
+		# NO LIVE NEIGHBOUR TO DRAW FROM, and this cell has just been flagged `static` — it is sea now. A static
+		# cell is skipped by water_sphere3d.glsl's outflow gather AND by everything that would flow into it, so a
+		# dry static cell is a permanent hole in the ocean that nothing can ever fill: not the tide, not a river,
+		# not the next strike. That is the state a breached seabed used to be left in whenever the strike opened a
+		# pocket whose neighbours were all still rock (or were themselves fresh crater cells the CPU mirror had
+		# not caught up on yet), which is most of a deep crater's floor.
+		#
+		# So the top-up is SOURCELESS, and that is the correct physics for this model rather than a shortcut: the
+		# static sea is already an infinite reservoir by construction (it absorbs every river forever and its
+		# evaporation source refills it without depleting — see the note above), so taking a cell's worth out of
+		# it is exactly the bargain the rest of the static-sea model makes. It goes through the queue's `add`, so
+		# it lands in the reported `h2o_inject_minted` and is visible rather than hidden inside the channel.
+		var fill: PackedFloat32Array = PackedFloat32Array()
+		fill.resize(unsourced.size())
+		fill.fill(_f.MAX_MASS)
+		queue.add("water", unsourced, fill, _f.MAX_MASS)
 
 
 ## SIM_REPORT provider: the proof that terrain destruction reached the SUBSTRATE, not just the mesh.
