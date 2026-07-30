@@ -245,9 +245,12 @@ const HEAT_TEX_EVERY: int = 3            # terrain-glow heat texture refresh cad
 const SLOW_READ_EVERY: int = 3           # render-only GPU readback cadence for vapor/cloud/fog
 var _heat_tex_tick: int = 0
 var _slow_read_tick: int = 0
-# Vapor is re-uploaded each frame ONLY to fold CPU-side injections (storm add_vapor); when nothing injected
-# it lives fully resident on the GPU (like cloud/fog), so we skip both its upload AND its readback.
-var _vapor_dirty: bool = false
+# Moisture is fully GPU-resident. It used to carry a `_vapor_dirty` flag that made the step re-upload the whole
+# CPU mirror whenever a storm injected — but the mirror was a readback one frame (up to two steps) old, so an
+# injection frame REWOUND the channel to that snapshot and threw away everything the atmosphere kernels had done
+# since. Storm injections now go through LAMaterialFieldInjectQueue3D as sparse edits applied to the LIVE device
+# buffer, so there is nothing left to dirty. (Same fix removed the water channel's `mark_water_dirty` injection
+# path; `_water_dirty` in the driver now only covers the one-time initial seed.)
 # LAVA is GPU-owned + GPU-evolved (the flow CA runs on-device); the CPU edits it only on a disaster/volcano
 # (add_lava, or the magma tail's deep-source feed/bore). Its upload+readback are DIRTY-GATED TOGETHER: uploaded
 # only when a CPU edit dirtied it (else it stays resident — re-uploading a stale copy would clobber the GPU's
@@ -887,8 +890,8 @@ func wet_cell_count() -> int:
 ## fills the basin and runs downhill (never climbs a hillside).
 func add_water_pooled(center: Vector3, amount: float, radius: float) -> void:
 	if _inject != null:
-		_inject.add_water_pooled(center, amount, radius)
-		if _gpu != null: _gpu.mark_water_dirty()   # CPU water edit → re-upload it next begin_frame
+		_inject.add_water_pooled(center, amount, radius)   # queued as a sparse LIVE device add — no channel-wide
+		                                                   # re-upload of the stale mirror (see the module)
 
 
 ## Re-sample rock/void from the terrain SDF in a region after an edit (a crater, a lava-built delta).

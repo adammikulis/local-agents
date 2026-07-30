@@ -88,6 +88,10 @@ func _scan() -> void:
 	var size: float = _f._cell_size * 0.7          # SDF edit extent ~ one cell (fill_rock scales by this)
 	var budget: int = STAMP_BUDGET
 	var found: int = 0
+	# H₂O the solidity change has to account for (see _settle_h2o). Gathered here, queued once at the end.
+	var bury_src: PackedInt32Array = PackedInt32Array()
+	var bury_dst: PackedInt32Array = PackedInt32Array()
+	var free_soil: PackedInt32Array = PackedInt32Array()
 	for c in range(n):
 		if budget <= 0:
 			break
@@ -100,16 +104,20 @@ func _scan() -> void:
 			last_grow_after_solid = terrain.is_solid(wp)
 			last_grow_pos = wp
 			solid[c] = 1
+			bury_src.append(c)
+			bury_dst.append(_open_neighbour(c, solid))
 			grows += 1
 			found += 1
 			budget -= 1
 		elif was_solid and rf <= SHRINK_THRESHOLD:
 			terrain.carve_sphere(_f.cell_world_pos_linear(c), size)
 			solid[c] = 0
+			free_soil.append(c)
 			shrinks += 1
 			found += 1
 			budget -= 1
 	_f._solid = solid                              # PackedByteArray is COW — write the updated mask back
+	_settle_h2o(bury_src, bury_dst, free_soil)
 	last_scan_ms = float(Time.get_ticks_usec() - t0) / 1000.0
 	if found > 0:
 		_window = ACTIVE_WINDOW                     # sustained activity keeps the scan awake
@@ -119,6 +127,58 @@ func _scan() -> void:
 			_f._gpu.mark_solid_dirty()
 	if OS.has_environment("LA_STAMP_DEBUG"):
 		print("STAMP_SCAN={ms:%.3f, found:%d, cells:%d}" % [last_scan_ms, found, n])
+
+
+## Where the H₂O goes when a cell changes phase of MATTER under it. A stamp used to set `solid[c] = 1` (or 0)
+## and walk away, which quietly broke the water ledger in both directions:
+##   • GROW — the cell keeps its water/snow/moisture on the GPU (the kernels skip solid cells, so it is frozen
+##     there forever) while dropping out of water_total/snow_total/moisture_total. Volcano land-growth therefore
+##     stepped h2o down with no mass having moved.
+##   • SHRINK — the cell's SOIL (its pore water, which soil_total counts only while the cell is solid) drops out
+##     the same way, and the cell's now-counted water/snow reappear from nowhere. Melt-back stepped h2o up.
+## Neither is a physical event, so neither should move the ledger. The physical answer is displacement: rock
+## growing into a cell PUSHES the water out into the neighbouring open cell (radially outward first — water
+## floats above rock), and rock melting away RELEASES its pore water as free water in the cell it just vacated.
+## Where a buried cell has no open neighbour at all the mass is genuinely discarded, and then it is counted in
+## the queue's `h2o_buried` and printed — an accounted loss, never a silent one.
+##
+## The moves resolve on device against the LIVE channel values, so the debit and the credit are the same number
+## even though the CPU mirrors this module reads are a readback old.
+func _settle_h2o(bury_src: PackedInt32Array, bury_dst: PackedInt32Array, free_soil: PackedInt32Array) -> void:
+	if _f == null or _f._inject == null or _f._gpu == null:
+		return
+	var q = _f._inject.queue
+	if bury_src.size() > 0:
+		var keep_src: PackedInt32Array = PackedInt32Array()
+		var keep_dst: PackedInt32Array = PackedInt32Array()
+		var lost: PackedInt32Array = PackedInt32Array()
+		for i in bury_src.size():
+			if bury_dst[i] >= 0:
+				keep_src.append(bury_src[i])
+				keep_dst.append(bury_dst[i])
+			else:
+				lost.append(bury_src[i])
+		for ch in ["water", "snow", "moisture"]:
+			if keep_src.size() > 0:
+				q.displace(ch, keep_src, ch, keep_dst)
+			if lost.size() > 0:
+				q.discard(ch, lost)
+	if free_soil.size() > 0:
+		q.displace("soil", free_soil, "water", free_soil)   # pore water of the melted rock, freed in place
+
+
+## The nearest OPEN neighbour of `c`, preferring the radially OUTWARD one (slot N_OUT) so displaced water rises
+## rather than being pushed sideways into a hillside. -1 when the cell is fully enclosed by rock.
+func _open_neighbour(c: int, solid: PackedByteArray) -> int:
+	if _f._sphere == null:
+		return -1
+	var nbr: PackedInt32Array = _f._sphere.neighbours
+	# Slot order is LASphereGrid's: 0 = inward, 1 = outward, 2..5 = lateral. Try outward, then lateral, then in.
+	for d in [1, 2, 3, 4, 5, 0]:
+		var nb: int = nbr[c * 6 + d]
+		if nb >= 0 and nb < solid.size() and solid[nb] == 0:
+			return nb
+	return -1
 
 
 ## TEST HOOK (--stamp-test proof): force a void cell's rock_fill fractional-solid so the next scan fires a

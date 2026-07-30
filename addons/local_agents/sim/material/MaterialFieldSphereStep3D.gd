@@ -160,9 +160,17 @@ func process(delta: float) -> void:
 	if _f._detritus_seed_dirty and _f._gpu.has_method("set_field"):
 		_f._gpu.set_field("detritus", _f._detritus)
 		_f._detritus_seed_dirty = false
-	if _f._vapor_dirty and _f._gpu.has_method("set_field"):
-		_f._gpu.set_field("moisture", _f._moisture)
-		_f._vapor_dirty = false
+	# PENDING SPARSE INJECTIONS (storm evaporation, flood surge, water displaced by growing rock). These are
+	# applied to the LIVE device buffers, not uploaded as a whole-channel mirror: the previous `set_field
+	# ("moisture", _f._moisture)` here rewound moisture to the CPU snapshot from the last readback (a frame, up
+	# to two steps, old) every time a storm injected, silently discarding what the atmosphere kernels had done in
+	# between. The GPU is idle at this point (begin_frame drained it), which is why the flush belongs here.
+	if _f._inject != null and not _f._inject.queue.is_empty():
+		if OS.has_environment("LA_INJECT_AUDIT"):
+			# Diagnostic: how far the CPU mirror has drifted from the live buffer right now == exactly the mass
+			# the old mirror-upload would have written away on this frame.
+			_f._inject.queue.audit_rewind(_f._gpu, "moisture", _f._moisture)
+		_f._inject.queue.flush(_f._gpu)
 	var t_step: int = Time.get_ticks_usec()
 	for i in steps:
 		_f._gpu.step()
