@@ -106,9 +106,6 @@ void main() {
 			return;
 		}
 
-		if (static_cells[g] != 0.0) {
-			return;                                        // sea reservoir: no aquifer here
-		}
 		bool is_regolith = regolith[g] != 0.0;
 
 		if (is_regolith) {
@@ -144,14 +141,26 @@ void main() {
 							remaining -= flow;
 						}
 					}
-				} else if (solid[n] == 0.0 && static_cells[n] == 0.0) {
-					// Open neighbour: SPRING if the water-table head is above this cell's floor. On flat ground the
-					// only open neighbour is UP (floor a full cell higher) so nothing seeps; a valley-wall lateral
-					// neighbour (floor at the same shell) daylights the whole table height → a spring. Discharge is
-					// proportional to the head above the outlet, and it DRAINS the table, so a spring only sustains
-					// where groundwater keeps converging (a real valley) — auto-concentrating, no blanket seep.
+				} else if (solid[n] == 0.0) {
+					// Open neighbour: SPRING if the water-table head is above the WATER LEVEL IT DISCHARGES INTO.
+					// On flat ground the only open neighbour is UP (a full cell higher) so nothing seeps; a
+					// valley-wall lateral neighbour daylights the table height → a spring. Discharge is proportional
+					// to the head difference and DRAINS the table, so a spring only sustains where groundwater keeps
+					// converging (a real valley) — auto-concentrating, no blanket seep.
+					//
+					// THE OUTLET HEAD INCLUDES THE NEIGHBOUR'S STANDING WATER, and that term is what replaced the
+					// static mask here. This used to compare against the bare cell elevation and skip static
+					// neighbours outright (`static_cells[n] == 0.0`) — a fake standing in for precisely this
+					// physics, because a seabed regolith cell would otherwise "spring" into the ocean sitting on
+					// top of it. Measured when the mask was removed WITHOUT this term: soil_total fell 3479 -> 33.8,
+					// the entire aquifer discharging into a sea whose weight the kernel could not see.
+					//
+					// With the real term the sea holds its own groundwater down by its own head and needs no special
+					// case — and a spring discharging into a FULL LAKE now correctly stops as well, which the static
+					// test never covered, because a hollow filled by rain was never marked static.
 					int nr = n % int(params.depth);
-					float open_elev = params.core_radius + (float(nr) + 0.5) * params.cell_size;
+					float open_floor = params.core_radius + (float(nr) + 0.5) * params.cell_size;
+					float open_elev = open_floor + clamp(water[n], 0.0, 1.0) * params.cell_size;
 					float exf_head = my_head - open_elev;
 					if (exf_head > 0.0) {
 						float exf = min(remaining, SPRING_CONDUCT * exf_head);
@@ -164,8 +173,11 @@ void main() {
 			// surplus straight up into the open cell above → a perennial water-table lake sustained by the aquifer.
 			float surplus = s - CAPACITY * SEEP_THRESH;
 			if (surplus > 0.0 && remaining > 0.0) {
+				// Up-seep needs no static test either: an over-pressured aquifer welling up into the sea above it
+				// IS submarine discharge, and it is self-limiting because it only fires on the surplus above
+				// SEEP_THRESH, which the head term above now prevents the seabed from ever reaching by drainage.
 				int up = nbr[base + 5u];
-				if (up >= 0 && solid[up] == 0.0 && static_cells[up] == 0.0) {
+				if (up >= 0 && solid[up] == 0.0) {
 					float seep = min(remaining, surplus * SEEP_RATE);
 					send[base + 5u] += seep;
 					remaining -= seep;
@@ -199,10 +211,6 @@ void main() {
 	}
 
 	// ---- PASS 1: apply — each cell adds inflow to its own store, subtracts its own outflow ----------------
-	if (static_cells[g] != 0.0) {
-		soil_out[g] = soil_in[g];
-		return;
-	}
 	float own_out = send[base + 0u] + send[base + 1u] + send[base + 2u]
 		+ send[base + 3u] + send[base + 4u] + send[base + 5u];
 	float inflow = 0.0;
