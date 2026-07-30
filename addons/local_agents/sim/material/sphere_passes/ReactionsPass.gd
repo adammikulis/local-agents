@@ -6,11 +6,12 @@ extends RefCounted
 ## that loops an array of Reaction RECORDS (authored in MaterialReactions3D.gd, uploaded once as a read-only
 ## SSBO). Adding a reaction is adding a record there, not a kernel here.
 ##
-## Slotted AFTER AtmospherePass so temp/water/o2/co2/moisture are all settled (one-step coupling lag is the
-## accepted norm, see MaterialSphereGPU3D.gd:19-20). Buffer HALVES per channel (why each differs): o2/co2 were
-## produced by GasWind's transport into BACK (1-p); temp by Thermal into BACK; water/moisture by Atmosphere
-## into BACK, so those read/edit BACK. FUNGUS's producer (EcoSurface's fungus kernel) runs LATER, so the
-## current fungus is still LIVE (p) at this slot → bound to LIVE, read-only.
+## Slotted AFTER AtmospherePass and SoilPass so temp/water/o2/co2/moisture/soil are all settled (one-step
+## coupling lag is the accepted norm, see MaterialSphereGPU3D.gd:19-20). Buffer HALVES per channel (why each
+## differs): o2/co2 were produced by GasWind's transport into BACK (1-p); temp by Thermal into BACK;
+## water/moisture by Atmosphere into BACK; SOIL by SoilPass's own ping-pong into BACK (it runs immediately
+## before this pass, so BACK is this step's settled water table) — so all of those read/edit BACK. FUNGUS's
+## and FERT's producers (EcoSurface's kernels) run LATER, so those are still LIVE (p) at this slot.
 ##
 ## Kernel binding -> bufs-key map (authoritative layout is reactions_sphere3d.glsl):
 ##   0 Temp=temp[back] · 1 Water=water[back] · 2 Moisture=moisture[back] · 3 O2=o2[back] · 4 CO2=co2[back] ·
@@ -20,8 +21,14 @@ extends RefCounted
 ##   10 Solid=solid · 11 Biomass=biomass(single) ·
 ##   12 Snow=snow(single, freeze/melt phase transfer) · 15 Neigh=nbr · 20 Scratch=fungus_fert(single, SCRATCH
 ##   product) · 21 Defs=<record SSBO> · 22 Lava=lava[back] · 23 RockFill=rock_fill(single). M5 solidify /
-##   M6 melt transfer mineral mass between LAVA and ROCK_FILL (own-cell, conserving).
-## Push { uint cell_count; uint n_records; float dt; float pad; }, 16 bytes.
+##   M6 melt transfer mineral mass between LAVA and ROCK_FILL (own-cell, conserving) ·
+##   24 Soil=soil[back] (SoilPass ran this step and wrote BACK; the SOIL_ROOT slot reads + debits the regolith
+##   column beneath an open cell — transpiration's source) · 25 Radial=radial (per-cell outward unit vector,
+##   the LIGHT slot's geometry; the same SSBO ThermalPass binds at 14 for the solar kernel) ·
+##   26 Static=static (the GATE_NOT_STATIC test — the sea/lake reservoir is not real per-cell chemistry).
+## Push { uint cell_count; uint n_records; float dt; uint raining; float sun_x, sun_y, sun_z, pad; }, 32 bytes.
+## sun_dir is sourced from `ctx` exactly as ThermalPass.gd does, so the light the chemistry sees and the light
+## the solar kernel heats with are ONE quantity — including its magnitude, which carries insolation.
 
 const KERNEL_PATH: String = "res://addons/local_agents/sim/material/kernels3d/reactions_sphere3d.glsl"
 const REACTIONS_SCRIPT: String = "res://addons/local_agents/sim/material/MaterialReactions3D.gd"
@@ -75,6 +82,9 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 	var vel_z: RID = _single(bufs, "vel_z")
 	var lava: Array = _pair(bufs, "lava")
 	var rock_fill: RID = _single(bufs, "rock_fill")
+	var soil: Array = _pair(bufs, "soil")
+	var radial: RID = _single(bufs, "radial")
+	var static_rid: RID = _single(bufs, "static")
 
 	for p in 2:
 		var back: int = 1 - p
@@ -100,6 +110,10 @@ func setup(rd: RenderingDevice, bufs: Dictionary, cc: int) -> void:
 			[15, nbr],
 			[20, scratch],          # fungus-fert SCRATCH product target
 			[21, _defs_ssbo],
+			[24, soil[back]],       # settled water table (SoilPass output) — R19's transpiration draws from the
+			                        # regolith column BENEATH an open cell (SOIL_ROOT), the only place soil exists
+			[25, radial],           # per-cell outward unit vector — the derived LIGHT slot's geometry
+			[26, static_rid],       # infinite sea/lake reservoir mask — GATE_NOT_STATIC
 		])
 
 
@@ -108,12 +122,20 @@ func dispatch(rd: RenderingDevice, cl: int, parity: int, ctx: Dictionary, cc: in
 		return
 	var dt: float = float(ctx.get("dt", 0.1))
 	var raining: int = int(ctx.get("raining", 0))   # GATE_NOT_RAINING (dust loft M4) reads this
+	# Same source + same default as ThermalPass.gd:150 — the solar kernel and the reaction engine must see the
+	# IDENTICAL sun, magnitude included (it carries orbit-distance² × atmospheric transmission, so dust dimming
+	# and impact winter suppress photosynthesis directly rather than second-hand through cooling).
+	var sun_dir: Vector3 = ctx.get("sun_dir", Vector3(0.0, 1.0, 0.0))
 	var pc: PackedByteArray = PackedByteArray()
-	pc.resize(16)
+	pc.resize(32)
 	pc.encode_u32(0, cc)
 	pc.encode_u32(4, _n_records)
 	pc.encode_float(8, dt)
 	pc.encode_u32(12, raining)
+	pc.encode_float(16, sun_dir.x)
+	pc.encode_float(20, sun_dir.y)
+	pc.encode_float(24, sun_dir.z)
+	pc.encode_float(28, 0.0)
 	rd.compute_list_bind_compute_pipeline(cl, _pipe)
 	rd.compute_list_bind_uniform_set(cl, _set[parity], 0)
 	rd.compute_list_set_push_constant(cl, pc, pc.size())

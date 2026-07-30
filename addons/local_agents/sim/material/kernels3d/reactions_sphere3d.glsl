@@ -9,10 +9,15 @@
 // debits reactants + credits products — all on the OWN cell (own-cell writes only → order-independent across
 // cells, race-free). Adding a reaction = adding a record, not a kernel.
 //
-// The reactions run AFTER Atmosphere in the sphere pipeline, so temp/water/o2/co2/moisture are all in their
-// settled post-step buffers (one-step coupling lag is the accepted norm — MaterialSphereGPU3D.gd:19-20).
-// ReactionsPass binds o2/co2/temp/water/moisture to their BACK (producer-output) halves and fungus to its
-// LIVE half (its producer runs later), so each read is the freshest value available at this slot.
+// The reactions run AFTER Atmosphere and Soil in the sphere pipeline, so temp/water/o2/co2/moisture/soil are
+// all in their settled post-step buffers (one-step coupling lag is the accepted norm — MaterialSphereGPU3D.gd
+// :19-20). ReactionsPass binds o2/co2/temp/water/moisture/soil to their BACK (producer-output) halves and
+// fungus/fert to their LIVE halves (their producers run later), so each read is the freshest at this slot.
+//
+// DERIVED slots cost no memory and no readback: they are computed from geometry the kernel already has.
+// WINDSPEED is sqrt(vel²); LIGHT is max(0, dot(radial, sun_dir)) — the SAME per-cell insolation
+// heat3d_solar_sphere3d uses, so one sun drives both the temperature field and the chemistry; SOIL_ROOT is the
+// water of the regolith column beneath an open cell, which is where roots actually reach.
 
 layout(local_size_x = 64) in;
 
@@ -38,10 +43,16 @@ layout(set = 0, binding = 18, std430) restrict readonly buffer VelZ { float vel_
 // M5 solidify (cold lava -> rock_fill) and M6 melt (hot rock_fill -> lava) are own-cell conserving transfers. -----
 layout(set = 0, binding = 22, std430) restrict buffer Lava { float lava[]; };            // molten rock (mass/cell)
 layout(set = 0, binding = 23, std430) restrict buffer RockFill { float rock_fill[]; };   // fractional bedrock mass (solid iff >= 0.5)
+// --- SUBSURFACE WATER: the aquifer the roots drink from. `soil` is non-zero ONLY in REGOLITH (solid) cells —
+// soil_sphere3d.glsl writes soil_out = 0 for every open cell — so a plant's water is the soil in the permeable
+// column BENEATH it, read/debited through the SOIL_ROOT slot below, never at the reacting cell itself. ---------
+layout(set = 0, binding = 24, std430) restrict buffer Soil { float soil[]; };
 // --- Gate inputs + scratch product target + the record table ----------------------------------------------
 layout(set = 0, binding = 10, std430) restrict readonly buffer Solid { float solid[]; };
 layout(set = 0, binding = 15, std430) restrict readonly buffer Neigh { int nbr[]; };        // idx*6 + slot
 layout(set = 0, binding = 20, std430) restrict buffer Scratch { float scratch[]; };         // SCRATCH product target (fungus_fert)
+layout(set = 0, binding = 25, std430) restrict readonly buffer Radial { float radial[]; };  // per-cell outward unit vec, flat c*3+{0,1,2}
+layout(set = 0, binding = 26, std430) restrict readonly buffer Static { float static_cells[]; }; // 1 = infinite sea/lake reservoir
 
 // Slot enum — MUST match MaterialReactions3D.gd.
 #define TEMP     0
@@ -62,14 +73,24 @@ layout(set = 0, binding = 20, std430) restrict buffer Scratch { float scratch[];
 #define SUSP      15
 #define WINDSPEED 16   // derived driver: sqrt(vel_x^2 + vel_z^2) — not a stored channel, read-only
 #define ROCK_FILL 17   // fractional bedrock mineral mass (solid iff >= 0.5); M5/M6 transfer it with LAVA
+#define LIGHT     18   // DERIVED driver: max(0, dot(cell_radial, sun_dir)) — REAL per-cell insolation, the same
+                       // quantity heat3d_solar_sphere3d computes, with sun_dir's magnitude carrying intensity
+                       // (orbit distance² × atmospheric transmission, so dust/impact-winter dim it directly).
+                       // Not a stored buffer: no memory, no readback. Read-only — never a product.
+#define SOIL_ROOT 19   // DERIVED, WRITABLE: the plant-available water of the ROOTING COLUMN — the soil summed
+                       // over the permeable regolith cells directly beneath this open cell. See root_soil().
 
 #define WET_MAX_LOFT 0.05   // water mass above which a surface is WET and can't loft dust (dust_loft parity)
+#define REGOLITH_CELLS 4    // rooting depth = the permeable regolith band (MUST match MaterialField3D.REGOLITH_CELLS)
+#define DAYLIGHT_MIN 0.02   // insolation above which GATE_DAYLIGHT considers a cell to be in daylight
 
 #define CONST_FRAC             0
 #define BILINEAR               1
 #define EXCESS_OVER_THRESHOLD  2
 #define RELAX_TARGET           3
 #define DEFICIT_BELOW_THRESHOLD 4   // mirror of EXCESS: fires when driver is BELOW threshold (freeze at T<FREEZE_TEMP)
+#define OPTIMUM_BAND           5    // x = k * driver * max(0, 1 - ((driver2 - threshold)/param2)^2) — a rate that
+                                    // PEAKS at an optimum and falls off BOTH ways. See MaterialReactions3D.gd.
 
 #define GATE_OPEN_ABOVE  1
 #define GATE_SURFACE     2
@@ -77,6 +98,8 @@ layout(set = 0, binding = 20, std430) restrict buffer Scratch { float scratch[];
 #define GATE_DAYLIGHT    8
 #define GATE_DRY         16   // cell is DRY (water <= WET_MAX_LOFT) — sand only lofts when not wet
 #define GATE_NOT_RAINING 32   // global precipitation is off (params.raining == 0) — rain pins ALL dust down
+#define GATE_NOT_STATIC  64   // cell is NOT an infinite static reservoir (the sea/lake abstraction, which carries
+                              // water=1 and is deliberately not simulated) — real per-cell chemistry only
 
 #define TGT_SELF    0
 #define TGT_SCRATCH 3
@@ -92,7 +115,7 @@ struct Reaction {
 	float cap_coeff;
 	int   n_react;
 	int   n_prod;
-	int   pad0;
+	float param2;      // second rate-model scalar (OPTIMUM_BAND: the half-width of the band around `threshold`)
 	int   pad1;
 	int   react_slot[4];
 	float react_coeff[4];
@@ -108,7 +131,63 @@ layout(push_constant, std430) uniform Params {
 	uint n_records;
 	float dt;
 	uint raining;   // 1 = precipitation on → GATE_NOT_RAINING records (dust loft) are suppressed globally
+	float sun_x;    // world-space vector TOWARD the sun; MAGNITUDE carries insolation (same value ThermalPass
+	float sun_y;    // hands heat3d_solar_sphere3d, so light and heat are driven by ONE quantity)
+	float sun_z;
+	float pad0;
 } params;
+
+// REAL per-cell insolation — the LIGHT slot. Identical to the solar kernel's term, so the terminator that
+// warms the day side is the SAME terminator that feeds the plants; no proxy, no second sun model.
+float light_at(uint i) {
+	uint rb = i * 3u;
+	vec3 cell_radial = vec3(radial[rb + 0u], radial[rb + 1u], radial[rb + 2u]);
+	return max(0.0, dot(cell_radial, vec3(params.sun_x, params.sun_y, params.sun_z)));
+}
+
+// ROOTING-COLUMN water. `soil` lives only in regolith (solid) cells, so an open cell's plant-available water is
+// the soil summed over the permeable column beneath it: walk INWARD (slot 0) while the cell is solid, at most
+// REGOLITH_CELLS deep (below that is impermeable bedrock, which soil_sphere3d leaves inert anyway).
+//
+// RACE-FREEDOM (this is the ONE place the engine touches a cell other than its own, so the argument matters):
+// the walk stops at the first OPEN cell, and every reacting cell is itself open, so between any two reacting
+// cells there is an open cell that terminates both walks — the columns are DISJOINT by construction. And the
+// cells written are SOLID, which the engine skips entirely (see main()), so no thread ever reads a soil cell
+// another thread is writing. Own-cell-equivalent: each open cell privately owns the column under it.
+float root_soil(uint i) {
+	float sum = 0.0;
+	int c = nbr[i * 6u + 0u];
+	for (int k = 0; k < REGOLITH_CELLS; k++) {
+		if (c < 0 || solid[c] == 0.0) {
+			break;
+		}
+		sum += soil[uint(c)];
+		c = nbr[uint(c) * 6u + 0u];
+	}
+	return sum;
+}
+
+// Draw `amount` of water out of the rooting column, taken from each cell in proportion to what it holds (roots
+// drink where the water is). Exactly conserving: the fractions sum to `amount`, and `amount` is already capped
+// at the column total by the reactant cap, so no cell can go negative.
+void root_soil_draw(uint i, float amount) {
+	if (amount <= 0.0) {
+		return;
+	}
+	float total = root_soil(i);
+	if (total <= 0.0) {
+		return;
+	}
+	float f = min(amount / total, 1.0);
+	int c = nbr[i * 6u + 0u];
+	for (int k = 0; k < REGOLITH_CELLS; k++) {
+		if (c < 0 || solid[c] == 0.0) {
+			break;
+		}
+		soil[uint(c)] = max(0.0, soil[uint(c)] * (1.0 - f));
+		c = nbr[uint(c) * 6u + 0u];
+	}
+}
 
 // Resolve a channel slot to its per-cell value. Unbound slots read 0 (a record must not reference them).
 float read_ch(int slot, uint i) {
@@ -128,14 +207,19 @@ float read_ch(int slot, uint i) {
 	if (slot == WINDSPEED) return sqrt(vel_x[i] * vel_x[i] + vel_z[i] * vel_z[i]);
 	if (slot == LAVA)     return lava[i];
 	if (slot == ROCK_FILL) return rock_fill[i];
+	if (slot == LIGHT)     return light_at(i);
+	if (slot == SOIL_ROOT) return root_soil(i);
 	return 0.0;
 }
 
-// Add v to a channel slot (own cell). Mass channels clamp at 0. FUNGUS/unbound slots are not writable as SELF
-// (fungus is produced by its own kernel) → no-op here. FERT is now also a real reactant (R19 uptake debits it
-// in place on its LIVE half — safe because its own diffuse/leach/decompose-deposit producer runs later this
-// step in EcoSurfacePass, so this write is the freshest value by the time that kernel reads it, same one-step
-// ordering already used for FUNGUS as a read-only driver).
+// Add v to a channel slot (own cell). Mass channels clamp at 0. FUNGUS/LIGHT/unbound slots are not writable as
+// SELF (fungus is produced by its own kernel; LIGHT is geometry) → no-op here. FERT is a real reactant (R19
+// uptake debits it in place on its LIVE half — safe because its own diffuse/leach/decompose-deposit producer
+// runs later this step in EcoSurfacePass, so this write is the freshest value by the time that kernel reads it,
+// same one-step ordering already used for FUNGUS as a read-only driver). SOIL_ROOT is the one slot whose write
+// lands outside this cell — into the private rooting column beneath it; see root_soil_draw for why that is
+// still race-free. SOIL was previously bound NOWHERE and had NO add_ch branch at all, so any write to it
+// silently vanished; SOIL_ROOT is the branch that closes that hole.
 void add_ch(int slot, uint i, float v) {
 	if      (slot == TEMP)     { temp[i]     += v; }
 	else if (slot == WATER)    { water[i]     = max(0.0, water[i] + v); }
@@ -151,6 +235,7 @@ void add_ch(int slot, uint i, float v) {
 	else if (slot == SUSP)     { susp[i]      = max(0.0, susp[i]     + v); }
 	else if (slot == LAVA)     { lava[i]      = max(0.0, lava[i]     + v); }
 	else if (slot == ROCK_FILL) { rock_fill[i] = max(0.0, rock_fill[i] + v); }  // may exceed 1.0 (accreted rock); clamp only at 0
+	else if (slot == SOIL_ROOT) { root_soil_draw(i, -v); }                     // roots draw water OUT of the column (v < 0)
 }
 
 // Gate helpers reuse the exact neighbour tests proven in the dissolved kernels.
@@ -183,7 +268,26 @@ bool gate_ok(int mask, uint i) {
 			return false;                   // rain pins ALL dust down globally (dust_loft raining flag parity)
 		}
 	}
-	// NEAR_GROUND / DAYLIGHT: no live record needs them yet (would require radial+sun_dir bindings).
+	if ((mask & GATE_NEAR_GROUND) != 0) {
+		// GROUND-HUGGING: an open cell resting directly ON terrain (its INWARD neighbour, slot 0, is rock).
+		// This is where a plant physically is, where snow deposits, and the surface the altitude lapse cools —
+		// the same `ground_hug` set heat3d_solar_sphere3d already distinguishes. It is NOT the same set as
+		// GATE_SURFACE, which on a shell is the TOP OF THE ATMOSPHERE (outward neighbour is space).
+		int dn = nbr[i * 6u + 0u];
+		if (dn < 0 || solid[dn] == 0.0) {
+			return false;
+		}
+	}
+	if ((mask & GATE_DAYLIGHT) != 0) {
+		if (light_at(i) <= DAYLIGHT_MIN) {
+			return false;                   // night side / grazing-incidence terminator
+		}
+	}
+	if ((mask & GATE_NOT_STATIC) != 0) {
+		if (static_cells[i] != 0.0) {
+			return false;                   // the infinite sea/lake reservoir is an abstraction, not real chemistry
+		}
+	}
 	return true;
 }
 
@@ -212,6 +316,15 @@ void main() {
 			x = max(0.0, drv - rc.threshold) * rc.rate_k;
 		} else if (rc.rate_model == DEFICIT_BELOW_THRESHOLD) {
 			x = max(0.0, rc.threshold - drv) * rc.rate_k;   // mirror of EXCESS: fires when driver < threshold
+		} else if (rc.rate_model == OPTIMUM_BAND) {
+			// A rate that PEAKS in the middle and falls off BOTH ways: proportional to `driver`, modulated by a
+			// parabolic band in `driver2` centred on `threshold` with half-width `param2`, clipped at 0 outside.
+			// The four threshold models above can only express monotone "more is more" or "less is more"; this is
+			// the shape any process with an OPTIMUM needs (enzyme kinetics, a comfort range, a melt band), which
+			// is exactly why temperature got misused as a linear driver before it existed.
+			float v = read_ch(rc.driver2_slot, i);
+			float t = (v - rc.threshold) / max(rc.param2, 1e-6);
+			x = rc.rate_k * drv * max(0.0, 1.0 - t * t);
 		} else {                            // RELAX_TARGET — signed, no reactant, product = driver channel
 			x = rc.rate_k * (rc.threshold - drv);
 		}
