@@ -200,6 +200,35 @@ Purpose: prevent repeated Godot parser/runtime/testing mistakes with short, enfo
 
 ## Error Log / Preventative Patterns
 
+### 2026-07-30: `--fixed-fps` makes the FIELD reproducible; the agent layer stays non-deterministic
+
+- Problem: every A/B measurement in this project costs three repeats, because two runs of the same command at
+  the same `--seed` disagree. Measured without `--fixed-fps`: phenomenon totals 11/11/17, creatures
+  184/184/171, `h2o_total` 14124.3/14126.9/14135.5.
+- Two plausible causes were fixed and NEITHER helped: `--seed` was not reaching `LASimRng` (nothing called
+  `LASimRng.reset()`), and `LAPlateTectonics` drew from the global RNG on a `_process` render-frame clock.
+  Spread after both fixes was 11.2 against 10.2 before. **Fixing a plausible cause is not evidence it was the
+  cause; measure the spread again.**
+- What settled it: Godot's built-in **`--fixed-fps N`** (an engine flag, so it goes BEFORE the `--`
+  separator). Two runs at `--fixed-fps 60 --fast=2 --seed=4242`, both at `field_step 46`:
+  `soil_total 3992.1098` and `biomass_total 52.030` **identical**; `h2o_total` differing by 1.5e-5 relative;
+  creatures 228 vs 229; `events.decision` 663 vs 695.
+- Conclusion: **the GPU field is bit-reproducible once delta is fixed. The variance enters through creature
+  cognition** — a 5% swing in decision count is the signal. Suspect a wall-clock time budget or thread
+  scheduling rather than a frame count.
+- Cost caveat: `--fixed-fps 60` gives delta 1/60, so 150 frames covers 2.5 s of game time (`field_step 46`)
+  against ~75 s (`field_step 746`) without it. Frames are nearly free in wall clock here — the windowed scene
+  never exits, so the wrapper waits out `LA_RUN_TIMEOUT` whatever the frame count — so **buy the horizon with
+  MORE FRAMES, not with a lower fixed rate.**
+- **A lower rate does NOT work, measured.** `--fixed-fps 10 --fast=2` reaches `field_step 280` in 150 frames,
+  six times the horizon, but loses the determinism that was the point: two runs gave `soil_total` 3905.3994 vs
+  3905.3636 (identical to four decimals at fps 60), `h2o_total` 12554.88 vs 12552.43, creatures 251 vs 237,
+  decisions 4280 vs 3910, phenomena 2 vs 5. Two reasons: at `--fast=2` a 0.1 s delta lands exactly on
+  `MAX_STEPS_PER_FRAME * STEP_DT` = 0.2 s, so any jitter tips it over and the excess is DISCARDED rather than
+  banked; and the longer horizon gives the non-deterministic cognition layer time to feed back into the field
+  through drinking and grazing. At `field_step 46` the field was still identical; by 280 it has diverged in
+  the fifth digit. **Field determinism decays with horizon as long as the agents are non-deterministic.**
+
 ### 2026-07-30: Two Dictionary slots holding one `Packed*Array` share a copy-on-write buffer
 
 - Failure: `LAMaterialFieldInjectQueue3D` stored a coalesced edit as
