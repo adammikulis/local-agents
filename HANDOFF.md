@@ -863,6 +863,22 @@ moon, and momentum knock-out-of-orbit. 0.5 makes the system **literal + navigabl
   `godot --headless --path . --editor --quit-after 400`. Native changes (e.g. `LAProcess`) need the extension
   rebuilt (CI `build-extension.yml` or the local build).
 - **Lint/tests:** `scripts/agent_harness.sh <lint|fast|bounded|extension>`; `scripts/check_max_file_length.sh`.
+- **REPRODUCIBLE MEASUREMENTS — add `--fixed-fps 60` (2026-07-30).** It is a Godot ENGINE flag, so it goes
+  BEFORE the `--` separator: `run_sim_offscreen.sh --path . --fixed-fps 60 <scene> -- --run-frames=N ...`.
+  With it, field/climate/conservation numbers reproduce: three runs gave `soil_total` and `biomass_total`
+  identical and `creatures` identical. Without it they do not — three runs at one seed gave creatures
+  169/172/180 and phenomenon totals 11/11/17.
+  - **Buy horizon with MORE FRAMES, not a lower rate.** At `--fixed-fps 60` 150 frames covers only
+    `field_step 46` against ~746 unfixed, but frames are nearly free in wall clock (the windowed scene never
+    exits, so the wrapper waits out `LA_RUN_TIMEOUT` regardless). `--fixed-fps 10` gives 6x the horizon and
+    LOSES determinism, because at `--fast=2` a 0.1 s delta lands exactly on the field's 0.2 s per-frame
+    ceiling where the excess is discarded, and the longer horizon lets the agents feed back into the field.
+  - **Still needs repeats:** anything gated on escalation or decision counts (#27). `escalations` and
+    `slow_brain_calls` still vary, because an escalation holds a slot until its answer arrives and that
+    latency is real time. Field numbers are unaffected.
+  - The two fixes that made this work: the cognition budget now counts physics frames instead of
+    `Time.get_ticks_msec()` (`067552a`), and `--seed` now actually reaches `LASimRng`, which nothing had ever
+    called `reset()` on (`61206c1`).
 
 ## Where everything lives
 - **Front end:** `scenes/menu/` (MainMenu · SettingsMenu + Graphics/Sim sections · CreditsMenu · HelpMenu/tabs ·
